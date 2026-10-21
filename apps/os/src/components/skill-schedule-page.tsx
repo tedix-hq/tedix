@@ -1,12 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { useEffect, useReducer } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import { Button } from "@/components/kumo/button";
-import { Card, CardContent } from "@/components/kumo/card";
-import { Collection } from "@/components/kumo/page";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { Link } from "@/components/kumo/link";
+import {
+	Collection,
+	PageSection,
+	SectionHeader,
+	SectionHeading,
+	SectionTitle,
+	SectionDescription,
+} from "@/components/kumo/page";
+import { Empty, EmptyDescription } from "@/components/kumo/empty";
+import { ListQueryBoundary } from "@/components/list-query-boundary";
+import { errorMessage } from "@/lib/orpc-error";
 import { Text } from "@/components/kumo/text";
 import { skillSpecificSchedulesQueryOptions } from "@/lib/os-query-options";
 import { osTimeZone, useOsFormattingPreferences } from "@/lib/format";
@@ -34,110 +41,100 @@ export function SkillSchedulePage() {
 		return () => clearTimeout(timer);
 	}, [schedules.data, now]);
 	return (
-		<div className="grid min-w-0 gap-4 [overflow-wrap:anywhere]">
-			<Text role="body" tone="secondary" className="m-0">
-				Canonical manifest-owned schedules for this skill. This view is
-				read-only; schedule changes come from a new skill revision.
-			</Text>
+		<PageSection
+			aria-labelledby="skill-schedules-title"
+			className="[overflow-wrap:anywhere] [&_button]:min-h-11 [&_button]:min-w-11"
+		>
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="skill-schedules-title">Schedule</SectionTitle>
+					<SectionDescription>
+						Schedules defined by this skill. To change them, publish a new
+						revision.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
 			<Text role="label" tone="secondary" className="m-0">
 				Cron timezone: UTC · Timestamps: {timezone}
 			</Text>
-			{schedules.isPending ? <ListSkeleton /> : null}
-			{schedules.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>
-						{schedules.data
-							? "Could not refresh schedules"
-							: "Schedules unavailable"}
-					</AlertTitle>
-					<AlertDescription>
-						{schedules.data
-							? "Showing previously loaded schedules; their status may be out of date. "
-							: ""}
-						{(schedules.error as Error).message}
-						<Button
-							variant="outline"
-							className="mt-3 min-h-11 min-w-11"
-							disabled={schedules.isFetching}
-							onClick={() => void schedules.refetch()}
-						>
-							{schedules.isFetching ? "Retrying…" : "Retry schedules"}
-						</Button>
-					</AlertDescription>
-				</Alert>
-			) : null}
-			{schedules.data ? (
-				<Card>
-					<CardContent className="p-0">
-						{schedules.data.schedules.length === 0 ? (
-							<Text role="body" tone="secondary" className="m-0 p-6">
-								This skill declares no schedules.
-							</Text>
-						) : (
-							<Collection appearance="inline">
-								{schedules.data.schedules.map((schedule) => (
-									<li
-										key={schedule.id}
-										className="grid min-w-0 gap-1 px-4 py-3"
+			<ListQueryBoundary
+				query={schedules}
+				errorTitle={
+					schedules.data
+						? "Could not refresh schedules"
+						: "Schedules unavailable"
+				}
+				errorDescription={
+					schedules.data
+						? `Showing previously loaded schedules; their status may be out of date. ${errorMessage(schedules.error, "Schedules could not be read.")}`
+						: undefined
+				}
+			/>
+			{schedules.data &&
+				(schedules.data.schedules.length === 0 ? (
+					<Empty appearance="inline">
+						<EmptyDescription>
+							This skill declares no schedules.
+						</EmptyDescription>
+					</Empty>
+				) : (
+					<Collection>
+						{schedules.data.schedules.map((schedule) => (
+							<li key={schedule.id} className="grid min-w-0 gap-1 px-4 py-3">
+								<span className="flex flex-wrap items-center gap-2">
+									<Text as="strong" role="body">
+										{schedule.cron}
+									</Text>
+									<Badge variant={schedule.enabled ? "success" : "outline"}>
+										{schedule.enabled ? "Enabled" : "Paused"}
+									</Badge>
+									<Text as="span" role="label" tone="secondary">
+										{tediNames[schedule.tediId] ?? "tedi"}
+									</Text>
+								</span>
+								<Text as="span" role="label" tone="secondary">
+									{!schedule.enabled
+										? "Paused · not scheduled"
+										: Number.isFinite(Date.parse(schedule.nextFireAt)) &&
+											  Date.parse(schedule.nextFireAt) > now
+											? `Next run ${relativeTime(schedule.nextFireAt, new Date(now))} · ${absoluteTime(schedule.nextFireAt)}`
+											: "Next run unavailable"}
+									{schedule.lastFireAt
+										? ` · last fired ${relativeTime(schedule.lastFireAt)}`
+										: ""}
+									{schedule.lastError
+										? ` · last error: ${schedule.lastError}`
+										: ""}
+								</Text>
+								{schedule.lastBudgetBlockedAt ? (
+									<Text as="span" role="label" tone="warning">
+										Budget blocked {relativeTime(schedule.lastBudgetBlockedAt)}
+										{schedule.lastBudgetAdmissionClass
+											? ` · ${schedule.lastBudgetAdmissionClass.replace(/_/g, " ")}`
+											: ""}
+										{schedule.lastBudgetBlockedReason
+											? ` · ${schedule.lastBudgetBlockedReason}`
+											: ""}
+									</Text>
+								) : null}
+								{schedule.lastRunId ? (
+									<Link
+										href={`/work/runs/${schedule.lastRunId}`}
+										variant="inline"
+										className="flex min-h-11 min-w-11 w-fit items-center"
+										title={
+											schedule.lastFireAt
+												? absoluteTime(schedule.lastFireAt)
+												: undefined
+										}
 									>
-										<span className="flex flex-wrap items-center gap-2">
-											<Text as="strong" role="body">
-												{schedule.cron}
-											</Text>
-											<Badge variant={schedule.enabled ? "success" : "outline"}>
-												{schedule.enabled ? "Enabled" : "Paused"}
-											</Badge>
-											<Text as="span" role="label" tone="secondary">
-												{tediNames[schedule.tediId] ?? "tedi"}
-											</Text>
-										</span>
-										<Text as="span" role="label" tone="secondary">
-											{!schedule.enabled
-												? "Paused · not scheduled"
-												: Number.isFinite(Date.parse(schedule.nextFireAt)) &&
-													  Date.parse(schedule.nextFireAt) > now
-													? `Next run ${relativeTime(schedule.nextFireAt, new Date(now))} · ${absoluteTime(schedule.nextFireAt)}`
-													: "Next run unavailable"}
-											{schedule.lastFireAt
-												? ` · last fired ${relativeTime(schedule.lastFireAt)}`
-												: ""}
-											{schedule.lastError
-												? ` · last error: ${schedule.lastError}`
-												: ""}
-										</Text>
-										{schedule.lastBudgetBlockedAt ? (
-											<Text as="span" role="label" tone="warning">
-												Budget blocked{" "}
-												{relativeTime(schedule.lastBudgetBlockedAt)}
-												{schedule.lastBudgetAdmissionClass
-													? ` · ${schedule.lastBudgetAdmissionClass.replace(/_/g, " ")}`
-													: ""}
-												{schedule.lastBudgetBlockedReason
-													? ` · ${schedule.lastBudgetBlockedReason}`
-													: ""}
-											</Text>
-										) : null}
-										{schedule.lastRunId ? (
-											<Link
-												to="/work/runs/$runId"
-												params={{ runId: schedule.lastRunId }}
-												className="flex min-h-11 min-w-11 w-fit items-center text-xs underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-												title={
-													schedule.lastFireAt
-														? absoluteTime(schedule.lastFireAt)
-														: undefined
-												}
-											>
-												Open latest run
-											</Link>
-										) : null}
-									</li>
-								))}
-							</Collection>
-						)}
-					</CardContent>
-				</Card>
-			) : null}
-		</div>
+										Open latest run
+									</Link>
+								) : null}
+							</li>
+						))}
+					</Collection>
+				))}
+		</PageSection>
 	);
 }

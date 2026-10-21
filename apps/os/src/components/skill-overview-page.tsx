@@ -1,19 +1,18 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink, useParams } from "@tanstack/react-router";
-import { Link } from "@/components/kumo/link";
-import { RunStatusChip } from "@/components/activity-runs";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+	PageSection,
+	SectionHeader,
+	SectionHeading,
+	SectionTitle,
+} from "@/components/kumo/page";
+import { ListQueryBoundary } from "@/components/list-query-boundary";
+import { SkillRunTable } from "@/components/skill-runs-page";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -28,7 +27,7 @@ import {
 	skillReliabilityQueryOptions,
 	skillRunsQueryOptions,
 } from "@/lib/os-query-options";
-import { formatDurationMs, relativeTime } from "@/lib/time";
+import { formatDurationMs } from "@/lib/time";
 
 export function SkillOverviewPage() {
 	useOsFormattingPreferences();
@@ -37,18 +36,13 @@ export function SkillOverviewPage() {
 	const reliability = useQuery(skillReliabilityQueryOptions(skillId));
 	const runs = useQuery(skillRunsQueryOptions(skillId));
 	const skill = detail.data?.entry;
-	/*
-	 * `return null` collapsed two different states into a blank page: still
-	 * loading, and no such skill. A skill id that does not resolve rendered an
-	 * empty `main` with no heading, no skeleton and no message. Separate them so each says what it is.
-	 */
 	if (detail.isPending) return <ListSkeleton rows={6} />;
 	if (detail.isError || !skill)
 		return <DetailUnavailable resource="Skill" error={detail.error} />;
 	const runEvidence = reliability.data;
 	const recentRuns = (runs.data?.runs ?? []).slice(0, 5);
 	return (
-		<div className="grid gap-5">
+		<PageSection>
 			<SkillOverviewSummary
 				// The page header already shows the summary (or the description).
 				description={
@@ -62,9 +56,13 @@ export function SkillOverviewPage() {
 				successCount={skill.successCount}
 				failureCount={skill.failureCount}
 			/>
-			<Card>
-				<CardHeader className="flex-row items-center justify-between">
-					<CardTitle>Recent runs</CardTitle>
+			<PageSection aria-labelledby="skill-recent-runs-title">
+				<SectionHeader>
+					<SectionHeading>
+						<SectionTitle id="skill-recent-runs-title">
+							Recent runs
+						</SectionTitle>
+					</SectionHeading>
 					<Button
 						variant="ghost"
 						size="sm"
@@ -74,62 +72,21 @@ export function SkillOverviewPage() {
 					>
 						View all
 					</Button>
-				</CardHeader>
-				<CardContent>
-					{runs.isError ? (
-						<Alert variant="destructive">
-							<AlertTitle>Runs unavailable</AlertTitle>
-							<AlertDescription>
-								{(runs.error as Error).message}
-							</AlertDescription>
-						</Alert>
-					) : recentRuns.length === 0 ? (
-						<Text role="body" tone="secondary" className="m-0">
-							This skill has not run yet.
-						</Text>
-					) : (
-						<ul className="m-0 grid list-none gap-1 p-0">
-							{recentRuns.map((run) => (
-								<li key={run.id}>
-									<Link
-										variant="collection"
-										href={`/work/runs/${run.id}`}
-										className="flex w-full gap-3! px-3 py-2"
-									>
-										<RunStatusChip status={run.status} />
-										<Text as="span" role="body">
-											{run.startedAt
-												? relativeTime(run.startedAt)
-												: "Not started"}
-										</Text>
-										{run.skillRevision != null ? (
-											<Text
-												as="span"
-												role="label"
-												tone="secondary"
-												className="ml-auto"
-											>
-												Revision {run.skillRevision}
-											</Text>
-										) : null}
-									</Link>
-								</li>
-							))}
-						</ul>
-					)}
-				</CardContent>
-			</Card>
+				</SectionHeader>
+				<ListQueryBoundary query={runs} errorTitle="Runs unavailable" />
+				{runs.data ? <SkillRunTable runs={recentRuns} /> : null}
+			</PageSection>
 			<Collapsible>
 				<CollapsibleTrigger
 					render={<Button variant="ghost" className="w-fit px-0" />}
 				>
-					<CaretDown size={14} /> Advanced: instructions and source
+					<CaretDown size={14} /> Instructions and source
 				</CollapsibleTrigger>
 				<CollapsibleContent className="grid gap-4 pt-3">
 					<SkillBundleTree content={skill.content} files={skill.files} />
 				</CollapsibleContent>
 			</Collapsible>
-		</div>
+		</PageSection>
 	);
 }
 
