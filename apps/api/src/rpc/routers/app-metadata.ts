@@ -94,7 +94,8 @@ export function mergeAppMetadataPatch(
 	incomingMetadata: unknown,
 ): DbAppMetadata {
 	const existing = normalizeAppMetadata(existingMetadata) ?? {};
-	const incoming = normalizeAppMetadata(incomingMetadata) ?? {};
+	// Defaults belong to the merged record, never to an incomplete patch.
+	const incoming = incomingMetadata ?? {};
 	const existingRecord = existing as Record<string, unknown>;
 	const incomingRecord = incoming as Record<string, unknown>;
 	const existingMcp = existingRecord.mcpConfig;

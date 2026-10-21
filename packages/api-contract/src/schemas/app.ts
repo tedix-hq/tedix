@@ -942,7 +942,15 @@ export type AppMetadata = z.infer<typeof AppMetadataSchema>;
  * AppMetadataSchema and never stores the null sentinel.
  */
 export const AppMetadataUpdateSchema = AppMetadataSchema.extend({
-	mcpConfig: McpConfigSchema.partial()
+	mcpConfig: McpConfigSchema.extend({
+		authMode: McpConfigSchema.shape.authMode.removeDefault(),
+		capabilities: McpConfigSchema.shape.capabilities.removeDefault(),
+		enforcePolicies: McpConfigSchema.shape.enforcePolicies.removeDefault(),
+		connectionScope: McpConfigSchema.shape.connectionScope
+			.unwrap()
+			.removeDefault(),
+	})
+		.partial()
 		.extend({
 			connectionProviderId: z
 				.string()

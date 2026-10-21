@@ -53,6 +53,24 @@ describe("AppMetadataSchema", () => {
 });
 
 describe("UpdateAppInputSchema", () => {
+	it.each([{ codeMode: true }, { authMode: "public" }, {}])(
+		"does not default omitted MCP patch keys: %j",
+		(mcpConfig) => {
+			expect(UpdateAppInputSchema.parse({ metadata: { mcpConfig } })).toEqual({
+				metadata: { mcpConfig },
+			});
+		},
+	);
+
+	it("retains MCP defaults for create metadata", () => {
+		expect(AppMetadataSchema.parse({ mcpConfig: {} }).mcpConfig).toEqual({
+			authMode: "authenticated",
+			capabilities: [],
+			enforcePolicies: false,
+			connectionScope: "tenant",
+		});
+	});
+
 	it("preserves explicit OpenAI challenge updates without defaulting omitted values", () => {
 		expect(
 			UpdateAppInputSchema.parse({ openaiChallengeToken: "a_token-123" }),

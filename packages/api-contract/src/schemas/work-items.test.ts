@@ -401,3 +401,23 @@ describe("bounded CLI read contracts", () => {
 		expect(WorkAttemptCliRowSchema.shape).not.toHaveProperty("metadata");
 	});
 });
+
+describe("Work item patch defaults", () => {
+	it("does not reset omitted create fields", () => {
+		const patch = {
+			id: "11111111-1111-4111-8111-111111111111",
+			title: "Updated",
+		};
+		expect(UpdateWorkItemInputSchema.parse(patch)).toEqual(patch);
+	});
+
+	it("still defaults fields on create", () => {
+		expect(CreateWorkItemInputSchema.parse({ title: "New" })).toMatchObject({
+			workKind: "other",
+			riskLevel: "medium",
+			requiredCapabilities: [],
+			requiredAuthorities: [],
+			priority: "medium",
+		});
+	});
+});
