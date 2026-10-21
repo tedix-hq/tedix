@@ -522,13 +522,17 @@ async function executeMcpTool(
 				name,
 			);
 		}
+		// A terminal failure is final: re-running the step would dispatch a new
+		// turn and wait again, so the runner treats these codes as permanent.
 		if (outcome.status === "failed" || outcome.status === "cancelled") {
 			const error = outcome.state.error;
 			const detail =
 				error && typeof error === "object"
 					? ((error as { message?: string }).message ?? JSON.stringify(error))
 					: outcome.status;
-			throw new Error(`MCP task ${outcome.status}: ${detail}`);
+			throw new Error(
+				`MCP_TASK_${outcome.status.toUpperCase()}: ${name} task ${taskId} ${outcome.status}: ${detail}`,
+			);
 		}
 		// The bridge has no human in the loop: fail closed on pending input.
 		if (outcome.status === "input_required") {

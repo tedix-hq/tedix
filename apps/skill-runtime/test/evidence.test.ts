@@ -1083,7 +1083,7 @@ assert.ok(
 	),
 );
 // A shim change must select a fresh Loader id, or cached isolates shadow it.
-assert.equal(DISPATCH_SHIM_VERSION, "v47-durable-output-evidence");
+assert.equal(DISPATCH_SHIM_VERSION, "v48-terminal-task-failures");
 
 // --- research cache: pure path scoping + freshness --------------------------
 {
