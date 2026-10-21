@@ -21,7 +21,6 @@
 		"type-check": "bun run types && tsc --noEmit"
 	},
 	"dependencies": {
-		"@cloudflare/sandbox": "catalog:",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/auth": "workspace:*",
 		"@tedix/container-runtime": "workspace:*",

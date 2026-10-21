@@ -15,9 +15,6 @@ const permissions = normalizeConsentPermissions(CLI_LOGIN_SELECTABLE_SCOPES);
 export function defaultCliLoginScopes(): string[] {
 	return selectConsentPreset(permissions, "read");
 }
-export function readOnlyCliLoginScopes(): string[] {
-	return defaultCliLoginScopes();
-}
 export function CliLoginPermissions({
 	value,
 	onChange,

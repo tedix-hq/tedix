@@ -336,15 +336,6 @@ export type KernelChildSteerForwarder = (input: {
  * parent steer stays intact (fail-safe).
  */
 
-export /**
- * Forward an operator steering instruction to a running delegated child via the
- * SAME async isolate-inject path the dispatcher uses
- * (`cognitiveRuntime.enqueueMessage` → `injectAgentMessage`, async). The
- * instruction lands as a new turn in the child's existing session so the live
- * worker consumes it inline; Home keeps supervising via reconciliation. Never
- * throws — a child-side failure is captured as `outcome: "failed"` so the
- * parent steer stays intact (fail-safe).
- */
 const defaultKernelChildSteerForwarder: KernelChildSteerForwarder = async (
 	input,
 ) => {
@@ -407,13 +398,6 @@ export type KernelChildStopper = (input: {
  * so the parent cancel stays intact (fail-safe).
  */
 
-export /**
- * Cascade a parent-run cancel to its delegated child via the canonical
- * child-stop RPC (`cognitiveRuntime.stopRun` → `stopRuntimeRun`, the same path
- * Tedix OS uses to stop a tedi run). Never throws — a child-side failure (already
- * terminal, runtime reconnecting, not found) is captured as `outcome: "failed"`
- * so the parent cancel stays intact (fail-safe).
- */
 const defaultKernelChildStopper: KernelChildStopper = async (input) => {
 	const internalContext = buildInternalServiceBindingContext(
 		input.context,
@@ -466,21 +450,6 @@ export type KernelDoTurnCanceler = (input: {
  * cancel over this (the run is already durably canceled by the time this runs).
  */
 
-export /**
- * Best-effort DO-side abort of an in-flight kernel turn's LLM pass
- * (docs/engineering/cognition/kernel-execution-model.md "Operator cancel"). Called from
- * `cancelKernelRunCore` AFTER the run row is durably marked `canceled` — this
- * only stops the wasted token burn; the actual cancel SETTLE is owned by the
- * existing `turn-work.ts` pre-materialize cancel gate, which reads the
- * already-`canceled` run row regardless of whether this RPC ever reaches the
- * DO or finds a live controller there (`KernelDOv4.cancelTurn`). Resolves the
- * same binding + DO id the enqueue path uses (`kernel.idFromName(organizationId)`)
- * so it targets the SAME org-scoped DO instance the turn is running on.
- *
- * Never throws: a missing binding, an `idFromName`/`get` throw, or a DO RPC
- * failure all resolve to `false` — `cancelKernelRunCore` must never fail the
- * cancel over this (the run is already durably canceled by the time this runs).
- */
 const defaultKernelDoTurnCanceler: KernelDoTurnCanceler = async (input) => {
 	try {
 		const kernel = (

@@ -58,19 +58,4 @@ function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props) {
 		/>
 	);
 }
-function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props) {
-	return (
-		<ProgressPrimitive.Value
-			data-slot="progress-value"
-			className={cn("ml-auto text-kumo-subtle tabular-nums", className)}
-			{...props}
-		/>
-	);
-}
-export {
-	Progress,
-	ProgressIndicator,
-	ProgressLabel,
-	ProgressTrack,
-	ProgressValue,
-};
+export { Progress, ProgressIndicator, ProgressLabel, ProgressTrack };

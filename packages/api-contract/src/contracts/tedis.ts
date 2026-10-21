@@ -32,9 +32,7 @@ import {
 	RunTediDurableCodeInputSchema,
 	ListTediCodeExecutionsInputSchema,
 	GetTediCodeExecutionInputSchema,
-	ApproveTediCodeExecutionInputSchema,
 	RejectTediCodeExecutionInputSchema,
-	RollbackTediCodeExecutionInputSchema,
 	RecoverTediCodeExecutionInputSchema,
 	RecoverTediCodeExecutionOutputSchema,
 	TediDurableCodeOutputSchema,
@@ -295,7 +293,7 @@ export const tedisContract = oc
 				method: "POST",
 				summary: "Approve and resume a tedi's durable code execution",
 			})
-			.input(ApproveTediCodeExecutionInputSchema)
+			.input(GetTediCodeExecutionInputSchema)
 			.output(TediDurableCodeOutputSchema),
 		rejectTediCodeExecution: oc
 			.route({
@@ -309,7 +307,7 @@ export const tedisContract = oc
 				method: "POST",
 				summary: "Compensate a tedi's durable code execution",
 			})
-			.input(RollbackTediCodeExecutionInputSchema)
+			.input(GetTediCodeExecutionInputSchema)
 			.output(RollbackTediCodeExecutionOutputSchema),
 		recoverTediCodeExecution: oc
 			.route({

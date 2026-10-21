@@ -5,9 +5,7 @@
  * attributed: one end-to-end number cannot separate the
  * tool's own work from the resolve/RPC/queue cost of the facet → parent hop, or
  * from the ledger writes that used to sit inside the same span. Each marker
- * reports durations measured WITHIN one component; the facet emits its own
- * caller-side half (`facet_tool_wait`) for the same `(runId, toolCallId)`.
- * Join on those ids — never subtract the two components' raw timestamps.
+ * reports durations measured within one component.
  *
  * Payloads carry ids, names and durations only. No prompt text, tool arguments
  * or results: these lines land in Workers Logs, which is not trace-safety
@@ -113,88 +111,5 @@ export function markInferenceAuthorize(input: {
 		totalMs: input.totalMs,
 		estimatedInputTokens: input.estimatedInputTokens,
 		outcome: input.outcome,
-	}));
-}
-
-/** Caller-side half of the facet -> parent tool hop. */
-export function markFacetToolWait(input: {
-	runId: string | null;
-	toolCallId: string;
-	tool: string;
-	/** Total time the facet waited on `executeFacetTool`. */
-	waitMs: number;
-	/** Dynamic import + `parentAgent` resolution inside that wait. */
-	resolveMs: number;
-}): void {
-	emit(() => ({
-		_tr: "facet_tool_wait",
-		runId: input.runId,
-		toolCallId: input.toolCallId,
-		tool: input.tool,
-		waitMs: input.waitMs,
-		resolveMs: input.resolveMs,
-	}));
-}
-
-/** The leg AFTER each model round: usage accounting, then ledger telemetry. */
-export function markStepFinish(input: {
-	runId: string | null;
-	accountingMs: number;
-	telemetryMs: number;
-	totalMs: number;
-}): void {
-	emit(() => ({
-		_tr: "facet_step_finish",
-		runId: input.runId,
-		accountingMs: input.accountingMs,
-		telemetryMs: input.telemetryMs,
-		totalMs: input.totalMs,
-	}));
-}
-
-/**
- * The leg BEFORE each model round, opposite `facet_step_finish`.
- *
- * Native provider preparation reconciles pending effects and takes a durable step
- * reservation, and every one of those is a facet -> parent round trip. Without
- * this marker that time sits in neither the model, the tool, nor any named
- * span. Content-free.
- */
-export function markStepPrepare(input: {
-	runId: string | null;
-	/** Replaying computer effects the previous step left pending. */
-	reconcileMs: number;
-	/** Durable admission for this step (cancellation check + reservation). */
-	reserveMs: number;
-	totalMs: number;
-}): void {
-	emit(() => ({
-		_tr: "facet_step_prepare",
-		runId: input.runId,
-		reconcileMs: input.reconcileMs,
-		reserveMs: input.reserveMs,
-		totalMs: input.totalMs,
-	}));
-}
-
-/** One line per tool call entering the parent's AI-SDK tool wrapper. */
-export function markToolCall(input: {
-	tediId: string | null;
-	runId: string | null;
-	toolName: string;
-	toolCallId: string;
-	stepNumber: number | null;
-	turnPrincipalId: string | null;
-	turnSurface: string | null;
-}): void {
-	emit(() => ({
-		_tr: "tool.call",
-		tediId: input.tediId,
-		runId: input.runId,
-		toolName: input.toolName,
-		toolCallId: input.toolCallId,
-		stepNumber: input.stepNumber,
-		turnPrincipalId: input.turnPrincipalId,
-		turnSurface: input.turnSurface,
 	}));
 }

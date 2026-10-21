@@ -239,16 +239,3 @@ export async function provisionWorkAttemptRepository(
 		);
 	}
 }
-
-export function readWorkAttemptRepository(
-	metadata: unknown,
-): WorkAttemptRepository | null {
-	const parsed = WorkAttemptRepositorySchema.safeParse(
-		typeof metadata === "object" &&
-			metadata !== null &&
-			"repository" in metadata
-			? metadata.repository
-			: undefined,
-	);
-	return parsed.success ? parsed.data : null;
-}

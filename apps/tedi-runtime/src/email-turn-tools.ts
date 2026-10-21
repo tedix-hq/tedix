@@ -20,7 +20,7 @@ import {
 
 export type InboundEmailTrust = SurfaceTrust;
 
-export const REPLY_TO_EMAIL_TOOL = "reply_to_email";
+const REPLY_TO_EMAIL_TOOL = "reply_to_email";
 
 /** Exact tool names an untrusted sender's turn may still see. Read-only. */
 export const UNTRUSTED_EMAIL_TOOL_ALLOWLIST: ReadonlySet<string> =

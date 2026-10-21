@@ -145,58 +145,6 @@ const cases = [
 		"inference_authorize",
 		["runId", "source", "estimatedInputTokens"],
 	),
-	markerCase(
-		"markFacetToolWait",
-		markers.markFacetToolWait,
-		{
-			runId: "run-example",
-			toolCallId: "call-example",
-			tool: "read",
-			waitMs: 2.5,
-			resolveMs: 0,
-		},
-		"facet_tool_wait",
-		["runId"],
-	),
-	markerCase(
-		"markStepFinish",
-		markers.markStepFinish,
-		{
-			runId: "run-example",
-			accountingMs: 0,
-			telemetryMs: 2.5,
-			totalMs: 3,
-		},
-		"facet_step_finish",
-		["runId"],
-	),
-	markerCase(
-		"markStepPrepare",
-		markers.markStepPrepare,
-		{
-			runId: "run-example",
-			reconcileMs: 0,
-			reserveMs: 2.5,
-			totalMs: 3,
-		},
-		"facet_step_prepare",
-		["runId"],
-	),
-	markerCase(
-		"markToolCall",
-		markers.markToolCall,
-		{
-			tediId: "tedi-example",
-			runId: "run-example",
-			toolName: "read",
-			toolCallId: "call-example",
-			stepNumber: 0,
-			turnPrincipalId: "principal-example",
-			turnSurface: "sse",
-		},
-		"tool.call",
-		["tediId", "runId", "stepNumber", "turnPrincipalId", "turnSurface"],
-	),
 ];
 
 assert.deepEqual(

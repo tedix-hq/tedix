@@ -118,6 +118,7 @@
         "@types/react-dom": "^19.3.0",
         "cf": "catalog:",
         "emdash": "catalog:",
+        "happy-dom": "^21.0.3",
         "jsonc-parser": "3.3.1",
         "react": "catalog:",
         "react-dom": "catalog:",
@@ -160,7 +161,6 @@
       "name": "@tedix/docs",
       "version": "0.1.1",
       "dependencies": {
-        "@cloudflare/sandbox": "catalog:",
         "@tedix/api-contract": "workspace:*",
         "@tedix/auth": "workspace:*",
         "@tedix/container-runtime": "workspace:*",
@@ -302,6 +302,7 @@
         "@tedix/tsconfig": "workspace:*",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
+        "happy-dom": "^21.0.3",
         "tailwindcss": "^4.3.3",
         "typescript": "catalog:",
         "vite": "catalog:",
