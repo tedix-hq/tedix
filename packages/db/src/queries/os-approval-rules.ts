@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import {
 	type NewOsApprovalRuleRow,
@@ -27,6 +27,33 @@ export async function createOsApprovalRule(
 	if (!row) {
 		throw new Error("OS approval rule insert returned no row");
 	}
+	return row;
+}
+
+/** Reuse only the same scope; a broad kind rule cannot mask a tool rule. */
+export async function findEnabledOsApprovalRuleByScope(
+	db: DbQueryClient,
+	organizationId: string,
+	scope: { actionKind: string; toolSlug?: string; verb?: string },
+): Promise<OsApprovalRuleRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osApprovalRules)
+		.where(
+			and(
+				eq(osApprovalRules.organizationId, organizationId),
+				eq(osApprovalRules.enabled, true),
+				eq(osApprovalRules.actionKind, scope.actionKind),
+				scope.toolSlug == null
+					? isNull(osApprovalRules.toolSlug)
+					: eq(osApprovalRules.toolSlug, scope.toolSlug),
+				scope.verb == null
+					? isNull(osApprovalRules.verb)
+					: eq(osApprovalRules.verb, scope.verb),
+			),
+		)
+		.orderBy(desc(osApprovalRules.createdAt), desc(osApprovalRules.id))
+		.limit(1);
 	return row;
 }
 

@@ -92,7 +92,7 @@ async function seedApproval(
 		id: overrides.id,
 		tediId: "9a8b7c6d-5e4f-4a3b-9c8d-7e6f5a4b3c2d",
 		orgId: overrides.orgId ?? "org-1",
-		actionType: overrides.actionType ?? "deploy",
+		actionType: overrides.actionType ?? "cron_job",
 		description: "Approve the action",
 		payload: { kind: "test" },
 		createdAt: "2026-08-15T10:00:00.000Z",
@@ -138,10 +138,10 @@ describe("rule lifecycle", () => {
 		const fixture = createFixture();
 		const c = clients(fixture);
 
-		const { rule } = await c.org1.create({ actionKind: "deploy" });
+		const { rule } = await c.org1.create({ actionKind: "cron_job" });
 		expect(rule).toMatchObject({
 			organizationId: "org-1",
-			actionKind: "deploy",
+			actionKind: "cron_job",
 			decision: "approve",
 			enabled: true,
 			createdByKind: "user",
@@ -154,15 +154,15 @@ describe("rule lifecycle", () => {
 		const fixture = createFixture();
 		const c = clients(fixture);
 
-		const first = await c.org1.create({ actionKind: "deploy" });
-		const second = await c.org1.create({ actionKind: "deploy" });
+		const first = await c.org1.create({ actionKind: "cron_job" });
+		const second = await c.org1.create({ actionKind: "cron_job" });
 		expect(second.rule.id).toBe(first.rule.id);
 		expect((await c.org1.list()).items).toHaveLength(1);
 
 		// A disabled rule does not satisfy the idempotency check — re-clicking
 		// "always approve" after a disable creates a fresh enabled rule.
 		await c.org1.setEnabled({ ruleId: first.rule.id, enabled: false });
-		const third = await c.org1.create({ actionKind: "deploy" });
+		const third = await c.org1.create({ actionKind: "cron_job" });
 		expect(third.rule.id).not.toBe(first.rule.id);
 	});
 
@@ -170,7 +170,7 @@ describe("rule lifecycle", () => {
 		const fixture = createFixture();
 		const c = clients(fixture);
 
-		const { rule } = await c.org1.create({ actionKind: "deploy" });
+		const { rule } = await c.org1.create({ actionKind: "cron_job" });
 		expect((await c.org2.list()).items).toHaveLength(0);
 
 		const disabled = await c.org1.setEnabled({
@@ -193,7 +193,7 @@ describe("rule lifecycle", () => {
 	it("requires disable before permanent deletion and remains tenant-bound", async () => {
 		const fixture = createFixture();
 		const c = clients(fixture);
-		const { rule } = await c.org1.create({ actionKind: "deploy" });
+		const { rule } = await c.org1.create({ actionKind: "cron_job" });
 
 		await expect(c.org1.delete({ ruleId: rule.id })).rejects.toMatchObject({
 			code: "BAD_REQUEST",
@@ -218,7 +218,7 @@ describe("rule lifecycle", () => {
 				scopes: ["mcp:memory.admin"],
 			}),
 		});
-		const { rule } = await admin.create({ actionKind: "deploy" });
+		const { rule } = await admin.create({ actionKind: "cron_job" });
 		expect(rule).toMatchObject({
 			createdByKind: "service",
 			createdById: "key-1",
@@ -234,7 +234,7 @@ describe("rule lifecycle", () => {
 			}),
 		});
 		await expect(
-			underScoped.create({ actionKind: "deploy" }),
+			underScoped.create({ actionKind: "cron_job" }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		await expect(underScoped.apply()).rejects.toMatchObject({
 			code: "FORBIDDEN",
@@ -255,7 +255,7 @@ describe("verb matrix", () => {
 		});
 		await seedApproval(fixture, { id: "11111111-1111-4111-8111-111111111111" });
 
-		const { rule } = await approver.create({ actionKind: "deploy" });
+		const { rule } = await approver.create({ actionKind: "cron_job" });
 		await approver.setEnabled({ ruleId: rule.id, enabled: true });
 		// The sweep runs the REAL tediApprovals.resolve per match, so this proves
 		// resolve itself accepts os:approve (the shared AUTHZ.osApprove guard).
@@ -288,9 +288,9 @@ describe("verb matrix", () => {
 		});
 
 		await expect(reader.list()).resolves.toEqual({ items: [] });
-		await expect(reader.create({ actionKind: "deploy" })).rejects.toMatchObject(
-			{ code: "FORBIDDEN" },
-		);
+		await expect(
+			reader.create({ actionKind: "cron_job" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		await expect(reader.apply()).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 });
@@ -303,14 +303,14 @@ describe("apply sweep", () => {
 		await seedApproval(fixture, { id: "22222222-2222-4222-8222-222222222222" });
 		await seedApproval(fixture, {
 			id: "33333333-3333-4333-8333-333333333333",
-			actionType: "cron_job", // no rule for this kind
+			actionType: "other_action", // no rule for this kind
 		});
 		await seedApproval(fixture, {
 			id: "44444444-4444-4444-8444-444444444444",
 			orgId: "org-2", // same kind, different tenant
 		});
 
-		const { rule } = await c.org1.create({ actionKind: "deploy" });
+		const { rule } = await c.org1.create({ actionKind: "cron_job" });
 		const swept = await c.org1.apply();
 		expect(swept.resolved).toBe(2);
 		expect(swept.ruleMatches).toHaveLength(2);
@@ -367,7 +367,7 @@ describe("apply sweep", () => {
 		const c = clients(fixture);
 		await seedApproval(fixture, { id: "11111111-1111-4111-8111-111111111111" });
 
-		const { rule } = await c.org1.create({ actionKind: "deploy" });
+		const { rule } = await c.org1.create({ actionKind: "cron_job" });
 		await c.org1.setEnabled({ ruleId: rule.id, enabled: false });
 		await expect(c.org1.apply()).resolves.toMatchObject({ resolved: 0 });
 		expect(
@@ -388,7 +388,7 @@ describe("apply sweep", () => {
 		});
 		await seedApproval(fixture, { id: "22222222-2222-4222-8222-222222222222" });
 
-		await c.org1.create({ actionKind: "deploy" });
+		await c.org1.create({ actionKind: "cron_job" });
 		const swept = await c.org1.apply();
 		// The live approval resolved; the expired one was skipped, not failed.
 		expect(swept.resolved).toBe(1);
@@ -402,5 +402,81 @@ describe("apply sweep", () => {
 			(await approvalRow(fixture, "11111111-1111-4111-8111-111111111111"))
 				?.status,
 		).toBe("pending");
+	});
+});
+
+describe("exact standing tool rules", () => {
+	it("does not reuse a broad Home rule and sweeps only the exact safe tool", async () => {
+		const fixture = createFixture();
+		const c = clients(fixture);
+		const broad = await c.org1.create({ actionKind: "home.tool_write" });
+		const input = {
+			actionKind: "home.tool_write",
+			toolSlug: "notes.update_note",
+			verb: "update",
+		};
+		const scoped = await c.org1.create(input);
+		expect(scoped.rule.id).not.toBe(broad.rule.id);
+		expect((await c.org1.create(input)).rule.id).toBe(scoped.rule.id);
+		for (const [id, toolName, actionType] of [
+			[
+				"11111111-1111-4111-8111-111111111111",
+				"update_note",
+				"home.tool_write",
+			],
+			[
+				"22222222-2222-4222-8222-222222222222",
+				"create_note",
+				"home.tool_write",
+			],
+			[
+				"33333333-3333-4333-8333-333333333333",
+				"delete_note",
+				"home.tool_write",
+			],
+			["44444444-4444-4444-8444-444444444444", "update_note", "deploy"],
+		]) {
+			await createApprovalRequest(fixture.db, {
+				id: id!,
+				tediId: "tedi-1",
+				orgId: "org-1",
+				actionType: actionType!,
+				description: "Review write",
+				payload: {
+					kind: "home_tool_write",
+					appSlug: "notes",
+					toolName: toolName!,
+					args: {},
+					riskTier: "low",
+				},
+				createdAt: "2026-10-21T00:00:00.000Z",
+				expiresAt: FUTURE,
+			});
+		}
+		await c.org1.create({
+			actionKind: "home.tool_write",
+			toolSlug: "notes.delete_note",
+			verb: "delete",
+		});
+		await c.org1.create({ actionKind: "deploy" });
+		expect(await c.org1.apply()).toEqual({
+			resolved: 1,
+			ruleMatches: [
+				{
+					approvalId: "11111111-1111-4111-8111-111111111111",
+					ruleId: scoped.rule.id,
+				},
+			],
+		});
+		expect(
+			(await approvalRow(fixture, "11111111-1111-4111-8111-111111111111"))
+				?.resolution,
+		).toBe(`auto-approved by rule ${scoped.rule.id}`);
+		for (const id of [
+			"22222222-2222-4222-8222-222222222222",
+			"33333333-3333-4333-8333-333333333333",
+			"44444444-4444-4444-8444-444444444444",
+		])
+			expect((await approvalRow(fixture, id))?.status).toBe("pending");
 	});
 });

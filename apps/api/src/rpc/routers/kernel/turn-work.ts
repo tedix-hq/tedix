@@ -1,3 +1,4 @@
+import { findApprovalRule } from "../approval-rule-matcher";
 import {
 	runChatApprovalReplyIntercept,
 	runWorkflowConfirmIntercept,
@@ -450,6 +451,7 @@ async function planAndParkKernelWriteProposal(
 	writeProposal: KernelWriteProposal | null;
 	writeProposalDeclined: KernelWriteProposalDeclined | null;
 	writeApprovalRequestId: string | null;
+	ruleResolution?: string;
 	preparedAutoWrite?: Pick<
 		DirectKernelWriteInput,
 		"approval" | "requestedAudit"
@@ -523,6 +525,7 @@ async function planAndParkKernelWriteProposal(
 		executionAttempts.push(...(writeModel?.attempts ?? []));
 	}
 	let writeApprovalRequestId: string | null = null;
+	let ruleResolution: string | undefined;
 	let preparedAutoWrite:
 		| Pick<DirectKernelWriteInput, "approval" | "requestedAudit">
 		| undefined;
@@ -557,7 +560,10 @@ async function planAndParkKernelWriteProposal(
 						orgId: organizationId,
 						actionType: "home.tool_write",
 						description: kernelWriteSummary(writeProposal),
-						payload: toJsonRecord(writePayload),
+						payload: toJsonRecord({
+							...writePayload,
+							riskTier: writeProposal.riskTier,
+						}),
 						createdAt,
 						expiresAt: deps.offsetIso(
 							createdAt,
@@ -595,12 +601,19 @@ async function planAndParkKernelWriteProposal(
 						deps.db,
 						writeApprovalId,
 					);
-					if (!existingApproval)
-						await createApprovalRequestWithAudit(
+					const approval =
+						existingApproval ??
+						(await createApprovalRequestWithAudit(
 							deps.db,
 							prepared.approval,
 							prepared.requestedAudit,
-						);
+						));
+					const rule = await findApprovalRule(
+						deps.db,
+						approval,
+						organizationId,
+					);
+					if (rule) ruleResolution = `auto-approved by rule ${rule.id}`;
 				}
 				writeApprovalRequestId = writeApprovalId;
 			} else {
@@ -622,6 +635,7 @@ async function planAndParkKernelWriteProposal(
 		writeProposal,
 		writeProposalDeclined,
 		writeApprovalRequestId,
+		ruleResolution,
 		preparedAutoWrite,
 	};
 }
@@ -963,6 +977,7 @@ export async function runKernelTurnWork(
 		writeProposal,
 		writeProposalDeclined,
 		writeApprovalRequestId,
+		ruleResolution,
 		preparedAutoWrite,
 	} = observeOnly
 		? {
@@ -993,8 +1008,9 @@ export async function runKernelTurnWork(
 		kernelResult.delegation?.decision.mode === "deferred",
 	);
 	// The same policy decision gates direct execution and the parked approval path.
-	const writeApprovalDecision: KernelWriteApprovalDecision | null =
-		writeProposal && writeApprovalRequestId
+	let writeApprovalDecision: KernelWriteApprovalDecision | null = ruleResolution
+		? { autoResolve: true, source: "policy", reason: ruleResolution }
+		: writeProposal && writeApprovalRequestId
 			? decideKernelWriteApproval({
 					policy: input.governancePolicy,
 					sessionAllowlist: input.sessionWriteAllowlist,
@@ -1842,6 +1858,7 @@ export async function runKernelTurnWork(
 	// together: one D1 batch when the batched persist is wired, otherwise the
 	// same three writes in sequence. The stream order (message.completed before
 	// the receipt) is carried by `createdAt`, not by write order.
+	let fallbackRuleMatched = false;
 	let writeAutoResolveResult:
 		| Awaited<ReturnType<typeof executeDirectKernelWrite>>
 		| {
@@ -1871,12 +1888,21 @@ export async function runKernelTurnWork(
 				preparedAutoWrite.approval.id,
 			);
 			if (existing?.status === "approved") throw error;
-			if (!existing)
-				await createApprovalRequestWithAudit(
+			const approval =
+				existing ??
+				(await createApprovalRequestWithAudit(
 					deps.db,
 					preparedAutoWrite.approval,
 					preparedAutoWrite.requestedAudit,
-				);
+				));
+			const rule = await findApprovalRule(deps.db, approval, organizationId);
+			fallbackRuleMatched = Boolean(rule);
+			if (rule)
+				writeApprovalDecision = {
+					autoResolve: true,
+					source: "policy",
+					reason: `auto-approved by rule ${rule.id}`,
+				};
 		}
 	}
 	let assistantEvent: KernelRuntimeEvent;
@@ -2003,7 +2029,7 @@ export async function runKernelTurnWork(
 	// human can still resolve it — the per-click tax is removed only on a clean
 	// auto-resolution, never the audit trail.
 	if (
-		!preparedAutoWrite &&
+		(!preparedAutoWrite || fallbackRuleMatched) &&
 		writeWillAutoResolve &&
 		writeApprovalRequestId &&
 		writeApprovalDecision &&

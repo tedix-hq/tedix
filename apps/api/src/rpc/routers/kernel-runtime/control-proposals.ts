@@ -1,3 +1,4 @@
+import { findApprovalRule } from "../approval-rule-matcher";
 import {
 	workstationDispatchIdentity,
 	inspectWorkstationDispatchAdmission,
@@ -1530,7 +1531,7 @@ export async function proposeRepoCommitImpl(
 		organizationId: input.orgId,
 		conversationId: input.conversationId,
 	});
-	const decision = decideKernelWriteApproval({
+	let decision = decideKernelWriteApproval({
 		policy,
 		sessionAllowlist,
 		proposal: {
@@ -1542,7 +1543,7 @@ export async function proposeRepoCommitImpl(
 	// Protected-branch commits always park, even when session/policy would auto-resolve
 	// a low-risk commit. The shared decideKernelWriteApproval intentionally lets session
 	// grants carry high-risk writes for home_tool_write; we narrow that here for repo commits.
-	const effectiveAutoResolve = decision.autoResolve && riskTier !== "high";
+	let effectiveAutoResolve = decision.autoResolve && riskTier !== "high";
 	const approvalTitle = `Commit ${input.changeSummary.fileCount} file(s) to ${input.owner}/${input.repo}@${input.branch}`;
 	const approvalPreview = `${approvalTitle} (base ${input.baseRef})${input.openPr ? " + open PR" : ""}`;
 	const payload = {
@@ -1573,7 +1574,7 @@ export async function proposeRepoCommitImpl(
 	const approvalRequestId = crypto.randomUUID();
 	const createdAt = nowIso();
 	const ttlHours = resolveApprovalTtlHours(policy);
-	await createApprovalRequest(context.db, {
+	const approval = await createApprovalRequest(context.db, {
 		id: approvalRequestId,
 		tediId: input.tediId,
 		orgId: input.orgId,
@@ -1583,6 +1584,16 @@ export async function proposeRepoCommitImpl(
 		createdAt,
 		expiresAt: offsetIso(createdAt, ttlHours * 60 * 60 * 1000),
 	});
+	const rule = await findApprovalRule(context.db, approval, input.orgId);
+	if (rule) {
+		decision = {
+			autoResolve: true,
+			source: "policy",
+			reason: `auto-approved by rule ${rule.id}`,
+		};
+		effectiveAutoResolve = true;
+	}
+
 	await insertAuditEvent(context.db, {
 		organizationId: input.orgId,
 		actorId: input.tediId,

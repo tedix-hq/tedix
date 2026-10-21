@@ -167,3 +167,49 @@ describe("os approval rules", () => {
 		expect(matched.map((row) => row.id)).toEqual(["match"]);
 	});
 });
+
+it("persists exact tool and verb scopes independently of legacy kind rules", async () => {
+	const db = fixture();
+	const { findEnabledOsApprovalRuleByScope } =
+		await import("./os-approval-rules");
+	await createOsApprovalRule(
+		db,
+		rule({ id: "broad", actionKind: "home.tool_write" }),
+	);
+	const scoped = await createOsApprovalRule(
+		db,
+		rule({
+			id: "scoped",
+			actionKind: "home.tool_write",
+			toolSlug: "notes.update_note",
+			verb: "update",
+		}),
+	);
+	expect(scoped).toMatchObject({
+		toolSlug: "notes.update_note",
+		verb: "update",
+	});
+	expect(
+		(
+			await findEnabledOsApprovalRuleByScope(db, "org-1", {
+				actionKind: "home.tool_write",
+			})
+		)?.id,
+	).toBe("broad");
+	expect(
+		(
+			await findEnabledOsApprovalRuleByScope(db, "org-1", {
+				actionKind: "home.tool_write",
+				toolSlug: "notes.update_note",
+				verb: "update",
+			})
+		)?.id,
+	).toBe("scoped");
+	expect(
+		await findEnabledOsApprovalRuleByScope(db, "org-2", {
+			actionKind: "home.tool_write",
+			toolSlug: "notes.update_note",
+			verb: "update",
+		}),
+	).toBeUndefined();
+});

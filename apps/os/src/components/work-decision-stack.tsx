@@ -60,9 +60,29 @@ export function ApprovalDecisionCard({
 		approval.status === "pending" &&
 		approval.review.decisionMode === "approve_or_reject" &&
 		!approval.review.timeout.expired;
+	const toolName =
+		typeof approval.payload.toolName === "string"
+			? approval.payload.toolName
+			: null;
+	const appSlug =
+		typeof approval.payload.appSlug === "string"
+			? approval.payload.appSlug
+			: null;
+	const toolSlug = appSlug && toolName ? `${appSlug}.${toolName}` : null;
+	const verb =
+		typeof approval.payload.verb === "string"
+			? approval.payload.verb
+			: toolName
+					?.replace(/([a-z])([A-Z])/g, "$1_$2")
+					.toLowerCase()
+					.split(/[^a-z0-9]+/)[0];
 	const decide = async (feedback: DecisionCardFeedback) => {
-		if (feedback.action === "always") {
-			await osApi.osApprovalRules.create({ actionKind: approval.actionType });
+		if (feedback.action === "always" && toolSlug && verb) {
+			await osApi.osApprovalRules.create({
+				actionKind: approval.actionType,
+				toolSlug,
+				verb,
+			});
 			if (!optimistic)
 				await client.invalidateQueries({
 					queryKey: osQueryKeys.approvalRules(),
@@ -111,11 +131,15 @@ export function ApprovalDecisionCard({
 						? [
 								{ id: "approve", label: "Approve", intent: "approve" },
 								{ id: "reject", label: "Reject", intent: "reject" },
-								{
-									id: "always",
-									label: "Always allow this",
-									confirm: `Allow all ${approval.actionType} actions across this organization when approval rules are applied? This covers every tedi, not just this request. You can disable the rule in Approvals.`,
-								},
+								...(toolSlug && verb
+									? [
+											{
+												id: "always",
+												label: "Always allow this",
+												confirm: `Automatically approve future ${verb} requests from ${toolSlug} across this organization? Other tools and destructive actions still require review. You can disable the rule in Approvals.`,
+											},
+										]
+									: []),
 							]
 						: []
 				}

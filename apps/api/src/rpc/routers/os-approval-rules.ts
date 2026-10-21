@@ -2,12 +2,8 @@
  * oRPC Tedix OS Auto-Approval Rules Router
  *
  * Per-organization rules that auto-resolve pending tedi approval requests
- * matching an action kind. Nothing runs in the background: the explicit,
- * idempotent `apply` sweep is the only application path, it resolves each
- * matching approval through the SAME canonical resolution procedure a human
- * `tediApprovals.resolve` call uses (audit event, Home tool-write settlement,
- * learning signal included), and every auto-resolution records the rule id in
- * its resolution note.
+ * matching an action kind and optional exact tool/verb scope. Creation and
+ * the manual sweep share one matcher; settlement records the deciding rule.
  */
 
 import { call, implement, ORPCError } from "@orpc/server";
@@ -21,6 +17,7 @@ import {
 	createOsApprovalRule,
 	deleteOsApprovalRule,
 	findEnabledOsApprovalRulesByKind,
+	findEnabledOsApprovalRuleByScope,
 	getOsApprovalRule,
 	listOsApprovalRules,
 	setOsApprovalRuleEnabled,
@@ -37,6 +34,7 @@ import {
 	withAuthorization,
 } from "../orpc";
 import { OS_APPROVAL_RULES_AUDIT, osAudit } from "../os-audit";
+import { matchingApprovalRule } from "./approval-rule-matcher";
 import { resolveCreator } from "./os-workspaces-shared";
 
 const rulesOs = implement(osApprovalRulesContract).$context<BaseContext>();
@@ -69,6 +67,8 @@ function mapRule(row: OsApprovalRuleRow): OsApprovalRule {
 		id: row.id,
 		organizationId: row.organizationId,
 		actionKind: row.actionKind,
+		toolSlug: row.toolSlug,
+		verb: row.verb,
 		decision: row.decision,
 		enabled: row.enabled,
 		createdByKind: row.createdByKind,
@@ -82,12 +82,11 @@ const createProcedure = manageRules.create.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const db = queryDb(context);
-		// Idempotent per kind: repeated "Always approve <kind>" clicks return the
-		// standing rule instead of accumulating duplicates.
-		const [existing] = await findEnabledOsApprovalRulesByKind(
+		// Repeated clicks reuse only the exact standing scope.
+		const existing = await findEnabledOsApprovalRuleByScope(
 			db,
 			organizationId,
-			[input.actionKind],
+			input,
 		);
 		if (existing) {
 			return { rule: mapRule(existing) };
@@ -97,6 +96,8 @@ const createProcedure = manageRules.create.handler(
 			id: crypto.randomUUID(),
 			organizationId,
 			actionKind: input.actionKind,
+			toolSlug: input.toolSlug ?? null,
+			verb: input.verb ?? null,
 			decision: "approve",
 			enabled: true,
 			createdByKind: creator.kind,
@@ -173,14 +174,6 @@ const applyProcedure = manageRules.apply.handler(async ({ context }) => {
 	if (rules.length === 0) {
 		return { resolved: 0, ruleMatches: [] };
 	}
-	// One deciding rule per kind: the newest enabled rule wins (the query
-	// returns newest first), so the recorded rule id is deterministic.
-	const ruleByKind = new Map<string, OsApprovalRuleRow>();
-	for (const rule of rules) {
-		if (!ruleByKind.has(rule.actionKind)) {
-			ruleByKind.set(rule.actionKind, rule);
-		}
-	}
 
 	// The canonical resolution procedure. Imported dynamically so the
 	// approvalRules namespace does not eagerly evaluate the tedi-approvals →
@@ -189,7 +182,7 @@ const applyProcedure = manageRules.apply.handler(async ({ context }) => {
 
 	const ruleMatches: OsApprovalRuleMatch[] = [];
 	for (const approval of pending.data) {
-		const rule = ruleByKind.get(approval.actionType);
+		const rule = matchingApprovalRule(approval, rules);
 		if (!rule) continue;
 		try {
 			// The SAME resolution path a human resolve uses — pending→resolved CAS,

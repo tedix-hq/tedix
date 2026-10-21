@@ -8,12 +8,9 @@ import { OsCreatedByKindSchema } from "../schemas/os-workspaces";
  * Tedix OS auto-approval policies (v1): per-organization rules that
  * auto-resolve pending tedi approval requests matching an action kind.
  *
- * Rules are explicit, listable, and disable-able. Nothing runs in the
- * background — resolution happens only through the explicit, idempotent
- * `apply` sweep, which resolves each matching pending approval through the
- * SAME canonical resolution path a human `tediApprovals.resolve` uses and
- * records the rule id in the resolution note. Internal + MCP projection only;
- * all ids are UUIDs.
+ * Rules apply at creation and through an explicit, idempotent sweep. Home
+ * writes require an exact tool and verb scope. Destructive actions never match.
+ * Every auto-resolution records the rule id in its resolution note.
  */
 
 export const OsApprovalRuleSchema = z.object({
@@ -21,6 +18,8 @@ export const OsApprovalRuleSchema = z.object({
 	organizationId: z.string(),
 	/** Matches `tedi_approval_requests.action_type` exactly. */
 	actionKind: z.string(),
+	toolSlug: z.string().nullable(),
+	verb: z.string().nullable(),
 	/** v1 supports only auto-approval. */
 	decision: z.literal("approve"),
 	enabled: z.boolean(),
@@ -55,12 +54,14 @@ export const osApprovalRulesContract = oc
 				path: "" as `/${string}`,
 				summary: "Create an auto-approval rule",
 				description:
-					"Create an enabled rule that auto-approves pending tedi approval requests of the given action kind. Idempotent per kind: when an enabled rule for the kind already exists, that rule is returned instead of a duplicate. The rule only takes effect through the explicit `apply` sweep.",
+					"Create an enabled standing approval for an action kind and optional exact tool and verb. Repeated creation of the same scope returns its enabled rule. Rules apply at creation and through the manual sweep; destructive actions never match.",
 				successStatus: 201,
 			})
 			.input(
 				z.object({
 					actionKind: z.string().trim().min(1).max(200),
+					toolSlug: z.string().trim().min(1).max(500).optional(),
+					verb: z.string().trim().min(1).max(100).optional(),
 				}),
 			)
 			.output(z.object({ rule: OsApprovalRuleSchema })),
@@ -106,7 +107,7 @@ export const osApprovalRulesContract = oc
 				path: "/apply",
 				summary: "Apply enabled auto-approval rules to pending approvals",
 				description:
-					"Idempotent sweep: resolves every pending tedi approval request whose action kind matches an enabled rule, through the same canonical resolution path a human resolve uses, with the rule id recorded in the resolution note. Already-resolved and expired approvals are skipped cleanly.",
+					"Idempotent sweep: resolves eligible pending approvals matching an enabled action kind and its optional exact tool and verb scope, through the canonical resolution path, with the rule id in the resolution note. Destructive actions, deploys, browser takeover, resolved requests, and expired approvals are skipped.",
 			})
 			.output(
 				z.object({
