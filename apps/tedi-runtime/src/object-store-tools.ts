@@ -41,19 +41,24 @@ export function createObjectStoreTools(deps: ObjectStoreDependencies): ToolSet {
 	async function listObjectStoreTool(input: {
 		prefix?: string;
 		limit?: number;
+		cursor?: string;
 	}): Promise<unknown> {
 		await deps.ensureIdentity();
 		const tediId = deps.getTediId();
 		if (!tediId) return { ok: false, error: "Tedi identity is not resolved" };
 		const prefix =
 			typeof input.prefix === "string" && input.prefix.trim()
-				? (normalizePortablePath(input.prefix) ?? "")
+				? normalizePortablePath(input.prefix)
 				: "";
+		if (prefix === null) {
+			return { ok: false, error: "prefix must be a safe object path" };
+		}
 		const limit = clampPositiveInt(input.limit, 100, 500);
 		const root = `${tediId}/${OBJECT_STORE_PREFIX}`;
 		const result = await deps.bucket.list({
 			prefix: `${root}${prefix}`,
 			limit,
+			...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
 		});
 		return {
 			ok: true,
@@ -134,6 +139,12 @@ export function createObjectStoreTools(deps: ObjectStoreDependencies): ToolSet {
 			inputSchema: z.object({
 				prefix: z.string().optional(),
 				limit: z.number().int().positive().max(500).optional(),
+				cursor: z
+					.string()
+					.optional()
+					.describe(
+						"Opaque cursor from a previous listing; reuse the same prefix.",
+					),
 			}),
 			execute: async (input) => listObjectStoreTool(input),
 		}),
