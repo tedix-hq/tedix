@@ -66,7 +66,16 @@ export const attentionContract = oc
 				}),
 			),
 		listDeckCards: oc
-			.input(AttentionViewInputSchema)
+			.input(
+				AttentionViewInputSchema.extend({
+					presentation: z
+						.enum(["generate", "stored"])
+						.default("generate")
+						.describe(
+							"Use stored for a projection read without generating or saving card presentation text. The default prepares display copy as needed.",
+						),
+				}),
+			)
 			.output(DeckProjectionSchema),
 		getDeckCard: oc
 			.input(

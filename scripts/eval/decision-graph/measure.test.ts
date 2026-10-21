@@ -7,9 +7,24 @@ import {
 	sample,
 	sweepCard,
 } from "./measure.mjs";
-import { deploymentContains } from "./run.mjs";
+import { assertStoredDeckSchema, deploymentContains } from "./run.mjs";
 
 describe("decision graph measurement", () => {
+	test("stale discovery cannot silently drop the stored-only request", () => {
+		expect(() => assertStoredDeckSchema({ properties: {} })).toThrow(
+			"Stored-only Deck read",
+		);
+		expect(() =>
+			assertStoredDeckSchema({
+				properties: { presentation: { enum: ["generate"] } },
+			}),
+		).toThrow("Stored-only Deck read");
+		expect(() =>
+			assertStoredDeckSchema({
+				properties: { presentation: { enum: ["generate", "stored"] } },
+			}),
+		).not.toThrow();
+	});
 	test("zero blocks preserve the observed order, missing contexts stay unmeasured", () => {
 		const { snapshot } = fixture();
 		for (const context of Object.values(snapshot.contexts))

@@ -7,6 +7,12 @@ import { fixture } from "./fixture.mjs";
 import { markdown, measure } from "./measure.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+export function assertStoredDeckSchema(parameters) {
+	if (!parameters?.properties?.presentation?.enum?.includes("stored"))
+		throw new Error(
+			"Stored-only Deck read is unavailable in the discovered schema",
+		);
+}
 /** @param {(ancestor: string, descendant: string) => boolean} ancestor */
 export function deploymentContains(sha, required, ancestor) {
 	if (
@@ -30,6 +36,7 @@ async function main() {
 			profile: { type: "string", default: "connect" },
 			"writers-sha": { type: "string" },
 			"backfill-sha": { type: "string" },
+			"reader-sha": { type: "string" },
 			"health-url": { type: "string" },
 			"api-health-url": { type: "string" },
 			"max-pages": { type: "string", default: "1000" },
@@ -55,13 +62,14 @@ async function main() {
 			!v.organization ||
 			!v["writers-sha"] ||
 			!v["backfill-sha"] ||
+			!v["reader-sha"] ||
 			!v["health-url"] ||
 			!v["api-health-url"]
 		)
 			throw new Error(
-				"Live mode requires organization, both dependency SHAs and both OS/API health URLs",
+				"Live mode requires organization, writer/backfill/stored-reader SHAs and both OS/API health URLs",
 			);
-		const dependencies = [v["writers-sha"], v["backfill-sha"]];
+		const dependencies = [v["writers-sha"], v["backfill-sha"], v["reader-sha"]];
 		git("fetch", "-q", "origin", "main");
 		const ancestor = (a, b) => {
 			try {
@@ -134,6 +142,8 @@ async function main() {
 				!/^[a-zA-Z_][\w]*\.[a-zA-Z_][\w]*$/.test(matches[0].callable)
 			)
 				throw new Error(`Exact read-only tool unavailable: ${name}`);
+			if (name === "list_deck_cards")
+				assertStoredDeckSchema(matches[0].parameters);
 			await writeFile(
 				join(out, `schema-${name}.json`),
 				JSON.stringify(matches[0], null, 2),
@@ -150,7 +160,7 @@ async function main() {
 		);
 		// Project the inventory before serialization; full cards can exceed gateway limits.
 		const deck = await code(
-			`const r=await ${deckTool}({limit:100}); return {ids:r.cards.map(c=>c.id),otherCards:r.cards.filter(c=>!c.interaction).map(c=>({id:c.id,kind:c.kind,label:c.label,requestedAt:c.requestedAt,dueAt:c.dueAt,workItemId:c.workApproval?.workItem?.id??null})),count:r.count,complete:r.complete,observedAt:r.observedAt,pipeline:r.pipeline};`,
+			`const r=await ${deckTool}({limit:100,presentation:"stored"}); return {ids:r.cards.map(c=>c.id),otherCards:r.cards.filter(c=>!c.interaction).map(c=>({id:c.id,kind:c.kind,label:c.label,requestedAt:c.requestedAt,dueAt:c.dueAt,workItemId:c.workApproval?.workItem?.id??null})),count:r.count,complete:r.complete,observedAt:r.observedAt,pipeline:r.pipeline};`,
 		);
 		snapshot = {
 			mode: "live",

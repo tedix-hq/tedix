@@ -98,16 +98,16 @@ export const attentionContractRouter = os.router({
 			await import("../../services/attention-projection");
 		const { cards, count, complete, observedAt, model } =
 			await loadDeckProjection(context, input);
-		const { prepareDeckCardFaces } =
-			await import("../../services/deck-card-face");
 		const { loadDeckPipelineStatus } =
 			await import("../../services/deck-pipeline-status");
+		let visible = cards.slice(0, input.limit);
+		if (input.presentation !== "stored") {
+			const { prepareDeckCardFaces } =
+				await import("../../services/deck-card-face");
+			visible = await prepareDeckCardFaces(context, visible, model);
+		}
 		return {
-			cards: await prepareDeckCardFaces(
-				context,
-				cards.slice(0, input.limit),
-				model,
-			),
+			cards: visible,
 			count,
 			complete,
 			observedAt,

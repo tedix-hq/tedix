@@ -11,8 +11,8 @@ bun scripts/eval/decision-graph/run.mjs --fixture --out /tmp/decision-graph-fixt
 bun test scripts/eval/decision-graph/measure.test.ts
 ```
 
-For live measurement, supply the actual writer and backfill commits and both
-installation health URLs. The runner checks that both commits are on
+For live measurement, supply the actual writer, backfill and stored-reader
+commits and both installation health URLs. The runner checks that all commits are on
 `origin/main` and ancestors of each surface's full `deployedSha` before reading
 any cards. A deployment receipt does not prove the backfill completed; verify
 its scheduled-run receipt separately before claiming graph coverage.
@@ -21,6 +21,7 @@ its scheduled-run receipt separately before claiming graph coverage.
 TEDIX_AGENT_SESSION=<your-verified-session> bun scripts/eval/decision-graph/run.mjs \
   --organization <authorized-org> --profile <profile> \
   --writers-sha <full-sha> --backfill-sha <full-sha> \
+  --reader-sha <full-sha> \
   --health-url <https-os-health-url> --api-health-url <https-api-health-url> \
   --out /tmp/decision-graph-live
 ```
@@ -36,8 +37,9 @@ historical ledgers are outside this collector's thirty-day interaction cohort.
 Missing contexts, unmapped cards, incomplete inventories and page bounds are
 visible in the report. They must not be described as complete organization-wide
 results.
-The CLI read path may populate the service's own presentation cache; the
-evaluator calls no write-capable operation and never requests a ranker run.
+The Deck read explicitly requests `presentation: "stored"`, which bypasses
+presentation generation and persistence. The evaluator never requests a ranker
+run.
 
 The baseline calls the production `planDeckSweep` without graph inputs. It
 reports actions separately from fuzzy already-decided proposals and retains
