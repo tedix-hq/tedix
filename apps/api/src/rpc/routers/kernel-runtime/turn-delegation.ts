@@ -286,15 +286,6 @@ export function buildKernelTurnWorkDeps(
 				context,
 				...stopInput,
 			}),
-		// Cost advisor: supply the currently-configured Azure deployment name as a
-		// placeholder for the optimize-mode `suggestedModel` field. Read
-		// defensively — absent when the kernel is unconfigured.
-		currentModelDeployment:
-			(
-				context.env as unknown as {
-					AZURE_CHAT_DEPLOYMENT?: string;
-				}
-			).AZURE_CHAT_DEPLOYMENT?.trim() || null,
 		// Workflow confirm dispatcher: dispatches a named skill workflow when the
 		// operator confirms a prior `run_workflow` route. Uses the SAME internal
 		// service-binding context as the auto-delegation dispatcher — the kernel is

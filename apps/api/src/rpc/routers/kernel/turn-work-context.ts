@@ -339,12 +339,6 @@ export interface KernelTurnWorkDeps {
 		assistantEvent: KernelRuntimeEvent | null;
 	} | null>;
 	/**
-	 * Optional currently-configured kernel model deployment name — threaded into
-	 * the cost advisor so the shadow verdict's `suggestedModel` field is populated.
-	 * Absent when the env is unconfigured (kernel inactive) — advisor records null.
-	 */
-	currentModelDeployment?: string | null;
-	/**
 	 * Optional per-turn stage-timing collector (first-token latency
 	 * instrumentation — see `kernel/turn-stage-timings.ts`). The KernelDO
 	 * creates it so the same collector also receives the answer-delta batcher's
