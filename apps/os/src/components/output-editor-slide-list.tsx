@@ -1,4 +1,4 @@
-import { Copy, MagnifyingGlass, Trash } from "@phosphor-icons/react";
+import { Copy, Trash } from "@phosphor-icons/react";
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationDeck,
@@ -6,13 +6,9 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
-import { Input } from "@/components/kumo/input";
+import { SearchInput } from "@/components/kumo/search-input";
 import { Text } from "@/components/kumo/text";
-import {
-	ReadOnlyElement,
-	SlideBackground,
-	useSlideTextColor,
-} from "@/components/output-slide-element";
+import { ReadOnlySlide } from "@/components/output-slide-element";
 import { createOutputNodeId } from "@/lib/output-models";
 
 type SlideLayout = OsPresentationCanvasSlide["layout"];
@@ -282,7 +278,6 @@ export function SlideList({
 	onView,
 	onCommit,
 }: SlideListProps) {
-	const color = useSlideTextColor();
 	const [search, setSearch] = useState("");
 	const [dragId, setDragId] = useState<string | null>(null);
 	const [drop, setDrop] = useState<{ index: number; before: boolean } | null>(
@@ -324,30 +319,23 @@ export function SlideList({
 
 	return (
 		<>
-			<div className="relative">
-				<MagnifyingGlass
-					size={14}
-					className="absolute top-2.5 left-2 text-kumo-subtle"
-				/>
-				<Input
-					aria-label="Search slides"
-					placeholder="Search slides"
-					value={search}
-					onChange={(event) => setSearch(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") {
-							event.preventDefault();
-							const first = visible[0];
-							if (filtering && first) onView(first.slide.id);
-						} else if (event.key === "Escape" && search) {
-							event.preventDefault();
-							event.stopPropagation();
-							setSearch("");
-						}
-					}}
-					className="pl-7"
-				/>
-			</div>
+			<SearchInput
+				aria-label="Search slides"
+				placeholder="Search slides"
+				value={search}
+				onChange={(event) => setSearch(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") {
+						event.preventDefault();
+						const first = visible[0];
+						if (filtering && first) onView(first.slide.id);
+					} else if (event.key === "Escape" && search) {
+						event.preventDefault();
+						event.stopPropagation();
+						setSearch("");
+					}
+				}}
+			/>
 			<ol
 				ref={listRef}
 				className="m-0 grid list-none grid-cols-1 content-start gap-1.5 overflow-y-auto p-0"
@@ -442,15 +430,7 @@ export function SlideList({
 								>
 									{index + 1}
 								</Text>
-								<div
-									className="slide-thumb-canvas"
-									style={{ background: slide.background, color }}
-								>
-									<SlideBackground slide={slide} />
-									{slide.elements.map((element) => (
-										<ReadOnlyElement element={element} key={element.id} />
-									))}
-								</div>
+								<ReadOnlySlide slide={slide} className="slide-thumb-canvas" />
 								<Text as="span" className="block truncate" role="caption">
 									{label}
 								</Text>

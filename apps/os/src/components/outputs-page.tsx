@@ -165,22 +165,22 @@ function outputMetric(preview: OsOutputLibraryPreview): string {
 
 function OutputMenu(props: {
 	item: OsOutputLibraryItem;
-	openMenuLabel: string;
-	opensInWorkspace: boolean;
 	onOpen: () => void;
 	onOpenStandalone: () => void;
 	onOpenWorkspace: () => void;
 	onRename: () => void;
 	onArchive: () => void;
-	contentAvailable: boolean;
 }) {
+	const affordance = outputOpenAffordance(props.item);
+	const opensInWorkspace = affordance.target.kind === "workspace";
+	const contentAvailable = props.item.preview.kind !== "unavailable";
 	return (
 		<div
 			className="output-card-actions flex shrink-0 items-center gap-1"
 			onClick={(event) => event.stopPropagation()}
 			onKeyDown={(event) => event.stopPropagation()}
 		>
-			{props.contentAvailable ? (
+			{contentAvailable ? (
 				<ShareControls
 					outputId={props.item.output.id}
 					currentRevisionId={props.item.output.currentRevisionId}
@@ -201,17 +201,17 @@ function OutputMenu(props: {
 					<DotsThree size={16} weight="bold" />
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
-					{props.contentAvailable ? (
+					{contentAvailable ? (
 						<DropdownMenuItem onClick={props.onOpen}>
-							{props.opensInWorkspace ? (
+							{opensInWorkspace ? (
 								<SquaresFour size={14} />
 							) : (
 								<ArrowSquareOut size={14} />
 							)}{" "}
-							{props.openMenuLabel}
+							{affordance.menuLabel}
 						</DropdownMenuItem>
 					) : null}
-					{props.contentAvailable && props.opensInWorkspace ? (
+					{contentAvailable && opensInWorkspace ? (
 						<>
 							<DropdownMenuItem onClick={props.onOpenStandalone}>
 								<ArrowSquareOut size={14} /> Open standalone
@@ -244,7 +244,6 @@ interface OutputCardProps {
 }
 
 function OutputCard(props: OutputCardProps) {
-	useOsFormattingPreferences();
 	const { item } = props;
 	const Icon = KIND_ICONS[item.output.kind];
 	const provenance = workspaceLabel(item);
@@ -261,9 +260,6 @@ function OutputCard(props: OutputCardProps) {
 			onOpenStandalone={props.onOpenStandalone}
 			onOpenWorkspace={props.onOpenWorkspace}
 			onRename={props.onRename}
-			openMenuLabel={affordance.menuLabel}
-			opensInWorkspace={affordance.target.kind === "workspace"}
-			contentAvailable={contentAvailable}
 		/>
 	);
 	const activate = (event: KeyboardEvent) => {
@@ -305,10 +301,7 @@ function OutputCard(props: OutputCardProps) {
 						tone="secondary"
 						className="wrap-anywhere"
 					>
-						{item.output.kind === "presentation"
-							? "Slides"
-							: kindLabel(item.output.kind)}{" "}
-						· {provenance}
+						{kindLabel(item.output.kind)} · {provenance}
 						<time
 							className="sm:hidden"
 							dateTime={item.output.updatedAt}
@@ -562,6 +555,7 @@ function ArchiveDialog(props: {
 }
 
 export function OutputsPage() {
+	useOsFormattingPreferences();
 	useOutputsWebMcpTools();
 	const surface = getOsSurface("outputs");
 	const EmptyIcon = SURFACE_ICONS.outputs;
@@ -625,7 +619,7 @@ export function OutputsPage() {
 	});
 	const allItems = outputs.data?.items ?? [];
 	const normalizedQuery = query.trim().toLocaleLowerCase();
-	const matchesSearch = (item: OsOutputLibraryItem) =>
+	const searchResults = allItems.filter((item) =>
 		[
 			item.output.title,
 			item.workspace?.name ?? "",
@@ -634,13 +628,13 @@ export function OutputsPage() {
 		]
 			.join(" ")
 			.toLocaleLowerCase()
-			.includes(normalizedQuery);
-	const inKindScope = allItems.filter(
-		(item) => (scope === "all" || item.scope === scope) && matchesSearch(item),
+			.includes(normalizedQuery),
 	);
-	const inOwnerScope = allItems.filter(
-		(item) =>
-			(kind === "all" || item.output.kind === kind) && matchesSearch(item),
+	const inKindScope = searchResults.filter(
+		(item) => scope === "all" || item.scope === scope,
+	);
+	const inOwnerScope = searchResults.filter(
+		(item) => kind === "all" || item.output.kind === kind,
 	);
 	const visibleOutputs = inKindScope.filter(
 		(item) => kind === "all" || item.output.kind === kind,

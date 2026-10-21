@@ -123,7 +123,7 @@ const TOOLBAR_COLLAPSE_WIDTHS = [1380, 1250, 790] as const;
 const imageFiles = (files: FileList | null | undefined) =>
 	[...(files ?? [])].filter((file) => file.type.startsWith("image/"));
 
-export interface DocumentEditorProps {
+interface DocumentEditorProps {
 	value: DocumentContent;
 	onChange: (next: DocumentContent) => void;
 	disabled?: boolean;
