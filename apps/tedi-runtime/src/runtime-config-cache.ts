@@ -33,8 +33,8 @@ export class RuntimeConfigCache {
 						: row.definition;
 				const value = definition?.workItemConcurrency;
 				parsed =
-					typeof value === "number" && value > 0
-						? Math.min(value, 8)
+					typeof value === "number" && Number.isFinite(value) && value >= 1
+						? Math.min(Math.floor(value), 8)
 						: fallback;
 				cacheable = true;
 			}
