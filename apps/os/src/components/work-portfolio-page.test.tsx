@@ -328,6 +328,38 @@ describe("PortfolioApp", () => {
 		}
 	});
 
+	it("gives project, next-task, factory and cross-org links a 44px phone target", () => {
+		const runId = "11111111-1111-4111-8111-111111111111";
+		const doc = new DOMParser().parseFromString(
+			render(
+				seededClient({
+					factories: [
+						factory({
+							verdict: "failing",
+							verdictReason: `Run ${runId} failed: provider timeout`,
+						}),
+					],
+				}),
+			),
+			"text/html",
+		);
+		const targets = [
+			'[data-portfolio-card] a[href^="/work/projects/"]',
+			'a[href="/work/items/item-accepted"]',
+			'[data-factory] a[href^="/work/"]',
+			`[data-factory] a[href="/work/runs/${runId}"]`,
+			'a[href^="https://acme-demo.os.tedix.dev"]',
+		];
+		for (const selector of targets) {
+			const links = [...doc.querySelectorAll(selector)];
+			expect(links.length, selector).toBeGreaterThan(0);
+			for (const link of links)
+				expect(link.className, selector).toMatch(
+					/tap-target-y|max-sm:min-h-11/,
+				);
+		}
+	});
+
 	it("stacks factory cards and links failures without exposing run identifiers", () => {
 		const runId = "11111111-1111-4111-8111-111111111111";
 		const doc = new DOMParser().parseFromString(

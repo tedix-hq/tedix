@@ -224,6 +224,10 @@ export function isIdleTemplate(row: FactoryScoreboardEntry): boolean {
 	return row.kind === "blueprint" && row.runs === 0;
 }
 
+/** Phone-only 44px hit area for a short inline link; desktop is unchanged. */
+const PHONE_INLINE_LINK =
+	"max-sm:inline-flex max-sm:min-h-11 max-sm:items-center";
+
 function counted(count: number, noun: string): string {
 	return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
@@ -317,9 +321,13 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 							as="span"
 							role="label"
 							tone="error"
-							className="block line-clamp-2"
+							className="block line-clamp-2 max-sm:line-clamp-none"
 						>
-							<Link variant="record" href={factoryFailureHref(row)}>
+							<Link
+								variant="record"
+								href={factoryFailureHref(row)}
+								className="tap-target-y inline-block"
+							>
 								{plainWorkText(row.verdictReason)}
 							</Link>
 						</Text>
@@ -380,7 +388,11 @@ function FactoryScoreboard() {
 				</SectionHeading>
 				{unusedTemplates ? (
 					<SectionActions>
-						<Link variant="section" href="/blueprints">
+						<Link
+							variant="section"
+							href="/blueprints"
+							className={PHONE_INLINE_LINK}
+						>
 							{counted(unusedTemplates, "Template")} with no runs
 						</Link>
 					</SectionActions>
@@ -428,7 +440,7 @@ function FactoryScoreboard() {
 function CrossOrgLink({ slug }: { slug: string }) {
 	const href = crossOrgPortfolioUrl(slug);
 	return href ? (
-		<Link href={href} className="type-tedix-label">
+		<Link href={href} className={`type-tedix-label ${PHONE_INLINE_LINK}`}>
 			in {slug}
 		</Link>
 	) : (
@@ -642,7 +654,10 @@ export function PortfolioApp({
 								{[...grouped.unknown].map(([key, count]) => (
 									<p key={key}>{OS_COPY.portfolio.unknown(count, key)}</p>
 								))}
-								<Link href="/admin/organization#organization-portfolio">
+								<Link
+									href="/admin/organization#organization-portfolio"
+									className={PHONE_INLINE_LINK}
+								>
 									Edit portfolio sections
 								</Link>
 							</AlertDescription>
