@@ -5,8 +5,6 @@ import { createD1Facade } from "../../test/d1-facade";
 import {
 	deleteOldCatalogChanges,
 	deleteOldCronExecutions,
-	deleteOldKernelRuntimeEvents,
-	deleteOldTediRuntimeEvents,
 } from "./maintenance";
 
 /**
@@ -59,103 +57,6 @@ function realDb(): { db: DbClient; sqlite: DatabaseSync } {
 
 const OLD = "2020-01-01T00:00:00.000Z"; // far older than any 90d cutoff
 const NEW = new Date().toISOString(); // within the 90d window
-
-function seedTedi(sqlite: DatabaseSync, id: string, createdAt: string) {
-	sqlite
-		.prepare(
-			`INSERT INTO tedi_runtime_events (id, organization_id, tedi_id, kind, created_at) VALUES (?, 'org1', 'tedi1', 'tool.completed', ?)`,
-		)
-		.run(id, createdAt);
-}
-
-function seedKernel(sqlite: DatabaseSync, id: string, createdAt: string) {
-	sqlite
-		.prepare(
-			`INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, created_at) VALUES (?, 'org1', 'message.delta', 'conv1', ?)`,
-		)
-		.run(id, createdAt);
-}
-
-describe("deleteOldTediRuntimeEvents", () => {
-	it("deletes only rows older than the cutoff; newer rows survive", async () => {
-		const { db, sqlite } = realDb();
-		seedTedi(sqlite, "old-1", OLD);
-		seedTedi(sqlite, "old-2", OLD);
-		seedTedi(sqlite, "new-1", NEW);
-
-		const deleted = await deleteOldTediRuntimeEvents(db, 90);
-		expect(deleted).toBe(2);
-
-		const survivors = sqlite
-			.prepare(`SELECT id FROM tedi_runtime_events ORDER BY id`)
-			.all() as Array<{ id: string }>;
-		expect(survivors.map((r) => r.id)).toEqual(["new-1"]);
-	});
-
-	it("drains a backlog across multiple batches (id-IN-subquery idiom)", async () => {
-		const { db, sqlite } = realDb();
-		for (let i = 0; i < 5; i++) seedTedi(sqlite, `old-${i}`, OLD);
-		seedTedi(sqlite, "new-1", NEW);
-
-		// batchSize 2 → 3 batches (2 + 2 + 1) drain all 5 old rows.
-		const deleted = await deleteOldTediRuntimeEvents(db, 90, 2, 40);
-		expect(deleted).toBe(5);
-
-		const remaining = sqlite
-			.prepare(`SELECT COUNT(*) AS c FROM tedi_runtime_events`)
-			.get() as {
-			c: number;
-		};
-		expect(remaining.c).toBe(1);
-	});
-
-	it("respects maxBatches (stops before fully draining an over-cap backlog)", async () => {
-		const { db, sqlite } = realDb();
-		for (let i = 0; i < 6; i++) seedTedi(sqlite, `old-${i}`, OLD);
-
-		// batchSize 2, maxBatches 2 → at most 4 deleted this tick.
-		const deleted = await deleteOldTediRuntimeEvents(db, 90, 2, 2);
-		expect(deleted).toBe(4);
-
-		const remaining = sqlite
-			.prepare(`SELECT COUNT(*) AS c FROM tedi_runtime_events`)
-			.get() as {
-			c: number;
-		};
-		expect(remaining.c).toBe(2);
-	});
-});
-
-describe("deleteOldKernelRuntimeEvents", () => {
-	it("prunes old kernel events but never touches kernel_conversations", async () => {
-		const { db, sqlite } = realDb();
-		seedKernel(sqlite, "old-1", OLD);
-		seedKernel(sqlite, "new-1", NEW);
-		sqlite
-			.prepare(
-				`INSERT INTO kernel_conversations (id, organization_id, created_at) VALUES ('conv1', 'org1', ?)`,
-			)
-			.run(OLD);
-
-		const deleted = await deleteOldKernelRuntimeEvents(db, 90);
-		expect(deleted).toBe(1);
-
-		const events = sqlite
-			.prepare(`SELECT id FROM kernel_runtime_events`)
-			.all() as Array<{
-			id: string;
-		}>;
-		expect(events.map((r) => r.id)).toEqual(["new-1"]);
-
-		// The durable sidebar projection is untouched by event pruning.
-		const convs = sqlite
-			.prepare(`SELECT COUNT(*) AS c FROM kernel_conversations`)
-			.get() as {
-			c: number;
-		};
-		expect(convs.c).toBe(1);
-	});
-});
 
 describe("deleteOldCronExecutions (space-format datetime cutoff)", () => {
 	// tedi_cron_executions.created_at is left on the CURRENT_TIMESTAMP default

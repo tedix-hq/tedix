@@ -66,6 +66,14 @@ per run by `max_rows_per_run`:
    the cutoff in each statement, with 0.5 s, 1 s and 2 s back-off when D1
    reports `overloaded`.
 
+A policy row whose `keep_days` sits below the table's floor (the shipped
+`audit_events` seed says 14 days against a 30-day floor) runs at the floor
+and reports both values (`keepDays`, `keepDaysRow`) instead of being
+refused. The nightly `retention-cleanup` cron no longer deletes
+`audit_events`, `tedi_runtime_events` or `kernel_runtime_events`: these
+rows leave the main database only through this engine, after a verified
+copy exists.
+
 A run that stops anywhere leaves the main rows in place; the next tick repeats
 steps 1 to 4 for the same rows (the copy is a no-op for rows already there,
 the archive key is deterministic). Without the `LOGS_DB` binding the policy

@@ -27,6 +27,7 @@ import {
 	D1_RETENTION_ROWS_PER_STATEMENT,
 	copyD1RetentionRowsToLogs,
 	d1RetentionCutoff,
+	d1RetentionEffectiveKeepDays,
 	d1RetentionPolicyProblem,
 	d1RetentionRowId,
 	deleteD1RetentionRows,
@@ -226,7 +227,8 @@ async function runPolicy(
 		result.problem = "logs_db_missing";
 		return result;
 	}
-	const cutoff = d1RetentionCutoff(tableSpec, now, policy.keepDays);
+	const keepDays = d1RetentionEffectiveKeepDays(tableSpec, policy);
+	const cutoff = d1RetentionCutoff(tableSpec, now, keepDays);
 	const estimate = await estimateD1RetentionBacklog(db, tableSpec, cutoff);
 	result.eligibleRows = estimate.eligibleRows;
 	result.eligibleBytes = estimate.eligibleBytes;
@@ -313,11 +315,17 @@ async function runPolicy(
 
 function reportFor(
 	result: D1RetentionTableResult,
-	keepDays: number,
+	policy: D1RetentionPolicyRow,
 ): Record<string, JsonValue> {
+	const tableSpec = getD1RetentionTableSpec(policy.tableName);
+	const keepDays = tableSpec
+		? d1RetentionEffectiveKeepDays(tableSpec, policy)
+		: policy.keepDays;
 	return {
 		mode: result.mode,
+		/** The window the run used; `keepDaysRow` when the row sat below the floor. */
 		keepDays,
+		...(keepDays !== policy.keepDays ? { keepDaysRow: policy.keepDays } : {}),
 		problem: result.problem,
 		eligibleRows: result.eligibleRows,
 		eligibleBytes: result.eligibleBytes,
@@ -376,7 +384,7 @@ export async function runD1Retention(params: {
 		await recordD1RetentionRun(params.db, {
 			tableName: policy.tableName,
 			ranAt: params.now.toISOString(),
-			report: reportFor(result, policy.keepDays),
+			report: reportFor(result, policy),
 			archivedRows: result.archivedRows,
 			deletedRows: result.deletedRows,
 		});
