@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "./button";
 import {
 	DialogSurface,
+	dialogActionsClasses,
 	stickyFooterClasses,
 	stickyHeaderClasses,
 } from "./dialog";
@@ -55,7 +56,7 @@ function AlertDialogHeader({
 		<div
 			data-slot="alert-dialog-header"
 			className={cn(
-				"grid place-items-center gap-1.5 text-center sm:place-items-start sm:text-left",
+				"grid gap-1.5 text-left",
 				stickyHeaderClasses,
 				"pr-4 sm:pr-5",
 				className,
@@ -72,11 +73,7 @@ function AlertDialogFooter({
 	return (
 		<div
 			data-slot="alert-dialog-footer"
-			className={cn(
-				"flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-				stickyFooterClasses,
-				className,
-			)}
+			className={cn(dialogActionsClasses, stickyFooterClasses, className)}
 			{...props}
 		/>
 	);

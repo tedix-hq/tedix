@@ -136,7 +136,14 @@ export function DecisionEnvelopeCard({
 				(decision.reversibility !== "two_way" ||
 					decision.protectedEffects.length > 0)
 					? {
-							confirm: `${option.consequence} ${renderCardDateText(decision.blastRadius)}. This saves your decision; execution still follows the originating Work's permissions.`,
+							confirm: [
+								option.consequence,
+								renderCardDateText(decision.blastRadius),
+								"This saves your decision; execution still follows the originating Work's permissions.",
+							]
+								.map((part) => part.trim().replace(/([^.!?])$/, "$1."))
+								.filter(Boolean)
+								.join(" "),
 						}
 					: {}),
 			}))}

@@ -5,8 +5,13 @@ import {
 } from "@tanstack/react-query";
 import { createContext } from "react";
 
+/** `errorShownInline`: the caller shows a failure itself, so the Deck adds no toast. */
 export const OptimisticDeckDecisionContext = createContext<
-	((write: () => Promise<unknown>) => Promise<unknown>) | null
+	| ((
+			write: () => Promise<unknown>,
+			options?: { errorShownInline?: boolean },
+	  ) => Promise<unknown>)
+	| null
 >(null);
 
 type Row = { id?: string; request?: { id: string }; proposal?: { id: string } };

@@ -746,7 +746,10 @@ function DecisionDeckContent({
 	);
 	const optimisticDecision =
 		mode === "decide" && selected
-			? async (write: () => Promise<unknown>) => {
+			? async (
+					write: () => Promise<unknown>,
+					options?: { errorShownInline?: boolean },
+				) => {
 					const id = selected.id;
 					inFlightDecisions.current++;
 					setSaving(true);
@@ -766,11 +769,12 @@ function DecisionDeckContent({
 						);
 						return result;
 					} catch (error) {
-						toast.error(
-							error instanceof Error
-								? error.message
-								: "Your decision could not be saved. Try again.",
-						);
+						if (!options?.errorShownInline)
+							toast.error(
+								error instanceof Error
+									? error.message
+									: "Your decision could not be saved. Try again.",
+							);
 						throw error;
 					} finally {
 						if (--inFlightDecisions.current === 0) {

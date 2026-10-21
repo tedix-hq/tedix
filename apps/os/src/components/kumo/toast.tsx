@@ -63,6 +63,9 @@ const toast = {
  * Kumo still owns the queue, announcements, swipe, Escape and toast lifetime.
  */
 const toastOutletClassName = [
+	// Kumo's viewport is `z-1`; this stacking context lifts it onto the toast
+	// rung so a toast raised from inside a dialog paints above that dialog.
+	"relative z-(--tedix-layer-toast)",
 	"[&_[data-kumo-part=close]]:max-sm:top-0 [&_[data-kumo-part=close]]:max-sm:right-0 [&_[data-kumo-part=close]]:max-sm:size-11 [&_[data-kumo-part=close]]:max-sm:rounded-tr-xl",
 	"[&_[data-kumo-part=close]]:coarse:top-0 [&_[data-kumo-part=close]]:coarse:right-0 [&_[data-kumo-part=close]]:coarse:size-11 [&_[data-kumo-part=close]]:coarse:rounded-tr-xl",
 	"[&_:has(>[data-toast-title])]:max-sm:pr-7 [&_:has(>[data-toast-title])]:coarse:pr-7 [&_:has(>[data-toast-title])]:[overflow-wrap:anywhere]",
