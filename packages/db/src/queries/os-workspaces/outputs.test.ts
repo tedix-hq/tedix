@@ -152,6 +152,53 @@ describe("os outputs", () => {
 		).toMatchObject({ note: "second draft" });
 	});
 
+	it("returns the current revision instead of storing an identical body again", async () => {
+		const { db, sqlite } = fixture();
+		await seedOutput(db);
+		const same = await createOsOutputRevision(db, {
+			id: "rev-same",
+			organizationId: "org-1",
+			outputId: "out-1",
+			content: '{"kind":"document","blocks":[]}',
+			note: "no change",
+			createdByKind: "tedi",
+			createdById: "tedi-1",
+			expectedRevision: 1,
+		});
+		expect(same).toMatchObject({
+			ok: true,
+			revision: { id: "out-1-rev-1", revision: 1 },
+		});
+		expect(
+			sqlite.prepare("SELECT count(*) AS count FROM os_output_revisions").get(),
+		).toEqual({ count: 1 });
+
+		const changed = await createOsOutputRevision(db, {
+			id: "rev-2",
+			organizationId: "org-1",
+			outputId: "out-1",
+			content:
+				'{"kind":"document","blocks":[{"type":"paragraph","text":"v2"}]}',
+			createdByKind: "tedi",
+			createdById: "tedi-1",
+			expectedRevision: 1,
+		});
+		expect(changed).toMatchObject({ ok: true, revision: { revision: 2 } });
+		// A stale CAS still conflicts even when the body matches the current one.
+		expect(
+			await createOsOutputRevision(db, {
+				id: "rev-stale",
+				organizationId: "org-1",
+				outputId: "out-1",
+				content:
+					'{"kind":"document","blocks":[{"type":"paragraph","text":"v2"}]}',
+				createdByKind: "tedi",
+				createdById: "tedi-1",
+				expectedRevision: 1,
+			}),
+		).toEqual({ ok: false, reason: "revision_conflict" });
+	});
+
 	it("resolves an exact revision number only inside its organization and output", async () => {
 		const { db } = fixture();
 		await seedOutput(db);
@@ -200,7 +247,8 @@ describe("os outputs", () => {
 		const params = {
 			organizationId: "org-1",
 			outputId: "out-1",
-			content: '{"kind":"document","blocks":[]}',
+			content:
+				'{"kind":"document","blocks":[{"type":"paragraph","text":"race"}]}',
 			createdByKind: "user" as const,
 			createdById: "u-1",
 			accessEnvelope: '{"version":1,"sources":[]}',
@@ -221,7 +269,8 @@ describe("os outputs", () => {
 		const params = {
 			organizationId: "org-1",
 			outputId: "out-1",
-			content: '{"kind":"document","blocks":[]}',
+			content:
+				'{"kind":"document","blocks":[{"type":"paragraph","text":"race"}]}',
 			createdByKind: "user" as const,
 			createdById: "u-1",
 			accessEnvelope: '{"version":1,"sources":[]}',
