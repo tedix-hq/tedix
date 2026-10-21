@@ -20,7 +20,7 @@ import {
 	releaseCmsRestoreFence,
 } from "./cms-restore-fences";
 
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		CREATE TABLE cms_sites (
@@ -67,7 +67,10 @@ function fixture() {
 			status TEXT NOT NULL DEFAULT 'queued'
 		);
 	`);
-	return { db: createDbQueryClient(createD1Facade(sqlite)), sqlite };
+	return {
+		db: createDbQueryClient(createD1Facade(sqlite, { onPrepare })),
+		sqlite,
+	};
 }
 
 const one = {
@@ -85,6 +88,36 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it("checks reusable permits through indexed point lookups without scanning admission tables", async () => {
+		let query = "";
+		const { db, sqlite } = fixture((statement) => {
+			query = statement;
+		});
+		const permit = { ...one, permitId: "indexed-permit" };
+		expect(await enterCmsRestorePermit(db, permit)).toBe(true);
+		expect(await canReuseCmsRestorePermit(db, permit)).toBe(true);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(
+				permit.permitId,
+				permit.siteId,
+				permit.slug,
+				permit.restoreEpoch,
+				permit.kind,
+			)
+			.map((row) => String(row.detail));
+		for (const table of ["permit", "site", "fence", "operation"]) {
+			expect(
+				plan.some((step) =>
+					new RegExp(`SEARCH ${table} USING (?:COVERING )?INDEX`).test(step),
+				),
+			).toBe(true);
+			expect(
+				plan.some((step) => new RegExp(`SCAN ${table}\\b`).test(step)),
+			).toBe(false);
+		}
+	});
+
 	it.each(["nested", "scheduled"] as const)(
 		"reuses only eligible claims of the exact %s kind",
 		async (kind) => {

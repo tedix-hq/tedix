@@ -19,7 +19,11 @@ import {
 
 import { EmDashDB } from "./emdash-db";
 import { TenantEmDashDB, TenantR2, TenantSession } from "./index";
-import { CmsRestoreFenceUnavailableError } from "./tenant-restore-fence";
+import {
+	CmsRestoreFenceUnavailableError,
+	withCmsRestoreResponsePermit,
+} from "./tenant-restore-fence";
+import { PublicRestorePermits } from "./public-restore-permits";
 
 const platformD1 = (env as unknown as { PLATFORM_DB: D1Database }).PLATFORM_DB;
 const db = createDbQueryClient(platformD1);
@@ -440,6 +444,69 @@ describe("nested tenant storage restore permits", () => {
 	});
 });
 
+test("buffered pages do not rotate revisions for zero-row tenant maintenance", async () => {
+	const identity = await site();
+	const namespace = (
+		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+	).DB_DO;
+	const counts = await runInDurableObject(
+		namespace.get(namespace.idFromName(identity.slug)),
+		async (instance: EmDashDB) => {
+			const platform = (
+				Reflect.get(instance, "env") as { PLATFORM_DB: D1Database }
+			).PLATFORM_DB;
+			const statements: string[] = [];
+			const originalPrepare = platform.prepare.bind(platform);
+			const spy = vi.spyOn(platform, "prepare").mockImplementation((sql) => {
+				statements.push(sql);
+				return originalPrepare(sql);
+			});
+			const outer = new PublicRestorePermits();
+			const tasks: Promise<unknown>[] = [];
+			try {
+				for (let page = 0; page < 10; page++) {
+					const response = await withCmsRestoreResponsePermit(
+						createDbQueryClient(platform),
+						identity,
+						async () => {
+							await instance.queryWithRestorePermit(
+								identity,
+								"SELECT * FROM content",
+							);
+							await instance.queryWithRestorePermit(
+								identity,
+								"DELETE FROM content WHERE id = -1",
+							);
+							return new Response("page", {
+								headers: { "Content-Type": "text/html" },
+							});
+						},
+						undefined,
+						outer.forRequest((task) => tasks.push(task)),
+					);
+					if (!response.admitted) throw new Error("expected page admission");
+					expect(await response.value.text()).toBe("page");
+				}
+				return {
+					queries: statements.length,
+					revisions: statements.filter((sql) =>
+						/^update "cms_sites"/i.test(sql),
+					).length,
+				};
+			} finally {
+				await Promise.all(tasks);
+				spy.mockRestore();
+			}
+		},
+	);
+	console.info(
+		"CMS core D1 queries for 10 buffered pages before reservation cleanup",
+		counts,
+	);
+	expect(counts.revisions).toBe(0);
+	expect(counts.queries).toBe(30);
+}, 20_000);
+
 test("page-cache revision changes on tenant writes but not reads", async () => {
 	const identity = await site();
 	const namespace = (
@@ -457,6 +524,12 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 		)?.revision;
 	const before = await revision();
 	await stub.queryWithRestorePermit(identity, "SELECT * FROM content");
+	expect(await revision()).toBe(before);
+	await stub.queryWithRestorePermit(
+		identity,
+		'UPDATE "content" SET title = ? WHERE id = -1',
+		["Nothing"],
+	);
 	expect(await revision()).toBe(before);
 	await stub.query(
 		"CREATE TABLE _emdash_404_log (id INTEGER PRIMARY KEY, hits INTEGER)",
@@ -555,13 +628,25 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	);
 	const published = await revision();
 	expect(published).not.toBe(afterSettings);
+	await stub.query("CREATE VIEW editable_content AS SELECT * FROM content");
+	await stub.query(
+		"CREATE TRIGGER edit_content INSTEAD OF UPDATE ON editable_content BEGIN UPDATE content SET title = NEW.title WHERE id = OLD.id; END",
+	);
+	expect(
+		await stub.queryWithRestorePermit(
+			identity,
+			"UPDATE editable_content SET title = 'Via trigger'",
+		),
+	).toMatchObject({ changes: 0 });
+	const triggered = await revision();
+	expect(triggered).not.toBe(published);
 	await stub.queryWithRestorePermit(
 		identity,
 		"WITH errors AS (SELECT * FROM _emdash_404_log) UPDATE content SET title = ? WHERE EXISTS (SELECT 1 FROM errors)",
 		["Published with error context"],
 	);
 	const contextualWrite = await revision();
-	expect(contextualWrite).not.toBe(published);
+	expect(contextualWrite).not.toBe(triggered);
 	await stub.batchQueryWithRestorePermit(identity, [
 		{ sql: "UPDATE _emdash_404_log SET hits = hits + 1 WHERE id = 1" },
 		{ sql: "UPDATE content SET title = ?", params: ["Republished"] },
