@@ -449,10 +449,13 @@ it("exposes one actionable date including the source expiry and task classificat
 		{
 			kind: "question",
 			dueAt: "2026-10-23",
+			decision: envelope("question", {
+				proposal: "Complete Maple setup?",
+				expiresAt: "2026-10-22T12:00:00Z",
+			}),
 			request: {
 				subject: "Your Maple login (about 3 min)",
 				prompt: "1. Sign in with MFA.\n2. Revoke the old token.",
-				expiresAt: "2026-10-22T12:00:00Z",
 			},
 		},
 		now,
