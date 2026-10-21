@@ -295,11 +295,11 @@ a {
 }
 
 /*
- * Work has no composer to keep above the keyboard. Following the visual
- * viewport there squeezed the Deck card to a sliver and lifted the Feed/Deck
- * bar into mid-screen, so the Work shell keeps the layout viewport and its bar
- * stays at the bottom edge, padded for the home indicator itself. Dialogs and
- * sheets portal outside the shell and still follow the keyboard.
+ * Following the visual viewport in Work squeezed the Deck card to a sliver
+ * and lifted the Feed/Deck bar into mid-screen, so the Work shell keeps the
+ * layout viewport and its bar stays at the bottom edge, padded for the home
+ * indicator itself. Dialogs and sheets portal outside the shell and still
+ * follow the keyboard; Work pages with a field get keyboard scroll room below.
  */
 .os-shell:has(.fd-work-shell) {
 	--viewport-tedix-height: 100dvh;
@@ -315,6 +315,38 @@ a {
 	[data-slot="page"]:not([data-full-height]) {
 	/* Keep the last content above the launcher without shrinking the scrollport. */
 	padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/*
+ * Work keeps the layout viewport (above), so the software keyboard covers the
+ * bottom of a Work page instead of shrinking it. The covered height becomes
+ * scroll room, so a comment or answer field and the button after it can still
+ * scroll above the keyboard. It is zero while no keyboard is open.
+ */
+.fd-work-shell [data-slot="page"]:not([data-full-height]) {
+	padding-bottom: calc(1.5rem + var(--viewport-tedix-bottom, 0px));
+}
+:root[data-quick-chat-launcher]
+	.route-content
+	.fd-work-shell
+	[data-slot="page"]:not([data-full-height]) {
+	padding-bottom: calc(
+		5rem + env(safe-area-inset-bottom, 0px) + var(--viewport-tedix-bottom, 0px)
+	);
+}
+
+/*
+ * A one-line text link that must still be a 44px touch target. The padding
+ * grows the hit area and the negative margin gives the space back, so the
+ * text keeps its place. `relative` lifts it above the line it now overlaps.
+ * Put line clamping on an inner span: the padding would reveal clipped lines.
+ */
+@media (width < 640px), (pointer: coarse) {
+	.tap-target-y {
+		position: relative;
+		padding-block: max(0px, calc((2.75rem - 1lh) / 2));
+		margin-block: min(0px, calc((1lh - 2.75rem) / 2));
+	}
 }
 
 .topbar {

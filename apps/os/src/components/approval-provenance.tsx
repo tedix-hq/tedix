@@ -21,7 +21,9 @@ export function ApprovalProvenanceHistory() {
 	const [open, setOpen] = useState(false);
 	return (
 		<details onToggle={(event) => setOpen(event.currentTarget.open)}>
-			<summary className="cursor-pointer">Past approval decisions</summary>
+			<summary className="tap-target-y cursor-pointer">
+				Past approval decisions
+			</summary>
 			{open ? <ApprovalHistoryRequests /> : null}
 		</details>
 	);
