@@ -30,10 +30,46 @@ import type { ApiKeyPurpose } from "@tedix/api-contract/schemas/organization";
 import type { JWTPayload } from "@tedix/auth/types";
 import {
 	type createDbClient,
+	type D1SessionConstraint,
 	type DbSession,
 	createDbSession,
 	D1_BOOKMARK_HEADER,
 } from "@tedix/db/client";
+
+/**
+ * Read-only procedures on the per-agent-call path whose first query may go to
+ * a D1 read replica. Each runs on every MCP call (grant check) or every MCP
+ * surface rebuild (discovery), so when the primary is saturated by heavy
+ * scans these are the reads that should not queue behind it.
+ *
+ * While read replication is disabled on the database, `first-unconstrained`
+ * still routes to the primary, so this list changes nothing until replication
+ * is turned on. Once it is, a caller may read state up to the replication lag
+ * old (normally well under a second): a grant revoked a moment ago can still
+ * pass once, and one granted a moment ago can still fail once. Writes inside
+ * these procedures always go to the primary, and the session keeps them
+ * read-your-own-writes.
+ */
+export const D1_REPLICA_READ_RPC_PATHS: ReadonlySet<string> = new Set([
+	"/rpc/organizations/verifyMultiOrgMcpGrant",
+	"/rpc/apps/getBySlugWithTools",
+	"/rpc/apps/getBySlugsWithTools",
+	"/rpc/apps/getByDomain",
+	"/rpc/tedis/listRuntimeMetaBySlugs",
+	"/rpc/skills/listByApp",
+	"/rpc/skills/listSummariesByApps",
+]);
+
+/** How a request's D1 session picks its first query's target. */
+export function d1SessionConstraintFor(request: Request): D1SessionConstraint {
+	try {
+		return D1_REPLICA_READ_RPC_PATHS.has(new URL(request.url).pathname)
+			? "first-unconstrained"
+			: "first-primary";
+	} catch {
+		return "first-primary";
+	}
+}
 
 /** Canonical request-auth discriminator after edge authentication succeeds. */
 export type ApiAuthType =
@@ -214,10 +250,10 @@ export function createContext(
 		env.DB,
 		request.headers.get(D1_BOOKMARK_HEADER),
 		// first-primary: a caller sending no bookmark cannot read a stale row.
-		// Enabling replica reads (first-unconstrained) made warm reads an order
-		// of magnitude slower; read replication is beta, so do not switch
-		// without a controlled measurement.
-		"first-primary",
+		// Enabling replica reads (first-unconstrained) everywhere made warm reads
+		// an order of magnitude slower; read replication is beta, so only the
+		// listed hot read paths may start on a replica.
+		d1SessionConstraintFor(request),
 	);
 	return {
 		env,
