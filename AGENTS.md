@@ -89,7 +89,7 @@ Breaking these is expensive and usually invisible locally. Do not:
   keep their TypeScript `{noun}.{verb}` shape and are exempt.
 - **Edit `worker-configuration.d.ts` by hand** — regenerate with
   `bun run types:generate`. Worker config is
-  `wrangler.jsonc`, never `.toml`.
+  `cloudflare.config.ts` or `wrangler.jsonc`, never `.toml`.
 
 ## Local work and live access
 
