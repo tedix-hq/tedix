@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	jsonRpcEnvelopeErrorResponse,
 	unsupportedProtocolVersionResponse,
-} from "./index";
+} from "./json-rpc-envelope";
 import {
 	isCompleteTaskNotificationState,
 	McpSubscriptionDurableObject,

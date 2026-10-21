@@ -4,7 +4,7 @@ import {
 	resolveConnectOrganization,
 	shouldBindHumanToTedi,
 } from "./connect-organization";
-import { enforceMcpAccess } from "./index";
+import { enforceMcpAccess } from "./mcp-access";
 
 const tedix = {
 	organizationId: "id-tedix",

@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vite-plus/test";
-import { maybeHandleInteractionEvents } from "./index";
+import { maybeHandleInteractionEvents } from "./mcp-events-routes";
 const ORG = "10000000-0000-4000-8000-000000000001",
 	REQUEST = "20000000-0000-4000-8000-000000000002";
 function request(

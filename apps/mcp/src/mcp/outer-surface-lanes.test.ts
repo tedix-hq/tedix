@@ -16,7 +16,7 @@ import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tool
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { compactCodeModeTools } from "../index";
+import { compactCodeModeTools } from "../codemode-fast-paths";
 import { mcpToolsListResultTransform } from "../mcp-result-transform";
 import { SESSION_NATIVE_HOME_TOOL_IDS } from "./code-mode-native-tools";
 
