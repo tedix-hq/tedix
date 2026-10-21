@@ -3,6 +3,25 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.15.0 — 2026-10-21
+
+### Minor Changes
+
+- Create expiring cloud-agent bootstrap keys with `tedix agent mint`, with platform setup instructions.
+
+### Patch Changes
+
+- Resolve the correct session for Codex lanes launched from Claude Code and Claude Code lanes launched from Codex. Register harnesses without a dated model snapshot using an explicit unpinned version, and read Codex's harness version from `CODEX_VERSION`.
+- Read Needs-you cards at session startup, link to the active organization's OS host and the card's source, and support `TEDIX_OS_URL` for self-hosted installations.
+- Allow sandboxed Devin checks to read environment examples while keeping real environment files and all environment-file writes denied. Keep temporary files and package caches inside the lane worktree.
+- Allow sandboxed Devin lanes to stage, commit and use the guarded push queue in their own worktree while keeping peer worktrees, credential paths and raw pushes denied.
+- Retry gateway HTTP 429 refusals up to twice after the advertised wait, within the command's deadline, including writes refused before execution.
+- Reduce gateway traffic with a five-minute Work descriptor cache, less frequent lane telemetry and a shared rate-limit cooldown. Keep authorization and current-state checks on the server.
+- Refuse to attribute Work writes to an inherited peer harness session when the session is ambiguous; use `TEDIX_AGENT_SESSION` to select one explicitly.
+- Recover stale dispatcher worktree destinations without losing files, hold unchanged Work revisions after three identical admission failures, and filter local executors before pagination. Attach verified commits from `origin/main` to lane settlement; coding Work without a landed commit settles as failed.
+- Name the command and nearest flag in unknown-option errors. Accept `--body`, `--message` and `--text` for Work comments, and document create descriptions and comment aliases.
+- Forward `tedix work list` filters to the board, reject unknown filter values with the valid list, and show the next-page offset when rows remain.
+
 ## 0.14.0 — 2026-10-20
 
 ### Minor Changes
