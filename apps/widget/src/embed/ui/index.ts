@@ -19,11 +19,9 @@ export const embeddedTediBaseStyles = `
 		--tedix-radius-xl: ${widgetCssVariables.radius.xl};
 		--tedix-radius-2xl: ${widgetCssVariables.radius["2xl"]};
 		--tedix-radius-full: ${widgetCssVariables.radius.full};
-		--tedix-control-sm: ${widgetCssVariables.control.heightSm};
 		--tedix-control-md: ${widgetCssVariables.control.heightMd};
 		--tedix-touch-target: ${widgetCssVariables.control.touchTarget};
 		--tedix-font-medium: ${widgetCssVariables.fontWeight.medium};
-		--tedix-font-semibold: ${widgetCssVariables.fontWeight.semibold};
 	}
 	.tedix-status {
 		display: inline-flex; min-height: 22px; align-items: center; gap: 6px;

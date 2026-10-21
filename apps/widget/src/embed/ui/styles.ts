@@ -1,3 +1,4 @@
+import { safeEmbeddedAccent } from "../host-boundary";
 import { embeddedTediBaseStyles } from "./index";
 
 /** Complete isolated chat, tool, approval, artifact, and responsive embed skin. */
@@ -11,14 +12,8 @@ export function embeddedTediStyles(
 		zIndex?: number;
 	} = {},
 ): string {
-	const safeAccent = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(accent)
-		? accent
-		: "#2557d6";
-	const safeAccentDark = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(
-		appearance.accentDark ?? "",
-	)
-		? appearance.accentDark
-		: safeAccent;
+	const safeAccent = safeEmbeddedAccent(accent);
+	const safeAccentDark = safeEmbeddedAccent(appearance.accentDark, safeAccent);
 	const horizontalOffset = Math.min(
 		120,
 		Math.max(8, appearance.horizontalOffset ?? 22),
@@ -42,11 +37,10 @@ export function embeddedTediStyles(
 				* { box-sizing: border-box; }
 				button, textarea { font: inherit; }
 				button { color: inherit; }
-				button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, var(--tedix-accent) 28%, transparent); outline-offset: 2px; }
+				button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid color-mix(in srgb, var(--tedix-accent) 28%, transparent); outline-offset: 2px; }
 				svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 				.tedix-launcher { position: fixed; ${inlinePosition} bottom: calc(${bottomOffset}px + var(--tedix-host-bottom-inset, 0px)); z-index: ${zIndex}; display: grid; place-items: center; width: 58px; height: 58px; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; background: var(--tedix-accent); color: #fff; cursor: pointer; box-shadow: 0 14px 36px rgba(24,24,27,.24); transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease; }
 				.tedix-launcher:hover { transform: translateY(-2px); box-shadow: 0 18px 42px rgba(24,24,27,.28); }
-				.tedix-launcher:focus-visible, .tedix-icon:focus-visible, .tedix-send:focus-visible { outline: 3px solid color-mix(in srgb, var(--tedix-accent) 28%, transparent); outline-offset: 2px; }
 				.tedix-launcher[data-hidden] { opacity: 0; pointer-events: none; transform: scale(.88); }
 				.tedix-launcher-mark { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid rgba(255,255,255,.42); border-radius: var(--tedix-radius-xl); background: rgba(255,255,255,.12); color: #fff; font-size: 18px; font-weight: 750; line-height: 1; letter-spacing: -.04em; }
 				.tedix-launcher-mark:has(.tedix-brand-image) { border: 0; background: transparent; }
@@ -60,7 +54,6 @@ export function embeddedTediStyles(
 				.tedix-avatar { position: relative; display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: var(--tedix-radius-xl); background: color-mix(in srgb, var(--tedix-accent) 12%, var(--tedix-bg)); color: var(--tedix-accent); font-weight: 750; letter-spacing: -.03em; }
 				.tedix-presence { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--tedix-bg); border-radius: 50%; background: #22a06b; }
 				.tedix-model-select, .tedix-effort-select, .tedix-tedi-select { font: inherit; font-size: 14px; line-height: 20px; color: var(--tedix-text); background: var(--tedix-bg); border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-lg); min-width: 44px; max-width: 100%; height: 36px; padding: 0 12px; }
-				.tedix-model-select:focus-visible, .tedix-effort-select:focus-visible, .tedix-tedi-select:focus-visible { outline: 3px solid color-mix(in srgb, var(--tedix-accent) 28%, transparent); outline-offset: 2px; }
 				.tedix-model-select:disabled, .tedix-effort-select:disabled, .tedix-tedi-select:disabled { cursor: not-allowed; opacity: .5; }
 				.tedix-model-select[hidden], .tedix-effort-select[hidden], .tedix-tedi-select[hidden] { display: none; }
 				.tedix-heading { min-width: 0; flex: 1; }
@@ -93,7 +86,6 @@ export function embeddedTediStyles(
 				.tedix-prompts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(100%, 380px); margin: 0 0 22px; }
 				.tedix-prompt { min-height: var(--tedix-control-md); padding: 7px 13px; border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-full); background: var(--tedix-bg); color: var(--tedix-text); cursor: pointer; font: inherit; font-size: 13px; line-height: 1.3; text-align: left; }
 				.tedix-prompt:hover { border-color: color-mix(in srgb, var(--tedix-accent) 42%, var(--tedix-border)); background: color-mix(in srgb, var(--tedix-accent) 6%, var(--tedix-bg)); }
-				.tedix-prompt:focus-visible { outline: 3px solid color-mix(in srgb, var(--tedix-accent) 28%, transparent); outline-offset: 2px; }
 				.tedix-recent[hidden] { display: none; }
 				.tedix-recent { width: min(100%, 380px); margin-top: auto; padding-top: 28px; text-align: left; }
 				.tedix-recent h2 { max-width: none; margin: 0 12px 8px; color: var(--tedix-muted); font-size: 13px; font-weight: 520; letter-spacing: 0; }
@@ -143,7 +135,6 @@ export function embeddedTediStyles(
 				.tedix-markdown-table tbody tr:last-child td { border-bottom: 0; }
 				.tedix-route-link { display: inline-flex; align-items: center; min-height: 34px; margin: 5px 2px 2px 0; padding: 6px 11px; border: 1px solid var(--tedix-border); border-radius: 11px; background: var(--tedix-bg); color: var(--tedix-accent); font-weight: 620; text-decoration: none; }
 				.tedix-route-link:hover { border-color: color-mix(in srgb, var(--tedix-accent) 42%, var(--tedix-border)); background: color-mix(in srgb, var(--tedix-accent) 5%, var(--tedix-bg)); }
-				.tedix-route-link:focus-visible { outline: 3px solid color-mix(in srgb, var(--tedix-accent) 28%, transparent); outline-offset: 2px; }
 				.tedix-skeleton { position: relative; overflow: hidden; border-radius: 10px; background: var(--tedix-soft); }
 				.tedix-skeleton::after { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--tedix-text) 9%, transparent) 48%, transparent 76%); background-size: 220% 100%; animation: tedix-skeleton-shimmer 1.45s linear infinite; content: ""; }
 				.tedix-skeleton-line { height: 12px; margin: 6px 0; }

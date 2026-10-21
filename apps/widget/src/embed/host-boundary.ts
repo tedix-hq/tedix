@@ -26,10 +26,13 @@ export function escapeEmbeddedHtml(value: unknown): string {
 }
 
 /** Branding accents stay CSS colors, never arbitrary CSS input. */
-export function safeEmbeddedAccent(value: unknown): string {
+export function safeEmbeddedAccent(
+	value: unknown,
+	fallback = "#2557d6",
+): string {
 	return /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(String(value))
 		? String(value)
-		: "#2557d6";
+		: fallback;
 }
 
 /** Brand images must resolve to an absolute HTTPS URL. */
