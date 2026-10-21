@@ -78,11 +78,10 @@ async function ensureCustomerResources(
 	// These large routers stay lazy and are loaded only on an actual onboarding request.
 	const { createOrganizationContract, createOrganizationForProvider } =
 		await import("../rpc/routers/organizations");
-	const {
-		createTediProcedure,
-		createTediForProvider,
-		materializeManagedAppAssignments,
-	} = await import("../rpc/routers/tedis/crud");
+	const { createTediProcedure, createTediForProvider } =
+		await import("../rpc/routers/tedis/create");
+	const { materializeManagedAppAssignments } =
+		await import("../rpc/routers/tedis/identity-provisioning");
 	const guardedClient = createRouterClient(
 		{ organization: createOrganizationContract, tedi: createTediProcedure },
 		{ context },

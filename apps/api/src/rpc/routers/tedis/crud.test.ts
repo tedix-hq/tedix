@@ -5,15 +5,17 @@
  */
 
 import { describe, expect, it } from "vite-plus/test";
+import { agentUnreachableCapabilityFieldsTouched } from "./update";
 import {
-	agentUnreachableCapabilityFieldsTouched,
 	resolveNewTediCapabilityProfile,
 	resolveNewTediBudgets,
 	resolveNewTediDefaultPolicyPack,
 	resolveTediCreateOrg,
-	resolveTediDeleteAccess,
-} from "./crud";
-import crudSource from "./crud.ts?raw";
+} from "./create";
+import { resolveTediDeleteAccess } from "./delete";
+import updateSource from "./update.ts?raw";
+import deleteSource from "./delete.ts?raw";
+import decommissionSource from "./decommission.ts?raw";
 
 describe("agentUnreachableCapabilityFieldsTouched", () => {
 	it("blocks a tedi-authenticated caller changing mcpCapabilityProfile", () => {
@@ -377,7 +379,7 @@ function procedureSource(source: string, exportName: string): string {
  * every other test in this file.
  */
 describe("updateTediProcedure fails closed on a capability downgrade", () => {
-	const handler = procedureSource(crudSource, "updateTediProcedure");
+	const handler = procedureSource(updateSource, "updateTediProcedure");
 
 	it("branches the AIH re-sync on isTediCapabilityDowngrade", () => {
 		expect(handler).toContain("isTediCapabilityDowngrade(");
@@ -402,7 +404,7 @@ describe("updateTediProcedure fails closed on a capability downgrade", () => {
 });
 
 describe("updateTediProcedure keeps inference admission authoritative", () => {
-	const handler = procedureSource(crudSource, "updateTediProcedure");
+	const handler = procedureSource(updateSource, "updateTediProcedure");
 
 	it("synchronizes an explicit AI Gateway policy after the tedi row update", () => {
 		expect(
@@ -416,7 +418,7 @@ describe("updateTediProcedure keeps inference admission authoritative", () => {
 });
 
 describe("deleteTediProcedure does not destroy the tedi's memory", () => {
-	const handler = procedureSource(crudSource, "deleteTediProcedure");
+	const handler = procedureSource(deleteSource, "deleteTediProcedure");
 
 	it("retires the tedi instead of deleting the row", () => {
 		expect(handler).toContain("retireTedi(context.db,");
@@ -436,9 +438,9 @@ describe("deleteTediProcedure does not destroy the tedi's memory", () => {
 		// The purge primitive must still exist for the platform-admin
 		// confirmSlug-gated hard purge — retirement replaces the default path,
 		// it does not remove the ability to truly erase a worker.
-		expect(procedureSource(crudSource, "decommissionTediProcedure")).toContain(
-			"deleteTedi(context.db, tedi.id)",
-		);
+		expect(
+			procedureSource(decommissionSource, "decommissionTediProcedure"),
+		).toContain("deleteTedi(context.db, tedi.id)");
 	});
 });
 

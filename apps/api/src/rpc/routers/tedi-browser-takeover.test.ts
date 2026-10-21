@@ -33,7 +33,7 @@ vi.mock("@tedix/provisioning", async (original) => ({
 	getBrowserTakeoverStatus: mocks.status,
 }));
 import { tediApprovalsContractRouter } from "./tedi-approvals";
-import { updateTediProcedure } from "./tedis/crud";
+import { updateTediProcedure } from "./tedis/update";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const orgId = "00000000-0000-4000-8000-000000000002";

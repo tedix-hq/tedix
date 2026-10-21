@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
-import { computeRebindAgentId, performRebindIsolate } from "./crud";
+import { computeRebindAgentId, performRebindIsolate } from "./rebind";
 
 const CANARY = "https://hooks.example.test/secret-token";
 

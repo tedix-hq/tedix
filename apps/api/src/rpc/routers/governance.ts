@@ -71,7 +71,7 @@ import {
 	withAuth,
 } from "../orpc";
 import { isLifecycleOverrideAuthority } from "./cognitive-shared";
-import { AGENT_UNREACHABLE_CAPABILITY_FIELDS } from "./tedis/crud";
+import { AGENT_UNREACHABLE_CAPABILITY_FIELDS } from "./tedis/update";
 
 const governanceOs = implement(governanceContract).$context<BaseContext>();
 const authOs = governanceOs.use(withAuth);

@@ -5,8 +5,8 @@ import { tedisContractRouter } from "../tedis";
 import {
 	decommissionTediProcedure,
 	inspectAgentMemoryProcedure,
-	rebindProcedure,
-} from "./crud";
+} from "./decommission";
+import { rebindProcedure } from "./rebind";
 import { inspectRuntimeRecoveryProcedure } from "./recovery-diagnostic";
 
 afterEach(() => vi.restoreAllMocks());

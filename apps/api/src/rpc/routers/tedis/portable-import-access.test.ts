@@ -3,7 +3,7 @@ import { PortableTediManifestSchema } from "@tedix/api-contract/schemas/portable
 import type { BaseContext } from "../../orpc";
 import { beginPortableTediImport } from "./portable-import-access";
 
-vi.mock("./crud", () => ({
+vi.mock("./create", () => ({
 	createTediForPortableImport: vi.fn(async () => ({
 		id: "22222222-2222-4222-8222-222222222222",
 	})),

@@ -8,7 +8,7 @@ import {
 import {
 	AGENT_UNREACHABLE_CAPABILITY_FIELDS,
 	agentUnreachableCapabilityFieldsTouched,
-} from "./tedis/crud";
+} from "./tedis/update";
 
 const mocks = vi.hoisted(() => ({
 	countPendingApprovalsByTedi: vi.fn(),

@@ -4,7 +4,8 @@ import {
 	TediRuntimeOutboxDiagnosticResponseSchema,
 	type TediRuntimeOutboxDiagnosticResponse,
 } from "@tedix/api-contract/schemas/tedi";
-import { agentAdminFetch, assertPlatformAdminOrServiceBinding } from "./crud";
+import { agentAdminFetch } from "./runtime-admin";
+import { assertPlatformAdminOrServiceBinding } from "./rebind";
 import {
 	AUTHZ,
 	authedTedisOs,

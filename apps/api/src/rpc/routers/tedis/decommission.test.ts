@@ -1,8 +1,6 @@
 import { describe, expect, test, vi } from "vite-plus/test";
-import {
-	assertPlatformAdminOrServiceBinding,
-	orchestrateTediDecommission as orchestrateTediDecommissionRaw,
-} from "./crud";
+import { assertPlatformAdminOrServiceBinding } from "./rebind";
+import { orchestrateTediDecommission as orchestrateTediDecommissionRaw } from "./decommission";
 import type { BaseContext } from "./helpers";
 
 type DecommissionArgs = Parameters<typeof orchestrateTediDecommissionRaw>[0];
