@@ -97,6 +97,8 @@ export async function createZip(entries: ZipEntry[]): Promise<Uint8Array> {
 	const central = new ByteWriter();
 	for (const entry of entries) {
 		const name = encoder.encode(entry.name);
+		// ZIP bit 11 declares UTF-8; ASCII names retain their existing headers.
+		const flags = name.some((byte) => byte >= 0x80) ? 0x0800 : 0;
 		const crc = crc32(entry.data);
 		const compressed = await deflateRaw(entry.data);
 		// Deflate can grow a tiny or high-entropy payload; store those verbatim
@@ -108,7 +110,7 @@ export async function createZip(entries: ZipEntry[]): Promise<Uint8Array> {
 
 		body.u32(0x04034b50);
 		body.u16(20);
-		body.u16(0);
+		body.u16(flags);
 		body.u16(method);
 		body.u16(DOS_TIME);
 		body.u16(DOS_DATE);
@@ -123,7 +125,7 @@ export async function createZip(entries: ZipEntry[]): Promise<Uint8Array> {
 		central.u32(0x02014b50);
 		central.u16(20);
 		central.u16(20);
-		central.u16(0);
+		central.u16(flags);
 		central.u16(method);
 		central.u16(DOS_TIME);
 		central.u16(DOS_DATE);
