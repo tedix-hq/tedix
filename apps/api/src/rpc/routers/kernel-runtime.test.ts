@@ -9879,6 +9879,43 @@ describe("home approved-write layer (v1)", () => {
 			expect(db.workAttemptRows).toHaveLength(2);
 		});
 
+		it("refuses a tedi principal on a parked write card", async () => {
+			const db = createKernelRuntimeDb();
+			await enqueueWriteProposalTurn(db, "home-write-tedi-1");
+			const executor = vi.fn(async () => ({
+				ok: true as const,
+				data: { id: "INV-9", status: "draft" },
+			}));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(
+				executor as unknown as Parameters<
+					typeof kernelRuntimeTestHooks.setKernelWriteExecutorForTest
+				>[0],
+			);
+			// The owning tedi reaches the API through the MCP edge's service
+			// binding with its own tedi id: a tedi never decides a Home write.
+			const context = createContext(db);
+			const tediClient = createKernelRuntimeClient({
+				...context,
+				apiKey: undefined,
+				authType: undefined,
+				headers: new Headers({
+					"X-Service-Binding": "true",
+					"X-Tedix-Org-Id": ORG_ID,
+					"X-Tedix-Tedi-Id": "tedi-cpo",
+					"X-Tedix-Tedi-Scopes": "tedis:write tedis:read",
+				}),
+			} as unknown as BaseContext);
+
+			await expect(
+				tediClient.respondApproval({
+					runId: "home-write-tedi-1",
+					decision: "approve",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(executor).not.toHaveBeenCalled();
+			expect(db.approvals[0]?.status).toBe("pending");
+		});
+
 		it("decision approve on a write card resolves via the canonical latch and executes exactly once", async () => {
 			const db = createKernelRuntimeDb();
 			const { client } = await enqueueWriteProposalTurn(
