@@ -30,19 +30,36 @@ codex plugin add tedix@tedix-plugins
 codex mcp login tedix
 ```
 
-Both connect to `https://connect.mcp.tedix.dev/mcp` and sign you in with OAuth
-the first time a skill needs it.
+**Gemini CLI and Antigravity**
+
+```sh
+gemini extensions install https://github.com/tedix-hq/tedix-plugins
+```
+
+**Skills only, for any agent that reads Agent Skills**
+
+```sh
+npx skills add tedix-hq/tedix-plugins
+```
+
+**Cline and other MCP clients:** point your agent at
+[`llms-install.md`](llms-install.md), or add the server URL below yourself.
+
+Every host connects to `https://connect.mcp.tedix.dev/mcp` and signs you in
+with OAuth the first time a skill needs it.
 
 ## What is included
 
-| Path               | For                                          |
-| ------------------ | -------------------------------------------- |
-| `skills/`          | Agent Skills shared by every host            |
-| `.mcp.json`        | The remote Tedix MCP server (HTTP)           |
-| `.claude-plugin/`  | Claude Code plugin and marketplace manifests |
-| `.codex-plugin/`   | Codex plugin manifest                        |
-| `.agents/plugins/` | Codex marketplace manifest                   |
-| `assets/`          | Icons and logos                              |
+| Path                    | For                                          |
+| ----------------------- | -------------------------------------------- |
+| `skills/`               | Agent Skills shared by every host            |
+| `.mcp.json`             | The remote Tedix MCP server (HTTP)           |
+| `.claude-plugin/`       | Claude Code plugin and marketplace manifests |
+| `.codex-plugin/`        | Codex plugin manifest                        |
+| `.agents/plugins/`      | Codex marketplace manifest                   |
+| `gemini-extension.json` | Gemini CLI and Antigravity extension         |
+| `llms-install.md`       | Install steps for installer agents           |
+| `assets/`               | Icons and logos                              |
 
 This published plugin contains **no hooks**. Optional local session hooks
 (session context, decision capture, turn status) ship with the

@@ -153,6 +153,8 @@ limits.
   Codex through the [Tedix plugin](plugins/tedix/README.md). Other clients
   that speak MCP, the open standard AI assistants use to call tools, connect
   through the [MCP gateway](docs/public/mcp-app-platform.md).
+- Any agent that reads Agent Skills can add Tedix's skills with
+  `npx skills add tedix-hq/tedix-plugins`.
 - It runs on Cloudflare Workers, Durable Objects, Workflows, D1, and R2.
 - This repository is the whole product and the source Tedix Cloud is built
   from. The [documentation home](docs/public/index.md) lists every guide.
