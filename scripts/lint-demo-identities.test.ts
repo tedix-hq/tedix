@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import policy from "./demo-identity-hashes.json";
 import {
 	demoIdentityFindings,
 	isDemoIdentityPath,
+	scanDemoIdentities,
 } from "./lint-demo-identities";
 
 const denylist = [
@@ -65,6 +69,32 @@ describe("demo identity guard", () => {
 			expect(findings[0]).toBe(
 				"fixtures/example.json:1: use a fictional sample identity",
 			);
+		}
+	});
+
+	test("the clean-content cache skips only contents already found clean", () => {
+		const root = mkdtempSync(join(tmpdir(), "demo-identities-"));
+		try {
+			mkdirSync(join(root, "fixtures"));
+			writeFileSync(join(root, "fixtures/clean.json"), "Maya Lindqvist");
+			writeFileSync(join(root, "fixtures/bad.json"), "realperson");
+			const paths = ["fixtures/clean.json", "fixtures/bad.json"];
+			const first = scanDemoIdentities(root, paths, new Set(), denylist);
+			expect(first.findings).toEqual([
+				"fixtures/bad.json:1: use a fictional sample identity",
+			]);
+			expect(first.clean.size).toBe(1);
+			// A cached digest is skipped; the unclean file is scanned again.
+			const second = scanDemoIdentities(root, paths, first.clean, denylist);
+			expect(second.findings).toEqual(first.findings);
+			expect(second.clean).toEqual(first.clean);
+			// Changing the clean file to an identity is caught despite the cache.
+			writeFileSync(join(root, "fixtures/clean.json"), "Private customer");
+			expect(
+				scanDemoIdentities(root, paths, first.clean, denylist).findings,
+			).toHaveLength(2);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
 		}
 	});
 
