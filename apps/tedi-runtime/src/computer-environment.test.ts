@@ -1246,7 +1246,7 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 	assert.match(String(opened.error), /HTTP 429/);
 	assert.equal(
 		opened.instruction,
-		"Repository preparation failed. This computer is retained; resolve the reported failure before retrying repository work.",
+		"Repository preparation failed. This computer is retained and its shell still works: call open_computer({ repository: false }) to keep using it without the checkout, or call open_computer({ repository: true }) again to retry the checkout.",
 	);
 	const selected = (await controller.selected())!;
 	selected.openedAt = Date.now() - 7 * 60_000;
@@ -2190,6 +2190,74 @@ for (const [name, receipt] of Object.entries({
 		"superseded_attempt",
 	);
 }
+// A failed checkout does not poison its lease: the same lease reopens as a
+// shell and exec runs there without the checkout.
+{
+	const scope = "failed-checkout-shell-fallback";
+	let leaseOpens = 0;
+	const started: Array<{ leaseId: string; cwd: string }> = [];
+	const controller = new ComputerEnvironmentController(store, scope, {
+		...actions,
+		open: async () => ({ ok: true, leaseId: `checkout-${++leaseOpens}` }),
+		status: async () => ({
+			ok: true,
+			workstationLease: { status: "active" },
+			readiness: { toolsReady: true, repoReady: false },
+			repoSync: {
+				status: "failed",
+				executionState: "terminal",
+				error: "Could not resolve host: github.com",
+			},
+		}),
+		start: async (environment, input) => {
+			started.push({ leaseId: environment.leaseId, cwd: input.cwd });
+			return { ok: true };
+		},
+	});
+	const failed = (await controller.open("repository")) as Record<
+		string,
+		unknown
+	>;
+	assert.equal(failed.ok, false);
+	assert.match(String(failed.instruction), /repository: false/);
+	const refused = (await controller.exec({ command: "ls" })) as Record<
+		string,
+		unknown
+	>;
+	assert.equal(refused.executed, false);
+	assert.match(String(refused.instruction), /repository: false/);
+	const shell = (await controller.open("shell")) as Record<string, unknown>;
+	assert.equal(shell.ok, true);
+	assert.equal(shell.ready, true);
+	assert.equal(shell.cwd, "/home/tedi/workstation");
+	assert.equal(leaseOpens, 1);
+	const ran = (await controller.exec({ command: "ls" })) as Record<
+		string,
+		unknown
+	>;
+	assert.notEqual(ran.executed, false);
+	assert.deepEqual(started, [
+		{ leaseId: "checkout-1", cwd: "/home/tedi/workstation" },
+	]);
+	assert.equal(values.get(`${scope}:repositoryFailed`), undefined);
+}
+
+// A shell reopen never discards a checkout that has not failed.
+{
+	const scope = "healthy-checkout-keeps-mode";
+	const controller = new ComputerEnvironmentController(store, scope, {
+		...actions,
+		open: async () => ({ ok: true, leaseId: "healthy-checkout" }),
+	});
+	assert.equal(
+		((await controller.open("repository")) as { ready: boolean }).ready,
+		true,
+	);
+	const refused = (await controller.open("shell")) as Record<string, unknown>;
+	assert.equal(refused.ok, false);
+	assert.equal((await controller.selected())?.preparation, "repository");
+}
+
 console.log(
 	"Computer acquisition: whole-action deadlines, late completion fencing and exact-call replay pass",
 );

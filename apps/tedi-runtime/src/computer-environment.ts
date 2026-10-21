@@ -406,6 +406,9 @@ const scratchOnly = new Set([
 	"run_git",
 	"workspace_snapshot",
 ]);
+const SHELL_CWD = "/home/tedi/workstation";
+const REPOSITORY_FAILED_INSTRUCTION =
+	"Repository preparation failed. This computer is retained and its shell still works: call open_computer({ repository: false }) to keep using it without the checkout, or call open_computer({ repository: true }) again to retry the checkout.";
 const UNCONFIRMED_READINESS =
 	"Computer readiness and ownership are unconfirmed after the foreground deadline; reopen this same acquisition, do not reprovision";
 
@@ -472,6 +475,13 @@ export class ComputerEnvironmentController {
 			let environment = await this.store.get<ComputerEnvironment>(this.key);
 			context.refreshNative = Boolean(environment);
 			context.deadline.check();
+			if (
+				environment?.preparation === "repository" &&
+				preparation === "shell" &&
+				(await this.store.get(`${this.key}:repositoryFailed`)) ===
+					environment.leaseId
+			)
+				environment = await this.useFailedCheckoutAsShell(environment);
 			const mode = preparation ?? environment?.preparation ?? "shell";
 			if (environment && environment.preparation !== mode)
 				return {
@@ -598,6 +608,30 @@ export class ComputerEnvironmentController {
 		}
 	}
 
+	/**
+	 * A terminally failed checkout must not strand its lease: the body and its
+	 * tools still work. Reselect the same lease as a shell so exec and file tools
+	 * run in the workspace without the checkout.
+	 */
+	private async useFailedCheckoutAsShell(
+		environment: ComputerEnvironment,
+	): Promise<ComputerEnvironment> {
+		return withAcquisitionLock(this.store, this.key, async () => {
+			const current = await this.store.get<ComputerEnvironment>(this.key);
+			if (current?.leaseId !== environment.leaseId)
+				throw new Error("Computer selection changed during acquisition");
+			const shell: ComputerEnvironment = {
+				...current,
+				preparation: "shell",
+				cwd: SHELL_CWD,
+				ready: false,
+			};
+			await this.store.put(this.key, shell);
+			await this.store.delete(`${this.key}:repositoryFailed`);
+			return shell;
+		});
+	}
+
 	private async assertOpenScope(context: OpenContext) {
 		context.deadline.check();
 		const [owner, generation] = await Promise.all([
@@ -633,7 +667,7 @@ export class ComputerEnvironmentController {
 					typeof receipt.workstationId === "string"
 						? receipt.workstationId
 						: undefined,
-				cwd: "/home/tedi/workstation",
+				cwd: SHELL_CWD,
 				preparation,
 				ready: false,
 				openedAt: Date.now(),
@@ -891,6 +925,10 @@ export class ComputerEnvironmentController {
 				repoSync.status === "failed" &&
 				repoSync.executionState === "terminal"
 			) {
+				await this.store.put(
+					`${this.key}:repositoryFailed`,
+					environment.leaseId,
+				);
 				return {
 					ok: false,
 					ready: false,
@@ -902,8 +940,7 @@ export class ComputerEnvironmentController {
 						typeof repoSync.error === "string" && repoSync.error
 							? repoSync.error
 							: "Repository preparation failed after its clone execution finished.",
-					instruction:
-						"Repository preparation failed. This computer is retained; resolve the reported failure before retrying repository work.",
+					instruction: REPOSITORY_FAILED_INSTRUCTION,
 				};
 			}
 			// Classified BEFORE the envelope check: a dead lease very often reports
@@ -1012,7 +1049,10 @@ export class ComputerEnvironmentController {
 				await this.assertOpenScope(context);
 				await this.store.put(this.key, updated);
 				context.deadline.check();
-				if (updated.ready) await this.store.delete(`${this.key}:recoveries`);
+				if (updated.ready) {
+					await this.store.delete(`${this.key}:recoveries`);
+					await this.store.delete(`${this.key}:repositoryFailed`);
+				}
 			});
 			// A body that came up clears the replacement budget, so a long task that
 			// later meets an unrelated failure is not refused on a count it earned
