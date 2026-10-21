@@ -6,6 +6,11 @@
  * used by decision provenance, traversal, influence, and visualization.
  */
 
+import type {
+	DecisionGraphEdgeKind,
+	DecisionGraphNodeKind,
+} from "@tedix/api-contract/schemas/decision-graph";
+
 // ============================================================================
 // Node Types (mirrors D1 schema, subset of fields relevant to graph ops)
 // ============================================================================
@@ -181,6 +186,26 @@ export interface GraphWorkItemSource extends GraphProjectionStamped {
 	externalUrl: string | null;
 	projectId: string | null;
 	workItemId: string | null;
+}
+
+/**
+ * Decision graph edge (`decision_edges` projection). Materialized as
+ * `(:DecisionNode)-[:DG_<KIND>]->(:DecisionNode)`, where a node is keyed by
+ * `(orgId, key = "<kind>:<id>")`. These labels and relationship types are
+ * outside the managed epoch sweep: the projection is incremental only, and a
+ * delete tombstone carries the endpoints.
+ */
+export interface GraphDecisionEdge extends GraphProjectionStamped {
+	id: string;
+	orgId: string;
+	kind: DecisionGraphEdgeKind;
+	fromKind: DecisionGraphNodeKind;
+	fromId: string;
+	toKind: DecisionGraphNodeKind;
+	toId: string;
+	confidence: number;
+	note: string | null;
+	occurredAt: string | null;
 }
 
 /**
@@ -387,6 +412,7 @@ export type SyncOperation =
 	| "upsert_project"
 	| "upsert_work_item"
 	| "upsert_work_item_source"
+	| "upsert_decision_graph_edge"
 	| "delete_fact"
 	| "delete_edge"
 	| "delete_domain"
@@ -401,6 +427,7 @@ export type SyncOperation =
 	| "delete_project"
 	| "delete_work_item"
 	| "delete_work_item_source"
+	| "delete_decision_graph_edge"
 	| "revoke_entity_resolution";
 
 export interface SyncEvent {
@@ -429,7 +456,8 @@ export interface SyncEvent {
 		| GraphEntityResolutionRevocation
 		| GraphProject
 		| GraphWorkItem
-		| GraphWorkItemSource;
+		| GraphWorkItemSource
+		| GraphDecisionEdge;
 }
 
 // ============================================================================

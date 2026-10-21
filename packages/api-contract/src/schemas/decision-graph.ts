@@ -109,6 +109,12 @@ export const DecisionContextSchema = z.object({
 	supersededBy: DecisionGraphLinkSchema.optional(),
 	duplicates: z.array(z.string()),
 	blocksCount: z.number().int().min(0),
+	/**
+	 * Items reachable over blocks edges (direct and indirect, bounded walk),
+	 * from the graph database. Absent when the graph is not configured or
+	 * did not answer; then blocksCount is the only signal.
+	 */
+	blocksReach: z.number().int().min(0).optional(),
 });
 export type DecisionContext = z.infer<typeof DecisionContextSchema>;
 

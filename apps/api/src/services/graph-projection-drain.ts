@@ -44,6 +44,7 @@ import {
 	listProjectionSkills,
 	listProjectionTedis,
 } from "@tedix/db/queries/graph-projection-read-model";
+import { getDecisionEdgeForProjection } from "@tedix/db/queries/decision-graph";
 import type {
 	GraphProjectionEntityKind,
 	GraphProjectionOutboxEvent,
@@ -60,6 +61,7 @@ import {
 } from "../integrations/graph-db/sync";
 import type {
 	GraphDecision,
+	GraphDecisionEdge,
 	GraphDomain,
 	GraphFact,
 	GraphSyncEdge,
@@ -700,6 +702,13 @@ function deleteEventFor(event: GraphProjectionOutboxEvent): SyncEvent {
 			return syncEvent(event, "delete_work_item", undefined);
 		case "work_item_source":
 			return syncEvent(event, "delete_work_item_source", undefined);
+		case "decision_edge":
+			// The delete trigger writes the endpoints into the tombstone payload.
+			return syncEvent(
+				event,
+				"delete_decision_graph_edge",
+				event.payload as unknown as GraphDecisionEdge,
+			);
 		default:
 			throw new Error(
 				`Unsupported graph projection delete kind: ${event.entityKind satisfies never}`,
@@ -868,6 +877,26 @@ async function hydrateCoreProjectionEvent(
 						capabilityId: row.capabilityId,
 						entityKind: row.entityKind,
 						entityId: row.entityId,
+					})
+				: null;
+		}
+		case "decision_edge": {
+			const row = await getDecisionEdgeForProjection(db, {
+				organizationId: orgId,
+				edgeId: event.entityId,
+			});
+			return row
+				? syncEvent(event, "upsert_decision_graph_edge", {
+						id: row.id,
+						orgId: row.orgId,
+						kind: row.kind,
+						fromKind: row.fromKind,
+						fromId: row.fromId,
+						toKind: row.toKind,
+						toId: row.toId,
+						confidence: row.confidence,
+						note: row.note,
+						occurredAt: row.occurredAt,
 					})
 				: null;
 		}

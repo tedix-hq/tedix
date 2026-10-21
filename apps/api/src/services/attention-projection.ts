@@ -288,6 +288,8 @@ async function loadConfiguredDeckProjection(
 		qualification,
 	});
 	if (qualification.enabled) {
+		const { createDecisionGraphReader } =
+			await import("./decision-graph-reads");
 		const graph = await deckQualificationGraph(
 			context.db,
 			requireOrgId(context),
@@ -295,6 +297,7 @@ async function loadConfiguredDeckProjection(
 				id: card.id,
 				workItemId: card.interaction?.request.workItemId,
 			})),
+			createDecisionGraphReader(context.env),
 		);
 		const sourceWork = new Map(
 			cards.map((card) => [
@@ -335,7 +338,11 @@ async function loadConfiguredDeckProjection(
 				card.actionable = false;
 				card.overdue = false;
 			}
-			if (qualification.rankBlocked) card.blocksCount = facts?.blocksCount ?? 0;
+			if (qualification.rankBlocked) {
+				card.blocksCount = facts?.blocksCount ?? 0;
+				if (facts?.blocksReach !== undefined)
+					card.blocksScore = facts.blocksReach;
+			}
 		}
 	}
 	cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));

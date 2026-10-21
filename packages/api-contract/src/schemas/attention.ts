@@ -82,6 +82,8 @@ export const DeckCardSchema = z.strictObject({
 	ownerTask: DeckOwnerTaskSchema.nullable().optional(),
 	actionable: z.boolean().optional(),
 	blocksCount: z.number().int().min(0).optional(),
+	/** Graph score: items waiting on this card directly or indirectly. Ranks ahead of blocksCount when present. */
+	blocksScore: z.number().int().min(0).optional(),
 	/** Earliest known deadline: request due date, decision expiry or approval expiry. */
 	deadline: z.string().nullable().optional(),
 	overdue: z.boolean().optional(),

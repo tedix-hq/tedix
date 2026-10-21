@@ -948,6 +948,8 @@ function canonicalProjectionQuery(event: GraphProjectionOutboxEvent): string {
 			return "SELECT * FROM work_items WHERE id = ? AND org_id = ?";
 		case "work_item_source":
 			return "SELECT * FROM work_item_sources WHERE id = ? AND org_id = ?";
+		case "decision_edge":
+			return "SELECT * FROM decision_edges WHERE id = ? AND org_id = ?";
 		case "tedi_expertise":
 			return `SELECT e.*, t.organization_id
 				FROM tedi_expertise e
@@ -1002,6 +1004,7 @@ export function coalesceGraphProjectionEvents(
 		"tedi_expertise",
 		"capability_link",
 		"entity_resolution",
+		"decision_edge",
 	]);
 	const latestNodes = new Map<string, GraphProjectionOutboxEvent>();
 	const relations: GraphProjectionOutboxEvent[] = [];

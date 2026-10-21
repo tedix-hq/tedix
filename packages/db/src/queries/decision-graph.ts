@@ -209,6 +209,22 @@ function boundedIds(ids: readonly string[]) {
 	return [...new Set(ids.filter(Boolean))].slice(0, FRONTIER_LIMIT);
 }
 
+/** One edge row for the graph projection drain; null once deleted. */
+export async function getDecisionEdgeForProjection(
+	db: DbQueryClient,
+	input: { organizationId: string; edgeId: string },
+): Promise<DecisionEdgeRow | null> {
+	const [row] = await selectEdges(db)
+		.where(
+			and(
+				eq(decisionEdges.id, input.edgeId),
+				eq(decisionEdges.orgId, input.organizationId),
+			),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
 /** Latest decision or owner instruction any subject was already decided by. */
 export async function findPriorDecision(
 	db: DbQueryClient,
@@ -471,11 +487,14 @@ export function explainChain(context: DecisionContext): string {
 			`same as ${plural(context.duplicates.length, "other card", "other cards")}`,
 		);
 	}
-	if (context.blocksCount > 0) {
+	const waiting = Math.max(context.blocksCount, context.blocksReach ?? 0);
+	if (waiting > 0) {
+		const line =
+			waiting === 1 ? "1 item waits on this" : `${waiting} items wait on this`;
 		parts.push(
-			context.blocksCount === 1
-				? "1 item waits on this"
-				: `${context.blocksCount} items wait on this`,
+			waiting > context.blocksCount
+				? `${line} (${context.blocksCount} directly)`
+				: line,
 		);
 	}
 	if (parts.length === 0) return "No earlier decision or linked Work found.";
