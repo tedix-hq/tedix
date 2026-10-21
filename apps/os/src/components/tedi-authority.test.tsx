@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { DelegationProfile } from "@tedix/api-contract/contracts/earned-delegation";
+import { earnedDelegationProfileQueryOptions } from "@/lib/os-query-options";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -457,25 +458,27 @@ describe("EarnedAuthorityPanel", () => {
 
 const cleanups: Array<() => void> = [];
 
-function renderSection(): HTMLElement {
+function renderSection() {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	const root = createRoot(container);
-	act(() => {
-		root.render(
-			<QueryClientProvider client={client}>
-				<TediAuthority tediId={TEDI_ID} />
-			</QueryClientProvider>,
-		);
-	});
+	const render = (tediId: string) =>
+		act(() => {
+			root.render(
+				<QueryClientProvider client={client}>
+					<TediAuthority tediId={tediId} />
+				</QueryClientProvider>,
+			);
+		});
+	render(TEDI_ID);
 	cleanups.push(() => {
 		act(() => root.unmount());
 		container.remove();
 	});
-	return container;
+	return { container, client, render };
 }
 
 async function flush() {
@@ -516,7 +519,7 @@ describe("TediAuthority", () => {
 	});
 
 	it("renders the earned-authority evidence", async () => {
-		const container = renderSection();
+		const { container } = renderSection();
 		await flush();
 		expect(
 			container.querySelector('[data-slot="page-section"]'),
@@ -537,7 +540,7 @@ describe("TediAuthority", () => {
 		delegationApi.getProfile.mockRejectedValue(
 			Object.assign(new Error("Forbidden"), { code: "FORBIDDEN" }),
 		);
-		const container = renderSection();
+		const { container } = renderSection();
 		await flush();
 		expect(container.textContent).toContain(
 			"Earned-authority evidence is not readable with your access",
@@ -547,11 +550,137 @@ describe("TediAuthority", () => {
 
 	it("surfaces a genuine failure with its message", async () => {
 		delegationApi.getProfile.mockRejectedValue(new Error("D1 unavailable"));
-		const container = renderSection();
+		const { container } = renderSection();
 		await flush();
 		expect(container.textContent).toContain(
 			"Earned-authority evidence is unavailable",
 		);
 		expect(container.textContent).toContain("D1 unavailable");
+	});
+	it("keeps a cold pending profile unknown", async () => {
+		delegationApi.getProfile.mockReturnValue(new Promise(() => {}));
+		const { container } = renderSection();
+		await flush();
+		expect(container.textContent).not.toContain("No entrustments granted");
+		expect(container.querySelector('[data-slot="badge"]')).toBeNull();
+		expect(
+			container.querySelector('[aria-label="Earned authority summary"]'),
+		).toBeNull();
+		expect(container.textContent).toContain(
+			"Loading earned-authority evidence",
+		);
+	});
+
+	it("retries a cold failure through the same canonical read", async () => {
+		delegationApi.getProfile.mockRejectedValueOnce(new Error("D1 unavailable"));
+		const { container } = renderSection();
+		await flush();
+		expect(container.textContent).not.toContain("No entrustments granted");
+		const retry = Array.from(container.querySelectorAll("button")).find(
+			(button) => button.textContent === "Retry earned-authority read",
+		);
+		expect(retry).toBeDefined();
+		act(() => retry?.click());
+		await flush();
+		expect(delegationApi.getProfile).toHaveBeenCalledTimes(2);
+		expect(container.textContent).toContain("Revenue analyst");
+	});
+
+	it.each(["FORBIDDEN", "UNAUTHORIZED", "outage"])(
+		"withholds cached count and panel after a %s refresh, then recovers",
+		async (code) => {
+			const { container, client } = renderSection();
+			await flush();
+			expect(container.textContent).toContain("Revenue analyst");
+			delegationApi.getProfile.mockRejectedValueOnce(
+				Object.assign(new Error("Refresh failed"), { code }),
+			);
+			await act(async () => {
+				await client.refetchQueries(
+					earnedDelegationProfileQueryOptions(TEDI_ID),
+				);
+			});
+			await flush();
+			expect(
+				client.getQueryData(
+					earnedDelegationProfileQueryOptions(TEDI_ID).queryKey,
+				),
+			).toEqual(profile());
+			expect(
+				container.querySelector(
+					'[data-slot="section-header"] [data-slot="badge"]',
+				),
+			).toBeNull();
+			expect(
+				container.querySelector('[aria-label="Earned authority summary"]'),
+			).toBeNull();
+			expect(container.textContent).not.toContain("Revenue analyst");
+			expect(container.textContent).not.toContain("No entrustments granted");
+			expect(container.textContent).toContain(
+				code === "outage"
+					? "Previously loaded evidence is stale"
+					: "not readable with your access",
+			);
+			let resolve!: (value: DelegationProfile) => void;
+			delegationApi.getProfile.mockImplementationOnce(
+				() =>
+					new Promise<DelegationProfile>((done) => {
+						resolve = done;
+					}),
+			);
+			const retry = container.querySelector("button");
+			expect(retry?.textContent).toBe("Retry earned-authority read");
+			act(() => retry?.click());
+			await flush();
+			expect(retry?.disabled).toBe(true);
+			expect(container.textContent).not.toContain("Revenue analyst");
+			await act(async () => resolve(profile({ entrustments: [] })));
+			await flush();
+			expect(container.textContent).toContain("No entrustments granted");
+			expect(
+				container.querySelector(
+					'[data-slot="section-header"] [data-slot="badge"]',
+				)?.textContent,
+			).toBe("0");
+			expect(container.textContent).not.toContain("stale");
+			expect(container.textContent).not.toContain(
+				"not readable with your access",
+			);
+			expect(delegationApi.getProfile).toHaveBeenCalledTimes(3);
+			for (const verb of [
+				"grantEntrustment",
+				"restrictEntrustment",
+				"revokeEntrustment",
+				"recordPromotionDecision",
+			] as const) {
+				expect(delegationApi[verb]).not.toHaveBeenCalled();
+			}
+		},
+	);
+
+	it("ignores a delayed previous tedi response after switching", async () => {
+		let resolvePrevious!: (value: DelegationProfile) => void;
+		delegationApi.getProfile.mockImplementationOnce(
+			() =>
+				new Promise<DelegationProfile>((done) => {
+					resolvePrevious = done;
+				}),
+		);
+		const { container, render } = renderSection();
+		const nextId = "22222222-2222-4222-8222-222222222222";
+		delegationApi.getProfile.mockResolvedValueOnce(
+			profile({ tediId: nextId, activeRole: null, entrustments: [] }),
+		);
+		render(nextId);
+		await flush();
+		await act(async () => resolvePrevious(profile()));
+		await flush();
+		expect(container.textContent).toContain("Unassigned");
+		expect(container.textContent).toContain("No entrustments granted");
+		expect(container.textContent).not.toContain("Revenue analyst");
+		expect(delegationApi.getProfile).toHaveBeenLastCalledWith(
+			{ tediId: nextId },
+			expect.objectContaining({ signal: expect.any(AbortSignal) }),
+		);
 	});
 });
