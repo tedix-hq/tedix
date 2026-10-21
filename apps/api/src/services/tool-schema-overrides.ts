@@ -384,6 +384,12 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	string,
 	"read" | "write" | "destructive"
 > = {
+	"skills/getWorkspaceDraftGrant": "read",
+	"skills/getWorkspaceDraftProposal": "read",
+	"skills/listWorkspaceDraftProposals": "read",
+	"skills/proposeWorkspaceRevision": "write",
+	"skills/setWorkspaceDraftGrant": "destructive",
+	"skills/withdrawWorkspaceDraftProposal": "write",
 	"skills/runWorkflow": "destructive",
 	"skills/runWorkflowStatus": "read",
 	"skills/runWorkflowCancel": "destructive",
