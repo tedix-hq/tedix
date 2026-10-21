@@ -40,6 +40,7 @@ export function OsSettingsFrame({
 					{ path: "/admin/api-keys", label: "API keys" },
 				]
 			: []),
+		{ path: "/account/connections", label: "My accounts" },
 		...OS_SETTINGS_NAVIGATION,
 		...(canManageBilling
 			? [{ path: "/admin/payments", label: "Payments" }]
@@ -53,55 +54,56 @@ export function OsSettingsFrame({
 				data-focus-ring="inset"
 				className="flex shrink-0 gap-1 overflow-x-auto border-b border-kumo-line bg-kumo-base p-2 md:w-48 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r"
 			>
-				{items.map((item) => (
-					<div key={item.path} className="flex shrink-0 flex-col">
-						<Link
-							href={item.path}
-							data-settings-active={
-								pathname === item.path ||
-								(item.path === "/compute" && usageActive)
-									? ""
-									: undefined
+				{items.map((item) => {
+					const isActive =
+						pathname === item.path || (item.path === "/compute" && usageActive);
+					return (
+						<div
+							key={item.path}
+							className={
+								item.path === "/account/connections"
+									? "flex shrink-0 flex-col md:hidden"
+									: "flex shrink-0 flex-col"
 							}
-							variant="navigation"
-							aria-current={
-								pathname === item.path ||
-								(item.path === "/compute" && usageActive)
-									? "page"
-									: undefined
-							}
-							className="justify-start whitespace-nowrap"
 						>
-							{item.path === "/compute"
-								? OS_COPY.navigation.compute
-								: item.label}
-						</Link>
-						{item.path === "/compute" && usageActive ? (
-							<div className="flex gap-1 pl-3 md:flex-col">
-								<Link
-									href="/compute"
-									variant="navigation"
-									aria-current={pathname === "/compute" ? "page" : undefined}
-									className="justify-start"
-								>
-									{OS_COPY.navigation.usage}
-								</Link>
-								{canManageBilling ? (
+							<Link
+								href={item.path}
+								data-settings-active={isActive ? "" : undefined}
+								variant="navigation"
+								aria-current={isActive ? "page" : undefined}
+								className="justify-start whitespace-nowrap"
+							>
+								{item.path === "/compute"
+									? OS_COPY.navigation.compute
+									: item.label}
+							</Link>
+							{item.path === "/compute" && usageActive ? (
+								<div className="flex gap-1 pl-3 md:flex-col">
 									<Link
-										href="/admin/billing"
+										href="/compute"
 										variant="navigation"
-										aria-current={
-											pathname === "/admin/billing" ? "page" : undefined
-										}
+										aria-current={pathname === "/compute" ? "page" : undefined}
 										className="justify-start"
 									>
-										{OS_COPY.navigation.billing}
+										{OS_COPY.navigation.usage}
 									</Link>
-								) : null}
-							</div>
-						) : null}
-					</div>
-				))}
+									{canManageBilling ? (
+										<Link
+											href="/admin/billing"
+											variant="navigation"
+											aria-current={
+												pathname === "/admin/billing" ? "page" : undefined
+											}
+											className="justify-start"
+										>
+											{OS_COPY.navigation.billing}
+										</Link>
+									) : null}
+								</div>
+							) : null}
+						</div>
+					);
+				})}
 			</nav>
 			{/* Below md the settings strip is already the one navigation row; a
 			    page's own capability rail would stack a second strip under it. */}
