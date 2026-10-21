@@ -154,6 +154,7 @@ export async function createFacts(
 			`Failed to create facts: expected ${facts.length}, inserted ${created.length}`,
 		);
 	}
+	for (const fact of created) await recordOwnerInstructionEdges(db, fact);
 	return created;
 }
 
@@ -226,7 +227,10 @@ export async function updateFact(
 		updates.status !== undefined
 	) {
 		const fact = await getFactById(db, factId);
-		if (fact) await refreshConsolidatedForFact(db, fact.organizationId, factId);
+		if (fact) {
+			await recordOwnerInstructionEdges(db, fact);
+			await refreshConsolidatedForFact(db, fact.organizationId, factId);
+		}
 	}
 }
 

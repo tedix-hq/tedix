@@ -5,7 +5,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { createApprovalRequest, resolveApprovalRequest } from "./approvals";
 import { countBlocked, getDecisionContext } from "./decision-graph";
-import { createFact } from "./memory-graph/facts";
+import { createFact, createFacts, updateFact } from "./memory-graph/facts";
 import { insertSessionFeedbackLesson } from "./memory-graph/session-feedback";
 import {
 	decideWorkApproval,
@@ -127,6 +127,48 @@ function fixture(broken = false) {
 describe.each([false, true])(
 	"decision graph writers (graph unavailable: %s)",
 	(broken) => {
+		it("projects owner instructions after confirmation and bulk persistence", async () => {
+			const f = fixture(broken);
+			f.sqlite.exec(
+				`INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,created_at) VALUES('comment','org','work','user','owner','Rotate the old key','${NOW}');`,
+			);
+			const fact = {
+				id: "pending-lesson",
+				organizationId: "org",
+				content: "Rotate the old key",
+				factType: "decision" as const,
+				reviewStatus: "pending" as const,
+				source: "work-comment:comment",
+				createdAt: NOW,
+			};
+			await createFact(f.db, fact);
+			expect(f.edges()).toEqual([]);
+			await updateFact(f.db, fact.id, { reviewStatus: "confirmed" });
+			if (broken)
+				expect(f.warn).toHaveBeenCalledWith(
+					"[decision-graph] edge write skipped",
+					{ source: "owner_instruction_capture" },
+				);
+			else
+				expect(f.edges()).toEqual([
+					expect.objectContaining({ from_id: "work", to_id: fact.id }),
+				]);
+			f.warn.mockClear();
+			await createFacts(f.db, [
+				{ ...fact, id: "bulk-lesson", reviewStatus: "confirmed" },
+			]);
+			if (broken)
+				expect(f.warn).toHaveBeenCalledWith(
+					"[decision-graph] edge write skipped",
+					{ source: "owner_instruction_capture" },
+				);
+			else
+				expect(f.edges()).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ from_id: "work", to_id: "bulk-lesson" }),
+					]),
+				);
+		});
 		it("links a new card to its Work and named people, systems and credential metadata", async () => {
 			const f = fixture(broken);
 			expect((await f.card()).id).toBe("card");
