@@ -4,7 +4,7 @@ sidebar:
 title: "Cloudflare architecture"
 topic: "Platform"
 resource_type: reference
-description: "The Cloudflare primitives behind Tedix digital workers."
+description: "The Cloudflare services behind Tedix AI agents."
 summary: "Public overview of the Tedix Cloudflare-native architecture"
 read_when:
   - Evaluating the Tedix deployment model

@@ -19,7 +19,7 @@ Start with the exact symptom you can see. Do not submit a
 duplicate worker task while its original Home run may still be active.
 
 For the complete setup and task context, use [First connection to Tedix
-Cloud](./learning-paths/first-connection.md) and [Run a digital worker and find
+Cloud](./learning-paths/first-connection.md) and [Give an AI assistant a task and find
 its result](./learning-paths/first-worker.md).
 
 ## Install and start the CLI
@@ -184,7 +184,9 @@ wrong, run `tedix login ORG_SLUG` and complete consent again.
 to Tedix Cloud](./learning-paths/first-connection.md#4-make-one-read-only-live-call).
 It should return a positive `count` and a short `sample`.
 
-## Run a digital worker and find its result
+<a id="run-a-digital-worker-and-find-its-result"></a>
+
+## Give an AI assistant a task and find its result
 
 ### `Tedi not found`
 
@@ -193,7 +195,7 @@ It should return a positive `count` and a short `sample`.
 **Fix:** Check `tedix -w CLI_PROFILE auth status`, then copy the active tedi's
 slug from Tedix OS. Do not substitute its display name.
 
-**Verify:** Run the bounded task from [Run a digital worker and find its
+**Verify:** Run the bounded task from [Give an AI assistant a task and find its
 result](./learning-paths/first-worker.md#give-the-worker-one-task). The CLI
 should print a Home run ID.
 
@@ -281,7 +283,7 @@ not resolve it.
 ## Check worker permissions
 
 Worker identity, tool grants, policies, budgets, and approvals are explained in
-[Worker permissions, approvals, and governance](./workers-and-governance.md#permissions).
+[What an AI assistant may do and who says yes](./workers-and-governance.md#permissions).
 An approval records permission for the inspected scope; it does not prove that
 the eventual answer or outside action is correct.
 

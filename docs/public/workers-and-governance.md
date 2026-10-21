@@ -1,10 +1,10 @@
 ---
 sidebar:
   order: 40
-title: "Worker permissions, approvals, and governance"
+title: "What an AI assistant may do and who says yes"
 topic: "Platform"
 resource_type: guide
-description: "What a Tedix worker is, how its permissions are limited, and what Tedix records about its work."
+description: "What a Tedix AI assistant may access, when it asks for approval, and what it records about its work."
 summary: "The Tedix worker model, approvals, audit records, and repository controls"
 read_when:
   - Understanding the Tedix worker model
@@ -13,7 +13,9 @@ read_when:
 visibility: public
 ---
 
-# Worker permissions, approvals, and governance
+<a id="worker-permissions-approvals-and-governance"></a>
+
+# What an AI assistant may do and who says yes
 
 If you need to know what a Tedix tedi may do, start with Permissions. This guide explains how access is limited and what records help you review its work. A tedi stays part of an organization over time. It is not a one-time task. It is accountable for work done by an agent instead of a person.
 
