@@ -197,30 +197,46 @@ async function recordSkillUsageEventInternal(
 			// skill) between that read and this write must win — an unconditioned
 			// read-modify-write here could resurrect an archived skill. On miss,
 			// skip silently; the next recorded usage recomputes from current state.
+			const lifecycleWhere = and(
+				eq(skillEntries.id, input.skillId),
+				eq(skillEntries.organizationId, input.organizationId),
+				updated.lifecycleState == null
+					? isNull(skillEntries.lifecycleState)
+					: eq(skillEntries.lifecycleState, updated.lifecycleState),
+			);
+			const promotionLayer =
+				patch.lifecycleState &&
+				isSkillLifecyclePromotion(updated.lifecycleState, patch.lifecycleState)
+					? paceLayerForLifecycle(patch.lifecycleState)
+					: undefined;
 			const applied = await db
 				.update(skillEntries)
 				.set(patch)
 				.where(
 					and(
-						eq(skillEntries.id, input.skillId),
-						patch.lifecycleState &&
-							isSkillLifecyclePromotion(
-								updated.lifecycleState,
-								patch.lifecycleState,
-							)
+						lifecycleWhere,
+						promotionLayer
 							? and(
 									eq(skillEntries.revision, updated.revision),
-									skillEvalGateCondition(
-										paceLayerForLifecycle(patch.lifecycleState),
-									),
+									skillEvalGateCondition(promotionLayer),
 								)
 							: undefined,
-						updated.lifecycleState == null
-							? isNull(skillEntries.lifecycleState)
-							: eq(skillEntries.lifecycleState, updated.lifecycleState),
 					),
 				)
 				.returning({ id: skillEntries.id });
+			// Missing eval evidence blocks lifecycle advancement, not usage telemetry.
+			if (
+				applied.length === 0 &&
+				promotionLayer &&
+				patch.avgDurationMs !== undefined
+			) {
+				await db
+					.update(skillEntries)
+					.set({ avgDurationMs: patch.avgDurationMs })
+					.where(
+						and(lifecycleWhere, eq(skillEntries.revision, updated.revision)),
+					);
+			}
 			// Activation by verified runs starts the skill's declared schedule.
 			if (
 				applied.length > 0 &&
