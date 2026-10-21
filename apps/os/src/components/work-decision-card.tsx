@@ -90,6 +90,7 @@ import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import {
 	formatCardPresentationDates,
+	osTimeZone,
 	useOsFormattingPreferences,
 } from "@/lib/format";
 import { relativeTime, absoluteTime } from "@/lib/time";
@@ -295,7 +296,7 @@ export function WorkDecisionCard({
 					faceState.presentation,
 					faceState.dates,
 					faceState.now,
-					faceState.timeZone,
+					faceState.timeZone ?? osTimeZone(),
 				),
 			)
 		: null;
