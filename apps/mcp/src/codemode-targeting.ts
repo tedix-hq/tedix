@@ -1,4 +1,4 @@
-import { AggregateAppEntry } from "./aggregate-surface";
+import { AggregateAppEntry } from "./aggregate-types";
 import {
 	aggregateAppNamespaceCandidates,
 	aggregateTediNamespace,
