@@ -294,7 +294,9 @@ describe("Code Mode catalog (discover.*) annotations + outputSchema", () => {
 			]),
 		} as unknown as ServerContext;
 		const provider = buildCatalogProvider(ctx, undefined);
-		const results = await runSearch(provider, "skills", 10);
+		const results = await runSearch(provider, "skills", 10, {
+			includeMetadata: true,
+		});
 
 		const entry = namespaceTools(results, "tedix")?.list_skills;
 		expect(entry?.schemaFreshness).toMatchObject({
@@ -398,6 +400,8 @@ describe("Code Mode catalog (discover.*) annotations + outputSchema", () => {
 		const gmail = await runSearch(
 			provider,
 			"gmail google workspace mail messages inbox",
+			25,
+			{ includeMetadata: true },
 		);
 		expect(
 			namespaceTools(gmail, "google_gmail_tedix")?.search_threads?._match,
@@ -409,6 +413,8 @@ describe("Code Mode catalog (discover.*) annotations + outputSchema", () => {
 		const cpo = await runSearch(
 			provider,
 			"tedi conversations runtime events logs cpo",
+			25,
+			{ includeMetadata: true },
 		);
 		expect(namespaceTools(cpo, "cpo")?.get_tedi_runtime_status?.callable).toBe(
 			"cpo.get_tedi_runtime_status",
@@ -1825,42 +1831,51 @@ describe("discover.search results flat array", () => {
 });
 
 describe("native catalog owning projection parity", () => {
-	it("matches search and describe without sandbox evaluation", async () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
-		try {
-			const ctx = buildLargeServerCtx(12);
-			const provider = buildCatalogProvider(ctx, undefined);
-			const expected = await runSearch(provider, "thing", 3, {
-				includeParameters: true,
-			});
-			expect(
-				await executeCatalogOperation(
-					ctx,
-					{ transport: "catalog", endpoint: "catalog/search" },
-					{ query: "thing", limit: 3, includeParameters: true },
-				),
-			).toEqual(expected);
-			const tools = provider.tools as Record<
-				string,
-				{ execute: (input: unknown) => Promise<unknown> }
-			>;
-			expect(
-				await executeCatalogOperation(
-					ctx,
-					{ transport: "catalog", endpoint: "catalog/describe" },
-					{ callable: "app.do_thing_1" },
-				),
-			).toEqual(
-				await tools.describe!.execute({
-					callable: "app.do_thing_1",
-					includeOutputSchema: true,
-				}),
-			);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+	it.each([false, true])(
+		"matches search and describe without sandbox evaluation (includeMetadata: %s)",
+		async (includeMetadata) => {
+			vi.useFakeTimers();
+			vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+			try {
+				const ctx = buildLargeServerCtx(12);
+				const provider = buildCatalogProvider(ctx, undefined);
+				const expected = await runSearch(provider, "thing", 3, {
+					includeMetadata,
+					includeParameters: true,
+				});
+				expect(
+					await executeCatalogOperation(
+						ctx,
+						{ transport: "catalog", endpoint: "catalog/search" },
+						{
+							query: "thing",
+							limit: 3,
+							includeParameters: true,
+							includeMetadata,
+						},
+					),
+				).toEqual(expected);
+				const tools = provider.tools as Record<
+					string,
+					{ execute: (input: unknown) => Promise<unknown> }
+				>;
+				expect(
+					await executeCatalogOperation(
+						ctx,
+						{ transport: "catalog", endpoint: "catalog/describe" },
+						{ callable: "app.do_thing_1" },
+					),
+				).toEqual(
+					await tools.describe!.execute({
+						callable: "app.do_thing_1",
+						includeOutputSchema: true,
+					}),
+				);
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
 });
 
 it("preserves native projection parity for scopes, freshness, paging, aliases, skills and governed ranking", async () => {
@@ -2125,7 +2140,9 @@ it("search and describe keep literal native identity and independent eligibility
 		},
 	} as unknown as ServerContext;
 	const provider = buildCatalogProvider(ctx, undefined);
-	const found = await runSearch(provider, "list_items", 100);
+	const found = await runSearch(provider, "list_items", 100, {
+		includeMetadata: true,
+	});
 	const entry = found.results.find(
 		(x) => (x.native as { name: string })?.name === row.toolId,
 	)!;
@@ -2154,6 +2171,7 @@ it("search and describe keep literal native identity and independent eligibility
 		buildCatalogProvider(ctx, undefined),
 		"list_items",
 		100,
+		{ includeMetadata: true },
 	);
 	expect(
 		denied.results.find(
@@ -2166,7 +2184,9 @@ it("search and describe keep literal native identity and independent eligibility
 	ctx.callerIdentity!.forceCodeMode = true;
 	expect(
 		(
-			await runSearch(buildCatalogProvider(ctx, undefined), "list_items", 100)
+			await runSearch(buildCatalogProvider(ctx, undefined), "list_items", 100, {
+				includeMetadata: true,
+			})
 		).results.find((x) => (x.native as { name: string })?.name === row.toolId),
 	).toMatchObject({ native: { eligible: false, authorized: false } });
 });
@@ -2349,4 +2369,105 @@ it("preserves bounded approval facts in compact discovery and exact describe", a
 		callable: "notion.notion_update_page",
 	})) as Record<string, unknown>;
 	expect(described._meta).toEqual(expected);
+});
+
+const compactDiscoveryConformance = [
+	{ query: "list_items", namespace: undefined },
+	{ query: "", namespace: "work" },
+	{ query: "", namespace: undefined },
+];
+
+it.each(compactDiscoveryConformance)(
+	"compact catalog conformance: $query / $namespace",
+	async ({ query, namespace }) => {
+		const description =
+			"List items.\n\nReturns the current workspace's items. " +
+			"Detailed reference. ".repeat(40);
+		const row = tool({
+			toolId: "work__list_items",
+			description,
+			annotations: { readOnlyHint: true, destructiveHint: false },
+			config: {
+				transport: "rpc",
+				endpoint: "workItems/list",
+				nativeDirect: true,
+			},
+			schemaSource: "orpc",
+			schemaSourceRef: "workItems/list",
+		});
+		const ctx = {
+			loadedTools: new Map([[row.toolId, row]]),
+			callerIdentity: { authType: "oauth", scopes: [] },
+			appMetadata: {
+				mcpConfig: { toolScopes: { [row.toolId]: ["mcp:work.read"] } },
+			},
+		} as unknown as ServerContext;
+		const provider = buildCatalogProvider(ctx, undefined);
+		const compact = await runSearch(provider, query, 100, { namespace });
+		const diagnostic = await runSearch(provider, query, 100, {
+			namespace,
+			includeMetadata: true,
+		});
+		expect(compact.results.map((entry) => entry.callable)).toEqual(
+			diagnostic.results.map((entry) => entry.callable),
+		);
+		expect(compact.meta).toEqual(diagnostic.meta);
+		const entry = compact.results.find(
+			(entry) => entry.callable === "work.list_items",
+		)!;
+		for (const field of [
+			"native",
+			"schemaFreshness",
+			"_match",
+			"parameters",
+			"outputSchema",
+		])
+			expect(entry).not.toHaveProperty(field);
+		expect(entry).toMatchObject({
+			callable: "work.list_items",
+			annotations: { readOnlyHint: true, destructiveHint: false },
+			authorized: false,
+			missingScopes: ["mcp:work.read"],
+			descriptionTruncated: true,
+		});
+		expect(entry.description).not.toMatch(/\s{2,}|[\r\n]/);
+		const verbose = diagnostic.results.find(
+			(entry) => entry.callable === "work.list_items",
+		)!;
+		expect(verbose.native).toBeDefined();
+		expect(verbose.schemaFreshness).toBeDefined();
+		if (query) expect(verbose._match).toBeDefined();
+		expect(JSON.stringify(compact.results).length).toBeLessThan(
+			JSON.stringify(diagnostic.results).length,
+		);
+		const described = (await executeCatalogOperation(
+			ctx,
+			{ transport: "catalog", endpoint: "catalog/describe" },
+			{ callable: "work.list_items" },
+		)) as Record<string, unknown>;
+		expect(described).toMatchObject({
+			description: description.trimEnd(),
+			parameters: row.inputSchema,
+			native: verbose.native,
+			schemaFreshness: verbose.schemaFreshness,
+		});
+	},
+);
+
+it("normalizes short multiline search summaries without marking them truncated", async () => {
+	const row = tool({
+		toolId: "work__list_items",
+		description: "List items.\n\nUse filters.\r\nReturns items.",
+	});
+	const ctx = {
+		loadedTools: new Map([[row.toolId, row]]),
+	} as unknown as ServerContext;
+	const result = await runSearch(
+		buildCatalogProvider(ctx, undefined),
+		"list_items",
+	);
+	expect(result.results[0]).toMatchObject({
+		description: "List items. Use filters. Returns items.",
+	});
+	expect(result.results[0]).not.toHaveProperty("descriptionTruncated");
 });
