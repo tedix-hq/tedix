@@ -40,7 +40,10 @@ import type { McpTaskState } from "@tedix/mcp-shared/tasks";
 import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
 import { type DiscoveryCache, isStaleDiscoveryError } from "./discovery-cache";
 import { isConnectionError } from "./operator/runtime-errors";
-import { retryRateLimitedPosts } from "./gateway-retry";
+import {
+	resendPreDispatchToolRefusals,
+	retryRateLimitedPosts,
+} from "./gateway-retry";
 import type { SessionRefreshOutcome } from "./oauth-provider";
 import { CLI_VERSION } from "./shared";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -1971,7 +1974,25 @@ export class TedixHomeClient {
 		options: McpCallOptions,
 		scope?: NativeCallScope,
 	): Promise<T> {
-		// unwrap runs outside the retry so a tool-level isError is never retried.
+		// A tool error that says the gateway refused before dispatch is resent;
+		// no other tool-level error is.
+		return resendPreDispatchToolRefusals(
+			() => this.#callToolAttempt<T>(toolName, args, options, scope),
+			{
+				signal: options.signal,
+				deadlineAt: scope?.deadlineAt ?? options.deadlineAt,
+			},
+		);
+	}
+
+	async #callToolAttempt<T = unknown>(
+		toolName: string,
+		args: Record<string, unknown>,
+		options: McpCallOptions,
+		scope?: NativeCallScope,
+	): Promise<T> {
+		// unwrap runs outside the connection retry so a tool-level isError is
+		// never retried there.
 		try {
 			scope?.guard();
 			const result = await this.#rawCall(toolName, args, options, scope);
@@ -1992,7 +2013,7 @@ export class TedixHomeClient {
 				const outcome =
 					scope && renewing ? await scope.wait(renewing) : await renewing;
 				if (outcome === "refreshed" || outcome === "not-needed") {
-					return this.#callToolScoped<T>(
+					return this.#callToolAttempt<T>(
 						toolName,
 						args,
 						{

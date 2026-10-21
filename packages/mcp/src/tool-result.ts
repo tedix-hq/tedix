@@ -101,6 +101,59 @@ export class McpToolError extends Error {
 	}
 }
 
+/**
+ * Tool errors the gateway answers before the tool is dispatched, because a
+ * check it needs could not run right now. Nothing executed, so a client may
+ * send the same call again after `retryAfterSeconds`.
+ */
+export const PRE_DISPATCH_UNAVAILABLE_TOOL_ERRORS = new Set([
+	"autonomous_policy_unavailable",
+]);
+
+const MAX_PRE_DISPATCH_RETRY_AFTER_SECONDS = 120;
+
+/** A typed pre-dispatch tool error result for {@link McpToolError}. */
+export function preDispatchUnavailableToolResult(
+	code: string,
+	text: string,
+	retryAfterSeconds: number,
+): {
+	content: Array<{ type: "text"; text: string }>;
+	isError: true;
+	_meta: Record<string, unknown>;
+} {
+	return {
+		content: [{ type: "text", text }],
+		isError: true,
+		_meta: { code, details: { executed: false, retryAfterSeconds } },
+	};
+}
+
+/**
+ * How long to wait before resending a call refused with a pre-dispatch
+ * unavailable tool error, or null when the error is anything else. Only an
+ * error that says nothing executed qualifies.
+ */
+export function preDispatchRetryAfterMs(error: unknown): number | null {
+	if (!(error instanceof McpToolError)) return null;
+	if (!error.code || !PRE_DISPATCH_UNAVAILABLE_TOOL_ERRORS.has(error.code))
+		return null;
+	const details =
+		error.details && typeof error.details === "object"
+			? (error.details as Record<string, unknown>)
+			: null;
+	const seconds = details?.retryAfterSeconds;
+	if (
+		details?.executed !== false ||
+		typeof seconds !== "number" ||
+		!Number.isFinite(seconds) ||
+		seconds < 0 ||
+		seconds > MAX_PRE_DISPATCH_RETRY_AFTER_SECONDS
+	)
+		return null;
+	return Math.round(seconds * 1_000);
+}
+
 function joinedTextContent(
 	content: Array<{ type?: unknown; text?: unknown }>,
 ): string | null {

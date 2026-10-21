@@ -3,7 +3,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileGatewayCooldown } from "./gateway-cooldown";
 import { describe, expect, test } from "bun:test";
-import { retryRateLimitedPosts } from "./gateway-retry";
+import {
+	McpToolError,
+	preDispatchUnavailableToolResult,
+	unwrapCallToolResult,
+} from "@tedix/mcp-shared/tool-result";
+import {
+	resendPreDispatchToolRefusals,
+	retryRateLimitedPosts,
+} from "./gateway-retry";
 
 const limited = (retryAfter?: string) =>
 	new Response(
@@ -233,4 +241,87 @@ test("cooldown extensions never shorten a sibling marker, and unrelated gateways
 	} finally {
 		rmSync(configDir, { recursive: true, force: true });
 	}
+});
+
+describe("resendPreDispatchToolRefusals", () => {
+	const refusal = () =>
+		unwrapCallToolResult(
+			preDispatchUnavailableToolResult(
+				"autonomous_policy_unavailable",
+				"Autonomous action policy is unavailable; no side effect was executed.",
+				5,
+			),
+			"work.start",
+		);
+	const deps = (waits: number[]) => ({
+		sleep: async (ms: number) => {
+			waits.push(ms);
+		},
+		random: () => 0.5,
+		now: () => 0,
+	});
+
+	test("resends a typed pre-dispatch refusal after Retry-After plus jitter", async () => {
+		const waits: number[] = [];
+		let calls = 0;
+		const result = await resendPreDispatchToolRefusals(async () => {
+			if (++calls === 1) refusal();
+			return "ran once";
+		}, deps(waits));
+		expect(result).toBe("ran once");
+		expect(calls).toBe(2);
+		expect(waits).toEqual([7_500]);
+	});
+
+	test("gives up after two resends with the original error", async () => {
+		const waits: number[] = [];
+		let calls = 0;
+		await expect(
+			resendPreDispatchToolRefusals(async () => {
+				calls++;
+				return refusal();
+			}, deps(waits)),
+		).rejects.toThrow("Autonomous action policy is unavailable");
+		expect(calls).toBe(3);
+		expect(waits).toHaveLength(2);
+	});
+
+	test("never resends an untyped tool error or one that may have run", async () => {
+		for (const error of [
+			new McpToolError("Autonomous action policy is unavailable", undefined),
+			new McpToolError("busy", {
+				code: "autonomous_policy_unavailable",
+				details: { retryAfterSeconds: 5 },
+			}),
+			new McpToolError("busy", {
+				code: "some_other_failure",
+				details: { executed: false, retryAfterSeconds: 5 },
+			}),
+		]) {
+			let calls = 0;
+			await expect(
+				resendPreDispatchToolRefusals(async () => {
+					calls++;
+					throw error;
+				}, deps([])),
+			).rejects.toBe(error);
+			expect(calls).toBe(1);
+		}
+	});
+
+	test("does not wait past the caller's deadline", async () => {
+		const waits: number[] = [];
+		let calls = 0;
+		await expect(
+			resendPreDispatchToolRefusals(
+				async () => {
+					calls++;
+					return refusal();
+				},
+				{ ...deps(waits), deadlineAt: 7_000 },
+			),
+		).rejects.toThrow("Autonomous action policy is unavailable");
+		expect(calls).toBe(1);
+		expect(waits).toEqual([]);
+	});
 });

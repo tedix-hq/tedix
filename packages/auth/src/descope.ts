@@ -67,9 +67,13 @@ export function getDescopeClient(env: DescopeEnv): DescopeClient {
 }
 
 /**
- * Create a new Descope SDK client instance
+ * Create a new Descope SDK client instance. A `deadline` (epoch ms) bounds
+ * every request the client sends; see `DescopeFetchOptions.deadline`.
  */
-export function createDescopeClient(env: DescopeEnv): DescopeClient {
+export function createDescopeClient(
+	env: DescopeEnv,
+	options?: { deadline?: number },
+): DescopeClient {
 	if (!env.DESCOPE_PROJECT_ID) {
 		throw new Error("Missing DESCOPE_PROJECT_ID environment variable");
 	}
@@ -84,7 +88,9 @@ export function createDescopeClient(env: DescopeEnv): DescopeClient {
 			beforeRequest: [(request) => ({ ...request, disableRetry: true })],
 		},
 		fetch: ((input, init) =>
-			descopeFetch(String(input), init ?? {})) as typeof fetch,
+			descopeFetch(String(input), init ?? {}, {
+				deadline: options?.deadline,
+			})) as typeof fetch,
 		logger: {
 			debug: () => {},
 			log: () => {},

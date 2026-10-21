@@ -18,6 +18,7 @@ import {
 	isModernMcpRequest,
 } from "@tedix/mcp-shared/protocol";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
+import { preDispatchUnavailableToolResult } from "@tedix/mcp-shared/tool-result";
 import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import { normalizeCallerIdentity } from "./caller-identity";
 import {
@@ -810,8 +811,11 @@ export async function requireDestructiveToolApproval(
 				});
 			autonomy = policy.autonomy;
 		} catch {
-			return approvalFailure(
+			// Typed so a client can resend the call: nothing has run yet.
+			return preDispatchUnavailableToolResult(
+				"autonomous_policy_unavailable",
 				"Autonomous action policy is unavailable; no side effect was executed.",
+				5,
 			);
 		}
 	}

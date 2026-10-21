@@ -39,6 +39,14 @@ export interface DescopeFetchOptions {
 	idempotent?: boolean;
 	/** Injectable fetch for tests. */
 	fetch?: typeof fetch;
+	/**
+	 * Absolute time (epoch ms) by which the caller needs an answer. Attempts are
+	 * cut to the time left, and a retry whose wait would not leave
+	 * {@link MIN_ATTEMPT_MS} before the deadline is skipped: the last response
+	 * (a 429 keeps its Retry-After) is returned, or the last error thrown, so the
+	 * caller can answer "retry later" instead of being cut off mid-sleep.
+	 */
+	deadline?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -46,6 +54,8 @@ const DEFAULT_RETRIES = 2;
 const MAX_BACKOFF_MS = 2_000;
 const BASE_BACKOFF_MS = 250;
 const MAX_RETRY_AFTER_MS = 10_000;
+/** A retry is only worth sending with at least this much time left. */
+const MIN_ATTEMPT_MS = 1_000;
 
 function backoffDelayMs(attempt: number): number {
 	// Jittered exponential backoff: min(2000, 250 * 2^attempt) + random(0..125)
@@ -99,13 +109,25 @@ export async function descopeFetch(
 	const retries = opts?.retries ?? DEFAULT_RETRIES;
 	const idempotent = opts?.idempotent ?? false;
 	const maxAttempts = retries + 1;
+	const deadline = opts?.deadline;
+	/** Whether waiting `ms` still leaves time for another useful attempt. */
+	const canWait = (ms: number) =>
+		deadline === undefined || Date.now() + ms + MIN_ATTEMPT_MS <= deadline;
 
 	let lastThrown: unknown;
 
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
 		const isLastAttempt = attempt === maxAttempts - 1;
+		const remaining =
+			deadline === undefined ? Number.POSITIVE_INFINITY : deadline - Date.now();
+		if (remaining <= 0) {
+			throw new Error("descopeFetch: deadline passed before the request");
+		}
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), timeoutMs);
+		const timeout = setTimeout(
+			() => controller.abort(),
+			Math.min(timeoutMs, remaining),
+		);
 
 		let response: Response;
 		try {
@@ -113,8 +135,9 @@ export async function descopeFetch(
 		} catch (error) {
 			// Network error or abort (timeout). Retry only for idempotent calls.
 			lastThrown = error;
-			if (idempotent && !isLastAttempt) {
-				await sleep(backoffDelayMs(attempt));
+			const wait = backoffDelayMs(attempt);
+			if (idempotent && !isLastAttempt && canWait(wait)) {
+				await sleep(wait);
 				continue;
 			}
 			throw error;
@@ -127,21 +150,23 @@ export async function descopeFetch(
 		if (response.status === 429 && !isLastAttempt) {
 			const wait = retryAfterMs(response) ?? backoffDelayMs(attempt);
 			// Return the rate limit when its delay exceeds our retry budget.
-			if (wait > MAX_RETRY_AFTER_MS) return response;
+			if (wait > MAX_RETRY_AFTER_MS || !canWait(wait)) return response;
 			await discardBody(response);
 			await sleep(wait);
 			continue;
 		}
 
 		// 5xx: only safe to retry for idempotent reads (mutation may have executed).
+		const backoff = backoffDelayMs(attempt);
 		if (
 			idempotent &&
 			response.status >= 500 &&
 			response.status <= 599 &&
-			!isLastAttempt
+			!isLastAttempt &&
+			canWait(backoff)
 		) {
 			await discardBody(response);
-			await sleep(backoffDelayMs(attempt));
+			await sleep(backoff);
 			continue;
 		}
 
@@ -181,6 +206,8 @@ export interface DescopeManagementRequest {
 	 * ` [<status> <statusText>]: <body>`.
 	 */
 	errorPrefix: string;
+	/** See {@link DescopeFetchOptions.deadline}. */
+	deadline?: number;
 }
 
 /**
@@ -205,7 +232,7 @@ export async function descopeManagementFetch(
 			body:
 				request.body === undefined ? undefined : JSON.stringify(request.body),
 		},
-		{ idempotent: request.idempotent },
+		{ idempotent: request.idempotent, deadline: request.deadline },
 	);
 
 	if (!response.ok) {

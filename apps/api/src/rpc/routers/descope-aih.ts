@@ -30,6 +30,7 @@ import { loadDescopeAihD1SnapshotRows } from "@tedix/db/queries/descope-aih-drif
 import { getAppById, getAppMetadataJson } from "@tedix/db/queries/app-records";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import { getDescopeAihDriftReport } from "../../services/descope-aih-drift";
+import { forgetMcpServerClients } from "../../lib/provider-facts-cache";
 import { syncDeclaredConnectionScopes } from "../../services/connection-scope-sync";
 import {
 	extractMcpApprovedScopeNames,
@@ -312,6 +313,7 @@ export const updateMcpClientProcedure = authedOs.updateMcpClient
 	.handler(async ({ input, context }) => {
 		assertAihManagementAccess(context);
 		const aihEnv = requireAihEnv(context.env);
+		forgetMcpServerClients(input.mcpServerId, input.id);
 		const client = await updateDescopeMcpServerClient(aihEnv, {
 			id: input.id,
 			mcpServerId: input.mcpServerId,
@@ -329,6 +331,7 @@ export const deleteMcpClientProcedure = authedOs.deleteMcpClient
 	.handler(async ({ input, context }) => {
 		assertAihManagementAccess(context);
 		const aihEnv = requireAihEnv(context.env);
+		forgetMcpServerClients(input.mcpServerId, input.id);
 		await deleteDescopeMcpServerClient(aihEnv, {
 			id: input.id,
 			mcpServerId: input.mcpServerId,

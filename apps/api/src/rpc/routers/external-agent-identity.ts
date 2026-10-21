@@ -8,7 +8,6 @@ import {
 	deleteDescopeMcpServerClients,
 	exchangeAihClientCredentials,
 	getDescopeMcpServerClientSecret,
-	loadDescopeMcpServer,
 	searchDescopeMcpServerClients,
 	type McpServerApprovedScopes,
 } from "@tedix/auth/aih-client";
@@ -19,6 +18,12 @@ import {
 } from "@tedix/auth/types";
 import { decodeTokenUnsafe } from "@tedix/auth/jwt";
 import { extractMcpApprovedScopeNames } from "../../services/descope-mcp-server-reconcile";
+import {
+	forgetMcpServerClients,
+	loadMcpServerRegistration,
+	rememberedMcpServerClients,
+	rememberMcpServerClients,
+} from "../../lib/provider-facts-cache";
 import {
 	GITHUB_ACTIONS_OIDC_ISSUER,
 	exchangeGithubActionsWorkloadToken,
@@ -942,6 +947,7 @@ const endSession = authed.endSession.handler(async ({ input, context }) => {
 			context.env.DESCOPE_PROJECT_ID && context.env.DESCOPE_MANAGEMENT_KEY
 				? requireAihEnv(context.env)
 				: null;
+		forgetMcpServerClients(revoked.mcpServerId, clientRecordId);
 		if (aihEnv && !clientRecordId.startsWith("wif:")) {
 			await deleteDescopeMcpServerClient(aihEnv, {
 				id: clientRecordId,
@@ -1455,6 +1461,9 @@ async function issueMcpCredentialForOrganization(
 		input.mcpServerUrl,
 	);
 	const config = workloadFederationConfig(active.principal.metadata);
+	// Platform administration always asks the provider; everything else may use
+	// a registration the provider confirmed in the last few seconds.
+	const fresh = input.scopes.includes("platform:admin");
 	if (federation || config) {
 		if (
 			!federation ||
@@ -1477,7 +1486,9 @@ async function issueMcpCredentialForOrganization(
 			throw createError(ErrorCodes.UNAUTHORIZED, "Invalid federated bearer");
 		const tokenScopes = extractJwtScopes(tokenPayload);
 		resolveFederatedWorkloadScopes(tokenScopes, input.scopes);
-		const server = await loadDescopeMcpServer(aihEnv, mcpServerId);
+		const server = await loadMcpServerRegistration(aihEnv, mcpServerId, {
+			fresh,
+		});
 		resolveExternalAgentMcpClientScopes(tokenScopes, server.approvedScopes);
 		const now = new Date();
 		const expiresIn = Math.floor(federation.expiresAt - now.getTime() / 1000);
@@ -1539,8 +1550,11 @@ async function issueMcpCredentialForOrganization(
 	}
 	let client: Awaited<ReturnType<typeof createDescopeMcpServerClient>> | null =
 		null;
+	let reusedClientRecordId: string | null = null;
 	try {
-		const mcpServer = await loadDescopeMcpServer(aihEnv, mcpServerId);
+		const mcpServer = await loadMcpServerRegistration(aihEnv, mcpServerId, {
+			fresh,
+		});
 		const desiredScopes = resolveExternalAgentMcpClientScopes(
 			input.scopes,
 			mcpServer.approvedScopes,
@@ -1554,21 +1568,44 @@ async function issueMcpCredentialForOrganization(
 				mcpServerId,
 			},
 		);
-		const registeredClients = activeCredentials.length
-			? await searchDescopeMcpServerClients(aihEnv, { mcpServerId })
-			: [];
 		const identityTags = [
 			"external-agent",
 			`external-agent-org:${organizationId}`,
 			`external-agent-principal:${input.principalId}`,
 			`external-agent-session:${input.sessionId}`,
 		];
-		const reusable = selectReusableExternalAgentMcpCredential(
+		// A client the provider verified moments ago is reused without searching
+		// again. Anything short of a reusable match searches, so a remembered
+		// answer can never cause a new client to be minted.
+		const activeClientIds = activeCredentials.map(
+			(credential) => credential.clientRecordId,
+		);
+		let registeredClients = fresh
+			? []
+			: rememberedMcpServerClients(mcpServerId, activeClientIds);
+		let reusable = selectReusableExternalAgentMcpCredential(
 			activeCredentials,
 			registeredClients,
 			desiredScopes,
 			identityTags,
 		);
+		if (!reusable && activeCredentials.length) {
+			registeredClients = await searchDescopeMcpServerClients(aihEnv, {
+				mcpServerId,
+			});
+			if (!fresh)
+				rememberMcpServerClients(
+					mcpServerId,
+					registeredClients,
+					activeClientIds,
+				);
+			reusable = selectReusableExternalAgentMcpCredential(
+				activeCredentials,
+				registeredClients,
+				desiredScopes,
+				identityTags,
+			);
+		}
 
 		// Reuse-miss telemetry: when the session already has active credentials
 		// but none were reusable, a fresh client is about to be minted — the
@@ -1602,6 +1639,7 @@ async function issueMcpCredentialForOrganization(
 		}
 
 		if (reusable) {
+			reusedClientRecordId = reusable.clientRecordId;
 			const secret = await getDescopeMcpServerClientSecret(aihEnv, {
 				id: reusable.clientRecordId,
 				mcpServerId,
@@ -1709,6 +1747,9 @@ async function issueMcpCredentialForOrganization(
 			mcpServerUrl,
 		};
 	} catch (error) {
+		// The provider may have changed the client since it was remembered.
+		if (reusedClientRecordId)
+			forgetMcpServerClients(mcpServerId, reusedClientRecordId);
 		if (client) {
 			await revokePrincipalIdentity(context.db, {
 				provider: "descope",
@@ -1763,6 +1804,7 @@ const revokeMcpCredential = authed.revokeMcpCredential.handler(
 			context.env.DESCOPE_PROJECT_ID && context.env.DESCOPE_MANAGEMENT_KEY
 				? requireAihEnv(context.env)
 				: null;
+		forgetMcpServerClients(revoked.mcpServerId, input.clientRecordId);
 		if (aihEnv && !input.clientRecordId.startsWith("wif:"))
 			await deleteDescopeMcpServerClient(aihEnv, {
 				id: input.clientRecordId,

@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 	promoteMcpConsentPending: vi.fn(),
 	replaceMcpConsentSelection: vi.fn(),
 	getMcpConsentResource: vi.fn(),
+	managementClientOptions: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -88,15 +89,18 @@ vi.mock("@tedix/db/queries/organization-members", () => ({
 	getOrganizationAggregatorGateways: mocks.getOrganizationAggregatorGateways,
 }));
 vi.mock("@tedix/auth/client", () => ({
-	getManagementClient: () => ({
-		management: {
-			user: { loadByUserId: mocks.loadByUserId },
-			inboundApplication: {
-				searchConsents: mocks.searchConsents,
-				deleteConsents: mocks.deleteConsents,
+	getManagementClient: (_env: unknown, options?: unknown) => (
+		mocks.managementClientOptions(options),
+		{
+			management: {
+				user: { loadByUserId: mocks.loadByUserId },
+				inboundApplication: {
+					searchConsents: mocks.searchConsents,
+					deleteConsents: mocks.deleteConsents,
+				},
 			},
-		},
-	}),
+		}
+	),
 }));
 
 // Cases change provider answers between calls; each starts with no kept facts.
@@ -331,6 +335,23 @@ describe("verifyHumanMcpGrant", () => {
 			clock.mockRestore();
 		}
 		expect(mocks.loadByUserId).toHaveBeenCalledTimes(25);
+	});
+
+	it("gives every provider read a deadline inside the edge's 15 s budget", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		const started = Date.now();
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+		const deadlines = [
+			mocks.loadDescopeMcpServer.mock.calls.at(-1)?.[2]?.deadline,
+			mocks.searchDescopeMcpServerClients.mock.calls.at(-1)?.[2]?.deadline,
+			mocks.managementClientOptions.mock.calls.at(-1)?.[0]?.deadline,
+		];
+		for (const deadline of deadlines) {
+			expect(deadline).toBeGreaterThan(started);
+			expect(deadline).toBeLessThanOrEqual(Date.now() + 10_000);
+		}
 	});
 
 	it("serves repeat checks from kept provider facts while still reading the Tedix ledger", async () => {

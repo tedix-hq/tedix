@@ -27,6 +27,7 @@ import {
 	promoteMcpConsentPending,
 	replaceMcpConsentSelection,
 } from "@tedix/db/queries/mcp-consent";
+import { ProviderFactsCache } from "./provider-facts-cache";
 
 export interface SelectedMcpOrganization {
 	organizationId: string;
@@ -73,6 +74,7 @@ async function registeredResourceScopes(
 	resource: NonNullable<Awaited<ReturnType<typeof getMcpConsentResource>>>,
 	mcpServerId: string,
 	resourceUrl?: string,
+	deadline?: number,
 ): Promise<Set<string> | null> {
 	const server = await loadDescopeMcpServer(
 		{
@@ -81,6 +83,7 @@ async function registeredResourceScopes(
 			DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
 		},
 		mcpServerId,
+		{ deadline },
 	);
 	if (
 		server.id !== mcpServerId ||
@@ -327,12 +330,14 @@ interface ProviderGrantFacts {
 	platformAdmin: boolean;
 }
 
-const PROVIDER_FACTS_TTL_MS = 30_000;
-const PROVIDER_FACTS_MAX_ENTRIES = 500;
-const providerFactsCache = new Map<
-	string,
-	{ facts: ProviderGrantFacts; expiresAt: number }
->();
+const providerFactsCache = new ProviderFactsCache<ProviderGrantFacts>();
+
+/**
+ * The MCP edge gives this check 15 s. Provider reads stop retrying in time
+ * for the request to answer "retry later" with a 503 instead of being cut off
+ * while a Retry-After sleep is still running.
+ */
+const PROVIDER_DEADLINE_MS = 10_000;
 
 function providerFactsKey(
 	input: Pick<
@@ -351,51 +356,24 @@ function providerFactsKey(
 	]);
 }
 
-function readProviderFacts(key: string, now: number) {
-	const entry = providerFactsCache.get(key);
-	if (!entry) return null;
-	if (entry.expiresAt > now) return entry.facts;
-	providerFactsCache.delete(key);
-	return null;
-}
-
-function storeProviderFacts(
-	key: string,
-	facts: ProviderGrantFacts,
-	now: number,
-) {
-	providerFactsCache.delete(key);
-	providerFactsCache.set(key, {
-		facts,
-		expiresAt: now + PROVIDER_FACTS_TTL_MS,
-	});
-	while (providerFactsCache.size > PROVIDER_FACTS_MAX_ENTRIES) {
-		const oldest = providerFactsCache.keys().next().value;
-		if (oldest === undefined) break;
-		providerFactsCache.delete(oldest);
-	}
-}
-
 /** Drop this isolate's provider facts for one user's client, or for all. */
 export function forgetHumanMcpProviderFacts(filter?: {
 	descopeUserId: string;
 	mcpServerId?: string;
 	clientId?: string;
 }) {
-	if (!filter) {
-		providerFactsCache.clear();
-		return;
-	}
-	for (const key of [...providerFactsCache.keys()]) {
-		const [userId, mcpServerId, clientId] = JSON.parse(key) as string[];
-		if (
-			userId === filter.descopeUserId &&
-			(filter.mcpServerId === undefined ||
-				mcpServerId === filter.mcpServerId) &&
-			(filter.clientId === undefined || clientId === filter.clientId)
-		)
-			providerFactsCache.delete(key);
-	}
+	providerFactsCache.forget(
+		filter &&
+			((key) => {
+				const [userId, mcpServerId, clientId] = JSON.parse(key) as string[];
+				return (
+					userId === filter.descopeUserId &&
+					(filter.mcpServerId === undefined ||
+						mcpServerId === filter.mcpServerId) &&
+					(filter.clientId === undefined || clientId === filter.clientId)
+				);
+			}),
+	);
 }
 
 /** Authorization I/O belongs to this request: an isolate-wide pending promise
@@ -421,7 +399,13 @@ export async function verifyHumanMcpGrant(
 	};
 	let decision: HumanMcpGrantDecision | undefined;
 	try {
-		decision = await verifyHumanMcpGrantStages(db, env, input, mark);
+		decision = await verifyHumanMcpGrantStages(
+			db,
+			env,
+			input,
+			mark,
+			started + PROVIDER_DEADLINE_MS,
+		);
 		return decision;
 	} finally {
 		console.log(
@@ -441,6 +425,7 @@ async function verifyHumanMcpGrantStages(
 	env: CloudflareEnv,
 	input: VerifyHumanMcpGrantInput,
 	mark: (stage: string) => void,
+	deadline: number,
 ): Promise<HumanMcpGrantDecision> {
 	if (!env.DESCOPE_MANAGEMENT_KEY) return deny("provider_unavailable");
 	const resource = await readGrantState("resource", () =>
@@ -497,14 +482,21 @@ async function verifyHumanMcpGrantStages(
 	// provider role must end it on the next request.
 	const cacheable = !input.tokenScopes.includes("platform:admin");
 	const factsKey = providerFactsKey(input, resource);
-	let facts = cacheable ? readProviderFacts(factsKey, Date.now()) : null;
+	let facts = cacheable ? providerFactsCache.get(factsKey) : null;
 	if (facts) {
 		mark("provider_cache");
 	} else {
-		const loaded = await loadProviderFacts(db, env, input, resource, mark);
+		const loaded = await loadProviderFacts(
+			db,
+			env,
+			input,
+			resource,
+			mark,
+			deadline,
+		);
 		if ("denied" in loaded) return deny(loaded.denied);
 		facts = loaded.facts;
-		if (cacheable) storeProviderFacts(factsKey, facts, Date.now());
+		if (cacheable) providerFactsCache.set(factsKey, facts);
 	}
 	// Provider facts may be shared by requests with different tokens, so this
 	// request's own scopes are always judged against them here.
@@ -534,16 +526,20 @@ async function loadProviderFacts(
 	input: VerifyHumanMcpGrantInput,
 	resource: NonNullable<Awaited<ReturnType<typeof getMcpConsentResource>>>,
 	mark: (stage: string) => void,
+	deadline: number,
 ): Promise<ProviderFactsResult> {
 	const deny = (
 		reason: Extract<HumanMcpGrantDecision, { allowed: false }>["reason"],
 	): ProviderFactsResult => ({ denied: reason });
 	try {
-		const management = getManagementClient({
-			DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
-			DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
-			DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
-		});
+		const management = getManagementClient(
+			{
+				DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
+				DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
+				DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
+			},
+			{ deadline },
+		);
 		// Registration and live grant reads are independent. Await all outcomes
 		// together, then retain the existing scope-first denial precedence.
 		const [scopeResult, clientResult, userResult, consentResult] =
@@ -569,13 +565,24 @@ async function loadProviderFacts(
 					try {
 						return await Promise.allSettled([
 							measure("registered_scopes", () =>
-								registeredResourceScopes(db, env, resource, input.mcpServerId),
+								registeredResourceScopes(
+									db,
+									env,
+									resource,
+									input.mcpServerId,
+									undefined,
+									deadline,
+								),
 							),
 							measure("client", () =>
-								searchDescopeMcpServerClients(env, {
-									mcpServerId: input.mcpServerId,
-									clientId: input.clientId,
-								}),
+								searchDescopeMcpServerClients(
+									env,
+									{
+										mcpServerId: input.mcpServerId,
+										clientId: input.clientId,
+									},
+									{ deadline },
+								),
 							),
 							measure("user", () =>
 								management.management.user.loadByUserId(input.descopeUserId),

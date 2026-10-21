@@ -1,5 +1,6 @@
 import { isAuthError } from "./operator/runtime-errors";
 import { describe, expect, test } from "bun:test";
+import { preDispatchUnavailableToolResult } from "@tedix/mcp-shared/tool-result";
 import { normalizeCodeResult } from "./code-result";
 import {
 	createCliRequestTrace,
@@ -1634,6 +1635,31 @@ describe("expired session retry", () => {
 		).toBe(false);
 		expect(isExpiredSessionError(new Error("rate limited"))).toBe(false);
 		expect(isExpiredSessionError(undefined)).toBe(false);
+	});
+});
+
+describe("pre-dispatch tool refusals", () => {
+	test("resends a call the gateway refused before dispatch, and nothing else", async () => {
+		const { client, state } = harness(async (callIndex) =>
+			callIndex === 1
+				? preDispatchUnavailableToolResult(
+						"autonomous_policy_unavailable",
+						"Autonomous action policy is unavailable; no side effect was executed.",
+						0,
+					)
+				: { structuredContent: { ok: true } },
+		);
+		expect(await client.callTool("work_start", {})).toEqual({ ok: true });
+		expect(state.calls).toBe(2);
+
+		const failing = harness(async () => ({
+			isError: true,
+			content: [{ type: "text", text: "validation failed" }],
+		}));
+		await expect(failing.client.callTool("work_start", {})).rejects.toThrow(
+			"validation failed",
+		);
+		expect(failing.state.calls).toBe(1);
 	});
 });
 
