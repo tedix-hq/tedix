@@ -1,6 +1,6 @@
 # Tedix
 
-> One shared to-do list, memory and record for your team and AI agents. Agents ask before risky steps, and every step is on record. Public source; local preview without login.
+> Hand off the work. Tedix brings back only the decisions that need you, and handles the rest. Public source; local preview without login.
 
 - [Review Tedix for your project](https://github.com/tedix-hq/tedix/blob/main/AGENT-REVIEW.md): A 15-minute coding-agent prompt, report format and feedback submission without CLI setup.
 - [Documentation index](https://docs.tedix.dev/llms.txt): Select current product documentation.

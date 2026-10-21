@@ -2,7 +2,7 @@
 sidebar:
   order: 10
 title: "Tedix documentation"
-description: "One shared to-do list, memory and record for your team and the AI assistants you already use."
+description: "Hand off the work. Tedix brings back only the decisions that need you, and handles the rest."
 summary: "Public introduction to Tedix and its documentation"
 read_when:
   - Learning what Tedix provides
@@ -13,8 +13,8 @@ visibility: public
 
 # Tedix documentation
 
-**One shared to-do list, memory and record for your team and the AI
-assistants you already use.**
+**Hand off the work. Tedix brings back only the decisions that need you, and
+handles the rest.**
 
 Tedix is for people who use AI assistants for real work and are tired of
 explaining their company again in every chat, checking on approvals in many
