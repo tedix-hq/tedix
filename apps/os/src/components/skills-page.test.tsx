@@ -349,7 +349,7 @@ describe("SkillRow", () => {
 		expect(html).toContain('dateTime="2026-08-10T09:00:00.000Z"');
 		expect(html).toContain(`href="/skills/${SKILL_ID}"`);
 		expect(html.indexOf("Weekly digest")).toBeLessThan(html.indexOf("Proven"));
-		expect(html.indexOf("Proven")).toBeLessThan(html.indexOf("Open"));
+		expect(html).toContain("Executable · org baseline");
 		expect(html.match(/href=/g)).toHaveLength(1);
 	});
 

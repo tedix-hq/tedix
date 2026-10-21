@@ -320,20 +320,16 @@ export function AppRowMain({
 				<AppChip tone={visibilityTone(app.visibility)}>
 					{sentenceCase(visibilityLabel(app.visibility))}
 				</AppChip>
-				{eligibility ? (
+				{eligibility && eligibility.badge !== "ready" ? (
 					<AppChip tone={badgeTone(eligibility.badge)}>
 						{sentenceCase(BADGE_LABELS[eligibility.badge])}
 					</AppChip>
 				) : null}
 			</span>
 			<Text as="span" role="caption" tone="secondary" truncate>
+				{eligibility ? `${toolCountLabel(eligibility.result)} listed · ` : null}
 				{app.slug} · {appMcpHost(app)}
 			</Text>
-			{eligibility ? (
-				<Text as="span" role="caption" tone="secondary">
-					{toolCountLabel(eligibility.result)} listed
-				</Text>
-			) : null}
 			{app.description ? (
 				<Text
 					as="span"
@@ -349,20 +345,33 @@ export function AppRowMain({
 	);
 }
 
-function AppStatusField({
-	label,
-	status,
+/** Phone rows state the three independent statuses as one quiet line. */
+function AppStatusLine({
+	statuses,
 }: {
-	label: string;
-	status: AppStatus;
+	statuses: readonly { label: string; status: AppStatus }[];
 }) {
 	return (
-		<div className="grid gap-1">
-			<Text as="span" role="caption" tone="secondary">
-				{label}
-			</Text>
-			<AppChip tone={status.tone}>{status.label}</AppChip>
-		</div>
+		<Text as="p" role="caption" tone="secondary" className="m-0">
+			{statuses.map(({ label, status }, index) => (
+				<span key={label}>
+					{index > 0 ? " · " : null}
+					{label}{" "}
+					<span
+						data-tone={status.tone}
+						className={
+							status.tone === "blocked"
+								? "text-kumo-danger"
+								: status.tone === "warn"
+									? "text-kumo-warning"
+									: "text-kumo-default"
+						}
+					>
+						{status.label.toLowerCase()}
+					</span>
+				</span>
+			))}
+		</Text>
 	);
 }
 
@@ -891,14 +900,6 @@ export function AppsPage({
 			</div>
 
 			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Installed apps</SectionTitle>
-						<SectionDescription>
-							Open an app to check its connection, permissions and status.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
 				{apps.data && installedApps.length > 0 ? (
 					<>
 						<PageToolbar appearance="inline">
@@ -911,9 +912,10 @@ export function AppsPage({
 								trailing={
 									<span
 										aria-label={`${filteredApps.length} results`}
-										className="tabular-nums text-kumo-inactive type-tedix-label"
+										className="whitespace-nowrap tabular-nums text-kumo-subtle type-tedix-label"
 									>
-										{filteredApps.length}
+										{formatCount(filteredApps.length)}{" "}
+										{filteredApps.length === 1 ? "result" : "results"}
 									</span>
 								}
 							/>
@@ -1020,11 +1022,13 @@ export function AppsPage({
 											eligibility={eligibilityByAppId[app.id]}
 										/>
 									</div>
-									<div className="grid grid-cols-2 gap-3">
-										<AppStatusField label="Connection" status={connection} />
-										<AppStatusField label="Gateway" status={gateway} />
-										<AppStatusField label="MCP service" status={service} />
-									</div>
+									<AppStatusLine
+										statuses={[
+											{ label: "Connection", status: connection },
+											{ label: "Gateway", status: gateway },
+											{ label: "MCP", status: service },
+										]}
+									/>
 									<AppServiceDetail check={check} />
 									<AppActions
 										app={app}

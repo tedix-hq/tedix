@@ -1,7 +1,7 @@
 import { CapabilityNavigation } from "@/components/capability-navigation";
 import {
-	ArrowRight,
 	BookOpenText,
+	CaretRight,
 	FlowArrow,
 	FolderOpen,
 	UploadSimple,
@@ -370,21 +370,12 @@ export function SkillRow({
 						>
 							{skill.title}
 						</Text>
+						{skill.lifecycleState ? (
+							<SkillChip tone={lifecycleTone(skill.lifecycleState)}>
+								{sentenceCase(skill.lifecycleState)}
+							</SkillChip>
+						) : null}
 					</span>
-					{skill.lifecycleState || executable !== undefined ? (
-						<span className="flex min-w-0 flex-wrap items-center gap-2">
-							{skill.lifecycleState ? (
-								<SkillChip tone={lifecycleTone(skill.lifecycleState)}>
-									{sentenceCase(skill.lifecycleState)}
-								</SkillChip>
-							) : null}
-							{executable !== undefined ? (
-								<SkillChip tone={executable ? "active" : "neutral"}>
-									{executable ? "Executable" : "Instructions"}
-								</SkillChip>
-							) : null}
-						</span>
-					) : null}
 					<Text
 						as="span"
 						role="label"
@@ -392,6 +383,9 @@ export function SkillRow({
 						className="max-sm:truncate"
 						data-row-summary
 					>
+						{executable !== undefined
+							? `${executable ? "Executable" : "Instructions"} · `
+							: null}
 						{owner} · {evidence}
 						{lastUsed}
 					</Text>
@@ -406,9 +400,11 @@ export function SkillRow({
 						</Text>
 					) : null}
 				</span>
-				<span className="inline-flex shrink-0 items-center gap-1 self-center text-kumo-default type-tedix-control">
-					Open <ArrowRight size={14} aria-hidden />
-				</span>
+				<CaretRight
+					size={14}
+					aria-hidden
+					className="shrink-0 self-center text-kumo-subtle"
+				/>
 			</Link>
 		</li>
 	);
@@ -726,15 +722,6 @@ export function SkillsPage({
 
 			{search.section === "skills" ? (
 				<PageSection>
-					<SectionHeader>
-						<SectionHeading>
-							<SectionTitle>Skill catalog</SectionTitle>
-							<SectionDescription>
-								Open a skill to inspect its instructions, versions and
-								schedules.
-							</SectionDescription>
-						</SectionHeading>
-					</SectionHeader>
 					<ListQueryBoundary
 						query={skills}
 						errorTitle="Skills are unavailable"
@@ -783,14 +770,6 @@ export function SkillsPage({
 
 			{search.section === "workflows" ? (
 				<PageSection>
-					<SectionHeader>
-						<SectionHeading>
-							<SectionTitle>Automations</SectionTitle>
-							<SectionDescription>
-								Executable definitions, schedules, health, and recent runs.
-							</SectionDescription>
-						</SectionHeading>
-					</SectionHeader>
 					<ListQueryBoundary
 						query={definitions}
 						errorTitle="Automations are unavailable"

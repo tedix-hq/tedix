@@ -231,7 +231,7 @@ export function PersonalProviderAccounts({
 								</Text>
 							)}
 							<Collapsible>
-								<CollapsibleTrigger className="mt-2 min-h-11 text-kumo-subtle">
+								<CollapsibleTrigger className="-ms-2 mt-2 min-h-11 text-kumo-subtle">
 									Advanced details
 								</CollapsibleTrigger>
 								<CollapsibleContent>
