@@ -8,7 +8,7 @@ import {
 import { Drawer } from "@cloudflare/kumo/primitives/drawer";
 import { XIcon } from "@phosphor-icons/react";
 import type * as React from "react";
-import { useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
@@ -153,13 +153,46 @@ function DialogTrigger({
 	);
 }
 
+/*
+ * A dialog opened from state (no DialogTrigger) has no trigger for Base UI to
+ * return focus to, so focus fell to <body> on close. Remember what was focused
+ * when the popup mounted and return there, unless the caller names a target.
+ */
+function RememberOpener({
+	opener,
+}: {
+	opener: React.RefObject<HTMLElement | null>;
+}) {
+	useLayoutEffect(() => {
+		const active = document.activeElement;
+		opener.current =
+			active instanceof HTMLElement && active !== document.body ? active : null;
+	}, [opener]);
+	return null;
+}
+
 function DialogContent({
 	showCloseButton = true,
+	finalFocus,
+	children,
 	...props
 }: Omit<DialogSurfaceProps, "alert" | "closeButton"> & {
 	showCloseButton?: boolean;
 }) {
-	return <DialogSurface closeButton={showCloseButton} {...props} />;
+	const opener = useRef<HTMLElement | null>(null);
+	return (
+		<DialogSurface
+			closeButton={showCloseButton}
+			finalFocus={
+				finalFocus ??
+				(() => (opener.current?.isConnected ? opener.current : true))
+			}
+			{...props}
+		>
+			<RememberOpener opener={opener} />
+			{children}
+		</DialogSurface>
+	);
 }
 
 /* Header and footer stay pinned while the body scrolls (phones and long forms). */

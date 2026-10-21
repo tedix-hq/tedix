@@ -215,16 +215,15 @@ try {
 		);
 		await page.keyboard.press("Escape");
 		await dialog.waitFor({ state: "hidden" });
-		// Known product gap (support-get-help.tsx is outside this spec): closing
-		// Get help leaves focus on <body> instead of the opener, so focus return
-		// is asserted on the identity and nested dialogs below. Reopening by
-		// keyboard and pointer still has to land on Summary every time.
+		// Get help opens from state (no DialogTrigger); focus still returns to
+		// its button, including on an Escape before the open settles. Safari
+		// does not focus a button on click, so WebKit pointer opens have no
+		// focused opener to restore.
 		const help = page.getByRole("button", { name: "Get help", exact: true });
+		await help.focus();
 		for (const mode of ["keyboard", "pointer", "keyboard"] as const) {
-			if (mode === "keyboard") {
-				await help.focus();
-				await page.keyboard.press("Enter");
-			} else await help.click();
+			if (mode === "keyboard") await page.keyboard.press("Enter");
+			else await help.click();
 			await dialog.waitFor();
 			await settled(page);
 			assert(
@@ -235,7 +234,21 @@ try {
 			);
 			await page.keyboard.press("Escape");
 			await dialog.waitFor({ state: "hidden" });
+			if (mode === "keyboard" || c.engine !== "webkit")
+				assert(
+					await help.evaluate((el) => el === document.activeElement),
+					`${label(c)}: focus returns to Get help after ${mode} reopen`,
+				);
+			else await help.focus();
 		}
+		await page.keyboard.press("Enter");
+		await dialog.waitFor();
+		await page.keyboard.press("Escape");
+		await dialog.waitFor({ state: "hidden" });
+		assert(
+			await help.evaluate((el) => el === document.activeElement),
+			`${label(c)}: focus returns to Get help after an immediate Escape`,
+		);
 		await finish(page, c);
 		console.log(`Dialog viewport passed: ${label(c)}`);
 	}
