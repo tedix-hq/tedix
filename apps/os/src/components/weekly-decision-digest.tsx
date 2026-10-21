@@ -12,28 +12,33 @@ export function WeeklyDecisionDigest() {
 			input: { scopeKind: "personal", limit: 200 },
 		}),
 	);
-	const events = (query.data?.events ?? []).filter(
-		(event) =>
-			event.surface === "decision_capture" &&
-			event.metadata?.answerSource === "os-decision-card",
-	);
-	const since = Date.now() - 7 * 86_400_000;
+	const now = Date.now();
+	const since = now - 7 * 86_400_000;
+	const weeklyEvents = (query.data?.events ?? []).filter((event) => {
+		const at = Date.parse(event.occurredAt);
+		return at >= since && at <= now;
+	});
+	const events = weeklyEvents
+		.filter(
+			(event) =>
+				event.surface === "decision_capture" &&
+				event.metadata?.answerSource === "os-decision-card",
+		)
+		.sort(
+			(a, b) =>
+				Date.parse(b.occurredAt) - Date.parse(a.occurredAt) ||
+				a.id.localeCompare(b.id),
+		);
 	const classes = [
 		...new Set(
-			events
-				.filter((event) => Date.parse(event.occurredAt) >= since)
-				.flatMap((event) =>
-					typeof event.metadata?.decisionClass === "string"
-						? [event.metadata.decisionClass]
-						: [],
-				),
+			events.flatMap((event) =>
+				typeof event.metadata?.decisionClass === "string"
+					? [event.metadata.decisionClass]
+					: [],
+			),
 		),
 	];
-	const metrics = attentionMetrics(
-		(query.data?.events ?? []).filter(
-			(event) => Date.parse(event.occurredAt) >= since,
-		),
-	);
+	const metrics = attentionMetrics(weeklyEvents);
 	if (!classes.length && !metrics.measuredDecisions) return null;
 	return (
 		<section
