@@ -39,7 +39,8 @@ export function scopesBeyondGrant(
 	const allowedSet = new Set(allowed);
 	const candidates = [
 		...(scopeSet(issued.responseScope) ?? []),
-		...(scopeSet(issued.tokenClaims?.scope ?? issued.tokenClaims?.scp) ?? []),
+		...(scopeSet(issued.tokenClaims?.scope) ?? []),
+		...(scopeSet(issued.tokenClaims?.scp) ?? []),
 	];
 	return [...new Set(candidates.filter((scope) => !allowedSet.has(scope)))];
 }
