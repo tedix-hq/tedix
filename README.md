@@ -8,6 +8,7 @@
   <a href="docs/public/release-status.md"><img src="https://img.shields.io/badge/status-beta-yellow" alt="Status: beta"></a>
   <a href="docs/public/licensing.md"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
   <a href="https://github.com/tedix-hq/tedix/stargazers"><img src="https://img.shields.io/github/stars/tedix-hq/tedix?style=flat" alt="GitHub stars"></a>
+  <a href="https://deepwiki.com/tedix-hq/tedix"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 <p align="center">
