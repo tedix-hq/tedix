@@ -617,41 +617,53 @@ function ThreadMessages({
 	useOsFormattingPreferences();
 	const thread = useQuery(tediEmailThreadQueryOptions(tediId, threadId));
 	if (thread.isPending) return <ListSkeleton rows={2} rowClassName="h-16" />;
-	if (thread.isError) {
-		return (
-			<Alert variant="destructive">
-				<AlertTitle>Could not load this thread</AlertTitle>
-				<AlertDescription>{errorMessage(thread.error)}</AlertDescription>
-			</Alert>
-		);
-	}
 	return (
-		<ol className="space-y-2" aria-label="Thread messages">
-			{thread.data.messages.map((message: ThreadMessage) => (
-				<li key={message.id}>
-					<Surface className="space-y-1 p-3">
-						<div className="flex flex-wrap items-center justify-between gap-2">
-							<Text role="label">
-								{message.direction === "outbound" ? "To " : "From "}
-								{message.direction === "outbound"
-									? message.to.map(formatRecipient).join(", ")
-									: formatRecipient(message.from)}
+		<div className="space-y-2">
+			{thread.isError && (
+				<Alert variant="destructive" className="[overflow-wrap:anywhere]">
+					<AlertTitle>Could not load this thread</AlertTitle>
+					<AlertDescription>{errorMessage(thread.error)}</AlertDescription>
+					<Button
+						type="button"
+						variant="secondary"
+						className="mt-2 w-fit"
+						disabled={thread.isFetching}
+						onClick={() => void thread.refetch()}
+					>
+						Retry thread
+					</Button>
+				</Alert>
+			)}
+			{thread.isSuccess && thread.data.messages.length === 0 && (
+				<Text tone="secondary">No messages in this thread.</Text>
+			)}
+			<ol className="space-y-2" aria-label="Thread messages">
+				{thread.data?.messages.map((message: ThreadMessage) => (
+					<li key={message.id}>
+						<Surface className="space-y-1 p-3">
+							<div className="flex flex-wrap items-center justify-between gap-2">
+								<Text role="label">
+									{message.direction === "outbound" ? "To " : "From "}
+									{message.direction === "outbound"
+										? message.to.map(formatRecipient).join(", ")
+										: formatRecipient(message.from)}
+								</Text>
+								<Text role="caption" tone="secondary">
+									{(message.receivedAt ?? message.sentAt)
+										? absoluteTime(
+												(message.receivedAt ?? message.sentAt) as string,
+											)
+										: ""}
+								</Text>
+							</div>
+							<Text role="body" className="whitespace-pre-wrap break-words">
+								{message.textBody ?? message.bodyPreview ?? "(no text body)"}
 							</Text>
-							<Text role="caption" tone="secondary">
-								{(message.receivedAt ?? message.sentAt)
-									? absoluteTime(
-											(message.receivedAt ?? message.sentAt) as string,
-										)
-									: ""}
-							</Text>
-						</div>
-						<Text role="body" className="whitespace-pre-wrap break-words">
-							{message.textBody ?? message.bodyPreview ?? "(no text body)"}
-						</Text>
-					</Surface>
-				</li>
-			))}
-		</ol>
+						</Surface>
+					</li>
+				))}
+			</ol>
+		</div>
 	);
 }
 
@@ -692,12 +704,21 @@ export function InboxCard({ tediId }: { tediId: string }) {
 
 				{inbox.isPending && <ListSkeleton rows={3} rowClassName="h-14" />}
 				{inbox.isError && (
-					<Alert variant="destructive">
+					<Alert variant="destructive" className="[overflow-wrap:anywhere]">
 						<AlertTitle>The inbox is unavailable</AlertTitle>
 						<AlertDescription>{errorMessage(inbox.error)}</AlertDescription>
+						<Button
+							type="button"
+							variant="secondary"
+							className="mt-2 w-fit"
+							disabled={inbox.isFetching}
+							onClick={() => void inbox.refetch()}
+						>
+							Retry inbox
+						</Button>
 					</Alert>
 				)}
-				{inbox.data && inbox.data.threads.length === 0 && (
+				{inbox.isSuccess && inbox.data.threads.length === 0 && (
 					<Empty>
 						<EmptyHeader>
 							<EmptyMedia variant="icon">
@@ -847,33 +868,62 @@ export function TediMailbox({ tediId }: { tediId: string }) {
 	const tedi = useQuery(tediDetailQueryOptions(tediId));
 	const addresses = useQuery(tediEmailAddressesQueryOptions(tediId));
 
-	if (addresses.isPending) {
-		return <ListSkeleton rows={2} rowClassName="h-24" />;
-	}
-	if (addresses.isError) {
-		return (
-			<Alert variant="destructive">
-				<AlertTitle>The mailbox is unavailable</AlertTitle>
-				<AlertDescription>{errorMessage(addresses.error)}</AlertDescription>
-			</Alert>
-		);
-	}
-
-	const rows = addresses.data.addresses;
+	const rows = addresses.data?.addresses ?? [];
 	const policyAddress =
 		rows.find((row) => row.kind === "primary") ?? rows[0] ?? null;
 
 	return (
 		<div className="space-y-4" data-testid="tedi-mailbox">
-			<AddressCard
-				tediId={tediId}
-				slug={tedi.data?.slug ?? null}
-				addresses={rows}
-			/>
-			{policyAddress && (
-				<SenderPolicyCard tediId={tediId} address={policyAddress} />
+			{tedi.isError && (
+				<Alert variant="destructive" className="[overflow-wrap:anywhere]">
+					<AlertTitle>Tedi details are unavailable</AlertTitle>
+					<AlertDescription>{errorMessage(tedi.error)}</AlertDescription>
+					<Button
+						type="button"
+						variant="secondary"
+						className="mt-2 w-fit"
+						disabled={tedi.isFetching}
+						onClick={() => void tedi.refetch()}
+					>
+						Retry tedi details
+					</Button>
+				</Alert>
 			)}
-			{rows.length > 0 && <InboxCard tediId={tediId} />}
+			{addresses.isPending && <ListSkeleton rows={2} rowClassName="h-24" />}
+			{addresses.isError && (
+				<Alert variant="destructive" className="[overflow-wrap:anywhere]">
+					<AlertTitle>The mailbox is unavailable</AlertTitle>
+					<AlertDescription>{errorMessage(addresses.error)}</AlertDescription>
+					<Button
+						type="button"
+						variant="secondary"
+						className="mt-2 w-fit"
+						disabled={addresses.isFetching}
+						onClick={() => void addresses.refetch()}
+					>
+						Retry addresses
+					</Button>
+				</Alert>
+			)}
+			{addresses.isSuccess && rows.length === 0 && tedi.isPending && (
+				<ListSkeleton rows={1} rowClassName="h-24" />
+			)}
+			{(rows.length > 0 || (addresses.isSuccess && tedi.data)) && (
+				<AddressCard
+					key={`addresses:${tediId}`}
+					tediId={tediId}
+					slug={tedi.data?.slug ?? null}
+					addresses={rows}
+				/>
+			)}
+			{policyAddress && (
+				<SenderPolicyCard
+					key={`policy:${tediId}`}
+					tediId={tediId}
+					address={policyAddress}
+				/>
+			)}
+			{rows.length > 0 && <InboxCard key={`inbox:${tediId}`} tediId={tediId} />}
 		</div>
 	);
 }
