@@ -18,12 +18,12 @@ visibility: public
 Three words come up as soon as an organization runs more than one initiative
 in Tedix. They describe different layers.
 
-| Term         | What it is                                                                                                                                           | Where you see it                                  |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Workspace    | The Tedix OS container for Documents: documents, sheets, presentations and videos, each with a revision history.                                     | OS → Workspaces                                   |
-| Work project | A ledger of Work Items with one owner and one brief. Projects group canonical Work; they do not hold files.                                          | OS → Work → Portfolio, then a project page        |
-| Work factory | The control plane around projects: cases, milestones, sprints, health, approvals, interactions, admission and capacity.                              | OS → Work → Cases, Approvals, Admission, Capacity |
-| A factory    | In practice: one Work project, one Workspace linked to it, one tedi that owns the work, and the skills or schedule that keep it producing Documents. | All of the above, per initiative                  |
+| Term         | What it is                                                                                                                                           | Where you see it                                       |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Workspace    | The Tedix OS container for Documents: documents, sheets, presentations and videos, each with a revision history.                                     | OS → Workspaces                                        |
+| Work project | A ledger of Work Items with one owner and one brief. Projects group canonical Work; they do not hold files.                                          | OS → Work → More views → Projects, then a project page |
+| Work factory | The control plane around projects: cases, milestones, sprints, health, approvals, interactions, admission and capacity.                              | OS → Work → Cases, Approvals, Admission, Capacity      |
+| A factory    | In practice: one Work project, one Workspace linked to it, one tedi that owns the work, and the skills or schedule that keep it producing Documents. | All of the above, per initiative                       |
 
 ## Workspace: where the results live
 
