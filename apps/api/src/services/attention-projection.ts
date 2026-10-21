@@ -1,4 +1,5 @@
 import { timelineItems } from "@tedix/api-contract/utils/feed-story";
+import { factoryCardScore } from "@tedix/api-contract/utils/card-priority";
 import { call } from "@orpc/server";
 import type * as z from "zod";
 import {
@@ -269,6 +270,7 @@ async function loadConfiguredDeckProjection(
 				rowIndex: card.rowIndex,
 				revision,
 				policyCritical: route.reason === "critical",
+				score: factoryCardScore(card),
 				draft: card.draft,
 				why: card.why,
 				sourceText: card.sourceText,

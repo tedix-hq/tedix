@@ -104,6 +104,8 @@ export const DeckCardSchema = z.strictObject({
 			rowIndex: z.number().int().min(0),
 			revision: z.number().int(),
 			policyCritical: z.boolean().optional(),
+			/** The factory's own 0–1 priority; the Deck sorts by it after critical cards. */
+			score: z.number().min(0).max(1).optional(),
 			draft: z.string(),
 			why: z.string(),
 			sourceText: z.string(),

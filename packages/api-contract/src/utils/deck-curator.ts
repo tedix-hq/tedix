@@ -161,7 +161,9 @@ export function orderCuratedDeck<
 }
 
 export function isCriticalDeckCard(
-	card: Partial<DeckCard>,
+	card: Omit<Partial<DeckCard>, "factory"> & {
+		factory?: { policyCritical?: boolean };
+	},
 	routing?: DeckRoutingPolicy,
 ) {
 	const request = card.interaction?.request;
