@@ -138,7 +138,7 @@ export async function searchAuditEvents(
 		.select()
 		.from(auditEvents)
 		.where(whereClause)
-		.orderBy(desc(auditEvents.timestamp))
+		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -167,6 +167,6 @@ export async function getAuditEventsByResource(
 				eq(auditEvents.resourceId, resourceId),
 			),
 		)
-		.orderBy(desc(auditEvents.timestamp))
+		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 		.limit(limit);
 }
