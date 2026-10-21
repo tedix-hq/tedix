@@ -1,17 +1,22 @@
 import type { WorkAttemptStore } from "./work-attempt-store";
 import { decodeJwtPayload } from "./jwt-payload";
 import { isMultiOrganizationMcpUrl } from "./oauth-provider";
+import { savedDefaultOrganization } from "./agent-context";
+import type { CredentialStoreOpts } from "./credential-store";
 
-export function resolveOrganizationTarget(input: {
-	url: string;
-	command: string;
-	organization?: string;
-	environmentOrganization?: string;
-	accessToken?: string;
-	workspace: string;
-	/** Authentication already verified this external agent's pinned organization. */
-	externalAgent?: boolean;
-}): {
+export function resolveOrganizationTarget(
+	input: {
+		url: string;
+		command: string;
+		organization?: string;
+		environmentOrganization?: string;
+		accessToken?: string;
+		workspace: string;
+		/** Authentication already verified this external agent's pinned organization. */
+		externalAgent?: boolean;
+	},
+	options?: CredentialStoreOpts,
+): {
 	headers: Record<string, string>;
 	workspace: string;
 	organization?: string;
@@ -54,12 +59,18 @@ export function resolveOrganizationTarget(input: {
 			"Connect has no valid organization selection. Run tedix login to renew consent.",
 		);
 	}
-	if (!organization && selected.length !== 1) {
+	const saved = organization
+		? undefined
+		: savedDefaultOrganization(input.workspace, options);
+	const target =
+		organization ??
+		(saved && selected.includes(saved) ? saved : undefined) ??
+		(selected.length === 1 ? (selected[0] as string) : undefined);
+	if (!target) {
 		throw new Error(
-			"Several organizations are selected. Pass --organization <slug> or set TEDIX_ORGANIZATION for this terminal.",
+			`Several organizations are selected. Add one of these flags to your command.\nSelectable organizations:\n${selected.map((id) => `  --organization ${id}`).join("\n")}\nRun tedix orgs -w ${input.workspace} to see organization names, or set TEDIX_ORGANIZATION for this terminal.`,
 		);
 	}
-	const target = organization ?? (selected[0] as string);
 	// This is a routing hint only; the server checks live consent on every call.
 	return {
 		headers: { "X-Tedix-Organization": target },
