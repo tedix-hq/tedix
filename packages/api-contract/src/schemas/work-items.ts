@@ -1660,6 +1660,16 @@ export const CreateWorkItemInputSchema = z
 			.describe(
 				"Derive proposed Work from an installed, pinned factory Blueprint. Same workspace/cycle key replays one Work Item; changed inputs conflict. Never grants execution authority.",
 			),
+		factoryCard: z
+			.object({
+				cardSheetId: z.uuid(),
+				row: z.number().int().min(0).max(100_000),
+			})
+			.strict()
+			.optional()
+			.describe(
+				"The factory card this Work carries out (a run_skill Do it's cardSheetId and row). The server reads the card and its source and stores the card's decision envelope as metadata.decisionDeck.",
+			),
 		title: z.string().min(1).max(500),
 		description: z.string().max(10000).optional(),
 		workKind: WorkItemKindSchema.default("other"),
