@@ -25,7 +25,7 @@ describe("framework-neutral Tedi embed primitives", () => {
 		expect(styles).not.toContain("body { display:none");
 		for (const primitive of [
 			"message",
-			"activity",
+			"worklog",
 			"approval",
 			"widget-frame",
 			"composer-wrap",
