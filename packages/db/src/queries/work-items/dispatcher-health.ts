@@ -51,6 +51,8 @@ export interface DispatcherHealthOrgRow {
 	openAlertId: string | null;
 	openAlertVersion: number | null;
 	openAlertCreatorId: string | null;
+	/** Newest alert the owner answered; the alarm stays quiet for that stall. */
+	answeredAlertAt: string | null;
 }
 
 type OrgRow = {
@@ -65,6 +67,7 @@ type OrgRow = {
 	alert_id: string | null;
 	alert_version: number | null;
 	alert_creator_id: string | null;
+	answered_alert_at: string | null;
 };
 
 function dispatchable(): SQL {
@@ -88,10 +91,11 @@ function dispatchable(): SQL {
 export async function listDispatcherHealthOrgs(
 	db: DbQueryClient,
 ): Promise<DispatcherHealthOrgRow[]> {
-	const alertWhere = sql`h.org_id = o.id AND h.status = 'open'
+	const alertOf = sql`h.org_id = o.id
 		AND json_extract(h.metadata, '$.schema') = ${DISPATCHER_HEALTH_SCHEMA}`;
 	const rows = await db.all<OrgRow>(sql`
-		SELECT * FROM (
+		SELECT t.*, a.version AS alert_version, a.creator_id AS alert_creator_id
+		FROM (
 			SELECT
 				o.id AS org_id,
 				json_extract(o.metadata, '$.dispatcherHealth.staleAfterMinutes') AS stale_after,
@@ -105,12 +109,14 @@ export async function listDispatcherHealthOrgs(
 					WHERE m.organization_id = o.id AND m.role = 'owner'
 						AND m.status = 'active' AND m.kind = 'human' AND m.user_id IS NOT NULL
 					ORDER BY m.id LIMIT 1) AS owner_user_id,
-				(SELECT h.id FROM work_interactions h WHERE ${alertWhere} ORDER BY h.created_at, h.id LIMIT 1) AS alert_id,
-				(SELECT h.version FROM work_interactions h WHERE ${alertWhere} ORDER BY h.created_at, h.id LIMIT 1) AS alert_version,
-				(SELECT h.creator_id FROM work_interactions h WHERE ${alertWhere} ORDER BY h.created_at, h.id LIMIT 1) AS alert_creator_id
+				(SELECT h.id FROM work_interactions h WHERE ${alertOf} AND h.status = 'open'
+					ORDER BY h.created_at, h.id LIMIT 1) AS alert_id,
+				(SELECT max(h.created_at) FROM work_interactions h WHERE ${alertOf} AND h.status = 'resolved') AS answered_alert_at
 			FROM organizations o
-		) WHERE waiting > 0 OR alert_id IS NOT NULL
-		ORDER BY org_id
+		) t
+		LEFT JOIN work_interactions a ON a.org_id = t.org_id AND a.id = t.alert_id
+		WHERE t.waiting > 0 OR t.alert_id IS NOT NULL
+		ORDER BY t.org_id
 	`);
 	return rows.map((r) => ({
 		orgId: r.org_id,
@@ -127,5 +133,6 @@ export async function listDispatcherHealthOrgs(
 		openAlertId: r.alert_id,
 		openAlertVersion: r.alert_version === null ? null : Number(r.alert_version),
 		openAlertCreatorId: r.alert_creator_id,
+		answeredAlertAt: r.answered_alert_at,
 	}));
 }

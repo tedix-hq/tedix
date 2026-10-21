@@ -49,6 +49,22 @@ export function dispatcherLooksStalled(
 	);
 }
 
+/**
+ * The owner already answered an item raised during this stall. The stall began
+ * at the older of the two last signals (never seen = always), so an answer
+ * keeps the alarm quiet until a signal moves; recovery clears it for the next.
+ */
+function ownerAnsweredThisStall(row: DispatcherHealthOrgRow): boolean {
+	if (!row.answeredAlertAt) return false;
+	const stallStart =
+		row.lastAdmissionAt && row.lastTrackerActionAt
+			? row.lastAdmissionAt < row.lastTrackerActionAt
+				? row.lastAdmissionAt
+				: row.lastTrackerActionAt
+			: "";
+	return row.answeredAlertAt >= stallStart;
+}
+
 export async function runDispatcherHealthAlarm(
 	env: Pick<CloudflareEnv, "DB">,
 	scheduledTime: number,
@@ -65,7 +81,13 @@ export async function runDispatcherHealthAlarm(
 	for (const row of rows) {
 		const stalled = dispatcherLooksStalled(row, scheduledTime);
 		try {
-			if (stalled && !row.openAlertId && row.ownerUserId && row.workItemId) {
+			if (
+				stalled &&
+				!row.openAlertId &&
+				!ownerAnsweredThisStall(row) &&
+				row.ownerUserId &&
+				row.workItemId
+			) {
 				const limit =
 					row.staleAfterMinutes ?? DEFAULT_DISPATCHER_STALE_AFTER_MINUTES;
 				await createWorkInteraction(db, {
