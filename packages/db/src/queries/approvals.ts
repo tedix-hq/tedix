@@ -6,6 +6,10 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	recordCardCreationEdges,
+	recordDecisionResolutionEdges,
+} from "./decision-graph-writers";
 import { and, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
@@ -212,6 +216,7 @@ export async function createApprovalRequest(
 	const created = results[0];
 	if (!created)
 		throw new Error(`Failed to create approval request: ${data.id}`);
+	await recordApprovalCardCreation(db, created);
 	return created;
 }
 
@@ -231,7 +236,29 @@ export async function createApprovalRequestWithAudit(
 	const created = results[0];
 	if (!created)
 		throw new Error(`Failed to create approval request: ${data.id}`);
+	await recordApprovalCardCreation(db, created);
 	return created;
+}
+
+async function recordApprovalCardCreation(
+	db: DbClient,
+	approval: TediApprovalRequest,
+) {
+	if (approval.status !== "pending") return;
+	await recordCardCreationEdges(db, {
+		id: `approval:${approval.id}`,
+		orgId: approval.orgId,
+		workItemId:
+			typeof approval.payload.workItemId === "string"
+				? approval.payload.workItemId
+				: null,
+		kind: "question",
+		targetType: "user",
+		subject: approval.description,
+		prompt: approval.description,
+		metadata: approval.payload,
+		createdAt: approval.createdAt,
+	});
 }
 
 /** Unexecuted pending-approval insert, for `db.batch()` composition. */
@@ -454,6 +481,25 @@ export async function resolveApprovalRequest(
 		})
 		.where(and(...conditions))
 		.returning();
+	const resolved = results[0];
+	if (
+		resolved &&
+		(resolved.status === "approved" || resolved.status === "rejected")
+	)
+		await recordDecisionResolutionEdges(db, {
+			orgId: resolved.orgId,
+			cardId: `approval:${resolved.id}`,
+			decisionId: resolved.id,
+			workItemId:
+				typeof resolved.payload.workItemId === "string"
+					? resolved.payload.workItemId
+					: null,
+			occurredAt: resolvedAt,
+			source: "approval_resolution",
+			evidenceRef: `approval:${resolved.id}`,
+			note:
+				resolved.resolution ?? `${resolved.status}: ${resolved.description}`,
+		});
 	return results[0];
 }
 

@@ -2,10 +2,88 @@ import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../rpc/orpc";
 import { reviseCardContent } from "./card-revisions";
 import { mergeDeckCards, retireDeckCard } from "./deck-retirement";
+
+describe.each([false, true])(
+	"retirement graph writer (graph unavailable: %s)",
+	(broken) => {
+		it("records same_as for each successful merge without failing retirement", async () => {
+			const f = fixture();
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			try {
+				f.insert(card, "Same ask");
+				f.insert(twin, "Same ask");
+				if (broken)
+					f.sqlite.exec(
+						"CREATE TRIGGER broken_graph BEFORE INSERT ON decision_edges BEGIN SELECT RAISE(ABORT,'unavailable'); END;",
+					);
+				await mergeDeckCards(f.owner, {
+					keepId: twin,
+					duplicateIds: [card],
+					note: "Same Work",
+					evidenceRefs: evidence,
+				});
+				expect(f.state(card)).toMatchObject({ status: "cancelled" });
+				const edges = f.sqlite
+					.prepare("SELECT kind,from_id,to_id FROM decision_edges")
+					.all();
+				if (broken) {
+					expect(warn).toHaveBeenCalled();
+					expect(edges).toEqual([]);
+				} else
+					expect(edges).toEqual([
+						expect.objectContaining({
+							kind: "same_as",
+							from_id: card,
+							to_id: twin,
+						}),
+					]);
+			} finally {
+				warn.mockRestore();
+				f.sqlite.close();
+			}
+		});
+		it("points supersedes from the newer card to the successfully retired card", async () => {
+			const f = fixture();
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			try {
+				f.insert(card, "Old ask");
+				f.insert(twin, "New ask");
+				if (broken)
+					f.sqlite.exec(
+						"CREATE TRIGGER broken_graph BEFORE INSERT ON decision_edges BEGIN SELECT RAISE(ABORT,'unavailable'); END;",
+					);
+				await retireDeckCard(f.owner, {
+					requestId: card,
+					reason: "superseded",
+					successorId: twin,
+					note: "Replaced",
+				});
+				expect(f.state(card)).toMatchObject({ status: "cancelled" });
+				const edges = f.sqlite
+					.prepare("SELECT kind,from_id,to_id FROM decision_edges")
+					.all();
+				if (broken) {
+					expect(warn).toHaveBeenCalled();
+					expect(edges).toEqual([]);
+				} else
+					expect(edges).toEqual([
+						expect.objectContaining({
+							kind: "supersedes",
+							from_id: twin,
+							to_id: card,
+						}),
+					]);
+			} finally {
+				warn.mockRestore();
+				f.sqlite.close();
+			}
+		});
+	},
+);
 
 const org = "11111111-1111-4111-8111-111111111111";
 const work = "22222222-2222-4222-8222-222222222222";

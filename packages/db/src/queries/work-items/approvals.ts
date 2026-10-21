@@ -1,4 +1,8 @@
 import { normalizeWorkItemRow } from "./normalization";
+import {
+	recordCardCreationEdges,
+	recordDecisionResolutionEdges,
+} from "../decision-graph-writers";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { WorkItemAcceptanceContractSchema } from "@tedix/api-contract/schemas/work-items";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -252,6 +256,22 @@ export async function proposeWorkApproval(
 		})
 		.returning();
 	const [, rows] = await db.batch([expire, insert]);
+	if (rows[0] && p.approverType === "user")
+		await recordCardCreationEdges(
+			db,
+			{
+				id: `work-approval:${rows[0].id}`,
+				orgId: p.orgId,
+				workItemId: item.id,
+				kind: "question",
+				targetType: "user",
+				subject: item.title,
+				prompt: p.rationale,
+				metadata: p.proposal,
+				createdAt: p.now,
+			},
+			item,
+		);
 	return rows[0]!;
 }
 
@@ -412,6 +432,16 @@ export async function decideWorkApproval(
 			[decisions] = await db.batch([decisionInsert, acceptance, event]);
 		} else decisions = await decisionInsert;
 		if (!decisions[0]) throw new Error("lost race");
+		await recordDecisionResolutionEdges(db, {
+			orgId: p.orgId,
+			cardId: `work-approval:${proposal.id}`,
+			decisionId: decisions[0].id,
+			workItemId: proposal.workItemId,
+			occurredAt: decisions[0].decidedAt,
+			source: "work_approval_resolution",
+			evidenceRef: `work-approval-decision:${decisions[0].id}`,
+			note: p.rationale,
+		});
 		return decisions[0];
 	} catch {
 		throw new WorkControlError(

@@ -14,6 +14,7 @@ import type {
 } from "@tedix/api-contract/constants/enums";
 import { and, desc, eq, inArray, isNull, not, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { recordOwnerInstructionEdges } from "../decision-graph-writers";
 import {
 	type FactPriority,
 	type FactVisibility,
@@ -77,6 +78,7 @@ export async function createFact(
 ): Promise<MemoryFact> {
 	const [created] = await db.insert(memoryFacts).values(fact).returning();
 	if (!created) throw new Error(`Failed to create fact: ${fact.id}`);
+	await recordOwnerInstructionEdges(db, created);
 	return created;
 }
 

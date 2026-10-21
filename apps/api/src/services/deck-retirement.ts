@@ -8,6 +8,7 @@ import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { deckCardExpired } from "@tedix/api-contract/utils/deck-ask";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
+import { upsertDecisionEdges } from "@tedix/db/queries/decision-graph";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { requireOrgId } from "../rpc/org-scope";
@@ -181,6 +182,32 @@ export async function retireDeckCard(context: BaseContext, raw: RetireInput) {
 		body: cardOriginalBody(request),
 		state,
 	});
+	if (
+		(input.reason === "duplicate" || input.reason === "superseded") &&
+		(input.successorId || input.workItemId)
+	) {
+		try {
+			const retired = { kind: "deck_card" as const, id: request.id };
+			const successor = input.successorId
+				? { kind: "deck_card" as const, id: input.successorId }
+				: { kind: "work_item" as const, id: input.workItemId! };
+			await upsertDecisionEdges(context.db, orgId, [
+				{
+					kind: input.reason === "duplicate" ? "same_as" : "supersedes",
+					from: input.reason === "duplicate" ? retired : successor,
+					to: input.reason === "duplicate" ? successor : retired,
+					source: "deck_retirement",
+					evidenceRef: `work-interaction:${request.id}:revision:${revision.revision}`,
+					note: input.reason === "duplicate" ? "Same ask" : "Replaced card",
+					occurredAt: new Date().toISOString(),
+				},
+			]);
+		} catch {
+			console.warn("[decision-graph] edge write skipped", {
+				source: "deck_retirement",
+			});
+		}
+	}
 	return {
 		requestId: request.id,
 		reason: input.reason,
