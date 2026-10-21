@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vite-plus/test";
-import { createSessionHub } from "./session-hub";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { CAPN_CONNECT_TIMEOUT_MS, createSessionHub } from "./session-hub";
 
 describe("shared capability session lifecycle", () => {
 	it("shares an authenticated connection and disposes only on the last release", async () => {
@@ -49,5 +49,51 @@ describe("shared capability session lifecycle", () => {
 		broken[0]!(new Error("late disconnect"));
 		expect((await lease.session()).generation).toBe(second.generation);
 		lease.release();
+	});
+});
+
+afterEach(() => vi.useRealTimers());
+
+describe("bounded shared dial", () => {
+	it("releases a timed-out shared dial and disposes its late root", async () => {
+		vi.useFakeTimers();
+		const lateDispose = vi.fn();
+		const late = { ping: async () => {}, [Symbol.dispose]: lateDispose };
+		const next = { ping: async () => {}, [Symbol.dispose]: vi.fn() };
+		let finish!: (root: typeof late) => void;
+		const dial = new Promise<typeof late>((resolve) => {
+			finish = resolve;
+		});
+		const hub = createSessionHub({
+			connect: vi.fn().mockReturnValueOnce(dial).mockResolvedValue(next),
+		});
+		const a = hub.lease();
+		const b = hub.lease();
+		const outcomes = Promise.allSettled([a.session(), b.session()]);
+		await vi.advanceTimersByTimeAsync(CAPN_CONNECT_TIMEOUT_MS);
+		expect((await outcomes).every((r) => r.status === "rejected")).toBe(true);
+		const recovered = await a.session();
+		expect(recovered.root).toBe(next);
+		finish(late);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(lateDispose).toHaveBeenCalledTimes(1);
+		expect((await b.session()).root).toBe(next);
+		a.release();
+		b.release();
+		expect(next[Symbol.dispose]).toHaveBeenCalledTimes(1);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("cancels the deadline when the final borrower leaves a pending dial", async () => {
+		vi.useFakeTimers();
+		const hub = createSessionHub({
+			connect: () => new Promise<never>(() => {}),
+		});
+		const lease = hub.lease();
+		const outcome = Promise.allSettled([lease.session()]);
+		lease.release();
+		await vi.advanceTimersByTimeAsync(0);
+		expect((await outcome)[0]?.status).toBe("rejected");
+		expect(vi.getTimerCount()).toBe(0);
 	});
 });

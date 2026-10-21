@@ -143,6 +143,7 @@ export class CapnNotConnectedError extends Error {
  * status "open" rendering a transcript that stopped hours ago.
  */
 export const CAPN_LIVENESS_IDLE_MS = 45_000;
+export const CAPN_HANDSHAKE_TIMEOUT_MS = 15_000;
 
 /**
  * Does the server hold durable events this client never received?
@@ -267,6 +268,9 @@ export type CapnChatMachineOptions = {
 	 */
 	setLivenessTimerFn?: (callback: () => void, ms: number) => unknown;
 	clearLivenessTimerFn?: (handle: unknown) => void;
+	/** Separate from backoff and the established-stream watchdog. */
+	setHandshakeTimerFn?: (callback: () => void, ms: number) => unknown;
+	clearHandshakeTimerFn?: (handle: unknown) => void;
 	/** Injectable clock for the watchdog's silence window. */
 	nowFn?: () => number;
 	/** Injectable randomness for backoff jitter. */
@@ -319,6 +323,13 @@ export function createCapnChatMachine(
 		options.clearLivenessTimerFn ??
 		((handle: unknown) =>
 			clearTimeout(handle as ReturnType<typeof setTimeout>));
+	const setHandshakeTimerFn =
+		options.setHandshakeTimerFn ??
+		((callback: () => void, ms: number) => setTimeout(callback, ms));
+	const clearHandshakeTimerFn =
+		options.clearHandshakeTimerFn ??
+		((handle: unknown) =>
+			clearTimeout(handle as ReturnType<typeof setTimeout>));
 	const nowFn = options.nowFn ?? (() => Date.now());
 	const randomFn = options.randomFn ?? Math.random;
 
@@ -352,6 +363,7 @@ export function createCapnChatMachine(
 	let timer: unknown = null;
 	/** Watchdog handle; non-null only while the machine believes it is open. */
 	let livenessTimer: unknown = null;
+	let cancelHandshake: (() => void) | null = null;
 	/** Last moment the live tail proved itself: a frame, or a clean probe. */
 	let lastLivenessAt = 0;
 
@@ -584,6 +596,7 @@ export function createCapnChatMachine(
 
 	const onBroken = (brokenEpoch: number) => {
 		if (closed || brokenEpoch !== epoch) return;
+		cancelHandshake?.();
 		epoch += 1;
 		stopLivenessWatch();
 		disposeStubs();
@@ -593,6 +606,40 @@ export function createCapnChatMachine(
 	const establish = async (): Promise<void> => {
 		if (closed) return;
 		const myEpoch = epoch;
+		let rejectHandshake!: (error: Error) => void;
+		const deadline = new Promise<never>((_, reject) => {
+			rejectHandshake = reject;
+		});
+		const handshakeTimer = setHandshakeTimerFn(
+			() => rejectHandshake(new Error("Cap'n Web handshake timed out")),
+			CAPN_HANDSHAKE_TIMEOUT_MS,
+		);
+		const cancel = () => {
+			clearHandshakeTimerFn(handshakeTimer);
+			rejectHandshake(new Error("Cap'n Web handshake was closed"));
+		};
+		cancelHandshake = cancel;
+		const awaitStage = <T>(request: PromiseLike<T>, disposeLate = false) => {
+			let pending = true;
+			// RpcPromises are disposable: abandon the remote call on teardown,
+			// while still observing late plain-Promise completions below.
+			disposers.push(() => {
+				if (pending) disposeQuietly(request);
+			});
+			const result = Promise.resolve(request).then(
+				(value) => {
+					pending = false;
+					if (disposeLate && (closed || myEpoch !== epoch))
+						disposeQuietly(value);
+					return value;
+				},
+				(error: unknown) => {
+					pending = false;
+					throw error;
+				},
+			);
+			return Promise.race([result, deadline]);
+		};
 		try {
 			// SHARED-SESSION PATH: the hub owns the socket's lifetime, so the root
 			// is neither adopted into this machine's disposal ledger nor disposed
@@ -603,7 +650,7 @@ export function createCapnChatMachine(
 			const lease = options.lease;
 			let root: CapnSessionStub;
 			if (lease !== undefined) {
-				const session = await lease.session();
+				const session = await awaitStage(lease.session());
 				if (closed || myEpoch !== epoch) return;
 				root = session.root;
 				const unbind = lease.onBroken(session.generation, () =>
@@ -611,7 +658,7 @@ export function createCapnChatMachine(
 				);
 				disposers.push(unbind);
 			} else {
-				root = await options.connect();
+				root = await awaitStage(options.connect(), true);
 				if (closed || myEpoch !== epoch) {
 					disposeQuietly(root);
 					return;
@@ -637,7 +684,7 @@ export function createCapnChatMachine(
 			// RESUME: everything after the last cursor the server issued. On a
 			// first connection `cursor` is null, which the server reads as "the
 			// current run from its start" — no sentinel offset is ever sent.
-			const snapshot = await conversationStub.snapshot(cursor);
+			const snapshot = await awaitStage(conversationStub.snapshot(cursor));
 			if (closed || myEpoch !== epoch) return;
 			options.recordSnapshotReplay?.(
 				streamKeyOf(snapshot.runId),
@@ -648,9 +695,12 @@ export function createCapnChatMachine(
 			// no events (an empty page still moves the client onto the live run).
 			if (snapshot.cursor !== null) setCursor(snapshot.cursor);
 
-			const subscription = await conversationStub.subscribe((frame) => {
-				if (!closed && myEpoch === epoch) deliver(frame);
-			}, cursor);
+			const subscription = await awaitStage(
+				conversationStub.subscribe((frame) => {
+					if (!closed && myEpoch === epoch) deliver(frame);
+				}, cursor),
+				true,
+			);
 			if (closed || myEpoch !== epoch) {
 				disposeQuietly(subscription);
 				return;
@@ -694,6 +744,9 @@ export function createCapnChatMachine(
 				}
 			}
 			scheduleReconnect();
+		} finally {
+			clearHandshakeTimerFn(handshakeTimer);
+			if (cancelHandshake === cancel) cancelHandshake = null;
 		}
 	};
 
@@ -709,6 +762,7 @@ export function createCapnChatMachine(
 		close() {
 			if (closed) return;
 			closed = true;
+			cancelHandshake?.();
 			if (timer !== null) clearTimeoutFn(timer);
 			timer = null;
 			stopLivenessWatch();

@@ -19,7 +19,7 @@
  *   It asks the hub for the current session on every establish, so a hub-level
  *   death is just another establish failure to the machine's existing loop.
  *
- * The hub therefore has NO timers and NO backoff of its own. A dead session is
+ * The hub bounds dial and probe duration but owns no retry/backoff. A dead session is
  * dropped; the next `session()` call dials again, and the pacing of those calls
  * is the machine's existing 1s→30s ladder.
  */
@@ -70,16 +70,25 @@ export type SessionHubOptions<T extends CapnConnection> = {
 	trackStub?: (label: string) => () => void;
 	now?: () => number;
 	probeTimeoutMs?: number;
+	connectTimeoutMs?: number;
 };
 
+export const CAPN_CONNECT_TIMEOUT_MS = 10_000;
 export const CAPN_WAKE_PROBE_TIMEOUT_MS = 10_000;
 export const CAPN_WAKE_PROBE_MIN_IDLE_MS = 15_000;
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	operation = "probe",
+): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, reject) => {
 		timer = setTimeout(
-			() => reject(new Error(`Cap'n Web probe timed out after ${timeoutMs}ms`)),
+			() =>
+				reject(
+					new Error(`Cap'n Web ${operation} timed out after ${timeoutMs}ms`),
+				),
 			timeoutMs,
 		);
 	});
@@ -109,6 +118,7 @@ export function createSessionHub<T extends CapnConnection>(
 	let generation = 1;
 	let root: T | null = null;
 	let pending: Promise<SessionLease<T>> | null = null;
+	let cancelDial: (() => void) | null = null;
 	let releaseTracked: (() => void) | null = null;
 	let probeInFlight: Promise<boolean> | null = null;
 	let lastProvenAt = 0;
@@ -117,6 +127,8 @@ export function createSessionHub<T extends CapnConnection>(
 	const brokenListeners = new Map<number, Set<() => void>>();
 
 	const teardown = () => {
+		cancelDial?.();
+		cancelDial = null;
 		const dying = root;
 		root = null;
 		pending = null;
@@ -152,7 +164,18 @@ export function createSessionHub<T extends CapnConnection>(
 
 	const connect = (): Promise<SessionLease<T>> => {
 		const myGeneration = generation;
-		const attempt = options.connect().then((connected) => {
+		const dial = options.connect();
+		let dialPending = true;
+		const canceled = new Promise<never>((_, reject) => {
+			cancelDial = () => {
+				if (dialPending) disposeQuietly(dial);
+				reject(
+					new Error("The Cap'n Web session was released while connecting."),
+				);
+			};
+		});
+		const attempt = dial.then((connected) => {
+			dialPending = false;
 			// The hub was killed or drained while the dial was in flight: the
 			// socket belongs to nobody, so it must not become the shared root.
 			if (myGeneration !== generation || leases === 0) {
@@ -169,11 +192,19 @@ export function createSessionHub<T extends CapnConnection>(
 			});
 			return { root: connected, generation: myGeneration };
 		});
-		pending = attempt.catch((error: unknown) => {
-			// A failed dial leaves no session behind; the next caller re-dials.
-			if (myGeneration === generation) pending = null;
-			throw error;
-		});
+		pending = withTimeout(
+			Promise.race([attempt, canceled]),
+			options.connectTimeoutMs ?? CAPN_CONNECT_TIMEOUT_MS,
+			"connect",
+		)
+			.catch((error: unknown) => {
+				// Invalidate timed-out dials so their late sockets cannot become live.
+				if (myGeneration === generation) kill();
+				throw error;
+			})
+			.finally(() => {
+				if (myGeneration === generation) cancelDial = null;
+			});
 		return pending;
 	};
 

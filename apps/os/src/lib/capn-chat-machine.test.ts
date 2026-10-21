@@ -21,6 +21,7 @@ import type {
 	CapnSubscriber,
 } from "@/capnweb/contract";
 import {
+	CAPN_HANDSHAKE_TIMEOUT_MS,
 	CAPN_LIVENESS_IDLE_MS,
 	createCapnChatMachine,
 	isStreamStale,
@@ -33,6 +34,7 @@ import { resetConversationResumeWatermarks } from "./conversation-stream";
 // test's log instead of opening cold.
 afterEach(() => {
 	resetConversationResumeWatermarks();
+	vi.useRealTimers();
 });
 
 const CONVERSATION_ID = "home:main";
@@ -161,6 +163,8 @@ function fakeServer() {
 	};
 
 	return {
+		root,
+		conversation,
 		log,
 		snapshotCalls,
 		subscribeCalls,
@@ -573,5 +577,105 @@ describe("replay instrumentation", () => {
 		});
 		expect(harness.replays[2]?.events).toBe(0);
 		harness.machine.close();
+	});
+});
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const dispose = vi.fn();
+	const promise = Object.assign(
+		new Promise<T>((done) => {
+			resolve = done;
+		}),
+		{
+			[Symbol.dispose]: dispose,
+		},
+	);
+	return { promise, resolve, dispose };
+}
+
+describe("bounded initial handshake", () => {
+	it.each(["connect", "snapshot", "subscribe"] as const)(
+		"recovers from a stalled %s and fences its late completion",
+		async (stage) => {
+			vi.useFakeTimers();
+			const stalled = fakeServer();
+			const healthy = fakeServer();
+			const dial = deferred<CapnSessionStub>();
+			const snapshot = deferred<CapnConversationSnapshot>();
+			const subscription =
+				deferred<Awaited<ReturnType<CapnConversationStub["subscribe"]>>>();
+			const lateSubscriptionDispose = vi.fn();
+			const lateSnapshot = await stalled.conversation.snapshot(null);
+			lateSnapshot.events = [frame(0)];
+			if (stage === "snapshot")
+				vi.spyOn(stalled.conversation, "snapshot").mockReturnValueOnce(
+					snapshot.promise,
+				);
+			if (stage === "subscribe")
+				vi.spyOn(stalled.conversation, "subscribe").mockReturnValueOnce(
+					subscription.promise,
+				);
+			const connect = vi
+				.fn<() => Promise<CapnSessionStub>>()
+				.mockImplementationOnce(() =>
+					stage === "connect" ? dial.promise : stalled.connect(),
+				)
+				.mockImplementation(() => healthy.connect());
+			const statuses: string[] = [];
+			const onFrame = vi.fn();
+			const failures = vi.fn();
+			const machine = createCapnChatMachine({
+				conversationId: CONVERSATION_ID,
+				connect,
+				onFrame,
+				onStatus: (s) => statuses.push(s),
+				recordConnectFailure: failures,
+				randomFn: () => 0.5,
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(statuses).toEqual(["connecting"]);
+			await vi.advanceTimersByTimeAsync(CAPN_HANDSHAKE_TIMEOUT_MS);
+			expect(statuses.at(-1)).toBe("reconnecting");
+			expect(failures).toHaveBeenCalledTimes(1);
+			expect(
+				{ connect: dial, snapshot, subscribe: subscription }[stage].dispose,
+			).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(statuses.at(-1)).toBe("open");
+			dial.resolve(stalled.root);
+			snapshot.resolve(lateSnapshot);
+			subscription.resolve({ [Symbol.dispose]: lateSubscriptionDispose });
+			await vi.advanceTimersByTimeAsync(0);
+			expect(statuses.filter((s) => s === "open")).toHaveLength(1);
+			expect(onFrame).not.toHaveBeenCalled();
+			if (stage === "connect") expect(stalled.disposed).toEqual(["root"]);
+			if (stage === "subscribe")
+				expect(lateSubscriptionDispose).toHaveBeenCalledTimes(1);
+			machine.close();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(vi.getTimerCount()).toBe(0);
+		},
+	);
+
+	it("clears the deadline on close and disposes a late dial without reconnecting", async () => {
+		vi.useFakeTimers();
+		const server = fakeServer();
+		const dial = deferred<CapnSessionStub>();
+		const statuses: string[] = [];
+		const machine = createCapnChatMachine({
+			conversationId: CONVERSATION_ID,
+			connect: () => dial.promise,
+			onFrame: vi.fn(),
+			onStatus: (s) => statuses.push(s),
+		});
+		machine.close();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(vi.getTimerCount()).toBe(0);
+		dial.resolve(server.root);
+		await vi.advanceTimersByTimeAsync(CAPN_HANDSHAKE_TIMEOUT_MS * 2);
+		expect(statuses).toEqual(["connecting", "idle"]);
+		expect(server.disposed).toEqual(["root"]);
+		expect(dial.dispose).toHaveBeenCalledTimes(1);
 	});
 });
