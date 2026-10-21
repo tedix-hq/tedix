@@ -16,6 +16,7 @@ import {
 	parseExternalResponse,
 } from "./handler-external-request";
 import { buildStructuredContent, buildTextContent } from "./handler-content";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import {
 	readToolConfigExtension,
 	readToolConfigString,
@@ -141,15 +142,15 @@ const BROWSER_QUICK_ACTION_ENDPOINTS = new Set([
 	"browser/scrapeElements",
 	"browser/extractJson",
 ]);
+const writeProtocolTelemetry = createTelemetryWriter("mcp.upstream.analytics");
+
 export function emitUpstreamProtocolMetric(
 	env: CloudflareEnv,
 	event: Parameters<typeof buildMcpUpstreamProtocolDataPoint>[0],
 ): void {
-	try {
-		env.ANALYTICS?.writeDataPoint(buildMcpUpstreamProtocolDataPoint(event));
-	} catch {
-		// Compatibility telemetry must never break an upstream tool call.
-	}
+	writeProtocolTelemetry(() =>
+		env.ANALYTICS?.writeDataPoint(buildMcpUpstreamProtocolDataPoint(event)),
+	);
 }
 
 export function classifyUpstreamProtocolCaller(

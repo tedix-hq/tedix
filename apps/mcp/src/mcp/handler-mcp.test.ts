@@ -171,6 +171,34 @@ describe("ToolHandler MCP transport", () => {
 			indexes: ["tenant-app"],
 		});
 	});
+	it.each(["throw", "reject"])(
+		"keeps upstream calls successful when protocol metrics %s",
+		async (failure) => {
+			const ctx = mcpCtx({
+				transport: "mcp",
+				mcpServerUrl: "https://cto.tedi.tedix.dev/mcp",
+				mcpToolName: "code",
+				_aggregateTediId: "cto_tedi_1",
+				_aggregateTediOrgId: "org_1",
+			});
+			const writeDataPoint = vi.fn(() => {
+				if (failure === "reject")
+					return Promise.reject(
+						new Error("Analytics Engine write limit exceeded"),
+					);
+				throw new Error("Analytics Engine write limit exceeded");
+			});
+			ctx.env.ANALYTICS = {
+				writeDataPoint,
+			} as unknown as AnalyticsEngineDataset;
+			await expect(new ToolHandler().execute({}, ctx)).resolves.toMatchObject({
+				status: 200,
+				data: { ok: true },
+			});
+			expect(writeDataPoint).toHaveBeenCalled();
+		},
+	);
+
 	it("classifies callers without recording identity-bearing fields", () => {
 		expect(classifyUpstreamProtocolCaller(undefined)).toBe("unknown");
 		expect(classifyUpstreamProtocolCaller({ authType: "oauth" })).toBe(

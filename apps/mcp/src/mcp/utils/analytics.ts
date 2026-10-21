@@ -13,7 +13,7 @@ import {
 	type McpClientRegistrationMethod,
 } from "@tedix/auth/oauth-client-registration";
 import { getApiClient } from "../../lib/api-client";
-import { createMcpLogger } from "../../log";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import {
 	buildCallerAuditMetadata,
 	type CallerIdentity,
@@ -21,7 +21,9 @@ import {
 } from "../caller-identity";
 import { redactSecretValues } from "./payload-capture";
 
-const log = createMcpLogger("mcp.analytics");
+const writeAnalytics = createTelemetryWriter("mcp.analytics.engine");
+const writeAnalyticsLog = createTelemetryWriter("mcp.analytics.log");
+const writeAudit = createTelemetryWriter("mcp.analytics.audit");
 
 /**
  * MCP event types for analytics tracking
@@ -209,38 +211,19 @@ export function trackMcpEvent(env: CloudflareEnv, event: McpEvent): void {
 		environment: env.ENVIRONMENT,
 	};
 
-	if (isDev) {
-		// Development: Pretty-print for readability
-		console.log(
-			`[MCP Analytics] ${event.eventType}:`,
-			JSON.stringify(logEntry, null, 2),
-		);
-	} else {
-		// Production: Single-line JSON for Cloudflare dashboard queries
-		console.log(JSON.stringify(logEntry));
-	}
-
-	// Layer 2: Analytics Engine (async, non-blocking)
-	// Analytics Engine binding configured in wrangler.jsonc
-	if ("ANALYTICS" in env && env.ANALYTICS) {
-		try {
-			env.ANALYTICS.writeDataPoint(buildMcpAnalyticsDataPoint(event));
-
-			if (isDev) {
-				console.log("[MCP Analytics] Analytics Engine write queued");
-			}
-		} catch (error) {
-			// Non-blocking: Log error but don't fail the request
-			log.error("Analytics Engine write failed", {
-				event: "analytics.engine_write_failed",
-				appId: event.appId,
-				organizationId: event.organizationId,
-				traceId: event.traceId,
-				outcome: "unavailable",
-				error,
-			});
+	writeAnalyticsLog(() => {
+		if (isDev) {
+			return console.log(
+				`[MCP Analytics] ${event.eventType}:`,
+				JSON.stringify(logEntry, null, 2),
+			);
 		}
-	}
+		return console.log(JSON.stringify(logEntry));
+	});
+
+	writeAnalytics(() =>
+		env.ANALYTICS?.writeDataPoint(buildMcpAnalyticsDataPoint(event)),
+	);
 }
 
 /**
@@ -265,17 +248,7 @@ export function emitMcpAuditEvent(
 	}
 	if (!event.appId || !event.organizationId) return;
 
-	const p = writeAuditEventViaApi(env, event).catch((error) => {
-		log.error("Audit event emission failed", {
-			event: "analytics.audit_emit_failed",
-			appId: event.appId,
-			organizationId: event.organizationId,
-			traceId: event.traceId,
-			outcome: "unavailable",
-			error,
-		});
-	});
-	if (waitUntil) waitUntil(p);
+	writeAudit(() => writeAuditEventViaApi(env, event), waitUntil);
 }
 
 async function writeAuditEventViaApi(
@@ -284,126 +257,115 @@ async function writeAuditEventViaApi(
 ): Promise<void> {
 	if (!event.organizationId || !event.appId) return;
 
-	try {
-		const externalAgentPrincipalId =
-			typeof event.metadata?.externalAgentPrincipalId === "string"
-				? event.metadata.externalAgentPrincipalId
-				: null;
-		const externalAgentSessionId =
-			typeof event.metadata?.externalAgentSessionId === "string"
-				? event.metadata.externalAgentSessionId
-				: null;
-		const externalAgentClientRecordId =
-			typeof event.metadata?.externalAgentClientRecordId === "string"
-				? event.metadata.externalAgentClientRecordId
-				: null;
-		const client = getApiClient({
-			serviceFetch: env.API_SERVICE,
-			orgId: event.organizationId,
-			...(externalAgentPrincipalId &&
-			externalAgentSessionId &&
-			externalAgentClientRecordId
-				? {
-						externalAgent: {
-							principalId: externalAgentPrincipalId,
-							sessionId: externalAgentSessionId,
-							clientRecordId: externalAgentClientRecordId,
-						},
-					}
-				: {}),
-		});
+	const externalAgentPrincipalId =
+		typeof event.metadata?.externalAgentPrincipalId === "string"
+			? event.metadata.externalAgentPrincipalId
+			: null;
+	const externalAgentSessionId =
+		typeof event.metadata?.externalAgentSessionId === "string"
+			? event.metadata.externalAgentSessionId
+			: null;
+	const externalAgentClientRecordId =
+		typeof event.metadata?.externalAgentClientRecordId === "string"
+			? event.metadata.externalAgentClientRecordId
+			: null;
+	const client = getApiClient({
+		serviceFetch: env.API_SERVICE,
+		orgId: event.organizationId,
+		...(externalAgentPrincipalId &&
+		externalAgentSessionId &&
+		externalAgentClientRecordId
+			? {
+					externalAgent: {
+						principalId: externalAgentPrincipalId,
+						sessionId: externalAgentSessionId,
+						clientRecordId: externalAgentClientRecordId,
+					},
+				}
+			: {}),
+	});
 
-		const actionPrefix =
+	const actionPrefix =
+		event.eventType === "access_denied"
+			? "mcp.access"
+			: event.eventType === "prompt_get"
+				? "mcp.prompt"
+				: event.eventType === "code_exec"
+					? "mcp.code"
+					: event.eventType === "resource_read"
+						? "mcp.resource"
+						: "mcp.tool";
+	const actionVerb =
+		event.eventType === "access_denied"
+			? "denied"
+			: event.eventType === "resource_read"
+				? event.success === false
+					? "error"
+					: "read"
+				: event.success
+					? "execute"
+					: "error";
+	const resourceId =
+		event.toolName ??
+		String(
+			event.metadata?.resourceUri ??
+				event.metadata?.skillId ??
+				event.metadata?.widgetKey ??
+				event.eventType,
+		);
+	const actor = getAuditActor(event);
+	await client.audit.createEvent({
+		organizationId: event.organizationId!,
+		actorId: actor.actorId,
+		actorType: actor.actorType,
+		action: `${actionPrefix}.${actionVerb}`,
+		resourceType:
 			event.eventType === "access_denied"
-				? "mcp.access"
+				? "mcp_request"
 				: event.eventType === "prompt_get"
-					? "mcp.prompt"
-					: event.eventType === "code_exec"
-						? "mcp.code"
-						: event.eventType === "resource_read"
-							? "mcp.resource"
-							: "mcp.tool";
-		const actionVerb =
-			event.eventType === "access_denied"
-				? "denied"
-				: event.eventType === "resource_read"
-					? event.success === false
-						? "error"
-						: "read"
-					: event.success
-						? "execute"
-						: "error";
-		const resourceId =
-			event.toolName ??
-			String(
-				event.metadata?.resourceUri ??
-					event.metadata?.skillId ??
-					event.metadata?.widgetKey ??
-					event.eventType,
-			);
-		const actor = getAuditActor(event);
-		await client.audit.createEvent({
-			organizationId: event.organizationId!,
-			actorId: actor.actorId,
-			actorType: actor.actorType,
-			action: `${actionPrefix}.${actionVerb}`,
-			resourceType:
-				event.eventType === "access_denied"
-					? "mcp_request"
-					: event.eventType === "prompt_get"
-						? "mcp_prompt"
-						: event.eventType === "resource_read"
-							? "mcp_resource"
-							: "mcp_tool",
-			resourceId,
+					? "mcp_prompt"
+					: event.eventType === "resource_read"
+						? "mcp_resource"
+						: "mcp_tool",
+		resourceId,
+		metadata: {
+			appId: event.appId,
+			sessionId: event.sessionId,
+			durationMs: event.durationMs,
+			...(event.traceId && { traceId: event.traceId }),
+			...(event.executionId && { executionId: event.executionId }),
+			...(event.tediId && { tediId: event.tediId }),
+			...(event.errorCode && { errorCode: event.errorCode }),
+			...(event.clientId && { clientId: event.clientId }),
+			...event.metadata,
+		},
+	});
+	if (
+		event.authType === "external_agent" &&
+		externalAgentPrincipalId &&
+		externalAgentSessionId &&
+		externalAgentClientRecordId
+	) {
+		const targetBase = event.executionId ?? event.traceId ?? event.timestamp;
+		const targetId = `${targetBase}:${event.eventType}:${resourceId}`.slice(
+			0,
+			500,
+		);
+		await client.externalAgentIdentity.recordVerifiedMcpExecution({
+			organizationId: event.organizationId,
+			principalId: externalAgentPrincipalId,
+			sessionId: externalAgentSessionId,
+			clientRecordId: externalAgentClientRecordId,
+			targetId,
+			occurredAt: event.timestamp,
 			metadata: {
 				appId: event.appId,
-				sessionId: event.sessionId,
-				durationMs: event.durationMs,
+				eventType: event.eventType,
+				resourceId,
+				success: event.success !== false,
 				...(event.traceId && { traceId: event.traceId }),
 				...(event.executionId && { executionId: event.executionId }),
-				...(event.tediId && { tediId: event.tediId }),
-				...(event.errorCode && { errorCode: event.errorCode }),
-				...(event.clientId && { clientId: event.clientId }),
-				...event.metadata,
 			},
-		});
-		if (
-			event.authType === "external_agent" &&
-			externalAgentPrincipalId &&
-			externalAgentSessionId &&
-			externalAgentClientRecordId
-		) {
-			const targetBase = event.executionId ?? event.traceId ?? event.timestamp;
-			const targetId = `${targetBase}:${event.eventType}:${resourceId}`.slice(
-				0,
-				500,
-			);
-			await client.externalAgentIdentity.recordVerifiedMcpExecution({
-				organizationId: event.organizationId,
-				principalId: externalAgentPrincipalId,
-				sessionId: externalAgentSessionId,
-				clientRecordId: externalAgentClientRecordId,
-				targetId,
-				occurredAt: event.timestamp,
-				metadata: {
-					appId: event.appId,
-					eventType: event.eventType,
-					resourceId,
-					success: event.success !== false,
-					...(event.traceId && { traceId: event.traceId }),
-					...(event.executionId && { executionId: event.executionId }),
-				},
-			});
-		}
-	} catch (error) {
-		log.error("Audit API call failed", {
-			event: "analytics.audit_api_failed",
-			appId: event.appId,
-			organizationId: event.organizationId,
-			traceId: event.traceId,
-			outcome: "unavailable",
-			error,
 		});
 	}
 }

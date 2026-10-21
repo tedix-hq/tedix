@@ -32,7 +32,7 @@ import { shouldBypassCodeModeForCaller } from "../caller-identity";
 import { evaluateMcpToolScopeAuthorization } from "../codemode-auth";
 
 import type { AppTool } from "../server-context";
-import { createMcpLogger } from "../../log";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import type { ServerContext } from "../server-context";
 import { registerAccountProfile } from "./account-profile";
 
@@ -90,7 +90,7 @@ export function isConfiguredCatalogTool(
 	}
 }
 
-const log = createMcpLogger("mcp.registration.bootstrap");
+const writeWidgetTelemetry = createTelemetryWriter("mcp.widget.analytics");
 
 /**
  * Register minimal bootstrap tools (fallback when no D1 tools exist).
@@ -368,22 +368,14 @@ export function registerBootstrapTools(
 				createdAt: new Date().toISOString(),
 			};
 
-			agent.ctx.waitUntil(
-				agent.apiClient.analytics
-					.trackWidgetEvents({
+			writeWidgetTelemetry(
+				() =>
+					agent.apiClient.analytics.trackWidgetEvents({
 						events: [event],
 						// Defense-in-depth: server validates every event.appId === expectedAppId
 						expectedAppId: agent.appId,
-					})
-					.catch((err: unknown) => {
-						log.error("Failed to track widget event", {
-							event: "widget_analytics.track_failed",
-							appId: agent.appId,
-							traceId: agent.traceId,
-							outcome: "unavailable",
-							error: err,
-						});
 					}),
+				agent.ctx.waitUntil.bind(agent.ctx),
 			);
 
 			return {

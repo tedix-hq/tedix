@@ -31,6 +31,7 @@ import { contentFreeMcpException, createMcpLogger } from "../log";
  * @module @tedix/mcp/mcp/tool-execution
  */
 
+import { runWithTelemetrySpan } from "@tedix/worker-kit/telemetry";
 import {
 	type AdapterScope,
 	parseAdapterScope,
@@ -168,13 +169,16 @@ async function traceToolExecution<T>(
 	// Workers custom spans are beta: diagnostic timing only, never an SLO
 	// gate or proof artifact. Tool identity is enough; arguments and results
 	// may contain tenant data and must stay out of span attributes.
-	return tracing.enterSpan("tedix.mcp.tool_call", async (span) => {
-		span.setAttribute("tedix.trace_id", agent.traceId);
-		span.setAttribute("tedix.app_id", agent.appId);
-		span.setAttribute("tedix.tool_id", tool.toolId);
-		if (executionId) span.setAttribute("tedix.execution_id", executionId);
-		return run();
-	});
+	return runWithTelemetrySpan(
+		(callback) => tracing.enterSpan("tedix.mcp.tool_call", callback),
+		async (span) => {
+			span.setAttribute("tedix.trace_id", agent.traceId);
+			span.setAttribute("tedix.app_id", agent.appId);
+			span.setAttribute("tedix.tool_id", tool.toolId);
+			if (executionId) span.setAttribute("tedix.execution_id", executionId);
+			return run();
+		},
+	);
 }
 
 /**

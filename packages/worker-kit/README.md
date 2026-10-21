@@ -17,6 +17,12 @@ owns transport-edge mechanics, not application policy:
   `@tedix/auth/utils`.
 - `@tedix/worker-kit/sleep` — plain `sleep(ms)`. Abortable or clamped variants
   stay with their callers.
+- `@tedix/worker-kit/telemetry` — optional writes isolate synchronous throws,
+  rejected promises and lifetime scheduling failures. Diagnostics are limited
+  to one per sink per minute per isolate and omit request data and thrown values.
+  `runWithTelemetrySpan` keeps tracer failures separate from the operation's
+  result and runs the operation once, including when the tracer never settles.
+  Required policy and persistence writes must not use these helpers.
 - `@tedix/worker-kit/error-message` — `errorMessage(error)`: `error.message`
   for an `Error`, `String(error)` otherwise. Variants that walk `cause` or
   substitute fallback text stay with their callers. Record guards

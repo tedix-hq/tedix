@@ -11,6 +11,10 @@
  * because it does not survive the runtime boundaries described in this package's README.
  */
 
+import { createTelemetryWriter } from "./telemetry";
+
+const writeLog = createTelemetryWriter("worker.logger");
+
 /** A value Workers Logs / Logpush can represent as structured log data. */
 export type LogValue =
 	| string
@@ -293,7 +297,7 @@ class LoggerImpl<ExtraFields extends object> implements Logger<ExtraFields> {
 		// keys to queryable fields, Logpush `workers_trace_events` carries it as
 		// `logs[].message[0]`, and `logs[].level` already records the level — so
 		// `level` is deliberately not a field here and not a reserved name.
-		console[level]({ ...fields, message });
+		writeLog(() => console[level]({ ...fields, message }));
 	}
 }
 

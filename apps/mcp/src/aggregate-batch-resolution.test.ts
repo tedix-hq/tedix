@@ -205,6 +205,34 @@ describe("aggregate entry resolution is batched", () => {
 		buildMcpServer.mockResolvedValue({} as unknown);
 	});
 
+	it.each(["throw", "reject"])(
+		"serves aggregate tools when analytics writers %s",
+		async (failure) => {
+			installFixtures([
+				{ slug: "telemetry-source", tools: [tool("list_records")] },
+			]);
+			const writeDataPoint = vi.fn(() => {
+				if (failure === "reject")
+					return Promise.reject(
+						new Error("Analytics Engine write limit exceeded"),
+					);
+				throw new Error("Analytics Engine write limit exceeded");
+			});
+			const env = createEnv();
+			env.ANALYTICS = { writeDataPoint } as unknown as AnalyticsEngineDataset;
+			const result = await aggregateAndPrefixTools(
+				[{ slug: "telemetry-source", prefix: "mount" }],
+				env,
+				new Set(),
+				createExecutionContext(),
+				"connect",
+			);
+			expect(result.tools).toHaveLength(1);
+			expect(result.tools[0]?.toolId).toBe("mount__list_records");
+			expect(writeDataPoint).toHaveBeenCalled();
+		},
+	);
+
 	it("degrades a timed-out shared source join without rejecting the catalog", async () => {
 		vi.useFakeTimers();
 		vi.spyOn(console, "error").mockImplementation(() => {});

@@ -18,6 +18,7 @@ import {
 	type McpEvent,
 	mergeMcpMetadata,
 	normalizeMcpErrorCode,
+	trackMcpEvent,
 	truncateErrorMessage,
 } from "./analytics";
 
@@ -36,6 +37,74 @@ function baseEvent(overrides: Partial<McpEvent>): McpEvent {
 }
 
 const serviceFetch = { fetch: vi.fn() } as unknown as Fetcher;
+
+describe("optional analytics", () => {
+	it.each(["development", "production"])(
+		"contains rejected log writes in %s",
+		async (environment) => {
+			const log = vi
+				.spyOn(console, "log")
+				.mockImplementation(() =>
+					Promise.reject(new Error("logs unavailable")),
+				);
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			try {
+				expect(() =>
+					trackMcpEvent(
+						{ ENVIRONMENT: environment } as unknown as CloudflareEnv,
+						baseEvent({}),
+					),
+				).not.toThrow();
+				await Promise.resolve();
+				await Promise.resolve();
+			} finally {
+				log.mockRestore();
+				warn.mockRestore();
+			}
+		},
+	);
+	it.each(["throw", "reject"])(
+		"contains a writer that can %s",
+		async (failure) => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const writeDataPoint = vi.fn(() => {
+				if (failure === "reject")
+					return Promise.reject(new Error("limit exceeded"));
+				throw new Error("limit exceeded");
+			});
+			try {
+				expect(() =>
+					trackMcpEvent(
+						{ ANALYTICS: { writeDataPoint } } as unknown as CloudflareEnv,
+						baseEvent({}),
+					),
+				).not.toThrow();
+				await Promise.resolve();
+				await Promise.resolve();
+				expect(writeDataPoint).toHaveBeenCalledTimes(1);
+			} finally {
+				warn.mockRestore();
+			}
+		},
+	);
+
+	it("contains an audit scheduling failure", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect(() =>
+				emitMcpAuditEvent(
+					{ API_SERVICE: serviceFetch } as unknown as CloudflareEnv,
+					baseEvent({ authType: "oauth", userId: "user-1" }),
+					() => {
+						throw new Error("context closed");
+					},
+				),
+			).not.toThrow();
+		} finally {
+			warn.mockRestore();
+		}
+	});
+});
 
 async function emit(event: McpEvent) {
 	const pending: Promise<unknown>[] = [];
@@ -80,17 +149,11 @@ describe("MCP audit actor mapping", () => {
 	);
 
 	it("keeps client construction failures non-blocking", async () => {
-		const error = vi.spyOn(console, "error").mockImplementation(() => {});
 		vi.mocked(getApiClient).mockImplementationOnce(() => {
 			throw new Error("Service binding unavailable");
 		});
-		try {
-			await expect(emit(baseEvent({}))).resolves.toBeUndefined();
-			expect(error).toHaveBeenCalled();
-			expect(createEvent).not.toHaveBeenCalled();
-		} finally {
-			error.mockRestore();
-		}
+		await expect(emit(baseEvent({}))).resolves.toBeUndefined();
+		expect(createEvent).not.toHaveBeenCalled();
 	});
 
 	it("records AIH tedi M2M calls as tedi actors, not human users", async () => {
@@ -271,10 +334,16 @@ describe("MCP audit actor mapping", () => {
 
 describe("MCP caller telemetry helpers", () => {
 	it("redacts credentials embedded in ordinary error strings before telemetry", () => {
+		const bearer = [
+			`eyJ${"a".repeat(12)}`,
+			"b".repeat(12),
+			"c".repeat(12),
+		].join(".");
+		const github = `ghp_${"1".repeat(20)}`;
 		const message = truncateErrorMessage(
-			"upstream rejected Authorization: Bearer eyJabcdefghijk.abcdefghijk.abcdefghijk and key ghp_12345678901234567890",
+			`upstream rejected Authorization: Bearer ${bearer} and key ${github}`,
 		);
-		expect(message).not.toContain("eyJabcdefghijk");
+		expect(message).not.toContain("eyJ");
 		expect(message).not.toContain("ghp_");
 		expect(message).toContain("[REDACTED]");
 	});
