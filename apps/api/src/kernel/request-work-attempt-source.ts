@@ -1,6 +1,8 @@
-import type {
-	KernelAcceptanceCheck,
-	KernelRequestPolicy,
+import {
+	KernelRequestPolicySchema,
+	type KernelAcceptanceCheck,
+	type KernelAcceptanceObservation,
+	type KernelRequestPolicy,
 } from "@tedix/api-contract/schemas/kernel-request";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
@@ -11,7 +13,12 @@ import {
 	transitionKernelRequest,
 } from "@tedix/db/queries/kernel-requests";
 import { findRepositoryPushObservations } from "@tedix/db/queries/repository-observer";
-import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
+import {
+	completeWorkItem,
+	getWorkItemById,
+} from "@tedix/db/queries/work-items/crud";
+import { getActiveOrganizationPolicyPack } from "@tedix/db/queries/kernel-runtime-support";
+import { WorkFactoryError } from "@tedix/db/queries/work-items/factory-state";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comments";
 import { proposeWorkDeliveryRepair } from "@tedix/db/queries/work-items/delivery-repair";
@@ -25,6 +32,7 @@ import {
 	type KernelRequestEvent,
 } from "./request-coordinator";
 import { applyKernelRequestEvent, driveKernelRequest } from "./request-driver";
+import { readConfiguredRepositoryDelivery } from "./request-target-readers";
 
 const SHA = /^[a-f0-9]{40}$/;
 /** A pushed observation older than this cannot prove or disprove a new delivery. */
@@ -109,20 +117,25 @@ export async function captureDispatcherWorkAttempts(
 }
 
 /**
- * Completion seam for verified dispatcher Work.
- *
- * Completing Work requires an active owner/admin user or the Work's own
- * accountable/steward tedi (`workItemStewardActor`). The maintenance tick has
- * neither and must not mint one. Until a narrow steward authority is approved,
- * this only reports whether the Work is still open; verified Work stays
- * accepted with its receipt, and its request waits on `ready_to_complete` so it
- * drains on the first tick after that authority exists.
+ * Internal timer authority comes from the organization's active policy pack,
+ * never a caller's identity or supplied snapshot. Existing verified requests
+ * drain after opt-in; the normal completion mutation fences concurrent changes.
  */
 export async function completeVerifiedDispatcherWork(
 	context: BaseContext,
-	p: { organizationId: string; workItemId: string },
+	p: {
+		organizationId: string;
+		workItemId: string;
+		requestId: string;
+		ownerUserId: string;
+	},
 ): Promise<{
-	status: "completed" | "already_closed" | "steward_authority_required";
+	status:
+		| "completed"
+		| "already_closed"
+		| "steward_authority_required"
+		| "verification_pending"
+		| "superseded";
 }> {
 	const work = await getWorkItemById(
 		context.db,
@@ -135,10 +148,127 @@ export async function completeVerifiedDispatcherWork(
 		work.disposition === "cancelled"
 	)
 		return { status: "already_closed" };
-	return { status: "steward_authority_required" };
+	const pack = await getActiveOrganizationPolicyPack(
+		context.db,
+		p.organizationId,
+	);
+	const parsed = KernelRequestPolicySchema.safeParse(
+		pack?.definition.kernelRequestCoordinator,
+	);
+	const policy = parsed.success ? parsed.data : null;
+	const authority = policy?.workAttemptDelivery?.completion;
+	if (
+		!policy?.enabled ||
+		!authority ||
+		!work.projectId ||
+		!authority.projectIds.includes(work.projectId) ||
+		work.workKind !== "coding" ||
+		!["low", "medium"].includes(work.riskLevel) ||
+		work.disposition !== "accepted"
+	)
+		return { status: "steward_authority_required" };
+	const row = await getKernelRequest(context.db, {
+		organizationId: p.organizationId,
+		ownerUserId: p.ownerUserId,
+		id: p.requestId,
+	});
+	const s = row?.snapshot;
+	if (
+		!row ||
+		row.sourceKind !== "work_attempt" ||
+		s?.workItemId !== work.id ||
+		s.state !== "verifying" ||
+		s.outcome !== "verified" ||
+		s.delivery?.status !== "pending" ||
+		s.attemptId !== row.sourceId ||
+		!s.checks.length ||
+		s.checks.some((c) => c.kind !== "work_commit_delivery" || !c.commitSha)
+	)
+		return { status: "verification_pending" };
+	const latest = (
+		await listWorkItemAttempts(context.db, {
+			orgId: p.organizationId,
+			workItemId: work.id,
+			limit: 1,
+		})
+	).data[0];
+	if (!latest || latest.id !== row.sourceId) return { status: "superseded" };
+	if (
+		latest.runtimeState !== "finished" ||
+		latest.outcome !== "succeeded" ||
+		!latest.finishedAt ||
+		!latest.metadata.dispatchVersion
+	)
+		return { status: "verification_pending" };
+	if (
+		JSON.stringify(deliveryChecks(latest, work.workKind)) !==
+		JSON.stringify(s.checks)
+	)
+		return { status: "verification_pending" };
+	// Recheck on activation/retry: a persisted success must not outlive a rollback.
+	const observations = await runKernelAcceptanceChecks(
+		s.checks,
+		workCommitDeliveryReader(
+			context,
+			row,
+			latest,
+			policy.workAttemptDelivery!,
+			policy,
+		),
+		() => new Date().toISOString(),
+	);
+	if (observations.some((o) => o.status === "fail"))
+		throw new DeliveryVerificationFailed(
+			observations,
+			row.version,
+			s.acceptanceKey!,
+		);
+	if (observations.some((o) => o.status !== "pass"))
+		return { status: "verification_pending" };
+	const deployed = observations[0]!.observedVersion!;
+	try {
+		await completeWorkItem(context.db, {
+			orgId: p.organizationId,
+			workItemId: work.id,
+			actor: { type: "system", id: "request-tracker" },
+			expectedWorkItemVersion: work.version,
+			verifiedDispatcherDelivery: {
+				requestId: row.id,
+				ownerUserId: row.ownerUserId,
+				requestVersion: row.version,
+				attemptId: latest.id,
+				policyPackId: pack!.id,
+				policyDefinition: JSON.stringify(pack!.definition),
+			},
+			closingComment: {
+				id: `${row.id}:completed`,
+				body: `Completed by request tracker: Attempt ${latest.id} verified on main and managed Ship ${deployed}.`,
+				metadata: {
+					requestId: row.id,
+					attemptId: latest.id,
+					policyPackId: pack!.id,
+					evidenceRefs: observations.flatMap((o) => o.evidenceRefs),
+				},
+			},
+		});
+	} catch (error) {
+		if (error instanceof WorkFactoryError && error.code === "NOT_READY")
+			return { status: "verification_pending" };
+		throw error;
+	}
+	return { status: "completed" };
 }
 
 class StewardAuthorityPending extends Error {}
+class DeliveryVerificationFailed extends Error {
+	constructor(
+		readonly observations: KernelAcceptanceObservation[],
+		readonly requestVersion: number,
+		readonly acceptanceKey: string,
+	) {
+		super("Delivery verification failed");
+	}
+}
 
 const notApplicable = async (): Promise<never> => {
 	throw new Error("Not a dispatcher delivery check");
@@ -155,6 +285,7 @@ export function workCommitDeliveryReader(
 	scope: { organizationId: string },
 	attempt: Pick<WorkAttempt, "startedAt" | "finishedAt" | "heartbeatAt">,
 	delivery: NonNullable<KernelRequestPolicy["workAttemptDelivery"]>,
+	policy?: KernelRequestPolicy,
 ): KernelAcceptanceReader {
 	return {
 		readOutputRevision: notApplicable,
@@ -213,17 +344,55 @@ export function workCommitDeliveryReader(
 			if (
 				!live ||
 				(live.id !== landed.id &&
-					Date.parse(live.createdAt) < Date.parse(landed.createdAt) &&
+					!live.commitShas.includes(sha) &&
 					live.beforeSha !== landed.sha)
 			)
 				return pending(
 					"Commit is on main but not yet in the deployed revision",
 					landed,
 				);
+			let shipRefs: string[] = [];
+			if (delivery.completion) {
+				const target = policy?.repositoryTargets.find(
+					(t) => t.id === delivery.completion!.repositoryTargetId,
+				);
+				if (!target || !policy)
+					return pending("Managed Ship target unavailable", landed, live);
+				try {
+					const ship = await readConfiguredRepositoryDelivery(
+						context,
+						scope.organizationId,
+						policy,
+						{
+							kind: "repository_delivery",
+							targetId: target.id,
+							surface: target.surface,
+							commitSha: deployedSha,
+						},
+					);
+					if (
+						ship.shipStatus !== "success" ||
+						ship.shipSha !== deployedSha ||
+						ship.liveSha !== deployedSha ||
+						ship.surface !== target.surface
+					)
+						return pending(
+							"Managed Ship does not verify the deployed revision",
+							landed,
+							live,
+						);
+					shipRefs = ship.evidenceRefs;
+				} catch {
+					return pending("Managed Ship unavailable or not green", landed, live);
+				}
+			}
 			return {
 				status: "pass" as const,
 				observedVersion: deployedSha,
-				evidenceRefs: refs(landed, live === landed ? undefined : live),
+				evidenceRefs: [
+					...refs(landed, live === landed ? undefined : live),
+					...shipRefs,
+				],
 				limitations:
 					"Deployed revision is this API Worker's build; main ancestry comes from recorded pushes",
 			};
@@ -288,7 +457,13 @@ export async function reconcileWorkAttemptKernelRequest(
 	}
 	if (row.snapshot.state === "briefed")
 		await apply({ kind: "start", attemptId: attempt.id });
-	const reader = workCommitDeliveryReader(context, row, attempt, delivery);
+	const reader = workCommitDeliveryReader(
+		context,
+		row,
+		attempt,
+		delivery,
+		policy,
+	);
 	const drive = async () => {
 		try {
 			row =
@@ -310,6 +485,16 @@ export async function reconcileWorkAttemptKernelRequest(
 				)) ?? row;
 			return true;
 		} catch (error) {
+			if (error instanceof DeliveryVerificationFailed) {
+				row = (await getKernelRequest(db, row)) ?? row;
+				if (row.version !== error.requestVersion) return true;
+				await apply({
+					kind: "rechecked",
+					acceptanceKey: error.acceptanceKey,
+					observations: error.observations,
+				});
+				return true;
+			}
 			if (!(error instanceof StewardAuthorityPending)) throw error;
 			const current = (await getKernelRequest(db, row)) ?? row;
 			row =
@@ -435,8 +620,13 @@ async function recordVerifiedDelivery(
 	const completion = await completeVerifiedDispatcherWork(context, {
 		organizationId: current.organizationId,
 		workItemId,
+		requestId: current.id,
+		ownerUserId: current.ownerUserId,
 	});
-	if (completion.status === "steward_authority_required")
+	if (
+		completion.status === "steward_authority_required" ||
+		completion.status === "verification_pending"
+	)
 		throw new StewardAuthorityPending();
 	return {
 		status: "acknowledged" as const,

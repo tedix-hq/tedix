@@ -112,6 +112,14 @@ export const KernelRequestPolicySchema = z
 				observerProjectId: identity,
 				/** A SHA not observed on main and deployed within this window fails. */
 				verifyWindowMs: z.number().int().min(60_000).max(172_800_000),
+				/** Operator-approved timer authority; omission keeps verified Work open. */
+				completion: z
+					.object({
+						projectIds: z.array(identity).min(1).max(100),
+						repositoryTargetId: identity,
+					})
+					.strict()
+					.optional(),
 			})
 			.strict()
 			.optional()

@@ -18,6 +18,8 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { policyPacks } from "../../schema/control-plane";
+import { kernelRequests } from "../../schema/kernel-requests";
 import {
 	type WorkItem,
 	type WorkItemDisposition,
@@ -777,6 +779,15 @@ export async function completeWorkItem(
 		actor: WorkActor;
 		expectedWorkItemVersion?: number;
 		completedAt?: string;
+		/** Internal timer closeout, fenced against a changed request, policy or Attempt. */
+		verifiedDispatcherDelivery?: {
+			requestId: string;
+			ownerUserId: string;
+			requestVersion: number;
+			attemptId: string;
+			policyPackId: string;
+			policyDefinition: string;
+		};
 		closingComment?: {
 			id: string;
 			body: string;
@@ -806,6 +817,7 @@ export async function completeWorkItem(
 			"ACCEPTANCE_REQUIRED",
 			"Only accepted work can complete",
 		);
+	const delivery = params.verifiedDispatcherDelivery;
 	const completeMutation = db
 		.update(workItems)
 		.set({
@@ -828,6 +840,16 @@ export async function completeWorkItem(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
 				eq(workItems.disposition, "accepted"),
+				delivery
+					? and(
+							eq(workItems.workKind, "coding"),
+							sql`EXISTS (SELECT 1 FROM ${policyPacks} policy WHERE policy.id=${delivery.policyPackId} AND json(policy.definition)=json(${delivery.policyDefinition}))`,
+							inArray(workItems.riskLevel, ["low", "medium"]),
+							sql`EXISTS (SELECT 1 FROM ${policyPacks} p WHERE p.id=${delivery.policyPackId} AND p.organization_id=${params.orgId} AND p.status='active' AND json_extract(p.definition,'$.kernelRequestCoordinator.enabled')=1 AND EXISTS (SELECT 1 FROM json_each(p.definition,'$.kernelRequestCoordinator.workAttemptDelivery.completion.projectIds') project WHERE project.value=${workItems.projectId}) AND NOT EXISTS (SELECT 1 FROM ${policyPacks} newer WHERE newer.organization_id=p.organization_id AND newer.status='active' AND newer.version>p.version))`,
+							sql`EXISTS (SELECT 1 FROM ${kernelRequests} r WHERE r.id=${delivery.requestId} AND r.organization_id=${params.orgId} AND r.owner_user_id=${delivery.ownerUserId} AND r.version=${delivery.requestVersion} AND r.source_kind='work_attempt' AND r.source_id=${delivery.attemptId} AND json_extract(r.snapshot,'$.workItemId')=${params.workItemId} AND json_extract(r.snapshot,'$.attemptId')=${delivery.attemptId} AND json_extract(r.snapshot,'$.state')='verifying' AND json_extract(r.snapshot,'$.outcome')='verified' AND json_extract(r.snapshot,'$.delivery.status')='pending')`,
+							sql`EXISTS (SELECT 1 FROM ${workAttempts} a WHERE a.org_id=${params.orgId} AND a.work_item_id=${params.workItemId} AND a.id=${delivery.attemptId} AND a.outcome='succeeded' AND a.runtime_state='finished' AND a.finished_at IS NOT NULL AND json_extract(a.metadata,'$.dispatchVersion') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=a.org_id AND successor.work_item_id=a.work_item_id AND successor.attempt_number>a.attempt_number))`,
+						)
+					: undefined,
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${completedAt}))`,
 			),
 		)

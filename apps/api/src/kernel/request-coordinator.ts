@@ -20,7 +20,7 @@ export type KernelRequestEvent =
 			outcome: "succeeded" | "failed" | "cancelled";
 	  }
 	| {
-			kind: "checked";
+			kind: "checked" | "rechecked";
 			acceptanceKey: string;
 			observations: KernelAcceptanceObservation[];
 	  }
@@ -116,10 +116,12 @@ export function advanceKernelRequest(
 							};
 			break;
 		case "checked":
+		case "rechecked":
 			if (
 				s.state === "verifying" &&
 				s.acceptanceKey === event.acceptanceKey &&
-				!s.delivery
+				(!s.delivery ||
+					(event.kind === "rechecked" && s.delivery.status === "pending"))
 			) {
 				const complete =
 					s.checks.length > 0 &&
@@ -129,6 +131,7 @@ export function advanceKernelRequest(
 							event.observations.filter((o) => o.checkIndex === i).length === 1,
 					);
 				patch = {
+					...(event.kind === "rechecked" ? { delivery: null } : {}),
 					observations: event.observations,
 					probeAttempts: (s.probeAttempts ?? 0) + 1,
 					outcome:
