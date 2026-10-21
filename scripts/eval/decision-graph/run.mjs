@@ -323,7 +323,7 @@ async function main() {
 	await writeFile(
 		join(out, "sample-to-label.json"),
 		JSON.stringify(
-			Object.values(result.precision).flatMap((p) =>
+			Object.values(result.productionPrecision).flatMap((p) =>
 				p.examples.map(({ label, ...c }) => ({
 					...c,
 					correct: null,
@@ -343,17 +343,25 @@ async function main() {
 			{
 				cohorts: Object.fromEntries(
 					Object.entries(result.cohorts).map(
-						([name, { candidates, ranking, ...c }]) => [
+						([name, { candidates, ranking, production, ...c }]) => [
 							name,
-							{ ...c, moved: ranking.moved },
+							{
+								...c,
+								moved: ranking.moved,
+								production: {
+									byRule: production.byRule,
+									actions: production.actions.length,
+									additionalVsText: production.additionalVsText,
+									moved: production.ranking.moved,
+								},
+							},
 						],
 					),
 				),
 				precision: Object.fromEntries(
-					Object.entries(result.precision).map(([rule, { examples, ...p }]) => [
-						rule,
-						p,
-					]),
+					Object.entries(result.productionPrecision).map(
+						([rule, { examples, ...p }]) => [rule, p],
+					),
 				),
 			},
 			null,

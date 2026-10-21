@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fixture } from "./fixture.mjs";
+import { productionComparison } from "./production.mjs";
 import {
 	graphRecommendations,
 	markdown,
@@ -175,6 +176,66 @@ describe("decision graph measurement", () => {
 		const r = measure(snapshot);
 		expect(r.cohorts.current.graph.stale).toBe(21);
 		expect(r.cohorts.current.graphUniqueRemovals).toBe(60);
+	});
+	test("production ranking uses blocked counts only for actionable survivors", () => {
+		const { snapshot } = fixture();
+		const rows = [snapshot.rows[2]!, snapshot.rows[6]!];
+		const now = new Date(snapshot.observedAt);
+		const run = () =>
+			productionComparison(
+				rows.map(sweepCard),
+				snapshot.contexts,
+				now,
+				{},
+				"UTC",
+			);
+		snapshot.contexts[rows[0]!.request.id]!.blocksCount = 0;
+		snapshot.contexts[rows[1]!.request.id]!.blocksCount = 0;
+		expect(run().ranking.moved).toBe(0);
+		snapshot.contexts[rows[1]!.request.id]!.blocksCount = 5;
+		expect(run().ranking.moved).toBe(2);
+		rows[1]!.request.prompt = "Please sign in.";
+		expect(run().ranking.before).toHaveLength(1);
+	});
+	test("production precision excludes a card's own historical answer", () => {
+		const { snapshot } = fixture();
+		const row = snapshot.rows[0]!;
+		snapshot.contexts[row.request.id]!.priorDecision!.edge.kind =
+			"card_answers";
+		const r = productionComparison(
+			[sweepCard(row)],
+			snapshot.contexts,
+			new Date(snapshot.observedAt),
+			{},
+			"UTC",
+		);
+		expect(r.candidates).toEqual([]);
+	});
+	test("production comparison preserves text duplicates and measures stale withdrawal", () => {
+		const { snapshot } = fixture();
+		const rows = snapshot.rows.slice(0, 4);
+		rows[2]!.request.subject = rows[1]!.request.subject;
+		rows[2]!.request.workItemId = rows[1]!.request.workItemId;
+		rows[3]!.request.dueAt = "2026-10-19T12:00:00.000Z";
+		rows[3]!.request.prompt = "Deadline has passed; check the source.";
+		const r = productionComparison(
+			rows.map(sweepCard),
+			snapshot.contexts,
+			new Date(snapshot.observedAt),
+			{},
+			"UTC",
+		);
+		expect(r.text.actions.some((a) => a.reason === "duplicate")).toBe(true);
+		expect(
+			r.actions.some(
+				(a) => a.cardId === rows[3]!.request.id && a.reason === "expired",
+			),
+		).toBe(true);
+		expect(
+			r.candidates.some(
+				(a) => a.cardId === rows[0]!.request.id && a.rule === "already_decided",
+			),
+		).toBe(true);
 	});
 	test("live deployment gate requires exact full SHAs and both ancestors", () => {
 		const deployed = "a".repeat(40),

@@ -27,6 +27,9 @@ export type PrecisionResult = {
 	examples: (Candidate & { label: GroundTruth | null })[];
 };
 export type CohortResult = {
+	production: ReturnType<
+		typeof import("./production.mjs").productionComparison
+	> & { byRule: Record<string, number>; additionalVsText: number };
 	cards: number;
 	contextRead: number;
 	protected: number;
@@ -61,5 +64,6 @@ export type Measurement = {
 	currentUnmapped: string[];
 	cohorts: Record<"current" | "last30Days", CohortResult>;
 	precision: Record<Rule, PrecisionResult>;
+	productionPrecision: Record<Rule, PrecisionResult>;
 	caveats: string[];
 };
