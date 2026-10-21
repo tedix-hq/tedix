@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
+import { chromium, type Browser } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
 const probe = Bun.serve({
@@ -10,6 +10,12 @@ const probe = Bun.serve({
 const port = probe.port!;
 probe.stop();
 const origin = `http://127.0.0.1:${port}`;
+const url = `${origin}/browser-tests/entity-avatar.html`;
+const selector = "[data-avatar-palette]";
+let diagnostics = "";
+const record = (message: string) => {
+	diagnostics = `${diagnostics}${message}\n`.slice(-16_384);
+};
 const server = Bun.spawn(
 	[
 		"../../node_modules/.bin/vp",
@@ -20,20 +26,66 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "pipe", stderr: "pipe", detached: true },
 );
-const browser = await chromium.launch({ headless: true });
+const capture = async (stream: ReadableStream<Uint8Array>, label: string) => {
+	const decoder = new TextDecoder();
+	for await (const chunk of stream)
+		record(`${label}: ${decoder.decode(chunk, { stream: true })}`);
+};
+const output = Promise.all([
+	capture(server.stdout, "stdout"),
+	capture(server.stderr, "stderr"),
+]);
+// Attach immediately: a process can exit while Chromium is still launching.
+const exited = server.exited.then((code) => {
+	record(`server exited: code=${code}, signal=${server.signalCode}`);
+	return new Error(`Avatar fixture server exited early (code ${code})`);
+});
+const whileRunning = <T>(operation: Promise<T>): Promise<T> =>
+	Promise.race([
+		operation,
+		exited.then((error) => {
+			throw error;
+		}),
+	]);
+let browser: Browser | undefined;
 try {
+	browser = await chromium.launch({ headless: true });
+	const deadline = Date.now() + 20_000;
 	for (let i = 0; i < 100; i++) {
+		if (server.exitCode !== null) throw await exited;
 		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		if (i === 99) throw new Error("Avatar fixture did not start");
+			const response = await whileRunning(
+				fetch(url, {
+					signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+				}),
+			);
+			await response.body?.cancel();
+			if (response.ok) break;
+			record(`readiness: ${url} HTTP ${response.status}`);
+		} catch (error) {
+			record(`readiness: ${url} ${String(error)}`);
+			if (server.exitCode !== null) throw await exited;
+		}
+		if (i === 99 || Date.now() >= deadline)
+			throw new Error("Avatar fixture did not start");
 		await Bun.sleep(200);
 	}
 	const page = await browser.newPage();
-	await page.goto(`${origin}/browser-tests/entity-avatar.html`);
-	await page.locator("[data-avatar-palette]").last().waitFor();
+	page.on("pageerror", (error) =>
+		record(`pageerror: ${page.url()} ${error.stack ?? error.message}`),
+	);
+	page.on("requestfailed", (request) => {
+		if (request.url().startsWith(`${origin}/`))
+			record(`requestfailed: ${request.url()} ${request.failure()?.errorText}`);
+	});
+	page.on("response", (response) => {
+		if (response.url().startsWith(`${origin}/`) && response.status() >= 400)
+			record(`response: ${response.status()} ${response.url()}`);
+	});
+	await whileRunning(page.goto(url));
+	await whileRunning(page.locator(selector).last().waitFor());
 	for (const dark of [false, true]) {
 		for (const palette of [
 			null,
@@ -100,12 +152,29 @@ try {
 	console.log(
 		"PASS: all nine avatar tints meet 4.5:1 in light, dark and custom organization palettes",
 	);
+} catch (error) {
+	throw new Error(
+		`Avatar browser check failed: URL=${url} selector=${selector}\nserver pid=${server.pid} exit=${server.exitCode} signal=${server.signalCode}\n${diagnostics}`,
+		{ cause: error },
+	);
 } finally {
-	await browser.close();
 	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch {
-		server.kill();
+		await browser?.close();
+	} finally {
+		const signal = (value: NodeJS.Signals) => {
+			try {
+				process.kill(-server.pid, value);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+			}
+		};
+		signal("SIGTERM");
+		const killTimer = setTimeout(() => signal("SIGKILL"), 2_000);
+		try {
+			await server.exited;
+			await output;
+		} finally {
+			clearTimeout(killTimer);
+		}
 	}
-	await server.exited;
 }
