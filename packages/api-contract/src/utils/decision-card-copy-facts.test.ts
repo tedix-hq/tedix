@@ -22,4 +22,44 @@ describe("unsupportedCopyFacts", () => {
 			["1,200", "billing@example.com", "2026-10-24"],
 		);
 	});
+
+	it("keeps numeric punctuation, single digits and email facts in source order", () => {
+		expect(
+			unsupportedCopyFacts(
+				{
+					...copy,
+					body: "7, 12:30 / 9-- billing+2@mail.example.com 42...",
+					title: "",
+					recommendation: "",
+				},
+				"",
+			),
+		).toEqual(["7", "12:30", "9", "billing+2@mail.example.com", "42"]);
+	});
+
+	it("does not consume the next address when trimming numeric punctuation", () => {
+		expect(
+			unsupportedCopyFacts(
+				{
+					...copy,
+					title: "",
+					body: "1,--billing@example.com",
+					recommendation: "",
+				},
+				"",
+			),
+		).toEqual(["1", "--billing@example.com"]);
+	});
+
+	it("handles long failed email candidates and numeric punctuation runs", () => {
+		const body = `${"+".repeat(100_000)} ${"a".repeat(100_000)}@${"b".repeat(100_000)} 1${"-".repeat(100_000)}! 23`;
+		const started = performance.now();
+		expect(
+			unsupportedCopyFacts(
+				{ ...copy, body, title: "", recommendation: "" },
+				"",
+			),
+		).toEqual(["1", "23"]);
+		expect(performance.now() - started).toBeLessThan(1000);
+	});
 });
