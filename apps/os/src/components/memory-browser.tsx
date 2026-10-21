@@ -526,9 +526,7 @@ export function MemoryBrowser({
 							</div>
 						)}
 					</div>
-					{activeQuery.isPending ? (
-						<ListSkeleton rows={5} />
-					) : activeQuery.isError ? (
+					{activeQuery.isError && (
 						<Alert variant="destructive">
 							<AlertTitle>{label} is unavailable</AlertTitle>
 							<AlertDescription>
@@ -541,7 +539,11 @@ export function MemoryBrowser({
 								</Button>
 							</AlertDescription>
 						</Alert>
-					) : pageRows.length === 0 ? (
+					)}
+					{activeQuery.isPending ? (
+						<ListSkeleton rows={5} />
+					) : activeQuery.isError &&
+					  activeQuery.data === undefined ? null : pageRows.length === 0 ? (
 						<Empty appearance="quiet">
 							<EmptyHeader>
 								<EmptyTitle>No memories to show</EmptyTitle>
@@ -659,7 +661,6 @@ export function MemoryBrowser({
 								variant="ghost"
 								size="icon-sm"
 								aria-label="Close memory details"
-								title="Close memory details"
 								className="absolute top-4 right-4 z-20"
 								onClick={() => onSearch({ detail: "" })}
 							>
