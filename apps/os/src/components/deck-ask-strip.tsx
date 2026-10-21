@@ -1,23 +1,15 @@
 import type { DeckAskKind } from "@tedix/api-contract/schemas/attention";
-import { Badge } from "@/components/kumo/badge";
-import { Button } from "@/components/kumo/button";
-import { Text } from "@/components/kumo/text";
 import { useOsFormattingPreferences } from "@/lib/format";
-import { absoluteDate, absoluteTime } from "@/lib/time";
+import { shortDeadline } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
 
-function deadlineText(deadline: string) {
-	return /^\d{4}-\d{2}-\d{2}$/.test(deadline)
-		? absoluteDate(deadline)
-		: absoluteTime(deadline);
-}
-
-/** What the current card asks of the person, its deadline, and the stale-draft group. */
+/**
+ * The current card's state and its one date that matters, as quiet text for
+ * the Deck's single meta line. Any other date stays in Details.
+ */
 export function DeckAskStrip({
 	card,
-	staleDrafts,
-	showingStale,
-	onShowStale,
+	expiresAt,
 }: {
 	card?: {
 		askKind: DeckAskKind;
@@ -27,60 +19,34 @@ export function DeckAskStrip({
 		expired?: boolean;
 		draftedNotSent: boolean;
 	};
-	staleDrafts: number;
-	showingStale: boolean;
-	onShowStale: () => void;
+	/** Shown only when the card has no deadline of its own. */
+	expiresAt?: string | null;
 }) {
 	useOsFormattingPreferences();
-	const copy = OS_COPY.decisionDeck;
+	if (!card) return null;
+	const ask = OS_COPY.decisionDeck.ask;
+	const parts = [
+		card.expired
+			? ask.expired
+			: card.handled
+				? ask.handled
+				: card.deadline
+					? card.overdue
+						? ask.overdueSince(shortDeadline(card.deadline))
+						: ask.due(shortDeadline(card.deadline))
+					: expiresAt
+						? ask.expires(shortDeadline(expiresAt))
+						: null,
+		card.draftedNotSent ? ask.draftedNotSent : null,
+	].filter(Boolean);
+	if (!parts.length) return null;
 	return (
-		<div className="fd-deck-ask" data-deck-ask={card?.askKind}>
-			{card && (
-				<div className="fd-deck-ask-tags">
-					<Badge variant="secondary" className="py-0">
-						{copy.kinds[card.askKind]}
-					</Badge>
-					{card.overdue && (
-						<Badge variant="error" className="py-0">
-							{copy.ask.overdue}
-						</Badge>
-					)}
-					{card.handled && (
-						<Badge variant="secondary" className="py-0">
-							{copy.ask.handled}
-						</Badge>
-					)}
-					{card.expired && (
-						<Badge variant="secondary" className="py-0">
-							{copy.ask.expired}
-						</Badge>
-					)}
-					{card.draftedNotSent && (
-						<Badge variant="warning" className="py-0">
-							{copy.ask.draftedNotSent}
-						</Badge>
-					)}
-					{card.deadline && (
-						<Text
-							role="label"
-							tone={card.overdue ? "error" : "secondary"}
-							className="tabular-nums"
-						>
-							{copy.ask.due(deadlineText(card.deadline))}
-						</Text>
-					)}
-				</div>
-			)}
-			{staleDrafts > 0 && (
-				<Button
-					variant="ghost"
-					size="xs"
-					aria-pressed={showingStale}
-					onClick={onShowStale}
-				>
-					{showingStale ? copy.ask.showAll : copy.ask.staleDrafts(staleDrafts)}
-				</Button>
-			)}
-		</div>
+		<span
+			className="fd-deck-ask"
+			data-deck-ask={card.askKind}
+			data-overdue={card.overdue && !card.expired && !card.handled}
+		>
+			{parts.join(" · ")}
+		</span>
 	);
 }

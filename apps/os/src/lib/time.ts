@@ -98,6 +98,26 @@ export function absoluteTime(iso: string): string {
 }
 
 /**
+ * Compact deadline label for one-line meta rows: "Oct 20" for a date-only
+ * value, "Oct 20, 6:00 PM" for an instant; the year appears only when it is
+ * not the current one.
+ */
+export function shortDeadline(iso: string, now: Date = new Date()): string {
+	const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(iso);
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return iso;
+	const timeZone = dateOnly ? "UTC" : osTimeZone();
+	const options: Intl.DateTimeFormatOptions = {
+		month: "short",
+		day: "numeric",
+		...(dateOnly ? {} : { hour: "numeric", minute: "2-digit" }),
+		...(timeZone ? { timeZone } : {}),
+	};
+	if (date.getFullYear() !== now.getFullYear()) options.year = "numeric";
+	return date.toLocaleString(osLocale(), options);
+}
+
+/**
  * Calendar day for date-only values: "Aug 10, 2026".
  *
  * Formatted in UTC deliberately. A bare `YYYY-MM-DD` parses as UTC midnight,

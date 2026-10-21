@@ -120,6 +120,175 @@ function measure(page: Page) {
 	});
 }
 
+/*
+ * The live iPhone report: an overdue yes/no question that also expires later,
+ * whose consequence was clipped mid-sentence. The first sample card is
+ * rewritten into that shape on the wire.
+ */
+const LIVE_CARD = "000000a7-0000-4000-8000-000000000001";
+const now = Date.now();
+const presentation = {
+	version: 2,
+	generatedAt: new Date(now - 26 * 3_600_000).toISOString(),
+	title: "Keep dark-factory private?",
+	context: "Nobody can check the repository for secrets yet.",
+	body: "If yes, dark-factory stays private while safety checks run and nobody outside the team can read or clone it.",
+	recommendation: "Publishing before the check could expose credentials.",
+};
+type Row = Record<string, unknown>;
+function liveRequest(request: Row) {
+	if (request?.id !== LIVE_CARD) return;
+	const metadata = { ...(request.metadata as Row) };
+	delete metadata.decisionDeck;
+	Object.assign(request, {
+		kind: "question",
+		subject: "Keep dark-factory private while it cannot be checked?",
+		dueAt: new Date(now - 23 * 3_600_000).toISOString(),
+		expiresAt: new Date(now + 6 * 86_400_000).toISOString(),
+		metadata: { ...metadata, cardPresentation: presentation },
+	});
+}
+function liveDeckCard(card: Row) {
+	if (card?.id !== LIVE_CARD) return;
+	liveRequest((card.interaction as Row)?.request as Row);
+	Object.assign(card, {
+		kind: "question",
+		decision: null,
+		presentation,
+		dueAt: new Date(now - 23 * 3_600_000).toISOString(),
+	});
+}
+
+/** The lean phone Deck: one meta line, one date, a whole consequence, one action row. */
+async function leanDeck(page: Page) {
+	const failures: string[] = [];
+	const meta = await page.evaluate(() => {
+		const progress = document.querySelector<HTMLElement>(
+			"[data-deck-progress]",
+		)!;
+		const line = progress.querySelector<HTMLElement>(".fd-deck-meta")!;
+		const track = progress.querySelector<HTMLElement>(
+			'[data-slot="progress-track"], [role="progressbar"] > *',
+		);
+		const card = document.querySelector<HTMLElement>(
+			".fd-deck-current .fd-card",
+		)!;
+		const between = [...document.querySelectorAll<HTMLElement>(".fd-deck > *")]
+			.filter(
+				(node) =>
+					node.getClientRects().length &&
+					node.getBoundingClientRect().bottom <=
+						card.getBoundingClientRect().top + 1 &&
+					node.getBoundingClientRect().top >=
+						progress.getBoundingClientRect().top - 1 &&
+					!node.contains(progress),
+			)
+			.map((node) => node.className);
+		return {
+			text: line.innerText,
+			height: line.getBoundingClientRect().height,
+			track: track?.getBoundingClientRect().height ?? 0,
+			between,
+			cardText: card.innerText,
+		};
+	});
+	if (meta.height > 28) failures.push(`meta line is ${meta.height}px tall`);
+	if (meta.track > 2) failures.push(`progress bar is ${meta.track}px thick`);
+	if (meta.between.length)
+		failures.push(`rows between meta and card: ${meta.between.join(", ")}`);
+	if (!/Overdue since/.test(meta.text))
+		failures.push(`meta line lacks the deadline: ${meta.text}`);
+	if (/drafted, not sent/i.test(meta.text))
+		failures.push("stale-draft group is still on the Deck");
+	const dates = `${meta.text}\n${meta.cardText}`.match(
+		/\b(?:Due|Overdue since|Expires)\b/g,
+	);
+	if (dates?.length !== 1)
+		failures.push(`expected one date, saw ${dates?.join(", ")}`);
+
+	const card = page.locator(".fd-deck-current .fd-card");
+	const summary = card.locator(".fd-card-summary");
+	const clipped = await summary.evaluate(
+		(node) => node.scrollHeight > node.clientHeight + 1,
+	);
+	const more = card.getByRole("button", { name: "More", exact: true });
+	if (clipped && !(await more.isVisible()))
+		failures.push("consequence is clipped with no way to read the rest");
+	if (clipped) {
+		await more.click();
+		if (
+			await summary.evaluate(
+				(node) => node.scrollHeight > node.clientHeight + 1,
+			)
+		)
+			failures.push("More left the consequence clipped");
+	}
+	if (!(await summary.innerText()).trim().endsWith("clone it."))
+		failures.push("consequence does not end with its last words");
+
+	const row = await card.locator("[data-decision-actions]").evaluate((node) => {
+		const visible = [...node.children].filter(
+			(child) =>
+				(child as HTMLElement).getClientRects().length &&
+				getComputedStyle(child).visibility !== "hidden",
+		) as HTMLElement[];
+		return {
+			buttons: visible
+				.filter((child) => !child.classList.contains("fd-action-more"))
+				.map((child) => ({
+					text: child.innerText.trim(),
+					top: child.getBoundingClientRect().top,
+					primary: child.dataset.decisionIntent === "approve",
+				})),
+			more: visible.find((child) => child.classList.contains("fd-action-more"))
+				? visible
+						.find((child) => child.classList.contains("fd-action-more"))!
+						.getBoundingClientRect().top
+				: null,
+			textarea: Boolean(
+				document.querySelector(".fd-deck-current textarea")?.getClientRects()
+					.length,
+			),
+		};
+	});
+	if (row.buttons.length > 2)
+		failures.push(
+			`${row.buttons.length} visible actions: ${row.buttons.map((b) => b.text).join(", ")}`,
+		);
+	if (row.more === null) failures.push("no ⋯ overflow on the action row");
+	const tops = [...row.buttons.map((b) => b.top), row.more ?? 0];
+	if (Math.max(...tops) - Math.min(...tops) > 4)
+		failures.push("actions wrap to a second row");
+	const primary = row.buttons.find((b) => b.primary)?.text;
+	if (primary !== "Keep private")
+		failures.push(`yes/no primary reads "${primary}"`);
+	if (row.textarea) failures.push("a yes/no question shows an answer box");
+	if (
+		(await page
+			.getByText("Not useful", { exact: true })
+			.locator("visible=true")
+			.count()) > 1
+	)
+		failures.push("Not useful shows more than once");
+
+	await card.getByRole("button", { name: "More actions" }).click();
+	const menu = page.getByRole("menu");
+	await menu.getByRole("menuitem").first().waitFor();
+	for (const item of ["Write an answer", "Later", "Not useful", "Why this"])
+		if (
+			(await menu
+				.getByRole("menuitem")
+				.filter({ hasText: new RegExp(`^${item}$`) })
+				.count()) !== 1
+		)
+			failures.push(
+				`overflow lacks ${item}: ${(await menu.getByRole("menuitem").allInnerTexts()).join(", ")}`,
+			);
+	await page.keyboard.press("Escape");
+	await menu.waitFor({ state: "hidden" });
+	return failures;
+}
+
 let browser: Browser | undefined;
 try {
 	for (let attempt = 0; ; attempt++) {
@@ -147,6 +316,23 @@ try {
 				colorScheme,
 			);
 			const page = await context.newPage();
+			await page.route(
+				/\/api\/rpc\/(?:workInteractions\/(?:listInbox|get)|attention\/(?:getDeckCard|listDeckCards))/,
+				async (route) => {
+					const response = await route.fetch();
+					const body = (await response.json()) as { json?: Row };
+					const data = body.json;
+					if (data) {
+						for (const row of (data.data as Row[] | undefined) ?? [])
+							liveRequest(row.request as Row);
+						for (const card of (data.cards as Row[] | undefined) ?? [])
+							liveDeckCard(card);
+						liveRequest(data.request as Row);
+						liveDeckCard(data);
+					}
+					await route.fulfill({ response, json: body });
+				},
+			);
 			await page.goto(`${origin}/work?view=deck`);
 			await page.locator(".fd-deck-current .fd-card").waitFor();
 			await page.locator('[data-slot="card-footer"]').first().waitFor();
@@ -173,8 +359,28 @@ try {
 			);
 			if (shots)
 				await page.screenshot({
-					path: `${shots}/after-${size}-${colorScheme}.png`,
+					path: `${shots}/deck-${size}-${colorScheme}.png`,
 				});
+			const lean = !process.env.TEDIX_DECK_LEAN_SKIP;
+			if (lean) {
+				assert.deepEqual(await leanDeck(page), [], `${label}: lean Deck`);
+				if (shots) {
+					await page
+						.locator(".fd-deck-current .fd-card")
+						.getByRole("button", { name: "More actions" })
+						.click();
+					await page.getByRole("menu").waitFor();
+					await page.screenshot({
+						path: `${shots}/deck-menu-${size}-${colorScheme}.png`,
+					});
+					await page.keyboard.press("Escape");
+					await page.getByRole("menu").waitFor({ state: "hidden" });
+				}
+				await page.locator(".fd-decision").first().blur();
+				await settle(page);
+			}
+			// "More" may have opened the consequence; the keyboard compares against this.
+			const reference = await measure(page);
 
 			// The iOS keyboard: the layout viewport stays, the visual viewport shrinks and pans.
 			await page.evaluate(() => {
@@ -199,8 +405,8 @@ try {
 				`${label}: card layout with keyboard`,
 			);
 			assert(
-				Math.abs(keyboard.cardHeight - loaded.cardHeight) <= 1,
-				`${label}: keyboard resized the card ${loaded.cardHeight} -> ${keyboard.cardHeight}`,
+				Math.abs(keyboard.cardHeight - reference.cardHeight) <= 1,
+				`${label}: keyboard resized the card ${reference.cardHeight} -> ${keyboard.cardHeight}`,
 			);
 			assert(
 				Math.abs(keyboard.navBottom - keyboard.layoutHeight) <= 1,

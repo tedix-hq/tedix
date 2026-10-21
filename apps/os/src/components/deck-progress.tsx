@@ -22,7 +22,7 @@ export function DeckProgress({
 	position: number;
 	filtered: boolean;
 	saving: boolean;
-	/** Card facts shown on the counter row so they add no height. */
+	/** The card's state and date, on the counter line so the meta is one line. */
 	leading?: ReactNode;
 }) {
 	const label = `${position} of ${total}${filtered ? " · filtered" : ""}`;
@@ -44,7 +44,7 @@ export function DeckProgress({
 	}, [label, completed, total, saving, filtered]);
 	return (
 		<div className="fd-card-progress grid gap-1" data-deck-progress>
-			<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+			<div className="fd-deck-meta flex min-w-0 items-center justify-between gap-2">
 				{leading ?? <span />}
 				<Text
 					role="label"
@@ -60,7 +60,7 @@ export function DeckProgress({
 				aria-label="Deck progress"
 				aria-valuetext={`${completed} of ${total} reviewed${filtered ? " · filtered" : ""}`}
 			>
-				<ProgressTrack className="h-1">
+				<ProgressTrack className="h-px">
 					<ProgressIndicator />
 				</ProgressTrack>
 			</Progress>

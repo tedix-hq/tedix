@@ -14,6 +14,17 @@ async function settleAnimations(page: Page) {
 	});
 }
 
+/** Phones keep Why this in the Deck action row's "⋯" menu. */
+async function openWhy(page: Page) {
+	const why = page.getByRole("button", { name: "Why this", exact: true });
+	if (await why.isVisible()) return why.click();
+	await page
+		.locator(".fd-deck-current")
+		.getByRole("button", { name: "More actions" })
+		.click();
+	await page.getByRole("menuitem", { name: "Why this" }).click();
+}
+
 const cwd = new URL("../", import.meta.url).pathname;
 const probe = Bun.serve({
 	port: 0,
@@ -287,9 +298,7 @@ try {
 					await page.getByRole("textbox", { name: "Your answer" }).press("i");
 					if (await dialog.isVisible())
 						throw new Error("Typing i opened context");
-					await page
-						.getByRole("button", { name: "Why this", exact: true })
-						.click();
+					await openWhy(page);
 					await dialog
 						.getByRole("heading", { name: "Why this", exact: true })
 						.waitFor();
@@ -684,7 +693,7 @@ try {
 				grown.scroll <= grown.client
 			)
 				throw new Error(`Answer growth: ${JSON.stringify(grown)}`);
-			await page.getByRole("button", { name: "Why this", exact: true }).click();
+			await openWhy(page);
 			await page
 				.getByRole("heading", {
 					name: "Results and learning",
@@ -813,7 +822,7 @@ try {
 				const row = card.querySelector("[data-decision-actions]")!;
 				const quiet = [
 					...row.querySelectorAll<HTMLElement>(
-						":scope > button:not([data-decision-intent]), [data-deck-not-useful] button, .fd-card-why button",
+						":scope > button:not([data-decision-intent], .fd-action-more), [data-deck-not-useful] button, .fd-card-why button",
 					),
 				].map((b) => ({
 					height: b.getBoundingClientRect().height,

@@ -82,32 +82,7 @@ const SEEDS = [
  * everything else meanwhile. Each entry names the rule that causes it; delete
  * the entry with the fix (the run fails while a listed defect is gone).
  */
-const KNOWN_DEFECTS: { owner: string; control: RegExp; clipper: RegExp }[] = [
-	{
-		owner:
-			"feed-deck.css: `.feed-deck :is(button, a):focus-visible` outline overrides the SegmentedControl inset ring",
-		control:
-			/^\[deck-feed\] button\.group\.flex\.w-max "(For you|Everything)"$/,
-		clipper: /^div\.flex\.max-w-full\.min-w-0 "Feed order"$/,
-	},
-	{
-		owner: "feed-deck.css: 4px outer outline in the scrolling .fd-deck-toolbar",
-		control: /^\[deck-feed\] button\.group\.flex\.w-max /,
-		clipper: /^div\.fd-deck-toolbar /,
-	},
-	{
-		owner:
-			"feed-deck.css: .fd-decision focus outline inside the overflow-hidden .fd-deck",
-		control: /^\[deck-feed\] section\.fd-decision/,
-		clipper: /^div\.feed-deck\.fd-deck/,
-	},
-	{
-		owner:
-			"feed-deck.css: phone Deck Filters button flush with the top of main",
-		control: /^\[deck-feed\] button\.group\.flex\.shrink-0 "Filters"$/,
-		clipper: /^main\.route-content /,
-	},
-];
+const KNOWN_DEFECTS: { owner: string; control: RegExp; clipper: RegExp }[] = [];
 const KEPT_QUERY = ["view", "section", "tab"];
 // A cold dev server compiles each route chunk on first visit.
 const NAVIGATION = { waitUntil: "domcontentloaded", timeout: 120_000 } as const;

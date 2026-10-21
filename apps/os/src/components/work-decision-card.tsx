@@ -53,6 +53,7 @@ import {
 	Fragment,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 	type CSSProperties,
@@ -68,6 +69,13 @@ import {
 import { WorkSourceProvenance } from "@/components/work-source-provenance";
 import { useDecisionMotion } from "@/components/use-decision-motion";
 import { Button } from "@/components/kumo/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
+import { DotsThree } from "@phosphor-icons/react";
 import { Loader } from "@/components/kumo/loader";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
@@ -145,6 +153,54 @@ function withoutIfYes(body: string) {
 	const rest = body.replace(/^\s*If yes[,:]?\s*/i, "");
 	return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
+
+const QUESTION_WORD = /^(?:who|whom|whose|what|which|when|where|why|how)\b/i;
+/** Asks that need typed input even when phrased as an instruction. */
+const INPUT_VERB =
+	/^(?:choose|pick|select|set|name|enter|provide|give|share|write|describe|list|suggest|specify|tell|draft|add)\b/i;
+const PREPOSITION = /^(?:to|for|with|on|in|at|by|from|into|onto|of)$/i;
+const AUXILIARY =
+	/^(?:is|are|am|was|were|should|shall|can|could|do|does|did|will|would|may|might|must|has|have|had)\b/i;
+
+/**
+ * A short summary always asks one question. It is a yes/no decision unless it
+ * opens with a question word, asks for input or offers alternatives. A yes/no
+ * primary states what yes does instead of asking for typed text.
+ */
+function yesNoAnswerLabel(
+	face: { title: string; actionLabels?: Record<string, string> },
+	action: DecisionCardAction,
+): string | null {
+	const labels = face.actionLabels ?? {};
+	const given =
+		(Object.hasOwn(labels, action.id) ? labels[action.id] : undefined) ??
+		(action.intent && Object.hasOwn(labels, action.intent)
+			? labels[action.intent]
+			: undefined);
+	if (given) return given;
+	const ask = face.title.trim().replace(/\?+$/, "").trim();
+	if (
+		!ask ||
+		QUESTION_WORD.test(ask) ||
+		INPUT_VERB.test(ask) ||
+		/\bor\b/i.test(ask)
+	)
+		return null;
+	const words = ask.split(/\s+/);
+	if (AUXILIARY.test(ask) || words.length > 4) return decisionText("Yes");
+	// "Keep dark-factory private" -> "Keep private": the verb and its result.
+	if (words.length <= 2) return ask;
+	return PREPOSITION.test(words.at(-2)!)
+		? decisionText("Yes")
+		: `${words[0]} ${words.at(-1)}`;
+}
+
+/** Row controls the phone overflow menu presses on the person's behalf. */
+const QUIET_CONTROLS = {
+	later: "[data-deck-later]",
+	notUseful: "[data-deck-not-useful] > button",
+	why: ".fd-card-why button",
+} as const;
 
 /*
  * The Button adapter resolves Kumo's primary label color through an inline
@@ -342,6 +398,29 @@ export function WorkDecisionCard({
 		if (!editing) setDraft(body);
 	}, [body, editing]);
 	const [answer, setAnswer] = useState(initialAnswer);
+	// A yes/no question can still take a typed answer; the overflow opens it.
+	const [writing, setWriting] = useState(false);
+	const summary = useRef<HTMLSpanElement>(null);
+	const [summaryClamped, setSummaryClamped] = useState(false);
+	const [summaryOpen, setSummaryOpen] = useState(false);
+	useLayoutEffect(() => {
+		const node = summary.current;
+		if (!node) return;
+		const update = () =>
+			setSummaryClamped(node.scrollHeight > node.clientHeight + 1);
+		// Measured a frame later: showing "More" resizes the card it observes.
+		let frame = 0;
+		const observer = new ResizeObserver(() => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(update);
+		});
+		observer.observe(node);
+		update();
+		return () => {
+			cancelAnimationFrame(frame);
+			observer.disconnect();
+		};
+	}, [face?.body, summaryOpen]);
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
 	const [feedback, setFeedback] = useState("");
 	const [reasonsOpen, setReasonsOpen] = useState(false);
@@ -355,6 +434,31 @@ export function WorkDecisionCard({
 	const [saved, setSaved] = useState(false);
 	const inFlight = useRef(false);
 	const touch = useRef<{ x: number; y: number } | null>(null);
+	const answerAction = actions.find(
+		(action) => action.intent === "approve" && !action.disabled,
+	);
+	const yesNoLabel =
+		kind === "question" &&
+		face &&
+		answerAction &&
+		!suggestedAnswers.length &&
+		!initialAnswer.trim()
+			? yesNoAnswerLabel(face, answerAction)
+			: null;
+	const yesNo = Boolean(yesNoLabel) && !writing;
+	// On phones the Deck row keeps the primary and the secondary; these move to "⋯".
+	const overflowActions = actions.filter(
+		(action) =>
+			action.intent === "later" ||
+			(action.intent === "delegate" && !action.disabled && !rail),
+	);
+	const [quiet, setQuiet] = useState({
+		later: false,
+		notUseful: false,
+		why: false,
+	});
+	const quietControl = (name: keyof typeof QUIET_CONTROLS) =>
+		footer.current?.querySelector<HTMLElement>(QUIET_CONTROLS[name]) ?? null;
 	// A loading summary never blocks the decision: the headline and original
 	// request are real now, so actions stay live until a choice is submitted.
 	const busy = pending || saving || disabled || saved || revising;
@@ -380,7 +484,9 @@ export function WorkDecisionCard({
 			action.intent === "reject"
 				? action.label
 				: kind === "question"
-					? answer.trim()
+					? yesNo && face
+						? `${decisionText("Yes")}: ${face.title.replace(/\?+$/, "")}`
+						: answer.trim()
 					: draft.trim();
 		if (containsCardSecret([finalBody, feedback, reason])) {
 			setError(CARD_SECRET_MESSAGE);
@@ -777,9 +883,23 @@ export function WorkDecisionCard({
 									{face ? (
 										<div className="fd-face-enter grid gap-3">
 											{"context" in face && <Text>{face.context}</Text>}
-											<Text className="fd-card-summary">
+											<Text
+												ref={summary}
+												className="fd-card-summary"
+												data-expanded={summaryOpen}
+											>
 												<strong>If yes:</strong> {withoutIfYes(face.body)}
 											</Text>
+											{summaryClamped && !summaryOpen && (
+												<Button
+													variant="ghost"
+													size="xs"
+													className="fd-summary-more"
+													onClick={() => setSummaryOpen(true)}
+												>
+													{decisionText("More")}
+												</Button>
+											)}
 											<Text className="fd-recommendation">
 												{face.recommendation}
 												{faceState.confidence !== null &&
@@ -905,7 +1025,11 @@ export function WorkDecisionCard({
 								/>
 							</FeedDeckDisclosure>
 						)}
-						{kind === "question" && !secureConnection && !disabled && !saved ? (
+						{kind === "question" &&
+						!yesNo &&
+						!secureConnection &&
+						!disabled &&
+						!saved ? (
 							<div className="grid gap-3">
 								{suggestedAnswers.length ? (
 									<div
@@ -926,6 +1050,7 @@ export function WorkDecisionCard({
 								) : null}
 								<Textarea
 									className="fd-answer"
+									autoFocus={writing}
 									rows={3}
 									aria-label={decisionText("Your answer")}
 									placeholder={decisionText("Your answer…")}
@@ -1089,17 +1214,21 @@ export function WorkDecisionCard({
 										(!editing || !editAction || action.intent === "reject"),
 								)
 								.map((action) => {
-									const label = decisionCardActionLabel(
-										face,
-										action.id,
-										action.intent,
-										action.label,
-									);
+									const label =
+										yesNo && yesNoLabel && action === answerAction
+											? yesNoLabel
+											: decisionCardActionLabel(
+													face,
+													action.id,
+													action.intent,
+													action.label,
+												);
 									const shortcut = ACTION_SHORTCUTS[action.intent ?? ""];
 									const inactive =
 										busy ||
 										action.disabled ||
 										(kind === "question" &&
+											!yesNo &&
 											action.intent !== "reject" &&
 											!answer.trim()) ||
 										(editing && !draft.trim());
@@ -1108,6 +1237,9 @@ export function WorkDecisionCard({
 											data-decision-intent={action.intent}
 											data-agent-staged={
 												action.id === stagedOptionId ? "" : undefined
+											}
+											data-deck-overflow={
+												overflowActions.includes(action) ? true : undefined
 											}
 											style={
 												inactive && action !== approve
@@ -1201,6 +1333,15 @@ export function WorkDecisionCard({
 									</Button>
 								</DecisionContextSection>
 							) : null}
+							{yesNoLabel && !writing && !busy ? (
+								<Button
+									variant="ghost"
+									data-deck-overflow
+									onClick={() => setWriting(true)}
+								>
+									{decisionText("Write an answer")}
+								</Button>
+							) : null}
 							{!actions.some((action) => action.intent === "later") &&
 								deckFooter}
 							{deckCuration}
@@ -1241,6 +1382,79 @@ export function WorkDecisionCard({
 									)
 								) : null}
 							</div>
+							{(overflowActions.length > 0 ||
+								yesNoLabel ||
+								deckFooter ||
+								deckCuration ||
+								why ||
+								learnedWhy) && (
+								<DropdownMenu
+									onOpenChange={(open) => {
+										if (open)
+											setQuiet({
+												later: Boolean(quietControl("later")),
+												notUseful: Boolean(quietControl("notUseful")),
+												why: Boolean(quietControl("why")),
+											});
+									}}
+								>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												variant="ghost"
+												size="icon"
+												className="fd-action-more"
+												aria-label={decisionText("More actions")}
+												disabled={busy}
+											/>
+										}
+									>
+										<DotsThree aria-hidden weight="bold" size={20} />
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										{overflowActions.map((action) => (
+											<DropdownMenuItem
+												key={action.id}
+												disabled={action.disabled}
+												onClick={() => choose(action)}
+											>
+												{decisionCardActionLabel(
+													face,
+													action.id,
+													action.intent,
+													action.label,
+												)}
+											</DropdownMenuItem>
+										))}
+										{yesNoLabel && !writing && (
+											<DropdownMenuItem onClick={() => setWriting(true)}>
+												{decisionText("Write an answer")}
+											</DropdownMenuItem>
+										)}
+										{quiet.later && (
+											<DropdownMenuItem
+												onClick={() => quietControl("later")?.click()}
+											>
+												{decisionText("Later")}
+											</DropdownMenuItem>
+										)}
+										{quiet.notUseful && (
+											<DropdownMenuItem
+												onClick={() => quietControl("notUseful")?.click()}
+											>
+												{OS_COPY.decisionDeck.notUseful.button}
+											</DropdownMenuItem>
+										)}
+										{quiet.why && (
+											<DropdownMenuItem
+												onClick={() => quietControl("why")?.click()}
+											>
+												{decisionText("Why this")}
+											</DropdownMenuItem>
+										)}
+									</DropdownMenuContent>
+								</DropdownMenu>
+							)}
 						</div>
 					</CardFooter>
 				)}

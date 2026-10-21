@@ -117,12 +117,17 @@ try {
 						path: `${evidenceDir}/member-deck-${locale}-${width}-${theme}.png`,
 						fullPage: true,
 					});
-				await page
-					.getByRole("button", {
-						name: locale === "es" ? "Más tarde" : "Later",
-						exact: true,
-					})
-					.click();
+				const later = locale === "es" ? "Más tarde" : "Later";
+				if (width < 640) {
+					// Phones keep Later in the Deck action row's "⋯" menu.
+					await page
+						.getByRole("button", {
+							name: locale === "es" ? "Más acciones" : "More actions",
+						})
+						.click();
+					await page.getByRole("menuitem", { name: later }).click();
+				} else
+					await page.getByRole("button", { name: later, exact: true }).click();
 				await page.waitForFunction(
 					() =>
 						!document

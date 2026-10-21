@@ -66,7 +66,7 @@
 				[data-icon-only],
 				[data-decision-intent]
 			)
-	):focus-visible {
+	):not(:where([data-focus-ring="inset"]) *):focus-visible {
 	outline: 2px solid var(--color-kumo-brand);
 	outline-offset: 2px;
 }
@@ -564,19 +564,21 @@
 	display: flex;
 	flex-direction: column;
 }
+/* One quiet meta line above the card: state and date left, position right. */
 .fd-deck-ask {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
 	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	/* Mirrors the counter's inset so glyphs never touch the clip edge. */
+	padding-inline: 0.5rem;
+	font-size: 0.8125rem;
+	line-height: 1.25rem;
+	color: var(--fd-muted);
+	font-variant-numeric: tabular-nums;
 }
-.fd-deck-ask-tags {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
-	min-width: 0;
+.fd-deck-ask[data-overdue="true"] {
+	color: var(--color-kumo-danger);
 }
 .fd-deck > .fd-practice-notice {
 	flex: none;
@@ -649,11 +651,21 @@
 	grid-auto-rows: min-content;
 	align-content: start;
 }
-.fd-deck-current .fd-card-summary {
+/* The consequence wraps up to three lines; "More" shows the rest in place. */
+.fd-deck-current .fd-card-summary:not([data-expanded="true"]) {
 	display: -webkit-box;
 	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
+	-webkit-line-clamp: 3;
 	overflow: hidden;
+}
+.fd-card-summary[data-expanded="true"] {
+	display: block;
+}
+.fd-summary-more {
+	justify-self: start;
+	margin-top: -0.5rem;
+	padding-inline: 0;
+	color: var(--fd-muted);
 }
 .fd-deck-current [data-slot="card-footer"] {
 	position: relative;
@@ -805,10 +817,18 @@
 	padding-top: 0;
 }
 
-.feed-deck :is(button, a, .fd-decision):focus-visible {
+/* Controls inside a clipping container keep that container's inset ring. */
+.feed-deck
+	:is(button, a, .fd-decision):not(
+		:where([data-focus-ring="inset"]) *
+	):focus-visible {
 	box-shadow: none;
 	outline: 2px solid var(--ring);
 	outline-offset: 2px;
+}
+/* The overflow-hidden Deck sits flush with the card, so its ring is drawn inside. */
+.feed-deck .fd-decision:focus-visible {
+	outline-offset: -2px;
 }
 /*
  * A field's border is Kumo's 1px outer ring. Focus thickens that same ring
@@ -1234,6 +1254,44 @@
 	flex-basis: 100%;
 	order: 1;
 }
+/*
+ * Phones: one row with the primary, the secondary and "⋯". Later, Not useful,
+ * Why this and typed answers move into the menu; swipes still decide.
+ */
+.feed-deck [data-decision-actions] > .fd-action-more {
+	display: none;
+}
+@media (max-width: 639px) {
+	.feed-deck .fd-deck-current [data-decision-actions] {
+		flex-wrap: nowrap;
+	}
+	.feed-deck .fd-deck-current [data-decision-actions] > button {
+		min-width: 0;
+	}
+	.feed-deck
+		.fd-deck-current
+		[data-decision-actions]
+		> :is([data-deck-overflow], [data-deck-later], .fd-card-why),
+	.feed-deck
+		.fd-deck-current
+		[data-decision-actions]
+		> [data-deck-not-useful]:not(:has([role="group"])) {
+		display: none;
+	}
+	.feed-deck
+		.fd-deck-current
+		[data-decision-actions]:has([data-deck-not-useful] [role="group"]) {
+		flex-wrap: wrap;
+	}
+	.feed-deck .fd-deck-current [data-decision-actions] > .fd-action-more {
+		display: inline-flex;
+		flex: none;
+		width: 2.75rem;
+		height: 2.75rem;
+		margin-left: auto;
+		color: var(--muted-foreground);
+	}
+}
 @media (max-width: 639px) {
 	.fd-work-bar {
 		display: contents;
@@ -1242,6 +1300,8 @@
 		order: -1;
 		flex: none;
 		padding-inline: 1rem;
+		/* Room for a focus ring below the clipping top edge of the route content. */
+		padding-top: 0.25rem;
 	}
 	.fd-work-navigation {
 		position: sticky;
@@ -1284,4 +1344,17 @@
 	.fd-work-home[data-slot="page"] {
 		padding-top: 0.5rem;
 	}
+}
+.fd-card-dates {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 0.25rem 1rem;
+	margin: 0;
+}
+.fd-card-dates dt {
+	color: var(--fd-muted);
+}
+.fd-card-dates dd {
+	margin: 0;
+	font-variant-numeric: tabular-nums;
 }
