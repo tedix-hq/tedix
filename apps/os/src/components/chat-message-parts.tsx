@@ -32,6 +32,7 @@ import {
 	PROVISIONAL_SEND_LABEL,
 	type ProvisionalSend,
 } from "@/lib/provisional-send";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { WidgetFrame } from "@/components/widget-frame";
@@ -121,6 +122,7 @@ export function ChatMessageBubble({
 	context?: ChatContext;
 	workspaceId?: string;
 }) {
+	useOsFormattingPreferences();
 	const isUser = message.role === "user";
 	const decoded = decodeChatContext(message.content);
 	const structuredResult = directReadResult(message);

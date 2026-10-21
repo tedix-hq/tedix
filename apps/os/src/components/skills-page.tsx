@@ -59,7 +59,12 @@ import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { useSkillsWebMcpTools } from "@/components/skills-webmcp-tools";
 import { Text } from "@/components/kumo/text";
 import { TriggersPanel } from "@/components/triggers-panel";
-import { formatCount, humanize, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	humanize,
+	sentenceCase,
+} from "@/lib/format";
 import {
 	SKILL_SCHEDULES_LIMIT,
 	skillCatalogQueryOptions,
@@ -332,6 +337,7 @@ export function SkillRow({
 	executable?: boolean;
 	tediNames?: Record<string, string>;
 }) {
+	useOsFormattingPreferences();
 	const blurb = skill.summary ?? skill.description;
 	const owner = skillOwnerLabel(skill, tediNames);
 	const evidence = evidenceLabel(skill);
@@ -483,6 +489,7 @@ export function WorkflowRow({
 	tediNames?: Record<string, string>;
 	LinkComponent?: ComponentType<CardRunLinkProps>;
 }) {
+	useOsFormattingPreferences();
 	const schedule = scheduleSummary(schedules);
 	const latestRun = health?.latestRun ?? null;
 	const latestRunAt = latestRun?.completedAt ?? latestRun?.startedAt ?? null;
@@ -598,6 +605,7 @@ export function SkillsPage({
 	search?: SkillsSearch;
 	onSearchChange?: (patch: Partial<SkillsSearch>) => void;
 }) {
+	useOsFormattingPreferences();
 	const surface = getOsSurface("skills");
 	const canManage = useCanManageTedis();
 	const [showImport, setShowImport] = useState(false);

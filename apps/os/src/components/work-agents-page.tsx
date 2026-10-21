@@ -55,6 +55,7 @@ import {
 	projectListQueryOptions,
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -256,6 +257,7 @@ function AgentSessionRow({
 	session: AgentSession;
 	now: Date;
 }) {
+	useOsFormattingPreferences();
 	const lane = session.telemetry;
 	const state = session.effectiveState;
 	const ownerId = useContext(WorkActorOwnerContext);

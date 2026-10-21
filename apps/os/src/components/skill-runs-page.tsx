@@ -26,6 +26,7 @@ import {
 	hasActiveSkillRun,
 } from "@/lib/skill-runs-search";
 import { skillRunsQueryOptions } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { formatDurationBetween, relativeTime } from "@/lib/time";
 
 const STATUS_OPTIONS = [
@@ -45,6 +46,7 @@ export function SkillRunsPage({
 	search: SkillRunsSearch;
 	updateSearch: (patch: Partial<SkillRunsSearch>) => void;
 }) {
+	useOsFormattingPreferences();
 	const { skillId } = useParams({ from: "/_session/_tenant/skills/$skillId" });
 	const runs = useQuery({
 		...skillRunsQueryOptions(skillId, search.status),

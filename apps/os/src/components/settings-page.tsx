@@ -61,7 +61,7 @@ import {
 	runtimeEntitlementsQueryOptions,
 	userConnectionsQueryOptions,
 } from "@/lib/os-query-options";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 import { useOsIdentity } from "@/lib/use-os-identity";
 import {
@@ -252,6 +252,7 @@ function OperationalContextSection({
 	localInferenceEnabled: boolean;
 	MembersLinkComponent?: ComponentType<TeamMembersLinkProps>;
 }) {
+	useOsFormattingPreferences();
 	const context = useOsOperationalContext();
 	const entitlement = useQuery({
 		...runtimeEntitlementsQueryOptions(),
@@ -431,6 +432,7 @@ export function SettingsPage({
 }: {
 	MembersLinkComponent?: ComponentType<TeamMembersLinkProps>;
 } = {}) {
+	useOsFormattingPreferences();
 	const identity = useOsIdentity();
 	const localEvaluation =
 		__LOCAL_DEMO_ENABLED__ &&

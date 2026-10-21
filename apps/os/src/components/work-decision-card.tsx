@@ -74,6 +74,7 @@ import {
 import { Textarea } from "@/components/kumo/textarea";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { relativeTime, absoluteTime } from "@/lib/time";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import {
@@ -194,6 +195,7 @@ export function WorkDecisionCard({
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
+	useOsFormattingPreferences();
 	const faceState = useContext(CardFaceContext);
 	const face = faceState?.presentation
 		? renderDecisionCardDates(

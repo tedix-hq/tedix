@@ -30,7 +30,7 @@ import { Surface } from "@/components/kumo/surface";
 import { KumoTabs } from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
 import { runtimeEventsQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, formatDurationMs, relativeTime } from "@/lib/time";
@@ -126,6 +126,7 @@ export function ToolBreakdownRowView({
 	selected?: boolean;
 	onSelect?: () => void;
 }) {
+	useOsFormattingPreferences();
 	const latency = formatDurationMs(row.medianLatencyMs);
 	return (
 		<li>
@@ -173,6 +174,7 @@ export function ToolBreakdownRowView({
 }
 
 export function ToolEventRow({ event }: { event: TediToolEvent }) {
+	useOsFormattingPreferences();
 	const latency = formatDurationMs(event.latencyMs);
 	return (
 		<EvidenceRow
@@ -259,6 +261,7 @@ export function ToolTelemetryEmpty({ filtered }: { filtered: boolean }) {
  * live.
  */
 export function ToolTelemetry({ tediId }: { tediId: string }) {
+	useOsFormattingPreferences();
 	const [outcome, setOutcome] = useState<ToolOutcomeFilter>("all");
 	const [tool, setTool] = useState<string | null>(null);
 

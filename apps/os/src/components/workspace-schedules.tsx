@@ -10,6 +10,7 @@ import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { osApi } from "@/lib/api";
 import {
 	osQuery,
@@ -65,6 +66,7 @@ function WorkspaceScheduleRow({
 	schedule: OsWorkspaceSchedule;
 	workspaceId: string;
 }) {
+	useOsFormattingPreferences();
 	const next = schedule.enabled ? nextRunLine(schedule.nextRunAt) : null;
 	const titleId = `workspace-schedule-${schedule.resourceId}`;
 	return (

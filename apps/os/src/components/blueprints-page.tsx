@@ -79,7 +79,11 @@ import {
 	osQuery,
 	osQueryKeys,
 } from "@/lib/os-query-options";
-import { formatCount, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	sentenceCase,
+} from "@/lib/format";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
@@ -144,6 +148,7 @@ function RequirementsSummary({
 }: {
 	requirements: OsBlueprintDefinition["requirements"];
 }) {
+	useOsFormattingPreferences();
 	return (
 		<Text role="label" tone="secondary" className="m-0">
 			{requirementsSummaryText(requirements)}
@@ -328,6 +333,7 @@ export function BlueprintRow({
 	blueprint: OsBlueprintWithVisibility;
 	onToggle?: () => void;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<li className="grid min-w-0 gap-1">
 			<Button
@@ -758,6 +764,7 @@ function InstantiateForm({
 	nameFieldLabel?: string;
 	successNote?: string;
 }) {
+	useOsFormattingPreferences();
 	const [success, setSuccess] = useState<InstantiateSuccess | null>(null);
 	const [calendarSelections, setCalendarSelections] = useState<
 		Record<
@@ -1031,6 +1038,7 @@ function DefinitionSummary({
 }: {
 	definition: OsBlueprintDefinition;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<Text role="label" tone="secondary" className="m-0">
 			{formatCount(definition.gadgets.length)}{" "}
@@ -1041,6 +1049,7 @@ function DefinitionSummary({
 }
 
 function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
+	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const detail = useQuery(blueprintDetailQueryOptions(blueprintId));
 
@@ -1309,6 +1318,7 @@ export function GalleryCard({
 	item: OsBlueprintGalleryItem;
 	children?: ReactNode;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<Surface as="li" className="blueprint-gallery-card overflow-hidden">
 			<div className="blueprint-gallery-preview" aria-hidden="true">
@@ -1372,6 +1382,7 @@ export function GalleryCard({
 // The gallery caps at 200 server-side; one honest page.
 
 function GalleryExplore() {
+	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const [query, setQuery] = useState("");
 	const gallery = useQuery({
@@ -1612,6 +1623,7 @@ function MyBlueprints({
 	selectedId: string | null;
 	onSelect: (id: string | null) => void;
 }) {
+	useOsFormattingPreferences();
 	const [query, setQuery] = useState("");
 	const [visibleLimit, setVisibleLimit] = useState(
 		BLUEPRINTS_VISIBLE_PAGE_SIZE,

@@ -5,7 +5,7 @@ import { attentionMetrics } from "@/lib/deck-attention";
 import { MetricGrid } from "@/components/kumo/metric-grid";
 import { MetricTile } from "@/components/metric-tile";
 import { Text } from "@/components/kumo/text";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { OS_COPY } from "@/shared/os-copy";
 
 const DECK_EVENTS = "deck events";
@@ -27,6 +27,7 @@ function percent(value: number): string {
 }
 
 export function DeckAttentionMetrics() {
+	useOsFormattingPreferences();
 	const query = useQuery(
 		osQuery.learningFeedback.listInteractions.queryOptions({
 			input: { scopeKind: "personal", limit: 200 },

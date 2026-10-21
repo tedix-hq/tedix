@@ -22,6 +22,7 @@ import {
 	AgentStateBadge,
 } from "@/components/work-agents-page";
 import { workProjectContributorsQueryOptions } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 type Contributor = z.output<
@@ -35,6 +36,7 @@ function ContributorRow({
 	contributor: Contributor;
 	now: Date;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<li
 			data-contributor-state={contributor.state}

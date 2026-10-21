@@ -12,7 +12,7 @@ import {
 } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { formatUsd } from "@/lib/cost-reading";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 
 /** Warn at 80% of a limit; at 100% the limit is reached. */
 export const LIMIT_WARN_SHARE = 0.8;
@@ -180,6 +180,7 @@ export function LimitItem({ row }: { row: LimitRow }) {
 }
 
 export function LimitsSection({ posture }: { posture: ComputePosture }) {
+	useOsFormattingPreferences();
 	const rows = limitRows(posture);
 	return (
 		<PageSection>

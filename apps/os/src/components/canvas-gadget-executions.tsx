@@ -32,7 +32,7 @@ import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { osApi } from "@/lib/api";
 import { gadgetCostReading } from "@/lib/cost-reading";
-import { sentenceCase } from "@/lib/format";
+import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
 	gadgetExecutionsQueryOptions,
 	tediRosterQueryOptions,
@@ -135,6 +135,7 @@ function ReceiptDetail({
 	execution: OsGadgetExecution;
 	exportDescriptors: OsGadgetExportDescriptor[];
 }) {
+	useOsFormattingPreferences();
 	const lineage = execution.lineage;
 	const exportExecution = useMutation({
 		mutationFn: (exportId: string) =>

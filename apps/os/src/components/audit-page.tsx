@@ -64,7 +64,12 @@ import {
 	auditSearchInput,
 	isDefaultAuditSearch,
 } from "@/lib/audit-search";
-import { formatCount, humanize, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	humanize,
+	sentenceCase,
+} from "@/lib/format";
 import { auditSearchQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import {
@@ -240,6 +245,7 @@ export function AuditEventRow({
 	tediNames?: Record<string, string>;
 	onInspect?: (event: AuditEvent) => void;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<li className="relative flex min-w-0 items-start gap-3 px-3 py-3 has-[button]:hover:bg-kumo-tint has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-kumo-ring">
 			<span className="flex min-w-0 flex-1 flex-col gap-1">
@@ -298,6 +304,7 @@ export function AuditEventTable({
 	tediNames?: Record<string, string>;
 	onInspect?: (event: AuditEvent) => void;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<div className="hidden lg:block">
 			<Table aria-label="Audit events" scrollLabel="Audit events table">
@@ -635,6 +642,7 @@ export function AuditPage({
 	search: AuditSearch;
 	onSearchChange: (next: Partial<AuditSearch>) => void;
 }) {
+	useOsFormattingPreferences();
 	const surface = getOsSurface("audit");
 	const facet = search.resourceType;
 	const defaultView = isDefaultAuditSearch(search);

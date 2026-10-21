@@ -26,6 +26,7 @@ import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osSharesQueryOptions } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 export const SHARE_LINK_BASE = "https://api.tedix.dev/os-shared";
@@ -145,6 +146,7 @@ export function ShareRow(props: {
 	onRevoke?: (shareId: string) => void;
 	revoking?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const status = shareStatus(props.share);
 	return (
 		<li className="flex flex-wrap items-center gap-2 py-1.5">

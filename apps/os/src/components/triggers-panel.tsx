@@ -32,7 +32,7 @@ import {
 	workflowDefinitionsQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
-import { osTimeZone } from "@/lib/format";
+import { useOsFormattingPreferences, osTimeZone } from "@/lib/format";
 import { useTediNames } from "@/lib/use-tedi-names";
 import { SKILLS_PAGE_SIZE, type SkillsSearch } from "@/lib/skills-search";
 
@@ -234,6 +234,7 @@ export function TriggerRow({
 	runPending?: boolean;
 	onRunNow?: () => void;
 }) {
+	useOsFormattingPreferences();
 	const owner = tediNames[schedule.tediId] ?? "a tedi";
 	const latestRun = health?.latestRun ?? null;
 	const hasFutureRun = Date.parse(schedule.nextFireAt) > Date.now();

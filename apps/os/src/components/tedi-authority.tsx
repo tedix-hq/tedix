@@ -28,7 +28,12 @@ import {
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { formatCount, humanize, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	humanize,
+	sentenceCase,
+} from "@/lib/format";
 import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
 import { earnedDelegationProfileQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
@@ -167,6 +172,7 @@ export function ValidatedExperienceMeter({
 }: {
 	experience: ValidatedExperience;
 }) {
+	useOsFormattingPreferences();
 	const filled = Math.max(
 		0,
 		Math.min(100, Math.round((experience.points / experience.maxPoints) * 100)),
@@ -212,6 +218,7 @@ export function ValidatedExperienceMeter({
  * operator that a live grant was already due.
  */
 export function EntrustmentRow({ entrustment }: { entrustment: Entrustment }) {
+	useOsFormattingPreferences();
 	const scope = entrustment.scope;
 	const activity = entrustment.activity;
 	return (
@@ -323,6 +330,7 @@ export function DelegationYieldPanel({
 }: {
 	delegationYield: DelegationYield;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<Surface className="grid gap-2 px-3 py-2.5">
 			<span className="flex flex-wrap items-center justify-between gap-2">
@@ -387,6 +395,7 @@ export function DelegationYieldPanel({
 }
 
 export function PromotionGaps({ gaps }: { gaps: readonly string[] }) {
+	useOsFormattingPreferences();
 	if (gaps.length === 0) {
 		return (
 			<Alert variant="info">
@@ -441,6 +450,7 @@ export function EarnedAuthorityPanel({
 }: {
 	profile: DelegationProfile;
 }) {
+	useOsFormattingPreferences();
 	const experience = profile.validatedExperience;
 	const entrustments = sortEntrustments(profile.entrustments);
 	const active = entrustments.filter(

@@ -11,6 +11,7 @@ import { X } from "@phosphor-icons/react";
 import type { Fact } from "@tedix/api-contract/schemas/memory-graph";
 import { MemoryConsolidationSchema } from "@tedix/api-contract/schemas/memory-observations";
 import { osQuery } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import {
 	MEMORY_PAGE_SIZE,
@@ -112,6 +113,7 @@ function Choice({
 }
 
 function FactDetails({ fact }: { fact: Fact }) {
+	useOsFormattingPreferences();
 	const consolidated = MemoryConsolidationSchema.safeParse(
 		fact.metadata?.consolidation,
 	).success;
@@ -200,6 +202,7 @@ export function MemoryBrowser({
 	search: MemorySearch;
 	onSearch: (patch: Partial<MemorySearch>) => void;
 }) {
+	useOsFormattingPreferences();
 	const factView =
 		search.tab === "observations" ||
 		search.tab === "stale" ||

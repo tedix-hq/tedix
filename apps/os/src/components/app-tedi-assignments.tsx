@@ -73,6 +73,7 @@ import {
 	tediAppAssignmentsByAppQueryOptions,
 	tediRosterQueryOptions,
 } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteDate } from "@/lib/time";
 
 function parseAssignmentRole(value: string | null): TediAppAssignmentRole {
@@ -85,6 +86,7 @@ const assignmentSchema = z.object({
 });
 
 export function AppTediAssignments({ appId }: { appId: string }) {
+	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const [assignDialogOpen, setAssignDialogOpen] = useState(false);
 

@@ -5,9 +5,11 @@ import { osQuery } from "@/lib/os-query-options";
 import { Badge } from "@/components/kumo/badge";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 
 export function ObservationEvidence({ fact }: { fact: Fact }) {
+	useOsFormattingPreferences();
 	const parsed = MemoryConsolidationSchema.safeParse(
 		fact.metadata?.consolidation,
 	);

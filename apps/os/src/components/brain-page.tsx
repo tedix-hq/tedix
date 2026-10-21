@@ -36,7 +36,12 @@ import { MetricGrid } from "@/components/kumo/metric-grid";
 import { MetricTile } from "@/components/metric-tile";
 import { Text, type TextTone } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { formatCount, humanize, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	humanize,
+	sentenceCase,
+} from "@/lib/format";
 import { memoryHealthQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
@@ -214,6 +219,7 @@ const VITAL_TEXT_TONE: Record<MemoryVitalTone, TextTone> = {
 
 /** Memory vitals — labeled aggregate counts, no graph explorer. */
 export function MemoryVitals({ health }: { health: MemoryHealth }) {
+	useOsFormattingPreferences();
 	return (
 		<MetricGrid
 			aria-label="Memory vitals"
@@ -253,6 +259,7 @@ export function RationaleRow({
 	tediNames?: Record<string, string>;
 	LinkComponent?: ComponentType<CardRunLinkProps>;
 }) {
+	useOsFormattingPreferences();
 	const rationalePreview = compactPreview(
 		record.rationale,
 		BRAIN_PREVIEW_LENGTH,
@@ -389,6 +396,7 @@ export function KnowledgeRow({
 	entry: KnowledgeEntry;
 	tediNames?: Record<string, string>;
 }) {
+	useOsFormattingPreferences();
 	const text = memoryText(entry.title, entry.content);
 	const contentPreview = text.title
 		? compactPreview(entry.content, BRAIN_PREVIEW_LENGTH)

@@ -77,7 +77,11 @@ import {
 import { useWorkItemWebMcpTools } from "@/components/work-item-webmcp-tools";
 import { WorkProjectContributors } from "@/components/work-project-contributors";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
-import { formatRatioPercent, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatRatioPercent,
+	sentenceCase,
+} from "@/lib/format";
 import {
 	osQuery,
 	userProfileQueryOptions,
@@ -167,6 +171,7 @@ export function WorkItemReadOnlyLedgers({
 		occurredAt: string;
 	}>;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<>
 			<SectionCollection
@@ -620,6 +625,7 @@ function WorkItemMobileList({
 	showDisposition: boolean;
 	showReadiness: boolean;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<Collection
 			appearance="inline"
@@ -704,6 +710,7 @@ export function WorkItemsTable({
 	showDisposition?: boolean;
 	showReadiness?: boolean;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<>
 			<WorkItemMobileList
@@ -893,6 +900,7 @@ export function ProjectSummary({
 	aggregateDisposition?: string;
 	targetDate: string | null;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<MetricGrid columns={3} appearance="inline" aria-label="Project summary">
 			<MetricItem label="Lifecycle" value={sentenceCase(status)} />
@@ -1736,6 +1744,7 @@ export function WorkAttemptActivity({
 }: {
 	attempt: WorkAttemptActivityFields;
 }) {
+	useOsFormattingPreferences();
 	const session = attempt.externalSessionKey || attempt.executorSessionId;
 	const timestamp = attempt.finishedAt ?? attempt.heartbeatAt;
 	const overdue =
@@ -1897,6 +1906,7 @@ function evidenceDispositionVariant(disposition: string) {
 }
 
 export function WorkItemPage({ itemId }: { itemId: string }) {
+	useOsFormattingPreferences();
 	const attemptPaging = useCursorPaging<{ at: string; id: string }>();
 	const evidencePaging = useCursorPaging<{ at: string; id: string }>();
 	const detail = useQuery(workItemDetailQueryOptions(itemId));

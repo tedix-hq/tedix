@@ -37,7 +37,7 @@ import {
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
-import { sentenceCase } from "@/lib/format";
+import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
 	homeChildRunEvidenceQueryOptions,
 	homeRunQueryOptions,
@@ -107,6 +107,7 @@ function EvidenceRow({
 }
 
 function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
+	useOsFormattingPreferences();
 	const toolEvents = evidence.events.filter((event) =>
 		event.kind.startsWith("tool."),
 	);
@@ -226,6 +227,7 @@ export function HomeExecutionDetailView({
 	events?: RuntimeStreamEvent[];
 	eventsError?: unknown;
 }) {
+	useOsFormattingPreferences();
 	const selectedBranch = branchId
 		? trace.branches.find((branch) => branch.childRunId === branchId)
 		: undefined;

@@ -21,7 +21,12 @@ import {
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { formatCount, humanize, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	humanize,
+	sentenceCase,
+} from "@/lib/format";
 import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
 import {
 	tediKnowledgeMapQueryOptions,
@@ -391,6 +396,7 @@ export function KnowledgeMapEmpty() {
  * with its linked execution evidence.
  */
 export function MemoryExplorer({ tediId }: { tediId: string }) {
+	useOsFormattingPreferences();
 	const graph = useQuery({
 		...tediKnowledgeMapQueryOptions(tediId, GRAPH_DEPTH, GRAPH_MAX_NODES),
 		staleTime: 60_000,

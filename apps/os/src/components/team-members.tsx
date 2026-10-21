@@ -107,6 +107,7 @@ import {
 	membersListQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { normalizeD1Timestamp, relativeTime } from "@/lib/time";
 import { useOsIdentity } from "@/lib/use-os-identity";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
@@ -367,6 +368,7 @@ function MemberActivityCell({
 	member: Member;
 	compact?: boolean;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<Text
 			as="span"

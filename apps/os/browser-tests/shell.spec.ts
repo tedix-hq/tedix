@@ -66,6 +66,57 @@ try {
 	}
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	browser = await chromium.launch({ headless: true });
+	const preferencesPage = await browser.newPage({
+		timezoneId: "America/New_York",
+	});
+	let releasePreferences!: () => void;
+	const preferencesReady = new Promise<void>((resolve) => {
+		releasePreferences = resolve;
+	});
+	await preferencesPage.route(
+		"**/api/rpc/userSettings/getPreferences**",
+		async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.json.preferences.locale = "en-US";
+			body.json.preferences.timezone = "Europe/Berlin";
+			await preferencesReady;
+			await route.fulfill({ response, json: body });
+		},
+	);
+	const instant = "2099-08-14T01:40:00Z";
+	await preferencesPage.route(
+		"**/api/rpc/skills/listWorkflowSchedules**",
+		async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.json.schedules[0].nextFireAt = instant;
+			await route.fulfill({ response, json: body });
+		},
+	);
+	await preferencesPage.goto(`${origin}/skills?section=triggers`);
+	const nextFire = preferencesPage
+		.locator(`time[datetime="${instant}"]`)
+		.first();
+	await nextFire.waitFor();
+	assert.match(await nextFire.innerText(), /Aug 13, 2099, 9:40\s?PM/);
+	const mountedTimestamp = await nextFire.elementHandle();
+	releasePreferences();
+	await preferencesPage.waitForFunction(() =>
+		document
+			.querySelector('time[datetime="2099-08-14T01:40:00Z"]')
+			?.textContent?.includes("Europe/Berlin"),
+	);
+	assert.match(await nextFire.innerText(), /Aug 14, 2099, 3:40\s?AM/);
+	assert.equal(
+		await mountedTimestamp?.evaluate((node) => node.isConnected),
+		true,
+	);
+	assert.match((await nextFire.getAttribute("title")) ?? "", /Europe\/Berlin/);
+	await preferencesPage.close();
+	console.log(
+		"PASS: direct-link timestamps update after delayed timezone preferences without remount",
+	);
 	for (const theme of ["light", "dark"] as const) {
 		const page = await browser.newPage({
 			viewport: { width: 1280, height: 900 },

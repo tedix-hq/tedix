@@ -81,7 +81,7 @@ import { useRunWebMcpTools } from "@/components/run-webmcp-tools";
 import { cn } from "@/lib/utils";
 import { osApi } from "@/lib/api";
 import { callCostRunReading, queryReading } from "@/lib/cost-reading";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import {
 	RUN_RATIONALE_LIMIT,
 	WORKFLOW_DEFINITIONS_LIMIT,
@@ -320,6 +320,7 @@ export function RunErrorAlert({ error }: { error: string }) {
 // ---------------------------------------------------------------------------
 
 export function RunDetailPage() {
+	useOsFormattingPreferences();
 	const { runId } = useParams({
 		from: "/_session/_tenant/work/runs/$runId",
 	});

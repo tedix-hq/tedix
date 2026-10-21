@@ -46,7 +46,7 @@ import {
 	queryReading,
 } from "@/lib/cost-reading";
 import { computePostureQueryOptions } from "@/lib/os-query-options";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 // ---------------------------------------------------------------------------
@@ -221,6 +221,7 @@ export function LedgerCard({
 	posture: ComputePosture;
 	embedded?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const tone = freshnessTone(posture.freshness.state);
 	return (
 		<ComputeSummary embedded={embedded}>
@@ -292,6 +293,7 @@ export function ProvenanceCard({
 	posture: ComputePosture;
 	embedded?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const legend = provenanceLegend(posture.provenance);
 	const details = (
 		<ul className="m-0 grid gap-2 p-0">
@@ -363,6 +365,7 @@ export function BudgetCard({
 	posture: ComputePosture;
 	embedded?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const share = consumedShare(posture.budget);
 	const blocked = posture.budget.entitlementActive === false;
 	return (
@@ -479,6 +482,7 @@ export function HealthCard({
 	posture: ComputePosture;
 	embedded?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const tone = credentialTone(posture.credentialHealth.status);
 	return (
 		<ComputeSummary embedded={embedded}>
@@ -533,6 +537,7 @@ export function AttributionCard({
 	posture: ComputePosture;
 	embedded?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const gap = posture.attribution;
 	return (
 		<ComputeSummary embedded={embedded}>
