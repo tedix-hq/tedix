@@ -266,6 +266,7 @@ function Collection({
 		<ul
 			data-slot="collection"
 			data-appearance={appearance}
+			data-focus-ring={appearance === "bounded" ? "inset" : undefined}
 			className={cn(
 				"m-0 grid list-none divide-y divide-kumo-hairline p-0 [&>li]:min-h-11 [&>li]:min-w-0",
 				appearance === "bounded" &&

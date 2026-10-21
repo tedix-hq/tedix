@@ -50,6 +50,7 @@ function SegmentedControl<Value extends string>({
 		<ToggleGroup
 			aria-label={ariaLabel}
 			data-kumo-component="SegmentedControl"
+			data-focus-ring="inset"
 			data-compact={compact || undefined}
 			className={cn(
 				"flex max-w-full min-w-0 items-stretch gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg bg-kumo-recessed p-0.5 ring ring-kumo-hairline/70 [scrollbar-gutter:stable] [scrollbar-width:thin]",

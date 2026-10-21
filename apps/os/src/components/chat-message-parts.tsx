@@ -340,7 +340,10 @@ export function ChatStarterPrompts({
 	onChoose: (prompt: string) => void;
 }) {
 	return (
-		<div className="chat-starter-prompts mt-6 grid w-full !max-w-none gap-2 text-wrap">
+		<div
+			data-focus-ring="inset"
+			className="chat-starter-prompts mt-6 grid w-full !max-w-none gap-2 text-wrap"
+		>
 			{CHAT_STARTER_PROMPTS.map((prompt) => (
 				<Button
 					key={prompt}

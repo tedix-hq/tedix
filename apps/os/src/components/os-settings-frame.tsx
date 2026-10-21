@@ -50,6 +50,7 @@ export function OsSettingsFrame({
 			<nav
 				ref={navigation}
 				aria-label="Settings sections"
+				data-focus-ring="inset"
 				className="flex shrink-0 gap-1 overflow-x-auto border-b border-kumo-line bg-kumo-base p-2 md:w-48 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r"
 			>
 				{items.map((item) => (

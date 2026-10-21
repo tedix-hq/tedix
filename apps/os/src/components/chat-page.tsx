@@ -169,6 +169,7 @@ export function ChatPage() {
 				<h1 className="sr-only">Chat</h1>
 				<aside
 					data-slot="chat-conversation-directory"
+					data-focus-ring="inset"
 					className={`${mobileListOpen ? "block" : "hidden"} min-h-0 flex-1 overflow-y-auto md:block md:max-h-none md:w-72 md:flex-none md:border-r md:border-kumo-line md:pr-3`}
 				>
 					<ChatSidebar
