@@ -662,7 +662,7 @@ async function collectStaleLastSeenIssues(
 						INNER JOIN app_catalog ac ON ac.id = s.catalog_app_id
 						WHERE ac.status = 'ENABLED'
 							AND s.removed_at IS NULL
-							AND s.last_seen_at < datetime('now', ?1)
+							AND julianday(s.last_seen_at) < julianday('now', ?1)
 							AND (?2 IS NULL OR ac.id = ?2)
 						GROUP BY ac.id
 						ORDER BY count(s.id) DESC, ac.name ASC
