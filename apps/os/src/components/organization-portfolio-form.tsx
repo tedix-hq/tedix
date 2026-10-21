@@ -86,16 +86,22 @@ export function OrganizationPortfolioForm({
 						key={index}
 						className="space-y-2 rounded border border-kumo-line p-3"
 					>
-						<Label htmlFor={`${id}-${index}-label`}>Section name</Label>
+						<Label htmlFor={`${id}-${index}-label`}>
+							<span id={`${id}-${index}-label-label`}>Section name</span>
+						</Label>
 						<Input
 							id={`${id}-${index}-label`}
+							aria-labelledby={`${id}-${index}-label-label`}
 							value={bucket.label}
 							disabled={save.isPending}
 							onChange={(event) => patch(index, { label: event.target.value })}
 						/>
-						<Label htmlFor={`${id}-${index}-key`}>Section key</Label>
+						<Label htmlFor={`${id}-${index}-key`}>
+							<span id={`${id}-${index}-key-label`}>Section key</span>
+						</Label>
 						<Input
 							id={`${id}-${index}-key`}
+							aria-labelledby={`${id}-${index}-key-label`}
 							value={bucket.key}
 							disabled={save.isPending}
 							onChange={(event) => patch(index, { key: event.target.value })}
@@ -105,10 +111,13 @@ export function OrganizationPortfolioForm({
 							moves them to Unsorted.
 						</p>
 						<Label htmlFor={`${id}-${index}-description`}>
-							Description (optional)
+							<span id={`${id}-${index}-description-label`}>
+								Description (optional)
+							</span>
 						</Label>
 						<Input
 							id={`${id}-${index}-description`}
+							aria-labelledby={`${id}-${index}-description-label`}
 							value={bucket.description ?? ""}
 							disabled={save.isPending}
 							onChange={(event) =>
