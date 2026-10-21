@@ -73,6 +73,7 @@ import {
 	storedSkillScheduleProjection,
 	stripSkillFrontmatter,
 	syncSkillScheduleProjection,
+	scheduledSkillPromotionBlocker,
 	validatedSkillSchedule,
 } from "./cognitive-skill-shared";
 import {
@@ -1032,7 +1033,12 @@ export const skillsPromote = authedSkills.promote
 					: (premortemGate.auditLine ?? input.revisionReasoning),
 		});
 		const blockers = await computeSkillPromotionBlockers(context.db, existing);
-		const allChanges = [...blockers, ...changes];
+		const scheduleBlocker = scheduledSkillPromotionBlocker(existing);
+		const allChanges = [
+			...(scheduleBlocker ? [scheduleBlocker] : []),
+			...blockers,
+			...changes,
+		];
 
 		if (input.dryRun) {
 			return {
@@ -1047,6 +1053,9 @@ export const skillsPromote = authedSkills.promote
 				ErrorCodes.BAD_REQUEST,
 				"Workflow improvement proposals must use activateWorkflowImprovement",
 			);
+		}
+		if (scheduleBlocker) {
+			throw createError(ErrorCodes.BAD_REQUEST, scheduleBlocker.note);
 		}
 		if (existing.tediId) requireHumanSkillActivation(context);
 		validatedSkillSchedule(existing.content, null);
