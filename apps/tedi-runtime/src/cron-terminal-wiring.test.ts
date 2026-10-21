@@ -465,6 +465,51 @@ for (const options of [{ exhausted: true }, { admitted: false }]) {
 		1,
 	);
 }
+// A delegated child lost to an isolate memory reset claims its run before the
+// re-drive, so the platform orphan sweep does not fail it in the silent gap.
+{
+	const probe = await reconcileProbe(
+		{ runId: "child-run-1", sessionKey: "delegated:home-1" },
+		{
+			status: "errored",
+			error: {
+				message: "Alarm memory-limit strike 1/3; resetting isolate (#1825)",
+			},
+		},
+	);
+	const recorded: Array<Record<string, unknown>> = [];
+	Object.assign(probe.agent, {
+		async ensureIdentity() {},
+		async getPlatformClient() {
+			return {
+				async recordRuntimeEvent(event: Record<string, unknown>) {
+					recorded.push(event);
+					probe.calls.push(`event:${String(event.kind)}`);
+				},
+			};
+		},
+	});
+	const before = Date.now();
+	await probe.agent.reconcileChatWorkflowTerminalInner({
+		workflowInstanceId: "wf-1",
+		attempt: 0,
+	});
+	assert.deepEqual(probe.calls, [
+		"event:step.retry",
+		'restart:wf-1:{"resetTracking":false}',
+		"schedule:reconcileChatWorkflowTerminal",
+	]);
+	assert.equal(recorded[0]?.runId, "child-run-1");
+	const marker = recorded[0]?.payload as {
+		operation?: string;
+		retryOwnedUntil?: string;
+	};
+	assert.equal(marker.operation, "workflow_redrive");
+	assert.ok(
+		Date.parse(String(marker.retryOwnedUntil)) - before >= 12 * 60_000,
+		"the retry lease outlasts the orphan sweep's activity window",
+	);
+}
 {
 	const probe = await reconcileProbe(
 		{ runId: "run-1", redriveCount: WORKFLOW_TERMINAL_MAX_REDRIVES },

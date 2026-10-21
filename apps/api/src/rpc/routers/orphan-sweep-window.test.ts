@@ -95,3 +95,44 @@ describe("findOrphanRuns scan window", () => {
 		).toContain("run-10-days");
 	});
 });
+
+describe("findOrphanRuns retry ownership", () => {
+	let db: ReturnType<typeof setup>;
+
+	beforeEach(() => {
+		db = setup();
+	});
+
+	async function seedRetryLease(runId: string, at: string, until: string) {
+		await db.insert(tediRuntimeEvents).values({
+			id: `retry-${runId}`,
+			organizationId: "org-1",
+			tediId: "tedi-1",
+			runId,
+			kind: "step.retry",
+			runtimeBackend: "isolate",
+			payload: { operation: "workflow_redrive", retryOwnedUntil: until },
+			createdAt: at,
+		});
+	}
+
+	it("leaves a run alone while a pending retry still owns it", async () => {
+		// The isolate reset 20 minutes ago; the runtime's re-drive lease runs
+		// for another 10 minutes, past the sweep's 12-minute activity window.
+		await seedOrphan(db, "child-redriving", ago(2 * HOUR));
+		await seedRetryLease(
+			"child-redriving",
+			ago(20 * 60_000),
+			new Date(NOW.getTime() + 10 * 60_000).toISOString(),
+		);
+		const found = await findOrphanRuns(db, { now: NOW });
+		expect(found.map((c) => c.runId)).not.toContain("child-redriving");
+	});
+
+	it("sweeps the run once the retry lease has expired", async () => {
+		await seedOrphan(db, "child-abandoned", ago(2 * HOUR));
+		await seedRetryLease("child-abandoned", ago(HOUR), ago(30 * 60_000));
+		const found = await findOrphanRuns(db, { now: NOW });
+		expect(found.map((c) => c.runId)).toContain("child-abandoned");
+	});
+});

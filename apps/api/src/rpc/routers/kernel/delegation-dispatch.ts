@@ -1309,6 +1309,9 @@ function routeNeedsEmbodiedSurface(route: KernelRouteDecision): boolean {
  *  | 9  | route.risk === "high"                              | needs_approval  |
  *  | 10 | all of the above satisfied                         | auto            |
  *
+ * An `auto` verdict for a target already at its concurrent delegated-run
+ * limit (`targetCapacity`) is then held as a `human` capacity hold.
+ *
  * Every `needs_approval` verdict carries `approvalRoute`. Rules 6 and 9 (and
  * the earned-delegation ceilings applied after this table) are `agent`: the
  * org's designated approval tedi may decide them through the Work approval
@@ -1364,7 +1367,31 @@ export function decideDelegationDispatch(input: {
 	 * ~8–10 hops (decisions/agentic-kernel-architecture.md).
 	 */
 	delegationDepth?: number;
+	/**
+	 * The target's live delegated load against its configured concurrency
+	 * limit. A target at its limit is held instead of auto-dispatched: stacking
+	 * concurrent delegated turns on one tedi exhausts its isolate memory.
+	 */
+	targetCapacity?: { active: number; limit: number };
 }): DispatchDecision {
+	const decision = decideDelegationDispatchWithinCapacity(input);
+	const capacity = input.targetCapacity;
+	if (decision.mode !== "auto" || !capacity || capacity.active < capacity.limit)
+		return decision;
+	return {
+		canAutoDispatch: false,
+		mode: "needs_approval",
+		approvalRoute: "human",
+		reason: `target is already running ${capacity.active} of its ${capacity.limit} concurrent delegated runs; holding until one finishes`,
+		...(decision.earnedDelegationShadow
+			? { earnedDelegationShadow: true as const }
+			: {}),
+	};
+}
+
+function decideDelegationDispatchWithinCapacity(
+	input: Parameters<typeof decideDelegationDispatch>[0],
+): DispatchDecision {
 	const { route, card, speaker } = input;
 	if (input.capabilityPlan?.missingCapabilities.length) {
 		return {

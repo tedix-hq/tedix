@@ -457,13 +457,16 @@ describe("planKernelRoute", () => {
 		// TRACK-RECORD is the secondary signal (step 2).
 		expect(capturedSystem).toContain("TRACK-RECORD");
 		expect(capturedSystem).toContain("track-record=NN%");
-		// POLICY/AVAILABILITY is the tie-breaker (step 3).
-		expect(capturedSystem).toContain("POLICY/AVAILABILITY");
+		// POLICY is the tie-breaker (step 3).
+		expect(capturedSystem).toContain("3. POLICY:");
 		expect(capturedSystem).toContain("autonomous");
 		expect(capturedSystem).toContain("gated");
-		// "running" over "standby" availability preference
-		expect(capturedSystem).toContain("running");
-		expect(capturedSystem).toContain("standby");
+		// A standby tedi wakes on dispatch, so it must not lose to a running one;
+		// that preference sent every engineering delegation to one tedi.
+		expect(capturedSystem).not.toContain("running over standby");
+		expect(capturedSystem).toContain(
+			"Running and standby are equally available",
+		);
 		// Single-best-fit selection language
 		expect(capturedSystem).toContain("single best-fit tedi");
 	});

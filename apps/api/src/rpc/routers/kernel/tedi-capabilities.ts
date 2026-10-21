@@ -115,6 +115,17 @@ export interface TediCapabilityCard {
 	 */
 	hasRepository: boolean;
 	/**
+	 * The configured repository itself. Tedis sharing one repository form the
+	 * pool a coding delegation may be spread across by live load.
+	 */
+	repositoryUrl?: string | null;
+	/**
+	 * Concurrent delegated runs this tedi accepts, from its policy pack's
+	 * `workItemConcurrency` (the same per-tedi budget the runtime applies to
+	 * fan-out slots). Absent means the default.
+	 */
+	delegationConcurrency?: number;
+	/**
 	 * Live workstation CODING readiness, projected from the warm lease row's
 	 * metadata (deps installed + tools/secrets/repo ready). The kernel uses this
 	 * to avoid dispatching a coding task into a warm-but-not-ready workstation
@@ -341,6 +352,23 @@ export function deriveRequiresApproval(
 	return true;
 }
 
+/** Matches the runtime's fan-out fallback when a pack sets no budget. */
+export const DEFAULT_DELEGATION_CONCURRENCY = 2;
+const MAX_DELEGATION_CONCURRENCY = 8;
+
+/**
+ * Concurrent delegated runs a tedi accepts, from its policy pack's
+ * `workItemConcurrency` with the runtime's own bounds (default 2, at most 8).
+ */
+export function parseDelegationConcurrency(
+	definition: Record<string, unknown> | null | undefined,
+): number {
+	const value = definition?.workItemConcurrency;
+	return typeof value === "number" && Number.isFinite(value) && value >= 1
+		? Math.min(Math.floor(value), MAX_DELEGATION_CONCURRENCY)
+		: DEFAULT_DELEGATION_CONCURRENCY;
+}
+
 // ============================================================================
 // Card assembly
 // ============================================================================
@@ -518,6 +546,8 @@ function buildCard(
 		hasRepository: hasWorkstationCapability({
 			repoConfig: tedi.repoConfig,
 		}),
+		repositoryUrl: tedi.repoConfig?.repoUrl?.trim() || null,
+		delegationConcurrency: DEFAULT_DELEGATION_CONCURRENCY,
 		// Live coding readiness off the warm lease metadata (fail-soft: absent ⇒
 		// false → kernel holds "warming" rather than dispatching into an unproven env).
 		depsReady: readiness?.depsReady ?? false,
@@ -578,6 +608,7 @@ function buildCard(
 		base.dispatchPolicy = parseDispatchPolicyLayer(
 			packDefinition?.gatingPolicy,
 		);
+		base.delegationConcurrency = parseDelegationConcurrency(packDefinition);
 	} catch (error) {
 		console.warn(
 			`[tediCapabilities] enrichment failed for tedi ${tedi.id}; degrading to thin card`,
