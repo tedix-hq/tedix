@@ -290,7 +290,7 @@ it("lets the recipient correct a credential card's face without a gadget grant o
 			presentation: editedFace,
 		});
 		expect(revision).toMatchObject({
-			cause: "human_edit",
+			cause: "agent_rewrite",
 			actorType: "user",
 			actorId: "person",
 			revision: 2,
@@ -429,6 +429,40 @@ it("rejects secrets and executable changes in a face correction before writing a
 				.prepare("SELECT count(*) AS n FROM work_interaction_card_revisions")
 				.get()?.n,
 		).toBe(0);
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("preserves the curated source snapshot when the recipient directly corrects the face", async () => {
+	const { sqlite, context, humanContext } = fixture();
+	try {
+		await curateDeckCard(context, {
+			...input,
+			body: "A shorter story for the card.",
+		});
+		const { gadgetId: _, ...ownerInput } = input;
+		await curateDeckCard(humanContext, {
+			...ownerInput,
+			expectedRequestVersion: 2,
+			expectedRevision: 2,
+			presentation: editedFace,
+		});
+		const metadata = JSON.parse(
+			String(
+				sqlite
+					.prepare("SELECT metadata FROM work_interactions WHERE id=?")
+					.get(card)?.metadata,
+			),
+		);
+		const { currentDeckCuration } =
+			await import("@tedix/api-contract/utils/deck-curator");
+		expect(currentDeckCuration(metadata)).toMatchObject({
+			revision: 3,
+			draftBody: "Original text",
+			status: "open",
+		});
+		expect(metadata.cardContent).toBe("A shorter story for the card.");
 	} finally {
 		sqlite.close();
 	}
