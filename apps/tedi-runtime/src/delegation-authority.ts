@@ -3,6 +3,7 @@ import {
 	type DelegationAuthorityEnvelope,
 	DelegationAuthorityEnvelopeSchema,
 } from "@tedix/api-contract/schemas/kernel-runtime";
+import { WEB_SEARCH_TOOL_NAME } from "@tedix/api-contract/schemas/web-search";
 import type { ToolSet } from "ai";
 
 const MCP_CALL_TOOL = "tedix_mcp_call_tool";
@@ -53,6 +54,9 @@ const SUPERVISED_DELEGATION_EXACT_TOOLS = new Set([
 	"close_computer",
 	"read_execution",
 	"cancel_execution",
+	// Gated by organization, tedi and runtime-tool policy when built; the API
+	// re-checks that policy and records the cost.
+	WEB_SEARCH_TOOL_NAME,
 ]);
 export type DelegationAuthorityMode = "shadow" | "enforce";
 
