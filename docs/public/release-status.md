@@ -15,6 +15,16 @@ visibility: public
 
 # Release status
 
+In short: anyone can read the source and run Tedix on their own computer.
+The hosted service, Tedix Cloud, is open by invitation. The plugin for
+Claude, Codex and the ChatGPT desktop app and the `tedix` command-line tool
+are public betas. Running your own copy on your own cloud account is possible
+but experimental, with no upgrade or backup guarantee.
+
+Beta means it works and we use it every day, but things still change and
+rough edges remain. The [known limits](#known-limits) below say plainly what
+Tedix does not check for you.
+
 ## Available today
 
 | Surface      | Status       | What it means                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -56,9 +66,9 @@ ids do not resolve publicly. Pull requests are currently disabled; see
 
 ## Known limits
 
-- Conversation continuity is not permanent learning. Facts and skills are
-  stored separately and selected per run.
-- A completed run records what the worker reported. It does not check that the
+- Remembering a conversation is not learning for good. Facts and skills are
+  stored separately, and each run picks the ones it needs.
+- A completed run records what the tedi reported. It does not check that the
   reply is correct.
 - An outside action (a sent message, a created record) is confirmed only by the
   provider's own reference, not by the run finishing.

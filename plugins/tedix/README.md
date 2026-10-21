@@ -1,5 +1,16 @@
 # Tedix plugin
 
+Add Tedix to the AI assistant you already use. Once you sign in, Claude,
+Codex, ChatGPT, Devin or OpenCode can see your team's shared to-do list, pick
+up your company's context and preferences, hand a task to a tedi, and save
+results where your colleagues can find them. Installing the plugin gives the
+assistant a connection, not power: it can only do what you allow after you
+sign in.
+
+You need Tedix Cloud access, which is an invited beta. The five-minute
+walkthrough for people is
+<https://docs.tedix.dev/learning-paths/first-plugin>.
+
 ## Use it
 
 - Devin CLI, Desktop and cloud: `devin plugins install tedix-hq/tedix#plugins/tedix -y`.

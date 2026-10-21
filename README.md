@@ -16,64 +16,102 @@
   <a href="https://github.com/tedix-hq/tedix/discussions">Discussions</a>
 </p>
 
-Tedix gives your team AI coworkers, called **tedis**, for recurring work. They
-ask before risky steps, and every run leaves a record: what the tedi did, which
-tools it used, and who approved it.
+**Tedix is one shared to-do list, memory and record for your team and the AI
+assistants you already use.**
 
-If a chatbot is a smart intern you have to watch, a tedi is a teammate with a
-job, a budget and a paper trail.
+## The problem
+
+If you use AI assistants for real work, this probably sounds familiar:
+
+- You explain your company again in every new chat, to every tool.
+- An assistant says "done", and you can't see what it actually did.
+- You copy results by hand from one assistant to another.
+- Requests for your OK are spread across many open chats, so you keep checking
+  on them.
+- Two people, or two assistants, end up doing the same job.
+
+## What Tedix does
+
+- **One shared list of work.** People and assistants work from the same list,
+  so everyone sees who owns what and nothing is done twice.
+- **Context that follows you.** Your company's facts, your preferences and
+  past decisions reach whichever assistant you use: Claude, ChatGPT, Codex or
+  Tedix's own.
+- **A record of every step.** Each piece of work keeps what was used, what
+  came out and who said yes.
+- **Decisions one card at a time.** What needs you waits in one short stack,
+  the Deck. Clear it on your phone or at your desk. Everything else goes to a
+  timeline, the Feed, that you read when you want to.
+- **It stays yours.** Your goals, your decisions and what your team taught the
+  assistants belong to your organization, even when you change models or
+  tools.
+
+Tedix's own assistants are called **tedis**. A tedi has one job, its own
+memory and only the access you give it. It asks before anything risky, and
+nobody can approve their own request.
 
 ![A supplier folder in a Tedix OS workspace](docs/public/assets/tedix-os-supplier-review.png)
 
-_A tedi reviews one supplier folder, writes a decision note with cited sources,
-and asks before sending anything. Run the small version in
+_A tedi reviews one supplier folder, writes a decision note that cites its
+sources, and asks before sending anything. Run the small version in
 [examples/supplier-review](examples/supplier-review)._
 
-## How it works
+## Examples of recurring jobs
 
-| Step                              | What happens                                                                                                            |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **1. Give it a job**              | Ask in Home. Tedix answers directly or hands the request to a tedi with its own memory, skills and policies.            |
-| **2. It asks before risky steps** | Work Items carry an owner, a risk level and a budget. Risky steps wait for approval; nobody approves their own request. |
-| **3. Open the record**            | Every run is saved: the worker, the tools it used, the approval and the result.                                         |
+- **Find conversations worth joining.** A tedi looks for public threads, for
+  example on Reddit, where your product could help, and drafts a reply. You
+  get one card per thread: post it, edit it or skip it.
+- **Match invoices against stock.** A tedi compares supplier invoices with what
+  actually arrived and shows you only the mismatches.
+- **Act on critical error reports.** A tedi summarizes a new error report,
+  finds who owns the problem and asks before alerting anyone.
 
-## Quick start
+## Who it's for
 
-### Run it locally
+✅ You use AI assistants every day and are tired of repeating yourself.<br>
+✅ You can't tell whether an assistant really finished the job.<br>
+✅ You want a person to say yes before an assistant touches money, customers or production.<br>
+✅ You want recurring work done without watching over it.
+
+## Try it in five minutes
+
+### On your computer, no account
 
 You need Git, Bun, and Node.js 22+ (real Node, not a Bun shim). No account or
 cloud credentials are needed.
 
 ```sh
 git clone https://github.com/tedix-hq/tedix.git && cd tedix
-bun run-local
+bun run-local --demo
 ```
 
 The launcher starts the API, database, and web app and prints
-`Tedix OS: http://localhost:3030`. Open it and name your local organization;
-Tedix creates the organization, your owner account, and a first tedi. Data
-stays in `.wrangler/run-local`.
+`Tedix OS: http://localhost:3030`. Open it to look around a fictional company
+with a sample Deck and Feed. Run `bun run-local` without `--demo` to name your
+own local organization instead; Tedix creates it, your owner account, and a
+first tedi. Data stays on your machine in `.wrangler/run-local`
+(`.wrangler/run-local-demo` for the demo).
 
-Local mode makes no model calls by default. To turn on model turns through
-Workers AI on your own paid Cloudflare account:
+Local mode makes no model calls by default, so tedis can't write anything yet.
+To turn on model calls through Workers AI on your own paid Cloudflare account:
 
 ```sh
 bunx wrangler login && bunx wrangler whoami   # note your account id
 bun run-local --inference --workers-ai-account=<account-id>
 ```
 
-`--smoke` checks onboarding and exits; `--demo` loads sample data. See
-[Getting started](docs/public/getting-started.md).
+`--smoke` checks onboarding and exits. See
+[Getting started](docs/public/getting-started.md) for every option.
 
-### Tedix Cloud (invited beta)
+### In the assistant you already use (invited beta)
 
-Ask for access through the [contact page](https://tedix.dev/contact/). With
-access:
+Tedix Cloud is the hosted service. Ask for access through the
+[contact page](https://tedix.dev/contact/). With access:
 
-- **Use Tedix from Claude or ChatGPT:** follow
+- **Claude, ChatGPT or Codex:** follow
   [Use Tedix in ChatGPT, Codex and Claude](docs/public/learning-paths/first-plugin.md).
   Claude chat and Cowork need no install, only a connector URL.
-- **For developers, the CLI:**
+- **From a terminal, with the CLI:**
 
   ```sh
   curl -fsSL https://downloads.tedix.dev/install.sh | sh
@@ -82,30 +120,44 @@ access:
 
   Then follow [Connect to Tedix Cloud](docs/public/learning-paths/first-connection.md).
 
-## Works with
+## Available today, and what is not
 
-- **Claude** (chat, Cowork and Claude Code), **ChatGPT Work** and **Codex**
-  through the [Tedix plugin](plugins/tedix/README.md); the five-minute human
-  guide is [Use Tedix in ChatGPT, Codex and Claude](docs/public/learning-paths/first-plugin.md).
-- Other MCP-compatible clients through the
-  [MCP gateway](docs/public/mcp-app-platform.md).
-- Built on Cloudflare Workers, Durable Objects, Workflows, D1, and R2.
+| Available today                                            | Not yet                                                        |
+| ---------------------------------------------------------- | -------------------------------------------------------------- |
+| The full source, which you can read and run on a computer. | Open sign-up for Tedix Cloud. Access is by invitation.         |
+| Tedix Cloud, as an invited beta.                           | ChatGPT on the web. The ChatGPT desktop app works.             |
+| The plugin for Claude, Codex and the ChatGPT desktop app.  | Supported self-hosting. Running your own copy is experimental. |
+| The `tedix` command-line tool, as a public beta.           |                                                                |
 
-## Who it's for
+[Release status](docs/public/release-status.md) has the details and the known
+limits.
 
-✅ You run AI agents but can't tell whether they really finished.<br>
-✅ You need a human to approve before an agent touches money, customers or production.<br>
-✅ You want recurring work done without babysitting it.
+## Words we use
 
-## Docs and concepts
+| Word          | In plain words                                                                     |
+| ------------- | ---------------------------------------------------------------------------------- |
+| **Tedi**      | An AI assistant with one job, its own memory and only the access you give it.      |
+| **Home**      | The chat where you ask for something. Tedix answers or hands it to a tedi.         |
+| **Work**      | Your team's shared to-do list. One task on it is a **Work Item**.                  |
+| **Deck**      | The short stack of decisions waiting for you, one card at a time.                  |
+| **Feed**      | A timeline of everything that happened, each entry with its record.                |
+| **Run**       | The saved record of one piece of work: what was used, what came out, who said yes. |
+| **Workspace** | A shared place for one area of work, with its documents, sheets and chats.         |
 
-Give your coding agent [AGENT-REVIEW.md](AGENT-REVIEW.md) to evaluate Tedix for
-your project in about 15 minutes and send feedback without installing the CLI.
+[Core concepts](docs/public/concepts.md) has the full list.
 
-This repository is the whole product and the source Tedix Cloud is built from.
-[Core concepts](docs/public/concepts.md) defines tedis, Home, Work Items and
-the MCP app platform; [Release status](docs/public/release-status.md) lists
-what is available today.
+## For developers
+
+- Tedix connects to Claude (chat, Cowork and Claude Code), ChatGPT Work and
+  Codex through the [Tedix plugin](plugins/tedix/README.md). Other clients
+  that speak MCP, the open standard AI assistants use to call tools, connect
+  through the [MCP gateway](docs/public/mcp-app-platform.md).
+- It runs on Cloudflare Workers, Durable Objects, Workflows, D1, and R2.
+- This repository is the whole product and the source Tedix Cloud is built
+  from. The [documentation home](docs/public/index.md) lists every guide.
+- Give your coding agent [AGENT-REVIEW.md](AGENT-REVIEW.md) to evaluate Tedix
+  for your project in about 15 minutes and send feedback without installing
+  the CLI.
 
 ## Community, contributing and security
 

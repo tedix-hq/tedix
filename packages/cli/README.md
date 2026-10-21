@@ -4,6 +4,34 @@ The `tedix` command: a small program installed on your machine for working
 with Tedix from the command line. Public beta; see
 [Release status](../../docs/public/release-status.md).
 
+## What you can do with it
+
+Tedix is one shared to-do list, memory and record for your team and the AI
+assistants you already use. The `tedix` command gives you that from a
+terminal:
+
+- ask a question or hand off a task, and see the answer with its record;
+- see what is in progress and approve or reject what is waiting for you;
+- list, create and pick up tasks on your team's shared list (Work);
+- add the Tedix plugin to Claude Code and Codex, so they know your context.
+
+Using it with Tedix Cloud needs an invitation; see
+[Release status](../../docs/public/release-status.md).
+
+## Quick start
+
+```sh
+curl -fsSL https://downloads.tedix.dev/install.sh | sh
+tedix login
+tedix ask "What is in progress today?"
+tedix status
+tedix --help
+```
+
+`tedix setup agents` adds the plugin to Claude Code and Codex after showing
+you what it will change. Details for each command are in
+[Usage](#usage) and the sections below.
+
 ## Overview
 
 `@tedix/cli` is a Bun/Node CLI, not a Worker package. It runs on your machine
