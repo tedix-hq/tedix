@@ -156,10 +156,13 @@ function OverageForm({
 					</SettingsRow>
 					<div className="space-y-1">
 						<Label htmlFor="overage-cap">
-							Monthly cap ({currency.toUpperCase()})
+							<span id="overage-cap-label">
+								Monthly cap ({currency.toUpperCase()})
+							</span>
 						</Label>
 						<Input
 							id="overage-cap"
+							aria-labelledby="overage-cap-label"
 							type="number"
 							inputMode="decimal"
 							min={0}
