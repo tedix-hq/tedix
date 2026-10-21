@@ -34,6 +34,8 @@ const RUNTIME_LOSS_TRANSIENT_PATTERNS = [
 	/FACET_TOOL_REGISTRY_UNAVAILABLE/,
 	// The gateway dropped the MCP session before the turn could start.
 	/version negotiation probe failed: connection closed/i,
+	// The Agents SDK resets an isolate whose alarm hit the memory limit.
+	/memory-limit strike \d+\/\d+; resetting isolate/i,
 ];
 
 /**
