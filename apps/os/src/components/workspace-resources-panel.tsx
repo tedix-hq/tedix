@@ -553,7 +553,7 @@ export function WorkspaceResourcesPanel({
 			>
 				<DialogContent size="base">
 					<DialogHeader>
-						<DialogTitle>Start governed repository work</DialogTitle>
+						<DialogTitle>Start repository work</DialogTitle>
 						<DialogDescription>
 							Choose the accountable tedi and linked project. Tedix creates an
 							accepted Work Item, then Home dispatches its fenced Workstation

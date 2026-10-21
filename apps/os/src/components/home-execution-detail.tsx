@@ -387,7 +387,7 @@ export function HomeExecutionDetailView({
 							) : null}
 							{safeText(metadata?.workItemId) ? (
 								<EvidenceRow
-									title="Governed Work Item"
+									title="Work item"
 									detail={safeText(metadata?.workItemId)}
 								/>
 							) : null}

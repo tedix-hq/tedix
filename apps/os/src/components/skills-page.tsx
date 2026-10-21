@@ -420,7 +420,7 @@ export function SkillsEmpty() {
 				<EmptyTitle>No skills yet</EmptyTitle>
 				<EmptyDescription>
 					Skills are recorded by tedis as they learn, or authored through the
-					Skill Workshop — the same governed catalog renders here.
+					Skill Workshop — both appear here.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>

@@ -394,7 +394,7 @@ export function CanvasGadgetExecutions({
 			/>
 			<Card size="sm">
 				<CardHeader>
-					<CardTitle>Governed run</CardTitle>
+					<CardTitle>Run</CardTitle>
 					<CardDescription>
 						The selected tedi executes the pinned app revision after capability,
 						policy, budget, and approval admission.
@@ -421,7 +421,7 @@ export function CanvasGadgetExecutions({
 							<Alert variant="warning">
 								<AlertTitle>No active tedi can run this app</AlertTitle>
 								<AlertDescription>
-									Activate a governed tedi before dispatching this revision.
+									Activate a tedi before dispatching this revision.
 								</AlertDescription>
 							</Alert>
 						)}

@@ -240,7 +240,7 @@ export function ToolTelemetryEmpty({ filtered }: { filtered: boolean }) {
 				</EmptyTitle>
 				<EmptyDescription>
 					Tool telemetry is read from the durable runtime-event ledger. Calls
-					appear here as this tedi executes governed MCP tools.
+					appear here as this tedi uses tools.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>

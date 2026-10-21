@@ -536,7 +536,7 @@ describe("Work item read-only ledgers", () => {
 		);
 		expect(html).toContain("bounded body");
 		expect(html).toContain("Preview truncated at 50 KiB");
-		expect(html).toContain("governed source");
+		expect(html).toContain("Open the source");
 	});
 
 	it("renders a lazy inert preview control for resolved evidence", () => {
@@ -566,7 +566,7 @@ describe("Work item read-only ledgers", () => {
 			</QueryClientProvider>,
 		);
 		expect(html).toContain("Preview evidence");
-		expect(html).toContain("Governed artifact");
+		expect(html).toContain("Saved artifact");
 		expect(html).not.toContain("<script");
 	});
 

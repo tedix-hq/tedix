@@ -734,7 +734,7 @@ export function SettingsPage({
 						<SectionDescription>
 							{localEvaluation
 								? "The isolated launcher does not reuse an installed CLI session or production MCP gateway."
-								: "Codex, Claude, OpenCode, and the Tedix CLI use the same MCP gateway and governed contracts as this UI."}
+								: "Codex, Claude, OpenCode, and the Tedix CLI use the same MCP gateway and permissions as this UI."}
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>

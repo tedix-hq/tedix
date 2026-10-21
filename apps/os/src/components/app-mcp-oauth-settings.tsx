@@ -450,7 +450,7 @@ export function McpOAuthSettings({
 
 						<KumoSelect<AssignmentRole>
 							label="Granted role"
-							description="Operator grants are runtime-capable. Observer grants stay visible for governance and review."
+							description="Operator grants are runtime-capable. Observer grants stay visible for review."
 							className="w-full"
 							disabled={!canManage}
 							items={ASSIGNMENT_ROLE_ITEMS}

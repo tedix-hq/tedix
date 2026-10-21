@@ -140,9 +140,7 @@ export function SkillDetailLayout() {
 					<PageHeading>
 						<PageTitle>{skill.title}</PageTitle>
 						<PageDescription>
-							{skill.summary ??
-								skill.description ??
-								"Reusable governed procedure"}
+							{skill.summary ?? skill.description ?? "Reusable procedure"}
 						</PageDescription>
 						<PageMeta>
 							<li>Revision {skill.revision}</li>
@@ -259,8 +257,8 @@ export function SkillDetailLayout() {
 					<DialogHeader>
 						<DialogTitle>Run {skill.title}</DialogTitle>
 						<DialogDescription>
-							Dispatches the pinned workflow through the same governed
-							skill-runtime admission as Triggers.
+							Runs the pinned workflow with the same permission checks as
+							Triggers.
 						</DialogDescription>
 					</DialogHeader>
 					<form

@@ -880,15 +880,15 @@ export function RunDetailPage() {
 					<PageSection>
 						<RunDetailSectionHeader
 							title="Tool calls"
-							description="Governed MCP invocations and their provider receipts."
+							description="Tool calls and their provider receipts."
 							count={inspect.data.toolCalls.length}
 						/>
 						{inspect.data.toolCalls.length === 0 ? (
 							<Text role="body" tone="secondary">
-								This run made no governed MCP tool calls.
+								This run made no tool calls.
 							</Text>
 						) : (
-							<RunEvidenceList label="Governed tool calls">
+							<RunEvidenceList label="Tool calls">
 								{inspect.data.toolCalls.map((call) => (
 									<RunToolCallRow
 										key={`${call.path}:${call.executionEpoch}:${call.count}`}

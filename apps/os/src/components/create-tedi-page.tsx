@@ -1003,7 +1003,7 @@ export function CreateTediPage({
 								<div className="space-y-4">
 									<Textarea
 										label="Personality"
-										description="Optional working style and tone; authority is governed separately."
+										description="Optional working style and tone; what it may do is set separately."
 										value={state.personality}
 										onChange={(e) =>
 											form.setFieldValue("personality", e.target.value)

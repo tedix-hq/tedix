@@ -460,9 +460,8 @@ export function AuditEmpty({ filtered }: { filtered: boolean }) {
 						: "No audit events yet"}
 				</EmptyTitle>
 				<EmptyDescription>
-					The audit trail is the immutable org event log — every governed action
-					by a user, tedi, or service is recorded here automatically as it
-					happens.
+					The audit trail is the immutable org event log — every action by a
+					user, tedi, or service is recorded here automatically as it happens.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>

@@ -1684,7 +1684,7 @@ function MyBlueprints({
 							className="m-0 mt-2 max-w-2xl leading-relaxed"
 						>
 							{selected.description ||
-								"A versioned, governed starting point for creating a Tedix workspace."}
+								"A versioned starting point for creating a Tedix workspace."}
 						</Text>
 					</div>
 				</div>

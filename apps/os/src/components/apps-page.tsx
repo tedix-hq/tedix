@@ -206,7 +206,7 @@ export function grantedScopesLabel(connection: UserConnection): string {
 export function connectionFailureMessage(localEvaluation: boolean): string {
 	return localEvaluation
 		? "Production OAuth connections and grants are intentionally absent from this isolated local environment."
-		: "Connection grants are unavailable right now. Apps remain governed by their grants; this view simply cannot display them.";
+		: "Connection grants are unavailable right now. Apps still follow their grants; this view simply cannot display them.";
 }
 
 export type AppStatus = { label: string; tone: ChipTone };
@@ -703,7 +703,7 @@ export function ConnectionsPanel({
 					>
 						Manage all connections
 					</Link>{" "}
-					— connect your OAuth providers; organization admins can also govern
+					— connect your OAuth providers; organization admins can also manage
 					shared credentials and API keys.
 				</Text>
 			)}

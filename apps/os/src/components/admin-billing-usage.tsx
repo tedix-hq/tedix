@@ -202,7 +202,7 @@ export function BillingUsageOverview({
 							<Text tone="secondary">
 								Token counters and historical token-plan rates below are
 								diagnostic records. The credit wallet and monthly spending cap
-								govern current monetary usage.
+								limit what you spend now.
 							</Text>
 						)}
 						{/* The primary billing story: plan, period, and usage in one place. */}
