@@ -293,7 +293,7 @@ function OutputCard(props: OutputCardProps) {
 						role="body"
 						weight="medium"
 						tone="strong"
-						className="break-words [overflow-wrap:anywhere]"
+						className="wrap-anywhere"
 					>
 						{item.output.title}
 					</Text>
@@ -301,7 +301,7 @@ function OutputCard(props: OutputCardProps) {
 						as="span"
 						role="label"
 						tone="secondary"
-						className="break-words [overflow-wrap:anywhere]"
+						className="wrap-anywhere"
 					>
 						{item.output.kind === "presentation"
 							? "Slides"
@@ -383,7 +383,7 @@ function OutputCard(props: OutputCardProps) {
 						as="strong"
 						tone="strong"
 						role="control"
-						className="break-words [overflow-wrap:anywhere]"
+						className="wrap-anywhere"
 						weight="medium"
 					>
 						{item.output.title}
@@ -392,7 +392,7 @@ function OutputCard(props: OutputCardProps) {
 						as="span"
 						tone="secondary"
 						role="caption"
-						className="break-words [overflow-wrap:anywhere]"
+						className="wrap-anywhere"
 					>
 						{provenance} ·{" "}
 						<span className="sr-only">
@@ -766,7 +766,7 @@ export function OutputsPage() {
 							))}
 						</TabsList>
 					</Tabs>
-					<div className="flex w-full min-w-0 items-center gap-2 lg:w-auto lg:shrink-0">
+					<div className="flex w-full min-w-0 items-stretch gap-2 sm:items-center lg:w-auto lg:shrink-0">
 						<ScopeSelect
 							value={scope}
 							counts={scopeCounts}
@@ -823,7 +823,7 @@ export function OutputsPage() {
 					className={
 						layout === "grid"
 							? "output-library-items m-0 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3"
-							: "output-library-items m-0 grid list-none gap-1 p-0"
+							: "output-library-items m-0 grid grid-cols-1 list-none gap-1 p-0"
 					}
 				>
 					{displayedOutputs.map((item) => (
