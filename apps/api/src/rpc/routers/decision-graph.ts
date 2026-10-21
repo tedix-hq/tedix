@@ -7,7 +7,15 @@ import {
 	getDecisionContext,
 } from "@tedix/db/queries/decision-graph";
 import { requireOrgId } from "../org-scope";
-import { AUTHZ, type BaseContext, withAuth } from "../orpc";
+import {
+	AUTHZ,
+	type BaseContext,
+	withAuth,
+	withAuthorization,
+	createError,
+	ErrorCodes,
+} from "../orpc";
+import { runDecisionGraphBackfillPage } from "../../services/decision-graph-backfill";
 
 const decisionGraphOs = implement(
 	decisionGraphContract,
@@ -30,6 +38,24 @@ const getContext = decisionGraphOs.getContext
 		};
 	});
 
+const backfillPreview = decisionGraphOs.backfillPreview
+	.use(withAuth)
+	.use(withAuthorization("settings:manage", "mcp:memory.admin"))
+	.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		if (input.cursor && input.cursor.organizationId !== orgId) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Backfill cursor belongs to another organization",
+			);
+		}
+		return runDecisionGraphBackfillPage(context.db, orgId, {
+			...input,
+			dryRun: true,
+		});
+	});
+
 export const decisionGraphContractRouter = decisionGraphOs.router({
 	getContext,
+	backfillPreview,
 });

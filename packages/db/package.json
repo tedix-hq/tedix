@@ -98,6 +98,7 @@
 		"./queries/learning-feedback": "./src/queries/learning-feedback.ts",
 		"./queries/deck-curator-budget": "./src/queries/deck-curator-budget.ts",
 		"./queries/decision-graph": "./src/queries/decision-graph.ts",
+		"./queries/decision-graph-backfill": "./src/queries/decision-graph-backfill.ts",
 		"./queries/cognitive/knowledge-entries": "./src/queries/cognitive/knowledge-entries.ts",
 		"./queries/cognitive/learned-capabilities": "./src/queries/cognitive/learned-capabilities.ts",
 		"./queries/cognitive/muscle-memory": "./src/queries/cognitive/muscle-memory.ts",
