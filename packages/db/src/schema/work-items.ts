@@ -724,6 +724,12 @@ export const workEvents = sqliteTable(
 			table.attemptId,
 			table.sequence,
 		),
+		// Agent side-effect policy reads one event type per org on every call.
+		index("idx_work_events_org_type_actor").on(
+			table.orgId,
+			table.eventType,
+			table.actorType,
+		),
 	],
 );
 

@@ -30,6 +30,32 @@ function abortableSleep(ms: number, signal?: AbortSignal | null) {
 	});
 }
 
+/**
+ * 503 refusals the gateway answers while checking access, before any tool is
+ * dispatched. They are as safe to resend as a 429.
+ */
+const PRE_DISPATCH_UNAVAILABLE = new Set([
+	"human_mcp_grant_unavailable",
+	"external_agent_validation_unavailable",
+]);
+
+async function isPreDispatchUnavailable(response: Response) {
+	if (response.status !== 503) return false;
+	if (!response.headers.get("content-type")?.includes("application/json"))
+		return false;
+	const body: unknown = await response
+		.clone()
+		.json()
+		.catch(() => undefined);
+	return (
+		typeof body === "object" &&
+		body !== null &&
+		"error" in body &&
+		typeof body.error === "string" &&
+		PRE_DISPATCH_UNAVAILABLE.has(body.error)
+	);
+}
+
 function retryAfterSeconds(response: Response): number | undefined {
 	const raw = response.headers.get("retry-after")?.trim();
 	if (!raw || !/^\d{1,4}$/.test(raw)) return undefined;
@@ -38,13 +64,15 @@ function retryAfterSeconds(response: Response): number | undefined {
 }
 
 /**
- * Resend a gateway POST that was refused with HTTP 429 and a `Retry-After`.
+ * Resend a gateway POST that was refused with HTTP 429 and a `Retry-After`,
+ * or with a 503 because access could not be checked right now.
  *
- * The gateway answers 429 from its request limiter before the call is
- * dispatched, so no tool ran and resending the same body is safe for reads and
- * writes alike. Each wait honours `Retry-After` plus random jitter, so lanes
- * that were refused together do not return together. A caller deadline or
- * cancellation aborts the wait, and the request is then never resent.
+ * The gateway answers both before the call is dispatched, so no tool ran and
+ * resending the same body is safe for reads and writes alike. Each wait
+ * honours `Retry-After` plus random jitter, so lanes that were refused together
+ * do not return together; a 503 waits up to twice its `Retry-After` because the
+ * backend it names is already under load. A caller deadline or cancellation
+ * aborts the wait, and the request is then never resent.
  */
 export function retryRateLimitedPosts(
 	fetchFn: FetchLike,
@@ -61,8 +89,8 @@ export function retryRateLimitedPosts(
 		const url = input instanceof Request ? input.url : String(input);
 		const signal =
 			init?.signal ?? (input instanceof Request ? input.signal : undefined);
-		const wait = async (baseMs: number) => {
-			const jitterMs = random() * Math.min(baseMs / 4, MAX_JITTER_MS);
+		const wait = async (baseMs: number, jitterShare = 0.25) => {
+			const jitterMs = random() * Math.min(baseMs * jitterShare, MAX_JITTER_MS);
 			await sleep(Math.round(baseMs + jitterMs), signal);
 			signal?.throwIfAborted();
 		};
@@ -75,6 +103,14 @@ export function retryRateLimitedPosts(
 		};
 		let response = await send();
 		for (let retry = 0; ; retry++) {
+			if (resendable && (await isPreDispatchUnavailable(response))) {
+				const seconds = retryAfterSeconds(response);
+				if (seconds === undefined || retry >= MAX_RETRIES) break;
+				await response.body?.cancel().catch(() => {});
+				await wait(Math.max(1, seconds) * 1_000, 1);
+				response = await send();
+				continue;
+			}
 			if (response.status !== 429) break;
 			const raw = response.headers.get("retry-after")?.trim();
 			const until =

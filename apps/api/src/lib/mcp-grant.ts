@@ -287,6 +287,11 @@ export async function revokeHumanMcpConsent(
 		selectedTenantIds: [],
 		approvedScopes: [],
 	});
+	forgetHumanMcpProviderFacts({
+		descopeUserId,
+		mcpServerId: registered.mcpServerId,
+		clientId: registered.clientId,
+	});
 	return revision;
 }
 
@@ -297,9 +302,106 @@ function readGrantState<T>(label: string, read: () => Promise<T>): Promise<T> {
 	});
 }
 
+/**
+ * What the identity provider said about one exact consent: the resource's
+ * registered scopes, the verified client registration, the user's live tenants
+ * and admin role, and the consent's granted scopes.
+ *
+ * Every Connect request used to ask the provider four questions. Under many
+ * concurrent agents those reads hit the provider's management rate limit, its
+ * retries outlived the edge budget, and every lane saw a 503. The answers
+ * change rarely, so a complete, successful set is kept for a short time.
+ *
+ * Only facts are kept, never a decision and never a pending read: each request
+ * still judges its own token scopes and tenants against them, and still reads
+ * the Tedix consent ledger and memberships, so a Tedix revoke, switch-off or
+ * membership removal takes effect on the next request. A change made only at
+ * the provider (consent deleted there, user removed from a tenant there) takes
+ * effect within the TTL. Failed or incomplete provider reads are never kept.
+ */
+interface ProviderGrantFacts {
+	supportedScopes: ReadonlySet<string>;
+	appId: string;
+	consentScopes: ReadonlySet<string>;
+	liveTenants: ReadonlySet<string>;
+	platformAdmin: boolean;
+}
+
+const PROVIDER_FACTS_TTL_MS = 30_000;
+const PROVIDER_FACTS_MAX_ENTRIES = 500;
+const providerFactsCache = new Map<
+	string,
+	{ facts: ProviderGrantFacts; expiresAt: number }
+>();
+
+function providerFactsKey(
+	input: Pick<
+		VerifyHumanMcpGrantInput,
+		"descopeUserId" | "mcpServerId" | "clientId" | "consentId"
+	>,
+	resource: { appId: string; organizationId: string | null },
+) {
+	return JSON.stringify([
+		input.descopeUserId,
+		input.mcpServerId,
+		input.clientId,
+		input.consentId,
+		resource.appId,
+		resource.organizationId,
+	]);
+}
+
+function readProviderFacts(key: string, now: number) {
+	const entry = providerFactsCache.get(key);
+	if (!entry) return null;
+	if (entry.expiresAt > now) return entry.facts;
+	providerFactsCache.delete(key);
+	return null;
+}
+
+function storeProviderFacts(
+	key: string,
+	facts: ProviderGrantFacts,
+	now: number,
+) {
+	providerFactsCache.delete(key);
+	providerFactsCache.set(key, {
+		facts,
+		expiresAt: now + PROVIDER_FACTS_TTL_MS,
+	});
+	while (providerFactsCache.size > PROVIDER_FACTS_MAX_ENTRIES) {
+		const oldest = providerFactsCache.keys().next().value;
+		if (oldest === undefined) break;
+		providerFactsCache.delete(oldest);
+	}
+}
+
+/** Drop this isolate's provider facts for one user's client, or for all. */
+export function forgetHumanMcpProviderFacts(filter?: {
+	descopeUserId: string;
+	mcpServerId?: string;
+	clientId?: string;
+}) {
+	if (!filter) {
+		providerFactsCache.clear();
+		return;
+	}
+	for (const key of [...providerFactsCache.keys()]) {
+		const [userId, mcpServerId, clientId] = JSON.parse(key) as string[];
+		if (
+			userId === filter.descopeUserId &&
+			(filter.mcpServerId === undefined ||
+				mcpServerId === filter.mcpServerId) &&
+			(filter.clientId === undefined || clientId === filter.clientId)
+		)
+			providerFactsCache.delete(key);
+	}
+}
+
 /** Authorization I/O belongs to this request: an isolate-wide pending promise
  * can outlive its owner after disconnect and strand every subsequent caller.
- * Never retain a pending or settled authorization decision across requests.
+ * Never retain a pending read or a decision across requests; only the
+ * complete provider facts above are kept, for a short time.
  */
 export async function verifyHumanMcpGrant(
 	db: DbClient,
@@ -391,8 +493,51 @@ async function verifyHumanMcpGrantStages(
 		() => ({ ok: false as const }),
 	);
 
-	let liveTenants: Set<string>;
-	let appId: string;
+	// Platform administration is never served from kept facts: removing the
+	// provider role must end it on the next request.
+	const cacheable = !input.tokenScopes.includes("platform:admin");
+	const factsKey = providerFactsKey(input, resource);
+	let facts = cacheable ? readProviderFacts(factsKey, Date.now()) : null;
+	if (facts) {
+		mark("provider_cache");
+	} else {
+		const loaded = await loadProviderFacts(db, env, input, resource, mark);
+		if ("denied" in loaded) return deny(loaded.denied);
+		facts = loaded.facts;
+		if (cacheable) storeProviderFacts(factsKey, facts, Date.now());
+	}
+	// Provider facts may be shared by requests with different tokens, so this
+	// request's own scopes are always judged against them here.
+	const { supportedScopes, consentScopes, platformAdmin } = facts;
+	if (
+		input.tokenScopes.some((scope) => !supportedScopes.has(scope)) ||
+		(input.tokenScopes.includes("platform:admin") && !platformAdmin) ||
+		!input.tokenScopes.every((scope) => consentScopes.has(scope))
+	)
+		return deny("scope_missing");
+	const appId = facts.appId;
+	const liveTenants = facts.liveTenants;
+
+	const ledger = await ledgerReads;
+	if (!ledger.ok) return deny("provider_unavailable");
+	return judgeLedger(db, input, resource, ledger, appId, liveTenants, mark);
+}
+
+type ProviderFactsResult =
+	| { facts: ProviderGrantFacts }
+	| { denied: Extract<HumanMcpGrantDecision, { allowed: false }>["reason"] };
+
+/** Ask the provider every question for one consent, in the existing denial order. */
+async function loadProviderFacts(
+	db: DbClient,
+	env: CloudflareEnv,
+	input: VerifyHumanMcpGrantInput,
+	resource: NonNullable<Awaited<ReturnType<typeof getMcpConsentResource>>>,
+	mark: (stage: string) => void,
+): Promise<ProviderFactsResult> {
+	const deny = (
+		reason: Extract<HumanMcpGrantDecision, { allowed: false }>["reason"],
+	): ProviderFactsResult => ({ denied: reason });
 	try {
 		const management = getManagementClient({
 			DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
@@ -472,7 +617,7 @@ async function verifyHumanMcpGrantStages(
 				client.status === "verified",
 		);
 		if (registered.length !== 1) return deny("consent_missing");
-		appId = registered[0]!.id;
+		const appId = registered[0]!.id;
 		if (!user.ok || !consents.ok || !Array.isArray(consents.data)) {
 			return deny("provider_unavailable");
 		}
@@ -488,19 +633,48 @@ async function verifyHumanMcpGrantStages(
 				record.userId === input.descopeUserId,
 		);
 		if (!consent) return deny("consent_missing");
-		const grantedScopes = new Set(consent.scopes);
-		if (!input.tokenScopes.every((scope) => grantedScopes.has(scope))) {
+		const consentScopes = new Set(consent.scopes);
+		if (!input.tokenScopes.every((scope) => consentScopes.has(scope))) {
 			return deny("scope_missing");
 		}
-		liveTenants = new Set(
-			(user.data?.userTenants ?? []).map((tenant) => tenant.tenantId),
-		);
+		return {
+			facts: {
+				supportedScopes: supported,
+				appId,
+				consentScopes,
+				liveTenants: new Set(
+					(user.data?.userTenants ?? []).map((tenant) => tenant.tenantId),
+				),
+				platformAdmin:
+					user.data?.roleNames?.includes("platform-admin") === true,
+			},
+		};
 	} catch {
 		return deny("provider_unavailable");
 	}
+}
 
-	const ledger = await ledgerReads;
-	if (!ledger.ok) return deny("provider_unavailable");
+/** Judge the request's Tedix ledger and memberships; never cached. */
+async function judgeLedger(
+	db: DbClient,
+	input: VerifyHumanMcpGrantInput,
+	resource: NonNullable<Awaited<ReturnType<typeof getMcpConsentResource>>>,
+	ledger: {
+		current: Awaited<ReturnType<typeof getMcpConsentGrant>>;
+		pending: Awaited<ReturnType<typeof getMcpConsentPending>>;
+		memberships: Awaited<ReturnType<typeof getMembershipsByDescopeTenants>>;
+		gateways: Awaited<ReturnType<typeof getOrganizationAggregatorGateways>>;
+	},
+	appId: string,
+	liveTenants: ReadonlySet<string>,
+	mark: (stage: string) => void,
+): Promise<HumanMcpGrantDecision> {
+	const key = {
+		descopeUserId: input.descopeUserId,
+		mcpServerId: input.mcpServerId,
+		clientId: input.clientId,
+	};
+	const grantKey = { ...key, revision: input.consentRevision };
 	// Several installs of one OAuth client may each hold an active grant; the
 	// signed revision selects exactly one, whose authority must match exactly.
 	const matchesActive = (
@@ -677,6 +851,11 @@ export async function disableHumanMcpAuthorization(
 		...input,
 		descopeUserId,
 		revision: crypto.randomUUID(),
+	});
+	forgetHumanMcpProviderFacts({
+		descopeUserId,
+		mcpServerId: input.mcpServerId,
+		clientId: input.clientId,
 	});
 	return row?.revision ?? null;
 }

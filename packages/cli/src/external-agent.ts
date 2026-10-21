@@ -496,6 +496,7 @@ async function exchangeSessionRequest(
 	let payload: unknown;
 	let busyRetries = 0;
 	let serverRetries = 0;
+	let unavailableRetries = 0;
 	for (;;) {
 		// A network failure is ambiguous and is not retried.
 		signal.throwIfAborted();
@@ -515,6 +516,21 @@ async function exchangeSessionRequest(
 				setTimeout(resolve, Math.min(250 * 2 ** busyRetries, 2_000)),
 			);
 			busyRetries += 1;
+			continue;
+		}
+		// The backend said it is busy before opening the session: back off with
+		// jitter, a bounded number of times, within the exchange deadline.
+		if (
+			response.status === 503 &&
+			isRecord(payload) &&
+			payload.code === "session_backend_unavailable" &&
+			unavailableRetries < 3
+		) {
+			const baseMs = 1_000 * 2 ** unavailableRetries;
+			unavailableRetries += 1;
+			await new Promise((resolve) =>
+				setTimeout(resolve, baseMs + Math.random() * baseMs),
+			);
 			continue;
 		}
 		// Preserve the existing single retry for compensated server failures.

@@ -99,6 +99,11 @@ vi.mock("@tedix/auth/client", () => ({
 	}),
 }));
 
+// Cases change provider answers between calls; each starts with no kept facts.
+beforeEach(async () => {
+	(await import("./mcp-grant")).forgetHumanMcpProviderFacts();
+});
+
 const orgIds = [
 	"00000000-0000-4000-8000-000000000001",
 	"00000000-0000-4000-8000-000000000002",
@@ -303,7 +308,7 @@ describe("verifyHumanMcpGrant", () => {
 		}
 	});
 
-	it("keeps overlapping grant checks request-local and rechecks revocation", async () => {
+	it("keeps overlapping grant checks request-local and rechecks provider revocation after the TTL", async () => {
 		const { verifyHumanMcpGrant } = await import("./mcp-grant");
 		const results = await Promise.all(
 			Array.from({ length: 24 }, () =>
@@ -311,14 +316,126 @@ describe("verifyHumanMcpGrant", () => {
 			),
 		);
 		expect(results.every((result) => result.allowed)).toBe(true);
+		// No pending read is shared: each overlapping first request asked.
 		expect(mocks.loadByUserId).toHaveBeenCalledTimes(24);
 		expect(mocks.getMcpConsentGrant).toHaveBeenCalledTimes(48);
 		mocks.searchConsents.mockResolvedValue({ ok: true, data: [] });
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+		try {
+			expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
+				allowed: false,
+				reason: "consent_missing",
+			});
+		} finally {
+			clock.mockRestore();
+		}
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(25);
+	});
+
+	it("serves repeat checks from kept provider facts while still reading the Tedix ledger", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+		for (let call = 0; call < 5; call++)
+			expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+				true,
+			);
+		expect(mocks.loadDescopeMcpServer).toHaveBeenCalledTimes(1);
+		expect(mocks.searchDescopeMcpServerClients).toHaveBeenCalledTimes(1);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(1);
+		expect(mocks.searchConsents).toHaveBeenCalledTimes(1);
+		// The ledger is read (and re-read before allowing) on every request.
+		expect(mocks.getMcpConsentGrant).toHaveBeenCalledTimes(12);
+		// One resource read per request, plus the owner check on the one miss.
+		expect(mocks.getMcpConsentResource).toHaveBeenCalledTimes(7);
+	});
+
+	it("ends access on the next request after a Tedix revoke or switch-off despite kept facts", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+		mocks.getMcpConsentSelection.mockResolvedValue({
+			appId: "app-1",
+			revision: input.consentRevision,
+			status: "revoked",
+			selectedTenantIds: [],
+			approvedScopes: [],
+		});
+		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
+			allowed: false,
+			reason: "selection_replaced",
+		});
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(1);
+	});
+
+	it("ends access on the next request after membership removal despite kept facts", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+		mocks.getMemberByUserId.mockResolvedValue({ status: "suspended" });
+		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
+			allowed: false,
+			reason: "membership_missing",
+		});
+	});
+
+	it("never keeps a failed or denied provider answer", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		mocks.loadByUserId.mockRejectedValueOnce(new Error("rate limited"));
+		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
+			allowed: false,
+			reason: "provider_unavailable",
+		});
+		mocks.searchConsents.mockResolvedValueOnce({ ok: true, data: [] });
 		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
 			allowed: false,
 			reason: "consent_missing",
 		});
-		expect(mocks.loadByUserId).toHaveBeenCalledTimes(25);
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(3);
+	});
+
+	it("judges each token's scopes and tenants against kept facts", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+		expect(
+			await verifyHumanMcpGrant({} as never, env, {
+				...input,
+				tokenScopes: ["mcp:work.read"],
+			}),
+		).toMatchObject({ allowed: false, reason: "scope_missing" });
+		expect(
+			await verifyHumanMcpGrant({} as never, env, {
+				...input,
+				selectedTenantIds: [...tenantIds, "tenant-3"],
+			}),
+		).toMatchObject({ allowed: false });
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps provider facts per consent and forgets them on revoke", async () => {
+		const { verifyHumanMcpGrant, revokeHumanMcpConsent } =
+			await import("./mcp-grant");
+		await verifyHumanMcpGrant({} as never, env, input);
+		await verifyHumanMcpGrant({} as never, env, {
+			...input,
+			consentId: "consent-2",
+		});
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(2);
+		await revokeHumanMcpConsent({} as never, env, input.descopeUserId, {
+			clientId: input.clientId,
+			resourceUrl: input.resourceUrl,
+		});
+		await verifyHumanMcpGrant({} as never, env, input);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(3);
 	});
 
 	it("does not share a decision across signed revisions or scopes", async () => {
@@ -577,8 +694,11 @@ describe("verifyHumanMcpGrant", () => {
 				},
 			},
 		});
-		const { stageHumanMcpConsent, verifyHumanMcpGrant } =
-			await import("./mcp-grant");
+		const {
+			stageHumanMcpConsent,
+			verifyHumanMcpGrant,
+			forgetHumanMcpProviderFacts,
+		} = await import("./mcp-grant");
 		const stage = {
 			resourceUrl: input.resourceUrl,
 			clientId: input.clientId,
@@ -610,6 +730,7 @@ describe("verifyHumanMcpGrant", () => {
 			organizations: [{ organizationId: orgIds[0], gatewaySlug: "org-one" }],
 		});
 		mocks.searchConsents.mockResolvedValue({ ok: true, data: [] });
+		forgetHumanMcpProviderFacts();
 		expect(
 			await verifyHumanMcpGrant({} as never, env, {
 				...input,

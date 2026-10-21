@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_events_org_type_actor` ON `work_events` (`org_id`,`event_type`,`actor_type`);
