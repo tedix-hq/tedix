@@ -96,6 +96,9 @@ export const apiRouter = {
 	directory: lazyRouter(() =>
 		import("./directory").then((m) => m.directoryContractRouter),
 	),
+	decisionGraph: lazyRouter(() =>
+		import("./decision-graph").then((m) => m.decisionGraphContractRouter),
+	),
 	organizationPurpose: lazyRouter(() =>
 		import("./organization-purpose").then(
 			(m) => m.organizationPurposeContractRouter,

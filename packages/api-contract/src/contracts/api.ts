@@ -71,6 +71,7 @@ import { membersContract } from "./members";
 import { memoryEntitiesContract } from "./memory-entities";
 import { memoryGraphContract } from "./memory-graph";
 import { orgUsageContract } from "./org-usage";
+import { decisionGraphContract } from "./decision-graph";
 import { organizationPurposeContract } from "./organization-purpose";
 import { organizationsContract } from "./organizations";
 import { pluginsContract } from "./plugins";
@@ -137,6 +138,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	// Organization management (multi-tenant billing entities)
 	organizations: organizationsContract,
 	organizationPurpose: organizationPurposeContract,
+	decisionGraph: decisionGraphContract,
 
 	// Organization secrets (encrypted customer API keys - org-wide)
 	secrets: organizationSecretsContract,
