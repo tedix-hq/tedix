@@ -2126,7 +2126,13 @@ function createFactsDb(opts: {
 			let targetTable: unknown;
 			const builder = {
 				from(table: unknown) {
-					targetTable = table;
+					// Consolidated-fact lookups read memory_facts through an
+					// `INDEXED BY` SQL source; treat that as the memory_facts table.
+					const indexedChunks = (table as { queryChunks?: unknown[] })
+						.queryChunks;
+					targetTable = indexedChunks?.includes(memoryFacts)
+						? memoryFacts
+						: table;
 					if (table === kernelRuntimeEvents) {
 						throw new Error("kernelRuntimeEvents not available in facts test");
 					}
