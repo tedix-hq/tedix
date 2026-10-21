@@ -1,4 +1,5 @@
 import { X } from "@phosphor-icons/react";
+import { useEffect, useRef } from "react";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
@@ -28,12 +29,16 @@ export function ChatSkillPicker({
 	onSelect: (skill: ComposerSkill) => void;
 	skills: readonly ComposerSkill[];
 }) {
+	const list = useRef<HTMLUListElement>(null);
+	useEffect(() => {
+		list.current?.children[activeIndex]?.scrollIntoView({ block: "nearest" });
+	}, [activeIndex]);
 	return (
 		<Card
 			data-slot="skill-picker"
-			className="absolute right-0 bottom-full left-0 z-20 mb-2 overflow-hidden"
+			className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-[50dvh] overflow-y-auto py-1"
 		>
-			<CardContent className="p-1">
+			<CardContent className="px-1">
 				{error ? (
 					// A failed read is NOT an empty library. Saying "no skills" here
 					// would teach the operator their org has none.
@@ -54,6 +59,7 @@ export function ChatSkillPicker({
 					</Text>
 				) : (
 					<ul
+						ref={list}
 						role="listbox"
 						aria-label="Skills"
 						className="m-0 flex list-none flex-col gap-0.5 p-0"
@@ -69,17 +75,30 @@ export function ChatSkillPicker({
 									// next Enter exactly the way a disabled send control does.
 									onMouseDown={(event) => event.preventDefault()}
 									onClick={() => onSelect(skill)}
-									className="h-auto w-full justify-start px-2 py-1.5 text-left"
+									multiline
+									className="w-full min-w-0 justify-start px-2 py-2 text-left"
 								>
-									<span className="flex min-w-0 flex-col items-start gap-0.5">
-										<span className="flex min-w-0 items-center gap-2">
-											<Text role="label" weight="medium" truncate>
+									<span className="flex w-full min-w-0 flex-col items-start gap-1">
+										<span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+											<Text
+												role="label"
+												weight="medium"
+												truncate
+												className="max-w-full"
+											>
 												{skill.title}
 											</Text>
-											<Badge variant="outline">{skill.slug}</Badge>
+											<Badge variant="outline" className="max-w-full">
+												<span className="truncate">{skill.slug}</span>
+											</Badge>
 										</span>
 										{skill.summary ? (
-											<Text role="label" tone="secondary" truncate>
+											<Text
+												role="label"
+												tone="secondary"
+												truncate
+												className="w-full"
+											>
 												{skill.summary}
 											</Text>
 										) : null}
@@ -106,8 +125,12 @@ export function ChatSkillPills({
 	return (
 		<div data-slot="skill-pills" className="flex flex-wrap gap-2 px-3 pt-3">
 			{skills.map((skill) => (
-				<Badge key={skill.slug} variant="outline" className="gap-1 pr-1">
-					<span className="truncate">{skill.title}</span>
+				<Badge
+					key={skill.slug}
+					variant="outline"
+					className="max-w-full gap-1 pr-1"
+				>
+					<span className="min-w-0 truncate">{skill.title}</span>
 					<Button
 						type="button"
 						size="icon-sm"
