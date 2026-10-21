@@ -422,3 +422,54 @@ it("lets an explicit Retry recover an exhausted face while concurrent retries sh
 	expect(mocks.generate).toHaveBeenCalledTimes(2);
 	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);
 });
+
+it.each([undefined, "0".repeat(64)])(
+	"refreshes a cached triage date once, then keeps the corrected face across preference changes: %s",
+	async (sourceFingerprint) => {
+		const stale = {
+			...card,
+			id: "fictional-triage-card",
+			dueAt: null,
+			interaction: {
+				request: {
+					id: "fictional-triage-card",
+					version: 1,
+					dueAt: null,
+					requestedFromId: context.userId,
+					subject: card.label,
+					prompt: "Workshop news is ready.",
+					metadata: {
+						deadlineBasis: "Owner triage/review target; no source deadline.",
+						cardPresentation: {
+							...copy,
+							context: "Review the workshop news by Oct 20, 2026.",
+							...(sourceFingerprint ? { sourceFingerprint } : {}),
+						},
+					},
+				},
+			},
+		} as DeckCard;
+		const [fixed] = await prepareDeckCardFaces(context, [stale]);
+		expect(fixed?.presentation).toMatchObject(copy);
+		expect(fixed?.faceText).not.toContain("Oct 20");
+		expect(mocks.generate).toHaveBeenCalledOnce();
+		mocks.preferences.mockResolvedValue("Use shorter sentences.");
+		const reread = {
+			...stale,
+			interaction: {
+				...stale.interaction!,
+				request: {
+					...stale.interaction!.request,
+					metadata: {
+						...stale.interaction!.request.metadata,
+						cardPresentation: fixed!.presentation!,
+					},
+				},
+			},
+		};
+		expect(
+			(await prepareDeckCardFaces(context, [reread]))[0]?.presentation,
+		).toEqual(fixed?.presentation);
+		expect(mocks.generate).toHaveBeenCalledOnce();
+	},
+);

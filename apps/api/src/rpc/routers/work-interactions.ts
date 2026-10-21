@@ -8,6 +8,7 @@ import { call, implement } from "@orpc/server";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
 import { sourceInteractionDeadline } from "@tedix/api-contract/utils/deck-ask";
+import { bindCardPresentationSource } from "../../services/card-presentation-source";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import {
@@ -1689,7 +1690,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			requestId: request.id,
 			personId: actor.id,
 			expectedVersion: input.expectedRequestVersion,
-			presentation,
+			presentation: await bindCardPresentationSource(presentation, request),
 		});
 		if (!saved)
 			throw createError(

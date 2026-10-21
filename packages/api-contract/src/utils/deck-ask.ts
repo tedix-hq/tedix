@@ -67,17 +67,20 @@ export function deckAskKind(
 	return "decide";
 }
 
+export function hasReviewTargetDeadline(metadata: Record<string, unknown>) {
+	return (
+		metadata.deadlineOrigin === "review_target" ||
+		(typeof metadata.deadlineBasis === "string" &&
+			/\b(?:triage|review target)\b/i.test(metadata.deadlineBasis))
+	);
+}
+
 /** A review/triage target is scheduling metadata, never a source deadline. */
 export function sourceInteractionDeadline(
 	dueAt: string | null | undefined,
 	metadata: Record<string, unknown> = {},
 ): string | null {
-	if (
-		metadata.deadlineOrigin === "review_target" ||
-		(typeof metadata.deadlineBasis === "string" &&
-			/\b(?:triage|review target)\b/i.test(metadata.deadlineBasis))
-	)
-		return null;
+	if (hasReviewTargetDeadline(metadata)) return null;
 	return dueAt && Number.isFinite(Date.parse(dueAt)) ? dueAt : null;
 }
 

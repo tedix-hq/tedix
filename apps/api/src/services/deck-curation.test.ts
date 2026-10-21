@@ -278,7 +278,10 @@ const editedFace = {
 	recommendation: "Check the audit before making changes.",
 };
 it("lets the recipient correct a credential card's face without a gadget grant or creator session, with audit", async () => {
-	const { sqlite, humanContext } = fixture({ secureAction: true });
+	const { sqlite, humanContext } = fixture({
+		secureAction: true,
+		deadlineBasis: "Owner triage/review target; no source deadline.",
+	});
 	try {
 		sqlite
 			.prepare("UPDATE organizations SET metadata='{}' WHERE id=?")
@@ -359,7 +362,7 @@ it("lets the recipient correct a credential card's face without a gadget grant o
 				},
 			},
 		]);
-		expect(display?.presentation).toEqual(editedFace);
+		expect(display?.presentation).toMatchObject(editedFace);
 		expect(display?.faceText).toContain(editedFace.body);
 		await expect(
 			curateDeckCard(humanContext, { ...ownerInput, presentation: editedFace }),
@@ -382,7 +385,7 @@ it("allows a scoped curator to edit ordinary faces but protects credential cards
 						.get(card)?.presentation,
 				),
 			),
-		).toEqual(editedFace);
+		).toMatchObject(editedFace);
 		await expect(
 			curateDeckCard(context, {
 				...input,

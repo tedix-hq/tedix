@@ -18,6 +18,11 @@ import { readDraftPreferences } from "./decision-learning";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import { draftLearningContext } from "@tedix/api-contract/utils/decision-learning";
 import { saveDecisionCardPresentation } from "@tedix/db/queries/work-items/card-presentation";
+import { hasReviewTargetDeadline } from "@tedix/api-contract/utils/deck-ask";
+import {
+	bindCardPresentationSource,
+	cardPresentationSourceFingerprint,
+} from "./card-presentation-source";
 
 const RETRY_DELAYS = [60000, 300000, 1800000] as const;
 
@@ -174,10 +179,18 @@ export async function prepareDeckCardFace(
 		card.interaction?.request.metadata.sampleData === true
 	)
 		return existing ?? null;
+	const request = card.interaction?.request;
+	const currentDeadline =
+		!request ||
+		!hasReviewTargetDeadline(request.metadata) ||
+		(existing?.version === 2 &&
+			existing.sourceFingerprint ===
+				(await cardPresentationSourceFingerprint(request)));
 	// Interaction projections are fenced by request version in listDecisionCardPresentations.
 	// Changing writing preferences must not hide already-saved copy on every read.
 	if (
 		existing?.version === 2 &&
+		currentDeadline &&
 		existing.context &&
 		!checkDecisionCardCopy(existing).length
 	)
@@ -285,7 +298,7 @@ export async function prepareDeckCardFace(
 			requestId: request.id,
 			personId: request.requestedFromId,
 			expectedVersion: request.version,
-			presentation: { ...presentation, sourceFingerprint: fingerprint },
+			presentation: await bindCardPresentationSource(presentation, request),
 		});
 		return saved?.presentation ?? null;
 	}

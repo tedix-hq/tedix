@@ -38,6 +38,7 @@ import {
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { checkDecisionCardCopy } from "@tedix/api-contract/utils/decision-card-copy";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
+import { bindCardPresentationSource } from "./card-presentation-source";
 import { cardOriginalBody } from "./card-revisions";
 import { runDecisionCardCopyModel } from "./decision-card-copy-model";
 
@@ -179,6 +180,12 @@ export async function appendCuration(
 			currentDeckCuration(request.metadata)?.draftBody ??
 			cardOriginalBody(request),
 	};
+	const editedPresentation = presentation
+		? await bindCardPresentationSource(presentation, {
+				...request,
+				version: request.version + 1,
+			})
+		: undefined;
 	const previousFace = presentation
 		? (
 				await listDecisionCardPresentations(context.db, {
@@ -204,11 +211,11 @@ export async function appendCuration(
 		instruction: JSON.stringify(curation),
 		// Keep the draft snapshot tied to this curation revision; actorType identifies its editor.
 		curation,
-		presentation,
+		presentation: editedPresentation,
 		summary: presentation
 			? JSON.stringify({
 					faceBefore: previousFace ?? request.metadata.cardPresentation ?? null,
-					faceAfter: presentation,
+					faceAfter: editedPresentation,
 				})
 			: undefined,
 	});
