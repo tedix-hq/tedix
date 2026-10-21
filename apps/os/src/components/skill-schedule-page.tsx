@@ -20,7 +20,7 @@ export function SkillSchedulePage() {
 		<div className="grid gap-4">
 			<Text role="body" tone="secondary" className="m-0">
 				Canonical manifest-owned schedules for this skill. This view is
-				read-only; schedule changes come from a new governed skill revision.
+				read-only; schedule changes come from a new skill revision.
 			</Text>
 			{schedules.isPending ? <ListSkeleton /> : null}
 			{schedules.isError ? (

@@ -210,7 +210,7 @@ export function AppContentPage() {
 						</Badge>
 					</span>
 					<SectionDescription>
-						Sources ingested into this app's governed content index.
+						Sources added to this app's content index.
 					</SectionDescription>
 				</SectionHeading>
 				<PageActions>

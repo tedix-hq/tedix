@@ -336,8 +336,8 @@ export function evidenceTrustLabel(reference: {
 	if (reference.status !== "available") return "Source access unavailable";
 	if (reference.kind === "output_revision") return "Exact output revision";
 	if (reference.bundleDigestKind === "manifest")
-		return "Governed artifact · manifest digest";
-	return "Governed artifact";
+		return "Saved artifact · manifest digest";
+	return "Saved artifact";
 }
 
 function EvidenceTrustBadge({
@@ -426,7 +426,7 @@ export function EvidencePreviewResult({
 			</Surface>
 			{preview.truncated ? (
 				<Text role="label" tone="secondary">
-					Preview truncated at 50 KiB. Open the governed source for the complete
+					Preview truncated at 50 KiB. Open the source for the complete
 					evidence.
 				</Text>
 			) : null}

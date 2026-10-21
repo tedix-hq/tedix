@@ -130,7 +130,7 @@ function SharedGadgetCard({
 					<Alert variant="warning">
 						<AlertTitle>No runnable MCP Apps view</AlertTitle>
 						<AlertDescription>
-							This revision has no standard governed widget resource.
+							This revision has no standard widget resource.
 						</AlertDescription>
 					</Alert>
 				)}
@@ -284,7 +284,7 @@ export function SharedResourcePage() {
 				className="mx-auto grid min-h-screen w-full max-w-5xl place-items-center p-6"
 				aria-busy
 			>
-				<p className="text-kumo-subtle">Opening governed share…</p>
+				<p className="text-kumo-subtle">Opening share…</p>
 			</main>
 		);
 	}

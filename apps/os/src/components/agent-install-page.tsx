@@ -86,9 +86,9 @@ export function AgentInstallPage() {
 				<PageHeading>
 					<PageTitle>Install Tedix</PageTitle>
 					<PageDescription>
-						Connect your terminal or coding agent to the same governed Tedix
-						workspace you use here. Choose one host, sign in, then make a
-						read-only check before doing work.
+						Connect your terminal or coding agent to the same Tedix workspace
+						you use here. Choose one host, sign in, then make a read-only check
+						before doing work.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
