@@ -217,3 +217,14 @@ describe("applyApproverEditsToPayload", () => {
 		).toMatchObject({ ok: false });
 	});
 });
+
+it.each(["reportTitle", "reportText", "securityLabel"])(
+	"does not mistake content field %s for a destination substring",
+	(name) => {
+		expect(
+			deriveApprovalEditableFields({
+				inputSchema: { properties: { [name]: { type: "string" } } },
+			}).map((field) => field.name),
+		).toEqual([name]);
+	},
+);
