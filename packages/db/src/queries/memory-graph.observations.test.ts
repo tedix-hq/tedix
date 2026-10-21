@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { memoryFacts, memoryEdges } from "../schema/memory-graph";
@@ -15,6 +16,7 @@ import {
 	listMemoryObservations,
 	readConsolidation,
 	preferConsolidatedFacts,
+	refreshConsolidatedForFact,
 } from "./memory-graph/observations";
 import { invalidateFact } from "./memory-graph/fact-lifecycle";
 import { createEdge } from "./memory-graph/edges";
@@ -512,6 +514,57 @@ describe("evidence-backed observations and standing summaries", () => {
 		await invalidateFact(db, "c");
 		expect(readConsolidation(await observation())?.state).toBe("live");
 		expect((await summary()).content).not.toContain("never builds");
+	});
+	it("seeks consolidation candidates by source before parsing citations", async () => {
+		const plans: string[][] = [];
+		const queries: string[] = [];
+		const { sqlite, db, fact, summary } = setup((query, sqlite) => {
+			if (!query.startsWith("select") || !query.includes("citation.value"))
+				return;
+			queries.push(query);
+			const rows = sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${query}`)
+				.all(...Array((query.match(/\?/g) ?? []).length).fill(null)) as Array<{
+				detail: string;
+			}>;
+			plans.push(rows.map((row) => row.detail));
+		});
+		const insert = sqlite.prepare(
+			"INSERT INTO memory_facts (id,organization_id,content,fact_type,status,visibility,metadata) VALUES (?,?,'Unrelated evidence','technical','active','org','{}')",
+		);
+		for (let i = 0; i < 2000; i++) insert.run(`unrelated-${i}`, ORG);
+		await fact("a", "Orchard uses batches.");
+		await fact("b", "Orchard tests batches.");
+		await consolidateMemory(db, ORG, { topicKey: TOPIC });
+		const expected = await summary();
+		const raw = await db
+			.select()
+			.from(memoryFacts)
+			.where(sql`${memoryFacts.id} = 'a'`);
+		plans.length = 0;
+		queries.length = 0;
+		expect(await preferConsolidatedFacts(db, ORG, raw)).toEqual([expected]);
+		await refreshConsolidatedForFact(db, ORG, "a");
+		expect(await summary()).toEqual(expected);
+		expect(plans).toHaveLength(2);
+		for (const plan of plans) {
+			expect(
+				plan.some((detail) =>
+					/SEARCH memory_facts USING INDEX idx_memory_facts_source/.test(
+						detail,
+					),
+				),
+			).toBe(true);
+			expect(plan.some((detail) => /SCAN memory_facts/.test(detail))).toBe(
+				false,
+			);
+		}
+		for (const query of queries) {
+			const candidateSelect = query.slice(
+				query.lastIndexOf("select", query.indexOf("citation.value") - 1),
+			);
+			expect(candidateSelect.split(" from ")[0]).not.toContain('"content"');
+		}
 	});
 	it("uses primary-key evidence reads even with a large active corpus", async () => {
 		const plans: string[][] = [];
