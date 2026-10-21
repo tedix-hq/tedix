@@ -12,12 +12,12 @@ import { describe, expect, it } from "vite-plus/test";
 import type { NamespaceGroup } from "@tedix/mcp-shared/compact-types";
 import {
 	attachCodeModeReadObservations,
-	buildFlowProvider,
 	codeModeCollectionReadMeta,
 	codeModeReadObservationMeta,
 	collectCodeModeCollectionRead,
 	collectCodeModeReadObservation,
-} from "./codemode";
+} from "./codemode-results";
+import { buildFlowProvider } from "./codemode-flow";
 
 it("batches gateway-authored collection reads outside the script result", () => {
 	const observation = {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildPaymentExtra } from "./codemode";
+import { buildPaymentExtra } from "./codemode-results";
 
 describe("Code Mode payment input", () => {
 	it("forwards encoded facilitator strings through the top-level argument", () => {

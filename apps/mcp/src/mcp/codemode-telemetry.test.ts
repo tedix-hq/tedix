@@ -236,7 +236,8 @@ vi.mock("./tool-execution", () => ({
 	executeTool: vi.fn(),
 }));
 
-import { executeCatalogOperation, registerCodeModeTools } from "./codemode";
+import { executeCatalogOperation } from "./codemode-catalog";
+import { registerCodeModeTools } from "./codemode";
 import { ToolHandler, type ToolExecutionContext } from "./handler";
 import { registerCodeModeTools as registerStateless } from "@tedix/tedi-codemode-core/register-codemode-tools";
 
