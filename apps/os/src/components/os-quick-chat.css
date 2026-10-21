@@ -8,7 +8,11 @@
 	height: 48px;
 	left: auto;
 	right: calc(16px + env(safe-area-inset-right, 0px));
-	bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+	/* Above a phone bottom nav (whose inset already includes the home indicator). */
+	bottom: calc(
+		16px +
+			max(env(safe-area-inset-bottom, 0px), var(--tedix-host-bottom-inset, 0px))
+	);
 	border-color: var(--primary);
 	background: var(--primary);
 	color: var(--primary-foreground);

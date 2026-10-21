@@ -235,6 +235,22 @@ a:focus-visible {
 	padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/*
+ * Work has no composer to keep above the keyboard. Following the visual
+ * viewport there squeezed the Deck card to a sliver and lifted the Feed/Deck
+ * bar into mid-screen, so the Work shell keeps the layout viewport and its bar
+ * stays at the bottom edge, padded for the home indicator itself. Dialogs and
+ * sheets portal outside the shell and still follow the keyboard.
+ */
+.os-shell:has(.fd-work-shell) {
+	--viewport-tedix-height: 100dvh;
+}
+@media (max-width: 639px) {
+	.os-main:has(.fd-work-shell) {
+		padding-bottom: 0;
+	}
+}
+
 :root[data-quick-chat-launcher]
 	.route-content
 	[data-slot="page"]:not([data-full-height]) {

@@ -310,6 +310,7 @@ export function OsShell() {
 
 	return (
 		<SidebarProvider
+			className="os-shell"
 			collapsedStorageKey={SIDEBAR_COLLAPSED_KEY}
 			widthStorageKey="tedix-os-sidebar-width"
 			resizable
