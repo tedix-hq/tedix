@@ -346,3 +346,67 @@ describe("skills.applyWorkshop tedi force ceiling (A4)", () => {
 		);
 	});
 });
+
+describe("skills.promote scheduled skills", () => {
+	const SCHEDULED_CONTENT = `---
+name: weekly-report
+capabilities:
+  schedule:
+    cron: "0 8 * * 1"
+---
+# Weekly report`;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.updateSkillEntry.mockResolvedValue(undefined);
+		mocks.computeSkillPromotionBlockers.mockResolvedValue([]);
+		mocks.getSkillSchedule.mockResolvedValue(null);
+	});
+
+	it("rejects a scheduled skill and names the improve_skills force path", async () => {
+		mocks.getSkillEntry.mockResolvedValue(
+			skillFixture({ content: SCHEDULED_CONTENT, lifecycleState: "active" }),
+		);
+		const client = createClient(createOperatorContext());
+		await expect(
+			client.promote({ id: "skill-1", dryRun: false }),
+		).rejects.toThrow(/SKILL_SCHEDULE_INVALID.*improve_skills.*force: true/s);
+		expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+	});
+
+	it("flags the scheduled skill in a dry run", async () => {
+		mocks.getSkillEntry.mockResolvedValue(
+			skillFixture({ content: SCHEDULED_CONTENT, lifecycleState: "active" }),
+		);
+		const client = createClient(createOperatorContext());
+		const result = await client.promote({ id: "skill-1", dryRun: true });
+		expect(result.applied).toBe(false);
+		expect(result.changes[0]).toMatchObject({
+			code: "SKILL_SCHEDULE_INVALID",
+			note: expect.stringContaining("improve_skills"),
+		});
+	});
+
+	it("still promotes an unscheduled skill and clears tediId", async () => {
+		mocks.getSkillEntry.mockResolvedValue(
+			skillFixture({ lifecycleState: "active" }),
+		);
+		const client = createClient({
+			...createOperatorContext(),
+			authType: "user",
+			user: { sub: "user-1" },
+			userRole: "owner",
+		} as BaseContext);
+		const result = await client.promote({ id: "skill-1", dryRun: false });
+		expect(result.applied).toBe(true);
+		expect(
+			result.changes.some((change) => change.code === "SKILL_SCHEDULE_INVALID"),
+		).toBe(false);
+		expect(mocks.updateSkillEntry).toHaveBeenCalledWith(
+			expect.anything(),
+			"skill-1",
+			expect.objectContaining({ tediId: null }),
+			expect.anything(),
+		);
+	});
+});

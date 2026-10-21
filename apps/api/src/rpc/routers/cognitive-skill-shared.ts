@@ -244,6 +244,27 @@ export function validatedSkillSchedule(
 	return schedule;
 }
 
+const SCHEDULED_PROMOTION_MESSAGE =
+	'SKILL_SCHEDULE_INVALID: a scheduled skill must have an owning tedi, so it cannot be promoted to the org library. To activate it instead, a signed-in human runs improve_skills({ id, lifecycleState: "active", force: true }) (see docs/engineering/cognition/skills.md).';
+
+/**
+ * Promotion clears tedi ownership, which a scheduled skill cannot lose.
+ * Returns the blocker (same shape as the promotion blockers) so a dry run and
+ * the real call name the same fix.
+ */
+export function scheduledSkillPromotionBlocker(
+	entry: Pick<SkillEntry, "content" | "tediId">,
+): { code: string; field: string; before: unknown; note: string } | null {
+	if (!entry.tediId) return null;
+	if (!validateSkillSchedulePolicy(entry.content).schedule) return null;
+	return {
+		code: "SKILL_SCHEDULE_INVALID",
+		field: "tediId",
+		before: entry.tediId,
+		note: SCHEDULED_PROMOTION_MESSAGE,
+	};
+}
+
 /**
  * Whether a skill's manifest schedule belongs in skill_schedules. Stale and
  * archived skills never run on a schedule, and a new draft has not earned one.
