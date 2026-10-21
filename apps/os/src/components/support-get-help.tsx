@@ -1,6 +1,9 @@
 import { Question } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useContext, useId, useState } from "react";
+import { createPortal } from "react-dom";
+import { DropdownMenuItem } from "@/components/kumo/dropdown-menu";
+import { OsTopbarMenuContext } from "@/components/os-topbar-actions-context";
 import type { SupportReport } from "@tedix/api-contract/schemas/support";
 import {
 	redactSupportReport,
@@ -25,6 +28,7 @@ import { Textarea } from "@/components/kumo/textarea";
 import { Link } from "@/components/kumo/link";
 
 export function SupportGetHelp({ organization }: { organization: string }) {
+	const menu = useContext(OsTopbarMenuContext);
 	const client = useQueryClient();
 	const id = useId();
 	const [open, setOpen] = useState(false);
@@ -103,18 +107,29 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 	}
 	return (
 		<>
-			<Button
-				variant="ghost"
-				onClick={start}
-				aria-label="Get help"
-				title="Get help"
-				className="max-sm:size-11 max-sm:p-0"
-			>
-				<Question aria-hidden size={20} className="sm:hidden" />
-				<span className="max-sm:sr-only">Get help</span>
-			</Button>
+			{menu ? (
+				menu.target &&
+				createPortal(
+					<DropdownMenuItem onClick={start}>
+						<Question aria-hidden size={18} />
+						Get help
+					</DropdownMenuItem>,
+					menu.target,
+				)
+			) : (
+				<Button
+					variant="ghost"
+					onClick={start}
+					aria-label="Get help"
+					title="Get help"
+					className="max-sm:size-11 max-sm:p-0"
+				>
+					<Question aria-hidden size={20} className="sm:hidden" />
+					<span className="max-sm:sr-only">Get help</span>
+				</Button>
+			)}
 			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent size="xl">
+				<DialogContent size="xl" finalFocus={menu?.anchor}>
 					<DialogHeader>
 						<DialogTitle>Get help</DialogTitle>
 						<DialogDescription>

@@ -27,7 +27,11 @@ import {
 	SheetTitle,
 } from "@/components/kumo/sheet";
 import { WorkToolbarTargetContext } from "@/components/deck-presentation-context";
-import { OsTopbarActionsTargetContext } from "@/components/os-topbar-actions-context";
+import {
+	OsTopbarActionsTargetContext,
+	OsTopbarMenuContext,
+} from "@/components/os-topbar-actions-context";
+import { DropdownMenuItem } from "@/components/kumo/dropdown-menu";
 import {
 	Tooltip,
 	TooltipContent,
@@ -79,6 +83,7 @@ export function DecisionContextRail({
 	surface?: "deck" | "feed";
 }) {
 	const topbarTarget = useContext(OsTopbarActionsTargetContext);
+	const menu = useContext(OsTopbarMenuContext);
 	const contextTrigger = useRef<HTMLButtonElement>(null);
 	const contextId = useId();
 	const profile = useQuery(userProfileQueryOptions());
@@ -207,7 +212,12 @@ export function DecisionContextRail({
 			))}
 		</div>
 	);
-	const trigger = (
+	const trigger = menu ? (
+		<DropdownMenuItem onClick={() => changeOpen(true)}>
+			<InfoIcon aria-hidden size={18} />
+			Info
+		</DropdownMenuItem>
+	) : (
 		<Tooltip>
 			<TooltipTrigger
 				render={
@@ -253,7 +263,11 @@ export function DecisionContextRail({
 				},
 			}}
 		>
-			{topbarTarget ? createPortal(trigger, topbarTarget) : trigger}
+			{topbarTarget
+				? createPortal(trigger, topbarTarget)
+				: menu
+					? null
+					: trigger}
 			<div ref={setFrame} className="fd-context-frame">
 				<div
 					className="feed-deck fd-context-layout"
@@ -295,7 +309,7 @@ export function DecisionContextRail({
 						className={`gap-8 p-4 sm:p-6 ${phone ? "max-h-[80dvh] rounded-t-xl" : ""}`}
 						showCloseButton={false}
 						keepMounted
-						finalFocus={contextTrigger}
+						finalFocus={menu?.anchor ?? contextTrigger}
 					>
 						<SheetHeader className="flex-row items-center justify-between p-0 sm:p-0">
 							<SheetTitle>Decision context</SheetTitle>

@@ -2,8 +2,22 @@ import { Kbd } from "@/components/kumo/kbd";
 import { OsSettingsFrame } from "@/components/os-settings-frame";
 import { useOsLocale } from "@/lib/use-os-locale";
 import { WorkActorDirectory } from "@/components/work-actor-directory";
-import { OsTopbarActionsTargetContext } from "@/components/os-topbar-actions-context";
-import { List, MagnifyingGlass, SquaresFour } from "@phosphor-icons/react";
+import {
+	OsTopbarActionsTargetContext,
+	OsTopbarMenuContext,
+} from "@/components/os-topbar-actions-context";
+import {
+	DotsThree,
+	List,
+	MagnifyingGlass,
+	SquaresFour,
+} from "@phosphor-icons/react";
+import { useMediaQuery } from "@/lib/use-media-query";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
@@ -266,6 +280,9 @@ function MobileNavigationTrigger() {
 
 export function OsShell() {
 	useOsLocale();
+	const phone = useMediaQuery("(max-width: 819px)");
+	const overflowTrigger = useRef<HTMLButtonElement>(null);
+	const [menuActions, setMenuActions] = useState<HTMLDivElement | null>(null);
 	const [paletteOpen, setPaletteOpen] = useState(false);
 	const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(
 		null,
@@ -309,88 +326,129 @@ export function OsShell() {
 	}, []);
 
 	return (
-		<SidebarProvider
-			className="os-shell"
-			collapsedStorageKey={SIDEBAR_COLLAPSED_KEY}
-			widthStorageKey="tedix-os-sidebar-width"
-			resizable
-			peekable
+		<OsTopbarMenuContext.Provider
+			value={
+				phone && !workspaceWorkbench
+					? { target: menuActions, anchor: overflowTrigger }
+					: null
+			}
 		>
-			<CloseMobileNavigationOnNavigate />
-			{workspaceWorkbench ? null : <SidebarKeyboardShortcut />}
-			{workspaceWorkbench ? null : (
-				<OsSidebar
-					identity={identity}
-					onOpenPalette={() => setPaletteOpen(true)}
-					pathname={pathname}
-					tenantLabel={tenantLabel}
-				/>
-			)}
+			<DropdownMenu>
+				<SidebarProvider
+					className="os-shell"
+					collapsedStorageKey={SIDEBAR_COLLAPSED_KEY}
+					widthStorageKey="tedix-os-sidebar-width"
+					resizable
+					peekable
+				>
+					<CloseMobileNavigationOnNavigate />
+					{workspaceWorkbench ? null : <SidebarKeyboardShortcut />}
+					{workspaceWorkbench ? null : (
+						<OsSidebar
+							identity={identity}
+							onOpenPalette={() => setPaletteOpen(true)}
+							pathname={pathname}
+							tenantLabel={tenantLabel}
+						/>
+					)}
 
-			<div className="os-main flex-1">
-				{workspaceWorkbench ? null : (
-					<header className="topbar">
-						<MobileNavigationTrigger />
-						<div className="topbar-context" aria-label="Current route">
-							<OsShellBreadcrumbs pathname={pathname} />
-						</div>
-						<div className="topbar-actions">
-							<div
-								ref={setTopbarActions}
-								className="flex shrink-0 items-center empty:hidden"
+					<div className="os-main flex-1">
+						{workspaceWorkbench ? null : (
+							<header className="topbar">
+								<MobileNavigationTrigger />
+								<div className="topbar-context" aria-label="Current route">
+									<OsShellBreadcrumbs pathname={pathname} />
+								</div>
+								<div className="topbar-actions">
+									{phone ? null : (
+										<>
+											<div
+												ref={setTopbarActions}
+												className="flex shrink-0 items-center empty:hidden"
+											/>
+											<SampleDataBadge />
+										</>
+									)}
+									<SupportGetHelp organization={tenantLabel} />
+									<ApprovalNotifications topbar />
+									<TopbarSearch onOpenPalette={() => setPaletteOpen(true)} />
+									{phone ? (
+										<>
+											<DropdownMenuTrigger
+												render={
+													<Button
+														ref={overflowTrigger}
+														aria-label="More options"
+														size="icon"
+														variant="ghost"
+													>
+														<DotsThree size={20} />
+													</Button>
+												}
+											/>
+											<DropdownMenuContent align="end">
+												<div ref={setTopbarActions} className="flex flex-col" />
+												<div ref={setMenuActions} className="flex flex-col" />
+												<SampleDataBadge />
+												<TransportStatus />
+											</DropdownMenuContent>
+										</>
+									) : (
+										<TransportStatus />
+									)}
+								</div>
+							</header>
+						)}
+						<main className="route-content">
+							<OsTopbarActionsTargetContext.Provider value={topbarActions}>
+								<WorkActorDirectory>
+									<OsSettingsFrame pathname={pathname}>
+										<Outlet />
+									</OsSettingsFrame>
+								</WorkActorDirectory>
+							</OsTopbarActionsTargetContext.Provider>
+						</main>
+					</div>
+					{paletteOpen ? (
+						<Suspense fallback={null}>
+							<OsCommandPalette
+								open={paletteOpen}
+								onOpenChange={setPaletteOpen}
 							/>
-							<SampleDataBadge />
-							<SupportGetHelp organization={tenantLabel} />
-							<ApprovalNotifications />
-							<TopbarSearch onOpenPalette={() => setPaletteOpen(true)} />
-							<TransportStatus />
-						</div>
-					</header>
-				)}
-				<main className="route-content">
-					<OsTopbarActionsTargetContext.Provider value={topbarActions}>
-						<WorkActorDirectory>
-							<OsSettingsFrame pathname={pathname}>
-								<Outlet />
-							</OsSettingsFrame>
-						</WorkActorDirectory>
-					</OsTopbarActionsTargetContext.Provider>
-				</main>
-			</div>
-			{paletteOpen ? (
-				<Suspense fallback={null}>
-					<OsCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-				</Suspense>
-			) : null}
-			<OsQuickChat />
-			<Dialog
-				open={setupPromptOpen}
-				onOpenChange={(open) => !open && closeSetupPrompt()}
-			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Set up Tedix on this device</DialogTitle>
-						<DialogDescription>
-							Install the Tedix CLI, then choose the Codex or Claude Code plugin
-							for its skills and optional session hook. Each host will ask you
-							to review its own connection and hook permissions.
-						</DialogDescription>
-					</DialogHeader>
-					<p className="text-kumo-subtle type-tedix-label">
-						Your browser cannot run a local installer. The setup guide gives you
-						commands to copy into your terminal and the steps to verify the
-						connection.
-					</p>
-					<DialogFooter>
-						<Button onClick={closeSetupPrompt} variant="ghost">
-							Later
-						</Button>
-						<Button onClick={() => window.location.assign("/install")}>
-							Set up this device
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
-		</SidebarProvider>
+						</Suspense>
+					) : null}
+					<OsQuickChat />
+					<Dialog
+						open={setupPromptOpen}
+						onOpenChange={(open) => !open && closeSetupPrompt()}
+					>
+						<DialogContent>
+							<DialogHeader>
+								<DialogTitle>Set up Tedix on this device</DialogTitle>
+								<DialogDescription>
+									Install the Tedix CLI, then choose the Codex or Claude Code
+									plugin for its skills and optional session hook. Each host
+									will ask you to review its own connection and hook
+									permissions.
+								</DialogDescription>
+							</DialogHeader>
+							<p className="text-kumo-subtle type-tedix-label">
+								Your browser cannot run a local installer. The setup guide gives
+								you commands to copy into your terminal and the steps to verify
+								the connection.
+							</p>
+							<DialogFooter>
+								<Button onClick={closeSetupPrompt} variant="ghost">
+									Later
+								</Button>
+								<Button onClick={() => window.location.assign("/install")}>
+									Set up this device
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+				</SidebarProvider>
+			</DropdownMenu>
+		</OsTopbarMenuContext.Provider>
 	);
 }
