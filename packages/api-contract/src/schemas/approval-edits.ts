@@ -2,9 +2,8 @@
  * Approver-editable fields on an approval request.
  *
  * A pending action may declare a few top-level inputs the approver can change
- * before approving (destination, title, recipients). Each declaration carries
- * the tool input schema for that property, so an edit is validated against the
- * same schema the tool publishes.
+ * before approving. Destinations require explicit tool policy. Each declaration
+ * carries the tool input schema for that property.
  */
 
 import * as z from "zod";

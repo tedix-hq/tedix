@@ -54,7 +54,14 @@ import {
 	collectBoundedMcpList,
 } from "@tedix/mcp-shared/bounded-list";
 import { errorMessage } from "@tedix/worker-kit/error-message";
-import type { ApprovalEditableField } from "@tedix/api-contract/schemas/approval-edits";
+import {
+	type ApprovalEditableField,
+	type ApproverEditsRecord,
+	ApproverEditsRecordSchema,
+} from "@tedix/api-contract/schemas/approval-edits";
+import { deriveApprovalEditableFields } from "@tedix/api-contract/utils/approval-edits";
+import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
+import * as z from "zod";
 
 export interface WriteExecutorEnv {
 	OS_URL?: string;
@@ -90,6 +97,7 @@ export interface HomeToolWritePayload {
 	 * stored payload.
 	 */
 	editableFields?: ApprovalEditableField[];
+	approverEdits?: ApproverEditsRecord;
 }
 
 /** Structural guard for an approval payload of kind "home_tool_write". */
@@ -133,7 +141,10 @@ export function parseHomeToolWritePayload(
 	) {
 		return null;
 	}
+	const edits = ApproverEditsRecordSchema.safeParse(payload.approverEdits);
+	if (payload.approverEdits !== undefined && !edits.success) return null;
 	return {
+		...(edits.success ? { approverEdits: edits.data } : {}),
 		kind: HOME_TOOL_WRITE_KIND,
 		appSlug,
 		toolName,
@@ -152,6 +163,8 @@ export type KernelWriteExecutionResult =
 
 interface McpTool {
 	name: string;
+	inputSchema?: { properties?: Record<string, unknown>; required?: string[] };
+	_meta?: Record<string, unknown>;
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
 }
 
@@ -368,6 +381,41 @@ export async function executeApprovedKernelWrite(args: {
 				ok: false,
 				error: `Tool "${payload.toolName}" was re-published as read-only; aborting the approved write`,
 			};
+		}
+
+		if (payload.approverEdits?.changes.length) {
+			const editable = deriveApprovalEditableFields({
+				inputSchema: tool.inputSchema,
+				declared: parseToolPolicyMetadata(tool._meta)?.approvalEditableFields,
+			});
+			const disallowed = payload.approverEdits.changes.find(
+				(change) => !editable.some((field) => field.name === change.field),
+			);
+			if (disallowed)
+				return {
+					ok: false,
+					error: `Edited field "${disallowed.field}" is not editable under the live tool policy`,
+				};
+			try {
+				if (!tool.inputSchema) throw new Error("missing schema");
+				const schema = { type: "object", ...tool.inputSchema };
+				const checked = z
+					.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0])
+					.safeParse(payload.args);
+				if (!checked.success) {
+					const path = checked.error.issues[0]?.path.join(".") || "arguments";
+					return {
+						ok: false,
+						error: `Edited arguments do not match the live tool schema at ${path}; request a new approval`,
+					};
+				}
+			} catch {
+				return {
+					ok: false,
+					error:
+						"Edited arguments could not be validated against the live tool schema; request a new approval",
+				};
+			}
 		}
 
 		// One tools/call with the STORED args — user-first credential, tenant

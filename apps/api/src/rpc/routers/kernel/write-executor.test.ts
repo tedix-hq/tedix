@@ -992,3 +992,167 @@ describe("factory approval receipt forwarding", () => {
 		).toBe(toolName.startsWith("projects.") ? "sample-approval" : null);
 	});
 });
+
+describe("edited write live validation", () => {
+	const approverEdits = {
+		editedBy: "approver",
+		editedAt: "2026-10-21T10:00:00.000Z",
+		changes: [{ field: "customerName", before: "Draft", after: "ACME" }],
+	};
+	const schema = {
+		type: "object",
+		properties: {
+			amount: { type: "number", maximum: 200 },
+			customerName: { type: "string", minLength: 2 },
+		},
+		required: ["amount", "customerName"],
+		additionalProperties: false,
+	};
+
+	it.each(["direct", "codemode"] as const)(
+		"refuses stale args against the live %s schema",
+		async (transport) => {
+			const service = mcpService((body) => ({
+				json: {
+					jsonrpc: "2.0",
+					result:
+						body.method === "tools/list"
+							? {
+									tools: [
+										{ name: "globex__create_invoice", inputSchema: schema },
+									],
+								}
+							: {
+									structuredContent: [
+										{ callable: "globex.create_invoice", parameters: schema },
+									],
+								},
+				},
+			}));
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload({
+					transport,
+					toolName:
+						transport === "direct"
+							? "globex__create_invoice"
+							: "globex.create_invoice",
+					args: { amount: 300, customerName: "ACME" },
+					approverEdits,
+				}),
+			});
+			expect(result).toMatchObject({
+				ok: false,
+				error: expect.stringContaining("live tool schema"),
+			});
+			expect(service.calls).toHaveLength(1);
+		},
+	);
+
+	it("fails closed when the live schema cannot be validated", async () => {
+		const service = mcpService(() => ({
+			json: {
+				jsonrpc: "2.0",
+				result: {
+					tools: [
+						{
+							name: "globex__create_invoice",
+							inputSchema: {
+								...schema,
+								dependentRequired: { customerName: ["amount"] },
+							},
+						},
+					],
+				},
+			},
+		}));
+		const result = await executeApprovedKernelWrite({
+			env: env(service),
+			payload: payload({ approverEdits }),
+		});
+		expect(result).toMatchObject({
+			ok: false,
+			error: expect.stringContaining(
+				"could not be validated against the live tool schema",
+			),
+		});
+		expect(service.calls).toHaveLength(1);
+	});
+
+	it("preserves the edit audit marker when parsing stored payloads", () => {
+		expect(parseHomeToolWritePayload(payload({ approverEdits }))).toMatchObject(
+			{ approverEdits },
+		);
+	});
+
+	it("refuses destination edits from older pending cards unless the live tool explicitly permits them", async () => {
+		const changed = {
+			...approverEdits,
+			changes: [{ field: "accountId", before: "a", after: "b" }],
+		};
+		for (const explicit of [false, true]) {
+			const service = mcpService((body) => ({
+				json: {
+					jsonrpc: "2.0",
+					result:
+						body.method === "tools/list"
+							? {
+									tools: [
+										{
+											name: "globex__create_invoice",
+											inputSchema: {
+												type: "object",
+												properties: { accountId: { type: "string" } },
+												required: ["accountId"],
+											},
+											...(explicit
+												? {
+														_meta: {
+															"com.tedix/policy": {
+																approvalEditableFields: ["accountId"],
+															},
+														},
+													}
+												: {}),
+										},
+									],
+								}
+							: { structuredContent: { ok: true } },
+				},
+			}));
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload({ args: { accountId: "b" }, approverEdits: changed }),
+			});
+			expect(result.ok).toBe(explicit);
+			expect(service.calls).toHaveLength(explicit ? 2 : 1);
+		}
+	});
+
+	it("executes a valid content edit with the requester's credentials", async () => {
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				result:
+					body.method === "tools/list"
+						? {
+								tools: [
+									{ name: "globex__create_invoice", inputSchema: schema },
+								],
+							}
+						: { structuredContent: { ok: true } },
+			},
+		}));
+		expect(
+			(
+				await executeApprovedKernelWrite({
+					env: env(service),
+					payload: payload({ approverEdits }),
+				})
+			).ok,
+		).toBe(true);
+		expect(service.calls[1]?.headers.get("X-Tedix-Acting-User")).toBe(
+			"user-123",
+		);
+	});
+});

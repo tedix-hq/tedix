@@ -2,8 +2,8 @@
  * Derive and apply approver edits for a pending tool action.
  *
  * Editable fields come from the tool's own input schema: a tool's policy
- * metadata may name them (`approvalEditableFields`); otherwise every top-level
- * scalar input the tenant has not pinned is editable. Only scalar properties
+ * metadata may name them (`approvalEditableFields`); otherwise destination-like
+ * inputs are excluded. Tenant-pinned inputs are never editable. Only scalars
  * (string, number, integer, boolean, or a primitive enum) qualify, so each
  * edit can be checked against its exact property schema.
  */
@@ -24,6 +24,28 @@ const MAX_EDIT_VALUE_LENGTH = 8_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Edits run with the requester's credentials, so routing needs explicit policy. */
+function destinationLikeInput(
+	name: string,
+	schema: Record<string, unknown>,
+): boolean {
+	const words = name
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.toLowerCase()
+		.split(/[^a-z0-9]+/);
+	return (
+		words.some((word) =>
+			/^(?:recipients?|to|cc|bcc|from|email|emails|address|addresses|url|uri|endpoint|webhook|channel|channels|path|paths|repo|repository|branch|account|connection|workspace|org|organization|tenant|destination|target|id|ids)$/.test(
+				word,
+			),
+		) ||
+		/(?:recipient|email|url|uri|endpoint|webhook|channel|path|repo|branch|account|connection|workspace|organization|tenant|destination)|(?:id|ids)$/.test(
+			name.toLowerCase(),
+		) ||
+		["email", "uri", "uri-reference", "uuid"].includes(String(schema.format))
+	);
 }
 
 export type ApprovalEditableFieldKind =
@@ -104,6 +126,7 @@ export function deriveApprovalEditableFields(input: {
 		if (fields.length >= MAX_APPROVAL_EDITABLE_FIELDS) break;
 		const schema = properties[name];
 		if (pinned.has(name) || !isRecord(schema) || !scalarType(schema)) continue;
+		if (input.declared == null && destinationLikeInput(name, schema)) continue;
 		let serialized: string;
 		try {
 			serialized = JSON.stringify(schema);

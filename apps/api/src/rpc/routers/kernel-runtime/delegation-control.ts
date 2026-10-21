@@ -539,6 +539,16 @@ export const respondApprovalRoute = authed.respondApproval
 		const codemodeApproval = approval
 			? parseCodemodeExecuteWritePayload(approval.payload)
 			: null;
+		if (
+			input.edits &&
+			Object.keys(input.edits).length &&
+			(!approval || !parseHomeToolWritePayload(approval.payload))
+		) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Changes are only supported for Home tool-write approvals",
+			);
+		}
 		if (approval && codemodeApproval?.executionMode === "durable_call") {
 			const result = await respondDurableCodemodeApprovalCore(context, {
 				approval,
@@ -555,6 +565,8 @@ export const respondApprovalRoute = authed.respondApproval
 			const result = await respondKernelToolWriteApprovalCore(context, {
 				approval,
 				decision: input.decision,
+				edits: input.edits,
+				delegateRecommendation: input.delegateRecommendation,
 				note: input.note,
 				organizationId,
 				run: existingRun,

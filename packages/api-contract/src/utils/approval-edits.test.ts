@@ -22,13 +22,12 @@ const inputSchema = {
 };
 
 describe("deriveApprovalEditableFields", () => {
-	it("offers every unpinned scalar input in schema order", () => {
+	it("offers content scalars without destination fields in schema order", () => {
 		const fields = deriveApprovalEditableFields({
 			inputSchema,
 			pinned: ["accountId"],
 		});
 		expect(fields.map((field) => field.name)).toEqual([
-			"folderId",
 			"title",
 			"visibility",
 			"notify",
@@ -36,18 +35,77 @@ describe("deriveApprovalEditableFields", () => {
 			"body",
 		]);
 		expect(fields[0]).toMatchObject({
-			label: "Folder id",
-			description: "Destination folder",
+			label: "Title",
 			required: true,
 		});
 		expect(fields.map((field) => approvalEditableFieldKind(field))).toEqual([
-			"text",
 			"text",
 			"choice",
 			"boolean",
 			"integer",
 			"long_text",
 		]);
+	});
+
+	it.each([
+		"recipient",
+		"emailaddress",
+		"channelname",
+		"recipients",
+		"to",
+		"cc",
+		"bcc",
+		"replyTo",
+		"recipientEmail",
+		"email",
+		"email_address",
+		"callbackUrl",
+		"endpoint",
+		"webhookUrl",
+		"channel",
+		"channel_id",
+		"filePath",
+		"repo",
+		"repository",
+		"branch",
+		"accountId",
+		"connection_id",
+		"workspaceId",
+		"organizationId",
+		"org_id",
+		"folderId",
+		"destination",
+		"target",
+		"userIds",
+	])("requires explicit policy for destination %s", (name) => {
+		const schema = { properties: { [name]: { type: "string" } } };
+		expect(deriveApprovalEditableFields({ inputSchema: schema })).toEqual([]);
+		expect(
+			deriveApprovalEditableFields({
+				inputSchema: schema,
+				declared: [name],
+			}).map((field) => field.name),
+		).toEqual([name]);
+		expect(
+			deriveApprovalEditableFields({
+				inputSchema: schema,
+				declared: [name],
+				pinned: [name],
+			}),
+		).toEqual([]);
+	});
+
+	it("keeps plain content fields editable", () => {
+		const names = ["subject", "body", "text", "label", "title"];
+		expect(
+			deriveApprovalEditableFields({
+				inputSchema: {
+					properties: Object.fromEntries(
+						names.map((name) => [name, { type: "string" }]),
+					),
+				},
+			}).map((field) => field.name),
+		).toEqual(names);
 	});
 
 	it("uses the tool's configured list, and an empty list turns edits off", () => {
@@ -65,7 +123,10 @@ describe("deriveApprovalEditableFields", () => {
 });
 
 describe("applyApprovalEdits", () => {
-	const fields = deriveApprovalEditableFields({ inputSchema });
+	const fields = deriveApprovalEditableFields({
+		inputSchema,
+		declared: Object.keys(inputSchema.properties),
+	});
 	const args = { folderId: "f-1", title: "Draft", recipients: ["a@x.test"] };
 
 	it("records only real changes against the tool schema", () => {
