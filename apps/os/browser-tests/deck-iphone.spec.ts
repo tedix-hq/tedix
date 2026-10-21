@@ -220,6 +220,18 @@ try {
 				short.cardHeight >= MIN_CARD_HEIGHT,
 				`${label}: card only ${short.cardHeight}px tall at 360px`,
 			);
+			// Wider glyphs (CI's Linux fonts) wrap the action row onto two lines.
+			await page.addStyleTag({
+				content:
+					".fd-deck-current [data-decision-actions] > button { padding-inline: 1.6rem !important }",
+			});
+			await settle(page);
+			const wrapped = await measure(page);
+			assert.deepEqual(
+				wrapped.failures,
+				[],
+				`${label}: card layout at 360px with a wrapped action row`,
+			);
 			await context.close();
 			console.log(`PASS ${label}`);
 		}
