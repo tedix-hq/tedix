@@ -167,6 +167,42 @@ export async function listPendingDelegationRuns(
 		.limit(input.limit);
 }
 
+export interface CountActiveDelegatedRunsParams {
+	organizationId: string;
+	/** Ignore rows not touched since this ISO instant (stale, unsettled rows). */
+	updatedSince: string;
+}
+
+/**
+ * Live delegated load per target tedi: queued or running Home runs that
+ * delegated to it. The org + status prefix of
+ * `idx_kernel_runtime_runs_status_updated` bounds the scan to live rows.
+ */
+export async function countActiveDelegatedRunsByTedi(
+	db: DbQueryClient,
+	input: CountActiveDelegatedRunsParams,
+): Promise<Map<string, number>> {
+	const rows = await db
+		.select({
+			tediId: kernelRuntimeRuns.delegatedTediId,
+			active: sql<number>`count(*)`.mapWith(Number),
+		})
+		.from(kernelRuntimeRuns)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				inArray(kernelRuntimeRuns.status, ["queued", "running"]),
+				// Rows carry both ISO and SQLite CURRENT_TIMESTAMP spellings.
+				sql`datetime(${kernelRuntimeRuns.updatedAt}) >= datetime(${input.updatedSince})`,
+				sql`${kernelRuntimeRuns.delegatedTediId} IS NOT NULL`,
+			),
+		)
+		.groupBy(kernelRuntimeRuns.delegatedTediId);
+	return new Map(
+		rows.flatMap((row) => (row.tediId ? [[row.tediId, row.active]] : [])),
+	);
+}
+
 export async function listKernelRuntimeRunMetadata(
 	db: DbClient,
 	input: { organizationId: string; conversationId: string; limit: number },

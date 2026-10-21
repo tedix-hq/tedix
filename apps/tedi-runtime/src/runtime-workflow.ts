@@ -63,6 +63,7 @@ import {
 	WORKFLOW_TERMINAL_MAX_REDRIVES,
 	WORKFLOW_TERMINAL_RECONCILE_DELAY_SECONDS,
 	WORKFLOW_TERMINAL_RECONCILE_MAX_POLLS,
+	workflowRetryOwnershipPayload,
 } from "./workflow-terminal-reconciliation";
 import { type WorkstationProcessCancelInput } from "./workstation";
 import { type WorkstationTurnContext } from "./workstation-turn-context";
@@ -126,6 +127,10 @@ export interface RuntimeWorkflowHost {
 		context: WorkflowDispatchContext,
 		workflowInstanceId: string,
 		error: string,
+	): Promise<void>;
+	recordWorkflowRetryOwnership(
+		context: WorkflowDispatchContext,
+		payload: Record<string, unknown>,
 	): Promise<void>;
 	schedule: AgentTediDO["schedule"];
 	assertChatTurnActive(runId: string | null | undefined): Promise<void>;
@@ -274,6 +279,22 @@ export const runtimeWorkflow = {
 				latestAttemptError: error,
 				errorCallbackCount: (dispatchCtx.errorCallbackCount ?? 0) + 1,
 			});
+			// The callback is attempt-scoped: after a transient loss the native
+			// instance (or the re-drive below) still reruns this turn, so claim the
+			// run before the platform orphan sweep fails it in the silent gap.
+			if (
+				isTransientWorkflowRedriveError(error) &&
+				(dispatchCtx.redriveCount ?? 0) < WORKFLOW_TERMINAL_MAX_REDRIVES
+			)
+				await this.recordWorkflowRetryOwnership(
+					dispatchCtx,
+					workflowRetryOwnershipPayload({
+						operation: "workflow_attempt_retry",
+						redriveCount: dispatchCtx.redriveCount ?? 0,
+						error,
+						now: Date.now(),
+					}),
+				);
 			await this.reconcileChatWorkflowTerminal({
 				workflowInstanceId: workflowId,
 				attempt: 0,
@@ -506,6 +527,15 @@ export const runtimeWorkflow = {
 				))
 			)
 				throw new Error("Original workflow accounting remains unresolved");
+			await this.recordWorkflowRetryOwnership(
+				context,
+				workflowRetryOwnershipPayload({
+					operation: "workflow_redrive",
+					redriveCount: nextRedriveCount,
+					error,
+					now: Date.now(),
+				}),
+			);
 			await this.restartWorkflow(workflowInstanceId, { resetTracking: false });
 			console.warn(
 				`[isolate.workflow] re-drove transient-reset workflow id=${workflowInstanceId} redrive=${nextRedriveCount}/${WORKFLOW_TERMINAL_MAX_REDRIVES}: ${error}`,

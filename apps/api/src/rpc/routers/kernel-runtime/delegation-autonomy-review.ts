@@ -12,6 +12,11 @@ import {
 	readOrgDispatchPolicyLayer,
 } from "../kernel/tedi-capabilities";
 import { nonNullRecord } from "../kernel/runtime-shared";
+import { countActiveDelegatedRunsByTedi } from "@tedix/db/queries/kernel-runtime-runs";
+import {
+	DELEGATION_LOAD_WINDOW_MS,
+	delegationCapacity,
+} from "../kernel/delegation-load";
 import { reviewWorkstationDelegationAutonomy } from "./delegation-autonomy-workstation-policy";
 import {
 	approvalHeldDelegation,
@@ -49,9 +54,15 @@ export async function reviewDelegationAutonomy(
 			allowed: false,
 			reason: "stored route or source request is unavailable",
 		};
-	const [policy, cards] = await Promise.all([
+	const [policy, cards, load] = await Promise.all([
 		readOrgDispatchPolicyLayer(context.db, run.organizationId),
 		getTediCapabilityCards(context.db, run.organizationId),
+		countActiveDelegatedRunsByTedi(context.db, {
+			organizationId: run.organizationId,
+			updatedSince: new Date(
+				Date.now() - DELEGATION_LOAD_WINDOW_MS,
+			).toISOString(),
+		}),
 	]);
 	if (!policy?.autonomy)
 		return { allowed: false, reason: "no active autonomy policy" };
@@ -93,6 +104,9 @@ export async function reviewDelegationAutonomy(
 		),
 		gating: { org: policy, tedi: card?.dispatchPolicy },
 		delegationDepth: Number(nonNullRecord(run.metadata)?.delegationDepth ?? 0),
+		// A policy release must not push a held run into a tedi already at its
+		// delegated-run limit; the next sweep releases it once one finishes.
+		targetCapacity: card ? delegationCapacity(card, load) : undefined,
 	});
 	return {
 		allowed: decision.canAutoDispatch && decision.mode === "auto",

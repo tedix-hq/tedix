@@ -745,6 +745,9 @@ export async function findOrphanRuns(
 	const mappedActivityOrganizationPredicate = organizationId
 		? sql`AND mapped_act.organization_id = tedi_runtime_events.organization_id`
 		: sql``;
+	const retryOwnerOrganizationPredicate = organizationId
+		? sql`AND own.organization_id = tedi_runtime_events.organization_id`
+		: sql``;
 	const orphanCutoff = new Date(
 		now.getTime() - orphanAgeMinutes * 60_000,
 	).toISOString();
@@ -754,6 +757,7 @@ export async function findOrphanRuns(
 	const lookbackFloor = new Date(
 		now.getTime() - lookbackDays * 24 * 60 * 60_000,
 	).toISOString();
+	const nowIso = now.toISOString();
 
 	const rows = await db.all<{
 		id: string;
@@ -798,6 +802,18 @@ export async function findOrphanRuns(
 					${activityOrganizationPredicate}
 					AND act.kind IN ('message.delta', 'tool.started', 'tool.completed', 'tool.failed', 'message.progress', 'step.completed', 'step.retry')
 					AND act.created_at >= ${activityCutoff}
+			)
+			-- A runtime that is re-driving this run after a transient loss
+			-- (isolate memory reset, platform Workflows error) owns it until the
+			-- lease it recorded expires; sealing it now would fail a child the
+			-- pending retry is about to rerun.
+			AND NOT EXISTS (
+				SELECT 1 FROM tedi_runtime_events own
+				WHERE own.tedi_id = tedi_runtime_events.tedi_id
+					AND own.run_id = tedi_runtime_events.run_id
+					${retryOwnerOrganizationPredicate}
+					AND own.kind = 'step.retry'
+					AND json_extract(own.payload, '$.retryOwnedUntil') > ${nowIso}
 			)
 			AND NOT EXISTS (
 				SELECT 1 FROM tedi_runtime_events ar

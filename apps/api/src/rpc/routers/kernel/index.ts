@@ -117,6 +117,12 @@ import { planKernelRoute } from "./route-planner";
 import { decideHomeRoute, readHomeRoutePolicy } from "./route-decision";
 import type { KernelRouteDecision } from "./route-schema";
 import { readOrgDispatchPolicyLayer } from "./tedi-capabilities";
+import { countActiveDelegatedRunsByTedi } from "@tedix/db/queries/kernel-runtime-runs";
+import {
+	DELEGATION_LOAD_WINDOW_MS,
+	delegationCapacity,
+	spreadDelegationLoad,
+} from "./delegation-load";
 import {
 	type HomeDelegationAgentReview,
 	type ResolvedDelegationApprover,
@@ -1091,6 +1097,32 @@ export async function runKernel(args: {
 	);
 	route = routeExplicitOutputCreate(route, outputCreateKind, outputAppSlug);
 
+	// Live delegated load: spread coding work across the tedis that share the
+	// target's repository, and hold a target already at its concurrency limit.
+	// A failed read leaves the planner's target and applies no capacity hold.
+	let delegationLoad: Map<string, number> = new Map();
+	if (route.routeKind === "delegate_tedi" && route.targetTediId) {
+		try {
+			delegationLoad = await countActiveDelegatedRunsByTedi(db, {
+				organizationId,
+				updatedSince: new Date(
+					Date.now() - DELEGATION_LOAD_WINDOW_MS,
+				).toISOString(),
+			});
+			route = spreadDelegationLoad({
+				content: inputContent,
+				context,
+				decision: route,
+				load: delegationLoad,
+			});
+		} catch (error) {
+			console.warn(
+				"[kernel] delegated load read failed; keeping the planned target",
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+	}
+
 	// delegate_tedi authorization evidence: when the planner names a target that
 	// carries a capability card, construct the work order + the fail-closed
 	// dispatch verdict and record them. The runtime body consumes the verdict for
@@ -1176,6 +1208,9 @@ export async function runKernel(args: {
 				earnedDelegationEnforcement,
 				earnedDelegationActivityAllowed,
 				executionEnvironment,
+				targetCapacity: card
+					? delegationCapacity(card, delegationLoad)
+					: undefined,
 			}),
 		};
 		// Agent-in-the-loop: an agent-routable hold goes to the org's designated

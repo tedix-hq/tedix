@@ -1120,6 +1120,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			onWorkflowComplete: (...args) => parent.onWorkflowComplete(...args),
 			redriveTransientWorkflow: (...args) =>
 				parent.redriveTransientWorkflow(...args),
+			recordWorkflowRetryOwnership: (...args) =>
+				parent.recordWorkflowRetryOwnership(...args),
 			schedule: (...args) => parent.schedule(...args),
 			assertChatTurnActive: (...args) => parent.assertChatTurnActive(...args),
 			getInferenceBudgetStore: (...args) =>
@@ -4353,6 +4355,40 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			this.workflowHost(),
 			input,
 		);
+	}
+	/**
+	 * Tell the platform orphan sweep that a pending retry still owns this run.
+	 * Fail-soft: a lost marker only leaves the existing activity window.
+	 */
+	private async recordWorkflowRetryOwnership(
+		context: WorkflowDispatchContext,
+		payload: Record<string, unknown>,
+	): Promise<void> {
+		try {
+			await this.ensureIdentity();
+			const { tediId, slug } = this.state;
+			if (!tediId) return;
+			const platform = await this.getPlatformClient();
+			if (!platform) return;
+			await platform.recordRuntimeEvent({
+				id: crypto.randomUUID(),
+				tediId,
+				conversationId: buildTediConversationId({
+					tediRef: slug || tediId,
+					sessionKey: context.sessionKey,
+				}),
+				runId: context.runId,
+				kind: "step.retry",
+				payload,
+				runtime: { backend: "cloudflare-agents" },
+				createdAt: new Date().toISOString(),
+			});
+		} catch (error) {
+			console.warn(
+				`[isolate.workflow] retry ownership marker failed run=${context.runId}:`,
+				error instanceof Error ? error.message : String(error),
+			);
+		}
 	}
 	private async redriveTransientWorkflow(
 		key: string,

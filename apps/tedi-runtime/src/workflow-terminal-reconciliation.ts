@@ -39,6 +39,35 @@ export async function armWorkflowTerminalReconciliation(
  */
 export const WORKFLOW_TERMINAL_MAX_REDRIVES = 3;
 
+/**
+ * How long a pending retry owns its run against the platform orphan sweep.
+ * Covers the native step retry backoff plus the full terminal-reconcile poll
+ * window (20 x 30 s); a run that is still silent afterwards is swept.
+ */
+export const WORKFLOW_RETRY_OWNERSHIP_MS = 30 * 60_000;
+
+/**
+ * `step.retry` payload that tells the orphan sweep this runtime still owns the
+ * run: a transient loss (isolate memory reset, platform Workflows error) left
+ * it silent, and a retry is about to rerun it.
+ */
+export function workflowRetryOwnershipPayload(input: {
+	operation: "workflow_attempt_retry" | "workflow_redrive";
+	redriveCount: number;
+	error: string;
+	now: number;
+}): Record<string, unknown> {
+	const error = input.error.replace(/\s+/g, " ").trim();
+	return {
+		operation: input.operation,
+		redriveCount: input.redriveCount,
+		error: error.length > 300 ? `${error.slice(0, 297)}...` : error,
+		retryOwnedUntil: new Date(
+			input.now + WORKFLOW_RETRY_OWNERSHIP_MS,
+		).toISOString(),
+	};
+}
+
 export type WorkflowTerminalDecision =
 	| { action: "complete" }
 	| { action: "fail" }

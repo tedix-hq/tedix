@@ -18,6 +18,9 @@ vi.mock("../kernel/delegation-dispatch", () => ({
 		reason: "capability gap",
 	}),
 }));
+vi.mock("@tedix/db/queries/kernel-runtime-runs", () => ({
+	countActiveDelegatedRunsByTedi: async () => new Map(),
+}));
 vi.mock("./delegation-autonomy-workstation-policy", () => ({
 	reviewWorkstationDelegationAutonomy: async () => null,
 }));
