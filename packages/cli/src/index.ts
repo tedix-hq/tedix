@@ -649,13 +649,7 @@ async function main() {
 			`Unknown agent command "${subcommand}". Usage: tedix agent start|status|rename|checkpoint|finish|reconcile|end`,
 		);
 	}
-	if (command === "workspaces" || command === "workspace") {
-		const sub = options.prompt?.trim();
-		if (command === "workspace" && sub && sub !== "list") {
-			throw new Error(
-				`Unknown workspace command "${sub}". Usage: tedix workspaces`,
-			);
-		}
+	if (command === "workspaces") {
 		const list = listWorkspaces();
 		if (options.json) {
 			console.log(JSON.stringify(list, null, 2));
