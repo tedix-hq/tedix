@@ -80,6 +80,117 @@ receipts. Keep decision resolution in shadow until the relevant approval
 policy fix is verified live. A ranking snapshot is not evidence that any of
 those mechanisms is installed or active.
 
+## Score factory cards
+
+A factory that writes card sheets for the Card review app or the Deck scores
+each card when it writes the row. Tedix OS only reads the score: it sorts,
+caps and removes repeats. Without a score column, cards keep sheet order and
+the existing routing and ranking apply.
+
+Add these optional columns to the card sheet and name them in the source's
+`columns` setting, like the other columns:
+
+| Setting    | Example header | Cell                                          |
+| ---------- | -------------- | --------------------------------------------- |
+| `score`    | `Score`        | A number from 0 to 1                          |
+| `features` | `Features`     | JSON object of named numbers behind the score |
+| `effort`   | `Effort`       | Short chip on the card face, such as `5 min`  |
+| `timing`   | `Timing`       | Short chip on the card face, such as `Today`  |
+
+A score outside 0 to 1 and a features cell that is not a JSON object are
+ignored. Feature names are short snake_case words; the card face shows the two
+features with the largest weighted contribution as "Why this card".
+
+The source's optional `scoring` block holds the factory's own settings. It is
+configuration in the app's manifest, never code. This fictional forum factory
+shows every field:
+
+```json
+{
+	"label": "Forum",
+	"workspaceId": "<workspace id>",
+	"cardSheetPrefix": "Forum cards ",
+	"columns": {
+		"type": "Type",
+		"source": "Thread",
+		"why": "Why",
+		"action": "Action",
+		"useful": "Useful?",
+		"reason": "Reason",
+		"done": "Done?",
+		"score": "Score",
+		"features": "Features",
+		"effort": "Effort",
+		"timing": "Timing"
+	},
+	"doIt": "approve",
+	"protectedEffects": ["message"],
+	"scoring": {
+		"weights": {
+			"fresh_thread": 0.5,
+			"buyer_intent": 0.3,
+			"author_karma": 0.2
+		},
+		"topN": 10,
+		"maxAgeDays": 3,
+		"skipReasonChips": [
+			{ "label": "Already covered", "mapsTo": "duplicate" },
+			{ "label": "Wrong topic", "mapsTo": "not_for_me" },
+			{ "label": "Stale", "mapsTo": "expired" },
+			{ "label": "An agent could do it", "mapsTo": "agent_could_do" },
+			{ "label": "Too much effort", "mapsTo": null },
+			{ "label": "Other", "mapsTo": null }
+		],
+		"weightUpdate": { "cadence": "weekly", "mode": "shadow", "minSamples": 30 },
+		"agentDecidableClasses": ["upvote"]
+	}
+}
+```
+
+- `weights`: the factory's default weight per feature. The factory computes
+  the score with them; Tedix uses them only to explain a card.
+- `topN`: cards shown per source and run day, best score first; equal scores
+  keep sheet order. Decided cards count, so a verdict never pulls in another
+  card.
+- `maxAgeDays`: cards from older runs are hidden.
+- `skipReasonChips`: the Not useful chips for this factory. `mapsTo` names the
+  shared reason (`already_decided`, `expired`, `agent_could_do`, `duplicate`
+  or `not_for_me`) the chip teaches, or `null` for a reason only this factory
+  uses.
+- `weightUpdate`: how verdicts may retune the weights later. Promotion always
+  goes through a person; `shadow` only proposes.
+- `agentDecidableClasses`: card types an agent may decide. Stored only today.
+- `protectedEffects` (on the source): effects these cards carry when filed as
+  Work, such as `message`; they keep a person in the loop.
+
+Before the cap, Tedix collapses repeats: rows of one source with the same type
+and the same first link (or the same source text) are one card. A decided copy
+wins, else the newest run. Each row keeps its key, `<sheet id>:<row index>`,
+across reads, so a verdict always lands on the row the reviewer saw. Keep a
+thread's link in the source cell so repeats are recognised.
+
+### Feedback contract
+
+Every verdict writes the sheet cells as before (`useful`, `reason`, and `done`
+for Do it or Not useful). The reason cell reads `Chip, Chip: note`. Tedix also
+records one learning event for the reviewer with this metadata:
+
+| Field            | Value                                                  |
+| ---------------- | ------------------------------------------------------ |
+| `decisionClass`  | `factory:<source label>:<card type>`                   |
+| `decisionChoice` | `useful`, `not_useful`, `do_it`, `later` or `skip`     |
+| `score`          | The card's score, when present                         |
+| `features`       | The card's features, when present                      |
+| `factoryReason`  | The first skip chip in the reason, when one was picked |
+| `sharedReason`   | That chip's `mapsTo`, or `null`                        |
+| `reason`         | The full reason text                                   |
+
+When a skill files a card as Work, it should store a proposal envelope in the
+Work's `metadata.decisionDeck`, so routing and learning treat it like any
+other decision: `kind` is `proposal`, `classId` is the card type,
+`confidence` is the score, and `protectedEffects` comes from the source (none
+when it declares none).
+
 ## Create: preview, approve, then build
 
 Choose the source project, owner, cadence, Workspace and durable Output first.
