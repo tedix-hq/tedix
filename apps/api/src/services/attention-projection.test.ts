@@ -77,6 +77,7 @@ const source = {
 		useful: "Useful",
 		reason: "Reason",
 		done: "Done",
+		score: "Score",
 	},
 };
 const context = { organizationId: "fictional-orchard" } as BaseContext;
@@ -202,6 +203,49 @@ it("gates factory Deck cards with the shared policy while Feed retains withheld 
 		]),
 	);
 });
+it("orders factory Deck cards by the factory's own score and carries it on the card", async () => {
+	const base = mocks.call.getMockImplementation()!;
+	mocks.call.mockImplementation(
+		async (procedure: string, ...rest: unknown[]) =>
+			procedure === "output"
+				? {
+						currentRevision: {
+							revision: 1,
+							content: {
+								kind: "sheet",
+								columns: [
+									"Type",
+									"Source",
+									"Why",
+									"Score",
+									"Useful",
+									"Reason",
+									"Done",
+								],
+								rows: [
+									["opportunity", "First intro", "Fits", "0.3", "", "", ""],
+									[
+										"opportunity",
+										"Second intro",
+										"Fits well",
+										"0.9",
+										"",
+										"",
+										"",
+									],
+								],
+							},
+						},
+					}
+				: base(procedure, ...rest),
+	);
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.cards.map((card) => [card.id, card.factory?.score])).toEqual([
+		[`factory:${outputId}:1`, 0.9],
+		[`factory:${outputId}:0`, 0.3],
+	]);
+});
+
 it("retains the routing policy's critical classification on factory snapshots", async () => {
 	routing = {
 		...DEFAULT_DECK_ROUTING,
