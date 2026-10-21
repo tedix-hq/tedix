@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { webkit, type Browser, type Page } from "playwright";
 
-// Run explicitly: bun run --cwd apps/os browser-tests/b9-settings-anchor.spec.ts
+// Runs in `bun run --cwd apps/os test:browser:settings` (part of test:run).
 // Uses the actual fixture app; neither component markup nor geometry is mocked.
 const evidence =
 	process.env.SETTINGS_ANCHOR_EVIDENCE_DIR ??

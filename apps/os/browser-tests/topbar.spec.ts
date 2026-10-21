@@ -157,6 +157,48 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 						0,
 						"Workbench retains its own toolbar",
 					);
+					// The whole shell sits inside the topbar's menu root; a route's
+					// own menu must still open and close on its own.
+					await page.goto(`${origin}/outputs`, {
+						waitUntil: "domcontentloaded",
+					});
+					const scope = page.getByRole("button", {
+						name: "All sharing",
+						exact: true,
+					});
+					await scope.click();
+					await menu.waitFor();
+					assert.equal(await page.getByRole("menu").count(), 1);
+					assert.equal(
+						await menu
+							.getByRole("menuitem", { name: /^Created by you/ })
+							.count(),
+						1,
+						"Route menu shows its own items",
+					);
+					assert.equal(await more.getAttribute("aria-expanded"), "false");
+					await page.keyboard.press("Escape");
+					await menu.waitFor({ state: "hidden" });
+					await more.click();
+					await menu.waitFor();
+					assert.equal(await page.getByRole("menu").count(), 1);
+					assert.equal(
+						await menu
+							.getByRole("menuitem", { name: /^Created by you/ })
+							.count(),
+						0,
+						"Topbar menu keeps route items out",
+					);
+					assert.equal(await scope.getAttribute("aria-expanded"), "false");
+					await page.keyboard.press("Escape");
+					await menu.waitFor({ state: "hidden" });
+					await scope.click();
+					await menu.getByRole("menuitem", { name: /^Created by you/ }).click();
+					await menu.waitFor({ state: "hidden" });
+					await page
+						.getByRole("button", { name: "Yours", exact: true })
+						.waitFor();
+					assert.equal(await more.getAttribute("aria-expanded"), "false");
 				} else {
 					assert.equal(await more.count(), 0);
 					await bar
@@ -188,7 +230,7 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 				await page.close();
 			}
 		console.log(
-			"PASS: WebKit topbar title, phone overflow, 44px targets, info/help/activity, search, focus return and desktop controls; 375/390/1280 × light/dark",
+			"PASS: WebKit topbar title, phone overflow, 44px targets, info/help/activity, search, focus return, independent route menus and desktop controls; 375/390/1280 × light/dark",
 		);
 	} finally {
 		await browser.close();

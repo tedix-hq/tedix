@@ -1,19 +1,52 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
-import { chromium } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { tmpdir } from "node:os";
 
-const origin = process.env.B7_FEED_TEST_ORIGIN ?? "http://127.0.0.1:3177";
+const cwd = new URL("../", import.meta.url).pathname;
+const probe = Bun.serve({
+	port: 0,
+	hostname: "127.0.0.1",
+	fetch: () => new Response(),
+});
+const port = probe.port!;
+probe.stop();
+const origin = process.env.B7_FEED_TEST_ORIGIN ?? `http://127.0.0.1:${port}`;
 assert(
 	["127.0.0.1", "localhost"].includes(new URL(origin).hostname),
 	"Use an isolated local fixture server",
 );
+const server = process.env.B7_FEED_TEST_ORIGIN
+	? undefined
+	: Bun.spawn(
+			[
+				"../../node_modules/.bin/vp",
+				"dev",
+				"--port",
+				String(port),
+				"--strictPort",
+				"--host",
+				"127.0.0.1",
+			],
+			{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+		);
 const receipts =
 	process.env.B7_FEED_RECEIPTS ?? `${tmpdir()}/b7-feed-shortcut-ownership`;
 await mkdir(receipts, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+let browser: Browser | undefined;
 const results = [];
 try {
+	let ready = false;
+	for (let i = 0; i < 100 && !ready; i++) {
+		if (server && server.exitCode !== null)
+			throw new Error("Feed test server exited");
+		try {
+			ready = (await fetch(`${origin}/browser-tests/feed-deck-polish.html`)).ok;
+		} catch {}
+		if (!ready) await Bun.sleep(200);
+	}
+	if (!ready) throw new Error("Feed test server did not start");
+	browser = await chromium.launch({ headless: true });
 	for (const viewport of [
 		{ width: 1440, height: 1000 },
 		{ width: 390, height: 844 },
@@ -88,7 +121,17 @@ try {
 				[],
 				"Sibling keys never dispatch Feed clicks",
 			);
+			assert.equal(await feed.getAttribute("role"), "region");
+			assert.equal(await feed.getAttribute("aria-label"), "Feed");
 			await feed.focus();
+			assert(
+				await feed.evaluate(
+					(node) =>
+						node.matches(":focus-visible") &&
+						getComputedStyle(node).outlineStyle === "solid",
+				),
+				"Feed shows a focus ring under keyboard focus",
+			);
 			for (const key of ["o", "p", "h", "n"]) await page.keyboard.press(key);
 			assert.deepEqual(
 				await clicks(),
@@ -126,6 +169,10 @@ try {
 			await more.click();
 			const menu = page.getByRole("menu");
 			await menu.waitFor();
+			// The menu moves focus in after it opens; keys pressed before that are not its keys.
+			await page.waitForFunction(() =>
+				document.querySelector("[role=menu]")?.contains(document.activeElement),
+			);
 			assert(
 				await menu.evaluate(
 					(node) => !node.closest('[data-workspace-app-entry="activity-feed"]'),
@@ -245,5 +292,10 @@ try {
 		`Feed shortcut regression passed: ${results.length} viewport/theme combinations`,
 	);
 } finally {
-	await browser.close();
+	await browser?.close();
+	if (server?.pid) {
+		try {
+			process.kill(-server.pid, "SIGTERM");
+		} catch {}
+	}
 }
