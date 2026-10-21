@@ -263,46 +263,31 @@ export async function setBinding(
 ): Promise<AppAdapterSecretBinding> {
 	const now = new Date().toISOString();
 
-	// Check if binding already exists for this config path
-	const existing = await getBindingByPath(db, adapterId, configPath);
+	const [binding] = await db
+		.insert(appAdapterSecretBindings)
+		.values({
+			id: crypto.randomUUID(),
+			adapterId,
+			appId,
+			configPath,
+			secretId,
+			secretScope,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.onConflictDoUpdate({
+			target: [
+				appAdapterSecretBindings.adapterId,
+				appAdapterSecretBindings.configPath,
+			],
+			set: { secretId, secretScope, updatedAt: now },
+		})
+		.returning();
 
-	if (existing) {
-		// Update existing binding
-		await db
-			.update(appAdapterSecretBindings)
-			.set({
-				secretId,
-				secretScope,
-				updatedAt: now,
-			})
-			.where(eq(appAdapterSecretBindings.id, existing.id));
-
-		const updated = await getBindingById(db, existing.id);
-		if (!updated) {
-			throw new Error(`Failed to update binding: ${existing.id}`);
-		}
-		return updated;
+	if (!binding) {
+		throw new Error(`Failed to set binding: ${adapterId}/${configPath}`);
 	}
-
-	// Create new binding
-	const id = crypto.randomUUID();
-
-	await db.insert(appAdapterSecretBindings).values({
-		id,
-		adapterId,
-		appId,
-		configPath,
-		secretId,
-		secretScope,
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	const created = await getBindingById(db, id);
-	if (!created) {
-		throw new Error(`Failed to create binding: ${id}`);
-	}
-	return created;
+	return binding;
 }
 
 /**
