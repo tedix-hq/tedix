@@ -908,8 +908,9 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 		),
 	).toEqual([landed]);
 	// Guarded push can rebase/reset the lane, so its final message is also evidence input.
-	expect(
-		landedLaneCommits(repo, git(["rev-parse", "HEAD"]), `Result ${landed}`),
-	).toEqual([landed]);
+	git(["reset", "--hard", base]);
+	expect(landedLaneCommits(repo, base, `Result ${landed}`)).toEqual([landed]);
+	// A main commit that predates the lane's base is not this lane's result.
+	expect(landedLaneCommits(repo, landed, `Rebased onto ${landed}`)).toEqual([]);
 	expect(() => landedLaneCommits(repo, "f".repeat(40), "")).toThrow();
 });

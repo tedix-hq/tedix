@@ -360,24 +360,16 @@ export function landedLaneCommits(
 		"origin",
 		"refs/heads/main:refs/remotes/origin/main",
 	]);
-	return [...candidates].filter((sha) => {
-		const result = spawnSync(
-			"git",
-			[
-				"-C",
-				repo,
-				"merge-base",
-				"--is-ancestor",
-				sha,
-				"refs/remotes/origin/main",
-			],
-			{
-				encoding: "utf8",
-				timeout: 10_000,
-			},
-		);
-		return result.status === 0;
-	});
+	const isAncestor = (sha: string, of: string) =>
+		spawnSync("git", ["-C", repo, "merge-base", "--is-ancestor", sha, of], {
+			encoding: "utf8",
+			timeout: 10_000,
+		}).status === 0;
+	// A cited commit the lane started from is history, not this lane's result.
+	return [...candidates].filter(
+		(sha) =>
+			isAncestor(sha, "refs/remotes/origin/main") && !isAncestor(sha, base),
+	);
 }
 
 interface DispatcherDeps {
