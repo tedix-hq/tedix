@@ -6,7 +6,8 @@
  * A pass reads the oldest rows 50 at a time, writes one gzip NDJSON object
  * per chunk to R2, confirms the object exists, and only then deletes exactly
  * those rows in one D1 batch of <=50-row statements. A run that stops midway
- * resumes on the next tick from the oldest remaining row. If it stops between
+ * resumes on the next tick from its last processed rowid in `last_report`.
+ * A completed sweep wraps to reconsider retained rows. If it stops between
  * the R2 write and the delete, the next tick rewrites the same rows to the
  * same deterministic key before deleting them.
  *
@@ -89,6 +90,8 @@ export interface D1RetentionTableResult {
 	movedRows: number;
 	deletedRows: number;
 	objects: number;
+	/** Last successfully processed rowid; -1 restarts a completed sweep. */
+	scanAfterRowid: number;
 	stoppedBy: "done" | "row_cap" | "time_budget" | "error" | "skipped";
 	error?: string;
 }
@@ -134,37 +137,47 @@ export async function gzipNdjson(
 	return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-/**
- * Read up to `limit` of the oldest expired rows. Stops at the first row still
- * inside the keep window, so rows are only ever taken from the old end.
- */
+/** Read a bounded rowid window, retaining newer and invalid timestamps. */
 async function readExpiredChunk(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	cutoff: D1RetentionCutoff,
 	limit: number,
-): Promise<{ rows: D1RetentionRow[]; reachedKeepWindow: boolean }> {
+	afterRowid: number,
+	deadline: number,
+): Promise<{
+	rows: D1RetentionRow[];
+	afterRowid: number;
+	reachedEnd: boolean;
+}> {
 	const rows: D1RetentionRow[] = [];
-	let afterRowid = -1;
-	while (rows.length < limit) {
+	let scanned = 0;
+	while (
+		rows.length < limit &&
+		scanned < D1_ARCHIVE_CHUNK_ROWS &&
+		Date.now() < deadline
+	) {
 		const page = await readD1RetentionPage(
 			db,
 			tableSpec,
 			afterRowid,
-			Math.min(D1_RETENTION_ROWS_PER_STATEMENT, limit - rows.length),
+			Math.min(
+				D1_RETENTION_ROWS_PER_STATEMENT,
+				limit - rows.length,
+				D1_ARCHIVE_CHUNK_ROWS - scanned,
+			),
 		);
-		if (page.length === 0) return { rows, reachedKeepWindow: true };
+		if (page.length === 0) return { rows, afterRowid, reachedEnd: true };
 		for (const row of page) {
 			if (
-				!isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff)
-			) {
-				return { rows, reachedKeepWindow: true };
-			}
-			rows.push(row);
+				isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff)
+			)
+				rows.push(row);
 		}
+		scanned += page.length;
 		afterRowid = page[page.length - 1]?.__rowid ?? afterRowid;
 	}
-	return { rows, reachedKeepWindow: false };
+	return { rows, afterRowid, reachedEnd: false };
 }
 
 /**
@@ -213,6 +226,7 @@ async function runPolicy(
 		movedRows: 0,
 		deletedRows: 0,
 		objects: 0,
+		scanAfterRowid: -1,
 		stoppedBy: "skipped",
 	};
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
@@ -237,6 +251,13 @@ async function runPolicy(
 		return result;
 	}
 
+	const previousCursor = policy.lastReport?.scanAfterRowid;
+	if (
+		typeof previousCursor === "number" &&
+		Number.isSafeInteger(previousCursor) &&
+		previousCursor >= -1
+	)
+		result.scanAfterRowid = previousCursor;
 	const rowCap = Math.max(0, policy.maxRowsPerRun);
 	result.stoppedBy = "done";
 	try {
@@ -250,13 +271,19 @@ async function runPolicy(
 				result.stoppedBy = "time_budget";
 				break;
 			}
-			const { rows, reachedKeepWindow } = await readExpiredChunk(
+			const { rows, afterRowid, reachedEnd } = await readExpiredChunk(
 				db,
 				tableSpec,
 				cutoff,
 				Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining),
+				result.scanAfterRowid,
+				deadline,
 			);
-			if (rows.length === 0) break;
+			if (rows.length === 0) {
+				result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
+				if (reachedEnd) break;
+				continue;
+			}
 			if (policy.mode === "move_to_logs_db" && logsDb) {
 				await copyChunkToLogs(logsDb, tableSpec, rows, deadline);
 			}
@@ -304,7 +331,8 @@ async function runPolicy(
 					`deleted ${deleted} of ${rows.length} rows read; stopping`,
 				);
 			}
-			if (reachedKeepWindow) break;
+			result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
+			if (reachedEnd) break;
 		}
 	} catch (error) {
 		result.stoppedBy = "error";
@@ -333,6 +361,7 @@ function reportFor(
 		movedRows: result.movedRows,
 		deletedRows: result.deletedRows,
 		objects: result.objects,
+		scanAfterRowid: result.scanAfterRowid,
 		stoppedBy: result.stoppedBy,
 		error: result.error ?? null,
 	};
@@ -376,6 +405,7 @@ export async function runD1Retention(params: {
 				movedRows: 0,
 				deletedRows: 0,
 				objects: 0,
+				scanAfterRowid: -1,
 				stoppedBy: "error",
 				error: error instanceof Error ? error.message : String(error),
 			};

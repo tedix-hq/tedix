@@ -7,11 +7,10 @@
  * bounded statements a run uses.
  *
  * Every read walks the table's own rowid b-tree from the oldest end, so no
- * statement depends on a timestamp index and none scans the table. Rowids in
- * these tables grow with insertion time; a page stops at the first row that
- * is still inside the keep window, so an out-of-order row is kept, never
- * deleted early. Each delete names at most 50 rowids and repeats the cutoff
- * test, so it can only remove rows the run actually read and judged expired.
+ * statement depends on a timestamp index. The engine advances through bounded
+ * pages, skipping newer or invalid timestamps instead of assuming rowid order
+ * matches timestamp order. Each delete names at most 50 rowids and repeats
+ * the cutoff test, so it only removes rows read and judged expired.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -151,9 +150,27 @@ export function isD1RetentionExpired(
 ): boolean {
 	if (value === null || value === undefined) return false;
 	if (tableSpec.format === "epoch_seconds") {
-		return typeof value === "number" && value < (cutoff as number);
+		return (
+			typeof value === "number" &&
+			Number.isFinite(new Date(value * 1000).getTime()) &&
+			value < (cutoff as number)
+		);
 	}
-	return typeof value === "string" && value < (cutoff as string);
+	if (
+		typeof value !== "string" ||
+		!/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)?$/.test(value)
+	)
+		return false;
+	const parsed = new Date(
+		value.length === 10
+			? `${value}T00:00:00Z`
+			: `${value.replace(" ", "T").replace(/Z$/, "")}Z`,
+	);
+	return (
+		Number.isFinite(parsed.getTime()) &&
+		parsed.toISOString().slice(0, 10) === value.slice(0, 10) &&
+		value < (cutoff as string)
+	);
 }
 
 /**
@@ -176,6 +193,12 @@ export function d1RetentionPolicyProblem(
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (!tableSpec) return "unsupported_table";
 	if (!Number.isInteger(policy.keepDays)) return "keep_days_not_integer";
+	// Artifact views need a queryable pointer to their separately stored R2 body.
+	if (
+		policy.tableName === "skill_run_artifacts" &&
+		policy.mode === "archive_then_delete"
+	)
+		return "logs_copy_required";
 	if (policy.mode === "delete" && tableSpec.archiveRequired) {
 		return "archive_required";
 	}
