@@ -1994,6 +1994,7 @@ export const runtimeMemory = {
 									platform: platformFor(stageSignal),
 									store: this.getWorkItemPromotionStore(),
 									sessionKey: payload.user.sessionKey || DEFAULT_SESSION_KEY,
+									runId: payload.runId,
 								});
 								if (promotion.detected > 0) {
 									console.log(
