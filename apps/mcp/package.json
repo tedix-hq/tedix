@@ -48,6 +48,7 @@
 		"@cloudflare/vitest-plugin": "catalog:",
 		"@modelcontextprotocol/ext-apps": "catalog:",
 		"@modelcontextprotocol/sdk": "1.32.1",
+		"@orpc/server": "catalog:",
 		"@tedix/tsconfig": "workspace:*",
 		"cf": "catalog:",
 		"typescript": "catalog:",

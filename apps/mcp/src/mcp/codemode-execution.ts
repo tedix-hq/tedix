@@ -93,6 +93,14 @@ function isSideEffectfulTool(
 	return annotations?.readOnlyHint !== true;
 }
 
+function innerToolError(result: CallToolResult): Error {
+	const detail = recordFrom(result._meta?.["tedix/error"]);
+	return Object.assign(new Error(callToolResultText(result)), {
+		...(typeof detail?.code === "string" ? { code: detail.code } : {}),
+		...(typeof detail?.status === "number" ? { status: detail.status } : {}),
+	});
+}
+
 export function runSerializedSideEffect<T>(
 	executionRefs: CodeModeExecutionRefs,
 	fn: () => Promise<T>,
@@ -305,19 +313,8 @@ export function buildNamespaceGroups(
 			const retryKey = buildIdenticalCallKey(ownerKey, args);
 			const retryState = executionRefs.failureBudget.state(retryKey);
 			if (retryState.blocked) {
-				return withCompletionEvidence(
-					safeName,
-					{
-						ok: false,
-						error:
-							"Identical call blocked after repeated failures. Change the arguments or execution plan.",
-					},
-					{
-						key: retryKey,
-						attempts: retryState.attempts,
-						limit: retryState.limit,
-						blocked: true,
-					},
+				throw new Error(
+					"Identical call blocked after repeated failures. Change the arguments or execution plan.",
 				);
 			}
 			let actionReceipt: ActionReceipt | undefined;
@@ -438,7 +435,7 @@ export function buildNamespaceGroups(
 					});
 					if (result.isError) {
 						rpcSuccess = false;
-						throw new Error(callToolResultText(result));
+						throw innerToolError(result);
 					}
 					collectCodeModeCollectionRead({
 						meta: result._meta,
@@ -473,7 +470,7 @@ export function buildNamespaceGroups(
 						// the outer `code` tool and callers such as Home write settlement
 						// then record a provider failure as successful execution.
 						rpcSuccess = false;
-						throw new Error(callToolResultText(paidResult));
+						throw innerToolError(paidResult);
 					}
 
 					const normalizedResult = unwrapCallToolResult(
@@ -580,8 +577,7 @@ export function buildNamespaceGroups(
 						limit: updatedRetryState.limit,
 					});
 				} catch (error) {
-					const updatedRetryState =
-						executionRefs.failureBudget.recordFailure(retryKey);
+					executionRefs.failureBudget.recordFailure(retryKey);
 					executionRefs.toolReceipts.push({
 						operation: `${ns}.${safeName}`,
 						status: "failed",
@@ -590,18 +586,7 @@ export function buildNamespaceGroups(
 							: String(error)
 						).slice(0, 300),
 					});
-					return withCompletionEvidence(
-						safeName,
-						{
-							ok: false,
-							error: error instanceof Error ? error.message : String(error),
-						},
-						{
-							key: retryKey,
-							attempts: updatedRetryState.attempts,
-							limit: updatedRetryState.limit,
-						},
-					);
+					throw error;
 				}
 			};
 			return isModernMcpRequest(executionRefs.approvalExtra?._meta) ||
@@ -775,7 +760,61 @@ export function withLegacyNamespaceAliases(
 			merged.push({ name, fns: fns as ResolvedProvider["fns"] });
 		}
 	}
-	return merged;
+	return merged.map(withInnerErrorTransport);
+}
+
+// The SDK dispatcher preserves only Error.message. Encode structured errors
+// on that channel and reconstruct an Error inside the sandbox, after RPC.
+const INNER_ERROR_PREFIX = "tedix:inner-tool-error:";
+function withInnerErrorTransport(provider: ResolvedProvider): ResolvedProvider {
+	const names = Object.keys(provider.fns);
+	return {
+		...provider,
+		fns: Object.fromEntries(
+			names.map((name) => [
+				name,
+				async (...args: unknown[]) => {
+					try {
+						return await provider.fns[name]!(...args);
+					} catch (error) {
+						const detail = error as { code?: unknown; status?: unknown } | null;
+						if (
+							error instanceof Error &&
+							(typeof detail?.code === "string" ||
+								typeof detail?.status === "number")
+						) {
+							throw new Error(
+								INNER_ERROR_PREFIX +
+									JSON.stringify({
+										message: error.message,
+										code: detail.code,
+										status: detail.status,
+									}),
+							);
+						}
+						throw error;
+					}
+				},
+			]),
+		),
+		prelude: [
+			provider.prelude,
+			`
+    for (const name of ${JSON.stringify(names)}) {
+      const call = ${provider.name}[name];
+      Object.defineProperty(${provider.name}, name, { value: async (...args) => {
+        try { return await call(...args); }
+        catch (error) {
+          if (!error.message?.startsWith(${JSON.stringify(INNER_ERROR_PREFIX)})) throw error;
+          const detail = JSON.parse(error.message.slice(${INNER_ERROR_PREFIX.length}));
+          throw Object.assign(new Error(detail.message), { code: detail.code, status: detail.status });
+        }
+      } });
+    }`,
+		]
+			.filter(Boolean)
+			.join("\n"),
+	};
 }
 
 /**
