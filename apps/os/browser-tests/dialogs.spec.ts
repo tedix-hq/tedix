@@ -354,6 +354,132 @@ try {
 		await finish(nested, c);
 		console.log(`Dialog behaviour passed: ${label(c)}`);
 	}
+	for (const c of cases.filter(
+		(c) => c.viewport.width === 390 || c.viewport.width === 1280,
+	)) {
+		const page = await fresh(c);
+		let requests = 0;
+		let release: () => void = () => {};
+		await page.route("**/browser-tests/typed-confirm-result", async (route) => {
+			requests++;
+			if (requests === 1) {
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+				await route.fulfill({ status: 403, body: "Refused" });
+			} else await route.fulfill({ status: 200, body: "Retired" });
+		});
+		await page.goto(fixtureUrl(c, "typed"));
+		const opener = page.getByRole("button", {
+			name: "Retire organization",
+			exact: true,
+		});
+		await opener.click();
+		const dialog = page.getByRole("alertdialog");
+		await dialog.waitFor();
+		await settled(page);
+		const input = dialog.getByRole("textbox", {
+			name: "Type Example team to confirm",
+			exact: true,
+		});
+		const confirm = dialog.getByRole("button", {
+			name: "Retire organization",
+			exact: true,
+		});
+		assert(await confirm.isDisabled(), "empty confirmation cannot submit");
+		await input.fill("example team");
+		assert(await confirm.isDisabled(), "confirmation is case sensitive");
+		await input.fill("Example team");
+		assert(await confirm.isEnabled(), "exact name enables confirmation");
+		const checkFooter = async () => {
+			const buttons = await dialog
+				.locator('[data-slot="alert-dialog-footer"] button')
+				.evaluateAll((nodes) =>
+					nodes.map((node) => {
+						const r = node.getBoundingClientRect();
+						return {
+							x: r.x,
+							right: r.right,
+							top: r.top,
+							bottom: r.bottom,
+							width: r.width,
+							height: r.height,
+							hit: node.contains(
+								document.elementFromPoint(
+									r.x + r.width / 2,
+									r.y + r.height / 2,
+								),
+							),
+						};
+					}),
+				);
+			assert.equal(buttons.length, 2);
+			for (const b of buttons)
+				assert(
+					b.hit &&
+						b.x >= 0 &&
+						b.right <= c.viewport.width &&
+						b.bottom <= c.viewport.height,
+					`${label(c)} footer visible and hit-testable`,
+				);
+			const [cancel, submit] = buttons;
+			if (c.viewport.width < 640) {
+				assert(
+					cancel.height >= 44 && submit.height >= 44,
+					"phone touch targets",
+				);
+				assert(
+					Math.abs(cancel.width - submit.width) <= 1 &&
+						submit.bottom <= cancel.top,
+					"phone actions stack at equal widths",
+				);
+			} else
+				assert(
+					Math.abs(cancel.top - submit.top) <= 1 && cancel.right < submit.x,
+					"desktop actions share a row",
+				);
+		};
+		await checkFooter();
+		await input.press("Enter");
+		const pending = dialog.getByRole("button", {
+			name: /Retiring…/,
+		});
+		await pending.waitFor();
+		assert(await pending.isDisabled(), "pending submit disabled");
+		assert(await input.isDisabled(), "pending typed name disabled");
+		assert(
+			await dialog
+				.getByRole("button", { name: "Cancel", exact: true })
+				.isDisabled(),
+			"pending cancel disabled",
+		);
+		await page.keyboard.press("Escape");
+		assert(await dialog.isVisible(), "pending Escape cannot dismiss");
+		release();
+		await dialog.locator("[data-confirm-error]").waitFor();
+		assert.equal(requests, 1, "one request per confirmation");
+		assert.match(await dialog.innerText(), /Organization could not be retired/);
+		assert.equal(
+			await input.inputValue(),
+			"Example team",
+			"failure keeps the typed name for retry",
+		);
+		await checkFooter();
+		await confirm.click();
+		await dialog.waitFor({ state: "hidden" });
+		assert.equal(requests, 2, "retry submitted");
+		await opener.click();
+		await dialog.waitFor();
+		assert.equal(
+			await input.inputValue(),
+			"",
+			"reopening requires a fresh name",
+		);
+		await page.keyboard.press("Escape");
+		await dialog.waitFor({ state: "hidden" });
+		await finish(page, c);
+		console.log(`Typed confirmation passed: ${label(c)}`);
+	}
 } finally {
 	for (const browser of browsers.values()) await browser.close();
 	// vp launches Vite in a child; close the group so test gates receive EOF.

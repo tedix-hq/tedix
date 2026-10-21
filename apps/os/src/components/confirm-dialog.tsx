@@ -28,6 +28,8 @@ interface ConfirmDialogProps {
 	/** Shown inside the dialog: the page behind it is covered. */
 	error?: unknown;
 	onConfirm: () => void;
+	/** Associates the footer action with a form in the dialog body. */
+	form?: string;
 	children?: ReactNode;
 }
 
@@ -50,6 +52,7 @@ export function ConfirmDialog({
 	confirmDisabled = false,
 	error,
 	onConfirm,
+	form,
 	children,
 }: ConfirmDialogProps) {
 	return (
@@ -73,6 +76,8 @@ export function ConfirmDialog({
 						{cancelLabel}
 					</AlertDialogCancel>
 					<AlertDialogAction
+						form={form}
+						type={form ? "submit" : "button"}
 						variant={destructive ? "destructive" : "default"}
 						loading={isPending}
 						disabled={isPending || confirmDisabled}

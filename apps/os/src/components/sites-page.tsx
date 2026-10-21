@@ -34,7 +34,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import { exactConfirmationSchema } from "@/components/kumo/forms/exact-confirmation-schema";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { IconFrame } from "@/components/kumo/icon-frame";
@@ -48,16 +47,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/kumo/table";
-import {
-	AlertDialog,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/kumo/alert-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { TypedConfirmDialog } from "@/components/typed-confirm-dialog";
 import {
 	Collection,
 	Page,
@@ -778,10 +769,6 @@ export function SitesPage() {
 				`${result.slug} was ${result.status === "active" ? "restored" : "archived"}`,
 			);
 		},
-		onError: (error) =>
-			toast.error(
-				error instanceof Error ? error.message : "Site lifecycle update failed",
-			),
 	});
 	const runReconciliation = useMutation({
 		mutationFn: () => osApi.sites.runReconciliation({}),
@@ -869,38 +856,10 @@ export function SitesPage() {
 				storeDeprovisionReceipt(checkingReceipt);
 				setLastDeprovision(checkingReceipt);
 				setDeprovisionOpen(false);
+				toast.error(
+					"Cleanup request timed out before a receipt arrived. Checking its status now.",
+				);
 			}
-			toast.error(
-				error instanceof Error && /timed out/i.test(error.message)
-					? "Cleanup request timed out before a receipt arrived. Checking its status now."
-					: error instanceof Error
-						? error.message
-						: "Deprovision failed",
-			);
-		},
-	});
-	const deprovisionForm = useZodForm({
-		schema: exactConfirmationSchema(selectedSite?.slug ?? "", "Site slug"),
-		defaultValues: { confirmation: "" },
-		onSubmit: ({ value }) => {
-			if (!selectedSite) return;
-			deprovision.mutate({
-				siteId: selectedSite.id,
-				confirmation: value.confirmation,
-				name: selectedSite.name,
-			});
-		},
-	});
-	const lifecycleForm = useZodForm({
-		schema: exactConfirmationSchema(lifecycleTarget?.slug ?? "", "Site slug"),
-		defaultValues: { confirmation: "" },
-		onSubmit: ({ value }) => {
-			if (!lifecycleTarget) return;
-			lifecycle.mutate({
-				siteId: lifecycleTarget.id,
-				action: lifecycleTarget.action,
-				confirmation: value.confirmation,
-			});
 		},
 	});
 	const requestLifecycleChange = (site: {
@@ -911,7 +870,7 @@ export function SitesPage() {
 	}) => {
 		if (site.status === "provisioning") return;
 		const action = site.status === "active" ? "archive" : "restore";
-		lifecycleForm.reset();
+		lifecycle.reset();
 		setLifecycleTarget({
 			id: site.id,
 			slug: site.slug,
@@ -921,7 +880,7 @@ export function SitesPage() {
 	};
 	const handleLifecycleOpenChange = (open: boolean) => {
 		if (open || lifecycle.isPending) return;
-		lifecycleForm.reset();
+		lifecycle.reset();
 		setLifecycleTarget(null);
 	};
 	const inspectRecovery = async (siteId: string) => {
@@ -1585,7 +1544,10 @@ export function SitesPage() {
 								<Button
 									size="sm"
 									variant="destructive"
-									onClick={() => setDeprovisionOpen(true)}
+									onClick={() => {
+										deprovision.reset();
+										setDeprovisionOpen(true);
+									}}
 								>
 									<Trash size={16} /> Deprovision
 								</Button>
@@ -1719,123 +1681,56 @@ export function SitesPage() {
 					) : null}
 				</PageSection>
 			) : null}
-			<AlertDialog
+			<TypedConfirmDialog
 				open={lifecycleTarget !== null}
 				onOpenChange={handleLifecycleOpenChange}
-			>
-				<AlertDialogContent className="gap-4">
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							{lifecycleTarget?.action === "archive" ? "Archive" : "Restore"}{" "}
-							{lifecycleTarget?.name}?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							{lifecycleTarget?.action === "archive"
-								? "Archiving removes the site from public service while retaining its recoverable deployment state."
-								: "Restoring returns the retained site deployment to active service."}
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<form
-						className="grid gap-4"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void lifecycleForm.handleSubmit();
-						}}
-					>
-						<FormField
-							form={lifecycleForm}
-							name="confirmation"
-							label={`Type ${lifecycleTarget?.slug ?? "the site slug"} to confirm`}
-						>
-							{(field, meta) => (
-								<FormInput field={field} {...meta} autoComplete="off" />
-							)}
-						</FormField>
-						<AlertDialogFooter>
-							<AlertDialogCancel disabled={lifecycle.isPending}>
-								Cancel
-							</AlertDialogCancel>
-							<lifecycleForm.Subscribe selector={(state) => state.canSubmit}>
-								{(canSubmit) => (
-									<Button
-										type="submit"
-										variant={
-											lifecycleTarget?.action === "archive"
-												? "destructive"
-												: "default"
-										}
-										disabled={!canSubmit || lifecycle.isPending}
-									>
-										{lifecycle.isPending
-											? "Updating…"
-											: lifecycleTarget?.action === "archive"
-												? "Archive site"
-												: "Restore site"}
-									</Button>
-								)}
-							</lifecycleForm.Subscribe>
-						</AlertDialogFooter>
-					</form>
-				</AlertDialogContent>
-			</AlertDialog>
-			<AlertDialog
-				open={deprovisionOpen}
-				onOpenChange={(open) => {
-					if (!open && deprovision.isPending) return;
-					setDeprovisionOpen(open);
-					if (!open) deprovisionForm.reset();
+				title={`${lifecycleTarget?.action === "archive" ? "Archive" : "Restore"} ${lifecycleTarget?.name}?`}
+				description={
+					lifecycleTarget?.action === "archive"
+						? "Archiving removes the site from public service while retaining its recoverable deployment state."
+						: "Restoring returns the retained site deployment to active service."
+				}
+				expectedName={lifecycleTarget?.slug ?? ""}
+				nameLabel="Site slug"
+				confirmLabel={
+					lifecycleTarget?.action === "archive"
+						? "Archive site"
+						: "Restore site"
+				}
+				pendingLabel="Updating…"
+				destructive={lifecycleTarget?.action === "archive"}
+				isPending={lifecycle.isPending}
+				error={lifecycle.error}
+				onConfirm={(confirmation) => {
+					if (!lifecycleTarget) return;
+					lifecycle.mutate({
+						siteId: lifecycleTarget.id,
+						action: lifecycleTarget.action,
+						confirmation,
+					});
 				}}
-			>
-				<AlertDialogContent className="gap-4">
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							Deprovision {selectedSite?.name}?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							This permanently removes the Emdash deployment database, media,
-							bundles, sandbox, authoring proxy, and site record. Connected
-							branded MCP apps are retained.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<form
-						className="grid gap-4"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void deprovisionForm.handleSubmit();
-						}}
-					>
-						<FormField
-							form={deprovisionForm}
-							name="confirmation"
-							label={`Type ${selectedSite?.slug ?? "the site slug"} to confirm`}
-						>
-							{(field, meta) => (
-								<FormInput field={field} {...meta} autoComplete="off" />
-							)}
-						</FormField>
-						<AlertDialogFooter>
-							<AlertDialogCancel disabled={deprovision.isPending}>
-								Cancel
-							</AlertDialogCancel>
-							<deprovisionForm.Subscribe selector={(state) => state.canSubmit}>
-								{(canSubmit) => (
-									<Button
-										type="submit"
-										variant="destructive"
-										disabled={
-											!selectedSite || !canSubmit || deprovision.isPending
-										}
-									>
-										{deprovision.isPending
-											? "Starting cleanup…"
-											: "Deprovision permanently"}
-									</Button>
-								)}
-							</deprovisionForm.Subscribe>
-						</AlertDialogFooter>
-					</form>
-				</AlertDialogContent>
-			</AlertDialog>
+			/>
+			<TypedConfirmDialog
+				open={deprovisionOpen}
+				onOpenChange={setDeprovisionOpen}
+				title={`Deprovision ${selectedSite?.name}?`}
+				description="This permanently removes the Emdash deployment database, media, bundles, sandbox, authoring proxy, and site record. Connected branded MCP apps are retained."
+				expectedName={selectedSite?.slug ?? ""}
+				nameLabel="Site slug"
+				confirmLabel="Deprovision permanently"
+				pendingLabel="Starting cleanup…"
+				destructive
+				isPending={deprovision.isPending}
+				error={deprovision.error}
+				onConfirm={(confirmation) => {
+					if (!selectedSite) return;
+					deprovision.mutate({
+						siteId: selectedSite.id,
+						confirmation,
+						name: selectedSite.name,
+					});
+				}}
+			/>
 		</Page>
 	);
 }

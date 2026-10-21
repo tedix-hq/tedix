@@ -25,6 +25,8 @@ const h = vi.hoisted(() => ({
 	calls: [] as Array<{ client: string; path: string; input: unknown }>,
 	stepUpHooks: [] as Array<Record<string, unknown>>,
 	stepUpIntents: [] as unknown[],
+	pauseStepUp: false,
+	finishStepUp: null as ((token: string) => void) | null,
 	resume: {} as Record<string, { intent: unknown; failure: string | null }>,
 	webMcp: [] as string[],
 	webMcpFactories: [] as Array<() => unknown>,
@@ -65,7 +67,8 @@ vi.mock("@/lib/step-up-auth", () => ({
 		return {
 			requireStepUp: (run: (token: string) => void, intent?: unknown) => {
 				h.stepUpIntents.push(intent);
-				run("su-token");
+				if (h.pauseStepUp) h.finishStepUp = run;
+				else run("su-token");
 			},
 			StepUpDialog: () => null,
 		};
@@ -108,6 +111,8 @@ afterEach(() => {
 	h.calls.length = 0;
 	h.stepUpHooks.length = 0;
 	h.stepUpIntents.length = 0;
+	h.pauseStepUp = false;
+	h.finishStepUp = null;
 	h.resume = {};
 	h.webMcp.length = 0;
 	h.webMcpFactories.length = 0;
@@ -361,6 +366,23 @@ describe("API key destructive-action safety", () => {
 		expect(rotated.input).toEqual({ organizationId: ORG, keyId: "key-1" });
 		// Only the rotation target crosses the step-up round trip.
 		expect(h.stepUpIntents).toContainEqual({ keyId: "key-1", name: "CI" });
+	});
+
+	it("closes the rotation confirmation while step-up waits for identity", async () => {
+		h.pauseStepUp = true;
+		const page = await mount();
+		await openMenu(page, "Rotate");
+		await page.click(page.button("Rotate key"));
+		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+		expect(
+			h.calls.some((call) => call.path === "organizations.rotateApiKey"),
+		).toBe(false);
+		await act(async () => h.finishStepUp?.("su-delayed"));
+		expect(
+			h.calls.find((call) => call.path === "organizations.rotateApiKey")
+				?.client,
+		).toBe("direct:su-delayed");
+		expect(document.body.textContent).toContain("API key created");
 	});
 
 	it("binds both key challenges to the organization's Descope tenant", async () => {

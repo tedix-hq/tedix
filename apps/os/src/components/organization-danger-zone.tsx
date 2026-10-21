@@ -18,18 +18,8 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { FormInput } from "@/components/forms/form-input";
+import { TypedConfirmDialog } from "@/components/typed-confirm-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/kumo/alert-dialog";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
@@ -39,10 +29,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { Loader } from "@/components/kumo/loader";
-import { exactConfirmationSchema } from "@/components/kumo/forms/exact-confirmation-schema";
-import { FormField } from "@/components/kumo/forms/form-field";
-import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { getAuthenticatedOsApi } from "@/lib/api";
 import { useStepUpAuth } from "@/lib/step-up-auth";
 
@@ -95,19 +81,6 @@ export function DangerZone({
 			);
 		},
 	});
-	const confirmationForm = useZodForm({
-		schema: exactConfirmationSchema(organizationName, "Organization name"),
-		defaultValues: { confirmation: "" },
-		onSubmit: () => {
-			if (!steppedUpToken) {
-				setFailure("Re-authentication expired. Please start over.");
-				setIsOpen(false);
-				return;
-			}
-			setFailure(null);
-			deleteMutation.mutate({ steppedUpToken });
-		},
-	});
 
 	// Called after step-up succeeds — keeps the stepped-up token and opens the
 	// name-confirmation dialog.
@@ -115,7 +88,6 @@ export function DangerZone({
 		setFailure(null);
 		requireStepUp((token) => {
 			setSteppedUpToken(token);
-			confirmationForm.reset();
 			setIsOpen(true);
 		});
 	};
@@ -126,7 +98,6 @@ export function DangerZone({
 		// Abandoning the confirmation discards the step-up proof — reopening the
 		// dialog has to re-authenticate rather than reuse a stale token.
 		if (!open) {
-			confirmationForm.reset();
 			setSteppedUpToken(null);
 		}
 	};
@@ -153,7 +124,7 @@ export function DangerZone({
 					<li>Active subscriptions will be cancelled</li>
 				</ul>
 
-				{failure ? (
+				{failure && !isOpen ? (
 					<Alert variant="destructive">
 						<AlertTitle>The organization was not retired</AlertTitle>
 						<AlertDescription>{failure}</AlertDescription>
@@ -162,61 +133,28 @@ export function DangerZone({
 
 				<StepUpDialog />
 
-				<AlertDialog open={isOpen} onOpenChange={handleOpenChange}>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>Retire organization?</AlertDialogTitle>
-							<AlertDialogDescription>
-								This removes tenant access, disables its apps, and retires its
-								tedis. Their durable memory is retained.
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						<form
-							className="grid gap-4"
-							onSubmit={(event) => {
-								event.preventDefault();
-								void confirmationForm.handleSubmit();
-							}}
-						>
-							<FormField
-								form={confirmationForm}
-								name="confirmation"
-								label={`Type ${organizationName} to confirm`}
-							>
-								{(field, meta) => (
-									<FormInput
-										field={field}
-										{...meta}
-										placeholder={organizationName}
-										disabled={deleteMutation.isPending}
-										autoComplete="off"
-									/>
-								)}
-							</FormField>
-							<AlertDialogFooter>
-								<AlertDialogCancel disabled={deleteMutation.isPending}>
-									Cancel
-								</AlertDialogCancel>
-								<confirmationForm.Subscribe
-									selector={(state) => state.canSubmit}
-								>
-									{(canSubmit) => (
-										<AlertDialogAction
-											type="submit"
-											disabled={!canSubmit || deleteMutation.isPending}
-											variant="destructive"
-										>
-											{deleteMutation.isPending && (
-												<Loader className="mr-2" size="sm" />
-											)}
-											Retire organization
-										</AlertDialogAction>
-									)}
-								</confirmationForm.Subscribe>
-							</AlertDialogFooter>
-						</form>
-					</AlertDialogContent>
-				</AlertDialog>
+				<TypedConfirmDialog
+					open={isOpen}
+					onOpenChange={handleOpenChange}
+					title="Retire organization?"
+					description="This removes tenant access, disables its apps, and retires its tedis. Their durable memory is retained."
+					expectedName={organizationName}
+					nameLabel="Organization name"
+					confirmLabel="Retire organization"
+					pendingLabel="Retiring…"
+					destructive
+					isPending={deleteMutation.isPending}
+					error={failure}
+					onConfirm={() => {
+						if (!steppedUpToken) {
+							setFailure("Re-authentication expired. Please start over.");
+							setIsOpen(false);
+							return;
+						}
+						setFailure(null);
+						deleteMutation.mutate({ steppedUpToken });
+					}}
+				/>
 			</CardContent>
 		</Card>
 	);

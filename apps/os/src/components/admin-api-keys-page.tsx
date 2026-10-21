@@ -44,16 +44,7 @@ import {
 } from "@/components/api-keys-webmcp-tools";
 import { useWebMcpTools } from "@/lib/webmcp/use-webmcp-tools";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/kumo/alert-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Checkbox } from "@/components/kumo/checkbox";
@@ -852,67 +843,42 @@ function AdminApiKeysBody({
 				/>
 			) : null}
 
-			<AlertDialog
+			<ConfirmDialog
 				open={pendingAction !== null}
 				onOpenChange={(open) => {
 					if (open) return;
-					if (actionMutation.isPending) return;
 					actionMutation.reset();
+					setActionFailure(null);
 					setPendingAction(null);
 				}}
-			>
-				<AlertDialogContent size="sm">
-					<AlertDialogHeader>
-						<AlertDialogTitle>{keyActionTitle(pendingAction)}</AlertDialogTitle>
-						<AlertDialogDescription>
-							{keyActionDescription(pendingAction)}
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					{actionMutation.isError && actionFailure ? (
-						<Alert variant="destructive">
-							<AlertTitle>The key action failed</AlertTitle>
-							<AlertDescription>{actionFailure}</AlertDescription>
-						</Alert>
-					) : null}
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={actionMutation.isPending}>
-							Cancel
-						</AlertDialogCancel>
-						<AlertDialogAction
-							disabled={!pendingAction || actionMutation.isPending}
-							onClick={(event) => {
-								if (!pendingAction) return;
-								setActionFailure(null);
-								// Dialog.Close closes on click regardless of preventDefault.
-								// Revoke and delete keep this dialog open until the request
-								// settles; rotation hands off to the step-up dialog.
-								if (pendingAction.type !== "rotate")
-									event.preventBaseUIHandler();
-								if (pendingAction.type === "rotate") {
-									const keyId = pendingAction.id;
-									const name = pendingAction.name;
-									requireStepUp(
-										(steppedUpToken) =>
-											rotateMutation.mutate({ keyId, steppedUpToken }),
-										{ keyId, name } satisfies RotateKeyIntent,
-									);
-								}
-								if (pendingAction.type === "revoke")
-									revokeMutation.mutate(pendingAction.id);
-								if (pendingAction.type === "delete")
-									deleteMutation.mutate(pendingAction.id);
-							}}
-							variant={
-								pendingAction?.type === "rotate" ? "default" : "destructive"
-							}
-						>
-							{actionMutation.isPending
-								? "Working…"
-								: keyActionLabel(pendingAction)}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+				title={keyActionTitle(pendingAction)}
+				description={keyActionDescription(pendingAction)}
+				confirmLabel={keyActionLabel(pendingAction)}
+				pendingLabel="Working…"
+				destructive={pendingAction?.type !== "rotate"}
+				isPending={actionMutation.isPending}
+				confirmDisabled={!pendingAction}
+				error={actionMutation.isError ? actionFailure : null}
+				onConfirm={() => {
+					if (!pendingAction) return;
+					setActionFailure(null);
+					if (pendingAction.type === "rotate") {
+						const keyId = pendingAction.id;
+						const name = pendingAction.name;
+						// Close the confirmation before the step-up dialog takes focus.
+						setPendingAction(null);
+						requireStepUp(
+							(steppedUpToken) =>
+								rotateMutation.mutate({ keyId, steppedUpToken }),
+							{ keyId, name } satisfies RotateKeyIntent,
+						);
+					}
+					if (pendingAction.type === "revoke")
+						revokeMutation.mutate(pendingAction.id);
+					if (pendingAction.type === "delete")
+						deleteMutation.mutate(pendingAction.id);
+				}}
+			/>
 
 			<StepUpDialog />
 		</>
