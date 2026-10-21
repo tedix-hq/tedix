@@ -80,6 +80,13 @@ export const GRAPH_PROJECTION_INDEX_STATEMENTS = [
 		query: `CREATE RANGE INDEX graph_projection_decision_predecessor_lookup_v1 IF NOT EXISTS
 			FOR (d:Decision) ON (d.orgId, d.tediId, d.category, d.createdAt)`,
 	},
+	{
+		// Decision graph nodes: one per (org, "<kind>:<id>"), outside the
+		// managed epoch sweep.
+		name: "graph_projection_decision_node_key_v1",
+		query: `CREATE CONSTRAINT graph_projection_decision_node_key_v1 IF NOT EXISTS
+			FOR (n:DecisionNode) REQUIRE (n.orgId, n.key) IS UNIQUE`,
+	},
 ] as const;
 
 let schemaProvisioning: Promise<void> | null = null;

@@ -37,6 +37,7 @@ import type {
 	GraphEdge,
 	GraphFact,
 	GraphKnowledgeEntry,
+	GraphDecisionEdge,
 	GraphSkill,
 	GraphTedi,
 	GraphTediExpertise,
@@ -100,6 +101,8 @@ function deleteOperation(event: GraphProjectionOutboxEvent): SyncOperation {
 			return "delete_work_item";
 		case "work_item_source":
 			return "delete_work_item_source";
+		case "decision_edge":
+			return "delete_decision_graph_edge";
 	}
 }
 
@@ -282,6 +285,24 @@ function upsertPayload(
 					entityId: String(row.entity_id),
 					...common,
 				} as GraphCapabilityLink,
+			};
+		case "decision_edge":
+			return {
+				op: "upsert_decision_graph_edge",
+				id: event.entityId,
+				payload: {
+					id: String(row.id),
+					orgId: String(row.org_id),
+					kind: String(row.kind) as GraphDecisionEdge["kind"],
+					fromKind: String(row.from_kind) as GraphDecisionEdge["fromKind"],
+					fromId: String(row.from_id),
+					toKind: String(row.to_kind) as GraphDecisionEdge["toKind"],
+					toId: String(row.to_id),
+					confidence: Number(row.confidence ?? 1),
+					note: (row.note as string | null) ?? null,
+					occurredAt: (row.occurred_at as string | null) ?? null,
+					...common,
+				} as GraphDecisionEdge,
 			};
 		case "entity":
 		case "entity_resolution":

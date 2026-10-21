@@ -9,6 +9,7 @@ import type {
 	GraphCapability,
 	GraphCapabilityLink,
 	GraphDecision,
+	GraphDecisionEdge,
 	GraphDomain,
 	GraphEntity,
 	GraphEntityResolution,
@@ -69,6 +70,13 @@ export interface GraphWriter {
 	upsertWorkItem(item: GraphWorkItem): Promise<void>;
 	upsertWorkItemSource(source: GraphWorkItemSource): Promise<void>;
 	upsertEntityResolution(resolution: GraphEntityResolution): Promise<void>;
+	/**
+	 * Decision graph edges, grouped per edge kind into UNWIND writes. Optional
+	 * so writers that do not project the decision graph fail loudly instead
+	 * of silently dropping edges.
+	 */
+	upsertDecisionGraphEdges?(edges: GraphDecisionEdge[]): Promise<void>;
+	deleteDecisionGraphEdges?(edges: GraphDecisionEdge[]): Promise<void>;
 	deleteCapability(id: string, orgId: string): Promise<void>;
 	deleteCapabilityLink(link: GraphCapabilityLink): Promise<void>;
 	deleteFact(id: string, orgId: string): Promise<void>;
@@ -199,6 +207,34 @@ function normalizedEdge(event: SyncEvent): GraphSyncEdge {
 	return normalized as unknown as GraphSyncEdge;
 }
 
+function decisionGraphEdgePayload(event: SyncEvent): GraphDecisionEdge {
+	const payload = payloadRecord(event, event.op);
+	assertCanonicalScope(event, payload, event.op, { requireId: true });
+	if (
+		!payload.kind ||
+		!payload.fromKind ||
+		!payload.fromId ||
+		!payload.toKind ||
+		!payload.toId
+	) {
+		throw new Error(
+			`Invalid decision graph edge payload: missing kind or endpoints`,
+		);
+	}
+	return payload as unknown as GraphDecisionEdge;
+}
+
+function requireDecisionGraphWriter(
+	writer: GraphWriter,
+	method: "upsertDecisionGraphEdges" | "deleteDecisionGraphEdges",
+): (edges: GraphDecisionEdge[]) => Promise<void> {
+	const write = writer[method];
+	if (!write) {
+		throw new Error(`Graph writer does not support ${method}`);
+	}
+	return write.bind(writer);
+}
+
 type ProjectionBatchPhase =
 	| "node_upsert"
 	| "relationship_delete"
@@ -223,11 +259,13 @@ function projectionBatchPhase(event: SyncEvent): ProjectionBatchPhase {
 		case "delete_tedi_expertise":
 		case "delete_capability_link":
 		case "revoke_entity_resolution":
+		case "delete_decision_graph_edge":
 			return "relationship_delete";
 		case "upsert_edge":
 		case "upsert_tedi_expertise":
 		case "upsert_capability_link":
 		case "upsert_entity_resolution":
+		case "upsert_decision_graph_edge":
 			return "relationship_upsert";
 		case "delete_fact":
 		case "delete_domain":
@@ -318,7 +356,17 @@ export async function processProjectionBatch(
 		await processSyncEvent(event, writer);
 	}
 
+	const decisionEdgeDeletes = phases.relationship_delete.filter(
+		(event) => event.op === "delete_decision_graph_edge",
+	);
+	if (decisionEdgeDeletes.length > 0) {
+		await requireDecisionGraphWriter(
+			writer,
+			"deleteDecisionGraphEdges",
+		)(decisionEdgeDeletes.map(decisionGraphEdgePayload));
+	}
 	for (const event of phases.relationship_delete) {
+		if (event.op === "delete_decision_graph_edge") continue;
 		await processSyncEvent(event, writer);
 	}
 
@@ -329,7 +377,17 @@ export async function processProjectionBatch(
 		for (const event of edgeEvents) await processSyncEvent(event, writer);
 	}
 
+	const decisionEdgeUpserts = otherRelationshipUpserts.filter(
+		(event) => event.op === "upsert_decision_graph_edge",
+	);
+	if (decisionEdgeUpserts.length > 0) {
+		await requireDecisionGraphWriter(
+			writer,
+			"upsertDecisionGraphEdges",
+		)(decisionEdgeUpserts.map(decisionGraphEdgePayload));
+	}
 	for (const event of otherRelationshipUpserts) {
+		if (event.op === "upsert_decision_graph_edge") continue;
 		await processSyncEvent(event, writer);
 	}
 
@@ -637,6 +695,20 @@ export async function processSyncEvent(
 
 		case "delete_entity":
 			await writer.deleteEntity(event.id, event.orgId);
+			break;
+
+		case "upsert_decision_graph_edge":
+			await requireDecisionGraphWriter(
+				writer,
+				"upsertDecisionGraphEdges",
+			)([decisionGraphEdgePayload(event)]);
+			break;
+
+		case "delete_decision_graph_edge":
+			await requireDecisionGraphWriter(
+				writer,
+				"deleteDecisionGraphEdges",
+			)([decisionGraphEdgePayload(event)]);
 			break;
 
 		case "revoke_entity_resolution": {

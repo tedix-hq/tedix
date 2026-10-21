@@ -16,6 +16,10 @@ import {
 	ErrorCodes,
 } from "../orpc";
 import { runDecisionGraphBackfillPage } from "../../services/decision-graph-backfill";
+import {
+	createDecisionGraphReader,
+	enrichDecisionContexts,
+} from "../../services/decision-graph-reads";
 
 const decisionGraphOs = implement(
 	decisionGraphContract,
@@ -26,11 +30,20 @@ const getContext = decisionGraphOs.getContext
 	.use(AUTHZ.messagingRead)
 	.handler(async ({ input, context }) => {
 		// Every edge read is predicated on the caller's organization.
+		const orgId = requireOrgId(context);
 		const decisionContext = await getDecisionContext(
 			context.db,
-			requireOrgId(context),
+			orgId,
 			input.cardId,
 			{ maxHops: input.maxHops },
+		);
+		// The graph adds indirect blocks and duplicate communities when it is
+		// configured; D1 alone answers otherwise.
+		await enrichDecisionContexts(
+			createDecisionGraphReader(context.env),
+			orgId,
+			[{ id: input.cardId }],
+			new Map([[input.cardId, decisionContext]]),
 		);
 		return {
 			context: decisionContext,

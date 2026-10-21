@@ -138,6 +138,19 @@ describe("graph Deck qualification", () => {
 			),
 		).toBeLessThan(0);
 	});
+	it("ranks by the graph's blocks score when present", () => {
+		// A directly blocks one item that blocks three more; B blocks two.
+		const a = { actionable: true, blocksCount: 1, requestedAt: "2026-10-21" };
+		const b = { actionable: true, blocksCount: 2, requestedAt: "2026-10-21" };
+		expect(compareDecisionFreshness(a, b, now)).toBeGreaterThan(0);
+		expect(
+			compareDecisionFreshness(
+				{ ...a, blocksScore: 4 },
+				{ ...b, blocksScore: 2 },
+				now,
+			),
+		).toBeLessThan(0);
+	});
 	it("honors D1 qualification switches", () => {
 		const result = planDeckSweep({
 			cards: [card("old", { graph: { priorDecision: prior } })],

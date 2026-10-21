@@ -13,6 +13,12 @@
  */
 
 import * as algoQueries from "./queries/algorithms";
+import {
+	DELETE_ISOLATED_DECISION_NODES_QUERY,
+	deleteDecisionGraphEdgesQuery,
+	groupDecisionGraphEdges,
+	upsertDecisionGraphEdgesQuery,
+} from "./queries/decision-graph";
 import * as decisionQueries from "./queries/decisions";
 import * as factQueries from "./queries/facts";
 import { MIN_EXPLANATION_FACT_CONFIDENCE } from "./queries/quality";
@@ -2119,6 +2125,41 @@ export function createNeo4jGraphClient(config: GraphDbConfig) {
 				"MATCH (s:WorkItemSource {id: $id, orgId: $orgId}) DETACH DELETE s",
 				{ id, orgId },
 			);
+		},
+
+		async upsertDecisionGraphEdges(edges) {
+			for (const [type, rows] of groupDecisionGraphEdges(edges)) {
+				const records = await runQuery(
+					http,
+					upsertDecisionGraphEdgesQuery(type),
+					{ edges: rows },
+				);
+				const written = toNumber(records[0]?.written);
+				if (written !== rows.length) {
+					throw new Error(
+						`Neo4j decision graph ${type} batch verification failed: expected ${rows.length}, wrote ${written}`,
+					);
+				}
+			}
+		},
+
+		async deleteDecisionGraphEdges(edges) {
+			const nodes = new Map<string, { orgId: string; key: string }>();
+			for (const [type, rows] of groupDecisionGraphEdges(edges)) {
+				await runQuery(http, deleteDecisionGraphEdgesQuery(type), {
+					edges: rows,
+				});
+				for (const row of rows) {
+					for (const key of [row.fromKey, row.toKey]) {
+						nodes.set(`${row.orgId}\u0000${key}`, { orgId: row.orgId, key });
+					}
+				}
+			}
+			if (nodes.size > 0) {
+				await runQuery(http, DELETE_ISOLATED_DECISION_NODES_QUERY, {
+					nodes: [...nodes.values()],
+				});
+			}
 		},
 
 		async deleteEntity(id, orgId) {

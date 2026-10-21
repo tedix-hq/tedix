@@ -1076,6 +1076,10 @@
 		{
 			"name": "20261021195849_connection_provider_ownership/migration.sql",
 			"sha256": "be9f5efef93c901af29740176f10289052fa1c74d4f02231b6eb02b9645fe614"
+		},
+		{
+			"name": "20261021202611_decision_edges_graph_projection/migration.sql",
+			"sha256": "3222d0da7316a959915e516f71f9ee1cd4115b56ebef0bf2d1ffa76f83951637"
 		}
 	]
 }

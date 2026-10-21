@@ -35,6 +35,7 @@ export const GRAPH_PROJECTION_ENTITY_KINDS = [
 	"project",
 	"work_item",
 	"work_item_source",
+	"decision_edge",
 ] as const;
 export type GraphProjectionEntityKind =
 	(typeof GRAPH_PROJECTION_ENTITY_KINDS)[number];

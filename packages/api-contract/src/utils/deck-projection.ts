@@ -110,6 +110,11 @@ function rankedNoise(card: { interaction?: DeckCard["interaction"] }) {
 	return Boolean(state && state.status === "open" && state.penalty < 0);
 }
 
+/** The graph's reach score when present, else the direct blocked count. */
+function blockingWeight(card: { blocksCount?: number; blocksScore?: number }) {
+	return card.blocksScore ?? card.blocksCount ?? 0;
+}
+
 /** Actionable asks rank by blocked Work, then overdue, policy, score and age. */
 export function compareDecisionFreshness(
 	a: {
@@ -118,6 +123,7 @@ export function compareDecisionFreshness(
 		deadline?: string | null;
 		actionable?: boolean;
 		blocksCount?: number;
+		blocksScore?: number;
 		handled?: boolean;
 		expired?: boolean;
 		requestedAt?: string;
@@ -132,6 +138,7 @@ export function compareDecisionFreshness(
 		deadline?: string | null;
 		actionable?: boolean;
 		blocksCount?: number;
+		blocksScore?: number;
 		handled?: boolean;
 		expired?: boolean;
 		requestedAt?: string;
@@ -163,9 +170,7 @@ export function compareDecisionFreshness(
 			: calendarDay(new Date(timestamp), timeZone) === today);
 	return (
 		Number(aSettled) - Number(bSettled) ||
-		(!aSettled && !bSettled
-			? (b.blocksCount ?? 0) - (a.blocksCount ?? 0)
-			: 0) ||
+		(!aSettled && !bSettled ? blockingWeight(b) - blockingWeight(a) : 0) ||
 		Number(bOverdue) - Number(aOverdue) ||
 		(aOverdue && bOverdue ? aDue - bDue : 0) ||
 		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
