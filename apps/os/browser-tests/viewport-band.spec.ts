@@ -38,6 +38,23 @@ let browser;
 try {
 	await waitForFixtureServer(origin, { server });
 	browser = await (mobileSafari ? webkit : chromium).launch({ headless: true });
+	for (const width of mobileSafari ? [390] : [390, 768, 1280]) {
+		const page = await browser.newPage({ viewport: { width, height: 800 } });
+		await page.goto(`${origin}/admin/connections`);
+		const accounts = page.locator(
+			'[aria-label="Settings sections"] a[href="/account/connections"]',
+		);
+		await accounts.waitFor({ state: "attached" });
+		assert.equal(await accounts.isVisible(), width < 768);
+		const capabilityRail = page.locator("[data-capability-nav]");
+		await capabilityRail.waitFor({ state: "attached" });
+		assert.equal(await capabilityRail.isVisible(), width >= 768);
+		if (width < 768) {
+			await accounts.click();
+			await page.waitForURL((url) => url.pathname === "/account/connections");
+		}
+		await page.close();
+	}
 	for (const width of mobileSafari ? [390] : [1280, 390]) {
 		for (const zoom of width === 1280 ? [0.8, 1, 1.25, 1.5, 1.75] : [1, 1.5]) {
 			// Desktop browser zoom changes CSS viewport dimensions and pixel density together.

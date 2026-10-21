@@ -6004,6 +6004,55 @@ const handlers: Record<string, (input: never) => unknown> = {
 			catalogMcp: null,
 		};
 	},
+	"apps/getGatewayMembership": () => ({
+		gateway: null,
+		enabled: false,
+		unavailableReason: "No gateway configured in this sample workspace.",
+	}),
+	"appAdapters/list": (input: { appId: string } & Pagination) =>
+		paginate(
+			[
+				{
+					id: fid("d4", 1),
+					appId: input.appId,
+					name: "sample-catalog",
+					displayName: "Sample product catalog",
+					adapterType: "custom",
+					enabled: true,
+					priority: 0,
+					createdAt: T5,
+					updatedAt: T5,
+				},
+			],
+			input,
+		),
+	"content/listSources": (input: { appId: string }) => ({
+		success: true,
+		sources: [
+			{
+				id: fid("d5", 1),
+				appId: input.appId,
+				sourceType: "webpage",
+				sourceUrl: "https://example.com/product-guide",
+				title: "Sample product guide",
+				lastIngestedAt: T5,
+				lastIngestStatus: "success",
+				documentCount: 4,
+				config: null,
+				lastError: null,
+				createdAt: T5,
+				updatedAt: T5,
+			},
+		],
+	}),
+	"analytics/getMetrics": () => ({
+		totalSessions: 128,
+		sessionsChange: 12,
+		avgMessages: 4.5,
+		avgMessagesChange: 0.5,
+		successRate: 96,
+		successRateChange: 2,
+	}),
 	"appGating/installedEligibility": () => ELIGIBILITY,
 
 	// --- Tedix OS workspaces ---
