@@ -465,7 +465,7 @@ function PortfolioCard({
 					<Link
 						variant="record"
 						href={`/work/projects/${project.id}`}
-						className="tap-target-y min-w-0 font-medium"
+						className="tap-target-y min-w-0 font-medium focus-visible:ring-inset"
 					>
 						<span className="line-clamp-2">{title}</span>
 					</Link>
