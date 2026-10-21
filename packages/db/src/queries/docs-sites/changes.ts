@@ -147,7 +147,12 @@ export async function syncDocsChangeValidation(
 	const [build] = await db
 		.select({ status: docsBuilds.status })
 		.from(docsBuilds)
-		.where(eq(docsBuilds.id, current.previewBuildId))
+		.where(
+			and(
+				eq(docsBuilds.id, current.previewBuildId),
+				eq(docsBuilds.siteId, current.siteId),
+			),
+		)
 		.limit(1);
 	if (!build || (build.status !== "complete" && build.status !== "failed")) {
 		return current;
@@ -159,7 +164,12 @@ export async function syncDocsChangeValidation(
 			updatedAt: sql`(datetime('now'))`,
 		})
 		.where(
-			and(eq(docsChanges.id, current.id), eq(docsChanges.status, "validating")),
+			and(
+				eq(docsChanges.id, current.id),
+				eq(docsChanges.siteId, current.siteId),
+				eq(docsChanges.previewBuildId, current.previewBuildId),
+				eq(docsChanges.status, "validating"),
+			),
 		)
 		.returning();
 	return updated ?? (await getDocsChange(db, current.id)) ?? current;
