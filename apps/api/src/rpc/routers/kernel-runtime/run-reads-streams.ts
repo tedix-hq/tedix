@@ -12,9 +12,9 @@ import {
 } from "@tedix/api-contract/schemas/common";
 import {
 	KERNEL_RUNTIME_BACKEND,
-	normalizeHomeRunRecord,
 	reconcileHomeRunRowsFromChildStatus,
 } from "../kernel/run-store";
+import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import {
 	type KernelRuntimeEvent,
 	type TediRuntimeEventRow,

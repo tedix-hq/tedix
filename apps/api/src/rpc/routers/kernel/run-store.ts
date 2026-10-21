@@ -14,7 +14,6 @@ import type {
 } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { TediRuntimeEventKindSchema } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type {
-	HomeChildRunEvidence,
 	HomePlan,
 	HomeRun,
 	KernelRuntimeEvent,
@@ -55,7 +54,6 @@ import {
 	type KernelConversationAccessLevel,
 	resolveKernelConversationAccess,
 } from "../../../kernel/conversation-access";
-import { extractRunUsage } from "../../../kernel/kernel-state";
 import {
 	kernelFirstAttemptBatch,
 	kernelRunStatusToSubmissionOutcome,
@@ -73,12 +71,7 @@ import {
 	applyKernelConversationEvent,
 	kernelConversationMessageParams,
 } from "./conversation-index";
-import {
-	type DelegatedStopClassification,
-	delegatedStopFromSummary,
-	hasDelegatedOutput,
-	stripSyntheticMarkers,
-} from "./delegated-stop";
+import { delegatedStopFromSummary } from "./delegated-stop";
 import {
 	KERNEL_CONVERSATION_ORIGIN_PAYLOAD_KEY,
 	kernelConversationOriginFromPayload,
@@ -102,13 +95,11 @@ import {
 } from "./home-plan";
 import { homeNarrationMetadata } from "./home-narration";
 import { type KernelEnv, kernelModel } from "./llm";
-import { validateDelegationOutput } from "./output-schema-validate";
 import {
 	buildDelegationFailureEnvelope,
 	childRunStatusFromSummary,
 	childRunStatusKey,
 	DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
-	delegatedChildSteerRunId,
 	delegationSessionKey,
 	errorMessage,
 	homeRunProgress,
@@ -119,6 +110,12 @@ import {
 	shouldFailSoftHomeRunSetRead,
 	stringFromPayload,
 } from "./runtime-shared";
+import { normalizeHomeRunRecord } from "./run-store-normalization";
+import {
+	homeDelegationCompletionContent,
+	homeDelegationVerdictMetadata,
+	HomeDelegationProofMetadata,
+} from "./run-store-content";
 
 export const KERNEL_RUNTIME_BACKEND = "custom";
 
@@ -177,154 +174,6 @@ function normalizeHomeEvent(row: KernelRuntimeEventRow): KernelRuntimeEvent {
 	};
 }
 
-function parentOwnsTerminalOutcome(
-	row: KernelRuntimeRun,
-	childRunStatus: Record<string, unknown> | null,
-): boolean {
-	return (
-		row.status === "canceled" ||
-		(isTerminalHomeRunStatus(row.status as TediRunStatus) &&
-			!isTerminalHomeRunStatus(
-				homeRunStatusFromChildStatus(
-					childRunStatusFromSummary(childRunStatus),
-					row.status as TediRunStatus,
-				),
-			))
-	);
-}
-
-/** Run and message projections share terminal status, content and timestamp. */
-function classifyHomeRunState(
-	row: KernelRuntimeRun,
-	childRunStatus: Record<string, unknown> | null,
-): {
-	status: TediRunStatus;
-	content: string | null;
-	preview: string | null;
-	completedAt: string | null;
-} {
-	// A cached child progress snapshot cannot revive a settled parent. Explicit
-	// cancellation also wins over a later terminal child outcome.
-	if (parentOwnsTerminalOutcome(row, childRunStatus)) {
-		return {
-			status: row.status as TediRunStatus,
-			content: row.preview ?? null,
-			preview: row.preview ?? null,
-			completedAt: row.completedAt ?? null,
-		};
-	}
-	const hasChildStatus = Boolean(childRunStatus);
-	const childStatus = childRunStatusFromSummary(childRunStatus ?? null);
-	const status =
-		hasChildStatus && row.delegatedTediId
-			? homeRunStatusFromChildStatus(childStatus, row.status as TediRunStatus)
-			: (row.status as TediRunStatus);
-	// Mirror the original `childRunStatus?.childRunPreview ?? row.preview ?? null`
-	// exactly (child preview summaries are strings in practice) so the run
-	// metadata `childRunPreview` value is byte-identical to pre-refactor output.
-	const rowMetadata = nonNullRecord(row.metadata);
-	// A durable Code Mode approval settles the parent after the child paused.
-	// Its explicit parent preview is the authoritative exactly-once outcome;
-	// selecting an older child message/tool-search preview here made successful
-	// approvals look unrelated and noisy in CLI/Tedix OS.
-	const preferParentPreview = Boolean(
-		rowMetadata?.durableCodeResult && row.preview,
-	);
-	const preview =
-		((preferParentPreview
-			? row.preview
-			: (childRunStatus?.childRunPreview ?? row.preview)) as
-			| string
-			| null
-			| undefined) ?? null;
-	const completedAt =
-		(status === "completed" || status === "failed" || status === "canceled"
-			? ((childRunStatus?.childRunTerminalAt as string | null | undefined) ??
-				row.completedAt)
-			: null) ?? null;
-	return {
-		status,
-		// The run row carries no separate canonical "answer" body; the run-derived
-		// content the message surface shows IS the preview/output text.
-		content: preview,
-		preview,
-		completedAt,
-	};
-}
-
-export function homeRunStatusFromChildStatus(
-	status: HomeChildRunEvidence["status"] | undefined,
-	fallback: TediRunStatus,
-): TediRunStatus {
-	switch (status) {
-		case "completed":
-			return "completed";
-		case "partial":
-			return "failed";
-		case "failed":
-			return "failed";
-		case "canceled":
-			return "canceled";
-		case "running":
-		case "streaming":
-			return "running";
-		case "requires_approval":
-			return "requires_approval";
-		case "queued":
-			return "queued";
-		default:
-			return fallback;
-	}
-}
-
-/**
- * Proof-verdict chip for a delegation attempt — carried as METADATA
- * (`metadata.delegationProof` on the completion message AND on the parent
- * Home run row), never concatenated into the assistant body: the body stays
- * what the tedi wrote and the OS renders the verdict as a chip. The OS maps
- * `verdict` words: verified/proven/passed → success, unverified/partial/
- * inconclusive → warning, failed/refuted/rejected → error. `reason` keeps the
- * exact ledger failure reason for diagnostics. `null` when the attempt has
- * not reached a verdict (non-terminal, or no disposition available).
- */
-export type HomeDelegationProofMetadata = {
-	verdict: "verified" | "unverified" | "failed";
-	note?: string;
-	reason?: NonNullable<DelegationAttemptResult["failureReason"]>;
-};
-
-export function homeDelegationProofMetadata(
-	result: DelegationAttemptResult | null | undefined,
-	status: TediRunStatus,
-): HomeDelegationProofMetadata | null {
-	// Only a COMPLETED child carries a proof verdict worth a chip; a failed or
-	// canceled child already states its outcome in the message body.
-	if (!result || status !== "completed") return null;
-	if (result.outcome === "succeeded") {
-		// Result references are telemetry, not independent verification of the task.
-		return null;
-	}
-	if (result.outcome !== "failed") return null;
-	switch (result.failureReason) {
-		case "completed_without_proof":
-			return {
-				verdict: "unverified",
-				reason: result.failureReason,
-				note: "No durable execution evidence (commit, PR, or artifact) was recorded for this attempt — the Work Item remains accepted and can be re-dispatched.",
-			};
-		case "unverified_execution_evidence":
-			return {
-				verdict: "unverified",
-				reason: result.failureReason,
-				note: "Execution evidence for this attempt could not be verified (runtime telemetry is incomplete) — the Work Item remains accepted pending verification.",
-			};
-		case null:
-			return null;
-		default:
-			return { verdict: "failed", reason: result.failureReason };
-	}
-}
-
 /**
  * Read the caller-supplied output schema off a run row's opaque `metadata`
  * JSON column, defensively — `metadata.delegationWorkOrder.outputSchema` (see
@@ -343,124 +192,6 @@ function delegationWorkOrderOutputSchema(
 		!Array.isArray(outputSchema)
 		? (outputSchema as Record<string, unknown>)
 		: null;
-}
-
-/**
- * Output-schema task mode (opt-in Tedix result-contract pattern): when a caller
- * supplied an output schema on the work order AND the delegation completed,
- * validate the relayed content against it. The verdict is MESSAGE METADATA
- * (`metadata.outputContract`) — the raw answer is never rewritten, relay-first
- * stays intact. `null` on success (no "contract met" affirmation) and whenever
- * there is nothing to validate, matching `homeDelegationProofMetadata`.
- */
-export type HomeDelegationOutputContractMetadata = {
-	met: false;
-	errors: string[];
-};
-
-export function homeDelegationOutputContractMetadata(
-	outputSchema: Record<string, unknown> | null | undefined,
-	status: TediRunStatus,
-	content: string,
-): HomeDelegationOutputContractMetadata | null {
-	if (!outputSchema || status !== "completed" || !content.trim()) return null;
-	const result = validateDelegationOutput(content, outputSchema);
-	if (result.valid) return null;
-	return { met: false, errors: result.errors };
-}
-
-/**
- * The verdict metadata block for a delegation completion message — spread
- * into `payload.metadata` next to the relayed content. Empty when neither
- * verdict applies, so a clean completion carries no extra keys.
- */
-export function homeDelegationVerdictMetadata(input: {
-	disposition?: DelegationAttemptResult | null;
-	outputSchema?: Record<string, unknown> | null;
-	status: TediRunStatus;
-	/** The operator-facing content the output contract validates (synthesis or the child's final message). */
-	validatedContent: string | null;
-}): {
-	delegationProof?: HomeDelegationProofMetadata;
-	outputContract?: HomeDelegationOutputContractMetadata;
-} {
-	const delegationProof = homeDelegationProofMetadata(
-		input.disposition,
-		input.status,
-	);
-	const outputContract = input.validatedContent
-		? homeDelegationOutputContractMetadata(
-				input.outputSchema,
-				input.status,
-				input.validatedContent,
-			)
-		: null;
-	return {
-		...(delegationProof ? { delegationProof } : {}),
-		...(outputContract ? { outputContract } : {}),
-	};
-}
-
-export function homeDelegationCompletionContent(input: {
-	preview: string | null;
-	synthesized?: string | null;
-	finalMessage?: string | null;
-	status: TediRunStatus;
-	/** Runtime stop classification when the child was stopped early or reported partial. */
-	stop?: Pick<DelegatedStopClassification, "detail" | "outcome"> | null;
-}): string {
-	// Proof and output-contract verdicts are NOT part of the body: they ride as
-	// message metadata (`homeDelegationVerdictMetadata`) and the OS renders
-	// the verdict as a chip. Runtime diagnostics do not belong in the reply.
-	// When a full synthesis is available, use it directly — it's the operator-
-	// facing interpreted answer, no wrapping needed.
-	if (input.synthesized) return input.synthesized;
-	// A runtime stop that left nothing but the `[Turn stopped early: …]` marker
-	// is not a failed report and not a partial: the tedi produced no output.
-	// Do not relay the marker as if it were the tedi's answer.
-	if (
-		input.stop?.outcome === "failed" &&
-		input.status === "failed" &&
-		!hasDelegatedOutput(input.finalMessage)
-	) {
-		return "I stopped before I had a result to share. Want me to try again?";
-	}
-	const finalMessage = input.finalMessage
-		? stripSyntheticMarkers(input.finalMessage)
-		: null;
-	if (
-		input.status === "failed" &&
-		/^This turn ended without a reply\b/.test(finalMessage ?? "")
-	) {
-		return "I couldn't finish this request. Nothing was produced. Please try again.";
-	}
-	// The child's own closing message is the next-best operator-facing answer:
-	// show it as the result, not as wrapped "evidence".
-	if (finalMessage) {
-		switch (input.status) {
-			case "completed":
-				return finalMessage;
-			case "failed":
-				return input.stop?.outcome === "partial"
-					? `Here's what I found so far:\n\n${finalMessage}\n\nWant me to continue?`
-					: `I couldn't finish this request.\n\n${finalMessage}`;
-			case "canceled":
-				return `Stopped.\n\n${finalMessage}`;
-			default:
-				return finalMessage;
-		}
-	}
-	const evidence = input.preview ? ` Latest evidence: ${input.preview}` : "";
-	switch (input.status) {
-		case "completed":
-			return `The delegated tedi finished the assignment.${evidence}`;
-		case "failed":
-			return `The delegated tedi reported that the assignment failed.${evidence}`;
-		case "canceled":
-			return `The delegated tedi assignment was canceled.${evidence}`;
-		default:
-			return `The delegated tedi published an update.${evidence}`;
-	}
 }
 
 export async function ensureHomeConversationAccess(
@@ -542,173 +273,6 @@ async function readAndSynthesizeChildRunResult(
 		});
 		return null;
 	}
-}
-
-export function normalizeHomeRunRecord(
-	row: KernelRuntimeRun,
-	childRunStatuses: Map<string, Record<string, unknown>> = new Map(),
-): HomeRun {
-	const observedChildRunStatus =
-		row.delegatedTediId && row.childRunId
-			? childRunStatuses.get(
-					childRunStatusKey(row.delegatedTediId, row.childRunId),
-				)
-			: undefined;
-	const rowMetadata = nonNullRecord(row.metadata);
-	const persistedChildRunStatus =
-		typeof rowMetadata?.childRunStatus === "string" ? rowMetadata : undefined;
-	const childRunStatus = observedChildRunStatus ?? persistedChildRunStatus;
-	const steerRunId = delegatedChildSteerRunId(row);
-	const childSteerRunStatus =
-		row.delegatedTediId && steerRunId
-			? childRunStatuses.get(childRunStatusKey(row.delegatedTediId, steerRunId))
-			: undefined;
-	const childSteerRunResult = childSteerRunStatus
-		? {
-				childRunId: steerRunId,
-				status: childRunStatusFromSummary(childSteerRunStatus),
-				latestEventAt:
-					(childSteerRunStatus.childRunLatestEventAt as
-						| string
-						| null
-						| undefined) ?? null,
-				latestEventKind:
-					(childSteerRunStatus.childRunLatestEventKind as
-						| string
-						| null
-						| undefined) ?? null,
-				terminalAt:
-					(childSteerRunStatus.childRunTerminalAt as
-						| string
-						| null
-						| undefined) ?? null,
-				preview:
-					(childSteerRunStatus.childRunPreview as string | null | undefined) ??
-					null,
-			}
-		: undefined;
-	const childStatus = childRunStatusFromSummary(childRunStatus ?? null);
-	const hasChildStatus = Boolean(childRunStatus);
-	// Shared run-state derivation (status/preview/completedAt) so this run surface
-	// and the message surface can never disagree on terminal state.
-	const classified = classifyHomeRunState(row, childRunStatus ?? null);
-	const status = classified.status;
-	const childStop = delegatedStopFromSummary(childRunStatus ?? null);
-	const latestActivityLabel =
-		typeof childRunStatus?.childRunLatestActivityLabel === "string"
-			? childRunStatus.childRunLatestActivityLabel
-			: null;
-	const useChildOutcome =
-		hasChildStatus && !parentOwnsTerminalOutcome(row, childRunStatus ?? null);
-	const interrupted =
-		!useChildOutcome &&
-		status === "failed" &&
-		/^runtime crash\b.*\bkernel DO eviction\b/i.test(row.progressDetail ?? "");
-	const progress = interrupted
-		? {
-				current: 100,
-				total: 100,
-				label: "Interrupted",
-				detail: "This reply was interrupted. Try again to continue.",
-			}
-		: !useChildOutcome && row.progressValue !== null && row.progressLabel
-			? {
-					current: row.progressValue,
-					total: 100,
-					label: row.progressLabel,
-					detail: row.progressDetail ?? undefined,
-				}
-			: homeRunProgress({
-					eventCount:
-						typeof childRunStatus?.childRunEventCount === "number"
-							? childRunStatus.childRunEventCount
-							: (row.progressValue ?? 0) > 0
-								? 1
-								: 0,
-					latestActivityLabel,
-					status: useChildOutcome ? childStatus : status,
-					stopDetail: childStop?.detail ?? null,
-				});
-	const runtimeMetadata = nonNullRecord(row.runtimeMetadata);
-	const kernelWorkflowInspect = nonNullRecord(
-		childRunStatus?.kernelWorkflowInspect,
-	);
-	const rowUsage = extractRunUsage(
-		(row.metadata ?? null) as Record<string, unknown> | null,
-	);
-	return {
-		id: row.id,
-		organizationId: row.organizationId,
-		conversationId: row.conversationId,
-		status,
-		inputMessageId: row.inputMessageId ?? undefined,
-		outputMessageId: row.outputMessageId ?? null,
-		delegatedTediId: row.delegatedTediId ?? null,
-		childRunId: row.childRunId ?? null,
-		runtime: {
-			backend: row.runtimeBackend,
-			externalId: row.runtimeExternalId ?? undefined,
-			externalUrl: row.runtimeExternalUrl ?? undefined,
-			metadata: {
-				...runtimeMetadata,
-				childConversationId: row.childConversationId ?? undefined,
-			},
-		},
-		startedAt: row.startedAt ?? null,
-		completedAt: classified.completedAt,
-		// Observer ceiling for the run's owning submission. The run row itself
-		// carries no `timeout_at` (it lives on `runtime_submissions`); surfaced as
-		// null here until a per-run submission lookup is threaded. The contract
-		// field is `.nullable().optional()`, so null is shape-correct and lets
-		// submission-level reads populate it without a schema change.
-		timeoutAt: null,
-		createdAt: row.createdAt,
-		updatedAt: parentOwnsTerminalOutcome(row, childRunStatus ?? null)
-			? (row.updatedAt ?? null)
-			: ((childRunStatus?.childRunLatestEventAt as string | null | undefined) ??
-				row.updatedAt ??
-				null),
-		progress,
-		...(rowUsage !== undefined ? { usage: rowUsage } : {}),
-		metadata: {
-			...nonNullRecord(row.metadata),
-			...(interrupted
-				? {
-						progressDiagnostic: {
-							label: row.progressLabel,
-							detail: row.progressDetail,
-						},
-					}
-				: {}),
-			// The delegation outcome follows parent cancellation while the child
-			// status below remains the last independent child observation.
-			delegationStatus: useChildOutcome ? childStatus : status,
-			...(kernelWorkflowInspect ? { kernelWorkflowInspect } : {}),
-			childConversationId: row.childConversationId ?? null,
-			childRunId: row.childRunId ?? null,
-			childRunLatestEventAt:
-				childRunStatus?.childRunLatestEventAt ?? row.latestEventAt ?? null,
-			childRunLatestEventKind:
-				childRunStatus?.childRunLatestEventKind ?? row.latestEventKind ?? null,
-			childRunPreview: classified.preview,
-			childRunStatus: hasChildStatus ? childStatus : status,
-			childTaskOutcome: childRunStatus?.childTaskOutcome ?? null,
-			...(childRunStatus?.childRunTerminalEventKind
-				? {
-						childRunTerminalEventKind: childRunStatus.childRunTerminalEventKind,
-					}
-				: {}),
-			...(childRunStatus?.childRunStopReason
-				? { childRunStopReason: childRunStatus.childRunStopReason }
-				: {}),
-			...(childStop ? { childRunStopDetail: childStop.detail } : {}),
-			...(childSteerRunResult
-				? { delegatedChildSteerResult: childSteerRunResult }
-				: {}),
-			delegatedTediId: row.delegatedTediId ?? null,
-			progress,
-		},
-	};
 }
 
 export type ReconciledHomePlanAssignment = {

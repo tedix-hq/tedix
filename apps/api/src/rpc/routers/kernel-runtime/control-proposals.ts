@@ -67,8 +67,10 @@ import {
 } from "@tedix/db/queries/work-items/crud";
 import {
 	homeRunStatusFromChildStatus,
-	insertKernelRuntimeEvent,
 	normalizeHomeRunRecord,
+} from "../kernel/run-store-normalization";
+import {
+	insertKernelRuntimeEvent,
 	reconcileHomeRunRowsFromChildStatus,
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
