@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { devices, webkit, type Browser, type Page } from "playwright";
 
@@ -25,7 +26,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const shots = process.env.TEDIX_SCREENSHOT_DIR;
 const MIN_CARD_HEIGHT = 240;
@@ -291,14 +292,7 @@ async function leanDeck(page: Page) {
 
 let browser: Browser | undefined;
 try {
-	for (let attempt = 0; ; attempt++) {
-		if (attempt === 100 || server.exitCode !== null)
-			throw new Error("Deck test server unavailable");
-		try {
-			if ((await fetch(`${origin}/work?view=deck`)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
+	await waitForFixtureServer(`${origin}/work?view=deck`, { server });
 	browser = await webkit.launch({ headless: true });
 	for (const [size, device] of [
 		["390x844", devices["iPhone 13"]],

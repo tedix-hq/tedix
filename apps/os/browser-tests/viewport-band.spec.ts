@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium, webkit } from "playwright";
@@ -26,7 +27,7 @@ const server = process.env.TEDIX_VIEWPORT_ORIGIN
 			],
 			{
 				cwd: new URL("../", import.meta.url).pathname,
-				stdout: "ignore",
+				stdout: "inherit",
 				stderr: "inherit",
 				detached: true,
 			},
@@ -35,14 +36,7 @@ const shots = process.env.TEDIX_SCREENSHOT_DIR;
 if (shots) await mkdir(shots, { recursive: true });
 let browser;
 try {
-	for (let attempt = 0; ; attempt++) {
-		if (attempt === 100 || (server && server.exitCode !== null))
-			throw new Error("Viewport test server unavailable");
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
+	await waitForFixtureServer(origin, { server });
 	browser = await (mobileSafari ? webkit : chromium).launch({ headless: true });
 	for (const width of mobileSafari ? [390] : [1280, 390]) {
 		for (const zoom of width === 1280 ? [0.8, 1, 1.25, 1.5, 1.75] : [1, 1.5]) {

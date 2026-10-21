@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { mkdir } from "node:fs/promises";
@@ -30,23 +31,15 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const screenshotDirectory = process.env.DECK_WHY_SCREENSHOT_DIR;
 if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true });
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 120; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/browser-tests/deck-why-chain.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(250);
-	}
-	assert(ready, "Own fixture server is ready");
+	await waitForFixtureServer(`${origin}/browser-tests/deck-why-chain.html`, {
+		server,
+	});
 	browser = await chromium.launch({ headless: true });
 	for (const width of [1280, 390])
 		for (const theme of ["light", "dark"] as const) {

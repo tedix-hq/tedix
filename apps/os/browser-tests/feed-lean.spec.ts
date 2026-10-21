@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { webkit, type Browser } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
@@ -21,18 +22,11 @@ const server = process.env.FEED_LEAN_ORIGIN
 				"--host",
 				"127.0.0.1",
 			],
-			{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+			{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 		);
 let browser: Browser | undefined;
 try {
-	for (let i = 0; i < 100; i++) {
-		if (server && server.exitCode !== null)
-			throw new Error("Feed fixture server exited");
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		await Bun.sleep(200);
-	}
+	await waitForFixtureServer(origin, { server });
 	browser = await webkit.launch();
 	for (const [width, height] of [
 		[375, 667],

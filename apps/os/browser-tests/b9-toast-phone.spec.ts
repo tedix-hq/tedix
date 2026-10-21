@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { webkit, type Browser, type Page } from "playwright";
 
@@ -24,7 +25,7 @@ const server = Bun.spawn(
 	],
 	{
 		cwd: new URL("../", import.meta.url).pathname,
-		stdout: "ignore",
+		stdout: "inherit",
 		stderr: "inherit",
 		detached: true,
 	},
@@ -177,14 +178,7 @@ async function expectCount(page: Page, count: number) {
 let browser: Browser | undefined;
 const report: Record<string, unknown>[] = [];
 try {
-	for (let attempt = 0; ; attempt++) {
-		if (attempt === 120 || server.exitCode !== null)
-			throw new Error("Toast fixture server unavailable");
-		try {
-			if ((await fetch(fixture)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
+	await waitForFixtureServer(fixture, { server });
 	browser = await webkit.launch({ headless: true });
 	const titleColors = new Map<string, string>();
 	let lifetimeChecked = false;

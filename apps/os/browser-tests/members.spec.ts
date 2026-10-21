@@ -1,5 +1,6 @@
 import { chromium, type Browser } from "playwright";
 import { mkdir } from "node:fs/promises";
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 
 const cwd = new URL("../", import.meta.url).pathname;
 const probe = Bun.serve({
@@ -20,20 +21,14 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const evidenceDir = process.env.MEMBER_EVIDENCE_DIR;
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		try {
-			ready = (await fetch(`${origin}/browser-tests/members.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	if (!ready) throw new Error("Member proof server did not start");
+	await waitForFixtureServer(`${origin}/browser-tests/members.html`, {
+		server,
+	});
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	browser = await chromium.launch({ headless: true });
 	for (const locale of ["en", "es"])

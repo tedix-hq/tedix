@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { mkdir } from "node:fs/promises";
@@ -25,7 +26,7 @@ const server = Bun.spawn(
 	],
 	{
 		cwd,
-		stdout: "ignore",
+		stdout: "inherit",
 		stderr: "inherit",
 		detached: true,
 		// Response details need the classic fixture's saved run and cost receipt.
@@ -38,13 +39,7 @@ const chat = `/chat?conversation=${conversation}`;
 const screenshots = process.env.CHAT_ACTIONS_SCREENSHOTS;
 let browser: Browser | undefined;
 try {
-	for (let i = 0; i < 100; i++) {
-		assert(server.exitCode === null, "fixture server stays alive");
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
+	await waitForFixtureServer(origin, { server });
 	browser = await chromium.launch({ headless: true });
 	if (screenshots) await mkdir(screenshots, { recursive: true });
 	for (const width of [1280, 390]) {

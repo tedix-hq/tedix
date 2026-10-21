@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import {
 	chromium,
 	webkit,
@@ -28,7 +29,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const evidenceDir = process.env.CHAT_LIST_EVIDENCE_DIR;
 
@@ -297,17 +298,7 @@ async function runCase(browser: Browser, c: Case) {
 const results: unknown[] = [];
 let browsers = new Map<string, Browser>();
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/chat`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	assert(ready, "Chat fixture server starts");
+	await waitForFixtureServer(`${origin}/chat`, { server });
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	for (const c of cases) {
 		let browser = browsers.get(c.engine);

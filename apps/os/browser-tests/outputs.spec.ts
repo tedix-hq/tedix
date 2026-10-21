@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { webkit, type Browser } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
@@ -23,21 +24,12 @@ const server = process.env.OUTPUTS_TEST_ORIGIN
 				"--host",
 				"127.0.0.1",
 			],
-			{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+			{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 		);
 const evidenceDir = process.env.OUTPUTS_EVIDENCE_DIR;
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 150; i++) {
-		try {
-			ready = (await fetch(`${origin}/outputs`)).ok;
-		} catch {}
-		if (ready) break;
-		assert(server?.exitCode == null, "fixture server stays running");
-		await Bun.sleep(200);
-	}
-	assert(ready, "fixture server starts");
+	await waitForFixtureServer(`${origin}/outputs`, { server });
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	browser = await webkit.launch();
 	for (const [width, height] of [

@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 /**
  * The quick chat acts on the Decision Deck card on screen: the person asks
  * "fill this card with X and choose Y", the chat runs the page's own tools
@@ -32,7 +33,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 
 const pageToolLog = (page: Page) =>
@@ -53,17 +54,9 @@ async function ask(page: Page, text: string) {
 
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/browser-tests/deck-chat.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(250);
-	}
-	assert(ready, "Vite serves the deck chat fixture");
+	await waitForFixtureServer(`${origin}/browser-tests/deck-chat.html`, {
+		server,
+	});
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage({
 		viewport: { width: 1280, height: 800 },
