@@ -217,6 +217,12 @@ export function checkDecisionCardCopy(copy: CardCopy) {
 	return issues;
 }
 
+/** The face labels the consequence "If yes:", so generated bodies must not repeat it. */
+function consequenceWithoutIfYes(body: string): string {
+	const rest = body.replace(/^\s*(?:If yes[,:]?\s*)+/i, "");
+	return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
 /** One plain-text face for MCP and terminal fallbacks. Source details carry no implied authority. */
 export function decisionCardFaceText(
 	copy: (CardCopy & { version: number }) | null | undefined,
@@ -232,7 +238,7 @@ export function decisionCardFaceText(
 	return [
 		copy.title,
 		copy.context,
-		`If yes: ${copy.body}`,
+		`If yes: ${consequenceWithoutIfYes(copy.body)}`,
 		`${copy.recommendation}${confidence === null ? "" : ` · ${Math.round(confidence * 100)}% sure`}`,
 		copy.stakes,
 		...Object.values(copy.actionLabels ?? {}),

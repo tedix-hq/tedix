@@ -62,6 +62,15 @@ it("omits unknown confidence from plain text while retaining assessed confidence
 	expect(decisionCardFaceText(copy, 0.8)).toContain("80% sure");
 });
 
+it.each(["If yes, creates a reminder.", "If yes: If yes: creates a reminder."])(
+	"labels the consequence once when the body is %j",
+	(body) => {
+		const text = decisionCardFaceText({ ...copy, body });
+		expect(text).toContain("If yes: Creates a reminder.");
+		expect(text.match(/If yes/gi)).toHaveLength(1);
+	},
+);
+
 it("keeps the explicit decline even when generated button copy suggests yes", () => {
 	expect(
 		decisionCardActionLabel(
