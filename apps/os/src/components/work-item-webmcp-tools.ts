@@ -8,7 +8,10 @@ import type {
 	WebMcpToolResult,
 } from "@tedix/webmcp-core/model-context";
 import { webMcpError, webMcpResult } from "@tedix/webmcp-core/model-context";
-import { toWebMcpFailure } from "@/components/webmcp-execute";
+import {
+	toWebMcpFailure,
+	webMcpFailureMessage,
+} from "@/components/webmcp-execute";
 import { useWebMcpTools } from "@/lib/webmcp/use-webmcp-tools";
 import { deriveToolSchema } from "@/lib/webmcp/derive-schema";
 
@@ -128,7 +131,7 @@ export function buildWorkItemWebMcpTools(
 			consequentialHint: true,
 		},
 		description:
-			"Add a comment when recording context on the work item currently open on this page. Each call appends a separate comment; inspect the thread before retrying an uncertain write.",
+			"Add a comment when recording context on the work item currently open on this page. Each call appends a separate comment; a returned commentId is confirmed even when cacheReconciled is false, so inspect the thread before retrying and never repost a confirmed write.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -149,15 +152,33 @@ export function buildWorkItemWebMcpTools(
 						: undefined;
 				if (!body) return webMcpError("body is required");
 				const { api, options } = await loadRuntime();
-				const comment = await api.osApi.workItems.addComment(
-					{ id: itemId, body },
-					...clientOptions(executeOptions),
-				);
-				await queryClient.invalidateQueries({
-					queryKey: options.workItemDetailQueryOptions(itemId).queryKey,
-				});
+				let commentId: string;
+				try {
+					const comment = await api.osApi.workItems.addComment(
+						{ id: itemId, body },
+						...clientOptions(executeOptions),
+					);
+					commentId = comment.id;
+				} catch (error) {
+					return toWebMcpFailure(error);
+				}
+				try {
+					await queryClient.invalidateQueries({
+						queryKey: options.workItemDetailQueryOptions(itemId).queryKey,
+					});
+				} catch (error) {
+					return webMcpResult(
+						{
+							commentId,
+							workItemId: itemId,
+							cacheReconciled: false,
+							note: `Comment ${commentId} is saved on the server; refreshing the local view failed (${webMcpFailureMessage(error)}). The write is confirmed — do not repost; read the item again or reload to see it.`,
+						},
+						deepLink,
+					);
+				}
 				return webMcpResult(
-					{ commentId: comment.id, workItemId: itemId },
+					{ commentId, workItemId: itemId, cacheReconciled: true },
 					deepLink,
 				);
 			} catch (error) {

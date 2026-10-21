@@ -170,11 +170,55 @@ describe("buildWorkItemWebMcpTools", () => {
 		expect(result.structuredContent).toEqual({
 			commentId: "c9",
 			workItemId: ITEM_ID,
+			cacheReconciled: true,
 			deepLink: DEEP_LINK,
 		});
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: workItemDetailQueryOptions(ITEM_ID).queryKey,
 		});
+	});
+
+	it("comment_current_work_item returns the confirmed receipt when detail invalidation fails", async () => {
+		workItemsApi.addComment.mockResolvedValue({ id: "c9" });
+		const { byName, invalidateQueries } = tools();
+		invalidateQueries.mockRejectedValue(new Error("refresh blew up"));
+		const result = await byName
+			.get("comment_current_work_item")!
+			.execute({ body: "On it" });
+		expect(workItemsApi.addComment).toHaveBeenCalledTimes(1);
+		expect(result.isError).toBeUndefined();
+		expect(result.structuredContent).toEqual({
+			commentId: "c9",
+			workItemId: ITEM_ID,
+			cacheReconciled: false,
+			note: expect.stringContaining("refresh blew up"),
+			deepLink: DEEP_LINK,
+		});
+	});
+
+	it("comment_current_work_item reports an addComment rejection as failure without invalidating", async () => {
+		workItemsApi.addComment.mockRejectedValue(new Error("conflict: closed"));
+		const { byName, invalidateQueries } = tools();
+		const result = await byName
+			.get("comment_current_work_item")!
+			.execute({ body: "On it" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("conflict");
+		expect(workItemsApi.addComment).toHaveBeenCalledTimes(1);
+		expect(invalidateQueries).not.toHaveBeenCalled();
+	});
+
+	it("comment_current_work_item treats each invocation as a separate comment", async () => {
+		workItemsApi.addComment
+			.mockResolvedValueOnce({ id: "c9" })
+			.mockResolvedValueOnce({ id: "c10" });
+		const { byName } = tools();
+		const tool = byName.get("comment_current_work_item")!;
+		const first = await tool.execute({ body: "On it" });
+		const second = await tool.execute({ body: "On it" });
+		expect(workItemsApi.addComment).toHaveBeenCalledTimes(2);
+		expect(first.structuredContent).toMatchObject({ commentId: "c9" });
+		expect(second.structuredContent).toMatchObject({ commentId: "c10" });
 	});
 
 	it("comment_current_work_item rejects a missing body without calling the API", async () => {
@@ -396,5 +440,34 @@ describe("WebMCP execution cancellation", () => {
 			{ id: ITEM_ID, limit: 50 },
 			{ signal: controller.signal },
 		);
+	});
+
+	it("forwards the browser AbortSignal to the comment write", async () => {
+		workItemsApi.addComment.mockResolvedValue({ id: "c9" });
+		const controller = new AbortController();
+		const { byName } = tools();
+		await byName
+			.get("comment_current_work_item")!
+			.execute({ body: "On it" }, { signal: controller.signal });
+		expect(workItemsApi.addComment).toHaveBeenCalledWith(
+			{ id: ITEM_ID, body: "On it" },
+			{ signal: controller.signal },
+		);
+	});
+
+	it("keeps an aborted write as a structured failure", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		workItemsApi.addComment.mockRejectedValue(
+			new Error("The operation was aborted"),
+		);
+		const { byName, invalidateQueries } = tools();
+		const result = await byName
+			.get("comment_current_work_item")!
+			.execute({ body: "On it" }, { signal: controller.signal });
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("aborted");
+		expect(workItemsApi.addComment).toHaveBeenCalledTimes(1);
+		expect(invalidateQueries).not.toHaveBeenCalled();
 	});
 });
