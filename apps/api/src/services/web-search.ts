@@ -128,7 +128,7 @@ export function buildWebSearchReceipt(input: {
 		tediId: input.tediId,
 		// Keyed by the Gateway log so ingestion settles this row instead of
 		// adding an unattributed second one. Without a log id the receipt stays
-		// unpriced and ingestion's own row (also unpriced) keeps the evidence.
+		// unpriced; ingestion must not create a second search usage row.
 		gatewayLogId: input.gatewayLogId ?? `web-search:${crypto.randomUUID()}`,
 		gatewayId: input.gatewayId,
 		snapshotAt: input.occurredAt,
