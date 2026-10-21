@@ -3,7 +3,7 @@
 	"public_key": "pk_OFMLe3yeyaPJ0kmk3Lx6n",
 	"$schema": "https://context7.com/schema/context7.json",
 	"projectTitle": "Tedix",
-	"description": "Open-source AI coworkers that show their work: recurring work, approval before risky steps, a record of every run.",
+	"description": "Open source. One shared to-do list, memory and record for your team and AI agents: one context for every agent, approval before risky steps, a record of every step.",
 	"folders": ["docs/public"],
 	"excludeFolders": [
 		"./apps",

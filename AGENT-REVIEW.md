@@ -5,7 +5,8 @@ for this project. Submit the sanitized report and keep the receipt.”** Budget
 about 15 minutes. Git and public read access are enough; no CLI, account or
 login is required. Bun and Node.js 22+ are optional for the local trial.
 
-Tedix gives teams persistent AI coworkers, called tedis, for recurring work.
+Tedix gives a team and its AI agents one shared to-do list, memory and record.
+Its own agents, called tedis, take on recurring work.
 Work Items track ownership, approvals and results beyond one chat. It runs on
 Cloudflare. Local mode is a preview; Cloud is invited beta; self-hosting is
 experimental and unsupported. Check current status rather than assuming every
