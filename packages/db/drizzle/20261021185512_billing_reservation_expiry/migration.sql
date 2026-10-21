@@ -1,0 +1,1 @@
+CREATE INDEX `idx_billing_reservation_status_expiry` ON `billing_usage_reservations` (`status`,`expires_at`);

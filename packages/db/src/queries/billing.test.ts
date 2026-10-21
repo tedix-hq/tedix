@@ -1,7 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
+import { billingUsageReservations } from "../schema/billing";
 import { createD1Facade } from "../test/d1-facade";
+import { tableDdl } from "../test/schema-ddl";
 import {
 	expireBillingCredits,
 	getBillingBalanceSnapshot,
@@ -29,7 +31,10 @@ import {
 	linkBillingAccountStripeCustomerIfUnbound,
 } from "./billing/plans";
 import { recordBillingProviderUsage } from "./billing/provider-usage";
-import { reserveBillingUsage } from "./billing/reservations";
+import {
+	expireBillingReservations,
+	reserveBillingUsage,
+} from "./billing/reservations";
 import { settleBillingUsage } from "./billing/settlement";
 import {
 	claimStripeWebhookEvent,
@@ -38,7 +43,7 @@ import {
 	markStripeWebhookEventProcessed,
 } from "./billing/stripe-webhooks";
 
-function setup() {
+function setup(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		PRAGMA foreign_keys = ON;
@@ -345,7 +350,12 @@ function setup() {
 			) VALUES ('org-1','growth-v1','active','stripe','live','cus_1',1,?,?,?,?)`,
 		)
 		.run("2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z", now, now);
-	return { db: createDbClient(createD1Facade(sqlite)), sqlite, now };
+	sqlite.exec(tableDdl(billingUsageReservations).slice(1).join(";"));
+	return {
+		db: createDbClient(createD1Facade(sqlite, { onPrepare })),
+		sqlite,
+		now,
+	};
 }
 
 function insertReservation(
@@ -2173,4 +2183,128 @@ describe("canonical token allowance semantics", () => {
 			sqlite.close();
 		},
 	);
+});
+
+describe("billing reservation query budgets", () => {
+	it.each([
+		"2026-07-01T00:00:00.000Z",
+		"2026-08-01T00:00:00.123Z",
+		"2026-08-01T02:00:00.123+02:00",
+	])("preserves expiry and period totals at %s", async (at) => {
+		const { db, sqlite, now } = setup();
+		const second = Math.floor(Date.parse(at) / 1000) * 1000;
+		for (const [id, expiry, status, start, end] of [
+			["expired", second - 1, "reserved", "2026-07-01", "2026-08-01"],
+			["same-second", second + 500, "reserved", "2026-07-01", "2026-08-01"],
+			["live", second + 1000, "reserved", "2026-07-01", "2026-08-01"],
+			["live-2", second + 2000, "reserved", "2026-07-01", "2026-08-01"],
+			["settled", second + 1000, "settled", "2026-07-01", "2026-08-01"],
+			["prior-period", second + 1000, "reserved", "2026-06-01", "2026-08-01"],
+			["next-period", second + 1000, "reserved", "2026-07-01", "2026-09-01"],
+		] as const) {
+			insertReservation(sqlite, {
+				id,
+				now,
+				estimatedInputTokens: 100,
+				estimatedOutputTokens: 50,
+			});
+			sqlite
+				.prepare(`UPDATE billing_usage_reservations SET expires_at=?, status=?,
+				period_start=?, period_end=?, estimated_charge_micros=25 WHERE id=?`)
+				.run(
+					new Date(expiry).toISOString(),
+					status,
+					`${start}T00:00:00.000Z`,
+					`${end}T00:00:00.000Z`,
+					id,
+				);
+		}
+		sqlite.exec("UPDATE billing_accounts SET credit_balance_micros=200");
+		const legacy = sqlite
+			.prepare(`SELECT
+			SUM(estimated_input_tokens + estimated_output_tokens) AS tokens,
+			SUM(estimated_charge_micros) AS charge
+			FROM billing_usage_reservations WHERE organization_id='org-1' AND status='reserved'
+			AND datetime(expires_at)>datetime(?)
+			AND period_start='2026-07-01T00:00:00.000Z' AND period_end='2026-08-01T00:00:00.000Z'`)
+			.get(at)!;
+		expect(legacy).toMatchObject({ tokens: 300, charge: 50 });
+		expect(await getBillingBalanceSnapshot(db, "org-1", at)).toMatchObject({
+			reservedTokens: legacy.tokens,
+			reservedChargeMicros: legacy.charge,
+			remainingIncludedTokens: 700,
+			availableCreditMicros: 150,
+		});
+		sqlite.close();
+	});
+
+	it("aggregates reservations once through the org/status/expiry index range", async () => {
+		let query = "";
+		const { db, sqlite, now } = setup((sql) => {
+			query = sql;
+		});
+		await getBillingBalanceSnapshot(db, "org-1", now);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+			.map((row) => String(row.detail));
+		const searches = plan.filter((line) =>
+			/SEARCH (?:reservation|billing_usage_reservations) USING INDEX idx_billing_reservation_org_status/.test(
+				line,
+			),
+		);
+		expect(searches).toHaveLength(1);
+		expect(searches[0]).toMatch(
+			/organization_id=\? AND status=\? AND expires_at>\?/,
+		);
+		expect(
+			plan.some((line) =>
+				/SCAN (?:reservation\b|billing_usage_reservations\b)/.test(line),
+			),
+		).toBe(false);
+		sqlite.close();
+	});
+
+	it("expires at most 500 reservations per tick and converges without touching live or settled rows", async () => {
+		let query = "";
+		const { db, sqlite, now } = setup((sql) => {
+			query = sql;
+		});
+		for (let index = 0; index < 503; index++) {
+			insertReservation(sqlite, { id: `expired-${index}`, now });
+		}
+		sqlite
+			.prepare("UPDATE billing_usage_reservations SET expires_at=?")
+			.run(now);
+		insertReservation(sqlite, { id: "live", now });
+		insertReservation(sqlite, { id: "settled", now, status: "settled" });
+		expect(await expireBillingReservations(db, now)).toBe(500);
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+			.map((row) => String(row.detail));
+		expect(
+			plan.some((line) =>
+				/SEARCH billing_usage_reservations USING INDEX idx_billing_reservation_status_expiry \(status=\? AND expires_at<\?\)/.test(
+					line,
+				),
+			),
+		).toBe(true);
+		expect(
+			plan.some((line) => /SCAN billing_usage_reservations/.test(line)),
+		).toBe(false);
+		expect(await expireBillingReservations(db, now)).toBe(3);
+		expect(await expireBillingReservations(db, now)).toBe(0);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id, status FROM billing_usage_reservations WHERE status!='expired' ORDER BY id",
+				)
+				.all(),
+		).toEqual([
+			{ id: "live", status: "reserved" },
+			{ id: "settled", status: "settled" },
+		]);
+		sqlite.close();
+	});
 });
