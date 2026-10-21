@@ -4,7 +4,12 @@ import { UUID } from "./hooks/hook-io";
 import { laneChildEnv } from "./lane-child-env";
 
 /** Allocate a native thread without running a model turn, before Work admission. */
-export async function createCodexLaneThread(cwd: string, executable = "codex") {
+export async function createCodexLaneThread(
+	cwd: string,
+	executable = "codex",
+	model?: string,
+	resume?: string,
+) {
 	const child = spawn(executable, ["app-server", "--stdio"], {
 		cwd,
 		env: laneChildEnv(),
@@ -52,13 +57,19 @@ export async function createCodexLaneThread(cwd: string, executable = "codex") {
 			clientInfo: { name: "tedix-lane-dispatcher", version: "1" },
 		});
 		child.stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);
-		const result = (await call("thread/start", { cwd, ephemeral: false })) as {
+		const result = (await call(resume ? "thread/resume" : "thread/start", {
+			cwd,
+			ephemeral: false,
+			...(model ? { model } : {}),
+			...(resume ? { threadId: resume } : {}),
+		})) as {
 			thread: { id: string; cliVersion: string; path: string };
 			model: string;
 			modelProvider: string;
 		};
 		if (
 			!UUID.test(result.thread.id) ||
+			(resume !== undefined && result.thread.id !== resume) ||
 			!result.thread.path ||
 			!result.thread.cliVersion ||
 			!result.model ||

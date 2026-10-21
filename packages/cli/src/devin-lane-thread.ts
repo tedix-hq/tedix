@@ -45,6 +45,7 @@ export async function createDevinLaneThread(
 	executable = "devin",
 	model?: string,
 	timeoutMs = 30_000,
+	resume?: string,
 ) {
 	assertDevinProjectHooks(cwd);
 	// ACP's agentInfo can contain a development placeholder rather than the CLI release.
@@ -130,11 +131,15 @@ export async function createDevinLaneThread(
 				"Devin cannot persist before admission; no model turn launched",
 			);
 		// Ordinary session/new stays ephemeral until its first prompt and cannot be resumed.
-		const session = await call("session/new", {
+		const session = await call(resume ? "session/load" : "session/new", {
 			cwd,
 			mcpServers: [],
+			...(resume ? { sessionId: resume } : {}),
 			_meta: { "cognition.ai/persistOnCreate": true },
 		});
+		if (resume && session.sessionId === undefined) session.sessionId = resume;
+		if (resume && session.sessionId !== resume)
+			throw new Error("Devin resumed a different native session");
 		const modelOption = Array.isArray(session.configOptions)
 			? session.configOptions
 					.map(asRecord)

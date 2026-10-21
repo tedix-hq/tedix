@@ -112,6 +112,8 @@ function fixture({
 	const config = { ...options, executor, coordinated };
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		darkWake: () => dark,
+		available: () => true,
+		budgets: () => ({}),
 		devinAvailable: () => devinReady,
 		provision: () => {
 			if (control.provisionError) throw control.provisionError;
@@ -514,6 +516,8 @@ describe("dispatcher admission", () => {
 			// The held decision is durable, even without the original dispatcher object.
 			const restarted = new LaneDispatcher(options, dir, {
 				darkWake: () => false,
+				available: () => true,
+				budgets: () => ({}),
 				cli: async <T>() =>
 					({ data: items, pagination: { hasMore: false } }) as T,
 			});
@@ -536,7 +540,7 @@ describe("dispatcher admission", () => {
 		await until(() => releases.length === 2);
 		expect(
 			events.find((e) => e.verb === "dispatch-list")?.input?.executor,
-		).toEqual(["codex", "claude-code", "devin"]);
+		).toEqual(["codex", "claude-code", "opencode", "devin", "any-local"]);
 		for (const release of releases) release();
 		await dispatcher.drain();
 	});

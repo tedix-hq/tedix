@@ -18,9 +18,13 @@ export function laneServicePlist(
 	home = homedir(),
 ) {
 	const variables = Object.fromEntries(
-		["PATH", "TEDIX_CONFIG_DIR", "CODEX_HOME", "CLAUDE_CONFIG_DIR"].flatMap(
-			(key) => (env[key] ? [[key, env[key]!]] : []),
-		),
+		[
+			"PATH",
+			"TEDIX_CONFIG_DIR",
+			"CODEX_HOME",
+			"CLAUDE_CONFIG_DIR",
+			"OPENCODE_ROUTING_CONFIG",
+		].flatMap((key) => (env[key] ? [[key, env[key]!]] : [])),
 	);
 	const log = join(
 		env.TEDIX_CONFIG_DIR || join(home, ".tedix"),
@@ -78,6 +82,9 @@ export function installLaneService(options: ServeOptions): number {
 		"--repo",
 		options.repo,
 		...(options.project ? ["--project", options.project] : []),
+		...(options.routingConfig
+			? ["--routing-config", options.routingConfig]
+			: []),
 		...(options.coordinated ? ["--coordinated"] : []),
 	];
 	const domain = `gui/${process.getuid!()}`;
