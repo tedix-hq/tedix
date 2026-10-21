@@ -20,5 +20,9 @@ describe("Kumo SearchInput adapter", () => {
 		expect(html).toContain('aria-label="Search workspaces"');
 		expect(html).toContain('data-slot="input-group-addon-end"');
 		expect(html).toContain("3 workspaces");
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		const field = container.querySelector('input[type="search"]');
+		expect(field?.getAttribute("data-slot")).toBe("input");
 	});
 });

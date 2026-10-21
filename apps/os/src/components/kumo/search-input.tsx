@@ -40,6 +40,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
 				<KumoInputGroup.Input
 					ref={ref}
 					type="search"
+					data-slot="input"
 					className={cn(
 						// The field, not only its frame, is the 44px touch target.
 						"type-tedix-body max-sm:min-h-11 coarse:min-h-11",
