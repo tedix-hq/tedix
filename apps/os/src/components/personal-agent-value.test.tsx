@@ -1,18 +1,51 @@
 // @vitest-environment node
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { setOsFormattingPreferences } from "@/lib/format";
 import { PersonalAgentValue } from "./personal-agent-value";
 
-const state = vi.hoisted(() => ({ data: [] as Record<string, unknown>[] }));
+const state = vi.hoisted(() => ({
+	data: [] as Record<string, unknown>[],
+	isPending: false,
+	isError: false,
+}));
 vi.mock("@tanstack/react-query", () => ({
-	useQuery: () => ({ data: state.data, isPending: false, isError: false }),
+	useQuery: () => state,
 }));
 vi.mock("@/lib/os-query-options", () => ({
 	osQuery: { personalAgentInbound: { value: { queryOptions: () => ({}) } } },
 }));
 
 describe("personal-agent summary", () => {
+	afterEach(() => {
+		state.data = [];
+		state.isPending = false;
+		state.isError = false;
+		setOsFormattingPreferences({ locale: null, timezone: null });
+	});
+	it("uses skeletons while loading and an alert on failure", () => {
+		state.isPending = true;
+		const loading = renderToStaticMarkup(<PersonalAgentValue />);
+		expect(loading).toContain('data-slot="skeleton"');
+		expect(loading).not.toContain("No personal agents enrolled");
+		state.isPending = false;
+		state.isError = true;
+		const error = renderToStaticMarkup(<PersonalAgentValue />);
+		expect(error).toContain('role="alert"');
+		expect(error).toContain("Contributions could not be loaded");
+		expect(error).not.toContain("No personal agents enrolled");
+	});
+	it("uses a quiet empty state when no agents are enrolled", () => {
+		const html = renderToStaticMarkup(<PersonalAgentValue />);
+		expect(html).toContain('data-appearance="quiet"');
+		expect(html).toContain("No personal agents enrolled");
+	});
 	it("keeps suppression unknown and shows the card denominator and observation window", () => {
+		setOsFormattingPreferences({
+			locale: "de-DE",
+			timezone: "America/Los_Angeles",
+		});
+
 		state.data = [
 			{
 				sourceAgentId: "cedar",
@@ -36,7 +69,11 @@ describe("personal-agent summary", () => {
 		const html = renderToStaticMarkup(<PersonalAgentValue />);
 		expect(html).toContain("Cedar Scout");
 		expect(html).toContain("2 / 4 (50%)");
-		expect(html).toContain("2030-01-01T00:00:00.000Z");
+		expect(html).toContain("31. Dez. 2029, 16:00");
+		expect(html).toContain("7. Jan. 2030, 16:00");
+		expect(html).not.toContain("2030-01-01T00:00:00.000Z");
+		expect(html).not.toContain("(UTC");
+		expect(html).toContain('data-slot="setting-row"');
 		expect(html).toContain("Reminders avoided: unknown");
 		expect(html).toContain("Historical chat baseline: unavailable");
 	});
