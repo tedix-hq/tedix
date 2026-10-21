@@ -19,7 +19,10 @@ import { OutputExportButtons } from "./output-export-buttons";
 
 const cleanups: Array<() => void> = [];
 
-function renderButtons(kind: OsOutputKind = "document"): HTMLElement {
+function renderButtons(
+	kind: OsOutputKind = "document",
+	compact = true,
+): HTMLElement {
 	const client = new QueryClient({
 		defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
 	});
@@ -32,7 +35,7 @@ function renderButtons(kind: OsOutputKind = "document"): HTMLElement {
 				<OutputExportButtons
 					outputId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 					kind={kind}
-					compact
+					compact={compact}
 				/>
 			</QueryClientProvider>,
 		);
@@ -155,6 +158,39 @@ describe("OutputExportButtons", () => {
 		);
 		await flush();
 	});
+	it.each([false, true])(
+		"keeps complete diagnostics and retries explicitly (compact=%s)",
+		async (compact) => {
+			const message = `Source image is unavailable. Choose Export again to retry. diagnostic_${"abcdef0123456789".repeat(16)}`;
+			exportsApi.export.mockRejectedValueOnce(new Error(message));
+			const download = vi
+				.spyOn(HTMLAnchorElement.prototype, "click")
+				.mockImplementation(() => {});
+			const container = renderButtons("document", compact);
+			await openMenu(container);
+			act(() => menuItem("PDF").click());
+			await flush();
+			expect(container.querySelector('[role="alert"]')!.textContent).toBe(
+				`Export failed: ${message}`,
+			);
+			expect(exportsApi.export).toHaveBeenCalledTimes(1);
+			expect(download).not.toHaveBeenCalled();
+			exportsApi.export.mockResolvedValueOnce({
+				url: "https://api.example.test/os-exports/rev-2.pdf?fixture=1",
+			});
+			await openMenu(container);
+			act(() => menuItem("PDF").click());
+			await flush();
+			expect(exportsApi.export).toHaveBeenCalledTimes(2);
+			expect(container.querySelector('[role="alert"]')).toBeNull();
+			expect(download).toHaveBeenCalledTimes(1);
+			const anchor = download.mock.instances[0] as HTMLAnchorElement;
+			expect(anchor.href).toBe(
+				"http://localhost:3030/api/os-exports/rev-2.pdf?fixture=1",
+			);
+			expect(anchor.download).toBe("rev-2.pdf");
+		},
+	);
 	it("offers applicable formats and visible failures", async () => {
 		const container = renderButtons("sheet");
 		exportsApi.export.mockRejectedValue(new Error("Try again"));
