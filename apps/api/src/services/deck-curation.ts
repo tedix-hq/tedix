@@ -197,13 +197,13 @@ export async function appendCuration(
 		proposal:
 			WorkProposalMetadataSchema.safeParse(request.metadata).data?.proposal ??
 			null,
-		cause:
-			presentation && actor.type === "user" ? "human_edit" : "agent_rewrite",
+		cause: "agent_rewrite",
 		actorType: actor.type,
 		actorId: actor.id,
 		actorSessionId: actor.sessionId,
 		instruction: JSON.stringify(curation),
-		curation: presentation && actor.type === "user" ? undefined : curation,
+		// Keep the draft snapshot tied to this curation revision; actorType identifies its editor.
+		curation,
 		presentation,
 		summary: presentation
 			? JSON.stringify({
