@@ -7,6 +7,7 @@ import {
 	deckAsk,
 	deckAskKind,
 	deckCardDeadline,
+	sourceInteractionDeadline,
 	draftedNotSent,
 } from "./deck-ask";
 import { compareDecisionFreshness, projectDeckCards } from "./deck-projection";
@@ -90,14 +91,27 @@ describe("deckAskKind", () => {
 });
 
 describe("deadlines", () => {
-	it("takes the earliest of due date, decision expiry and approval expiry", () => {
+	it("uses source due dates and approval expiry without inventing a deadline from decision expiry", () => {
 		expect(
 			deckCardDeadline({
 				dueAt: "2026-10-22T09:00:00.000Z",
 				decision: { expiresAt: "2026-10-21T09:00:00.000Z" },
 				runtimeApproval: { expiresAt: "2026-10-23T09:00:00.000Z" },
 			}),
-		).toBe("2026-10-21T09:00:00.000Z");
+		).toBe("2026-10-22T09:00:00.000Z");
+		expect(
+			deckCardDeadline({ decision: { expiresAt: "2026-10-21T09:00:00.000Z" } }),
+		).toBeNull();
+		expect(
+			sourceInteractionDeadline("2026-10-20T16:00:00Z", {
+				deadlineBasis:
+					"Owner triage/review target; source deadlines remain in the story.",
+			}),
+		).toBeNull();
+		expect(
+			sourceInteractionDeadline("2026-11-14", { deadlineOrigin: "source" }),
+		).toBe("2026-11-14");
+		expect(sourceInteractionDeadline(undefined)).toBeNull();
 		expect(deckCardDeadline({ dueAt: "not a date" })).toBeNull();
 		expect(deckCardDeadline({})).toBeNull();
 	});

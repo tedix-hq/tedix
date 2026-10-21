@@ -99,7 +99,7 @@ export const attentionContract = oc
 		curateDeckCard: oc
 			.route({
 				summary:
-					"Revise or supersede a delegated card with immutable undo history. handleInternally creates only a reversible internal task under the active organization autonomy policy as its owning agent; never answers or sends as the recipient.",
+					"Correct a card's display text as its recipient or a scoped Deck curator, with immutable audit history. The recipient needs no gadget grant and may correct credential-related text; curators may not. Supply presentation for a direct face correction without a creator session. handleInternally creates only a reversible internal task under the active organization autonomy policy as its owning agent; never answers or sends as the recipient.",
 			})
 			.input(CurateDeckCardInputSchema)
 			.output(CardRevisionSchema),

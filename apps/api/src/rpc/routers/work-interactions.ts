@@ -7,6 +7,7 @@ import {
 import { call, implement } from "@orpc/server";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
+import { sourceInteractionDeadline } from "@tedix/api-contract/utils/deck-ask";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import {
@@ -176,9 +177,16 @@ export function requestOutput(
 			"Stored Work interaction is missing its required target principal",
 		);
 	}
-	const metadata = presentation
-		? { ...row.metadata, cardPresentation: presentation }
-		: row.metadata;
+	const { cardPresentation: legacyPresentation, ...sourceMetadata } =
+		row.metadata;
+	const currentPresentation =
+		presentation ??
+		(typeof row.metadata.cardRevision === "number"
+			? undefined
+			: legacyPresentation);
+	const metadata = currentPresentation
+		? { ...sourceMetadata, cardPresentation: currentPresentation }
+		: sourceMetadata;
 	const follow = row.metadata.followThrough;
 	const reaskNote =
 		follow &&
@@ -205,7 +213,7 @@ export function requestOutput(
 		creatorSessionId: row.creatorSessionId,
 		state: row.status,
 		requestedAt: row.createdAt,
-		dueAt: row.dueAt,
+		dueAt: sourceInteractionDeadline(row.dueAt, row.metadata),
 		expiresAt: row.expiresAt,
 		resolvedAt: row.resolvedAt,
 		version: row.version,
@@ -276,6 +284,10 @@ function effectiveState(row: InteractionRow, observedAt: string) {
 }
 
 const createProcedure = writeOs.create.handler(async ({ input, context }) => {
+	input = {
+		...input,
+		dueAt: sourceInteractionDeadline(input.dueAt, input.metadata) ?? undefined,
+	};
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
 	const {

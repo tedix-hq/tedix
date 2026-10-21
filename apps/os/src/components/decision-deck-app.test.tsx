@@ -497,32 +497,46 @@ it("keeps the exact outbound draft in Details when the short face summarizes it"
 	expect(host.querySelector(".fd-proposal-more")).toBeNull();
 });
 
-it("opens an authorized linked request and keeps every gated card available beyond the old daily budget", async () => {
-	vi.spyOn(globalThis, "fetch").mockRejectedValue(
-		new Error("No live requests in the fixture"),
-	);
-	const first = linkedRow(
-		"11111111-1111-4111-8111-111111111111",
-		"First fictional supplier",
-	);
-	const target = linkedRow(
-		"33333333-3333-4333-8333-333333333333",
-		"Linked fictional supplier",
-	);
-	globalThis.history.replaceState(null, "", `#card=${target.request.id}`);
-	await mount({ rows: [first, target], budget: 1 });
-	expect(host.textContent).toContain(`Live request ${target.request.id}`);
-	expect(host.textContent).not.toContain(`Live request ${first.request.id}`);
-	expect(host.textContent).toContain("2 of 2");
-	await click("Skip linked preview");
-	expect(globalThis.location.hash).toBe("");
-	expect(host.textContent).toContain(`Live request ${first.request.id}`);
-	await click("Skip linked preview");
-	expect(host.textContent).toContain(`Live request ${target.request.id}`);
-	expect(
-		Object.keys(sessionStorage).some((key) => key.startsWith("decision-deck:")),
-	).toBe(false);
-});
+it.each(["owner chore", "cleanup replacement"])(
+	"keeps a %s available beyond the daily budget alongside new decisions",
+	async (scenario) => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			new Error("No live requests in the fixture"),
+		);
+		const first = linkedRow(
+			"11111111-1111-4111-8111-111111111111",
+			"First fictional supplier",
+		);
+		const target = linkedRow(
+			"33333333-3333-4333-8333-333333333333",
+			"Linked fictional supplier",
+		);
+		target.request.metadata = {
+			...target.request.metadata,
+			...(scenario === "owner chore"
+				? {
+						needsOwner: true,
+						ownerSteps: ["Open account settings", "Review the old access"],
+					}
+				: { replacesRequestId: "55555555-5555-4555-8555-555555555555" }),
+		};
+		globalThis.history.replaceState(null, "", `#card=${target.request.id}`);
+		await mount({ rows: [first, target], budget: 1 });
+		expect(host.textContent).toContain(`Live request ${target.request.id}`);
+		expect(host.textContent).not.toContain(`Live request ${first.request.id}`);
+		expect(host.textContent).toContain("2 of 2");
+		await click("Skip linked preview");
+		expect(globalThis.location.hash).toBe("");
+		expect(host.textContent).toContain(`Live request ${first.request.id}`);
+		await click("Skip linked preview");
+		expect(host.textContent).toContain(`Live request ${target.request.id}`);
+		expect(
+			Object.keys(sessionStorage).some((key) =>
+				key.startsWith("decision-deck:"),
+			),
+		).toBe(false);
+	},
+);
 
 it("does not substitute another card when the linked request is not actionable for this person", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(

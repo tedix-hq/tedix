@@ -121,6 +121,36 @@ it("uses committed sample copy without model calls only in the offline demo", as
 	);
 	expect(mocks.generate).toHaveBeenCalledOnce();
 });
+it.each([undefined, "0".repeat(64)])(
+	"reads version-fenced interaction copy despite an absent or old fingerprint: %s",
+	async (sourceFingerprint) => {
+		const presentation = {
+			...copy,
+			...(sourceFingerprint ? { sourceFingerprint } : {}),
+		};
+		const authored = {
+			...card,
+			interaction: {
+				request: {
+					subject: card.label,
+					prompt: "Workshop notes",
+					metadata: { cardPresentation: presentation },
+				},
+			},
+		} as DeckCard;
+		const [displayed] = await prepareDeckCardFaces(context, [authored]);
+		expect(displayed?.presentation).toEqual(presentation);
+		expect(displayed?.faceText).toContain(copy.body);
+		expect(mocks.generate).not.toHaveBeenCalled();
+	},
+);
+
+it("generates and returns a new face when the host cannot schedule background work", async () => {
+	const [displayed] = await prepareDeckCardFaces(context, [card]);
+	expect(displayed?.presentation).toEqual(copy);
+	expect(displayed?.faceText).not.toContain("Summary pending");
+});
+
 it("reuses checked display copy, isolates people and organizations, and invalidates changed writing preferences", async () => {
 	expect(await prepareDeckCardFace(context, card)).toEqual(copy);
 	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);

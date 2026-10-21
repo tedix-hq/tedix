@@ -72,3 +72,20 @@ it("keeps the explicit decline even when generated button copy suggests yes", ()
 		),
 	).toBe("No / Not needed");
 });
+
+it("formats stored ISO deadlines across every face field without changing source dates", () => {
+	const source = {
+		...copy,
+		context: "Review by 2026-11-14.",
+		actionLabels: { approve: "Review 2026-11-14" },
+	};
+	const rendered = renderDecisionCardDates(
+		source,
+		["2026-11-14"],
+		new Date("2026-10-21T12:00:00Z"),
+		"Europe/Berlin",
+	);
+	expect(rendered.context).toBe("Review by Nov 14, 2026.");
+	expect(rendered.actionLabels.approve).toBe("Review Nov 14, 2026");
+	expect(source.context).toBe("Review by 2026-11-14.");
+});

@@ -855,3 +855,48 @@ it("regenerates display copy only for the addressed person, preserving decisions
 		spy.mockRestore();
 	}
 });
+
+it.each<{
+	dueAt: string | undefined;
+	metadata: Record<string, string>;
+	expected: string | null;
+}>([
+	{ dueAt: undefined, metadata: {}, expected: null },
+	{
+		dueAt: "2026-10-20T16:00:00Z",
+		metadata: {
+			deadlineBasis: "Owner triage/review target; the source has no deadline.",
+		},
+		expected: null,
+	},
+	{
+		dueAt: "2027-11-14T12:00:00Z",
+		metadata: { deadlineOrigin: "source" },
+		expected: "2027-11-14T12:00:00Z",
+	},
+])(
+	"persists only source deadlines, never a default or owner triage target: %j",
+	async ({ dueAt, metadata, expected }) => {
+		const { sqlite, owner } = fixture();
+		try {
+			const created = await owner.create({
+				workItemId: WORK_ITEM_ID,
+				kind: "question",
+				reason: "The account owner must review the remaining steps.",
+				subject: "Review account access?",
+				prompt: "Check the access settings.",
+				requestedFrom: { type: "user", id: "target-id" },
+				dueAt,
+				metadata,
+			});
+			expect(created.dueAt).toBe(expected);
+			expect(
+				sqlite
+					.prepare("SELECT due_at FROM work_interactions WHERE id=?")
+					.get(created.id)?.due_at,
+			).toBe(expected);
+		} finally {
+			sqlite.close();
+		}
+	},
+);
