@@ -3,9 +3,20 @@ import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decisi
 import type { BaseContext } from "../rpc/orpc";
 import { deckCreateGate } from "./deck-create-gate";
 
-const mocks = vi.hoisted(() => ({ config: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	config: vi.fn(),
+	prior: vi.fn(),
+	states: vi.fn(),
+}));
 vi.mock("@tedix/db/queries/decision-learning", () => ({
 	getDecisionLearningConfig: mocks.config,
+}));
+
+vi.mock("@tedix/db/queries/decision-graph", () => ({
+	findPriorDecision: mocks.prior,
+}));
+vi.mock("@tedix/db/queries/work-items/deck-sweep", () => ({
+	listDeckSourceStates: mocks.states,
 }));
 
 const orgId = "11111111-1111-4111-8111-111111111111";
@@ -31,6 +42,8 @@ const rule = (reason: string) => ({
 
 beforeEach(() => {
 	mocks.config.mockReset();
+	mocks.prior.mockReset().mockResolvedValue(null);
+	mocks.states.mockReset().mockResolvedValue(new Map());
 	mocks.config.mockResolvedValue(DecisionLearningConfigSchema.parse({}));
 });
 
@@ -122,4 +135,56 @@ describe("deckCreateGate", () => {
 		);
 		expect(await deckCreateGate(context, orgId, actor, status)).toBeNull();
 	});
+});
+
+it("blocks a cited prior decision and blocked sources without creating a card", async () => {
+	mocks.prior.mockResolvedValue({
+		node: { kind: "owner_instruction", id: "maple-lesson" },
+		edge: { evidenceRef: "/lessons/maple-lesson" },
+	});
+	const input = {
+		...status,
+		subject: "Should Maple renew?",
+		prompt: "I recommend renewal.",
+		workItemId: orgId,
+	};
+	await expect(deckCreateGate(context, orgId, actor, input)).rejects.toThrow(
+		"Already decided: /lessons/maple-lesson",
+	);
+	mocks.prior.mockResolvedValue(null);
+	mocks.states.mockResolvedValue(new Map([[orgId, "blocked"]]));
+	await expect(deckCreateGate(context, orgId, actor, input)).rejects.toThrow(
+		"Withdrawn: check the source",
+	);
+	mocks.states.mockResolvedValue(new Map([[orgId, "accepted"]]));
+	expect(await deckCreateGate(context, orgId, actor, input)).toMatchObject({
+		receipt: null,
+	});
+});
+it("returns incomplete owner chores to their producer for exact steps and duration", async () => {
+	await expect(
+		deckCreateGate(context, orgId, actor, {
+			...status,
+			subject: "Sign in with your MFA",
+		}),
+	).rejects.toThrow("metadata.ownerTask");
+});
+it("rejects a stale re-ask without a Work link and permits a refreshed ordinary ask", async () => {
+	const input = {
+		...status,
+		subject: "Should Maple renew?",
+		prompt:
+			"I recommend renewal. Check the source before asking for a fresh decision.",
+		dueAt: "2020-10-20",
+		metadata: { evidenceRefs: ["fictional-quote"] },
+	};
+	await expect(deckCreateGate(context, orgId, actor, input)).rejects.toThrow(
+		"Withdrawn: check the source",
+	);
+	expect(
+		await deckCreateGate(context, orgId, actor, {
+			...input,
+			prompt: "I recommend renewal: the quote is still valid.",
+		}),
+	).toMatchObject({ receipt: null });
 });

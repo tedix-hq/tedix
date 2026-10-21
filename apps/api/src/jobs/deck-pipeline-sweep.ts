@@ -1,3 +1,4 @@
+import type { DecisionContext } from "@tedix/api-contract/schemas/decision-graph";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
@@ -7,7 +8,7 @@ import {
 	listDeckSweepOrganizations,
 	listDeckSweepRecipients,
 	listRecipientCards,
-	listWorkItemDispositions,
+	listDeckSourceStates,
 	recordDeckSweepReceipt,
 	setDeckPipelineLearned,
 } from "@tedix/db/queries/work-items/deck-sweep";
@@ -19,9 +20,8 @@ import type {
 } from "@tedix/api-contract/schemas/deck-pipeline";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
-import { deckAskKind } from "@tedix/api-contract/utils/deck-ask";
+import { deckAsk, deckAskKind } from "@tedix/api-contract/utils/deck-ask";
 import {
-	deckSourceKey,
 	nextHidingClasses,
 	planDeckSweep,
 	type SweepAction,
@@ -32,6 +32,7 @@ import {
 	projectDeckCards,
 } from "@tedix/api-contract/utils/deck-projection";
 import { cardOriginalBody } from "../services/card-revisions";
+import { deckQualificationGraph } from "../services/deck-qualification-graph";
 import { appendCuration, criticalDeckRequest } from "../services/deck-curation";
 
 type CardRow = Awaited<ReturnType<typeof listRecipientCards>>[number];
@@ -217,10 +218,19 @@ export async function sweepOrganizationDeck(
 			});
 			if (!open.length) continue;
 			receipt.recipients += 1;
-			const dispositions = await listWorkItemDispositions(
+			const graph = config.qualification.enabled
+				? await deckQualificationGraph(db, orgId, open)
+				: new Map<string, DecisionContext>();
+			const dispositions = await listDeckSourceStates(
 				db,
 				orgId,
-				open.flatMap((row) => (row.workItemId ? [row.workItemId] : [])),
+				open.flatMap((row) => [
+					...(row.workItemId ? [row.workItemId] : []),
+					...(graph.get(row.id)?.chain ?? [])
+						.filter((step) => step.node.kind === "work_item")
+						.map((step) => step.node.id),
+				]),
+				now,
 			);
 			const resolved = await listRecipientCards(db, {
 				orgId,
@@ -238,17 +248,49 @@ export async function sweepOrganizationDeck(
 			const live = open.filter(
 				(row) => !(row.expiresAt && row.expiresAt <= now.toISOString()),
 			);
-			const cards = live.map((row) => sweepCard(row, dispositions));
+			const cards = live.map((row) => {
+				const facts = graph.get(row.id);
+				const workId =
+					row.workItemId ??
+					facts?.chain.find((step) => step.edge.kind === "card_from_work")?.node
+						.id ??
+					null;
+				const decision = DecisionEnvelopeSchema.safeParse(
+					row.metadata.decisionDeck,
+				).data;
+				const ask = deckAsk(
+					{
+						kind: deckInteractionKind(row.kind, row.metadata),
+						dueAt: row.dueAt,
+						request: row,
+						decision,
+						workItem: { disposition: workId ? dispositions.get(workId) : null },
+					},
+					now,
+					{ qualification: config.qualification, timeZone: learning.timezone },
+				);
+				return {
+					...sweepCard({ ...row, workItemId: workId }, dispositions),
+					askKind: ask.askKind,
+					responseKind: ask.responseKind,
+					actionable:
+						ask.actionable &&
+						!(
+							config.qualification.alreadyDecided &&
+							facts?.priorDecision &&
+							ask.responseKind !== "task"
+						) &&
+						!(config.qualification.graphDuplicates && facts?.supersededBy),
+					graph: facts,
+				};
+			});
 			const plan = planDeckSweep({
 				cards,
 				now,
 				config: { ...config.sweep, maxRetirementsPerRun: budget },
 				rules: config.rules.filter((rule) => rule.recipientId === recipientId),
-				answered: resolved.map((row) => ({
-					id: row.id,
-					sourceKey: deckSourceKey(row),
-					subject: row.subject,
-				})),
+				qualification: config.qualification,
+				timeZone: learning.timezone,
 			});
 			receipt.proposed += plan.proposals.length;
 			let retiredHere = 0;
@@ -281,7 +323,9 @@ export async function sweepOrganizationDeck(
 			}
 			budget = Math.max(0, budget - retiredHere);
 			const retiredIds = new Set(receipt.removed.map((entry) => entry.id));
-			const remaining = cards.filter((card) => !retiredIds.has(card.id));
+			const remaining = cards.filter(
+				(card) => !retiredIds.has(card.id) && card.actionable !== false,
+			);
 			// Earned hiding: per (ask kind x source) class, measured on shadow labels.
 			const shadowOf = (row: CardRow) =>
 				DeckCurationStateSchema.safeParse(row.metadata.curation).data?.shadow;

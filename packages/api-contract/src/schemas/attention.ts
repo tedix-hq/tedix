@@ -45,6 +45,7 @@ export const AttentionViewInputSchema = z.strictObject({
 });
 /** What a card asks of the person; derived from typed card data, never stored. */
 export const DeckAskKindSchema = z.enum([
+	"task",
 	"send",
 	"decide",
 	"approve_draft",
@@ -52,6 +53,16 @@ export const DeckAskKindSchema = z.enum([
 	"consent",
 ]);
 export type DeckAskKind = z.infer<typeof DeckAskKindSchema>;
+export const DeckOwnerTaskSchema = z.strictObject({
+	presence: z.enum(["login", "mfa", "consent"]),
+	steps: z.array(z.string().trim().min(1).max(1000)).min(1).max(20),
+	estimatedMinutes: z.number().int().min(1).max(480),
+});
+export const DeckResponseOptionSchema = z.strictObject({
+	id: z.string().min(1).max(100),
+	label: z.string().min(1).max(120),
+	body: z.string().max(2000).optional(),
+});
 export const DeckCardSchema = z.strictObject({
 	history: CardHistorySchema.optional(),
 	id: z.string().min(1),
@@ -66,6 +77,11 @@ export const DeckCardSchema = z.strictObject({
 	requestedAt: z.string(),
 	dueAt: z.string().nullable(),
 	askKind: DeckAskKindSchema.optional(),
+	responseKind: z.enum(["choice", "open", "task"]).optional(),
+	responseOptions: z.array(DeckResponseOptionSchema).max(8).optional(),
+	ownerTask: DeckOwnerTaskSchema.nullable().optional(),
+	actionable: z.boolean().optional(),
+	blocksCount: z.number().int().min(0).optional(),
 	/** Earliest known deadline: request due date, decision expiry or approval expiry. */
 	deadline: z.string().nullable().optional(),
 	overdue: z.boolean().optional(),
@@ -214,6 +230,8 @@ export const AttentionDisplayCardSchema = z.strictObject({
 	evidenceUrl: z.string().nullable(),
 	dueAt: z.string().nullable(),
 	askKind: DeckAskKindSchema.nullable().optional(),
+	responseKind: z.enum(["choice", "open", "task"]).optional(),
+	ownerTask: DeckOwnerTaskSchema.nullable().optional(),
 	askLabel: z.string().nullable().optional(),
 	overdue: z.boolean().optional(),
 	handled: z.boolean().optional(),

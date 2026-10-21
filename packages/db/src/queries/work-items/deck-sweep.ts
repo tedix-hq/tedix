@@ -8,7 +8,11 @@ import type { DbQueryClient } from "../../query-client";
 import { organizations } from "../../schema/organizations";
 import { organizationMembers } from "../../schema/organization-members";
 import { workInteractions } from "../../schema/work-factory";
-import { workItems } from "../../schema/work-items";
+import {
+	workItems,
+	workAttempts,
+	workItemRelations,
+} from "../../schema/work-items";
 
 /** Organizations that configured decision learning; a small table, bounded. */
 export async function listDeckSweepOrganizations(
@@ -114,6 +118,38 @@ export async function listWorkItemDispositions(
 				),
 			);
 		for (const row of rows) result.set(row.id, row.disposition);
+	}
+	return result;
+}
+
+/** Terminal Work wins; unresolved dependency edges and the latest expired Attempt withdraw old asks. */
+export async function listDeckSourceStates(
+	db: DbQueryClient,
+	orgId: string,
+	ids: readonly string[],
+	now: Date,
+) {
+	const result = new Map<string, string>();
+	const unique = [...new Set(ids)];
+	for (let offset = 0; offset < unique.length; offset += 50) {
+		const rows = await db
+			.select({
+				id: workItems.id,
+				state: sql<string>`CASE
+			WHEN ${workItems.disposition} IN ('completed','cancelled') THEN ${workItems.disposition}
+			WHEN EXISTS (SELECT 1 FROM ${workItemRelations} r JOIN ${workItems} dependency ON dependency.id=r.from_work_item_id AND dependency.org_id=r.org_id WHERE r.org_id=${orgId} AND r.to_work_item_id=${workItems}.${sql.identifier("id")} AND r.relation_type='blocks' AND dependency.disposition NOT IN ('completed','cancelled')) THEN 'blocked'
+			WHEN (SELECT CASE WHEN a.runtime_state='expired' OR (a.runtime_state IN ('running','queued','waiting','retrying') AND a.expires_at<=${now.toISOString()}) THEN 1 ELSE 0 END FROM ${workAttempts} a WHERE a.org_id=${orgId} AND a.work_item_id=${workItems}.${sql.identifier("id")} ORDER BY a.attempt_number DESC, a.id DESC LIMIT 1)=1 THEN 'expired'
+			ELSE ${workItems.disposition} END`,
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, orgId),
+					inArray(workItems.id, unique.slice(offset, offset + 50)),
+				),
+			)
+			.limit(50);
+		for (const row of rows) result.set(row.id, row.state);
 	}
 	return result;
 }

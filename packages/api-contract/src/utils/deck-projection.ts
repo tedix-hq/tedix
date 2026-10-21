@@ -110,12 +110,14 @@ function rankedNoise(card: { interaction?: DeckCard["interaction"] }) {
 	return Boolean(state && state.status === "open" && state.penalty < 0);
 }
 
-/** Deck order: actionable overdue, critical, due today, ranker label, then score and age. */
+/** Actionable asks rank by blocked Work, then overdue, policy, score and age. */
 export function compareDecisionFreshness(
 	a: {
 		kind?: string;
 		dueAt?: string | null;
 		deadline?: string | null;
+		actionable?: boolean;
+		blocksCount?: number;
 		handled?: boolean;
 		expired?: boolean;
 		requestedAt?: string;
@@ -128,6 +130,8 @@ export function compareDecisionFreshness(
 		kind?: string;
 		dueAt?: string | null;
 		deadline?: string | null;
+		actionable?: boolean;
+		blocksCount?: number;
 		handled?: boolean;
 		expired?: boolean;
 		requestedAt?: string;
@@ -147,8 +151,8 @@ export function compareDecisionFreshness(
 	const bDue = due(bDeadline);
 	const today = calendarDay(now, timeZone);
 	// Handled or expired asks wait for retirement at the end, never as overdue.
-	const aSettled = Boolean(a.handled || a.expired);
-	const bSettled = Boolean(b.handled || b.expired);
+	const aSettled = Boolean(a.handled || a.expired || a.actionable === false);
+	const bSettled = Boolean(b.handled || b.expired || b.actionable === false);
 	const aOverdue = !aSettled && deadlineOverdue(aDeadline, now, timeZone);
 	const bOverdue = !bSettled && deadlineOverdue(bDeadline, now, timeZone);
 	const dueToday = (value: string | null | undefined, timestamp: number) =>
@@ -157,9 +161,11 @@ export function compareDecisionFreshness(
 		(value!.length === 10
 			? value === today
 			: calendarDay(new Date(timestamp), timeZone) === today);
-	// Overdue asks lead, longest overdue first; then the existing policy order.
 	return (
 		Number(aSettled) - Number(bSettled) ||
+		(!aSettled && !bSettled
+			? (b.blocksCount ?? 0) - (a.blocksCount ?? 0)
+			: 0) ||
 		Number(bOverdue) - Number(aOverdue) ||
 		(aOverdue && bOverdue ? aDue - bDue : 0) ||
 		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
@@ -181,7 +187,7 @@ export function compareDecisionFreshness(
 export function annotateDeckAsk(
 	cards: DeckCard[],
 	now: Date,
-	options: { timeZone?: string; staleDraftHours?: number } = {},
+	options: Parameters<typeof deckAsk>[2] = {},
 ) {
 	for (const card of cards)
 		Object.assign(

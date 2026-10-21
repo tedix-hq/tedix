@@ -1,3 +1,7 @@
+import { findPriorDecision } from "@tedix/db/queries/decision-graph";
+import { listDeckSourceStates } from "@tedix/db/queries/work-items/deck-sweep";
+import { deckCardStale } from "@tedix/api-contract/utils/deck-ask";
+import { classifyDeckAsk } from "@tedix/api-contract/utils/deck-qualification";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import {
 	deckGateMessage,
@@ -24,7 +28,7 @@ type GateInput = {
 /**
  * S0: deterministic create-time rules from the organization's D1 config. A
  * malformed agent card is returned to its agent with the reason (no card is
- * created); a protected ask always passes and is flagged instead.
+ * created). Protection preserves actionable asks; settled or stale asks withdraw.
  */
 export async function deckCreateGate(
 	context: BaseContext,
@@ -36,6 +40,36 @@ export async function deckCreateGate(
 		.deckPipeline;
 	const gate = config.createGate;
 	if (gate.mode === "off") return null;
+	const ask = classifyDeckAsk(input, config.qualification);
+	let qualificationIssue: string | null =
+		ask.responseKind === "task" && !ask.ownerTask
+			? "This is a task for you, not a decision. Supply metadata.ownerTask with presence (login, mfa or consent), exact steps and estimatedMinutes before asking the owner."
+			: null;
+	let sourceState: string | undefined;
+	if (config.qualification.enabled && input.workItemId) {
+		const [prior, states] = await Promise.all([
+			config.qualification.alreadyDecided && ask.responseKind !== "task"
+				? findPriorDecision(context.db, orgId, [input.workItemId])
+				: null,
+			listDeckSourceStates(context.db, orgId, [input.workItemId], new Date()),
+		]);
+		sourceState = states.get(input.workItemId);
+		if (prior)
+			qualificationIssue = `Already decided: ${prior.edge.evidenceRef ?? `${prior.node.kind}:${prior.node.id}`}`;
+		else if (sourceState === "completed")
+			qualificationIssue = `Already decided: /work/items/${input.workItemId}`;
+	}
+	if (
+		deckCardStale(
+			{ ...input, request: input, workItem: { disposition: sourceState } },
+			new Date(),
+			config.qualification,
+		)
+	)
+		qualificationIssue =
+			"Withdrawn: check the source; ask again only if it still needs a decision.";
+	if (qualificationIssue && gate.mode === "enforce")
+		throw createError(ErrorCodes.UNPROCESSABLE_CONTENT, qualificationIssue);
 	const sourceKey = deckSourceKey({
 		creatorType: actor.type,
 		creatorId: actor.id,
@@ -74,11 +108,12 @@ export async function deckCreateGate(
 	return {
 		expiresAt,
 		receipt:
-			result.verdict === "pass" && !expiresAt
+			result.verdict === "pass" && !expiresAt && !qualificationIssue
 				? null
 				: {
 						verdict: result.verdict,
 						mode: gate.mode,
+						...(qualificationIssue ? { qualificationIssue } : {}),
 						missing: result.missing,
 						rule: result.rule,
 						...(expiresAt

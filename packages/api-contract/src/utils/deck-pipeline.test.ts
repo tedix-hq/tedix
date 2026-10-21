@@ -194,7 +194,7 @@ describe("S2 sweep", () => {
 		).toEqual([]);
 	});
 
-	it("retires an unprotected card whose Work Item finished", () => {
+	it("retires cards whose Work Item finished", () => {
 		const done = card({ workItemId: agent, workItemDisposition: "completed" });
 		const kept = card({
 			workItemId: agent,
@@ -208,7 +208,8 @@ describe("S2 sweep", () => {
 			rules: [],
 		});
 		expect(actions).toMatchObject([
-			{ cardId: done.id, reason: "handled_elsewhere", workItemId: agent },
+			{ cardId: done.id, reason: "already_decided", workItemId: agent },
+			{ cardId: kept.id, reason: "already_decided", workItemId: agent },
 		]);
 	});
 
@@ -222,6 +223,7 @@ describe("S2 sweep", () => {
 			workItemId: agent,
 			createdAt: "2026-10-20T09:00:00Z",
 		});
+		older.graph = { duplicates: [newer.id] };
 		const other = card({
 			subject: "Publish the reply to Omar",
 			workItemId: null,
@@ -266,7 +268,7 @@ describe("S2 sweep", () => {
 		).toEqual([]);
 	});
 
-	it("applies learned rules to unprotected cards only, and only proposes 'already decided'", () => {
+	it("applies learned rules to unprotected cards only; prior decisions require graph evidence", () => {
 		const source = deckSourceKey(card());
 		const rules: DeckLearnedRule[] = [
 			{
@@ -300,12 +302,9 @@ describe("S2 sweep", () => {
 			now,
 			config: config.sweep,
 			rules: [{ ...rules[0]!, id: "rule-decided", reason: "already_decided" }],
-			answered: [{ id: "old", sourceKey: source, subject: decided.subject }],
 		});
 		expect(result.actions).toEqual([]);
-		expect(result.proposals).toMatchObject([
-			{ cardId: decided.id, reason: "handled_elsewhere" },
-		]);
+		expect(result.proposals).toEqual([]);
 	});
 
 	it("is bounded by maxRetirementsPerRun", () => {

@@ -64,7 +64,7 @@ export function deckDisplayCard(
 	const copy = storedCopy
 		? renderDecisionCardDates(
 				storedCopy,
-				[card.dueAt, card.deadline].filter((date): date is string =>
+				[card.deadline ?? card.dueAt].filter((date): date is string =>
 					Boolean(date),
 				),
 				new Date(),
@@ -119,7 +119,14 @@ export function deckDisplayCard(
 		evidenceUrl: personal?.evidenceUrl ?? null,
 		dueAt: card.deadline ?? card.dueAt,
 		askKind: card.askKind ?? null,
-		askLabel: card.askKind ? DECK_ASK_LABELS[card.askKind] : null,
+		responseKind: card.responseKind,
+		ownerTask: card.ownerTask,
+		askLabel:
+			card.responseKind === "task"
+				? "Task for you"
+				: card.askKind
+					? DECK_ASK_LABELS[card.askKind]
+					: null,
 		overdue: card.overdue ?? false,
 		...(card.handled ? { handled: true } : {}),
 		...(card.expired ? { expired: true } : {}),
@@ -129,11 +136,13 @@ export function deckDisplayCard(
 		recipient: outbound?.recipient ?? null,
 		subject: outbound?.subject ?? null,
 		options:
-			card.decision?.options.map((option) => ({
-				id: option.id,
-				label: option.label,
-				consequence: option.consequence,
-			})) ?? [],
+			card.responseKind === "task"
+				? []
+				: (card.decision?.options.map((option) => ({
+						id: option.id,
+						label: option.label,
+						consequence: option.consequence,
+					})) ?? []),
 		actions: [],
 		answer: "",
 		needsText: false,
@@ -180,8 +189,14 @@ export function deckDisplayCard(
 			subject: null,
 			provenance: "Tedix",
 			evidenceUrl: null,
+			ownerTask: null,
 		};
-	if (!copy || critical || card.runtimeApproval?.review.interaction)
+	if (
+		card.responseKind === "task" ||
+		!copy ||
+		critical ||
+		card.runtimeApproval?.review.interaction
+	)
 		return view;
 	if (!card.factory && deckResponseRequiresHuman(card, "")) return view;
 	if (
@@ -218,6 +233,23 @@ export function deckDisplayCard(
 					},
 				});
 			}
+		} else if (card.responseKind === "choice" && card.responseOptions?.length) {
+			view.options = card.responseOptions.map((option) => ({
+				id: option.id,
+				label: option.label,
+				consequence: option.body ?? null,
+			}));
+			for (const option of card.responseOptions)
+				add(option.id, option.label, {
+					kind: "interaction",
+					decision: {
+						...base,
+						responseKind: "answer",
+						body: option.body ?? option.label,
+						resolvesRequest: true,
+						metadata: { cardAction: option.id, source: "mcp-app" },
+					},
+				});
 		} else if (offered?.decisionCard) {
 			view.options = offered.decisionCard.options.map((option) => ({
 				id: option.id,

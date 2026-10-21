@@ -7,7 +7,11 @@ import {
 	loadDeckProjection,
 	loadForYouProjection,
 } from "./attention-projection";
-const mocks = vi.hoisted(() => ({ call: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	call: vi.fn(),
+	graph: vi.fn(),
+	states: vi.fn(),
+}));
 vi.mock("@orpc/server", async (original) => ({
 	...(await original<Record<string, unknown>>()),
 	call: mocks.call,
@@ -46,6 +50,17 @@ vi.mock("../rpc/routers/work-items", () => ({
 		listAttemptProjection: "attempts",
 	},
 }));
+vi.mock("@tedix/db/queries/decision-learning", () => ({
+	getDecisionLearningConfig: vi.fn(async () =>
+		DecisionLearningConfigSchema.parse({}),
+	),
+}));
+vi.mock("./deck-qualification-graph", () => ({
+	deckQualificationGraph: mocks.graph,
+}));
+vi.mock("@tedix/db/queries/work-items/deck-sweep", () => ({
+	listDeckSourceStates: mocks.states,
+}));
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const outputId = "22222222-2222-4222-8222-222222222222";
 const projectId = "33333333-3333-4333-8333-333333333333";
@@ -69,6 +84,8 @@ let model: ReturnType<typeof learnDecisions>;
 let routing = DEFAULT_DECK_ROUTING;
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.graph.mockResolvedValue(new Map());
+	mocks.states.mockResolvedValue(new Map());
 	routing = DEFAULT_DECK_ROUTING;
 	model = learnDecisions({
 		organizationId: "fictional-orchard",
@@ -378,4 +395,38 @@ it("separates factory deadlines from show-from in Deck and Feed", async () => {
 			.filter((item) => item.id.startsWith("factory:"))
 			.map((item) => item.id),
 	).toEqual([`factory:${outputId}:0`]);
+});
+
+it("withholds overdue priority for a blocked source reached through the graph", async () => {
+	const initial = await loadDeckProjection(context, { limit: 100 });
+	const id = initial.cards[0]!.id;
+	mocks.graph.mockResolvedValue(
+		new Map([
+			[
+				id,
+				{
+					chain: [
+						{
+							edge: { kind: "card_from_work" },
+							node: { kind: "work_item", id: "maple-source" },
+						},
+					],
+					blocksCount: 8,
+				},
+			],
+		]),
+	);
+	mocks.states.mockResolvedValue(new Map([["maple-source", "blocked"]]));
+	const result = await loadDeckProjection(context, { limit: 100 });
+	expect(result.cards.find((c) => c.id === id)).toMatchObject({
+		actionable: false,
+		overdue: false,
+		blocksCount: 8,
+	});
+	expect(mocks.states).toHaveBeenLastCalledWith(
+		undefined,
+		"fictional-orchard",
+		["maple-source"],
+		expect.any(Date),
+	);
 });

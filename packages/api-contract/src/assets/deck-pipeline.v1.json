@@ -28,5 +28,17 @@
 		"demoteUndos": 2,
 		"demoteWindow": 20
 	},
-	"ruleAfterReasons": 3
+	"ruleAfterReasons": 3,
+	"qualification": {
+		"enabled": true,
+		"alreadyDecided": true,
+		"graphDuplicates": true,
+		"rankBlocked": true,
+		"yesNoPattern": "^(?:(?:should|shall|can|could|would|will|do|does|did|is|are|may)\\b[^?]*\\?|(?:approve|allow|accept|reject|revoke|renew|keep|delete|remove|send|publish)\\b[^?]*\\?)$",
+		"ownerPresencePattern": "\\b(?:your (?:[\\p{L}]+ )?(?:login|MFA|consent)|until you (?:allow|grant)|owner.only|(?:you (?:must|need to|have to) |please |^|[.!?:]\\s+)(?:sign|log) in)\\b",
+		"stalePattern": "\\b(?:check the source|re.check|re.ask|ask (?:again|for a fresh decision)|deadline has passed)\\b",
+		"blockedDispositions": ["blocked", "expired"],
+		"ownerStepPattern": "^\\s*(?:\\d+[.)]|[-*]|step:)\\s+(.+)$",
+		"durationPattern": "\\b(?:about\\s+)?(\\d+)\\s*min(?:ute)?s?\\b"
+	}
 }
