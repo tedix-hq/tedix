@@ -105,6 +105,10 @@ export default defineConfig(({ mode }) => {
 					namespace: "1001",
 					simple: { limit: 100, period: 60 },
 				}),
+				MCP_PRINCIPAL_RATE_LIMITER: bindings.rateLimit({
+					namespace: "1004",
+					simple: { limit: 600, period: 60 },
+				}),
 				MCP_WRITE_RATE_LIMITER: bindings.rateLimit({
 					namespace: "1002",
 					simple: { limit: 30, period: 60 },
