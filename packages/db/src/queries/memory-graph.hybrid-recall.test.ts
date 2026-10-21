@@ -86,7 +86,7 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
-	it("records recall access in one tenant-fenced write with bounded parameters", async () => {
+	it("records bounded tenant-fenced recall access without increasing confidence", async () => {
 		const prepared: string[] = [];
 		const { db, add, sqlite } = fixture((query) => prepared.push(query));
 		add("a", "cobalt");
@@ -109,7 +109,7 @@ describe("canonical hybrid recall D1 queries", () => {
 		expect(
 			sqlite.prepare("SELECT confidence FROM memory_facts WHERE id='a'").get()
 				?.confidence,
-		).toBeCloseTo(0.84);
+		).toBeCloseTo(0.8);
 		expect(
 			sqlite.prepare("SELECT confidence FROM memory_facts WHERE id='b'").get()
 				?.confidence,
