@@ -253,7 +253,7 @@ export async function fallbackRecall(
 	return filterEvidenceBackedLessons(db, scope.orgId, rows);
 }
 
-/** One tenant-fenced write preserves access/boost behavior without 2N RPCs. */
+/** Record retrieval frequency without changing fact confidence. */
 export async function recordRecallAccess(
 	db: DbQueryClient,
 	orgId: string,
@@ -265,7 +265,6 @@ export async function recordRecallAccess(
 		.set({
 			lastAccessedAt: new Date().toISOString(),
 			accessCount: sql`${memoryFacts.accessCount} + 1`,
-			confidence: sql`MIN(1.0, ${memoryFacts.confidence} * 1.05)`,
 		})
 		.where(
 			and(

@@ -2,7 +2,6 @@ import { refreshConsolidatedForFact } from "./observations";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { memoryFacts } from "../../schema/memory-graph";
-import { batchNonEmpty } from "../../utils/batch";
 import { getAffectedRows } from "../../utils/d1-result";
 
 export async function decayConfidence(
@@ -218,24 +217,6 @@ export async function expireProbation(
 		)
 		.returning({ id: memoryFacts.id });
 	return { count: rows.length, expiredIds: rows.map((r) => r.id) };
-}
-
-export async function boostConfidence(
-	db: DbClient,
-	factIds: string[],
-	boostFactor: number = 1.05,
-): Promise<void> {
-	if (factIds.length === 0) return;
-	// Batch all updates into a single D1 round-trip
-	const queries = factIds.map((factId) =>
-		db
-			.update(memoryFacts)
-			.set({
-				confidence: sql`MIN(1.0, ${memoryFacts.confidence} * ${boostFactor})`,
-			})
-			.where(eq(memoryFacts.id, factId)),
-	);
-	await db.batch(batchNonEmpty(queries));
 }
 
 export async function resetCollapsedConfidence(
