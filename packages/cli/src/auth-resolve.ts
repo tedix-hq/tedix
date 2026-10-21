@@ -162,6 +162,12 @@ export async function resolveStoredLoginAuth(
 				loginError: `Stored login renewal for workspace "${workspace}" was deferred while macOS is in dark wake. Wake the Mac fully and retry; no refresh request was sent.`,
 			};
 		}
+		if (outcome === "uncertain") {
+			return {
+				auth: null,
+				loginError: `Stored login renewal for workspace "${workspace}" has an uncertain result. Its refresh token will not be retried because it may already have rotated. Run \`tedix login --workspace ${workspace}\` to re-authenticate.`,
+			};
+		}
 		if (outcome !== "refreshed" && outcome !== "not-needed") {
 			return {
 				auth: null,

@@ -148,6 +148,10 @@ for (const invalidated of [false, true]) {
 						?.refresh_token,
 				).toBe("rotated-refresh");
 				expect(
+					readWorkspaceCredentials("fixture", { configDir: dir })
+						?.oauthRefreshPending,
+				).toBeUndefined();
+				expect(
 					readWorkspaceCredentials("fixture", { configDir: dir })?.org,
 				).toBe("org_fixture");
 			}

@@ -26,6 +26,8 @@ export interface WorkspaceCredential {
 	loginId: string;
 	accessTokenExpiresAtSeconds?: number;
 	oauthRefreshInvalidated?: boolean;
+	/** A refresh may have consumed this token; only its saved replacement clears this. */
+	oauthRefreshPending?: boolean;
 	// Optional per-resource OAuth metadata (used to target + refresh the right
 	// `*-unified` MCP gateway). Present only when the login flow captured them.
 	mcpUrl?: string;
@@ -77,6 +79,7 @@ function coerceWorkspace(value: unknown): WorkspaceCredential | null {
 	if (typeof v.loginId !== "string") return null;
 	const cred: WorkspaceCredential = { loginId: v.loginId };
 	if (v.oauthRefreshInvalidated === true) cred.oauthRefreshInvalidated = true;
+	if (v.oauthRefreshPending === true) cred.oauthRefreshPending = true;
 	if (
 		typeof v.accessTokenExpiresAtSeconds === "number" &&
 		Number.isFinite(v.accessTokenExpiresAtSeconds)
@@ -276,12 +279,20 @@ export function writeWorkspaceCredentials(
 				current.oauthTokens?.access_token !==
 					expectedCredential.oauthTokens?.access_token ||
 				current.oauthTokens?.refresh_token !==
-					expectedCredential.oauthTokens?.refresh_token
+					expectedCredential.oauthTokens?.refresh_token ||
+				current.oauthRefreshPending !== expectedCredential.oauthRefreshPending
 			) {
 				throw new CredentialWriteConflictError();
 			}
 		}
-		store.workspaces[workspace] = cred;
+		const current = store.workspaces[workspace];
+		// Metadata saves from a stale provider cannot make a consumed token reusable.
+		store.workspaces[workspace] =
+			current?.oauthRefreshPending &&
+			current.oauthTokens?.refresh_token === cred.oauthTokens?.refresh_token &&
+			!expectedCredential?.oauthRefreshPending
+				? { ...cred, oauthRefreshPending: true }
+				: cred;
 		// Upsert only — the current pointer is left as-is.
 		saveStore(store, opts);
 	});
