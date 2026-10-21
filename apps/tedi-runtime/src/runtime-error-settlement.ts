@@ -26,6 +26,8 @@ export function runtimeErrorWorkflowResult(
 			"Interrupted tool effects require reconciliation before recovery" &&
 		message !== "Paid inference requires private native origin capture" &&
 		!message.startsWith("Delegation preflight failed: ") &&
+		!message.startsWith("capability tool unavailable: ") &&
+		!message.startsWith("capability gap: ") &&
 		!message.startsWith("delegated_work_authority_lost: ") &&
 		!message.startsWith("Chat inference denied for stopped run: ") &&
 		!message.startsWith("Chat inference denied for canceled or stopped run: ")

@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { memoryStorage, tediDo } from "../test/tedi-do";
 import { driveChatTurnSteps, type ChatTurnStepRunner } from "./chat-turn-steps";
+import { capabilityToolSet } from "./delegation-capabilities";
 import { providerErrorWorkflowResult } from "./provider-error-settlement";
 import {
 	runtimeErrorWorkflowResult,
@@ -15,6 +16,8 @@ for (const message of [
 	"Interrupted tool effects require reconciliation before recovery",
 	"Paid inference requires private native origin capture",
 	"Delegation preflight failed: work.add_comment is unauthorized; missing scopes: mcp:work.write",
+	"capability tool unavailable: web_search; return to Home for rerouting",
+	"capability gap: web.search; return to Home for rerouting",
 	"Chat inference denied for stopped run: persisted-run",
 	"Chat inference denied for canceled or stopped run: persisted-run",
 ]) {
@@ -173,17 +176,30 @@ mock.module("agents", () => ({
 mock.module("agents/workflows", () => ({ AgentWorkflow: class {} }));
 const { ChatTurnWorkflow } = await import("./chat-turn-workflow");
 
-for (const boundary of ["facet", "observation"] as const) {
+for (const boundary of ["facet", "observation", "capability", "gap"] as const) {
 	for (const terminal of [true, false]) {
+		if (!terminal && (boundary === "capability" || boundary === "gap"))
+			continue;
 		let facetCalls = 0;
 		let observations = 0;
 		let retries = 0;
 		let sleeps = 0;
 		const completed: unknown[] = [];
+		const failures: unknown[][] = [];
+		const failureAgent = tediDo({
+			async settleWorkflowFailure(...args: unknown[]) {
+				failures.push(args);
+			},
+			async settleWorkflowSuccess() {},
+		});
 		const error = new Error(
-			terminal
-				? "delegated_work_authority_lost: run=run-1 attempt=attempt-1 work=work-1"
-				: "fetch failed",
+			boundary === "capability"
+				? "capability tool unavailable: web_search; return to Home for rerouting"
+				: boundary === "gap"
+					? "capability gap: web.search; return to Home for rerouting"
+					: terminal
+						? "delegated_work_authority_lost: run=run-1 attempt=attempt-1 work=work-1"
+						: "fetch failed",
 		);
 		const instance = Object.create(ChatTurnWorkflow.prototype) as InstanceType<
 			typeof ChatTurnWorkflow
@@ -193,6 +209,18 @@ for (const boundary of ["facet", "observation"] as const) {
 				markChatWorkflowStarted: async () => true,
 				runFacetWorkflowTurn: async () => {
 					facetCalls++;
+					if (boundary === "capability" || boundary === "gap")
+						capabilityToolSet({
+							tools: {},
+							plan: {
+								version: "delegation-capabilities.v1",
+								requiredCapabilities: ["web.search"],
+								allowedToolIds: ["web_search"],
+								urls: [],
+								outputIds: [],
+								missingCapabilities: boundary === "gap" ? ["web.search"] : [],
+							},
+						});
 					if (boundary === "facet" && facetCalls === 1) throw error;
 					return boundary === "observation" && facetCalls === 1
 						? {
@@ -229,6 +257,11 @@ for (const boundary of ["facet", "observation"] as const) {
 			},
 			async reportComplete(result) {
 				completed.push(result);
+				await failureAgent.onWorkflowComplete(
+					"CHAT_TURN_WORKFLOW",
+					"native-1",
+					result,
+				);
 			},
 		};
 		const run = instance.run(
@@ -268,6 +301,9 @@ for (const boundary of ["facet", "observation"] as const) {
 			if (terminal) {
 				assert.equal(result.error, error.message);
 				assert.equal(facetCalls, 1);
+				assert.deepEqual(failures, [
+					["native-1", error.message, { assistantText: undefined }],
+				]);
 			} else {
 				assert.equal(result.text, "done");
 				assert.equal(facetCalls, 2);
