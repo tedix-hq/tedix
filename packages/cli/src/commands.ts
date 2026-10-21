@@ -15,13 +15,14 @@ import {
 	renderEventPretty,
 	yellow,
 } from "./format";
-import type { HomeRunSummary, TedixHomeClient } from "./home-client";
+import type { HomeRunSummary } from "./home-payload";
+import type { TedixHomeClient } from "./home-client";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	delegatedChildStopFromPayload,
 	isSettledHomeStatus,
 	summarizeHomePayload,
-} from "./home-client";
+} from "./home-payload";
 
 export type GoalLoopEvaluator = "deterministic" | "adversarial" | "work_items";
 

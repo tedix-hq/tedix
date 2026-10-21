@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { HomeRunSummary } from "./home-client";
+import type { HomeRunSummary } from "./home-payload";
 import { commitInkSendResult } from "./interactive-ink";
 
 const context = { json: false, color: { enabled: false }, poll: true };

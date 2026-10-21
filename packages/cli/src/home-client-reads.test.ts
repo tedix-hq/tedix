@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-	latestRunFromSet,
-	type McpClientLike,
-	summarizeHomePayload,
-	TedixHomeClient,
-} from "./home-client";
+import { latestRunFromSet, summarizeHomePayload } from "./home-payload";
+import { type McpClientLike, TedixHomeClient } from "./home-client";
 
 // `tedix status` read a run set that the Code Mode gateway had replaced with a
 // truncation preview (a page of real runs is several times the 6k-token

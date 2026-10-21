@@ -14,7 +14,7 @@
 import { TOOL_VERB_MAP, VERB_PREFIX_MAP } from "./operator/tool-humanize";
 import { type ColorMode, stripControlChars } from "./terminal";
 import { formatDuration } from "./format";
-import { coerceHomeRunSet, type HomeRunSummary } from "./home-client";
+import { coerceHomeRunSet, type HomeRunSummary } from "./home-payload";
 import type { InFlightEntry } from "./inflight";
 import { accent, faint } from "./theme";
 

@@ -10,7 +10,7 @@ import {
 } from "./activity";
 import { unrenderedAnswerText } from "./format";
 import type { ColorMode } from "./terminal";
-import type { HomeRunSummary } from "./home-client";
+import type { HomeRunSummary } from "./home-payload";
 
 const NO_COLOR: ColorMode = { enabled: false };
 

@@ -9,7 +9,7 @@ import {
 	HOME_RUN_EVENTS_START,
 	type HomeRunEvent,
 	type HomeRunEventsPage,
-} from "./home-client";
+} from "./home-payload";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -31,14 +31,13 @@ import {
 } from "./credential-store";
 import { type TerminalOutput, errorText } from "./format";
 import type { ColorMode } from "./terminal";
+import { DEFAULT_TEDIX_MCP_URL, type TedixHomeClient } from "./home-client";
 import {
-	DEFAULT_TEDIX_MCP_URL,
 	type HomeRunSummary,
 	isPendingHomeApproval,
 	isSettledHomeStatus,
 	summarizeHomePayload,
-	type TedixHomeClient,
-} from "./home-client";
+} from "./home-payload";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { askHomeOnce, HomeSubmissionUnresolvedError } from "./home-submission";
 import { InFlightRegistry } from "./inflight";

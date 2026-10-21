@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { StatusSpinner } from "./activity";
 import { streamHomeRunEvents } from "./events";
-import type {
-	McpClientLike,
-	HomeRunEventsPage,
-	ReadHomeRunEventsInput,
-} from "./home-client";
+import type { McpClientLike, ReadHomeRunEventsInput } from "./home-client";
+import type { HomeRunEventsPage } from "./home-payload";
 import { TedixHomeClient } from "./home-client";
 import { parseOptions } from "./options";
 import { waitForSettlement } from "./turn";
