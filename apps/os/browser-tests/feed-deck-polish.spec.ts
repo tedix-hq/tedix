@@ -749,6 +749,118 @@ try {
 			throw new Error("Skipping a card lost the stable progress total");
 		await preferred.close();
 	}
+	// One left edge: row text, row disclosures and the Today card share an inset,
+	// and the Deck card keeps its field, actions and curation inside it.
+	for (const width of [1280, 1440])
+		for (const theme of ["light", "dark"] as const) {
+			const page = await browser.newPage({
+				viewport: { width, height: 900 },
+				colorScheme: theme,
+			});
+			await page.goto(
+				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&face=stale&today=saved&theme=${theme}`,
+			);
+			await page.locator(".focus-today").waitFor();
+			await page.locator(".focus-decision-row").first().waitFor();
+			const feed = await page.evaluate(() => {
+				const row = document.querySelector(".focus-decision-row")!;
+				const textLeft = (el: Element) => {
+					const range = document.createRange();
+					range.selectNodeContents(el);
+					return Math.round(range.getBoundingClientRect().left);
+				};
+				const chip = document.querySelector(".focus-today-chips > *");
+				return {
+					story: textLeft(row.querySelector(".focus-story")!),
+					details: textLeft(
+						row.querySelector('[data-kumo-component="CollapsibleTrigger"]')!,
+					),
+					today: textLeft(document.querySelector("#today-heading")!),
+					chipBorder: chip ? getComputedStyle(chip).borderTopWidth : "0px",
+					budget: document.querySelector(".focus-budget")?.textContent ?? "",
+				};
+			});
+			if (
+				feed.details !== feed.story ||
+				feed.today !== feed.story ||
+				feed.chipBorder !== "0px" ||
+				/handled without you/i.test(feed.budget)
+			)
+				throw new Error(
+					`Feed edges ${width}/${theme}: ${JSON.stringify(feed)}`,
+				);
+			await page.goto(
+				`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,
+			);
+			await page.locator("[data-deck-not-useful]").first().waitFor();
+			await page.getByRole("textbox", { name: "Your answer" }).focus();
+			await settleAnimations(page);
+			const deck = await page.evaluate(() => {
+				const card = document.querySelector(".fd-deck-current .fd-card")!;
+				const box = card.getBoundingClientRect();
+				const field = card.querySelector("textarea")!;
+				const fieldBox = field.getBoundingClientRect();
+				const content = card
+					.querySelector('[data-slot="card-content"]')!
+					.getBoundingClientRect();
+				const text = card
+					.querySelector('[data-slot="card-title"]')!
+					.getBoundingClientRect();
+				const style = getComputedStyle(field);
+				const row = card.querySelector("[data-decision-actions]")!;
+				const quiet = [
+					...row.querySelectorAll<HTMLElement>(
+						":scope > button:not([data-decision-intent]), [data-deck-not-useful] button, .fd-card-why button",
+					),
+				].map((b) => ({
+					height: b.getBoundingClientRect().height,
+					size: getComputedStyle(b).fontSize,
+				}));
+				const primary = row.querySelector<HTMLElement>(
+					'[data-decision-intent="approve"]',
+				)!;
+				const header = card.querySelector('[data-slot="card-description"]')!;
+				return {
+					curations: document.querySelectorAll("[data-deck-not-useful]").length,
+					curationInRow: row.querySelector("[data-deck-not-useful]") !== null,
+					// The field's ring (1px outside its box) stays inside the scroll clip.
+					fieldClipped: fieldBox.bottom + 1 > content.bottom,
+					fieldLeft: fieldBox.left - text.left,
+					focusOutline: style.outlineStyle,
+					quiet,
+					primaryMuted:
+						getComputedStyle(primary).backgroundColor ===
+						getComputedStyle(
+							row.querySelector("button:not([data-decision-intent])") ??
+								primary,
+						).backgroundColor,
+					// A resting stack never shows the next card's edge.
+					peek: (() => {
+						const stack = document.querySelector(".fd-decision-stack")!;
+						stack.setAttribute("data-has-next", "true");
+						return getComputedStyle(stack, "::before").opacity;
+					})(),
+					byline: /\s{2}/.test(
+						header.textContent!.replace(/\u00a0/g, " ").replace("Details", ""),
+					),
+					inCard: box.bottom >= row.getBoundingClientRect().bottom,
+				};
+			});
+			if (
+				deck.curations !== 1 ||
+				!deck.curationInRow ||
+				deck.fieldClipped ||
+				Math.abs(deck.fieldLeft) > 1 ||
+				deck.focusOutline !== "none" ||
+				new Set(deck.quiet.map((b) => `${b.height}/${b.size}`)).size !== 1 ||
+				deck.primaryMuted ||
+				deck.peek !== "0" ||
+				deck.byline ||
+				!deck.inCard
+			)
+				throw new Error(`Deck card ${width}/${theme}: ${JSON.stringify(deck)}`);
+			await page.close();
+		}
 	const retry = await browser.newPage({
 		viewport: { width: 2000, height: 1000 },
 	});

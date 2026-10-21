@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
+import { OS_COPY } from "@/shared/os-copy";
 import {
 	readToday,
 	todayProjectLabel,
@@ -173,7 +174,7 @@ export function TodayPost({
 				) : (
 					<Link variant="record" href="/work?view=deck">
 						{deck.data?.complete && !deck.isError
-							? `Needs you ${deck.data.count}`
+							? OS_COPY.feed.decisionsWaiting(String(deck.data.count))
 							: "Open Deck · count unavailable"}
 					</Link>
 				)}

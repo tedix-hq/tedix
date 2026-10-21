@@ -71,7 +71,6 @@ export function DeckNotUseful({
 				</div>
 			) : (
 				<Button
-					size="xs"
 					variant="ghost"
 					disabled={disabled}
 					aria-expanded={open}

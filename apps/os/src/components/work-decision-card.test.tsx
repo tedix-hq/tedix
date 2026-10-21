@@ -655,6 +655,16 @@ it("refuses a secret-like answer before invoking any card mutation", async () =>
 	expect(decide).not.toHaveBeenCalled();
 });
 
+it("does not repeat the If yes label inside the consequence sentence", async () => {
+	await mountFace({
+		presentation: { ...FACE, body: "If yes, saves the proposed room." },
+		confidence: null,
+	});
+	expect(host.querySelector(".fd-card-summary")?.textContent).toBe(
+		"If yes: Saves the proposed room.",
+	);
+});
+
 it("omits unknown confidence and retains assessed confidence", async () => {
 	await mountFace({ presentation: FACE, confidence: null });
 	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(

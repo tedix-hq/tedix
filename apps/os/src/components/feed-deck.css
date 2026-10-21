@@ -155,6 +155,7 @@
 	padding-bottom: 0;
 	margin-bottom: 1rem;
 }
+/* The next card shows only while the current one leaves, never as a resting edge. */
 .fd-decision-stack[data-has-next="true"]::before {
 	content: "";
 	position: absolute;
@@ -166,7 +167,7 @@
 	pointer-events: none;
 	transform-origin: bottom center;
 	transform: translateY(10px) scale(0.96);
-	opacity: 0.6;
+	opacity: 0;
 	transition: transform var(--fd-enter-duration) var(--fd-ease);
 }
 .fd-decision-stack[data-exiting="true"]::before {
@@ -256,7 +257,7 @@
 	background: var(--fd-accent);
 }
 .fd-recommendation {
-	font-size: 1.0625rem !important;
+	font-size: 0.9375rem !important;
 	line-height: 1.5 !important;
 	font-weight: 500;
 	color: var(--fd-ink);
@@ -627,7 +628,14 @@
 .fd-deck-current [data-slot="card-header"] {
 	flex: none;
 }
+/*
+ * This is a scroll container, so it clips at its padding box. A field's
+ * outer ring sits 1px outside the field; the block padding keeps that ring
+ * inside the clip, and the matching negative margin keeps the layout.
+ */
 .fd-deck-current [data-slot="card-content"] {
+	padding-block: 0.25rem;
+	margin-block: -0.25rem;
 	flex: 0 1 auto;
 	min-height: 2.75rem;
 	overflow: auto;
@@ -797,10 +805,22 @@
 	padding-top: 0;
 }
 
-.feed-deck :is(button, a, input, textarea, select, .fd-decision):focus-visible {
+.feed-deck :is(button, a, .fd-decision):focus-visible {
 	box-shadow: none;
 	outline: 2px solid var(--ring);
 	outline-offset: 2px;
+}
+/*
+ * A field's border is Kumo's 1px outer ring. Focus thickens that same ring
+ * across the border (1px out, 1px in) instead of drawing an outline 4px
+ * outside it, so the field never grows past the text column or into a
+ * scroll container's clip edge.
+ */
+.feed-deck :is(input, textarea, select):focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 1px var(--ring),
+		inset 0 0 0 1px var(--ring);
 }
 .feed-deck [data-decision-actions] > button {
 	background: transparent;
@@ -857,6 +877,13 @@
 	border-color: transparent;
 	color: var(--muted-foreground);
 	cursor: not-allowed;
+}
+/* The primary keeps its color while it waits for input, so the row still has one clear primary. */
+.feed-deck
+	[data-decision-actions]
+	> button[data-decision-intent="approve"]:disabled {
+	background: color-mix(in oklch, var(--primary) 45%, var(--fd-surface));
+	color: var(--primary-foreground);
 }
 .fd-card-body {
 	font-size: 0.9375rem;
@@ -1176,6 +1203,36 @@
 }
 .fd-context-section[hidden] {
 	display: none;
+}
+/*
+ * One action row: the primary, one outlined secondary, and every other
+ * control (Later, Not useful, Why this) in the same quiet style and height.
+ */
+.feed-deck
+	.fd-deck-current
+	[data-decision-actions]
+	> button:not(
+		[data-decision-intent="approve"],
+		[data-decision-intent="reject"]
+	),
+.feed-deck
+	.fd-deck-current
+	[data-decision-actions]
+	> [data-deck-not-useful]
+	> button,
+.feed-deck .fd-deck-current [data-decision-actions] > .fd-card-why button {
+	min-height: 2.75rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.75rem;
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--muted-foreground);
+}
+.feed-deck
+	[data-decision-actions]
+	> [data-deck-not-useful]:has([role="group"], [role="status"]) {
+	flex-basis: 100%;
+	order: 1;
 }
 @media (max-width: 639px) {
 	.fd-work-bar {
