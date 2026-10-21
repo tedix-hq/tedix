@@ -38,7 +38,7 @@ import {
 	readToolFields,
 } from "@/components/chat-direct-read";
 
-export function DirectReadComposer({
+function DirectReadComposer({
 	apps,
 	pending,
 	onClose,

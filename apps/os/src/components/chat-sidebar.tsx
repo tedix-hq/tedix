@@ -128,14 +128,14 @@ export function sortConversations(
 	});
 }
 
-export type ConversationGroupKey =
+type ConversationGroupKey =
 	| "pinned"
 	| "today"
 	| "yesterday"
 	| "thisWeek"
 	| "earlier";
 
-export type ConversationGroup = {
+type ConversationGroup = {
 	key: ConversationGroupKey;
 	label: string;
 	conversations: HomeConversation[];
@@ -297,7 +297,7 @@ export function pinnedConversationPatch(
 }
 
 /** What `onMutate` hands `onError` so a rejection can be undone exactly. */
-export type OptimisticConversationContext = {
+type OptimisticConversationContext = {
 	previous: ConversationPages | undefined;
 	queryKey: ReturnType<typeof homeConversationsQueryKey>;
 };

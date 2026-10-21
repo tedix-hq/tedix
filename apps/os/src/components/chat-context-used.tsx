@@ -13,14 +13,9 @@ import {
 	DialogTrigger,
 } from "@/components/kumo/dialog";
 import { type ChatContext } from "@/components/chat-transcript";
+import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 type ContextUsedItem = { label: string; value: string };
-
-export function recordOrNull(value: unknown): Record<string, unknown> | null {
-	return value && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
 
 function nonEmptyString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -41,14 +36,14 @@ export function contextUsedItems(
 			Date.parse(a.updatedAt ?? a.createdAt),
 	)[0];
 	if (!latest) return [];
-	const metadata = recordOrNull(latest.metadata);
-	const workspace = recordOrNull(metadata?.workspaceContext);
-	const workpiece = recordOrNull(workspace?.workpiece);
-	const route = recordOrNull(metadata?.kernelRoute);
-	const manifest = recordOrNull(metadata?.contextManifest);
+	const metadata = asRecord(latest.metadata);
+	const workspace = asRecord(metadata?.workspaceContext);
+	const workpiece = asRecord(workspace?.workpiece);
+	const route = asRecord(metadata?.kernelRoute);
+	const manifest = asRecord(metadata?.contextManifest);
 	const manifestSources = Array.isArray(manifest?.sources)
 		? manifest.sources
-				.map(recordOrNull)
+				.map(asRecord)
 				.filter((source): source is Record<string, unknown> => source !== null)
 				.map((source) => {
 					const name = nonEmptyString(source.name);
@@ -57,7 +52,7 @@ export function contextUsedItems(
 				})
 				.filter((source): source is string => source !== null)
 		: [];
-	const historyCompaction = recordOrNull(manifest?.historyCompaction);
+	const historyCompaction = asRecord(manifest?.historyCompaction);
 	const modelRef =
 		nonEmptyString(metadata?.modelRef) ?? nonEmptyString(route?.modelRef);
 	const workspaceIdFromRun = nonEmptyString(workspace?.workspaceId);
