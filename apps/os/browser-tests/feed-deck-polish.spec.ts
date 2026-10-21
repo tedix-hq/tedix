@@ -475,17 +475,17 @@ try {
 			});
 			if (await handled.count()) {
 				await handled.click();
-				const singleLine = await page
+				const readable = await page
 					.locator(".focus-handled-row .ft-sentence")
 					.evaluateAll((nodes) =>
 						nodes.every(
 							(node) =>
-								node.getBoundingClientRect().height <=
-								parseFloat(getComputedStyle(node).lineHeight) + 1,
+								node.scrollWidth <= node.clientWidth + 1 &&
+								node.scrollHeight <= node.clientHeight + 1,
 						),
 					);
-				if (!singleLine)
-					throw new Error("Handled outcomes must expand as one-line receipts");
+				if (!readable)
+					throw new Error("Handled outcomes must expand without clipped text");
 				await handled.click();
 			}
 			await page.locator('[data-workspace-app-entry="activity-feed"]').focus();
@@ -523,7 +523,7 @@ try {
 				};
 			});
 			if (
-				geometry.padding !== "12px 16px" ||
+				geometry.padding !== "10px 14px" ||
 				geometry.inline !== width > 640 ||
 				geometry.count !== 8 ||
 				geometry.target < (width === 390 ? 44 : 32)
@@ -547,10 +547,13 @@ try {
 				await page.getByRole("menuitem", { name, exact: true }).waitFor();
 			await page.keyboard.press("Escape");
 			if (width > 640) {
-				const pin = actions.getByRole("button", { name: "Pin", exact: true });
-				const before = await pin.boundingBox();
-				await pin.focus();
-				const after = await pin.boundingBox();
+				const receipt = actions.getByRole("button", {
+					name: "Receipt",
+					exact: true,
+				});
+				const before = await receipt.boundingBox();
+				await receipt.focus();
+				const after = await receipt.boundingBox();
 				if (
 					!before ||
 					!after ||
