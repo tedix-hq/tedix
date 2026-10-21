@@ -4,6 +4,7 @@ import {
 	ApiKeySchema,
 	ApiKeyScopeSchema,
 	CreateApiKeyInputSchema,
+	OrganizationMetadataSchema,
 } from "./organization";
 
 describe("dedicated API key scopes", () => {
@@ -157,4 +158,54 @@ describe("API key bootstrap purpose contract", () => {
 			}).success,
 		).toBe(false);
 	});
+});
+
+describe("organization metadata writes", () => {
+	const organizationId = "00000000-0000-4000-8000-000000000001";
+	const create = organizationsContract.create["~orpc"].inputSchemas[0]!;
+	const update = organizationsContract.update["~orpc"].inputSchemas[0]!;
+
+	it.each([create, update])(
+		"rejects unknown top-level settings and names every key",
+		(schema) => {
+			const parsed = schema.safeParse({
+				name: "Example",
+				organizationId,
+				metadata: {
+					website: "https://example.com",
+					unsupportedSetting: true,
+					webSerch: { enabled: true },
+				},
+			});
+			expect(parsed.success).toBe(false);
+			if (!parsed.success) {
+				expect(parsed.error.issues).toContainEqual(
+					expect.objectContaining({
+						code: "unrecognized_keys",
+						path: ["metadata"],
+						keys: ["unsupportedSetting", "webSerch"],
+					}),
+				);
+				expect(parsed.error.message).toContain("unsupportedSetting");
+				expect(parsed.error.message).toContain("webSerch");
+			}
+		},
+	);
+
+	it("preserves supported web search settings", () => {
+		const input = {
+			organizationId,
+			metadata: { webSearch: { enabled: true, maxResults: 3 } },
+		};
+		expect(update.parse(input)).toEqual(input);
+	});
+});
+
+it("keeps organization metadata reads tolerant of historical stored keys", () => {
+	expect(
+		OrganizationMetadataSchema.parse({
+			website: "https://example.com",
+			historicalSetting: true,
+		}),
+	).toEqual({ website: "https://example.com" });
 });

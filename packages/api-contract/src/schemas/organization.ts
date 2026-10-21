@@ -806,7 +806,7 @@ export const CreateOrganizationInputSchema = z.object({
 	slug: z.string().min(1).max(100).optional(),
 	logoUrl: z.url().optional(),
 	description: z.string().max(500).optional(),
-	metadata: OrganizationMetadataSchema.optional(),
+	metadata: OrganizationMetadataSchema.strict().optional(),
 	/**
 	 * Owner email — required for non-User-JWT auth (API key, service binding,
 	 * tedi, skill workflow). Ignored when caller is a User JWT (uses user.email).
@@ -840,7 +840,7 @@ export const UpdateOrganizationInputSchema = z.object({
 	slug: z.string().min(1).max(100).optional(),
 	logoUrl: z.url().nullable().optional(),
 	description: z.string().max(500).nullable().optional(),
-	metadata: OrganizationMetadataSchema.optional(),
+	metadata: OrganizationMetadataSchema.strict().optional(),
 });
 export type UpdateOrganizationInput = z.infer<
 	typeof UpdateOrganizationInputSchema

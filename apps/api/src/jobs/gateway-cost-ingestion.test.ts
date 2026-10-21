@@ -18,9 +18,11 @@ import {
 
 const insertCallCosts = vi.hoisted(() => vi.fn());
 const getExistingGatewayLogIds = vi.hoisted(() => vi.fn());
+const settleGatewayReportedReceiptCosts = vi.hoisted(() => vi.fn());
 vi.mock("@tedix/db/queries/tedi-usage", () => ({
 	insertCallCosts,
 	getExistingGatewayLogIds,
+	settleGatewayReportedReceiptCosts,
 }));
 const cacheExecutions = vi.hoisted(() =>
 	vi.fn(() => Promise.resolve([] as unknown[])),
@@ -634,6 +636,75 @@ describe("ingestGatewayLogCosts — cursor holds on total write failure", () => 
 					(id) => `/client/v4/accounts/acct/ai-gateway/gateways/${id}/logs`,
 				),
 			);
+		},
+	);
+
+	it.each(
+		["web-search", "ceramic", "exa", "linkup"].flatMap((provider) =>
+			[false, true].map((hasLogId) => ({ provider, hasLogId })),
+		),
+	)(
+		"keeps one search receipt for $provider (log id: $hasLogId)",
+		async ({ provider, hasLogId }) => {
+			const { buildWebSearchReceipt } = await import("../services/web-search");
+			const queries = await vi.importActual<
+				typeof import("@tedix/db/queries/tedi-usage")
+			>("@tedix/db/queries/tedi-usage");
+			const sqlite = new DatabaseSync(":memory:");
+			sqlite.exec("PRAGMA foreign_keys = OFF;");
+			sqlite.exec(schemaDdl(tediCallCosts));
+			const db = createDbClient(createD1Facade(sqlite));
+			try {
+				await queries.insertCallCosts(db, [
+					buildWebSearchReceipt({
+						organizationId: "org-example",
+						tediId: "tedi-example",
+						runId: "run-example",
+						gatewayId: "example-gateway",
+						gatewayLogId: hasLogId ? "search-log" : null,
+						occurredAt: "2026-07-29T00:00:01.000Z",
+						success: true,
+						callDurationMs: 30,
+					}),
+				]);
+				insertCallCosts.mockImplementation((_db, rows) =>
+					queries.insertCallCosts(db, rows),
+				);
+				settleGatewayReportedReceiptCosts.mockImplementation((_db, params) =>
+					queries.settleGatewayReportedReceiptCosts(db, params),
+				);
+				const state: CursorDbState = {
+					upserts: [],
+					cursor: {
+						lastLogCreatedAt: "2026-07-29T00:00:00.000Z",
+						lastLogId: "",
+					},
+				};
+				stubGatewayLogs([
+					row({
+						id: "search-log",
+						provider,
+						model: "search",
+						created_at: "2026-07-29T00:00:01.000Z",
+						cost: 0.004,
+					}),
+				]);
+				const result = await ingestGatewayLogCosts(cursorDb(state), env);
+				expect(result[0]).toMatchObject({ ingested: 0, failure: null });
+				expect(await db.select().from(tediCallCosts)).toEqual([
+					expect.objectContaining({
+						runId: "run-example",
+						tediId: "tedi-example",
+						costBasis: hasLogId ? "gateway_reported" : "unknown",
+						costReason: hasLogId ? null : "missing_gateway_log_id",
+						estimatedCostUsd: hasLogId ? 0.004 : null,
+					}),
+				]);
+				expect(state.upserts.at(-1)?.lastLogId).toBe("search-log");
+			} finally {
+				sqlite.close();
+				settleGatewayReportedReceiptCosts.mockReset();
+			}
 		},
 	);
 

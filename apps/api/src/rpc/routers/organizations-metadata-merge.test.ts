@@ -101,6 +101,46 @@ function adminContext(): BaseContext {
 }
 
 describe("organizations.update metadata merge", () => {
+	it("returns a 400 naming unknown settings before any write", async () => {
+		const { organizationsContractRouter } = await import("./organizations");
+		const { enrichInputValidationError } =
+			await import("../input-validation-error");
+		const { RPCHandler } = await import("@orpc/server/fetch");
+		const handler = new RPCHandler(organizationsContractRouter, {
+			clientInterceptors: [
+				async ({ next }) => {
+					try {
+						return await next();
+					} catch (error) {
+						throw enrichInputValidationError(error);
+					}
+				},
+			],
+		});
+		mocks.updateOrganization.mockClear();
+		const result = await handler.handle(
+			new Request("https://api.tedix.test/update", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					json: {
+						organizationId: ORGANIZATION_ID,
+						metadata: { unsupportedSetting: true },
+					},
+				}),
+			}),
+			{ context: adminContext() },
+		);
+		expect(result.response?.status).toBe(400);
+		expect(await result.response?.json()).toMatchObject({
+			json: {
+				code: "BAD_REQUEST",
+				message: expect.stringContaining("unsupportedSetting"),
+			},
+		});
+		expect(mocks.updateOrganization).not.toHaveBeenCalled();
+	});
+
 	it("preserves enforcement config when the profile form saves two fields", async () => {
 		mocks.getOrganizationById.mockResolvedValue({
 			id: ORGANIZATION_ID,

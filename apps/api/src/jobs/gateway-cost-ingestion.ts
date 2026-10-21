@@ -626,7 +626,17 @@ async function ingestGateway(
 		// Its metadata-only Gateway log is for cost observation, not another
 		// tedi_call_costs row: no caller attribution is sent to the Gateway.
 		// Keep the original page for cursor advancement and pagination.
-		const costRows = rows.filter((row) => row.model !== "typesafe/jev");
+		// Native search logs cannot carry run/tedi attribution. The call-time
+		// receipt owns usage, even when it has no log id; a time-only match
+		// could assign another concurrent search's charge to it.
+		const searchRows = rows.filter((row) =>
+			["web-search", "ceramic", "exa", "linkup"].includes(row.provider),
+		);
+		await settleReceiptCosts(db, gatewayId, searchRows, []);
+		const searchIds = new Set(searchRows.map((row) => row.id));
+		const costRows = rows.filter(
+			(row) => row.model !== "typesafe/jev" && !searchIds.has(row.id),
+		);
 		const executions = await getProviderExecutionsByIds(
 			db,
 			costRows.flatMap((row) => {
