@@ -152,6 +152,19 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 							exact: true,
 						})
 						.waitFor();
+					await page.waitForURL(
+						(url) =>
+							url.pathname ===
+								"/workspace/00000030-0000-4000-8000-000000000001" &&
+							url.searchParams.get("pane") === "workpiece" &&
+							Boolean(url.searchParams.get("workpiece")),
+						{ waitUntil: "domcontentloaded" },
+					);
+					await page
+						.locator(
+							'.canvas-workpiece-tabs [role="tab"][aria-selected="true"]',
+						)
+						.waitFor();
 					assert.equal(
 						await page.locator("header.topbar").count(),
 						0,

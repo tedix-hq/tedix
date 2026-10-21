@@ -743,6 +743,7 @@ const cleanups: Array<() => void> = [];
 function createPageHarness(workspaceId = WORKSPACE_ID): {
 	container: HTMLElement;
 	rerender: () => void;
+	leave: () => void;
 } {
 	const client = new QueryClient({
 		defaultOptions: {
@@ -767,7 +768,11 @@ function createPageHarness(workspaceId = WORKSPACE_ID): {
 		client.clear();
 		container.remove();
 	});
-	return { container, rerender };
+	return {
+		container,
+		rerender,
+		leave: () => act(() => root.render(null)),
+	};
 }
 
 function renderPage(workspaceId = WORKSPACE_ID): HTMLElement {
@@ -1758,6 +1763,30 @@ describe("CanvasPage listing", () => {
 				replace: true,
 			}),
 		);
+	});
+
+	it("does not reopen a linked default app after leaving the workspace", async () => {
+		mockLists();
+		const detail = {
+			gadget: gadgetFixture(),
+			currentRevision: gadgetRevisionFixture({
+				manifest: { capabilities: [], entry: `/outputs/${OUTPUT_ID}` },
+			}),
+		};
+		let resolveDetail!: (value: typeof detail) => void;
+		osWorkspacesApi.gadgets.get.mockReturnValue(
+			new Promise<typeof detail>((resolve) => {
+				resolveDetail = resolve;
+			}),
+		);
+		const { leave } = createPageHarness();
+		await flush();
+		expect(osWorkspacesApi.gadgets.get).toHaveBeenCalled();
+		leave();
+		routing.navigate.mockClear();
+		resolveDetail(detail);
+		await flush();
+		expect(routing.navigate).not.toHaveBeenCalled();
 	});
 
 	it("preserves an explicit chat-first workspace link", async () => {
