@@ -314,9 +314,12 @@ export function ProfilePage() {
 					<CardContent>
 						<form className="grid gap-4" onSubmit={submitName}>
 							<div className="grid gap-1.5">
-								<Label htmlFor="profile-name">Display name</Label>
+								<Label htmlFor="profile-name">
+									<span id="profile-name-label">Display name</span>
+								</Label>
 								<Input
 									id="profile-name"
+									aria-labelledby="profile-name-label"
 									value={name}
 									maxLength={100}
 									disabled={localEvaluation}
@@ -324,9 +327,12 @@ export function ProfilePage() {
 								/>
 							</div>
 							<div className="grid gap-1.5">
-								<Label htmlFor="profile-email">Email</Label>
+								<Label htmlFor="profile-email">
+									<span id="profile-email-label">Email</span>
+								</Label>
 								<Input
 									id="profile-email"
+									aria-labelledby="profile-email-label"
 									value={currentEmail}
 									readOnly
 									disabled
