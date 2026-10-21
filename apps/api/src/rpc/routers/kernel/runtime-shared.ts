@@ -83,8 +83,23 @@ export function buildInternalServiceBindingContext(
 	const internalHeaders = new Headers();
 	internalHeaders.set("X-Service-Binding", "true");
 	internalHeaders.set("X-Tedix-Org-Id", organizationId);
+	// The caller's own credentials and permissions never travel with the
+	// kernel's service principal: the request that reaches here may be an
+	// approver's, not the person the work is for. Provenance ids stay.
+	const {
+		user: _user,
+		userId: _userId,
+		userRole: _userRole,
+		userPermissionOverrides: _userPermissionOverrides,
+		crossTenantOverrideActive: _crossTenantOverrideActive,
+		oidcScopes: _oidcScopes,
+		factoryOperatorApproval: _factoryOperatorApproval,
+		apiKey: _apiKey,
+		serviceAccount: _serviceAccount,
+		...rest
+	} = context;
 	return {
-		...context,
+		...rest,
 		organizationId,
 		headers: internalHeaders,
 		authType: "service-binding",

@@ -120,6 +120,22 @@ vi.mock("./kernel/repo-commit-approval-settle", () => ({
 	settleRepoCommitApprovalIfNeeded: mocks.settleRepoCommitApprovalIfNeeded,
 }));
 
+// Observe the shared settle hook while keeping its real behavior.
+const settleSpy = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("./kernel/write-approval-settlement", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./kernel/write-approval-settlement")>();
+	return {
+		...actual,
+		settleHomeToolWriteApproval: (
+			...args: Parameters<typeof actual.settleHomeToolWriteApproval>
+		) => {
+			settleSpy.calls.push(args);
+			return actual.settleHomeToolWriteApproval(...args);
+		},
+	};
+});
+
 vi.mock("@tedix/provisioning", () => ({
 	buildProvisioningConfig: (
 		baseUrl: string,
@@ -1212,7 +1228,8 @@ describe("cognitive runtime router invariants", () => {
 				"X-Service-Binding": "true",
 				"X-Tedix-Org-Id": ORG_ID,
 				"X-Tedix-Tedi-Id": TEDI_ID,
-				"X-Tedix-Tedi-Scopes": "tedis:read tedis:write",
+				// Even a tedi holding the decision scope cannot approve itself.
+				"X-Tedix-Tedi-Scopes": "tedis:read tedis:write mcp:memory.admin",
 			}),
 		} as unknown as BaseContext);
 		mocks.getApprovalRequestById.mockResolvedValue({
@@ -1232,6 +1249,112 @@ describe("cognitive runtime router invariants", () => {
 		).rejects.toThrow(/Tedis cannot resolve runtime approvals/);
 		expect(mocks.resolveApprovalRequest).not.toHaveBeenCalled();
 		expect(mocks.settleRepoCommitApprovalIfNeeded).not.toHaveBeenCalled();
+	});
+
+	it("requires the approval-decision gate, not tedi write access", async () => {
+		const db = createRuntimeDb();
+		const base = createContext(db);
+		const client = createRuntimeClient({
+			...base,
+			apiKey: { ...base.apiKey!, scopes: ["tedis:read", "tedis:write"] },
+		} as BaseContext);
+		mocks.getApprovalRequestById.mockResolvedValue({
+			id: "approval-gate",
+			tediId: TEDI_ID,
+			orgId: ORG_ID,
+			status: "pending",
+			expiresAt: "2999-01-01T00:00:00.000Z",
+		});
+
+		await expect(
+			client.approve({
+				tediId: TEDI_ID,
+				approvalRequestId: "approval-gate",
+				approved: true,
+			}),
+		).rejects.toThrow(/mcp:memory.admin/);
+		expect(mocks.resolveApprovalRequest).not.toHaveBeenCalled();
+	});
+
+	it("settles a Home write approval through the shared settle hook", async () => {
+		const db = createRuntimeDb();
+		const context = createContext(db);
+		const client = createRuntimeClient(context);
+		settleSpy.calls.length = 0;
+		const payload = {
+			kind: "home_tool_write",
+			appSlug: "globex-tedix",
+			toolName: "globex__create_invoice",
+			args: { amount: 1 },
+			organizationId: ORG_ID,
+			homeRunId: "home-run-1",
+			conversationId: "home:write",
+			initiatedByUserId: null,
+		};
+		mocks.getApprovalRequestById.mockResolvedValue({
+			id: "approval-home-write",
+			tediId: TEDI_ID,
+			orgId: ORG_ID,
+			payload,
+			status: "pending",
+			expiresAt: "2999-01-01T00:00:00.000Z",
+		});
+		const resolved = {
+			id: "approval-home-write",
+			tediId: TEDI_ID,
+			orgId: ORG_ID,
+			actionType: "home.tool_write",
+			payload,
+			status: "rejected",
+		};
+		mocks.resolveApprovalRequest.mockResolvedValue(resolved);
+
+		await client.approve({
+			tediId: TEDI_ID,
+			approvalRequestId: "approval-home-write",
+			approved: false,
+		});
+
+		expect(settleSpy.calls).toEqual([
+			[context, { approval: resolved, status: "rejected" }],
+		]);
+	});
+
+	it("points durable Code Mode approvals at the Home approval route", async () => {
+		const db = createRuntimeDb();
+		const client = createRuntimeClient(createContext(db));
+		mocks.getApprovalRequestById.mockResolvedValue({
+			id: "approval-durable",
+			tediId: TEDI_ID,
+			orgId: ORG_ID,
+			payload: {
+				kind: "codemode_execute_write",
+				organizationId: ORG_ID,
+				tediId: TEDI_ID,
+				conversationId: "agent:main:code",
+				sessionKey: "session-1",
+				executionId: "execution-1",
+				codeHash: "sha256:abc",
+				riskTier: "high",
+				executionMode: "durable_call",
+				homeRunId: "home-run-1",
+				childRunId: "child-run-1",
+				pendingSeq: 0,
+				connector: "github",
+				method: "create_issue",
+			},
+			status: "pending",
+			expiresAt: "2999-01-01T00:00:00.000Z",
+		});
+
+		await expect(
+			client.approve({
+				tediId: TEDI_ID,
+				approvalRequestId: "approval-durable",
+				approved: true,
+			}),
+		).rejects.toThrow(/kernelRuntime\.respondApproval/);
+		expect(mocks.resolveApprovalRequest).not.toHaveBeenCalled();
 	});
 
 	it("routes repo_commit_write approvals through the shared settle hook", async () => {

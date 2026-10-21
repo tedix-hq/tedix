@@ -377,6 +377,39 @@ describe("buildInternalServiceBindingContext", () => {
 		expect(result.headers.get("X-Service-Binding")).toBe("true");
 		expect(result.headers.get("X-Tedix-Org-Id")).toBe("org-target");
 	});
+
+	it("drops the calling person's credentials and permissions", () => {
+		// An approver's request dispatching someone else's delegation.
+		const base = {
+			organizationId: "org-orig",
+			authType: "user",
+			user: { sub: "approver-sub", permissions: ["os:approve"] },
+			userId: "user-approver",
+			userRole: "owner",
+			userPermissionOverrides: ["secrets:manage"],
+			crossTenantOverrideActive: true,
+			oidcScopes: ["tedis:write"],
+			factoryOperatorApproval: { requestId: "req-1", userId: "user-approver" },
+			apiKey: { id: "key-1", organizationId: "org-orig", name: "k" },
+			serviceAccount: { clientId: "client-1" },
+			descopeUserId: "approver-sub",
+		} as unknown as Parameters<typeof buildInternalServiceBindingContext>[0];
+		const result = buildInternalServiceBindingContext(base, "org-orig");
+		for (const field of [
+			"user",
+			"userId",
+			"userRole",
+			"userPermissionOverrides",
+			"crossTenantOverrideActive",
+			"oidcScopes",
+			"factoryOperatorApproval",
+			"apiKey",
+			"serviceAccount",
+		])
+			expect(result).not.toHaveProperty(field);
+		// Provenance only, never authority under a service binding.
+		expect(result.descopeUserId).toBe("approver-sub");
+	});
 });
 
 describe("buildDelegationFailureEnvelope", () => {
