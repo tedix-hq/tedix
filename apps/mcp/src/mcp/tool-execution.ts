@@ -696,6 +696,12 @@ async function executeWithHandler(
 		toolId: tool.toolId,
 		callable: `${resolveMcpToolNamespace(tool, agent.appMetadata?.mcpConfig?.codeModeNamespaces as Record<string, string> | undefined)}.${sanitizeToolName(tool.toolId.includes("__") ? tool.toolId.split("__").slice(1).join("__") : tool.toolId)}`,
 		toolInputSchema: tool.inputSchema,
+		readOnlyHint:
+			resolveToolAnnotations({
+				annotations: tool.annotations,
+				writeCapability: tool.writeCapability ?? null,
+				meta: tool.meta,
+			})?.readOnlyHint === true,
 		requestId: crypto.randomUUID(),
 		traceId: agent.traceId,
 		tracestate: agent.tracestate,
