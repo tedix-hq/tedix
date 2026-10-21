@@ -50,6 +50,7 @@ import {
 	rollbackWorkspaceTemplateSetRevision,
 } from "@tedix/db/queries/control-plane/revisions";
 import { invalidateKernelContextCache } from "../../kernel/context-cache";
+import { readDispatcherActivity } from "@tedix/db/queries/work-items/dispatcher-health";
 import { listPlatformCronExecutionSummaries } from "@tedix/db/queries/platform-cron-executions";
 import { lastCommitmentWakeCheckpoint } from "@tedix/db/queries/work-items/commitment-changes";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -97,9 +98,10 @@ const authedOs = controlPlaneOs.use(withAuth);
 const listPlatformCronHealthProcedure = authedOs.listPlatformCronHealth
 	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context }) => {
-		const [summaries, commitmentCheckpoint] = await Promise.all([
+		const [summaries, commitmentCheckpoint, dispatcher] = await Promise.all([
 			listPlatformCronExecutionSummaries(context.db),
 			lastCommitmentWakeCheckpoint(context.db),
+			readDispatcherActivity(context.db),
 		]);
 		const { buildPlatformCronHealth } =
 			await import("../../jobs/platform-cron-catalog");
@@ -107,6 +109,7 @@ const listPlatformCronHealthProcedure = authedOs.listPlatformCronHealth
 			env: context.env,
 			summaries,
 			replayCheckpoints: { "commitment-wakes": commitmentCheckpoint },
+			dispatcher,
 		});
 	});
 

@@ -45,6 +45,7 @@ export const PLATFORM_CRON_IDS = [
 	"site-reconciliation",
 	"reply-draft-career",
 	"capture-health-heartbeat",
+	"dispatcher-health-alarm",
 ] as const;
 export type PlatformCronId = (typeof PLATFORM_CRON_IDS)[number];
 
@@ -65,6 +66,7 @@ const everyTwoMinuteIds = [
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
 	"work-attempt-lease-sweep",
+	"dispatcher-health-alarm",
 ] as const;
 const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 	id,
@@ -241,10 +243,19 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 const CLOUDFLARE_API_OBSERVABILITY_URL =
 	"https://dash.cloudflare.com/?to=/:account/workers/services/view/tedix-api-production/production/metrics";
 
+function ageSeconds(at: string | null, nowMs: number): number | null {
+	const ms = at ? Date.parse(at) : Number.NaN;
+	return Number.isNaN(ms) ? null : Math.max(0, Math.round((nowMs - ms) / 1000));
+}
+
 export function buildPlatformCronHealth(input: {
 	env: CloudflareEnv;
 	summaries: PlatformCronExecutionSummary[];
 	replayCheckpoints?: Partial<Record<PlatformCronId, string | null>>;
+	dispatcher?: {
+		lastAdmissionAt: string | null;
+		lastTrackerActionAt: string | null;
+	};
 	now?: Date;
 }) {
 	const now = input.now ?? new Date();
@@ -316,5 +327,20 @@ export function buildPlatformCronHealth(input: {
 		generatedAt: now.toISOString(),
 		attentionCount: schedules.filter((schedule) => schedule.attention).length,
 		schedules,
+		...(input.dispatcher
+			? {
+					dispatcher: {
+						...input.dispatcher,
+						admissionAgeSeconds: ageSeconds(
+							input.dispatcher.lastAdmissionAt,
+							nowMs,
+						),
+						trackerAgeSeconds: ageSeconds(
+							input.dispatcher.lastTrackerActionAt,
+							nowMs,
+						),
+					},
+				}
+			: {}),
 	};
 }
