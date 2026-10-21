@@ -11,10 +11,14 @@ import type {
 	ConnectionProviderCategory,
 	ConnectionProviderTemplate,
 } from "@tedix/api-contract/schemas/connection-provider-templates";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { ConnectionProviderRow } from "../schema/connection-providers";
-import { connectionProviders } from "../schema/connection-providers";
+import type { DbQueryClient } from "../query-client";
+import {
+	connectionProviderOwnership,
+	connectionProviders,
+} from "../schema/connection-providers";
 
 function toConnectionProviderTemplate(
 	row: ConnectionProviderRow,
@@ -249,4 +253,47 @@ export function applyConnectionCredentialTemplate(
 		}
 		return value.trim();
 	});
+}
+
+type CreateConnectionProviderOwnershipParams = Pick<
+	typeof connectionProviderOwnership.$inferInsert,
+	"appId" | "organizationId"
+>;
+
+export async function createConnectionProviderOwnership(
+	db: DbQueryClient,
+	params: CreateConnectionProviderOwnershipParams,
+): Promise<void> {
+	// Never transfer ownership on conflict, including platform upserts.
+	await db
+		.insert(connectionProviderOwnership)
+		.values(params)
+		.onConflictDoNothing();
+}
+
+export async function getConnectionProviderOwnershipForOrganization(
+	db: DbQueryClient,
+	appId: string,
+	organizationId: string,
+) {
+	const rows = await db
+		.select()
+		.from(connectionProviderOwnership)
+		.where(
+			and(
+				eq(connectionProviderOwnership.appId, appId),
+				eq(connectionProviderOwnership.organizationId, organizationId),
+			),
+		)
+		.limit(1);
+	return rows[0];
+}
+
+export async function deleteConnectionProviderOwnership(
+	db: DbQueryClient,
+	appId: string,
+): Promise<void> {
+	await db
+		.delete(connectionProviderOwnership)
+		.where(eq(connectionProviderOwnership.appId, appId));
 }
