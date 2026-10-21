@@ -17,6 +17,7 @@ import {
 	readExternalAgentProfile,
 	writeExternalAgentProfile,
 } from "./external-agent-store";
+import { setProcessTableReader } from "./host-ancestry";
 import type { WorkAttemptStore } from "./work-attempt-store";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -31,13 +32,16 @@ const savedEnv = {
 const nativeSessionEnv = Object.fromEntries(
 	[
 		"CLAUDE_CODE_SESSION_ID",
+		"CLAUDE_PID",
 		"CODEX_SESSION_ID",
 		"CODEX_THREAD_ID",
+		"CODEX_VERSION",
 		"CURSOR_TRACE_ID",
 	].map((key) => [key, process.env[key]]),
 );
 
 afterEach(() => {
+	setProcessTableReader(() => []);
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 	if (savedEnv.config === undefined) delete process.env.TEDIX_CONFIG_DIR;
@@ -1233,6 +1237,107 @@ describe("one profile shared by parallel harness sessions", () => {
 			]);
 		},
 	);
+
+	test.each([
+		["Codex lane launched from Claude Code", "codex", "own-thread"],
+		["Claude Code launched from Codex", "claude-code", "own-claude"],
+	] as const)(
+		"%s registers its own session with no flags beyond the model",
+		async (_case, host, own) => {
+			const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+			dirs.push(configDir);
+			process.env.TEDIX_CONFIG_DIR = configDir;
+			delete process.env.TEDIX_AGENT_SESSION;
+			delete process.env.CODEX_SESSION_ID;
+			process.env.CODEX_VERSION = "0.163.0";
+			process.env.CLAUDE_PID = "900";
+			process.env.CLAUDE_CODE_SESSION_ID =
+				host === "claude-code" ? own : "launcher-claude";
+			process.env.CODEX_THREAD_ID = host === "codex" ? own : "launcher-codex";
+			// shell -> host -> shell -> launcher
+			const [nearer, further] =
+				host === "codex" ? ["codex", "2.1.306"] : ["2.1.306", "codex"];
+			setProcessTableReader(() => [
+				{ pid: process.pid, ppid: 801, command: "tedix" },
+				{ pid: 801, ppid: host === "codex" ? 802 : 900, command: "/bin/zsh" },
+				{
+					pid: host === "codex" ? 802 : 900,
+					ppid: 803,
+					command: `/opt/bin/${nearer}`,
+				},
+				{ pid: 803, ppid: host === "codex" ? 900 : 802, command: "/bin/zsh" },
+				{
+					pid: host === "codex" ? 900 : 802,
+					ppid: 1,
+					command: `/opt/bin/${further}`,
+				},
+			]);
+			const started = await startExternalAgentSession({
+				...owner,
+				harnessVersion: host === "codex" ? undefined : "2.1.306",
+				modelProvider: host === "codex" ? "openai" : "anthropic",
+				modelId: host === "codex" ? "gpt-6.1-sol" : "claude-opus-5-5",
+				modelVersion: undefined,
+				fetch: echoExchange,
+				createClient: bootstrapClient([]),
+			});
+			expect(started.session).toMatchObject({
+				externalSessionKey: `${host}:${own}`,
+				harness: host,
+				harnessVersion: host === "codex" ? "0.163.0" : "2.1.306",
+				modelVersion:
+					host === "codex"
+						? "unpinned:gpt-6.1-sol@codex/0.163.0"
+						: "unpinned:claude-opus-5-5@claude-code/2.1.306",
+			});
+			// A later shell with no exports still resolves the same session.
+			expect(externalAgentStatus("connect").currentSession).toMatchObject({
+				externalSessionKey: `${host}:${own}`,
+			});
+			// Without process-tree proof the inherited ids stay ambiguous.
+			setProcessTableReader(() => []);
+			expect(externalAgentStatus("connect").currentSession).toBeNull();
+		},
+	);
+
+	test("a reported model snapshot is recorded unchanged", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		process.env.TEDIX_AGENT_SESSION = "codex:own-thread";
+		const started = await startExternalAgentSession({
+			...owner,
+			harness: "codex",
+			modelVersion: "gpt-6.1-sol-2026-10-01",
+			fetch: echoExchange,
+			createClient: bootstrapClient([]),
+		});
+		expect(started.session.modelVersion).toBe("gpt-6.1-sol-2026-10-01");
+	});
+
+	test("a missing harness version or model still refuses before bootstrap", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		process.env.TEDIX_AGENT_SESSION = "codex:own-thread";
+		delete process.env.CODEX_VERSION;
+		const calls: string[] = [];
+		await expect(
+			startExternalAgentSession({
+				...owner,
+				harness: "codex",
+				harnessVersion: undefined,
+				modelId: undefined,
+				modelVersion: undefined,
+				fetch: async () => {
+					calls.push("exchange");
+					return exchangeResponse();
+				},
+				createClient: bootstrapClient(calls),
+			}),
+		).rejects.toThrow("Missing: --agent-harness-version, --model-id.");
+		expect(calls).toEqual([]);
+	});
 
 	test.each(["codex:explicit-session", "explicit-session"])(
 		"explicit session %s takes precedence over a native session",

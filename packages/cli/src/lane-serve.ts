@@ -652,8 +652,7 @@ export class LaneDispatcher {
 					thread.modelProvider,
 					"--model-id",
 					thread.model,
-					"--model-version",
-					thread.model,
+					// The thread reports no snapshot; agent start records it unpinned.
 				],
 				receipt.session,
 			);

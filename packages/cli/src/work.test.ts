@@ -41,6 +41,7 @@ import {
 	buildSettlementMetadata,
 } from "./work-lifecycle";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
+import { setProcessTableReader } from "./host-ancestry";
 
 const ITEM = "11111111-1111-4111-8111-111111111111";
 const ATTEMPT = "22222222-2222-4222-8222-222222222222";
@@ -3901,6 +3902,47 @@ describe("resolveAgentSession", () => {
 			}
 		},
 	);
+
+	test("the nearer host in the process tree owns inherited session ids", () => {
+		const saved = [...keys, "CLAUDE_PID"].map(
+			(key) => [key, process.env[key]] as const,
+		);
+		try {
+			for (const key of keys) delete process.env[key];
+			process.env.CLAUDE_CODE_SESSION_ID = "launcher-claude";
+			process.env.CLAUDE_PID = "900";
+			process.env.CODEX_THREAD_ID = "own-codex";
+			setProcessTableReader(() => [
+				{ pid: process.pid, ppid: 801, command: "tedix" },
+				{ pid: 801, ppid: 802, command: "/bin/zsh" },
+				{ pid: 802, ppid: 900, command: "/usr/local/bin/codex" },
+				{ pid: 900, ppid: 1, command: "/opt/claude/versions/2.1.306" },
+			]);
+			expect(resolveAgentSession()).toEqual({
+				session: "codex:own-codex",
+				harness: "codex",
+				derived: false,
+			});
+			setProcessTableReader(() => [
+				{ pid: process.pid, ppid: 900, command: "tedix" },
+				{ pid: 900, ppid: 802, command: "/opt/claude/versions/2.1.306" },
+				{ pid: 802, ppid: 1, command: "/usr/local/bin/codex" },
+			]);
+			expect(resolveAgentSession()?.session).toBe(
+				"claude-code:launcher-claude",
+			);
+			// No harness ancestor: still ambiguous, writes still refuse.
+			setProcessTableReader(() => [
+				{ pid: process.pid, ppid: 1, command: "tedix" },
+			]);
+			expect(resolveAgentSession()?.ambiguousNative).toHaveLength(2);
+		} finally {
+			setProcessTableReader(() => []);
+			for (const [key, value] of saved)
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+		}
+	});
 
 	test("labels a Codex thread codex even inside a Claude Code shell", () => {
 		const saved = keys.map((key) => [key, process.env[key]] as const);

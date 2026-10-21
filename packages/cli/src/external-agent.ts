@@ -26,6 +26,7 @@ import {
 import { errorText } from "./format";
 import { TedixHomeClient } from "./home-client";
 import { type AuthResolution, withTimeout } from "./shared";
+import { nearestHostHarness } from "./host-ancestry";
 import { resolveAgentSession } from "./work-identity";
 import {
 	createFileWorkAttemptStore,
@@ -257,7 +258,7 @@ function resolveSessionTuple(input: {
 	modelId?: string;
 	modelVersion?: string;
 }): ExternalAgentSessionTuple {
-	const requestedHarness = input.harness?.trim();
+	let requestedHarness = input.harness?.trim();
 	const explicitSession = process.env.TEDIX_AGENT_SESSION?.trim();
 	const nativeSessions: Record<string, string | undefined> = {
 		codex:
@@ -272,9 +273,14 @@ function resolveSessionTuple(input: {
 		!explicitSession &&
 		Object.values(nativeSessions).filter(Boolean).length > 1
 	) {
-		throw new Error(
-			"Multiple harness session IDs are present. Choose --agent-harness or set TEDIX_AGENT_SESSION to your own immutable <harness>:<session-id> before starting.",
-		);
+		// A launched child inherits its launcher's id; the nearer host owns us.
+		const host = nearestHostHarness();
+		if (!host || !nativeSessions[host]) {
+			throw new Error(
+				"Multiple harness session IDs are present. Choose --agent-harness or set TEDIX_AGENT_SESSION to your own immutable <harness>:<session-id> before starting.",
+			);
+		}
+		requestedHarness = host;
 	}
 	const nativeSession = requestedHarness
 		? nativeSessions[requestedHarness]
@@ -299,35 +305,52 @@ function resolveSessionTuple(input: {
 	}
 	const harnessVersion =
 		input.harnessVersion?.trim() ||
-		process.env.TEDIX_AGENT_HARNESS_VERSION?.trim();
+		process.env.TEDIX_AGENT_HARNESS_VERSION?.trim() ||
+		// Codex publishes its own version to every command it runs.
+		(harness === "codex" ? process.env.CODEX_VERSION?.trim() : undefined);
 	const modelProvider =
 		input.modelProvider?.trim() ||
 		process.env.TEDIX_AGENT_MODEL_PROVIDER?.trim();
 	const modelId =
 		input.modelId?.trim() || process.env.TEDIX_AGENT_MODEL_ID?.trim();
-	const modelVersion =
-		input.modelVersion?.trim() || process.env.TEDIX_AGENT_MODEL_VERSION?.trim();
 	const missing = [
 		["--agent-harness-version", harnessVersion],
 		["--model-provider", modelProvider],
 		["--model-id", modelId],
-		["--model-version", modelVersion],
 	]
 		.filter(([, value]) => !value)
 		.map(([flag]) => flag);
 	if (missing.length) {
 		throw new Error(
-			`External-agent credit requires immutable harness/model versions. Missing: ${missing.join(", ")}.`,
+			`External-agent credit requires the harness version and model. Missing: ${missing.join(", ")}.`,
 		);
 	}
+	const modelVersion =
+		input.modelVersion?.trim() ||
+		process.env.TEDIX_AGENT_MODEL_VERSION?.trim() ||
+		unpinnedModelVersion(harness, harnessVersion as string, modelId as string);
 	return {
 		externalSessionKey: detected.session,
 		harness,
 		harnessVersion: harnessVersion as string,
 		modelProvider: modelProvider as string,
 		modelId: modelId as string,
-		modelVersion: modelVersion as string,
+		modelVersion,
 	};
+}
+
+/**
+ * Some harnesses (Codex) report a model id but no dated snapshot. Record what
+ * is known, marked unpinned, instead of demanding a value the harness cannot
+ * give: the model id as served by this exact harness release. It changes when
+ * the harness does, so a session never claims a pinned snapshot.
+ */
+function unpinnedModelVersion(
+	harness: string,
+	harnessVersion: string,
+	modelId: string,
+): string {
+	return `unpinned:${modelId}@${harness}/${harnessVersion}`.slice(0, 200);
 }
 
 function resolveExplicitAgentSession(
@@ -540,7 +563,7 @@ function endedSessionRecoveryMessage(
 			: []),
 		"Start a fresh immutable session before retrying:",
 		`  export TEDIX_AGENT_SESSION="${session.harness}:$(uuidgen | tr 'A-Z' 'a-z')"`,
-		"  tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> --model-version <version>",
+		"  tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> [--model-version <snapshot>]",
 		"  export TEDIX_EXTERNAL_AGENT=<principal-key>",
 	].join("\n");
 }

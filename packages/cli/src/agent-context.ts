@@ -19,6 +19,7 @@ import {
 	readWorkspaceCredentials,
 	type CredentialStoreOpts,
 } from "./credential-store";
+import { nearestHostHarness } from "./host-ancestry";
 import { withFileLockSync } from "./local-file-lock";
 import { looksLikeUuid } from "./shared";
 import { decodeJwtPayload } from "./jwt-payload";
@@ -313,21 +314,33 @@ function chatIdentity(options?: AgentContextOptions): string | undefined {
 		return options.sessionId.toLowerCase();
 	}
 	// One chat per process: a Codex chat id and a Claude Code session id that
-	// disagree mean the environment leaked from another host, so fail closed.
-	const ids = [
-		process.env.CODEX_SESSION_ID,
-		process.env.CODEX_THREAD_ID,
-		process.env.CLAUDE_CODE_SESSION_ID,
-		process.env.DEVIN_SESSION_ID,
-	]
-		.map((id) => id?.trim())
-		.filter((id): id is string => Boolean(id))
-		.map((id) => id.toLowerCase());
-	if (ids.some((id) => !isHostSessionId(id)) || new Set(ids).size > 1)
+	// disagree mean the environment leaked from another host. A launched child
+	// inherits its launcher's id; the nearer host in the process tree owns this
+	// process. Without that proof, fail closed.
+	const byHost = {
+		codex: hostIds([process.env.CODEX_SESSION_ID, process.env.CODEX_THREAD_ID]),
+		"claude-code": hostIds([process.env.CLAUDE_CODE_SESSION_ID]),
+		devin: hostIds([process.env.DEVIN_SESSION_ID]),
+	};
+	const ids = Object.values(byHost).flat();
+	const invalid = ids.some((id) => !isHostSessionId(id));
+	if (!invalid && new Set(ids).size > 1) {
+		const host = nearestHostHarness();
+		const own = host ? new Set(byHost[host]) : new Set<string>();
+		if (own.size === 1 && !byHost.devin.length) return [...own][0];
+	}
+	if (invalid || new Set(ids).size > 1)
 		throw new Error(
 			"Chat identity is invalid or conflicting; verify the current chat before selecting context",
 		);
 	return ids[0];
+}
+
+function hostIds(values: Array<string | undefined>): string[] {
+	return values
+		.map((id) => id?.trim())
+		.filter((id): id is string => Boolean(id))
+		.map((id) => id.toLowerCase());
 }
 function chatBinding(
 	binding: Binding,

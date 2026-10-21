@@ -12,6 +12,7 @@ import {
 	runAgentContext,
 } from "./agent-context";
 import { writeWorkspaceCredentials } from "./credential-store";
+import { setProcessTableReader } from "./host-ancestry";
 
 // These tests drive chat identity explicitly; a host session id from the
 // harness running them must not leak in.
@@ -572,6 +573,38 @@ test("host environment resolves identity and conflicting host identifiers are re
 		else process.env.CODEX_THREAD_ID = oldThread;
 		if (oldSession === undefined) delete process.env.CODEX_SESSION_ID;
 		else process.env.CODEX_SESSION_ID = oldSession;
+	}
+});
+
+test("a Codex lane under a Claude launcher uses its own chat only with process-tree proof", () => {
+	const { opts } = fixture();
+	bind(opts);
+	const saved = ["CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"].map(
+		(key) => [key, process.env[key]] as const,
+	);
+	const own = "01a15b44-7c35-7210-b6c5-763a1ed4511c";
+	const automatic = { cwd: opts.cwd, configDir: opts.configDir };
+	try {
+		process.env.CODEX_THREAD_ID = own;
+		process.env.CLAUDE_CODE_SESSION_ID = "0b1e8c2a-3f4d-4e5f-8a6b-7c8d9e0f1a2b";
+		process.env.CLAUDE_PID = "900";
+		expect(resolveAgentContext(automatic).status).toBe("invalid");
+		setProcessTableReader(() => [
+			{ pid: process.pid, ppid: 801, command: "tedix" },
+			{ pid: 801, ppid: 802, command: "/opt/bin/codex" },
+			{ pid: 802, ppid: 900, command: "/bin/zsh" },
+			{ pid: 900, ppid: 1, command: "/opt/claude/versions/2.1.306" },
+		]);
+		changeAgentContext("select", { workItemId: WORK }, automatic);
+		expect(resolveAgentContext(automatic)).toMatchObject({
+			contextSessionId: own,
+			workItemId: WORK,
+		});
+	} finally {
+		setProcessTableReader(() => []);
+		for (const [key, value] of saved)
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
 	}
 });
 

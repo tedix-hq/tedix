@@ -21,7 +21,9 @@ authentication, server admission and Attempt fences enforce access.
    If bootstrap is necessary and owner-authorized, set `TEDIX_AGENT_SESSION` to
    `<harness>:<immutable-session-id>` and call `tedix -w <profile> agent start`
    with the actual principal key, display name, harness/version and model
-   provider/ID/version. Request only needed capabilities through `--agent-scopes`.
+   provider/ID, plus the model version only when the harness reports a dated
+   snapshot (otherwise the CLI records it unpinned). Request only needed
+   capabilities through `--agent-scopes`.
    Set `TEDIX_EXTERNAL_AGENT` to that returned principal key, retain the returned
    session identity, and verify `agent status`. Never fabricate identity fields
    or print credentials. A tedi uses its own authenticated identity.
