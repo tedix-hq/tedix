@@ -3,7 +3,6 @@ import {
 	compareDecisionFreshness,
 } from "@tedix/api-contract/utils/deck-projection";
 import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
-import { factoryCardScore } from "@tedix/api-contract/utils/card-priority";
 import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
 import { CardSourceFilter } from "@/components/card-source-filter";
 import {
@@ -398,15 +397,21 @@ function DecisionDeckContent({
 	const rank = (row: (typeof rows)[number]) =>
 		rankDeckCard(row, learningModel.data, now, row.row?.request);
 	const factoryPriority = new Map(
-		decisions.factoryCards.map((card) => [
-			`factory:${card.key}`,
-			{
-				policyCritical:
-					routeFactoryCard(card, config.routing, now, learningModel.data)
-						.reason === "critical",
-				score: factoryCardScore(card),
-			},
-		]),
+		decisions.factoryCards.map((card) => {
+			const route = routeFactoryCard(
+				card,
+				config.routing,
+				now,
+				learningModel.data,
+			);
+			return [
+				`factory:${card.key}`,
+				{
+					policyCritical: route.reason === "critical",
+					score: route.score ?? undefined,
+				},
+			];
+		}),
 	);
 	// Critical detection sees the same card facts as the server projection.
 	const priorityContext = (row: (typeof rows)[number]) =>
