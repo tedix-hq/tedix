@@ -5,6 +5,7 @@ import { getOsSurface } from "@/lib/os-navigation";
 import { CapabilityNavigation } from "@/components/capability-navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
 import {
 	Collection,
 	Page,
@@ -46,20 +47,43 @@ export function GatewaysPage() {
 							Choose which apps and tools Tedix can use.
 						</SectionDescription>
 					</SectionHeading>
-					{query.data ? (
+					{query.isSuccess ? (
 						<Badge variant="outline">{gateways.length}</Badge>
 					) : null}
 				</SectionHeader>
-				{query.isPending ? <ListSkeleton /> : null}
+				{query.isPending ? (
+					<div role="status" aria-label="Loading shared connection">
+						<ListSkeleton />
+					</div>
+				) : null}
+				{query.isFetching && !query.isPending ? (
+					<Text as="p" role="body" tone="secondary" aria-live="polite">
+						Refreshing shared connection…
+					</Text>
+				) : null}
 				{query.isError ? (
 					<Alert variant="destructive">
 						<AlertTitle>Connections are unavailable</AlertTitle>
-						<AlertDescription>
+						<AlertDescription className="break-words [overflow-wrap:anywhere]">
 							{(query.error as Error).message}
+							<p className="mt-2">
+								{gateways.length
+									? "Showing the last loaded shared connection. Its details may be out of date."
+									: "We couldn’t check whether a shared connection is set up. Try again."}
+							</p>
 						</AlertDescription>
+						<div className="mt-3">
+							<Button
+								variant="outline"
+								loading={query.isFetching}
+								onClick={() => void query.refetch()}
+							>
+								Retry shared connection
+							</Button>
+						</div>
 					</Alert>
 				) : null}
-				{!query.isPending && gateways.length === 0 ? (
+				{query.isSuccess && !query.isFetching && gateways.length === 0 ? (
 					<Text as="p" role="body" tone="secondary">
 						No shared connection is set up for your organization.
 					</Text>
