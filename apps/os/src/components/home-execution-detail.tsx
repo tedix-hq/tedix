@@ -48,12 +48,7 @@ import { absoluteTime, formatDurationMs } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { ArtifactReleaseReview } from "@/components/artifact-release-review";
 import { useTediNames } from "@/lib/use-tedi-names";
-
-function record(value: unknown): Record<string, unknown> | null {
-	return value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
+import { recordOrNull } from "@/components/chat-context-used";
 
 function safeText(value: unknown): string | null {
 	return typeof value === "string" && value.trim()
@@ -146,7 +141,7 @@ function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
 				{toolEvents.length ? (
 					<Collection aria-label="Delegated tool events">
 						{toolEvents.map((event) => {
-							const payload = record(event.payload);
+							const payload = recordOrNull(event.payload);
 							const name = safeText(payload?.name) ?? "Tool action";
 							const detail = compactPreview(
 								payload?.error ?? payload?.result ?? payload?.args,
@@ -231,11 +226,11 @@ export function HomeExecutionDetailView({
 	const selectedBranch = branchId
 		? trace.branches.find((branch) => branch.childRunId === branchId)
 		: undefined;
-	const metadata = record(run.metadata);
-	const route = record(metadata?.kernelRoute);
-	const delegation = record(metadata?.homeDelegation);
-	const workOrder = record(delegation?.workOrder);
-	const proof = record(metadata?.delegationProof);
+	const metadata = recordOrNull(run.metadata);
+	const route = recordOrNull(metadata?.kernelRoute);
+	const delegation = recordOrNull(metadata?.homeDelegation);
+	const workOrder = recordOrNull(delegation?.workOrder);
+	const proof = recordOrNull(metadata?.delegationProof);
 	const selectedTedi = selectedBranch
 		? (tediNames[selectedBranch.delegatedTediId] ?? "Digital worker")
 		: null;
@@ -245,7 +240,7 @@ export function HomeExecutionDetailView({
 			(events ?? [])
 				.filter((event) => event.kind.startsWith("tool."))
 				.flatMap((event) => {
-					const payload = record(event.payload);
+					const payload = recordOrNull(event.payload);
 					const name = safeText(payload?.name) ?? safeText(payload?.toolName);
 					return name ? [name] : [];
 				}),

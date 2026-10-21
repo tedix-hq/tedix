@@ -31,11 +31,7 @@ const WORKSPACE_NAME_MAX_CHARS = 120;
  * "Save as workspace" for a chat that has none: the conversation and the
  * outputs it made move into a new workspace, which then opens with it.
  */
-export function SaveAsWorkspaceButton({
-	conversationId,
-}: {
-	conversationId: string;
-}) {
+function SaveAsWorkspaceButton({ conversationId }: { conversationId: string }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const conversations = useInfiniteQuery(

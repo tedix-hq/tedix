@@ -13,7 +13,7 @@ import {
 } from "@/components/kumo/dialog";
 import { type ChatContext } from "@/components/chat-transcript";
 
-export type ContextUsedItem = { label: string; value: string };
+type ContextUsedItem = { label: string; value: string };
 
 export function recordOrNull(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" && !Array.isArray(value)

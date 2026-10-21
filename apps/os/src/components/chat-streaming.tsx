@@ -4,7 +4,6 @@ import { ChatMarkdown } from "@/components/chat-markdown";
 import { Loader } from "@/components/kumo/loader";
 import type { StreamedPhase } from "@/lib/overlay-state";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
-import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // StreamedAssistantBubble — the provisional overlay bubble
@@ -41,7 +40,7 @@ export function StreamedAssistantBubble({
 			aria-busy={!done}
 			className="flex w-full justify-start"
 		>
-			<div className={cn("flex min-w-0 max-w-full flex-col gap-1 py-0.5")}>
+			<div className="flex min-w-0 max-w-full flex-col gap-1 py-0.5">
 				{/*
 				 * The caret has to sit on the last line of the rendered markdown, not
 				 * on a line of its own beneath it. `ChatMarkdown` is a block wrapper
