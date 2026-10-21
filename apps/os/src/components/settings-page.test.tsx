@@ -431,6 +431,82 @@ describe("SettingsPage", () => {
 		expect(userSettingsApi.updatePreferences).toHaveBeenCalledTimes(1);
 	});
 
+	it("shows loading skeletons while preferences are pending", async () => {
+		userSettingsApi.getPreferences.mockReturnValue(new Promise(() => {}));
+		const container = render();
+		await flush();
+		expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+		expect(container.textContent).toContain("Loading your preferences");
+		expect(container.textContent).not.toContain("Save preferences");
+		expect(
+			container.querySelector(`a[href="${OS_LOGOUT_PATH}"]`),
+		).not.toBeNull();
+	});
+
+	it("keeps custom regional values and hidden settings when saving another preference", async () => {
+		const preferences = {
+			...DEFAULTS,
+			locale: "it-IT",
+			timezone: "Pacific/Auckland",
+			conversationModelRef: "sample-model",
+			notifications: {
+				approvals: false,
+				runFailures: true,
+				budgetAlerts: false,
+			},
+		};
+		userSettingsApi.getPreferences.mockResolvedValue({
+			preferences,
+			source: "stored",
+			revision: 7,
+			updatedAt: null,
+		});
+		userSettingsApi.updatePreferences.mockReturnValue(new Promise(() => {}));
+		const container = render();
+		await flush();
+		expect(
+			container.querySelector('[aria-label="Language"]')?.textContent,
+		).toContain("it-IT");
+		expect(
+			container.querySelector('[aria-label="Time zone"]')?.textContent,
+		).toContain("Pacific/Auckland");
+		const buttons = () => [...container.querySelectorAll("button")];
+		await act(async () =>
+			buttons()
+				.find((button) => button.textContent?.trim() === "Compact")
+				?.click(),
+		);
+		await act(async () =>
+			buttons()
+				.find((button) => button.textContent?.trim() === "Save preferences")
+				?.click(),
+		);
+		await flush();
+		expect(userSettingsApi.updatePreferences).toHaveBeenCalledWith({
+			preferences: { ...preferences, density: "compact" },
+			expectedRevision: 7,
+		});
+		const saving = buttons().find(
+			(button) => button.textContent?.trim() === "Saving…",
+		);
+		expect(saving?.disabled).toBe(true);
+	});
+
+	it("renders workspace failures as an alert and keeps gateway instructions in a shared row", async () => {
+		userSettingsApi.getContext.mockRejectedValue(
+			new Error("Workspace unavailable"),
+		);
+		const container = render();
+		await flush();
+		expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+			"Workspace context is unavailable",
+		);
+		const gateway = [
+			...container.querySelectorAll('[data-slot="setting-row"]'),
+		].find((row) => row.textContent?.includes("Gateway connection"));
+		expect(gateway?.textContent).toContain("tedix auth status");
+	});
+
 	it("does not present stored-only model or notification controls as working settings", async () => {
 		const container = render();
 		await flush();

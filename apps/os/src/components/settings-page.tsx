@@ -23,16 +23,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { CodeInline } from "@/components/kumo/code";
-import { IconFrame } from "@/components/kumo/icon-frame";
 import { SettingsRow, SettingsRows } from "@/components/settings-row";
 import { OsRouterLink } from "@/components/kumo/link-provider";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
 import {
 	Page,
 	PageDescription,
@@ -146,20 +138,60 @@ const TIMEZONE_OPTIONS = [
 	"Asia/Singapore",
 	"Australia/Sydney",
 	"UTC",
-] as const;
+].map((value) => ({ value, label: value }));
 
 const FOLLOW_SYSTEM = "__system__";
 
-// ---------------------------------------------------------------------------
-// Pure helpers (exported for tests)
-// ---------------------------------------------------------------------------
+function RegionalSelect({
+	label,
+	value,
+	options,
+	onValueChange,
+}: {
+	label: string;
+	value: string | null;
+	options: readonly { value: string; label: string }[];
+	onValueChange: (value: string | null) => void;
+}) {
+	return (
+		<Select
+			value={value ?? FOLLOW_SYSTEM}
+			onValueChange={(next) =>
+				onValueChange(next === FOLLOW_SYSTEM ? null : String(next))
+			}
+		>
+			<SelectTrigger
+				aria-label={label}
+				className="min-h-7 w-full max-w-full py-1 data-[size=sm]:h-auto sm:w-60"
+				size="sm"
+			>
+				<SelectValue className="whitespace-normal text-clip [overflow-wrap:anywhere]">
+					{(next) =>
+						next === FOLLOW_SYSTEM
+							? "Follow browser"
+							: (options.find((option) => option.value === next)?.label ??
+								String(next))
+					}
+				</SelectValue>
+			</SelectTrigger>
+			<SelectContent>
+				<SelectItem value={FOLLOW_SYSTEM}>Follow browser</SelectItem>
+				{options.map((option) => (
+					<SelectItem key={option.value} value={option.value}>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
 
 /**
  * The save button's state, kept explicit so "nothing changed", "saving" and
  * "the store moved under you" never collapse into one disabled button with no
  * explanation.
  */
-export type SaveState = "clean" | "dirty" | "saving" | "conflict" | "error";
+type SaveState = "clean" | "dirty" | "saving" | "conflict" | "error";
 
 export function saveState(input: {
 	dirty: boolean;
@@ -224,12 +256,8 @@ export function modelPolicySummary(
 	return parts.join(" · ");
 }
 
-// ---------------------------------------------------------------------------
-// Read-only operational context
-// ---------------------------------------------------------------------------
-
 /** Injectable-link seam for tests that render without a RouterProvider. */
-export type TeamMembersLinkProps = {
+type TeamMembersLinkProps = {
 	to:
 		| "/team"
 		| "/admin/organization"
@@ -273,8 +301,8 @@ function OperationalContextSection({
 					<SectionTitle>Workspace context</SectionTitle>
 					<SectionDescription>
 						{localEvaluation
-							? "Read-only deterministic seed state stored locally on this machine. It is not a production tenant, membership, or control-plane grant."
-							: "Read-only. Tedix OS projects operational state here; every durable change belongs to the policy-checked control plane, which these links open for the workspace your credential resolved."}
+							? "Sample workspace stored on this machine. It grants no production access."
+							: "Your workspace, permissions, and usage. Open each page to make changes."}
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -308,9 +336,7 @@ function OperationalContextSection({
 					<SettingsRow
 						icon={Key}
 						title={
-							localEvaluation
-								? "Seeded local capabilities"
-								: "Effective authority"
+							localEvaluation ? "Seeded local capabilities" : "Permissions"
 						}
 						description={
 							context.data.authority.permissions.length > 0
@@ -349,10 +375,10 @@ function OperationalContextSection({
 
 					<SettingsRow
 						icon={Globe}
-						title="Runtime budgets and model policy"
+						title="AI usage and limits"
 						description={
 							entitlement.isPending
-								? "Reading the admission gate…"
+								? "Loading AI usage…"
 								: entitlement.isError
 									? `Unavailable: ${(entitlement.error as Error).message}`
 									: entitlement.data?.entitlement
@@ -404,7 +430,7 @@ function OperationalContextSection({
 					<SettingsRow
 						icon={UserCircle}
 						title="Members and roles"
-						description="Invite people, assign roles, and manage permission overrides on the Team page. Sessions and secrets stay in the control plane."
+						description="Invite people and manage roles on the Team page."
 					>
 						<Button
 							render={
@@ -421,10 +447,6 @@ function OperationalContextSection({
 		</PageSection>
 	);
 }
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export function SettingsPage({
 	MembersLinkComponent,
@@ -478,9 +500,8 @@ export function SettingsPage({
 				<Alert>
 					<AlertTitle>Isolated local evaluation</AlertTitle>
 					<AlertDescription>
-						This launcher uses a deterministic local identity and D1 dataset. It
-						does not sign in with Descope, inherit a production tenant, or
-						import production secrets and connections.
+						This preview uses sample data on this machine. Production accounts,
+						secrets, and connections are separate.
 					</AlertDescription>
 				</Alert>
 			)}
@@ -492,7 +513,9 @@ export function SettingsPage({
 						<SectionDescription>
 							{query.data
 								? preferenceOrigin(query.data, localEvaluation)
-								: "Loading your stored preferences…"}
+								: query.isError
+									? "Refresh the page to try again."
+									: "Loading your preferences…"}
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -509,9 +532,8 @@ export function SettingsPage({
 					<Alert variant="destructive">
 						<AlertTitle>Someone else saved first</AlertTitle>
 						<AlertDescription>
-							Your save was refused so it could not overwrite the newer values.
-							The surviving preferences have been reloaded — reapply your change
-							and save again.
+							Newer preferences have been loaded. Reapply your changes and save
+							again.
 						</AlertDescription>
 					</Alert>
 				)}
@@ -524,7 +546,7 @@ export function SettingsPage({
 
 				{query.isPending && <ListSkeleton rows={3} rowClassName="h-16" />}
 
-				<div className="grid gap-8">
+				<div className="grid gap-4">
 					<SettingsRows>
 						<SettingsRow
 							icon={UserCircle}
@@ -544,11 +566,8 @@ export function SettingsPage({
 								Sign out
 							</Button>
 						</SettingsRow>
-					</SettingsRows>
-
-					{draft && (
-						<>
-							<SettingsRows>
+						{draft && (
+							<>
 								<SettingsRow
 									icon={Desktop}
 									title="Appearance"
@@ -617,105 +636,49 @@ export function SettingsPage({
 										value={draft.accessibility.contrast}
 									/>
 								</SettingsRow>
-							</SettingsRows>
 
-							<SettingsRows>
 								<SettingsRow
 									icon={Globe}
 									title="Language"
 									description="Used for month names and number formatting."
 								>
-									<Select
-										onValueChange={(value) =>
-											patch({
-												locale: value === FOLLOW_SYSTEM ? null : String(value),
-											})
-										}
-										value={draft.locale ?? FOLLOW_SYSTEM}
-									>
-										<SelectTrigger
-											aria-label="Language"
-											className="min-h-7 w-full max-w-full py-1 data-[size=sm]:h-auto sm:w-60"
-											size="sm"
-										>
-											<SelectValue className="whitespace-normal text-clip [overflow-wrap:anywhere]">
-												{(value) =>
-													value === FOLLOW_SYSTEM
-														? "Follow browser"
-														: (LOCALE_OPTIONS.find(
-																(option) => option.value === value,
-															)?.label ?? String(value))
-												}
-											</SelectValue>
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value={FOLLOW_SYSTEM}>
-												Follow browser
-											</SelectItem>
-											{LOCALE_OPTIONS.map((option) => (
-												<SelectItem key={option.value} value={option.value}>
-													{option.label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
+									<RegionalSelect
+										label="Language"
+										value={draft.locale}
+										options={LOCALE_OPTIONS}
+										onValueChange={(locale) => patch({ locale })}
+									/>
 								</SettingsRow>
 								<SettingsRow
 									icon={Globe}
 									title="Time zone"
 									description="Used for times. Calendar dates stay the same."
 								>
-									<Select
-										onValueChange={(value) =>
-											patch({
-												timezone:
-													value === FOLLOW_SYSTEM ? null : String(value),
-											})
-										}
-										value={draft.timezone ?? FOLLOW_SYSTEM}
-									>
-										<SelectTrigger
-											aria-label="Time zone"
-											className="min-h-7 w-full max-w-full py-1 data-[size=sm]:h-auto sm:w-60"
-											size="sm"
-										>
-											<SelectValue className="whitespace-normal text-clip [overflow-wrap:anywhere]">
-												{(value) =>
-													value === FOLLOW_SYSTEM
-														? "Follow browser"
-														: String(value)
-												}
-											</SelectValue>
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value={FOLLOW_SYSTEM}>
-												Follow browser
-											</SelectItem>
-											{TIMEZONE_OPTIONS.map((zone) => (
-												<SelectItem key={zone} value={zone}>
-													{zone}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
+									<RegionalSelect
+										label="Time zone"
+										value={draft.timezone}
+										options={TIMEZONE_OPTIONS}
+										onValueChange={(timezone) => patch({ timezone })}
+									/>
 								</SettingsRow>
-							</SettingsRows>
-
-							<div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-								{state === "clean" && (
-									<Text role="label" tone="secondary">
-										No unsaved changes
-									</Text>
-								)}
-								<Button
-									disabled={!dirty || save.isPending}
-									onClick={() => save.mutate(draft)}
-									size="sm"
-								>
-									{save.isPending ? "Saving…" : "Save preferences"}
-								</Button>
-							</div>
-						</>
+							</>
+						)}
+					</SettingsRows>
+					{draft && (
+						<div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+							{state === "clean" && (
+								<Text role="label" tone="secondary">
+									No unsaved changes
+								</Text>
+							)}
+							<Button
+								disabled={!dirty || save.isPending}
+								onClick={() => save.mutate(draft)}
+								size="sm"
+							>
+								{save.isPending ? "Saving…" : "Save preferences"}
+							</Button>
+						</div>
 					)}
 				</div>
 			</PageSection>
@@ -730,44 +693,29 @@ export function SettingsPage({
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>
-						<SectionTitle>External harnesses</SectionTitle>
+						<SectionTitle>Connected agents</SectionTitle>
 						<SectionDescription>
 							{localEvaluation
-								? "The isolated launcher does not reuse an installed CLI session or production MCP gateway."
-								: "Codex, Claude, OpenCode, and the Tedix CLI use the same MCP gateway and permissions as this UI."}
+								? "CLI sessions and production connections are separate from this preview."
+								: "External agents use the same gateway and permissions as this workspace."}
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
-				<Card>
-					<CardHeader>
-						<IconFrame appearance="fill" className="text-kumo-brand">
-							<Plug size={18} />
-						</IconFrame>
-						<CardTitle>Gateway connection</CardTitle>
-						<CardDescription>
-							Discover apps, tools, skills, and OS actions from any MCP-capable
-							harness.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<Text role="label" tone="secondary">
-							{localEvaluation ? (
-								<>
-									Run <CodeInline>tedix auth status</CodeInline> to inspect a
-									separate live CLI session. Its workspace and credentials are
-									not inherited by this local evaluation.
-								</>
-							) : (
-								<>
-									Run <CodeInline>tedix auth status</CodeInline> to see the
-									selected workspace, credential source, and gateway. This page
-									does not probe the gateway, so it reports no status of its
-									own.
-								</>
-							)}
-						</Text>
-					</CardContent>
-				</Card>
+				<SettingsRows>
+					<SettingsRow
+						icon={Plug}
+						title="Gateway connection"
+						description={
+							<>
+								Run <CodeInline>tedix auth status</CodeInline> to see your CLI
+								workspace and gateway.
+								{localEvaluation
+									? " This preview does not inherit its credentials."
+									: " This page does not check gateway status."}
+							</>
+						}
+					/>
+				</SettingsRows>
 			</PageSection>
 		</Page>
 	);
