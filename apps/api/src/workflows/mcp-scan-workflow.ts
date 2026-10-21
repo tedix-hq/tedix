@@ -176,7 +176,9 @@ interface CatalogBaseAppRow {
 	metadata: unknown;
 }
 
-function parseMetadata(metadata: unknown): Record<string, unknown> | null {
+export function parseMetadata(
+	metadata: unknown,
+): Record<string, unknown> | null {
 	if (typeof metadata === "string") {
 		try {
 			const parsed = JSON.parse(metadata);
@@ -192,7 +194,7 @@ function parseMetadata(metadata: unknown): Record<string, unknown> | null {
 		: null;
 }
 
-function catalogBaseAppAutoSyncEnabled(metadata: unknown): boolean {
+export function catalogBaseAppAutoSyncEnabled(metadata: unknown): boolean {
 	const parsed = parseMetadata(metadata);
 	const mcpConfig =
 		parsed?.mcpConfig && typeof parsed.mcpConfig === "object"
@@ -218,7 +220,7 @@ function stringValue(value: unknown): string | undefined {
 		: undefined;
 }
 
-function manifestUrlCandidates(endpoint: string): string[] {
+export function manifestUrlCandidates(endpoint: string): string[] {
 	const candidates = new Set<string>();
 	const endpointUrl = new URL(endpoint);
 	candidates.add(new URL("/.well-known/mcp.json", endpointUrl.origin).href);
@@ -234,7 +236,7 @@ function manifestUrlCandidates(endpoint: string): string[] {
 	return Array.from(candidates);
 }
 
-function parsePublicMcpManifest(
+export function parsePublicMcpManifest(
 	url: string,
 	payload: unknown,
 ): PublicMcpManifest | null {
@@ -327,7 +329,7 @@ function parsePublicMcpManifest(
 	};
 }
 
-async function fetchPublicMcpManifest(
+export async function fetchPublicMcpManifest(
 	endpoint: string,
 	timeoutMs: number,
 ): Promise<PublicMcpManifest | null> {
@@ -357,7 +359,7 @@ async function fetchPublicMcpManifest(
 	return null;
 }
 
-function scanResultFromPublicManifest(
+export function scanResultFromPublicManifest(
 	base: Omit<McpScanResult, "capabilities" | "instructions">,
 	manifest: PublicMcpManifest,
 ): McpScanResult {
