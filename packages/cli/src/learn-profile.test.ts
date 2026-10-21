@@ -18,39 +18,45 @@ import { WorkProposalMetadataSchema } from "@tedix/api-contract/schemas/work-int
 import type { AskedProposal } from "./learn-proposals";
 import {
 	groundWeek,
-	stabilizeWorkstreams,
-	readProfileState,
-	writeProfileState,
-	GROUP_PROMPT,
-	MERGE_PROMPT,
 	PLAN_PROMPT,
-	WHO_AM_I_SOURCE,
-	TEAM_SOURCE,
-	MAX_WORKSTREAMS,
-	weigh,
-	projectEvidence,
-	linkWorkstream,
-	mergeWorkstreams,
 	planNow,
 	priorities,
-	type Board,
-	type Workstream,
 	PROFILE_PROMPT,
+	toProfile,
+} from "./learn-profile-insights";
+import {
+	stabilizeWorkstreams,
+	GROUP_PROMPT,
+	MERGE_PROMPT,
+	MAX_WORKSTREAMS,
+	weigh,
+	mergeWorkstreams,
+	type Workstream,
 	STATE_PROMPT,
-	SUMMARY_PROMPT,
 	groupWorkstreams,
-	newMeter,
-	publishDocSource,
+} from "./learn-profile-workstreams";
+import {
+	readProfileState,
+	writeProfileState,
+	type ProfileState,
+} from "./learn-profile-state";
+import {
+	WHO_AM_I_SOURCE,
+	TEAM_SOURCE,
+	projectEvidence,
+	linkWorkstream,
+	type Board,
+} from "./learn-profile-board";
+import {
+	SUMMARY_PROMPT,
 	publicText,
-	renderDocument,
-	runProfile,
 	sessionDigest,
 	summarise,
-	toProfile,
 	toSummary,
-	type ProfileDeps,
-	type ProfileState,
-} from "./learn-profile";
+} from "./learn-profile-digest";
+import { newMeter } from "./learn-profile-model";
+import { publishDocSource, renderDocument } from "./learn-profile-document";
+import { runProfile, type ProfileDeps } from "./learn-profile";
 
 const date = "2026-03-01T10:00:00Z";
 const workId = "11111111-2222-4333-8444-555555555555";
