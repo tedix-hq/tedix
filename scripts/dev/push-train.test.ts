@@ -136,7 +136,7 @@ describe("push train with real repositories and hooks", () => {
 				"/.worktrees/push-train-",
 			);
 			console.log(`six-lane batch fixture: ${elapsed.toFixed(0)}ms (1 gate)`);
-		});
+		}, 20000);
 	});
 	describe("serial reference", () => {
 		let serial: ReturnType<typeof fixture>;
@@ -152,7 +152,7 @@ describe("push train with real repositories and hooks", () => {
 			console.log(
 				`six-lane serial fixture: ${serialElapsed.toFixed(0)}ms (6 gates)`,
 			);
-		});
+		}, 20000);
 	});
 
 	test("one red lane fails individually while the others publish in order", () => {
@@ -166,14 +166,32 @@ describe("push train with real repositories and hooks", () => {
 		).not.toContain("red");
 	});
 
-	test("conflicting lanes fall back without blocking a later independent lane", () => {
+	test("a conflicting lane is left out; the rest publish under one gate", () => {
 		const f = fixture(3);
 		amend(f.tickets[0]!, "shared", "first\n");
 		amend(f.tickets[1]!, "shared", "second\n");
 		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
 		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([0, 1, 0]);
+		expect(readResult(f.tickets[1]!.result)!.message).toContain("conflicts");
 		expect(git(f.remote, "show", "main:shared")).toBe("first");
+		// Retried alone, it conflicts again before reaching the hook.
+		expect(f.gates()).toBe(1);
 	});
+
+	test("a red lane in a large train is found by halving, not lane by lane", () => {
+		const f = fixture(8);
+		amend(f.tickets[5]!, "red", "bad\n");
+		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([
+			0, 0, 0, 0, 0, 1, 0, 0,
+		]);
+		// 0-7 red; 0-3 green; 4-7 red; 4-5 red: 4 green, 5 red; 6-7 green.
+		// Lane by lane after the first rejection this was 1 + 8 = 9.
+		expect(f.gates()).toBe(7);
+		const files = git(f.remote, "ls-tree", "--name-only", "main").split("\n");
+		expect(files).not.toContain("red");
+		for (const i of [0, 1, 2, 3, 4, 6, 7]) expect(files).toContain(`file-${i}`);
+	}, 20000);
 
 	test("ranges retain selectors for a file reverted by another lane", () => {
 		const f = fixture(2);

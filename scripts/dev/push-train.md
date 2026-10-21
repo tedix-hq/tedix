@@ -13,14 +13,20 @@ once. Its preflight combines the actual pushed range with every original lane
 range, so a later lane reverting a file cannot hide an earlier lane's selected
 checks. Formatter selection conservatively uses a full check for multiple trees.
 
-Any integration conflict or failed gate falls back to individual lanes in
-arrival order. Each receives its own result and published SHA; failed lanes do
-not stop later independent ones. An external main update rebuilds and re-gates
-the candidate, with the same two retries as the single-lane queue.
+A train takes at most 12 lanes (`MAX_TRAIN_LANES`). A lane whose commits
+conflict or fail the per-commit secret scan is left out of the candidate; the
+others are gated together, and the left-out lane is retried alone on the new
+main afterwards, failing without a gate if it still conflicts. A failed gate
+splits the candidate into arrival-ordered halves, each rebuilt from fresh main
+and gated again; batches of three or fewer go lane by lane. One red lane among
+n therefore costs about 1 + 2·log2(n) gate runs instead of 1 + n. Each lane
+receives its own result and published SHA; failed lanes do not stop later
+independent ones. An external main update rebuilds and re-gates the candidate,
+with the same two retries as the single-lane queue.
 
 Tickets pin clean checkouts. Dirty checkouts, merge histories, old queue tickets
-and differing dry-run modes end a batch and retain the single-lane path. No
-holder edits another lane's checkout. A successful lane updates its own branch
+and differing dry-run modes are skipped when a train forms and keep their place
+for the single-lane path. No holder edits another lane's checkout. A successful lane updates its own branch
 only if its original branch, HEAD and clean state still match its ticket.
 
 A process dying before selection is dropped as before. After selection its
@@ -47,4 +53,12 @@ green lanes take about **27 minutes serial versus 4.5 minutes batched**, plus
 integration, per-commit scanning and polling overhead. Mean completion falls
 from 15.75 to approximately 4.5 minutes; the last lane saves 22.5 minutes.
 This is a modeled projection, not a measured production rollout. Failure
-fallback can cost one failed batch gate plus the individual gates.
+fallback costs one failed batch gate plus the halving runs described above.
+
+## Waiting sessions
+
+The lock records the running train's tickets, and every lock hold appends its
+duration to `<git-common-dir>/push-queue-history.jsonl` (last 50 kept). A
+waiting process prints its place, whether it is in the running train, and an
+estimate from the median of the last ten holds; without history it prints no
+estimate.

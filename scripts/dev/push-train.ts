@@ -155,7 +155,40 @@ export function finishLane(
 	return result.code;
 }
 
-/** One normal push/hook per candidate; rejection falls back to arrival-ordered lanes. */
+/** Batches at or below this size fall back lane by lane; larger ones split in half. */
+export const LINEAR_FALLBACK_MAX = 3;
+
+/**
+ * Arrival-ordered halves for a rejected candidate. One red lane among n costs
+ * about 1 + 2·log2(n) gate runs instead of 1 + n; batches of up to
+ * LINEAR_FALLBACK_MAX lanes go one by one, where that is no worse.
+ */
+export function splitRejected<T>(batch: T[]): T[][] {
+	if (batch.length <= LINEAR_FALLBACK_MAX) return batch.map((item) => [item]);
+	const middle = Math.ceil(batch.length / 2);
+	return [batch.slice(0, middle), batch.slice(middle)];
+}
+
+type Skip = { ticket: TrainTicket; reason: "conflict" | "scan" };
+type Attempt = {
+	pushed: boolean;
+	accepted: { ticket: TrainTicket; sha: string }[];
+	skipped: Skip[];
+};
+
+const REJECTED = "lane rejected by a gate or the remote; fix it and run again";
+const UNREACHABLE = "could not fetch or reset to origin/main; run again";
+const SKIP_MESSAGES: Record<Skip["reason"], string> = {
+	conflict:
+		"lane conflicts with main or with lanes published before it; rebase onto origin/main and run again",
+	scan: "secret scan rejected a commit in this lane; fix it and run again",
+};
+
+/**
+ * One normal push/hook per candidate. A lane that conflicts or fails the
+ * per-commit scan is left out and retried alone after the rest; a rejected
+ * candidate is split (splitRejected) and each part re-gated from fresh main.
+ */
 export function runTrain(
 	cwd: string,
 	commonDir: string,
@@ -187,70 +220,81 @@ export function runTrain(
 		const requirePrivateRules = pushesToCanonicalRepo(
 			git(integration, ["remote", "get-url", "--push", "origin"]).out,
 		);
-		const attempt = (batch: TrainTicket[]): boolean => {
+		/** Applies one lane on HEAD; on failure HEAD is back where it started. */
+		const apply = (ticket: TrainTicket): Skip["reason"] | null => {
+			const start = git(integration, ["rev-parse", "HEAD"]).out;
+			const undo = (reason: Skip["reason"]) => {
+				git(integration, ["cherry-pick", "--abort"]);
+				git(integration, ["reset", "--hard", start]);
+				return reason;
+			};
+			const commits = git(integration, [
+				"rev-list",
+				"--reverse",
+				"--cherry-pick",
+				"--right-only",
+				`HEAD...${ticket.lane.head}`,
+				`^${ticket.lane.base}`,
+			]);
+			if (!commits.ok) return undo("conflict");
+			for (const commit of commits.out.split("\n").filter(Boolean)) {
+				// Shared commits between lanes may already be applied.
+				const parent = git(integration, ["rev-parse", "HEAD"]).out;
+				if (!git(integration, ["cherry-pick", "--empty=drop", commit]).ok)
+					return undo("conflict");
+				const head = git(integration, ["rev-parse", "HEAD"]).out;
+				if (head === parent) continue;
+				const files = git(integration, [
+					"diff",
+					"--name-only",
+					"--no-renames",
+					"-z",
+					parent,
+					head,
+				]);
+				if (!files.ok) return undo("conflict");
+				// Scan each intermediate tree before another lane can remove a
+				// secret from the final diff. Heavy preflight still runs once.
+				const scan = spawnSync(
+					process.execPath,
+					[
+						"scripts/oss/secret-scan.ts",
+						"--public",
+						...(requirePrivateRules ? ["--require-private-rules"] : []),
+						"--base",
+						parent,
+						"--head",
+						head,
+						"--paths",
+						...files.out.split("\0").filter(Boolean),
+					],
+					{ cwd: integration, env: detachedGitEnv(), encoding: "utf8" },
+				);
+				if (scan.status !== 0) {
+					console.error(scan.stdout, scan.stderr);
+					return undo("scan");
+				}
+			}
+			return null;
+		};
+		const attempt = (batch: TrainTicket[]): Attempt => {
+			let accepted: Attempt["accepted"] = [];
+			let skipped: Skip[] = [];
 			for (let retry = 0; retry <= 2; retry++) {
 				if (!git(integration, ["fetch", "--quiet", "origin", "main"]).ok) break;
 				const base = git(integration, ["rev-parse", "origin/main"]).out;
 				if (!git(integration, ["reset", "--hard", base]).ok) break;
-				const accepted: { ticket: TrainTicket; sha: string }[] = [];
+				accepted = [];
+				skipped = [];
 				const ranges: string[] = [];
 				for (const ticket of batch) {
-					const start = git(integration, ["rev-parse", "HEAD"]).out;
-					const commits = git(integration, [
-						"rev-list",
-						"--reverse",
-						"--cherry-pick",
-						"--right-only",
-						`HEAD...${ticket.lane.head}`,
-						`^${ticket.lane.base}`,
-					]);
-					if (!commits.ok) return false;
-					let ok = true;
-					for (const commit of commits.out.split("\n").filter(Boolean)) {
-						// Shared commits between lanes may already be applied.
-						const parent = git(integration, ["rev-parse", "HEAD"]).out;
-						if (!git(integration, ["cherry-pick", "--empty=drop", commit]).ok) {
-							ok = false;
-							break;
-						}
-						const head = git(integration, ["rev-parse", "HEAD"]).out;
-						if (head === parent) continue;
-						const files = git(integration, [
-							"diff",
-							"--name-only",
-							"--no-renames",
-							"-z",
-							parent,
-							head,
-						]);
-						if (!files.ok) return false;
-						// Scan each intermediate tree before another lane can remove a
-						// secret from the final diff. Heavy preflight still runs once.
-						const scan = spawnSync(
-							process.execPath,
-							[
-								"scripts/oss/secret-scan.ts",
-								"--public",
-								...(requirePrivateRules ? ["--require-private-rules"] : []),
-								"--base",
-								parent,
-								"--head",
-								head,
-								"--paths",
-								...files.out.split("\0").filter(Boolean),
-							],
-							{ cwd: integration, env: detachedGitEnv(), encoding: "utf8" },
+					const reason = apply(ticket);
+					if (reason) {
+						console.log(
+							`push: left ${basename(ticket.file)} out of this candidate (${reason}); it is retried alone afterwards.`,
 						);
-						if (scan.status !== 0) {
-							console.error(scan.stdout, scan.stderr);
-							return false;
-						}
-					}
-					if (!ok) {
-						git(integration, ["cherry-pick", "--abort"]);
-						git(integration, ["reset", "--hard", start]);
-						// Retry the whole batch individually on either conflicts or gates.
-						return false;
+						skipped.push({ ticket, reason });
+						continue;
 					}
 					accepted.push({
 						ticket,
@@ -260,6 +304,7 @@ export function runTrain(
 					// files. The normal hook also supplies the actual published range.
 					ranges.push("--base", ticket.lane.base, "--head", ticket.lane.head);
 				}
+				if (!accepted.length) return { pushed: false, accepted, skipped };
 				const dryRun = batch[0]!.lane.dryRun;
 				if (!dryRun) {
 					writeFileSync(
@@ -289,7 +334,7 @@ export function runTrain(
 						});
 					rmSync(journal, { force: true });
 					published ||= !dryRun;
-					return true;
+					return { pushed: true, accepted, skipped };
 				}
 				rmSync(journal, { force: true });
 				if (
@@ -298,20 +343,44 @@ export function runTrain(
 				)
 					break;
 			}
-			return false;
+			return { pushed: false, accepted, skipped };
 		};
-		if (!attempt(tickets)) {
-			console.log(
-				"push: train rejected; falling back to lanes in arrival order.",
-			);
-			for (const ticket of tickets) {
-				if (!attempt([ticket]))
-					complete(ticket, {
-						code: 1,
-						message:
-							"lane rejected by a conflict, gate or remote; fix it and run again",
-					});
+		const deferred: Skip[] = [];
+		const run = (batch: TrainTicket[]) => {
+			const outcome = attempt(batch);
+			deferred.push(...outcome.skipped);
+			if (outcome.pushed) return;
+			if (!outcome.accepted.length && !outcome.skipped.length) {
+				// Fetch or reset failed before any lane was integrated.
+				for (const ticket of batch)
+					complete(ticket, { code: 1, message: UNREACHABLE });
+				return;
 			}
+			const rejected = outcome.accepted.map(({ ticket }) => ticket);
+			if (rejected.length === 1) {
+				complete(rejected[0]!, { code: 1, message: REJECTED });
+				return;
+			}
+			const parts = splitRejected(rejected);
+			console.log(
+				`push: candidate of ${rejected.length} lanes rejected; re-gating as ${parts.map((part) => part.length).join(" + ")}.`,
+			);
+			for (const part of parts) run(part);
+		};
+		run(tickets);
+		// Left-out lanes run alone on the new main: a conflict with a lane that
+		// has since published fails without a gate; an unrelated one still lands.
+		for (const { ticket, reason } of deferred) {
+			const solo = attempt([ticket]);
+			if (solo.pushed) continue;
+			complete(ticket, {
+				code: 1,
+				message: solo.skipped.length
+					? SKIP_MESSAGES[solo.skipped[0]!.reason]
+					: solo.accepted.length
+						? REJECTED
+						: SKIP_MESSAGES[reason],
+			});
 		}
 	} finally {
 		git(cwd, ["worktree", "remove", "--force", integration]);

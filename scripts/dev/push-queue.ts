@@ -10,9 +10,12 @@
  * `git push origin HEAD:main`, so the pre-push hook runs every gate as usual.
  * If the push still loses to a push made from another machine, it rebases and
  * retries up to twice. Waiting sessions block in arrival order. When multiple
- * compatible tickets wait, push-train.ts integrates them in a temporary
- * worktree and pushes once through the same hook, falling back to per-lane
- * gates on rejection. A single ticket keeps the original rebase/push path.
+ * compatible tickets wait, push-train.ts integrates up to MAX_TRAIN_LANES of
+ * them (skipping, not stopping at, incompatible ones) in a temporary worktree
+ * and pushes once through the same hook. Conflicting lanes are left out and
+ * retried alone; a rejected candidate is split in halves and re-gated. A
+ * single ticket keeps the original rebase/push path. Waiting sessions print
+ * their place and an estimate from recent lock holds (push-queue-history.jsonl).
  *
  * Dead holders and tickets are removed. Single-lane locks also expire after
  * STALE_MS; living trains may need longer for fallback. No daemon.
@@ -36,6 +39,7 @@ import {
 	openSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	writeFileSync,
 	rmSync,
 	statSync,
@@ -53,6 +57,7 @@ import {
 	resultFile,
 	runTrain,
 	snapshotLane,
+	type Lane,
 } from "./push-train";
 
 export const STALE_MS = 30 * 60 * 1000;
@@ -60,7 +65,113 @@ const POLL_MS = 2000;
 const MAX_RETRIES = 2;
 export const GC_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 
-export type Holder = { pid: number; startedAt: number; train?: boolean };
+export type Holder = {
+	pid: number;
+	startedAt: number;
+	train?: boolean;
+	/** Ticket names in the running train, so waiters can tell they are in it. */
+	lanes?: string[];
+};
+
+/** Lanes per candidate. A rejected candidate splits in halves, so a bad lane costs O(log n) gates. */
+export const MAX_TRAIN_LANES = 12;
+const HISTORY_KEEP = 50;
+
+export type TrainRecord = {
+	startedAt: number;
+	finishedAt: number;
+	lanes: number;
+};
+
+/**
+ * Waiting tickets that can join this train, oldest first, up to `max`.
+ * Incompatible tickets (no lane snapshot, other dry-run mode, changed
+ * checkout) are skipped rather than ending the train; they keep their place
+ * and take the lock themselves next.
+ */
+export function selectTrain<T extends { lane: Lane | null }>(
+	waiting: T[],
+	dryRun: boolean,
+	unchanged: (lane: Lane) => boolean,
+	max = MAX_TRAIN_LANES,
+): (T & { lane: Lane })[] {
+	const train: (T & { lane: Lane })[] = [];
+	for (const entry of waiting) {
+		if (train.length >= max) break;
+		const lane = entry.lane;
+		if (!lane || lane.dryRun !== dryRun || !unchanged(lane)) continue;
+		train.push({ ...entry, lane });
+	}
+	return train;
+}
+
+export function readHistory(file: string): TrainRecord[] {
+	try {
+		return readFileSync(file, "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => JSON.parse(line) as TrainRecord)
+			.filter(
+				(record) =>
+					Number.isFinite(record.startedAt) &&
+					Number.isFinite(record.finishedAt) &&
+					Number.isFinite(record.lanes),
+			);
+	} catch {
+		return [];
+	}
+}
+
+export function recordTrain(file: string, record: TrainRecord) {
+	const kept = readHistory(file).slice(-(HISTORY_KEEP - 1));
+	writeFileSync(
+		`${file}.tmp`,
+		[...kept, record].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+	);
+	renameSync(`${file}.tmp`, file);
+}
+
+const minutes = (ms: number) => `${Math.max(1, Math.round(ms / 60000))} min`;
+
+/**
+ * The line a waiting process prints: its place, the running train, and an
+ * estimate from the median of recent lock holds (trains of up to
+ * MAX_TRAIN_LANES lanes). No history means no estimate rather than a guess.
+ */
+export function waitNote({
+	ticket,
+	tickets,
+	holder,
+	history,
+	now,
+}: {
+	ticket: string;
+	tickets: string[];
+	holder: Holder | null;
+	history: TrainRecord[];
+	now: number;
+}): string {
+	const inTrain = holder?.lanes?.includes(ticket) ?? false;
+	const running = holder
+		? holder.lanes?.length
+			? `a train of ${holder.lanes.length} lanes has run for ${minutes(now - holder.startedAt)}`
+			: `a push has run for ${minutes(now - holder.startedAt)}`
+		: "the lock is free";
+	if (inTrain) return `push: your lane is in the running train; ${running}.`;
+	const ahead = tickets
+		.slice(0, Math.max(tickets.indexOf(ticket), 0))
+		.filter((name) => !holder?.lanes?.includes(name)).length;
+	const durations = history
+		.slice(-10)
+		.map((record) => record.finishedAt - record.startedAt)
+		.sort((a, b) => a - b);
+	const place = `push: ${ahead} waiting ahead of you; ${running}`;
+	if (!durations.length) return `${place}.`;
+	const median = durations[Math.floor(durations.length / 2)]!;
+	const remaining = holder ? Math.max(median - (now - holder.startedAt), 0) : 0;
+	const start = remaining + Math.floor(ahead / MAX_TRAIN_LANES) * median;
+	return `${place}. Estimated start in ~${minutes(start)}, done in ~${minutes(start + median)} (recent lock holds: ${minutes(median)} median).`;
+}
 
 export function isAlive(pid: number): boolean {
 	try {
@@ -275,17 +386,33 @@ async function main() {
 	const resultTicket = join(resultsDir, ticket.slice(queueDir.length + 1));
 	writeFileSync(ticket, lane ? JSON.stringify(lane) : "");
 
+	const historyFile = join(commonDir, "push-queue-history.jsonl");
+	const ticketName = ticket.slice(queueDir.length + 1);
 	let held = false;
+	let heldAt = 0;
+	let heldLanes = 0;
 	const release = () => {
 		rmSync(ticket, { force: true });
-		if (held && readHolder(lockFile)?.pid === process.pid)
+		if (held && readHolder(lockFile)?.pid === process.pid) {
+			if (heldLanes)
+				try {
+					recordTrain(historyFile, {
+						startedAt: heldAt,
+						finishedAt: Date.now(),
+						lanes: heldLanes,
+					});
+				} catch {
+					// The estimate is advisory; never fail a push over it.
+				}
 			rmSync(lockFile, { force: true });
+		}
 	};
 	process.on("exit", release);
 	for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
 		process.on(signal, () => process.exit(130));
 
-	let lastNote = "";
+	let lastKey = "";
+	let lastPrinted = 0;
 	while (true) {
 		const result = readResult(resultTicket);
 		if (result) {
@@ -293,29 +420,46 @@ async function main() {
 			process.exit(finishLane(lane, result, dryRun));
 		}
 		const tickets = liveTickets(queueDir);
-		const ahead = tickets.indexOf(ticket.slice(queueDir.length + 1));
+		const ahead = tickets.indexOf(ticketName);
 		if (ahead === 0 && tryAcquire(lockFile)) break;
-		const waiting = Math.max(ahead, 0) + 1; // the ones ahead, plus the holder
-		const note = `push: waiting for ${waiting} other push${waiting === 1 ? "" : "es"}...`;
-		if (note !== lastNote) console.log((lastNote = note));
+		// Reprint on a new place or holder, otherwise once a minute.
+		const holder = readHolder(lockFile);
+		const key = `${ahead}:${holder?.pid}:${holder?.lanes?.length ?? 0}`;
+		const now = Date.now();
+		if (key !== lastKey || now - lastPrinted >= 60_000) {
+			console.log(
+				waitNote({
+					ticket: ticketName,
+					tickets,
+					holder,
+					history: readHistory(historyFile),
+					now,
+				}),
+			);
+			lastKey = key;
+			lastPrinted = now;
+		}
 		await Bun.sleep(POLL_MS);
 	}
 	held = true;
+	heldAt = Date.now();
 	if (lane) recoverTrainResults(process.cwd(), commonDir);
 	const recovered = readResult(resultTicket);
 	if (recovered) {
 		rmSync(resultFile(resultTicket), { force: true });
 		process.exit(finishLane(lane, recovered, dryRun));
 	}
-	// Snapshot only compatible tickets already waiting when the lock frees.
-	const train = [];
-	for (const name of liveTickets(queueDir)) {
-		const file = join(queueDir, name);
-		const waiting = readLane(file);
-		if (!waiting || waiting.dryRun !== dryRun || !laneUnchanged(waiting)) break;
-		train.push({ file, lane: waiting });
-	}
+	// Snapshot compatible tickets already waiting when the lock frees.
+	const train = selectTrain(
+		liveTickets(queueDir).map((name) => {
+			const file = join(queueDir, name);
+			return { file, lane: readLane(file) };
+		}),
+		dryRun,
+		laneUnchanged,
+	);
 	if (lane && train.length > 1 && train[0]?.file === ticket) {
+		heldLanes = train.length;
 		// A fallback may run several full gates. Never steal a living train's lock
 		// on the single-lane timeout; a dead holder is still recoverable.
 		writeFileSync(
@@ -324,6 +468,7 @@ async function main() {
 				pid: process.pid,
 				startedAt: Date.now(),
 				train: true,
+				lanes: train.map((entry) => entry.file.slice(queueDir.length + 1)),
 			} satisfies Holder),
 		);
 		console.log(`push: lock held; forming train of ${train.length} lanes.`);
@@ -345,6 +490,7 @@ async function main() {
 		process.exit(finishLane(lane, result, dryRun));
 	}
 	rmSync(ticket, { force: true });
+	heldLanes = 1;
 	console.log(
 		`push: lock held; rebasing onto origin/main${dryRun ? " (dry run)" : ""}.`,
 	);
