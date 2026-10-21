@@ -418,7 +418,9 @@ function installationIdentityTarget(
 		);
 	}
 	const brokerWorkers = manifest.workers.filter(
-		(entry) => entry.sourceConfig === "apps/session-broker/wrangler.jsonc",
+		(entry) =>
+			entry.sourceConfig === "apps/session-broker/cloudflare.config.ts" ||
+			entry.sourceConfig === "apps/session-broker/wrangler.jsonc",
 	);
 	if (brokerWorkers.length !== 1) {
 		throw new Error(

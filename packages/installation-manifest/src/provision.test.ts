@@ -126,7 +126,7 @@ function interactiveManifest() {
 	});
 	const broker = structuredClone(manifest.workers[0]!);
 	broker.id = "session-broker";
-	broker.sourceConfig = "apps/session-broker/wrangler.jsonc";
+	broker.sourceConfig = "apps/session-broker/cloudflare.config.ts";
 	broker.scriptName = { state: "resolved", value: "acme-session-broker" };
 	broker.routes = [];
 	broker.bindings = [];
@@ -211,22 +211,27 @@ describe("provisionCloudflareResources", () => {
 		expect(requests).toEqual([]);
 	});
 
-	test("records passing identity readiness before interactive apply", async () => {
-		const report = await provisionCloudflareResources({
-			manifest: interactiveManifest(),
-			apiToken: "test-token",
-			mode: "apply",
-			fetchImplementation: fakeCloudflare(),
-			identity: {
-				managementKey: "management-secret",
-				fetchImplementation: fakeDescope(),
-			},
-		});
+	test.each(["cloudflare.config.ts", "wrangler.jsonc"])(
+		"records passing identity readiness with session-broker %s",
+		async (configFile) => {
+			const manifest = interactiveManifest();
+			manifest.workers[1]!.sourceConfig = `apps/session-broker/${configFile}`;
+			const report = await provisionCloudflareResources({
+				manifest,
+				apiToken: "test-token",
+				mode: "apply",
+				fetchImplementation: fakeCloudflare(),
+				identity: {
+					managementKey: "management-secret",
+					fetchImplementation: fakeDescope(),
+				},
+			});
 
-		expect(report.ok).toBe(true);
-		expect(report.identity?.ok).toBe(true);
-		expect(JSON.stringify(report)).not.toContain("management-secret");
-	});
+			expect(report.ok).toBe(true);
+			expect(report.identity?.ok).toBe(true);
+			expect(JSON.stringify(report)).not.toContain("management-secret");
+		},
+	);
 
 	test("uses manifest identity coordinates despite runtime overrides and duplicate OS surfaces", async () => {
 		const manifest = interactiveManifest();
@@ -305,6 +310,16 @@ describe("provisionCloudflareResources", () => {
 			},
 			(manifest: ReturnType<typeof interactiveManifest>) => {
 				manifest.workers.pop();
+			},
+			(manifest: ReturnType<typeof interactiveManifest>) => {
+				const broker = structuredClone(manifest.workers[1]!);
+				broker.id = "duplicate-broker";
+				broker.scriptName = {
+					state: "resolved",
+					value: "acme-duplicate-broker",
+				};
+				broker.sourceConfig = "apps/session-broker/wrangler.jsonc";
+				manifest.workers.push(broker);
 			},
 		]) {
 			const manifest = interactiveManifest();
