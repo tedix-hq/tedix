@@ -532,6 +532,7 @@ function createCodeModeMcpApp(
 		},
 		app,
 		_meta: {
+			"openai/outputTemplate": resourceUri,
 			ui: {
 				app,
 				resourceUri,
@@ -713,6 +714,7 @@ function createCodeModeUiView(
 		app,
 		_meta: {
 			...existingMeta,
+			"openai/outputTemplate": resourceUri,
 			ui: {
 				...recordFrom(existingMeta.ui),
 				app,
