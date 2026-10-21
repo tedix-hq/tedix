@@ -8,11 +8,13 @@ import {
 	feedLearningInput,
 	quietNow,
 	rankFeed,
+	resultFeedItems,
 	safeSource,
 	decisionFeedItems,
 	sentence,
 } from "@tedix/api-contract/utils/activity-feed";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
+import { WorkAttemptProjectionSchema } from "@tedix/api-contract/schemas/work-items";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 
 const project = "11111111-1111-4111-8111-111111111111";
@@ -333,64 +335,206 @@ it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding author
 	expect(fyi?.decision).toBeUndefined();
 });
 
-it("keeps opaque failure diagnostics out of previews and uses structured harness provenance", async () => {
-	const { resultFeedItems } =
-		await import("@tedix/api-contract/utils/activity-feed");
-	const { WorkAttemptProjectionSchema } =
-		await import("@tedix/api-contract/schemas/work-items");
-	const row = WorkAttemptProjectionSchema.parse({
-		attempt: {
-			orgId: project,
-			workItemId: other,
-			executorSessionId: null,
-			runtimeState: "failed",
-			runId: null,
-			admissionId: null,
-			attemptNumber: 1,
-			heartbeatAt: now.toISOString(),
-			expiresAt: null,
-			id: project,
-			executorType: "external_agent",
-			executorId: "pine-laptop",
-			externalSessionKey: "claude-code:previous",
-			metadata: { agentHarness: "codex" },
-			outcome: "failed",
-			summary:
-				"Failed: Attempt failed without a reported reason; inspect its run history.",
-			startedAt: now.toISOString(),
-			finishedAt: now.toISOString(),
-		},
-		workItem: {
-			id: other,
-			title: "Supplier review",
-			projectId: project,
-			disposition: "accepted",
-			workKind: "coding",
-			riskLevel: "medium",
-			priority: "medium",
-			accountableOwnerType: null,
-			accountableOwnerId: null,
-		},
-	});
-	const result = resultFeedItems([row])[0]!;
-	expect(result.sentence).toBe("Supplier review — Didn't finish.");
-	expect(result.attachment?.summary).toBeUndefined();
-	expect(result.actorIdentity).toMatchObject({
-		type: "external_agent",
-		id: "pine-laptop",
-		harness: "codex",
-	});
-	const updated = resultFeedItems([
-		{
-			...row,
+describe("attempt result projections", () => {
+	const startedAt = "2026-10-17T11:00:00.000Z";
+	const diagnostic =
+		"Failed: Attempt failed without a reported reason; inspect its run history.";
+	function attemptRow(
+		extra: Partial<
+			ReturnType<typeof WorkAttemptProjectionSchema.parse>["attempt"]
+		> = {},
+	) {
+		return WorkAttemptProjectionSchema.parse({
 			attempt: {
-				...row.attempt,
-				summary: "The supplier report is ready. Follow-up is pending.",
+				orgId: project,
+				workItemId: other,
+				executorSessionId: null,
+				runtimeState: "failed",
+				runId: null,
+				admissionId: null,
+				attemptNumber: 1,
+				heartbeatAt: now.toISOString(),
+				expiresAt: null,
+				id: project,
+				executorType: "external_agent",
+				executorId: "pine-laptop",
+				externalSessionKey: "claude-code:previous",
+				metadata: { agentHarness: "codex" },
+				outcome: "failed",
+				summary: null,
+				startedAt,
+				finishedAt: now.toISOString(),
+				...extra,
 			},
+			workItem: {
+				id: other,
+				title: "Supplier review",
+				projectId: project,
+				disposition: "accepted",
+				workKind: "coding",
+				riskLevel: "medium",
+				priority: "medium",
+				accountableOwnerType: null,
+				accountableOwnerId: null,
+			},
+		});
+	}
+
+	it.each([
+		["succeeded", true, false, "normal", "the work finished"],
+		["failed", false, true, "high", "Didn't finish"],
+		["expired", false, true, "low", "Didn't finish"],
+		["cancelled", false, true, "low", "was stopped"],
+	] as const)(
+		"projects %s without changing the accepted Work disposition",
+		(outcome, done, stalled, importance, fallback) => {
+			for (const finishedAt of [now.toISOString(), null]) {
+				const row = attemptRow({
+					outcome,
+					runtimeState: outcome === "succeeded" ? "finished" : outcome,
+					finishedAt,
+				});
+				const result = ActivityFeedItemSchema.parse(resultFeedItems([row])[0]);
+				expect(result).toMatchObject({
+					id: `attempt:${row.attempt.id}`,
+					kind: "result",
+					classId: `external_agent:result:${outcome}`,
+					done,
+					stalled,
+					importance,
+					needsAction: false,
+					source: `/work/items/${other}`,
+					workItemId: other,
+					projectId: project,
+					at: finishedAt ?? startedAt,
+					sentence: `Supplier review — ${fallback}.`,
+					attachment: { title: "Supplier review" },
+				});
+				expect(row.workItem.disposition).toBe("accepted");
+				expect(result.decision).toBeUndefined();
+			}
 		},
-	])[0]!;
-	expect(updated.sentence).toBe("The supplier report is ready.");
-	expect(updated.source).toBe(`/work/items/${other}`);
+	);
+
+	it("excludes unfinished Attempts even when they have a summary and feed sentence", () => {
+		const unfinished = attemptRow({
+			outcome: null,
+			runtimeState: "running",
+			finishedAt: null,
+			summary: "The review is in progress.",
+			metadata: { feedSentence: "The report is ready." },
+		});
+		const succeeded = attemptRow({
+			outcome: "succeeded",
+			runtimeState: "finished",
+		});
+		expect(resultFeedItems([unfinished])).toEqual([]);
+		expect(resultFeedItems([unfinished, succeeded])).toEqual(
+			resultFeedItems([succeeded]),
+		);
+	});
+
+	it.each([
+		[
+			"The report is ready. Next steps follow.",
+			diagnostic,
+			"The report is ready.",
+			undefined,
+		],
+		[
+			"The report is ready. Next steps follow.",
+			"The review finished. More detail.",
+			"The report is ready.",
+			"The review finished.",
+		],
+		[
+			diagnostic,
+			"Failed: The supplier is unavailable. Retry tomorrow.",
+			"The supplier is unavailable.",
+			"The supplier is unavailable.",
+		],
+		[
+			"   ",
+			"The supplier report is ready. Follow-up is pending.",
+			"The supplier report is ready.",
+			"The supplier report is ready.",
+		],
+		[
+			42,
+			"The supplier report is ready. Follow-up is pending.",
+			"The supplier report is ready.",
+			"The supplier report is ready.",
+		],
+		[diagnostic, diagnostic, "Supplier review — Didn't finish.", undefined],
+		[null, null, "Supplier review — Didn't finish.", undefined],
+	] as const)(
+		"selects readable copy from feedSentence %j and summary %j",
+		(feedSentence, summary, preview, attachmentSummary) => {
+			const row = attemptRow({ metadata: { feedSentence }, summary });
+			const result = ActivityFeedItemSchema.parse(resultFeedItems([row])[0]);
+			expect(result.sentence).toBe(preview);
+			expect(result.attachment?.summary).toBe(attachmentSummary);
+			expect(result.sentence).not.toContain("inspect its run history");
+		},
+	);
+
+	it("bounds long first sentences in both the card and attachment", () => {
+		const first = `The review ${"remains ready ".repeat(100)}`;
+		for (const feedSentence of [null, `${first}. Hidden second sentence.`]) {
+			const row = attemptRow({
+				metadata: { feedSentence },
+				summary: `${first}. Hidden second sentence.`,
+			});
+			const result = ActivityFeedItemSchema.parse(resultFeedItems([row])[0]);
+			expect(result.sentence).toBe(first.slice(0, 1000));
+			expect(result.attachment?.summary).toBe(first.slice(0, 300));
+		}
+	});
+
+	it.each([
+		["codex", "claude-code:previous", "Codex", "codex"],
+		["claude-code", "codex:previous", "Claude", "claude-code"],
+		["devin", "codex:previous", "Devin", "devin"],
+		[null, "codex:current", "Codex", "codex"],
+		[null, "claude-code:current", "Claude", "claude-code"],
+		[null, null, "Project team", null],
+	] as const)(
+		"resolves harness %j ahead of session %j",
+		(agentHarness, externalSessionKey, actor, harness) => {
+			const row = attemptRow({
+				metadata: agentHarness ? { agentHarness } : {},
+				externalSessionKey,
+				summary: diagnostic,
+			});
+			const result = resultFeedItems([row])[0]!;
+			expect(result.actor).toBe(actor);
+			expect(result.actorIdentity).toEqual({
+				type: "external_agent",
+				id: "pine-laptop",
+				harness,
+			});
+			expect(result.tediId).toBeNull();
+			expect(result.attachment?.summary).toBeUndefined();
+		},
+	);
+
+	it("retains a tedi's identity for the result instead of assigning a coding agent", () => {
+		const row = attemptRow({
+			executorType: "tedi",
+			executorId: project,
+			externalSessionKey: null,
+			metadata: {},
+			outcome: "succeeded",
+			runtimeState: "finished",
+		});
+		expect(resultFeedItems([row])[0]).toMatchObject({
+			actor: "Tedi",
+			actorIdentity: { type: "tedi", id: project, harness: null },
+			tediId: project,
+			classId: "tedi:result:succeeded",
+			source: `/work/items/${other}`,
+		});
+	});
 });
 
 it("keeps a personal correction's recorded author for their photo lookup", async () => {
