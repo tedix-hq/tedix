@@ -63,7 +63,11 @@ function RegressionDeck() {
 							<div className="fd-decision-stack" data-has-next="true">
 								<div className="grid min-w-0 gap-3">
 									<DeckFooterContext.Provider
-										value={<Button variant="outline">Later</Button>}
+										value={
+											<Button variant="outline" data-deck-later>
+												Later
+											</Button>
+										}
 									>
 										<WorkDecisionCard
 											kind="proposal"

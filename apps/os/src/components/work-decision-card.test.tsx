@@ -880,3 +880,64 @@ it("shows stored ISO dates in a face in the operator's date format", async () =>
 		setOsFormattingPreferences({ locale: null, timezone: null });
 	}
 });
+
+async function mountQuestion(
+	title: string,
+	decide = vi.fn(async (_feedback: DecisionCardFeedback) => {}),
+) {
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<CardFaceContext.Provider
+				value={{ presentation: { ...FACE, title }, confidence: null }}
+			>
+				<WorkDecisionCard
+					kind="question"
+					askedBy="Robin"
+					title="Original request"
+					actions={[
+						{ id: "answer", label: "Answer", intent: "approve" },
+						{ id: "no", label: "No / Not needed", intent: "reject" },
+					]}
+					onDecision={decide}
+				/>
+			</CardFaceContext.Provider>,
+		),
+	);
+	return decide;
+}
+
+it.each([
+	["Keep dark-factory private?", "Keep private"],
+	["Should we archive the board?", "Yes"],
+	["Move the meeting to Friday?", "Yes"],
+	["What budget should we set?", "Answer"],
+	["Publish now or wait?", "Answer"],
+	["Choose the launch date?", "Answer"],
+])("states what yes does for the question %s", async (title, label) => {
+	const decide = await mountQuestion(title);
+	const primary = host.querySelector<HTMLButtonElement>(
+		"[data-decision-intent=approve]",
+	)!;
+	expect(primary.textContent).toBe(label);
+	expect(Boolean(host.querySelector("textarea"))).toBe(label === "Answer");
+	if (label === "Answer") return;
+	await act(async () => primary.click());
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({
+			action: "answer",
+			body: `Yes: ${title.replace(/\?$/, "")}`,
+		}),
+	);
+});
+
+it("opens a typed answer for a yes/no question on request", async () => {
+	await mountQuestion("Keep dark-factory private?");
+	await click("Write an answer");
+	expect(host.querySelector("textarea")).not.toBeNull();
+	expect(
+		host.querySelector("[data-decision-intent=approve]")?.textContent,
+	).toBe("Answer");
+});

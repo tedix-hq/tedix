@@ -77,7 +77,14 @@ try {
 				.getByRole("heading", { name: "Keyboard shortcuts", exact: true })
 				.waitFor();
 			await page.keyboard.press("Escape");
-			await page.getByRole("button", { name: "Why this", exact: true }).click();
+			if (viewport.width < 640) {
+				// Phones keep Why this in the action row's "⋯" menu.
+				await card.getByRole("button", { name: "More actions" }).click();
+				await page.getByRole("menuitem", { name: "Why this" }).click();
+			} else
+				await page
+					.getByRole("button", { name: "Why this", exact: true })
+					.click();
 			await page
 				.getByText("Prefer a bounded next step with evidence", { exact: false })
 				.waitFor();

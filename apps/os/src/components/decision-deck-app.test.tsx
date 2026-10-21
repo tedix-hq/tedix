@@ -707,7 +707,7 @@ it("explicitly retries summary generation rather than only re-reading the failed
 	);
 });
 
-it("leads with the overdue ask, flags it, and groups drafted-not-sent messages", async () => {
+it("leads with the overdue ask and states it on one quiet meta line", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("No live requests in the fixture"),
 	);
@@ -732,19 +732,9 @@ it("leads with the overdue ask, flags it, and groups drafted-not-sent messages",
 	expect(host.textContent).toContain(`Live request ${overdue.request.id}`);
 	const strip = host.querySelector("[data-deck-ask]")!;
 	expect(strip.getAttribute("data-deck-ask")).toBe("answer");
-	expect(strip.textContent).toContain("Answer");
-	expect(strip.textContent).toContain("Overdue");
-	expect(strip.textContent).toContain("Due Oct 1, 2026");
-	await click("1 drafted, not sent");
-	expect(host.textContent).toContain(`Live request ${draft.request.id}`);
-	expect(host.querySelector("[data-deck-ask]")?.textContent).toContain(
-		"Drafted, not sent",
-	);
-	expect(
-		host.querySelector('[aria-label="Decision kind"]')?.textContent,
-	).toContain("Drafted, not sent");
-	await click("Show all cards");
-	expect(host.textContent).toContain(`Live request ${overdue.request.id}`);
+	expect(strip.textContent).toMatch(/^Overdue since Oct 1, \d/);
+	// The stale-draft group lives in the Kind filter, not on the Deck's meta line.
+	expect(host.textContent).not.toContain("drafted, not sent");
 });
 
 it("recovers a transient face read without answering or changing cards", async () => {

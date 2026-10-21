@@ -121,6 +121,12 @@ import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-ca
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
 import { useOsLocale } from "@/lib/use-os-locale";
+import { absoluteDate, absoluteTime } from "@/lib/time";
+
+const deadlineLabel = (deadline: string) =>
+	/^\d{4}-\d{2}-\d{2}$/.test(deadline)
+		? absoluteDate(deadline)
+		: absoluteTime(deadline);
 
 const FactoryCards = lazy(() =>
 	import("@/components/card-review-app").then((module) => ({
@@ -444,12 +450,6 @@ function DecisionDeckContent({
 		matchesFilters,
 		filtered.length,
 	);
-	const staleDrafts =
-		mode === "decide"
-			? available.filter(
-					(row) => row.draftedNotSent && !optimisticIds.includes(row.id),
-				).length
-			: 0;
 	const filtersActive =
 		kind !== "all" || project !== "all" || urgency !== "all" || search !== "";
 	const selected =
@@ -949,6 +949,7 @@ function DecisionDeckContent({
 					children={
 						<div
 							className="fd-deck-toolbar"
+							data-focus-ring="inset"
 							aria-label={decisionText("Deck view")}
 						>
 							{[
@@ -1063,19 +1064,7 @@ function DecisionDeckContent({
 							saving={saving}
 							leading={
 								mode === "decide" ? (
-									<DeckAskStrip
-										card={selected}
-										staleDrafts={staleDrafts}
-										showingStale={kind === "drafted_not_sent"}
-										onShowStale={() => {
-											setKind(
-												kind === "drafted_not_sent"
-													? "all"
-													: "drafted_not_sent",
-											);
-											setIndex(0);
-										}}
-									/>
+									<DeckAskStrip card={selected} expiresAt={expiresAt} />
 								) : undefined
 							}
 						/>
@@ -1161,14 +1150,26 @@ function DecisionDeckContent({
 						<DeckNoticeContext.Provider
 							value={
 								<>
-									{!usesEnvelope && expiresAt && (
-										<Text>
-											{OS_COPY.decisionDeck.expires(
-												Math.ceil(
-													(Date.parse(expiresAt) - now.getTime()) / 60_000,
-												),
-											)}
-										</Text>
+									{!usesEnvelope && expired && (
+										<Text>{OS_COPY.decisionDeck.expires(0)}</Text>
+									)}
+									{(selected.deadline || expiresAt) && (
+										<DecisionContextSection title={decisionText("Dates")}>
+											<dl className="fd-card-dates">
+												{selected.deadline && (
+													<>
+														<dt>{decisionText("Due")}</dt>
+														<dd>{deadlineLabel(selected.deadline)}</dd>
+													</>
+												)}
+												{expiresAt && (
+													<>
+														<dt>{decisionText("Expires")}</dt>
+														<dd>{absoluteTime(expiresAt)}</dd>
+													</>
+												)}
+											</dl>
+										</DecisionContextSection>
 									)}
 									{usesEnvelope && pastDeadline && (
 										<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
@@ -1200,7 +1201,11 @@ function DecisionDeckContent({
 														label={decisionText("Later")}
 														shortcut="L"
 													>
-														<Button variant="outline" onClick={() => later?.()}>
+														<Button
+															variant="outline"
+															data-deck-later
+															onClick={() => later?.()}
+														>
 															{decisionText("Later")}
 														</Button>
 													</ShortcutTooltip>

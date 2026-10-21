@@ -249,10 +249,10 @@ const ENGLISH_COPY = {
 			overdue: "Overdue",
 			handled: "Handled",
 			expired: "Expired",
+			overdueSince: (when: string) => `Overdue since ${when}`,
 			due: (when: string) => `Due ${when}`,
+			expires: (when: string) => `Expires ${when}`,
 			draftedNotSent: "Drafted, not sent",
-			staleDrafts: (count: number) => `${count} drafted, not sent`,
-			showAll: "Show all cards",
 		},
 		notUseful: {
 			button: "Not useful",

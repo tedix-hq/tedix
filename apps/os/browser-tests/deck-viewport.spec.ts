@@ -142,15 +142,17 @@ try {
 					const card = document.querySelector(".fd-card")!;
 					const actions = [
 						...document.querySelectorAll("[data-decision-actions] button"),
-					].map((node) => {
-						const r = node.getBoundingClientRect();
-						return {
-							top: r.top,
-							bottom: r.bottom,
-							left: r.left,
-							right: r.right,
-						};
-					});
+					]
+						.filter((node) => node.getClientRects().length)
+						.map((node) => {
+							const r = node.getBoundingClientRect();
+							return {
+								top: r.top,
+								bottom: r.bottom,
+								left: r.left,
+								right: r.right,
+							};
+						});
 					return {
 						actions,
 						title: document.querySelector("[data-slot=card-title]")!
@@ -180,10 +182,13 @@ try {
 						).backgroundColor,
 					};
 				});
+				// Phones keep Later and Why this in the row's "⋯" menu.
 				assert.equal(
 					result.actions.length,
-					4,
-					"Approve, Not this, Later and Why this share the footer",
+					width! < 640 ? 3 : 4,
+					width! < 640
+						? "Approve, Not this and ⋯ share the footer"
+						: "Approve, Not this, Later and Why this share the footer",
 				);
 				assert(
 					result.bodyHeight >= 44,
@@ -220,9 +225,13 @@ try {
 				.first()
 				.click();
 			await check("expanded");
-			await page
-				.getByRole("button", { name: "Why this?", exact: true })
-				.click();
+			if (width! < 640) {
+				await page.getByRole("button", { name: "More actions" }).click();
+				await page.getByRole("menuitem", { name: "Why this" }).click();
+			} else
+				await page
+					.getByRole("button", { name: "Why this?", exact: true })
+					.click();
 			await check("why expanded");
 			if (process.env.TEDIX_SCREENSHOT_DIR)
 				await page.screenshot({
