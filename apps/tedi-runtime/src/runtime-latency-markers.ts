@@ -17,9 +17,9 @@
  * never break the turn it is measuring.
  */
 
-function emit(marker: Record<string, unknown>): void {
+function emit(project: () => Record<string, unknown>): void {
 	try {
-		console.log(JSON.stringify(marker));
+		console.log(JSON.stringify(project()));
 	} catch {
 		/* marker is best-effort */
 	}
@@ -39,7 +39,17 @@ export function markFacetToolDispatch(input: {
 	executeMs: number;
 	finishReason: string;
 }): void {
-	emit({ _tr: "facet_tool_dispatch", ...input });
+	emit(() => ({
+		_tr: "facet_tool_dispatch",
+		tediId: input.tediId,
+		runId: input.runId,
+		toolCallId: input.toolCallId,
+		tool: input.tool,
+		calleeMs: input.calleeMs,
+		authorityMs: input.authorityMs,
+		executeMs: input.executeMs,
+		finishReason: input.finishReason,
+	}));
 }
 
 /** One line per recorded model step (`step.completed`). */
@@ -53,7 +63,16 @@ export function markStepCompleted(input: {
 	inputTokens: number | null;
 	outputTokens: number | null;
 }): void {
-	emit({ _tr: "step", ...input });
+	emit(() => ({
+		_tr: "step",
+		tediId: input.tediId,
+		runId: input.runId,
+		stepNumber: input.stepNumber,
+		finishReason: input.finishReason,
+		durationMs: input.durationMs,
+		inputTokens: input.inputTokens,
+		outputTokens: input.outputTokens,
+	}));
 }
 
 /**
@@ -83,7 +102,18 @@ export function markInferenceAuthorize(input: {
 	estimatedInputTokens: number | null;
 	outcome: "authorized" | "denied" | "error";
 }): void {
-	emit({ _tr: "inference_authorize", ...input });
+	emit(() => ({
+		_tr: "inference_authorize",
+		runId: input.runId,
+		provider: input.provider,
+		model: input.model,
+		source: input.source,
+		parseMs: input.parseMs,
+		rpcMs: input.rpcMs,
+		totalMs: input.totalMs,
+		estimatedInputTokens: input.estimatedInputTokens,
+		outcome: input.outcome,
+	}));
 }
 
 /** Caller-side half of the facet -> parent tool hop. */
@@ -96,7 +126,14 @@ export function markFacetToolWait(input: {
 	/** Dynamic import + `parentAgent` resolution inside that wait. */
 	resolveMs: number;
 }): void {
-	emit({ _tr: "facet_tool_wait", ...input });
+	emit(() => ({
+		_tr: "facet_tool_wait",
+		runId: input.runId,
+		toolCallId: input.toolCallId,
+		tool: input.tool,
+		waitMs: input.waitMs,
+		resolveMs: input.resolveMs,
+	}));
 }
 
 /** The leg AFTER each model round: usage accounting, then ledger telemetry. */
@@ -106,7 +143,13 @@ export function markStepFinish(input: {
 	telemetryMs: number;
 	totalMs: number;
 }): void {
-	emit({ _tr: "facet_step_finish", ...input });
+	emit(() => ({
+		_tr: "facet_step_finish",
+		runId: input.runId,
+		accountingMs: input.accountingMs,
+		telemetryMs: input.telemetryMs,
+		totalMs: input.totalMs,
+	}));
 }
 
 /**
@@ -125,7 +168,13 @@ export function markStepPrepare(input: {
 	reserveMs: number;
 	totalMs: number;
 }): void {
-	emit({ _tr: "facet_step_prepare", ...input });
+	emit(() => ({
+		_tr: "facet_step_prepare",
+		runId: input.runId,
+		reconcileMs: input.reconcileMs,
+		reserveMs: input.reserveMs,
+		totalMs: input.totalMs,
+	}));
 }
 
 /** One line per tool call entering the parent's AI-SDK tool wrapper. */
@@ -138,5 +187,14 @@ export function markToolCall(input: {
 	turnPrincipalId: string | null;
 	turnSurface: string | null;
 }): void {
-	emit({ _tr: "tool.call", ...input });
+	emit(() => ({
+		_tr: "tool.call",
+		tediId: input.tediId,
+		runId: input.runId,
+		toolName: input.toolName,
+		toolCallId: input.toolCallId,
+		stepNumber: input.stepNumber,
+		turnPrincipalId: input.turnPrincipalId,
+		turnSurface: input.turnSurface,
+	}));
 }
