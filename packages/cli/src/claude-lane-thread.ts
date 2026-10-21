@@ -16,7 +16,11 @@ export async function createClaudeLaneThread(
 	executable = "claude",
 	env = process.env,
 	timeoutMs = 30_000,
+	model?: string,
+	resume?: string,
 ) {
+	if (resume && !claudeTranscript(resume, claudeConfigDirectory(env, cwd)))
+		throw new Error("Claude session not found");
 	const began = Date.now();
 	const child = spawn(
 		executable,
@@ -27,6 +31,8 @@ export async function createClaudeLaneThread(
 			"--output-format",
 			"stream-json",
 			"--verbose",
+			...(model ? ["--model", model] : []),
+			...(resume ? ["--resume", resume] : []),
 		],
 		{
 			cwd,
@@ -101,6 +107,7 @@ export async function createClaudeLaneThread(
 			native.startedAt < began ||
 			typeof native.sessionId !== "string" ||
 			!UUID.test(native.sessionId) ||
+			(resume !== undefined && native.sessionId !== resume) ||
 			typeof native.cwd !== "string" ||
 			realpathSync(native.cwd) !== realpathSync(cwd) ||
 			typeof native.version !== "string" ||

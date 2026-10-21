@@ -390,15 +390,58 @@ a private receipt for idempotent replay under the same lane identity.
 ### Local Work dispatcher
 
 `tedix lane serve --executor codex --max 5 --rules <skill-uuid> --project <project-uuid> --repo <checkout>`
-finds accepted Work with `metadata.executor: "codex"`. Use `--executor claude-code`
-for Work assigned to `claude-code`, or `--executor any-local` to serve both
-executors with one shared slot limit. Stop the individual services before switching;
+finds accepted Work with `metadata.executor: "codex"`. Named executors are pinned:
+`codex`, `claude-code`, `opencode` or `devin`. `--executor any-local` serves all four
+with one shared slot limit and routes Work assigned to `metadata.executor: "any-local"`.
+Stop the individual services before switching;
 the combined service preserves their retained receipts and running process slots. `--project` is optional;
 workspace and organization are pinned explicitly. Rules default to the organization's
 `lane-rules` skill; `--rules` selects another skill by UUID or slug. Set the executor on a Work
 item or post it through the Work workspace app (`tedix:app/work`, config
 `{"version":1,"projectId":"<project-uuid>"}`). Posting and acceptance remain
 separate actions.
+
+`--routing-config <file>` (or `TEDIX_LANE_ROUTING_CONFIG`) selects a versioned JSON
+policy. Start from `src/lane-routing-default.json`; rules match `metadata.tags`,
+`metadata.size` or Work's `riskLevel`, in order, with the last rule as the default.
+Only routes within the matched rule can be selected. Named assignments keep their
+native model defaults; OpenCode always needs a configured `provider/model`.
+
+| Rule       | Match                                                                       | Preferred executor/model order                                                          |
+| ---------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| hard       | security, multi-file or architecture tag; large size; high or critical risk | Codex/gpt-6.1-sol, Claude Code/opus, OpenCode/azure/gpt-5.6-terra                       |
+| mechanical | mechanical, formatting or docs tag; small size                              | OpenCode/azure/gpt-5.6-luna, Claude Code/haiku, Codex/gpt-6.1-sol, Devin/native default |
+| general    | otherwise                                                                   | Codex/gpt-6.1-sol, Claude Code/sonnet, OpenCode/azure/gpt-5.6-sol, Devin/native default |
+
+Model names are operator-configurable preferences, not benchmark or availability
+claims. `opencodeModel` overrides the OpenCode model. Without an explicit policy,
+`OPENCODE_ROUTING_CONFIG`, or `opencode-routing.json` beside `TEDIX_LANE_LOG`, can
+supply a string or `{ "defaultModel": "provider/model" }` default when present.
+No installation-specific path or provider credential is stored in the policy.
+
+The private `budgets.state` receipt contains only per-executor usage projections
+and cooldowns. Codex and Claude Code observations come from bounded recent native
+transcript tails. `budgetFiles` can supply explicit native JSON/JSONL usage exports,
+including Devin `sessions_used` / `session_limit` plan observations where available.
+The installed Devin CLI may expose no cap signal; missing limits stay unknown.
+OpenCode's one-day `stats` cost is a local estimate, not a remaining credit balance.
+Credential stores are never queried for budgets. Signals expire after five minutes
+by default; at 10% remaining or below, an executor is withheld until reset or a
+fresh observation. Rate-limit failures persist exponential cooldowns from one minute
+to one hour, honoring a longer numeric Retry-After. A pinned assignment waits;
+an `any-local` assignment can use another eligible route.
+
+Interrupted runs retain their worktrees and try native session recovery before
+allocating fresh state. Only a missing session/thread/rollout triggers fresh
+allocation; authentication, budget and backend failures remain visible. OpenCode
+starts a private loopback backend for metadata recovery before admission, then
+uses native `run --session` JSON output. Error events fail the run even on exit 0.
+Long sleep/wake gaps and stopped children are recorded as interruptions. The old
+Attempt must be settled or canonically expired before fresh admission. Dead runs
+are reconciled against their exact canonical Attempt. Expired orphan process groups
+are stopped only when their saved OS start identity and native session still match;
+other live groups retain their slots. Cleanup removes only clean, merged worktrees using ordinary
+Git worktree removal; dirty and unverified work stays retained.
 
 Use `--coordinated` without `--project` to execute ready coordinator selections
 across projects. This mode requires an explicit `metadata.laneDispatch.state`

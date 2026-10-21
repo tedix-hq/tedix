@@ -10,6 +10,8 @@ export function laneChildEnv(env = process.env): NodeJS.ProcessEnv {
 		"CLAUDECODE",
 		"DEVIN_SESSION_ID",
 		"DEVIN_PROJECT_DIR",
+		"OPENCODE_SESSION_ID",
+		"OPENCODE_LANE_RESUME_SESSION",
 		"TEDIX_HOOK_HOST",
 		"TEDIX_DEVIN_LANE_ROOT",
 		"TEDIX_DEVIN_HEADLESS",

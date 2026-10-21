@@ -1620,7 +1620,9 @@ export const WorkExecutorSchema = z.enum([
 	"tedi",
 	"codex",
 	"claude-code",
+	"opencode",
 	"devin",
+	"any-local",
 ]);
 export type WorkExecutor = z.infer<typeof WorkExecutorSchema>;
 

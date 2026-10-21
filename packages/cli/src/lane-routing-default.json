@@ -1,0 +1,43 @@
+{
+	"version": 1,
+	"nearLimitPercent": 10,
+	"signalMaxAgeMs": 300000,
+	"rules": [
+		{
+			"name": "hard",
+			"tags": ["security", "multi-file", "architecture"],
+			"sizes": ["large"],
+			"risks": ["high", "critical"],
+			"routes": [
+				{ "executor": "codex", "model": "gpt-6.1-sol" },
+				{ "executor": "claude-code", "model": "opus" },
+				{ "executor": "opencode", "model": "azure/gpt-5.6-terra" }
+			]
+		},
+		{
+			"name": "mechanical",
+			"tags": ["mechanical", "formatting", "docs"],
+			"sizes": ["small"],
+			"risks": [],
+			"routes": [
+				{ "executor": "opencode", "model": "azure/gpt-5.6-luna" },
+				{ "executor": "claude-code", "model": "haiku" },
+				{ "executor": "codex", "model": "gpt-6.1-sol" },
+				{ "executor": "devin" }
+			]
+		},
+		{
+			"name": "general",
+			"tags": [],
+			"sizes": [],
+			"risks": [],
+			"routes": [
+				{ "executor": "codex", "model": "gpt-6.1-sol" },
+				{ "executor": "claude-code", "model": "sonnet" },
+				{ "executor": "opencode", "model": "azure/gpt-5.6-sol" },
+				{ "executor": "devin" }
+			]
+		}
+	],
+	"budgetFiles": {}
+}

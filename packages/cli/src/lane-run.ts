@@ -15,6 +15,7 @@ import {
 	LaneTelemetryInputSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
 import { createLaneReporter } from "./lane-reporter";
+import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
 import { writeDevinLaneConfig } from "./devin-config";
 import {
@@ -26,7 +27,7 @@ import { laneChildEnv } from "./lane-child-env";
 import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
 import { parseLaneTranscript, type LaneObservation } from "./lane-telemetry";
 
-export const laneRunUsage = `tedix lane run --executor codex|claude-code|devin|tedi|skill --brief <file> --project <id>
+export const laneRunUsage = `tedix lane run --executor codex|claude-code|opencode|devin|tedi|skill --brief <file> --project <id>
   [--model <id>] [--reasoning <effort>] [--rate-scope <scope>] [--work-item <id>]
   [--transcript <file>] [--telemetry <file>] -- <command> [args...]
 tedix lane import --executor codex|claude-code --transcript <file> --project <id> [--apply]
@@ -166,12 +167,17 @@ async function runLaneProcessWithReporter(
 	}
 	const executor = options.get("--executor");
 	if (
-		!["codex", "claude-code", "devin", "tedi", "skill"].includes(executor ?? "")
+		!["codex", "claude-code", "opencode", "devin", "tedi", "skill"].includes(
+			executor ?? "",
+		)
 	)
-		throw new Error("Choose --executor codex|claude-code|devin|tedi|skill");
+		throw new Error(
+			"Choose --executor codex|claude-code|opencode|devin|tedi|skill",
+		);
 	const projectId = options.get("--project");
 	if (!projectId) throw new Error("--project is required");
 	const devin = executor === "devin";
+	const opencode = executor === "opencode";
 	if (devin) assertDevinProjectHooks(deps.cwd ?? process.cwd());
 	const nativeThread =
 		devin && !deps.sessionKey
@@ -180,7 +186,12 @@ async function runLaneProcessWithReporter(
 					command[0] ?? "devin",
 					options.get("--model"),
 				)
-			: undefined;
+			: opencode && !deps.sessionKey
+				? await createOpenCodeLaneThread(
+						deps.cwd ?? process.cwd(),
+						options.get("--model") ?? "",
+					)
+				: undefined;
 	const sessionKey = deps.sessionKey ?? nativeThread?.thread.id ?? randomUUID();
 	const startedAt = new Date().toISOString();
 	let telemetry: LaneObservation = {
@@ -192,7 +203,9 @@ async function runLaneProcessWithReporter(
 				? "openai"
 				: executor === "claude-code"
 					? "anthropic"
-					: null,
+					: opencode
+						? (options.get("--model")?.split("/")[0] ?? null)
+						: null,
 		reasoningEffort: options.get("--reasoning") ?? null,
 		brief: options.has("--brief")
 			? readFileSync(options.get("--brief")!, "utf8").slice(0, 24000)
@@ -254,7 +267,7 @@ async function runLaneProcessWithReporter(
 		);
 		return 0;
 	}
-	if ((!command.length && !devin) || !options.has("--brief"))
+	if ((!command.length && !devin && !opencode) || !options.has("--brief"))
 		throw new Error(laneRunUsage);
 	LaneTelemetryInputSchema.parse(telemetry);
 	await report(sessionKey, telemetry);
@@ -326,6 +339,7 @@ async function runLaneProcessWithReporter(
 			options.get("--organization") ??
 			process.env.TEDIX_ORGANIZATION,
 		TEDIX_LANE_ID: sessionKey,
+		...(opencode ? { OPENCODE_DISABLE_AUTOUPDATE: "true" } : {}),
 		TEDIX_LANE_TELEMETRY_PATH: receipt,
 		TEDIX_LANE_RATE_SCOPE: telemetry.rateScope ?? "",
 	};
@@ -333,6 +347,9 @@ async function runLaneProcessWithReporter(
 		identityMismatch = false,
 		buffer = "";
 	let devinStderr = "";
+	let streamError = false;
+	let streamFailureMessage = "";
+	let lastTextMessage: string | undefined;
 	const codexJson =
 		executor === "codex" &&
 		basename(command[0]!) === "codex" &&
@@ -342,14 +359,28 @@ async function runLaneProcessWithReporter(
 		executor === "claude-code" &&
 		basename(command[0]!) === "claude" &&
 		command[command.indexOf("--output-format") + 1] === "stream-json";
+	if (opencode && !command.length)
+		command.push(
+			"opencode",
+			"run",
+			"--dir",
+			deps.cwd ?? process.cwd(),
+			"--format",
+			"json",
+			"--model",
+			options.get("--model") ?? "",
+			"--auto",
+			"--session",
+			sessionKey,
+		);
 	const child = spawn(command[0]!, command.slice(1), {
 		env,
 		cwd: deps.cwd,
 		detached: deps.detachedChild,
 		stdio: [
 			"pipe",
-			codexJson || claudeJson || devin ? "pipe" : "inherit",
-			devin ? "pipe" : "inherit",
+			codexJson || claudeJson || opencode || devin ? "pipe" : "inherit",
+			"pipe",
 		],
 	});
 	if (child.pid) deps.onSpawn?.(child.pid);
@@ -372,6 +403,40 @@ async function runLaneProcessWithReporter(
 		for (const line of lines) {
 			try {
 				const event = JSON.parse(line);
+				if (
+					event.type === "error" ||
+					(claudeJson && event.type === "result" && event.is_error)
+				) {
+					streamError ||=
+						opencode ||
+						(claudeJson && event.type === "result" && event.is_error === true);
+					streamFailureMessage = JSON.stringify(event.error ?? event).slice(
+						-24000,
+					);
+				}
+
+				if (opencode) {
+					if (event.sessionID) {
+						nativeId = event.sessionID;
+						if (nativeId !== sessionKey) {
+							identityMismatch = true;
+							child.kill("SIGTERM");
+						}
+					}
+					if (event.type === "text" && !streamError) {
+						if (lastTextMessage !== event.part?.messageID)
+							telemetry.finalMessage = "";
+						lastTextMessage = event.part?.messageID;
+						telemetry.finalMessage = (
+							telemetry.finalMessage + (event.part?.text ?? "")
+						).slice(-24000);
+					}
+					if (event.type === "tool_use") {
+						const tool = event.part?.tool;
+						if (typeof tool === "string")
+							telemetry.tools[tool] = (telemetry.tools[tool] ?? 0) + 1;
+					}
+				}
 				if (
 					(codexJson && event.type === "thread.started") ||
 					(claudeJson && event.type === "system" && event.subtype === "init")
@@ -430,15 +495,18 @@ async function runLaneProcessWithReporter(
 	}
 	if (
 		identityMismatch ||
+		streamError ||
 		(devin &&
 			devinStderr.includes(
 				"rejected a tool call that requires confirmation",
 			)) ||
 		(deps.sessionKey &&
-			(codexJson || claudeJson) &&
+			(codexJson || claudeJson || opencode) &&
 			nativeId !== deps.sessionKey)
 	)
 		exitCode = 1;
+	if (exitCode !== 0 && !telemetry.finalMessage)
+		telemetry.finalMessage = devinStderr.slice(-24000);
 	try {
 		if (devin) {
 			const exported = JSON.parse(readFileSync(devinTranscript, "utf8"));
@@ -505,6 +573,12 @@ async function runLaneProcessWithReporter(
 		process.stderr.write(`Lane transcript: ${String(error)}\n`);
 	}
 	await heartbeat;
+	if (streamFailureMessage && (streamError || exitCode !== 0))
+		telemetry.finalMessage = streamFailureMessage;
+	else if (exitCode !== 0 && devinStderr)
+		telemetry.finalMessage = `${telemetry.finalMessage}\n${devinStderr}`.slice(
+			-24000,
+		);
 	telemetry = {
 		...telemetry,
 		finishedAt: new Date().toISOString(),

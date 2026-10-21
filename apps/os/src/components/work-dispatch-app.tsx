@@ -24,6 +24,8 @@ const labels: Record<WorkExecutor, string> = {
 	human: "Human",
 	tedi: "Tedi",
 	codex: "Codex",
+	opencode: "OpenCode",
+	"any-local": "Any local agent",
 	devin: "Devin",
 	"claude-code": "Claude Code",
 };
