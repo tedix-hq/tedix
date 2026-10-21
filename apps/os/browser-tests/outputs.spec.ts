@@ -168,7 +168,7 @@ try {
 				});
 			await overflow.click();
 			await page
-				.getByRole("menuitem", { name: "Word (.docx)", exact: true })
+				.getByRole("menuitem", { name: "Document (.docx)", exact: true })
 				.waitFor();
 			if (width < 640)
 				await page
@@ -190,6 +190,47 @@ try {
 					.evaluate((el) => el.scrollWidth <= el.clientWidth),
 				"no clipped page content",
 			);
+
+			await edit.click();
+			const editorTitle = page.locator(".output-workshop-identity h1");
+			await page.locator('[data-editor="document-rich-text"]').waitFor();
+			assert(
+				await editorTitle.evaluate((el) => el.scrollWidth <= el.clientWidth),
+				"editor title stays readable without horizontal clipping",
+			);
+			const editorActions = page.locator(".output-workshop-actions");
+			if (width < 640) {
+				const titleBox = (await editorTitle.boundingBox())!;
+				const actionsBox = (await editorActions.boundingBox())!;
+				assert(
+					titleBox.y + titleBox.height <= actionsBox.y,
+					"phone editor gives the title its own row",
+				);
+				const saveBox = (await page
+					.getByRole("button", { name: "Save", exact: true })
+					.boundingBox())!;
+				const cancelBox = (await page
+					.getByRole("button", { name: "Cancel", exact: true })
+					.boundingBox())!;
+				assert(
+					saveBox.height >= 44 && cancelBox.height >= 44,
+					"phone save and cancel have touch-sized targets",
+				);
+				assert(
+					Math.abs(saveBox.width - cancelBox.width) <= 1,
+					"phone save and cancel share the footer width",
+				);
+			}
+			assert(
+				await page
+					.getByRole("button", { name: "Save", exact: true })
+					.isVisible(),
+			);
+			if (evidenceDir)
+				await page.screenshot({
+					path: `${evidenceDir}/after-editor-${width}-${theme}.png`,
+				});
+			await page.getByRole("button", { name: "Cancel", exact: true }).click();
 			await page.close();
 			console.log(`Outputs WebKit passed: ${width}x${height} ${theme}`);
 		}

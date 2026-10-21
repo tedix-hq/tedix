@@ -207,7 +207,7 @@ try {
 				assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), [
 					"PDF",
 					"PNG",
-					"Word (.docx)",
+					"Document (.docx)",
 					"Markdown (.md)",
 					"HTML (.html)",
 				]);

@@ -903,7 +903,7 @@ export function DocumentEditor({
 			</div>
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<Text as="span" role="label" tone="secondary">
-					Rich document · paste from Docs or Word · drag images onto the page
+					Paste text or drag images onto the page
 				</Text>
 				<Text as="span" role="label" tone="secondary">
 					{editor.getText().length} characters

@@ -108,7 +108,7 @@ describe("OutputExportButtons", () => {
 			);
 		},
 	);
-	it("offers one menu and downloads Word through the session proxy", async () => {
+	it("offers one menu and downloads a document through the session proxy", async () => {
 		let downloadedUrl: string | undefined;
 		vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
 			this: HTMLAnchorElement,
@@ -123,7 +123,7 @@ describe("OutputExportButtons", () => {
 		await openMenu(container);
 		expect(menuItem("PDF")).toBeTruthy();
 		expect(menuItem("PNG")).toBeTruthy();
-		act(() => menuItem("Word (.docx)").click());
+		act(() => menuItem("Document (.docx)").click());
 		await flush();
 		expect(exportsApi.export).toHaveBeenCalledWith({
 			outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -195,8 +195,8 @@ describe("OutputExportButtons", () => {
 		const container = renderButtons("sheet");
 		exportsApi.export.mockRejectedValue(new Error("Try again"));
 		await openMenu(container);
-		expect(document.body.textContent).not.toContain("Word (.docx)");
-		act(() => menuItem("Excel (.xlsx)").click());
+		expect(document.body.textContent).not.toContain("Document (.docx)");
+		act(() => menuItem("Workbook (.xlsx)").click());
 		await flush();
 		expect(container.querySelector('[role="alert"]')!.textContent).toContain(
 			"Try again",
