@@ -3,6 +3,7 @@ import { DecisionLearningContext } from "./decision-learning-context";
 import { CardFaceContext } from "./deck-presentation-context";
 import { act, type ContextType } from "react";
 import { createRoot } from "react-dom/client";
+import { setOsFormattingPreferences } from "@/lib/format";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	WorkDecisionCard,
@@ -857,4 +858,25 @@ describe("chat-driven card controls", () => {
 		expect(slots.card.get()).toBeNull();
 		root = createRoot(host);
 	});
+});
+
+it("shows stored ISO dates in a face in the operator's date format", async () => {
+	setOsFormattingPreferences({ locale: "en-US", timezone: "Europe/Berlin" });
+	try {
+		await mountFace({
+			presentation: {
+				...FACE,
+				title: "Book the room by 2026-10-20?",
+				context: "Morgan asked on 2026-10-19T23:30:00Z.",
+			},
+			confidence: null,
+		});
+		expect(heading()).toBe("Book the room by Oct 20, 2026?");
+		expect(host.textContent).toContain(
+			"Morgan asked on Oct 20, 2026, 1:30 AM.",
+		);
+		expect(host.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+	} finally {
+		setOsFormattingPreferences({ locale: null, timezone: null });
+	}
 });

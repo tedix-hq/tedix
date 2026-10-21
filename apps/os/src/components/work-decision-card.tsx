@@ -80,7 +80,10 @@ import {
 import { Textarea } from "@/components/kumo/textarea";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
-import { useOsFormattingPreferences } from "@/lib/format";
+import {
+	formatCardPresentationDates,
+	useOsFormattingPreferences,
+} from "@/lib/format";
 import { relativeTime, absoluteTime } from "@/lib/time";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import {
@@ -231,11 +234,13 @@ export function WorkDecisionCard({
 	useOsFormattingPreferences();
 	const faceState = useContext(CardFaceContext);
 	const face = faceState?.presentation
-		? renderDecisionCardDates(
-				faceState.presentation,
-				faceState.dates,
-				faceState.now,
-				faceState.timeZone,
+		? formatCardPresentationDates(
+				renderDecisionCardDates(
+					faceState.presentation,
+					faceState.dates,
+					faceState.now,
+					faceState.timeZone,
+				),
 			)
 		: null;
 	const [sourceRead, setSourceRead] = useState(false);
