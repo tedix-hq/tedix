@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildCredentialRecovery } from "./handler";
+import { buildCredentialRecovery } from "./handler-connection-credentials";
 
 const selection = {
 	providerId: "google-calendar",

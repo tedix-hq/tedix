@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { applyWorkflowExecutionHeaders } from "./handler";
+import { applyWorkflowExecutionHeaders } from "./workflow-execution-headers";
 
 const caller = {
 	authType: "service" as const,
