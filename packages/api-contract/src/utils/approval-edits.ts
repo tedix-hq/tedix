@@ -41,7 +41,10 @@ function destinationLikeInput(
 				word,
 			),
 		) ||
-		/(?:recipient|email|url|uri|endpoint|webhook|channel|path|repo|branch|account|connection|workspace|organization|tenant|destination)|(?:id|ids)$/.test(
+		/(?:id|ids|url|uri|email|endpoint|webhook|path)$/.test(
+			name.toLowerCase(),
+		) ||
+		/^(?:recipients?|email|channel|repo|repository|branch|account|connection|workspace|org|organization|tenant|destination|target)(?:address(?:es)?|names?|slug|key)$/.test(
 			name.toLowerCase(),
 		) ||
 		["email", "uri", "uri-reference", "uuid"].includes(String(schema.format))

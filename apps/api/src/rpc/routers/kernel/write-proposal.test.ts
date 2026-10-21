@@ -1809,12 +1809,6 @@ describe("planKernelWriteProposal — positive path", () => {
 					required: false,
 					schema: { type: "string" },
 				},
-				{
-					name: "projectId",
-					label: "Project id",
-					required: false,
-					schema: { type: "string" },
-				},
 			],
 		});
 		// work_items.create has one canonical primitive: no catalog search, one
