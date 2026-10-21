@@ -1,12 +1,9 @@
-import { and, desc, eq, max } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbClient } from "../client";
 import { appConfigVersions } from "../schema/app-config-versions";
 import { apps } from "../schema/apps";
-import type {
-	AppConfigVersion,
-	NewAppConfigVersion,
-} from "../schema/app-config-versions";
+import type { AppConfigVersion } from "../schema/app-config-versions";
 import { getAffectedRows } from "../utils/d1-result";
 
 export async function listAppConfigVersions(
@@ -33,32 +30,44 @@ export async function createAppConfigVersion(
 	},
 ): Promise<AppConfigVersion> {
 	const now = new Date().toISOString();
-	const nextVersion = await getNextConfigVersionNumber(db, input.appId);
 	const id = crypto.randomUUID();
 
-	const row: NewAppConfigVersion = {
-		id,
-		appId: input.appId,
-		version: nextVersion,
-		status: "draft",
-		config: input.config,
-		createdBy: input.createdBy ?? null,
-		changeSummary: input.changeSummary ?? null,
-		createdAt: now,
-		updatedAt: now,
-	};
+	// Allocate inside the write; D1 serializes the insert and counter update
+	// together, and rolls back the draft if either statement fails.
+	const [createdRows] = await db.batch([
+		db
+			.insert(appConfigVersions)
+			.values({
+				id,
+				appId: input.appId,
+				version: sql<number>`(
+					select max(
+						coalesce(max(${appConfigVersions.version}), 0),
+						coalesce((select ${apps.latestConfigVersion} from ${apps}
+							where ${apps.id} = ${input.appId}), 0)
+					) + 1
+					from ${appConfigVersions}
+					where ${appConfigVersions.appId} = ${input.appId}
+				)`,
+				status: "draft",
+				config: input.config,
+				createdBy: input.createdBy ?? null,
+				changeSummary: input.changeSummary ?? null,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning(),
+		db
+			.update(apps)
+			.set({
+				latestConfigVersion: sql<number>`(select ${appConfigVersions.version}
+					from ${appConfigVersions} where ${appConfigVersions.id} = ${id})`,
+				updatedAt: now,
+			})
+			.where(eq(apps.id, input.appId)),
+	]);
 
-	await db.insert(appConfigVersions).values(row);
-
-	await db
-		.update(apps)
-		.set({
-			latestConfigVersion: nextVersion,
-			updatedAt: now,
-		})
-		.where(eq(apps.id, input.appId));
-
-	const created = await getAppConfigVersionById(db, id);
+	const created = createdRows[0];
 	if (!created) throw new Error(`Failed to create app config version: ${id}`);
 	return created;
 }
@@ -162,32 +171,4 @@ async function getAppConfigVersionById(
 		.where(eq(appConfigVersions.id, id))
 		.limit(1);
 	return rows[0];
-}
-
-async function getLatestConfigVersionNumber(
-	db: DbClient,
-	appId: string,
-): Promise<number> {
-	const rows = await db
-		.select({ maxVersion: max(appConfigVersions.version) })
-		.from(appConfigVersions)
-		.where(eq(appConfigVersions.appId, appId));
-	return rows[0]?.maxVersion ?? 0;
-}
-
-async function getNextConfigVersionNumber(
-	db: DbClient,
-	appId: string,
-): Promise<number> {
-	const latestFromVersions = await getLatestConfigVersionNumber(db, appId);
-
-	const appRows = await db
-		.select({ latestConfigVersion: apps.latestConfigVersion })
-		.from(apps)
-		.where(eq(apps.id, appId))
-		.limit(1);
-	const app = appRows[0];
-
-	const latest = Math.max(latestFromVersions, app?.latestConfigVersion ?? 0);
-	return latest + 1;
 }
