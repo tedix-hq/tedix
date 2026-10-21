@@ -598,6 +598,11 @@ export const WorkspaceSkillDraftTargetSchema = z
 	})
 	.strict();
 
+export const WorkspaceSkillDraftGrantReadInputSchema =
+	WorkspaceSkillDraftTargetSchema.extend({
+		memberId: z.string().min(1).optional(),
+	}).strict();
+
 export const WorkspaceSkillDraftGrantSchema = z.object({
 	memberId: z.string(),
 	workspaceId: z.string().uuid(),

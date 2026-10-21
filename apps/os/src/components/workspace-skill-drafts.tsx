@@ -62,6 +62,16 @@ export function WorkspaceSkillDrafts({
 		enabled: canManage,
 	});
 	const [memberId, setMemberId] = useState("");
+	const selectedMember = members.data?.data.find(
+		(member) => member.id === memberId,
+	);
+	const selectedAccess = useQuery({
+		...osQuery.skills.getWorkspaceDraftGrant.queryOptions({
+			input: { ...target, memberId },
+		}),
+		enabled: canManage && !!memberId,
+		retry: false,
+	});
 	const [source, setSource] = useState<SkillEntry | null>(null);
 	const [viewing, setViewing] = useState<string | null>(null);
 	const load = useMutation({
@@ -93,9 +103,7 @@ export function WorkspaceSkillDrafts({
 				queryKey: osQuery.skills.getWorkspaceDraftGrant.key(),
 			}),
 	});
-	const allowed =
-		access.data?.grant?.enabled === true &&
-		Date.parse(access.data.grant.expiresAt) > Date.now();
+	const allowed = access.data?.effective === true;
 	return (
 		<div className="mt-2 grid gap-2" data-workspace-skill-drafts>
 			<Text as="p" role="label" tone="secondary" className="m-0">
@@ -122,7 +130,12 @@ export function WorkspaceSkillDrafts({
 				<div className="grid gap-2">
 					<Select
 						value={memberId}
-						onValueChange={(value) => value && setMemberId(value)}
+						onValueChange={(value) => {
+							if (value) {
+								setMemberId(value);
+								grant.reset();
+							}
+						}}
 					>
 						<SelectTrigger aria-label={`Draft access for ${resource.name}`}>
 							<SelectValue placeholder="Choose a member for draft access" />
@@ -139,6 +152,40 @@ export function WorkspaceSkillDrafts({
 								))}
 						</SelectContent>
 					</Select>
+					{memberId && (
+						<div aria-label="Selected member draft access">
+							<Text as="p" role="label">
+								{selectedMember?.email} · {resource.name}
+							</Text>
+							<Text as="p" role="label" tone="secondary">
+								Workspace: {workspaceId} · Resource: {resource.id}
+								{selectedAccess.isPending
+									? " · Checking access…"
+									: selectedAccess.isError
+										? " · Access could not be checked."
+										: selectedAccess.data?.effective
+											? " · Draft access allowed."
+											: " · No current draft access."}
+							</Text>
+							{selectedAccess.data?.grant && (
+								<Text as="p" role="label" tone="secondary">
+									Skill: {selectedAccess.data.grant.skillId} · Expires:{" "}
+									<time dateTime={selectedAccess.data.grant.expiresAt}>
+										{selectedAccess.data.grant.expiresAt}
+									</time>
+								</Text>
+							)}
+							{selectedAccess.isError && (
+								<Button
+									size="sm"
+									variant="ghost"
+									onClick={() => void selectedAccess.refetch()}
+								>
+									Retry member access
+								</Button>
+							)}
+						</div>
+					)}
 					<div className="flex flex-wrap gap-2">
 						<Button
 							size="sm"
@@ -162,13 +209,16 @@ export function WorkspaceSkillDrafts({
 							{grant.error.message}
 						</Text>
 					)}
-					{grant.isSuccess && (
-						<Text role="label" tone="secondary">
-							{grant.data.grant.enabled
-								? "Draft access saved for this skill and workspace."
-								: "Draft access revoked."}
-						</Text>
-					)}
+					{grant.isSuccess &&
+						grant.data.grant.memberId === memberId &&
+						grant.data.grant.workspaceId === workspaceId &&
+						grant.data.grant.resourceId === resource.id && (
+							<Text role="label" tone="secondary">
+								{grant.data.grant.enabled
+									? "Draft access saved for this skill and workspace."
+									: "Draft access revoked."}
+							</Text>
+						)}
 				</div>
 			)}
 			{source && (

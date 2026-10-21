@@ -401,6 +401,71 @@ describe("workspace skill draft grants", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 
+	it("allows only actual human administrators to inspect another member's exact grant", async () => {
+		const { client, grant } = fixture();
+		await grant();
+		const input = { ...TARGET, memberId: "m-agent" };
+		expect(await client("owner", "owner").get(input)).toMatchObject({
+			effective: true,
+			grant: { memberId: "m-agent", ...TARGET, skillId: "source" },
+		});
+		for (const caller of [
+			client("other"),
+			client("agent-admin", "admin"),
+			client("owner", "owner", {
+				externalAgentPrincipalId: "external-fixture",
+			}),
+		]) {
+			await expect(caller.get(input)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+		}
+		await expect(
+			client("owner", "owner").get({ ...TARGET, memberId: "missing" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(
+			await client("owner", "owner").get({
+				workspaceId: OTHER_WS,
+				resourceId: OTHER_RESOURCE,
+				memberId: "m-agent",
+			}),
+		).toMatchObject({ grant: null, effective: false });
+	});
+
+	it("reports ineffective access after expiry, member suspension or linked skill retargeting", async () => {
+		const { client, grant, sqlite } = fixture();
+		await grant();
+		expect((await client().get(TARGET)).effective).toBe(true);
+		sqlite.exec(
+			"UPDATE os_workspace_skill_draft_grants SET expires_at='2000-01-01T00:00:00.000Z'",
+		);
+		expect((await client().get(TARGET)).effective).toBe(false);
+		await grant();
+		sqlite.exec(
+			"UPDATE organization_members SET status='suspended' WHERE id='m-agent'",
+		);
+		expect(
+			(await client("owner", "owner").get({ ...TARGET, memberId: "m-agent" }))
+				.effective,
+		).toBe(false);
+		sqlite.exec(
+			"UPDATE organization_members SET status='active' WHERE id='m-agent'",
+		);
+		sqlite.exec(
+			"INSERT INTO skill_entries (id,organization_id,tedi_id,slug,title,content,lifecycle_state,revision,pace_layer) VALUES ('replacement','org-fixture','research-tedi','replacement','Replacement','# Replacement','active',1,'differentiation')",
+		);
+		sqlite.exec(
+			`UPDATE os_workspace_resources SET provider_resource_id='replacement' WHERE id='${RESOURCE}'`,
+		);
+		expect(await client().get(TARGET)).toMatchObject({
+			effective: false,
+			grant: { skillId: "source" },
+		});
+		await expect(client().propose(INPUT)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+
 	it("returns only the caller's grant and makes revocation effective on the next request", async () => {
 		const { client, grant } = fixture();
 		await grant();

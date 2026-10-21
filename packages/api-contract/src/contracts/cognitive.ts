@@ -38,6 +38,7 @@ import {
 	SkillWorkflowStepSchema,
 	SkillWorkflowToolCallSchema,
 	WorkspaceSkillDraftTargetSchema,
+	WorkspaceSkillDraftGrantReadInputSchema,
 	WorkspaceSkillDraftGrantSchema,
 	WorkspaceSkillDraftGrantInputSchema,
 	WorkspaceSkillDraftInputSchema,
@@ -474,10 +475,16 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 			method: "POST",
 			path: "/skills/workspace-drafts/access",
 			tags: ["cognitive"],
-			summary: "Check your access to propose a linked workspace skill draft",
+			summary:
+				"Check draft access; human administrators may inspect another member",
 		})
-		.input(WorkspaceSkillDraftTargetSchema)
-		.output(z.object({ grant: WorkspaceSkillDraftGrantSchema.nullable() })),
+		.input(WorkspaceSkillDraftGrantReadInputSchema)
+		.output(
+			z.object({
+				grant: WorkspaceSkillDraftGrantSchema.nullable(),
+				effective: z.boolean(),
+			}),
+		),
 	setWorkspaceDraftGrant: oc
 		.route({
 			method: "POST",
