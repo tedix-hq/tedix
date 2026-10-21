@@ -86,6 +86,7 @@ describe("user tenant identity context", () => {
 		await expect(resolve()).resolves.toEqual({
 			organizationId: ORG,
 			canonicalUserId: USER,
+			memberIsActive: true,
 			memberRole: "admin",
 			memberPermissionOverrides: ["apps:read"],
 		});
@@ -103,15 +104,50 @@ describe("user tenant identity context", () => {
 		await expect(resolve()).resolves.toEqual({
 			organizationId: ORG,
 			canonicalUserId: null,
+			memberIsActive: true,
 			memberRole: "member",
 			memberPermissionOverrides: null,
 		});
 	});
 
+	it.each(["deactivated", "invited", null] as const)(
+		"removes authority for a %s membership and restores it on reactivation",
+		async (status) => {
+			await db.insert(organizationMembers).values({
+				id: "00000000-0000-4000-8000-000000000005",
+				organizationId: ORG,
+				descopeUserId: SUBJECT,
+				email: "admin@example.test",
+				role: "admin",
+				customPermissions: ["apps:delete"],
+				status,
+			});
+
+			await expect(resolve()).resolves.toMatchObject({
+				organizationId: ORG,
+				memberIsActive: false,
+				memberRole: null,
+				memberPermissionOverrides: null,
+			});
+
+			await db
+				.update(organizationMembers)
+				.set({ status: "active" })
+				.where(eq(organizationMembers.organizationId, ORG));
+
+			await expect(resolve()).resolves.toMatchObject({
+				memberIsActive: true,
+				memberRole: "admin",
+				memberPermissionOverrides: ["apps:delete"],
+			});
+		},
+	);
+
 	it("returns organization context without inventing membership authority", async () => {
 		await expect(resolve()).resolves.toEqual({
 			organizationId: ORG,
 			canonicalUserId: null,
+			memberIsActive: null,
 			memberRole: null,
 			memberPermissionOverrides: null,
 		});
