@@ -37,6 +37,7 @@ import {
 	workItems,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
+import { acceptanceRenewedPurposeExpiry } from "./purpose";
 import { resolveWorkItemSteward } from "./stewardship";
 
 export interface CreateWorkItemParams {
@@ -687,10 +688,20 @@ export async function acceptWorkItem(
 		String(executor),
 	);
 	const receiptId = crypto.randomUUID();
+	const parent =
+		prior.parentWorkItemId && prior.workClass !== "objective"
+			? await getScopedWorkItem(db, params.orgId, prior.parentWorkItemId)
+			: null;
+	const purposeExceptionExpiresAt = acceptanceRenewedPurposeExpiry(
+		prior,
+		parent,
+		acceptedAt,
+	);
 	const acceptMutation = db
 		.update(workItems)
 		.set({
 			disposition: "accepted",
+			...(purposeExceptionExpiresAt ? { purposeExceptionExpiresAt } : {}),
 			...(dispatch
 				? {
 						metadata: {
