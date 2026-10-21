@@ -11,23 +11,26 @@ interface AihTokenCacheKeyParts {
 }
 
 const aihTokenCache = new Map<string, AihTokenCacheEntry>();
+const MAX_CACHE_ENTRIES = 100;
 
 function cacheKey(parts: AihTokenCacheKeyParts): string {
-	return [
+	return JSON.stringify([
 		parts.tediId,
 		parts.mcpServerId,
 		parts.clientId,
 		parts.credentialVersion ?? "v0",
-	].join(":");
+	]);
 }
 
 export function getCachedAihToken(
 	parts: AihTokenCacheKeyParts & { now: number },
 ): AihTokenCacheEntry | null {
-	const cached = aihTokenCache.get(cacheKey(parts));
+	const key = cacheKey(parts);
+	const cached = aihTokenCache.get(key);
 	if (cached && cached.expiresAt > parts.now) {
 		return cached;
 	}
+	aihTokenCache.delete(key);
 	return null;
 }
 
@@ -35,12 +38,18 @@ export function setCachedAihToken(
 	parts: AihTokenCacheKeyParts & { now: number },
 	entry: AihTokenCacheEntry,
 ): void {
-	aihTokenCache.set(cacheKey(parts), entry);
+	for (const [key, value] of aihTokenCache) {
+		if (value.expiresAt <= parts.now) aihTokenCache.delete(key);
+	}
 
-	if (aihTokenCache.size > 100) {
-		for (const [key, value] of aihTokenCache) {
-			if (value.expiresAt <= parts.now) aihTokenCache.delete(key);
-		}
+	const key = cacheKey(parts);
+	aihTokenCache.delete(key);
+	if (entry.expiresAt <= parts.now) return;
+	// Map insertion order makes the oldest write the eviction candidate.
+	aihTokenCache.set(key, entry);
+	for (const oldestKey of aihTokenCache.keys()) {
+		if (aihTokenCache.size <= MAX_CACHE_ENTRIES) break;
+		aihTokenCache.delete(oldestKey);
 	}
 }
 
@@ -49,9 +58,10 @@ export function clearAihTokenCacheForTediServer(params: {
 	mcpServerId: string;
 	clientId?: string | null;
 }): number {
-	const prefix = params.clientId
-		? `${params.tediId}:${params.mcpServerId}:${params.clientId}:`
-		: `${params.tediId}:${params.mcpServerId}:`;
+	const identity = [params.tediId, params.mcpServerId];
+	if (params.clientId != null) identity.push(params.clientId);
+	// Retain the tuple separator so one identity cannot prefix another.
+	const prefix = `${JSON.stringify(identity).slice(0, -1)},`;
 	let deleted = 0;
 	for (const key of aihTokenCache.keys()) {
 		if (key.startsWith(prefix)) {
