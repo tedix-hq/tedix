@@ -69,10 +69,12 @@ describe("findingHeadline", () => {
 });
 
 describe("graphLayerStatus", () => {
-	it("calls an unconfigured Neo4j layer paused, never live", () => {
+	it("keeps paused map status separate from saved memory health", () => {
 		const status = graphLayerStatus({ configured: false });
-		expect(status.label).toBe("Paused (projection only)");
-		expect(status.detail).toContain("D1 is the record");
+		expect(status.label).toBe("Paused");
+		expect(status.detail).toContain(
+			"saved memories and health checks are unaffected",
+		);
 	});
 });
 

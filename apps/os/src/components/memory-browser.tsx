@@ -96,7 +96,7 @@ function Choice({
 				if (value !== null) onChange(value);
 			}}
 		>
-			<SelectTrigger aria-label={label} className="min-w-0">
+			<SelectTrigger aria-label={label} className="w-full min-w-0">
 				<SelectValue>
 					{choices.find((choice) => choice.value === value)?.label}
 				</SelectValue>
@@ -138,14 +138,14 @@ function FactDetails({ fact }: { fact: Fact }) {
 					: "Not recorded"}
 			</Text>
 			{fact.metadata && !consolidated && (
-				<details>
-					<summary className="cursor-pointer type-tedix-body">
-						Additional source data
-					</summary>
-					<pre className="whitespace-pre-wrap wrap-anywhere type-tedix-caption">
-						{JSON.stringify(fact.metadata, null, 2)}
-					</pre>
-				</details>
+				<Collapsible>
+					<CollapsibleTrigger>Additional source data</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						<pre className="whitespace-pre-wrap wrap-anywhere type-tedix-caption">
+							{JSON.stringify(fact.metadata, null, 2)}
+						</pre>
+					</CollapsibleContent>
+				</Collapsible>
 			)}
 		</div>
 	);
@@ -434,19 +434,14 @@ export function MemoryBrowser({
 			) : (
 				<>
 					<div className="grid gap-3">
-						<div className="flex flex-wrap items-baseline justify-between gap-2">
-							<Text as="h2" role="section" className="sr-only">
-								{label}
-							</Text>
-							<Text role="caption" tone="secondary">
-								20 rows per page
-							</Text>
-						</div>
+						<Text as="h2" role="section" className="sr-only">
+							{label}
+						</Text>
 						<Text tone="secondary" className="m-0">
 							{description}
 						</Text>
-						<div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
-							<div className="col-span-2 sm:col-span-1">
+						<div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-5">
+							<div className="col-span-2">
 								<Input
 									aria-label={`Search ${label.toLowerCase()}`}
 									placeholder="Search memories…"
@@ -499,19 +494,21 @@ export function MemoryBrowser({
 									})
 								}
 							/>
-							<Choice
-								label="Sort memories"
-								value={confidenceAvailable ? search.sort : "updated"}
-								choices={[
-									{ value: "updated", label: "Updated: newest" },
-									...(confidenceAvailable
-										? [{ value: "confidence", label: "Confidence: highest" }]
-										: []),
-								]}
-								onChange={(sort) =>
-									change({ sort: sort as MemorySearch["sort"] })
-								}
-							/>
+							<div className="col-span-2 lg:col-span-1">
+								<Choice
+									label="Sort memories"
+									value={confidenceAvailable ? search.sort : "updated"}
+									choices={[
+										{ value: "updated", label: "Updated: newest" },
+										...(confidenceAvailable
+											? [{ value: "confidence", label: "Confidence: highest" }]
+											: []),
+									]}
+									onChange={(sort) =>
+										change({ sort: sort as MemorySearch["sort"] })
+									}
+								/>
+							</div>
 						</div>
 						{hasFilters && (
 							<div>
@@ -586,11 +583,11 @@ export function MemoryBrowser({
 										}}
 									>
 										<TableCell className="!whitespace-normal">
-											<span className="block truncate py-2">
+											<span className="my-2 line-clamp-2 wrap-anywhere">
 												{memoryText(row.title, row.body).line}
 											</span>
-											<span className="block truncate pb-2 text-kumo-subtle type-tedix-caption sm:hidden">
-												{row.source} ·{" "}
+											<span className="block pb-2 wrap-anywhere text-kumo-subtle type-tedix-caption sm:hidden">
+												{row.source.replaceAll("_", " ")} ·{" "}
 												{row.updated
 													? relativeTime(row.updated)
 													: "Date unknown"}{" "}
@@ -600,7 +597,7 @@ export function MemoryBrowser({
 													: `${Math.round(row.confidence * 100)}%`}
 											</span>
 										</TableCell>
-										<TableCell className="hidden truncate text-kumo-subtle sm:table-cell">
+										<TableCell className="hidden !whitespace-normal text-kumo-subtle wrap-anywhere sm:table-cell">
 											{row.source.replaceAll("_", " ")}
 										</TableCell>
 										<TableCell className="hidden text-kumo-subtle sm:table-cell">
