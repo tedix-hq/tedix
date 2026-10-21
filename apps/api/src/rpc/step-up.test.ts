@@ -6,7 +6,8 @@ import appsSource from "./routers/apps.ts?raw";
 import organizationsSource from "./routers/organizations.ts?raw";
 import organizationsLifecycleSource from "./routers/organizations-lifecycle.ts?raw";
 import organizationsApiKeysSource from "./routers/organizations-api-keys.ts?raw";
-import tedisCrudSource from "./routers/tedis/crud.ts?raw";
+import tedisDeleteSource from "./routers/tedis/delete.ts?raw";
+import tedisAccessKeySource from "./routers/tedis/access-key.ts?raw";
 import { requireStepUp } from "./step-up";
 
 describe("requireStepUp", () => {
@@ -96,7 +97,7 @@ describe("step-up wiring on gated procedures", () => {
 			organizationsApiKeysSource,
 			"rotateApiKeyContract",
 		],
-		["tedis.rotateAccessKey", tedisCrudSource, "rotateAccessKeyProcedure"],
+		["tedis.rotateAccessKey", tedisAccessKeySource, "rotateAccessKeyProcedure"],
 	];
 
 	for (const [procedure, source, exportName] of guarded) {
@@ -115,7 +116,7 @@ describe("step-up wiring on gated procedures", () => {
 
 	it.each([
 		["apps.delete", appsSource, "deleteAppProcedure"],
-		["tedis.delete", tedisCrudSource, "deleteTediProcedure"],
+		["tedis.delete", tedisDeleteSource, "deleteTediProcedure"],
 	] as const)(
 		"uses ordinary authorization for %s",
 		(_name, source, exportName) => {

@@ -27,9 +27,11 @@ vi.mock("../rpc/routers/organizations", () => ({
 	createOrganizationContract: {},
 	createOrganizationForProvider: mocks.createOrg,
 }));
-vi.mock("../rpc/routers/tedis/crud", () => ({
+vi.mock("../rpc/routers/tedis/create", () => ({
 	createTediProcedure: {},
 	createTediForProvider: mocks.createTedi,
+}));
+vi.mock("../rpc/routers/tedis/identity-provisioning", () => ({
 	materializeManagedAppAssignments: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/organizations", () => ({

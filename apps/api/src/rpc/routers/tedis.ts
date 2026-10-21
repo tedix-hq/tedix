@@ -47,20 +47,20 @@ import {
 } from "./tedis/config";
 import { initiateAppConnectionProcedure } from "./tedis/connections";
 // Import all procedures from split modules
+import { createTediProcedure } from "./tedis/create";
 import {
-	createTediProcedure,
 	decommissionTediProcedure,
-	deleteTediProcedure,
-	getLogsProcedure,
-	getTedi,
 	inspectAgentMemoryProcedure,
-	listTedis,
-	rebindProcedure,
-	repairTediProcedure,
-	rotateAccessKeyProcedure,
+} from "./tedis/decommission";
+import { deleteTediProcedure } from "./tedis/delete";
+import { getLogsProcedure, getTedi, listTedis } from "./tedis/crud";
+import { rebindProcedure } from "./tedis/rebind";
+import { repairTediProcedure } from "./tedis/repair";
+import { rotateAccessKeyProcedure } from "./tedis/access-key";
+import {
 	updateTediGovernanceProcedure,
 	updateTediProcedure,
-} from "./tedis/crud";
+} from "./tedis/update";
 import {
 	approveDeviceProcedure,
 	listDevices,

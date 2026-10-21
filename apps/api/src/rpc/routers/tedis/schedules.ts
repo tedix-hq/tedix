@@ -17,7 +17,7 @@ import type {
 	TediScheduleListResponse,
 } from "@tedix/api-contract/schemas/tedi";
 import { listSkillSchedules } from "@tedix/db/queries/skill-schedules";
-import { agentAdminFetch } from "./crud";
+import { agentAdminFetch } from "./runtime-admin";
 import {
 	AUTHZ,
 	authedTedisOs,

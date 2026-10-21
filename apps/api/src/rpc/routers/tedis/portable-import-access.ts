@@ -4,7 +4,7 @@ import { verifyPortableTediManifest } from "@tedix/api-contract/utils/portable-t
 import { updateTedi } from "@tedix/db/queries/tedis";
 import type * as z from "zod";
 import { issuePortableImportTicket } from "../../../lib/portable-import-ticket";
-import { createTediForPortableImport } from "./crud";
+import { createTediForPortableImport } from "./create";
 import {
 	AUTHZ,
 	authedTedisOs,

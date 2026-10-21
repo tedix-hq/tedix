@@ -12,7 +12,7 @@ import {
 import {
 	agentUnreachableCapabilityFieldsTouched,
 	updateTediProcedure,
-} from "./crud";
+} from "./update";
 import { requireTediAccess } from "./helpers";
 
 const { getTediById } = vi.hoisted(() => ({ getTediById: vi.fn() }));
