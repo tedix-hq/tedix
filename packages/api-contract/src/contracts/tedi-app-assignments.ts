@@ -82,6 +82,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/fga-relations/by-app/{appId}",
 				tags: ["internal"],
 				summary: "List FGA relations held on an app",
+				description:
+					"Read the raw access relations held on an app straight from the authorization plane, including principals that no candidate list contains. Fails with an error instead of returning an empty list when Descope cannot be queried.",
 			})
 			.input(ListAssignmentsByAppInputSchema)
 			.output(AppFgaRelationsSchema),
@@ -95,6 +97,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/fga-relations/by-tedi/{tediId}",
 				tags: ["internal"],
 				summary: "List FGA relations held by a tedi",
+				description:
+					"Read the raw access relations a tedi holds straight from the authorization plane. Fails with an error instead of returning an empty list when Descope cannot be queried.",
 			})
 			.input(ListAssignmentsByTediInputSchema)
 			.output(TediFgaRelationsSchema),
@@ -108,6 +112,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/managed/by-tedi/{tediId}",
 				tags: ["internal"],
 				summary: "Preview managed app assignments for a tedi",
+				description:
+					"Compare the config-driven app assignments a tedi should have with the ones it holds now, and report which are missing, extra or unchanged. Read-only.",
 			})
 			.input(PreviewManagedAssignmentsByTediInputSchema)
 			.output(TediAppAssignmentManagedPreviewSchema),
@@ -121,6 +127,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/managed/reconcile",
 				tags: ["internal"],
 				summary: "Reconcile managed app assignments for a tedi",
+				description:
+					"Grant the missing config-driven app assignments to a tedi and, when pruning is requested, remove the extra ones. A dry run reports the changes without making them.",
 			})
 			.input(ReconcileManagedAssignmentsByTediInputSchema)
 			.output(TediAppAssignmentManagedReconcileResultSchema),
@@ -134,6 +142,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/mcp-access/validate",
 				tags: ["internal"],
 				summary: "Validate a tedi's MCP app access without repair",
+				description:
+					"Check that one tedi's MCP access to one assigned app is valid and report the result. Read-only: nothing is repaired.",
 			})
 			.input(ValidateTediMcpAccessInputSchema)
 			.output(TediMcpAccessValidationSchema),
@@ -147,6 +157,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/mcp-access/validate-batch",
 				tags: ["internal"],
 				summary: "Validate matching tedi MCP app assignments without repair",
+				description:
+					"Check every matching tedi-to-app MCP assignment in the organization and report the invalid ones. Read-only: nothing is repaired.",
 			})
 			.input(ValidateTediMcpAccessBatchInputSchema)
 			.output(TediMcpAccessBatchResultSchema),
@@ -160,6 +172,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/mcp-access/repair-batch",
 				tags: ["internal"],
 				summary: "Validate and repair invalid tedi MCP app assignments",
+				description:
+					"Check every matching tedi-to-app MCP assignment in the organization and repair the invalid ones. Writes to the app access records.",
 			})
 			.input(RepairTediMcpAccessBatchInputSchema)
 			.output(TediMcpAccessBatchResultSchema),
@@ -173,6 +187,8 @@ export const tediAppAssignmentsContract = oc
 				path: "/mcp-access/health",
 				tags: ["internal"],
 				summary: "Get compact tedi MCP access health",
+				description:
+					"Return a compact health summary of tedi MCP app access for the organization. Read-only: nothing is repaired.",
 			})
 			.input(ValidateTediMcpAccessBatchInputSchema)
 			.output(TediMcpAccessHealthSchema),
@@ -185,6 +201,8 @@ export const tediAppAssignmentsContract = oc
 				method: "POST",
 				path: "/mcp-access/health/workflow",
 				summary: "Run durable tedi MCP access health workflow",
+				description:
+					"Queue the durable MCP access-health workflow for the organization and return its workflow id. It only reports unless repair is requested, and it runs in the background after this call returns.",
 			})
 			.input(RunTediMcpAccessHealthWorkflowInputSchema)
 			.output(RunTediMcpAccessHealthWorkflowResultSchema),
