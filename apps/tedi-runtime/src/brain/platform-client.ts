@@ -7,6 +7,10 @@ import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-gr
 import type { SearchResult } from "@tedix/api-contract/schemas/memory-graph";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
 import type { ListWorkApprovalInboxResultSchema } from "@tedix/api-contract/schemas/work-approvals";
+import type {
+	WebSearchInput,
+	WebSearchOutput,
+} from "@tedix/api-contract/schemas/web-search";
 /**
  * PlatformClient — Tedix oRPC API contract + HTTP implementation.
  *
@@ -442,6 +446,8 @@ export interface PlatformClient {
 		decision: "approved" | "rejected";
 		rationale: string;
 	}): Promise<WorkApprovalDecisionForContext>;
+	/** Public web search through the deployment's model gateway. */
+	searchWeb(params: WebSearchInput): Promise<WebSearchOutput>;
 
 	startWorkAttempt(params: {
 		workItemId: string;
@@ -1025,6 +1031,10 @@ export class HttpPlatformClient implements PlatformClient {
 		rationale: string;
 	}): Promise<WorkApprovalDecisionForContext> {
 		return this.rpc("workApprovals", "decide", params);
+	}
+
+	async searchWeb(params: WebSearchInput): Promise<WebSearchOutput> {
+		return this.rpc("webSearch", "search", params);
 	}
 
 	async startWorkAttempt(params: {

@@ -11,6 +11,10 @@ import {
 	type ToolPolicy,
 	ToolPolicySchema,
 } from "@tedix/api-contract/schemas/tedi";
+import {
+	type WebSearchPolicy,
+	WebSearchPolicySchema,
+} from "@tedix/api-contract/schemas/web-search";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
 import {
 	buildHarnessComponents,
@@ -463,6 +467,7 @@ export const runtimeParentTurns = {
 	): Promise<{
 		budgets: TediBudgets;
 		organizationBrowserEgress?: BrowserHostnamePolicy;
+		organizationWebSearch?: WebSearchPolicy;
 		toolPolicy: ToolPolicy;
 	}> {
 		const defaults = {
@@ -482,15 +487,21 @@ export const runtimeParentTurns = {
 			const row = await getTediRuntimeGovernance(this.env.DB, key);
 			const decode = (value: unknown): unknown =>
 				typeof value === "string" ? JSON.parse(value) : value;
+			const organizationMetadata = decode(row?.organizationMetadata) as {
+				browserEgress?: unknown;
+				webSearch?: unknown;
+			} | null;
+			// Opt-in switch: an invalid value reads as off instead of failing
+			// the rest of the governance load closed.
+			const webSearch = WebSearchPolicySchema.safeParse(
+				organizationMetadata?.webSearch,
+			);
 			return {
 				budgets: resolveTediBudgets(decode(row?.budgets)),
 				organizationBrowserEgress: BrowserHostnamePolicySchema.optional().parse(
-					(
-						decode(row?.organizationMetadata) as {
-							browserEgress?: unknown;
-						} | null
-					)?.browserEgress,
+					organizationMetadata?.browserEgress,
 				),
+				organizationWebSearch: webSearch.success ? webSearch.data : undefined,
 				toolPolicy: ToolPolicySchema.parse(decode(row?.toolPolicy) ?? {}),
 			};
 		} catch (error) {
@@ -567,6 +578,7 @@ export const runtimeParentTurns = {
 				this.setState({
 					...this.state,
 					organizationBrowserEgress: governance.organizationBrowserEgress,
+					organizationWebSearch: governance.organizationWebSearch,
 					toolPolicy: governance.toolPolicy,
 					budgets: governance.budgets,
 					governanceLoadedAt: Date.now(),
@@ -632,6 +644,7 @@ export const runtimeParentTurns = {
 			authSubject: hints?.authSubject ?? this.state.authSubject,
 			telegramChannel,
 			organizationBrowserEgress: governance.organizationBrowserEgress,
+			organizationWebSearch: governance.organizationWebSearch,
 			toolPolicy: governance.toolPolicy,
 			budgets: governance.budgets,
 			governanceLoadedAt: Date.now(),

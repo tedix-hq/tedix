@@ -152,6 +152,7 @@ import {
 	type TediBudgets,
 	type ToolPolicy,
 } from "@tedix/api-contract/schemas/tedi";
+import type { WebSearchPolicy } from "@tedix/api-contract/schemas/web-search";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
 import { type CompiledDirective } from "@tedix/context-core/compiler";
 import { type HarnessLoopPolicy } from "@tedix/context-core/harness-version";
@@ -408,6 +409,8 @@ export interface State {
 	toolPolicy?: ToolPolicy;
 	/** Organization browser boundary composed with the per-tedi tool policy. */
 	organizationBrowserEgress?: BrowserHostnamePolicy;
+	/** Organization web search switch; absent or invalid means off. */
+	organizationWebSearch?: WebSearchPolicy;
 	/** Effective per-tedi operational budgets loaded from D1 during identity hydration. */
 	budgets?: TediBudgets;
 	/** Wall-clock freshness marker for the D1-backed governance cache. */
@@ -2064,6 +2067,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private async loadTediGovernance(tediId: string): Promise<{
 		budgets: TediBudgets;
 		organizationBrowserEgress?: BrowserHostnamePolicy;
+		organizationWebSearch?: WebSearchPolicy;
 		toolPolicy: ToolPolicy;
 	}> {
 		return runtimeParentTurns.loadTediGovernance.call(

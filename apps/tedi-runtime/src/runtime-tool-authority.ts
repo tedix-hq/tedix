@@ -49,6 +49,7 @@ import {
 	logTediRuntimeFailure,
 	logTediRuntimeState,
 } from "./runtime-failure-log";
+import { createWebSearchAiTools } from "./web-search-tool";
 import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 type ActiveTurnBinding = NonNullable<AgentTediDO["activeTurnBinding"]>;
@@ -1088,6 +1089,13 @@ export const runtimeToolAuthority = {
 			...(scope ? this.workstationAiTool(scope, binding) : {}),
 			...this.objectStoreAiTools(),
 			...this.r2SqlAiTool(),
+			...createWebSearchAiTools({
+				ai: this.env.AI,
+				organizationWebSearch: this.state.organizationWebSearch,
+				toolPolicy: this.state.toolPolicy,
+				runId: binding?.runId,
+				getPlatform: () => this.getPlatformClient(),
+			}),
 		};
 	},
 };
