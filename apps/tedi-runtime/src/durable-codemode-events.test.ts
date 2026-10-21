@@ -73,6 +73,15 @@ assert.equal(
 	1,
 );
 
+const approvals = [0, 1].flatMap(() =>
+	buildDurableCodemodeEvents(
+		{ action: "approve", executionId: "e", status: "paused", result: {} },
+		context,
+	),
+);
+assert.equal(approvals.length, 2);
+assert.notEqual(approvals[0]?.id, approvals[1]?.id);
+
 // No client and transient API failures preserve every projected event, without
 // asking the caller to repeat the already completed execution.
 const rows = new Map<string, unknown>();
@@ -105,20 +114,22 @@ const make = () =>
 		scheduleRedrive: async () => {},
 	});
 const outbox = make();
-await publishDurableCodemodeEvents(outbox, events);
+const projected = [...events, ...approvals];
+await publishDurableCodemodeEvents(outbox, projected);
+await publishDurableCodemodeEvents(outbox, projected);
 await Promise.all(pending);
-assert.equal(rows.size, events.length);
+assert.equal(rows.size, projected.length);
 available = true;
 await make().redrive();
 assert.equal(received.length, 0);
-assert.equal(rows.size, events.length);
+assert.equal(rows.size, projected.length);
 failing = false;
 await make().redrive();
 assert.equal(rows.size, 0);
-assert.equal(received.at(-1)?.kind, "run.completed");
+assert.equal(received.filter((e) => e.kind === "run.completed").length, 1);
 assert.deepEqual(
 	received.map((e) => e.id).sort(),
-	events.map((e) => e.id).sort(),
+	projected.map((e) => e.id).sort(),
 );
 assert.ok(received.every((e) => e.createdAt === context.createdAt));
 

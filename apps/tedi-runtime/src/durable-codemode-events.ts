@@ -28,7 +28,8 @@ export function buildDurableCodemodeEvents(
 				? "tool.failed"
 				: "tool.completed";
 	events.push({
-		id: `${runId}:durable-code:${input.action}:${input.executionId}`,
+		// The outbox persists this identity and reuses it on every delivery retry.
+		id: `${runId}:durable-code:${input.action}:${input.executionId}${input.action === "approve" ? `:${crypto.randomUUID()}` : ""}`,
 		tediId,
 		kind,
 		conversationId,

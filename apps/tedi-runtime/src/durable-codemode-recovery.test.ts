@@ -3,6 +3,7 @@ import {
 	DurableCodePassCoordinator,
 	bindDurableCodeRecovery,
 	createDurableCodeRecovery,
+	scopeDurableCodeAction,
 } from "./durable-codemode-recovery";
 import type { CodemodeRuntimeHandle } from "@cloudflare/codemode";
 const coordinator = new DurableCodePassCoordinator();
@@ -93,4 +94,37 @@ await assert.rejects(
 	/another Computer workspace/,
 );
 assert.equal(lookup, 0);
+for (const action of ["approve", "reject", "rollback"]) {
+	for (const foreign of [
+		{ kind: "conversation", key: "other" },
+		{ kind: "delegated-run", key: "owner" },
+	]) {
+		let mutations = 0;
+		let resolved = { kind: "conversation", key: "owner" };
+		const execute = scopeDurableCodeAction({
+			scope: { kind: "conversation", key: "owner" },
+			resolve: async (id) => {
+				assert.equal(id, "e");
+				return resolved;
+			},
+			action: async (args: { execution_id: string; seq?: number }) => {
+				mutations++;
+				return { action, ...args };
+			},
+		});
+		resolved = foreign;
+		await assert.rejects(
+			execute({ execution_id: "e", seq: 2 }),
+			/another Computer workspace/,
+		);
+		assert.equal(mutations, 0, action);
+		resolved = { kind: "conversation", key: "owner" };
+		assert.deepEqual(await execute({ execution_id: "e", seq: 2 }), {
+			action,
+			execution_id: "e",
+			seq: 2,
+		});
+		assert.equal(mutations, 1, action);
+	}
+}
 console.log("durable-codemode-recovery OK");
