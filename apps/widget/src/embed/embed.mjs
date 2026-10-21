@@ -2152,6 +2152,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				}
 				send.innerHTML = icon(ICONS.send);
 				send.setAttribute("aria-label", t("send"));
+				delete send.dataset.state;
 				send.disabled = !input.value.trim();
 			};
 			if (fromComposer) {
@@ -2163,6 +2164,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			send.disabled = false;
 			send.innerHTML = icon(ICONS.stop);
 			send.setAttribute("aria-label", t("stop"));
+			send.dataset.state = "stop";
 			if (
 				activeConversation.workspaceId &&
 				typeof continueConversation === "function"
@@ -2260,6 +2262,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			send.disabled = false;
 			send.innerHTML = icon(ICONS.stop);
 			send.setAttribute("aria-label", t("stop"));
+			send.dataset.state = "stop";
 			const pending = addMessage(
 				"assistant",
 				t("is_thinking", { assistant: configuredTitle }),
@@ -2554,6 +2557,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				root.querySelector(".tedix-new").disabled = false;
 				send.innerHTML = icon(ICONS.send);
 				send.setAttribute("aria-label", t("send"));
+				delete send.dataset.state;
 				send.disabled = !input.value.trim();
 				applyRetryLock();
 				scrollLatest();

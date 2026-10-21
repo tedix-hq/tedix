@@ -351,7 +351,7 @@ export function ChatStarterPrompts({
 					size="sm"
 					variant="outline"
 					multiline
-					className="w-full justify-start whitespace-normal px-3 py-2 text-left"
+					className="w-full justify-start whitespace-normal px-3 py-2 text-left font-normal!"
 					onClick={() => onChoose(prompt)}
 				>
 					{prompt}

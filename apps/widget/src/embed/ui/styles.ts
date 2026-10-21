@@ -125,6 +125,7 @@ export function embeddedTediStyles(
 				.tedix-md-code-bar { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--tedix-border); background: var(--tedix-soft); color: var(--tedix-muted); font-size: 11px; }
 				.tedix-md-code-language { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: lowercase; }
 				.tedix-md-copy { min-height: 24px; margin-left: auto; padding: 2px 8px; border: 1px solid var(--tedix-border); border-radius: 8px; background: var(--tedix-bg); color: var(--tedix-text); cursor: pointer; font: inherit; font-size: 11px; }
+				.tedix-md-copy:focus-visible { outline: 2px solid color-mix(in srgb, var(--tedix-accent) 55%, transparent); outline-offset: -2px; }
 				.tedix-md-copy:hover { border-color: color-mix(in srgb, var(--tedix-accent) 42%, var(--tedix-border)); }
 				.tedix-md-copy[data-copied="true"] { color: #14805e; }
 				.tedix-md-link { color: var(--tedix-accent); text-decoration: underline; text-underline-offset: 2px; }
@@ -207,7 +208,8 @@ export function embeddedTediStyles(
 				.tedix-send { display: grid; width: var(--tedix-control-md); height: var(--tedix-control-md); flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: 50%; background: var(--tedix-text); color: var(--tedix-bg); cursor: pointer; transition: transform 120ms ease, opacity 120ms ease; }
 				.tedix-send:hover { transform: scale(1.04); }
 				.tedix-send:disabled { cursor: default; opacity: .28; transform: none; }
-				.tedix-send[aria-label="Detener"] svg { fill: currentColor; stroke: none; }
+				/* Locale-neutral: the stop state is a data attribute, never a translated label. */
+				.tedix-send[data-state="stop"] svg { fill: currentColor; stroke: none; }
 				.tedix-footer { padding: 7px 4px 0; color: var(--tedix-muted); font-size: 10px; text-align: center; }
 				.tedix-conversation-reference summary { cursor: pointer; }
 				.tedix-conversation-reference code { display: block; overflow-wrap: anywhere; user-select: all; }
@@ -219,6 +221,8 @@ export function embeddedTediStyles(
 				@media (max-width: 600px) { .tedix-launcher { bottom: calc(14px + var(--tedix-host-bottom-inset, 0px)); ${appearance.position === "bottom-left" ? "left: 14px; right: auto;" : "right: 14px; left: auto;"} } .tedix-panel, .tedix-panel[data-expanded] { top: var(--tedix-viewport-top); right: auto; bottom: auto; left: 0; width: var(--tedix-viewport-width); height: var(--tedix-viewport-height); border: 0; border-radius: 0; } :host([data-keyboard-open]) .tedix-composer-wrap { padding-bottom: 0; } :host([data-keyboard-open]) .tedix-footer { display: none; } .tedix-expand { display: none; } .tedix-thread { padding-inline: 16px; } .tedix-header { padding-left: 14px; } }
 				@media (max-width: 639px), (pointer: coarse) { .tedix-model-select, .tedix-effort-select, .tedix-tedi-select { min-height: var(--tedix-touch-target); } }
 				@media (pointer: coarse) { .tedix-input { font-size: 16px; } }
+				/* Every tap target reaches 44px on phones and touch screens. */
+				@media (max-width: 639px), (pointer: coarse) { .tedix-icon, .tedix-form .tedix-icon, .tedix-voice, .tedix-voice-cancel, .tedix-send { width: var(--tedix-touch-target); height: var(--tedix-touch-target); } .tedix-prompt, .tedix-approval button, .tedix-session-retry, .tedix-route-link, .tedix-md-link[href^="/"], .tedix-recent-item, .tedix-recent-more, .tedix-history-new, .tedix-history-item, .tedix-voice-error button, .tedix-worklog summary { min-height: var(--tedix-touch-target); } .tedix-md-copy { min-width: var(--tedix-touch-target); min-height: var(--tedix-touch-target); } .tedix-conversation-reference summary { padding-block: 12px; margin-block: -12px -10px; } }
 				@media (prefers-reduced-motion: reduce) { .tedix-panel[data-open] { animation: none; } .tedix-launcher, .tedix-send, .tedix-activity-chevron { transition: none; } .tedix-thinking-label, .tedix-skeleton::after { animation: none; } .tedix-worklog-step[data-streaming="true"] { background: none; color: inherit; animation: none; } }
 	`;
 }

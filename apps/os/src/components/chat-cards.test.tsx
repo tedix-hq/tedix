@@ -903,7 +903,7 @@ describe("approval builders", () => {
 });
 
 describe("RunControls", () => {
-	it("renders a destructive Stop for an active run", () => {
+	it("renders Stop for an active run", () => {
 		const html = renderToStaticMarkup(
 			<RunControls status="running" onStop={() => {}} />,
 		);

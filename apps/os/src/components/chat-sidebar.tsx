@@ -1162,30 +1162,32 @@ export function ChatConversationHeader({
 					>
 						{title}
 					</Text>
-					<Button
-						aria-label="Rename conversation"
-						disabled={conversationId === null}
-						onClick={() => {
-							setTitleInput(title);
-							setEditing(true);
-						}}
-						size="icon-sm"
-						variant="ghost"
-					>
-						<PencilSimple size={12} />
-					</Button>
+					{conversationId === null ? null : (
+						<Button
+							aria-label="Rename conversation"
+							onClick={() => {
+								setTitleInput(title);
+								setEditing(true);
+							}}
+							size="icon-sm"
+							variant="ghost"
+						>
+							<PencilSimple size={14} />
+						</Button>
+					)}
 				</>
 			)}
-			<Button
-				aria-label="Delete conversation"
-				className="text-kumo-danger"
-				disabled={conversationId === null}
-				onClick={() => setConfirmingDelete(true)}
-				size="icon-sm"
-				variant="ghost"
-			>
-				<Trash size={13} />
-			</Button>
+			{/* A thread that does not exist yet has nothing to rename or delete. */}
+			{conversationId === null ? null : (
+				<Button
+					aria-label="Delete conversation"
+					onClick={() => setConfirmingDelete(true)}
+					size="icon-sm"
+					variant="ghost"
+				>
+					<Trash size={14} />
+				</Button>
+			)}
 			<ConfirmDialog
 				onOpenChange={setConfirmingDelete}
 				open={confirmingDelete}

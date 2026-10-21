@@ -25,6 +25,7 @@ import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kerne
 import type { HomeMessage } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	Fragment,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -257,6 +258,7 @@ export function ChatThread({
 	autoFocusComposer = false,
 	onSendMessageReady,
 	onOutputCreated,
+	detailsActions,
 }: {
 	/** `null` = fresh conversation not yet created; the first send creates it. */
 	conversationId: string | null;
@@ -291,6 +293,8 @@ export function ChatThread({
 	 * loaded on open or by "Load earlier" never fires it.
 	 */
 	onOutputCreated?: (outputId: string) => void;
+	/** Conversation-level actions that share the "Chat details" row. */
+	detailsActions?: ReactNode;
 }) {
 	const queryClient = useQueryClient();
 	const tediNames = useTediNames();
@@ -1641,7 +1645,8 @@ export function ChatThread({
 		>
 			{!composerOnly && conversationId !== null ? (
 				<Collapsible className="shrink-0">
-					<div className="flex justify-end">
+					<div className="flex min-w-0 flex-wrap items-center justify-end gap-x-2">
+						{detailsActions}
 						<CollapsibleTrigger className="group">
 							Chat details
 							<CaretDown
@@ -1684,10 +1689,9 @@ export function ChatThread({
 							{conversationId === null && !hasContent ? (
 								<Empty appearance="inline">
 									<EmptyHeader className="w-full max-w-none">
-										<EmptyTitle>New conversation</EmptyTitle>
+										<EmptyTitle>What can I help with?</EmptyTitle>
 										<EmptyDescription>
-											Ask a question, or ask for a doc, sheet or deck. The chat
-											and anything it makes are kept together in a workspace.
+											Ask a question, or ask for a doc, sheet or deck.
 										</EmptyDescription>
 										<ChatStarterPrompts onChoose={updateDraft} />
 									</EmptyHeader>
@@ -1856,6 +1860,19 @@ export function ChatThread({
 											</Text>
 										</li>
 									) : null}
+									{shouldShowRunningIndicator({
+										showRunning,
+										overlayCount: overlays.length,
+									}) ? (
+										<RunningIndicator
+											label={
+												pendingRun?.progress?.label ??
+												pendingRun?.progress?.detail ??
+												null
+											}
+										/>
+									) : null}
+									{/* Stop and Retry sit under the progress line they act on. */}
 									{pendingRun ? (
 										<li className="flex w-full justify-start">
 											<RunControls
@@ -1881,18 +1898,6 @@ export function ChatThread({
 												)}
 											</Text>
 										</li>
-									) : null}
-									{shouldShowRunningIndicator({
-										showRunning,
-										overlayCount: overlays.length,
-									}) ? (
-										<RunningIndicator
-											label={
-												pendingRun?.progress?.label ??
-												pendingRun?.progress?.detail ??
-												null
-											}
-										/>
 									) : null}
 								</ul>
 							) : null}
@@ -2156,7 +2161,9 @@ export function ChatThread({
 						autoResize
 						minRows={1}
 						maxRows={8}
-						className="min-h-14 resize-none rounded-2xl border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
+						// The form draws the composer's border and focus state; the field
+						// inside it stays borderless so the two never read as nested boxes.
+						className="min-h-14 resize-none rounded-2xl border-0 bg-transparent px-4 pt-3 pb-1 shadow-none ring-0 focus:ring-0 focus-visible:ring-0"
 					/>
 				) : (
 					<div
@@ -2375,8 +2382,9 @@ export function ChatThread({
 								type="submit"
 								size="icon-sm"
 								aria-label="Send message"
+								// No spinner here: the sending bubble and the running row
+								// already say the message is on its way.
 								icon={<ArrowUp size={16} weight="bold" />}
-								loading={send.isPending}
 								disabled={
 									preparingAttachments ||
 									send.isPending ||
