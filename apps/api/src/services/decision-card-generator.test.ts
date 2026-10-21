@@ -620,6 +620,13 @@ it("identifies rejected vocabulary and gives the writer the complete face budget
 	}
 });
 
+it("asks the model for a short verb-first yes and no label", () => {
+	for (const text of [copySpec.faceInstruction])
+		expect(text).toMatch(
+			/actionLabels\.approve.*actionLabels\.reject.*one to three words, verb first/s,
+		);
+});
+
 it("reports the full word count and reserved chrome when repairing an overlong face", async () => {
 	const draft = {
 		...copy,
