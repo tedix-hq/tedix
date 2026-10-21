@@ -56,6 +56,42 @@ An account role and an OAuth grant are separate. Human Connect tokens may identi
 
 For native tedis, MCP resolves the current capability profile and constructs `X-Tedix-Tedi-Id` and `X-Tedix-Tedi-Scopes` on its CMS service request. CMS honors platform scope only after verifying the service secret and matching the tedi actor/id. Public headers and service/kernel actors do not supply tedi authority. Existing selected-organization checks at Connect and platform cross-organization semantics remain in force.
 
+## Replacing the CLI OAuth client
+
+The CLI's OAuth client id is a metadata URL (CIMD), `TEDIX_CLI_OAUTH_CLIENT_ID`
+in `packages/auth/src/oauth-client-registration.ts`, re-exported as
+`TEDIX_OAUTH_CLIENT_ID` by `packages/cli/src/oauth-provider.ts`. The metadata
+document is served by `apps/os/src/oauth-client-metadata.ts`. To replace the
+client:
+
+1. Publish the new metadata document at its new URL, and keep serving the old
+   one until step 4.
+2. Change the id constant and ship a CLI release. `TEDIX_OAUTH_CLIENT_ID` in the
+   environment overrides the constant for one invocation (for testing).
+3. Installed CLIs compare the client id in each stored login with the expected
+   one (`usesRetiredTedixOAuthClient`, `packages/cli/src/auth-resolve.ts`). A
+   mismatch on a Tedix-hosted MCP URL makes `resolveStoredLoginAuth` return a
+   `loginError` ("uses a retired Tedix CLI OAuth client. Run `tedix login
+   --workspace <name>`") before any token is read or refreshed. Logins against
+   external authorization servers are never judged retired.
+4. Delete the old client only after the fleet has had time to re-login.
+
+There is no grace period in the CLI. The check runs before refresh, so an old
+stored login is not reused, refreshed or silently re-registered: every command
+that resolves that workspace's stored login fails with the re-login message
+until `tedix login` stores a login for the new client. Refresh tokens already
+issued stay valid server-side until the old client is deleted or the grant is
+revoked, but the CLI never presents them. Environment-token and external-agent
+credentials are resolved separately and are not affected.
+
+`tedix login` builds its provider with `loadStored: false` and the expected
+client id, so re-login never reads the old client's registration, and the new
+login overwrites the workspace entry. The authorization server keeps one grant
+per user and client, so a second consent for the same client revokes the first
+(observed on the Descope side; the CLI does not enforce it). The old and new
+ids are different clients, so the new login does not revoke the old grant; it
+lapses when the old client is deleted.
+
 ## Credentials and boundaries
 
 | Boundary                       | Credential                                                    | Tenant check                                       |
