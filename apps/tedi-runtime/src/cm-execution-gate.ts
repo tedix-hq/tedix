@@ -54,6 +54,30 @@ export interface CmSessionGateStorage {
 	put(key: string, value: string): Promise<void>;
 }
 
+// Gate instances are constructed per request with the same DO storage object.
+// This queue coordinates that object within this isolate; distinct adapters or
+// isolates require a storage-level atomic primitive instead.
+const storageQueues = new WeakMap<CmSessionGateStorage, Promise<void>>();
+
+async function serializeStorage<T>(
+	storage: CmSessionGateStorage,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const previous = storageQueues.get(storage) ?? Promise.resolve();
+	let release!: () => void;
+	const pending = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	storageQueues.set(storage, pending);
+	await previous;
+	try {
+		return await operation();
+	} finally {
+		release();
+		if (storageQueues.get(storage) === pending) storageQueues.delete(storage);
+	}
+}
+
 export class CmSessionGate {
 	private readonly storage: CmSessionGateStorage;
 	private readonly now: () => number;
@@ -69,10 +93,12 @@ export class CmSessionGate {
 	 */
 	async isSessionAuthorized(sessionKey: string): Promise<boolean> {
 		if (!sessionKey) return false;
-		const grant = (await this.readGrants()).find(
-			(g) => g.sessionKey === sessionKey,
-		);
-		return grant !== undefined && grant.expiresAt > this.now();
+		return serializeStorage(this.storage, async () => {
+			const grant = (await this.readGrants()).find(
+				(g) => g.sessionKey === sessionKey,
+			);
+			return grant !== undefined && grant.expiresAt > this.now();
+		}).catch(() => false);
 	}
 
 	/**
@@ -85,18 +111,20 @@ export class CmSessionGate {
 		ttlMs: number = DEFAULT_SESSION_TTL_MS,
 	): Promise<void> {
 		if (!sessionKey) return;
-		const ttl =
-			Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_SESSION_TTL_MS;
-		const now = this.now();
-		const grants = (await this.readGrants()).filter(
-			(g) => g.sessionKey !== sessionKey && g.expiresAt > now,
-		);
-		grants.push({
-			sessionKey,
-			expiresAt: now + ttl,
-			...(authorizedBy ? { authorizedBy } : {}),
+		return serializeStorage(this.storage, async () => {
+			const ttl =
+				Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_SESSION_TTL_MS;
+			const now = this.now();
+			const grants = (await this.readGrants()).filter(
+				(g) => g.sessionKey !== sessionKey && g.expiresAt > now,
+			);
+			grants.push({
+				sessionKey,
+				expiresAt: now + ttl,
+				...(authorizedBy ? { authorizedBy } : {}),
+			});
+			await this.storage.put(ALLOWLIST_KEY, JSON.stringify(grants));
 		});
-		await this.storage.put(ALLOWLIST_KEY, JSON.stringify(grants));
 	}
 
 	/**
@@ -112,28 +140,30 @@ export class CmSessionGate {
 	}): Promise<void> {
 		if (!input.sessionKey || !input.codeHash || !input.sourceExecutionId)
 			return;
-		const ttl =
-			Number.isFinite(input.ttlMs) && (input.ttlMs ?? 0) > 0
-				? (input.ttlMs as number)
-				: DEFAULT_REPLAY_TTL_MS;
-		const now = this.now();
-		const grants = (await this.readReplayGrants()).filter(
-			(g) =>
-				g.expiresAt > now &&
-				!(
-					g.sessionKey === input.sessionKey &&
-					g.codeHash === input.codeHash &&
-					g.sourceExecutionId === input.sourceExecutionId
-				),
-		);
-		grants.push({
-			sessionKey: input.sessionKey,
-			codeHash: input.codeHash,
-			sourceExecutionId: input.sourceExecutionId,
-			expiresAt: now + ttl,
-			...(input.authorizedBy ? { authorizedBy: input.authorizedBy } : {}),
+		return serializeStorage(this.storage, async () => {
+			const ttl =
+				Number.isFinite(input.ttlMs) && (input.ttlMs ?? 0) > 0
+					? (input.ttlMs as number)
+					: DEFAULT_REPLAY_TTL_MS;
+			const now = this.now();
+			const grants = (await this.readReplayGrants()).filter(
+				(g) =>
+					g.expiresAt > now &&
+					!(
+						g.sessionKey === input.sessionKey &&
+						g.codeHash === input.codeHash &&
+						g.sourceExecutionId === input.sourceExecutionId
+					),
+			);
+			grants.push({
+				sessionKey: input.sessionKey,
+				codeHash: input.codeHash,
+				sourceExecutionId: input.sourceExecutionId,
+				expiresAt: now + ttl,
+				...(input.authorizedBy ? { authorizedBy: input.authorizedBy } : {}),
+			});
+			await this.storage.put(REPLAY_GRANTS_KEY, JSON.stringify(grants));
 		});
-		await this.storage.put(REPLAY_GRANTS_KEY, JSON.stringify(grants));
 	}
 
 	/**
@@ -149,46 +179,50 @@ export class CmSessionGate {
 		authorizedBy?: string;
 	} | null> {
 		if (!sessionKey || !codeHash) return null;
-		const now = this.now();
-		const grants = await this.readReplayGrants();
-		let matched: ReplayGrant | null = null;
-		const next: ReplayGrant[] = [];
-		for (const grant of grants) {
-			if (grant.expiresAt <= now) continue;
-			if (
-				matched === null &&
-				grant.sessionKey === sessionKey &&
-				grant.codeHash === codeHash
-			) {
-				matched = grant;
-				continue;
-			}
-			next.push(grant);
-		}
-		await this.storage.put(REPLAY_GRANTS_KEY, JSON.stringify(next));
-		return matched
-			? {
-					sourceExecutionId: matched.sourceExecutionId,
-					...(matched.authorizedBy
-						? { authorizedBy: matched.authorizedBy }
-						: {}),
+		return serializeStorage(this.storage, async () => {
+			const now = this.now();
+			const grants = await this.readReplayGrants();
+			let matched: ReplayGrant | null = null;
+			const next: ReplayGrant[] = [];
+			for (const grant of grants) {
+				if (grant.expiresAt <= now) continue;
+				if (
+					matched === null &&
+					grant.sessionKey === sessionKey &&
+					grant.codeHash === codeHash
+				) {
+					matched = grant;
+					continue;
 				}
-			: null;
+				next.push(grant);
+			}
+			await this.storage.put(REPLAY_GRANTS_KEY, JSON.stringify(next));
+			return matched
+				? {
+						sourceExecutionId: matched.sourceExecutionId,
+						...(matched.authorizedBy
+							? { authorizedBy: matched.authorizedBy }
+							: {}),
+					}
+				: null;
+		});
 	}
 
 	/** Remove `sessionKey`'s grant (and prune expired grants on write). */
 	async revokeSession(sessionKey: string): Promise<void> {
 		if (!sessionKey) return;
-		const now = this.now();
-		const next = (await this.readGrants()).filter(
-			(g) => g.sessionKey !== sessionKey && g.expiresAt > now,
-		);
-		await this.storage.put(ALLOWLIST_KEY, JSON.stringify(next));
+		return serializeStorage(this.storage, async () => {
+			const now = this.now();
+			const next = (await this.readGrants()).filter(
+				(g) => g.sessionKey !== sessionKey && g.expiresAt > now,
+			);
+			await this.storage.put(ALLOWLIST_KEY, JSON.stringify(next));
+		});
 	}
 
 	private async readGrants(): Promise<SessionGrant[]> {
+		const raw = await this.storage.get(ALLOWLIST_KEY);
 		try {
-			const raw = await this.storage.get(ALLOWLIST_KEY);
 			if (typeof raw !== "string") return [];
 			const parsed: unknown = JSON.parse(raw);
 			if (!Array.isArray(parsed)) return [];
@@ -220,8 +254,8 @@ export class CmSessionGate {
 	}
 
 	private async readReplayGrants(): Promise<ReplayGrant[]> {
+		const raw = await this.storage.get(REPLAY_GRANTS_KEY);
 		try {
-			const raw = await this.storage.get(REPLAY_GRANTS_KEY);
 			if (typeof raw !== "string") return [];
 			const parsed: unknown = JSON.parse(raw);
 			if (!Array.isArray(parsed)) return [];
