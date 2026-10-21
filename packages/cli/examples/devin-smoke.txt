@@ -4,6 +4,7 @@ launcher. Run `tedix auth status` and one bounded `tedix work list --limit 1`
 read. Summarize only the workspace and whether the read succeeded; never print
 credentials. CLI login and Devin MCP login are separate; this smoke needs only
 the existing CLI login. Do not create or modify Work, files, or external
-resources. Do not start an Attempt or authenticate. Finish with
+resources. Do not start an Attempt or authenticate. Never run tedix login.
+Finish with
 DEVIN_TEDIX_SMOKE_OK only if both reads succeeded; otherwise report the exact
 blocker.
