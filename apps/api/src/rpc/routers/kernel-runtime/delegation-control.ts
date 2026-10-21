@@ -536,6 +536,16 @@ export const respondApprovalRoute = authed.respondApproval
 		const approval = approvalRequestId
 			? await getApprovalRequestById(context.db, approvalRequestId)
 			: undefined;
+		// A tedi never decides an approval the kernel parked for a person: it
+		// would be approving its own request. Same rule as cognitiveRuntime.approve
+		// and the held-delegation path below; tedis decide through the Work
+		// approval plane.
+		if (approval && (context.authType === "tedi" || context.tediId)) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Tedis decide Home approvals through the Work approval plane, not respondApproval",
+			);
+		}
 		const codemodeApproval = approval
 			? parseCodemodeExecuteWritePayload(approval.payload)
 			: null;
