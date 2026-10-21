@@ -172,14 +172,26 @@ export function buildDeliveryUrl(
 }
 
 /**
- * Extract the Cloudflare image id from a stored delivery URL. Returns null for
- * URLs that aren't imagedelivery.net (e.g. legacy r2.dev URLs during migration),
- * so callers won't attempt to delete a non-CF asset.
+ * Extract the image id only from canonical HTTPS delivery URLs. Legacy and
+ * foreign URLs return null. This validates URL shape, not account ownership.
  */
 export function extractImageId(url: string | null | undefined): string | null {
 	if (!url) return null;
-	const match = url.match(
-		/imagedelivery\.net\/[^/]+\/([0-9a-fA-F-]{16,})(?:\/|$)/,
-	);
+	// URL parsing tolerates missing slashes, backslashes and stripped whitespace.
+	if (!/^https:\/\//i.test(url) || /[\s\\]/.test(url)) return null;
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return null;
+	}
+	if (
+		parsed.origin !== "https://imagedelivery.net" ||
+		parsed.username ||
+		parsed.password
+	) {
+		return null;
+	}
+	const match = parsed.pathname.match(/^\/[^/]+\/([0-9a-fA-F-]{16,})\/[^/]+$/);
 	return match?.[1] ?? null;
 }
