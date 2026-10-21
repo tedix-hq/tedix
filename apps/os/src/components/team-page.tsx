@@ -118,7 +118,7 @@ type TediRosterStatusFilter =
 	| NonNullable<TediType["status"]>
 	| "unknown";
 
-export type EntrustmentEffectiveStatus =
+type EntrustmentEffectiveStatus =
 	| "active"
 	| "restricted"
 	| "expired"
@@ -564,7 +564,7 @@ export function TeamPage({
 }
 
 /** The tedi roster — the surface /team has always rendered — as the first tab. */
-export function TediRosterPanel({
+function TediRosterPanel({
 	page = 1,
 	onPageChange,
 }: {
