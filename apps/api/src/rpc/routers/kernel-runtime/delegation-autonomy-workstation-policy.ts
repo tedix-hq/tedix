@@ -1,6 +1,7 @@
 import type { BaseContext } from "../../orpc";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { getApprovalRequestById } from "@tedix/db/queries/approvals";
+import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import {
 	approvalHeldDelegationIntent,
 	classifyWorkstationDispatch,
@@ -57,12 +58,17 @@ export async function reviewWorkstationDelegationAutonomy(
 			reason: "direct delegation policy or source is unavailable",
 			workstation: true,
 		};
+	const workItemId = stringFromPayload(metadata.workItemId);
+	const workItem = workItemId
+		? await getWorkItemById(context.db, workItemId, run.organizationId)
+		: null;
 	const decision = classifyWorkstationDispatch({
 		autonomy: policy.autonomy,
 		content: source,
 		explicitHumanDelegation: true,
 		hasActingUser: true,
 		runtimeRunning: null,
+		workItemRisk: workItem?.riskLevel,
 	});
 	const result = {
 		allowed: decision.autoDispatch,

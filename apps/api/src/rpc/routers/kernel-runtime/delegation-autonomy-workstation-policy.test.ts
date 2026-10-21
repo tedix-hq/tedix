@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../../orpc";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
-const mocks = vi.hoisted(() => ({ approval: vi.fn() }));
+const mocks = vi.hoisted(() => ({ approval: vi.fn(), workItem: vi.fn() }));
+vi.mock("@tedix/db/queries/work-items/crud", () => ({
+	getWorkItemById: mocks.workItem,
+}));
 vi.mock("@tedix/db/queries/approvals", () => ({
 	getApprovalRequestById: mocks.approval,
 }));
@@ -17,6 +20,7 @@ describe("direct pending delegation policy", () => {
 		vi.restoreAllMocks();
 		vi.clearAllMocks();
 		mocks.approval.mockResolvedValue({ orgId: "org" });
+		mocks.workItem.mockResolvedValue({ riskLevel: "medium" });
 	});
 	const context = { db: {} } as BaseContext;
 	function run(sourceContent: string, status = "requires_approval") {
@@ -25,6 +29,7 @@ describe("direct pending delegation policy", () => {
 			status,
 			metadata: {
 				approvalRequestId: "approval",
+				workItemId: "work",
 				delegationWorkOrder: { kind: "workstation.attach", sourceContent },
 			},
 		} as unknown as KernelRuntimeRun;
@@ -49,28 +54,42 @@ describe("direct pending delegation policy", () => {
 					?.allowed,
 			).toBe(false);
 	});
-	it.each([undefined, { orgId: "other" }])(
-		"closes a non-critical legacy record without a current organization approval: %s",
-		async (approval) => {
-			mocks.approval.mockResolvedValue(approval);
+	it("retains legacy approvals when no Work risk is available", async () => {
+		const legacy = run("Research");
+		legacy.metadata = { ...legacy.metadata, workItemId: undefined };
+		expect(
+			await reviewWorkstationDelegationAutonomy(context, legacy),
+		).toMatchObject({
+			allowed: false,
+			reason: "unknown risk requires human approval",
+		});
+		expect(mocks.workItem).not.toHaveBeenCalled();
+	});
+	it.each([
+		["low", true],
+		["medium", true],
+		["high", false],
+		["critical", false],
+		[null, false],
+	] as const)(
+		"rechecks the linked Work's %s risk",
+		async (riskLevel, allowed) => {
+			mocks.workItem.mockResolvedValue({ riskLevel });
 			expect(
 				await reviewWorkstationDelegationAutonomy(context, run("Research")),
-			).toMatchObject({ allowed: false, executionBlocked: true });
+			).toMatchObject({ allowed });
+			expect(mocks.workItem).toHaveBeenCalledWith(context.db, "work", "org");
 		},
 	);
-	it("does not close current-protocol records or interpret a lookup failure as absence", async () => {
-		mocks.approval.mockRejectedValue(new Error("database unavailable"));
+	it("keeps a missing Work risk unknown and propagates lookup failures", async () => {
+		mocks.workItem.mockResolvedValue(undefined);
+		expect(
+			await reviewWorkstationDelegationAutonomy(context, run("Research")),
+		).toMatchObject({ allowed: false });
+		mocks.workItem.mockRejectedValue(new Error("database unavailable"));
 		await expect(
 			reviewWorkstationDelegationAutonomy(context, run("Research")),
 		).rejects.toThrow("database unavailable");
-		const current = run("Research");
-		current.metadata = {
-			...current.metadata,
-			workItemId: "work",
-		};
-		expect(
-			(await reviewWorkstationDelegationAutonomy(context, current))?.allowed,
-		).toBe(true);
 	});
 	it.each(["row", "metadata", "receipt", "runtime"])(
 		"retains approvals once child execution evidence exists: %s",

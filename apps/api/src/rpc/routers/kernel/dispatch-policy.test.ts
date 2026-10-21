@@ -444,10 +444,56 @@ describe("autonomous workstation fail-closed inputs", () => {
 			).toBe(true);
 		},
 	);
-	it("classifies an explicit non-critical order without a route-planner risk", () => {
+	it.each(["low", "medium"] as const)(
+		"uses the Work item's %s risk when no route risk was planned",
+		(workItemRisk) => {
+			expect(
+				classifyWorkstationDispatch({
+					...base,
+					explicitHumanDelegation: false,
+					routeRisk: null,
+					workItemRisk,
+				}).autoDispatch,
+			).toBe(true);
+		},
+	);
+	it.each(["high", "critical"] as const)(
+		"requires approval for %s Work without a route risk",
+		(workItemRisk) => {
+			expect(
+				classifyWorkstationDispatch({ ...base, routeRisk: null, workItemRisk })
+					.autoDispatch,
+			).toBe(false);
+		},
+	);
+	it("keeps missing route and Work risk unknown even for explicit delegation", () => {
 		expect(
 			classifyWorkstationDispatch({ ...base, routeRisk: null }).autoDispatch,
-		).toBe(true);
+		).toBe(false);
+	});
+	it("retains a planned high risk over a low Work risk", () => {
+		expect(
+			classifyWorkstationDispatch({
+				...base,
+				routeRisk: "high",
+				workItemRisk: "low",
+			}).autoDispatch,
+		).toBe(false);
+	});
+	it.each([
+		{ hasActingUser: false },
+		{ content: "Email a customer" },
+		{ content: "" },
+		{ autonomy: { ...base.autonomy, askForClasses: ["delegation:embodied"] } },
+	])("retains authority and policy guards with Work risk: %j", (guard) => {
+		expect(
+			classifyWorkstationDispatch({
+				...base,
+				routeRisk: null,
+				workItemRisk: "low",
+				...guard,
+			}).autoDispatch,
+		).toBe(false);
 	});
 	it.each([true, false, null])(
 		"keeps runtime availability separate from standing consent: running=%s",

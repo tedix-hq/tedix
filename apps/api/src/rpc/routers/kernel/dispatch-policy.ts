@@ -77,6 +77,8 @@ export function classifyWorkstationDispatch(args: {
 	isolateWorkstationWarm?: boolean | null;
 	/** Kernel route risk when the route planner ran (null for explicit delegation). */
 	routeRisk?: "low" | "medium" | "high" | null;
+	/** Organization-scoped Work risk, used only when no route risk was planned. */
+	workItemRisk?: "low" | "medium" | "high" | "critical" | null;
 }): WorkstationDispatchDecision {
 	const reasons: string[] = [];
 	if (args.content && humanReservedActionClasses(args.content).length)
@@ -89,8 +91,7 @@ export function classifyWorkstationDispatch(args: {
 		const decision = decideAutonomousAction({
 			policy: args.autonomy,
 			risk: args.content
-				? (args.routeRisk ??
-					(args.explicitHumanDelegation ? "medium" : "unknown"))
+				? (args.routeRisk ?? args.workItemRisk ?? "unknown")
 				: "unknown",
 			content: args.content ?? "",
 			classId: "delegation:embodied",
