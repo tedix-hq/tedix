@@ -1,6 +1,11 @@
 import { MemoryConsolidationSchema } from "@tedix/api-contract/schemas/memory-observations";
 import type { Fact } from "@tedix/api-contract/schemas/memory-graph";
 import { Badge } from "@/components/kumo/badge";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
@@ -13,7 +18,7 @@ export function ObservationEvidence({ fact }: { fact: Fact }) {
 	if (!parsed.success) return null;
 	const meta = parsed.data;
 	return (
-		<article className="space-y-2 border-b py-4">
+		<article className="space-y-2 border-b border-kumo-line pb-4">
 			<div className="flex flex-wrap items-center gap-2">
 				<Badge>
 					{meta.kind === "standing_summary"
@@ -26,47 +31,50 @@ export function ObservationEvidence({ fact }: { fact: Fact }) {
 					{Math.round(fact.confidence * 100)}% confidence
 				</Text>
 			</div>
-			<Text>{fact.content}</Text>
-			<details>
-				<summary className="cursor-pointer text-sm">
-					Sources and refresh trace
-				</summary>
-				<div className="space-y-2 py-2 text-sm">
-					<p>
-						First seen:{" "}
-						{meta.firstSeen ? absoluteTime(meta.firstSeen) : "Unknown"}. Last
-						seen: {meta.lastSeen ? absoluteTime(meta.lastSeen) : "Unknown"}.
-					</p>
-					{meta.evidence.sources.map((source) => (
-						<blockquote key={source.id} className="border-l pl-3">
-							<p>{source.quote}</p>
-							<code className="break-all">{source.id}</code>
-						</blockquote>
-					))}
-					<p>
-						Refreshed {absoluteTime(meta.refresh.at)}:{" "}
-						{meta.refresh.reason.replaceAll("_", " ")}
-					</p>
-					{meta.refresh.previousText && (
-						<p>Previous text: {meta.refresh.previousText}</p>
-					)}
-					{meta.refresh.sourceFactIds.length > 0 && (
-						<p className="break-all">
-							Changed sources: {meta.refresh.sourceFactIds.join(", ")}
-						</p>
-					)}
-					{meta.refresh.removedSourceFactIds.length > 0 && (
-						<p className="break-all">
-							Removed sources: {meta.refresh.removedSourceFactIds.join(", ")}
-						</p>
-					)}
-					{meta.previousVersionId && (
-						<p className="break-all">
-							Previous version: {meta.previousVersionId}
-						</p>
-					)}
-				</div>
-			</details>
+			<Text className="whitespace-pre-wrap wrap-anywhere">{fact.content}</Text>
+			<Collapsible>
+				<CollapsibleTrigger>Sources and refresh trace</CollapsibleTrigger>
+				<CollapsibleContent keepMounted>
+					<div className="grid gap-2 py-2 wrap-anywhere">
+						<Text>
+							First seen:{" "}
+							{meta.firstSeen ? absoluteTime(meta.firstSeen) : "Unknown"}. Last
+							seen: {meta.lastSeen ? absoluteTime(meta.lastSeen) : "Unknown"}.
+						</Text>
+						{meta.evidence.sources.map((source) => (
+							<blockquote
+								key={source.id}
+								className="m-0 border-l border-kumo-line pl-4"
+							>
+								<Text>{source.quote}</Text>
+								<code className="break-all">{source.id}</code>
+							</blockquote>
+						))}
+						<Text>
+							Refreshed {absoluteTime(meta.refresh.at)}:{" "}
+							{meta.refresh.reason.replaceAll("_", " ")}
+						</Text>
+						{meta.refresh.previousText && (
+							<Text>Previous text: {meta.refresh.previousText}</Text>
+						)}
+						{meta.refresh.sourceFactIds.length > 0 && (
+							<Text className="wrap-anywhere">
+								Changed sources: {meta.refresh.sourceFactIds.join(", ")}
+							</Text>
+						)}
+						{meta.refresh.removedSourceFactIds.length > 0 && (
+							<Text className="wrap-anywhere">
+								Removed sources: {meta.refresh.removedSourceFactIds.join(", ")}
+							</Text>
+						)}
+						{meta.previousVersionId && (
+							<Text className="wrap-anywhere">
+								Previous version: {meta.previousVersionId}
+							</Text>
+						)}
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
 		</article>
 	);
 }

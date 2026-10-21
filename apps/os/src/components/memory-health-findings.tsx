@@ -96,15 +96,15 @@ export function graphLayerStatus(layer: MemoryHealthFindings["graphLayer"]): {
 } {
 	return layer.configured
 		? {
-				label: "Connected (projection only)",
+				label: "Connected",
 				detail:
-					"The Neo4j graph is rebuilt from D1 for graph views. D1 stays the record; this page reads D1 only.",
+					"The map is built from saved memories. Health checks use the saved records.",
 				variant: "success",
 			}
 		: {
-				label: "Paused (projection only)",
+				label: "Paused",
 				detail:
-					"The Neo4j graph layer is paused. Memory itself is unaffected: D1 is the record and every number on this page comes from it.",
+					"The map is paused. Your saved memories and health checks are unaffected.",
 				variant: "warning",
 			};
 }
@@ -184,6 +184,7 @@ function WhyWeBelieveThis({ sample }: { sample: MemoryHealthFindingSample }) {
 					<Button
 						size="sm"
 						variant="ghost"
+						className="min-h-11"
 						aria-label={`Why do we believe this: ${sample.text}`}
 					/>
 				}
@@ -350,7 +351,7 @@ function MemoryHealthFindingsList({ data }: { data: MemoryHealthFindings }) {
 				>
 					<span className="flex flex-wrap items-center gap-2">
 						<Text as="strong" role="body" weight="medium" tone="strong">
-							Graph layer (Neo4j)
+							Memory map
 						</Text>
 						<Badge variant={layer.variant}>{layer.label}</Badge>
 					</span>

@@ -64,7 +64,8 @@ describe("Memory Health tab", () => {
 		);
 		expect(html).toContain('aria-label="Memory health findings"');
 		expect(html).toContain("38 facts were not retrieved in the last 60 days");
-		expect(html).toContain("Graph layer (Neo4j)");
+		expect(html).toContain("Memory map");
+		expect(html).not.toContain("Neo4j");
 		expect(html).not.toContain("20 rows per page");
 		expect(html).not.toContain("Search memories");
 	});
