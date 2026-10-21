@@ -70,6 +70,12 @@ import {
 } from "@tedix/api-contract/utils/focus-feed";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
+import { CardSourceFilter } from "@/components/card-source-filter";
+import {
+	ALL_CARD_SOURCES,
+	cardSourceOptions,
+	matchesCardSource,
+} from "@/lib/card-source-filter";
 import { useTediNames } from "@/lib/use-tedi-names";
 import {
 	feedStoryActor,
@@ -166,6 +172,7 @@ export function FocusFeed({
 				? "No stalled work matches these filters."
 				: "No updates match these filters.";
 	const [sources, setSources] = useState<Record<string, FeedSourceState>>({});
+	const [cardSource, setCardSource] = useState(ALL_CARD_SOURCES);
 	const [request, setRequest] = useState(0);
 	const [now, setNow] = useState(() => new Date());
 	const [status, setStatus] = useState("");
@@ -240,10 +247,13 @@ export function FocusFeed({
 			(f) => `factory-${f.source.workspaceId}-${f.source.label}`,
 		),
 	];
-	const items: ActivityFeedItem[] = [
-		...Object.entries(sources)
-			.filter(([id]) => sourceIds.includes(id))
-			.flatMap(([, s]) => s.items),
+	const factoryOrigins = new Map(
+		factories.sources.map((f) => [
+			`factory-${f.source.workspaceId}-${f.source.label}`,
+			{ factory: f.source.label, workspaceId: f.source.workspaceId },
+		]),
+	);
+	const workItems: ActivityFeedItem[] = [
 		...correctionFeedItems(events, OS_COPY.feed),
 		...decisionFeedItems(decisions.requests, now),
 		...approvalFeedItems(decisions.work, now).map((item) => ({
@@ -272,6 +282,26 @@ export function FocusFeed({
 			}),
 		),
 	];
+	const items: ActivityFeedItem[] = [
+		...Object.entries(sources)
+			.filter(
+				([id]) =>
+					sourceIds.includes(id) &&
+					matchesCardSource(cardSource, factoryOrigins.get(id) ?? null),
+			)
+			.flatMap(([, s]) => s.items),
+		...(matchesCardSource(cardSource, null) ? workItems : []),
+	];
+	const sourceFilter = (
+		<CardSourceFilter
+			value={cardSource}
+			onValueChange={setCardSource}
+			options={cardSourceOptions(
+				factories.sources.map((f) => f.source),
+				factories.workspaceName,
+			)}
+		/>
+	);
 	const all = everythingFeed(
 		items.filter(
 			(i) => !navigation?.projectId || i.projectId === navigation.projectId,
@@ -690,6 +720,7 @@ export function FocusFeed({
 			{filtered ? (
 				<div className="focus-filter-heading">
 					<h2>{filterLabel}</h2>
+					{sourceFilter}
 					{navigation?.onFilterChange ? (
 						<Button
 							variant="ghost"
@@ -706,15 +737,18 @@ export function FocusFeed({
 				</div>
 			) : (
 				<div className="grid gap-2">
-					<SegmentedControl
-						ariaLabel="Feed order"
-						value={tab}
-						onValueChange={setTab}
-						options={[
-							{ value: "for_you", label: "For you" },
-							{ value: "everything", label: "Everything" },
-						]}
-					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<SegmentedControl
+							ariaLabel="Feed order"
+							value={tab}
+							onValueChange={setTab}
+							options={[
+								{ value: "for_you", label: "For you" },
+								{ value: "everything", label: "Everything" },
+							]}
+						/>
+						{sourceFilter}
+					</div>
 					<p className="focus-budget">
 						Worth your time today: {selection.selected.length}
 					</p>
