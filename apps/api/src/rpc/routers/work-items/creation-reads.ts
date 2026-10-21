@@ -79,6 +79,11 @@ export const createProcedure = authOs.create.handler(
 	async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		input = await prepareFactoryCycle(context.db, orgId, input);
+		if (input.factoryCard) {
+			const { prepareFactoryCard } =
+				await import("../../../services/factory-card-envelope");
+			input = await prepareFactoryCard(context, orgId, input);
+		}
 		let attemptedCreate = false;
 		try {
 			const project = input.projectId
