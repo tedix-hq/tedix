@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { DeckNotUsefulReason } from "@tedix/api-contract/schemas/deck-pipeline";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
+import {
+	DeckCardAgentContext,
+	useAgentRegistration,
+} from "@/lib/deck-card-agent";
 import { OS_COPY } from "@/shared/os-copy";
 import { Button } from "./kumo/button";
 import { Text } from "./kumo/text";
@@ -40,6 +44,31 @@ export function DeckNotUseful({
 				client.invalidateQueries({ queryKey: osQuery.attention.key() }),
 				client.invalidateQueries({ queryKey: osQuery.learningFeedback.key() }),
 			]),
+	});
+	useAgentRegistration(useContext(DeckCardAgentContext)?.notUseful, {
+		reasons: REASONS,
+		async mark(reason) {
+			if (!REASONS.includes(reason as DeckNotUsefulReason))
+				return {
+					ok: false,
+					error: `Unknown reason "${reason}". Reasons: ${REASONS.join(", ")}.`,
+				};
+			if (disabled || mark.isPending || mark.isSuccess)
+				return { ok: false, error: "This card cannot be marked right now." };
+			setOpen(true);
+			try {
+				await mark.mutateAsync(reason as DeckNotUsefulReason);
+				return { ok: true, status: "marked_not_useful" };
+			} catch (error) {
+				return {
+					ok: false,
+					error:
+						error instanceof Error
+							? error.message
+							: "The card could not be marked.",
+				};
+			}
+		},
 	});
 	if (mark.isSuccess)
 		return (

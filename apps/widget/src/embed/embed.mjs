@@ -315,6 +315,27 @@ import { createInFlightRequestCoalescer } from "./session-request";
 		// what it means, and the API signs it into the resulting capability.
 		const prepareConversationContext = options.prepareConversationContext;
 		const continueConversation = options.continueConversation;
+		/**
+		 * A host may offer Home, the router that picks the right tedi, as the
+		 * first and default target. Its turns go through the host's own Home
+		 * path instead of a signed tedi session.
+		 */
+		const HOME_TARGET = "home";
+		const homeTarget =
+			options.home && typeof options.home.turn === "function"
+				? {
+						label:
+							typeof options.home.label === "string" &&
+							options.home.label.trim()
+								? options.home.label.trim().slice(0, 40)
+								: "Home",
+						turn: options.home.turn,
+						transcript:
+							typeof options.home.transcript === "function"
+								? options.home.transcript
+								: null,
+					}
+				: null;
 		const historyProvider = options.history;
 		const transcriptProvider = options.transcript;
 		const deleteConversationProvider = options.deleteConversation;
@@ -653,21 +674,28 @@ import { createInFlightRequestCoalescer } from "./session-request";
 
 		const panel = root.querySelector(".tedix-panel");
 		const tediSelect = root.querySelector(".tedix-tedi-select");
-		let selectedTediId = null;
+		let selectedTediId = homeTarget ? HOME_TARGET : null;
 		let tediChoices = [];
+		const targetChoices = () =>
+			homeTarget
+				? [
+						{ id: HOME_TARGET, name: homeTarget.label },
+						...tediChoices.filter((choice) => choice.id !== HOME_TARGET),
+					]
+				: tediChoices;
 		const renderTediSelection = () => {
+			const choices = targetChoices();
 			tediSelect.replaceChildren(
-				...tediChoices.map((choice) => {
+				...choices.map((choice) => {
 					const option = document.createElement("option");
 					option.value = choice.id;
 					option.textContent = choice.name;
 					return option;
 				}),
 			);
-			tediSelect.hidden = tediChoices.length === 0;
+			tediSelect.hidden = choices.length === 0;
 			tediSelect.value = selectedTediId ?? "";
-			tediSelect.disabled =
-				busy || voiceState !== "idle" || tediChoices.length < 2;
+			tediSelect.disabled = busy || voiceState !== "idle" || choices.length < 2;
 			// Both pickers share every state transition that disables the composer,
 			// so driving one from the other keeps them from drifting apart.
 			renderModelSelection();
@@ -1265,6 +1293,14 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				let timeout = null;
 				try {
 					const read = async () => {
+						if (homeTarget?.transcript && next.tediId === HOME_TARGET) {
+							const messages = await homeTarget.transcript({
+								conversationId: id,
+							});
+							if (!messages?.length)
+								throw new Error("Conversation unavailable");
+							return messages;
+						}
 						if (typeof transcriptProvider === "function")
 							return await transcriptProvider({ conversationId: id });
 						reader = createEmbeddedClient(async () => {
@@ -1366,7 +1402,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 					.catch(() => setConnectionState("error"));
 			}
 		};
-		const reset = (nextTediId = null) => {
+		const reset = (nextTediId = homeTarget ? HOME_TARGET : null) => {
 			if (busy) return;
 			++hydrationVersion;
 			hydrating = false;
@@ -1425,7 +1461,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				busy ||
 				voiceState !== "idle" ||
 				queuedMessages.length ||
-				!tediChoices.some((choice) => choice.id === next)
+				!targetChoices().some((choice) => choice.id === next)
 			) {
 				renderTediSelection();
 				return;
@@ -1740,8 +1776,12 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			}
 		};
 		const requestEmbeddedSession = async (sessionConversationId) => {
-			const requestedTediId =
+			const conversationTarget =
 				conversations.get(sessionConversationId)?.tediId ?? selectedTediId;
+			// A Home conversation still opens a signed session for the roster and
+			// page tools; it binds to the host's default tedi, not to Home.
+			const requestedTediId =
+				conversationTarget === HOME_TARGET ? null : conversationTarget;
 			const verifySelection = (result) => {
 				const selection = result?.tediSelection;
 				if (requestedTediId && selection?.selectedTediId !== requestedTediId)
@@ -1755,8 +1795,10 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				)
 					throw new Error(t("tedi_selection_failed"));
 				if (selection && conversationId === sessionConversationId) {
-					selectedTediId = selection.selectedTediId;
-					activeConversation.tediId = selectedTediId;
+					if (conversationTarget !== HOME_TARGET) {
+						selectedTediId = selection.selectedTediId;
+						activeConversation.tediId = selectedTediId;
+					}
 					tediChoices = selection.tedis;
 					renderTediSelection();
 					persistThreads();
@@ -2269,6 +2311,24 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			let locallyFinalized = false;
 			let answer = "";
 			try {
+				if (homeTarget && selectedTediId === HOME_TARGET) {
+					const result = await homeTarget.turn({
+						conversationId,
+						text: content,
+						pageContext: turnPageContext,
+						signal: request.signal,
+					});
+					answer = typeof result?.text === "string" ? result.text.trim() : "";
+					if (!answer) throw new Error("Home returned no answer.");
+					pending.bubble.innerHTML = renderMarkdown(answer);
+					submittedAnswer = answer;
+					lastAssistantAnswer = answer;
+					reliability.lastTurnOutcome = "succeeded";
+					emit("answer-completed", {
+						durationMs: Math.max(0, Math.round(now() - turnStartedAt)),
+					});
+					return submittedAnswer;
+				}
 				const session = await waitForTurnPreparation(
 					getEmbeddedSession(),
 					request.signal,

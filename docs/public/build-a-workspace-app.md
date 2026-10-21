@@ -347,8 +347,24 @@ buttons; a WebMCP tool is available only while its app is open.
 ## Decision deck
 
 While the app is open, `get_decision_deck_card` reads the displayed card,
-options, consequences, reasoning, cited lessons and readiness. It is
-read-only; a browser agent cannot answer or approve human decisions.
+options, answer field, consequences, reasoning, cited lessons, readiness and
+the upcoming card ids. The other tools act on the card on screen through its
+own controls, so the person watches each change:
+
+| Tool                           | What it does                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `set_decision_deck_card`       | Shows a card the person named                                                    |
+| `set_decision_card_answer`     | Fills the answer or draft; nothing is saved                                      |
+| `set_decision_card_option`     | Selects an option for the person to review; nothing is saved                     |
+| `set_decision_card_later`      | Puts the card aside, like **Later**                                              |
+| `set_decision_card_not_useful` | Marks the card not useful with a reason; the Deck shows **Undo**                 |
+| `respond_decision_card`        | Submits the selected option; needs `confirmedByUser: true` and keeps the dialogs |
+
+Every action names the card id and fails for any card other than the one on
+screen. `respond_decision_card` submits only an option already selected with
+`set_decision_card_option`, and only when the person explicitly asked in chat
+to submit it. Cards that ask for confirmation still open the dialog for the
+person.
 
 `tedix:app/decision-deck` uses the same workspace renderer. Its manifest
 settings are `version: 1`, optional `projectId`, `limit` (default 50),

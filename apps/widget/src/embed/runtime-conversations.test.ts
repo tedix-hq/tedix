@@ -751,6 +751,94 @@ describe("tedi selection", () => {
 	});
 });
 
+describe("Home target", () => {
+	it("lists Home first and by default, and answers through the host's Home path", async () => {
+		const session = vi.fn(async (_request: Record<string, unknown>) =>
+			sessionResult({
+				tediSelection: {
+					selectedTediId: "worker-a",
+					tedis: [
+						{ id: "worker-a", name: "A" },
+						{ id: "worker-b", name: "B" },
+					],
+				},
+			}),
+		);
+		const turn = vi.fn(async (_input: Record<string, unknown>) => ({
+			text: "This card asks you to pick a vendor.",
+		}));
+		const w = await bootWidget({
+			options: { session, home: { label: "Home", turn } },
+		});
+		history.replaceState(null, "", "/work");
+		w.Tedix.context({
+			pathname: "/work",
+			title: "Work",
+			entity: { type: "decision-card", id: "req-1", label: "Pick a vendor" },
+		});
+		await w.open();
+		const select = w.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		expect([...select.options].map((option) => option.textContent)).toEqual([
+			"Home",
+			"A",
+			"B",
+		]);
+		expect(select.value).toBe("home");
+		// The roster session binds to the host default, never to Home.
+		expect(session).not.toHaveBeenCalledWith(
+			expect.objectContaining({ selectedTediId: "home" }),
+		);
+		await w.say("What is this card about?");
+		await settle();
+		expect(turn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				text: "What is this card about?",
+				pageContext: expect.objectContaining({
+					pathname: "/work",
+					entity: {
+						type: "decision-card",
+						id: "req-1",
+						label: "Pick a vendor",
+					},
+				}),
+			}),
+		);
+		expect(transport().streams).toHaveLength(0);
+		expect(w.$$(".tedix-message-assistant").at(-1)?.textContent).toContain(
+			"This card asks you to pick a vendor.",
+		);
+		expect(select.value).toBe("home");
+
+		select.value = "worker-b";
+		select.dispatchEvent(new Event("change"));
+		await settle();
+		expect(session).toHaveBeenLastCalledWith(
+			expect.objectContaining({ selectedTediId: "worker-b" }),
+		);
+		history.replaceState(null, "", "/");
+	});
+
+	it("keeps the tedi list unchanged when the host offers no Home path", async () => {
+		const w = await bootWidget({
+			options: {
+				session: vi.fn(async () =>
+					sessionResult({
+						tediSelection: {
+							selectedTediId: "worker-a",
+							tedis: [{ id: "worker-a", name: "A" }],
+						},
+					}),
+				),
+			},
+		});
+		await w.open();
+		const select = w.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		expect([...select.options].map((option) => option.value)).toEqual([
+			"worker-a",
+		]);
+	});
+});
+
 describe("a host-owned workspace conversation", () => {
 	it("hands the continuation to the host with an idempotency key instead of streaming", async () => {
 		const continueConversation = vi.fn(async () => ({

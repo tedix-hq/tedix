@@ -108,6 +108,13 @@ import {
 import { decisionCaptureSummary } from "@/lib/work-interaction-display";
 import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
+import {
+	createAgentSlot,
+	DeckCardAgentContext,
+	type DeckCardAgentHandle,
+	type DeckNotUsefulHandle,
+} from "@/lib/deck-card-agent";
+import { setPageFocus } from "@/lib/page-focus";
 import { attentionMetrics } from "@/lib/deck-attention";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-card";
@@ -180,6 +187,10 @@ function DecisionDeckContent({
 		globalThis.addEventListener("hashchange", sync);
 		return () => globalThis.removeEventListener("hashchange", sync);
 	}, []);
+	const [agentSlots] = useState(() => ({
+		card: createAgentSlot<DeckCardAgentHandle>(),
+		notUseful: createAgentSlot<DeckNotUsefulHandle>(),
+	}));
 	const [practice, setPractice] = useState<DecisionLearningReceipt[]>([]);
 	const [skipped, setSkipped] = useState<string[]>([]);
 	const decisions = useDecisionInbox(config);
@@ -445,6 +456,7 @@ function DecisionDeckContent({
 		mode === "decide" && focusCard
 			? filtered.find((row) => row.id === focusCard)
 			: filtered[Math.min(index, Math.max(0, filtered.length - 1))];
+	const selectedFocus = mode === "history" ? undefined : selected;
 	const railOpenedBeforeDecision = selected
 		? (rail?.openedBefore(selected.id) ?? false)
 		: false;
@@ -648,6 +660,60 @@ function DecisionDeckContent({
 			Math.max(0, filtered.findIndex((row) => row.id === selected?.id) - 1),
 		);
 	};
+	const later =
+		mode !== "history" && selected
+			? () => {
+					if (!practiceMode)
+						void osApi.learningFeedback
+							.recordInteraction({
+								clientEventId: crypto.randomUUID(),
+								eventKind: "ignored",
+								scope: { kind: "personal" },
+								surface: "decision_deck",
+								targetType: "work_interaction",
+								targetId: selected.id,
+								metadata: {
+									decisionClass: classId ?? selected.kind,
+									decisionChoice: "later",
+									...cardDecisionTiming(selectedViewKey),
+									sourceVersion: selectedSourceVersion,
+									railOpenedBeforeDecision:
+										railOpenedBeforeDecision ||
+										cardDetailsOpened(selectedViewKey),
+									reaction: "skip",
+									projectId: selected.project,
+								},
+							})
+							.then(async (result) => {
+								if (!result.duplicate && result.event?.id)
+									setSessionLearningId(result.event.id);
+								await client.invalidateQueries({
+									queryKey: osQuery.learningFeedback.key(),
+								});
+							})
+							.catch(() => {});
+					next();
+				}
+			: null;
+	const show = (cardId: string) => {
+		const position = filtered.findIndex((row) => row.id === cardId);
+		if (position < 0) return false;
+		if (mode === "decide") setFocusCard(cardId);
+		else setIndex(position);
+		return true;
+	};
+	useEffect(() => {
+		setPageFocus(
+			selectedFocus
+				? {
+						type: "decision-card",
+						id: selectedFocus.id,
+						label: selectedFocus.label,
+					}
+				: null,
+		);
+	}, [selectedFocus?.id, selectedFocus?.label]);
+	useEffect(() => () => setPageFocus(null), []);
 	useAppWebMcpTools(
 		"decision_deck",
 		{
@@ -662,6 +728,14 @@ function DecisionDeckContent({
 				: null,
 			readiness: learning,
 			remaining: available.length,
+			queue: filtered.slice(0, 20).map((row) => ({
+				id: row.id,
+				label: row.label.slice(0, 160),
+			})),
+			agent: agentSlots.card.get,
+			notUseful: agentSlots.notUseful.get,
+			later,
+			show,
 		},
 		buildDecisionDeckWebMcpTools,
 		[],
@@ -1126,42 +1200,7 @@ function DecisionDeckContent({
 														label={decisionText("Later")}
 														shortcut="L"
 													>
-														<Button
-															variant="outline"
-															onClick={() => {
-																if (!practiceMode)
-																	void osApi.learningFeedback
-																		.recordInteraction({
-																			clientEventId: crypto.randomUUID(),
-																			eventKind: "ignored",
-																			scope: { kind: "personal" },
-																			surface: "decision_deck",
-																			targetType: "work_interaction",
-																			targetId: selected.id,
-																			metadata: {
-																				decisionClass: classId ?? selected.kind,
-																				decisionChoice: "later",
-																				...cardDecisionTiming(selectedViewKey),
-																				sourceVersion: selectedSourceVersion,
-																				railOpenedBeforeDecision:
-																					railOpenedBeforeDecision ||
-																					cardDetailsOpened(selectedViewKey),
-																				reaction: "skip",
-																				projectId: selected.project,
-																			},
-																		})
-																		.then(async (result) => {
-																			if (!result.duplicate && result.event?.id)
-																				setSessionLearningId(result.event.id);
-																			await client.invalidateQueries({
-																				queryKey:
-																					osQuery.learningFeedback.key(),
-																			});
-																		})
-																		.catch(() => {});
-																next();
-															}}
-														>
+														<Button variant="outline" onClick={() => later?.()}>
 															{decisionText("Later")}
 														</Button>
 													</ShortcutTooltip>
@@ -1415,5 +1454,13 @@ function DecisionDeckContent({
 			</div>
 		</DecisionAttentionContext.Provider>,
 	);
-	return createElement(CardFaceContext.Provider, { value: faceState }, content);
+	return createElement(
+		CardFaceContext.Provider,
+		{ value: faceState },
+		createElement(
+			DeckCardAgentContext.Provider,
+			{ value: agentSlots },
+			content,
+		),
+	);
 }
