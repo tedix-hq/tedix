@@ -285,7 +285,6 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 	},
 	{
 		name: "workspaces",
-		aliases: ["workspace"],
 		surface: "local",
 		summary: "List saved workspace logins",
 		mutability: "read",

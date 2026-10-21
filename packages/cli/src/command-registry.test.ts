@@ -15,7 +15,8 @@ describe("top-level command registry", () => {
 	test("owns aliases and help without a parallel gateway catalog", () => {
 		expect(findTopLevelCommand("start")?.name).toBe("chat");
 		expect(findTopLevelCommand("rollback")?.name).toBe("rollback");
-		expect(findTopLevelCommand("workspace")?.name).toBe("workspaces");
+		expect(findTopLevelCommand("workspaces")?.name).toBe("workspaces");
+		expect(findTopLevelCommand("workspace")).toBeUndefined();
 		expect(topLevelHelp("code")).toContain("Gateway-native steps");
 		expect(topLevelHelp("tedi")).toContain("not the org gateway");
 	});
