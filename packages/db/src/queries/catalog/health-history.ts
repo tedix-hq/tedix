@@ -3,7 +3,7 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
 import {
 	appCatalogHealthHistory,
 	type CatalogHealthHistory,
@@ -41,30 +41,6 @@ export async function insertCatalogHealthHistory(
 	return created;
 }
 
-async function getCatalogHealthHistory(
-	db: Database,
-	catalogAppId: string,
-	options: { limit?: number; days?: number } = {},
-): Promise<CatalogHealthHistory[]> {
-	const { limit = 100, days } = options;
-
-	const conditions = [eq(appCatalogHealthHistory.catalogAppId, catalogAppId)];
-
-	if (days) {
-		const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-		conditions.push(
-			gte(appCatalogHealthHistory.checkedAt, cutoff.toISOString()),
-		);
-	}
-
-	return db
-		.select()
-		.from(appCatalogHealthHistory)
-		.where(and(...conditions))
-		.orderBy(desc(appCatalogHealthHistory.checkedAt))
-		.limit(limit);
-}
-
 /**
  * Calculate uptime percentage from health history
  * Only counts checks that affect uptime (healthy, degraded, unhealthy)
@@ -75,21 +51,32 @@ export async function calculateCatalogAppUptime(
 	catalogAppId: string,
 	days: number = 30,
 ): Promise<number | null> {
-	const history = await getCatalogHealthHistory(db, catalogAppId, { days });
+	const conditions = [
+		eq(appCatalogHealthHistory.catalogAppId, catalogAppId),
+		inArray(appCatalogHealthHistory.status, [
+			"healthy",
+			"degraded",
+			"unhealthy",
+		]),
+	];
+	if (days) {
+		const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+		conditions.push(
+			gte(appCatalogHealthHistory.checkedAt, cutoff.toISOString()),
+		);
+	}
 
-	// Only count checks that affect uptime
-	const countableChecks = history.filter(
-		(h) =>
-			h.status === "healthy" ||
-			h.status === "degraded" ||
-			h.status === "unhealthy",
-	);
+	const [totals] = await db
+		.select({
+			eligibleChecks: count().as("eligible_checks"),
+			upChecks:
+				sql<number>`count(case when ${appCatalogHealthHistory.status} in ('healthy', 'degraded') then 1 end)`.as(
+					"up_checks",
+				),
+		})
+		.from(appCatalogHealthHistory)
+		.where(and(...conditions));
 
-	if (countableChecks.length === 0) return null; // No data
-
-	const upChecks = countableChecks.filter(
-		(h) => h.status === "healthy" || h.status === "degraded",
-	);
-
-	return (upChecks.length / countableChecks.length) * 100;
+	if (!totals || totals.eligibleChecks === 0) return null;
+	return (totals.upChecks / totals.eligibleChecks) * 100;
 }
