@@ -1,5 +1,12 @@
 import { EntityAvatar } from "@/components/entity-avatar";
-import { Archive, Clock, Lock, SquaresFour, Star } from "@phosphor-icons/react";
+import {
+	Archive,
+	Clock,
+	Lock,
+	Question,
+	SquaresFour,
+	Star,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
@@ -37,7 +44,7 @@ import {
 	formatWorkspaceLastOpened,
 	groupWorkspaceLibrary,
 } from "@/lib/workspace-library";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 /** Initial workspace window; larger loaded libraries expand in 15-row steps. */
 export const WORKSPACES_VISIBLE_PAGE_SIZE = 15;
@@ -54,18 +61,51 @@ export function WorkspaceLibraryPage() {
 	const queryClient = useQueryClient();
 	const [view, setView] = useState<LibraryView>("active");
 	const [search, setSearch] = useState("");
+	const [restoredAt, setRestoredAt] = useState<ReadonlyMap<string, string>>(
+		new Map(),
+	);
+	const favoriteInFlight = useRef(false);
 	const [visibleLimit, setVisibleLimit] = useState(
 		WORKSPACES_VISIBLE_PAGE_SIZE,
 	);
 	const workspaces = useQuery(activeWorkspacesQueryOptions());
 	const preferences = useQuery(workspacePreferencesQueryOptions());
+	const [favoriteRefreshFailed, setFavoriteRefreshFailed] = useState(false);
 	const favorite = useMutation({
 		...osQuery.osWorkspaces.workspacePreferences.setFavorite.mutationOptions(),
-		onSuccess: () =>
-			queryClient.invalidateQueries({
-				queryKey: osQueryKeys.workspacePreferences(),
-			}),
+		onSettled: () => {
+			favoriteInFlight.current = false;
+		},
+		onSuccess: async ({ preference }) => {
+			try {
+				queryClient.setQueryData(
+					workspacePreferencesQueryOptions().queryKey,
+					(previous) =>
+						previous
+							? {
+									items: [
+										...previous.items.filter(
+											(item) => item.workspaceId !== preference.workspaceId,
+										),
+										preference,
+									],
+								}
+							: previous,
+				);
+				await queryClient.invalidateQueries(
+					{ queryKey: osQueryKeys.workspacePreferences() },
+					{ throwOnError: true },
+				);
+			} catch {
+				setFavoriteRefreshFailed(true);
+			}
+		},
 	});
+	const favoritesKnown = preferences.isSuccess && !favoriteRefreshFailed;
+	const retryFavorites = async () => {
+		const result = await preferences.refetch();
+		if (result.isSuccess) setFavoriteRefreshFailed(false);
+	};
 	const groups = groupWorkspaceLibrary(
 		workspaces.data?.items ?? [],
 		preferences.data?.items ?? [],
@@ -123,15 +163,89 @@ export function WorkspaceLibraryPage() {
 				) : null}
 			</div>
 
-			{view === "archived" ? <ArchivedWorkspaces /> : null}
+			{view === "archived" ? (
+				<ArchivedWorkspaces
+					restoredAt={restoredAt}
+					onRestored={(id, updatedAt) =>
+						setRestoredAt((previous) => new Map(previous).set(id, updatedAt))
+					}
+				/>
+			) : null}
 			{view === "active" && workspaces.isPending ? (
 				<ListSkeleton rows={4} />
 			) : null}
 			{view === "active" && workspaces.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Workspaces are unavailable</AlertTitle>
-					<AlertDescription>{workspaces.error.message}</AlertDescription>
+				<Alert variant={workspaces.data ? "warning" : "destructive"}>
+					<AlertTitle>
+						{workspaces.data
+							? "Workspaces could not refresh"
+							: "Workspaces are unavailable"}
+					</AlertTitle>
+					<AlertDescription className="break-words">
+						{workspaces.data ? "Showing previously loaded workspaces. " : null}
+						{workspaces.error.message}
+					</AlertDescription>
+					<Button
+						disabled={workspaces.isFetching}
+						onClick={() => void workspaces.refetch()}
+						variant="outline"
+					>
+						Retry workspaces
+					</Button>
 				</Alert>
+			) : null}
+			{view === "active" &&
+			(preferences.isPending ||
+				preferences.isError ||
+				favoriteRefreshFailed ||
+				favorite.isPending ||
+				favorite.isError ||
+				favorite.isSuccess) ? (
+				<div className="grid gap-4" aria-live="polite">
+					{preferences.isPending ? (
+						<Text role="body" tone="secondary">
+							Loading favorites… Workspace browsing is available.
+						</Text>
+					) : null}
+					{preferences.isError || favoriteRefreshFailed ? (
+						<Alert variant="warning">
+							<AlertTitle>
+								{favoriteRefreshFailed
+									? "Favorite saved; favorites could not refresh"
+									: "Favorites are unavailable"}
+							</AlertTitle>
+							<AlertDescription className="break-words">
+								Favorite state is unverified. You can still open workspaces.{" "}
+								{preferences.error?.message}
+							</AlertDescription>
+							<Button
+								disabled={preferences.isFetching}
+								onClick={() => void retryFavorites()}
+								variant="outline"
+							>
+								Retry favorites
+							</Button>
+						</Alert>
+					) : null}
+					{favorite.isPending ? (
+						<Text role="body" tone="secondary">
+							Saving favorite…
+						</Text>
+					) : null}
+					{favorite.isError ? (
+						<Alert variant="destructive">
+							<AlertTitle>Could not save favorite</AlertTitle>
+							<AlertDescription className="break-words">
+								{favorite.error.message}
+							</AlertDescription>
+						</Alert>
+					) : null}
+					{favorite.isSuccess && !favoriteRefreshFailed ? (
+						<Text role="body" tone="secondary">
+							Favorite saved.
+						</Text>
+					) : null}
+				</div>
 			) : null}
 			{view === "active" &&
 			workspaces.data &&
@@ -166,13 +280,13 @@ export function WorkspaceLibraryPage() {
 													className="size-9"
 												/>
 												<span className="grid min-w-0 flex-1 gap-0.5">
-													<span className="flex min-w-0 items-center gap-2">
+													<span className="flex min-w-0 flex-wrap items-center gap-2">
 														<Text
 															as="strong"
 															role="body"
 															weight="medium"
 															tone="strong"
-															className="truncate"
+															className="break-words [overflow-wrap:anywhere]"
 														>
 															{workspace.name}
 														</Text>
@@ -184,7 +298,7 @@ export function WorkspaceLibraryPage() {
 														as="span"
 														role="label"
 														tone="secondary"
-														className="truncate"
+														className="break-words [overflow-wrap:anywhere]"
 													>
 														{workspace.description || "No description"}
 													</Text>
@@ -201,26 +315,47 @@ export function WorkspaceLibraryPage() {
 												) : null}
 											</Link>
 											<Button
-												aria-label={`${preference?.favorite ? "Remove" : "Add"} ${workspace.name} ${preference?.favorite ? "from" : "to"} favorites`}
-												title={`${preference?.favorite ? "Remove from" : "Add to"} favorites`}
-												className={
-													preference?.favorite
-														? "text-kumo-link"
-														: "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 coarse:opacity-100"
+												aria-label={
+													favoritesKnown
+														? `${preference?.favorite ? "Remove" : "Add"} ${workspace.name} ${preference?.favorite ? "from" : "to"} favorites`
+														: `Favorites unavailable for ${workspace.name}`
 												}
-												onClick={() =>
+												aria-pressed={
+													favoritesKnown
+														? (preference?.favorite ?? false)
+														: undefined
+												}
+												title={
+													favoritesKnown
+														? `${preference?.favorite ? "Remove from" : "Add to"} favorites`
+														: "Favorite state is unverified"
+												}
+												disabled={!favoritesKnown || favorite.isPending}
+												className={
+													favoritesKnown && preference?.favorite
+														? "text-kumo-link"
+														: "text-kumo-subtle"
+												}
+												onClick={() => {
+													if (!favoritesKnown || favoriteInFlight.current)
+														return;
+													favoriteInFlight.current = true;
 													favorite.mutate({
 														workspaceId: workspace.id,
 														favorite: !(preference?.favorite ?? false),
-													})
-												}
+													});
+												}}
 												size="icon-sm"
 												variant="ghost"
 											>
-												<Star
-													size={15}
-													weight={preference?.favorite ? "fill" : "regular"}
-												/>
+												{favoritesKnown ? (
+													<Star
+														size={15}
+														weight={preference?.favorite ? "fill" : "regular"}
+													/>
+												) : (
+													<Question size={15} />
+												)}
 											</Button>
 										</li>
 									);
@@ -254,13 +389,13 @@ export function WorkspaceLibraryPage() {
 								</div>
 							) : null}
 						</>
-					) : (
+					) : workspaces.isSuccess ? (
 						<Empty appearance="quiet">
 							<EmptyDescription>
-								No workspaces match “{search.trim()}”.
+								No loaded workspaces match “{search.trim()}”.
 							</EmptyDescription>
 						</Empty>
-					)}
+					) : null}
 					{workspaces.data.truncated ? (
 						<Text role="body" tone="secondary" className="m-0">
 							Showing the first {workspaces.data.items.length}{" "}
@@ -272,15 +407,22 @@ export function WorkspaceLibraryPage() {
 			) : null}
 			{view === "active" &&
 			workspaces.data &&
+			workspaces.isSuccess &&
 			workspaces.data.items.length === 0 ? (
 				<Empty appearance="quiet">
 					<EmptyHeader>
 						<EmptyMedia variant="icon">
 							<SquaresFour size={20} />
 						</EmptyMedia>
-						<EmptyTitle>No workspaces yet</EmptyTitle>
+						<EmptyTitle>
+							{workspaces.data.truncated
+								? "No workspaces in this loaded page"
+								: "No workspaces yet"}
+						</EmptyTitle>
 						<EmptyDescription>
-							Create a workspace or start from a template.
+							{workspaces.data.truncated
+								? "More workspaces may exist beyond this page."
+								: "Create a workspace or start from a template."}
 						</EmptyDescription>
 					</EmptyHeader>
 					<Button
@@ -301,107 +443,197 @@ export function WorkspaceLibraryPage() {
  * own status, so a restore returns its outputs, gadgets and resources as they
  * were; the shared `workspaces()` key refreshes every list at once.
  */
-function ArchivedWorkspaces() {
+function ArchivedWorkspaces({
+	restoredAt,
+	onRestored,
+}: {
+	restoredAt: ReadonlyMap<string, string>;
+	onRestored: (id: string, updatedAt: string) => void;
+}) {
 	const queryClient = useQueryClient();
 	const archived = useQuery(archivedWorkspacesQueryOptions());
+	const [restoreRefreshFailed, setRestoreRefreshFailed] = useState(false);
+	const restoreInFlight = useRef(false);
 	const restore = useMutation({
 		...osQuery.osWorkspaces.workspaces.restore.mutationOptions(),
-		onSuccess: () =>
-			queryClient.invalidateQueries({ queryKey: osQueryKeys.workspaces() }),
+		onSettled: () => {
+			restoreInFlight.current = false;
+		},
+		onSuccess: async ({ workspace }, variables) => {
+			onRestored(variables.workspaceId, workspace.updatedAt);
+			try {
+				queryClient.setQueryData(
+					archivedWorkspacesQueryOptions().queryKey,
+					(previous) =>
+						previous
+							? {
+									...previous,
+									items: previous.items.filter(
+										(workspace) => workspace.id !== variables.workspaceId,
+									),
+								}
+							: previous,
+				);
+				await queryClient.invalidateQueries(
+					{ queryKey: osQueryKeys.workspaces() },
+					{ throwOnError: true },
+				);
+				setRestoreRefreshFailed(false);
+			} catch {
+				setRestoreRefreshFailed(true);
+			}
+		},
 	});
+	const retryArchive = async () => {
+		const result = await archived.refetch();
+		if (result.isSuccess) setRestoreRefreshFailed(false);
+	};
 
+	const visibleArchived =
+		archived.data?.items.filter((workspace) => {
+			const confirmedRestore = restoredAt.get(workspace.id);
+			return (
+				!confirmedRestore ||
+				Date.parse(workspace.updatedAt) > Date.parse(confirmedRestore)
+			);
+		}) ?? [];
 	if (archived.isPending) return <ListSkeleton rows={4} />;
-	if (archived.isError) {
-		return (
-			<Alert variant="destructive">
-				<AlertTitle>Archived workspaces are unavailable</AlertTitle>
-				<AlertDescription>{archived.error.message}</AlertDescription>
-			</Alert>
-		);
-	}
-	if (archived.data.items.length === 0) {
-		return (
-			<Empty appearance="quiet">
-				<EmptyHeader>
-					<EmptyMedia variant="icon">
-						<Archive size={20} />
-					</EmptyMedia>
-					<EmptyTitle>No archived workspaces</EmptyTitle>
-					<EmptyDescription>
-						Archived workspaces appear here, and you can restore them with their
-						outputs and apps.
-					</EmptyDescription>
-				</EmptyHeader>
-			</Empty>
-		);
-	}
+
 	return (
 		<div className="grid gap-4">
+			{archived.isError || restoreRefreshFailed ? (
+				<Alert variant="warning">
+					<AlertTitle>
+						{restoreRefreshFailed
+							? "Workspace restored; some workspace lists could not refresh"
+							: archived.data
+								? "Archived workspaces could not refresh"
+								: "Archived workspaces are unavailable"}
+					</AlertTitle>
+					<AlertDescription className="break-words">
+						{archived.data ? "Showing previously loaded workspaces. " : null}
+						{archived.error?.message}
+					</AlertDescription>
+					<Button
+						disabled={archived.isFetching}
+						onClick={() => void retryArchive()}
+						variant="outline"
+					>
+						Retry archived workspaces
+					</Button>
+				</Alert>
+			) : null}
+			{restore.isSuccess && !restoreRefreshFailed ? (
+				<Text role="body" tone="secondary">
+					Workspace restored.
+				</Text>
+			) : null}
+			{archived.isSuccess &&
+			!restoreRefreshFailed &&
+			archived.data.items.length === 0 ? (
+				<Empty appearance="quiet">
+					<EmptyHeader>
+						<EmptyMedia variant="icon">
+							<Archive size={20} />
+						</EmptyMedia>
+						<EmptyTitle>
+							{archived.data.truncated
+								? "No archived workspaces in this loaded page"
+								: "No archived workspaces"}
+						</EmptyTitle>
+						<EmptyDescription>
+							{archived.data.truncated
+								? "More archived workspaces may exist beyond this page."
+								: "Archived workspaces appear here, and you can restore them with their outputs and apps."}
+						</EmptyDescription>
+					</EmptyHeader>
+				</Empty>
+			) : null}
 			{restore.isError ? (
 				<Alert variant="destructive">
 					<AlertTitle>Could not restore the workspace</AlertTitle>
 					<AlertDescription>{restore.error.message}</AlertDescription>
 				</Alert>
 			) : null}
-			<Collection aria-label="Archived workspaces">
-				{archived.data.items.map((workspace) => {
-					const restoring =
-						restore.isPending &&
-						restore.variables?.workspaceId === workspace.id;
-					return (
-						<li
-							className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-3"
-							key={workspace.id}
-						>
-							<EntityAvatar
-								id={workspace.id}
-								name={workspace.name}
-								role={
-									workspace.visibility === "private" ? "private" : undefined
-								}
-								kind="workspace"
-								className="size-9"
-							/>
-							<span className="grid min-w-0 flex-1 gap-0.5">
-								<span className="flex min-w-0 items-center gap-2">
-									<Text
-										as="strong"
-										role="body"
-										weight="medium"
-										tone="strong"
-										className="truncate"
-									>
-										{workspace.name}
-									</Text>
-									{workspace.visibility === "private" ? (
-										<PrivateWorkspaceBadge />
-									) : null}
-								</span>
-								<Text
-									as="span"
-									role="label"
-									tone="secondary"
-									className="truncate"
-								>
-									Archived {new Date(workspace.updatedAt).toLocaleDateString()}
-								</Text>
-							</span>
-							<Button
-								aria-label={`Restore ${workspace.name}`}
-								disabled={restoring}
-								onClick={() => restore.mutate({ workspaceId: workspace.id })}
-								size="sm"
-								variant="outline"
+			{restoredAt.size > 0 && visibleArchived.length === 0 ? (
+				<Text role="body" tone="secondary">
+					Restored workspaces are no longer in this archive list.
+				</Text>
+			) : null}
+			{visibleArchived.length > 0 ? (
+				<Collection aria-label="Archived workspaces">
+					{visibleArchived.map((workspace) => {
+						const restoring =
+							restore.isPending &&
+							restore.variables?.workspaceId === workspace.id;
+						return (
+							<li
+								className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-3"
+								key={workspace.id}
 							>
-								{restoring ? "Restoring…" : "Restore"}
-							</Button>
-						</li>
-					);
-				})}
-			</Collection>
-			{archived.data.truncated ? (
+								<EntityAvatar
+									id={workspace.id}
+									name={workspace.name}
+									role={
+										workspace.visibility === "private" ? "private" : undefined
+									}
+									kind="workspace"
+									className="size-9"
+								/>
+								<span className="grid min-w-0 flex-1 gap-0.5">
+									<span className="flex min-w-0 flex-wrap items-center gap-2">
+										<Text
+											as="strong"
+											role="body"
+											weight="medium"
+											tone="strong"
+											className="break-words [overflow-wrap:anywhere]"
+										>
+											{workspace.name}
+										</Text>
+										{workspace.visibility === "private" ? (
+											<PrivateWorkspaceBadge />
+										) : null}
+									</span>
+									<Text
+										as="span"
+										role="label"
+										tone="secondary"
+										className="break-words [overflow-wrap:anywhere]"
+									>
+										Archived{" "}
+										{new Date(workspace.updatedAt).toLocaleDateString()}
+									</Text>
+								</span>
+								<Button
+									aria-label={`Restore ${workspace.name}`}
+									disabled={
+										restore.isPending ||
+										restoreRefreshFailed ||
+										archived.isError
+									}
+									onClick={() => {
+										if (restoreInFlight.current) return;
+										restoreInFlight.current = true;
+										restore.mutate({ workspaceId: workspace.id });
+									}}
+									size="sm"
+									variant="outline"
+								>
+									{restoring ? "Restoring…" : "Restore"}
+								</Button>
+							</li>
+						);
+					})}
+				</Collection>
+			) : null}
+			{archived.data?.truncated ? (
 				<Text role="body" tone="secondary" className="m-0">
-					Showing the first {archived.data.items.length} archived workspaces.
+					{visibleArchived.length > 0 ? (
+						<>Showing the first {visibleArchived.length} archived workspaces.</>
+					) : (
+						"Archive results are limited to the loaded page. Refresh to check for more."
+					)}
 				</Text>
 			) : null}
 		</div>
