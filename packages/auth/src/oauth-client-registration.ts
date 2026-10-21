@@ -22,6 +22,13 @@ export const TEDIX_CLI_OAUTH_CLIENT_ID =
 export const TEDIX_DEVIN_OAUTH_CLIENT_ID =
 	"https://os.tedix.dev/.well-known/oauth-client/devin.json";
 
+/** OpenCode cannot fall back to dynamic registration here; its MCP config names this CIMD id. */
+export const TEDIX_OPENCODE_OAUTH_CLIENT_ID =
+	"https://os.tedix.dev/.well-known/oauth-client/opencode.json";
+/** OpenCode's default MCP OAuth loopback callback. */
+export const TEDIX_OPENCODE_OAUTH_REDIRECT_URI =
+	"http://127.0.0.1:19876/mcp/oauth/callback";
+
 /** Stable CIMD identity used for catalog-bound outbound MCP connections. */
 export const TEDIX_OUTBOUND_MCP_OAUTH_CLIENT_ID =
 	"https://api.tedix.dev/.well-known/oauth-client/tedix-mcp.json";

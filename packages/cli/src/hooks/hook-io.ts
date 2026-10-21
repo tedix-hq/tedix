@@ -98,7 +98,7 @@ export function hostEvent(
 		identities.some(
 			(value) =>
 				typeof value !== "string" ||
-				!(env.TEDIX_HOOK_HOST === "devin"
+				!(env.TEDIX_HOOK_HOST === "devin" || env.TEDIX_HOOK_HOST === "opencode"
 					? isHostSessionId(value)
 					: UUID.test(value)),
 		) ||

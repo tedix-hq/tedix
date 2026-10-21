@@ -27,6 +27,7 @@ import {
 } from "./devin-event";
 import { devinPermissionBlock } from "./devin-permission";
 import { skipDevinPluginHook } from "./devin-plugin";
+import { OPENCODE_HOOKS, opencodeHookEvent } from "./opencode-event";
 
 export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix plugin)
 
@@ -41,6 +42,9 @@ export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix pl
   tedix hooks await-reply     Stop (Claude Code asyncRewake): wake on a Tedix OS answer or auto reply (opt-in)
   tedix hooks await-draft     Stop (Codex only): continue with a tedi auto reply, 5 min max (opt-in)
   tedix hooks status          Turn boundaries: local turn status, notification and report (opt-in)
+
+The OpenCode plugin runs session-start, prompt-context and situational-recall
+with --host opencode and its native ses_ session id.
 
 Each reads one host event JSON object on stdin and exits 0; await-reply exits 2
 with the answer on stderr when the user answers in Tedix OS or a tedi auto
@@ -91,6 +95,12 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 	if (devin && args.length !== (plugin ? 4 : 3)) return 1;
 	if (plugin && skipDevinPluginHook(args[0]!, process.env)) return 0;
 	if (devin) args = [args[0]!];
+	const opencode = args[1] === "--host" && args[2] === "opencode";
+	if (opencode) {
+		// Fail open like an unknown hook: exit 1 never blocks an OpenCode turn.
+		if (args.length !== 3 || !OPENCODE_HOOKS.has(args[0]!)) return 1;
+		args = [args[0]!];
+	}
 	const name = args[0];
 	if (!name || name === "--help" || name === "-h") {
 		console.log(hooksUsage);
@@ -125,9 +135,11 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		return 0;
 	}
 	let env = process.env;
-	if (devin) {
+	if (devin || opencode) {
 		try {
-			const normalized = devinHookEvent(stdin, env);
+			const normalized = devin
+				? devinHookEvent(stdin, env)
+				: opencodeHookEvent(stdin, env);
 			stdin = normalized.stdin;
 			env = normalized.env;
 		} catch {

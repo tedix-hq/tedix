@@ -93,6 +93,17 @@
 			]
 		},
 		{
+			"id": "agent-session",
+			"kind": "boundary",
+			"prompt": "Which Agent-Session would a Tedix coding Attempt in this chat record?",
+			"precondition": "A local host with the Tedix CLI: Claude Code, Codex, Devin or OpenCode.",
+			"expect": [
+				"Name the host's own native session, such as opencode:<ses_ id> in OpenCode",
+				"Do not invent, reuse or relabel another harness's session",
+				"Do not run tedix agent start or start an Attempt to answer"
+			]
+		},
+		{
 			"id": "local-hook",
 			"kind": "boundary",
 			"prompt": "Confirm this cloud chat received the local Tedix startup hook.",

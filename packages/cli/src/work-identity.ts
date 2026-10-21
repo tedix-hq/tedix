@@ -112,6 +112,7 @@ const KNOWN_AGENT_HARNESSES = new Set([
 	"codex",
 	"devin",
 	"cursor",
+	"opencode",
 	"cli",
 ]);
 

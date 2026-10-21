@@ -23,7 +23,7 @@ const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/;
 
 /** An explicit harness selection wins; conflicting inherited host ids are ignored. */
 export function scopeSession(env: NodeJS.ProcessEnv): string | undefined {
-	const explicit = /^(?:codex|claude-code|devin|chatgpt):(.+)$/.exec(
+	const explicit = /^(?:codex|claude-code|devin|opencode|chatgpt):(.+)$/.exec(
 		env.TEDIX_AGENT_SESSION ?? "",
 	)?.[1];
 	if (explicit)
@@ -53,7 +53,7 @@ export function scopeFromWorkResult(
 	const owned =
 		session &&
 		typeof attempt.externalSessionKey === "string" &&
-		attempt.externalSessionKey.endsWith(`:${session}`);
+		attempt.externalSessionKey.toLowerCase().endsWith(`:${session}`);
 	const workItemId = attempt.workItemId ?? item.id;
 	const expiry =
 		typeof attempt.expiresAt === "string" ? Date.parse(attempt.expiresAt) : 0;
