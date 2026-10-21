@@ -127,9 +127,7 @@ describe("Setup", () => {
 	it("distinguishes no configured requirements from verified readiness", () => {
 		expect(
 			markup(<SetupChecklist setup={{ ...setup, items: [] }} />).textContent,
-		).toContain(
-			"No setup requirements are declared in this tedi’s configuration.",
-		);
+		).toContain("No setup requirements are configured.");
 	});
 	it("shows unavailable without claiming ready", () => {
 		expect(markup(<SetupChip tediId="worker" failed />).textContent).toContain(

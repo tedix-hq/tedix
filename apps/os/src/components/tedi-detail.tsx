@@ -272,22 +272,24 @@ export function TediWiringView({
 		}
 	};
 	return (
-		<PageSection id="wiring" className="md:col-span-2 scroll-mt-6">
+		<PageSection id="wiring" className="scroll-mt-6">
 			<SectionHeader>
 				<SectionHeading>
 					<SectionTitle>Wiring</SectionTitle>
 					<SectionDescription>
-						What this tedi is connected to, written from its current
-						configuration.
+						Current connections and configuration.
 					</SectionDescription>
 				</SectionHeading>
 				<Button variant="outline" size="sm" onClick={() => void copy()}>
 					Copy as Markdown
 				</Button>
 			</SectionHeader>
-			<div className="grid gap-4 md:grid-cols-2">
+			<div className="grid min-w-0 gap-4 md:grid-cols-2">
 				{wiring.sections.map((section) => (
-					<div key={section.id} className="grid content-start gap-1">
+					<div
+						key={section.id}
+						className="grid min-w-0 content-start gap-1 [overflow-wrap:anywhere]"
+					>
 						<Text role="body" weight="semibold">
 							{section.title}
 						</Text>
@@ -307,19 +309,16 @@ export function TediWiringView({
 	);
 }
 
-function TediWiringSection({ tediId }: { tediId: string }) {
+export function TediOverview({ tediId }: { tediId: string }) {
 	const tediQuery = useQuery(tediDetailQueryOptions(tediId));
 	const setupQuery = useQuery(tediSetupQueryOptions(tediId));
-	if (!tediQuery.data) return null;
-	return <TediWiringView tedi={tediQuery.data} setup={setupQuery.data} />;
-}
-
-export function TediOverview({ tediId }: { tediId: string }) {
 	return (
-		<div className="grid gap-4 md:grid-cols-2">
+		<div className="grid min-w-0 gap-8">
 			<TediSetupChecklist tediId={tediId} />
-			<TediWiringSection tediId={tediId} />
-			<Collapsible className="md:col-span-2">
+			{tediQuery.data && (
+				<TediWiringView tedi={tediQuery.data} setup={setupQuery.data} />
+			)}
+			<Collapsible>
 				<CollapsibleTrigger>Technical details</CollapsibleTrigger>
 				<CollapsibleContent className="grid gap-4 p-1 -m-1">
 					<Text role="label" tone="secondary" className="break-all">
