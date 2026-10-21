@@ -45,9 +45,8 @@ export interface WorkItemPromotionRef {
  * Idempotency-key store. The runtime injects a DO-SQLite-backed implementation;
  * `has`/`add` gate re-promotion of the same intent across turns and restarts.
  *
- * `countForSession` (optional) backs the per-session rolling promotion cap — the
- * only layer that bounds promotions across MANY turns. It is optional so a store
- * that cannot count degrades gracefully to the per-turn budget only.
+ * `countForSession` backs the optional per-session rolling cap. Runtime calls
+ * also supply a runId and require `reservePromotion` before creating Work.
  */
 export interface WorkItemPromotionStore {
 	has(idempotencyKey: string): Promise<boolean>;
@@ -57,6 +56,7 @@ export interface WorkItemPromotionStore {
 		sessionKey?: string,
 	): Promise<void>;
 	countForSession?(sessionKey: string): Promise<number>;
+	reservePromotion?(runId: string, idempotencyKey: string): Promise<boolean>;
 }
 
 interface Logger {
@@ -238,9 +238,9 @@ export const DEFAULT_SESSION_PROMOTION_CAP = 20;
  * Promotion budget (defense-in-depth backstop, independent of the commitment
  * gate above): at most `maxPromotionsPerTurn` Work Items per turn (the
  * highest-confidence candidates win), and — when the store can count — at most
- * `sessionCap` per session over a rolling window. A future prompt/model drift
- * that re-floods 5 confident candidates/turn can never again dump dozens of
- * accepted Work Items. Budget skips are reported as `deferred`; idempotent
+ * `sessionCap` per session over a rolling window. Run-bound calls additionally
+ * reserve durable per-run and tedi-wide daily capacity before each RPC.
+ * Budget skips are reported as `deferred`; idempotent
  * re-promotion skips (`store.has`) are not.
  */
 export async function promoteWorkItems(params: {
@@ -248,6 +248,7 @@ export async function promoteWorkItems(params: {
 	platform: PlatformClient;
 	store: WorkItemPromotionStore;
 	sessionKey: string;
+	runId?: string;
 	maxPromotionsPerTurn?: number;
 	sessionCap?: number;
 	logger?: Logger;
@@ -277,8 +278,7 @@ export async function promoteWorkItems(params: {
 		.slice(0, maxPromotionsPerTurn);
 	result.deferred += allCandidates.length - candidates.length;
 
-	// Per-session rolling budget (the only cross-turn bound). Fail-soft: if the
-	// store cannot count, fall back to the per-turn cap alone.
+	// The optional session count does not replace the durable run/day reservation.
 	let sessionCapActive = typeof store.countForSession === "function";
 	let sessionPromoted = 0;
 	if (sessionCapActive && store.countForSession) {
@@ -303,6 +303,15 @@ export async function promoteWorkItems(params: {
 			intent.idempotencyKey ?? stableIntentKey(intent, sessionKey);
 		try {
 			if (await store.has(idempotencyKey)) continue;
+			// Reserve before the RPC: failures and uncertain writes still consume
+			// capacity, so retries and overlapping observer passes cannot flood Work.
+			if (
+				params.runId &&
+				!(await store.reservePromotion?.(params.runId, idempotencyKey))
+			) {
+				result.deferred += 1;
+				continue;
+			}
 			const workItem = await platform.createWorkItem({
 				title: intent.title,
 				description: intent.evidence.join("\n") || undefined,

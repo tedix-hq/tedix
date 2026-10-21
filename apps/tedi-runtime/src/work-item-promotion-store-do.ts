@@ -119,4 +119,34 @@ export class DoWorkItemPromotionStore implements WorkItemPromotionStore {
 		`;
 		return rows[0]?.c ?? 0;
 	}
+
+	/** Three attempts per run and twenty per rolling day, shared by all sessions.
+	 * Keep reservations separate from evictable dedup rows and retain uncertain
+	 * RPC attempts: a timeout does not prove that Work creation failed.
+	 */
+	async reservePromotion(
+		runId: string,
+		idempotencyKey: string,
+	): Promise<boolean> {
+		this.runner.sql`
+			CREATE TABLE IF NOT EXISTS work_item_promotion_reservations (
+				idempotency_key TEXT PRIMARY KEY,
+				run_id TEXT NOT NULL,
+				ts INTEGER NOT NULL
+			)
+		`;
+		const now = Date.now();
+		const since = now - 24 * 60 * 60 * 1000;
+		const rows = this.runner.sql<{ idempotency_key: string }>`
+			INSERT OR IGNORE INTO work_item_promotion_reservations
+				(idempotency_key, run_id, ts)
+			SELECT ${idempotencyKey}, ${runId}, ${now}
+			WHERE (SELECT COUNT(*) FROM work_item_promotion_reservations
+				WHERE run_id = ${runId}) < 3
+			AND (SELECT COUNT(*) FROM work_item_promotion_reservations
+				WHERE ts >= ${since}) < 20
+			RETURNING idempotency_key
+		`;
+		return rows.length === 1;
+	}
 }
