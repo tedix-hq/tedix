@@ -14,6 +14,7 @@ import {
 	type DecisionCardFeedback,
 } from "@/components/work-decision-card";
 import { WorkInteractionDecisionCard } from "@/components/work-interaction-decision-card";
+import { ApprovalFieldEdits } from "@/components/approval-field-edits";
 import type { NeedsYouItem } from "@/components/work-needs-you";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
@@ -123,6 +124,7 @@ export function ApprovalDecisionCard({
 				onNext={onNext}
 				onPrevious={onPrevious}
 			/>
+			<ApprovalFieldEdits approval={approval} active={active} />
 		</>
 	);
 }

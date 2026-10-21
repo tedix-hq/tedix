@@ -56,6 +56,11 @@ export interface ResolveApprovalRequestParams {
 	status: "approved" | "rejected" | "cancelled";
 	resolvedBy: string;
 	resolution?: string;
+	/**
+	 * Approver-edited payload, written in the same pending→approved update so
+	 * the executor only ever sees the approved input.
+	 */
+	payload?: Record<string, JsonValue>;
 }
 
 export interface CreateProvisionalOutcomeParams {
@@ -443,6 +448,9 @@ export async function resolveApprovalRequest(
 			resolvedBy: params.resolvedBy,
 			resolvedAt,
 			resolution: params.resolution ?? null,
+			...(params.payload && params.status === "approved"
+				? { payload: params.payload }
+				: {}),
 		})
 		.where(and(...conditions))
 		.returning();

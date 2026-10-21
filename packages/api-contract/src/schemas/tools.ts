@@ -445,6 +445,13 @@ export const ToolPolicyMetadataSchema = z
 		evidenceHash: Sha256DigestSchema.optional(),
 		attestationHash: Sha256DigestSchema.optional(),
 		policyChecks: z.array(z.string().min(1).max(160)).max(100).optional(),
+		approvalEditableFields: z
+			.array(z.string().min(1).max(100))
+			.max(8)
+			.optional()
+			.describe(
+				"Top-level inputs an approver may change before approving. Absent: every unpinned scalar input; empty: none.",
+			),
 	})
 	.superRefine((policy, ctx) => {
 		if (policy.riskTier === undefined && policy.blastRadius === undefined)

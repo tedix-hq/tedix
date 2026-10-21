@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import {
+	approverEditedPayload,
 	canCancelOwnApproval,
 	normalizeProvisionalOutcome,
 	resolveApprovalPrincipal,
@@ -209,5 +210,95 @@ describe("embedded host approval principal", () => {
 				{ payload: { kind: "tool_write" } },
 			),
 		).toBe("user:6190");
+	});
+});
+
+describe("approve with changes", () => {
+	const existing = {
+		payload: {
+			kind: "home_tool_write",
+			args: { folderId: "folder-1", title: "Draft" },
+			editableFields: [
+				{
+					name: "folderId",
+					label: "Folder",
+					required: true,
+					schema: { type: "string", minLength: 1 },
+				},
+				{
+					name: "title",
+					label: "Title",
+					required: true,
+					schema: { type: "string", maxLength: 20 },
+				},
+			],
+		},
+	};
+	const human = { authType: "user" as const, user: { sub: "human-1" } };
+
+	it("rewrites the stored call and returns the audited changes", () => {
+		const edited = approverEditedPayload(
+			human,
+			existing,
+			{ status: "approved", edits: { folderId: "folder-2" } },
+			"human-1",
+		);
+		expect(edited?.changes).toEqual([
+			{ field: "folderId", before: "folder-1", after: "folder-2" },
+		]);
+		expect(edited?.payload.args).toEqual({
+			folderId: "folder-2",
+			title: "Draft",
+		});
+		expect(edited?.payload.approverEdits).toMatchObject({
+			editedBy: "human-1",
+			changes: edited?.changes,
+		});
+	});
+
+	it("treats unchanged values as a plain approval", () => {
+		expect(
+			approverEditedPayload(
+				human,
+				existing,
+				{ status: "approved", edits: { title: "Draft" } },
+				"human-1",
+			),
+		).toBeNull();
+	});
+
+	it("refuses changes on rejection, from non-humans, or outside the tool schema", () => {
+		expect(() =>
+			approverEditedPayload(
+				human,
+				existing,
+				{ status: "rejected", edits: { title: "New" } },
+				"human-1",
+			),
+		).toThrow("own approval");
+		expect(() =>
+			approverEditedPayload(
+				{ authType: "tedi", tediId: "tedi-1" },
+				existing,
+				{ status: "approved", edits: { title: "New" } },
+				"tedi-1",
+			),
+		).toThrow("signed-in person");
+		expect(() =>
+			approverEditedPayload(
+				human,
+				existing,
+				{ status: "approved", edits: { title: "x".repeat(21) } },
+				"human-1",
+			),
+		).toThrow("does not match");
+		expect(() =>
+			approverEditedPayload(
+				human,
+				existing,
+				{ status: "approved", edits: { appSlug: "elsewhere" } },
+				"human-1",
+			),
+		).toThrow("cannot be changed");
 	});
 });

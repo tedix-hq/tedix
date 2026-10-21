@@ -54,6 +54,7 @@ import {
 	collectBoundedMcpList,
 } from "@tedix/mcp-shared/bounded-list";
 import { errorMessage } from "@tedix/worker-kit/error-message";
+import type { ApprovalEditableField } from "@tedix/api-contract/schemas/approval-edits";
 
 export interface WriteExecutorEnv {
 	OS_URL?: string;
@@ -83,6 +84,12 @@ export interface HomeToolWritePayload {
 	initiatedByUserId: string | null;
 	/** Missing on pre-Code-Mode approvals and therefore normalized to direct. */
 	transport?: KernelWriteTransport;
+	/**
+	 * Inputs the approver may change. An approval with changes rewrites `args`
+	 * in the same update that approves it, so execution still reads only the
+	 * stored payload.
+	 */
+	editableFields?: ApprovalEditableField[];
 }
 
 /** Structural guard for an approval payload of kind "home_tool_write". */

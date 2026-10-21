@@ -264,6 +264,37 @@ describe("approval resolution dependency guard", () => {
 	});
 });
 
+describe("approval with approver edits", () => {
+	it("writes the edited payload only with an approval of a pending request", async () => {
+		const { db } = setup();
+		await seedApproval(db, { id: "edit", orgId: "org-1", tediId: "tedi-1" });
+		await seedApproval(db, { id: "deny", orgId: "org-1", tediId: "tedi-1" });
+		const edited = { kind: "test", args: { title: "Changed" } };
+
+		const rejected = await resolveApprovalRequest(db, "deny", {
+			status: "rejected",
+			resolvedBy: "user-1",
+			payload: edited,
+		});
+		expect(rejected?.status).toBe("rejected");
+		expect(rejected?.payload).toEqual({ kind: "test" });
+		expect(
+			await resolveApprovalRequest(db, "edit", {
+				status: "approved",
+				resolvedBy: "user-1",
+				payload: edited,
+			}),
+		).toMatchObject({ status: "approved", payload: edited });
+		expect(
+			await resolveApprovalRequest(db, "edit", {
+				status: "approved",
+				resolvedBy: "user-2",
+				payload: { kind: "test", args: { title: "Late" } },
+			}),
+		).toBeUndefined();
+	});
+});
+
 describe("provisional outcome isolation", () => {
 	it("idempotently reuses only the exact hash-bound promotion request", async () => {
 		const { db } = setup();

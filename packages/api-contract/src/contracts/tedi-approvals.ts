@@ -16,6 +16,7 @@ import {
 } from "../schemas/common";
 
 import { BrowserTakeoverStatusSchema } from "../schemas/tedi";
+import { ApprovalEditsInputSchema } from "../schemas/approval-edits";
 
 // =============================================================================
 // SCHEMAS
@@ -540,7 +541,7 @@ export const tediApprovalsContract = oc
 				path: "/{id}/resolve",
 				summary: "Resolve approval request",
 				description:
-					"Approve or reject a pending approval request. Only pending requests can be resolved.",
+					"Approve or reject a pending approval request. Only pending requests can be resolved. An approver may change declared editable fields when approving; the change is validated against the tool schema and audited.",
 			})
 			.input(
 				z.object({
@@ -548,6 +549,9 @@ export const tediApprovalsContract = oc
 					status: z.enum(["approved", "rejected"]),
 					resolution: z.string().max(2000).optional(),
 					delegateRecommendation: z.boolean().optional(),
+					edits: ApprovalEditsInputSchema.optional().describe(
+						"Approve with changes: new values for fields the request declares editable. Only valid with status approved; omission approves the action exactly as proposed.",
+					),
 				}),
 			)
 			.output(ApprovalRequestSchema),

@@ -156,6 +156,13 @@ provider credential.
   an approval gate). Contract validation rejects other pairs; missing policy is
   `unclassified`, never rewritten to `read`. A rate-limit denial records
   `tool_rate_limited` and runs no handler.
+- **Approver edits.** A Home write approval lists the tool inputs the approver
+  may change before approving: the policy's `approvalEditableFields`, or every
+  top-level scalar input not pinned by tenant defaults when it is absent (an
+  empty list turns edits off). `tediApprovals.resolve` with `edits` checks each
+  value against that property's input schema, rewrites the stored `args` in
+  the same pending-to-approved update, and records the changes on the payload
+  (`approverEdits`) and in the `approval.approved` audit event.
 - `destructiveHint: true` also triggers server-side elicitation where the
   client supports it.
 
