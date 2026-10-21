@@ -5,6 +5,7 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 import { sharedTestConfig } from "../../scripts/vite/task-config";
+import { osVersionPlugin, readOsBuildSha } from "./dev/os-version-plugin";
 import {
 	isLocalOsBuildLane,
 	readWorkerVars,
@@ -63,8 +64,10 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 	});
 	const withWorker =
 		command === "build" || isPreview || useRemoteWorker || useLocalWorker;
+	const buildSha = readOsBuildSha(process.env);
 	return {
 		plugins: [
+			osVersionPlugin(buildSha),
 			...(withWorker ? [workerPlugin()] : []),
 			TanStackRouterVite({ target: "react", autoCodeSplitting: true }),
 			react(),
@@ -72,6 +75,7 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 			...(useLocalFixtures ? [localApiPlugin()] : []),
 		],
 		define: {
+			__OS_BUILD_SHA__: JSON.stringify(buildSha),
 			__API_URL__: JSON.stringify(buildConfig.API_URL),
 			__DESCOPE_PROJECT_ID__: JSON.stringify(buildConfig.DESCOPE_PROJECT_ID),
 			__DESCOPE_BASE_URL__: JSON.stringify(buildConfig.DESCOPE_BASE_URL),

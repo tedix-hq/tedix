@@ -124,3 +124,23 @@ describe("reloadOnceForStaleChunk", () => {
 		expect(harness.reload).toHaveBeenCalledTimes(2);
 	});
 });
+
+describe("stale chunk draft protection", () => {
+	it("preserves a restored draft without consuming the reload guard", () => {
+		const input = document.createElement("textarea");
+		input.value = "unfinished message";
+		document.body.append(input);
+		try {
+			expect(
+				reloadOnceForStaleChunk(
+					harness.win,
+					new Error("Failed to fetch dynamically imported module"),
+				),
+			).toBe(false);
+			expect(harness.reload).not.toHaveBeenCalled();
+			expect(harness.store.size).toBe(0);
+		} finally {
+			input.remove();
+		}
+	});
+});

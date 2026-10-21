@@ -15,6 +15,7 @@ import { Loader } from "@/components/kumo/loader";
 import { Page } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { reportOsIssue } from "@/lib/error-reporting/install";
+import { hasUnsavedOsInput } from "@/lib/reload-safety";
 import { OS_COPY } from "@/shared/os-copy";
 
 /**
@@ -163,6 +164,7 @@ export function reloadOnceForStaleChunk(
 	error: unknown,
 ): boolean {
 	if (!isStaleChunkError(error)) return false;
+	if (hasUnsavedOsInput(document)) return false;
 	try {
 		if (win.sessionStorage.getItem(OS_CHUNK_RELOAD_GUARD_KEY) !== null) {
 			// Already reloaded in this tab and still broken: reloading again
