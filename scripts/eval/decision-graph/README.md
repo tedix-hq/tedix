@@ -40,6 +40,11 @@ results.
 The Deck read explicitly requests `presentation: "stored"`, which bypasses
 presentation generation and persistence. The evaluator never requests a ranker
 run.
+It reads the caller's Deck timezone from `get_preferences` (UTC when unset),
+independently of the organization's learning timezone. Known transient read
+availability errors retry up to five times with bounded backoff; permission,
+capacity and schema gates stop the run. Each history page is checkpointed to
+the private snapshot before continuing.
 
 The baseline calls the production `planDeckSweep` without graph inputs. It
 reports actions separately from fuzzy already-decided proposals and retains
