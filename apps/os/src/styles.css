@@ -340,12 +340,15 @@ a {
  * grows the hit area and the negative margin gives the space back, so the
  * text keeps its place. `relative` lifts it above the line it now overlaps.
  * Put line clamping on an inner span: the padding would reveal clipped lines.
+ * The focus ring is drawn inside the grown box: it already reaches the edge of
+ * the surrounding card padding, so an outer ring would be clipped there.
  */
 @media (width < 640px), (pointer: coarse) {
 	.tap-target-y {
 		position: relative;
 		padding-block: max(0px, calc((2.75rem - 1lh) / 2));
 		margin-block: min(0px, calc((1lh - 2.75rem) / 2));
+		--tw-ring-inset: inset;
 	}
 }
 
