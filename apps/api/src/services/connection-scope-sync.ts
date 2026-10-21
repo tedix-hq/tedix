@@ -1,8 +1,5 @@
-import {
-	loadDescopeMcpServer,
-	updateDescopeMcpServer,
-	type AihEnv,
-} from "@tedix/auth/aih-client";
+import { loadDescopeMcpServer, type AihEnv } from "@tedix/auth/aih-client";
+import { updateMcpServerRegistration } from "../lib/provider-facts-cache";
 import {
 	reconcileConnectionScopeMappings,
 	connectionScopeMappingState,
@@ -68,7 +65,7 @@ export async function syncDeclaredConnectionScopes(params: {
 			JSON.stringify(connectionScopeMappingState(server.approvedScopes)) !==
 			JSON.stringify(connectionScopeMappingState(approvedScopes));
 		if (mappingChanged && !dryRun) {
-			const updated = await updateDescopeMcpServer(env, {
+			const updated = await updateMcpServerRegistration(env, {
 				...server,
 				approvedScopes,
 			});

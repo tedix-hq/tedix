@@ -1,6 +1,8 @@
 import {
+	deleteDescopeMcpServer,
 	loadDescopeMcpServer,
 	type searchDescopeMcpServerClients,
+	updateDescopeMcpServer,
 } from "@tedix/auth/aih-client";
 
 /**
@@ -76,6 +78,35 @@ export function forgetMcpServerRegistrations(mcpServerId?: string): void {
 	registrations.forget(
 		mcpServerId === undefined ? undefined : (key) => key === mcpServerId,
 	);
+}
+
+/**
+ * Write a registration at the provider and forget what this isolate
+ * remembered of it, so the next credential issue reads the new approved
+ * scopes instead of a ceiling up to {@link PROVIDER_FACTS_TTL_MS} old.
+ * Forgotten even when the provider call fails: a partial write is unknown.
+ */
+export async function updateMcpServerRegistration(
+	env: Parameters<typeof updateDescopeMcpServer>[0],
+	server: Parameters<typeof updateDescopeMcpServer>[1],
+): Promise<Awaited<ReturnType<typeof updateDescopeMcpServer>>> {
+	try {
+		return await updateDescopeMcpServer(env, server);
+	} finally {
+		forgetMcpServerRegistrations(server.id);
+	}
+}
+
+/** Delete a registration at the provider and forget it here. */
+export async function deleteMcpServerRegistration(
+	env: Parameters<typeof deleteDescopeMcpServer>[0],
+	mcpServerId: string,
+): Promise<void> {
+	try {
+		await deleteDescopeMcpServer(env, mcpServerId);
+	} finally {
+		forgetMcpServerRegistrations(mcpServerId);
+	}
 }
 
 type McpServerClient = Awaited<
