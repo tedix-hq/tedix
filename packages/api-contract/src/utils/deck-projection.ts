@@ -13,6 +13,7 @@ import type { DecisionLearningModel } from "../schemas/decision-learning";
 import { DecisionCardPresentationSchema } from "../schemas/decision-card-presentation";
 import type { DeckCard } from "../schemas/attention";
 import { calendarDay, cardIsDue } from "./card-schedule";
+import { compareFactoryScore } from "./card-priority";
 import { deadlineOverdue, deckAsk } from "./deck-ask";
 import { credentialCard } from "./card-secrets";
 import { scoreLearning, type LearningCandidate } from "./decision-learning";
@@ -115,10 +116,14 @@ function blockingWeight(card: { blocksCount?: number; blocksScore?: number }) {
 	return card.blocksScore ?? card.blocksCount ?? 0;
 }
 
-/** Actionable asks rank by blocked Work, then overdue, policy, score and age. */
+/**
+ * Actionable asks rank by blocked Work, then overdue, critical policy, the
+ * factory's own score, then due today, the curator's label, ranker score and age.
+ */
 export function compareDecisionFreshness(
 	a: {
 		kind?: string;
+		label?: string;
 		dueAt?: string | null;
 		deadline?: string | null;
 		actionable?: boolean;
@@ -130,10 +135,11 @@ export function compareDecisionFreshness(
 		score?: number;
 		decision?: DeckCard["decision"];
 		interaction?: DeckCard["interaction"];
-		factory?: DeckCard["factory"];
+		factory?: { policyCritical?: boolean; score?: number };
 	},
 	b: {
 		kind?: string;
+		label?: string;
 		dueAt?: string | null;
 		deadline?: string | null;
 		actionable?: boolean;
@@ -145,7 +151,7 @@ export function compareDecisionFreshness(
 		score?: number;
 		decision?: DeckCard["decision"];
 		interaction?: DeckCard["interaction"];
-		factory?: DeckCard["factory"];
+		factory?: { policyCritical?: boolean; score?: number };
 	},
 	now: Date,
 	timeZone?: string,
@@ -175,6 +181,7 @@ export function compareDecisionFreshness(
 		(aOverdue && bOverdue ? aDue - bDue : 0) ||
 		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
 		Number(b.kind === "approval") - Number(a.kind === "approval") ||
+		compareFactoryScore(a.factory, b.factory) ||
 		Number(dueToday(bDeadline, bDue)) - Number(dueToday(aDeadline, aDue)) ||
 		(dueToday(aDeadline, aDue) && dueToday(bDeadline, bDue)
 			? aDue - bDue

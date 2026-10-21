@@ -411,6 +411,56 @@ it("orders overdue, critical, due today, then the ranker's label ahead of score"
 	).toEqual(["overdue", "critical", "today", "valuable", "noise-high-score"]);
 });
 
+it("merges Work asks and factory rows: critical first, then factory score, then the existing order", () => {
+	const now = new Date("2026-10-20T07:00:00Z");
+	const cards = [
+		{ id: "work-today", kind: "question", dueAt: "2026-10-20T15:00:00Z" },
+		{ id: "factory-low", kind: "decision", factory: { score: 0.2 } },
+		{ id: "work-high-rank", kind: "question", score: 50 },
+		{ id: "factory-high", kind: "decision", factory: { score: 0.9 } },
+		{ id: "factory-unscored", kind: "decision", factory: {}, score: 1 },
+		{ id: "approval", kind: "approval" },
+		{
+			id: "factory-critical",
+			kind: "decision",
+			factory: { policyCritical: true, score: 0 },
+		},
+		{ id: "work-overdue", kind: "question", dueAt: "2026-10-19T15:00:00Z" },
+	] as unknown as Parameters<typeof compareDecisionFreshness>[0][];
+	const order = cards
+		.sort((a, b) => compareDecisionFreshness(a, b, now, "UTC"))
+		.map((card) => (card as { id: string }).id);
+	expect(order).toEqual([
+		"work-overdue",
+		"approval",
+		"factory-critical",
+		"factory-high",
+		"factory-low",
+		"work-today",
+		"work-high-rank",
+		"factory-unscored",
+	]);
+	// Critical-first invariant: no non-critical card, however well scored, precedes a critical one.
+	const lastCritical = Math.max(
+		order.indexOf("approval"),
+		order.indexOf("factory-critical"),
+	);
+	expect(order.indexOf("factory-high")).toBeGreaterThan(lastCritical);
+});
+
+it("ignores an out-of-range factory score and falls back to the existing order", () => {
+	const now = new Date("2026-10-20T07:00:00Z");
+	const cards = [
+		{ id: "invalid", kind: "decision", factory: { score: 7 }, score: 0 },
+		{ id: "ranked", kind: "decision", factory: {}, score: 3 },
+	] as unknown as Parameters<typeof compareDecisionFreshness>[0][];
+	expect(
+		cards
+			.sort((a, b) => compareDecisionFreshness(a, b, now, "UTC"))
+			.map((card) => (card as { id: string }).id),
+	).toEqual(["ranked", "invalid"]);
+});
+
 it("keeps future deadlines visible in nearest-deadline order while respecting show-from", () => {
 	const later = row("later", { decisionClass: "opportunity.new" });
 	later.request.dueAt = "2026-10-23";
