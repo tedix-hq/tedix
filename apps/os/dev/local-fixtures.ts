@@ -6237,6 +6237,58 @@ const handlers: Record<string, (input: never) => unknown> = {
 		findWorkspace(input.workspaceId);
 		return { status: "not_connected" as const, providerId: "google-gmail" };
 	},
+	"osWorkspaces/gadgets/installWorkDefaults": () => {
+		const installed = state.gadgets.flatMap((gadget) => {
+			const revision = state.gadgetRevisions.find(
+				(row) => row.id === gadget.currentRevisionId,
+			);
+			const role = revision?.manifest.navigation?.work;
+			return gadget.status === "active" && role ? [{ gadget, role }] : [];
+		});
+		const workspaceId =
+			installed[0]?.gadget.workspaceId ??
+			createLocalWorkspace({ name: "Work" }).workspace.id;
+		for (const role of ["feed", "deck"] as const) {
+			if (installed.some((app) => app.role === role)) continue;
+			const gadgetId = nextId();
+			const revisionId = nextId();
+			const createdAt = now();
+			state.gadgets.push({
+				id: gadgetId,
+				organizationId: ORG_ID,
+				workspaceId,
+				name: role === "feed" ? "Feed" : "Deck",
+				description: null,
+				status: "active",
+				currentRevisionId: revisionId,
+				sourceBlueprintRevisionId: null,
+				createdByKind: "user",
+				createdById: "dev-operator",
+				createdAt,
+				updatedAt: createdAt,
+			});
+			state.gadgetRevisions.push({
+				id: revisionId,
+				organizationId: ORG_ID,
+				gadgetId,
+				revision: 1,
+				manifest: {
+					entry: `tedix:app/${role === "feed" ? "activity-feed" : "decision-deck"}`,
+					capabilities: [],
+					navigation: { board: true, work: role, workDefault: role === "deck" },
+					config:
+						role === "feed"
+							? { version: 1, scope: "organization", projects: [] }
+							: { version: 1, limit: 50, examples: [] },
+				},
+				sourceArtifactRef: null,
+				createdByKind: "user",
+				createdById: "dev-operator",
+				createdAt,
+			});
+		}
+		return { workspaceId };
+	},
 	"osWorkspaces/gadgets/workApps": (input: { limit: number }) => {
 		const items = state.gadgets.flatMap((gadget) => {
 			const currentRevision = state.gadgetRevisions.find(
