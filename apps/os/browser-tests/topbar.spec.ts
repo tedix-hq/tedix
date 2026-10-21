@@ -143,7 +143,7 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 						"Info must disappear on routes without context",
 					);
 					await page.goto(
-						`${origin}/workspace/00000030-0000-4000-8000-000000000001`,
+						`${origin}/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece`,
 						{ waitUntil: "domcontentloaded" },
 					);
 					await page
@@ -157,12 +157,19 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 							url.pathname ===
 								"/workspace/00000030-0000-4000-8000-000000000001" &&
 							url.searchParams.get("pane") === "workpiece" &&
-							Boolean(url.searchParams.get("workpiece")),
+							url.searchParams.get("workpiece") ===
+								"gadget:00000031-0000-4000-8000-00000000000a",
 						{ waitUntil: "domcontentloaded" },
 					);
 					await page
 						.locator(
 							'.canvas-workpiece-tabs [role="tab"][aria-selected="true"]',
+						)
+						.waitFor();
+					// The tab precedes the lazy app; unloading mid-import triggers chunk recovery.
+					await page
+						.locator(
+							'[data-canvas-builtin-app] [data-workspace-app-entry="activity-feed"]',
 						)
 						.waitFor();
 					assert.equal(
