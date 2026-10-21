@@ -29,7 +29,6 @@ import * as workspaceResourceQueries from "@tedix/db/queries/os-workspaces/resou
 import * as rationaleQueries from "@tedix/db/queries/rationale-records";
 import { kernelRuntimeEvents, memoryFacts } from "@tedix/db/schema";
 import type { MemoryFact } from "@tedix/db/schema/memory-graph";
-import { SQL } from "drizzle-orm";
 import { generateText } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { homeModelPrompt, hydrateHomeHistory } from "./attachment-content";
@@ -2095,8 +2094,6 @@ function makeFact(overrides: {
  * - Returns `factRowsForTopPlatform` (as `{fact, domainName: null}` pairs)
  *   when a `.leftJoin()` is detected on memoryFacts (getTopPlatformFacts path).
  * - Returns `factRowsForGetById` keyed by id when no leftJoin (getFactsByIds).
- * - Returns no consolidated candidates for the index-hinted memory_facts reads
- *   (`INDEXED BY` SQL sources) of preferConsolidatedFacts.
  * - Throws for kernelRuntimeEvents so history degrades via safeRead to [].
  * - Throws for any other table (tediCapabilities etc → safeRead → []).
  */
@@ -2163,9 +2160,6 @@ function createFactsDb(opts: {
 						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
 						| null,
 				) {
-					if (targetTable instanceof SQL) {
-						return Promise.resolve([]).then(onfulfilled, onrejected);
-					}
 					if (targetTable !== memoryFacts) {
 						return Promise.reject(
 							new Error("unexpected table in facts test"),
