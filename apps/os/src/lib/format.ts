@@ -1,5 +1,7 @@
 /** Shared text/number formatting for the Tedix OS surfaces. */
 import { useSyncExternalStore } from "react";
+import { formatIsoCardDates } from "@tedix/api-contract/utils/decision-card-copy";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { setOsLocale } from "@/shared/os-locale";
 
 /**
@@ -71,6 +73,43 @@ export function osLocale(): string {
 /** The time zone every OS instant formatter uses; undefined follows the browser. */
 export function osTimeZone(): string | undefined {
 	return resolvedTimeZone;
+}
+
+/** Format stored ISO dates in card prose using the operator's preferences. */
+export function formatCardTextDates(text: string): string {
+	return formatIsoCardDates(text, {
+		locale: osLocale(),
+		timeZone: osTimeZone(),
+	});
+}
+
+export function formatCardPresentationDates(
+	copy: DecisionCardPresentation,
+): DecisionCardPresentation {
+	return {
+		...copy,
+		title: formatCardTextDates(copy.title),
+		body: formatCardTextDates(copy.body),
+		recommendation: formatCardTextDates(copy.recommendation),
+		...(copy.version === 2
+			? {
+					...(copy.context
+						? { context: formatCardTextDates(copy.context) }
+						: {}),
+					...(copy.stakes ? { stakes: formatCardTextDates(copy.stakes) } : {}),
+					...(copy.actionLabels
+						? {
+								actionLabels: Object.fromEntries(
+									Object.entries(copy.actionLabels).map(([id, label]) => [
+										id,
+										formatCardTextDates(label),
+									]),
+								),
+							}
+						: {}),
+				}
+			: {}),
+	};
 }
 
 /** Thousands-separated count for eyebrows and totals: 13490 → "13,490". */

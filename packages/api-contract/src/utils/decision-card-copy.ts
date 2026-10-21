@@ -15,6 +15,40 @@ type CardCopy = {
 const relativeDatePattern =
 	/\b(?:today|tomorrow|yesterday|in \d+ days?|\d+ days? ago)\b/gi;
 
+/** Date-only deadlines keep their calendar day; zoned instants keep their time. */
+export function formatIsoCardDates(
+	text: string,
+	options: { locale?: string; timeZone?: string } = {},
+): string {
+	return text.replace(
+		/(?<![\w/-])\d{4}-\d{2}-\d{2}(?:T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?)?(?![\w/-])/g,
+		(value) => {
+			const day = value.slice(0, 10);
+			const calendar = new Date(`${day}T00:00:00Z`);
+			if (
+				!Number.isFinite(calendar.getTime()) ||
+				calendar.toISOString().slice(0, 10) !== day
+			)
+				return value;
+			const instant = value.length > 10;
+			if (
+				instant &&
+				!/T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+			)
+				return value;
+			const date = instant ? new Date(value) : calendar;
+			if (!Number.isFinite(date.getTime())) return value;
+			return new Intl.DateTimeFormat(options.locale ?? "en-US", {
+				month: "short",
+				day: "numeric",
+				year: "numeric",
+				timeZone: instant ? options.timeZone : "UTC",
+				...(instant ? ({ hour: "numeric", minute: "2-digit" } as const) : {}),
+			}).format(date);
+		},
+	);
+}
+
 export function hasRelativeCardDates(text: string): boolean {
 	return new RegExp(relativeDatePattern.source, "i").test(text);
 }

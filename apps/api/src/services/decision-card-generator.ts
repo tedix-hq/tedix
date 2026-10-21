@@ -2,6 +2,7 @@ import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
 import {
 	checkDecisionCardCopy,
+	formatIsoCardDates,
 	hasRelativeCardDates,
 	unsupportedCopyFacts,
 } from "@tedix/api-contract/utils/decision-card-copy";
@@ -388,12 +389,45 @@ export async function generateDecisionCard(
 				)
 					continue;
 			}
-			if (parsed.success)
+			if (parsed.success) {
+				const human = { ...parsed.data };
+				for (const field of [
+					"title",
+					"context",
+					"body",
+					"recommendation",
+					"stakes",
+				] as const) {
+					if (typeof human[field] === "string")
+						human[field] = formatIsoCardDates(human[field], {
+							timeZone: "UTC",
+						});
+				}
+				if (human.actionLabels)
+					human.actionLabels = Object.fromEntries(
+						Object.entries(human.actionLabels).map(([id, label]) => [
+							id,
+							formatIsoCardDates(label, { timeZone: "UTC" }),
+						]),
+					);
+				const checked =
+					DecisionCardPresentationSchema.options[1].safeParse(human);
+				const failures = checkDecisionCardCopy(human);
+				if (!checked.success || failures.length) {
+					repair = copyRepairFeedback(
+						human,
+						failures,
+						checked.success ? undefined : checked.error.issues,
+					);
+					onFailure?.("invalid_copy:human_date_limits");
+					continue;
+				}
 				return {
-					...parsed.data,
+					...human,
 					model: copySpec.modelRef,
 					generatedAt: new Date().toISOString(),
 				};
+			}
 			const fields = parsed.error.issues
 				.map((issue) =>
 					issue.code === "unrecognized_keys"
