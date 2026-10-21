@@ -711,6 +711,7 @@ export function ConnectionsPanel({
 				<DisconnectConnectionDialog
 					target={disconnectTarget}
 					isPending={disconnectMutation.isPending}
+					error={disconnectMutation.error}
 					onCancel={() => setDisconnectTarget(null)}
 					onConfirm={(target) =>
 						disconnectMutation.mutate({
