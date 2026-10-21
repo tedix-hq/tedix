@@ -93,6 +93,26 @@ describe("SVG presentation dimensions", () => {
 			).toEqual({ width: 320, height: 160 });
 	});
 
+	it("reads only the root svg element's attributes", () => {
+		const document = (root: string, children: string) =>
+			`data:image/svg+xml;base64,${btoa(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" ${root}>${children}</svg>`)}`;
+		for (const [root, children] of [
+			["viewBox='0 0 320 160'", "<rect width='10' height='20'/>"],
+			[
+				"width='100%' height='100%' viewBox='0 0 320 160'",
+				"<image width='10' height='20'/>",
+			],
+			[
+				"stroke-width='2' viewBox='0 0 320 160'",
+				"<rect line-height='3' x='0'/>",
+			],
+		])
+			expect(presentationImageDimensions(document(root, children))).toEqual({
+				width: 320,
+				height: 160,
+			});
+	});
+
 	it("requires matching XML quotes", () => {
 		expect(
 			presentationImageDimensions(
