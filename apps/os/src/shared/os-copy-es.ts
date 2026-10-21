@@ -486,6 +486,7 @@ export const SPANISH_DECISION_CONTROLS: Record<string, string> = {
 	"New cards appear here after the next factory run.":
 		"Las nuevas tarjetas aparecerán después de la próxima ejecución.",
 	"Suggested action": "Acción sugerida",
+	"Why this card": "Por qué esta tarjeta",
 	Draft: "Borrador",
 	Details: "Detalles",
 	"Suggested changes": "Cambios sugeridos",

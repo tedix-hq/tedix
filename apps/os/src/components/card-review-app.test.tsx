@@ -175,13 +175,13 @@ async function flush() {
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	});
 }
-async function mount(inDeck = true, overlay = false) {
+async function mount(inDeck = true, overlay = false, appConfig = config) {
 	root ??= createRoot(host);
 	await act(async () =>
 		root!.render(
 			<QueryClientProvider client={client}>
 				<CardFaceContext value={{ presentation: null, confidence: null }}>
-					<CardReviewApp config={config} inDeck={inDeck} />
+					<CardReviewApp config={appConfig} inDeck={inDeck} />
 					{overlay && (
 						<Sheet open>
 							<SheetContent>
@@ -465,5 +465,79 @@ describe("CardReviewApp decision interactions", () => {
 		expect(heading(0)).not.toBeNull();
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
+	});
+});
+
+describe("CardReviewApp scored factory cards", () => {
+	const scored = CardReviewConfigSchema.parse({
+		version: 1,
+		sources: [
+			{
+				...config.sources[0]!,
+				columns: {
+					...config.sources[0]!.columns,
+					effort: "Effort",
+					timing: "Timing",
+					score: "Score",
+					features: "Features",
+				},
+				scoring: {
+					weights: { fresh_thread: 1, buyer_intent: 0.5, karma: 0.1 },
+					skipReasonChips: [
+						{ label: "Already covered", mapsTo: "duplicate" },
+						{ label: "Too much effort", mapsTo: null },
+					],
+				},
+			},
+		],
+	});
+	beforeEach(() => {
+		sheet.columns.push("Effort", "Timing", "Score", "Features");
+		for (const row of sheet.rows)
+			row.push(
+				"5 min",
+				"Today",
+				"0.8",
+				'{"fresh_thread":0.9,"buyer_intent":0.4,"karma":1}',
+			);
+	});
+
+	it.each([true, false])(
+		"shows effort, timing and why this card (in Deck: %s)",
+		async (inDeck) => {
+			await mount(inDeck, false, scored);
+			const chips = host.querySelector("[data-card-review-chips]");
+			expect(chips?.textContent).toBe("5 minToday");
+			expect(
+				host.querySelector("[data-card-review-ranked-for]")?.textContent,
+			).toBe("Why this card: fresh thread, buyer intent");
+		},
+	);
+
+	it("asks for a factory skip reason in the Deck and records it", async () => {
+		await mount(true, false, scored);
+		await click("Not useful");
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+		await click("Already covered");
+		expect(sheet.rows[0]![6]).toBe("no");
+		expect(sheet.rows[0]![7]).toBe("Already covered");
+		expect(osApi.learningFeedback.recordInteraction).toHaveBeenCalledWith(
+			expect.objectContaining({
+				eventKind: "rejected",
+				metadata: expect.objectContaining({
+					decisionClass: "factory:Practice:opportunity",
+					score: 0.8,
+					features: { fresh_thread: 0.9, buyer_intent: 0.4, karma: 1 },
+					factoryReason: "Already covered",
+					sharedReason: "duplicate",
+				}),
+			}),
+		);
+	});
+
+	it("offers the skip reasons as Not useful chips on the review card", async () => {
+		await mount(false, false, scored);
+		expect(button("Already covered")).toBeDefined();
+		expect(button("Too much effort")).toBeDefined();
 	});
 });
