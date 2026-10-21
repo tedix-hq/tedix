@@ -183,6 +183,10 @@ const portableBlueprintExport = {
 };
 
 const CALLS: Record<string, unknown> = {
+	"decisionGraph/getContext": {
+		cardId: "d5000000-0000-4000-8000-000000000001",
+		maxHops: 4,
+	},
 	"attention/listDeckCards": {},
 	"workInteractions/outbound/list": { limit: 50 },
 	"workInteractions/outbound/get": {
