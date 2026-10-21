@@ -48,6 +48,20 @@ what you expected, what happened, and the smallest reproduction. When an idea
 is accepted, a maintainer re-authors it and credits you as described in
 [What happens next](#what-happens-next).
 
+## Send a fix from your coding agent
+
+Outside coding agents are welcome. Point yours at this repository and pick
+one path:
+
+- **A fix:** open a bug report and paste a unified diff against current `main`
+  in its "Proposed fix" field, with the commit sha you tested against.
+- **Feedback:** follow [AGENT-REVIEW.md](AGENT-REVIEW.md); the agent submits
+  its report in one request, no account needed.
+
+Our agents treat the diff as a precise description, re-author the change with
+tests, and credit you as described in [What happens next](#what-happens-next).
+Large changes go faster as a short issue first.
+
 ## Report a bug or propose an idea
 
 1. Search existing issues first.
