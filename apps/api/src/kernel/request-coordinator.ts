@@ -206,6 +206,15 @@ export interface KernelAcceptanceReader {
 		surface: string;
 		evidenceRefs: string[];
 	}>;
+	/** Reads recorded main pushes and the deployed revision; never the executor's claim. */
+	readWorkCommitDelivery?(
+		check: Extract<KernelAcceptanceCheck, { kind: "work_commit_delivery" }>,
+	): Promise<{
+		status: "pass" | "fail" | "unknown";
+		observedVersion: string | null;
+		evidenceRefs: string[];
+		limitations: string | null;
+	}>;
 }
 
 /** The caller supplies bounded adapter deadlines; unavailable targets remain unknown. */
@@ -251,6 +260,23 @@ export async function runKernelAcceptanceChecks(
 					limitations:
 						"Confirms durable Home reply delivery only; not factual correctness or external target state",
 				});
+			} else if (check.kind === "work_commit_delivery") {
+				if (!check.commitSha) {
+					observations.push({
+						...base,
+						status: "fail",
+						observedVersion: null,
+						checkedAt: now(),
+						evidenceRefs: [],
+						limitations:
+							"Clean exit named no commit; code Work without a commit is not a delivery",
+					});
+					continue;
+				}
+				if (!reader.readWorkCommitDelivery)
+					throw new Error("Commit delivery reader unavailable");
+				const result = await reader.readWorkCommitDelivery(check);
+				observations.push({ ...base, ...result, checkedAt: now() });
 			} else {
 				const result = await reader.readRepositoryDelivery(check);
 				const pass =

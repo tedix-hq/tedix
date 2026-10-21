@@ -20,6 +20,10 @@ export function pushObservation(
 		.split("\n")
 		.filter(Boolean);
 	const message = runGit("show", "-s", "--format=%B", sha);
+	// Lets the request tracker find a commit that a multi-commit push carried.
+	const commitShas = runGit("rev-list", "--max-count=100", `${base}..${sha}`)
+		.split("\n")
+		.filter((line) => /^[0-9a-f]{40}$/.test(line));
 	const repair = message.match(
 		/^Repair-Observation:\s*([0-9a-f-]{36})\s*$/m,
 	)?.[1];
@@ -33,6 +37,7 @@ export function pushObservation(
 			? { beforeSha: before }
 			: {}),
 		kind: "push",
+		...(commitShas.length ? { commitShas } : {}),
 		surface: "all",
 		paths: paths.slice(0, 500),
 		commands: "",

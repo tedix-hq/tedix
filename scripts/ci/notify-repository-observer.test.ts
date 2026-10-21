@@ -10,7 +10,9 @@ describe("repository event notifier", () => {
 				? "A harmless doc edit\nWork-Item: 11111111-1111-4111-8111-111111111111"
 				: args.includes("--stat")
 					? "2 files changed"
-					: "docs/a.md\ndocs/b.md",
+					: args[0] === "rev-list"
+						? `${"a".repeat(40)}\n${"c".repeat(40)}`
+						: "docs/a.md\ndocs/b.md",
 		);
 		const result = pushObservation(
 			{
@@ -25,6 +27,12 @@ describe("repository event notifier", () => {
 		);
 		expect(result.paths).toEqual(["docs/a.md", "docs/b.md"]);
 		expect(result.workItemId).toBe("11111111-1111-4111-8111-111111111111");
+		expect(result.commitShas).toEqual(["a".repeat(40), "c".repeat(40)]);
+		expect(git).toHaveBeenCalledWith(
+			"rev-list",
+			"--max-count=100",
+			`${"b".repeat(40)}..${"a".repeat(40)}`,
+		);
 		expect(git).toHaveBeenCalledWith(
 			"diff",
 			"--name-only",

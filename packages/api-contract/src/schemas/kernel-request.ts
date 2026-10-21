@@ -31,6 +31,15 @@ export const KernelAcceptanceCheckSchema = z.discriminatedUnion("kind", [
 			surface: identity,
 		})
 		.strict(),
+	z
+		.object({
+			kind: z.literal("work_commit_delivery"),
+			/** Null records a clean exit that named no commit; it never passes. */
+			commitSha: sha.nullable(),
+			/** Main revision the Attempt started from, when the executor reported it. */
+			baseSha: sha.nullable(),
+		})
+		.strict(),
 ]);
 export type KernelAcceptanceCheck = z.infer<typeof KernelAcceptanceCheckSchema>;
 
@@ -97,6 +106,18 @@ export const KernelRequestPolicySchema = z
 		probeTimeoutMs: z.number().int().min(100).max(30_000),
 		maxProbeAttempts: z.number().int().min(1).max(20),
 		runBudgetMs: z.number().int().min(100).max(30_000),
+		workAttemptDelivery: z
+			.object({
+				/** Project whose repository observer records pushes to the delivery branch. */
+				observerProjectId: identity,
+				/** A SHA not observed on main and deployed within this window fails. */
+				verifyWindowMs: z.number().int().min(60_000).max(172_800_000),
+			})
+			.strict()
+			.optional()
+			.describe(
+				"Present to verify dispatcher Work Attempts against observed main and the deployed revision.",
+			),
 		repositoryTargets: z
 			.array(
 				z

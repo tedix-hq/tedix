@@ -64,17 +64,32 @@ export async function runWorkAttemptLeaseSweeperTick(
 	let requestsRecovered = 0;
 	let requestRecoveryFailures = 0;
 	if (env.KERNEL) {
-		const { listDueKernelRequestOrganizations } =
-			await import("@tedix/db/queries/kernel-requests");
-		const organizations = await listDueKernelRequestOrganizations(
-			createDbQueryClient(env.DB),
-			new Date(scheduledTime).toISOString(),
+		const {
+			DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
+			listDispatcherAttemptCaptureOrganizations,
+			listDueKernelRequestOrganizations,
+		} = await import("@tedix/db/queries/kernel-requests");
+		const db = createDbQueryClient(env.DB);
+		// Dispatcher settlements enter the tracker inside the same reconcile call.
+		const organizations = new Set(
+			[
+				...(await listDueKernelRequestOrganizations(
+					db,
+					new Date(scheduledTime).toISOString(),
+				)),
+				...(await listDispatcherAttemptCaptureOrganizations(
+					db,
+					new Date(
+						scheduledTime - DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
+					).toISOString(),
+				)),
+			].map((row) => row.organizationId),
 		);
 		for (const result of await Promise.allSettled(
-			organizations.map((row) =>
-				env.KERNEL.get(
-					env.KERNEL.idFromName(row.organizationId),
-				).reconcileRequests({ organizationId: row.organizationId }),
+			[...organizations].map((organizationId) =>
+				env.KERNEL.get(env.KERNEL.idFromName(organizationId)).reconcileRequests(
+					{ organizationId },
+				),
 			),
 		)) {
 			if (result.status === "fulfilled") requestsRecovered += result.value;

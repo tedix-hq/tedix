@@ -1,5 +1,5 @@
 import type { KernelRequestSnapshot } from "@tedix/api-contract/schemas/kernel-request";
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { agentSessionRequests } from "../schema/agent-session-requests";
 import type { WorkAgentSessionHarness } from "../schema/work-agent-sessions";
@@ -8,6 +8,7 @@ import {
 	kernelRuntimeRuns,
 } from "../schema/cognitive-runtime";
 import type { DbQueryClient } from "../query-client";
+import { workAttempts } from "../schema/work-items";
 import {
 	kernelRequests,
 	kernelRequestEvents,
@@ -384,4 +385,52 @@ export async function publishLocalKernelRequestReport(
 		)
 		.returning();
 	return rows[0];
+}
+
+/** How far back the tick looks for dispatcher settlements not yet tracked. */
+export const DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS = 6 * 3_600_000;
+
+/**
+ * Lane-serve settlements stamp `dispatchVersion`; each terminal one enters the
+ * tracker once. `since` bounds the scan on `idx_work_attempt_expiry` (a settled
+ * Attempt keeps its last lease expiry).
+ */
+function uncapturedDispatcherAttempts(since: string) {
+	return and(
+		inArray(workAttempts.runtimeState, ["finished", "failed", "expired"]),
+		gte(workAttempts.expiresAt, since),
+		sql`json_extract(${workAttempts.metadata}, '$.dispatchVersion') IS NOT NULL`,
+		sql`NOT EXISTS (SELECT 1 FROM kernel_requests r WHERE r.organization_id = ${workAttempts.orgId} AND r.owner_user_id = ${workAttempts.executorId} AND r.source_kind = 'work_attempt' AND r.source_id = ${workAttempts.id})`,
+	);
+}
+
+export async function listUncapturedDispatcherAttempts(
+	db: DbQueryClient,
+	p: { organizationId: string; since: string; limit: number },
+) {
+	return db
+		.select()
+		.from(workAttempts)
+		.where(
+			and(
+				eq(workAttempts.orgId, p.organizationId),
+				uncapturedDispatcherAttempts(p.since),
+			),
+		)
+		.orderBy(asc(workAttempts.expiresAt), asc(workAttempts.id))
+		.limit(Math.min(20, Math.max(1, p.limit)));
+}
+
+/** Internal maintenance tick: tenants with dispatcher settlements not yet tracked. */
+export async function listDispatcherAttemptCaptureOrganizations(
+	db: DbQueryClient,
+	since: string,
+) {
+	return db
+		.select({ organizationId: workAttempts.orgId })
+		.from(workAttempts)
+		.where(uncapturedDispatcherAttempts(since))
+		.groupBy(workAttempts.orgId)
+		.orderBy(asc(workAttempts.orgId))
+		.limit(5);
 }
