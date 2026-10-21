@@ -53,6 +53,13 @@ import { createWebSearchAiTools } from "./web-search-tool";
 import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 type ActiveTurnBinding = NonNullable<AgentTediDO["activeTurnBinding"]>;
+async function durableExecutionStatus(
+	runtime: RecoverableCodemodeRuntimeHandle,
+	executionId: string,
+) {
+	const executions = await runtime.executions();
+	return executions.find((item) => item.id === executionId)?.status ?? null;
+}
 /** Keep operator context useful without persisting auth codes or query secrets. */
 function browserPageOrigin(value: string | undefined): string | null {
 	if (!value) return null;
@@ -451,14 +458,14 @@ export const runtimeToolAuthority = {
 		executionId: string,
 		seq: number,
 	): Promise<{ ok: boolean; execution_id: string; seq: number }> {
-		const ok = await (
-			await this.getDurableCodemodeRuntime(
-				await this.computerCodeRouting.resolve(executionId),
-			)
-		).reject({
-			executionId,
-			seq,
-		});
+		const runtime = await this.getDurableCodemodeRuntime(
+			await this.computerCodeRouting.resolve(executionId),
+		);
+		// Only a paused run has an actionable approval. A stale pending entry on a
+		// finished run must not rewrite its outcome as rejected.
+		const ok =
+			(await durableExecutionStatus(runtime, executionId)) === "paused" &&
+			(await runtime.reject({ executionId, seq }));
 		const result = { ok, execution_id: executionId, seq };
 		await this.recordDurableCodemodeResult({
 			action: "reject",
@@ -472,11 +479,21 @@ export const runtimeToolAuthority = {
 		this: RuntimeToolAuthorityHost,
 		executionId: string,
 	): Promise<{ ok: true; execution_id: string }> {
-		await (
-			await this.getDurableCodemodeRuntime(
-				await this.computerCodeRouting.resolve(executionId),
-			)
-		).rollback({ executionId });
+		const runtime = await this.getDurableCodemodeRuntime(
+			await this.computerCodeRouting.resolve(executionId),
+		);
+		const status = await durableExecutionStatus(runtime, executionId);
+		if (!status)
+			throw new Error(
+				"Cannot roll back durable Code Mode execution: execution_not_found",
+			);
+		// Reverting under a live run would let its pending approval resume, or an
+		// in-flight pass complete over the rollback.
+		if (status === "paused" || status === "running")
+			throw new Error(
+				`Cannot roll back a durable Code Mode execution that is still ${status}; reject it or let it finish first.`,
+			);
+		await runtime.rollback({ executionId });
 		const result = { ok: true as const, execution_id: executionId };
 		await this.recordDurableCodemodeResult({
 			action: "rollback",
