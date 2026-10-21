@@ -366,6 +366,15 @@ screen. `respond_decision_card` submits only an option already selected with
 to submit it. Cards that ask for confirmation still open the dialog for the
 person.
 
+The OS quick chat can use the same tools for the person, with Home or a
+directly chosen tedi. When the Deck is on screen the chat's status reads
+**Can act on this page**; elsewhere it reads **Can see this page**. The chat
+sends the tool descriptions with each turn, and the model's calls come back
+to the page, which runs them: the server never does. Each action shows a
+short line in the chat, with **Undo** for a filled answer or a selected
+option. Before `respond_decision_card` runs, the chat shows **Submit** and
+**Don't submit**, and nothing is submitted until the person taps **Submit**.
+
 `tedix:app/decision-deck` uses the same workspace renderer. Its manifest
 settings are `version: 1`, optional `projectId`, `limit` (default 50),
 `unchangedThreshold` (5), `dailyAttentionBudget` (10) and `auditSampleRate`

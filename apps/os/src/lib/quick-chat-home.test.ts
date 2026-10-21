@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import type { RuntimeStreamReadOutput } from "@tedix/api-contract/schemas/runtime-submissions";
 import type {
 	EnqueueHomeMessageOutput,
 	HomeMessage,
@@ -135,6 +136,112 @@ describe("Home quick-chat turns", () => {
 				text: "Hi",
 			}),
 		).resolves.toEqual({ text: expect.stringContaining("Pick a tedi") });
+	});
+
+	it("streams Home's answer and runs the page tools Home asks for", async () => {
+		const home = deps(
+			{},
+			[run("completed", { outputMessageId: "answer-1" })],
+			[message("assistant", "Filled it with Yes.", { id: "answer-1" })],
+		);
+		const pages: RuntimeStreamReadOutput[] = [
+			{
+				events: [
+					{
+						id: "e1",
+						kind: "tool.started",
+						createdAt: "now",
+						payload: {
+							pageTool: {
+								callId: "call-00000001",
+								name: "set_decision_card_answer",
+								args: { cardId: "req-1", text: "Yes" },
+								confirm: false,
+							},
+						},
+					},
+					// A replayed request never runs twice.
+					{
+						id: "e1b",
+						kind: "tool.started",
+						createdAt: "now",
+						payload: {
+							pageTool: {
+								callId: "call-00000001",
+								name: "set_decision_card_answer",
+								args: {},
+							},
+						},
+					},
+					// Home's own tool activity is not a page request.
+					{ id: "e2", kind: "tool.started", createdAt: "now", payload: {} },
+					{
+						id: "e3",
+						kind: "message.delta",
+						createdAt: "now",
+						delta: "Filled ",
+					},
+				],
+				stream: { streamId: "s", offset: 0, nextOffset: 4, closed: false },
+			},
+			{
+				events: [
+					{ id: "e4", kind: "message.delta", createdAt: "now", delta: "it." },
+				],
+				stream: { streamId: "s", offset: 4, nextOffset: 5, closed: true },
+			},
+		];
+		const readRunEvents = vi.fn(
+			async (_input: { runId: string; offset: number }) => pages.shift()!,
+		);
+		const resolvePageTool = vi.fn(async () => ({ accepted: true }));
+		const runPageTool = vi.fn(async () => ({ ok: true, content: "filled" }));
+		const deltas: string[] = [];
+		const tools = [
+			{
+				name: "set_decision_card_answer",
+				description: "Fill the answer.",
+				inputSchema: { type: "object" },
+			},
+		];
+		await expect(
+			runQuickChatHomeTurn(
+				{ ...home, readRunEvents, resolvePageTool },
+				{
+					conversationId: "c-1",
+					text: "Fill this card with Yes",
+					pageTools: tools,
+					runPageTool,
+					onDelta: (text) => deltas.push(text),
+				},
+			),
+		).resolves.toEqual({ text: "Filled it with Yes." });
+		expect(home.enqueueMessage.mock.calls[0]![0].pageTools).toEqual(tools);
+		expect(runPageTool).toHaveBeenCalledTimes(1);
+		expect(resolvePageTool).toHaveBeenCalledWith({
+			runId: "run-1",
+			callId: "call-00000001",
+			result: { ok: true, content: "filled" },
+		});
+		expect(deltas).toEqual(["Filled ", "it."]);
+		expect(readRunEvents.mock.calls[1]![0]).toMatchObject({ offset: 4 });
+	});
+
+	it("offers no page tools when it cannot return their results", async () => {
+		const home = deps({
+			status: "completed",
+			run: run("completed"),
+			assistantMessage: message("assistant", "Hi."),
+		});
+		await runQuickChatHomeTurn(home, {
+			conversationId: "c-1",
+			text: "Hi",
+			pageTools: [
+				{ name: "set_x", description: "x", inputSchema: { type: "object" } },
+			],
+			runPageTool: vi.fn(),
+		});
+		expect(home.enqueueMessage.mock.calls[0]![0].pageTools).toBeUndefined();
 	});
 
 	it("restores the thread without the appended page context", async () => {

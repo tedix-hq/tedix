@@ -353,7 +353,10 @@ describe("the signed session", () => {
 		await settle();
 		expect(seen).toEqual([null]);
 		expect(recovery.hidden).toBe(true);
-		expect(w.$(".tedix-status")?.getAttribute("data-state")).toBe("connected");
+		// Connected, and saying what reaches the chat: the page, without tools.
+		expect(w.$(".tedix-status")?.getAttribute("data-state")).toBe(
+			"page_context",
+		);
 		expect(w.detailsOf("session-refreshed").at(-1)).toMatchObject({
 			expiresAt: 12345,
 		});

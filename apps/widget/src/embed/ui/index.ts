@@ -35,7 +35,8 @@ export const embeddedTediBaseStyles = `
 	.tedix-status-dot { width: 7px; height: 7px; border-radius: var(--tedix-radius-full); background: #a1a1aa; }
 	.tedix-status[data-state="connecting"] .tedix-status-dot { background: #f59e0b; animation: tedix-status-pulse 1.2s ease-in-out infinite; }
 	.tedix-status[data-state="connected"] .tedix-status-dot,
-	.tedix-status[data-state="webmcp"] .tedix-status-dot { background: #22a06b; }
+	.tedix-status[data-state="page_context"] .tedix-status-dot,
+	.tedix-status[data-state="page_tools"] .tedix-status-dot { background: #22a06b; }
 	.tedix-status[data-state="error"] .tedix-status-dot { background: #dc2626; }
 	@keyframes tedix-status-pulse { 50% { opacity: .35; } }
 	@media (prefers-reduced-motion: reduce) {
@@ -47,7 +48,8 @@ export type EmbeddedConnectionState =
 	| "idle"
 	| "connecting"
 	| "connected"
-	| "webmcp"
+	| "page_context"
+	| "page_tools"
 	| "error";
 
 export function embeddedConnectionLabel(
@@ -59,8 +61,10 @@ export function embeddedConnectionLabel(
 			return t("connecting");
 		case "connected":
 			return t("connected");
-		case "webmcp":
-			return t("page_connected");
+		case "page_context":
+			return t("can_see_page");
+		case "page_tools":
+			return t("can_act_on_page");
 		case "error":
 			return t("offline");
 		default:

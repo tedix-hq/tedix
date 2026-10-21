@@ -673,6 +673,9 @@ export function WorkDecisionCard({
 			setStagedOptionId(action.id);
 			return { ok: true, status: "staged" };
 		},
+		unstage() {
+			setStagedOptionId(null);
+		},
 		async submit(id) {
 			const action = agentAction(id);
 			if (!action) return unknownOption(id);

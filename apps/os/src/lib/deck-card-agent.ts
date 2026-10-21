@@ -31,6 +31,8 @@ export interface DeckCardAgentHandle {
 	busy: boolean;
 	fill(text: string): DeckCardAgentOutcome;
 	stage(optionId: string): DeckCardAgentOutcome;
+	/** Clear the prepared option, as an Undo of `stage`. */
+	unstage?(): void;
 	submit(optionId: string): Promise<DeckCardAgentOutcome>;
 }
 

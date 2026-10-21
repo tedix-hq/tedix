@@ -5,9 +5,14 @@ import type {
 	DeckNotUsefulHandle,
 } from "@/lib/deck-card-agent";
 import {
+	buildDecisionDeckPageChatExtras,
 	buildDecisionDeckWebMcpTools,
 	type DecisionDeckController,
 } from "./decision-deck-webmcp-tools";
+import {
+	listPageChatTools,
+	registerPageChatTools,
+} from "@/lib/page-chat-tools";
 
 function handle(
 	overrides: Partial<DeckCardAgentHandle> = {},
@@ -313,5 +318,46 @@ describe("Decision deck WebMCP tools", () => {
 		).resolves.toEqual(
 			webMcpError("The card could not be changed. Try again in a moment."),
 		);
+	});
+});
+
+describe("Decision deck tools in the quick chat", () => {
+	it("words each action plainly and confirms a submit in the chat", () => {
+		const { state } = deck();
+		const extras = buildDecisionDeckPageChatExtras(() => state);
+		expect(extras.respond_decision_card?.confirm).toBe(true);
+		expect(extras.set_decision_card_answer?.confirm).toBeUndefined();
+		expect(
+			extras.set_decision_card_option?.describe?.({ optionId: "answer" }),
+		).toBe('chose "Answer"');
+		expect(
+			extras.respond_decision_card?.describe?.({ optionId: "decline" }),
+		).toBe('submitted "Decline"');
+		expect(extras.get_decision_deck_card?.describe?.({})).toBeNull();
+	});
+
+	it("undoes a fill and a chosen option on the card on screen", () => {
+		const unstage = vi.fn();
+		const agent = handle({ value: "Before", unstage });
+		const { state } = deck(agent);
+		const extras = buildDecisionDeckPageChatExtras(() => state);
+		const undoFill = extras.set_decision_card_answer?.prepareUndo?.({})!;
+		agent.fill("After");
+		undoFill();
+		expect(agent.fill).toHaveBeenLastCalledWith("Before");
+		const undoStage = extras.set_decision_card_option?.prepareUndo?.({})!;
+		agent.stage("answer");
+		undoStage();
+		expect(unstage).toHaveBeenCalledTimes(1);
+	});
+
+	it("offers the chat only registered tools, and unregisters them", () => {
+		const { tools } = deck();
+		const dispose = registerPageChatTools("app:decision_deck", tools);
+		expect(listPageChatTools().map((tool) => tool.name)).toContain(
+			"respond_decision_card",
+		);
+		dispose();
+		expect(listPageChatTools()).toEqual([]);
 	});
 });

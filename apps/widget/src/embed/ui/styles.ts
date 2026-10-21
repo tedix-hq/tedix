@@ -177,6 +177,17 @@ export function embeddedTediStyles(
 				.tedix-approval button:disabled { cursor: default; opacity: .55; }
 				.tedix-approval > span { display: block; margin-top: 8px; color: var(--tedix-muted); font-size: 11px; text-align: right; }
 				.tedix-approval[data-resolved] div { display: none; }
+				.tedix-page-action { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 10px; color: var(--tedix-muted); font-size: 12px; line-height: 1.45; }
+				.tedix-page-action > span { flex: 1 1 auto; min-width: 0; }
+				.tedix-page-action > button { min-height: 28px; padding: 3px 10px; border: 1px solid var(--tedix-border); border-radius: 8px; background: var(--tedix-bg); color: var(--tedix-text); cursor: pointer; font-size: 12px; font-weight: 600; }
+				.tedix-page-action > em { font-style: normal; }
+				.tedix-page-action[data-state="failed"] { color: #dc2626; }
+				.tedix-page-action[data-state="confirm"] { display: block; padding: 12px; border: 1px solid color-mix(in srgb, var(--tedix-accent) 40%, var(--tedix-border)); border-radius: var(--tedix-radius-xl); background: color-mix(in srgb, var(--tedix-accent) 6%, var(--tedix-bg)); color: var(--tedix-text); }
+				.tedix-page-action[data-state="confirm"] strong { display: block; font-size: 13px; }
+				.tedix-page-action[data-state="confirm"] div { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+				.tedix-page-action[data-state="confirm"] button { min-height: 44px; padding: 6px 14px; border: 1px solid var(--tedix-border); border-radius: 10px; background: var(--tedix-bg); color: var(--tedix-text); cursor: pointer; font-size: 13px; font-weight: 620; }
+				.tedix-page-action[data-state="confirm"] button[data-decision="approve"] { border-color: var(--tedix-accent); background: var(--tedix-accent); color: #fff; }
+				.tedix-page-action button:disabled { cursor: default; opacity: .55; }
 				.tedix-widget-frame { width: 100%; min-height: 180px; margin: -7px 0 20px; overflow: hidden; border: 1px solid var(--tedix-border); border-radius: 18px; background: var(--tedix-bg); }
 				.tedix-widget-frame iframe { display: block; width: 100%; min-height: 260px; border: 0; }
 				.tedix-composer-wrap { padding: 10px 12px 13px; border-top: 1px solid var(--tedix-border); background: var(--tedix-bg); }
