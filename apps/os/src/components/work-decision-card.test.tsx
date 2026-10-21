@@ -950,6 +950,63 @@ it("shows the summary's own yes and no labels instead of guessing from the wordi
 	);
 });
 
+it("shows and saves a chat-filled answer on a yes/no question", async () => {
+	const slots = {
+		card: createAgentSlot<DeckCardAgentHandle>(),
+		notUseful: createAgentSlot<DeckNotUsefulHandle>(),
+	};
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const decide = vi.fn(async (_feedback: DecisionCardFeedback) => {});
+	await act(async () =>
+		root.render(
+			<DeckCardAgentContext.Provider value={slots}>
+				<CardFaceContext.Provider
+					value={{
+						presentation: { ...FACE, title: "Keep dark-factory private?" },
+						confidence: null,
+					}}
+				>
+					<WorkDecisionCard
+						kind="question"
+						askedBy="Robin"
+						title="Original request"
+						actions={[
+							{ id: "answer", label: "Answer", intent: "approve" },
+							{ id: "no", label: "No / Not needed", intent: "reject" },
+						]}
+						onDecision={decide}
+					/>
+				</CardFaceContext.Provider>
+			</DeckCardAgentContext.Provider>,
+		),
+	);
+	const handle = () => slots.card.get()!;
+	await act(async () => {
+		expect(handle().fill("Only until the audit is done")).toEqual({
+			ok: true,
+			status: "filled",
+		});
+	});
+	// The typed answer replaces the yes/no face: visible, and submitted as is.
+	expect(host.querySelector("textarea")!.value).toBe(
+		"Only until the audit is done",
+	);
+	await act(async () => {
+		await expect(handle().submit("answer")).resolves.toEqual({
+			ok: true,
+			status: "saved",
+		});
+	});
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({
+			action: "answer",
+			body: "Only until the audit is done",
+		}),
+	);
+});
+
 it("opens a typed answer for a yes/no question on request", async () => {
 	await mountQuestion("Keep dark-factory private?");
 	await click("Write an answer");

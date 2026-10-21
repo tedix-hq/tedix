@@ -686,8 +686,12 @@ export function WorkDecisionCard({
 		busy,
 		fill(text) {
 			if (busy) return { ok: false, error: "The card is saving or closed." };
-			if (agentField === "answer") setAnswer(text);
-			else if (agentField === "draft") {
+			if (agentField === "answer") {
+				// A yes/no face hides the answer box and submits "Yes: <title>";
+				// a typed answer opens it so the text is shown and saved.
+				if (yesNoLabel) setWriting(true);
+				setAnswer(text);
+			} else if (agentField === "draft") {
 				setEditing(true);
 				setDraft(text);
 			} else
