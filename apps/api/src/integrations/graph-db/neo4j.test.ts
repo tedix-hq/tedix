@@ -11,7 +11,8 @@ import type {
 	GraphSyncEdge,
 	GraphWorkItem,
 } from "./types";
-import { createNeo4jGraphClient, runCypherWithParams } from "./neo4j";
+import { createNeo4jGraphClient } from "./neo4j";
+import { runCypherWithParams } from "./neo4j-http";
 
 function response(fields: string[] = [], values: unknown[][] = []): Response {
 	return new Response(JSON.stringify({ data: { fields, values } }), {

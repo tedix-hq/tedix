@@ -75,6 +75,7 @@ export async function runCypherWithParams(
 ): Promise<Record<string, unknown>[]> {
 	const secrets = getGraphDbSecrets(env);
 	if (!secrets) return [];
-	const { runCypherWithParams: run } = require("./neo4j") as Neo4jModule;
+	const { runCypherWithParams: run } =
+		require("./neo4j-http") as typeof import("./neo4j-http");
 	return run(secrets, cypher, params);
 }

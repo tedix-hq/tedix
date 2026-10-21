@@ -1,15 +1,13 @@
-import {
-	createNeo4jGraphClient,
-	runCypherWithParams,
-} from "../integrations/graph-db/neo4j";
+import { createNeo4jGraphClient } from "../integrations/graph-db/neo4j";
+import { runCypherWithParams } from "../integrations/graph-db/neo4j-http";
 import { processSyncBatch } from "../integrations/graph-db/sync";
 import type { SyncEvent } from "../integrations/graph-db/types";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("../integrations/graph-db/client", async () => {
 	const graphDb = await vi.importActual<
-		typeof import("../integrations/graph-db/neo4j")
-	>("../integrations/graph-db/neo4j");
+		typeof import("../integrations/graph-db/neo4j-http")
+	>("../integrations/graph-db/neo4j-http");
 	return {
 		runCypherWithParams: (
 			env: CloudflareEnv,
