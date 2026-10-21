@@ -1,0 +1,147 @@
+{
+	"repo_notes": [
+		{
+			"content": "Tedix exists to protect human attention. People hand off work; Tedix brings back only the decisions that need a person, ranked by what matters most, and handles the rest. The same need applies to one developer running many coding assistants in parallel and to an operator choosing which contributions are worth their time. Open the Overview with that problem and outcome, not with architecture. Write in plain English for a developer seeing the project for the first time. Do not describe Tedix as AI coworkers, AI workers, a to-do list or a governance platform. Define product terms once where they first appear: a tedi is a persistent worker with its own memory, skills and permissions; a Work Item is one unit of handed-off work with an owner, a risk level and a budget; Home is the entry point that answers directly or hands work to a tedi; the Deck shows the decisions waiting for a person; the Feed shows results that need no decision. Prefer current code and docs/public over older prose, and docs/public/release-status.md for what is available today. Never name customers or tenants; examples use fictional organizations."
+		},
+		{
+			"content": "The repository is built in the open by coding agents that Tedix itself coordinates. Commits carry Work-Item and Agent-Session trailers that link each change to its task and agent session; the ids do not resolve publicly. Pull requests are disabled: outside contributors and their agents open an issue (optionally with a diff) or follow AGENT-REVIEW.md, and maintainers re-author accepted changes with credit. Explain this once on the contribution page rather than on every page."
+		}
+	],
+	"pages": [
+		{
+			"title": "Overview",
+			"purpose": "The problem Tedix solves (people spend attention on work that does not need them), the outcome it delivers, the main concepts, how the pieces fit together on Cloudflare, and links to every section."
+		},
+		{
+			"title": "Getting Started Locally",
+			"purpose": "bun run-local: prerequisites, what it starts, local organization setup, optional Workers AI inference, --smoke and --demo, and where local data lives.",
+			"parent": "Overview"
+		},
+		{
+			"title": "Repository Layout",
+			"purpose": "apps/, packages/, plugins/, scripts/, docs/public/, decisions/ and examples/; how workspaces depend on each other; the AGENTS.md hard invariants (no db.transaction, contracts in packages/api-contract, no barrel files, config in D1 rows).",
+			"parent": "Overview"
+		},
+		{
+			"title": "How Contributions Work",
+			"purpose": "Agent-built development: commit trailers, the push queue and pre-push gates, why pull requests are disabled, how outside agents send issues with diffs or AGENT-REVIEW.md feedback, and how credit works.",
+			"parent": "Overview"
+		},
+		{
+			"title": "Licensing and Security",
+			"purpose": "AGPL-3.0 with Apache-2.0 and MIT packages, trademarks, SECURITY.md disclosure, the public secret scan and telemetry disclosure.",
+			"parent": "Overview"
+		},
+		{
+			"title": "Deciding What Needs a Person",
+			"purpose": "How Tedix separates decisions that need a person from work it can finish alone: risk levels, budgets, triage of agent turns, and how only the valuable decisions reach a human."
+		},
+		{
+			"title": "Approvals Before Risky Steps",
+			"purpose": "Approval requests, who may approve, why nobody approves their own request, approving with edited fields, and how approvals resume work.",
+			"parent": "Deciding What Needs a Person"
+		},
+		{
+			"title": "Deck and Feed",
+			"purpose": "The Deck of decisions waiting for a person and the Feed of finished results: how cards are selected, ranked, dated and expired, and how they appear in Tedix OS and inside Claude and ChatGPT.",
+			"parent": "Deciding What Needs a Person"
+		},
+		{
+			"title": "Learning From Decisions",
+			"purpose": "How decisions and corrections become lessons and memory so the same question does not reach a person twice: lesson distillation, delivery into agent sessions, and memory recall.",
+			"parent": "Deciding What Needs a Person"
+		},
+		{
+			"title": "Work Items",
+			"purpose": "The unit of handed-off work: lifecycle from proposed to settled, attempts and leases, evidence, delegation between sessions, and the tedix work commands."
+		},
+		{
+			"title": "Agent Sessions and Identity",
+			"purpose": "Verified agent sessions for Claude Code, Codex and other harnesses, one identity per tedi, and how actions are attributed to a session.",
+			"parent": "Work Items"
+		},
+		{
+			"title": "Tedix CLI",
+			"purpose": "packages/cli: login and workspaces, tedix ask, tedix work, tedix code, and machine-readable output."
+		},
+		{
+			"title": "CLI Hooks for Coding Agents",
+			"purpose": "Session-start, prompt-context and stop hooks for Claude Code, Codex and other hosts; what context they inject; what they send and when it is opt-in.",
+			"parent": "Tedix CLI"
+		},
+		{
+			"title": "CLI Authentication",
+			"purpose": "OAuth login, stored credentials, token refresh and file locking across processes, and scope inspection.",
+			"parent": "Tedix CLI"
+		},
+		{
+			"title": "Plugins for Claude, ChatGPT and Codex",
+			"purpose": "plugins/tedix: manifests, skills, hooks and how the public plugin repository is generated and validated for each host."
+		},
+		{
+			"title": "MCP Gateway",
+			"purpose": "apps/mcp: the remote MCP server at connect.mcp.tedix.dev, how organization tools are aggregated, and how clients connect over OAuth."
+		},
+		{
+			"title": "Code Mode",
+			"purpose": "Discovering and calling tools with JavaScript through discover.search and discover.describe, result limits, and completion evidence.",
+			"parent": "MCP Gateway"
+		},
+		{
+			"title": "Scopes and Authorization",
+			"purpose": "Capability scopes, risk tiers on tools, and how a call is authorized for an organization.",
+			"parent": "MCP Gateway"
+		},
+		{
+			"title": "Tool Catalog",
+			"purpose": "Tool rows in D1, schema sync from contracts, app installation per organization, and verb-first tool naming.",
+			"parent": "MCP Gateway"
+		},
+		{
+			"title": "API Service",
+			"purpose": "apps/api: oRPC routers, the contracts in packages/api-contract, and how services are organised."
+		},
+		{
+			"title": "Jobs and Workflows",
+			"purpose": "Scheduled jobs, Cloudflare Workflows, queues, and how long-running work is resumed.",
+			"parent": "API Service"
+		},
+		{
+			"title": "Data on D1",
+			"purpose": "packages/db: Drizzle schema and query modules, migrations, batch instead of transactions, and the rules that keep queries safe in D1 batches.",
+			"parent": "API Service"
+		},
+		{
+			"title": "Billing and Credits",
+			"purpose": "Compute metering, the credit wallet and entitlements.",
+			"parent": "API Service"
+		},
+		{
+			"title": "Tedi Runtime",
+			"purpose": "apps/tedi-runtime: the Durable Object that runs a tedi, conversation and model selection, execution evidence and failure handling."
+		},
+		{
+			"title": "Skills",
+			"purpose": "Skill definitions, the skill runtime, skill lifecycle and catalog data, and how a skill run produces results.",
+			"parent": "Tedi Runtime"
+		},
+		{
+			"title": "Tedix OS Web App",
+			"purpose": "apps/os: routes, fixture-data development mode, and the main surfaces people use."
+		},
+		{
+			"title": "Workspaces and Outputs",
+			"purpose": "Workspaces, resources and sharing, and Outputs (documents, sheets and presentations) with revisions and collaboration proposals.",
+			"parent": "Tedix OS Web App"
+		},
+		{
+			"title": "Apps and Widgets",
+			"purpose": "MCP App views, widgets and canvas, and how apps render inside Tedix OS and agent hosts.",
+			"parent": "Tedix OS Web App"
+		},
+		{
+			"title": "Running on Your Own Cloudflare Account",
+			"purpose": "Installation manifests, the self-hosted boundary, what is supported, and what stays with Tedix Cloud."
+		}
+	]
+}
