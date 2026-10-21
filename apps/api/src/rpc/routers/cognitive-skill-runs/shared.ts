@@ -79,6 +79,7 @@ export function isRecoverableSkillRuntimeCancelFailure(
 type PublicSkillRun = Omit<
 	SkillRun,
 	| "workflowSource"
+	| "workflowSourceHash"
 	| "skillDoc"
 	| "skillRevision"
 	| "skillSlug"

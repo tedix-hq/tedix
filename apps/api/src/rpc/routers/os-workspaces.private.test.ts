@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
-import { skillRuns } from "@tedix/db/schema/cognitive";
+import { skillRuns, skillWorkflowSources } from "@tedix/db/schema/cognitive";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
@@ -56,6 +56,7 @@ function createEnv(): CloudflareEnv {
 			organizationMembers,
 			osWorkspaceResources,
 			skillRuns,
+			skillWorkflowSources,
 		),
 	);
 	sqlite.exec(`

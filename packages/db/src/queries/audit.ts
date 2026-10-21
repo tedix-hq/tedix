@@ -5,8 +5,8 @@
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
-import type { DbClient } from "../client";
-import { auditEvents } from "../schema";
+import { getLogStores, type DbClient } from "../client";
+import { auditEvents } from "../schema/audit-events";
 
 // ============================================================================
 // Types
@@ -57,6 +57,7 @@ export interface InsertAuditEventParams {
 export interface SearchAuditEventsOptions {
 	organizationId: string;
 	actorId?: string;
+	actorType?: AuditActorType;
 	action?: string;
 	resourceType?: string;
 	resourceId?: string;
@@ -77,7 +78,9 @@ export async function insertAuditEvent(
 	db: DbClient,
 	event: InsertAuditEventParams,
 ): Promise<string> {
-	const { id, statement } = buildInsertAuditEventStatement(db, event);
+	const target =
+		event.action === "mcp.tool.execute" ? (getLogStores(db)?.logs ?? db) : db;
+	const { id, statement } = buildInsertAuditEventStatement(target, event);
 	await statement;
 	return id;
 }
@@ -88,6 +91,9 @@ export function buildInsertAuditEventStatement(
 	event: InsertAuditEventParams,
 ) {
 	const id = event.id ?? crypto.randomUUID();
+	const metadata = event.metadata ? { ...event.metadata } : null;
+	if (metadata && metadata.oauthClientId === metadata.clientId)
+		delete metadata.oauthClientId;
 	const insert = db.insert(auditEvents).values({
 		id,
 		organizationId: event.organizationId,
@@ -96,7 +102,7 @@ export function buildInsertAuditEventStatement(
 		action: event.action,
 		resourceType: event.resourceType,
 		resourceId: event.resourceId ?? null,
-		metadata: event.metadata ?? null,
+		metadata,
 		ipAddress: event.ipAddress ?? null,
 		userAgent: event.userAgent ?? null,
 		timestamp: event.occurredAt ?? new Date(),
@@ -117,11 +123,36 @@ export async function searchAuditEvents(
 	options: SearchAuditEventsOptions,
 ): Promise<{ data: (typeof auditEvents.$inferSelect)[]; total: number }> {
 	const { organizationId, limit = 50, offset = 0 } = options;
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				searchAuditEvents(store, {
+					...options,
+					limit: limit + offset,
+					offset: 0,
+				}),
+			),
+		);
+		return {
+			data: pages
+				.flatMap((page) => page.data)
+				.sort(
+					(a, b) =>
+						b.timestamp.getTime() - a.timestamp.getTime() ||
+						b.id.localeCompare(a.id),
+				)
+				.slice(offset, offset + limit),
+			total: pages.reduce((total, page) => total + page.total, 0),
+		};
+	}
 
 	const conditions = [eq(auditEvents.organizationId, organizationId)];
 
 	if (options.actorId)
 		conditions.push(eq(auditEvents.actorId, options.actorId));
+	if (options.actorType)
+		conditions.push(eq(auditEvents.actorType, options.actorType));
 	if (options.action) conditions.push(eq(auditEvents.action, options.action));
 	if (options.resourceType)
 		conditions.push(eq(auditEvents.resourceType, options.resourceType));
@@ -157,6 +188,28 @@ export async function getAuditEventsByResource(
 	resourceId: string,
 	limit = 100,
 ): Promise<(typeof auditEvents.$inferSelect)[]> {
+	const stores = getLogStores(db);
+	if (stores) {
+		const rows = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				getAuditEventsByResource(
+					store,
+					organizationId,
+					resourceType,
+					resourceId,
+					limit,
+				),
+			),
+		);
+		return rows
+			.flat()
+			.sort(
+				(a, b) =>
+					b.timestamp.getTime() - a.timestamp.getTime() ||
+					b.id.localeCompare(a.id),
+			)
+			.slice(0, limit);
+	}
 	return db
 		.select()
 		.from(auditEvents)

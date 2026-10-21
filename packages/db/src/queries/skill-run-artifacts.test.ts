@@ -223,3 +223,29 @@ describe("skill workflow artifact pages", () => {
 		expect(await listRunWorkflowCallArtifacts(db, "run-1")).toEqual([]);
 	});
 });
+
+it("uploads small bodies before committing a pointer and preserves legacy reads", async () => {
+	const { db } = fixture();
+	const objects = new Map<string, string>();
+	const bucket = {
+		put: async (key: string, value: string) => {
+			objects.set(key, value);
+		},
+	} as unknown as R2Bucket;
+	const row = await recordRunArtifact(
+		db,
+		{ runId: "run-1", path: "small.json", value: { ok: true } },
+		bucket,
+	);
+	expect(row.contentInline).toBeNull();
+	expect(objects.get(row.contentR2Key!)).toBe('{"ok":true}');
+	expect(row.sha256).toBe(await sha256Hex('{"ok":true}'));
+	await expect(
+		recordRunArtifact(db, { runId: "run-1", path: "failed.json", value: {} }, {
+			put: async () => {
+				throw new Error("unavailable");
+			},
+		} as unknown as R2Bucket),
+	).rejects.toThrow("unavailable");
+	expect(await getRunArtifact(db, "run-1", "failed.json")).toBeNull();
+});

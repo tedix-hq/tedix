@@ -71,12 +71,12 @@ async function recordArtifactForRun(
 	// cannot present a digest that disagrees with its own evidence.
 	const sha256 = await sha256HexSafe(serialized);
 
-	if (sizeBytes > INLINE_THRESHOLD_BYTES) {
+	if (env.SKILL_ARTIFACTS || sizeBytes > INLINE_THRESHOLD_BYTES) {
 		// Spill to R2, then record metadata-only row in D1. Object key includes
 		// the runId prefix so per-run lifecycle (revoke, list) can use R2's
 		// prefix-scoped operations later. The digest also rides along on the R2
 		// object so the bytes stay verifiable if D1 and R2 are ever compared.
-		const r2Key = `${runId}/${path}`;
+		const r2Key = `${runId}/bodies/${crypto.randomUUID()}`;
 		await env.SKILL_ARTIFACTS.put(r2Key, serialized, {
 			httpMetadata: { contentType: effectiveMime },
 			customMetadata: {

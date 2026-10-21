@@ -1443,6 +1443,7 @@ assert.equal(
 
 const snapshotSqlite = new Database(":memory:");
 snapshotSqlite.exec(`
+	CREATE TABLE IF NOT EXISTS skill_workflow_sources (skill_id TEXT NOT NULL, sha256 TEXT NOT NULL, workflow_source TEXT NOT NULL, PRIMARY KEY (skill_id, sha256));
 	CREATE TABLE skill_runs (
 		id TEXT PRIMARY KEY NOT NULL,
 		skill_id TEXT NOT NULL,
@@ -1457,6 +1458,7 @@ snapshotSqlite.exec(`
 		skill_slug TEXT,
 		skill_revision INTEGER,
 		workflow_source TEXT,
+		workflow_source_hash TEXT,
 		skill_doc TEXT,
 		capability_manifest TEXT,
 		created_by TEXT,
@@ -3320,6 +3322,7 @@ usageStampSqlite.exec(`
 		capability_manifest TEXT,
 		cost_summary TEXT,
 		workflow_source TEXT,
+		workflow_source_hash TEXT,
 		skill_doc TEXT,
 		skill_revision INTEGER,
 		skill_slug TEXT,

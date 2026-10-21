@@ -18,7 +18,11 @@ import { unzipSync } from "fflate";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
-import { skillRunArtifacts, skillRuns } from "@tedix/db/schema/cognitive";
+import {
+	skillRunArtifacts,
+	skillRuns,
+	skillWorkflowSources,
+} from "@tedix/db/schema/cognitive";
 import {
 	osBlueprintRevisions,
 	osBlueprints,
@@ -153,6 +157,7 @@ function createEnv(): CloudflareEnv {
 			osShareLinks,
 			osShareSessions,
 			skillRuns,
+			skillWorkflowSources,
 			skillRunArtifacts,
 			userConfigs,
 			auditEvents,

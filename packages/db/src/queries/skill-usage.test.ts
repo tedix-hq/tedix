@@ -72,6 +72,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 			capability_manifest TEXT,
 			cost_summary TEXT,
 			workflow_source TEXT,
+		workflow_source_hash TEXT,
 			skill_doc TEXT,
 			skill_revision INTEGER,
 			skill_slug TEXT,

@@ -9,6 +9,11 @@ import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-wor
  */
 
 import { createDbClient } from "@tedix/db/client";
+import {
+	createPinnedSkillRun,
+	getPinnedSkillWorkflowSource,
+	type CreatePinnedSkillRunParams,
+} from "@tedix/db/queries/skill-runs";
 import { reconcileSkillWorkflowDispatchRationale } from "@tedix/db/queries/rationale-records";
 import {
 	recordMissingSkillMcpAppBindings,
@@ -64,63 +69,9 @@ export interface SkillRunRow {
  */
 export async function createSkillRun(
 	db: D1Database,
-	input: {
-		runId: string;
-		skillId: string;
-		tediId: string;
-		orgId: string;
-		workflowInstanceId: string;
-		params: unknown;
-		workflowSource?: string | null;
-		skillDoc?: string | null;
-		skillRevision?: number | null;
-		skillSlug?: string | null;
-		capabilityManifest?: unknown;
-		resourceAccessEnvelope?: OsDerivedAccessEnvelope;
-		createdBy?: string | null;
-		workItemId?: string | null;
-		originTediRunId?: string | null;
-		runtimeEnvironment: "development" | "staging" | "production";
-	},
+	input: CreatePinnedSkillRunParams,
 ): Promise<void> {
-	await db
-		.prepare(
-			`INSERT INTO skill_runs (
-				id, skill_id, tedi_id, organization_id,
-				workflow_instance_id, params, status, error, started_at,
-				workflow_source, skill_doc, skill_revision, skill_slug,
-				capability_manifest, runtime_environment, created_by, work_item_id,
-				origin_tedi_run_id, resource_access_envelope
-			) VALUES (
-				?1, ?2, ?3, ?4,
-				?5, ?6, 'failed', 'WORKFLOW_ADMISSION_PENDING: workflow create not yet observed', strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-				?7, ?8, ?9, ?10,
-				?11, ?12, ?13, ?14, ?15, ?16
-			)`,
-		)
-		.bind(
-			input.runId,
-			input.skillId,
-			input.tediId,
-			input.orgId,
-			input.workflowInstanceId,
-			JSON.stringify(input.params ?? {}),
-			input.workflowSource ?? null,
-			input.skillDoc ?? null,
-			input.skillRevision ?? null,
-			input.skillSlug ?? null,
-			input.capabilityManifest != null
-				? JSON.stringify(input.capabilityManifest)
-				: null,
-			input.runtimeEnvironment,
-			input.createdBy ?? null,
-			input.workItemId ?? null,
-			input.originTediRunId ?? null,
-			input.resourceAccessEnvelope
-				? JSON.stringify(input.resourceAccessEnvelope)
-				: null,
-		)
-		.run();
+	await createPinnedSkillRun(createDbClient(db), input);
 }
 
 /**
@@ -181,6 +132,11 @@ export async function loadSkillRunSnapshot(
 			work_item_id: string | null;
 			origin_tedi_run_id: string | null;
 		}>();
+	if (row && !row.workflow_source)
+		row.workflow_source = await getPinnedSkillWorkflowSource(
+			createDbClient(db),
+			runId,
+		);
 	if (
 		!row?.workflow_source ||
 		row.workflow_retired_at != null ||
@@ -931,32 +887,42 @@ export async function listSkillRunArtifactInlineContent(
 	db: D1Database,
 	runId: string,
 	paths: string[],
+	bucket?: R2Bucket,
 ): Promise<Array<{ path: string; content_inline: string | null }>> {
-	if (paths.length === 0) return [];
-	const placeholders = paths.map((_, index) => `?${index + 2}`).join(",");
-	const rows = await db
-		.prepare(
-			`SELECT path, content_inline FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path IN (${placeholders})`,
-		)
-		.bind(runId, ...paths)
-		.all<{ path: string; content_inline: string | null }>();
-	return rows.results ?? [];
+	const rows: Array<{ path: string; content_inline: string | null }> = [];
+	for (const path of paths)
+		rows.push({
+			path,
+			content_inline: await getSkillRunArtifactInlineContent(
+				db,
+				runId,
+				path,
+				bucket,
+			),
+		});
+	return rows;
 }
 
 export async function getSkillRunArtifactInlineContent(
 	db: D1Database,
 	runId: string,
 	path: string,
+	bucket?: R2Bucket,
 ): Promise<string | null> {
-	const row = await db
-		.prepare(
-			`SELECT content_inline FROM skill_run_artifacts
-			 WHERE run_id = ?1 AND path = ?2 LIMIT 1`,
-		)
+	const inline = await db
+		.prepare(`SELECT content_inline FROM skill_run_artifacts
+		 WHERE run_id = ?1 AND path = ?2 LIMIT 1`)
 		.bind(runId, path)
 		.first<{ content_inline: string | null }>();
-	return row?.content_inline ?? null;
+	if (inline?.content_inline != null) return inline.content_inline;
+	if (!bucket) return null;
+	const { getRunArtifact } =
+		await import("@tedix/db/queries/skill-run-artifacts");
+	const row = await getRunArtifact(createDbClient(db), runId, path);
+	if (!row?.contentR2Key) return null;
+	const object = await bucket.get(row.contentR2Key);
+	if (!object) throw new Error("SKILL_ARTIFACT_BODY_UNAVAILABLE");
+	return object.text();
 }
 
 export async function claimSkillWorkflowAdmissionFence(

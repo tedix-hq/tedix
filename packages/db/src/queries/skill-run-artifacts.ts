@@ -7,8 +7,8 @@
  * exact step output that produced it; revoking a run cascades cleanly via
  * `DELETE FROM memory_facts WHERE source LIKE 'skill://.../{runId}/%'`.
  *
- * Inline payloads ≤ INLINE_THRESHOLD_BYTES (16 KiB) live in `content_inline`.
- * Larger payloads spill to R2 with `content_r2_key`; `content_inline` is null.
+ * Bodies use R2 when a bucket is provided; legacy small inline bodies remain
+ * readable. Without R2, the inline cap is INLINE_THRESHOLD_BYTES (16 KiB).
  * Path is canonical within a run. Stable summary artifacts (for example
  * `timeline.json`) upsert in place, while durable execution evidence encodes
  * the native Cloudflare attempt in
@@ -136,10 +136,9 @@ export function validateArtifactPath(path: string): void {
  * Whether a retry overwrites or remains distinct is an explicit path decision:
  * summaries reuse a path; per-attempt evidence includes its attempt in the path.
  *
- * Caller is responsible for choosing inline vs R2: pass `r2Key` when the
- * payload was uploaded to R2; otherwise the value is JSON-serialised inline.
- * If the inline payload exceeds INLINE_THRESHOLD_BYTES and no r2Key was
- * provided, this throws — callers must split large payloads upstream.
+ * Pass a bucket to upload the body before writing its pointer, or `r2Key` for
+ * an existing upload. Without either, only bodies within the inline cap
+ * are accepted.
  *
  * Every row is content-addressed: `sha256` is the digest of the exact stored
  * bytes. Inline writes are hashed here; R2/blob writes must supply the digest
@@ -152,6 +151,7 @@ export function validateArtifactPath(path: string): void {
 export async function recordRunArtifact(
 	db: DbClient,
 	input: RecordArtifactInput,
+	bucket?: R2Bucket,
 ): Promise<SkillRunArtifact> {
 	validateArtifactPath(input.path);
 	const mimeType = input.mimeType ?? "application/json";
@@ -160,7 +160,7 @@ export async function recordRunArtifact(
 	const outcome = input.outcome ?? "success";
 
 	let contentInline: string | null = null;
-	const contentR2Key: string | null = input.r2Key ?? null;
+	let contentR2Key: string | null = input.r2Key ?? null;
 	let sizeBytes = 0;
 	let sha256: string | null = input.sha256 ?? null;
 
@@ -182,7 +182,7 @@ export async function recordRunArtifact(
 					? input.value
 					: JSON.stringify(input.value);
 		sizeBytes = new TextEncoder().encode(serialized).byteLength;
-		if (sizeBytes > INLINE_THRESHOLD_BYTES) {
+		if (!bucket && sizeBytes > INLINE_THRESHOLD_BYTES) {
 			throw new Error(
 				`SKILL_RUN_ARTIFACT_TOO_LARGE: ${sizeBytes} bytes for ${input.path} exceeds inline cap (${INLINE_THRESHOLD_BYTES}); upload to R2 and pass r2Key.`,
 			);
@@ -193,6 +193,18 @@ export async function recordRunArtifact(
 		// `sha256` in; this is the fallback that makes every inline write
 		// verifiable without touching a single call site.
 		sha256 ??= await sha256HexSafe(serialized);
+		if (bucket) {
+			contentR2Key = `${input.runId}/bodies/${id}`;
+			await bucket.put(contentR2Key, serialized, {
+				httpMetadata: { contentType: mimeType },
+				customMetadata: {
+					runId: input.runId,
+					path: input.path,
+					...(sha256 ? { sha256 } : {}),
+				},
+			});
+			contentInline = null;
+		}
 	}
 
 	const row: NewSkillRunArtifact = {

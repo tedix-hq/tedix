@@ -5,6 +5,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	cancelSkillRun,
+	createPinnedSkillRun,
 	createSkillRun,
 	getLatestReportedSkillRun,
 	getSkillRun,
@@ -52,6 +53,7 @@ function fixture() {
 			tags TEXT,
 			lifecycle_state TEXT NOT NULL DEFAULT 'draft'
 		);
+		CREATE TABLE skill_workflow_sources (skill_id TEXT NOT NULL, sha256 TEXT NOT NULL, workflow_source TEXT NOT NULL, PRIMARY KEY (skill_id, sha256));
 		CREATE TABLE skill_runs (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
@@ -72,6 +74,7 @@ function fixture() {
 			resource_access_envelope TEXT,
 			cost_summary TEXT,
 			workflow_source TEXT,
+		workflow_source_hash TEXT,
 			skill_doc TEXT,
 			skill_revision INTEGER,
 			skill_slug TEXT,
@@ -875,4 +878,78 @@ it("preserves an admitted personal source envelope through canonical D1 query re
 		(await getSkillRun(db, id, "org-1", "production"))?.resourceAccessEnvelope,
 	).toEqual(envelope);
 	expect(await getSkillRun(db, id, "other-org", "production")).toBeUndefined();
+});
+
+it("stores workflow source once per skill/hash and resolves legacy and referenced snapshots", async () => {
+	const { db, sqlite, insert, insertSkill } = fixture();
+	insertSkill("skill-1", []);
+	const input = {
+		skillId: "skill-1",
+		tediId: "tedi-1",
+		orgId: "org-1",
+		workflowSource: "export default { run() {} }",
+		params: {},
+		runtimeEnvironment: "production" as const,
+	};
+	await createPinnedSkillRun(db, {
+		...input,
+		runId: "pinned-1",
+		workflowInstanceId: "instance-1",
+	});
+	await createPinnedSkillRun(db, {
+		...input,
+		runId: "pinned-2",
+		workflowInstanceId: "instance-2",
+	});
+	expect(
+		sqlite.prepare("SELECT count(*) AS n FROM skill_workflow_sources").get(),
+	).toEqual({ n: 1 });
+	expect(
+		sqlite
+			.prepare("SELECT workflow_source FROM skill_runs WHERE id = 'pinned-1'")
+			.get(),
+	).toEqual({ workflow_source: null });
+	expect(
+		(await getSkillRun(db, "pinned-1", "org-1", "production"))?.workflowSource,
+	).toBe(input.workflowSource);
+	expect(
+		await getSkillRun(db, "pinned-1", "org-other", "production"),
+	).toBeUndefined();
+	await createPinnedSkillRun(db, {
+		...input,
+		workflowSource: "export default { changed: true }",
+		runId: "pinned-3",
+		workflowInstanceId: "instance-3",
+	});
+	insert({ id: "legacy", runtimeEnvironment: "production" });
+	expect(
+		(await getSkillRun(db, "legacy", "org-1", "production"))?.workflowSource,
+	).toBe("export default {}");
+	expect(
+		(
+			await listSkillRunSnapshotsForSkill(db, "org-1", "skill-1", "production")
+		).every((row) => !!row.workflowSource),
+	).toBe(true);
+	expect(
+		sqlite.prepare("SELECT count(*) AS n FROM skill_workflow_sources").get(),
+	).toEqual({ n: 2 });
+});
+
+it("never resolves a missing source from a different skill", async () => {
+	const { db, sqlite, insert } = fixture();
+	insert({
+		id: "missing-source",
+		skillId: "skill-target",
+		runtimeEnvironment: "production",
+	});
+	sqlite.exec(
+		"UPDATE skill_runs SET workflow_source = NULL, workflow_source_hash = 'example-hash' WHERE id = 'missing-source'",
+	);
+	sqlite.exec(
+		"INSERT INTO skill_workflow_sources VALUES ('skill-other', 'example-hash', 'private source')",
+	);
+	expect(
+		(await getSkillRun(db, "missing-source", "org-1", "production"))
+			?.workflowSource,
+	).toBeNull();
 });
