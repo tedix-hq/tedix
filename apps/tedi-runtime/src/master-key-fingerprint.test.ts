@@ -53,29 +53,28 @@ function fleetRequest(serviceBinding: boolean) {
 	});
 }
 
-// Public caller on the fleet host: no slug resolves, so the edge rejects it
-// before any route and never answers with fingerprints.
+// Public caller on the fleet host: the edge refuses every untrusted
+// `/__internal/*` request before slug resolution and never answers with
+// fingerprints.
 {
 	const { response, forwarded } = await edgeFetch(fleetRequest(false), {
 		env: { SECRETS_MASTER_KEY: WINDOW },
 	});
-	assert.equal(response.status, 400);
+	assert.equal(response.status, 403);
 	assert.ok(!(await response.text()).includes("fingerprints"));
 	assert.equal(forwarded.length, 0);
 }
 
-// Public caller on a tedi host: the fleet route is skipped and the request
-// takes the ordinary tedi path, where the DO knows no such route (404).
+// Public caller on a tedi host: the fleet route is skipped and the same
+// edge refusal applies; the request never reaches the DO.
 {
-	const { response } = await edgeFetch(
+	const { response, forwarded } = await edgeFetch(
 		tediRequest(MASTER_KEY_FINGERPRINT_PATH),
-		{
-			env: { SECRETS_MASTER_KEY: WINDOW },
-			doResponse: () => new Response("Not Found", { status: 404 }),
-		},
+		{ env: { SECRETS_MASTER_KEY: WINDOW } },
 	);
-	assert.equal(response.status, 404);
+	assert.equal(response.status, 403);
 	assert.ok(!(await response.text()).includes("fingerprints"));
+	assert.equal(forwarded.length, 0);
 }
 
 // Malformed key: an error entry rather than a thrown handler.
