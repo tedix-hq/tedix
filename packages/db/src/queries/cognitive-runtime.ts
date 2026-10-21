@@ -25,6 +25,11 @@ import {
 } from "../schema/cognitive-runtime";
 import { tediSessionStates } from "../schema/tedi-sessions";
 import { tedis } from "../schema/tedis";
+import {
+	compareCreatedAtId,
+	mergeLogStoreRows,
+	readLogStores,
+} from "../utils/log-store";
 import { searchAuditEvents } from "./audit";
 
 export type TediRuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
@@ -78,8 +83,9 @@ export async function listTediObservabilityRows(
 	auditTruncated: boolean;
 }> {
 	const rowLimit = input.limit + 1;
-	const [runtimeRows, auditRows] = await Promise.all([
-		db
+	const stores = getLogStores(db);
+	const readRuntimeRows = (store: DbClient) =>
+		store
 			.select({
 				id: tediRuntimeEvents.id,
 				kind: tediRuntimeEvents.kind,
@@ -97,8 +103,15 @@ export async function listTediObservabilityRows(
 					lte(tediRuntimeEvents.createdAt, input.to),
 				),
 			)
-			.orderBy(desc(tediRuntimeEvents.createdAt))
-			.limit(rowLimit),
+			.orderBy(desc(tediRuntimeEvents.createdAt), desc(tediRuntimeEvents.id))
+			.limit(rowLimit);
+	const [runtimePages, auditRows] = await Promise.all([
+		stores
+			? Promise.all([
+					readRuntimeRows(stores.main),
+					readRuntimeRows(stores.logs),
+				])
+			: readRuntimeRows(db).then((rows) => [rows]),
 		db
 			.select({
 				id: auditEvents.id,
@@ -124,11 +137,16 @@ export async function listTediObservabilityRows(
 					lte(auditEvents.timestamp, new Date(input.to)),
 				),
 			)
-			.orderBy(desc(auditEvents.timestamp))
+			.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 			.limit(rowLimit),
 	]);
-	const stores = getLogStores(db);
+	const runtimeRows = mergeLogStoreRows(runtimePages, {
+		compare: compareCreatedAtId("desc"),
+		limit: rowLimit,
+	});
 	if (stores) {
+		// Audit rows join `tedis` for ownership, which only the main database
+		// holds; the logs store is read once ownership is established.
 		const [owner] = await db
 			.select({ id: tedis.id })
 			.from(tedis)
@@ -213,6 +231,11 @@ export async function getTediRuntimeEventById(
 	db: DbClient,
 	id: string,
 ): Promise<TediRuntimeEventRow | null> {
+	const pages = await readLogStores(db, async (store) => {
+		const row = await getTediRuntimeEventById(store, id);
+		return row ? [row] : [];
+	});
+	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0] ?? null;
 	const [row] = await db
 		.select()
 		.from(tediRuntimeEvents)
@@ -248,6 +271,15 @@ export async function listTediRuntimeEventsForRouter(
 	},
 ): Promise<TediRuntimeEventRow[]> {
 	if (input.runIds?.length === 0 || input.kinds?.length === 0) return [];
+	// Both stores apply the same `before` cursor; the merged set is re-limited.
+	const pages = await readLogStores(db, (store) =>
+		listTediRuntimeEventsForRouter(store, input),
+	);
+	if (pages)
+		return mergeLogStoreRows(pages, {
+			compare: input.order ? compareCreatedAtId(input.order) : undefined,
+			limit: input.limit,
+		});
 	const conditions = [
 		eq(tediRuntimeEvents.tediId, input.tediId),
 		...(input.conversationId
@@ -350,7 +382,7 @@ export async function listTediConversationIndexRows(
 					: undefined,
 			),
 		)
-		.orderBy(desc(tediRuntimeEvents.createdAt))
+		.orderBy(desc(tediRuntimeEvents.createdAt), desc(tediRuntimeEvents.id))
 		.limit(input.limit);
 }
 
@@ -382,6 +414,14 @@ export async function listTediConversationTranscriptRows(
 		limit: number;
 	},
 ): Promise<TediRuntimeEventRow[]> {
+	const pages = await readLogStores(db, (store) =>
+		listTediConversationTranscriptRows(store, input),
+	);
+	if (pages)
+		return mergeLogStoreRows(pages, {
+			compare: compareCreatedAtId("desc"),
+			limit: input.limit,
+		});
 	return db
 		.select()
 		.from(tediRuntimeEvents)

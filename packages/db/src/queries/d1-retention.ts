@@ -28,7 +28,9 @@ import {
 	type D1RetentionPolicyRow,
 	d1RetentionPolicies,
 } from "../schema/d1-retention";
+import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
 import { tediCallCosts } from "../schema/tedis";
+import { chunkForBoundParams } from "../utils/batch";
 
 /** Rows per statement: reads page by 50, deletes name at most 50 rowids. */
 export const D1_RETENTION_ROWS_PER_STATEMENT = 50;
@@ -50,6 +52,8 @@ export interface D1RetentionTableSpec {
 	minKeepDays: number;
 	/** Financial or legal evidence: may be archived and removed, never dropped. */
 	archiveRequired: boolean;
+	/** The logs database holds this table, so `move_to_logs_db` may run. */
+	logsDb: boolean;
 }
 
 function spec(
@@ -67,6 +71,7 @@ function spec(
 		format,
 		minKeepDays,
 		archiveRequired,
+		logsDb: LOGS_DB_TABLE_NAMES.has(tableName),
 	};
 }
 
@@ -161,6 +166,9 @@ export function d1RetentionPolicyProblem(
 	if (policy.keepDays < tableSpec.minKeepDays) return "keep_days_below_floor";
 	if (policy.mode === "delete" && tableSpec.archiveRequired) {
 		return "archive_required";
+	}
+	if (policy.mode === "move_to_logs_db" && !tableSpec.logsDb) {
+		return "logs_db_unsupported";
 	}
 	return null;
 }
@@ -370,4 +378,133 @@ export async function recordD1RetentionRun(
 			updatedAt: record.ranAt,
 		})
 		.where(eq(d1RetentionPolicies.tableName, record.tableName));
+}
+
+// ============================================================================
+// Copy to the logs database (`move_to_logs_db`)
+// ============================================================================
+
+/** The text primary key every logs-database table carries. */
+const LOGS_ID_COLUMN = "id";
+
+function tableColumnNames(tableSpec: D1RetentionTableSpec): string[] {
+	return Object.values(getColumns(tableSpec.table)).map(
+		(column) => (column as AnySQLiteColumn).name,
+	);
+}
+
+/** Rows one insert statement may carry under D1's 100 bound-parameter cap. */
+export function d1LogsCopyRowsPerStatement(
+	tableSpec: D1RetentionTableSpec,
+): number {
+	return Math.max(1, Math.floor(100 / tableColumnNames(tableSpec).length));
+}
+
+function rowValue(row: D1RetentionRow, column: string): JsonValue {
+	const value = row[column];
+	return value === undefined ? null : value;
+}
+
+/**
+ * `INSERT OR IGNORE` statements that copy raw rows (as `readD1RetentionPage`
+ * returned them, JSON columns still text) into the logs database. Insert-or-
+ * ignore makes a resumed run idempotent: a row copied before a crash is left
+ * as it is, and the read-back check still compares it with the source.
+ */
+export function buildD1LogsCopyStatements(
+	logsDb: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	rows: readonly D1RetentionRow[],
+) {
+	const columns = tableColumnNames(tableSpec);
+	const columnList = sql.join(
+		columns.map((name) => sql.identifier(name)),
+		sql`, `,
+	);
+	return chunkForBoundParams(
+		[...rows],
+		d1LogsCopyRowsPerStatement(tableSpec),
+	).map((chunk) => {
+		const values = sql.join(
+			chunk.map(
+				(row) =>
+					sql`(${sql.join(
+						columns.map((name) => sql`${rowValue(row, name)}`),
+						sql`, `,
+					)})`,
+			),
+			sql`, `,
+		);
+		return sql`INSERT OR IGNORE INTO ${tableSpec.table} (${columnList}) VALUES ${values}`;
+	});
+}
+
+/** Copy rows into the logs database in batches of at most 20 statements. */
+export async function copyD1RetentionRowsToLogs(
+	logsDb: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	rows: readonly D1RetentionRow[],
+): Promise<void> {
+	const statements = buildD1LogsCopyStatements(logsDb, tableSpec, rows);
+	for (const group of chunkForBoundParams(statements, 20)) {
+		const [first, ...rest] = group.map((statement) => logsDb.run(statement));
+		if (first) await logsDb.batch([first, ...rest]);
+	}
+}
+
+/** Read copied rows back from the logs database by id, 50 ids per statement. */
+export async function readD1LogsRowsByIds(
+	logsDb: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	ids: readonly string[],
+): Promise<Map<string, Record<string, JsonValue>>> {
+	const copied = new Map<string, Record<string, JsonValue>>();
+	for (const chunk of chunkForBoundParams(
+		[...ids],
+		D1_RETENTION_ROWS_PER_STATEMENT,
+	)) {
+		const rows = (await logsDb.all(
+			sql`SELECT * FROM ${tableSpec.table} WHERE ${sql.identifier(LOGS_ID_COLUMN)} IN (${sql.join(
+				chunk.map((id) => sql`${id}`),
+				sql`, `,
+			)})`,
+		)) as Array<Record<string, JsonValue>>;
+		for (const row of rows) copied.set(String(row[LOGS_ID_COLUMN]), row);
+	}
+	return copied;
+}
+
+export interface D1LogsCopyVerification {
+	/** Source ids with no row in the logs database. */
+	missing: string[];
+	/** Source ids whose logs-database row differs in at least one column. */
+	mismatched: string[];
+}
+
+/** Every source column must read back identical from the logs database. */
+export function verifyD1LogsCopy(
+	tableSpec: D1RetentionTableSpec,
+	source: readonly D1RetentionRow[],
+	copied: ReadonlyMap<string, Record<string, JsonValue>>,
+): D1LogsCopyVerification {
+	const columns = tableColumnNames(tableSpec);
+	const result: D1LogsCopyVerification = { missing: [], mismatched: [] };
+	for (const row of source) {
+		const id = String(rowValue(row, LOGS_ID_COLUMN));
+		const copy = copied.get(id);
+		if (!copy) {
+			result.missing.push(id);
+			continue;
+		}
+		const same = columns.every(
+			(column) => rowValue(row, column) === (copy[column] ?? null),
+		);
+		if (!same) result.mismatched.push(id);
+	}
+	return result;
+}
+
+/** The source id of a raw retention row. */
+export function d1RetentionRowId(row: D1RetentionRow): string {
+	return String(rowValue(row, LOGS_ID_COLUMN));
 }

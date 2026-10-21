@@ -64,8 +64,19 @@ function columnDdl(column: SQLiteColumn, isLonePrimaryKey: boolean): string {
 	return parts.join(" ");
 }
 
+export interface TableDdlOptions {
+	/**
+	 * Emit `FOREIGN KEY` clauses (default true). The logs database holds copies
+	 * of ledger tables without their parent tables, so its DDL omits them.
+	 */
+	foreignKeys?: boolean;
+}
+
 /** Render `CREATE TABLE` (plus its indexes) for one Drizzle table. */
-export function tableDdl(table: SQLiteTable): string[] {
+export function tableDdl(
+	table: SQLiteTable,
+	options: TableDdlOptions = {},
+): string[] {
 	const config = getTableConfig(table);
 	const primaryKeyColumns = config.columns.filter((column) => column.primary);
 	const compositePrimaryKey = config.primaryKeys[0];
@@ -89,7 +100,9 @@ export function tableDdl(table: SQLiteTable): string[] {
 		);
 	}
 
-	for (const foreignKey of config.foreignKeys) {
+	for (const foreignKey of options.foreignKeys === false
+		? []
+		: config.foreignKeys) {
 		const reference = foreignKey.reference();
 		definitions.push(
 			`FOREIGN KEY (${reference.columns.map((column) => quote(column.name)).join(", ")}) ` +
@@ -128,7 +141,7 @@ export function tableDdl(table: SQLiteTable): string[] {
  * or create the tables with `PRAGMA foreign_keys = OFF`.
  */
 export function schemaDdl(...tables: SQLiteTable[]): string {
-	return tables.flatMap(tableDdl).join("\n");
+	return tables.flatMap((table) => tableDdl(table)).join("\n");
 }
 
 /** Current artifact-neutral Work factory schema for focused in-memory tests. */

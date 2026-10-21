@@ -12,6 +12,11 @@ import {
 	tediRuntimeEvents,
 } from "../schema/cognitive-runtime";
 import { chunkForBoundParams } from "../utils/batch";
+import {
+	compareCreatedAtId,
+	mergeLogStoreRows,
+	readLogStores,
+} from "../utils/log-store";
 
 /** D1 caps bound parameters at 100 per statement; keep IN() lists ≤50. */
 const D1_IN_LIST_CHUNK = 50;
@@ -121,6 +126,24 @@ export async function listKernelRuntimeEvents(
 	},
 ): Promise<KernelRuntimeEvent[]> {
 	if (input.kinds?.length === 0) return [];
+	// Rows older than the retention keep window live in the logs database.
+	// Each store applies the same filters; offset applies to the merged set.
+	const pages = await readLogStores(db, (store) =>
+		listKernelRuntimeEvents(store, {
+			...input,
+			limit:
+				input.limit === undefined
+					? undefined
+					: input.limit + (input.offset ?? 0),
+			offset: undefined,
+		}),
+	);
+	if (pages)
+		return mergeLogStoreRows(pages, {
+			compare: input.order ? compareCreatedAtId(input.order) : undefined,
+			limit: input.limit,
+			offset: input.offset,
+		});
 	const conditions = [
 		...(input.organizationId
 			? [eq(kernelRuntimeEvents.organizationId, input.organizationId)]
@@ -173,6 +196,22 @@ export async function listTediRuntimeEvents(
 ): Promise<TediRuntimeEventRow[]> {
 	if (input.kinds?.length === 0) return [];
 	if (input.runIds?.length === 0) return [];
+	const pages = await readLogStores(db, (store) =>
+		listTediRuntimeEvents(store, {
+			...input,
+			limit:
+				input.limit === undefined
+					? undefined
+					: input.limit + (input.offset ?? 0),
+			offset: undefined,
+		}),
+	);
+	if (pages)
+		return mergeLogStoreRows(pages, {
+			compare: input.order ? compareCreatedAtId(input.order) : undefined,
+			limit: input.limit,
+			offset: input.offset,
+		});
 	const order =
 		input.order === "asc" ? asc : input.order === "desc" ? desc : null;
 	const runQuery = (
@@ -504,6 +543,11 @@ export async function getKernelRuntimeEventById(
 	db: DbClient,
 	id: string,
 ): Promise<KernelRuntimeEvent | undefined> {
+	const pages = await readLogStores(db, async (store) => {
+		const row = await getKernelRuntimeEventById(store, id);
+		return row ? [row] : [];
+	});
+	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0];
 	const [row] = await db
 		.select()
 		.from(kernelRuntimeEvents)

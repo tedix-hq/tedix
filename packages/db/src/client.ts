@@ -11,20 +11,35 @@ export function createDbClient(d1: D1Database) {
 	return drizzle(d1, { relations });
 }
 
-const logStores = new WeakMap<object, { main: DbClient; logs: DbClient }>();
-
-/** Keep routing request-local; unconfigured clients retain the original behavior. */
-export function configureLogStore(db: DbClient, bindings: object): void {
-	const logs = (bindings as { LOGS_DB?: D1Database }).LOGS_DB;
-	if (logs) {
-		logStores.set(db, {
-			main: createDbClient(db.$client),
-			logs: createDbClient(logs),
-		});
-	}
+/**
+ * Log-store routing. The logs database (`LOGS_DB`) is a second D1 that takes
+ * the append-only log tables (see `schema/logs-db.ts`). A request-scoped
+ * client registered here reads both stores and writes `mcp.tool.execute`
+ * audit rows to the logs store; a client with no registration behaves exactly
+ * as before, so a Worker without the binding is unchanged. The binding's
+ * presence is the only switch.
+ */
+export interface LogStores {
+	/** The main database, as a plain client (not itself registered). */
+	main: DbClient;
+	/** The logs database. */
+	logs: DbClient;
 }
 
-export function getLogStores(db: object) {
+const logStores = new WeakMap<object, LogStores>();
+
+/** Register the logs database for `db` when the Worker binds `LOGS_DB`. */
+export function configureLogStore(db: DbClient, bindings: object): void {
+	const logs = (bindings as { LOGS_DB?: D1Database }).LOGS_DB;
+	if (!logs) return;
+	logStores.set(db, {
+		main: createDbClient(db.$client),
+		logs: createDbClient(logs),
+	});
+}
+
+/** The registered stores for `db`, or undefined when there is no logs binding. */
+export function getLogStores(db: object): LogStores | undefined {
 	return logStores.get(db);
 }
 

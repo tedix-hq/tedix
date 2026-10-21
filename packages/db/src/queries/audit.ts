@@ -7,6 +7,11 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import {
+	compareTimestampId,
+	mergeLogStoreRows,
+	readLogStores,
+} from "../utils/log-store";
 
 // ============================================================================
 // Types
@@ -73,6 +78,11 @@ export interface SearchAuditEventsOptions {
 
 /**
  * Insert a single audit event.
+ *
+ * `mcp.tool.execute` telemetry goes to the logs database when the client has
+ * one (`configureLogStore`); every other action, and every audit row composed
+ * into a main-database batch through `buildInsertAuditEventStatement`, stays
+ * in the main database.
  */
 export async function insertAuditEvent(
 	db: DbClient,
@@ -123,26 +133,15 @@ export async function searchAuditEvents(
 	options: SearchAuditEventsOptions,
 ): Promise<{ data: (typeof auditEvents.$inferSelect)[]; total: number }> {
 	const { organizationId, limit = 50, offset = 0 } = options;
-	const stores = getLogStores(db);
-	if (stores) {
-		const pages = await Promise.all(
-			[stores.main, stores.logs].map((store) =>
-				searchAuditEvents(store, {
-					...options,
-					limit: limit + offset,
-					offset: 0,
-				}),
-			),
-		);
+	const pages = await readLogStores(db, (store) =>
+		searchAuditEvents(store, { ...options, limit: limit + offset, offset: 0 }),
+	);
+	if (pages) {
 		return {
-			data: pages
-				.flatMap((page) => page.data)
-				.sort(
-					(a, b) =>
-						b.timestamp.getTime() - a.timestamp.getTime() ||
-						b.id.localeCompare(a.id),
-				)
-				.slice(offset, offset + limit),
+			data: mergeLogStoreRows(
+				pages.map((page) => page.data),
+				{ compare: compareTimestampId("desc"), limit, offset },
+			),
 			total: pages.reduce((total, page) => total + page.total, 0),
 		};
 	}
@@ -188,28 +187,20 @@ export async function getAuditEventsByResource(
 	resourceId: string,
 	limit = 100,
 ): Promise<(typeof auditEvents.$inferSelect)[]> {
-	const stores = getLogStores(db);
-	if (stores) {
-		const rows = await Promise.all(
-			[stores.main, stores.logs].map((store) =>
-				getAuditEventsByResource(
-					store,
-					organizationId,
-					resourceType,
-					resourceId,
-					limit,
-				),
-			),
-		);
-		return rows
-			.flat()
-			.sort(
-				(a, b) =>
-					b.timestamp.getTime() - a.timestamp.getTime() ||
-					b.id.localeCompare(a.id),
-			)
-			.slice(0, limit);
-	}
+	const pages = await readLogStores(db, (store) =>
+		getAuditEventsByResource(
+			store,
+			organizationId,
+			resourceType,
+			resourceId,
+			limit,
+		),
+	);
+	if (pages)
+		return mergeLogStoreRows(pages, {
+			compare: compareTimestampId("desc"),
+			limit,
+		});
 	return db
 		.select()
 		.from(auditEvents)

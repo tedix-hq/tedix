@@ -13,6 +13,7 @@ import {
 	searchAuditEvents as searchAuditEventsQuery,
 } from "@tedix/db/queries/audit";
 import { toJsonRecord } from "@tedix/db/utils/json";
+import { spillAuditMetadata } from "../../lib/audit-metadata-spill";
 import { requireOrgId } from "../org-scope";
 import {
 	withAuthorization,
@@ -141,15 +142,26 @@ export const getAuditEventsByResource = authedOs.getByResource
 export const createAuditEvent = auditOs.createEvent
 	.use(withServiceAuth)
 	.handler(async ({ input, context }) => {
+		const id = crypto.randomUUID();
+		// Bodies over 4 KiB go to R2 with a pointer; the row keeps the scalars.
+		const metadata =
+			input.metadata === undefined
+				? undefined
+				: await spillAuditMetadata(toJsonRecord(input.metadata), {
+						bucket: (context.env as { TEDI_R2_BUCKET?: R2Bucket })
+							.TEDI_R2_BUCKET,
+						organizationId: input.organizationId,
+						auditId: id,
+					});
 		await insertAuditEvent(context.db, {
+			id,
 			organizationId: input.organizationId,
 			actorId: input.actorId,
 			actorType: input.actorType,
 			action: input.action,
 			resourceType: input.resourceType,
 			resourceId: input.resourceId,
-			metadata:
-				input.metadata === undefined ? undefined : toJsonRecord(input.metadata),
+			metadata,
 		});
 
 		return { success: true as const };

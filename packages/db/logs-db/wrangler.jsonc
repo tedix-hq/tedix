@@ -1,0 +1,17 @@
+{
+	// Example migration config for the logs database (the `LOGS_DB` binding).
+	// Placeholders only: the live database name and id live in the operator's
+	// private overlay. Apply with:
+	//   wrangler d1 migrations apply <logs-database-name> --remote -c <overlay config>
+	"$schema": "../../../node_modules/wrangler/config-schema.json",
+	"name": "public-installation-logs-db",
+	"d1_databases": [
+		{
+			"binding": "LOGS_DB",
+			"database_name": "public-installation-logs",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "./migrations",
+			"migrations_table": "tedix_logs_migrations",
+		},
+	],
+}

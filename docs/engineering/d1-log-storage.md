@@ -1,87 +1,146 @@
 # D1 log storage
 
-The main database holds business state and authority. Detailed operational logs
-need an independent capacity and retention budget. A second D1 is preferable to
-Analytics Engine for these rows: the app needs exact event bodies, identifiers,
-tenant filters and ordered timelines, rather than sampled metric aggregates.
-Analytics Engine remains suitable for counters and latency distributions.
+The main database holds business state and authority. The append-only log
+classes get their own capacity: a second D1 (`LOGS_DB`) for the rows, R2 for
+large bodies and for a permanent copy of every row that leaves the main
+database. A second D1 is preferable to Analytics Engine for these rows: the
+app needs exact event bodies, identifiers, tenant filters and ordered
+timelines, not sampled aggregates.
 
-| Class                                         | Destination                                                 | Reason and implementation state                                                                                                                                                              |
-| --------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Successful `mcp.tool.execute` audit telemetry | Optional `LOGS_DB.audit_events`                             | Exact audit, resource, analytics and trace reads merge both stores. Security, denial, authorization and other audit actions remain in main D1. Implemented.                                  |
-| Tedi and kernel runtime event streams         | Dedicated logs D1, after coordination evidence is separated | Currently also used for artifact admission, stale-run recovery, immutable cause checks and child-run completion. Moving the tables alone breaks these joins. Not implemented in this change. |
-| `kernel_request_events`                       | Main D1 until a transactional outbox is introduced          | Request CAS and history append currently share one D1 batch. Cross-database batches cannot preserve that invariant. Not moved.                                                               |
-| `skill_run_artifacts` bodies                  | Existing private artifact R2 bucket                         | Pointer, digest, size, path and run metadata remain in main D1. Small and large bridge bodies use R2 when available; existing inline rows remain readable.                                   |
-| Workflow source snapshots                     | Main D1 `skill_workflow_sources`                            | One immutable source per skill and SHA-256; new runs reference it. Reads coalesce legacy inline source with the referenced source. Source and reference commit in one batch.                 |
-| Financial ledgers and security audit          | Main D1                                                     | Canonical business and security evidence, separate from operational telemetry.                                                                                                               |
+The `LOGS_DB` binding is the only switch. A Worker without it behaves exactly
+as before: writes stay in the main database, reads see the main database. No
+feature flag, no configuration row.
 
-All database access stays in `@tedix/db/queries` owners. Statement builders used
-in main-D1 batches remain local to that database. No distributed transaction or
-silent write fallback is introduced. When the logs binding is missing, audit
-writes and reads retain their existing main-D1 behavior. When it exists but is
-unhealthy, errors remain visible; configuration must not silently consume main
-capacity again.
+## Where each class goes
 
-## Operations integration
+| Class                                     | New rows                                                                    | Rows past the keep window                                 |
+| ----------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `mcp.tool.execute` audit telemetry        | `LOGS_DB.audit_events` (`queries/audit.ts`), metadata over 4 KiB in R2      | `move_to_logs_db`                                         |
+| Every other audit action                  | Main D1, including rows composed into a main-database batch                 | `move_to_logs_db`                                         |
+| `tedi_runtime_events`                     | Main D1                                                                     | `move_to_logs_db`                                         |
+| `kernel_runtime_events`                   | Main D1                                                                     | `move_to_logs_db`                                         |
+| `kernel_request_events`                   | Main D1                                                                     | Not moved: request CAS and history append share one batch |
+| `skill_run_artifacts`                     | Pointer row in main D1; body in the private artifact bucket when over 4 KiB | `move_to_logs_db`                                         |
+| Workflow source snapshots                 | Main D1 `skill_workflow_sources`, one row per skill and SHA-256             | n/a                                                       |
+| Financial ledgers, security audit, grants | Main D1                                                                     | `tedi_call_costs` keeps its archive-only policy           |
 
-No deployable Worker config is changed here. This is an example addition to the
-API Worker's operator-owned `wrangler.jsonc` configuration:
+Why runtime and kernel event rows are not redirected at write time: twenty
+query modules read them with joins and correlated checks that need the row in
+the same database as its parents. Examples: the Home finished-run feed joins
+`kernel_runtime_runs` with `tedi_runtime_events`; cause-bound kernel events
+are `INSERT ... SELECT` from their cause row; artifact contribution receipts
+join the producer event by id and payload; interaction review checks the
+`tool.completed` evidence row; conversation purge deletes by conversation.
+Keeping new rows in the main database for the keep window keeps every one of
+those correct. The retention move bounds what the main database holds to the
+keep window, and the merged readers keep older rows visible.
+
+## Reads
+
+Readers that can see moved rows run the same statement against both stores
+(`@tedix/db/utils/log-store`): the same tenant scope, filters and cursor in
+each store, dedupe by id (a row exists in both for a moment during a move),
+then order, offset and limit over the merged set. Offset is never applied per
+store. Covered: audit search, audit by resource, analytics audit activity and
+freshness, Home run audit references, tedi observability, the runtime event
+lists (`listTediRuntimeEvents`, `listKernelRuntimeEvents`,
+`listTediRuntimeEventsForRouter`, transcript rows), single-event reads by id,
+and run artifact reads. Joins and compare-and-set reads stay on the main
+database by design; they only ever need rows inside the keep window.
+
+## Retention move (`move_to_logs_db`)
+
+`d1_retention_policies` drives the hourly job (`apps/api/src/jobs/d1-retention.ts`,
+engine in `apps/api/src/services/d1-retention-archive.ts`). Every policy row
+ships in `dry_run`. The `move_to_logs_db` mode, oldest rows first and capped
+per run by `max_rows_per_run`:
+
+1. copies a chunk of at most 500 rows into `LOGS_DB` with `INSERT OR IGNORE`,
+   at most `floor(100 / columns)` rows per statement (D1's bound-parameter cap);
+2. reads the ids back from `LOGS_DB` and compares every column with the source
+   rows; any missing or different row stops the run before anything is deleted;
+3. writes the chunk as gzip NDJSON to the private tedi bucket under
+   `d1-archive/v1/<table>/<day>/<first>-<last>.ndjson.gz` and confirms it with
+   `head()`;
+4. only then deletes exactly those rowids from the main database, rechecking
+   the cutoff in each statement, with 0.5 s, 1 s and 2 s back-off when D1
+   reports `overloaded`.
+
+A run that stops anywhere leaves the main rows in place; the next tick repeats
+steps 1 to 4 for the same rows (the copy is a no-op for rows already there,
+the archive key is deterministic). Without the `LOGS_DB` binding the policy
+reports `logs_db_missing` and changes nothing; a table the logs database does
+not hold reports `logs_db_unsupported`.
+
+Switching a table on is an operator change to its policy row, for example:
+
+```sql
+UPDATE d1_retention_policies
+SET mode = 'move_to_logs_db', updated_at = CURRENT_TIMESTAMP
+WHERE table_name = 'audit_events';
+```
+
+Read the first `last_report` after the switch (`movedRows`, `deletedRows`,
+`stoppedBy`, `error`) before switching the next table.
+
+## Size alert
+
+The same hourly tick measures both databases through D1's own
+`meta.size_after` (`@tedix/db/queries/d1-size`) and pages the ops channel
+(`ops_alert_state` plus `sendOpsAlert`, the platform-health path) when the
+main database reaches 9 GB or the logs database reaches 6 GB. The logs alert
+is the rotation trigger: create the next logs database, apply the logs
+schema, rebind `LOGS_DB`, and the old one stays readable through its R2 copy.
+Both conditions re-page when the size crosses the next 0.25 GB and page once
+more on recovery. The cron receipt carries `d1MainSizeMb` and `d1LogsSizeMb`.
+
+## Operations
+
+No deployable Worker config in this repository changes. The `LOGS_DB`
+binding is added in the operator's private overlay for the **api** Worker
+only: audit writes from MCP, the tedi runtime and the CMS all go through
+`audit/createEvent` on the API, the retention job runs on the API cron, and
+every merged reader is an API query. Other Workers keep reading the main
+database, which holds every row inside the keep window.
 
 ```jsonc
+// Example addition to the api Worker's d1_databases (placeholders only).
 {
-	"d1_databases": [
-		// Keep the existing DB entry.
-		{
-			"binding": "LOGS_DB",
-			"database_name": "example-operational-logs",
-			"database_id": "<logs-database-id>",
-		},
-	],
+	"binding": "LOGS_DB",
+	"database_name": "public-installation-logs",
+	"database_id": "00000000-0000-0000-0000-000000000000",
 }
 ```
 
-Ops must provision the separate database with the `audit_events` table and its
-indexes from `packages/db/src/schema/audit-events.ts`, then add that same binding
-to every API environment/overlay that enables offload. Do not apply the entire
-main-D1 migration chain to the logs database. The current source routes audit
-writes through the API; MCP and tedi runtime do not need their own logs binding
-for this phase. Apply the new workflow-source migration to main D1 before the
-skill-runtime and API release. Preserve the private `SKILL_ARTIFACTS` binding in
-skill-runtime and the existing API artifact reader binding to the same bucket.
+Steps, in order:
 
-The ops overlay must land first and be validated against its product config.
-Any subsequent deployable product-config change needs its matching full
-`Ops-Overlay` commit trailer. No installation identifiers belong in this repo.
-Retain the logs binding for as long as its records need to remain visible;
-removing it restores main-only behavior and does not copy logs back.
+1. Create the logs database in the EU jurisdiction:
+   `wrangler d1 create <logs-database-name> --jurisdiction=eu`.
+2. Apply the logs schema from `packages/db/logs-db/migrations` (append-only,
+   ledger table `tedix_logs_migrations`; `packages/db/logs-db/wrangler.jsonc`
+   is the example config):
+   `wrangler d1 migrations apply <logs-database-name> --remote -c <overlay config>`.
+   Do not apply the main migration chain to the logs database.
+3. Apply the main-database migration `shared_workflow_sources` through the
+   normal release.
+4. Add the `LOGS_DB` binding to the api overlay and release. From that deploy
+   on, new `mcp.tool.execute` rows land in the logs database and the merged
+   readers are active.
+5. Watch one hourly `d1-retention` receipt (`d1MainSizeMb`, `d1LogsSizeMb`,
+   each table's `dry_run` report), then switch tables to `move_to_logs_db`
+   one at a time with the `UPDATE` above.
 
-The logs database needs its own bounded retention/archive job and alerting below
-its size ceiling. The existing main-D1 retention job does not sweep LOGS_DB.
-Historical main-D1 audit rows stay in place for merged reads and the separately
-reviewed archive/delete policy; enabling this binding does not delete anything.
-No bulk snapshot backfill is required for correctness. Old inline snapshots
-continue to execute the exact original source, and newly dispatched runs share
-sources immediately. Artifact writes upload before committing their pointer;
-failed database writes can leave orphan objects, so lifecycle cleanup must only
-remove objects proven unreferenced. Immutable evidence keeps first-writer wins.
+Removing the binding restores main-only behaviour; it does not copy rows
+back, so rows already moved stay in the logs database and in R2.
 
-## Capacity estimate and remaining work
+## Capacity
 
-Using the supplied measurements, successful tool telemetry moves about
-`70 × 0.95 = 66.5 MB/day` of row growth out of main D1. R2 artifact bodies can
-remove up to 36 MB/day and shared workflow source up to 9 MB/day, less pointer
-and new-revision costs: approximately **0.10–0.11 GB/day** before index effects.
-These are projections, not live measurements. No existing space is reclaimed by
-this source change. Runtime/kernel migration could remove another 34 MB/day,
-but this change must not claim that saving.
-
-The remaining runtime work needs a main-D1 authority projection plus an outbox
-for cross-store event delivery, bounded merged readers (including orphan recovery,
-artifact evidence, interaction continuation and Home feed joins), idempotent replay
-across cutover, and deletion/retention propagation. The request CAS must still
-atomically publish durable intent. It cannot be replaced by two independent
-writes merely because the second binding is present.
-
-[D1 limits](https://developers.cloudflare.com/d1/platform/limits/) document the
-10 GB database ceiling and 100-parameter statement limit. Keep both databases'
-queries bounded and preserve D1 batch semantics.
+With the supplied measurements (audit 70 MB/day, 95 % `mcp.tool.execute`;
+tedi runtime 16 MB/day; kernel 18 MB/day; artifacts 36 MB/day; workflow source
+about 9 MB/day): the write redirect removes about 66 MB/day of audit growth,
+R2 bodies and shared workflow source up to 45 MB/day, so the main database
+grows by roughly 0.03 to 0.05 GB/day instead of 0.15 to 0.2 GB/day from these
+classes. Once every table is in `move_to_logs_db` with a 14-day window, the
+main database holds a bounded 14 days of runtime, kernel and artifact rows
+(about 0.5 GB at today's rates) and its remaining growth is business data.
+These are projections; the hourly receipt reports the measured sizes.
