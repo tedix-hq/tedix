@@ -20,6 +20,8 @@ import {
 	tediApprovalsContract,
 } from "@tedix/api-contract/contracts/tedi-approvals";
 import { BrowserTakeoverStatusSchema } from "@tedix/api-contract/schemas/tedi";
+import type { ApprovalFieldChange } from "@tedix/api-contract/schemas/approval-edits";
+import { applyApproverEditsToPayload } from "@tedix/api-contract/utils/approval-edits";
 import {
 	hasApprovalProvenanceRequest,
 	listApprovalSimulationPage,
@@ -1295,6 +1297,46 @@ export function resolveApprovalPrincipal(
 	return context.user?.sub ?? context.authType ?? "unknown";
 }
 
+/**
+ * Validate approve-with-changes input and build the payload the approval will
+ * carry. Only a signed-in human may change an action, only when approving, and
+ * only the fields the request declares; each value must match the tool schema.
+ * Returns null when nothing actually changed.
+ */
+export function approverEditedPayload(
+	context: Pick<BaseContext, "authType" | "tediId" | "user">,
+	existing: Pick<DbApprovalRequest, "payload">,
+	input: {
+		status: "approved" | "rejected";
+		delegateRecommendation?: boolean;
+		edits?: Record<string, JsonValue>;
+	},
+	editedBy: string,
+): {
+	payload: Record<string, JsonValue>;
+	changes: ApprovalFieldChange[];
+} | null {
+	if (!input.edits || Object.keys(input.edits).length === 0) return null;
+	if (input.status !== "approved" || input.delegateRecommendation)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Changes can only be sent with your own approval",
+		);
+	if (context.authType !== "user" || context.tediId || !context.user?.sub)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only a signed-in person can change an action before approving it",
+		);
+	const applied = applyApproverEditsToPayload({
+		payload: parseApprovalPayload(existing.payload),
+		edits: input.edits,
+		editedBy,
+		editedAt: new Date().toISOString(),
+	});
+	if (!applied.ok) throw createError(ErrorCodes.BAD_REQUEST, applied.error);
+	return applied.changes.length ? applied : null;
+}
+
 // The same interned guard the approval-rules manage/sweep surface uses:
 // os:approve (or settings:manage) for humans, mcp:memory.admin for machines.
 // `approvalRules.apply` invokes this procedure per match, so the two guards
@@ -1346,11 +1388,13 @@ const resolveProcedure = authedOs.resolve
 			input.resolution = `Decide for me: ${recommendation.recommendation}. ${recommendation.reason}`;
 		}
 		const resolvedBy = resolveApprovalPrincipal(context, existing);
+		const edited = approverEditedPayload(context, existing, input, resolvedBy);
 
 		const resolved = await resolveApprovalRequest(context.db, input.id, {
 			status: input.status,
 			resolvedBy,
 			resolution: input.resolution,
+			...(edited ? { payload: edited.payload } : {}),
 		});
 
 		if (!resolved) {
@@ -1373,6 +1417,7 @@ const resolveProcedure = authedOs.resolve
 				actionType: resolved.actionType,
 				resolution: input.resolution,
 				delegatedRecommendation: input.delegateRecommendation === true,
+				...(edited ? { approverEdits: edited.changes } : {}),
 			}),
 		});
 		await signalApprovalWorkflow(context, resolved);
@@ -1433,6 +1478,9 @@ const resolveProcedure = authedOs.resolve
 				status: input.status,
 				hadResolution: Boolean(input.resolution),
 				feedbackText: input.resolution ?? null,
+				...(edited
+					? { editedFields: edited.changes.map((change) => change.field) }
+					: {}),
 			},
 		});
 

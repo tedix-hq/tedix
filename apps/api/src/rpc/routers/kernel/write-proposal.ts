@@ -70,6 +70,9 @@ import {
 } from "./gateway-attribution";
 import { selectJevAction, type JevActionEnv } from "./jev-action-selection";
 import type { KernelWriteRiskTier } from "@tedix/api-contract/utils/approval-policy";
+import type { ApprovalEditableField } from "@tedix/api-contract/schemas/approval-edits";
+import { deriveApprovalEditableFields } from "@tedix/api-contract/utils/approval-edits";
+import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { CreateFactoryResultSchema } from "@tedix/api-contract/schemas/factories";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
@@ -130,6 +133,8 @@ export interface KernelWriteProposal {
 	riskTier: KernelWriteRiskTier;
 	/** Raw MCP tool or an aggregate Code Mode callable. */
 	transport?: KernelWriteTransport;
+	/** Inputs the approver may change before approving, from the tool schema. */
+	editableFields?: ApprovalEditableField[];
 }
 
 async function mcpCall(
@@ -830,6 +835,19 @@ export async function planKernelWriteProposal(args: {
 				? "high"
 				: validated.riskTier,
 			transport,
+			editableFields: deriveApprovalEditableFields({
+				inputSchema: validated.tool.inputSchema,
+				declared: parseToolPolicyMetadata(validated.tool._meta)
+					?.approvalEditableFields,
+				// Tenant defaults and the inputs set above stay as proposed.
+				pinned: [
+					...Object.keys(paramDefaults ?? {}),
+					...(canonical === "projects.create_factory" ? ["dryRun"] : []),
+					...(capability === "factories.run"
+						? ["idempotencyKey", "confirmDestructive", "reason", "runId"]
+						: []),
+				],
+			}),
 		};
 	} catch (e) {
 		console.warn("[kernel.writeProposal] threw", {

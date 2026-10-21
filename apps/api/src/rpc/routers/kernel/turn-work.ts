@@ -543,6 +543,9 @@ async function planAndParkKernelWriteProposal(
 					conversationId,
 					initiatedByUserId: input.descopeUserId ?? null,
 					transport: writeProposal.transport,
+					...(writeProposal.editableFields?.length
+						? { editableFields: writeProposal.editableFields }
+						: {}),
 				};
 				const writeApprovalTtlHours = resolveApprovalTtlHours(
 					input.governancePolicy,

@@ -1412,6 +1412,21 @@ describe("planKernelWriteProposal — positive path", () => {
 			reasoning: "create the requested invoice",
 			riskTier: "high",
 			transport: "direct",
+			// The approver may change the tool's scalar inputs before approving.
+			editableFields: [
+				{
+					name: "amount",
+					label: "Amount",
+					required: true,
+					schema: { type: "number" },
+				},
+				{
+					name: "customerName",
+					label: "Customer name",
+					required: false,
+					schema: { type: "string" },
+				},
+			],
 		});
 		// It only LISTS tools — proposal planning never calls tools/call.
 		expect(service.calls.map((c) => c.method)).toEqual(["tools/list"]);
@@ -1621,6 +1636,20 @@ describe("planKernelWriteProposal — positive path", () => {
 			reasoning: "create the requested work item",
 			riskTier: "high",
 			transport: "codemode",
+			editableFields: [
+				{
+					name: "title",
+					label: "Title",
+					required: true,
+					schema: { type: "string" },
+				},
+				{
+					name: "description",
+					label: "Description",
+					required: false,
+					schema: { type: "string" },
+				},
+			],
 		});
 		// work_items.create has one canonical primitive: no catalog search, one
 		// Code Mode call that describes it directly.
