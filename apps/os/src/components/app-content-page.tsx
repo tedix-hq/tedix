@@ -84,6 +84,7 @@ import {
 	osQueryKeys,
 } from "@/lib/os-query-options";
 import { useOsFormattingPreferences } from "@/lib/format";
+import { errorMessage } from "@/lib/orpc-error";
 import { relativeTime } from "@/lib/time";
 
 type SyncInterval = "daily" | "weekly" | "monthly" | "disabled";
@@ -104,6 +105,29 @@ interface SourceRowData {
 	lastIngestStatus: string | null;
 	documentCount: number | null;
 	lastError: string | null;
+}
+
+/**
+ * Read-only retry affordance shared by every failed read on this page.
+ * It only re-runs the originating query's own `refetch` — it can never
+ * schedule ingestion, modify a source, or write the app record.
+ */
+function ReadRetryButton({
+	query,
+}: {
+	query: { isFetching: boolean; refetch: () => Promise<unknown> };
+}) {
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			className="mt-2 w-fit"
+			disabled={query.isFetching}
+			onClick={() => void query.refetch()}
+		>
+			{query.isFetching ? "Trying again…" : "Try again"}
+		</Button>
+	);
 }
 
 export function AppContentPage() {
@@ -263,25 +287,47 @@ export function AppContentPage() {
 					Loading content settings...
 				</p>
 			) : detail.isError ? (
-				<Alert variant="destructive">
+				<Alert variant={detail.data ? "warning" : "destructive"}>
 					<AlertDescription>
-						Content settings could not be loaded. Sync scheduling is
-						unavailable.
+						<span>
+							{detail.data
+								? "Content settings could not be refreshed. Sync scheduling stays paused on the last loaded values."
+								: "Content settings could not be loaded. Sync scheduling is unavailable."}
+						</span>
+						<ReadRetryButton query={detail} />
 					</AlertDescription>
 				</Alert>
 			) : null}
 
 			{sources.isPending && <ListSkeleton />}
-			{sources.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Content sources are unavailable</AlertTitle>
-					<AlertDescription>
-						{(sources.error as Error).message}
-					</AlertDescription>
-				</Alert>
-			)}
+			{sources.isError &&
+				(sources.data ? (
+					<Alert variant="warning">
+						<AlertTitle>Content sources may be stale</AlertTitle>
+						<AlertDescription>
+							<span>
+								{errorMessage(sources.error, "The latest refresh failed.")}{" "}
+								Showing the last loaded inventory.
+							</span>
+							<ReadRetryButton query={sources} />
+						</AlertDescription>
+					</Alert>
+				) : (
+					<Alert variant="destructive">
+						<AlertTitle>Content sources are unavailable</AlertTitle>
+						<AlertDescription>
+							<span>
+								{errorMessage(
+									sources.error,
+									"The content source list could not be read.",
+								)}
+							</span>
+							<ReadRetryButton query={sources} />
+						</AlertDescription>
+					</Alert>
+				))}
 
-			{sources.data && sourceRows.length === 0 && (
+			{sources.data && !sources.isError && sourceRows.length === 0 && (
 				<Empty appearance="quiet">
 					<EmptyHeader>
 						<EmptyMedia variant="icon">
