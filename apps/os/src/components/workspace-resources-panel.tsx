@@ -37,7 +37,11 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Surface } from "@/components/kumo/surface";
+import { Alert } from "@/components/kumo/alert";
+import { Empty } from "@/components/kumo/empty";
+import { Link } from "@/components/kumo/link";
+import { Collection } from "@/components/kumo/page";
+import { WorkspaceListRow } from "./workspace-list-row";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { SectionEyebrow } from "@/components/section-eyebrow";
@@ -113,7 +117,7 @@ export function availabilityLabel(status?: string) {
 	}
 }
 
-export function readableResourceLabel(value: string) {
+function readableResourceLabel(value: string) {
 	if (value === "github") return "GitHub";
 	return value
 		.replace(/[_-]+/g, " ")
@@ -366,16 +370,18 @@ export function WorkspaceResourcesPanel({
 					title="Attached resources"
 					count={query.data ? resources.length : undefined}
 				/>
-				<Button
-					size="sm"
-					variant="outline"
-					onClick={() => setCalendarOpen(true)}
-				>
-					Choose calendar
-				</Button>
-				<Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-					Attach resource
-				</Button>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={() => setCalendarOpen(true)}
+					>
+						Choose calendar
+					</Button>
+					<Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+						Attach resource
+					</Button>
+				</div>
 			</div>
 			{resources.some(
 				(resource) =>
@@ -391,22 +397,24 @@ export function WorkspaceResourcesPanel({
 				</Text>
 			) : null}
 			{query.isError ? (
-				<Text as="p" role="body" tone="error" className="m-0">
-					Workspace resources could not be loaded.
-				</Text>
+				<Alert
+					variant="destructive"
+					description="Workspace resources could not be loaded."
+				/>
 			) : null}
 			{query.data && resources.length === 0 ? (
-				<Text as="p" role="body" tone="secondary" className="m-0">
-					Attach a document, spreadsheet, repository, or account to get started.
-				</Text>
+				<Empty
+					appearance="inline"
+					title="No attached resources"
+					description="Attach a document, spreadsheet, repository, or account to get started."
+				/>
 			) : null}
 			{resources.length > 0 ? (
-				<ul className="m-0 grid list-none gap-2 p-0">
+				<Collection aria-label="Attached resources">
 					{resources.map((resource) => (
-						<Surface
+						<WorkspaceListRow
 							key={resource.id}
-							className="flex min-w-0 flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
-							render={<li />}
+							className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between"
 						>
 							<div className="min-w-0 flex-1">
 								<Text as="p" role="body" className="m-0 truncate">
@@ -540,15 +548,15 @@ export function WorkspaceResourcesPanel({
 									Remove
 								</Button>
 							</div>
-						</Surface>
+						</WorkspaceListRow>
 					))}
-				</ul>
+				</Collection>
 			) : null}
 			{rebind.isError ? (
-				<Text as="p" role="body" tone="error" className="m-0">
-					The resource connection could not be changed. Refresh and check the
-					connected account.
-				</Text>
+				<Alert
+					variant="destructive"
+					description="The resource connection could not be changed. Refresh and check the connected account."
+				/>
 			) : null}
 			<Dialog
 				open={repositoryAction !== null}
@@ -560,10 +568,8 @@ export function WorkspaceResourcesPanel({
 					<DialogHeader>
 						<DialogTitle>Start repository work</DialogTitle>
 						<DialogDescription>
-							Choose the accountable tedi and linked project. Tedix creates an
-							accepted Work Item, then Home dispatches its fenced Workstation
-							Attempt. Repository credentials are never copied into the
-							Workspace.
+							Choose a tedi and linked project to start work with access to this
+							repository.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-3">
@@ -725,13 +731,7 @@ export function WorkspaceResourcesPanel({
 						{connectionsQuery.isSuccess && connections.length === 0 ? (
 							<Text as="p" role="label" tone="secondary" className="m-0">
 								No connected apps are available. Connect one in{" "}
-								<a
-									className="text-kumo-link underline"
-									href="/admin/connections"
-								>
-									Connections
-								</a>{" "}
-								first.
+								<Link href="/admin/connections">Connections</Link> first.
 							</Text>
 						) : null}
 						<FormField
@@ -879,9 +879,10 @@ export function WorkspaceResourcesPanel({
 							)}
 						</FormField>
 						{create.isError ? (
-							<Text as="p" role="body" tone="error" className="m-0">
-								The resource could not be attached.
-							</Text>
+							<Alert
+								variant="destructive"
+								description="The resource could not be attached."
+							/>
 						) : null}
 						<DialogFooter>
 							<Button

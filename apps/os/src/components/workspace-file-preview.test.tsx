@@ -46,7 +46,14 @@ describe("workspace file preview", () => {
 	it("offers arbitrary files as downloads and displays revoked access", () => {
 		state.mimeType = "text/html";
 		expect(render()).not.toContain("<iframe");
-		expect(render()).toContain("Download file");
+		const container = document.createElement("div");
+		container.innerHTML = render();
+		const download = container.querySelector('a[download="Fictional demo"]');
+		expect(download?.textContent).toBe("Download file");
+		expect(download?.getAttribute("role")).not.toBe("button");
+		expect(download?.getAttribute("href")).toBe(
+			"/api/workspace-files/fictional/media?sig=test",
+		);
 		state.isError = true;
 		expect(render()).toContain("no longer have access");
 	});

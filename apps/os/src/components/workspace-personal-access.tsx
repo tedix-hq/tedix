@@ -9,6 +9,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
+import { Alert } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import {
@@ -16,13 +17,12 @@ import {
 	workspaceSchedulesQueryOptions,
 } from "@/lib/os-query-options";
 
-export const PERSONAL_ACCESS_LABELS: Record<PersonalAccessLevelValue, string> =
-	{
-		none: "No access",
-		read: "Read",
-		organise:
-			"Read + organise (archive, label, unsubscribe; never sends or deletes)",
-	};
+const PERSONAL_ACCESS_LABELS: Record<PersonalAccessLevelValue, string> = {
+	none: "No access",
+	read: "Read",
+	organise:
+		"Read + organise (archive, label, unsubscribe; never sends or deletes)",
+};
 
 const RANK = { none: 0, read: 1, organise: 2 } as const;
 
@@ -104,9 +104,7 @@ export function WorkspacePersonalAccess({
 				</SelectContent>
 			</Select>
 			{change.isError && (
-				<Text as="p" role="label" tone="error" className="m-0">
-					{change.error.message}
-				</Text>
+				<Alert variant="destructive" description={change.error.message} />
 			)}
 		</div>
 	);
