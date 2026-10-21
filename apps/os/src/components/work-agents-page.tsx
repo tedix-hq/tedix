@@ -55,8 +55,8 @@ import {
 	projectListQueryOptions,
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
-import { useOsFormattingPreferences } from "@/lib/format";
-import { absoluteTime, relativeTime } from "@/lib/time";
+import { formatCount, useOsFormattingPreferences } from "@/lib/format";
+import { absoluteTime, formatDurationBetween, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 type AgentSessionList = z.output<typeof ListWorkAgentSessionsResultSchema>;
@@ -241,22 +241,12 @@ export function laneDailyTotals(sessions: readonly AgentSession[], now: Date) {
 			: null,
 	};
 }
-const number = (value: number) => new Intl.NumberFormat().format(value);
 const cost = (value: number) =>
 	new Intl.NumberFormat(undefined, {
 		style: "currency",
 		currency: "USD",
 		maximumFractionDigits: 4,
 	}).format(value);
-function duration(from: string, to: string) {
-	const seconds = Math.max(
-		0,
-		Math.round((Date.parse(to) - Date.parse(from)) / 1000),
-	);
-	return seconds < 60
-		? `${seconds}s`
-		: `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
 
 function AgentSessionRow({
 	session,
@@ -318,7 +308,10 @@ function AgentSessionRow({
 				</Text>
 				<Text as="span" role="label" tone="secondary">
 					{lane ? (
-						duration(lane.startedAt, lane.finishedAt ?? now.toISOString())
+						(formatDurationBetween(
+							lane.startedAt,
+							lane.finishedAt ?? now.toISOString(),
+						) ?? "0s")
 					) : (
 						<time
 							dateTime={session.stateSince}
@@ -334,7 +327,7 @@ function AgentSessionRow({
 					<Text role="label" tone="secondary">
 						{lane.outcome ?? "Running"} ·{" "}
 						{lane.usage
-							? `${number(lane.usage.input + lane.usage.output)} tokens`
+							? `${formatCount(lane.usage.input + lane.usage.output)} tokens`
 							: "Tokens unknown"}{" "}
 						·{" "}
 						{lane.estimatedCostUsd === null
@@ -362,16 +355,16 @@ function AgentSessionRow({
 								<Text role="body">
 									Tools:{" "}
 									{Object.entries(lane.tools)
-										.map(([name, count]) => `${name} (${number(count)})`)
+										.map(([name, count]) => `${name} (${formatCount(count)})`)
 										.join(", ") || "No calls recorded"}
 								</Text>
 								{lane.usage ? (
 									<Text role="body">
-										Input {number(lane.usage.input)}, cached{" "}
-										{number(lane.usage.cached)}, output{" "}
-										{number(lane.usage.output)}, reasoning{" "}
-										{number(lane.usage.reasoning)}. Cached and reasoning are
-										included in input and output.
+										Input {formatCount(lane.usage.input)}, cached{" "}
+										{formatCount(lane.usage.cached)}, output{" "}
+										{formatCount(lane.usage.output)}, reasoning{" "}
+										{formatCount(lane.usage.reasoning)}. Cached and reasoning
+										are included in input and output.
 									</Text>
 								) : null}
 								<Text role="body">
@@ -457,8 +450,9 @@ export function WorkAgentsBoard({
 		<>
 			<div aria-label="Today’s delegation totals" className="space-y-1">
 				<Text role="body" tone="strong">
-					Today: {number(totals.lanes)} lanes · {number(totals.tokens)} measured
-					tokens · {cost(totals.cost)} estimated ·{" "}
+					Today: {formatCount(totals.lanes)} lanes ·{" "}
+					{formatCount(totals.tokens)} measured tokens · {cost(totals.cost)}{" "}
+					estimated ·{" "}
 					{totals.successRate === null
 						? "Success rate unknown"
 						: `${Math.round(totals.successRate * 100)}% executor success`}

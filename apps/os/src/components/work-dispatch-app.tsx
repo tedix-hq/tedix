@@ -19,6 +19,7 @@ import {
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osQuery, userProfileQueryOptions } from "@/lib/os-query-options";
+import { absoluteTime } from "@/lib/time";
 
 const labels: Record<WorkExecutor, string> = {
 	human: "Human",
@@ -144,7 +145,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 							Attempt {latest.id.slice(0, 8)} · {latest.runtimeState}
 							{latest.outcome ? ` · ${latest.outcome}` : ""}
 							{latest.heartbeatAt
-								? ` · Last update ${new Date(latest.heartbeatAt).toLocaleString()}`
+								? ` · Last update ${absoluteTime(latest.heartbeatAt)}`
 								: ""}
 						</Text>
 					) : item.metadata?.laneDispatch &&
