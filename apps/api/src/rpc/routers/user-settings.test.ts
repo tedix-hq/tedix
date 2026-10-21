@@ -431,6 +431,33 @@ describe("operational context", () => {
 		expect(browserAuthorization.scopes).not.toContain("mcp:settings.read");
 	});
 
+	it("drops admin authority from a stale token once the member is demoted", async () => {
+		// Two stale shapes: a JWT still naming the old built-in role, and one
+		// carrying only a custom role's admin-tier permissions. The projection
+		// must agree with the guards for both.
+		for (const roles of [["admin", "Admin"], ["operations"]]) {
+			const stale = {
+				env,
+				organizationId: ORG_1,
+				permissions: ["settings:manage", "team:manage", "os:approve"],
+				roles,
+				userRole: "member",
+			};
+			const result = await client(userContext(stale)).getContext({});
+			expect(result.authority.role).toBe("member");
+			expect(result.authority.permissions).not.toContain("settings:manage");
+			expect(result.authority.permissions).not.toContain("team:manage");
+			expect(result.authority.permissions).not.toContain("os:approve");
+			expect(result.authority.permissions).toContain("os:author");
+			const browserAuthorization = await client(
+				userContext(stale),
+			).getBrowserMcpAuthorization({});
+			expect(browserAuthorization.scopes).toContain("mcp:work.write");
+			expect(browserAuthorization.scopes).not.toContain("mcp:settings.read");
+			expect(browserAuthorization.scopes).not.toContain("mcp:work.admin");
+		}
+	});
+
 	it("reports machine scopes on the machine plane and no permissions", async () => {
 		const result = await client(
 			apiKeyContext({

@@ -1329,14 +1329,18 @@ export const AUTHZ = {
  * rule itself it could disagree with the guard, and an operator surface that
  * says "you may" while the guard says "you may not" is worse than no surface.
  *
- * Check JWT tenant permissions first, then fall back to the D1 member role:
- * new users may not have tenant roles in their JWT yet (before session
- * refresh), but authenticateUserJwt resolves `userRole` from the D1 member
- * record. Under a cross-tenant override the token's `roles`/`permissions`
- * claims are scoped to a DIFFERENT tenant (`dct`), so they must not authorize
- * anything here — trust only the resolved-org membership role that
- * authenticateUserJwt set (and only ever sets when a real membership in the
- * resolved org exists).
+ * The live membership row (`userRole` plus `userPermissionOverrides`, loaded
+ * by authenticateUserJwt from D1) is the bound on authority. Token claims are
+ * consulted first, but once a live membership exists they can only add
+ * member-tier permissions on top of it: a JWT minted before a demotion —
+ * whether it still names the old built-in role or only carries a custom
+ * role's admin-tier permissions — must not keep admin authority until it
+ * expires. Without a live membership (a new user before bootstrap) the token
+ * is the only source. Under a cross-tenant override the token's
+ * `roles`/`permissions` claims are scoped to a DIFFERENT tenant (`dct`), so
+ * they must not authorize anything here — trust only the resolved-org
+ * membership role that authenticateUserJwt set (and only ever sets when a
+ * real membership in the resolved org exists).
  */
 /**
  * Read a member's stored permission overrides, discarding anything a tenant
@@ -1368,18 +1372,23 @@ export function userHoldsPermission(
 ): boolean {
 	if (!context.user) return false;
 	// A role change is effective on the next request even while the browser keeps
-	// an older JWT. Keep Descope's custom-role permissions when there is no
-	// conflicting built-in role in the token.
+	// an older JWT: a token naming a different built-in role than the live row
+	// is stale and its claims are ignored. A token with no conflicting built-in
+	// role (Descope custom roles only) is bounded instead of ignored — it may
+	// lift the live membership within the member tier, never above it, because
+	// admin-tier authority after a demotion must come from the live role or an
+	// override, not from a claim minted before the change.
+	const liveMembership = Boolean(context.userRole);
 	const tokenRole = resolveTedixRbacRoleFromDescopeRoles(
 		getTenantRoles(context.user),
 	);
 	const tokenRoleIsCurrent =
-		!context.userRole || !tokenRole || tokenRole === context.userRole;
-	if (
+		!liveMembership || !tokenRole || tokenRole === context.userRole;
+	const tokenMayGrant =
 		!context.crossTenantOverrideActive &&
 		tokenRoleIsCurrent &&
-		hasPermission(context.user, permission)
-	) {
+		(!liveMembership || roleImpliesPermission(["member"], permission));
+	if (tokenMayGrant && hasPermission(context.user, permission)) {
 		return true;
 	}
 	if (

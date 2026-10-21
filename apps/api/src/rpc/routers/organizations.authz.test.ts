@@ -304,6 +304,37 @@ describe("member permission overrides", () => {
 		expect(userHoldsPermission(owner, "billing:manage")).toBe(true);
 	});
 
+	it("keeps an override's authority, not a stale token's, after a demotion", () => {
+		// The live row (role plus overrides) is the bound. A JWT minted while the
+		// member was still an admin adds nothing above the member tier.
+		const staleToken = {
+			sub: "u1",
+			roles: ["admin", "Admin"],
+			permissions: ["settings:manage", "team:manage", "billing:manage"],
+		} as never;
+		const demoted = {
+			user: staleToken,
+			userRole: "member",
+			userPermissionOverrides: ["team:manage"],
+		};
+		expect(userHoldsPermission(demoted, "team:manage")).toBe(true);
+		expect(userHoldsPermission(demoted, "settings:manage")).toBe(false);
+		expect(userHoldsPermission(demoted, "billing:manage")).toBe(false);
+		const demotedCustomRole = {
+			user: {
+				sub: "u1",
+				roles: ["operations"],
+				permissions: ["settings:manage", "os:author"],
+			} as never,
+			userRole: "viewer",
+			userPermissionOverrides: [],
+		};
+		expect(userHoldsPermission(demotedCustomRole, "settings:manage")).toBe(
+			false,
+		);
+		expect(userHoldsPermission(demotedCustomRole, "os:author")).toBe(true);
+	});
+
 	it("still requires an authenticated user", () => {
 		expect(
 			userHoldsPermission(

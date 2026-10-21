@@ -579,7 +579,13 @@ describe("historical records require actual human membership, never platform byp
 				role,
 				status: "active",
 			});
-			const ctx = { ...context(["billing:manage"], true), userId };
+			// An admin holds `billing:manage` only through a live member override;
+			// a token claim alone cannot lift a live membership above its tier.
+			const ctx = {
+				...context(["billing:manage"], true),
+				userId,
+				userPermissionOverrides: ["billing:manage"],
+			};
 			const client = createRouterClient(billingContractRouter, {
 				context: ctx,
 			});
@@ -700,7 +706,11 @@ describe("finite execution revocation human-only routing", () => {
 				status: "active",
 			});
 			const client = createRouterClient(billingContractRouter, {
-				context: { ...context(["billing:manage"], true), userId },
+				context: {
+					...context(["billing:manage"], true),
+					userId,
+					userPermissionOverrides: ["billing:manage"],
+				},
 			});
 			await expect(
 				client.revokeHistoricalFreshExecution(revoke),
