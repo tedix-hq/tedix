@@ -53,6 +53,9 @@ export const COMPACTION_TRIGGER_RATIO = 0.85;
  */
 export const COMPACTION_TARGET_RATIO = 0.3;
 
+/** Keep at most about 20,000 estimated tokens verbatim after a compaction. */
+export const MAX_RETAINED_HISTORY_CHARS = 20_000 * 4;
+
 /**
  * Below this much room for history, compaction cannot produce a useful handoff
  * (the checkpoint alone would not fit beside a single retained turn). The caller
@@ -230,7 +233,10 @@ export function getHistoryTokenLimits(
 	return {
 		inputBudgetChars,
 		historyBudgetChars,
-		retainTargetChars: Math.floor(historyBudgetChars * COMPACTION_TARGET_RATIO),
+		retainTargetChars: Math.min(
+			Math.floor(historyBudgetChars * COMPACTION_TARGET_RATIO),
+			MAX_RETAINED_HISTORY_CHARS,
+		),
 	};
 }
 
