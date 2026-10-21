@@ -13,7 +13,7 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
-import type { DbClient } from "../client";
+import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { tediApprovalRequests } from "../schema/approvals";
 import {
@@ -25,6 +25,7 @@ import {
 } from "../schema/cognitive-runtime";
 import { tediSessionStates } from "../schema/tedi-sessions";
 import { tedis } from "../schema/tedis";
+import { searchAuditEvents } from "./audit";
 
 export type TediRuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
 export type TediRuntimeEventInsert = typeof tediRuntimeEvents.$inferInsert;
@@ -126,6 +127,35 @@ export async function listTediObservabilityRows(
 			.orderBy(desc(auditEvents.timestamp))
 			.limit(rowLimit),
 	]);
+	const stores = getLogStores(db);
+	if (stores) {
+		const [owner] = await db
+			.select({ id: tedis.id })
+			.from(tedis)
+			.where(
+				and(
+					eq(tedis.id, input.tediId),
+					eq(tedis.organizationId, input.organizationId),
+				),
+			)
+			.limit(1);
+		if (owner) {
+			const page = await searchAuditEvents(stores.logs, {
+				organizationId: input.organizationId,
+				actorId: input.tediId,
+				actorType: "tedi",
+				startDate: input.from,
+				endDate: input.to,
+				limit: rowLimit,
+			});
+			auditRows.push(...page.data);
+			auditRows.sort(
+				(a, b) =>
+					b.timestamp.getTime() - a.timestamp.getTime() ||
+					b.id.localeCompare(a.id),
+			);
+		}
+	}
 	return {
 		runtimeEvents: runtimeRows.slice(0, input.limit),
 		auditEvents: auditRows.slice(0, input.limit),

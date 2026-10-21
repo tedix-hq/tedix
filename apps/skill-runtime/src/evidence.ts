@@ -427,11 +427,17 @@ async function readSealedEvidence(
 	db: D1Database,
 	runId: string,
 	ids: string[],
+	bucket?: R2Bucket,
 ): Promise<Map<string, EvidenceItem>> {
 	const out = new Map<string, EvidenceItem>();
 	if (ids.length === 0) return out;
 	const paths = ids.map(evidenceArtifactPath);
-	const rows = await listSkillRunArtifactInlineContent(db, runId, paths);
+	const rows = await listSkillRunArtifactInlineContent(
+		db,
+		runId,
+		paths,
+		bucket,
+	);
 	for (const row of rows) {
 		if (!row.content_inline) continue;
 		try {
@@ -489,6 +495,7 @@ export class EvidenceBridge extends WorkerEntrypoint<
 			this.env.DB,
 			runId,
 			identified.map((entry) => evidenceItemId(entry.index)),
+			this.env.SKILL_ARTIFACTS,
 		);
 		const collided = identified.filter((entry) => {
 			const sealed = sealedByOrdinal.get(evidenceItemId(entry.index));
@@ -498,6 +505,7 @@ export class EvidenceBridge extends WorkerEntrypoint<
 			this.env.DB,
 			runId,
 			collided.map((entry) => evidenceItemId(entry.index, entry.digest)),
+			this.env.SKILL_ARTIFACTS,
 		);
 
 		const resolved = identified.map((entry) => {
@@ -679,7 +687,12 @@ export class EvidenceBridge extends WorkerEntrypoint<
 				...(parsed.data.evidence ?? []).map((item) => item.id),
 			]),
 		];
-		const sealed = await readSealedEvidence(this.env.DB, runId, ids);
+		const sealed = await readSealedEvidence(
+			this.env.DB,
+			runId,
+			ids,
+			this.env.SKILL_ARTIFACTS,
+		);
 		const summary = scoreGrounding({
 			claims,
 			evidence: [...sealed.values()],
@@ -699,12 +712,16 @@ export class EvidenceBridge extends WorkerEntrypoint<
 		const { createDbClient } = await import("@tedix/db/client");
 		const { recordRunArtifact } =
 			await import("@tedix/db/queries/skill-run-artifacts");
-		await recordRunArtifact(createDbClient(this.env.DB), {
-			runId,
-			path: GROUNDING_SUMMARY_PATH,
-			value: summary,
-			outcome: summary.causalGroundingScore < 1 ? "failure" : "success",
-		});
+		await recordRunArtifact(
+			createDbClient(this.env.DB),
+			{
+				runId,
+				path: GROUNDING_SUMMARY_PATH,
+				value: summary,
+				outcome: summary.causalGroundingScore < 1 ? "failure" : "success",
+			},
+			this.env.SKILL_ARTIFACTS,
+		);
 		console.log(
 			JSON.stringify({
 				service: "skill-runtime",
@@ -809,7 +826,12 @@ export class EvidenceBridge extends WorkerEntrypoint<
 			},
 			this.env.SKILL_ARTIFACTS,
 		);
-		const readBack = await readSealedEvidence(this.env.DB, runId, [item.id]);
+		const readBack = await readSealedEvidence(
+			this.env.DB,
+			runId,
+			[item.id],
+			this.env.SKILL_ARTIFACTS,
+		);
 		return readBack.get(item.id) ?? item;
 	}
 
@@ -1003,6 +1025,7 @@ export async function enforceGroundingPolicy(input: {
 		input.db,
 		input.runId,
 		GROUNDING_SUMMARY_PATH,
+		input.artifacts,
 	);
 
 	let summary: GroundingSummary | null = null;
@@ -1030,11 +1053,15 @@ export async function enforceGroundingPolicy(input: {
 	const { createDbClient } = await import("@tedix/db/client");
 	const { recordRunArtifact } =
 		await import("@tedix/db/queries/skill-run-artifacts");
-	await recordRunArtifact(createDbClient(input.db), {
-		runId: input.runId,
-		path: GROUNDING_POLICY_PATH,
-		value: { ...verdict, schemaVersion: EVIDENCE_SCHEMA_VERSION },
-		outcome: verdict.verdict === "warn" ? "failure" : "success",
-	});
+	await recordRunArtifact(
+		createDbClient(input.db),
+		{
+			runId: input.runId,
+			path: GROUNDING_POLICY_PATH,
+			value: { ...verdict, schemaVersion: EVIDENCE_SCHEMA_VERSION },
+			outcome: verdict.verdict === "warn" ? "failure" : "success",
+		},
+		input.artifacts,
+	);
 	return verdict;
 }

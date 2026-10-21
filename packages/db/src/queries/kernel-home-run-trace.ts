@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import type { DbClient } from "../client";
+import { getLogStores, type DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
 import { kernelWakeQueue } from "../schema/cognitive-runtime";
@@ -27,6 +27,15 @@ export async function listHomeRunAuditReferences(
 		throw new Error("Home run audit references support at most 96 child runs");
 	}
 	if (input.childRunIds.length === 0) return [];
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				listHomeRunAuditReferences(store, input),
+			),
+		);
+		return pages.flat().slice(0, input.limit);
+	}
 	return db
 		.select({
 			id: auditEvents.id,

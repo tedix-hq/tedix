@@ -12,6 +12,7 @@ import {
 	desc,
 	eq,
 	gt,
+	getColumns,
 	inArray,
 	isNull,
 	ne,
@@ -30,8 +31,10 @@ import {
 	type SkillRunStatus,
 	skillEntries,
 	skillRuns,
+	skillWorkflowSources,
 } from "../schema/cognitive";
 import { chunkForBoundParams } from "../utils/batch";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { toJsonValue } from "../utils/json";
 
 export type { NewSkillRun, SkillRun, SkillRunStatus };
@@ -51,6 +54,94 @@ function skillRunEnvironmentCondition(
 
 function boundedRunLimit(limit: number | undefined, fallback: number): number {
 	return Math.min(Math.max(limit ?? fallback, 1), 200);
+}
+
+// Explicit qualifiers survive Drizzle's single-table projection normalization.
+const pinnedWorkflowSource = sql<
+	string | null
+>`coalesce("skill_runs"."workflow_source", (
+	select "source"."workflow_source" from "skill_workflow_sources" as "source"
+	where "source"."skill_id" = "skill_runs"."skill_id"
+	and "source"."sha256" = "skill_runs"."workflow_source_hash"
+))`;
+
+export async function getPinnedSkillWorkflowSource(
+	db: DbClient,
+	runId: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({ source: pinnedWorkflowSource })
+		.from(skillRuns)
+		.where(eq(skillRuns.id, runId))
+		.limit(1);
+	return row?.source ?? null;
+}
+
+export interface CreatePinnedSkillRunParams {
+	runId: string;
+	skillId: string;
+	tediId: string;
+	orgId: string;
+	workflowInstanceId: string;
+	params: unknown;
+	workflowSource?: string | null;
+	skillDoc?: string | null;
+	skillRevision?: number | null;
+	skillSlug?: string | null;
+	capabilityManifest?: unknown;
+	resourceAccessEnvelope?: OsDerivedAccessEnvelope;
+	createdBy?: string | null;
+	workItemId?: string | null;
+	originTediRunId?: string | null;
+	runtimeEnvironment: SkillRunRuntimeEnvironment;
+}
+
+/** Source and run reference commit together; retries cannot overwrite a revision. */
+export async function createPinnedSkillRun(
+	db: DbClient,
+	input: CreatePinnedSkillRunParams,
+): Promise<void> {
+	const hash = input.workflowSource
+		? await sha256Hex(input.workflowSource)
+		: null;
+	const run = db.insert(skillRuns).values({
+		id: input.runId,
+		skillId: input.skillId,
+		tediId: input.tediId,
+		organizationId: input.orgId,
+		workflowInstanceId: input.workflowInstanceId,
+		params: toJsonValue(input.params ?? {}) as Record<string, JsonValue>,
+		status: "failed",
+		error: "WORKFLOW_ADMISSION_PENDING: workflow create not yet observed",
+		startedAt: new Date().toISOString(),
+		workflowSource: null,
+		workflowSourceHash: hash,
+		skillDoc: input.skillDoc ?? null,
+		skillRevision: input.skillRevision ?? null,
+		skillSlug: input.skillSlug ?? null,
+		capabilityManifest:
+			input.capabilityManifest == null
+				? null
+				: (toJsonValue(input.capabilityManifest) as Record<string, JsonValue>),
+		runtimeEnvironment: input.runtimeEnvironment,
+		createdBy: input.createdBy ?? null,
+		workItemId: input.workItemId ?? null,
+		originTediRunId: input.originTediRunId ?? null,
+		resourceAccessEnvelope: input.resourceAccessEnvelope ?? null,
+	});
+	if (hash && input.workflowSource) {
+		await db.batch([
+			db
+				.insert(skillWorkflowSources)
+				.values({
+					skillId: input.skillId,
+					sha256: hash,
+					workflowSource: input.workflowSource,
+				})
+				.onConflictDoNothing(),
+			run,
+		]);
+	} else await run;
 }
 
 export interface CreateSkillRunArgs {
@@ -103,7 +194,7 @@ export async function getSkillRun(
 	runtimeEnvironment: SkillRunRuntimeEnvironment,
 ): Promise<SkillRun | undefined> {
 	const rows = await db
-		.select()
+		.select({ ...getColumns(skillRuns), workflowSource: pinnedWorkflowSource })
 		.from(skillRuns)
 		.where(
 			and(
@@ -705,7 +796,7 @@ export async function listSkillRunSnapshotsForSkill(
 	if (options?.status) conditions.push(eq(skillRuns.status, options.status));
 
 	return db
-		.select()
+		.select({ ...getColumns(skillRuns), workflowSource: pinnedWorkflowSource })
 		.from(skillRuns)
 		.where(and(...conditions))
 		.orderBy(desc(skillRuns.startedAt))

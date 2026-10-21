@@ -21,6 +21,7 @@ import {
 	type AnySQLiteColumn,
 	index,
 	integer,
+	primaryKey,
 	real,
 	sqliteTable,
 	text,
@@ -554,6 +555,18 @@ export const SKILL_RUN_STATUSES = [
 
 export type SkillRunStatus = (typeof SKILL_RUN_STATUSES)[number];
 
+export const skillWorkflowSources = sqliteTable(
+	"skill_workflow_sources",
+	{
+		skillId: text("skill_id")
+			.notNull()
+			.references(() => skillEntries.id, { onDelete: "cascade" }),
+		sha256: text("sha256").notNull(),
+		workflowSource: text("workflow_source").notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.skillId, table.sha256] })],
+);
+
 export const skillRuns = sqliteTable(
 	"skill_runs",
 	{
@@ -626,9 +639,10 @@ export const skillRuns = sqliteTable(
 		// G0 — Run-pinned workflow source. Captured at dispatch time so the
 		// run loads the exact code it was started with, even if the skill is
 		// revised mid-run (notably across step.waitForEvent hibernations).
-		// The current SkillWorkflow factory requires workflow_source. Missing
-		// snapshots are invalid executable runs; there is no live skill fallback.
+		// Legacy runs keep inline source; new runs reference an immutable source
+		// by hash. Neither read path falls back to the current live skill.
 		workflowSource: text("workflow_source"),
+		workflowSourceHash: text("workflow_source_hash"),
 		skillDoc: text("skill_doc"),
 		skillRevision: integer("skill_revision"),
 		skillSlug: text("skill_slug"),

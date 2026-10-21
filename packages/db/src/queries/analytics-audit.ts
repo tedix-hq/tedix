@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import type { DbClient } from "../client";
+import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { tediRationaleRecords } from "../schema/rationale-records";
@@ -95,7 +95,7 @@ const auditActivityProjection = sql`
 	json_extract(${auditEvents.metadata}, '$.clientId') AS clientId,
 	json_extract(${auditEvents.metadata}, '$.subjectUserId') AS subjectUserId,
 	json_extract(${auditEvents.metadata}, '$.agentTediId') AS agentTediId,
-	json_extract(${auditEvents.metadata}, '$.oauthClientId') AS oauthClientId,
+	coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId')) AS oauthClientId,
 	json_extract(${auditEvents.metadata}, '$.delegationMode') AS delegationMode,
 	json_extract(${auditEvents.metadata}, '$.denialReason') AS denialReason,
 	json_extract(${auditEvents.metadata}, '$.httpStatus') AS httpStatus,
@@ -115,6 +115,31 @@ export async function getAnalyticsAppFreshness(
 	countsRow: AnalyticsFreshnessCountsRow | undefined;
 	latestRow: AnalyticsLatestAuditRow | undefined;
 }> {
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				getAnalyticsAppFreshness(store, input),
+			),
+		);
+		const countsRow: AnalyticsFreshnessCountsRow = {
+			totalEvents: 0,
+			toolExecutions: 0,
+			codeExecutions: 0,
+			toolErrors: 0,
+		};
+		for (const page of pages) {
+			for (const key of Object.keys(
+				countsRow,
+			) as (keyof AnalyticsFreshnessCountsRow)[])
+				countsRow[key] =
+					Number(countsRow[key]) + Number(page.countsRow?.[key] ?? 0);
+		}
+		const latestRow = pages
+			.flatMap((page) => (page.latestRow ? [page.latestRow] : []))
+			.sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0];
+		return { countsRow, latestRow };
+	}
 	const [countsRow] = await db.all<AnalyticsFreshnessCountsRow>(sql`
 		SELECT
 			COUNT(*) AS totalEvents,
@@ -152,6 +177,18 @@ export async function listAnalyticsExecutionAuditRows(
 	db: DbClient,
 	input: { executionId: string; organizationId?: string },
 ): Promise<AnalyticsAuditDrilldownRow[]> {
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				listAnalyticsExecutionAuditRows(store, input),
+			),
+		);
+		const rows = pages
+			.flat()
+			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+		return rows;
+	}
 	const orgCondition = input.organizationId
 		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
 		: sql``;
@@ -168,7 +205,7 @@ export async function listAnalyticsExecutionAuditRows(
 			json_extract(${auditEvents.metadata}, '$.clientId') AS clientId,
 			json_extract(${auditEvents.metadata}, '$.subjectUserId') AS subjectUserId,
 			json_extract(${auditEvents.metadata}, '$.agentTediId') AS agentTediId,
-			json_extract(${auditEvents.metadata}, '$.oauthClientId') AS oauthClientId,
+			coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId')) AS oauthClientId,
 			json_extract(${auditEvents.metadata}, '$.delegationMode') AS delegationMode
 		FROM ${auditEvents}
 		WHERE json_extract(${auditEvents.metadata}, '$.executionId') = ${input.executionId}
@@ -187,6 +224,18 @@ export async function listRecentAnalyticsAuditActivity(
 		limit: number;
 	},
 ): Promise<AnalyticsAuditActivityRow[]> {
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				listRecentAnalyticsAuditActivity(store, input),
+			),
+		);
+		const rows = pages
+			.flat()
+			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));
+		return rows.slice(0, input.limit);
+	}
 	const orgCondition = input.organizationId
 		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
 		: sql``;
@@ -210,6 +259,18 @@ export async function listAnalyticsTraceActivity(
 	db: DbClient,
 	input: { traceId: string; organizationId?: string },
 ): Promise<AnalyticsAuditActivityRow[]> {
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				listAnalyticsTraceActivity(store, input),
+			),
+		);
+		const rows = pages
+			.flat()
+			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+		return rows;
+	}
 	const orgCondition = input.organizationId
 		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
 		: sql``;
@@ -234,6 +295,18 @@ export async function listAnalyticsAuditActivityWindow(
 		limit: number;
 	},
 ): Promise<AnalyticsAuditActivityRow[]> {
+	const stores = getLogStores(db);
+	if (stores) {
+		const pages = await Promise.all(
+			[stores.main, stores.logs].map((store) =>
+				listAnalyticsAuditActivityWindow(store, input),
+			),
+		);
+		const rows = pages
+			.flat()
+			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));
+		return rows.slice(0, input.limit);
+	}
 	const orgCondition = input.organizationId
 		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
 		: sql``;

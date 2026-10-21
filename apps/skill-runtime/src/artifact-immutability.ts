@@ -57,7 +57,7 @@ function settle(
 }
 
 /**
- * Atomically preserve the first small inline value for a run/path.
+ * Atomically preserve the first artifact pointer or inline value for a run/path.
  *
  * Sealed-on-first-write: the row is never updated, so its `sha256` is bound to
  * the exact bytes admitted the first time and can never drift. A replay that
@@ -92,7 +92,7 @@ export async function recordArtifactOnceForRun(
 	const id = crypto.randomUUID();
 	let contentInline: string | null = serialized;
 	let contentR2Key: string | null = null;
-	if (sizeBytes > INLINE_THRESHOLD_BYTES) {
+	if (bucket || sizeBytes > INLINE_THRESHOLD_BYTES) {
 		if (!bucket) throw new Error("ARTIFACT_IMMUTABLE_R2_UNAVAILABLE");
 		contentInline = null;
 		contentR2Key = `${runId}/immutable/${id}`;

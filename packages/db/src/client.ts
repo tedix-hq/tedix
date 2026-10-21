@@ -11,6 +11,23 @@ export function createDbClient(d1: D1Database) {
 	return drizzle(d1, { relations });
 }
 
+const logStores = new WeakMap<object, { main: DbClient; logs: DbClient }>();
+
+/** Keep routing request-local; unconfigured clients retain the original behavior. */
+export function configureLogStore(db: DbClient, bindings: object): void {
+	const logs = (bindings as { LOGS_DB?: D1Database }).LOGS_DB;
+	if (logs) {
+		logStores.set(db, {
+			main: createDbClient(db.$client),
+			logs: createDbClient(logs),
+		});
+	}
+}
+
+export function getLogStores(db: object) {
+	return logStores.get(db);
+}
+
 export type DbClient = ReturnType<typeof createDbClient>;
 
 /**

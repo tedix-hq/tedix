@@ -29,6 +29,7 @@ import { getServiceBindingPrincipal } from "../service-principal";
 import type { ApiKeyPurpose } from "@tedix/api-contract/schemas/organization";
 import type { JWTPayload } from "@tedix/auth/types";
 import {
+	configureLogStore,
 	type createDbClient,
 	type D1SessionConstraint,
 	type DbSession,
@@ -255,6 +256,7 @@ export function createContext(
 		// listed hot read paths may start on a replica.
 		d1SessionConstraintFor(request),
 	);
+	configureLogStore(session.db, env);
 	return {
 		env,
 		db: session.db,

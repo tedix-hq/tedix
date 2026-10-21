@@ -641,7 +641,6 @@ export const REVIEWED_NON_TENANT_HANDLERS: Record<string, string> = {
 			"db.ts::getSkillRun",
 			"db.ts::getSkillRunArtifactInlineContent",
 			"db.ts::getSkillRunArtifactStorageRow",
-			"db.ts::listSkillRunArtifactInlineContent",
 			"db.ts::loadSkillRunSnapshot",
 			"db.ts::reconcileSkillRun",
 			"db.ts::releaseSkillWorkflowAdmissionFence",
