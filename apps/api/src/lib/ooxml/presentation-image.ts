@@ -14,9 +14,16 @@ export function presentationImageDimensions(
 	if (source.startsWith("data:image/gif;") && bytes.length >= 10)
 		return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
 	if (source.startsWith("data:image/svg+xml;")) {
-		const xml = new TextDecoder().decode(bytes);
-		let width = Number(/\bwidth\s*=\s*(["'])\s*([\d.]+)\s*\1/.exec(xml)?.[2]);
-		let height = Number(/\bheight\s*=\s*(["'])\s*([\d.]+)\s*\1/.exec(xml)?.[2]);
+		// Only the root element sizes the image; child shapes and attributes
+		// such as stroke-width also carry width/height.
+		const xml =
+			/<svg\b([^>]*)>/i.exec(new TextDecoder().decode(bytes))?.[1] ?? "";
+		let width = Number(
+			/(?:^|\s)width\s*=\s*(["'])\s*([\d.]+)\s*\1/.exec(xml)?.[2],
+		);
+		let height = Number(
+			/(?:^|\s)height\s*=\s*(["'])\s*([\d.]+)\s*\1/.exec(xml)?.[2],
+		);
 		if (
 			Number.isFinite(width) &&
 			width > 0 &&
