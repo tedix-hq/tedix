@@ -12,9 +12,12 @@ export function useVisibleCardSources<T>(
 		...workRefreshOptions,
 		enabled: sources.length > 0,
 	});
-	const visible = new Set(workspaces.data?.items.map((space) => space.id));
+	const names = new Map(
+		workspaces.data?.items.map((space) => [space.id, space.name]),
+	);
 	return {
-		sources: sources.filter((source) => visible.has(workspaceId(source))),
+		sources: sources.filter((source) => names.has(workspaceId(source))),
+		workspaceName: (id: string) => names.get(id),
 		pending: sources.length > 0 && workspaces.isPending,
 		failed: sources.length > 0 && workspaces.isError,
 		refetch: () =>

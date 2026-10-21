@@ -3,6 +3,15 @@ import {
 	compareDecisionFreshness,
 } from "@tedix/api-contract/utils/deck-projection";
 import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
+import { factoryCardScore } from "@tedix/api-contract/utils/card-priority";
+import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
+import { CardSourceFilter } from "@/components/card-source-filter";
+import {
+	ALL_CARD_SOURCES,
+	cardSourceOptions,
+	matchesCardSource,
+	type CardOrigin,
+} from "@/lib/card-source-filter";
 import { DECK_ASK_KINDS, deckAsk } from "@tedix/api-contract/utils/deck-ask";
 import { DeckAskStrip } from "@/components/deck-ask-strip";
 import { DeckCurationFooter } from "@/components/deck-curation-footer";
@@ -180,6 +189,7 @@ function DecisionDeckContent({
 		null,
 	);
 	const [kind, setKind] = useState("all");
+	const [source, setSource] = useState(ALL_CARD_SOURCES);
 	const [contextQuestion, setContextQuestion] = useState<string | null>(null);
 	const [project, setProject] = useState("all");
 	const [urgency, setUrgency] = useState("all");
@@ -298,6 +308,11 @@ function DecisionDeckContent({
 							requestedAt: card.runCreatedAt,
 							dueAt: factoryCardDeadline(card),
 							kind: "decision",
+							origin: {
+								factory: card.sourceLabel,
+								workspaceId:
+									config.factorySources[card.sourceIndex]?.workspaceId ?? "",
+							} satisfies CardOrigin,
 							label: card.action || card.why || card.sourceText,
 							project:
 								config.factorySources[card.sourceIndex]?.run?.workProjectId ??
@@ -382,10 +397,32 @@ function DecisionDeckContent({
 			];
 	const rank = (row: (typeof rows)[number]) =>
 		rankDeckCard(row, learningModel.data, now, row.row?.request);
+	const factoryPriority = new Map(
+		decisions.factoryCards.map((card) => [
+			`factory:${card.key}`,
+			{
+				policyCritical:
+					routeFactoryCard(card, config.routing, now, learningModel.data)
+						.reason === "critical",
+				score: factoryCardScore(card),
+			},
+		]),
+	);
+	// Critical detection sees the same card facts as the server projection.
+	const priorityContext = (row: (typeof rows)[number]) =>
+		mode === "decide"
+			? {
+					kind: row.kind,
+					label: row.label,
+					decision: row.decision,
+					interaction: row.row,
+					factory: factoryPriority.get(row.id),
+				}
+			: {};
 	const compare = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
 		compareDecisionFreshness(
 			{
-				kind: mode === "decide" ? a.kind : undefined,
+				...priorityContext(a),
 				dueAt:
 					"dueAt" in a && typeof a.dueAt === "string"
 						? a.dueAt
@@ -395,7 +432,7 @@ function DecisionDeckContent({
 				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
 			},
 			{
-				kind: mode === "decide" ? b.kind : undefined,
+				...priorityContext(b),
 				dueAt:
 					"dueAt" in b && typeof b.dueAt === "string"
 						? b.dueAt
@@ -408,6 +445,7 @@ function DecisionDeckContent({
 			timeZone,
 		);
 	const matchesFilters = (row: {
+		origin?: CardOrigin;
 		askKind: string;
 		draftedNotSent: boolean;
 		project: string;
@@ -418,6 +456,7 @@ function DecisionDeckContent({
 			(kind === "drafted_not_sent"
 				? row.draftedNotSent
 				: row.askKind === kind)) &&
+		(mode !== "decide" || matchesCardSource(source, row.origin ?? null)) &&
 		(project === "all" || row.project === project) &&
 		(urgency === "all" || row.urgency === urgency) &&
 		row.label.toLowerCase().includes(search.toLowerCase());
@@ -454,7 +493,11 @@ function DecisionDeckContent({
 		filtered.length,
 	);
 	const filtersActive =
-		kind !== "all" || project !== "all" || urgency !== "all" || search !== "";
+		kind !== "all" ||
+		source !== ALL_CARD_SOURCES ||
+		project !== "all" ||
+		urgency !== "all" ||
+		search !== "";
 	const selected =
 		mode === "decide" && focusCard
 			? filtered.find((row) => row.id === focusCard)
@@ -995,8 +1038,26 @@ function DecisionDeckContent({
 										setIndex(0);
 									}}
 									options={["all", ...DECK_ASK_KINDS, "drafted_not_sent"].map(
-										(value) => ({ value, label: KIND_LABELS[value] }),
+										(value) => ({
+											value,
+											label: KIND_LABELS[value],
+										}),
 									)}
+								/>
+								<CardSourceFilter
+									value={source}
+									onValueChange={(value) => {
+										setSource(value);
+										setIndex(0);
+									}}
+									options={
+										mode === "decide"
+											? cardSourceOptions(
+													factories.sources,
+													factories.workspaceName,
+												)
+											: []
+									}
 								/>
 								<DecisionFilterChip
 									label={project === "all" ? "Project" : projectLabel(project)}
@@ -1417,6 +1478,7 @@ function DecisionDeckContent({
 							saving={saving}
 							onClearFilters={() => {
 								setKind("all");
+								setSource(ALL_CARD_SOURCES);
 								setProject("all");
 								setUrgency("all");
 								setSearch("");
