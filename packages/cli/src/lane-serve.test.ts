@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
+	LaneCommitFetchError,
+	laneFailureSignature,
 	provisionLaneWorktree,
 	landedLaneCommits,
 	mergeDispatcherReceipts,
@@ -95,6 +97,7 @@ function fixture({
 	const control = {
 		provisionError: undefined as Error | undefined,
 		commits: [] as string[],
+		cleanups: 0,
 		proofError: undefined as Error | undefined,
 		startError: refuse
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
@@ -107,18 +110,21 @@ function fixture({
 	};
 	let threadNumber = 0;
 	const config = { ...options, executor, coordinated };
-	const dispatcher = new LaneDispatcher(config, dir, {
+	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		darkWake: () => dark,
 		devinAvailable: () => devinReady,
 		provision: () => {
 			if (control.provisionError) throw control.provisionError;
 		},
 		baseCommit: () => "a".repeat(40),
-		landedCommits: () => {
+		landedCommits: async () => {
 			if (control.proofError) throw control.proofError;
 			return control.commits;
 		},
-		cleanup: () => true,
+		cleanup: () => {
+			control.cleanups++;
+			return true;
+		},
 		thread: async () => ({
 			thread: {
 				id: `33333333-3333-4333-8333-${String(++threadNumber).padStart(12, "0")}`,
@@ -228,8 +234,10 @@ function fixture({
 			});
 			return 0;
 		},
-	});
-	return { dispatcher, dir, events, releases, control, items };
+	};
+	const restart = () => new LaneDispatcher(config, dir, deps);
+	const dispatcher = restart();
+	return { dispatcher, restart, dir, events, releases, control, items };
 }
 async function until(test: () => boolean) {
 	for (let n = 0; n < 100 && !test(); n++)
@@ -394,6 +402,89 @@ describe("dispatcher admission", () => {
 			2,
 		);
 	});
+	it("holds matching failures despite changing request diagnostics", async () => {
+		const { dispatcher, dir, items, events, control } = fixture();
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		for (let n = 1; n <= 3; n++) {
+			control.startError = new CliReadError(
+				`Admission refused requestId=req-${n} traceId=${String(n).repeat(32)} at 2026-10-21T17:00:0${n}.123Z attempt ${n}`,
+				"CONFLICT",
+			);
+			await dispatcher.tick();
+			await dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.identicalFailures).toBe(n);
+			expect(saved.note).toContain(`requestId=req-${n}`);
+			saved.retryAt = 0;
+			saved.retryDeadlineAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+		}
+		expect(JSON.parse(readFileSync(path, "utf8")).held).toBe(true);
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	});
+	it.each(["recovered", "offline", "expired", "foreign", "settled"])(
+		"retains offline proof until %s without relaunching",
+		async (state) => {
+			const { dispatcher, restart, dir, items, events, releases, control } =
+				fixture();
+			items.splice(1);
+			items[0]!.workKind = "coding";
+			control.proofError = new LaneCommitFetchError("offline");
+			await dispatcher.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await dispatcher.drain();
+			const path = join(dir, `${item().id}-2.json`);
+			let saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved).toMatchObject({
+				phase: "settling",
+				outcome: "succeeded",
+				attemptId: "fictional-attempt",
+				pendingCommitProof: "Result recorded in OS.",
+			});
+			expect(events.filter((e) => e.verb === "settle")).toHaveLength(0);
+			expect(control.cleanups).toBe(0);
+			control.history.data = [
+				{
+					id: saved.attemptId,
+					externalSessionKey:
+						state === "foreign" ? "codex:foreign" : saved.session,
+					outcome: state === "settled" ? "succeeded" : null,
+					expiresAt: new Date(
+						Date.now() + (state === "expired" ? -300000 : 300000),
+					).toISOString(),
+				},
+			];
+			if (state === "recovered") {
+				control.proofError = undefined;
+				control.commits = ["b".repeat(40)];
+			}
+			for (let n = 0; n < (state === "offline" ? 6 : 1); n++) {
+				saved.retryAt = 0;
+				writeFileSync(path, JSON.stringify(saved));
+				const recovering = restart();
+				if (state === "foreign")
+					await expect(recovering.tick()).rejects.toThrow("fence");
+				else await recovering.tick();
+				saved = JSON.parse(readFileSync(path, "utf8"));
+			}
+			expect(releases).toHaveLength(1);
+			expect(events.filter((e) => e.verb === "settle")).toHaveLength(
+				state === "recovered" ? 1 : 0,
+			);
+			expect(events.filter((e) => e.verb === "heartbeat")).toHaveLength(
+				state === "offline" ? 7 : state === "recovered" ? 2 : 1,
+			);
+			if (state === "recovered") {
+				expect(saved.phase).toBe("settled");
+				expect(saved.commits).toEqual(control.commits);
+				expect(saved.pendingCommitProof).toBeUndefined();
+				expect(control.cleanups).toBe(1);
+			}
+			if (state === "offline") expect(saved.retries).toBe(0);
+		},
+	);
 	it.each(["admission", "provision"])(
 		"holds three identical %s failures across restarts until revision changes",
 		async (stage) => {
@@ -874,7 +965,7 @@ it("refuses to replace a registered worktree and preserves dirty files", () => {
 	);
 });
 
-it("extracts and deduplicates final-message and local commits, accepting only origin/main ancestors", () => {
+it("extracts and deduplicates final-message and local commits, accepting only origin/main ancestors", async () => {
 	const { root, repo, git } = gitFixture();
 	const base = git(["rev-parse", "HEAD"]);
 	const remote = join(root, "origin.git");
@@ -899,9 +990,9 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 		"unpublished",
 	]);
 	const unpublished = git(["rev-parse", "HEAD"]);
-	expect(landedLaneCommits(repo, base, "")).toEqual([landed]);
+	expect(await landedLaneCommits(repo, base, "")).toEqual([landed]);
 	expect(
-		landedLaneCommits(
+		await landedLaneCommits(
 			repo,
 			base,
 			`Result ${landed} ${unpublished} ${"f".repeat(40)}`,
@@ -909,8 +1000,60 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 	).toEqual([landed]);
 	// Guarded push can rebase/reset the lane, so its final message is also evidence input.
 	git(["reset", "--hard", base]);
-	expect(landedLaneCommits(repo, base, `Result ${landed}`)).toEqual([landed]);
+	expect(await landedLaneCommits(repo, base, `Result ${landed}`)).toEqual([
+		landed,
+	]);
 	// A main commit that predates the lane's base is not this lane's result.
-	expect(landedLaneCommits(repo, landed, `Rebased onto ${landed}`)).toEqual([]);
-	expect(() => landedLaneCommits(repo, "f".repeat(40), "")).toThrow();
+	expect(
+		await landedLaneCommits(repo, landed, `Rebased onto ${landed}`),
+	).toEqual([]);
+	await expect(landedLaneCommits(repo, "f".repeat(40), "")).rejects.toThrow();
 });
+
+it("normalizes only volatile diagnostics while preserving error identity", () => {
+	const first = new CliReadError(
+		"Denied 11111111-1111-4111-8111-111111111111 request_id=abc-123 traceparent=00-0123456789abcdef0123456789abcdef-0123456789abcdef-01 timestamp=1792601000 retry after 12 ms",
+		"FORBIDDEN",
+		403,
+	);
+	const second = new CliReadError(
+		"Denied 22222222-2222-4222-8222-222222222222 request_id=xyz-456 traceparent=00-abcdef0123456789abcdef0123456789-abcdef0123456789-01 timestamp=1792602000 retry after 43 ms",
+		"FORBIDDEN",
+		403,
+	);
+	expect(laneFailureSignature(first)).toBe(laneFailureSignature(second));
+	for (const different of [
+		new CliReadError(first.message, "CONFLICT", 403),
+		new CliReadError(first.message, "FORBIDDEN", 401),
+		new TypeError(first.message),
+		new CliReadError("Denied resource capacity", "FORBIDDEN", 403),
+	])
+		expect(laneFailureSignature(first)).not.toBe(
+			laneFailureSignature(different),
+		);
+	expect(laneFailureSignature(new Error("HTTP 403 limit 100"))).not.toBe(
+		laneFailureSignature(new Error("HTTP 429 limit 200")),
+	);
+});
+it.each([false, true])(
+	"retries commit fetch with backoff, exhausted=%s",
+	async (exhausted) => {
+		const { repo, git } = gitFixture();
+		const base = git(["rev-parse", "HEAD"]);
+		const delays: number[] = [];
+		let calls = 0;
+		const proof = landedLaneCommits(repo, base, "b".repeat(40), {
+			fetch: () => {
+				if (++calls < 3 || exhausted) throw new Error("offline");
+			},
+			sleep: async (ms) => {
+				delays.push(ms);
+			},
+		});
+		if (exhausted)
+			await expect(proof).rejects.toBeInstanceOf(LaneCommitFetchError);
+		else expect(await proof).toEqual([]);
+		expect(calls).toBe(3);
+		expect(delays).toEqual([1000, 2000]);
+	},
+);
