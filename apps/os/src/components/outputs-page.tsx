@@ -1,3 +1,4 @@
+import "./outputs-page.css";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
 	Archive,
@@ -281,7 +282,7 @@ function OutputCard(props: OutputCardProps) {
 				aria-disabled={contentAvailable ? undefined : true}
 				onClick={contentAvailable ? props.onOpen : undefined}
 				onKeyDown={activate}
-				className={`group flex min-h-16 items-center gap-3 rounded-lg px-3 py-2.5 outline-none transition-colors motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:bg-kumo-tint focus-visible:ring-2 focus-visible:ring-kumo-ring" : "cursor-default"}`}
+				className={`output-list-row group flex min-h-16 items-center gap-3 rounded-lg px-3 py-2.5 outline-none transition-colors motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:bg-kumo-tint focus-visible:ring-2 focus-visible:ring-kumo-ring" : "cursor-default"}`}
 			>
 				<IconFrame>
 					<Icon size={18} />
@@ -292,15 +293,28 @@ function OutputCard(props: OutputCardProps) {
 						role="body"
 						weight="medium"
 						tone="strong"
-						className="truncate"
+						className="break-words [overflow-wrap:anywhere]"
 					>
 						{item.output.title}
 					</Text>
-					<Text as="span" role="label" tone="secondary" className="truncate">
+					<Text
+						as="span"
+						role="label"
+						tone="secondary"
+						className="break-words [overflow-wrap:anywhere]"
+					>
 						{item.output.kind === "presentation"
 							? "Slides"
 							: kindLabel(item.output.kind)}{" "}
 						· {provenance}
+						<time
+							className="sm:hidden"
+							dateTime={item.output.updatedAt}
+							title={absoluteTime(item.output.updatedAt)}
+						>
+							{" "}
+							· {relativeTime(item.output.updatedAt)}
+						</time>
 					</Text>
 					{!contentAvailable ? (
 						<Text
@@ -356,11 +370,11 @@ function OutputCard(props: OutputCardProps) {
 		>
 			<div
 				data-slot="output-grid-preview"
-				className="aspect-video overflow-hidden rounded-t-xl border-kumo-line border-b sm:aspect-[4/3]"
+				className="aspect-video overflow-hidden rounded-t-xl border-kumo-line border-b"
 			>
 				<OutputPreview preview={item.preview} />
 			</div>
-			<div className="flex items-center gap-3 p-4">
+			<div className="output-card-footer grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 p-4">
 				<IconFrame size="sm">
 					<Icon size={16} />
 				</IconFrame>
@@ -369,18 +383,28 @@ function OutputCard(props: OutputCardProps) {
 						as="strong"
 						tone="strong"
 						role="control"
-						className="line-clamp-2 break-words"
+						className="break-words [overflow-wrap:anywhere]"
 						weight="medium"
 					>
 						{item.output.title}
 					</Text>
-					<Text as="span" tone="secondary" role="caption" truncate>
-						{provenance} · {creatorLabel(item)}
+					<Text
+						as="span"
+						tone="secondary"
+						role="caption"
+						className="break-words [overflow-wrap:anywhere]"
+					>
+						{provenance} ·{" "}
+						<span className="sr-only">
+							{creatorLabel(item)} · {outputMetric(item.preview)}, updated{" "}
+						</span>
+						<time
+							dateTime={item.output.updatedAt}
+							title={`Updated ${absoluteTime(item.output.updatedAt)}`}
+						>
+							{relativeTime(item.output.updatedAt)}
+						</time>
 					</Text>
-					<span className="sr-only">
-						{outputMetric(item.preview)}, updated{" "}
-						{relativeTime(item.output.updatedAt)}
-					</span>
 				</span>
 				{menu}
 			</div>
@@ -404,7 +428,8 @@ function ScopeSelect(props: {
 				render={
 					<Button
 						variant="secondary"
-						className="w-full justify-between sm:w-auto"
+						className="shrink-0 justify-between"
+						aria-label={labels[props.value]}
 					/>
 				}
 			>
@@ -413,7 +438,14 @@ function ScopeSelect(props: {
 				) : (
 					<ShareNetwork size={14} />
 				)}
-				{labels[props.value]}
+				<span className="hidden sm:inline">{labels[props.value]}</span>
+				<span className="sm:hidden">
+					{props.value === "all"
+						? "All sharing"
+						: props.value === "mine"
+							? "Yours"
+							: "Team"}
+				</span>
 				<CaretDown size={12} />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">
@@ -660,7 +692,7 @@ export function OutputsPage() {
 	};
 
 	return (
-		<Page width="lg">
+		<Page width="lg" className="outputs-library">
 			<div className="grid min-w-0 gap-4">
 				<PageHeader>
 					<PageHeading>
@@ -734,18 +766,18 @@ export function OutputsPage() {
 							))}
 						</TabsList>
 					</Tabs>
-					<div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center lg:w-auto lg:shrink-0">
+					<div className="flex w-full min-w-0 items-center gap-2 lg:w-auto lg:shrink-0">
 						<ScopeSelect
 							value={scope}
 							counts={scopeCounts}
 							onChange={setScope}
 						/>
 						<SearchInput
-							containerClassName="w-full min-w-0 sm:w-60"
+							containerClassName="min-w-0 flex-1 sm:w-60"
 							aria-label="Search outputs"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
-							placeholder="Search outputs"
+							placeholder="Search"
 						/>
 					</div>
 				</PageToolbar>
@@ -790,8 +822,8 @@ export function OutputsPage() {
 				<ul
 					className={
 						layout === "grid"
-							? "m-0 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3"
-							: "m-0 grid list-none gap-1 p-0"
+							? "output-library-items m-0 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3"
+							: "output-library-items m-0 grid list-none gap-1 p-0"
 					}
 				>
 					{displayedOutputs.map((item) => (

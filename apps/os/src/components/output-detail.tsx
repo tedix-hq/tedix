@@ -15,6 +15,7 @@ import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { DropdownMenuLinkItem } from "@/components/kumo/dropdown-menu";
 import { Input } from "@/components/kumo/input";
 import {
 	Page,
@@ -195,7 +196,7 @@ export function OutputDetailPage() {
 	}
 
 	return (
-		<Page width="md">
+		<Page width="md" className="output-detail-reading">
 			<PageBack render={<Link to="/outputs" />}>All outputs</PageBack>
 			{detail.isPending && (
 				<div className="grid gap-3" aria-busy="true">
@@ -211,9 +212,11 @@ export function OutputDetailPage() {
 			)}
 			{detail.data && (
 				<>
-					<PageHeader className="flex-row items-start">
+					<PageHeader>
 						<PageHeading>
-							<PageTitle>{detail.data.output.title}</PageTitle>
+							<PageTitle className="[overflow-wrap:anywhere]">
+								{detail.data.output.title}
+							</PageTitle>
 							<PageDescription>
 								{outputWorkshopKindLabel(detail.data.output.kind)} · Version{" "}
 								{detail.data.currentRevision.revision} · updated{" "}
@@ -251,15 +254,17 @@ export function OutputDetailPage() {
 								</PageMeta>
 							) : null}
 						</PageHeading>
-						<PageActions className="w-auto">
-							{detail.data.output.status === "active" && (
-								<Button onClick={startEditing}>
-									<PencilSimple size={14} /> Edit
-								</Button>
-							)}
-						</PageActions>
 					</PageHeader>
-					<PageActions className="sm:justify-start">
+					<PageActions className="output-detail-actions sm:justify-start">
+						{detail.data.output.status === "active" && (
+							<Button size="sm" onClick={startEditing}>
+								<PencilSimple size={14} /> Edit
+							</Button>
+						)}
+						<ShareControls
+							outputId={outputId}
+							currentRevisionId={detail.data.currentRevision.id}
+						/>
 						{activeWorkspace ? (
 							<Button
 								render={
@@ -274,7 +279,7 @@ export function OutputDetailPage() {
 								}
 								variant="outline"
 								size="sm"
-								className="max-sm:flex-none!"
+								className="hidden sm:inline-flex"
 							>
 								<SquaresFour size={14} /> Open in workspace
 							</Button>
@@ -282,10 +287,26 @@ export function OutputDetailPage() {
 						<OutputExportButtons
 							outputId={outputId}
 							kind={detail.data.output.kind}
-						/>
-						<ShareControls
-							outputId={outputId}
-							currentRevisionId={detail.data.currentRevision.id}
+							phoneOverflow
+							phoneActions={
+								activeWorkspace ? (
+									<DropdownMenuLinkItem
+										className="sm:hidden"
+										render={
+											<Link
+												to="/workspace/$workspaceId"
+												params={{ workspaceId: activeWorkspace.id }}
+												search={{
+													workpiece: `output:${outputId}`,
+													pane: "workpiece",
+												}}
+											/>
+										}
+									>
+										<SquaresFour size={14} /> Open in workspace
+									</DropdownMenuLinkItem>
+								) : null
+							}
 						/>
 					</PageActions>
 					{saveFeedback}
