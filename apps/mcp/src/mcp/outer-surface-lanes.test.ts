@@ -19,6 +19,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { compactCodeModeTools } from "../codemode-fast-paths";
 import { mcpToolsListResultTransform } from "../mcp-result-transform";
 import { SESSION_NATIVE_HOME_TOOL_IDS } from "./code-mode-native-tools";
+import { MAX_CODEMODE_DESCRIPTION_CHARS } from "./codemode-guidance";
 
 function resolvedAppStub() {
 	return {
@@ -46,6 +47,9 @@ describe("outer-surface lanes", () => {
 				"discover show_deck and show_feed in the active organization",
 			);
 			expect(tools[0]!.description).toContain("respect quiet/opt-out requests");
+			expect((tools[0]!.description as string).length).toBeLessThanOrEqual(
+				MAX_CODEMODE_DESCRIPTION_CHARS,
+			);
 		},
 	);
 

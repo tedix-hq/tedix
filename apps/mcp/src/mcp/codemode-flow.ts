@@ -46,7 +46,7 @@ export const SKILL_WORKFLOW_SURFACE_BY_TEDI_TOOL = new Map<
 	]),
 );
 
-export const FLOW_PROVIDER_TYPES = [
+const FLOW_PROVIDER_TYPES = [
 	"declare namespace flow {",
 	'  type WorkspaceContextRef = { kind: "file" | "resource" | "output" | "link" | "structured"; uri: string; revision?: string; label?: string };',
 	"  /** Run a multi-step job OFF your context window: records `source` as an EPHEMERAL draft skill workflow (never scheduled, auto-archives unused) and starts it in one call. `source` is a Cloudflare Workflow module: export default { async run(event, step, env) { ... } } using step.do/sleep and env.MCP.<namespace>.<tool>(args) for every capability DECLARED in `capabilities.mcp`. The workflow runs durably server-side; only its RETURN VALUE ever reaches your context, so return counts/ids/verdicts and put bulk output in an artifact. Returns { skillId, runId } — poll flow.status later (the run outlives this execution; do NOT busy-wait here). */",
