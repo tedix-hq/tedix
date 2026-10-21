@@ -1,4 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	tediDetailQueryOptions,
+	tediEmailAddressesQueryOptions,
+	tediEmailInboxQueryOptions,
+	tediEmailThreadQueryOptions,
+} from "@/lib/os-query-options";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -20,8 +26,9 @@ const tediEmailApi = vi.hoisted(() => ({
 	listInbox: vi.fn(),
 	readThread: vi.fn(),
 	mark: vi.fn(),
+	send: vi.fn(),
 }));
-const tedisApi = vi.hoisted(() => ({ get: vi.fn() }));
+const tedisApi = vi.hoisted(() => ({ get: vi.fn(), run: vi.fn() }));
 vi.mock("@/lib/api", () => ({
 	osApi: { tediEmail: tediEmailApi, tedis: tedisApi },
 }));
@@ -111,26 +118,32 @@ const thread = (
 
 const cleanups: Array<() => void> = [];
 
-function render() {
+function mountMailbox() {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	const root = createRoot(container);
-	act(() => {
-		root.render(
-			<QueryClientProvider client={client}>
-				<TediMailbox tediId={TEDI_ID} />
-			</QueryClientProvider>,
-		);
-	});
+	const rerender = (tediId: string) =>
+		act(() => {
+			root.render(
+				<QueryClientProvider client={client}>
+					<TediMailbox tediId={tediId} />
+				</QueryClientProvider>,
+			);
+		});
+	rerender(TEDI_ID);
 	cleanups.push(() => {
 		act(() => root.unmount());
 		client.clear();
 		container.remove();
 	});
-	return container;
+	return { container, client, rerender };
+}
+
+function render() {
+	return mountMailbox().container;
 }
 
 async function settle(assertion: () => void) {
@@ -481,5 +494,384 @@ describe("TediMailbox", () => {
 			threadId: THREAD_ID,
 		});
 		expect(container.textContent).toContain("Thanks, Ana");
+	});
+});
+
+function expectReadOnly() {
+	for (const mutation of [
+		tediEmailApi.mark,
+		tediEmailApi.createAddress,
+		tediEmailApi.updateAddress,
+		tediEmailApi.deleteAddress,
+		tediEmailApi.send,
+		tedisApi.run,
+	])
+		expect(mutation).not.toHaveBeenCalled();
+}
+
+function expandReadThread(container: HTMLElement) {
+	const row = container.querySelector<HTMLButtonElement>(
+		'[aria-label="Inbox threads"] button[aria-expanded]',
+	);
+	if (!row) throw new Error("thread row missing");
+	act(() => row.click());
+	return row;
+}
+
+describe("mailbox read recovery", () => {
+	it.each([false, true])(
+		"recovers a deferred addresses failure, empty=%s",
+		async (empty) => {
+			const failed = Promise.withResolvers<{ addresses: Address[] }>();
+			const recovered = Promise.withResolvers<{ addresses: Address[] }>();
+			tediEmailApi.listAddresses
+				.mockReturnValueOnce(failed.promise)
+				.mockReturnValueOnce(recovered.promise);
+			const container = render();
+			expect(container.textContent).not.toContain("No mailbox yet");
+			await act(async () => failed.reject(new Error("Address read failed")));
+			await settle(() =>
+				expect(container.textContent).toContain("Address read failed"),
+			);
+			expect(container.textContent).not.toContain("No mailbox yet");
+			act(() => buttonByText(container, "Retry addresses").click());
+			await settle(() =>
+				expect(tediEmailApi.listAddresses).toHaveBeenCalledTimes(2),
+			);
+			expectReadOnly();
+			await act(async () =>
+				recovered.resolve({ addresses: empty ? [] : [address()] }),
+			);
+			await settle(() =>
+				expect(container.textContent).toContain(
+					empty ? "No mailbox yet" : "Sender policy",
+				),
+			);
+			expect(container.textContent).not.toContain("Address read failed");
+			expect(inputs(tediEmailApi.listAddresses)).toEqual(
+				Array(2).fill({ tediId: TEDI_ID, status: "all" }),
+			);
+			expectReadOnly();
+		},
+	);
+
+	it.each([false, true])(
+		"recovers a deferred inbox failure without changing the filter, empty=%s",
+		async (empty) => {
+			tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+			const failed = Promise.withResolvers<{
+				threads: ReturnType<typeof thread>[];
+				nextCursor: null;
+			}>();
+			const recovered = Promise.withResolvers<{
+				threads: ReturnType<typeof thread>[];
+				nextCursor: null;
+			}>();
+			tediEmailApi.listInbox
+				.mockReturnValueOnce(failed.promise)
+				.mockReturnValueOnce(recovered.promise);
+			const container = render();
+			await settle(() => expect(tediEmailApi.listInbox).toHaveBeenCalledOnce());
+			await act(async () => failed.reject(new Error("Inbox read failed")));
+			await settle(() =>
+				expect(container.textContent).toContain("Inbox read failed"),
+			);
+			expect(container.textContent).toContain("ledger@tedix.tech");
+			expect(container.textContent).not.toContain("Nothing here");
+			act(() => buttonByText(container, "Retry inbox").click());
+			await settle(() =>
+				expect(tediEmailApi.listInbox).toHaveBeenCalledTimes(2),
+			);
+			await act(async () =>
+				recovered.resolve({
+					threads: empty ? [] : [thread({ unreadCount: 0 })],
+					nextCursor: null,
+				}),
+			);
+			await settle(() =>
+				expect(container.textContent).toContain(
+					empty ? "No open threads yet." : "Invoice 42",
+				),
+			);
+			expect(inputs(tediEmailApi.listInbox)).toEqual(
+				Array(2).fill({ tediId: TEDI_ID, status: "open", limit: 50 }),
+			);
+			expectReadOnly();
+		},
+	);
+
+	it.each([false, true])(
+		"recovers an expanded already-read thread without marking it, empty=%s",
+		async (empty) => {
+			tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+			tediEmailApi.listInbox.mockResolvedValue({
+				threads: [thread({ unreadCount: 0 })],
+				nextCursor: null,
+			});
+			const failed = Promise.withResolvers<unknown>();
+			const recovered = Promise.withResolvers<unknown>();
+			tediEmailApi.readThread
+				.mockReturnValueOnce(failed.promise)
+				.mockReturnValueOnce(recovered.promise);
+			const container = render();
+			await settle(() => expect(container.textContent).toContain("Invoice 42"));
+			const row = expandReadThread(container);
+			await act(async () => failed.reject(new Error("Thread read failed")));
+			await settle(() =>
+				expect(container.textContent).toContain("Thread read failed"),
+			);
+			expect(row.getAttribute("aria-expanded")).toBe("true");
+			expect(container.textContent).toContain("Ana <ana@example.com>");
+			act(() => buttonByText(container, "Retry thread").click());
+			await settle(() =>
+				expect(tediEmailApi.readThread).toHaveBeenCalledTimes(2),
+			);
+			await act(async () =>
+				recovered.resolve({
+					thread: thread({ unreadCount: 0 }),
+					messages: empty ? [] : [thread().latestMessage],
+				}),
+			);
+			await settle(() =>
+				expect(container.textContent).toContain(
+					empty ? "No messages in this thread." : "Thanks, Ana",
+				),
+			);
+			expect(row.getAttribute("aria-expanded")).toBe("true");
+			expect(inputs(tediEmailApi.readThread)).toEqual(
+				Array(2).fill({ tediId: TEDI_ID, threadId: THREAD_ID }),
+			);
+			expectReadOnly();
+		},
+	);
+
+	it.each(["addresses", "inbox", "thread"] as const)(
+		"retains cached content and expanded context after a failed %s refresh",
+		async (level) => {
+			tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+			tediEmailApi.listInbox.mockResolvedValue({
+				threads: [thread({ unreadCount: 0 })],
+				nextCursor: null,
+			});
+			const transcript = {
+				thread: thread({ unreadCount: 0 }),
+				messages: [thread().latestMessage],
+			};
+			tediEmailApi.readThread.mockResolvedValue(transcript);
+			const { container, client } = mountMailbox();
+			await settle(() => expect(container.textContent).toContain("Invoice 42"));
+			expandReadThread(container);
+			await settle(() =>
+				expect(container.textContent).toContain("Thanks, Ana"),
+			);
+			const failed = Promise.withResolvers<unknown>();
+			const read =
+				level === "addresses"
+					? tediEmailApi.listAddresses
+					: level === "inbox"
+						? tediEmailApi.listInbox
+						: tediEmailApi.readThread;
+			read.mockReturnValueOnce(failed.promise);
+			const options =
+				level === "addresses"
+					? tediEmailAddressesQueryOptions(TEDI_ID)
+					: level === "inbox"
+						? tediEmailInboxQueryOptions(TEDI_ID)
+						: tediEmailThreadQueryOptions(TEDI_ID, THREAD_ID);
+			act(() => {
+				void client.invalidateQueries({
+					queryKey: options.queryKey,
+					exact: true,
+				});
+			});
+			await settle(() => expect(read).toHaveBeenCalledTimes(2));
+			await act(async () => failed.reject(new Error("Refresh failed")));
+			await settle(() =>
+				expect(container.textContent).toContain("Refresh failed"),
+			);
+			expect(container.textContent).toContain("ledger@tedix.tech");
+			expect(container.textContent).toContain("Invoice 42");
+			expect(container.textContent).toContain("Thanks, Ana");
+			expect(
+				container.querySelector('button[aria-expanded="true"]'),
+			).not.toBeNull();
+			act(() => buttonByText(container, `Retry ${level}`).click());
+			await settle(() =>
+				expect(container.textContent).not.toContain("Refresh failed"),
+			);
+			expect(read).toHaveBeenCalledTimes(3);
+			expectReadOnly();
+		},
+	);
+
+	it("does not present cached empty reads as a successful empty mailbox or inbox", async () => {
+		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [] });
+		const { container, client } = mountMailbox();
+		await settle(() =>
+			expect(container.textContent).toContain("No mailbox yet"),
+		);
+		tediEmailApi.listAddresses.mockRejectedValueOnce(
+			new Error("Addresses unavailable"),
+		);
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: tediEmailAddressesQueryOptions(TEDI_ID).queryKey,
+			});
+		});
+		await settle(() =>
+			expect(container.textContent).toContain("Addresses unavailable"),
+		);
+		expect(container.textContent).not.toContain("No mailbox yet");
+		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+		act(() => buttonByText(container, "Retry addresses").click());
+		await settle(() => expect(container.textContent).toContain("Nothing here"));
+		tediEmailApi.listInbox.mockRejectedValueOnce(
+			new Error("Inbox unavailable"),
+		);
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: tediEmailInboxQueryOptions(TEDI_ID).queryKey,
+			});
+		});
+		await settle(() =>
+			expect(container.textContent).toContain("Inbox unavailable"),
+		);
+		expect(container.textContent).not.toContain("Nothing here");
+		expectReadOnly();
+	});
+
+	it("retries only the current filter after changing filters during a failed read", async () => {
+		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+		const old = Promise.withResolvers<unknown>();
+		tediEmailApi.listInbox
+			.mockReturnValueOnce(old.promise)
+			.mockRejectedValueOnce(new Error("Archived unavailable"))
+			.mockResolvedValue({ threads: [], nextCursor: null });
+		const container = render();
+		await settle(() => expect(tediEmailApi.listInbox).toHaveBeenCalledOnce());
+		const archived = container.querySelector<HTMLElement>(
+			'[aria-label="Inbox filter"] button:nth-child(2)',
+		);
+		if (!archived) throw new Error("Archived filter missing");
+		act(() => archived.click());
+		await act(async () => old.reject(new Error("Old open failure")));
+		await settle(() =>
+			expect(container.textContent).toContain("Archived unavailable"),
+		);
+		expect(container.textContent).not.toContain("Old open failure");
+		act(() => buttonByText(container, "Retry inbox").click());
+		await settle(() =>
+			expect(container.textContent).toContain("No archived threads yet."),
+		);
+		expect(inputs(tediEmailApi.listInbox)).toEqual([
+			{ tediId: TEDI_ID, status: "open", limit: 50 },
+			{ tediId: TEDI_ID, status: "archived", limit: 50 },
+			{ tediId: TEDI_ID, status: "archived", limit: 50 },
+		]);
+		expectReadOnly();
+	});
+
+	it("clears expanded context and retries the new tedi after a target change", async () => {
+		const nextId = "99999999-9999-4999-8999-999999999999";
+		tediEmailApi.listAddresses
+			.mockResolvedValueOnce({ addresses: [address()] })
+			.mockRejectedValueOnce(new Error("New addresses unavailable"))
+			.mockResolvedValue({
+				addresses: [address({ tediId: nextId, address: "next@tedix.tech" })],
+			});
+		tediEmailApi.listInbox.mockResolvedValue({
+			threads: [thread({ unreadCount: 0 })],
+			nextCursor: null,
+		});
+		const oldThread = Promise.withResolvers<unknown>();
+		tediEmailApi.readThread.mockReturnValue(oldThread.promise);
+		const { container, rerender } = mountMailbox();
+		await settle(() => expect(container.textContent).toContain("Invoice 42"));
+		expandReadThread(container);
+		rerender(nextId);
+		await act(async () => oldThread.reject(new Error("Old thread failure")));
+		await settle(() =>
+			expect(container.textContent).toContain("New addresses unavailable"),
+		);
+		expect(container.textContent).not.toContain("ledger@tedix.tech");
+		expect(container.textContent).not.toContain("Old thread failure");
+		act(() => buttonByText(container, "Retry addresses").click());
+		await settle(() =>
+			expect(container.textContent).toContain("next@tedix.tech"),
+		);
+		expect(container.querySelector('button[aria-expanded="true"]')).toBeNull();
+		expect(inputs(tediEmailApi.listAddresses).at(-1)).toEqual({
+			tediId: nextId,
+			status: "all",
+		});
+		expect(tediEmailApi.readThread).toHaveBeenCalledOnce();
+		expectReadOnly();
+	});
+
+	it("shows independent tedi-detail failure instead of claiming the tedi has no slug", async () => {
+		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [] });
+		const detail = Promise.withResolvers<unknown>();
+		tedisApi.get
+			.mockReturnValueOnce(detail.promise)
+			.mockResolvedValue({ id: TEDI_ID, slug: "ledger" });
+		const container = render();
+		await settle(() =>
+			expect(tediEmailApi.listAddresses).toHaveBeenCalledOnce(),
+		);
+		expect(container.textContent).not.toContain("needs a slug");
+		await act(async () => detail.reject(new Error("Tedi read failed")));
+		await settle(() =>
+			expect(container.textContent).toContain("Tedi read failed"),
+		);
+		expect(container.textContent).not.toContain("needs a slug");
+		expect(container.textContent).not.toContain("No mailbox yet");
+		act(() => buttonByText(container, "Retry tedi details").click());
+		await settle(() =>
+			expect(container.textContent).toContain("ledger@tedix.tech"),
+		);
+		expectReadOnly();
+	});
+
+	it("keeps known mailbox metadata when the independent tedi detail refresh fails", async () => {
+		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+		const { container, client } = mountMailbox();
+		await settle(() =>
+			expect(container.textContent).toContain("ledger@tedix.tech"),
+		);
+		tedisApi.get.mockRejectedValueOnce(new Error("Tedi refresh failed"));
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: tediDetailQueryOptions(TEDI_ID).queryKey,
+			});
+		});
+		await settle(() =>
+			expect(container.textContent).toContain("Tedi refresh failed"),
+		);
+		expect(container.textContent).toContain("ledger@tedix.tech");
+		expect(container.textContent).toContain("Sender policy");
+		act(() => buttonByText(container, "Retry tedi details").click());
+		await settle(() =>
+			expect(container.textContent).not.toContain("Tedi refresh failed"),
+		);
+		expectReadOnly();
+	});
+
+	it("still marks an unread thread exactly when it is opened", async () => {
+		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
+		tediEmailApi.listInbox.mockResolvedValue({
+			threads: [thread()],
+			nextCursor: null,
+		});
+		tediEmailApi.readThread.mockResolvedValue({
+			thread: thread(),
+			messages: [],
+		});
+		const container = render();
+		await settle(() => expect(container.textContent).toContain("Invoice 42"));
+		expandReadThread(container);
+		await settle(() => expect(tediEmailApi.mark).toHaveBeenCalledOnce());
+		expect(inputs(tediEmailApi.mark)).toEqual([
+			{ tediId: TEDI_ID, threadId: THREAD_ID, read: true },
+		]);
 	});
 });
