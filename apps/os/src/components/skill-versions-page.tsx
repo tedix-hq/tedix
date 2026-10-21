@@ -1,24 +1,36 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import { Card, CardContent } from "@/components/kumo/card";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
-import { Collection } from "@/components/kumo/page";
+import {
+	PageSection,
+	SectionHeader,
+	SectionHeading,
+	SectionTitle,
+	SectionDescription,
+} from "@/components/kumo/page";
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { ListQueryBoundary } from "@/components/list-query-boundary";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/kumo/table";
 import { Text } from "@/components/kumo/text";
 import {
 	skillDetailQueryOptions,
 	skillRevisionsQueryOptions,
 } from "@/lib/os-query-options";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
-import { relativeTime } from "@/lib/time";
+import { absoluteTime, relativeTime } from "@/lib/time";
 
 export function SkillVersionsPage() {
 	useOsFormattingPreferences();
@@ -29,45 +41,51 @@ export function SkillVersionsPage() {
 		(a, b) => (b.revision ?? 0) - (a.revision ?? 0),
 	);
 	return (
-		<div className="grid gap-4">
-			<Text role="body" tone="secondary" className="m-0">
-				Observed executed revisions only. Edits that never ran do not appear.
-			</Text>
+		<PageSection
+			aria-labelledby="skill-versions-title"
+			className="[overflow-wrap:anywhere]"
+		>
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="skill-versions-title">Versions</SectionTitle>
+					<SectionDescription>
+						Versions that have run. Edits that never ran do not appear.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
 			{revisions.data ? (
 				<Text role="label" tone="secondary" className="m-0">
-					Evidence sampled {formatCount(revisions.data.sampledRunCount)} runs
+					Based on {formatCount(revisions.data.sampledRunCount)} runs
 					{revisions.data.mayBeTruncated
-						? " · the bounded sample may omit older executions"
-						: " · complete within the requested bound"}
+						? " · this sample may omit older executions"
+						: " · all runs in this sample"}
 					.
 				</Text>
 			) : null}
-			{revisions.isPending ? <ListSkeleton /> : null}
-			{revisions.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Versions unavailable</AlertTitle>
-					<AlertDescription>
-						{(revisions.error as Error).message}
-					</AlertDescription>
-				</Alert>
-			) : null}
-			{revisions.data ? (
-				<Card>
-					<CardContent className="p-0">
-						{sorted.length === 0 ? (
-							<Empty appearance="inline" className="px-tedix-card">
-								<EmptyDescription>
-									No revisions have observed execution yet.
-								</EmptyDescription>
-							</Empty>
-						) : (
-							<Collection appearance="inline">
-								{sorted.map((revision) => {
-									const current =
-										revision.revision === detail.data?.entry?.revision;
-									return (
-										<li key={revision.runId} className="grid gap-1 px-4 py-3">
-											<span className="flex items-center gap-2">
+			<ListQueryBoundary query={revisions} errorTitle="Versions unavailable" />
+			{revisions.data &&
+				(sorted.length === 0 ? (
+					<Empty appearance="inline">
+						<EmptyDescription>No versions have run yet.</EmptyDescription>
+					</Empty>
+				) : (
+					<Table scrollLabel="Skill versions" className="table-fixed">
+						<TableHeader>
+							<TableRow>
+								<TableHead scope="col" className="w-28 sm:w-40">
+									Version
+								</TableHead>
+								<TableHead scope="col">Run evidence</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{sorted.map((revision) => {
+								const current =
+									revision.revision === detail.data?.entry?.revision;
+								return (
+									<TableRow key={revision.runId}>
+										<TableCell className="whitespace-normal align-top">
+											<span className="flex flex-wrap items-center gap-2">
 												<Text as="strong" role="body">
 													Revision {revision.revision ?? "unknown"}
 												</Text>
@@ -75,20 +93,28 @@ export function SkillVersionsPage() {
 													<Badge variant="secondary">Current</Badge>
 												) : null}
 											</span>
+										</TableCell>
+										<TableCell className="whitespace-normal align-top space-y-1">
 											<Text as="span" role="label" tone="secondary">
 												Observed {formatCount(revision.observedRunCount)} times
 												· {formatCount(revision.completedCount)} completed ·{" "}
 												{formatCount(revision.failedCount)} failed ·{" "}
 												{formatCount(revision.canceledCount)} canceled
-												{revision.lastObservedAt
-													? ` · last ${relativeTime(revision.lastObservedAt)}`
-													: ""}
+												{revision.lastObservedAt ? (
+													<>
+														{" "}
+														· last{" "}
+														<time
+															dateTime={revision.lastObservedAt}
+															title={absoluteTime(revision.lastObservedAt)}
+														>
+															{relativeTime(revision.lastObservedAt)}
+														</time>
+													</>
+												) : null}
 											</Text>
 											{current && detail.data?.entry?.revisionReasoning ? (
-												<Text
-													role="label"
-													className="m-0 mt-1 rounded-lg bg-kumo-tint p-3"
-												>
+												<Text role="label" className="m-0">
 													<strong>What changed: </strong>
 													{detail.data.entry.revisionReasoning}
 												</Text>
@@ -106,32 +132,33 @@ export function SkillVersionsPage() {
 													Technical evidence
 												</CollapsibleTrigger>
 												<CollapsibleContent className="grid gap-1 pb-2">
-													<Text as="span" role="label" tone="secondary">
-														Workflow SHA-256:{" "}
-														{revision.workflowSourceSha256 ?? "not recorded"}
-													</Text>
-													<Text as="span" role="label" tone="secondary">
-														SKILL.md SHA-256:{" "}
-														{revision.skillDocSha256 ?? "not recorded"}
-													</Text>
-													<Text as="span" role="label" tone="secondary">
-														Worker:{" "}
-														{revision.workerVersionTag ??
-															revision.workerVersionId ??
-															"legacy / not recorded"}{" "}
-														· compatibility{" "}
-														{revision.executionCompatibilityHash ??
-															"not recorded"}
-													</Text>
-													<Text as="span" role="label" tone="secondary">
-														Runtime variants: {revision.runtimeVariants.length}{" "}
-														· drift{" "}
-														{revision.runtimeDriftBlocked
-															? "blocked"
-															: revision.runtimeDriftObserved
-																? "observed"
-																: "not observed"}
-													</Text>
+													{[
+														[
+															"Workflow SHA-256",
+															revision.workflowSourceSha256 ?? "not recorded",
+														],
+														[
+															"SKILL.md SHA-256",
+															revision.skillDocSha256 ?? "not recorded",
+														],
+														[
+															"Worker",
+															`${revision.workerVersionTag ?? revision.workerVersionId ?? "legacy / not recorded"} · compatibility ${revision.executionCompatibilityHash ?? "not recorded"}`,
+														],
+														[
+															"Runtime variants",
+															`${revision.runtimeVariants.length} · drift ${revision.runtimeDriftBlocked ? "blocked" : revision.runtimeDriftObserved ? "observed" : "not observed"}`,
+														],
+													].map(([label, value]) => (
+														<Text
+															as="span"
+															role="label"
+															tone="secondary"
+															key={label}
+														>
+															{label}: {value}
+														</Text>
+													))}
 													{revision.runtimeVariants.map((variant) => (
 														<Text
 															as="span"
@@ -149,14 +176,13 @@ export function SkillVersionsPage() {
 													))}
 												</CollapsibleContent>
 											</Collapsible>
-										</li>
-									);
-								})}
-							</Collection>
-						)}
-					</CardContent>
-				</Card>
-			) : null}
-		</div>
+										</TableCell>
+									</TableRow>
+								);
+							})}
+						</TableBody>
+					</Table>
+				))}
+		</PageSection>
 	);
 }

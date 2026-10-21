@@ -1,3 +1,5 @@
+import { DetailUnavailable } from "@/components/detail-unavailable";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { Text } from "@/components/kumo/text";
 import { FolderOpen, Play } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -53,7 +55,7 @@ import {
 	useCanManageTedis,
 } from "@/lib/tedi-permissions";
 
-export function parseRunParams(value: string): Record<string, unknown> {
+function parseRunParams(value: string): Record<string, unknown> {
 	const parsed: unknown = JSON.parse(value);
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new Error("Run parameters must be a JSON object.");
@@ -81,13 +83,10 @@ export function SkillDetailLayout() {
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [folderDraft, setFolderDraft] = useState("");
 	const canRun = useCanManageTedis();
-	const activeTab = pathname.endsWith("/runs")
-		? "runs"
-		: pathname.endsWith("/versions")
-			? "versions"
-			: pathname.endsWith("/schedule")
-				? "schedule"
-				: "overview";
+	const activeTab =
+		["runs", "versions", "schedule"].find((tab) =>
+			pathname.endsWith(`/${tab}`),
+		) ?? "overview";
 	const executable = Boolean(skill?.files?.["scripts/workflow.ts"]);
 
 	const runNow = useMutation({
@@ -131,7 +130,17 @@ export function SkillDetailLayout() {
 		},
 	});
 
-	if (!skill) return null;
+	if (!skill)
+		return (
+			<Page width="lg">
+				<PageBack render={<Link to="/skills" />}>All skills</PageBack>
+				{detail.isPending ? (
+					<ListSkeleton rows={6} />
+				) : (
+					<DetailUnavailable resource="Skill" error={detail.error} />
+				)}
+			</Page>
+		);
 	return (
 		<Page width="lg">
 			<PageBack render={<Link to="/skills" />}>All skills</PageBack>
@@ -181,10 +190,7 @@ export function SkillDetailLayout() {
 					tabs={(["overview", "runs", "versions", "schedule"] as const).map(
 						(tab) => ({
 							value: tab,
-							label:
-								tab === "overview"
-									? "Overview"
-									: tab[0]?.toUpperCase() + tab.slice(1),
+							label: sentenceCase(tab),
 							nativeButton: false,
 							render: (
 								<Link
@@ -207,8 +213,8 @@ export function SkillDetailLayout() {
 					<DialogHeader>
 						<DialogTitle>Move {skill.title}</DialogTitle>
 						<DialogDescription>
-							Catalog folders organize skills without changing the immutable
-							slug or skill URI. Leave empty to move this skill to the root.
+							Folders organize skills without changing their identity. Leave
+							empty to move this skill to the root.
 						</DialogDescription>
 					</DialogHeader>
 					<form
@@ -257,8 +263,7 @@ export function SkillDetailLayout() {
 					<DialogHeader>
 						<DialogTitle>Run {skill.title}</DialogTitle>
 						<DialogDescription>
-							Runs the pinned workflow with the same permission checks as
-							Triggers.
+							Runs this skill with the selected tedi’s permissions.
 						</DialogDescription>
 					</DialogHeader>
 					<form

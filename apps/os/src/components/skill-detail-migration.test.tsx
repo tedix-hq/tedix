@@ -132,6 +132,18 @@ const skill = {
 };
 
 describe("native skill ownership", () => {
+	it("keeps the detail frame visible while loading and when a skill is missing", async () => {
+		const loading = await mount(<SkillDetailLayout />, () => {});
+		expect(loading.host.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+		expect(loading.host.textContent).toContain("All skills");
+		const missing = await mount(<SkillDetailLayout />, (client) =>
+			client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, {
+				entry: null,
+			}),
+		);
+		expect(missing.host.textContent).toContain("Skill not found");
+		expect(missing.host.textContent).toContain("All skills");
+	});
 	it("validates shareable run status without accepting arbitrary query values", () => {
 		expect(skillRunsSearchSchema.parse({ status: "queued" })).toEqual({
 			status: "queued",
