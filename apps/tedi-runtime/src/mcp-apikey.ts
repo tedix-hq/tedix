@@ -9,10 +9,10 @@
  * expects an `McpAuthContext` on success or `null` on any failure.
  *
  * The package-owned runtime bootstrap facade keeps SQL out of this Worker
- * without importing Drizzle's peer-specialized runtime graph. The two pure
- * helpers (`hashApiKey`, `matchesIpOrCidr`) remain local to avoid importing
- * schema modules for this authentication hot path.
+ * without importing Drizzle's peer-specialized runtime graph. Parsing and
+ * hashing remain local to avoid importing schema modules for this hot path.
  */
+import { isIPv6 } from "node:net";
 import { logTediMcpFailure } from "./mcp-failure-log";
 import {
 	findTediRuntimeApiKeyByHash,
@@ -38,52 +38,62 @@ async function hashApiKey(key: string): Promise<string> {
 		.join("");
 }
 
-/**
- * Exact-IP or CIDR match — mirrors `matchesIpOrCidr` from
- * `@tedix/db/schema/api-keys` (inlined to avoid importing the Drizzle graph).
- */
+function ipToInt(ip: string): number | null {
+	const octets = ip.split(".");
+	if (octets.length !== 4) return null;
+	let result = 0;
+	for (const octet of octets) {
+		if (!/^\d+$/.test(octet)) return null;
+		const num = Number(octet);
+		if (num > 255) return null;
+		result = (result << 8) | num;
+	}
+	return result >>> 0;
+}
+
 function matchesIpOrCidr(clientIp: string, pattern: string): boolean {
-	if (clientIp === pattern) return true;
-	if (!pattern.includes("/")) return false;
-
-	const [subnet, prefixStr] = pattern.split("/");
-	if (!subnet || !prefixStr) return false;
-	const prefix = Number.parseInt(prefixStr, 10);
-	if (Number.isNaN(prefix) || prefix < 0 || prefix > 32) return false;
-
-	const ipToInt = (ip: string): number | null => {
-		const octets = ip.split(".");
-		if (octets.length !== 4) return null;
-		let result = 0;
-		for (const octet of octets) {
-			const num = Number.parseInt(octet, 10);
-			if (Number.isNaN(num) || num < 0 || num > 255) return null;
-			result = (result << 8) | num;
-		}
-		return result >>> 0;
-	};
-
 	const clientInt = ipToInt(clientIp);
+	if (!pattern.includes("/")) {
+		// Preserve exact IPv6 literals without adding IPv6 CIDR matching.
+		return clientIp === pattern && (clientInt !== null || isIPv6(clientIp));
+	}
+	if (clientInt === null) return false;
+
+	const parts = pattern.split("/");
+	const [subnet, prefixStr] = parts;
+	if (parts.length !== 2 || !subnet || !prefixStr) return false;
+	if (!/^\d+$/.test(prefixStr)) return false;
+	const prefix = Number(prefixStr);
+	if (prefix > 32) return false;
+
 	const subnetInt = ipToInt(subnet);
-	if (clientInt === null || subnetInt === null) return false;
+	if (subnetInt === null) return false;
 
 	const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
 	return (clientInt & mask) === (subnetInt & mask);
 }
 
 /**
- * Parse the JSON `ip_allowlist` column into a string[] (or [] on absence/parse
- * failure). The Drizzle path stores this as a JSON-mode text column.
+ * Only SQL null and a genuine empty array mean unrestricted access.
+ * Invalid configured entries invalidate the entire restriction, even if a
+ * different entry would match. The column is JSON-mode text in Drizzle.
  */
-function parseIpAllowlist(raw: string | null): string[] {
-	if (!raw) return [];
+function parseIpAllowlist(raw: string | null): string[] | null {
+	if (raw === null) return [];
 	try {
-		const parsed = JSON.parse(raw);
-		return Array.isArray(parsed)
-			? parsed.filter((v): v is string => typeof v === "string")
-			: [];
+		const parsed: unknown = JSON.parse(raw);
+		if (
+			!Array.isArray(parsed) ||
+			!parsed.every(
+				(ip) =>
+					typeof ip === "string" && matchesIpOrCidr(ip.split("/")[0] ?? "", ip),
+			)
+		) {
+			return null;
+		}
+		return parsed;
 	} catch {
-		return [];
+		return null;
 	}
 }
 
@@ -118,12 +128,13 @@ export function createIsolateApiKeyValidator(
 			}
 
 			// Org match — critical. Reject keys from a different organization.
-			if (tedi.orgId && apiKey.organizationId !== tedi.orgId) {
+			if (!tedi.orgId || apiKey.organizationId !== tedi.orgId) {
 				return null;
 			}
 
 			// Optional IP allowlist enforcement (CIDR or exact).
 			const allowedIps = parseIpAllowlist(apiKey.ipAllowlist);
+			if (allowedIps === null) return null;
 			if (allowedIps.length > 0) {
 				const clientIp =
 					request.headers.get("CF-Connecting-IP") ??
