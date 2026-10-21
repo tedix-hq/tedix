@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkCasePage } from "@/components/work-operations-pages";
+import { WorkCasePage } from "@/components/work-cases-pages";
 import { ListPending } from "@/routes/-pending";
 
 export const Route = createFileRoute("/_session/_tenant/work/cases/$caseId")({

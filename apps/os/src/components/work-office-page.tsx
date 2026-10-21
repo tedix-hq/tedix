@@ -49,7 +49,7 @@ import { SessionRequestsSection } from "@/components/work-session-requests";
 import { SupportAttention } from "@/components/support-attention";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
-import { answerDeliveryLine } from "@/components/work-operations-pages";
+import { answerDeliveryLine } from "@/components/work-operations-shared";
 import { latestDraftOf } from "@/components/work-interaction-draft";
 import {
 	agentSessionRequestsQueryOptions,

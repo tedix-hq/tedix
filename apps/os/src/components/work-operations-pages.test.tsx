@@ -38,24 +38,25 @@ import {
 	workAdmissionSpecificationQueryOptions,
 	workItemReadinessQueryOptions,
 } from "@/lib/os-query-options";
+import { WorkAdmissionPage } from "./work-admission-page";
+import { WorkClustersPage } from "./work-clusters-page";
 import {
-	WorkAdmissionPage,
-	WorkClustersPage,
 	NeedsYouNowSection,
-	OperationActor,
 	WorkInteractionsRoute,
-	WorkApprovalsPage,
-	BudgetScopeLink,
-	ResourceHolders,
-	namedWorkPrincipal,
 	WorkInteractionPage,
+} from "./work-interactions-pages";
+import {
+	OperationActor,
+	namedWorkPrincipal,
 	ApprovalRequestError,
 	PageControls,
 	SchedulerTruncationWarnings,
 	useCursorPaging,
 	urgentInteractionSummary,
 	groupSessionQuestions,
-} from "./work-operations-pages";
+} from "./work-operations-shared";
+import { WorkApprovalsPage } from "./work-approvals-page";
+import { BudgetScopeLink, ResourceHolders } from "./work-capacity-page";
 import {
 	workCapacitySearch,
 	workInteractionsSearch,

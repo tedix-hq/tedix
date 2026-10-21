@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkCasesPage } from "@/components/work-operations-pages";
+import { WorkCasesPage } from "@/components/work-cases-pages";
 import { prefetchWorkCasesRoute } from "@/lib/os-route-loaders";
 import { ListPending } from "@/routes/-pending";
 

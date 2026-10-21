@@ -8,7 +8,7 @@ import {
 	osQuery,
 	operationalContextQueryOptions,
 } from "@/lib/os-query-options";
-import { useWorkPrincipalNames } from "@/components/work-operations-pages";
+import { useWorkPrincipalNames } from "@/components/work-operations-shared";
 import { useOsLocale } from "@/lib/use-os-locale";
 import {
 	resultFeedItems,

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkInteractionsRoute } from "@/components/work-operations-pages";
+import { WorkInteractionsRoute } from "@/components/work-interactions-pages";
 import { workInteractionsSearch } from "@/lib/work-route-search";
 import {
 	workInteractionsQueryOptions,

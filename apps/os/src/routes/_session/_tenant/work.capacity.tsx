@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkCapacityPage } from "@/components/work-operations-pages";
+import { WorkCapacityPage } from "@/components/work-capacity-page";
 import { workCapacitySearch } from "@/lib/work-route-search";
 import { prefetchWorkCapacityRoute } from "@/lib/os-route-loaders";
 import { ListPending } from "@/routes/-pending";

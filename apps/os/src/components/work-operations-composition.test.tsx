@@ -62,7 +62,14 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	),
 }));
 
-const pages = await import("./work-operations-pages");
+const { WorkCasesPage } = await import("./work-cases-pages");
+const { WorkCasePage } = await import("./work-cases-pages");
+const { WorkApprovalsPage } = await import("./work-approvals-page");
+const { WorkInteractionsPage, WorkInteractionPage } =
+	await import("./work-interactions-pages");
+const { WorkClustersPage } = await import("./work-clusters-page");
+const { WorkAdmissionPage } = await import("./work-admission-page");
+const { WorkCapacityPage } = await import("./work-capacity-page");
 const { Page } = await import("@/components/kumo/page");
 
 afterEach(() => {
@@ -192,7 +199,7 @@ describe("Work cases", () => {
 			],
 			nextCursor: null,
 		};
-		const page = await mount(<pages.WorkCasesPage />);
+		const page = await mount(<WorkCasesPage />);
 		const root = page.host.querySelector('[data-slot="page"]')!;
 		expect(root.className).toBe(pageClass("xl"));
 		const register = page.host.querySelector(
@@ -240,7 +247,7 @@ describe("Work cases", () => {
 
 	it("opens the case form on phones and returns them to the register", async () => {
 		viewport(true);
-		const page = await mount(<pages.WorkCasesPage />);
+		const page = await mount(<WorkCasesPage />);
 		const open = [...page.host.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Open case",
 		)!;
@@ -297,7 +304,7 @@ describe("Work approvals", () => {
 			],
 			nextCursor: null,
 		};
-		const page = await mount(<pages.WorkApprovalsPage />);
+		const page = await mount(<WorkApprovalsPage />);
 		const text = page.host.textContent ?? "";
 		expect(text).not.toContain("Approve exact request");
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
@@ -347,7 +354,7 @@ describe("Work approvals", () => {
 			manifestHash: "hash-1",
 			actions: [],
 		};
-		const page = await mount(<pages.WorkApprovalsPage />);
+		const page = await mount(<WorkApprovalsPage />);
 		const review = [
 			...page.host.querySelectorAll<HTMLButtonElement>("button"),
 		].find((button) => button.textContent?.trim() === "Review exact request")!;
@@ -362,7 +369,7 @@ describe("Work approvals", () => {
 describe("Work interactions", () => {
 	it("shows assigned requests first and reveals the request form on demand", async () => {
 		viewport(false);
-		const page = await mount(<pages.WorkInteractionsPage />);
+		const page = await mount(<WorkInteractionsPage />);
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
 			pageClass("xl"),
 		);
@@ -396,7 +403,7 @@ describe("Work interactions", () => {
 
 	it("keeps the request form out of the phone queue until opened", async () => {
 		viewport(true);
-		const page = await mount(<pages.WorkInteractionsPage />);
+		const page = await mount(<WorkInteractionsPage />);
 		expect(page.host.querySelector("#ask-for-input-form")).toBeNull();
 		const ask = [...page.host.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Ask for input",
@@ -407,7 +414,7 @@ describe("Work interactions", () => {
 
 	it("closes a submitted request and shows it in the requested view", async () => {
 		viewport(false);
-		const page = await mount(<pages.WorkInteractionsPage />);
+		const page = await mount(<WorkInteractionsPage />);
 		const ask = [...page.host.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Ask for input",
 		)!;
@@ -448,9 +455,7 @@ describe("Work interactions", () => {
 			canCancel: true,
 			responses: { data: [], hasMore: false, nextCursor: null },
 		};
-		const page = await mount(
-			<pages.WorkInteractionPage requestId="request-1" />,
-		);
+		const page = await mount(<WorkInteractionPage requestId="request-1" />);
 		expect(page.host.querySelector(".fd-proposer")?.textContent).toContain(
 			"Codex",
 		);
@@ -482,9 +487,7 @@ describe("Work interactions", () => {
 			canCancel: true,
 			responses: { data: [], hasMore: false, nextCursor: null },
 		};
-		const page = await mount(
-			<pages.WorkInteractionPage requestId="request-1" />,
-		);
+		const page = await mount(<WorkInteractionPage requestId="request-1" />);
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
 			pageClass("lg"),
 		);
@@ -551,9 +554,7 @@ describe("External action requests", () => {
 	}
 	it("shows an external step without collecting an answer or marking it done", async () => {
 		request("https://accounts.google.com/");
-		const page = await mount(
-			<pages.WorkInteractionPage requestId="request-1" />,
-		);
+		const page = await mount(<WorkInteractionPage requestId="request-1" />);
 		expect(page.host.textContent).toContain("OS");
 		expect(page.host.querySelector("input, textarea")).toBeNull();
 		expect(page.host.textContent).toContain(
@@ -573,9 +574,7 @@ describe("External action requests", () => {
 		"https://user:password@example.com",
 	])("rejects unsafe action URL %s", async (url) => {
 		request(url);
-		const page = await mount(
-			<pages.WorkInteractionPage requestId="request-1" />,
-		);
+		const page = await mount(<WorkInteractionPage requestId="request-1" />);
 		expect(page.host.textContent).not.toContain("Open sign-in");
 		expect(
 			page.host.querySelector('textarea[aria-label="Your answer"]'),
@@ -589,9 +588,7 @@ describe("External action requests", () => {
 		"preserves state %s and recipient permission %s",
 		async (state, canRespond) => {
 			request("https://accounts.google.com/", state, canRespond);
-			const page = await mount(
-				<pages.WorkInteractionPage requestId="request-1" />,
-			);
+			const page = await mount(<WorkInteractionPage requestId="request-1" />);
 			expect(page.host.textContent).not.toContain("Open sign-in");
 			expect(page.host.querySelector("form, textarea")).toBeNull();
 			if (state !== "open")
@@ -606,7 +603,7 @@ describe("External action requests", () => {
 describe("Work admission and capacity", () => {
 	it("uses separate schema-backed lookup and specification forms", async () => {
 		viewport(false);
-		const page = await mount(<pages.WorkAdmissionPage />);
+		const page = await mount(<WorkAdmissionPage />);
 		expect(page.host.querySelectorAll("form")).toHaveLength(0);
 		await page.submit("Advanced: IDs and specification JSON");
 		expect(page.host.querySelectorAll("form")).toHaveLength(2);
@@ -640,7 +637,7 @@ describe("Work admission and capacity", () => {
 			],
 			nextCursor: null,
 		};
-		const page = await mount(<pages.WorkCapacityPage />);
+		const page = await mount(<WorkCapacityPage />);
 		const surfaces = [
 			...page.host.querySelectorAll<HTMLElement>(
 				'[data-kumo-component="ResponsiveFormSurface"]',
@@ -689,7 +686,7 @@ describe("Work case detail and clusters", () => {
 			items: { data: [], nextCursor: null },
 			dependencies: { data: [], nextCursor: null },
 		};
-		const page = await mount(<pages.WorkCasePage caseId="case-1" />);
+		const page = await mount(<WorkCasePage caseId="case-1" />);
 		await page.type("Work Item id", "not-a-uuid");
 		await page.submit("Attach Work Item");
 		expect(page.host.textContent).toContain(
@@ -710,7 +707,7 @@ describe("Work case detail and clusters", () => {
 
 	it("uses a schema-backed form for execution cluster lookup", async () => {
 		viewport(false);
-		const page = await mount(<pages.WorkClustersPage />);
+		const page = await mount(<WorkClustersPage />);
 		expect(page.host.querySelectorAll("form")).toHaveLength(0);
 		await page.submit("Advanced: tedi UUID");
 		await page.type("Executor tedi id", "not-a-uuid");
@@ -744,9 +741,7 @@ describe("Proposal decision cards", () => {
 				canCancel: false,
 				responses: { data: [], hasMore: false, nextCursor: null },
 			};
-			const page = await mount(
-				<pages.WorkInteractionPage requestId="proposal-1" />,
-			);
+			const page = await mount(<WorkInteractionPage requestId="proposal-1" />);
 			expect(page.host.querySelector("input,textarea")).toBeNull();
 			await page.submit(label);
 			expect(mutations("workInteractions.respond")).toEqual([
@@ -789,7 +784,7 @@ describe("Lane outcome cards", () => {
 				responses: { data: [], hasMore: false, nextCursor: null },
 			};
 			const page = await mount(
-				<pages.WorkInteractionPage requestId="lane-question" />,
+				<WorkInteractionPage requestId="lane-question" />,
 			);
 			expect(page.host.querySelector("input,textarea")).toBeNull();
 			await page.submit(label);

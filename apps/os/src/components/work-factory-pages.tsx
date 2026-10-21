@@ -107,7 +107,7 @@ import {
 	PageControls,
 	useCursorPaging,
 	useWorkPrincipalNames,
-} from "./work-operations-pages";
+} from "./work-operations-shared";
 
 const WORK_LIST_LIMIT = 100;
 const PROJECTION_FAILURE_FALLBACK =

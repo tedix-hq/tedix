@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkInteractionPage } from "@/components/work-operations-pages";
+import { WorkInteractionPage } from "@/components/work-interactions-pages";
 import { ListPending } from "@/routes/-pending";
 
 export const Route = createFileRoute(
