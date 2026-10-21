@@ -98,6 +98,34 @@ describe("detectSideEffectClaim", () => {
 });
 
 describe("isPotentiallyMutatingCall", () => {
+	it.each([
+		'async () => { await discover.search("tools"); return work[method]({}); }',
+		'async () => { await discover.search("tools"); return work[methods[index]]({}); }',
+		'async () => { await discover.search("tools"); return work["create"]({}); }',
+		'async () => { const w = work; await discover.search("tools"); return w.create({}); }',
+		"async () => { const discover = work; return discover.search({}); }",
+		"async () => { await codemode.search({}); return work?.[method]?.({}); }",
+		"async () => { await discover.search({}); return `${work[method]({})}`; }",
+	])("treats computed and aliased writes as mutating: %s", (codeArgument) => {
+		expect(isPotentiallyMutatingCall({ name: "code", codeArgument })).toBe(
+			true,
+		);
+	});
+
+	it.each([
+		'async () => discover["search"]({})',
+		"async () => discover['search']({})",
+		'async () => { const text = "work[method](); const w = work; w.create()"; return discover.search({}); }',
+		"async () => { const text = `work[method]()`; return discover.search({}); }",
+		"async () => { /* work[method](); const w = work; w.create() */ return discover.search({}); }",
+		"async () => { // work[method](); const w = work; w.create()\n return discover.search({}); }",
+		"async () => { Math[method](1); return discover.search({}); }",
+	])("keeps literal discovery and inert text read-only: %s", (codeArgument) => {
+		expect(isPotentiallyMutatingCall({ name: "code", codeArgument })).toBe(
+			false,
+		);
+	});
+
 	it("classifies read-prefixed tools as non-mutating", () => {
 		for (const name of [
 			"list_skills",

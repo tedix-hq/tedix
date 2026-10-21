@@ -36,11 +36,16 @@ const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
  * The program with comments and string literals blanked out, plus the values
  * of its plain string literals. Template literals are blanked whole.
  */
-function maskCodeModeLiterals(code: string): {
+function maskCodeModeLiterals(
+	code: string,
+	preserveQuotes = false,
+): {
 	masked: string;
 	strings: string[];
+	dynamicTemplate: boolean;
 } {
 	let masked = "";
+	let dynamicTemplate = false;
 	const strings: string[] = [];
 	let index = 0;
 	while (index < code.length) {
@@ -70,14 +75,51 @@ function maskCodeModeLiterals(code: string): {
 			}
 			if (char !== "`") strings.push(value);
 			const stop = Math.min(cursor + 1, code.length);
-			masked += " ".repeat(stop - index);
+			if (char === "`" && value.includes("${")) dynamicTemplate = true;
+			masked += preserveQuotes
+				? char + " ".repeat(Math.max(0, stop - index - 2)) + char
+				: " ".repeat(stop - index);
 			index = stop;
 			continue;
 		}
 		masked += char;
 		index++;
 	}
-	return { masked, strings };
+	return { masked, strings, dynamicTemplate };
+}
+
+/** Dynamic calls and namespace aliases cannot safely bound catalog hydration. */
+function hasOpaqueNamespaceCalls(
+	code: string,
+	builtins: ReadonlySet<string>,
+): boolean {
+	const aliases = new Set<string>();
+	for (const match of code.matchAll(
+		/(?<![\w$.])([A-Za-z_$][\w$]*)\s*=(?!=)\s*\(*\s*([A-Za-z_$][\w$]*)\s*\)*\s*(?=[;,)\n}]|$)/g,
+	)) {
+		if (!builtins.has(match[2]!)) aliases.add(match[1]!);
+	}
+	for (const match of code.matchAll(
+		/(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?:\?\.\s*)?(\[|\.|\()/g,
+	)) {
+		const name = match[1]!;
+		if (aliases.has(name)) return true;
+		if (builtins.has(name) || match[2] !== "[") continue;
+		const start = match.index + match[0].length;
+		let depth = 1;
+		let end = start;
+		for (; end < code.length && depth > 0; end++) {
+			if (code[end] === "[") depth++;
+			else if (code[end] === "]") depth--;
+		}
+		if (depth !== 0) return true;
+		if (
+			/^\s*(?:\?\.\s*)?\(/.test(code.slice(end)) &&
+			!/^\s*(?:"[^"]*"|'[^']*')\s*$/.test(code.slice(start, end - 1))
+		)
+			return true;
+	}
+	return false;
 }
 
 /**
@@ -143,10 +185,13 @@ function referencedCodeModeNamespaces(code: string): Set<string> {
  * Namespaces named by the program's `discover` calls, or null when any call
  * cannot be bounded statically. A program without discovery yields an empty set.
  */
-function literalDiscoveryNamespaces(code: string): Set<string> | null {
+function literalDiscoveryNamespaces(
+	code: string,
+	masked: string,
+): Set<string> | null {
 	const namespaces = new Set<string>();
 	const callStart = /\bdiscover\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/g;
-	let match = callStart.exec(code);
+	let match = callStart.exec(masked);
 	while (match !== null) {
 		const method = match[1];
 		const argument = balancedArgument(code, callStart.lastIndex);
@@ -182,13 +227,13 @@ function literalDiscoveryNamespaces(code: string): Set<string> | null {
 		} else {
 			return null;
 		}
-		match = callStart.exec(code);
+		match = callStart.exec(masked);
 	}
 	// A `discover` reference that is not a call (aliasing, passing it around)
 	// cannot be bounded.
-	const references = code.match(/\bdiscover\b/g)?.length ?? 0;
+	const references = masked.match(/\bdiscover\b/g)?.length ?? 0;
 	const calls =
-		code.match(/\bdiscover\s*\.\s*[A-Za-z_$][\w$]*\s*\(/g)?.length ?? 0;
+		masked.match(/\bdiscover\s*\.\s*[A-Za-z_$][\w$]*\s*\(/g)?.length ?? 0;
 	return references === calls ? namespaces : null;
 }
 
@@ -220,18 +265,24 @@ export function extractCodeModeProviderNamespacesFromCode(
 	// organization (13k+ tools) and can exhaust the Worker CPU limit. Anything
 	// else — dynamic arguments, list_namespaces, a namespace-less search — keeps
 	// the full catalog. This changes loading, never selection or dispatch gates.
-	const discoveryNamespaces = literalDiscoveryNamespaces(code);
+	const { masked, dynamicTemplate } = maskCodeModeLiterals(code, true);
+	if (
+		dynamicTemplate ||
+		hasOpaqueNamespaceCalls(masked, CODEMODE_BUILTIN_GLOBALS)
+	)
+		return null;
+	const discoveryNamespaces = literalDiscoveryNamespaces(code, masked);
 	if (discoveryNamespaces === null) return null;
 	const namespaces = new Set<string>();
 	const callPattern =
 		/(?:^|[^A-Za-z0-9_$])([A-Za-z_$][\w$]*)\s*(?:\.\s*[A-Za-z_$][\w$]*|\[\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*\])\s*\(/g;
-	let match = callPattern.exec(code);
+	let match = callPattern.exec(masked);
 	while (match !== null) {
 		const namespace = match[1];
 		if (namespace && !CODEMODE_BUILTIN_GLOBALS.has(namespace)) {
 			namespaces.add(namespace);
 		}
-		match = callPattern.exec(code);
+		match = callPattern.exec(masked);
 	}
 	for (const namespace of referencedCodeModeNamespaces(code)) {
 		namespaces.add(namespace);
