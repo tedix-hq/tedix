@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
-import { createPageToolSet, pageToolModelOutput } from "./page-tool-broker";
+import { pageToolModelOutput } from "@tedix/chat-transport/page-tools";
+import { createPageToolSet } from "./page-tool-broker";
 
 let ids = 0;
 const nextId = () => `call-${String(++ids).padStart(8, "0")}`;

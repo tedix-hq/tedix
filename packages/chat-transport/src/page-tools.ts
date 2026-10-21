@@ -9,6 +9,7 @@
  * Nothing here grants a server privilege. Descriptors and results are
  * untrusted page data, bounded in count and size at every hop.
  */
+import { wrapUntrustedInput } from "./untrusted-input";
 
 export const PAGE_TOOL_LIMITS = {
 	/** Tools one turn may offer. */
@@ -137,6 +138,19 @@ export function normalizePageToolResult(value: unknown): PageToolResult {
 	return input.ok === true
 		? { ok: true, content }
 		: { ok: false, content: content || "The page tool failed." };
+}
+
+/**
+ * What the model reads back from a page tool: an outcome plus the page text
+ * fenced as untrusted data. Every model path that relays page tools (tedi
+ * widget turns, Home turns) returns exactly this.
+ */
+export function pageToolModelOutput(result: PageToolResult) {
+	return {
+		ok: result.ok,
+		source: "host_page",
+		result: wrapUntrustedInput(result.content, "page_tool"),
+	};
 }
 
 export function readPageToolCall(

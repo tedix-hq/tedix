@@ -1,4 +1,4 @@
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 /** Read-only operator inspection for the legacy per-tedi profile. Canonical
  * projection and recall are owned by apps/api. */

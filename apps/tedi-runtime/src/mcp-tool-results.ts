@@ -1,5 +1,5 @@
 import type { DurableCodeWorkspace } from "./durable-codemode";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 const INDEX_PATH = ".tedix/mcp-results/index.json";
 const RESULT_DIR = ".tedix/mcp-results";

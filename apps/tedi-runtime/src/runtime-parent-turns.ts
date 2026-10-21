@@ -114,7 +114,7 @@ import {
 	type TelegramChannelLike,
 } from "./telegram-config";
 import { FINAL_STEP_STOP_RULE } from "./turn-model-selection";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { type WorkflowDispatchContext } from "./workflow-start-watchdog";
 import {
 	composeSystemPrompt,

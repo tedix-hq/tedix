@@ -17,6 +17,7 @@
 		"./runtime-frames": "./src/runtime-frames.ts",
 		"./page-tools": "./src/page-tools.ts",
 		"./page-tool-broker": "./src/page-tool-broker.ts",
+		"./untrusted-input": "./src/untrusted-input.ts",
 		"./markdown": "./src/markdown.ts",
 		"./transcript-reducer": "./src/transcript-reducer.ts",
 		"./client-turn-milestones": "./src/client-turn-milestones.ts",

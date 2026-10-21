@@ -127,7 +127,7 @@ import { inspectExistingPiFacet } from "./pi-recovery-diagnostic";
 import { RuntimeConfigCache } from "./runtime-config-cache";
 import { RuntimeEventOutbox } from "./runtime-event-outbox";
 import { repositoryModeForMetadata } from "./runtime-tool-guidance";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { capabilityPlanForMetadata } from "./delegation-capabilities";
 import { delegationBudgetForMetadata } from "./delegation-budget";
 import { terminateWorkflow } from "./workflow-cancellation";

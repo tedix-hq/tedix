@@ -17,8 +17,8 @@ import type { PageChatToolExtras } from "@/lib/page-chat-tools";
  * WebMCP tools for the Decision Deck. Reads return the card on screen. Every
  * write names that card's id, acts through the same controls as the card's
  * buttons so the person watches it happen, and refuses any other card. Only
- * `respond_decision_card` saves a decision, and only after the option was
- * prepared on screen and the person explicitly asked to submit it.
+ * `respond_decision_card` submits a chosen option, and only after the option
+ * was prepared on screen and the person explicitly asked to submit it.
  */
 export interface DecisionDeckController {
 	mode: string;
@@ -354,8 +354,9 @@ export function buildDecisionDeckWebMcpTools(
 /**
  * What the quick chat adds to the Deck tools when it runs them for the
  * person: plain activity wording, Undo where the card can put itself back,
- * and an inline confirm in the chat before `respond_decision_card` submits,
- * even when the model says the person already agreed.
+ * and an inline confirm in the chat before any tool that saves a change
+ * (submit, Later, Not useful) runs, even when the model says the person
+ * already agreed.
  */
 export function buildDecisionDeckPageChatExtras(
 	current: () => DecisionDeckController,
@@ -396,9 +397,14 @@ export function buildDecisionDeckPageChatExtras(
 				};
 			},
 		},
-		set_decision_card_later: { describe: () => "put the card aside for later" },
-		// The Deck shows its own Undo for this one.
+		// Later and Not useful save a change, so the person confirms them in
+		// the chat like a submit. The Deck shows its own Undo for Not useful.
+		set_decision_card_later: {
+			confirm: true,
+			describe: () => "put the card aside for later",
+		},
 		set_decision_card_not_useful: {
+			confirm: true,
 			describe: () => "marked the card not useful",
 		},
 		respond_decision_card: {

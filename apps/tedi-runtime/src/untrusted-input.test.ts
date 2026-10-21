@@ -15,7 +15,10 @@
 
 import assert from "node:assert/strict";
 import { facetWorkflowTurnProbe, tediDo } from "../test/tedi-do";
-import { neutralizeFenceMarkers, wrapUntrustedInput } from "./untrusted-input";
+import {
+	neutralizeFenceMarkers,
+	wrapUntrustedInput,
+} from "@tedix/chat-transport/untrusted-input";
 
 /** Fence markers left in the OUTPUT, ignoring the two the wrapper itself emits. */
 function interiorOf(wrapped: string, source: string): string {

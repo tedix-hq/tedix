@@ -1,7 +1,7 @@
 import { tool, type ToolSet } from "ai";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 export const BROWSER_INLINE_CHARS = 50_000;
 const RESULT_DIRECTORY = "/workspace/browser-results";

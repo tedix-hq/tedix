@@ -45,7 +45,7 @@ import {
 	withCognitiveCronDefaults,
 	writeConversationalSchedule,
 } from "./cron";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 // resolveCronSessionKey ------------------------------------------------------
 assert.equal(

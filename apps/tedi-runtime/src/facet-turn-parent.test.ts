@@ -19,7 +19,7 @@ import {
 	tediDo,
 } from "../test/tedi-do";
 import * as runtimeWorker from "./index";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 const IMAGE = { type: "image", mediaType: "image/png", data: "aGk=" };
 

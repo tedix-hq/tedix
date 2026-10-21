@@ -1,6 +1,6 @@
 import type { TurnMemory } from "@tedix/api-contract/schemas/turn-memory";
 import { memorySourceReferences } from "@tedix/context-core/memory-freshness";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 /** Canonical refresh is awaited independently of the optional semantic recall budget. */
 export async function refreshTurnMemory(input: {

@@ -20,7 +20,7 @@ import {
 	selectChatModelForTurn,
 	selectJudgeModelForTurn,
 } from "./turn-model-selection";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 const JUDGE_IDENTITY = { provider: "azure-openai", model: "judge-model" };
 

@@ -8,7 +8,7 @@
 
 import type { MemorySearchResult } from "./brain/platform-client";
 import { logTediSourceFailure } from "./context-failure-log";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 export const MEMORY_RECALL_BUDGET_MS = 800;
 const MEMORY_RECALL_LIMIT = 6;
