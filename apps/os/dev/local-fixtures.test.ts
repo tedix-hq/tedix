@@ -414,6 +414,7 @@ const CALLS: Record<string, unknown> = {
 		workspaceId: IDS.workspaceRevenue,
 		resourceId: "00000034-0000-4000-8000-000000000002",
 	},
+	"osWorkspaces/gadgets/installWorkDefaults": {},
 	"osWorkspaces/gadgets/workApps": { limit: 100 },
 	"osWorkspaces/gadgets/list": { workspaceId: IDS.workspaceRevenue, limit: 50 },
 	"osWorkspaces/gadgets/create": {
@@ -1213,6 +1214,82 @@ describe("fixture bootstrap parity", () => {
 		).toBe(409);
 	});
 
+	it("installs Feed and Deck once and exposes renderable Work apps", async () => {
+		const key = "osWorkspaces/gadgets/installWorkDefaults";
+		const before = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 });
+		expect(before).toMatchObject({ items: [{ gadget: { name: "Projects" } }] });
+		const installed = callLocalOk(key, {}) as { workspaceId: string };
+		await expectParsesAgainstContract(key, installed);
+		const apps = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 });
+		await expectParsesAgainstContract("osWorkspaces/gadgets/workApps", apps);
+		expect(apps).toMatchObject({
+			items: expect.arrayContaining([
+				expect.objectContaining({
+					gadget: expect.objectContaining({
+						name: "Feed",
+						workspaceId: installed.workspaceId,
+					}),
+					currentRevision: expect.objectContaining({
+						manifest: expect.objectContaining({
+							entry: "tedix:app/activity-feed",
+							navigation: expect.objectContaining({ work: "feed" }),
+						}),
+					}),
+				}),
+				expect.objectContaining({
+					gadget: expect.objectContaining({
+						name: "Deck",
+						workspaceId: installed.workspaceId,
+					}),
+					currentRevision: expect.objectContaining({
+						manifest: expect.objectContaining({
+							entry: "tedix:app/decision-deck",
+							navigation: expect.objectContaining({
+								work: "deck",
+								workDefault: true,
+							}),
+						}),
+					}),
+				}),
+			]),
+		});
+		expect(callLocalOk(key, {})).toEqual(installed);
+		expect(
+			callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 }),
+		).toEqual(apps);
+		const listed = callLocalOk("osWorkspaces/gadgets/list", {
+			workspaceId: installed.workspaceId,
+			limit: 100,
+		});
+		await expectParsesAgainstContract("osWorkspaces/gadgets/list", listed);
+	});
+
+	it("adds only the missing role when a default app is already installed", () => {
+		const key = "osWorkspaces/gadgets/installWorkDefaults";
+		const installed = callLocalOk(key, {}) as { workspaceId: string };
+		const apps = callLocalOk("osWorkspaces/gadgets/workApps", {
+			limit: 100,
+		}) as {
+			items: { gadget: { id: string; name: string } }[];
+		};
+		const deck = apps.items.find((app) => app.gadget.name === "Deck")!.gadget;
+		callLocalOk("osWorkspaces/gadgets/archive", {
+			workspaceId: installed.workspaceId,
+			gadgetId: deck.id,
+		});
+		expect(callLocalOk(key, {})).toEqual(installed);
+		const repaired = callLocalOk("osWorkspaces/gadgets/workApps", {
+			limit: 100,
+		}) as typeof apps;
+		expect(repaired.items).toHaveLength(3);
+		expect(repaired.items.filter((app) => app.gadget.name === "Feed")).toEqual(
+			apps.items.filter((app) => app.gadget.name === "Feed"),
+		);
+		expect(
+			repaired.items.find((app) => app.gadget.name === "Deck")!.gadget.id,
+		).not.toBe(deck.id);
+	});
+
 	it("exposes Projects through the generic installed Work apps", async () => {
 		const apps = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 });
 		await expectParsesAgainstContract("osWorkspaces/gadgets/workApps", apps);
@@ -1251,6 +1328,13 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 			}[];
 		};
 		await expectParsesAgainstContract("osWorkspaces/gadgets/workApps", apps);
+		const installed = read("osWorkspaces/gadgets/installWorkDefaults");
+		await expectParsesAgainstContract(
+			"osWorkspaces/gadgets/installWorkDefaults",
+			installed,
+		);
+		expect(read("osWorkspaces/gadgets/installWorkDefaults")).toEqual(installed);
+		expect(read("osWorkspaces/gadgets/workApps", { limit: 100 })).toEqual(apps);
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
 			"Deck",
 			"Feed",
