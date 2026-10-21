@@ -52,24 +52,32 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 						if (title.trim() && !save.isPending) save.mutate();
 					}}
 				>
-					<Label htmlFor={`work-title-${item.id}`}>Title</Label>
+					<Label htmlFor={`work-title-${item.id}`}>
+						<span id={`work-title-label-${item.id}`}>Title</span>
+					</Label>
 					<Input
 						id={`work-title-${item.id}`}
+						aria-labelledby={`work-title-label-${item.id}`}
 						value={title}
 						onChange={(event) => setTitle(event.target.value)}
 						maxLength={500}
 						required
 						disabled={save.isPending}
 					/>
-					<Label htmlFor={`work-description-${item.id}`}>Description</Label>
+					<Label htmlFor={`work-description-${item.id}`}>
+						<span id={`work-description-label-${item.id}`}>Description</span>
+					</Label>
 					<Textarea
 						id={`work-description-${item.id}`}
+						aria-labelledby={`work-description-label-${item.id}`}
 						value={description}
 						onChange={(event) => setDescription(event.target.value)}
 						maxLength={10000}
 						disabled={save.isPending}
 					/>
-					<Label htmlFor={`work-priority-${item.id}`}>Priority</Label>
+					<Label htmlFor={`work-priority-${item.id}`}>
+						<span id={`work-priority-label-${item.id}`}>Priority</span>
+					</Label>
 					<Select
 						value={priority}
 						onValueChange={(value) => {
@@ -77,7 +85,10 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 						}}
 						disabled={save.isPending}
 					>
-						<SelectTrigger id={`work-priority-${item.id}`}>
+						<SelectTrigger
+							id={`work-priority-${item.id}`}
+							aria-labelledby={`work-priority-label-${item.id}`}
+						>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
