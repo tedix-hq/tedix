@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createAnswerStream } from "./answer-stream";
-import type { HomeRunEvent } from "./home-client";
+import type { HomeRunEvent } from "./home-payload";
 
 function delta(
 	sequence: number,

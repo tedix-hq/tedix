@@ -9,11 +9,8 @@ import {
 	interactiveSlashCommands,
 	reportSendResult,
 } from "./commands";
-import type {
-	HomeRunEventsPage,
-	HomeRunSummary,
-	TedixHomeClient,
-} from "./home-client";
+import type { HomeRunEventsPage, HomeRunSummary } from "./home-payload";
+import type { TedixHomeClient } from "./home-client";
 
 const noopOps: HomeOps = {
 	childEvidence: async () => ({}),

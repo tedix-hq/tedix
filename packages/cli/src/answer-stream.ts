@@ -20,8 +20,8 @@
  *     continuation of the pre-crash partial.
  */
 
-import type { HomeRunEvent } from "./home-client";
-import { stringValue } from "./home-client";
+import type { HomeRunEvent } from "./home-payload";
+import { stringValue } from "./home-payload";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 export interface AnswerStreamSnapshot {

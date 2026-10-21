@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { resolveCommitFlag } from "./local-context";
 import { dim, errorText, green } from "./format";
-import { isRateLimitError, rateLimitRetryAfterMs } from "./home-client";
+import { isRateLimitError, rateLimitRetryAfterMs } from "./home-rate-limit";
 import {
 	cleanupAttemptWorktrees,
 	provisionAttemptWorktree,

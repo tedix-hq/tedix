@@ -26,13 +26,12 @@ import {
 } from "./composer";
 import { dim, errorText, printUnknownPayload } from "./format";
 import type { ColorMode } from "./terminal";
+import { DEFAULT_TEDIX_MCP_URL, type TedixHomeClient } from "./home-client";
 import {
-	DEFAULT_TEDIX_MCP_URL,
 	type HomeRunSummary,
 	isSettledHomeStatus,
 	summarizeHomePayload,
-	type TedixHomeClient,
-} from "./home-client";
+} from "./home-payload";
 import { InFlightRegistry } from "./inflight";
 import { printInFlightRunSnapshot, runInteractiveInk } from "./interactive-ink";
 import { classifyInterrupt } from "./interrupt";

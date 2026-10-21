@@ -4,21 +4,24 @@ import { preDispatchUnavailableToolResult } from "@tedix/mcp-shared/tool-result"
 import { normalizeCodeResult } from "./code-result";
 import {
 	createCliRequestTrace,
+	type McpClientLike,
+	TedixHomeClient,
+} from "./home-client";
+import {
 	delegatedChildStopFromPayload,
 	isPendingHomeApproval,
-	isRateLimitError,
 	isSettledHomeStatus,
 	latestRunFromSet,
-	type McpClientLike,
 	parseHomeRunEventsPage,
-	rateLimitRetryAfterMs,
-	resolveCliDestructiveElicitation,
-	resolveCliTaskInputResponses,
 	summarizeHomePayload,
-	TedixHomeClient,
 	isExpiredSessionError,
 	unwrapToolResult,
-} from "./home-client";
+} from "./home-payload";
+import { isRateLimitError, rateLimitRetryAfterMs } from "./home-rate-limit";
+import {
+	resolveCliDestructiveElicitation,
+	resolveCliTaskInputResponses,
+} from "./home-elicitation";
 
 const TASK_TIME = "2026-08-30T00:00:00.000Z";
 const taskBase = (taskId: string) => ({

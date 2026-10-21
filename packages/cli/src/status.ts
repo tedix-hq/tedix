@@ -4,7 +4,7 @@ import {
 	isPendingHomeApproval,
 	stringValue,
 	summarizeHomePayload,
-} from "./home-client";
+} from "./home-payload";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { normalizeCodeResult } from "./code-result";
 

@@ -24,11 +24,8 @@ import {
 	machineHelp,
 	topLevelHelp,
 } from "./command-registry";
-import {
-	DEFAULT_TEDIX_MCP_URL,
-	type HomeRunSummary,
-	type TedixHomeClient,
-} from "./home-client";
+import { DEFAULT_TEDIX_MCP_URL, type TedixHomeClient } from "./home-client";
+import { type HomeRunSummary } from "./home-payload";
 import {
 	localCommandArgs,
 	parseSlashPrompt,

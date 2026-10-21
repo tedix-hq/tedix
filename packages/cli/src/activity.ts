@@ -8,8 +8,8 @@ import {
 	statusColor,
 	yellow,
 } from "./format";
-import type { HomeRunEvent, HomeRunSummary } from "./home-client";
-import { stringValue } from "./home-client";
+import type { HomeRunEvent, HomeRunSummary } from "./home-payload";
+import { stringValue } from "./home-payload";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { PromoteRegion } from "./promote-stream";
 import { type ColorMode, stripControlChars } from "./terminal";

@@ -4,9 +4,9 @@ import {
 	type HomeRunEvent,
 	type HomeRunEventsPage,
 	isSettledHomeStatus,
-	type ReadHomeRunEventsInput,
 	settledStatusFromTerminal,
-} from "./home-client";
+} from "./home-payload";
+import { type ReadHomeRunEventsInput } from "./home-client";
 
 // ---------------------------------------------------------------------------
 // Source interface (structural, unit-testable with fakes)
