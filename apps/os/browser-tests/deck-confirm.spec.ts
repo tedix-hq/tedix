@@ -147,6 +147,30 @@ async function shot(page: Page, name: string) {
 	if (shots) await page.screenshot({ path: `${shots}/${name}.png` });
 }
 
+async function settleToast(page: Page, title: string) {
+	await page.waitForFunction(
+		(text) => {
+			const toast = [
+				...document.querySelectorAll<HTMLElement>(
+					"[data-os-toast-outlet] [role=dialog]",
+				),
+			].find((element) => element.innerText.includes(text));
+			if (!toast || toast.hasAttribute("data-starting-style")) return false;
+			return [
+				...document.querySelectorAll<HTMLElement>(
+					"[data-os-toast-outlet], [role=alertdialog]",
+				),
+			].every((element) =>
+				element
+					.getAnimations({ subtree: true })
+					.every((animation) => animation.playState !== "running"),
+			);
+		},
+		title,
+		{ timeout: 10_000 },
+	);
+}
+
 let browser: Browser | undefined;
 try {
 	for (let attempt = 0; ; attempt++) {
@@ -178,10 +202,12 @@ try {
 			.first()
 			.tap();
 		await page.getByRole("alertdialog").waitFor();
-		const above = await page.evaluate(async () => {
+		await page.evaluate(async () => {
 			const { toast } = await import("/src/components/kumo/toast.tsx");
 			toast.message("Layer check");
-			await new Promise((resolve) => setTimeout(resolve, 400));
+		});
+		await settleToast(page, "Layer check");
+		const above = await page.evaluate(() => {
 			const node = [
 				...document.querySelectorAll<HTMLElement>(
 					"[data-os-toast-outlet] [role=dialog]",
@@ -301,6 +327,7 @@ try {
 				.locator("[data-os-toast-outlet] [role=dialog]")
 				.filter({ hasText: "Decision saved" });
 			await toast.waitFor();
+			await settleToast(page, "Decision saved");
 			const visible = await toast.evaluate((node) => {
 				const box = node.getBoundingClientRect();
 				const hit = document.elementFromPoint(
