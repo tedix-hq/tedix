@@ -89,7 +89,8 @@ import {
 } from "./delegation-preflight";
 import { runWithDelegationDeadline } from "./delegation-budget";
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
-import type { ActiveTurnBinding, AgentTediDO } from "./do";
+import type { AgentTediDO } from "./do";
+import type { ActiveTurnBinding } from "./runtime-state";
 import { type DurableCodePause } from "./durable-codemode-lifecycle";
 import {
 	findDanglingUserTurnAgeMs,

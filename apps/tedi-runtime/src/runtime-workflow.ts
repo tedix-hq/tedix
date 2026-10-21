@@ -27,7 +27,8 @@ import {
 	type FacetWorkflowTurnInput,
 	reconcileWorkflowOnce,
 } from "./delegated-work-lease";
-import type { AgentTediDO, State } from "./do";
+import type { AgentTediDO } from "./do";
+import type { State } from "./runtime-state";
 import { type RecoverableCodemodeRuntimeHandle } from "./durable-codemode-recovery";
 import { isTransientWorkflowRedriveError } from "./durable-object-recovery";
 import { DoInferenceBudgetStore } from "./inference-budget-store-do";
