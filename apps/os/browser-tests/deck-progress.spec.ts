@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
@@ -22,7 +23,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const uuid = (n: number) =>
 	`10000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -246,12 +247,7 @@ async function fixture(
 const screenshots = process.env.DECK_PROGRESS_SCREENSHOTS;
 let browser: Browser | undefined;
 try {
-	for (let i = 0; i < 100; i++) {
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
+	await waitForFixtureServer(origin, { server });
 	browser = await chromium.launch();
 	for (const width of [1280, 390])
 		for (const colorScheme of ["light", "dark"] as const) {

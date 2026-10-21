@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 /**
  * A page-connected browser agent sees the Decision Deck's WebMCP tools and
  * drives the card on screen through the card's own controls: it fills,
@@ -31,7 +32,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 
 type CallResult = { ok: true; value: unknown } | { ok: false; error: string };
@@ -62,17 +63,7 @@ function call(page: Page, name: string, args: Record<string, unknown>) {
 
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/browser-tests/deck.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(250);
-	}
-	assert(ready, "Vite serves the deck fixture");
+	await waitForFixtureServer(`${origin}/browser-tests/deck.html`, { server });
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage({
 		viewport: { width: 1280, height: 800 },

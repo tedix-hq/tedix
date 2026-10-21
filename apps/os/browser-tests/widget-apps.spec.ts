@@ -1,21 +1,9 @@
 import { chromium, type Browser, type Page } from "playwright";
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 
 const cwd = new URL("../", import.meta.url).pathname;
 const port = process.env.TEDIX_BROWSER_TEST_PORT || "3010";
 const origin = `http://127.0.0.1:${port}`;
-
-async function waitForServer(proc: Bun.Subprocess) {
-	for (let attempt = 0; attempt < 80; attempt += 1) {
-		if (proc.exitCode !== null)
-			throw new Error(`OS dev server exited: ${proc.exitCode}`);
-		try {
-			const response = await fetch(`${origin}/browser-tests/widget-apps.html`);
-			if (response.ok) return;
-		} catch {}
-		await Bun.sleep(250);
-	}
-	throw new Error("Timed out waiting for the OS Vite browser-test server.");
-}
 
 async function expectEvent(page: Page, event: string) {
 	await page.waitForFunction(
@@ -50,14 +38,16 @@ async function run() {
 		],
 		{
 			cwd,
-			stdout: "ignore",
+			stdout: "inherit",
 			stderr: "inherit",
 			env: { ...process.env, TEDIX_BUILD_LOCAL_DEMO_ENABLED: "false" },
 		},
 	);
 	let browser: Browser | undefined;
 	try {
-		await waitForServer(server);
+		await waitForFixtureServer(`${origin}/browser-tests/widget-apps.html`, {
+			server,
+		});
 		browser = await chromium.launch({ headless: true }).catch((error) => {
 			throw new Error(
 				`${error}\nInstall Chromium: cd apps/os && bunx playwright install --with-deps chromium`,

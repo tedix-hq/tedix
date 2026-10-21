@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -26,7 +27,7 @@ const server = process.env.SOCIAL_CARDS_ORIGIN
 				"--host",
 				"127.0.0.1",
 			],
-			{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+			{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 		);
 async function rpc(path: string, input: unknown) {
 	const response = await fetch(`${origin}/api/rpc/${path}`, {
@@ -39,12 +40,7 @@ async function rpc(path: string, input: unknown) {
 }
 const browser = await chromium.launch({ headless: true });
 try {
-	for (let i = 0; i < 100; i++) {
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
+	await waitForFixtureServer(origin, { server });
 	const { items: spaces } = await rpc("osWorkspaces/workspaces/list", {
 		status: "active",
 		limit: 100,

@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import {
@@ -32,7 +33,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 type Case = {
 	engine: string;
@@ -93,17 +94,9 @@ const finish = async (page: Page, c: Case) => {
 	assert(overflow <= 0, `${label(c)} no horizontal overflow`);
 };
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/browser-tests/dialogs.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(250);
-	}
-	assert(ready, "Vite must serve the real CSS browser fixture");
+	await waitForFixtureServer(`${origin}/browser-tests/dialogs.html`, {
+		server,
+	});
 	const settled = (page: Page) =>
 		page.waitForFunction(() =>
 			document.getAnimations().every((a) => a.playState !== "running"),

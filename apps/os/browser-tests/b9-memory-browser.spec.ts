@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { webkit, type Browser, type Locator, type Page } from "playwright";
@@ -32,7 +33,7 @@ const server = Bun.spawn(
 	],
 	{
 		cwd,
-		stdout: "ignore",
+		stdout: "inherit",
 		stderr: "inherit",
 		detached: true,
 		env: { ...process.env, VITE_LIVE_API: "0" },
@@ -278,17 +279,7 @@ async function fixture(page: Page, receipt: Receipt) {
 }
 
 try {
-	let ready = false;
-	for (let i = 0; i < 150; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Owned fixture server exited early (${server.exitCode})`);
-		try {
-			ready = (await fetch(origin)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	assert(ready, "Owned fixture server did not start");
+	await waitForFixtureServer(origin, { server });
 	browser = await webkit.launch({ headless: true });
 	for (const viewport of [
 		{ width: 375, height: 667 },

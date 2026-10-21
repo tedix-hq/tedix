@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser, type Page } from "playwright";
 
 type Finding = {
@@ -43,7 +44,7 @@ const server = process.env.FOCUS_CLIP_TEST_ORIGIN
 				"--host",
 				"127.0.0.1",
 			],
-			{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+			{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 		);
 
 const SEEDS = [
@@ -414,13 +415,7 @@ async function settle(page: Page) {
 let browser: Browser | undefined;
 const findings: Finding[] = [];
 try {
-	for (let i = 0; i < 150; i++) {
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		if (i === 149) throw new Error("Fixture server did not start");
-		await Bun.sleep(200);
-	}
+	await waitForFixtureServer(origin, { server });
 	browser = await chromium.launch({ headless: true });
 
 	// Discover one URL per route pattern from the seeds and the links they render.

@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { webkit, type Browser, type Page, type Locator } from "playwright";
@@ -24,7 +25,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const spaced =
 	"The export could not finish because the source image is unavailable. Check the document resources and choose Export again to retry this format.";
@@ -107,16 +108,9 @@ async function capture(page: Page, name: string) {
 }
 
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		assert.equal(server.exitCode, null, "fixture server exited early");
-		try {
-			ready = (await fetch(`${origin}/browser-tests/b9-export-phone.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	assert(ready, "fixture server did not start");
+	await waitForFixtureServer(`${origin}/browser-tests/b9-export-phone.html`, {
+		server,
+	});
 	browser = await webkit.launch({ headless: true });
 	for (const viewport of [
 		{ width: 375, height: 667 },

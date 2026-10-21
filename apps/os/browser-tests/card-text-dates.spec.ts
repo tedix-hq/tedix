@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { webkit } from "playwright";
@@ -24,17 +25,11 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const browser = await webkit.launch({ headless: true });
 try {
-	for (let i = 0; i < 100; i++) {
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		if (i === 99) throw new Error("Date fixture did not start");
-		await Bun.sleep(200);
-	}
+	await waitForFixtureServer(origin, { server });
 	const page = await browser.newPage();
 	for (const [width, height] of [
 		[375, 667],

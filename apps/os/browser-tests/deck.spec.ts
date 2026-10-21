@@ -1,4 +1,5 @@
 import { openExamples } from "./deck-controls";
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { chromium, type Browser } from "playwright";
@@ -26,21 +27,11 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/browser-tests/deck.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(250);
-	}
-	assert(ready, "Vite serves the real generic renderer and app CSS");
+	await waitForFixtureServer(`${origin}/browser-tests/deck.html`, { server });
 	browser = await chromium.launch({ headless: true });
 	for (const viewport of [
 		{ width: 1280, height: 800 },

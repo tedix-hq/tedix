@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { webkit, type Browser } from "playwright";
@@ -21,22 +22,12 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 const evidenceDir = process.env.TEDIS_EVIDENCE_DIR;
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 150; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/team`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	assert(ready, "Tedi fixture server starts");
+	await waitForFixtureServer(`${origin}/team`, { server });
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	browser = await webkit.launch();
 	for (const [width, height] of [

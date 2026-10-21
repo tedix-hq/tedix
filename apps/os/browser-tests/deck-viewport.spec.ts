@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { openExamples } from "./deck-controls";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
@@ -21,18 +22,13 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 let browser;
 try {
-	for (let attempt = 0; ; attempt++) {
-		if (attempt === 100 || server.exitCode !== null)
-			throw new Error("Deck test server unavailable");
-		try {
-			if ((await fetch(`${origin}/browser-tests/deck-viewport.html`)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
+	await waitForFixtureServer(`${origin}/browser-tests/deck-viewport.html`, {
+		server,
+	});
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
 	for (const colorScheme of ["light", "dark"] as const) {

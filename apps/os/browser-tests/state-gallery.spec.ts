@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser, type Page } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
@@ -28,7 +29,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 
 // Runs in the page, on real computed CSS, including inherited and translucent colors.
@@ -153,17 +154,9 @@ async function audit(page: Page) {
 
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(`${origin}/browser-tests/state-gallery.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(250);
-	}
-	assert(ready, "Vite serves the gallery");
+	await waitForFixtureServer(`${origin}/browser-tests/state-gallery.html`, {
+		server,
+	});
 	await mkdir(screenshots, { recursive: true });
 	browser = await chromium.launch({ headless: true });
 	for (const width of [1280, 390])

@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { openExamples } from "./deck-controls";
 import { chromium, type Browser, type Page } from "playwright";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
@@ -44,20 +45,13 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
 );
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null) throw new Error("Visual test server exited");
-		try {
-			ready = (await fetch(`${origin}/browser-tests/feed-deck-polish.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	if (!ready) throw new Error("Visual test server did not start");
+	await waitForFixtureServer(`${origin}/browser-tests/feed-deck-polish.html`, {
+		server,
+	});
 	browser = await chromium.launch({ headless: true });
 	for (const width of [1280, 390]) {
 		const page = await browser.newPage({ viewport: { width, height: 844 } });
