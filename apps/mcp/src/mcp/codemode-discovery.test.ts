@@ -42,6 +42,7 @@ describe("Code Mode discovery helpers", () => {
 		expect(normalizeDiscoverySearchInput("  find skills  ")).toEqual({
 			includeParameters: false,
 			includeOutputSchema: false,
+			includeMetadata: false,
 			limit: 25,
 			offset: 0,
 			query: "find skills",
@@ -58,11 +59,15 @@ describe("Code Mode discovery helpers", () => {
 		).toEqual({
 			includeParameters: true,
 			includeOutputSchema: false,
+			includeMetadata: false,
 			limit: 2,
 			offset: 0,
 			query: "list tools",
 			namespace: "tools",
 		});
+		expect(
+			normalizeDiscoverySearchInput({ includeMetadata: true }).includeMetadata,
+		).toBe(true);
 		expect(normalizeSearchTerms("List, tools list")).toEqual(["list", "tools"]);
 	});
 
