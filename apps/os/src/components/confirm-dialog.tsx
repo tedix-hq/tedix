@@ -19,13 +19,23 @@ interface ConfirmDialogProps {
 	description: ReactNode;
 	confirmLabel: string;
 	pendingLabel: string;
+	/** Replaces the confirm label while an error is shown. */
+	retryLabel?: string;
+	cancelLabel?: string;
 	destructive?: boolean;
 	isPending: boolean;
+	confirmDisabled?: boolean;
+	/** Shown inside the dialog: the page behind it is covered. */
 	error?: unknown;
 	onConfirm: () => void;
 	children?: ReactNode;
 }
 
+/**
+ * The one confirmation pattern: an explicit choice that stays open until the
+ * write settles, shows progress on the confirm button, and keeps a failure on
+ * screen with a retry. The caller closes it on success.
+ */
 export function ConfirmDialog({
 	open,
 	onOpenChange,
@@ -33,8 +43,11 @@ export function ConfirmDialog({
 	description,
 	confirmLabel,
 	pendingLabel,
+	retryLabel,
+	cancelLabel = "Cancel",
 	destructive = false,
 	isPending,
+	confirmDisabled = false,
 	error,
 	onConfirm,
 	children,
@@ -50,16 +63,19 @@ export function ConfirmDialog({
 					<AlertDialogDescription>{description}</AlertDialogDescription>
 				</AlertDialogHeader>
 				{children}
-				{error != null && (
-					<Alert variant="destructive">
+				{error != null && !isPending && (
+					<Alert variant="destructive" data-confirm-error>
 						<AlertDescription>{errorMessage(error)}</AlertDescription>
 					</Alert>
 				)}
 				<AlertDialogFooter>
-					<AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+					<AlertDialogCancel disabled={isPending}>
+						{cancelLabel}
+					</AlertDialogCancel>
 					<AlertDialogAction
 						variant={destructive ? "destructive" : "default"}
-						disabled={isPending}
+						loading={isPending}
+						disabled={isPending || confirmDisabled}
 						onClick={(event) => {
 							event.preventDefault();
 							// Dialog.Close closes on click regardless of preventDefault;
@@ -68,7 +84,11 @@ export function ConfirmDialog({
 							onConfirm();
 						}}
 					>
-						{isPending ? pendingLabel : confirmLabel}
+						{isPending
+							? pendingLabel
+							: error != null && retryLabel
+								? retryLabel
+								: confirmLabel}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

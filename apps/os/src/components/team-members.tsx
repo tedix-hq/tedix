@@ -32,16 +32,7 @@ import {
 } from "@phosphor-icons/react";
 import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import * as z from "zod";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/kumo/alert-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
@@ -751,50 +742,25 @@ function TeamMembersPanelBody({
 				/>
 			) : null}
 
-			<AlertDialog
+			<ConfirmDialog
 				open={Boolean(memberToRemove)}
 				onOpenChange={(open) => {
 					if (open) return;
-					if (removeMutation.isPending) return;
 					removeMutation.reset();
 					setMemberToRemove(null);
 				}}
-			>
-				<AlertDialogContent size="sm">
-					<AlertDialogHeader>
-						<AlertDialogTitle>Remove team member?</AlertDialogTitle>
-						<AlertDialogDescription>
-							{memberToRemove?.email} will lose access to this workspace. You
-							can invite them again later.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					{removeMutation.isError ? (
-						<Alert variant="destructive">
-							<AlertTitle>The member could not be removed</AlertTitle>
-							<AlertDescription>
-								{errorMessage(removeMutation.error, "The request failed.")}
-							</AlertDescription>
-						</Alert>
-					) : null}
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={removeMutation.isPending}>
-							Cancel
-						</AlertDialogCancel>
-						<AlertDialogAction
-							disabled={!memberToRemove || removeMutation.isPending}
-							onClick={(event) => {
-								// Dialog.Close closes on click regardless of preventDefault;
-								// the dialog stays open until the removal settles.
-								event.preventBaseUIHandler();
-								if (memberToRemove) removeMutation.mutate(memberToRemove);
-							}}
-							variant="destructive"
-						>
-							{removeMutation.isPending ? "Removing…" : "Remove member"}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+				title="Remove team member?"
+				description={`${memberToRemove?.email ?? ""} will lose access to this workspace. You can invite them again later.`}
+				confirmLabel="Remove member"
+				pendingLabel="Removing…"
+				destructive
+				isPending={removeMutation.isPending}
+				confirmDisabled={!memberToRemove}
+				error={removeMutation.isError ? removeMutation.error : undefined}
+				onConfirm={() => {
+					if (memberToRemove) removeMutation.mutate(memberToRemove);
+				}}
+			/>
 		</>
 	);
 }

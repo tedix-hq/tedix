@@ -110,15 +110,16 @@ function AlertDialogAction({
 	className,
 	variant = "default",
 	size = "default",
+	loading,
 	...props
 }: React.ComponentProps<typeof Drawer.Close> &
-	Pick<React.ComponentProps<typeof Button>, "variant"> & {
+	Pick<React.ComponentProps<typeof Button>, "variant" | "loading"> & {
 		size?: "default" | "xs" | "sm" | "lg";
 	}) {
 	return (
 		<Drawer.Close
 			className={className}
-			render={<Button variant={variant} size={size} />}
+			render={<Button variant={variant} size={size} loading={loading} />}
 			{...props}
 		/>
 	);

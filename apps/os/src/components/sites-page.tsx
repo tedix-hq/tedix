@@ -50,7 +50,6 @@ import {
 } from "@/components/kumo/table";
 import {
 	AlertDialog,
-	AlertDialogAction,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -58,6 +57,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/kumo/alert-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
 	Collection,
 	Page,
@@ -567,41 +567,26 @@ function CmsDomainManager({
 						</Button>
 					</form>
 				) : null}
-				<AlertDialog
+				<ConfirmDialog
 					open={removeTarget !== null}
 					onOpenChange={(open) => {
-						if (!open && !remove.isPending) setRemoveTarget(null);
+						if (!open) setRemoveTarget(null);
 					}}
-				>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>
-								Remove {removeTarget?.hostname}?
-							</AlertDialogTitle>
-							<AlertDialogDescription>
-								{removeTarget?.hostname === claim?.hostname
-									? "When removal finishes, the site's Tedix hostname becomes canonical. Update your DNS afterward."
-									: "When removal finishes, www stops redirecting. Update your DNS afterward."}
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						<AlertDialogFooter>
-							<AlertDialogCancel disabled={remove.isPending}>
-								Cancel
-							</AlertDialogCancel>
-							<AlertDialogAction
-								variant="destructive"
-								disabled={!removeTarget || remove.isPending}
-								onClick={(event) => {
-									event.preventDefault();
-									event.preventBaseUIHandler();
-									if (removeTarget) remove.mutate(removeTarget.claimId);
-								}}
-							>
-								{remove.isPending ? "Removing…" : "Remove domain"}
-							</AlertDialogAction>
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
+					title={`Remove ${removeTarget?.hostname ?? ""}?`}
+					description={
+						removeTarget?.hostname === claim?.hostname
+							? "When removal finishes, the site's Tedix hostname becomes canonical. Update your DNS afterward."
+							: "When removal finishes, www stops redirecting. Update your DNS afterward."
+					}
+					confirmLabel="Remove domain"
+					pendingLabel="Removing…"
+					destructive
+					isPending={remove.isPending}
+					confirmDisabled={!removeTarget}
+					onConfirm={() => {
+						if (removeTarget) remove.mutate(removeTarget.claimId);
+					}}
+				/>
 			</CardContent>
 		</Card>
 	);
