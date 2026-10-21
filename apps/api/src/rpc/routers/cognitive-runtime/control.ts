@@ -35,7 +35,7 @@ import {
 	runtimeApprovalResolutionStatus,
 	runtimeApprovalResolvedPayload,
 } from "@tedix/api-contract/utils/approval-policy";
-import { settleRepoCommitApprovalIfNeeded } from "../kernel/repo-commit-approval-settle";
+import { parseCodemodeExecuteWritePayload } from "@tedix/api-contract/schemas/codemode-execute-write";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	approvalAuditActor,
@@ -564,8 +564,10 @@ export const stopRunRoute = authed.stopRun
 		};
 	});
 
+// Same decision gate as tediApprovals.resolve: os:approve (or settings:manage)
+// for humans, mcp:memory.admin for machines.
 export const approveRoute = authed.approve
-	.use(AUTHZ.tedisWrite)
+	.use(AUTHZ.osApprove)
 	.handler(async ({ context, input }) => {
 		const tedi = await requireTediAccess(context, input.tediId);
 		const metadata = nonNullRecord(input.metadata) ?? {};
@@ -589,6 +591,17 @@ export const approveRoute = authed.approve
 			throw createError(
 				ErrorCodes.FORBIDDEN,
 				"Tedis cannot resolve runtime approvals",
+			);
+		}
+		// A durable Code Mode call resumes inside the tedi runtime; only the Home
+		// approval surface drives that resume. Resolving it here would strand it.
+		if (
+			parseCodemodeExecuteWritePayload(approval.payload)?.executionMode ===
+			"durable_call"
+		) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Resolve this durable execution approval through kernelRuntime.respondApproval",
 			);
 		}
 		const timeout = resolveRuntimeApprovalTimeout({
@@ -652,7 +665,12 @@ export const approveRoute = authed.approve
 				...metadata,
 			}),
 		});
-		await settleRepoCommitApprovalIfNeeded(context, {
+		// The settle hook shared with tediApprovals.resolve: executes or closes
+		// a Home write, and drains a repo commit, so no run stays parked.
+		// Loaded lazily: the settlement module's run store imports this router.
+		const { settleHomeToolWriteApproval } =
+			await import("../kernel/write-approval-settlement");
+		await settleHomeToolWriteApproval(context, {
 			approval: resolved,
 			status,
 		});

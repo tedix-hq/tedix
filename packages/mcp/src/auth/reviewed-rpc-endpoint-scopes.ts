@@ -170,7 +170,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"catalog/runOpenApiImport": "mcp:catalog.write",
 	"catalog/setScanConnection": "platform:admin",
 	"catalog/updateStoreListing": "platform:admin",
-	"cognitiveRuntime/approve": "mcp:memory.write",
+	"cognitiveRuntime/approve": "mcp:tedis.write",
 	"cognitiveRuntime/createArtifactShareLink": "mcp:memory.write",
 	"cognitiveRuntime/emitAutomationEvent": "mcp:memory.write",
 	"cognitiveRuntime/enqueueMessage": "mcp:memory.write",
