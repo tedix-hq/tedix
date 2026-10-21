@@ -47,6 +47,7 @@ import {
 	untrustedTurnToolAllowlist,
 } from "./turn-trust";
 import { wrapUntrustedInput } from "./untrusted-input";
+import { createWebSearchAiTools } from "./web-search-tool";
 export interface InboundEmailPayload {
 	tediId: string;
 	orgId: string;
@@ -471,6 +472,13 @@ export const runtimeChannels = {
 				...this.workstationAiTool(computerScope, turnBinding),
 				...this.objectStoreAiTools(),
 				...this.r2SqlAiTool(),
+				...createWebSearchAiTools({
+					ai: this.env.AI,
+					organizationWebSearch: this.state.organizationWebSearch,
+					toolPolicy: this.state.toolPolicy,
+					runId: turnBinding?.runId,
+					getPlatform: () => this.getPlatformClient(),
+				}),
 			},
 			replyTool,
 		});
@@ -661,6 +669,13 @@ export const runtimeChannels = {
 									...this.workstationAiTool(computerScope, turnBinding),
 									...this.objectStoreAiTools(),
 									...this.r2SqlAiTool(),
+									...createWebSearchAiTools({
+										ai: this.env.AI,
+										organizationWebSearch: this.state.organizationWebSearch,
+										toolPolicy: this.state.toolPolicy,
+										runId: turnBinding?.runId,
+										getPlatform: () => this.getPlatformClient(),
+									}),
 								},
 					});
 					const addenda = contextPolicy.cognitiveAddenda
