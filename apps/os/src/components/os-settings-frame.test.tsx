@@ -37,6 +37,14 @@ describe("Settings navigation", () => {
 		viewer.role = "owner";
 		viewer.permissions = ["billing:manage"];
 		const doc = render("/admin/billing");
+		expect(
+			[...doc.querySelectorAll('a[href="/compute"]')].map(
+				(link) => link.textContent,
+			),
+		).toEqual(["Usage & billing", "Usage"]);
+		expect(doc.querySelector('a[href="/admin/billing"]')?.textContent).toBe(
+			"Billing",
+		);
 		expect(doc.querySelector('a[href="/admin"]')?.textContent).toBe("Settings");
 		expect(
 			doc.querySelector('a[href="/compute"]')?.getAttribute("aria-current"),

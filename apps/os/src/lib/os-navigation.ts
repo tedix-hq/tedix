@@ -183,7 +183,7 @@ const OS_SURFACES = [
 	{
 		id: "compute",
 		get label() {
-			return OS_COPY.navigation.compute;
+			return OS_COPY.navigation.usage;
 		},
 		path: "/compute",
 		get description() {
@@ -252,7 +252,7 @@ export const OS_PAGES: readonly OsPage[] = [
 		id: "admin-billing",
 		path: "/admin/billing",
 		get label() {
-			return OS_COPY.navigation.compute;
+			return OS_COPY.navigation.billing;
 		},
 		parentId: "admin",
 		palette: true,

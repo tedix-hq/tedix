@@ -490,7 +490,7 @@ describe("compute posture summaries support both composition levels", () => {
 			),
 			"text/html",
 		);
-		expect(doc.querySelector("h1")?.textContent).toBe("Usage diagnostics");
+		expect(doc.querySelector("h1")?.textContent).toBe("Usage");
 		expect(doc.querySelector('a[href="/admin/billing"]')?.textContent).toBe(
 			"Billing",
 		);
