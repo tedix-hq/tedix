@@ -1438,7 +1438,7 @@ describe("runKernelTurnWork trusted-write tier (auto-resolve wiring)", () => {
 	 * behavior is pinned separately in kernel-runtime.test.ts.
 	 */
 	async function driveWrite(opts: {
-		riskTier: "low" | "high";
+		riskTier: "low" | "medium" | "high";
 		governancePolicy?: KernelTurnWorkInput["governancePolicy"];
 		sessionWriteAllowlist?: string[];
 		standingTool?: string;
@@ -1526,10 +1526,28 @@ describe("runKernelTurnWork trusted-write tier (auto-resolve wiring)", () => {
 		},
 	);
 
-	it("keeps a high risk request gated even with the exact saved rule", async () => {
+	it.each(["medium", "high"] as const)(
+		"keeps a %s risk request gated even with the exact saved rule",
+		async (riskTier) => {
+			const { calls, result } = await driveWrite({
+				riskTier,
+				standingTool: "globex-tedix.create_invoice",
+			});
+			expect(calls).toHaveLength(0);
+			expect(result.status).toBe("requires_approval");
+		},
+	);
+
+	it("keeps every write with a person when the tenant switched low-risk auto-approval off", async () => {
 		const { calls, result } = await driveWrite({
-			riskTier: "high",
+			riskTier: "low",
 			standingTool: "globex-tedix.create_invoice",
+			governancePolicy: {
+				writeTier: {
+					trustedTools: ["globex-tedix:create_invoice"],
+					autoApproveLowRisk: false,
+				},
+			},
 		});
 		expect(calls).toHaveLength(0);
 		expect(result.status).toBe("requires_approval");

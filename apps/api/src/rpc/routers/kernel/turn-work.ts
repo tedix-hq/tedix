@@ -433,6 +433,15 @@ async function runPreMaterializeCancelGate(params: {
  * planning or approval-row creation fails, the turn keeps the
  * recommendation-text fallback behavior (`writeProposal` stays null).
  */
+/**
+ * A saved Deck rule is standing consent for one low-risk tool, not authority
+ * over the tenant's write tier: when an administrator switched automatic
+ * low-risk approval off, every write still waits for a person.
+ */
+function standingRulesAllowed(input: KernelTurnWorkInput): boolean {
+	return input.governancePolicy?.writeTier?.autoApproveLowRisk !== false;
+}
+
 async function planAndParkKernelWriteProposal(
 	deps: KernelTurnWorkDeps,
 	input: KernelTurnWorkInput,
@@ -603,11 +612,9 @@ async function planAndParkKernelWriteProposal(
 							prepared.approval,
 							prepared.requestedAudit,
 						));
-					const rule = await findApprovalRule(
-						deps.db,
-						approval,
-						organizationId,
-					);
+					const rule = standingRulesAllowed(input)
+						? await findApprovalRule(deps.db, approval, organizationId)
+						: undefined;
 					if (rule) ruleResolution = `auto-approved by rule ${rule.id}`;
 				}
 				writeApprovalRequestId = writeApprovalId;
@@ -1878,7 +1885,9 @@ export async function runKernelTurnWork(
 					preparedAutoWrite.approval,
 					preparedAutoWrite.requestedAudit,
 				));
-			const rule = await findApprovalRule(deps.db, approval, organizationId);
+			const rule = standingRulesAllowed(input)
+				? await findApprovalRule(deps.db, approval, organizationId)
+				: undefined;
 			fallbackRuleMatched = Boolean(rule);
 			if (rule)
 				writeApprovalDecision = {

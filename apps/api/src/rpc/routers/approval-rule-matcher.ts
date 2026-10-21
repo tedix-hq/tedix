@@ -36,6 +36,11 @@ export function matchingApprovalRule(
 	)
 		return;
 	if (payload.riskTier === "high") return;
+	// Standing consent for a Home write covers low risk only: medium stays with
+	// a person (decideKernelWriteApproval would hold it), and a payload without
+	// a classified tier predates this matcher and never matches.
+	if (approval.actionType === "home.tool_write" && payload.riskTier !== "low")
+		return;
 	// Home's coarse kind is never authority for every connected write tool.
 	if (
 		approval.actionType === "home.tool_write" &&
