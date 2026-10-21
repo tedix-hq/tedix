@@ -1,4 +1,4 @@
-import { executeCatalogOperation } from "./codemode";
+import { executeCatalogOperation } from "./codemode-catalog";
 /**
  * Locks the contract that `discover.search` and `discover.list_namespaces`
  * preserve `annotations` and `outputSchema` per tool — independent of the
@@ -22,11 +22,13 @@ import { createNativeDescriptorLookup } from "./registration/bootstrap";
 import {
 	buildCatalogProvider,
 	currentCatalogOrganizationId,
-	namespaceGlobalsPrelude,
-	shapeCodeModeResultForModel,
+} from "./codemode-catalog";
+import { namespaceGlobalsPrelude } from "./codemode-execution";
+import { shapeCodeModeResultForModel } from "./codemode-results";
+import {
 	enrichToolNotFoundError,
 	enrichUnmountedNamespaceError,
-} from "./codemode";
+} from "./codemode-discovery";
 import type { AppTool, ServerContext } from "./server-context";
 
 function tool(overrides: Partial<AppTool>): AppTool {

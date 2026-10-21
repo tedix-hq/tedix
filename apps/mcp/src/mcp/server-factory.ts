@@ -674,7 +674,7 @@ export function buildServerContext(
 
 	const context: ServerContext = {
 		catalogTransport: async (config, input) => {
-			const { executeCatalogOperation } = await import("./codemode");
+			const { executeCatalogOperation } = await import("./codemode-catalog");
 			return executeCatalogOperation(context, config, input);
 		},
 		server,

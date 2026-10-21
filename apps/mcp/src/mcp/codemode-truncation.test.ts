@@ -14,7 +14,7 @@ import {
 	type TruncatedCodeModeResult,
 } from "@tedix/tedi-codemode-core/bounded-result";
 import { describe, expect, it } from "vite-plus/test";
-import { shapeCodeModeResultForModel } from "./codemode";
+import { shapeCodeModeResultForModel } from "./codemode-results";
 
 function oversizedBoardPage(rows = 400): { data: Record<string, unknown>[] } {
 	return {
