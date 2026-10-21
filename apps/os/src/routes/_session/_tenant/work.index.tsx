@@ -18,7 +18,9 @@ function WorkLanding() {
 		<WorkHome
 			search={search}
 			onFilterChange={(filter) =>
-				void navigate({ search: { view: "feed", filter } })
+				void navigate({
+					search: (previous) => ({ ...previous, view: "feed", filter }),
+				})
 			}
 		/>
 	);

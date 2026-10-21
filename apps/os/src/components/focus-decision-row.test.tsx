@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import { ActivityFeedItemSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
-import { FocusDecisionRow } from "./focus-feed";
+import { FocusDecisionRow } from "./focus-decision-row";
 
 vi.mock("@/lib/use-tedi-names", () => ({ useTediNames: () => ({}) }));
 vi.mock("@/lib/use-decision-inbox", () => ({ useDecisionInbox: vi.fn() }));

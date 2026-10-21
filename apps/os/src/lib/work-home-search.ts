@@ -1,3 +1,5 @@
+import { cardSourceSearch } from "./card-source-filter";
+
 const WORK_FEED_FILTERS = [
 	"all",
 	"attention",
@@ -20,6 +22,7 @@ export type WorkHomeSearch = {
 	app?: WorkAppName;
 	project?: string;
 	day?: string;
+	source?: string;
 };
 
 /** The existing Work entry carries app selection and shareable feed filters. */
@@ -28,6 +31,9 @@ export function workHomeSearch(
 ): WorkHomeSearch {
 	const filter = search.disposition === "completed" ? "history" : search.filter;
 	return {
+		...(cardSourceSearch(search.source)
+			? { source: cardSourceSearch(search.source) }
+			: {}),
 		...(typeof search.project === "string" &&
 		/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
 			search.project,

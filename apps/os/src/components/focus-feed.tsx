@@ -1,20 +1,11 @@
-import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
-import { OS_COPY, decisionText } from "@/shared/os-copy";
-import { FACE_WAIT_MS } from "@/components/deck-presentation-context";
-import { Loader } from "./kumo/loader";
-import { Skeleton } from "./kumo/skeleton";
+import { FocusRow } from "./focus-feed-row";
+import { useFocusFeedShortcuts } from "./use-focus-feed-shortcuts";
+import { useCardSourceFilter } from "./use-card-source-filter";
+import { OS_COPY } from "@/shared/os-copy";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadNotice } from "@/components/work-read-region";
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-	type RefObject,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, EyeSlash, PushPin, ThumbsDown } from "@phosphor-icons/react";
 import type {
 	ActivityFeedConfig,
 	ActivityFeedItem,
@@ -28,26 +19,13 @@ import {
 } from "./activity-feed-sources";
 import { ActivityFeedFactorySource } from "./activity-feed-factory-source";
 import { TodayPost } from "./today-post";
-import { FeedCard } from "./focus-feed-card";
 import {
 	DecisionContextSection,
 	DecisionContextToolbar,
 } from "./decision-context-rail";
 import { Button } from "./kumo/button";
-import { FocusRowActions } from "./focus-row-actions";
-import { useOsFormattingPreferences } from "@/lib/format";
-import { absoluteTime, relativeTime } from "@/lib/time";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "./kumo/collapsible";
-import {
-	decisionCardFaceText,
-	decisionCardFallbackTitle,
-} from "@tedix/api-contract/utils/decision-card-copy";
 import { SegmentedControl } from "./kumo/segmented-control";
 import { osApi } from "@/lib/api";
 import { osQuery, userPreferencesQueryOptions } from "@/lib/os-query-options";
@@ -71,11 +49,7 @@ import {
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
 import { CardSourceFilter } from "@/components/card-source-filter";
-import {
-	ALL_CARD_SOURCES,
-	cardSourceOptions,
-	matchesCardSource,
-} from "@/lib/card-source-filter";
+import { cardSourceOptions, matchesCardSource } from "@/lib/card-source-filter";
 import { useTediNames } from "@/lib/use-tedi-names";
 import {
 	feedStoryActor,
@@ -83,66 +57,6 @@ import {
 } from "@tedix/api-contract/utils/feed-story";
 import { buildActivityFeedTools } from "./activity-feed-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
-
-export function useFocusFeedShortcuts(root: RefObject<HTMLDivElement | null>) {
-	useEffect(() => {
-		const key = (e: KeyboardEvent) => {
-			const owner = root.current;
-			const target = e.target;
-			if (
-				e.defaultPrevented ||
-				e.isComposing ||
-				e.altKey ||
-				e.ctrlKey ||
-				e.metaKey ||
-				e.shiftKey ||
-				!owner ||
-				!(target instanceof HTMLElement) ||
-				!owner.contains(target) ||
-				target !== document.activeElement ||
-				target.isContentEditable ||
-				target.closest(
-					"[role=dialog],[role=alertdialog],[role=menu],[role=listbox],dialog[open],[contenteditable]:not([contenteditable=false])",
-				) ||
-				(target !== owner && !target.matches("[data-focus-row]"))
-			)
-				return;
-			const rows = [...owner.querySelectorAll<HTMLElement>("[data-focus-row]")];
-			if (!rows.length) return;
-			let index = rows.indexOf(target);
-			if (e.key === "j" || e.key === "k") {
-				e.preventDefault();
-				index = Math.max(
-					0,
-					Math.min(rows.length - 1, index + (e.key === "j" ? 1 : -1)),
-				);
-				rows[index]?.focus();
-				rows[index]?.scrollIntoView?.({
-					block: "nearest",
-					behavior: "instant",
-				});
-				return;
-			}
-			if (index < 0 || e.repeat) return;
-			const row = rows[index];
-			if (e.key === "o") {
-				e.preventDefault();
-				row?.querySelector<HTMLAnchorElement>("a")?.click();
-			}
-			const action = (
-				{ p: "Pin", h: "Hide", n: "Not important" } as Record<string, string>
-			)[e.key];
-			if (action) {
-				e.preventDefault();
-				row
-					?.querySelector<HTMLButtonElement>(`button[aria-label="${action}"]`)
-					?.click();
-			}
-		};
-		document.addEventListener("keydown", key);
-		return () => document.removeEventListener("keydown", key);
-	}, [root]);
-}
 
 export function FocusFeed({
 	config,
@@ -172,7 +86,7 @@ export function FocusFeed({
 				? "No stalled work matches these filters."
 				: "No updates match these filters.";
 	const [sources, setSources] = useState<Record<string, FeedSourceState>>({});
-	const [cardSource, setCardSource] = useState(ALL_CARD_SOURCES);
+	const [cardSource, setCardSource] = useCardSourceFilter();
 	const [request, setRequest] = useState(0);
 	const [now, setNow] = useState(() => new Date());
 	const [status, setStatus] = useState("");
@@ -918,304 +832,5 @@ export function FocusFeed({
 				{navigation?.apps}
 			</DecisionContextSection>
 		</div>
-	);
-}
-
-function FocusRow({
-	item,
-	actor,
-	project,
-	busy,
-	onReact,
-	onWork,
-	signal,
-	budgeted,
-	session,
-	events,
-	enabled,
-	ignoredAfterMs,
-}: {
-	item: FocusItem;
-	actor: string;
-	project?: string;
-	busy: boolean;
-	onReact: Parameters<typeof FeedCard>[0]["onReact"];
-	onWork: Parameters<typeof FeedCard>[0]["onWork"];
-	signal: (
-		item: ActivityFeedItem,
-		reaction: FocusSignal,
-		extra?: Record<string, string | number | boolean | null>,
-	) => Promise<boolean>;
-	budgeted: boolean;
-	session: { id: string; openedAt: number };
-	events: LearningInteractionEvent[];
-	enabled: boolean;
-	ignoredAfterMs: number;
-}) {
-	const root = useRef<HTMLDivElement>(null);
-	const report = useRef(signal);
-	report.current = signal;
-	const context = useRef({ events, budgeted });
-	context.current = { events, budgeted };
-	const initialAbove = useRef(false);
-	const engaged = useRef(false);
-	useEffect(() => {
-		const node = root.current;
-		if (!enabled || !node || typeof IntersectionObserver === "undefined")
-			return;
-		const box = node.getBoundingClientRect();
-		initialAbove.current =
-			context.current.budgeted &&
-			box.top >= 0 &&
-			box.bottom <= window.innerHeight;
-		let start = 0;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		let recorded = false;
-		const observer = new IntersectionObserver(
-			([entry]) => {
-				if (entry?.isIntersecting && document.visibilityState === "visible") {
-					start = Date.now();
-					if (!recorded) {
-						recorded = true;
-						void report.current(item, "impression", {
-							aboveFold: initialAbove.current,
-							budgeted: context.current.budgeted,
-						});
-						const previous = context.current.events.filter(
-							(e) =>
-								e.targetId === item.id &&
-								e.metadata?.reaction === "impression" &&
-								e.metadata?.sessionId !== session.id,
-						);
-						const opened = context.current.events.some(
-							(e) => e.targetId === item.id && e.metadata?.reaction === "open",
-						);
-						if (previous.length >= 1 && !opened)
-							timer = setTimeout(() => {
-								if (!engaged.current && document.visibilityState === "visible")
-									void report.current(item, "ignored_twice");
-							}, ignoredAfterMs);
-					}
-				} else if (start) {
-					const elapsed = Date.now() - start;
-					start = 0;
-					clearTimeout(timer);
-					if (elapsed >= 1000)
-						void report.current(item, "dwell", { elapsedMs: elapsed });
-				}
-			},
-			{ threshold: 0.5 },
-		);
-		observer.observe(node);
-		return () => {
-			observer.disconnect();
-			clearTimeout(timer);
-			if (start && Date.now() - start >= 1000)
-				void report.current(item, "dwell", { elapsedMs: Date.now() - start });
-		};
-	}, [item.id, session.id, enabled, ignoredAfterMs]);
-	function open() {
-		engaged.current = true;
-		void signal(item, "open", {
-			aboveFold: initialAbove.current,
-			elapsedMs: Date.now() - session.openedAt,
-			needsAction: item.needsAction,
-		});
-		if (item.needsAction)
-			sessionStorage.setItem(
-				"tedix-focus-origin",
-				JSON.stringify({
-					sessionId: session.id,
-					openedAt: session.openedAt,
-					itemId: item.id,
-					source: item.source,
-					workItemId: item.workItemId,
-					at: Date.now(),
-				}),
-			);
-	}
-	const rowActions = [
-		{ label: "Pin", reaction: "pin", Icon: PushPin },
-		{ label: "Hide", reaction: "hide", Icon: EyeSlash },
-		{ label: "Not important", reaction: "not_important", Icon: ThumbsDown },
-		{ label: "Tell me earlier", reaction: "tell_me_earlier", Icon: Bell },
-	] as const;
-	function react(reaction: FocusSignal) {
-		engaged.current = true;
-		void signal(item, reaction);
-	}
-	const actions = rowActions.map(({ label, reaction, Icon }) => ({
-		label,
-		Icon,
-		onClick: () => react(reaction),
-	}));
-
-	return (
-		<div
-			ref={root}
-			tabIndex={-1}
-			role="listitem"
-			data-focus-row={item.id}
-			className="focus-row"
-			onClickCapture={(e) => {
-				if (e.target instanceof Element && e.target.closest("a")) open();
-			}}
-		>
-			{item.needsAction ? (
-				<FocusDecisionRow item={item} actor={actor} project={project} />
-			) : (
-				<FeedCard
-					item={item}
-					actor={actor}
-					project={project}
-					busy={busy}
-					onReact={onReact}
-					onWork={onWork}
-					rowActions={actions}
-				/>
-			)}
-			{item.because && <p className="focus-because">{item.because}</p>}
-			{item.needsAction && <FocusRowActions actions={actions} />}
-		</div>
-	);
-}
-
-/** A summary older than this with no checked story is not "being written": show the original request now. */
-const FEED_FACE_FRESH_MS = 3 * 60_000;
-
-export function FocusDecisionRow({
-	item,
-	actor,
-	project,
-}: {
-	item: FocusItem;
-	actor: string;
-	project?: string;
-}) {
-	useOsFormattingPreferences();
-	const decisionCardId = ["decision", "approval"].includes(item.kind)
-		? item.id.replace(/^decision:/, "")
-		: undefined;
-	const fresh = Date.now() - Date.parse(item.at) < FEED_FACE_FRESH_MS;
-	const [slow, setSlow] = useState(false);
-	const [retries, setRetries] = useState(0);
-	const face = useQuery({
-		...osQuery.attention.getDeckCard.queryOptions({
-			input: { cardId: item.id.replace(/^decision:/, ""), limit: 100 },
-		}),
-		enabled: item.needsAction && !!decisionCardId && !item.presentation,
-		staleTime: 60000,
-		retry: false,
-		// A writer is still working on a fresh request; pick up its story without a reload.
-		refetchInterval: (query) =>
-			!item.presentation && !query.state.data?.presentation && fresh && !slow
-				? 10_000
-				: false,
-	});
-	const presentation = item.presentation ?? face.data?.presentation ?? null;
-	const unavailable =
-		face.isError ||
-		item.faceText === copySpec.unavailableFace ||
-		face.data?.faceText === copySpec.unavailableFace;
-	// Only the summary line loads; the title is the real ask from the first paint.
-	const waiting =
-		!!decisionCardId && !presentation && !unavailable && fresh && !slow;
-	useEffect(() => {
-		if (!waiting) return;
-		const timer = setTimeout(() => setSlow(true), FACE_WAIT_MS);
-		return () => clearTimeout(timer);
-	}, [waiting, retries]);
-	const faceText =
-		item.faceText ??
-		face.data?.faceText ??
-		decisionCardFaceText(presentation, face.data?.decision?.confidence ?? null);
-	const title =
-		presentation?.title ?? decisionCardFallbackTitle(item.sentence, 160);
-	const original =
-		item.explanation && item.explanation !== item.sentence
-			? item.explanation
-			: null;
-	return (
-		<article aria-label={title} className="focus-decision-row">
-			<Link
-				variant="record"
-				className="focus-story"
-				href={
-					decisionCardId
-						? `/work?view=deck#card=${encodeURIComponent(decisionCardId)}`
-						: item.source
-				}
-			>
-				{title}
-			</Link>
-			{presentation ? (
-				<p className="fd-face-enter whitespace-pre-line">
-					{faceText
-						.split("\n")
-						.slice(1)
-						.join("\n")
-						.replace(/(\bIf yes[,:]\s*)(?:If yes[,:]\s*)+/gi, "$1")}
-				</p>
-			) : waiting ? (
-				<div
-					role="status"
-					aria-busy="true"
-					className="focus-face-skeleton"
-					data-face-pending
-				>
-					<Skeleton aria-hidden="true" className="w-3/4" />
-					<span className="focus-face-writing">
-						<Loader aria-hidden="true" size="sm" />
-						{decisionText("Writing a short summary…")}
-					</span>
-				</div>
-			) : decisionCardId ? (
-				<div className="fd-face-enter grid gap-1">
-					{original && (
-						<p className="focus-face-fallback">
-							{original.length > 280
-								? `${original.slice(0, 279).trimEnd()}…`
-								: original}
-						</p>
-					)}
-					<div role="status" className="focus-face-note" data-face-fallback>
-						<span>
-							{decisionText(
-								"Summary unavailable — request preview. Full source in Details.",
-							)}
-						</span>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="focus-face-retry"
-							disabled={face.isFetching}
-							onClick={() => {
-								setSlow(false);
-								setRetries((count) => count + 1);
-								void face.refetch();
-							}}
-						>
-							{face.isFetching
-								? decisionText("Retrying…")
-								: decisionText("Retry")}
-						</Button>
-					</div>
-				</div>
-			) : null}
-			<p className="focus-meta">
-				<time dateTime={item.at} title={absoluteTime(item.at)}>
-					{relativeTime(item.at)}
-				</time>
-			</p>
-			<Collapsible className="relative z-1">
-				<CollapsibleTrigger>Details</CollapsibleTrigger>
-				<CollapsibleContent>
-					<p>{project ?? actor}</p>
-					<p className="focus-source-text">{item.sentence}</p>
-					{original && <p className="focus-source-text">{original}</p>}
-					<Link href={item.source}>Original request</Link>
-				</CollapsibleContent>
-			</Collapsible>
-		</article>
 	);
 }

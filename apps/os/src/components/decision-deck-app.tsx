@@ -1,37 +1,25 @@
-import {
-	rankDeckCard,
-	compareDecisionFreshness,
-} from "@tedix/api-contract/utils/deck-projection";
-import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
-import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
-import { CardSourceFilter } from "@/components/card-source-filter";
+import { useDeckDecision } from "./use-deck-decision";
+import { projectDecisionDeck } from "./decision-deck-projection";
+import { DecisionDeckToolbar } from "./decision-deck-toolbar";
+import { useCardSourceFilter } from "./use-card-source-filter";
 import {
 	ALL_CARD_SOURCES,
-	cardSourceOptions,
 	matchesCardSource,
 	type CardOrigin,
 } from "@/lib/card-source-filter";
-import { DECK_ASK_KINDS, deckAsk } from "@tedix/api-contract/utils/deck-ask";
 import { DeckAskStrip } from "@/components/deck-ask-strip";
 import { DeckCurationFooter } from "@/components/deck-curation-footer";
 import { DeckNotUseful } from "@/components/deck-not-useful";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { workRefreshOptions } from "@/lib/work-refresh";
-import { matchQuery } from "@tanstack/react-query";
-import {
-	OptimisticDeckDecisionContext,
-	removeOptimisticDeckCard,
-} from "@/lib/optimistic-deck-decision";
+import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import {
 	DECK_DETAIL_WINDOW,
 	prefetchDeckDetails,
 } from "@/lib/deck-detail-prefetch";
-import { toast } from "@/components/kumo/toast";
 import {
 	DecisionContextRail,
-	DecisionContextToolbar,
-	DecisionFilterChip,
 	DecisionContextSection,
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
@@ -51,8 +39,6 @@ import {
 	DeckNoticeContext,
 	CardFaceContext,
 } from "@/components/deck-presentation-context";
-import { interactionCardKind } from "@/lib/interaction-card-kind";
-import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import {
 	cardDecisionTiming,
 	cardFirstView,
@@ -92,7 +78,6 @@ import { ApprovalDecisionCard } from "@/components/work-decision-stack";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import { Button } from "@/components/kumo/button";
 import { WorkReadRegion, WorkReadNotice } from "@/components/work-read-region";
-import { Input } from "@/components/kumo/input";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 
@@ -102,18 +87,14 @@ import {
 	projectListQueryOptions,
 	userProfileQueryOptions,
 	workItemListQueryOptions,
-	pendingApprovalsQueryOptions,
-	osQueryKeys,
 } from "@/lib/os-query-options";
 import {
 	decisionDeadlinePassed,
 	workIsUnowned,
 	classReadiness,
-	decisionEnvelope,
 	decisionFeedbackMetadata,
 	type DecisionLearningReceipt,
 } from "@/lib/decision-deck";
-import { decisionCaptureSummary } from "@/lib/work-interaction-display";
 import {
 	buildDecisionDeckPageChatExtras,
 	buildDecisionDeckWebMcpTools,
@@ -169,12 +150,9 @@ function DecisionDeckContent({
 	const rail = useContext(DecisionRailContext);
 	const reportRemaining = useContext(DeckRemainingContext);
 	useOsLocale();
-	const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
 	const PROJECT_LABELS: Record<string, string> = OS_COPY.decisionDeck.projects;
 	const client = useQueryClient();
-	const [optimisticIds, setOptimisticIds] = useState<string[]>([]);
-	const inFlightDecisions = useRef(0);
-	const [saving, setSaving] = useState(false);
+	const { optimisticIds, saving, forCard } = useDeckDecision();
 	const factories = useVisibleCardSources(
 		config.factorySources,
 		(source) => source.workspaceId,
@@ -188,7 +166,7 @@ function DecisionDeckContent({
 		null,
 	);
 	const [kind, setKind] = useState("all");
-	const [source, setSource] = useState(ALL_CARD_SOURCES);
+	const [source, setSource] = useCardSourceFilter();
 	const [contextQuestion, setContextQuestion] = useState<string | null>(null);
 	const [project, setProject] = useState("all");
 	const [urgency, setUrgency] = useState("all");
@@ -283,172 +261,15 @@ function DecisionDeckContent({
 			.catch(() => {});
 	}, [profile.data?.id, client]);
 	const practiceMode = mode === "practice";
-	const ask = (card: Parameters<typeof deckAsk>[0]) =>
-		deckAsk(card, now, {
-			timeZone,
-			staleDraftHours: config.staleDraftHours ?? 24,
-		});
-	const rows = practiceMode
-		? config.examples.map((decision, i) => ({
-				id: `example:${i}`,
-				requestedAt: undefined,
-				kind: decision.kind,
-				label: decision.proposal,
-				project: "Examples",
-				urgency: "later",
-				decision,
-				row: undefined,
-				...ask({ kind: decision.kind, decision }),
-			}))
-		: [
-				...(mode === "decide"
-					? decisions.factoryCards.map((card) => ({
-							id: `factory:${card.key}`,
-							requestedAt: card.runCreatedAt,
-							dueAt: factoryCardDeadline(card),
-							kind: "decision",
-							origin: {
-								factory: card.sourceLabel,
-								workspaceId:
-									config.factorySources[card.sourceIndex]?.workspaceId ?? "",
-							} satisfies CardOrigin,
-							label: card.action || card.why || card.sourceText,
-							project:
-								config.factorySources[card.sourceIndex]?.run?.workProjectId ??
-								"Unfiled",
-							urgency: "later",
-							decision: null,
-							row: undefined,
-							...ask({
-								kind: "decision",
-								factory: card,
-								dueAt: factoryCardDeadline(card),
-								requestedAt: card.runCreatedAt,
-							}),
-						}))
-					: []),
-				...(mode === "history"
-					? (history.data?.data ?? []).filter(
-							(row) => row.effectiveState === "resolved",
-						)
-					: decisions.requests
-				).map((row) => {
-					const decision = decisionEnvelope(row.request.metadata);
-					const presentation = DecisionCardPresentationSchema.safeParse(
-						row.request.metadata.cardPresentation,
-					).data;
-					const metadata = row.request.metadata;
-					const cardKind = interactionCardKind(row.request);
-					return {
-						id: row.request.id,
-						requestedAt: row.request.requestedAt,
-						kind: cardKind,
-						label: row.request.subject,
-						project:
-							row.workItem?.projectId ?? row.request.projectId ?? "Unfiled",
-						urgency: decisionCaptureSummary(metadata)?.urgency ?? "later",
-						decision:
-							decision && presentation
-								? {
-										...decision,
-										proposal: presentation.title,
-										preview: decision.preview ?? { body: presentation.body },
-										recommendation: presentation.recommendation,
-									}
-								: decision,
-						row,
-						...ask({
-							kind: cardKind,
-							decision,
-							request: row.request,
-							workItem: row.workItem,
-							dueAt: row.request.dueAt,
-							requestedAt: row.request.requestedAt,
-						}),
-					};
-				}),
-				...(mode === "decide"
-					? decisions.work.map((row) => ({
-							id: `work-approval:${row.proposal.id}`,
-							requestedAt: row.proposal.requestedAt,
-							kind: "approval",
-							label: row.workItem.title,
-							project: row.workItem.projectId ?? "Unfiled",
-							urgency: "now",
-							decision: null,
-							row: undefined,
-							...ask({ kind: "approval" }),
-						}))
-					: []),
-				...(!config.projectId && mode === "decide"
-					? (approvals.data?.data ?? []).map((approval) => ({
-							id: `approval:${approval.id}`,
-							requestedAt: approval.createdAt,
-							kind: "approval",
-							label: approval.description,
-							project: "Organization",
-							urgency: "now",
-							decision: null,
-							row: undefined,
-							...ask({ kind: "approval", runtimeApproval: approval }),
-						}))
-					: []),
-			];
-	const rank = (row: (typeof rows)[number]) =>
-		rankDeckCard(row, learningModel.data, now, row.row?.request);
-	const factoryPriority = new Map(
-		decisions.factoryCards.map((card) => {
-			const route = routeFactoryCard(
-				card,
-				config.routing,
-				now,
-				learningModel.data,
-			);
-			return [
-				`factory:${card.key}`,
-				{
-					policyCritical: route.reason === "critical",
-					score: route.score ?? undefined,
-				},
-			];
-		}),
-	);
-	// Critical detection sees the same card facts as the server projection.
-	const priorityContext = (row: (typeof rows)[number]) =>
-		mode === "decide"
-			? {
-					kind: row.kind,
-					label: row.label,
-					decision: row.decision,
-					interaction: row.row,
-					factory: factoryPriority.get(row.id),
-				}
-			: {};
-	const compare = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
-		compareDecisionFreshness(
-			{
-				...priorityContext(a),
-				dueAt:
-					"dueAt" in a && typeof a.dueAt === "string"
-						? a.dueAt
-						: a.row?.request.dueAt,
-				deadline: a.deadline,
-				requestedAt: a.requestedAt,
-				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
-			},
-			{
-				...priorityContext(b),
-				dueAt:
-					"dueAt" in b && typeof b.dueAt === "string"
-						? b.dueAt
-						: b.row?.request.dueAt,
-				deadline: b.deadline,
-				requestedAt: b.requestedAt,
-				score: learningModel.data?.config.enabled ? rank(b).score : undefined,
-			},
-			now,
-			timeZone,
-		);
+	const { rows, rank, compare } = projectDecisionDeck({
+		config,
+		mode,
+		decisions,
+		history: history.data?.data ?? [],
+		learningModel: learningModel.data,
+		now,
+		timeZone,
+	});
 	const matchesFilters = (row: {
 		origin?: CardOrigin;
 		askKind: string;
@@ -792,61 +613,13 @@ function DecisionDeckContent({
 		[],
 		{ pageChat: buildDecisionDeckPageChatExtras },
 	);
-	const optimisticDecision =
-		mode === "decide" && selected
-			? async (
-					write: () => Promise<unknown>,
-					options?: { errorShownInline?: boolean },
-				) => {
-					const id = selected.id;
-					inFlightDecisions.current++;
-					setSaving(true);
-					try {
-						const result = await write();
-						setOptimisticIds((ids) => [...ids, id]);
-						clearFocusCard();
-						setIndex(0);
-						removeOptimisticDeckCard(
-							client,
-							[
-								osQuery.workInteractions.listInbox.key(),
-								osQuery.workApprovals.listInbox.key(),
-								pendingApprovalsQueryOptions().queryKey,
-							],
-							id.replace(/^(work-approval:|approval:)/, ""),
-						);
-						return result;
-					} catch (error) {
-						if (!options?.errorShownInline)
-							toast.error(
-								error instanceof Error
-									? error.message
-									: "Your decision could not be saved. Try again.",
-							);
-						throw error;
-					} finally {
-						if (--inFlightDecisions.current === 0) {
-							setSaving(false);
-							const keys = [
-								osQuery.workInteractions.key(),
-								osQuery.workApprovals.key(),
-								osQueryKeys.approvals(),
-								osQueryKeys.approvalRules(),
-								osQuery.learningFeedback.key(),
-								osQuery.workItems.key(),
-								osQuery.workFleet.key(),
-								osQuery.workScheduler.key(),
-								osQuery.workAgentSessions.attention.key(),
-								osQueryKeys.agentSessionRequests(),
-							];
-							void client.invalidateQueries({
-								predicate: (query) =>
-									keys.some((queryKey) => matchQuery({ queryKey }, query)),
-							});
-						}
-					}
-				}
-			: null;
+	const optimisticDecision = forCard(
+		mode === "decide" ? (selected?.id ?? null) : null,
+		() => {
+			clearFocusCard();
+			setIndex(0);
+		},
+	);
 
 	const preparedSourceMatches =
 		preparedCard.data?.id === selected?.id &&
@@ -1001,122 +774,24 @@ function DecisionDeckContent({
 					contextQuestion === selectedViewKey && (
 						<CardContextFeedback key={selected.id} cardId={selected.id} />
 					)}
-				<DecisionContextToolbar
-					children={
-						<div
-							className="fd-deck-toolbar"
-							data-focus-ring="inset"
-							aria-label={decisionText("Deck view")}
-						>
-							{[
-								"decide",
-								"history",
-								...(config.examples.length ? ["practice"] : []),
-							].map((value) => (
-								<Button
-									key={value}
-									aria-pressed={mode === value}
-									variant="ghost"
-									onClick={() => {
-										setMode(value);
-										setIndex(0);
-									}}
-								>
-									{value === "decide"
-										? decisionText("For you")
-										: value === "history"
-											? decisionText("What you decided")
-											: decisionText("Try examples")}
-								</Button>
-							))}
-						</div>
-					}
-					filters={
-						<div className="fd-deck-filters">
-							<div className="flex flex-wrap gap-2">
-								<DecisionFilterChip
-									label={kind === "all" ? "Kind" : KIND_LABELS[kind]}
-									ariaLabel={decisionText("Decision kind")}
-									value={kind}
-									onValueChange={(value) => {
-										setKind(value);
-										setIndex(0);
-									}}
-									options={["all", ...DECK_ASK_KINDS, "drafted_not_sent"].map(
-										(value) => ({
-											value,
-											label: KIND_LABELS[value],
-										}),
-									)}
-								/>
-								<CardSourceFilter
-									value={source}
-									onValueChange={(value) => {
-										setSource(value);
-										setIndex(0);
-									}}
-									options={
-										mode === "decide"
-											? cardSourceOptions(
-													factories.sources,
-													factories.workspaceName,
-												)
-											: []
-									}
-								/>
-								<DecisionFilterChip
-									label={project === "all" ? "Project" : projectLabel(project)}
-									ariaLabel={decisionText("Decision project")}
-									searchable
-									value={project}
-									onValueChange={(value) => {
-										setProject(value);
-										setIndex(0);
-									}}
-									options={[
-										"all",
-										...new Set(rows.map((row) => row.project)),
-									].map((value) => ({
-										value,
-										label:
-											value === "all"
-												? decisionText("All projects")
-												: projectLabel(value),
-									}))}
-								/>
-								<DecisionFilterChip
-									label={
-										urgency === "all"
-											? "Urgency"
-											: urgency === "now"
-												? "Needs you now"
-												: "Can wait"
-									}
-									ariaLabel={decisionText("Decision urgency")}
-									value={urgency}
-									onValueChange={(value) => {
-										setUrgency(value);
-										setIndex(0);
-									}}
-									options={[
-										{ value: "all", label: decisionText("Any urgency") },
-										{ value: "now", label: decisionText("Needs you now") },
-										{ value: "later", label: decisionText("Can wait") },
-									]}
-								/>
-
-								<Input
-									aria-label={decisionText("Find decisions")}
-									placeholder={decisionText("Find a decision")}
-									value={search}
-									onChange={(event) => {
-										setSearch(event.target.value);
-										setIndex(0);
-									}}
-								/>
-							</div>
-						</div>
-					}
+				<DecisionDeckToolbar
+					config={config}
+					mode={mode}
+					kind={kind}
+					source={source}
+					project={project}
+					urgency={urgency}
+					search={search}
+					setMode={setMode}
+					setKind={setKind}
+					setSource={setSource}
+					setProject={setProject}
+					setUrgency={setUrgency}
+					setSearch={setSearch}
+					setIndex={setIndex}
+					projectLabel={projectLabel}
+					rows={rows}
+					factories={factories}
 				/>
 				{progress.total > 0 &&
 					(selected ||

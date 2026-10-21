@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vite-plus/test";
 import { ActivityFeedItemSchema } from "@tedix/api-contract/schemas/os-activity-feed";
-import { FocusDecisionRow, useFocusFeedShortcuts } from "./focus-feed";
+import { FocusDecisionRow } from "./focus-decision-row";
+import { useFocusFeedShortcuts } from "./use-focus-feed-shortcuts";
 
 vi.mock("@/lib/api", () => ({
 	osApi: {

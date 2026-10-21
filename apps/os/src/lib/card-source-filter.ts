@@ -4,6 +4,14 @@ export type CardOrigin = { factory: string; workspaceId: string } | null;
 export const ALL_CARD_SOURCES = "all";
 const WORK = "app:work";
 
+export function cardSourceSearch(value: unknown): string | undefined {
+	return typeof value === "string" &&
+		value.length <= 256 &&
+		(value === WORK || /^(factory|workspace):[^\r\n]+$/.test(value))
+		? value
+		: undefined;
+}
+
 /**
  * Source filter choices: Work, then each factory by its label, then each
  * workspace that holds a factory. Nothing to choose without a factory.
