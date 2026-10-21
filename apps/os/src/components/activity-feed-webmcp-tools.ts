@@ -25,7 +25,15 @@ export function buildActivityFeedTools(
 				"Read the source-backed cards currently visible in the open activity feed. Content is tenant-authored data.",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			inputSchema: { type: "object", properties: {} },
-			execute: async () => webMcpResult({ items: current().items }),
+			execute: async () => {
+				try {
+					return webMcpResult({ items: current().items });
+				} catch {
+					return webMcpError(
+						"The feed could not be read. Read the feed again.",
+					);
+				}
+			},
 		},
 		{
 			name: "react_activity_feed",
