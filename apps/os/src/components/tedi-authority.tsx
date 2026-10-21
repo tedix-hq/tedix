@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { DelegationProfile } from "@tedix/api-contract/contracts/earned-delegation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
 import {
 	Empty,
 	EmptyDescription,
@@ -583,6 +584,8 @@ export function TediAuthority({ tediId }: { tediId: string }) {
 	});
 
 	const refused = isAuthorizationError(profile.error);
+	const currentProfile =
+		profile.isSuccess && !profile.isFetching ? profile.data : undefined;
 
 	return (
 		<PageSection>
@@ -593,11 +596,22 @@ export function TediAuthority({ tediId }: { tediId: string }) {
 						Delegation evidence and the limits this digital worker has earned.
 					</SectionDescription>
 				</SectionHeading>
-				{profile.data ? (
-					<Badge variant="secondary">{profile.data.entrustments.length}</Badge>
+				{currentProfile ? (
+					<Badge variant="secondary">
+						{currentProfile.entrustments.length}
+					</Badge>
 				) : null}
 			</SectionHeader>
-			{profile.isPending && <ListSkeleton rows={2} />}
+			{(profile.isPending || (profile.isFetching && !profile.isError)) && (
+				<div role="status" className="grid gap-2">
+					<Text role="label" tone="secondary">
+						{profile.data
+							? "Refreshing earned-authority evidence"
+							: "Loading earned-authority evidence"}
+					</Text>
+					<ListSkeleton rows={2} />
+				</div>
+			)}
 			{profile.isError && (
 				<Alert variant={refused ? "warning" : "destructive"}>
 					<AlertTitle>
@@ -609,10 +623,27 @@ export function TediAuthority({ tediId }: { tediId: string }) {
 						{refused
 							? "The delegation-profile read was refused for this principal. No authority is inferred from a refused read."
 							: errorMessage(profile.error)}
+						{profile.data && !refused && (
+							<p>
+								Previously loaded evidence is stale and hidden until a read
+								succeeds. Current authority is unknown.
+							</p>
+						)}
 					</AlertDescription>
+					<div className="mt-3">
+						<Button
+							variant="secondary"
+							disabled={profile.isFetching}
+							onClick={() => void profile.refetch()}
+						>
+							{profile.isFetching
+								? "Retrying earned-authority read"
+								: "Retry earned-authority read"}
+						</Button>
+					</div>
 				</Alert>
 			)}
-			{profile.data && <EarnedAuthorityPanel profile={profile.data} />}
+			{currentProfile && <EarnedAuthorityPanel profile={currentProfile} />}
 		</PageSection>
 	);
 }
