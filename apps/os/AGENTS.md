@@ -184,7 +184,15 @@ The rules that break silently are these:
   `respond_decision_card` (`decision-deck-webmcp-tools.ts`): it acts only on
   the card on screen, requires an option already prepared there and
   `confirmedByUser: true`, and submits through the card's own controls, so
-  confirmation dialogs still reach the person.
+  confirmation dialogs still reach the person. The quick chat runs it only
+  after the person taps the chat's inline confirm (`confirm` in
+  `buildDecisionDeckPageChatExtras`).
+- **The quick chat sees only page tools an app opts into.**
+  `useAppWebMcpTools(..., { pageChat })` registers the app's tools in
+  `src/lib/page-chat-tools.ts` for the widget, independent of browser WebMCP
+  support. The widget runs them in the page when the chat's model asks
+  (`apps/widget/src/embed/page-tools.ts`); `browser-tests/deck-chat.spec.ts`
+  covers the round trip.
 - **A built-in workspace app registers through `useAppWebMcpTools`**
   (`card-review-webmcp-tools.ts` is the example). Its tools read live state
   through `current()` and call the same callbacks as the app's buttons, so

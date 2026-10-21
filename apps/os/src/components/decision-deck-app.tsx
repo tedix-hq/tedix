@@ -106,7 +106,10 @@ import {
 	type DecisionLearningReceipt,
 } from "@/lib/decision-deck";
 import { decisionCaptureSummary } from "@/lib/work-interaction-display";
-import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
+import {
+	buildDecisionDeckPageChatExtras,
+	buildDecisionDeckWebMcpTools,
+} from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import {
 	createAgentSlot,
@@ -739,6 +742,7 @@ function DecisionDeckContent({
 		},
 		buildDecisionDeckWebMcpTools,
 		[],
+		{ pageChat: buildDecisionDeckPageChatExtras },
 	);
 	const optimisticDecision =
 		mode === "decide" && selected

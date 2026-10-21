@@ -126,13 +126,23 @@ describe("framework-neutral Tedi embed primitives", () => {
 	it("renders a semantic live connection status from the catalog", () => {
 		const es = buildTranslate(esCatalog, enCatalog);
 		const en = buildTranslate(enCatalog, enCatalog);
-		expect(embeddedConnectionMarkup("webmcp", es)).toContain('role="status"');
-		expect(embeddedConnectionMarkup("webmcp", es)).toContain(
-			'data-state="webmcp"',
+		expect(embeddedConnectionMarkup("page_tools", es)).toContain(
+			'role="status"',
 		);
-		expect(embeddedConnectionLabel("webmcp", es)).toBe("Página conectada");
+		expect(embeddedConnectionMarkup("page_tools", es)).toContain(
+			'data-state="page_tools"',
+		);
+		expect(embeddedConnectionLabel("page_tools", es)).toBe(
+			"Puede actuar en esta página",
+		);
 		expect(embeddedConnectionLabel("error", es)).toBe("Sin conexión");
-		expect(embeddedConnectionLabel("webmcp", en)).toBe("Page connected");
+		// Plain wording for what actually flows: page context, or page tools.
+		expect(embeddedConnectionLabel("page_context", en)).toBe(
+			"Can see this page",
+		);
+		expect(embeddedConnectionLabel("page_tools", en)).toBe(
+			"Can act on this page",
+		);
 		expect(embeddedSessionFailureLabel("capacity_unavailable", es)).toBe(
 			"La capacidad no está disponible temporalmente.",
 		);

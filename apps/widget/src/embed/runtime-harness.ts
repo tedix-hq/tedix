@@ -20,6 +20,7 @@ type StreamInput = {
 	pageContext: Record<string, unknown>;
 	modelRef?: string;
 	reasoningEffort?: string;
+	pageTools?: Array<Record<string, unknown>>;
 };
 
 export type FakeStream = {
@@ -104,6 +105,13 @@ export function createFakeEmbeddedClient(
 				}),
 		),
 		cancel: vi.fn(async (_clientRequestId: string) => {}),
+		resolvePageTool: vi.fn(
+			async (_input: {
+				clientRequestId: string;
+				callId: string;
+				result: { ok: boolean; content: string };
+			}) => ({ accepted: true }),
+		),
 		metrics: vi.fn(async (_batch: unknown) => ({})),
 		dispose: vi.fn(),
 		watchApprovals: vi.fn(

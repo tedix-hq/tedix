@@ -11,6 +11,7 @@ import type {
 	DeckCardAgentOutcome,
 	DeckNotUsefulHandle,
 } from "@/lib/deck-card-agent";
+import type { PageChatToolExtras } from "@/lib/page-chat-tools";
 
 /**
  * WebMCP tools for the Decision Deck. Reads return the card on screen. Every
@@ -348,4 +349,61 @@ export function buildDecisionDeckWebMcpTools(
 				}),
 		},
 	];
+}
+
+/**
+ * What the quick chat adds to the Deck tools when it runs them for the
+ * person: plain activity wording, Undo where the card can put itself back,
+ * and an inline confirm in the chat before `respond_decision_card` submits,
+ * even when the model says the person already agreed.
+ */
+export function buildDecisionDeckPageChatExtras(
+	current: () => DecisionDeckController,
+): Record<string, PageChatToolExtras> {
+	const agent = () => {
+		try {
+			return current().agent?.() ?? null;
+		} catch {
+			return null;
+		}
+	};
+	const optionLabel = (optionId: unknown) =>
+		agent()?.actions.find((action) => action.id === optionId)?.label ??
+		String(optionId ?? "");
+	return {
+		[READ]: { describe: () => null },
+		[SHOW]: { describe: () => "showed the card" },
+		set_decision_card_answer: {
+			describe: () =>
+				agent()?.field === "draft" ? "filled the draft" : "filled the answer",
+			prepareUndo: () => {
+				const handle = agent();
+				if (!handle?.field) return null;
+				const previous = handle.value;
+				return () => agent()?.fill(previous);
+			},
+		},
+		[OPTION]: {
+			describe: (args) => `chose "${optionLabel(args.optionId)}"`,
+			prepareUndo: () => {
+				const handle = agent();
+				if (!handle?.unstage) return null;
+				const previous = handle.stagedOptionId;
+				return () => {
+					const live = agent();
+					if (previous) live?.stage(previous);
+					else live?.unstage?.();
+				};
+			},
+		},
+		set_decision_card_later: { describe: () => "put the card aside for later" },
+		// The Deck shows its own Undo for this one.
+		set_decision_card_not_useful: {
+			describe: () => "marked the card not useful",
+		},
+		respond_decision_card: {
+			confirm: true,
+			describe: (args) => `submitted "${optionLabel(args.optionId)}"`,
+		},
+	};
 }

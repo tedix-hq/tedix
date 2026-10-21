@@ -84,6 +84,12 @@ import { replayLoaderCall } from "../loader-queue";
 import { WIDGET_SDK_VERSION } from "../sdk-contract";
 import { createWidgetIdentify } from "./identify";
 import { createInFlightRequestCoalescer } from "./session-request";
+import { readPageToolCall } from "@tedix/chat-transport/page-tools";
+import {
+	isHostPageTools,
+	runPageToolCall,
+	snapshotPageTools,
+} from "./page-tools";
 
 (() => {
 	const SDK_VERSION = WIDGET_SDK_VERSION;
@@ -321,6 +327,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 		 * path instead of a signed tedi session.
 		 */
 		const HOME_TARGET = "home";
+		const PAGE_TOOL_CONFIRM_WINDOW_MS = 100_000;
 		const homeTarget =
 			options.home && typeof options.home.turn === "function"
 				? {
@@ -336,6 +343,14 @@ import { createInFlightRequestCoalescer } from "./session-request";
 								: null,
 					}
 				: null;
+		/**
+		 * Page tools the host registered for this widget session (for example
+		 * the Decision Deck's card actions). Each turn offers a snapshot of
+		 * them; the chat runs one only when the model asks, inside this page.
+		 */
+		const hostPageTools = isHostPageTools(options.pageTools)
+			? options.pageTools
+			: null;
 		const historyProvider = options.history;
 		const transcriptProvider = options.transcript;
 		const deleteConversationProvider = options.deleteConversation;
@@ -882,7 +897,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			hasMessages: false,
 		};
 		conversations.set(conversationId, activeConversation);
-		let webMcpActive = false;
+		let connectionState = "idle";
 		let followLatest = true;
 		const disposeScrollResize = observeScrollResize(thread, () => followLatest);
 		const scrollLatest = () => {
@@ -893,10 +908,17 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			followLatest = isNearBottom(thread);
 		});
 		const setConnectionState = (state) => {
+			connectionState = state;
 			const status = root.querySelector(".tedix-status");
 			if (!status) return;
+			// Say what actually reaches the chat: the page it is on, and whether
+			// the page lets it act there.
 			const effective =
-				webMcpActive && state === "connected" ? "webmcp" : state;
+				state === "connected"
+					? snapshotPageTools(hostPageTools).descriptors.length
+						? "page_tools"
+						: "page_context"
+					: state;
 			status.dataset.state = effective;
 			status.querySelector(".tedix-status-label").textContent =
 				embeddedConnectionLabel(effective, t);
@@ -1710,6 +1732,94 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			approvals.set(approval.id, card);
 			thread.append(card);
 		};
+		/**
+		 * Confirms still on screen. A turn that ends, and a confirm the server
+		 * would no longer wait for, decline them: a late tap must never submit.
+		 */
+		const openPageConfirms = new Set();
+		const declineOpenPageConfirms = () => {
+			for (const decide of [...openPageConfirms]) decide(false);
+		};
+		/**
+		 * Run one page tool the chat asked for, with a quiet activity row and,
+		 * where the page supports it, Undo. A tool that submits waits for the
+		 * person to tap confirm here; nothing is submitted silently.
+		 */
+		const handlePageToolCall = async (call, snapshot, pending, actor) => {
+			const container = pending?.activities || thread;
+			const row = document.createElement("div");
+			row.className = "tedix-page-action";
+			row.dataset.callId = call.callId;
+			container.append(row);
+			scrollLatest();
+			const outcome = await runPageToolCall({
+				call,
+				snapshot,
+				confirm: () =>
+					new Promise((resolve) => {
+						row.dataset.state = "confirm";
+						row.innerHTML = `<strong></strong><div><button type="button" data-decision="reject"></button><button type="button" data-decision="approve"></button></div>`;
+						row.querySelector("strong").textContent = t(
+							"page_action_confirm_title",
+							{ assistant: actor },
+						);
+						const [decline, accept] = row.querySelectorAll("button");
+						decline.textContent = t("page_action_decline");
+						accept.textContent = t("page_action_confirm");
+						const decide = (approved) => {
+							if (!openPageConfirms.delete(decide)) return;
+							clearTimeout(expiry);
+							decline.disabled = true;
+							accept.disabled = true;
+							resolve(approved);
+						};
+						// Well inside the shortest runtime wait (Home: 120s).
+						const expiry = setTimeout(
+							() => decide(false),
+							PAGE_TOOL_CONFIRM_WINDOW_MS,
+						);
+						openPageConfirms.add(decide);
+						decline.addEventListener("click", () => decide(false));
+						accept.addEventListener("click", () => decide(true));
+						scrollLatest();
+						accept.focus();
+					}),
+			});
+			row.dataset.state = outcome.result.ok ? "done" : "failed";
+			row.innerHTML = "";
+			const text = document.createElement("span");
+			text.textContent = outcome.declined
+				? t("page_action_declined")
+				: !outcome.result.ok
+					? t("page_action_failed", { assistant: actor })
+					: outcome.label
+						? `${actor} ${outcome.label}`
+						: "";
+			if (!text.textContent) row.remove();
+			else row.append(text);
+			if (outcome.undo) {
+				const undo = outcome.undo;
+				const button = document.createElement("button");
+				button.type = "button";
+				button.textContent = t("page_action_undo");
+				button.addEventListener("click", () => {
+					button.disabled = true;
+					try {
+						undo();
+						button.replaceWith(
+							Object.assign(document.createElement("em"), {
+								textContent: t("page_action_undone"),
+							}),
+						);
+					} catch {
+						button.disabled = false;
+					}
+				});
+				row.append(button);
+			}
+			scrollLatest();
+			return outcome.result;
+		};
 		const applyApprovalProjection = (result, session) => {
 			const pending = new Set(
 				(result.data || []).map((approval) => approval.id),
@@ -2311,11 +2421,41 @@ import { createInFlightRequestCoalescer } from "./session-request";
 			let answer = "";
 			try {
 				if (homeTarget && selectedTediId === HOME_TARGET) {
+					const homePageTools = snapshotPageTools(hostPageTools);
+					const handledHomeCalls = new Set();
+					let homeStreamed = "";
 					const result = await homeTarget.turn({
 						conversationId,
 						text: content,
 						pageContext: turnPageContext,
 						signal: request.signal,
+						...(homePageTools.descriptors.length
+							? {
+									pageTools: homePageTools.descriptors,
+									runPageTool: async (call) => {
+										const parsed = readPageToolCall({
+											kind: "page_tool_call",
+											...call,
+										});
+										if (!parsed || handledHomeCalls.has(parsed.callId))
+											return null;
+										handledHomeCalls.add(parsed.callId);
+										pending.bubble.querySelector(".tedix-thinking")?.remove();
+										return handlePageToolCall(
+											parsed,
+											homePageTools,
+											pending,
+											homeTarget.label,
+										);
+									},
+								}
+							: {}),
+						onDelta: (delta) => {
+							if (typeof delta !== "string" || !delta) return;
+							homeStreamed += delta;
+							pending.bubble.innerHTML = renderMarkdown(homeStreamed);
+							scrollLatest();
+						},
 					});
 					answer = typeof result?.text === "string" ? result.text.trim() : "";
 					if (!answer) throw new Error("Home returned no answer.");
@@ -2396,6 +2536,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				};
 				progressTick = renderTurn;
 				let idleTimer = null;
+				let pageToolsRunning = 0;
 				let resolveLocalFinal = () => {};
 				const localFinal = new Promise((resolve) => {
 					resolveLocalFinal = resolve;
@@ -2418,17 +2559,55 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				};
 				const armIdleWatchdog = () => {
 					if (idleTimer) clearTimeout(idleTimer);
+					if (pageToolsRunning > 0) {
+						idleTimer = null;
+						return;
+					}
 					idleTimer = shouldArmStallWatchdog(currentTurn())
 						? setTimeout(finalizeLocally, stallWatchdogDelayMs(currentTurn()))
 						: null;
 				};
 				armIdleWatchdog();
+				// This turn's allow-list: only these page tools may run, whatever a
+				// frame names. A replayed frame (stream resume) never runs twice.
+				const turnPageTools = snapshotPageTools(hostPageTools);
+				const handledPageCalls = new Set();
+				const startPageToolCall = (call) => {
+					if (handledPageCalls.has(call.callId)) return;
+					handledPageCalls.add(call.callId);
+					// A person may take a while to tap confirm; that is not a stall.
+					pageToolsRunning += 1;
+					if (idleTimer) clearTimeout(idleTimer);
+					idleTimer = null;
+					void handlePageToolCall(call, turnPageTools, pending, configuredTitle)
+						.then((result) =>
+							getEmbeddedClient().resolvePageTool({
+								clientRequestId,
+								callId: call.callId,
+								result,
+							}),
+						)
+						.catch((error) =>
+							console.warn(
+								"[tedix widget] page tool result was not delivered",
+								error instanceof Error ? error.message : error,
+							),
+						)
+						.finally(() => {
+							pageToolsRunning -= 1;
+							if (!locallyFinalized && !currentTurn().finalized)
+								armIdleWatchdog();
+						});
+				};
 				const streamRun = getEmbeddedClient()
 					.stream(
 						{
 							clientRequestId,
 							text: content,
 							pageContext: turnPageContext,
+							...(turnPageTools.descriptors.length
+								? { pageTools: turnPageTools.descriptors }
+								: {}),
 							...(selectedModelRef ? { modelRef: selectedModelRef } : {}),
 							...(selectedEffort ? { reasoningEffort: selectedEffort } : {}),
 						},
@@ -2436,6 +2615,11 @@ import { createInFlightRequestCoalescer } from "./session-request";
 							if (locallyFinalized) return;
 							const event = frame.event;
 							turnMilestones.record("acknowledged");
+							const pageCall = readPageToolCall(event);
+							if (pageCall) {
+								startPageToolCall(pageCall);
+								return;
+							}
 							if (reliability.lastFirstEventMs === null)
 								reliability.lastFirstEventMs = Math.round(
 									now() - turnStartedAt,
@@ -2535,6 +2719,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				);
 			} finally {
 				clearInterval(progressTimer);
+				declineOpenPageConfirms();
 				reliability.lastTurnMs = Math.max(0, Math.round(now() - turnStartedAt));
 				emit("performance", {
 					phase: "turn",
@@ -2595,6 +2780,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				pageContext.entity?.id,
 			]);
 			pageContext = normalizePageContext(next);
+			setConnectionState(connectionState);
 			const currentRoute = JSON.stringify([
 				pageContext.pathname,
 				pageContext.routeKey,
@@ -2945,8 +3131,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 					},
 				},
 			]);
-			webMcpActive = true;
-			setConnectionState("webmcp");
+			setConnectionState(connectionState);
 			void registerPortableWebMcp();
 		};
 		registerWidgetWebMcp();
