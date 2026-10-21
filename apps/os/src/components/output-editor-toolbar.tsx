@@ -68,7 +68,7 @@ export function EditorToolbarButton({
 			aria-label={label}
 			title={label}
 			aria-pressed={active}
-			className="aria-pressed:bg-kumo-tint! aria-[pressed=false]:bg-transparent! max-sm:min-h-11 max-sm:min-w-11"
+			className="aria-pressed:bg-kumo-tint! aria-[pressed=false]:bg-transparent! max-sm:min-h-11 max-sm:min-w-11 motion-reduce:transition-none"
 			disabled={disabled}
 			onClick={onClick}
 		>

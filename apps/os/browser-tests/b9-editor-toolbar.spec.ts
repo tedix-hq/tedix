@@ -140,32 +140,30 @@ try {
 				"Disabled and enabled targets align",
 			);
 			const bold = page.getByRole("button", { name: "Bold", exact: true });
+			// Read the toggle's background only once its pressed state is set and
+			// no colour transition is still running, so a mid-transition frame is
+			// never mistaken for the settled state.
+			const settledBackground = async (pressed: "true" | "false") => {
+				await page.waitForFunction((state) => {
+					const element = document.querySelector('[aria-label="Bold"]');
+					return (
+						element?.getAttribute("aria-pressed") === state &&
+						element
+							.getAnimations()
+							.every((animation) => animation.playState !== "running")
+					);
+				}, pressed);
+				return bold.evaluate(
+					(element) => getComputedStyle(element).backgroundColor,
+				);
+			};
 			await bold.focus();
 			await page.keyboard.press("Space");
-			await page.waitForFunction(
-				() =>
-					document
-						.querySelector('[aria-label="Bold"]')
-						?.getAttribute("aria-pressed") === "true",
-			);
+			const activeBackground = await settledBackground("true");
 			assert.equal(await bold.getAttribute("aria-pressed"), "true");
-			const activeBackground = await bold.evaluate(
-				(element) => getComputedStyle(element).backgroundColor,
-			);
 			await page.screenshot({ path: `${evidence}/${name}-active.png` });
 			await page.keyboard.press("Space");
-			await page.waitForFunction(
-				() =>
-					document
-						.querySelector('[aria-label="Bold"]')
-						?.getAttribute("aria-pressed") === "false",
-			);
-			await page.waitForFunction(
-				(background) =>
-					getComputedStyle(document.querySelector('[aria-label="Bold"]')!)
-						.backgroundColor !== background,
-				activeBackground,
-			);
+			await settledBackground("false");
 			await page.screenshot({ path: `${evidence}/${name}-inactive.png` });
 			assert.notEqual(
 				await bold.evaluate(
