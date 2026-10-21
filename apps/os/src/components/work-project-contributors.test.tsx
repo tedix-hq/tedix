@@ -242,8 +242,10 @@ describe("Project contributors read recovery", () => {
 				button.click();
 			});
 			expect(reads.fn).toHaveBeenCalledTimes(3);
-			expect(view.retry().hasAttribute("disabled")).toBe(true);
-			expect(view.host.textContent).toContain("Retrying");
+			await vi.waitFor(() => {
+				expect(view.retry().hasAttribute("disabled")).toBe(true);
+				expect(view.host.textContent).toContain("Retrying");
+			});
 			await act(async () => release({ contributors: [session("a:1")] }));
 			await settle();
 			expect(view.host.querySelector("[data-contributors-stale]")).toBeNull();
