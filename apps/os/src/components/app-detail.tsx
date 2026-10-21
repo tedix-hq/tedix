@@ -1,5 +1,6 @@
 import {
 	ArrowSquareOut,
+	CaretRight,
 	DotsThree,
 	Eye,
 	EyeSlash,
@@ -26,6 +27,12 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Card, CardContent } from "@/components/kumo/card";
+import { cn } from "@/components/kumo/cn";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
@@ -620,27 +627,54 @@ export function appConnectionRows(
 function LifecycleFact({
 	label,
 	value,
-	detail,
+	hint,
 	className,
 }: {
 	label: string;
 	value: string;
-	detail: string;
+	/** Shown only when the state needs someone to act. */
+	hint?: string | null;
 	className?: string;
 }) {
 	return (
-		<div className={`grid min-w-0 content-start gap-1 p-3 ${className ?? ""}`}>
+		<div
+			className={cn(
+				"grid min-w-0 content-start gap-0.5 px-3 py-2.5",
+				className,
+			)}
+		>
 			<Text as="dt" role="label" tone="secondary">
 				{label}
 			</Text>
-			<dd className="m-0 grid gap-1">
+			<dd className="m-0 grid gap-0.5">
 				<Text as="strong" weight="medium">
 					{value}
 				</Text>
-				<Text as="span" role="body" tone="secondary">
-					{detail}
-				</Text>
+				{hint ? (
+					<Text as="span" role="body" tone="secondary">
+						{hint}
+					</Text>
+				) : null}
 			</dd>
+		</div>
+	);
+}
+
+function LifecycleExplanation({
+	label,
+	children,
+}: {
+	label: string;
+	children: ReactNode;
+}) {
+	return (
+		<div className="grid gap-0.5">
+			<Text as="dt" role="label" tone="secondary">
+				{label}
+			</Text>
+			<Text as="dd" role="body" className="m-0">
+				{children}
+			</Text>
 		</div>
 	);
 }
@@ -671,7 +705,6 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 		status: "checking" | "healthy" | "issue" | "error";
 		detail: string;
 		toolCount: number | null;
-		checkedAt?: string;
 	} | null>(null);
 
 	const orgRows = appConnectionRows(
@@ -712,7 +745,6 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 					? `${result.passCount} protocol checks passed.`
 					: `${result.failCount} of ${result.passCount + result.failCount} protocol checks failed.`,
 				toolCount: result.toolCount,
-				checkedAt: new Date().toISOString(),
 			});
 		} catch (error) {
 			setServiceCheck({
@@ -722,7 +754,6 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 						? error.message
 						: "The MCP check could not run.",
 				toolCount: null,
-				checkedAt: new Date().toISOString(),
 			});
 		}
 	};
@@ -778,10 +809,6 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 				<SectionHeader>
 					<SectionHeading>
 						<SectionTitle id="app-lifecycle-title">App lifecycle</SectionTitle>
-						<SectionDescription>
-							Installation, accounts, gateway access, readiness, and health are
-							independent states.
-						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
 				<div className="grid gap-3">
@@ -792,38 +819,43 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 						<LifecycleFact
 							label="Installation"
 							value="Installed for this organization"
-							detail="The app record is tenant scoped. Personal credentials are never implied by installation."
 							className="md:border-kumo-hairline md:border-r"
 						/>
 						<LifecycleFact
 							label="Account"
 							value={connectionValue}
-							detail="Organization credentials may be shared by policy; personal credentials remain owned by the connected user."
+							hint={
+								connectionValue === "Connection needs attention"
+									? "Reconnect the account in Connections."
+									: null
+							}
 							className="border-kumo-hairline border-t md:border-t-0"
 						/>
 						<LifecycleFact
 							label="Unified gateway"
 							value={gatewayValue}
-							detail={
-								isGateway && !membership.isError
-									? "Self-membership does not apply. Manage availability from each installed app. Client permissions and account access still apply."
-									: "Gateway membership controls discovery. It does not create credentials or grant scopes."
-							}
 							className="border-kumo-hairline border-t md:border-r"
 						/>
 						<LifecycleFact
 							label="Readiness"
 							value={governanceValue}
-							detail="Readiness evaluates required connections, scopes, plans, entitlements, and tool policy."
+							hint={
+								governance?.badge === "plan_upgrade"
+									? "Upgrade the plan to use this app."
+									: governance && governance.badge !== "ready"
+										? "Finish the required connections or scopes."
+										: null
+							}
 							className="border-kumo-hairline border-t"
 						/>
 						<LifecycleFact
 							label="MCP health"
 							value={healthValue}
-							detail={
-								serviceCheck
-									? `${serviceCheck.detail}${serviceCheck.checkedAt ? ` Checked ${new Date(serviceCheck.checkedAt).toLocaleString()}.` : ""}`
-									: "Run a service test to inspect the MCP protocol endpoint."
+							hint={
+								serviceCheck?.status === "issue" ||
+								serviceCheck?.status === "error"
+									? serviceCheck.detail
+									: null
 							}
 							className="border-kumo-hairline border-t md:border-r"
 						/>
@@ -834,10 +866,45 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 									? "Live inventory not checked"
 									: `${serviceCheck.toolCount.toLocaleString()} live ${serviceCheck.toolCount === 1 ? "tool" : "tools"}`
 							}
-							detail="Counts come from live gateway discovery, not a stored list."
 							className="border-kumo-hairline border-t"
 						/>
 					</dl>
+					<Collapsible>
+						<CollapsibleTrigger className="group/disclosure -ml-2">
+							<CaretRight
+								size={14}
+								aria-hidden
+								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+							/>
+							What these states mean
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<dl className="m-0 grid gap-2 pt-2">
+								<LifecycleExplanation label="Installation">
+									The app record belongs to this organization. Installing it
+									never connects anyone&apos;s personal account.
+								</LifecycleExplanation>
+								<LifecycleExplanation label="Account">
+									Organization accounts may be shared by policy; personal
+									accounts stay with the person who connected them.
+								</LifecycleExplanation>
+								<LifecycleExplanation label="Unified gateway">
+									Gateway membership controls discovery. It does not create
+									credentials or grant scopes.
+								</LifecycleExplanation>
+								<LifecycleExplanation label="Readiness">
+									Checks required connections, scopes, plan, entitlements and
+									tool policy.
+								</LifecycleExplanation>
+								<LifecycleExplanation label="MCP health">
+									A service test checks the app&apos;s MCP endpoint.
+								</LifecycleExplanation>
+								<LifecycleExplanation label="Available tools">
+									Counted from live discovery, not a stored list.
+								</LifecycleExplanation>
+							</dl>
+						</CollapsibleContent>
+					</Collapsible>
 					<div
 						className="flex flex-wrap items-center gap-2"
 						role="group"

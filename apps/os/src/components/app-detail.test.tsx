@@ -218,7 +218,11 @@ describe("app lifecycle", () => {
 		(enabled) => {
 			const summary = renderLifecycle({ gatewayId: detailApp.id, enabled });
 			expect(summary.textContent).toContain("This app is the unified gateway");
-			expect(summary.textContent).toContain("Self-membership does not apply");
+			// The explanation lives once, in the gateway card below the states.
+			expect(summary.textContent).not.toContain("Self-membership");
+			expect(summary.ownerDocument.body.textContent).toContain(
+				"Self-membership does not apply",
+			);
 			expect(summary.textContent).not.toContain("Not in unified gateway");
 			expect(summary.textContent).not.toContain("Available in unified gateway");
 		},
