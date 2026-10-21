@@ -907,6 +907,29 @@ export function inDarkWake(): boolean {
 	return state.status === 0 && !/\bGraphics\b/.test(state.stdout);
 }
 
+// Failures before a connection exists: no request byte reached the server.
+// Resets, TLS and timeouts are excluded because the request may have been sent.
+const CONNECTION_NEVER_OPENED = new Set([
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	"ECONNREFUSED",
+	"ENETUNREACH",
+	"EHOSTUNREACH",
+	"ENETDOWN",
+	"ConnectionRefused",
+	"FailedToOpenSocket",
+]);
+
+function connectionNeverOpened(error: unknown): boolean {
+	for (let value = error, depth = 0; value && depth < 3; depth++) {
+		const code = (value as { code?: unknown }).code;
+		if (typeof code === "string" && CONNECTION_NEVER_OPENED.has(code))
+			return true;
+		value = (value as { cause?: unknown }).cause;
+	}
+	return false;
+}
+
 const RENEWAL_JOURNAL_BYTES = 1_000_000;
 
 /**
@@ -1042,11 +1065,35 @@ export async function refreshStoredSession(
 					refreshSent = true;
 				}
 				phase = "sent";
-				const response = await fetchFn(input, {
-					...init,
-					body,
-					signal: controller.signal,
-				});
+				let response: Response;
+				try {
+					response = await fetchFn(input, {
+						...init,
+						body,
+						signal: controller.signal,
+					});
+				} catch (error) {
+					// No connection was made (offline after wake, DNS, refused), so the
+					// server never saw the token. Lift the fence so a later run retries.
+					if (
+						connectionNeverOpened(error) &&
+						workspace &&
+						expectedCredential?.oauthRefreshPending
+					) {
+						const unsent = {
+							...expectedCredential,
+							oauthRefreshPending: undefined,
+						};
+						writeWorkspaceCredentials(
+							workspace,
+							unsent,
+							undefined,
+							expectedCredential,
+						);
+						expectedCredential = unsent;
+					}
+					throw error;
+				}
 				phase = "received";
 				const requestId =
 					response.headers.get("x-descope-request-id") ??
