@@ -613,161 +613,11 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			// Step 5: Reconcile the enabled catalog into AI Search in bounded,
 			// durable pages. The former all-catalog step exceeded Cloudflare's
 			// five-minute attempt window once the catalog reached 2,722 apps.
-			let vectorReady = false;
-			let vectorSynced = 0;
-			let vectorFailed = 0;
-			let vectorSkipped = false;
-			const vectorErrors: string[] = [];
-			try {
-				vectorReady = (await step.do(
-					"vector-index-ready",
-					{
-						retries: { limit: 1, delay: "2 seconds" },
-						timeout: "30 seconds",
-					},
-					async () => {
-						const vectorClient = await getOrCreateCatalogVectorClient(this.env);
-						return vectorClient !== null;
-					},
-				)) as boolean;
-				vectorSkipped = !vectorReady;
-				if (!vectorReady) {
-					console.log(
-						"[App Catalog Sync] Catalog vector index not configured — skipping vector sync",
-					);
-				}
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				console.error("[App Catalog Sync] Vector index setup failed", error);
-				vectorSkipped = true;
-				vectorErrors.push(message);
-			}
-
-			// Pages follow an id cursor, not an offset: apps that change status mid
-			// run must not shift later pages and end the reconciliation early.
-			// Step names keep the former offset form so a native replay can still
-			// restart from the earliest failed `vector-index-sync-<n>` step.
-			let vectorReachedEnd = false;
-			if (vectorReady) {
-				const maxPages =
-					Math.ceil(changelog.after.enabledCount / CATALOG_VECTOR_PAGE_SIZE) *
-						2 +
-					10;
-				let afterId: string | undefined;
-				for (let page = 0; page < maxPages; page++) {
-					const offset = page * CATALOG_VECTOR_PAGE_SIZE;
-					try {
-						const result = (await step.do(
-							`vector-index-sync-${offset}`,
-							{
-								retries: { limit: 1, delay: "2 seconds" },
-								timeout: "5 minutes",
-							},
-							async () => {
-								const vectorClient = await getOrCreateCatalogVectorClient(
-									this.env,
-								);
-								if (!vectorClient) {
-									return {
-										vectorSynced: 0,
-										vectorFailed: 0,
-										skipped: true,
-										count: 0,
-										lastId: null,
-									};
-								}
-								const apps = await listEnabledCatalogAppsForVectorSync(db, {
-									limit: CATALOG_VECTOR_PAGE_SIZE,
-									afterId,
-								});
-								const vectorApps: CatalogAppVectorInput[] = apps.map((app) => ({
-									id: app.id,
-									slug: app.slug,
-									name: app.name,
-									description: app.description,
-									modelDescription: app.modelDescription,
-									developer: app.developer,
-									category: app.category,
-									categories: app.categories as string[] | null,
-									keywordsForDiscovery: app.keywordsForDiscovery as
-										| string[]
-										| null,
-									keywordsForTriggering: app.keywordsForTriggering as
-										| string[]
-										| null,
-									seoDescription: app.seoDescription,
-									healthStatus: app.healthStatus,
-									mcpToolCount: app.mcpToolCount,
-									mcpEndpointNormalized: app.mcpEndpointNormalized,
-									connectorType: app.connectorType,
-									hasWrites: app.hasWrites,
-									hasInteractive: app.hasInteractive,
-								}));
-								const result = await bulkUpsertCatalogApps(
-									vectorClient,
-									vectorApps,
-								);
-								console.log(
-									`[App Catalog Sync] Vector page ${offset}: ${result.upserted} upserted, ${result.failed} failed`,
-								);
-								return {
-									vectorSynced: result.upserted,
-									vectorFailed: result.failed,
-									skipped: false,
-									count: apps.length,
-									lastId: apps.at(-1)?.id ?? null,
-								};
-							},
-						)) as {
-							vectorSynced: number;
-							vectorFailed: number;
-							skipped: boolean;
-							count: number;
-							lastId: string | null;
-						};
-						vectorSynced += result.vectorSynced;
-						vectorFailed += result.vectorFailed;
-						vectorSkipped ||= result.skipped;
-						if (result.skipped) break;
-						if (typeof result.count !== "number") {
-							// A run that started on offset paging replays its cached pages
-							// without a cursor; it cannot prove it reached the end.
-							vectorErrors.push(
-								`offset ${offset}: cached page has no cursor; rerun the refresh`,
-							);
-							break;
-						}
-						if (result.count < CATALOG_VECTOR_PAGE_SIZE || !result.lastId) {
-							vectorReachedEnd = true;
-							break;
-						}
-						afterId = result.lastId;
-					} catch (error) {
-						// Without the page's last id the cursor cannot advance; stop
-						// and report the reconciliation incomplete.
-						const message =
-							error instanceof Error ? error.message : String(error);
-						console.error(
-							`[App Catalog Sync] Vector page ${offset} failed after retries`,
-							error,
-						);
-						vectorErrors.push(`offset ${offset}: ${message}`);
-						break;
-					}
-				}
-			}
-
-			const search = {
-				synced: vectorSynced,
-				failed: vectorFailed,
-				skipped: vectorSkipped,
-				complete:
-					!vectorSkipped &&
-					vectorReachedEnd &&
-					vectorFailed === 0 &&
-					vectorErrors.length === 0,
-				errors: vectorErrors.slice(0, 10),
-			};
+			const search = await this.reconcileSearch(
+				db,
+				step,
+				changelog.after.enabledCount,
+			);
 			const success = !searchOnly || search.complete;
 			// Step 6: Finalize sync log with changelog
 			await step.do(
@@ -873,6 +723,166 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				filesProcessed,
 			};
 		}
+	}
+
+	private async reconcileSearch(
+		db: ReturnType<typeof createDbClient>,
+		step: WorkflowStep,
+		enabledCount: number,
+	) {
+		let vectorReady = false;
+		let vectorSynced = 0;
+		let vectorFailed = 0;
+		let vectorSkipped = false;
+		const vectorErrors: string[] = [];
+		try {
+			vectorReady = (await step.do(
+				"vector-index-ready",
+				{
+					retries: { limit: 1, delay: "2 seconds" },
+					timeout: "30 seconds",
+				},
+				async () => {
+					const vectorClient = await getOrCreateCatalogVectorClient(this.env);
+					return vectorClient !== null;
+				},
+			)) as boolean;
+			vectorSkipped = !vectorReady;
+			if (!vectorReady) {
+				console.log(
+					"[App Catalog Sync] Catalog vector index not configured — skipping vector sync",
+				);
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error("[App Catalog Sync] Vector index setup failed", error);
+			vectorSkipped = true;
+			vectorErrors.push(message);
+		}
+
+		// Pages follow an id cursor, not an offset: apps that change status mid
+		// run must not shift later pages and end the reconciliation early.
+		// Step names keep the former offset form so a native replay can still
+		// restart from the earliest failed `vector-index-sync-<n>` step.
+		let vectorReachedEnd = false;
+		if (vectorReady) {
+			const maxPages =
+				Math.ceil(enabledCount / CATALOG_VECTOR_PAGE_SIZE) * 2 + 10;
+			let afterId: string | undefined;
+			for (let page = 0; page < maxPages; page++) {
+				const offset = page * CATALOG_VECTOR_PAGE_SIZE;
+				try {
+					const result = (await step.do(
+						`vector-index-sync-${offset}`,
+						{
+							retries: { limit: 1, delay: "2 seconds" },
+							timeout: "5 minutes",
+						},
+						async () => {
+							const vectorClient = await getOrCreateCatalogVectorClient(
+								this.env,
+							);
+							if (!vectorClient) {
+								return {
+									vectorSynced: 0,
+									vectorFailed: 0,
+									skipped: true,
+									count: 0,
+									lastId: null,
+								};
+							}
+							const apps = await listEnabledCatalogAppsForVectorSync(db, {
+								limit: CATALOG_VECTOR_PAGE_SIZE,
+								afterId,
+							});
+							const vectorApps: CatalogAppVectorInput[] = apps.map((app) => ({
+								id: app.id,
+								slug: app.slug,
+								name: app.name,
+								description: app.description,
+								modelDescription: app.modelDescription,
+								developer: app.developer,
+								category: app.category,
+								categories: app.categories as string[] | null,
+								keywordsForDiscovery: app.keywordsForDiscovery as
+									| string[]
+									| null,
+								keywordsForTriggering: app.keywordsForTriggering as
+									| string[]
+									| null,
+								seoDescription: app.seoDescription,
+								healthStatus: app.healthStatus,
+								mcpToolCount: app.mcpToolCount,
+								mcpEndpointNormalized: app.mcpEndpointNormalized,
+								connectorType: app.connectorType,
+								hasWrites: app.hasWrites,
+								hasInteractive: app.hasInteractive,
+							}));
+							const result = await bulkUpsertCatalogApps(
+								vectorClient,
+								vectorApps,
+							);
+							console.log(
+								`[App Catalog Sync] Vector page ${offset}: ${result.upserted} upserted, ${result.failed} failed`,
+							);
+							return {
+								vectorSynced: result.upserted,
+								vectorFailed: result.failed,
+								skipped: false,
+								count: apps.length,
+								lastId: apps.at(-1)?.id ?? null,
+							};
+						},
+					)) as {
+						vectorSynced: number;
+						vectorFailed: number;
+						skipped: boolean;
+						count: number;
+						lastId: string | null;
+					};
+					vectorSynced += result.vectorSynced;
+					vectorFailed += result.vectorFailed;
+					vectorSkipped ||= result.skipped;
+					if (result.skipped) break;
+					if (typeof result.count !== "number") {
+						// A run that started on offset paging replays its cached pages
+						// without a cursor; it cannot prove it reached the end.
+						vectorErrors.push(
+							`offset ${offset}: cached page has no cursor; rerun the refresh`,
+						);
+						break;
+					}
+					if (result.count < CATALOG_VECTOR_PAGE_SIZE || !result.lastId) {
+						vectorReachedEnd = true;
+						break;
+					}
+					afterId = result.lastId;
+				} catch (error) {
+					// Without the page's last id the cursor cannot advance; stop
+					// and report the reconciliation incomplete.
+					const message =
+						error instanceof Error ? error.message : String(error);
+					console.error(
+						`[App Catalog Sync] Vector page ${offset} failed after retries`,
+						error,
+					);
+					vectorErrors.push(`offset ${offset}: ${message}`);
+					break;
+				}
+			}
+		}
+
+		return {
+			synced: vectorSynced,
+			failed: vectorFailed,
+			skipped: vectorSkipped,
+			complete:
+				!vectorSkipped &&
+				vectorReachedEnd &&
+				vectorFailed === 0 &&
+				vectorErrors.length === 0,
+			errors: vectorErrors.slice(0, 10),
+		};
 	}
 
 	/**
