@@ -513,10 +513,14 @@ export async function refreshConsolidatedForFact(
 	orgId: string,
 	factId: string,
 ) {
+	const { id, metadata, tediId, visibility, memoryScope } = prefixedColumns(
+		memoryFacts,
+		"fact",
+	);
 	let cursor = "";
 	while (true) {
 		const rows = await db
-			.select(prefixedColumns(memoryFacts, "fact"))
+			.select({ id, metadata, tediId, visibility, memoryScope })
 			.from(derivedFacts)
 			.where(
 				and(
@@ -719,9 +723,11 @@ export async function preferConsolidatedFacts(
 ) {
 	if (!facts.length) return facts;
 	const ids = facts.map((fact) => fact.id);
-	const candidates = await db
-		.select()
-		.from(memoryFacts)
+	// Seek the small derived-source set before evaluating citation JSON. Lifecycle
+	// indexes otherwise tempt SQLite into reading every active fact in the org.
+	const candidateIds = db
+		.select({ id: prefixedColumns(memoryFacts, "candidate").id })
+		.from(derivedFacts)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
@@ -737,6 +743,12 @@ export async function preferConsolidatedFacts(
 		)
 		.orderBy(desc(memoryFacts.updatedAt), asc(memoryFacts.id))
 		.limit(50);
+	const candidates = await db
+		.select(prefixedColumns(memoryFacts, "fact"))
+		.from(factsById)
+		// bound-params: candidateIds is a LIMIT 50 SQL subquery, not a bound-value list.
+		.where(inArray(memoryFacts.id, candidateIds))
+		.orderBy(desc(memoryFacts.updatedAt), asc(memoryFacts.id));
 	const merged = new Map(
 		[...candidates.filter((fact) => readConsolidation(fact)), ...facts].map(
 			(fact) => [fact.id, fact],
