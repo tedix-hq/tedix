@@ -1,3 +1,4 @@
+import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import * as z from "zod";
 
 /**
@@ -74,19 +75,15 @@ function unwrapZod(schema: z.ZodType): z.ZodType {
 	}
 }
 
-interface ContractProcedure {
-	"~orpc": { inputSchemas?: readonly unknown[] };
-}
-
 /**
  * The input zod object of an oRPC contract procedure, for inputs defined
  * inline in the contract rather than as a named schema export (e.g.
  * `workItemsContract.list`, `skillsContract.runWorkflow`).
  */
 export function contractInputSchema(
-	procedure: ContractProcedure,
+	procedure: unknown,
 ): z.ZodObject<z.ZodRawShape> {
-	const first = procedure["~orpc"].inputSchemas?.[0];
+	const first = procedureInputSchema(procedure);
 	if (first === undefined) {
 		throw new Error("contract procedure declares no input schema");
 	}

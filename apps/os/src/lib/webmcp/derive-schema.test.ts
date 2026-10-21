@@ -136,4 +136,16 @@ describe("contractInputSchema", () => {
 			/no input schema/,
 		);
 	});
+
+	it("rejects a procedure with stacked input schemas", () => {
+		const procedure = {
+			"~orpc": {
+				inputSchemas: [
+					contract.pick({ id: true }),
+					contract.pick({ title: true }),
+				],
+			},
+		};
+		expect(() => contractInputSchema(procedure)).toThrow(/stacked input/);
+	});
 });
