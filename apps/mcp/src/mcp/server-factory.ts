@@ -60,6 +60,10 @@ import {
 import type { McpApp, OpenAiWidgetCSP } from "./types";
 import { registerAccountProfile } from "./registration/account-profile";
 import {
+	isCodeModeNativeOptIn,
+	SESSION_NATIVE_HOME_TOOL_IDS,
+} from "./code-mode-native-tools";
+import {
 	registerGetInfoTool,
 	isConfiguredCatalogTool,
 } from "./registration/bootstrap";
@@ -77,16 +81,6 @@ const log = createMcpLogger("mcp.server_factory");
 // =============================================================================
 // CONSTANTS
 // =============================================================================
-
-/**
- * The session Code Mode lane's native (non-Code-Mode) tool surface: `code`
- * plus exactly these home-surface tool ids. The stateless fast path
- * (`compactCodeModeTools` in index.ts) instead advertises `code` + `get_info`
- * — deliberately no `ask`, because `ask` creates a durable Home turn and
- * requires an authenticated org context the stateless lane does not resolve.
- * The outer-surface lane conformance test pins both lists to this decision.
- */
-export const SESSION_NATIVE_HOME_TOOL_IDS = ["ask"] as const;
 
 const DEFAULT_APP_CAPABILITIES: AppCapabilities = {
 	checkout: { enabled: false },
@@ -809,8 +803,12 @@ async function buildServerInstructions(
 				const names = summaries
 					.map((s) => s.slug ?? s.title ?? s.id)
 					.join(", ");
+				const discovery =
+					mcpConfig?.codeMode === true
+						? "Find skills with `discover.search` in Code Mode and follow each result's load expression."
+						: "Use `list_skills` to discover available skills and `read_skill` to load full procedures.";
 				parts.push(
-					`## Skills\n\nThis server has ${summaries.length} skill(s). Use \`list_skills\` to discover available skills and \`read_skill\` to load full procedures.\nSkills are also available as \`skill://{name}/SKILL.md\` resources via \`resources/read\`.\n\nAvailable: ${names}`,
+					`## Skills\n\nThis server has ${summaries.length} skill(s). ${discovery}\nSkills are also available as \`skill://{name}/SKILL.md\` resources via \`resources/read\`.\n\nAvailable: ${names}`,
 				);
 			}
 
@@ -1063,7 +1061,8 @@ export async function buildMcpServer(
 					clientAppsSupported &&
 					tool.enabled &&
 					tool.config?.nativeDirect === true &&
-					resolveToolWidgetRoute(tool)
+					resolveToolWidgetRoute(tool) &&
+					isCodeModeNativeOptIn(cachedData.metadata?.mcpConfig, tool.toolId)
 				) &&
 				((tool.meta as Record<string, unknown> | null | undefined)?.source !==
 					"homeSurface" ||

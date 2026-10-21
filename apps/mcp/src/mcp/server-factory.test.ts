@@ -895,12 +895,13 @@ function catalogRow(
 }
 describe("Code Mode widget declarations", () => {
 	it.each([
-		[true, true],
-		[false, true],
-		[true, false],
+		[true, true, true],
+		[true, true, false],
+		[false, true, true],
+		[true, false, true],
 	])(
-		"gates native UI declarations on client support and row opt-in (%s, %s)",
-		async (supportsApps, nativeDirect) => {
+		"gates native UI declarations on client support, row and app opt-in (%s, %s, %s)",
+		async (supportsApps, nativeDirect, optedIn) => {
 			vi.spyOn(
 				await import("./codemode"),
 				"registerCodeModeTools",
@@ -911,7 +912,10 @@ describe("Code Mode widget declarations", () => {
 			);
 			const cached = createCachedData();
 			cached.metadata = {
-				mcpConfig: { codeMode: true },
+				mcpConfig: {
+					codeMode: true,
+					...(optedIn ? { codeModeNativeTools: ["show_fixture"] } : {}),
+				},
 			} as CachedAppData["metadata"];
 			cached.tools = [
 				catalogRow({
@@ -954,7 +958,7 @@ describe("Code Mode widget declarations", () => {
 					_meta?: { ui?: { resourceUri?: string } };
 				}>
 			).find((t) => t.name === "show_fixture");
-			if (!supportsApps || !nativeDirect) {
+			if (!supportsApps || !nativeDirect || !optedIn) {
 				expect(tool).toBeUndefined();
 				await server.close();
 				return;

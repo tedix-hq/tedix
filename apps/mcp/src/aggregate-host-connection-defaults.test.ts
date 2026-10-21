@@ -624,23 +624,26 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		const payload = (await list.json()) as {
 			result?: { tools?: Array<{ name: string }> };
 		};
-		expect(payload.result?.tools?.map((tool) => tool.name)).toEqual([
-			"code",
-			"get_info",
-		]);
+		expect(payload.result?.tools?.map((tool) => tool.name)).toEqual(["code"]);
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
 
-	it.each(["io.modelcontextprotocol/ui", "io.modelcontextprotocol/apps"])(
-		"hydrates widget discovery only for a client declaring %s",
-		async (extension) => {
+	it.each([
+		["io.modelcontextprotocol/ui", true],
+		["io.modelcontextprotocol/apps", true],
+		["io.modelcontextprotocol/apps", false],
+	])(
+		"hydrates widget discovery for a client declaring %s only with native opt-in (%s)",
+		async (extension, optIn) => {
 			installFixtures([
 				{
-					slug: "apps-client-host",
+					// Distinct per case: app resolution is cached by host.
+					slug: `apps-client-host-${extension.split("/")[1]}-${optIn}`,
 					mcpConfig: {
 						authMode: "public",
 						codeMode: true,
 						aggregateApps: [{ slug: "fixture" }],
+						...(optIn ? { codeModeNativeTools: ["fixture__show_deck"] } : {}),
 					},
 				},
 				{
@@ -649,33 +652,46 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 				},
 			]);
 			const response = await worker.fetch(
-				new Request("https://apps-client-host.mcp.tedix.tech/mcp", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"MCP-Protocol-Version": "2026-07-28",
-						"Mcp-Method": "tools/list",
-					},
-					body: JSON.stringify({
-						jsonrpc: "2.0",
-						id: 1,
-						method: "tools/list",
-						params: {
-							_meta: {
-								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
-								"io.modelcontextprotocol/clientCapabilities": {
-									extensions: {
-										[extension]: { mimeTypes: ["text/html;profile=mcp-app"] },
+				new Request(
+					`https://apps-client-host-${extension.split("/")[1]}-${optIn}.mcp.tedix.tech/mcp`,
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"MCP-Protocol-Version": "2026-07-28",
+							"Mcp-Method": "tools/list",
+						},
+						body: JSON.stringify({
+							jsonrpc: "2.0",
+							id: 1,
+							method: "tools/list",
+							params: {
+								_meta: {
+									"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+									"io.modelcontextprotocol/clientCapabilities": {
+										extensions: {
+											[extension]: { mimeTypes: ["text/html;profile=mcp-app"] },
+										},
 									},
 								},
 							},
-						},
-					}),
-				}),
+						}),
+					},
+				),
 				createEnv(),
 				createExecutionContext(),
 			);
 			expect(response.status).toBe(200);
+			if (!optIn) {
+				const payload = (await response.json()) as {
+					result?: { tools?: Array<{ name: string }> };
+				};
+				expect(payload.result?.tools?.map((tool) => tool.name)).toEqual([
+					"code",
+				]);
+				expect(buildMcpServer).not.toHaveBeenCalled();
+				return;
+			}
 			expect(buildMcpServer).toHaveBeenCalledOnce();
 			expect((buildMcpServer.mock.calls[0] as unknown[])[13]).toBe(true);
 		},

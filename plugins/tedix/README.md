@@ -73,12 +73,13 @@ the URL `https://connect.mcp.tedix.dev/mcp`, and nothing else. Neither file
 lists scopes or holds credentials: the host's OAuth flow, browser consent and
 server enforcement determine access.
 
-`tedix-connect` is the packaged onboarding skill. First use verifies the current
-account via `get_profile`, resolves the organization separately, and performs one
-bounded read through Code Mode. Ordinary remote workflows need no CLI. Account
-identity, organization selection and capability authorization are separate facts.
-The profile is authenticated, read-only and independent of organization/scopes;
-Code Mode remains the action and composition surface.
+`tedix-connect` is the packaged onboarding skill. Connect lists one tool, `code`.
+First use calls `codemode.__runtime()` to verify the current account and
+selected organization, then performs one bounded read through Code Mode.
+Ordinary remote workflows need no CLI. Account identity, organization selection
+and capability authorization are separate facts. Code Mode is the action and
+composition surface; Deck, Feed and skills are Code Mode callables found with
+`discover.search`.
 
 Run the scenarios in `validation.json` on a fresh installed chat. Record the
 host, package hash, actual account/org, returned receipts and pass/fail per case.
