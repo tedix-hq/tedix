@@ -66,7 +66,7 @@ const NODE_ARC = 24;
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
-export type KnowledgeNodeType =
+type KnowledgeNodeType =
 	| "fact"
 	| "decision"
 	| "domain"
@@ -94,7 +94,7 @@ export interface KnowledgeEdgeInput {
  * the raw evidence (facts, decisions). A flat force layout would hide exactly
  * that hierarchy, which is the one thing the picture is for.
  */
-export const KNOWLEDGE_RING: Record<KnowledgeNodeType, number> = {
+const KNOWLEDGE_RING: Record<KnowledgeNodeType, number> = {
 	tedi: 0,
 	domain: 0,
 	skill: 1,
@@ -103,7 +103,7 @@ export const KNOWLEDGE_RING: Record<KnowledgeNodeType, number> = {
 	decision: 2,
 };
 
-export interface KnowledgeLayoutNode {
+interface KnowledgeLayoutNode {
 	id: string;
 	label: string;
 	type: KnowledgeNodeType;
@@ -113,7 +113,7 @@ export interface KnowledgeLayoutNode {
 	y: number;
 }
 
-export interface KnowledgeLayoutEdge {
+interface KnowledgeLayoutEdge {
 	id: string;
 	from: string;
 	to: string;
@@ -259,7 +259,7 @@ export function layoutKnowledgeGraph(
 	};
 }
 
-export const NODE_TYPE_CLASSES: Record<KnowledgeNodeType, string> = {
+const NODE_TYPE_CLASSES: Record<KnowledgeNodeType, string> = {
 	tedi: "text-kumo-strong",
 	domain: "text-kumo-info",
 	skill: "text-kumo-success",

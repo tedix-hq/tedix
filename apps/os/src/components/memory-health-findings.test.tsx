@@ -11,7 +11,6 @@ import {
 	MemoryHealthFindingItem,
 	ProvenanceDetails,
 	provenanceLines,
-	reviewTarget,
 } from "./memory-health-findings";
 
 const context = { unusedDays: 60, staleDays: 90, orphanWindow: 2000 };
@@ -93,13 +92,6 @@ describe("provenance", () => {
 		);
 		expect(html).toContain("No source was recorded");
 		expect(html).toContain("never verified");
-	});
-});
-
-describe("review links", () => {
-	it("only links facts that belong to a tedi", () => {
-		expect(reviewTarget({ tediId: null })).toBeNull();
-		expect(reviewTarget({ tediId: "t1" })).toEqual({ tediId: "t1" });
 	});
 });
 

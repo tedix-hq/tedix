@@ -1,10 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
 import { MemoryConsolidationSchema } from "@tedix/api-contract/schemas/memory-observations";
 import type { Fact } from "@tedix/api-contract/schemas/memory-graph";
-import { osQuery } from "@/lib/os-query-options";
 import { Badge } from "@/components/kumo/badge";
 import { Text } from "@/components/kumo/text";
-import { ListSkeleton } from "@/components/list-skeleton";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 
@@ -71,30 +68,5 @@ export function ObservationEvidence({ fact }: { fact: Fact }) {
 				</div>
 			</details>
 		</article>
-	);
-}
-export function MemoryObservations() {
-	const query = useQuery({
-		...osQuery.memoryGraph.listObservations.queryOptions({
-			input: { limit: 25 },
-		}),
-		staleTime: 30_000,
-	});
-	if (query.isPending) return <ListSkeleton />;
-	if (query.isError)
-		return <Text tone="secondary">Memory observations are unavailable.</Text>;
-	if (!query.data.facts.length)
-		return (
-			<Text tone="secondary">
-				Related memories become observations after reflection. Sources and
-				changes appear here.
-			</Text>
-		);
-	return (
-		<div>
-			{query.data.facts.map((fact) => (
-				<ObservationEvidence key={fact.id} fact={fact} />
-			))}
-		</div>
 	);
 }
