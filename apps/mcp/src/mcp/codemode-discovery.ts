@@ -28,6 +28,17 @@ export const SCHEMA_DISCOVERY_DEFAULT_LIMIT = 5;
 // so a default page of rows stays well under client-side result truncation.
 const DISCOVERY_DESCRIPTION_BUDGET = 280;
 
+const DISCOVERY_SEARCH_ARGUMENT_TYPES = {
+	query: "string",
+	namespace: "string",
+	organization: "string",
+	limit: "number",
+	offset: "number",
+	includeParameters: "boolean",
+	includeOutputSchema: "boolean",
+	includeMetadata: "boolean",
+} as const;
+
 export function normalizeDiscoverySearchInput(input: unknown): {
 	includeParameters: boolean;
 	includeOutputSchema: boolean;
@@ -36,8 +47,37 @@ export function normalizeDiscoverySearchInput(input: unknown): {
 	offset: number;
 	query: string;
 	namespace: string;
+	organization: string;
 } {
 	const record = recordFrom(input);
+	const accepted = `use { ${Object.keys(DISCOVERY_SEARCH_ARGUMENT_TYPES).join(", ")} }`;
+	if (input !== undefined && typeof input !== "string" && !record) {
+		throw new Error(
+			`discover.search: expected a string or argument object; ${accepted}`,
+		);
+	}
+	if (record) {
+		const unknown = Object.keys(record).filter(
+			(key) => !Object.hasOwn(DISCOVERY_SEARCH_ARGUMENT_TYPES, key),
+		);
+		if (unknown.length) {
+			throw new Error(
+				`discover.search: unknown argument${unknown.length === 1 ? "" : "s"} ${unknown.map((key) => JSON.stringify(key)).join(", ")}; ${accepted}`,
+			);
+		}
+		for (const [key, type] of Object.entries(DISCOVERY_SEARCH_ARGUMENT_TYPES)) {
+			const value = record[key];
+			if (
+				value !== undefined &&
+				(typeof value !== type ||
+					(type === "number" && !Number.isFinite(value)))
+			) {
+				throw new Error(
+					`discover.search: invalid argument "${key}"; expected ${type}; ${accepted}`,
+				);
+			}
+		}
+	}
 	const rawLimit = record?.limit;
 	const rawOffset = record?.offset;
 	const includeParameters = record?.includeParameters === true;
@@ -53,6 +93,10 @@ export function normalizeDiscoverySearchInput(input: unknown): {
 				? record.query
 				: ""
 		).trim(),
+		organization:
+			typeof record?.organization === "string"
+				? record.organization.trim()
+				: "",
 		includeParameters,
 		includeOutputSchema,
 		includeMetadata: record?.includeMetadata === true,

@@ -47,6 +47,7 @@ describe("Code Mode discovery helpers", () => {
 			offset: 0,
 			query: "find skills",
 			namespace: "",
+			organization: "",
 		});
 		expect(
 			normalizeDiscoverySearchInput({
@@ -64,11 +65,47 @@ describe("Code Mode discovery helpers", () => {
 			offset: 0,
 			query: "list tools",
 			namespace: "tools",
+			organization: "",
 		});
 		expect(
 			normalizeDiscoverySearchInput({ includeMetadata: true }).includeMetadata,
 		).toBe(true);
 		expect(normalizeSearchTerms("List, tools list")).toEqual(["list", "tools"]);
+	});
+
+	it.each([{ q: "tools" }, { name: "tools", org: "alpha" }])(
+		"rejects unknown keys: %j",
+		(input) => {
+			expect(() => normalizeDiscoverySearchInput(input)).toThrow(
+				/discover.search: unknown argument/,
+			);
+			for (const key of Object.keys(input)) {
+				expect(() => normalizeDiscoverySearchInput(input)).toThrow(`"${key}"`);
+			}
+			expect(() => normalizeDiscoverySearchInput(input)).toThrow(
+				"use { query, namespace, organization, limit, offset, includeParameters, includeOutputSchema, includeMetadata }",
+			);
+		},
+	);
+
+	it.each([
+		{ query: 1 },
+		{ namespace: [] },
+		{ organization: false },
+		{ limit: "5" },
+		{ offset: null },
+		{ includeParameters: 1 },
+		{ includeOutputSchema: "true" },
+		{ includeMetadata: null },
+		{ limit: NaN },
+		{ offset: Infinity },
+		42,
+		null,
+		[],
+	])("rejects mistyped arguments: %j", (input) => {
+		expect(() => normalizeDiscoverySearchInput(input)).toThrow(
+			/discover.search:.*; use \{ query, namespace, organization,/,
+		);
 	});
 
 	it("paginates stable entries without skipping or repeating rows", () => {
