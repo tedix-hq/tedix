@@ -16,6 +16,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"personalAgentInbound/list": "mcp:apps.write",
 	"personalAgentInbound/revoke": "mcp:apps.write",
 	"runtimeEntitlements/checkModelEgress": "platform:admin",
+	// Tedi-only: the native runtime tool calls it over the service binding.
+	"webSearch/search": "platform:admin",
 	"decisionGraph/getContext": "mcp:messaging.read",
 	"decisionGraph/backfillPreview": "mcp:memory.admin",
 	"workAgentSessions/getAttentionLayout": "mcp:work.read",

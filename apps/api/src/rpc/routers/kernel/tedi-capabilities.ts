@@ -60,6 +60,8 @@ import {
 	getActiveDelegationEntrustmentProjections,
 } from "@tedix/db/queries/earned-delegation/entrustments";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
+import { getOrganizationById } from "@tedix/db/queries/organizations";
+import { resolveWebSearchAccess } from "@tedix/api-contract/schemas/web-search";
 import {
 	getWorkstationReadinessByTedi,
 	type WorkstationReadiness,
@@ -164,6 +166,12 @@ export interface TediCapabilityCard {
 	 */
 	dispatchPolicy: DispatchPolicyLayer | null;
 	mcpCapabilityProfile: string | null;
+	/**
+	 * Whether this tedi's runtime offers the gateway `web_search` tool: the
+	 * organization enabled it and the tedi's tool policy does not exclude it.
+	 * The runtime still hides it on a deployment without the AI binding.
+	 */
+	webSearch?: boolean;
 }
 
 export type DelegationEntrustmentProjection = Omit<
@@ -434,6 +442,7 @@ export async function getTediCapabilityCards(
 		workstationReadinessByTedi,
 		learnedByTedi,
 		delegationEntrustmentsByTedi,
+		organizationWebSearch,
 	] = await Promise.all([
 		safeBatch(
 			() =>
@@ -471,6 +480,10 @@ export async function getTediCapabilityCards(
 			}
 			return byTedi;
 		}, new Map<string, DelegationEntrustmentProjection[]>()),
+		safeBatch(async (): Promise<unknown> => {
+			const organization = await getOrganizationById(db, organizationId);
+			return organization?.metadata?.webSearch ?? null;
+		}, null),
 	]);
 	// The warm-lease capability set is exactly the keys of the readiness map (a
 	// tedi appears iff it holds a warm/available lease seat), so the existing
@@ -502,6 +515,7 @@ export async function getTediCapabilityCards(
 			workstationReadinessByTedi,
 			learnedByTedi,
 			delegationEntrustmentsByTedi,
+			organizationWebSearch,
 		),
 	);
 }
@@ -520,6 +534,7 @@ function buildCard(
 	workstationReadinessByTedi: Map<string, WorkstationReadiness>,
 	learnedByTedi: Map<string, TediLearnedCapability>,
 	delegationEntrustmentsByTedi: Map<string, DelegationEntrustmentProjection[]>,
+	organizationWebSearch: unknown,
 ): TediCapabilityCard {
 	const readiness = workstationReadinessByTedi.get(tedi.id);
 	const learned = learnedByTedi.get(tedi.id);
@@ -566,6 +581,11 @@ function buildCard(
 			: null,
 		dispatchPolicy: null,
 		mcpCapabilityProfile: tedi.mcpCapabilityProfile ?? null,
+		webSearch: resolveWebSearchAccess({
+			organization: organizationWebSearch,
+			tediPolicy: tedi.toolPolicy?.webSearch,
+			runtimeTools: tedi.toolPolicy?.runtimeTools,
+		}).enabled,
 	};
 
 	try {

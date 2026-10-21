@@ -2286,6 +2286,9 @@ export function renderHomeInventory(ctx: KernelContext): string {
 					// Embodied capability — tells the planner whether this tedi has a
 					// body/workstation envelope for shell/files/coding work.
 					cap ? (cap.embodied ? "embodied" : "isolate-only") : null,
+					// Native public web search (organization opt-in, tedi policy),
+					// named as the exact plannedToolIds entry for a web lookup.
+					cap?.webSearch ? "web lookup: plannedToolIds=[web_search]" : null,
 					// Outcome-feedback signal: this tedi's past delegation success rate.
 					// Surfaced only at a >=3 sample so a noisy single outcome can't bias
 					// selection; omitted (never "0%") below the floor. Lets past outcomes

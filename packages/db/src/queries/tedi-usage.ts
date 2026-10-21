@@ -46,6 +46,51 @@ export async function insertCallCosts(db: DbClient, costs: NewTediCallCost[]) {
 	return rows;
 }
 
+export interface GatewayReportedReceiptCost {
+	gatewayLogId: string;
+	costUsd: number;
+	success: boolean;
+}
+
+/**
+ * Price call-time receipts from the Gateway log they were keyed by. A receipt
+ * row owns attribution the Gateway log cannot carry; ingestion then finds its
+ * log id taken and fills in the reported charge here, once. Only unpriced rows
+ * of the given source on the given gateway change.
+ */
+export async function settleGatewayReportedReceiptCosts(
+	db: DbClient,
+	params: {
+		gatewayId: string;
+		source: string;
+		receipts: GatewayReportedReceiptCost[];
+	},
+): Promise<void> {
+	const statements = params.receipts.map((receipt) =>
+		db
+			.update(tediCallCosts)
+			.set({
+				estimatedCostUsd: receipt.costUsd,
+				rawReportedCostUsd: receipt.costUsd,
+				costBasis: "gateway_reported",
+				costReason: null,
+				success: receipt.success,
+				dataQuality: receipt.success ? "ok" : "quarantined_failed",
+			})
+			.where(
+				and(
+					eq(tediCallCosts.gatewayId, params.gatewayId),
+					eq(tediCallCosts.gatewayLogId, receipt.gatewayLogId),
+					eq(tediCallCosts.source, params.source),
+					eq(tediCallCosts.costBasis, "unknown"),
+				),
+			),
+	);
+	const [first, ...rest] = statements;
+	if (!first) return;
+	await db.batch([first, ...rest]);
+}
+
 /**
  * Confirm a retried Gateway page is already durable before moving its cursor.
  * The gateway predicate prevents a colliding log id from another gateway from

@@ -123,6 +123,8 @@ export interface OrganizationMetadata {
 	dispatcherHealth?: { staleAfterMinutes?: number; enabled?: boolean };
 	/** Optional Cloudflare One network overlay; never a Tedix authorization source. */
 	mcpNetworkControl?: McpNetworkControlConfig;
+	/** Gateway web search for tedis; absent means off. */
+	webSearch?: OrganizationContractMetadata["webSearch"];
 	/** Organization-wide browser boundary; per-tedi policy may narrow it further. */
 	browserEgress?: {
 		allowedHostnames?: string[];

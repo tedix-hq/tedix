@@ -7,6 +7,7 @@ import * as z from "zod";
 import { ModelGenerationPolicySchema } from "./model-generation";
 import { SkillScheduleSchema } from "./cognitive";
 import { JsonValueSchema } from "./common";
+import { TediWebSearchPolicySchema } from "./web-search";
 
 // =============================================================================
 // ENUM SCHEMAS
@@ -183,6 +184,8 @@ export const ToolPolicySchema = z.object({
 	browser: z.enum(["always-allow", "always-approve"]).default("always-allow"),
 	browserEgress: BrowserHostnamePolicySchema.optional(),
 	browserSession: BrowserSessionPolicySchema.optional(),
+	/** `off` hides web search for this tedi when its organization enabled it. */
+	webSearch: TediWebSearchPolicySchema.optional(),
 	github: z.enum(["always-allow", "always-approve"]).default("always-allow"),
 	deploy: z.enum(["always-allow", "always-approve"]).default("always-approve"),
 });

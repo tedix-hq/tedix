@@ -190,6 +190,9 @@ export const apiRouter = {
 	workApprovals: lazyRouter(() =>
 		import("./work-approvals").then((m) => m.workApprovalsContractRouter),
 	),
+	webSearch: lazyRouter(() =>
+		import("./web-search").then((m) => m.webSearchContractRouter),
+	),
 	workAgentSessions: lazyRouter(() =>
 		import("./work-agent-sessions").then(
 			(m) => m.workAgentSessionsContractRouter,

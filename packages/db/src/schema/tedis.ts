@@ -95,6 +95,7 @@ export interface ToolPolicy {
 	browser?: "always-allow" | "always-approve";
 	browserEgress?: BrowserHostnamePolicy;
 	browserSession?: BrowserSessionPolicy;
+	webSearch?: "inherit" | "off";
 	github?: "always-allow" | "always-approve";
 	deploy?: "always-allow" | "always-approve";
 }
