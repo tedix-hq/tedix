@@ -172,7 +172,11 @@ export function TodayPost({
 						data-today-deck-pending
 					/>
 				) : (
-					<Link variant="record" href="/work?view=deck">
+					<Link
+						variant="record"
+						className="tap-target-y"
+						href="/work?view=deck"
+					>
 						{deck.data?.complete && !deck.isError
 							? OS_COPY.feed.decisionsWaiting(String(deck.data.count))
 							: "Open Deck · count unavailable"}
@@ -212,7 +216,7 @@ export function TodayPost({
 								>
 									<Link
 										variant="record"
-										className="font-medium"
+										className="tap-target-y font-medium"
 										href={project!}
 									>
 										{todayProjectLabel(name!)}

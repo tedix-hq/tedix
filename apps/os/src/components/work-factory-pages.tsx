@@ -2036,6 +2036,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 							{detail.data?.project ? (
 								<Link
 									variant="record"
+									className="tap-target-y"
 									href={`/work/projects/${detail.data.project.id}`}
 								>
 									{detail.data.project.name}

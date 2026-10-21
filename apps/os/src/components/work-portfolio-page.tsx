@@ -283,9 +283,9 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 				<Link
 					variant="record"
 					href={factoryHref(row)}
-					className="line-clamp-1 min-w-0 font-medium"
+					className="tap-target-y min-w-0 font-medium"
 				>
-					{row.name}
+					<span className="line-clamp-1">{row.name}</span>
 				</Link>
 			}
 			actions={
@@ -331,7 +331,7 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 							<Link
 								variant="record"
 								href={resultHref(row.lastResult)}
-								className="min-w-0 truncate"
+								className="tap-target-y min-w-0 truncate"
 							>
 								{row.lastResult.title}
 							</Link>
@@ -465,9 +465,9 @@ function PortfolioCard({
 					<Link
 						variant="record"
 						href={`/work/projects/${project.id}`}
-						className="line-clamp-2 min-w-0 font-medium"
+						className="tap-target-y min-w-0 font-medium"
 					>
-						{title}
+						<span className="line-clamp-2">{title}</span>
 					</Link>
 					<div className="flex shrink-0 flex-wrap justify-end gap-1">
 						{row.health ? (
@@ -517,7 +517,7 @@ function PortfolioCard({
 						<Link
 							variant="record"
 							href={`/work/items/${row.next.id}`}
-							className="min-w-0 truncate"
+							className="tap-target-y min-w-0 truncate"
 						>
 							{row.next.title}
 						</Link>
@@ -571,7 +571,7 @@ function OtherProjects({ entries }: { entries: PortfolioEntry[] }) {
 								<Link
 									variant="record"
 									href={`/work/projects/${project.id}`}
-									className="min-w-0 truncate"
+									className="tap-target-y min-w-0 truncate"
 								>
 									{title}
 								</Link>

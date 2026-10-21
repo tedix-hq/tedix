@@ -65,7 +65,7 @@ function ContributorRow({
 				<Link
 					variant="record"
 					href={`/work/items/${contributor.workItemId}`}
-					className="min-w-0 flex-1 truncate"
+					className="tap-target-y min-w-0 flex-1 truncate max-sm:basis-full"
 					title={contributor.workItemTitle}
 				>
 					{contributor.workItemTitle}
@@ -75,7 +75,7 @@ function ContributorRow({
 					as="span"
 					role="body"
 					tone="secondary"
-					className="min-w-0 flex-1 truncate"
+					className="min-w-0 flex-1 truncate max-sm:basis-full"
 					title={contributor.summary}
 				>
 					{contributor.summary}

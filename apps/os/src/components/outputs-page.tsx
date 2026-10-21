@@ -287,7 +287,9 @@ function OutputCard(props: OutputCardProps) {
 				<IconFrame>
 					<Icon size={18} />
 				</IconFrame>
-				<span className="grid min-w-0 flex-1 gap-0.5">
+				{/* One shrinkable column: an auto track grew to an unbroken title
+				    and pushed the row past a phone's edge. */}
+				<span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-0.5">
 					<Text
 						as="strong"
 						role="body"

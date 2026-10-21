@@ -1,0 +1,367 @@
+import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
+import {
+	devices,
+	webkit,
+	type Browser,
+	type Locator,
+	type Page,
+} from "playwright";
+
+/*
+ * Work beyond the Deck on iPhone Safari (WebKit): Feed, Projects, a project,
+ * a Work item, Requests, a request, Approvals and the More views. Each page
+ * keeps to the screen width, keeps its text inside its rows, and keeps its
+ * row links 44px tall. Fields keep 16px text (smaller zooms the page on
+ * focus) and stay reachable above the software keyboard.
+ */
+const cwd = new URL("../", import.meta.url).pathname;
+const probe = Bun.serve({
+	port: 0,
+	hostname: "127.0.0.1",
+	fetch: () => new Response(),
+});
+const port = process.env.TEDIX_BROWSER_TEST_PORT || String(probe.port!);
+probe.stop();
+const origin = `http://127.0.0.1:${port}`;
+const server = Bun.spawn(
+	[
+		"../../node_modules/.bin/vp",
+		"dev",
+		"--port",
+		port,
+		"--strictPort",
+		"--host",
+		"127.0.0.1",
+	],
+	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+);
+const shots = process.env.TEDIX_SCREENSHOT_DIR;
+if (shots) await mkdir(shots, { recursive: true });
+
+const PROJECT = "/work/projects/00000076-0000-4000-8000-000000000001";
+const ITEM = "/work/items/00000070-0000-4000-8000-000000000001";
+const REQUEST = "/work/interactions/000000a7-0000-4000-8000-000000000001";
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/** Pages, each with the element that proves it rendered. */
+const PAGES: Array<[string, string]> = [
+	["/work?view=feed", ".fd-feed"],
+	["/work?view=feed&filter=history", ".fd-feed"],
+	["/work?app=portfolio", "[data-portfolio-card]"],
+	["/work/approvals", "summary"],
+	["/work/interactions", "[aria-labelledby=interaction-urgent-title]"],
+	[PROJECT, "[data-contributor-state]"],
+	[ITEM, "textarea"],
+	[REQUEST, "textarea"],
+	["/outputs", "input[type=search]"],
+];
+
+async function settle(page: Page) {
+	await page.evaluate(() => document.fonts.ready);
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+			),
+	);
+	await page.waitForTimeout(150);
+}
+
+/** Width, clipping and field-size failures anywhere in the route. */
+function layoutFailures(page: Page) {
+	return page.evaluate(() => {
+		const failures: string[] = [];
+		const width = document.documentElement.clientWidth;
+		if (document.documentElement.scrollWidth > width + 1)
+			failures.push(`page is ${document.documentElement.scrollWidth}px wide`);
+		const main = document.querySelector<HTMLElement>("main.route-content")!;
+		for (const el of main.querySelectorAll<HTMLElement>("*")) {
+			if (!el.getClientRects().length) continue;
+			const box = el.getBoundingClientRect();
+			const name = `${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 40)}"`;
+			const style = getComputedStyle(el);
+			if (
+				/(auto|scroll)/.test(style.overflowX) &&
+				el.scrollWidth > el.clientWidth + 1 &&
+				// A tab strip scrolls sideways on purpose, with its own arrows.
+				!el.querySelector("[role=tablist]") &&
+				!el.closest("[role=tablist], pre, code, .cm-editor")
+			)
+				failures.push(`${name} scrolls sideways`);
+			if (
+				el.matches(
+					"input:not([type=checkbox]):not([type=radio]):not([type=hidden]), textarea, select",
+				) &&
+				parseFloat(style.fontSize) < 16
+			)
+				failures.push(`${name} has ${style.fontSize} text and zooms on focus`);
+			// Leaf text that runs past the box that clips it is lost.
+			if (
+				el.children.length ||
+				!el.textContent?.trim() ||
+				style.textOverflow === "ellipsis"
+			)
+				continue;
+			for (let p = el.parentElement?.parentElement; p; p = p.parentElement) {
+				const clip = getComputedStyle(p).overflowX;
+				if (!/(hidden|clip|auto|scroll)/.test(clip)) continue;
+				// Content a scroller holds can be scrolled into view.
+				if (
+					/(hidden|clip)/.test(clip) &&
+					box.right > p.getBoundingClientRect().right + 2
+				)
+					failures.push(`${name} is clipped at the right edge`);
+				break;
+			}
+		}
+		return failures;
+	});
+}
+
+/** A touch target: 44px tall, inside the screen, and on top where it says it is. */
+async function targetFailures(target: Locator, label: string) {
+	await target.scrollIntoViewIfNeeded();
+	return target.evaluate((node, label) => {
+		const failures: string[] = [];
+		const box = node.getBoundingClientRect();
+		if (box.height < 43.5)
+			failures.push(`${label} is ${Math.round(box.height)}px tall`);
+		if (box.width < 43.5)
+			failures.push(`${label} is ${Math.round(box.width)}px wide`);
+		if (box.left < -1 || box.right > document.documentElement.clientWidth + 1)
+			failures.push(`${label} runs off the screen`);
+		// The edges must hit too, or the padding only looks like a target.
+		for (const y of [box.top + 3, box.top + box.height / 2, box.bottom - 3]) {
+			const hit = document.elementFromPoint(
+				Math.min(box.left + 12, box.right - 1),
+				y,
+			);
+			if (!hit || !(node.contains(hit) || hit.contains(node)))
+				failures.push(
+					`${label} at y=${Math.round(y - box.top)} is covered by ${hit?.tagName}.${hit?.className}`,
+				);
+		}
+		return failures;
+	}, label);
+}
+
+/**
+ * The iOS keyboard shrinks the visual viewport only. The field must stay where
+ * it is (no layout jump), stay 16px, and its scroller must be able to lift it
+ * and the action after it above the keyboard.
+ */
+async function keyboardFailures(page: Page, field: Locator, action: Locator) {
+	await field.scrollIntoViewIfNeeded();
+	await field.focus();
+	const before = await field.boundingBox();
+	await page.evaluate(() => {
+		const viewport = window.visualViewport!;
+		const height = Math.round(innerHeight * 0.55);
+		Object.defineProperty(viewport, "height", {
+			configurable: true,
+			get: () => height,
+		});
+		Object.defineProperty(viewport, "offsetTop", {
+			configurable: true,
+			get: () => 0,
+		});
+		viewport.dispatchEvent(new Event("resize"));
+		viewport.dispatchEvent(new Event("scroll"));
+	});
+	await settle(page);
+	const after = await field.boundingBox();
+	const failures: string[] = [];
+	if (!before || !after || Math.abs(before.y - after.y) > 1)
+		failures.push(`keyboard moved the field ${before?.y} -> ${after?.y}`);
+	const reached = await action.evaluate((node) => {
+		const visible = window.visualViewport!.height;
+		let scroller = node.parentElement;
+		while (
+			scroller &&
+			!(
+				/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) &&
+				scroller.scrollHeight > scroller.clientHeight
+			)
+		)
+			scroller = scroller.parentElement;
+		if (!scroller) return "no scroller";
+		scroller.scrollTop += node.getBoundingClientRect().bottom - (visible - 8);
+		const box = node.getBoundingClientRect();
+		if (box.bottom > visible)
+			return `ends at ${box.bottom}, keyboard at ${visible}`;
+		if (box.top < scroller.getBoundingClientRect().top)
+			return "scrolled under the header";
+		const hit = document.elementFromPoint(
+			box.left + 8,
+			box.top + box.height / 2,
+		);
+		return hit && node.contains(hit) ? null : `covered by ${hit?.tagName}`;
+	});
+	if (reached) failures.push(`action above the keyboard: ${reached}`);
+	if (
+		(await field.evaluate((node) =>
+			parseFloat(getComputedStyle(node).fontSize),
+		)) < 16
+	)
+		failures.push("focused field text is under 16px");
+	return failures;
+}
+
+let browser: Browser | undefined;
+try {
+	for (let attempt = 0; ; attempt++) {
+		if (attempt === 120 || server.exitCode !== null)
+			throw new Error("Work test server unavailable");
+		try {
+			if ((await fetch(`${origin}/work`)).ok) break;
+		} catch {}
+		await Bun.sleep(250);
+	}
+	browser = await webkit.launch({ headless: true });
+	for (const [size, device] of [
+		["390x844", devices["iPhone 13"]],
+		["375x667", devices["iPhone 8"]],
+	] as const)
+		for (const colorScheme of ["light", "dark"] as const) {
+			const label = `${size} ${colorScheme}`;
+			const context = await browser.newContext({
+				...device,
+				colorScheme,
+				reducedMotion: "reduce",
+			});
+			await context.addInitScript(
+				(theme) => localStorage.setItem("tedix-os-theme", theme),
+				colorScheme,
+			);
+			const page = await context.newPage();
+			const failures: string[] = [];
+			const check = async (path: string, ready: string) => {
+				await page.goto(`${origin}${path}`);
+				await page.locator(ready).first().waitFor({ timeout: 20_000 });
+				await settle(page);
+				for (const failure of await layoutFailures(page))
+					failures.push(`${path}: ${failure}`);
+				if (shots)
+					await page.screenshot({
+						path: `${shots}/${size}-${colorScheme}-${path.replace(/[^a-z0-9]+/gi, "_").replace(/_[0-9a-f]{8}_0000_4000_8000_0+/, "_")}.png`,
+					});
+			};
+			const targets = async (path: string, locator: Locator, name: string) => {
+				const count = await locator.count();
+				assert(count > 0, `${label} ${path}: no ${name}`);
+				for (let index = 0; index < Math.min(count, 4); index++)
+					for (const failure of await targetFailures(
+						locator.nth(index),
+						`${name} ${index + 1}`,
+					))
+						failures.push(`${path}: ${failure}`);
+			};
+
+			for (const [path, ready] of PAGES) await check(path, ready);
+
+			await check("/work?view=feed", ".focus-today");
+			await targets(
+				"Today",
+				page.locator(".focus-today a[data-link-role=record]"),
+				"Today link",
+			);
+
+			await check("/work?app=portfolio", "[data-portfolio-card]");
+			await targets(
+				"Projects",
+				page.locator("[data-portfolio-card] a[data-link-role=record]"),
+				"project card link",
+			);
+
+			// The Work item link once shrank to 2px beside the session name.
+			await check(PROJECT, "[data-contributor-state]");
+			const contributorLinks = page.locator(
+				"[data-contributor-state] a[href^='/work/items/']",
+			);
+			await targets(PROJECT, contributorLinks, "contributor Work item");
+			for (const width of await contributorLinks.evaluateAll((links) =>
+				links.map(
+					(link) =>
+						link.getBoundingClientRect().width /
+						link.closest("li")!.getBoundingClientRect().width,
+				),
+			))
+				if (width < 0.6)
+					failures.push(
+						`${PROJECT}: contributor Work item link is ${Math.round(width * 100)}% of its row`,
+					);
+
+			await check("/work/approvals", "summary");
+			await targets(
+				"/work/approvals",
+				page.locator("summary", { hasText: "Past approval decisions" }),
+				"past decisions",
+			);
+
+			// Requests read as a list on phones, not a sideways table of UUIDs.
+			await check(
+				"/work/interactions",
+				"[aria-labelledby=interaction-urgent-title]",
+			);
+			if (await page.locator("table:visible").count())
+				failures.push("/work/interactions: a table on a phone");
+			const rows = page.locator("[data-mobile-interaction-row]");
+			if (await rows.count()) {
+				await targets("/work/interactions", rows.locator("a"), "request");
+				if (UUID.test(await rows.first().innerText()))
+					failures.push("/work/interactions: a request row shows a raw id");
+			} else failures.push("/work/interactions: no phone request list");
+
+			await check(ITEM, "textarea");
+			await targets(
+				ITEM,
+				page.getByRole("button", { name: "Copy to clipboard" }),
+				"copy link",
+			);
+			await targets(
+				ITEM,
+				page.locator("dd a[href^='/work/projects/']"),
+				"project link",
+			);
+			failures.push(
+				...(
+					await keyboardFailures(
+						page,
+						page.getByPlaceholder("Share an update or ask a question"),
+						page.getByRole("button", { name: "Post comment" }),
+					)
+				).map((failure) => `${ITEM}: ${failure}`),
+			);
+
+			await check(REQUEST, "textarea");
+			failures.push(
+				...(
+					await keyboardFailures(
+						page,
+						page.getByRole("textbox", { name: "Your answer" }),
+						page.getByRole("button", { name: "Answer", exact: true }),
+					)
+				).map((failure) => `${REQUEST}: ${failure}`),
+			);
+			if (shots)
+				await page.screenshot({
+					path: `${shots}/${size}-${colorScheme}-request-keyboard.png`,
+				});
+
+			await check("/outputs", "input[type=search]");
+			await targets(
+				"/outputs",
+				page.getByRole("searchbox", { name: "Search outputs" }),
+				"search",
+			);
+
+			assert.deepEqual(failures, [], label);
+			await context.close();
+			console.log(`PASS ${label}`);
+		}
+} finally {
+	await browser?.close();
+	process.kill(-server.pid, "SIGTERM");
+	await server.exited;
+}

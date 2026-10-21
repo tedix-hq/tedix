@@ -11,6 +11,7 @@ import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plai
 import { latestDraftOf } from "@/components/work-interaction-draft";
 import {
 	decisionCaptureSummary,
+	interactionContextLabel,
 	interactionSubject,
 	urgentReasons,
 } from "@/lib/work-interaction-display";
@@ -2001,45 +2002,87 @@ export function WorkInteractionsPage() {
 			responseCount,
 		}: (typeof visibleRows)[number],
 		earlier?: (typeof visibleRows)[number][],
-	) => (
-		<TableRow key={request.id}>
-			<TableCell className="whitespace-normal">
-				<Link variant="record" href={`/work/interactions/${request.id}`}>
-					{interactionSubject(request)}
-				</Link>
-				{earlier ? (
-					<EarlierTurnsToggle
-						count={earlier.length}
-						expanded={groups.isExpanded(request.id)}
-						onToggle={() => groups.toggle(request.id)}
-					/>
-				) : null}
-				<Text as="p" role="label" tone="secondary">
-					{workItem?.title ??
-						request.workItemId ??
-						request.caseId ??
-						request.projectId ??
-						"Context unavailable"}{" "}
-					· {sentenceCase(request.kind)}
+		mobile = false,
+	) => {
+		const context = (
+			<Text as="p" role="label" tone="secondary" className="break-words">
+				{interactionContextLabel(request, workItem?.title)} ·{" "}
+				{sentenceCase(request.kind)}
+			</Text>
+		);
+		const toggle = earlier ? (
+			<EarlierTurnsToggle
+				count={earlier.length}
+				expanded={groups.isExpanded(request.id)}
+				onToggle={() => groups.toggle(request.id)}
+			/>
+		) : null;
+		const state = (
+			<Badge
+				variant={effectiveState === "open" ? "warning" : "outline"}
+				className={mobile ? "mt-1 shrink-0" : undefined}
+			>
+				{sentenceCase(effectiveState)}
+			</Badge>
+		);
+		const target = (
+			<span title={`${request.requestedFromType}:${request.requestedFromId}`}>
+				{namedWorkPrincipal(
+					request.requestedFromType,
+					request.requestedFromId,
+					names,
+				)}
+			</span>
+		);
+		// A four-column table squeezed the subject into a sliver on phones.
+		return mobile ? (
+			<li
+				key={request.id}
+				className="grid min-w-0 gap-1 px-3 py-2"
+				data-mobile-interaction-row
+			>
+				<div className="flex min-w-0 items-start justify-between gap-3">
+					<Link
+						variant="record"
+						href={`/work/interactions/${request.id}`}
+						className="flex min-h-11 min-w-0 flex-1 items-center py-1 font-medium leading-snug"
+					>
+						<span className="line-clamp-2">{interactionSubject(request)}</span>
+					</Link>
+					{state}
+				</div>
+				{context}
+				<Text as="p" role="label" tone="secondary" className="truncate">
+					To {target} ·{" "}
+					{responseCount === 1 ? "1 response" : `${responseCount} responses`}
 				</Text>
-			</TableCell>
-			<TableCell>
-				<Badge variant={effectiveState === "open" ? "warning" : "outline"}>
-					{sentenceCase(effectiveState)}
-				</Badge>
-			</TableCell>
-			<TableCell>
-				<span title={`${request.requestedFromType}:${request.requestedFromId}`}>
-					{namedWorkPrincipal(
-						request.requestedFromType,
-						request.requestedFromId,
-						names,
-					)}
-				</span>
-			</TableCell>
-			<TableCell>{responseCount}</TableCell>
-		</TableRow>
-	);
+				{toggle}
+			</li>
+		) : (
+			<TableRow key={request.id}>
+				<TableCell className="whitespace-normal">
+					<Link variant="record" href={`/work/interactions/${request.id}`}>
+						{interactionSubject(request)}
+					</Link>
+					{toggle}
+					{context}
+				</TableCell>
+				<TableCell>{state}</TableCell>
+				<TableCell>{target}</TableCell>
+				<TableCell>{responseCount}</TableCell>
+			</TableRow>
+		);
+	};
+	const interactionRows = (mobile: boolean) =>
+		(listView === "inbox"
+			? groupSessionQuestions(visibleRows)
+			: visibleRows.map((row) => ({ row, earlier: [] }))
+		).flatMap(({ row, earlier }) => [
+			renderInteractionRow(row, earlier, mobile),
+			...(groups.isExpanded(row.request.id)
+				? earlier.map((older) => renderInteractionRow(older, undefined, mobile))
+				: []),
+		]);
 	const activeView =
 		listView === "inbox"
 			? {
@@ -2222,27 +2265,26 @@ export function WorkInteractionsPage() {
 						}
 					/>
 				) : (
-					<Table scrollLabel="Messages">
-						<TableHeader>
-							<TableRow>
-								<TableHead>Request</TableHead>
-								<TableHead>State</TableHead>
-								<TableHead>Target</TableHead>
-								<TableHead>Responses</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{(listView === "inbox"
-								? groupSessionQuestions(visibleRows)
-								: visibleRows.map((row) => ({ row, earlier: [] }))
-							).flatMap(({ row, earlier }) => [
-								renderInteractionRow(row, earlier),
-								...(groups.isExpanded(row.request.id)
-									? earlier.map((older) => renderInteractionRow(older))
-									: []),
-							])}
-						</TableBody>
-					</Table>
+					<>
+						<Collection
+							appearance="inline"
+							aria-label="Messages"
+							className="border-kumo-line border-y sm:hidden"
+						>
+							{interactionRows(true)}
+						</Collection>
+						<Table scrollLabel="Messages" containerClassName="hidden sm:block">
+							<TableHeader>
+								<TableRow>
+									<TableHead>Request</TableHead>
+									<TableHead>State</TableHead>
+									<TableHead>Target</TableHead>
+									<TableHead>Responses</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>{interactionRows(false)}</TableBody>
+						</Table>
+					</>
 				)}
 				{query.data?.hasMore ? (
 					<PageControls

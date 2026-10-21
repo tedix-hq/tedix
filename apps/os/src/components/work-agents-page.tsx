@@ -134,13 +134,21 @@ export function AgentStateBadge({
 	now?: Date;
 }) {
 	const badge = STATE_BADGE[state];
+	const label =
+		state === "idle" && lastSeenAt
+			? inactiveSessionLabel(lastSeenAt, now)
+			: state === "error" && reason
+				? attentionCopy("blockedReason", { reason })
+				: badge.label;
+	// A blocked reason can be a sentence; it truncates instead of running
+	// past a phone-width row.
 	return (
-		<Badge variant={badge.variant} className="shrink-0">
-			{state === "idle" && lastSeenAt
-				? inactiveSessionLabel(lastSeenAt, now)
-				: state === "error" && reason
-					? attentionCopy("blockedReason", { reason })
-					: badge.label}
+		<Badge
+			variant={badge.variant}
+			className="max-w-full shrink-0"
+			title={label}
+		>
+			<span className="min-w-0 truncate">{label}</span>
 		</Badge>
 	);
 }

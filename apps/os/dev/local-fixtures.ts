@@ -5097,6 +5097,37 @@ const handlers: Record<string, (input: never) => unknown> = {
 			),
 			input,
 		),
+	// Work item detail: the record and its project brief; the ledgers are empty.
+	"workItems/getById": (input: { id: string }) => {
+		const workItem = WORK_ITEMS.find((row) => row.id.startsWith(input.id));
+		if (!workItem) throw new RpcError("NOT_FOUND", "Work item not found");
+		const project = PROJECTS.find((row) => row.id === workItem.projectId);
+		return {
+			workItem,
+			project: project
+				? {
+						id: project.id,
+						name: project.name,
+						description: project.description,
+					}
+				: null,
+			comments: [],
+			evidence: [],
+			evidenceNextCursor: null,
+			projections: [],
+		};
+	},
+	"workItems/getReadiness": (input: { id: string }) => ({
+		workItemId: input.id,
+		state: "ready" as const,
+		ready: true,
+		reasons: [],
+		derivedAt: T5,
+		gates: [],
+	}),
+	"workItems/listAttempts": () => ({ data: [], nextCursor: null }),
+	"workItems/listEvidence": () => ({ data: [], nextCursor: null }),
+	"workItems/listEvents": () => ({ events: [], nextSequence: null }),
 	"projects/list": (input: Pagination | undefined) => paginate(PROJECTS, input),
 	"projects/get": (input: { id: string }) => localProject(input.id),
 	"projects/getRollup": (input: { id: string }) => {

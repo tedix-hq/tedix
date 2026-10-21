@@ -99,6 +99,25 @@ export function interactionSubject(request: {
 }
 
 /**
+ * What a request is about: the linked Work item's title, else the kind of
+ * record with a short id. A full UUID wrapped into five lines on phones.
+ */
+export function interactionContextLabel(
+	request: {
+		workItemId?: string | null;
+		caseId?: string | null;
+		projectId?: string | null;
+	},
+	workItemTitle?: string | null,
+): string {
+	if (workItemTitle) return workItemTitle;
+	if (request.workItemId) return `Work item ${request.workItemId.slice(0, 8)}`;
+	if (request.caseId) return `Case ${request.caseId.slice(0, 8)}`;
+	if (request.projectId) return `Project ${request.projectId.slice(0, 8)}`;
+	return "Context unavailable";
+}
+
+/**
  * The one line a person needs: the interaction's "What's needed from you"
  * when it carries one, else its subject without the "repo · host waiting:"
  * prefix every decision-capture subject starts with.

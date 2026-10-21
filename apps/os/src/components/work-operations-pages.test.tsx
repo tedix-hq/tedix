@@ -698,17 +698,27 @@ describe("Session question grouping", () => {
 				</QueryClientProvider>,
 			),
 		);
-		const links = () =>
-			[...container.querySelectorAll('a[href^="/work/interactions/"]')].map(
-				(link) => link.getAttribute("href")?.slice(-1),
-			);
-		expect(links()).toEqual(["3", "4"]);
-		const toggle = [...container.querySelectorAll("button")].find(
-			(button) => button.textContent === "2 earlier turns",
-		);
+		// The phone list and the desktop table render the same rows.
+		const links = (scope: string) =>
+			[
+				...container.querySelectorAll(
+					`${scope} a[href^="/work/interactions/"]`,
+				),
+			].map((link) => link.getAttribute("href")?.slice(-1));
+		expect(links("table")).toEqual(["3", "4"]);
+		expect(links("[data-mobile-interaction-row]")).toEqual(["3", "4"]);
+		const toggle = [
+			...container.querySelectorAll<HTMLButtonElement>("table button"),
+		].find((button) => button.textContent === "2 earlier turns");
 		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
 		await act(async () => toggle?.click());
-		expect(links()).toEqual(["3", "2", "1", "4"]);
+		expect(links("table")).toEqual(["3", "2", "1", "4"]);
+		expect(links("[data-mobile-interaction-row]")).toEqual([
+			"3",
+			"2",
+			"1",
+			"4",
+		]);
 		expect(toggle?.textContent).toBe("Hide 2 earlier turns");
 	});
 });
