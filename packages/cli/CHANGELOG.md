@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.15.1 — 2026-10-21
+
+### Patch Changes
+
+- Prevent shared logins from being invalidated when a login refresh is interrupted or its result cannot be saved. Record refresh attempts before sending them, refuse to replay a token after an uncertain result, and reject stale credential saves. An uncertain refresh requires signing in again; successful refreshes continue normally.
+
 ## 0.15.0 — 2026-10-21
 
 ### Minor Changes
