@@ -35,8 +35,13 @@ export interface NormalizedCodeResult {
 	 */
 	failures?: CodeCallFailure[];
 	value: unknown;
-	/** Set when the gateway truncated the result — `value` is NOT trustworthy. */
+	/**
+	 * Set when the gateway bounded the result — `value` is NOT trustworthy.
+	 * With `handle` set the full value is retrievable; see `resolveCodeResult`.
+	 */
 	truncated?: boolean;
+	/** The gateway kept the full result behind this handle; page it to read it. */
+	handle?: CodeResultHandle;
 	/** Estimated full result size in tokens, when the gateway reported it. */
 	approxTokens?: number;
 	truncationHint?: string;
@@ -74,6 +79,36 @@ export function innerFailureMessage(failures: CodeCallFailure[]): string {
 		`[tedix] ${failures.length} inner tool call(s) failed, whatever the result above shows:`,
 		...lines,
 	].join("\n");
+}
+
+/** Handle envelope emitted when the gateway kept an over-budget result whole. */
+export interface CodeResultHandle {
+	handle: string;
+	/** Characters of the full compact JSON. */
+	total?: number;
+	keys?: string[];
+	length?: number;
+	expiresAt?: string;
+	preview: string;
+}
+
+function handleEnvelope(value: unknown): CodeResultHandle | null {
+	if (!isRecord(value)) return null;
+	if (value.__tedix_result_handle !== true) return null;
+	if (typeof value.handle !== "string" || typeof value.preview !== "string")
+		return null;
+	return {
+		handle: value.handle,
+		...(typeof value.total === "number" ? { total: value.total } : {}),
+		...(Array.isArray(value.keys)
+			? { keys: value.keys.filter((key) => typeof key === "string") }
+			: {}),
+		...(typeof value.length === "number" ? { length: value.length } : {}),
+		...(typeof value.expiresAt === "string"
+			? { expiresAt: value.expiresAt }
+			: {}),
+		preview: value.preview,
+	};
 }
 
 /** Structured truncation envelope emitted by Tedix Code Mode gateways. */
@@ -114,9 +149,28 @@ export function normalizeCodeResult(raw: unknown): NormalizedCodeResult {
 		let truncated = false;
 		let approxTokens: number | undefined;
 		let truncationHint: string | undefined;
+		let handle: CodeResultHandle | undefined;
 
 		const envelope = truncationEnvelope(candidate);
-		if (envelope) {
+		const handleRef = handleEnvelope(candidate);
+		if (handleRef) {
+			// The full value exists server-side; until a consumer pages it, the
+			// preview is as untrustworthy as a truncation preview.
+			truncated = true;
+			handle = handleRef;
+			value = handleRef.preview;
+			if (
+				isRecord(candidate) &&
+				typeof candidate.approxTokens === "number" &&
+				Number.isFinite(candidate.approxTokens)
+			) {
+				approxTokens = candidate.approxTokens;
+			}
+			truncationHint =
+				isRecord(candidate) && typeof candidate.guidance === "string"
+					? candidate.guidance
+					: "Result kept behind a gateway handle; page it with discover.read_result.";
+		} else if (envelope) {
 			// Structural previews may be valid JSON but remain partial. Keep the
 			// preview as a string so consumers holding `truncated: true` decide
 			// what (if anything) to do with the partial payload.
@@ -141,6 +195,7 @@ export function normalizeCodeResult(raw: unknown): NormalizedCodeResult {
 		const failures = innerFailures(raw);
 		if (failures.length > 0) out.failures = failures;
 		if (truncated) out.truncated = true;
+		if (handle) out.handle = handle;
 		if (approxTokens !== undefined) out.approxTokens = approxTokens;
 		if (truncationHint !== undefined) out.truncationHint = truncationHint;
 		return out;
@@ -149,6 +204,92 @@ export function normalizeCodeResult(raw: unknown): NormalizedCodeResult {
 		console.error("[code-result] failed to normalize code result:", error);
 		return { value: raw };
 	}
+}
+
+/** Runs one Code Mode program and returns the raw gateway payload. */
+export type CodeRunner = (source: string) => Promise<unknown>;
+
+/** Page size requested per `discover.read_result` call (chars of JSON). */
+export const CODE_RESULT_HANDLE_PAGE_CHARS = 20_000;
+
+/**
+ * Read a handle-kept result back in full by paging `discover.read_result`.
+ * Each page is itself a small `code` call, so the gateway's result budget
+ * bounds every hop while the reassembled value is complete.
+ */
+export async function readCodeResultHandle(
+	runCode: CodeRunner,
+	handle: string,
+	options: { pageChars?: number; maxPages?: number } = {},
+): Promise<unknown> {
+	const limit = Math.max(1, options.pageChars ?? CODE_RESULT_HANDLE_PAGE_CHARS);
+	const maxPages = Math.max(1, options.maxPages ?? 10_000);
+	const parts: string[] = [];
+	let offset = 0;
+	for (let page = 0; page < maxPages; page++) {
+		const args = JSON.stringify({ handle, offset, limit });
+		const normalized = normalizeCodeResult(
+			await runCode(`async () => await discover.read_result(${args})`),
+		);
+		if (normalized.truncated) {
+			throw new Error(
+				`result handle page at offset ${offset} did not fit the gateway budget${
+					normalized.truncationHint ? `: ${normalized.truncationHint}` : "."
+				}`,
+			);
+		}
+		const pageValue = normalized.value;
+		if (!isRecord(pageValue)) {
+			throw new Error(
+				`discover.read_result returned an unexpected page shape at offset ${offset}`,
+			);
+		}
+		if (
+			pageValue.complete === true &&
+			"value" in pageValue &&
+			parts.length === 0
+		) {
+			return pageValue.value;
+		}
+		if (typeof pageValue.text !== "string") {
+			throw new Error(
+				`discover.read_result returned no text at offset ${offset}`,
+			);
+		}
+		parts.push(pageValue.text);
+		if (typeof pageValue.nextOffset !== "number") {
+			return JSON.parse(parts.join(""));
+		}
+		if (pageValue.nextOffset <= offset) {
+			throw new Error(
+				`discover.read_result did not advance past offset ${offset}`,
+			);
+		}
+		offset = pageValue.nextOffset;
+	}
+	throw new Error(
+		`result handle ${handle} did not complete within ${maxPages} pages`,
+	);
+}
+
+/**
+ * Normalize a gateway payload and, when the gateway kept the result behind a
+ * handle, page it back so `value` is the complete result. A plain truncation
+ * envelope (no handle) stays `truncated: true` for the caller to handle.
+ */
+export async function resolveCodeResult(
+	runCode: CodeRunner,
+	raw: unknown,
+): Promise<NormalizedCodeResult> {
+	const normalized = normalizeCodeResult(raw);
+	if (!normalized.handle) return normalized;
+	const {
+		handle,
+		truncated: _truncated,
+		truncationHint: _hint,
+		...rest
+	} = normalized;
+	return { ...rest, value: await readCodeResultHandle(runCode, handle.handle) };
 }
 
 /**

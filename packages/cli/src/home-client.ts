@@ -18,7 +18,7 @@ import {
 	resolveCliTaskInputResponses,
 } from "./home-elicitation";
 import { isRateLimitError, rateLimitRetryAfterMs } from "./home-rate-limit";
-import { normalizeCodeResult } from "./code-result";
+import { normalizeCodeResult, resolveCodeResult } from "./code-result";
 import {
 	extractWWWAuthenticateParams,
 	type JSONRPCMessage,
@@ -1444,7 +1444,7 @@ export class TedixHomeClient {
 				},
 				{ retryable: true },
 			);
-			const normalized = normalizeCodeResult(payload);
+			const normalized = await this.#resolveCodeResult(payload);
 			if (!normalized.truncated) return normalized.value;
 			if (limit <= 1) {
 				throw new Error(
@@ -1513,7 +1513,7 @@ export class TedixHomeClient {
 				},
 				{ retryable: true },
 			);
-			const normalized = normalizeCodeResult(payload);
+			const normalized = await this.#resolveCodeResult(payload);
 			if (!normalized.truncated) return normalized.value;
 			if (limit <= 1) {
 				throw new Error(
@@ -1658,6 +1658,18 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 	}
 
 	/**
+	 * Normalize a gateway payload, paging a handle-kept result back in full.
+	 * Only a result the gateway could not keep stays `truncated: true`, and the
+	 * callers above then shrink their page as before.
+	 */
+	async #resolveCodeResult(payload: unknown) {
+		return resolveCodeResult(
+			(source) => this.callTool("code", { code: source }, { retryable: true }),
+			payload,
+		);
+	}
+
+	/**
 	 * Run one Code Mode snippet that is expected to invoke a destructive tool.
 	 *
 	 * The explicit reason exists only for this serialized call, so the MCP
@@ -1745,7 +1757,7 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 				},
 				{ retryable: true },
 			);
-			const normalized = normalizeCodeResult(payload);
+			const normalized = await this.#resolveCodeResult(payload);
 			if (!normalized.truncated) return normalized.value;
 			if (limit !== undefined && limit <= 1) {
 				throw new Error(
@@ -1791,7 +1803,7 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 			);
 			// `#callHomeTool` runs the read as Code Mode, so `payload` is the gateway
 			// envelope `{ executionId, result, logs }`; the page lives under `result`.
-			const normalized = normalizeCodeResult(payload);
+			const normalized = await this.#resolveCodeResult(payload);
 			if (!normalized.truncated) {
 				return parseHomeRunEventsPage(normalized.value, offset);
 			}

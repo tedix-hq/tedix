@@ -28,7 +28,7 @@ import {
 	codeOutputValue,
 	innerFailureMessage,
 	formatCodeValue,
-	normalizeCodeResult,
+	resolveCodeResult,
 } from "./code-result";
 import {
 	findCommand,
@@ -1147,9 +1147,13 @@ async function main() {
 					'Usage: tedix code "<js>"  e.g.  tedix code \'async () => await discover.search({ query: "firecrawl" })\'  (or pipe the snippet via stdin)',
 				);
 			}
-			const normalized = normalizeCodeResult(
+			// A result the gateway kept behind a handle is paged back in full:
+			// the token budget bounds the model's view, not the CLI's.
+			const codeClient = client;
+			const normalized = await resolveCodeResult(
+				(pageSource) => codeClient.runCode(pageSource),
 				await runDirectCode(
-					client,
+					codeClient,
 					source,
 					options.codeDestructiveApprovalReason,
 					{

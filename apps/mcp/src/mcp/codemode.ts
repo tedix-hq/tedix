@@ -38,10 +38,11 @@ import {
 	callerOrganizationMetadata,
 } from "./codemode-execution";
 import { TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS } from "@tedix/api-contract/schemas/tedi-durable-code";
+import { boundCodeModeLogs } from "@tedix/tedi-codemode-core/bounded-result";
 import {
-	type CodeModeTruncationOptions,
-	boundCodeModeLogs,
-} from "@tedix/tedi-codemode-core/bounded-result";
+	codeModeResultOwner,
+	createCodeModeResultStore,
+} from "./codemode-result-store";
 import {
 	DynamicWorkerExecutor,
 	resolveProvider,
@@ -89,7 +90,8 @@ import {
 	findPaymentRequiredMeta,
 	stripUpstreamCodeFailurePrefix,
 	serializeCodeModeResult,
-	shapeCodeModeResultForModel,
+	shapeCodeModeResultWithHandle,
+	resolveCodeModeResultBudget,
 	codeModeResultMeta,
 	codeModeReadObservationMeta,
 	codeModeCollectionReadMeta,
@@ -169,15 +171,11 @@ export async function registerCodeModeTools(
 		TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS;
 	// Per-app override for the model-facing result token budget (D1
 	// mcpConfig.codeModeResultMaxTokens). Defaults to the @cloudflare/codemode
-	// 6,000-token cap; oversized results always come back as a detectable
-	// `__tedix_truncated` envelope, never a bare clipped string.
-	const configuredResultMaxTokens = mcpConfig?.codeModeResultMaxTokens;
-	const resultTruncationOptions: CodeModeTruncationOptions | undefined =
-		typeof configuredResultMaxTokens === "number" &&
-		Number.isFinite(configuredResultMaxTokens) &&
-		configuredResultMaxTokens > 0
-			? { maxTokens: configuredResultMaxTokens }
-			: undefined;
+	// 6,000-token cap; an oversized result is kept whole behind a
+	// `__tedix_result_handle` envelope (paged via discover.read_result), or
+	// comes back as a detectable `__tedix_truncated` envelope when it cannot be
+	// stored — never a bare clipped string.
+	const resultTruncationOptions = resolveCodeModeResultBudget(serverCtx);
 	const namespaceOverrides = mcpConfig?.codeModeNamespaces as
 		| Record<string, string>
 		| undefined;
@@ -700,11 +698,19 @@ export async function registerCodeModeTools(
 				// a MODEL prompt bound. A skill-runtime service-binding caller
 				// (skillRunId identity) is a machine consumer whose transport already
 				// enforces its own byte cap — clipping here would bound a bound.
-				// Model-facing callers get the detectable `__tedix_truncated`
-				// envelope on overflow instead of a silent clipped string.
+				// Model-facing callers get a `__tedix_result_handle` envelope on
+				// overflow (full value kept, paged via discover.read_result), or the
+				// detectable `__tedix_truncated` envelope when it cannot be stored.
 				const modelResult = serverCtx.callerIdentity?.skillRunId
 					? serializeCodeModeResult(result.result)
-					: shapeCodeModeResultForModel(result.result, resultTruncationOptions);
+					: await shapeCodeModeResultWithHandle(result.result, {
+							store: createCodeModeResultStore(
+								serverCtx.env,
+								codeModeResultOwner(serverCtx),
+							),
+							executionId,
+							options: resultTruncationOptions,
+						});
 				const baseIdentity = structuredResultIdentity(result.result);
 				const resultIdentity =
 					executionRefs.skillWorkflowRunIds.size > 0
@@ -766,8 +772,11 @@ export async function registerCodeModeTools(
 					resultChars: outputText.length,
 					// Same chars-per-token heuristic as the truncation budget.
 					resultTokensApprox: Math.ceil(outputText.length / 4),
+					// Either bound replaced the full value in the model's view.
 					resultTruncated:
-						isRecord(modelResult) && modelResult.__tedix_truncated === true,
+						isRecord(modelResult) &&
+						(modelResult.__tedix_truncated === true ||
+							modelResult.__tedix_result_handle === true),
 				});
 				const paymentResponseMeta =
 					paymentResponses.length === 0

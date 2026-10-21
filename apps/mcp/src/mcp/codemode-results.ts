@@ -1,8 +1,11 @@
 import {
 	type CodeModeTruncationOptions,
+	buildCodeModeResultHandle,
+	serializeCodeModeResultForHandle,
 	shapeBoundedCodeModeResult,
 } from "@tedix/tedi-codemode-core/bounded-result";
 import { type CatalogDiscoveryResult } from "./codemode-discovery";
+import { type CodeModeResultStore } from "./codemode-result-store";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	type OwnedReadObservation,
@@ -39,6 +42,60 @@ export function shapeCodeModeResultForModel(
 	options?: CodeModeTruncationOptions,
 ): unknown {
 	return shapeBoundedCodeModeResult(serializeCodeModeResult(result), options);
+}
+
+/**
+ * Like {@link shapeCodeModeResultForModel}, but an over-budget result is kept
+ * whole in `store` and replaced by a `__tedix_result_handle` envelope the
+ * caller pages through `discover.read_result`. Falls back to the truncation
+ * envelope when there is no store or the write fails, so nothing new can make
+ * a `code` call error. Within budget the value passes through untouched.
+ */
+export async function shapeCodeModeResultWithHandle(
+	result: unknown,
+	input: {
+		store: CodeModeResultStore | null;
+		executionId: string;
+		options?: CodeModeTruncationOptions;
+	},
+): Promise<unknown> {
+	const value = serializeCodeModeResult(result);
+	const shaped = shapeBoundedCodeModeResult(value, input.options);
+	if (Object.is(shaped, value) || !input.store) return shaped;
+	try {
+		const serialized = serializeCodeModeResultForHandle(value);
+		const { expiresAt } = await input.store.put(input.executionId, serialized);
+		return buildCodeModeResultHandle(
+			value,
+			serialized,
+			{ handle: input.executionId, expiresAt },
+			input.options,
+		);
+	} catch (error) {
+		console.warn(
+			"[MCP] Code Mode result handle store failed; returning truncation envelope:",
+			error instanceof Error ? error.message : String(error),
+		);
+		return shaped;
+	}
+}
+
+/**
+ * Per-app override for the model-facing result token budget (D1
+ * `mcpConfig.codeModeResultMaxTokens`). `undefined` means the default budget.
+ */
+export function resolveCodeModeResultBudget(
+	serverCtx: Pick<ServerContext, "appMetadata">,
+): CodeModeTruncationOptions | undefined {
+	const mcpConfig = serverCtx.appMetadata?.mcpConfig as
+		| Record<string, unknown>
+		| undefined;
+	const configured = mcpConfig?.codeModeResultMaxTokens;
+	return typeof configured === "number" &&
+		Number.isFinite(configured) &&
+		configured > 0
+		? { maxTokens: configured }
+		: undefined;
 }
 
 export function serializeCodeModeResult(result: unknown): unknown {

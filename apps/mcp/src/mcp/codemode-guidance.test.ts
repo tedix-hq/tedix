@@ -47,6 +47,8 @@ describe("code tool description budget", () => {
 			"Never guess tool names",
 			"confirmDestructive",
 			"__tedix_truncated",
+			"__tedix_result_handle",
+			"discover.read_result",
 			"completionEvidence",
 			"nearestNamespaces",
 			"codemode.__runtime()",
