@@ -8,12 +8,12 @@ import type { kernelRuntimeRuns } from "@tedix/db/schema";
 import * as runQueries from "@tedix/db/queries/kernel-runtime-runs";
 import type { BaseContext } from "../../orpc";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { asyncCompletionAssistantMessageId } from "./run-store";
 import {
-	asyncCompletionAssistantMessageId,
 	homePlanFinalSynthesisContent,
 	reconcileHomePlanWithChildStatuses,
-	reconcileHomeRunRowsFromChildStatus,
-} from "./run-store";
+} from "./run-store-plan";
+import { reconcileHomeRunRowsFromChildStatus } from "./run-store-reconciliation";
 import {
 	homeDelegationCompletionContent,
 	homeDelegationProofMetadata,
