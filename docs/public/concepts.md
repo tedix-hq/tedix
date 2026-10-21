@@ -65,15 +65,18 @@ explains how to set them up.
 
 ## Who may do what
 
-| Term               | Meaning                                                                                                          |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Principal          | Anyone or anything that can act or approve: a person, a tedi, or an external agent.                              |
-| Policy             | Rule that permits, denies, limits, or escalates an action.                                                       |
-| Approval           | A decision by a person or another worker, required before a protected action. Nobody approves their own request. |
-| Rationale          | The recorded explanation for a decision or run. It explains; it does not show the result is right.               |
-| Artifact           | Addressable output such as a report, file, or patch.                                                             |
-| Settlement         | The result a worker records when a run or Work Item finishes. It is the worker's report, not a check.            |
-| Provider reference | The outside system's own id for an action it performed, such as a sent message id.                               |
+| Term               | Meaning                                                                                                                                      |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Principal          | Anyone or anything that can act or approve: a person, a tedi, or an external agent.                                                          |
+| Policy             | Rule that permits, denies, limits, or escalates an action.                                                                                   |
+| Approval           | A decision by a person or another worker, required before a protected action. Nobody approves their own request.                             |
+| Rationale          | The recorded explanation for a decision or run. It explains; it does not show the result is right.                                           |
+| Artifact           | Addressable output such as a report, file, or patch.                                                                                         |
+| Settlement         | The result a worker records when a run or Work Item finishes. It is the worker's report, not a check.                                        |
+| Attempt            | One agent session's try at a Work Item. A Work Item can have several Attempts over time.                                                     |
+| Admission          | The check that a Work Item is ready and that this agent may start it, done before an Attempt begins.                                         |
+| Lease              | The time-limited hold a running Attempt keeps by sending heartbeats. If the agent stops, the lease expires and the Attempt can be restarted. |
+| Provider reference | The outside system's own id for an action it performed, such as a sent message id.                                                           |
 
 The key distinction is continuity: a tedi and its organization's memory outlive
 individual runs and runtime changes, while permissions stay limited per action.
