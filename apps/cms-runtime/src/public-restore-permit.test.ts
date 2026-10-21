@@ -108,6 +108,7 @@ describe("early public restore gate", () => {
 			publicRestorePermitEligible(new Request(`https://tedix.dev${path}`))
 				? expect.any(Function)
 				: undefined,
+			expect.any(Request),
 		);
 	});
 
