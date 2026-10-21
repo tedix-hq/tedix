@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { resolveWebSearchAccess } from "@tedix/api-contract/schemas/web-search";
 import {
 	buildDelegationWorkOrder,
 	decideDelegationDispatch,
@@ -380,6 +381,70 @@ describe("request-derived capability plans", () => {
 });
 
 describe("web search delegation", () => {
+	it.each([
+		"Search the web for the latest widget pricing",
+		"Search online for widget pricing",
+		"Search the internet for widget pricing",
+		"Look up widget pricing",
+		"What is the latest version of Widget?",
+	])(
+		"infers native search when the planner omitted tools: %s",
+		(userContent) => {
+			const result = buildDelegationWorkOrder({
+				userContent,
+				card: { ...readerCard, webSearch: true },
+				route,
+			});
+			expect(result.capabilityPlan).toMatchObject({
+				requiredCapabilities: ["web.search"],
+				allowedToolIds: [
+					"web_search",
+					"browser_markdown",
+					"browser_read_result",
+				],
+				missingCapabilities: [],
+			});
+		},
+	);
+
+	it.each([
+		{ organization: { enabled: false }, tediPolicy: "inherit" as const },
+		{ organization: { enabled: true }, tediPolicy: "off" as const },
+		{ organization: { enabled: true }, runtimeTools: ["browser_markdown"] },
+	])("does not infer search when policy disables it: %j", (policy) => {
+		const result = buildDelegationWorkOrder({
+			userContent: "Search the web for widget pricing",
+			card: {
+				...readerCard,
+				webSearch: resolveWebSearchAccess(policy).enabled,
+			},
+			route,
+		});
+		expect(result.capabilityPlan?.allowedToolIds ?? []).not.toContain(
+			"web_search",
+		);
+		expect(result.capabilityPlan?.requiredCapabilities ?? []).not.toContain(
+			"web.search",
+		);
+	});
+
+	it.each([
+		"Summarize the supplied text",
+		"Look up our Work items",
+		"Look up the latest invoice",
+		"Read https://example.com/widget",
+		"Summarize this text\n\nLocal terminal context:\n- cwd: /tmp/search the web",
+	])("does not infer search for a non-web request: %s", (userContent) => {
+		const result = buildDelegationWorkOrder({
+			userContent,
+			card: { ...readerCard, webSearch: true },
+			route,
+		});
+		expect(result.capabilityPlan?.allowedToolIds ?? []).not.toContain(
+			"web_search",
+		);
+	});
+
 	const ask = "What changed in the latest public pricing for example widgets?";
 	it("allows planned web search only on a tedi that offers it", () => {
 		const enabled = buildDelegationWorkOrder({
@@ -403,6 +468,9 @@ describe("web search delegation", () => {
 			card: readerCard,
 			route: { ...route, plannedToolIds: ["web_search"] },
 		});
+		expect(disabled.capabilityPlan?.allowedToolIds ?? []).not.toContain(
+			"web_search",
+		);
 		expect(disabled.capabilityPlan?.requiredCapabilities ?? []).not.toContain(
 			"web.search",
 		);

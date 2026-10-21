@@ -64,7 +64,18 @@ export function deriveDelegationCapabilityPlan(input: {
 		if (outputIds.length === 0) missingCapabilities.push("output.reference");
 	}
 	// Native web search is offered only where the organization enabled it.
-	if (card?.webSearch && route.plannedToolIds.includes("web_search")) {
+	const webLookup =
+		/\b(?:search\s+(?:the\s+)?(?:web|internet)|search\s+online|(?:web|internet)\s+search|latest\s+version\s+of)\b/i.test(
+			content,
+		) ||
+		(/\blook\s+up\b/i.test(content) &&
+			!/\b(?:work\s+items?|emails?|invoices?|repository|codebase)\b/i.test(
+				content,
+			));
+	if (
+		card?.webSearch &&
+		(route.plannedToolIds.includes("web_search") || webLookup)
+	) {
 		capabilities.push("web.search");
 		tools.add("web_search");
 		tools.add("browser_markdown");
@@ -212,6 +223,7 @@ export function deriveDelegationCapabilityPlan(input: {
 	if (capabilities.length === 0 && route.plannedToolIds.length > 0) {
 		capabilities.push("planned_tools");
 		for (const id of route.plannedToolIds) {
+			if (id === "web_search" && !card?.webSearch) continue;
 			if (id === "tedix_mcp_code" || id.startsWith("tedix_mcp_"))
 				missingCapabilities.push("exact_tool_mapping");
 			else tools.add(id);

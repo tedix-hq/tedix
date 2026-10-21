@@ -104,6 +104,10 @@ function fallbackAnswerStream() {
 }
 
 describe("planKernelRoute", () => {
+	it("maps web lookups to the offered native search tool in planner instructions", () => {
+		expect(SYSTEM_PROMPT).toContain("web lookup → web_search when offered");
+	});
+
 	it("replays historical images on both routing paths and refuses a text-only fallback", async () => {
 		const context: KernelContext = {
 			...EMPTY_CONTEXT,
