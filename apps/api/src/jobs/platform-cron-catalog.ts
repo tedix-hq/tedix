@@ -43,6 +43,7 @@ export const PLATFORM_CRON_IDS = [
 	"machine-scope-drift",
 	"tedi-access-key-rotation",
 	"site-reconciliation",
+	"d1-retention",
 	"reply-draft-career",
 	"capture-health-heartbeat",
 	"dispatcher-health-alarm",
@@ -232,6 +233,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "site-reconciliation",
+		cron: "0 * * * *",
+		intervalMinutes: 60,
+		requiresFleet: true,
+	},
+	{
+		id: "d1-retention",
 		cron: "0 * * * *",
 		intervalMinutes: 60,
 		requiresFleet: true,

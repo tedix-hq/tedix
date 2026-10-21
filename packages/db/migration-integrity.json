@@ -1052,6 +1052,10 @@
 		{
 			"name": "20261021185824_work_events_org_type_index/migration.sql",
 			"sha256": "2862beb22f2ebff8976bd60345fdce34378e9b7fc5ebffd6ead8550e2b166cff"
+		},
+		{
+			"name": "20261021192732_d1_retention_policies/migration.sql",
+			"sha256": "e96ae2cd68b3efcd0cbd26229b5088cb31a585ec91852e2d7e6a22e72868166f"
 		}
 	]
 }

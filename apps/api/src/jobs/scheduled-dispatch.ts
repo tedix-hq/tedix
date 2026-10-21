@@ -42,7 +42,8 @@ async function trackPlatformCronPath(
  *   reply-draft career ladder,
  *   workstation compute metering
  * - 0 * * * * (hourly) → MCP endpoint freshness scan (bounded 200-row
- *   workflow), site reconciliation, external-agent MCP client reaper, plus two
+ *   workflow), site reconciliation, D1 retention (policy rows in
+ *   d1_retention_policies; none = no-op), external-agent MCP client reaper, plus two
  *   hour-gated paths: platform-health digest (8am UTC) and cost-anomaly check
  *   (9am UTC)
  * - 0 2 * * * (2am UTC) → Legacy billing quarantine + catalog sync log maintenance
@@ -341,6 +342,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await import("./site-reconciliation");
 			await trackPlatformCronPath(env, event, "site-reconciliation", () =>
 				runSiteReconciliationTick(env),
+			);
+		}
+
+		if (fleetEnabled && cron === "0 * * * *") {
+			const { runD1RetentionTick } = await import("./d1-retention");
+			await trackPlatformCronPath(env, event, "d1-retention", () =>
+				runD1RetentionTick(env, event),
 			);
 		}
 
