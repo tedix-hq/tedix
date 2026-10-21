@@ -24,6 +24,8 @@
 		"./utils/decision-expiry": "./src/utils/decision-expiry.ts",
 		"./utils/activity-feed": "./src/utils/activity-feed.ts",
 		"./utils/card-review": "./src/utils/card-review.ts",
+		"./utils/card-review-weights": "./src/utils/card-review-weights.ts",
+		"./utils/sheet-range": "./src/utils/sheet-range.ts",
 		"./schemas/request-filing-policy": "./src/schemas/request-filing-policy.ts",
 		"./assets/request-filing.v1.json": "./src/assets/request-filing.v1.json",
 		"./utils/focus-feed": "./src/utils/focus-feed.ts",

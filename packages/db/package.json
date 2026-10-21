@@ -11,6 +11,7 @@
 		"./queries/work-items/agent-review-triage": "./src/queries/work-items/agent-review-triage.ts",
 		"./queries/work-items/card-style-rules": "./src/queries/work-items/card-style-rules.ts",
 		"./queries/factory-card-revisions": "./src/queries/factory-card-revisions.ts",
+		"./queries/factory-weights": "./src/queries/factory-weights.ts",
 		"./queries/work-items/card-revisions": "./src/queries/work-items/card-revisions.ts",
 		"./queries/work-items/deck-sweep": "./src/queries/work-items/deck-sweep.ts",
 		"./queries/work-items/delivery-repair": "./src/queries/work-items/delivery-repair.ts",

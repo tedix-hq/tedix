@@ -50,7 +50,8 @@ async function trackPlatformCronPath(
  * - 0 3 * * * (3am UTC) → Retention cleanup, catalog integrity, Claude registry
  * - 0 4 * * * (4am UTC) → Memory reflection (confidence decay, archive, edge discovery)
  * - 0 6 * * * (6am UTC) → Tool testing and quality scores
- * - 0 7 * * * (7am UTC) → Content Sync, decision-capture health heartbeat
+ * - 0 7 * * * (7am UTC) → Content Sync, factory card weight update,
+ *   decision-capture health heartbeat
  * - Every 6h (0,6,12,18 UTC) → Tedi MCP access-health workflow (repair enabled)
  *   and upstream drift detection (forked tools vs catalog)
  *
@@ -393,6 +394,16 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			const { runContentSync } = await import("./catalog-scan-cron");
 			await trackPlatformCronPath(env, event, "content-sync", () =>
 				runContentSync(env, runId),
+			);
+			// Factory card weights: daily pass, weekly fit per source; tenant
+			// learning like the Deck sweep, so it runs on the installation tick.
+			const { createDbClient } = await import("@tedix/db/client");
+			const { updateFactoryWeights } = await import("./factory-weight-update");
+			await trackPlatformCronPath(env, event, "factory-weight-update", () =>
+				updateFactoryWeights(
+					createDbClient(env.DB),
+					new Date(event.scheduledTime),
+				),
 			);
 		}
 
