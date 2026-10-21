@@ -574,8 +574,22 @@ export const approveRoute = authed.approve
 			context.db,
 			input.approvalRequestId,
 		);
-		if (!approval) {
+		// The approval must belong to the tedi the caller was authorized for;
+		// an id from another tedi or organization reads as absent.
+		if (
+			!approval ||
+			approval.orgId !== tedi.organizationId ||
+			approval.tediId !== tedi.id
+		) {
 			throw createError(ErrorCodes.NOT_FOUND, "Approval request not found");
+		}
+		// A tedi never decides an approval: it would be approving its own
+		// request. Tedis decide through the Work approval plane.
+		if (context.tediId || context.authType === "tedi") {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Tedis cannot resolve runtime approvals",
+			);
 		}
 		const timeout = resolveRuntimeApprovalTimeout({
 			status: approval.status,

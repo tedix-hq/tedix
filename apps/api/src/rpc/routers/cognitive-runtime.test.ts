@@ -1094,6 +1094,8 @@ describe("cognitive runtime router invariants", () => {
 		const client = createRuntimeClient(createContext(db));
 		mocks.getApprovalRequestById.mockResolvedValue({
 			id: "approval-1",
+			tediId: TEDI_ID,
+			orgId: ORG_ID,
 			status: "pending",
 			expiresAt: "2000-01-01T00:00:00.000Z",
 		});
@@ -1115,6 +1117,8 @@ describe("cognitive runtime router invariants", () => {
 		const client = createRuntimeClient(createContext(db));
 		mocks.getApprovalRequestById.mockResolvedValue({
 			id: "approval-2",
+			tediId: TEDI_ID,
+			orgId: ORG_ID,
 			status: "pending",
 			expiresAt: "2999-01-01T00:00:00.000Z",
 		});
@@ -1167,6 +1171,67 @@ describe("cognitive runtime router invariants", () => {
 				}),
 			}),
 		);
+	});
+
+	it.each([
+		["another tedi", { tediId: "tedi-other", orgId: ORG_ID }],
+		["another organization", { tediId: TEDI_ID, orgId: "org-other" }],
+	])(
+		"refuses to resolve an approval that belongs to %s",
+		async (_label, owner) => {
+			const db = createRuntimeDb();
+			const client = createRuntimeClient(createContext(db));
+			mocks.getApprovalRequestById.mockResolvedValue({
+				id: "approval-foreign",
+				...owner,
+				status: "pending",
+				expiresAt: "2999-01-01T00:00:00.000Z",
+			});
+
+			await expect(
+				client.approve({
+					tediId: TEDI_ID,
+					approvalRequestId: "approval-foreign",
+					approved: true,
+				}),
+			).rejects.toThrow(/Approval request not found/);
+			expect(mocks.resolveApprovalRequest).not.toHaveBeenCalled();
+			expect(mocks.settleRepoCommitApprovalIfNeeded).not.toHaveBeenCalled();
+		},
+	);
+
+	it("refuses a tedi approving its own runtime approval", async () => {
+		const db = createRuntimeDb();
+		// A tedi calling through the MCP edge: trusted binding carrying its
+		// own tedi id and runtime scopes.
+		const client = createRuntimeClient({
+			...createContext(db),
+			apiKey: undefined,
+			authType: undefined,
+			headers: new Headers({
+				"X-Service-Binding": "true",
+				"X-Tedix-Org-Id": ORG_ID,
+				"X-Tedix-Tedi-Id": TEDI_ID,
+				"X-Tedix-Tedi-Scopes": "tedis:read tedis:write",
+			}),
+		} as unknown as BaseContext);
+		mocks.getApprovalRequestById.mockResolvedValue({
+			id: "approval-self",
+			tediId: TEDI_ID,
+			orgId: ORG_ID,
+			status: "pending",
+			expiresAt: "2999-01-01T00:00:00.000Z",
+		});
+
+		await expect(
+			client.approve({
+				tediId: TEDI_ID,
+				approvalRequestId: "approval-self",
+				approved: true,
+			}),
+		).rejects.toThrow(/Tedis cannot resolve runtime approvals/);
+		expect(mocks.resolveApprovalRequest).not.toHaveBeenCalled();
+		expect(mocks.settleRepoCommitApprovalIfNeeded).not.toHaveBeenCalled();
 	});
 
 	it("routes repo_commit_write approvals through the shared settle hook", async () => {
