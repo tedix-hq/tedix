@@ -215,7 +215,7 @@ import {
 import { sortToolsDeterministically } from "./mcp/tools-list-order";
 import { paginateSortedToolsList } from "./mcp/tools-list-pagination";
 import { getAppsSDKCompatibleHtml } from "./mcp/utils/widget";
-import { checkRateLimit, mcpRateLimitKey } from "./middleware/rate-limit";
+import { checkMcpRequestRateLimit } from "./middleware/rate-limit";
 import { handlePreviewRequest } from "./preview";
 import type { ResolvedApp } from "./resolution";
 import {
@@ -3525,9 +3525,11 @@ const worker = {
 			}
 
 			// Rate limit
-			const { allowed } = await checkRateLimit(
-				env.MCP_RATE_LIMITER,
-				mcpRateLimitKey(app.id, request.headers, clientIp),
+			const { allowed } = await checkMcpRequestRateLimit(
+				env,
+				app.id,
+				request.headers,
+				clientIp,
 			);
 			if (!allowed) {
 				await recordMcpAccessDenial({
@@ -3802,9 +3804,11 @@ const worker = {
 						return accessError.response;
 					}
 
-					const { allowed } = await checkRateLimit(
-						env.MCP_RATE_LIMITER,
-						mcpRateLimitKey(resolvedApp.app.id, request.headers, clientIp),
+					const { allowed } = await checkMcpRequestRateLimit(
+						env,
+						resolvedApp.app.id,
+						request.headers,
+						clientIp,
 					);
 					if (!allowed) {
 						await recordMcpAccessDenial({
@@ -3917,9 +3921,11 @@ const worker = {
 							return accessError.response;
 						}
 
-						const { allowed } = await checkRateLimit(
-							env.MCP_RATE_LIMITER,
-							mcpRateLimitKey(result.app.id, request.headers, clientIp),
+						const { allowed } = await checkMcpRequestRateLimit(
+							env,
+							result.app.id,
+							request.headers,
+							clientIp,
 						);
 						if (!allowed) {
 							await recordMcpAccessDenial({
