@@ -1,4 +1,5 @@
 import {
+	webMcpError,
 	webMcpResult,
 	type WebMcpToolDef,
 } from "@tedix/webmcp-core/model-context";
@@ -35,7 +36,15 @@ export function buildDecisionDeckWebMcpTools(
 				properties: {},
 				additionalProperties: false,
 			},
-			execute: async () => webMcpResult({ ...current() }),
+			execute: async () => {
+				try {
+					return webMcpResult({ ...current() });
+				} catch {
+					return webMcpError(
+						"The Decision deck is unavailable. Try again in a moment.",
+					);
+				}
+			},
 		},
 	];
 }
