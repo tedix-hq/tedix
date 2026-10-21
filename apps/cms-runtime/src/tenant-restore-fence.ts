@@ -4,6 +4,25 @@ import {
 	leaveCmsRestorePermit,
 	type CmsRestorePermitParams,
 } from "@tedix/db/queries/cms-restore-fences";
+import { publicAssetCacheEligible } from "./tenant-public-cache";
+
+function anonymousPublicRead(request: Request): boolean {
+	let pathname: string;
+	try {
+		pathname = decodeURIComponent(new URL(request.url).pathname);
+	} catch {
+		return false;
+	}
+	return (
+		publicAssetCacheEligible(request) &&
+		!/^\/(?:_emdash|_tedix|api|admin)(?:\/|$)/i.test(pathname) &&
+		![
+			"x-tedix-cms-human-identity",
+			"x-tedix-cms-human-assertion",
+			"x-tedix-cms-forwarded-user-auth",
+		].some((name) => request.headers.has(name))
+	);
+}
 
 export class CmsRestoreFenceUnavailableError extends Error {
 	constructor() {
@@ -85,8 +104,53 @@ export async function withCmsRestoreResponsePermit(
 	queries: CmsRestorePermitQueries = defaultQueries,
 	initialQueries: CmsRestorePermitQueries = queries,
 	createPullQueries?: () => CmsRestorePermitQueries,
+	request?: Request,
 ): Promise<{ admitted: false } | { admitted: true; value: Response }> {
 	const pinnedIdentity = { ...identity };
+	const failOpen = request !== undefined && anonymousPublicRead(request);
+	const unavailablePermits = new Set<string>();
+	const warned = new Set<string>();
+	const warn = (operation: "enter" | "leave") => {
+		if (warned.has(operation)) return;
+		warned.add(operation);
+		console.warn(
+			"[cms-runtime] public restore ledger unavailable; serving read",
+			{
+				metric: "cms_restore_fence_fail_open",
+				value: 1,
+				operation,
+				...pinnedIdentity,
+			},
+		);
+	};
+	const responseQueries = (
+		ledger: CmsRestorePermitQueries,
+	): CmsRestorePermitQueries => {
+		if (!failOpen) return ledger;
+		return {
+			async enter(client, permit) {
+				try {
+					// An explicit refusal still closes the site, even for public reads.
+					return await ledger.enter(client, permit);
+				} catch {
+					unavailablePermits.add(permit.permitId);
+					warn("enter");
+					return true;
+				}
+			},
+			async leave(client, permit) {
+				// An uncertain acquisition may have committed; attempt its exact cleanup.
+				const unavailable = unavailablePermits.delete(permit.permitId);
+				try {
+					return (await ledger.leave(client, permit)) || unavailable;
+				} catch {
+					warn("leave");
+					return true;
+				}
+			},
+		};
+	};
+	initialQueries = responseQueries(initialQueries);
 	const initialPermit: CmsRestorePermitParams = {
 		...pinnedIdentity,
 		permitId: crypto.randomUUID(),
@@ -124,7 +188,9 @@ export async function withCmsRestoreResponsePermit(
 								permitId: crypto.randomUUID(),
 								kind: "outer",
 							};
-							const pullQueries = createPullQueries?.() ?? queries;
+							const pullQueries = responseQueries(
+								createPullQueries?.() ?? queries,
+							);
 							try {
 								if (!(await enterPermit(db, permit, pullQueries)))
 									throw new CmsRestoreFenceUnavailableError();

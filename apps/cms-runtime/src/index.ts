@@ -2104,6 +2104,7 @@ export default {
 				undefined,
 				restoreQueries?.(),
 				restoreQueries,
+				request,
 			);
 			return permitted.admitted ? permitted.value : cmsRestoreFenceResponse();
 		} catch (error) {
