@@ -87,11 +87,6 @@ import {
 	billingPolicyDenialCode,
 } from "./billing-reservation";
 import {
-	adviseTurnCost,
-	type CostAdvisorVerdict,
-	readCostAdvisorMode,
-} from "./cost-advisor";
-import {
 	type HomeDelegationAgentReview,
 	renderHeldDelegationLine,
 } from "./delegation-approver";
@@ -965,25 +960,6 @@ export async function runKernelTurnWork(
 						return null;
 					})
 			: Promise.resolve(null);
-	// Per-turn cost advisor (advise / shadow-telemetry mode only).
-	// Derives a shadow verdict from the existing route decision — no second LLM
-	// call. The verdict is recorded into run metadata below as
-	// `kernelCostAdvisor` and never alters the model actually used (applied:false
-	// always in this pass). Off by default; flip KERNEL_COST_ADVISOR_MODE=advise
-	// to activate shadow telemetry. See kernel/cost-advisor.ts.
-	// TODO: implement optimize mode (actually swap the model) once shadow data
-	// proves the tier mapping is accurate enough to act on.
-	const costAdvisorMode = readCostAdvisorMode(
-		deps.env as unknown as Record<string, unknown>,
-	);
-	let costAdvisorVerdict: CostAdvisorVerdict | null = null;
-	if (costAdvisorMode !== "off" && kernelResult?.route) {
-		costAdvisorVerdict = adviseTurnCost({
-			mode: costAdvisorMode,
-			route: kernelResult.route,
-			currentModelDeployment: deps.currentModelDeployment ?? null,
-		});
-	}
 	stageTimings.mark("writeProposalPlanStarted");
 	const {
 		writeProposal,
@@ -1631,11 +1607,6 @@ export async function runKernelTurnWork(
 					},
 				}
 			: {}),
-		// Shadow cost-advisor verdict (advise mode only — never applied).
-		// Derived from the existing effortClass/confidence signals; no second LLM
-		// call. Present only when KERNEL_COST_ADVISOR_MODE=advise|optimize.
-		// Null when mode=off (default) or when no effortClass was produced.
-		...(costAdvisorVerdict ? { kernelCostAdvisor: costAdvisorVerdict } : {}),
 		// Top-level mirror of the route's content-hash version (also nested in
 		// `kernelRoute.routerVersion`) so the run row is queryable by version
 		// without descending into the route object. Null on route-less turns.
