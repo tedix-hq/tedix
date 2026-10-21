@@ -425,6 +425,62 @@ describe("listProjectPortfolio", () => {
 			lastActivityAt: "2026-07-20T00:00:00.000Z",
 		});
 	});
+
+	it("excludes a private project before the limit while retaining public aggregates", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(PORTFOLIO_DDL);
+		const hidden = await createProject(db, {
+			id: nextId("private"),
+			orgId: ORG,
+			key: "A-PRIVATE",
+			name: "Private",
+			createdAt: NOW,
+		});
+		const visible = await createProject(db, {
+			id: nextId("public"),
+			orgId: ORG,
+			key: "B-PUBLIC",
+			name: "Public",
+			createdAt: NOW,
+		});
+		for (const project of [hidden, visible]) {
+			const itemId = nextId("item");
+			await db.insert(workItems).values({
+				id: itemId,
+				orgId: ORG,
+				projectId: project.id,
+				title: `${project.name} work`,
+				disposition: "accepted",
+				createdAt: NOW,
+			});
+			sqlite
+				.prepare("INSERT INTO work_project_health_judgments VALUES (?,?,?,?,?)")
+				.run(nextId("health"), ORG, project.id, "at_risk", NOW);
+			sqlite
+				.prepare("INSERT INTO work_attempts VALUES (?,?,?,?)")
+				.run(nextId("attempt"), ORG, itemId, NOW);
+			sqlite
+				.prepare("INSERT INTO work_agent_sessions VALUES (?,?,?,?)")
+				.run(nextId("session"), ORG, project.id, LATER);
+		}
+		const result = await listProjectPortfolio(db, {
+			orgId: ORG,
+			limit: 1,
+			excludeProjectId: hidden.id,
+		});
+		expect(result.data).toHaveLength(1);
+		expect(result.data[0]).toMatchObject({
+			project: { id: visible.id },
+			total: 1,
+			byDisposition: { accepted: 1 },
+			next: { title: "Public work" },
+			health: "at_risk",
+			lastActivityAt: LATER,
+		});
+		expect(JSON.stringify(result)).not.toContain(hidden.id);
+		const unfiltered = await listProjectPortfolio(db, { orgId: ORG, limit: 1 });
+		expect(unfiltered.data[0]?.project.id).toBe(hidden.id);
+	});
 });
 
 it("preserves observer authority at the write even when an ordinary edit read stale metadata", async () => {

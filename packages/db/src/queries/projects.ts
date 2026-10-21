@@ -316,12 +316,15 @@ export interface ProjectPortfolioEntry {
  */
 export async function listProjectPortfolio(
 	db: DbQueryClient,
-	params: { orgId: string; limit: number },
+	params: { orgId: string; limit: number; excludeProjectId?: string },
 ): Promise<{ data: ProjectPortfolioEntry[] }> {
-	const orgProject = and(
-		eq(projects.id, workItems.projectId),
+	const projectScope = and(
 		eq(projects.orgId, params.orgId),
+		params.excludeProjectId
+			? ne(projects.id, params.excludeProjectId)
+			: undefined,
 	);
+	const orgProject = and(eq(projects.id, workItems.projectId), projectScope);
 	const nextRanked = db
 		.select({
 			projectId: sql<string>`${workItems.projectId}`.as("next_project_id"),
@@ -354,7 +357,14 @@ export async function listProjectPortfolio(
 			),
 		})
 		.from(workProjectHealthJudgments)
-		.where(eq(workProjectHealthJudgments.orgId, params.orgId))
+		.where(
+			and(
+				eq(workProjectHealthJudgments.orgId, params.orgId),
+				params.excludeProjectId
+					? ne(workProjectHealthJudgments.projectId, params.excludeProjectId)
+					: undefined,
+			),
+		)
 		.as("portfolio_health");
 
 	const [
@@ -382,7 +392,7 @@ export async function listProjectPortfolio(
 					eq(tedis.organizationId, projects.orgId),
 				),
 			)
-			.where(eq(projects.orgId, params.orgId))
+			.where(projectScope)
 			.orderBy(asc(projects.key))
 			.limit(params.limit),
 		db
@@ -442,6 +452,9 @@ export async function listProjectPortfolio(
 				and(
 					eq(workAgentSessions.organizationId, params.orgId),
 					sql`${workAgentSessions.projectId} IS NOT NULL`,
+					params.excludeProjectId
+						? ne(workAgentSessions.projectId, params.excludeProjectId)
+						: undefined,
 				),
 			)
 			.groupBy(workAgentSessions.projectId),

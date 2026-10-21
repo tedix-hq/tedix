@@ -291,8 +291,11 @@ export const PROJECT_PORTFOLIO_LIMIT = 100;
 const getPortfolioProcedure = authOs.getPortfolio
 	.use(AUTHZ.objectiveRead)
 	.handler(async ({ input, context }) => {
+		const orgId = requireOrgIdOrInput(context, input?.organizationId);
+		const excludeProjectId = await excludedAgentReviewProjectId(context, orgId);
 		return listProjectPortfolio(context.db, {
-			orgId: requireOrgIdOrInput(context, input?.organizationId),
+			orgId,
+			...(excludeProjectId ? { excludeProjectId } : {}),
 			limit: PROJECT_PORTFOLIO_LIMIT,
 		});
 	});
