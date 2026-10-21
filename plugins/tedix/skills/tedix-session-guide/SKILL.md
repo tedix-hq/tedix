@@ -181,6 +181,26 @@ To install, configure or operate a workspace app such as Card review, follow
 | Create or revise a Tedix Workspace document, sheet, or presentation | Use `tedix-workspace-output`; identify the exact OS Workspace and verify the committed revision or proposal state.                                                     |
 | Review this session's authority or risk                             | Use `tedix-guardian-session` for a read-only checkpoint.                                                                                                               |
 
+### Use Code Mode well
+
+The `code` tool description covers discovery and calls; the server
+instructions carry the rest:
+
+- **Evidence:** claim only a result's `completionEvidence.supportedClaims`,
+  cite its `evidenceRefs`, and poll `read_execution` until terminal evidence
+  instead of inferring completion from an accepted job. When `retry.blocked`
+  is true, change the arguments or plan.
+- **Long work:** for about ten or more tool steps, use `flow.run` (or
+  `tedix flow run --file plan.ts --watch`) so the steps run durably off your
+  context; return a bounded value, keep bulk output in an artifact, and poll
+  `flow.status` later.
+- **Visuals:** when a picture answers better, shape the data in the same run
+  and return `ui.create_view`, `ui.create_mcp_app` or
+  `ui.create_health_sweep`; embed generated media as
+  `/skill-runs/{runId}/media/{artifactPath}`, never a signed or absolute URL.
+- **Payments:** Connect offers no paid tools or money movement. On other
+  connections, return a paid tool's payment challenge directly.
+
 Explain the relevant path and proceed with the user's authorized task. Do not
 ask them to choose among all Tedix products when their requested path is clear.
 Use the actual host grant and the callable's access result, not the listing's

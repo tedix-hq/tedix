@@ -829,7 +829,7 @@ export async function handleMcpRequest(
 		discover: {
 			supportedVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS,
 			serverInfo: resolvedMcpServerInfo(resolvedApp),
-			instructions: modernDiscoverInstructions(resolvedApp),
+			instructions: modernDiscoverInstructions(resolvedApp, connectionAppSlug),
 			capabilities: {
 				...(interactionEventsEnabled ? { events: {} } : {}),
 				tools: hasSubscriptionStream ? { listChanged: true } : {},

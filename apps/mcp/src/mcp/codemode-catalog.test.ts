@@ -2,8 +2,8 @@ import { executeCatalogOperation } from "./codemode-catalog";
 /**
  * Locks the contract that `discover.search` and `discover.list_namespaces`
  * preserve `annotations` and `outputSchema` per tool — independent of the
- * 32k MAX_CODEMODE_DESCRIPTION_CHARS budget that truncates the compact TS
- * types block in the outer `code` tool description.
+ * MAX_CODEMODE_DESCRIPTION_CHARS budget that drops the compact TS types
+ * block from the outer `code` tool description.
  *
  * The catalog is an in-memory data structure built by `buildCatalogProvider`
  * and served by `discover.*` at runtime; it does not live in the description
@@ -322,10 +322,10 @@ describe("Code Mode catalog (discover.*) annotations + outputSchema", () => {
 		expect(freshness.catalogBuiltAt).toEqual(expect.any(String));
 	});
 
-	it("survives a catalog that would overflow the 32k type budget", async () => {
+	it("survives a catalog that would overflow the description type budget", async () => {
 		// 2_500 tools × verbose descriptions guarantees the compact-types block
-		// alone would exceed MAX_CODEMODE_DESCRIPTION_CHARS (32_000), forcing
-		// the type-signature drop. The catalog data path must remain intact.
+		// alone would exceed MAX_CODEMODE_DESCRIPTION_CHARS, forcing the
+		// type-signature drop. The catalog data path must remain intact.
 		const ctx = buildLargeServerCtx(2_500);
 		const provider = buildCatalogProvider(ctx, undefined);
 

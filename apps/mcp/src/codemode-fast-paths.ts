@@ -1,4 +1,8 @@
 import { ATTENTION_GUIDANCE } from "./mcp/attention-guidance";
+import {
+	capServerInstructions,
+	codeModeInstructionParts,
+} from "./mcp/codemode-guidance";
 import { clientSupportsMcpApps } from "./mcp/client-apps-capability";
 import { resolveToolWidgetRoute } from "./mcp/utils/render-widget";
 import { isCodeModeNativeOptIn } from "./mcp/code-mode-native-tools";
@@ -122,6 +126,7 @@ function compactCodeModeToolDescription(resolvedApp: ResolvedApp): string {
 
 export function modernDiscoverInstructions(
 	resolvedApp: ResolvedApp,
+	connectionAppSlug: string,
 ): string | undefined {
 	const mcpConfig = resolvedApp.metadata?.mcpConfig;
 	const configured =
@@ -131,20 +136,19 @@ export function modernDiscoverInstructions(
 	const codeMode =
 		mcpConfig?.codeMode === true
 			? [
-					"Use Code Mode for broad Tedix operations.",
-					'Find tools and skills with bounded discovery, for example async () => await discover.search({"query":"list_mcp_authorizations","limit":3}); this loads the aggregate catalog. Use each returned tool callable exactly, including its namespace prefix; follow the returned load expression for skills. Once the namespace is known, a single JSON-literal search with that exact namespace value or an exact async () => await discover.describe("namespace.tool") expression loads only that namespace.',
-					"Long-running work may return task handles; poll tasks/get and provide requested input through tasks/update.",
-					"For operator-to-tedi validation, prefer the governed Home/kernel path or direct tedi namespace run_tedi_turn/messages_read when explicitly requested.",
-				].join(" ")
-			: "";
-	const instructions = [
-		configured,
-		codeMode,
-		...(codeMode ? [ATTENTION_GUIDANCE] : []),
-	]
-		.filter(Boolean)
-		.join("\n\n");
-	return instructions || undefined;
+					[
+						"Use Code Mode for broad Tedix operations.",
+						"Long-running work may return task handles; poll tasks/get and provide requested input through tasks/update.",
+						"For operator-to-tedi validation, prefer the governed Home/kernel path or direct tedi namespace run_tedi_turn/messages_read when explicitly requested.",
+					].join(" "),
+					...codeModeInstructionParts(connectionAppSlug),
+				]
+			: [];
+	// Platform guidance first: the cap trims tenant text, not Code Mode rules.
+	return capServerInstructions(
+		[...codeMode, configured],
+		"see the code tool description",
+	).instructions;
 }
 
 // Exported for the outer-surface lane conformance test: the stateless fast
@@ -308,7 +312,10 @@ export async function maybeHandleCodeModeCompactMcp(
 						...(exposesHomeTasks ? { [MCP_TASKS_EXTENSION]: {} } : {}),
 					},
 				},
-				instructions: modernDiscoverInstructions(resolvedApp),
+				instructions: modernDiscoverInstructions(
+					resolvedApp,
+					connectionAppSlug,
+				),
 				...DEFAULT_MCP_CACHE_HINT,
 			}),
 		);

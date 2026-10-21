@@ -144,10 +144,17 @@ an oversized result still links to workflow state. The CLI
 (`packages/cli/src/code-result.ts`) recognizes the marker so row-parsing
 commands fail loudly instead of reading a clipped page as empty.
 
-The `code` description is rebuilt per server build and capped at
-`MAX_CODEMODE_DESCRIPTION_CHARS` (32,000). Large aggregates omit per-tool types
-(`compactTypesInlined=false` is normal; `descriptionTruncated=true` is worth
-investigating). `enrichToolsWithSkills()` must run before
+The `code` description is rebuilt per server build by
+`buildCodeModeDescription()` (`codemode-guidance.ts`) and capped at
+`MAX_CODEMODE_DESCRIPTION_CHARS` (4,000), below the 4,096 characters Claude
+Code shows for an upfront tool description. It keeps only the call shape, the
+`discover.search` → `discover.describe` → call loop, the approval rule and the
+result envelope; per-tool types are inlined only when they fit
+(`compactTypesInlined=false` is normal for aggregates). Evidence, long work
+(`flow.*`), visuals (`ui.*`) and payment guidance live in the server
+instructions (`codeModeInstructionParts()`, capped at 4,096 with platform text
+first) and the `tedix-session-guide` plugin skill. `codemode-guidance.test.ts`
+fails if either budget is exceeded. `enrichToolsWithSkills()` must run before
 `registerCodeModeTools()` because discovery snapshots descriptions at build
 time.
 

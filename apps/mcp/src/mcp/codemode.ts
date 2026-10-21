@@ -33,7 +33,6 @@ import {
 	buildProviders,
 	legacyNamespaceAliases,
 	namespaceGlobalsPrelude,
-	CODEMODE_PROVIDER_TYPES,
 	codeModeTailContext,
 	writeCodeModeAnalytics,
 	callerOrganizationMetadata,
@@ -60,18 +59,16 @@ import {
 	FLOW_TOOL_COUNT,
 	FLOW_NAMESPACE,
 	buildFlowProvider,
-	FLOW_PROVIDER_TYPES,
 } from "./codemode-flow";
-import {
-	UI_NAMESPACE,
-	buildUiProvider,
-	UI_PROVIDER_TYPES,
-} from "./codemode-ui";
+import { UI_NAMESPACE, buildUiProvider } from "./codemode-ui";
 import { buildCatalogProvider } from "./codemode-catalog";
 import { configuredAggregateNamespaces } from "./aggregate-namespaces";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
 import { buildCompactTypes } from "@tedix/mcp-shared/compact-types";
-import { ATTENTION_GUIDANCE } from "./attention-guidance";
+import {
+	buildCodeModeDescription,
+	MAX_CODEMODE_DESCRIPTION_CHARS,
+} from "./codemode-guidance";
 import {
 	isNonPayingConnection,
 	CONNECT_PAYMENT_DENIED,
@@ -129,9 +126,6 @@ import {
 } from "@tedix/mcp-shared/read-observation-receipt";
 
 const UI_TOOL_COUNT = 5;
-
-/** Hard budget for the code tool description to prevent unbounded prompt growth */
-const MAX_CODEMODE_DESCRIPTION_CHARS = 32_000;
 
 const MAX_INLINE_COMPACT_TYPE_TOOLS = 300;
 
@@ -381,70 +375,39 @@ export async function registerCodeModeTools(
 		Object.keys(provider.fns).map((toolName) => `${provider.name}.${toolName}`),
 	);
 
-	// Build namespace summary for tool description
-	const nsSummary = Array.from(namespaceGroups.entries())
-		.sort(
-			([, a], [, b]) => Object.keys(b.fns).length - Object.keys(a.fns).length,
-		)
-		.map(([ns, g]) => `${ns} (${Object.keys(g.fns).length})`)
-		.concat(`${CODEMODE_NAMESPACE} (${CODEMODE_TOOL_COUNT})`)
-		.concat(`${UI_NAMESPACE} (${UI_TOOL_COUNT})`)
-		.concat(`${FLOW_NAMESPACE} (${FLOW_TOOL_COUNT})`)
-		.join(", ");
+	// Namespace summary for the tool description, largest first.
+	const namespaceSummaryEntries: Array<readonly [string, number]> = [
+		...Array.from(namespaceGroups.entries())
+			.sort(
+				([, a], [, b]) => Object.keys(b.fns).length - Object.keys(a.fns).length,
+			)
+			.map(([ns, g]) => [ns, Object.keys(g.fns).length] as const),
+		[CODEMODE_NAMESPACE, CODEMODE_TOOL_COUNT],
+		[UI_NAMESPACE, UI_TOOL_COUNT],
+		[FLOW_NAMESPACE, FLOW_TOOL_COUNT],
+	];
 
-	// Build module availability hint for tool description
-	const moduleHint =
-		moduleNames.length > 0
-			? `\nAvailable modules (use import): ${moduleNames.join(", ")}\n`
-			: "";
-
-	// Build compact type declarations only while they can realistically fit in the
-	// MCP tool description. Large aggregate servers already fall back to discovery,
-	// so generating hundreds of KB of types only to discard them is wasted CPU.
+	// Per-tool compact types are inlined only when they fit the description
+	// budget. Large aggregate servers rely on discovery, so skip generating
+	// types that would be discarded.
 	const shouldInlineCompactTypes =
 		exposedToolCount <= MAX_INLINE_COMPACT_TYPE_TOOLS;
 	const compactTypes = shouldInlineCompactTypes
 		? buildCompactTypes(namespaceGroups)
 		: "";
 
-	// Assemble code tool description with hard budget
-	const preamble =
-		`Execute JavaScript to call this app's ${exposedToolCount} tools across ${namespaceCount} namespaces.\n` +
-		`Namespaces: ${nsSummary}\n` +
-		`${ATTENTION_GUIDANCE}\n` +
-		`Discovery: use discover.search("keyword") first. Search results are ranked and include callable, one-line description, risk annotations and authorization; execute the callable value exactly. name/displayName are labels only. Inspect annotations.destructiveHint / readOnlyHint before calling — destructive tools may prompt the user; read-only tools are safe to call freely. Rows also carry caller-relative authorization: authorized: false with requiredScopes/missingScopes means discoverable but not executable for this caller — skip it instead of burning a failed call. Discovery is compact by default — outputSchema and parameters are omitted; pass { includeOutputSchema: true } to get return shapes for planning downstream composition, and { includeParameters: true } for exact input schemas. Pass { includeMetadata: true } for native, schemaFreshness and _match diagnostics. meta.freshness shows catalog freshness by default; discover.describe returns full schemas and descriptions. Search returns { results, namespaces, meta } (a plain object; iterate results). If search returns no rows, inspect meta.discovery.nearestNamespaces/suggestedQueries before declaring a capability unavailable. list_namespaces() returns an object keyed by namespace (use Object.keys/Object.entries, not .filter/.map directly); pass { includeTools: true } only for inventory.\n` +
-		`Use discover.describe(callable) for the full input schema, description and annotations. Output schemas are omitted unless requested: discover.describe({ callable, includeOutputSchema: true }).\n` +
-		`Execution: namespace.tool_name({ param: value }) using the discover.search(...).*.callable field or the compact type signatures below.\n` +
-		`discover.search returns { results, namespaces, meta }; iterate or slice results, e.g. \`const { results } = await discover.search("skills"); results.slice(0, 5)\`.\n` +
-		`Example: const tools = await discover.search({ query: "skills" }); const callable = tools.slice(0, 1)[0]?.callable; // e.g. "skills.find_skills" — call await skills.find_skills({ ... }). Never guess tool names: a namespace existing does NOT mean a guessed name inside it exists; on "not found" errors, search again and use the returned callable verbatim.\n` +
-		`Sandbox globals are only the listed provider namespaces plus standard JavaScript built-ins; there is no host, fs, require, process, or external fetch. Use provider tools for all side effects.\n` +
-		`Evidence: every operational result includes completionEvidence. Claim only supportedClaims, cite evidenceRefs, and never infer job completion from exec acceptance; poll read_execution to terminal evidence. When retry.blocked is true, change the arguments or execution plan.\n` +
-		`Runtime proof: call codemode.__runtime() when you need the current executionId, app/org, actor, traceId, module names, tool counts, or direct-gateway execution-surface evidence.\n` +
-		`Long multi-step work: your cost is turns x context window, so do NOT run a long tool-call loop through your own context. For ~10+ platform/tool steps (sweeps, watches, migrations, fan-out judging), use flow.run({ source, capabilities }) — it records an EPHEMERAL skill workflow and starts it in one call; the steps run in a durable Cloudflare Workflow off your context and only the bounded return value comes back (put bulk output in an artifact and return the reference; poll flow.status later, never busy-wait). Tedix CLI users: \`tedix flow run --file plan.ts --watch\`. Organization skills may be read as reference data; follow the procedures shipped with the plugin.\n` +
-		`Visuals: when a visual answer is clearer, fetch and shape the data in the same run and return an MCP UI result directly. For a bespoke but catalog-constrained interface, inspect ui.get_catalog(), author layoutSpec, validate with ui.validate_layout(), then return ui.create_view({ data, title, appSlug, layoutSpec }); this is true generative UI, not a preset selector. Omit layoutSpec only when an inferred native comparison, chart/time-series, dashboard, ranking, timeline, stats, table, or summary is sufficient. If the catalog cannot express the requested presentation, return ui.create_mcp_app({ title, summary, data, html }) for a transient free-form HTML/CSS MCP App; its nested sandbox disables scripts and external capabilities. For reliable inferred record tables prefer data: { items: [{ ... }] }; a bare record array is also accepted and normalized under rows. When a tool/workflow result references a generated media artifact (e.g. artifactPath "outputs/generate-image.json" with a runId), embed it in your chat answer as markdown on its own line using the relative session-authed path ![desc](/skill-runs/{runId}/media/{artifactPath}) (append ?kind=video for video) — never signed /skill-media/...?exp&sig or absolute https://api.* URLs. For multi-provider/tool health checks, return ui.create_health_sweep({ checks, title }) after probing the requested namespaces. Do not stop at discovery or raw tool data first unless explicitly asked.\n\n` +
-		(isNonPayingConnection(serverCtx.connectionAppSlug ?? serverCtx.appSlug)
-			? `${CONNECT_PAYMENT_DENIED}\n`
-			: `Paid inner tools may return payment requirements. Return that object directly; an x402 v2 challenge is an error CallToolResult with _meta["x402/error"] and _meta["x-tedix/payment-required"]. Retry with _meta["x402/payment"] or this code tool's top-level payment argument. Legacy v1 challenges may still use JSON-RPC 402.\n`) +
-		"Write an async arrow function. Chain multiple calls, add conditionals, loops, and error handling.\n" +
-		"Do NOT use TypeScript syntax. Do NOT define named functions then call them.\n" +
-		moduleHint;
-
-	const compactTypesBlock = compactTypes
-		? `\n\n${compactTypes}`
-		: `\n\n(${exposedToolCount} tools across ${namespaceCount} namespaces — use discover.search() first; list_namespaces() is count-only unless includeTools is true)`;
-	const typesBlock = `\n${catalogProvider.types}\n\n${CODEMODE_PROVIDER_TYPES}\n\n${UI_PROVIDER_TYPES}\n\n${FLOW_PROVIDER_TYPES}${compactTypesBlock}`;
-	let description = preamble + typesBlock;
-	let descriptionTruncated = false;
-
-	if (description.length > MAX_CODEMODE_DESCRIPTION_CHARS) {
-		// Truncation fallback: keep preamble + discovery types, drop per-tool types
-		description = `${preamble}\n${catalogProvider.types}\n\n${CODEMODE_PROVIDER_TYPES}\n\n${UI_PROVIDER_TYPES}\n\n${FLOW_PROVIDER_TYPES}\n\n(${exposedToolCount} tools across ${namespaceCount} namespaces — use discover.search() first; list_namespaces() is count-only unless includeTools is true)`;
-		descriptionTruncated = true;
-	}
+	const { description, compactTypesInlined } = buildCodeModeDescription({
+		toolCount: exposedToolCount,
+		namespaceCount,
+		namespaces: namespaceSummaryEntries,
+		moduleNames,
+		compactTypes,
+		connectionAppSlug: serverCtx.connectionAppSlug ?? serverCtx.appSlug,
+	});
 
 	writeCodeModeLog(() =>
 		console.log(
-			`[MCP] Code Mode description: preamble=${preamble.length} compactTypes=${compactTypes.length} compactTypesInlined=${shouldInlineCompactTypes} total=${description.length} budget=${MAX_CODEMODE_DESCRIPTION_CHARS} descriptionTruncated=${descriptionTruncated}`,
+			`[MCP] Code Mode description: compactTypes=${compactTypes.length} compactTypesInlined=${compactTypesInlined} total=${description.length} budget=${MAX_CODEMODE_DESCRIPTION_CHARS}`,
 		),
 	);
 

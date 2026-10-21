@@ -12,6 +12,11 @@
  */
 import type { McpServer } from "@modelcontextprotocol/server";
 import { ATTENTION_GUIDANCE } from "./attention-guidance";
+import {
+	capServerInstructions,
+	codeModeInstructionParts,
+	MAX_SERVER_INSTRUCTIONS_CHARS,
+} from "./codemode-guidance";
 import { readTediEndpointCeiling } from "../tedi-tool-ceiling";
 import type {
 	AppCapabilities,
@@ -91,8 +96,6 @@ const DEFAULT_APP_CAPABILITIES: AppCapabilities = {
 	externalCta: { enabled: true },
 };
 
-/** Max size for server instructions to prevent unbounded growth */
-const MAX_INSTRUCTIONS_CHARS = 8_000;
 /** Max skills to include in instruction catalog */
 const MAX_SKILL_SUMMARIES = 50;
 
@@ -752,11 +755,13 @@ async function buildServerInstructions(
 	cachedData: CachedAppData,
 	apiClient: ApiClient,
 	callerIdentity: CallerIdentity | undefined,
-	upstreamAppId?: string,
+	upstreamAppId: string | undefined,
+	connectionAppSlug: string,
 ): Promise<string | undefined> {
 	const appId = cachedData.app.id;
 	const orgId = cachedData.organizationId;
-	const instructionsCacheKey = `${orgId ?? "no-org"}:${appId}:${callerIdentity?.tediId ?? ""}`;
+	// The connection decides the payment guidance, so it is part of the key.
+	const instructionsCacheKey = `${orgId ?? "no-org"}:${appId}:${callerIdentity?.tediId ?? ""}:${connectionAppSlug}`;
 
 	// Cache hit — return early without any API call
 	const cached = instructionsCache.get(instructionsCacheKey);
@@ -765,13 +770,16 @@ async function buildServerInstructions(
 	}
 
 	const mcpConfig = cachedData.metadata?.mcpConfig;
+	// Platform guidance comes first so the budget cap trims tenant text and the
+	// skill list, never the Code Mode rules moved out of the tool description.
 	const parts: string[] =
-		mcpConfig?.codeMode === true ||
-		cachedData.tools.some((tool) =>
-			["show_deck", "show_feed"].includes(tool.toolId),
-		)
-			? [ATTENTION_GUIDANCE]
-			: [];
+		mcpConfig?.codeMode === true
+			? codeModeInstructionParts(connectionAppSlug)
+			: cachedData.tools.some((tool) =>
+						["show_deck", "show_feed"].includes(tool.toolId),
+				  )
+				? [ATTENTION_GUIDANCE]
+				: [];
 
 	if (mcpConfig?.serverInstructions) {
 		parts.push(mcpConfig.serverInstructions);
@@ -870,17 +878,16 @@ async function buildServerInstructions(
 		}
 	}
 
-	const instructions = (() => {
-		if (parts.length === 0) return undefined;
-		let text = parts.join("\n\n");
-		if (text.length > MAX_INSTRUCTIONS_CHARS) {
-			text = `${text.slice(0, MAX_INSTRUCTIONS_CHARS - 100)}\n\n... (truncated — use \`list_skills\` for full catalog)`;
-			console.warn(
-				`[MCP] Server instructions truncated to ${MAX_INSTRUCTIONS_CHARS} chars`,
-			);
-		}
-		return text;
-	})();
+	const { instructions, truncated } = capServerInstructions(
+		parts,
+		mcpConfig?.codeMode === true
+			? "find skills with `discover.search`"
+			: "use `list_skills` for full catalog",
+	);
+	if (truncated)
+		console.warn(
+			`[MCP] Server instructions truncated to ${MAX_SERVER_INSTRUCTIONS_CHARS} chars`,
+		);
 
 	cacheInstructions(instructionsCacheKey, {
 		instructions,
@@ -928,6 +935,7 @@ export async function buildMcpServer(
 		orgApiClient,
 		callerIdentity,
 		upstreamAppId,
+		connectionAppSlug ?? cachedData.app.slug,
 	);
 
 	const server = createMcpServer(

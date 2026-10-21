@@ -113,7 +113,7 @@ export function runSerializedSideEffect<T>(
 	return run;
 }
 
-export const CODEMODE_PROVIDER_TYPES = [
+const CODEMODE_PROVIDER_TYPES = [
 	"declare namespace codemode {",
 	"  /** Inspect this Code Mode execution context for live proof, audit correlation, and current gateway/tool counts. */",
 	'  function __runtime(): Promise<{ mode: "stateless"; surface: "mcp-gateway"; executionId: string | null; appId: string; appSlug: string; organizationId: string | null; traceId: string; actor: { authType: string; userId: string | null; tediId: string | null; clientId: string | null; externalAgentPrincipalId: string | null; externalAgentSessionId: string | null; externalAgentHarness: string | null; externalAgentModel: string | null }; toolCount: number; namespaceCount: number; modules: string[]; executionSurface: { kind: "mcp-gateway"; surfaceId: string; sessionIds: string[]; participantIds: string[] } }>; ',

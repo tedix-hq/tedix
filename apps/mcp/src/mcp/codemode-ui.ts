@@ -13,7 +13,7 @@ import { isWidgetAppSlug } from "./utils/widget-app";
 export const UI_NAMESPACE = "ui";
 const GENERATED_MCP_APP_HTML_CHAR_CAP = 4_000;
 
-export const UI_PROVIDER_TYPES = [
+const UI_PROVIDER_TYPES = [
 	"declare namespace ui {",
 	"  /** Inspect the model-facing json-render catalog before authoring a custom layoutSpec. Returns component/action names, schema, and compact generation rules. */",
 	"  function get_catalog(input?: { components?: string[] }): Promise<{ components: string[]; componentDefinitions: string[]; actions: string[]; schema: Record<string, unknown>; rules: string[] }>;",
