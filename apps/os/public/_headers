@@ -7,3 +7,7 @@
 
 /manifest.webmanifest
   Content-Type: application/manifest+json
+
+/version.json
+  Content-Type: application/json
+  Cache-Control: private, no-cache, no-store, must-revalidate

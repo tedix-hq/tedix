@@ -1,6 +1,5 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
-import { Toaster } from "@/components/kumo/toast";
 import { SessionBoundary } from "@/components/session-boundary";
 
 const BrokerLoginPage = lazy(() =>
@@ -23,9 +22,6 @@ function ProductSessionLayout() {
 			)}
 		>
 			<Outlet />
-			{/* One toast outlet for the product session; mutation feedback from the
-			    ported app-management surfaces lands here. */}
-			<Toaster />
 		</SessionBoundary>
 	);
 }

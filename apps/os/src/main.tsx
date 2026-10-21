@@ -3,6 +3,8 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { KumoLinkProvider } from "@/components/kumo/link-provider";
+import { Toaster } from "@/components/kumo/toast";
+import { installOsVersionNotice } from "@/components/os-version-notice";
 import {
 	clearOsChunkReloadGuard,
 	OS_CHUNK_RELOAD_REARM_MS,
@@ -18,6 +20,7 @@ import "@/styles.css";
 // Installed before the root lookup and the first render so a failure in either
 // is still captured — that is the whole point of a global handler.
 installOsErrorReporting();
+installOsVersionNotice();
 
 // Snapshot Descope's flow-continuation parameters BEFORE the router mounts. A
 // route's `validateSearch` schema models only its own keys, so normalizing the
@@ -36,6 +39,7 @@ createRoot(root).render(
 			<KumoLinkProvider>
 				<TooltipProvider>
 					<RouterProvider router={osRouter} />
+					<Toaster />
 				</TooltipProvider>
 			</KumoLinkProvider>
 		</QueryClientProvider>
