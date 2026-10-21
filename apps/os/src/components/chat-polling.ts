@@ -14,10 +14,6 @@ import {
  * degraded. */
 export const RUN_POLL_INTERVAL_MS = 4000;
 
-/** Canonical reconciliation backstop for mutable run-set state that can change
- * without a parent-run stream frame (for example child orphan settlement). */
-export const RUN_SET_RECONCILE_INTERVAL_MS = ACTIVE_PROJECTION_RECONCILE_MS;
-
 export const MESSAGES_PAGE_LIMIT = 50;
 
 export function runSetPollInterval(input: {
@@ -31,7 +27,7 @@ export function runSetPollInterval(input: {
 		activeMs:
 			input.forceActive || input.realtimeDegraded
 				? RUN_POLL_INTERVAL_MS
-				: RUN_SET_RECONCILE_INTERVAL_MS,
+				: ACTIVE_PROJECTION_RECONCILE_MS,
 		idleMs: IDLE_PROJECTION_RECONCILE_MS,
 	});
 }
