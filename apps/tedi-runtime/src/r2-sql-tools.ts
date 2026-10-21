@@ -108,39 +108,65 @@ export function createR2SqlTools(deps: R2SqlDependencies): ToolSet {
 			},
 		);
 		if (!response.ok) {
-			const detail = await response.text().catch(() => "");
 			return {
 				ok: false,
 				configured: true,
 				status: response.status,
-				error: detail.slice(0, 1000),
+				error: `analytics provider returned HTTP ${response.status}`,
 			};
 		}
-		const json = (await response.json().catch(() => ({}))) as {
-			success?: boolean;
-			errors?: Array<string | { message?: string }>;
-			result?: { rows?: unknown[] } | unknown[];
-			rows?: unknown[];
-		};
-		if (json.success === false) {
+		let json: unknown;
+		try {
+			json = await response.json();
+		} catch {
 			return {
 				ok: false,
 				configured: true,
-				error: (json.errors ?? [])
-					.map((error) =>
-						typeof error === "string" ? error : (error.message ?? ""),
-					)
-					.filter(Boolean)
-					.join("; "),
+				error: "analytics provider returned an unreadable response",
 			};
 		}
-		const rows = Array.isArray(json.result)
-			? json.result
-			: Array.isArray(json.result?.rows)
-				? json.result.rows
-				: Array.isArray(json.rows)
-					? json.rows
-					: [];
+		if (json === null || typeof json !== "object" || Array.isArray(json)) {
+			return {
+				ok: false,
+				configured: true,
+				error: "analytics provider returned an unsupported response",
+			};
+		}
+		const envelope = json as {
+			success?: boolean;
+		};
+		if (envelope.success === false) {
+			return {
+				ok: false,
+				configured: true,
+				error: "analytics provider rejected the query",
+			};
+		}
+		const rowsEnvelope = json as {
+			result?: { rows?: unknown[] } | unknown[];
+			rows?: unknown[];
+		};
+		let rows: unknown[] | undefined;
+		if (Array.isArray(rowsEnvelope.result)) {
+			rows = rowsEnvelope.result;
+		} else if (
+			rowsEnvelope.result !== undefined &&
+			typeof rowsEnvelope.result === "object" &&
+			rowsEnvelope.result !== null &&
+			!Array.isArray(rowsEnvelope.result) &&
+			Array.isArray(rowsEnvelope.result.rows)
+		) {
+			rows = rowsEnvelope.result.rows;
+		} else if (Array.isArray(rowsEnvelope.rows)) {
+			rows = rowsEnvelope.rows;
+		}
+		if (!rows) {
+			return {
+				ok: false,
+				configured: true,
+				error: "analytics provider returned an unsupported response",
+			};
+		}
 		return { ok: true, configured: true, table: config.table, query, rows };
 	}
 
