@@ -12,7 +12,7 @@ import {
 	writeRenderedSkills,
 	writeSkillSnapshot,
 } from "./skill-snapshot-cache";
-import { loadCachedSkillSnapshot } from "./tool-registration";
+import { loadCachedSkillSnapshot } from "./skill-registration-snapshot";
 
 function entry(id: string): SkillDocumentEntry {
 	return {

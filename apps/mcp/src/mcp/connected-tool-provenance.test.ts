@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vite-plus/test";
-import { registerTextOnlyTool } from "./tool-registration";
+import { registerTextOnlyTool } from "./text-tool-registration";
 import type { AppTool, ServerContext } from "./server-context";
 
 it.each([undefined, "other", "notion"])(
