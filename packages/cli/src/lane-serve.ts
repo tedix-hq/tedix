@@ -251,10 +251,12 @@ interface Receipt {
 	retryDeadlineAt?: number;
 	failureCommented?: boolean;
 	admissionFailure?: string;
+	admissionFailureSignature?: string;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
 	baseCommit?: string;
 	commits?: string[];
+	pendingCommitProof?: string;
 	expectsCode?: boolean;
 	identicalFailures?: number;
 	held?: boolean;
@@ -340,11 +342,60 @@ export function provisionLaneWorktree(source: string, destination: string) {
 	gitOutput(source, ["worktree", "add", "--detach", destination, "HEAD"]);
 }
 
-export function landedLaneCommits(
+export function laneFailureSignature(error: unknown): string {
+	const message = (error instanceof Error ? error.message : String(error))
+		.replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "<uuid>")
+		.replace(
+			/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g,
+			"<time>",
+		)
+		.replace(
+			/\b((?:request|trace|span)[_-]?id|traceparent)(["']?\s*[:=]\s*["']?)[a-z0-9._:/-]+/gi,
+			"$1$2<id>",
+		)
+		.replace(/\b[0-9a-f]{16}(?:[0-9a-f]{16})?\b/gi, "<trace>")
+		.replace(
+			/\b(timestamp|attempt|pid|retry after)(["']?\s*[:=#]?\s*["']?)\d+(?:\.\d+)?\b/gi,
+			"$1$2<number>",
+		)
+		.replace(
+			/\b\d+(?:\.\d+)?(?=\s*(?:ms|milliseconds?|seconds?)\b)/gi,
+			"<duration>",
+		)
+		.replace(/\s+/g, " ")
+		.trim();
+	const code = error instanceof Error && "code" in error ? error.code : null;
+	const status =
+		error instanceof Error && "status" in error ? error.status : null;
+	return JSON.stringify([
+		error instanceof Error ? error.constructor.name : typeof error,
+		code ?? null,
+		status ?? null,
+		message,
+	]);
+}
+
+export class LaneCommitFetchError extends Error {}
+
+export async function landedLaneCommits(
 	repo: string,
 	base: string,
 	finalMessage: string,
-): string[] {
+	deps: {
+		fetch: (repo: string) => void;
+		sleep: (ms: number) => Promise<void>;
+	} = {
+		fetch: (repo) => {
+			gitOutput(repo, [
+				"fetch",
+				"--no-tags",
+				"origin",
+				"refs/heads/main:refs/remotes/origin/main",
+			]);
+		},
+		sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+	},
+): Promise<string[]> {
 	const candidates = new Set([
 		...(finalMessage.match(/\b[0-9a-f]{40}\b/gi) ?? []).map((sha) =>
 			sha.toLowerCase(),
@@ -354,12 +405,15 @@ export function landedLaneCommits(
 			.filter(Boolean),
 	]);
 	if (!candidates.size) return [];
-	gitOutput(repo, [
-		"fetch",
-		"--no-tags",
-		"origin",
-		"refs/heads/main:refs/remotes/origin/main",
-	]);
+	for (let attempt = 0; attempt < 3; attempt++) {
+		try {
+			deps.fetch(repo);
+			break;
+		} catch (error) {
+			if (attempt === 2) throw new LaneCommitFetchError(String(error));
+			await deps.sleep(1000 * 2 ** attempt);
+		}
+	}
 	const isAncestor = (sha: string, of: string) =>
 		spawnSync("git", ["-C", repo, "merge-base", "--is-ancestor", sha, of], {
 			encoding: "utf8",
@@ -907,15 +961,7 @@ export class LaneDispatcher {
 				receipt.telemetry?.finalMessage ||
 				(existsSync(last) ? readFileSync(last, "utf8") : "No final message");
 			receipt.note = finalMessage.slice(0, 1800);
-			receipt.commits = this.deps.landedCommits(
-				repo,
-				receipt.baseCommit!,
-				finalMessage,
-			);
-			if (receipt.expectsCode && !receipt.commits.length) {
-				receipt.outcome = "failed";
-				receipt.note = `No landed commit SHA on origin/main for coding Work. ${receipt.note}`;
-			}
+			receipt.pendingCommitProof = finalMessage;
 		} catch (error) {
 			receipt.outcome = "failed";
 			if (
@@ -935,10 +981,12 @@ export class LaneDispatcher {
 				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
 			if (!admitted) {
+				const signature = laneFailureSignature(error);
 				receipt.identicalFailures =
-					previous?.admissionFailure === receipt.note
+					previous?.admissionFailureSignature === signature
 						? (previous.identicalFailures ?? 0) + 1
 						: 1;
+				receipt.admissionFailureSignature = signature;
 				receipt.admissionFailure = receipt.note;
 				receipt.held = receipt.identicalFailures >= 3;
 			}
@@ -981,11 +1029,18 @@ export class LaneDispatcher {
 								retryDeadlineAt,
 							);
 			}
-			if (receipt.repo && (!receipt.pid || !alive(receipt.pid))) {
-				if (!this.deps.cleanup(this.options.repo, receipt.repo))
-					this.log("worktree-retained", candidate.id, receipt.repo);
-			}
+			this.cleanupWorktree(receipt);
 			this.save(path, receipt);
+		}
+	}
+	private cleanupWorktree(receipt: Receipt) {
+		if (
+			receipt.pendingCommitProof === undefined &&
+			receipt.repo &&
+			(!receipt.pid || !alive(receipt.pid))
+		) {
+			if (!this.deps.cleanup(this.options.repo, receipt.repo))
+				this.log("worktree-retained", receipt.itemId, receipt.repo);
 		}
 	}
 	private async settle(receipt: Receipt) {
@@ -993,6 +1048,40 @@ export class LaneDispatcher {
 			this.directory,
 			`${receipt.itemId}-${receipt.version}.json`,
 		);
+		if (receipt.pendingCommitProof !== undefined) {
+			receipt.retryAt = Date.now() + 60_000;
+			this.save(path, receipt);
+			try {
+				await this.call(
+					["work", "heartbeat", receipt.itemId],
+					receipt.session,
+					receipt.executorKey,
+				);
+			} catch (error) {
+				this.log("proof-heartbeat-retained", receipt.itemId, String(error));
+				return;
+			}
+			try {
+				receipt.commits = await this.deps.landedCommits(
+					receipt.repo!,
+					receipt.baseCommit!,
+					receipt.pendingCommitProof,
+				);
+				if (receipt.expectsCode && !receipt.commits.length) {
+					receipt.outcome = "failed";
+					receipt.note = `No landed commit SHA on origin/main for coding Work. ${receipt.note}`;
+				}
+			} catch (error) {
+				if (error instanceof LaneCommitFetchError) {
+					// A stale origin/main cannot prove either success or failure.
+					this.log("commit-proof-deferred", receipt.itemId, String(error));
+					return;
+				}
+				receipt.outcome = "failed";
+				receipt.note = String(error).slice(0, 1800);
+			}
+			delete receipt.pendingCommitProof;
+		}
 		receipt.retries = (receipt.retries ?? 0) + 1;
 		receipt.retryAt = Date.now() + 60_000;
 		this.save(path, receipt);
@@ -1047,9 +1136,13 @@ export class LaneDispatcher {
 				receipt,
 			);
 			this.log("settlement-reconciled", receipt.itemId, attempt.outcome);
-		} else if (attempt.expiresAt && Date.parse(attempt.expiresAt) > Date.now())
+		} else if (
+			attempt.expiresAt &&
+			Date.parse(attempt.expiresAt) > Date.now()
+		) {
 			await this.settle(receipt);
-		else
+			this.cleanupWorktree(receipt);
+		} else
 			this.log(
 				"settlement-expired",
 				receipt.itemId,
