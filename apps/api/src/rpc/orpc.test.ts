@@ -1533,11 +1533,37 @@ describe("composite two-plane authorization", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
-	it("keeps custom Descope permissions when the built-in role is current", async () => {
+	it("rejects stale custom-role admin permissions after a same-tenant member demotion", async () => {
+		// The token names no built-in role, so nothing in it conflicts with the
+		// live `member` row; only the live membership can bound the claim.
+		const manageSettings = os
+			.$context<BaseContext>()
+			.use(withPermission("settings:manage"))
+			.handler(async () => "ok");
+		const demotedCustomRoleMember = {
+			authType: "user",
+			userRole: "member",
+			user: {
+				sub: "u1",
+				permissions: ["settings:manage", "team:manage"],
+				roles: ["operations"],
+			},
+		} as BaseContext;
+		await expect(
+			call(manageSettings, undefined, { context: demotedCustomRoleMember }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("bounds custom Descope permissions to the member tier once a live membership exists", async () => {
 		const manageTeam = os
 			.$context<BaseContext>()
 			.use(withPermission("team:manage"))
 			.handler(async () => "ok");
+		const author = os
+			.$context<BaseContext>()
+			.use(withPermission("os:author"))
+			.handler(async () => "ok");
+		// Admin-tier authority comes only from the live role or an override.
 		const customRoleMember = {
 			authType: "user",
 			userRole: "member",
@@ -1548,9 +1574,49 @@ describe("composite two-plane authorization", () => {
 			},
 		} as BaseContext;
 		await expect(
+			call(manageTeam, undefined, { context: customRoleMember }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		// A custom role may still lift a viewer within the member tier.
+		const customRoleViewer = {
+			authType: "user",
+			userRole: "viewer",
+			user: {
+				sub: "u1",
+				permissions: ["os:author"],
+				roles: ["viewer", "author"],
+			},
+		} as BaseContext;
+		await expect(
+			call(author, undefined, { context: customRoleViewer }),
+		).resolves.toBe("ok");
+		// Without a live membership the token is the only authority source.
+		await expect(
 			call(manageTeam, undefined, {
-				context: customRoleMember,
+				context: { ...customRoleMember, userRole: undefined } as BaseContext,
 			}),
+		).resolves.toBe("ok");
+	});
+
+	it("follows the live role through a promote-then-demote round trip on one token", async () => {
+		const manageTeam = os
+			.$context<BaseContext>()
+			.use(withPermission("team:manage"))
+			.handler(async () => "ok");
+		const token = {
+			sub: "u1",
+			permissions: ["team:manage", "settings:manage"],
+			roles: ["admin", "Admin"],
+		};
+		const withRole = (userRole: string) =>
+			({ authType: "user", userRole, user: token }) as BaseContext;
+		await expect(
+			call(manageTeam, undefined, { context: withRole("admin") }),
+		).resolves.toBe("ok");
+		await expect(
+			call(manageTeam, undefined, { context: withRole("member") }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			call(manageTeam, undefined, { context: withRole("admin") }),
 		).resolves.toBe("ok");
 	});
 
