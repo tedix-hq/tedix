@@ -61,6 +61,20 @@ export function DetailPending() {
 	);
 }
 
+/**
+ * A child route inside a layout that already renders the `Page` (the tedi
+ * detail tabs): the same skeleton without a second, nested page.
+ */
+export function NestedDetailPending() {
+	return (
+		<div aria-busy className="grid gap-3">
+			<ListSkeleton rows={1} rowClassName="h-7" />
+			<ListSkeleton rows={1} rowClassName="h-20" />
+			<ListSkeleton rows={3} />
+		</div>
+	);
+}
+
 /** List surfaces: a header line over a run of equal rows. */
 export function ListPending() {
 	return (
