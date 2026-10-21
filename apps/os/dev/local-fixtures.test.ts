@@ -3,7 +3,7 @@ import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-
 import { apiContract } from "@tedix/api-contract/contracts/api";
 import { dynamicSkillDefinitionId } from "@tedix/api-contract/constants/workflow-definition-keys";
 import type { OsGadgetExecution } from "@tedix/api-contract/schemas/os-workspaces";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	handleLocalRpc,
 	LOCAL_FIXTURE_IDS as IDS,
@@ -1132,4 +1132,141 @@ describe("kernel enqueue flow", () => {
 			list.conversations.some((row) => row.id === output.conversationId),
 		).toBe(true);
 	});
+});
+
+describe("fixture bootstrap parity", () => {
+	beforeEach(() => resetLocalFixtures());
+
+	it("preserves synthetic identity, attachments and one input on same-key retries", async () => {
+		const input = {
+			conversationId: "home:fixture-bootstrap",
+			content: "Review the fictional supplier note",
+			idempotencyKey: "fixture-bootstrap-turn",
+			attachments: [
+				{
+					type: "file",
+					fileName: "supplier.txt",
+					mimeType: "text/plain",
+					content: "Fictional supplier note",
+				},
+			],
+		};
+		await expectInputAcceptedByContract("kernelRuntime/enqueueMessage", input);
+		const first = callLocalOk("kernelRuntime/enqueueMessage", input);
+		expect(first).toMatchObject({
+			conversationId: input.conversationId,
+			run: {
+				id: input.idempotencyKey,
+				inputMessageId: `${input.idempotencyKey}:input`,
+			},
+		});
+		expect(callLocalOk("kernelRuntime/enqueueMessage", input)).toEqual(first);
+		const transcript = callLocalOk("kernelRuntime/readMessages", {
+			conversationId: input.conversationId,
+		}) as { messages: unknown[] };
+		expect(transcript.messages).toHaveLength(2);
+		expect(transcript.messages).toContainEqual(
+			expect.objectContaining({
+				id: `${input.idempotencyKey}:input`,
+				attachments: input.attachments,
+			}),
+		);
+		const changed = callLocalOk("kernelRuntime/enqueueMessage", {
+			...input,
+			idempotencyKey: "fixture-bootstrap-next",
+		});
+		expect(changed).toMatchObject({
+			conversationId: input.conversationId,
+			run: { id: "fixture-bootstrap-next" },
+		});
+		const runs = callLocalOk("kernelRuntime/readRunSet", {
+			conversationId: input.conversationId,
+		}) as { runSet: { runs: unknown[] } };
+		expect(runs.runSet.runs).toHaveLength(2);
+		expect(
+			(
+				callLocalOk("kernelRuntime/readMessages", {
+					conversationId: input.conversationId,
+				}) as { messages: unknown[] }
+			).messages,
+		).toHaveLength(4);
+	});
+
+	it("refuses a key rebound to another conversation", () => {
+		const input = {
+			conversationId: IDS.conversationHome,
+			content: "Fictional note",
+			idempotencyKey: "fixture-bound-key",
+		};
+		callLocalOk("kernelRuntime/enqueueMessage", input);
+		expect(
+			callLocal("kernelRuntime/enqueueMessage", {
+				...input,
+				conversationId: "home:other-fixture",
+			}).status,
+		).toBe(409);
+	});
+
+	it("exposes Projects through the generic installed Work apps", async () => {
+		const apps = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 });
+		await expectParsesAgainstContract("osWorkspaces/gadgets/workApps", apps);
+		expect(apps).toMatchObject({
+			items: expect.arrayContaining([
+				expect.objectContaining({
+					gadget: expect.objectContaining({ name: "Projects" }),
+					currentRevision: expect.objectContaining({
+						manifest: expect.objectContaining({
+							entry: "tedix:app/portfolio",
+							navigation: { board: true },
+						}),
+					}),
+				}),
+			]),
+		});
+	});
+});
+
+it("keeps sample Feed/Deck records, installs Projects after reset, and refuses sending", async () => {
+	vi.resetModules();
+	const sample = await import("./local-fixtures");
+	sample.enableDemoPack();
+	const read = (key: string, input: unknown = {}) => {
+		const result = sample.handleLocalRpc(`/api/rpc/${key}`, "POST", {
+			json: input,
+		});
+		expect(result?.status).toBe(200);
+		return (result!.body as { json: unknown }).json;
+	};
+	for (let reset = 0; reset < 2; reset++) {
+		const apps = read("osWorkspaces/gadgets/workApps", { limit: 100 }) as {
+			items: {
+				gadget: { name: string };
+				currentRevision: { manifest: { entry: string } };
+			}[];
+		};
+		await expectParsesAgainstContract("osWorkspaces/gadgets/workApps", apps);
+		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
+			"Deck",
+			"Feed",
+			"Projects",
+		]);
+		expect(
+			apps.items.find((item) => item.gadget.name === "Projects")
+				?.currentRevision.manifest.entry,
+		).toBe("tedix:app/portfolio");
+		expect(
+			(read("attention/listDeckCards") as { cards: unknown[] }).cards,
+		).toHaveLength(36);
+		expect(
+			(read("workItems/listActivity") as { events: unknown[] }).events.length,
+		).toBeGreaterThan(0);
+		const blocked = sample.handleLocalRpc(
+			"/api/rpc/workInteractions/outbound/submit",
+			"POST",
+			{ json: {} },
+		);
+		expect(blocked?.status).toBe(403);
+		expect(JSON.stringify(blocked?.body)).toMatch(/sending.*off/i);
+		sample.resetLocalFixtures();
+	}
 });

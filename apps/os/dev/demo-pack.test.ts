@@ -102,6 +102,7 @@ describe("sample company in fixture mode", () => {
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
 			"Deck",
 			"Feed",
+			"Projects",
 		]);
 		const feed = ok<{ events: { createdAt: string }[] }>(
 			"workItems/listActivity",
