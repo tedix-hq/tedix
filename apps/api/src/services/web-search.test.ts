@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { WEB_SEARCH_COST_SOURCE } from "@tedix/api-contract/schemas/web-search";
 import type { NewTediCallCost } from "@tedix/db/schema/tedis";
 import { receiptCostsFromConflicts } from "../jobs/gateway-cost-ingestion";
@@ -7,6 +7,18 @@ import {
 	resolveWebSearchGateway,
 	runGatewayWebSearch,
 } from "./web-search";
+
+function loggedText(spy: { mock: { calls: unknown[][] } }) {
+	return JSON.stringify(spy.mock.calls, (_key, value) =>
+		value instanceof Error
+			? { message: value.message, stack: value.stack }
+			: value,
+	);
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+const CANARY = "https://hooks.example.test/secret-token";
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const TEDI_ID = "00000000-0000-4000-8000-000000000002";
@@ -178,6 +190,48 @@ describe("runGatewayWebSearch", () => {
 		const { receipts, result } = run(env);
 		await expect(result).resolves.toMatchObject({ status: "failed" });
 		expect(receipts).toEqual([]);
+	});
+
+	it("logs a thrown binding error as exception structure without its text", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { env } = searchEnv(new TypeError(`binding down ${CANARY}`));
+		await expect(run(env).result).resolves.toMatchObject({ status: "failed" });
+		expect(loggedText(warn)).not.toContain("secret-token");
+		expect(warn).toHaveBeenCalledWith("[web-search] search failed", {
+			organizationId: ORG_ID,
+			failure: "Web search request threw.",
+			exception: { type: "TypeError" },
+		});
+	});
+
+	it("logs a receipt write failure as exception structure without its text", async () => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const { env } = searchEnv(
+			new Response(JSON.stringify({ items: [] }), {
+				headers: { "cf-aig-log-id": "log-3" },
+			}),
+		);
+		await runGatewayWebSearch({
+			env,
+			query: "example query",
+			limit: 2,
+			organizationId: ORG_ID,
+			tediId: TEDI_ID,
+			runId: "run-1",
+			recordReceipt: async () => {
+				throw new Error(`D1 write failed for ${CANARY}`);
+			},
+		});
+		expect(loggedText(error)).not.toContain("secret-token");
+		expect(error).toHaveBeenCalledWith(
+			"[web-search] cost receipt not persisted",
+			{
+				organizationId: ORG_ID,
+				tediId: TEDI_ID,
+				gatewayLogId: "log-3",
+				exception: { type: "Error" },
+			},
+		);
 	});
 });
 

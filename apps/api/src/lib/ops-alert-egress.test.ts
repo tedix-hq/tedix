@@ -5,6 +5,14 @@ function emailEnv(send = vi.fn().mockResolvedValue({ messageId: "m1" })) {
 	return { EMAIL: { send } as unknown as SendEmail };
 }
 
+function loggedText(spy: { mock: { calls: unknown[][] } }) {
+	return JSON.stringify(spy.mock.calls, (_key, value) =>
+		value instanceof Error
+			? { message: value.message, stack: value.stack }
+			: value,
+	);
+}
+
 afterEach(() => {
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
@@ -88,5 +96,23 @@ describe("sendOpsAlert", () => {
 		});
 		expect(res.emailed).toBe(false);
 		expect(res.webhookPosted).toBe(false);
+	});
+
+	it("logs a webhook failure as exception structure without its text", async () => {
+		const canary = "https://hooks.example.test/secret-token";
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockRejectedValue(new TypeError(`fetch failed: ${canary}`)),
+		);
+		const res = await sendOpsAlert(
+			{},
+			{ subject: "s", text: "t", emailRecipients: "", webhookUrl: canary },
+		);
+		expect(res).toEqual({ emailed: false, webhookPosted: false });
+		expect(loggedText(warn)).not.toContain("secret-token");
+		expect(warn).toHaveBeenCalledWith("[ops-alert] webhook channel failed", {
+			exception: { type: "TypeError" },
+		});
 	});
 });

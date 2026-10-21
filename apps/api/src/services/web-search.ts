@@ -18,6 +18,7 @@ import {
 	type WebSearchResult,
 } from "@tedix/api-contract/schemas/web-search";
 import type { NewTediCallCost } from "@tedix/db/schema/tedis";
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
 /** Search model name recorded in the cost ledger. */
 export const WEB_SEARCH_LEDGER_MODEL = "web-search";
@@ -179,6 +180,7 @@ export async function runGatewayWebSearch(input: {
 	const started = performance.now();
 	let response: Response | null = null;
 	let failure: string | null = null;
+	let thrownException: ReturnType<typeof safeExceptionTopology> | undefined;
 	try {
 		response = await gateway.binding.websearch({
 			gatewayId: gateway.gatewayId,
@@ -186,7 +188,8 @@ export async function runGatewayWebSearch(input: {
 			limit: Math.min(input.limit, WEB_SEARCH_MAX_RESULTS),
 		});
 	} catch (error) {
-		failure = error instanceof Error ? error.message : String(error);
+		thrownException = safeExceptionTopology(error);
+		failure = "Web search request threw.";
 	}
 	const callDurationMs = performance.now() - started;
 	const gatewayLogId =
@@ -224,7 +227,7 @@ export async function runGatewayWebSearch(input: {
 				organizationId: input.organizationId,
 				tediId: input.tediId,
 				gatewayLogId,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 		}
 	}
@@ -232,6 +235,7 @@ export async function runGatewayWebSearch(input: {
 		console.warn("[web-search] search failed", {
 			organizationId: input.organizationId,
 			failure,
+			...(thrownException && { exception: thrownException }),
 		});
 		return { status: "failed", message: "Web search failed. Try again later." };
 	}
