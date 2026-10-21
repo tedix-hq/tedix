@@ -15,10 +15,8 @@ import {
 	reconcileTedixMcpOwnershipTags,
 } from "@tedix/auth/aih-audiences";
 import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
-import {
-	deleteDescopeMcpServer,
-	registerDescopeMcpResource,
-} from "@tedix/auth/aih-client";
+import { registerDescopeMcpResource } from "@tedix/auth/aih-client";
+import { deleteMcpServerRegistration } from "../../lib/provider-facts-cache";
 import { generateScopeManifest } from "@tedix/auth/scope-sync";
 import { syncDeclaredConnectionScopes } from "../../services/connection-scope-sync";
 import { isPlatformPrincipal } from "@tedix/auth/types";
@@ -1174,7 +1172,7 @@ export const deleteAppProcedure = authedAppsOs.delete
 			)?.mcpConfig?.descopeResourceId ?? null;
 		if (descopeResourceId) {
 			try {
-				await deleteDescopeMcpServer(
+				await deleteMcpServerRegistration(
 					{
 						DESCOPE_PROJECT_ID: context.env.DESCOPE_PROJECT_ID,
 						DESCOPE_MANAGEMENT_KEY: context.env.DESCOPE_MANAGEMENT_KEY,

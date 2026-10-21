@@ -12,8 +12,8 @@ import {
 	type McpServerApprovedScopes,
 	type McpServerRecord,
 	registerDescopeMcpResource,
-	updateDescopeMcpServer,
 } from "@tedix/auth/aih-client";
+import { updateMcpServerRegistration } from "./provider-facts-cache";
 import { getManagementClient } from "@tedix/auth/client";
 import {
 	getAssignedAppRoles,
@@ -222,7 +222,7 @@ async function ensureDescopeMcpServer(
 	);
 	return hasCanonicalServerShape(server, desired)
 		? server
-		: updateDescopeMcpServer(env, desired);
+		: updateMcpServerRegistration(env, desired);
 }
 
 function mergedAggregateTedis(

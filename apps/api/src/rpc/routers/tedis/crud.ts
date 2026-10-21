@@ -4,10 +4,8 @@ import { canManageBrowserEgress } from "@tedix/api-contract/schemas/tedi";
  * Tedis Router — CRUD procedures + logs
  */
 
-import {
-	deleteDescopeMcpServer,
-	registerDescopeMcpResource,
-} from "@tedix/auth/aih-client";
+import { registerDescopeMcpResource } from "@tedix/auth/aih-client";
+import { deleteMcpServerRegistration } from "../../../lib/provider-facts-cache";
 import {
 	computeManagedAssignmentsForTedi,
 	TEDI_MCP_SCOPES,
@@ -1217,7 +1215,7 @@ async function purgeTediExternalIdentity(
 	// Clean up Descope AIH MCP server registration
 	if (tedi.descopeMcpResourceId && context.env.DESCOPE_MANAGEMENT_KEY) {
 		try {
-			await deleteDescopeMcpServer(context.env, tedi.descopeMcpResourceId);
+			await deleteMcpServerRegistration(context.env, tedi.descopeMcpResourceId);
 			console.log(
 				`[Tedis] Deleted AIH MCP server for tedi ${tedi.name} (serverId: ${tedi.descopeMcpResourceId})`,
 			);

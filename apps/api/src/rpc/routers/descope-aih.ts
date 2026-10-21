@@ -12,7 +12,6 @@ import {
 } from "@tedix/auth/aih-audiences";
 import {
 	createDescopeMcpServerClient,
-	deleteDescopeMcpServer,
 	deleteDescopeMcpServerClient,
 	exchangeAihClientCredentials,
 	loadAllDescopeMcpServers,
@@ -20,9 +19,12 @@ import {
 	type McpServerClientRecord,
 	registerDescopeMcpResource,
 	searchDescopeMcpServerClients,
-	updateDescopeMcpServer,
 	updateDescopeMcpServerClient,
 } from "@tedix/auth/aih-client";
+import {
+	deleteMcpServerRegistration,
+	updateMcpServerRegistration,
+} from "../../lib/provider-facts-cache";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import { getManagementClient } from "@tedix/auth/client";
 import { deleteAppRelation } from "@tedix/auth/fga";
@@ -245,7 +247,7 @@ export const updateMcpServerProcedure = authedOs.updateMcpServer
 	.handler(async ({ input, context }) => {
 		assertAihManagementAccess(context);
 		const aihEnv = requireAihEnv(context.env);
-		const server = await updateDescopeMcpServer(aihEnv, input.server);
+		const server = await updateMcpServerRegistration(aihEnv, input.server);
 		return { server };
 	});
 
@@ -254,7 +256,7 @@ export const deleteMcpServerProcedure = authedOs.deleteMcpServer
 	.handler(async ({ input, context }) => {
 		assertAihManagementAccess(context);
 		const aihEnv = requireAihEnv(context.env);
-		await deleteDescopeMcpServer(aihEnv, input.mcpServerId);
+		await deleteMcpServerRegistration(aihEnv, input.mcpServerId);
 		return { success: true as const };
 	});
 
@@ -686,7 +688,7 @@ export const reconcileMcpAppServersProcedure = authedOs.reconcileMcpAppServers
 				!sameStringSet(before.approvedScopes, after.approvedScopes) ||
 				!sameStringSet(before.defaultGrantedScopes, after.defaultGrantedScopes);
 			if (changed && !dryRun) {
-				const updated = await updateDescopeMcpServer(aihEnv, {
+				const updated = await updateMcpServerRegistration(aihEnv, {
 					...server,
 					audienceWhitelist: after.audienceWhitelist,
 					tags: after.tags,

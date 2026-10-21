@@ -24,8 +24,8 @@ import {
 	hardenDescopeMcpServerRegistration,
 	loadDescopeMcpServer,
 	registerDescopeMcpResource,
-	updateDescopeMcpServer,
 } from "@tedix/auth/aih-client";
+import { updateMcpServerRegistration } from "../../lib/provider-facts-cache";
 import {
 	buildDescopeMcpDiscoveryUrl,
 	getDescopeBaseUrl,
@@ -393,7 +393,7 @@ export const registerProcedure = authedMcpServerOs.register
 				env,
 				mcpConfig.descopeResourceId as string,
 			);
-			await updateDescopeMcpServer(
+			await updateMcpServerRegistration(
 				env,
 				hardenDescopeMcpServerRegistration(
 					{
@@ -512,7 +512,7 @@ export const adoptResourceProcedure = authedMcpServerOs.adoptResource
 		}
 
 		const scopes = await extractScopes(db, app.id, mcpConfig);
-		await updateDescopeMcpServer(env, {
+		await updateMcpServerRegistration(env, {
 			...resource,
 			tags: reconcileTedixMcpOwnershipTags(resource.tags, { app: app.slug }),
 			approvedScopes: {
@@ -620,7 +620,7 @@ export const syncScopesProcedure = authedMcpServerOs.syncScopes
 				env,
 				mcpConfig!.descopeResourceId as string,
 			);
-			await updateDescopeMcpServer(
+			await updateMcpServerRegistration(
 				env,
 				hardenDescopeMcpServerRegistration(
 					{
