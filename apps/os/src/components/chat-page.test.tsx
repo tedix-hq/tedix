@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
 	afterEach,
@@ -99,8 +99,10 @@ vi.mock("@/components/chat-thread", () => ({
 		onConversationPrepared,
 		prepareNewConversation,
 		recoverPendingSend,
+		detailsActions,
 	}: {
 		recoverPendingSend?: boolean;
+		detailsActions?: ReactNode;
 		conversationId: string | null;
 		onConversationCreated?: (
 			conversationId: string,
@@ -122,6 +124,7 @@ vi.mock("@/components/chat-thread", () => ({
 				data-chat-thread={conversationId ?? "new"}
 				data-recover-pending={recoverPendingSend}
 			>
+				{detailsActions}
 				Chat thread
 			</div>
 		);

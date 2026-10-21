@@ -1093,7 +1093,7 @@ export function RunControls({
 			{showStop ? (
 				<Button
 					size="sm"
-					variant="destructive"
+					variant="outline"
 					icon={<StopCircle size={14} />}
 					disabled={pending}
 					onClick={() => onStop?.()}

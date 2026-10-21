@@ -110,7 +110,7 @@ export function ChatMarkdown({
 	const markdown = sanitizeUntrustedMarkdown(content);
 	return (
 		<div
-			className={`chat-markdown min-w-0 max-w-full break-words text-kumo-default type-tedix-body ${preserveLineBreaks ? "whitespace-pre-wrap" : ""}`}
+			className={`chat-markdown min-w-0 max-w-full [overflow-wrap:anywhere] text-kumo-default type-tedix-body ${preserveLineBreaks ? "whitespace-pre-wrap" : ""}`}
 		>
 			<ReactMarkdown
 				skipHtml

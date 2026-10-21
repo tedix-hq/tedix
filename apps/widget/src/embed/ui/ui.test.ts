@@ -158,6 +158,16 @@ describe("framework-neutral Tedi embed primitives", () => {
 		const styles = embeddedTediStyles("#2557d6");
 		expect(styles).toContain(".tedix-md-code-bar");
 		expect(styles).toContain(".tedix-md-copy");
+		// The copy control sits in an overflow-clipped frame: its ring is inset.
+		expect(styles).toContain(".tedix-md-copy:focus-visible");
+		expect(styles).toContain("outline-offset: -2px");
+		// 44px targets on phones and touch screens.
+		expect(styles).toMatch(
+			/@media \(max-width: 639px\), \(pointer: coarse\) \{ \.tedix-icon[^}]*height: var\(--tedix-touch-target\)/,
+		);
+		// The stop state never depends on a translated label.
+		expect(styles).toContain('.tedix-send[data-state="stop"] svg');
+		expect(styles).not.toContain('aria-label="Detener"');
 		expect(styles).toContain(".tedix-prompt:hover");
 		expect(styles).toContain(".tedix-activities:empty { display: none; }");
 		expect(styles).toContain('.tedix-md-link[href^="/"]');

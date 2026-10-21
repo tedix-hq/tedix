@@ -67,7 +67,7 @@ export function SaveAsWorkspaceButton({
 	// Only a chat the list knows to have no workspace can be saved as one.
 	if (!conversation || conversation.workspaceId) return null;
 	return (
-		<div className="flex shrink-0 items-center justify-end gap-2 py-1">
+		<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
 			{save.isError ? (
 				<Text as="span" role="caption" tone="error">
 					{save.error instanceof Error
@@ -191,11 +191,13 @@ export function ChatPage() {
 							}}
 						/>
 					</div>
-					{activeConversationId ? (
-						<SaveAsWorkspaceButton conversationId={activeConversationId} />
-					) : null}
 					<ChatThread
 						key={newConversationKey}
+						detailsActions={
+							activeConversationId ? (
+								<SaveAsWorkspaceButton conversationId={activeConversationId} />
+							) : null
+						}
 						recoverPendingSend={newConversationKey === 0}
 						conversationId={activeConversationId}
 						onConversationCreated={(conversationId, workspaceId) => {

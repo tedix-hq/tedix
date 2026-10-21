@@ -554,17 +554,12 @@ describe("ChatConversationHeader", () => {
 		expect(html).not.toContain("Kernel/Home conversation");
 	});
 
-	it("keeps back available but disables mutation controls for a fresh thread", () => {
+	it("keeps back available but hides mutation controls for a fresh thread", () => {
 		const html = renderHeader(null);
 		// A conversation that does not exist yet cannot be renamed or deleted,
 		// but the reader can always go back to the list.
 		expect(html).toContain('aria-label="Back to conversations"');
-		// Match the WHOLE opening tag: `disabled` serializes before the label.
-		expect(
-			html.match(/<button[^>]*aria-label="Rename conversation"[^>]*>/)?.[0],
-		).toContain("disabled");
-		expect(
-			html.match(/<button[^>]*aria-label="Delete conversation"[^>]*>/)?.[0],
-		).toContain("disabled");
+		expect(html).not.toContain('aria-label="Rename conversation"');
+		expect(html).not.toContain('aria-label="Delete conversation"');
 	});
 });
