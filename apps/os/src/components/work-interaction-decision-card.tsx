@@ -1,4 +1,5 @@
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
+import { DeckWhyChain } from "@/components/deck-why-chain";
 import { workActorReference } from "@/lib/work-actor";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import {
@@ -575,6 +576,7 @@ export function WorkInteractionDecisionCard({
 				}
 				why={
 					<div className="grid gap-3">
+						<DeckWhyChain cardId={request.id} />
 						{approval && <p>{OS_COPY.decisionDeck.explicitApproval}</p>}
 						{presentation && !approval && (
 							<FeedDeckDisclosure

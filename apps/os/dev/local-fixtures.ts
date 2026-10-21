@@ -8,6 +8,7 @@ import {
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 import { LOCAL_OUTBOUND } from "./outbound-fixture";
+import { decisionGraphFixture } from "./decision-graph-fixture";
 import { applyDemoPack, demoPackIsStale } from "./demo-pack";
 import { demoSendingBlock } from "@tedix/api-contract/utils/demo-sending-gate";
 import {
@@ -4246,6 +4247,8 @@ const LOCAL_LESSONS = [
 // ---------------------------------------------------------------------------
 
 const handlers: Record<string, (input: never) => unknown> = {
+	"decisionGraph/getContext": (input: { cardId: string }) =>
+		decisionGraphFixture(input.cardId),
 	"attention/listDeckCards": () => ({
 		cards: [],
 		count: 0,
