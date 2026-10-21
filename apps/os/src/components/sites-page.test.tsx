@@ -64,6 +64,21 @@ const deprovisionStatusData = vi.hoisted(() => ({
 		  }
 		| undefined,
 }));
+type ReadState = {
+	isPending: boolean;
+	isError: boolean;
+	isSuccess: boolean;
+	isFetching: boolean;
+	error?: Error;
+	data?: unknown;
+	refetch: ReturnType<typeof vi.fn>;
+};
+const readStates = vi.hoisted(() => ({
+	siteType: "cms" as "cms" | "docs",
+	docs: undefined as ReadState | undefined,
+	deprovision: undefined as ReadState | undefined,
+	reconciliation: undefined as ReadState | undefined,
+}));
 const deprovisionStatusOptions = vi.hoisted(() => ({
 	current: null as null | {
 		refetchInterval: (query: {
@@ -76,6 +91,11 @@ vi.mock("@tanstack/react-query", () => ({
 	useMutation: vi.fn(() => lifecycleMutation),
 	useQueryClient: () => queryClient,
 	useQuery: (options: { testKind?: string }) => {
+		if (options.testKind === "docs" && readStates.docs) return readStates.docs;
+		if (options.testKind === "deprovision" && readStates.deprovision)
+			return readStates.deprovision;
+		if (options.testKind === "reconciliation" && readStates.reconciliation)
+			return readStates.reconciliation;
 		if (options.testKind === "cms-www") {
 			return {
 				isPending: false,
@@ -113,7 +133,7 @@ vi.mock("@tanstack/react-query", () => ({
 					sites: [
 						{
 							id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-							type: "cms",
+							type: readStates.siteType,
 							slug: "acme",
 							name: "Acme",
 							description: null,
@@ -267,6 +287,10 @@ beforeEach(() => {
 	queryClient.fetchQuery.mockReset();
 	queryClient.invalidateQueries.mockReset();
 	lifecycleMutation.mutate.mockReset();
+	readStates.siteType = "cms";
+	readStates.docs = undefined;
+	readStates.deprovision = undefined;
+	readStates.reconciliation = undefined;
 	deprovisionStatusData.current = undefined;
 	deprovisionStatusOptions.current = null;
 	window.sessionStorage.clear();
@@ -952,5 +976,120 @@ describe("SitesPage owned-site actions", () => {
 				},
 			}),
 		).toBe(false);
+	});
+});
+
+function readState(overrides: Partial<ReadState>): ReadState {
+	return {
+		isPending: false,
+		isError: false,
+		isSuccess: false,
+		isFetching: false,
+		refetch: vi.fn(),
+		...overrides,
+	};
+}
+
+function button(host: HTMLElement, label: string): HTMLButtonElement {
+	const found = host.querySelector<HTMLButtonElement>(
+		`button[aria-label="${label}"]`,
+	);
+	if (!found) throw new Error(`Button missing: ${label}`);
+	return found;
+}
+
+function expectNoSiteMutations(host: HTMLElement) {
+	void host;
+	expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
+}
+
+describe("SitesPage diagnostic read states", () => {
+	it("does not claim reconciliation never ran while the read is pending or failed", () => {
+		readStates.reconciliation = readState({ isPending: true });
+		const pending = renderPage();
+		expect(pending.textContent).not.toContain("No reconciliation has run yet.");
+
+		const refetch = vi.fn();
+		readStates.reconciliation = readState({
+			isError: true,
+			error: new Error("Reconciliation read timed out"),
+			refetch,
+		});
+		const host = renderPage();
+		expect(host.textContent).toContain(
+			"The last reconciliation result is unavailable",
+		);
+		expect(host.textContent).toContain("Reconciliation read timed out");
+		expect(host.textContent).not.toContain("No reconciliation has run yet.");
+		act(() => button(host, "Retry loading the last check").click());
+		expect(refetch).toHaveBeenCalledTimes(1);
+		expectNoSiteMutations(host);
+	});
+
+	it("says so only when a successful read has no result", () => {
+		readStates.reconciliation = readState({ isSuccess: true });
+		const host = renderPage();
+		expect(host.textContent).toContain("No reconciliation has run yet.");
+	});
+
+	it("keeps the last reconciliation result visible when a refresh fails", () => {
+		readStates.reconciliation = readState({
+			isError: true,
+			isSuccess: true,
+			error: new Error("Refresh failed"),
+			data: {
+				checkedAt: "2026-08-31T12:00:00.000Z",
+				source: "scheduled",
+				sitesChecked: 1,
+				issues: [],
+			},
+		});
+		const host = renderPage();
+		expect(host.textContent).toContain("Refresh failed");
+		expect(host.textContent).toContain("Showing the last result that loaded.");
+		expect(host.textContent).toContain("Last checked");
+		expect(host.textContent).toContain("1 owned sites are consistent");
+	});
+
+	it("retries the cleanup plan read without any site mutation", () => {
+		const refetch = vi.fn();
+		readStates.deprovision = readState({
+			isError: true,
+			error: new Error("Plan unavailable"),
+			refetch,
+		});
+		const host = renderPage();
+		const card = host.querySelector('ul[aria-label="Owned sites"] li');
+		const manage = [...(card?.querySelectorAll("button") ?? [])].find(
+			(b) => b.textContent === "Manage",
+		);
+		if (!manage) throw new Error("Manage action missing");
+		act(() => manage.click());
+		expect(host.textContent).toContain("The cleanup plan is unavailable");
+		act(() => button(host, "Retry loading the cleanup plan").click());
+		expect(refetch).toHaveBeenCalledTimes(1);
+		expectNoSiteMutations(host);
+	});
+
+	it("shows a documentation builds failure with its own retry", () => {
+		readStates.siteType = "docs";
+		const refetch = vi.fn();
+		readStates.docs = readState({
+			isError: true,
+			error: new Error("Builds unavailable"),
+			refetch,
+		});
+		const host = renderPage();
+		const card = host.querySelector('ul[aria-label="Owned sites"] li');
+		const manage = [...(card?.querySelectorAll("button") ?? [])].find(
+			(b) => b.textContent === "Manage",
+		);
+		if (!manage) throw new Error("Manage action missing");
+		act(() => manage.click());
+		expect(host.textContent).toContain("Documentation builds are unavailable");
+		expect(host.textContent).not.toContain("No documentation builds yet.");
+		act(() => button(host, "Retry loading builds").click());
+		expect(refetch).toHaveBeenCalledTimes(1);
+		expectNoSiteMutations(host);
 	});
 });
