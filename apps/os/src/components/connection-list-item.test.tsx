@@ -213,3 +213,241 @@ describe("connection service health", () => {
 		await act(async () => root.unmount());
 	});
 });
+
+const rowStates: {
+	name: string;
+	accountState?: ConnectionInventoryRow["accountState"];
+	statuses: UserConnection["status"][];
+	badge: string;
+	action: "Connect" | "Reconnect" | "Manage";
+}[] = [
+	{
+		name: "no inventory",
+		statuses: [],
+		badge: "Not connected",
+		action: "Connect",
+	},
+	{
+		name: "missing",
+		accountState: "missing",
+		statuses: [],
+		badge: "Not connected",
+		action: "Connect",
+	},
+	{
+		name: "present without credential",
+		accountState: "present",
+		statuses: [],
+		badge: "Not connected",
+		action: "Connect",
+	},
+	{
+		name: "expired without credential",
+		accountState: "expired",
+		statuses: [],
+		badge: "Reconnect needed",
+		action: "Reconnect",
+	},
+	{
+		name: "unknown",
+		accountState: "unknown",
+		statuses: [],
+		badge: "Could not verify",
+		action: "Reconnect",
+	},
+	{
+		name: "restricted",
+		accountState: "restricted",
+		statuses: [],
+		badge: "Could not verify",
+		action: "Reconnect",
+	},
+	{
+		name: "expired",
+		accountState: "expired",
+		statuses: ["expired"],
+		badge: "Reconnect needed",
+		action: "Reconnect",
+	},
+	{
+		name: "needs consent",
+		accountState: "present",
+		statuses: ["reconnect_needed"],
+		badge: "Reconnect needed",
+		action: "Reconnect",
+	},
+	{
+		name: "revoked",
+		accountState: "present",
+		statuses: ["revoked"],
+		badge: "Disconnected",
+		action: "Reconnect",
+	},
+	{
+		name: "unknown with credential",
+		accountState: "unknown",
+		statuses: ["connected"],
+		badge: "Could not verify",
+		action: "Reconnect",
+	},
+	{
+		name: "restricted with credential",
+		accountState: "restricted",
+		statuses: ["connected"],
+		badge: "Could not verify",
+		action: "Reconnect",
+	},
+	{
+		name: "mixed healthy and expired",
+		accountState: "present",
+		statuses: ["connected", "expired"],
+		badge: "Reconnect needed",
+		action: "Reconnect",
+	},
+	{
+		name: "mixed healthy and revoked",
+		accountState: "present",
+		statuses: ["connected", "revoked"],
+		badge: "Disconnected",
+		action: "Reconnect",
+	},
+	{
+		name: "connected",
+		accountState: "present",
+		statuses: ["connected"],
+		badge: "Connected",
+		action: "Manage",
+	},
+];
+
+const providerKinds: {
+	name: string;
+	connectionType: ConnectionProvider["connectionType"];
+	registrationMode: ConnectionProvider["registrationMode"];
+}[] = [
+	{
+		name: "API key (manual)",
+		connectionType: "api_key",
+		registrationMode: null,
+	},
+	{
+		name: "OAuth pre-registered",
+		connectionType: "oauth",
+		registrationMode: "pre_registered",
+	},
+	{ name: "OAuth CIMD", connectionType: "oauth", registrationMode: "cimd" },
+	{ name: "OAuth DCR", connectionType: "oauth", registrationMode: "dcr" },
+	{
+		name: "OAuth invalid registration",
+		connectionType: "oauth",
+		registrationMode: "invalid",
+	},
+];
+
+describe("connection row setup state matrix", () => {
+	it.each(
+		rowStates.flatMap((row) =>
+			providerKinds.flatMap((kind) =>
+				(["tenant", "user"] as const).flatMap((scope) =>
+					(
+						["unchecked", "checking", "healthy", "unhealthy", "error"] as const
+					).map((health) => ({
+						...row,
+						kind,
+						scope,
+						health,
+						caseName: `${row.name} / ${kind.name} / ${scope} / ${health}`,
+					})),
+				),
+			),
+		),
+	)(
+		"$caseName",
+		async ({ accountState, statuses, badge, action, kind, scope, health }) => {
+			const host = document.createElement("div");
+			document.body.append(host);
+			const root = createRoot(host);
+			const onConnect = vi.fn();
+			const props = {
+				provider: { ...provider, ...kind },
+				inventory: accountState
+					? { ...inventory, accountState, capabilities: [] }
+					: undefined,
+				connections: statuses.map((status) => ({
+					...connection,
+					status,
+					tokenScope: scope,
+				})),
+				onConnect,
+				isConnecting: false,
+				onDisconnect: vi.fn(),
+				isDisconnecting: false,
+				disconnectingKey: null,
+				sectionScope: scope,
+				canManage: true,
+				manageDeniedReason:
+					"Ask an organization admin to manage this connection.",
+				serviceHealth:
+					health === "unchecked"
+						? undefined
+						: {
+								status: health,
+								detail: "Service check result",
+								appSlug: "initech-globex",
+								toolCount: null,
+							},
+				onCheckService: vi.fn(),
+			};
+			const findAction = () =>
+				[
+					...host.querySelectorAll<HTMLButtonElement>(
+						'[data-slot="connection-row-actions"] button',
+					),
+				].find((button) => button.textContent?.trim() === action);
+			try {
+				await act(async () => root.render(<ConnectionListItem {...props} />));
+				expect(
+					host.querySelector('[data-slot="connection-row-badges"]')
+						?.textContent,
+				).toContain(badge);
+				const control = findAction();
+				expect(control, `Accessible ${action} control`).toBeDefined();
+				expect(control!.disabled).toBe(false);
+				expect(control!.tabIndex).toBeGreaterThanOrEqual(0);
+				expect(control!.getAttribute("aria-hidden")).not.toBe("true");
+				await act(async () => control!.click());
+				if (action === "Manage") {
+					expect(onConnect).not.toHaveBeenCalled();
+					expect(host.textContent).toContain(
+						"Completing reconnect replaces the live credential",
+					);
+				} else {
+					expect(onConnect).toHaveBeenCalledExactlyOnceWith(
+						provider.appId,
+						kind.connectionType,
+						scope,
+					);
+					onConnect.mockClear();
+					await act(async () =>
+						root.render(<ConnectionListItem {...props} canManage={false} />),
+					);
+					expect(findAction()!.disabled).toBe(true);
+					expect(findAction()!.getAttribute("aria-label")).toBe(
+						props.manageDeniedReason,
+					);
+					await act(async () => findAction()!.click());
+					expect(onConnect).not.toHaveBeenCalled();
+					await act(async () =>
+						root.render(<ConnectionListItem {...props} isConnecting />),
+					);
+					expect(findAction()!.disabled).toBe(true);
+					await act(async () => findAction()!.click());
+					expect(onConnect).not.toHaveBeenCalled();
+				}
+			} finally {
+				await act(async () => root.unmount());
+				host.remove();
+			}
+		},
+	);
+});
