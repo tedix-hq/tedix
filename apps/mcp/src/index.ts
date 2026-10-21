@@ -6,13 +6,15 @@ import {
 import { z } from "zod";
 import {
 	AGGREGATE_SURFACE_CACHE_TTL_MS,
-	aggregateAndPrefixTools,
-	AggregateAppEntry,
-	applyHostConnectionDefaultsToAggregateEntries,
 	purgeAggregateSurfaceCaches,
+} from "./aggregate-surface-cache";
+import { aggregateAndPrefixTools } from "./aggregate-surface";
+import { AggregateAppEntry } from "./aggregate-types";
+import {
+	applyHostConnectionDefaultsToAggregateEntries,
 	withAggregateHostOrganization,
 	withMountToolScopes,
-} from "./aggregate-surface";
+} from "./aggregate-host-defaults";
 import {
 	directToolCallNamespaces,
 	filterAggregateAppsForCodeNamespaces,

@@ -54,10 +54,8 @@ vi.mock("./mcp/server-factory", async (importOriginal) => {
 	return { ...actual, buildMcpServer };
 });
 
-import {
-	aggregateAndPrefixTools,
-	aggregateSurfaceCacheKey,
-} from "./aggregate-surface";
+import { aggregateAndPrefixTools } from "./aggregate-surface";
+import { aggregateSurfaceCacheKey } from "./aggregate-surface-cache";
 import worker from "./index";
 
 function createExecutionContext() {

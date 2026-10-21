@@ -8,7 +8,7 @@ import type { CachedAppData } from "./mcp/server-factory";
 import {
 	readAggregateActivationEpoch,
 	writeAggregateActivationEpoch,
-} from "./aggregate-surface";
+} from "./aggregate-activation-epoch";
 import worker, { handleMcpRequest } from "./index";
 import { validateAuth } from "./auth-helpers";
 
