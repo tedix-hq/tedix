@@ -18,7 +18,7 @@ export const kernelRequests = sqliteTable(
 			.references(() => organizations.id, { onDelete: "cascade" }),
 		ownerUserId: text("owner_user_id").notNull(),
 		sourceKind: text("source_kind", {
-			enum: ["home", "agent_session_request"],
+			enum: ["home", "agent_session_request", "work_attempt"],
 		}).notNull(),
 		sourceId: text("source_id").notNull(),
 		conversationId: text("conversation_id"),

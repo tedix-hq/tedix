@@ -136,6 +136,10 @@ export async function driveKernelRequest(
 				withDeadline(() => reader.readOutputRevision(check), timeout()),
 			readRepositoryDelivery: (check) =>
 				withDeadline(() => reader.readRepositoryDelivery(check), timeout()),
+			readWorkCommitDelivery: reader.readWorkCommitDelivery
+				? (check) =>
+						withDeadline(() => reader.readWorkCommitDelivery!(check), timeout())
+				: undefined,
 		};
 		const observations = await runKernelAcceptanceChecks(
 			row.snapshot.checks,

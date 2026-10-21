@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
@@ -323,4 +323,73 @@ export async function settleAgedRepositoryPushObservations(
 		)
 		.where(sql`${workItems.id} IN (${candidates})`)
 		.returning({ id: workItems.id });
+}
+
+export interface RepositoryPushRecord {
+	id: string;
+	createdAt: string;
+	sha: string;
+	beforeSha: string | null;
+	commitShas: string[];
+	evidenceUrl: string | null;
+}
+
+/**
+ * Recorded pushes to the observed branch whose head or carried commits include
+ * any of `shas`, oldest first. Main is fast-forward only, so a later push
+ * contains every earlier one.
+ */
+export async function findRepositoryPushObservations(
+	db: DbQueryClient,
+	p: { orgId: string; projectId: string; shas: string[]; since: string },
+): Promise<RepositoryPushRecord[]> {
+	const shas = [...new Set(p.shas)].slice(0, 30);
+	if (!shas.length) return [];
+	const list = sql.join(
+		shas.map((sha) => sql`${sha}`),
+		sql`, `,
+	);
+	const rows = await db
+		.select({
+			id: workItems.id,
+			createdAt: workItems.createdAt,
+			metadata: workItems.metadata,
+		})
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, p.orgId),
+				eq(workItems.projectId, p.projectId),
+				gte(workItems.createdAt, p.since),
+				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
+				sql`(json_extract(${workItems.metadata}, '$.event.sha') IN (${list}) OR EXISTS (SELECT 1 FROM json_each(${workItems.metadata}, '$.event.commitShas') c WHERE c.value IN (${list})))`,
+			),
+		)
+		.orderBy(asc(workItems.createdAt), asc(workItems.id))
+		.limit(100);
+	return rows.flatMap((row) => {
+		const event = row.metadata?.event as
+			| {
+					sha?: unknown;
+					beforeSha?: unknown;
+					commitShas?: unknown;
+					evidenceUrl?: unknown;
+			  }
+			| undefined;
+		if (typeof event?.sha !== "string") return [];
+		return [
+			{
+				id: row.id,
+				createdAt: row.createdAt,
+				sha: event.sha,
+				beforeSha: typeof event.beforeSha === "string" ? event.beforeSha : null,
+				commitShas: Array.isArray(event.commitShas)
+					? event.commitShas.filter((s): s is string => typeof s === "string")
+					: [],
+				evidenceUrl:
+					typeof event.evidenceUrl === "string" ? event.evidenceUrl : null,
+			},
+		];
+	});
 }

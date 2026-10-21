@@ -283,6 +283,10 @@ export async function reconcileDueHomeKernelRequests(
 	organizationId: string,
 ) {
 	const policy = await readKernelRequestPolicy(context, organizationId);
+	if (policy?.workAttemptDelivery)
+		await (
+			await import("./request-work-attempt-source")
+		).captureDispatcherWorkAttempts(context, organizationId, policy);
 	const rows = await listDueKernelRequests(context.db, {
 		organizationId,
 		now: new Date().toISOString(),
@@ -314,9 +318,13 @@ export async function reconcileDueHomeKernelRequests(
 			const updated =
 				row.sourceKind === "home"
 					? await reconcileHomeKernelRequest(context, row, policy)
-					: await (
-							await import("./request-local-source")
-						).reconcileLocalKernelRequest(context, row, policy);
+					: row.sourceKind === "work_attempt"
+						? await (
+								await import("./request-work-attempt-source")
+							).reconcileWorkAttemptKernelRequest(context, row, policy)
+						: await (
+								await import("./request-local-source")
+							).reconcileLocalKernelRequest(context, row, policy);
 			if (updated.nextDueAt && updated.nextDueAt <= new Date().toISOString())
 				await transitionKernelRequest(context.db, {
 					...updated,
