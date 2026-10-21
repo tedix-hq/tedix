@@ -723,6 +723,28 @@ describe("executeTool provider completion evidence", () => {
 });
 
 describe("executeTool Code Mode inner-call telemetry", () => {
+	it("keeps direct first-party errors as MCP isError with structured code and status", async () => {
+		const result = await executeTool(
+			makeAgent({
+				status: 404,
+				data: {
+					defined: false,
+					code: "NOT_FOUND",
+					status: 404,
+					message: "Skill not found",
+				},
+			}),
+			makeTool(),
+			{},
+			{ adapterScope: "primary", resultStrategy: "merge" },
+		);
+		expect(result.isError).toBe(true);
+		expect(result._meta?.["tedix/error"]).toEqual({
+			code: "NOT_FOUND",
+			status: 404,
+		});
+	});
+
 	it("emits success false for status>=400 handler results with caller metadata", async () => {
 		const agent = makeAgent({
 			status: 500,

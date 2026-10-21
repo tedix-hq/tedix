@@ -1174,6 +1174,17 @@ async function executeWithHandler(
 				"openai/toolInvocation/invoking": `Processing ${tool.title}...`,
 				"openai/toolInvocation/invoked": textContent.substring(0, 50),
 				...structuredMetadata,
+				...(isErrorResult && toolConfig.transport === "rpc"
+					? {
+							"tedix/error": {
+								code:
+									isRecord(result.data) && typeof result.data.code === "string"
+										? result.data.code
+										: undefined,
+								status: resultStatus,
+							},
+						}
+					: {}),
 				...(isErrorResult && result.connectionRecovery
 					? { "tedix/connectionRecovery": result.connectionRecovery }
 					: {}),

@@ -31,9 +31,11 @@ telemetry, timeouts, payment) runs. Tedix builds on
 - **Name namespaces literally.** Hydration parses the program for literal
   `namespace.tool(...)` references; computed access (`globalThis[ns]`) never
   hydrates and fails at call time.
-- **Inner failures are data.** An inner failure returns a result the program
-  can inspect; only program errors fail the outer call. Any inner failure also
-  adds `failures: [{ tool, error }]` (≤10 entries) to the outer result.
+- **Inner tool failures reject.** A failed `await namespace.tool(args)` throws
+  an `Error`; catch it and read `error.code` and `error.status` for first-party
+  oRPC failures (for example, `NOT_FOUND` and `404`). An uncaught failure fails
+  the outer call. When the program catches the error and returns, failure
+  receipts add `failures: [{ tool, error }]` (≤10 entries) to the outer result.
 - **Bounded retries.** Two identical failed calls exhaust the retry budget; the
   next identical call is blocked without dispatch
   (`packages/tedi-codemode-core/src/failure-budget.ts`), on both surfaces.

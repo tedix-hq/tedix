@@ -52,9 +52,13 @@ vi.mock("@cloudflare/codemode", async () => {
 				if (code.includes("destructive_mrtr")) {
 					const provider = providers.find((entry) => entry.name === "test")!;
 					if (code.includes("prior_dispatch")) await provider.fns.allowed!({});
-					await provider.fns.soft_fail!({
-						id: code.includes("changed_args") ? "other" : "scratch",
-					});
+					try {
+						await provider.fns.soft_fail!({
+							id: code.includes("changed_args") ? "other" : "scratch",
+						});
+					} catch (error) {
+						if (!code.includes("caught_then_write")) throw error;
+					}
 					if (code.includes("caught_then_write"))
 						await provider.fns.allowed!({});
 					return { result: { ok: true }, logs: [] };
@@ -179,18 +183,23 @@ vi.mock("@cloudflare/codemode", async () => {
 					const softFail = provider?.fns.soft_fail;
 					if (!allowed || !softFail) throw new Error("test tools missing");
 					await allowed({});
-					await softFail({});
+					try {
+						await softFail({});
+					} catch {}
 					return { result: { items: [] }, logs: [] };
 				}
 				if (code.includes("repeated_soft_fail")) {
 					const provider = providers.find((entry) => entry.name === "test");
 					const tool = provider?.fns.soft_fail;
 					if (!tool) throw new Error("test.soft_fail missing");
-					const result = [
-						await tool({ value: "same" }),
-						await tool({ value: "same" }),
-						await tool({ value: "same" }),
-					];
+					const result = [];
+					for (let i = 0; i < 3; i++) {
+						try {
+							await tool({ value: "same" });
+						} catch (error) {
+							result.push((error as Error).message);
+						}
+					}
 					return { result, logs: [] };
 				}
 				const provider = providers.find((entry) => entry.name === "test");
@@ -676,7 +685,7 @@ describe("Code Mode tail telemetry", () => {
 		});
 	});
 
-	it("returns claim-scoped failure evidence for inner MCP errors", async () => {
+	it("fails execution and telemetry for uncaught inner MCP errors", async () => {
 		const registered = new Map<string, (args: unknown) => Promise<unknown>>();
 		const server = {
 			registerTool: vi.fn(
@@ -696,14 +705,7 @@ describe("Code Mode tail telemetry", () => {
 		})) as {
 			isError?: boolean;
 			structuredContent?: {
-				failures?: Array<{ tool?: string; error?: string }>;
-				result?: {
-					error?: string;
-					completionEvidence?: {
-						status?: string;
-						retry?: { attempts?: number; blocked?: boolean };
-					};
-				};
+				error?: string;
 			};
 		};
 
@@ -733,22 +735,12 @@ describe("Code Mode tail telemetry", () => {
 			success: false,
 		});
 		expect(rpcLog?.executionId).toEqual(expect.any(String));
-		expect(execLog).toMatchObject({ _cm: "exec", success: true });
+		expect(execLog).toMatchObject({ _cm: "exec", success: false });
 		// Every inner call failed: the run is an MCP error, not a quiet result.
 		expect(response.isError).toBe(true);
-		expect(response.structuredContent).toMatchObject({ partial: true });
-		expect(response.structuredContent?.result).toMatchObject({
+		expect(response.structuredContent).toMatchObject({
 			error: "soft fail",
-			completionEvidence: {
-				status: "failed",
-				retry: { attempts: 1, blocked: false },
-			},
 		});
-		// Failed inner calls surface by name and cause on the OUTER result —
-		// audits must never need to stringify inner envelopes to find a denial.
-		expect(response.structuredContent?.failures).toEqual([
-			{ tool: "test.soft_fail", error: expect.stringContaining("soft fail") },
-		]);
 		const codeSpan = enteredSpans.find(
 			(span) => span.name === "tedix.mcp.code_exec",
 		);
@@ -898,6 +890,7 @@ describe("Code Mode tail telemetry", () => {
 				code: "async () => repeated_tedi_lookup()",
 			})) as {
 				structuredContent: {
+					error?: string;
 					result: Array<{
 						id?: string;
 						status?: string;
@@ -911,6 +904,12 @@ describe("Code Mode tail telemetry", () => {
 				};
 			};
 			expect(executeToolMock).toHaveBeenCalledTimes(dispatches);
+			if (dispatches === 2) {
+				expect(response.structuredContent.error).toContain(
+					"Identical call blocked",
+				);
+				return;
+			}
 			const rows = response.structuredContent.result;
 			expect(rows).toHaveLength(3);
 			expect(rows.map((row) => row.completionEvidence.retry.attempts)).toEqual(
@@ -962,24 +961,16 @@ describe("Code Mode tail telemetry", () => {
 			code: "async () => repeated_soft_fail()",
 		})) as {
 			structuredContent?: {
-				result?: Array<{
-					completionEvidence?: {
-						retry?: { attempts?: number; blocked?: boolean };
-					};
-				}>;
+				result?: string[];
 			};
 		};
 
 		expect(executeToolMock).toHaveBeenCalledTimes(2);
 		expect(response.structuredContent?.result).toHaveLength(3);
-		expect(
-			response.structuredContent?.result?.map(
-				(item) => item.completionEvidence?.retry,
-			),
-		).toEqual([
-			expect.objectContaining({ attempts: 1, blocked: false }),
-			expect.objectContaining({ attempts: 2, blocked: false }),
-			expect.objectContaining({ attempts: 2, blocked: true }),
+		expect(response.structuredContent?.result).toEqual([
+			"soft fail",
+			"soft fail",
+			expect.stringContaining("Identical call blocked"),
 		]);
 	});
 
@@ -1086,7 +1077,7 @@ describe("Code Mode tail telemetry", () => {
 			"code",
 		]);
 		expect(exec.indexes).toEqual(["app-uuid"]);
-		expect(exec.doubles[0]).toBe(1);
+		expect(exec.doubles[0]).toBe(0);
 		expect(exec.doubles[2]).toBe("async () => test.soft_fail({})".length);
 		expect(exec.doubles[3]).toBe(1);
 		expect(exec.doubles[4]).toBe(1);
