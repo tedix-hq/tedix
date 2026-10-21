@@ -6,12 +6,17 @@ import { attentionContractRouter } from "./attention";
 const mocks = vi.hoisted(() => ({
 	loadDeckProjection: vi.fn(),
 	loadForYouProjection: vi.fn(),
+	prepareFaces: vi.fn(),
 	call: vi.fn(),
 	record: vi.fn(),
 }));
 vi.mock("../../services/attention-projection", () => ({
 	loadDeckProjection: mocks.loadDeckProjection,
 	loadForYouProjection: mocks.loadForYouProjection,
+}));
+vi.mock("../../services/deck-card-face", async (original) => ({
+	...(await original<Record<string, unknown>>()),
+	prepareDeckCardFaces: mocks.prepareFaces,
 }));
 vi.mock("@orpc/server", async (original) => ({
 	...(await original<Record<string, unknown>>()),
@@ -112,6 +117,7 @@ function client(
 }
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.prepareFaces.mockImplementation(async (_context, cards) => cards);
 	mocks.loadDeckProjection.mockResolvedValue({
 		cards: [],
 		count: 0,
@@ -136,6 +142,34 @@ it("returns count and incompleteness independently from the bounded card list", 
 		count: 12,
 		complete: false,
 	});
+});
+it("stored-only Deck reads preserve projection metadata without preparing card faces", async () => {
+	const card = {
+		id: requestId,
+		kind: "question",
+		label: "Choose the topic",
+		project: "Unfiled",
+		urgency: "later",
+		decision: null,
+		source: "/work",
+		requestedAt: "2026-10-19T12:00:00.000Z",
+		dueAt: null,
+		score: 0,
+	};
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [card, { ...card, id: "second" }],
+		count: 2,
+		complete: false,
+		observedAt: "2026-10-19T12:00:00.000Z",
+	});
+	expect(
+		await client().listDeckCards({ limit: 1, presentation: "stored" }),
+	).toMatchObject({ cards: [card], count: 2, complete: false });
+	expect(mocks.prepareFaces).not.toHaveBeenCalled();
+});
+it("keeps presentation generation as the default Deck read behavior", async () => {
+	await client().listDeckCards({});
+	expect(mocks.prepareFaces).toHaveBeenCalledTimes(1);
 });
 it("does not call a missing card absent when its inventory is incomplete", async () => {
 	mocks.loadDeckProjection.mockResolvedValue({
