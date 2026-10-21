@@ -171,6 +171,15 @@ export function unwrap(value) {
 	}
 	return value;
 }
+
+export function createWorkspaceCode(label, now = Date.now()) {
+	return `return await os.create_os_workspace(${codeModeLiteral({
+		name: `Blue Harbor Latency ${label} ${now}`,
+		description: "Fictional scratch eval; archived after measurements.",
+		visibility: "private",
+	})});`;
+}
+
 /** Project before Code Mode serializes: full proposal metadata can exceed its output budget. */
 export function runReadbackCode(runId) {
 	return `const detail = await home.read_home_run(${codeModeLiteral({ runId })});
@@ -527,17 +536,7 @@ async function main() {
 	process.on("SIGINT", onSignal);
 	process.on("SIGTERM", onSignal);
 	try {
-		workspace = (
-			await code(
-				"return await os.create_os_workspace(" +
-					JSON.stringify({
-						name: `Blue Harbor Latency ${values.label} ${Date.now()}`,
-						description: "Fictional scratch eval; archived after measurements.",
-						visibility: "private",
-					}) +
-					");",
-			)
-		).workspace;
+		workspace = (await code(createWorkspaceCode(values.label))).workspace;
 		await writeFile(
 			join(values.out, "workspace.json"),
 			JSON.stringify(workspace, null, 2),

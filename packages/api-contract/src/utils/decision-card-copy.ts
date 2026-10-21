@@ -297,7 +297,21 @@ export function unsupportedCopyFacts(
 		copy.stakes ?? "",
 		copy.context ?? "",
 	].join(" ");
-	const facts = text.match(/[\w.+-]+@[\w-]+\.[\w.]+|\d[\d.,:/-]*\d|\d/g) ?? [];
+	// Bound email components; consume numeric punctuation once, then trim it
+	// without backtracking over an arbitrarily long failed candidate.
+	const pattern = /[\w.+-]{1,64}@[\w-]{1,63}\.[\w.]{1,253}|\d[\d.,:/-]*/g;
+	const facts: string[] = [];
+	for (let match; (match = pattern.exec(text));) {
+		let fact = match[0];
+		if (!fact.includes("@")) {
+			let end = fact.length;
+			while (end > 1 && !/\d/.test(fact[end - 1]!)) end--;
+			fact = fact.slice(0, end);
+			// Trailing punctuation may start the next email's local part.
+			pattern.lastIndex = match.index + end;
+		}
+		facts.push(fact);
+	}
 	const haystack = source.toLowerCase();
 	const bare = haystack.replace(/[,\s]/g, "");
 	// A relative date in the source ("tomorrow") may become an absolute date

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	archiveWithReadback,
 	checkOutput,
+	createWorkspaceCode,
 	fixtures,
 	percentiles,
 	phases,
@@ -15,6 +16,25 @@ import {
 } from "./chat-latency.mjs";
 
 describe("live chat eval accounting", () => {
+	test("escapes hostile workspace labels as data in generated code", async () => {
+		const label =
+			'</script><script>throw Error("injected")</script>\u2028\u2029"\\';
+		const source = createWorkspaceCode(label, 123);
+		expect(source).not.toContain("</script>");
+		expect(source).not.toContain("\u2028");
+		expect(source).not.toContain("\u2029");
+		const result = await new Function(
+			"os",
+			`return (async () => { ${source} })()`,
+		)({
+			create_os_workspace: async (input: unknown) => input,
+		});
+		expect(result).toEqual({
+			name: `Blue Harbor Latency ${label} 123`,
+			description: "Fictional scratch eval; archived after measurements.",
+			visibility: "private",
+		});
+	});
 	test("question samples are counted once per group", () => {
 		expect(
 			summarize([{ operation: "question", ok: true, wallMs: 100 }]).question
