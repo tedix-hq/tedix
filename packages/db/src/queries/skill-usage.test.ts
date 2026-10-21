@@ -8,6 +8,11 @@ import { recordSkillRunOutcome, recordSkillUsageEvent } from "./skill-usage";
 function fixture(options?: { onPrepare?: (query: string) => void }) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
+        CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT, policy_pack_id TEXT);
+        CREATE TABLE policy_packs (id TEXT PRIMARY KEY, organization_id TEXT, definition TEXT);
+        INSERT INTO tedis VALUES ('tedi-1', 'org-1', 'policy-1');
+        INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false},"record":{"evalRequired":false}}}');
+        CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT);
 		CREATE TABLE skill_entries (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
@@ -806,5 +811,49 @@ describe("countSkillUsagesLast24h", () => {
 			since,
 		);
 		expect(otherTedi[0]?.cnt).toBe(0);
+	});
+});
+
+describe("automatic pace-layer eval gating", () => {
+	it("records usage but only activates and schedules a certified current revision", async () => {
+		const { db, sqlite, insertSkill, insertRun, skillRow } = fixture();
+		insertSkill({
+			id: "candidate",
+			lifecycleState: "draft",
+			content:
+				'---\nname: nightly\ncapabilities:\n  schedule:\n    cron: "0 2 * * *"\n---\n# Skill',
+		});
+		sqlite.exec(
+			`UPDATE policy_packs SET definition = '{"paceLayerPolicy":{"differentiation":{"evalRequired":true}}}'`,
+		);
+		insertRun({ id: "uncertified", skillId: "candidate", status: "completed" });
+		await recordSkillRunOutcome(db, "uncertified");
+		expect(skillRow("candidate")).toMatchObject({
+			lifecycleState: "draft",
+			successCount: 1,
+		});
+		expect(
+			sqlite.prepare("SELECT count(*) AS count FROM skill_schedules").get()
+				?.count,
+		).toBe(0);
+		insertRun({ id: "old-eval", skillId: "candidate", status: "completed" });
+		sqlite.exec(
+			`UPDATE skill_runs SET result = '{"certification":{"passed":true}}', skill_revision = 0 WHERE id = 'old-eval'`,
+		);
+		await recordSkillRunOutcome(db, "old-eval");
+		expect(skillRow("candidate").lifecycleState).toBe("draft");
+		insertRun({ id: "certified", skillId: "candidate", status: "completed" });
+		sqlite.exec(
+			`UPDATE skill_runs SET result = '{"certification":{"overallStatus":"passed"}}' WHERE id = 'certified'`,
+		);
+		await recordSkillRunOutcome(db, "certified");
+		expect(skillRow("candidate")).toMatchObject({
+			lifecycleState: "active",
+			successCount: 3,
+		});
+		expect(
+			sqlite.prepare("SELECT count(*) AS count FROM skill_schedules").get()
+				?.count,
+		).toBe(1);
 	});
 });

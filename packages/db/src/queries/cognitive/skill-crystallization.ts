@@ -7,6 +7,7 @@ import {
 } from "../../schema/cognitive";
 import {
 	assertForcedSkillPromotionAuthority,
+	assertSkillPaceLayerEval,
 	type ForcedSkillPromotionAuthority,
 	hasUnrecoveredFailure,
 	loadSkillUsageSignals,
@@ -116,6 +117,7 @@ export async function crystallizeMuscleFromSkill(
 		via: "crystallize",
 	});
 
+	await assertSkillPaceLayerEval(db, skill, "record");
 	const entry = await createMuscleMemory(db, {
 		id: crypto.randomUUID(),
 		tediId: params.tediId,

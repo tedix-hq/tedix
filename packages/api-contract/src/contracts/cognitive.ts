@@ -995,7 +995,7 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 					.optional()
 					.default(14)
 					.describe(
-						"Archive drafts with zero recorded usage events and no update for this many days. 0 archives every current zero-use draft.",
+						"Fallback draft inactivity TTL in days when the resolved pace layer has no draftTtlDays. Layer policy takes precedence; 0 expires all eligible drafts only in layers using this fallback.",
 					),
 				dryRun: z.boolean().optional().default(true),
 				limit: z.number().min(1).max(1000).optional().default(500),

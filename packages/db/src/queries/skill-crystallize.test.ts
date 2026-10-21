@@ -18,6 +18,12 @@ import { crystallizeMuscleFromSkill } from "./cognitive/skill-crystallization";
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
+        CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT, policy_pack_id TEXT);
+        CREATE TABLE policy_packs (id TEXT PRIMARY KEY, organization_id TEXT, definition TEXT);
+        INSERT INTO tedis VALUES ('tedi-author', 'org-1', 'policy-1');
+        INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false},"record":{"evalRequired":false}}}');
+        CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT, skill_id TEXT, skill_revision INTEGER, status TEXT, result TEXT);
+        CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT);
 		CREATE TABLE skill_entries (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
@@ -210,6 +216,7 @@ function fixture() {
 		}>;
 
 	return {
+		sqlite,
 		db: createDbClient(createD1Facade(sqlite)),
 		insertSkill,
 		insertSuccesses,
@@ -384,5 +391,33 @@ describe("recordMuscleUsage / getMuscleMemoryById org scoping (A3)", () => {
 		insertMuscle({ id: "m-1", organizationId: "org-2" });
 		expect(await getMuscleMemoryById(db, "m-1", "org-1")).toBeUndefined();
 		expect((await getMuscleMemoryById(db, "m-1", "org-2"))?.id).toBe("m-1");
+	});
+});
+
+describe("record-layer certification gate", () => {
+	it("rejects before creating muscle memory, then accepts a certified revision", async () => {
+		const { db, sqlite, insertSkill, insertSuccesses, muscleRows, skillRow } =
+			fixture();
+		insertSkill({ id: "skill-1" });
+		insertSuccesses("skill-1", 5);
+		sqlite.exec(
+			`UPDATE policy_packs SET definition = '{"paceLayerPolicy":{"record":{"evalRequired":true}}}'`,
+		);
+		const crystallize = () =>
+			crystallizeMuscleFromSkill(db, {
+				...CRYSTALLIZE_BASE,
+				authority: { kind: "operator" },
+			});
+		await expect(crystallize()).rejects.toMatchObject({
+			details: { rule: "pace_layer_requires_eval" },
+		});
+		expect(muscleRows()).toHaveLength(0);
+		expect(skillRow("skill-1").lifecycleState).toBe("proven");
+		sqlite.exec(
+			`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'skill-1', 1, 'completed', '{"certification":{"passed":true}}')`,
+		);
+		await crystallize();
+		expect(muscleRows()).toHaveLength(1);
+		expect(skillRow("skill-1").lifecycleState).toBe("crystallized");
 	});
 });

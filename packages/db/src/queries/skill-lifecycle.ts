@@ -28,15 +28,22 @@
  * — the capability-mutation-gate allowlist doctrine).
  */
 
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type SkillEntry,
 	type SkillPaceLayer,
 	type SkillUsageOutcome,
 	skillEntries,
+	skillRunArtifacts,
+	skillRuns,
 	skillUsageEvents,
 } from "../schema/cognitive";
+import {
+	DEFAULT_PACE_LAYER_POLICY,
+	policyPacks,
+} from "../schema/control-plane";
+import { tedis } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
 
 export type SkillLifecycleState = NonNullable<SkillEntry["lifecycleState"]>;
@@ -100,6 +107,85 @@ const LIFECYCLE_RANK: Record<SkillLifecycleState, number> = {
 	proven: 2,
 	crystallized: 3,
 };
+
+/** Resolve the owning tedi's pack without crossing organization boundaries. */
+function skillPolicyKnob(
+	layer: SkillPaceLayer | SQL,
+	knob: "evalRequired" | "draftTtlDays",
+) {
+	const path = sql`'$.paceLayerPolicy.' || ${layer} || ${"." + knob}`;
+	return sql`(select json_extract(${policyPacks.definition}, ${path})
+        from ${tedis} join ${policyPacks} on ${policyPacks.id} = ${tedis.policyPackId}
+        where ${tedis.id} = ${skillEntries.tediId}
+        and ${tedis.organizationId} = ${skillEntries.organizationId}
+        and (${policyPacks.organizationId} is null or ${policyPacks.organizationId} = ${skillEntries.organizationId})
+        limit 1)`;
+}
+
+export function isSkillLifecyclePromotion(
+	current: SkillEntry["lifecycleState"],
+	target: SkillLifecycleState,
+): boolean {
+	return LIFECYCLE_RANK[target] > LIFECYCLE_RANK[current ?? "draft"];
+}
+
+/** Kept in the UPDATE predicate so a concurrent revision cannot reuse an older eval. */
+export function skillEvalGateCondition(
+	layer: SkillPaceLayer,
+	allowRecordedEval = true,
+): SQL<boolean> {
+	return sql<boolean>`(
+        coalesce(${skillPolicyKnob(layer, "evalRequired")}, ${DEFAULT_PACE_LAYER_POLICY[layer].evalRequired ? 1 : 0}) = 0
+        or (${allowRecordedEval ? 1 : 0} = 1 and exists (
+            select 1 from ${skillRuns}
+            where ${skillRuns.skillId} = ${skillEntries.id}
+            and ${skillRuns.organizationId} = ${skillEntries.organizationId}
+            and ${skillRuns.skillRevision} = ${skillEntries.revision}
+            and ${skillRuns.status} = 'completed'
+            and (
+                json_extract(${skillRuns.result}, '$.certification.passed') = 1
+                or json_extract(${skillRuns.result}, '$.certification.status') = 'passed'
+                or json_extract(${skillRuns.result}, '$.certification.overallStatus') = 'passed'
+            )
+            and not exists (
+                select 1 from ${skillRunArtifacts}
+                where ${skillRunArtifacts.runId} = ${skillRuns.id}
+                and ${skillRunArtifacts.outcome} = 'failure'
+                and (${skillRunArtifacts.path} glob '*calls/run/[0-9]*.json'
+                    or ${skillRunArtifacts.path} glob '*calls/compensate/[0-9]*.json')
+            )
+        ))
+    )`;
+}
+
+export async function assertSkillPaceLayerEval(
+	db: DbClient,
+	entry: Pick<SkillEntry, "id" | "organizationId" | "lifecycleState">,
+	layer: SkillPaceLayer,
+	allowRecordedEval = true,
+): Promise<void> {
+	const [allowed] = await db
+		.select({ id: skillEntries.id })
+		.from(skillEntries)
+		.where(
+			and(
+				eq(skillEntries.id, entry.id),
+				eq(skillEntries.organizationId, entry.organizationId),
+				skillEvalGateCondition(layer, allowRecordedEval),
+			),
+		)
+		.limit(1);
+	if (!allowed)
+		throw new SkillLifecycleTransitionError(
+			`Promotion into ${layer} requires a recorded passing certification eval for this skill revision`,
+			{
+				skillId: entry.id,
+				from: entry.lifecycleState ?? "draft",
+				to: entry.lifecycleState ?? "draft",
+				rule: "pace_layer_requires_eval",
+			},
+		);
+}
 
 /**
  * True when any failure in the window lacks ≥SKILL_FAILURE_RECOVERY_SUCCESSES
@@ -510,7 +596,7 @@ export async function assertSkillLifecycleTransition(
 export interface SweepExpiredDraftSkillsOptions {
 	/** Restrict to one org; omit for a fleet-wide sweep. */
 	organizationId?: string;
-	/** Age threshold in days; 0 sweeps every currently eligible draft. */
+	/** Fallback age threshold for layers without draftTtlDays; 0 expires all eligible drafts in those layers. */
 	olderThanDays?: number;
 	limit?: number;
 	dryRun?: boolean;
@@ -555,6 +641,12 @@ export async function sweepExpiredDraftSkills(
 		now.getTime() - olderThanDays * 24 * 60 * 60 * 1000,
 	).toISOString();
 
+	const layerTtl = sql`max(0, coalesce(${skillPolicyKnob(sql`${skillEntries.paceLayer}`, "draftTtlDays")},
+        case ${skillEntries.paceLayer} when 'innovation' then ${DEFAULT_PACE_LAYER_POLICY.innovation.draftTtlDays ?? olderThanDays}
+        when 'differentiation' then ${DEFAULT_PACE_LAYER_POLICY.differentiation.draftTtlDays ?? olderThanDays}
+        when 'record' then ${DEFAULT_PACE_LAYER_POLICY.record.draftTtlDays ?? olderThanDays}
+        else ${olderThanDays} end))`;
+	const layerCutoff = sql`datetime(${now.toISOString()}, '-' || ${layerTtl} || ' days')`;
 	const isEphemeralFlow = sql<boolean>`exists (
 		select 1
 		from json_each(coalesce(${skillEntries.tags}, '[]'))
@@ -567,11 +659,11 @@ export async function sweepExpiredDraftSkills(
 	);
 	const ordinaryDraftIsExpired = and(
 		hasNoUsage,
-		sql`datetime(coalesce(${skillEntries.updatedAt}, ${skillEntries.createdAt})) < datetime(${cutoff})`,
+		sql`datetime(coalesce(${skillEntries.updatedAt}, ${skillEntries.createdAt})) < ${layerCutoff}`,
 	);
 	const ephemeralFlowIsExpired = and(
 		isEphemeralFlow,
-		sql`datetime(coalesce(${skillEntries.lastUsedAt}, ${skillEntries.updatedAt}, ${skillEntries.createdAt})) < datetime(${cutoff})`,
+		sql`datetime(coalesce(${skillEntries.lastUsedAt}, ${skillEntries.updatedAt}, ${skillEntries.createdAt})) < ${layerCutoff}`,
 	);
 	const conditions = [
 		eq(skillEntries.lifecycleState, "draft"),
@@ -603,15 +695,14 @@ export async function sweepExpiredDraftSkills(
 		};
 	}
 
-	const note = `Archived by draft-TTL sweep: unused ordinary draft or unpromoted ephemeral flow inactive for ${olderThanDays} day(s).`;
-	// D1 caps bound parameters at 100 per statement; this UPDATE binds ~5
-	// besides the id list, so archive in chunks of 50 (same budget as
-	// fact-lifecycle's SWEEP_UPDATE_CHUNK).
+	const note = `Archived by draft-TTL sweep: unused ordinary draft or unpromoted ephemeral flow beyond its resolved pace-layer TTL (global fallback ${olderThanDays} day(s)).`;
+	// Leave room under D1's 100-parameter cap for the repeated TTL predicates.
+	const archivedIds = new Set<string>();
 	for (const ids of chunkForBoundParams(
 		rows.map((row) => row.id),
 		50,
 	)) {
-		await db
+		const applied = await db
 			.update(skillEntries)
 			.set({
 				lifecycleState: "archived",
@@ -620,8 +711,11 @@ export async function sweepExpiredDraftSkills(
 				revisionReasoning: sql`CASE WHEN ${skillEntries.revisionReasoning} IS NULL OR ${skillEntries.revisionReasoning} = '' THEN ${note} ELSE ${skillEntries.revisionReasoning} || char(10) || ${note} END`,
 				updatedAt: now.toISOString(),
 			})
-			.where(inArray(skillEntries.id, ids));
+			.where(and(inArray(skillEntries.id, ids), ...conditions))
+			.returning({ id: skillEntries.id });
+		for (const row of applied) archivedIds.add(row.id);
 	}
 
-	return { archived: rows.length, cutoff, dryRun: false, entries: rows };
+	const entries = rows.filter((row) => archivedIds.has(row.id));
+	return { archived: entries.length, cutoff, dryRun: false, entries };
 }

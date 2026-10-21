@@ -11,8 +11,12 @@ import {
 	assertForcedSkillPromotionAuthority,
 	assertInitialSkillLifecycleState,
 	assertSkillLifecycleTransition,
+	assertSkillPaceLayerEval,
 	type ForcedSkillPromotionAuthority,
+	isSkillLifecyclePromotion,
 	paceLayerForLifecycle,
+	skillEvalGateCondition,
+	SkillLifecycleTransitionError,
 	SkillPaceLayerOverrideError,
 } from "../skill-lifecycle";
 import { resolveSkillMcpAppBindings } from "./skill-mcp-bindings";
@@ -214,6 +218,8 @@ export interface UpdateSkillEntryOptions {
 	forceAuthority?: ForcedSkillPromotionAuthority;
 	/** Internal: lifecycle write performed by muscle-memory crystallization. */
 	via?: "crystallize";
+	/** Baseline promotion can preserve both lifecycle and ownership. */
+	promotion?: true;
 	/**
 	 * Defense in depth: when set, both the lifecycle pre-read and the UPDATE
 	 * itself are additionally scoped to this organization, so a foreign-org id
@@ -276,6 +282,70 @@ export async function updateSkillEntry(
 			}
 		}
 	}
+	let writeWhere = scopedWhere;
+	if (
+		updates.lifecycleState != null ||
+		updates.paceLayer != null ||
+		updates.tediId === null ||
+		options?.promotion === true
+	) {
+		const [current] = await db
+			.select({
+				id: skillEntries.id,
+				organizationId: skillEntries.organizationId,
+				lifecycleState: skillEntries.lifecycleState,
+				tediId: skillEntries.tediId,
+				paceLayer: skillEntries.paceLayer,
+				revision: skillEntries.revision,
+				updatedAt: skillEntries.updatedAt,
+				content: skillEntries.content,
+				files: skillEntries.files,
+				inputSchema: skillEntries.inputSchema,
+				agentSkillsFormat: skillEntries.agentSkillsFormat,
+			})
+			.from(skillEntries)
+			.where(scopedWhere)
+			.limit(1);
+		if (current) {
+			const layer =
+				updates.paceLayer ??
+				(updates.lifecycleState != null
+					? paceLayerForLifecycle(updates.lifecycleState)
+					: current.paceLayer);
+			const promotion =
+				options?.promotion === true ||
+				(updates.lifecycleState != null &&
+					isSkillLifecyclePromotion(
+						current.lifecycleState,
+						updates.lifecycleState,
+					)) ||
+				layer !== current.paceLayer ||
+				(updates.tediId === null && current.tediId !== null);
+			if (promotion) {
+				// Certification belongs to the evaluated content. Edit first, then evaluate and promote.
+				const substantiveEdit = (
+					["content", "files", "inputSchema", "agentSkillsFormat"] as const
+				).some(
+					(key) =>
+						updates[key] !== undefined &&
+						JSON.stringify(updates[key]) !== JSON.stringify(current[key]),
+				);
+				await assertSkillPaceLayerEval(db, current, layer, !substantiveEdit);
+				writeWhere = and(
+					scopedWhere,
+					eq(skillEntries.revision, current.revision),
+					eq(skillEntries.paceLayer, current.paceLayer),
+					current.lifecycleState === null
+						? isNull(skillEntries.lifecycleState)
+						: eq(skillEntries.lifecycleState, current.lifecycleState),
+					current.updatedAt === null
+						? isNull(skillEntries.updatedAt)
+						: eq(skillEntries.updatedAt, current.updatedAt),
+					skillEvalGateCondition(layer, !substantiveEdit),
+				)!;
+			}
+		}
+	}
 	// WS6 pace-layer auto-classification: every lifecycle transition re-derives
 	// the layer unless the caller explicitly overrides it in the same write.
 	let patch =
@@ -304,10 +374,21 @@ export async function updateSkillEntry(
 			};
 		}
 	}
-	await db
+	const applied = await db
 		.update(skillEntries)
 		.set({ ...patch, updatedAt: new Date().toISOString() })
-		.where(scopedWhere);
+		.where(writeWhere)
+		.returning({ id: skillEntries.id });
+	if (writeWhere !== scopedWhere && applied.length === 0)
+		throw new SkillLifecycleTransitionError(
+			"Skill changed or its eval policy no longer admits promotion; re-read and evaluate the current revision",
+			{
+				skillId: id,
+				from: "draft",
+				to: updates.lifecycleState ?? "draft",
+				rule: "pace_layer_requires_eval",
+			},
+		);
 }
 
 export async function deleteSkillEntry(

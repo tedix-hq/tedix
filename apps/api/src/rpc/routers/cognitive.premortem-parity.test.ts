@@ -287,6 +287,7 @@ describe("skills.applyWorkshop tedi force ceiling (A4)", () => {
 				revisionReasoning: expect.stringContaining("force ceiling"),
 			}),
 			{
+				promotion: true,
 				force: true,
 				forceAuthority: { kind: "tedi", tediId: "tedi-reviewer" },
 			},
@@ -322,7 +323,7 @@ describe("skills.applyWorkshop tedi force ceiling (A4)", () => {
 			expect.anything(),
 			"skill-1",
 			expect.objectContaining({ lifecycleState: "crystallized" }),
-			{ force: true, forceAuthority: { kind: "operator" } },
+			{ force: true, forceAuthority: { kind: "operator" }, promotion: true },
 		);
 	});
 

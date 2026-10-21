@@ -210,6 +210,15 @@ describe("buildDecisionRightsMatrix", () => {
 		}
 	});
 
+	it("reports per-layer eval and draft TTL as enforced", () => {
+		const control = controls.find((cell) =>
+			cell.surface.startsWith("Per-layer eval gates"),
+		);
+		expect(control?.status).toBe("enforced");
+		expect(control?.enforcedBy).toContain("skillEvalGateCondition()");
+		expect(control?.enforcedBy).toContain("sweepExpiredDraftSkills()");
+	});
+
 	it("disposer separation and force overrides cite their enforcement points", () => {
 		const promotion = controls.find((c) =>
 			c.surface.includes("apply_skill_proposal"),

@@ -979,6 +979,7 @@ export const skillsApplyWorkshop = authedSkills.applyWorkshop
 		// apply is the sanctioned override of execute-to-promote gating. The
 		// same authority is re-asserted at the db layer (two-layer gate).
 		await updateSkillEntryGated(context, existing.id, patch, {
+			promotion: true,
 			force: true,
 			forceAuthority: applyAuthority,
 		});

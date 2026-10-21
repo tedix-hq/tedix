@@ -1074,8 +1074,8 @@ export const skillsPromote = authedSkills.promote
 			patch,
 			// requireLifecycleOverrideAuthority above proved human/apikey.
 			forceLifecycle
-				? { force: true, forceAuthority: { kind: "operator" } }
-				: undefined,
+				? { force: true, forceAuthority: { kind: "operator" }, promotion: true }
+				: { promotion: true },
 		);
 		const updated = await getSkillEntry(context.db, existing.id, orgId);
 
