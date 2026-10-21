@@ -160,6 +160,18 @@ check the profile again.
 **Verify:** `tedix -w CLI_PROFILE auth status` reports `selected source:
 stored-login` and does not print the credential.
 
+### `Stored login renewal ... has an uncertain result`
+
+**Cause:** A login renewal was interrupted, its reply was lost, or the renewed
+login could not be saved. The CLI cannot tell whether the old token was already
+replaced, and reusing it could end the login for every session sharing it.
+
+**Fix:** Run the `tedix login --workspace CLI_PROFILE` command the message
+prints, in a human terminal, and complete the browser flow.
+
+**Verify:** `tedix -w CLI_PROFILE auth status` reports `selected source:
+stored-login`.
+
 ### The live call returns an authorization or connection error
 
 **Cause:** The selected profile, stored login, granted scopes, or gateway may

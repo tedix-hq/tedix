@@ -403,6 +403,13 @@ Cloud](./learning-paths/first-connection.md) for the expected status fields, a
 read-only live gateway check, and recovery steps. During macOS dark wake,
 renewal is deferred before sending a request; wake the Mac fully and retry.
 
+Several terminals and hooks can share one login safely. The CLI records each
+renewal before sending it and never reuses an old token when the result is
+unknown, for example after a lost reply, a killed process or a failed save.
+Reusing one would make the sign-in service end the whole login for every
+session. In that case the command asks you to run `tedix login` again;
+ordinary renewals continue without any action.
+
 ## Find a command
 
 Start with the short command overview:

@@ -135,10 +135,18 @@ harness session id (`CLAUDE_CODE_SESSION_ID` or the Codex chat id); set
 another harness's environment too. An explicit `TEDIX_AGENT_SESSION` override
 takes precedence; its prefix must match the requested harness. A missing
 matching id or conflicting prefix stops bootstrap before credential exchange.
-With multiple native harness ids and no explicit selection, bootstrap asks you
-to choose rather than attributing the worker to its launcher.
+A lane launched from another harness, such as Codex started from a Claude Code
+shell, inherits the launcher's session id beside its own. The CLI then picks
+the id of the nearest Codex or Claude Code process above it, so the lane
+registers and starts Work as its own session rather than its launcher. Without
+that proof, bootstrap asks you to choose instead of guessing, and Work writes
+refuse an ambiguous inherited session. Choosing an id grants nothing: the
+session must still be registered and exchanged for its own credential.
 Set `TEDIX_AGENT_SESSION` to the returned full session key for subsequent calls
-when the environment contains multiple harnesses, or when no native id exists.
+when detection cannot decide, or when no native id exists.
+Pass `--model-version` when the harness reports a dated model snapshot. Codex
+and similar harnesses report only a model name, so the session is recorded as
+unpinned (`unpinned:<model>@<harness>/<version>`) instead of failing.
 The first bootstrap names the profile's principal for the machine and user
 (`local-<user>-<machine>`) unless you pass `--agent-key`; every later Claude
 Code or Codex session on that profile gets its own Agent-Session under the same
@@ -193,6 +201,19 @@ tedix -w acme code \
 
 Request `includeParameters: true` only for the few callables you intend to use.
 Never invent a callable, namespace, schema, or permission.
+
+### Request budgets
+
+Each verified agent session has its own request budget of 100 calls per
+minute, so parallel lanes no longer slow each other down. All sessions under
+one agent principal share a ceiling of 600 calls per minute. A call refused by
+a session's own budget does not count against that ceiling. The owner's own
+logins, tedis and unverified sessions keep the earlier per-principal budget.
+
+When a budget is spent, the gateway answers HTTP 429 with a wait time. The CLI
+waits and retries up to twice within the command's deadline, including writes
+that were refused before they ran. Other clients should honour the advertised
+wait rather than retrying at once.
 
 ### Delegate from a lead session
 
@@ -375,6 +396,30 @@ Interaction for the executing user's canonical id, with
 The recipient reads the Interaction and server readiness, then obtains its
 own Work admission before executing; concurrent recipients cannot share an
 Attempt. Event content carries identifiers, never instructions or credentials.
+
+### Local dispatcher
+
+`tedix lane serve --executor <codex|claude-code|devin|any-local>` runs on a
+person's machine and picks up Work assigned to that executor. It filters by
+executor on the server before paging, so a large backlog for other executors
+cannot hide its own Work. Each lane starts as its own agent session, with its
+own Attempt and request budget.
+
+If admission fails three times in a row for the same reason on the same Work
+revision, the dispatcher stops retrying, posts one comment explaining why and
+holds that Work until its revision changes. The hold survives a restart. Edit
+the Work or fix the cause to release it.
+
+When a coding lane finishes, the dispatcher records the commits that already
+landed on `origin/main` with its settlement. Coding Work whose lane landed no
+commit settles as failed, even when the harness exited normally. A lane's own
+report is still not verification; the owning tedi or person completes Work.
+
+If dispatchable Work waits while no dispatcher has admitted an Attempt for a
+while (45 minutes by default), the organization owner gets one attention item.
+It is not repeated while the condition lasts and is withdrawn once a dispatcher
+picks Work up again. An organization setting changes the wait or turns the
+alarm off.
 
 ## Authority and evidence rules
 
