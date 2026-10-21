@@ -1,9 +1,14 @@
-import { Graph } from "@phosphor-icons/react";
+import { CaretDown, Graph } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import {
 	Empty,
 	EmptyDescription,
@@ -314,62 +319,143 @@ export function graphFreshnessNote(
 
 export function KnowledgeMap({ layout }: { layout: KnowledgeLayout }) {
 	if (layout.nodes.length === 0) return null;
+	const byId = new Map(layout.nodes.map((node) => [node.id, node]));
+	const endpoint = (id: string) => {
+		const node = byId.get(id);
+		return node
+			? `${node.label} (${sentenceCase(node.type)}; ${id})`
+			: `Unavailable in this snapshot (${id})`;
+	};
 	return (
-		<Surface className="overflow-x-auto p-1">
-			<svg
-				role="img"
-				aria-label={`Knowledge map: ${layout.nodes.length} nodes, ${layout.edges.length} relationships`}
-				viewBox={`0 0 ${layout.size} ${layout.size}`}
-				width={layout.size}
-				height={layout.size}
-				className="max-w-none"
-			>
-				<title>Tedi knowledge map</title>
-				<g className="text-kumo-subtle">
-					{layout.edges.map((edge) => (
-						<path
-							key={edge.id}
-							d={edge.path}
-							data-relation={edge.type}
-							fill="none"
-							stroke="currentColor"
-							strokeOpacity={0.25}
-							strokeWidth={1}
-						/>
-					))}
-				</g>
-				{layout.nodes.map((node) => (
-					<g
-						key={node.id}
-						className={NODE_TYPE_CLASSES[node.type]}
-						data-node-type={node.type}
-						data-ring={node.ring}
-					>
-						<title>{`${node.label} · ${humanize(node.type)}`}</title>
-						<circle
-							cx={node.x}
-							cy={node.y}
-							r={node.ring === 0 ? NODE_R + 2 : NODE_R}
-							fill="currentColor"
-							fillOpacity={0.22}
-							stroke="currentColor"
-							strokeOpacity={0.7}
-						/>
-						{node.ring <= 1 && (
-							<text
-								x={node.x}
-								y={node.y - NODE_R - 5}
-								fontSize={10}
-								textAnchor="middle"
-								fill="currentColor"
-							>
-								{truncateLabel(node.label, 22)}
-							</text>
-						)}
+		<div className="min-w-0 space-y-2">
+			<Surface className="max-w-full overflow-x-auto p-1">
+				<svg
+					role="img"
+					aria-label={`Knowledge map: ${layout.nodes.length} nodes, ${layout.edges.length} relationships`}
+					viewBox={`0 0 ${layout.size} ${layout.size}`}
+					width={layout.size}
+					height={layout.size}
+					className="max-w-none"
+				>
+					<title>Tedi knowledge map</title>
+					<g className="text-kumo-subtle">
+						{layout.edges.map((edge) => (
+							<path
+								key={edge.id}
+								d={edge.path}
+								data-relation={edge.type}
+								fill="none"
+								stroke="currentColor"
+								strokeOpacity={0.25}
+								strokeWidth={1}
+							/>
+						))}
 					</g>
-				))}
-			</svg>
-		</Surface>
+					{layout.nodes.map((node) => (
+						<g
+							key={node.id}
+							className={NODE_TYPE_CLASSES[node.type]}
+							data-node-type={node.type}
+							data-ring={node.ring}
+						>
+							<title>{`${node.label} · ${humanize(node.type)}`}</title>
+							<circle
+								cx={node.x}
+								cy={node.y}
+								r={node.ring === 0 ? NODE_R + 2 : NODE_R}
+								fill="currentColor"
+								fillOpacity={0.22}
+								stroke="currentColor"
+								strokeOpacity={0.7}
+							/>
+							{node.ring <= 1 && (
+								<text
+									x={node.x}
+									y={node.y - NODE_R - 5}
+									fontSize={10}
+									textAnchor="middle"
+									fill="currentColor"
+								>
+									{truncateLabel(node.label, 22)}
+								</text>
+							)}
+						</g>
+					))}
+				</svg>
+			</Surface>
+			<Collapsible>
+				<CollapsibleTrigger className="min-h-11">
+					<CaretDown
+						aria-hidden="true"
+						size={16}
+						className="[[data-panel-open]_&]:rotate-180"
+					/>
+					Map details (text)
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<div
+						role="region"
+						aria-label="Knowledge map text"
+						tabIndex={0}
+						className="max-h-96 space-y-3 overflow-y-auto rounded-md px-2 pb-2 wrap-anywhere focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:ring-inset"
+					>
+						<Text as="p" role="label" tone="secondary" className="m-0">
+							Only nodes and relationships in this snapshot are listed. IDs
+							distinguish nodes with the same name.
+						</Text>
+						<div className="space-y-1">
+							<h3 className="m-0 text-sm font-medium text-kumo-default">
+								Nodes
+							</h3>
+							<ul
+								aria-label="Map nodes"
+								className="m-0 list-none space-y-2 p-0"
+							>
+								{layout.nodes.map((node) => (
+									<li key={node.id}>
+										<Text as="span" role="label">
+											{endpoint(node.id)}
+										</Text>
+									</li>
+								))}
+							</ul>
+						</div>
+						<div className="space-y-1">
+							<h3 className="m-0 text-sm font-medium text-kumo-default">
+								Relationships
+							</h3>
+							{layout.edges.length > 0 ? (
+								<ul
+									aria-label="Map relationships"
+									className="m-0 list-none space-y-2 p-0"
+								>
+									{layout.edges.map((edge) => (
+										<li key={edge.id}>
+											<Text as="span" role="label">
+												{endpoint(edge.from)} →{" "}
+												{sentenceCase(edge.type.toLowerCase())} →{" "}
+												{endpoint(edge.to)}
+											</Text>
+										</li>
+									))}
+								</ul>
+							) : (
+								<Text as="p" role="label" tone="secondary" className="m-0">
+									No resolved relationships in this layout.
+								</Text>
+							)}
+						</div>
+						{layout.unresolvedEdgeCount > 0 && (
+							<Text as="p" role="label" tone="secondary" className="m-0">
+								{formatCount(layout.unresolvedEdgeCount)} relationships were
+								omitted from the layout. Their endpoint names and relationship
+								details are unavailable in this snapshot.
+							</Text>
+						)}
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
+		</div>
 	);
 }
 
