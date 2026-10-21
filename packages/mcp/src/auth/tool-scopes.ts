@@ -55,6 +55,14 @@ const RESOURCE_BOUND_DURABLE_CODE_TOOLS: Record<
 // endpoints are the retained tenant/operator tools; internal credential and
 // service-only procedures are excluded from the admin MCP projection instead.
 const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
+	// Workspace draft reads retain osRead's apps family. Proposals remain
+	// skill writes; changing another member's authority is settings admin.
+	"skills/getWorkspaceDraftGrant": "mcp:apps.read",
+	"skills/getWorkspaceDraftProposal": "mcp:apps.read",
+	"skills/listWorkspaceDraftProposals": "mcp:apps.read",
+	"skills/proposeWorkspaceRevision": "mcp:skills.write",
+	"skills/setWorkspaceDraftGrant": "mcp:settings.admin",
+	"skills/withdrawWorkspaceDraftProposal": "mcp:skills.write",
 	"workItems/fileAgentReview": "mcp:work.write",
 	"workItems/listCliProjection": "mcp:work.read",
 	"workItems/getCheckpointProjection": "mcp:work.read",
