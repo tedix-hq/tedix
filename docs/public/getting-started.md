@@ -42,6 +42,9 @@ creates the organization, your owner account, and a first tedi through the
 same API contracts Cloud uses. State persists in `.wrangler/run-local`; nothing
 contacts a Cloudflare account.
 
+Every server answers on this machine only (loopback), so other devices on your
+network cannot reach the local stack.
+
 | Option                                | What it does                                                                           |
 | ------------------------------------- | -------------------------------------------------------------------------------------- |
 | `--smoke`                             | Onboards into a temporary database, checks the result persists, exits.                 |
