@@ -14,7 +14,8 @@ import { resolveChatContext } from "./chat-stream-input";
 import { createToolInputProgress } from "./chat-tool-input-progress";
 import { computerWorkspaceScope } from "./computer-workspace-scope";
 import { type FacetBudgetStopReason } from "./conversation-facet";
-import type { ActiveTurnBinding, AgentTediDO } from "./do";
+import type { AgentTediDO } from "./do";
+import type { ActiveTurnBinding } from "./runtime-state";
 import { recordEmailRuntimeOutcome } from "./email-outcome-receipt";
 import {
 	AUTO_SUBMITTED_HEADER,

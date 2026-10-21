@@ -22,7 +22,8 @@ import {
 import { errorMessage } from "@tedix/worker-kit/error-message";
 import { type BrainDigest } from "./brain/brain-digest";
 import type { HttpPlatformClient } from "./brain/platform-client";
-import type { AgentTediDO, State } from "./do";
+import type { AgentTediDO } from "./do";
+import type { State } from "./runtime-state";
 import type { AgentMcpRuntime } from "./mcp-client-runtime";
 import {
 	observerToolEvidenceFromSteps,

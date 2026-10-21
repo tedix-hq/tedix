@@ -94,7 +94,8 @@ import {
 	parseDelegationAuthorityEnvelope,
 	parseDelegationAuthorityMode,
 } from "./delegation-authority";
-import type { ActiveTurnBinding, AgentTediDO, State } from "./do";
+import type { AgentTediDO } from "./do";
+import type { ActiveTurnBinding, State } from "./runtime-state";
 import {
 	createDurableCodeRecovery,
 	type RecoverableCodemodeRuntimeHandle,

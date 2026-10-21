@@ -64,7 +64,8 @@ import { buildCompactionLedgerPayload } from "./compaction-ledger";
 import { logTediSourceFailure } from "./context-failure-log";
 import { DoCrystallizationStateStore } from "./crystallization-store-do";
 import { DoDirectiveStore } from "./directive-store-do";
-import type { ActiveTurnBinding, AgentTediDO, State } from "./do";
+import type { AgentTediDO } from "./do";
+import type { ActiveTurnBinding, State } from "./runtime-state";
 import { selectSkillsWithJev } from "./jev-skill-ranking";
 import {
 	LEARNING_BRIDGE_TIMEOUT_MS,

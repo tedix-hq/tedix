@@ -44,7 +44,8 @@ import { type FacetWorkflowTurnInput } from "./delegated-work-lease";
 import { buildRunId, buildWorkflowInstanceId } from "./ledger-mirror";
 import type { CronToolInput } from "./mcp-mount";
 import { type WorkflowDispatchContext } from "./workflow-start-watchdog";
-import type { AgentTediDO, State } from "./do";
+import type { AgentTediDO } from "./do";
+import type { State } from "./runtime-state";
 
 export type CronFireOutcome =
 	| {
