@@ -157,8 +157,11 @@ shows every field:
   shared reason (`already_decided`, `expired`, `agent_could_do`, `duplicate`
   or `not_for_me`) the chip teaches, or `null` for a reason only this factory
   uses.
-- `weightUpdate`: how verdicts may retune the weights later. Promotion always
-  goes through a person; `shadow` only proposes.
+- `weightUpdate`: how verdicts retune the weights each week (see
+  [Weekly weight update](#weekly-weight-update)). Promotion always goes
+  through a person; `shadow` only reports.
+- `reviewerWeights`: accepted weights for one reviewer, by user id. Written
+  by an accepted weight proposal; reviewers without an entry use `weights`.
 - `agentDecidableClasses`: card types an agent may decide. Stored only today.
 - `protectedEffects` (on the source): effects these cards carry when filed as
   Work, such as `message`; they keep a person in the loop.
@@ -185,11 +188,52 @@ records one learning event for the reviewer with this metadata:
 | `sharedReason`   | That chip's `mapsTo`, or `null`                        |
 | `reason`         | The full reason text                                   |
 
-When a skill files a card as Work, it should store a proposal envelope in the
-Work's `metadata.decisionDeck`, so routing and learning treat it like any
-other decision: `kind` is `proposal`, `classId` is the card type,
-`confidence` is the score, and `protectedEffects` comes from the source (none
-when it declares none).
+When a `run_skill` Do it files a card as Work, the skill passes
+`factoryCard: { "cardSheetId": "<cardSheetId>", "row": <row> }` (its own run
+params) to `create_work_item`. Tedix reads that card with the caller's access,
+finds the Card review or Deck source whose workspace and sheet prefix match,
+and stores the card's proposal envelope as the Work's `metadata.decisionDeck`,
+so routing and learning treat it like any other decision: `kind` is
+`proposal`, `classId` is the card type, `confidence` is the score,
+`protectedEffects` comes from the source (none when it declares none), and
+`expiresAt` is the run time plus `maxAgeDays`. The skill never writes the
+envelope itself; a `metadata.decisionDeck` next to `factoryCard` is refused.
+
+### Weekly weight update
+
+A daily pass looks at every source whose `weightUpdate.mode` is `shadow` or
+`enforce` and fits new weights at most once a week per source:
+
+1. It reads the source's verdict learning events of the last 90 days that
+   carry `features`. Useful and Do it count as positive, Not useful as
+   negative; Later and Skip are ignored. A reviewer's latest verdict on a card
+   wins.
+2. A skip reason sets how much a Not useful counts: `duplicate` and
+   `already_decided` count 0.25, `expired` and `agent_could_do` 0.5, and
+   everything else 1. `weightUpdate.reasonWeights` overrides this by chip
+   label or shared reason (0 ignores those verdicts).
+3. Below `minSamples` verdicts nothing is proposed. Otherwise a regularised
+   logistic step starts from the current weights, is pulled back toward them,
+   and moves each weight by at most `maxChange` (default 0.25). It learns on
+   the older 75 % of verdicts and is judged on the newest 25 %.
+4. A signed-in reviewer with at least `minSamples` verdicts of their own also
+   gets personal weights; everyone else uses the source's weights.
+
+Each proposal and its report stay on the organization: verdict counts by
+label and reason, held-out ranking accuracy before and after (the share of
+useful/not useful pairs ranked correctly), and how many of the top `topN`
+cards would change. A proposal is skipped when nothing moves or held-out
+accuracy would drop.
+
+- `shadow` stops there. Nothing is written to a sheet or the app.
+- `enforce` also adds the proposal to the source's `rules` sheet as a
+  `proposed` row (id `weights-<date>`, with the changes and the report as its
+  text), so it appears under the Card review app's proposed rules. Accept
+  writes the stored weights into the app's settings as a new app revision
+  on the next daily pass; Reject keeps the old ones. The weights applied are
+  the ones stored with the proposal, never text from the sheet. A proposal
+  whose source weights changed in the meantime is marked stale and not
+  applied, and no new proposal is made while one waits for a decision.
 
 ## Create: preview, approve, then build
 
