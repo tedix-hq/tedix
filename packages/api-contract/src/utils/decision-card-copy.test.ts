@@ -82,6 +82,17 @@ it("keeps the explicit decline even when generated button copy suggests yes", ()
 	).toBe("No / Not needed");
 });
 
+it("uses the supplied short no label for a decline", () => {
+	expect(
+		decisionCardActionLabel(
+			{ ...copy, actionLabels: { reject: "Make public" } },
+			"no",
+			"reject",
+			"No / Not needed",
+		),
+	).toBe("Make public");
+});
+
 it("formats stored ISO deadlines across every face field without changing source dates", () => {
 	const source = {
 		...copy,

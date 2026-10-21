@@ -253,7 +253,6 @@ export function decisionCardActionLabel(
 	intent: string | undefined,
 	fallback: string,
 ): string {
-	if (intent === "reject" && fallback === "No / Not needed") return fallback;
 	const labels = copy?.actionLabels;
 	for (const key of [id, intent])
 		if (
@@ -261,8 +260,16 @@ export function decisionCardActionLabel(
 			labels &&
 			Object.hasOwn(labels, key) &&
 			typeof labels[key] === "string"
-		)
+		) {
+			// A decline never reads as agreement, even if generated copy says so.
+			if (
+				intent === "reject" &&
+				fallback === "No / Not needed" &&
+				/^(?:yes|ok|okay|approve|accept|confirm)\b/i.test(labels[key]!)
+			)
+				return fallback;
 			return labels[key]!;
+		}
 	return fallback;
 }
 

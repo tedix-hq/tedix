@@ -884,6 +884,7 @@ it("shows stored ISO dates in a face in the operator's date format", async () =>
 async function mountQuestion(
 	title: string,
 	decide = vi.fn(async (_feedback: DecisionCardFeedback) => {}),
+	actionLabels?: Record<string, string>,
 ) {
 	host = document.createElement("div");
 	document.body.append(host);
@@ -891,7 +892,10 @@ async function mountQuestion(
 	await act(async () =>
 		root.render(
 			<CardFaceContext.Provider
-				value={{ presentation: { ...FACE, title }, confidence: null }}
+				value={{
+					presentation: { ...FACE, title, actionLabels },
+					confidence: null,
+				}}
 			>
 				<WorkDecisionCard
 					kind="question"
@@ -930,6 +934,19 @@ it.each([
 			action: "answer",
 			body: `Yes: ${title.replace(/\?$/, "")}`,
 		}),
+	);
+});
+
+it("shows the summary's own yes and no labels instead of guessing from the wording", async () => {
+	await mountQuestion("Should we archive the board?", undefined, {
+		approve: "Archive board",
+		reject: "Keep board",
+	});
+	expect(
+		host.querySelector("[data-decision-intent=approve]")?.textContent,
+	).toBe("Archive board");
+	expect(host.querySelector("[data-decision-intent=reject]")?.textContent).toBe(
+		"Keep board",
 	);
 });
 
