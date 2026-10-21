@@ -75,7 +75,7 @@ function parseAnswer(question: ClefQuestion, raw: unknown): ClefAnswer | null {
 	const probabilities = answer.probabilities;
 	if (
 		typeof answer.choice !== "string" ||
-		!(answer.choice in question.criteria) ||
+		!Object.hasOwn(question.criteria, answer.choice) ||
 		!probabilities ||
 		typeof probabilities !== "object"
 	) {
