@@ -27,6 +27,7 @@ const approval = {
 		appSlug: "notes",
 		toolName: "update_note",
 		args: {},
+		riskTier: "low",
 	},
 };
 
@@ -75,6 +76,17 @@ describe("standing approval matching", () => {
 				{ ...approval, payload: { ...approval.payload, riskTier: "high" } },
 				[rule],
 			),
+		).toBeUndefined();
+		// Medium risk and an unclassified payload stay with a human too.
+		expect(
+			matchingApprovalRule(
+				{ ...approval, payload: { ...approval.payload, riskTier: "medium" } },
+				[rule],
+			),
+		).toBeUndefined();
+		const { riskTier: _riskTier, ...unclassified } = approval.payload;
+		expect(
+			matchingApprovalRule({ ...approval, payload: unclassified }, [rule]),
 		).toBeUndefined();
 		expect(
 			matchingApprovalRule(
