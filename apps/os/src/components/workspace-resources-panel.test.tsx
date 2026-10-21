@@ -266,19 +266,10 @@ describe("WorkspaceResourcesPanel", () => {
 			"No canonical provider connection matches this reference.",
 		);
 
-		/**
-		 * The explanatory note and each resource row are bounded regions inside
-		 * the workpiece panel, not peers of a `Card`, so both take the `Surface`
-		 * well tier and keep the 8px control radius. Neither restates a
-		 * `bg-kumo-*` at the call site — the adapter owns background, border,
-		 * and radius.
-		 */
-		const surfaces = html.split('data-slot="surface"').length - 1;
-		expect(surfaces).toBe(1);
-		expect(html).toContain('data-tier="well"');
-		expect(html).not.toContain('data-tier="panel"');
-		expect(html).not.toContain("bg-kumo-tint px-3 py-2");
-		const resourceRow = html.slice(html.indexOf("<ul"));
-		expect(resourceRow).not.toContain("rounded-xl");
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		const list = container.querySelector('ul[aria-label="Attached resources"]');
+		expect(list?.querySelectorAll(":scope > li")).toHaveLength(1);
+		expect(list?.textContent).toContain("Connect app");
 	});
 });

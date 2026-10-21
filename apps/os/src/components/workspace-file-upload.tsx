@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/kumo/button";
+import { Alert } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
 import { uploadWorkspaceFile } from "@/lib/workspace-file-upload";
 import {
@@ -81,11 +82,7 @@ export function WorkspaceFileUpload({
 					{progress === 100 ? "Saving file…" : `Uploading ${progress}%`}
 				</Text>
 			) : null}
-			{error ? (
-				<Text as="p" role="label" tone="error" aria-live="polite">
-					{error}
-				</Text>
-			) : null}
+			{error ? <Alert variant="destructive" description={error} /> : null}
 		</div>
 	);
 }

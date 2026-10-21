@@ -6,6 +6,9 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useState } from "react";
+import { Alert } from "@/components/kumo/alert";
+import { Empty } from "@/components/kumo/empty";
+import { WorkspaceListRow } from "./workspace-list-row";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
@@ -392,10 +395,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 	);
 	const span = rangeEnd - rangeStart;
 	const row = (item: WorkItem) => (
-		<li
-			key={item.id}
-			className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3"
-		>
+		<WorkspaceListRow key={item.id} className="flex-wrap gap-y-1">
 			<div className="min-w-0 flex-1 basis-48">
 				<ItemLink item={item} />
 				{effectiveProjectId === "all" && visibleIds.length > 1 ? (
@@ -421,7 +421,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 					{item.startAt ? dateLabel(item.startAt) : "Unscheduled"}
 				</Text>
 			)}
-		</li>
+		</WorkspaceListRow>
 	);
 
 	return (
@@ -458,7 +458,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 						value={view}
 						onValueChange={setView}
 					/>
-					<div className="ml-auto w-44">
+					<div className="w-full sm:ml-auto sm:w-44">
 						<Input
 							size="sm"
 							aria-label="Search work"
@@ -517,26 +517,34 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 					</Text>
 				) : null}
 				{links.isError || itemQueries.some((query) => query.isError) ? (
-					<Text tone="error">
-						Some workspace work could not be loaded. Refresh to try again.
-					</Text>
+					<Alert
+						variant="destructive"
+						description="Some workspace work could not be loaded. Refresh to try again."
+					/>
 				) : null}
 				{links.isError ? null : links.isPending ||
 				  itemQueries.some((query) => query.isPending) ? (
 					<Text tone="secondary">Loading work…</Text>
 				) : !linked.length ? (
-					<div className="grid justify-items-start gap-2">
-						<Text>Bring your project work into this workspace.</Text>
+					<Empty
+						appearance="inline"
+						title="No linked projects"
+						description="Bring your project work into this workspace."
+					>
 						<Button size="sm" onClick={() => setManage(true)}>
 							Link a project
 						</Button>
-					</div>
+					</Empty>
 				) : !work.length ? (
-					<Text tone="secondary">
-						{allItems.length
-							? "No work matches these filters."
-							: "No work in the linked projects yet."}
-					</Text>
+					<Empty
+						appearance="inline"
+						title="No work to show"
+						description={
+							allItems.length
+								? "No work matches these filters."
+								: "No work in the linked projects yet."
+						}
+					/>
 				) : view === "list" ? (
 					groups
 						.filter((group) => group.items.length)
@@ -781,10 +789,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 								(link) => link.projectId === project.id,
 							);
 							return (
-								<li
-									key={project.id}
-									className="flex items-center gap-3 px-4 py-3"
-								>
+								<WorkspaceListRow key={project.id}>
 									<div className="min-w-0 flex-1">
 										<Text weight="medium">{project.name}</Text>
 										<Text role="label" tone="secondary">
@@ -804,7 +809,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 									>
 										{isLinked ? "Remove" : "Link"}
 									</Button>
-								</li>
+								</WorkspaceListRow>
 							);
 						})}
 					</Collection>

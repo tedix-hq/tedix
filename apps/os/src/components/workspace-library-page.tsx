@@ -1,3 +1,5 @@
+import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
+import { WorkspaceListRow } from "./workspace-list-row";
 import { EntityAvatar } from "@/components/entity-avatar";
 import {
 	Archive,
@@ -12,13 +14,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/kumo/empty";
+import { Empty } from "@/components/kumo/empty";
 import {
 	Collection,
 	Page,
@@ -259,8 +255,8 @@ export function WorkspaceLibraryPage() {
 										preference?.lastOpenedAt ?? null,
 									);
 									return (
-										<li
-											className="group flex min-w-0 items-center gap-1"
+										<WorkspaceListRow
+											className="group gap-1 p-0"
 											key={workspace.id}
 										>
 											<Link
@@ -268,41 +264,12 @@ export function WorkspaceLibraryPage() {
 												href={`/workspace/${workspace.id}`}
 												variant="collection"
 											>
-												<EntityAvatar
-													id={workspace.id}
-													name={workspace.name}
-													role={
-														workspace.visibility === "private"
-															? "private"
-															: undefined
+												<WorkspaceIdentity
+													workspace={workspace}
+													description={
+														workspace.description || "No description"
 													}
-													kind="workspace"
-													className="size-9"
 												/>
-												<span className="grid min-w-0 flex-1 gap-0.5">
-													<span className="flex min-w-0 flex-wrap items-center gap-2">
-														<Text
-															as="strong"
-															role="body"
-															weight="medium"
-															tone="strong"
-															className="break-words [overflow-wrap:anywhere]"
-														>
-															{workspace.name}
-														</Text>
-														{workspace.visibility === "private" ? (
-															<PrivateWorkspaceBadge />
-														) : null}
-													</span>
-													<Text
-														as="span"
-														role="label"
-														tone="secondary"
-														className="break-words [overflow-wrap:anywhere]"
-													>
-														{workspace.description || "No description"}
-													</Text>
-												</span>
 												{lastOpened ? (
 													<Text
 														as="span"
@@ -357,7 +324,7 @@ export function WorkspaceLibraryPage() {
 													<Question size={15} />
 												)}
 											</Button>
-										</li>
+										</WorkspaceListRow>
 									);
 								})}
 							</Collection>
@@ -390,11 +357,11 @@ export function WorkspaceLibraryPage() {
 							) : null}
 						</>
 					) : workspaces.isSuccess ? (
-						<Empty appearance="quiet">
-							<EmptyDescription>
-								No loaded workspaces match “{search.trim()}”.
-							</EmptyDescription>
-						</Empty>
+						<Empty
+							appearance="quiet"
+							title="No matching workspaces"
+							description={`No loaded workspaces match “${search.trim()}”.`}
+						/>
 					) : null}
 					{workspaces.data.truncated ? (
 						<Text role="body" tone="secondary" className="m-0">
@@ -409,22 +376,20 @@ export function WorkspaceLibraryPage() {
 			workspaces.data &&
 			workspaces.isSuccess &&
 			workspaces.data.items.length === 0 ? (
-				<Empty appearance="quiet">
-					<EmptyHeader>
-						<EmptyMedia variant="icon">
-							<SquaresFour size={20} />
-						</EmptyMedia>
-						<EmptyTitle>
-							{workspaces.data.truncated
-								? "No workspaces in this loaded page"
-								: "No workspaces yet"}
-						</EmptyTitle>
-						<EmptyDescription>
-							{workspaces.data.truncated
-								? "More workspaces may exist beyond this page."
-								: "Create a workspace or start from a template."}
-						</EmptyDescription>
-					</EmptyHeader>
+				<Empty
+					appearance="quiet"
+					icon={<SquaresFour size={20} />}
+					title={
+						workspaces.data.truncated
+							? "No workspaces in this loaded page"
+							: "No workspaces yet"
+					}
+					description={
+						workspaces.data.truncated
+							? "More workspaces may exist beyond this page."
+							: "Create a workspace or start from a template."
+					}
+				>
 					<Button
 						onClick={() => void navigate({ to: "/blueprints" })}
 						size="sm"
@@ -531,23 +496,20 @@ function ArchivedWorkspaces({
 			{archived.isSuccess &&
 			!restoreRefreshFailed &&
 			archived.data.items.length === 0 ? (
-				<Empty appearance="quiet">
-					<EmptyHeader>
-						<EmptyMedia variant="icon">
-							<Archive size={20} />
-						</EmptyMedia>
-						<EmptyTitle>
-							{archived.data.truncated
-								? "No archived workspaces in this loaded page"
-								: "No archived workspaces"}
-						</EmptyTitle>
-						<EmptyDescription>
-							{archived.data.truncated
-								? "More archived workspaces may exist beyond this page."
-								: "Archived workspaces appear here, and you can restore them with their outputs and apps."}
-						</EmptyDescription>
-					</EmptyHeader>
-				</Empty>
+				<Empty
+					appearance="quiet"
+					icon={<Archive size={20} />}
+					title={
+						archived.data.truncated
+							? "No archived workspaces in this loaded page"
+							: "No archived workspaces"
+					}
+					description={
+						archived.data.truncated
+							? "More archived workspaces may exist beyond this page."
+							: "Archived workspaces appear here, and you can restore them with their outputs and apps."
+					}
+				></Empty>
 			) : null}
 			{restore.isError ? (
 				<Alert variant="destructive">
@@ -567,44 +529,11 @@ function ArchivedWorkspaces({
 							restore.isPending &&
 							restore.variables?.workspaceId === workspace.id;
 						return (
-							<li
-								className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-3"
-								key={workspace.id}
-							>
-								<EntityAvatar
-									id={workspace.id}
-									name={workspace.name}
-									role={
-										workspace.visibility === "private" ? "private" : undefined
-									}
-									kind="workspace"
-									className="size-9"
+							<WorkspaceListRow key={workspace.id}>
+								<WorkspaceIdentity
+									workspace={workspace}
+									description={`Archived ${new Date(workspace.updatedAt).toLocaleDateString()}`}
 								/>
-								<span className="grid min-w-0 flex-1 gap-0.5">
-									<span className="flex min-w-0 flex-wrap items-center gap-2">
-										<Text
-											as="strong"
-											role="body"
-											weight="medium"
-											tone="strong"
-											className="break-words [overflow-wrap:anywhere]"
-										>
-											{workspace.name}
-										</Text>
-										{workspace.visibility === "private" ? (
-											<PrivateWorkspaceBadge />
-										) : null}
-									</span>
-									<Text
-										as="span"
-										role="label"
-										tone="secondary"
-										className="break-words [overflow-wrap:anywhere]"
-									>
-										Archived{" "}
-										{new Date(workspace.updatedAt).toLocaleDateString()}
-									</Text>
-								</span>
 								<Button
 									aria-label={`Restore ${workspace.name}`}
 									disabled={
@@ -622,7 +551,7 @@ function ArchivedWorkspaces({
 								>
 									{restoring ? "Restoring…" : "Restore"}
 								</Button>
-							</li>
+							</WorkspaceListRow>
 						);
 					})}
 				</Collection>
@@ -653,5 +582,49 @@ function PrivateWorkspaceBadge() {
 			<Lock size={11} aria-hidden="true" />
 			Only you
 		</Text>
+	);
+}
+
+function WorkspaceIdentity({
+	workspace,
+	description,
+}: {
+	workspace: Pick<OsWorkspace, "id" | "name" | "visibility">;
+	description: string;
+}) {
+	return (
+		<>
+			<EntityAvatar
+				id={workspace.id}
+				name={workspace.name}
+				role={workspace.visibility === "private" ? "private" : undefined}
+				kind="workspace"
+				className="size-9"
+			/>
+			<span className="grid min-w-0 flex-1 gap-0.5">
+				<span className="flex min-w-0 flex-wrap items-center gap-2">
+					<Text
+						as="strong"
+						role="body"
+						weight="medium"
+						tone="strong"
+						className="break-words [overflow-wrap:anywhere]"
+					>
+						{workspace.name}
+					</Text>
+					{workspace.visibility === "private" ? (
+						<PrivateWorkspaceBadge />
+					) : null}
+				</span>
+				<Text
+					as="span"
+					role="label"
+					tone="secondary"
+					className="break-words [overflow-wrap:anywhere]"
+				>
+					{description}
+				</Text>
+			</span>
+		</>
 	);
 }

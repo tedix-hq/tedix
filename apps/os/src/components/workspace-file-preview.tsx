@@ -1,6 +1,9 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
+import { buttonVariants } from "@/components/kumo/button";
+import { Link } from "@/components/kumo/link";
+import { Alert } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
 
 export function WorkspaceFilePreview({
@@ -26,9 +29,10 @@ export function WorkspaceFilePreview({
 		);
 	if (query.isError)
 		return (
-			<Text as="p" role="body" tone="error">
-				This file is unavailable or you no longer have access.
-			</Text>
+			<Alert
+				variant="destructive"
+				description="This file is unavailable or you no longer have access."
+			/>
 		);
 	const file = query.data;
 	const src = file.url;
@@ -86,13 +90,23 @@ export function WorkspaceFilePreview({
 					Download this file to open it.
 				</Text>
 			)}
-			<figcaption className="flex flex-wrap items-center justify-between gap-2 text-sm">
-				<span>
+			<figcaption className="flex flex-wrap items-center justify-between gap-2">
+				<Text
+					as="span"
+					role="label"
+					tone="secondary"
+					className="min-w-0 break-words"
+				>
 					{file.filename} · {(file.size / 1024 / 1024).toFixed(1)} MiB
-				</span>
-				<a href={src} download={file.filename}>
+				</Text>
+				<Link
+					variant="plain"
+					className={buttonVariants({ size: "sm", variant: "outline" })}
+					href={src}
+					download={file.filename}
+				>
 					Download file
-				</a>
+				</Link>
 			</figcaption>
 		</figure>
 	);
