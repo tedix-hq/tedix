@@ -14,6 +14,15 @@ const limited = (retryAfter?: string) =>
 		},
 	);
 
+const unavailable = (error: string, retryAfter?: string) =>
+	Response.json(
+		{ error, message: "Retry shortly." },
+		{
+			status: 503,
+			headers: retryAfter === undefined ? {} : { "Retry-After": retryAfter },
+		},
+	);
+
 function harness(responses: Response[]) {
 	const sent: RequestInit[] = [];
 	const waits: number[] = [];
@@ -61,6 +70,49 @@ describe("retryRateLimitedPosts", () => {
 			const { wrapped, sent } = harness([limited(header)]);
 			expect((await wrapped("https://gateway.example/mcp", post)).status).toBe(
 				429,
+			);
+			expect(sent).toHaveLength(1);
+		}
+	});
+
+	test("resends a POST refused before dispatch because access could not be checked", async () => {
+		for (const error of [
+			"human_mcp_grant_unavailable",
+			"external_agent_validation_unavailable",
+		]) {
+			const { wrapped, sent, waits } = harness([
+				unavailable(error, "5"),
+				unavailable(error, "5"),
+				unavailable(error, "5"),
+			]);
+			const response = await wrapped("https://gateway.example/mcp", post);
+			// Bounded: two resends, each waiting Retry-After plus up to as much again.
+			expect(response.status).toBe(503);
+			expect(sent).toHaveLength(3);
+			expect(sent[2]!.body).toBe(post.body);
+			expect(waits).toEqual([7_500, 7_500]);
+		}
+		const { wrapped, sent } = harness([
+			unavailable("human_mcp_grant_unavailable", "5"),
+		]);
+		expect((await wrapped("https://gateway.example/mcp", post)).status).toBe(
+			200,
+		);
+		expect(sent).toHaveLength(2);
+	});
+
+	test("does not resend other 503s or a 503 without a usable Retry-After", async () => {
+		for (const response of [
+			unavailable("tool_backend_unavailable", "5"),
+			unavailable("human_mcp_grant_unavailable"),
+			new Response("unavailable", {
+				status: 503,
+				headers: { "Retry-After": "5" },
+			}),
+		]) {
+			const { wrapped, sent } = harness([response]);
+			expect((await wrapped("https://gateway.example/mcp", post)).status).toBe(
+				503,
 			);
 			expect(sent).toHaveLength(1);
 		}

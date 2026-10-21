@@ -344,6 +344,7 @@ describe("external-agent CLI session", () => {
 		["immutable conflict", 409, "immutable_session_conflict", 1, false],
 		["unknown conflict", 409, undefined, 1, false],
 		["server failure", 503, undefined, 2, false],
+		["backend busy then success", 503, "session_backend_unavailable", 2, true],
 		["network failure", 0, undefined, 1, false],
 		["permission denial", 403, "credential_issuance_in_progress", 1, false],
 	])(
