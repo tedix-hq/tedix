@@ -14,7 +14,10 @@ export function SettingsRows({
 }: ComponentProps<typeof Card>) {
 	return (
 		<Card
-			className={cn("divide-y divide-kumo-line overflow-hidden p-0", className)}
+			className={cn(
+				"gap-0 divide-y divide-kumo-line overflow-visible p-0",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -54,7 +57,7 @@ export function SettingsRow({
 			data-slot="setting-row"
 		>
 			{icon ? <IconFrame appearance="fill">{iconContent}</IconFrame> : null}
-			<div className="min-w-0 flex-1">
+			<div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
 				<div
 					className="font-medium text-kumo-default type-tedix-body"
 					data-slot="setting-row-title"
@@ -73,8 +76,8 @@ export function SettingsRow({
 			{children ? (
 				<div
 					className={cn(
-						"min-w-0 justify-self-start sm:col-span-1 sm:shrink-0",
-						icon && "col-span-2",
+						"min-w-0 max-w-full justify-self-stretch sm:col-span-1 sm:shrink-0 sm:justify-self-end",
+						icon && "col-start-2 sm:col-start-3",
 					)}
 					data-slot="setting-row-control"
 				>

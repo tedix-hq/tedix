@@ -286,7 +286,7 @@ describe("SettingsPage", () => {
 		expect(signOut?.getAttribute("href")).toBe(OS_LOGOUT_PATH);
 	});
 
-	it("uses Kumo icon frames and keeps mobile controls below the icon-copy pair", async () => {
+	it("uses Kumo icon frames and aligns mobile controls with their labels", async () => {
 		const container = render();
 		await flush();
 		const rows = [...container.querySelectorAll('[data-slot="setting-row"]')];
@@ -303,7 +303,7 @@ describe("SettingsPage", () => {
 		];
 		expect(controls.length).toBeGreaterThan(0);
 		for (const control of controls) {
-			expect(control.className).toContain("col-span-2");
+			expect(control.className).toContain("col-start-2");
 			expect(control.className).toContain("sm:col-span-1");
 		}
 	});

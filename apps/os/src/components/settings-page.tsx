@@ -28,7 +28,6 @@ import { SettingsRow, SettingsRows } from "@/components/settings-row";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -470,7 +469,7 @@ export function SettingsPage({
 					<PageDescription>
 						{localEvaluation
 							? "Preferences are stored only locally on this machine."
-							: "Preferences are stored on your Tedix profile for this workspace, so they follow you to any browser or harness."}
+							: "Your preferences sync across browsers in this workspace."}
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
@@ -553,10 +552,11 @@ export function SettingsPage({
 								<SettingsRow
 									icon={Desktop}
 									title="Appearance"
-									description="Use the system appearance or keep Tedix OS in a fixed mode."
+									description="Follow your device or choose light or dark."
 								>
 									<SegmentedControl<OsUserPreferences["theme"]>
 										ariaLabel="Appearance"
+										className="p-1"
 										compact
 										onValueChange={(theme) => patch({ theme })}
 										options={THEME_OPTIONS}
@@ -566,10 +566,11 @@ export function SettingsPage({
 								<SettingsRow
 									icon={Rows}
 									title="Density"
-									description="Compact tightens the page rhythm. Control sizes and hit targets never shrink."
+									description="Choose how much space appears between items."
 								>
 									<SegmentedControl<OsUserPreferences["density"]>
 										ariaLabel="Density"
+										className="p-1"
 										compact
 										onValueChange={(density) => patch({ density })}
 										options={DENSITY_OPTIONS}
@@ -579,12 +580,13 @@ export function SettingsPage({
 								<SettingsRow
 									icon={Eye}
 									title="Motion"
-									description="System follows your operating system's reduced-motion setting."
+									description="System follows your device’s motion preference."
 								>
 									<SegmentedControl<
 										OsUserPreferences["accessibility"]["motion"]
 									>
 										ariaLabel="Motion"
+										className="p-1"
 										compact
 										onValueChange={(motion) =>
 											patch({
@@ -598,12 +600,13 @@ export function SettingsPage({
 								<SettingsRow
 									icon={Eye}
 									title="Contrast"
-									description="High strengthens hairlines and muted text across the shell."
+									description="Make borders and secondary text easier to see."
 								>
 									<SegmentedControl<
 										OsUserPreferences["accessibility"]["contrast"]
 									>
 										ariaLabel="Contrast"
+										className="p-1"
 										compact
 										onValueChange={(contrast) =>
 											patch({
@@ -620,7 +623,7 @@ export function SettingsPage({
 								<SettingsRow
 									icon={Globe}
 									title="Language"
-									description="Selects the month names and number formatting Tedix OS renders. Dates stay month-name based."
+									description="Used for month names and number formatting."
 								>
 									<Select
 										onValueChange={(value) =>
@@ -632,10 +635,10 @@ export function SettingsPage({
 									>
 										<SelectTrigger
 											aria-label="Language"
-											className="w-56"
+											className="min-h-7 w-full max-w-full py-1 data-[size=sm]:h-auto sm:w-60"
 											size="sm"
 										>
-											<SelectValue>
+											<SelectValue className="whitespace-normal text-clip [overflow-wrap:anywhere]">
 												{(value) =>
 													value === FOLLOW_SYSTEM
 														? "Follow browser"
@@ -660,7 +663,7 @@ export function SettingsPage({
 								<SettingsRow
 									icon={Globe}
 									title="Time zone"
-									description="Selects the wall clock for timestamps. Date-only values stay in UTC so they never shift a day."
+									description="Used for times. Calendar dates stay the same."
 								>
 									<Select
 										onValueChange={(value) =>
@@ -673,10 +676,10 @@ export function SettingsPage({
 									>
 										<SelectTrigger
 											aria-label="Time zone"
-											className="w-56"
+											className="min-h-7 w-full max-w-full py-1 data-[size=sm]:h-auto sm:w-60"
 											size="sm"
 										>
-											<SelectValue>
+											<SelectValue className="whitespace-normal text-clip [overflow-wrap:anywhere]">
 												{(value) =>
 													value === FOLLOW_SYSTEM
 														? "Follow browser"
@@ -698,7 +701,7 @@ export function SettingsPage({
 								</SettingsRow>
 							</SettingsRows>
 
-							<div className="flex items-center justify-end gap-3">
+							<div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
 								{state === "clean" && (
 									<Text role="label" tone="secondary">
 										No unsaved changes
@@ -745,9 +748,6 @@ export function SettingsPage({
 							Discover apps, tools, skills, and OS actions from any MCP-capable
 							harness.
 						</CardDescription>
-						<CardAction>
-							<Badge variant="outline">Verify with the CLI</Badge>
-						</CardAction>
 					</CardHeader>
 					<CardContent>
 						<Text role="label" tone="secondary">
