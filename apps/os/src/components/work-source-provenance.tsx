@@ -5,6 +5,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-work-actor";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { resolveWorkActor, resolveWorkContributor } from "@/lib/work-actor";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
@@ -20,6 +21,7 @@ export function WorkSourceProvenance({
 	source?: WorkContributionSource;
 	details?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const directory = useContext(WorkActorDirectoryContext);
 	const resolved = resolveWorkActor(
 		actor,

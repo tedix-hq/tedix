@@ -31,7 +31,7 @@ import {
 } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { memoryHealthFindingsQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime } from "@/lib/time";
 
@@ -137,6 +137,7 @@ export function ProvenanceDetails({
 	sample: MemoryHealthFindingSample;
 	showText?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const lines = provenanceLines(sample);
 	return (
 		<>
@@ -301,6 +302,7 @@ export function MemoryHealthFindingItem({
 	finding: MemoryHealthFinding;
 	context: FindingContext;
 }) {
+	useOsFormattingPreferences();
 	const groups = new Map<string, MemoryHealthFindingSample[]>();
 	for (const sample of finding.samples) {
 		const key = sample.text.trim().replace(/\s+/g, " ");
@@ -356,6 +358,7 @@ export function MemoryHealthFindingsList({
 }: {
 	data: MemoryHealthFindings;
 }) {
+	useOsFormattingPreferences();
 	const layer = graphLayerStatus(data.graphLayer);
 	return (
 		<>

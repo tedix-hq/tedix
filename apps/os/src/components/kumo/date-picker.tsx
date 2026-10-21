@@ -9,6 +9,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/kumo/popover";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +116,7 @@ function DateTimePicker({
 	"aria-describedby": ariaDescribedBy,
 	"aria-invalid": ariaInvalid,
 }: DateTimePickerProps) {
+	useOsFormattingPreferences();
 	const [open, setOpen] = useState(false);
 	// Survives a clear so re-picking a day keeps the wall clock the operator
 	// already chose. `value` is authoritative whenever it exists.

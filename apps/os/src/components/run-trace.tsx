@@ -10,7 +10,11 @@ import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
-import { humanize, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	humanize,
+	sentenceCase,
+} from "@/lib/format";
 import { absoluteTime, formatDurationMs, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -272,6 +276,7 @@ export function RunToolCallRow({ call }: { call: SkillWorkflowToolCall }) {
 }
 
 export function RunEventGateRow({ step }: { step: SkillWorkflowStep }) {
+	useOsFormattingPreferences();
 	const waiting = step.status === "waiting";
 	const eventType =
 		step.data && typeof step.data === "object"
@@ -358,6 +363,7 @@ export function RunReconciliationPanel({
 	 */
 	definitionEvidenceTruncated?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const tone = reconciliationTone(run);
 	const engineStatus = engineStatusLabel(run.engine);
 	const surface = definitionHealth?.executionSurface;

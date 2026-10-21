@@ -2,6 +2,7 @@ import type { DeckAskKind } from "@tedix/api-contract/schemas/attention";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteDate, absoluteTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
 
@@ -30,6 +31,7 @@ export function DeckAskStrip({
 	showingStale: boolean;
 	onShowStale: () => void;
 }) {
+	useOsFormattingPreferences();
 	const copy = OS_COPY.decisionDeck;
 	return (
 		<div className="fd-deck-ask" data-deck-ask={card?.askKind}>

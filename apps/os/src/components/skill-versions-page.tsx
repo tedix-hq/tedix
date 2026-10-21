@@ -17,10 +17,11 @@ import {
 	skillDetailQueryOptions,
 	skillRevisionsQueryOptions,
 } from "@/lib/os-query-options";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { relativeTime } from "@/lib/time";
 
 export function SkillVersionsPage() {
+	useOsFormattingPreferences();
 	const { skillId } = useParams({ from: "/_session/_tenant/skills/$skillId" });
 	const detail = useQuery(skillDetailQueryOptions(skillId));
 	const revisions = useQuery(skillRevisionsQueryOptions(skillId));

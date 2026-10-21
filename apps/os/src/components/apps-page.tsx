@@ -78,7 +78,11 @@ import {
 	installedAppEligibilityQueryOptions,
 	userConnectionsQueryOptions,
 } from "@/lib/os-query-options";
-import { formatCount, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	sentenceCase,
+} from "@/lib/format";
 import type { AppsSearch } from "@/lib/apps-search";
 
 // ---------------------------------------------------------------------------
@@ -515,6 +519,7 @@ export function ConnectionsPanel({
 	 */
 	manage?: boolean;
 }) {
+	useOsFormattingPreferences();
 	const connections = useQuery({
 		...userConnectionsQueryOptions(),
 		staleTime: 60_000,
@@ -717,6 +722,7 @@ export function AppsPage({
 	search: AppsSearch;
 	onSearchChange: (query: string) => void;
 }) {
+	useOsFormattingPreferences();
 	const surface = getOsSurface("gateways");
 	const [visibleLimit, setVisibleLimit] = useState(APPS_VISIBLE_PAGE_SIZE);
 

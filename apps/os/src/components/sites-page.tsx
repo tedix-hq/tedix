@@ -78,6 +78,7 @@ import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi, osSiteDeprovisionApi } from "@/lib/api";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
@@ -607,6 +608,7 @@ function CmsDomainManager({
 }
 
 export function SitesPage() {
+	useOsFormattingPreferences();
 	const surface = getOsSurface("sites");
 	const operationalContext = useOsOperationalContext();
 	const canCreateCmsSite =

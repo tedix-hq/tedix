@@ -41,7 +41,11 @@ import {
 	tediStatusLabel,
 	tediStatusTone,
 } from "@/components/team-page";
-import { formatCount, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	sentenceCase,
+} from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 import { isLocalSession } from "@/lib/local-inference";
 import {
@@ -81,6 +85,7 @@ export function TediDetailHeader({
 	tedi: TediType;
 	summary?: TediHeaderSummary;
 }) {
+	useOsFormattingPreferences();
 	const activeRole = summary?.delegationProfile.activeRole ?? null;
 	const hint = roleHint(tedi, activeRole);
 	const entrustments = summary

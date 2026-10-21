@@ -24,7 +24,11 @@ import {
 } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { formatCount, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	sentenceCase,
+} from "@/lib/format";
 import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
 import {
 	latestGrowthSnapshotQueryOptions,
@@ -164,6 +168,7 @@ export function snapshotDrift(
 // ---------------------------------------------------------------------------
 
 export function ExpertiseDomainRow({ row }: { row: ExpertiseRow }) {
+	useOsFormattingPreferences();
 	const filled = Math.max(
 		0,
 		Math.min(100, Math.round(row.competenceScore * 100)),
@@ -248,6 +253,7 @@ export function GrowthSnapshotPanel({
 }: {
 	snapshot: GrowthSnapshot;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<MetricGrid
 			appearance="bounded"
@@ -273,6 +279,7 @@ export function GrowthSnapshotPanel({
  * is current and the snapshot is dated, so each carries its own provenance.
  */
 export function LearningEvidence({ tediId }: { tediId: string }) {
+	useOsFormattingPreferences();
 	const expertise = useQuery({
 		...tediExpertiseQueryOptions(tediId),
 		staleTime: 60_000,

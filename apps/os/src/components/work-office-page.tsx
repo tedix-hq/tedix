@@ -63,7 +63,7 @@ import {
 	workOfficeKnocksQueryOptions,
 	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { normalizeD1Timestamp, relativeTime, startOfToday } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -302,6 +302,7 @@ function TodayMetrics({
 	knocks: string;
 	totals: ReturnType<typeof useTodayTotals>;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<MetricGrid columns={4} appearance="bounded" aria-label="Today">
 			<MetricTile
@@ -645,6 +646,7 @@ export function sessionActivity(seen: SeenSession[], now: number) {
 }
 
 function Activity() {
+	useOsFormattingPreferences();
 	const sessions = useQuery(workAgentSessionsQueryOptions());
 	const tedis = useQuery({ ...tediRosterQueryOptions(100), retry: false });
 	const knocks = useQuery(workOfficeKnocksQueryOptions());

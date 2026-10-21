@@ -46,10 +46,12 @@ import {
 	workspaceDetailQueryOptions,
 } from "@/lib/os-query-options";
 import { normalizeOutputContent } from "@/lib/output-models";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { relativeTime } from "@/lib/time";
 import { useReviseOutput } from "@/lib/use-revise-output";
 
 export function OutputDetailPage() {
+	useOsFormattingPreferences();
 	useOutputsWebMcpTools();
 	const { outputId } = useParams({
 		from: "/_session/_tenant/outputs_/$outputId",

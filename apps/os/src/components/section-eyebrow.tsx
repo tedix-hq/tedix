@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Text } from "@/components/kumo/text";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,6 +25,7 @@ export function SectionEyebrow({
 	className?: string;
 	variant?: "eyebrow" | "console";
 }) {
+	useOsFormattingPreferences();
 	const consoleStyle = variant === "console";
 	return (
 		<div

@@ -92,7 +92,7 @@ import {
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { osApi } from "@/lib/api";
-import { sentenceCase } from "@/lib/format";
+import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import { absoluteDate, absoluteTime, normalizeD1Timestamp } from "@/lib/time";
 import {
 	pendingApprovalsQueryOptions,
@@ -464,6 +464,7 @@ const caseFormSchema = z.object({
 });
 
 export function WorkCasesPage() {
+	useOsFormattingPreferences();
 	const client = useQueryClient();
 	const paging = useCursorPaging<{ at: string; id: string }>();
 	const caseListOptions = workCaseListQueryOptions({
@@ -1006,6 +1007,7 @@ const approvalProposalSchema = z.object({
 });
 
 export function WorkApprovalsPage() {
+	useOsFormattingPreferences();
 	const client = useQueryClient();
 	const paging = useCursorPaging<{ at: string; id: string }>();
 	const approvalOptions = workApprovalsQueryOptions(paging.cursor);
@@ -2269,6 +2271,7 @@ export function WorkInteractionsPage() {
 }
 
 export function WorkInteractionPage({ requestId }: { requestId: string }) {
+	useOsFormattingPreferences();
 	const query = useQuery(workInteractionDetailQueryOptions(requestId));
 	const names = useWorkPrincipalNames(query.data?.request.orgId);
 	const request = query.data?.request;
@@ -2514,6 +2517,7 @@ const admissionSpecificationSchema = z.object({
 });
 
 export function WorkAdmissionPage() {
+	useOsFormattingPreferences();
 	const client = useQueryClient();
 	const [loadedId, setLoadedId] = useState("");
 	const spec = useQuery({
@@ -2826,6 +2830,7 @@ export function ResourceHolders({
 	names: ReadonlyMap<string, string>;
 	activeReserved: number;
 }) {
+	useOsFormattingPreferences();
 	if (!details.holders)
 		return (
 			<Text as="p" role="label" tone="secondary">

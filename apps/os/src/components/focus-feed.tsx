@@ -28,6 +28,7 @@ import {
 } from "./decision-context-rail";
 import { Button } from "./kumo/button";
 import { FocusRowActions } from "./focus-row-actions";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
@@ -1037,6 +1038,7 @@ export function FocusDecisionRow({
 	actor: string;
 	project?: string;
 }) {
+	useOsFormattingPreferences();
 	const decisionCardId = ["decision", "approval"].includes(item.kind)
 		? item.id.replace(/^decision:/, "")
 		: undefined;

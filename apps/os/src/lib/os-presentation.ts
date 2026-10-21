@@ -1,6 +1,6 @@
 /**
- * Applies the durable preference set to the document, and to the shared
- * formatting helpers.
+ * Applies the durable preference set to the document and publishes locale/time
+ * zone changes to the shared formatting helpers and their React consumers.
  *
  * Theme keeps its own module (`./theme`) because a pre-paint mirror of it is
  * inlined in `index.html`; everything here is post-hydration and safe to apply

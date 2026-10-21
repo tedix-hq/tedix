@@ -1,9 +1,11 @@
 import { Fragment, type ComponentProps, type ReactNode } from "react";
 import { Text } from "@/components/kumo/text";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 export function RelativeTime({ at, now }: { at: string; now?: Date }) {
+	useOsFormattingPreferences();
 	return (
 		<time dateTime={at} title={absoluteTime(at)}>
 			{relativeTime(at, now)}

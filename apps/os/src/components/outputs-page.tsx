@@ -80,6 +80,7 @@ import {
 } from "@/lib/os-query-options";
 import { outputOpenAffordance } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 const KIND_ICONS: Record<
@@ -242,6 +243,7 @@ interface OutputCardProps {
 }
 
 function OutputCard(props: OutputCardProps) {
+	useOsFormattingPreferences();
 	const { item } = props;
 	const Icon = KIND_ICONS[item.output.kind];
 	const provenance = workspaceLabel(item);

@@ -57,6 +57,7 @@ import {
 	tediEmailInboxQueryOptions,
 	tediEmailThreadQueryOptions,
 } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 type EmailAddress = Awaited<
@@ -613,6 +614,7 @@ function ThreadMessages({
 	tediId: string;
 	threadId: string;
 }) {
+	useOsFormattingPreferences();
 	const thread = useQuery(tediEmailThreadQueryOptions(tediId, threadId));
 	if (thread.isPending) return <ListSkeleton rows={2} rowClassName="h-16" />;
 	if (thread.isError) {
@@ -654,6 +656,7 @@ function ThreadMessages({
 }
 
 export function InboxCard({ tediId }: { tediId: string }) {
+	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const [filter, setFilter] = useState<InboxFilter>("open");
 	const [openThreadId, setOpenThreadId] = useState<string | null>(null);

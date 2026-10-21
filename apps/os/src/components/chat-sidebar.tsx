@@ -64,6 +64,7 @@ import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import {
 	activeWorkspacesQueryOptions,
@@ -371,6 +372,7 @@ export function ConversationRow({
 	menu?: ReactNode;
 	onSelect?: (conversationId: string) => void;
 }) {
+	useOsFormattingPreferences();
 	const pinned = isPinned(conversation);
 	const archived = conversation.status === "archived";
 	return (

@@ -83,6 +83,7 @@ import {
 	contentSourcesQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { relativeTime } from "@/lib/time";
 
 type SyncInterval = "daily" | "weekly" | "monthly" | "disabled";
@@ -326,6 +327,7 @@ function SourceRow({
 	appId: string;
 	canManage: boolean;
 }) {
+	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const listKey = contentSourcesQueryOptions(appId).queryKey;
 

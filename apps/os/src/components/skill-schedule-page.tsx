@@ -7,10 +7,12 @@ import { Collection } from "@/components/kumo/page";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { Text } from "@/components/kumo/text";
 import { skillSpecificSchedulesQueryOptions } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { useTediNames } from "@/lib/use-tedi-names";
 
 export function SkillSchedulePage() {
+	useOsFormattingPreferences();
 	const { skillId } = useParams({ from: "/_session/_tenant/skills/$skillId" });
 	const schedules = useQuery(skillSpecificSchedulesQueryOptions(skillId));
 	const tediNames = useTediNames();

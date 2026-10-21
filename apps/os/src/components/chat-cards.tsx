@@ -31,7 +31,7 @@ import {
 } from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
 import { Text } from "@/components/kumo/text";
-import { sentenceCase } from "@/lib/format";
+import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import { absoluteTime, formatDurationMs, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { cn } from "@/lib/utils";
@@ -896,6 +896,7 @@ export function ApprovalCard({
 	) => void;
 	onAlwaysApprove?: (approvalId: string, scopeKey: string) => void;
 }) {
+	useOsFormattingPreferences();
 	const expired = approval.expired === true;
 	const decisionMode = approval.decisionMode ?? "approve_or_reject";
 	const actionable = !expired && decisionMode === "approve_or_reject";

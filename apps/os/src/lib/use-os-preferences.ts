@@ -40,7 +40,8 @@ export function useOsPreferences() {
 	const query = useQuery(queryOptions);
 
 	// Apply on arrival AND on every subsequent change, including the value a
-	// refetch pulls in after another tab saved.
+	// refetch pulls in after another tab saved. applyOsPreferences publishes the
+	// formatting snapshot so consumers rendered before this effect update too.
 	const state = query.data;
 	useEffect(() => {
 		if (state) applyOsPreferences(state.preferences);

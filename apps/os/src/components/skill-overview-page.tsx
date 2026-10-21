@@ -22,7 +22,7 @@ import {
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
 import { SkillBundleTree } from "@/components/skill-bundle-tree";
-import { formatCount } from "@/lib/format";
+import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import {
 	skillDetailQueryOptions,
 	skillReliabilityQueryOptions,
@@ -31,6 +31,7 @@ import {
 import { formatDurationMs, relativeTime } from "@/lib/time";
 
 export function SkillOverviewPage() {
+	useOsFormattingPreferences();
 	const { skillId } = useParams({ from: "/_session/_tenant/skills/$skillId" });
 	const detail = useQuery(skillDetailQueryOptions(skillId));
 	const reliability = useQuery(skillReliabilityQueryOptions(skillId));
@@ -148,6 +149,7 @@ export function SkillOverviewSummary({
 	successCount: number;
 	failureCount: number;
 }) {
+	useOsFormattingPreferences();
 	return (
 		<section aria-label="Skill summary" className="grid gap-4">
 			{description || tags.length ? (

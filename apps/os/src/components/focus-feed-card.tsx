@@ -19,6 +19,7 @@ import { Button } from "./kumo/button";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { Textarea } from "./kumo/textarea";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 export function FeedCard({
@@ -42,6 +43,7 @@ export function FeedCard({
 	) => Promise<boolean>;
 	onWork: (item: ActivityFeedItem) => Promise<void>;
 }) {
+	useOsFormattingPreferences();
 	const [receipt, setReceipt] = useState(false);
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");

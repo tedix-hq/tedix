@@ -57,7 +57,12 @@ import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { TeamMembersPanel } from "@/components/team-members";
 import { TeamRolesPanel } from "@/components/team-roles";
-import { formatCount, humanize, sentenceCase } from "@/lib/format";
+import {
+	useOsFormattingPreferences,
+	formatCount,
+	humanize,
+	sentenceCase,
+} from "@/lib/format";
 import { TEAM_TABS, type TeamTab } from "@/lib/team-tabs";
 import {
 	TEDI_ROSTER_LIMIT,
@@ -217,6 +222,7 @@ export function TediAvatar({
 export const TASKS_PREVIEW_LIMIT = 5;
 
 export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
+	useOsFormattingPreferences();
 	const activeRole = detail.delegationProfile.activeRole;
 	const entrustments = entrustmentSummary(
 		detail.delegationProfile.entrustments,
@@ -415,6 +421,7 @@ export function TediRow({
 	LinkComponent?: ComponentType<TediDetailLinkProps>;
 	setupChip?: ReactNode;
 }) {
+	useOsFormattingPreferences();
 	const hint = roleHint(tedi, summary?.delegationProfile.activeRole);
 	const seenAt = tedi.lastActivityAt ?? tedi.lastSeenAt;
 	const runtime =
@@ -600,6 +607,7 @@ export function TediRosterPanel({
 	page?: number;
 	onPageChange?: (page: number) => void;
 }) {
+	useOsFormattingPreferences();
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const [search, setSearch] = useState("");
 	const [debouncedSearch, setDebouncedSearch] = useState("");

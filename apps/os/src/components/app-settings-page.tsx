@@ -81,6 +81,7 @@ import {
 	appSecretsListQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { relativeTime } from "@/lib/time";
 
 const McpOAuthSettings = lazy(() =>
@@ -539,6 +540,7 @@ function SecretRow({
 	appId: string;
 	canManage: boolean;
 }) {
+	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const listKey = appSecretsListQueryOptions(appId).queryKey;
 

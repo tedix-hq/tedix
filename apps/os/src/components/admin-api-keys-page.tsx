@@ -125,6 +125,7 @@ import {
 	osQueryKeys,
 } from "@/lib/os-query-options";
 import { useStepUpAuth, useStepUpResume } from "@/lib/step-up-auth";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { normalizeD1Timestamp, relativeTime } from "@/lib/time";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
@@ -368,6 +369,7 @@ function ApiKeyScopesCell({
 	);
 }
 function ApiKeyTimestampCell({ value }: { value: string | null }) {
+	useOsFormattingPreferences();
 	return (
 		<Text as="span" role="label" tone="secondary">
 			{keyTimestampLabel(value)}

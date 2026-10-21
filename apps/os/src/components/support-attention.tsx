@@ -11,9 +11,11 @@ import {
 } from "@/components/kumo/card";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 
 export function SupportAttention() {
+	useOsFormattingPreferences();
 	const cache = useQueryClient(),
 		[staff, setStaff] = useState(false);
 	const mine = useQuery({

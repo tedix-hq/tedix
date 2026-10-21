@@ -1,14 +1,13 @@
 /** Shared text/number formatting for the Tedix OS surfaces. */
+import { useSyncExternalStore } from "react";
 import { setOsLocale } from "@/shared/os-locale";
 
 /**
  * The operator's stored locale/timezone, or the platform fallback.
  *
- * Held module-level rather than threaded through every call site: these
- * helpers are called from ~40 render paths, and a preference that only some of
- * them honored would be worse than none. `applyOsPreferences` sets this once
- * when the durable preferences load; until then, and whenever the operator has
- * stored nothing, the values below are the fallback.
+ * Pure formatters read the shared snapshot; React render paths subscribe with
+ * `useOsFormattingPreferences` so preferences arriving after first paint also
+ * update mounted timestamps, including memoized rows.
  *
  * `locale` is `null` when unset — deliberately NOT the browser's locale by
  * default, because the OS's date dialect is month-name based on purpose (see
@@ -17,15 +16,47 @@ import { setOsLocale } from "@/shared/os-locale";
 let resolvedLocale = "en-US";
 let preferredLocale: string | undefined;
 let resolvedTimeZone: string | undefined;
+let formattingPreferences: Readonly<{
+	locale: string | null;
+	timezone: string | null;
+}> = { locale: null, timezone: null };
+const formattingListeners = new Set<() => void>();
+
+function readFormattingPreferences() {
+	return formattingPreferences;
+}
+
+function subscribeFormattingPreferences(listener: () => void) {
+	formattingListeners.add(listener);
+	return () => {
+		formattingListeners.delete(listener);
+	};
+}
+
+/** Subscribe in the component that renders a preference-dependent value. */
+export function useOsFormattingPreferences() {
+	return useSyncExternalStore(
+		subscribeFormattingPreferences,
+		readFormattingPreferences,
+		readFormattingPreferences,
+	);
+}
 
 export function setOsFormattingPreferences(preferences: {
 	locale: string | null;
 	timezone: string | null;
 }): void {
+	if (
+		formattingPreferences.locale === preferences.locale &&
+		formattingPreferences.timezone === preferences.timezone
+	)
+		return;
+	formattingPreferences = { ...preferences };
 	resolvedLocale = preferences.locale ?? "en-US";
 	preferredLocale = preferences.locale ?? undefined;
 	resolvedTimeZone = preferences.timezone ?? undefined;
 	setOsLocale(resolvedLocale);
+	formattingListeners.forEach((listener) => listener());
 }
 
 export function osSpreadsheetLocale(): string | undefined {

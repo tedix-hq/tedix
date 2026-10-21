@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
+import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
 import { Button } from "./kumo/button";
@@ -8,6 +9,7 @@ import { Text } from "./kumo/text";
 
 /** "Last cleaned HH:MM", the staleness alarm, week-1 numbers and removable learned rules. */
 export function DeckCurationFooter() {
+	useOsFormattingPreferences();
 	const copy = OS_COPY.decisionDeck.pipeline;
 	const client = useQueryClient();
 	const status = useQuery({
