@@ -43,7 +43,6 @@ import {
 	WorkClustersPage,
 	NeedsYouNowSection,
 	OperationActor,
-	ResourcePressureLinks,
 	WorkInteractionsRoute,
 	WorkApprovalsPage,
 	BudgetScopeLink,
@@ -926,21 +925,6 @@ describe("scheduler truncation warnings", () => {
 });
 
 describe("Work request and capacity navigation", () => {
-	it("links exact pressure keys and bounds the overview without hiding the full destination", () => {
-		const html = renderToStaticMarkup(
-			<ResourcePressureLinks
-				resourceKeys={[
-					"release:os",
-					...Array.from({ length: 8 }, (_, index) => `scope:${index}`),
-				]}
-			/>,
-		);
-		expect(html).toContain('href="/work/capacity?resourceKey=release%3Aos"');
-		expect(html).not.toContain("resourceKey=scope%3A7");
-		expect(html).toContain('href="/work/capacity?saturated=true"');
-		expect(html).toContain("See all 9 saturated pools");
-	});
-
 	it("opens capacity pressure by default and preserves explicit all-pool and exact-resource journeys", () => {
 		expect(workCapacitySearch({})).toEqual({
 			resourceKey: undefined,

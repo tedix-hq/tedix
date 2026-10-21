@@ -19,13 +19,7 @@ import { workInteractionsSearch } from "@/lib/work-route-search";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@tanstack/react-form";
-import {
-	useContext,
-	useEffect,
-	useMemo,
-	useState,
-	type ReactNode,
-} from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import * as z from "zod";
 import {
 	WorkActorAvatar,
@@ -120,31 +114,6 @@ import {
 } from "@/lib/os-query-options";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { workPrincipalLabel } from "@/lib/work-display";
-
-export function ResourcePressureLinks({
-	resourceKeys,
-}: {
-	resourceKeys: string[];
-}) {
-	return (
-		<>
-			{resourceKeys.slice(0, 8).map((resourceKey) => (
-				<Text as="p" role="body" key={resourceKey}>
-					<Link
-						href={`/work/capacity?resourceKey=${encodeURIComponent(resourceKey)}`}
-					>
-						{resourceKey}
-					</Link>
-				</Text>
-			))}
-			{resourceKeys.length > 8 ? (
-				<Link href="/work/capacity?saturated=true">
-					See all {resourceKeys.length} saturated pools
-				</Link>
-			) : null}
-		</>
-	);
-}
 
 export function namedWorkPrincipal(
 	type: string | undefined,

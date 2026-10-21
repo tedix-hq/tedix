@@ -236,7 +236,7 @@ describe("Portfolio grouping", () => {
 	});
 });
 
-describe("WorkPortfolioPage", () => {
+describe("PortfolioApp", () => {
 	it("leads with Projects and keeps every project group ahead of factories", () => {
 		const doc = new DOMParser().parseFromString(
 			render(seededClient()),

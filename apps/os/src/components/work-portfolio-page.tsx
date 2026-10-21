@@ -4,7 +4,6 @@ import {
 	RelativeTime,
 } from "@/components/work-ledger-row";
 import type { PortfolioBucket } from "@tedix/api-contract/schemas/organization";
-import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { factoryHref } from "@/lib/work-display";
 import type {
 	FactoryScoreboardEntry,
@@ -586,14 +585,6 @@ function OtherProjects({ entries }: { entries: PortfolioEntry[] }) {
 				</Collection>
 			</CollapsibleContent>
 		</Collapsible>
-	);
-}
-
-export function WorkPortfolioPage() {
-	return (
-		<WorkspaceAppRenderer
-			manifest={{ entry: "tedix:app/portfolio", capabilities: [] }}
-		/>
 	);
 }
 
