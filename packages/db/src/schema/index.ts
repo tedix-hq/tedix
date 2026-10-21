@@ -215,6 +215,8 @@ export * from "./memory-graph";
 // dedup state (distinct from the cron-darkness work-item dedup).
 export * from "./ops-alert-state";
 export * from "./site-reconciliation";
+// Decision graph edges (Deck card ↔ decisions, Work, people, systems)
+export * from "./decision-graph";
 // Tedi rationale records (decision journal for Tedix OS timeline)
 export type {
 	NewTediRationaleRecord,

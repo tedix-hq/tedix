@@ -1040,6 +1040,10 @@
 		{
 			"name": "20261020221532_repair-tool-annotation-metadata/migration.sql",
 			"sha256": "62c36f1c0e3966b2334d5eab2b6b5e6cd079c1b9482ebe1ca97708f92dd9a5eb"
+		},
+		{
+			"name": "20261021170314_decision_edges/migration.sql",
+			"sha256": "1afdd71e1433689f708fcce6ce1c566ea38f17fbf6c8a28cda25430b5c56df8b"
 		}
 	]
 }

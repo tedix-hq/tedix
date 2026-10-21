@@ -1,0 +1,484 @@
+/**
+ * Decision graph: typed, org-scoped edges that tell a Deck card how it
+ * connects to earlier decisions, its source Work, people, systems,
+ * credential metadata and other cards.
+ *
+ * Every read is bounded: at most DECISION_GRAPH_MAX_HOPS traversal rounds,
+ * at most FRONTIER_LIMIT ids per `IN (...)` and a LIMIT on every statement.
+ */
+
+import {
+	DECISION_GRAPH_EDGE_ENDPOINTS,
+	DECISION_GRAPH_MAX_HOPS,
+	type DecisionContext,
+	type DecisionGraphChainStep,
+	type DecisionGraphEdge,
+	type DecisionGraphEdgeKind,
+	type DecisionGraphLink,
+	type DecisionGraphNode,
+} from "@tedix/api-contract/schemas/decision-graph";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import type { DbQueryClient } from "../query-client";
+import { type DecisionEdgeRow, decisionEdges } from "../schema/decision-graph";
+
+/** Max edges per upsert call. */
+export const DECISION_EDGE_UPSERT_LIMIT = 500;
+/** 14 bound values per row; 6 rows keeps each statement under 100. */
+const UPSERT_ROWS_PER_STATEMENT = 6;
+/** Max ids bound into one `IN (...)` list. */
+const FRONTIER_LIMIT = 50;
+/** Max edges read per traversal round or lookup. */
+const EDGE_READ_LIMIT = 50;
+const NOTE_MAX_CHARS = 280;
+
+/** Edge kinds followed outward when building a card's chain. */
+const CHAIN_EDGE_KINDS: DecisionGraphEdgeKind[] = [
+	"card_from_work",
+	"card_answers",
+	"decided_by",
+	"evidence",
+	"involves",
+	"supersedes",
+];
+const DECISION_EDGE_KINDS: DecisionGraphEdgeKind[] = [
+	"decided_by",
+	"card_answers",
+];
+
+export type DecisionEdgeInput = {
+	kind: DecisionGraphEdgeKind;
+	from: DecisionGraphNode;
+	to: DecisionGraphNode;
+	/** Writer that recorded the fact, e.g. `deck`, `approval`, `backfill`. */
+	source: string;
+	/** 0..1, default 1. */
+	confidence?: number;
+	evidenceRef?: string | null;
+	/** Short plain-English label for the target. Never a secret value. */
+	note?: string | null;
+	/** When the fact happened (ISO 8601); defaults to now. */
+	occurredAt?: string;
+};
+
+export type UpsertDecisionEdgesResult = { written: number };
+
+export type GetDecisionContextOptions = { maxHops?: number };
+
+export class DecisionEdgeValidationError extends Error {
+	override name = "DecisionEdgeValidationError";
+}
+
+function edgeKey(edge: DecisionEdgeInput) {
+	return [
+		edge.from.kind,
+		edge.from.id,
+		edge.kind,
+		edge.to.kind,
+		edge.to.id,
+	].join("\u0000");
+}
+
+function toIso(value: string, label: string) {
+	const time = Date.parse(value);
+	if (!Number.isFinite(time)) {
+		throw new DecisionEdgeValidationError(`${label} is not a valid date`);
+	}
+	return new Date(time).toISOString();
+}
+
+function validateEdge(edge: DecisionEdgeInput) {
+	const endpoints = DECISION_GRAPH_EDGE_ENDPOINTS[edge.kind];
+	if (!endpoints) {
+		throw new DecisionEdgeValidationError(`Unknown edge kind ${edge.kind}`);
+	}
+	if (!endpoints.from.includes(edge.from.kind)) {
+		throw new DecisionEdgeValidationError(
+			`${edge.kind} cannot start at ${edge.from.kind}`,
+		);
+	}
+	if (!endpoints.to.includes(edge.to.kind)) {
+		throw new DecisionEdgeValidationError(
+			`${edge.kind} cannot end at ${edge.to.kind}`,
+		);
+	}
+	if (!edge.from.id || !edge.to.id) {
+		throw new DecisionEdgeValidationError("Edge endpoints need ids");
+	}
+	if (edge.from.kind === edge.to.kind && edge.from.id === edge.to.id) {
+		throw new DecisionEdgeValidationError("An edge cannot point at itself");
+	}
+	if (!edge.source.trim()) {
+		throw new DecisionEdgeValidationError("Edge source is required");
+	}
+	const confidence = edge.confidence ?? 1;
+	if (!(confidence >= 0 && confidence <= 1)) {
+		throw new DecisionEdgeValidationError("Confidence must be within 0..1");
+	}
+}
+
+/**
+ * Idempotent on (orgId, from, kind, to). A repeat write refreshes source,
+ * confidence, evidence and note, and keeps the earliest `occurredAt`.
+ */
+export async function upsertDecisionEdges(
+	db: DbQueryClient,
+	orgId: string,
+	edges: readonly DecisionEdgeInput[],
+): Promise<UpsertDecisionEdgesResult> {
+	if (edges.length > DECISION_EDGE_UPSERT_LIMIT) {
+		throw new DecisionEdgeValidationError(
+			`At most ${DECISION_EDGE_UPSERT_LIMIT} edges per call`,
+		);
+	}
+	const unique = new Map<string, DecisionEdgeInput>();
+	for (const edge of edges) {
+		validateEdge(edge);
+		unique.set(edgeKey(edge), edge);
+	}
+	if (unique.size === 0) return { written: 0 };
+
+	const now = new Date().toISOString();
+	const rows = [...unique.values()].map((edge) => ({
+		id: crypto.randomUUID(),
+		orgId,
+		fromKind: edge.from.kind,
+		fromId: edge.from.id,
+		kind: edge.kind,
+		toKind: edge.to.kind,
+		toId: edge.to.id,
+		source: edge.source.trim(),
+		confidence: edge.confidence ?? 1,
+		evidenceRef: edge.evidenceRef ?? null,
+		note: edge.note?.trim().slice(0, NOTE_MAX_CHARS) || null,
+		occurredAt: edge.occurredAt ? toIso(edge.occurredAt, "occurredAt") : now,
+		createdAt: now,
+		updatedAt: now,
+	}));
+
+	const statements = [];
+	for (let i = 0; i < rows.length; i += UPSERT_ROWS_PER_STATEMENT) {
+		statements.push(
+			db
+				.insert(decisionEdges)
+				.values(rows.slice(i, i + UPSERT_ROWS_PER_STATEMENT))
+				.onConflictDoUpdate({
+					target: [
+						decisionEdges.orgId,
+						decisionEdges.fromId,
+						decisionEdges.fromKind,
+						decisionEdges.kind,
+						decisionEdges.toId,
+						decisionEdges.toKind,
+					],
+					set: {
+						source: sql`excluded.source`,
+						confidence: sql`excluded.confidence`,
+						evidenceRef: sql`excluded.evidence_ref`,
+						note: sql`excluded.note`,
+						occurredAt: sql`min(${decisionEdges.occurredAt}, excluded.occurred_at)`,
+						updatedAt: sql`excluded.updated_at`,
+					},
+				}),
+		);
+	}
+	const [first, ...rest] = statements;
+	await db.batch([first!, ...rest]);
+	return { written: rows.length };
+}
+
+function toEdge(row: DecisionEdgeRow): DecisionGraphEdge {
+	return {
+		id: row.id,
+		kind: row.kind,
+		from: { kind: row.fromKind, id: row.fromId },
+		to: { kind: row.toKind, id: row.toId },
+		source: row.source,
+		confidence: row.confidence,
+		evidenceRef: row.evidenceRef,
+		note: row.note,
+		occurredAt: row.occurredAt,
+		createdAt: row.createdAt,
+	};
+}
+
+function selectEdges(db: DbQueryClient) {
+	return db.select().from(decisionEdges);
+}
+
+function boundedIds(ids: readonly string[]) {
+	return [...new Set(ids.filter(Boolean))].slice(0, FRONTIER_LIMIT);
+}
+
+/** Latest decision or owner instruction any subject was already decided by. */
+export async function findPriorDecision(
+	db: DbQueryClient,
+	orgId: string,
+	subjectNodeIds: readonly string[],
+): Promise<DecisionGraphLink | null> {
+	const subjects = boundedIds(subjectNodeIds);
+	if (subjects.length === 0) return null;
+	const [row] = await selectEdges(db)
+		.where(
+			and(
+				eq(decisionEdges.orgId, orgId),
+				inArray(decisionEdges.fromId, subjects),
+				inArray(decisionEdges.kind, DECISION_EDGE_KINDS),
+			),
+		)
+		.orderBy(desc(decisionEdges.occurredAt), desc(decisionEdges.confidence))
+		.limit(1);
+	if (!row) return null;
+	const edge = toEdge(row);
+	return { node: edge.to, edge };
+}
+
+/** Cards linked by same_as (either direction) or made from the same Work. */
+export async function findDuplicateCards(
+	db: DbQueryClient,
+	orgId: string,
+	cardId: string,
+): Promise<string[]> {
+	const [outgoing, incoming] = await db.batch([
+		selectEdges(db)
+			.where(
+				and(
+					eq(decisionEdges.orgId, orgId),
+					eq(decisionEdges.fromId, cardId),
+					eq(decisionEdges.fromKind, "deck_card"),
+					inArray(decisionEdges.kind, ["same_as", "card_from_work"]),
+				),
+			)
+			.limit(EDGE_READ_LIMIT),
+		selectEdges(db)
+			.where(
+				and(
+					eq(decisionEdges.orgId, orgId),
+					eq(decisionEdges.toId, cardId),
+					eq(decisionEdges.kind, "same_as"),
+					eq(decisionEdges.toKind, "deck_card"),
+				),
+			)
+			.limit(EDGE_READ_LIMIT),
+	]);
+	const duplicates = new Set<string>();
+	const sourceWork: string[] = [];
+	for (const row of outgoing) {
+		if (row.kind === "same_as") duplicates.add(row.toId);
+		else sourceWork.push(row.toId);
+	}
+	for (const row of incoming) duplicates.add(row.fromId);
+	const works = boundedIds(sourceWork);
+	if (works.length > 0) {
+		const siblings = await selectEdges(db)
+			.where(
+				and(
+					eq(decisionEdges.orgId, orgId),
+					// bound-params: boundedIds() caps the list at FRONTIER_LIMIT (50)
+					inArray(decisionEdges.toId, works),
+					eq(decisionEdges.kind, "card_from_work"),
+					eq(decisionEdges.toKind, "work_item"),
+				),
+			)
+			.limit(EDGE_READ_LIMIT);
+		for (const row of siblings) duplicates.add(row.fromId);
+	}
+	duplicates.delete(cardId);
+	return [...duplicates].sort();
+}
+
+async function countBlockedFrom(
+	db: DbQueryClient,
+	orgId: string,
+	nodeIds: readonly string[],
+) {
+	const ids = boundedIds(nodeIds);
+	if (ids.length === 0) return 0;
+	const [row] = await db
+		.select({ blocked: sql<number>`count(distinct ${decisionEdges.toId})` })
+		.from(decisionEdges)
+		.where(
+			and(
+				eq(decisionEdges.orgId, orgId),
+				// bound-params: boundedIds() caps the list at FRONTIER_LIMIT (50)
+				inArray(decisionEdges.fromId, ids),
+				eq(decisionEdges.kind, "blocks"),
+			),
+		)
+		.limit(1);
+	return Number(row?.blocked ?? 0);
+}
+
+/** How many distinct Work items wait directly on this node. */
+export async function countBlocked(
+	db: DbQueryClient,
+	orgId: string,
+	nodeId: string,
+): Promise<number> {
+	return countBlockedFrom(db, orgId, [nodeId]);
+}
+
+/**
+ * Everything the Deck needs to explain or retire a card: the outward chain
+ * (Work, decisions, evidence, people, systems), the latest prior decision,
+ * a newer replacing card, duplicates and how many items wait on it.
+ */
+export async function getDecisionContext(
+	db: DbQueryClient,
+	orgId: string,
+	cardId: string,
+	options: GetDecisionContextOptions = {},
+): Promise<DecisionContext> {
+	const maxHops = Math.max(
+		1,
+		Math.min(
+			DECISION_GRAPH_MAX_HOPS,
+			Math.trunc(options.maxHops ?? DECISION_GRAPH_MAX_HOPS),
+		),
+	);
+	const chain: DecisionGraphChainStep[] = [];
+	const seen = new Set<string>([`deck_card:${cardId}`]);
+	let frontier: DecisionGraphNode[] = [{ kind: "deck_card", id: cardId }];
+
+	for (let hop = 1; hop <= maxHops && frontier.length > 0; hop += 1) {
+		const ids = boundedIds(frontier.map((node) => node.id));
+		const kindsById = new Map<string, Set<string>>();
+		for (const node of frontier) {
+			const kinds = kindsById.get(node.id) ?? new Set<string>();
+			kinds.add(node.kind);
+			kindsById.set(node.id, kinds);
+		}
+		const rows = await selectEdges(db)
+			.where(
+				and(
+					eq(decisionEdges.orgId, orgId),
+					// bound-params: boundedIds() caps the list at FRONTIER_LIMIT (50)
+					inArray(decisionEdges.fromId, ids),
+					inArray(decisionEdges.kind, CHAIN_EDGE_KINDS),
+				),
+			)
+			.orderBy(desc(decisionEdges.occurredAt), decisionEdges.id)
+			.limit(EDGE_READ_LIMIT);
+		const next: DecisionGraphNode[] = [];
+		for (const row of rows) {
+			if (!kindsById.get(row.fromId)?.has(row.fromKind)) continue;
+			const edge = toEdge(row);
+			const key = `${edge.to.kind}:${edge.to.id}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			chain.push({ node: edge.to, edge, hop });
+			next.push(edge.to);
+		}
+		frontier = next;
+	}
+
+	const subjects = [
+		cardId,
+		...chain
+			.filter((step) => step.node.kind === "work_item")
+			.map((step) => step.node.id),
+	];
+	const [priorDecision, supersededRows, duplicates, blocksCount] =
+		await Promise.all([
+			findPriorDecision(db, orgId, subjects),
+			selectEdges(db)
+				.where(
+					and(
+						eq(decisionEdges.orgId, orgId),
+						eq(decisionEdges.toId, cardId),
+						eq(decisionEdges.kind, "supersedes"),
+						eq(decisionEdges.toKind, "deck_card"),
+					),
+				)
+				.orderBy(desc(decisionEdges.occurredAt))
+				.limit(1),
+			findDuplicateCards(db, orgId, cardId),
+			countBlockedFrom(db, orgId, subjects),
+		]);
+	const superseding = supersededRows[0] ? toEdge(supersededRows[0]) : null;
+
+	return {
+		cardId,
+		chain,
+		...(priorDecision ? { priorDecision } : {}),
+		...(superseding
+			? { supersededBy: { node: superseding.from, edge: superseding } }
+			: {}),
+		duplicates,
+		blocksCount,
+	};
+}
+
+const MONTHS = [
+	"Jan",
+	"Feb",
+	"Mar",
+	"Apr",
+	"May",
+	"Jun",
+	"Jul",
+	"Aug",
+	"Sep",
+	"Oct",
+	"Nov",
+	"Dec",
+];
+
+function formatDay(iso: string) {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return "an earlier date";
+	return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`;
+}
+
+function quote(note: string | null | undefined) {
+	const text = note?.replace(/\s+/g, " ").replace(/"/g, "'").trim();
+	if (!text) return null;
+	return text.length > 80 ? `${text.slice(0, 79)}…` : text;
+}
+
+function plural(count: number, one: string, many: string) {
+	return count === 1 ? `1 ${one}` : `${count} ${many}`;
+}
+
+/** One plain-English line, e.g. `You decided this on 20 Oct: "…" → …`. */
+export function explainChain(context: DecisionContext): string {
+	const parts: string[] = [];
+	if (context.priorDecision) {
+		const { edge } = context.priorDecision;
+		const note = quote(edge.note);
+		const verb = edge.kind === "card_answers" ? "answered" : "decided";
+		parts.push(
+			`You ${verb} this on ${formatDay(edge.occurredAt)}${note ? `: "${note}"` : ""}`,
+		);
+	}
+	const work = context.chain.find(
+		(step) => step.edge.kind === "card_from_work",
+	);
+	if (work) {
+		const note = quote(work.edge.note);
+		parts.push(note ? `from Work "${note}"` : "from a Work item");
+	}
+	const evidence = context.chain.find((step) => step.edge.kind === "evidence");
+	if (evidence) parts.push(quote(evidence.edge.note) ?? "evidence attached");
+	const involved = context.chain
+		.filter((step) => step.edge.kind === "involves")
+		.map((step) => quote(step.edge.note))
+		.filter((note): note is string => Boolean(note))
+		.slice(0, 2);
+	if (involved.length > 0) parts.push(`involves ${involved.join(", ")}`);
+	if (context.supersededBy) parts.push("replaced by a newer card");
+	if (context.duplicates.length > 0) {
+		parts.push(
+			`same as ${plural(context.duplicates.length, "other card", "other cards")}`,
+		);
+	}
+	if (context.blocksCount > 0) {
+		parts.push(
+			context.blocksCount === 1
+				? "1 item waits on this"
+				: `${context.blocksCount} items wait on this`,
+		);
+	}
+	if (parts.length === 0) return "No earlier decision or linked Work found.";
+	const line = parts.join(" → ");
+	return line.charAt(0).toUpperCase() + line.slice(1);
+}

@@ -16,6 +16,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"personalAgentInbound/list": "mcp:apps.write",
 	"personalAgentInbound/revoke": "mcp:apps.write",
 	"runtimeEntitlements/checkModelEgress": "platform:admin",
+	"decisionGraph/getContext": "mcp:messaging.read",
 	"workAgentSessions/getAttentionLayout": "mcp:work.read",
 	"workAgentSessions/updateAttentionLayout": "mcp:work.write",
 	"workAgentSessions/visitAttention": "mcp:work.write",

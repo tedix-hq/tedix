@@ -63,6 +63,7 @@ import { membersContract } from "../contracts/members";
 import { memoryEntitiesContract } from "../contracts/memory-entities";
 import { memoryGraphContract } from "../contracts/memory-graph";
 import { orgUsageContract } from "../contracts/org-usage";
+import { decisionGraphContract } from "../contracts/decision-graph";
 import { organizationPurposeContract } from "../contracts/organization-purpose";
 import { organizationsContract } from "../contracts/organizations";
 import { osTenantContract } from "../contracts/os-tenant";
@@ -180,6 +181,7 @@ export const ROUTERS: Record<string, unknown> = {
 	calendarCoordinator: calendarCoordinatorContract,
 	modelCatalog: modelCatalogContract,
 	organizationPurpose: organizationPurposeContract,
+	decisionGraph: decisionGraphContract,
 	plugins: pluginsContract,
 	projects: projectsContract,
 	rationaleRecords: rationaleRecordsContract,
