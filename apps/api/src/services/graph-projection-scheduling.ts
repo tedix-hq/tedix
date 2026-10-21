@@ -1,5 +1,20 @@
-const BACKLOG_DISPATCH_SLOTS = 20;
-const RECERTIFICATION_DISPATCH_SLOTS = 5;
+/**
+ * Per-tick limits for the two-minute projection drain. D1 is the bottleneck,
+ * so one tick reads at most
+ * (BACKLOG + RECERTIFICATION slots) x GRAPH_PROJECTION_DRAIN_BATCHES_PER_RUN
+ * x GRAPH_PROJECTION_BATCH_SIZE (100) outbox rows: 7 x 5 x 100 = 3,500.
+ * That still clears about 2.5 million events a day, far above the few
+ * thousand a day the triggers append.
+ */
+export const BACKLOG_DISPATCH_SLOTS = 5;
+export const RECERTIFICATION_DISPATCH_SLOTS = 2;
+export const GRAPH_PROJECTION_DRAIN_BATCHES_PER_RUN = 5;
+/**
+ * An organization whose last drain failed waits this long before the tick
+ * dispatches it again. Each failing event also backs off on its own
+ * (2^attempt seconds, up to one hour, poisoned after 8 attempts).
+ */
+export const GRAPH_PROJECTION_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 
 export interface GraphProjectionDrainCandidate {
 	organizationId: string;
@@ -10,7 +25,7 @@ interface GraphProjectionDrainBatchBinding {
 	createBatch(
 		batch: Array<{
 			id: string;
-			params: { organizationId: string };
+			params: { organizationId: string; maxBatches: number };
 		}>,
 	): Promise<unknown[]>;
 }
@@ -33,7 +48,10 @@ export async function createGraphProjectionDrainBatch(
 	const started = await binding.createBatch(
 		candidates.map(({ organizationId, cursor }) => ({
 			id: `graph-projection-${organizationId}-${cursor}-${retryBucket}`,
-			params: { organizationId },
+			params: {
+				organizationId,
+				maxBatches: GRAPH_PROJECTION_DRAIN_BATCHES_PER_RUN,
+			},
 		})),
 	);
 
@@ -47,7 +65,7 @@ export async function createGraphProjectionDrainBatch(
 /**
  * Reserve recertification capacity even when the outbox backlog is saturated.
  * Otherwise a quiet tenant can age past the six-hour admission window while
- * the first 25 backlog tenants consume every two-minute dispatch.
+ * the backlog tenants consume every two-minute dispatch.
  */
 export function selectGraphProjectionDispatchOrganizations(input: {
 	backlogOrganizationIds: string[];

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	BACKLOG_DISPATCH_SLOTS,
+	GRAPH_PROJECTION_DRAIN_BATCHES_PER_RUN,
+	RECERTIFICATION_DISPATCH_SLOTS,
 	createGraphProjectionDrainBatch,
 	selectGraphProjectionDispatchOrganizations,
 } from "./graph-projection-scheduling";
 
 describe("graph projection dispatch scheduling", () => {
-	it("reserves five recertification slots under a saturated backlog", () => {
+	it("reserves recertification slots under a saturated backlog", () => {
 		const backlogOrganizationIds = Array.from(
 			{ length: 25 },
 			(_, index) => `backlog-${index}`,
@@ -20,10 +23,14 @@ describe("graph projection dispatch scheduling", () => {
 			recertificationOrganizationIds,
 		});
 
-		expect(selected).toHaveLength(25);
-		expect(selected.filter((id) => id.startsWith("backlog-"))).toHaveLength(20);
+		expect(selected).toHaveLength(
+			BACKLOG_DISPATCH_SLOTS + RECERTIFICATION_DISPATCH_SLOTS,
+		);
+		expect(selected.filter((id) => id.startsWith("backlog-"))).toHaveLength(
+			BACKLOG_DISPATCH_SLOTS,
+		);
 		expect(selected.filter((id) => id.startsWith("recertify-"))).toHaveLength(
-			5,
+			RECERTIFICATION_DISPATCH_SLOTS,
 		);
 	});
 
@@ -40,10 +47,12 @@ describe("graph projection dispatch scheduling", () => {
 describe("graph projection Workflow admission", () => {
 	it("reports retained duplicate instance IDs as deduplicated, not failed", async () => {
 		const submitted: string[] = [];
+		const budgets: number[] = [];
 		const result = await createGraphProjectionDrainBatch(
 			{
 				async createBatch(batch) {
 					submitted.push(...batch.map((entry) => entry.id));
+					budgets.push(...batch.map((entry) => entry.params.maxBatches));
 					return batch.slice(0, 1);
 				},
 			},
@@ -57,6 +66,10 @@ describe("graph projection Workflow admission", () => {
 		expect(submitted).toEqual([
 			"graph-projection-org-started-42-123",
 			"graph-projection-org-retained-7-123",
+		]);
+		expect(budgets).toEqual([
+			GRAPH_PROJECTION_DRAIN_BATCHES_PER_RUN,
+			GRAPH_PROJECTION_DRAIN_BATCHES_PER_RUN,
 		]);
 		expect(result).toEqual({ candidates: 2, started: 1, deduplicated: 1 });
 	});

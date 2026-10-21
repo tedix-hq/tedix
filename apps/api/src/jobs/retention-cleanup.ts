@@ -187,9 +187,11 @@ export async function runRetentionCleanupCron(
 	try {
 		const { pruneAcknowledgedGraphProjectionEvents } =
 			await import("@tedix/db/queries/graph-projection");
+		// 50 deletes of 250 rows: small D1 writes, up to 12,500 rows a night,
+		// well above the few thousand rows a day the triggers append.
 		prunedProjectionEvents = await pruneAcknowledgedGraphProjectionEvents(db, {
-			limit: 5_000,
-			maxBatches: 10,
+			limit: 250,
+			maxBatches: 50,
 		});
 	} catch (projectionRetentionError) {
 		console.error(

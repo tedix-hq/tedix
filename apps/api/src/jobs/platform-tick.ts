@@ -6,6 +6,172 @@
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
+/** Backlog size is measured on ticks in the first two minutes of each half hour. */
+function graphProjectionBacklogDue(scheduledTime: number): boolean {
+	return new Date(scheduledTime).getUTCMinutes() % 30 < 2;
+}
+
+/**
+ * Start bounded projection drains. The graph database config (GRAPH_DB_URI,
+ * GRAPH_DB_USER, GRAPH_DB_PASSWORD) is the switch: without it this reads
+ * nothing from D1 and starts nothing.
+ */
+export async function dispatchGraphProjectionDrains(
+	env: CloudflareEnv,
+	event: ScheduledController,
+): Promise<Record<string, number>> {
+	const { getGraphDbSecrets } = await import("../integrations/graph-db/client");
+	if (!getGraphDbSecrets(env)) return { configured: 0 };
+	try {
+		const { createDbClient } = await import("@tedix/db/client");
+		const {
+			getGraphProjectionCursor,
+			listGraphProjectionCertificationOrganizations,
+			listGraphProjectionOrganizations,
+			measureGraphProjectionBacklog,
+		} = await import("@tedix/db/queries/graph-projection");
+		const {
+			BACKLOG_DISPATCH_SLOTS,
+			GRAPH_PROJECTION_FAILURE_COOLDOWN_MS,
+			RECERTIFICATION_DISPATCH_SLOTS,
+			createGraphProjectionDrainBatch,
+			selectGraphProjectionDispatchOrganizations,
+		} = await import("../services/graph-projection-scheduling");
+		const db = createDbClient(env.DB);
+		const measureBacklog = graphProjectionBacklogDue(event.scheduledTime);
+		const [backlogOrgIds, staleCertificationOrgIds] = await Promise.all([
+			listGraphProjectionOrganizations(
+				db,
+				// Measuring ticks discover more organizations than they dispatch,
+				// so the backlog metric covers them too.
+				measureBacklog ? 100 : BACKLOG_DISPATCH_SLOTS,
+				{
+					failedSince: new Date(
+						event.scheduledTime - GRAPH_PROJECTION_FAILURE_COOLDOWN_MS,
+					).toISOString(),
+				},
+			),
+			listGraphProjectionCertificationOrganizations(
+				db,
+				new Date(event.scheduledTime - 5.75 * 60 * 60 * 1000).toISOString(),
+				new Date(event.scheduledTime - 10 * 60 * 1000).toISOString(),
+				RECERTIFICATION_DISPATCH_SLOTS,
+			),
+		]);
+		const orgIds = selectGraphProjectionDispatchOrganizations({
+			backlogOrganizationIds: backlogOrgIds,
+			recertificationOrganizationIds: staleCertificationOrgIds,
+		});
+		const retryBucket = Math.floor(event.scheduledTime / (10 * 60_000));
+		const cursorOrgIds = measureBacklog
+			? [...new Set([...orgIds, ...backlogOrgIds])]
+			: orgIds;
+		const cursors = new Map(
+			await Promise.all(
+				cursorOrgIds.map(
+					async (organizationId) =>
+						[
+							organizationId,
+							await getGraphProjectionCursor(db, organizationId),
+						] as const,
+				),
+			),
+		);
+		const candidates = orgIds.map((organizationId) => ({
+			organizationId,
+			cursor: cursors.get(organizationId) ?? 0,
+		}));
+		const admission = await createGraphProjectionDrainBatch(
+			env.GRAPH_PROJECTION_DRAIN_WORKFLOW,
+			candidates,
+			retryBucket,
+		);
+		const metrics: Record<string, number> = {
+			configured: 1,
+			candidates: admission.candidates,
+			started: admission.started,
+			deduplicated: admission.deduplicated,
+		};
+		if (measureBacklog) {
+			const backlog = await measureGraphProjectionBacklog(
+				db,
+				backlogOrgIds.map((organizationId) => ({
+					organizationId,
+					cursor: cursors.get(organizationId) ?? 0,
+				})),
+			);
+			metrics.backlogOrganizations = backlog.organizations;
+			metrics.backlogPending = backlog.pending;
+			metrics.backlogCapped = backlog.capped;
+			console.log(
+				JSON.stringify({
+					event: "graph.projection.backlog",
+					organizations: backlog.organizations,
+					pending: backlog.pending,
+					capped: backlog.capped,
+				}),
+			);
+		}
+		if (admission.candidates > 0) {
+			console.log(
+				"[Scheduled] graph projection drains",
+				JSON.stringify({
+					candidates: admission.candidates,
+					backlogCandidates: backlogOrgIds.length,
+					recertificationCandidates: staleCertificationOrgIds.length,
+					started: admission.started,
+					deduplicated: admission.deduplicated,
+				}),
+			);
+		}
+		return metrics;
+	} catch (error) {
+		console.error(
+			"[Scheduled] graph projection dispatch failed",
+			safeExceptionTopology(error),
+		);
+		throw error;
+	}
+}
+
+export async function redriveGraphGdsMaintenance(
+	env: CloudflareEnv,
+	event: ScheduledController,
+): Promise<Record<string, number>> {
+	const { getGraphDbSecrets } = await import("../integrations/graph-db/client");
+	if (!getGraphDbSecrets(env)) return { configured: 0 };
+	try {
+		const { createDbClient } = await import("@tedix/db/client");
+		const { reconcileStaleGraphGdsRefreshes } =
+			await import("../services/graph-gds-maintenance-scheduling");
+		const redrive = await reconcileStaleGraphGdsRefreshes({
+			db: createDbClient(env.DB),
+			binding: env.GRAPH_GDS_REFRESH_WORKFLOW,
+			runtimeEnvironment: env.ENVIRONMENT,
+			nowMs: event.scheduledTime,
+		});
+		if (redrive.candidates > 0 || redrive.failed > 0) {
+			console.log(
+				"[Scheduled] graph GDS maintenance redrive",
+				JSON.stringify(redrive),
+			);
+		}
+		return {
+			candidates: redrive.candidates,
+			created: redrive.created,
+			existing: redrive.existing,
+			settled: redrive.settled,
+			failed: redrive.failed,
+		};
+	} catch (error) {
+		console.error(
+			"[Scheduled] graph GDS maintenance redrive failed",
+			safeExceptionTopology(error),
+		);
+		throw error;
+	}
+}
+
 export async function dispatchDueSkillSchedulesTick(
 	env: CloudflareEnv,
 	event: ScheduledController,

@@ -438,6 +438,10 @@ export function graphProjectionConsumerHealthConditions(
 export async function collectHealthConditions(
 	db: DbClient,
 	nowMs: number,
+	options: {
+		/** Projection consumers are probed only when the graph database is configured. */
+		graphProjectionConfigured?: boolean;
+	} = {},
 ): Promise<HealthCondition[]> {
 	const conditions: HealthCondition[] = [];
 
@@ -651,10 +655,25 @@ export async function collectHealthConditions(
 		console.warn("[health-digest] MCP scan operations check failed:", err);
 	}
 
-	// The graph projection consumer check is off while the Neo4j projection is
-	// turned off (see integrations/graph-db/client.ts): with no drains, every
-	// consumer reads as stalled. Restore the graphProjectionConsumerHealthConditions
-	// probe when the projection comes back.
+	// Successful projection, not lease activity, is the progress signal.
+	// Without graph database config nothing drains, so every consumer would
+	// read as stalled; skip the probe.
+	if (options.graphProjectionConfigured)
+		try {
+			const { listGraphProjectionConsumerHealth } =
+				await import("@tedix/db/queries/graph-projection");
+			conditions.push(
+				...graphProjectionConsumerHealthConditions(
+					await listGraphProjectionConsumerHealth(db),
+					nowMs,
+				),
+			);
+		} catch (err) {
+			console.warn(
+				"[health-digest] graph projection consumer check failed:",
+				err,
+			);
+		}
 
 	return conditions;
 }
@@ -746,7 +765,10 @@ export async function runPlatformHealthDigest(
 	// Weekly dead-man's-switch heartbeat on Mondays (UTC day 1).
 	const isWeeklyHeartbeat = new Date(nowMs).getUTCDay() === 1;
 
-	const conditions = await collectHealthConditions(db, nowMs);
+	const { getGraphDbSecrets } = await import("../integrations/graph-db/client");
+	const conditions = await collectHealthConditions(db, nowMs, {
+		graphProjectionConfigured: getGraphDbSecrets(env) !== null,
+	});
 	let pricingQuerySucceeded = false;
 	try {
 		const { getRecentProviderPricingHealth } =
