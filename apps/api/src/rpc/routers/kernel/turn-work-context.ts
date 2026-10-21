@@ -3,6 +3,7 @@ import type {
 	executeDirectKernelWrite,
 } from "./write-approval-settlement";
 import type { KernelHistoryCheckpoint } from "./context-compaction";
+import type { HomeInventorySnapshot } from "../../../kernel/inventory-snapshot";
 import type { AgentMemoryCandidate } from "../../../integrations/cloudflare/agent-memory";
 import type { StoredRelevanceRecall } from "../../../kernel/relevance-recall-store";
 import type { KernelContextCache } from "../../../kernel/context-cache";
@@ -139,6 +140,10 @@ export interface KernelTurnWorkDeps {
 	previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
 	/** Receives a NEW compaction checkpoint so the DO can persist it. */
 	onHistoryCheckpoint?: (checkpoint: KernelHistoryCheckpoint) => void;
+	/** The conversation's frozen inventory snapshot (KernelDO storage). */
+	previousInventorySnapshot?: HomeInventorySnapshot | null;
+	/** Receives a NEW inventory snapshot so the DO can persist it. */
+	onInventorySnapshot?: (snapshot: HomeInventorySnapshot) => void;
 	/**
 	 * Per-org TTL cache for the slow-changing context inputs
 	 * (`context-cache.ts`). Supplied by the org `KernelDO`, which is also where

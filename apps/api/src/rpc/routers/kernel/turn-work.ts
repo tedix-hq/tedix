@@ -783,6 +783,12 @@ export async function runKernelTurnWork(
 			...(deps.onHistoryCheckpoint
 				? { onHistoryCheckpoint: deps.onHistoryCheckpoint }
 				: {}),
+			...(deps.previousInventorySnapshot
+				? { previousInventorySnapshot: deps.previousInventorySnapshot }
+				: {}),
+			...(deps.onInventorySnapshot
+				? { onInventorySnapshot: deps.onInventorySnapshot }
+				: {}),
 			...(typeof input.runRowMetadata.promptTokenBudget === "number"
 				? { promptTokenBudget: input.runRowMetadata.promptTokenBudget }
 				: {}),
