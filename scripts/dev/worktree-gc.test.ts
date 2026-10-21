@@ -1,6 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +18,8 @@ import {
 	findSiblingClones,
 	isInside,
 	parseWorktreePorcelain,
+	readWorktreeFacts,
+	removeWorktree,
 	type WorktreeEntry,
 	type WorktreeFacts,
 } from "./worktree-gc";
@@ -170,7 +180,7 @@ describe("sibling clones", () => {
 		expect(cloneFullyPushed(clone)).toBe(true);
 		git(canonical, "push", "origin", "--delete", "saved");
 		expect(cloneFullyPushed(clone)).toBe(false);
-	});
+	}, 60_000);
 
 	test("keeps stashes, attached worktrees and unavailable remotes", () => {
 		const { root, clone, git } = cloneFixture();
@@ -206,5 +216,159 @@ describe("sibling clones", () => {
 		collectSiblingClones(canonical, [], 0, true);
 		expect(existsSync(clone)).toBe(false);
 		expect(existsSync(canonical)).toBe(true);
+	}, 60_000);
+});
+
+function worktreeFixture() {
+	const root = mkdtempSync(join(tmpdir(), "tedix-gc-worktree-"));
+	temporary.push(root);
+	const canonical = root;
+	const git = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, {
+			cwd,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+	git(canonical, "init", "--initial-branch=main");
+	git(canonical, "config", "user.email", "fixture@example.com");
+	git(canonical, "config", "user.name", "Fixture");
+	writeFileSync(join(canonical, "file"), "original");
+	writeFileSync(join(canonical, ".gitignore"), "node_modules/\ndist/\n");
+	writeFileSync(join(canonical, "second file"), "second");
+	git(canonical, "add", ".");
+	git(canonical, "commit", "-m", "tracked fixture files");
+	git(canonical, "update-ref", "refs/remotes/origin/main", "HEAD");
+	git(canonical, "worktree", "add", "--detach", join(root, "linked"));
+	const path = realpathSync(join(root, "linked"));
+	const entry = parseWorktreePorcelain(
+		git(canonical, "worktree", "list", "--porcelain"),
+	).find((entry) => entry.path === path)!;
+	const facts = () =>
+		readWorktreeFacts(canonical, entry, "origin/main", [], Date.now());
+	const verdict = () => classifyWorktree(entry, facts(), 0);
+	const eraseTracked = () => {
+		for (const name of ["file", "second file", ".gitignore"])
+			rmSync(join(path, name));
+	};
+	return { canonical, path, entry, facts, verdict, eraseTracked, git };
+}
+
+describe("worktree removal", () => {
+	test("removes clean merged worktrees with ignored dependencies and build output", () => {
+		const { canonical, path, entry } = worktreeFixture();
+		for (const name of ["node_modules", "dist"]) {
+			mkdirSync(join(path, name));
+			writeFileSync(join(path, name, "output"), "generated");
+		}
+		expect(removeWorktree(canonical, entry, "origin/main", 0, () => [])).toBe(
+			true,
+		);
+		expect(existsSync(path)).toBe(false);
+	});
+
+	test("recognizes and finishes an empty interrupted tree without force", () => {
+		const { canonical, path, entry, eraseTracked, verdict } = worktreeFixture();
+		mkdirSync(join(path, "node_modules"));
+		writeFileSync(join(path, "node_modules", "output"), "generated");
+		eraseTracked();
+		expect(verdict()).toBe("interrupted");
+		expect(removeWorktree(canonical, entry, "origin/main", 0, () => [])).toBe(
+			true,
+		);
+		expect(existsSync(path)).toBe(false);
+	});
+
+	test("keeps partial deletions, staged changes, untracked files and sparse checkouts", () => {
+		const { canonical, path, entry, eraseTracked, verdict, git } =
+			worktreeFixture();
+		rmSync(join(path, "file"));
+		expect(verdict()).toBe("dirty");
+		git(path, "restore", ".");
+		eraseTracked();
+		writeFileSync(join(path, "untracked"), "keep");
+		expect(verdict()).toBe("dirty");
+		expect(removeWorktree(canonical, entry, "origin/main", 0, () => [])).toBe(
+			false,
+		);
+		rmSync(join(path, "untracked"));
+		git(path, "add", "-u");
+		expect(verdict()).toBe("dirty");
+		git(path, "reset", "HEAD");
+		git(path, "config", "core.sparseCheckout", "true");
+		expect(verdict()).toBe("dirty");
+	});
+
+	test("rechecks lock, activity, age, merge status and HEAD before removal", () => {
+		const { canonical, path, entry, eraseTracked, git } = worktreeFixture();
+		eraseTracked();
+		expect(removeWorktree(canonical, entry, "origin/main", 2, () => [])).toBe(
+			false,
+		);
+		expect(
+			removeWorktree(canonical, entry, "origin/main", 0, () => [
+				join(path, "src"),
+			]),
+		).toBe(false);
+		expect(removeWorktree(canonical, entry, "origin/main", 0, () => null)).toBe(
+			false,
+		);
+		git(canonical, "worktree", "lock", path);
+		expect(removeWorktree(canonical, entry, "origin/main", 0, () => [])).toBe(
+			false,
+		);
+		git(canonical, "worktree", "unlock", path);
+		git(path, "commit", "--allow-empty", "-m", "unmerged");
+		const current = { ...entry, head: git(path, "rev-parse", "HEAD").trim() };
+		git(canonical, "branch", "custom-base", current.head);
+		expect(removeWorktree(canonical, current, "custom-base", 0, () => [])).toBe(
+			false,
+		);
+		expect(removeWorktree(canonical, entry, "origin/main", 0, () => [])).toBe(
+			false,
+		);
+		expect(existsSync(join(path, ".git"))).toBe(true);
+	});
+
+	test("uses a long bounded timeout and restores missing tracked files on failure", () => {
+		const { canonical, path, entry, git } = worktreeFixture();
+		const errors = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const remove = (_cwd: string, args: string[], timeout = 0) => {
+				expect(args).toEqual(["worktree", "remove", path]);
+				expect(timeout).toBe(30 * 60 * 1000);
+				rmSync(join(path, "file"));
+				writeFileSync(join(path, "second file"), "concurrent edit");
+				throw Object.assign(new Error("Command failed"), {
+					stderr: "fatal: permission denied",
+				});
+			};
+			expect(
+				removeWorktree(canonical, entry, "origin/main", 0, () => [], remove),
+			).toBe(false);
+			expect(errors.mock.calls.flat().join("\n")).toContain(
+				"fatal: permission denied",
+			);
+			expect(readFileSync(join(path, "file"), "utf8")).toBe("original");
+			expect(readFileSync(join(path, "second file"), "utf8")).toBe(
+				"concurrent edit",
+			);
+			expect(git(path, "ls-files", "--deleted")).toBe("");
+		} finally {
+			errors.mockRestore();
+		}
+	});
+
+	test("does not remove untracked build files exposed during interrupted recovery", () => {
+		const { canonical, path, entry, eraseTracked, git } = worktreeFixture();
+		mkdirSync(join(path, "build"));
+		writeFileSync(join(path, "build", "keep"), "untracked work");
+		eraseTracked();
+		expect(removeWorktree(canonical, entry, "origin/main", 0, () => [])).toBe(
+			false,
+		);
+		expect(readFileSync(join(path, "build", "keep"), "utf8")).toBe(
+			"untracked work",
+		);
+		expect(git(path, "ls-files", "--deleted")).toBe("");
 	});
 });

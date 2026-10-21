@@ -13,7 +13,9 @@
  * its HEAD is already in the base branch, it has no changes (untracked files
  * count), it is not locked, no process has its working directory inside it,
  * and git has not touched it for `--min-idle` hours. Everything else is
- * reported and kept. The default is a dry run; `--apply` removes with plain
+ * reported and kept. Empty interrupted removals with an unchanged index and
+ * HEAD on origin/main can be recovered under the same idle/lock/use guards.
+ * The default is a dry run; `--apply` removes with plain
  * `git worktree remove` (never `--force`) and deletes merged branches with
  * `git branch -d`.
  *
@@ -41,6 +43,7 @@ export type WorktreeFacts = {
 	inUse: boolean;
 	idleHours: number;
 	merged: boolean;
+	interrupted?: boolean;
 };
 
 export type Verdict =
@@ -50,10 +53,15 @@ export type Verdict =
 	| "recent"
 	| "dirty"
 	| "unmerged"
+	| "interrupted"
 	| "merged";
 
 /** Only these verdicts are acted on by `--apply`. */
-export const REMOVABLE: ReadonlySet<Verdict> = new Set(["missing", "merged"]);
+export const REMOVABLE: ReadonlySet<Verdict> = new Set([
+	"missing",
+	"merged",
+	"interrupted",
+]);
 
 export function parseWorktreePorcelain(text: string): WorktreeEntry[] {
 	const entries: WorktreeEntry[] = [];
@@ -89,6 +97,7 @@ export function classifyWorktree(
 	if (entry.locked) return "locked";
 	if (facts.inUse) return "in-use";
 	if (facts.idleHours < minIdleHours) return "recent";
+	if (facts.interrupted && facts.merged) return "interrupted";
 	if (facts.changedFiles > 0) return "dirty";
 	return facts.merged ? "merged" : "unmerged";
 }
@@ -100,12 +109,19 @@ export function isInside(path: string, root: string): boolean {
 	);
 }
 
-function git(cwd: string, args: string[]): string {
+function git(
+	cwd: string,
+	args: string[],
+	timeout = 30_000,
+	input?: string,
+): string {
 	return execFileSync("git", args, {
 		cwd,
 		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		timeout: 30_000,
+		stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+		timeout,
+		input,
+		maxBuffer: 64 * 1024 * 1024,
 		env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
 	});
 }
@@ -154,6 +170,138 @@ function idleHours(path: string, now: number): number {
 		0,
 	);
 	return newest === 0 ? Number.POSITIVE_INFINITY : (now - newest) / 3_600_000;
+}
+
+export function readWorktreeFacts(
+	cwd: string,
+	entry: WorktreeEntry,
+	base: string,
+	cwds: string[],
+	now: number,
+): WorktreeFacts {
+	const exists = existsSync(entry.path);
+	const status = exists
+		? tryGit(entry.path, [
+				"status",
+				"--porcelain",
+				"-z",
+				"--untracked-files=all",
+			])
+		: "";
+	const changes = (status ?? "x").split("\0").filter(Boolean);
+	const merged =
+		exists &&
+		tryGit(cwd, ["merge-base", "--is-ancestor", entry.head, base]) !== null;
+	let interrupted = false;
+	if (
+		merged &&
+		changes.length > 0 &&
+		status !== null &&
+		tryGit(cwd, ["merge-base", "--is-ancestor", entry.head, "origin/main"]) !==
+			null &&
+		tryGit(entry.path, ["diff", "--cached", "--quiet", "HEAD", "--"]) !==
+			null &&
+		tryGit(entry.path, ["config", "--bool", "core.sparseCheckout"])?.trim() !==
+			"true"
+	) {
+		const tracked = tryGit(entry.path, ["ls-files", "-z"])
+			?.split("\0")
+			.filter(Boolean);
+		const deleted = new Set(
+			changes
+				.filter((change) => change.startsWith(" D "))
+				.map((change) => change.slice(3)),
+		);
+		// Missing .gitignore files can expose the build directories left by git.
+		// They must become ignored again after restoring tracked files, before removal.
+		interrupted =
+			!!tracked?.length &&
+			tracked.every((path) => deleted.has(path)) &&
+			changes.every(
+				(change) =>
+					change.startsWith(" D ") ||
+					(change.startsWith("?? ") &&
+						/(?:^|\/)(?:node_modules|dist|build|coverage|\.next|\.turbo|\.svelte-kit)\//.test(
+							change.slice(3),
+						)),
+			);
+	}
+	return {
+		exists,
+		changedFiles: changes.length,
+		inUse: exists && cwds.some((dir) => isInside(dir, entry.path)),
+		idleHours: exists ? idleHours(entry.path, now) : Number.POSITIVE_INFINITY,
+		merged,
+		interrupted,
+	};
+}
+
+function restoreMissingTracked(path: string): void {
+	if (!existsSync(join(path, ".git")))
+		throw new Error(
+			"worktree .git is missing; refusing to restore through a parent repository",
+		);
+	const deleted = git(path, ["ls-files", "--deleted", "-z"]);
+	if (deleted)
+		git(path, ["checkout-index", "-z", "--stdin"], 30 * 60 * 1000, deleted);
+}
+
+function gitFailure(error: unknown): string {
+	const stderr = (error as { stderr?: string | Buffer }).stderr;
+	return stderr?.toString().trim() || String(error);
+}
+
+export function removeWorktree(
+	cwd: string,
+	entry: WorktreeEntry,
+	base: string,
+	minIdleHours: number,
+	workingDirectories = processWorkingDirectories,
+	runGit = git,
+): boolean {
+	const safe = () => {
+		const live = workingDirectories();
+		const listed = tryGit(cwd, ["worktree", "list", "--porcelain"]);
+		const current =
+			listed &&
+			parseWorktreePorcelain(listed).find((item) => item.path === entry.path);
+		if (
+			live === null ||
+			!current ||
+			current.head !== entry.head ||
+			current.bare
+		)
+			return false;
+		const verdict = classifyWorktree(
+			current,
+			readWorktreeFacts(cwd, current, base, live, Date.now()),
+			minIdleHours,
+		);
+		return verdict === "merged" || verdict === "interrupted";
+	};
+	if (!safe()) return false;
+	try {
+		// checkout-index without --force restores only missing paths, never edits.
+		restoreMissingTracked(entry.path);
+		if (
+			!safe() ||
+			tryGit(entry.path, ["status", "--porcelain", "--untracked-files=all"]) !==
+				""
+		)
+			return false;
+		runGit(cwd, ["worktree", "remove", entry.path], 30 * 60 * 1000);
+		return true;
+	} catch (error) {
+		console.error(`  could not remove ${entry.path}: ${gitFailure(error)}`);
+		try {
+			restoreMissingTracked(entry.path);
+		} catch (restoreError) {
+			console.error(
+				`  could not restore missing tracked files in ${entry.path}: ${gitFailure(restoreError)}`,
+			);
+		}
+		return false;
+	}
 }
 
 export function findSiblingClones(mainPath: string): string[] {
@@ -294,27 +442,13 @@ function main(): void {
 	)
 		.filter((entry) => !entry.bare && entry.path !== mainPath)
 		.map((entry) => {
-			const exists = existsSync(entry.path);
-			const facts: WorktreeFacts = {
-				exists,
-				changedFiles: exists
-					? (tryGit(entry.path, ["status", "--porcelain"]) ?? "x")
-							.split("\n")
-							.filter(Boolean).length
-					: 0,
-				inUse: exists && (cwds ?? []).some((dir) => isInside(dir, entry.path)),
-				idleHours: exists
-					? idleHours(entry.path, now)
-					: Number.POSITIVE_INFINITY,
-				merged:
-					exists &&
-					tryGit(cwd, [
-						"merge-base",
-						"--is-ancestor",
-						entry.head,
-						options.base,
-					]) !== null,
-			};
+			const facts = readWorktreeFacts(
+				cwd,
+				entry,
+				options.base,
+				cwds ?? [],
+				now,
+			);
 			return {
 				entry,
 				facts,
@@ -324,6 +458,7 @@ function main(): void {
 
 	const order: Verdict[] = [
 		"merged",
+		"interrupted",
 		"missing",
 		"dirty",
 		"unmerged",
@@ -361,11 +496,9 @@ function main(): void {
 	}
 	let removed = 0;
 	for (const { entry, verdict } of rows) {
-		if (verdict !== "merged") continue;
-		if (tryGit(cwd, ["worktree", "remove", entry.path]) === null) {
-			console.error(`  could not remove ${entry.path}`);
+		if (verdict !== "merged" && verdict !== "interrupted") continue;
+		if (!removeWorktree(cwd, entry, options.base, options.minIdleHours))
 			continue;
-		}
 		removed += 1;
 		if (entry.branch) tryGit(cwd, ["branch", "-d", entry.branch]);
 	}
