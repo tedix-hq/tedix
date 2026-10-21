@@ -115,7 +115,7 @@ export function AdminBillingPage({
 		<Page width="xl">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>{OS_COPY.navigation.compute}</PageTitle>
+					<PageTitle>{OS_COPY.navigation.billing}</PageTitle>
 					<PageDescription>
 						Understand what you are using, what you will pay, and how much
 						capacity remains.

@@ -48,6 +48,7 @@ import {
 import { computePostureQueryOptions } from "@/lib/os-query-options";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import { OS_COPY } from "@/shared/os-copy";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -586,7 +587,7 @@ export function ComputePage() {
 		<Page width="lg">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Usage diagnostics</PageTitle>
+					<PageTitle>{OS_COPY.navigation.usage}</PageTitle>
 					<PageDescription>
 						Recorded model costs and runtime capacity. For your plan, credits,
 						invoices, and payment methods, open{" "}

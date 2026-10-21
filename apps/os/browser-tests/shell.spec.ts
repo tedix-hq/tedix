@@ -432,7 +432,7 @@ async function runShell() {
 					"/gateways",
 					null,
 				],
-				["billing", "/admin/billing", "/admin", "Usage & billing"],
+				["billing", "/admin/billing", "/admin", "Billing"],
 				[
 					"workspace",
 					"/workspace/00000030-0000-4000-8000-000000000001",
@@ -623,6 +623,8 @@ async function runShell() {
 				"Website chat",
 				"Activity log",
 				"Usage & billing",
+				"Usage",
+				"Billing",
 			])
 				assert.equal(
 					await settings
@@ -633,10 +635,11 @@ async function runShell() {
 			await capture(page, `settings-rail-${width}-${theme}`);
 			await capture(page, `breadcrumb-${width}-${theme}`);
 			for (const [label, path, heading] of [
+				["Usage", "/compute", "Usage"],
+				["Billing", "/admin/billing", "Billing"],
 				["Templates", "/blueprints", "Templates"],
 				["Website chat", "/widget", "Website chat"],
 				["Activity log", "/audit", "Activity log"],
-				["Usage & billing", "/compute", "Usage diagnostics"],
 			]) {
 				await settings.getByRole("link", { name: label, exact: true }).click();
 				await page.waitForURL((url) => url.pathname === path);

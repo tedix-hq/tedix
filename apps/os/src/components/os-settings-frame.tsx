@@ -72,7 +72,9 @@ export function OsSettingsFrame({
 							}
 							className="justify-start whitespace-nowrap"
 						>
-							{item.label}
+							{item.path === "/compute"
+								? OS_COPY.navigation.compute
+								: item.label}
 						</Link>
 						{item.path === "/compute" && usageActive ? (
 							<div className="flex gap-1 pl-3 md:flex-col">

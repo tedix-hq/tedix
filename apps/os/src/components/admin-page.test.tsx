@@ -115,7 +115,7 @@ describe("AdminPage", () => {
 			"Organization",
 			"Connections",
 			"API keys",
-			"Usage & billing",
+			"Usage",
 			"Payments",
 		]) {
 			expect(container.textContent).toContain(destination);

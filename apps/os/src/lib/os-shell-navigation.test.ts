@@ -73,10 +73,7 @@ describe("OS shell navigation", () => {
 			});
 		}
 		expect(resolveOsShellRouteContext("/compute")).toEqual({
-			crumbs: [
-				{ label: "Settings", href: "/admin" },
-				{ label: "Usage & billing" },
-			],
+			crumbs: [{ label: "Settings", href: "/admin" }, { label: "Usage" }],
 		});
 	});
 
@@ -126,16 +123,33 @@ describe("OS shell navigation", () => {
 			expect(context.crumbs.some((crumb) => crumb.href === "#")).toBe(false);
 		}
 		expect(resolveOsShellRouteContext("/admin/billing")).toEqual({
-			crumbs: [
-				{ label: "Settings", href: "/admin" },
-				{ label: "Usage & billing" },
-			],
+			crumbs: [{ label: "Settings", href: "/admin" }, { label: "Billing" }],
 		});
 	});
 });
 
 afterEach(() => setOsLocale("en-US"));
 describe("navigation translations", () => {
+	it.each([
+		["en-US", "Usage", "Billing"],
+		["es-ES", "Uso", "Facturación"],
+	] as const)(
+		"keeps usage and billing titles distinct in %s",
+		(locale, usage, billing) => {
+			setOsLocale(locale);
+			const pages = ["/compute", "/admin/billing"].map((path) =>
+				OS_PAGES.find((page) => page.path === path),
+			);
+			expect(pages.map((page) => page?.label)).toEqual([usage, billing]);
+			expect(new Set(pages.map((page) => page?.label)).size).toBe(2);
+			for (const page of pages) {
+				expect(page?.palette).toBe(true);
+				expect(
+					resolveOsShellRouteContext(page!.path).crumbs.at(-1)?.label,
+				).toBe(page!.label);
+			}
+		},
+	);
 	it("updates existing navigation items when Spanish preferences arrive", () => {
 		setOsLocale("es-ES");
 		expect(getOsSurface("outputs").label).toBe("Documentos");
@@ -146,7 +160,7 @@ describe("navigation translations", () => {
 			"Plantillas",
 			"Chat del sitio web",
 			"Registro de actividad",
-			"Uso y facturación",
+			"Uso",
 		]);
 		expect(getOsSurface("gateways").label).toBe("Conexiones");
 		expect(getOsSurface("sites").label).toBe("Sitios web");
