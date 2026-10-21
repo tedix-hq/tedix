@@ -146,7 +146,6 @@ const deckFindings: Record<string, string[]> = {
 		"annotations: missing explicit readOnlyHint",
 		"input.decision: missing description",
 	],
-	get_decision_deck_card: ["description: exceeds two sentences"],
 };
 
 describe("WebMCP tool conventions", () => {

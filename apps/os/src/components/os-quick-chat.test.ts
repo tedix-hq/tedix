@@ -32,7 +32,11 @@ vi.mock("@/lib/api", () => {
 					typeof name === "string" ? client([...path, name]) : undefined,
 			},
 		);
-	return { osApi: client([]) };
+	return {
+		osApi: client([]),
+		osChatMutationApi: client([]),
+		osChatReadApi: client([]),
+	};
 });
 const route = vi.hoisted(() => ({ pathname: "/work" }));
 vi.mock("@tanstack/react-router", () => ({
@@ -58,7 +62,9 @@ import {
 	OsQuickChat,
 	osPortableRouteContext,
 	shouldSuppressQuickChatLauncher,
+	withPageFocus,
 } from "./os-quick-chat";
+import { setPageFocus } from "@/lib/page-focus";
 
 describe("OS quick chat dogfood", () => {
 	it("keeps publishing route context after the loader hands off to the runtime", () => {
@@ -206,6 +212,21 @@ describe("OS quick chat dogfood", () => {
 				"A selected work item's outcome, attempts, evidence, and lifecycle.",
 			params: { workItemId: "item-1" },
 			entity: { type: "work-item", id: "item-1" },
+		});
+	});
+
+	it("names the card on screen as the page entity, identity only", () => {
+		const work = osPortableRouteContext("/work");
+		expect(withPageFocus(work, null)).toBe(work);
+		expect(
+			withPageFocus(work, {
+				type: "decision-card",
+				id: "req-1",
+				label: "Pick a vendor",
+			}),
+		).toEqual({
+			...work,
+			entity: { type: "decision-card", id: "req-1", label: "Pick a vendor" },
 		});
 	});
 
@@ -485,6 +506,63 @@ describe("OsQuickChat mount", () => {
 			expect(path.startsWith("kernelRuntime.")).toBe(false);
 			expect(path.startsWith("osWorkspaces.")).toBe(false);
 		}
+	});
+
+	it("republishes page context when the card on screen changes", async () => {
+		route.pathname = "/work";
+		const { widget } = await mount();
+		widget.context.mockClear();
+		act(() =>
+			setPageFocus({
+				type: "decision-card",
+				id: "req-1",
+				label: "Pick a vendor",
+			}),
+		);
+		expect(widget.context).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				entity: {
+					type: "decision-card",
+					id: "req-1",
+					label: "Pick a vendor",
+				},
+			}),
+		);
+		act(() => setPageFocus(null));
+		expect(widget.context).toHaveBeenLastCalledWith(
+			expect.not.objectContaining({ entity: expect.anything() }),
+		);
+	});
+
+	it("offers Home as a target whose turns use the Home path", async () => {
+		const { initOptions } = await mount();
+		const home = initOptions().home as {
+			label: string;
+			turn: (input: Record<string, unknown>) => Promise<{ text: string }>;
+		};
+		expect(home.label).toBe("Home");
+		api.handlers["kernelRuntime.enqueueMessage"] = () => ({
+			status: "completed",
+			conversationId: "home:os:c-1",
+			run: { id: "run-1", status: "completed" },
+			assistantMessage: { content: "It asks you to pick a vendor." },
+		});
+		await expect(
+			home.turn({
+				conversationId: "c-1",
+				text: "What is this card about?",
+				pageContext: {
+					pathname: "/work",
+					entity: { type: "decision-card", id: "req-1" },
+				},
+			}),
+		).resolves.toEqual({ text: "It asks you to pick a vendor." });
+		const sent = calls.find(
+			(call) => call.path === "kernelRuntime.enqueueMessage",
+		)!.input as { conversationId: string; content: string };
+		expect(sent.conversationId).toBe("home:os:c-1");
+		expect(sent.content).toContain("What is this card about?");
+		expect(sent.content).toContain('"id":"req-1"');
 	});
 
 	it("seeds route context from the current page after initialization", async () => {

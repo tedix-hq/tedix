@@ -359,6 +359,7 @@ export const SPANISH_FEED_DECK_COPY = {
 
 export const SPANISH_DECISION_CONTROLS: Record<string, string> = {
 	"Loading request": "Cargando solicitud",
+	"Prepared in chat:": "Preparado en el chat:",
 	"This request could not be loaded.": "No se pudo cargar esta solicitud.",
 	Done: "Hecho",
 	"Snooze 1 day": "Posponer un día",

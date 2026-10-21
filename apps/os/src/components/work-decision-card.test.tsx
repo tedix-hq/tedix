@@ -8,6 +8,12 @@ import {
 	WorkDecisionCard,
 	type DecisionCardFeedback,
 } from "./work-decision-card";
+import {
+	createAgentSlot,
+	DeckCardAgentContext,
+	type DeckCardAgentHandle,
+	type DeckNotUsefulHandle,
+} from "@/lib/deck-card-agent";
 
 vi.mock("@/components/kumo/toast", () => ({ toast: { success: vi.fn() } }));
 let root: ReturnType<typeof createRoot>;
@@ -781,4 +787,74 @@ it("refreshes a stored face date on rerender without rewriting its source", asyn
 	} finally {
 		vi.useRealTimers();
 	}
+});
+
+describe("chat-driven card controls", () => {
+	it("fills, prepares and submits through the card's own controls", async () => {
+		const slots = {
+			card: createAgentSlot<DeckCardAgentHandle>(),
+			notUseful: createAgentSlot<DeckNotUsefulHandle>(),
+		};
+		host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+		const decide = vi.fn(async (_feedback: DecisionCardFeedback) => {});
+		await act(async () =>
+			root.render(
+				<DeckCardAgentContext.Provider value={slots}>
+					<WorkDecisionCard
+						kind="question"
+						title="When should we ship?"
+						askedBy="Robin"
+						actions={[
+							{ id: "answer", label: "Answer", intent: "approve" },
+							{
+								id: "always",
+								label: "Always",
+								confirm: "Apply to every release?",
+							},
+						]}
+						onDecision={decide}
+					/>
+				</DeckCardAgentContext.Provider>,
+			),
+		);
+		const handle = () => slots.card.get()!;
+		expect(handle().field).toBe("answer");
+		await act(async () => {
+			expect(handle().fill("Friday")).toEqual({ ok: true, status: "filled" });
+		});
+		expect(host.querySelector("textarea")!.value).toBe("Friday");
+		await act(async () => {
+			expect(handle().stage("missing")).toMatchObject({ ok: false });
+			expect(handle().stage("answer")).toEqual({ ok: true, status: "staged" });
+		});
+		expect(handle().stagedOptionId).toBe("answer");
+		expect(host.querySelector("[data-agent-staged-note]")?.textContent).toBe(
+			"Prepared in chat: Answer",
+		);
+		expect(decide).not.toHaveBeenCalled();
+		// A choice that needs confirmation still opens the person's dialog.
+		await act(async () => {
+			await expect(handle().submit("always")).resolves.toEqual({
+				ok: true,
+				status: "confirming",
+			});
+		});
+		expect(decide).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain("Apply to every release?");
+		await click("Go back");
+		await act(async () => {
+			await expect(handle().submit("answer")).resolves.toEqual({
+				ok: true,
+				status: "saved",
+			});
+		});
+		expect(decide).toHaveBeenCalledWith(
+			expect.objectContaining({ action: "answer", body: "Friday" }),
+		);
+		act(() => root.unmount());
+		expect(slots.card.get()).toBeNull();
+		root = createRoot(host);
+	});
 });

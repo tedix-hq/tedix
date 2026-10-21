@@ -45,6 +45,11 @@ import { decisionLearningKey } from "@/lib/decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import {
+	DeckCardAgentContext,
+	useAgentRegistration,
+	type DeckCardAgentOutcome,
+} from "@/lib/deck-card-agent";
+import {
 	Fragment,
 	useContext,
 	useEffect,
@@ -147,6 +152,26 @@ function withoutIfYes(body: string) {
 const DISABLED_ACTION_LABEL = {
 	"--color-white": "var(--muted-foreground)",
 } as CSSProperties;
+
+type SubmitStatus =
+	| "saved"
+	| "confirming"
+	| "unavailable"
+	| "unchanged"
+	| "invalid"
+	| "empty"
+	| "failed";
+
+const SUBMIT_REFUSALS: Record<
+	Exclude<SubmitStatus, "saved" | "confirming">,
+	string
+> = {
+	unavailable: "The card is saving, closed or this option is unavailable.",
+	unchanged: "The draft has no changes to save.",
+	invalid: "The card refused this answer; its message explains why.",
+	empty: "Fill the answer first.",
+	failed: "The decision could not be saved; the card shows the error.",
+};
 
 /** Shared review surface. Callers own authorization, persistence and provider effects. */
 export function WorkDecisionCard({
@@ -332,18 +357,19 @@ export function WorkDecisionCard({
 		action: DecisionCardAction,
 		reason?: string,
 		confirmed = false,
-	) => {
+	): Promise<SubmitStatus> => {
 		if (
 			busy ||
 			action.disabled ||
 			inFlight.current ||
 			(confirmed && action.confirmDisabled)
 		)
-			return;
-		if (action.id === editAction?.id && draft === body && !hasEdits) return;
+			return "unavailable";
+		if (action.id === editAction?.id && draft === body && !hasEdits)
+			return "unchanged";
 		if (action.confirm && !confirmed) {
 			setConfirmation(action);
-			return;
+			return "confirming";
 		}
 		const finalBody =
 			action.intent === "reject"
@@ -353,11 +379,11 @@ export function WorkDecisionCard({
 					: draft.trim();
 		if (containsCardSecret([finalBody, feedback, reason])) {
 			setError(CARD_SECRET_MESSAGE);
-			return;
+			return "invalid";
 		}
 		if (secureConnection) {
 			setError("Use connection settings to update credentials.");
-			return;
+			return "invalid";
 		}
 		if (
 			kind === "question" &&
@@ -365,7 +391,7 @@ export function WorkDecisionCard({
 			!finalBody &&
 			action.id !== feedbackAction?.id
 		)
-			return;
+			return "empty";
 		inFlight.current = true;
 		setSaving(true);
 		setError("");
@@ -429,7 +455,7 @@ export function WorkDecisionCard({
 			if (revisionEdit) {
 				setEditing(false);
 				toast.success("Version saved for review");
-				return;
+				return "saved";
 			}
 			attention?.({
 				learningClientEventId: decisionLearningKey(result),
@@ -454,6 +480,7 @@ export function WorkDecisionCard({
 			await departure;
 			setSaved(true);
 			if (!optimistic) onNext?.();
+			return "saved";
 		} catch (cause) {
 			motion.cancelExit();
 			setError(
@@ -461,6 +488,7 @@ export function WorkDecisionCard({
 					? cause.message
 					: decisionText("Your decision could not be saved. Try again."),
 			);
+			return "failed";
 		} finally {
 			inFlight.current = false;
 			setSaving(false);
@@ -480,6 +508,73 @@ export function WorkDecisionCard({
 		if (kind === "outbound" && action.intent === "reject") setReasonsOpen(true);
 		else void submit(action);
 	};
+	const [stagedOptionId, setStagedOptionId] = useState<string | null>(null);
+	const staged = actions.find((action) => action.id === stagedOptionId);
+	const agentField =
+		kind === "question"
+			? "answer"
+			: allowEdits && editAction && !secureConnection
+				? "draft"
+				: null;
+	const agentAction = (id: string) =>
+		actions.find((action) => action.id === id) ??
+		(editAction?.id === id ? editAction : undefined);
+	const unknownOption = (id: string): DeckCardAgentOutcome => ({
+		ok: false,
+		error: `Unknown option "${id}". Options: ${actions.map((action) => action.id).join(", ")}.`,
+	});
+	const agentSlots = useContext(DeckCardAgentContext);
+	useAgentRegistration(agentSlots?.card, {
+		kind,
+		field: agentField,
+		value:
+			agentField === "answer" ? answer : agentField === "draft" ? draft : "",
+		suggestedAnswers,
+		actions: [...actions, ...(editing && editAction ? [editAction] : [])].map(
+			(action) => ({
+				id: action.id,
+				label: action.label,
+				...(action.intent ? { intent: action.intent } : {}),
+				needsConfirmation: Boolean(action.confirm),
+				disabled: Boolean(action.disabled),
+			}),
+		),
+		stagedOptionId,
+		busy,
+		fill(text) {
+			if (busy) return { ok: false, error: "The card is saving or closed." };
+			if (agentField === "answer") setAnswer(text);
+			else if (agentField === "draft") {
+				setEditing(true);
+				setDraft(text);
+			} else
+				return {
+					ok: false,
+					error: "This card has no answer or draft to fill.",
+				};
+			return { ok: true, status: "filled" };
+		},
+		stage(id) {
+			const action = agentAction(id);
+			if (!action) return unknownOption(id);
+			if (action.disabled || busy)
+				return { ok: false, error: `"${action.label}" is unavailable now.` };
+			setStagedOptionId(action.id);
+			return { ok: true, status: "staged" };
+		},
+		async submit(id) {
+			const action = agentAction(id);
+			if (!action) return unknownOption(id);
+			setStagedOptionId(null);
+			const status = await submit(action);
+			return status === "saved" || status === "confirming"
+				? { ok: true, status }
+				: {
+						ok: false,
+						error: SUBMIT_REFUSALS[status],
+					};
+		},
+	});
 	return (
 		<section
 			ref={section}
@@ -846,6 +941,11 @@ export function WorkDecisionCard({
 								/>
 							</div>
 						) : null}
+						{staged && !saved ? (
+							<p role="status" data-agent-staged-note>
+								{decisionText("Prepared in chat:")} {staged.label}
+							</p>
+						) : null}
 						{saved ? (
 							<Text role="label" tone="secondary">
 								{decisionText("Decision saved")}
@@ -1001,6 +1101,9 @@ export function WorkDecisionCard({
 									const control = (
 										<Button
 											data-decision-intent={action.intent}
+											data-agent-staged={
+												action.id === stagedOptionId ? "" : undefined
+											}
 											style={
 												inactive && action !== approve
 													? DISABLED_ACTION_LABEL
@@ -1014,7 +1117,7 @@ export function WorkDecisionCard({
 													: "min-h-11 grow sm:grow-0"
 											}
 											variant={
-												action === approve
+												action === approve || action.id === stagedOptionId
 													? "default"
 													: action.intent === "reject"
 														? "outline"

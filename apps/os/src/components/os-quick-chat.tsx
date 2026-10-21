@@ -6,7 +6,15 @@ import {
 	type PortableToolCaller,
 } from "@tedix/webmcp-core/portable-profile";
 import { useEffect, useRef } from "react";
-import { osApi } from "@/lib/api";
+import { osApi, osChatMutationApi, osChatReadApi } from "@/lib/api";
+import { getPageFocus, subscribePageFocus } from "@/lib/page-focus";
+import {
+	abortableSleep,
+	QUICK_CHAT_HOME_LABEL,
+	readQuickChatHomeTranscript,
+	runQuickChatHomeTurn,
+	type QuickChatHomeDeps,
+} from "@/lib/quick-chat-home";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import {
 	defaultTediWidgetConfig,
@@ -74,6 +82,19 @@ type TedixWidgetApi = {
 		prompts: string[];
 		portableTool: PortableToolCaller;
 		requireSignedPortableRoute?: boolean;
+		/** Home as the first, default target; its turns use the Home path. */
+		home?: {
+			label: string;
+			turn(input: {
+				conversationId: string;
+				text: string;
+				pageContext?: unknown;
+				signal?: AbortSignal;
+			}): Promise<{ text: string }>;
+			transcript(input: {
+				conversationId: string;
+			}): Promise<Array<{ role: "user" | "assistant"; content: string }>>;
+		};
 		conversationStarters: string[];
 		script: HTMLScriptElement;
 		session(input: EmbeddedSessionInput): Promise<unknown>;
@@ -107,10 +128,41 @@ function publishOsPortableRouteContext(
 	adapter: OsPortableRouteAdapter,
 	pathname: string,
 ): PortableRouteContext {
-	const { pathname: normalizedPathname, ...context } =
-		osPortableRouteContext(pathname);
+	const { pathname: normalizedPathname, ...context } = withPageFocus(
+		osPortableRouteContext(pathname),
+	);
 	return adapter.setPathname(normalizedPathname, context);
 }
+
+/**
+ * The item on screen, such as the Decision Deck card, replaces the route's
+ * entity so the chat can resolve "this card". Identity only, never content.
+ */
+export function withPageFocus(
+	context: PortableRouteContext,
+	focus = getPageFocus(),
+): PortableRouteContext {
+	return focus
+		? {
+				...context,
+				entity: {
+					type: focus.type,
+					id: focus.id,
+					...(focus.label ? { label: focus.label } : {}),
+				},
+			}
+		: context;
+}
+
+const quickChatHomeDeps: QuickChatHomeDeps = {
+	enqueueMessage: (input, options) =>
+		osChatMutationApi.kernelRuntime.enqueueMessage(input, options),
+	readRun: (input) => osChatReadApi.kernelRuntime.readRun(input),
+	readMessages: (input) => osApi.kernelRuntime.readMessages(input),
+	randomUuid: () => crypto.randomUUID(),
+	sleep: abortableSleep,
+	now: () => Date.now(),
+};
 
 function decoded(value: string): string {
 	try {
@@ -314,6 +366,18 @@ export function OsQuickChat() {
 		applyLauncherSuppression(pathname);
 	}, [pathname]);
 
+	useEffect(
+		() =>
+			subscribePageFocus(() => {
+				if (portableRouteAdapterRef.current)
+					publishOsPortableRouteContext(
+						portableRouteAdapterRef.current,
+						window.location.pathname,
+					);
+			}),
+		[],
+	);
+
 	useEffect(() => {
 		// Keep the shadow host mounted so dialog focus isolation never discards
 		// the widget's in-memory thread. Base UI keeps data-open through nesting.
@@ -488,6 +552,12 @@ export function OsQuickChat() {
 					prompts: config.conversationStarters,
 					portableTool,
 					requireSignedPortableRoute: true,
+					home: {
+						label: QUICK_CHAT_HOME_LABEL,
+						turn: (input) => runQuickChatHomeTurn(quickChatHomeDeps, input),
+						transcript: ({ conversationId }) =>
+							readQuickChatHomeTranscript(quickChatHomeDeps, conversationId),
+					},
 					conversationStarters: config.conversationStarters,
 					locale: config.locale ?? "en-US",
 					accent: config.accentColor,
