@@ -129,3 +129,21 @@ it("leaves translated sources to the writer instead of matching words", () => {
 		),
 	).toEqual([]);
 });
+
+it("accepts a human source date and rejects a different month or year", () => {
+	const decision = { costOfWaiting: "The deadline is 2026-10-20." };
+	for (const date of ["2026-10-20", "Oct 20, 2026"])
+		expect(
+			missingDecisionFaceFacts(
+				{ ...face, body: "Saves a task.", context: `The deadline is ${date}.` },
+				decision,
+			),
+		).toEqual([]);
+	for (const date of ["Nov 20, 2026", "Oct 20, 2027", "There are 20 tasks."])
+		expect(
+			missingDecisionFaceFacts(
+				{ ...face, body: "Saves a task.", context: date },
+				decision,
+			).map(({ check }) => check),
+		).toContain("cost_of_waiting");
+});

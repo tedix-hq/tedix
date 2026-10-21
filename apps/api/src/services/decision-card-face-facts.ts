@@ -1,4 +1,5 @@
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
+import { formatIsoCardDates } from "@tedix/api-contract/utils/decision-card-copy";
 
 type Face = {
 	title: string;
@@ -35,6 +36,13 @@ function stems(text: string) {
  * distinctive word of the fact.
  */
 function restates(fact: string, face: string) {
+	const dates = fact.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? [];
+	if (dates.length) {
+		const shown = formatIsoCardDates(face).toLowerCase();
+		return dates.some((date) =>
+			shown.includes(formatIsoCardDates(date).toLowerCase()),
+		);
+	}
 	const numbers = fact.match(NUMBER) ?? [];
 	if (numbers.length) {
 		const bare = face.replace(/,/g, "");

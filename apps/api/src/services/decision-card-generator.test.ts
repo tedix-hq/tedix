@@ -691,10 +691,10 @@ it("repairs frozen relative dates and instructs both face and story writing to k
 		createdAt: "2026-10-19T09:00:00.000Z",
 	});
 	expect(result?.version === 2 && result.context).toBe(
-		"The workshop is on 2026-10-20.",
+		"The workshop is on Oct 20, 2026.",
 	);
 	expect(mocks.model.mock.calls[0]?.[2].rewriteInstruction).toContain(
-		"Store dates as absolute YYYY-MM-DD",
+		"Write source dates with a short month name and year",
 	);
 	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
 		"relative_date_use_absolute_source_date",
@@ -756,7 +756,10 @@ it("repairs a decision face that drops what waiting and yes cost, quoting the so
 			prompt: "Buy the vendor plan for EUR 1,200 per year before 2026-11-01.",
 			metadata: { decisionDeck: decision },
 		}),
-	).toMatchObject(complete);
+	).toMatchObject({
+		...complete,
+		context: "The vendor quote expires on Nov 1, 2026.",
+	});
 	expect(mocks.model.mock.calls[0]?.[2].system).toContain(copySpec.faceFacts);
 	const feedback = JSON.parse(
 		mocks.model.mock.calls[1]?.[2].validationFeedback,
@@ -767,3 +770,33 @@ it("repairs a decision face that drops what waiting and yes cost, quoting the so
 		{ check: "option_cost", source: "EUR 1,200 per year." },
 	]);
 });
+
+it.each(["2026-10-20", "Oct 20, 2026"])(
+	"writes human dates from %s without changing source metadata",
+	async (date) => {
+		mocks.model.mockResolvedValue(
+			JSON.stringify({
+				...copy,
+				title: "Check the repository's access?",
+				context: `The repository cannot be checked; review it by ${date}.`,
+				body: "Saves your review.",
+				actionLabels: { approve: `Review ${date}` },
+			}),
+		);
+		const metadata = {
+			decisionDeck: { costOfWaiting: "Review by 2026-10-20." },
+		};
+		const result = await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Review by 2026-10-20.",
+			metadata,
+		});
+		expect(result).toMatchObject({
+			title: "Check the repository's access?",
+			context: "The repository cannot be checked; review it by Oct 20, 2026.",
+			body: "Saves your review.",
+			actionLabels: { approve: "Review Oct 20, 2026" },
+		});
+		expect(metadata.decisionDeck.costOfWaiting).toBe("Review by 2026-10-20.");
+	},
+);
