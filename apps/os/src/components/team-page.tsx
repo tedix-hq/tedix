@@ -1,3 +1,4 @@
+import "./tedis.css";
 import { TediSetupChip } from "@/components/tedi-setup";
 import { tediDescription } from "@/lib/tedi-description";
 import { EntityAvatar } from "@/components/entity-avatar";
@@ -270,7 +271,7 @@ export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
 								as="li"
 								role="label"
 								tone="secondary"
-								className="truncate"
+								className="break-words"
 							>
 								<span className="text-kumo-default">{task.title}</span> ·{" "}
 								{humanize(task.status)}
@@ -305,7 +306,7 @@ export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
 					{detail.muscleCount === 1 ? "muscle memory" : "muscle memories"}
 				</Text>
 				{pulse.lastRationale ? (
-					<Text as="span" role="label" tone="secondary" className="truncate">
+					<Text as="span" role="label" tone="secondary" className="break-words">
 						Last decision:{" "}
 						<span className="text-kumo-default">
 							{pulse.lastRationale.action}
@@ -435,7 +436,7 @@ export function TediRow({
 					aria-expanded={expanded}
 					aria-label={`${expanded ? "Collapse" : "Expand"} ${tedi.displayName ?? tedi.name} details`}
 					onClick={onToggle}
-					className="min-h-16 w-full min-w-0 items-start gap-3 rounded-none px-4 py-3 text-left sm:flex-1"
+					className="tedi-row-toggle min-h-16 w-full min-w-0 items-start gap-3 rounded-md px-3 py-3 text-left sm:flex-1"
 					multiline
 					variant="ghost"
 				>
@@ -447,26 +448,34 @@ export function TediRow({
 								role="body"
 								tone="strong"
 								weight="medium"
-								className="min-w-0 truncate"
+								className="min-w-0 break-words"
 							>
 								{tedi.displayName ?? tedi.name}
 							</Text>
-							<TeamChip tone={tediStatusTone(tedi.status)}>
-								{sentenceCase(tediStatusLabel(tedi.status))}
-							</TeamChip>
-							{tedi.scope === "personal" && (
-								<TeamChip tone="neutral">Personal</TeamChip>
-							)}
 						</span>
-						<Text as="span" role="label" tone="secondary" className="truncate">
-							{tedi.slug}
-							{hint ? ` · ${hint}` : ""}
+						<Text
+							as="span"
+							role="label"
+							tone="secondary"
+							className="break-words"
+						>
+							{hint ?? tedi.slug}
 						</Text>
-						<Text as="span" role="label" tone="secondary">
+						<Text
+							as="span"
+							role="label"
+							tone="secondary"
+							className="tedi-row-meta"
+						>
+							<span data-tone={tediStatusTone(tedi.status)}>
+								{sentenceCase(tediStatusLabel(tedi.status))}
+							</span>
+							{tedi.scope === "personal" ? " · Personal" : ""}
+							{" · "}
 							{runtime ?? "No runtime signal"}
 							{seenAt ? (
 								<>
-									{" · active "}
+									{" · "}
 									<time dateTime={seenAt} title={absoluteTime(seenAt)}>
 										{relativeTime(seenAt)}
 									</time>
@@ -480,7 +489,7 @@ export function TediRow({
 						{expanded ? <CaretDown size={14} /> : <CaretRight size={14} />}
 					</span>
 				</Button>
-				<div className="flex flex-wrap items-center gap-2 self-end px-4 pb-3 sm:self-center sm:p-0 sm:pr-4">
+				<div className="tedi-row-actions flex items-center gap-2 pr-3 pb-2 pl-13 sm:self-center sm:pb-0 sm:pl-0">
 					{setupChip}
 					<TediDetailLink
 						tediId={tedi.id}
@@ -544,7 +553,7 @@ export function TeamPage({
 	const surface = getOsSurface("team");
 
 	return (
-		<Page width="lg">
+		<Page width="lg" className="tedis-page">
 			<Tabs
 				className="gap-8"
 				value={tab}
@@ -663,10 +672,13 @@ export function TediRosterPanel({
 			<RuntimeGateNotice />
 
 			<PageSection>
-				<PageToolbar appearance="inline">
+				<PageToolbar
+					appearance="inline"
+					className="grid grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-2 lg:flex"
+				>
 					<SearchInput
 						aria-label="Search digital workers"
-						placeholder="Search by name, slug, or role"
+						placeholder="Search tedis"
 						maxLength={200}
 						containerClassName="w-full lg:max-w-md"
 						value={search}
@@ -675,13 +687,6 @@ export function TediRosterPanel({
 							setExpandedId(null);
 							onPageChange?.(1);
 						}}
-						trailing={
-							<span className="whitespace-nowrap text-kumo-subtle type-tedix-label">
-								{tedis.isPending
-									? "Loading…"
-									: `${total} ${total === 1 ? "result" : "results"}`}
-							</span>
-						}
 					/>
 					<Select
 						value={status}
@@ -695,7 +700,9 @@ export function TediRosterPanel({
 							aria-label="Filter digital worker status"
 							className="w-full lg:w-44"
 						>
-							<SelectValue />
+							<SelectValue>
+								{status === "all" ? "All statuses" : sentenceCase(status)}
+							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="all">All statuses</SelectItem>
@@ -734,7 +741,7 @@ export function TediRosterPanel({
 				) : null}
 				{tedis.data && roster.length > 0 && (
 					<>
-						<Collection>
+						<Collection className="tedi-roster">
 							{roster.map((tedi) => (
 								<TediRow
 									key={tedi.id}

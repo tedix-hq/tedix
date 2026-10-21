@@ -204,11 +204,11 @@ describe("TediAvatar", () => {
 });
 
 describe("TediRow", () => {
-	it("renders avatar initial, name, slug, role hint, and the status chip", () => {
+	it("renders identity, role hint, and quiet status metadata", () => {
 		const html = renderToStaticMarkup(<TediRow tedi={baseTedi} />);
 		expect(html.indexOf("Sana")).toBeLessThan(html.indexOf("Active"));
 		expect(html).toContain("CTO Tedi");
-		expect(html).toContain("cto · Pragmatic engineering lead.");
+		expect(html).toContain("Pragmatic engineering lead.");
 		expect(html).toContain('data-tone="done"');
 		expect(html).toContain("Active");
 		expect(html).toContain("Running");
@@ -223,7 +223,7 @@ describe("TediRow", () => {
 			/>,
 		);
 		expect(html).toContain("Personal");
-		expect(html).toContain("cto · Engineering Lead · operator");
+		expect(html).toContain("Engineering Lead · operator");
 	});
 
 	it("states missing runtime/activity signals instead of hiding them", () => {
@@ -455,7 +455,7 @@ describe("TeamPage", () => {
 		const container = renderPage();
 		await flush();
 		expect(container.textContent).toContain("CTO Tedi");
-		expect(container.textContent).toContain("1 result");
+		expect(container.textContent).toContain("Showing 1–1 of 1 tedis");
 		expect(container.textContent).not.toContain("Digital workers");
 		expect(container.textContent).not.toContain("Business");
 		expect(container.textContent).not.toContain("Model catalog");
@@ -552,7 +552,7 @@ describe("TeamPage", () => {
 		expect(
 			container.querySelector('[aria-label="Filter digital worker status"]'),
 		).not.toBeNull();
-		expect(container.textContent).toContain("51 results");
+		expect(container.textContent).not.toContain("51 results");
 		expect(container.textContent).toContain("Showing 1–50 of 51 tedis");
 		const next = container.querySelector<HTMLButtonElement>(
 			'button[aria-label="Next page"]',

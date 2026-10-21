@@ -37,24 +37,26 @@ export function SetupChip({
 		: !setup
 			? "checking…"
 			: setup.items.length === 0
-				? "no requirements"
+				? "not needed"
 				: outstanding
 					? `${outstanding} to do`
 					: "ready";
 	return (
-		<Link href={`/team/${encodeURIComponent(tediId)}#setup`} variant="plain">
-			<Badge
-				variant={
-					failed || outstanding
-						? "warning"
-						: setup?.items.length
-							? "success"
-							: "outline"
-				}
-			>
-				Setup · {label}
-			</Badge>
-		</Link>
+		<Button
+			size="sm"
+			variant="ghost"
+			className={
+				failed || outstanding ? "text-kumo-warning" : "text-kumo-subtle"
+			}
+			render={
+				<Link
+					href={`/team/${encodeURIComponent(tediId)}#setup`}
+					variant="plain"
+				/>
+			}
+		>
+			Setup · {label}
+		</Button>
 	);
 }
 
