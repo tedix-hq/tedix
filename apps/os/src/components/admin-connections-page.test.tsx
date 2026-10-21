@@ -1,7 +1,10 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import type { ConnectionInventoryRow } from "@tedix/api-contract/schemas/connections";
+import {
+	ConnectionInventoryRowSchema,
+	type ConnectionInventoryRow,
+} from "@tedix/api-contract/schemas/connections";
 import {
 	connectionInventoryCountLabel,
 	ConnectionVerificationNotice,
@@ -14,6 +17,8 @@ const state = vi.hoisted(() => ({
 	add: vi.fn(),
 	connect: vi.fn(),
 	invalidate: vi.fn(),
+	mutate: vi.fn(),
+	checkService: vi.fn(),
 	canManage: true,
 	canManageOrg: false,
 }));
@@ -24,7 +29,7 @@ vi.mock("@tanstack/react-query", () => ({
 		isError: false,
 	}),
 	useQueryClient: () => ({ invalidateQueries: state.invalidate }),
-	useMutation: () => ({ isPending: false, mutate: vi.fn() }),
+	useMutation: () => ({ isPending: false, mutate: state.mutate }),
 }));
 vi.mock("@/lib/connections-actions", () => ({
 	useCanManageConnections: () => state.canManageOrg,
@@ -34,7 +39,12 @@ vi.mock("@/lib/connections-actions", () => ({
 	useDisconnectConnection: () => ({ isPending: false, isError: false }),
 	startNamedOauthConnect: state.add,
 	startOauthConnect: state.connect,
-	effectiveConnectionScope: () => "user",
+	effectiveConnectionScope: (_provider: unknown, scope: "user" | "tenant") =>
+		scope,
+}));
+vi.mock("@/lib/api", () => ({
+	osApi: {},
+	osDirectReadApi: { mcpHealth: { run: state.checkService } },
 }));
 vi.mock("@/components/capability-navigation", () => ({
 	CapabilityNavigation: () => null,
@@ -388,5 +398,267 @@ describe("Connection inventory coverage", () => {
 		expect(host.textContent).toContain("Credential read timed out.");
 		expect(host.textContent).toContain("App references were partial.");
 		expect(host.textContent).not.toContain("Provider healthy");
+	});
+});
+
+type AccountKind = "oauth" | "named_oauth" | "api_key";
+type RecoveryState = "missing" | "expired" | "needs_consent" | "error";
+
+function recoveryRow(
+	kind: AccountKind,
+	scope: "user" | "tenant",
+	status: RecoveryState,
+): ConnectionInventoryRow {
+	const appId = kind === "api_key" ? "acme-project-key" : "acme-calendar";
+	return ConnectionInventoryRowSchema.parse({
+		...row(),
+		provider: {
+			...row().provider,
+			appId,
+			name: kind === "api_key" ? "Acme Projects" : "Acme Calendar OAuth",
+			connectionType: kind === "api_key" ? "api_key" : "oauth",
+			registrationMode: kind === "api_key" ? null : "pre_registered",
+			tokenScope: scope,
+			recommendedScope: scope,
+			supportedScopes: ["user", "tenant"],
+		},
+		scope,
+		accountState:
+			status === "error"
+				? "unknown"
+				: status === "needs_consent"
+					? "present"
+					: status,
+		connection:
+			status === "expired" || status === "needs_consent"
+				? {
+						appId,
+						providerName: "Acme",
+						status: status === "expired" ? "expired" : "reconnect_needed",
+						connectedAt: null,
+						tokenExpiresAt: null,
+						scopes: ["calendar.read"],
+						tokenScope: scope,
+					}
+				: null,
+		references: [
+			{ appId: "acme-app", appSlug: "acme-calendar", source: "app" },
+		],
+		...(kind === "named_oauth"
+			? {
+					instanceLabel: "Planning team",
+					connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+				}
+			: {}),
+	});
+}
+
+async function mountRecoveryPage(
+	scope: "user" | "tenant",
+	search: {
+		connect?: string;
+		capability?: string;
+		connectionInstanceId?: string;
+	} = {},
+) {
+	if (!host) {
+		host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+	}
+	await act(async () =>
+		root?.render(
+			<AdminConnectionsPage
+				scope={scope === "user" ? "personal" : "organization"}
+				search={{ q: "", status: "all", ...search }}
+				onSearchChange={() => {}}
+			/>,
+		),
+	);
+	return host;
+}
+
+function recoveryButton(parent: ParentNode, label: string) {
+	const button = [
+		...parent.querySelectorAll<HTMLButtonElement>('button, [role="menuitem"]'),
+	].find((item) => item.textContent?.trim() === label);
+	expect(button, `Available action: ${label}`).toBeDefined();
+	return button!;
+}
+
+const recoveryCases = (["oauth", "named_oauth", "api_key"] as const).flatMap(
+	(kind) =>
+		(["user", "tenant"] as const).flatMap((scope) =>
+			(["missing", "expired", "needs_consent", "error"] as const)
+				// API keys cannot request OAuth consent.
+				.filter((status) => kind !== "api_key" || status !== "needs_consent")
+				.flatMap((status) =>
+					[true, false].map((allowed) => ({ kind, scope, status, allowed })),
+				),
+		),
+);
+
+describe("Disconnected account recovery matrix", () => {
+	it.each(recoveryCases)(
+		"$kind / $scope / $status / allowed=$allowed preserves recovery and ownership",
+		async ({ kind, scope, status, allowed }) => {
+			const target = recoveryRow(kind, scope, status);
+			const setup = new URLSearchParams({
+				connect: target.provider.appId,
+				capability: "read",
+			});
+			if (target.connectionInstanceId)
+				setup.set("connectionInstanceId", target.connectionInstanceId);
+			const setupUrl = `${scope === "user" ? "/account" : "/admin"}/connections?${setup}`;
+			target.capabilities = [
+				{
+					id: "read",
+					label: "Read calendar",
+					requiredScopes: ["calendar.read"],
+					state:
+						status === "missing" || status === "error"
+							? "not_configured"
+							: "needs_reauth",
+					setupUrl,
+					verified: status !== "error",
+				},
+			];
+			state.rows = [target];
+			// Deliberately grant the other permission: it must not authorize this row.
+			const personalOauth = kind !== "api_key" && scope === "user";
+			state.canManage = personalOauth ? allowed : !allowed;
+			state.canManageOrg = personalOauth ? !allowed : allowed;
+			state.connect.mockResolvedValue(undefined);
+			const page = await mountRecoveryPage(scope);
+			expect(page.textContent).toContain(
+				status === "error"
+					? "Could not verify"
+					: status === "missing"
+						? "Not connected"
+						: "Reconnect needed",
+			);
+			expect(page.textContent).not.toContain("MCP healthy");
+			if (kind !== "api_key")
+				expect(page.textContent).toContain(
+					scope === "user" ? "Personal account" : "Organization account",
+				);
+			const link = page.querySelector<HTMLAnchorElement>(
+				'a[aria-label="Set up Read calendar"]',
+			);
+			expect(link?.getAttribute("href")).toBe(setupUrl);
+			// Follow the supported local setup route by rendering its validated search.
+			// No browser navigation, OAuth popup or provider call occurs in this suite.
+			await mountRecoveryPage(scope, {
+				connect: setup.get("connect")!,
+				capability: setup.get("capability")!,
+				connectionInstanceId: setup.get("connectionInstanceId") ?? undefined,
+			});
+			const review = document.querySelector('[role="dialog"]')!;
+			expect(review.textContent).toContain(
+				scope === "user" ? "personal account" : "organization credential",
+			);
+			const proceed = recoveryButton(review, "Continue");
+			expect(proceed.disabled).toBe(!allowed);
+			expect(state.connect).not.toHaveBeenCalled();
+			if (!allowed) {
+				expect(review.textContent).toContain(
+					"Ask an organization admin to manage this connection or grant you access",
+				);
+				await act(async () => proceed.click());
+				expect(state.connect).not.toHaveBeenCalled();
+			} else {
+				await act(async () => proceed.click());
+				if (kind === "api_key") {
+					expect(
+						document.querySelector('[role="dialog"]')?.textContent,
+					).toContain("Connect Acme Projects");
+					expect(recoveryButton(document, "Save key").disabled).toBe(true);
+					expect(state.connect).not.toHaveBeenCalled();
+				} else {
+					expect(state.connect).toHaveBeenCalledExactlyOnceWith({
+						appId: target.provider.appId,
+						effectiveScope: scope,
+						registrationMode: "pre_registered",
+						connectionInstanceId: target.connectionInstanceId,
+						scopes: ["calendar.read"],
+					});
+				}
+			}
+			expect(state.add).not.toHaveBeenCalled();
+			expect(state.mutate).not.toHaveBeenCalled();
+			expect(state.checkService).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(recoveryCases.filter(({ status }) => status !== "error"))(
+		"$kind / $scope / $status / allowed=$allowed has a recovery action without capability metadata",
+		async ({ kind, scope, status, allowed }) => {
+			const target = recoveryRow(kind, scope, status);
+			state.rows = [target];
+			const personalOauth = kind !== "api_key" && scope === "user";
+			state.canManage = personalOauth ? allowed : !allowed;
+			state.canManageOrg = personalOauth ? !allowed : allowed;
+			state.connect.mockResolvedValue(undefined);
+			const page = await mountRecoveryPage(scope);
+			if (kind === "api_key" && status === "expired")
+				await act(async () => recoveryButton(page, "Manage").click());
+			if (kind !== "api_key" && status !== "missing") {
+				const menu = page.querySelector<HTMLButtonElement>(
+					'button[aria-label^="Manage Acme"]',
+				)!;
+				await act(async () => menu.click());
+			}
+			const parent =
+				kind !== "api_key" && status !== "missing" ? document : page;
+			const action = recoveryButton(
+				parent,
+				status === "missing" ? "Connect" : "Reconnect",
+			);
+			expect(
+				action.disabled || action.getAttribute("aria-disabled") === "true",
+			).toBe(!allowed);
+			await act(async () => action.click());
+			if (allowed && kind !== "api_key")
+				expect(state.connect).toHaveBeenCalledExactlyOnceWith({
+					appId: target.provider.appId,
+					effectiveScope: scope,
+					registrationMode: "pre_registered",
+					connectionInstanceId: target.connectionInstanceId,
+				});
+			else expect(state.connect).not.toHaveBeenCalled();
+			if (allowed && kind === "api_key")
+				expect(
+					document.querySelector('[role="dialog"]')?.textContent,
+				).toContain("Connect Acme Projects");
+			expect(state.mutate).not.toHaveBeenCalled();
+		},
+	);
+
+	it("keeps an unchecked MCP service separate from a mocked healthy service and an expired credential", async () => {
+		state.rows = [recoveryRow("api_key", "tenant", "expired")];
+		state.canManageOrg = true;
+		state.checkService.mockResolvedValue({
+			allPassed: true,
+			passCount: 3,
+			failCount: 0,
+			toolCount: 2,
+		});
+		const page = await mountRecoveryPage("tenant");
+		expect(page.textContent).toContain("MCP service not checked");
+		expect(page.textContent).not.toContain("MCP healthy");
+		await act(async () => recoveryButton(page, "Manage").click());
+		await act(async () => recoveryButton(page, "Check app service").click());
+		expect(state.checkService).toHaveBeenCalledExactlyOnceWith({
+			appSlug: "acme-calendar",
+			authStrategy: "auto",
+			tasksExtension: "ignore",
+		});
+		expect(page.textContent).toContain("MCP healthy · 2 live tools");
+		expect(page.textContent).toContain("Reconnect needed");
+		expect(page.textContent).toContain(
+			"Provider API tools and credential usability were not tested",
+		);
+		expect(state.connect).not.toHaveBeenCalled();
+		expect(state.mutate).not.toHaveBeenCalled();
 	});
 });
