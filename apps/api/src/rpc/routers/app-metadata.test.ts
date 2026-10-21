@@ -1,3 +1,4 @@
+import { UpdateAppInputSchema } from "@tedix/api-contract/schemas/app";
 import { describe, expect, it } from "vite-plus/test";
 import { mergeAppMetadataPatch, normalizeAppMetadata } from "./app-metadata";
 
@@ -76,6 +77,23 @@ describe("normalizeAppMetadata", () => {
 });
 
 describe("mergeAppMetadataPatch", () => {
+	it.each([{ codeMode: true }, { serverName: "Updated" }, {}])(
+		"preserves unspecified stored MCP keys through contract parsing and merge: %j",
+		(mcpConfig) => {
+			const stored = {
+				authMode: "hybrid",
+				capabilities: ["tools", "resources"],
+				enforcePolicies: true,
+				connectionScope: "user",
+				serverName: "Existing",
+			};
+			const patch = UpdateAppInputSchema.parse({ metadata: { mcpConfig } });
+			expect(
+				mergeAppMetadataPatch({ mcpConfig: stored }, patch.metadata).mcpConfig,
+			).toEqual({ ...stored, ...mcpConfig });
+		},
+	);
+
 	it("removes an app-level Connection binding without persisting the null sentinel", () => {
 		const merged = mergeAppMetadataPatch(
 			{

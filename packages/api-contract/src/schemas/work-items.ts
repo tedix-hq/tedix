@@ -1715,8 +1715,17 @@ export const CreateWorkItemInputSchema = z
 	.strict();
 export type CreateWorkItemInput = z.infer<typeof CreateWorkItemInputSchema>;
 
-export const UpdateWorkItemInputSchema =
-	CreateWorkItemInputSchema.partial().extend({
+export const UpdateWorkItemInputSchema = CreateWorkItemInputSchema.extend({
+	workKind: CreateWorkItemInputSchema.shape.workKind.removeDefault(),
+	riskLevel: CreateWorkItemInputSchema.shape.riskLevel.removeDefault(),
+	requiredCapabilities:
+		CreateWorkItemInputSchema.shape.requiredCapabilities.removeDefault(),
+	requiredAuthorities:
+		CreateWorkItemInputSchema.shape.requiredAuthorities.removeDefault(),
+	priority: CreateWorkItemInputSchema.shape.priority.removeDefault(),
+})
+	.partial()
+	.extend({
 		id: z.uuid(),
 		disposition: z.never().optional(),
 	});
