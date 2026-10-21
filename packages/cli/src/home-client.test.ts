@@ -1638,13 +1638,16 @@ describe("expired session retry", () => {
 	});
 });
 
-describe("pre-dispatch tool refusals", () => {
+describe.each([
+	"autonomous_policy_unavailable",
+	"attempt_authorization_unavailable",
+])("pre-dispatch tool refusals: %s", (code) => {
 	test("resends a call the gateway refused before dispatch, and nothing else", async () => {
 		const { client, state } = harness(async (callIndex) =>
 			callIndex === 1
 				? preDispatchUnavailableToolResult(
-						"autonomous_policy_unavailable",
-						"Autonomous action policy is unavailable; no side effect was executed.",
+						code,
+						"Authorization is unavailable; no side effect was executed.",
 						0,
 					)
 				: { structuredContent: { ok: true } },

@@ -157,6 +157,44 @@ it.each(bindings)(
 	},
 );
 
+it("returns a typed refusal when Attempt authorization cannot be checked", async () => {
+	const ctx = context("external_agent");
+	const resolve = vi.fn(async () => {
+		throw new Error("authorization backend unavailable");
+	});
+	Object.assign(ctx.apiClient.mcpGovernance, {
+		resolveAgentLifecycleAuthorization: resolve,
+	});
+	const binding = tool(
+		"heartbeat_work_item_attempt",
+		"workItems/heartbeatAttempt",
+	);
+	const result = await requireDestructiveToolApproval(
+		ctx,
+		binding,
+		resolveToolAnnotations(binding),
+		{ args: { id: "own-work" } },
+	);
+	expect(resolve).toHaveBeenCalledOnce();
+	expect(result).toEqual({
+		isError: true,
+		content: [
+			{
+				type: "text",
+				text: "Attempt authorization is unavailable; no side effect was executed.",
+			},
+		],
+		_meta: {
+			code: "attempt_authorization_unavailable",
+			details: { executed: false, retryAfterSeconds: 5 },
+		},
+	});
+	expect(
+		ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+	).not.toHaveBeenCalled();
+	expect(ctx.server.server.elicitInput).not.toHaveBeenCalled();
+});
+
 it.each([undefined, { version: 1, maxRisk: "medium" }] as const)(
 	"allows only verified own lifecycle writes without relying on autonomy (%s)",
 	async (autonomy) => {
