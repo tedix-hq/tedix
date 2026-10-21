@@ -146,11 +146,13 @@ export function ConnectionListItem({
 	const primaryStatus =
 		accountUnknown || accountRestricted
 			? "unknown"
-			: hasConnections
-				? hasExpired
-					? "expired"
-					: "connected"
-				: "none";
+			: hasExpired || inventory?.accountState === "expired"
+				? "expired"
+				: connections.some((connection) => connection.status === "revoked")
+					? "disconnected"
+					: hasConnections
+						? "connected"
+						: "none";
 	const scopeGroups = provider.credentialProfile?.scopeGroups ?? [];
 	const serviceSlugs = [
 		...new Set(
@@ -266,6 +268,7 @@ export function ConnectionListItem({
 						{primaryStatus === "connected" && "Connected"}
 						{primaryStatus === "expired" && "Reconnect needed"}
 						{primaryStatus === "none" && "Not connected"}
+						{primaryStatus === "disconnected" && "Disconnected"}
 						{primaryStatus === "unknown" && "Could not verify"}
 					</Badge>
 
@@ -288,9 +291,7 @@ export function ConnectionListItem({
 						size="sm"
 						variant={hasConnections ? "outline" : "default"}
 						onClick={handleActionClick}
-						disabled={
-							accountUnknown || isConnecting || (!canManage && !hasConnections)
-						}
+						disabled={isConnecting || (!canManage && !hasConnections)}
 						loading={isConnecting}
 						title={
 							!canManage && !hasConnections ? manageDeniedReason : undefined
@@ -299,10 +300,30 @@ export function ConnectionListItem({
 					>
 						{hasConnections
 							? "Manage"
-							: accountRestricted
+							: primaryStatus !== "none"
 								? "Reconnect"
 								: "Connect"}
 					</Button>
+
+					{hasConnections && primaryStatus !== "connected" && (
+						<Button
+							size="sm"
+							onClick={(event) => {
+								event.stopPropagation();
+								onConnect(
+									provider.appId,
+									provider.connectionType,
+									sectionScope,
+								);
+							}}
+							disabled={isConnecting || !canManage}
+							loading={isConnecting}
+							title={canManage ? undefined : manageDeniedReason}
+							className="shrink-0 max-sm:min-h-11"
+						>
+							Reconnect
+						</Button>
+					)}
 
 					{/* Chevron */}
 					{hasConnections && (
