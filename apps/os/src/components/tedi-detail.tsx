@@ -1,3 +1,9 @@
+import "./tedis.css";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { TediSetupChecklist } from "./tedi-setup";
 import { TediRecoveryDiagnostic } from "./tedi-recovery-diagnostic";
 import { useQuery } from "@tanstack/react-query";
@@ -36,7 +42,6 @@ import {
 	type EntrustmentEffectiveStatus,
 	entrustmentSummary,
 	roleHint,
-	TeamChip,
 	TediAvatar,
 	tediStatusLabel,
 	tediStatusTone,
@@ -99,15 +104,16 @@ export function TediDetailHeader({
 			<div className="flex min-w-0 items-start gap-3">
 				<TediAvatar tedi={tedi} />
 				<PageHeading>
-					<PageTitle>{tedi.displayName ?? tedi.name}</PageTitle>
-					<PageDescription>
-						{tedi.slug}
-						{hint ? ` · ${hint}` : ""}
+					<PageTitle className="break-words">
+						{tedi.displayName ?? tedi.name}
+					</PageTitle>
+					<PageDescription className="break-words">
+						{hint ?? tedi.slug}
 					</PageDescription>
-					<PageMeta className="gap-x-5">
+					<PageMeta className="tedi-header-meta gap-x-2">
 						<li>
-							<TeamChip
-								tone={
+							<span
+								data-tone={
 									localRuntimeUnavailable
 										? "neutral"
 										: tediStatusTone(tedi.status)
@@ -116,10 +122,9 @@ export function TediDetailHeader({
 								{localRuntimeUnavailable
 									? "Configured"
 									: sentenceCase(tediStatusLabel(tedi.status))}
-							</TeamChip>
+							</span>
 						</li>
 						<li>
-							Runtime{" "}
 							<strong>
 								{localRuntimeUnavailable
 									? "local execution unavailable"
@@ -130,7 +135,6 @@ export function TediDetailHeader({
 						</li>
 						{!localRuntimeUnavailable && seenAt && (
 							<li>
-								Active{" "}
 								<strong>
 									<time dateTime={seenAt} title={absoluteTime(seenAt)}>
 										{relativeTime(seenAt)}
@@ -138,33 +142,37 @@ export function TediDetailHeader({
 								</strong>
 							</li>
 						)}
-						{/* Only claim authority when the summary actually resolved. An
-						    absent summary is not the same as no entrustments: the roster
-						    read may still be in flight, or this tedi may be EXCLUDED from
-						    the operations summaries (archived/paused/errored/
-						    provisioning). Asserting "observe-only" there contradicts the
-						    entrustment list rendered below it from the canonical
-						    profile. */}
-						{summary && (
-							<li>
-								Authority{" "}
-								<strong>
-									{entrustments ?? "observe-only — no entrustments"}
-								</strong>
-							</li>
-						)}
-						{pulse && (
-							<li>
-								Last 24h{" "}
-								<strong>
-									{formatCount(pulse.decisionsLast24h)}{" "}
-									{pulse.decisionsLast24h === 1 ? "decision" : "decisions"} ·{" "}
-									{formatCount(pulse.factsLearnedLast24h)}{" "}
-									{pulse.factsLearnedLast24h === 1 ? "fact" : "facts"}
-								</strong>
-							</li>
-						)}
 					</PageMeta>
+					{summary && (
+						<Collapsible>
+							<CollapsibleTrigger className="-ml-2">
+								Activity and authority
+							</CollapsibleTrigger>
+							<CollapsibleContent keepMounted className="p-1 -m-1">
+								<PageMeta className="mt-0 gap-x-3">
+									<li>
+										Authority{" "}
+										<strong>
+											{entrustments ?? "observe-only — no entrustments"}
+										</strong>
+									</li>
+									{pulse && (
+										<li>
+											Last 24h{" "}
+											<strong>
+												{formatCount(pulse.decisionsLast24h)}{" "}
+												{pulse.decisionsLast24h === 1
+													? "decision"
+													: "decisions"}{" "}
+												· {formatCount(pulse.factsLearnedLast24h)}{" "}
+												{pulse.factsLearnedLast24h === 1 ? "fact" : "facts"}
+											</strong>
+										</li>
+									)}
+								</PageMeta>
+							</CollapsibleContent>
+						</Collapsible>
+					)}
 				</PageHeading>
 			</div>
 		</PageHeader>
@@ -219,7 +227,7 @@ export function TediDetailPage() {
 	const summary = summaries.data?.data.find((row) => row.tediId === tediId);
 
 	return (
-		<Page width="lg">
+		<Page width="lg" className="tedis-page">
 			<PageBack render={<Link to="/team" />}>Team</PageBack>
 
 			{tediQuery.isPending && <ListSkeleton rows={1} rowClassName="h-20" />}
@@ -317,21 +325,15 @@ export function TediOverview({ tediId }: { tediId: string }) {
 		<div className="grid gap-4 md:grid-cols-2">
 			<TediSetupChecklist tediId={tediId} />
 			<TediWiringSection tediId={tediId} />
-			<Alert>
-				<AlertTitle>Operational identity</AlertTitle>
-				<AlertDescription>
-					The header is the canonical roster and runtime summary for this
-					digital worker. Use the focused sections for authority, telemetry,
-					learning, memory, mailbox, and governed settings.
-				</AlertDescription>
-			</Alert>
-			<Alert>
-				<AlertTitle>Canonical tedi id</AlertTitle>
-				<AlertDescription className="break-all font-mono">
-					{tediId}
-				</AlertDescription>
-			</Alert>
-			<TediRecoveryDiagnostic tediId={tediId} />
+			<Collapsible className="md:col-span-2">
+				<CollapsibleTrigger>Technical details</CollapsibleTrigger>
+				<CollapsibleContent className="grid gap-4 p-1 -m-1">
+					<Text role="label" tone="secondary" className="break-all">
+						Tedi ID: {tediId}
+					</Text>
+					<TediRecoveryDiagnostic tediId={tediId} />
+				</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }

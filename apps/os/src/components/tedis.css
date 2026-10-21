@@ -1,0 +1,23 @@
+.tedis-page [data-tone="blocked"] {
+	color: var(--color-kumo-danger);
+}
+.tedis-page [data-tone="warn"] {
+	color: var(--color-kumo-warning);
+}
+.tedi-header-meta > li + li::before {
+	content: "·";
+	margin-inline-end: 0.5rem;
+}
+/* The collection clips its rounded corners; leave room for the outer 1px. */
+.tedis-page .tedi-roster {
+	padding: 0.25rem;
+}
+.tedis-page .tedi-row-toggle:focus-visible,
+.tedis-page [data-kumo-component="SearchInput"]:focus-within,
+.tedis-page
+	[data-kumo-component="Select"][data-kumo-part="trigger"]:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 1px var(--ring),
+		inset 0 0 0 1px var(--ring);
+}

@@ -193,6 +193,8 @@ const CALLS: Record<string, unknown> = {
 	"workInteractions/outbound/profile": {},
 	"members/listMembers": { organizationId: IDS.orgId, limit: 25, offset: 0 },
 	"tedis/list": { limit: 50, offset: 0 },
+	"tedis/get": { tediId: IDS.tediMiles },
+	"tedis/getSetup": { tediId: IDS.tediMiles },
 	"tedis/listOperationsSummaries": undefined,
 	"tediUsage/getCallCosts": { tediId: IDS.tediMiles, period: "7d" },
 	"skills/listByOrg": { limit: 100, offset: 0, summary: true },

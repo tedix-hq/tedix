@@ -4413,6 +4413,16 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"members/listMembers": (input: Pagination | undefined) =>
 		paginate(TEAM_MEMBERS, input),
 	"tedis/list": (input: Pagination | undefined) => paginate(TEDIS, input),
+	"tedis/get": (input: { tediId: string }) => {
+		const tedi = TEDIS.find((row) => row.id === input.tediId);
+		if (!tedi) throw new RpcError("NOT_FOUND", "Tedi not found");
+		return tedi;
+	},
+	"tedis/getSetup": (input: { tediId: string }) => ({
+		tediId: input.tediId,
+		observedAt: T5,
+		items: [],
+	}),
 	"tedis/listOperationsSummaries": () => ({
 		data: [
 			operationsSummary(
