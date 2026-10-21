@@ -27,6 +27,7 @@ import {
 	KnowledgeMap,
 	KnowledgeMapEmpty,
 	type KnowledgeEdgeInput,
+	type KnowledgeLayout,
 	type KnowledgeNodeInput,
 	layoutKnowledgeGraph,
 	MemoryExplorer,
@@ -270,6 +271,131 @@ describe("KnowledgeMap", () => {
 				<KnowledgeMap layout={layoutKnowledgeGraph([], [])} />,
 			),
 		).toBe("");
+	});
+});
+
+describe("KnowledgeMap text disclosure", () => {
+	function mountMap(layout: KnowledgeLayout) {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		act(() => root.render(<KnowledgeMap layout={layout} />));
+		cleanups.push(() => {
+			act(() => root.unmount());
+			container.remove();
+		});
+		const trigger = container.querySelector<HTMLButtonElement>("button")!;
+		const open = () => act(() => trigger.click());
+		return { container, trigger, open };
+	}
+
+	it("starts collapsed after the visual map and toggles a named text region", () => {
+		const { container, trigger, open } = mountMap(
+			layoutKnowledgeGraph([node("d1", "domain")], []),
+		);
+		expect(trigger.textContent).toContain("Map details (text)");
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		expect(container.querySelector('[role="region"]')).toBeNull();
+		expect(
+			container.querySelector("svg")!.compareDocumentPosition(trigger) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		trigger.focus();
+		expect(document.activeElement).toBe(trigger);
+		open();
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		const region = container.querySelector('[role="region"]')!;
+		expect(region.getAttribute("aria-label")).toBe("Knowledge map text");
+		expect(
+			container
+				.querySelector(`#${trigger.getAttribute("aria-controls")}`)
+				?.contains(region),
+		).toBe(true);
+		open();
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+	});
+
+	it("preserves full long names, types and duplicate-label identities in every relationship", () => {
+		const longLabel =
+			"A full knowledge entry name that exceeds the visual map label limit";
+		const layout = layoutKnowledgeGraph(
+			[
+				node("domain-1", "domain", "Shared name"),
+				node("domain-2", "domain", "Shared name"),
+				node("knowledge-1", "knowledge_entry", longLabel),
+			],
+			[
+				edge("domain-1", "knowledge-1", "HAS_KNOWLEDGE"),
+				edge("domain-2", "knowledge-1", "SUPPORTS"),
+			],
+		);
+		const { container, open } = mountMap(layout);
+		open();
+		const nodes = container.querySelector('[aria-label="Map nodes"]')!;
+		expect(nodes.children).toHaveLength(3);
+		expect(nodes.textContent).toContain(
+			`${longLabel} (Knowledge entry; knowledge-1)`,
+		);
+		const relationships = [
+			...container.querySelectorAll('[aria-label="Map relationships"] li'),
+		].map((li) => li.textContent);
+		expect(relationships).toEqual([
+			`Shared name (Domain; domain-1) → Has knowledge → ${longLabel} (Knowledge entry; knowledge-1)`,
+			`Shared name (Domain; domain-2) → Supports → ${longLabel} (Knowledge entry; knowledge-1)`,
+		]);
+	});
+
+	it("distinguishes no resolved edges from omitted relationship details", () => {
+		const layout = layoutKnowledgeGraph(
+			[node("d1", "domain")],
+			[edge("d1", "missing")],
+		);
+		const { container, open } = mountMap(layout);
+		open();
+		const text = container.querySelector('[role="region"]')!.textContent;
+		expect(text).toContain("No resolved relationships in this layout.");
+		expect(text).toContain("1 relationships were omitted from the layout.");
+		expect(text).toContain(
+			"endpoint names and relationship details are unavailable in this snapshot",
+		);
+	});
+
+	it("labels an unavailable endpoint explicitly without substituting a known title", () => {
+		const layout = layoutKnowledgeGraph(
+			[node("d1", "domain", "Known domain"), node("f1", "fact", "Known fact")],
+			[edge("d1", "f1")],
+		);
+		layout.nodes = layout.nodes.filter((node) => node.id !== "f1");
+		const { container, open } = mountMap(layout);
+		open();
+		expect(
+			container.querySelector('[aria-label="Map relationships"]')!.textContent,
+		).toBe(
+			"Known domain (Domain; d1) → Has fact → Unavailable in this snapshot (f1)",
+		);
+	});
+
+	it("lists a bounded snapshot without implying more nodes or relationships were read", () => {
+		const layout = layoutKnowledgeGraph(
+			Array.from({ length: GRAPH_MAX_NODES }, (_, i) =>
+				node(`fact-${i}`, "fact", `Fact ${i}`),
+			),
+			[],
+		);
+		const { container, open } = mountMap(layout);
+		open();
+		expect(
+			container.querySelector('[aria-label="Map nodes"]')!.children,
+		).toHaveLength(GRAPH_MAX_NODES);
+		expect(container.querySelector('[role="region"]')!.textContent).toContain(
+			"Only nodes and relationships in this snapshot are listed.",
+		);
+		expect(container.querySelector('[role="region"]')!.textContent).toContain(
+			"No resolved relationships in this layout.",
+		);
+		expect(
+			container.querySelector('[role="region"]')!.textContent,
+		).not.toContain("were omitted");
 	});
 });
 
