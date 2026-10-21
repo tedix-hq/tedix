@@ -7,6 +7,7 @@
  * Run: `bun browser-tests/focus-clip.spec.ts`. Set FOCUS_CLIP_TEST_ORIGIN to
  * reuse a running fixture server, FOCUS_CLIP_ROUTES to a comma list to narrow
  * the crawl, FOCUS_CLIP_REPORT to write the findings as JSON.
+ * FOCUS_CLIP_SCREENSHOTS saves Work loading/error images to an existing directory.
  */
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
@@ -390,6 +391,98 @@ async function audit(page: Page) {
 	});
 }
 
+// Normal route crawls miss transient loading and failed first reads.
+async function auditWorkText(page: Page, label: string) {
+	const endpoint = "**/api/rpc/osWorkspaces/gadgets/workApps";
+	let release = () => {};
+	const pending = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route(endpoint, async (route) => {
+		await pending;
+		await route.fulfill({
+			status: 400,
+			json: {
+				json: {
+					code: "BAD_REQUEST",
+					message: "Fixture read failed",
+					defined: false,
+					status: 400,
+				},
+			},
+		});
+	});
+	try {
+		await page.goto(`${origin}/work`, NAVIGATION);
+		for (const state of ["loading", "error"] as const) {
+			if (state === "error") release();
+			const text = page.getByText(
+				state === "loading"
+					? "Loading your Work apps…"
+					: "Your Work apps could not be loaded.",
+				{ exact: true },
+			);
+			await text.waitFor({ timeout: 60_000 });
+			await page.evaluate(() => document.fonts.ready);
+			if (process.env.FOCUS_CLIP_SCREENSHOTS)
+				await page.screenshot({
+					path: `${process.env.FOCUS_CLIP_SCREENSHOTS}/work-${state}-${label}.png`,
+				});
+			const cuts = await text.evaluate((element) => {
+				const range = document.createRange();
+				range.selectNodeContents(element);
+				const rects = [...range.getClientRects()];
+				const clips = [
+					{
+						left: 0,
+						right: innerWidth,
+						top: 0,
+						bottom: innerHeight,
+						x: true,
+						y: true,
+						name: "viewport",
+					},
+				];
+				for (
+					let parent = element.parentElement;
+					parent;
+					parent = parent.parentElement
+				) {
+					const css = getComputedStyle(parent);
+					const box = parent.getBoundingClientRect();
+					clips.push({
+						left: box.left + parent.clientLeft,
+						right: box.left + parent.clientLeft + parent.clientWidth,
+						top: box.top + parent.clientTop,
+						bottom: box.top + parent.clientTop + parent.clientHeight,
+						x: css.overflowX !== "visible",
+						y: css.overflowY !== "visible",
+						name: parent.className,
+					});
+				}
+				return clips.flatMap((clip) =>
+					rects
+						.filter(
+							(rect) =>
+								(clip.x &&
+									(rect.left < clip.left - 0.5 ||
+										rect.right > clip.right + 0.5)) ||
+								(clip.y &&
+									(rect.top < clip.top - 0.5 ||
+										rect.bottom > clip.bottom + 0.5)),
+						)
+						.map((rect) => ({ clip, text: rect.toJSON() })),
+				);
+			});
+			console.log(`Work ${state} ${label}: ${JSON.stringify(cuts)}`);
+			assert.deepEqual(cuts, [], `Work ${state} text clipped at ${label}`);
+		}
+	} finally {
+		release();
+		await page.unrouteAll({ behavior: "wait" });
+	}
+}
+
 async function settle(page: Page) {
 	// Live lanes keep sockets open, so wait for rendered content rather than network idle.
 	await page
@@ -462,6 +555,7 @@ try {
 				(value) => localStorage.setItem("tedix-os-theme", value),
 				theme,
 			);
+			await auditWorkText(page, label);
 			for (const route of routes.values()) {
 				await page.goto(`${origin}${route}`, NAVIGATION);
 				await settle(page);
