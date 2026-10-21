@@ -26,6 +26,11 @@ import {
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
 import { Loader } from "@/components/kumo/loader";
+import {
+	PageDescription,
+	PageHeading,
+	PageTitle,
+} from "@/components/kumo/page";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
@@ -214,14 +219,12 @@ export function ProfilePage() {
 							Workspaces
 						</Button>
 					</div>
-					<div>
-						<h1 className="font-semibold text-kumo-strong type-tedix-title">
-							Your profile
-						</h1>
-						<Text role="body" tone="secondary">
+					<PageHeading>
+						<PageTitle>Your profile</PageTitle>
+						<PageDescription>
 							Your name and avatar follow you across Tedix workspaces.
-						</Text>
-					</div>
+						</PageDescription>
+					</PageHeading>
 				</header>
 
 				{localEvaluation ? (
