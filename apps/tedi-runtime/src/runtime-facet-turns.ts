@@ -149,6 +149,7 @@ import {
 	untrustedTurnToolAllowlist,
 } from "./turn-trust";
 import { wrapUntrustedInput } from "./untrusted-input";
+import { createWebSearchAiTools } from "./web-search-tool";
 import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 import { delegatedWorkTools } from "./delegated-work-tools";
@@ -1070,6 +1071,13 @@ export const runtimeFacetTurns = {
 			),
 			...this.objectStoreAiTools(),
 			...this.r2SqlAiTool(),
+			...createWebSearchAiTools({
+				ai: this.env.AI,
+				organizationWebSearch: this.state.organizationWebSearch,
+				toolPolicy: this.state.toolPolicy,
+				runId: input.runId,
+				getPlatform: () => this.getPlatformClient(),
+			}),
 		};
 		const supervisedTools = supervisedDelegationToolSet(
 			selectRepositoryToolSurface(unrestrictedTools, input.repositoryMode),

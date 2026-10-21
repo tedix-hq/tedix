@@ -16,6 +16,19 @@ export function capabilityPlanForMetadata(
 	return DelegationCapabilityPlanSchema.parse(value);
 }
 
+/** Citation hrefs escape parentheses; accept both spellings of each URL. */
+function citedUrls(output: unknown): string[] {
+	const citations = (output as { citations?: unknown } | null)?.citations;
+	if (!Array.isArray(citations)) return [];
+	return citations.flatMap((citation) => {
+		const href =
+			typeof citation === "string"
+				? /\]\((https?:\/\/[^\s)]+)\)$/.exec(citation)?.[1]
+				: undefined;
+		return href ? [href, href.replace(/%28/gi, "(").replace(/%29/gi, ")")] : [];
+	});
+}
+
 /** Narrow existing gated tools; never construct a new provider credential. */
 export function capabilityToolSet(input: {
 	tools: ToolSet;
@@ -43,6 +56,8 @@ export function capabilityToolSet(input: {
 			"tedix_mcp_call_tool",
 			"mcp_read_result",
 		);
+	// Pages a planned web search returned in this turn join the request's URLs.
+	const searchedUrls = new Set<string>();
 	const result: ToolSet = {};
 	for (const name of selected) {
 		const definition = tools[name] as
@@ -76,7 +91,8 @@ export function capabilityToolSet(input: {
 					reason = "Discovery is outside the capability plan";
 				if (
 					name === "browser_markdown" &&
-					!plan.urls.includes(String(values.url))
+					!plan.urls.includes(String(values.url)) &&
+					!searchedUrls.has(String(values.url))
 				)
 					reason = "URL is outside the delegated request";
 				if (name === "tedix_mcp_call_tool") {
@@ -101,12 +117,15 @@ export function capabilityToolSet(input: {
 					reason,
 				});
 				if (reason) throw new Error(reason);
-				return execute(
+				const output = await execute(
 					name === "tedix_mcp_search_tools"
 						? { query: values.query, includeParameters: true, limit: 1 }
 						: args,
 					options,
 				);
+				if (name === "web_search")
+					for (const url of citedUrls(output)) searchedUrls.add(url);
+				return output;
 			},
 		} as ToolSet[string];
 	}
