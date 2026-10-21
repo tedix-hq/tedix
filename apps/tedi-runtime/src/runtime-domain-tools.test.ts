@@ -120,7 +120,12 @@ const options = { toolCallId: "domain-test", messages: [] };
 		globalThis.fetch = async () => new Response("denied", { status: 403 });
 		assert.deepEqual(
 			await tools.r2_sql_query.execute({ select: ["count(*)"] }, options),
-			{ ok: false, configured: true, status: 403, error: "denied" },
+			{
+				ok: false,
+				configured: true,
+				status: 403,
+				error: "analytics provider returned HTTP 403",
+			},
 		);
 	} finally {
 		globalThis.fetch = originalFetch;
