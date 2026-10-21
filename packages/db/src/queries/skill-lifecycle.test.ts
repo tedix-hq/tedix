@@ -16,9 +16,15 @@ import {
 	sweepExpiredDraftSkills,
 } from "./skill-lifecycle";
 
-function fixture() {
+function fixture(options?: { onPrepare?: (query: string) => void }) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
+        CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT, policy_pack_id TEXT);
+        CREATE TABLE policy_packs (id TEXT PRIMARY KEY, organization_id TEXT, definition TEXT);
+        INSERT INTO tedis VALUES ('tedi-1', 'org-1', 'policy-1');
+        INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false},"record":{"evalRequired":false}}}');
+        CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT, skill_id TEXT, skill_revision INTEGER, status TEXT, result TEXT);
+        CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT);
 		CREATE TABLE skill_entries (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
@@ -161,7 +167,8 @@ function fixture() {
 		};
 
 	return {
-		db: createDbClient(createD1Facade(sqlite)),
+		sqlite,
+		db: createDbClient(createD1Facade(sqlite, options)),
 		insertSkill,
 		insertEvent,
 		skillRow,
@@ -611,8 +618,11 @@ describe("assertSkillLifecycleTransition via updateSkillEntry", () => {
 		});
 	});
 
-	it("operator force on an authorless entry still passes", async () => {
-		const { db, insertSkill, skillRow } = fixture();
+	it("operator force on a certified authorless entry passes", async () => {
+		const { db, sqlite, insertSkill, skillRow } = fixture();
+		sqlite.exec(
+			`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'skill-1', 1, 'completed', '{"certification":{"passed":true}}')`,
+		);
 		insertSkill({
 			id: "skill-1",
 			lifecycleState: "draft",
@@ -954,7 +964,7 @@ describe("sweepExpiredDraftSkills", () => {
 		expect(skillRow("flow-promoted").lifecycleState).toBe("active");
 	});
 
-	it("olderThanDays 0 purges every current zero-use draft (the one-shot)", async () => {
+	it("the innovation layer TTL takes precedence over olderThanDays 0", async () => {
 		const { db, insertSkill, skillRow } = fixture();
 		insertSkill({
 			id: "skill-recent",
@@ -965,8 +975,8 @@ describe("sweepExpiredDraftSkills", () => {
 			olderThanDays: 0,
 			now: new Date("2026-07-16T00:00:00.000Z"),
 		});
-		expect(result.archived).toBe(1);
-		expect(skillRow("skill-recent").lifecycleState).toBe("archived");
+		expect(result.archived).toBe(0);
+		expect(skillRow("skill-recent").lifecycleState).toBe("draft");
 	});
 
 	it("dryRun lists candidates without archiving", async () => {
@@ -1006,4 +1016,239 @@ describe("sweepExpiredDraftSkills", () => {
 		expect(skillRow("skill-a").lifecycleState).toBe("draft");
 		expect(skillRow("skill-b").lifecycleState).toBe("archived");
 	});
+});
+
+describe("pace-layer eval and TTL policy", () => {
+	it("refuses forced promotion without passing current-revision certification, then allows it", async () => {
+		const { db, sqlite, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "candidate", lifecycleState: "draft" });
+		sqlite.exec(
+			`UPDATE policy_packs SET definition = '{"paceLayerPolicy":{"differentiation":{"evalRequired":true}}}'`,
+		);
+		const promote = () =>
+			updateSkillEntry(
+				db,
+				"candidate",
+				{ lifecycleState: "active" },
+				{ force: true, forceAuthority: { kind: "operator" } },
+			);
+		await expect(promote()).rejects.toMatchObject({
+			details: { rule: "pace_layer_requires_eval" },
+		});
+		sqlite.exec(
+			`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'candidate', 2, 'completed', '{"certification":{"passed":true}}')`,
+		);
+		await expect(promote()).rejects.toMatchObject({
+			details: { rule: "pace_layer_requires_eval" },
+		});
+		sqlite.exec("UPDATE skill_runs SET skill_revision = 1");
+		await promote();
+		expect(skillRow("candidate").lifecycleState).toBe("active");
+	});
+
+	it("requires certification for manual layer moves and baseline promotion within a layer", async () => {
+		const { db, sqlite, insertSkill } = fixture();
+		insertSkill({ id: "candidate", lifecycleState: "active" });
+		sqlite.exec("UPDATE skill_entries SET pace_layer = 'differentiation'");
+		sqlite.exec(
+			`UPDATE policy_packs SET definition = '{"paceLayerPolicy":{"differentiation":{"evalRequired":true},"record":{"evalRequired":true}}}'`,
+		);
+		await expect(
+			updateSkillEntry(
+				db,
+				"candidate",
+				{ paceLayer: "record" },
+				{ force: true, forceAuthority: { kind: "operator" } },
+			),
+		).rejects.toMatchObject({ details: { rule: "pace_layer_requires_eval" } });
+		await expect(
+			updateSkillEntry(db, "candidate", { tediId: null, revision: 2 }),
+		).rejects.toMatchObject({ details: { rule: "pace_layer_requires_eval" } });
+		sqlite.exec(
+			`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'candidate', 1, 'completed', '{"certification":{"status":"passed"}}')`,
+		);
+		await updateSkillEntry(
+			db,
+			"candidate",
+			{ paceLayer: "record" },
+			{ force: true, forceAuthority: { kind: "operator" } },
+		);
+		await updateSkillEntry(db, "candidate", { tediId: null, revision: 2 });
+	});
+
+	it.each(["failed", "foreign", "failed-artifact"])(
+		"rejects %s certification evidence",
+		async (kind) => {
+			const { db, sqlite, insertSkill } = fixture();
+			insertSkill({ id: "candidate", lifecycleState: "draft", tediId: null });
+			sqlite
+				.prepare(
+					"INSERT INTO skill_runs VALUES ('eval', ?, 'candidate', 1, ?, ?)",
+				)
+				.run(
+					kind === "foreign" ? "org-other" : "org-1",
+					kind === "failed" ? "failed" : "completed",
+					'{"certification":{"status":"passed"}}',
+				);
+			if (kind === "failed-artifact")
+				sqlite.exec(
+					"INSERT INTO skill_run_artifacts VALUES ('artifact', 'eval', 'calls/run/0.json', 'failure')",
+				);
+			await expect(
+				updateSkillEntry(
+					db,
+					"candidate",
+					{ lifecycleState: "active" },
+					{ force: true, forceAuthority: { kind: "operator" } },
+				),
+			).rejects.toMatchObject({
+				details: { rule: "pace_layer_requires_eval" },
+			});
+		},
+	);
+
+	it("uses per-layer TTL before the global fallback for ordinary and ephemeral drafts", async () => {
+		const { db, sqlite, insertSkill, skillRow } = fixture();
+		sqlite.exec(
+			`UPDATE policy_packs SET definition = '{"paceLayerPolicy":{"innovation":{"draftTtlDays":3},"record":{"draftTtlDays":30}}}'`,
+		);
+		for (const id of ["short", "long", "fallback", "ephemeral"])
+			insertSkill({
+				id,
+				lifecycleState: "draft",
+				updatedAt: "2026-07-15T00:00:00.000Z",
+				...(id === "ephemeral"
+					? {
+							tags: ["flow-ephemeral"],
+							successCount: 1,
+							lastUsedAt: "2026-07-15T00:00:00.000Z",
+						}
+					: {}),
+			});
+		insertSkill({
+			id: "fallback-old",
+			lifecycleState: "draft",
+			updatedAt: "2026-07-01T00:00:00.000Z",
+		});
+		sqlite.exec(
+			"UPDATE skill_entries SET pace_layer = 'record' WHERE id = 'long'; UPDATE skill_entries SET pace_layer = 'differentiation' WHERE id IN ('fallback', 'fallback-old')",
+		);
+		const result = await sweepExpiredDraftSkills(db, {
+			now: new Date("2026-07-20T00:00:00.000Z"),
+			olderThanDays: 10,
+		});
+		expect(result.entries.map((entry) => entry.id).sort()).toEqual([
+			"ephemeral",
+			"fallback-old",
+			"short",
+		]);
+		expect(skillRow("long").lifecycleState).toBe("draft");
+		expect(skillRow("fallback").lifecycleState).toBe("draft");
+	});
+});
+
+describe("eval promotion write predicate", () => {
+	it("rechecks certification at the final update", async () => {
+		const setup = fixture({
+			onPrepare: (query) => {
+				if (query.startsWith('update "skill_entries"'))
+					setup.sqlite.exec("UPDATE skill_runs SET status = 'failed'");
+			},
+		});
+		setup.insertSkill({
+			id: "candidate",
+			lifecycleState: "draft",
+			tediId: null,
+		});
+		setup.sqlite.exec(
+			`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'candidate', 1, 'completed', '{"certification":{"passed":true}}')`,
+		);
+		await expect(
+			updateSkillEntry(
+				setup.db,
+				"candidate",
+				{ lifecycleState: "active" },
+				{ force: true, forceAuthority: { kind: "operator" } },
+			),
+		).rejects.toMatchObject({ details: { rule: "pace_layer_requires_eval" } });
+		expect(setup.skillRow("candidate").lifecycleState).toBe("draft");
+	});
+
+	it("does not reuse certification when changing content in the promotion write", async () => {
+		const { db, sqlite, insertSkill } = fixture();
+		insertSkill({ id: "candidate", lifecycleState: "draft", tediId: null });
+		sqlite.exec(
+			`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'candidate', 1, 'completed', '{"certification":{"passed":true}}')`,
+		);
+		await expect(
+			updateSkillEntry(
+				db,
+				"candidate",
+				{ lifecycleState: "active", content: "# Changed", mcpAppBindings: {} },
+				{ force: true, forceAuthority: { kind: "operator" } },
+			),
+		).rejects.toMatchObject({ details: { rule: "pace_layer_requires_eval" } });
+	});
+
+	it("allows promotion without certification when evalRequired is false", async () => {
+		const { db, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "candidate", lifecycleState: "draft" });
+		await updateSkillEntry(
+			db,
+			"candidate",
+			{ lifecycleState: "active" },
+			{ force: true, forceAuthority: { kind: "operator" } },
+		);
+		expect(skillRow("candidate").lifecycleState).toBe("active");
+	});
+});
+
+describe("layer TTL sweep batching", () => {
+	it("archives more than one chunk within D1's parameter cap", async () => {
+		const { db, insertSkill } = fixture();
+		for (let index = 0; index < 120; index += 1)
+			insertSkill({ id: `draft-${index}`, lifecycleState: "draft" });
+		const result = await sweepExpiredDraftSkills(db, {
+			now: new Date("2026-07-20T00:00:00.000Z"),
+		});
+		expect(result.archived).toBe(120);
+	});
+
+	it("preserves a draft used after selection", async () => {
+		const setup = fixture({
+			onPrepare: (query) => {
+				if (query.startsWith('update "skill_entries"'))
+					setup.sqlite.exec("UPDATE skill_entries SET success_count = 1");
+			},
+		});
+		setup.insertSkill({ id: "candidate", lifecycleState: "draft" });
+		const result = await sweepExpiredDraftSkills(setup.db, {
+			now: new Date("2026-07-20T00:00:00.000Z"),
+		});
+		expect(result.archived).toBe(0);
+		expect(result.entries).toEqual([]);
+		expect(setup.skillRow("candidate").lifecycleState).toBe("draft");
+	});
+});
+
+it("requires eval when promoting an existing baseline without a lifecycle change", async () => {
+	const { db, sqlite, insertSkill } = fixture();
+	insertSkill({ id: "baseline", lifecycleState: "active", tediId: null });
+	sqlite.exec(
+		"UPDATE skill_entries SET pace_layer = 'differentiation', visibility = 'org'",
+	);
+	const promote = () =>
+		updateSkillEntry(
+			db,
+			"baseline",
+			{ revisionReasoning: "Promote current baseline" },
+			{ promotion: true },
+		);
+	await expect(promote()).rejects.toMatchObject({
+		details: { rule: "pace_layer_requires_eval" },
+	});
+	sqlite.exec(
+		`INSERT INTO skill_runs VALUES ('eval', 'org-1', 'baseline', 1, 'completed', '{"certification":{"passed":true}}')`,
+	);
+	await promote();
 });

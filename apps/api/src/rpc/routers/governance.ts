@@ -261,10 +261,11 @@ export function buildDecisionRightsMatrix(): DecisionRightsRow[] {
 						"Per-layer eval gates + per-layer draft TTL (paceLayerPolicy.evalRequired / draftTtlDays)",
 					decide: [],
 					propose: [],
-					enforcedBy: null,
-					status: "declared_unenforced",
+					enforcedBy:
+						"skillEvalGateCondition() + sweepExpiredDraftSkills() — packages/db/src/queries/skill-lifecycle.ts; updateSkillEntry(), recordSkillUsageEventInternal(), crystallizeMuscleFromSkill() — packages/db/src/queries/cognitive/skill-crud.ts, packages/db/src/queries/skill-usage.ts, packages/db/src/queries/cognitive/skill-crystallization.ts",
+					status: "enforced",
 					notes:
-						"Config plumbing only: evalRequired and per-layer TTL are declared in resolvePaceLayerPolicy() but nothing enforces them yet (the global draft-TTL sweep applies).",
+						"Promotion and layer moves require completed passing certification for the current skill revision when evalRequired is set, including force and automatic promotion. Drafts expire using the owning policy pack's layer TTL, with platform/global defaults when unset.",
 				},
 				{
 					surface: `Bulk memory admission (createFacts > ${BULK_FACT_ADMISSION_THRESHOLD} facts/call)`,

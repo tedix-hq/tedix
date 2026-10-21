@@ -43,9 +43,11 @@ import {
 	skillUsageEvents,
 } from "../schema/cognitive";
 import {
+	isSkillLifecyclePromotion,
 	loadSkillUsageSignals,
 	nextSkillLifecycleState,
 	paceLayerForLifecycle,
+	skillEvalGateCondition,
 } from "./skill-lifecycle";
 import { insertActivatedSkillSchedule } from "./skill-schedules";
 
@@ -201,6 +203,18 @@ async function recordSkillUsageEventInternal(
 				.where(
 					and(
 						eq(skillEntries.id, input.skillId),
+						patch.lifecycleState &&
+							isSkillLifecyclePromotion(
+								updated.lifecycleState,
+								patch.lifecycleState,
+							)
+							? and(
+									eq(skillEntries.revision, updated.revision),
+									skillEvalGateCondition(
+										paceLayerForLifecycle(patch.lifecycleState),
+									),
+								)
+							: undefined,
 						updated.lifecycleState == null
 							? isNull(skillEntries.lifecycleState)
 							: eq(skillEntries.lifecycleState, updated.lifecycleState),

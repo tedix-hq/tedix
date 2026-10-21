@@ -115,9 +115,9 @@ export interface PolicyPackDefinition {
 	 * record-layer (crystallized) skills by agent-authenticated callers are
 	 * rejected in `skills.improve` (apps/api cognitive router); human users and
 	 * operator API keys pass (capability-mutation-gate allowlist doctrine).
-	 * `evalRequired` and `draftTtlDays` are config plumbing for the follow-up
-	 * layer-scaled gates (innovation TTL already runs at the global
-	 * SKILL_DRAFT_TTL_DAYS default).
+	 * `evalRequired` gates promotion/layer moves against revision-pinned skill
+	 * run certification; `draftTtlDays` controls the per-layer draft sweep.
+	 * Both are enforced in the db skill lifecycle query owners.
 	 */
 	paceLayerPolicy?: {
 		innovation?: PaceLayerGovernance;
@@ -174,9 +174,9 @@ export interface PolicyPackDefinition {
 export type PaceLayerGovernance = {
 	/** Mutations to skills in this layer by agent-authenticated callers require human/operator approval. */
 	approvalRequired?: boolean;
-	/** Promotions into/within this layer require a passing eval (config plumbing — not yet enforced). */
+	/** Promotions into/within this layer require a passing eval for the skill revision. */
 	evalRequired?: boolean;
-	/** Zero-usage draft TTL for this layer in days (config plumbing — the global sweep default applies today). */
+	/** Draft inactivity TTL for this layer in days; the global sweep default applies when unset. */
 	draftTtlDays?: number;
 };
 
