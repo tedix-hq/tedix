@@ -21,6 +21,8 @@ import { compactPreview, RunStatusChip } from "@/components/chat-cards";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
+import { HomeRunIdentity } from "@/components/home-run-identity";
 import {
 	Collection,
 	Page,
@@ -564,31 +566,53 @@ export function HomeExecutionDetailPage({
 		enabled: Boolean(branch),
 	});
 
+	const identity = embedded ? null : <HomeRunIdentity runId={runId} />;
+	if (runQuery.isError || traceQuery.isError) {
+		return (
+			<Page width="lg">
+				{identity}
+				{runQuery.isError ? (
+					<div className="grid gap-2">
+						<DetailUnavailable
+							resource="Home execution"
+							error={runQuery.error}
+						/>
+						<Button
+							variant="outline"
+							disabled={runQuery.isFetching}
+							onClick={() => void runQuery.refetch()}
+						>
+							Retry Home execution
+						</Button>
+					</div>
+				) : null}
+				{traceQuery.isError ? (
+					<div className="grid gap-2">
+						<DetailUnavailable
+							resource="Execution trace"
+							error={traceQuery.error}
+						/>
+						<Button
+							variant="outline"
+							disabled={traceQuery.isFetching}
+							onClick={() => void traceQuery.refetch()}
+						>
+							Retry execution trace
+						</Button>
+					</div>
+				) : null}
+			</Page>
+		);
+	}
 	if (runQuery.isPending || traceQuery.isPending) {
 		return (
 			<Page width="lg">
+				{identity}
 				<div className="grid gap-2" aria-label="Loading Home execution">
 					<Skeleton className="h-24" />
 					<Skeleton className="h-32" />
 					<Skeleton className="h-32" />
 				</div>
-			</Page>
-		);
-	}
-	if (runQuery.isError) {
-		return (
-			<Page width="lg">
-				<DetailUnavailable resource="Home execution" error={runQuery.error} />
-			</Page>
-		);
-	}
-	if (traceQuery.isError) {
-		return (
-			<Page width="lg">
-				<DetailUnavailable
-					resource="Execution trace"
-					error={traceQuery.error}
-				/>
 			</Page>
 		);
 	}
