@@ -199,17 +199,14 @@ export function SetupChecklist({ setup }: { setup: TediSetup }) {
 	return (
 		<div className="grid gap-3">
 			{setup.items.length === 0 ? (
-				<Text>
-					No setup requirements are declared in this tedi’s configuration.
-				</Text>
+				<Text>No setup requirements are configured.</Text>
 			) : outstanding.length > 0 ? (
 				<>
 					<Text>
 						{outstanding.length}{" "}
 						{outstanding.length === 1 ? "requirement" : "requirements"} to
 						resolve across {groups.length} setup{" "}
-						{groups.length === 1 ? "group" : "groups"}. Start with the first
-						review below.
+						{groups.length === 1 ? "group" : "groups"}.
 					</Text>
 					<SetupGroups groups={groups.slice(0, 3)} />
 					{groups.length > 3 && (
@@ -243,8 +240,8 @@ export function SetupChecklist({ setup }: { setup: TediSetup }) {
 				<time dateTime={setup.observedAt}>
 					{new Date(setup.observedAt).toLocaleString()}
 				</time>
-				. Configuration readiness does not grant execution permission or verify
-				provider health.
+				. Setup readiness does not grant execution permission or confirm service
+				health.
 			</Text>
 		</div>
 	);
@@ -253,12 +250,12 @@ export function SetupChecklist({ setup }: { setup: TediSetup }) {
 export function TediSetupChecklist({ tediId }: { tediId: string }) {
 	const query = useQuery(tediSetupQueryOptions(tediId));
 	return (
-		<PageSection id="setup" className="md:col-span-2 scroll-mt-6">
+		<PageSection id="setup" className="scroll-mt-6">
 			<SectionHeader>
 				<SectionHeading>
 					<SectionTitle>Setup</SectionTitle>
 					<SectionDescription>
-						Requirements from this tedi’s configured apps, tools, and skills.
+						Configured apps, tools, and skills.
 					</SectionDescription>
 				</SectionHeading>
 				<Button
