@@ -63,10 +63,22 @@ set `governancePolicy.writeTier.trustedTools` to the permitted tool patterns.
 An explicit `"*"` pattern provides standing consent within existing grants;
 high-risk and critical actions still require a human.
 
-Home dispatches eligible work immediately, including work for a running tedi
-whose workstation needs warming. Its Feed receipt identifies the task, tedi,
-and outcome. **This should have asked me** saves an owner/admin correction
-lesson that requires approval for that delegation class next time.
+Home dispatches eligible work immediately, waking a standby tedi when needed.
+Coding work is spread across tedis that share the same repository, least busy
+first. Its Feed receipt identifies the task, tedi, and outcome. **This should
+have asked me** saves an owner/admin correction lesson that requires approval
+for that delegation class next time.
+
+Each tedi takes two delegated runs at a time unless its policy pack sets
+`workItemConcurrency` (at most eight). A delegation to a busy tedi waits in the
+queue, oldest first, and starts when a slot frees. Being busy is not a risk
+decision, so it creates no approval card for a person.
+
+The same autonomy setting lets Tedix answer some internal questions itself: a
+reversible follow-up, such as creating an internal Work item, is created
+directly instead of becoming a Deck card. The Feed shows a receipt with
+**Undo**. Questions about consent, credentials, roles, deletion, money,
+publishing or legal matters still go to a person.
 
 High-risk work and critical actions still require a human: money or budget
 changes, external messages, public publishing, consent or credentials,

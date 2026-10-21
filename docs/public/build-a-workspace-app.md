@@ -417,10 +417,31 @@ defaults to 7. The current browser tab remembers deferred cards for that
 batch. These attention controls do not replace server permissions.
 
 Swipe or use the visible buttons. Desktop shortcuts are Left for Not this,
-Right for Approve, E for Change, L for Later, D for Decide for me and ? for
-Why this, when that action is available. Typing in a field never triggers
-these shortcuts. Right always means Approve, even when Decide for me is
-the primary button. Consequential choices retain their confirmation.
+Right or Enter for Approve, E for Change, L for Later, D for Decide for me,
+J and K for the next and previous card, and ? for the shortcut list, when
+that action is available. Typing in a field never triggers these shortcuts.
+Right always means Approve, even when Decide for me is the primary button.
+Consequential choices retain their confirmation.
+
+Each card names what it asks of you: **Send**, **Decide**, **Approve draft**,
+**Answer** or **Consent**, with its deadline. Overdue cards come first, longest
+overdue at the top. The Kind filter selects one of these, or **Drafted, not
+sent** for ready message drafts older than the Deck's `staleDraftHours`
+(default 24). Every card face says why now and, when its source states them,
+what waiting costs and what yes costs. A face that drops one is rewritten once
+from the source facts; otherwise no summary face is saved for it.
+
+The card keeps one action row. **Later**, **Why this** and **Not useful** sit
+in it in the same quiet style; **Not useful** asks for a short reason, such as
+already decided, duplicate or "agent could do this", removes the card and
+teaches the Deck; **Undo** puts it back. A tedi's runtime
+approval also offers **Always allow this**: after a confirmation it allows that
+action type for every tedi in the organization, and you can turn the rule off
+in Approvals.
+
+On a phone the Deck keeps its size when the keyboard opens, and the Feed and
+Deck bar stays at the bottom of the screen. On a short screen the Deck takes
+its natural height and the page scrolls, so the card's actions stay visible.
 
 Readiness counts distinct recorded human decisions for this person and
 class. In the person's organization-scoped reply policy,
@@ -514,6 +535,11 @@ the viewer's timezone), `weights` and `deckUrl` control presentation. Work,
 result and inbox readers have independent cursors; personal ranking applies
 to loaded records. Low-importance updates form an expandable digest. Pending
 decisions and critical events remain visible during quiet hours.
+
+On desktop each row shows **Receipt** and **Comment**; other actions are in
+its menu. Long previews wrap rather than being cut off. Keyboard shortcuts act
+only while the Feed or one of its rows has focus, and open or react only on
+the focused row, so typing elsewhere never triggers them.
 
 Reactions record personal learning events. With decision learning enabled,
 More like this and Not for me adjust the next ranking from those events;
