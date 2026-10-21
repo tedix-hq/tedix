@@ -20,7 +20,8 @@ import {
 	PageHeader,
 	PageHeading,
 	PageTitle,
-	SectionCollection,
+	SectionDescription,
+	SectionHeading,
 } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import {
@@ -29,13 +30,14 @@ import {
 } from "@/lib/os-query-options";
 import { OS_SETTINGS_NAVIGATION } from "@/lib/os-navigation";
 import { OS_COPY } from "@/shared/os-copy";
+import { cn } from "@/lib/utils";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
 type AdminDestination = {
 	to: string;
 	title: string;
 	description: string;
-	icon: ComponentType<{ size?: number }>;
+	icon?: ComponentType<{ size?: number }>;
 };
 
 const ADMIN_DESTINATIONS: AdminDestination[] = [
@@ -65,63 +67,47 @@ const ADMIN_DESTINATIONS: AdminDestination[] = [
 	},
 ];
 
-function AdminDestinationRow({
-	destination,
-}: {
-	destination: AdminDestination;
-}) {
-	const Icon = destination.icon;
-	return (
-		<Link
-			variant="collection"
-			className="flex w-full gap-3! px-4 py-3"
-			href={destination.to}
-		>
-			<IconFrame appearance="fill" size="sm">
-				<Icon size={16} />
-			</IconFrame>
-			<div className="min-w-0 flex-1">
-				<Text weight="medium">{destination.title}</Text>
-				<Text role="label" tone="secondary" className="mt-1">
-					{destination.description}
-				</Text>
-			</div>
-			<CaretRight className="text-kumo-subtle" size={14} />
-		</Link>
-	);
-}
-
 type OverviewStatus = {
 	label: string;
 	variant: BadgeVariant;
 	detail: string;
 };
 
-function StatusRow({
-	title,
+function AdminLinkRow({
 	to,
+	title,
+	description,
+	icon: Icon,
 	status,
-}: {
-	title: string;
-	to: AdminDestination["to"];
-	status: OverviewStatus;
-}) {
+}: AdminDestination & { status?: OverviewStatus }) {
 	return (
 		<li>
 			<Link
 				variant="collection"
-				className="flex w-full min-w-0 gap-3! px-1"
+				className={cn(
+					"flex w-full min-w-0 gap-3! px-4 py-3",
+					status && "max-sm:flex-col max-sm:items-start max-sm:gap-2!",
+				)}
 				href={to}
 			>
+				{Icon && (
+					<IconFrame appearance="fill" size="sm">
+						<Icon size={16} />
+					</IconFrame>
+				)}
 				<div className="min-w-0 flex-1">
 					<Text weight="medium">{title}</Text>
 					<Text role="label" tone="secondary" className="mt-1">
-						{status.detail}
+						{description}
 					</Text>
 				</div>
-				<Badge variant={status.variant} className="shrink-0">
-					{status.label}
-				</Badge>
+				{status ? (
+					<Badge variant={status.variant} className="shrink-0">
+						{status.label}
+					</Badge>
+				) : (
+					<CaretRight className="shrink-0 text-kumo-subtle" size={14} />
+				)}
 			</Link>
 		</li>
 	);
@@ -289,27 +275,41 @@ export function AdminPage() {
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
-			<SectionCollection
-				title="At a glance"
-				description="Check your organization, connected accounts and plan."
-				empty="Status is unavailable."
-			>
-				<StatusRow
-					title="Workspace identity"
-					to="/admin/organization"
-					status={organizationStatus}
-				/>
-				<StatusRow
-					title="Connection credentials"
-					to="/admin/connections"
-					status={connectionsStatus}
-				/>
-				<StatusRow
-					title="AI capacity"
-					to="/admin/billing"
-					status={billingStatus}
-				/>
-			</SectionCollection>
+			<PageSection>
+				<SectionHeader>
+					<SectionHeading>
+						<SectionTitle>At a glance</SectionTitle>
+						<SectionDescription>
+							Check your organization, connected accounts and plan.
+						</SectionDescription>
+					</SectionHeading>
+				</SectionHeader>
+				<Collection aria-label="At a glance">
+					{[
+						{
+							title: "Workspace identity",
+							to: "/admin/organization",
+							status: organizationStatus,
+						},
+						{
+							title: "Connection credentials",
+							to: "/admin/connections",
+							status: connectionsStatus,
+						},
+						{
+							title: "AI capacity",
+							to: "/admin/billing",
+							status: billingStatus,
+						},
+					].map((item) => (
+						<AdminLinkRow
+							key={item.to}
+							{...item}
+							description={item.status.detail}
+						/>
+					))}
+				</Collection>
+			</PageSection>
 
 			<PageSection>
 				<SectionHeader>
@@ -325,9 +325,7 @@ export function AdminPage() {
 						})),
 						...ADMIN_DESTINATIONS,
 					].map((destination) => (
-						<li key={destination.to}>
-							<AdminDestinationRow destination={destination} />
-						</li>
+						<AdminLinkRow key={destination.to} {...destination} />
 					))}
 				</Collection>
 			</PageSection>
