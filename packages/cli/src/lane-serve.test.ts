@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
@@ -95,6 +95,8 @@ function fixture({
 	}> = [];
 	const releases: Array<() => void> = [];
 	const control = {
+		spawnPid: undefined as number | undefined,
+		telemetryOutcome: "succeeded" as "succeeded" | "stopped",
 		provisionError: undefined as Error | undefined,
 		commits: [] as string[],
 		cleanups: 0,
@@ -215,6 +217,7 @@ function fixture({
 			expect(brief).toContain("revision 7");
 			expect(brief).toContain("Keep all evidence in OS.");
 			expect(brief).toContain("already holds Attempt");
+			if (control.spawnPid) deps?.onSpawn?.(control.spawnPid);
 			await new Promise<void>((done) => releases.push(done));
 			deps?.onTelemetry?.({
 				executor: nativeExecutor,
@@ -225,7 +228,7 @@ function fixture({
 				startedAt: "2026-10-01T00:00:00.000Z",
 				heartbeatAt: "2026-10-01T00:00:01.000Z",
 				finishedAt: "2026-10-01T00:00:01.000Z",
-				outcome: "succeeded",
+				outcome: control.telemetryOutcome,
 				finalMessage: "Result recorded in OS.",
 				tools: {},
 				usage: { input: 100, cached: 40, output: 30, reasoning: 10 },
@@ -248,6 +251,122 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher admission", () => {
+	it.each(["late timer", "lease expiry", "stopped telemetry"])(
+		"records the child outcome after %s",
+		async (scenario) => {
+			let now = 1_800_000_000_000;
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			let leaseCheck!: () => void;
+			const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+				callback: () => void,
+				ms: number,
+			) => {
+				if (ms === 1000) leaseCheck = callback;
+				return setTimeout(() => {}, 60_000);
+			}) as typeof setInterval);
+			const kill = spyOn(process, "kill").mockReturnValue(true);
+			const { dispatcher, items, control, releases, events, dir } = fixture();
+			items.splice(1);
+			control.spawnPid = 999999;
+			if (scenario === "stopped telemetry")
+				control.telemetryOutcome = "stopped";
+			try {
+				await dispatcher.tick();
+				await until(() => releases.length === 1);
+				if (scenario === "lease expiry") {
+					for (let tick = 0; tick < 10; tick++) {
+						now += 30_000;
+						leaseCheck();
+					}
+				} else {
+					now += scenario === "late timer" ? 31_001 : 1000;
+					leaseCheck();
+				}
+				if (scenario === "lease expiry")
+					expect(kill).toHaveBeenCalledWith(-control.spawnPid, "SIGTERM");
+				else
+					expect(kill).not.toHaveBeenCalledWith(-control.spawnPid, "SIGTERM");
+				releases[0]!();
+				await dispatcher.drain();
+				const outcome = scenario === "late timer" ? "succeeded" : "expired";
+				const receipt = JSON.parse(
+					readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
+				);
+				expect(receipt.outcome).toBe(outcome);
+				if (scenario === "late timer") {
+					expect(receipt.interrupted).not.toBe(true);
+					expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+						'"event":"lease-check-delayed"',
+					);
+				} else expect(receipt.interrupted).toBe(true);
+				const settlement = events.find(
+					(event) => event.verb === "settle",
+				)!.args;
+				expect(settlement[settlement.indexOf("--outcome") + 1]).toBe(outcome);
+			} finally {
+				for (const release of releases) release();
+				await dispatcher.drain();
+				kill.mockRestore();
+				timer.mockRestore();
+				clock.mockRestore();
+			}
+		},
+	);
+	it("bounds failures with exponential backoff and opens a new retry window after its deadline", async () => {
+		let now = 1_800_000_000_000;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const { dispatcher, items, control, dir, events } = fixture();
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		const deadline = now + 30 * 60_000;
+		try {
+			// Distinct failures exercise retries without triggering the identical-failure hold.
+			for (const [index, reason] of [
+				"capacity",
+				"executor",
+				"policy",
+				"budget",
+				"dependency",
+			].entries()) {
+				control.startError = new CliReadError(
+					`Admission refused: ${reason}`,
+					"CONFLICT",
+				);
+				await dispatcher.tick();
+				await dispatcher.drain();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved.retries).toBe(index + 1);
+				expect(saved.held).toBe(false);
+				expect(saved.retryDeadlineAt).toBe(deadline);
+				expect(saved.retryAt).toBe(
+					index === 4 ? deadline : now + 60_000 * 2 ** index,
+				);
+				now = saved.retryAt - 1;
+				await dispatcher.tick();
+				await dispatcher.drain();
+				expect(
+					events.filter((e) => e.verb === "start" && e.input),
+				).toHaveLength(index + 1);
+				now++;
+			}
+			control.startError = new CliReadError(
+				"Admission refused: offline",
+				"CONFLICT",
+			);
+			await dispatcher.tick();
+			await dispatcher.drain();
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				6,
+			);
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				retries: 1,
+				retryAt: deadline + 60_000,
+				retryDeadlineAt: deadline + 30 * 60_000,
+			});
+		} finally {
+			clock.mockRestore();
+		}
+	});
 	it("admits and settles Devin through the same dispatcher", async () => {
 		const { dispatcher, events, releases } = fixture({ executor: "devin" });
 		await dispatcher.tick();

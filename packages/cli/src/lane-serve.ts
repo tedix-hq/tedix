@@ -1008,9 +1008,15 @@ export class LaneDispatcher {
 				throw new Error("Admission returned no live lease");
 			let lastLeaseCheck = Date.now();
 			leaseTimer = setInterval(() => {
-				if (Date.now() - lastLeaseCheck > 30_000) receipt.interrupted = true;
+				if (Date.now() - lastLeaseCheck > 30_000)
+					this.log(
+						"lease-check-delayed",
+						item.id,
+						`Lease check delayed by ${Date.now() - lastLeaseCheck} ms`,
+					);
 				lastLeaseCheck = Date.now();
 				if (Date.now() < leaseExpiry || !receipt.pid) return;
+				receipt.interrupted = true;
 				this.log(
 					"lease-expired",
 					item.id,
@@ -1156,8 +1162,8 @@ export class LaneDispatcher {
 				receipt.telemetry?.outcome === "succeeded" || exit === 0
 					? "succeeded"
 					: "failed";
-			if (receipt.interrupted || receipt.telemetry?.outcome === "stopped")
-				receipt.outcome = "expired";
+			if (receipt.telemetry?.outcome === "stopped") receipt.interrupted = true;
+			if (receipt.interrupted) receipt.outcome = "expired";
 			const finalMessage =
 				receipt.telemetry?.finalMessage ||
 				(existsSync(last) ? readFileSync(last, "utf8") : "No final message");
