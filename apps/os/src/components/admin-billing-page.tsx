@@ -92,8 +92,8 @@ function BillingPagePending() {
 function BillingRestricted() {
 	return (
 		<RestrictedNotice
-			title="Billing needs the billing:manage grant"
-			description="Your credential resolves administrative access but not billing:manage, which only owners hold. Ask an owner to review usage, plans, or the subscription."
+			title="Only organization owners can manage billing"
+			description="Ask an owner to review usage, plans, or the subscription."
 		/>
 	);
 }
@@ -151,48 +151,39 @@ export function AdminBillingPage({
 	);
 }
 
+const CHECKOUT_NOTICES: Record<
+	BillingCheckoutState,
+	{ title: string; description: string }
+> = {
+	"topup-success": {
+		title: "Capacity payment complete",
+		description:
+			"Payment confirmed. Capacity appears once processing finishes; the balance refreshes automatically.",
+	},
+	"topup-cancelled": {
+		title: "Capacity checkout cancelled",
+		description: "No capacity was purchased.",
+	},
+	success: {
+		title: "Checkout complete",
+		description:
+			"Checkout confirmed. Your subscription refreshes once processing finishes, usually within a few seconds.",
+	},
+	cancelled: {
+		title: "Checkout cancelled",
+		description: "Nothing changed. You can restart checkout below.",
+	},
+};
+
 function CheckoutNotice({ state }: { state: BillingCheckoutState }) {
-	if (state === "topup-success") {
-		return (
-			<Alert>
-				<CheckCircle aria-hidden />
-				<AlertTitle>Capacity payment complete</AlertTitle>
-				<AlertDescription>
-					Stripe confirmed the payment. Capacity appears after the signed
-					webhook is processed; the balance below refreshes automatically.
-				</AlertDescription>
-			</Alert>
-		);
-	}
-	if (state === "topup-cancelled") {
-		return (
-			<Alert>
-				<Info aria-hidden />
-				<AlertTitle>Capacity checkout cancelled</AlertTitle>
-				<AlertDescription>No capacity was purchased.</AlertDescription>
-			</Alert>
-		);
-	}
-	if (state === "success") {
-		return (
-			<Alert>
-				<CheckCircle aria-hidden />
-				<AlertTitle>Checkout complete</AlertTitle>
-				<AlertDescription>
-					Stripe confirmed the checkout. The subscription below refreshes as
-					soon as the webhook lands — usually within a few seconds.
-				</AlertDescription>
-			</Alert>
-		);
-	}
+	const notice = CHECKOUT_NOTICES[state];
+	const Icon =
+		state === "success" || state === "topup-success" ? CheckCircle : Info;
 	return (
 		<Alert>
-			<Info aria-hidden />
-			<AlertTitle>Checkout cancelled</AlertTitle>
-			<AlertDescription>
-				The Stripe checkout was cancelled before completing. Nothing changed;
-				you can restart it below at any time.
-			</AlertDescription>
+			<Icon aria-hidden />
+			<AlertTitle>{notice.title}</AlertTitle>
+			<AlertDescription>{notice.description}</AlertDescription>
 		</Alert>
 	);
 }

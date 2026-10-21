@@ -313,7 +313,7 @@ function ApiKeyNameCell({
 			<Text
 				as={compact ? "strong" : "span"}
 				weight="medium"
-				truncate={compact}
+				className="wrap-anywhere"
 				title={compact ? apiKey.name : undefined}
 			>
 				{apiKey.name}

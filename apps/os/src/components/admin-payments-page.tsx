@@ -104,8 +104,8 @@ const PAYMENT_EVENTS_PAGE_SIZE = 15;
 function PaymentsRestricted() {
 	return (
 		<RestrictedNotice
-			title="Payments needs the billing:manage grant"
-			description="Your credential resolves administrative access but not billing:manage, which only owners hold. Ask an owner to review paid tool spend or receipts."
+			title="Only organization owners can review payments"
+			description="Ask an owner to review paid tool spending or receipts."
 		/>
 	);
 }
@@ -147,8 +147,7 @@ export function AdminPaymentsPage({
 				<PageHeading>
 					<PageTitle>Payments</PageTitle>
 					<PageDescription>
-						Read-only view of paid tool requirements, settlements, budgets, and
-						receipts across this organization.
+						Review paid tool spending, budgets, and receipts.
 					</PageDescription>
 				</PageHeading>
 				<PageActions>
