@@ -39,6 +39,7 @@ export const CatalogueSearchInputSchema = z
 		offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 		includeParameters: z.boolean().optional(),
 		includeOutputSchema: z.boolean().optional(),
+		includeMetadata: z.boolean().optional(),
 	})
 	.strict();
 export const CatalogueDescribeInputSchema = z

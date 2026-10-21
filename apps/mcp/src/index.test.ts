@@ -1327,7 +1327,10 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 					describe: { name: describeRow.toolId },
 				},
 			});
-			const found = await invoke(search.toolId, { query: "" });
+			const found = await invoke(search.toolId, {
+				query: "",
+				includeMetadata: true,
+			});
 			expect(found.status, await found.clone().text()).toBe(200);
 			const result = (await found.json()) as {
 				result: {

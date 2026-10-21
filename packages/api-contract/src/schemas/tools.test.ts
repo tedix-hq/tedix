@@ -78,8 +78,9 @@ describe("configured native catalog inputs", () => {
 				limit: 100,
 				offset: Number.MAX_SAFE_INTEGER,
 				includeParameters: true,
+				includeMetadata: true,
 			}),
-		).toMatchObject({ limit: 100 });
+		).toMatchObject({ limit: 100, includeMetadata: true });
 		for (const input of [
 			{ limit: 101 },
 			{ limit: 0 },
@@ -87,6 +88,7 @@ describe("configured native catalog inputs", () => {
 			{ offset: Number.MAX_SAFE_INTEGER + 1 },
 			{ query: 3 },
 			{ includeParameters: "true" },
+			{ includeMetadata: "true" },
 			{ code: "async()=>1" },
 			{ scope: "platform:admin" },
 		])
