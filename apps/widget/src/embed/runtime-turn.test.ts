@@ -180,8 +180,8 @@ describe("a turn", () => {
 			expect(
 				[...model.options].map((option) => [option.value, option.textContent]),
 			).toEqual([
-				["", "Automatic · Auto Router"],
-				["cloudflare/auto", "Auto Router"],
+				["", "Automatic · Auto"],
+				["cloudflare/auto", "Auto"],
 				["fast", "Fast"],
 			]);
 			expect(model.value).toBe(modelRef);
