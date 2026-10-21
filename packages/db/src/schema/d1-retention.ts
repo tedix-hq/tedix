@@ -10,10 +10,19 @@
  *   estimate to `last_report`, change no rows.
  * - `archive_then_delete`: copy expired rows to R2 as gzip NDJSON, verify the
  *   object, then delete exactly those rows.
+ * - `move_to_logs_db`: copy expired rows into the logs database (`LOGS_DB`)
+ *   with insert-or-ignore, read them back and compare every column, write the
+ *   same gzip NDJSON copy to R2, and only then delete exactly those rows from
+ *   the main database. The rows stay readable through the merged readers.
+ *   Needs the `LOGS_DB` binding and the archive bucket; without either the
+ *   run reports a problem and changes nothing.
  * - `delete`: delete expired rows without an archive copy.
  *
  * Progress needs no cursor: every pass starts from the oldest remaining row,
- * so an interrupted run resumes where it stopped.
+ * so an interrupted run resumes where it stopped. Every policy row starts in
+ * `dry_run`; switching a row to a destructive mode is an operator change to
+ * the row itself (`UPDATE d1_retention_policies SET mode = ... WHERE
+ * table_name = ...`), never a code default.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -24,6 +33,7 @@ export const D1_RETENTION_MODES = [
 	"off",
 	"dry_run",
 	"archive_then_delete",
+	"move_to_logs_db",
 	"delete",
 ] as const;
 

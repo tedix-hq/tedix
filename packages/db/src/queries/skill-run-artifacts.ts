@@ -7,8 +7,9 @@
  * exact step output that produced it; revoking a run cascades cleanly via
  * `DELETE FROM memory_facts WHERE source LIKE 'skill://.../{runId}/%'`.
  *
- * Bodies use R2 when a bucket is provided; legacy small inline bodies remain
- * readable. Without R2, the inline cap is INLINE_THRESHOLD_BYTES (16 KiB).
+ * With a bucket, bodies over R2_BODY_THRESHOLD_BYTES (4 KiB) go to R2 with a
+ * pointer row; smaller bodies stay inline. Without a bucket, the inline cap
+ * is INLINE_THRESHOLD_BYTES (16 KiB) and larger bodies are refused.
  * Path is canonical within a run. Stable summary artifacts (for example
  * `timeline.json`) upsert in place, while durable execution evidence encodes
  * the native Cloudflare attempt in
@@ -25,6 +26,7 @@ import {
 	skillRunArtifacts,
 } from "../schema/cognitive";
 import { chunkForBoundParams } from "../utils/batch";
+import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 /**
@@ -53,6 +55,8 @@ function mergeChunkedArtifacts(
 
 /** Anything bigger than this lives in R2, not D1. */
 export const INLINE_THRESHOLD_BYTES = 16 * 1024;
+/** With a bucket, bodies above this size are stored in R2, not in D1. */
+export const R2_BODY_THRESHOLD_BYTES = 4 * 1024;
 
 /**
  * Fail-soft digest. Artifact persistence must never fail a workflow, so a
@@ -193,7 +197,7 @@ export async function recordRunArtifact(
 		// `sha256` in; this is the fallback that makes every inline write
 		// verifiable without touching a single call site.
 		sha256 ??= await sha256HexSafe(serialized);
-		if (bucket) {
+		if (bucket && sizeBytes > R2_BODY_THRESHOLD_BYTES) {
 			contentR2Key = `${input.runId}/bodies/${id}`;
 			await bucket.put(contentR2Key, serialized, {
 				httpMetadata: { contentType: mimeType },
@@ -260,6 +264,12 @@ export async function getRunArtifact(
 	runId: string,
 	path: string,
 ): Promise<SkillRunArtifact | null> {
+	// Artifact rows past the retention keep window live in the logs database.
+	const pages = await readLogStores(db, async (store) => {
+		const row = await getRunArtifact(store, runId, path);
+		return row ? [row] : [];
+	});
+	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0] ?? null;
 	const rows = await db
 		.select()
 		.from(skillRunArtifacts)
@@ -275,6 +285,10 @@ export async function listRunArtifacts(
 	db: DbClient,
 	runId: string,
 ): Promise<SkillRunArtifact[]> {
+	const pages = await readLogStores(db, (store) =>
+		listRunArtifacts(store, runId),
+	);
+	if (pages) return mergeLogStoreRows(pages, { compare: compareArtifactOrder });
 	return db
 		.select()
 		.from(skillRunArtifacts)
@@ -288,13 +302,31 @@ export async function listRunArtifactsPage(
 	runId: string,
 	options?: { limit?: number; offset?: number },
 ): Promise<SkillRunArtifact[]> {
+	const limit = Math.min(Math.max(options?.limit ?? 201, 1), 2_001);
+	const offset = Math.max(options?.offset ?? 0, 0);
+	const pages = await readLogStores(db, (store) =>
+		listRunArtifactsPage(store, runId, { limit: limit + offset, offset: 0 }),
+	);
+	if (pages)
+		return mergeLogStoreRows(pages, {
+			compare: compareArtifactOrder,
+			limit,
+			offset,
+		});
 	return db
 		.select()
 		.from(skillRunArtifacts)
 		.where(eq(skillRunArtifacts.runId, runId))
 		.orderBy(asc(skillRunArtifacts.createdAt), asc(skillRunArtifacts.path))
-		.limit(Math.min(Math.max(options?.limit ?? 201, 1), 2_001))
-		.offset(Math.max(options?.offset ?? 0, 0));
+		.limit(limit)
+		.offset(offset);
+}
+
+function compareArtifactOrder(a: SkillRunArtifact, b: SkillRunArtifact) {
+	return (
+		(a.createdAt ?? "").localeCompare(b.createdAt ?? "") ||
+		a.path.localeCompare(b.path)
+	);
 }
 
 /**

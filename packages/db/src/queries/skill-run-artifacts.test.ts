@@ -7,6 +7,7 @@ import {
 	listRunWorkflowCallArtifacts,
 	listRunWorkflowRuntimeObservationsForRuns,
 	listRunWorkflowStepArtifacts,
+	R2_BODY_THRESHOLD_BYTES,
 	recordRunArtifact,
 } from "./skill-run-artifacts";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
@@ -224,7 +225,7 @@ describe("skill workflow artifact pages", () => {
 	});
 });
 
-it("uploads small bodies before committing a pointer and preserves legacy reads", async () => {
+it("keeps small bodies inline and uploads bodies over 4 KiB before committing a pointer", async () => {
 	const { db } = fixture();
 	const objects = new Map<string, string>();
 	const bucket = {
@@ -232,20 +233,34 @@ it("uploads small bodies before committing a pointer and preserves legacy reads"
 			objects.set(key, value);
 		},
 	} as unknown as R2Bucket;
-	const row = await recordRunArtifact(
+	const small = await recordRunArtifact(
 		db,
 		{ runId: "run-1", path: "small.json", value: { ok: true } },
 		bucket,
 	);
-	expect(row.contentInline).toBeNull();
-	expect(objects.get(row.contentR2Key!)).toBe('{"ok":true}');
-	expect(row.sha256).toBe(await sha256Hex('{"ok":true}'));
+	expect(small.contentInline).toBe('{"ok":true}');
+	expect(small.contentR2Key).toBeNull();
+	expect(objects.size).toBe(0);
+	const body = { text: "x".repeat(R2_BODY_THRESHOLD_BYTES) };
+	const large = await recordRunArtifact(
+		db,
+		{ runId: "run-1", path: "large.json", value: body },
+		bucket,
+	);
+	expect(large.contentInline).toBeNull();
+	expect(large.sizeBytes).toBeGreaterThan(R2_BODY_THRESHOLD_BYTES);
+	expect(objects.get(large.contentR2Key!)).toBe(JSON.stringify(body));
+	expect(large.sha256).toBe(await sha256Hex(JSON.stringify(body)));
 	await expect(
-		recordRunArtifact(db, { runId: "run-1", path: "failed.json", value: {} }, {
-			put: async () => {
-				throw new Error("unavailable");
-			},
-		} as unknown as R2Bucket),
+		recordRunArtifact(
+			db,
+			{ runId: "run-1", path: "failed.json", value: body },
+			{
+				put: async () => {
+					throw new Error("unavailable");
+				},
+			} as unknown as R2Bucket,
+		),
 	).rejects.toThrow("unavailable");
 	expect(await getRunArtifact(db, "run-1", "failed.json")).toBeNull();
 });

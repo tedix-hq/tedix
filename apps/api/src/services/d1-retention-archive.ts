@@ -1,6 +1,7 @@
 /**
- * Archive-then-delete retention for append-only ledgers in the core D1
- * database, driven by `d1_retention_policies` rows (no row = untouched).
+ * Archive-then-delete and move-to-logs retention for append-only ledgers in
+ * the core D1 database, driven by `d1_retention_policies` rows (no row =
+ * untouched).
  *
  * A pass reads the oldest rows 50 at a time, writes one gzip NDJSON object
  * per chunk to R2, confirms the object exists, and only then deletes exactly
@@ -8,6 +9,14 @@
  * resumes on the next tick from the oldest remaining row. If it stops between
  * the R2 write and the delete, the next tick rewrites the same rows to the
  * same deterministic key before deleting them.
+ *
+ * `move_to_logs_db` adds a step in front of the archive: the chunk is copied
+ * into the logs database with insert-or-ignore, read back and compared column
+ * by column, and only a chunk that reads back identical is archived and then
+ * removed from the main database. A crash anywhere leaves the main rows in
+ * place; the next tick repeats the copy (a no-op for rows already there),
+ * the check, the archive and the delete. Deletes and copies back off on
+ * D1 `overloaded` errors before the run gives up.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -16,15 +25,19 @@ import {
 	type D1RetentionRow,
 	type D1RetentionTableSpec,
 	D1_RETENTION_ROWS_PER_STATEMENT,
+	copyD1RetentionRowsToLogs,
 	d1RetentionCutoff,
 	d1RetentionPolicyProblem,
+	d1RetentionRowId,
 	deleteD1RetentionRows,
 	estimateD1RetentionBacklog,
 	getD1RetentionTableSpec,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
+	readD1LogsRowsByIds,
 	readD1RetentionPage,
 	recordD1RetentionRun,
+	verifyD1LogsCopy,
 } from "@tedix/db/queries/d1-retention";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type { D1RetentionPolicyRow } from "@tedix/db/schema/d1-retention";
@@ -33,6 +46,36 @@ export const D1_ARCHIVE_PREFIX = "d1-archive/v1/";
 /** Rows per R2 object and per delete batch (10 statements of 50). */
 export const D1_ARCHIVE_CHUNK_ROWS = 500;
 const DEFAULT_TIME_BUDGET_MS = 20_000;
+/** Waits before each retry of a statement D1 refused as overloaded. */
+const OVERLOAD_BACKOFF_MS = [500, 1000, 2000] as const;
+
+function isD1Overloaded(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /overloaded|too many requests|temporarily unavailable/i.test(message);
+}
+
+/** Retry `run` with increasing waits while D1 reports itself overloaded. */
+export async function withOverloadBackoff<T>(
+	run: () => Promise<T>,
+	deadline: number,
+	sleep: (ms: number) => Promise<void> = (ms) =>
+		new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<T> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await run();
+		} catch (error) {
+			const wait = OVERLOAD_BACKOFF_MS[attempt];
+			if (
+				wait === undefined ||
+				!isD1Overloaded(error) ||
+				Date.now() + wait >= deadline
+			)
+				throw error;
+			await sleep(wait);
+		}
+	}
+}
 
 export interface D1RetentionTableResult {
 	tableName: string;
@@ -41,6 +84,8 @@ export interface D1RetentionTableResult {
 	eligibleRows: number;
 	eligibleBytes: number;
 	archivedRows: number;
+	/** Rows copied into the logs database and verified there. */
+	movedRows: number;
 	deletedRows: number;
 	objects: number;
 	stoppedBy: "done" | "row_cap" | "time_budget" | "error" | "skipped";
@@ -50,6 +95,7 @@ export interface D1RetentionTableResult {
 export interface D1RetentionRunResult {
 	tables: D1RetentionTableResult[];
 	archivedRows: number;
+	movedRows: number;
 	deletedRows: number;
 	eligibleBytes: number;
 }
@@ -120,8 +166,37 @@ async function readExpiredChunk(
 	return { rows, reachedKeepWindow: false };
 }
 
+/**
+ * Copy one chunk into the logs database and prove the copy: every source row
+ * must read back with every column identical. Throws otherwise, which stops
+ * the run before anything is archived or deleted.
+ */
+async function copyChunkToLogs(
+	logsDb: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	rows: readonly D1RetentionRow[],
+	deadline: number,
+): Promise<void> {
+	await withOverloadBackoff(
+		() => copyD1RetentionRowsToLogs(logsDb, tableSpec, rows),
+		deadline,
+	);
+	const copied = await readD1LogsRowsByIds(
+		logsDb,
+		tableSpec,
+		rows.map(d1RetentionRowId),
+	);
+	const check = verifyD1LogsCopy(tableSpec, rows, copied);
+	if (check.missing.length > 0 || check.mismatched.length > 0) {
+		throw new Error(
+			`logs copy not verified for ${tableSpec.tableName}: ${check.missing.length} missing, ${check.mismatched.length} mismatched (first: ${check.missing[0] ?? check.mismatched[0]})`,
+		);
+	}
+}
+
 async function runPolicy(
 	db: DbQueryClient,
+	logsDb: DbQueryClient | undefined,
 	bucket: R2Bucket | undefined,
 	policy: D1RetentionPolicyRow,
 	now: Date,
@@ -134,14 +209,21 @@ async function runPolicy(
 		eligibleRows: 0,
 		eligibleBytes: 0,
 		archivedRows: 0,
+		movedRows: 0,
 		deletedRows: 0,
 		objects: 0,
 		stoppedBy: "skipped",
 	};
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (result.problem || !tableSpec) return result;
-	if (policy.mode === "archive_then_delete" && !bucket) {
+	const archives =
+		policy.mode === "archive_then_delete" || policy.mode === "move_to_logs_db";
+	if (archives && !bucket) {
 		result.problem = "archive_bucket_missing";
+		return result;
+	}
+	if (policy.mode === "move_to_logs_db" && !logsDb) {
+		result.problem = "logs_db_missing";
 		return result;
 	}
 	const cutoff = d1RetentionCutoff(tableSpec, now, policy.keepDays);
@@ -173,7 +255,10 @@ async function runPolicy(
 				Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining),
 			);
 			if (rows.length === 0) break;
-			if (policy.mode === "archive_then_delete" && bucket) {
+			if (policy.mode === "move_to_logs_db" && logsDb) {
+				await copyChunkToLogs(logsDb, tableSpec, rows, deadline);
+			}
+			if (archives && bucket) {
 				const key = d1ArchiveObjectKey(tableSpec, rows);
 				const body = await gzipNdjson(rows);
 				await bucket.put(key, body, {
@@ -196,12 +281,19 @@ async function runPolicy(
 				result.archivedRows += rows.length;
 				result.objects += 1;
 			}
-			const deleted = await deleteD1RetentionRows(
-				db,
-				tableSpec,
-				rows.map((row) => row.__rowid),
-				cutoff,
+			// Only a chunk that is in the logs database (verified) and in R2
+			// (confirmed) reaches this delete.
+			const deleted = await withOverloadBackoff(
+				() =>
+					deleteD1RetentionRows(
+						db,
+						tableSpec,
+						rows.map((row) => row.__rowid),
+						cutoff,
+					),
+				deadline,
 			);
+			if (policy.mode === "move_to_logs_db") result.movedRows += deleted;
 			result.deletedRows += deleted;
 			// Fewer deletions than rows read means something else changed these
 			// rows; stop instead of re-reading the same chunk forever.
@@ -230,6 +322,7 @@ function reportFor(
 		eligibleRows: result.eligibleRows,
 		eligibleBytes: result.eligibleBytes,
 		archivedRows: result.archivedRows,
+		movedRows: result.movedRows,
 		deletedRows: result.deletedRows,
 		objects: result.objects,
 		stoppedBy: result.stoppedBy,
@@ -244,6 +337,8 @@ function reportFor(
  */
 export async function runD1Retention(params: {
 	db: DbQueryClient;
+	/** The logs database; absent when the Worker has no `LOGS_DB` binding. */
+	logsDb?: DbQueryClient;
 	bucket?: R2Bucket;
 	now: Date;
 	timeBudgetMs?: number;
@@ -256,6 +351,7 @@ export async function runD1Retention(params: {
 		try {
 			result = await runPolicy(
 				params.db,
+				params.logsDb,
 				params.bucket,
 				policy,
 				params.now,
@@ -269,6 +365,7 @@ export async function runD1Retention(params: {
 				eligibleRows: 0,
 				eligibleBytes: 0,
 				archivedRows: 0,
+				movedRows: 0,
 				deletedRows: 0,
 				objects: 0,
 				stoppedBy: "error",
@@ -287,6 +384,7 @@ export async function runD1Retention(params: {
 	return {
 		tables,
 		archivedRows: tables.reduce((sum, t) => sum + t.archivedRows, 0),
+		movedRows: tables.reduce((sum, t) => sum + t.movedRows, 0),
 		deletedRows: tables.reduce((sum, t) => sum + t.deletedRows, 0),
 		eligibleBytes: tables.reduce((sum, t) => sum + t.eligibleBytes, 0),
 	};
