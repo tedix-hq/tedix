@@ -4,6 +4,7 @@
  * same way it stops at an exhausted allowance.
  */
 
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import { SettingsRow } from "@/components/settings-row";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BillingOverageSettings } from "@tedix/api-contract/schemas/billing";
@@ -15,10 +16,6 @@ import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
 import {
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
@@ -109,19 +106,15 @@ function OverageForm({
 
 	return (
 		<SettingsSection>
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle>Overage</SectionTitle>
-					<SectionDescription>
-						Off by default. When on, usage past the included allowance is billed
-						at the plan overage rate until the monthly cap, then inference stops
-						until the next period.
-					</SectionDescription>
-				</SectionHeading>
-				{settings.capReached && (
-					<Badge variant="destructive">Cap reached</Badge>
-				)}
-			</SectionHeader>
+			<BillingSectionHeader
+				title="Overage"
+				description="Off by default. When on, usage past the included allowance is billed at the plan overage rate until the monthly cap, then inference stops until the next period."
+				actions={
+					settings.capReached && (
+						<Badge variant="destructive">Cap reached</Badge>
+					)
+				}
+			/>
 			<SettingsSectionContent className="space-y-4">
 				{!settings.planSellsOverage && (
 					<Alert>

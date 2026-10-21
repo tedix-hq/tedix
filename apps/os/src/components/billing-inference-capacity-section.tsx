@@ -1,3 +1,4 @@
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -10,10 +11,6 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import {
-	SectionHeader,
-	SectionDescription,
-	SectionHeading,
-	SectionTitle,
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
@@ -124,23 +121,19 @@ export function BillingInferenceCapacitySection() {
 
 	return (
 		<SettingsSection>
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle>
-						{showDailyCapacity
-							? "Daily inference capacity"
-							: "Inference status"}
-					</SectionTitle>
-					<SectionDescription>
-						{showDailyCapacity
-							? "The tokens and provider spend available for your organization today."
-							: capacity.available
-								? "Monthly inference is available. See the billing summary above for usage and charges."
-								: "Inference is blocked; review the reason below."}
-					</SectionDescription>
-				</SectionHeading>
-				{isTest && <Badge variant="secondary">Stripe test mode</Badge>}
-			</SectionHeader>
+			<BillingSectionHeader
+				title={
+					showDailyCapacity ? "Daily inference capacity" : "Inference status"
+				}
+				description={
+					showDailyCapacity
+						? "The tokens and provider spend available for your organization today."
+						: capacity.available
+							? "Monthly inference is available. See the billing summary above for usage and charges."
+							: "Inference is blocked; review the reason below."
+				}
+				actions={isTest && <Badge variant="secondary">Billing test mode</Badge>}
+			/>
 			<SettingsSectionContent className="space-y-4">
 				{!capacity.available && (
 					<Alert variant="destructive">

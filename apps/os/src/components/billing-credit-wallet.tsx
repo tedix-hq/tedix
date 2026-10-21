@@ -1,13 +1,9 @@
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import { Link } from "@/components/kumo/link";
 import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+import { Card, CardContent } from "@/components/kumo/card";
 import { MetricGrid } from "@/components/kumo/metric-grid";
 import { MetricTile } from "@/components/metric-tile";
 import { Meter } from "@/components/kumo/meter";
@@ -68,27 +64,28 @@ export function BillingCreditWallet({
 	};
 	return (
 		<Card tone="raised">
-			<CardHeader className="sm:grid-cols-[minmax(0,1fr)_auto]">
-				<div className="space-y-1">
-					<CardTitle>
-						{monetary ? "Usage credits" : "Token plan allowance"}
-					</CardTitle>
-					<Text tone="secondary">
-						{monetary
-							? "Your shared AI usage balance"
-							: "Your plan uses tokens; the credit wallet is separate."}
-					</Text>
-				</div>
-				<Badge
-					variant={overview.inferenceCapacity.available ? "success" : "warning"}
-				>
-					{overview.inferenceCapacity.available
-						? monetary
-							? "Ready to run"
-							: "Token plan capacity available"
-						: "Usage paused"}
-				</Badge>
-			</CardHeader>
+			<BillingSectionHeader
+				className="px-tedix-card"
+				title={monetary ? "Usage credits" : "Token plan allowance"}
+				description={
+					monetary
+						? "Your shared AI usage balance"
+						: "Your plan uses tokens; the credit wallet is separate."
+				}
+				actions={
+					<Badge
+						variant={
+							overview.inferenceCapacity.available ? "success" : "warning"
+						}
+					>
+						{overview.inferenceCapacity.available
+							? monetary
+								? "Ready to run"
+								: "Token plan capacity available"
+							: "Usage paused"}
+					</Badge>
+				}
+			/>
 			<CardContent className="space-y-4">
 				{!monetary && (
 					<div>

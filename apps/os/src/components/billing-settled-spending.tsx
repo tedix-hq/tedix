@@ -1,3 +1,4 @@
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import { Link } from "@/components/kumo/link";
 import { CaretRight } from "@phosphor-icons/react";
 import {
@@ -33,7 +34,7 @@ export function SettledSpendingRows({
 }) {
 	return (
 		<div className="space-y-3">
-			<Text weight="semibold">Settled usage credits by run</Text>
+			<BillingSectionHeader title="Settled usage credits by run" />
 			<Text tone="secondary">
 				Last 30 days · {data.rows.length} monetary receipts shown. These are
 				customer charges, separate from the model cost estimates below.

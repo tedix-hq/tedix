@@ -13,6 +13,8 @@
  * `admin-billing-page.tsx` (invalidate + notice).
  */
 
+import { errorMessage } from "@/lib/orpc-error";
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { BillingPlanCatalogItem } from "@tedix/api-contract/schemas/billing";
 import { ArrowUpRight, FileText, Info, Sparkle } from "@phosphor-icons/react";
@@ -21,10 +23,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
-	SectionHeader,
-	SectionDescription,
-	SectionHeading,
-	SectionTitle,
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
@@ -54,10 +52,6 @@ const BILLING_INTERVAL_OPTIONS = [
 		),
 	},
 ] as const;
-
-function sectionErrorMessage(error: unknown, fallback: string): string {
-	return error instanceof Error && error.message ? error.message : fallback;
-}
 
 /**
  * Stripe return destination on the CURRENT tenant origin. Built from
@@ -96,9 +90,7 @@ export function SubscriptionSection() {
 	if (plansQuery.isPending || overviewQuery.isPending) {
 		return (
 			<SettingsSection>
-				<SectionHeader>
-					<SectionTitle>Plan &amp; billing</SectionTitle>
-				</SectionHeader>
+				<BillingSectionHeader title="Plan &amp; billing" />
 				<SettingsSectionContent>
 					<Skeleton className="h-24 w-full" />
 				</SettingsSectionContent>
@@ -114,14 +106,12 @@ export function SubscriptionSection() {
 	) {
 		return (
 			<SettingsSection>
-				<SectionHeader>
-					<SectionTitle>Plan &amp; billing</SectionTitle>
-				</SectionHeader>
+				<BillingSectionHeader title="Plan &amp; billing" />
 				<SettingsSectionContent>
 					<Alert variant="destructive">
 						<AlertTitle>Billing is unavailable</AlertTitle>
 						<AlertDescription>
-							{sectionErrorMessage(
+							{errorMessage(
 								plansQuery.error ?? overviewQuery.error,
 								"The billing read failed.",
 							)}
@@ -156,24 +146,20 @@ export function SubscriptionSection() {
 
 	return (
 		<SettingsSection>
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle>Plan &amp; billing</SectionTitle>
-					<SectionDescription>
-						Manage the subscription, payment details, and plan features.
-					</SectionDescription>
-				</SectionHeading>
-			</SectionHeader>
+			<BillingSectionHeader
+				title="Plan &amp; billing"
+				description="Manage the subscription, payment details, and plan features."
+			/>
 			<SettingsSectionContent className="space-y-6">
 				{isStripeTestMode && (
 					<Alert>
 						<Info aria-hidden />
 						<AlertTitle>Billing test mode</AlertTitle>
 						<AlertDescription>
-							Stripe checkout, subscriptions, invoices, and the billing portal
-							use test data. Tedix usage, provider cost, credits, limits, and
-							admission remain canonical billing records. No real payment method
-							will be charged.
+							Checkout, subscriptions, invoices, and the billing portal use test
+							data. Tedix usage, provider cost, credits, limits, and admission
+							remain canonical billing records. No real payment method will be
+							charged.
 						</AlertDescription>
 					</Alert>
 				)}
@@ -272,7 +258,7 @@ export function SubscriptionSection() {
 						</div>
 						{checkoutMutation.error && (
 							<Text tone="error" className="text-center">
-								{sectionErrorMessage(
+								{errorMessage(
 									checkoutMutation.error,
 									"Failed to start checkout",
 								)}
@@ -305,7 +291,7 @@ export function BillingDocumentsSection() {
 			<Alert variant="destructive">
 				<AlertTitle>Billing documents are unavailable</AlertTitle>
 				<AlertDescription>
-					{sectionErrorMessage(
+					{errorMessage(
 						overviewQuery.error,
 						"The billing overview read failed.",
 					)}
@@ -319,21 +305,17 @@ export function BillingDocumentsSection() {
 
 	return (
 		<SettingsSection>
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle>Invoices &amp; documents</SectionTitle>
-					<SectionDescription>
-						Review finalized invoices, receipts, and payment documents.
-					</SectionDescription>
-				</SectionHeading>
-			</SectionHeader>
+			<BillingSectionHeader
+				title="Invoices &amp; documents"
+				description="Review finalized invoices, receipts, and payment documents."
+			/>
 			<SettingsSectionContent className="space-y-4">
 				{overview.stripeEnvironment === "test" && (
 					<Alert>
 						<Info aria-hidden />
 						<AlertTitle>Billing test mode</AlertTitle>
 						<AlertDescription>
-							Invoices and payment documents currently use Stripe test data.
+							Invoices and payment documents currently use test data.
 						</AlertDescription>
 					</Alert>
 				)}
@@ -344,7 +326,7 @@ export function BillingDocumentsSection() {
 							<Text weight="medium">Billing history</Text>
 							<Text tone="secondary">
 								{hasStripeCustomer
-									? "Stripe hosts finalized invoices and downloadable payment documents."
+									? "Open finalized invoices and downloadable payment documents in the billing portal."
 									: "Invoices will appear after your organization starts a paid subscription."}
 							</Text>
 						</div>
@@ -363,10 +345,7 @@ export function BillingDocumentsSection() {
 				</Surface>
 				{portalMutation.isError && (
 					<Text tone="error">
-						{sectionErrorMessage(
-							portalMutation.error,
-							"Failed to open invoices",
-						)}
+						{errorMessage(portalMutation.error, "Failed to open invoices")}
 					</Text>
 				)}
 			</SettingsSectionContent>
