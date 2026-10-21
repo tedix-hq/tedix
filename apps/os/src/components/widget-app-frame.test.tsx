@@ -13,6 +13,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("official bridge frame lifecycle", () => {
 	it("replays StrictMode safely, initializes theme/permissions, orders data and cleans up", async () => {
 		// Keep a stable Window without navigating to Happy DOM's localhost page.
+		// Re-verified on happy-dom 21.0.3: assigning src still navigates and replaces contentWindow.
 		vi.spyOn(HTMLIFrameElement.prototype, "src", "get").mockReturnValue(
 			"about:blank",
 		);
