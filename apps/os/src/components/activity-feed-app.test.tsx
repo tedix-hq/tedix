@@ -224,8 +224,12 @@ it.each(["projects", "organization"] as const)(
 			expect(host.querySelector("article")?.textContent).toContain(
 				row.sentence,
 			);
+			const feed = host.querySelector<HTMLElement>(
+				'[data-workspace-app-entry="activity-feed"]',
+			)!;
+			feed.focus();
 			await act(async () =>
-				document.dispatchEvent(
+				feed.dispatchEvent(
 					new KeyboardEvent("keydown", { key: "j", bubbles: true }),
 				),
 			);
