@@ -5,10 +5,9 @@ import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { deckAskKind } from "@tedix/api-contract/utils/deck-ask";
-import {
-	deckSourceKey,
-	planDeckSweep,
-} from "@tedix/api-contract/utils/deck-pipeline";
+import { deckSourceKey } from "@tedix/api-contract/utils/deck-pipeline";
+import { planTextBaseline as planDeckSweep } from "./text-baseline";
+import { productionComparison } from "./production.mjs";
 import {
 	compareDeckOrders,
 	ruleRankDeck,
@@ -210,7 +209,18 @@ export function measure(snapshot, labels = [], seed = "decision-graph-v1") {
 	};
 	const result = {};
 	const uniqueCandidates = new Map();
+	const productionCandidates = new Map();
 	for (const [name, cards] of Object.entries(cohorts)) {
+		const production = productionComparison(
+			cards,
+			snapshot.contexts,
+			now,
+			config,
+			snapshot.timeZone ?? "UTC",
+			answered,
+		);
+		for (const c of production.candidates)
+			productionCandidates.set(`${c.rule}:${c.cardId}`, c);
 		const graph = graphRecommendations(cards, snapshot.contexts);
 		for (const c of graph) uniqueCandidates.set(`${c.rule}:${c.cardId}`, c);
 		const baseline = planDeckSweep({
@@ -250,6 +260,18 @@ export function measure(snapshot, labels = [], seed = "decision-graph-v1") {
 		// Keep every priority tier in its observed slots; zero blocked counts preserve the baseline.
 		const after = before.map((id) => buckets.get(tiers.get(id)).shift());
 		result[name] = {
+			production: {
+				...production,
+				byRule: Object.fromEntries(
+					RULES.map((rule) => [
+						rule,
+						production.candidates.filter((c) => c.rule === rule).length,
+					]),
+				),
+				additionalVsText: production.actions.filter(
+					(a) => !baselineRemoved.has(a.cardId),
+				).length,
+			},
 			cards: cards.length,
 			contextRead: cards.filter((c) => snapshot.contexts[c.id]).length,
 			protected: cards.filter((c) => c.protected).length,
@@ -300,6 +322,11 @@ export function measure(snapshot, labels = [], seed = "decision-graph-v1") {
 		currentUnmapped: snapshot.currentIds.filter((id) => !byId.has(id)),
 		cohorts: result,
 		precision: precision([...uniqueCandidates.values()], labels, seed),
+		productionPrecision: precision(
+			[...productionCandidates.values()],
+			labels,
+			seed,
+		),
 		caveats: [
 			"Read-only shadow recommendations, not executed retirements or measured time savings. Validate against the production graph gate before claiming identical behavior.",
 			"Last-30-day cohort uses today's graph and default Deck routing, not a replay of information available when each card was created; recipient-specific routing overrides are unverified.",
@@ -316,9 +343,39 @@ export function markdown(result) {
 		"",
 		`Observed ${result.observedAt}. Mode: ${result.mode}.`,
 		"",
+		"## Landed production sweep comparison",
+		"",
+		"Plans only; no card writes. The per-run retirement cap is retained. Supersession merges count as duplicates; stale withdrawals require the production stale-source rule. Own historical answers are excluded. Ranking isolates countBlocked on shared survivors using the production comparator; it is a counterfactual order, not a ranker run.",
+		"",
+		"| Cohort | Already decided | Merge duplicates | Withdraw stale | All actions | Text actions | Additional vs text | Rank moved |",
+		"| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+	];
+	for (const [name, c] of Object.entries(result.cohorts))
+		lines.push(
+			`| ${name} | ${c.production.byRule.already_decided} | ${c.production.byRule.duplicate} | ${c.production.byRule.stale} | ${c.production.actions.length} | ${c.production.text.actions.length} | ${c.production.additionalVsText} | ${c.production.ranking.moved} |`,
+		);
+	lines.push(
+		"",
+		"Frozen text baseline: " +
+			result.cohorts.current.production.textBaselineSha +
+			".",
+		"",
+		"## Production precision",
+		"",
+		"| Rule | Eligible | Sampled | Checked | Correct | Contradicted | Unknown | Precision |",
+		"| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+	);
+	for (const [rule, p] of Object.entries(result.productionPrecision))
+		lines.push(
+			`| ${rule} | ${p.eligible} | ${p.sampled} | ${p.checked} | ${p.correct} | ${p.contradicted} | ${p.unknown} | ${p.precision === null ? "unmeasured" : `${(100 * p.precision).toFixed(1)}%`} |`,
+		);
+	lines.push(
+		"",
+		"## Additional shadow policy diagnostics",
+		"",
 		"| Cohort | Cards | Contexts | Already decided | Duplicate | Superseded/stale | Unique | Additional vs text | Rank moved |",
 		"| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-	];
+	);
 	for (const [name, c] of Object.entries(result.cohorts))
 		lines.push(
 			`| ${name} | ${c.cards} | ${c.contextRead} | ${c.graph.already_decided} | ${c.graph.duplicate} | ${c.graph.stale} | ${c.graphUniqueRemovals} | ${c.incrementalRemovals} | ${c.ranking.moved} |`,
@@ -351,7 +408,7 @@ export function markdown(result) {
 			"",
 			`Text actions ${c.baseline.actions}; text proposals ${c.baseline.proposals}. Reasons: ${JSON.stringify(c.baseline.byReason)}. Pairwise disagreement ${c.ranking.discordant}/${c.ranking.pairs}; top-${c.ranking.topK} overlap ${c.ranking.topOverlap}.`,
 		);
-	for (const [rule, p] of Object.entries(result.precision)) {
+	for (const [rule, p] of Object.entries(result.productionPrecision)) {
 		lines.push(
 			"",
 			`## ${rule} examples`,

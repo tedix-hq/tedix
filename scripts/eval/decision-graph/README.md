@@ -46,13 +46,20 @@ availability errors retry up to five times with bounded backoff; permission,
 capacity and schema gates stop the run. Each history page is checkpointed to
 the private snapshot before continuing.
 
-The baseline calls the production `planDeckSweep` without graph inputs. It
+The text baseline replays `planDeckSweep` from commit
+`11420939c40d6a304b20b13e552fa3be1b382c1b`, frozen in `text-baseline.ts` before
+graph qualification replaced its text matching. It
 reports actions separately from fuzzy already-decided proposals and retains
 the sweep's per-run retirement cap. Live sweep configuration and learned rules
 come from `get_decision_learning`; rules are restricted to the observed
 recipients. `--baseline-config <private-json>` permits an explicitly recorded
 configuration override for a controlled comparison. Fixtures use versioned
-defaults.
+defaults. A separate production comparison calls the current `planDeckSweep`,
+`classifyDeckAsk` and `compareDecisionFreshness` helpers with supported graph
+contexts. It retains the retirement cap and samples its recommendations for
+the main precision table. Its rank comparison isolates `countBlocked` on shared
+survivors. Card creation gates and the service's additional duplicate-subject
+decision lookup are outside this replay and must not be claimed as measured.
 
 Graph recommendations are a shadow policy over G1's exact context contract:
 prior decisions (excluding the card's own answer), supersession, and duplicate
