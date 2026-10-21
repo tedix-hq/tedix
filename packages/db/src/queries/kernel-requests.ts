@@ -406,14 +406,25 @@ function uncapturedDispatcherAttempts(since: string) {
 
 export async function listUncapturedDispatcherAttempts(
 	db: DbQueryClient,
-	p: { organizationId: string; since: string; limit: number },
+	p: {
+		organizationId: string;
+		since: string;
+		limit: number;
+		workItemIds?: string[];
+	},
 ) {
+	if (p.workItemIds && p.workItemIds.length > 50)
+		throw new Error("Dispatcher verification cohort is limited to 50 Work IDs");
 	return db
 		.select()
 		.from(workAttempts)
 		.where(
 			and(
 				eq(workAttempts.orgId, p.organizationId),
+				p.workItemIds
+					? // bound-params: cohort length is checked at this query boundary, maximum 50.
+						inArray(workAttempts.workItemId, p.workItemIds)
+					: undefined,
 				uncapturedDispatcherAttempts(p.since),
 			),
 		)

@@ -388,6 +388,12 @@ completing. Policy revocation, a changed request or a newer Attempt fences the
 write. Missing delivery or Ship proof stays pending until the verification
 window closes, then produces one repair Work. No model or open chat is needed.
 
+To limit verification to a canary cohort, set
+`kernelRequestCoordinator.workAttemptDelivery.workItemIds` to those Work IDs.
+Omit it for all dispatcher Work; an empty list processes none. This filters
+intake before its batch limit and pauses reconciliation of excluded Work.
+Leave `completion` absent to keep timer completion authority disabled.
+
 To dispatch a Codex or Claude lane, Tedix opens a Work-linked `handoff`
 Interaction for the executing user's canonical id, with
 `metadata.laneRequest.harness` set to `codex` or `claude-code`. Bound
