@@ -20,13 +20,15 @@ const permit = {
 	kind: "outer" as const,
 };
 
-function fixture() {
+function fixture(
+	clock?: ConstructorParameters<typeof PublicRestorePermits>[1],
+) {
 	const queries = {
 		enter: vi.fn().mockResolvedValue(true),
 		leave: vi.fn().mockResolvedValue(true),
 		reuse: vi.fn().mockResolvedValue(true),
 	};
-	const pool = new PublicRestorePermits(queries);
+	const pool = new PublicRestorePermits(queries, clock);
 	const tasks: Promise<unknown>[] = [];
 	const forRequest = () => pool.forRequest((task) => tasks.push(task));
 	return { queries, forRequest, tasks };
@@ -233,7 +235,12 @@ describe("public restore reservations", () => {
 	});
 
 	it("does not let expiry clear an active render or admit a new borrower", async () => {
-		const { queries, forRequest, tasks } = fixture();
+		let now = 0;
+		const { queries, forRequest, tasks } = fixture({
+			now: () => now,
+			schedule: (task, delayMs) =>
+				new Promise<void>((resolve) => setTimeout(resolve, delayMs)).then(task),
+		});
 		const first = forRequest();
 		const second = forRequest();
 		expect(await first.enter(db, permit)).toBe(true);
@@ -241,12 +248,18 @@ describe("public restore reservations", () => {
 			true,
 		);
 		await first.leave(db, permit);
-		await vi.advanceTimersByTimeAsync(10_000);
-		await Promise.all(tasks);
-		expect(queries.leave).not.toHaveBeenCalled();
+		now = 9_999;
+		const lastBorrower = forRequest();
+		await lastBorrower.enter(db, { ...permit, permitId: "last-borrower" });
+		expect(queries.enter).toHaveBeenCalledOnce();
+		await lastBorrower.leave(db, permit);
+		now = 10_000;
 		const next = forRequest();
 		await next.enter(db, { ...permit, permitId: "new-reservation" });
 		expect(queries.enter).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(tasks);
+		expect(queries.leave).not.toHaveBeenCalled();
 		await second.leave(db, permit);
 		expect(queries.leave).toHaveBeenCalledWith(db, permit);
 		await next.leave(db, permit);

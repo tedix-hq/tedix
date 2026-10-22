@@ -57,12 +57,36 @@ beforeAll(async () => {
 		.run();
 });
 
-let lastCoordinatorCallAt = 0;
+let now = 0;
+const cleanups: Array<() => Promise<void>> = [];
+function clockFor(coordinator: DurableObjectStub<EmDashDB>) {
+	return {
+		now: () => now,
+		schedule: (task: () => Promise<void>, delayMs: number) =>
+			new Promise<void>((resolve, reject) => {
+				const expiresAt = now + delayMs;
+				cleanups.push(async () => {
+					if (now < expiresAt) throw new Error("reservation has not expired");
+					// Resolve waitUntil's promise in the object that created it.
+					await runInDurableObject(coordinator, async () => {
+						try {
+							await task();
+							resolve();
+						} catch (error) {
+							reject(error);
+							throw error;
+						}
+					});
+				});
+			}),
+	};
+}
+async function reservationExpiry() {
+	now += 10_100;
+	for (const cleanup of cleanups.splice(0)) await cleanup();
+}
 afterEach(async () => {
-	const remaining = lastCoordinatorCallAt + 10_100 - Date.now();
-	if (remaining > 0)
-		await new Promise((resolve) => setTimeout(resolve, remaining));
-	lastCoordinatorCallAt = 0;
+	await reservationExpiry();
 	vi.unstubAllGlobals();
 }, 20_000);
 
@@ -76,9 +100,18 @@ async function site() {
 	const namespace = (
 		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
 	).DB_DO;
-	await namespace
-		.get(namespace.idFromName(identity.slug))
-		.query("CREATE TABLE content (id INTEGER PRIMARY KEY, title TEXT)");
+	const coordinator = namespace.get(namespace.idFromName(identity.slug));
+	await runInDurableObject(coordinator, (instance) => {
+		Object.assign(instance, {
+			databasePermits: new PublicRestorePermits(
+				undefined,
+				clockFor(coordinator),
+			),
+		});
+	});
+	await coordinator.query(
+		"CREATE TABLE content (id INTEGER PRIMARY KEY, title TEXT)",
+	);
 	return identity;
 }
 
@@ -95,19 +128,16 @@ function tenantDb(
 		queryWithRestorePermit: (
 			...args: Parameters<EmDashDB["queryWithRestorePermit"]>
 		) => {
-			lastCoordinatorCallAt = Date.now();
 			return coordinator.queryWithRestorePermit(...args);
 		},
 		batchQueryWithRestorePermit: (
 			...args: Parameters<EmDashDB["batchQueryWithRestorePermit"]>
 		) => {
-			lastCoordinatorCallAt = Date.now();
 			return coordinator.batchQueryWithRestorePermit(...args);
 		},
 		runWithRestorePermit: (
 			...args: Parameters<EmDashDB["runWithRestorePermit"]>
 		) => {
-			lastCoordinatorCallAt = Date.now();
 			return coordinator.runWithRestorePermit(...args);
 		},
 	};
@@ -122,22 +152,8 @@ function tenantDb(
 	}) as TenantEmDashDB;
 }
 
-/** The real database objects, recording use so each test drains its reservation. */
 function coordinators(): DurableObjectNamespace {
-	const namespace = (
-		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
-	).DB_DO;
-	return {
-		idFromName: (name: string) => namespace.idFromName(name),
-		get: (id: DurableObjectId) => ({
-			runWithRestorePermit: (
-				...args: Parameters<EmDashDB["runWithRestorePermit"]>
-			) => {
-				lastCoordinatorCallAt = Date.now();
-				return namespace.get(id).runWithRestorePermit(...args);
-			},
-		}),
-	} as unknown as DurableObjectNamespace;
+	return (env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }).DB_DO;
 }
 
 async function permitIds(siteId: string): Promise<string[]> {
@@ -147,9 +163,6 @@ async function permitIds(siteId: string): Promise<string[]> {
 		.all<{ id: string }>();
 	return rows.results.map((row) => row.id);
 }
-
-const reservationExpiry = () =>
-	new Promise((resolve) => setTimeout(resolve, 10_100));
 
 function tenantR2(identity: {
 	siteId: string;
@@ -205,7 +218,7 @@ describe("nested tenant storage restore permits", () => {
 			"fence unavailable",
 		);
 		expect(query).not.toHaveBeenCalled();
-		await new Promise((resolve) => setTimeout(resolve, 10_100));
+		await reservationExpiry();
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 	}, 20_000);
 
@@ -420,7 +433,7 @@ describe("nested tenant storage restore permits", () => {
 			"value",
 			undefined,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 10_100));
+		await reservationExpiry();
 		expect((await getCmsRestoreFenceState(db, openSite)).inFlight).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 	}, 20_000);
@@ -596,8 +609,10 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 	const namespace = (
 		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
 	).DB_DO;
+	const coordinator = namespace.get(namespace.idFromName(identity.slug));
+	const tasks: Promise<unknown>[] = [];
 	const counts = await runInDurableObject(
-		namespace.get(namespace.idFromName(identity.slug)),
+		coordinator,
 		async (instance: EmDashDB) => {
 			const platform = (
 				Reflect.get(instance, "env") as { PLATFORM_DB: D1Database }
@@ -608,8 +623,7 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 				statements.push(sql);
 				return originalPrepare(sql);
 			});
-			const outer = new PublicRestorePermits();
-			const tasks: Promise<unknown>[] = [];
+			const outer = new PublicRestorePermits(undefined, clockFor(coordinator));
 			try {
 				for (let page = 0; page < 10; page++) {
 					const response = await withCmsRestoreResponsePermit(
@@ -641,11 +655,12 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 					).length,
 				};
 			} finally {
-				await Promise.all(tasks);
 				spy.mockRestore();
 			}
 		},
 	);
+	await reservationExpiry();
+	await Promise.all(tasks);
 	console.info(
 		"CMS core D1 queries for 10 buffered pages before reservation cleanup",
 		counts,
