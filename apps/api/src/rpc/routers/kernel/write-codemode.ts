@@ -19,6 +19,7 @@ export type KernelWriteTransport = "direct" | "codemode";
 
 export interface CodeModeCatalogTool {
 	name: string;
+	authorized?: boolean;
 	_meta?: Record<string, unknown>;
 	description?: string;
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
@@ -28,6 +29,7 @@ export interface CodeModeCatalogTool {
 
 interface CodeModeDiscoveryEntry {
 	callable?: unknown;
+	authorized?: unknown;
 	_meta?: unknown;
 	description?: unknown;
 	annotations?: unknown;
@@ -184,6 +186,9 @@ export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 		return [
 			{
 				name: entry.callable,
+				...(typeof entry.authorized === "boolean"
+					? { authorized: entry.authorized }
+					: {}),
 				...(metadata ? { _meta: metadata } : {}),
 				...(typeof entry.description === "string"
 					? { description: entry.description }

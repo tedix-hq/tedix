@@ -8,6 +8,7 @@ import {
 
 export interface McpTool {
 	name: string;
+	authorized?: boolean;
 	description?: string;
 	_meta?: Record<string, unknown>;
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };

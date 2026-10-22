@@ -1744,6 +1744,7 @@ describe("planKernelWriteProposal — positive path", () => {
 							result: JSON.stringify([
 								{
 									callable: "work.create_work_items",
+									authorized: true,
 									description: "Create a provider-neutral work item",
 									annotations: { readOnlyHint: false },
 									parameters: {
@@ -1784,6 +1785,7 @@ describe("planKernelWriteProposal — positive path", () => {
 				},
 			}),
 			actingUserId: "user-123",
+			workWriteGateway: "tedix-unified",
 			content: `create the work item titled Release proof in project ${projectId}. Description: ${description}`,
 			model,
 		});
@@ -3040,3 +3042,246 @@ it.each([undefined, "external_side_effect", "high_impact_write"])(
 		).toBe("high");
 	},
 );
+
+describe("member canonical Work discovery", () => {
+	it("keeps the member and selected workspace on an authorized canonical proposal, revalidating each turn", async () => {
+		const workspaceId = "22222222-2222-4222-8222-222222222222";
+		const projectId = "11111111-1111-4111-8111-111111111111";
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
+			slug === "member-gateway"
+				? {
+						slug,
+						metadata: {
+							mcpConfig: {
+								toolParamDefaults: { workspaceId: "other-workspace" },
+							},
+						},
+					}
+				: null,
+		);
+		const service = mcpService(() => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					structuredContent: {
+						executionId: "catalog",
+						result: [
+							{
+								callable: "work.create_work_items",
+								authorized: true,
+								annotations: { readOnlyHint: false },
+								parameters: {
+									properties: {
+										title: { type: "string" },
+										projectId: { type: "string" },
+										workspaceId: { type: "string" },
+									},
+									required: ["title"],
+								},
+							},
+						],
+					},
+				},
+			},
+		}));
+		const model = objectModel({
+			toolName: "work.create_work_items",
+			args: { title: "Validation", projectId, workspaceId },
+		});
+		const args = {
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-member",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "member-gateway",
+					capability: "work_items.create",
+					connectionStatus: "connected",
+				},
+			}),
+			actingUserId: "member-1",
+			workWriteGateway: "member-gateway",
+			workspaceContext: { workspaceId, workspaceName: "Member workspace" },
+			content: `Create validation Work in project ${projectId} in this workspace`,
+			model,
+		};
+		const first = await planKernelWriteProposal(args);
+		expect(first).toMatchObject({
+			appSlug: "member-gateway",
+			toolName: "work.create_work_items",
+			args: { title: "Validation", projectId, workspaceId },
+		});
+		await planKernelWriteProposal(args);
+		expect(service.calls).toHaveLength(2);
+		for (const call of service.calls) {
+			expect(call.headers.get("X-Tedix-Org-Id")).toBe("org-member");
+			expect(call.headers.get("X-Tedix-Acting-User")).toBe("member-1");
+			expect(JSON.stringify(call.params)).toContain("discover.describe");
+			expect(JSON.stringify(call.params)).not.toContain(
+				"await work.create_work_items",
+			);
+		}
+	});
+
+	const canonicalLookup = (outcome: string) => ({
+		stage: "canonical_unavailable",
+		canonicalLookup: {
+			capability: "work_items.create",
+			tool: "work.create_work_items",
+			outcome,
+		},
+	});
+	const route = writeRoute({
+		toolIntent: {
+			appSlug: "member-gateway",
+			capability: "work_items.create",
+			connectionStatus: "connected",
+		},
+	});
+	const content =
+		"Create a validation Work item in project 11111111-1111-4111-8111-111111111111";
+	it.each([
+		[401, null, "unauthorized"],
+		[200, [], "not_found"],
+		[
+			200,
+			[
+				{
+					callable: "work.create_work_items",
+					parameters: { properties: { title: { type: "string" } } },
+					annotations: { readOnlyHint: false },
+				},
+			],
+			"authorization_unknown",
+		],
+		[
+			200,
+			[
+				{
+					callable: "work.create_work_items",
+					authorized: false,
+					parameters: { properties: { title: { type: "string" } } },
+					annotations: { readOnlyHint: false },
+				},
+			],
+			"unauthorized",
+		],
+		[
+			200,
+			[
+				{
+					callable: "work.create_work_items",
+					authorized: true,
+					annotations: { readOnlyHint: false },
+				},
+			],
+			"schema_missing",
+		],
+	])(
+		"fails closed before argument planning for catalog %s (%s)",
+		async (status, result, outcome) => {
+			mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
+				slug === "member-gateway" ? { slug } : null,
+			);
+			const service = mcpService(() => ({
+				status: status as number,
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: { structuredContent: { executionId: "catalog", result } },
+				},
+			}));
+			const model = objectModel({
+				toolName: "work.create_work_items",
+				args: { title: "Validation" },
+			});
+			const generate = vi.spyOn(model, "doGenerate");
+			const onDecline = vi.fn();
+			expect(
+				await planKernelWriteProposal({
+					db: DB,
+					env: baseEnv(service),
+					organizationId: "org-member",
+					route,
+					actingUserId: "member-1",
+					workWriteGateway: "member-gateway",
+					content,
+					model,
+					onDecline,
+				}),
+			).toBeNull();
+			expect(onDecline).toHaveBeenCalledWith(
+				canonicalLookup(outcome as string),
+			);
+			expect(generate).not.toHaveBeenCalled();
+			expect(mocks.selectJevAction).not.toHaveBeenCalled();
+			expect(service.calls).toHaveLength(1);
+			expect(service.calls[0]?.headers.get("X-Tedix-Org-Id")).toBe(
+				"org-member",
+			);
+			expect(service.calls[0]?.headers.get("X-Tedix-Acting-User")).toBe(
+				"member-1",
+			);
+			expect(service.calls[0]?.headers.get("X-Tedix-Host")).toContain(
+				"member-gateway",
+			);
+			expect(
+				mocks.getAppBySlugForOrg.mock.calls.map((call) => call[1]),
+			).toEqual(["member-gateway"]);
+		},
+	);
+
+	it("records a typed timeout without a connector body or argument planning", async () => {
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
+			slug === "member-gateway" ? { slug } : null,
+		);
+		const fetch = vi.fn(async (): Promise<Response> => {
+			throw new DOMException("sensitive connector diagnostic", "TimeoutError");
+		});
+		const model = objectModel({
+			toolName: "work.create_work_items",
+			args: { title: "Validation" },
+		});
+		const generate = vi.spyOn(model, "doGenerate");
+		const onDecline = vi.fn();
+		await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv({ fetch, calls: [] }),
+			organizationId: "org-member",
+			route,
+			actingUserId: "member-1",
+			workWriteGateway: "member-gateway",
+			content,
+			model,
+			onDecline,
+			timeoutMs: 500,
+		});
+		expect(onDecline).toHaveBeenCalledWith(canonicalLookup("timeout"));
+		expect(JSON.stringify(onDecline.mock.calls)).not.toContain("sensitive");
+		expect(generate).not.toHaveBeenCalled();
+	});
+	it("does not use a provider or service identity without a trusted gateway and member", async () => {
+		const onDecline = vi.fn();
+		const model = objectModel({
+			toolName: "work.create_work_items",
+			args: { title: "Validation" },
+		});
+		const generate = vi.spyOn(model, "doGenerate");
+		await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(mcpService(globexProvider)),
+			organizationId: "org-member",
+			route,
+			content,
+			model,
+			onDecline,
+		});
+		expect(onDecline).toHaveBeenCalledWith(canonicalLookup("unavailable"));
+		expect(mocks.getAppBySlugForOrg).not.toHaveBeenCalled();
+		expect(generate).not.toHaveBeenCalled();
+		expect(
+			renderWriteDeclined(canonicalLookup("unavailable") as never, route),
+		).toContain("No Work item was created");
+	});
+});
