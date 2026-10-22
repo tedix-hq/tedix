@@ -640,11 +640,31 @@ export function truncateOutput(
 		return output;
 	}
 
-	if (str.length <= maxBytes) {
-		return output;
-	}
+	const encoder = new TextEncoder();
+	// The workflow wraps primitives, arrays and truncated strings in { value }.
+	const persisted =
+		typeof output === "object" && !Array.isArray(output)
+			? str
+			: `{"value":${str}}`;
+	const originalBytes = encoder.encode(persisted).byteLength;
+	if (originalBytes <= maxBytes) return output;
 
-	// Truncate and add indicator
-	const truncated = str.slice(0, maxBytes - 50);
-	return `${truncated}...[TRUNCATED, original size: ${str.length} bytes]`;
+	const stringBytes = (value: string): number =>
+		encoder.encode(JSON.stringify({ value })).byteLength;
+	// Even the empty wrapped string needs 12 bytes; smaller budgets use it
+	// deterministically as the smallest representation supported by the caller.
+	if (maxBytes < stringBytes("")) return "";
+
+	const marker = `...[TRUNCATED, original size: ${originalBytes} bytes]`;
+	const suffix = stringBytes(marker) <= maxBytes ? marker : "";
+	const characters = [...(suffix ? str : marker)];
+	let start = 0;
+	let end = characters.length;
+	while (start < end) {
+		const middle = Math.ceil((start + end) / 2);
+		const candidate = `${characters.slice(0, middle).join("")}${suffix}`;
+		if (stringBytes(candidate) <= maxBytes) start = middle;
+		else end = middle - 1;
+	}
+	return `${characters.slice(0, start).join("")}${suffix}`;
 }
