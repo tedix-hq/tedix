@@ -15,7 +15,7 @@ import { writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser, type Page } from "playwright";
-import { focusClipShard } from "./focus-clip-shards";
+import { focusClipShard, focusClipRoutes } from "./focus-clip-shards";
 
 type Finding = {
 	route: string;
@@ -745,9 +745,7 @@ try {
 						);
 						if (worker === 0 && partition === 0)
 							await auditWorkText(page, label);
-						const assigned = [...routes.values()].filter(
-							(_, index) => index % partitions === partition,
-						);
+						const assigned = focusClipRoutes(routes, partition, partitions);
 						for (const [index, route] of assigned.entries()) {
 							if (index % PAGES_PER_CONFIG !== worker) continue;
 							await auditRoute(page, route, label);

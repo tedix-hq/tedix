@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	focusClipConfigs,
 	focusClipShard,
+	focusClipRoutes,
 } from "../../apps/os/browser-tests/focus-clip-shards";
 
 test("focus-clip route partitions cover every route and theme/viewport exactly once", () => {
@@ -10,12 +11,20 @@ test("focus-clip route partitions cover every route and theme/viewport exactly o
 		const text: string[] = [];
 		for (let shard = 1; shard <= count; shard++) {
 			const plan = focusClipShard(`${shard}/${count}`);
+			const routes = Array.from(
+				{ length: 90 },
+				(_, index) => [`/route-${index}`, `/route-${index}`] as const,
+			);
+			if (shard % 2) routes.reverse();
 			for (const { viewport, theme } of plan.configs) {
 				const config = `${viewport.width}-${theme}`;
 				if (plan.partition === 0) text.push(config);
-				for (let route = 0; route < 90; route++)
-					if (route % plan.partitions === plan.partition)
-						coverage.push(`${config}:${route}`);
+				for (const route of focusClipRoutes(
+					new Map(routes),
+					plan.partition,
+					plan.partitions,
+				))
+					coverage.push(`${config}:${route}`);
 			}
 		}
 		expect(coverage.length).toBe(4 * 90);
@@ -25,6 +34,25 @@ test("focus-clip route partitions cover every route and theme/viewport exactly o
 				.map(({ viewport, theme }) => `${viewport.width}-${theme}`)
 				.sort(),
 		);
+	}
+});
+test("route assignment depends only on normalized pattern, never fixture IDs or other routes", () => {
+	const routes = new Map([
+		["/work/items/:id", "/work/items/first"],
+		["/workspace/:id", "/workspace/first"],
+	]);
+	for (let partition = 0; partition < 2; partition++) {
+		const before = focusClipRoutes(routes, partition, 2);
+		const changed = new Map([
+			["/extra", "/extra"],
+			["/workspace/:id", "/workspace/second"],
+			["/work/items/:id", "/work/items/second"],
+		]);
+		expect(
+			focusClipRoutes(changed, partition, 2)
+				.filter((route) => route !== "/extra")
+				.map((route) => route.replace("second", "first")),
+		).toEqual(before);
 	}
 });
 test("malformed and uneven shard counts fail rather than silently miss coverage", () => {
