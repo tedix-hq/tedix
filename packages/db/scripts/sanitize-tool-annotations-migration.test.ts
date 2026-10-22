@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
+import { createMigratedSqlite } from "../src/test/migrated-sqlite";
 
 const DB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MIGRATIONS_DIR = join(DB_ROOT, "drizzle");
@@ -26,12 +27,7 @@ function migrationName(suffix = "_sanitize-tool-annotations"): string {
 }
 
 function databaseBeforeRepair(): DatabaseSync {
-	const sqlite = new DatabaseSync(":memory:");
-	const target = migrationName();
-	for (const name of migrationNames) {
-		if (name === target) break;
-		applyMigration(sqlite, name);
-	}
+	const sqlite = createMigratedSqlite({ beforeMigration: migrationName() });
 	// Rows are inserted without their parents; only the column rewrite matters.
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	return sqlite;

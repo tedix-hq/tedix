@@ -1,7 +1,7 @@
-import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import {
 	getWorkInteraction,
@@ -30,17 +30,21 @@ const work = "22222222-2222-4222-8222-222222222222";
 const agent = "33333333-3333-4333-8333-333333333333";
 const card = "44444444-4444-4444-8444-444444444444";
 const task = "55555555-5555-4555-8555-555555555555";
+it("copies the decision fixture without replaying migrations", () => {
+	fixture().sqlite.close();
+	const exec = vi.spyOn(DatabaseSync.prototype, "exec");
+	try {
+		fixture().sqlite.close();
+		expect(
+			exec.mock.calls.some(([sql]) => /\b(?:CREATE|ALTER|DROP)\b/i.test(sql)),
+		).toBe(false);
+	} finally {
+		exec.mockRestore();
+	}
+});
+
 function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	const migrations = new URL(
-		"../../../../packages/db/drizzle/",
-		import.meta.url,
-	);
-	for (const name of readdirSync(migrations).sort())
-		sqlite.exec(
-			readFileSync(new URL(`${name}/migration.sql`, migrations), "utf8"),
-		);
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES('${org}','Fictional','fictional');
 INSERT INTO users(id,email) VALUES('person','person@example.test');
 INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status,role) VALUES('member','${org}','person-sub','person','person@example.test','active','owner');

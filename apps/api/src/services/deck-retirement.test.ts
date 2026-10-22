@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { createMigratedSqlite } from "../../../../packages/db/src/test/migrated-sqlite";
+import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 import type { BaseContext } from "../rpc/orpc";
 import { reviseCardContent } from "./card-revisions";
 import { mergeDeckCards, retireDeckCard } from "./deck-retirement";

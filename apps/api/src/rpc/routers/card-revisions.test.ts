@@ -1,8 +1,7 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 import { expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workInteractionsContractRouter } from "./work-interactions";
@@ -22,16 +21,7 @@ const work = "22222222-2222-4222-8222-222222222222";
 const agent = "33333333-3333-4333-8333-333333333333";
 const card = "44444444-4444-4444-8444-444444444444";
 function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	const migrations = new URL(
-		"../../../../../packages/db/drizzle/",
-		import.meta.url,
-	);
-	for (const name of readdirSync(migrations).sort())
-		sqlite.exec(
-			readFileSync(new URL(`${name}/migration.sql`, migrations), "utf8"),
-		);
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(
 		`INSERT INTO organizations(id,name,slug) VALUES('${org}','Fictional','fictional'); INSERT INTO users(id,email) VALUES('person','person@example.test'),('other','other@example.test'); INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status,role) VALUES('member','${org}','person-sub','person','person@example.test','active','owner'),('other-member','${org}','other-sub','other','other@example.test','active','member'); INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('${agent}','${org}','Draft author','draft-author','active'); INSERT INTO work_items(id,org_id,title,work_class,purpose_exception_expires_at,admission_spec_revision,created_at) VALUES('${work}','${org}','Draft','hygiene','2027-01-01T00:00:00.000Z','fixture','2026-10-19T00:00:00.000Z'); INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES('${card}','${org}','${work}','question','Review this draft?','Original text','tedi','${agent}','user','person','2026-10-19T00:00:00.000Z');`,
 	);

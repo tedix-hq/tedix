@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
+import { createMigratedSqlite } from "../src/test/migrated-sqlite";
 
 const DB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MIGRATIONS_DIR = join(DB_ROOT, "drizzle");
@@ -18,14 +19,6 @@ function applyMigration(sqlite: DatabaseSync, name: string): void {
 	sqlite.exec(sql);
 }
 
-function applyThrough(sqlite: DatabaseSync, finalPrefix: string): void {
-	for (const name of migrationNames) {
-		applyMigration(sqlite, name);
-		if (name.startsWith(finalPrefix)) return;
-	}
-	throw new Error(`Migration prefix ${finalPrefix} was not found`);
-}
-
 function applyByPrefix(sqlite: DatabaseSync, prefix: string): void {
 	const name = migrationNames.find((candidate) => candidate.startsWith(prefix));
 	if (!name) throw new Error(`Migration prefix ${prefix} was not found`);
@@ -34,9 +27,7 @@ function applyByPrefix(sqlite: DatabaseSync, prefix: string): void {
 
 describe("graph cognition migration", () => {
 	it("applies the complete ledger to an empty SQLite database", () => {
-		const sqlite = new DatabaseSync(":memory:");
-		sqlite.exec("PRAGMA foreign_keys = ON");
-		for (const name of migrationNames) applyMigration(sqlite, name);
+		const sqlite = createMigratedSqlite();
 
 		const tables = sqlite
 			.prepare(
@@ -60,9 +51,9 @@ describe("graph cognition migration", () => {
 	});
 
 	it("upgrades projection v1 with tenant and relationship fences intact", () => {
-		const sqlite = new DatabaseSync(":memory:");
-		sqlite.exec("PRAGMA foreign_keys = ON");
-		applyThrough(sqlite, "20260727034647_");
+		const sqlite = createMigratedSqlite({
+			beforeMigration: "20260727060440_",
+		});
 		sqlite.exec(`
 			INSERT INTO organizations (id, name, slug) VALUES
 				('org-1', 'One', 'one'),
