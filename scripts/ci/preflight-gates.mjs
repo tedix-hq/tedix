@@ -78,6 +78,89 @@ import {
 } from "./push-range-selection.mjs";
 import { workerConfigShapeWarning } from "./worker-config-shape.mjs";
 
+/** Network availability never overrides the offline per-config trailer decision. */
+function checkOpsOverlay(repoRoot, ranges) {
+	const warnings = [],
+		errors = [],
+		checked = new Set();
+	const git = (args) => {
+		const result = spawnSync("git", args, {
+			cwd: repoRoot,
+			encoding: "utf8",
+			env: detachedGitEnv(),
+		});
+		if (result.status !== 0)
+			throw new Error("Cannot read Ops-Overlay push range");
+		return result.stdout;
+	};
+	for (const { base, head } of ranges) {
+		const from = /^0+$/.test(base) ? defaultPushBase(repoRoot) : base;
+		const configs = git([
+			"diff",
+			"--name-only",
+			from ?? "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+			head,
+		])
+			.trim()
+			.split("\n")
+			.filter((path) =>
+				/^(apps|packages)\/.+\/(wrangler\.jsonc|cloudflare\.config\.ts)$/.test(
+					path,
+				),
+			);
+		for (const path of configs) {
+			const commits = git([
+				"log",
+				"--format=%H",
+				from ? `${from}..${head}` : head,
+				"--",
+				path,
+			])
+				.trim()
+				.split("\n")
+				.filter(Boolean);
+			for (const commit of commits) {
+				const messages = git(["show", "-s", "--format=%B", commit]);
+				const trailers = [
+					...messages.matchAll(/^Ops-Overlay: ([a-f0-9]{40}) (\S+)\s*$/gm),
+				].filter((match) => match[2] === path);
+				if (!trailers.length) {
+					errors.push(`${path}: missing Ops-Overlay: <full ops SHA> ${path}`);
+					continue;
+				}
+				for (const [, sha] of trailers) {
+					if (checked.has(sha)) continue;
+					checked.add(sha);
+					const result = spawnSync(
+						"gh",
+						[
+							"api",
+							`repos/tedix-hq/tedix-cloud-ops/commits/${sha}`,
+							"--jq",
+							".sha",
+						],
+						{
+							cwd: repoRoot,
+							encoding: "utf8",
+							timeout: 5000,
+							stdio: ["ignore", "pipe", "pipe"],
+						},
+					);
+					if (result.status !== 0)
+						warnings.push(
+							`Ops-Overlay ${sha}: GitHub unavailable; keeping offline trailer check`,
+						);
+					else if (result.stdout.trim() !== sha)
+						errors.push(
+							`Ops-Overlay ${sha}: GitHub returned a different commit`,
+						);
+				}
+			}
+		}
+	}
+	return { errors, warnings };
+}
+
 const repoRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 	cwd: process.cwd(),
 	encoding: "utf8",
@@ -103,6 +186,15 @@ const pushRanges = [
 	...parsePushRanges(process.argv.slice(2)),
 	...parsePushRanges(trainRangeArgs),
 ];
+if (args.has("--ops-overlay-only")) {
+	if (!pushRanges.length)
+		throw new Error("--ops-overlay-only requires --base and --head");
+	const result = checkOpsOverlay(repoRoot, pushRanges);
+	for (const warning of result.warnings) console.error(`Warning: ${warning}`);
+	for (const error of result.errors) console.error(error);
+	console.log(`Ops-Overlay: ${result.errors.length ? "failed" : "passed"}`);
+	process.exit(result.errors.length ? 1 : 0);
+}
 // The pre-push hook passes the push target's URL; `bun run verify` has none.
 const remoteUrlIndex = process.argv.indexOf("--remote-url");
 const remoteUrl =
@@ -601,7 +693,7 @@ if (workflowsTouched && has("actionlint") && !has("shellcheck")) {
 	);
 }
 
-// Keep the existing advisory shape summary; deployment compatibility belongs to ops.
+// Compatibility is checked in ops; the trailer records the coordinated change.
 if (!fileArguments?.length) {
 	const fallbackBase = pushRanges.length ? null : defaultPushBase(repoRoot);
 	const shapeRanges = pushRanges.length
@@ -611,6 +703,14 @@ if (!fileArguments?.length) {
 			: [];
 	const shapeWarning = workerConfigShapeWarning(repoRoot, files, shapeRanges);
 	if (shapeWarning) warnings.push(shapeWarning);
+	if (pushesToCanonicalRepo(remoteUrl)) {
+		const overlay = checkOpsOverlay(repoRoot, shapeRanges);
+		warnings.push(...overlay.warnings);
+		if (overlay.errors.length) {
+			console.error(overlay.errors.join("\n"));
+			process.exit(1);
+		}
+	}
 }
 
 function writeLog(gate, output) {

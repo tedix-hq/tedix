@@ -1,6 +1,7 @@
-import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -210,3 +211,97 @@ test(
 		}),
 	30000,
 );
+
+describe("ops overlay", () => {
+	const root = mkdtempSync(join(tmpdir(), "overlay-gate-"));
+	afterAll(() => rmSync(root, { recursive: true, force: true }));
+	const script = resolve(import.meta.dir, "preflight-gates.mjs");
+	const sha = "a".repeat(40);
+	const path = "apps/example/wrangler.jsonc";
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+	git("init", "-q");
+	git("config", "user.name", "Fixture");
+	git("config", "user.email", "fixture@example.test");
+	mkdirSync(join(root, "apps/example"), { recursive: true });
+	writeFileSync(join(root, path), "{}\n");
+	git("add", ".");
+	git("commit", "-qm", "base");
+	const base = git("rev-parse", "HEAD");
+	git("switch", "-qc", "scratch/unpaired-config");
+	writeFileSync(join(root, path), '{"vars":{"NEW_BINDING":"example"}}\n');
+	git("add", ".");
+	git("commit", "-qm", "deliberate unpaired scratch config");
+	const missing = git("rev-parse", "HEAD");
+	git(
+		"commit",
+		"--amend",
+		"-qm",
+		`paired config\n\nOps-Overlay: ${sha} ${path}`,
+	);
+	const paired = git("rev-parse", "HEAD");
+	writeFileSync(join(root, path), '{"vars":{"OTHER_BINDING":"example"}}\n');
+	git("add", ".");
+	git("commit", "-qm", "later config without its own trailer");
+	const laterMissing = git("rev-parse", "HEAD");
+	const bin = join(root, "bin");
+	mkdirSync(bin);
+	const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+	writeFileSync(join(bin, "git"), `#!/bin/sh\nexec '${realGit}' "$@"\n`);
+	chmodSync(join(bin, "git"), 0o755);
+
+	function check(head: string, response?: string) {
+		const gh = join(bin, "gh");
+		rmSync(gh, { force: true });
+		if (response) {
+			writeFileSync(gh, `#!/bin/sh\n${response}\n`);
+			chmodSync(gh, 0o755);
+		}
+		return spawnSync(
+			process.execPath,
+			[script, "--ops-overlay-only", "--base", base, "--head", head],
+			{
+				cwd: root,
+				encoding: "utf8",
+				env: { ...process.env, PATH: bin, TEDIX_PUSH_TRAIN_RANGES: "[]" },
+			},
+		);
+	}
+
+	test("deliberate config without an overlay trailer is rejected without pushing", () => {
+		const result = check(missing);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(`${path}: missing Ops-Overlay`);
+		expect(git("remote")).toBe("");
+		expect(git("branch", "--show-current")).toBe("scratch/unpaired-config");
+	});
+
+	test("an earlier paired commit cannot cover a later unpaired config change", () => {
+		expect(check(laterMissing).status).toBe(1);
+	});
+
+	test("online check resolves the exact ops commit", () => {
+		const result = check(
+			paired,
+			`test "$1" = api || exit 1\ntest "$2" = repos/tedix-hq/tedix-cloud-ops/commits/${sha} || exit 1\nprintf '${sha}\\n'`,
+		);
+		expect(result.status).toBe(0);
+		expect(result.stderr).toBe("");
+	});
+
+	test("missing gh and GitHub errors warn and preserve the offline decision", () => {
+		for (const response of [undefined, "exit 1", "exit 127"]) {
+			const result = check(paired, response);
+			expect(result.status).toBe(0);
+			expect(result.stderr).toContain(
+				"GitHub unavailable; keeping offline trailer check",
+			);
+		}
+	});
+
+	test("a successful lookup returning the wrong SHA fails", () => {
+		const result = check(paired, `printf '${"b".repeat(40)}\\n'`);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("GitHub returned a different commit");
+	});
+});
