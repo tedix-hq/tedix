@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { createMigratedSqlite } from "../test/migrated-sqlite";
@@ -27,6 +28,7 @@ import {
 	respondToWorkInteraction,
 } from "./work-items/interactions";
 import { addWorkItemRelation } from "./work-items/relations";
+import { CARD_NAME_SCAN_LIMIT } from "./decision-graph-writers";
 
 const NOW = "2026-10-21T12:00:00.000Z";
 
@@ -91,7 +93,7 @@ it("links only confirmed lessons from a user's same-organization Work comment", 
 	]);
 });
 
-function fixture(broken = false) {
+function fixture(broken = false, wrap?: (d1: D1Database) => D1Database) {
 	const sqlite = createMigratedSqlite();
 	cleanups.push(() => sqlite.close());
 	sqlite.exec(`
@@ -107,8 +109,9 @@ function fixture(broken = false) {
 		sqlite.exec(
 			"CREATE TRIGGER broken_graph BEFORE INSERT ON decision_edges BEGIN SELECT RAISE(ABORT,'graph unavailable'); END;",
 		);
-	const db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
-	const card = (id = "card") =>
+	const d1 = createD1Facade(sqlite, { maxBoundParams: 100 });
+	const db = createDbClient(wrap ? wrap(d1) : d1);
+	const card = (id = "card", metadata?: Record<string, JsonValue>) =>
 		createWorkInteraction(db, {
 			id,
 			orgId: "org",
@@ -119,6 +122,7 @@ function fixture(broken = false) {
 			creator: { type: "tedi", id: "worker" },
 			targetType: "user",
 			targetId: "owner",
+			metadata,
 			now: NOW,
 		});
 	const edges = () =>
@@ -689,3 +693,100 @@ describe.each([false, true])(
 		});
 	},
 );
+
+const CANDIDATE_TABLES =
+	/\bfrom "(memory_entities|organization_members|organization_secrets)"/i;
+
+function bulkCandidates(
+	sqlite: { exec(sql: string): void },
+	count: number,
+	extra = "",
+) {
+	sqlite.exec(`
+		WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i <= ${count})
+		INSERT INTO memory_entities(id,organization_id,entity_type,display_name,normalized_name)
+		SELECT printf('bulk-entity-%04d',i),'org','service',printf('bulk-name-%04d',i),printf('bulk-name-%04d',i) FROM n;
+		WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i <= ${count})
+		INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,name,status,role)
+		SELECT printf('bulk-member-%04d',i),'org',printf('bulk-user-%04d',i),printf('bulk-user-%04d',i),printf('bulk-%04d@example.test',i),printf('bulk-name-%04d',i),'active','member' FROM n;
+		WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i <= ${count})
+		INSERT INTO organization_secrets(id,organization_id,name,encrypted_value,created_at,updated_at)
+		SELECT printf('bulk-secret-%04d',i),'org',printf('bulk_name_%04d',i),'x','${NOW}','${NOW}' FROM n;
+		${extra}
+	`);
+}
+
+const involvedIds = (f: { edges(): { kind: string; to_id: string }[] }) =>
+	f
+		.edges()
+		.filter((edge) => edge.kind === "involves")
+		.map((edge) => edge.to_id)
+		.sort();
+
+it("bounds card name matching to one batched, capped candidate read", async () => {
+	const prepared: string[] = [];
+	const batches: string[][] = [];
+	const f = fixture(false, (d1) => ({
+		...d1,
+		prepare: (sql: string) => {
+			prepared.push(sql);
+			return Object.assign(d1.prepare(sql), { __laneSql: sql });
+		},
+		batch: (statements: Array<{ __laneSql?: string }>) => {
+			batches.push(
+				statements.map((statement) => statement.__laneSql ?? "<unseen>"),
+			);
+			return d1.batch(statements as D1PreparedStatement[]);
+		},
+	}));
+	// A few hundred active candidates per table, none named in the card text.
+	bulkCandidates(f.sqlite, 300);
+	await f.card();
+	// The member point-lookup that validates the card's target also hits one of
+	// these tables; the name-matching reads all project a name column.
+	const reads = prepared.filter(
+		(sql) =>
+			CANDIDATE_TABLES.test(sql) &&
+			(sql.includes('"name"') || sql.includes('"display_name"')),
+	);
+	// One sequential D1 round trip carries every candidate read.
+	const carrying = batches.filter((batch) =>
+		batch.some((sql) => reads.includes(sql)),
+	);
+	expect(carrying).toHaveLength(1);
+	expect(new Set(carrying[0])).toEqual(new Set(reads));
+	// No statement runs an unindexed instr() name predicate per candidate row.
+	expect(reads.some((sql) => /instr\s*\(/i.test(sql))).toBe(false);
+	// Every read follows an organization index instead of scanning the table.
+	for (const sql of reads) {
+		const plan = (
+			f.sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+				.all(...Array.from(sql.matchAll(/\?/g), () => null)) as {
+				detail: string;
+			}[]
+		)
+			.map((row) => row.detail)
+			.join("\n");
+		expect(plan, sql).not.toMatch(/\bSCAN\b/);
+	}
+	// Matched graph nodes stay the same on an organization inside the bound.
+	expect(involvedIds(f)).toEqual(["api", "key", "owner"]);
+});
+
+it("skips name matching past the candidate bound and keeps only the metadata id list", async () => {
+	const f = fixture();
+	bulkCandidates(
+		f.sqlite,
+		CARD_NAME_SCAN_LIMIT + 50,
+		`INSERT INTO memory_entities(id,organization_id,entity_type,display_name,normalized_name) VALUES('late-api','org','service','Orchard API','orchard api');
+		INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,name,status,role) VALUES('late-member','org','late-user','late-user','late@example.test','Morgan','active','member');
+		INSERT INTO organization_secrets(id,organization_id,name,encrypted_value,created_at,updated_at) VALUES('late-secret','org','Audit','x','${NOW}','${NOW}');`,
+	);
+	await f.card("big-card", {
+		entityId: "api",
+		personId: "owner",
+		credentialId: "key",
+	});
+	expect(involvedIds(f)).toEqual(["api", "key", "owner"]);
+});
