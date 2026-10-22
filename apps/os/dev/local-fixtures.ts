@@ -4291,6 +4291,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 		hasMore: false,
 		observedAt: new Date().toISOString(),
 	}),
+	// Sample decisions are already seeded; refreshing never creates duplicates.
+	"workInteractions/refreshDecisionSources": () => ({
+		created: 0,
+		superseded: 0,
+		scanned: WORK_ITEMS.length,
+		hasMore: false,
+	}),
 	"workInteractions/get": (input: { requestId: string }) =>
 		localKnockDetail(input.requestId),
 	"agentTurnTriage/getReplyDraftAcceptance": () => ({
@@ -4526,6 +4533,52 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"skills/get": (input: { id: string }) => ({
 		entry: SKILLS.find((entry) => entry.id === input.id) ?? null,
 	}),
+	"skills/getWorkflowReliability": (input: {
+		skillId?: string;
+		slug?: string;
+		tediId?: string;
+		limit?: number;
+	}) => {
+		const runs = state.skillRuns
+			.filter(
+				(run) =>
+					(!input.skillId || run.skillId === input.skillId) &&
+					(!input.slug || run.skillSlug === input.slug) &&
+					(!input.tediId || run.tediId === input.tediId),
+			)
+			.slice(0, input.limit ?? 100);
+		const completed = runs.filter((run) => run.status === "completed").length;
+		const failed = runs.filter((run) => run.status === "failed").length;
+		const canceled = runs.filter((run) => run.status === "canceled").length;
+		const terminal = completed + failed + canceled;
+		return {
+			scope: { skillId: input.skillId ?? null, tediId: input.tediId ?? null },
+			runCount: runs.length,
+			completedCount: completed,
+			failedCount: failed,
+			canceledCount: canceled,
+			activeCount: runs.length - terminal,
+			successRate: null,
+			completionRate: terminal ? completed / terminal : null,
+			expectedOutcomes: {
+				evaluatedCount: 0,
+				matchedCount: 0,
+				unexpectedCount: 0,
+				expectedCompletedCount: 0,
+				expectedFailedCount: 0,
+				expectedCanceledCount: 0,
+				unexpectedRuns: [],
+			},
+			averageDurationMs: null,
+			retryAttemptCount: runs.reduce((sum, run) => sum + run.executionEpoch, 0),
+			rollbackCount: 0,
+			toolCallCount: 0,
+			failedSteps: [],
+			warnings: [
+				"Sample run statuses only; outcome policies and step evidence are not modeled.",
+			],
+		};
+	},
 	"skills/listWorkflowSchedules": () => ({
 		schedules: SCHEDULES,
 		total: SCHEDULES.length,
@@ -5402,7 +5455,48 @@ const handlers: Record<string, (input: never) => unknown> = {
 			"mcp:work.admin",
 		],
 	}),
+	"externalAgentIdentity/listPrincipals": () => [
+		{
+			id: fid("ea", 1),
+			organizationId: ORG_ID,
+			key: "sample-fixture-agent",
+			displayName: "Sample fixture agent",
+			status: "active",
+			credentialBindingType: "api_key",
+			credentialBindingId: "sample-fixture-binding",
+			createdByType: "user",
+			createdById: "sample-operator",
+			metadata: {},
+			createdAt: T1,
+			updatedAt: T5,
+			platform: null,
+			representedUserId: null,
+			allowedScopes: null,
+			expiresAt: null,
+			lastSeenAt: T5,
+		},
+	],
+	"modelCatalog/list": () => ({
+		models: [],
+		selections: [],
+		wiredProviders: [],
+		routing: {
+			slot: "chat",
+			modelRef: null,
+			selectedBy: null,
+			detail:
+				"Local fixtures have no model providers configured and make no model calls.",
+			allowed: null,
+			selectable: null,
+			deniedBy: null,
+		},
+	}),
 	"organizations/listAllMine": () => paginate([ORG_MEMBERSHIP]),
+	"organizations/getMyOrganization": () => ({
+		organization: state.organization,
+		member: ORG_MEMBERSHIP.member,
+		created: { organization: false, member: false },
+	}),
 	"organizations/get": (input: { organizationId: string }) => {
 		if (input.organizationId !== ORG_ID)
 			throw new RpcError("NOT_FOUND", "Organization not found");
@@ -5443,6 +5537,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 		return state.organization;
 	},
+	"billing/listProviderCapacitySponsorships": () => ({ data: [] }),
+	"billing/getInferenceSpending": () => ({
+		from: T1,
+		to: T5,
+		hasMore: false,
+		rows: [],
+	}),
 	"billing/listPlans": () => ({
 		stripeEnvironment: "test" as const,
 		plans: [
@@ -6009,6 +6110,20 @@ const handlers: Record<string, (input: never) => unknown> = {
 		enabled: false,
 		unavailableReason: "No gateway configured in this sample workspace.",
 	}),
+	"apps/listGatewayMemberships": () => ({ gateway: null, memberships: [] }),
+	"appTools/list": (input: { appId: string; query?: string } & Pagination) => {
+		const inventory = APP_TOOLS[input.appId] ?? [];
+		const terms = input.query?.trim().toLowerCase().split(/\s+/) ?? [];
+		const tools = inventory.filter((tool) => {
+			const text =
+				`${tool.toolId} ${tool.title} ${tool.description ?? ""}`.toLowerCase();
+			return terms.every((term) => text.includes(term));
+		});
+		return { ...paginate(tools, input), inventoryTotal: inventory.length };
+	},
+	"appSecrets/list": () => paginate([]),
+	"tediAppAssignments/listByApp": () => ({ data: [] }),
+	"tediAppAssignments/listByTedi": () => ({ data: [] }),
 	"appAdapters/list": (input: { appId: string } & Pagination) =>
 		paginate(
 			[
@@ -6052,6 +6167,68 @@ const handlers: Record<string, (input: never) => unknown> = {
 		avgMessagesChange: 0.5,
 		successRate: 96,
 		successRateChange: 2,
+	}),
+	"analytics/getAppSummary": () => ({
+		totalEvents: 0,
+		toolCalls: 0,
+		promptCalls: 0,
+		codeExecs: 0,
+		successRate: 0,
+		avgDurationMs: 0,
+		uniqueUsers: 0,
+		uniqueCallerTypes: [],
+	}),
+	"analytics/getWidgetLifecycleHealth": (input: {
+		from: string;
+		to: string;
+	}) => ({
+		from: input.from,
+		to: input.to,
+		status: "unconfigured",
+		configured: false,
+		hasData: false,
+		latestEventAt: null,
+		totalEvents: 0,
+		readyEvents: 0,
+		sessionAttempts: 0,
+		failedSessions: 0,
+		messageSubmissions: 0,
+		firstTokens: 0,
+		completedAnswers: 0,
+		cancelledAnswers: 0,
+		failedAnswers: 0,
+		avgReadyMs: 0,
+		avgSessionMs: 0,
+		avgFirstTokenMs: 0,
+		avgAnswerMs: 0,
+	}),
+	"analytics/getAppToolBreakdown": () => ({ tools: [] }),
+	"analytics/getAppTimeSeries": () => ({ buckets: [] }),
+	"analytics/getRecentExecutions": () => ({ executions: [] }),
+	"analytics/getRecentActivity": () => ({ items: [] }),
+	"analytics/getAppFreshness": () => ({
+		windowStart: T1,
+		windowEnd: T5,
+		currentWindow: {
+			totalEvents: 0,
+			toolExecutions: 0,
+			codeExecutions: 0,
+			toolErrors: 0,
+		},
+		latestAuditEvent: null,
+	}),
+	"analytics/getCodemodeAnalyticsSummary": () => ({
+		byNamespace: [],
+		topTools: [],
+		execSummary: {
+			totalExecs: 0,
+			successExecs: 0,
+			failedExecs: 0,
+			successRate: 0,
+			avgDurationMs: 0,
+			avgToolCount: 0,
+			avgNamespaceCount: 0,
+		},
 	}),
 	"appGating/installedEligibility": () => ELIGIBILITY,
 
