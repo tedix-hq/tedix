@@ -24,12 +24,6 @@ import {
 } from "@/components/kumo/collapsible";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { Page } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
@@ -66,7 +60,7 @@ export function WorkClustersPage() {
 		<Page width="full">
 			<WorkPageHeader
 				title="Execution clusters"
-				description="Plan bounded, resource-compatible execution waves for one active tedi. The projection is advisory; every start re-evaluates admission."
+				description="Plan groups of Work that can run together for one tedi. Each item is checked again before it starts."
 			/>
 			<Card>
 				<CardHeader>
@@ -178,15 +172,10 @@ export function WorkClustersPage() {
 							))}
 						</div>
 					) : (
-						<Empty>
-							<EmptyHeader>
-								<EmptyTitle>No eligible execution waves</EmptyTitle>
-								<EmptyDescription>
-									No Work Item passed every hard gate for this tedi in the
-									bounded snapshot.
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
+						<WorkEmpty
+							title="No eligible execution waves"
+							description="No Work Item passed every hard gate for this tedi in the bounded snapshot."
+						/>
 					)}
 				</>
 			) : null}

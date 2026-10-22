@@ -6,6 +6,7 @@ import {
 } from "@/components/work-surface-primitives";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Outlet, useRouterState } from "@tanstack/react-router";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { Badge } from "@/components/kumo/badge";
@@ -71,6 +72,17 @@ const caseFormSchema = z.object({
 	projectId: z.string().trim(),
 });
 
+export function WorkCasesRoute() {
+	const pathname = useRouterState({
+		select: (state) => state.location.pathname,
+	});
+	return pathname.replace(/\/$/, "").endsWith("/work/cases") ? (
+		<WorkCasesPage />
+	) : (
+		<Outlet />
+	);
+}
+
 export function WorkCasesPage() {
 	useOsFormattingPreferences();
 	const client = useQueryClient();
@@ -112,7 +124,7 @@ export function WorkCasesPage() {
 		<Page width="xl">
 			<WorkPageHeader
 				title="Cases"
-				description="Evolving investigations, incidents, customer matters, and other knowledge work. Case stage never substitutes for Work Item readiness."
+				description="Investigations, incidents and other work that spans multiple tasks. Each task is checked before it starts."
 				action={
 					<Button
 						variant={caseFormOpen ? "outline" : "default"}
@@ -174,7 +186,7 @@ export function WorkCasesPage() {
 					<SectionHeading>
 						<SectionTitle id="case-register-title">Case register</SectionTitle>
 						<SectionDescription>
-							Current investigations and durable knowledge-work containers.
+							Track ongoing investigations and the work attached to them.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -204,7 +216,7 @@ export function WorkCasesPage() {
 										<Link
 											variant="record"
 											href={`/work/cases/${record.id}`}
-											className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center py-1 font-medium leading-snug coarse:min-h-11"
+											className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center py-1 font-medium leading-snug"
 										>
 											<span className="line-clamp-2">{record.title}</span>
 											<Text as="span" role="label" tone="mono-secondary">
@@ -417,8 +429,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 					<SectionHeading>
 						<SectionTitle>Business stage</SectionTitle>
 						<SectionDescription>
-							Closing is a guarded CAS transition and never completes attached
-							Work Items.
+							Closing a case does not complete its attached Work.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
