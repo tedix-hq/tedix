@@ -19,6 +19,8 @@ import {
 } from "./analytics-engine-protocol";
 import { queryCodemodeAnalyticsSummary } from "./analytics-engine-codemode";
 
+import { queryAE } from "./analytics-engine-query";
+
 const realFetch = globalThis.fetch;
 
 test("external-agent validation SLO is sampled and org scoped", async () => {
@@ -554,6 +556,122 @@ describe("analytics-engine Code Mode app correlation", () => {
 			expect(mock.queries[0]).not.toContain(
 				`${MCP_ANALYTICS_BLOB.organizationId} =`,
 			);
+		} finally {
+			mock.restore();
+		}
+	});
+});
+
+describe("Analytics Engine SQL snapshots", () => {
+	const from = "2026-05-11T00:00:00.000Z";
+	const to = "2026-05-11T01:00:00.000Z";
+
+	test("query transport preserves SQL bytes", async () => {
+		const mock = mockAEFetch([{ data: [] }]);
+		try {
+			await queryAE(env, "SELECT SUM(_sample_interval) FROM dataset");
+			expect(mock.queries[0]).toMatchInlineSnapshot(
+				`"SELECT SUM(_sample_interval) FROM dataset"`,
+			);
+		} finally {
+			mock.restore();
+		}
+	});
+
+	test("tool metrics SQL", async () => {
+		const mock = mockAEFetch([{ data: [] }]);
+		try {
+			await getUserToolCallMetrics(env, "user-'quoted", from, to);
+			expect(mock.queries[0]).toMatchInlineSnapshot(`
+				"SELECT
+							SUM(_sample_interval) AS totalCalls,
+							SUM(IF(double1 = 0, _sample_interval, 0.0)) AS failedCalls
+						FROM dataset
+						WHERE
+							blob1 = 'tool_call'
+							AND blob8 = 'user-\\'quoted'
+							AND timestamp >= toDateTime('2026-05-11 00:00:00')
+							AND timestamp <= toDateTime('2026-05-11 01:00:00')"
+			`);
+		} finally {
+			mock.restore();
+		}
+	});
+
+	test("app drilldown SQL", async () => {
+		const mock = mockAEFetch([{ data: [] }]);
+		try {
+			await getExecutionDrilldownFromAE(env, "exec-'quoted", "org-1");
+			expect(mock.queries[0]).toMatchInlineSnapshot(`
+				"SELECT
+							blob5 AS toolName,
+							double1 AS success,
+							double2 AS durationMs,
+							timestamp,
+							blob1 AS eventType,
+							blob3 AS appSlug
+						FROM dataset
+						WHERE
+							blob11 = 'exec-\\'quoted'
+							AND blob1 IN ('code_exec', 'tool_call')
+							AND blob4 = 'org-1'
+						ORDER BY timestamp ASC"
+			`);
+		} finally {
+			mock.restore();
+		}
+	});
+
+	test("protocol validation SQL", async () => {
+		const mock = mockAEFetch([{ data: [] }]);
+		try {
+			await getExternalAgentValidationSloFromAE(env, "org-'quoted", from, to);
+			expect(mock.queries[0]).toMatchInlineSnapshot(`
+				"SELECT
+							SUM(_sample_interval) AS totalValidations,
+							SUM(IF(double1 = 1, _sample_interval, 0)) AS successfulValidations,
+							SUM(IF(blob6 = 'inactive', _sample_interval, 0)) AS inactiveValidations,
+							SUM(IF(blob6 = 'validation_unavailable', _sample_interval, 0)) AS unavailableValidations,
+							SUM(_sample_interval * double2) / SUM(_sample_interval) AS avgLatencyMs,
+							MAX(timestamp) AS latestValidationAt
+						FROM dataset
+						WHERE blob1 = 'auth_validation'
+							AND blob4 = 'org-\\'quoted'
+							AND timestamp >= toDateTime('2026-05-11 00:00:00')
+							AND timestamp <= toDateTime('2026-05-11 01:00:00')"
+			`);
+		} finally {
+			mock.restore();
+		}
+	});
+
+	test("Code Mode SQL", async () => {
+		const mock = mockAEFetch([{ data: [] }, { data: [] }]);
+		try {
+			await queryCodemodeAnalyticsSummary(
+				{
+					...env,
+					CODEMODE_ANALYTICS_DATASET: "codemode-dataset",
+				} as CloudflareEnv,
+				from,
+				to,
+				{ organizationId: "org-'quoted", appId: "app-1" },
+			);
+			expect(mock.queries[0]).toMatchInlineSnapshot(`
+				"SELECT
+								blob5 AS toolName,
+								double1 AS successValue,
+								SUM(_sample_interval) AS calls,
+								SUM(_sample_interval * double2) AS durationSum,
+								quantileExactWeighted(0.5)(double2, _sample_interval) AS p50Duration
+							FROM codemode-dataset
+							WHERE blob1 = 'rpc'
+								AND blob5 != ''
+								AND timestamp >= toDateTime('2026-05-11 00:00:00')
+						AND timestamp <= toDateTime('2026-05-11 01:00:00') AND blob4 = 'org-\\'quoted' AND blob2 = 'app-1'
+							GROUP BY blob5, double1
+							ORDER BY calls DESC"
+			`);
 		} finally {
 			mock.restore();
 		}
