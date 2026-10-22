@@ -875,3 +875,64 @@ it("carries the previous article URL into a tldr delegation", async () => {
 	);
 	expect(workOrder?.authorityEnvelope).toBeUndefined();
 });
+
+it("grounds internal Work creation in the current org gateway without changing member or workspace context", async () => {
+	const { assembleHomeContext } = await import("./context-assembly");
+	const { planKernelRoute } = await import("./route-planner");
+	vi.mocked(assembleHomeContext).mockResolvedValue({
+		tedis: [],
+		apps: [
+			{ slug: "tenant-provider", name: "Resource" },
+			{
+				slug: "tenant-unified",
+				name: "Gateway",
+				codeMode: true,
+				capabilities: ["work_items.create"],
+			},
+		],
+		workflows: [],
+		workItems: [],
+		facts: [],
+		rationale: [],
+		speaker: null,
+		history: [],
+		workspace: { id: "workspace-1", name: "Member workspace" },
+		promptCharsEstimate: 1000,
+		lastStepPromptTokens: 1,
+	} as never);
+	vi.mocked(planKernelRoute).mockResolvedValue({
+		...blockedRoute,
+		routeKind: "propose_tool_write",
+		toolIntent: {
+			appSlug: "tenant-provider",
+			capability: "work_items.create",
+			connectionStatus: "unknown",
+		},
+		usage: null,
+	} as never);
+	const result = await runKernel({
+		db: {} as never,
+		env: {
+			AI: {},
+			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+		} as never,
+		organizationId: "org-member",
+		descopeUserId: "member-1",
+		content:
+			"Create one internal documentation Work item in this workspace. Do not execute or delegate.",
+	});
+	expect(result).toMatchObject({
+		workWriteGateway: "tenant-unified",
+		route: {
+			routeKind: "propose_tool_write",
+			toolIntent: {
+				appSlug: "tenant-unified",
+				capability: "work_items.create",
+			},
+		},
+	});
+	expect(vi.mocked(assembleHomeContext).mock.lastCall?.[1]).toBe("org-member");
+	expect(vi.mocked(assembleHomeContext).mock.lastCall?.[2]).toMatchObject({
+		descopeUserId: "member-1",
+	});
+});

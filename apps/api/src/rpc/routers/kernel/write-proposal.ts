@@ -142,6 +142,16 @@ export interface KernelWriteProposal {
 	editableFields?: ApprovalEditableField[];
 }
 
+type CanonicalLookupOutcome =
+	| "unavailable"
+	| "not_found"
+	| "unauthorized"
+	| "authorization_unknown"
+	| "timeout"
+	| "lookup_failed"
+	| "schema_missing"
+	| "read_only";
+
 async function mcpCall(
 	env: WriteProposalEnv,
 	host: string,
@@ -149,8 +159,13 @@ async function mcpCall(
 	method: string,
 	params: Record<string, unknown>,
 	actingUserId?: string,
+	onFailure?: (outcome: CanonicalLookupOutcome) => void,
+	lookupTimeoutMs?: number,
 ): Promise<unknown | null> {
-	if (!env.MCP_SERVICE || !env.MCP_URL) return null;
+	if (!env.MCP_SERVICE || !env.MCP_URL) {
+		onFailure?.("unavailable");
+		return null;
+	}
 	const service = env.MCP_SERVICE;
 	try {
 		return await requestFirstPartyMcp(
@@ -158,6 +173,7 @@ async function mcpCall(
 				url: `${env.MCP_URL}/mcp`,
 				fetch: (url, init) => service.fetch(url, init),
 				clientName: "tedix-home",
+				...(lookupTimeoutMs ? { timeoutMs: lookupTimeoutMs } : {}),
 				headers: {
 					"X-Service-Binding": "true",
 					"X-Tedix-Org-Id": organizationId,
@@ -174,6 +190,16 @@ async function mcpCall(
 			params,
 		);
 	} catch (error) {
+		onFailure?.(
+			error instanceof FirstPartyMcpError &&
+				(error.status === 401 || error.status === 403)
+				? "unauthorized"
+				: (error instanceof FirstPartyMcpError && error.kind === "timeout") ||
+					  (error instanceof Error &&
+							(error.name === "TimeoutError" || error.name === "AbortError"))
+					? "timeout"
+					: "lookup_failed",
+		);
 		if (!(error instanceof FirstPartyMcpError)) throw error;
 		if (error.kind === "http") {
 			console.warn("[kernel.writeProposal] mcp call not ok", {
@@ -278,10 +304,13 @@ async function resolveProviderApp(
 	db: DbClient,
 	appSlug: string,
 	organizationId: string,
+	exact = false,
 ): Promise<{ slug: string; paramDefaults: ToolParamDefaults | null } | null> {
-	const candidates = appSlug.endsWith("-tedix")
-		? [appSlug, appSlug.replace(/-tedix$/, "")]
-		: [`${appSlug}-tedix`, appSlug];
+	const candidates = exact
+		? [appSlug]
+		: appSlug.endsWith("-tedix")
+			? [appSlug, appSlug.replace(/-tedix$/, "")]
+			: [`${appSlug}-tedix`, appSlug];
 	for (const slug of candidates) {
 		// Org-scoped: a write proposal must only resolve this org's provider app —
 		// applying another tenant's tool-param defaults (workspace ids / creds) to a
@@ -318,11 +347,17 @@ export interface KernelWriteProposalDeclined {
 		| "no_provider"
 		| "no_write_tools"
 		| "planner_declined"
+		| "canonical_unavailable"
 		| "validation_failed"
 		| "live_draft_save"
 		| "error";
 	detail?: string;
 	draftSaveTarget?: OutputDraftSaveTarget;
+	canonicalLookup?: {
+		capability: "work_items.create";
+		tool: "work.create_work_items";
+		outcome: CanonicalLookupOutcome;
+	};
 }
 
 /**
@@ -342,6 +377,8 @@ export function renderWriteDeclined(
 	const appSlug = route.toolIntent?.appSlug?.trim();
 	const app = appSlug?.replaceAll("-", " ") || "that app";
 	switch (declined.stage) {
+		case "canonical_unavailable":
+			return "Home couldn't confirm the Work-creation tool for this workspace. No Work item was created. Retry, or ask the workspace owner to check the connection.";
 		case "live_draft_save":
 			return declined.draftSaveTarget
 				? renderOutputDraftSaveRequest(declined.draftSaveTarget)
@@ -377,6 +414,8 @@ export async function planKernelWriteProposal(args: {
 	gatewayContext?: KernelGatewayContext;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
 	route: KernelRouteDecision;
+	/** Gateway selected from the owning turn’s org-scoped app capabilities. */
+	workWriteGateway?: string | null;
 	/** The initiating human (descopeUserId) — forwarded for connection scoping. */
 	actingUserId?: string;
 	/** The user's message — the source of the write's intent and arguments. */
@@ -422,11 +461,31 @@ export async function planKernelWriteProposal(args: {
 		});
 	}
 
+	const isWorkCreate = route.toolIntent?.capability === "work_items.create";
+	const canonicalDecline = (outcome: CanonicalLookupOutcome) =>
+		decline({
+			stage: "canonical_unavailable",
+			canonicalLookup: {
+				capability: "work_items.create",
+				tool: "work.create_work_items",
+				outcome,
+			},
+		});
+	if (isWorkCreate && (!actingUserId || args.workWriteGateway !== appSlug))
+		return canonicalDecline("unavailable");
+
 	try {
-		const provider = await resolveProviderApp(db, appSlug, organizationId);
+		const provider = await resolveProviderApp(
+			db,
+			appSlug,
+			organizationId,
+			isWorkCreate,
+		);
 		if (!provider) {
 			console.warn("[kernel.writeProposal] no provider app", { appSlug });
-			return decline({ stage: "no_provider", detail: appSlug });
+			return isWorkCreate
+				? canonicalDecline("unavailable")
+				: decline({ stage: "no_provider", detail: appSlug });
 		}
 		const host = buildMcpHost(provider.slug, env.MCP_URL ?? "");
 		const cacheKey = `${organizationId}|${host}|${actingUserId ?? ""}`;
@@ -443,19 +502,31 @@ export async function planKernelWriteProposal(args: {
 		// A known primitive needs no catalog search and no selection pass: one
 		// Code Mode call resolves and describes it. A successful authorized call
 		// proves this transport works; it need not wait for a separate tools/list.
-		// Anything unexpected falls through to the full catalog path.
+		// Other capabilities can fall through to the full catalog path.
+		let lookupOutcome: CanonicalLookupOutcome = "not_found";
+		const describeCanonical = async () =>
+			parseCodeModeCatalog(
+				await mcpCall(
+					env,
+					host,
+					organizationId,
+					"tools/call",
+					codeModeCanonicalDescribeParams(canonical!),
+					actingUserId,
+					(outcome) => {
+						lookupOutcome = outcome;
+					},
+					isWorkCreate ? Math.min(timeoutMs, 30_000) : undefined,
+				),
+			);
+		// Revalidate Work under this member on every turn; cached catalogs are not authority.
 		const canonicalPromise = canonical
-			? cachedWriteCatalog(`${cacheKey}|canonical|${canonical}`, async () =>
-					parseCodeModeCatalog(
-						await mcpCall(
-							env,
-							host,
-							organizationId,
-							"tools/call",
-							codeModeCanonicalDescribeParams(canonical),
-							actingUserId,
-						),
-					),
+			? (isWorkCreate
+					? describeCanonical()
+					: cachedWriteCatalog(
+							`${cacheKey}|canonical|${canonical}`,
+							describeCanonical,
+						)
 				).catch(() => [] as McpTool[])
 			: null;
 		// An explicit document create fixes the tool, title and destination; only
@@ -478,15 +549,32 @@ export async function planKernelWriteProposal(args: {
 				: undefined;
 		// Unused when the describe falls through to another tool.
 		documentDraft?.catch(() => {});
+		const canonicalEntries = canonicalPromise ? await canonicalPromise : [];
+		const describedTool = canonicalEntries.find(
+			(tool) => canonical && matchesCanonicalWriteTool(tool.name, canonical),
+		);
 		const canonicalTool =
-			canonical && canonicalPromise
-				? (await canonicalPromise).find(
-						(tool) =>
-							matchesCanonicalWriteTool(tool.name, canonical) &&
-							Boolean(tool.inputSchema) &&
-							isWriteCapable(tool),
-					)
+			describedTool &&
+			(isWorkCreate
+				? describedTool.authorized === true
+				: describedTool.authorized !== false) &&
+			describedTool.inputSchema &&
+			isWriteCapable(describedTool)
+				? describedTool
 				: undefined;
+		if (isWorkCreate && !canonicalTool) {
+			return canonicalDecline(
+				describedTool?.authorized === false
+					? "unauthorized"
+					: describedTool && describedTool.authorized !== true
+						? "authorization_unknown"
+						: describedTool && !describedTool.inputSchema
+							? "schema_missing"
+							: describedTool
+								? "read_only"
+								: lookupOutcome,
+			);
+		}
 		const listedTools = canonicalTool
 			? []
 			: await cachedWriteCatalog(
@@ -657,11 +745,21 @@ export async function planKernelWriteProposal(args: {
 			});
 		args.onStage?.("writeSchemaReady");
 		const editTarget = await editTargetPromise;
-		const paramDefaults = effectiveToolParamDefaults(
+		let paramDefaults = effectiveToolParamDefaults(
 			exactTool.name,
 			provider.slug,
 			provider.paramDefaults,
 		);
+		if (
+			isWorkCreate &&
+			args.workspaceContext &&
+			exactTool.inputSchema.properties?.workspaceId
+		) {
+			paramDefaults = {
+				...paramDefaults,
+				workspaceId: args.workspaceContext.workspaceId,
+			};
+		}
 		// A tool that answers a Work request needs its requestId and version;
 		// chat names the request by title, so hand the planner the open ones.
 		const answersWorkRequest = Boolean(

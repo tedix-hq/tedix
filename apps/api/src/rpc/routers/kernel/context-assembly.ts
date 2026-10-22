@@ -591,7 +591,7 @@ export function deriveAppCapabilities(app: App): string[] | undefined {
 	}
 
 	// Unified gateways expose tenant control-plane tools through Code Mode rather
-	// than app_tools rows. Surface only this narrow routing capability; injecting
+	// than app_tools rows. Surface narrow routing capabilities; injecting
 	// the full aggregate catalog would couple Home prompt size to tool inventory.
 	const mcpConfig =
 		app.metadata?.mcpConfig && typeof app.metadata.mcpConfig === "object"
@@ -609,6 +609,11 @@ export function deriveAppCapabilities(app: App): string[] | undefined {
 		catalogScopes.includes("mcp:catalog.write")
 	) {
 		out.push("catalog.install");
+	}
+
+	const workScopes = Array.isArray(toolScopes?.work) ? toolScopes.work : [];
+	if (mcpConfig?.codeMode === true && workScopes.includes("mcp:work.write")) {
+		out.push("work_items.create");
 	}
 
 	if (out.length === 0) return undefined;

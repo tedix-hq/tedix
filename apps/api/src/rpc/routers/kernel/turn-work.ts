@@ -503,6 +503,7 @@ async function planAndParkKernelWriteProposal(
 				env: deps.env as unknown as WriteProposalEnv,
 				organizationId,
 				route: kernelResult.route,
+				workWriteGateway: kernelResult.workWriteGateway,
 				actingUserId: input.descopeUserId,
 				content,
 				workspaceContext,
@@ -1550,6 +1551,9 @@ export async function runKernelTurnWork(
 			? {
 					kernelWriteProposalDeclined: {
 						stage: declinedRecord.stage,
+						...(declinedRecord.canonicalLookup
+							? { canonicalLookup: declinedRecord.canonicalLookup }
+							: {}),
 						...(declinedRecord.detail
 							? { detail: declinedRecord.detail.slice(0, 200) }
 							: {}),

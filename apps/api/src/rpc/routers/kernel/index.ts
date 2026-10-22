@@ -119,6 +119,7 @@ import {
 	outputWriteApp,
 	routeExplicitOutputCreate,
 } from "./output-create-intent";
+import { workWriteGateway } from "./work-write-gateway";
 import { planKernelRoute } from "./route-planner";
 import { decideHomeRoute, readHomeRoutePolicy } from "./route-decision";
 import type { KernelRouteDecision } from "./route-schema";
@@ -144,6 +145,8 @@ import { renderWriteDeclined } from "./write-proposal";
 export interface KernelResult {
 	assistantContent: string;
 	route: KernelRouteDecision;
+	/** Trusted org-scoped routing hint; the member catalog must still authorize it. */
+	workWriteGateway?: string | null;
 	/**
 	 * Present when a `delegate_tedi` route resolved a target tedi that carries a
 	 * capability card. Records the constructed work order + the fail-closed
@@ -1123,6 +1126,13 @@ export async function runKernel(args: {
 		context.delegationAvailable,
 	);
 	route = routeExplicitOutputCreate(route, outputCreateKind, outputAppSlug);
+	const workGateway = workWriteGateway(route, context.apps);
+	if (workGateway && route.toolIntent) {
+		route = {
+			...route,
+			toolIntent: { ...route.toolIntent, appSlug: workGateway },
+		};
+	}
 
 	// Live delegated load: spread coding work across the tedis that share the
 	// target's repository, and hold a target already at its concurrency limit.
@@ -1300,6 +1310,7 @@ export async function runKernel(args: {
 	}
 	return {
 		route,
+		workWriteGateway: workGateway,
 		delegation,
 		routeUsage,
 		routeHedge,

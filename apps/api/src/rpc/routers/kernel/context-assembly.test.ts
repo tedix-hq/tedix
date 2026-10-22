@@ -85,6 +85,20 @@ describe("selected workspace document context", () => {
 });
 
 describe("app capability context", () => {
+	it.each([
+		[true, ["mcp:work.write"], ["work_items.create"]],
+		[true, ["mcp:work.read"], undefined],
+		[false, ["mcp:work.write"], undefined],
+	])(
+		"derives Work routing only from scoped Code Mode (%s, %s)",
+		(codeMode, work, expected) => {
+			expect(
+				deriveAppCapabilities({
+					metadata: { mcpConfig: { codeMode, toolScopes: { work } } },
+				} as never),
+			).toEqual(expected);
+		},
+	);
 	it("surfaces catalog installation from a scoped Code Mode gateway", () => {
 		expect(
 			deriveAppCapabilities({

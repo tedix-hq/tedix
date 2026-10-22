@@ -851,6 +851,57 @@ describe("runKernelTurnWork progress seam", () => {
 		expect(result.status).toBe("needs_delegation");
 	});
 
+	it("persists safe canonical lookup diagnostics and carries trusted gateway and caller scope", async () => {
+		const lookup = {
+			capability: "work_items.create",
+			tool: "work.create_work_items",
+			outcome: "unauthorized",
+		} as const;
+		const planner = vi.fn(
+			async (
+				args: Parameters<KernelTurnWorkDeps["writeProposalPlanner"]>[0],
+			) => {
+				args.onDecline?.({
+					stage: "canonical_unavailable",
+					canonicalLookup: lookup,
+				});
+				return null;
+			},
+		);
+		const input = turnInput();
+		const result = await runKernelTurnWork(
+			stubDeps({
+				kernel: async () => ({
+					route: route({
+						routeKind: "propose_tool_write",
+						toolIntent: {
+							appSlug: "member-gateway",
+							capability: "work_items.create",
+							connectionStatus: "connected",
+						},
+					}),
+					workWriteGateway: "member-gateway",
+					assistantContent: "Preparing.",
+					evidence: null,
+				}),
+				writeProposalPlanner: planner,
+			}),
+			input,
+		);
+		expect(planner.mock.calls[0]?.[0]).toMatchObject({
+			organizationId: input.organizationId,
+			actingUserId: input.descopeUserId,
+			workWriteGateway: "member-gateway",
+		});
+		expect(result.run.metadata).toMatchObject({
+			kernelWriteProposalDeclined: {
+				stage: "canonical_unavailable",
+				canonicalLookup: lookup,
+			},
+		});
+		expect(JSON.stringify(result.run.metadata)).not.toContain("Authorization");
+	});
+
 	it("a throwing write planner records the decline and never parks an approval", async () => {
 		const anchor = vi.fn(async () => "anchor");
 		const recorder = progressRecorder();
