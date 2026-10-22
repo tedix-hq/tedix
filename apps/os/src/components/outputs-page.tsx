@@ -630,13 +630,13 @@ export function OutputsPage() {
 			.toLocaleLowerCase()
 			.includes(normalizedQuery),
 	);
-	const inKindScope = searchResults.filter(
+	const inScope = searchResults.filter(
 		(item) => scope === "all" || item.scope === scope,
 	);
-	const inOwnerScope = searchResults.filter(
+	const inKind = searchResults.filter(
 		(item) => kind === "all" || item.output.kind === kind,
 	);
-	const visibleOutputs = inKindScope.filter(
+	const visibleOutputs = inScope.filter(
 		(item) => kind === "all" || item.output.kind === kind,
 	);
 	useEffect(() => {
@@ -648,15 +648,14 @@ export function OutputsPage() {
 		KIND_FILTERS.map((filter) => [
 			filter,
 			filter === "all"
-				? inKindScope.length
-				: inKindScope.filter((item) => item.output.kind === filter).length,
+				? inScope.length
+				: inScope.filter((item) => item.output.kind === filter).length,
 		]),
 	) as Record<KindFilter, number>;
 	const scopeCounts: Record<ScopeFilter, number> = {
-		all: inOwnerScope.length,
-		mine: inOwnerScope.filter((item) => item.scope === "mine").length,
-		organization: inOwnerScope.filter((item) => item.scope === "organization")
-			.length,
+		all: inKind.length,
+		mine: inKind.filter((item) => item.scope === "mine").length,
+		organization: inKind.filter((item) => item.scope === "organization").length,
 	};
 	const openStandaloneOutput = (item: OsOutputLibraryItem) =>
 		void navigate({
