@@ -72,6 +72,8 @@ jobs:
           started=$SECONDS
           bun install --frozen-lockfile --ignore-scripts
           echo "FROZEN_INSTALL_SECONDS=$((SECONDS - started))" >> "$GITHUB_ENV"
+      - name: Provide the Vite+ package manager
+        uses: ./.github/actions/vite-plus-package-manager
       - name: Install ripgrep
         if: matrix.workspace == 'apps/tedi-runtime'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
@@ -122,6 +124,8 @@ jobs:
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Provide the Vite+ package manager
+        uses: ./.github/actions/vite-plus-package-manager
       - name: Local onboarding smoke
         run: bun run-local --smoke --no-install
       - run: bun run test:scripts

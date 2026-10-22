@@ -1,0 +1,55 @@
+name: Provide the Vite+ package manager
+description: Restore the package manager that `vp` downloads for the root packageManager field, downloading it once on a cache miss
+
+# `vp dev` and the other Vite+ commands first fetch the package manager named
+# by package.json `packageManager` into ~/.local/share/vite-plus from the npm
+# registry. A fresh runner pays that ~60 MB download inside every fixture
+# server start, so a slow registry stalls each server past its readiness
+# budget before Vite prints anything.
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the package manager
+      id: pm
+      shell: bash
+      run: |
+        set -euo pipefail
+        pm="$(node -p 'require("./package.json").packageManager')"
+        test -n "$pm"
+        echo "key=vite-plus-pm-${RUNNER_OS}-${RUNNER_ARCH}-${pm}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the package manager
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.local/share/vite-plus
+        key: ${{ steps.pm.outputs.key }}
+
+    # `vp pm list` is the cheapest command that makes vp fetch the package
+    # manager. Only the download is retried, and every retry is recorded.
+    - name: Download the package manager
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        for attempt in 1 2 3; do
+          if node_modules/.bin/vp pm list > /dev/null; then
+            test -d ~/.local/share/vite-plus/package_manager && exit 0
+            echo "vp did not populate ~/.local/share/vite-plus/package_manager" >&2
+            exit 1
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            echo "::warning title=Infrastructure retry::Vite+ package manager download failed (attempt $attempt of 3); retrying"
+            echo "- Infrastructure retry: Vite+ package manager download failed (attempt $attempt of 3)" >> "$GITHUB_STEP_SUMMARY"
+            sleep $((attempt * 10))
+          fi
+        done
+        exit 1
+
+    - name: Save the package manager
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.local/share/vite-plus
+        key: ${{ steps.pm.outputs.key }}
