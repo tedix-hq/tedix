@@ -133,6 +133,7 @@ export function buildFlowProvider(
 			return namespace;
 		}
 		if (namespaceGroups.get("cto")?.fns[tool]) return "cto";
+		if (namespaceGroups.get("skills")?.fns[tool]) return "skills";
 		const candidates = [...namespaceGroups.entries()]
 			.filter(([, group]) => typeof group.fns[tool] === "function")
 			.map(([namespace]) => namespace);

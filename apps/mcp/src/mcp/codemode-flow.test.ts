@@ -512,6 +512,43 @@ describe("flow.tools", () => {
 });
 
 describe("flow.inspect", () => {
+	it("prefers platform skills when a workflow tedi also mounts inspect", async () => {
+		const { groups, calls } = makeGroups();
+		groups.set("tedi_146194", groups.get("cto")!);
+		groups.delete("cto");
+		groups.get("skills")!.fns.inspect_skill_workflow_run = async (args) => {
+			calls.push({ callable: "skills.inspect_skill_workflow_run", args });
+			return { steps: [{ id: "platform-step" }] };
+		};
+
+		await expect(
+			tools(groups).inspect!.execute({ runId: "run-1" }),
+		).resolves.toEqual({ steps: [{ id: "platform-step" }] });
+		expect(calls).toEqual([
+			{
+				callable: "skills.inspect_skill_workflow_run",
+				args: { runId: "run-1" },
+			},
+		]);
+
+		await tools(groups).inspect!.execute({
+			runId: "run-1",
+			tediSlug: "tedi_146194",
+		});
+		expect(calls.at(-1)).toEqual({
+			callable: "cto.inspect_skill_workflow_run",
+			args: { runId: "run-1" },
+		});
+	});
+
+	it("keeps the missing workflow namespace error", async () => {
+		await expect(
+			tools(new Map()).inspect!.execute({ runId: "run-1" }),
+		).rejects.toThrow(
+			"flow.* needs a tedi namespace with inspect_skill_workflow_run, but none is mounted on this gateway",
+		);
+	});
+
 	it("returns the complete evidence view through the selected tedi", async () => {
 		const { groups, calls } = makeGroups({
 			inspect: async () => ({ steps: [{ id: "step-1" }] }),
