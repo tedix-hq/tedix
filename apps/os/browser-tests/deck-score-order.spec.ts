@@ -23,24 +23,24 @@ try {
 		await fixture(page);
 		await page.goto(`${origin}/work?view=deck`);
 		await page.getByRole("region", { name: title(-1), exact: true }).waitFor();
-		await page.waitForFunction(async () => {
-			const tools = (
-				window as unknown as { deckTools: Map<string, WebMcpSpecTool> }
-			).deckTools;
-			const snapshot = (await tools
-				.get("get_decision_deck_card")
-				?.execute({})) as { queue?: unknown[] } | undefined;
-			return snapshot?.queue?.length === 4;
-		});
+		// Judge the order on the same snapshot that showed the full queue: a
+		// second read can land on a refetch that has not yet merged sheet rows.
+		const labels = (await (
+			await page.waitForFunction(async () => {
+				const tools = (
+					window as unknown as { deckTools: Map<string, WebMcpSpecTool> }
+				).deckTools;
+				const snapshot = (await tools
+					.get("get_decision_deck_card")
+					?.execute({})) as { queue?: { label: string }[] } | undefined;
+				return snapshot?.queue?.length === 4
+					? snapshot.queue.map((card) => card.label)
+					: false;
+			})
+		).jsonValue()) as string[];
 		// The browser's Deck queue must differ from the low/high/middle sheet order.
-		const snapshot = (await page.evaluate(async () => {
-			const tools = (
-				window as unknown as { deckTools: Map<string, WebMcpSpecTool> }
-			).deckTools;
-			return tools.get("get_decision_deck_card")!.execute({});
-		})) as { queue: { label: string }[] };
 		assert.deepEqual(
-			snapshot.queue.map((card: { label: string }) => card.label),
+			labels,
 			[
 				"Rotate the fictional API key?",
 				"Review fictional score 0.95.",
