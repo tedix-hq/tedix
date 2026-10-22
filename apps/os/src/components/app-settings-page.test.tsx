@@ -250,6 +250,39 @@ describe("AppSettingsPage", () => {
 		await act(async () => confirmation!.click());
 		expect(api.delete).not.toHaveBeenCalled();
 	});
+	it("deletes the app after the exact name confirmation", async () => {
+		api.delete.mockResolvedValue({ deleted: true });
+		const { host, client } = await mount();
+		await settles(() => expect(input(host, "Name").value).toBe("Sample app"));
+		const invalidate = vi.spyOn(client, "invalidateQueries");
+		const opener = [...host.querySelectorAll("button")].find((button) =>
+			/Delete app/i.test(button.textContent ?? ""),
+		)!;
+		await act(async () => opener.click());
+		expect(document.body.textContent).toContain("Delete Sample app?");
+		expect(document.body.textContent).toContain("Type Sample app to confirm");
+		const field = document.querySelector<HTMLInputElement>(
+			'input[aria-labelledby*="confirmation"]',
+		);
+		expect(field).not.toBeNull();
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)!.set!.call(field!, "Sample app");
+			field!.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		const confirm = [...document.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Delete forever",
+		)!;
+		expect(confirm.disabled).toBe(false);
+		await act(async () => confirm.click());
+		await settles(() =>
+			expect(api.delete).toHaveBeenCalledWith({ appId: APP_ID }),
+		);
+		expect(toast.success).toHaveBeenCalledWith("App deleted");
+		expect(invalidate).toHaveBeenCalled();
+	});
 });
 
 it("retries a failed settings read without writing app values", async () => {
