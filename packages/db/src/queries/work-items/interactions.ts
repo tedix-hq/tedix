@@ -187,8 +187,32 @@ export async function createWorkInteraction(
 				version: 1,
 				metadata,
 			})
+			.onConflictDoNothing({
+				target: [workInteractions.orgId, workInteractions.id],
+			})
 			.returning()
-	)[0]!;
+	)[0];
+	if (!created) {
+		const existing = await getWorkInteraction(db, {
+			orgId: p.orgId,
+			interactionId: p.id,
+		});
+		if (
+			!existing ||
+			existing.creatorType !== p.creator.type ||
+			existing.creatorId !== p.creator.id ||
+			existing.kind !== p.kind ||
+			existing.workItemId !== (p.workItemId ?? null) ||
+			existing.caseId !== (p.caseId ?? null) ||
+			existing.projectId !== (p.projectId ?? null)
+		)
+			throw new WorkControlError(
+				"CONFLICT",
+				"Interaction ID already belongs to another request",
+			);
+		// A retry must preserve answers, revisions, delegation and notification state.
+		return existing;
+	}
 	await recordCardCreationEdges(db, created, work);
 	return created;
 }
