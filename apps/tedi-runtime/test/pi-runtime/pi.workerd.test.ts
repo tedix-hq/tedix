@@ -604,13 +604,14 @@ describe("registered facet admission", () => {
 		await parent.admittedTurn("before-wake");
 		const address = await parent.scheduleNativeTurn(
 			"native-wake",
-			Date.now() + 1500,
+			Date.now() + 3_600_000,
 		);
 		const alarm = await parent._cf_getFacetLifecycleAlarm(
 			address.ownerPath,
 			address.identityName,
 		);
 		expect(alarm).not.toBeNull();
+		await parent.makeNativeAlarmDue();
 		await runInDurableObject(parent, async (_actual, state) => {
 			expect(await state.storage.getAlarm()).not.toBeNull();
 			expect(
@@ -623,14 +624,26 @@ describe("registered facet admission", () => {
 		});
 		await abortAllDurableObjects();
 		parent = await selected(name);
-		await new Promise((resolve) => setTimeout(resolve, 1700));
-		await runDurableObjectAlarm(parent);
+		// Leave the facet cold and the physical alarm parked while advancing its mirror.
+		await runInDurableObject(parent, async (_actual, state) => {
+			state.storage.sql.exec(
+				"UPDATE cf_agents_jobs SET time=0 WHERE capability='dynamic-agents' AND fn='facet-lifecycle-alarm'",
+			);
+		});
+		const due = await parent._cf_getFacetLifecycleAlarm(
+			address.ownerPath,
+			address.identityName,
+		);
+		expect(due).toBe(0);
+		const wakeStartedAt = Date.now();
+		expect(await runDurableObjectAlarm(parent)).toBe(true);
 		expect(JSON.parse(await parent.admittedInspect()).stats.requests).toBe(2);
 		const next = await parent._cf_getFacetLifecycleAlarm(
 			address.ownerPath,
 			address.identityName,
 		);
-		expect(next).toBeGreaterThan(alarm!);
+		expect(next).toBeGreaterThan(due!);
+		expect(next).toBeGreaterThanOrEqual(wakeStartedAt + 60_000);
 		await runInDurableObject(parent, async (actual, state) => {
 			await expect(
 				actual._cf_syncFacetLifecycleAlarm(
@@ -684,12 +697,17 @@ describe("registered facet admission", () => {
 				address.identityName,
 			),
 		).toBeNull();
-		await parent.scheduleNativeProbe(Date.now() + 500);
+		await parent.scheduleNativeProbe(Date.now() + 3_600_000);
+		await parent.makeNativeAlarmDue();
 		await parent.quarantineParent();
 		await abortAllDurableObjects();
 		parent = await selected(name);
-		await new Promise((resolve) => setTimeout(resolve, 700));
-		await runDurableObjectAlarm(parent);
+		await runInDurableObject(parent, async (_actual, state) => {
+			state.storage.sql.exec(
+				"UPDATE cf_agents_jobs SET time=0 WHERE capability='dynamic-agents' AND fn='facet-lifecycle-alarm'",
+			);
+		});
+		expect(await runDurableObjectAlarm(parent)).toBe(true);
 		await runInDurableObject(parent, async (actual) => {
 			await expect(
 				actual._cf_runFacetLifecycleAlarm(
