@@ -1,4 +1,4 @@
-CREATE TABLE `os_workspace_skill_draft_proposals` (
+CREATE TABLE IF NOT EXISTS `os_workspace_skill_draft_proposals` (
 	`id` text PRIMARY KEY,
 	`organization_id` text NOT NULL,
 	`member_id` text NOT NULL,
@@ -17,4 +17,4 @@ CREATE TABLE `os_workspace_skill_draft_proposals` (
 	`created_at` text NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `os_workspace_skill_draft_proposals_target_idx` ON `os_workspace_skill_draft_proposals` (`organization_id`,`workspace_id`,`resource_id`,`created_at`);
+CREATE INDEX IF NOT EXISTS `os_workspace_skill_draft_proposals_target_idx` ON `os_workspace_skill_draft_proposals` (`organization_id`,`workspace_id`,`resource_id`,`created_at`);

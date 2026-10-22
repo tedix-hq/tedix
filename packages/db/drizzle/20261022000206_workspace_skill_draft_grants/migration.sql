@@ -1,4 +1,4 @@
-CREATE TABLE `os_workspace_skill_draft_grants` (
+CREATE TABLE IF NOT EXISTS `os_workspace_skill_draft_grants` (
 	`organization_id` text NOT NULL,
 	`member_id` text NOT NULL,
 	`workspace_id` text NOT NULL,

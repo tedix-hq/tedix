@@ -1066,14 +1066,6 @@
 			"sha256": "e96ae2cd68b3efcd0cbd26229b5088cb31a585ec91852e2d7e6a22e72868166f"
 		},
 		{
-			"name": "20261021194015_workspace_skill_draft_grants/migration.sql",
-			"sha256": "8e8a26097a6ca296ab0b6d3061b9b28534d99649d7bcbdeff3f6c097595a767d"
-		},
-		{
-			"name": "20261021195138_workspace_skill_draft_proposals/migration.sql",
-			"sha256": "36928730881ec79da808b6fc2ebe67c6735e2eba3b761dc55561ca5c0a3747b3"
-		},
-		{
 			"name": "20261021195849_connection_provider_ownership/migration.sql",
 			"sha256": "be9f5efef93c901af29740176f10289052fa1c74d4f02231b6eb02b9645fe614"
 		},
@@ -1084,6 +1076,14 @@
 		{
 			"name": "20261021231430_shared_workflow_sources/migration.sql",
 			"sha256": "a6317c901a2fec2fe5f07c022a2a0d2c83e6c40f008cbfac968bf479e19be5cd"
+		},
+		{
+			"name": "20261022000206_workspace_skill_draft_grants/migration.sql",
+			"sha256": "8794f7ea01a96307bb614587ff8393cae149d27f6881ca0c9bcb478e1e815e39"
+		},
+		{
+			"name": "20261022000248_workspace_skill_draft_proposals/migration.sql",
+			"sha256": "bb1b13d647b58eb7435c7f76401ff5b85fb6d81a2f8b8659a1dbbbfa4746871d"
 		}
 	]
 }

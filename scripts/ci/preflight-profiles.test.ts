@@ -11,6 +11,7 @@ test("fast local checks retain source safety and owner types while CI retains ev
 		"OSS secret and customer-identity scan",
 		"type-check apps/api",
 		"type-check scripts/",
+		"migration order against the push base",
 	];
 	const moved = [
 		"tests (packages/cli)",
