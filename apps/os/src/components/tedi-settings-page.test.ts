@@ -7,7 +7,7 @@ import {
 	liveChannelValues,
 	parseAllowFrom,
 	policyHelp,
-} from "./tedi-settings-page";
+} from "./tedi-settings-channels";
 
 /**
  * The runtime (`apps/tedi-runtime/src/telegram-turn-policy.ts`) reads the

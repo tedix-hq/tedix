@@ -1,5 +1,5 @@
 import { Collection } from "@/components/kumo/page";
-import { SettingsRecordRow } from "@/components/tedi-settings-page";
+import { SettingsRecordRow } from "@/components/tedi-settings-forms";
 import { EnvelopeSimple, Plus, Trash } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { EmailRoutingPolicy } from "@tedix/api-contract/schemas/tedi-email";
