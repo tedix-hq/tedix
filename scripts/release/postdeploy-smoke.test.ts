@@ -5,6 +5,7 @@ import {
 	checkGateway,
 	checkHealth,
 	exchangeWorkloadCredential,
+	failureClass,
 	githubWorkloadAssertion,
 	healthProblem,
 	parseArgs,
@@ -344,4 +345,126 @@ describe("workload credential", () => {
 			),
 		).rejects.toThrow("HTTP 404 (principal_not_found)");
 	});
+});
+
+describe("failure classification", () => {
+	test.each([
+		"HTTP 401",
+		"HTTP 403",
+		"HTTP 429",
+		"fetch failed",
+		"getaddrinfo ENOTFOUND",
+		"TLS certificate error",
+		"The operation timed out",
+		"ECONNRESET",
+	])("classifies %s as infrastructure", async (detail) => {
+		const results = await checkGateway(
+			healthyClient({
+				listWork: async () => {
+					throw new Error(detail);
+				},
+			}),
+			ORG,
+		);
+		expect(results.find((r) => r.name === "work list")?.failureClass).toBe(
+			"infra",
+		);
+	});
+	test.each([
+		"HTTP 500",
+		"HTTP 502",
+		"application error",
+		"native catalog unavailable",
+	])("classifies %s as product", async (detail) => {
+		const results = await checkGateway(
+			healthyClient({
+				listWork: async () => {
+					throw new Error(detail);
+				},
+			}),
+			ORG,
+		);
+		expect(results.find((r) => r.name === "work list")?.failureClass).toBe(
+			"product",
+		);
+	});
+	test("health SHA mismatch is a product fault and successful checks have no failure class", async () => {
+		const url = "https://example.test/health";
+		const results = await checkHealth(
+			[url],
+			async () => Response.json({ status: "ok", deployedSha: "a".repeat(40) }),
+			{ [url]: "b".repeat(40) },
+		);
+		expect(results[0]).toMatchObject({ ok: false, failureClass: "product" });
+		expect(
+			healthProblem(
+				200,
+				JSON.stringify({ deployedSha: "a".repeat(40) }),
+				"a".repeat(40),
+			),
+		).toBeNull();
+		expect(
+			(await checkHealth([url], async () => Response.json({ status: "ok" })))[0]
+				?.failureClass,
+		).toBeNull();
+	});
+});
+
+test("credential 401, structured status and nested network causes remain infrastructure", () => {
+	expect(
+		failureClass(
+			new Error(
+				"Workload credential exchange failed: HTTP 401 (invalid_token)",
+			),
+			"workload credential",
+		),
+	).toBe("infra");
+	expect(failureClass({ status: 403 })).toBe("infra");
+	expect(
+		failureClass(
+			new Error("request failed", {
+				cause: new Error("getaddrinfo ENOTFOUND"),
+			}),
+		),
+	).toBe("infra");
+	expect(
+		failureClass(
+			new Error("Unable to connect. Is the computer able to access the url?"),
+		),
+	).toBe("infra");
+	expect(
+		failureClass(
+			new Error("Workload credential exchange failed: HTTP 503"),
+			"workload credential",
+		),
+	).toBe("product");
+});
+
+test("per-surface SHA arguments and custom health fields are checked", () => {
+	const url = "https://example.test/health",
+		sha = "a".repeat(40);
+	const options = parseArgs([
+		"--health",
+		url,
+		"--health-sha",
+		`${url}=${sha}`,
+		"--health-sha-field",
+		`${url}=runtimeDeployedSha`,
+	]);
+	expect(options.expectedShas).toEqual({ [url]: sha });
+	expect(options.shaFields).toEqual({ [url]: "runtimeDeployedSha" });
+	expect(
+		healthProblem(
+			200,
+			JSON.stringify({ runtimeDeployedSha: sha, deployedSha: "other" }),
+			sha,
+			"runtimeDeployedSha",
+		),
+	).toBeNull();
+	expect(() => parseArgs(["--health", url, "--health-sha", "bad"])).toThrow(
+		"URL=full-sha",
+	);
+	expect(() =>
+		parseArgs(["--health", url, "--health-sha-field", "bad"]),
+	).toThrow("URL=field");
 });
