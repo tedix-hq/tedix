@@ -148,9 +148,9 @@ describe("skill MCP app bindings", () => {
 		expect(bindingsOf(sqlite, skill.id)).toEqual({ crm: "app-crm" });
 	});
 
-	it("never binds reserved or gateway namespaces", async () => {
+	it("never binds or slug-matches reserved or gateway namespaces", async () => {
 		const { db, sqlite } = realDb();
-		for (const slug of ["home", "kernel", "tedi", "cognitive"]) {
+		for (const slug of ["home", "kernel", "tedi", "cognitive", "rationale"]) {
 			insertApp(sqlite, { id: `app-${slug}`, organizationId: ACME_ORG, slug });
 		}
 		const skill = await recordSkill(db, {
@@ -158,6 +158,7 @@ describe("skill MCP app bindings", () => {
 			kernel: ["approve_plan_assignments"],
 			tedi: ["artifact_read_file"],
 			cognitive: ["record_artifact"],
+			rationale: ["create_rationale_records"],
 		});
 		expect(skill.mcpAppBindings).toBeNull();
 
@@ -166,12 +167,13 @@ describe("skill MCP app bindings", () => {
 			{
 				organizationId: ACME_ORG,
 				skillId: skill.id,
-				namespaces: ["home", "tedi", "seo"],
+				namespaces: ["home", "tedi", "rationale", "seo"],
 			},
 		);
-		// Slug matching is unchanged; resolveMcpTarget still routes reserved
-		// namespaces to the aggregate before it reads this map.
-		expect(namespaceToSlug).toEqual({ home: "home", tedi: "tedi" });
+		// Reserved namespaces name platform surfaces, never an app: a same-named
+		// app row must not become the dispatch target or the manifest check's
+		// required source slug.
+		expect(namespaceToSlug).toEqual({});
 		expect(backfill).toEqual({});
 	});
 
