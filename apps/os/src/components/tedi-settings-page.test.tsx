@@ -1,6 +1,8 @@
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { Page } from "@/components/kumo/page";
+import { DetailPending, NestedDetailPending } from "@/routes/-pending";
 import { LiveChannelsForm, liveChannelValues } from "./tedi-settings-channels";
 import {
 	IdentitySettingsForm,
@@ -97,6 +99,30 @@ async function renderForm(element: ReactNode) {
 	await act(async () => root.render(element));
 	return container;
 }
+
+describe("Tedi settings pending layout", () => {
+	it("keeps one page while its nested settings skeleton is busy", async () => {
+		const container = await renderForm(
+			<Page className="tedis-page">
+				<NestedDetailPending />
+			</Page>,
+		);
+		expect(container.querySelectorAll('[data-slot="page"]')).toHaveLength(1);
+		const page = container.querySelector('[data-slot="page"]')!;
+		expect(page.hasAttribute("aria-busy")).toBe(false);
+		expect(page.querySelectorAll('[aria-busy="true"]')).toHaveLength(1);
+	});
+
+	it("keeps the same skeleton in a standalone pending page", async () => {
+		const standalone = await renderForm(<DetailPending />);
+		const nested = await renderForm(<NestedDetailPending />);
+		expect(standalone.querySelectorAll('[data-slot="page"]')).toHaveLength(1);
+		expect(nested.querySelectorAll('[data-slot="page"]')).toHaveLength(0);
+		expect(standalone.querySelector('[aria-busy="true"]')!.innerHTML).toBe(
+			nested.querySelector('[aria-busy="true"]')!.innerHTML,
+		);
+	});
+});
 
 function inputFor(container: HTMLElement, label: string) {
 	const element = Array.from(container.querySelectorAll("label")).find((el) =>

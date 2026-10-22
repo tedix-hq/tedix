@@ -54,9 +54,7 @@ export function CanvasStagePending() {
 export function DetailPending() {
 	return (
 		<Page aria-busy>
-			<ListSkeleton rows={1} rowClassName="h-7" />
-			<ListSkeleton rows={1} rowClassName="h-20" />
-			<ListSkeleton rows={3} />
+			<DetailSkeleton />
 		</Page>
 	);
 }
@@ -68,10 +66,18 @@ export function DetailPending() {
 export function NestedDetailPending() {
 	return (
 		<div aria-busy className="grid gap-3">
+			<DetailSkeleton />
+		</div>
+	);
+}
+
+function DetailSkeleton() {
+	return (
+		<>
 			<ListSkeleton rows={1} rowClassName="h-7" />
 			<ListSkeleton rows={1} rowClassName="h-20" />
 			<ListSkeleton rows={3} />
-		</div>
+		</>
 	);
 }
 

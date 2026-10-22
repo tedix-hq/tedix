@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
-import { webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 
 // Runs in `bun run --cwd apps/os test:browser:settings` (part of test:run).
 // Uses the actual fixture app; neither component markup nor geometry is mocked.
@@ -219,8 +219,22 @@ async function keyboardRail(page: Page) {
 			JSON.stringify(focus),
 		);
 	}
-	await page.keyboard.press("Enter");
 	const lastId = await links.last().getAttribute("data-section-target");
+	// Focus can already make the last section current. Wait for the router's
+	// hash scroll restoration before the next key cancels section restoration.
+	const navigation = await page.evaluateHandle(async (id) => {
+		const { osRouter } = await import("/src/router.tsx");
+		const state = { rendered: false };
+		const unsubscribe = osRouter.subscribe("onRendered", (event) => {
+			if (event.toLocation.hash !== id) return;
+			state.rendered = true;
+			unsubscribe();
+		});
+		return state;
+	}, lastId!);
+	await page.keyboard.press("Enter");
+	await page.waitForFunction((state) => state.rendered, navigation);
+	await navigation.dispose();
 	await currentIs(page, lastId!);
 }
 
@@ -235,23 +249,41 @@ try {
 		} catch {}
 		await Bun.sleep(250);
 	}
-	browser = await webkit.launch({ headless: true });
-	for (const viewport of [
-		{ width: 375, height: 667 },
-		{ width: 390, height: 844 },
-		{ width: 1280, height: 900 },
-	]) {
-		for (const theme of ["light", "dark"] as const) {
-			for (const scenario of [
+	for (const { engine, viewport, scenarios } of [
+		{
+			engine: webkit,
+			scenarios: [
 				"routes",
 				"restore-history",
 				"wheel",
 				"touch",
 				"key",
-			] as const) {
+			] as const,
+			viewports: [
+				{ width: 375, height: 667 },
+				{ width: 390, height: 844 },
+				{ width: 1280, height: 900 },
+			],
+		},
+		{
+			engine: chromium,
+			scenarios: ["settings-pages"] as const,
+			viewports: [
+				{ width: 390, height: 844 },
+				{ width: 1280, height: 900 },
+			],
+		},
+	].flatMap(({ engine, viewports, scenarios }) =>
+		viewports.map((viewport) => ({ engine, viewport, scenarios })),
+	)) {
+		browser = await engine.launch({ headless: true });
+		for (const theme of ["light", "dark"] as const) {
+			for (const scenario of scenarios) {
+				const settingsPages =
+					scenario === "routes" || scenario === "settings-pages";
 				// Playwright mobile WebKit rejects wheel input; exercise it on desktop.
 				if (scenario === "wheel" && viewport.width < 600) continue;
-				const name = `${viewport.width}x${viewport.height}-${theme}-${scenario}`;
+				const name = `${engine.name()}-${viewport.width}x${viewport.height}-${theme}-${scenario}`;
 				const page = await browser.newPage({
 					viewport,
 					colorScheme: theme,
@@ -287,8 +319,11 @@ try {
 						return route.fulfill({ response, json: body });
 					}
 					if (
-						scenario !== "routes" &&
-						url.pathname.endsWith("/organization-profile-form.tsx")
+						(!settingsPages &&
+							url.pathname.endsWith("/organization-profile-form.tsx")) ||
+						(settingsPages &&
+							url.pathname.endsWith("/team_.$tediId.settings.tsx") &&
+							url.searchParams.get("tsr-split") === "component")
 					) {
 						const response = await route.fetch();
 						readStarted = true;
@@ -300,14 +335,39 @@ try {
 					return route.continue();
 				});
 				try {
-					if (scenario === "routes") {
+					if (settingsPages) {
 						for (const path of [
 							"/account/settings",
 							"/team/00000010-0000-4000-8000-000000000001/settings",
 						]) {
-							await page.goto(`${origin}${path}`);
-							await page.locator('.route-content [data-slot="page"]').waitFor();
 							const account = path.startsWith("/account");
+							await page.goto(
+								`${origin}${account ? path : path.replace(/\/settings$/, "")}`,
+								{
+									waitUntil: "domcontentloaded",
+								},
+							);
+							if (!account) {
+								await page
+									.locator(".route-content .tedis-page")
+									.getByRole("tab", { name: "Settings", exact: true })
+									.click();
+								await page
+									.locator('.route-content .tedis-page [aria-busy="true"]')
+									.waitFor();
+								assert(readStarted && !readFinished);
+								assert.equal(
+									await page
+										.locator('.route-content [data-slot="page"]')
+										.count(),
+									1,
+									"Tedi settings must keep one page while its chunk is pending",
+								);
+								await page.screenshot({
+									path: `${evidence}/${name}-tedi-pending.png`,
+								});
+								release();
+							}
 							const heading = page.getByRole("heading", {
 								name: account ? "Settings" : "Identity & personality",
 								exact: true,
@@ -317,6 +377,16 @@ try {
 								{ exact: true },
 							);
 							await (account ? heading : heading.or(unavailable)).waitFor();
+							await page.waitForFunction(() => {
+								const pages = document.querySelectorAll(
+									'.route-content [data-slot="page"]',
+								);
+								return (
+									pages.length === 1 &&
+									!pages[0].matches('[aria-busy="true"]') &&
+									!pages[0].querySelector('[aria-busy="true"]')
+								);
+							});
 							const tediUnavailable =
 								!account && (await unavailable.isVisible());
 							await page.evaluate(() => document.fonts.ready);
@@ -344,43 +414,45 @@ try {
 								path: `${evidence}/${name}-${path.startsWith("/account") ? "account" : "tedi"}.png`,
 							});
 						}
-						await page.goto(`${origin}/admin/organization`);
-						const settings = page.getByRole("navigation", {
-							name: "Settings sections",
-							exact: true,
-						});
-						await settings
-							.getByRole("link", { name: "Activity log", exact: true })
-							.click();
-						await page.waitForURL((url) => url.pathname === "/audit");
-						await page.goBack();
-						await page.waitForURL(
-							(url) => url.pathname === "/admin/organization",
-						);
-						await settings.evaluate((nav) => {
-							nav.scrollLeft = 0;
-							nav.scrollTop = 0;
-						});
-						await page.goForward();
-						await page.waitForURL((url) => url.pathname === "/audit");
-						await page.waitForFunction(() => {
-							const nav = document.querySelector(
-								'nav[aria-label="Settings sections"]',
-							)!;
-							const link = nav.querySelector<HTMLAnchorElement>(
-								"[data-settings-active]",
-							)!;
-							const r = link.getBoundingClientRect();
-							const bounds = nav.getBoundingClientRect();
-							return (
-								link.getAttribute("href") === "/audit" &&
-								r.left >= bounds.left - 1 &&
-								r.right <= bounds.right + 1 &&
-								r.top >= bounds.top - 1 &&
-								r.bottom <= bounds.bottom + 1
+						if (scenario === "routes") {
+							await page.goto(`${origin}/admin/organization`);
+							const settings = page.getByRole("navigation", {
+								name: "Settings sections",
+								exact: true,
+							});
+							await settings
+								.getByRole("link", { name: "Activity log", exact: true })
+								.click();
+							await page.waitForURL((url) => url.pathname === "/audit");
+							await page.goBack();
+							await page.waitForURL(
+								(url) => url.pathname === "/admin/organization",
 							);
-						});
-						results.push({ name, pathnameNavigation: await geometry(page) });
+							await settings.evaluate((nav) => {
+								nav.scrollLeft = 0;
+								nav.scrollTop = 0;
+							});
+							await page.goForward();
+							await page.waitForURL((url) => url.pathname === "/audit");
+							await page.waitForFunction(() => {
+								const nav = document.querySelector(
+									'nav[aria-label="Settings sections"]',
+								)!;
+								const link = nav.querySelector<HTMLAnchorElement>(
+									"[data-settings-active]",
+								)!;
+								const r = link.getBoundingClientRect();
+								const bounds = nav.getBoundingClientRect();
+								return (
+									link.getAttribute("href") === "/audit" &&
+									r.left >= bounds.left - 1 &&
+									r.right <= bounds.right + 1 &&
+									r.top >= bounds.top - 1 &&
+									r.bottom <= bounds.bottom + 1
+								);
+							});
+							results.push({ name, pathnameNavigation: await geometry(page) });
+						}
 					} else {
 						await page.goto(
 							`${origin}/admin/organization#organization-authentication`,
@@ -450,6 +522,8 @@ try {
 							await page.goForward();
 							await currentIs(page, "organization-billing");
 							await keyboardRail(page);
+							// Native hash activation leaves focus on body in WebKit.
+							await page.locator(`${railSelector} a`).last().focus();
 							await page.keyboard.press("ArrowUp");
 							await page.locator(railSelector).evaluate((rail) => {
 								rail.closest<HTMLElement>('[data-slot="page"]')!.scrollTop = 0;
@@ -488,7 +562,7 @@ try {
 					failures++;
 					results.push({
 						name,
-						error: String(error),
+						error: error instanceof Error ? error.stack : String(error),
 						geometry: await geometry(page).catch(String),
 					});
 					console.error(`FAIL ${name}: ${error}`);
@@ -521,6 +595,8 @@ try {
 				}
 			}
 		}
+		await browser.close();
+		browser = undefined;
 	}
 } finally {
 	await browser?.close();
@@ -530,5 +606,5 @@ try {
 assert.equal(
 	failures,
 	0,
-	`${failures} WebKit settings checks failed; see ${evidence}/results.json`,
+	`${failures} settings checks failed; see ${evidence}/results.json`,
 );
