@@ -15,7 +15,7 @@ visibility: public
 
 # Track sessions per project
 
-A project is the purpose; sessions are the workers that come and go. Tedix
+A project holds the purpose; coding sessions come and go. Tedix
 ties each local Claude Code or Codex session to a Work project so the owner
 sees progress by project instead of by terminal window.
 
@@ -88,7 +88,7 @@ Independent local sessions register with `tedix lane start "<title>"
 uses ordinary Work admission and a bounded heartbeat; `lane done` or `lane fail`
 settles that same session's Attempt. A host's subagents share its Attempt.
 Transcript-reported lanes without registration appear as unconfirmed activity,
-not as admitted or running workers.
+not as admitted or running sessions.
 
 For an optional scheduled document, install the repository's
 `apps/skill-runtime/examples/living-status-board` example in a private workspace

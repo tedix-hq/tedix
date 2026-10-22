@@ -1,22 +1,24 @@
 ---
 sidebar:
   order: 15
-title: "Troubleshoot Tedix connections and worker runs"
+title: "Troubleshoot Tedix connections and tedi runs"
 topic: "Troubleshooting"
 resource_type: troubleshooting
-description: "Match a visible CLI, connection, or worker-run symptom to its cause, supported fix, verification step, and safe escalation path."
-summary: "Symptom-led recovery for the Tedix CLI, first Cloud connection, worker results, approvals, and failed runs"
+description: "Match a visible CLI, connection, or tedi-run symptom to its cause, supported fix, verification step, and safe escalation path."
+summary: "Symptom-led recovery for the Tedix CLI, first Cloud connection, tedi results, approvals, and failed runs"
 read_when:
-  - A Tedix CLI command, Cloud connection, or worker run does not finish as expected
-  - Finding a worker result or deciding whether a failed run can be retried
+  - A Tedix CLI command, Cloud connection, or tedi run does not finish as expected
+  - Finding a tedi result or deciding whether a failed run can be retried
   - Collecting safe evidence for managed support or a public issue
 visibility: public
 ---
 
-# Troubleshoot Tedix connections and worker runs
+<a id="troubleshoot-tedix-connections-and-worker-runs"></a>
+
+# Troubleshoot Tedix connections and tedi runs
 
 Start with the exact symptom you can see. Do not submit a
-duplicate worker task while its original Home run may still be active.
+duplicate tedi task while its original Home run may still be active.
 
 For the complete setup and task context, use [First connection to Tedix
 Cloud](./learning-paths/first-connection.md) and [Give an AI assistant a task and find
@@ -190,7 +192,7 @@ It should return a positive `count` and a short `sample`.
 
 ### `Tedi not found`
 
-**Cause:** The worker slug is wrong or belongs to another organization.
+**Cause:** The tedi slug is wrong or belongs to another organization.
 
 **Fix:** Check `tedix -w CLI_PROFILE auth status`, then copy the active tedi's
 slug from Tedix OS. Do not substitute its display name.
@@ -218,14 +220,14 @@ itself exits with code 0 even when the recorded run failed.
 
 ### The inspection does not name a tedi
 
-**Cause:** A plain Home request may have been used instead of a direct worker
+**Cause:** A plain Home request may have been used instead of a direct tedi
 request, or a different Home run ID was inspected.
 
 **Fix:** Confirm that the task used `tedix tedi WORKER_SLUG ask`, then inspect
 the Home run ID printed by that command.
 
 **Verify:** The inspection names the selected tedi and includes its child run.
-A Home-only answer or run ID is not a worker result.
+A Home-only answer or run ID is not a tedi result.
 
 ## Resolve approvals and failed runs
 
@@ -242,7 +244,7 @@ tedix -w CLI_PROFILE inspect HOME_RUN_ID
 ```
 
 Approve only when the target, task, and permitted actions exactly match what
-you intend. Reject a broader or mismatched proposal. The first-worker tutorial
+you intend. Reject a broader or mismatched proposal. The first-task tutorial
 provides [scope-specific approval and rejection
 examples](./learning-paths/first-worker.md#the-run-is-waiting-for-approval).
 
@@ -277,12 +279,14 @@ child is terminal.
 Preserve the Home run inspection and event snapshot.
 
 **Verify:** The evidence identifies the final status and visible error. Use the
-safe escalation path below when the documented connection or worker checks do
+safe escalation path below when the documented connection or tedi checks do
 not resolve it.
 
-## Check worker permissions
+<a id="check-worker-permissions"></a>
 
-Worker identity, tool grants, policies, budgets, and approvals are explained in
+## Check tedi permissions
+
+Tedi identity, tool grants, policies, budgets, and approvals are explained in
 [What an AI assistant may do and who says yes](./workers-and-governance.md#permissions).
 An approval records permission for the inspected scope; it does not prove that
 the eventual answer or outside action is correct.

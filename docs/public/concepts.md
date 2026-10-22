@@ -9,13 +9,13 @@ summary: "Public glossary for organizations, tedis, runs, Work Items, cases, mil
 read_when:
   - Learning Tedix terminology
   - Translating a product request into Tedix objects
-  - Distinguishing workers, runs, tools, skills, and Work Items
+  - Distinguishing tedis, runs, tools, skills, and Work Items
 visibility: public
 ---
 
 # Core concepts
 
-Tedix separates what an organization keeps (workers, memory, permissions,
+Tedix separates what an organization keeps (tedis, memory, permissions,
 records) from the temporary compute and model calls used for one piece of
 work. The compute is disposable; the identity, permissions, and record are not.
 
@@ -23,8 +23,8 @@ work. The compute is disposable; the identity, permissions, and record are not.
 
 | Term          | Meaning                                                                                                                                                                |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Organization  | Tenant boundary that owns workers, applications, connections, memory, policy, and evidence.                                                                            |
-| Tedi          | Durable digital worker with a stable identity, role, memory, skills, policies, and runtime.                                                                            |
+| Organization  | Tenant boundary that owns tedis, applications, connections, memory, policy, and evidence.                                                                              |
+| Tedi          | AI assistant with a stable identity, role, memory, skills, policies, and runtime.                                                                                      |
 | Workspace     | Organization-owned place in Tedix OS for related work, conversations, and shared workpieces.                                                                           |
 | CLI workspace | Local connection profile for an authenticated organization gateway. Selecting it chooses where CLI commands run; it does not create or select a Workspace in Tedix OS. |
 
@@ -69,10 +69,10 @@ explains how to set them up.
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | Principal          | Anyone or anything that can act or approve: a person, a tedi, or an external agent.                                                          |
 | Policy             | Rule that permits, denies, limits, or escalates an action.                                                                                   |
-| Approval           | A decision by a person or another worker, required before a protected action. Nobody approves their own request.                             |
+| Approval           | A decision by a person or another tedi, required before a protected action. Nobody approves their own request.                               |
 | Rationale          | The recorded explanation for a decision or run. It explains; it does not show the result is right.                                           |
 | Artifact           | Addressable output such as a report, file, or patch.                                                                                         |
-| Settlement         | The result a worker records when a run or Work Item finishes. It is the worker's report, not a check.                                        |
+| Settlement         | The result a tedi records when a run or Work Item finishes. It is the tedi's report, not a check.                                            |
 | Attempt            | One agent session's try at a Work Item. A Work Item can have several Attempts over time.                                                     |
 | Admission          | The check that a Work Item is ready and that this agent may start it, done before an Attempt begins.                                         |
 | Lease              | The time-limited hold a running Attempt keeps by sending heartbeats. If the agent stops, the lease expires and the Attempt can be restarted. |
