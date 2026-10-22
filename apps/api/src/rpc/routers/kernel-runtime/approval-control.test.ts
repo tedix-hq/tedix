@@ -28,6 +28,7 @@ import {
 	respondKernelDelegationRecommendationApprovalCore,
 } from "./approval-control";
 import { respondApprovalRoute } from "./delegation-control";
+import { resolveApprovalByChatReply } from "./turn-delegation";
 
 const effects = vi.hoisted(() => ({
 	event: vi.fn(async () => ({})),
@@ -95,7 +96,10 @@ const requirement = {
 };
 const databases: DatabaseSync[] = [];
 
-async function fixture() {
+async function fixture(
+	permissions = ["tedis:update", "os:approve"],
+	role: "admin" | "member" = "admin",
+) {
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
@@ -121,7 +125,7 @@ async function fixture() {
 	const context = userContext({
 		organizationId: ORG,
 		sub: "operator",
-		permissions: ["tedis:update"],
+		permissions,
 		env: { ENVIRONMENT: "test", DB } as CloudflareEnv,
 	});
 	await context.db.insert(kernelRuntimeRuns).values({
@@ -147,7 +151,7 @@ async function fixture() {
 		organizationId: ORG,
 		descopeUserId: "operator",
 		email: "operator@example.test",
-		role: "admin",
+		role,
 		status: "active",
 	});
 	writes.length = 0;
@@ -490,6 +494,117 @@ describe("Home plan Work promotion", () => {
 });
 
 describe("write approval guards reached through respondApproval", () => {
+	async function pendingWrite(f: Awaited<ReturnType<typeof fixture>>) {
+		await f.context.db.insert(tediApprovalRequests).values({
+			id: "write-approval",
+			tediId: "tedi-research",
+			orgId: ORG,
+			actionType: "home.tool_write",
+			description: "Fictional document update",
+			status: "pending",
+			createdAt: AT,
+			expiresAt: "2099-01-01T00:00:00.000Z",
+			payload: {
+				kind: "home_tool_write",
+				appSlug: "example",
+				toolName: "update_document",
+				organizationId: ORG,
+				homeRunId: f.run.id,
+				conversationId: f.run.conversationId,
+				args: { title: "Example" },
+			},
+		});
+		f.sqlite
+			.prepare("UPDATE kernel_runtime_runs SET metadata = ?")
+			.run(JSON.stringify({ approvalRequestId: "write-approval" }));
+		f.writes.length = 0;
+	}
+
+	it.each(["approve", "reject"] as const)(
+		"denies an operational member's direct %s before every effect",
+		async (decision) => {
+			const f = await fixture(["tedis:update"], "member");
+			await pendingWrite(f);
+			await expect(
+				f.client.respond({ runId: f.run.id, decision }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			noEffects(f.writes);
+			expect(
+				f.sqlite.prepare("SELECT status FROM tedi_approval_requests").get(),
+			).toEqual({ status: "pending" });
+		},
+	);
+
+	it.each(["approve", "reject"] as const)(
+		"denies an operational member's conversational %s before every effect",
+		async (content) => {
+			const f = await fixture(["tedis:update"], "member");
+			await pendingWrite(f);
+			const result = await resolveApprovalByChatReply(f.context, {
+				organizationId: ORG,
+				conversationId: f.run.conversationId,
+				runId: "reply-run",
+				content,
+			});
+			expect(result?.error).toContain("os:approve");
+			noEffects(f.writes);
+			expect(
+				f.sqlite.prepare("SELECT status FROM tedi_approval_requests").get(),
+			).toEqual({ status: "pending" });
+		},
+	);
+
+	it("does not let a tedi approve its own Home write through a chat reply", async () => {
+		const f = await fixture();
+		await pendingWrite(f);
+		const context = {
+			...f.context,
+			authType: "tedi" as const,
+			user: undefined,
+			tediId: "tedi-research",
+			tediScopes: ["tedis:write", "mcp:memory.admin"],
+		};
+		const result = await resolveApprovalByChatReply(context, {
+			organizationId: ORG,
+			conversationId: f.run.conversationId,
+			runId: "reply-run",
+			content: "approve",
+		});
+		expect(result?.error).toContain("Work approval plane");
+		noEffects(f.writes);
+	});
+
+	it("does not accept a machine's tedi-write scope as approval authority", async () => {
+		const f = await fixture();
+		await pendingWrite(f);
+		const context = apiKeyContext({
+			organizationId: ORG,
+			scopes: ["tedis:write"],
+			env: f.context.env,
+		});
+		const client = createRouterClient(
+			{ respond: respondApprovalRoute },
+			{ context },
+		);
+		await expect(
+			client.respond({ runId: f.run.id, decision: "approve" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		noEffects(f.writes);
+	});
+
+	it.each(["os:approve", "settings:manage"])(
+		"retains explicit approval authority for %s",
+		async (permission) => {
+			const f = await fixture([permission], "member");
+			await pendingWrite(f);
+			await f.client.respond({ runId: f.run.id, decision: "approve" });
+			expect(
+				f.sqlite.prepare("SELECT status FROM tedi_approval_requests").get(),
+			).toEqual({ status: "approved" });
+			expect(effects.settle).toHaveBeenCalledOnce();
+		},
+	);
+
 	it.each([
 		{
 			status: "pending" as const,

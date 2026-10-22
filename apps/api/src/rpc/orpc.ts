@@ -1219,6 +1219,17 @@ export function hasOsReadAuthorization(context: BaseContext): boolean {
 	}
 }
 
+/** Handler-level parity with AUTHZ.osApprove for conversational approval entry points. */
+export function assertOsApprovalAuthorization(context: BaseContext): void {
+	if (context.authType === "user") {
+		if (!hasRequiredScope(context, "mcp:memory.admin"))
+			throw createError(ErrorCodes.FORBIDDEN, "OIDC scope required");
+		assertUserAnyPermission(context, ["os:approve", "settings:manage"]);
+	} else {
+		assertMachineScope(context, "mcp:memory.admin");
+	}
+}
+
 function withPlatformAdminAuthorization() {
 	return base.middleware(async ({ context, next }) => {
 		if (context.authType === "user") {

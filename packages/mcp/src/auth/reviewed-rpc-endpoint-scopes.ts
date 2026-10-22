@@ -355,7 +355,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"kernelRuntime/renameConversation": "mcp:tedis.write",
 	"kernelRuntime/resolveDelegationWorkOrder": "mcp:tedis.write",
 	"kernelRuntime/resolvePageTool": "mcp:tedis.write",
-	"kernelRuntime/respondApproval": "mcp:tedis.write",
+	"kernelRuntime/respondApproval": "mcp:memory.admin",
 	"kernelRuntime/retryDelegation": "mcp:tedis.write",
 	"kernelRuntime/retryRun": "mcp:tedis.write",
 	"kernelRuntime/startGoalLoop": "mcp:tedis.write",
