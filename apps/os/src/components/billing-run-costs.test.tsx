@@ -72,8 +72,13 @@ async function inspect(
 		expect(container.textContent).not.toContain("Settled charges");
 		await act(async () => {
 			container.querySelector("button")!.click();
-			await new Promise((resolve) => setTimeout(resolve, 20));
 		});
+		// Expanding enables the query; an errored entry without data refetches.
+		await vi.waitFor(() =>
+			expect(
+				container.querySelector('[aria-label="Loading recorded costs"]'),
+			).toBeNull(),
+		);
 		expect(
 			container.querySelector("button")?.getAttribute("aria-expanded"),
 		).toBe("true");
