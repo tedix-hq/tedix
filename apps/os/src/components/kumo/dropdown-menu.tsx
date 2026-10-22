@@ -6,42 +6,32 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Menu root that guarantees keyboard focus comes back to the trigger. Base UI
- * returns focus itself, but WebKit occasionally drops it on `<body>` after a
- * keyboard-opened menu closes; a keyboard user would then lose their place.
- * Only a trigger that held focus at open time gets it back, so a mouse open
- * in Safari, where buttons do not take focus on click, stays unfocused.
+type DropdownMenuProps = React.ComponentProps<typeof KumoDropdownMenu>;
+type DropdownMenuActions = NonNullable<
+	NonNullable<DropdownMenuProps["actionsRef"]>["current"]
+>;
+
+/*
+ * The popup has no exit animation, so a close finishes in the same commit.
+ * Left to Base UI, the closed popup stays mounted for at least a frame. If
+ * focus leaves the trigger in that window, Base UI records "don't return
+ * focus"; a reopen before the unmount keeps that flag, so the next Escape
+ * left focus on <body> instead of the trigger.
  */
 function DropdownMenu({
+	actionsRef,
 	onOpenChange,
-	onOpenChangeComplete,
 	...props
-}: React.ComponentProps<typeof KumoDropdownMenu>) {
-	const focusedTrigger = React.useRef<HTMLElement | null>(null);
+}: DropdownMenuProps) {
+	const ownActions = React.useRef<DropdownMenuActions | null>(null);
+	const actions = actionsRef ?? ownActions;
 	return (
 		<KumoDropdownMenu
 			{...props}
+			actionsRef={actions}
 			onOpenChange={(open, details) => {
-				if (open) {
-					const active = document.activeElement;
-					focusedTrigger.current =
-						active instanceof HTMLElement && details.trigger?.contains(active)
-							? active
-							: null;
-				}
 				onOpenChange?.(open, details);
-			}}
-			onOpenChangeComplete={(open) => {
-				const trigger = focusedTrigger.current;
-				if (!open) focusedTrigger.current = null;
-				if (
-					!open &&
-					trigger?.isConnected &&
-					(!document.activeElement || document.activeElement === document.body)
-				)
-					trigger.focus({ preventScroll: true });
-				onOpenChangeComplete?.(open);
+				if (!open && !details.isCanceled) actions.current?.unmount();
 			}}
 		/>
 	);
@@ -55,10 +45,8 @@ const DropdownMenuSeparator = KumoDropdownMenu.Separator;
 // still needs it, a narrow desktop window does not.
 const COARSE_MENU_ITEM =
 	"gap-2 type-tedix-control transition-colors motion-reduce:transition-none max-sm:min-h-11 coarse:min-h-11 [&>svg]:shrink-0";
-const REDUCED_MOTION_POPUP =
-	"shadow-tedix-floating motion-reduce:animate-none motion-reduce:transition-none";
 const MENU_POPUP =
-	"min-w-36 max-h-[var(--available-height)] overflow-y-auto rounded-lg bg-kumo-control p-1.5 text-kumo-default ring ring-kumo-line data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95";
+	"min-w-36 max-h-[var(--available-height)] overflow-y-auto rounded-lg bg-kumo-control p-1.5 text-kumo-default shadow-tedix-floating ring ring-kumo-line";
 
 const DropdownMenuContent = React.forwardRef<
 	React.ComponentRef<typeof KumoDropdownMenu.Content>,
@@ -73,9 +61,7 @@ const DropdownMenuContent = React.forwardRef<
 				className="isolate z-(--tedix-layer-dropdown)"
 				{...positionerProps}
 			>
-				<MenuPrimitive.Popup
-					className={cn(MENU_POPUP, REDUCED_MOTION_POPUP, className)}
-				>
+				<MenuPrimitive.Popup className={cn(MENU_POPUP, className)}>
 					{children}
 				</MenuPrimitive.Popup>
 			</MenuPrimitive.Positioner>
