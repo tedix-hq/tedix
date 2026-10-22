@@ -37,9 +37,9 @@ import {
 	listWorkInteractionInbox,
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
-	reviewWorkInteraction,
 	sweepSupersededSupportDraftInteractions,
 } from "@tedix/db/queries/work-items/interactions";
+import { reviewWorkInteraction } from "@tedix/db/queries/work-items/interaction-reviews";
 import {
 	listUndeliveredWorkInteractionResponses,
 	listWorkInteractionDeliveries,
@@ -1632,7 +1632,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			}
 			if (delivered) {
 				const { recordWorkInteractionReviewWake } =
-					await import("@tedix/db/queries/work-items/interactions");
+					await import("@tedix/db/queries/work-items/interaction-reviews");
 				await recordWorkInteractionReviewWake(
 					context.db,
 					{ ...request, version: result.request.version },

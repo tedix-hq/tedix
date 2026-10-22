@@ -401,6 +401,8 @@
 		"./queries/work-items/dispatcher-health": "./src/queries/work-items/dispatcher-health.ts",
 		"./queries/work-items/interaction-deliveries": "./src/queries/work-items/interaction-deliveries.ts",
 		"./queries/work-items/interactions": "./src/queries/work-items/interactions.ts",
+		"./queries/work-items/interaction-digests": "./src/queries/work-items/interaction-digests.ts",
+		"./queries/work-items/interaction-reviews": "./src/queries/work-items/interaction-reviews.ts",
 		"./queries/work-items/reply-drafts": "./src/queries/work-items/reply-drafts.ts",
 		"./queries/work-items/card-presentation": "./src/queries/work-items/card-presentation.ts",
 		"./queries/work-items/reply-examples": "./src/queries/work-items/reply-examples.ts",

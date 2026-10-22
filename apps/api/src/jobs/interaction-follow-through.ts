@@ -8,9 +8,11 @@ import {
 import {
 	createWorkInteraction,
 	getWorkInteraction,
+} from "@tedix/db/queries/work-items/interactions";
+import {
 	listDueWorkInteractionReviews,
 	recordWorkInteractionReviewWake,
-} from "@tedix/db/queries/work-items/interactions";
+} from "@tedix/db/queries/work-items/interaction-reviews";
 import { assertWorkApprovalWakeAccepted } from "./work-approval-redrive";
 import { cardOwningTedi } from "../services/card-revisions";
 
