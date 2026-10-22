@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import policy from "./demo-identity-hashes.json";
 import {
+	createDemoIdentityScanner,
 	demoIdentityFindings,
 	isDemoIdentityPath,
 	scanDemoIdentities,
@@ -107,4 +108,101 @@ describe("demo identity guard", () => {
 			),
 		).toEqual([]);
 	});
+});
+
+test("cold scans hash each distinct normalized phrase once across files", () => {
+	const phrases: string[] = [];
+	const scan = createDemoIdentityScanner(denylist, (phrase) => {
+		phrases.push(phrase);
+		return createHash("sha256").update(phrase).digest("hex");
+	});
+	const source = "Realperson private\ncustomer realperson private\ncustomer";
+	expect(scan("fixtures/first.txt", source)).toEqual([
+		"fixtures/first.txt:1: use a fictional sample identity",
+		"fixtures/first.txt:2: use a fictional sample identity",
+	]);
+	const first = [...phrases];
+	expect(new Set(first).size).toBe(first.length);
+	expect(scan("fixtures/second.txt", source.toUpperCase())).toEqual([
+		"fixtures/second.txt:1: use a fictional sample identity",
+		"fixtures/second.txt:2: use a fictional sample identity",
+	]);
+	expect(phrases).toEqual(first);
+	expect(createDemoIdentityScanner([])("fixtures/other.txt", source)).toEqual(
+		[],
+	);
+});
+
+test("preserves overlapping matches, normalized line numbers and long phrases", () => {
+	const long = "one two three four five six seven eight nine";
+	const hashes = [
+		...denylist,
+		{ words: 9, sha256: createHash("sha256").update(long).digest("hex") },
+	];
+	const source = String.raw`ｒｅａｌｐｅｒｓｏｎ\u000aPRIVATE
+customer
+one two three four five six seven eight nine
+private customer realperson`;
+	expect(demoIdentityFindings("fixtures/overlap.txt", source, hashes)).toEqual(
+		[1, 2, 4, 5].map(
+			(line) => `fixtures/overlap.txt:${line}: use a fictional sample identity`,
+		),
+	);
+});
+
+test("cached line transitions retain the original sliding-window verdicts", () => {
+	const phrases = [
+		"realperson",
+		"private customer",
+		"one two three four five six seven eight nine",
+	];
+	const hashes = phrases.map((phrase) => ({
+		words: phrase.split(" ").length,
+		sha256: createHash("sha256").update(phrase).digest("hex"),
+	}));
+	const scan = createDemoIdentityScanner(hashes);
+	const rows = [
+		"realperson",
+		"PRIVATE",
+		"customer",
+		"one two three",
+		"four five",
+		"six seven eight nine",
+		"",
+		"---",
+		String.raw`\u000aｒｅａｌｐｅｒｓｏｎ`,
+		"fictional vendor",
+	];
+	for (let seed = 0; seed < 128; seed++) {
+		const source = Array.from(
+			{ length: 12 },
+			(_, i) => rows[(seed * (i + 1) + i * i) % rows.length],
+		).join("\n");
+		const normalized = source
+			.replace(/\\u([0-9a-f]{4})/gi, (_, hex: string) =>
+				String.fromCharCode(parseInt(hex, 16)),
+			)
+			.normalize("NFKC")
+			.toLowerCase();
+		const tokens = [...normalized.matchAll(/[\p{L}\p{N}]+/gu)];
+		const expected = new Set<number>();
+		for (let i = 0; i < tokens.length; i++) {
+			for (const phrase of phrases) {
+				const candidate = tokens
+					.slice(i, i + phrase.split(" ").length)
+					.map((token) => token[0])
+					.join(" ");
+				if (candidate === phrase)
+					expected.add(
+						normalized.slice(0, tokens[i]!.index).split("\n").length,
+					);
+			}
+		}
+		expect(scan(`fixtures/${seed}.txt`, source)).toEqual(
+			[...expected].map(
+				(line) =>
+					`fixtures/${seed}.txt:${line}: use a fictional sample identity`,
+			),
+		);
+	}
 });

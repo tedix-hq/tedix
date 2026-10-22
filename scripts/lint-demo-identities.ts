@@ -6,7 +6,8 @@
  * a minute of every local push. A local cache in the git common dir remembers
  * the SHA-256 of file contents already found clean, keyed by this script and
  * the denylist, so only new or changed contents are tokenized. A clone without
- * the cache, such as CI, scans everything.
+ * the cache, such as CI, scans everything. Within a scan, repeated normalized
+ * blocks and their incoming token context share verdicts across snapshots.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -38,6 +39,7 @@ export function scanDemoIdentities(
 	hashes: readonly IdentityHash[] = denylist,
 ): { findings: string[]; clean: Set<string> } {
 	const seen = new Set<string>();
+	const scan = createDemoIdentityScanner(hashes);
 	const findings = paths
 		.filter(isDemoIdentityPath)
 		.filter((path) => existsSync(join(root, path)))
@@ -49,7 +51,7 @@ export function scanDemoIdentities(
 				seen.add(digest);
 				return [];
 			}
-			const found = demoIdentityFindings(path, bytes.toString("utf8"), hashes);
+			const found = scan(path, bytes.toString("utf8"));
 			if (!found.length) seen.add(digest);
 			return found;
 		});
@@ -117,32 +119,104 @@ export function demoIdentityFindings(
 	source: string,
 	hashes: readonly IdentityHash[] = denylist,
 ): string[] {
-	const decoded = source.replace(/\\u([0-9a-f]{4})/gi, (_, hex: string) =>
-		String.fromCharCode(parseInt(hex, 16)),
-	);
-	const normalized = decoded.normalize("NFKC").toLowerCase();
-	const tokens = [...normalized.matchAll(/[\p{L}\p{N}]+/gu)];
+	return createDemoIdentityScanner(hashes)(path, source);
+}
+
+/** Reuse phrase verdicts across snapshots, including when the content cache is cold. */
+export function createDemoIdentityScanner(
+	hashes: readonly IdentityHash[] = denylist,
+	digest: (phrase: string) => string = sha256,
+): (path: string, source: string) => string[] {
 	const byLength = new Map<number, Set<string>>();
 	for (const { words, sha256 } of hashes) {
 		if (!byLength.has(words)) byLength.set(words, new Set());
 		byLength.get(words)!.add(sha256);
 	}
-	const lines = new Set<number>();
-	for (let i = 0; i < tokens.length; i++) {
-		for (const [length, digests] of byLength) {
-			if (i + length > tokens.length) continue;
-			const phrase = tokens
-				.slice(i, i + length)
-				.map((token) => token[0])
-				.join(" ");
-			if (!digests.has(createHash("sha256").update(phrase).digest("hex")))
-				continue;
-			lines.add(normalized.slice(0, tokens[i]!.index).split("\n").length);
+	const carryLength = Math.max(1, ...byLength.keys()) - 1;
+	const verdicts = new Map<string, boolean>();
+	const blocks = new Map<
+		string,
+		{
+			tail: string[];
+			tailKey: string;
+			tailLines: number[];
+			findings: number[];
 		}
-	}
-	return [...lines].map(
-		(line) => `${path}:${line}: use a fictional sample identity`,
-	);
+	>();
+	let blockChars = 0;
+	return (path, source) => {
+		const decoded = source.replace(/\\u([0-9a-f]{4})/gi, (_, hex: string) =>
+			String.fromCharCode(parseInt(hex, 16)),
+		);
+		const sourceLines = decoded.normalize("NFKC").toLowerCase().split("\n");
+		const lines = new Set<number>();
+		let prefix: string[] = [];
+		let prefixKey = "";
+		let carryLines: number[] = [];
+		let firstLine = 0;
+		for (let line = 0; line < sourceLines.length; line++) {
+			// Content-defined boundaries survive inserted lines in successive snapshots.
+			// Every line is included; the boundary only chooses a memoization unit.
+			if (sourceLines[line]!.length % 32 !== 0 && line + 1 < sourceLines.length)
+				continue;
+			const key =
+				prefixKey + "\0" + sourceLines.slice(firstLine, line + 1).join("\n");
+			let block = blocks.get(key);
+			if (!block) {
+				const tokens = [...prefix];
+				// Negative offsets refer to incoming tokens; nonnegative offsets are block lines.
+				const tokenLines = prefix.map((_, index) => -index - 1);
+				for (let row = firstLine; row <= line; row++) {
+					for (const match of sourceLines[row]!.matchAll(/[\p{L}\p{N}]+/gu)) {
+						tokens.push(match[0]);
+						tokenLines.push(row - firstLine);
+					}
+				}
+				const findings = new Set<number>();
+				for (let end = prefix.length; end < tokens.length; end++) {
+					for (const [length, digests] of byLength) {
+						const start = end - length + 1;
+						if (start < 0) continue;
+						const phrase = tokens.slice(start, end + 1).join(" ");
+						let found = verdicts.get(phrase);
+						if (found === undefined) {
+							found = digests.has(digest(phrase));
+							if (verdicts.size >= 100_000) verdicts.clear();
+							verdicts.set(phrase, found);
+						}
+						if (found) findings.add(tokenLines[start]!);
+					}
+				}
+				const tail = carryLength === 0 ? [] : tokens.slice(-carryLength);
+				block = {
+					tail,
+					tailKey: tail.join(" "),
+					tailLines: carryLength === 0 ? [] : tokenLines.slice(-carryLength),
+					findings: [...findings],
+				};
+				// Eviction only repeats work; arbitrary inputs cannot grow the cache forever.
+				if (blockChars + key.length > 32_000_000) {
+					blocks.clear();
+					blockChars = 0;
+				}
+				if (key.length <= 32_000_000) {
+					blocks.set(key, block);
+					blockChars += key.length;
+				}
+			}
+			const absoluteLine = (offset: number) =>
+				offset < 0 ? carryLines[-offset - 1]! : firstLine + offset + 1;
+			for (const offset of block.findings) lines.add(absoluteLine(offset));
+			carryLines = block.tailLines.map(absoluteLine);
+			prefix = block.tail;
+			prefixKey = block.tailKey;
+			firstLine = line + 1;
+		}
+
+		return [...lines]
+			.sort((a, b) => a - b)
+			.map((line) => `${path}:${line}: use a fictional sample identity`);
+	};
 }
 
 if (import.meta.main) {
