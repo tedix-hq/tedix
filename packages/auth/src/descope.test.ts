@@ -5,11 +5,11 @@ import {
 	deactivateTediIdentity,
 	deleteTediIdentity,
 } from "./tedi-identity";
+import { deleteConnectionTokens } from "./connections";
 import {
 	deleteConnectionProvider,
-	deleteConnectionTokens,
 	deleteTenantTokens,
-} from "./connections";
+} from "./connection-providers.ts";
 
 const env = {
 	DESCOPE_PROJECT_ID: "P3fictional",

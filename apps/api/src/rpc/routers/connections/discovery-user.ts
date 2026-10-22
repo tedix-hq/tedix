@@ -25,15 +25,17 @@ import {
 } from "@tedix/db/queries/connection-providers";
 import {
 	deleteConnectionTokens,
-	deleteTenantTokens,
 	fetchConnectionToken,
 	fetchPersonalConnectionToken,
 	fetchNamedTenantConnectionToken,
 	fetchConnectionTokenByScopes,
 	fetchTenantConnectionToken,
-	getAdaptiveConnectUrl,
 	listUserConnectedAppIds,
 } from "@tedix/auth/connections";
+import {
+	deleteTenantTokens,
+	getAdaptiveConnectUrl,
+} from "@tedix/auth/connection-providers";
 import {
 	getOrganizationByDescopeId,
 	getOrganizationById,

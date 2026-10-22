@@ -5,7 +5,7 @@ import {
 	connectionScopeMappingState,
 	type ConnectionScopeConfig,
 } from "@tedix/api-contract/utils/mcp-scope-catalog";
-import { syncConnectionProviderScopes } from "@tedix/auth/connections";
+import { syncConnectionProviderScopes } from "@tedix/auth/connection-providers";
 import type { DbClient } from "@tedix/db/client";
 import {
 	buildConnectionProviderMaps,

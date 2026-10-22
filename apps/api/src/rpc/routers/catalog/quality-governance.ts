@@ -36,7 +36,7 @@ import { runCatalogIntegrityMaintenance } from "@tedix/db/queries/catalog/mainte
 import { syncCatalogAppFromStore } from "@tedix/db/queries/catalog/upsert-sync";
 import { syncCatalogToolsToApp } from "@tedix/db/queries/catalog/sync-tools-to-app";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { upsertConnectionProviderWithId } from "@tedix/auth/connections";
+import { upsertConnectionProviderWithId } from "@tedix/auth/connection-providers";
 import {
 	TenantMcpInstallResult,
 	tenantCatalogOs,

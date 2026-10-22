@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import * as aih from "@tedix/auth/aih-client";
-import * as connections from "@tedix/auth/connections";
+import * as connections from "@tedix/auth/connection-providers";
 import * as providers from "@tedix/db/queries/connection-providers";
 import type { DbClient } from "@tedix/db/client";
 import { syncDeclaredConnectionScopes } from "./connection-scope-sync";

@@ -16,6 +16,8 @@
 		"./oauth-cimd-state": "./src/oauth-cimd-state.ts",
 		"./descope": "./src/descope.ts",
 		"./connections": "./src/connections.ts",
+		"./connection-discovery": "./src/connection-discovery.ts",
+		"./connection-providers": "./src/connection-providers.ts",
 		"./types": "./src/types.ts",
 		"./rbac": "./src/rbac.ts",
 		"./utils": "./src/utils.ts",

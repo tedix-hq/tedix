@@ -24,13 +24,15 @@ import {
 } from "../../orpc";
 import { type ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connection-provider-templates";
 import {
-	createConnectionProvider,
-	createConnectionProviderWithId,
 	fetchConnectionToken,
 	fetchTenantConnectionToken,
 	uploadTenantApiKeyToken,
 	uploadUserApiKeyToken,
 } from "@tedix/auth/connections";
+import {
+	createConnectionProvider,
+	createConnectionProviderWithId,
+} from "@tedix/auth/connection-providers";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { isPlatformPrincipal } from "@tedix/auth/types";

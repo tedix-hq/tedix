@@ -1,7 +1,6 @@
 import { fetchNamedTenantConnectionToken } from "./connections";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-	discoverMcpConnectionProvider,
 	exchangeCimdAuthorizationCode,
 	ConnectionTokenLookupError,
 	fetchConnectionToken,
@@ -9,14 +8,17 @@ import {
 	fetchTenantConnectionToken,
 	fetchTenantConnectionTokenByScopes,
 	fetchConnectionTokenByScopes,
-	getAdaptiveConnectUrl,
 	listUserConnectedAppIds,
-	updateConnectionProviderMetadataWithId,
 	uploadTenantApiKeyToken,
 	uploadTenantOAuthToken,
 	uploadUserApiKeyToken,
-	upsertConnectionProviderWithId,
 } from "./connections.ts";
+import {
+	getAdaptiveConnectUrl,
+	updateConnectionProviderMetadataWithId,
+	upsertConnectionProviderWithId,
+} from "./connection-providers.ts";
+import { discoverMcpConnectionProvider } from "./connection-discovery.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
