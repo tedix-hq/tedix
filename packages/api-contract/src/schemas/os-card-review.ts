@@ -183,7 +183,9 @@ export const CardScoringSchema = z
 			.array(z.string().trim().min(1).max(100))
 			.max(50)
 			.default([])
-			.describe("Card types an agent may decide; stored, not acted on yet"),
+			.describe(
+				"Card types each person can earn quiet delivery for: factory:<label>:<type> after unchanged Do it verdicts, with audits; protected and reserved classes never graduate",
+			),
 	})
 	.strict();
 export type CardScoring = z.infer<typeof CardScoringSchema>;
