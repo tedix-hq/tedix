@@ -240,6 +240,63 @@ export function deckInteractionKind(
 							: "question"));
 }
 
+/** One request's routing inputs, shared by the projection and absence explanations. */
+export function interactionDeckRoute(
+	r: {
+		kind: string;
+		subject: string;
+		prompt: string;
+		dueAt: string | null;
+		metadata: Record<string, unknown>;
+	},
+	model: DecisionLearningModel | undefined,
+	routing: DeckRoutingPolicy | undefined,
+	now: Date,
+) {
+	const m = r.metadata;
+	const decision =
+		DecisionEnvelopeSchema.safeParse(m.decisionDeck).data ?? null;
+	const kind = deckInteractionKind(r.kind, m);
+	const presentation = DecisionCardPresentationSchema.safeParse(
+		m.cardPresentation,
+	).data;
+	const classId = decision?.classId ?? String(m.decisionClass ?? r.kind);
+	const learnedUsefulness = model?.config.enabled
+		? model.weights.usefulness.find((w) => w.key === `class:${classId}`)
+		: undefined;
+	const route = classifyDeckCard(
+		{
+			kind,
+			classId,
+			learnedUsefulness,
+			effectKnown:
+				presentation &&
+				"effectStatus" in presentation &&
+				presentation.effectStatus === "unknown"
+					? false
+					: undefined,
+			action: decision
+				? undefined
+				: String(m.approvalOperation ?? `${r.subject ?? ""}\n${r.prompt}`),
+			// A credential ask stays protected whatever generated copy says.
+			risk: credentialCard(`${r.subject ?? ""} ${r.prompt}`, m)
+				? "critical"
+				: typeof m.riskLevel === "string"
+					? m.riskLevel
+					: undefined,
+			protectedEffects:
+				decision?.protectedEffects ??
+				(kind === "outbound" ? ["message"] : m.localImport ? ["consent"] : []),
+			tasteOrStrategy: decision?.tasteOrStrategy,
+			needsPerson: true,
+			dueAt: r.dueAt,
+		},
+		routing,
+		now,
+	);
+	return { decision, kind, route };
+}
+
 /** Pure projection shared by the authenticated headless reader and trusted recipient summaries. */
 export function projectDeckCards(input: {
 	requests: readonly Request[];
@@ -277,47 +334,9 @@ export function projectDeckCards(input: {
 			["reviewing", "feedback"].includes(String(m.outboundStatus))
 		)
 			continue;
-		const decision =
-			DecisionEnvelopeSchema.safeParse(m.decisionDeck).data ?? null;
-		const kind = deckInteractionKind(r.kind, m);
-		const presentation = DecisionCardPresentationSchema.safeParse(
-			m.cardPresentation,
-		).data;
-		const classId = decision?.classId ?? String(m.decisionClass ?? r.kind);
-		const learnedUsefulness = model?.config.enabled
-			? model.weights.usefulness.find((w) => w.key === `class:${classId}`)
-			: undefined;
-		const route = classifyDeckCard(
-			{
-				kind,
-				classId,
-				learnedUsefulness,
-				effectKnown:
-					presentation &&
-					"effectStatus" in presentation &&
-					presentation.effectStatus === "unknown"
-						? false
-						: undefined,
-				action: decision
-					? undefined
-					: String(m.approvalOperation ?? `${r.subject ?? ""}\n${r.prompt}`),
-				// A credential ask stays protected whatever generated copy says.
-				risk: credentialCard(`${r.subject ?? ""} ${r.prompt}`, m)
-					? "critical"
-					: typeof m.riskLevel === "string"
-						? m.riskLevel
-						: undefined,
-				protectedEffects:
-					decision?.protectedEffects ??
-					(kind === "outbound"
-						? ["message"]
-						: m.localImport
-							? ["consent"]
-							: []),
-				tasteOrStrategy: decision?.tasteOrStrategy,
-				needsPerson: true,
-				dueAt: r.dueAt,
-			},
+		const { decision, kind, route } = interactionDeckRoute(
+			r,
+			model,
 			routing,
 			now,
 		);
