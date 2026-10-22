@@ -94,17 +94,25 @@ describe("aggregate join deadline", () => {
 	});
 
 	it("returns promptly when the load beats the deadline", async () => {
-		const started = Date.now();
-		const result = await joinAggregateLoad(
+		vi.useFakeTimers();
+		let settled = false;
+		const joined = joinAggregateLoad(
 			Promise.resolve(surface(7)),
 			"key-fast",
 			emptyEnv,
 			"tedix-unified",
 			"joined",
 			250,
-		);
-		expect(result.tools).toHaveLength(7);
-		expect(Date.now() - started).toBeLessThan(200);
+		).then((result) => {
+			settled = true;
+			return result;
+		});
+		// Fake time stands still, so the 250ms deadline timer can never fire —
+		// the join settling at all proves the load won the race without
+		// waiting out the deadline.
+		await vi.advanceTimersByTimeAsync(0);
+		expect(settled).toBe(true);
+		expect((await joined).tools).toHaveLength(7);
 	});
 
 	it("does NOT hang a joined caller for the length of a cold rebuild", async () => {
@@ -151,12 +159,13 @@ describe("aggregate join deadline", () => {
 	});
 
 	it("does not reject when the underlying load fails after the deadline", async () => {
+		vi.useFakeTimers();
 		// The load owns its own lifecycle; abandoning the wait must not surface as
 		// an unhandled rejection in the Worker.
 		const failing = new Promise<AggregatedMcpSurface>((_, reject) =>
 			setTimeout(() => reject(new Error("upstream gone")), 50),
 		);
-		await expect(
+		const assertion = expect(
 			joinAggregateLoad(
 				failing,
 				"key-fail",
@@ -166,5 +175,7 @@ describe("aggregate join deadline", () => {
 				500,
 			),
 		).rejects.toThrow("upstream gone");
+		await vi.advanceTimersByTimeAsync(50);
+		await assertion;
 	});
 });
