@@ -193,6 +193,36 @@ describe("Work evidence resolution", () => {
 		).toMatchObject({ status: "unavailable" });
 	});
 
+	it("embeds immutable private screenshot evidence without releasing its storage location", async () => {
+		const digest = await hash("private image bytes");
+		mocks.artifact.mockResolvedValue({
+			id: "private-shot",
+			organizationId: "org-1",
+			tediId: "tedi-1",
+			uri: "r2://tedix-tedi-production/tedi-1/artifacts/private-shot.png",
+			mimeType: "image/png",
+			metadata: {},
+			accessClassification: "runtime_private",
+			contentDigest: digest,
+			publicationState: "ready",
+		});
+		mocks.stream.mockResolvedValue(
+			new Response("private image bytes", { status: 206 }),
+		);
+
+		expect(
+			await previewWorkEvidence(context, {
+				uri: "artifact://private-shot",
+			} as WorkEvidence),
+		).toMatchObject({
+			status: "available",
+			canonicalUri: "artifact://private-shot",
+			imageDataUrl: `data:image/png;base64,${btoa("private image bytes")}`,
+			digest,
+		});
+		expect(mocks.candidate).not.toHaveBeenCalled();
+	});
+
 	it("keeps external HTTPS telemetry unverified and strips caller authority claims", async () => {
 		const result = await normalizeSubmittedEvidence(context, {
 			uri: "https://example.com/proof",
