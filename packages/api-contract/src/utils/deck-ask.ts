@@ -2,6 +2,7 @@ import type { DeckAskKind } from "../schemas/attention";
 import type { DecisionEnvelope } from "../schemas/os-decision-deck";
 import { calendarDay } from "./card-schedule";
 import defaults from "../assets/deck-pipeline.v1.json";
+import { agentDecisionReviewIds } from "./agent-decision-journal";
 import { classifyDeckAsk } from "./deck-qualification";
 import type { DeckPipelineConfig } from "../schemas/deck-pipeline";
 
@@ -33,6 +34,7 @@ type AskSource = {
 		prompt?: string;
 		metadata?: Record<string, unknown> | null;
 		expiresAt?: string | null;
+		creatorType?: string | null;
 	} | null;
 };
 
@@ -150,7 +152,13 @@ export function deckCardExpired(
 /** The card's Work Item finished or was cancelled, so the ask was handled. */
 export function deckCardHandled(card: {
 	workItem?: { disposition?: string | null } | null;
+	request?: {
+		metadata?: Record<string, unknown> | null;
+		creatorType?: string | null;
+	} | null;
 }): boolean {
+	if (agentDecisionReviewIds(card.request?.metadata, card.request?.creatorType))
+		return false;
 	const disposition = card.workItem?.disposition;
 	return disposition === "completed" || disposition === "cancelled";
 }
@@ -165,6 +173,7 @@ export function deckCardStale(
 			prompt?: string;
 			expiresAt?: string | null;
 			metadata?: Record<string, unknown> | null;
+			creatorType?: string | null;
 		} | null;
 		workItem?: { disposition?: string | null } | null;
 	},
@@ -173,6 +182,10 @@ export function deckCardStale(
 	timeZone?: string,
 ) {
 	if (!config.enabled) return false;
+	// A decision review is withdrawn by its decisions' outcomes, not by the
+	// state of the Work Item it is filed under.
+	if (agentDecisionReviewIds(card.request?.metadata, card.request?.creatorType))
+		return false;
 	if (config.blockedDispositions.includes(card.workItem?.disposition ?? ""))
 		return true;
 	const metadata = card.request?.metadata;

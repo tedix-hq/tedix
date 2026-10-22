@@ -458,3 +458,88 @@ it("uses the recorded answer of a linked resolved duplicate", async () => {
 		evidenceRefs: ["/work/interactions/maple-answer"],
 	});
 });
+
+it("keeps a daily agent-decision review until its decisions have outcomes", async () => {
+	const { db } = await fixture();
+	// The anchor Work's latest attempt expired; the review is not that
+	// Work's ask and must not share its fate.
+	await db.insert(workAttempts).values({
+		id: "attempt-expired",
+		orgId: ORG,
+		workItemId: WORK_OPEN,
+		executorType: "external_agent",
+		executorId: AGENT,
+		executorSessionId: "session-1",
+		externalSessionKey: "devin:session-1",
+		attemptNumber: 1,
+		runtimeState: "expired",
+		outcome: "expired",
+		startedAt: "2026-10-20T00:00:00.000Z",
+		heartbeatAt: "2026-10-20T00:30:00.000Z",
+		expiresAt: "2026-10-20T00:30:00.000Z",
+		finishedAt: "2026-10-20T00:30:00.000Z",
+	});
+	const review = await card(db, {
+		subject: "Review 2 agent decisions from overnight?",
+		prompt: "Your agents made 2 decisions on their own.",
+		creatorType: "system",
+		creatorId: "tedix",
+		metadata: {
+			source: "agent-decision-review",
+			reviewDate: "2026-10-21",
+			decisionIds: ["decision-1", "decision-2"],
+		},
+	});
+	const plain = await card(db);
+	// Cards created before reviews stopped anchoring in the graph can still
+	// carry the edge; the review must not merge or be merged by it.
+	await upsertDecisionEdges(
+		db,
+		ORG,
+		[review, plain].map((id) => ({
+			kind: "card_from_work" as const,
+			from: { kind: "deck_card" as const, id },
+			to: { kind: "work_item" as const, id: WORK_OPEN },
+			source: "fictional-test",
+		})),
+	);
+	const first = await sweepOrganizationDeck(db, ORG, now);
+	expect((await status(db, review)).status).toBe("open");
+	// An ordinary card on the same Work still follows its source's state.
+	expect((await status(db, plain)).status).toBe("cancelled");
+	expect(first.retired).toBe(1);
+
+	await db.insert(learningInteractionEvents).values(
+		["decision-1", "decision-2"].map((id, index) => ({
+			id: `outcome-${index}`,
+			organizationId: ORG,
+			actorType: "user" as const,
+			actorId: USER,
+			clientEventId: `outcome-${index}`,
+			signalClass: "governance" as const,
+			eventKind: "accepted" as const,
+			scopeKind: "organization" as const,
+			scopeId: ORG,
+			surface: "agent_decision",
+			targetType: "agent_decision",
+			targetId: id,
+			occurredAt: "2026-10-21T06:30:00.000Z",
+			metadata: {
+				schema: "tedix.agent-decision-outcome.v1",
+				outcome: "worked",
+				by: "person",
+			},
+		})),
+	);
+	const second = await sweepOrganizationDeck(
+		db,
+		ORG,
+		new Date("2026-10-21T07:15:00.000Z"),
+	);
+	expect(second.retired).toBe(1);
+	expect((await status(db, review)).metadata.curation).toMatchObject({
+		status: "cancelled",
+		reason: "Every listed decision already has an outcome.",
+		retirement: { reason: "already_decided" },
+	});
+});

@@ -66,6 +66,7 @@ import { requireOrgId } from "../rpc/org-scope";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { deckQualificationGraph } from "./deck-qualification-graph";
 import { listDeckSourceStates } from "@tedix/db/queries/work-items/deck-sweep";
+import { agentDecisionReviewIds } from "@tedix/api-contract/utils/agent-decision-journal";
 import { deckCardStale } from "@tedix/api-contract/utils/deck-ask";
 
 type ViewInput = z.infer<typeof AttentionViewInputSchema>;
@@ -373,6 +374,10 @@ async function loadConfiguredDeckProjection(
 		for (const card of cards) {
 			const facts = graph.get(card.id);
 			const workId = sourceWork.get(card.id);
+			const review = agentDecisionReviewIds(
+				card.interaction?.request.metadata,
+				card.interaction?.request.creatorType,
+			);
 			const stale = deckCardStale(
 				{
 					...card,
@@ -385,7 +390,8 @@ async function loadConfiguredDeckProjection(
 			);
 			if (
 				stale ||
-				(qualification.alreadyDecided &&
+				(!review &&
+					qualification.alreadyDecided &&
 					facts?.priorDecision &&
 					card.responseKind !== "task") ||
 				(qualification.graphDuplicates && facts?.supersededBy)

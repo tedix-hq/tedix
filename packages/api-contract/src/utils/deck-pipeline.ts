@@ -157,6 +157,12 @@ export type SweepCard = {
 	expiresAt: string | null;
 	createdAt: string;
 	metadata: Metadata;
+	/**
+	 * Agent-decision review card: the listed decision ids that still have no
+	 * outcome. Its presence marks a review card, which is judged by those
+	 * decisions, never by the Work Item it is filed under.
+	 */
+	pendingDecisions?: string[];
 	protected: boolean;
 	/** Latest revision by the card's owner; refreshes reset the overdue clock. */
 	refreshedAt?: string | null;
@@ -198,6 +204,17 @@ export function planDeckSweep(input: {
 		if (!actions.has(action.cardId)) actions.set(action.cardId, action);
 	};
 	for (const card of cards) {
+		if (card.pendingDecisions) {
+			if (!card.pendingDecisions.length)
+				add({
+					cardId: card.id,
+					reason: "already_decided",
+					cause: "handled",
+					note: "Every listed decision already has an outcome.",
+					evidenceRefs: [`work-interaction:${card.id}`],
+				});
+			continue;
+		}
 		const decision = DecisionEnvelopeSchema.safeParse(
 			card.metadata.decisionDeck,
 		).data;
@@ -229,6 +246,7 @@ export function planDeckSweep(input: {
 						prompt: card.prompt,
 						expiresAt: card.expiresAt,
 						metadata: card.metadata,
+						creatorType: card.creatorType,
 					},
 					workItem: { disposition: card.workItemDisposition },
 				},

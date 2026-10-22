@@ -1,5 +1,6 @@
 import type { DecisionContext } from "@tedix/api-contract/schemas/decision-graph";
 import { createDbClient, type DbClient } from "@tedix/db/client";
+import { listAgentDecisionsWithOutcome } from "@tedix/db/queries/agent-decisions";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
@@ -19,6 +20,7 @@ import type {
 	DeckSweepReceipt,
 } from "@tedix/api-contract/schemas/deck-pipeline";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { agentDecisionReviewIds } from "@tedix/api-contract/utils/agent-decision-journal";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { deckAsk, deckAskKind } from "@tedix/api-contract/utils/deck-ask";
 import {
@@ -248,7 +250,27 @@ export async function sweepOrganizationDeck(
 			const live = open.filter(
 				(row) => !(row.expiresAt && row.expiresAt <= now.toISOString()),
 			);
+			const reviewDecisionIds = [
+				...new Set(
+					live.flatMap(
+						(row) =>
+							agentDecisionReviewIds(row.metadata, row.creatorType) ?? [],
+					),
+				),
+			];
+			const reviewCardIds = new Set(
+				live.flatMap((row) =>
+					agentDecisionReviewIds(row.metadata, row.creatorType) ? [row.id] : [],
+				),
+			);
+			const decided = reviewDecisionIds.length
+				? await listAgentDecisionsWithOutcome(db, {
+						organizationId: orgId,
+						decisionIds: reviewDecisionIds,
+					})
+				: new Set<string>();
 			const cards = live.map((row) => {
+				const review = agentDecisionReviewIds(row.metadata, row.creatorType);
 				const facts = graph.get(row.id);
 				const workId =
 					row.workItemId ??
@@ -276,12 +298,29 @@ export async function sweepOrganizationDeck(
 					actionable:
 						ask.actionable &&
 						!(
+							!review &&
 							config.qualification.alreadyDecided &&
 							facts?.priorDecision &&
 							ask.responseKind !== "task"
 						) &&
 						!(config.qualification.graphDuplicates && facts?.supersededBy),
-					graph: facts,
+					graph: facts
+						? {
+								...facts,
+								// The review's Work anchor is filing context, not its
+								// source: it neither duplicates nor is duplicated by the
+								// Work's other cards.
+								duplicates: review
+									? []
+									: facts.duplicates.filter((id) => !reviewCardIds.has(id)),
+							}
+						: facts,
+					...(review
+						? {
+								pendingDecisions: review.filter((id) => !decided.has(id)),
+								workItemDisposition: null,
+							}
+						: {}),
 				};
 			});
 			const plan = planDeckSweep({

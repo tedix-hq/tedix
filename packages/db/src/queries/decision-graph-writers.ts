@@ -1,5 +1,6 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionGraphNode } from "@tedix/api-contract/schemas/decision-graph";
+import { agentDecisionReviewIds } from "@tedix/api-contract/utils/agent-decision-journal";
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
@@ -244,7 +245,9 @@ export async function recordCardCreationEdges(
 			? card.id
 			: `work-interaction:${card.id}`,
 	};
-	if (work)
+	// A decision review is filed under a Work Item only for context; linking
+	// it would let that Work's state and cards judge the review.
+	if (work && !agentDecisionReviewIds(card.metadata))
 		await writeDecisionEdgesBestEffort(db, card.orgId, [
 			{
 				...base,
