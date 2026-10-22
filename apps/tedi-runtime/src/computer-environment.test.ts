@@ -29,6 +29,10 @@ const store = {
 const files = new Map<string, string>();
 let opens = 0;
 let failStart = false;
+const deterministicDeadline = (budgetMs: number) => ({
+	budgetMs,
+	now: () => 0,
+});
 const actions = {
 	close: async (environment: { leaseId: string }) => ({
 		ok: true,
@@ -867,6 +871,36 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 	assert.equal("preparedStartSha" in result, false);
 }
 
+// A scheduler pause before the fixture confirms provisioning must not turn a
+// confirmed acquisition into an unknown outcome. The deterministic clock keeps
+// this test about the deadline transition, rather than CPU availability.
+{
+	const scope = "deadline-paused-before-confirmation";
+	let paused = false;
+	const pausedStore = {
+		...store,
+		get: async <T>(key: string): Promise<T | undefined> => {
+			if (key === scope && !paused) {
+				paused = true;
+				const until = Date.now() + 20;
+				while (Date.now() < until) {}
+			}
+			return store.get<T>(key);
+		},
+	};
+	const controller = new ComputerEnvironmentController(
+		pausedStore,
+		scope,
+		{ ...actions, status: async () => new Promise(() => {}) },
+		undefined,
+		undefined,
+		undefined,
+		deterministicDeadline(10),
+	);
+	await assertUnconfirmedOpen(controller.open("shell"));
+	assert.equal(paused, true);
+}
+
 // Cold startup never reports a file operation or command as executed.
 {
 	let dispatched = 0;
@@ -888,7 +922,7 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 		undefined,
 		undefined,
 		undefined,
-		{ budgetMs: 10 },
+		deterministicDeadline(10),
 	);
 	{
 		await assertUnconfirmedOpen(cold.open("shell"));
@@ -1424,7 +1458,7 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 		undefined,
 		"owner-original",
 		undefined,
-		{ budgetMs: 15 },
+		deterministicDeadline(15),
 	);
 	await assertUnconfirmedOpen(
 		original.open("repository", "owner-original:open"),
@@ -1505,7 +1539,7 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 		undefined,
 		"bounded-owner",
 		undefined,
-		{ budgetMs: 10 },
+		deterministicDeadline(10),
 	);
 	const first = controller.open("repository", `${scope}:open`);
 	const duplicate = controller.open("repository", `${scope}:open`);
@@ -1603,7 +1637,7 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 		undefined,
 		"checkout-owner",
 		undefined,
-		{ budgetMs: 15 },
+		deterministicDeadline(15),
 	);
 	await assertUnconfirmedOpen(
 		controller.open("repository", "checkout-owner:open"),
@@ -1671,7 +1705,7 @@ for (const cachedAgeMs of [0, 60_000]) {
 		undefined,
 		"new-owner",
 		undefined,
-		{ budgetMs: 10 },
+		deterministicDeadline(10),
 	);
 	await assertUnconfirmedOpen(current.open("repository", `${scope}:refresh`));
 	assert.ok(statusReads >= 2);
@@ -1751,7 +1785,7 @@ for (const operation of ["file", "exec"] as const) {
 			"fictional-owner",
 			undefined,
 			{
-				budgetMs: 10,
+				...deterministicDeadline(10),
 				captureAuthority: async () => {
 					if (
 						warming &&
@@ -1940,7 +1974,7 @@ for (const operation of ["file", "exec"] as const) {
 		undefined,
 		undefined,
 		undefined,
-		{ budgetMs: 20 },
+		deterministicDeadline(20),
 	);
 	await controller.open("repository");
 	values.set(scope, {
@@ -1988,7 +2022,7 @@ for (const operation of ["file", "exec"] as const) {
 		undefined,
 		"owner-fiber",
 		undefined,
-		{ budgetMs: 10 },
+		deterministicDeadline(10),
 	);
 	await assertUnconfirmedOpen(controller.open("shell", "owner-fiber:open"));
 	assert.equal(
@@ -2023,7 +2057,7 @@ for (const operation of ["file", "exec"] as const) {
 		undefined,
 		"owner-unknown",
 		undefined,
-		{ budgetMs: 10 },
+		deterministicDeadline(10),
 	);
 	const opening = controller.open("shell", "owner-unknown:open");
 	await new Promise((resolve) => setTimeout(resolve, 0));
@@ -2282,7 +2316,7 @@ console.log(
 		undefined,
 		"existing-owner",
 		undefined,
-		{ budgetMs: 10 },
+		deterministicDeadline(10),
 	);
 	await assertUnconfirmedOpen(hanging.open("shell", "existing-owner:second"));
 	assert.equal(
@@ -2312,7 +2346,7 @@ console.log(
 		undefined,
 		"closing-owner",
 		undefined,
-		{ budgetMs: 10 },
+		deterministicDeadline(10),
 	);
 	await controller.open("shell", "closing-owner:first");
 	const leaseId = (await controller.selected())!.leaseId;
@@ -2370,7 +2404,7 @@ console.log(
 		undefined,
 		"replace-owner",
 		undefined,
-		{ budgetMs: 15 },
+		deterministicDeadline(15),
 	);
 	await controller.open("shell", "replace-owner:first");
 	values.set(scope, { ...(await controller.selected()), ready: false });
@@ -2825,7 +2859,7 @@ for (const failure of [
 		async () => {},
 		"diagnostic-owner",
 		undefined,
-		{ budgetMs: 25 },
+		deterministicDeadline(25),
 	);
 	for (let i = 0; i < 2; i++) {
 		const result = (await controller.open(

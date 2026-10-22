@@ -428,6 +428,7 @@ export class ComputerEnvironmentController {
 		private readonly watch?: DetachedExecutionWatch,
 		private readonly acquisition: {
 			budgetMs?: number;
+			now?: () => number;
 			captureAuthority?: () => Promise<AcquisitionWorkAuthority | null>;
 		} = {},
 	) {}
@@ -467,7 +468,7 @@ export class ComputerEnvironmentController {
 		}
 		const budgetMs = this.acquisition.budgetMs ?? 20_000;
 		const context: OpenContext = {
-			deadline: new AcquisitionDeadline(budgetMs),
+			deadline: new AcquisitionDeadline(budgetMs, this.acquisition.now),
 		};
 		const operation = (async () => {
 			await closings.get(this.store)?.get(this.key);
@@ -1176,9 +1177,10 @@ export class ComputerEnvironmentController {
 			return { result: { ok: false, error: "Open a computer first." } };
 		const owner = await this.store.get(`${this.key}:owner`);
 		if (this.ownerRunId && owner !== this.ownerRunId) {
-			await new AcquisitionDeadline(this.acquisition.budgetMs ?? 20_000).run(
-				Promise.resolve(this.acquisition.captureAuthority?.()),
-			);
+			await new AcquisitionDeadline(
+				this.acquisition.budgetMs ?? 20_000,
+				this.acquisition.now,
+			).run(Promise.resolve(this.acquisition.captureAuthority?.()));
 		}
 		environment = await withAcquisitionLock(this.store, this.key, async () => {
 			const current = await this.store.get<ComputerEnvironment>(this.key);
