@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { devinPermissionProfile } from "../devin-config";
+import { devinToolPermissions } from "../devin-config";
 import { devinSecretPaths } from "../devin-lane-security";
 import { isObject } from "./hook-io";
 
@@ -21,12 +21,12 @@ export function devinPermissionBlock(
 	if (!isObject(event) || !isObject(event.tool_input))
 		return "Malformed Devin tool event";
 	const input = event.tool_input;
-	const profile = devinPermissionProfile(root, {
+	const permissions = devinToolPermissions(root, {
 		id: process.env.TEDIX_AGENT_SESSION?.replace(/^devin:/, "") ?? "",
 		principalKey: process.env.TEDIX_EXTERNAL_AGENT,
 	});
 	const base = realpathSync(root);
-	const protectedPaths = profile.permissions.deny
+	const protectedPaths = permissions.deny
 		.filter(
 			(rule) =>
 				rule.startsWith("Read(") ||
@@ -104,10 +104,7 @@ export function devinPermissionBlock(
 			const prefix = rule.slice(5, -1);
 			return command === prefix || command.startsWith(prefix + " ");
 		};
-		if (
-			profile.permissions.deny.some(matches) ||
-			!profile.permissions.allow.some(matches)
-		)
+		if (permissions.deny.some(matches) || !permissions.allow.some(matches))
 			return "Command is outside the lane exec scope";
 	}
 	return undefined;
