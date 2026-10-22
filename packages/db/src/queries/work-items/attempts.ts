@@ -773,15 +773,27 @@ export async function heartbeatWorkItemAttempt(
 			),
 		)
 		.returning();
+	// Tenant and Work scope are fenced here; reservation admission FKs preserve
+	// that scope without an outer org_id predicate competing with admission indexes.
+	const heartbeatAdmission = db
+		.select({ admissionId: workAttempts.admissionId })
+		.from(workAttempts)
+		.where(
+			and(
+				eq(workAttempts.id, params.attemptId),
+				eq(workAttempts.orgId, params.orgId),
+				eq(workAttempts.workItemId, params.workItemId),
+				eq(workAttempts.heartbeatAt, heartbeatAt),
+				eq(workAttempts.expiresAt, expiresAt),
+			),
+		);
 	const extendResources = db
 		.update(workResourceReservations)
 		.set({ expiresAt, version: sql`${workResourceReservations.version} + 1` })
 		.where(
 			and(
-				eq(workResourceReservations.orgId, params.orgId),
-				eq(workResourceReservations.workItemId, params.workItemId),
 				eq(workResourceReservations.state, "active"),
-				sql`EXISTS (SELECT 1 FROM work_attempts AS heartbeat_winner WHERE heartbeat_winner.id=${params.attemptId} AND heartbeat_winner.admission_id=${workResourceReservations.admissionId} AND heartbeat_winner.org_id=${workResourceReservations.orgId} AND heartbeat_winner.work_item_id=${workResourceReservations.workItemId} AND heartbeat_winner.heartbeat_at=${heartbeatAt} AND heartbeat_winner.expires_at=${expiresAt})`,
+				eq(workResourceReservations.admissionId, heartbeatAdmission),
 			),
 		);
 	const extendBudgets = db
@@ -797,10 +809,8 @@ export async function heartbeatWorkItemAttempt(
 		})
 		.where(
 			and(
-				eq(workBudgetReservations.orgId, params.orgId),
-				eq(workBudgetReservations.workItemId, params.workItemId),
 				eq(workBudgetReservations.state, "active"),
-				sql`EXISTS (SELECT 1 FROM work_attempts AS heartbeat_winner WHERE heartbeat_winner.id=${params.attemptId} AND heartbeat_winner.admission_id=${workBudgetReservations.admissionId} AND heartbeat_winner.org_id=${workBudgetReservations.orgId} AND heartbeat_winner.work_item_id=${workBudgetReservations.workItemId} AND heartbeat_winner.heartbeat_at=${heartbeatAt} AND heartbeat_winner.expires_at=${expiresAt})`,
+				eq(workBudgetReservations.admissionId, heartbeatAdmission),
 			),
 		);
 	const [heartbeatRows] = await db.batch([

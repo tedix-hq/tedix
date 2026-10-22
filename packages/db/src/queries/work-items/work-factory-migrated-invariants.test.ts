@@ -1349,6 +1349,77 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		).toEqual({ count: WORK_ADMISSION_BUDGET_ENVELOPE_CAP });
 	});
 
+	it("uses indexed lookups for every heartbeat mutation on the migrated schema", async () => {
+		const { sqlite, attempt } = await laneFixture();
+		sqlite.exec(`
+			INSERT INTO work_resource_pools(id,org_id,resource_key,allocation_mode,capacity,created_at)
+			VALUES('editor','org','editor','exclusive',1,'2026-08-20T00:00:00.000Z');
+			INSERT INTO work_resource_requirements(org_id,work_item_id,resource_key,quantity,created_at,updated_at)
+			VALUES('org','work','editor',1,'2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z');
+			INSERT INTO work_resource_reservations(id,org_id,admission_id,work_item_id,pool_id,pool_version,resource_key,quantity,reserved_at,expires_at)
+			VALUES('rr-editor','org','admission','work','editor',1,'editor',1,'2026-08-20T00:00:00.000Z','2026-08-20T02:00:00.000Z');
+		`);
+		const facade = createD1Facade(sqlite);
+		const prepared = vi.spyOn(facade, "prepare");
+		await heartbeatWorkItemAttempt(createDbQueryClient(facade), {
+			orgId: "org",
+			workItemId: "work",
+			attemptId: attempt.id,
+			executor: { type: "tedi", id: "tedi" },
+			heartbeatAt: "2026-08-20T00:30:00.000Z",
+			leaseTtlMs: 60_000,
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id FROM work_resource_reservations WHERE expires_at='2026-08-20T00:31:00.000Z' ORDER BY id",
+				)
+				.all(),
+		).toEqual([{ id: "rr-admission" }, { id: "rr-editor" }]);
+		const updates = prepared.mock.calls.map(([query]) => query);
+		expect(updates).toHaveLength(3);
+		for (const query of updates) {
+			const plan = sqlite
+				.prepare(`EXPLAIN QUERY PLAN ${query}`)
+				.all(...Array.from(query.matchAll(/\?/g), () => null));
+			const details = plan.map((row) => row.detail).join("\n");
+			expect(details).not.toMatch(/\bSCAN\b/);
+			expect(details).toMatch(/SEARCH work_attempts USING INDEX .* \(id=\?\)/);
+			if (query.startsWith('update "work_resource_reservations"'))
+				expect(details).toContain(
+					"uniq_work_resource_reservation_admission_key (admission_id=?)",
+				);
+			if (query.startsWith('update "work_budget_reservations"'))
+				expect(details).toContain(
+					"uniq_work_budget_reservation_admission_envelope (admission_id=?)",
+				);
+		}
+		const before = sqlite
+			.prepare("SELECT * FROM work_resource_reservations ORDER BY id")
+			.all();
+		for (const scope of [
+			{ orgId: "other", workItemId: "work", executorId: "tedi" },
+			{ orgId: "org", workItemId: "other", executorId: "tedi" },
+			{ orgId: "org", workItemId: "work", executorId: "intruder" },
+		]) {
+			await expect(
+				heartbeatWorkItemAttempt(createDbQueryClient(facade), {
+					orgId: scope.orgId,
+					workItemId: scope.workItemId,
+					attemptId: attempt.id,
+					executor: { type: "tedi", id: scope.executorId },
+					heartbeatAt: "2026-08-20T00:30:30.000Z",
+					leaseTtlMs: 60_000,
+				}),
+			).rejects.toMatchObject({ code: "STALE_ATTEMPT" });
+		}
+		expect(
+			sqlite
+				.prepare("SELECT * FROM work_resource_reservations ORDER BY id")
+				.all(),
+		).toEqual(before);
+	});
+
 	it("counts a consumed reservation against the envelope and a released one not at all", async () => {
 		// A retired lease: capacity is back, but the budget row still records
 		// what the previous attempt spent. Drizzle strips table qualification
