@@ -14,18 +14,22 @@ const api = vi.hoisted(() => ({
 	get: vi.fn(),
 	update: vi.fn(),
 	secrets: vi.fn(),
+	secretDelete: vi.fn(),
 	delete: vi.fn(),
 }));
 const permissions = vi.hoisted(() => ({ manage: true }));
+const route = vi.hoisted(() => ({
+	appId: "11111111-1111-4111-8111-111111111111",
+}));
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		apps: { getByIdWithTools: api.get, update: api.update, delete: api.delete },
-		appSecrets: { list: api.secrets },
+		appSecrets: { list: api.secrets, delete: api.secretDelete },
 	},
 }));
 vi.mock("@tanstack/react-router", async (original) => ({
 	...(await original<typeof import("@tanstack/react-router")>()),
-	useParams: () => ({ appId: APP_ID }),
+	useParams: () => ({ appId: route.appId }),
 	useNavigate: () => vi.fn(),
 }));
 vi.mock("@/lib/app-permissions", async (original) => ({
@@ -52,9 +56,14 @@ vi.mock("@/components/kumo/toast", () => ({
 	toast: { success: vi.fn(), error: vi.fn() },
 }));
 import { toast } from "@/components/kumo/toast";
+import {
+	appDetailQueryOptions,
+	appSecretsListQueryOptions,
+} from "@/lib/os-query-options";
 import { AppSettingsPage } from "./app-settings-page";
 
 const APP_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_APP_ID = "22222222-2222-4222-8222-222222222222";
 const detail = {
 	app: {
 		id: APP_ID,
@@ -124,10 +133,31 @@ function save(host: HTMLElement) {
 	if (!button) throw new Error("Missing save button");
 	return button;
 }
+function retryButton(host: HTMLElement) {
+	const button = [...host.querySelectorAll("button")].find(
+		(button) => button.textContent === "Try again",
+	);
+	if (!button) throw new Error("Missing Try again button");
+	return button;
+}
+function secretRow(name: string) {
+	return {
+		id: `id-${name}`,
+		name,
+		hint: `${name} hint`,
+		createdAt: "2026-10-21T10:00:00.000Z",
+	};
+}
+function expectNoWrites() {
+	expect(api.update).not.toHaveBeenCalled();
+	expect(api.delete).not.toHaveBeenCalled();
+	expect(api.secretDelete).not.toHaveBeenCalled();
+}
 beforeEach(() => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.resetAllMocks();
 	permissions.manage = true;
+	route.appId = APP_ID;
 	api.get.mockResolvedValue(detail);
 	api.secrets.mockResolvedValue({ data: [] });
 	api.update.mockResolvedValue({ success: true });
@@ -230,11 +260,7 @@ it("retries a failed settings read without writing app values", async () => {
 	await settles(() =>
 		expect(host.textContent).toContain("App settings are unavailable"),
 	);
-	const retry = [...host.querySelectorAll("button")].find(
-		(button) => button.textContent === "Try again",
-	);
-	expect(retry).toBeDefined();
-	await act(async () => retry!.click());
+	await act(async () => retryButton(host).click());
 	await settles(() => expect(input(host, "Name").value).toBe("Sample app"));
 	expect(api.get).toHaveBeenCalledTimes(2);
 	expect(api.update).not.toHaveBeenCalled();
@@ -267,4 +293,117 @@ it("renders secrets as a labeled table with the shared date display", async () =
 			'[aria-label="Delete secret SAMPLE_TOKEN"]',
 		)?.disabled,
 	).toBe(true);
+});
+
+describe("read recovery", () => {
+	it("keeps the loaded settings usable when a refresh fails, then recovers in place", async () => {
+		const { host, client } = await mount();
+		await settles(() => expect(input(host, "Name").value).toBe("Sample app"));
+		api.get.mockRejectedValueOnce(new Error("refresh offline"));
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: appDetailQueryOptions(APP_ID).queryKey,
+			});
+		});
+		await settles(() =>
+			expect(host.textContent).toContain("App settings could not be refreshed"),
+		);
+		expect(host.textContent).toContain("refresh offline");
+		expect(host.textContent).toContain("last loaded");
+		expect(host.querySelector("time")).not.toBeNull();
+		expect(input(host, "Name").value).toBe("Sample app");
+		expect(host.textContent).not.toContain("App settings are unavailable");
+		await act(async () => retryButton(host).click());
+		await settles(() =>
+			expect(host.textContent).not.toContain(
+				"App settings could not be refreshed",
+			),
+		);
+		expect(api.get).toHaveBeenCalledTimes(3);
+		expectNoWrites();
+	});
+	it("reports a cold secret read failure without claiming there are none, then recovers", async () => {
+		api.secrets
+			.mockRejectedValueOnce(new Error("secrets offline"))
+			.mockResolvedValueOnce({ data: [secretRow("SAMPLE_TOKEN")] });
+		const { host } = await mount();
+		await settles(() =>
+			expect(host.textContent).toContain("Secrets are unavailable"),
+		);
+		expect(host.textContent).toContain("secrets offline");
+		expect(host.textContent).not.toContain(
+			"No secrets configured for this app.",
+		);
+		expect(input(host, "Name").value).toBe("Sample app");
+		const detailReads = api.get.mock.calls.length;
+		await act(async () => retryButton(host).click());
+		await settles(() => expect(host.textContent).toContain("SAMPLE_TOKEN"));
+		expect(host.textContent).not.toContain("Secrets are unavailable");
+		expect(api.secrets).toHaveBeenCalledTimes(2);
+		expect(api.get.mock.calls.length).toBe(detailReads);
+		expectNoWrites();
+	});
+	it("keeps cached secret rows on a failed refresh with a last-loaded qualifier, then recovers", async () => {
+		api.secrets.mockResolvedValue({ data: [secretRow("SAMPLE_TOKEN")] });
+		const { host, client } = await mount();
+		await settles(() => expect(host.textContent).toContain("SAMPLE_TOKEN"));
+		api.secrets.mockRejectedValueOnce(new Error("secrets offline"));
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: appSecretsListQueryOptions(APP_ID).queryKey,
+			});
+		});
+		await settles(() =>
+			expect(host.textContent).toContain("Secrets could not be refreshed"),
+		);
+		expect(host.textContent).toContain("secrets offline");
+		expect(host.textContent).toContain("last loaded");
+		expect(host.textContent).toContain("SAMPLE_TOKEN");
+		expect(host.textContent).not.toContain("Secrets are unavailable");
+		const detailReads = api.get.mock.calls.length;
+		await act(async () => retryButton(host).click());
+		await settles(() =>
+			expect(host.textContent).not.toContain("Secrets could not be refreshed"),
+		);
+		expect(host.textContent).toContain("SAMPLE_TOKEN");
+		expect(api.secrets).toHaveBeenCalledTimes(3);
+		expect(api.get.mock.calls.length).toBe(detailReads);
+		expectNoWrites();
+	});
+	it("does not repeat the empty-secrets claim while the last load is unconfirmed", async () => {
+		const { host, client } = await mount();
+		await settles(() =>
+			expect(host.textContent).toContain("No secrets configured for this app."),
+		);
+		api.secrets.mockRejectedValueOnce(new Error("secrets offline"));
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: appSecretsListQueryOptions(APP_ID).queryKey,
+			});
+		});
+		await settles(() =>
+			expect(host.textContent).toContain("Secrets could not be refreshed"),
+		);
+		expect(host.textContent).toContain("not confirmed");
+		expect(host.textContent).not.toContain(
+			"No secrets configured for this app.",
+		);
+		await act(async () => retryButton(host).click());
+		await settles(() =>
+			expect(host.textContent).toContain("No secrets configured for this app."),
+		);
+		expectNoWrites();
+	});
+	it("scopes both reads to the routed app identity", async () => {
+		route.appId = OTHER_APP_ID;
+		api.get.mockResolvedValue({
+			app: { ...detail.app, id: OTHER_APP_ID, name: "Second app" },
+			tools: [],
+		});
+		const { host } = await mount();
+		await settles(() => expect(input(host, "Name").value).toBe("Second app"));
+		expect(api.get.mock.calls[0]?.[0]).toEqual({ appId: OTHER_APP_ID });
+		expect(api.secrets.mock.calls[0]?.[0]).toEqual({ appId: OTHER_APP_ID });
+		expectNoWrites();
+	});
 });

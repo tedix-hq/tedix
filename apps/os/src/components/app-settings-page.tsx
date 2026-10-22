@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { App } from "@tedix/api-contract/schemas/app";
 import { Key, Trash } from "@phosphor-icons/react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { toast } from "@/components/kumo/toast";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
@@ -36,6 +36,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/kumo/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import {
 	AppTabTable,
 	AppTabHeader,
@@ -43,6 +44,7 @@ import {
 	AppTabLoading,
 	AppTabEmpty,
 	AppTabError,
+	AppTabReadRetry,
 	AppTabDate,
 } from "./app-detail-tab-shared";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
@@ -82,6 +84,7 @@ import {
 	appSecretsListQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
+import { errorMessage } from "@/lib/orpc-error";
 
 const McpOAuthSettings = lazy(() =>
 	import("@/components/app-mcp-oauth-settings").then((mod) => ({
@@ -127,11 +130,11 @@ export function AppSettingsPage() {
 			</AppTabSection>
 		);
 	}
-	if (detail.isError) {
+	if (detail.isError && !detail.data) {
 		return (
 			<AppTabSection title="Settings">
 				<AppTabError title="App settings are unavailable" query={detail}>
-					{detail.error.message}
+					{errorMessage(detail.error, "The app settings could not be read.")}
 				</AppTabError>
 			</AppTabSection>
 		);
@@ -144,6 +147,15 @@ export function AppSettingsPage() {
 				title="Settings"
 				description="Manage this app, access and secrets."
 			/>
+			{detail.isError ? (
+				<StaleReadNotice
+					title="App settings could not be refreshed"
+					error={detail.error}
+					query={detail}
+					before="Showing the settings last loaded"
+					after="— they may be out of date."
+				/>
+			) : null}
 			<SettingsSectionNavigation
 				ariaLabel="App settings sections"
 				items={APP_SETTINGS_SECTION_ITEMS}
@@ -408,6 +420,49 @@ function McpConfigDisplay({ app }: { app: App }) {
 }
 
 // =============================================================================
+// STALE READ NOTICE
+// =============================================================================
+
+type StaleReadQuery = {
+	isFetching: boolean;
+	dataUpdatedAt: number;
+	refetch: () => Promise<unknown>;
+};
+
+/**
+ * A failed refresh keeps the last cached read on screen, marked with when it
+ * loaded — the rows are no longer verified current and a cold failure would
+ * have nothing to show. `before`/`after` bracket the load timestamp.
+ */
+function StaleReadNotice({
+	title,
+	error,
+	query,
+	before,
+	after,
+}: {
+	title: string;
+	error: unknown;
+	query: StaleReadQuery;
+	before: ReactNode;
+	after?: ReactNode;
+}) {
+	return (
+		<Alert variant="warning">
+			<AlertTitle>{title}</AlertTitle>
+			<AlertDescription>
+				<span>
+					{errorMessage(error, "The latest refresh failed.")} {before}{" "}
+					<AppTabDate value={new Date(query.dataUpdatedAt).toISOString()} />
+					{after ? ` ${after}` : null}
+				</span>
+				<AppTabReadRetry query={query} />
+			</AlertDescription>
+		</Alert>
+	);
+}
+
+// =============================================================================
 // SECRETS SECTION
 // =============================================================================
 
@@ -419,16 +474,34 @@ function SecretsSection({ appId }: { appId: string }) {
 		staleTime: 30_000,
 	});
 	const secretRows = secrets.data?.data ?? [];
+	const secretsStale = secrets.isError && secrets.data != null;
 
 	return (
 		<AppTabSection title="Secrets">
 			{secrets.isPending && <AppTabLoading label="Loading secrets" />}
-			{secrets.isError && (
+			{secrets.isError && !secrets.data && (
 				<AppTabError title="Secrets are unavailable" query={secrets}>
-					{secrets.error.message}
+					{errorMessage(secrets.error, "The secrets could not be read.")}
 				</AppTabError>
 			)}
-			{secrets.data && secretRows.length === 0 && (
+			{secretsStale && (
+				<StaleReadNotice
+					title="Secrets could not be refreshed"
+					error={secrets.error}
+					query={secrets}
+					before={
+						secretRows.length
+							? "Showing the secrets last loaded"
+							: "No secrets were configured as of"
+					}
+					after={
+						secretRows.length
+							? "— they may be out of date."
+							: "— that is not confirmed now."
+					}
+				/>
+			)}
+			{secrets.data && !secretsStale && secretRows.length === 0 && (
 				<AppTabEmpty
 					icon={<Key size={20} />}
 					title="No secrets configured"
