@@ -51,6 +51,10 @@ test("opt-in matrix covers every leaf and runs owner types once", () => {
 				},
 			}),
 		);
+		writeFileSync(
+			join(root, "apps/os/spec.ts"),
+			'import { chromium } from "playwright";',
+		);
 		expect(workspaceMatrix(root).include).toEqual([
 			{
 				workspace: "apps/os",
@@ -66,7 +70,13 @@ test("opt-in matrix covers every leaf and runs owner types once", () => {
 				shard: "2/2",
 				types: false,
 			},
-			{ workspace: "apps/os", test: true, testScript: "browser", types: false },
+			{
+				workspace: "apps/os",
+				test: true,
+				testScript: "browser",
+				browsers: "chromium",
+				types: false,
+			},
 		]);
 	} finally {
 		rmSync(root, { recursive: true });

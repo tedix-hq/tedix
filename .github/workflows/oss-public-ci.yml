@@ -63,8 +63,14 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends ripgrep
 
       # OS test:run includes real-browser checks, including in this scoped lane.
-      - name: Install Playwright Chromium
-        run: bun run --cwd apps/os test:browser:install
+      - name: Resolve OS browsers
+        id: os-browsers
+        run: node scripts/ci/full-suite-hourly.mjs browsers apps/os test:ci >> "$GITHUB_OUTPUT"
+
+      - name: Install Playwright browsers
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: ${{ steps.os-browsers.outputs.browsers }}
 
       - name: Verify the pushed or proposed range
         env:
@@ -200,8 +206,14 @@ jobs:
       - name: Frozen install
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Install Playwright Chromium
-        run: bun run --cwd apps/os test:browser:install
+      - name: Resolve OS browsers
+        id: os-browsers
+        run: node scripts/ci/full-suite-hourly.mjs browsers apps/os test:ci >> "$GITHUB_OUTPUT"
+
+      - name: Install Playwright browsers
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: ${{ steps.os-browsers.outputs.browsers }}
 
       # The tedi computer's code search runs ripgrep; its tests execute it.
       - name: Install ripgrep

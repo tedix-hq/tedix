@@ -1,0 +1,57 @@
+name: Install Playwright browsers
+description: Restore the browsers for the lockfile-pinned Playwright from the cache, then install only the requested ones and their OS packages
+
+inputs:
+  browsers:
+    description: Space-separated Playwright browser names, for example "chromium webkit"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the installed Playwright version
+      id: playwright
+      shell: bash
+      env:
+        BROWSERS: ${{ inputs.browsers }}
+      run: |
+        set -euo pipefail
+        version="$(bun run --cwd apps/os playwright --version | sed -n 's/^Version //p')"
+        test -n "$version"
+        echo "key=playwright-${RUNNER_OS}-${RUNNER_ARCH}-${version}-${BROWSERS// /-}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore cached browsers
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ steps.playwright.outputs.key }}
+
+    # On a cache hit the browsers are present and only OS packages install.
+    # A miss downloads from the Playwright CDN; that download is the only
+    # step retried, and every retry is recorded as a warning on the run.
+    - name: Install browsers and OS packages
+      shell: bash
+      env:
+        BROWSERS: ${{ inputs.browsers }}
+      run: |
+        set -uo pipefail
+        for attempt in 1 2 3; do
+          # shellcheck disable=SC2086 # BROWSERS is a word list.
+          if bun run --cwd apps/os playwright install --with-deps --only-shell $BROWSERS; then
+            exit 0
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            echo "::warning title=Infrastructure retry::Playwright browser install failed (attempt $attempt of 3); retrying"
+            echo "- Infrastructure retry: Playwright browser install failed (attempt $attempt of 3)" >> "$GITHUB_STEP_SUMMARY"
+            sleep $((attempt * 10))
+          fi
+        done
+        exit 1
+
+    - name: Save browsers to the cache
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ steps.playwright.outputs.key }}

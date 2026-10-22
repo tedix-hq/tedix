@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
@@ -25,15 +26,9 @@ const server = process.env.PROVENANCE_ORIGIN
 		);
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		try {
-			ready = (await fetch(`${origin}/browser-tests/provenance.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	if (!ready) throw new Error("Provenance fixture did not start");
+	await waitForFixtureServer(`${origin}/browser-tests/provenance.html`, {
+		server,
+	});
 	browser = await chromium.launch({ headless: true });
 	for (const width of [1280, 390])
 		for (const theme of ["light", "dark"] as const)

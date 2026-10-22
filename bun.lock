@@ -377,7 +377,7 @@
         "@vitejs/plugin-react": "6.1.2",
         "cf": "catalog:",
         "happy-dom": "^21.0.3",
-        "playwright": "^1.64.1",
+        "playwright": "1.64.1",
         "typescript": "catalog:",
         "vite": "catalog:",
         "vite-plus": "catalog:",
