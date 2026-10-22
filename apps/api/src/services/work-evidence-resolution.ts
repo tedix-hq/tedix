@@ -310,6 +310,27 @@ async function resolveArtifact(context: BaseContext, uri: string) {
 	}
 	const immutableBody = await validateImmutableArtifactBody(artifact);
 	if (artifact.accessClassification === "runtime_private") {
+		const imageType = artifact.mimeType?.split(";")[0];
+		if (
+			immutableBody &&
+			imageType &&
+			/^(?:image\/png|image\/jpeg|image\/webp)$/.test(imageType)
+		) {
+			return {
+				artifact,
+				validatedBundle: immutableBody.bundle,
+				reference: {
+					kind: "artifact",
+					status: "available",
+					canonicalUri: canonicalArtifactUri(artifact.id),
+					artifactId: artifact.id,
+					digest: artifact.contentDigest,
+					mediaType: artifact.mimeType,
+					reason: null,
+					bundleDigestKind: immutableBody.bundle ? "manifest" : "bytes",
+				} as EvidenceReference,
+			};
+		}
 		let releasedText: string | undefined;
 		try {
 			const organizationId = context.organizationId!;
