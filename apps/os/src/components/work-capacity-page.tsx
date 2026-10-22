@@ -2,6 +2,7 @@ import {
 	WorkPageHeader,
 	WorkListSkeleton,
 	WorkReadFailure,
+	WorkEmpty,
 } from "@/components/work-surface-primitives";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -27,7 +28,6 @@ import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { Link } from "@/components/kumo/link";
 import { ResponsiveFormSurface } from "@/components/kumo/responsive-form-surface";
 import { Collection, Page } from "@/components/kumo/page";
-import { Surface } from "@/components/kumo/surface";
 import { SelectItem } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -144,7 +144,7 @@ export function ResourceHolders({
 			</Text>
 		);
 	return (
-		<Surface className="grid gap-1 mt-2" render={<div />}>
+		<div className="mt-2 grid gap-1">
 			{details.holders.map((holder) => (
 				<Text as="p" role="body" key={holder.attemptId}>
 					<Link variant="record" href={`/work/items/${holder.workItemId}`}>
@@ -191,7 +191,7 @@ export function ResourceHolders({
 					? "Open the holding Work to coordinate or wait for its reservation to release, then retry admission."
 					: "No active reservations."}
 			</Text>
-		</Surface>
+		</div>
 	);
 }
 
@@ -219,6 +219,9 @@ export function WorkCapacityPage({
 	const names = useWorkPrincipalNames(pools.data?.data[0]?.pool.orgId);
 	useEffect(() => poolPaging.reset(), [resourceKey, saturatedOnly]);
 	const budgets = useQuery(budgetOptions);
+	const visibleBudgets = (budgets.data?.data ?? []).filter(
+		(row) => !exhaustedOnly || row.availableMicros <= 0,
+	);
 	const [poolVersion, setPoolVersion] = useState<number | undefined>();
 	const [budgetVersion, setBudgetVersion] = useState<number | undefined>();
 	const [poolFormOpen, setPoolFormOpen] = useState(false);
@@ -484,12 +487,11 @@ export function WorkCapacityPage({
 												effectiveAvailable,
 												...reservationDetails
 											}) => (
-												<Surface
-													className="flex items-center justify-between gap-3 rounded-none border-0 p-3"
+												<li
+													className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-3"
 													key={pool.id}
-													render={<li />}
 												>
-													<div>
+													<div className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
 														<strong>{pool.resourceKey}</strong>
 														<br />
 														<Text as="span" role="label" tone="secondary">
@@ -524,14 +526,21 @@ export function WorkCapacityPage({
 													>
 														Edit
 													</Button>
-												</Surface>
+												</li>
 											),
 										)}
 									</Collection>
-								) : saturatedOnly ? (
-									"No saturated pools in this view."
 								) : (
-									"No pools."
+									<WorkEmpty
+										title={
+											saturatedOnly ? "No saturated pools" : "No resource pools"
+										}
+										description={
+											saturatedOnly
+												? "No saturated pools in this view."
+												: "Create a pool to manage shared capacity."
+										}
+									/>
 								)}
 								<PageControls
 									label="resource pools"
@@ -563,17 +572,12 @@ export function WorkCapacityPage({
 								</CardDescription>
 							</CardHeader>
 							<CardContent>
-								{budgets.data.data.filter(
-									(row) => !exhaustedOnly || row.availableMicros <= 0,
-								).length ? (
+								{visibleBudgets.length ? (
 									<Collection appearance="inline">
-										{budgets.data.data
-											.filter(
-												(row) => !exhaustedOnly || row.availableMicros <= 0,
-											)
-											.map(({ envelope, committedMicros, availableMicros }) => (
+										{visibleBudgets.map(
+											({ envelope, committedMicros, availableMicros }) => (
 												<li
-													className="flex items-center justify-between gap-3 px-4 py-3"
+													className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-3"
 													key={envelope.id}
 												>
 													<div className="min-w-0 break-words">
@@ -631,12 +635,20 @@ export function WorkCapacityPage({
 														Edit
 													</Button>
 												</li>
-											))}
+											),
+										)}
 									</Collection>
-								) : exhaustedOnly ? (
-									"No exhausted budgets on this page. Use Next page to check more budgets."
 								) : (
-									"No budgets on this page."
+									<WorkEmpty
+										title={
+											exhaustedOnly ? "No exhausted budgets" : "No budgets"
+										}
+										description={
+											exhaustedOnly
+												? "No exhausted budgets on this page. Use Next page to check more budgets."
+												: "No budgets on this page."
+										}
+									/>
 								)}
 								<PageControls
 									label="budget envelopes"

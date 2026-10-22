@@ -55,6 +55,7 @@ import {
 	urgentInteractionSummary,
 	groupSessionQuestions,
 } from "./work-operations-shared";
+import { WorkCasesRoute } from "./work-cases-pages";
 import { WorkApprovalsPage } from "./work-approvals-page";
 import { BudgetScopeLink, ResourceHolders } from "./work-capacity-page";
 import {
@@ -1311,5 +1312,50 @@ describe("Request and case identity presentation", () => {
 		expect(
 			mobile?.querySelector('a[href="/work/items/sample-work"]'),
 		).not.toBeNull();
+	});
+});
+
+describe("Case route navigation", () => {
+	it("renders the case outlet and returns to the register", async () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		});
+		client.setQueryData(workCaseListQueryOptions({ limit: 50 }).queryKey, {
+			data: [],
+			nextCursor: null,
+		});
+		const routeRoot = createRootRoute({ component: Outlet });
+		const list = createRoute({
+			getParentRoute: () => routeRoot,
+			path: "/work/cases",
+			component: WorkCasesRoute,
+		});
+		const detail = createRoute({
+			getParentRoute: () => list,
+			path: "$caseId",
+			component: () => <p>Case detail</p>,
+		});
+		const router = createRouter({
+			routeTree: routeRoot.addChildren([list.addChildren([detail])]),
+			history: createMemoryHistory({
+				initialEntries: ["/work/cases/sample-case"],
+			}),
+		});
+		await router.load();
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<QueryClientProvider client={client}>
+					<RouterProvider router={router} />
+				</QueryClientProvider>,
+			),
+		);
+		expect(container.textContent).toBe("Case detail");
+		await act(async () => {
+			await router.navigate({ to: "/work/cases" });
+		});
+		expect(container.textContent).toContain("Cases");
+		expect(container.textContent).not.toContain("Case detail");
 	});
 });

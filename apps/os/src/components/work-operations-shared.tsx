@@ -27,7 +27,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { Collection } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
@@ -125,10 +124,11 @@ export function OperationPicker({
 	value: string;
 	onSelect: (id: string) => void;
 }) {
+	const selected = options.find((option) => option.value === value);
 	return (
 		<Combobox
 			items={options}
-			value={options.find((option) => option.value === value) ?? null}
+			value={selected ?? null}
 			isItemEqualToValue={(a, b) => a.value === b.value}
 			onValueChange={(option) => {
 				if (option) onSelect(option.value);
@@ -143,14 +143,14 @@ export function OperationPicker({
 				}
 				aria-label={label}
 			>
-				{options.find((option) => option.value === value)?.label ?? label}
+				{selected?.label ?? label}
 			</Combobox.Trigger>
 			<Combobox.Content className="max-w-[calc(100vw-2rem)]">
 				<Combobox.Input
 					aria-label={label.replace(/^Choose /, "Find ")}
 					placeholder="Search by name…"
 				/>
-				<Combobox.Empty>No matches in this snapshot</Combobox.Empty>
+				<Combobox.Empty>No matches</Combobox.Empty>
 				<Combobox.List>
 					{(option: { value: string; label: string }) => (
 						<Combobox.Item
@@ -292,22 +292,18 @@ export function ApprovalRequestError({ error }: { error: unknown }) {
 }
 
 export function useCursorPaging<T>() {
-	const [cursor, setCursor] = useState<T | undefined>();
-	const [history, setHistory] = useState<(T | undefined)[]>([]);
+	const [cursors, setCursors] = useState<T[]>([]);
 	return {
-		cursor,
-		hasPrevious: history.length > 0,
+		cursor: cursors.at(-1),
+		hasPrevious: cursors.length > 0,
 		next(nextCursor: T) {
-			setHistory((current) => [...current, cursor]);
-			setCursor(nextCursor);
+			setCursors((current) => [...current, nextCursor]);
 		},
 		previous() {
-			setCursor(history.at(-1));
-			setHistory(history.slice(0, -1));
+			setCursors((current) => current.slice(0, -1));
 		},
 		reset() {
-			setCursor(undefined);
-			setHistory([]);
+			setCursors([]);
 		},
 	};
 }
@@ -329,7 +325,10 @@ export function PageControls({
 }) {
 	if (!hasPrevious && !hasNext) return null;
 	return (
-		<div className="flex gap-2">
+		<nav
+			aria-label={label ? `${label} pages` : "Pages"}
+			className="flex flex-wrap gap-2"
+		>
 			<Button variant="outline" disabled={!hasPrevious} onClick={onPrevious}>
 				{label ? `First ${label} page` : "First page"}
 			</Button>
@@ -341,7 +340,7 @@ export function PageControls({
 			<Button variant="outline" disabled={!hasNext} onClick={onNext}>
 				{label ? `Next ${label} page` : "Next page"}
 			</Button>
-		</div>
+		</nav>
 	);
 }
 
