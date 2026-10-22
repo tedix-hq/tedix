@@ -1,13 +1,11 @@
 // @ts-nocheck - package test type dependencies are not part of the db tsconfig.
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { organizations } from "../../schema/organizations";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	extractVendorDomain,
 	getCanonicalCatalogAppForConnector,
@@ -25,22 +23,13 @@ import { mergeCatalogApps } from "./merge";
 import { getCatalogStoreListings } from "./store-listings";
 import { syncCatalogAppFromStore } from "./upsert-sync";
 
-// Real in-memory SQLite built from the production Drizzle migration ledger, wired
+// SQLite built from the production Drizzle migration ledger, wired
 // through the production createDbClient path (catalog-maintenance.test.ts pattern).
 
 function migratedDb(): DbClient {
-	const sqlite = new DatabaseSync(":memory:");
-	const dir = join(__dirname, "../../../drizzle");
-	const files = readdirSync(dir)
-		.filter((name) => /^\d{14}_/.test(name))
-		.sort();
-	for (const file of files) {
-		const sql = readFileSync(
-			join(dir, file, "migration.sql"),
-			"utf8",
-		).replaceAll("--> statement-breakpoint", "");
-		sqlite.exec(sql);
-	}
+	const sqlite = createMigratedSqlite({
+		transformMigration: (sql) => sql.replaceAll("--> statement-breakpoint", ""),
+	});
 	return createDbClient(createD1Facade(sqlite));
 }
 

@@ -1,28 +1,18 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	DISPATCHER_HEALTH_SCHEMA,
 	listDispatcherHealthOrgs,
 	readDispatcherActivity,
 } from "./dispatcher-health";
 
-const migrationRoot = new URL("../../../drizzle/", import.meta.url);
-const migrations = readdirSync(migrationRoot)
-	.sort()
-	.map((name) =>
-		readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
-	);
-
 const T0 = "2026-10-21T20:00:00.000Z";
 const T1 = "2026-10-21T21:00:00.000Z";
 
 function seed() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=OFF");
-	for (const sqlText of migrations) sqlite.exec(sqlText);
+	const sqlite = createMigratedSqlite({ foreignKeys: false });
 	// Admission machinery is out of scope here; only the attempt row matters.
 	sqlite.exec("DROP TRIGGER work_attempt_admission_insert_guard");
 	sqlite.exec(`

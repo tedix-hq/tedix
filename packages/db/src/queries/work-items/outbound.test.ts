@@ -1,8 +1,7 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	type OutboundState,
 	OutboundStateSchema,
@@ -44,11 +43,7 @@ const state: OutboundState = {
 };
 
 function fixture(kind: "question" | "input" = "question") {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	const root = new URL("../../../drizzle/", import.meta.url);
-	for (const name of readdirSync(root).sort())
-		sqlite.exec(readFileSync(new URL(`${name}/migration.sql`, root), "utf8"));
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Harbor','harbor'),('foreign','Other','other');
 		INSERT INTO users(id,email) VALUES('rosa','rosa@example.test');

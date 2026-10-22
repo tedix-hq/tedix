@@ -1,25 +1,11 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { respondToWorkInteraction } from "./interactions";
 import { insertReplyDraft } from "./reply-drafts";
 import { listReplyExamples } from "./reply-examples";
-
-const migrationRoot = new URL("../../../drizzle/", import.meta.url);
-const migrations = readdirSync(migrationRoot)
-	.sort()
-	.map((name) =>
-		readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
-	);
-function migrated() {
-	const db = new DatabaseSync(":memory:");
-	db.exec("PRAGMA foreign_keys=ON");
-	for (const sqlText of migrations) db.exec(sqlText);
-	return db;
-}
 
 const QUIET = {
 	schema: "tedix.decision-capture.v1",
@@ -27,7 +13,7 @@ const QUIET = {
 };
 
 function seed() {
-	const sqlite = migrated();
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');
 		INSERT INTO organizations(id,name,slug) VALUES('foreign','Foreign','foreign');

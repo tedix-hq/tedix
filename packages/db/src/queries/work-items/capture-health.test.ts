@@ -1,20 +1,12 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	CAPTURE_HEALTH_SCHEMA,
 	getCaptureHealth,
 	listCaptureHealth,
 } from "./capture-health";
-
-const migrationRoot = new URL("../../../drizzle/", import.meta.url);
-const migrations = readdirSync(migrationRoot)
-	.sort()
-	.map((name) =>
-		readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
-	);
 
 const OLD = "2026-08-10T00:00:00.000Z";
 const SINCE = "2026-08-20T00:00:00.000Z";
@@ -22,9 +14,7 @@ const RECENT = "2026-08-20T06:00:00.000Z";
 const NOW = "2026-08-21T00:00:00.000Z";
 
 function seed() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	for (const sqlText of migrations) sqlite.exec(sqlText);
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');
 		INSERT INTO users(id,email) VALUES('busy','busy@example.com');
