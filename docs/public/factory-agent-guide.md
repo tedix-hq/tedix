@@ -162,7 +162,8 @@ shows every field:
   through a person; `shadow` only reports.
 - `reviewerWeights`: accepted weights for one reviewer, by user id. Written
   by an accepted weight proposal; reviewers without an entry use `weights`.
-- `agentDecidableClasses`: card types an agent may decide. Stored only today.
+- `agentDecidableClasses`: card types an agent may decide once each person
+  has earned it (see [Agent-decidable classes](#agent-decidable-classes)).
 - `protectedEffects` (on the source): effects these cards carry when filed as
   Work, such as `message`; they keep a person in the loop.
 
@@ -234,6 +235,45 @@ accuracy would drop.
   the ones stored with the proposal, never text from the sheet. A proposal
   whose source weights changed in the meantime is marked stale and not
   applied, and no new proposal is made while one waits for a decision.
+
+### Agent-decidable classes
+
+A card type listed in `scoring.agentDecidableClasses` is a candidate for
+earned quiet delivery. Its learning class is `factory:<label>:<type>`.
+Listing a type states that its Do it can be undone. Each person earns it
+separately, through the same class gate as other Deck decisions:
+
+1. The person's last `unchangedThreshold` verdicts on that class (default 5,
+   each on a different card) are Do it with nothing changed. Useful and Later
+   do not count and do not break the run. Any other Not useful breaks it.
+2. Once earned, the person's open cards of that class appear in the Feed as
+   updates instead of decisions. A stable audit sample (`auditSampleRate`,
+   default 10 %) still asks the person.
+3. A Not useful whose chip maps to `agent_could_do` counts as candidacy
+   evidence. After two, the class shows as "Eligible to hand to an agent".
+   These marks never graduate a class on their own.
+4. Demotion is immediate and keeps a record. If the person undoes a verdict
+   (Undo learning), edits a card, or decides the same card both ways, the
+   class goes back to the person. Only verdicts after that event count. The
+   standing names the counted verdicts and the event that demoted it.
+
+Some cards never graduate, however much feedback they get:
+
+- cards from a source with any `protectedEffects` (money, message, consent,
+  production, data, contract or commitment);
+- types in the routing policy's `criticalClasses`;
+- types, actions or drafts that name a human-reserved action (sending,
+  paying, publishing, deleting, credentials and similar);
+- expired cards;
+- any envelope that is outbound, an approval, one-way, of unknown
+  reversibility, or marked taste or strategy.
+
+The Card review app, including its view inside the Deck, shows each listed
+class as Stays with you, Learning, Eligible to hand to an agent, or Agent
+decides. A Decision Deck `classPolicies` entry for the class with
+`autoApprove: false` keeps it with every person. Removing the type from
+`agentDecidableClasses` does the same. Nothing here executes a card. Quiet
+delivery only changes whether the card asks the person for a decision.
 
 ## Create: preview, approve, then build
 
