@@ -186,7 +186,7 @@ function headerCount(container: HTMLElement): string {
 }
 
 function rowTitles(container: HTMLElement): string[] {
-	return [...toolsSection(container).querySelectorAll("li")].map((row) =>
+	return [...toolsSection(container).querySelectorAll("tbody tr")].map((row) =>
 		(row.querySelector("span")?.textContent ?? "").trim(),
 	);
 }

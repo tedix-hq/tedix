@@ -27,26 +27,19 @@ import { Plugs, Wrench } from "@phosphor-icons/react";
 import { toast } from "@/components/kumo/toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/kumo/empty";
-import {
-	Collection,
-	PageSection,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
-} from "@/components/kumo/page";
+import { PageSection } from "@/components/kumo/page";
 import { Pagination } from "@/components/kumo/pagination";
 import { SearchInput } from "@/components/kumo/search-input";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { TableCell, TableHead, TableRow } from "@/components/kumo/table";
+import {
+	AppTabTable,
+	AppTabHeader,
+	AppTabEmpty,
+	AppTabError,
+	AppTabLoading,
+} from "./app-detail-tab-shared";
 import { osApi } from "@/lib/api";
 import {
 	APPS_MANAGE_DENIED_REASON,
@@ -84,34 +77,12 @@ export function scopeHint(scope: string): string {
 /** Longest query considered when matching; anything past it cannot narrow. */
 const MAX_TOOL_QUERY_CHARS = 200;
 
-interface ToolRowData {
-	id: string;
-	toolId: string;
-	title: string;
-	description: string | null;
-	toolTypeId: string | null;
-	enabled: boolean | null;
-	visibility: string | null;
-	widgetRoute: string | null;
-	sortOrder: number | null;
-	/**
-	 * Derived server-side by the same resolver the MCP edge enforces with.
-	 * Absent means "not reported", which is NOT the same as an empty array —
-	 * empty means the tool genuinely requires no scope.
-	 */
-	requiredScopes?: string[];
-}
-
-interface AdapterRowData {
-	id: string;
-	name: string;
-	displayName: string | null;
-	adapterType: string;
-	enabled: boolean | null;
-	priority: number | null;
-}
-
 type AppToolsListResponse = Awaited<ReturnType<typeof osApi.appTools.list>>;
+// An absent requiredScopes value means unreported, rather than no access required.
+type ToolRowData = AppToolsListResponse["data"][number];
+type AdapterRowData = Awaited<
+	ReturnType<typeof osApi.appAdapters.list>
+>["data"][number];
 
 // ---------------------------------------------------------------------------
 // Rows
@@ -170,59 +141,65 @@ function ToolRow({
 	});
 
 	return (
-		<li className="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-kumo-tint">
-			<div className="min-w-0 flex-1">
-				<div className="flex min-w-0 flex-wrap items-center gap-2">
-					<Text
-						as="span"
-						role="body"
-						weight="medium"
-						className="min-w-0 max-w-full truncate"
-					>
-						{tool.title}
-					</Text>
-					{tool.toolTypeId && (
-						<Badge variant="outline" className="max-w-full truncate">
-							{tool.toolTypeId}
-						</Badge>
-					)}
-					{tool.visibility === "private" && (
-						<Badge variant="secondary">Private</Badge>
-					)}
-					{tool.widgetRoute && <Badge variant="outline">Widget</Badge>}
-					{(tool.requiredScopes ?? []).map((scope) => (
-						<Badge
-							key={scope}
-							title={scopeHint(scope)}
-							variant={scope === "platform:admin" ? "secondary" : "outline"}
-						>
-							{scope}
-						</Badge>
-					))}
-					{tool.requiredScopes?.length === 0 && (
-						<Badge variant="outline">No scope required</Badge>
-					)}
+		<TableRow>
+			<TableCell className="whitespace-normal">
+				<div className="flex min-w-0 items-center gap-3">
+					<div className="min-w-0 flex-1">
+						<div className="flex min-w-0 flex-wrap items-center gap-2">
+							<Text
+								as="span"
+								role="body"
+								weight="medium"
+								className="min-w-0 max-w-full truncate"
+							>
+								{tool.title}
+							</Text>
+							{tool.toolTypeId && (
+								<Badge variant="outline" className="max-w-full truncate">
+									{tool.toolTypeId}
+								</Badge>
+							)}
+							{tool.visibility === "private" && (
+								<Badge variant="secondary">Private</Badge>
+							)}
+							{tool.widgetRoute && <Badge variant="outline">Widget</Badge>}
+							{(tool.requiredScopes ?? []).map((scope) => (
+								<Badge
+									key={scope}
+									title={scopeHint(scope)}
+									variant={scope === "platform:admin" ? "secondary" : "outline"}
+								>
+									{scope}
+								</Badge>
+							))}
+							{tool.requiredScopes?.length === 0 && (
+								<Badge variant="outline">No scope required</Badge>
+							)}
+						</div>
+						{tool.description && (
+							<Text
+								as="p"
+								role="label"
+								tone="secondary"
+								className="mt-0.5 mb-0 line-clamp-1"
+							>
+								{tool.description}
+							</Text>
+						)}
+					</div>
 				</div>
-				{tool.description && (
-					<Text
-						as="p"
-						role="label"
-						tone="secondary"
-						className="mt-0.5 mb-0 line-clamp-1"
-					>
-						{tool.description}
-					</Text>
-				)}
-			</div>
-			<Switch
-				className="shrink-0"
-				aria-label={`${isEnabled ? "Disable" : "Enable"} ${tool.title}`}
-				checked={isEnabled}
-				onCheckedChange={(checked) => toggleMutation.mutate(checked)}
-				disabled={!canManage || toggleMutation.isPending}
-				title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
-			/>
-		</li>
+			</TableCell>
+			<TableCell className="w-16 text-right">
+				<Switch
+					className="shrink-0"
+					aria-label={`${isEnabled ? "Disable" : "Enable"} ${tool.title}`}
+					checked={isEnabled}
+					onCheckedChange={(checked) => toggleMutation.mutate(checked)}
+					disabled={!canManage || toggleMutation.isPending}
+					title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
+				/>
+			</TableCell>
+		</TableRow>
 	);
 }
 
@@ -275,34 +252,40 @@ function AdapterRow({
 	});
 
 	return (
-		<li className="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-kumo-tint">
-			<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-				<Text
-					as="span"
-					role="body"
-					weight="medium"
-					className="min-w-0 max-w-full truncate"
-				>
-					{adapterLabel}
-				</Text>
-				<Badge variant="outline" className="max-w-full truncate">
-					{adapter.adapterType}
-				</Badge>
-				{adapter.priority != null && adapter.priority > 0 && (
-					<Badge variant="outline" className="px-1 py-0">
-						P{adapter.priority}
-					</Badge>
-				)}
-			</div>
-			<Switch
-				className="shrink-0"
-				aria-label={`${isEnabled ? "Disable" : "Enable"} ${adapterLabel}`}
-				checked={isEnabled}
-				onCheckedChange={(checked) => toggleMutation.mutate(checked)}
-				disabled={!canManage || toggleMutation.isPending}
-				title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
-			/>
-		</li>
+		<TableRow>
+			<TableCell className="whitespace-normal">
+				<div className="flex min-w-0 items-center gap-3">
+					<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+						<Text
+							as="span"
+							role="body"
+							weight="medium"
+							className="min-w-0 max-w-full truncate"
+						>
+							{adapterLabel}
+						</Text>
+						<Badge variant="outline" className="max-w-full truncate">
+							{adapter.adapterType}
+						</Badge>
+						{adapter.priority != null && adapter.priority > 0 && (
+							<Badge variant="outline" className="px-1 py-0">
+								P{adapter.priority}
+							</Badge>
+						)}
+					</div>
+				</div>
+			</TableCell>
+			<TableCell className="w-16 text-right">
+				<Switch
+					className="shrink-0"
+					aria-label={`${isEnabled ? "Disable" : "Enable"} ${adapterLabel}`}
+					checked={isEnabled}
+					onCheckedChange={(checked) => toggleMutation.mutate(checked)}
+					disabled={!canManage || toggleMutation.isPending}
+					title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
+				/>
+			</TableCell>
+		</TableRow>
 	);
 }
 
@@ -359,59 +342,56 @@ export function AppToolsPage() {
 	// Clamped rather than reset, so a shrinking result set (a search, a delete)
 	// cannot strand the collection on a page that no longer exists.
 	const currentToolPage = Math.min(toolPage, toolPageCount);
-	const visibleTools = toolRows;
 
 	return (
 		<div className="grid gap-6">
 			<PageSection aria-labelledby="app-tools-title">
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle id="app-tools-title">
-							Direct tool configuration
-						</SectionTitle>
-						<SectionDescription>
+				<AppTabHeader
+					id="app-tools-title"
+					title="Direct tools"
+					description={
+						<>
 							Tools configured directly on this app. A gateway can also compose
 							tools from other apps and the host.
-						</SectionDescription>
-					</SectionHeading>
-					<div className="flex min-w-0 items-center gap-2 sm:shrink-0">
-						{inventoryTotal > 0 && (
-							<SearchInput
-								aria-label="Search MCP tools"
-								containerClassName="w-full sm:w-56"
-								onChange={(event) => {
-									setToolQuery(
-										event.target.value.slice(0, MAX_TOOL_QUERY_CHARS),
-									);
-									setToolPage(1);
-								}}
-								placeholder="Search tools"
-								value={toolQuery}
-							/>
-						)}
-						{/*
-						 * The inventory count, not the length of what one request
-						 * returned: past the fetch limit the two differ, and the
-						 * badge used to report the smaller number as if it were the
-						 * whole app.
-						 */}
-						<Badge variant="secondary">
-							{tools.data
-								? deferredToolQuery
-									? `${toolTotal} of ${inventoryTotal}`
-									: inventoryTotal
-								: "—"}
-						</Badge>
-					</div>
-				</SectionHeader>
-				{tools.isPending && <ListSkeleton />}
+						</>
+					}
+					actions={
+						<div className="flex min-w-0 items-center gap-2 sm:shrink-0">
+							{inventoryTotal > 0 && (
+								<SearchInput
+									aria-label="Search MCP tools"
+									containerClassName="w-full sm:w-56"
+									onChange={(event) => {
+										setToolQuery(
+											event.target.value.slice(0, MAX_TOOL_QUERY_CHARS),
+										);
+										setToolPage(1);
+									}}
+									placeholder="Search tools"
+									value={toolQuery}
+								/>
+							)}
+							{/*
+							 * The inventory count, not the length of what one request
+							 * returned: past the fetch limit the two differ, and the
+							 * badge used to report the smaller number as if it were the
+							 * whole app.
+							 */}
+							<Badge variant="secondary">
+								{tools.data
+									? deferredToolQuery
+										? `${toolTotal} of ${inventoryTotal}`
+										: inventoryTotal
+									: "—"}
+							</Badge>
+						</div>
+					}
+				/>
+				{tools.isPending && <AppTabLoading label="Loading tools" />}
 				{tools.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Tools are unavailable</AlertTitle>
-						<AlertDescription>
-							{(tools.error as Error).message}
-						</AlertDescription>
-					</Alert>
+					<AppTabError title="Tools are unavailable" query={tools}>
+						{tools.error.message}
+					</AppTabError>
 				)}
 				{/*
 				 * One empty state, two claims. Only the unfiltered branch may say the
@@ -419,28 +399,32 @@ export function AppToolsPage() {
 				 * exact `total` is zero; a search that found nothing reports its own
 				 * reach instead of the app's inventory.
 				 */}
-				{tools.data && visibleTools.length === 0 && (
-					<Empty appearance="quiet">
-						<EmptyHeader>
-							<EmptyMedia variant="icon">
-								<Wrench size={20} />
-							</EmptyMedia>
-							<EmptyTitle>
-								{deferredToolQuery
-									? "No matching tools"
-									: "No direct tools configured"}
-							</EmptyTitle>
-							<EmptyDescription>
-								{deferredToolQuery
-									? `No tool in this app's ${inventoryTotal}-tool inventory matches this search.`
-									: "No direct tools configured for this app. This does not mean its gateway has no tools."}
-							</EmptyDescription>
-						</EmptyHeader>
-					</Empty>
+				{tools.data && toolRows.length === 0 && (
+					<AppTabEmpty
+						icon={<Wrench size={20} />}
+						title={
+							deferredToolQuery
+								? "No matching tools"
+								: "No direct tools configured"
+						}
+						description={
+							deferredToolQuery
+								? `No tool in this app's ${inventoryTotal}-tool inventory matches this search.`
+								: "No direct tools configured for this app. This does not mean its gateway has no tools."
+						}
+					/>
 				)}
-				{visibleTools.length > 0 && (
-					<Collection>
-						{visibleTools.map((tool) => (
+				{toolRows.length > 0 && (
+					<AppTabTable
+						label="Direct tools"
+						headings={
+							<>
+								<TableHead>Tool</TableHead>
+								<TableHead className="text-right">Enabled</TableHead>
+							</>
+						}
+					>
+						{toolRows.map((tool) => (
 							<ToolRow
 								key={tool.id}
 								tool={tool}
@@ -449,7 +433,7 @@ export function AppToolsPage() {
 								listKey={toolsQueryOptions.queryKey}
 							/>
 						))}
-					</Collection>
+					</AppTabTable>
 				)}
 				{toolPageCount > 1 && (
 					<Pagination
@@ -466,27 +450,27 @@ export function AppToolsPage() {
 			</PageSection>
 
 			<PageSection aria-labelledby="gateway-tools-title">
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle id="gateway-tools-title">
-							Gateway tool preview
-						</SectionTitle>
-						<SectionDescription>
+				<AppTabHeader
+					id="gateway-tools-title"
+					title="Gateway tools"
+					description={
+						<>
 							Configured tools from this app and its composed apps.
 							Host-generated tools and your connection's granted access can
 							differ; this is not a connection health check.
-						</SectionDescription>
-					</SectionHeading>
-					<Badge variant="secondary">
-						{gateway.data ? gateway.data.toolCount : "—"}
-					</Badge>
-				</SectionHeader>
-				{gateway.isPending && <ListSkeleton />}
+						</>
+					}
+					actions={
+						<Badge variant="secondary">
+							{gateway.data ? gateway.data.toolCount : "—"}
+						</Badge>
+					}
+				/>
+				{gateway.isPending && <AppTabLoading label="Loading gateway preview" />}
 				{gateway.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Gateway preview is unavailable</AlertTitle>
-						<AlertDescription>{gateway.error.message}</AlertDescription>
-					</Alert>
+					<AppTabError title="Gateway preview is unavailable" query={gateway}>
+						{gateway.error.message}
+					</AppTabError>
 				)}
 				{gateway.data && (
 					<>
@@ -520,30 +504,41 @@ export function AppToolsPage() {
 									: "No configured tools found in this preview. Host-generated tools may still be available."}
 							</Text>
 						)}
-						<Collection>
+						<AppTabTable
+							label="Gateway tools"
+							headings={
+								<>
+									<TableHead>Tool</TableHead>
+									<TableHead>Required access</TableHead>
+								</>
+							}
+						>
 							{gatewayTools
 								.slice(
 									(currentGatewayPage - 1) * APP_TOOLS_PAGE_SIZE,
 									currentGatewayPage * APP_TOOLS_PAGE_SIZE,
 								)
 								.map(([name, scopes]) => (
-									<li
-										key={name}
-										className="flex flex-wrap items-center gap-2 px-4 py-3"
-									>
-										<Text as="span">{name}</Text>
-										{scopes.map((scope) => (
-											<Badge
-												key={scope}
-												variant="outline"
-												title={scopeHint(scope)}
-											>
-												{scope}
-											</Badge>
-										))}
-									</li>
+									<TableRow key={name}>
+										<TableCell className="whitespace-normal break-all">
+											<Text as="span">{name}</Text>
+										</TableCell>
+										<TableCell className="whitespace-normal">
+											<div className="flex flex-wrap gap-2">
+												{scopes.map((scope) => (
+													<Badge
+														key={scope}
+														variant="outline"
+														title={scopeHint(scope)}
+													>
+														{scope}
+													</Badge>
+												))}
+											</div>
+										</TableCell>
+									</TableRow>
 								))}
-						</Collection>
+						</AppTabTable>
 						{gatewayTools.length > APP_TOOLS_PAGE_SIZE && (
 							<Pagination
 								page={currentGatewayPage}
@@ -560,44 +555,42 @@ export function AppToolsPage() {
 			</PageSection>
 
 			<PageSection aria-labelledby="app-adapters-title">
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle id="app-adapters-title">Adapters</SectionTitle>
-						<SectionDescription>
-							Execution adapters available to route tool calls.
-						</SectionDescription>
-					</SectionHeading>
-					<Badge variant="secondary">
-						{adapters.data
-							? adapterRows.filter((adapter) => adapter.enabled !== false)
-									.length
-							: "—"}
-					</Badge>
-				</SectionHeader>
-				{adapters.isPending && <ListSkeleton rows={2} />}
+				<AppTabHeader
+					id="app-adapters-title"
+					title="Adapters"
+					description="Execution adapters available to route tool calls."
+					actions={
+						<Badge variant="secondary">
+							{adapters.data
+								? adapterRows.filter((adapter) => adapter.enabled !== false)
+										.length
+								: "—"}
+						</Badge>
+					}
+				/>
+				{adapters.isPending && <AppTabLoading label="Loading adapters" />}
 				{adapters.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Adapters are unavailable</AlertTitle>
-						<AlertDescription>
-							{(adapters.error as Error).message}
-						</AlertDescription>
-					</Alert>
+					<AppTabError title="Adapters are unavailable" query={adapters}>
+						{adapters.error.message}
+					</AppTabError>
 				)}
 				{adapters.data && adapterRows.length === 0 && (
-					<Empty appearance="quiet">
-						<EmptyHeader>
-							<EmptyMedia variant="icon">
-								<Plugs size={20} />
-							</EmptyMedia>
-							<EmptyTitle>No adapters configured</EmptyTitle>
-							<EmptyDescription>
-								No adapters configured for this app.
-							</EmptyDescription>
-						</EmptyHeader>
-					</Empty>
+					<AppTabEmpty
+						icon={<Plugs size={20} />}
+						title="No adapters configured"
+						description="No adapters configured for this app."
+					/>
 				)}
 				{adapterRows.length > 0 && (
-					<Collection>
+					<AppTabTable
+						label="Adapters"
+						headings={
+							<>
+								<TableHead>Adapter</TableHead>
+								<TableHead className="text-right">Enabled</TableHead>
+							</>
+						}
+					>
 						{adapterRows.map((adapter) => (
 							<AdapterRow
 								key={adapter.id}
@@ -606,7 +599,7 @@ export function AppToolsPage() {
 								canManage={canManage}
 							/>
 						))}
-					</Collection>
+					</AppTabTable>
 				)}
 			</PageSection>
 		</div>

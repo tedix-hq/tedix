@@ -15,7 +15,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { App } from "@tedix/api-contract/schemas/app";
-import { Check, Copy, Key, Trash } from "@phosphor-icons/react";
+import { Key, Trash } from "@phosphor-icons/react";
 import { lazy, Suspense, useState } from "react";
 import { toast } from "@/components/kumo/toast";
 import * as z from "zod";
@@ -36,7 +36,17 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/kumo/alert-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	AppTabTable,
+	AppTabHeader,
+	AppTabSection,
+	AppTabLoading,
+	AppTabEmpty,
+	AppTabError,
+	AppTabDate,
+} from "./app-detail-tab-shared";
+import { ClipboardText } from "@/components/kumo/clipboard-text";
+import { TableCell, TableHead, TableRow } from "@/components/kumo/table";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -53,19 +63,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/kumo/empty";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { exactConfirmationSchema } from "@/components/kumo/forms/exact-confirmation-schema";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
-import { Input } from "@/components/kumo/input";
 import { SelectItem } from "@/components/kumo/select";
-import { Separator } from "@/components/kumo/separator";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { SettingsSectionNavigation } from "@/components/settings-section-navigation";
@@ -81,8 +82,6 @@ import {
 	appSecretsListQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
-import { useOsFormattingPreferences } from "@/lib/format";
-import { relativeTime } from "@/lib/time";
 
 const McpOAuthSettings = lazy(() =>
 	import("@/components/app-mcp-oauth-settings").then((mod) => ({
@@ -123,29 +122,28 @@ export function AppSettingsPage() {
 
 	if (detail.isPending) {
 		return (
-			<div
-				aria-busy="true"
-				aria-label="Loading app settings"
-				className="grid gap-4"
-			>
-				<Skeleton className="h-24 w-full" />
-				<Skeleton className="h-24 w-full" />
-				<Skeleton className="h-24 w-full" />
-			</div>
+			<AppTabSection title="Settings">
+				<AppTabLoading label="Loading app settings" />
+			</AppTabSection>
 		);
 	}
 	if (detail.isError) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>App settings are unavailable</AlertTitle>
-				<AlertDescription>{(detail.error as Error).message}</AlertDescription>
-			</Alert>
+			<AppTabSection title="Settings">
+				<AppTabError title="App settings are unavailable" query={detail}>
+					{detail.error.message}
+				</AppTabError>
+			</AppTabSection>
 		);
 	}
 	if (!app) return null;
 
 	return (
 		<div className="space-y-6 pb-1">
+			<AppTabHeader
+				title="Settings"
+				description="Manage this app, access and secrets."
+			/>
 			<SettingsSectionNavigation
 				ariaLabel="App settings sections"
 				items={APP_SETTINGS_SECTION_ITEMS}
@@ -156,7 +154,6 @@ export function AppSettingsPage() {
 			<div id="app-settings-details" className="scroll-mt-24">
 				<AppDetailsForm app={app} canManage={canManage} />
 			</div>
-			<Separator />
 			<div id="app-settings-mcp" className="scroll-mt-24 space-y-6">
 				<McpConfigDisplay app={app} />
 				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
@@ -169,17 +166,14 @@ export function AppSettingsPage() {
 					/>
 				</Suspense>
 			</div>
-			<Separator />
 			<div id="app-settings-tedis" className="scroll-mt-24">
 				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<AppTediAssignments appId={appId} />
 				</Suspense>
 			</div>
-			<Separator />
 			<div id="app-settings-secrets" className="scroll-mt-24">
 				<SecretsSection appId={appId} />
 			</div>
-			<Separator />
 			<div id="app-settings-danger" className="scroll-mt-24">
 				<DangerZone appId={appId} appName={app.name} canManage={canManage} />
 			</div>
@@ -248,138 +242,128 @@ function AppDetailsForm({ app, canManage }: { app: App; canManage: boolean }) {
 	});
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>App Details</CardTitle>
-			</CardHeader>
-			<CardContent>
-				<form
-					onSubmit={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-						form.handleSubmit();
-					}}
-					className="space-y-4"
-				>
-					<div className="grid gap-4 sm:grid-cols-2">
-						<FormField form={form} name="name" label="Name">
-							{(field, meta) => (
-								<FormInput
-									field={field}
-									id={meta.id}
-									descriptionId={meta.descriptionId}
-									errorId={meta.errorId}
-									placeholder="My App"
-									disabled={!canManage}
-								/>
-							)}
-						</FormField>
-
-						<FormField form={form} name="slug" label="Slug">
-							{(field, meta) => (
-								<FormInput
-									field={field}
-									id={meta.id}
-									descriptionId={meta.descriptionId}
-									errorId={meta.errorId}
-									placeholder="my-app"
-									disabled={!canManage}
-								/>
-							)}
-						</FormField>
-					</div>
-
-					<FormField
-						form={form}
-						name="description"
-						label="Description"
-						optional
-					>
+		<AppTabSection title="App details">
+			<form
+				onSubmit={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					form.handleSubmit();
+				}}
+				className="space-y-4"
+			>
+				<div className="grid gap-4 sm:grid-cols-2">
+					<FormField form={form} name="name" label="Name">
 						{(field, meta) => (
-							<FormTextarea
+							<FormInput
 								field={field}
 								id={meta.id}
 								descriptionId={meta.descriptionId}
 								errorId={meta.errorId}
-								placeholder="What this app does..."
-								rows={2}
+								placeholder="My App"
 								disabled={!canManage}
 							/>
 						)}
 					</FormField>
 
-					<div className="grid gap-4 sm:grid-cols-2">
-						<FormField
-							form={form}
-							name="primaryDomain"
-							label="Primary Domain"
-							optional
-						>
-							{(field, meta) => (
-								<FormInput
-									field={field}
-									id={meta.id}
-									descriptionId={meta.descriptionId}
-									errorId={meta.errorId}
-									placeholder="https://example.com"
-									disabled={!canManage}
-								/>
-							)}
-						</FormField>
+					<FormField form={form} name="slug" label="Slug">
+						{(field, meta) => (
+							<FormInput
+								field={field}
+								id={meta.id}
+								descriptionId={meta.descriptionId}
+								errorId={meta.errorId}
+								placeholder="my-app"
+								disabled={!canManage}
+							/>
+						)}
+					</FormField>
+				</div>
 
-						<FormField form={form} name="visibility" label="Visibility">
-							{(field, meta) => (
-								<FormSelect
-									field={field}
-									id={meta.id}
-									descriptionId={meta.descriptionId}
-									errorId={meta.errorId}
-									placeholder="Select visibility"
-									disabled={!canManage}
-								>
-									<SelectItem value="public">Public</SelectItem>
-									<SelectItem value="private">Private</SelectItem>
-									<SelectItem value="disabled">Disabled</SelectItem>
-								</FormSelect>
-							)}
-						</FormField>
-					</div>
-
-					<div className="space-y-2">
-						<Text as="p" role="body" weight="medium" className="m-0">
-							Logo
-						</Text>
-						<AppImageUpload
-							appId={app.id}
-							currentImageUrl={app.logoUrl}
-							fallbackText={app.name}
+				<FormField form={form} name="description" label="Description" optional>
+					{(field, meta) => (
+						<FormTextarea
+							field={field}
+							id={meta.id}
+							descriptionId={meta.descriptionId}
+							errorId={meta.errorId}
+							placeholder="What this app does..."
+							rows={2}
 							disabled={!canManage}
 						/>
-					</div>
+					)}
+				</FormField>
 
-					<form.Subscribe
-						selector={(s) => [s.canSubmit, s.isPristine, s.isSubmitting]}
+				<div className="grid gap-4 sm:grid-cols-2">
+					<FormField
+						form={form}
+						name="primaryDomain"
+						label="Primary domain"
+						optional
 					>
-						{([canSubmit, isPristine, isSubmitting]) => (
-							<Button
-								type="submit"
-								disabled={
-									!canManage ||
-									!canSubmit ||
-									isPristine ||
-									updateMutation.isPending
-								}
-								title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
-							>
-								{isSubmitting || updateMutation.isPending
-									? "Saving..."
-									: "Save Changes"}
-							</Button>
+						{(field, meta) => (
+							<FormInput
+								field={field}
+								id={meta.id}
+								descriptionId={meta.descriptionId}
+								errorId={meta.errorId}
+								placeholder="https://example.com"
+								disabled={!canManage}
+							/>
 						)}
-					</form.Subscribe>
-				</form>
-			</CardContent>
-		</Card>
+					</FormField>
+
+					<FormField form={form} name="visibility" label="Visibility">
+						{(field, meta) => (
+							<FormSelect
+								field={field}
+								id={meta.id}
+								descriptionId={meta.descriptionId}
+								errorId={meta.errorId}
+								placeholder="Select visibility"
+								disabled={!canManage}
+							>
+								<SelectItem value="public">Public</SelectItem>
+								<SelectItem value="private">Private</SelectItem>
+								<SelectItem value="disabled">Disabled</SelectItem>
+							</FormSelect>
+						)}
+					</FormField>
+				</div>
+
+				<div className="space-y-2">
+					<Text as="p" role="body" weight="medium" className="m-0">
+						Logo
+					</Text>
+					<AppImageUpload
+						appId={app.id}
+						currentImageUrl={app.logoUrl}
+						fallbackText={app.name}
+						disabled={!canManage}
+					/>
+				</div>
+
+				<form.Subscribe
+					selector={(s) => [s.canSubmit, s.isPristine, s.isSubmitting]}
+				>
+					{([canSubmit, isPristine, isSubmitting]) => (
+						<Button
+							type="submit"
+							disabled={
+								!canManage ||
+								!canSubmit ||
+								isPristine ||
+								updateMutation.isPending
+							}
+							title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
+						>
+							{isSubmitting || updateMutation.isPending
+								? "Saving..."
+								: "Save changes"}
+						</Button>
+					)}
+				</form.Subscribe>
+			</form>
+		</AppTabSection>
 	);
 }
 
@@ -390,77 +374,36 @@ function AppDetailsForm({ app, canManage }: { app: App; canManage: boolean }) {
 function McpConfigDisplay({ app }: { app: App }) {
 	const mcpConfig = app.metadata?.mcpConfig;
 	const endpoint = mcpEndpointUrl(app);
-	const [copied, setCopied] = useState(false);
-
-	const handleCopyEndpoint = async () => {
-		try {
-			await navigator.clipboard.writeText(endpoint);
-			setCopied(true);
-			toast.success("Endpoint copied to clipboard");
-			setTimeout(() => setCopied(false), 2000);
-		} catch {
-			toast.error("Failed to copy");
-		}
-	};
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>MCP Configuration</CardTitle>
-			</CardHeader>
-			<CardContent>
-				<div className="grid gap-3 text-sm">
-					<div className="flex min-w-0 justify-between gap-3">
-						<Text as="span" role="body" tone="secondary" className="shrink-0">
-							Endpoint
-						</Text>
-						<span className="flex min-w-0 items-center gap-1.5">
-							<Text
-								as="span"
-								role="body"
-								tone="mono"
-								className="min-w-0 truncate"
-							>
-								{endpoint}
-							</Text>
-							<Button
-								type="button"
-								onClick={handleCopyEndpoint}
-								variant="ghost"
-								size="icon-xs"
-								className="shrink-0 text-kumo-subtle"
-								aria-label="Copy endpoint"
-								icon={
-									copied ? (
-										<Check size={14} className="text-kumo-success" />
-									) : (
-										<Copy size={14} />
-									)
-								}
-							/>
-						</span>
-					</div>
-					<div className="flex justify-between">
-						<Text as="span" role="body" tone="secondary">
-							Server Name
-						</Text>
-						<span>{mcpConfig?.serverName ?? "Tedix MCP"}</span>
-					</div>
-					<div className="flex justify-between">
-						<Text as="span" role="body" tone="secondary">
-							Auth Mode
-						</Text>
-						<Badge variant="outline">{mcpConfig?.authMode ?? "public"}</Badge>
-					</div>
-					<div className="flex justify-between">
-						<Text as="span" role="body" tone="secondary">
-							Tool Timeout
-						</Text>
-						<span>{mcpConfig?.toolTimeout ?? 30000}ms</span>
-					</div>
+		<AppTabSection title="Connection">
+			<div className="grid gap-3 text-sm">
+				<div className="flex min-w-0 justify-between gap-3">
+					<Text as="span" role="body" tone="secondary" className="shrink-0">
+						Endpoint
+					</Text>
+					<ClipboardText text={endpoint} className="min-w-0 max-w-full" />
 				</div>
-			</CardContent>
-		</Card>
+				<div className="flex justify-between">
+					<Text as="span" role="body" tone="secondary">
+						Server name
+					</Text>
+					<span>{mcpConfig?.serverName ?? "Tedix MCP"}</span>
+				</div>
+				<div className="flex justify-between">
+					<Text as="span" role="body" tone="secondary">
+						Access mode
+					</Text>
+					<Badge variant="outline">{mcpConfig?.authMode ?? "public"}</Badge>
+				</div>
+				<div className="flex justify-between">
+					<Text as="span" role="body" tone="secondary">
+						Tool timeout
+					</Text>
+					<span>{mcpConfig?.toolTimeout ?? 30000}ms</span>
+				</div>
+			</div>
+		</AppTabSection>
 	);
 }
 
@@ -478,40 +421,34 @@ function SecretsSection({ appId }: { appId: string }) {
 	const secretRows = secrets.data?.data ?? [];
 
 	return (
-		<div className="space-y-4">
-			<div className="flex items-center gap-2">
-				<Key size={16} aria-hidden className="text-kumo-subtle" />
-				<Text as="h3" role="section" weight="semibold" className="m-0">
-					Secrets
-				</Text>
-			</div>
-
-			{secrets.isPending && <Skeleton className="h-24 w-full" />}
+		<AppTabSection title="Secrets">
+			{secrets.isPending && <AppTabLoading label="Loading secrets" />}
 			{secrets.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Secrets are unavailable</AlertTitle>
-					<AlertDescription>
-						{(secrets.error as Error).message}
-					</AlertDescription>
-				</Alert>
+				<AppTabError title="Secrets are unavailable" query={secrets}>
+					{secrets.error.message}
+				</AppTabError>
 			)}
-
 			{secrets.data && secretRows.length === 0 && (
-				<Empty appearance="quiet">
-					<EmptyHeader>
-						<EmptyMedia variant="icon">
-							<Key size={20} />
-						</EmptyMedia>
-						<EmptyTitle>No secrets configured</EmptyTitle>
-						<EmptyDescription>
-							No secrets configured for this app.
-						</EmptyDescription>
-					</EmptyHeader>
-				</Empty>
+				<AppTabEmpty
+					icon={<Key size={20} />}
+					title="No secrets configured"
+					description="No secrets configured for this app."
+				/>
 			)}
 
 			{secretRows.length > 0 && (
-				<div className="space-y-2">
+				<AppTabTable
+					label="App secrets"
+					headings={
+						<>
+							<TableHead>Secret</TableHead>
+							<TableHead>Added</TableHead>
+							<TableHead className="text-right">
+								<span className="sr-only">Actions</span>
+							</TableHead>
+						</>
+					}
+				>
 					{secretRows.map((secret) => (
 						<SecretRow
 							key={secret.id}
@@ -520,9 +457,9 @@ function SecretsSection({ appId }: { appId: string }) {
 							canManage={canManageSecrets}
 						/>
 					))}
-				</div>
+				</AppTabTable>
 			)}
-		</div>
+		</AppTabSection>
 	);
 }
 
@@ -540,7 +477,6 @@ function SecretRow({
 	appId: string;
 	canManage: boolean;
 }) {
-	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const listKey = appSecretsListQueryOptions(appId).queryKey;
 
@@ -571,8 +507,8 @@ function SecretRow({
 	});
 
 	return (
-		<Card>
-			<CardContent className="flex flex-col gap-3 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+		<TableRow>
+			<TableCell className="whitespace-normal break-all">
 				<div className="min-w-0">
 					<Text as="span" role="body" tone="mono">
 						{secret.name}
@@ -582,10 +518,12 @@ function SecretRow({
 							({secret.hint})
 						</Text>
 					)}
-					<Text as="p" role="label" tone="secondary" className="m-0">
-						Added {relativeTime(secret.createdAt)}
-					</Text>
 				</div>
+			</TableCell>
+			<TableCell>
+				<AppTabDate value={secret.createdAt} />
+			</TableCell>
+			<TableCell className="text-right">
 				<AlertDialog>
 					<AlertDialogTrigger
 						render={
@@ -620,8 +558,8 @@ function SecretRow({
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>
-			</CardContent>
-		</Card>
+			</TableCell>
+		</TableRow>
 	);
 }
 
@@ -665,7 +603,7 @@ function DangerZone({
 	return (
 		<Card id="app-danger-zone" tabIndex={-1}>
 			<CardHeader>
-				<CardTitle className="text-kumo-danger">Danger Zone</CardTitle>
+				<CardTitle className="text-kumo-danger">Delete app</CardTitle>
 			</CardHeader>
 			<CardContent>
 				<Text as="p" role="body" tone="secondary" className="mb-4">
@@ -689,7 +627,7 @@ function DangerZone({
 							setOpen(true);
 						}}
 					>
-						Delete App
+						Delete app
 					</Button>
 					<DialogContent>
 						<DialogHeader>
@@ -711,7 +649,13 @@ function DangerZone({
 								label={`Type ${appName} to confirm deletion`}
 							>
 								{(field, meta) => (
-									<FormInput field={field} {...meta} placeholder={appName} />
+									<FormInput
+										field={field}
+										id={meta.id}
+										descriptionId={meta.descriptionId}
+										errorId={meta.errorId}
+										placeholder={appName}
+									/>
 								)}
 							</FormField>
 							<DialogFooter>
@@ -733,7 +677,7 @@ function DangerZone({
 										>
 											{deleteMutation.isPending
 												? "Deleting..."
-												: "Delete Forever"}
+												: "Delete forever"}
 										</Button>
 									)}
 								</confirmationForm.Subscribe>
