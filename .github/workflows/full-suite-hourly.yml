@@ -48,7 +48,9 @@ jobs:
     needs: plan
     if: ${{ !cancelled() && needs.plan.outputs.skip != 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
-    timeout-minutes: 60
+    # The slowest job takes about 13 minutes; a hang fails here instead of
+    # holding the run open.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
