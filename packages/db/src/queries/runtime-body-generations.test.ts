@@ -214,9 +214,8 @@ describe.each(["tedi", "workstationLease"] as const)(
 			expect(await readRuntimeBodyGeneration(db, record)).toEqual(terminated);
 		});
 
-		// Known defect: heartbeat SQL fences generation identity but not terminal status.
-		it.fails.each(["failed", "terminated", "expired"] as const)(
-			"rejects heartbeat for a %s generation",
+		it.each(["armed", "starting", "ready"] as const)(
+			"accepts heartbeat for a %s generation",
 			async (status) => {
 				const { db, record } = fixture(kind);
 				await armRuntimeBodyGeneration(
@@ -225,7 +224,34 @@ describe.each(["tedi", "workstationLease"] as const)(
 					{ ...generation, status },
 					NOW,
 				);
-				const before = await readRuntimeBodyGeneration(db, record);
+				expect(
+					await touchRuntimeBodyGenerationHeartbeat(db, record, {
+						generationId: generation.generationId,
+						externalId: "active-body",
+						at: LATER,
+					}),
+				).toBe(true);
+				expect(await readRuntimeBodyGeneration(db, record)).toMatchObject({
+					bodyGenerationStatus: status,
+					bodyGenerationExternalId: "active-body",
+					bodyGenerationHeartbeatAt: LATER,
+				});
+			},
+		);
+
+		it.each(["failed", "terminated", "expired"] as const)(
+			"rejects heartbeat for a %s generation",
+			async (status) => {
+				const { db, record, sqlite } = fixture(kind);
+				await armRuntimeBodyGeneration(
+					db,
+					record,
+					{ ...generation, status },
+					NOW,
+				);
+				const table = kind === "tedi" ? "tedis" : "workstation_leases";
+				const row = sqlite.prepare(`SELECT * FROM ${table} WHERE id = ?`);
+				const before = row.get(record.id);
 				expect(
 					await touchRuntimeBodyGenerationHeartbeat(db, record, {
 						generationId: generation.generationId,
@@ -233,7 +259,7 @@ describe.each(["tedi", "workstationLease"] as const)(
 						at: LATER,
 					}),
 				).toBe(false);
-				expect(await readRuntimeBodyGeneration(db, record)).toEqual(before);
+				expect(row.get(record.id)).toEqual(before);
 			},
 		);
 	},

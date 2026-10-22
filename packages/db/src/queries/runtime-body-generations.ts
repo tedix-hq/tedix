@@ -174,7 +174,8 @@ export async function touchRuntimeBodyGenerationHeartbeat(
 					.prepare(
 						`UPDATE workstation_leases
 						 SET body_generation_external_id = ?, body_generation_heartbeat_at = ?, updated_at = ?
-						 WHERE id = ? AND body_generation_id = ?`,
+						 WHERE id = ? AND body_generation_id = ?
+						   AND body_generation_status IN ('armed', 'starting', 'ready')`,
 					)
 					.bind(
 						input.externalId,
@@ -189,7 +190,8 @@ export async function touchRuntimeBodyGenerationHeartbeat(
 						`UPDATE tedis
 						 SET body_generation_external_id = ?, body_generation_heartbeat_at = ?,
 							last_seen_at = ?, updated_at = CURRENT_TIMESTAMP
-						 WHERE id = ? AND body_generation_id = ?`,
+						 WHERE id = ? AND body_generation_id = ?
+						   AND body_generation_status IN ('armed', 'starting', 'ready')`,
 					)
 					.bind(
 						input.externalId,
