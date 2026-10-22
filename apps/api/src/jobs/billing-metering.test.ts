@@ -45,7 +45,15 @@ vi.mock("@tedix/db/queries/platform-job-storage", () => {
 		}),
 		commitUnsettledBillableGatewayScan: storageMocks.commitScan,
 		listUnrecordedProviderUsageCalls: async () => next(),
-		listLegacyUnreservedGatewayCalls: async () => next(),
+		scanLegacyUnreservedGatewayCalls: async () => ({
+			queue: "legacy",
+			mode: "incremental",
+			expected: null,
+			limit: 500,
+			throughRowid: 0,
+			moreAbove: false,
+			calls: next().map((call, i) => ({ rowid: i + 1, call })),
+		}),
 	};
 });
 
@@ -252,6 +260,18 @@ describe("quarantineLegacyGatewayCosts", () => {
 		billingMocks.recordBillingUsageQuarantines.mockImplementation(
 			async (_db, rows: unknown[]) => rows.length,
 		);
+	});
+
+	it("holds the watermark when quarantine persistence fails", async () => {
+		billingMocks.recordBillingUsageQuarantines.mockRejectedValueOnce(
+			new Error("write failed"),
+		);
+		await expect(
+			quarantineLegacyGatewayCosts(
+				fakeDb([{ call: call("legacy-example", null) }]) as never,
+			),
+		).rejects.toThrow("write failed");
+		expect(storageMocks.commitScan).not.toHaveBeenCalled();
 	});
 
 	it("classifies a bounded legacy batch outside fresh settlement", async () => {

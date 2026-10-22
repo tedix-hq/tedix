@@ -67,6 +67,44 @@ beforeEach(() => {
 	mocks.config.mockReturnValue({ secretKey: "offline-fixture" });
 });
 describe("whole billing tick settlement isolation", () => {
+	it("records reservation and ingestion duration even when ingestion fails", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		let clock = 0;
+		const now = vi.spyOn(performance, "now").mockImplementation(() => clock);
+		mocks.reservations.mockImplementation(async () => {
+			clock += 17;
+			return 0;
+		});
+		mocks.ingest.mockImplementation(async () => {
+			clock += 29;
+			throw new Error("fixture-failure");
+		});
+		try {
+			await expect(
+				runBillingAndGatewayCostTick({
+					DB: {},
+					TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+				} as CloudflareEnv),
+			).rejects.toThrow("fixture-failure");
+			expect(log).toHaveBeenCalledWith({
+				component: "api.billing-cron",
+				event: "billing_phase_duration",
+				phase: "reservation_expiry",
+				durationMs: 17,
+			});
+			expect(log).toHaveBeenCalledWith({
+				component: "api.billing-cron",
+				event: "billing_phase_duration",
+				phase: "gateway_ingestion",
+				durationMs: 29,
+			});
+		} finally {
+			now.mockRestore();
+			log.mockRestore();
+			warn.mockRestore();
+		}
+	});
 	it.each(["external", "disabled"])(
 		"observes %s without any financial mutation",
 		async (mode) => {

@@ -6,6 +6,23 @@
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
+async function measurePhase<T>(
+	phase: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const started = performance.now();
+	try {
+		return await operation();
+	} finally {
+		console.log({
+			component: "api.billing-cron",
+			event: "billing_phase_duration",
+			phase,
+			durationMs: Math.round(performance.now() - started),
+		});
+	}
+}
+
 export async function runBillingAndGatewayCostTick(
 	env: CloudflareEnv,
 ): Promise<Record<string, number>> {
@@ -32,11 +49,14 @@ export async function runBillingAndGatewayCostTick(
 				import("@tedix/db/queries/billing/reservations"),
 				import("@tedix/db/queries/billing/plans"),
 			]);
-			const periods = await rollBillingPeriods(db, billingNow);
-			const expiredCredits = await expireBillingCredits(db, billingNow);
-			const expiredReservations = await expireBillingReservations(
-				db,
-				billingNow,
+			const periods = await measurePhase("period_rollover", () =>
+				rollBillingPeriods(db, billingNow),
+			);
+			const expiredCredits = await measurePhase("credit_expiry", () =>
+				expireBillingCredits(db, billingNow),
+			);
+			const expiredReservations = await measurePhase("reservation_expiry", () =>
+				expireBillingReservations(db, billingNow),
 			);
 			if (
 				periods.renewed > 0 ||
@@ -57,7 +77,9 @@ export async function runBillingAndGatewayCostTick(
 		}
 
 		const { ingestGatewayLogCosts } = await import("./gateway-cost-ingestion");
-		const results = await ingestGatewayLogCosts(db, env);
+		const results = await measurePhase("gateway_ingestion", () =>
+			ingestGatewayLogCosts(db, env),
+		);
 		if (settlementMode === "managed") {
 			const { resolveStripeEnvironment, getStripeEnvironmentConfig } =
 				await import("../lib/stripe-environment");
@@ -65,9 +87,8 @@ export async function runBillingAndGatewayCostTick(
 				await import("./billing-metering");
 			const stripeEnvironment = resolveStripeEnvironment(env);
 			const stripeConfig = getStripeEnvironmentConfig(env, stripeEnvironment);
-			const settlement = await settleUnbilledGatewayCosts(
-				db,
-				stripeEnvironment,
+			const settlement = await measurePhase("gateway_settlement", () =>
+				settleUnbilledGatewayCosts(db, stripeEnvironment),
 			);
 			if (
 				settlement.failed > 0 ||
@@ -86,11 +107,13 @@ export async function runBillingAndGatewayCostTick(
 					}),
 				);
 			}
-			const stripe = await drainStripeMeterOutbox(
-				db,
-				stripeConfig.secretKey,
-				stripeEnvironment,
-				env,
+			const stripe = await measurePhase("meter_outbox", () =>
+				drainStripeMeterOutbox(
+					db,
+					stripeConfig.secretKey,
+					stripeEnvironment,
+					env,
+				),
 			);
 			if (stripe.failed > 0) {
 				console.warn(

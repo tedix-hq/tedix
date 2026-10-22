@@ -34,14 +34,19 @@ const D1_USAGE_WRITE_CHUNK_SIZE = 2;
 export async function insertCallCosts(db: DbClient, costs: NewTediCallCost[]) {
 	if (costs.length === 0) return [];
 	const rows: TediCallCost[] = [];
-	for (const chunk of chunkForBoundParams(costs, D1_USAGE_WRITE_CHUNK_SIZE)) {
-		rows.push(
-			...(await db
+	// A Gateway page is 50 rows: 25 parameter-safe statements, one D1 trip.
+	for (const page of chunkForBoundParams(costs, 50)) {
+		const [first, ...rest] = chunkForBoundParams(
+			page,
+			D1_USAGE_WRITE_CHUNK_SIZE,
+		).map((chunk) =>
+			db
 				.insert(tediCallCosts)
 				.values(chunk)
 				.onConflictDoNothing({ target: tediCallCosts.gatewayLogId })
-				.returning()),
+				.returning(),
 		);
+		if (first) rows.push(...(await db.batch([first, ...rest])).flat());
 	}
 	return rows;
 }
