@@ -553,6 +553,16 @@ export const ReadHomeRunSetInputSchema = z.object({
 });
 export type ReadHomeRunSetInput = z.infer<typeof ReadHomeRunSetInputSchema>;
 
+export const ListPendingHomeDelegationsInputSchema = z
+	.object({
+		organizationId: z.string().optional(),
+		limit: z.number().int().positive().max(50).optional(),
+	})
+	.strict();
+export type ListPendingHomeDelegationsInput = z.infer<
+	typeof ListPendingHomeDelegationsInputSchema
+>;
+
 export const HomeChildRunStatusSchema = z.enum([
 	"queued",
 	"running",

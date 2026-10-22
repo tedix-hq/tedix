@@ -347,6 +347,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"kernelRuntime/getRepoCommitApprovalStatus": "platform:admin",
 	"kernelRuntime/listConversationArtifactPins": "mcp:tedis.read",
 	"kernelRuntime/listConversationCapabilities": "mcp:tedis.read",
+	"kernelRuntime/listPendingHomeDelegations": "mcp:tedis.read",
 	"kernelRuntime/listReadOnlyTools": "mcp:tedis.read",
 	"kernelRuntime/pinConversation": "mcp:tedis.write",
 	"kernelRuntime/proposeCodemodeExecute": "platform:admin",

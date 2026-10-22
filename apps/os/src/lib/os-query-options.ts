@@ -270,6 +270,9 @@ export const HOME_MESSAGES_PAGE_LIMIT = 50;
 export const homeRunSetQueryOptions = (conversationId: string) =>
 	osQuery.kernelRuntime.readRunSet.queryOptions({ input: { conversationId } });
 
+export const pendingHomeDelegationsQueryOptions = () =>
+	osQuery.kernelRuntime.listPendingHomeDelegations.queryOptions({ input: {} });
+
 /** Active context-only capability references for one exact Home conversation. */
 export const conversationCapabilitiesQueryOptions = (conversationId: string) =>
 	osQuery.kernelRuntime.listConversationCapabilities.queryOptions({

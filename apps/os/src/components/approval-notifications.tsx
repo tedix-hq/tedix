@@ -30,6 +30,7 @@ import {
 	homeRunSetQueryOptions,
 	osQueryKeys,
 	pendingApprovalsQueryOptions,
+	pendingHomeDelegationsQueryOptions,
 } from "@/lib/os-query-options";
 
 export function approvalAttentionCount(input: {
@@ -69,8 +70,21 @@ export function ApprovalNotifications({
 		...pendingApprovalsQueryOptions(),
 		...workRefreshOptions,
 	});
+	const pendingHome = useQuery({
+		...pendingHomeDelegationsQueryOptions(),
+		...workRefreshOptions,
+	});
 	const homeApprovals = runSet.data
 		? approvalsFromRunSet(runSet.data.runSet).filter(isActionableHomeApproval)
+		: [];
+	const globalHomeApprovals = pendingHome.data
+		? approvalsFromRunSet(pendingHome.data.runSet).filter(
+				(approval) =>
+					isActionableHomeApproval(approval) &&
+					!homeApprovals.some(
+						(current) => current.approvalId === approval.approvalId,
+					),
+			)
 		: [];
 	// A parked Home write is listed by both sources; show it once, as the
 	// Home card that names the tool and arguments.
@@ -79,7 +93,7 @@ export function ApprovalNotifications({
 		(approval) => !homeApprovalIds.has(approval.id),
 	);
 	const count = approvalAttentionCount({
-		home: homeApprovals.length,
+		home: homeApprovals.length + globalHomeApprovals.length,
 		runtime: runtimeApprovals.length,
 	});
 
@@ -184,7 +198,9 @@ export function ApprovalNotifications({
 					</PopoverDescription>
 				</div>
 
-				{(conversationId !== null && runSet.isPending) || runtime.isPending ? (
+				{(conversationId !== null && runSet.isPending) ||
+				runtime.isPending ||
+				pendingHome.isPending ? (
 					<Text className="m-0" role="label" tone="secondary">
 						Checking for pending decisions…
 					</Text>
@@ -194,7 +210,7 @@ export function ApprovalNotifications({
 					</Text>
 				) : (
 					<ul className="m-0 grid list-none gap-2 p-0">
-						{homeApprovals.map((approval) => (
+						{[...homeApprovals, ...globalHomeApprovals].map((approval) => (
 							<li
 								className="grid min-w-0 gap-2 rounded-lg border border-kumo-warning bg-kumo-warning-tint p-3"
 								key={approval.approvalId}

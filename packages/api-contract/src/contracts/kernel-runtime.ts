@@ -32,6 +32,7 @@ import {
 	ReadHomeRunEventsInputSchema,
 	ReadHomeRunInputSchema,
 	ReadHomeRunSetInputSchema,
+	ListPendingHomeDelegationsInputSchema,
 	ReadKernelToolResultInputSchema,
 	ReadKernelToolResultOutputSchema,
 	ResolveHomeDelegationWorkOrderInputSchema,
@@ -330,6 +331,17 @@ export const kernelRuntimeContract = oc
 					"Returns durable per-conversation Home run membership and active run ids for cockpit work-card rendering.",
 			})
 			.input(ReadHomeRunSetInputSchema)
+			.output(z.object({ runSet: HomeRunSetSchema })),
+
+		listPendingHomeDelegations: oc
+			.route({
+				method: "GET",
+				path: "/pending-delegations",
+				summary: "List pending Home delegation approvals",
+				description:
+					"Returns the bounded, access-checked Home delegation projection for an eligible organization owner or admin.",
+			})
+			.input(ListPendingHomeDelegationsInputSchema)
 			.output(z.object({ runSet: HomeRunSetSchema })),
 
 		readChildRunEvidence: oc

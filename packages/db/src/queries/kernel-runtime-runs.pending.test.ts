@@ -7,6 +7,7 @@ import { schemaDdl } from "../test/schema-ddl";
 import {
 	readLatestRunAwaitingApproval,
 	readLatestRunAwaitingDelegationApproval,
+	listPendingDelegationRuns,
 } from "./kernel-runtime-runs";
 
 function fixture() {
@@ -92,6 +93,26 @@ describe("conversation pending approval lookups", () => {
 				targetTediId: "missing",
 			}),
 		).toBeNull();
+	});
+
+	it("limits the global Home projection to held Home delegations", async () => {
+		const { db, row } = fixture();
+		await db.insert(kernelRuntimeRuns).values([
+			row("home-delegation", { metadata: delegation }),
+			row("workstation", {
+				metadata: { delegationWorkOrder: { kind: "workstation.attach" } },
+			}),
+		]);
+
+		expect(
+			(
+				await listPendingDelegationRuns(db, {
+					organizationId: "org-fixture",
+					limit: 50,
+					kind: "home_delegation",
+				})
+			).map((run) => run.id),
+		).toEqual(["home-delegation"]);
 	});
 
 	it("filters tenant, conversation, caller run and malformed or resolved targets before limiting", async () => {
