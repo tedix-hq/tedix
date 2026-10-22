@@ -14,6 +14,7 @@ import {
 	releaseCmsRestoreFence,
 } from "@tedix/db/queries/cms-restore-fences";
 import type { PluginManifest, SerializedRequest } from "emdash";
+import type { EmDashDB } from "./emdash-db";
 import { tenantPluginCanaryEnabled } from "./index";
 import {
 	invokeTenantPluginTransport,
@@ -286,11 +287,23 @@ function directBridge(
 		params?: unknown[],
 	) => Promise<{ rows: Record<string, unknown>[] }>,
 ): TenantPluginKvBridge {
+	const namespace = (
+		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+	).DB_DO;
+	const coordinator = namespace.get(namespace.idFromName(scope.tenantSlug));
 	return Object.assign(Object.create(TenantPluginKvBridge.prototype), {
 		ctx: { props: { ...scope, invocationId: crypto.randomUUID() } },
 		env: {
 			PLATFORM_DB: platformD1,
-			DB_DO: { idFromName: (slug: string) => slug, get: () => ({ query }) },
+			DB_DO: {
+				idFromName: (slug: string) => slug,
+				get: () => ({
+					query,
+					runWithRestorePermit: (
+						...args: Parameters<EmDashDB["runWithRestorePermit"]>
+					) => coordinator.runWithRestorePermit(...args),
+				}),
+			},
 		},
 	}) as TenantPluginKvBridge;
 }
@@ -351,8 +364,12 @@ describe("plugin KV restore permits", () => {
 			expect(query).toHaveBeenCalledTimes(1);
 			finish({ rows: [] });
 			await expect(pending).resolves.toBeUndefined();
-			expect((await getCmsRestoreFenceState(platformDb, fence)).inFlight).toBe(
-				0,
+			await vi.waitFor(
+				async () =>
+					expect(
+						(await getCmsRestoreFenceState(platformDb, fence)).inFlight,
+					).toBe(0),
+				{ timeout: 15_000 },
 			);
 			expect(await releaseCmsRestoreFence(platformDb, fence)).toBe(true);
 			const other = {
@@ -381,7 +398,7 @@ describe("plugin KV restore permits", () => {
 					.props.invocationId,
 			);
 		}
-	});
+	}, 20_000);
 
 	test("a failed DO query releases its permit", async () => {
 		const scope: TenantPluginScope = {
@@ -403,18 +420,22 @@ describe("plugin KV restore permits", () => {
 		bridge.kvBegin(invocationId);
 		try {
 			await expect(bridge.kvDelete("key")).rejects.toThrow("DO failed");
-			expect(
-				(
-					await getCmsRestoreFenceState(platformDb, {
-						siteId: scope.siteId,
-						slug: scope.tenantSlug,
-					})
-				).inFlight,
-			).toBe(0);
+			await vi.waitFor(
+				async () =>
+					expect(
+						(
+							await getCmsRestoreFenceState(platformDb, {
+								siteId: scope.siteId,
+								slug: scope.tenantSlug,
+							})
+						).inFlight,
+					).toBe(0),
+				{ timeout: 15_000 },
+			);
 		} finally {
 			bridge.kvEnd(invocationId);
 		}
-	});
+	}, 20_000);
 });
 
 /**

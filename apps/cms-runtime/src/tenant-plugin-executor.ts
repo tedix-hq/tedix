@@ -1,7 +1,6 @@
 import { exports as workerExports, WorkerEntrypoint } from "cloudflare:workers";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { generatePluginWrapper } from "@emdash-cms/cloudflare/sandbox";
-import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	createSandboxRouteError,
 	getSandboxRouteErrorEnvelope,
@@ -9,10 +8,7 @@ import {
 	type PluginManifest,
 	type SerializedRequest,
 } from "emdash";
-import {
-	CmsRestoreFenceUnavailableError,
-	withCmsRestorePermit,
-} from "./tenant-restore-fence";
+import { withSharedCmsRestorePermit } from "./tenant-restore-fence";
 
 /** The parent owns both bindings. Neither is forwarded to a tenant or plugin Worker. */
 interface PluginHostEnv {
@@ -187,8 +183,8 @@ export class TenantPluginKvBridge extends WorkerEntrypoint<
 	/** Hold the permit until the actual DO RPC settles, even if the caller times out. */
 	private async write<T>(run: (db: PluginDbStub) => Promise<T>): Promise<T> {
 		const db = this.db();
-		const result = await withCmsRestorePermit(
-			createDbQueryClient(this.env.PLATFORM_DB),
+		return withSharedCmsRestorePermit(
+			this.env.DB_DO,
 			{
 				siteId: this.ctx.props.siteId,
 				slug: this.ctx.props.tenantSlug,
@@ -196,8 +192,6 @@ export class TenantPluginKvBridge extends WorkerEntrypoint<
 			},
 			() => run(db),
 		);
-		if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
-		return result.value;
 	}
 
 	async kvGet(key: string): Promise<unknown> {

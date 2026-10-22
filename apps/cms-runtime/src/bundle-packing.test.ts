@@ -1,17 +1,20 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
 const permit = vi.hoisted(() => ({ admit: true, enters: 0, leaves: 0 }));
-vi.mock("@tedix/db/queries/cms-restore-fences", async (importOriginal) => ({
-	...(await importOriginal<object>()),
-	enterCmsRestorePermit: async () => {
-		permit.enters++;
-		return permit.admit;
-	},
-	leaveCmsRestorePermit: async () => {
-		permit.leaves++;
-		return true;
-	},
-}));
+const DB_DO = {
+	idFromName: (name: string) => name,
+	get: () => ({
+		async runWithRestorePermit(_identity: unknown, run: () => Promise<void>) {
+			permit.enters++;
+			if (!permit.admit) throw new Error("CMS restore fence unavailable");
+			try {
+				await run();
+			} finally {
+				permit.leaves++;
+			}
+		},
+	}),
+};
 
 import { loadBundleModules } from "./index";
 
@@ -57,7 +60,7 @@ describe("CMS immutable bundle packing", () => {
 			[`${prefix}entry.mjs`]: "export default 1;",
 			[`${prefix}chunks/a.mjs`]: "export const a = 2;",
 		});
-		const env = { TENANT_BUNDLES: bucket, PLATFORM_DB: {} };
+		const env = { TENANT_BUNDLES: bucket, DB_DO };
 		const firstSpans: Record<string, number> = {};
 		const first = await loadBundleModules(env as never, prefix, {
 			spans: firstSpans,
@@ -92,7 +95,7 @@ describe("CMS immutable bundle packing", () => {
 				.buffer,
 			[`${prefix}__tedix_packed_bundle.json`]: JSON.stringify(packed),
 		});
-		const env = { TENANT_BUNDLES: bucket, PLATFORM_DB: {} };
+		const env = { TENANT_BUNDLES: bucket, DB_DO };
 		const first = await loadBundleModules(env as never, prefix, {
 			restoreIdentity: { siteId: "site-tedix", slug: "tedix", restoreEpoch: 0 },
 		});
@@ -113,7 +116,7 @@ describe("CMS immutable bundle packing", () => {
 		});
 		permit.admit = false;
 		await loadBundleModules(
-			{ TENANT_BUNDLES: bucket, PLATFORM_DB: {} } as never,
+			{ TENANT_BUNDLES: bucket, DB_DO } as never,
 			prefix,
 			{
 				restoreIdentity: {
@@ -146,7 +149,7 @@ describe("CMS immutable bundle packing", () => {
 		);
 		let loaded = false;
 		const loading = loadBundleModules(
-			{ TENANT_BUNDLES: bucket, PLATFORM_DB: {} } as never,
+			{ TENANT_BUNDLES: bucket, DB_DO } as never,
 			prefix,
 			{
 				restoreIdentity: {

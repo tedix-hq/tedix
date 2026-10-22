@@ -726,10 +726,8 @@ async function writeCompressedBundleIfPermitted(
 ): Promise<void> {
 	if (!identity) return;
 	try {
-		await withCmsRestorePermit(
-			createDbQueryClient(env.PLATFORM_DB),
-			identity,
-			() => writeCompressedBundle(env, r2Prefix, json),
+		await withSharedCmsRestorePermit(env.DB_DO, identity, () =>
+			writeCompressedBundle(env, r2Prefix, json),
 		);
 	} catch (err) {
 		console.error(
@@ -2093,8 +2091,7 @@ export default {
 						!isMarketingContactPath(url.pathname)
 					)
 						return run();
-					const contact = await withCmsRestorePermit(db, identity, run);
-					return contact.admitted ? contact.value : cmsRestoreFenceResponse();
+					return withSharedCmsRestorePermit(env.DB_DO, identity, run);
 				},
 				undefined,
 				restoreQueries?.(),
@@ -2172,6 +2169,7 @@ export default {
 					continue;
 				}
 
+				// Cron pauses drain exact scheduled permits separately from shared nested work.
 				const permitted = await withCmsRestorePermit(
 					createDbQueryClient(env.PLATFORM_DB),
 					{ siteId: org.siteId, slug, restoreEpoch },
