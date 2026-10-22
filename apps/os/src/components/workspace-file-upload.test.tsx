@@ -168,4 +168,132 @@ describe("WorkspaceFileUpload", () => {
 		await flush();
 		expect(container.querySelector("button")?.disabled).toBe(false);
 	});
+	const refreshedReaders = [
+		{
+			name: "workspace resources",
+			queryKey: workspaceResourcesQueryOptions(WORKSPACE_ID).queryKey,
+		},
+		{
+			name: "canvas outputs",
+			queryKey: canvasOutputsQueryOptions(WORKSPACE_ID).queryKey,
+		},
+		{
+			name: "outputs library",
+			queryKey: osQuery.osWorkspaces.outputs.library.key(),
+		},
+	];
+	it.each(refreshedReaders)(
+		"keeps the confirmed receipt when the $name refresh fails",
+		async ({ queryKey }) => {
+			const invalidate = vi.spyOn(client, "invalidateQueries");
+			const rejected = JSON.stringify(queryKey);
+			invalidate.mockImplementation((filters) =>
+				JSON.stringify(filters?.queryKey) === rejected
+					? Promise.reject(new Error("Refresh failed"))
+					: Promise.resolve(),
+			);
+			await choose(new File(["demo"], "sample.txt", { type: "text/plain" }));
+			expect(resources.confirmFileUpload).toHaveBeenCalledTimes(1);
+			expect(onUploaded).toHaveBeenCalledTimes(1);
+			expect(onUploaded).toHaveBeenCalledWith({
+				outputId: "output-1",
+				name: "sample.txt",
+				url: "/outputs/output-1",
+			});
+			expect(container.textContent).not.toContain("failed");
+			expect(container.querySelector("button")?.disabled).toBe(false);
+			await act(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 1_100));
+			});
+			await flush();
+			const attempts = invalidate.mock.calls.filter(
+				([filters]) => JSON.stringify(filters?.queryKey) === rejected,
+			);
+			expect(attempts.length).toBe(2);
+			expect(resources.requestFileUpload).toHaveBeenCalledTimes(1);
+		},
+	);
+	it("retries a failed reader reconciliation without re-uploading", async () => {
+		const invalidate = vi.spyOn(client, "invalidateQueries");
+		invalidate.mockRejectedValueOnce(new Error("Refresh failed"));
+		await choose(new File(["demo"], "sample.txt"));
+		expect(onUploaded).toHaveBeenCalledTimes(1);
+		expect(invalidate).toHaveBeenCalledTimes(3);
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 1_100));
+		});
+		await flush();
+		expect(invalidate).toHaveBeenCalledTimes(6);
+		expect(resources.requestFileUpload).toHaveBeenCalledTimes(1);
+		expect(resources.confirmFileUpload).toHaveBeenCalledTimes(1);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(container.textContent).not.toContain("failed");
+	});
+	it("does not reconcile when the upload itself fails", async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }));
+		const invalidate = vi.spyOn(client, "invalidateQueries");
+		await choose(new File(["demo"], "sample.txt"));
+		expect(container.textContent).toContain("Upload failed (503)");
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 1_100));
+		});
+		expect(invalidate).not.toHaveBeenCalled();
+	});
+	it("fences deferred state when the workspace changes mid-upload", async () => {
+		const otherWorkspaceId = "22222222-2222-4222-8222-222222222222";
+		let confirm!: (value: unknown) => void;
+		resources.confirmFileUpload.mockReturnValueOnce(
+			new Promise((resolve) => {
+				confirm = resolve;
+			}),
+		);
+		const invalidate = vi.spyOn(client, "invalidateQueries");
+		invalidate.mockRejectedValue(new Error("Refresh failed"));
+		await choose(new File(["demo"], "sample.txt"));
+		act(() => {
+			root.render(
+				<QueryClientProvider client={client}>
+					<WorkspaceFileUpload
+						workspaceId={otherWorkspaceId}
+						onUploaded={onUploaded}
+					/>
+				</QueryClientProvider>,
+			);
+		});
+		confirm({ outputId: "output-1", resource: { name: "sample.txt" } });
+		await flush();
+		expect(onUploaded).not.toHaveBeenCalled();
+		expect(invalidate).not.toHaveBeenCalled();
+		expect(container.textContent).not.toContain("failed");
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 1_100));
+		});
+		expect(invalidate).not.toHaveBeenCalled();
+	});
+	it("drops progress reported for a previous workspace", async () => {
+		const otherWorkspaceId = "22222222-2222-4222-8222-222222222222";
+		let release!: (response: Response) => void;
+		vi.mocked(fetch).mockImplementationOnce(
+			() =>
+				new Promise<Response>((resolve) => {
+					release = resolve;
+				}),
+		);
+		await choose(new File(["demo"], "sample.txt"));
+		act(() => {
+			root.render(
+				<QueryClientProvider client={client}>
+					<WorkspaceFileUpload
+						workspaceId={otherWorkspaceId}
+						onUploaded={onUploaded}
+					/>
+				</QueryClientProvider>,
+			);
+		});
+		release(new Response(JSON.stringify({ partNumber: 1, etag: "part-etag" })));
+		await flush();
+		expect(container.textContent).not.toContain("Uploading");
+		expect(container.textContent).not.toContain("Saving");
+		expect(onUploaded).not.toHaveBeenCalled();
+	});
 });
