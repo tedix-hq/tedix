@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testScriptShards, workspaceMatrix } from "./full-suite-hourly.mjs";
@@ -81,4 +87,48 @@ test("opt-in matrix covers every leaf and runs owner types once", () => {
 	} finally {
 		rmSync(root, { recursive: true });
 	}
+});
+
+test("slow workspaces publish complete non-overlapping shard sets on the real manifests", () => {
+	const root = join(import.meta.dir, "../..");
+	const jobsOf = (workspace, testScript) =>
+		workspaceMatrix(root).include.filter(
+			(job) => job.workspace === workspace && job.testScript === testScript,
+		);
+	expect(jobsOf("apps/api", "test:unit")).toEqual(
+		[1, 2, 3, 4].map((shard) => ({
+			workspace: "apps/api",
+			test: true,
+			testScript: "test:unit",
+			shard: `${shard}/4`,
+			types: shard === 1,
+		})),
+	);
+	expect(jobsOf("packages/db", "test:run")).toEqual(
+		[1, 2].map((shard) => ({
+			workspace: "packages/db",
+			test: true,
+			testScript: "test:run",
+			shard: `${shard}/2`,
+			types: shard === 1,
+		})),
+	);
+	for (const [, entries] of Map.groupBy(
+		workspaceMatrix(root).include,
+		(job) => `${job.workspace}:${job.testScript ?? ""}`,
+	)) {
+		const shards = entries
+			.filter((job) => job.shard)
+			.map((job) => job.shard.split("/").map(Number));
+		if (!shards.length) continue;
+		const count = shards[0]![1]!;
+		expect(shards.map(([index]) => index).sort((a, b) => a - b)).toEqual(
+			[...Array(count).keys()].map((index) => index + 1),
+		);
+	}
+	const api = JSON.parse(
+		readFileSync(join(root, "apps/api/package.json"), "utf8"),
+	);
+	expect(api.scripts["test:run"]).toBe("bun run test:unit");
+	expect(api.scripts["test:unit"]).toContain("test-unit.ts");
 });
