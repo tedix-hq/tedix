@@ -3,23 +3,112 @@ import type {
 	SkillWorkflowStep,
 } from "@tedix/api-contract/contracts/cognitive";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
+import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import { formatDurationMs } from "@/lib/time";
 import { RunStatusChip } from "./activity-runs";
 import {
-	extractApprovalId,
-	ConnectionRecoveryNotice,
-	extractWaitEventType,
 	formatBytes,
 	RunArtifactRow,
+	RunCostsSection,
 	RunDetailSectionHeader,
-	RunEvidenceList,
 	RunErrorAlert,
+	RunEvidenceSections,
 	RunRationaleEmpty,
 	RunRationaleRow,
 	RunStepRow,
-} from "./run-detail";
+} from "./run-detail-sections";
+import { ConnectionRecoveryNotice, extractGateField } from "./run-detail";
+
+describe("run sections", () => {
+	const inspection = {
+		run: { id: "run-1", workItemId: null },
+		steps: [],
+		toolCalls: [],
+	};
+	const pending = {
+		data: undefined,
+		isPending: true,
+		isError: false,
+		error: null,
+	};
+
+	it("keeps loading evidence separate from settled empty collections", () => {
+		const html = renderToStaticMarkup(
+			<RunEvidenceSections
+				inspection={inspection}
+				artifacts={pending}
+				rationale={pending}
+			/>,
+		);
+		expect(html).toContain('aria-label="Loading artifacts"');
+		expect(html).toContain('aria-label="Loading rationale"');
+		expect(html).toContain("No steps recorded yet");
+		expect(html).not.toContain("This run produced no artifacts");
+		expect(html).not.toContain("No rationale records reference this run");
+	});
+
+	it("retains cached artifact rows when a refresh fails", () => {
+		const artifacts: ComponentProps<typeof RunEvidenceSections>["artifacts"] = {
+			data: {
+				artifacts: [
+					{
+						path: "outputs/report.txt",
+						mimeType: "text/plain",
+						sizeBytes: 32,
+						outcome: "success",
+						attempt: 1,
+						storage: "inline",
+					},
+				],
+				truncated: false,
+				nextOffset: null,
+			},
+			isPending: false,
+			isError: true,
+			error: new Error("Artifact refresh unavailable"),
+		};
+		const host = document.createElement("div");
+		host.innerHTML = renderToStaticMarkup(
+			<RunEvidenceSections
+				inspection={inspection}
+				artifacts={artifacts}
+				rationale={pending}
+			/>,
+		);
+		expect(host.textContent).toContain("Artifact refresh unavailable");
+		expect(
+			host.querySelector('[aria-label="Artifacts"]')?.textContent,
+		).toContain("outputs/report.txt");
+	});
+
+	it("shows execution counters without inventing a monetary total", () => {
+		const html = renderToStaticMarkup(
+			<RunCostsSection
+				run={{
+					id: "run-1",
+					costSummary: {
+						schemaVersion: 1,
+						steps: 3,
+						attempts: 4,
+						retries: 1,
+						toolCalls: 2,
+						toolCallsByNamespace: {},
+						stepDurationMs: 1500,
+						wallMs: 2000,
+					},
+				}}
+				costs={pending}
+			/>,
+		);
+		expect(html).toContain('aria-label="Run cost summary"');
+		expect(html).toContain("Duration");
+		expect(html).toContain("2s");
+		expect(html).not.toContain("$0");
+		expect(html).not.toContain("Tokens");
+	});
+});
 
 describe("RunErrorAlert", () => {
 	it("shows the summary and keeps the raw envelope inside collapsed details", () => {
@@ -121,22 +210,6 @@ describe("RunDetailSectionHeader", () => {
 	});
 });
 
-describe("RunEvidenceList", () => {
-	it("uses one Kumo collection boundary with semantic divided rows", () => {
-		const html = renderToStaticMarkup(
-			<RunEvidenceList label="Steps">
-				<li>First</li>
-				<li>Second</li>
-			</RunEvidenceList>,
-		);
-		expect(html).toContain('data-slot="collection"');
-		expect(html).not.toContain('data-slot="card"');
-		expect(html).toContain('aria-label="Steps"');
-		expect(html).toContain("divide-y");
-		expect(html.match(/<li/g)).toHaveLength(2);
-	});
-});
-
 function makeStep(overrides: Partial<SkillWorkflowStep>): SkillWorkflowStep {
 	return {
 		path: "epochs/0/steps/fetch/1/attempts/1.json",
@@ -214,7 +287,7 @@ describe("RunArtifactRow", () => {
 		const html = renderToStaticMarkup(<RunArtifactRow artifact={artifact} />);
 		expect(html).toContain("outputs/report.json");
 		expect(html).toContain("2 KB");
-		expect(html).toContain("stored in R2");
+		expect(html).toContain("stored file");
 		expect(html).toContain("sha256 abcdef012345");
 		expect(html).toContain('data-slot="icon-frame"');
 		expect(html).toContain('data-appearance="fill"');
@@ -256,11 +329,11 @@ describe("RunRationaleRow", () => {
 });
 
 describe("RunRationaleEmpty", () => {
-	it("uses the quiet Kumo empty treatment and retains execution context", () => {
+	it("aligns the Kumo empty treatment with the section and retains execution context", () => {
 		const html = renderToStaticMarkup(
 			<RunRationaleEmpty runId="run-1" workItemId="work-1" />,
 		);
-		expect(html).toContain('data-appearance="quiet"');
+		expect(html).toContain('data-appearance="inline"');
 		expect(html).toContain("No rationale records reference this run");
 		expect(html).toContain("run run-1 (work item work-1)");
 	});
@@ -289,13 +362,15 @@ describe("approval evidence extraction", () => {
 			status: "waiting",
 			data: { approvalId: "apr-1", eventType: "approval" },
 		});
-		expect(extractApprovalId(step)).toBe("apr-1");
-		expect(extractWaitEventType(step)).toBe("approval");
+		expect(extractGateField(step, "approvalId")).toBe("apr-1");
+		expect(extractGateField(step, "eventType")).toBe("approval");
 	});
 
 	it("returns null when the evidence carries no approval id", () => {
-		expect(extractApprovalId(makeStep({ data: "raw text" }))).toBeNull();
-		expect(extractApprovalId(makeStep({ data: null }))).toBeNull();
-		expect(extractWaitEventType(makeStep({ data: {} }))).toBeNull();
+		expect(
+			extractGateField(makeStep({ data: "raw text" }), "approvalId"),
+		).toBeNull();
+		expect(extractGateField(makeStep({ data: null }), "approvalId")).toBeNull();
+		expect(extractGateField(makeStep({ data: {} }), "eventType")).toBeNull();
 	});
 });
