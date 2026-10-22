@@ -1096,6 +1096,10 @@
 		{
 			"name": "20261022015004_memory-facts-org-source-index/migration.sql",
 			"sha256": "5687cfd58646afa66384cf4e3497445ba23a7582727c898bd9692a9250e44e67"
+		},
+		{
+			"name": "20261022020431_audit_events_move_to_logs_db/migration.sql",
+			"sha256": "2935eafe22801eac5b8af0f24f5a1fd7e8b1bbb706e5226ae83d13130c246a5a"
 		}
 	]
 }
