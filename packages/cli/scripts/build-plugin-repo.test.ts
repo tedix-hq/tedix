@@ -51,6 +51,7 @@ describe("public plugin repository", () => {
 		const codex = JSON.parse(text(files.get(".codex-plugin/plugin.json")));
 		expect(claude.version).toBe(codex.version);
 		expect(claude.repository).toBe(PLUGIN_REPOSITORY);
+		expect(claude.privacyPolicyUrl).toBe("https://tedix.dev/privacy/");
 		expect(codex.repository).toBe(PLUGIN_REPOSITORY);
 	});
 
