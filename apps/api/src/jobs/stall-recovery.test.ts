@@ -4,6 +4,7 @@ import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { projects } from "@tedix/db/schema/projects";
+import { platformCronCheckpoints } from "@tedix/db/schema/platform-cron-executions";
 import { tedis } from "@tedix/db/schema/tedis";
 import { tediObjectives, tediTasks } from "@tedix/db/schema/tedi-objectives";
 import { workItems, workAttempts } from "@tedix/db/schema/work-items";
@@ -25,6 +26,7 @@ import {
 } from "@tedix/db/schema/work-factory";
 import {
 	listContinuityScopes,
+	getStallRecoveryCheckpoint,
 	getStallReceipt,
 } from "@tedix/db/queries/work-items/stall-recovery";
 import {
@@ -48,6 +50,7 @@ function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			projects,
+			platformCronCheckpoints,
 			tedis,
 			tediObjectives,
 			tediTasks,
@@ -87,6 +90,40 @@ function fixture() {
 }
 
 describe("autonomous stall recovery", () => {
+	it("processes one durable page per tick, wraps, and isolates environments", async () => {
+		const { sqlite, db } = fixture();
+		const insert = sqlite.prepare(
+			"INSERT INTO projects(id,org_id,key,name,created_at) VALUES (?, 'fictional-orchard', ?, 'Batch scope', ?)",
+		);
+		for (let i = 0; i < 105; i++) {
+			const id = `batch-${String(i).padStart(3, "0")}`;
+			insert.run(id, id, now);
+		}
+		// Fresh scopes need no wake; only the two original scopes are idle.
+		const fetch = vi.fn(async () =>
+			Response.json({ accepted: true, run_id: "accepted-run" }),
+		);
+		const env = {
+			ENVIRONMENT: "production",
+			TEDI_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		const tick = Date.parse(now);
+		expect(await dispatchStallRecovery(db, env, tick)).toBe(0);
+		expect(
+			JSON.parse((await getStallRecoveryCheckpoint(db, "production"))!),
+		).toEqual({ after: "project:batch-099", scheduledTime: tick });
+		expect(await dispatchStallRecovery(db, env, tick)).toBe(0);
+		expect(await getStallRecoveryCheckpoint(db, "staging")).toBeNull();
+		expect(await dispatchStallRecovery(db, env, tick + 120_000)).toBe(2);
+		expect(
+			JSON.parse((await getStallRecoveryCheckpoint(db, "production"))!).after,
+		).toBe("");
+		expect(await dispatchStallRecovery(db, env, tick + 240_000)).toBe(0);
+		expect(
+			JSON.parse((await getStallRecoveryCheckpoint(db, "production"))!).after,
+		).toBe("project:batch-099");
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
 	it("records delivery from the canonical failed run without redispatching that wake", async () => {
 		const { db, scope, send, recover } = fixture();
 		const s = await scope();

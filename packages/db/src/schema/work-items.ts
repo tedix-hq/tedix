@@ -338,6 +338,7 @@ export const workItems = sqliteTable(
 			table.accountableOwnerId,
 		),
 		index("idx_work_items_objective").on(table.objectiveId),
+		index("idx_work_items_org_objective").on(table.orgId, table.objectiveId),
 		index("idx_work_items_org_class").on(table.orgId, table.workClass),
 		index("idx_work_items_source_intent").on(table.sourceIntentId),
 		uniqueIndex("uniq_work_items_org_source_intent").on(

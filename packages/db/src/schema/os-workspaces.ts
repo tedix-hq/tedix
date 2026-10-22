@@ -149,6 +149,11 @@ export const osWorkspaceProjects = sqliteTable(
 			table.workspaceId,
 			table.projectId,
 		),
+		index("os_workspace_projects_org_project_status_idx").on(
+			table.organizationId,
+			table.projectId,
+			table.status,
+		),
 		index("os_workspace_projects_org_workspace_status_idx").on(
 			table.organizationId,
 			table.workspaceId,
@@ -453,6 +458,11 @@ export const osGadgetExecutions = sqliteTable(
 	},
 	(table) => [
 		index("idx_os_gadget_executions_completed").on(table.completedAt),
+		index("os_gadget_executions_org_workspace_environment_idx").on(
+			table.organizationId,
+			table.workspaceId,
+			table.runtimeEnvironment,
+		),
 		index("os_gadget_executions_org_idx").on(table.organizationId),
 		index("os_gadget_executions_gadget_idx").on(
 			table.gadgetId,
