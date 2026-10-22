@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { cn } from "@/components/kumo/cn";
 import { Link } from "@/components/kumo/link";
 import { canAccessAdminSection } from "@/components/admin-layout";
 import { OS_SETTINGS_NAVIGATION } from "@/lib/os-navigation";
@@ -15,22 +16,26 @@ export function OsSettingsFrame({
 }) {
 	const context = useOsOperationalContext();
 	const navigation = useRef<HTMLElement>(null);
-	useEffect(() => {
-		navigation.current
-			?.querySelector<HTMLElement>("[data-settings-active]")
-			?.parentElement?.scrollIntoView({ block: "nearest", inline: "end" });
-	}, [pathname]);
 	const isAdmin = context.data?.authority
 		? canAccessAdminSection(context.data.authority)
 		: false;
+	const canManageBilling =
+		context.data?.authority.permissions.includes("billing:manage") ?? false;
 	const isSettings =
 		pathname === "/admin" ||
 		pathname.startsWith("/admin/") ||
 		OS_SETTINGS_NAVIGATION.some((item) => item.path === pathname);
+	// Permission-dependent items arrive with the operational context after the
+	// pathname commit and shift the active link sideways, so its reveal must
+	// re-run whenever the item set can change — a pathname-only dependency can
+	// leave it outside the rail's viewport after history navigation.
+	useEffect(() => {
+		navigation.current
+			?.querySelector<HTMLElement>("[data-settings-active]")
+			?.parentElement?.scrollIntoView({ block: "nearest", inline: "end" });
+	}, [pathname, isAdmin, canManageBilling]);
 	if (!isSettings) return children;
 	const usageActive = pathname === "/compute" || pathname === "/admin/billing";
-	const canManageBilling =
-		context.data?.authority.permissions.includes("billing:manage") ?? false;
 	const items = [
 		...(isAdmin
 			? [
@@ -60,11 +65,10 @@ export function OsSettingsFrame({
 					return (
 						<div
 							key={item.path}
-							className={
-								item.path === "/account/connections"
-									? "flex shrink-0 flex-col md:hidden"
-									: "flex shrink-0 flex-col"
-							}
+							className={cn(
+								"flex shrink-0 flex-col",
+								item.path === "/account/connections" && "md:hidden",
+							)}
 						>
 							<Link
 								href={item.path}
