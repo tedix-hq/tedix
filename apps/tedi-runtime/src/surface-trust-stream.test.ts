@@ -92,6 +92,7 @@ function probe() {
 	const response = (await p.agent.onRequest(
 		new Request("https://do.internal/__internal/chat/stream", {
 			method: "POST",
+			headers: { "X-Service-Binding": "true" },
 			body: JSON.stringify({
 				session_key: "embed:acme:1",
 				text: "Which orders are overdue?",
@@ -120,6 +121,7 @@ function probe() {
 	const response = (await p.agent.onRequest(
 		new Request("https://do.internal/__internal/chat/stream", {
 			method: "POST",
+			headers: { "X-Service-Binding": "true" },
 			body: JSON.stringify({
 				session_key: "bench:1",
 				text: "hello",

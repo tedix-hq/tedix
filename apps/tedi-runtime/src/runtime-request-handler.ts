@@ -452,11 +452,44 @@ export interface RuntimeRequestHost {
 	identityValue: (value: string | null | undefined) => string | undefined;
 }
 
+/**
+ * Whether a request path names a tedi DO `/__internal/*` route under any
+ * spelling. The DO matches those routes by exact pathname, so the caller
+ * check decodes percent-escapes, resolves dot segments and collapses repeated
+ * slashes before deciding: a caller must not reach a privileged handler
+ * through a spelling the exact match would miss on a later rewrite.
+ */
+export function targetsInternalRoute(url: URL): boolean {
+	let pathname = url.pathname;
+	try {
+		pathname = decodeURIComponent(pathname);
+	} catch {
+		// Undecodable escapes stay literal; they are compared as written.
+	}
+	// Resolve `.`/`..` segments the decode may have revealed.
+	pathname = new URL(pathname.replace(/\/{2,}/g, "/"), "https://internal")
+		.pathname;
+	return /^\/__internal(?:\/|$)/i.test(pathname.replace(/\/{2,}/g, "/"));
+}
+
 export async function handleRuntimeRequest(
 	host: RuntimeRequestHost,
 	request: Request,
 ): Promise<Response> {
 	const url = new URL(request.url);
+	// `/__internal/*` is this DO's privileged control surface. The Worker edge
+	// refuses an untrusted caller before the DO wakes, but the DO's `fetch` is
+	// reachable by anything holding the `TEDI_AGENT` binding and by any later
+	// edge rewrite, so the DO checks the hop itself: only a trusted caller
+	// stamps the service-binding marker (the edge after its own check, the
+	// mesh and voice DO-to-DO calls), and the edge drops it from every
+	// untrusted inbound request. Refused before any handler reads identity.
+	if (targetsInternalRoute(url) && !isServiceBinding(request.headers)) {
+		return Response.json(
+			{ error: "Forbidden", message: "Internal route" },
+			{ status: 403 },
+		);
+	}
 	const hints = host.hintsFromHeaders(request.headers);
 	if (
 		url.pathname === "/get-messages" ||

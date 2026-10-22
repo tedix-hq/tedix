@@ -148,7 +148,9 @@ for (const discovery of ["throw", "pending"] as const) {
 		return actualGetTools.call(this, scope);
 	};
 	const response = await agent.onRequest(
-		new Request("https://do.internal/__internal/review-capabilities"),
+		new Request("https://do.internal/__internal/review-capabilities", {
+			headers: { "X-Service-Binding": "true" },
+		}),
 	);
 	const body = (await response.json()) as {
 		ok: boolean;
@@ -193,13 +195,16 @@ for (const discovery of ["throw", "pending"] as const) {
 	const post = await agent.onRequest(
 		new Request("https://do.internal/__internal/review-capabilities", {
 			method: "POST",
+			headers: { "X-Service-Binding": "true" },
 		}),
 	);
 	assert.equal(post.status, 405);
 	assert.deepEqual([identityCalls, registryCalls, mcpCalls], [0, 0, 0]);
 	await assert.rejects(
 		agent.onRequest(
-			new Request("https://do.internal/__internal/review-capabilities"),
+			new Request("https://do.internal/__internal/review-capabilities", {
+				headers: { "X-Service-Binding": "true" },
+			}),
 		),
 		(error) => error === identityFailure,
 	);
