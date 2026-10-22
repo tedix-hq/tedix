@@ -386,7 +386,7 @@ describe("opt-in monetary inference", () => {
 		]);
 		expect(
 			results.filter((result) => result.status === "fulfilled"),
-		).toHaveLength(1);
+		).toHaveLength(2);
 		expect(
 			sqlite.prepare("SELECT COUNT(*) AS n FROM billing_credit_entries").get(),
 		).toMatchObject({ n: 1 });
@@ -394,13 +394,60 @@ describe("opt-in monetary inference", () => {
 			creditBalanceMicros: 8830,
 		});
 	});
-	it("already settled reservation cannot accept a different usage event", async () => {
+	it("settles 50 monetary holds with distinct racing receipts without losing or overdrawing funds", async () => {
+		const { db, sqlite } = setup(200_000);
+		try {
+			for (let i = 0; i < 50; i++) {
+				expect(
+					await reserveBillingUsage(db, reservation(`hold:${i}`)),
+				).toMatchObject({ allowed: true });
+			}
+			const results = await Promise.allSettled(
+				Array.from({ length: 50 }, (_, i) =>
+					[0, 1].map((s) =>
+						settleBillingUsage(db, usage(`hold:${i}`, `receipt:${i}:${s}`)),
+					),
+				).flat(),
+			);
+			expect(results.filter((result) => result.status === "rejected")).toEqual(
+				[],
+			);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT COUNT(*) AS n, SUM(credit_applied_micros) AS credit FROM billing_usage_charges",
+					)
+					.get(),
+			).toEqual({ n: 50, credit: 58_500 });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT COUNT(*) AS n, SUM(amount_micros) AS amount FROM billing_credit_entries",
+					)
+					.get(),
+			).toEqual({ n: 50, amount: -58_500 });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT settlement_version AS version, credit_applied_micros AS credit FROM billing_usage_periods",
+					)
+					.get(),
+			).toEqual({ version: 50, credit: 58_500 });
+			expect(await getBillingBalanceSnapshot(db, "org", now)).toMatchObject({
+				creditBalanceMicros: 141_500,
+				reservedChargeMicros: 0,
+			});
+		} finally {
+			sqlite.close();
+		}
+	});
+	it("returns the winning charge for an already settled reservation", async () => {
 		const { db } = setup();
 		await reserveBillingUsage(db, reservation("one"));
-		await settleBillingUsage(db, usage("one"));
+		const charge = await settleBillingUsage(db, usage("one"));
 		await expect(
 			settleBillingUsage(db, usage("one", "different")),
-		).rejects.toThrow("cannot settle");
+		).resolves.toEqual(charge);
 	});
 });
 
