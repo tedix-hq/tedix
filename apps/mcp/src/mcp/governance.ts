@@ -738,6 +738,7 @@ export async function requireDestructiveToolApproval(
 		agent.app?.organizationId &&
 		agent.apiClient?.mcpGovernance?.resolveSkillManifestAuthorization
 	) {
+		let stage = "transport_policy";
 		try {
 			const transportPolicy =
 				await agent.apiClient.mcpGovernance.resolveAgentTransportPolicy?.({
@@ -754,6 +755,7 @@ export async function requireDestructiveToolApproval(
 				return approvalFailure(
 					`Action "${tool.toolId}" requires approval under its configured policy. No side effect was executed.`,
 				);
+			stage = "manifest_authorization";
 			const resolution =
 				await agent.apiClient.mcpGovernance.resolveSkillManifestAuthorization({
 					organizationId: agent.app.organizationId,
@@ -777,6 +779,7 @@ export async function requireDestructiveToolApproval(
 							: undefined,
 				});
 			if (resolution.approved && resolution.skillId && resolution.revision) {
+				stage = "manifest_audit";
 				emitGovernanceAuditEvent(
 					agent,
 					tool,
@@ -794,7 +797,19 @@ export async function requireDestructiveToolApproval(
 			return approvalFailure(
 				"Skill run identity or declared manifest capability is invalid; no side effect was executed.",
 			);
-		} catch {
+		} catch (error) {
+			// Upstream errors can include arguments or credentials; log correlation
+			// and the failure class, never the message, cause or stack.
+			console.warn("[governance] skill_manifest_authorization_unavailable", {
+				stage,
+				errorClass:
+					error instanceof Error ? error.constructor.name : typeof error,
+				organizationId: agent.app.organizationId,
+				skillRunId: workflowCaller.skillRunId,
+				skillId: workflowCaller.skillId,
+				executionEpoch: workflowCaller.workflowExecutionEpoch,
+				toolId: tool.toolId,
+			});
 			return approvalFailure(
 				"Skill manifest authorization is unavailable; no side effect was executed.",
 			);

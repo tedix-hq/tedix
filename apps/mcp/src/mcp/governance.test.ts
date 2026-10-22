@@ -1863,16 +1863,117 @@ describe("active skill manifest approval", () => {
 		).toMatchObject({ isError: true });
 		expect(resolve).not.toHaveBeenCalled();
 	});
-	it("fails closed when verification is unavailable", async () => {
-		const { agent, resolve } = context();
-		resolve.mockRejectedValueOnce(new Error("unavailable"));
-		expect(
-			await requireDestructiveToolApproval(agent, {
-				toolId: "generic",
-				title: "Tool",
-			}),
-		).toMatchObject({ isError: true });
-	});
+	it.each(["transport_policy", "manifest_authorization"] as const)(
+		"logs safe diagnostics and fails closed when %s throws",
+		async (stage) => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const { agent, resolve } = context();
+			const failure = new TypeError("secret upstream payload");
+			if (stage === "transport_policy") {
+				agent.apiClient.mcpGovernance.resolveAgentTransportPolicy = vi.fn(
+					async () => {
+						throw failure;
+					},
+				);
+			} else resolve.mockRejectedValueOnce(failure);
+			try {
+				expect(
+					await requireDestructiveToolApproval(agent, {
+						toolId: "tedix__get_os_output",
+						title: "Read output",
+						config: { _sourceAppSlug: "tedix" },
+					} as never),
+				).toMatchObject({ isError: true });
+				expect(warn).toHaveBeenCalledWith(
+					"[governance] skill_manifest_authorization_unavailable",
+					{
+						stage,
+						errorClass: "TypeError",
+						organizationId: "org-example",
+						skillRunId: "run-1",
+						skillId: "skill-1",
+						executionEpoch: 0,
+						toolId: "tedix__get_os_output",
+					},
+				);
+				expect(JSON.stringify(warn.mock.calls)).not.toContain(
+					"secret upstream payload",
+				);
+				if (stage === "transport_policy")
+					expect(resolve).not.toHaveBeenCalled();
+			} finally {
+				warn.mockRestore();
+			}
+		},
+	);
+
+	it.each([
+		{
+			toolId: "tedix__get_os_output",
+			config: { _sourceAppSlug: "tedix" },
+			namespace: "tedix",
+			sourceAppSlug: "tedix",
+			method: "get_os_output",
+		},
+		{
+			toolId: "tedix__revise_os_output",
+			config: { _sourceAppSlug: "tedix", _aggregateNamespace: "os" },
+			namespace: "os",
+			sourceAppSlug: "tedix",
+			method: "revise_os_output",
+		},
+		{
+			toolId: "tedix__scrape_elements",
+			config: { _sourceAppSlug: "tedix" },
+			namespace: "tedix",
+			sourceAppSlug: "tedix",
+			method: "scrape_elements",
+		},
+		{
+			toolId: "tedi_fixture__run_tedi_turn",
+			config: {
+				_aggregateNamespace: "tedi_fixture",
+				_aggregateTediId: "tedi-1",
+			},
+			namespace: "tedi_fixture",
+			sourceAppSlug: "example-unified",
+			method: "run_tedi_turn",
+			targetTediId: "tedi-1",
+		},
+		{
+			toolId: "crawler__firecrawl_agent",
+			config: {
+				_aggregateNamespace: "firecrawl_fixture",
+				_sourceAppSlug: "crawler-fixture",
+			},
+			namespace: "firecrawl_fixture",
+			sourceAppSlug: "crawler-fixture",
+			method: "firecrawl_agent",
+		},
+	])(
+		"passes trusted gateway provenance for $toolId",
+		async ({ toolId, config, namespace, sourceAppSlug, method, ...target }) => {
+			const { agent, resolve } = context();
+			await expect(
+				requireDestructiveToolApproval(agent, {
+					toolId,
+					title: "Tool",
+					config,
+				} as never),
+			).resolves.toBeNull();
+			expect(resolve).toHaveBeenCalledWith({
+				organizationId: "org-example",
+				runId: "run-1",
+				skillId: "skill-1",
+				tediId: "tedi-1",
+				executionEpoch: 0,
+				method,
+				namespace,
+				sourceAppSlug,
+				targetTediId: target.targetTediId,
+			});
+		},
+	);
 });
 
 it("audits the authorizing skill revision for every manifest-approved call", async () => {
