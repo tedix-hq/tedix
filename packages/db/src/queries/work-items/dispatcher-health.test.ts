@@ -166,6 +166,14 @@ describe("dispatcher health queries", () => {
 
 	it("reads the newest signals by index seek, never a table scan", async () => {
 		const sqlite = seed();
+		sqlite.exec(`
+			WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<22000)
+			INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision)
+			SELECT 'held-'||i,'busy','Held','accepted',
+				'{"executor":"codex","laneDispatch":{"state":"held"}}',
+				'2026-10-20T00:00:00Z','revision-1' FROM n;
+			ANALYZE work_items;
+		`);
 		const statements: string[] = [];
 		const prepare = sqlite.prepare.bind(sqlite);
 		sqlite.prepare = ((text: string) => {
@@ -198,6 +206,11 @@ describe("dispatcher health queries", () => {
 				"SEARCH p USING INDEX idx_policy_packs_org (organization_id=?)",
 			);
 			expect(plan).not.toMatch(/SCAN (a|k|p|w|h|m)\b/);
+		}
+		const workSearches = plans[0]?.match(/SEARCH w [^\n]+/g) ?? [];
+		expect(workSearches.length).toBeGreaterThanOrEqual(3);
+		for (const search of workSearches) {
+			expect(search).toContain("idx_work_items_lane_ready");
 		}
 	});
 

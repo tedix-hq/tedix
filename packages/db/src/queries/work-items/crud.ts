@@ -408,7 +408,7 @@ export async function listWorkItemsPage(
 				)
 			: undefined,
 		options.dispatchReadyOnly
-			? sql`(json_type(${workItems.metadata}, '$.laneDispatch') IS NULL OR json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'ready')`
+			? sql`(json_type(${workItems.metadata}, '$.laneDispatch') IS NULL OR json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'ready') = 1`
 			: undefined,
 		options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
 		options.objectiveId

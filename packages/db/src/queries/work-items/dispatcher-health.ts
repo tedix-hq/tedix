@@ -106,7 +106,7 @@ function dispatchable(): SQL {
 		AND w.disposition = 'accepted'
 		AND json_extract(w.metadata, '$.executor') IS NOT NULL
 		AND (json_type(w.metadata, '$.laneDispatch') IS NULL
-			OR json_extract(w.metadata, '$.laneDispatch.state') = 'ready')
+			OR json_extract(w.metadata, '$.laneDispatch.state') = 'ready') = 1
 		AND NOT EXISTS (
 			SELECT 1 FROM work_attempts x
 			WHERE x.org_id = w.org_id AND x.work_item_id = w.id
