@@ -253,6 +253,30 @@ describe("SlideList", () => {
 		mounted.cleanup();
 	});
 
+	it("promotes row actions to a static 44px column on coarse pointers", () => {
+		const mounted = mountEditor();
+		const row =
+			mounted.container.querySelector<HTMLElement>("[data-slide-row]")!;
+		// On touch the actions leave the absolute overlay for a real column
+		// beside the content, so they can be discovered without covering the
+		// thumbnail or label. Fine pointers keep the compact hover/focus
+		// overlay unchanged.
+		expect(row.className).toContain("coarse:flex");
+		const actions = row.querySelector<HTMLElement>(
+			'[aria-label="Duplicate slide"]',
+		)!.parentElement!;
+		expect(actions.className).toContain("absolute");
+		expect(actions.className).toContain("coarse:static");
+		expect(actions.className).toContain("coarse:flex-col");
+		expect(actions.className).toContain("coarse:opacity-100");
+		for (const label of ["Duplicate slide", "Delete slide"])
+			expect(
+				row.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)
+					?.className,
+			).toContain("coarse:size-11");
+		mounted.cleanup();
+	});
+
 	it("builds editable, unbranded layouts", () => {
 		const cards = templateSlide("four-card", 0);
 		for (const query of ["01", "Card heading", "One clear idea"])

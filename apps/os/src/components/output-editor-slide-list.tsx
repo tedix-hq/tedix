@@ -355,7 +355,7 @@ export function SlideList({
 					return (
 						<li
 							key={slide.id}
-							className="slide-list-row group relative"
+							className="slide-list-row group relative coarse:flex coarse:items-center"
 							data-slide-row={slide.id}
 							data-drop={dropAt ?? undefined}
 							data-dragging={dragId === slide.id || undefined}
@@ -407,7 +407,7 @@ export function SlideList({
 								 * thumbnail's copy, so every slide was read out twice.
 								 */
 								aria-label={`Slide ${index + 1}: ${label}`}
-								className="deck-read-thumb w-full flex-col items-stretch gap-1 p-1 text-left"
+								className="deck-read-thumb w-full flex-col items-stretch gap-1 p-1 text-left coarse:min-w-0"
 								multiline
 								size="sm"
 								variant={active ? "secondary" : "outline"}
@@ -435,12 +435,13 @@ export function SlideList({
 									{label}
 								</Text>
 							</Button>
-							<div className="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 coarse:opacity-100">
+							<div className="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 coarse:static coarse:ml-1 coarse:shrink-0 coarse:flex-col coarse:gap-1.5 coarse:opacity-100">
 								<Button
 									type="button"
 									size="icon-xs"
 									variant="secondary"
 									aria-label="Duplicate slide"
+									className="coarse:size-11"
 									disabled={disabled || deck.slides.length >= maxSlides}
 									onClick={() => onCommit(duplicateSlide(deck, slide.id))}
 								>
@@ -451,6 +452,7 @@ export function SlideList({
 									size="icon-xs"
 									variant="secondary"
 									aria-label="Delete slide"
+									className="coarse:size-11"
 									disabled={disabled}
 									onClick={() =>
 										onCommit(deleteSlide(deck, slide.id, activeSlideId))
