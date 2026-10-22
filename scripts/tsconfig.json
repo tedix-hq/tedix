@@ -42,6 +42,7 @@
 		"oxc-ast.ts",
 		"oss/dependency-licenses.ts",
 		"oss/secret-scan.ts",
+		"release/postdeploy-smoke.ts",
 		"secrets/rotate-master-key.ts",
 		"mcp/sync-tool-schemas.ts"
 	],
