@@ -240,6 +240,43 @@ describe("external-agent session exchange", () => {
 		},
 	);
 
+	it.each([
+		["externalAgentIdentity/authorizeWorkloadSession", 401, true],
+		["externalAgentIdentity/openSession", 401, false],
+		["externalAgentIdentity/authorizeWorkloadSession", 403, false],
+	])(
+		"classifies a workload subject mismatch (%s, %s)",
+		async (path, status, classified) => {
+			callRpc.mockReset();
+			callRpc.mockRejectedValueOnce(
+				new RpcCallError(
+					path,
+					status,
+					JSON.stringify({
+						message:
+							"Workload identity subject does not match the bound principal",
+						internal: "must-not-leak",
+					}),
+					"Unauthorized",
+					undefined,
+				),
+			);
+			const response = await handleExternalAgentSessionExchange(request(), {
+				API_SERVICE: { fetch: vi.fn() } as unknown as Fetcher,
+			});
+			expect(response.status).toBe(status);
+			expect(await response.json()).toEqual(
+				classified
+					? {
+							error:
+								"External-agent credential does not match the registered principal",
+							code: "credential_binding_mismatch",
+						}
+					: { error: "Session exchange rejected" },
+			);
+		},
+	);
+
 	it("does not classify arbitrary forbidden details as a binding mismatch", async () => {
 		callRpc.mockReset();
 		callRpc.mockRejectedValueOnce(

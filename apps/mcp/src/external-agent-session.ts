@@ -37,26 +37,28 @@ function sessionExchangeRejectionCode(
 	error: RpcCallError,
 ): SessionExchangeRejectionCode | undefined {
 	if (error.status === 503) return "session_backend_unavailable";
+	let message = error.detail;
+	try {
+		const parsed: unknown = JSON.parse(error.detail);
+		if (parsed && typeof parsed === "object" && "message" in parsed) {
+			message = typeof parsed.message === "string" ? parsed.message : "";
+		}
+	} catch {
+		// Plain RPC error messages are also supported; no detail is returned.
+	}
 	if (
-		error.status === 403 &&
-		(error.path === "externalAgentIdentity/openSession" ||
-			error.path === "externalAgentIdentity/issueMcpCredential")
-	) {
-		let message = error.detail;
-		try {
-			const parsed: unknown = JSON.parse(error.detail);
-			if (parsed && typeof parsed === "object" && "message" in parsed) {
-				message = typeof parsed.message === "string" ? parsed.message : "";
-			}
-		} catch {
-			// Plain RPC error messages are also supported; no detail is returned.
-		}
-		if (
+		(error.status === 403 &&
+			(error.path === "externalAgentIdentity/openSession" ||
+				error.path === "externalAgentIdentity/issueMcpCredential") &&
 			message ===
-			"Authenticated credential is not bound to this external-agent principal"
-		) {
-			return "credential_binding_mismatch";
-		}
+				"Authenticated credential is not bound to this external-agent principal") ||
+		// A GitHub OIDC `sub` other than the principal's credentialBindingId.
+		(error.status === 401 &&
+			error.path === "externalAgentIdentity/authorizeWorkloadSession" &&
+			message ===
+				"Workload identity subject does not match the bound principal")
+	) {
+		return "credential_binding_mismatch";
 	}
 	const detail = error.detail.toLowerCase();
 	if (error.status === 429) return "exchange_rate_limited";
