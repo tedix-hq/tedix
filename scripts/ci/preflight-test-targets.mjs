@@ -86,10 +86,14 @@ function workspacesAffectedBy(file, graph) {
 	if (match[1] !== "packages" || TEST_FILE.test(file)) return [owner];
 	const packageName = graph.packageNameOf.get(owner);
 	if (!packageName) return [owner];
-	return [
-		owner,
-		...dependentsOf(packageName, graph.manifests).filter((d) => d !== owner),
-	];
+	const hits = new Set([owner]);
+	for (const workspace of hits) {
+		const name = graph.packageNameOf.get(workspace);
+		if (!name) continue;
+		for (const dependent of dependentsOf(name, graph.manifests))
+			hits.add(dependent);
+	}
+	return [...hits];
 }
 
 /**
@@ -111,7 +115,7 @@ export function affectedWorkspaces(files, io) {
 	for (const workspaceDir of io.workspaceDirs) {
 		const manifest = io.readManifest(workspaceDir);
 		packageNameOf.set(workspaceDir, manifest?.name);
-		if (manifest && io.isRelevantWorkspace(workspaceDir)) {
+		if (manifest) {
 			manifests.set(workspaceDir, manifest);
 		}
 	}

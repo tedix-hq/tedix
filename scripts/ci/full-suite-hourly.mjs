@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
 	appendFileSync,
 	existsSync,
@@ -7,6 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { affectedWorkspaces } from "./preflight-test-targets.mjs";
 
 export function testScriptShards(scripts, name, ancestors = []) {
 	if (ancestors.includes(name)) throw new Error(`Cyclic test script: ${name}`);
@@ -136,17 +138,130 @@ export function workspaceMatrix(root = ".") {
 	};
 }
 
-export async function alreadyPassed({ repository, sha, runId, request }) {
-	for (let page = 1; ; page++) {
+// Unknown paths and shared execution/configuration inputs deliberately run all checks.
+const GLOBAL_INPUT =
+	/^(?:package\.json$|(?:bun\.lockb?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$|(?:tsconfig[^/]*\.json|(?:vite|vitest)[^/]*\.config\.[^/]+)$|\.ox(?:lint|fmt)[^/]*$|\.github\/|scripts\/|packages\/api-contract\/|packages\/db\/(?:src\/schema|migrations|drizzle)(?:\/|$))/;
+const DEPLOY_CONFIG =
+	/(?:^|\/)(?:wrangler\.(?:jsonc?|toml)|cloudflare\.config\.[^/]+)$/;
+const PROSE = /(?:^docs\/|\.mdx?$)/i;
+
+export function suiteSelection(root, { eventName, files }) {
+	const matrix = workspaceMatrix(root);
+	const full = () => ({ matrix, repository: true, scope: "full" });
+	if (eventName !== "push" || files === null) return full();
+	if (files.some((file) => GLOBAL_INPUT.test(file) || DEPLOY_CONFIG.test(file)))
+		return full();
+	const source = files.filter((file) => !PROSE.test(file));
+	if (!source.length)
+		return { matrix: { include: [] }, repository: false, scope: "docs" };
+	const manifests = new Map();
+	for (const directory of ["apps", "packages"])
+		for (const entry of readdirSync(join(root, directory), {
+			withFileTypes: true,
+		})) {
+			if (!entry.isDirectory()) continue;
+			const workspace = `${directory}/${entry.name}`;
+			const path = join(root, workspace, "package.json");
+			if (!existsSync(path)) continue;
+			const manifest = JSON.parse(readFileSync(path, "utf8"));
+			manifests.set(workspace, {
+				name: manifest.name,
+				deps: new Set(
+					[
+						"dependencies",
+						"devDependencies",
+						"peerDependencies",
+						"optionalDependencies",
+					].flatMap((key) => Object.keys(manifest[key] ?? {})),
+				),
+			});
+		}
+	if (
+		source.some((file) => !manifests.has(file.split("/").slice(0, 2).join("/")))
+	)
+		return full();
+	const affected = new Set(
+		affectedWorkspaces(source, {
+			workspaceDirs: [...manifests.keys()],
+			readManifest: (workspace) => manifests.get(workspace),
+			isRelevantWorkspace: () => true,
+		}),
+	);
+	return {
+		matrix: {
+			include: matrix.include.filter((job) => affected.has(job.workspace)),
+		},
+		repository: false,
+		scope: "affected",
+	};
+}
+
+// Compare against a green ancestor, rather than the push parent: a docs push
+// must not certify code from an earlier red or still-running push.
+export async function certificationFiles({
+	repository,
+	sha,
+	runId,
+	request,
+	git = (args) =>
+		execFileSync("git", args, {
+			encoding: "utf8",
+			maxBuffer: 16 * 1024 * 1024,
+		}),
+}) {
+	const seen = new Set();
+	const green = new Map();
+	for (let page = 1; page <= 10; page++) {
 		const result = await request(
-			`/repos/${repository}/actions/workflows/full-suite-hourly.yml/runs?branch=main&head_sha=${sha}&per_page=100&page=${page}`,
+			`/repos/${repository}/actions/workflows/full-suite-hourly.yml/runs?branch=main&per_page=100&page=${page}`,
 		);
-		const previous = result.workflow_runs.find(
-			(run) => run.head_sha === sha && String(run.id) !== String(runId),
-		);
-		if (previous) return previous.conclusion === "success";
-		if (result.workflow_runs.length < 100) return false;
+		for (const run of result.workflow_runs) {
+			if (String(run.id) === String(runId) || seen.has(run.head_sha)) continue;
+			seen.add(run.head_sha);
+			if (
+				run.status === "completed" &&
+				run.conclusion === "success" &&
+				run.head_branch === "main" &&
+				run.head_repository?.full_name === repository
+			)
+				green.set(run.head_sha, run);
+		}
+		if (result.workflow_runs.length < 100) break;
 	}
+	for (const ancestor of git([
+		"rev-list",
+		"--first-parent",
+		"--max-count=1000",
+		sha,
+	])
+		.trim()
+		.split("\n")) {
+		const run = green.get(ancestor);
+		if (!run) continue;
+		const jobs = [];
+		for (let page = 1; ; page++) {
+			const result = await request(
+				`/repos/${repository}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100&page=${page}`,
+			);
+			jobs.push(...result.jobs);
+			if (result.jobs.length < 100) break;
+		}
+		const aggregate = jobs.filter((job) => job.name === "Main CI");
+		if (aggregate.length !== 1 || aggregate[0].conclusion !== "success")
+			continue;
+		return git([
+			"diff",
+			"--name-only",
+			"--no-renames",
+			"-z",
+			ancestor,
+			sha,
+			"--",
+		])
+			.split("\0")
+			.filter(Boolean);
+	}
+	return null;
 }
 
 export function ciObservation({ projectId, repository, run, jobs }) {
@@ -225,18 +340,22 @@ if (
 		throw new Error(
 			"FULL_SUITE_RUNNER_LABELS must be a nonempty JSON array of runner labels",
 		);
-	const skip = await alreadyPassed({
-		repository: env.GITHUB_REPOSITORY,
-		sha: env.GITHUB_SHA,
-		runId: env.GITHUB_RUN_ID,
-		request: githubRequest,
-	});
+	const files =
+		env.GITHUB_EVENT_NAME === "push"
+			? await certificationFiles({
+					repository: env.GITHUB_REPOSITORY,
+					sha: env.GITHUB_SHA,
+					runId: env.GITHUB_RUN_ID,
+					request: githubRequest,
+				})
+			: null;
+	const plan = suiteSelection(".", { eventName: env.GITHUB_EVENT_NAME, files });
 	appendFileSync(
 		env.GITHUB_OUTPUT,
-		`skip=${skip}\nmatrix=${JSON.stringify(workspaceMatrix())}\nrunners=${JSON.stringify(runners)}\n`,
+		`matrix=${JSON.stringify(plan.matrix)}\nworkspace=${plan.matrix.include.length > 0}\nrepository=${plan.repository}\nrunners=${JSON.stringify(runners)}\n`,
 	);
 	appendFileSync(
 		env.GITHUB_STEP_SUMMARY,
-		`${skip ? "Already passed; skipping" : "Testing"} main ${env.GITHUB_SHA}\n`,
+		`Main ${env.GITHUB_SHA}: ${plan.matrix.include.length} workspace shards; repository=${plan.repository}; scope=${plan.scope}\n`,
 	);
 }
