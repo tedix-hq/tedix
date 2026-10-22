@@ -28,6 +28,7 @@
 	"copy_code": "Code kopieren",
 	"could_not_be_reached": "{{product}} war nicht erreichbar",
 	"could_not_connect": "{{assistant}} konnte nicht verbinden.",
+	"tedi_unavailable": "Dieser Tedi ist für dich nicht verfügbar. Wähle einen anderen Tedi.",
 	"could_not_save_try_again": "Konnte nicht speichern. Versuchen Sie es erneut.",
 	"dictate_message": "Nachricht diktieren",
 	"effort_default": "Standard-Denkaufwand",

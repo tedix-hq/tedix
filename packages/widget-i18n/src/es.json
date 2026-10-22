@@ -28,6 +28,7 @@
 	"copy_code": "Copiar código",
 	"could_not_be_reached": "No se pudo consultar {{product}}",
 	"could_not_connect": "{{assistant}} no pudo conectarse.",
+	"tedi_unavailable": "Este tedi no está disponible para ti. Elige otro tedi.",
 	"could_not_save_try_again": "No se pudo guardar. Inténtalo de nuevo.",
 	"dictate_message": "Dictar mensaje",
 	"effort_default": "Razonamiento predeterminado",

@@ -364,6 +364,22 @@ describe("the signed session", () => {
 		expect(session).toHaveBeenCalledTimes(2);
 	});
 
+	it.each([
+		"This tedi is not available to you. Choose another tedi.",
+		"Configure selectable tedis in Tedi widget settings first.",
+	])("explains unavailable selection: %s", async (message) => {
+		const w = await bootWidget({
+			options: {
+				session: vi.fn().mockRejectedValue(new Error(message)),
+			},
+		});
+		await w.open();
+		expect(w.Tedix.status().lastError).toBe("tedi_unavailable");
+		expect(w.$(".tedix-session-recovery")?.textContent).toContain(
+			"This tedi is not available to you. Choose another tedi.",
+		);
+	});
+
 	it("keeps the server's own failure code for an HTTP session error", async () => {
 		const w = await bootWidget({ options: { session: undefined } });
 		w.fetch.mockResolvedValue(
