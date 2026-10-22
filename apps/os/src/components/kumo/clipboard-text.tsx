@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
  * confirmation animation, one tooltip contract, and one accessible label set.
  *
  * Kumo's small copy button is 26px; on phones and touch screens it grows to
- * the same 44px target every OS button has.
+ * the same 44px target every OS button has, and the field grows with it so
+ * its clipped frame never cuts the button's focus ring.
  */
 const ClipboardText = forwardRef<
 	HTMLDivElement,
@@ -17,7 +18,7 @@ const ClipboardText = forwardRef<
 	<KumoClipboardText
 		ref={ref}
 		className={cn(
-			"max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-h-11 coarse:[&_button]:min-w-11",
+			"max-sm:h-auto coarse:h-auto max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-h-11 coarse:[&_button]:min-w-11",
 			className,
 		)}
 		{...props}
