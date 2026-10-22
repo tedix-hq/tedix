@@ -36,6 +36,7 @@ export type SkillMcpAppBindings = Record<string, string>;
  * same-named app can never gain a durable link to them.
  */
 const UNBOUND_NAMESPACES = new Set([
+	"os",
 	"home",
 	"kernel",
 	"tedi",
@@ -45,6 +46,9 @@ const UNBOUND_NAMESPACES = new Set([
 
 /** Slug candidates for a namespace, in the runtime's match order. */
 export function mcpNamespaceSlugCandidates(namespace: string): string[] {
+	// OS is a platform surface whose tool rows belong to the tedix app.
+	// A same-named tenant app must not shadow it.
+	if (namespace === "os") return ["tedix"];
 	return [
 		...new Set([namespace, `${namespace}-tedix`, namespace.replace(/_/g, "-")]),
 	];

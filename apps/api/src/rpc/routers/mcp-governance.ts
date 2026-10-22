@@ -31,7 +31,7 @@ const mcpGovernanceOs = implement(
 	mcpGovernanceContract,
 ).$context<BaseContext>();
 const serviceOs = mcpGovernanceOs.use(withServiceAuth);
-const RESERVED_SKILL_NAMESPACES = new Set(["tedi", "home", "kernel"]);
+const RESERVED_SKILL_NAMESPACES = new Set(["tedi", "home", "kernel", "os"]);
 
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	resolveSkillManifestAuthorization:
@@ -116,7 +116,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						if (namespace === "tedi") return false;
 						if (namespaceToSlug[namespace])
 							return namespaceToSlug[namespace] === input.sourceAppSlug;
-						return namespace === input.namespace;
+						// OS must resolve to its platform app, never a namespace-only grant.
+						return namespace !== "os" && namespace === input.namespace;
 					});
 				}
 				return declared
