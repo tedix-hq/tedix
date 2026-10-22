@@ -53,6 +53,12 @@ import {
 	listAgentDecisionRecorders,
 } from "@tedix/db/queries/agent-decisions";
 import {
+	getExternalAgentPrincipal,
+	getExternalAgentPrincipalByCredential,
+	listExternalAgentPrincipalsRepresentingUser,
+} from "@tedix/db/queries/external-agent-identity/principals";
+import { listExternalAgentSessionKeys } from "@tedix/db/queries/external-agent-identity/sessions";
+import {
 	type DecisionEdgeInput,
 	upsertDecisionEdges,
 } from "@tedix/db/queries/decision-graph";
@@ -89,20 +95,57 @@ type JournalContext = Pick<
 	| "db"
 	| "authType"
 	| "user"
+	| "userId"
 	| "tediId"
 	| "descopeUserId"
 	| "serviceAccount"
 	| "apiKey"
+	| "externalAgentPrincipalId"
 >;
 
-function journalActor(context: JournalContext): LearningActor {
+/** The person an external-agent principal acts for, when its binding says so. */
+function representedUserId(
+	principal: Awaited<ReturnType<typeof getExternalAgentPrincipal>>,
+): string | null {
+	if (!principal) return null;
+	if (principal.credentialBindingType === "owner_user")
+		return principal.credentialBindingId;
+	const represented = principal.metadata.representedUserId;
+	return typeof represented === "string" && represented.trim()
+		? represented
+		: null;
+}
+
+/**
+ * The accountable actor a journaled decision is stamped with. An external
+ * Agent-Session call carries no user/api-key identity of its own, so the
+ * decision is attributed to the person or credential its principal represents —
+ * the same identity the Feed and the morning review look it up by.
+ */
+async function journalActor(
+	context: JournalContext,
+	orgId: string,
+): Promise<LearningActor> {
 	const actor = observedLearningActor(context);
-	if (actor.actorType === "unknown" || !actor.actorId)
-		throw createError(
-			ErrorCodes.FORBIDDEN,
-			"Recording an agent decision requires an identified caller",
-		);
-	return actor;
+	if (actor.actorType !== "unknown" && actor.actorId) return actor;
+	if (context.externalAgentPrincipalId) {
+		const principal = await getExternalAgentPrincipal(context.db, {
+			organizationId: orgId,
+			principalId: context.externalAgentPrincipalId,
+		});
+		const represented = representedUserId(principal);
+		if (represented) return { actorType: "user", actorId: represented };
+		if (principal?.credentialBindingType === "api_key")
+			return {
+				actorType: "api_key",
+				actorId: principal.credentialBindingId,
+			};
+		if (principal) return { actorType: "service", actorId: principal.id };
+	}
+	throw createError(
+		ErrorCodes.FORBIDDEN,
+		"Recording an agent decision requires an identified caller",
+	);
 }
 
 function decisionTime(occurredAt: string | undefined, now: Date): string {
@@ -142,7 +185,7 @@ export async function recordAgentDecision(
 	input: RecordAgentDecisionInput,
 	now = new Date(),
 ): Promise<RecordAgentDecisionResult> {
-	const actor = journalActor(context);
+	const actor = await journalActor(context, orgId);
 	const config = await journalConfig(context.db, orgId);
 	const occurredAt = decisionTime(input.occurredAt, now);
 	const recent = await countAgentDecisionsRecordedSince(context.db, {
@@ -287,7 +330,7 @@ export async function recordAgentDecisionOutcome(
 	input: RecordAgentDecisionOutcomeInput,
 	now = new Date(),
 ) {
-	const actor = journalActor(context);
+	const actor = await journalActor(context, orgId);
 	const decision = await getAgentDecisionEvent(context.db, {
 		organizationId: orgId,
 		decisionId: input.decisionId,
@@ -392,7 +435,13 @@ async function journalDecisions(
 	input: {
 		since: string;
 		limit: number;
-		recordedBy?: { actorType: "user"; actorId: string };
+		recordedBy?: {
+			actors: Array<{
+				actorType: LearningActor["actorType"];
+				actorId: string;
+			}>;
+			threadIds?: string[];
+		};
 	},
 	config: Awaited<ReturnType<typeof journalConfig>>,
 ): Promise<AgentDecision[]> {
@@ -435,14 +484,94 @@ export async function listAgentDecisions(
 	};
 }
 
+/**
+ * The identities whose recorded decisions this viewer may see: the caller's own
+ * credential plus, for external agents and the people they act for, the
+ * principal's bound credential and its sessions' Agent-Session keys (journaled
+ * as `threadId`). A decision recorded by any of those counts as the viewer's
+ * own agents' work.
+ */
+async function viewerDecisionScopes(
+	context: JournalContext,
+	orgId: string,
+): Promise<{
+	actors: Array<{ actorType: LearningActor["actorType"]; actorId: string }>;
+	threadIds: string[];
+} | null> {
+	const viewer = observedLearningActor(context);
+	const actors: Array<{
+		actorType: LearningActor["actorType"];
+		actorId: string;
+	}> =
+		viewer.actorType !== "unknown" && viewer.actorId
+			? [{ actorType: viewer.actorType, actorId: viewer.actorId }]
+			: [];
+	const principalIds = new Set<string>();
+	if (context.externalAgentPrincipalId) {
+		principalIds.add(context.externalAgentPrincipalId);
+		const principal = await getExternalAgentPrincipal(context.db, {
+			organizationId: orgId,
+			principalId: context.externalAgentPrincipalId,
+		});
+		const represented = representedUserId(principal);
+		if (represented) actors.push({ actorType: "user", actorId: represented });
+		if (principal?.credentialBindingType === "api_key")
+			actors.push({
+				actorType: "api_key",
+				actorId: principal.credentialBindingId,
+			});
+		if (principal) actors.push({ actorType: "service", actorId: principal.id });
+	}
+	if (context.apiKey?.id) {
+		const bound = await getExternalAgentPrincipalByCredential(context.db, {
+			organizationId: orgId,
+			credentialBindingId: context.apiKey.id,
+		});
+		if (bound) {
+			principalIds.add(bound.id);
+			const represented = representedUserId(bound);
+			if (represented) actors.push({ actorType: "user", actorId: represented });
+		}
+	}
+	if (viewer.actorType === "user" && viewer.actorId) {
+		const userId =
+			context.userId ??
+			(await getActiveMemberUserIdForSubject(context.db, {
+				organizationId: orgId,
+				subject: viewer.actorId,
+			}));
+		if (userId && userId !== viewer.actorId)
+			actors.push({ actorType: "user", actorId: userId });
+		for (const principal of await listExternalAgentPrincipalsRepresentingUser(
+			context.db,
+			{ organizationId: orgId, userId: userId ?? viewer.actorId },
+		)) {
+			principalIds.add(principal.id);
+			if (principal.credentialBindingType === "api_key")
+				actors.push({
+					actorType: "api_key",
+					actorId: principal.credentialBindingId,
+				});
+		}
+	}
+	const threadIds = principalIds.size
+		? await listExternalAgentSessionKeys(context.db, {
+				organizationId: orgId,
+				principalIds: [...principalIds],
+			})
+		: [];
+	if (!actors.length && !threadIds.length) return null;
+	return { actors, threadIds };
+}
+
 /** The viewer's own agents' decisions of the last three days, for the Feed. */
 export async function agentDecisionFeed(
 	context: JournalContext,
 	orgId: string,
 	now = new Date(),
 ): Promise<ActivityFeedItem[]> {
-	const viewer = observedLearningActor(context);
-	if (viewer.actorType !== "user" || !viewer.actorId) return [];
+	const recordedBy = await viewerDecisionScopes(context, orgId);
+	if (!recordedBy) return [];
 	const config = await journalConfig(context.db, orgId);
 	const decisions = await journalDecisions(
 		context.db,
@@ -450,7 +579,7 @@ export async function agentDecisionFeed(
 		{
 			since: new Date(now.getTime() - 3 * DAY_MS).toISOString(),
 			limit: 50,
-			recordedBy: { actorType: "user", actorId: viewer.actorId },
+			recordedBy,
 		},
 		config,
 	);
@@ -536,7 +665,7 @@ export async function runAgentDecisionMorningReview(
 				{
 					since,
 					limit: 100,
-					recordedBy: { actorType: "user", actorId: userId },
+					recordedBy: { actors: [{ actorType: "user", actorId: userId }] },
 				},
 				config,
 			);

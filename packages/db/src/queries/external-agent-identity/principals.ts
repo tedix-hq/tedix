@@ -2,8 +2,9 @@ import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 import { ExternalAgentPlatformSchema } from "@tedix/api-contract/schemas/external-agent-identity";
 import { organizationMembers } from "../../schema/organization-members";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, getColumns, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, inArray, ne, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import type { DbQueryClient } from "../../query-client";
 import { apiKeys } from "../../schema/api-keys";
 import {
 	type ExternalAgentPrincipal,
@@ -82,6 +83,40 @@ export async function getExternalAgentPrincipalByCredential(
 		)
 		.limit(1);
 	return rows[0] ?? null;
+}
+
+/**
+ * Principals that act for one person: an `owner_user` binding to their
+ * canonical user id, or an `api_key` binding carrying
+ * `metadata.representedUserId` — the same canonical-party mapping the
+ * separation-of-duties ledger uses.
+ */
+export async function listExternalAgentPrincipalsRepresentingUser(
+	db: DbQueryClient,
+	params: { organizationId: string; userId: string; limit?: number },
+): Promise<ExternalAgentPrincipal[]> {
+	return db
+		.select()
+		.from(externalAgentPrincipals)
+		.where(
+			and(
+				eq(externalAgentPrincipals.organizationId, params.organizationId),
+				or(
+					and(
+						eq(externalAgentPrincipals.credentialBindingType, "owner_user"),
+						eq(externalAgentPrincipals.credentialBindingId, params.userId),
+					),
+					and(
+						eq(externalAgentPrincipals.credentialBindingType, "api_key"),
+						eq(
+							sql`json_extract(${externalAgentPrincipals.metadata}, '$.representedUserId')`,
+							params.userId,
+						),
+					),
+				),
+			),
+		)
+		.limit(Math.min(Math.max(params.limit ?? 50, 1), 50));
 }
 
 /** Resolve the globally unique canonical principal id before tenant context is

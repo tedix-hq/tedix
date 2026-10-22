@@ -45,6 +45,9 @@ vi.mock("../rpc/routers/user-settings", () => ({
 vi.mock("./internal-decision-feed", () => ({
 	internalDecisionFeed: vi.fn(async () => []),
 }));
+vi.mock("./deck-pipeline-status", () => ({
+	loadDeckPipelineStatus: vi.fn(async () => undefined),
+}));
 vi.mock("../rpc/routers/work-items", () => ({
 	workItemsContractRouter: {
 		listActivity: "activity",
@@ -327,7 +330,7 @@ it("counts every visible configured factory source in a project Deck just as the
 	});
 });
 
-it("includes ordinary owner questions and non-critical approvals routed to Feed", async () => {
+it("shows feed-routed questions and approvals as updates, not Needs-you", async () => {
 	const implementation = mocks.call.getMockImplementation()!;
 	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {
 		if (procedure === "spaces") return { items: [], truncated: false };
@@ -387,16 +390,12 @@ it("includes ordinary owner questions and non-critical approvals routed to Feed"
 		false,
 	);
 	const feed = await loadForYouProjection(context, { limit: 100 });
-	expect(feed.items).toEqual(
+	expect(
+		feed.items.filter((item) => item.needsAction).map((item) => item.id),
+	).not.toEqual(
 		expect.arrayContaining([
-			expect.objectContaining({
-				id: "decision:fictional-question",
-				needsAction: true,
-			}),
-			expect.objectContaining({
-				id: "work-approval:fictional-approval",
-				needsAction: true,
-			}),
+			"decision:fictional-question",
+			"work-approval:fictional-approval",
 		]),
 	);
 });

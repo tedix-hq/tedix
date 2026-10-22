@@ -81,11 +81,12 @@ export const attentionContractRouter = os.router({
 				(_, index) => !projection.items[index]!.needsAction,
 			),
 			complete: projection.complete,
+			incompleteSources: projection.incompleteSources,
 			observedAt: projection.observedAt,
 			empty: cards.length === 0,
 			notice: projection.complete
 				? ""
-				: "Some sources could not be read. Reload for the full feed.",
+				: `Some sources could not be read: ${(projection.incompleteSources ?? []).join(", ")}. Reload for the full feed.`,
 			markdown: attentionMarkdown(cards, projection.complete),
 		};
 	}),
