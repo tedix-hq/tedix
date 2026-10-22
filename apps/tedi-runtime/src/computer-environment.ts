@@ -1157,15 +1157,35 @@ export class ComputerEnvironmentController {
 		input: Record<string, unknown>,
 	): Promise<unknown> {
 		const path = typeof input.path === "string" ? input.path : environment.cwd;
-		return {
-			...record(
-				await this.actions.files(environment, operation, {
-					...input,
-					path: path.startsWith("/") ? path : `${environment.cwd}/${path}`,
-				}),
-			),
-			operation,
-		};
+		const receipt = record(
+			await this.actions.files(environment, operation, {
+				...input,
+				path: path.startsWith("/") ? path : `${environment.cwd}/${path}`,
+			}),
+		);
+		await this.observeLiveReceipt(environment, receipt);
+		return { ...receipt, operation };
+	}
+	/**
+	 * A resolved native receipt is fresher readiness evidence than the status
+	 * read a stale selection would re-run: the body just answered. Stamp that
+	 * observation forward so work that is actively reading or executing does not
+	 * reopen into another native refresh on its next call. A transport timeout
+	 * carries no answer and stamps nothing; a concurrent revalidation keeps its
+	 * own pending ready bit.
+	 */
+	private async observeLiveReceipt(
+		environment: ComputerEnvironment,
+		receipt: Record<string, unknown>,
+	): Promise<void> {
+		if (receipt.requestTimedOut === true) return;
+		await withAcquisitionLock(this.store, this.key, async () => {
+			const current = await this.store.get<ComputerEnvironment>(this.key);
+			if (current?.leaseId !== environment.leaseId || !current.ready) return;
+			const checkedAt = Date.now();
+			if ((current.checkedAt ?? 0) >= checkedAt) return;
+			await this.store.put(this.key, { ...current, checkedAt });
+		});
 	}
 	private async ready(): Promise<{
 		environment?: ComputerEnvironment;
@@ -1351,6 +1371,7 @@ export class ComputerEnvironmentController {
 			);
 			const dispatchedUntil = Date.now();
 			const dispatchMs = dispatchedUntil - dispatchedAt;
+			await this.observeLiveReceipt(environment, started);
 			// A dispatch that never reached the workstation carries no phases, so
 			// the transport share of THAT trip is the whole of it.
 			const workstation = started.timings;
@@ -1376,6 +1397,7 @@ export class ComputerEnvironmentController {
 			// Container-side waiting avoids Durable Object polling. The wait transport
 			// adds 5s to this budget; neither deadline kills the process.
 			const result = record(await this.actions.wait(environment, id, 90_000));
+			await this.observeLiveReceipt(environment, result);
 			const waitedUntil = Date.now();
 			const waitMs = waitedUntil - dispatchedUntil;
 			if (result.requestTimedOut === true || result.terminal !== true)
@@ -1536,6 +1558,7 @@ export class ComputerEnvironmentController {
 			result = record(await this.actions.read(environment, id));
 			waitMs = Date.now() - dispatchedUntil;
 		}
+		await this.observeLiveReceipt(environment, result);
 		// A collected terminal command, and a confirmed cancel, both settle the
 		// promised notification here: the model already has the answer.
 		if (result.terminal === true || (cancel && result.ok !== false))
