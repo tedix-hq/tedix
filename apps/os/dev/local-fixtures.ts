@@ -1105,6 +1105,7 @@ const seedState = (): LocalState => ({
 
 let state = seedState();
 installPortfolioFixture();
+installOfficeFixture();
 
 function installPortfolioFixture(): void {
 	const gadgetId = fid("49", 0x20);
@@ -1141,6 +1142,42 @@ function installPortfolioFixture(): void {
 	});
 }
 
+function installOfficeFixture(): void {
+	const gadgetId = fid("49", 0x21);
+	const revisionId = fid("50", 0x21);
+	if (state.gadgets.some((gadget) => gadget.id === gadgetId)) return;
+	state.gadgets.push({
+		id: gadgetId,
+		organizationId: ORG_ID,
+		workspaceId: state.workspaces[0]!.id,
+		name: "Office",
+		description: "Session activity, replies and lessons",
+		status: "active",
+		currentRevisionId: revisionId,
+		sourceBlueprintRevisionId: null,
+		createdByKind: "user",
+		createdById: "dev-operator",
+		createdAt: T0,
+		updatedAt: T0,
+	});
+	state.gadgetRevisions.push({
+		id: revisionId,
+		organizationId: ORG_ID,
+		gadgetId,
+		revision: 1,
+		manifest: {
+			capabilities: [],
+			entry: "tedix:app/office",
+			navigation: { board: true },
+			config: { version: 1 },
+		},
+		sourceArtifactRef: null,
+		createdByKind: "user",
+		createdById: "dev-operator",
+		createdAt: T0,
+	});
+}
+
 /** Set once by the dev server: the sample company replaces the classic fixtures. */
 let demoPackBuiltAt: number | null = null;
 
@@ -1149,7 +1186,10 @@ export function resetLocalFixtures(): void {
 	state = seedState();
 	seq = 0;
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
-	else installPortfolioFixture();
+	else {
+		installPortfolioFixture();
+		installOfficeFixture();
+	}
 }
 
 /** Serve the sample company (Feed, Deck, tedis, memory) with sending switched off. */
@@ -4277,6 +4317,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"workAgentSessions/visitAttention": () => visitAttentionFixture(),
 	"workAgentSessions/list": (input: { includeEnded?: boolean } | undefined) =>
 		localAgentSessions(input?.includeEnded),
+	"workAgentSessions/listRequests": () => ({ data: [] }),
 	"workAgentSessions/contributors": (input: { projectId: string }) =>
 		localProjectContributors(input.projectId),
 	"workInteractions/listInbox": (
@@ -4384,6 +4425,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			};
 		}),
 	}),
+	"support/mine": () => ({ items: [], canReview: false }),
 	"catalog/list": (input: ListCatalogAppsInput) => {
 		const rows = LOCAL_CATALOG.filter(
 			(app) =>
@@ -6537,6 +6579,51 @@ const handlers: Record<string, (input: never) => unknown> = {
 						role === "feed"
 							? { version: 1, scope: "organization", projects: [] }
 							: { version: 1, limit: 50, examples: [] },
+				},
+				sourceArtifactRef: null,
+				createdByKind: "user",
+				createdById: "dev-operator",
+				createdAt,
+			});
+		}
+		if (
+			!state.gadgets.some((gadget) => {
+				const revision = state.gadgetRevisions.find(
+					(row) => row.id === gadget.currentRevisionId,
+				);
+				return (
+					gadget.status === "active" &&
+					revision?.manifest.entry === "tedix:app/office"
+				);
+			})
+		) {
+			const gadgetId = nextId();
+			const revisionId = nextId();
+			const createdAt = now();
+			state.gadgets.push({
+				id: gadgetId,
+				organizationId: ORG_ID,
+				workspaceId,
+				name: "Office",
+				description: null,
+				status: "active",
+				currentRevisionId: revisionId,
+				sourceBlueprintRevisionId: null,
+				createdByKind: "user",
+				createdById: "dev-operator",
+				createdAt,
+				updatedAt: createdAt,
+			});
+			state.gadgetRevisions.push({
+				id: revisionId,
+				organizationId: ORG_ID,
+				gadgetId,
+				revision: 1,
+				manifest: {
+					entry: "tedix:app/office",
+					capabilities: [],
+					navigation: { board: true },
+					config: { version: 1 },
 				},
 				sourceArtifactRef: null,
 				createdByKind: "user",

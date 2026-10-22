@@ -264,6 +264,7 @@ const CALLS: Record<string, unknown> = {
 	"workItems/listEvidence": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listEvents": { id: "00000070-0000-4000-8000-000000000001" },
 	"workAgentSessions/list": {},
+	"workAgentSessions/listRequests": { limit: 200 },
 	"workAgentSessions/attention": {},
 	"workAgentSessions/getAttentionLayout": {},
 	"workAgentSessions/updateAttentionLayout": {
@@ -286,6 +287,7 @@ const CALLS: Record<string, unknown> = {
 		todaySince: "2026-10-08T00:00:00.000Z",
 	},
 	"agentTurnTriage/listLessons": { limit: 50 },
+	"support/mine": { limit: 50 },
 	"projects/list": { limit: 100 },
 	"projects/get": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/getRollup": { id: "00000076-0000-4000-8000-000000000001" },
@@ -1258,10 +1260,19 @@ describe("fixture bootstrap parity", () => {
 		).toBe(409);
 	});
 
-	it("installs Feed and Deck once and exposes renderable Work apps", async () => {
+	it("keeps Office available while installing Feed and Deck once", async () => {
 		const key = "osWorkspaces/gadgets/installWorkDefaults";
 		const before = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 });
-		expect(before).toMatchObject({ items: [{ gadget: { name: "Projects" } }] });
+		expect(before).toMatchObject({
+			items: expect.arrayContaining([
+				expect.objectContaining({
+					gadget: expect.objectContaining({ name: "Projects" }),
+				}),
+				expect.objectContaining({
+					gadget: expect.objectContaining({ name: "Office" }),
+				}),
+			]),
+		});
 		const installed = callLocalOk(key, {}) as { workspaceId: string };
 		await expectParsesAgainstContract(key, installed);
 		const apps = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 });
@@ -1325,7 +1336,7 @@ describe("fixture bootstrap parity", () => {
 		const repaired = callLocalOk("osWorkspaces/gadgets/workApps", {
 			limit: 100,
 		}) as typeof apps;
-		expect(repaired.items).toHaveLength(3);
+		expect(repaired.items).toHaveLength(4);
 		expect(repaired.items.filter((app) => app.gadget.name === "Feed")).toEqual(
 			apps.items.filter((app) => app.gadget.name === "Feed"),
 		);
@@ -1382,12 +1393,17 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
 			"Deck",
 			"Feed",
+			"Office",
 			"Projects",
 		]);
 		expect(
 			apps.items.find((item) => item.gadget.name === "Projects")
 				?.currentRevision.manifest.entry,
 		).toBe("tedix:app/portfolio");
+		expect(
+			apps.items.find((item) => item.gadget.name === "Office")?.currentRevision
+				.manifest.entry,
+		).toBe("tedix:app/office");
 		expect(
 			(read("attention/listDeckCards") as { cards: unknown[] }).cards,
 		).toHaveLength(36);
@@ -1402,7 +1418,7 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		expect(blocked?.status).toBe(403);
 		expect(JSON.stringify(blocked?.body)).toMatch(/sending.*off/i);
 		for (const app of apps.items.filter((app) =>
-			["Feed", "Deck"].includes(app.gadget.name),
+			["Feed", "Deck", "Office"].includes(app.gadget.name),
 		)) {
 			read("osWorkspaces/gadgets/archive", {
 				workspaceId: app.gadget.workspaceId,
@@ -1427,6 +1443,7 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		expect(restored.items.map((app) => app.gadget.name).sort()).toEqual([
 			"Deck",
 			"Feed",
+			"Office",
 			"Projects",
 		]);
 		expect(read("osWorkspaces/gadgets/installWorkDefaults")).toEqual(
