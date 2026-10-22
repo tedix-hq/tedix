@@ -2002,6 +2002,58 @@ for (const operation of ["file", "exec"] as const) {
 	assert.equal(provisions, 1);
 }
 
+// A resolved native receipt is fresher readiness evidence than the status read
+// a stale selection would re-run. A command whose own wait consumed the cache
+// window does not send the very next call back through a native refresh —
+// "context refresh" repeats after live native reads only when the receipt is
+// not counted as the observation it is.
+{
+	const scope = "live-receipt-renews-readiness";
+	let statusReads = 0;
+	const controller = new ComputerEnvironmentController(store, scope, {
+		...actions,
+		open: async () => ({ ok: true, leaseId: "live-receipt-lease" }),
+		status: async (_environment, _timeoutMs, _refreshNative) => {
+			statusReads++;
+			return actions.status();
+		},
+		wait: async () => {
+			// The command's own runtime consumed the 30s readiness window: the
+			// selected environment is stale by the time its terminal receipt lands.
+			const selected = (await store.get<Record<string, unknown>>(scope))!;
+			await store.put(scope, {
+				...selected,
+				checkedAt: Date.now() - 40_000,
+			});
+			return actions.wait();
+		},
+	});
+	assert.equal(
+		((await controller.open("repository")) as Record<string, unknown>).ready,
+		true,
+	);
+	statusReads = 0;
+	const exec = (await controller.exec({
+		command: "fictional-command",
+	})) as Record<string, unknown>;
+	assert.equal(exec.terminal, true);
+	const selected = (await controller.selected())!;
+	assert.equal(selected.ready, true);
+	assert.ok(
+		Date.now() - (selected.checkedAt ?? 0) < 30_000,
+		"the live receipt re-stamped readiness evidence",
+	);
+	const read = (await controller.file("read", {
+		path: "a.ts",
+	})) as Record<string, unknown>;
+	assert.equal(read.ok, true);
+	assert.equal(
+		statusReads,
+		0,
+		"the next call does not reopen into another context refresh",
+	);
+}
+
 // Acceptance must be persisted before post-provision bookkeeping can suspend.
 {
 	const scope = "accept-before-bookkeeping";
