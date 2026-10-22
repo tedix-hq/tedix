@@ -1443,6 +1443,11 @@ export class ConversationFacet extends PiConversationFixture {
 			payload: {},
 		});
 	}
+	async makeNativeAlarmDue() {
+		this.ctx.storage.sql.exec(
+			"UPDATE cf_agents_jobs SET time=0 WHERE id IN ('wake-turn', 'wake-probe')",
+		);
+	}
 	async onJob({ job }: import("agents/lifecycle").LifecycleJobContext) {
 		if (job.fn === "wake-probe") {
 			await this.pendingToolApprovals();
@@ -1553,6 +1558,9 @@ export class PiAdmissionParentFixture extends Agent {
 	async scheduleNativeProbe(time: number) {
 		await this.existingChild().scheduleNativeProbe(time);
 		return this.alarmAddress();
+	}
+	async makeNativeAlarmDue() {
+		await this.existingChild().makeNativeAlarmDue();
 	}
 	async scheduleNativeTurn(runId: string, time: number) {
 		await this.admission().beginAcceptedTurn({
