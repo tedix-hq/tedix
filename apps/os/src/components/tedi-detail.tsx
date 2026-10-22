@@ -4,18 +4,11 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { TediSetupChecklist } from "./tedi-setup";
-import { TediRecoveryDiagnostic } from "./tedi-recovery-diagnostic";
+import { TediSetupChecklist } from "@/components/tedi-setup";
+import { TediRecoveryDiagnostic } from "@/components/tedi-recovery-diagnostic";
 import { useQuery } from "@tanstack/react-query";
 import type { TediSetup } from "@tedix/api-contract/contracts/tedis";
 import { Button } from "@/components/kumo/button";
-import {
-	PageSection,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
-} from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { renderTediWiring } from "@/lib/tedi-wiring";
@@ -34,7 +27,12 @@ import {
 	PageHeader,
 	PageHeading,
 	PageMeta,
+	PageSection,
 	PageTitle,
+	SectionDescription,
+	SectionHeader,
+	SectionHeading,
+	SectionTitle,
 } from "@/components/kumo/page";
 import { KumoTabs } from "@/components/kumo/tabs";
 import { ListSkeleton } from "@/components/list-skeleton";
