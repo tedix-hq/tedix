@@ -153,9 +153,7 @@
 	gap: 0.75rem;
 	margin-top: 1rem;
 }
-.focus-handled-row .focus-row-tools,
-.focus-handled-row .fd-reactions,
-.focus-handled-row .fd-rich-preview {
+.focus-handled-row .focus-row-tools {
 	display: none;
 }
 /* Same inset as .focus-row, so Today and the lists above share one inner edge. */

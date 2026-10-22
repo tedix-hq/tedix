@@ -1,5 +1,6 @@
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
+import type { LearningInteractionEvent } from "@tedix/api-contract/schemas/learning-feedback";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { act, useContext, useState } from "react";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
@@ -133,6 +134,7 @@ async function mount(
 		budget?: number;
 		project?: { id: string; name: string };
 		uncachedFace?: boolean;
+		events?: LearningInteractionEvent[];
 	} = {},
 ) {
 	client = new QueryClient({
@@ -148,7 +150,7 @@ async function mount(
 		osQuery.learningFeedback.listInteractions.queryOptions({
 			input: { scopeKind: "personal", limit: 200 },
 		}).queryKey,
-		{ events: [] },
+		{ events: input.events ?? [] },
 	);
 	client.setQueryData(
 		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
@@ -421,6 +423,41 @@ it("does not announce All clear while decision history is loading", async () => 
 			}).queryKey,
 		)?.status,
 	).toBe("pending");
+});
+
+it("shows the day streak on the All clear screen", async () => {
+	const decision = (id: string, daysAgo: number): LearningInteractionEvent => {
+		const at = new Date();
+		at.setUTCDate(at.getUTCDate() - daysAgo);
+		return {
+			id,
+			organizationId: "fictional-acme",
+			actorType: "user",
+			actorId: "fictional-acme-user",
+			tediId: null,
+			clientEventId: `test:${id}`,
+			signalClass: "quality",
+			eventKind: "accepted",
+			scopeKind: "personal",
+			scopeId: "fictional-acme-user",
+			issueKey: null,
+			surface: "decision_deck_action",
+			targetType: "decision",
+			targetId: id,
+			threadId: null,
+			runId: null,
+			metadata: { decisionChoice: "approve" },
+			occurredAt: at.toISOString(),
+			createdAt: at.toISOString(),
+		};
+	};
+	await mount({
+		events: [decision("e1", 0), decision("e2", 1)],
+	});
+	const closure = host.querySelector(".fd-closure")!;
+	expect(closure.textContent).toContain("All clear");
+	expect(closure.textContent).toContain("1 decided today");
+	expect(closure.querySelector(".fd-streak")?.textContent).toBe("2 day streak");
 });
 
 const linkedRow = (id: string, subject: string, canRespond = true) =>

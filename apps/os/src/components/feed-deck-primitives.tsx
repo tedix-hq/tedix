@@ -57,7 +57,7 @@ export function FeedDeckDisclosure({
 	if (rail)
 		return (
 			<DecisionContextSection
-				sectionId={className === "fd-deck-learning" ? "style" : "details"}
+				sectionId="details"
 				title={
 					className === "fd-action-details" ? (
 						(label ?? title)
@@ -209,25 +209,6 @@ export function FeedDeckCard({
 	);
 }
 
-export function FeedMomentHeader({
-	children,
-	detail,
-}: {
-	children: ReactNode;
-	detail?: ReactNode;
-}) {
-	return (
-		<header className="fd-moment">
-			<Text as="h3">{children}</Text>
-			{detail && (
-				<Text role="label" tone="secondary">
-					{detail}
-				</Text>
-			)}
-		</header>
-	);
-}
-
 export function RichPreview({
 	title,
 	href,
@@ -264,13 +245,13 @@ export function RichPreview({
 }
 
 export function DeckClosure({
+	title = OS_COPY.feedDeckVisual.clear,
 	summary,
-	detail,
+	streak,
 	onHistory,
 }: {
-	title?: string;
+	title?: ReactNode;
 	summary?: ReactNode;
-	detail?: ReactNode;
 	streak?: ReactNode;
 	onHistory?: () => void;
 }) {
@@ -289,18 +270,16 @@ export function DeckClosure({
 				</svg>
 			</div>
 			<Text as="h2" className="fd-closure-title">
-				{OS_COPY.feedDeckVisual.clear}
+				{title}
 			</Text>
 			<Text className="fd-closure-summary">
-				{summary ? (
-					<>
-						{summary}
-						{detail && <> · {detail}</>}
-					</>
-				) : (
-					detail || OS_COPY.feedDeckVisual.nothingWaiting
-				)}
+				{summary ?? OS_COPY.feedDeckVisual.nothingWaiting}
 			</Text>
+			{streak && (
+				<Text role="label" tone="secondary" className="fd-streak">
+					{streak}
+				</Text>
+			)}
 			{rail || onHistory ? (
 				<Link
 					href="#decision-history"

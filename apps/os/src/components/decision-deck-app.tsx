@@ -1174,7 +1174,6 @@ function DecisionDeckContent({
 								setMode("history");
 								setIndex(0);
 							}}
-							title={OS_COPY.feedDeckVisual.clear}
 							summary={
 								practiceMode
 									? practice.length > 0
