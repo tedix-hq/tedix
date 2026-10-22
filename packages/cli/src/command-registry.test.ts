@@ -115,6 +115,19 @@ describe("top-level command registry", () => {
 		).toBe("read");
 	});
 
+	test("machine help preserves every top-level output contract", () => {
+		for (const row of TOP_LEVEL_COMMANDS) {
+			expect(machineHelp(row.name).commands[0]?.output).toEqual([
+				...row.output,
+			]);
+		}
+		expect(machineHelp("threads").commands[0]?.output).toEqual([
+			"human",
+			"json",
+		]);
+		expect(machineHelp("channel").commands[0]?.output).toEqual(["ndjson"]);
+	});
+
 	test("provides focused generic help for every shell command", () => {
 		for (const command of commandInventory().filter(
 			(row) => !row.interactiveOnly && !findTopLevelCommand(row.name)?.help,

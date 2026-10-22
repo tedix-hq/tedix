@@ -80,7 +80,7 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		surface: "local",
 		summary: "Set up a local installation or coding agent hosts",
 		mutability: "write",
-		output: ["human"],
+		output: HUMAN_JSON,
 		help: () => `${localInstallationUsage()}\n${agentContextUsage}`,
 	},
 	{
@@ -201,7 +201,7 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		surface: "gateway-direct",
 		summary: "Deliver Tedix events into a Claude Code or Codex session",
 		mutability: "read",
-		output: ["json"],
+		output: ["ndjson"],
 		help: channelUsage,
 	},
 	{
@@ -211,7 +211,7 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		summary: "Coordinate governed Work Items",
 		mutability: "mixed",
 		approval: "explicit",
-		output: HUMAN_JSON,
+		output: ["human", "json", "ndjson"],
 		help: workUsage,
 	},
 	{
@@ -281,7 +281,7 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		surface: "local",
 		summary: "List saved conversation threads",
 		mutability: "read",
-		output: ["human"],
+		output: HUMAN_JSON,
 	},
 	{
 		name: "workspaces",
