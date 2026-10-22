@@ -64,11 +64,12 @@ export function deriveDelegationCapabilityPlan(input: {
 		if (outputIds.length === 0) missingCapabilities.push("output.reference");
 	}
 	// Native web search is offered only where the organization enabled it.
+	// The planner can omit web_search; these phrasings still name a web lookup.
 	const webLookup =
-		/\b(?:search\s+(?:the\s+)?(?:web|internet)|search\s+online|(?:web|internet)\s+search|latest\s+version\s+of)\b/i.test(
+		/\b(?:search\s+(?:the\s+)?(?:web|internet)|search\s+online|(?:web|internet)\s+search|on\s+the\s+(?:web|internet)|latest\s+(?:stable\s+)?version\s+of)\b/i.test(
 			content,
 		) ||
-		(/\blook\s+up\b/i.test(content) &&
+		(/\blook\s+(?:(?:it|this|that|them)\s+)?up\b/i.test(content) &&
 			!/\b(?:work\s+items?|emails?|invoices?|repository|codebase)\b/i.test(
 				content,
 			));

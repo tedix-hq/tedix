@@ -94,7 +94,9 @@ export function capabilityToolSet(input: {
 					!plan.urls.includes(String(values.url)) &&
 					!searchedUrls.has(String(values.url))
 				)
-					reason = "URL is outside the delegated request";
+					reason = toolIds.has("web_search")
+						? "URL is outside the delegated request; read only a URL web_search returned in this turn"
+						: "URL is outside the delegated request";
 				if (name === "tedix_mcp_call_tool") {
 					if (!callables.includes(String(values.callable)))
 						reason = "MCP callable is outside the capability plan";
