@@ -10,7 +10,6 @@
  * blocks and their incoming token context share verdicts across snapshots.
  */
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
 	existsSync,
 	mkdirSync,
@@ -25,7 +24,7 @@ import denylist from "./demo-identity-hashes.json";
 type IdentityHash = { words: number; sha256: string };
 
 const sha256 = (data: string | Uint8Array) =>
-	createHash("sha256").update(data).digest("hex");
+	Bun.CryptoHasher.hash("sha256", data, "hex");
 
 /**
  * Scans `paths` under `root`, skipping contents whose digest is in `clean`.
