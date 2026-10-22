@@ -365,3 +365,19 @@ describe("ingestion status notifications", () => {
 		expectNoWrites();
 	});
 });
+
+it("renders a labeled source table with relative and exact sync times", async () => {
+	const view = mount();
+	await view.render();
+	await settles(() =>
+		expect(
+			view.host.querySelector('table[aria-label="Content sources"]'),
+		).not.toBeNull(),
+	);
+	const time = view.host.querySelector("time");
+	expect(time?.getAttribute("datetime")).toBe("2026-10-21T10:00:00.000Z");
+	expect(time?.getAttribute("title")).toBeTruthy();
+	expect(time?.textContent).toBeTruthy();
+	expect(view.host.textContent).toContain("12 sections");
+	expectNoWrites();
+});

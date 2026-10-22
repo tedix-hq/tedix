@@ -13,9 +13,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { ChartBar, Clock, Lightbulb, Wrench } from "@phosphor-icons/react";
+import { ChartBar, Clock, Wrench } from "@phosphor-icons/react";
 import { lazy, Suspense, useMemo } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -24,13 +23,11 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import {
-	Empty,
-	EmptyContent,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/kumo/empty";
+	AppTabHeader,
+	AppTabEmpty,
+	AppTabError,
+	AppTabLoading,
+} from "./app-detail-tab-shared";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
@@ -52,8 +49,6 @@ import { RecentActivitySection } from "./app-analytics/recent-activity";
 import { RecentExecutionsSection } from "./app-analytics/recent-executions";
 import {
 	ActivityFreshnessStrip,
-	AnalyticsHeader,
-	AnalyticsPending,
 	AnalyticsQueryState,
 	CallerTypesCard,
 	EventVolumeTable,
@@ -132,21 +127,30 @@ export function AppAnalyticsPage() {
 	});
 	const codemode = codemodeQuery.data;
 
+	const header = (
+		<AppTabHeader
+			title="Analytics"
+			description="Usage from tool interactions."
+			actions={<Badge variant="outline">Last 30 days · live window</Badge>}
+		/>
+	);
 	if (metricsQuery.isPending || summaryQuery.isPending) {
-		return <AnalyticsPending />;
+		return (
+			<div className="space-y-6">
+				{header}
+				<AppTabLoading label="Loading analytics" />
+			</div>
+		);
 	}
 	if (metricsQuery.isError || summaryQuery.isError) {
-		const error = (metricsQuery.error ?? summaryQuery.error) as Error;
+		const query = metricsQuery.isError ? metricsQuery : summaryQuery;
 		return (
-			<Card>
-				<CardContent>
-					<Alert variant="destructive">
-						<AlertDescription>
-							Analytics could not be loaded: {error.message}
-						</AlertDescription>
-					</Alert>
-				</CardContent>
-			</Card>
+			<div className="space-y-6">
+				{header}
+				<AppTabError title="Analytics are unavailable" query={query}>
+					Analytics could not be loaded: {query.error?.message}
+				</AppTabError>
+			</div>
 		);
 	}
 
@@ -162,40 +166,19 @@ export function AppAnalyticsPage() {
 	if (!hasActivity) {
 		return (
 			<div className="space-y-6">
-				<AnalyticsHeader />
-				<Card>
-					<CardContent>
-						<Empty appearance="inline">
-							<EmptyHeader>
-								<EmptyMedia variant="icon">
-									<ChartBar size={20} />
-								</EmptyMedia>
-								<EmptyTitle>No activity yet</EmptyTitle>
-								<EmptyDescription>
-									Analytics will appear once users start interacting with your
-									MCP tools. Connect a client to get started.
-								</EmptyDescription>
-							</EmptyHeader>
-							<EmptyContent>
-								<Alert variant="info">
-									<Lightbulb aria-hidden />
-									<AlertTitle>Generate your first session</AlertTitle>
-									<AlertDescription>
-										Try connecting your app via Claude Desktop, ChatGPT, or any
-										MCP-compatible client to generate your first session.
-									</AlertDescription>
-								</Alert>
-							</EmptyContent>
-						</Empty>
-					</CardContent>
-				</Card>
+				{header}
+				<AppTabEmpty
+					icon={<ChartBar size={20} />}
+					title="No activity yet"
+					description="Analytics will appear once users start interacting with your tools. Connect a client to generate your first session."
+				/>
 			</div>
 		);
 	}
 
 	return (
 		<div className="space-y-6">
-			<AnalyticsHeader />
+			{header}
 			{freshness && <ActivityFreshnessStrip freshness={freshness} />}
 
 			<MetricGrid aria-label="Session summary" columns={3} appearance="bounded">
@@ -297,13 +280,12 @@ export function AppAnalyticsPage() {
 				</div>
 			)}
 
-			{/* Tool Breakdown Table */}
 			{toolBreakdown && toolBreakdown.tools.length > 0 && (
 				<Card>
 					<CardHeader>
 						<CardTitle className="flex items-center gap-2">
 							<Wrench size={16} aria-hidden />
-							Tool Breakdown
+							Tool breakdown
 							<Badge variant="outline" className="ml-1 font-normal">
 								{toolBreakdown.tools.length} tools
 							</Badge>

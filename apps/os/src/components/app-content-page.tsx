@@ -43,36 +43,22 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/kumo/dialog";
-import {
-	Empty,
-	EmptyContent,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/kumo/empty";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { Loader } from "@/components/kumo/loader";
-import {
-	Collection,
-	PageActions,
-	PageSection,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
-} from "@/components/kumo/page";
-import {
-	KumoSelect,
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/kumo/select";
+import { PageSection } from "@/components/kumo/page";
+import { KumoSelect, SelectItem } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { TableCell, TableHead, TableRow } from "@/components/kumo/table";
+import {
+	AppTabTable,
+	AppTabHeader,
+	AppTabEmpty,
+	AppTabError,
+	AppTabLoading,
+	AppTabReadRetry,
+	AppTabDate,
+} from "./app-detail-tab-shared";
 import { osApi } from "@/lib/api";
 import {
 	APPS_MANAGE_DENIED_REASON,
@@ -83,9 +69,7 @@ import {
 	contentSourcesQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
-import { useOsFormattingPreferences } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
-import { relativeTime } from "@/lib/time";
 
 type SyncInterval = "daily" | "weekly" | "monthly" | "disabled";
 
@@ -96,39 +80,9 @@ const STATUS_BADGE: Record<string, { variant: BadgeVariant; label: string }> = {
 	stale: { variant: "secondary", label: "Stale" },
 };
 
-interface SourceRowData {
-	id: string;
-	sourceType: string;
-	sourceUrl: string;
-	title: string | null;
-	lastIngestedAt: string | null;
-	lastIngestStatus: string | null;
-	documentCount: number | null;
-	lastError: string | null;
-}
-
-/**
- * Read-only retry affordance shared by every failed read on this page.
- * It only re-runs the originating query's own `refetch` — it can never
- * schedule ingestion, modify a source, or write the app record.
- */
-function ReadRetryButton({
-	query,
-}: {
-	query: { isFetching: boolean; refetch: () => Promise<unknown> };
-}) {
-	return (
-		<Button
-			variant="outline"
-			size="sm"
-			className="mt-2 w-fit"
-			disabled={query.isFetching}
-			onClick={() => void query.refetch()}
-		>
-			{query.isFetching ? "Trying again…" : "Try again"}
-		</Button>
-	);
-}
+type SourceRowData = Awaited<
+	ReturnType<typeof osApi.content.listSources>
+>["sources"][number];
 
 export function AppContentPage() {
 	const params = useParams({ from: "/_session/_tenant/apps_/$appId" });
@@ -223,64 +177,63 @@ export function AppContentPage() {
 
 	return (
 		<PageSection aria-labelledby="app-content-sources-title">
-			<SectionHeader>
-				<SectionHeading>
+			<AppTabHeader
+				id="app-content-sources-title"
+				title={
 					<span className="flex flex-wrap items-center gap-2">
-						<SectionTitle id="app-content-sources-title">
-							Content sources
-						</SectionTitle>
+						Content sources{" "}
 						<Badge variant="secondary">
 							{sources.data ? sourceRows.length : "—"}
 						</Badge>
 					</span>
-					<SectionDescription>
-						Sources added to this app's content index.
-					</SectionDescription>
-				</SectionHeading>
-				<PageActions>
-					<span title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}>
-						<KumoSelect<SyncInterval>
-							value={syncInterval}
-							onValueChange={(value) => {
-								if (value) syncIntervalMutation.mutate(value as SyncInterval);
-							}}
-							disabled={
-								!canManage ||
-								!detail.isSuccess ||
-								syncIntervalMutation.isPending
-							}
-							aria-label="Content sync interval"
-							className="w-full sm:w-[130px]"
-							size="sm"
-							items={{
-								daily: "Daily",
-								weekly: "Weekly",
-								monthly: "Monthly",
-								disabled: "Manual only",
-							}}
-						/>
-					</span>
-					{sourceRows.length > 0 && (
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() => ingestAllMutation.mutate()}
-							disabled={!canManage || ingestAllMutation.isPending}
-							title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
-							icon={
-								ingestAllMutation.isPending ? (
-									<Loader aria-label="Syncing" size={14} />
-								) : (
-									<ArrowsClockwise size={14} />
-								)
-							}
-						>
-							Sync all
-						</Button>
-					)}
-					<AddSourceDialog appId={appId} canManage={canManage} />
-				</PageActions>
-			</SectionHeader>
+				}
+				description="Sources added to this app's content index."
+				actions={
+					<>
+						<span title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}>
+							<KumoSelect<SyncInterval>
+								value={syncInterval}
+								onValueChange={(value) => {
+									if (value) syncIntervalMutation.mutate(value as SyncInterval);
+								}}
+								disabled={
+									!canManage ||
+									!detail.isSuccess ||
+									syncIntervalMutation.isPending
+								}
+								aria-label="Content sync interval"
+								className="w-full sm:w-[130px]"
+								size="sm"
+								items={{
+									daily: "Daily",
+									weekly: "Weekly",
+									monthly: "Monthly",
+									disabled: "Manual only",
+								}}
+							/>
+						</span>
+						{sourceRows.length > 0 && (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => ingestAllMutation.mutate()}
+								disabled={!canManage || ingestAllMutation.isPending}
+								title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
+								icon={
+									ingestAllMutation.isPending ? (
+										<Loader aria-label="Syncing" size={14} />
+									) : (
+										<ArrowsClockwise size={14} />
+									)
+								}
+							>
+								Sync all
+							</Button>
+						)}
+						<AddSourceDialog appId={appId} canManage={canManage} />
+					</>
+				}
+			/>
 
 			{detail.isPending ? (
 				<p role="status" className="m-0 text-kumo-subtle text-sm">
@@ -294,12 +247,12 @@ export function AppContentPage() {
 								? "Content settings could not be refreshed. Sync scheduling stays paused on the last loaded values."
 								: "Content settings could not be loaded. Sync scheduling is unavailable."}
 						</span>
-						<ReadRetryButton query={detail} />
+						<AppTabReadRetry query={detail} />
 					</AlertDescription>
 				</Alert>
 			) : null}
 
-			{sources.isPending && <ListSkeleton />}
+			{sources.isPending && <AppTabLoading label="Loading content sources" />}
 			{sources.isError &&
 				(sources.data ? (
 					<Alert variant="warning">
@@ -309,47 +262,45 @@ export function AppContentPage() {
 								{errorMessage(sources.error, "The latest refresh failed.")}{" "}
 								Showing the last loaded inventory.
 							</span>
-							<ReadRetryButton query={sources} />
+							<AppTabReadRetry query={sources} />
 						</AlertDescription>
 					</Alert>
 				) : (
-					<Alert variant="destructive">
-						<AlertTitle>Content sources are unavailable</AlertTitle>
-						<AlertDescription>
-							<span>
-								{errorMessage(
-									sources.error,
-									"The content source list could not be read.",
-								)}
-							</span>
-							<ReadRetryButton query={sources} />
-						</AlertDescription>
-					</Alert>
+					<AppTabError title="Content sources are unavailable" query={sources}>
+						{errorMessage(
+							sources.error,
+							"The content source list could not be read.",
+						)}
+					</AppTabError>
 				))}
 
 			{sources.data && !sources.isError && sourceRows.length === 0 && (
-				<Empty appearance="quiet">
-					<EmptyHeader>
-						<EmptyMedia variant="icon">
-							<FileText size={20} />
-						</EmptyMedia>
-						<EmptyTitle>No content sources yet</EmptyTitle>
-						<EmptyDescription>
-							Add one to start ingesting content.
-						</EmptyDescription>
-					</EmptyHeader>
-					<EmptyContent>
-						<AddSourceDialog
-							appId={appId}
-							canManage={canManage}
-							buttonVariant="outline"
-						/>
-					</EmptyContent>
-				</Empty>
+				<AppTabEmpty
+					title="No content sources yet"
+					description="Add one to start ingesting content."
+					icon={<FileText size={20} />}
+				>
+					<AddSourceDialog
+						appId={appId}
+						canManage={canManage}
+						buttonVariant="outline"
+					/>
+				</AppTabEmpty>
 			)}
 
 			{sourceRows.length > 0 && (
-				<Collection>
+				<AppTabTable
+					label="Content sources"
+					headings={
+						<>
+							<TableHead>Source</TableHead>
+							<TableHead className="w-24 text-right">
+								<span className="sr-only">Actions</span>
+							</TableHead>
+						</>
+					}
+					className="table-fixed"
+				>
 					{sourceRows.map((source) => (
 						<SourceRow
 							key={source.id}
@@ -358,7 +309,7 @@ export function AppContentPage() {
 							canManage={canManage}
 						/>
 					))}
-				</Collection>
+				</AppTabTable>
 			)}
 		</PageSection>
 	);
@@ -373,7 +324,6 @@ function SourceRow({
 	appId: string;
 	canManage: boolean;
 }) {
-	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const listKey = contentSourcesQueryOptions(appId).queryKey;
 
@@ -433,97 +383,111 @@ function SourceRow({
 	};
 
 	return (
-		<li className="flex flex-col gap-3 px-4 py-3 transition-colors duration-150 hover:bg-kumo-tint sm:flex-row sm:items-start sm:justify-between">
-			<div className="min-w-0 flex-1">
-				<div className="flex min-w-0 flex-wrap items-center gap-2">
-					<Text
-						as="span"
-						role="body"
-						weight="medium"
-						className="min-w-0 max-w-full truncate"
-					>
-						{source.title || source.sourceUrl}
-					</Text>
-					<Badge variant="outline">{source.sourceType}</Badge>
-					<Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
-				</div>
-				{source.title && (
+		<TableRow>
+			<TableCell className="min-w-0 whitespace-normal">
+				<div className="min-w-0 flex-1">
+					<div className="flex min-w-0 flex-wrap items-center gap-2">
+						<Text
+							as="span"
+							role="body"
+							weight="medium"
+							className="min-w-0 max-w-full truncate"
+						>
+							{source.title || source.sourceUrl}
+						</Text>
+						<Badge variant="outline">{source.sourceType}</Badge>
+						<Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
+					</div>
+					{source.title && (
+						<Text
+							as="p"
+							role="label"
+							tone="mono-secondary"
+							className="mt-0.5 mb-0 truncate"
+						>
+							{source.sourceUrl}
+						</Text>
+					)}
+
 					<Text
 						as="p"
 						role="label"
-						tone="mono-secondary"
-						className="mt-0.5 mb-0 truncate"
+						tone="secondary"
+						className="mt-2 mb-0 flex flex-wrap gap-x-3 gap-y-1"
 					>
-						{source.sourceUrl}
+						{source.documentCount != null && (
+							<span>{source.documentCount} sections</span>
+						)}
+						{source.lastIngestedAt && (
+							<span>
+								Last synced <AppTabDate value={source.lastIngestedAt} />
+							</span>
+						)}
 					</Text>
-				)}
-				<div className="mt-1.5 flex items-center gap-3 text-kumo-subtle text-xs">
-					{source.documentCount != null && (
-						<span>{source.documentCount} sections</span>
-					)}
-					{source.lastIngestedAt && (
-						<span>Last synced {relativeTime(source.lastIngestedAt)}</span>
+
+					{source.lastError && source.lastIngestStatus === "failed" && (
+						<Text
+							as="p"
+							role="label"
+							tone="error"
+							className="mt-1 mb-0 line-clamp-1"
+						>
+							{source.lastError}
+						</Text>
 					)}
 				</div>
-				{source.lastError && source.lastIngestStatus === "failed" && (
-					<Text
-						as="p"
-						role="label"
-						tone="error"
-						className="mt-1 mb-0 line-clamp-1"
-					>
-						{source.lastError}
-					</Text>
-				)}
-			</div>
-			<div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-label="Re-ingest source"
-					onClick={() => ingestMutation.mutate()}
-					disabled={!canManage || ingestMutation.isPending}
-					title={canManage ? "Re-ingest" : APPS_MANAGE_DENIED_REASON}
-					icon={
-						ingestMutation.isPending ? (
-							<Loader aria-label="Syncing" size={14} />
-						) : (
-							<ArrowsClockwise size={14} />
-						)
-					}
-				/>
-				<AlertDialog>
-					<AlertDialogTrigger
-						render={
-							<Button
-								variant="ghost"
-								size="sm"
-								className="text-kumo-danger hover:text-kumo-danger"
-								aria-label="Remove source"
-								disabled={!canManage || removeMutation.isPending}
-								title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
-								icon={<Trash size={14} />}
-							/>
+			</TableCell>
+
+			<TableCell>
+				<div className="flex justify-end gap-1">
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label="Re-ingest source"
+						onClick={() => ingestMutation.mutate()}
+						disabled={!canManage || ingestMutation.isPending}
+						title={canManage ? "Re-ingest" : APPS_MANAGE_DENIED_REASON}
+						icon={
+							ingestMutation.isPending ? (
+								<Loader aria-label="Syncing" size={14} />
+							) : (
+								<ArrowsClockwise size={14} />
+							)
 						}
 					/>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>Remove content source?</AlertDialogTitle>
-							<AlertDialogDescription>
-								This will remove the source and its ingested content. This
-								action cannot be undone.
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						<AlertDialogFooter>
-							<AlertDialogCancel>Cancel</AlertDialogCancel>
-							<AlertDialogAction onClick={() => removeMutation.mutate()}>
-								Remove
-							</AlertDialogAction>
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
-			</div>
-		</li>
+					<AlertDialog>
+						<AlertDialogTrigger
+							render={
+								<Button
+									variant="ghost"
+									size="sm"
+									className="text-kumo-danger hover:text-kumo-danger"
+									aria-label="Remove source"
+									disabled={!canManage || removeMutation.isPending}
+									title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
+									icon={<Trash size={14} />}
+								/>
+							}
+						/>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Remove content source?</AlertDialogTitle>
+								<AlertDialogDescription>
+									This will remove the source and its ingested content. This
+									action cannot be undone.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>Cancel</AlertDialogCancel>
+								<AlertDialogAction onClick={() => removeMutation.mutate()}>
+									Remove
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
+				</div>
+			</TableCell>
+		</TableRow>
 	);
 }
 

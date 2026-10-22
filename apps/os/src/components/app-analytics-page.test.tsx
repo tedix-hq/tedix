@@ -527,14 +527,14 @@ describe("AppAnalyticsPage", () => {
 		expect(titles).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("Event Volume"),
-				expect.stringContaining("Tool Breakdown"),
+				expect.stringContaining("Tool breakdown"),
 				expect.stringContaining("Code Mode"),
 				expect.stringContaining("Activity Review"),
 				expect.stringContaining("Recent Activity"),
 				expect.stringContaining("Recent Code Executions"),
 			]),
 		);
-		expect(titles.find((title) => title.includes("Tool Breakdown"))).toContain(
+		expect(titles.find((title) => title.includes("Tool breakdown"))).toContain(
 			"1 tools",
 		);
 		expect(titles.find((title) => title.startsWith("Code Mode"))).toContain(
@@ -580,7 +580,7 @@ describe("AppAnalyticsPage", () => {
 
 		expect(container.querySelector("h2")?.textContent).toBe("Analytics");
 		expect(text).toContain("No activity yet");
-		expect(text).toContain("Generate your first session");
+		expect(text).toContain("Connect a client to generate your first session.");
 		expect(headings(container)).toEqual([]);
 	});
 });
