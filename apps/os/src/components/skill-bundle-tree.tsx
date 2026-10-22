@@ -63,7 +63,7 @@ function TreeNodes({
 }) {
 	const [closed, setClosed] = useState<Set<string>>(new Set());
 	return (
-		<ul className="m-0 grid list-none gap-0.5 p-0">
+		<ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-0.5 p-0">
 			{nodes.map((node) => {
 				const collapsed = closed.has(node.path);
 				return (
@@ -93,7 +93,7 @@ function TreeNodes({
 								<File size={14} />
 							)}
 							{node.type === "directory" ? <Folder size={14} /> : null}
-							{node.name}
+							<span className="min-w-0 truncate">{node.name}</span>
 						</Button>
 						{node.type === "directory" && !collapsed ? (
 							<div className="ml-4">
@@ -127,7 +127,8 @@ export function SkillBundleTree({
 		[bundle],
 	);
 	const [selected, setSelected] = useState("SKILL.md");
-	const selectedContent = bundle[selected] ?? "";
+	const activePath = Object.hasOwn(bundle, selected) ? selected : "SKILL.md";
+	const selectedContent = bundle[activePath] ?? "";
 	return (
 		<section
 			aria-label="Skill bundle"
@@ -135,18 +136,18 @@ export function SkillBundleTree({
 		>
 			<nav
 				aria-label="Bundle files"
-				className="rounded-lg border border-kumo-line p-2"
+				className="min-w-0 rounded-lg border border-kumo-line p-2"
 			>
-				<TreeNodes nodes={tree} selected={selected} onSelect={setSelected} />
+				<TreeNodes nodes={tree} selected={activePath} onSelect={setSelected} />
 			</nav>
 			<div className="min-w-0">
 				<Text role="label" tone="secondary" className="mb-1">
-					{selected}
+					{activePath}
 				</Text>
 				<CodeBlock
 					className="max-h-96 overflow-auto"
 					code={selectedContent}
-					lang={languageForPath(selected)}
+					lang={languageForPath(activePath)}
 					showCopyButton
 				/>
 			</div>
