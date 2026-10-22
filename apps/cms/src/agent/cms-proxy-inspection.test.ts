@@ -1,12 +1,19 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import { getCmsSiteOverview } from "./cms-proxy-inspection";
-import { callCmsRest, listTenantMcpTools } from "./cms-proxy-runtime";
+import { callCmsRest } from "./cms-proxy-rest";
+import { listTenantMcpTools } from "./cms-proxy-tenant-mcp";
 
 vi.mock("./cms-proxy-runtime", () => ({
 	apiData: (value: { data?: unknown }) => value.data ?? value,
-	buildCmsAuthHeaderCandidates: () => [],
 	cmsApiBaseUrl: () => "https://sample.cms.tedix.dev/_emdash/api",
+}));
+vi.mock("./cms-proxy-auth", () => ({
+	buildCmsAuthHeaderCandidates: () => [],
+}));
+vi.mock("./cms-proxy-rest", () => ({
 	callCmsRest: vi.fn(),
+}));
+vi.mock("./cms-proxy-tenant-mcp", () => ({
 	listTenantMcpTools: vi.fn(),
 }));
 const result = (value: unknown) => ({

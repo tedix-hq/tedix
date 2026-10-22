@@ -1,18 +1,21 @@
 import {
 	apiData,
-	buildCmsAuthHeaderCandidates,
-	callCmsRest,
-	callTenantMcpTool,
 	type CmsProxyContext,
 	cmsApiBaseUrl,
-	cmsAuthUnavailableToolResult,
 	cmsDoFetch,
-	EMDASH_DEFAULT_MAX_UPLOAD_BYTES,
-	executeCmsRestRequest,
-	hasTenantMcpCredential,
-	tenantMcpError,
 	type ToolResult,
 } from "./cms-proxy-runtime";
+import {
+	buildCmsAuthHeaderCandidates,
+	cmsAuthUnavailableToolResult,
+} from "./cms-proxy-auth";
+import { callCmsRest, executeCmsRestRequest } from "./cms-proxy-rest";
+import {
+	callTenantMcpTool,
+	EMDASH_DEFAULT_MAX_UPLOAD_BYTES,
+	hasTenantMcpCredential,
+	tenantMcpError,
+} from "./cms-proxy-tenant-mcp";
 import { unwrapCmsToolResult } from "./tool-result";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 

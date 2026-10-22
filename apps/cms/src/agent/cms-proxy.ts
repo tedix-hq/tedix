@@ -1,10 +1,6 @@
 import { getCmsSiteOverview } from "./cms-proxy-inspection";
-import {
-	callCmsRest,
-	type CmsProxyContext,
-	SANDBOX_FREE_CMS_PROXY_TOOLS,
-	type ToolResult,
-} from "./cms-proxy-runtime";
+import { callCmsRest, SANDBOX_FREE_CMS_PROXY_TOOLS } from "./cms-proxy-rest";
+import { type CmsProxyContext, type ToolResult } from "./cms-proxy-runtime";
 
 export async function callSandboxFreeCmsProxyTool(
 	ctx: CmsProxyContext,

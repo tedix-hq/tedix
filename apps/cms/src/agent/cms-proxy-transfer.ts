@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { getCmsTemplateSelection } from "./storage";
 import {
 	cmsApiBaseUrl,
-	buildCmsAuthHeaderCandidates,
 	type CmsProxyContext,
 	type ToolResult,
 } from "./cms-proxy-runtime";
+import { buildCmsAuthHeaderCandidates } from "./cms-proxy-auth";
 
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;

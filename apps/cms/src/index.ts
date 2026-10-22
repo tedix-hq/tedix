@@ -33,10 +33,8 @@ import {
 	resolveCmsHumanAuthorization,
 	type CmsHumanAuthResolution,
 } from "./agent/cms-human-auth";
-import {
-	type CmsProxyContext,
-	SANDBOX_FREE_CMS_PROXY_TOOLS,
-} from "./agent/cms-proxy-runtime";
+import { type CmsProxyContext } from "./agent/cms-proxy-runtime";
+import { SANDBOX_FREE_CMS_PROXY_TOOLS } from "./agent/cms-proxy-rest";
 import {
 	type DeployConfig,
 	type DeployContext,

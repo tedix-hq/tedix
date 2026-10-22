@@ -16,12 +16,13 @@ import {
 	callCmsTransferRest,
 	callCmsFormsTool,
 	completeExistingCmsSetup,
-	callTenantMcpTool,
-	type CmsProxyContext,
-	hasTenantMcpCredential,
 	menuSetItems,
-	type ToolResult,
-} from "./cms-proxy-runtime";
+} from "./cms-proxy-rest";
+import {
+	callTenantMcpTool,
+	hasTenantMcpCredential,
+} from "./cms-proxy-tenant-mcp";
+import { type CmsProxyContext, type ToolResult } from "./cms-proxy-runtime";
 import { CMS_PROXY_TOOL_SCHEMAS } from "./cms-proxy-schemas";
 
 function proxyTool(
