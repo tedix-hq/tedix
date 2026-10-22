@@ -97,9 +97,14 @@ try {
 	await waitForFixtureServer(`${origin}/browser-tests/dialogs.html`, {
 		server,
 	});
+	// A drawer mounts with data-starting-style (translated off-screen) and
+	// starts its transition a frame later, so "no running animation" alone
+	// can pass before the drawer has moved into view.
 	const settled = (page: Page) =>
-		page.waitForFunction(() =>
-			document.getAnimations().every((a) => a.playState !== "running"),
+		page.waitForFunction(
+			() =>
+				!document.querySelector("[data-starting-style], [data-ending-style]") &&
+				document.getAnimations().every((a) => a.playState !== "running"),
 		);
 	for (const c of cases) {
 		const { viewport } = c;
@@ -108,9 +113,7 @@ try {
 		await page.getByRole("button", { name: "Get help", exact: true }).click();
 		const dialog = page.getByRole("dialog");
 		await dialog.waitFor();
-		await page.waitForFunction(() =>
-			document.getAnimations().every((a) => a.playState !== "running"),
-		);
+		await settled(page);
 		assert(
 			await page
 				.getByRole("textbox", { name: "Summary", exact: true })
