@@ -57,21 +57,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/kumo/dialog";
 import { FormField } from "@/components/kumo/forms/form-field";
-import { exactConfirmationSchema } from "@/components/kumo/forms/exact-confirmation-schema";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { SelectItem } from "@/components/kumo/select";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { SettingsSectionNavigation } from "@/components/settings-section-navigation";
+import { TypedConfirmDialog } from "@/components/typed-confirm-dialog";
 import { osApi } from "@/lib/api";
 import {
 	APPS_MANAGE_DENIED_REASON,
@@ -661,16 +653,6 @@ function DangerZone({
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.apps() });
 			navigate({ to: "/apps" });
 		},
-		onError: (error) => {
-			toast.error(
-				error instanceof Error ? error.message : "Failed to delete app",
-			);
-		},
-	});
-	const confirmationForm = useZodForm({
-		schema: exactConfirmationSchema(appName, "App name"),
-		defaultValues: { confirmation: "" },
-		onSubmit: () => deleteMutation.mutate(),
 	});
 
 	return (
@@ -683,81 +665,32 @@ function DangerZone({
 					Permanently delete this app and all associated data (tools, adapters,
 					content, analytics).
 				</Text>
-				<Dialog
+				<Button
+					variant="destructive"
+					size="sm"
+					disabled={!canManage}
+					title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
+					onClick={() => setOpen(true)}
+				>
+					Delete app
+				</Button>
+				<TypedConfirmDialog
 					open={open}
 					onOpenChange={(nextOpen) => {
+						if (!nextOpen) deleteMutation.reset();
 						setOpen(nextOpen);
-						if (!nextOpen) confirmationForm.reset();
 					}}
-				>
-					<Button
-						variant="destructive"
-						size="sm"
-						disabled={!canManage}
-						title={canManage ? undefined : APPS_MANAGE_DENIED_REASON}
-						onClick={() => {
-							confirmationForm.reset();
-							setOpen(true);
-						}}
-					>
-						Delete app
-					</Button>
-					<DialogContent>
-						<DialogHeader>
-							<DialogTitle>Delete {appName}?</DialogTitle>
-							<DialogDescription>
-								This action cannot be undone. Type the app name to confirm.
-							</DialogDescription>
-						</DialogHeader>
-						<form
-							className="space-y-4 pt-2"
-							onSubmit={(event) => {
-								event.preventDefault();
-								void confirmationForm.handleSubmit();
-							}}
-						>
-							<FormField
-								form={confirmationForm}
-								name="confirmation"
-								label={`Type ${appName} to confirm deletion`}
-							>
-								{(field, meta) => (
-									<FormInput
-										field={field}
-										id={meta.id}
-										descriptionId={meta.descriptionId}
-										errorId={meta.errorId}
-										placeholder={appName}
-									/>
-								)}
-							</FormField>
-							<DialogFooter>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => setOpen(false)}
-								>
-									Cancel
-								</Button>
-								<confirmationForm.Subscribe
-									selector={(state) => state.canSubmit}
-								>
-									{(canSubmit) => (
-										<Button
-											type="submit"
-											variant="destructive"
-											disabled={!canSubmit || deleteMutation.isPending}
-										>
-											{deleteMutation.isPending
-												? "Deleting..."
-												: "Delete forever"}
-										</Button>
-									)}
-								</confirmationForm.Subscribe>
-							</DialogFooter>
-						</form>
-					</DialogContent>
-				</Dialog>
+					title={`Delete ${appName}?`}
+					description="This action cannot be undone. Type the app name to confirm."
+					expectedName={appName}
+					nameLabel="App name"
+					confirmLabel="Delete forever"
+					pendingLabel="Deleting…"
+					destructive
+					isPending={deleteMutation.isPending}
+					error={deleteMutation.error}
+					onConfirm={() => deleteMutation.mutate()}
+				/>
 			</CardContent>
 		</Card>
 	);
