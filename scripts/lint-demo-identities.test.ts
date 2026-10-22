@@ -206,3 +206,26 @@ test("cached line transitions retain the original sliding-window verdicts", () =
 		);
 	}
 });
+
+test("long-window cache churn preserves short-window verdicts", () => {
+	let repeated = 0;
+	const hashes = [
+		...denylist,
+		{
+			words: 9,
+			sha256: createHash("sha256")
+				.update("one two three four five six seven eight nine")
+				.digest("hex"),
+		},
+	];
+	const scan = createDemoIdentityScanner(hashes, (phrase) => {
+		if (phrase === "fictional") repeated++;
+		return createHash("sha256").update(phrase).digest("hex");
+	});
+	const source = Array.from(
+		{ length: 35_000 },
+		(_, i) => `fictional word${i % 400} part${Math.floor(i / 400)}`,
+	).join("\n");
+	expect(scan("fixtures/churn.txt", source)).toEqual([]);
+	expect(repeated).toBe(1);
+});
