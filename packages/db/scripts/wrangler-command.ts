@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const DB_ROOT = path.resolve(
@@ -32,7 +33,15 @@ export function runWrangler(
 ): string {
 	const result = spawnSync(
 		wranglerRuntimeExecutable(),
-		["run", "--silent", "wrangler", "--", ...args],
+		[
+			path.join(
+				path.dirname(
+					createRequire(import.meta.url).resolve("wrangler/package.json"),
+				),
+				"bin/wrangler.js",
+			),
+			...args,
+		],
 		{
 			cwd: options.cwd ?? DB_ROOT,
 			encoding: "utf8",
