@@ -3,6 +3,28 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.0 — 2026-10-22
+
+### Minor Changes
+
+- Record an agent's decisions with `tedix decide`, track how they turned out with `tedix decide outcome`, and review recent decisions and results by decision class with `tedix decide list`. Recording grants no authority; decisions that need a person still go through approvals.
+- Route `any-local` Work across Codex, Claude Code, OpenCode and Devin using configured capabilities and model preferences. Track native usage, preserve executor cooldowns across restarts, and recover interrupted sessions before assigning fresh work.
+
+### Patch Changes
+
+- Reject OAuth tokens when either supported scope claim exceeds the granted permissions.
+- Read large gateway results in full for `tedix code`, `tedix status`, `tedix tail` and transcript commands by retrieving stored result pages. Results that could not be stored still report truncation.
+- Hold repeated lane admission failures after three attempts despite changing diagnostic details. Retry commit verification when origin is unavailable and retain the live Attempt for later verification.
+- Show command-specific typo suggestions and help pointers for unknown options in `learn` subcommands and `neighbours`.
+- Support OpenCode decision capture, request recording, reply wakes and turn-status reporting through the existing hooks and opt-ins. Prevent an old reply listener from waking a newer turn.
+- Align JSON support with machine-readable help, including streaming channel and Work heartbeat output. Reject JSON for human-only commands before side effects and accept the global JSON flag in hook and lane commands.
+- Remove the singular `tedix workspace` alias; use `tedix workspaces`.
+- Retry temporary gateway access-check failures at most twice, respecting the advertised wait and command deadline. Retry a busy agent-session backend up to three times.
+- Retry temporary Attempt-authorization failures at most twice within the command deadline, only when the gateway confirms nothing executed.
+- Retry temporary autonomous-action-policy read failures at most twice, respecting the advertised wait and command deadline, only when the gateway confirms nothing executed.
+- Expand the bundled session guide with Code Mode evidence, multi-step work, visual answers and payments.
+- Preserve successful lane results when a delayed lease timer fires, while still expiring interrupted child processes.
+
 ## 0.16.0 — 2026-10-21
 
 ### Minor Changes
