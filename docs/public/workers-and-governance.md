@@ -5,9 +5,9 @@ title: "What an AI assistant may do and who says yes"
 topic: "Platform"
 resource_type: guide
 description: "What a Tedix AI assistant may access, when it asks for approval, and what it records about its work."
-summary: "The Tedix worker model, approvals, audit records, and repository controls"
+summary: "The Tedix tedi model, approvals, audit records, and repository controls"
 read_when:
-  - Understanding the Tedix worker model
+  - Understanding the Tedix tedi model
   - Evaluating approvals, permissions, and audit records
   - Choosing controls for a repository changed by coding agents
 visibility: public
@@ -26,7 +26,7 @@ If you need to know what a Tedix tedi may do, start with Permissions. This guide
 - memory that belongs to the organization;
 - policies, budgets, and approval requirements;
 - runs, rationale, and artifacts from past work;
-- a runtime that can restart or change without changing who the worker is.
+- a runtime that can restart or change without changing who the tedi is.
 
 Tedix keeps each tedi's identity separate from the computing resources it uses. Routine tasks run on a managed service. A job that needs a browser, a repository, or computer programs gets a temporary workstation, not permanent access to a machine.
 
@@ -34,20 +34,20 @@ Tedix keeps each tedi's identity separate from the computing resources it uses. 
 
 | Rule                                   | What it means                                                                               |
 | -------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Identity persists                      | The worker, its memory, and its record survive the run, the session, and runtime changes.   |
-| Budgets hold                           | The owner sets spend and capacity limits. A worker cannot raise its own.                    |
-| Approval follows the mutation policy   | A boundary can require an independent designated approver: a person or another worker.      |
+| Identity persists                      | The tedi, its memory, and its record survive the run, the session, and runtime changes.     |
+| Budgets hold                           | The owner sets spend and capacity limits. A tedi cannot raise its own.                      |
+| Approval follows the mutation policy   | A boundary can require an independent designated approver: a person or another tedi.        |
 | The record shows who did what, and why | Who asked, who acted, under which policy, with which sources, at what cost, and the result. |
 
 ## Permissions
 
-A worker gets an identity, a role, policies, tool grants, and spending limits.
+A tedi gets an identity, a role, policies, tool grants, and spending limits.
 Approval policy applies at each mutation boundary. A boundary may require a
 durable grant or an independent designated approver, which can be a person or
 a tedi. Other scoped Code Mode actions can use agent auto-confirm; there is no
 universal human-confirmation requirement. Consent, MFA, and user presence
-remain human steps. Delegating work to another worker passes only the scope
-that work needs, not every permission the delegating worker holds.
+remain human steps. Delegating work to another tedi passes only the scope
+that work needs, not every permission the delegating tedi holds.
 
 A tedi acts under its own identity rather than signing in as the person who
 asked. The requester stays on the record, but their permissions are not
@@ -167,18 +167,18 @@ does not turn the read-only console session into a write credential.
 ## What Tedix records
 
 - who or what asked for the work;
-- which worker or external agent did it;
+- which tedi or external agent did it;
 - the tools and sources it used;
 - approvals and policy decisions;
 - the artifacts it produced and any provider references for outside actions;
 - costs, where the provider reports them.
 
-A settled result is what the worker reported. Completion does not require a
+A settled result is what the tedi reported. Completion does not require a
 separate review, and it does not mean the result is correct. When someone
 checks the result, they can record that it held up or that it did not.
 
-Governance does not make every automated decision correct. It limits what a
-worker may do, keeps the record, and makes review and rollback possible.
+Approvals and limits do not make every automated decision correct. They limit what a
+tedi may do, keep the record, and make review and rollback possible.
 
 ## Compared with the Agent Access Model
 

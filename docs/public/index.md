@@ -69,7 +69,7 @@ what is available today.
 | Edit and publish website content                 | [Websites and CMS](./cms.md)                                            |
 | Deploy into your own Cloudflare account          | [Self-hosting and managed service boundary](./self-hosted-boundary.md)  |
 | Review the Worker and database layout            | [Installation manifests](./installation-manifests.md)                   |
-| Recover a CLI connection or worker run           | [Troubleshoot Tedix tasks](./troubleshooting.md)                        |
+| Recover a CLI connection or tedi run             | [Troubleshoot Tedix tasks](./troubleshooting.md)                        |
 
 **Understand Tedix**
 

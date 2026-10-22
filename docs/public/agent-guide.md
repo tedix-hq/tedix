@@ -26,7 +26,7 @@ organization. Choose the path that matches the task:
 | Answer a public product question | Use the documentation endpoints below. No login is needed.                                                                    |
 | Evaluate Tedix on one computer   | Follow the [local path](./getting-started.md#run-tedix-locally). It does not connect to Tedix Cloud or run remote tedis.      |
 | Operate Tedix from an assistant  | Connect the host's Tedix plugin or connector; see [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md). |
-| Run a Cloud worker               | Sign in to an invited beta organization, then follow [Give an AI assistant a task](./learning-paths/first-worker.md).         |
+| Run a Cloud tedi                 | Sign in to an invited beta organization, then follow [Give an AI assistant a task](./learning-paths/first-worker.md).         |
 | Change the source repository     | Read the root and nearest scoped `AGENTS.md` files before editing.                                                            |
 
 For a factory request, use [Build and inspect a factory as an agent](./factory-agent-guide.md).
@@ -155,9 +155,9 @@ capabilities the task needs; omitting it requests the default broad capability
 set. Set `TEDIX_EXTERNAL_AGENT` to the principal key for subsequent CLI calls
 and check `tedix agent status` before acting.
 
-For a first worker run, do not bootstrap an external-agent identity. Use the
-bounded [first-worker tutorial](./learning-paths/first-worker.md), which targets
-one named tedi and shows how to verify that the worker actually ran.
+For a first tedi run, do not bootstrap an external-agent identity. Use the
+bounded [first-task tutorial](./learning-paths/first-worker.md), which targets
+one named tedi and shows how to verify that the tedi actually ran.
 
 ## Source priority
 

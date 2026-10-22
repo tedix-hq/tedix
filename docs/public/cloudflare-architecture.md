@@ -14,7 +14,7 @@ visibility: public
 
 # Cloudflare architecture
 
-Tedix is built on Cloudflare so digital workers can combine low-latency edge
+Tedix is built on Cloudflare so tedis can combine low-latency edge
 execution with durable state and bounded access to heavier compute.
 
 ## One request through Tedix
@@ -38,7 +38,7 @@ these services: simple Home answers need no delegation or MCP tool call.
 ## Platform building blocks
 
 - **Workers** provide global request handling and control-plane services.
-- **Durable Objects** coordinate long-lived worker identity and stateful
+- **Durable Objects** coordinate long-lived tedi identity and stateful
   sessions.
 - **D1** stores canonical relational configuration, ledgers, and audit data.
 - **R2** stores larger immutable artifacts and published assets.
@@ -54,7 +54,7 @@ Tedix does not treat every Cloudflare primitive as interchangeable. Public
 request handling, durable coordination, Git source, immutable objects, and
 container execution have different trust and lifecycle requirements.
 
-This separation lets a worker keep its identity and durable records while an
+This separation lets a tedi keep its identity and durable records while an
 individual runtime or job environment is replaced.
 
 ## Authority boundaries

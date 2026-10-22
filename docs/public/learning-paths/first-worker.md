@@ -5,11 +5,11 @@ title: "Give an AI assistant a task and find its result"
 topic: "Learning paths"
 resource_type: tutorial
 description: "Give one existing Tedix AI assistant a task, find its result, and check the saved record."
-summary: "A first useful worker result with prerequisites, expected output, evidence, and recovery"
+summary: "A first useful tedi result with prerequisites, expected output, evidence, and recovery"
 read_when:
   - Giving a Tedix AI assistant its first task
-  - Checking whether a task reached a worker
-  - Recovering a first worker run that did not finish
+  - Checking whether a task reached a tedi
+  - Recovering a first tedi run that did not finish
 visibility: public
 ---
 
@@ -33,7 +33,7 @@ You need:
 - membership in a Tedix Cloud organization;
 - a completed [first Cloud connection](./first-connection.md);
 - at least one active tedi in the organization; and
-- the tedi's slug, shown with the worker in Tedix OS.
+- the tedi's slug, shown in Tedix OS.
 
 Check the CLI connection before sending work:
 
@@ -45,7 +45,9 @@ Replace `acme` with your saved CLI profile. The output must name the intended
 organization and its gateway. If the organization or gateway is wrong, stop
 and sign in to the right organization with `tedix login ORG_SLUG`.
 
-## Give the worker one task
+<a id="give-the-worker-one-task"></a>
+
+## Give the tedi one task
 
 Replace `WORKER_SLUG` with the slug of an active tedi, then run:
 
@@ -54,7 +56,7 @@ tedix -w acme tedi WORKER_SLUG ask \
   "Review this supplier brief: three recent orders arrived 4, 6, and 9 days late. Support replied within 1 business day twice and after 4 business days once. The unit price is EUR 18 and our limit is EUR 20. Give one recommendation, three evidence bullets using only these facts, and two follow-up questions. Do not call tools, create files, or contact anyone."
 ```
 
-The command targets that worker directly and waits for the run. Keep the Home
+The command targets that tedi directly and waits for the run. Keep the Home
 run ID printed by the CLI; you will inspect it next.
 
 Without the CLI, in Claude or ChatGPT with the [Tedix
@@ -72,7 +74,7 @@ A useful answer has all of these:
 - no invented supplier facts; and
 - no claim that a tool, file, or outside action was used.
 
-Wording can differ. A completed run records what the worker reported; it does
+Wording can differ. A completed run records what the tedi reported; it does
 not prove that the recommendation is correct.
 
 ## Inspect the run
@@ -88,12 +90,12 @@ inspection names the selected tedi and includes its child run. The events should
 end in a completed state. This task should have no tool-created artifacts
 because the prompt forbids tool calls and file creation.
 
-You have a first useful worker result when both conditions hold:
+You have a first useful tedi result when both conditions hold:
 
 1. the answer meets the checklist above; and
 2. the inspection shows that the named tedi produced it.
 
-A Home-only answer, a queued task, or a run ID by itself is not a worker result.
+A Home-only answer, a queued task, or a run ID by itself is not a tedi result.
 
 ## If it does not work
 
@@ -102,7 +104,7 @@ Start with the symptom you see.
 ### `Tedi not found`
 
 The slug is wrong or belongs to another organization. Check the selected
-organization with `tedix -w acme auth status`, then copy the worker slug again
+organization with `tedix -w acme auth status`, then copy the tedi slug again
 from Tedix OS. Do not substitute a display name.
 
 ### The CLI exits with code 3 or loses its connection
@@ -195,13 +197,13 @@ that did not offer this recovery.
 ### The run failed without offering recovery
 
 No retryable Work Item ID is available from this run. Use the inspection and
-event snapshot above to identify an input, worker, permission, or connection
+event snapshot above to identify an input, tedi, permission, or connection
 problem. Stop rather than automatically submitting a replacement task.
 Preserve the evidence and use the support path below.
 
 ### The run completed but the answer is incomplete or wrong
 
-A completed status records what the worker reported; it does not make the
+A completed status records what the tedi reported; it does not make the
 answer correct. Do not use `retry` unless the CLI offered recovery for a failed
 delegation. Compare the answer with the checklist above, make the missing or
 incorrect requirement explicit in one corrected bounded prompt, and submit it
@@ -233,8 +235,8 @@ installations are experimental and unsupported.
 
 ## Next
 
-- Learn [what a worker owns and what Tedix records](../workers-and-governance.md).
-- Learn when to use Home, workers, or flows in [Skills, automations, flows, and
+- Learn [what a tedi owns and what Tedix records](../workers-and-governance.md).
+- Learn when to use Home, tedis, or flows in [Skills, automations, flows, and
   runs](../skills-flows-workflows.md).
 - Read the [agent guide](../agent-guide.md) before an external coding or
   research agent operates an organization.

@@ -23,7 +23,7 @@ current state.
 The public source is the **complete tenant product**: identity, runtime,
 memory, skills, Work Items, policy, approvals, audit records, export, the MCP
 platform, the CLI, contracts, schemas, and the deployment path. There is no
-reduced community edition; governance and audit are in every tier.
+reduced community edition; approvals, limits, and audit records are in every tier.
 
 What Tedix Cloud charges for is **operation**: tested releases, upgrades,
 credential custody, backups, fleet management, compliance reports, incident
@@ -91,7 +91,7 @@ installation must declare. Identity integration and data export are required
 in every profile; they are never managed-only.
 
 The Work Item board, including claiming, settling, and commenting, is tenant
-product and ships in full: it is how a tenant's own workers coordinate.
+product and ships in full: it is how a tenant's own tedis coordinate.
 
 ## What is managed-only
 

@@ -17,7 +17,7 @@ visibility: public
 
 This tutorial connects the Tedix CLI on one computer to an invited Tedix Cloud
 organization. You finish with a saved CLI profile and a successful read-only
-call to that organization's live MCP gateway. It does not run a worker, call a
+call to that organization's live MCP gateway. It does not run a tedi, call a
 model, or change organization data. This is the CLI route; if you are not a
 developer, [use Tedix in ChatGPT, Codex and Claude](./first-plugin.md) instead.
 
@@ -172,7 +172,7 @@ and private organization content.
 
 ## Next
 
-- Get a useful result from [your first digital worker](./first-worker.md).
+- Get a useful result from [your first tedi](./first-worker.md).
 - Read the [CLI reference](../cli.md) for update, rollback, and command help.
 - Before a coding or research agent operates the organization, follow the
   [agent guide](../agent-guide.md).
