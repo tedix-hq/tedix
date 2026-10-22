@@ -23,7 +23,7 @@ function fixture(mode = "ok") {
 	const executable = join(dir, "claude");
 	writeFileSync(
 		executable,
-		`#!/usr/bin/env node
+		`#!${process.execPath}
 const fs=require('node:fs'),path=require('node:path');
 const root=process.env.CLAUDE_CONFIG_DIR;
 fs.mkdirSync(path.join(root,'sessions'),{recursive:true});
@@ -89,24 +89,50 @@ it("captures native identity before the PID record disappears without choosing a
 		],
 	});
 });
-it("does not admit a wrong PID, failed initialization or timed-out initialization", async () => {
-	for (const mode of [
+it("runs the metadata fixture without a runtime on PATH", async () => {
+	const f = fixture();
+	expect(
+		await createClaudeLaneThread(
+			f.dir,
+			f.executable,
+			{ ...f.env, PATH: "" },
+			5000,
+		),
+	).toEqual({
+		thread: { id, cliVersion: "2.1.test" },
+		model: "native-fictional-model",
+		modelProvider: "anthropic",
+	});
+});
+// Each child lifecycle gets its own test budget instead of sharing one deadline.
+it.each([
+	[
 		"wrong-pid",
-		"failed",
+		"Claude did not expose a verified native PID/session record; no model turn launched",
+	],
+	["failed", "Claude metadata process exited before admission"],
+	[
 		"timeout",
+		"Claude metadata initialization timed out; no model turn launched",
+	],
+	[
 		"missing-model",
+		"Claude did not return its native model; no model turn launched",
+	],
+	[
 		"stale",
-	]) {
-		const f = fixture(mode);
-		await expect(
-			createClaudeLaneThread(
-				f.dir,
-				f.executable,
-				f.env,
-				mode === "timeout" ? 20 : 5000,
-			),
-		).rejects.toThrow();
-	}
+		"Claude did not expose a verified native PID/session record; no model turn launched",
+	],
+])("does not admit %s metadata", async (mode, message) => {
+	const f = fixture(mode);
+	await expect(
+		createClaudeLaneThread(
+			f.dir,
+			f.executable,
+			f.env,
+			mode === "timeout" ? 20 : 5000,
+		),
+	).rejects.toThrow(message);
 });
 it("locates only an unambiguous native transcript and rejects path-shaped identities", () => {
 	const f = fixture();
