@@ -48,7 +48,8 @@
 		"oss/secret-scan.ts",
 		"release/postdeploy-smoke.ts",
 		"secrets/rotate-master-key.ts",
-		"mcp/sync-tool-schemas.ts"
+		"mcp/sync-tool-schemas.ts",
+		"vite/test-capacity.test.ts"
 	],
 	"exclude": ["node_modules"]
 }
