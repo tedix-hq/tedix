@@ -1,10 +1,8 @@
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import { syncDeclaredConnectionScopes } from "../../../services/connection-scope-sync";
 import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connections";
-import {
-	ConnectionTokenLookupError,
-	type ConnectionProviderConfig,
-} from "@tedix/auth/connections";
+import { ConnectionTokenLookupError } from "@tedix/auth/connections";
+import { type ConnectionProviderConfig } from "@tedix/auth/connection-providers";
 import type {
 	CreateTenantOpenApiMcpAppInput,
 	InstallTenantMcpAppsInput,

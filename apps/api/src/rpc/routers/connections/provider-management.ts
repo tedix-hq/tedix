@@ -8,17 +8,17 @@ import {
 } from "../../orpc";
 import { type ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connection-provider-templates";
 import { ORPCError } from "@orpc/server";
+import { uploadTenantApiKeyToken } from "@tedix/auth/connections";
 import {
 	createConnectionProvider,
 	createConnectionProviderWithId,
 	deleteConnectionProvider,
 	deleteTenantTokens,
-	discoverMcpConnectionProvider,
 	getAdaptiveConnectUrl,
 	updateConnectionProviderMetadataWithId,
-	uploadTenantApiKeyToken,
 	upsertConnectionProviderWithId,
-} from "@tedix/auth/connections";
+} from "@tedix/auth/connection-providers";
+import { discoverMcpConnectionProvider } from "@tedix/auth/connection-discovery";
 import {
 	getCatalogAppById,
 	getCatalogAppBySlug,

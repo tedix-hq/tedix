@@ -26,8 +26,8 @@ import {
 	fetchNamedTenantConnectionToken,
 	fetchTenantConnectionToken,
 	fetchTenantConnectionTokenByScopes,
-	outboundAppExists,
 } from "@tedix/auth/connections";
+import { outboundAppExists } from "@tedix/auth/connection-providers";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getConnectionInstance,

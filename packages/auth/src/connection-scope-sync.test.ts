@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { syncConnectionProviderScopes } from "./connections";
+import { syncConnectionProviderScopes } from "./connection-providers.ts";
 
 const env = {
 	DESCOPE_PROJECT_ID: "project",

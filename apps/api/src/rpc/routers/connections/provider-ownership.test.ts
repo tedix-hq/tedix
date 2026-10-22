@@ -1,7 +1,7 @@
 import { createRouterClient } from "@orpc/server";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import * as providers from "@tedix/db/queries/connection-providers";
-import * as auth from "@tedix/auth/connections";
+import * as auth from "@tedix/auth/connection-providers";
 import * as policy from "./policy-resolution";
 import * as discovery from "./provider-discovery";
 import * as management from "../../../lib/descope-management";
