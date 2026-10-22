@@ -1422,17 +1422,16 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		return document;
 	};
 	const lesson = { shortId: "abcd1234", text: "Pushes race on main." };
-	const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 	const additional = (lines: string[]): string =>
 		lines.length
 			? JSON.parse(lines.join("\n")).hookSpecificOutput.additionalContext
 			: "";
 
-	/** One hook run against a scripted gateway; `delay` slows every live read. */
+	/** One hook run against a scripted gateway; `beforeRead` can gate live reads. */
 	async function turn(options: {
 		config: string;
 		now: Date;
-		delay?: number;
+		beforeRead?: (args: string[]) => Promise<void>;
 		question?: boolean;
 		binding?: JsonObject;
 		gateway?: (code: string) => JsonObject | Promise<JsonObject>;
@@ -1472,7 +1471,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				timeouts.push(timeout);
 				if (args[0] === "setup") return copy(options.binding ?? binding);
 				if (args.includes("auth")) return copy(auth);
-				await sleep(options.delay ?? 0);
+				await options.beforeRead?.(args);
 				if (
 					args.some((arg) =>
 						arg.includes("list_undelivered_work_interaction_responses"),
@@ -1524,14 +1523,45 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 
 	test("the organization probe, the answer reads and the gateway read run together", async () => {
 		const config = mkdtempSync(join(tmpdir(), "tedix-prompt-parallel-"));
-		const started = Date.now();
-		const { text, steps } = await turn({
+		let release!: () => void;
+		let allStarted!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const ready = new Promise<void>((resolve) => {
+			allStarted = resolve;
+		});
+		const reads = new Set<string>();
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const pending = turn({
 			config,
 			now: new Date(),
-			delay: 150,
+			beforeRead: async (args) => {
+				const code = String(args.at(-1));
+				const read = code.includes(
+					"list_undelivered_work_interaction_responses",
+				)
+					? "answers"
+					: code.includes("codemode.__runtime")
+						? "organization"
+						: code.includes(`"preferencesOutputId":"${PREFERENCE_OUTPUT}"`)
+							? "gateway"
+							: null;
+				if (!read) return;
+				reads.add(read);
+				inFlight++;
+				maxInFlight = Math.max(maxInFlight, inFlight);
+				if (reads.size === 3) allStarted();
+				await gate;
+				inFlight--;
+			},
 			question: true,
 		});
-		const elapsed = Date.now() - started;
+		await ready;
+		expect(maxInFlight).toBe(3);
+		release();
+		const { text, steps } = await pending;
 		expect(steps.sort()).toEqual([
 			"answers",
 			"catalog",
@@ -1539,8 +1569,6 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			"organization",
 			"validation",
 		]);
-		// Three 150ms reads in sequence would take 450ms; together, about one.
-		expect(elapsed).toBeLessThan(600);
 		expect(text).toContain("Handle authorized routine choices");
 		expect(text).toContain("Pushes race on main");
 		expect(text).toContain("The user replied in Tedix OS");

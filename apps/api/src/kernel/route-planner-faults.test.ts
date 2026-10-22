@@ -239,6 +239,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.clearAllTimers();
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
 
@@ -320,8 +322,9 @@ describe("planKernelRoute — selected provider faults", () => {
 				.mockImplementation(async () => response());
 			const run = fallbackRun();
 			const env = azureEnv(run);
-			const started = Date.now();
-			await expect(
+			vi.useFakeTimers();
+			let settled = false;
+			const pending = expect(
 				planKernelRoute({
 					content: "status",
 					context: EMPTY_CONTEXT,
@@ -329,10 +332,16 @@ describe("planKernelRoute — selected provider faults", () => {
 					env,
 					onAnswerDelta: () => {},
 				}),
-			).rejects.toThrow();
+			)
+				.rejects.toThrow()
+				.then(() => {
+					settled = true;
+				});
+			await vi.advanceTimersByTimeAsync(7_999);
+			expect(settled).toBe(true);
+			await pending;
 			expect(fetchSpy).toHaveBeenCalledTimes(1);
 			expect(run).not.toHaveBeenCalled();
-			expect(Date.now() - started).toBeLessThan(8000);
 		});
 	}
 });
