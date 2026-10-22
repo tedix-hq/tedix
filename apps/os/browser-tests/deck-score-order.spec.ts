@@ -23,21 +23,28 @@ try {
 		await fixture(page);
 		await page.goto(`${origin}/work?view=deck`);
 		await page.getByRole("region", { name: title(-1), exact: true }).waitFor();
-		// Judge the order on the same snapshot that showed the full queue: a
-		// second read can land on a refetch that has not yet merged sheet rows.
-		const labels = (await (
-			await page.waitForFunction(async () => {
+		// waitForFunction treats an async predicate's pending Promise as truthy,
+		// so it never waited for the sheet rows. Poll the tool until the full
+		// queue is there and judge the order on that same snapshot.
+		const readQueue = () =>
+			page.evaluate(async () => {
 				const tools = (
 					window as unknown as { deckTools: Map<string, WebMcpSpecTool> }
 				).deckTools;
 				const snapshot = (await tools
 					.get("get_decision_deck_card")
 					?.execute({})) as { queue?: { label: string }[] } | undefined;
-				return snapshot?.queue?.length === 4
-					? snapshot.queue.map((card) => card.label)
-					: false;
-			})
-		).jsonValue()) as string[];
+				return snapshot?.queue?.map((card) => card.label) ?? [];
+			});
+		let labels = await readQueue();
+		for (const deadline = Date.now() + 30_000; labels.length !== 4;) {
+			assert(
+				Date.now() < deadline,
+				`Deck queue never filled at ${width}px: ${JSON.stringify(labels)}`,
+			);
+			await page.waitForTimeout(100);
+			labels = await readQueue();
+		}
 		// The browser's Deck queue must differ from the low/high/middle sheet order.
 		assert.deepEqual(
 			labels,
