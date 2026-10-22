@@ -9,7 +9,10 @@ import {
 	liveTickets,
 	MAX_TRAIN_LANES,
 	readHistory,
+	readRetryHistory,
 	recordTrain,
+	recordRetry,
+	retryRefusal,
 	selectTrain,
 	STALE_MS,
 	tryAcquire,
@@ -187,6 +190,63 @@ describe("wait estimate", () => {
 		const kept = readHistory(file);
 		expect(kept).toHaveLength(50);
 		expect(kept.at(-1)!.startedAt).toBe(59);
+	});
+});
+
+describe("gate retry budget", () => {
+	test("refuses a third failure, resets on pass, and leaves another lane alone", () => {
+		const file = join(tmp(), "retries.jsonl");
+		const now = Date.now();
+		recordRetry(file, {
+			key: "lane-a|work-a",
+			gate: "lint:repo",
+			result: "failed",
+			at: now - 1000,
+		});
+		recordRetry(file, {
+			key: "lane-a|work-a",
+			gate: "type-check",
+			result: "failed",
+			at: now,
+		});
+		expect(retryRefusal(file, "lane-a|work-a", now)).toContain(
+			"lint:repo, type-check",
+		);
+		expect(retryRefusal(file, "lane-b|work-b", now)).toBeNull();
+		recordRetry(file, {
+			key: "lane-a|work-a",
+			gate: "pass",
+			result: "passed",
+			at: now + 1,
+		});
+		expect(retryRefusal(file, "lane-a|work-a", now + 1)).toBeNull();
+	});
+
+	test("override bypasses the budget while priority does not", () => {
+		const file = join(tmp(), "retries.jsonl");
+		const now = Date.now();
+		for (const gate of ["docs:public:check", "lint:repo"])
+			recordRetry(file, { key: "lane|work", gate, result: "failed", at: now });
+		expect(retryRefusal(file, "lane|work", now)).not.toBeNull();
+		process.env.TEDIX_PUSH_RETRY_OVERRIDE = "1";
+		try {
+			expect(retryRefusal(file, "lane|work", now)).toBeNull();
+		} finally {
+			delete process.env.TEDIX_PUSH_RETRY_OVERRIDE;
+		}
+	});
+
+	test("keeps retry history trimmed to fifty entries", () => {
+		const file = join(tmp(), "retries.jsonl");
+		for (let i = 0; i < 60; i++)
+			recordRetry(file, {
+				key: "lane|work",
+				gate: `gate-${i}`,
+				result: "failed",
+				at: i,
+			});
+		expect(readRetryHistory(file)).toHaveLength(50);
+		expect(readRetryHistory(file).at(-1)?.gate).toBe("gate-59");
 	});
 });
 
