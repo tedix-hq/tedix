@@ -20,10 +20,6 @@
  * Dead holders and tickets are removed. Single-lane locks also expire after
  * STALE_MS; living trains may need longer for fallback. No daemon.
  *
- * A successful push observes main CI through the existing gh session, then
- * notifies tedix-cloud-ops. Ship independently selects the newest green main;
- * its hourly schedule remains the fallback.
- *
  * At most once a week, a successful push also starts `worktree:gc --apply` in
  * the background (log in <git-common-dir>/worktree-gc.log), so finished
  * worktrees are removed without anyone scheduling it. That command only
@@ -303,44 +299,6 @@ export function gcDue(stampFile: string, now = Date.now()): boolean {
 	}
 }
 
-function requestShip() {
-	const commonDir = resolve(git(["rev-parse", "--git-common-dir"]).out);
-	const log = openSync(join(commonDir, "ci-completion.log"), "a");
-	try {
-		// The bootstrap removes its source snapshot when this push exits.
-		const source = readFileSync(
-			new URL("./watch-main-ci.mjs", import.meta.url),
-			"utf8",
-		);
-		const child = spawn(process.execPath, ["--eval", source], {
-			detached: true,
-			stdio: ["ignore", log, log],
-			env: {
-				...process.env,
-				TEDIX_CI_PUSHED_SHA: git(["rev-parse", "origin/main"]).out,
-			},
-		});
-		child
-			.on("error", (error) =>
-				console.error(
-					`push: CI observer could not start: ${error.message}; scheduled fallback remains active.`,
-				),
-			)
-			.unref();
-		console.log(
-			child.pid
-				? "push: observing main CI; ops will verify green before Ship."
-				: "push: CI observer could not start; scheduled fallback remains active.",
-		);
-	} catch (error) {
-		console.error(
-			`push: CI observer could not start: ${String(error)}; scheduled fallback remains active.`,
-		);
-	} finally {
-		closeSync(log);
-	}
-}
-
 function startWeeklyWorktreeGc(commonDir: string) {
 	if (process.env.TEDIX_DEVIN_HEADLESS === "1") return;
 	const stamp = join(commonDir, "worktree-gc.stamp");
@@ -481,7 +439,6 @@ async function main() {
 			})),
 		);
 		if (published) {
-			requestShip();
 			startWeeklyWorktreeGc(commonDir);
 		}
 		const result = readResult(resultTicket);
@@ -505,7 +462,6 @@ async function main() {
 					: "push: pushed to main.",
 			);
 			if (!dryRun) {
-				requestShip();
 				startWeeklyWorktreeGc(commonDir);
 			}
 			process.exit(0);

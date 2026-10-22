@@ -49,13 +49,12 @@ For the initial CI bootstrap, operations can pause new deployment plans while
 fast pushes install this workflow and its fixes. Restore planning only after
 certification passes and green-only selection is enforced.
 
-`bun run push` starts a detached completion observer using the
-existing `gh` session. It checks every 15 seconds for up to 30 minutes and wakes
-ops only after this push, or a main descendant containing it, passes CI. Ops
-independently resolves and verifies the newest green main commit. No Actions
-secret is added. Logs are in the common Git directory's `ci-completion.log`.
-An unavailable `gh` session or an expired observer leaves the scheduled fallback
-active; immediate notification requires the pushing host to remain running.
+Ops watches successful main certification every 15 seconds and wakes Ship
+using its existing workflow token. The watcher renews itself and has an hourly
+recovery schedule; Ship retains its hourly fallback. Ship independently
+resolves and verifies the newest certified main commit and its `Main CI`
+aggregate. No Actions secret is added to this repository, and pushing hosts
+need no completion daemon or authenticated `gh` session.
 
 The repository observer reports only failed runs that still match main's tip,
 using the exact workflow attempt's failed shards. One `ci_red` Work observation
