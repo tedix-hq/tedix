@@ -15,10 +15,8 @@ import { HomePlanSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import { terminalChildOutcomeFromStatus } from "../../../kernel/progress-ledger";
 import type { BaseContext } from "../../orpc";
-import {
-	readChildRunEvidenceRows,
-	summarizeChildRuntimeEvents,
-} from "./child-run-reads";
+import { readChildRunEvidenceRows } from "./child-run-reads";
+import { summarizeChildRuntimeEvents } from "./child-run-events";
 import { delegationVerifyCommand } from "./delegated-stop";
 import { isWorkstationDispatchedRunRow } from "./delegation-work-item";
 import {

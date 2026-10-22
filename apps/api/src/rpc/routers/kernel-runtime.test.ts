@@ -58,8 +58,8 @@ import { remainingKernelTurnBudgetMs } from "./kernel-runtime/policy-normalizati
 import {
 	augmentTreeWithFanoutChildren,
 	buildFanoutChildNodes,
-	readSingleChildRunSummary,
-} from "./kernel/child-run-reads";
+} from "./kernel/child-run-delegated-result";
+import { readSingleChildRunSummary } from "./kernel/child-run-reads";
 import {
 	detectOperatorSlashCommand,
 	explicitDelegationNeedsEmbodiedSurface,

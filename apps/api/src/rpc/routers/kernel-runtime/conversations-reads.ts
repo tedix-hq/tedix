@@ -1,11 +1,13 @@
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
 	type ChildRunEvidenceRows,
+	readChildRunEvidenceRows,
+} from "../kernel/child-run-reads";
+import {
 	augmentTreeWithFanoutChildren,
 	buildHomeChildRunTree,
-	readChildRunEvidenceRows,
-	summarizeChildRuntimeEvents,
-} from "../kernel/child-run-reads";
+} from "../kernel/child-run-delegated-result";
+import { summarizeChildRuntimeEvents } from "../kernel/child-run-events";
 import { HOME_MAIN_CONVERSATION_ID } from "../kernel/conversation-index";
 import type { HomeChildRunEvidence } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
