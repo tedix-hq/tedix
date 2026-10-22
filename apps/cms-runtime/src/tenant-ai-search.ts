@@ -1,9 +1,5 @@
 import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
-import { createDbQueryClient } from "@tedix/db/query-client";
-import {
-	CmsRestoreFenceUnavailableError,
-	withCmsRestorePermit,
-} from "./tenant-restore-fence";
+import { withSharedCmsRestorePermit } from "./tenant-restore-fence";
 import {
 	assertTenantAiSearchLogicalName,
 	tenantAiSearchCreateConfig,
@@ -31,7 +27,7 @@ export interface TenantAiSearchNamespace {
 
 interface TenantAiSearchEnv {
 	AI_SEARCH: TenantAiSearchNamespace;
-	PLATFORM_DB: D1Database;
+	DB_DO: DurableObjectNamespace;
 }
 
 interface TenantAiSearchProps {
@@ -46,13 +42,7 @@ async function withAiSearchPermit<T>(
 	identity: TenantAiSearchProps,
 	run: () => Promise<T>,
 ): Promise<T> {
-	const result = await withCmsRestorePermit(
-		createDbQueryClient(env.PLATFORM_DB),
-		identity,
-		run,
-	);
-	if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
-	return result.value;
+	return withSharedCmsRestorePermit(env.DB_DO, identity, run);
 }
 
 class TenantAiSearchItems extends RpcTarget {

@@ -1,5 +1,12 @@
 import { env } from "cloudflare:workers";
-import { beforeAll, describe, expect, test, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	closeCmsRestoreFence,
@@ -13,9 +20,22 @@ import {
 } from "./tenant-ai-search";
 import { TENANT_AI_SEARCH_LOGICAL_NAME } from "./tenant-ai-search-policy";
 import { CmsRestoreFenceUnavailableError } from "./tenant-restore-fence";
+import type { EmDashDB } from "./emdash-db";
+// Load the Worker exports before the test pool resolves DB_DO.
+import "./index";
 
 const platformD1 = (env as unknown as { PLATFORM_DB: D1Database }).PLATFORM_DB;
 const db = createDbQueryClient(platformD1);
+const coordinators = (
+	env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+).DB_DO;
+let lastCall = 0;
+afterEach(async () => {
+	const remaining = lastCall + 10_100 - Date.now();
+	if (remaining > 0)
+		await new Promise((resolve) => setTimeout(resolve, remaining));
+	lastCall = 0;
+}, 20_000);
 
 beforeAll(async () => {
 	await platformD1
@@ -52,17 +72,36 @@ async function site() {
 		.prepare("INSERT INTO cms_sites (id, slug, status) VALUES (?, ?, 'active')")
 		.bind(siteId, slug)
 		.run();
+	await coordinators
+		.get(coordinators.idFromName(slug))
+		.query("CREATE TABLE content (id INTEGER PRIMARY KEY, title TEXT)");
 	return { siteId, slug, instanceId: `instance-${siteId}`, restoreEpoch: 0 };
 }
 
 function facade(
 	identity: Awaited<ReturnType<typeof site>>,
 	namespace: TenantAiSearchNamespace,
-	platformDb: D1Database = platformD1,
+	namespaceDb: DurableObjectNamespace = coordinators,
 ): TenantAiSearch {
+	const coordinator = namespaceDb.get(
+		namespaceDb.idFromName(identity.slug),
+	) as unknown as Pick<EmDashDB, "runWithRestorePermit">;
 	return Object.assign(Object.create(TenantAiSearch.prototype), {
 		ctx: { props: identity },
-		env: { AI_SEARCH: namespace, PLATFORM_DB: platformDb },
+		env: {
+			AI_SEARCH: namespace,
+			DB_DO: {
+				idFromName: (name: string) => namespaceDb.idFromName(name),
+				get: () => ({
+					runWithRestorePermit: (
+						...args: Parameters<EmDashDB["runWithRestorePermit"]>
+					) => {
+						lastCall = Date.now();
+						return coordinator.runWithRestorePermit(...args);
+					},
+				}),
+			},
+		},
 	}) as TenantAiSearch;
 }
 
@@ -98,8 +137,11 @@ describe("tenant AI Search restore permit", () => {
 		const entrypoint = facade(identity, service.namespace);
 		const instance = entrypoint.get(TENANT_AI_SEARCH_LOGICAL_NAME);
 		const pending = instance.items.upload("page", "body");
-		await vi.waitFor(async () =>
-			expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1),
+		await vi.waitFor(() => expect(service.upload).toHaveBeenCalledOnce());
+		await vi.waitFor(
+			async () =>
+				expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1),
+			{ timeout: 10_000 },
 		);
 		const fence = { ...identity, generation: "g1", captureId: "c1" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
@@ -118,7 +160,11 @@ describe("tenant AI Search restore permit", () => {
 		expect(service.create).not.toHaveBeenCalled();
 		finish({ id: "item-1" });
 		await expect(pending).resolves.toEqual({ id: "item-1" });
-		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
+		await vi.waitFor(
+			async () =>
+				expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0),
+			{ timeout: 15_000 },
+		);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 		await expect(instance.items.delete("item-1")).rejects.toBeInstanceOf(
 			CmsRestoreFenceUnavailableError,
@@ -133,7 +179,7 @@ describe("tenant AI Search restore permit", () => {
 			fresh.get(TENANT_AI_SEARCH_LOGICAL_NAME).items.delete("item-1"),
 		).resolves.toBeUndefined();
 		expect(service.remove).toHaveBeenCalledWith("item-1");
-	});
+	}, 20_000);
 
 	test("releases a failed provider call and isolates another site", async () => {
 		const closedIdentity = await site();
@@ -147,7 +193,13 @@ describe("tenant AI Search restore permit", () => {
 		await expect(instance.items.upload("page", "body")).rejects.toThrow(
 			"AI Search failed",
 		);
-		expect((await getCmsRestoreFenceState(db, openIdentity)).inFlight).toBe(0);
+		await vi.waitFor(
+			async () =>
+				expect((await getCmsRestoreFenceState(db, openIdentity)).inFlight).toBe(
+					0,
+				),
+			{ timeout: 15_000 },
+		);
 		await expect(
 			open.create({ id: TENANT_AI_SEARCH_LOGICAL_NAME }),
 		).resolves.toBeDefined();
@@ -155,17 +207,20 @@ describe("tenant AI Search restore permit", () => {
 			updated: true,
 		});
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
-	});
+	}, 20_000);
 
-	test("D1 failure denies writes but leaves read methods unchanged", async () => {
+	test("coordinator failure denies writes but leaves read methods unchanged", async () => {
 		const identity = await site();
 		const service = provider();
-		const brokenD1 = {
-			prepare: () => {
-				throw new Error("D1 unavailable");
-			},
-		} as unknown as D1Database;
-		const entrypoint = facade(identity, service.namespace, brokenD1);
+		const brokenDb = {
+			idFromName: (name: string) => name,
+			get: () => ({
+				runWithRestorePermit: async () => {
+					throw new Error("D1 unavailable");
+				},
+			}),
+		} as unknown as DurableObjectNamespace;
+		const entrypoint = facade(identity, service.namespace, brokenDb);
 		const instance = entrypoint.get(TENANT_AI_SEARCH_LOGICAL_NAME);
 		await expect(instance.info()).resolves.toEqual({ id: "instance" });
 		await expect(instance.search({ query: "hello" })).resolves.toEqual({
@@ -188,5 +243,62 @@ describe("tenant AI Search restore permit", () => {
 		expect(service.update).not.toHaveBeenCalled();
 		expect(service.create).not.toHaveBeenCalled();
 		expect(service.get).toHaveBeenCalledWith(identity.instanceId);
+	});
+	test("all mutations borrow one reservation without per-call D1 rows", async () => {
+		const identity = await site();
+		const service = provider();
+		const entrypoint = facade(identity, service.namespace);
+		const instance = await entrypoint.create({
+			id: TENANT_AI_SEARCH_LOGICAL_NAME,
+		});
+		const rows = () =>
+			platformD1
+				.prepare("SELECT id FROM cms_restore_permits WHERE site_id = ?")
+				.bind(identity.siteId)
+				.all();
+		const reserved = await rows();
+		expect(reserved.results).toHaveLength(1);
+		for (const operation of [
+			() => instance.items.upload("page", "body"),
+			() => instance.items.delete("item-1"),
+			() => instance.update({ custom_metadata: {} }),
+		]) {
+			await operation();
+			expect((await rows()).results).toEqual(reserved.results);
+		}
+		for (const call of [
+			service.create,
+			service.upload,
+			service.remove,
+			service.update,
+		])
+			expect(call).toHaveBeenCalledOnce();
+	});
+
+	test("pause refuses every AI Search mutation", async () => {
+		const identity = await site();
+		const service = provider();
+		const entrypoint = facade(identity, service.namespace);
+		const instance = entrypoint.get(TENANT_AI_SEARCH_LOGICAL_NAME);
+		await platformD1
+			.prepare("UPDATE cms_sites SET status = 'paused' WHERE id = ?")
+			.bind(identity.siteId)
+			.run();
+		for (const operation of [
+			() => entrypoint.create({ id: TENANT_AI_SEARCH_LOGICAL_NAME }),
+			() => instance.items.upload("page", "body"),
+			() => instance.items.delete("item-1"),
+			() => instance.update({ custom_metadata: {} }),
+		])
+			await expect(operation()).rejects.toBeInstanceOf(
+				CmsRestoreFenceUnavailableError,
+			);
+		for (const call of [
+			service.create,
+			service.upload,
+			service.remove,
+			service.update,
+		])
+			expect(call).not.toHaveBeenCalled();
 	});
 });
