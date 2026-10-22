@@ -164,7 +164,7 @@ describe("external-agent CLI session", () => {
 				},
 			}),
 		).rejects.toThrow(
-			"Stored external-agent credential does not match the registered principal. Run `tedix agent status` and have an owner inspect the principal credential binding before retrying. The local session is unchanged.",
+			"External-agent credential does not match the registered principal. Run `tedix agent status` and have an owner inspect the principal credential binding before retrying. The local session is unchanged.",
 		);
 		expect(calls).toBe(1);
 		expect(externalAgentStatus("tedix")).toEqual(before);
@@ -384,7 +384,12 @@ describe("external-agent CLI session", () => {
 				},
 			});
 			if (succeeds) expect((await result).session.id).toBe(SESSION);
-			else await expect(result).rejects.toThrow(scenario);
+			else
+				await expect(result).rejects.toThrow(
+					status === 0
+						? scenario
+						: `External-agent session exchange failed (${status}${code ? `, ${code}` : ""}). Inspect agent status before retrying; server-side issuance may have changed.`,
+				);
 			expect(bodies).toHaveLength(expectedCalls);
 			expect(new Set(bodies).size).toBe(1);
 		},
@@ -415,7 +420,8 @@ describe("external-agent CLI session", () => {
 				if (source.includes("external.create_external_agent_principal")) {
 					return { result: { id: PRINCIPAL } };
 				}
-				expect(headers["X-API-Key"]).toBe("short-lived-mcp-token");
+				expect(headers.Authorization).toBe("Bearer short-lived-mcp-token");
+				expect(headers["X-API-Key"]).toBeUndefined();
 				return { result: { success: true } };
 			},
 			close: async () => {},
@@ -497,7 +503,9 @@ describe("external-agent CLI session", () => {
 			fetch: fetcher,
 			createClient,
 		});
-		expect(auth.headers).toEqual({ "X-API-Key": "short-lived-mcp-token" });
+		expect(auth.headers).toEqual({
+			Authorization: "Bearer short-lived-mcp-token",
+		});
 		const reused = await resolveExternalAgentAuth({
 			workspace: "tedix",
 			selector: "codex-ada",
@@ -849,7 +857,9 @@ describe("external-agent CLI session", () => {
 					organization,
 					fetch: async () => exchangeResponse(),
 				});
-				expect(auth.headers).toEqual({ "X-API-Key": "short-lived-mcp-token" });
+				expect(auth.headers).toEqual({
+					Authorization: "Bearer short-lived-mcp-token",
+				});
 			}
 			const before = code.length;
 			await expect(

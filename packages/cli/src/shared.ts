@@ -41,6 +41,7 @@ export function selfCommand(): [string, string[]] {
 
 export interface AuthResolution {
 	cleanup?: () => Promise<void>;
+	credentialProvider?: () => Promise<Record<string, string>>;
 	headers: Record<string, string>;
 	mcpUrl?: string;
 	oauthProvider?: OAuthClientProvider;
