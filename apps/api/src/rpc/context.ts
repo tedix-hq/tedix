@@ -43,13 +43,11 @@ import {
  * surface rebuild (discovery), so when the primary is saturated by heavy
  * scans these are the reads that should not queue behind it.
  *
- * While read replication is disabled on the database, `first-unconstrained`
- * still routes to the primary, so this list changes nothing until replication
- * is turned on. Once it is, a caller may read state up to the replication lag
- * old (normally well under a second): a grant revoked a moment ago can still
- * pass once, and one granted a moment ago can still fail once. Writes inside
- * these procedures always go to the primary, and the session keeps them
- * read-your-own-writes.
+ * Replication state is an operator setting on the database. When disabled,
+ * `first-unconstrained` still routes to the primary. When enabled, these
+ * procedures may observe replica lag; grant verification retries a negative
+ * answer on the primary. Writes always go to the primary, and the session
+ * keeps them read-your-own-writes.
  */
 export const D1_REPLICA_READ_RPC_PATHS: ReadonlySet<string> = new Set([
 	"/rpc/organizations/verifyMultiOrgMcpGrant",
@@ -220,40 +218,18 @@ export function createContext(
 	env: CloudflareEnv,
 	waitUntil?: (promise: Promise<unknown>) => void,
 ): BaseContext {
-	// One D1 session for the whole request, resumed from the caller's bookmark
-	// when it sent one. Within a session D1 guarantees read-your-own-writes and
-	// monotonic reads, so a procedure that writes and then reads is correct even
-	// once reads may be served by a replica — the guarantee comes from the scope,
-	// not from classifying individual queries.
-	//
-	// `first-unconstrained` globally, deliberately, rather than a per-path
-	// allowlist. Replication is enabled (mode `auto`) and this is the setting that
-	// actually routes reads to a nearby replica; the alternative was a path
-	// allowlist, which trades real latency for a list nobody maintains.
-	//
-	// What this does NOT put at risk is correctness of the exclusive operations,
-	// because they are enforced in the WRITE predicate and writes always execute
-	// on the primary. Claiming a work item is one conditional
-	// `UPDATE … WHERE … workItemIsUnclaimed()` with `.returning()`, so a stale
-	// replica read cannot produce a double claim — the WHERE fails and the claim
-	// returns null.
-	//
-	// What it does expose is visible staleness bounded by replication lag
-	// (sub-second): a caller that wrote in a PREVIOUS request and sends no
-	// bookmark can read a pre-write value. Read-then-decide gates are the ones to
-	// watch — billing entitlement admission, for instance, could briefly gate on
-	// a stale plan after an upgrade. Within a single request there is no exposure
-	// at all: the session guarantees read-your-own-writes.
-	//
-	// Callers that need the cross-request guarantee should echo the bookmark from
-	// `context.dbBookmark()` in `x-d1-bookmark` on their next call.
+	// Resume the caller's bookmark when present; otherwise only the listed hot
+	// read paths use first-unconstrained. All other paths use first-primary.
+	// Replication state is an operator setting on the database: when disabled,
+	// both constraints read the primary; when enabled, the allowlist may read
+	// stale replica state. Grant verification retries negative answers in a new
+	// first-primary session. Writes always execute on the primary, and each
+	// session guarantees read-your-own-writes and monotonic reads.
+	// Callers can extend consistency across requests by echoing dbBookmark() in
+	// x-d1-bookmark on their next call.
 	const session = createDbSession(
 		env.DB,
 		request.headers.get(D1_BOOKMARK_HEADER),
-		// first-primary: a caller sending no bookmark cannot read a stale row.
-		// Enabling replica reads (first-unconstrained) everywhere made warm reads
-		// an order of magnitude slower; read replication is beta, so only the
-		// listed hot read paths may start on a replica.
 		d1SessionConstraintFor(request),
 	);
 	configureLogStore(session.db, env);
