@@ -9,12 +9,16 @@
  * Every read walks the table's own rowid b-tree from the oldest end, so no
  * statement depends on a timestamp index. The engine advances through bounded
  * pages, skipping newer or invalid timestamps instead of assuming rowid order
- * matches timestamp order. Each delete names at most 50 rowids and repeats
- * the cutoff test, so it only removes rows read and judged expired.
+ * matches timestamp order. Each delete names at most one page of rowids and
+ * repeats the cutoff test, so it only removes rows read and judged expired.
+ *
+ * Row lists travel as one JSON bound parameter expanded with `json_each`, so a
+ * page costs one statement instead of one per 50 rows while every statement
+ * stays far under D1's 100 bound-parameter cap.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { eq, getColumns, sql } from "drizzle-orm";
+import { eq, getColumns, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
@@ -29,10 +33,12 @@ import {
 } from "../schema/d1-retention";
 import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
 import { tediCallCosts } from "../schema/tedis";
-import { chunkForBoundParams } from "../utils/batch";
 
-/** Rows per statement: reads page by 50, deletes name at most 50 rowids. */
-export const D1_RETENTION_ROWS_PER_STATEMENT = 50;
+/** Rows the backlog estimate samples for the average row size. */
+export const D1_RETENTION_SAMPLE_ROWS = 50;
+
+/** Rows one page reads and one delete statement names; a run moves one page per step. */
+export const D1_RETENTION_PAGE_ROWS = 500;
 
 /**
  * How a supported table stores its age.
@@ -222,19 +228,19 @@ export async function listActiveD1RetentionPolicies(
 export type D1RetentionRow = Record<string, JsonValue> & { __rowid: number };
 
 /**
- * Up to 50 of the oldest rows after `afterRowid`, in rowid order. Walks the
- * table b-tree only; never filters on the timestamp in SQL, which without an
- * index would scan every newer row.
+ * Up to one page of the oldest rows after `afterRowid`, in rowid order. Walks
+ * the table b-tree only; never filters on the timestamp in SQL, which without
+ * an index would scan every newer row.
  */
 export async function readD1RetentionPage(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	afterRowid: number,
-	limit = D1_RETENTION_ROWS_PER_STATEMENT,
+	limit = D1_RETENTION_PAGE_ROWS,
 ): Promise<D1RetentionRow[]> {
 	const bounded = Math.max(
 		1,
-		Math.min(D1_RETENTION_ROWS_PER_STATEMENT, Math.floor(limit)),
+		Math.min(D1_RETENTION_PAGE_ROWS, Math.floor(limit)),
 	);
 	return (await db.all(
 		sql`SELECT rowid AS __rowid, * FROM ${tableSpec.table} WHERE rowid > ${afterRowid} ORDER BY rowid LIMIT ${bounded}`,
@@ -242,9 +248,10 @@ export async function readD1RetentionPage(
 }
 
 /**
- * Delete statements for rows the run already read and judged expired: at most
- * 50 rowids each, and the cutoff is tested again so a row can never be
- * removed while it is still inside the keep window.
+ * Delete statements for rows the run already read and judged expired: one
+ * statement per page of rowids (passed as one JSON parameter, looked up by
+ * rowid), and the cutoff is tested again so a row can never be removed while
+ * it is still inside the keep window.
  */
 export function buildD1RetentionDeleteStatements(
 	db: DbQueryClient,
@@ -253,20 +260,13 @@ export function buildD1RetentionDeleteStatements(
 	cutoff: D1RetentionCutoff,
 ) {
 	const statements = [];
-	for (
-		let start = 0;
-		start < rowids.length;
-		start += D1_RETENTION_ROWS_PER_STATEMENT
-	) {
-		const chunk = rowids.slice(start, start + D1_RETENTION_ROWS_PER_STATEMENT);
+	for (let start = 0; start < rowids.length; start += D1_RETENTION_PAGE_ROWS) {
+		const chunk = rowids.slice(start, start + D1_RETENTION_PAGE_ROWS);
 		statements.push(
 			db
 				.delete(tableSpec.table)
 				.where(
-					sql`rowid IN (${sql.join(
-						chunk.map((rowid) => sql`${rowid}`),
-						sql`, `,
-					)}) AND ${tableSpec.timestamp} < ${cutoff}`,
+					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${tableSpec.timestamp} < ${cutoff}`,
 				)
 				.returning({ rowid: sql<number>`rowid` }),
 		);
@@ -379,7 +379,7 @@ export async function estimateD1RetentionBacklog(
 		sql` + `,
 	);
 	const [sample] = (await db.all(
-		sql`SELECT avg(row_bytes) AS avg_bytes FROM (SELECT ${lengthExpression} AS row_bytes FROM ${tableSpec.table} ORDER BY rowid LIMIT ${D1_RETENTION_ROWS_PER_STATEMENT})`,
+		sql`SELECT avg(row_bytes) AS avg_bytes FROM (SELECT ${lengthExpression} AS row_bytes FROM ${tableSpec.table} ORDER BY rowid LIMIT ${D1_RETENTION_SAMPLE_ROWS})`,
 	)) as Array<{ avg_bytes: number | null }>;
 	const avgRowBytes = Math.round(Number(sample?.avg_bytes ?? 0));
 	const eligibleRows = Math.round(span * live);
@@ -422,17 +422,18 @@ export async function recordD1RetentionRun(
 /** The text primary key every logs-database table carries. */
 const LOGS_ID_COLUMN = "id";
 
+/**
+ * JSON characters one copy statement carries in its single bound parameter. A row
+ * larger than this is copied alone with one bound parameter per column.
+ */
+export const D1_LOGS_COPY_STATEMENT_BYTES = 256 * 1024;
+/** JSON characters one logs-database batch carries; a larger page takes more batches. */
+const D1_LOGS_COPY_BATCH_BYTES = 1024 * 1024;
+
 function tableColumnNames(tableSpec: D1RetentionTableSpec): string[] {
 	return Object.values(getColumns(tableSpec.table)).map(
 		(column) => (column as AnySQLiteColumn).name,
 	);
-}
-
-/** Rows one insert statement may carry under D1's 100 bound-parameter cap. */
-export function d1LogsCopyRowsPerStatement(
-	tableSpec: D1RetentionTableSpec,
-): number {
-	return Math.max(1, Math.floor(100 / tableColumnNames(tableSpec).length));
 }
 
 function rowValue(row: D1RetentionRow, column: string): JsonValue {
@@ -440,73 +441,113 @@ function rowValue(row: D1RetentionRow, column: string): JsonValue {
 	return value === undefined ? null : value;
 }
 
+export interface D1LogsCopyStatement {
+	query: SQL;
+	/** JSON characters the statement binds, for batch sizing. */
+	bytes: number;
+}
+
 /**
  * `INSERT OR IGNORE` statements that copy raw rows (as `readD1RetentionPage`
- * returned them, JSON columns still text) into the logs database. Insert-or-
- * ignore makes a resumed run idempotent: a row copied before a crash is left
- * as it is, and the read-back check still compares it with the source.
+ * returned them, JSON columns still text) into the logs database. Rows travel
+ * as one JSON array parameter per statement, each row a positional array of
+ * column values, expanded with `json_each`. Insert-or-ignore makes a resumed
+ * run idempotent: a row copied before a crash is left as it is, and the
+ * read-back check still compares it with the source.
  */
 export function buildD1LogsCopyStatements(
-	logsDb: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	rows: readonly D1RetentionRow[],
-) {
+): D1LogsCopyStatement[] {
 	const columns = tableColumnNames(tableSpec);
 	const columnList = sql.join(
 		columns.map((name) => sql.identifier(name)),
 		sql`, `,
 	);
-	return chunkForBoundParams(
-		[...rows],
-		d1LogsCopyRowsPerStatement(tableSpec),
-	).map((chunk) => {
-		const values = sql.join(
-			chunk.map(
-				(row) =>
-					sql`(${sql.join(
-						columns.map((name) => sql`${rowValue(row, name)}`),
-						sql`, `,
-					)})`,
-			),
-			sql`, `,
-		);
-		return sql`INSERT OR IGNORE INTO ${tableSpec.table} (${columnList}) VALUES ${values}`;
-	});
+	const extract = sql.join(
+		columns.map((_, index) => sql.raw(`json_extract(value, '$[${index}]')`)),
+		sql`, `,
+	);
+	const statements: D1LogsCopyStatement[] = [];
+	let group: string[] = [];
+	let groupBytes = 0;
+	const flush = () => {
+		if (group.length === 0) return;
+		const json = `[${group.join(",")}]`;
+		statements.push({
+			query: sql`INSERT OR IGNORE INTO ${tableSpec.table} (${columnList}) SELECT ${extract} FROM json_each(${json})`,
+			bytes: json.length,
+		});
+		group = [];
+		groupBytes = 0;
+	};
+	for (const row of rows) {
+		const values = columns.map((name) => rowValue(row, name));
+		const json = JSON.stringify(values);
+		if (json.length > D1_LOGS_COPY_STATEMENT_BYTES) {
+			// Bound column by column: no single parameter grows past the value itself.
+			statements.push({
+				query: sql`INSERT OR IGNORE INTO ${tableSpec.table} (${columnList}) VALUES (${sql.join(
+					values.map((value) => sql`${value}`),
+					sql`, `,
+				)})`,
+				bytes: json.length,
+			});
+			continue;
+		}
+		if (groupBytes + json.length > D1_LOGS_COPY_STATEMENT_BYTES) flush();
+		group.push(json);
+		groupBytes += json.length + 1;
+	}
+	flush();
+	return statements;
 }
 
-/** Copy rows into the logs database in batches of at most 20 statements. */
+/**
+ * Copy rows into the logs database and read them back by id. The read-back
+ * rides the last copy batch (one round trip for a typical page), so it sees
+ * exactly what the committed batch wrote. Returns the logs rows keyed by id
+ * for `verifyD1LogsCopy`.
+ */
 export async function copyD1RetentionRowsToLogs(
 	logsDb: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	rows: readonly D1RetentionRow[],
-): Promise<void> {
-	const statements = buildD1LogsCopyStatements(logsDb, tableSpec, rows);
-	for (const group of chunkForBoundParams(statements, 20)) {
-		const [first, ...rest] = group.map((statement) => logsDb.run(statement));
-		if (first) await logsDb.batch([first, ...rest]);
-	}
-}
-
-/** Read copied rows back from the logs database by id, 50 ids per statement. */
-export async function readD1LogsRowsByIds(
-	logsDb: DbQueryClient,
-	tableSpec: D1RetentionTableSpec,
-	ids: readonly string[],
 ): Promise<Map<string, Record<string, JsonValue>>> {
-	const copied = new Map<string, Record<string, JsonValue>>();
-	for (const chunk of chunkForBoundParams(
-		[...ids],
-		D1_RETENTION_ROWS_PER_STATEMENT,
-	)) {
-		const rows = (await logsDb.all(
-			sql`SELECT * FROM ${tableSpec.table} WHERE ${sql.identifier(LOGS_ID_COLUMN)} IN (${sql.join(
-				chunk.map((id) => sql`${id}`),
-				sql`, `,
-			)})`,
-		)) as Array<Record<string, JsonValue>>;
-		for (const row of rows) copied.set(String(row[LOGS_ID_COLUMN]), row);
+	const ids = JSON.stringify(rows.map(d1RetentionRowId));
+	const batches: D1LogsCopyStatement[][] = [[]];
+	let batchBytes = 0;
+	for (const statement of buildD1LogsCopyStatements(tableSpec, rows)) {
+		const current = batches[batches.length - 1] ?? [];
+		if (
+			current.length > 0 &&
+			batchBytes + statement.bytes > D1_LOGS_COPY_BATCH_BYTES
+		) {
+			batches.push([statement]);
+			batchBytes = statement.bytes;
+		} else {
+			current.push(statement);
+			batchBytes += statement.bytes;
+		}
 	}
-	return copied;
+	let copied: Array<Record<string, JsonValue>> = [];
+	for (const [index, batch] of batches.entries()) {
+		const queries = batch.map((statement) => logsDb.run(statement.query));
+		if (index < batches.length - 1) {
+			const [first, ...rest] = queries;
+			if (first) await logsDb.batch([first, ...rest]);
+			continue;
+		}
+		const readBack = logsDb.all<Record<string, JsonValue>>(
+			sql`SELECT * FROM ${tableSpec.table} WHERE ${sql.identifier(LOGS_ID_COLUMN)} IN (SELECT value FROM json_each(${ids}))`,
+		);
+		// The read-back runs after every insert of the batch.
+		const [first, ...rest] = [...queries, readBack];
+		if (!first) continue;
+		const results = await logsDb.batch([first, ...rest]);
+		copied = results[results.length - 1] as Array<Record<string, JsonValue>>;
+	}
+	return new Map(copied.map((row) => [String(row[LOGS_ID_COLUMN]), row]));
 }
 
 export interface D1LogsCopyVerification {

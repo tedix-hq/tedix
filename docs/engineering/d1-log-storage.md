@@ -50,21 +50,32 @@ database by design; they only ever need rows inside the keep window.
 
 ## Retention move (`move_to_logs_db`)
 
-`d1_retention_policies` drives the hourly job (`apps/api/src/jobs/d1-retention.ts`,
-engine in `apps/api/src/services/d1-retention-archive.ts`). Every policy row
-ships in `dry_run`. The `move_to_logs_db` mode, oldest rows first and capped
-per run by `max_rows_per_run`:
+`d1_retention_policies` drives the job (`apps/api/src/jobs/d1-retention.ts`,
+engine in `apps/api/src/services/d1-retention-archive.ts`), which runs every
+15 minutes with a 20 s time budget per run. Every policy row ships in
+`dry_run`. The `move_to_logs_db` mode, oldest rows first and capped per run by
+`max_rows_per_run` (the per-run budget an operator tunes on the row), works in
+pages of 500 rows read with one statement:
 
-1. copies a chunk of at most 500 rows into `LOGS_DB` with `INSERT OR IGNORE`,
-   at most `floor(100 / columns)` rows per statement (D1's bound-parameter cap);
-2. reads the ids back from `LOGS_DB` and compares every column with the source
-   rows; any missing or different row stops the run before anything is deleted;
-3. writes the chunk as gzip NDJSON to the private tedi bucket under
-   `d1-archive/v1/<table>/<day>/<first>-<last>.ndjson.gz` and confirms it with
-   `head()`;
-4. only then deletes exactly those rowids from the main database, rechecking
-   the cutoff in each statement, with 0.5 s, 1 s and 2 s back-off when D1
-   reports `overloaded`.
+1. copies the page into `LOGS_DB` with `INSERT OR IGNORE`. The rows travel as
+   one JSON array parameter per statement (about 256 KB each, expanded with
+   `json_each`), so a statement stays far under D1's 100 bound-parameter cap;
+   a row larger than that is bound column by column on its own;
+2. reads the ids back in the same `LOGS_DB` batch, after the inserts, and
+   compares every column with the rows read from the main database; any
+   missing or different row stops the run before anything is deleted;
+3. writes the page as gzip NDJSON to the private tedi bucket under
+   `d1-archive/v1/<table>/<day>/<first>-<last>.ndjson.gz` and confirms the
+   object R2 returns for the write (same key, same size);
+4. only then deletes exactly those rowids from the main database in one
+   statement (rowids as one JSON parameter), rechecking the cutoff, with
+   0.5 s, 1 s and 2 s back-off when D1 reports `overloaded`.
+
+The next page is read while the current one goes through steps 1 to 4, so a
+page costs about three round trips (logs batch, R2 write, delete). The
+backlog estimate runs after the moves. Each report carries `timings`
+(`readMs`, `copyMs`, `archiveMs`, `deleteMs`, `estimateMs`, `pages`) so a slow
+step shows up in `last_report`.
 
 A policy row whose `keep_days` sits below the table's floor (the shipped
 `audit_events` seed says 14 days against a 30-day floor) runs at the floor
@@ -93,7 +104,7 @@ Read the first `last_report` after the switch (`movedRows`, `deletedRows`,
 
 ## Size alert
 
-The same hourly tick measures both databases through D1's own
+The same tick measures both databases through D1's own
 `meta.size_after` (`@tedix/db/queries/d1-size`) and pages the ops channel
 (`ops_alert_state` plus `sendOpsAlert`, the platform-health path) when the
 main database reaches 9 GB or the logs database reaches 6 GB. The logs alert
@@ -134,7 +145,7 @@ Steps, in order:
 4. Add the `LOGS_DB` binding to the api overlay and release. From that deploy
    on, new `mcp.tool.execute` rows land in the logs database and the merged
    readers are active.
-5. Watch one hourly `d1-retention` receipt (`d1MainSizeMb`, `d1LogsSizeMb`,
+5. Watch one `d1-retention` receipt (`d1MainSizeMb`, `d1LogsSizeMb`,
    each table's `dry_run` report), then switch tables to `move_to_logs_db`
    one at a time with the `UPDATE` above.
 
@@ -151,4 +162,4 @@ grows by roughly 0.03 to 0.05 GB/day instead of 0.15 to 0.2 GB/day from these
 classes. Once every table is in `move_to_logs_db` with a 14-day window, the
 main database holds a bounded 14 days of runtime, kernel and artifact rows
 (about 0.5 GB at today's rates) and its remaining growth is business data.
-These are projections; the hourly receipt reports the measured sizes.
+These are projections; the retention receipt reports the measured sizes.

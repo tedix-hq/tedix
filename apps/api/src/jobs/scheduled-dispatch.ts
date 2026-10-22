@@ -40,10 +40,10 @@ async function trackPlatformCronPath(
  *   lease sweep, work approval redrive, MCP event webhook delivery.
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
- *   workstation compute metering
+ *   workstation compute metering, D1 retention (policy rows in
+ *   d1_retention_policies; none = no-op)
  * - 0 * * * * (hourly) → MCP endpoint freshness scan (bounded 200-row
- *   workflow), site reconciliation, D1 retention (policy rows in
- *   d1_retention_policies; none = no-op), external-agent MCP client reaper, plus two
+ *   workflow), site reconciliation, external-agent MCP client reaper, plus two
  *   hour-gated paths: platform-health digest (8am UTC) and cost-anomaly check
  *   (9am UTC)
  * - 0 2 * * * (2am UTC) → Legacy billing quarantine + catalog sync log maintenance
@@ -279,6 +279,15 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
+		// Every 15 minutes so the log move drains its backlog in short bounded
+		// runs instead of one long hourly pass.
+		if (fleetEnabled && cron === "*/15 * * * *") {
+			const { runD1RetentionTick } = await import("./d1-retention");
+			await trackPlatformCronPath(env, event, "d1-retention", () =>
+				runD1RetentionTick(env, event),
+			);
+		}
+
 		if (
 			fleetEnabled &&
 			cron === "0 */6 * * *" &&
@@ -353,13 +362,6 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await import("./site-reconciliation");
 			await trackPlatformCronPath(env, event, "site-reconciliation", () =>
 				runSiteReconciliationTick(env),
-			);
-		}
-
-		if (fleetEnabled && cron === "0 * * * *") {
-			const { runD1RetentionTick } = await import("./d1-retention");
-			await trackPlatformCronPath(env, event, "d1-retention", () =>
-				runD1RetentionTick(env, event),
 			);
 		}
 
