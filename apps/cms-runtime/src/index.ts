@@ -29,6 +29,7 @@ import {
 	type CmsRestoreFenceIdentity,
 	withCmsRestorePermit,
 	withCmsRestoreResponsePermit,
+	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import type {
 	CollectionDeletionGuardInput,
@@ -323,18 +324,12 @@ async function retryTenantDbRead<T>(
 
 /** An outer loader permit ends when fetch returns a Response. RPCs can outlive
  * that boundary, so each tenant storage call holds its own exact-site permit. */
-async function withTenantStoragePermit<T>(
+function withTenantStoragePermit<T>(
 	env: Env,
 	identity: { siteId: string; slug: string; restoreEpoch: number },
 	run: () => Promise<T>,
 ): Promise<T> {
-	const result = await withCmsRestorePermit(
-		createDbQueryClient(env.PLATFORM_DB),
-		identity,
-		run,
-	);
-	if (!result.admitted) throw new CmsRestoreFenceUnavailableError();
-	return result.value;
+	return withSharedCmsRestorePermit(env.DB_DO, identity, run);
 }
 
 export class TenantEmDashDB extends WorkerEntrypoint<

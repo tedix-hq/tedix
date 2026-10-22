@@ -1,11 +1,7 @@
 import { isMarketingHost, marketingResponse } from "./marketing";
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { createDbQueryClient } from "@tedix/db/query-client";
 import type { Env } from "./env";
-import {
-	CmsRestoreFenceUnavailableError,
-	withCmsRestorePermit,
-} from "./tenant-restore-fence";
+import { withSharedCmsRestorePermit } from "./tenant-restore-fence";
 import {
 	cmsEditorProposalFetchRequest,
 	descopeJwksFetchRequest,
@@ -46,13 +42,9 @@ export class CmsOutboundProxy extends WorkerEntrypoint<
 	CmsOutboundProxyProps
 > {
 	async fetch(request: Request): Promise<Response> {
-		const permitted = await withCmsRestorePermit(
-			createDbQueryClient(this.env.PLATFORM_DB),
-			this.ctx.props,
-			() => this.fetchPermitted(request),
+		return withSharedCmsRestorePermit(this.env.DB_DO, this.ctx.props, () =>
+			this.fetchPermitted(request),
 		);
-		if (!permitted.admitted) throw new CmsRestoreFenceUnavailableError();
-		return permitted.value;
 	}
 
 	private async fetchPermitted(request: Request): Promise<Response> {
