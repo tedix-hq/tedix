@@ -89,10 +89,7 @@ function RegressionDeck() {
 							</div>
 						</ProposerContext.Provider>
 					</div>
-					<FeedDeckDisclosure
-						className="fd-deck-learning"
-						title="Learning your preferences"
-					>
+					<FeedDeckDisclosure title="Learning your preferences">
 						Recent loaded history only.
 					</FeedDeckDisclosure>
 					<a href="#history">More history and decisions in Work</a>

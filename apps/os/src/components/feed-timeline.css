@@ -86,14 +86,6 @@
 	letter-spacing: -0.015em;
 	overflow-wrap: anywhere;
 }
-.fd-feed .fd-moment {
-	padding-block: 3rem 0.5rem;
-}
-.fd-feed .fd-moment h3 {
-	font-size: 0.8125rem;
-	line-height: 1.4;
-	letter-spacing: -0.015em;
-}
 @media (max-width: 480px) {
 	.fd-feed .fd-story {
 		gap: 0.75rem;

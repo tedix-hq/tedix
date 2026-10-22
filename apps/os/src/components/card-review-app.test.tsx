@@ -388,7 +388,7 @@ describe("CardReviewApp decision interactions", () => {
 		sheet.rows = [];
 		await mount();
 		expect(host.querySelector('[role="status"]')?.textContent).toContain(
-			"All clear",
+			"No cards yet",
 		);
 		expect(host.querySelector(".fd-decision")).toBeNull();
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
