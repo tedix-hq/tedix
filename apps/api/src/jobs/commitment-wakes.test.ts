@@ -28,6 +28,8 @@ import { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { osGadgetExecutions } from "@tedix/db/schema/os-workspaces";
 import { skillRuns } from "@tedix/db/schema/cognitive";
 import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { buildRuntimeRunId } from "@tedix/api-contract/utils/runtime-identity";
 import {
 	advanceCommitmentWakeCheckpoint,
@@ -46,6 +48,15 @@ import {
 	commitmentWakeWindows,
 	dispatchCommitmentWakes,
 } from "./commitment-wakes";
+import { ensureCommitmentFollowup } from "../services/tedi-context-wake";
+import { listWorkInteractionInbox } from "@tedix/db/queries/work-items/interactions";
+import { projectDeckCards } from "@tedix/api-contract/utils/deck-projection";
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import {
+	workInteractionAttention,
+	workInteractionDeliveries,
+} from "@tedix/db/schema/work-factory";
+import { runPlatformCronPath } from "./platform-cron-receipts";
 
 const after = "2026-10-16T12:00:00.000Z";
 const through = "2026-10-16T12:02:00.000Z";
@@ -76,6 +87,11 @@ function fixture(plans: string[] = [], migrated = false) {
 				tediRuntimeEvents,
 				platformCronExecutions,
 				platformCronCheckpoints,
+				organizationMembers,
+				memoryFacts,
+				decisionEdges,
+				workInteractionAttention,
+				workInteractionDeliveries,
 			),
 		);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
@@ -105,6 +121,183 @@ describe("commitment wakes", () => {
 		vi.spyOn(Date, "now").mockReturnValue(Date.parse(through) + 30_000);
 	});
 	afterEach(() => vi.restoreAllMocks());
+	it("creates one daily ask, reuses an open ask, and never reopens an answered ask", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(`
+		INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id)
+		VALUES ('personal','org-one','Personal','personal','active','personal','provider-user');
+		INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status)
+		VALUES ('member','org-one','human','provider-user','human@example.test','active');
+		INSERT INTO work_items(id,org_id,title,created_at,accepted_at,disposition,accountable_owner_type,accountable_owner_id)
+		VALUES ('idle','org-one','Send proposal','2026-10-20T08:01:00.000Z','2026-10-20T08:01:00.000Z','accepted','user','human');
+	`);
+		const after = "2026-10-22T08:00:00.000Z";
+		const through = "2026-10-22T08:02:00.000Z";
+		const [change] = await listCommitmentChanges(
+			db,
+			after,
+			through,
+			"production",
+		);
+		const id = await ensureCommitmentFollowup(db, change!, through);
+		expect(id).toMatch(/^[0-9a-f-]{36}$/);
+		const inbox = await listWorkInteractionInbox(db, {
+			orgId: "org-one",
+			targetType: "user",
+			targetId: "human",
+			states: ["open"],
+			observedAt: through,
+		});
+		const cards = projectDeckCards({
+			requests: inbox.data.map((row) => ({
+				...row,
+				request: {
+					...row.request,
+					requestedFromType: row.request.targetType!,
+					requestedFromId: row.request.targetId!,
+					state: row.request.status,
+					requestedAt: row.request.createdAt,
+				},
+				canRespond: true,
+				canCancel: false,
+			})),
+			work: [],
+			runtime: [],
+			now: new Date(through),
+		});
+		expect(cards).toEqual([
+			expect.objectContaining({
+				kind: "question",
+				label: "Follow up: Send proposal",
+			}),
+		]);
+		sqlite
+			.prepare("UPDATE work_interactions SET metadata='{}' WHERE id=?")
+			.run(id);
+		expect(await ensureCommitmentFollowup(db, change!, through)).toBe(id);
+		const restored = sqlite
+			.prepare("SELECT version,metadata FROM work_interactions WHERE id=?")
+			.get(id)!;
+		expect(JSON.parse(String(restored.metadata)).decisionClass).toBe(
+			"personal.proposal.commitment",
+		);
+		expect(await ensureCommitmentFollowup(db, change!, through)).toBe(id);
+		expect(
+			sqlite.prepare("SELECT version FROM work_interactions WHERE id=?").get(id)
+				?.version,
+		).toBe(restored.version);
+		expect(
+			await ensureCommitmentFollowup(db, change!, "2026-10-23T08:00:00.000Z"),
+		).toBe(id);
+		sqlite
+			.prepare("UPDATE work_interactions SET status='resolved' WHERE id=?")
+			.run(id);
+		expect(await ensureCommitmentFollowup(db, change!, through)).toBe(id);
+		expect(
+			sqlite
+				.prepare("SELECT status,kind,metadata FROM work_interactions")
+				.get(),
+		).toMatchObject({
+			status: "resolved",
+			kind: "question",
+			metadata: expect.stringContaining("work:idle:2026-10-23"),
+		});
+		expect(
+			await ensureCommitmentFollowup(db, change!, "2026-10-23T08:00:00.000Z"),
+		).not.toBe(id);
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM work_interactions").get()?.n,
+		).toBe(2);
+		const open = sqlite
+			.prepare("SELECT id FROM work_interactions WHERE status='open'")
+			.get()!;
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET due_at=?, metadata='{}' WHERE id=?",
+			)
+			.run(through, open.id);
+		const interactionChange = {
+			...change!,
+			kind: "interaction" as const,
+			objectId: String(open.id),
+			state: "overdue",
+		};
+		expect(
+			await ensureCommitmentFollowup(
+				db,
+				interactionChange,
+				"2026-10-23T08:00:00.000Z",
+			),
+		).toBe(open.id);
+		expect(
+			JSON.parse(
+				String(
+					sqlite
+						.prepare("SELECT metadata FROM work_interactions WHERE id=?")
+						.get(open.id)?.metadata,
+				),
+			).decisionClass,
+		).toBe("deadline.owner.commitment");
+		sqlite
+			.prepare("UPDATE work_interactions SET metadata=? WHERE id=?")
+			.run('{"decisionDeck":{"kind":"approval"}}', open.id);
+		await ensureCommitmentFollowup(
+			db,
+			interactionChange,
+			"2026-10-23T08:00:00.000Z",
+		);
+		expect(
+			sqlite
+				.prepare("SELECT metadata FROM work_interactions WHERE id=?")
+				.get(open.id)?.metadata,
+		).toBe('{"decisionDeck":{"kind":"approval"}}');
+	});
+
+	it.each([false, true])(
+		"records partial delivery counts and retries only once (recover=%s)",
+		async (recover) => {
+			const { sqlite, db, binding } = fixture();
+			await advanceCommitmentWakeCheckpoint(db, after);
+			sqlite.exec(`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at)
+			VALUES ('first','org-1','work-1','work.accepted','user','owner','${changedAt}');`);
+			const fetch = vi.fn(async () =>
+				recover && fetch.mock.calls.length > 1
+					? Response.json({ run_id: "accepted", accepted: true })
+					: new Response("retry", { status: 503 }),
+			);
+			const env = {
+				DB: binding,
+				ENVIRONMENT: "test",
+				TEDI_SERVICE: { fetch },
+			} as unknown as CloudflareEnv;
+			const scheduledTime = Date.parse(through) + 30_000;
+			const result = runPlatformCronPath(
+				env,
+				{ scheduledTime, cron: "*/2 * * * *" } as ScheduledController,
+				"commitment-wakes",
+				() => dispatchCommitmentWakes(env, scheduledTime),
+			);
+			if (recover) await result;
+			else
+				await expect(result).rejects.toThrow("Commitment wake delivery failed");
+			expect(fetch).toHaveBeenCalledTimes(2);
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+				recover ? through : after,
+			);
+			const receipt = sqlite
+				.prepare(
+					"SELECT status,affected_row_counts AS counts FROM platform_cron_executions",
+				)
+				.get()!;
+			expect(receipt.status).toBe(recover ? "success" : "failure");
+			expect(JSON.parse(String(receipt.counts))).toMatchObject({
+				observed: 1,
+				dispatched: recover ? 1 : 0,
+				failed: recover ? 0 : 1,
+				retried: 1,
+			});
+		},
+	);
 
 	it("skips stale windows without ingesting even completed lane successes", async () => {
 		const { sqlite, db, binding } = fixture();
@@ -282,7 +475,7 @@ describe("commitment wakes", () => {
 				((await request.json()) as { client_request_id: string })
 					.client_request_id,
 			);
-			return keys.length === 2
+			return keys.length === 2 || keys.length === 3
 				? new Response("unavailable", { status: 503 })
 				: Response.json({ run_id: "run-accepted", accepted: true });
 		});
@@ -421,7 +614,7 @@ describe("commitment wakes", () => {
 				Date.parse(through) + 30_000,
 			),
 		).rejects.toThrow();
-		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
 	});
 
@@ -704,9 +897,9 @@ describe("bounded commitment pages", () => {
 			const rejected = expect(result).rejects.toThrow(
 				"Commitment wake delivery failed",
 			);
-			await vi.advanceTimersByTimeAsync(5_000);
+			await vi.advanceTimersByTimeAsync(10_000);
 			await rejected;
-			expect(fetch).toHaveBeenCalledOnce();
+			expect(fetch).toHaveBeenCalledTimes(2);
 			expect(
 				(fetch.mock.calls[0] as unknown as [Request])[0].signal.aborted,
 			).toBe(true);
@@ -800,7 +993,7 @@ describe("bounded commitment pages", () => {
 				Date.parse(through) + 30_000,
 			),
 		).rejects.toThrow();
-		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(fetch).toHaveBeenCalledTimes(3);
 		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
 	});
 });
