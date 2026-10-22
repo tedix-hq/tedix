@@ -1,7 +1,11 @@
 {
 	"name": "tedix",
+	"displayName": "Tedix",
 	"version": "0.2.7",
 	"description": "Tedix workflows, tedi delegation, and durable results through your connected organization.",
+	"shortDescription": "Continue work across chats",
+	"logo": "assets/logo.png",
+	"keywords": ["Productivity"],
 	"author": { "name": "Tedix" },
 	"homepage": "https://docs.tedix.dev",
 	"repository": "https://github.com/tedix-hq/tedix",

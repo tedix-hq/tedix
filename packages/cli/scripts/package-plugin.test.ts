@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	cpSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -36,6 +37,10 @@ test("Devin shares skills and declares its native MCP and fail-open hooks", () =
 	expect(manifest.name).toBe(canonical.name);
 	expect(manifest.version).toBe(canonical.version);
 	expect(manifest.skills).toBe("skills");
+	const listing = JSON.parse(readFileSync(join(ROOT, "listing.json"), "utf8"));
+	expect(manifest.displayName).toBe(listing.displayName);
+	expect(manifest.shortDescription).toBe(listing.shortDescription);
+	expect(existsSync(join(ROOT, manifest.logo))).toBe(true);
 	expect(manifest.mcpServers).toEqual({
 		tedix: {
 			url: "https://connect.mcp.tedix.dev/mcp",
