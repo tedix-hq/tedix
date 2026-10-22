@@ -193,14 +193,7 @@ export function LiveChannelsForm({
 		defaultValues: values,
 		onSubmit: async ({ value }) => {
 			if (await onSave(value)) {
-				form.reset(
-					Object.fromEntries(
-						(["telegram"] as const).map((channel) => [
-							channel,
-							{ ...value[channel], botToken: "" },
-						]),
-					) as LiveChannelsValues,
-				);
+				form.reset({ telegram: { ...value.telegram, botToken: "" } });
 			}
 		},
 	});
@@ -219,7 +212,7 @@ export function LiveChannelsForm({
 					<FormField
 						form={form}
 						name={`${channel}.enabled`}
-						label={channel}
+						label="Telegram"
 						orientation="horizontal"
 					>
 						{(field, meta) => (
@@ -234,7 +227,7 @@ export function LiveChannelsForm({
 					<FormField
 						form={form}
 						name={`${channel}.botToken`}
-						label={`${channel} bot token`}
+						label="Bot token"
 						description={
 							canReadSecrets
 								? "Leave blank to preserve the current credential."
@@ -242,8 +235,8 @@ export function LiveChannelsForm({
 						}
 					>
 						{(field, meta) => (
-							<div className="flex flex-wrap items-start gap-2">
-								<div className="min-w-0 flex-1">
+							<div className="flex flex-col items-start gap-2 sm:flex-row">
+								<div className="w-full min-w-0 sm:flex-1">
 									<SensitiveInput
 										id={meta.id}
 										aria-labelledby={`${meta.id}-label`}
@@ -267,7 +260,7 @@ export function LiveChannelsForm({
 									disabled={isTesting || !field.state.value}
 									onClick={() => onTest(channel, field.state.value)}
 								>
-									Test replacement credential
+									Test token
 								</Button>
 							</div>
 						)}
@@ -304,7 +297,7 @@ export function LiveChannelsForm({
 								<FormField
 									form={form}
 									name={`${channel}.allowFrom`}
-									label="Trusted DM senders"
+									label="Trusted direct-message senders"
 									description={ALLOW_FROM_HELP}
 								>
 									{(field, meta) => (
@@ -323,7 +316,12 @@ export function LiveChannelsForm({
 									description={policyHelp(GROUP_POLICY_OPTIONS, groupPolicy)}
 								>
 									{(field, meta) => (
-										<FormSelect field={field} {...meta} disabled={!canManage}>
+										<FormSelect
+											field={field}
+											{...meta}
+											disabled={!canManage}
+											items={GROUP_POLICY_OPTIONS}
+										>
 											{GROUP_POLICY_OPTIONS.map((option) => (
 												<SelectItem key={option.value} value={option.value}>
 													{option.label}

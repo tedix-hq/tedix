@@ -48,24 +48,24 @@ describe("Telegram channel policy wording", () => {
 	});
 
 	it("round-trips allowlists as one entry per line", () => {
-		expect(parseAllowFrom(" 12345 \n\n@Alice\r\n")).toEqual([
+		expect(parseAllowFrom(" 12345 \n\n@Sender\r\n")).toEqual([
 			"12345",
-			"@Alice",
+			"@Sender",
 		]);
 		const values = liveChannelValues({
 			telegram: {
 				enabled: true,
 				dmPolicy: "open",
-				allowFrom: ["12345", "@alice"],
-				groupAllowFrom: ["@bob"],
+				allowFrom: ["12345", "@sender"],
+				groupAllowFrom: ["@group_member"],
 				requireMention: false,
 			},
 		});
 		expect(values.telegram).toMatchObject({
 			dmPolicy: "open",
-			allowFrom: "12345\n@alice",
+			allowFrom: "12345\n@sender",
 			groupPolicy: "allowlist",
-			groupAllowFrom: "@bob",
+			groupAllowFrom: "@group_member",
 			requireMention: false,
 		});
 		expect(liveChannelValues(undefined).telegram).toMatchObject({
