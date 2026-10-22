@@ -6,11 +6,9 @@ import type {
 	WorkflowDefinition,
 	WorkflowDefinitionHealth,
 } from "@tedix/api-contract/contracts/workflows";
-import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { RunStatusChip } from "@/components/activity-runs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import {
@@ -22,6 +20,7 @@ import {
 } from "@/components/kumo/empty";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
+import { SkillChip } from "@/components/skill-chip";
 import { Text } from "@/components/kumo/text";
 import { Pagination } from "@/components/kumo/pagination";
 import { osApi } from "@/lib/api";
@@ -195,28 +194,6 @@ export function sortTriggers(
 // Pure presentational subcomponents (exported for tests)
 // ---------------------------------------------------------------------------
 
-export type TriggerTone = "neutral" | "active" | "warn";
-
-const CHIP_VARIANTS: Record<TriggerTone, BadgeVariant> = {
-	neutral: "outline",
-	active: "info",
-	warn: "warning",
-};
-
-export function TriggerChip({
-	tone,
-	children,
-}: {
-	tone: TriggerTone;
-	children: ReactNode;
-}) {
-	return (
-		<Badge variant={CHIP_VARIANTS[tone]} data-tone={tone}>
-			{children}
-		</Badge>
-	);
-}
-
 export function TriggerRow({
 	schedule,
 	definition,
@@ -250,15 +227,15 @@ export function TriggerRow({
 				<span className="flex flex-wrap items-center gap-1.5">
 					{/* Read-only state: the contract has no schedule pause/resume verb —
 					    schedules are manifest-owned, so the state only renders here. */}
-					<TriggerChip tone={schedule.enabled ? "active" : "neutral"}>
+					<SkillChip tone={schedule.enabled ? "active" : "neutral"}>
 						{schedule.enabled ? "On" : "Off"}
-					</TriggerChip>
+					</SkillChip>
 					{latestRun ? <RunStatusChip status={latestRun.status} /> : null}
 					{schedule.enabled && schedule.lastError != null ? (
-						<TriggerChip tone="warn">Last fire failed</TriggerChip>
+						<SkillChip tone="warn">Last fire failed</SkillChip>
 					) : null}
 					{schedule.enabled && schedule.lastBudgetBlockedAt != null ? (
-						<TriggerChip tone="warn">Budget blocked</TriggerChip>
+						<SkillChip tone="warn">Budget blocked</SkillChip>
 					) : null}
 				</span>
 				<Text

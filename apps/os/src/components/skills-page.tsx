@@ -31,7 +31,6 @@ import { SearchInput } from "@/components/kumo/search-input";
 import { Pagination } from "@/components/kumo/pagination";
 import { KumoTabs } from "@/components/kumo/tabs";
 import { type CardRunLinkProps, RunLinkChip } from "@/components/chat-cards";
-import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import {
 	Collection,
@@ -56,6 +55,7 @@ import {
 	EmptyTitle,
 } from "@/components/kumo/empty";
 import { ListQueryBoundary } from "@/components/list-query-boundary";
+import { SkillChip, type ChipTone } from "@/components/skill-chip";
 import { useSkillsWebMcpTools } from "@/components/skills-webmcp-tools";
 import { Text } from "@/components/kumo/text";
 import { TriggersPanel } from "@/components/triggers-panel";
@@ -83,8 +83,6 @@ import {
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
-
-export type ChipTone = "neutral" | "active" | "blocked" | "done" | "warn";
 
 export function lifecycleTone(
 	state: SkillLifecycleState | null | undefined,
@@ -302,30 +300,6 @@ export function scheduleSummary(
 // ---------------------------------------------------------------------------
 // Pure presentational subcomponents (exported for tests)
 // ---------------------------------------------------------------------------
-
-/** Chip tone → tinted Kumo Badge variant — same accent discipline as Apps. */
-const CHIP_VARIANTS: Record<ChipTone, BadgeVariant> = {
-	neutral: "outline",
-	active: "info",
-	blocked: "destructive",
-	done: "success",
-	warn: "warning",
-};
-
-export function SkillChip({
-	tone,
-	children,
-}: {
-	tone: ChipTone;
-	children: ReactNode;
-}) {
-	// Sentence-case is applied by callers via sentenceCase — no CSS capitalize.
-	return (
-		<Badge variant={CHIP_VARIANTS[tone]} data-tone={tone}>
-			{children}
-		</Badge>
-	);
-}
 
 export function SkillRow({
 	skill,

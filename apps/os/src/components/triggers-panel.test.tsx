@@ -38,12 +38,12 @@ import {
 	cronToHuman,
 	dynamicDefinitionsBySkillId,
 	sortTriggers,
-	TriggerChip,
 	TriggerRow,
 	TriggersEmpty,
 	TriggersPanel,
 	triggerTitle,
 } from "./triggers-panel";
+import { SkillChip } from "./skill-chip";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -241,9 +241,9 @@ describe("sortTriggers", () => {
 // Presentational components
 // ---------------------------------------------------------------------------
 
-describe("TriggerChip", () => {
+describe("SkillChip", () => {
 	it("renders a Kumo Badge stamped with its tone", () => {
-		const html = renderToStaticMarkup(<TriggerChip tone="warn">x</TriggerChip>);
+		const html = renderToStaticMarkup(<SkillChip tone="warn">x</SkillChip>);
 		expect(html).toContain('data-slot="badge"');
 		expect(html).toContain('data-tone="warn"');
 	});
