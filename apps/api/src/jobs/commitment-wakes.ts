@@ -3,6 +3,8 @@ import {
 	deliverTediContextWake,
 } from "./tedi-context-wake";
 import { createDbClient } from "@tedix/db/client";
+import { ensureCommitmentFollowup } from "../services/tedi-context-wake";
+import { PlatformCronPathError } from "./platform-cron-receipts";
 import {
 	advanceCommitmentWakeCheckpoint,
 	advanceCommitmentWakeCursor,
@@ -86,10 +88,24 @@ export async function dispatchCommitmentWakes(
 	let observed = 0;
 	let dispatched = 0;
 	let deduplicated = 0;
+	let retried = 0;
+	let failed = 0;
 	let windowsSkippedMaxAge = 0;
 	let windowsProcessed = 0;
 	let checkpointMs = checkpoint ? Date.parse(checkpoint) : undefined;
 	let budgetExhausted = 0;
+	const counts = () => ({
+		observed,
+		dispatched,
+		deduplicated,
+		retried,
+		failed,
+		windowsSkippedMaxAge,
+		maxWakeAgeMs: MAX_WAKE_AGE_MS,
+		windowsProcessed,
+		budgetExhausted,
+		...(checkpointMs !== undefined ? { checkpointMs } : {}),
+	});
 	const oldestWakeMs = Math.max(scheduledTime, Date.now()) - MAX_WAKE_AGE_MS;
 	const windows = commitmentWakeWindows(checkpoint, scheduledTime);
 	// Preserve the initial boundary even if the very first acceptance fails.
@@ -146,29 +162,49 @@ export async function dispatchCommitmentWakes(
 					? `${window.through}:${JSON.stringify([changes[0]!.key, changes.at(-1)!.key, changes.at(-1)!.tediId])}`
 					: window.through;
 			try {
-				const receipt = await bounded((signal) =>
-					deliverTediContextWake(db, {
-						orgId: first.orgId,
-						tediId: first.tediId,
-						request: buildCommitmentWakeRequest(
-							batch,
-							deliveryBoundary,
-							env.ENVIRONMENT,
+				for (const change of batch)
+					await bounded(() =>
+						ensureCommitmentFollowup(
+							db,
+							change,
+							new Date(scheduledTime).toISOString(),
 						),
-						send: (request) =>
-							env.TEDI_SERVICE.fetch(new Request(request, { signal })),
-					}),
-				);
+					);
+				const deliver = () =>
+					bounded((signal) =>
+						deliverTediContextWake(db, {
+							orgId: first.orgId,
+							tediId: first.tediId,
+							request: buildCommitmentWakeRequest(
+								batch,
+								deliveryBoundary,
+								env.ENVIRONMENT,
+							),
+							send: (request) =>
+								env.TEDI_SERVICE.fetch(new Request(request, { signal })),
+						}),
+					);
+				let receipt;
+				try {
+					receipt = await deliver();
+				} catch (error) {
+					if (Date.now() >= deadline) throw error;
+					retried++;
+					receipt = await deliver();
+				}
 				if (receipt.deduplicated) deduplicated++;
 				else dispatched++;
 			} catch (error) {
+				failed++;
 				failures.push(error);
 			}
 		}
 		if (failures.length)
-			throw new AggregateError(failures, "Commitment wake delivery failed", {
-				cause: failures[0],
-			});
+			throw new PlatformCronPathError(
+				failures,
+				"Commitment wake delivery failed",
+				counts(),
+			);
 		if (!pageDelivered) break;
 		if (changes.length === limit) {
 			const last = changes.at(-1)!;
@@ -186,14 +222,5 @@ export async function dispatchCommitmentWakes(
 		windowsProcessed++;
 		checkpointMs = Date.parse(window.through);
 	}
-	return {
-		observed,
-		dispatched,
-		deduplicated,
-		windowsSkippedMaxAge,
-		maxWakeAgeMs: MAX_WAKE_AGE_MS,
-		windowsProcessed,
-		budgetExhausted,
-		...(checkpointMs !== undefined ? { checkpointMs } : {}),
-	};
+	return counts();
 }

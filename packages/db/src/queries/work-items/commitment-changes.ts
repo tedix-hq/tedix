@@ -1,16 +1,97 @@
 import { eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+import { workInteractions } from "../../schema/work-factory";
 
 export interface CommitmentChange {
 	key: string;
 	orgId: string;
 	tediId: string;
 	slug: string;
-	kind: "work" | "approval" | "interaction" | "factory_run";
+	kind: "work" | "approval" | "interaction" | "factory_run" | "memory";
 	objectId: string;
 	state: string;
 	changedAt: string;
+}
+
+/** Recheck canonical ownership/state before creating an operator-visible ask. */
+export async function getCommitmentFollowupTarget(
+	db: DbClient,
+	change: CommitmentChange,
+	now: string,
+): Promise<{
+	id: string;
+	title: string;
+	personId: string;
+	openInteractionId: string | null;
+} | null> {
+	if (!["overdue", "idle"].includes(change.state)) return null;
+	if (change.kind === "interaction") {
+		const [interaction] = await db.all<{
+			id: string;
+			title: string;
+			personId: string;
+			openInteractionId: string;
+		}>(sql`
+			SELECT coalesce(i.work_item_id,i.id) AS id, i.subject AS title, i.target_id AS personId, i.id AS openInteractionId
+			FROM work_interactions i JOIN organization_members m ON m.organization_id=i.org_id AND m.user_id=i.target_id AND m.status='active'
+			JOIN tedis t ON t.id=${change.tediId} AND t.organization_id=i.org_id AND t.scope='personal' AND t.status='active' AND t.owner_user_id=m.descope_user_id
+			WHERE i.org_id=${change.orgId} AND i.id=${change.objectId} AND i.target_type='user' AND i.status='open'
+				AND (i.expires_at IS NULL OR i.expires_at>${now})
+				AND (i.due_at<=${now} OR (i.due_at IS NULL AND i.created_at<=${new Date(Date.parse(now) - 172_800_000).toISOString()}))
+				AND (i.work_item_id IS NULL OR EXISTS(SELECT 1 FROM work_items w WHERE w.org_id=i.org_id AND w.id=i.work_item_id AND w.disposition NOT IN ('completed','cancelled')))
+			LIMIT 1
+		`);
+		return interaction ?? null;
+	}
+	if (change.kind !== "work") return null;
+	const [work] = await db.all<{
+		id: string;
+		title: string;
+		personId: string;
+	}>(sql`
+		SELECT w.id, w.title, m.user_id AS personId FROM work_items w
+		JOIN organization_members m ON m.organization_id = w.org_id
+			AND m.user_id = w.accountable_owner_id AND m.status = 'active'
+		JOIN tedis t ON t.id = ${change.tediId} AND t.organization_id = w.org_id
+			AND t.status = 'active' AND t.scope = 'personal' AND t.owner_user_id = m.descope_user_id
+		WHERE w.org_id = ${change.orgId} AND w.id = ${change.objectId}
+			AND w.accountable_owner_type = 'user' AND w.disposition NOT IN ('completed', 'cancelled')
+			AND ((coalesce(w.deadline, w.due_date) <= ${now}) OR
+				(w.disposition = 'accepted' AND coalesce(w.updated_at, w.accepted_at, w.created_at) <= ${new Date(Date.parse(now) - 172_800_000).toISOString()}
+				AND NOT EXISTS (SELECT 1 FROM work_attempts a WHERE a.org_id = w.org_id
+					AND a.work_item_id = w.id AND a.runtime_state = 'running' AND a.expires_at > ${now})))
+		LIMIT 1
+	`);
+	if (!work) return null;
+	const [open] = await db.all<{ id: string }>(sql`
+		SELECT id FROM work_interactions WHERE org_id = ${change.orgId} AND work_item_id = ${work.id}
+			AND target_type = 'user' AND target_id = ${work.personId} AND status = 'open'
+			AND (kind = 'question' OR (kind = 'coordination' AND json_extract(metadata,'$.commitmentKey') = ${`work:${work.id}`}))
+			AND (expires_at IS NULL OR expires_at > ${now})
+		LIMIT 1
+	`);
+	return { ...work, openInteractionId: open?.id ?? null };
+}
+
+export async function recordCommitmentFollowupAttention(
+	db: DbClient,
+	p: {
+		orgId: string;
+		interactionId: string;
+		commitmentKey: string;
+		dedupeKey: string;
+		decisionClass: string;
+	},
+): Promise<void> {
+	await db.update(workInteractions).set({
+		metadata: sql`json_set(${workInteractions.metadata}, '$.commitmentKey', ${p.commitmentKey}, '$.dedupeKey', ${p.dedupeKey}, '$.decisionClass', ${p.decisionClass})`,
+		version: sql`${workInteractions.version} + 1`,
+	})
+		.where(sql`${workInteractions.orgId} = ${p.orgId} AND ${workInteractions.id} = ${p.interactionId}
+		AND ${workInteractions.status} = 'open' AND json_extract(${workInteractions.metadata}, '$.dedupeKey') IS NOT ${p.dedupeKey}
+		AND json_extract(${workInteractions.metadata}, '$.decisionDeck.kind') IS NOT 'approval'
+		AND json_extract(${workInteractions.metadata}, '$.approvalOperation') IS NULL`);
 }
 
 /** Global scheduler read; each row joins its active tedi in the same tenant. */
@@ -92,8 +173,11 @@ export async function listCommitmentChanges(
 			UNION ALL
 			SELECT 'interaction-overdue:' || i.id || ':' || i.due_at, i.org_id, t.id, t.slug,
 				'interaction', i.id, 'overdue', i.due_at
-			FROM overdue_interactions i JOIN tedis t ON t.organization_id = i.org_id AND t.status = 'active' AND i.creator_type = 'tedi' AND i.creator_id = t.id
+			FROM overdue_interactions i JOIN tedis t ON t.organization_id = i.org_id AND t.status = 'active'
+				AND ((i.creator_type = 'tedi' AND i.creator_id = t.id) OR
+					(t.scope = 'personal' AND i.target_type = 'user' AND EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id=i.org_id AND m.user_id=i.target_id AND m.status='active' AND m.descope_user_id=t.owner_user_id)))
 			WHERE i.status = 'open' AND i.due_at > ${after} AND i.due_at <= ${through}
+				AND (i.expires_at IS NULL OR i.expires_at > ${through})
 				AND (i.work_item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.id = i.work_item_id AND w.org_id = i.org_id AND w.disposition NOT IN ('completed', 'cancelled')))
 			UNION ALL
 			SELECT 'factory:' || g.id || ':' || g.status, g.organization_id, t.id, t.slug,
@@ -128,6 +212,62 @@ export async function listCommitmentChanges(
 			WHERE w.disposition NOT IN ('completed', 'cancelled')
 		)
 		SELECT DISTINCT key, orgId, tediId, slug, kind, objectId, state, changedAt FROM changes
+		`,
+		sql`
+		SELECT 'member-overdue:' || w.id AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
+			'work' AS kind, w.id AS objectId, 'overdue' AS state,
+			coalesce(w.deadline, w.due_date) AS changedAt
+		FROM tedis t
+		JOIN organization_members m ON m.organization_id = t.organization_id
+			AND m.descope_user_id = t.owner_user_id AND m.status = 'active'
+		JOIN work_items w INDEXED BY idx_work_items_accountable_owner
+			ON w.org_id = m.organization_id AND w.accountable_owner_type = 'user'
+			AND w.accountable_owner_id = m.user_id
+		WHERE t.scope = 'personal' AND t.status = 'active'
+			AND w.disposition NOT IN ('completed', 'cancelled')
+			AND coalesce(w.deadline, w.due_date) > ${after}
+			AND coalesce(w.deadline, w.due_date) <= ${through}
+		`,
+		sql`
+		SELECT 'idle:' || w.id AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
+			'work' AS kind, w.id AS objectId, 'idle' AS state,
+			strftime('%Y-%m-%dT%H:%M:%fZ', coalesce(w.updated_at, w.accepted_at, w.created_at), '+2 days') AS changedAt
+		FROM tedis t
+		JOIN organization_members m ON m.organization_id = t.organization_id
+			AND m.descope_user_id = t.owner_user_id AND m.status = 'active'
+		JOIN work_items w INDEXED BY idx_work_items_accountable_owner
+			ON w.org_id = m.organization_id AND w.accountable_owner_type = 'user'
+			AND w.accountable_owner_id = m.user_id
+		WHERE t.scope = 'personal' AND t.status = 'active' AND w.disposition = 'accepted'
+			AND coalesce(w.updated_at, w.accepted_at, w.created_at) > ${new Date(Date.parse(after) - 172_800_000).toISOString()}
+			AND coalesce(w.updated_at, w.accepted_at, w.created_at) <= ${new Date(Date.parse(through) - 172_800_000).toISOString()}
+			AND NOT EXISTS (SELECT 1 FROM work_attempts a INDEXED BY uniq_work_attempt_number
+				WHERE a.org_id = w.org_id AND a.work_item_id = w.id AND a.runtime_state = 'running' AND a.expires_at > ${through})
+		`,
+		sql`
+		SELECT 'interaction-idle:' || i.id AS key, i.org_id AS orgId, t.id AS tediId, t.slug,
+			'interaction' AS kind, i.id AS objectId, 'idle' AS state,
+			strftime('%Y-%m-%dT%H:%M:%fZ', i.created_at, '+2 days') AS changedAt
+		FROM tedis t JOIN organization_members m ON m.organization_id = t.organization_id
+			AND m.descope_user_id = t.owner_user_id AND m.status = 'active'
+		JOIN work_interactions i INDEXED BY idx_work_interactions_target_status
+			ON i.org_id = m.organization_id AND i.target_type = 'user' AND i.target_id = m.user_id AND i.status = 'open'
+		WHERE t.scope = 'personal' AND t.status = 'active' AND i.due_at IS NULL
+			AND i.created_at > ${new Date(Date.parse(after) - 172_800_000).toISOString()}
+			AND i.created_at <= ${new Date(Date.parse(through) - 172_800_000).toISOString()}
+			AND (i.expires_at IS NULL OR i.expires_at > ${through})
+			AND (i.work_item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=i.org_id AND w.id=i.work_item_id AND w.disposition NOT IN ('completed','cancelled')))
+		`,
+		sql`
+		SELECT 'memory:' || f.id AS key, f.organization_id AS orgId, t.id AS tediId, t.slug,
+			'memory' AS kind, f.id AS objectId, 'overdue' AS state,
+			json_extract(f.metadata, '$.dueAt') AS changedAt
+		FROM memory_facts f INDEXED BY idx_memory_facts_type
+		JOIN tedis t ON t.id = f.tedi_id AND t.organization_id = f.organization_id AND t.status = 'active'
+		WHERE f.fact_type = 'commitment' AND f.archived_at IS NULL AND f.valid_to IS NULL
+			AND f.review_status NOT IN ('rejected', 'superseded', 'disputed')
+			AND json_extract(f.metadata, '$.dueAt') > ${after}
+			AND json_extract(f.metadata, '$.dueAt') <= ${through}
 		`,
 	];
 	const groups: CommitmentChange[][] = [];

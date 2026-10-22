@@ -4,6 +4,16 @@ const MAX_COUNT_KEYS = 32;
 
 export type PlatformCronAffectedRows = Record<string, number>;
 
+export class PlatformCronPathError extends AggregateError {
+	constructor(
+		errors: unknown[],
+		message: string,
+		readonly counts: PlatformCronAffectedRows,
+	) {
+		super(errors, message, { cause: errors[0] });
+	}
+}
+
 function boundedAffectedRows(
 	counts: PlatformCronAffectedRows | undefined,
 ): Record<string, number> {
@@ -75,7 +85,9 @@ export async function runPlatformCronPath(
 				status: "failure",
 				finishedAt: new Date(finishedMs).toISOString(),
 				durationMs: Math.max(0, finishedMs - startedMs),
-				affectedRowCounts: {},
+				affectedRowCounts: boundedAffectedRows(
+					error instanceof PlatformCronPathError ? error.counts : undefined,
+				),
 				error: JSON.stringify(safeExceptionTopology(error)),
 			});
 		} catch (receiptFinishError) {
