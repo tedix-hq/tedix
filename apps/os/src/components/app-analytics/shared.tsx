@@ -1,14 +1,14 @@
 /**
- * Shared building blocks of the app analytics page: query-state cards, the
- * header, freshness strip, metric cards, caller types and the event-volume
- * table beside the lazy chart.
+ * Shared building blocks of the app analytics page: query-state cards,
+ * freshness strip, metric cards, caller types and the event-volume table
+ * beside the lazy chart.
  */
 
 import type {
 	AppActivityFreshnessSchema,
 	AppTimeSeriesSchema,
 } from "@tedix/api-contract/contracts/analytics";
-import { ArrowDown, ArrowUp, Info, Pulse, Users } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, Pulse, Users } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import type { z } from "zod";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
@@ -21,7 +21,6 @@ import {
 } from "@/components/kumo/card";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	Table,
@@ -218,28 +217,6 @@ export function EventVolumeTable({
 // Components
 // =============================================================================
 
-export function AnalyticsHeader() {
-	return (
-		<div className="flex flex-wrap items-center gap-2">
-			<Text as="h2" role="dialog" weight="semibold" className="m-0">
-				Analytics
-			</Text>
-			<Badge variant="outline" className="font-normal">
-				Last 30 days · live window
-			</Badge>
-			<Text
-				as="p"
-				role="body"
-				tone="secondary"
-				className="m-0 flex basis-full items-center gap-1"
-			>
-				<Info size={14} aria-hidden />
-				Usage metrics from MCP tool interactions (Analytics Engine)
-			</Text>
-		</div>
-	);
-}
-
 export function ActivityFreshnessStrip({
 	freshness,
 }: {
@@ -351,30 +328,5 @@ export function PeriodChange({ change }: { change?: number }) {
 			)}
 			{Math.abs(Math.round(change))}% vs prior
 		</Badge>
-	);
-}
-
-export function AnalyticsPending() {
-	return (
-		<div aria-hidden="true" className="space-y-6">
-			<div className="space-y-2">
-				<Skeleton className="h-7 w-48" />
-				<Skeleton className="h-4 w-64" />
-			</div>
-			<div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-				<Skeleton className="h-32" />
-				<Skeleton className="h-32" />
-				<Skeleton className="h-32" />
-			</div>
-			<div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-				<Skeleton className="h-20" />
-				<Skeleton className="h-20" />
-				<Skeleton className="h-20" />
-				<Skeleton className="h-20" />
-				<Skeleton className="h-20" />
-			</div>
-			<Skeleton className="h-[280px]" />
-			<Skeleton className="h-64" />
-		</div>
 	);
 }

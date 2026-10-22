@@ -54,6 +54,7 @@ import {
 	appToolBreakdownQueryOptions,
 } from "@/lib/os-query-options";
 import { AppAnalyticsPage } from "./app-analytics-page";
+import * as analyticsShared from "./app-analytics/shared";
 
 const APP_ID = "11111111-1111-4111-8111-111111111111";
 const NOW = new Date("2026-10-20T10:30:00.000Z");
@@ -508,6 +509,11 @@ function headings(container: HTMLElement): string[] {
 }
 
 describe("AppAnalyticsPage", () => {
+	it("does not retain obsolete header or loading exports", () => {
+		expect("AnalyticsHeader" in analyticsShared).toBe(false);
+		expect("AnalyticsPending" in analyticsShared).toBe(false);
+	});
+
 	it("renders every section from seeded analytics reads", async () => {
 		const container = await renderAnalytics();
 		const text = container.textContent ?? "";
