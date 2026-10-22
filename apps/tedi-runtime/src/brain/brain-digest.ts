@@ -35,6 +35,7 @@ export interface BrainDigest {
 }
 
 const MAX_FACTS = 30;
+const MAX_FACT_CHARS = 800;
 const MAX_DIGEST_TOKENS = 3000;
 const MAX_PARALLEL_MEMORY_SEARCHES = 2;
 
@@ -99,7 +100,7 @@ export async function compileBrainDigest(
 		// Query per domain for broad coverage; fall back to generic query if no domains.
 		const queries =
 			domainNames.length > 0
-				? domainNames.slice(0, 6).map((d) => `${d} key facts expertise`)
+				? domainNames.slice(0, 3).map((d) => `${d} key facts expertise`)
 				: ["key facts expertise knowledge"];
 		const perQuery = Math.max(5, Math.floor(MAX_FACTS / queries.length));
 
@@ -112,7 +113,7 @@ export async function compileBrainDigest(
 		const seen = new Set<string>();
 		facts = [];
 		for (const searchResult of searchResults) {
-			for (const r of searchResult.results || []) {
+			for (const r of (searchResult.results || []).slice(0, MAX_FACTS)) {
 				if (!r.fact || r.fact.metadata?.verifyBeforeUse === true) continue;
 				if (seen.has(r.factId)) continue;
 				seen.add(r.factId);
@@ -123,11 +124,14 @@ export async function compileBrainDigest(
 				const domainName = fact.domain
 					? (domainMap.get(fact.domain) ?? fact.domain)
 					: undefined;
-				const summary = fact.summary || fact.content || "";
+				const summary = (fact.summary || fact.content || "").slice(
+					0,
+					MAX_FACT_CHARS,
+				);
 				if (summary.length > 0) {
 					facts.push({
 						summary,
-						content: fact.content,
+						content: fact.content?.slice(0, MAX_FACT_CHARS),
 						domain: domainName || fact.domain,
 						confidence: fact.confidence,
 					});
@@ -167,12 +171,7 @@ export async function compileBrainDigest(
 		.map(([domain, domainFacts]) => {
 			const lines = domainFacts
 				.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
-				// Feed the distiller the full fact CONTENT, not just the short
-				// `summary` — a summary is often truncated (e.g. seeded as
-				// content.slice(0, 90)) and drops the actionable conclusion of an
-				// operating rule, so the distilled digest keeps the topic but loses
-				// the "…therefore do X" the tedi needs. The distiller still caps the
-				// OUTPUT at MAX_DIGEST_TOKENS, so richer input ≠ bigger digest.
+				// Bounded content retains detail without unbounded inference input.
 				.map(
 					(f) =>
 						`- ${f.content?.trim() || f.summary}${f.confidence ? ` (${Math.round(f.confidence * 100)}%)` : ""}`,
@@ -307,26 +306,42 @@ async function llmDigest(
 	factCount: number,
 	options: CompileBrainDigestOptions,
 ): Promise<string | null> {
+	const controller = new AbortController();
+	const signal = options.signal
+		? AbortSignal.any([options.signal, controller.signal])
+		: controller.signal;
+	let timeout: ReturnType<typeof setTimeout> | undefined;
 	try {
-		const response = await options.llm.chat({
-			model: options.model,
-			messages: [
-				{ role: "system", content: DIGEST_SYSTEM_PROMPT },
-				{
-					role: "user",
-					content: `Compile this knowledge base (${factCount} facts) into a reference digest:\n\n${factSections}`,
-				},
-			],
-			temperature: 0.1,
-			maxCompletionTokens: 4000,
-			signal: options.signal,
-		});
+		signal.throwIfAborted();
+		const response = await Promise.race([
+			options.llm.chat({
+				model: options.model,
+				messages: [
+					{ role: "system", content: DIGEST_SYSTEM_PROMPT },
+					{
+						role: "user",
+						content: `Compile this knowledge base (${factCount} facts) into a reference digest:\n\n${factSections}`,
+					},
+				],
+				temperature: 0.1,
+				maxCompletionTokens: 4000,
+				signal,
+			}),
+			new Promise<never>((_, reject) => {
+				timeout = setTimeout(() => {
+					controller.abort();
+					reject(new Error("Brain digest inference timed out"));
+				}, 10_000);
+			}),
+		]);
 		const content = response.content;
 		if (!content || content.length < 50) return null;
 		return content;
 	} catch (err) {
 		console.error("[brain-bridge] Brain digest LLM error:", err);
 		return null;
+	} finally {
+		if (timeout) clearTimeout(timeout);
 	}
 }
 

@@ -1,5 +1,6 @@
 import {
 	type CompiledDirective,
+	computeProvenanceHash,
 	diagnoseDirectiveGap,
 	directiveInfluenced,
 	directiveInfluenceRatio,
@@ -8,6 +9,8 @@ import {
 	selectMatchingDirectives,
 	serializeMatchedDirectives,
 } from "@tedix/context-core/compiler";
+import { readDailyLogQueue } from "./runtime-memory-effects";
+import type { DailyLogEntry } from "./workspace";
 import { compileDirectives } from "./brain/compiler";
 import { logTediSourceFailure } from "./context-failure-log";
 import type { ActiveTurnBinding } from "./runtime-state";
@@ -298,6 +301,47 @@ export async function recordDirectiveInfluenceForTurn(
 	}
 }
 
+/** Explicit repeated user instructions only; assistant claims are not outcome evidence. */
+export async function compileDailyLogDirectives(
+	entries: DailyLogEntry[],
+): Promise<CompiledDirective[]> {
+	const groups = new Map<string, { text: string; ids: Set<string> }>();
+	for (const entry of entries.slice(-500)) {
+		if (entry.role !== "user") continue;
+		const text = entry.content.trim();
+		// Whole standalone instructions only: quoted text and embedded documents
+		// cannot become a durable directive via this fallback.
+		if (
+			text.length < 20 ||
+			text.length > 240 ||
+			/[\n\r`<>]/.test(text) ||
+			!/^(always|never|prefer)\s/i.test(text)
+		)
+			continue;
+		const key = text.toLowerCase().replace(/\s+/g, " ");
+		const group = groups.get(key) ?? { text, ids: new Set<string>() };
+		group.ids.add(`daily:${entry.turnId}`);
+		groups.set(key, group);
+	}
+	const result: CompiledDirective[] = [];
+	for (const group of groups.values()) {
+		if (group.ids.size < 3) continue;
+		const ids = [...group.ids].sort();
+		result.push({
+			strength: "prefer",
+			directive: group.text,
+			category: "user-instruction",
+			evidenceCount: ids.length,
+			successRate: 0.5,
+			compiledAt: new Date().toISOString(),
+			rationaleIds: ids,
+			provenanceHash: await computeProvenanceHash(ids),
+			lastMatchedAt: null,
+		});
+	}
+	return result.slice(0, 20);
+}
+
 /**
  * Directive-compile alarm. Compiles the tedi's completed rationale corpus
  * into Atlas-style ALWAYS/NEVER/PREFER directives (`compileDirectives` from
@@ -305,10 +349,9 @@ export async function recordDirectiveInfluenceForTurn(
  * tedix-context), persists them to DO SQLite, and refreshes the in-memory
  * cache that {@link directivesPromptAddendum} injects into the system prompt.
  *
- * Uses the template (fallback) compiler — no per-compile LLM cost. Returns
- * `[]` until the corpus crosses `PROMOTION_THRESHOLD` completed records, so
- * young tedis simply get no directives. Compilation failures propagate to the
- * owning maintenance operation; the prior cached directives stay active.
+ * Uses the template compiler and repeated explicit daily-log instructions,
+ * with no per-compile inference. Empty input preserves existing directives;
+ * compilation failures propagate to the owning maintenance operation.
  */
 export async function onCompileDirectives(
 	this: RuntimeMemoryHost,
@@ -325,22 +368,43 @@ export async function onCompileDirectives(
 	// Timeout-guard the compile: it makes an HTTP `getRationaleChain` call,
 	// and this runs in the DO's alarm context — a hung upstream must not
 	// wedge the DO. The 20s ceiling fails the owning maintenance operation.
+	let timeout: ReturnType<typeof setTimeout> | undefined;
 	const directives = await Promise.race([
 		compileDirectives({ platform }),
-		new Promise<CompiledDirective[]>((_, reject) =>
-			setTimeout(
+		new Promise<CompiledDirective[]>((_, reject) => {
+			timeout = setTimeout(
 				() => reject(new Error("compileDirectives timed out")),
 				20_000,
-			),
-		),
-	]);
+			);
+		}),
+	]).finally(() => {
+		if (timeout) clearTimeout(timeout);
+	});
+	const daily = [
+		...(this.ctx.storage.kv.get<DailyLogEntry[]>("memory:daily:recent") ?? []),
+		...readDailyLogQueue(this).map((r) => r.entry),
+	];
+	const fallback = await compileDailyLogDirectives(daily);
+	let merged = [...directives, ...fallback];
+	if (!merged.length)
+		merged = this.directivesLoaded
+			? this.compiledDirectives
+			: await this.getDirectiveStore().load();
 	await this.runtimeAdmission()?.assertAcceptedTurn({ runId: admittedRunId });
-	await this.getDirectiveStore().save(directives);
-	this.compiledDirectives = directives;
+	await this.getDirectiveStore().save(merged);
+	this.ctx.storage.kv.put(
+		"memory:lastDirectiveCompileAt",
+		new Date().toISOString(),
+	);
+	this.ctx.storage.kv.put(`memory:maintenance:result:${admittedRunId}`, {
+		task: "isolate-directive-compile",
+		count: merged.length,
+	});
+	this.compiledDirectives = merged;
 	this.directivesLoaded = true;
-	if (directives.length > 0) {
+	if (merged.length > 0) {
 		console.log(
-			`[isolate.directives] compiled=${directives.length} tedi=${this.state.slug}`,
+			`[isolate.directives] compiled=${merged.length} tedi=${this.state.slug}`,
 		);
 	} else {
 		// No directives — run the gap diagnostic so operators can see WHY.
