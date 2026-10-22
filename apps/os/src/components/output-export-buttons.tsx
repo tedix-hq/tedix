@@ -20,6 +20,15 @@ import { osApi, OS_API_URL } from "@/lib/api";
  * `.xlsx` of a slide deck. The applicability table lives in the contract
  * package and the router enforces it, so this is presentation, not the gate.
  */
+const FORMAT_LABELS: Partial<Record<OsOutputExportFormat, string>> = {
+	docx: "Document (.docx)",
+	xlsx: "Workbook (.xlsx)",
+	pptx: "Slides (.pptx)",
+	markdown: "Markdown (.md)",
+	html: "HTML (.html)",
+	csv: "CSV (all sheets)",
+};
+
 export function OutputExportButtons({
 	outputId,
 	kind,
@@ -52,14 +61,6 @@ export function OutputExportButtons({
 	});
 	const activeFormat = exportOutput.isPending ? exportOutput.variables : null;
 	const formats: OsOutputExportFormat[] = osOutputExportFormatsForKind(kind);
-	const labels: Partial<Record<OsOutputExportFormat, string>> = {
-		docx: "Document (.docx)",
-		xlsx: "Workbook (.xlsx)",
-		pptx: "Slides (.pptx)",
-		markdown: "Markdown (.md)",
-		html: "HTML (.html)",
-		csv: "CSV (all sheets)",
-	};
 	return (
 		<div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
 			<DropdownMenu>
@@ -103,7 +104,7 @@ export function OutputExportButtons({
 							disabled={exportOutput.isPending}
 							onClick={() => exportOutput.mutate(format)}
 						>
-							{labels[format] ?? format.toUpperCase()}
+							{FORMAT_LABELS[format] ?? format.toUpperCase()}
 						</DropdownMenuItem>
 					))}
 				</DropdownMenuContent>
