@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from "react";
+import { isTypingEvent } from "@/lib/keyboard";
 
 export function useFocusFeedShortcuts(root: RefObject<HTMLDivElement | null>) {
 	useEffect(() => {
@@ -7,7 +8,7 @@ export function useFocusFeedShortcuts(root: RefObject<HTMLDivElement | null>) {
 			const target = e.target;
 			if (
 				e.defaultPrevented ||
-				e.isComposing ||
+				isTypingEvent(e) ||
 				e.altKey ||
 				e.ctrlKey ||
 				e.metaKey ||
@@ -16,9 +17,8 @@ export function useFocusFeedShortcuts(root: RefObject<HTMLDivElement | null>) {
 				!(target instanceof HTMLElement) ||
 				!owner.contains(target) ||
 				target !== document.activeElement ||
-				target.isContentEditable ||
 				target.closest(
-					"[role=dialog],[role=alertdialog],[role=menu],[role=listbox],dialog[open],[contenteditable]:not([contenteditable=false])",
+					"[role=dialog],[role=alertdialog],[role=menu],[role=listbox],dialog[open]",
 				) ||
 				(target !== owner && !target.matches("[data-focus-row]"))
 			)

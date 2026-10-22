@@ -1,5 +1,41 @@
 import { describe, expect, it } from "vite-plus/test";
-import { isImeComposing } from "./keyboard";
+import { isImeComposing, isTypingEvent } from "./keyboard";
+
+function keyFrom(node: Node, init: KeyboardEventInit = { key: "j" }) {
+	let typing: boolean | undefined;
+	const listen = (event: Event) => {
+		typing = isTypingEvent(event as KeyboardEvent);
+	};
+	document.addEventListener("keydown", listen);
+	node.dispatchEvent(
+		new KeyboardEvent("keydown", { ...init, bubbles: true, composed: true }),
+	);
+	document.removeEventListener("keydown", listen);
+	return typing;
+}
+
+describe("isTypingEvent", () => {
+	it("sees text fields inside an open shadow root", () => {
+		const host = document.body.appendChild(document.createElement("div"));
+		const input = host
+			.attachShadow({ mode: "open" })
+			.appendChild(document.createElement("textarea"));
+		expect(keyFrom(input)).toBe(true);
+		host.remove();
+	});
+
+	it("sees light DOM editables and IME composition", () => {
+		const editor = document.body.appendChild(document.createElement("div"));
+		editor.setAttribute("contenteditable", "true");
+		const child = editor.appendChild(document.createElement("span"));
+		expect(keyFrom(child)).toBe(true);
+		const button = document.body.appendChild(document.createElement("button"));
+		expect(keyFrom(button)).toBe(false);
+		expect(keyFrom(button, { key: "j", isComposing: true })).toBe(true);
+		editor.remove();
+		button.remove();
+	});
+});
 
 describe("isImeComposing", () => {
 	it("recognizes native composition events", () => {

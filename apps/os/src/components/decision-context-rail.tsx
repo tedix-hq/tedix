@@ -50,6 +50,7 @@ import {
 } from "@/components/kumo/select";
 import { Combobox } from "@/components/kumo/combobox";
 import { userProfileQueryOptions } from "@/lib/os-query-options";
+import { isTypingEvent } from "@/lib/keyboard";
 
 /** Card (>= 31rem) + gap + narrowest rail (20rem). */
 const RAIL_INLINE_MIN_WIDTH = 880;
@@ -156,8 +157,7 @@ export function DecisionContextRail({
 				event.metaKey ||
 				event.ctrlKey ||
 				event.altKey ||
-				(event.target instanceof Element &&
-					event.target.closest("input,textarea,[contenteditable=true]"))
+				isTypingEvent(event)
 			)
 				return;
 			event.preventDefault();

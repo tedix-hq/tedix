@@ -13,6 +13,7 @@ import {
 	SquaresFour,
 } from "@phosphor-icons/react";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { isTypingEvent } from "@/lib/keyboard";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -107,15 +108,7 @@ function SidebarKeyboardShortcut() {
 				event.shiftKey ||
 				!(event.metaKey || event.ctrlKey) ||
 				event.key.toLowerCase() !== "b" ||
-				event
-					.composedPath()
-					.some(
-						(node) =>
-							node instanceof Element &&
-							node.matches(
-								"input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=textbox]",
-							),
-					)
+				isTypingEvent(event)
 			)
 				return;
 			event.preventDefault();

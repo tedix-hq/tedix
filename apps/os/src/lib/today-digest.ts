@@ -1,5 +1,6 @@
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
+import { isTypingEvent } from "@/lib/keyboard";
 
 export const TODAY_COLUMNS = [
 	"Project",
@@ -97,19 +98,12 @@ export function readToday(content: OsOutputContent) {
 }
 
 export function todayShortcut(event: KeyboardEvent) {
-	const target = event.target;
 	return (
 		event.key === "t" &&
 		!event.altKey &&
 		!event.ctrlKey &&
 		!event.metaKey &&
 		!event.shiftKey &&
-		!(
-			target instanceof HTMLElement &&
-			(target.isContentEditable ||
-				target.closest(
-					"input, textarea, select, [role=textbox], [role=combobox]",
-				))
-		)
+		!isTypingEvent(event)
 	);
 }
