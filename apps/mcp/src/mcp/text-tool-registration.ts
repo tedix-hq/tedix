@@ -15,12 +15,9 @@ import {
 	type ToolCallback,
 	wrapToolCallTelemetry,
 } from "./middleware/telemetry";
-import {
-	attachPaymentResponseMeta,
-	checkToolPayment,
-	getToolPaymentPolicy,
-	settleToolPayment,
-} from "./payments";
+import { attachPaymentResponseMeta, checkToolPayment } from "./payments";
+import { getToolPaymentPolicy } from "./payments-policy";
+import { settleToolPayment } from "./payments-settlement";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool } from "./tool-execution";
 import {

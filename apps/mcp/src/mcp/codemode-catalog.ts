@@ -38,7 +38,7 @@ import { resolveCodeModeResultBudget } from "./codemode-results";
 import { createNativeDescriptorLookup } from "./registration/bootstrap";
 import { isToolDeniedForConnection } from "./no-funds-policy";
 import { recordFrom, UI_NAMESPACE, UI_CATALOG_TOOLS } from "./codemode-ui";
-import { getToolPaymentPolicy } from "./payments";
+import { getToolPaymentPolicy } from "./payments-policy";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
 import { withDestructiveApprovalSchema } from "./governance";
 import { toolApprovalMetadata } from "./tool-risk-policy";

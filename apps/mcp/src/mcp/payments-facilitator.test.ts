@@ -47,7 +47,8 @@ vi.mock("@tedix/db/queries/tools", () => ({
 	getToolById: vi.fn(async () => null),
 }));
 
-import { checkToolPayment, settleToolPayment } from "./payments";
+import { checkToolPayment } from "./payments";
+import { settleToolPayment } from "./payments-settlement";
 
 function facilitatorTool(): AppTool {
 	return {
