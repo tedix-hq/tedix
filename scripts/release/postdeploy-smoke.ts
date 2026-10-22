@@ -17,7 +17,10 @@
  * is exchanged at the gateway's `POST /external-agents/session` for a
  * short-lived MCP credential of a read-only external-agent principal bound to
  * the job's exact `repo:` subject (docs/engineering/platform/auth.md, workload
- * identity). Elsewhere, TEDIX_MCP_BEARER_TOKEN may carry a credential issued
+ * identity). Repositories with immutable subject claims (GitHub's default for
+ * repositories created after 15 July 2026) send
+ * `repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:<name>`; read the prefix
+ * from `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`. Elsewhere, TEDIX_MCP_BEARER_TOKEN may carry a credential issued
  * for `--mcp-url`. Connect serves only human multi-organization logins, so a
  * non-human check targets the organization gateway that Connect routes to.
  *
