@@ -20,6 +20,7 @@ import {
 	findKernelRuntimeRunByChild,
 	getKernelRuntimeRun,
 	listKernelRuntimeRuns,
+	listPendingDelegationRuns,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { auditActor } from "../../audit-helpers";
 import { assembleHomeRunTrace } from "../kernel/home-run-trace";
@@ -816,6 +817,48 @@ export const readRunSetRoute = authed.readRunSet
 					source: "kernelRuntime.readRunSet",
 					model: "kernel_runtime_runs",
 				},
+			},
+		};
+	});
+
+export const listPendingHomeDelegationsRoute = authed.listPendingHomeDelegations
+	.use(AUTHZ.tedisRead)
+	.handler(async ({ context, input }) => {
+		const organizationId = resolveOrganizationId(context, input.organizationId);
+		if (context.userRole !== "owner" && context.userRole !== "admin") {
+			return {
+				runSet: emptyKernelRunSet({
+					conversationId: "__pending-home-delegations__",
+					organizationId,
+				}),
+			};
+		}
+		const candidates = await listPendingDelegationRuns(context.db, {
+			organizationId,
+			limit: input.limit ?? 50,
+			kind: "home_delegation",
+		});
+		const visible = [];
+		for (const candidate of candidates) {
+			try {
+				await ensureHomeConversationAccess(context, {
+					conversationId: candidate.conversationId,
+					organizationId,
+					required: "read",
+				});
+				visible.push(normalizeHomeRunRecord(candidate));
+			} catch {
+				// A global inbox must fail closed for private conversations.
+			}
+		}
+		return {
+			runSet: {
+				...emptyKernelRunSet({
+					conversationId: "__pending-home-delegations__",
+					organizationId,
+				}),
+				runs: visible,
+				updatedAt: visible[0]?.updatedAt ?? null,
 			},
 		};
 	});

@@ -146,6 +146,7 @@ export async function listPendingDelegationRuns(
 		organizationId: string;
 		limit: number;
 		cursor?: { at: string; id: string };
+		kind?: "home_delegation";
 	},
 ): Promise<KernelRuntimeRun[]> {
 	return db
@@ -155,7 +156,9 @@ export async function listPendingDelegationRuns(
 			and(
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				eq(kernelRuntimeRuns.status, "requires_approval"),
-				sql`(json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object' OR json_extract(${kernelRuntimeRuns.metadata}, '$.delegationWorkOrder.kind') = 'workstation.attach')`,
+				input.kind === "home_delegation"
+					? sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`
+					: sql`(json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object' OR json_extract(${kernelRuntimeRuns.metadata}, '$.delegationWorkOrder.kind') = 'workstation.attach')`,
 				...(input.cursor
 					? [
 							sql`(${kernelRuntimeRuns.createdAt}, ${kernelRuntimeRuns.id}) < (${input.cursor.at}, ${input.cursor.id})`,

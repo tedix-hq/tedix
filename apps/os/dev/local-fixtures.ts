@@ -7770,6 +7770,16 @@ const handlers: Record<string, (input: never) => unknown> = {
 			},
 		};
 	},
+	"kernelRuntime/listPendingHomeDelegations": () => ({
+		runSet: {
+			organizationId: ORG_ID,
+			conversationId: "__pending-home-delegations__",
+			activeRunIds: [],
+			runs: [],
+			approvalMirrors: {},
+			updatedAt: now(),
+		},
+	}),
 	"kernelRuntime/readRunEvents": (input: { runId: string }) => {
 		const run = state.homeRuns.find((row) => row.id === input.runId);
 		const outputMessage = run
