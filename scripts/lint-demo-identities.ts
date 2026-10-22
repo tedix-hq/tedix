@@ -133,7 +133,9 @@ export function createDemoIdentityScanner(
 		byLength.get(words)!.add(sha256);
 	}
 	const carryLength = Math.max(1, ...byLength.keys()) - 1;
-	const verdicts = new Map<string, boolean>();
+	const phraseCaches = new Map(
+		[...byLength.keys()].map((length) => [length, new Map<string, boolean>()]),
+	);
 	const blocks = new Map<
 		string,
 		{
@@ -178,6 +180,7 @@ export function createDemoIdentityScanner(
 						const start = end - length + 1;
 						if (start < 0) continue;
 						const phrase = tokens.slice(start, end + 1).join(" ");
+						const verdicts = phraseCaches.get(length)!;
 						let found = verdicts.get(phrase);
 						if (found === undefined) {
 							found = digests.has(digest(phrase));
@@ -195,14 +198,18 @@ export function createDemoIdentityScanner(
 					findings: [...findings],
 				};
 				// Eviction only repeats work; arbitrary inputs cannot grow the cache forever.
-				if (blockChars + key.length > 32_000_000) {
-					blocks.clear();
-					blockChars = 0;
-				}
 				if (key.length <= 32_000_000) {
+					while (blockChars + key.length > 32_000_000) {
+						const oldest = blocks.keys().next().value!;
+						blocks.delete(oldest);
+						blockChars -= oldest.length;
+					}
 					blocks.set(key, block);
 					blockChars += key.length;
 				}
+			} else {
+				blocks.delete(key);
+				blocks.set(key, block);
 			}
 			const absoluteLine = (offset: number) =>
 				offset < 0 ? carryLines[-offset - 1]! : firstLine + offset + 1;
