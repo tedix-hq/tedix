@@ -94,13 +94,17 @@ const COLLECTION_CLASSES =
 	"inline-flex min-h-11 cursor-pointer items-center rounded-lg no-underline! hover:bg-kumo-tint hover:no-underline! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus motion-reduce:transition-none";
 
 function Link({ className, variant = "inline", ...props }: LinkProps) {
+	const touchClassName = cn(
+		"max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11",
+		className,
+	);
 	if (variant === "record") {
 		return (
 			<KumoLink
 				data-slot="link"
 				data-link-role="record"
 				variant="current"
-				className={cn(RECORD_CLASSES, className)}
+				className={cn(RECORD_CLASSES, touchClassName)}
 				{...props}
 			/>
 		);
@@ -111,7 +115,7 @@ function Link({ className, variant = "inline", ...props }: LinkProps) {
 				data-slot="link"
 				data-link-role="section"
 				variant="current"
-				className={cn(SECTION_CLASSES, className)}
+				className={cn(SECTION_CLASSES, touchClassName)}
 				{...props}
 			/>
 		);
@@ -122,7 +126,7 @@ function Link({ className, variant = "inline", ...props }: LinkProps) {
 				data-slot="link"
 				data-link-role="navigation"
 				variant="current"
-				className={cn(NAVIGATION_CLASSES, className)}
+				className={cn(NAVIGATION_CLASSES, touchClassName)}
 				{...props}
 			/>
 		);
@@ -133,7 +137,7 @@ function Link({ className, variant = "inline", ...props }: LinkProps) {
 				data-slot="link"
 				data-link-role="collection"
 				variant="current"
-				className={cn(COLLECTION_CLASSES, className)}
+				className={cn(COLLECTION_CLASSES, touchClassName)}
 				{...props}
 			/>
 		);
@@ -143,7 +147,7 @@ function Link({ className, variant = "inline", ...props }: LinkProps) {
 		<KumoLink
 			data-slot="link"
 			variant={variant}
-			className={className}
+			className={touchClassName}
 			{...props}
 		/>
 	);

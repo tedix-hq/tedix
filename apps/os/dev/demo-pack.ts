@@ -829,8 +829,6 @@ export function applyDemoPack(
 		email: owner.email,
 		avatarUrl: null,
 	});
-	// Nothing outbound exists in the sample company.
-	h["workInteractions/outbound/list"] = () => [];
 
 	// Feed and Deck, installed where the Work apps live.
 	const gadgetTemplate = list(state, "gadgets")[0]!;

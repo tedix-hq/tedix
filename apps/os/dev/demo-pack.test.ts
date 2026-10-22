@@ -100,9 +100,11 @@ describe("sample company in fixture mode", () => {
 			{ limit: 20 },
 		);
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
+			"Agents",
 			"Deck",
 			"Feed",
 			"Office",
+			"Outbound",
 			"Projects",
 		]);
 		const feed = ok<{ events: { createdAt: string }[] }>(
@@ -245,4 +247,10 @@ describe("sending is switched off", () => {
 	it("still lets a person review a draft locally", () => {
 		expect(rpc("workInteractions/outbound/list", {}).status).toBe(200);
 	});
+});
+
+it("keeps the fictional outbound draft visible in the installed Outbound app", () => {
+	const records = ok<{ title: string }[]>("workInteractions/outbound/list", {});
+	expect(records).toHaveLength(1);
+	expect(records[0]!.title).toContain("partnership follow-up");
 });

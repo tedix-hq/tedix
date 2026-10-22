@@ -11,7 +11,7 @@ import {
 
 /*
  * Work beyond the Deck on iPhone Safari (WebKit): Feed, Projects, a project,
- * a Work item, Requests, a request, Approvals and the More views. Each page
+ * a Work item, Requests, Approvals, Agents, Office, Outbound, Cases and Capacity. Each page
  * keeps to the screen width, keeps its text inside its rows, and keeps its
  * row links 44px tall. Fields keep 16px text (smaller zooms the page on
  * focus) and stay reachable above the software keyboard.
@@ -50,6 +50,15 @@ const PAGES: Array<[string, string]> = [
 	["/work?view=feed", ".fd-feed"],
 	["/work?view=feed&filter=history", ".fd-feed"],
 	["/work?app=portfolio", "[data-portfolio-card]"],
+	["/work?app=agents", "[data-agent-state]"],
+	["/work?app=office", "#office-for-you-title"],
+	[
+		"/work?app=outbound",
+		"[data-workspace-app-entry=outbound-review] .fd-decision",
+	],
+	["/work/cases", "[data-mobile-case-row]"],
+	["/work/capacity", "[data-slot=surface] li, [data-slot=surface] strong"],
+	["/work/capacity?view=budgets", "[data-slot=card] strong"],
 	["/work/approvals", "summary"],
 	["/work/interactions", "[aria-labelledby=interaction-urgent-title]"],
 	[PROJECT, "[data-contributor-state]"],
@@ -79,6 +88,23 @@ function layoutFailures(page: Page) {
 		const main = document.querySelector<HTMLElement>("main.route-content")!;
 		for (const el of main.querySelectorAll<HTMLElement>("*")) {
 			if (!el.getClientRects().length) continue;
+			// Screen-reader-only headers retain semantics in stacked tables.
+			let visuallyHidden = false;
+			for (
+				let ancestor: HTMLElement | null = el;
+				ancestor && ancestor !== main;
+				ancestor = ancestor.parentElement
+			) {
+				const style = getComputedStyle(ancestor);
+				if (
+					style.clip.replace(/[ ,]/g, "") === "rect(0px0px0px0px)" ||
+					style.clipPath === "inset(50%)"
+				) {
+					visuallyHidden = true;
+					break;
+				}
+			}
+			if (visuallyHidden) continue;
 			const box = el.getBoundingClientRect();
 			const name = `${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 40)}"`;
 			const style = getComputedStyle(el);
@@ -122,7 +148,16 @@ function layoutFailures(page: Page) {
 
 /** A touch target: 44px tall, inside the screen, and on top where it says it is. */
 async function targetFailures(target: Locator, label: string) {
-	await target.scrollIntoViewIfNeeded();
+	await target.evaluate((node) => {
+		node.scrollIntoView({
+			block: "center",
+			inline: "nearest",
+			behavior: "instant",
+		});
+		return new Promise<void>((resolve) =>
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+		);
+	});
 	return target.evaluate((node, label) => {
 		const failures: string[] = [];
 		const box = node.getBoundingClientRect();
@@ -132,15 +167,20 @@ async function targetFailures(target: Locator, label: string) {
 			failures.push(`${label} is ${Math.round(box.width)}px wide`);
 		if (box.left < -1 || box.right > document.documentElement.clientWidth + 1)
 			failures.push(`${label} runs off the screen`);
-		// The edges must hit too, or the padding only looks like a target.
-		for (const y of [box.top + 3, box.top + box.height / 2, box.bottom - 3]) {
-			const hit = document.elementFromPoint(
-				Math.min(box.left + 12, box.right - 1),
-				y,
-			);
-			if (!hit || !(node.contains(hit) || hit.contains(node)))
+		// Edge midpoints catch covered padding while preserving round buttons.
+		const cx = box.left + box.width / 2;
+		const cy = box.top + box.height / 2;
+		for (const [x, y] of [
+			[cx, box.top + 3],
+			[box.left + 3, cy],
+			[cx, cy],
+			[box.right - 3, cy],
+			[cx, box.bottom - 3],
+		] as const) {
+			const hit = document.elementFromPoint(x, y);
+			if (!hit || !node.contains(hit))
 				failures.push(
-					`${label} at y=${Math.round(y - box.top)} is covered by ${hit?.tagName}.${hit?.className}`,
+					`${label} at x=${Math.round(x - box.left)}, y=${Math.round(y - box.top)} is covered by ${hit?.tagName}.${hit?.className}`,
 				);
 		}
 		return failures;
@@ -210,6 +250,7 @@ async function keyboardFailures(page: Page, field: Locator, action: Locator) {
 }
 
 let browser: Browser | undefined;
+const allFailures: string[] = [];
 try {
 	await waitForFixtureServer(`${origin}/work`, { server });
 	browser = await webkit.launch({ headless: true });
@@ -224,14 +265,15 @@ try {
 		"Office fixture support read should resolve",
 	);
 	await office.close();
-	for (const [size, device] of [
-		["390x844", devices["iPhone 13"]],
-		["375x667", devices["iPhone 8"]],
+	for (const [size, device, viewport] of [
+		["390x844", devices["iPhone 13"], { width: 390, height: 844 }],
+		["375x667", devices["iPhone 8"], { width: 375, height: 667 }],
 	] as const)
 		for (const colorScheme of ["light", "dark"] as const) {
 			const label = `${size} ${colorScheme}`;
 			const context = await browser.newContext({
 				...device,
+				viewport,
 				colorScheme,
 				reducedMotion: "reduce",
 			});
@@ -243,8 +285,27 @@ try {
 			const failures: string[] = [];
 			const check = async (path: string, ready: string) => {
 				await page.goto(`${origin}${path}`);
-				await page.locator(ready).first().waitFor({ timeout: 20_000 });
+				try {
+					await page.locator(ready).first().waitFor({ timeout: 20_000 });
+				} catch (error) {
+					if (shots)
+						await page.screenshot({
+							path: `${shots}/${size}-${colorScheme}-render-failure.png`,
+						});
+					throw new Error(
+						`${path} did not render: ${await page.locator("main.route-content").innerText()}`,
+						{ cause: error },
+					);
+				}
 				await settle(page);
+				assert.deepEqual(
+					await page.evaluate(() => ({
+						width: innerWidth,
+						height: innerHeight,
+					})),
+					viewport,
+					`${label} viewport`,
+				);
 				for (const failure of await layoutFailures(page))
 					failures.push(`${path}: ${failure}`);
 				if (shots)
@@ -255,7 +316,7 @@ try {
 			const targets = async (path: string, locator: Locator, name: string) => {
 				const count = await locator.count();
 				assert(count > 0, `${label} ${path}: no ${name}`);
-				for (let index = 0; index < Math.min(count, 4); index++)
+				for (let index = 0; index < count; index++)
 					for (const failure of await targetFailures(
 						locator.nth(index),
 						`${name} ${index + 1}`,
@@ -264,6 +325,43 @@ try {
 			};
 
 			for (const [path, ready] of PAGES) await check(path, ready);
+			for (const path of [
+				"/work?app=agents",
+				"/work?app=office",
+				"/work?app=outbound",
+				"/work/cases",
+				"/work/capacity",
+				"/work/capacity?view=budgets",
+			]) {
+				const ready = PAGES.find(([url]) => url === path)![1];
+				await check(path, ready);
+				await targets(
+					path,
+					page.locator(
+						"main.route-content a[href]:visible, main.route-content button:visible:not([disabled]), main.route-content input:visible:not([aria-hidden=true]):not([tabindex='-1']), main.route-content summary:visible",
+					),
+					"view control",
+				);
+				if (shots && path === "/work?app=office") {
+					await page
+						.locator("#office-leaderboard-title")
+						.scrollIntoViewIfNeeded();
+					await page.screenshot({
+						path: `${shots}/${size}-${colorScheme}-office-leaderboard.png`,
+					});
+				}
+			}
+			await check("/work/cases", "[data-mobile-case-row]");
+			await page
+				.getByRole("button", { name: "Open case", exact: true })
+				.click();
+			for (const failure of await layoutFailures(page))
+				failures.push(`/work/cases form: ${failure}`);
+			await targets(
+				"/work/cases form",
+				page.locator("#open-case-form input"),
+				"case field",
+			);
 
 			await check("/work?view=feed", ".focus-today");
 			await targets(
@@ -340,6 +438,37 @@ try {
 			);
 
 			await check(REQUEST, "textarea");
+			const evidence = page
+				.getByRole("link", { name: "Evidence", exact: true })
+				.first();
+			const stable = await evidence.evaluate((node) => {
+				const text = document.createRange();
+				text.selectNodeContents(node);
+				const before = text.getBoundingClientRect();
+				const parentHeight = node.parentElement!.getBoundingClientRect().height;
+				const minHeight = (node as HTMLElement).style.minHeight;
+				(node as HTMLElement).style.minHeight = "0px";
+				node.classList.remove("tap-target-y");
+				const after = text.getBoundingClientRect();
+				const same =
+					Math.abs(before.y - after.y) < 0.5 &&
+					Math.abs(before.x - after.x) < 0.5 &&
+					Math.abs(
+						parentHeight - node.parentElement!.getBoundingClientRect().height,
+					) < 0.5;
+				node.classList.add("tap-target-y");
+				(node as HTMLElement).style.minHeight = minHeight;
+				return same;
+			});
+			if (!stable)
+				failures.push(
+					`${REQUEST}: Evidence tap area moves the provenance line`,
+				);
+			await targets(REQUEST, evidence, "inline Evidence");
+			if (shots)
+				await page.screenshot({
+					path: `${shots}/${size}-${colorScheme}-request-evidence.png`,
+				});
 			failures.push(
 				...(
 					await keyboardFailures(
@@ -361,10 +490,12 @@ try {
 				"search",
 			);
 
-			assert.deepEqual(failures, [], label);
+			allFailures.push(...failures.map((failure) => `${label}: ${failure}`));
 			await context.close();
-			console.log(`PASS ${label}`);
+			console.log(`${failures.length ? "FAIL" : "PASS"} ${label}`);
+			if (failures.length) console.error(failures.join("\n"));
 		}
+	assert.deepEqual(allFailures, [], "iPhone Work views");
 } finally {
 	await browser?.close();
 	process.kill(-server.pid, "SIGTERM");

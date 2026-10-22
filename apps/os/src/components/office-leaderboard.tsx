@@ -158,7 +158,7 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 			) : board.isError ? (
 				<OfficeReadError resource="leaderboard" error={board.error} />
 			) : (
-				<Table scrollLabel="Leaderboard">
+				<Table scrollLabel="Leaderboard" mobileLayout="stacked">
 					<TableHeader>
 						<TableRow>
 							<TableHead className="w-10">#</TableHead>
@@ -183,9 +183,11 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 						) : (
 							rows.map((row, index) => (
 								<TableRow key={row.tediId}>
-									<TableCell className="tabular-nums">{index + 1}</TableCell>
-									<TableCell>
-										<span className="flex items-center gap-2">
+									<TableCell label="Rank" className="tabular-nums">
+										{index + 1}
+									</TableCell>
+									<TableCell label="Tedi">
+										<span className="flex min-w-0 items-center gap-2">
 											<EntityAvatar
 												id={row.tediId}
 												name={row.name}
@@ -211,19 +213,34 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 											</span>
 										</span>
 									</TableCell>
-									<TableCell className="text-right font-semibold tabular-nums">
+									<TableCell
+										label="Stood"
+										className="text-right font-semibold tabular-nums"
+									>
 										{row.score.stood}
 									</TableCell>
-									<TableCell className="text-right tabular-nums">
+									<TableCell
+										label="Knocks answered"
+										className="text-right tabular-nums"
+									>
 										{row.score.answered}
 									</TableCell>
-									<TableCell className="text-right tabular-nums">
+									<TableCell
+										label="Auto-sent"
+										className="text-right tabular-nums"
+									>
 										{row.score.autoSent}
 									</TableCell>
-									<TableCell className="text-right tabular-nums">
+									<TableCell
+										label="Corrected"
+										className="text-right tabular-nums"
+									>
 										{row.score.corrected}
 									</TableCell>
-									<TableCell className="text-right tabular-nums">
+									<TableCell
+										label="Avg reply"
+										className="text-right tabular-nums"
+									>
 										{formatReplyTime(row.score.avgReplySeconds)}
 									</TableCell>
 								</TableRow>
