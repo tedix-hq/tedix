@@ -1,3 +1,12 @@
+Tedix 0.2.7 — install from more hosts.
+
+Gemini CLI and Antigravity can install Tedix with `gemini extensions install`
+from this repository, which now carries a root gemini-extension.json for the
+remote server. Installer agents such as Cline can follow llms-install.md, and
+any agent that reads Agent Skills can add the skills with
+`npx skills add tedix-hq/tedix-plugins`. Skills, server and permissions are
+unchanged.
+
 Tedix 0.2.6 — block only payments and money-moving operations.
 
 Connect rejects x402 payment proofs, paid tools and money-moving provider
