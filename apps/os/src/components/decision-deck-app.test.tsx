@@ -123,6 +123,8 @@ afterEach(async () => {
 	localStorage.clear();
 	globalThis.history.replaceState(null, "", globalThis.location.pathname);
 	host?.remove();
+	vi.clearAllTimers();
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
 async function mount(
@@ -790,6 +792,7 @@ it("recovers a transient face read without answering or changing cards", async (
 });
 
 it("stops reading a face after a hard error instead of retrying it", async () => {
+	vi.useFakeTimers();
 	const row = linkedRow(
 		"11111111-1111-4111-8111-111111111111",
 		"Review the supplier date?",
@@ -798,10 +801,13 @@ it("stops reading a face after a hard error instead of retrying it", async () =>
 		.mockReset()
 		.mockRejectedValue({ code: "NOT_FOUND", message: "Card not found" });
 	await mount({ rows: [row], uncachedFace: true });
-	await vi.waitFor(() => expect(writes.getCard).toHaveBeenCalledTimes(1));
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(0);
+	});
+	expect(writes.getCard).toHaveBeenCalledTimes(1);
 	// A transient failure would retry within 2 s; a hard error never does.
 	await act(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 2_500));
+		await vi.advanceTimersByTimeAsync(2_500);
 	});
 	expect(writes.getCard).toHaveBeenCalledTimes(1);
 	expect(writes.save).not.toHaveBeenCalled();

@@ -575,6 +575,7 @@ describe("session refresh is identity-checked", () => {
 });
 
 it("settles an in-flight consumer before reconnecting after socket failure", async () => {
+	vi.useFakeTimers();
 	let attempts = 0;
 	let release!: () => void;
 	let started!: () => void;
@@ -614,14 +615,17 @@ it("settles an in-flight consumer before reconnecting after socket failure", asy
 			},
 		);
 		await consuming;
-		await new Promise((resolve) => setTimeout(resolve, 1100));
+		await vi.advanceTimersByTimeAsync(1_100);
 		expect(attempts).toBe(1);
 		release();
+		await vi.runAllTimersAsync();
 		await run;
 		expect(seen).toEqual(["run:0", "run:1"]);
 		expect(inputs[1]).toMatchObject({ resume: true, lastEventId: "run:0" });
 	} finally {
 		client.dispose();
+		vi.clearAllTimers();
+		vi.useRealTimers();
 	}
 });
 

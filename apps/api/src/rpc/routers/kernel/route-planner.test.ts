@@ -1098,36 +1098,59 @@ describe("planKernelRoute", () => {
 	});
 
 	it("bounds the retry by the remaining route deadline", async () => {
-		const invalid = objectModel({ routeKind: "invalid" });
-		const model = new MockLanguageModelV3({
-			doStream: async () => ({ stream: fallbackAnswerStream() }),
-			doGenerate: async (options) => {
-				if (model.doGenerateCalls.length === 1)
-					return invalid.doGenerate(options);
-				return new Promise((_, reject) => {
-					const abort = () => reject(options.abortSignal?.reason);
-					if (options.abortSignal?.aborted) abort();
-					else
-						options.abortSignal?.addEventListener("abort", abort, {
-							once: true,
-						});
+		vi.useFakeTimers();
+		const timeouts = vi
+			.spyOn(AbortSignal, "timeout")
+			.mockImplementation((ms) => {
+				const controller = new AbortController();
+				setTimeout(
+					() => controller.abort(new DOMException("Timed out", "TimeoutError")),
+					ms,
+				);
+				return controller.signal;
+			});
+		try {
+			const invalid = objectModel({ routeKind: "invalid" });
+			const model = new MockLanguageModelV3({
+				doStream: async () => ({ stream: fallbackAnswerStream() }),
+				doGenerate: async (options) => {
+					if (model.doGenerateCalls.length === 1)
+						return invalid.doGenerate(options);
+					return new Promise((_, reject) => {
+						const abort = () => reject(options.abortSignal?.reason);
+						if (options.abortSignal?.aborted) abort();
+						else
+							options.abortSignal?.addEventListener("abort", abort, {
+								once: true,
+							});
+					});
+				},
+			});
+			let settled = false;
+			const pending = expect(
+				planKernelRoute({
+					model,
+					context: EMPTY_CONTEXT,
+					content: "Status",
+					generationTimeoutMs: 100,
+				}),
+			)
+				.resolves.toMatchObject({
+					routeKind: "answer_in_home",
+					recovery: "invalid_route_decision",
+				})
+				.then(() => {
+					settled = true;
 				});
-			},
-		});
-		const started = Date.now();
-		await expect(
-			planKernelRoute({
-				model,
-				context: EMPTY_CONTEXT,
-				content: "Status",
-				generationTimeoutMs: 100,
-			}),
-		).resolves.toMatchObject({
-			routeKind: "answer_in_home",
-			recovery: "invalid_route_decision",
-		});
-		expect(model.doGenerateCalls).toHaveLength(2);
-		expect(Date.now() - started).toBeLessThan(1000);
+			await vi.advanceTimersByTimeAsync(100);
+			expect(settled).toBe(true);
+			await pending;
+			expect(model.doGenerateCalls).toHaveLength(2);
+		} finally {
+			vi.clearAllTimers();
+			timeouts.mockRestore();
+			vi.useRealTimers();
+		}
 	});
 
 	it("system prompt contains owned-write delegation guidance (delegate_tedi preferred over propose_tool_write for tedi-owned domains)", async () => {
