@@ -128,15 +128,18 @@ export async function listKernelRuntimeEvents(
 	if (input.kinds?.length === 0) return [];
 	// Rows older than the retention keep window live in the logs database.
 	// Each store applies the same filters; offset applies to the merged set.
-	const pages = await readLogStores(db, (store) =>
-		listKernelRuntimeEvents(store, {
-			...input,
-			limit:
-				input.limit === undefined
-					? undefined
-					: input.limit + (input.offset ?? 0),
-			offset: undefined,
-		}),
+	const pages = await readLogStores(
+		db,
+		(store) =>
+			listKernelRuntimeEvents(store, {
+				...input,
+				limit:
+					input.limit === undefined
+						? undefined
+						: input.limit + (input.offset ?? 0),
+				offset: undefined,
+			}),
+		{ to: input.createdBefore },
 	);
 	if (pages)
 		return mergeLogStoreRows(pages, {

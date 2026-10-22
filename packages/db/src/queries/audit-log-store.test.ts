@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { configureLogStore, createDbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
+import { logPartition } from "../schema/logs-db";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
@@ -16,7 +17,7 @@ import {
 
 function store() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(auditEvents));
+	sqlite.exec(schemaDdl(auditEvents, logPartition));
 	const binding = createD1Facade(sqlite);
 	return { sqlite, binding, db: createDbClient(binding) };
 }
@@ -120,5 +121,54 @@ describe("optional audit log store", () => {
 			toolErrors: 1,
 			codeExecutions: 0,
 		});
+	});
+
+	it("preserves audit search across rotation with duplicates and tenant scope", async () => {
+		const main = store();
+		const old = store();
+		const active = store();
+		await insertAuditEvent(old.db, {
+			...event,
+			id: "old",
+			occurredAt: new Date("2026-01-01"),
+		});
+		await insertAuditEvent(main.db, {
+			...event,
+			id: "duplicate",
+			occurredAt: new Date("2026-01-02"),
+		});
+		await insertAuditEvent(old.db, {
+			...event,
+			id: "duplicate",
+			occurredAt: new Date("2026-01-02"),
+		});
+		await insertAuditEvent(active.db, {
+			...event,
+			id: "new",
+			occurredAt: new Date("2026-01-03"),
+		});
+		configureLogStore(main.db, {
+			LOGS_DB: active.binding,
+			LOGS_DB_9: old.binding,
+		});
+		const result = await searchAuditEvents(main.db, {
+			organizationId: event.organizationId,
+			limit: 2,
+			offset: 1,
+		});
+		expect(result.data.map((row) => row.id)).toEqual(["duplicate", "old"]);
+		expect(
+			(
+				await getAuditEventsByResource(
+					main.db,
+					event.organizationId,
+					event.resourceType,
+					event.resourceId,
+				)
+			).map((row) => row.id),
+		).toEqual(["new", "duplicate", "old"]);
+		expect(
+			(await searchAuditEvents(main.db, { organizationId: "org-other" })).data,
+		).toEqual([]);
 	});
 });

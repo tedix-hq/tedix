@@ -23,19 +23,28 @@ export function createDbClient(d1: D1Database) {
 export interface LogStores {
 	/** The main database, as a plain client (not itself registered). */
 	main: DbClient;
-	/** The logs database. */
-	logs: DbClient;
+	/** Current writer target; numbered bindings are read-only partitions. */
+	logs?: DbClient;
+	partitions: { binding: string; db: DbClient }[];
 }
 
 const logStores = new WeakMap<object, LogStores>();
-
-/** Register the logs database for `db` when the Worker binds `LOGS_DB`. */
+/** Discover current and historical logs bindings without a fixed partition cap. */
 export function configureLogStore(db: DbClient, bindings: object): void {
-	const logs = (bindings as { LOGS_DB?: D1Database }).LOGS_DB;
-	if (!logs) return;
+	const seen = new Set<D1Database>();
+	const partitions = Object.entries(bindings)
+		.filter(([name, value]) => /^LOGS_DB(?:_\d+)?$/.test(name) && value)
+		.sort(([a], [b]) => a.localeCompare(b, "en", { numeric: true }))
+		.flatMap(([binding, value]: [string, D1Database]) => {
+			if (seen.has(value)) return [];
+			seen.add(value);
+			return [{ binding, db: createDbClient(value) }];
+		});
+	if (!partitions.length) return;
 	logStores.set(db, {
 		main: createDbClient(db.$client),
-		logs: createDbClient(logs),
+		logs: partitions.find((partition) => partition.binding === "LOGS_DB")?.db,
+		partitions,
 	});
 }
 

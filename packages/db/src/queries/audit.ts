@@ -133,8 +133,15 @@ export async function searchAuditEvents(
 	options: SearchAuditEventsOptions,
 ): Promise<{ data: (typeof auditEvents.$inferSelect)[]; total: number }> {
 	const { organizationId, limit = 50, offset = 0 } = options;
-	const pages = await readLogStores(db, (store) =>
-		searchAuditEvents(store, { ...options, limit: limit + offset, offset: 0 }),
+	const pages = await readLogStores(
+		db,
+		(store) =>
+			searchAuditEvents(store, {
+				...options,
+				limit: limit + offset,
+				offset: 0,
+			}),
+		{ from: options.startDate, to: options.endDate },
 	);
 	if (pages) {
 		return {
