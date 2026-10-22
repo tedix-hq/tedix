@@ -676,6 +676,15 @@ for (const [index, gate] of active.entries()) {
 	}
 	finishProgress(gate.name, result.status === 0 ? "passed" : "failed", started);
 	ran += 1;
+	if (
+		result.status === 0 &&
+		gate.name === "lint:repo (architecture boundaries)"
+	) {
+		for (const line of output.split("\n")) {
+			if (/^ok\s+scripts\/\S+.* \(\d+(?:\.\d+)?s\)$/.test(line))
+				console.log(line);
+		}
+	}
 	if (result.status !== 0) {
 		failures.push({ gate, output, ms: Date.now() - started });
 		if (gate.fatal) {
