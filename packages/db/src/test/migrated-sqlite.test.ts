@@ -52,6 +52,7 @@ describe("migrated SQLite template", () => {
 		first.exec("CREATE TABLE copy_only(id TEXT)");
 		first.exec("PRAGMA foreign_keys=OFF");
 		for (const sqlite of [second, createMigratedSqlite()]) {
+			expect(sqlite.location()).toBeNull();
 			expect(
 				sqlite.prepare("SELECT id FROM organizations WHERE id='fixture'").all(),
 			).toEqual([]);
