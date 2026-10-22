@@ -1,7 +1,7 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionGraphNode } from "@tedix/api-contract/schemas/decision-graph";
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { learningInteractionEvents } from "../schema/learning-feedback";
 import { memoryEntities } from "../schema/memory-entities";
@@ -169,6 +169,40 @@ function named(text: string, name: string | null) {
 	).test(text);
 }
 
+/** Matched people, systems and credentials per table per card. */
+const CARD_NAME_MATCH_LIMIT = 50;
+/**
+ * Names are matched in JavaScript over a bounded, index-ordered window per
+ * table instead of an `instr(<card text>, lower(name))` predicate, which read
+ * every active row of the organization and bound the whole card text to each
+ * of the three reads every card triggered. A window that fills up means the
+ * organization outgrew name matching: the name arm is skipped and only the
+ * metadata id list still identifies nodes.
+ */
+export const CARD_NAME_SCAN_LIMIT = 500;
+/** Card subject, prompt and Work title bound the name-matching text. */
+const CARD_NAME_MATCH_TEXT_LIMIT = 20_000;
+
+/**
+ * Union of the metadata id list and, while the candidate window did not
+ * overflow, the window rows whose names appear in the card text — ordered by
+ * id and capped at CARD_NAME_MATCH_LIMIT like the SQL it replaces.
+ */
+function cardNameCandidates<
+	T extends { id: string | null; name: string | null },
+>(window: T[], byIds: T[], text: string): (T & { id: string })[] {
+	const merged = new Map<string, T & { id: string }>();
+	for (const row of byIds)
+		if (row.id) merged.set(row.id, row as T & { id: string });
+	if (window.length <= CARD_NAME_SCAN_LIMIT)
+		for (const row of window)
+			if (row.id && !merged.has(row.id) && named(text, row.name))
+				merged.set(row.id, row as T & { id: string });
+	return [...merged.values()]
+		.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+		.slice(0, CARD_NAME_MATCH_LIMIT);
+}
+
 export async function recordCardCreationEdges(
 	db: DbQueryClient,
 	card: Pick<
@@ -237,66 +271,102 @@ export async function recordCardCreationEdges(
 				].flatMap(strings),
 			),
 		].slice(0, 50);
-		const text =
-			`${card.subject}\n${card.prompt}\n${work?.title ?? ""}\n${work?.description ?? ""}`.slice(
-				0,
-				50000,
-			);
-		const lower = text.toLowerCase();
-		const entities = await db
-			.select({
-				id: memoryEntities.id,
-				name: memoryEntities.displayName,
-				type: memoryEntities.entityType,
-			})
-			.from(memoryEntities)
-			.where(
-				and(
-					eq(memoryEntities.organizationId, card.orgId),
-					eq(memoryEntities.status, "active"),
-					or(
-						sql`instr(${lower}, lower(${memoryEntities.displayName})) > 0`,
-						ids.length ? inArray(memoryEntities.id, ids) : undefined,
+		const text = `${card.subject}\n${card.prompt}\n${work?.title ?? ""}`.slice(
+			0,
+			CARD_NAME_MATCH_TEXT_LIMIT,
+		);
+		// One sequential D1 round trip: a bounded, index-ordered candidate
+		// window plus the metadata id list per table. The secrets reads select
+		// metadata only, never encryptedValue or hint.
+		const [
+			entityWindow,
+			memberWindow,
+			secretWindow,
+			entitiesById,
+			membersById,
+			secretsById,
+		] = await db.batch([
+			db
+				.select({
+					id: memoryEntities.id,
+					name: memoryEntities.displayName,
+					type: memoryEntities.entityType,
+				})
+				.from(memoryEntities)
+				.where(
+					and(
+						eq(memoryEntities.organizationId, card.orgId),
+						eq(memoryEntities.status, "active"),
 					),
-				),
-			)
-			.orderBy(memoryEntities.id)
-			.limit(50);
-		const people = await db
-			.select({
-				id: organizationMembers.userId,
-				name: organizationMembers.name,
-			})
-			.from(organizationMembers)
-			.where(
-				and(
-					eq(organizationMembers.organizationId, card.orgId),
-					eq(organizationMembers.status, "active"),
-					or(
-						sql`instr(${lower}, lower(${organizationMembers.name})) > 0`,
-						ids.length ? inArray(organizationMembers.userId, ids) : undefined,
+				)
+				.orderBy(memoryEntities.id)
+				.limit(CARD_NAME_SCAN_LIMIT + 1),
+			db
+				.select({
+					id: organizationMembers.userId,
+					name: organizationMembers.name,
+				})
+				.from(organizationMembers)
+				.where(
+					and(
+						eq(organizationMembers.organizationId, card.orgId),
+						eq(organizationMembers.status, "active"),
+						isNotNull(organizationMembers.userId),
 					),
-				),
-			)
-			.orderBy(organizationMembers.id)
-			.limit(50);
-		// Select metadata only, never encryptedValue or hint.
-		const credentials = await db
-			.select({ id: organizationSecrets.id, name: organizationSecrets.name })
-			.from(organizationSecrets)
-			.where(
-				and(
-					eq(organizationSecrets.organizationId, card.orgId),
-					or(
-						sql`instr(${lower}, lower(${organizationSecrets.name})) > 0`,
-						ids.length ? inArray(organizationSecrets.id, ids) : undefined,
+				)
+				.orderBy(organizationMembers.userId)
+				.limit(CARD_NAME_SCAN_LIMIT + 1),
+			db
+				.select({ id: organizationSecrets.id, name: organizationSecrets.name })
+				.from(organizationSecrets)
+				.where(eq(organizationSecrets.organizationId, card.orgId))
+				.orderBy(organizationSecrets.name)
+				.limit(CARD_NAME_SCAN_LIMIT + 1),
+			db
+				.select({
+					id: memoryEntities.id,
+					name: memoryEntities.displayName,
+					type: memoryEntities.entityType,
+				})
+				.from(memoryEntities)
+				.where(
+					and(
+						eq(memoryEntities.organizationId, card.orgId),
+						eq(memoryEntities.status, "active"),
+						inArray(memoryEntities.id, ids),
 					),
-				),
-			)
-			.orderBy(organizationSecrets.id)
-			.limit(50);
+				)
+				.orderBy(memoryEntities.id)
+				.limit(CARD_NAME_MATCH_LIMIT),
+			db
+				.select({
+					id: organizationMembers.userId,
+					name: organizationMembers.name,
+				})
+				.from(organizationMembers)
+				.where(
+					and(
+						eq(organizationMembers.organizationId, card.orgId),
+						eq(organizationMembers.status, "active"),
+						inArray(organizationMembers.userId, ids),
+					),
+				)
+				.orderBy(organizationMembers.userId)
+				.limit(CARD_NAME_MATCH_LIMIT),
+			db
+				.select({ id: organizationSecrets.id, name: organizationSecrets.name })
+				.from(organizationSecrets)
+				.where(
+					and(
+						eq(organizationSecrets.organizationId, card.orgId),
+						inArray(organizationSecrets.id, ids),
+					),
+				)
+				.orderBy(organizationSecrets.id)
+				.limit(CARD_NAME_MATCH_LIMIT),
+		]);
 		const involved: { node: DecisionGraphNode; name: string }[] = [];
-		for (const entity of entities) {
+		for (const entity of cardNameCandidates(entityWindow, entitiesById, text)) {
 			const kind =
 				entity.type === "person"
 					? "person"
@@ -310,21 +380,23 @@ export async function recordCardCreationEdges(
 						  ].includes(entity.type)
 						? "system"
 						: null;
-			if (kind && (ids.includes(entity.id) || named(text, entity.name)))
+			if (kind)
 				involved.push({ node: { kind, id: entity.id }, name: entity.name });
 		}
-		for (const person of people)
-			if (person.id && (ids.includes(person.id) || named(text, person.name)))
-				involved.push({
-					node: { kind: "person", id: person.id },
-					name: person.name ?? "Person",
-				});
-		for (const credential of credentials)
-			if (ids.includes(credential.id) || named(text, credential.name))
-				involved.push({
-					node: { kind: "credential", id: credential.id },
-					name: credential.name,
-				});
+		for (const person of cardNameCandidates(memberWindow, membersById, text))
+			involved.push({
+				node: { kind: "person", id: person.id },
+				name: person.name ?? "Person",
+			});
+		for (const credential of cardNameCandidates(
+			secretWindow,
+			secretsById,
+			text,
+		))
+			involved.push({
+				node: { kind: "credential", id: credential.id },
+				name: credential.name,
+			});
 		await writeDecisionEdgesBestEffort(
 			db,
 			card.orgId,
