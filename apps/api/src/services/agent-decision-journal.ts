@@ -28,6 +28,7 @@ import {
 	AGENT_DECISION_OUTCOME_EVENT_KIND,
 	AGENT_DECISION_OUTCOME_SCHEMA,
 	AGENT_DECISION_REVIEW_CLASS,
+	AGENT_DECISION_REVIEW_SOURCE,
 	AGENT_DECISION_SCHEMA,
 	AGENT_DECISION_SURFACE,
 	agentDecisionAskable,
@@ -612,7 +613,7 @@ export async function runAgentDecisionMorningReview(
 					targetType: "user",
 					targetId: recipient,
 					metadata: {
-						source: "agent-decision-review",
+						source: AGENT_DECISION_REVIEW_SOURCE,
 						reviewDate: local.date,
 						reason: text,
 						decisionIds: askable.map((d) => d.id),

@@ -30,7 +30,29 @@ export const AGENT_DECISION_OUTCOME_EVENT_KIND = {
 } as const satisfies Record<AgentDecisionOutcome, string>;
 /** The morning review card's class; the card itself changes nothing. */
 export const AGENT_DECISION_REVIEW_CLASS = "agent-decisions.review";
+export const AGENT_DECISION_REVIEW_SOURCE = "agent-decision-review";
 export const AGENT_DECISION_REVIEW_MAX_WORDS = 60;
+
+/**
+ * The askable decision ids a daily review card lists, or null for other
+ * cards. The review is judged by those decisions' outcomes, never by the
+ * Work Item it happens to be filed under. Only the system journal writes
+ * one: metadata alone is easy for an agent to copy, so callers that know the
+ * card's creator must pass it.
+ */
+export function agentDecisionReviewIds(
+	metadata: Record<string, unknown> | null | undefined,
+	creatorType?: string | null,
+): string[] | null {
+	if (metadata?.source !== AGENT_DECISION_REVIEW_SOURCE) return null;
+	if (creatorType !== undefined && creatorType !== "system") return null;
+	const ids = Array.isArray(metadata.decisionIds)
+		? metadata.decisionIds.filter(
+				(id): id is string => typeof id === "string" && id.length > 0,
+			)
+		: [];
+	return ids.length ? ids : null;
+}
 
 const HARNESS_NAMES: Record<string, string> = {
 	"claude-code": "Claude Code",

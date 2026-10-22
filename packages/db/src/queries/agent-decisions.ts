@@ -136,6 +136,36 @@ export async function listAgentDecisionJournal(
 }
 
 /**
+ * Which of the given decisions already carry an outcome event. Daily review
+ * cards stay open until every decision they list has one.
+ */
+export async function listAgentDecisionsWithOutcome(
+	db: DbQueryClient,
+	input: { organizationId: string; decisionIds: readonly string[] },
+): Promise<Set<string>> {
+	const decided = new Set<string>();
+	for (const ids of chunkForBoundParams(
+		[...input.decisionIds],
+		OUTCOME_CHUNK,
+	)) {
+		const rows = await db
+			.selectDistinct({ targetId: learningInteractionEvents.targetId })
+			.from(learningInteractionEvents)
+			.where(
+				and(
+					eq(learningInteractionEvents.organizationId, input.organizationId),
+					eq(learningInteractionEvents.surface, AGENT_DECISION_SURFACE),
+					eq(learningInteractionEvents.targetType, AGENT_DECISION_TARGET_TYPE),
+					inArray(learningInteractionEvents.targetId, ids),
+				),
+			)
+			.limit(ids.length);
+		for (const row of rows) if (row.targetId) decided.add(row.targetId);
+	}
+	return decided;
+}
+
+/**
  * People whose agents recorded decisions since `since`, across
  * organizations, for the scheduled morning review. Bounded.
  */
