@@ -64,10 +64,12 @@ runs:
       run: |
         set -uo pipefail
         for attempt in 1 2 3; do
+          # The runner starts bash with -e; "|| status=$?" keeps a failed
+          # attempt from ending the step before it is reported or retried.
+          status=0
           # shellcheck disable=SC2086 # BROWSERS is a word list.
           timeout --kill-after=30s "${INSTALL_LIMIT_MINUTES}m" \
-            bun run --cwd apps/os playwright install --with-deps --only-shell $BROWSERS
-          status=$?
+            bun run --cwd apps/os playwright install --with-deps --only-shell $BROWSERS || status=$?
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
