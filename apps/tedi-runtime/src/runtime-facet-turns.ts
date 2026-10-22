@@ -1003,8 +1003,7 @@ export const runtimeFacetTurns = {
 			}
 		}
 		const requiredSchemas =
-			supervised &&
-			(input.capabilityPlan || input.repositoryMode === "research")
+			supervised && input.capabilityPlan
 				? await preflightDelegationTools(input.capabilityPlan, async (code) => {
 						if (!mcpRuntime)
 							throw new Error(

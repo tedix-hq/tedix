@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { resolveWebSearchAccess } from "@tedix/api-contract/schemas/web-search";
 import { isAppLevelGrant } from "./delegation-capabilities";
+import { buildAutoDelegationDispatcher } from "./auto-dispatch";
 import {
 	buildDelegationWorkOrder,
 	decideDelegationDispatch,
@@ -94,6 +95,32 @@ describe("read-only Work sweeps", () => {
 });
 
 describe("request-derived capability plans", () => {
+	it.each(
+		[[], ["tedix_mcp_code"], ["tedix_mcp_search_tools"]].map(
+			(plannedToolIds) => ({ plannedToolIds }),
+		),
+	)(
+		"dispatches a synthesis question under supervised tools for %j",
+		({ plannedToolIds }) => {
+			const result = buildDelegationWorkOrder({
+				userContent: "Read-only: what did the operator commit to this week?",
+				card: readerCard,
+				route: { ...route, plannedToolIds },
+			});
+			expect(result.capabilityPlan).toBeUndefined();
+			expect(result.capabilityPlanDecision).toMatchObject({
+				capabilityPlan: null,
+				reason: expect.stringContaining("supervised tool ceiling"),
+			});
+			const decision = decideDelegationDispatch({
+				route: { ...route, plannedToolIds },
+				card: readerCard,
+				speaker: { approvalAuthority: true },
+				capabilityPlan: result.capabilityPlan,
+			});
+			expect(decision.mode).toBe("auto");
+		},
+	);
 	it("maps a platform Work comment omitted by the planner without granting unrelated tools", () => {
 		const card: TediCapabilityCard = {
 			tediId: "acme-reader",
@@ -232,16 +259,18 @@ describe("request-derived capability plans", () => {
 			"work.comment",
 		);
 	});
-	it("preflights the requested Work comment even when page reading is available", () => {
+	it("falls back before dispatch when a requested Work comment has no exact mapping", () => {
 		const content =
 			"Research https://example.com and post a comment on Work abcdef01";
-		expect(order(content).capabilityPlan?.missingCapabilities).toContain(
-			"work.comment",
-		);
+		expect(order(content).capabilityPlan).toBeUndefined();
+		expect(order(content).capabilityPlanDecision).toMatchObject({
+			capabilityPlan: null,
+			reason: expect.stringContaining("work.comment"),
+		});
 		expect(
 			order(
 				"Work abcdef01\nRead documentation at https://example.com\nPost a comment.",
-			).capabilityPlan?.missingCapabilities,
+			).capabilityPlanDecision?.reason,
 		).toContain("work.comment");
 		expect(
 			deriveExecutionRequirement(
@@ -337,8 +366,8 @@ describe("request-derived capability plans", () => {
 			"11111111-1111-4111-8111-111111111111",
 		]);
 		expect(
-			order("Read that output", ["acme_os.get_os_output"]).capabilityPlan
-				?.missingCapabilities,
+			order("Read that output", ["acme_os.get_os_output"])
+				.capabilityPlanDecision?.reason,
 		).toContain("output.reference");
 	});
 	it("runs an app-level Code Mode grant under the executor ceiling instead of an unsatisfiable plan", () => {
@@ -368,17 +397,54 @@ describe("request-derived capability plans", () => {
 		expect(isAppLevelGrant("browser_markdown", null)).toBe(false);
 		expect(isAppLevelGrant("acme_os.get_os_output", null)).toBe(false);
 	});
-	it("blocks a mandatory capability with no exact mapping, with Home owning the reroute", () => {
-		const result = order("Draft an email reply");
+	it("dispatches an unsatisfiable mapping under supervised tools and records the reason in child metadata", async () => {
+		const content = "Draft an email reply";
+		const result = buildDelegationWorkOrder({
+			userContent: content,
+			route,
+			card: readerCard,
+		});
 		const decision = decideDelegationDispatch({
 			route,
-			card: null,
+			card: readerCard,
 			speaker: { approvalAuthority: true },
 			capabilityPlan: result.capabilityPlan,
 		});
-		expect(decision.mode).toBe("blocked");
-		expect(decision.reason).toContain("Home must reroute");
-		expect(decision.failure?.category).toBe("capability");
+		expect(decision.mode).toBe("auto");
+		expect(result.capabilityPlan).toBeUndefined();
+		expect(result.capabilityPlanDecision).toMatchObject({
+			capabilityPlan: null,
+			reason: expect.stringContaining("email.draft"),
+		});
+		const metadata: Record<string, unknown>[] = [];
+		const dispatch = buildAutoDelegationDispatcher({
+			predictChildRunId: () => "child-run",
+			enqueueChild: async (args) => {
+				metadata.push(args.metadata);
+				return { status: "queued", runId: "child-run" };
+			},
+		});
+		await dispatch({
+			homeRunId: "home-run",
+			homeConversationId: "conversation",
+			userMessageId: "message",
+			content,
+			delegatedTediId: readerCard.tediId,
+			organizationId: "example-org",
+			workOrder: result,
+		});
+		expect(metadata[0]).toMatchObject({
+			delegationWorkOrder: {
+				capabilityPlanDecision: {
+					capabilityPlan: null,
+					reason: expect.stringContaining("email.draft"),
+				},
+			},
+		});
+		expect(
+			(metadata[0]?.delegationWorkOrder as Record<string, unknown>)
+				.capabilityPlan,
+		).toBeUndefined();
 	});
 	it("requires output readback instead of a page reader for an OS output reference", () => {
 		const result = order(

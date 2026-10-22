@@ -147,7 +147,8 @@ const FAILURE_READINGS: ReadonlyArray<{
 		match: /^Delegation preflight failed:\s*(.+?)(?:;|$)/i,
 		reason: (m) =>
 			`The hand-off could not start: ${m[1]?.trim() ?? "unknown"}.`,
-		nextStep: "Ask again in Home.",
+		nextStep:
+			"Ask Home to retry with a worker that has access to the required source or tool.",
 	},
 	{
 		match: /^delegated_work_authority_lost\b/i,

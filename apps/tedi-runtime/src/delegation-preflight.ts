@@ -75,10 +75,7 @@ export async function preflightDelegationTools(
 	execute: (code: string) => Promise<unknown>,
 	retryDelaysMs: readonly number[] = CATALOG_RETRY_DELAYS_MS,
 ): Promise<string[]> {
-	if (!plan)
-		throw new Error(
-			"Delegation preflight failed: native research requires exact source/tool mappings; return to Home before inference or setup",
-		);
+	if (!plan) return [];
 	if (plan.missingCapabilities.length)
 		throw new Error(
 			`Delegation preflight failed: missing capabilities ${plan.missingCapabilities.join(", ")}; return to Home without inference or setup`,

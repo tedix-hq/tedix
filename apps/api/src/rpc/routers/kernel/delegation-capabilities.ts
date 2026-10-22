@@ -245,7 +245,13 @@ export function deriveDelegationCapabilityPlan(input: {
 		// narrows a plan to exact native ids and `namespace.tool` callables and
 		// fails the whole run on anything else. Such a delegation runs under
 		// the executor's supervised ceiling instead of an unsatisfiable plan.
-		if (route.plannedToolIds.some((id) => isAppLevelGrant(id, card)))
+		if (
+			route.plannedToolIds.some(
+				(id) =>
+					isAppLevelGrant(id, card) ||
+					(card !== null && id.startsWith("tedix_mcp_")),
+			)
+		)
 			return undefined;
 		capabilities.push("planned_tools");
 		for (const id of route.plannedToolIds) {
@@ -263,5 +269,23 @@ export function deriveDelegationCapabilityPlan(input: {
 		missingCapabilities,
 		urls,
 		outputIds,
+	};
+}
+
+/** Keep known mapping gaps out of dispatched child plans; policy still gates every call. */
+export function buildDelegationCapabilityPlan(
+	input: Parameters<typeof deriveDelegationCapabilityPlan>[0],
+): { capabilityPlan: DelegationCapabilityPlan | null; reason: string } {
+	const plan = deriveDelegationCapabilityPlan(input);
+	if (plan?.missingCapabilities.length)
+		return {
+			capabilityPlan: null,
+			reason: `Use the supervised tool ceiling: exact mappings unavailable for ${plan.missingCapabilities.join(", ")}`,
+		};
+	return {
+		capabilityPlan: plan ?? null,
+		reason: plan
+			? "Exact request-derived tool mappings"
+			: "Use the supervised tool ceiling: no exact capability plan was selected",
 	};
 }

@@ -800,10 +800,10 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 				preview: null,
 				status: "failed",
 				finalMessage:
-					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: Delegation preflight failed: native research requires exact source/tool mappings; return to Home before inference or setup",
+					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: Delegation preflight failed: work.list_work_items is unavailable or unauthorized; return to Home",
 			}),
 		).toBe(
-			"I couldn't finish this request. The hand-off could not start: native research requires exact source/tool mappings. Ask again in Home.",
+			"I couldn't finish this request. The hand-off could not start: work.list_work_items is unavailable or unauthorized. Ask Home to retry with a worker that has access to the required source or tool.",
 		);
 		expect(
 			homeDelegationCompletionContent({

@@ -40,7 +40,7 @@ import type {
 	DelegationBudget,
 	DelegationCapabilityPlan,
 	DelegationContract,
-	DelegationWorkOrder,
+	DelegationWorkOrder as ContractDelegationWorkOrder,
 	HomePlanAssignment,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
@@ -59,10 +59,13 @@ import type { HomeEffortClass, KernelRouteDecision } from "./route-schema";
 import type { TediCapabilityCard } from "./tedi-capabilities";
 import {
 	delegationRequestContent,
-	deriveDelegationCapabilityPlan,
+	buildDelegationCapabilityPlan,
 } from "./delegation-capabilities";
 
-export type { DelegationWorkOrder };
+export type DelegationWorkOrder = ContractDelegationWorkOrder & {
+	/** Persisted with delegationWorkOrder in run metadata. */
+	capabilityPlanDecision?: ReturnType<typeof buildDelegationCapabilityPlan>;
+};
 
 // ---------------------------------------------------------------------------
 // Bounds apply to summaries and guidance, never to the accepted source request.
@@ -642,12 +645,13 @@ export function buildDelegationWorkOrder(input: {
 	const executionRequirement =
 		input.executionRequirement ??
 		deriveExecutionRequirement(userContent, route);
-	const capabilityPlan = deriveDelegationCapabilityPlan({
+	const capabilityPlanDecision = buildDelegationCapabilityPlan({
 		content: userContent,
 		route,
 		requirement: executionRequirement,
 		card,
 	});
+	const capabilityPlan = capabilityPlanDecision.capabilityPlan ?? undefined;
 	const authorityEnvelope = card
 		? selectDelegationAuthorityEnvelope({
 				card,
@@ -847,6 +851,7 @@ export function buildDelegationWorkOrder(input: {
 		status: "draft",
 		toolGuidance,
 		...(capabilityPlan ? { capabilityPlan } : {}),
+		...(!capabilityPlan ? { capabilityPlanDecision } : {}),
 		boundaries,
 		executionRequirement,
 		sourceContent,

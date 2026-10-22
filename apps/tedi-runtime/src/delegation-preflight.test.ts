@@ -99,11 +99,11 @@ assert.throws(
 	/empty or unready/,
 );
 assertNativeResearchCheckout(repo, { ready: true, preparation: "repository" });
-await assert.rejects(
-	preflightDelegationTools(undefined, async () => {
+assert.deepEqual(
+	await preflightDelegationTools(undefined, async () => {
 		throw new Error("must not discover");
 	}),
-	/exact source\/tool mappings/,
+	[],
 );
 // Replay: a busy gateway served a catalog without the Work namespace, and the
 // first describe failed the whole delegated turn before inference.
