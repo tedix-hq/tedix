@@ -199,8 +199,34 @@ export const memoryFacts = sqliteTable(
 			table.source,
 			table.id,
 		),
-		index("idx_memory_facts_archived").on(table.archivedAt),
-		index("idx_memory_facts_valid_to").on(table.validTo),
+		// No single-column index on archived_at or valid_to: both are mostly NULL,
+		// D1's statistics rate `IS NULL` on them as a two-row seek, and the
+		// planner then walked every organization's live facts and sorted them
+		// (64k rows per confidence-ordered search on 2026-10-22). The two rank
+		// indexes below carry both columns behind the organization instead.
+		//
+		// Confidence-ordered fact search with a fact type (every Home turn reads
+		// the tedi's preferences). All columns before `confidence` are equalities
+		// (`IS NULL` counts), so SQLite walks the index in ORDER BY order and stops
+		// at the LIMIT. It also replaces the `(organization_id, fact_type)` prefix.
+		index("idx_memory_facts_org_type_rank").on(
+			table.organizationId,
+			table.factType,
+			table.archivedAt,
+			table.validTo,
+			table.confidence,
+			table.lastAccessedAt,
+			table.createdAt,
+		),
+		// The same ordering without a fact type, and the bounded live-fact count.
+		index("idx_memory_facts_org_live_rank").on(
+			table.organizationId,
+			table.archivedAt,
+			table.validTo,
+			table.confidence,
+			table.lastAccessedAt,
+			table.createdAt,
+		),
 		index("idx_memory_facts_org_recall_time").on(
 			table.organizationId,
 			sql`datetime(coalesce(${table.validFrom}, ${table.createdAt}))`,
@@ -210,7 +236,6 @@ export const memoryFacts = sqliteTable(
 			sql`datetime(${table.validTo})`,
 		),
 		index("idx_memory_facts_status").on(table.status),
-		index("idx_memory_facts_org_type").on(table.organizationId, table.factType),
 		index("idx_memory_facts_org_domain").on(
 			table.organizationId,
 			table.domainId,

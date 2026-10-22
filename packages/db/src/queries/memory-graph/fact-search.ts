@@ -1,5 +1,6 @@
 import {
 	and,
+	count,
 	desc,
 	eq,
 	getColumns,
@@ -18,6 +19,13 @@ import {
 } from "../../schema/memory-graph";
 
 export type FactType = MemoryFactType;
+
+/** Largest page any caller reads; keeps every search a bounded index walk. */
+export const FACT_SEARCH_MAX_LIMIT = 500;
+
+function boundedLimit(limit: number | undefined): number {
+	return Math.max(1, Math.min(FACT_SEARCH_MAX_LIMIT, limit ?? 50));
+}
 
 export interface FactSearchParams {
 	orgId: string;
@@ -73,15 +81,40 @@ export async function searchFacts(
 			desc(memoryFacts.lastAccessedAt),
 			desc(memoryFacts.createdAt),
 		)
-		.limit(params.limit ?? 50)
+		.limit(boundedLimit(params.limit))
 		.offset(params.offset ?? 0);
 }
 
-export async function countFacts(db: DbClient, orgId: string): Promise<number> {
-	return db.$count(
-		memoryFacts,
-		and(eq(memoryFacts.organizationId, orgId), isNull(memoryFacts.archivedAt)),
-	);
+export interface BoundedFactCount {
+	count: number;
+	/** True when the organization has more active facts than `cap`. */
+	capped: boolean;
+}
+
+/**
+ * Count an organization's active facts, reading at most `cap + 1` entries of
+ * `idx_memory_facts_org_live_rank`. An exact count read every active fact of
+ * the organization (30k rows per call on 2026-10-22).
+ */
+export async function countActiveFactsUpTo(
+	db: DbClient,
+	orgId: string,
+	cap: number,
+): Promise<BoundedFactCount> {
+	const live = db
+		.select({ one: sql<number>`1`.as("one") })
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				isNull(memoryFacts.archivedAt),
+			),
+		)
+		.limit(cap + 1)
+		.as("live_facts");
+	const [row] = await db.select({ value: count() }).from(live);
+	const value = row?.value ?? 0;
+	return { count: Math.min(value, cap), capped: value > cap };
 }
 
 /**
@@ -186,7 +219,7 @@ export async function searchFactsWithVisibility(
 			desc(memoryFacts.lastAccessedAt),
 			desc(memoryFacts.createdAt),
 		)
-		.limit(params.limit ?? 50)
+		.limit(boundedLimit(params.limit))
 		.offset(params.offset ?? 0);
 }
 

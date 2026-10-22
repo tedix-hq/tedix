@@ -32,7 +32,7 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("@tedix/db/queries/memory-graph/fact-search")
 		>()),
-		countFacts: mocks.count,
+		countActiveFactsUpTo: mocks.count,
 		searchFactsWithVisibility: mocks.inventory,
 	}),
 );
@@ -75,7 +75,7 @@ beforeEach(() => {
 	mocks.recall.mockResolvedValue([]);
 	mocks.hydrate.mockResolvedValue([]);
 	mocks.topic.mockResolvedValue([]);
-	mocks.count.mockResolvedValue(20);
+	mocks.count.mockResolvedValue({ count: 20, capped: false });
 	mocks.access.mockResolvedValue(undefined);
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
@@ -96,6 +96,43 @@ describe("governed memory search", () => {
 		expect(result.totalFactsApproximate).toBe(true);
 		expect(result.results).toEqual([]);
 		expect(result.retrievalMs).toBeLessThan(100);
+	});
+	it("reports a capped fact count as an approximate lower bound in the public response shape", async () => {
+		// A later system time expires the isolate's one-minute count cache.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2091-01-01T00:00:00.000Z"));
+		mocks.count.mockResolvedValue({ count: 1_000, capped: true });
+		const result = await search({ query: "cobalt" });
+		expect(mocks.count).toHaveBeenCalledWith(
+			context.db,
+			context.organizationId,
+			1_000,
+		);
+		const { memoryGraphContract } =
+			await import("@tedix/api-contract/contracts/memory-graph");
+		const [output] = (
+			memoryGraphContract.search["~orpc"] as unknown as {
+				outputSchemas: Array<{
+					safeParse(value: unknown): { success: boolean };
+				}>;
+			}
+		).outputSchemas;
+		expect(output!.safeParse(result).success).toBe(true);
+		expect(Object.keys(result).sort()).toEqual([
+			"query",
+			"results",
+			"retrievalMs",
+			"totalFacts",
+			"totalFactsApproximate",
+		]);
+		expect(result.totalFacts).toBe(1_000);
+		expect(result.totalFactsApproximate).toBe(true);
+
+		vi.setSystemTime(new Date("2092-01-01T00:00:00.000Z"));
+		mocks.count.mockResolvedValue({ count: 20, capped: false });
+		const exact = await search({ query: "cobalt" });
+		expect(exact.totalFacts).toBe(20);
+		expect(exact).not.toHaveProperty("totalFactsApproximate");
 	});
 	it("keeps computed recall projection fields outside the canonical fact contract", async () => {
 		const factId = "11111111-1111-4111-8111-111111111111";

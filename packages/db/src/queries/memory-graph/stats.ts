@@ -10,7 +10,6 @@ import {
 	memoryEdges,
 	memoryFacts,
 } from "../../schema/memory-graph";
-import { countFacts } from "./fact-search";
 
 export interface MemoryGraphStats {
 	totalFacts: number;
@@ -26,10 +25,8 @@ export async function getMemoryGraphStats(
 	orgId: string,
 ): Promise<MemoryGraphStats> {
 	// Run all independent queries in parallel
-	const [totalFacts, edgeResult, totalDomains, byType, byDomain, avgResult] =
+	const [edgeResult, totalDomains, byType, byDomain, avgResult] =
 		await Promise.all([
-			// Total active facts
-			countFacts(db, orgId),
 			// Count edges (join through facts to scope by org)
 			db
 				.select({ count: sql<number>`count(*)` })
@@ -83,9 +80,13 @@ export async function getMemoryGraphStats(
 
 	const totalEdges = edgeResult[0]?.count ?? 0;
 
+	// The per-type counts already cover every active fact; a separate count
+	// would read the same rows again.
 	const factsByType: Record<string, number> = {};
+	let totalFacts = 0;
 	for (const row of byType) {
 		factsByType[row.factType] = row.count;
+		totalFacts += row.count;
 	}
 
 	const factsByDomain: Record<string, number> = {};

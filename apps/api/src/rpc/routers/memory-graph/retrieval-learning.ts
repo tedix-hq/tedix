@@ -48,7 +48,8 @@ import {
 } from "../../../services/jev-memory-quality";
 import { resolveMemoryJudgmentRoute } from "../../../services/jev-memory-policy";
 import {
-	countFacts,
+	type BoundedFactCount,
+	countActiveFactsUpTo,
 	searchFacts,
 } from "@tedix/db/queries/memory-graph/fact-search";
 import {
@@ -91,20 +92,25 @@ import {
 	reconcileCanonicalMemoryProjection,
 } from "../../../integrations/cloudflare/agent-memory";
 
-// `totalFacts` on a search result is informational, but counting it reads every
-// active fact of the org (29k rows, ~100 ms per search on 2026-10-12). Searches
-// arrive in bursts, so an isolate reuses one count for a minute.
+// `totalFacts` on a search result is informational. An exact count read every
+// active fact of the org (30k rows per search on 2026-10-22), so the count stops
+// at FACT_COUNT_CAP and larger orgs get a lower bound flagged as approximate.
+// Searches arrive in bursts, so an isolate reuses one count for a minute.
+const FACT_COUNT_CAP = 1_000;
 const FACT_COUNT_TTL_MS = 60_000;
-const factCounts = new Map<string, { value: number; expiresAt: number }>();
+const factCounts = new Map<
+	string,
+	{ value: BoundedFactCount; expiresAt: number }
+>();
 
 async function recentFactCount(
-	db: Parameters<typeof countFacts>[0],
+	db: Parameters<typeof countActiveFactsUpTo>[0],
 	orgId: string,
-): Promise<number> {
+): Promise<BoundedFactCount> {
 	const now = Date.now();
 	const cached = factCounts.get(orgId);
 	if (cached && cached.expiresAt > now) return cached.value;
-	const value = await countFacts(db, orgId);
+	const value = await countActiveFactsUpTo(db, orgId, FACT_COUNT_CAP);
 	if (factCounts.size >= 500) factCounts.clear();
 	factCounts.set(orgId, { value, expiresAt: now + FACT_COUNT_TTL_MS });
 	return value;
@@ -388,10 +394,12 @@ const search = authed.search
 		return {
 			results: searchResults,
 			totalFacts: Math.max(
-				total ?? factCounts.get(orgId)?.value ?? 0,
+				(total ?? factCounts.get(orgId)?.value)?.count ?? 0,
 				searchResults.length,
 			),
-			...(total === undefined ? { totalFactsApproximate: true } : {}),
+			...(total === undefined || total.capped
+				? { totalFactsApproximate: true }
+				: {}),
 			query,
 			retrievalMs: Date.now() - searchStartedAt,
 		};

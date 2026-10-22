@@ -6,7 +6,17 @@
  * resulting ratio as sample coverage.
  */
 
-import { and, count, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import {
+	and,
+	count,
+	desc,
+	eq,
+	gt,
+	isNotNull,
+	isNull,
+	or,
+	sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import { capabilityLinks, orgCapabilities } from "../schema/capabilities";
@@ -27,6 +37,7 @@ import { tedis } from "../schema/tedis";
 export const GRAPH_PROJECTION_SAMPLE_LIMIT = 25;
 export const GRAPH_PROJECTION_MAX_SAMPLE_LIMIT = 100;
 export const GRAPH_PROJECTION_EDGE_SAMPLE_LIMIT = 25;
+export const GRAPH_PROJECTION_EDGE_SCAN_WINDOW = 1_000;
 export const GRAPH_PROJECTION_LIFECYCLE_SAMPLE_LIMIT = 25;
 
 export const GRAPH_PROJECTION_MANAGED_COUNT_KEYS = [
@@ -225,6 +236,12 @@ export async function getGraphProjectionCanonicalSample(
  * Both endpoints must still be current D1 facts in the caller's organization.
  * Neo4j is checked against these exact edge ids; no graph-side count is treated
  * as canonical coverage.
+ *
+ * Only the newest GRAPH_PROJECTION_EDGE_SCAN_WINDOW edges (by rowid, across
+ * all organizations) are considered, so an organization with no recent edges
+ * gets an empty sample; the hourly managed counts still cover its total. The
+ * CROSS JOINs pin the order edges → facts: a regular join let the planner start
+ * from every current fact and read 73k rows per check (2026-10-22).
  */
 export async function getGraphProjectionCanonicalEdgeSample(
 	db: DbClient,
@@ -250,10 +267,16 @@ export async function getGraphProjectionCanonicalEdgeSample(
 			canonicalCreatedAt: memoryEdges.createdAt,
 		})
 		.from(memoryEdges)
-		.innerJoin(sourceFact, eq(sourceFact.id, memoryEdges.sourceFactId))
-		.innerJoin(targetFact, eq(targetFact.id, memoryEdges.targetFactId))
+		.crossJoin(sourceFact)
+		.crossJoin(targetFact)
 		.where(
 			and(
+				gt(
+					sql`${memoryEdges}.rowid`,
+					sql`(SELECT coalesce(max(rowid), 0) FROM ${memoryEdges}) - ${GRAPH_PROJECTION_EDGE_SCAN_WINDOW}`,
+				),
+				eq(sourceFact.id, memoryEdges.sourceFactId),
+				eq(targetFact.id, memoryEdges.targetFactId),
 				eq(sourceFact.organizationId, orgId),
 				eq(targetFact.organizationId, orgId),
 				isNull(sourceFact.archivedAt),

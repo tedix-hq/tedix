@@ -4,6 +4,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	GRAPH_PROJECTION_EDGE_SAMPLE_LIMIT,
+	GRAPH_PROJECTION_EDGE_SCAN_WINDOW,
 	GRAPH_PROJECTION_MAX_SAMPLE_LIMIT,
 	getGraphProjectionCanonicalEdgeSample,
 	getGraphProjectionCanonicalLifecycleSample,
@@ -242,6 +243,35 @@ describe("getGraphProjectionCanonicalEdgeSample", () => {
 		);
 		expect(capped).toHaveLength(GRAPH_PROJECTION_MAX_SAMPLE_LIMIT);
 		expect(capped[0]?.id).toBe("edge-104");
+	});
+
+	it("reads only the newest edge window, whatever the organization", async () => {
+		const { db, insertEdge, insertFact } = fixture();
+		const createdAt = "2026-07-18T09:00:00.000Z";
+		for (const [id, orgId] of [
+			["a", "org-1"],
+			["b", "org-1"],
+			["c", "org-2"],
+		] as const)
+			insertFact({ id, orgId, createdAt });
+		insertEdge({ id: "old", sourceFactId: "a", targetFactId: "b", createdAt });
+		insertEdge({
+			id: "recent",
+			sourceFactId: "b",
+			targetFactId: "a",
+			createdAt,
+		});
+		for (let index = 0; index < GRAPH_PROJECTION_EDGE_SCAN_WINDOW - 1; index++)
+			insertEdge({
+				id: `other-${index}`,
+				sourceFactId: "c",
+				targetFactId: "c",
+				relationType: `kind-${index}`,
+				createdAt,
+			});
+
+		const sample = await getGraphProjectionCanonicalEdgeSample(db, "org-1");
+		expect(sample.map((edge) => edge.id)).toEqual(["recent"]);
 	});
 });
 

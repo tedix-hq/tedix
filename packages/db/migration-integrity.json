@@ -1116,6 +1116,10 @@
 		{
 			"name": "20261022074345_stall_recovery_indexed_pages/migration.sql",
 			"sha256": "9a876760dce3ea29e29a259b9d45cd3bd7e294a6ee911fe26537a90a8fe07b1e"
+		},
+		{
+			"name": "20261022074644_memory-facts-rank-indexes/migration.sql",
+			"sha256": "c8bbfbd98755385c370cdaf1205bfa48502dc56fb3a73c025e1ed4b8adac6e92"
 		}
 	]
 }
