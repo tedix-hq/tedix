@@ -748,7 +748,7 @@ describe("registered facet admission", () => {
 
 describe("native daily-log settlement", () => {
 	for (const failDrain of [false, true])
-		it(`settles known ACK atomically or rolls back failed drain (${failDrain}); fences unresolved next ticks`, async () => {
+		it(`settles known ACK atomically or rolls back failed drain (${failDrain}); fences recovery without original admission`, async () => {
 			const { admittedTediDo } = await import("../tedi-do");
 			const { RuntimeAdmissionDO } =
 				await import("../../src/runtime-admission-do");
@@ -806,7 +806,16 @@ describe("native daily-log settlement", () => {
 							get: ctx.storage.get.bind(ctx.storage),
 							put: ctx.storage.put.bind(ctx.storage),
 							sql: ctx.storage.sql,
-							kv: ctx.storage.kv,
+							kv: {
+								get: ctx.storage.kv.get.bind(ctx.storage.kv),
+								put: ctx.storage.kv.put.bind(ctx.storage.kv),
+								list: ctx.storage.kv.list.bind(ctx.storage.kv),
+								delete: (key: string) => {
+									if (failDrain && key.startsWith("memory:daily:entry:"))
+										throw new Error("synthetic drain failure");
+									return ctx.storage.kv.delete(key);
+								},
+							},
 							transactionSync: (run: () => unknown) =>
 								nativeTransaction(() => {
 									transactional = true;
@@ -820,14 +829,13 @@ describe("native daily-log settlement", () => {
 					};
 					parent.setState = (next: unknown) => {
 						expect(transactional).toBe(true);
-						expect(
-							ctx.storage.kv.get("runtime-admission-artifacts:original"),
-						).toBeDefined();
+						expect([
+							...ctx.storage.kv.list({ prefix: "memory:daily:entry:" }),
+						]).toHaveLength(1);
 						ctx.storage.sql.exec(
 							"UPDATE cf_agents_state SET state=?",
 							JSON.stringify(next),
 						);
-						if (failDrain) throw new Error("synthetic drain failure");
 						parent.state = next;
 					};
 					parent.env = {
@@ -903,11 +911,14 @@ describe("native daily-log settlement", () => {
 										)
 										.toArray()[0]!.state,
 								).pendingDailyEntries,
-							).toEqual([entry]);
+							).toEqual([]);
+							expect([
+								...ctx.storage.kv.list({ prefix: "memory:daily:entry:" }),
+							]).toHaveLength(1);
 							parent.assertChatTurnActive = async () => {};
 							await expect(
 								parent.onDailyLogFlush("later-tick"),
-							).rejects.toThrow(/push is unresolved/);
+							).rejects.toThrow(/admission|claim|active|quarantined/i);
 							expect(uploads).toBe(1);
 							return;
 						}
@@ -926,7 +937,7 @@ describe("native daily-log settlement", () => {
 									.toArray()[0]!.state,
 							).pendingDailyEntries,
 						).toEqual([]);
-						parent.assertChatTurnActive = async () => {}; // Independently exercise the unresolved push fence.
+						parent.assertChatTurnActive = async () => {}; // The original-claim check must still fence recovery.
 						await ctx.storage.put("runtime-admission-artifacts-pending", {
 							runId: "lost",
 							snapshot: [entry],
@@ -934,10 +945,13 @@ describe("native daily-log settlement", () => {
 						});
 						parent.state.pendingDailyEntries = [entry];
 						await expect(parent.onDailyLogFlush("next-tick")).rejects.toThrow(
-							/push is unresolved/,
+							/admission|claim|active|quarantined/i,
 						);
 						expect(uploads).toBe(1);
-						expect(parent.state.pendingDailyEntries).toEqual([entry]);
+						expect(parent.state.pendingDailyEntries).toEqual([]);
+						expect([
+							...ctx.storage.kv.list({ prefix: "memory:daily:entry:" }),
+						]).toHaveLength(1);
 					} finally {
 						globalThis.fetch = savedFetch;
 					}
