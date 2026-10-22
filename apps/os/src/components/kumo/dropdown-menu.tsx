@@ -6,7 +6,46 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-const DropdownMenu = KumoDropdownMenu;
+/**
+ * Menu root that guarantees keyboard focus comes back to the trigger. Base UI
+ * returns focus itself, but WebKit occasionally drops it on `<body>` after a
+ * keyboard-opened menu closes; a keyboard user would then lose their place.
+ * Only a trigger that held focus at open time gets it back, so a mouse open
+ * in Safari, where buttons do not take focus on click, stays unfocused.
+ */
+function DropdownMenu({
+	onOpenChange,
+	onOpenChangeComplete,
+	...props
+}: React.ComponentProps<typeof KumoDropdownMenu>) {
+	const focusedTrigger = React.useRef<HTMLElement | null>(null);
+	return (
+		<KumoDropdownMenu
+			{...props}
+			onOpenChange={(open, details) => {
+				if (open) {
+					const active = document.activeElement;
+					focusedTrigger.current =
+						active instanceof HTMLElement && details.trigger?.contains(active)
+							? active
+							: null;
+				}
+				onOpenChange?.(open, details);
+			}}
+			onOpenChangeComplete={(open) => {
+				const trigger = focusedTrigger.current;
+				if (!open) focusedTrigger.current = null;
+				if (
+					!open &&
+					trigger?.isConnected &&
+					(!document.activeElement || document.activeElement === document.body)
+				)
+					trigger.focus({ preventScroll: true });
+				onOpenChangeComplete?.(open);
+			}}
+		/>
+	);
+}
 const DropdownMenuTrigger = KumoDropdownMenu.Trigger;
 const DropdownMenuGroup = KumoDropdownMenu.Group;
 const DropdownMenuLabel = KumoDropdownMenu.Label;
