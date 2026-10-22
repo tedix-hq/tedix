@@ -1,3 +1,4 @@
+import { memoryDiagnostics } from "./runtime-diagnostics";
 import type { PolicyCronReconcileReceipt } from "./runtime-cron";
 import { type ProxyToolOutput, resolveProvider } from "@cloudflare/codemode";
 import { stateTools } from "@cloudflare/shell/workers";
@@ -2768,8 +2769,11 @@ export async function handleRuntimeRequest(
 						.catch(() => null)) ?? null;
 			}
 
+			await host.ensureDirectivesLoaded();
+			const memory = await memoryDiagnostics(host);
 			return Response.json({
 				ok: true,
+				memory,
 				slug: host.state.slug || host.name || null,
 				tediId: host.state.tediId ?? null,
 				attempt,
@@ -2788,7 +2792,7 @@ export async function handleRuntimeRequest(
 					crystallizationBufferRows,
 					...(crystallizationError ? { crystallizationError } : {}),
 					compiledDirectives: host.compiledDirectives.length,
-					pendingDailyEntries: (host.state.pendingDailyEntries ?? []).length,
+					pendingDailyEntries: memory.pendingDailyEntries,
 					directivesLoaded: host.directivesLoaded,
 					identityLoaded: host.state.identityLoaded,
 				},
