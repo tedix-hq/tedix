@@ -111,7 +111,7 @@ describe("a turn", () => {
 
 		const model = w.$<HTMLSelectElement>(".tedix-model-select")!;
 		expect(model.hidden).toBe(false);
-		expect(model.options[0]?.textContent).toBe("Automatic · Fast");
+		expect(model.options[0]?.textContent).toBe("Auto");
 		model.value = "deep";
 		model.dispatchEvent(new Event("change"));
 		const effort = w.$<HTMLSelectElement>(".tedix-effort-select")!;
@@ -180,11 +180,10 @@ describe("a turn", () => {
 			expect(
 				[...model.options].map((option) => [option.value, option.textContent]),
 			).toEqual([
-				["", "Automatic · Auto"],
-				["cloudflare/auto", "Auto"],
+				["", "Auto"],
 				["fast", "Fast"],
 			]);
-			expect(model.value).toBe(modelRef);
+			expect(model.value).toBe("");
 			expect(stream.input.modelRef).toBe(modelRef || undefined);
 			expect(sessionStorage.getItem("tedix:model-choice:v1:demo-shop")).toBe(
 				saved,

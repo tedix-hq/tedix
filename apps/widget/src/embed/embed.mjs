@@ -740,17 +740,16 @@ import {
 				selectedModelRef = "";
 			const automatic = document.createElement("option");
 			automatic.value = "";
-			// Name the model the default resolves to when the session states it.
-			// "Automatic" alone is what let a substituted model go unnoticed.
-			const fallback = modelChoices.find(
-				(choice) => choice.ref === defaultModelRef,
+			automatic.textContent = t("model_automatic");
+			// The roster may carry the auto router as its own entry. It is the same
+			// choice the empty option already names, so it is not listed twice; a
+			// remembered selection of it stays intact and displays as that option.
+			const listed = modelChoices.filter(
+				(choice) => choice.label !== automatic.textContent,
 			);
-			automatic.textContent = fallback
-				? t("model_automatic_named", { model: fallback.label })
-				: t("model_automatic");
 			modelSelect.replaceChildren(
 				automatic,
-				...modelChoices.map((choice) => {
+				...listed.map((choice) => {
 					const option = document.createElement("option");
 					option.value = choice.ref;
 					option.textContent = choice.label;
@@ -758,7 +757,9 @@ import {
 				}),
 			);
 			modelSelect.hidden = modelChoices.length === 0;
-			modelSelect.value = selectedModelRef;
+			modelSelect.value = listed.some((m) => m.ref === selectedModelRef)
+				? selectedModelRef
+				: "";
 			modelSelect.disabled = busy || voiceState !== "idle";
 			// Effort only means something on a model that can take one on the wire.
 			// Offering it elsewhere would promise a control the runtime drops.
