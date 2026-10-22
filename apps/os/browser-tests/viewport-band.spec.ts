@@ -1,42 +1,16 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium, webkit } from "playwright";
 
 const mobileSafari = process.env.TEDIX_VIEWPORT_ENGINE === "webkit";
 
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = String(probe.port!);
-probe.stop();
-const origin = process.env.TEDIX_VIEWPORT_ORIGIN ?? `http://127.0.0.1:${port}`;
-const server = process.env.TEDIX_VIEWPORT_ORIGIN
-	? null
-	: Bun.spawn(
-			[
-				"../../node_modules/.bin/vp",
-				"dev",
-				"--port",
-				port,
-				"--strictPort",
-				"--host",
-				"127.0.0.1",
-			],
-			{
-				cwd: new URL("../", import.meta.url).pathname,
-				stdout: "inherit",
-				stderr: "inherit",
-				detached: true,
-			},
-		);
+const server = await startFixtureServer();
+const { origin } = server;
 const shots = process.env.TEDIX_SCREENSHOT_DIR;
 if (shots) await mkdir(shots, { recursive: true });
 let browser;
 try {
-	await waitForFixtureServer(origin, { server });
 	browser = await (mobileSafari ? webkit : chromium).launch({ headless: true });
 	for (const width of mobileSafari ? [390] : [390, 768, 1280]) {
 		const page = await browser.newPage({ viewport: { width, height: 800 } });
@@ -235,8 +209,5 @@ window.Tedix = {
 	}
 } finally {
 	await browser?.close();
-	if (server) {
-		process.kill(-server.pid, "SIGTERM");
-		await server.exited;
-	}
+	await server.stop();
 }

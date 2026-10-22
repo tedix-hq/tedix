@@ -1,4 +1,4 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import { openExamples } from "./deck-controls";
 import { chromium, type Browser, type Page } from "playwright";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
@@ -26,32 +26,10 @@ async function openWhy(page: Page) {
 	await page.getByRole("menuitem", { name: "Why this" }).click();
 }
 
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = probe.port!;
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		String(port),
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer("/browser-tests/feed-deck-polish.html");
+const { origin } = server;
 let browser: Browser | undefined;
 try {
-	await waitForFixtureServer(`${origin}/browser-tests/feed-deck-polish.html`, {
-		server,
-	});
 	browser = await chromium.launch({ headless: true });
 	for (const width of [1280, 390]) {
 		const page = await browser.newPage({ viewport: { width, height: 844 } });
@@ -1123,10 +1101,5 @@ try {
 	);
 } finally {
 	await browser?.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-	}
-	await server.exited;
+	await server.stop();
 }

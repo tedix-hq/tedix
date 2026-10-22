@@ -1,4 +1,4 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
 import { devices, webkit, type Browser, type Page } from "playwright";
 
@@ -7,27 +7,8 @@ import { devices, webkit, type Browser, type Page } from "playwright";
  * visual viewport there; the Deck once followed it, collapsed the card to 42px,
  * spilled its footer and lifted the Feed/Deck bar into mid-screen.
  */
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = process.env.TEDIX_BROWSER_TEST_PORT || String(probe.port!);
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer("/work?view=deck");
+const { origin } = server;
 const shots = process.env.TEDIX_SCREENSHOT_DIR;
 const MIN_CARD_HEIGHT = 240;
 
@@ -292,7 +273,6 @@ async function leanDeck(page: Page) {
 
 let browser: Browser | undefined;
 try {
-	await waitForFixtureServer(`${origin}/work?view=deck`, { server });
 	browser = await webkit.launch({ headless: true });
 	for (const [size, device] of [
 		["390x844", devices["iPhone 13"]],
@@ -437,6 +417,5 @@ try {
 		}
 } finally {
 	await browser?.close();
-	process.kill(-server.pid, "SIGTERM");
-	await server.exited;
+	await server.stop();
 }

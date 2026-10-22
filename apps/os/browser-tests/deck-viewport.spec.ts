@@ -1,34 +1,12 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import { openExamples } from "./deck-controls";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = process.env.TEDIX_BROWSER_TEST_PORT || String(probe.port!);
-probe.stop();
-const cwd = new URL("../", import.meta.url).pathname;
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer("/browser-tests/deck-viewport.html");
+const { origin } = server;
 let browser;
 try {
-	await waitForFixtureServer(`${origin}/browser-tests/deck-viewport.html`, {
-		server,
-	});
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
 	for (const colorScheme of ["light", "dark"] as const) {
@@ -284,6 +262,5 @@ try {
 	}
 } finally {
 	await browser?.close();
-	process.kill(-server.pid, "SIGTERM");
-	await server.exited;
+	await server.stop();
 }

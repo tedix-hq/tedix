@@ -72,5 +72,5 @@ try {
 	);
 } finally {
 	await browser.close();
-	close();
+	await close();
 }

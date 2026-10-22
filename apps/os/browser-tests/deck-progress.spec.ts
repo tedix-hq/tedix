@@ -1,30 +1,11 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
 import { chromium, type Page, type Browser } from "playwright";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DECISION_DECK_EXAMPLES } from "../dev/decision-deck-fixture";
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = createServer();
-await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
-const address = probe.address();
-assert(address && typeof address !== "string");
-const port = String(address.port);
-await new Promise<void>((resolve) => probe.close(() => resolve()));
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer();
+const { origin } = server;
 const uuid = (n: number) =>
 	`10000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const at = new Date().toISOString();
@@ -247,7 +228,6 @@ async function fixture(
 const screenshots = process.env.DECK_PROGRESS_SCREENSHOTS;
 let browser: Browser | undefined;
 try {
-	await waitForFixtureServer(origin, { server });
 	browser = await chromium.launch();
 	for (const width of [1280, 390])
 		for (const colorScheme of ["light", "dark"] as const) {
@@ -437,10 +417,5 @@ try {
 	await page.close();
 } finally {
 	await browser?.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-	}
-	await server.exited;
+	await server.stop();
 }
