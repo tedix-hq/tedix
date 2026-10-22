@@ -139,6 +139,7 @@ export type { AuditEvent, NewAuditEvent } from "./audit-events";
 export * from "./audit-events";
 // Canonical billing entitlements, credits, reservations, usage, and metering
 export * from "./billing";
+export * from "./billing-cost-rollups";
 // Cognitive stack (knowledge entries, skill entries, muscle memory)
 export * from "./cognitive";
 // Cognitive runtime protocol (runtime events and durable artifacts)
