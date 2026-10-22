@@ -39,6 +39,11 @@ import { absoluteTime } from "@/lib/time";
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
+/** Whitespace-only differences must not split one line into two. */
+export function collapseWhitespace(text: string): string {
+	return text.trim().replace(/\s+/g, " ");
+}
+
 type FindingContext = Pick<
 	MemoryHealthFindings,
 	"unusedDays" | "staleDays" | "orphanWindow"
@@ -284,7 +289,7 @@ export function MemoryHealthFindingItem({
 	useOsFormattingPreferences();
 	const groups = new Map<string, MemoryHealthFindingSample[]>();
 	for (const sample of finding.samples) {
-		const key = sample.text.trim().replace(/\s+/g, " ");
+		const key = collapseWhitespace(sample.text);
 		const group = groups.get(key);
 		if (group) group.push(sample);
 		else groups.set(key, [sample]);

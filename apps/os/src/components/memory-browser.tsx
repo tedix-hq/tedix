@@ -53,7 +53,10 @@ import { Text } from "./kumo/text";
 import { Alert, AlertTitle, AlertDescription } from "./kumo/alert";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "./kumo/empty";
 import { ListSkeleton } from "./list-skeleton";
-import { MemoryHealthFindingsSection } from "./memory-health-findings";
+import {
+	collapseWhitespace,
+	MemoryHealthFindingsSection,
+} from "./memory-health-findings";
 import { ObservationEvidence } from "./memory-observations";
 
 type Row = MemoryTableRow & { details: ReactNode };
@@ -152,7 +155,6 @@ function FactDetails({ fact }: { fact: Fact }) {
 }
 
 export function MemoryRuleDetails({ lesson }: { lesson: AgentLessonEntry }) {
-	const normalize = (text: string) => text.trim().replace(/\s+/g, " ");
 	return (
 		<div className="grid gap-4">
 			<Text className="whitespace-pre-wrap wrap-anywhere">{lesson.text}</Text>
@@ -166,7 +168,8 @@ export function MemoryRuleDetails({ lesson }: { lesson: AgentLessonEntry }) {
 									key={`${source.kind}:${source.id}`}
 									className="m-0 border-l border-kumo-line pl-4"
 								>
-									{normalize(source.quote) !== normalize(lesson.text) && (
+									{collapseWhitespace(source.quote) !==
+										collapseWhitespace(lesson.text) && (
 										<Text className="whitespace-pre-wrap wrap-anywhere">
 											{source.quote}
 										</Text>
