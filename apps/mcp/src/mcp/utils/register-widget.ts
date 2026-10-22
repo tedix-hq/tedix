@@ -35,6 +35,7 @@ import {
 import type { ServerContext } from "../server-context";
 import type { OpenAiWidgetCSP, OpenAiWidgetMeta } from "../types";
 import type { ToolInputStandardSchema } from "./schema";
+import { resolveWidgetAppSlug } from "./widget-app";
 
 const log = createMcpLogger("mcp.widget.registration");
 
@@ -458,7 +459,7 @@ export async function registerWidgetTool(
 		// STEP 2: Build resource URIs
 		// =======================================================================
 		const resourceUris = buildResourceUris(
-			appContext.slug,
+			resolveWidgetAppSlug({ appSlug: appContext.slug }, tool),
 			widgetRoute,
 			widgetVersion,
 		);
@@ -578,7 +579,9 @@ export async function registerWidgetTool(
 		const mcpAppResourceId = `mcp-app-${tool.toolId}`;
 		const mcpAppUriExists = registeredResourceUris?.has(resourceUris.mcpApp);
 
-		if (!mcpAppUriExists) {
+		// Generated routes are listed and read by the shared resource template.
+		// Fixed registrations bypass its caller filtering and duplicate its list.
+		if (!mcpAppUriExists && !widgetRoute.startsWith("/r/")) {
 			const mcpAppResource = server.registerResource(
 				mcpAppResourceId,
 				resourceUris.mcpApp,
@@ -602,15 +605,7 @@ export async function registerWidgetTool(
 								uri: resourceUris.mcpApp,
 								mimeType: WIDGET_MIME_TYPES.MCP_APP,
 								text: html,
-								// Match the generated layout resource template's border preference.
-								_meta: buildMcpAppResourceMeta(
-									tool,
-									csp,
-									widgetDomain,
-									widgetRoute.startsWith("/r/")
-										? { prefersBorder: false }
-										: undefined,
-								),
+								_meta: buildMcpAppResourceMeta(tool, csp, widgetDomain),
 							},
 						],
 						// Static deploy-versioned template → long public freshness hint

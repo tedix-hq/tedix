@@ -5,6 +5,7 @@ import {
 	type GetPromptResult,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { guardedFetch, SsrfBlockedError } from "@tedix/ssrf-guard";
 import {
@@ -15,8 +16,10 @@ import type {
 	CatalogMcpResource,
 	CatalogMcpResourceTemplate,
 	CatalogMcpPrompt,
+	AppTool,
 	ServerContext,
 } from "../server-context";
+import { evaluateMcpToolScopeAuthorization } from "../codemode-auth";
 import { isTedixManagedMcpUrl } from "../managed-mcp-auth";
 import { executeTool } from "../tool-execution";
 import {
@@ -31,8 +34,11 @@ import {
 	resolveToolWidgetRoute,
 	getToolBundleHtml,
 } from "../utils/render-widget";
-import { buildMcpAppResourceMeta } from "../utils/register-widget";
-import { resolveWidgetAppSlug } from "../utils/widget-app";
+import {
+	buildMcpAppResourceMeta,
+	buildResourceUris,
+} from "../utils/register-widget";
+import { isWidgetAppSlug, resolveWidgetAppSlug } from "../utils/widget-app";
 
 function trackResourceRead(
 	agent: ServerContext,
@@ -112,10 +118,6 @@ export function normalizeConfiguredWidgetRoute(
 		return null;
 	}
 	return `/${cleanRoute.replace(/\.html$/i, "")}`;
-}
-
-function isAppSlug(value: string): boolean {
-	return /^[a-z][a-z0-9-]{1,63}$/i.test(value);
 }
 
 function resolveGeneratedWidgetTool(
@@ -733,7 +735,61 @@ export function registerResourceTemplates(agent: ServerContext): void {
 	agent.server.registerResource(
 		"generated-mcp-app-widget",
 		new ResourceTemplate(GENERATED_MCP_APP_WIDGET_TEMPLATE, {
-			list: undefined,
+			list: async () => {
+				const views = new Map<string, AppTool>();
+				for (const tool of agent.loadedTools.values()) {
+					// Native registration owns the app opt-in and client Apps gates.
+					if (!tool.enabled || !agent.appToolIds.has(tool.toolId)) continue;
+					const route = resolveToolWidgetRoute(tool);
+					const appSlug = resolveWidgetAppSlug(agent, tool);
+					if (!route || !isWidgetAppSlug(appSlug)) continue;
+					const matchingTool = resolveGeneratedWidgetTool(
+						agent,
+						appSlug,
+						route,
+					);
+					if (!matchingTool) continue;
+					try {
+						if (
+							!evaluateMcpToolScopeAuthorization(
+								agent,
+								matchingTool,
+								resolveMcpToolNamespace(matchingTool),
+							).authorized
+						)
+							continue;
+					} catch (error) {
+						// An unclassified tool must not break discovery of other views.
+						if (
+							error instanceof Error &&
+							error.message.startsWith(
+								"Missing MCP capability mapping for tool:",
+							)
+						)
+							continue;
+						throw error;
+					}
+					views.set(buildResourceUris(appSlug, route, "").mcpApp, matchingTool);
+				}
+				if (views.size === 0) return { resources: [] };
+				const csp = await agent.buildAppCsp();
+				return {
+					resources: [...views]
+						.sort(([a], [b]) => a.localeCompare(b))
+						.map(([uri, tool]) => ({
+							uri,
+							name: tool.toolId,
+							title: tool.title,
+							mimeType: "text/html;profile=mcp-app",
+							_meta: buildMcpAppResourceMeta(
+								tool,
+								csp,
+								agent.getWidgetDomain(),
+								{ prefersBorder: false },
+							),
+						})),
+				};
+			},
 		}),
 		{
 			description:
@@ -743,7 +799,7 @@ export function registerResourceTemplates(agent: ServerContext): void {
 			const appSlug = resourceVariable(variables.appSlug);
 			const widgetPath = resourceVariable(variables.widgetPath);
 			const route = normalizeGeneratedWidgetRoute(widgetPath);
-			if (!isAppSlug(appSlug) || !route) {
+			if (!isWidgetAppSlug(appSlug) || !route) {
 				resourceNotFound(uri, {
 					resourceType: "mcp-app",
 					expectedTemplate: "ui://widgets/mcp-app/{appSlug}/r/{layoutId}.html",

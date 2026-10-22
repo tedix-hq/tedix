@@ -1062,6 +1062,7 @@ export async function buildMcpServer(
 		registerResourceTemplates(serverCtx);
 		await registerAppSkills(serverCtx);
 		await registerAppPrompts(serverCtx);
+		const registeredResourceUris = new Set<string>();
 		for (const tool of serverCtx.loadedTools.values()) {
 			if (
 				!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) &&
@@ -1080,7 +1081,7 @@ export async function buildMcpServer(
 			)
 				continue;
 			try {
-				await registerDynamicTool(serverCtx, tool);
+				await registerDynamicTool(serverCtx, tool, registeredResourceUris);
 			} catch (error) {
 				log.error("Failed to register home tool", {
 					event: "server_factory.home_tool_registration_failed",
