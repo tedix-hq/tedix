@@ -7,20 +7,21 @@ import {
 	registryStatus,
 } from "./cms-proxy-inspection";
 import { mediaToFieldValue, mediaUpload } from "./cms-proxy-media";
+import { buildCmsAuthHeaderCandidates, isJwt } from "./cms-proxy-auth";
+import { type CmsProxyContext } from "./cms-proxy-runtime";
 import {
-	buildCmsAuthHeaderCandidates,
-	type CmsProxyContext,
 	callCmsRest,
 	callCmsTransferRest,
 	callCmsFormsTool,
 	completeExistingCmsSetup,
+	menuSetItems,
+} from "./cms-proxy-rest";
+import {
 	callTenantMcpTool,
 	clearTenantMcpEras,
-	isJwt,
-	menuSetItems,
 	listTenantMcpTools,
 	shouldForwardCmsRestToTenantMcp,
-} from "./cms-proxy-runtime";
+} from "./cms-proxy-tenant-mcp";
 import { registerCmsProxyTools } from "./cms-proxy-tools";
 import { encodeCmsHumanIdentity } from "./cms-human-auth";
 

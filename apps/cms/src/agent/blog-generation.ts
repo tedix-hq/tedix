@@ -4,7 +4,8 @@ import {
 	resolveAiGatewayTransport,
 } from "@tedix/workers-ai/gateway-transport";
 import * as z from "zod";
-import { type CmsProxyContext, callCmsRest } from "./cms-proxy-runtime";
+import { type CmsProxyContext } from "./cms-proxy-runtime";
+import { callCmsRest } from "./cms-proxy-rest";
 import { unwrapCmsToolResult } from "./tool-result";
 
 // MCP SDK 1.29 supports Zod v4 at runtime but TS overload resolution

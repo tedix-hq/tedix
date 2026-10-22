@@ -6,7 +6,8 @@ import {
 } from "cloudflare:workers";
 import type { AppBindings } from "../types";
 import { mediaUpload } from "./cms-proxy-media";
-import { type CmsProxyContext, callCmsRest } from "./cms-proxy-runtime";
+import { type CmsProxyContext } from "./cms-proxy-runtime";
+import { callCmsRest } from "./cms-proxy-rest";
 import { getCmsAppMetadata } from "./storage";
 import { unwrapCmsToolResult } from "./tool-result";
 

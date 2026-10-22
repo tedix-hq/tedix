@@ -1,12 +1,12 @@
 import {
 	apiData,
-	buildCmsAuthHeaderCandidates,
-	callCmsRest,
 	cmsApiBaseUrl,
-	listTenantMcpTools,
 	type CmsProxyContext,
 	type ToolResult,
 } from "./cms-proxy-runtime";
+import { buildCmsAuthHeaderCandidates } from "./cms-proxy-auth";
+import { callCmsRest } from "./cms-proxy-rest";
+import { listTenantMcpTools } from "./cms-proxy-tenant-mcp";
 import { readHotThemeManifest } from "./hot-theme";
 import { getCmsSiteDeployment } from "./storage";
 import { unwrapCmsToolResult } from "./tool-result";

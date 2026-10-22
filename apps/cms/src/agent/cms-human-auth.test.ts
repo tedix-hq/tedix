@@ -11,12 +11,11 @@ import {
 import type { JWTPayload } from "@tedix/auth/types";
 import {
 	buildCmsAuthHeaderCandidates,
-	callCmsRest,
 	describeCmsAuthUnavailable,
-	hasTenantMcpCredential,
-	menuSetItems,
-	type CmsProxyContext,
-} from "./cms-proxy-runtime";
+} from "./cms-proxy-auth";
+import { callCmsRest, menuSetItems } from "./cms-proxy-rest";
+import { hasTenantMcpCredential } from "./cms-proxy-tenant-mcp";
+import { type CmsProxyContext } from "./cms-proxy-runtime";
 import { mediaUpload } from "./cms-proxy-media";
 import { buildServiceKeyProvisionAuthCandidates } from "./service-key-auth";
 

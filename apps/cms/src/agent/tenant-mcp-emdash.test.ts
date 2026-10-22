@@ -14,13 +14,9 @@ import {
 	it,
 	vi,
 } from "vite-plus/test";
-import {
-	type CmsProxyContext,
-	callCmsRest,
-	callTenantMcpTool,
-	clearTenantMcpEras,
-	type ToolResult,
-} from "./cms-proxy-runtime";
+import { type CmsProxyContext, type ToolResult } from "./cms-proxy-runtime";
+import { callCmsRest } from "./cms-proxy-rest";
+import { callTenantMcpTool, clearTenantMcpEras } from "./cms-proxy-tenant-mcp";
 
 vi.mock("virtual:emdash/config", () => ({ default: {} }));
 // The released auth middleware's Astro/virtual imports. Bearer (PAT) auth, the
