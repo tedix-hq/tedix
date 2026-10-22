@@ -58,6 +58,8 @@ function report(
 export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 	database: T,
 ): T {
+	// A missing binding keeps failing on first use, inside the caller's error handling.
+	if (typeof database !== "object" || database === null) return database;
 	const existing = observed.get(database);
 	if (existing) return existing as T;
 	const wrap = (
