@@ -54,17 +54,28 @@ export function calendarResourceSelection(
 		},
 	};
 }
-export function CalendarResourcePicker({
-	onSelect,
-	providerId,
-	tokenScope = "either",
-	disabled = false,
-}: {
+type PickerProps = {
 	onSelect: (choice: CalendarChoice) => void;
 	providerId?: string;
 	tokenScope?: "user" | "tenant" | "either";
 	disabled?: boolean;
-}) {
+};
+
+export function CalendarResourcePicker(props: PickerProps) {
+	return (
+		<ScopedCalendarResourcePicker
+			key={JSON.stringify([props.providerId, props.tokenScope ?? "either"])}
+			{...props}
+		/>
+	);
+}
+
+function ScopedCalendarResourcePicker({
+	onSelect,
+	providerId,
+	tokenScope = "either",
+	disabled = false,
+}: PickerProps) {
 	const [scope, setScope] = useState<"user" | "tenant">(
 		tokenScope === "tenant" ? "tenant" : "user",
 	);
@@ -76,8 +87,12 @@ export function CalendarResourcePicker({
 		retry: false,
 	});
 	const available = (accounts.data ?? []).filter(
-		(account) => !providerId || account.providerId === providerId,
+		(account) =>
+			account.connectionScope === scope &&
+			(!providerId || account.providerId === providerId),
 	);
+	const accountsReady =
+		accounts.isSuccess && !accounts.isFetching && !accounts.isPlaceholderData;
 	const account = available.find(
 		(row) => row.connectionInstanceId === accountId,
 	);
@@ -92,16 +107,41 @@ export function CalendarResourcePicker({
 						connectionInstanceId: "00000000-0000-4000-8000-000000000000",
 					},
 		}),
-		enabled: Boolean(account),
+		enabled: Boolean(account) && accountsReady,
 		retry: false,
 	});
+	const response = calendars.data;
+	const result =
+		account &&
+		response &&
+		(
+			[
+				"adapter",
+				"providerId",
+				"connectionScope",
+				"connectionInstanceId",
+			] as const
+		).every((key) => account[key] === response.account[key])
+			? response
+			: undefined;
+	const calendarsReady =
+		accountsReady &&
+		calendars.isSuccess &&
+		!calendars.isFetching &&
+		!calendars.isPlaceholderData &&
+		Boolean(result);
 	return (
-		<section className="grid gap-3" aria-label="Choose a connected calendar">
+		<section
+			className="grid min-w-0 gap-3 break-words [overflow-wrap:anywhere]"
+			aria-label="Choose a connected calendar"
+		>
 			{tokenScope === "either" && (
-				<div className="flex gap-2">
+				<div className="flex flex-wrap gap-2">
 					<Button
 						type="button"
 						variant={scope === "user" ? "default" : "outline"}
+						disabled={disabled}
+						aria-pressed={scope === "user"}
 						onClick={() => {
 							setScope("user");
 							setAccountId("");
@@ -112,6 +152,8 @@ export function CalendarResourcePicker({
 					<Button
 						type="button"
 						variant={scope === "tenant" ? "default" : "outline"}
+						disabled={disabled}
+						aria-pressed={scope === "tenant"}
 						onClick={() => {
 							setScope("tenant");
 							setAccountId("");
@@ -129,11 +171,16 @@ export function CalendarResourcePicker({
 					value: row.connectionInstanceId,
 					label: calendarAccountLabel(row),
 				}))}
-				value={accountId}
-				onValueChange={(value) => setAccountId(value ?? "")}
-				disabled={disabled || accounts.isPending}
+				value={account?.connectionInstanceId ?? ""}
+				onValueChange={(value) => {
+					if (!disabled && accountsReady) setAccountId(value ?? "");
+				}}
+				disabled={disabled || !accountsReady}
 			>
-				<SelectTrigger aria-label="Connected calendar account">
+				<SelectTrigger
+					className="w-full min-w-0"
+					aria-label="Connected calendar account"
+				>
 					<SelectValue placeholder="Choose an account" />
 				</SelectTrigger>
 				<SelectContent>
@@ -147,7 +194,7 @@ export function CalendarResourcePicker({
 					))}
 				</SelectContent>
 			</Select>
-			{accounts.isPending && (
+			{(accounts.isPending || accounts.isFetching) && (
 				<Text as="p" tone="secondary">
 					Checking connected accounts…
 				</Text>
@@ -169,33 +216,62 @@ export function CalendarResourcePicker({
 				<Alert variant="warning">
 					<AlertTitle>Calendar discovery unavailable</AlertTitle>
 					<AlertDescription>
-						Accounts could not be checked. No calendar has been selected.
+						Accounts could not be checked. Cached details may be out of date.
+						Retry before choosing a calendar.
 					</AlertDescription>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={disabled || accounts.isFetching}
+						onClick={() => void accounts.refetch()}
+					>
+						Retry accounts
+					</Button>
 				</Alert>
 			)}
-			{account && calendars.isPending && (
+			{account && (calendars.isPending || calendars.isFetching) && (
 				<Text as="p" tone="secondary">
 					Reading calendars from the selected account…
 				</Text>
 			)}
-			{calendars.isError && (
+			{account && calendars.isError && (
 				<Alert variant="warning">
 					<AlertTitle>Could not read this account</AlertTitle>
-					<AlertDescription>{calendars.error.message}</AlertDescription>
+					<AlertDescription>
+						{calendars.error.message} Cached calendars may be out of date. Retry
+						before choosing.
+					</AlertDescription>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={disabled || !accountsReady || calendars.isFetching}
+						onClick={() => void calendars.refetch()}
+					>
+						Retry calendars
+					</Button>
 				</Alert>
 			)}
-			{calendars.data && (
+			{account && calendars.isSuccess && calendars.data && !result && (
+				<Alert variant="warning">
+					<AlertTitle>Calendar account changed</AlertTitle>
+					<AlertDescription>
+						These calendars do not match the selected account. Choose an account
+						again.
+					</AlertDescription>
+				</Alert>
+			)}
+			{result && (
 				<>
 					<Text as="p" tone="secondary">
-						{calendarAccountLabel(calendars.data.account)}
+						{calendarAccountLabel(result.account)}
 					</Text>
 					<ul className="m-0 grid list-none gap-2 p-0">
-						{calendars.data.calendars.map((calendar) => (
+						{result.calendars.map((calendar) => (
 							<li
 								key={calendar.id}
 								className="flex flex-wrap items-center justify-between gap-2"
 							>
-								<div>
+								<div className="min-w-0 flex-1 basis-48">
 									<Text as="p" role="body">
 										{calendar.name}
 									</Text>
@@ -215,17 +291,18 @@ export function CalendarResourcePicker({
 									type="button"
 									variant="outline"
 									size="sm"
-									disabled={disabled || !calendar.canRead}
-									onClick={() =>
-										onSelect({ account: calendars.data.account, calendar })
-									}
+									disabled={disabled || !calendarsReady || !calendar.canRead}
+									onClick={() => {
+										if (!disabled && calendarsReady && calendar.canRead)
+											onSelect({ account: result.account, calendar });
+									}}
 								>
 									Choose calendar
 								</Button>
 							</li>
 						))}
 					</ul>
-					{calendars.data.calendars.length === 0 && (
+					{result.calendars.length === 0 && (
 						<Text as="p" tone="secondary">
 							This account returned no calendars.
 						</Text>
