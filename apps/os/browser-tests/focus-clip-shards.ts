@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export const focusClipConfigs = [
 	{ width: 1280, height: 900 },
 	{ width: 390, height: 844 },
@@ -24,4 +26,21 @@ export function focusClipShard(value = "1/1") {
 		partition: Math.floor((shard! - 1) / 4),
 		partitions,
 	};
+}
+
+// Discovery order and representative fixture IDs can differ across runners.
+export function focusClipRoutes(
+	routes: ReadonlyMap<string, string>,
+	partition: number,
+	partitions: number,
+) {
+	return [...routes]
+		.sort(([a], [b]) => a.localeCompare(b))
+		.filter(
+			([pattern]) =>
+				createHash("sha256").update(pattern).digest().readUInt32BE(0) %
+					partitions ===
+				partition,
+		)
+		.map(([, route]) => route);
 }
