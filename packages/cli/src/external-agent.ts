@@ -45,6 +45,7 @@ type GatewayClient = Pick<TedixHomeClient, "runCode" | "close"> &
 	Partial<Pick<TedixHomeClient, "runCodeWithDestructiveApproval">>;
 type GatewayClientFactory = (options: {
 	headers: Record<string, string>;
+	credentialProvider?: () => Promise<Record<string, string>>;
 	url: string;
 }) => GatewayClient;
 
@@ -63,6 +64,8 @@ type SessionExchangeRejectionCode =
 	| "immutable_session_conflict"
 	| "principal_inactive"
 	| "principal_not_found"
+	| "enrollment_expired"
+	| "session_backend_unavailable"
 	| "session_ended";
 
 class ExternalAgentSessionExchangeError extends Error {
@@ -200,7 +203,7 @@ function requiredString(
 }
 
 function createGatewayClient(
-	options: { headers: Record<string, string>; url: string },
+	options: Parameters<GatewayClientFactory>[0],
 	factory?: GatewayClientFactory,
 ): GatewayClient {
 	return factory?.(options) ?? new TedixHomeClient(options);
@@ -474,12 +477,21 @@ async function exchangeSessionRequest(
 	signal: AbortSignal,
 ): Promise<ExternalAgentSessionExchangeOutput> {
 	const endpoint = new URL("/external-agents/session", profile.mcpUrl);
+	const source = profile.credentialSource ?? "stored";
+	const bootstrap =
+		source === "stored"
+			? profile.rawApiKey
+			: process.env.TEDIX_AGENT_KEY?.trim();
+	if (source !== "proxy" && (!bootstrap || bootstrap === "proxy-injected"))
+		throw new Error(
+			"External-agent bootstrap credential is unavailable. Restore TEDIX_AGENT_KEY for an env profile, or inspect the stored profile from the owner terminal.",
+		);
 	const request: RequestInit = {
 		signal,
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			"X-API-Key": profile.rawApiKey,
+			...(source === "proxy" ? {} : { "X-API-Key": bootstrap! }),
 		},
 		body: JSON.stringify({
 			organizationId: profile.organizationId,
@@ -552,17 +564,26 @@ async function exchangeSessionRequest(
 				"immutable_session_conflict",
 				"principal_inactive",
 				"principal_not_found",
+				"enrollment_expired",
+				"session_backend_unavailable",
 				"session_ended",
 			].includes(payload.code)
 				? (payload.code as SessionExchangeRejectionCode)
 				: undefined;
+		const messages: Partial<Record<SessionExchangeRejectionCode, string>> = {
+			principal_inactive:
+				"The external-agent principal is inactive. Ask its owner to inspect its status before retrying.",
+			enrollment_expired:
+				"The cloud agent enrollment has expired. Ask its owner for a new enrollment before retrying.",
+			credential_binding_mismatch:
+				"External-agent credential does not match the registered principal. Run `tedix agent status` and have an owner inspect the principal credential binding before retrying. The local session is unchanged.",
+			session_backend_unavailable:
+				"The session backend is temporarily unavailable. Retry with the same immutable session; server-side issuance may have changed.",
+		};
 		throw new ExternalAgentSessionExchangeError(
 			code,
-			code === "credential_binding_mismatch" && response.status === 403
-				? "Stored external-agent credential does not match the registered principal. Run `tedix agent status` and have an owner inspect the principal credential binding before retrying. The local session is unchanged."
-				: isRecord(payload) && typeof payload.error === "string"
-					? payload.error
-					: `External-agent session exchange failed (${response.status})`,
+			(code && messages[code]) ??
+				`External-agent session exchange failed (${response.status}${code ? `, ${code}` : ""}). Inspect agent status before retrying; server-side issuance may have changed.`,
 		);
 	}
 	return ExternalAgentSessionExchangeOutputSchema.parse(payload);
@@ -638,6 +659,42 @@ async function startExternalAgentSessionLocked(
 }> {
 	let profile = readExternalAgentProfile(options.workspace);
 	const existingProfile = Boolean(profile);
+	if (!profile && process.env.TEDIX_AGENT_KEY?.trim()) {
+		const organizationId = process.env.TEDIX_ORGANIZATION?.trim();
+		const principalId = process.env.TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID?.trim();
+		const key = process.env.TEDIX_EXTERNAL_AGENT?.trim();
+		if (
+			!organizationId ||
+			!principalId ||
+			!key ||
+			!/^[a-z0-9][a-z0-9_-]{0,119}$/i.test(key) ||
+			/^(1|true)$/i.test(key)
+		)
+			throw new Error(
+				"Cloud bootstrap requires TEDIX_ORGANIZATION, TEDIX_EXTERNAL_AGENT (principal key), and TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID alongside TEDIX_AGENT_KEY.",
+			);
+		if (options.organization && options.organization !== organizationId)
+			throw new Error(
+				"The requested organization does not match TEDIX_ORGANIZATION.",
+			);
+		profile = {
+			organizationId,
+			principalId,
+			key,
+			displayName: key,
+			apiKeyId: "",
+			credentialSource:
+				process.env.TEDIX_AGENT_KEY.trim() === "proxy-injected"
+					? "proxy"
+					: "env",
+			scopes: options.scopes ?? ["mcp:work.read", "mcp:observe.read"],
+			mcpUrl: options.mcpUrl,
+			createdAt: new Date().toISOString(),
+			displayNameConfirmedAt: new Date().toISOString(),
+			sessions: {},
+		};
+		writeExternalAgentProfile(options.workspace, profile);
+	}
 	if (profile && isMultiOrganizationMcpUrl(options.mcpUrl)) {
 		const target = options.oauthBearer
 			? resolveOrganizationTarget({
@@ -946,6 +1003,24 @@ export async function resolveExternalAgentAuth(options: {
 	sessionExchangeTimeoutMs?: number;
 	createClient?: GatewayClientFactory;
 }): Promise<AuthResolution> {
+	let pending: Promise<Record<string, string>> | undefined;
+	const credentialProvider = () =>
+		(pending ??= resolveExternalAgentCredential(options).finally(() => {
+			pending = undefined;
+		}));
+	const credential = await resolveExternalAgentCredential(options);
+	const { profile, session } = currentSessionContext(options.workspace);
+	return {
+		headers: credential,
+		credentialProvider,
+		mcpUrl: profile.mcpUrl,
+		source: `external-agent:${profile.key}:${session.id}`,
+	};
+}
+
+async function resolveExternalAgentCredential(
+	options: Parameters<typeof resolveExternalAgentAuth>[0],
+): Promise<Record<string, string>> {
 	const { profile, session: stored } = currentSessionContext(options.workspace);
 	if (
 		options.organization &&
@@ -966,12 +1041,7 @@ export async function resolveExternalAgentAuth(options: {
 		profile,
 		stored,
 	);
-	if (cached)
-		return {
-			headers: { "X-API-Key": cached },
-			mcpUrl: profile.mcpUrl,
-			source: `external-agent:${profile.key}:${stored.id}`,
-		};
+	if (cached) return { Authorization: `Bearer ${cached}` };
 	const exchangeStartedAt = Date.now();
 	const exchange = await exchangeStoredSession(
 		options.workspace,
@@ -1002,11 +1072,7 @@ export async function resolveExternalAgentAuth(options: {
 	// minting a fresh one on every call — the source of the TPA over-minting.
 	// Revocation happens only at session teardown (end_external_agent_session)
 	// or via the external-agent-mcp-client-reaper for abandoned sessions.
-	return {
-		headers: { "X-API-Key": exchange.credential.accessToken },
-		mcpUrl: profile.mcpUrl,
-		source: `external-agent:${profile.key}:${session.id}`,
-	};
+	return { Authorization: `Bearer ${exchange.credential.accessToken}` };
 }
 
 async function withExternalAgentClient<T>(
@@ -1028,7 +1094,11 @@ async function withExternalAgentClient<T>(
 		...options,
 	});
 	const client = createGatewayClient(
-		{ headers: auth.headers, url: profile.mcpUrl },
+		{
+			headers: auth.headers,
+			credentialProvider: auth.credentialProvider,
+			url: profile.mcpUrl,
+		},
 		options.createClient,
 	);
 	const session = currentSessionContext(workspace).session;

@@ -494,13 +494,15 @@ async function main() {
 		}
 		if (subcommand === "start") {
 			const configured = externalAgentStatus(workspace).configured === true;
+			const envBootstrap = Boolean(process.env.TEDIX_AGENT_KEY?.trim());
 			// An existing profile needs the owner once more only to learn a new
 			// organization name (e.g. the slug in TEDIX_ORGANIZATION).
 			const organization =
 				options.organization ?? process.env.TEDIX_ORGANIZATION?.trim();
 			const ownerNeeded =
-				!configured ||
+				(!configured && !envBootstrap) ||
 				Boolean(
+					configured &&
 					organization &&
 					!externalAgentNamesOrganization(workspace, organization),
 				);
@@ -514,7 +516,7 @@ async function main() {
 			const workspaceCredential = ownerNeeded
 				? (readWorkspaceCredentials(workspace) ?? undefined)
 				: undefined;
-			if (!configured && (!bearer || !workspaceCredential)) {
+			if (!configured && !envBootstrap && (!bearer || !workspaceCredential)) {
 				throw new Error(
 					loginError ??
 						`A signed-in owner is required to bootstrap external-agent identity. Run \`tedix login --workspace ${workspace}\`.`,
@@ -1122,6 +1124,7 @@ async function main() {
 		});
 		client = new TedixHomeClient({
 			headers: { ...auth.headers, ...organizationContext.headers },
+			credentialProvider: auth.credentialProvider,
 			oauthProvider: auth.oauthProvider,
 			url: options.url,
 			discoveryCache: fileDiscoveryCache(),

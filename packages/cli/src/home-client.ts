@@ -134,6 +134,8 @@ export interface TedixHomeClientOptions {
 	connect?: () => Promise<McpClientLike>;
 	/** Override raw modern Task requests (tests inject a fake). */
 	fetch?: FetchLike;
+	/** Resolve current credentials before each request, including long-command polls. */
+	credentialProvider?: () => Promise<Record<string, string>>;
 	headers: Record<string, string>;
 	oauthProvider?: OAuthClientProvider & {
 		authorizeInteractive?: (
@@ -284,7 +286,22 @@ export class TedixHomeClient {
 			timeoutMs: options.timeoutMs ?? 180_000,
 			url: options.url,
 		};
-		this.#fetch = retryRateLimitedPosts(options.fetch ?? fetch);
+		const fetcher = options.fetch ?? fetch;
+		this.#fetch = retryRateLimitedPosts(
+			options.credentialProvider
+				? async (input, init) => {
+						init?.signal?.throwIfAborted();
+						const credentials = await options.credentialProvider!();
+						init?.signal?.throwIfAborted();
+						const headers = new Headers(init?.headers);
+						headers.delete("Authorization");
+						headers.delete("X-API-Key");
+						for (const [name, value] of Object.entries(credentials))
+							headers.set(name, value);
+						return fetcher(input, { ...init, headers });
+					}
+				: fetcher,
+		);
 		this.#discoveryCache = options.discoveryCache;
 		this.#oauthProvider = options.oauthProvider;
 		this.#transport = options.oauthProvider

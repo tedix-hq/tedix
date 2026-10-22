@@ -37,8 +37,10 @@ export interface StoredExternalAgentProfile {
 	key: string;
 	displayName: string;
 	apiKeyId: string;
-	/** Secret returned once by the API. Never render this field. */
-	rawApiKey: string;
+	/** Missing on legacy profiles means stored. Env/proxy secrets are never persisted. */
+	credentialSource?: "stored" | "env" | "proxy";
+	/** Secret returned once by the API. Required for stored profiles; never render. */
+	rawApiKey?: string;
 	scopes: string[];
 	mcpUrl: string;
 	createdAt: string;
@@ -104,11 +106,15 @@ function coerceProfile(value: unknown): StoredExternalAgentProfile | null {
 		"key",
 		"displayName",
 		"apiKeyId",
-		"rawApiKey",
 		"mcpUrl",
 		"createdAt",
 	] as const;
 	if (required.some((field) => typeof value[field] !== "string")) return null;
+	const credentialSource = value.credentialSource ?? "stored";
+	if (!["stored", "env", "proxy"].includes(String(credentialSource)))
+		return null;
+	if (credentialSource === "stored" && typeof value.rawApiKey !== "string")
+		return null;
 	if (
 		!Array.isArray(value.scopes) ||
 		value.scopes.some((v) => typeof v !== "string")
@@ -134,7 +140,12 @@ function coerceProfile(value: unknown): StoredExternalAgentProfile | null {
 		key: value.key as string,
 		displayName: value.displayName as string,
 		apiKeyId: value.apiKeyId as string,
-		rawApiKey: value.rawApiKey as string,
+		...(value.credentialSource
+			? { credentialSource: credentialSource as "stored" | "env" | "proxy" }
+			: {}),
+		...(credentialSource === "stored"
+			? { rawApiKey: value.rawApiKey as string }
+			: {}),
 		scopes: value.scopes as string[],
 		mcpUrl: value.mcpUrl as string,
 		createdAt: value.createdAt as string,
@@ -262,6 +273,7 @@ function sameProfileIdentity(
 			"key",
 			"apiKeyId",
 			"rawApiKey",
+			"credentialSource",
 			"mcpUrl",
 		].every(
 			(key) =>
@@ -385,6 +397,7 @@ function credentialBinding(
 				profile.principalId,
 				profile.apiKeyId,
 				profile.rawApiKey,
+				profile.credentialSource ?? "stored",
 				profile.mcpUrl,
 				[...profile.scopes].sort(),
 				session,
