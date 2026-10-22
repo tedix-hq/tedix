@@ -8,6 +8,22 @@ import {
 import { factoryCardDeadline } from "./card-schedule";
 import { CardReviewSourceSchema } from "../schemas/os-card-review";
 
+/**
+ * A cell that counts how many characters the scan reads, so linear-time
+ * behaviour can be checked without a wall-clock threshold.
+ */
+function countedCell(text: string): { cell: string; reads: () => number } {
+	let reads = 0;
+	const cell = new Proxy(new String(text), {
+		get(target, property, receiver) {
+			if (typeof property === "string" && /^\d+$/.test(property)) reads += 1;
+			const value = Reflect.get(target, property, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+	return { cell: cell as unknown as string, reads: () => reads };
+}
+
 describe("firstLink", () => {
 	it("returns the first link without trailing punctuation", () => {
 		expect(firstLink("Ada Example · Hello · https://example.com/a.")).toBe(
@@ -50,14 +66,21 @@ describe("sourceParts", () => {
 	});
 
 	it("handles a 50k-character link cell in linear time", () => {
-		const cell = `http://${"a".repeat(50_000)}.`;
-		const started = performance.now();
-		const link = firstLink(cell);
-		const parts = sourceParts(cell);
-		expect(performance.now() - started).toBeLessThan(50);
-		expect(link?.length).toBeLessThanOrEqual(2_048);
-		expect(parts.links).toEqual([link]);
-		expect(parts.label).toBe("");
+		const run = (length: number) => {
+			const { cell, reads } = countedCell(`http://${"a".repeat(length)}.`);
+			const link = firstLink(cell);
+			const parts = sourceParts(cell);
+			return { link, parts, reads: reads() };
+		};
+		const small = run(10_000);
+		const large = run(50_000);
+		// A wall-clock threshold flakes under CI load; a linear scan instead
+		// reads each character a bounded number of times, so 5x the input must
+		// cost about 5x the reads.
+		expect(large.reads).toBeLessThanOrEqual(small.reads * 6);
+		expect(large.link?.length).toBeLessThanOrEqual(2_048);
+		expect(large.parts.links).toEqual([large.link]);
+		expect(large.parts.label).toBe("");
 	});
 });
 
