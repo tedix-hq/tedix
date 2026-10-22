@@ -1,15 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
 import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
-import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
+import type {
+	DecisionDeckConfig,
+	DeckRoutingPolicy,
+} from "@tedix/api-contract/schemas/os-decision-deck";
 import {
-	factoryClassStandings,
 	factoryStandingSentence,
 	type FactoryClassStatus,
 } from "@tedix/api-contract/utils/factory-class-autonomy";
 import { Badge } from "@/components/kumo/badge";
 import { Text } from "@/components/kumo/text";
-import { osQuery } from "@/lib/os-query-options";
-import { workRefreshOptions } from "@/lib/work-refresh";
+import { useFactoryDelivery } from "@/lib/use-factory-delivery";
 
 const STATUS_LABEL: Record<FactoryClassStatus, string> = {
 	blocked: "Stays with you",
@@ -25,36 +25,14 @@ const STATUS_LABEL: Record<FactoryClassStatus, string> = {
 export function FactoryAgentHandoff({
 	sources,
 	routing,
+	policies,
 }: {
 	sources: readonly CardReviewSource[];
 	routing?: DeckRoutingPolicy;
+	policies?: DecisionDeckConfig["classPolicies"];
 }) {
-	const listed = sources.filter(
-		(source) => (source.scoring?.agentDecidableClasses.length ?? 0) > 0,
-	);
-	const history = useQuery({
-		...osQuery.learningFeedback.listInteractions.queryOptions({
-			input: {
-				scopeKind: "personal",
-				limit: 200,
-				surfaces: ["decision_deck", "decision_learning"],
-			},
-		}),
-		...workRefreshOptions,
-		enabled: listed.length > 0,
-	});
-	const events = history.data?.events ?? [];
-	// The personal listing holds only the caller's own scope.
-	const userId = events.find(
-		(event) => event.actorType === "user" && event.actorId === event.scopeId,
-	)?.actorId;
-	if (listed.length === 0 || !userId) return null;
-	const standings = factoryClassStandings({
-		sources: listed,
-		events,
-		userId,
-		routing,
-	});
+	const { standings } = useFactoryDelivery(sources, policies, routing);
+	if (!standings.length) return null;
 	return (
 		<section
 			aria-label="Agent handoff"

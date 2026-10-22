@@ -38,6 +38,7 @@ export function useDecisionInbox(
 		config?.factorySources ?? [],
 		config?.routing,
 		learning.data,
+		config?.classPolicies,
 	);
 	const inbox = useQuery({
 		...osQuery.workInteractions.listInbox.queryOptions({

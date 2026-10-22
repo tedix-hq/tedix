@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
-import { CardReviewSourceSchema } from "@tedix/api-contract/schemas/os-card-review";
-import type { ReviewCard } from "@tedix/api-contract/utils/card-review";
+import { DecisionEnvelopeSchema } from "../schemas/os-decision-deck";
+import { CardReviewSourceSchema } from "../schemas/os-card-review";
+import type { ReviewCard } from "./card-review";
 import {
 	type FactoryAutonomyEvent,
 	factoryClassStanding,
-} from "@tedix/api-contract/utils/factory-class-autonomy";
+} from "./factory-class-autonomy";
 import {
 	factoryCardDelivery,
 	learnedClassDelivery,

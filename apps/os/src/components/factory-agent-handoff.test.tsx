@@ -3,7 +3,7 @@ import type { LearningInteractionEvent } from "@tedix/api-contract/schemas/learn
 import { CardReviewSourceSchema } from "@tedix/api-contract/schemas/os-card-review";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import { osQuery } from "@/lib/os-query-options";
+import { osQuery, userProfileQueryOptions } from "@/lib/os-query-options";
 import { FactoryAgentHandoff } from "./factory-agent-handoff";
 
 const source = (agentDecidableClasses: string[]) =>
@@ -64,6 +64,14 @@ function render(
 	const client = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
+	client.setQueryData(userProfileQueryOptions().queryKey, {
+		id: "river",
+		email: "river@example.test",
+		name: null,
+		avatarUrl: null,
+		revision: 1,
+		updatedAt: null,
+	});
 	client.setQueryData(
 		osQuery.learningFeedback.listInteractions.queryOptions({
 			input: {
@@ -100,6 +108,15 @@ describe("FactoryAgentHandoff", () => {
 		expect(status("earned")).toContain("An agent may decide Forum upvote");
 		expect(status("eligible")).toContain("Eligible to hand to an agent");
 		expect(status("blocked")).toContain("Stays with you");
+	});
+	it("explains learning and reserved classes before any personal events", () => {
+		const doc = render([source(["upvote", "payment"])], []);
+		expect(
+			doc.querySelector('[data-factory-class-status="candidate"]')?.textContent,
+		).toContain("0 of 5 unchanged Do it verdicts");
+		expect(
+			doc.querySelector('[data-factory-class-status="blocked"]')?.textContent,
+		).toContain("Stays with you");
 	});
 	it("renders nothing when no class is listed", () => {
 		const doc = render(
