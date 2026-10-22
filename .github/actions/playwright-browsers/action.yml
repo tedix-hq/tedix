@@ -19,6 +19,7 @@ runs:
         version="$(bun run --cwd apps/os playwright --version | sed -n 's/^Version //p')"
         test -n "$version"
         echo "key=playwright-${RUNNER_OS}-${RUNNER_ARCH}-${version}-${BROWSERS// /-}" >> "$GITHUB_OUTPUT"
+        echo "apt-key=playwright-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-${version}-${BROWSERS// /-}" >> "$GITHUB_OUTPUT"
 
     - name: Restore cached browsers
       id: restore
@@ -26,6 +27,23 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: ${{ steps.playwright.outputs.key }}
+
+    # The runner's apt mirror has stalled for over 20 minutes on the ~150 OS
+    # packages, so apt keeps their downloads in a cache restored per image.
+    - name: Keep downloaded OS packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.cache/playwright-apt/partial
+        printf 'Dir::Cache::Archives "%s";\nAPT::Keep-Downloaded-Packages "true";\n' "$HOME/.cache/playwright-apt" |
+          sudo tee /etc/apt/apt.conf.d/99-playwright-apt-cache >/dev/null
+
+    - name: Restore cached OS packages
+      id: restore-apt
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/playwright-apt/*.deb
+        key: ${{ steps.playwright.outputs.apt-key }}
 
     # On a cache hit the browsers are present and only OS packages install.
     # A miss downloads from the Playwright CDN; that download is the only
@@ -55,3 +73,10 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: ${{ steps.playwright.outputs.key }}
+
+    - name: Save OS packages to the cache
+      if: steps.restore-apt.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/playwright-apt/*.deb
+        key: ${{ steps.playwright.outputs.apt-key }}
