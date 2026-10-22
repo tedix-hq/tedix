@@ -1120,6 +1120,10 @@
 		{
 			"name": "20261022074644_memory-facts-rank-indexes/migration.sql",
 			"sha256": "c8bbfbd98755385c370cdaf1205bfa48502dc56fb3a73c025e1ed4b8adac6e92"
+		},
+		{
+			"name": "20261022140150_runtime_events_move_to_logs_db/migration.sql",
+			"sha256": "06e01673695b0840aaf67f291b4f16866b3f6eee1bbf831f044f19ba70ef4a7b"
 		}
 	]
 }
