@@ -109,6 +109,9 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 			title: workItems.title,
 			workItemId: sql<string>`${workItems.id}`.as("lane_work_item_id"),
 			orgId: workEvents.orgId,
+			accountableOwnerType: workItems.accountableOwnerType,
+			accountableOwnerId: workItems.accountableOwnerId,
+			attemptNumber: workAttempts.attemptNumber,
 		})
 		.from(workEvents)
 		.innerJoin(
@@ -138,6 +141,37 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 		.limit(100);
 	let notified = 0;
 	for (const row of rows) {
+		const nextMover =
+			row.accountableOwnerType === "user" && row.accountableOwnerId
+				? { type: "user", id: row.accountableOwnerId }
+				: { type: "user", id: undefined };
+		const retryAvailable = row.attemptNumber === 1;
+		const nextMoverLabel = nextMover.id
+			? `user ${nextMover.id}`
+			: "the lane owner";
+		const prompt = retryAvailable
+			? `Heartbeat stopped. Tedix recorded ${row.eventType} for /work/items/${row.workItemId}. The named next mover is ${nextMoverLabel}. One automatic retry is allowed; if it also stops, the item is blocked and needs the recovery action below.`
+			: `The bounded retry for /work/items/${row.workItemId} also stopped (${row.eventType}). The item is blocked. The named next mover is ${nextMoverLabel}; inspect the latest Attempt and start one new governed Attempt after fixing the worker or scheduler.`;
+		const laneLifecycle = {
+			eventId: row.id,
+			state: retryAvailable
+				? row.eventType === "lane.stale"
+					? "stale"
+					: "failed"
+				: "blocked",
+			nextMover,
+			recovery: retryAvailable
+				? {
+						action: "automatic_retry_once",
+						attemptNumber: row.attemptNumber,
+						maxAttempts: 2,
+					}
+				: {
+						action: "inspect_latest_attempt_and_start_governed_attempt",
+						attemptNumber: row.attemptNumber,
+						maxAttempts: 2,
+					},
+		};
 		const created = await db
 			.insert(workInteractions)
 			.select(
@@ -151,17 +185,17 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 						creatorType: sql<string>`'system'`.as("creator_type"),
 						creatorId: sql<string>`'tedix'`.as("creator_id"),
 						targetType: sql<string>`'user'`.as("target_type"),
-						targetId: externalAgentPrincipals.credentialBindingId,
+						targetId:
+							row.accountableOwnerType === "user" && row.accountableOwnerId
+								? sql<string>`${row.accountableOwnerId}`.as("target_id")
+								: externalAgentPrincipals.credentialBindingId,
 						subject:
 							sql<string>`${`${row.eventType === "lane.stale" ? "Lane stale" : "Lane failed"}: ${row.title}`}`.as(
 								"subject",
 							),
-						prompt:
-							sql<string>`${`Heartbeat stopped. Tedix recorded ${row.eventType} for /work/items/${row.workItemId}. Read the current Attempt before retrying. Work remains in its project backlog after the lease expires.`}`.as(
-								"prompt",
-							),
+						prompt: sql<string>`${prompt}`.as("prompt"),
 						metadata:
-							sql<string>`${JSON.stringify({ laneLifecycle: { eventId: row.id, state: row.eventType === "lane.stale" ? "stale" : "failed" }, notification: { state: "immediate" } })}`.as(
+							sql<string>`${JSON.stringify({ laneLifecycle, notification: { state: "immediate" } })}`.as(
 								"metadata",
 							),
 						createdAt: sql<string>`${now}`.as("created_at"),
@@ -204,6 +238,15 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 			)
 			.onConflictDoNothing()
 			.returning({ id: workInteractions.id });
+		if (created.length > 0 && !retryAvailable)
+			await db
+				.update(workItems)
+				.set({
+					metadata: sql`json_set(${workItems.metadata}, '$.laneDispatch', json(${JSON.stringify({ state: "blocked", recovery: laneLifecycle.recovery })}), '$.laneLifecycle', json(${JSON.stringify(laneLifecycle)}))`,
+				})
+				.where(
+					and(eq(workItems.orgId, row.orgId), eq(workItems.id, row.workItemId)),
+				);
 		notified += created.length;
 	}
 	return notified;

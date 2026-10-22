@@ -94,12 +94,52 @@ describe("server lane lifecycle", () => {
 			"user-example",
 		]);
 		expect(notices.map((n) => n.metadata.laneLifecycle)).toMatchObject([
-			{ state: "stale" },
-			{ state: "failed" },
+			{ state: "stale", recovery: { action: "automatic_retry_once" } },
+			{ state: "failed", recovery: { action: "automatic_retry_once" } },
 		]);
+		expect(notices[0]?.prompt).toContain("One automatic retry is allowed");
 		expect((await db.select().from(workItems))[0]?.disposition).toBe(
 			"accepted",
 		);
+	});
+	it("names the accountable next mover and blocks after the bounded retry", async () => {
+		const { db, sqlite } = await fixture();
+		sqlite.exec(
+			"UPDATE work_items SET accountable_owner_type='user', accountable_owner_id='accountable-user'",
+		);
+		sqlite.exec(
+			"UPDATE work_attempts SET runtime_state='expired',outcome='expired',finished_at='2026-10-17T12:05:00.000Z'",
+		);
+		await db.insert(workAttempts).values({
+			id: "retry",
+			orgId: "org-example",
+			workItemId: "item",
+			executorType: "external_agent",
+			executorId: "agent",
+			executorSessionId: "retry-session",
+			externalSessionKey: "codex:retry",
+			attemptNumber: 2,
+			startedAt: expiry,
+			heartbeatAt: expiry,
+			expiresAt: "2026-10-17T12:10:00.000Z",
+			metadata: { lane: true },
+		});
+		await sweepElapsedWorkAttempts(db, { now: "2026-10-17T12:10:00.000Z" });
+		expect(await notifyStoppedLanes(db, "2026-10-17T12:10:00.000Z")).toBe(1);
+		const [notice] = await db.select().from(workInteractions);
+		expect(notice?.targetId).toBe("accountable-user");
+		expect(notice?.metadata.laneLifecycle).toMatchObject({
+			state: "blocked",
+			nextMover: { type: "user", id: "accountable-user" },
+			recovery: {
+				action: "inspect_latest_attempt_and_start_governed_attempt",
+				maxAttempts: 2,
+			},
+		});
+		expect(notice?.prompt).toContain("item is blocked");
+		expect((await db.select().from(workItems))[0]?.metadata).toMatchObject({
+			laneDispatch: { state: "blocked" },
+		});
 	});
 	it("does not notify a recovered heartbeat and can detect its next lapse", async () => {
 		const { db, sqlite } = await fixture();
