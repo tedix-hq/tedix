@@ -158,6 +158,7 @@ import {
 	JumpToLatestControl,
 	ApprovalInputGate,
 	ChatMessageBubble,
+	ConversationCostChip,
 	ProvisionalUserBubble,
 	RunningIndicator,
 	SendFailureBanner,
@@ -2147,14 +2148,22 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.enqueueMessage.mockReset();
 	});
 
-	it("names local Workers AI without sending an ignored model selection", async () => {
+	it("keeps local model chrome provider-neutral without sending an ignored model selection", async () => {
 		const mode = vi
 			.spyOn(localInference, "isLocalWorkersAi")
 			.mockReturnValue(true);
 		try {
 			const { container } = mountThread();
 			await flush();
-			expect(container.textContent).toContain("Workers AI · local config");
+			expect(
+				container.querySelector(
+					'[title^="Model configured by the local launcher"]',
+				)?.textContent,
+			).toBe("Auto");
+			expect(container.innerHTML).not.toMatch(/Cloudflare|Workers AI/i);
+			const cost = renderToStaticMarkup(<ConversationCostChip runs={[]} />);
+			expect(cost).toContain("billed to your inference account");
+			expect(cost).not.toMatch(/Cloudflare|Workers AI/i);
 			pickFiles(container, [imageFile()]);
 			await flush();
 			expect(attachmentAlert(container)).toContain(
@@ -2184,6 +2193,7 @@ describe("<ChatThread> attachment dropzone", () => {
 			typeDraft(container, "Draft an agenda");
 			await flush();
 			expect(container.textContent).toContain("AI replies are off");
+			expect(container.innerHTML).not.toMatch(/Cloudflare|Workers AI/i);
 			expect(sendButton(container).disabled).toBe(true);
 			pressKey(container, "Enter");
 			await flush();

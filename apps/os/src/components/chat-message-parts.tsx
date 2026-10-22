@@ -535,7 +535,7 @@ export function ConversationCostChip({ runs }: { runs: readonly HomeRun[] }) {
 			reading={kernelUsageReading(usages)}
 			subject={
 				isLocalWorkersAi()
-					? "Planning estimate; inference is billed to your Cloudflare account"
+					? "Planning estimate; inference is billed to your inference account"
 					: "Planning cost for this conversation, on platform-included credits"
 			}
 		/>

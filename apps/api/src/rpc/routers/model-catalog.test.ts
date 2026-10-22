@@ -401,6 +401,10 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			selectable: true,
 		});
 		expect(orgDefault?.detail).toContain("platform default");
+		expect(orgDefault?.detail).toMatch(/^Auto is the platform default/);
+		expect(orgDefault?.detail).not.toMatch(/Cloudflare|azure-openai/i);
+		expect(result.routing.detail).toContain("Auto");
+		expect(result.routing.detail).not.toMatch(/cloudflare/i);
 		expect(result.selections[1]).toMatchObject({
 			kind: "user_conversational",
 			status: "unsupported",
