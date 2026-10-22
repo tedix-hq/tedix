@@ -24,9 +24,8 @@
  *   a denial is still a denial with the same code. Only wasted reads, never a
  *   different answer.
  *
- * Every statement here selects from a single table except the entitlement's
- * join, which selects one aliased column per source, so no statement can hit
- * D1's duplicate-output-name hazard when its rows come back as objects.
+ * Managed admission also batches the reservation replay and pricing reads.
+ * Both plan joins select uniquely named outputs for D1's object-row results.
  */
 
 import type { DbClient } from "../../client";
@@ -43,7 +42,14 @@ import {
 	tediOwnershipQuery,
 } from "./inference-policies";
 
+import {
+	buildBillingReservationPreflightStatements,
+	type BillingReservationPreflight,
+	type BillingReservationPreflightInput,
+} from "./reservations";
+
 export interface InferenceAdmissionReads {
+	reservationPreflight?: BillingReservationPreflight;
 	entitlement: RuntimeEntitlementResult | null;
 	/**
 	 * Null exactly when the entitlement is null, matching what the serial
@@ -56,6 +62,7 @@ export async function getInferenceAdmissionReads(
 	db: DbClient,
 	organizationId: string,
 	tediId?: string | null,
+	reservation?: Omit<BillingReservationPreflightInput, "organizationId">,
 ): Promise<InferenceAdmissionReads> {
 	const entitlementStatement = runtimeEntitlementQuery(db, organizationId);
 	const organizationStatement = inferencePolicyQuery(
@@ -66,32 +73,70 @@ export async function getInferenceAdmissionReads(
 	);
 	// A null tediId means "organization scope only". Batching the tedi reads
 	// anyway would send a statement whose parameter does not exist.
-	const [entitlementRows, organizationRows, tediRows, tediPolicyRows] =
+	const preflightStatements = reservation
+		? buildBillingReservationPreflightStatements(db, {
+				organizationId,
+				...reservation,
+			})
+		: ([] as const);
+	const [
+		entitlementRows,
+		organizationRows,
+		tediRows,
+		tediPolicyRows,
+		existing,
+		plans,
+	] =
 		tediId == null
-			? [
-					...(await db.batch([entitlementStatement, organizationStatement])),
-					[],
-					[],
-				]
+			? await db
+					.batch([
+						entitlementStatement,
+						organizationStatement,
+						...preflightStatements,
+					])
+					.then(
+						([entitlement, organization, existing, plans]) =>
+							[entitlement, organization, [], [], existing, plans] as const,
+					)
 			: await db.batch([
 					entitlementStatement,
 					organizationStatement,
 					tediOwnershipQuery(db, organizationId, tediId),
 					inferencePolicyQuery(db, organizationId, "tedi", tediId),
+					...preflightStatements,
 				]);
+	const preflight = reservation
+		? {
+				reservationPreflight: {
+					organizationId,
+					...reservation,
+					existing: existing?.[0],
+					plan: plans?.[0],
+				},
+			}
+		: {};
 
 	const entitlement = runtimeEntitlementFromRow(entitlementRows[0]);
-	if (!entitlement) return { entitlement: null, policies: null };
+	if (!entitlement) return { entitlement: null, policies: null, ...preflight };
 
 	const organization = organizationInferencePolicy(
 		entitlement.limits.defaultDailyTokenLimit,
 		organizationRows[0],
 	);
 	if (tediId == null)
-		return { entitlement, policies: { organization, tediFound: true } };
+		return {
+			entitlement,
+			policies: { organization, tediFound: true },
+			...preflight,
+		};
 	if (!tediRows[0])
-		return { entitlement, policies: { organization, tediFound: false } };
+		return {
+			entitlement,
+			policies: { organization, tediFound: false },
+			...preflight,
+		};
 	return {
+		...preflight,
 		entitlement,
 		policies: {
 			organization,

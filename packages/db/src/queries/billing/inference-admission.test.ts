@@ -4,12 +4,13 @@ import {
 	billingAccounts,
 	billingInferencePolicies,
 	billingPlanVersions,
+	billingUsageReservations,
 	organizations,
 	tedis,
 } from "@tedix/db/schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { getEffectiveInferencePolicies } from "./inference-policies";
 import { getInferenceAdmissionReads } from "./inference-admission";
 
@@ -28,6 +29,7 @@ function setup() {
 			billingPlanVersions,
 			billingAccounts,
 			billingInferencePolicies,
+			billingUsageReservations,
 		),
 	);
 	sqlite.exec(`
@@ -56,6 +58,33 @@ function setup() {
 }
 
 describe("batched inference admission reads", () => {
+	it("includes reservation preflight in the policy batch", async () => {
+		const { db } = setup();
+		const batch = vi.spyOn(db, "batch");
+		const reads = await getInferenceAdmissionReads(db, "org-1", null, {
+			idempotencyKey: "new-inference",
+		});
+		expect(reads.reservationPreflight).toMatchObject({
+			organizationId: "org-1",
+			idempotencyKey: "new-inference",
+			existing: undefined,
+			plan: { id: "plan-1", currency: "usd", metadata: {} },
+		});
+		expect(batch).toHaveBeenCalledOnce();
+		expect(batch.mock.calls[0]![0]).toHaveLength(4);
+	});
+	it("includes scoped tedi policy and reservation reads in one batch", async () => {
+		const { db } = setup();
+		const batch = vi.spyOn(db, "batch");
+		const reads = await getInferenceAdmissionReads(db, "org-1", "tedi-1", {
+			idempotencyKey: "tedi-inference",
+		});
+		expect(reads.policies).toMatchObject({ tediFound: true });
+		expect(reads.reservationPreflight?.plan?.id).toBe("plan-1");
+		expect(batch).toHaveBeenCalledOnce();
+		expect(batch.mock.calls[0]![0]).toHaveLength(6);
+	});
+
 	it("returns the entitlement and the policies from one batch", async () => {
 		const { db } = setup();
 		const reads = await getInferenceAdmissionReads(db, "org-1", "tedi-1");

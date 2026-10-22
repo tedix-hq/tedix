@@ -122,6 +122,41 @@ describe("runtime entitlement inference admission", () => {
 		expect(mocks.reserveBillingUsage).toHaveBeenCalledTimes(1);
 	});
 
+	it("reuses reservation reads from the same managed policy batch", async () => {
+		const reservationPreflight = {
+			organizationId: "org-1",
+			idempotencyKey: "inference:test",
+		};
+		mocks.getInferenceAdmissionReads.mockResolvedValueOnce({
+			...admissionReads(entitlement, { organization: {}, tediFound: true }),
+			reservationPreflight,
+		});
+		mocks.reserveBillingUsage.mockResolvedValueOnce({
+			allowed: true,
+			reservation: {
+				id: "reservation-1",
+				expiresAt: null,
+				estimatedChargeMicros: 0,
+			},
+		});
+		await authorizeRuntimeBudget({
+			db: {} as never,
+			env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+			request: request("managed"),
+			nowMs,
+		});
+		expect(mocks.getInferenceAdmissionReads).toHaveBeenCalledWith(
+			{},
+			"org-1",
+			undefined,
+			{ idempotencyKey: "inference:test", executionGuard: undefined },
+		);
+		expect(mocks.reserveBillingUsage).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({ preflight: reservationPreflight }),
+		);
+	});
+
 	it("fails closed on missing or mismatched deployment mode", async () => {
 		await expect(
 			authorizeRuntimeBudget({

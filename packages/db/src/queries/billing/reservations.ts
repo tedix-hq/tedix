@@ -16,6 +16,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type BillingAccountStatus,
+	type BillingPlanVersion,
 	type BillingUsageReservation,
 	type BillingUsageSource,
 	billingUsageReservations,
@@ -288,17 +289,69 @@ export async function getBillingReservationFreshness(
 	};
 }
 
-/**
- * Atomically reserves org entitlement before one provider inference.
- *
- * The admission predicate and insert are one SQLite statement, eliminating the
- * read-then-spend race between concurrent tedi/observer/automation calls.
- */
+export interface BillingReservationPreflightInput {
+	organizationId: string;
+	idempotencyKey: string;
+	executionGuard?: ProviderExecutionAdmissionGuard;
+}
+
+export interface BillingReservationPreflight extends BillingReservationPreflightInput {
+	existing: BillingUsageReservation | undefined;
+	plan: Pick<BillingPlanVersion, "id" | "currency" | "metadata"> | undefined;
+}
+
+/** Compose fresh replay and pricing reads into the caller's admission batch. */
+export function buildBillingReservationPreflightStatements(
+	db: DbClient,
+	input: BillingReservationPreflightInput,
+) {
+	// Scoped by organization as well as key. `uniq_billing_reservation_idempotency`
+	// is global, so today every caller builds a key that already implies one org
+	// (`seo:{orgId}:…`, `kernel-inference:{uuid}`) and a collision cannot happen —
+	// this is defence in depth, not a live hole. It matters because of the failure
+	// mode if that ever stops holding: an unscoped read would hand org A org B's
+	// reservation row and return `allowed: true` WITHOUT reserving anything
+	// against A's balance — a silent cross-tenant billing bypass. With the org
+	// pinned, the same collision instead falls through to the insert and trips the
+	// unique index, which fails loudly rather than granting free usage.
+	const existingStatement = db
+		.select()
+		.from(billingUsageReservations)
+		.where(
+			and(
+				eq(billingUsageReservations.idempotencyKey, input.idempotencyKey),
+				eq(billingUsageReservations.organizationId, input.organizationId),
+				input.executionGuard
+					? sql`EXISTS (WITH __provider_replay(billing_reservation_id) AS MATERIALIZED
+ (SELECT billing_reservation_id FROM provider_execution_attempts WHERE ${providerExecutionRetryPredicate(input.executionGuard)})
+ SELECT 1 FROM __provider_replay WHERE billing_reservation_id=billing_usage_reservations.id)`
+					: undefined,
+			),
+		)
+		.limit(1);
+	const planStatement = db
+		.select({
+			id: billingPlanVersions.id,
+			currency: billingPlanVersions.currency,
+			metadata: billingPlanVersions.metadata,
+		})
+		.from(billingAccounts)
+		.innerJoin(
+			billingPlanVersions,
+			eq(billingAccounts.planVersionId, billingPlanVersions.id),
+		)
+		.where(eq(billingAccounts.organizationId, input.organizationId))
+		.limit(1);
+	return [existingStatement, planStatement] as const;
+}
+
+/** Atomically checks current capacity and reserves one provider inference. */
 export async function reserveBillingUsage(
 	db: DbClient,
 	input: {
 		execution?: NewProviderExecutionAttemptRow;
 		executionGuard?: ProviderExecutionAdmissionGuard;
+		preflight?: BillingReservationPreflight;
 		stripeEnvironment?: "test" | "live";
 		id: string;
 		organizationId: string;
@@ -352,45 +405,18 @@ export async function reserveBillingUsage(
 		throw new Error("Estimated billing tokens must be positive safe integers");
 	}
 
-	// Scoped by organization as well as key. `uniq_billing_reservation_idempotency`
-	// is global, so today every caller builds a key that already implies one org
-	// (`seo:{orgId}:…`, `kernel-inference:{uuid}`) and a collision cannot happen —
-	// this is defence in depth, not a live hole. It matters because of the failure
-	// mode if that ever stops holding: an unscoped read would hand org A org B's
-	// reservation row and return `allowed: true` WITHOUT reserving anything
-	// against A's balance — a silent cross-tenant billing bypass. With the org
-	// pinned, the same collision instead falls through to the insert and trips the
-	// unique index, which fails loudly rather than granting free usage.
-	const existingStatement = db
-		.select()
-		.from(billingUsageReservations)
-		.where(
-			and(
-				eq(billingUsageReservations.idempotencyKey, input.idempotencyKey),
-				eq(billingUsageReservations.organizationId, input.organizationId),
-				input.executionGuard
-					? sql`EXISTS (WITH __provider_replay(billing_reservation_id) AS MATERIALIZED
- (SELECT billing_reservation_id FROM provider_execution_attempts WHERE ${providerExecutionRetryPredicate(input.executionGuard)})
- SELECT 1 FROM __provider_replay WHERE billing_reservation_id=billing_usage_reservations.id)`
-					: undefined,
-			),
-		)
-		.limit(1);
-	const planStatement = db
-		.select({
-			id: billingPlanVersions.id,
-			currency: billingPlanVersions.currency,
-			metadata: billingPlanVersions.metadata,
-		})
-		.from(billingAccounts)
-		.innerJoin(
-			billingPlanVersions,
-			eq(billingAccounts.planVersionId, billingPlanVersions.id),
-		)
-		.where(eq(billingAccounts.organizationId, input.organizationId))
-		.limit(1);
-	// Both reads precede pricing; replay still returns before interpreting the plan.
-	const [existing, plans] = await db.batch([existingStatement, planStatement]);
+	const preflight = input.preflight;
+	if (
+		preflight &&
+		(preflight.organizationId !== input.organizationId ||
+			preflight.idempotencyKey !== input.idempotencyKey ||
+			preflight.executionGuard !== input.executionGuard)
+	)
+		throw new Error("Reservation preflight scope mismatch");
+	// Caller-owned preflight comes from this admission's policy batch, never a cache.
+	const [existing, plans] = preflight
+		? [[preflight.existing], [preflight.plan]]
+		: await db.batch(buildBillingReservationPreflightStatements(db, input));
 	const plan = plans[0];
 	if (existing[0]) {
 		return (existing[0].status === "reserved" &&
