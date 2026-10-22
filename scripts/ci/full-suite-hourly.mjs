@@ -9,6 +9,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { affectedWorkspaces } from "./preflight-test-targets.mjs";
+import { readQuarantine } from "./browser-quarantine.mjs";
 
 export function testScriptShards(scripts, name, ancestors = []) {
 	if (ancestors.includes(name)) throw new Error(`Cyclic test script: ${name}`);
@@ -328,6 +329,7 @@ if (
 	process.argv[1] &&
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
+	readQuarantine();
 	const env = process.env;
 	const runners = JSON.parse(
 		env.FULL_SUITE_RUNNER_LABELS || '["ubuntu-latest"]',

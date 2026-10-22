@@ -8,13 +8,14 @@
  * reuse a running fixture server, FOCUS_CLIP_ROUTES to a comma list to narrow
  * the crawl, FOCUS_CLIP_REPORT to write the findings as JSON.
  * FOCUS_CLIP_SCREENSHOTS saves Work loading/error images to an existing directory.
- * `--shard i/n` audits only every n-th viewport/theme config.
+ * `--shard i/n` splits viewport/theme configs and, above four shards, routes.
  */
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusClipShard } from "./focus-clip-shards";
 
 type Finding = {
 	route: string;
@@ -26,27 +27,10 @@ type Finding = {
 	clipper: string;
 };
 
-// `--shard i/n` (the CI matrix) audits every n-th viewport/theme config.
 const shardFlag = process.argv.indexOf("--shard");
-const [shard, shardCount] =
-	shardFlag < 0
-		? [1, 1]
-		: (process.argv[shardFlag + 1] ?? "").split("/").map(Number);
-assert(
-	Number.isInteger(shard) &&
-		Number.isInteger(shardCount) &&
-		shard! >= 1 &&
-		shard! <= shardCount!,
-	`Invalid --shard ${process.argv[shardFlag + 1]}`,
+const { configs, partition, partitions } = focusClipShard(
+	shardFlag < 0 ? "1/1" : (process.argv[shardFlag + 1] ?? ""),
 );
-const configs = [
-	{ width: 1280, height: 900 },
-	{ width: 390, height: 844 },
-]
-	.flatMap((viewport) =>
-		(["light", "dark"] as const).map((theme) => ({ viewport, theme })),
-	)
-	.filter((_, index) => index % shardCount! === shard! - 1);
 // Readiness budgets assume about two cores per page beside the dev server.
 const pages = Math.max(1, Math.floor(availableParallelism() / 2));
 const CRAWL_PAGES = Math.min(3, pages);
@@ -759,8 +743,12 @@ try {
 							(value) => localStorage.setItem("tedix-os-theme", value),
 							theme,
 						);
-						if (worker === 0) await auditWorkText(page, label);
-						for (const [index, route] of [...routes.values()].entries()) {
+						if (worker === 0 && partition === 0)
+							await auditWorkText(page, label);
+						const assigned = [...routes.values()].filter(
+							(_, index) => index % partitions === partition,
+						);
+						for (const [index, route] of assigned.entries()) {
 							if (index % PAGES_PER_CONFIG !== worker) continue;
 							await auditRoute(page, route, label);
 						}

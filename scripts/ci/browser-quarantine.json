@@ -1,0 +1,19 @@
+[
+	{
+		"testId": "apps/os/browser-tests/chat-list.spec.ts::webkit 375x667 light",
+		"ownerWorkItem": "78db1376-8416-42c2-b90c-4be9ebabd297",
+		"createdAt": "2026-10-22T14:46:00Z",
+		"expiresAt": "2026-10-29T00:00:00Z",
+		"failure": {
+			"name": "TimeoutError",
+			"message": "waitForFunction: Timeout 30000ms exceeded."
+		},
+		"evidence": {
+			"sha": "ddfb02168503e93f2156ced315f49e9b32983e8f",
+			"failedAt": "2026-10-22T01:30:49Z",
+			"passedAt": "2026-10-22T01:39:21Z",
+			"failedJob": "https://github.com/tedix-hq/tedix/actions/runs/39705874960/job/119585745077",
+			"passedJob": "https://github.com/tedix-hq/tedix/actions/runs/39706788070/job/119588656933"
+		}
+	}
+]

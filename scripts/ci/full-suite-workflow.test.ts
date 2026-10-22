@@ -9,6 +9,24 @@ const workflow = readFileSync(
 const aggregate = workflow.split("\n  aggregate:\n")[1]!;
 const command = aggregate.split("        run: |\n")[1]!;
 
+test("repository checks run in parallel and every matrix member gates Main CI", () => {
+	const repository = workflow
+		.split("\n  repository:\n")[1]!
+		.split("\n  aggregate:\n")[0]!;
+	expect(repository).toContain("fail-fast: false");
+	expect(repository).toContain("check: [onboarding, scripts, policy]");
+	for (const command of [
+		"bun run-local --smoke --no-install",
+		"bun run test:scripts",
+		"bun run type-check:scripts",
+		"bun run docs:public:check",
+		"bun run verify --all --ci-policy",
+	])
+		expect(repository).toContain(command);
+	expect(aggregate).toContain("needs: [plan, workspace, repository]");
+	expect(aggregate).toContain("for lane in WORKSPACE REPOSITORY; do");
+});
+
 test("every main push is certified and scheduled runs cannot supersede its lane", () => {
 	const triggers = workflow.split("\npermissions:")[0]!;
 	expect(triggers).toMatch(/push:\n\s+branches: \[main\]/);
@@ -80,6 +98,8 @@ test("browser jobs install only their planned browsers, restoring the cache firs
 	const download = browserAction.indexOf(
 		"playwright install $deps --only-shell $BROWSERS",
 	);
+	expect(browserAction).toContain("deps=--with-deps");
+	expect(browserAction).toContain('sudo dpkg -i "${chosen[@]}"');
 	const save = browserAction.indexOf("uses: actions/cache/save@");
 	expect(restore).toBeGreaterThan(-1);
 	expect(restore).toBeLessThan(download);
