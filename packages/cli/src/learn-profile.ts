@@ -21,6 +21,7 @@
  *    machine; every uploaded string is scrubbed of secrets, email addresses
  *    and phone numbers.
  */
+import { unknownOptionError } from "./unknown-option";
 import {
 	type ContextDeps,
 	stateDirectory,
@@ -130,7 +131,15 @@ function profileOptions(args: string[]) {
 			throw new Error(
 				"learn profile needs your local model; use --dry-run to count without it",
 			);
-		else throw new Error(`Unknown option ${arg}`);
+		else
+			throw unknownOptionError("learn profile", arg, [
+				"--dry-run",
+				"--no-upload",
+				"--json",
+				"--since",
+				"--space",
+				"--no-model",
+			]);
 	}
 	return options;
 }

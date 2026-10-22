@@ -1,3 +1,4 @@
+import { unknownOptionError } from "./unknown-option";
 import { DEFAULT_TEDIX_MCP_URL } from "./home-client";
 import { INTERACTIVE_OAUTH_SCOPE_PROFILES } from "./oauth-provider";
 import {
@@ -109,24 +110,6 @@ const commandOptions: Record<string, string[]> = {
 		"--agent-scopes",
 	],
 };
-
-function editDistance(a: string, b: string): number {
-	let row = Array.from({ length: b.length + 1 }, (_, index) => index);
-	for (let i = 0; i < a.length; i++) {
-		const next = [i + 1];
-		for (let j = 0; j < b.length; j++) {
-			next.push(
-				Math.min(
-					next[j]! + 1,
-					row[j + 1]! + 1,
-					row[j]! + (a[i] === b[j] ? 0 : 1),
-				),
-			);
-		}
-		row = next;
-	}
-	return row[b.length]!;
-}
 
 export function parseOptions(argv: string[]): {
 	command: string;
@@ -404,16 +387,7 @@ export function parseOptions(argv: string[]): {
 							? workOptionNames()
 							: (commandOptions[name] ?? [])),
 					];
-					const nearest = candidates
-						.map((flag) => ({ flag, distance: editDistance(arg, flag) }))
-						.sort((a, b) => a.distance - b.distance)[0];
-					const hint =
-						nearest && nearest.distance <= 3
-							? `; did you mean ${nearest.flag}?`
-							: ";";
-					throw new Error(
-						`Unknown option ${arg} for "tedix ${name}"${hint} See tedix ${name} --help`,
-					);
+					throw unknownOptionError(name, arg, candidates);
 				}
 				if (arg && !command) command = arg;
 				else if (arg) positional.push(arg);

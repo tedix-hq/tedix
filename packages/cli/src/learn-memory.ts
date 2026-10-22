@@ -1,3 +1,4 @@
+import { unknownOptionError } from "./unknown-option";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -92,7 +93,11 @@ export async function runMemoryImport(
 				throw new Error(`Missing value for ${flag}`);
 			i++;
 		} else if (flag !== "--apply" && flag !== "--json")
-			throw new Error(`Unknown import-memory option ${flag}`);
+			throw unknownOptionError("learn import-memory", flag, [
+				...takesValue,
+				"--apply",
+				"--json",
+			]);
 	}
 	const value = (key: string) => args[args.indexOf(key) + 1];
 	if (args.includes("--date") && !/^\d{4}-\d{2}-\d{2}$/.test(value("--date")!))

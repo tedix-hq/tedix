@@ -754,3 +754,15 @@ describe("renderDescription", () => {
 		);
 	});
 });
+
+it("learn analyze-sessions suggests the nearest supported flag", async () => {
+	await expect(runAnalyzeSessions(["--no-modle"])).rejects.toThrow(
+		'Unknown option --no-modle for "tedix learn analyze-sessions"; did you mean --no-model? See tedix learn analyze-sessions --help',
+	);
+});
+
+it("learn analyze-sessions omits distant flag suggestions", async () => {
+	await expect(runAnalyzeSessions(["--completely-unrelated"])).rejects.toThrow(
+		'Unknown option --completely-unrelated for "tedix learn analyze-sessions"; See tedix learn analyze-sessions --help',
+	);
+});

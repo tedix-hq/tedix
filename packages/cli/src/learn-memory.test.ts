@@ -141,3 +141,15 @@ test("an explicit destination mismatch refuses before inference or upload", asyn
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("learn import-memory suggests the nearest supported flag", async () => {
+	await expect(runMemoryImport(["--direcotry"])).rejects.toThrow(
+		'Unknown option --direcotry for "tedix learn import-memory"; did you mean --directory? See tedix learn import-memory --help',
+	);
+});
+
+test("learn import-memory omits distant flag suggestions", async () => {
+	await expect(runMemoryImport(["--completely-unrelated"])).rejects.toThrow(
+		'Unknown option --completely-unrelated for "tedix learn import-memory"; See tedix learn import-memory --help',
+	);
+});
