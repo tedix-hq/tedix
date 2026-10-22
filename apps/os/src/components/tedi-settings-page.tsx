@@ -1,6 +1,7 @@
 /** Tedix OS ownership of the governed digital-worker settings seam. */
 
 import { Alert } from "@/components/kumo/alert";
+import { Empty } from "@/components/kumo/empty";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { Collection } from "@/components/kumo/page";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -23,12 +24,6 @@ import { useState } from "react";
 import type * as z from "zod";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
 import {
 	Select,
 	SelectContent,
@@ -70,6 +65,7 @@ import {
 	useTediSettingsChannels,
 } from "./tedi-settings-channels";
 import {
+	SettingsSection,
 	SettingsRecordRow,
 	ModelSettingsForm,
 	SecretSettingsForm,
@@ -338,510 +334,427 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 					Settings
 				</Text>
 				<Text role="body" tone="secondary">
-					Identity, runtime, credentials, devices, domains, and lifecycle.
+					Identity, models, connections, and access.
 				</Text>
 			</div>
 
-			{!canManage ? (
-				<div role="note">
-					<Text role="label" tone="secondary">
-						{TEDIS_MANAGE_DENIED_REASON}
-					</Text>
-				</div>
-			) : null}
+			{!canManage ? <Alert>{TEDIS_MANAGE_DENIED_REASON}</Alert> : null}
 
 			<TediConsoleAccess tediId={tediId} />
-			<div className="grid gap-6 lg:grid-cols-2">
-				<Card>
-					<CardHeader>
-						<CardTitle>Identity & personality</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<IdentitySettingsForm
-							values={{
-								displayName: tedi.data.displayName ?? "",
-								personality: tedi.data.personality ?? "",
-								language: tedi.data.language ?? "en",
-								timezone: tedi.data.timezone ?? "UTC",
-							}}
-							disabled={!canManage || update.isPending}
-							onSave={(value) =>
-								update.mutate({
-									tediId,
-									displayName: value.displayName || null,
-									personality: value.personality || null,
-									language: value.language,
-									timezone: value.timezone,
-								})
-							}
-						/>
-					</CardContent>
-				</Card>
+			<SettingsSection title="Identity & personality">
+				<IdentitySettingsForm
+					values={{
+						displayName: tedi.data.displayName ?? "",
+						personality: tedi.data.personality ?? "",
+						language: tedi.data.language ?? "en",
+						timezone: tedi.data.timezone ?? "UTC",
+					}}
+					disabled={!canManage || update.isPending}
+					onSave={(value) =>
+						update.mutate({
+							tediId,
+							displayName: value.displayName || null,
+							personality: value.personality || null,
+							language: value.language,
+							timezone: value.timezone,
+						})
+					}
+				/>
+			</SettingsSection>
 
-				<Card>
-					<CardHeader>
-						<CardTitle>Model & runtime</CardTitle>
-					</CardHeader>
-					<CardContent className="space-y-4">
-						<ModelSettingsForm
-							value={selectedModel}
-							models={models.data?.models ?? []}
-							disabled={!canManage || update.isPending}
-							onSave={(value) =>
-								update.mutate({
-									tediId,
-									runtimeOverrides: modelOverride(
-										tedi.data.runtimeOverrides,
-										value.model,
-									),
-								})
-							}
-						/>
-						<div className="flex flex-wrap gap-2">
-							<Button
-								size="sm"
-								disabled={!canManage || run.isPending}
-								onClick={() => run.mutate("wake")}
-							>
-								Wake
-							</Button>
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={!canManage || run.isPending}
-								onClick={() => run.mutate("recover")}
-							>
-								Recover wake
-							</Button>
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={!canManage || run.isPending}
-								onClick={() => run.mutate("sync")}
-								icon={<ArrowsClockwise className="size-4" />}
-							>
-								Sync config
-							</Button>
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={!canManage || run.isPending}
-								onClick={() => run.mutate("repair")}
-							>
-								Repair credentials
-							</Button>
-						</div>
-						<Text role="label" tone="secondary">
-							Runtime:{" "}
-							{runtime.data?.runtimeStatus ??
-								tedi.data.runtimeStatus ??
-								"unknown"}
-							. Restart was removed for Agent-runtime tedis; wake/status are
-							canonical.
+			<SettingsSection title="Model & runtime">
+				<ModelSettingsForm
+					value={selectedModel}
+					models={models.data?.models ?? []}
+					disabled={!canManage || update.isPending}
+					onSave={(value) =>
+						update.mutate({
+							tediId,
+							runtimeOverrides: modelOverride(
+								tedi.data.runtimeOverrides,
+								value.model,
+							),
+						})
+					}
+				/>
+				<div className="flex flex-wrap gap-2">
+					<Button
+						size="sm"
+						disabled={!canManage || run.isPending}
+						onClick={() => run.mutate("wake")}
+					>
+						Wake
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={!canManage || run.isPending}
+						onClick={() => run.mutate("recover")}
+					>
+						Recover workstation
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={!canManage || run.isPending}
+						onClick={() => run.mutate("sync")}
+						icon={<ArrowsClockwise className="size-4" />}
+					>
+						Sync settings
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={!canManage || run.isPending}
+						onClick={() => run.mutate("repair")}
+					>
+						Repair credentials
+					</Button>
+				</div>
+				<Text role="label" tone="secondary">
+					Status:{" "}
+					{runtime.data?.runtimeStatus ?? tedi.data.runtimeStatus ?? "unknown"}.
+				</Text>
+			</SettingsSection>
+
+			<SettingsSection title="Live channels">
+				<Text role="body" tone="secondary">
+					Save channel settings and credentials together. Any connection
+					problems appear after saving.
+				</Text>
+				<LiveChannelsForm
+					values={channelValues}
+					canManage={canManage}
+					canReadSecrets={canReadSecrets}
+					canManageSecrets={canManageSecrets}
+					isSaving={saveChannels.isPending}
+					isTesting={testChannelToken.isPending}
+					onSave={(value) =>
+						saveChannels
+							.mutateAsync(value)
+							.then(() => true)
+							.catch(() => false)
+					}
+					onTest={(channel, token) =>
+						testChannelToken.mutate({ channel, token })
+					}
+				/>
+				{(pairingRequests.data?.pending ?? []).length ? (
+					<Surface className="space-y-2 p-3">
+						<Text role="body" weight="medium">
+							Pending Telegram pairings
 						</Text>
-					</CardContent>
-				</Card>
-			</div>
-
-			<Card>
-				<CardHeader>
-					<CardTitle>Live channels</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-5">
-					<Text role="body" tone="secondary">
-						Saving preserves channel fields owned by the runtime. Credential and
-						config-sync failures are reported as partial outcomes.
-					</Text>
-					<LiveChannelsForm
-						values={channelValues}
-						canManage={canManage}
-						canReadSecrets={canReadSecrets}
-						canManageSecrets={canManageSecrets}
-						isSaving={saveChannels.isPending}
-						isTesting={testChannelToken.isPending}
-						onSave={(value) =>
-							saveChannels
-								.mutateAsync(value)
-								.then(() => true)
-								.catch(() => false)
-						}
-						onTest={(channel, token) =>
-							testChannelToken.mutate({ channel, token })
-						}
-					/>
-					{(pairingRequests.data?.pending ?? []).length ? (
-						<Surface className="space-y-2 p-3">
-							<Text role="body" weight="medium">
-								Pending Telegram pairings
-							</Text>
-							<Collection aria-label="Pending Telegram pairings">
-								{(pairingRequests.data?.pending ?? []).map((request) => (
-									<SettingsRecordRow
-										key={request.code}
-										title={
-											<Text role="body">
-												{request.senderName ?? request.senderId ?? request.code}
-											</Text>
-										}
-										trailing={
-											<Button
-												size="sm"
-												disabled={!canManage || approvePairing.isPending}
-												onClick={() => approvePairing.mutate(request.code)}
-											>
-												Approve pairing
-											</Button>
-										}
-									/>
-								))}
-							</Collection>
-						</Surface>
-					) : null}
-				</CardContent>
-			</Card>
-
-			<Card>
-				<CardHeader>
-					<CardTitle>Encrypted credentials</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-4">
-					{!canReadSecrets ? (
-						<div role="note">
-							<Text role="label" tone="secondary">
-								{TEDI_SECRETS_UNKNOWN_REASON}
-							</Text>
-						</div>
-					) : !canManageSecrets ? (
-						<div role="note">
-							<Text role="label" tone="secondary">
-								{TEDI_SECRETS_MANAGE_DENIED_REASON}
-							</Text>
-						</div>
-					) : null}
-					<SecretSettingsForm
-						disabled={!canManageSecrets || setSecret.isPending}
-						onSave={(value) =>
-							setSecret
-								.mutateAsync(value)
-								.then(() => true)
-								.catch(() => false)
-						}
-					/>
-					<Collection aria-label="Encrypted credentials">
-						{(secrets.data?.data ?? []).map((secret) => (
-							<SettingsRecordRow
-								key={secret.id}
-								title={
-									<Text as="p" role="body" tone="mono">
-										{secret.name}
-									</Text>
-								}
-								description={secret.hint}
-								trailing={
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										aria-label={`Delete ${secret.name}`}
-										disabled={!canManageSecrets || deleteSecret.isPending}
-										onClick={() => deleteSecret.mutate(secret.id)}
-										icon={<Trash className="size-4" />}
-									></Button>
-								}
-							/>
-						))}
-					</Collection>
-				</CardContent>
-			</Card>
-
-			<Card>
-				<CardHeader>
-					<CardTitle>App assignments</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-4">
-					<AppAssignmentForm
-						apps={(apps.data?.data ?? []).filter(
-							(app) => !assignedAppIds.has(app.id),
-						)}
-						disabled={!canManage || createAssignment.isPending}
-						onSave={(value) =>
-							createAssignment
-								.mutateAsync(value)
-								.then(() => true)
-								.catch(() => false)
-						}
-					/>
-					<Collection aria-label="App assignments">
-						{(assignments.data?.data ?? []).map((assignment) => (
-							<SettingsRecordRow
-								key={assignment.id}
-								title={
-									<Text role="body" weight="medium">
-										{appNames.get(assignment.appId) ?? assignment.appId}
-									</Text>
-								}
-								trailing={
-									<div className="flex items-center gap-2">
-										<Select
-											value={assignment.role}
-											disabled={!canManage || updateAssignmentRole.isPending}
-											onValueChange={(value) =>
-												value &&
-												updateAssignmentRole.mutate({
-													assignmentId: assignment.id,
-													role: value as TediAppAssignmentRole,
-												})
-											}
-										>
-											<SelectTrigger
-												className="w-32"
-												aria-label="Assigned role"
-											>
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="operator">Operator</SelectItem>
-												<SelectItem value="observer">Observer</SelectItem>
-											</SelectContent>
-										</Select>
-										<Button
-											variant="ghost"
-											size="icon-sm"
-											aria-label="Unassign app"
-											disabled={!canManage || deleteAssignment.isPending}
-											onClick={() => deleteAssignment.mutate(assignment.id)}
-											icon={<Trash className="size-4" />}
-										></Button>
-									</div>
-								}
-							/>
-						))}
-					</Collection>
-				</CardContent>
-			</Card>
-
-			<div className="grid gap-6 lg:grid-cols-2">
-				<Card>
-					<CardHeader>
-						<CardTitle>Repository</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<RepositorySettingsForm
-							values={{
-								repoUrl: tedi.data.repoConfig?.repoUrl ?? "",
-								repoBranch: tedi.data.repoConfig?.branch ?? "main",
-							}}
-							disabled={!canManage || update.isPending}
-							onSave={(value) =>
-								update.mutate({
-									tediId,
-									repoConfig: value.repoUrl
-										? {
-												repoUrl: value.repoUrl,
-												branch: value.repoBranch || undefined,
-											}
-										: null,
-								})
-							}
-						/>
-					</CardContent>
-				</Card>
-				<Card>
-					<CardHeader>
-						<CardTitle>Spending and approvals</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<BrowserConsoleSignIn
-							policy={tedi.data.toolPolicy}
-							disabled={!canManage || !canManageEgress || update.isPending}
-							onChange={(toolPolicy) => update.mutate({ tediId, toolPolicy })}
-						/>
-						<GovernanceSettingsForm
-							values={{
-								toolPolicyJson: prettyJson(tedi.data.toolPolicy),
-								learningPolicyJson: prettyJson(tedi.data.selfImprovementPolicy),
-								budgetsJson: prettyJson(tedi.data.budgets),
-								quietHoursJson: prettyJson(tedi.data.quietHours),
-							}}
-							disabled={!canManage || update.isPending}
-							onSave={(value) =>
-								update.mutate({
-									tediId,
-									toolPolicy: JSON.parse(value.toolPolicyJson) as ToolPolicy,
-									selfImprovementPolicy: JSON.parse(
-										value.learningPolicyJson,
-									) as SelfImprovementPolicy,
-									budgets: JSON.parse(value.budgetsJson) as TediBudgets,
-									quietHours: JSON.parse(value.quietHoursJson) as QuietHours,
-								})
-							}
-						/>
-					</CardContent>
-				</Card>
-			</div>
-
-			<div className="grid gap-6 lg:grid-cols-2">
-				<Card>
-					<CardHeader>
-						<CardTitle>Devices</CardTitle>
-					</CardHeader>
-					<CardContent className="space-y-3">
-						<Collection aria-label="Devices">
-							{[
-								...(devices.data?.pending ?? []),
-								...(devices.data?.paired ?? []),
-							].map((device) => (
+						<Collection aria-label="Pending Telegram pairings">
+							{(pairingRequests.data?.pending ?? []).map((request) => (
 								<SettingsRecordRow
-									key={device.id}
+									key={request.code}
 									title={
-										<>
-											<Text role="body" weight="medium">
-												{device.displayName ?? device.id}
-											</Text>
-											<Badge variant="outline">{device.status}</Badge>
-										</>
+										<Text role="body">
+											{request.senderName ?? request.senderId ?? request.code}
+										</Text>
 									}
 									trailing={
 										<Button
 											size="sm"
-											variant="outline"
-											disabled={!canManage || deviceAction.isPending}
-											onClick={() =>
-												deviceAction.mutate({
-													id: device.id,
-													action:
-														device.status === "pending" ? "approve" : "revoke",
-												})
-											}
+											disabled={!canManage || approvePairing.isPending}
+											onClick={() => approvePairing.mutate(request.code)}
 										>
-											{device.status === "pending" ? "Approve" : "Revoke"}
+											Approve pairing
 										</Button>
 									}
 								/>
 							))}
 						</Collection>
-						{(devices.data?.pending.length ?? 0) +
-							(devices.data?.paired.length ?? 0) ===
-						0 ? (
-							<Text role="body" tone="secondary">
-								No observed devices.
-							</Text>
-						) : null}
-					</CardContent>
-				</Card>
-				<Card>
-					<CardHeader>
-						<CardTitle>Custom domains</CardTitle>
-					</CardHeader>
-					<CardContent className="space-y-3">
-						<Text role="body" tone="secondary">
-							Adding a hostname creates a pending Tedix record only. DNS and
-							certificate provisioning are separate steps.
-						</Text>
-						<CustomDomainForm
-							disabled={!canManage || addDomain.isPending}
-							onSave={(value) =>
-								addDomain
-									.mutateAsync(value)
-									.then(() => true)
-									.catch(() => false)
+					</Surface>
+				) : null}
+			</SettingsSection>
+
+			<SettingsSection title="Encrypted credentials">
+				{!canReadSecrets ? (
+					<Alert>{TEDI_SECRETS_UNKNOWN_REASON}</Alert>
+				) : !canManageSecrets ? (
+					<Alert>{TEDI_SECRETS_MANAGE_DENIED_REASON}</Alert>
+				) : null}
+				<SecretSettingsForm
+					disabled={!canManageSecrets || setSecret.isPending}
+					onSave={(value) =>
+						setSecret
+							.mutateAsync(value)
+							.then(() => true)
+							.catch(() => false)
+					}
+				/>
+				<Collection aria-label="Encrypted credentials">
+					{(secrets.data?.data ?? []).map((secret) => (
+						<SettingsRecordRow
+							key={secret.id}
+							title={
+								<Text as="p" role="body" tone="mono">
+									{secret.name}
+								</Text>
+							}
+							description={secret.hint}
+							trailing={
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label={`Delete ${secret.name}`}
+									disabled={!canManageSecrets || deleteSecret.isPending}
+									onClick={() => deleteSecret.mutate(secret.id)}
+									icon={<Trash className="size-4" />}
+								></Button>
 							}
 						/>
-						<Collection aria-label="Custom domains">
-							{(domains.data?.data ?? []).map((domain) => (
-								<SettingsRecordRow
-									key={domain.id}
-									title={
-										<>
-											<Text role="body" weight="medium">
-												{domain.hostname}
-											</Text>
-											<Badge variant="outline">
-												{domain.status ?? "pending"}
-											</Badge>
-										</>
-									}
-									trailing={
-										<Button
-											variant="ghost"
-											size="icon-sm"
-											aria-label={`Remove ${domain.hostname}`}
-											disabled={!canDelete || removeDomain.isPending}
-											title={
-												!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined
-											}
-											onClick={() => removeDomain.mutate(domain.id)}
-											icon={<Trash className="size-4" />}
-										></Button>
-									}
-								/>
-							))}
-						</Collection>
-					</CardContent>
-				</Card>
-			</div>
+					))}
+				</Collection>
+			</SettingsSection>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Lifecycle</CardTitle>
-				</CardHeader>
-				<CardContent className="flex flex-wrap gap-3">
-					<Button
-						variant="outline"
-						disabled={!canManage || rotateAccessKey.isPending}
-						onClick={() =>
-							requireRotateStepUp((token) => rotateAccessKey.mutate(token))
-						}
-					>
-						Rotate identity access key
-					</Button>
-					<Button
-						variant="outline"
-						disabled={!canDelete || resetSandbox.isPending}
-						title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
-						onClick={() => {
-							resetSandbox.reset();
-							setResetOpen(true);
-						}}
-					>
-						Reset workstation sandbox
-					</Button>
-					<ConfirmDialog
-						open={resetOpen}
-						onOpenChange={setResetOpen}
-						title="Reset this workstation sandbox?"
-						description="This non-force recovery destroys the current workstation sandbox and is blocked unless a healthy backup exists. It does not force a reset or delete the tedi's cognitive history."
-						confirmLabel="Reset safely"
-						pendingLabel="Resetting…"
-						destructive
-						isPending={resetSandbox.isPending}
-						error={resetSandbox.error}
-						onConfirm={() => resetSandbox.mutate()}
-					/>
-					<Button
-						variant="destructive"
-						disabled={!canDelete || retire.isPending}
-						title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
-						onClick={() => {
-							retire.reset();
-							setRetireOpen(true);
-						}}
-					>
-						Retire Tedi
-					</Button>
-					<ConfirmDialog
-						open={retireOpen}
-						onOpenChange={setRetireOpen}
-						title="Retire this tedi?"
-						description="The worker identity and runtime stop immediately. Memory, rationale, skills, artifacts, growth history, and audit evidence remain retained."
-						confirmLabel="Retire tedi"
-						pendingLabel="Retiring…"
-						destructive
-						isPending={retire.isPending}
-						error={retire.error}
-						onConfirm={() => retire.mutate()}
-					/>
-				</CardContent>
-			</Card>
+			<SettingsSection title="App assignments">
+				<AppAssignmentForm
+					apps={(apps.data?.data ?? []).filter(
+						(app) => !assignedAppIds.has(app.id),
+					)}
+					disabled={!canManage || createAssignment.isPending}
+					onSave={(value) =>
+						createAssignment
+							.mutateAsync(value)
+							.then(() => true)
+							.catch(() => false)
+					}
+				/>
+				<Collection aria-label="App assignments">
+					{(assignments.data?.data ?? []).map((assignment) => (
+						<SettingsRecordRow
+							key={assignment.id}
+							title={
+								<Text role="body" weight="medium">
+									{appNames.get(assignment.appId) ?? assignment.appId}
+								</Text>
+							}
+							trailing={
+								<div className="flex items-center gap-2">
+									<Select
+										value={assignment.role}
+										disabled={!canManage || updateAssignmentRole.isPending}
+										onValueChange={(value) =>
+											value &&
+											updateAssignmentRole.mutate({
+												assignmentId: assignment.id,
+												role: value as TediAppAssignmentRole,
+											})
+										}
+									>
+										<SelectTrigger className="w-32" aria-label="Assigned role">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="operator">Operator</SelectItem>
+											<SelectItem value="observer">Observer</SelectItem>
+										</SelectContent>
+									</Select>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label="Unassign app"
+										disabled={!canManage || deleteAssignment.isPending}
+										onClick={() => deleteAssignment.mutate(assignment.id)}
+										icon={<Trash className="size-4" />}
+									></Button>
+								</div>
+							}
+						/>
+					))}
+				</Collection>
+			</SettingsSection>
+
+			<SettingsSection title="Repository">
+				<RepositorySettingsForm
+					values={{
+						repoUrl: tedi.data.repoConfig?.repoUrl ?? "",
+						repoBranch: tedi.data.repoConfig?.branch ?? "main",
+					}}
+					disabled={!canManage || update.isPending}
+					onSave={(value) =>
+						update.mutate({
+							tediId,
+							repoConfig: value.repoUrl
+								? {
+										repoUrl: value.repoUrl,
+										branch: value.repoBranch || undefined,
+									}
+								: null,
+						})
+					}
+				/>
+			</SettingsSection>
+			<SettingsSection title="Approvals and limits">
+				<BrowserConsoleSignIn
+					policy={tedi.data.toolPolicy}
+					disabled={!canManage || !canManageEgress || update.isPending}
+					onChange={(toolPolicy) => update.mutate({ tediId, toolPolicy })}
+				/>
+				<GovernanceSettingsForm
+					values={{
+						toolPolicyJson: prettyJson(tedi.data.toolPolicy),
+						learningPolicyJson: prettyJson(tedi.data.selfImprovementPolicy),
+						budgetsJson: prettyJson(tedi.data.budgets),
+						quietHoursJson: prettyJson(tedi.data.quietHours),
+					}}
+					disabled={!canManage || update.isPending}
+					onSave={(value) =>
+						update.mutate({
+							tediId,
+							toolPolicy: JSON.parse(value.toolPolicyJson) as ToolPolicy,
+							selfImprovementPolicy: JSON.parse(
+								value.learningPolicyJson,
+							) as SelfImprovementPolicy,
+							budgets: JSON.parse(value.budgetsJson) as TediBudgets,
+							quietHours: JSON.parse(value.quietHoursJson) as QuietHours,
+						})
+					}
+				/>
+			</SettingsSection>
+
+			<SettingsSection title="Devices">
+				<Collection aria-label="Devices">
+					{[
+						...(devices.data?.pending ?? []),
+						...(devices.data?.paired ?? []),
+					].map((device) => (
+						<SettingsRecordRow
+							key={device.id}
+							title={
+								<>
+									<Text role="body" weight="medium">
+										{device.displayName ?? device.id}
+									</Text>
+									<Badge variant="outline">{device.status}</Badge>
+								</>
+							}
+							trailing={
+								<Button
+									size="sm"
+									variant="outline"
+									disabled={!canManage || deviceAction.isPending}
+									onClick={() =>
+										deviceAction.mutate({
+											id: device.id,
+											action:
+												device.status === "pending" ? "approve" : "revoke",
+										})
+									}
+								>
+									{device.status === "pending" ? "Approve" : "Revoke"}
+								</Button>
+							}
+						/>
+					))}
+				</Collection>
+				{(devices.data?.pending.length ?? 0) +
+					(devices.data?.paired.length ?? 0) ===
+				0 ? (
+					<Empty appearance="inline" title="No devices connected" />
+				) : null}
+			</SettingsSection>
+			<SettingsSection title="Custom domains">
+				<Text role="body" tone="secondary">
+					Adding a hostname creates a pending Tedix record only. DNS and
+					certificate provisioning are separate steps.
+				</Text>
+				<CustomDomainForm
+					disabled={!canManage || addDomain.isPending}
+					onSave={(value) =>
+						addDomain
+							.mutateAsync(value)
+							.then(() => true)
+							.catch(() => false)
+					}
+				/>
+				<Collection aria-label="Custom domains">
+					{(domains.data?.data ?? []).map((domain) => (
+						<SettingsRecordRow
+							key={domain.id}
+							title={
+								<>
+									<Text role="body" weight="medium">
+										{domain.hostname}
+									</Text>
+									<Badge variant="outline">{domain.status ?? "pending"}</Badge>
+								</>
+							}
+							trailing={
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label={`Remove ${domain.hostname}`}
+									disabled={!canDelete || removeDomain.isPending}
+									title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
+									onClick={() => removeDomain.mutate(domain.id)}
+									icon={<Trash className="size-4" />}
+								></Button>
+							}
+						/>
+					))}
+				</Collection>
+			</SettingsSection>
+
+			<SettingsSection title="Lifecycle">
+				<Button
+					variant="outline"
+					disabled={!canManage || rotateAccessKey.isPending}
+					onClick={() =>
+						requireRotateStepUp((token) => rotateAccessKey.mutate(token))
+					}
+				>
+					Rotate identity access key
+				</Button>
+				<Button
+					variant="outline"
+					disabled={!canDelete || resetSandbox.isPending}
+					title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
+					onClick={() => {
+						resetSandbox.reset();
+						setResetOpen(true);
+					}}
+				>
+					Reset workstation sandbox
+				</Button>
+				<ConfirmDialog
+					open={resetOpen}
+					onOpenChange={setResetOpen}
+					title="Reset this workstation sandbox?"
+					description="This non-force recovery destroys the current workstation sandbox and is blocked unless a healthy backup exists. It does not force a reset or delete the tedi's cognitive history."
+					confirmLabel="Reset safely"
+					pendingLabel="Resetting…"
+					destructive
+					isPending={resetSandbox.isPending}
+					error={resetSandbox.error}
+					onConfirm={() => resetSandbox.mutate()}
+				/>
+				<Button
+					variant="destructive"
+					disabled={!canDelete || retire.isPending}
+					title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
+					onClick={() => {
+						retire.reset();
+						setRetireOpen(true);
+					}}
+				>
+					Retire tedi
+				</Button>
+				<ConfirmDialog
+					open={retireOpen}
+					onOpenChange={setRetireOpen}
+					title="Retire this tedi?"
+					description="The worker identity and runtime stop immediately. Memory, rationale, skills, artifacts, growth history, and audit evidence remain retained."
+					confirmLabel="Retire tedi"
+					pendingLabel="Retiring…"
+					destructive
+					isPending={retire.isPending}
+					error={retire.error}
+					onConfirm={() => retire.mutate()}
+				/>
+			</SettingsSection>
 			<RotateStepUpDialog />
 		</div>
 	);

@@ -15,9 +15,32 @@ import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { SelectItem } from "@/components/kumo/select";
 import { SensitiveInput } from "@/components/kumo/sensitive-input";
-import { Text } from "@/components/kumo/text";
+import {
+	Card,
+	CardContent,
+	CardHeader,
+	CardTitle,
+} from "@/components/kumo/card";
+import { SettingsRow } from "@/components/settings-row";
 import { modelsForSettings } from "@/lib/model-selection";
 import { recordValue } from "./tedi-settings-channels";
+
+export function SettingsSection({
+	title,
+	children,
+}: {
+	title: string;
+	children: ReactNode;
+}) {
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>{title}</CardTitle>
+			</CardHeader>
+			<CardContent className="space-y-4">{children}</CardContent>
+		</Card>
+	);
+}
 
 export function SettingsRecordRow({
 	title,
@@ -29,16 +52,10 @@ export function SettingsRecordRow({
 	trailing: ReactNode;
 }) {
 	return (
-		<li className="flex flex-wrap items-center justify-between gap-3 p-3">
-			<div className="min-w-0">
-				{title}
-				{description != null && (
-					<Text role="label" tone="secondary">
-						{description}
-					</Text>
-				)}
-			</div>
-			<div className="flex shrink-0 items-center gap-2">{trailing}</div>
+		<li>
+			<SettingsRow title={title} description={description} className="p-3">
+				{trailing}
+			</SettingsRow>
 		</li>
 	);
 }
@@ -147,6 +164,11 @@ export function ModelSettingsForm({
 	disabled: boolean;
 	onSave: (value: z.output<typeof modelSettingsSchema>) => void;
 }) {
+	const options = modelsForSettings(models, value).map((model) => ({
+		...model,
+		value: model.ref,
+		label: `${model.ref === "cloudflare/auto" ? "Auto" : model.label}${!model.selectable ? " — superseded" : model.allowed ? "" : " — unavailable"}`,
+	}));
 	const form = useZodForm({
 		schema: modelSettingsSchema,
 		defaultValues: { model: value },
@@ -168,19 +190,19 @@ export function ModelSettingsForm({
 				description="Unavailable active models remain visible but cannot be selected. A superseded current model remains visible until you replace it."
 			>
 				{(field, meta) => (
-					<FormSelect field={field} {...meta} disabled={disabled}>
-						{modelsForSettings(models, value).map((model) => (
+					<FormSelect
+						field={field}
+						{...meta}
+						disabled={disabled}
+						items={options}
+					>
+						{options.map((model) => (
 							<SelectItem
 								key={model.ref}
 								value={model.ref}
 								disabled={!model.allowed || !model.selectable}
 							>
 								{model.label}
-								{!model.selectable
-									? " — superseded"
-									: model.allowed
-										? ""
-										: " — unavailable"}
 							</SelectItem>
 						))}
 					</FormSelect>
