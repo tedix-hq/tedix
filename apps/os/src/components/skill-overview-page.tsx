@@ -22,6 +22,7 @@ import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
 import { SkillBundleTree } from "@/components/skill-bundle-tree";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
+import { errorMessage } from "@/lib/orpc-error";
 import {
 	skillDetailQueryOptions,
 	skillReliabilityQueryOptions,
@@ -39,7 +40,6 @@ export function SkillOverviewPage() {
 	if (detail.isPending) return <ListSkeleton rows={6} />;
 	if (detail.isError || !skill)
 		return <DetailUnavailable resource="Skill" error={detail.error} />;
-	const runEvidence = reliability.data;
 	const recentRuns = (runs.data?.runs ?? []).slice(0, 5);
 	return (
 		<PageSection>
@@ -51,8 +51,7 @@ export function SkillOverviewPage() {
 						: null
 				}
 				tags={skill.tags ?? []}
-				runEvidence={runEvidence}
-				reliabilityError={reliability.isError ? reliability.error : null}
+				reliability={reliability}
 				successCount={skill.successCount}
 				failureCount={skill.failureCount}
 			/>
@@ -73,7 +72,15 @@ export function SkillOverviewPage() {
 						View all
 					</Button>
 				</SectionHeader>
-				<ListQueryBoundary query={runs} errorTitle="Runs unavailable" />
+				<ListQueryBoundary
+					query={runs}
+					errorTitle={runs.data ? "Could not refresh runs" : "Runs unavailable"}
+					errorDescription={
+						runs.data
+							? `Showing previously loaded runs; their status may be out of date. ${errorMessage(runs.error, "Runs could not be read.")}`
+							: undefined
+					}
+				/>
 				{runs.data ? <SkillRunTable runs={recentRuns} /> : null}
 			</PageSection>
 			<Collapsible>
@@ -90,28 +97,65 @@ export function SkillOverviewPage() {
 	);
 }
 
+type SkillRunEvidence = {
+	runCount: number;
+	completedCount: number;
+	successRate: number | null;
+	averageDurationMs: number | null;
+	warnings: string[];
+};
+
+export type SkillReliabilityRead = {
+	isPending: boolean;
+	isError: boolean;
+	isFetching: boolean;
+	error: unknown;
+	data?: SkillRunEvidence;
+	refetch: () => Promise<unknown>;
+};
+
+/*
+ * A read-only retry affordance for a failed evidence read — the same "Try
+ * again" control ListQueryBoundary renders for list reads, kept small enough
+ * to sit inside a metric's description slot.
+ */
+function EvidenceRetry({ query }: { query: SkillReliabilityRead }) {
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			className="mt-2 w-fit"
+			disabled={query.isFetching}
+			onClick={() => void query.refetch()}
+		>
+			{query.isFetching ? "Trying again…" : "Try again"}
+		</Button>
+	);
+}
+
 export function SkillOverviewSummary({
 	description,
 	tags,
-	runEvidence,
-	reliabilityError,
+	reliability,
 	successCount,
 	failureCount,
 }: {
 	description: string | null | undefined;
 	tags: string[];
-	runEvidence?: {
-		runCount: number;
-		completedCount: number;
-		successRate: number | null;
-		averageDurationMs: number | null;
-		warnings: string[];
-	};
-	reliabilityError: unknown;
+	reliability: SkillReliabilityRead;
 	successCount: number;
 	failureCount: number;
 }) {
 	useOsFormattingPreferences();
+	const evidence = reliability.data;
+	/*
+	 * React Query keeps `data` when a background refetch fails, so an error
+	 * with evidence is a stale-read warning, not an outage. Only a cold
+	 * failure — no evidence at all — is "Unavailable", and a pending read is
+	 * explicitly "being read": neither may claim there are no executions.
+	 */
+	const coldError = reliability.isError && !evidence;
+	const refreshError = reliability.isError && Boolean(evidence);
 	return (
 		<section aria-label="Skill summary" className="grid gap-4">
 			{description || tags.length ? (
@@ -134,35 +178,49 @@ export function SkillOverviewSummary({
 				<MetricItem
 					label="Observed reliability"
 					value={
-						reliabilityError
+						coldError
 							? "Unavailable"
-							: runEvidence && runEvidence.runCount > 0
-								? runEvidence.successRate == null
-									? "—"
-									: `${Math.round(runEvidence.successRate * 100)}%`
-								: "No runs yet"
+							: reliability.isPending
+								? "Reading…"
+								: evidence && evidence.runCount > 0
+									? evidence.successRate == null
+										? "—"
+										: `${Math.round(evidence.successRate * 100)}%`
+									: "No runs yet"
 					}
 					description={
-						reliabilityError ? (
-							"Run evidence could not be loaded. Recent runs are listed below."
+						coldError ? (
+							<>
+								Run evidence could not be loaded. Recent runs are listed below.
+								<EvidenceRetry query={reliability} />
+							</>
+						) : reliability.isPending ? (
+							"Run evidence is being read."
 						) : (
 							<>
-								{runEvidence && runEvidence.runCount > 0 ? (
+								{evidence && evidence.runCount > 0 ? (
 									<>
-										{formatCount(runEvidence.completedCount)} of{" "}
-										{formatCount(runEvidence.runCount)} sampled runs completed
-										{runEvidence.averageDurationMs
-											? ` · typically ${formatDurationMs(runEvidence.averageDurationMs)}`
+										{formatCount(evidence.completedCount)} of{" "}
+										{formatCount(evidence.runCount)} sampled runs completed
+										{evidence.averageDurationMs
+											? ` · typically ${formatDurationMs(evidence.averageDurationMs)}`
 											: ""}
 										.
 									</>
 								) : (
 									"Appears after observed execution."
 								)}
-								{runEvidence?.warnings.length ? (
-									<span className="block">
-										{runEvidence.warnings.join(" ")}
-									</span>
+								{evidence?.warnings.length ? (
+									<span className="block">{evidence.warnings.join(" ")}</span>
+								) : null}
+								{refreshError ? (
+									<>
+										<span className="block" role="status">
+											Could not refresh run evidence; the figures shown may be
+											out of date.
+										</span>
+										<EvidenceRetry query={reliability} />
+									</>
 								) : null}
 							</>
 						)
