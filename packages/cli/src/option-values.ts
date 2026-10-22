@@ -9,7 +9,7 @@ export function readNumberOption(
 		throw new Error(`${name} must be a positive integer`);
 	}
 	const parsed = Number.parseInt(raw, 10);
-	if (!Number.isFinite(parsed) || parsed <= 0) {
+	if (!Number.isSafeInteger(parsed) || parsed <= 0) {
 		throw new Error(`${name} must be a positive integer`);
 	}
 	return parsed;
