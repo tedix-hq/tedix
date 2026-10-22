@@ -99,12 +99,21 @@ export async function authorizeRuntimeBudget(input: {
 	// the `policy_unresolved` throw, which the runtime maps to a
 	// billing_service_error — a 500 class where a denial belongs.
 	const readAt = Date.now();
-	const { entitlement, policies: policySources } =
-		await getInferenceAdmissionReads(
-			input.db,
-			input.request.organizationId,
-			input.request.tediId,
-		);
+	const {
+		entitlement,
+		policies: policySources,
+		reservationPreflight,
+	} = await getInferenceAdmissionReads(
+		input.db,
+		input.request.organizationId,
+		input.request.tediId,
+		mode === "managed" && !input.preflightOnly
+			? {
+					idempotencyKey: input.request.idempotencyKey,
+					executionGuard: input.executionGuard,
+				}
+			: undefined,
+	);
 	readMs = Date.now() - readAt;
 	if (!entitlement) {
 		done("entitlement_not_configured");
@@ -203,6 +212,7 @@ export async function authorizeRuntimeBudget(input: {
 		id: input.execution?.billingReservationId ?? crypto.randomUUID(),
 		execution: input.execution,
 		executionGuard: input.executionGuard,
+		preflight: reservationPreflight,
 		organizationId: input.request.organizationId,
 		tediId: input.request.tediId,
 		source: input.request.source,

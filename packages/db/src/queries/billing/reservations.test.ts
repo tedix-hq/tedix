@@ -16,7 +16,11 @@ import {
 	getInferenceCapacityDailyOverview,
 	transferSponsoredCapacity,
 } from "./capacity-allocations";
-import { billingBlockingReason, reserveBillingUsage } from "./reservations";
+import {
+	billingBlockingReason,
+	buildBillingReservationPreflightStatements,
+	reserveBillingUsage,
+} from "./reservations";
 
 /** A healthy organization: active, in overage, internally billed, room to spare. */
 function healthy(
@@ -269,6 +273,79 @@ describe("daily reservation expiry before the reaper", () => {
 				.prepare("SELECT COUNT(*) AS n FROM billing_usage_reservations")
 				.get(),
 		).toMatchObject({ n: 1 });
+	});
+
+	it("reuses preflight reads but still rejects spend consumed after the read", async () => {
+		const { db } = setup();
+		const input = {
+			id: "preflight",
+			organizationId: "org-1",
+			source: "operator" as const,
+			provider: "azure-openai",
+			model: "gpt-5.6-terra",
+			estimatedInputTokens: 1,
+			estimatedOutputTokens: 0,
+			idempotencyKey: "test:preflight",
+			expiresAt,
+			now,
+		};
+		const [existing, plans] = await db.batch(
+			buildBillingReservationPreflightStatements(db, input),
+		);
+		const preflight = {
+			organizationId: input.organizationId,
+			idempotencyKey: input.idempotencyKey,
+			existing: existing[0],
+			plan: plans[0],
+		};
+		const batch = vi.spyOn(db, "batch");
+		expect(
+			await reserveBillingUsage(db, { ...input, preflight }),
+		).toMatchObject({ allowed: true });
+		expect(batch).not.toHaveBeenCalled();
+		await expect(
+			reserveBillingUsage(db, {
+				...input,
+				organizationId: "org-other",
+				preflight,
+			}),
+		).rejects.toThrow("Reservation preflight scope mismatch");
+		await expect(
+			reserveBillingUsage(db, {
+				...input,
+				idempotencyKey: "different",
+				preflight,
+			}),
+		).rejects.toThrow("Reservation preflight scope mismatch");
+		// The preflight is read-only; a competing reservation spends the remaining capacity.
+		const key = "test:after-competing";
+		const [nextExisting, nextPlans] = await db.batch(
+			buildBillingReservationPreflightStatements(db, {
+				...input,
+				idempotencyKey: key,
+			}),
+		);
+		expect(
+			await reserveBillingUsage(db, {
+				...input,
+				id: "competing",
+				idempotencyKey: "test:competing",
+				estimatedInputTokens: 999,
+			}),
+		).toMatchObject({ allowed: true });
+		expect(
+			await reserveBillingUsage(db, {
+				...input,
+				id: "after-competing",
+				idempotencyKey: key,
+				preflight: {
+					organizationId: input.organizationId,
+					idempotencyKey: key,
+					existing: nextExisting[0],
+					plan: nextPlans[0],
+				},
+			}),
+		).toMatchObject({ allowed: false });
 	});
 
 	it("admits against settled actuals and active holds while ignoring expired holds", async () => {
