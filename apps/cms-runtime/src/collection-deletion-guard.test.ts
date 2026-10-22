@@ -16,33 +16,41 @@ const input = {
 	forceDelete: false,
 };
 
-function acceptingPermitD1(): D1Database {
-	return {
-		prepare: () => ({
-			bind: () => ({ all: async () => ({ results: [{ id: "permit" }] }) }),
-		}),
-	} as unknown as D1Database;
-}
-
 describe("Emdash collection deletion across the tenant RPC boundary", () => {
 	test("forwards the exact guard request to the slug-owned Durable Object", async () => {
 		const executeCollectionDeletionGuard = vi
 			.fn()
 			.mockResolvedValue({ outcome: "fenced" });
+		const runWithRestorePermit = vi.fn(
+			(_identity: unknown, run: () => Promise<void>) => run(),
+		);
 		const idFromName = vi.fn((name: string) => name);
-		const get = vi.fn(() => ({ executeCollectionDeletionGuard }));
+		const get = vi.fn(() => ({
+			executeCollectionDeletionGuard,
+			runWithRestorePermit,
+		}));
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
 			ctx: {
-				props: { name: "tenant-a", siteId: "site-1", slug: "tenant-a" },
+				props: {
+					name: "tenant-a",
+					siteId: "site-1",
+					slug: "tenant-a",
+					restoreEpoch: 0,
+				},
 			},
-			env: { PLATFORM_DB: acceptingPermitD1(), DB_DO: { idFromName, get } },
+			env: { DB_DO: { idFromName, get } },
 		}) as TenantEmDashDB;
 
 		expect(await entrypoint.executeCollectionDeletionGuard(input)).toEqual({
 			outcome: "fenced",
 		});
-		expect(idFromName).toHaveBeenCalledExactlyOnceWith("tenant-a");
-		expect(get).toHaveBeenCalledExactlyOnceWith("tenant-a");
+		expect(runWithRestorePermit).toHaveBeenCalledExactlyOnceWith(
+			{ siteId: "site-1", slug: "tenant-a", restoreEpoch: 0 },
+			expect.any(Function),
+		);
+		expect(idFromName).toHaveBeenCalledTimes(2);
+		expect(idFromName).toHaveBeenCalledWith("tenant-a");
+		expect(get).toHaveBeenCalledTimes(2);
 		expect(executeCollectionDeletionGuard).toHaveBeenCalledExactlyOnceWith(
 			input,
 		);

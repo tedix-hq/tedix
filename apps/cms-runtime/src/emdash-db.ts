@@ -314,6 +314,20 @@ export class EmDashDB extends EmdashSqlDB {
 		return result.value;
 	}
 
+	/** Tenant storage, session and egress operations run in the caller's
+	 * isolate but borrow this object's shared nested reservation. The borrower
+	 * lasts until the caller's callback settles or its isolate disconnects. */
+	async runWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		run: () => Promise<void>,
+	): Promise<void> {
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & { primary?: EmDashDBStub }
+		).primary;
+		if (primary) return await primary.runWithRestorePermit(identity, run);
+		await this.withDatabasePermit(identity, run);
+	}
+
 	async queryWithRestorePermit(
 		identity: CmsRestoreFenceIdentity,
 		sql: string,
@@ -1035,6 +1049,10 @@ export interface DoQueryStatement {
 }
 
 export interface EmDashDBStub {
+	runWithRestorePermit(
+		identity: CmsRestoreFenceIdentity,
+		run: () => Promise<void>,
+	): Promise<void>;
 	queryWithRestorePermit(
 		identity: CmsRestoreFenceIdentity,
 		sql: string,

@@ -4,6 +4,7 @@ import {
 	leaveCmsRestorePermit,
 	type CmsRestorePermitParams,
 } from "@tedix/db/queries/cms-restore-fences";
+import type { EmDashDBStub } from "./emdash-db";
 import { publicAssetCacheEligible } from "./tenant-public-cache";
 
 function anonymousPublicRead(request: Request): boolean {
@@ -92,6 +93,43 @@ export async function withCmsRestorePermit<T>(
 	} finally {
 		await leavePermit(db, permit, queries);
 	}
+}
+
+/** Storage, session and egress operations borrow the shared nested reservation
+ * held by the site's database object instead of writing their own D1 row. The
+ * object re-checks admission for every borrower and keeps the row until the
+ * callback settles, so a restore, pause or deprovision drains it exactly as it
+ * drains an exact permit. Any coordinator failure is a closed fence. */
+export async function withSharedCmsRestorePermit<T>(
+	namespace: DurableObjectNamespace,
+	identity: CmsRestoreFenceIdentity,
+	run: () => Promise<T>,
+): Promise<T> {
+	const coordinator = namespace.get(
+		namespace.idFromName(identity.slug),
+	) as unknown as Pick<EmDashDBStub, "runWithRestorePermit">;
+	let outcome: { value: T } | { error: unknown } | undefined;
+	try {
+		await coordinator.runWithRestorePermit(
+			{
+				siteId: identity.siteId,
+				slug: identity.slug,
+				restoreEpoch: identity.restoreEpoch,
+			},
+			async () => {
+				try {
+					outcome = { value: await run() };
+				} catch (error) {
+					outcome = { error };
+				}
+			},
+		);
+	} catch {
+		throw new CmsRestoreFenceUnavailableError();
+	}
+	if (!outcome) throw new CmsRestoreFenceUnavailableError();
+	if ("error" in outcome) throw outcome.error;
+	return outcome.value;
 }
 
 /** Response creation and each body pull use outer permits pinned to one epoch.

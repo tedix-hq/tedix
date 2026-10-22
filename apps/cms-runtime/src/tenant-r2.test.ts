@@ -11,19 +11,21 @@ const props = {
 	slug: "tenant",
 };
 
-function acceptingPermitD1(): D1Database {
+function acceptingCoordinator(): DurableObjectNamespace {
 	return {
-		prepare: () => ({
-			bind: () => ({ all: async () => ({ results: [{ id: "permit" }] }) }),
+		idFromName: (name: string) => name,
+		get: () => ({
+			runWithRestorePermit: (_identity: unknown, run: () => Promise<void>) =>
+				run(),
 		}),
-	} as unknown as D1Database;
+	} as unknown as DurableObjectNamespace;
 }
 
 function tenantR2(): TenantR2 {
 	const entrypoint = Object.create(TenantR2.prototype) as TenantR2;
 	Object.defineProperty(entrypoint, "ctx", { value: { props } });
 	Object.defineProperty(entrypoint, "env", {
-		value: { PLATFORM_DB: acceptingPermitD1() },
+		value: { DB_DO: acceptingCoordinator() },
 	});
 	return entrypoint;
 }

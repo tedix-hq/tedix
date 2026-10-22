@@ -72,8 +72,12 @@ reservation; SQL execution remains outside that admission lock.
 Restore reconciliation cannot reclaim the nested row as an abandoned outer
 response. Every SQL operation checks current admission and holds a borrower
 until its actual RPC finishes, even when the caller times out. Only plain SELECTs
-are retried; writes execute once. R2, session and other external mutations keep
-exact per-operation permits. No database migration or new namespace is required.
+are retried; writes execute once. Tenant R2 and session writes, the collection
+deletion guard and tenant egress borrow the same nested reservation through
+the database object: the operation runs in the caller, and the object holds its
+borrower until the caller's callback settles or disconnects. Plugin KV, AI
+Search, scheduled and contact-form work keep exact per-operation permits.
+No database migration or new namespace is required.
 Tenant Worker Loader keys include the runtime release
 so a deployment refreshes injected database RPC methods. The installation's D1
 analytics must establish the actual reduction after release.

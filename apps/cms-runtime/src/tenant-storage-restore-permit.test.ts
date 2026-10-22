@@ -11,6 +11,7 @@ import {
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	closeCmsRestoreFence,
+	countCmsRestorePermitsForSite,
 	getCmsRestoreEpoch,
 	getCmsRestoreFenceState,
 	releaseCmsRestoreFence,
@@ -103,6 +104,12 @@ function tenantDb(
 			lastCoordinatorCallAt = Date.now();
 			return coordinator.batchQueryWithRestorePermit(...args);
 		},
+		runWithRestorePermit: (
+			...args: Parameters<EmDashDB["runWithRestorePermit"]>
+		) => {
+			lastCoordinatorCallAt = Date.now();
+			return coordinator.runWithRestorePermit(...args);
+		},
 	};
 	return Object.assign(Object.create(TenantEmDashDB.prototype), {
 		ctx: {
@@ -114,6 +121,35 @@ function tenantDb(
 		},
 	}) as TenantEmDashDB;
 }
+
+/** The real database objects, recording use so each test drains its reservation. */
+function coordinators(): DurableObjectNamespace {
+	const namespace = (
+		env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
+	).DB_DO;
+	return {
+		idFromName: (name: string) => namespace.idFromName(name),
+		get: (id: DurableObjectId) => ({
+			runWithRestorePermit: (
+				...args: Parameters<EmDashDB["runWithRestorePermit"]>
+			) => {
+				lastCoordinatorCallAt = Date.now();
+				return namespace.get(id).runWithRestorePermit(...args);
+			},
+		}),
+	} as unknown as DurableObjectNamespace;
+}
+
+async function permitIds(siteId: string): Promise<string[]> {
+	const rows = await platformD1
+		.prepare("SELECT id FROM cms_restore_permits WHERE site_id = ?")
+		.bind(siteId)
+		.all<{ id: string }>();
+	return rows.results.map((row) => row.id);
+}
+
+const reservationExpiry = () =>
+	new Promise((resolve) => setTimeout(resolve, 10_100));
 
 function tenantR2(identity: {
 	siteId: string;
@@ -129,7 +165,7 @@ function tenantR2(identity: {
 				token: "test-token",
 			},
 		},
-		env: { PLATFORM_DB: platformD1 },
+		env: { DB_DO: coordinators() },
 	}) as TenantR2;
 }
 
@@ -139,7 +175,7 @@ function tenantSession(
 ): TenantSession {
 	return Object.assign(Object.create(TenantSession.prototype), {
 		ctx: { props: identity },
-		env: { PLATFORM_DB: platformD1, SESSION: storage },
+		env: { DB_DO: coordinators(), SESSION: storage },
 	}) as TenantSession;
 }
 
@@ -297,6 +333,7 @@ describe("nested tenant storage restore permits", () => {
 		expect(executeCollectionDeletionGuard).toHaveBeenCalledTimes(1);
 		finish({ outcome: "fenced" });
 		await expect(pending).resolves.toEqual({ outcome: "fenced" });
+		await reservationExpiry();
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 		await expect(entrypoint.query("SELECT 1")).rejects.toThrow(
@@ -309,7 +346,7 @@ describe("nested tenant storage restore permits", () => {
 				"SELECT 1",
 			),
 		).resolves.toMatchObject({ rows: [{ "1": 1 }] });
-	});
+	}, 20_000);
 
 	test("closed site denies every DB, R2, and session mutation before dispatch", async () => {
 		const identity = await site();
@@ -388,17 +425,20 @@ describe("nested tenant storage restore permits", () => {
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 	}, 20_000);
 
-	test("a D1 admission failure cannot dispatch a storage write", async () => {
+	test("a coordinator failure cannot dispatch a storage write", async () => {
 		const identity = await site();
-		const brokenD1 = {
-			prepare: () => {
-				throw new Error("D1 unavailable");
-			},
-		} as unknown as D1Database;
+		const brokenCoordinator = {
+			idFromName: (name: string) => name,
+			get: () => ({
+				runWithRestorePermit: async () => {
+					throw new Error("D1 unavailable");
+				},
+			}),
+		};
 		const put = vi.fn();
 		const session = Object.assign(Object.create(TenantSession.prototype), {
 			ctx: { props: identity },
-			env: { PLATFORM_DB: brokenD1, SESSION: { put } },
+			env: { DB_DO: brokenCoordinator, SESSION: { put } },
 		}) as TenantSession;
 		await expect(session.put("key", "value")).rejects.toBeInstanceOf(
 			CmsRestoreFenceUnavailableError,
@@ -440,8 +480,115 @@ describe("nested tenant storage restore permits", () => {
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
 		finishHead();
 		expect(await pending).toEqual({ httpEtag: '"hash"', size: 3 });
+		await reservationExpiry();
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
-	});
+	}, 20_000);
+
+	test("100 storage writes and egress-style calls share one permit row", async () => {
+		const identity = await site();
+		const put = vi.fn();
+		const remove = vi.fn();
+		const session = tenantSession(identity, { put, delete: remove });
+		await session.put("key", "value");
+		const [first] = await permitIds(identity.siteId);
+		expect(first).toBeDefined();
+		await Promise.all(
+			Array.from({ length: 99 }, (_, i) =>
+				i % 2 ? session.put(`key-${i}`, "value") : session.delete(`key-${i}`),
+			),
+		);
+		expect(put.mock.calls.length + remove.mock.calls.length).toBe(100);
+		// Exact permits would have inserted and deleted 100 rows with random ids.
+		expect(await permitIds(identity.siteId)).toEqual([first]);
+		await reservationExpiry();
+		expect(await permitIds(identity.siteId)).toEqual([]);
+	}, 20_000);
+
+	test("a restore waits for every in-flight borrower of a shared row and refuses new ones", async () => {
+		const identity = await site();
+		const finishers: Array<() => void> = [];
+		const put = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					finishers.push(resolve);
+				}),
+		);
+		const session = tenantSession(identity, { put });
+		const first = session.put("one", "value");
+		await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+		const second = session.put("two", "value");
+		await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(2));
+		expect(await permitIds(identity.siteId)).toHaveLength(1);
+
+		const fence = { ...identity, generation: "g1", captureId: "c1" };
+		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
+		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
+		await expect(session.put("late", "value")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		await expect(tenantR2(identity).delete("media/key")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		expect(put).toHaveBeenCalledTimes(2);
+
+		finishers[0]!();
+		await first;
+		await reservationExpiry();
+		// One borrower still runs: the row outlives the reuse window.
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		finishers[1]!();
+		await second;
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
+		// The rotated epoch admits only callers pinned to the new epoch.
+		await expect(session.put("stale", "value")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		const next = tenantSession({ ...identity, restoreEpoch: 1 }, { put });
+		finishers.length = 0;
+		const fresh = next.put("fresh", "value");
+		await vi.waitFor(() => expect(finishers).toHaveLength(1));
+		finishers[0]!();
+		await fresh;
+	}, 30_000);
+
+	test.each(["pause", "deprovision"] as const)(
+		"%s refuses new borrowers and cannot drain past a live shared row",
+		async (operation) => {
+			const identity = await site();
+			let finish!: () => void;
+			const put = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						finish = resolve;
+					}),
+			);
+			const session = tenantSession(identity, { put });
+			const pending = session.put("one", "value");
+			await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+			if (operation === "pause")
+				await platformD1
+					.prepare("UPDATE cms_sites SET status = 'paused' WHERE id = ?")
+					.bind(identity.siteId)
+					.run();
+			else
+				await platformD1
+					.prepare("INSERT INTO cms_deprovision_operations (id) VALUES (?)")
+					.bind(identity.siteId)
+					.run();
+			await expect(session.put("late", "value")).rejects.toBeInstanceOf(
+				CmsRestoreFenceUnavailableError,
+			);
+			expect(put).toHaveBeenCalledTimes(1);
+			await reservationExpiry();
+			expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
+			finish();
+			await pending;
+			expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+		},
+		30_000,
+	);
 });
 
 test("buffered pages do not rotate revisions for zero-row tenant maintenance", async () => {
