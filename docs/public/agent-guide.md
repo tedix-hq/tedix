@@ -448,6 +448,38 @@ decision or step that person alone can take, and give a one-line `reason`.
 Never send housekeeping, such as closing or cancelling scratch Work or
 confirming a cleanup: finish it yourself, or record it on your own Work Item.
 
+## Record your autonomous decisions
+
+When you decide something on your own that a person might later ask about,
+such as pausing a lane, choosing between fixes, raising a limit or picking an
+architecture, record it with `record_agent_decision` or `tedix decide`:
+
+```sh
+tedix decide '{"agentName":"Lead","decisionClass":"lane.pause","question":"Pause the idle review lane?","options":[{"id":"pause","label":"Pause it"},{"id":"keep","label":"Keep it running"}],"chosen":"pause","reason":"Idle for an hour while holding two slots.","reversibility":"two_way","confidence":0.8,"workItemId":"<uuid>"}'
+```
+
+The `agentSession` defaults to your session. Give the options you weighed, the
+one you chose and why, how easy it is to undo, any protected effects (data,
+contract, production, money, consent, message, commitment) and your confidence.
+Link the Work item, commits, an Output, or an earlier decision with
+`priorDecisionId` and `priorRelation` (`depends_on` or `supersedes`).
+
+- The person you work for sees it in their Feed as "Decided by <agent>". Routine
+  decisions are grouped into one digest per day.
+- Once a day, after the organization's review hour, a Deck card lists the
+  decisions a person may want to check: those that touch protected effects,
+  are hard to undo, or that you were unsure about.
+- When you learn how a decision turned out, record it:
+  `tedix decide outcome <decision-id> worked|reverted|partial '<evidence>'`.
+  Add `person` when a person overrode or undid it; that is recorded as a
+  correction and teaches agents which kinds of decision to leave to people.
+- `tedix decide list` shows recent decisions, their outcomes and which
+  decision classes have earned trust.
+
+Recording a decision never grants authority. A decision that needs a person
+still goes through an approval first. Record the decisions that matter, not
+every step: each session may record a limited number per hour.
+
 ## Repository agents
 
 The public [tedix-hq/tedix](https://github.com/tedix-hq/tedix) repository has a

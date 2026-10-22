@@ -1,4 +1,7 @@
-/** Read-only decision graph: how a Deck card connects to earlier decisions. */
+/**
+ * Decision graph: how a Deck card connects to earlier decisions, and the
+ * agent decision journal that adds agents' own decisions to it.
+ */
 
 import { implement } from "@orpc/server";
 import { decisionGraphContract } from "@tedix/api-contract/contracts/decision-graph";
@@ -68,7 +71,37 @@ const backfillPreview = decisionGraphOs.backfillPreview
 		});
 	});
 
+const recordAgentDecision = decisionGraphOs.recordAgentDecision
+	.use(withAuth)
+	.use(withAuthorization("tedis:read", "mcp:messaging.write"))
+	.handler(async ({ input, context }) => {
+		const { recordAgentDecision } =
+			await import("../../services/agent-decision-journal");
+		return recordAgentDecision(context, requireOrgId(context), input);
+	});
+
+const recordAgentDecisionOutcome = decisionGraphOs.recordAgentDecisionOutcome
+	.use(withAuth)
+	.use(withAuthorization("tedis:read", "mcp:messaging.write"))
+	.handler(async ({ input, context }) => {
+		const { recordAgentDecisionOutcome } =
+			await import("../../services/agent-decision-journal");
+		return recordAgentDecisionOutcome(context, requireOrgId(context), input);
+	});
+
+const listAgentDecisions = decisionGraphOs.listAgentDecisions
+	.use(withAuth)
+	.use(AUTHZ.messagingRead)
+	.handler(async ({ input, context }) => {
+		const { listAgentDecisions } =
+			await import("../../services/agent-decision-journal");
+		return listAgentDecisions(context, requireOrgId(context), input);
+	});
+
 export const decisionGraphContractRouter = decisionGraphOs.router({
 	getContext,
 	backfillPreview,
+	recordAgentDecision,
+	recordAgentDecisionOutcome,
+	listAgentDecisions,
 });

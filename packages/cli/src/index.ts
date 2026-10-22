@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { runAttentionCommand } from "./attention";
+import { runDecideCommand } from "./decide";
 import {
 	recordSessionScope,
 	scopeFromWorkResult,
@@ -1305,6 +1306,23 @@ async function main() {
 					...(options.workReason ? { reason: options.workReason } : {}),
 					...(options.limit ? { limit: options.limit } : {}),
 				},
+			});
+			return;
+		}
+		if (command === "decide") {
+			process.exitCode = await runDecideCommand({
+				client,
+				json: options.json,
+				positionals: options.positionals ?? [],
+				limit: options.limit,
+				workspace: organizationContext.workspace,
+				mcpUrl: options.url,
+				bootstrapCache: fileNativeBootstrapCache(),
+				nativeCacheScope: JSON.stringify([
+					organizationContext.workspace,
+					auth.source,
+				]),
+				signal: commandAbort.signal,
 			});
 			return;
 		}

@@ -17,6 +17,10 @@ export const DECISION_GRAPH_NODE_KINDS = [
 	"person",
 	"system",
 	"credential",
+	/** An agent that decided on its own (`agent:<actor slug>`). */
+	"agent",
+	/** A commit SHA cited as evidence. */
+	"commit",
 ] as const;
 export type DecisionGraphNodeKind = (typeof DECISION_GRAPH_NODE_KINDS)[number];
 
@@ -29,6 +33,10 @@ export const DECISION_GRAPH_EDGE_KINDS = [
 	"blocks",
 	"involves",
 	"evidence",
+	/** decision → the Work, Output or card it was about. */
+	"about",
+	/** decision → an earlier decision it builds on. */
+	"depends_on",
 ] as const;
 export type DecisionGraphEdgeKind = (typeof DECISION_GRAPH_EDGE_KINDS)[number];
 
@@ -43,12 +51,12 @@ export const DECISION_GRAPH_EDGE_ENDPOINTS: Record<
 	card_from_work: { from: ["deck_card"], to: ["work_item"] },
 	card_answers: { from: ["deck_card"], to: ["decision"] },
 	decided_by: {
-		from: ["work_item", "deck_card"],
-		to: ["decision", "owner_instruction"],
+		from: ["work_item", "deck_card", "decision"],
+		to: ["decision", "owner_instruction", "agent"],
 	},
 	supersedes: {
-		from: ["deck_card", "work_item"],
-		to: ["deck_card", "work_item"],
+		from: ["deck_card", "work_item", "decision"],
+		to: ["deck_card", "work_item", "decision"],
 	},
 	same_as: { from: ["deck_card"], to: ["deck_card"] },
 	blocks: { from: ["work_item", "deck_card"], to: ["work_item"] },
@@ -56,7 +64,12 @@ export const DECISION_GRAPH_EDGE_ENDPOINTS: Record<
 		from: ["work_item", "deck_card"],
 		to: ["person", "system", "credential"],
 	},
-	evidence: { from: ["decision", "work_item"], to: ["output", "work_item"] },
+	evidence: {
+		from: ["decision", "work_item"],
+		to: ["output", "work_item", "commit"],
+	},
+	about: { from: ["decision"], to: ["work_item", "output", "deck_card"] },
+	depends_on: { from: ["decision"], to: ["decision"] },
 };
 
 export const DECISION_GRAPH_MAX_HOPS = 4;

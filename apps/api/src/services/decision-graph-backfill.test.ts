@@ -324,6 +324,8 @@ describe("decision graph backfill", () => {
 				blocks: 1,
 				involves: 3,
 				evidence: 2,
+				about: 0,
+				depends_on: 0,
 			});
 			const n = f.count();
 			expect(n).toBe(17);

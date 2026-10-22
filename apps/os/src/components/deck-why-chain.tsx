@@ -24,6 +24,8 @@ const stepLabels = {
 	blocks: "Waiting on this",
 	involves: "Involves",
 	evidence: "Evidence",
+	about: "About",
+	depends_on: "Builds on",
 };
 
 function recordHref(node: DecisionGraphNode): string | undefined {

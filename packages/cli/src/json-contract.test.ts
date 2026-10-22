@@ -12,6 +12,7 @@ async function installTransportFixtures(src: string) {
 	const endpoints: Record<string, string> = {
 		"attention.list_deck_cards": "attention/listDeckCards",
 		"attention.list_feed_for_you": "attention/listFeedForYou",
+		"decision.list_agent_decisions": "decisionGraph/listAgentDecisions",
 		"work.list_work_item_cli_rows": "workItems/listCliProjection",
 		"work.report_work_agent_session_status": "workAgentSessions/report",
 		"catalog.search": "catalog/search",
@@ -44,6 +45,11 @@ async function installTransportFixtures(src: string) {
 			day: "2026-01-01",
 			complete: true,
 			observedAt: "2026-01-01T00:00:00Z",
+		},
+		"decision.list_agent_decisions": {
+			decisions: [],
+			classes: [],
+			summary: "No agent decisions to review.",
 		},
 		"work.list_work_item_cli_rows": {
 			view: "board",
@@ -200,6 +206,7 @@ async function installTransportFixtures(src: string) {
 const examples: Record<string, string[]> = {
 	setup: ["agents", "context", "show"],
 	deck: ["list"],
+	decide: ["list"],
 	feed: [],
 	hooks: ["session-start"],
 	learn: ["import-sessions", "--dry-run"],

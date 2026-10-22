@@ -17,6 +17,9 @@ export const LEARNING_INTERACTION_KINDS = [
 	// Lessons were delivered to (or, in a holdout session, withheld from) an
 	// agent session: the exposure side of lesson effectiveness.
 	"delivered",
+	// An agent recorded a decision it made on its own (agent decision
+	// journal). Context for learning, never an authority grant.
+	"decided",
 ] as const;
 
 export const LEARNING_SCOPE_KINDS = [

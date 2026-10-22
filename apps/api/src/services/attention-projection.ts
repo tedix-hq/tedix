@@ -455,6 +455,7 @@ export async function loadForYouProjection(
 		pipeline,
 		retired,
 		autonomyHistory,
+		agentDecisions,
 	] = await Promise.all([
 		loadConfiguredDeckProjection(
 			context,
@@ -529,8 +530,17 @@ export async function loadForYouProjection(
 			context,
 			config.factorySources.map((binding) => binding.source),
 		),
+		import("./agent-decision-journal")
+			.then(({ agentDecisionFeed }) =>
+				agentDecisionFeed(context, requireOrgId(context), now),
+			)
+			.catch((error) => {
+				console.error("[feed] agent decisions unavailable:", error);
+				return [] as ActivityFeedItem[];
+			}),
 	]);
 	const items: ActivityFeedItem[] = [
+		...agentDecisions,
 		...handledInternal.filter(
 			(item) =>
 				config.scope === "organization" ||
