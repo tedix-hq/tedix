@@ -91,6 +91,7 @@ import { createHash } from "node:crypto";
 import { type ReadJson, cliRead, AGENT_IDENTITY_ENV } from "./hooks/hook-io";
 import { selfCommand } from "./shared";
 import { spawn } from "node:child_process";
+import { unknownOptionError } from "./unknown-option";
 
 // ---------------------------------------------------------------------------
 // Local sources beside the transcripts
@@ -208,7 +209,7 @@ export interface ContextDeps extends LearnDeps {
 	alive?: (pid: number) => boolean;
 }
 
-function contextOptions(args: string[], allowed: string[]) {
+function contextOptions(command: string, args: string[], allowed: string[]) {
 	const options = {
 		dryRun: false,
 		json: false,
@@ -222,7 +223,7 @@ function contextOptions(args: string[], allowed: string[]) {
 	};
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i]!;
-		if (!allowed.includes(arg)) throw new Error(`Unknown option ${arg}`);
+		if (!allowed.includes(arg)) throw unknownOptionError(command, arg, allowed);
 		const value = () => {
 			const next = args[++i];
 			if (!next || next.startsWith("--"))
@@ -328,7 +329,7 @@ export async function runContext(
 	deps: ContextDeps = {},
 ): Promise<number> {
 	const write = deps.write ?? ((line: string) => console.log(line));
-	const options = contextOptions(args, [
+	const options = contextOptions("learn context", args, [
 		"--dry-run",
 		"--json",
 		"--no-model",
@@ -559,7 +560,11 @@ export async function runReview(
 	deps: ContextDeps = {},
 ): Promise<number> {
 	const write = deps.write ?? ((line: string) => console.log(line));
-	const options = contextOptions(args, ["--accept", "--reject", "--json"]);
+	const options = contextOptions("learn review", args, [
+		"--accept",
+		"--reject",
+		"--json",
+	]);
 	const read = deps.read ?? cliRead;
 	const ask =
 		deps.ask ??
@@ -791,7 +796,7 @@ export async function runOnboard(
 	deps: ContextDeps = {},
 ): Promise<number> {
 	const write = deps.write ?? ((line: string) => console.log(line));
-	const options = contextOptions(args, [
+	const options = contextOptions("learn onboard", args, [
 		"--dry-run",
 		"--with-model",
 		"--no-model",
