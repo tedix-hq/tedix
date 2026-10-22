@@ -9,6 +9,7 @@ import {
 	workItemComments,
 	workAttempts,
 } from "../schema/work-items";
+import { workInteractions } from "../schema/work-factory";
 import {
 	createRepositoryObservation,
 	getRepositoryObservation,
@@ -16,6 +17,7 @@ import {
 	claimRepositoryRepair,
 	claimRepositoryRetryDelivery,
 	overdueRepositoryObservations,
+	finishRepositoryObserverEscalation,
 	settleAgedRepositoryPushObservations,
 	settleRecoveredRepositoryObservation,
 	pendingRepositoryObservations,
@@ -23,7 +25,12 @@ import {
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
-	for (const table of [workItems, workItemComments, workAttempts])
+	for (const table of [
+		workItems,
+		workItemComments,
+		workAttempts,
+		workInteractions,
+	])
 		sqlite.exec(schemaDdl(table));
 	const migration = readFileSync(
 		new URL(
@@ -365,4 +372,72 @@ it("ages reported and unreported pushes, excludes red follow-ups and other work,
 			(r) => r.id,
 		),
 	).not.toContain("push-1");
+});
+
+it("claims five incidents without overlap and retries failures behind untouched work", async () => {
+	const { db } = fixture();
+	for (let n = 0; n < 12; n++)
+		await createRepositoryObservation(db, { ...event, id: `incident-${n}` });
+	const now = "2026-10-17T13:00:00.000Z";
+	const first = await overdueRepositoryObservations(db, now);
+	expect(first).toHaveLength(5);
+	await finishRepositoryObserverEscalation(db, first[0]!, now, "delivered");
+	await finishRepositoryObserverEscalation(
+		db,
+		first[1]!,
+		now,
+		"observer_timeout",
+	);
+	expect(
+		(await getRepositoryObservation(db, event.orgId, first[1]!.id))?.metadata
+			?.observerMaintenanceReason,
+	).toBe("observer_timeout");
+	const second = await overdueRepositoryObservations(db, now);
+	expect(second).toHaveLength(5);
+	expect(
+		second.some((row) => first.some((previous) => previous.id === row.id)),
+	).toBe(false);
+	const next = await overdueRepositoryObservations(
+		db,
+		"2026-10-17T13:05:00.000Z",
+	);
+	expect(next).toHaveLength(5);
+	expect(next.some((row) => row.id === first[0]!.id)).toBe(false);
+	expect(
+		next.filter(
+			(row) => !first.concat(second).some((previous) => previous.id === row.id),
+		),
+	).toHaveLength(2);
+	expect(
+		(await getRepositoryObservation(db, event.orgId, first[1]!.id))?.metadata
+			?.observerMaintenanceReason,
+	).toBe("in_progress");
+});
+
+it("skips legacy escalations without closing unresolved red Work", async () => {
+	const { db } = fixture();
+	await createRepositoryObservation(db, event);
+	await db.insert(workInteractions).values({
+		id: "legacy-escalation",
+		createdAt: event.now,
+		orgId: event.orgId,
+		workItemId: event.id,
+		kind: "coordination",
+		subject: "Red Ship",
+		prompt: "Decision needed",
+		creatorType: "tedi",
+		creatorId: event.ownerTediId,
+		targetType: "user",
+		targetId: "user-example",
+		metadata: {
+			reason:
+				"Red Ship needs a decision after diagnosis or the single repair attempt",
+		},
+	});
+	expect(
+		await overdueRepositoryObservations(db, "2026-10-17T13:00:00.000Z"),
+	).toHaveLength(0);
+	expect(
+		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+	).toBe("proposed");
 });

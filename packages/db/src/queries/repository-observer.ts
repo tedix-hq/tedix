@@ -185,13 +185,13 @@ export async function claimRepositoryRepair(
 	return existing?.metadata?.repairKey === recipeKey;
 }
 
-/** Global scheduler scan of configured observer incidents only; tenant is carried on each row. */
+/** Claim a small retryable page before doing any external orchestration. */
 export async function overdueRepositoryObservations(
 	db: DbQueryClient,
 	now: string,
 ) {
-	return db
-		.select()
+	const candidates = db
+		.select({ id: workItems.id })
 		.from(workItems)
 		.where(
 			and(
@@ -200,10 +200,43 @@ export async function overdueRepositoryObservations(
 				sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
 				sql`${workItems.deadline} <= ${now}`,
 				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 1) = 1`,
+				sql`json_extract(${workItems.metadata}, '$.observerEscalatedAt') IS NULL`,
+				sql`coalesce(json_extract(${workItems.metadata}, '$.observerRetryAt'), '') <= ${now}`,
+				// Skip deliveries made before durable maintenance progress existed.
+				sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id = ${workItems.orgId} AND i.work_item_id = ${workItems.id} AND i.kind = 'coordination' AND json_extract(i.metadata, '$.reason') = 'Red Ship needs a decision after diagnosis or the single repair attempt')`,
 			),
 		)
-		.orderBy(workItems.deadline)
-		.limit(100);
+		.orderBy(
+			sql`coalesce(json_extract(${workItems.metadata}, '$.observerRetryAt'), '')`,
+			workItems.deadline,
+			workItems.id,
+		)
+		.limit(5);
+	const retryAt = new Date(Date.parse(now) + 5 * 60_000).toISOString();
+	return db
+		.update(workItems)
+		.set({
+			metadata: sql`json_set(${workItems.metadata}, '$.observerRetryAt', ${retryAt}, '$.observerMaintenanceReason', 'in_progress')`,
+		})
+		.where(sql`${workItems.id} IN (${candidates})`)
+		.returning();
+}
+
+export async function finishRepositoryObserverEscalation(
+	db: DbQueryClient,
+	row: { orgId: string; id: string },
+	now: string,
+	reason: string,
+) {
+	return db
+		.update(workItems)
+		.set({
+			metadata:
+				reason === "delivered"
+					? sql`json_set(${workItems.metadata}, '$.observerEscalatedAt', ${now}, '$.observerMaintenanceReason', ${reason})`
+					: sql`json_set(${workItems.metadata}, '$.observerMaintenanceReason', ${reason})`,
+		})
+		.where(and(eq(workItems.orgId, row.orgId), eq(workItems.id, row.id)));
 }
 
 /** At-most-once delivery to the independently authenticated ops workflow. A lost response escalates. */

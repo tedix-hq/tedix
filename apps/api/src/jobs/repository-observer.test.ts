@@ -1,5 +1,6 @@
-import { expect, it, vi } from "vite-plus/test";
+import { afterEach, expect, it, vi } from "vite-plus/test";
 const deps = vi.hoisted(() => ({
+	finish: vi.fn().mockResolvedValue(undefined),
 	config: vi.fn(),
 	escalate: vi.fn(),
 	settle: vi.fn().mockResolvedValue([]),
@@ -7,6 +8,7 @@ const deps = vi.hoisted(() => ({
 vi.mock("../rpc/orpc", () => ({ createContext: () => ({ db: {} }) }));
 vi.mock("@tedix/db/queries/repository-observer", () => ({
 	settleAgedRepositoryPushObservations: deps.settle,
+	finishRepositoryObserverEscalation: deps.finish,
 	overdueRepositoryObservations: async () => [
 		{ id: "first", orgId: "org-a", projectId: "project-a", metadata: {} },
 		{
@@ -42,4 +44,57 @@ it("sweeps aged pushes on each tick without changing overdue escalation", async 
 		settled: 1,
 	});
 	expect(deps.settle).toHaveBeenCalledWith({}, expect.any(String));
+});
+
+afterEach(() => {
+	vi.useRealTimers();
+	vi.clearAllMocks();
+});
+it("bounds a hung escalation, records a timeout and sweeps pushes first", async () => {
+	vi.useFakeTimers();
+	deps.config.mockResolvedValue({ config: {} });
+	deps.escalate
+		.mockImplementationOnce(() => new Promise(() => {}))
+		.mockResolvedValue(undefined);
+	const run = expect(
+		maintainRepositoryObservers({} as CloudflareEnv),
+	).rejects.toThrow("1 repository observer escalations failed");
+	await vi.advanceTimersByTimeAsync(5_001);
+	await run;
+	expect(deps.finish).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({ id: "first" }),
+		expect.any(String),
+		"observer_timeout",
+	);
+	expect(deps.finish).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({ id: "second" }),
+		expect.any(String),
+		"delivered",
+	);
+	expect(deps.settle.mock.invocationCallOrder[0]).toBeLessThan(
+		deps.escalate.mock.invocationCallOrder[0]!,
+	);
+});
+
+it("stops taking work at the run deadline while reserving time to record failure", async () => {
+	vi.useFakeTimers();
+	deps.config.mockImplementationOnce(async () => {
+		vi.setSystemTime(Date.now() + 19_000);
+		return { config: {} };
+	});
+	deps.escalate.mockImplementationOnce(() => new Promise(() => {}));
+	const run = expect(
+		maintainRepositoryObservers({} as CloudflareEnv),
+	).rejects.toThrow("1 repository observer escalations failed");
+	await vi.advanceTimersByTimeAsync(1_001);
+	await run;
+	expect(deps.config).toHaveBeenCalledTimes(1);
+	expect(deps.finish).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({ id: "first" }),
+		expect.any(String),
+		"observer_timeout",
+	);
 });
