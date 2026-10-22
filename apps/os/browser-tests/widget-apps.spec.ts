@@ -41,6 +41,7 @@ async function run() {
 			stdout: "inherit",
 			stderr: "inherit",
 			env: { ...process.env, TEDIX_BUILD_LOCAL_DEMO_ENABLED: "false" },
+			detached: true,
 		},
 	);
 	let browser: Browser | undefined;
@@ -326,7 +327,12 @@ async function run() {
 		);
 	} finally {
 		await browser?.close();
-		server.kill();
+		// vp launches Vite in a child; close the group so test gates receive EOF.
+		try {
+			process.kill(-server.pid, "SIGTERM");
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+		}
 		await server.exited;
 	}
 }
