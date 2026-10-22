@@ -29,7 +29,20 @@ class AdmittedPiHarness extends PiHarness {
 		options: ConstructorParameters<typeof PiHarness>[0],
 		private readonly defer: () => boolean,
 	) {
-		super(options);
+		const open = options.harness;
+		let invalidate: (() => Promise<void>) | undefined;
+		super({
+			...options,
+			harness: async (context) => {
+				const pi = await open(context);
+				void pi.closed
+					.then((end) => (end.reason === "failed" ? invalidate?.() : undefined))
+					.catch((error) => console.error("[tedi.pi.reopen]", error));
+				return pi;
+			},
+		});
+		// Agents 0.28.1 caches a successful open after Pi has failed permanently.
+		invalidate = () => this.dispose();
 	}
 	override async onStart(context: Parameters<PiHarness["onStart"]>[0]) {
 		if (this.defer()) return;

@@ -149,6 +149,21 @@ export class PiStorageFixture extends ConversationFacet {
 	async cancelRun(id: string) {
 		await this.ctx.storage.put(`cancel:${id}`, true);
 	}
+	async failPiStorageRead() {
+		this.ctx.storage.sql.exec(
+			"ALTER TABLE pi_conversations RENAME TO pi_conversations_unavailable",
+		);
+		try {
+			await (await this.nativePiSession()).messages();
+			return null;
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		} finally {
+			this.ctx.storage.sql.exec(
+				"ALTER TABLE pi_conversations_unavailable RENAME TO pi_conversations",
+			);
+		}
+	}
 	async inspectFixture(runId: string) {
 		return JSON.stringify({
 			requests:
