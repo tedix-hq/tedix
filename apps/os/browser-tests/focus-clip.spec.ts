@@ -11,6 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser, type Page } from "playwright";
 
@@ -650,6 +651,12 @@ async function auditRoute(page: Page, route: string, label: string) {
 	}
 }
 
+// Readiness budgets assume roughly a core per page beside the dev server. The
+// four audit configs run side by side, so a 4-core CI runner gets one page each.
+const lanes = Math.max(1, Math.floor(availableParallelism() / 4));
+const CRAWL_PAGES = Math.min(3, lanes);
+const PAGES_PER_CONFIG = Math.min(2, lanes);
+
 let browser: Browser | undefined;
 const findings: Finding[] = [];
 try {
@@ -663,7 +670,7 @@ try {
 		for (const route of narrowed) routes.set(routePattern(route), route);
 	else {
 		const crawlers = await Promise.all(
-			Array.from({ length: 3 }, () =>
+			Array.from({ length: CRAWL_PAGES }, () =>
 				browser!.newPage({ viewport: { width: 1280, height: 900 } }),
 			),
 		);
@@ -727,7 +734,7 @@ try {
 			const configStarted = performance.now();
 			const label = `${viewport.width}-${theme}`;
 			await Promise.all(
-				Array.from({ length: 2 }, async (_, worker) => {
+				Array.from({ length: PAGES_PER_CONFIG }, async (_, worker) => {
 					const page = await browser!.newPage({ viewport, colorScheme: theme });
 					try {
 						await page.addInitScript(
@@ -736,7 +743,7 @@ try {
 						);
 						if (worker === 0) await auditWorkText(page, label);
 						for (const [index, route] of [...routes.values()].entries()) {
-							if (index % 2 !== worker) continue;
+							if (index % PAGES_PER_CONFIG !== worker) continue;
 							await auditRoute(page, route, label);
 						}
 					} finally {
