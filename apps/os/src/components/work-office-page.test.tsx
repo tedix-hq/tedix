@@ -4,7 +4,14 @@ import {
 	type QueryKey,
 } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import { handleLocalRpc } from "../../dev/local-fixtures";
 import {
 	agentSessionRequestsQueryOptions,
@@ -16,6 +23,8 @@ import {
 	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
 import { OfficeApp } from "./work-office-page";
+
+const FIXTURE_NOW = new Date("2026-10-22T12:00:00Z");
 
 function seeded() {
 	const client = new QueryClient({
@@ -44,7 +53,7 @@ function seeded() {
 	seed(notebookLessonsQueryOptions().queryKey, "agentTurnTriage/listLessons", {
 		limit: 50,
 	});
-	client.setQueryData(userProfileQueryOptions().queryKey, { name: "Robin" });
+	client.setQueryData(userProfileQueryOptions().queryKey, { name: "Operator" });
 	client.setQueryData(agentSessionRequestsQueryOptions().queryKey, {
 		data: [
 			{
@@ -53,7 +62,7 @@ function seeded() {
 				repository: "demo",
 				text: "Review the plan",
 				status: "open",
-				sourceAt: new Date().toISOString(),
+				sourceAt: FIXTURE_NOW.toISOString(),
 			},
 		],
 	});
@@ -66,17 +75,31 @@ function seeded() {
 	return client;
 }
 
+function renderOffice(client: QueryClient) {
+	return new DOMParser().parseFromString(
+		renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<OfficeApp />
+			</QueryClientProvider>,
+		),
+		"text/html",
+	);
+}
+
 describe("Office ledger rendering", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		// Fixtures age knocks relative to Date.now(); keep them within one day.
+		vi.setSystemTime(FIXTURE_NOW);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+	});
+
 	it("keeps the For you, answered, notebook and request collections", () => {
 		const client = seeded();
-		const doc = new DOMParser().parseFromString(
-			renderToStaticMarkup(
-				<QueryClientProvider client={client}>
-					<OfficeApp />
-				</QueryClientProvider>,
-			),
-			"text/html",
-		);
+		const doc = renderOffice(client);
 		const app = doc.querySelector('[data-workspace-app-entry="office"]')!;
 		expect(app.firstElementChild?.querySelector("h1")?.textContent).toBe(
 			"Office",
@@ -114,6 +137,50 @@ describe("Office ledger rendering", () => {
 			'[aria-label="For you"] li, [aria-labelledby="office-answered-title"] li, [aria-labelledby="office-notebook-title"] li',
 		))
 			expect(item.className).toContain("px-4 py-3");
+		client.clear();
+	});
+
+	it("renders complete activity titles without React title warnings", () => {
+		const errors = vi.spyOn(console, "error");
+		const client = seeded();
+		const titles = [...renderOffice(client).querySelectorAll("svg rect title")];
+		expect(titles).toHaveLength(24);
+		expect(titles[0]?.textContent).toBe("0 knocks, 23h ago");
+		expect(titles[22]?.textContent).toBe("1 knock, 1h ago");
+		expect(titles[23]?.textContent).toBe("4 knocks, this hour");
+		expect(
+			errors.mock.calls.filter((args) => args.join(" ").includes("<title>")),
+		).toEqual([]);
+		client.clear();
+	});
+
+	it("keeps yesterday's knocks out of today but in the rolling activity chart", () => {
+		const client = seeded();
+		const key = workOfficeKnocksQueryOptions().queryKey;
+		const knocks = client.getQueryData<{
+			data: { request: { requestedAt: string; subject: string } }[];
+		}>(key)!;
+		const yesterday = knocks.data[0]!;
+		const today = knocks.data[2]!;
+		const midnight = new Date(2026, 9, 22);
+		yesterday.request.requestedAt = new Date(
+			midnight.getTime() - 60_000,
+		).toISOString();
+		today.request.requestedAt = new Date(
+			midnight.getTime() + 10_000,
+		).toISOString();
+		client.setQueryData(key, { ...knocks, data: [yesterday, today] });
+		vi.setSystemTime(new Date(midnight.getTime() + 30_000));
+		const doc = renderOffice(client);
+		const answered = doc.querySelector(
+			'[aria-labelledby="office-answered-title"]',
+		)!;
+		expect(answered.textContent).toContain(today.request.subject);
+		expect(answered.textContent).not.toContain(yesterday.request.subject);
+		expect(answered.querySelectorAll("li")).toHaveLength(1);
+		expect(doc.querySelector("svg rect:last-child title")?.textContent).toBe(
+			"2 knocks, this hour",
+		);
 		client.clear();
 	});
 });
