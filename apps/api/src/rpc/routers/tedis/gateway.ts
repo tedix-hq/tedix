@@ -238,7 +238,13 @@ async function resolveEmbeddedModelSelection(
 
 export const createEmbeddedSessionProcedure =
 	authedTedisOs.createEmbeddedSession
-		.use(AUTHZ.tedisAppsWrite)
+		.use((options, input, done) =>
+			(input.surface === "os" ? AUTHZ.homeUse : AUTHZ.tedisAppsWrite)(
+				options,
+				input,
+				done,
+			),
+		)
 		.handler(async ({ input, context }) => {
 			const tedi = await requireTediAccess(context, input.tediId);
 			if (input.surface !== "os") {

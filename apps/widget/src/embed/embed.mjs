@@ -1955,7 +1955,11 @@ import {
 					});
 					return result;
 				} catch (error) {
-					lastError = "session_provider_failed";
+					lastError = /tedi is not available|configure selectable tedis/i.test(
+						error instanceof Error ? error.message : String(error),
+					)
+						? "tedi_unavailable"
+						: "session_provider_failed";
 					setConnectionState("error");
 					finishSessionAttempt("failed");
 					emit("error", { tenant, code: lastError });

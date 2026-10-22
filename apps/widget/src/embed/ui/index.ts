@@ -81,9 +81,14 @@ export function embeddedSessionFailureLabel(
 	code: string | null,
 	t: Translate,
 ): string {
-	return code === "capacity_unavailable"
-		? t("capacity_unavailable")
-		: t("could_not_connect");
+	switch (code) {
+		case "capacity_unavailable":
+			return t("capacity_unavailable");
+		case "tedi_unavailable":
+			return t("tedi_unavailable");
+		default:
+			return t("could_not_connect");
+	}
 }
 
 export function embeddedApprovalLabel(

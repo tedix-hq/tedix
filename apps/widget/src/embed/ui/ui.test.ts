@@ -146,6 +146,9 @@ describe("framework-neutral Tedi embed primitives", () => {
 		expect(embeddedSessionFailureLabel("capacity_unavailable", es)).toBe(
 			"La capacidad no está disponible temporalmente.",
 		);
+		expect(embeddedSessionFailureLabel("tedi_unavailable", en)).toBe(
+			"This tedi is not available to you. Choose another tedi.",
+		);
 		// A locale that translated nothing still reads, in the source language.
 		expect(
 			embeddedSessionFailureLabel(
