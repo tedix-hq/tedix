@@ -132,8 +132,11 @@ export function createDemoIdentityScanner(
 		byLength.get(words)!.add(sha256);
 	}
 	const carryLength = Math.max(1, ...byLength.keys()) - 1;
+	// Long windows are mostly unique; hashing costs less than caching their strings.
 	const phraseCaches = new Map(
-		[...byLength.keys()].map((length) => [length, new Map<string, boolean>()]),
+		[...byLength.keys()]
+			.filter((length) => length <= 2)
+			.map((length) => [length, new Map<string, boolean>()]),
 	);
 	const blocks = new Map<
 		string,
@@ -149,28 +152,38 @@ export function createDemoIdentityScanner(
 		const decoded = source.replace(/\\u([0-9a-f]{4})/gi, (_, hex: string) =>
 			String.fromCharCode(parseInt(hex, 16)),
 		);
-		const sourceLines = decoded.normalize("NFKC").toLowerCase().split("\n");
+
 		const lines = new Set<number>();
 		let prefix: string[] = [];
 		let prefixKey = "";
 		let carryLines: number[] = [];
 		let firstLine = 0;
-		for (let line = 0; line < sourceLines.length; line++) {
+		let blockStart = 0;
+		let lineStart = 0;
+		for (let line = 0; lineStart <= decoded.length; line++) {
+			const newline = decoded.indexOf("\n", lineStart);
+			const end = newline < 0 ? decoded.length : newline;
+			const length = end - lineStart;
+			lineStart = newline < 0 ? decoded.length + 1 : newline + 1;
 			// Content-defined boundaries survive inserted lines in successive snapshots.
 			// Every line is included; the boundary only chooses a memoization unit.
-			if (sourceLines[line]!.length % 32 !== 0 && line + 1 < sourceLines.length)
-				continue;
-			const key =
-				prefixKey + "\0" + sourceLines.slice(firstLine, line + 1).join("\n");
+			if (length % 32 !== 0 && newline >= 0) continue;
+			const blockSource = decoded.slice(blockStart, end);
+			const key = prefixKey + "\0" + blockSource;
 			let block = blocks.get(key);
 			if (!block) {
 				const tokens = [...prefix];
 				// Negative offsets refer to incoming tokens; nonnegative offsets are block lines.
 				const tokenLines = prefix.map((_, index) => -index - 1);
-				for (let row = firstLine; row <= line; row++) {
+				// Newlines are normalization and case-context boundaries.
+				const sourceLines = blockSource
+					.normalize("NFKC")
+					.toLowerCase()
+					.split("\n");
+				for (let row = 0; row < sourceLines.length; row++) {
 					for (const match of sourceLines[row]!.matchAll(/[\p{L}\p{N}]+/gu)) {
 						tokens.push(match[0]);
-						tokenLines.push(row - firstLine);
+						tokenLines.push(row);
 					}
 				}
 				const findings = new Set<number>();
@@ -179,12 +192,14 @@ export function createDemoIdentityScanner(
 						const start = end - length + 1;
 						if (start < 0) continue;
 						const phrase = tokens.slice(start, end + 1).join(" ");
-						const verdicts = phraseCaches.get(length)!;
-						let found = verdicts.get(phrase);
+						const verdicts = phraseCaches.get(length);
+						let found = verdicts?.get(phrase);
 						if (found === undefined) {
 							found = digests.has(digest(phrase));
-							if (verdicts.size >= 100_000) verdicts.clear();
-							verdicts.set(phrase, found);
+							if (verdicts) {
+								if (verdicts.size >= 100_000) verdicts.clear();
+								verdicts.set(phrase, found);
+							}
 						}
 						if (found) findings.add(tokenLines[start]!);
 					}
@@ -217,6 +232,7 @@ export function createDemoIdentityScanner(
 			prefix = block.tail;
 			prefixKey = block.tailKey;
 			firstLine = line + 1;
+			blockStart = lineStart;
 		}
 
 		return [...lines]

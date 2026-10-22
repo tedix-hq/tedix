@@ -207,7 +207,7 @@ test("cached line transitions retain the original sliding-window verdicts", () =
 	}
 });
 
-test("long-window cache churn preserves short-window verdicts", () => {
+test("long windows preserve short-window verdicts", () => {
 	let repeated = 0;
 	const hashes = [
 		...denylist,
@@ -228,4 +228,36 @@ test("long-window cache churn preserves short-window verdicts", () => {
 	).join("\n");
 	expect(scan("fixtures/churn.txt", source)).toEqual([]);
 	expect(repeated).toBe(1);
+});
+
+test("block normalization preserves Unicode context and decoded line offsets", () => {
+	const phrases = ["café", "ος", "σ", "i", "ffi", "private customer"];
+	const hashes = phrases.map((phrase) => ({
+		words: phrase.split(" ").length,
+		sha256: createHash("sha256").update(phrase).digest("hex"),
+	}));
+	const scan = createDemoIdentityScanner(hashes);
+	const source = [
+		"CAFE\u0301",
+		"",
+		"ΟΣ",
+		"",
+		"Σ",
+		"",
+		"İ",
+		"",
+		"ﬃ",
+		"",
+		String.raw`Private\u000a\u000aCustomer`,
+	].join("\n");
+	expect(scan("fixtures/unicode.txt", source)).toEqual(
+		[1, 3, 5, 7, 9, 11].map(
+			(line) => `fixtures/unicode.txt:${line}: use a fictional sample identity`,
+		),
+	);
+	expect(scan("fixtures/shifted.txt", "\n" + source + "\n")).toEqual(
+		[2, 4, 6, 8, 10, 12].map(
+			(line) => `fixtures/shifted.txt:${line}: use a fictional sample identity`,
+		),
+	);
 });
