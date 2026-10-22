@@ -62,6 +62,20 @@ describe("native Pi provider and durable storage", () => {
 		expect(later.requests).toHaveLength(3);
 		expect(later.budget.usedTokens).toBe(200);
 	});
+	it("reopens failed Pi storage for a later admitted turn without duplicate work", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.turn("before-storage-failure");
+		expect(await agent.failPiStorageRead()).toMatch(/pi_conversations/);
+
+		const recovered = await agent.turn("after-storage-failure");
+		const beforeReplay = await inspect(agent, "after-storage-failure");
+		expect(await agent.turn("after-storage-failure")).toEqual(recovered);
+		expect(await inspect(agent, "after-storage-failure")).toEqual(beforeReplay);
+		expect(beforeReplay.requests).toHaveLength(3);
+		expect(beforeReplay.effects).toBe(1);
+		expect(beforeReplay.budget.usedTokens).toBe(200);
+		expect(beforeReplay.checkpoint.attempts).toHaveLength(1);
+	});
 	it("preserves encrypted Responses reasoning, exact tool results and explicit prompt-cache blocks through actual Pi assembly", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.turn("responses");
