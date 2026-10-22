@@ -4,7 +4,14 @@ import { useCardSourceFilter } from "./use-card-source-filter";
 import { OS_COPY } from "@/shared/os-copy";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadNotice } from "@/components/work-read-region";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useTransition,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	ActivityFeedConfig,
@@ -93,6 +100,8 @@ export function FocusFeed({
 	const [busy, setBusy] = useState(false);
 	const [handledOpen, setHandledOpen] = useState(false);
 	const [heldOpen, setHeldOpen] = useState(false);
+	// Revealing a long list renders in the background so the toggle stays responsive.
+	const [revealing, reveal] = useTransition();
 	const [localEvents, setLocalEvents] = useState<LearningInteractionEvent[]>(
 		[],
 	);
@@ -742,7 +751,7 @@ export function FocusFeed({
 				aria-label={
 					filtered ? filterLabel : timeline ? "Everything" : "Updates for you"
 				}
-				aria-busy={loading}
+				aria-busy={loading || revealing}
 			>
 				{timeline ? (
 					<div role="list" className="focus-list">
@@ -767,7 +776,7 @@ export function FocusFeed({
 									variant="ghost"
 									className="focus-more !px-0"
 									aria-expanded={heldOpen}
-									onClick={() => setHeldOpen((v) => !v)}
+									onClick={() => reveal(() => setHeldOpen((v) => !v))}
 								>
 									{heldOpen
 										? "Fewer updates"
@@ -786,7 +795,7 @@ export function FocusFeed({
 									variant="ghost"
 									className="focus-more !px-0"
 									aria-expanded={handledOpen}
-									onClick={() => setHandledOpen((v) => !v)}
+									onClick={() => reveal(() => setHandledOpen((v) => !v))}
 								>
 									Handled without you: {handled.length}
 								</Button>
