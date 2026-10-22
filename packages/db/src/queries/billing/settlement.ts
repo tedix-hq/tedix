@@ -1,7 +1,6 @@
 /** Canonical billing settlement queries. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { getBillingBalanceSnapshot } from "./credits";
 import { and, eq, or } from "drizzle-orm";
 import {
 	monetaryInferenceConfig,
@@ -9,11 +8,8 @@ import {
 } from "./monetary-inference";
 import type { D1Executor, DbClient } from "../../client";
 import {
-	type BillingPlanVersion,
 	type BillingUsageCharge,
-	type BillingUsagePeriod,
 	type BillingUsageSource,
-	billingAccounts,
 	billingPlanVersions,
 	billingUsageCharges,
 	billingUsagePeriods,
@@ -22,16 +18,15 @@ import {
 
 const STRIPE_TOKEN_METER_EVENT = "token_usage";
 
-function ceilUnits(tokens: number, unitTokens: number): number {
-	if (tokens <= 0) return 0;
-	return Math.ceil(tokens / Math.max(1, unitTokens));
-}
-
 function usageDuplicatePredicate(input: {
+	id: string;
+	reservationId?: string | null;
 	gatewayLogId?: string | null;
 	providerUsageId?: string | null;
 }) {
-	const predicates = [];
+	const predicates = [eq(billingUsageCharges.id, input.id)];
+	if (input.reservationId)
+		predicates.push(eq(billingUsageCharges.reservationId, input.reservationId));
 	if (input.gatewayLogId) {
 		predicates.push(eq(billingUsageCharges.gatewayLogId, input.gatewayLogId));
 	}
@@ -46,6 +41,8 @@ function usageDuplicatePredicate(input: {
 async function findExistingBillingUsageCharge(
 	db: DbClient,
 	input: {
+		id: string;
+		reservationId?: string | null;
 		gatewayLogId?: string | null;
 		providerUsageId?: string | null;
 	},
@@ -56,88 +53,6 @@ async function findExistingBillingUsageCharge(
 		.where(usageDuplicatePredicate(input))
 		.limit(1);
 	return existing ?? null;
-}
-
-interface SettlementAmounts {
-	includedTokensApplied: number;
-	stripeMeteredTokens: number;
-	customerChargeMicros: number;
-	creditAppliedMicros: number;
-}
-
-function calculateSettlementAmounts(input: {
-	totalTokens: number;
-	period: BillingUsagePeriod;
-	plan: BillingPlanVersion;
-	creditBalanceMicros: number;
-	overageEnabled: boolean;
-}): SettlementAmounts {
-	const { totalTokens, period, plan } = input;
-	const usedBefore = period.usedInputTokens + period.usedOutputTokens;
-	const remainingIncluded =
-		period.includedTokens < 0
-			? totalTokens
-			: Math.max(period.includedTokens - usedBefore, 0);
-	const includedTokensApplied = Math.min(totalTokens, remainingIncluded);
-	// Priced overage is sold only once an admin opted in. Admission already
-	// stops at the allowance without the opt-in, so anything landing here is an
-	// estimate undershoot; it is absorbed rather than metered to Stripe.
-	if (
-		plan.allowOverage &&
-		plan.overageUnitPriceMicros > 0 &&
-		!input.overageEnabled
-	) {
-		return {
-			includedTokensApplied,
-			stripeMeteredTokens: 0,
-			customerChargeMicros: 0,
-			creditAppliedMicros: 0,
-		};
-	}
-	const overageTokens = Math.max(totalTokens - includedTokensApplied, 0);
-	const overageBefore =
-		period.includedTokens < 0
-			? 0
-			: Math.max(usedBefore - period.includedTokens, 0);
-	const overageAfter = overageBefore + overageTokens;
-	const overageUnitsBefore = ceilUnits(overageBefore, plan.overageUnitTokens);
-	const overageUnitsAfter = ceilUnits(overageAfter, plan.overageUnitTokens);
-	const incrementalOverageUnits = Math.max(
-		overageUnitsAfter - overageUnitsBefore,
-		0,
-	);
-	const grossChargeMicros =
-		incrementalOverageUnits * plan.overageUnitPriceMicros;
-	const affordableCreditUnits =
-		plan.overageUnitPriceMicros > 0
-			? Math.floor(input.creditBalanceMicros / plan.overageUnitPriceMicros)
-			: 0;
-	const creditedUnits = Math.min(
-		incrementalOverageUnits,
-		affordableCreditUnits,
-	);
-	const creditAppliedMicros = creditedUnits * plan.overageUnitPriceMicros;
-	const creditedCoverageBefore =
-		plan.overageUnitPriceMicros > 0
-			? Math.floor(period.creditAppliedMicros / plan.overageUnitPriceMicros) *
-				plan.overageUnitTokens
-			: 0;
-	const creditedCoverageAfter =
-		creditedCoverageBefore + creditedUnits * plan.overageUnitTokens;
-	const stripeMeteredTotalAfter = Math.max(
-		overageAfter - creditedCoverageAfter,
-		0,
-	);
-	const stripeMeteredTokens = Math.max(
-		stripeMeteredTotalAfter - period.meteredOverageTokens,
-		0,
-	);
-	return {
-		includedTokensApplied,
-		stripeMeteredTokens,
-		customerChargeMicros: grossChargeMicros - creditAppliedMicros,
-		creditAppliedMicros,
-	};
 }
 
 export async function settleBillingUsage(
@@ -213,6 +128,15 @@ export async function settleBillingUsage(
 		throw new Error(`Billing reservation not found: ${input.reservationId}`);
 	}
 	if (!["reserved", "expired"].includes(reservation.status)) {
+		const settled = await findExistingBillingUsageCharge(db, input);
+		if (settled) {
+			if (
+				settled.organizationId !== input.organizationId ||
+				settled.reservationId !== input.reservationId
+			)
+				throw new Error("Usage settlement identity mismatch");
+			return settled;
+		}
 		throw new Error(
 			`Billing reservation ${input.reservationId} cannot settle from ${reservation.status}`,
 		);
@@ -258,293 +182,231 @@ export async function settleBillingUsage(
 	// caller passes a session-backed client (see createDbSession).
 	const d1 = db.$client as D1Executor;
 
-	for (let attempt = 0; attempt < 5; attempt++) {
-		const existing = await findExistingBillingUsageCharge(db, input);
-		if (existing) {
-			if (
-				existing.organizationId !== input.organizationId ||
-				existing.reservationId !== input.reservationId
-			)
-				throw new Error("Usage settlement identity mismatch");
-			return existing;
-		}
+	const outboxId = crypto.randomUUID();
+	const creditEntryId = crypto.randomUUID();
+	const metadata = JSON.stringify({
+		...input.metadata,
+		...(monetaryQuote ? { monetaryQuote } : {}),
+	});
 
-		const [[period], [account]] = await Promise.all([
-			db
-				.select()
-				.from(billingUsagePeriods)
-				.where(eq(billingUsagePeriods.id, periodId))
-				.limit(1),
-			db
-				.select({
-					creditBalanceMicros: billingAccounts.creditBalanceMicros,
-					overageEnabled: billingAccounts.overageEnabled,
-				})
-				.from(billingAccounts)
-				.where(eq(billingAccounts.organizationId, input.organizationId))
-				.limit(1),
-		]);
-		if (!period) throw new Error("Failed to load billing usage period");
-		if (!account) {
-			throw new Error(
-				`Billing account not found for organization ${input.organizationId}`,
-			);
-		}
-
-		const balanceSnapshot = monetaryQuote
-			? await getBillingBalanceSnapshot(db, input.organizationId, input.now)
-			: null;
-		const ownActiveHold =
-			reservation.status === "reserved" && reservation.expiresAt > input.now
-				? reservation.estimatedChargeMicros
-				: 0;
-		const otherHolds = Math.max(
-			(balanceSnapshot?.reservedChargeMicros ?? 0) - ownActiveHold,
-			0,
+	// The INSERT claims one reservation and prices it against the current wallet
+	// and allowance. D1 serializes the whole batch, so no external CAS snapshot
+	// or retry budget is needed when other reservations settle in the same period.
+	const insertCharge = d1
+		.prepare(`
+		WITH basis AS (
+			SELECT period.used_input_tokens + period.used_output_tokens AS used_before,
+				period.included_tokens, period.credit_applied_micros AS credited_before,
+				period.metered_overage_tokens AS metered_before,
+				account.credit_balance_micros AS balance,
+				? AS total_tokens, MAX(1, ?) AS unit_tokens, ? AS unit_price,
+				? AND account.overage_enabled = 0 AS absorb_overage,
+				? AS monetary, ? AS quoted_charge,
+				reservation.estimated_charge_micros AS hold_ceiling,
+				CASE WHEN ? THEN COALESCE((
+					SELECT SUM(held.estimated_charge_micros)
+					FROM billing_usage_reservations AS held
+					WHERE held.organization_id = account.organization_id
+						AND held.id <> reservation.id AND held.status = 'reserved'
+						AND held.expires_at > ?
+				), 0) ELSE 0 END AS other_holds
+			FROM billing_usage_periods AS period
+			JOIN billing_accounts AS account ON account.organization_id = period.organization_id
+			JOIN billing_usage_reservations AS reservation ON reservation.id = ?
+			WHERE period.id = ? AND period.organization_id = ?
+				AND reservation.organization_id = period.organization_id
+				AND reservation.status IN ('reserved', 'expired')
+				AND NOT EXISTS (SELECT 1 FROM billing_usage_charges WHERE reservation_id = reservation.id)
+		), allowance AS (
+			SELECT basis.*,
+				MIN(total_tokens, CASE WHEN included_tokens < 0 THEN total_tokens
+					ELSE MAX(included_tokens - used_before, 0) END) AS included,
+				CASE WHEN included_tokens < 0 THEN 0 ELSE MAX(used_before - included_tokens, 0) END AS overage_before
+			FROM basis
+		), overage AS (
+			SELECT allowance.*, overage_before + total_tokens - included AS overage_after
+			FROM allowance
+		), units AS (
+			SELECT overage.*,
+				MAX(CAST((overage_after + unit_tokens - 1) / unit_tokens AS INTEGER)
+					- CAST((overage_before + unit_tokens - 1) / unit_tokens AS INTEGER), 0) AS incremental_units
+			FROM overage
+		), credit AS (
+			SELECT units.*,
+				CASE WHEN unit_price > 0 THEN MIN(incremental_units, CAST(balance / unit_price AS INTEGER)) ELSE 0 END AS credited_units,
+				CASE WHEN unit_price > 0 THEN CAST(credited_before / unit_price AS INTEGER) * unit_tokens ELSE 0 END AS credited_coverage
+			FROM units
+		), amounts AS (
+			SELECT
+				CASE WHEN monetary THEN 0 ELSE included END AS included_applied,
+				CASE WHEN monetary OR absorb_overage THEN 0
+					ELSE MAX(overage_after - credited_coverage - credited_units * unit_tokens - metered_before, 0) END AS metered,
+				CASE WHEN monetary OR absorb_overage THEN 0
+					ELSE (incremental_units - credited_units) * unit_price END AS customer_charge,
+				CASE WHEN monetary THEN MIN(quoted_charge, hold_ceiling, MAX(balance - other_holds, 0))
+					WHEN absorb_overage THEN 0 ELSE credited_units * unit_price END AS credit_applied
+			FROM credit
+		)
+		INSERT INTO billing_usage_charges (
+			id, organization_id, tedi_id, reservation_id, usage_period_id,
+			gateway_log_id, provider_usage_id, provider, model, source,
+			input_tokens, output_tokens, included_tokens_applied, metered_overage_tokens,
+			provider_cost_micros, customer_charge_micros, credit_applied_micros,
+			usage_quality, provider_cost_quality, metering_ready, rate_card_version,
+			occurred_at, metadata, created_at
+		)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, included_applied, metered,
+			?, customer_charge, credit_applied, ?, ?, ?, ?, ?,
+			CASE WHEN ? THEN json_set(?, '$.absorbedChargeMicros', ? - credit_applied) ELSE ? END, ?
+		FROM amounts
+		WHERE NOT EXISTS (SELECT 1 FROM billing_usage_charges WHERE ${duplicateSql})
+		ON CONFLICT DO NOTHING
+		RETURNING id
+	`)
+		.bind(
+			totalTokens,
+			plan.overageUnitTokens,
+			plan.overageUnitPriceMicros,
+			plan.allowOverage && plan.overageUnitPriceMicros > 0 ? 1 : 0,
+			monetaryQuote ? 1 : 0,
+			monetaryQuote?.customerChargeMicros ?? 0,
+			monetaryQuote ? 1 : 0,
+			input.now,
+			input.reservationId,
+			periodId,
+			input.organizationId,
+			input.id,
+			input.organizationId,
+			input.tediId ?? null,
+			input.reservationId,
+			periodId,
+			input.gatewayLogId ?? null,
+			input.providerUsageId ?? null,
+			input.provider,
+			input.model,
+			input.source,
+			input.inputTokens,
+			input.outputTokens,
+			input.providerCostMicros,
+			input.usageQuality,
+			input.providerCostQuality,
+			input.meteringReady ? 1 : 0,
+			input.rateCardVersion ?? null,
+			input.occurredAt,
+			monetaryQuote ? 1 : 0,
+			metadata,
+			monetaryQuote?.customerChargeMicros ?? 0,
+			metadata,
+			input.now,
+			input.gatewayLogId ?? null,
+			input.gatewayLogId ?? null,
+			input.providerUsageId ?? null,
+			input.providerUsageId ?? null,
 		);
-		const amounts = monetaryQuote
-			? {
-					includedTokensApplied: 0,
-					stripeMeteredTokens: 0,
-					customerChargeMicros: 0,
-					// Inference exceeding its reserved ceiling is absorbed, not an
-					// unauthorized overdraft. Late receipts may use remaining funds only.
-					creditAppliedMicros: Math.min(
-						monetaryQuote.customerChargeMicros,
-						reservation.estimatedChargeMicros,
-						Math.max(account.creditBalanceMicros - otherHolds, 0),
-					),
-				}
-			: calculateSettlementAmounts({
-					totalTokens,
-					period,
-					plan,
-					creditBalanceMicros: account.creditBalanceMicros,
-					overageEnabled: account.overageEnabled,
-				});
-		const metadata = JSON.stringify({
-			...input.metadata,
-			...(monetaryQuote
-				? {
-						monetaryQuote,
-						absorbedChargeMicros:
-							monetaryQuote.customerChargeMicros - amounts.creditAppliedMicros,
-					}
-				: {}),
-		});
-		const nextSettlementVersion = period.settlementVersion + 1;
-		const outboxId = crypto.randomUUID();
-		const creditEntryId = crypto.randomUUID();
 
-		const updatePeriod = d1
-			.prepare(
-				`UPDATE billing_usage_periods
-				 SET used_input_tokens = used_input_tokens + ?,
-				     used_output_tokens = used_output_tokens + ?,
-				     metered_overage_tokens = metered_overage_tokens + ?,
-				     provider_cost_micros = provider_cost_micros + ?,
-				     customer_charge_micros = customer_charge_micros + ?,
-				     credit_applied_micros = credit_applied_micros + ?,
-				     settlement_version = settlement_version + 1,
-				     last_settlement_id = ?,
-				     updated_at = ?
-				 WHERE id = ?
-				   AND settlement_version = ?
-				   AND EXISTS (
-				     SELECT 1 FROM billing_usage_reservations
-				     WHERE id = ? AND status IN ('reserved','expired')
-				   )
-				   AND NOT EXISTS (
-				     SELECT 1 FROM billing_usage_charges WHERE reservation_id = ?
-				   )
-				   AND EXISTS (
-				     SELECT 1 FROM billing_accounts
-				     WHERE organization_id = ?
-				       AND credit_balance_micros = ?
- AND (? = 0 OR credit_balance_micros - ? >= COALESCE((SELECT SUM(held.estimated_charge_micros) FROM billing_usage_reservations held WHERE held.organization_id=billing_accounts.organization_id AND held.id<>? AND held.status='reserved' AND held.expires_at>?),0))
-				   )
-				   AND NOT EXISTS (
-				     SELECT 1 FROM billing_usage_charges
-				     WHERE ${duplicateSql}
-				   )
-				 RETURNING settlement_version`,
-			)
-			.bind(
-				input.inputTokens,
-				input.outputTokens,
-				amounts.stripeMeteredTokens,
-				input.providerCostMicros,
-				amounts.customerChargeMicros,
-				amounts.creditAppliedMicros,
-				input.id,
-				input.now,
-				periodId,
-				period.settlementVersion,
-				input.reservationId,
-				input.reservationId,
-				input.organizationId,
-				account.creditBalanceMicros,
-				monetaryQuote ? 1 : 0,
-				amounts.creditAppliedMicros,
-				input.reservationId,
-				input.now,
-				input.gatewayLogId ?? null,
-				input.gatewayLogId ?? null,
-				input.providerUsageId ?? null,
-				input.providerUsageId ?? null,
-			);
+	// changes() belongs to the immediately preceding INSERT in this atomic batch.
+	// A duplicate claim changes zero rows, including retries with the same charge id.
+	const updatePeriod = d1
+		.prepare(`
+		UPDATE billing_usage_periods
+		SET (used_input_tokens, used_output_tokens, metered_overage_tokens,
+			provider_cost_micros, customer_charge_micros, credit_applied_micros) = (
+			SELECT billing_usage_periods.used_input_tokens + charge.input_tokens, billing_usage_periods.used_output_tokens + charge.output_tokens,
+				billing_usage_periods.metered_overage_tokens + charge.metered_overage_tokens,
+				billing_usage_periods.provider_cost_micros + charge.provider_cost_micros,
+				billing_usage_periods.customer_charge_micros + charge.customer_charge_micros,
+				billing_usage_periods.credit_applied_micros + charge.credit_applied_micros
+			FROM billing_usage_charges AS charge WHERE charge.id = ?
+		), settlement_version = settlement_version + 1, last_settlement_id = ?, updated_at = ?
+		WHERE id = ? AND changes() = 1
+	`)
+		.bind(input.id, input.id, input.now, periodId);
 
-		const insertCharge = d1
-			.prepare(
-				`INSERT INTO billing_usage_charges (
-				   id, organization_id, tedi_id, reservation_id, usage_period_id,
-				   gateway_log_id, provider_usage_id, provider, model, source,
-				   input_tokens, output_tokens, included_tokens_applied,
-				   metered_overage_tokens, provider_cost_micros,
-				   customer_charge_micros, credit_applied_micros, usage_quality,
-				   provider_cost_quality, metering_ready, rate_card_version,
-				   occurred_at, metadata, created_at
-				 )
-				 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-				        ?, ?, ?, ?, ?, ?
-				 FROM billing_usage_periods
-				 WHERE id = ? AND settlement_version = ?
-				   AND last_settlement_id = ?
-				   AND NOT EXISTS (
-				     SELECT 1 FROM billing_usage_charges
-				     WHERE ${duplicateSql}
-				   )
-				 ON CONFLICT DO NOTHING
-				 RETURNING *`,
-			)
-			.bind(
-				input.id,
-				input.organizationId,
-				input.tediId ?? null,
-				input.reservationId,
-				periodId,
-				input.gatewayLogId ?? null,
-				input.providerUsageId ?? null,
-				input.provider,
-				input.model,
-				input.source,
-				input.inputTokens,
-				input.outputTokens,
-				amounts.includedTokensApplied,
-				amounts.stripeMeteredTokens,
-				input.providerCostMicros,
-				amounts.customerChargeMicros,
-				amounts.creditAppliedMicros,
-				input.usageQuality,
-				input.providerCostQuality,
-				input.meteringReady ? 1 : 0,
-				input.rateCardVersion ?? null,
-				input.occurredAt,
-				metadata,
-				input.now,
-				periodId,
-				nextSettlementVersion,
-				input.id,
-				input.gatewayLogId ?? null,
-				input.gatewayLogId ?? null,
-				input.providerUsageId ?? null,
-				input.providerUsageId ?? null,
-			);
+	const insertCredit = d1
+		.prepare(
+			`INSERT INTO billing_credit_entries (
+			   id, organization_id, kind, amount_micros, source_type,
+			   source_ref, usage_charge_id, idempotency_key, description,
+			   metadata, created_at
+			 )
+			 SELECT ?, organization_id, 'debit', -credit_applied_micros,
+			        'usage_charge', id, id, ?, ?, '{}', ?
+			 FROM billing_usage_charges
+			 WHERE id = ? AND credit_applied_micros > 0
+			 ON CONFLICT(idempotency_key) DO NOTHING
+			 RETURNING id`,
+		)
+		.bind(
+			creditEntryId,
+			`usage-charge:${input.id}`,
+			`Credits applied to ${input.model} usage`,
+			input.now,
+			input.id,
+		);
 
-		const insertCredit = d1
-			.prepare(
-				`INSERT INTO billing_credit_entries (
-				   id, organization_id, kind, amount_micros, source_type,
-				   source_ref, usage_charge_id, idempotency_key, description,
-				   metadata, created_at
-				 )
-				 SELECT ?, organization_id, 'debit', -credit_applied_micros,
-				        'usage_charge', id, id, ?, ?, '{}', ?
-				 FROM billing_usage_charges
-				 WHERE id = ? AND credit_applied_micros > 0
-				 ON CONFLICT(idempotency_key) DO NOTHING
-				 RETURNING id`,
-			)
-			.bind(
-				creditEntryId,
-				`usage-charge:${input.id}`,
-				`Credits applied to ${input.model} usage`,
-				input.now,
-				input.id,
-			);
+	const settleReservation = d1
+		.prepare(
+			`UPDATE billing_usage_reservations
+			 SET status = 'settled', settled_at = ?, updated_at = ?
+			 WHERE id = ? AND organization_id = ?
+			   AND status IN ('reserved', 'expired')
+			   AND EXISTS (
+			     SELECT 1 FROM billing_usage_charges WHERE id = ?
+			       AND reservation_id = billing_usage_reservations.id
+			       AND organization_id = billing_usage_reservations.organization_id
+			   )
+			 RETURNING id`,
+		)
+		.bind(
+			input.now,
+			input.now,
+			input.reservationId,
+			input.organizationId,
+			input.id,
+		);
 
-		const settleReservation = d1
-			.prepare(
-				`UPDATE billing_usage_reservations
-				 SET status = 'settled', settled_at = ?, updated_at = ?
-				 WHERE id = ? AND organization_id = ?
-				   AND status IN ('reserved', 'expired')
-				   AND EXISTS (
-				     SELECT 1 FROM billing_usage_charges WHERE id = ?
-				   )
-				 RETURNING id`,
-			)
-			.bind(
-				input.now,
-				input.now,
-				input.reservationId,
-				input.organizationId,
-				input.id,
-			);
+	const insertOutbox = d1
+		.prepare(
+			`INSERT INTO stripe_meter_outbox (
+			   id, organization_id, usage_charge_id, stripe_customer_id,
+			   stripe_environment,
+			   event_name, quantity, idempotency_key, status,
+			   attempt_count, next_attempt_at, created_at, updated_at
+			 )
+			 SELECT ?, charge.organization_id, charge.id,
+			        account.stripe_customer_id, ?, ?,
+			        charge.metered_overage_tokens, ?, 'pending', 0, ?, ?, ?
+			 FROM billing_usage_charges AS charge
+			 JOIN billing_accounts AS account
+			   ON account.organization_id = charge.organization_id
+			 WHERE charge.id = ?
+			   AND charge.metering_ready = 1
+			   AND charge.metered_overage_tokens > 0
+			   AND account.billing_mode = 'stripe'
+			   AND account.stripe_environment = ?
+			   AND account.stripe_customer_id IS NOT NULL
+			 ON CONFLICT DO NOTHING
+			 RETURNING id`,
+		)
+		.bind(
+			outboxId,
+			input.stripeEnvironment ?? "live",
+			STRIPE_TOKEN_METER_EVENT,
+			`stripe-meter:${input.id}`,
+			input.now,
+			input.now,
+			input.now,
+			input.id,
+			input.stripeEnvironment ?? "live",
+		);
 
-		const insertOutbox = d1
-			.prepare(
-				`INSERT INTO stripe_meter_outbox (
-				   id, organization_id, usage_charge_id, stripe_customer_id,
-				   stripe_environment,
-				   event_name, quantity, idempotency_key, status,
-				   attempt_count, next_attempt_at, created_at, updated_at
-				 )
-				 SELECT ?, charge.organization_id, charge.id,
-				        account.stripe_customer_id, ?, ?,
-				        charge.metered_overage_tokens, ?, 'pending', 0, ?, ?, ?
-				 FROM billing_usage_charges AS charge
-				 JOIN billing_accounts AS account
-				   ON account.organization_id = charge.organization_id
-				 WHERE charge.id = ?
-				   AND charge.metering_ready = 1
-				   AND charge.metered_overage_tokens > 0
-				   AND account.billing_mode = 'stripe'
-				   AND account.stripe_environment = ?
-				   AND account.stripe_customer_id IS NOT NULL
-				 ON CONFLICT DO NOTHING
-				 RETURNING id`,
-			)
-			.bind(
-				outboxId,
-				input.stripeEnvironment ?? "live",
-				STRIPE_TOKEN_METER_EVENT,
-				`stripe-meter:${input.id}`,
-				input.now,
-				input.now,
-				input.now,
-				input.id,
-				input.stripeEnvironment ?? "live",
-			);
-
-		const results = await d1.batch([
-			updatePeriod,
-			insertCharge,
-			insertCredit,
-			settleReservation,
-			insertOutbox,
-		]);
-		const inserted = results[1]?.results?.[0];
-		if (inserted) {
-			const [charge] = await db
-				.select()
-				.from(billingUsageCharges)
-				.where(eq(billingUsageCharges.id, input.id))
-				.limit(1);
-			if (charge) return charge;
-		}
-	}
-
+	await d1.batch([
+		insertCharge,
+		updatePeriod,
+		insertCredit,
+		settleReservation,
+		insertOutbox,
+	]);
 	const existing = await findExistingBillingUsageCharge(db, input);
 	if (existing) {
 		if (
@@ -554,5 +416,7 @@ export async function settleBillingUsage(
 			throw new Error("Usage settlement identity mismatch");
 		return existing;
 	}
-	throw new Error("Billing settlement concurrency retry exhausted");
+	throw new Error(
+		`Billing reservation ${input.reservationId} is no longer settleable or its billing account is missing`,
+	);
 }
