@@ -14,12 +14,15 @@ import { SkillVersionsPage } from "./skill-versions-page";
 vi.mock("@tanstack/react-router", () => ({
 	useParams: () => ({ skillId: "example-skill" }),
 }));
-const read = vi.hoisted(() => vi.fn());
+const reads = vi.hoisted(() => ({
+	get: vi.fn(),
+	listWorkflowRevisions: vi.fn(),
+}));
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		skills: {
-			listWorkflowRevisions: read,
-			get: () => Promise.resolve({ entry: skill }),
+			listWorkflowRevisions: reads.listWorkflowRevisions,
+			get: reads.get,
 		},
 	},
 }));
@@ -29,7 +32,8 @@ vi.mock("@/lib/api", () => ({
 const cleanups: (() => void)[] = [];
 afterEach(() => {
 	cleanups.splice(0).forEach((cleanup) => cleanup());
-	read.mockReset();
+	reads.get.mockReset();
+	reads.listWorkflowRevisions.mockReset();
 });
 const skill: SkillEntry = {
 	id: "example-skill",
@@ -71,14 +75,19 @@ const revision: SkillWorkflowRevision = {
 	workflowSourceSha256: "example-workflow",
 	skillDocSha256: "example-instructions",
 };
-async function mount(rows?: SkillWorkflowRevision[], mayBeTruncated = false) {
+async function mount(
+	rows?: SkillWorkflowRevision[],
+	mayBeTruncated = false,
+	cacheDetail = true,
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 	const options = skillRevisionsQueryOptions("example-skill");
-	client.setQueryData(skillDetailQueryOptions("example-skill").queryKey, {
-		entry: skill,
-	});
+	if (cacheDetail)
+		client.setQueryData(skillDetailQueryOptions("example-skill").queryKey, {
+			entry: skill,
+		});
 	if (rows)
 		client.setQueryData(options.queryKey, {
 			revisions: rows,
@@ -108,7 +117,7 @@ async function mount(rows?: SkillWorkflowRevision[], mayBeTruncated = false) {
 }
 describe("skill versions", () => {
 	it("shows loading without claiming the list is empty", async () => {
-		read.mockReturnValueOnce(new Promise(() => {}));
+		reads.listWorkflowRevisions.mockReturnValueOnce(new Promise(() => {}));
 		const { node } = await mount();
 		expect(node.querySelector('[data-slot="skeleton"]')).not.toBeNull();
 		expect(node.querySelector('[data-slot="empty"]')).toBeNull();
@@ -135,12 +144,14 @@ describe("skill versions", () => {
 		expect(node.querySelector('[role="alert"]')).toBeNull();
 	});
 	it("reports an error and recovers with a read retry", async () => {
-		read.mockRejectedValueOnce(new Error("Versions read failed"));
+		reads.listWorkflowRevisions.mockRejectedValueOnce(
+			new Error("Versions read failed"),
+		);
 		const { node } = await mount();
 		expect(node.textContent).toContain("Versions unavailable");
 		expect(node.textContent).toContain("Versions read failed");
 		expect(node.textContent).not.toContain("No versions have run");
-		read.mockResolvedValueOnce({
+		reads.listWorkflowRevisions.mockResolvedValueOnce({
 			revisions: [revision],
 			sampledRunCount: 4,
 			mayBeTruncated: false,
@@ -154,13 +165,42 @@ describe("skill versions", () => {
 	});
 	it("keeps a cached version and warns when a refresh fails", async () => {
 		const { node, client, options } = await mount([revision]);
-		read.mockRejectedValueOnce(new Error("Refresh failed"));
+		reads.listWorkflowRevisions.mockRejectedValueOnce(
+			new Error("Refresh failed"),
+		);
 		await act(async () => {
 			await client.refetchQueries(options);
 			await new Promise((done) => setTimeout(done, 20));
 		});
-		expect(node.textContent).toContain("Versions unavailable");
+		expect(node.textContent).toContain("Versions could not refresh");
+		expect(node.textContent).toContain(
+			"Showing previously loaded execution evidence",
+		);
 		expect(node.textContent).toContain("Revision 3");
+	});
+	it("recovers skill details independently before verifying Current", async () => {
+		reads.get
+			.mockRejectedValueOnce(new Error("Details read failed"))
+			.mockResolvedValueOnce({ entry: skill });
+		const { node } = await mount([revision], false, false);
+		expect(node.textContent).toContain(
+			"Current version verification unavailable",
+		);
+		expect(node.textContent).toContain("Revision 3");
+		expect(node.textContent).not.toContain("Clearer instructions");
+		expect(node.querySelector('[data-slot="badge"]')).toBeNull();
+		const retry = [...node.querySelectorAll("button")].find(
+			(button) => button.textContent === "Retry skill details",
+		);
+		expect(retry).toBeDefined();
+		await act(async () => retry!.click());
+		await act(async () => {
+			await new Promise((done) => setTimeout(done, 20));
+		});
+		expect(reads.get).toHaveBeenCalledTimes(2);
+		expect(reads.listWorkflowRevisions).not.toHaveBeenCalled();
+		expect(node.textContent).toContain("Current");
+		expect(node.textContent).toContain("Clearer instructions");
 	});
 	it("keeps the sample limitation visible", async () => {
 		const { node } = await mount([revision], true);
