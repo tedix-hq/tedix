@@ -112,7 +112,10 @@ function work(args: string[], lane: Pick<Lane, "scope" | "session">) {
 	return JSON.parse(result.stdout) as Record<string, unknown>;
 }
 
-export async function runLane(args: string[]): Promise<number> {
+export async function runLane(
+	args: string[],
+	options: { json?: boolean } = {},
+): Promise<number> {
 	let verbIndex = 0;
 	while (
 		["-w", "--workspace", "--organization"].includes(args[verbIndex] ?? "")
@@ -210,7 +213,7 @@ export async function runLane(args: string[]): Promise<number> {
 			scope,
 			host === "claude" ? "claude-code" : "codex",
 		);
-		console.log(result.brief);
+		console.log(options.json ? JSON.stringify(result.brief) : result.brief);
 		return 0;
 	}
 	const path = lanePath(session, scope, process.env);

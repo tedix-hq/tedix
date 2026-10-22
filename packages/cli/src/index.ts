@@ -274,12 +274,15 @@ async function main() {
 	const laneIndex = process.argv[commandIndex] === "lane" ? commandIndex : -1;
 	if (laneIndex >= 0) {
 		const { runLane } = await import("./lane");
-		process.exitCode = await runLane(
-			withoutJsonFlag([
-				...process.argv.slice(2, laneIndex),
-				...process.argv.slice(laneIndex + 1),
-			]),
-		);
+		const laneArgs = [
+			...process.argv.slice(2, laneIndex),
+			...process.argv.slice(laneIndex + 1),
+		];
+		const separator = laneArgs.indexOf("--");
+		const flags = separator < 0 ? laneArgs : laneArgs.slice(0, separator);
+		process.exitCode = await runLane(withoutJsonFlag(laneArgs), {
+			json: flags.includes("--json"),
+		});
 		return;
 	}
 	if (process.argv[commandIndex] === "commit-handoff") {
@@ -321,6 +324,14 @@ async function main() {
 	}
 	// Local extraction; each organization call runs as its own `tedix code` child.
 	if (localCommand === "learn") {
+		const learnArgs = withoutJsonFlag(argv.slice(1));
+		if (
+			flags.includes("--json") &&
+			(!learnArgs[0] || ["--help", "-h", "help"].includes(learnArgs[0]))
+		) {
+			console.log(JSON.stringify(machineHelp("learn")));
+			return;
+		}
 		const { runLearnCommand } = await import("./learn-import");
 		process.exitCode = await runLearnCommand(argv.slice(1));
 		return;

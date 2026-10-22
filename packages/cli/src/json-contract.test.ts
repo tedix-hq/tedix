@@ -278,6 +278,7 @@ async function run(args: string[], stdin = "", fixtures = true) {
 	]);
 	if (!fixtures)
 		expect(existsSync(join(config, "credentials.json"))).toBe(false);
+	rmSync(config, { recursive: true, force: true });
 	return { stdout, stderr, code };
 }
 
@@ -326,10 +327,44 @@ describe("registry JSON contract", () => {
 	});
 
 	test("JSON help and version remain single documents", async () => {
-		for (const args of [["--help"], ["code", "--help"], ["--version"]]) {
+		for (const args of [
+			["--help"],
+			["code", "--help"],
+			["learn"],
+			["learn", "--help"],
+			["--version"],
+		]) {
 			const result = await run([...args, "--json"]);
 			expect(result.code, result.stderr).toBe(0);
 			expect(() => JSON.parse(result.stdout)).not.toThrow();
+		}
+	}, 15_000);
+
+	test("lane brief encodes its launcher text in JSON mode", async () => {
+		const brief = join(root, "brief.md");
+		writeFileSync(brief, "Implement the fixture.\n");
+		const result = await run([
+			"-w",
+			"fixture",
+			"lane",
+			"brief",
+			brief,
+			"--json",
+		]);
+		expect(result.code, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout)).toBe("Implement the fixture.\n");
+	}, 15_000);
+
+	test("silent hook protocols accept JSON mode without fabricating output", async () => {
+		for (const hook of [
+			"status",
+			"capture-stop",
+			"capture-reply",
+			"await-reply",
+			"await-draft",
+		]) {
+			const result = await run(["hooks", hook, "--json"], "{}");
+			expect(result, hook).toEqual({ stdout: "", stderr: "", code: 0 });
 		}
 	}, 15_000);
 
