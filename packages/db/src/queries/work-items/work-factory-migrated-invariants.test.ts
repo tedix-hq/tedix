@@ -2289,3 +2289,98 @@ it("withdraws the linked waiting ledger row when the original owner closes an ob
 	).toBe("cancelled");
 	expect(await nudgeLaneHandoffs(db, "2026-08-28T08:00:00.000Z")).toBe(0);
 });
+
+it("replays concurrent interaction creates without overwriting a later answer", async () => {
+	const sqlite = migrated();
+	seedCore(sqlite);
+	seedTedi(sqlite);
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const params = {
+		id: "deterministic-ask",
+		orgId: "org",
+		workItemId: "work",
+		kind: "question" as const,
+		subject: "Review the source",
+		prompt: "Original question",
+		creator: { type: "tedi" as const, id: "tedi" },
+		targetType: "user" as const,
+		targetId: "user",
+		now: "2026-08-20T12:00:00.000Z",
+	};
+	const [first, replay] = await Promise.all([
+		createWorkInteraction(db, params),
+		createWorkInteraction(db, params),
+	]);
+	expect(replay).toEqual(first);
+	await respondToWorkInteraction(db, {
+		id: "answer",
+		orgId: "org",
+		interactionId: params.id,
+		expectedVersion: 1,
+		responder: { type: "user", id: "user" },
+		responseKind: "answer",
+		body: "Reviewed",
+		resolvesRequest: true,
+		now: "2026-08-20T13:00:00.000Z",
+	});
+	const before = sqlite.prepare("SELECT * FROM work_interactions").get();
+	const retried = await createWorkInteraction(db, {
+		...params,
+		prompt: "Stale retry must not replace the question",
+		metadata: { retry: true },
+		now: "2026-08-20T14:00:00.000Z",
+	});
+	expect(retried).toMatchObject({ status: "resolved", version: 2 });
+	expect(sqlite.prepare("SELECT * FROM work_interactions").all()).toEqual([
+		before,
+	]);
+	expect(
+		sqlite.prepare("SELECT id,body FROM work_interaction_responses").all(),
+	).toEqual([{ id: "answer", body: "Reviewed" }]);
+	await expect(
+		createWorkInteraction(db, {
+			...params,
+			creator: { type: "system", id: "tedix" },
+		}),
+	).rejects.toThrow("CONFLICT");
+});
+
+it("does not treat another organization's interaction ID as a replay or suppress insert guards", async () => {
+	const sqlite = migrated();
+	seedCore(sqlite);
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	sqlite.exec(`
+		INSERT INTO organizations(id,name,slug) VALUES('foreign','Foreign','foreign');
+		INSERT INTO projects(id,org_id,key,name,created_at) VALUES('foreign-project','foreign','foreign','Foreign','2026-08-20T00:00:00.000Z');
+		INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status) VALUES('foreign-member','foreign','user','user','user@example.com','active');
+	`);
+	const params = {
+		id: "shared-id",
+		orgId: "org",
+		projectId: "project",
+		kind: "coordination" as const,
+		subject: "Update",
+		prompt: "Original",
+		creator: { type: "system" as const, id: "tedix" },
+		targetType: "user" as const,
+		targetId: "user",
+		now: "2026-08-20T12:00:00.000Z",
+	};
+	await createWorkInteraction(db, params);
+	await expect(
+		createWorkInteraction(db, {
+			...params,
+			orgId: "foreign",
+			projectId: "foreign-project",
+		}),
+	).rejects.toThrow();
+	sqlite.exec(
+		"CREATE TRIGGER reject_interaction BEFORE INSERT ON work_interactions BEGIN SELECT RAISE(ABORT,'insert rejected'); END",
+	);
+	await expect(
+		createWorkInteraction(db, { ...params, id: "new-id" }),
+	).rejects.toThrow();
+	expect(
+		sqlite.prepare("SELECT id,org_id FROM work_interactions").all(),
+	).toEqual([{ id: "shared-id", org_id: "org" }]);
+});
