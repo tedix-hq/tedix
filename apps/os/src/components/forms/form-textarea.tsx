@@ -9,6 +9,8 @@ type FormTextareaProps = Omit<
 	id: string;
 	descriptionId?: string;
 	errorId?: string;
+	invalid?: boolean;
+	showErrors?: boolean;
 };
 
 export function FormTextarea({
@@ -16,9 +18,11 @@ export function FormTextarea({
 	id,
 	descriptionId,
 	errorId,
+	invalid = Boolean(field.state.meta.errors?.length),
+	showErrors = true,
 	...props
 }: FormTextareaProps) {
-	const hasErrors = Boolean(field.state.meta.errors?.length);
+	const hasErrors = invalid && showErrors;
 	const describedBy =
 		[descriptionId, hasErrors ? errorId : undefined]
 			.filter(Boolean)

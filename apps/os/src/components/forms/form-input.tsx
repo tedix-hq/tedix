@@ -9,6 +9,8 @@ type FormInputProps = Omit<
 	id: string;
 	descriptionId?: string;
 	errorId?: string;
+	invalid?: boolean;
+	showErrors?: boolean;
 };
 
 export function FormInput({
@@ -16,9 +18,11 @@ export function FormInput({
 	id,
 	descriptionId,
 	errorId,
+	invalid = Boolean(field.state.meta.errors?.length),
+	showErrors = true,
 	...props
 }: FormInputProps) {
-	const hasErrors = Boolean(field.state.meta.errors?.length);
+	const hasErrors = invalid && showErrors;
 	const describedBy =
 		[descriptionId, hasErrors ? errorId : undefined]
 			.filter(Boolean)
