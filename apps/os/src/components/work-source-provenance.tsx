@@ -56,7 +56,11 @@ export function WorkSourceProvenance({
 						{absoluteTime(evidence.capturedAt)}
 					</time>
 					{" · "}
-					<Link href={evidence.evidenceUrl} variant="record">
+					<Link
+						href={evidence.evidenceUrl}
+						variant="record"
+						className="tap-target-y"
+					>
 						Evidence
 					</Link>
 				</Text>

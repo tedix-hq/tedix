@@ -1104,78 +1104,49 @@ const seedState = (): LocalState => ({
 });
 
 let state = seedState();
-installPortfolioFixture();
-installOfficeFixture();
+installWorkViewFixtures();
 
-function installPortfolioFixture(): void {
-	const gadgetId = fid("49", 0x20);
-	const revisionId = fid("50", 0x20);
-	if (state.gadgets.some((gadget) => gadget.id === gadgetId)) return;
-	state.gadgets.push({
-		id: gadgetId,
-		organizationId: ORG_ID,
-		workspaceId: state.workspaces[0]!.id,
-		name: "Projects",
-		description: "Projects and their factories",
-		status: "active",
-		currentRevisionId: revisionId,
-		sourceBlueprintRevisionId: null,
-		createdByKind: "user",
-		createdById: "dev-operator",
-		createdAt: T0,
-		updatedAt: T0,
-	});
-	state.gadgetRevisions.push({
-		id: revisionId,
-		organizationId: ORG_ID,
-		gadgetId,
-		revision: 1,
-		manifest: {
-			capabilities: [],
-			entry: "tedix:app/portfolio",
-			navigation: { board: true },
-		},
-		sourceArtifactRef: null,
-		createdByKind: "user",
-		createdById: "dev-operator",
-		createdAt: T0,
-	});
-}
-
-function installOfficeFixture(): void {
-	const gadgetId = fid("49", 0x21);
-	const revisionId = fid("50", 0x21);
-	if (state.gadgets.some((gadget) => gadget.id === gadgetId)) return;
-	state.gadgets.push({
-		id: gadgetId,
-		organizationId: ORG_ID,
-		workspaceId: state.workspaces[0]!.id,
-		name: "Office",
-		description: "Session activity, replies and lessons",
-		status: "active",
-		currentRevisionId: revisionId,
-		sourceBlueprintRevisionId: null,
-		createdByKind: "user",
-		createdById: "dev-operator",
-		createdAt: T0,
-		updatedAt: T0,
-	});
-	state.gadgetRevisions.push({
-		id: revisionId,
-		organizationId: ORG_ID,
-		gadgetId,
-		revision: 1,
-		manifest: {
-			capabilities: [],
-			entry: "tedix:app/office",
-			navigation: { board: true },
-			config: { version: 1 },
-		},
-		sourceArtifactRef: null,
-		createdByKind: "user",
-		createdById: "dev-operator",
-		createdAt: T0,
-	});
+function installWorkViewFixtures(): void {
+	for (const [index, name, entry] of [
+		[0, "Projects", "portfolio"],
+		[1, "Agents", "agents"],
+		[2, "Office", "office"],
+		[3, "Outbound", "outbound-review"],
+	] as const) {
+		const gadgetId = fid("49", 0x20 + index);
+		const revisionId = fid("50", 0x20 + index);
+		if (state.gadgets.some((gadget) => gadget.id === gadgetId)) continue;
+		state.gadgets.push({
+			id: gadgetId,
+			organizationId: ORG_ID,
+			workspaceId: state.workspaces[0]!.id,
+			name,
+			description: `${name} sample Work view`,
+			status: "active",
+			currentRevisionId: revisionId,
+			sourceBlueprintRevisionId: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T0,
+			updatedAt: T0,
+		});
+		state.gadgetRevisions.push({
+			id: revisionId,
+			organizationId: ORG_ID,
+			gadgetId,
+			revision: 1,
+			manifest: {
+				capabilities: [],
+				entry: `tedix:app/${entry}`,
+				...(index > 0 ? { config: { version: 1 } } : {}),
+				navigation: { board: true },
+			},
+			sourceArtifactRef: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T0,
+		});
+	}
 }
 
 /** Set once by the dev server: the sample company replaces the classic fixtures. */
@@ -1186,10 +1157,7 @@ export function resetLocalFixtures(): void {
 	state = seedState();
 	seq = 0;
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
-	else {
-		installPortfolioFixture();
-		installOfficeFixture();
-	}
+	else installWorkViewFixtures();
 }
 
 /** Serve the sample company (Feed, Deck, tedis, memory) with sending switched off. */
@@ -4293,6 +4261,107 @@ const handlers: Record<string, (input: never) => unknown> = {
 		cards: [],
 		count: 0,
 		complete: true,
+		observedAt: new Date().toISOString(),
+	}),
+	"workItems/listCases": (input: {
+		stages?: string[];
+		projectId?: string;
+	}) => ({
+		data: [
+			{
+				n: 1,
+				title: "Maple Books delivery investigation",
+				stage: "investigating",
+			},
+			{ n: 2, title: "Willow Studio workshop preparation", stage: "planning" },
+		]
+			.map(({ n, title, stage }) => ({
+				id: fid("b1", n),
+				orgId: ORG_ID,
+				projectId: fid("76", 1),
+				objectiveId: null,
+				kind: "other",
+				title,
+				description: "A fictional customer matter for local review.",
+				stage,
+				accountableOwnerType: "user",
+				accountableOwnerId: "dev-operator",
+				openedAt: T0,
+				targetResolutionAt: null,
+				closedAt: null,
+				createdAt: T0,
+				updatedAt: null,
+				version: 1,
+			}))
+			.filter(
+				(row) =>
+					(!input?.stages || input.stages.includes(row.stage)) &&
+					(!input?.projectId || input.projectId === row.projectId),
+			),
+		nextCursor: null,
+	}),
+	"workItems/listResourcePools": (input: {
+		resourceKey?: string;
+		saturatedOnly?: boolean;
+	}) => ({
+		data: ["Workshop browser", "Shared review workstation"]
+			.map((resourceKey, index) => ({
+				pool: {
+					id: fid("b2", index + 1),
+					orgId: ORG_ID,
+					resourceKey,
+					allocationMode: "capacity",
+					capacity: 2,
+					ownerRef: null,
+					createdAt: T0,
+					updatedAt: null,
+					version: 1,
+				},
+				activeReserved: index === 0 ? 2 : 0,
+				effectiveAvailable: index === 0 ? 0 : 2,
+				holders:
+					index === 0
+						? [
+								{
+									attemptId: fid("b4", 1),
+									workItemId: workItemId(1),
+									workTitle: "Review the Maple Books delivery notes",
+									executorType: "tedi",
+									executorId: TEDI_NOVA,
+									externalSessionKey: null,
+									quantity: 2,
+									expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+								},
+							]
+						: [],
+				holdersTruncated: false,
+			}))
+			.filter(
+				(row) =>
+					(!input?.resourceKey || input.resourceKey === row.pool.resourceKey) &&
+					(!input?.saturatedOnly || row.effectiveAvailable === 0),
+			),
+		nextCursor: null,
+		observedAt: new Date().toISOString(),
+	}),
+	"workItems/listBudgetEnvelopes": () => ({
+		data: [0, 1].map((index) => ({
+			envelope: {
+				id: fid("b3", index + 1),
+				orgId: ORG_ID,
+				scopeType: "project",
+				scopeId: fid("76", index + 1),
+				currency: "USD",
+				limitMicros: 10_000_000,
+				reservationMicros: 1_000_000,
+				createdAt: T0,
+				updatedAt: null,
+				version: 1,
+			},
+			committedMicros: index === 0 ? 2_000_000 : 10_000_000,
+			availableMicros: index === 0 ? 8_000_000 : 0,
+		})),
+		nextCursor: null,
 		observedAt: new Date().toISOString(),
 	}),
 	"workInteractions/outbound/list": () => [LOCAL_OUTBOUND],
@@ -7970,7 +8039,7 @@ function installDemoPack(): number {
 		rationales: RATIONALES,
 		memoryHealth: MEMORY_HEALTH,
 	} as unknown as Parameters<typeof applyDemoPack>[0]);
-	installPortfolioFixture();
+	installWorkViewFixtures();
 	return builtAt;
 }
 

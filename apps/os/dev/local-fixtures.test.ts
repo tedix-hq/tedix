@@ -1,3 +1,8 @@
+import {
+	AgentsConfigSchema,
+	OfficeConfigSchema,
+} from "@tedix/api-contract/schemas/os-session-apps";
+import { OutboundReviewConfigSchema } from "@tedix/api-contract/schemas/os-outbound-review";
 import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-layout";
 // @vitest-environment node
 import { apiContract } from "@tedix/api-contract/contracts/api";
@@ -258,6 +263,9 @@ const CALLS: Record<string, unknown> = {
 	"knowledge/list": { limit: 100 },
 	"audit/search": { limit: 100 },
 	"workItems/list": { limit: 50 },
+	"workItems/listCases": {},
+	"workItems/listResourcePools": {},
+	"workItems/listBudgetEnvelopes": {},
 	"workItems/getById": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/getReadiness": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listAttempts": { id: "00000070-0000-4000-8000-000000000001" },
@@ -1265,14 +1273,9 @@ describe("fixture bootstrap parity", () => {
 		const key = "osWorkspaces/gadgets/installWorkDefaults";
 		const before = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 });
 		expect(before).toMatchObject({
-			items: expect.arrayContaining([
-				expect.objectContaining({
-					gadget: expect.objectContaining({ name: "Projects" }),
-				}),
-				expect.objectContaining({
-					gadget: expect.objectContaining({ name: "Office" }),
-				}),
-			]),
+			items: ["Projects", "Agents", "Office", "Outbound"].map((name) => ({
+				gadget: { name },
+			})),
 		});
 		const installed = callLocalOk(key, {}) as { workspaceId: string };
 		await expectParsesAgainstContract(key, installed);
@@ -1337,7 +1340,7 @@ describe("fixture bootstrap parity", () => {
 		const repaired = callLocalOk("osWorkspaces/gadgets/workApps", {
 			limit: 100,
 		}) as typeof apps;
-		expect(repaired.items).toHaveLength(4);
+		expect(repaired.items).toHaveLength(6);
 		expect(repaired.items.filter((app) => app.gadget.name === "Feed")).toEqual(
 			apps.items.filter((app) => app.gadget.name === "Feed"),
 		);
@@ -1392,9 +1395,11 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		expect(read("osWorkspaces/gadgets/installWorkDefaults")).toEqual(installed);
 		expect(read("osWorkspaces/gadgets/workApps", { limit: 100 })).toEqual(apps);
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
+			"Agents",
 			"Deck",
 			"Feed",
 			"Office",
+			"Outbound",
 			"Projects",
 		]);
 		expect(
@@ -1427,7 +1432,11 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 			});
 		}
 		expect(read("osWorkspaces/gadgets/workApps", { limit: 100 })).toMatchObject(
-			{ items: [{ gadget: { name: "Projects" } }] },
+			{
+				items: ["Projects", "Agents", "Office", "Outbound"].map((name) => ({
+					gadget: { name },
+				})),
+			},
 		);
 		const reinstalled = read("osWorkspaces/gadgets/installWorkDefaults");
 		await expectParsesAgainstContract(
@@ -1442,9 +1451,11 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 			restored,
 		);
 		expect(restored.items.map((app) => app.gadget.name).sort()).toEqual([
+			"Agents",
 			"Deck",
 			"Feed",
 			"Office",
+			"Outbound",
 			"Projects",
 		]);
 		expect(read("osWorkspaces/gadgets/installWorkDefaults")).toEqual(
@@ -1454,5 +1465,52 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 			restored,
 		);
 		sample.resetLocalFixtures();
+	}
+});
+
+it("serves contract-valid cases, resource holders and budgets with matching filters", async () => {
+	for (const key of [
+		"workItems/listCases",
+		"workItems/listResourcePools",
+		"workItems/listBudgetEnvelopes",
+	]) {
+		const value = callLocalOk(key, {}) as { data: unknown[] };
+		expect(value.data).toHaveLength(2);
+		await expectParsesAgainstContract(key, value);
+	}
+	const saturated = callLocalOk("workItems/listResourcePools", {
+		saturatedOnly: true,
+	}) as { data: { pool: { resourceKey: string }; holders: unknown[] }[] };
+	expect(saturated.data).toHaveLength(1);
+	expect(saturated.data[0]!.holders).toHaveLength(1);
+	expect(
+		callLocalOk("workItems/listResourcePools", {
+			resourceKey: saturated.data[0]!.pool.resourceKey,
+		}),
+	).toMatchObject({ data: saturated.data });
+	expect(
+		callLocalOk("workItems/listCases", { stages: ["planning"] }),
+	).toMatchObject({ data: [expect.objectContaining({ stage: "planning" })] });
+});
+
+it("installs renderable Agents, Office and Outbound configs", () => {
+	const apps = callLocalOk("osWorkspaces/gadgets/workApps", { limit: 100 }) as {
+		items: {
+			currentRevision: { manifest: { entry: string; config: unknown } };
+		}[];
+	};
+	for (const [entry, schema] of [
+		["agents", AgentsConfigSchema],
+		["office", OfficeConfigSchema],
+		["outbound-review", OutboundReviewConfigSchema],
+	] as const) {
+		const app = apps.items.find(
+			({ currentRevision }) =>
+				currentRevision.manifest.entry === `tedix:app/${entry}`,
+		);
+		expect(app).toBeDefined();
+		expect(schema.safeParse(app!.currentRevision.manifest.config).success).toBe(
+			true,
+		);
 	}
 });

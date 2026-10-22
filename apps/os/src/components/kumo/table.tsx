@@ -7,12 +7,14 @@ import { cn } from "./cn";
 type TableProps = React.ComponentProps<typeof KumoTable> & {
 	containerClassName?: string;
 	scrollLabel?: string;
+	mobileLayout?: "scroll" | "stacked";
 };
 
 function Table({
 	className,
 	containerClassName,
 	scrollLabel,
+	mobileLayout = "scroll",
 	...props
 }: TableProps) {
 	return (
@@ -31,7 +33,14 @@ function Table({
 		>
 			<KumoTable
 				data-slot="table"
-				className={cn("caption-bottom", className)}
+				role="table"
+				data-mobile-layout={mobileLayout}
+				className={cn(
+					"group/table caption-bottom",
+					mobileLayout === "stacked" &&
+						"max-sm:block max-sm:[&>thead]:sr-only max-sm:[&>tbody]:grid",
+					className,
+				)}
 				{...props}
 			/>
 		</div>
@@ -82,10 +91,11 @@ function TableRow({
 }: React.ComponentProps<typeof KumoTable.Row>) {
 	return (
 		<KumoTable.Row
+			role="row"
 			data-slot="table-row"
 			variant={variant ?? "default"}
 			className={cn(
-				"border-kumo-hairline border-b transition-colors even:bg-transparent even:[--kumo-table-row-bg:transparent] last:border-b-0 hover:bg-kumo-tint data-[state=selected]:bg-kumo-tint motion-reduce:transition-none",
+				"border-kumo-hairline border-b transition-colors even:bg-transparent even:[--kumo-table-row-bg:transparent] last:border-b-0 group-data-[mobile-layout=stacked]/table:max-sm:grid group-data-[mobile-layout=stacked]/table:max-sm:py-3 hover:bg-kumo-tint data-[state=selected]:bg-kumo-tint motion-reduce:transition-none",
 				className,
 			)}
 			{...props}
@@ -101,6 +111,7 @@ function TableHead({
 }) {
 	return (
 		<KumoTable.Head
+			role="columnheader"
 			data-slot="table-head"
 			className={cn(
 				"h-10 whitespace-nowrap text-left align-middle font-medium text-kumo-subtle type-tedix-body [&:has([role=checkbox])]:pr-0",
@@ -113,10 +124,13 @@ function TableHead({
 
 function TableCell({
 	className,
+	label,
+	children,
 	...props
-}: React.ComponentProps<typeof KumoTable.Cell>) {
+}: React.ComponentProps<typeof KumoTable.Cell> & { label?: React.ReactNode }) {
 	return (
 		<KumoTable.Cell
+			role="cell"
 			data-slot="table-cell"
 			className={cn(
 				// Kumo's table root pins `text-base` (16px) and its cell adds no
@@ -127,11 +141,25 @@ function TableCell({
 				// `text-sm`/`text-xs` on the cell itself. A genuinely smaller
 				// fragment (a truncated id, secondary metadata) belongs in a child
 				// element, which keeps its own size.
-				"whitespace-nowrap align-middle type-tedix-body [&:has([role=checkbox])]:pr-0",
+				"whitespace-nowrap align-middle type-tedix-body [&:has([role=checkbox])]:pr-0 group-data-[mobile-layout=stacked]/table:max-sm:flex group-data-[mobile-layout=stacked]/table:max-sm:min-w-0 group-data-[mobile-layout=stacked]/table:max-sm:items-start group-data-[mobile-layout=stacked]/table:max-sm:justify-between group-data-[mobile-layout=stacked]/table:max-sm:gap-3 group-data-[mobile-layout=stacked]/table:max-sm:whitespace-normal group-data-[mobile-layout=stacked]/table:max-sm:break-words",
 				className,
 			)}
 			{...props}
-		/>
+		>
+			{label != null ? (
+				<>
+					<span
+						aria-hidden="true"
+						className="hidden shrink-0 text-left text-kumo-subtle group-data-[mobile-layout=stacked]/table:max-sm:block"
+					>
+						{label}
+					</span>
+					<span className="min-w-0">{children}</span>
+				</>
+			) : (
+				children
+			)}
+		</KumoTable.Cell>
 	);
 }
 
