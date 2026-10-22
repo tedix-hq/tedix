@@ -17,7 +17,7 @@ import {
 	type DecisionGraphLink,
 	type DecisionGraphNode,
 } from "@tedix/api-contract/schemas/decision-graph";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { type DecisionEdgeRow, decisionEdges } from "../schema/decision-graph";
 import { workItems } from "../schema/work-items";
@@ -313,12 +313,21 @@ async function countBlockedFrom(
 	const [row] = await db
 		.select({ blocked: sql<number>`count(distinct ${decisionEdges.toId})` })
 		.from(decisionEdges)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, decisionEdges.orgId),
+				eq(workItems.id, decisionEdges.toId),
+			),
+		)
 		.where(
 			and(
 				eq(decisionEdges.orgId, orgId),
 				// bound-params: boundedIds() caps the list at FRONTIER_LIMIT (50)
 				inArray(decisionEdges.fromId, ids),
 				eq(decisionEdges.kind, "blocks"),
+				eq(decisionEdges.toKind, "work_item"),
+				notInArray(workItems.disposition, ["completed", "cancelled"]),
 			),
 		)
 		.limit(1);

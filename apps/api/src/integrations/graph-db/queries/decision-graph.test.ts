@@ -53,6 +53,10 @@ describe("decision graph Cypher", () => {
 			"(blocked:DecisionNode {orgId: $orgId})",
 		);
 		expect(blocksReachQuery().query).toContain("[:DG_BLOCKS*1..4]");
+		expect(blocksReachQuery().query).toContain("all(node IN nodes(path)");
+		expect(blocksReachQuery().query).toContain(
+			"work.disposition IN ['completed', 'cancelled']",
+		);
 		expect(duplicateCommunityQuery().query).toContain(
 			"(card:DecisionNode {orgId: $orgId, key: 'deck_card:' + cardId})",
 		);
