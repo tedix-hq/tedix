@@ -81,6 +81,7 @@ import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { CreateFactoryResultSchema } from "@tedix/api-contract/schemas/factories";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
+import { readWorkCreateProjects } from "./work-create-projects";
 import {
 	readOpenWorkRequests,
 	renderOpenWorkRequests,
@@ -388,6 +389,8 @@ export function renderWriteDeclined(
 		case "no_write_tools":
 			return `I can't update ${app} from this chat yet. Ask me to delegate this to a tedi with access.`;
 		case "planner_declined":
+			if (route.toolIntent?.capability === "work_items.create")
+				return "I couldn't prepare this Work item. Check its required fields and destination: use the existing project's current name or link, an objective, or a parent Work item. A workspace name or prose purpose alone may not identify that destination. Nothing was created.";
 			return `I couldn't prepare that change in ${app}; nothing was created or sent. Tell me what should be added or changed, and where.`;
 		case "validation_failed":
 		case "missing_inputs":
@@ -776,6 +779,12 @@ export async function planKernelWriteProposal(args: {
 					)
 				: null;
 		let argumentFailure = "Could not construct arguments for the selected tool";
+		const workProjects = isWorkCreate
+			? await readWorkCreateProjects(db, {
+					organizationId,
+					workspaceId: args.workspaceContext?.workspaceId,
+				}).catch(() => null)
+			: null;
 		// A plain "rename this conversation to X" needs no model: the target is
 		// the current conversation and the title is the request's own words.
 		const renameArgs =
@@ -822,6 +831,7 @@ export async function planKernelWriteProposal(args: {
 								? route.rationale
 								: null,
 						openWorkRequests,
+						workProjects,
 						content: capability?.startsWith("factories.")
 							? `${content}\n${route.rationale}`
 							: content,

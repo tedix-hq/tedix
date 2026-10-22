@@ -45,6 +45,10 @@ const mocks = vi.hoisted(() => ({
 	getOsOutput: vi.fn(async () => undefined),
 	getOsOutputRevision: vi.fn(async () => undefined),
 	readOpenWorkRequests: vi.fn(async () => [] as unknown[]),
+	readWorkCreateProjects: vi.fn(async (): Promise<string | null> => null),
+}));
+vi.mock("./work-create-projects", () => ({
+	readWorkCreateProjects: mocks.readWorkCreateProjects,
 }));
 vi.mock("./open-work-requests", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./open-work-requests")>()),
@@ -249,6 +253,8 @@ function baseEnv(
 
 beforeEach(() => {
 	clearWriteCatalogCacheForTests();
+	mocks.readWorkCreateProjects.mockReset();
+	mocks.readWorkCreateProjects.mockResolvedValue(null);
 	mocks.selectJevAction.mockReset();
 	mocks.selectJevAction.mockImplementation(async ({ candidates }) => ({
 		toolName: candidates[0]?.id ?? null,
@@ -1239,6 +1245,44 @@ describe("canonical Work creation purpose", () => {
 			"workClass",
 		);
 		expect(result?.args).not.toHaveProperty("workClass");
+	});
+
+	it("keeps an unresolved project as a clarification and never exposes the planner's raw reason", async () => {
+		const onFailure = vi.fn();
+		const model = objectModel({
+			toolName: "NONE",
+			args: null,
+			reasoning: "Unknown or ambiguous project; internal planner details",
+		});
+		expect(
+			await planWriteCall({
+				content: "Create Follow up in Old Accounts",
+				capability: "work_items.create",
+				tools: [tool],
+				model,
+				paramDefaults: null,
+				timeoutMs: 10000,
+				workProjects: JSON.stringify({
+					projects: [
+						{ projectId: "a", name: "Accounts" },
+						{ projectId: "b", name: "Accounts" },
+					],
+					truncated: false,
+				}),
+				onFailure,
+			}),
+		).toBeNull();
+		expect(onFailure).toHaveBeenCalled();
+		expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain(
+			"do not substitute another project",
+		);
+		const message = renderWriteDeclined(
+			{ stage: "planner_declined", detail: onFailure.mock.calls[0]?.[0] },
+			{ toolIntent: { capability: "work_items.create" } },
+		);
+		expect(message).toContain("current name or link");
+		expect(message).toContain("Nothing was created");
+		expect(message).not.toContain("internal planner details");
 	});
 
 	it("refuses a prose purpose without inventing an operational class", () => {
@@ -3044,85 +3088,107 @@ it.each([undefined, "external_side_effect", "high_impact_write"])(
 );
 
 describe("member canonical Work discovery", () => {
-	it("keeps the member and selected workspace on an authorized canonical proposal, revalidating each turn", async () => {
-		const workspaceId = "22222222-2222-4222-8222-222222222222";
-		const projectId = "11111111-1111-4111-8111-111111111111";
-		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
-			slug === "member-gateway"
-				? {
-						slug,
-						metadata: {
-							mcpConfig: {
-								toolParamDefaults: { workspaceId: "other-workspace" },
-							},
-						},
-					}
-				: null,
-		);
-		const service = mcpService(() => ({
-			json: {
-				jsonrpc: "2.0",
-				id: 1,
-				result: {
-					structuredContent: {
-						executionId: "catalog",
-						result: [
-							{
-								callable: "work.create_work_items",
-								authorized: true,
-								annotations: { readOnlyHint: false },
-								parameters: {
-									properties: {
-										title: { type: "string" },
-										projectId: { type: "string" },
-										workspaceId: { type: "string" },
-									},
-									required: ["title"],
+	it.each(["id", "name"])(
+		"grounds a project %s while preserving the member, workspace and fresh catalog verdict",
+		async (destination) => {
+			const workspaceId = "22222222-2222-4222-8222-222222222222";
+			const projectId = "11111111-1111-4111-8111-111111111111";
+			const workProjects = JSON.stringify({
+				projects: [
+					{
+						projectId,
+						name: "Orchard Accounts",
+						key: "ACCOUNTS",
+						linkedToSelectedWorkspace: true,
+					},
+				],
+				truncated: false,
+			});
+			mocks.readWorkCreateProjects.mockResolvedValue(workProjects);
+			mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
+				slug === "member-gateway"
+					? {
+							slug,
+							metadata: {
+								mcpConfig: {
+									toolParamDefaults: { workspaceId: "other-workspace" },
 								},
 							},
-						],
+						}
+					: null,
+			);
+			const service = mcpService(() => ({
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						structuredContent: {
+							executionId: "catalog",
+							result: [
+								{
+									callable: "work.create_work_items",
+									authorized: true,
+									annotations: { readOnlyHint: false },
+									parameters: {
+										properties: {
+											title: { type: "string" },
+											projectId: { type: "string" },
+											workspaceId: { type: "string" },
+										},
+										required: ["title"],
+									},
+								},
+							],
+						},
 					},
 				},
-			},
-		}));
-		const model = objectModel({
-			toolName: "work.create_work_items",
-			args: { title: "Validation", projectId, workspaceId },
-		});
-		const args = {
-			db: DB,
-			env: baseEnv(service),
-			organizationId: "org-member",
-			route: writeRoute({
-				toolIntent: {
-					appSlug: "member-gateway",
-					capability: "work_items.create",
-					connectionStatus: "connected",
-				},
-			}),
-			actingUserId: "member-1",
-			workWriteGateway: "member-gateway",
-			workspaceContext: { workspaceId, workspaceName: "Member workspace" },
-			content: `Create validation Work in project ${projectId} in this workspace`,
-			model,
-		};
-		const first = await planKernelWriteProposal(args);
-		expect(first).toMatchObject({
-			appSlug: "member-gateway",
-			toolName: "work.create_work_items",
-			args: { title: "Validation", projectId, workspaceId },
-		});
-		await planKernelWriteProposal(args);
-		expect(service.calls).toHaveLength(2);
-		for (const call of service.calls) {
-			expect(call.headers.get("X-Tedix-Org-Id")).toBe("org-member");
-			expect(call.headers.get("X-Tedix-Acting-User")).toBe("member-1");
-			expect(JSON.stringify(call.params)).toContain("discover.describe");
-			expect(JSON.stringify(call.params)).not.toContain(
-				"await work.create_work_items",
+			}));
+			const model = objectModel({
+				toolName: "work.create_work_items",
+				args: { title: "Validation", projectId, workspaceId },
+			});
+			const args = {
+				db: DB,
+				env: baseEnv(service),
+				organizationId: "org-member",
+				route: writeRoute({
+					toolIntent: {
+						appSlug: "member-gateway",
+						capability: "work_items.create",
+						connectionStatus: "connected",
+					},
+				}),
+				actingUserId: "member-1",
+				workWriteGateway: "member-gateway",
+				workspaceContext: { workspaceId, workspaceName: "Member workspace" },
+				content: `Create validation Work in project ${destination === "id" ? projectId : "Orchard Accounts"} in this workspace`,
+				model,
+			};
+			const first = await planKernelWriteProposal(args);
+			expect(first).toMatchObject({
+				appSlug: "member-gateway",
+				toolName: "work.create_work_items",
+				args: { title: "Validation", projectId, workspaceId },
+			});
+			await planKernelWriteProposal(args);
+			expect(mocks.readWorkCreateProjects).toHaveBeenCalledWith(DB, {
+				organizationId: "org-member",
+				workspaceId,
+			});
+			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain(
+				workProjects.replaceAll('"', '\\"'),
 			);
-		}
-	});
+			expect(service.calls).toHaveLength(2);
+			for (const call of service.calls) {
+				expect(call.headers.get("X-Tedix-Org-Id")).toBe("org-member");
+				expect(call.headers.get("X-Tedix-Acting-User")).toBe("member-1");
+				expect(JSON.stringify(call.params)).toContain("discover.describe");
+				expect(JSON.stringify(call.params)).not.toContain(
+					"await work.create_work_items",
+				);
+			}
+		},
+	);
 
 	const canonicalLookup = (outcome: string) => ({
 		stage: "canonical_unavailable",
