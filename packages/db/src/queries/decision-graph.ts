@@ -20,6 +20,7 @@ import {
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { type DecisionEdgeRow, decisionEdges } from "../schema/decision-graph";
+import { workItems } from "../schema/work-items";
 
 /** Max edges per upsert call. */
 export const DECISION_EDGE_UPSERT_LIMIT = 500;
@@ -385,6 +386,31 @@ export async function getDecisionContext(
 			next.push(edge.to);
 		}
 		frontier = next;
+	}
+
+	const backfilledWork = chain.filter(
+		(step) =>
+			step.edge.kind === "card_from_work" && step.edge.source === "backfill",
+	);
+	const workIds = boundedIds(backfilledWork.map((step) => step.node.id));
+	if (workIds.length) {
+		const titles = new Map(
+			(
+				await db
+					.select({ id: workItems.id, title: workItems.title })
+					.from(workItems)
+					.where(
+						and(
+							eq(workItems.orgId, orgId),
+							// bound-params: boundedIds() caps workIds at FRONTIER_LIMIT (50).
+							inArray(workItems.id, workIds),
+						),
+					)
+					.limit(FRONTIER_LIMIT)
+			).map((row) => [row.id, row.title]),
+		);
+		for (const step of backfilledWork)
+			step.edge.note = titles.get(step.node.id) ?? null;
 	}
 
 	const subjects = [

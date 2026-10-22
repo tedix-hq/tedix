@@ -268,13 +268,14 @@ export function agentDecisionStandings(
 				(row) =>
 					row.outcome!.by === "person" && row.outcome!.outcome !== "worked",
 			).length;
-			const label = classId.split(":").slice(1).join(" ");
+			const label = `${rows[0]!.agent.name} — ${rows[0]!.decisionClass}`;
+			const remaining = Math.max(0, config.earnedAfter - streak);
 			const sentence =
 				status === "earned"
-					? `${label}: ${streak} decisions in a row worked.`
+					? `${label}: ${streak} ${streak === 1 ? "decision" : "decisions"} in a row worked.`
 					: status === "corrected"
 						? `${label}: the latest decision was ${latest!.outcome === "reverted" ? "undone" : "partly changed"}.`
-						: `${label}: ${judged.length} of ${rows.length} decisions have an outcome; ${Math.max(0, config.earnedAfter - streak)} more that work earn trust.`;
+						: `${label}: ${judged.length} of ${rows.length} ${rows.length === 1 ? "decision has" : "decisions have"} an outcome; ${remaining} more that ${remaining === 1 ? "works earns" : "work earn"} trust.`;
 			return {
 				classId,
 				decisions: rows.length,

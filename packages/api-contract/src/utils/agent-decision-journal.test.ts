@@ -201,6 +201,44 @@ describe("agent decision journal rules", () => {
 		);
 	});
 
+	it("uses the agent display name and singular grammar in class standings", () => {
+		const row = decision({
+			classId: "agent:review-lead:review.routing",
+			decisionClass: "review.routing",
+			agent: {
+				name: "Review Lead",
+				harness: "codex",
+				session: "codex:fixture",
+			},
+		});
+		expect(agentDecisionStandings([row], { earnedAfter: 1 })[0]?.sentence).toBe(
+			"Review Lead — review.routing: 0 of 1 decision has an outcome; 1 more that works earns trust.",
+		);
+		expect(
+			agentDecisionStandings([row, row], { earnedAfter: 2 })[0]?.sentence,
+		).toBe(
+			"Review Lead — review.routing: 0 of 2 decisions have an outcome; 2 more that work earn trust.",
+		);
+		const worked = {
+			...row,
+			outcome: {
+				outcome: "worked" as const,
+				by: "agent" as const,
+				evidence: "ok",
+				at: "2026-10-22T03:00:00.000Z",
+			},
+		};
+		expect(
+			agentDecisionStandings([worked], { earnedAfter: 1 })[0]?.sentence,
+		).toBe("Review Lead — review.routing: 1 decision in a row worked.");
+		expect(
+			agentDecisionStandings(
+				[{ ...worked, outcome: { ...worked.outcome, outcome: "reverted" } }],
+				config,
+			)[0]?.sentence,
+		).toBe("Review Lead — review.routing: the latest decision was undone.");
+	});
+
 	it("keeps the review to at most 60 words, grouped by class", () => {
 		const many = [
 			...Array.from({ length: 6 }, () => decision()),
