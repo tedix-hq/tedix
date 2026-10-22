@@ -305,7 +305,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		],
 	"SupportAttention error text; SupportGetHelp submission failure": [
 		"support/file",
-		"support/mine",
 		"support/publish",
 		"support/queue",
 	],
@@ -378,7 +377,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	],
 	"WorkAttentionPage unavailable badge; request mutation error": [
 		"workAgentSessions/fileRequest",
-		"workAgentSessions/listRequests",
 		"workAgentSessions/updateRequest",
 	],
 	"WorkApprovalsPage WorkReadFailure/MutationError; decision failure toast": [

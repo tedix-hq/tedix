@@ -869,11 +869,10 @@ export function applyDemoPack(
 			},
 		});
 	}
-	// The read-only System map, reachable from the workspace like any app.
 	list(state, "gadgets").push({
 		...gadgetTemplate,
 		id: uid(49, 12),
-		name: "System map",
+		name: "Office",
 		workspaceId: workspaces[0]!.id,
 		currentRevisionId: uid(50, 12),
 	});
@@ -881,6 +880,25 @@ export function applyDemoPack(
 		...gadgetRevisionTemplate,
 		id: uid(50, 12),
 		gadgetId: uid(49, 12),
+		manifest: {
+			entry: "tedix:app/office",
+			capabilities: [],
+			navigation: { board: true },
+			config: { version: 1 },
+		},
+	});
+	// The read-only System map, reachable from the workspace like any app.
+	list(state, "gadgets").push({
+		...gadgetTemplate,
+		id: uid(49, 13),
+		name: "System map",
+		workspaceId: workspaces[0]!.id,
+		currentRevisionId: uid(50, 13),
+	});
+	list(state, "gadgetRevisions").push({
+		...gadgetRevisionTemplate,
+		id: uid(50, 13),
+		gadgetId: uid(49, 13),
 		manifest: {
 			entry: "tedix:app/system-map",
 			capabilities: [],

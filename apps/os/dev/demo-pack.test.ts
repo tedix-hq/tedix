@@ -94,7 +94,7 @@ describe("sample company in fixture mode", () => {
 		for (const card of deck.cards) DeckCardSchema.parse(card);
 	});
 
-	it("installs Feed and Deck so Work no longer asks to set them up", () => {
+	it("installs Feed, Deck, and Office so Work routes stay available", () => {
 		const apps = ok<{ items: { gadget: { name: string } }[] }>(
 			"osWorkspaces/gadgets/workApps",
 			{ limit: 20 },
@@ -102,6 +102,7 @@ describe("sample company in fixture mode", () => {
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
 			"Deck",
 			"Feed",
+			"Office",
 			"Projects",
 		]);
 		const feed = ok<{ events: { createdAt: string }[] }>(

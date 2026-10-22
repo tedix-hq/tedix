@@ -213,6 +213,17 @@ let browser: Browser | undefined;
 try {
 	await waitForFixtureServer(`${origin}/work`, { server });
 	browser = await webkit.launch({ headless: true });
+	const office = await browser.newPage();
+	await office.goto(`${origin}/work?app=office`);
+	await office
+		.locator("[data-workspace-app-entry=office]")
+		.waitFor({ timeout: 20_000 });
+	assert.equal(
+		await office.getByText("Support tickets are unavailable.").count(),
+		0,
+		"Office fixture support read should resolve",
+	);
+	await office.close();
 	for (const [size, device] of [
 		["390x844", devices["iPhone 13"]],
 		["375x667", devices["iPhone 8"]],
