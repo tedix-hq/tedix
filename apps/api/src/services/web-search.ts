@@ -160,6 +160,20 @@ export function buildWebSearchReceipt(input: {
 	};
 }
 
+/** Numeric gateway error codes only; the error text stays out of results and logs. */
+async function gatewayErrorCodes(response: Response): Promise<number[]> {
+	try {
+		const body = (await response.json()) as { errors?: unknown } | null;
+		if (!Array.isArray(body?.errors)) return [];
+		return body.errors
+			.map((error) => (error as { code?: unknown } | null)?.code)
+			.filter((code): code is number => Number.isInteger(code))
+			.slice(0, 3);
+	} catch {
+		return [];
+	}
+}
+
 export async function runGatewayWebSearch(input: {
 	env: WebSearchEnv;
 	query: string;
@@ -181,6 +195,7 @@ export async function runGatewayWebSearch(input: {
 	let response: Response | null = null;
 	let failure: string | null = null;
 	let thrownException: ReturnType<typeof safeExceptionTopology> | undefined;
+	let errorCodes: number[] = [];
 	try {
 		response = await gateway.binding.websearch({
 			gatewayId: gateway.gatewayId,
@@ -205,6 +220,7 @@ export async function runGatewayWebSearch(input: {
 		}
 	} else if (response) {
 		failure = `Web search failed with status ${response.status}.`;
+		errorCodes = await gatewayErrorCodes(response);
 	}
 	// Record every attempt that reached the gateway: a failed search can still
 	// be a charged one, and the receipt is how that charge gets attributed.
@@ -235,9 +251,17 @@ export async function runGatewayWebSearch(input: {
 		console.warn("[web-search] search failed", {
 			organizationId: input.organizationId,
 			failure,
+			...(errorCodes.length > 0 && { errorCodes }),
 			...(thrownException && { exception: thrownException }),
 		});
-		return { status: "failed", message: "Web search failed. Try again later." };
+		// The status (never the provider body) tells the tedi and the run
+		// evidence whether a retry can help.
+		return {
+			status: "failed",
+			message: response
+				? `Web search failed (HTTP ${response.status}${errorCodes.length ? `, code ${errorCodes.join(", ")}` : ""}). Try again later.`
+				: "Web search failed. Try again later.",
+		};
 	}
 	const { results, truncated } = normalizeWebSearchItems(payload, input.limit);
 	return {

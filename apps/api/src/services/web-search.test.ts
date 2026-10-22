@@ -176,12 +176,36 @@ describe("runGatewayWebSearch", () => {
 		const { receipts, result } = run(env);
 		await expect(result).resolves.toEqual({
 			status: "failed",
-			message: "Web search failed. Try again later.",
+			message: "Web search failed (HTTP 502). Try again later.",
 		});
 		expect(receipts[0]).toMatchObject({
 			gatewayLogId: "log-2",
 			success: false,
 			dataQuality: "quarantined_failed",
+		});
+	});
+
+	it("names the status and numeric gateway codes, never the error text", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { env } = searchEnv(
+			new Response(
+				JSON.stringify({
+					success: false,
+					errors: [{ code: 2003, message: `no credits ${CANARY}` }],
+				}),
+				{ status: 402 },
+			),
+		);
+		const { result } = run(env);
+		await expect(result).resolves.toEqual({
+			status: "failed",
+			message: "Web search failed (HTTP 402, code 2003). Try again later.",
+		});
+		expect(loggedText(warn)).not.toContain("secret-token");
+		expect(warn).toHaveBeenCalledWith("[web-search] search failed", {
+			organizationId: ORG_ID,
+			failure: "Web search failed with status 402.",
+			errorCodes: [2003],
 		});
 	});
 

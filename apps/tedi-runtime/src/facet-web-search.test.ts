@@ -106,7 +106,7 @@ const enabled = { organizationWebSearch: { enabled: true, maxResults: 5 } };
 				{ url: "https://other.example/private" },
 				{ ...options, toolCallId: "call-3" },
 			),
-		/outside the delegated request/,
+		/outside the delegated request; read only a URL web_search returned/,
 	);
 }
 

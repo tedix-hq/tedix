@@ -387,6 +387,9 @@ describe("web search delegation", () => {
 		"Search the internet for widget pricing",
 		"Look up widget pricing",
 		"What is the latest version of Widget?",
+		"What is the latest stable Widget version? Look it up on the web and cite links.",
+		"Find the widget price on the internet",
+		"Look this up: widget pricing",
 	])(
 		"infers native search when the planner omitted tools: %s",
 		(userContent) => {
@@ -432,6 +435,7 @@ describe("web search delegation", () => {
 		"Summarize the supplied text",
 		"Look up our Work items",
 		"Look up the latest invoice",
+		"Look it up in our Work items",
 		"Read https://example.com/widget",
 		"Summarize this text\n\nLocal terminal context:\n- cwd: /tmp/search the web",
 	])("does not infer search for a non-web request: %s", (userContent) => {
