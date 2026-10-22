@@ -57,7 +57,7 @@ function fakeDevin(dir: string) {
 	const path = join(dir, "devin");
 	writeFileSync(
 		path,
-		`#!/usr/bin/env node
+		`#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 if (args[0] === 'auth') { console.log('Not logged in'); process.exit(1); }
@@ -109,31 +109,28 @@ test("ACP allocates a persisted native identity without any model prompt", async
 	});
 });
 
-test("unsupported persistence and missing persisted identity refuse before a prompt", async () => {
-	for (const [before, after, error] of [
-		[
-			"'cognition.ai/persistOnCreate':true",
-			"'cognition.ai/persistOnCreate':false",
-			"cannot persist",
-		],
-		[
-			"m.params._meta?.['cognition.ai/persistOnCreate'] === true",
-			"false",
-			"not persisted",
-		],
-		["currentValue:'model-2026-10-01'", "currentValue:'swe'", "resolved model"],
-		["devin 3000.11.92 (7f4e64980e22)", "unknown", "version unavailable"],
-	]) {
+for (const [before, after, error] of [
+	[
+		"'cognition.ai/persistOnCreate':true",
+		"'cognition.ai/persistOnCreate':false",
+		"cannot persist",
+	],
+	[
+		"m.params._meta?.['cognition.ai/persistOnCreate'] === true",
+		"false",
+		"not persisted",
+	],
+	["currentValue:'model-2026-10-01'", "currentValue:'swe'", "resolved model"],
+	["devin 3000.11.92 (7f4e64980e22)", "unknown", "version unavailable"],
+] as const) {
+	test(`refuses before a prompt: ${error}`, async () => {
 		const dir = temporary();
 		const binary = fakeDevin(dir);
-		writeFileSync(
-			binary,
-			readFileSync(binary, "utf8").replace(before!, after!),
-		);
-		await expect(createDevinLaneThread(dir, binary)).rejects.toThrow(error!);
+		writeFileSync(binary, readFileSync(binary, "utf8").replace(before, after));
+		await expect(createDevinLaneThread(dir, binary)).rejects.toThrow(error);
 		expect(existsSync(join(dir, "invocation.json"))).toBe(false);
-	}
-});
+	});
+}
 
 test("headless runner uses cwd, native resume, permission config, export and final stdout", async () => {
 	const dir = temporary();
@@ -382,6 +379,25 @@ test("Devin hook identity overrides inherited hosts and retains Claude-compatibl
 			DEVIN_PROJECT_DIR: "/example",
 		}),
 	).toBe(false);
+});
+
+test("tool permission checks do not launch Git metadata probes", () => {
+	const root = temporary();
+	const marker = join(root, "git-probed");
+	const git = join(root, "git");
+	writeFileSync(git, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
+	chmodSync(git, 0o700);
+	process.env.PATH = `${root}:${originalPath}`;
+	expect(
+		devinPermissionBlock(
+			JSON.stringify({
+				tool_name: "exec",
+				tool_input: { command: "git status --short" },
+			}),
+			root,
+		),
+	).toBeUndefined();
+	expect(existsSync(marker)).toBe(false);
 });
 
 test("only exact environment examples are readable and no environment files are writable", () => {
@@ -767,14 +783,8 @@ test("linked worktree Git grants cover its metadata and guarded single-lane push
 	git("diff", "--exit-code", "HEAD", "--", ".claude");
 });
 
-test("tracked hook modifications, staged changes, deletions and ignored plants block launch", async () => {
-	for (const mode of [
-		"untracked",
-		"ignored",
-		"modified",
-		"staged",
-		"deleted",
-	]) {
+for (const mode of ["untracked", "ignored", "modified", "staged", "deleted"]) {
+	test(`${mode} project hooks block launch and retained retries`, async () => {
 		const { dir, git } = gitFixture();
 		expect(() => assertDevinProjectHooks(dir)).not.toThrow();
 		if (mode === "deleted") rmSync(join(dir, ".claude"), { recursive: true });
@@ -824,8 +834,8 @@ test("tracked hook modifications, staged changes, deletions and ignored plants b
 			),
 		).rejects.toThrow("differ from HEAD");
 		expect(existsSync(join(dir, "invocation.json"))).toBe(false);
-	}
-});
+	});
+}
 
 test("Devin conversation exports are ignored even beside a tracked brief", () => {
 	const { dir, git } = gitFixture();
@@ -865,12 +875,12 @@ test("sandbox Git identity excludes inherited helper scripts and uses only the m
 	expect(status.status).toBe(0);
 });
 
-test("committing a planted project hook does not make it safe for a retained retry", () => {
-	for (const path of [
-		".devin/hooks.v1.json",
-		".devin/config.json",
-		".claude/settings.json",
-	]) {
+for (const path of [
+	".devin/hooks.v1.json",
+	".devin/config.json",
+	".claude/settings.json",
+]) {
+	test(`committed ${path} hooks block retained retries`, () => {
 		const { dir, git } = gitFixture();
 		mkdirSync(dirname(join(dir, path)), { recursive: true });
 		writeFileSync(
@@ -896,8 +906,8 @@ test("committing a planted project hook does not make it safe for a retained ret
 			"planted fixture",
 		);
 		expect(() => assertDevinProjectHooks(dir)).toThrow("executable hooks");
-	}
-});
+	});
+}
 
 test("project hook verification cannot execute Git fsmonitor or text conversion helpers", () => {
 	const { dir, git } = gitFixture();

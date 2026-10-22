@@ -167,94 +167,108 @@ export function devinPermissionProfile(
 	cwd: string,
 	session?: { id: string; principalKey?: string },
 ) {
-	const root = resolve(cwd);
-	if (/[()\n\r*?\[\]{}]/.test(root))
-		throw new Error("Unsupported Devin workspace path");
+	const permissions = devinToolPermissions(cwd, session);
 	return {
 		attribution: false,
 		read_config_from: { claude: false },
 		hooks: devinHooks(true),
 		sandbox: { excluded: { allow: [], ask: [], deny: ["Exec(**)"] } },
 		permissions: {
+			...permissions,
 			allow: [
-				`Read(${root}/**)`,
-				`Write(${root}/**)`,
-				...devinGitWritePaths(root).map((path) => `Write(${path})`),
-				...[
-					"git status",
-					"git fetch",
-					"git worktree list",
-					"git diff",
-					"git log",
-					"git show",
-					"git rev-parse",
-					"git add",
-					"git commit",
-					"git switch",
-					"git branch",
-					"git merge-base",
-					"bun run",
-					"bun test",
-					"bun --version",
-					"devin --version",
-					"devin models",
-					"rg",
-					"ls",
-					"cat",
-					"sed",
-					"gh run list",
-					"gh run view",
-				].flatMap((command) => [
-					`Exec(${command})`,
-					...(command.startsWith("git ")
-						? [`Exec(git -C ${root} ${command.slice(4)})`]
-						: []),
-				]),
-				...["tedix", devinCliCommand()].flatMap((cli) => [
-					`Exec(${cli})`,
-					...(session
-						? [`Exec(TEDIX_AGENT_SESSION=devin:${session.id} ${cli})`]
-						: []),
-					...(session?.principalKey
-						? [
-								`Exec(TEDIX_EXTERNAL_AGENT=${session.principalKey} ${cli})`,
-								`Exec(TEDIX_AGENT_SESSION=devin:${session.id} TEDIX_EXTERNAL_AGENT=${session.principalKey} ${cli})`,
-								`Exec(TEDIX_EXTERNAL_AGENT=${session.principalKey} TEDIX_AGENT_SESSION=devin:${session.id} ${cli})`,
-							]
-						: []),
-				]),
-				"Fetch(https://docs.tedix.dev/*)",
-				"Fetch(https://docs.devin.ai/*)",
-				"mcp__tedix__*",
+				...permissions.allow,
+				...devinGitWritePaths(resolve(cwd)).map((path) => `Write(${path})`),
 			],
-			deny: [
-				...["curl", "wget", "ssh", "scp", "env"].map((tool) => `Exec(${tool})`),
-				"Exec(git push)",
-				"Exec(tedix login)",
-				"Exec(wrangler deploy)",
-				"Exec(bunx wrangler deploy)",
-				"Exec(npx wrangler deploy)",
-				...[
-					...devinSecretPaths(),
-					`${root}/.devin/**`,
-					`${root}/.claude/**`,
-					"~/.ssh/**",
-					"~/.config/**",
-				].flatMap((path) => [`Read(${path})`, `Write(${path})`]),
-				...devinEnvironmentReadDenials().map((path) => `Read(${path})`),
-				...[
-					"**/.env",
-					"**/.env/**",
-					"**/.env.*",
-					"**/.env.*/**",
-					"**/.dev.vars",
-					"**/.dev.vars/**",
-					"**/.dev.vars.*",
-					"**/.dev.vars.*/**",
-				].map((path) => `Write(${path})`),
-			],
-			ask: [],
 		},
+	};
+}
+
+/** Tool checks need the rules, not the sandbox's Git metadata write grants. */
+export function devinToolPermissions(
+	cwd: string,
+	session?: { id: string; principalKey?: string },
+) {
+	const root = resolve(cwd);
+	if (/[()\n\r*?\[\]{}]/.test(root))
+		throw new Error("Unsupported Devin workspace path");
+	return {
+		allow: [
+			`Read(${root}/**)`,
+			`Write(${root}/**)`,
+			...[
+				"git status",
+				"git fetch",
+				"git worktree list",
+				"git diff",
+				"git log",
+				"git show",
+				"git rev-parse",
+				"git add",
+				"git commit",
+				"git switch",
+				"git branch",
+				"git merge-base",
+				"bun run",
+				"bun test",
+				"bun --version",
+				"devin --version",
+				"devin models",
+				"rg",
+				"ls",
+				"cat",
+				"sed",
+				"gh run list",
+				"gh run view",
+			].flatMap((command) => [
+				`Exec(${command})`,
+				...(command.startsWith("git ")
+					? [`Exec(git -C ${root} ${command.slice(4)})`]
+					: []),
+			]),
+			...["tedix", devinCliCommand()].flatMap((cli) => [
+				`Exec(${cli})`,
+				...(session
+					? [`Exec(TEDIX_AGENT_SESSION=devin:${session.id} ${cli})`]
+					: []),
+				...(session?.principalKey
+					? [
+							`Exec(TEDIX_EXTERNAL_AGENT=${session.principalKey} ${cli})`,
+							`Exec(TEDIX_AGENT_SESSION=devin:${session.id} TEDIX_EXTERNAL_AGENT=${session.principalKey} ${cli})`,
+							`Exec(TEDIX_EXTERNAL_AGENT=${session.principalKey} TEDIX_AGENT_SESSION=devin:${session.id} ${cli})`,
+						]
+					: []),
+			]),
+			"Fetch(https://docs.tedix.dev/*)",
+			"Fetch(https://docs.devin.ai/*)",
+			"mcp__tedix__*",
+		],
+		deny: [
+			...["curl", "wget", "ssh", "scp", "env"].map((tool) => `Exec(${tool})`),
+			"Exec(git push)",
+			"Exec(tedix login)",
+			"Exec(wrangler deploy)",
+			"Exec(bunx wrangler deploy)",
+			"Exec(npx wrangler deploy)",
+			...[
+				...devinSecretPaths(),
+				`${root}/.devin/**`,
+				`${root}/.claude/**`,
+				"~/.ssh/**",
+				"~/.config/**",
+			].flatMap((path) => [`Read(${path})`, `Write(${path})`]),
+			...devinEnvironmentReadDenials().map((path) => `Read(${path})`),
+			...[
+				"**/.env",
+				"**/.env/**",
+				"**/.env.*",
+				"**/.env.*/**",
+				"**/.dev.vars",
+				"**/.dev.vars/**",
+				"**/.dev.vars.*",
+				"**/.dev.vars.*/**",
+			].map((path) => `Write(${path})`),
+		],
+		ask: [],
 	};
 }
 
