@@ -1,45 +1,24 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { tmpdir } from "node:os";
+import { startFixtureServer } from "./fixture-server";
 
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = probe.port!;
-probe.stop();
-const origin = process.env.B7_FEED_TEST_ORIGIN ?? `http://127.0.0.1:${port}`;
+const server = await startFixtureServer(
+	"/browser-tests/feed-deck-polish.html",
+	{ stdout: "ignore" },
+);
+const { origin } = server;
 assert(
 	["127.0.0.1", "localhost"].includes(new URL(origin).hostname),
 	"Use an isolated local fixture server",
 );
-const server = process.env.B7_FEED_TEST_ORIGIN
-	? undefined
-	: Bun.spawn(
-			[
-				"../../node_modules/.bin/vp",
-				"dev",
-				"--port",
-				String(port),
-				"--strictPort",
-				"--host",
-				"127.0.0.1",
-			],
-			{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
-		);
 const receipts =
 	process.env.B7_FEED_RECEIPTS ?? `${tmpdir()}/b7-feed-shortcut-ownership`;
 await mkdir(receipts, { recursive: true });
 let browser: Browser | undefined;
 const results = [];
 try {
-	await waitForFixtureServer(`${origin}/browser-tests/feed-deck-polish.html`, {
-		server,
-	});
 	browser = await chromium.launch({ headless: true });
 	for (const viewport of [
 		{ width: 1440, height: 1000 },
@@ -287,9 +266,5 @@ try {
 	);
 } finally {
 	await browser?.close();
-	if (server?.pid) {
-		try {
-			process.kill(-server.pid, "SIGTERM");
-		} catch {}
-	}
+	await server.stop();
 }

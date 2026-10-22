@@ -1,49 +1,19 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { webkit, type Browser } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ?? "/tmp/tedix-b9-editor-toolbar";
 await mkdir(evidence, { recursive: true });
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = String(probe.port!);
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{
-		cwd: new URL("../", import.meta.url).pathname,
-		stdout: "ignore",
-		stderr: "inherit",
-		detached: true,
-	},
+const server = await startFixtureServer(
+	"/browser-tests/b9-editor-toolbar.html",
+	{ stdout: "ignore" },
 );
+const { origin } = server;
 let browser: Browser | undefined;
 const receipts: unknown[] = [];
 try {
-	for (let attempt = 0; ; attempt++) {
-		if (attempt === 120 || server.exitCode !== null)
-			throw new Error(
-				`Toolbar fixture server unavailable (exit ${server.exitCode})`,
-			);
-		try {
-			if ((await fetch(`${origin}/browser-tests/b9-editor-toolbar.html`)).ok)
-				break;
-		} catch {}
-		await Bun.sleep(250);
-	}
 	browser = await webkit.launch({ headless: true });
 	for (const viewport of [
 		{ width: 375, height: 667 },
@@ -263,8 +233,5 @@ try {
 	);
 } finally {
 	await browser?.close();
-	if (server.exitCode === null) {
-		process.kill(-server.pid, "SIGTERM");
-		await server.exited;
-	}
+	await server.stop();
 }

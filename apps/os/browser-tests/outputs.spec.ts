@@ -1,35 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import { webkit, type Browser } from "playwright";
 
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = probe.port!;
-probe.stop();
-const origin = process.env.OUTPUTS_TEST_ORIGIN ?? `http://127.0.0.1:${port}`;
-const server = process.env.OUTPUTS_TEST_ORIGIN
-	? undefined
-	: Bun.spawn(
-			[
-				"../../node_modules/.bin/vp",
-				"dev",
-				"--port",
-				String(port),
-				"--strictPort",
-				"--host",
-				"127.0.0.1",
-			],
-			{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-		);
+const server = await startFixtureServer("/outputs");
+const { origin } = server;
 const evidenceDir = process.env.OUTPUTS_EVIDENCE_DIR;
 let browser: Browser | undefined;
 try {
-	await waitForFixtureServer(`${origin}/outputs`, { server });
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	browser = await webkit.launch();
 	for (const [width, height] of [
@@ -237,10 +215,5 @@ try {
 	}
 } finally {
 	await browser?.close();
-	if (server)
-		try {
-			process.kill(-server.pid, "SIGTERM");
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-		}
+	await server.stop();
 }

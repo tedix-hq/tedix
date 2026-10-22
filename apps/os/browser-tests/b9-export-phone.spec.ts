@@ -1,4 +1,4 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { webkit, type Browser, type Page, type Locator } from "playwright";
@@ -6,27 +6,8 @@ import { webkit, type Browser, type Page, type Locator } from "playwright";
 const evidence =
 	process.env.B9_EXPORT_PHONE_EVIDENCE ?? "/tmp/tedix-b9-export-phone-errors";
 await mkdir(evidence, { recursive: true });
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = probe.port!;
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		String(port),
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer("/browser-tests/b9-export-phone.html");
+const { origin } = server;
 const spaced =
 	"The export could not finish because the source image is unavailable. Check the document resources and choose Export again to retry this format.";
 const token = `diagnostic_${"0123456789abcdef".repeat(12)}`;
@@ -108,9 +89,6 @@ async function capture(page: Page, name: string) {
 }
 
 try {
-	await waitForFixtureServer(`${origin}/browser-tests/b9-export-phone.html`, {
-		server,
-	});
 	browser = await webkit.launch({ headless: true });
 	for (const viewport of [
 		{ width: 375, height: 667 },
@@ -315,10 +293,5 @@ try {
 		JSON.stringify(receipts, null, 2),
 	);
 	await browser?.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch {
-		server.kill();
-	}
-	await server.exited;
+	await server.stop();
 }

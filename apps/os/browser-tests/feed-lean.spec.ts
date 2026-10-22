@@ -1,32 +1,10 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import { webkit, type Browser } from "playwright";
 
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = probe.port!;
-probe.stop();
-const origin = process.env.FEED_LEAN_ORIGIN ?? `http://127.0.0.1:${port}`;
-const server = process.env.FEED_LEAN_ORIGIN
-	? undefined
-	: Bun.spawn(
-			[
-				"../../node_modules/.bin/vp",
-				"dev",
-				"--port",
-				String(port),
-				"--strictPort",
-				"--host",
-				"127.0.0.1",
-			],
-			{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-		);
+const server = await startFixtureServer();
+const { origin } = server;
 let browser: Browser | undefined;
 try {
-	await waitForFixtureServer(origin, { server });
 	browser = await webkit.launch();
 	for (const [width, height] of [
 		[375, 667],
@@ -173,12 +151,5 @@ try {
 	}
 } finally {
 	await browser?.close();
-	if (server) {
-		try {
-			process.kill(-server.pid, "SIGTERM");
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-		}
-		await server.exited;
-	}
+	await server.stop();
 }

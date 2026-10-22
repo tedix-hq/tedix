@@ -1,32 +1,18 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import type { Page } from "playwright";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
+import { startFixtureServer } from "./fixture-server";
 
 export async function createDeckSourceFixture(scored = false) {
-	const cwd = new URL("../", import.meta.url).pathname;
-	const probe = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: () => new Response(),
+	// Installs Deck sources and sheets in the fixture store, which has no
+	// reset, so these specs never share a fixture server with other specs.
+	const server = await startFixtureServer("/", {
+		shared: false,
+		stdout: "ignore",
 	});
-	const port = process.env.TEDIX_BROWSER_TEST_PORT || String(probe.port!);
-	probe.stop();
-	const origin = `http://127.0.0.1:${port}`;
-	const server = Bun.spawn(
-		[
-			"../../node_modules/.bin/vp",
-			"dev",
-			"--port",
-			port,
-			"--strictPort",
-			"--host",
-			"127.0.0.1",
-		],
-		{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
-	);
+	const { origin } = server;
 	async function rpc(path: string, input: unknown) {
 		const response = await fetch(`${origin}/api/rpc/${path}`, {
 			method: "POST",
@@ -37,12 +23,6 @@ export async function createDeckSourceFixture(scored = false) {
 		return (await response.json()).json;
 	}
 
-	try {
-		await waitForFixtureServer(origin, { server });
-	} catch (error) {
-		process.kill(-server.pid, "SIGTERM");
-		throw error;
-	}
 	const { items: spaces } = await rpc("osWorkspaces/workspaces/list", {
 		status: "active",
 		limit: 100,
@@ -307,7 +287,7 @@ export async function createDeckSourceFixture(scored = false) {
 		fixture,
 		workspaceName,
 		title,
-		close: () => process.kill(-server.pid, "SIGTERM"),
+		close: server.stop,
 	};
 }
 

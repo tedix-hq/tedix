@@ -1,4 +1,4 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 /**
  * The quick chat acts on the Decision Deck card on screen: the person asks
  * "fill this card with X and choose Y", the chat runs the page's own tools
@@ -7,34 +7,10 @@ import { waitForFixtureServer } from "../dev/fixture-server-readiness";
  */
 import { openExamples } from "./deck-controls";
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
 import { chromium, type Browser, type Page } from "playwright";
 
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = createServer();
-await new Promise<void>((resolve, reject) => {
-	probe.once("error", reject);
-	probe.listen(0, "127.0.0.1", resolve);
-});
-const address = probe.address();
-assert(address && typeof address !== "string");
-const port = String(address.port);
-await new Promise<void>((resolve, reject) => {
-	probe.close((error) => (error ? reject(error) : resolve()));
-});
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer("/browser-tests/deck-chat.html");
+const { origin } = server;
 
 const pageToolLog = (page: Page) =>
 	page.evaluate(
@@ -54,9 +30,6 @@ async function ask(page: Page, text: string) {
 
 let browser: Browser | undefined;
 try {
-	await waitForFixtureServer(`${origin}/browser-tests/deck-chat.html`, {
-		server,
-	});
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage({
 		viewport: { width: 1280, height: 800 },
@@ -149,13 +122,8 @@ try {
 	} finally {
 		await page.close();
 	}
-	assert.equal(server.exitCode, null, "Own fixture server stayed alive");
+	assert.equal(server.exitCode(), null, "Own fixture server stayed alive");
 } finally {
 	await browser?.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-	}
-	await server.exited;
+	await server.stop();
 }

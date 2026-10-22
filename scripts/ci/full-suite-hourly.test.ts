@@ -142,6 +142,7 @@ describe("hourly full suite", () => {
 			"test:unit": "vp test run",
 			"test:browser:a": "bun specs/a.spec.ts && bun specs/b.spec.ts",
 			"test:browser:c": "bun specs/c.spec.ts",
+			"test:browser:shared": "bun specs/run.ts specs/c.spec.ts specs/b.spec.ts",
 			"test:browser:all": "bun run test:browser:a && bun run test:browser:c",
 		};
 		const root = fixtureTree({
@@ -167,6 +168,9 @@ describe("hourly full suite", () => {
 				"webkit",
 			]);
 			expect(scriptBrowsers(workspace, scripts, "test:browser:c")).toEqual([]);
+			expect(scriptBrowsers(workspace, scripts, "test:browser:shared")).toEqual(
+				["chromium"],
+			);
 			expect(scriptBrowsers(workspace, scripts, "test:unit")).toEqual([]);
 			expect(scriptBrowsers(workspace, scripts, "test:browser:all")).toEqual([
 				"chromium",

@@ -101,5 +101,5 @@ try {
 	console.log("Deck and Feed source filter at 390px and 1280px passed.");
 } finally {
 	await browser.close();
-	close();
+	await close();
 }

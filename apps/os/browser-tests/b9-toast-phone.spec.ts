@@ -1,35 +1,12 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
 import { webkit, type Browser, type Page } from "playwright";
 
 // Real-adapter harness for the shared OS toast outlet: WebKit at two phone
 // sizes and a desktop size, light and dark, against the app's real CSS.
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = String(probe.port!);
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const fixture = `${origin}/browser-tests/b9-toast-phone.html`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{
-		cwd: new URL("../", import.meta.url).pathname,
-		stdout: "inherit",
-		stderr: "inherit",
-		detached: true,
-	},
-);
+const fixturePath = "/browser-tests/b9-toast-phone.html";
+const server = await startFixtureServer(fixturePath);
+const fixture = `${server.origin}${fixturePath}`;
 
 const toastSelector = "[data-os-toast-outlet] [role=dialog]";
 
@@ -178,7 +155,6 @@ async function expectCount(page: Page, count: number) {
 let browser: Browser | undefined;
 const report: Record<string, unknown>[] = [];
 try {
-	await waitForFixtureServer(fixture, { server });
 	browser = await webkit.launch({ headless: true });
 	const titleColors = new Map<string, string>();
 	let lifetimeChecked = false;
@@ -279,9 +255,5 @@ try {
 	console.log("b9 toast phone: ok");
 } finally {
 	await browser?.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch {
-		server.kill();
-	}
+	await server.stop();
 }

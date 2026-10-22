@@ -10,38 +10,18 @@ import {
 	type Page,
 } from "playwright";
 import type { OsOutputLibraryItem } from "@tedix/api-contract/schemas/os-workspaces";
+import { startFixtureServer } from "./fixture-server";
 
 // Standalone, local-only Documents regression. No shared fixture mutations.
-const cwd = new URL("../", import.meta.url).pathname;
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ??
 	join(tmpdir(), "tedix-b8-outputs-iphone-readonly");
 await mkdir(evidence, { recursive: true });
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
+const server = await startFixtureServer("/health", {
+	stdout: Bun.file(`${evidence}/server.log`),
+	stderr: Bun.file(`${evidence}/server-error.log`),
 });
-const port = probe.port!;
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		String(port),
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{
-		cwd,
-		stdout: Bun.file(`${evidence}/server.log`),
-		stderr: Bun.file(`${evidence}/server-error.log`),
-		detached: true,
-	},
-);
+const { origin } = server;
 const failures: string[] = [];
 const measurements: unknown[] = [];
 let browser: Browser | undefined;
@@ -137,22 +117,6 @@ async function keyboardFocus(page: Page, target: Locator) {
 }
 
 try {
-	for (let attempt = 0; ; attempt++) {
-		if (server.exitCode !== null)
-			throw new Error(
-				`Documents fixture server exited early (${server.exitCode}); see server-error.log`,
-			);
-		if (attempt === 120)
-			throw new Error("Documents fixture server did not become ready");
-		try {
-			if (
-				(await fetch(`${origin}/health`, { signal: AbortSignal.timeout(1000) }))
-					.ok
-			)
-				break;
-		} catch {}
-		await Bun.sleep(250);
-	}
 	browser = await webkit.launch({ headless: true });
 	for (const device of [
 		{ ...devices["iPhone 8"], viewport: { width: 375, height: 667 } },
@@ -596,22 +560,7 @@ try {
 		JSON.stringify({ origin, measurements, failures }, null, 2),
 	);
 	await browser?.close();
-	// This lane owns only this detached process group; never clear shared ports.
-	if (server.exitCode === null) {
-		try {
-			process.kill(-server.pid, "SIGTERM");
-		} catch {
-			server.kill("SIGTERM");
-		}
-		await Promise.race([server.exited, Bun.sleep(3000)]);
-		if (server.exitCode === null) {
-			try {
-				process.kill(-server.pid, "SIGKILL");
-			} catch {
-				server.kill("SIGKILL");
-			}
-		}
-	}
+	await server.stop();
 }
 assert.deepEqual(
 	failures,

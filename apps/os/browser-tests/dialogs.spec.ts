@@ -1,6 +1,5 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
 import {
 	chromium,
 	webkit,
@@ -9,32 +8,8 @@ import {
 	type Page,
 } from "playwright";
 
-const cwd = new URL("../", import.meta.url).pathname;
-// Parallel worktrees must not share the browser fixture's listener.
-const probe = createServer();
-await new Promise<void>((resolve, reject) => {
-	probe.once("error", reject);
-	probe.listen(0, "127.0.0.1", resolve);
-});
-const address = probe.address();
-assert(address && typeof address !== "string");
-const port = String(address.port);
-await new Promise<void>((resolve, reject) => {
-	probe.close((error) => (error ? reject(error) : resolve()));
-});
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer("/browser-tests/dialogs.html");
+const { origin } = server;
 type Case = {
 	engine: string;
 	type: BrowserType;
@@ -94,9 +69,6 @@ const finish = async (page: Page, c: Case) => {
 	assert(overflow <= 0, `${label(c)} no horizontal overflow`);
 };
 try {
-	await waitForFixtureServer(`${origin}/browser-tests/dialogs.html`, {
-		server,
-	});
 	// A drawer mounts with data-starting-style (translated off-screen) and
 	// starts its transition a frame later, so "no running animation" alone
 	// can pass before the drawer has moved into view.
@@ -498,11 +470,5 @@ try {
 	}
 } finally {
 	for (const browser of browsers.values()) await browser.close();
-	// vp launches Vite in a child; close the group so test gates receive EOF.
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-	}
-	await server.exited;
+	await server.stop();
 }

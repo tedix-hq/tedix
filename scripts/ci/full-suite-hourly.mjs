@@ -60,19 +60,20 @@ export function sourceBrowsers(file, seen = new Set()) {
 }
 
 // The Playwright browsers a package script needs, from the files its
-// `bun <file>` commands run, following `bun run <script>` references.
+// `bun <file> [<file>...]` commands run (a runner and the specs it is given),
+// following `bun run <script>` references.
 export function scriptBrowsers(workspaceRoot, scripts, name, ancestors = []) {
 	if (ancestors.includes(name)) throw new Error(`Cyclic test script: ${name}`);
 	if (!scripts[name]) throw new Error(`Unknown script: ${name}`);
 	const browsers = new Set();
 	for (const command of scripts[name].split("&&").map((part) => part.trim())) {
 		const reference = /^bun run ([\w:.-]+)$/.exec(command)?.[1];
-		const file = /^bun ([\w./-]+\.(?:[mc]?[jt]sx?))$/.exec(command)?.[1];
+		const files = /^bun (?:[\w./-]+\.(?:[mc]?[jt]sx?)(?: |$))+$/.test(command)
+			? command.split(" ").slice(1)
+			: [];
 		const found = reference
 			? scriptBrowsers(workspaceRoot, scripts, reference, [...ancestors, name])
-			: file
-				? sourceBrowsers(join(workspaceRoot, file))
-				: [];
+			: files.flatMap((file) => sourceBrowsers(join(workspaceRoot, file)));
 		for (const browser of found) browsers.add(browser);
 	}
 	return [...browsers].sort();

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { devices, webkit, type Browser, type Page } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
 /*
  * The Deck's "Confirm decision" sheet in WebKit. Live report: tapping Confirm
@@ -8,27 +9,10 @@ import { devices, webkit, type Browser, type Page } from "playwright";
  * viewport painted under the sheet. The sheet must show progress at once,
  * keep a failure on screen with a way forward, and close on success.
  */
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
+const server = await startFixtureServer("/work?view=deck", {
+	stdout: "ignore",
 });
-const port = process.env.TEDIX_BROWSER_TEST_PORT || String(probe.port!);
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
-);
+const { origin } = server;
 const shots = process.env.TEDIX_SCREENSHOT_DIR;
 // Protected sample cards: their yes option asks for confirmation. Each run
 // saves one, so every viewport gets its own.
@@ -173,14 +157,6 @@ async function settleToast(page: Page, title: string) {
 
 let browser: Browser | undefined;
 try {
-	for (let attempt = 0; ; attempt++) {
-		if (attempt === 100 || server.exitCode !== null)
-			throw new Error("Deck test server unavailable");
-		try {
-			if ((await fetch(`${origin}/work?view=deck`)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
-	}
 	browser = await webkit.launch({ headless: true });
 	// A toast raised while any dialog is open paints above that dialog.
 	{
@@ -343,6 +319,5 @@ try {
 		}
 } finally {
 	await browser?.close();
-	process.kill(-server.pid, "SIGTERM");
-	await server.exited;
+	await server.stop();
 }

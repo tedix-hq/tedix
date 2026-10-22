@@ -1,35 +1,15 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { webkit } from "playwright";
 
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = probe.port!;
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
 const output =
 	process.env.CARD_DATES_SCREENSHOTS ?? "/tmp/tedix-card-text-dates";
 await mkdir(output, { recursive: true });
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		String(port),
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer();
+const { origin } = server;
 const browser = await webkit.launch({ headless: true });
 try {
-	await waitForFixtureServer(origin, { server });
 	const page = await browser.newPage();
 	for (const [width, height] of [
 		[375, 667],
@@ -94,10 +74,5 @@ try {
 	);
 } finally {
 	await browser.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch {
-		server.kill();
-	}
-	await server.exited;
+	await server.stop();
 }
