@@ -1104,6 +1104,10 @@
 		{
 			"name": "20261022072410_billing_settlement_watermark/migration.sql",
 			"sha256": "4601d30f95d8545dc9a4db7266d3da066d5875604ca3805136daaea8c2eb5ae4"
+		},
+		{
+			"name": "20261022073425_work_items_lane_dispatch_indexes/migration.sql",
+			"sha256": "55d5e94ee75cb89f0bfd72fab8da64b72a92fa78daf4a6de542cb502009ce966"
 		}
 	]
 }

@@ -301,6 +301,25 @@ export const workItems = sqliteTable(
 		index("idx_work_items_due_date").on(table.dueDate),
 		index("idx_work_items_org_created").on(table.orgId, table.createdAt),
 		index("idx_work_items_org_disposition").on(table.orgId, table.disposition),
+		index("idx_work_items_lane_executor").on(
+			table.orgId,
+			table.disposition,
+			sql`json_extract(${table.metadata}, '$.executor')`,
+			table.createdAt,
+			table.id,
+		),
+		// Keep held lanes out of both dispatcher polling and health checks.
+		index("idx_work_items_lane_ready")
+			.on(
+				table.orgId,
+				table.disposition,
+				sql`json_extract(${table.metadata}, '$.executor')`,
+				table.createdAt,
+				table.id,
+			)
+			.where(
+				sql`(json_type(${table.metadata}, '$.laneDispatch') IS NULL OR json_extract(${table.metadata}, '$.laneDispatch.state') = 'ready') = 1`,
+			),
 		index("idx_work_items_org_kind_risk").on(
 			table.orgId,
 			table.workKind,

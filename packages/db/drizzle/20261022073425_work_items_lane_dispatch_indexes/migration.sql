@@ -1,0 +1,2 @@
+CREATE INDEX `idx_work_items_lane_executor` ON `work_items` (`org_id`,`disposition`,json_extract("metadata", '$.executor'),`created_at`,`id`);--> statement-breakpoint
+CREATE INDEX `idx_work_items_lane_ready` ON `work_items` (`org_id`,`disposition`,json_extract("metadata", '$.executor'),`created_at`,`id`) WHERE (json_type("work_items"."metadata", '$.laneDispatch') IS NULL OR json_extract("work_items"."metadata", '$.laneDispatch.state') = 'ready') = 1;
