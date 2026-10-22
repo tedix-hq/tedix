@@ -5,7 +5,7 @@ export function gateInProfile(name, profile) {
 		return !/^tests |^type-check (apps|packages)\//.test(name);
 	if (profile !== "local-fast")
 		throw new Error(`Unknown gate profile: ${profile}`);
-	return /^(node_modules matches|format:check|lint:code|lint:repo|lint:deps|OSS secret|type-check )/.test(
+	return /^(node_modules matches|format:check|lint:code|lint:repo|lint:deps|OSS secret|migration order |type-check )/.test(
 		name,
 	);
 }

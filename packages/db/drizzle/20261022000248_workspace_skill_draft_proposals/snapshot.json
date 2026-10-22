@@ -1,10 +1,10 @@
 {
+  "id": "6a3d5f5b-ac21-44a6-81ca-3c3963038918",
+  "prevIds": [
+    "abbd0bc1-9e8d-46f9-8bc8-6a85505d42f6"
+  ],
   "version": "7",
   "dialect": "sqlite",
-  "id": "fe68bddd-5baf-4d4f-a09b-b18254fe2ded",
-  "prevIds": [
-    "45a7a4af-5bb2-4dad-8008-f9c96b8b81c9"
-  ],
   "ddl": [
     {
       "name": "organization_residency_policies",
@@ -148,6 +148,10 @@
     },
     {
       "name": "app_tool_csp_domains",
+      "entityType": "tables"
+    },
+    {
+      "name": "connection_provider_ownership",
       "entityType": "tables"
     },
     {
@@ -803,6 +807,10 @@
       "entityType": "tables"
     },
     {
+      "name": "skill_workflow_sources",
+      "entityType": "tables"
+    },
+    {
       "name": "tedi_muscle_memory",
       "entityType": "tables"
     },
@@ -884,6 +892,10 @@
     },
     {
       "name": "platform_cron_executions",
+      "entityType": "tables"
+    },
+    {
+      "name": "d1_retention_policies",
       "entityType": "tables"
     },
     {
@@ -5924,6 +5936,36 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "app_id",
+      "entityType": "columns",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(CURRENT_TIMESTAMP)",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "id",
       "entityType": "columns",
       "table": "connection_providers"
@@ -7055,6 +7097,26 @@
       "default": null,
       "generated": null,
       "name": "action_kind",
+      "entityType": "columns",
+      "table": "os_approval_rules"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tool_slug",
+      "entityType": "columns",
+      "table": "os_approval_rules"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "verb",
       "entityType": "columns",
       "table": "os_approval_rules"
     },
@@ -28904,6 +28966,16 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "workflow_source_hash",
+      "entityType": "columns",
+      "table": "skill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "skill_doc",
       "entityType": "columns",
       "table": "skill_runs"
@@ -29287,6 +29359,36 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "skill_usage_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "skill_id",
+      "entityType": "columns",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sha256",
+      "entityType": "columns",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "workflow_source",
+      "entityType": "columns",
+      "table": "skill_workflow_sources"
     },
     {
       "type": "text",
@@ -32167,6 +32269,96 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "platform_cron_executions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "table_name",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'off'",
+      "generated": null,
+      "name": "mode",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "keep_days",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "2000",
+      "generated": null,
+      "name": "max_rows_per_run",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_run_at",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_report",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "archived_rows_total",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "deleted_rows_total",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(CURRENT_TIMESTAMP)",
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
     },
     {
       "type": "text",
@@ -43844,6 +44036,21 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
+      "name": "fk_connection_provider_ownership_organization_id_organizations_id_fk",
+      "entityType": "fks",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "columns": [
+        "organization_id"
+      ],
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
       "name": "fk_kernel_conversation_capabilities_organization_id_organizations_id_fk",
       "entityType": "fks",
       "table": "kernel_conversation_capabilities"
@@ -48200,6 +48407,21 @@
     },
     {
       "columns": [
+        "skill_id"
+      ],
+      "tableTo": "skill_entries",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_skill_workflow_sources_skill_id_skill_entries_id_fk",
+      "entityType": "fks",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "columns": [
         "tedi_id"
       ],
       "tableTo": "tedis",
@@ -50815,6 +51037,16 @@
     },
     {
       "columns": [
+        "skill_id",
+        "sha256"
+      ],
+      "nameExplicit": false,
+      "name": "skill_workflow_sources_pk",
+      "entityType": "pks",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "columns": [
         "organization_id",
         "tedi_id"
       ],
@@ -51212,6 +51444,15 @@
       "nameExplicit": false,
       "name": "app_tool_csp_domains_pk",
       "table": "app_tool_csp_domains",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "app_id"
+      ],
+      "nameExplicit": false,
+      "name": "connection_provider_ownership_pk",
+      "table": "connection_provider_ownership",
       "entityType": "pks"
     },
     {
@@ -52778,6 +53019,15 @@
       "nameExplicit": false,
       "name": "platform_cron_executions_pk",
       "table": "platform_cron_executions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "table_name"
+      ],
+      "nameExplicit": false,
+      "name": "d1_retention_policies_pk",
+      "table": "d1_retention_policies",
       "entityType": "pks"
     },
     {
@@ -54763,6 +55013,20 @@
       "name": "cms_restore_permits_site_slug_idx",
       "entityType": "indexes",
       "table": "cms_restore_permits"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "connection_provider_ownership_org_idx",
+      "entityType": "indexes",
+      "table": "connection_provider_ownership"
     },
     {
       "columns": [
@@ -61933,6 +62197,24 @@
       "where": null,
       "origin": "manual",
       "name": "idx_billing_reservation_org_status",
+      "entityType": "indexes",
+      "table": "billing_usage_reservations"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        },
+        {
+          "value": "expires_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_billing_reservation_status_expiry",
       "entityType": "indexes",
       "table": "billing_usage_reservations"
     },

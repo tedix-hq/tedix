@@ -1,10 +1,10 @@
 {
+  "id": "abbd0bc1-9e8d-46f9-8bc8-6a85505d42f6",
+  "prevIds": [
+    "5c28e420-bc5f-4254-ac22-4fa330aec27a"
+  ],
   "version": "7",
   "dialect": "sqlite",
-  "id": "45a7a4af-5bb2-4dad-8008-f9c96b8b81c9",
-  "prevIds": [
-    "30c6270f-8a9c-4585-ade5-ae4afd8cf1ac"
-  ],
   "ddl": [
     {
       "name": "organization_residency_policies",
@@ -151,6 +151,10 @@
       "entityType": "tables"
     },
     {
+      "name": "connection_provider_ownership",
+      "entityType": "tables"
+    },
+    {
       "name": "connection_providers",
       "entityType": "tables"
     },
@@ -244,6 +248,10 @@
     },
     {
       "name": "os_workspace_skill_draft_grants",
+      "entityType": "tables"
+    },
+    {
+      "name": "os_workspace_skill_draft_proposals",
       "entityType": "tables"
     },
     {
@@ -799,6 +807,10 @@
       "entityType": "tables"
     },
     {
+      "name": "skill_workflow_sources",
+      "entityType": "tables"
+    },
+    {
       "name": "tedi_muscle_memory",
       "entityType": "tables"
     },
@@ -880,6 +892,10 @@
     },
     {
       "name": "platform_cron_executions",
+      "entityType": "tables"
+    },
+    {
+      "name": "d1_retention_policies",
       "entityType": "tables"
     },
     {
@@ -5920,6 +5936,36 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "app_id",
+      "entityType": "columns",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(CURRENT_TIMESTAMP)",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "id",
       "entityType": "columns",
       "table": "connection_providers"
@@ -7051,6 +7097,26 @@
       "default": null,
       "generated": null,
       "name": "action_kind",
+      "entityType": "columns",
+      "table": "os_approval_rules"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tool_slug",
+      "entityType": "columns",
+      "table": "os_approval_rules"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "verb",
       "entityType": "columns",
       "table": "os_approval_rules"
     },
@@ -9183,6 +9249,166 @@
       "name": "updated_at",
       "entityType": "columns",
       "table": "os_workspace_skill_draft_grants"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "member_id",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "skill_id",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_revision",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "base_content",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "base_files",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "files",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reason",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_digest",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'pending'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "withdrawn_at",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "os_workspace_skill_draft_proposals"
     },
     {
       "type": "text",
@@ -28740,6 +28966,16 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "workflow_source_hash",
+      "entityType": "columns",
+      "table": "skill_runs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "skill_doc",
       "entityType": "columns",
       "table": "skill_runs"
@@ -29123,6 +29359,36 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "skill_usage_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "skill_id",
+      "entityType": "columns",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sha256",
+      "entityType": "columns",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "workflow_source",
+      "entityType": "columns",
+      "table": "skill_workflow_sources"
     },
     {
       "type": "text",
@@ -32003,6 +32269,96 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "platform_cron_executions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "table_name",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'off'",
+      "generated": null,
+      "name": "mode",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "keep_days",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "2000",
+      "generated": null,
+      "name": "max_rows_per_run",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_run_at",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_report",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "archived_rows_total",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "deleted_rows_total",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(CURRENT_TIMESTAMP)",
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "d1_retention_policies"
     },
     {
       "type": "text",
@@ -43680,6 +44036,21 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
+      "name": "fk_connection_provider_ownership_organization_id_organizations_id_fk",
+      "entityType": "fks",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "columns": [
+        "organization_id"
+      ],
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
       "name": "fk_kernel_conversation_capabilities_organization_id_organizations_id_fk",
       "entityType": "fks",
       "table": "kernel_conversation_capabilities"
@@ -48036,6 +48407,21 @@
     },
     {
       "columns": [
+        "skill_id"
+      ],
+      "tableTo": "skill_entries",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_skill_workflow_sources_skill_id_skill_entries_id_fk",
+      "entityType": "fks",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "columns": [
         "tedi_id"
       ],
       "tableTo": "tedis",
@@ -50651,6 +51037,16 @@
     },
     {
       "columns": [
+        "skill_id",
+        "sha256"
+      ],
+      "nameExplicit": false,
+      "name": "skill_workflow_sources_pk",
+      "entityType": "pks",
+      "table": "skill_workflow_sources"
+    },
+    {
+      "columns": [
         "organization_id",
         "tedi_id"
       ],
@@ -51052,6 +51448,15 @@
     },
     {
       "columns": [
+        "app_id"
+      ],
+      "nameExplicit": false,
+      "name": "connection_provider_ownership_pk",
+      "table": "connection_provider_ownership",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         "id"
       ],
       "nameExplicit": false,
@@ -51255,6 +51660,15 @@
       "nameExplicit": false,
       "name": "os_workspace_resources_pk",
       "table": "os_workspace_resources",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "os_workspace_skill_draft_proposals_pk",
+      "table": "os_workspace_skill_draft_proposals",
       "entityType": "pks"
     },
     {
@@ -52605,6 +53019,15 @@
       "nameExplicit": false,
       "name": "platform_cron_executions_pk",
       "table": "platform_cron_executions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "table_name"
+      ],
+      "nameExplicit": false,
+      "name": "d1_retention_policies_pk",
+      "table": "d1_retention_policies",
       "entityType": "pks"
     },
     {
@@ -54594,6 +55017,20 @@
     {
       "columns": [
         {
+          "value": "organization_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "connection_provider_ownership_org_idx",
+      "entityType": "indexes",
+      "table": "connection_provider_ownership"
+    },
+    {
+      "columns": [
+        {
           "value": "descope_app_id",
           "isExpression": false
         }
@@ -55458,6 +55895,32 @@
       "name": "os_workspace_resources_org_workspace_idx",
       "entityType": "indexes",
       "table": "os_workspace_resources"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false
+        },
+        {
+          "value": "workspace_id",
+          "isExpression": false
+        },
+        {
+          "value": "resource_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "os_workspace_skill_draft_proposals_target_idx",
+      "entityType": "indexes",
+      "table": "os_workspace_skill_draft_proposals"
     },
     {
       "columns": [
@@ -61734,6 +62197,24 @@
       "where": null,
       "origin": "manual",
       "name": "idx_billing_reservation_org_status",
+      "entityType": "indexes",
+      "table": "billing_usage_reservations"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        },
+        {
+          "value": "expires_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_billing_reservation_status_expiry",
       "entityType": "indexes",
       "table": "billing_usage_reservations"
     },
