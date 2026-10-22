@@ -122,6 +122,9 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 			}),
 		]);
 
+	const didSave = (promise: Promise<unknown>): Promise<boolean> =>
+		promise.then(() => true).catch(() => false);
+
 	const {
 		channelValues,
 		pairingRequests,
@@ -429,12 +432,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 					canManageSecrets={canManageSecrets}
 					isSaving={saveChannels.isPending}
 					isTesting={testChannelToken.isPending}
-					onSave={(value) =>
-						saveChannels
-							.mutateAsync(value)
-							.then(() => true)
-							.catch(() => false)
-					}
+					onSave={(value) => didSave(saveChannels.mutateAsync(value))}
 					onTest={(channel, token) =>
 						testChannelToken.mutate({ channel, token })
 					}
@@ -477,12 +475,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 				) : null}
 				<SecretSettingsForm
 					disabled={!canManageSecrets || setSecret.isPending}
-					onSave={(value) =>
-						setSecret
-							.mutateAsync(value)
-							.then(() => true)
-							.catch(() => false)
-					}
+					onSave={(value) => didSave(setSecret.mutateAsync(value))}
 				/>
 				<Collection aria-label="Encrypted credentials">
 					{(secrets.data?.data ?? []).map((secret) => (
@@ -515,12 +508,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 						(app) => !assignedAppIds.has(app.id),
 					)}
 					disabled={!canManage || createAssignment.isPending}
-					onSave={(value) =>
-						createAssignment
-							.mutateAsync(value)
-							.then(() => true)
-							.catch(() => false)
-					}
+					onSave={(value) => didSave(createAssignment.mutateAsync(value))}
 				/>
 				<Collection aria-label="App assignments">
 					{(assignments.data?.data ?? []).map((assignment) => (
@@ -663,12 +651,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 				</Text>
 				<CustomDomainForm
 					disabled={!canManage || addDomain.isPending}
-					onSave={(value) =>
-						addDomain
-							.mutateAsync(value)
-							.then(() => true)
-							.catch(() => false)
-					}
+					onSave={(value) => didSave(addDomain.mutateAsync(value))}
 				/>
 				<Collection aria-label="Custom domains">
 					{(domains.data?.data ?? []).map((domain) => (
