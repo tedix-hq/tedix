@@ -483,7 +483,7 @@ async function assertHomeDelegationOperatorAuthority(
 }
 
 export const respondApprovalRoute = authed.respondApproval
-	.use(AUTHZ.tedisWrite)
+	.use(AUTHZ.osApprove)
 	.handler(async ({ context, input }) => {
 		const organizationId = resolveOrganizationId(context, input.organizationId);
 		const existingRun = await getKernelRuntimeRun(context.db, {

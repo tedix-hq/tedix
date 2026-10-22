@@ -9238,7 +9238,7 @@ describe("home approved-write layer (v1)", () => {
 			expect(db.approvals[0]?.status).toBe("pending");
 			expect(executor).not.toHaveBeenCalled();
 			expect(result.status).toBe("failed");
-			expect(result.assistantMessage?.content).toContain("tedis:update");
+			expect(result.assistantMessage?.content).toContain("os:approve");
 		},
 	);
 	it.each(["admin", "owner"] as const)(
@@ -14856,7 +14856,7 @@ describe("respondApproval — held Home delegation authority and agent review fe
 			headers: new Headers({
 				"X-Service-Binding": "true",
 				"X-Tedix-Org-Id": ORG_ID,
-				"X-Tedix-Tedi-Scopes": "tedis:write tedis:read",
+				"X-Tedix-Tedi-Scopes": "tedis:write tedis:read mcp:memory.admin",
 				...headers,
 			}),
 		} as unknown as BaseContext);

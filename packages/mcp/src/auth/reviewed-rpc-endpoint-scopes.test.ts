@@ -32,6 +32,12 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("requires approval authority independently of worker operations", () => {
+		expect(
+			resolve("kernelRuntime/respondApproval", { readOnlyHint: false }),
+		).toEqual(["mcp:memory.admin"]);
+	});
+
 	it("holds only valid tiered scopes", () => {
 		for (const scope of Object.values(REVIEWED_RPC_ENDPOINT_SCOPES)) {
 			expect(scope).toMatch(VALID);

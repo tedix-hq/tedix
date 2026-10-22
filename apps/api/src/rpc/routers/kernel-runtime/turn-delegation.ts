@@ -5,7 +5,7 @@ import {
 	type BaseContext,
 	ErrorCodes,
 	createError,
-	userHoldsPermission,
+	assertOsApprovalAuthorization,
 } from "../../orpc";
 import { recordDelegationFyi } from "@tedix/db/queries/work-items/delegation-autonomy";
 import type { CodemodeExecuteWritePayload } from "@tedix/api-contract/schemas/codemode-execute-write";
@@ -793,15 +793,13 @@ async function respondKernelToolWriteApprovalCore(
 	run: HomeRun;
 	assignments: HomePlanAssignmentApprovalResult[];
 }> {
-	if (
-		context.authType === "user" &&
-		!userHoldsPermission(context, "tedis:update")
-	) {
+	if (context.authType === "tedi" || context.tediId) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Resolving a Home write approval requires tedis:update",
+			"Tedis decide Home approvals through the Work approval plane, not chat replies",
 		);
 	}
+	assertOsApprovalAuthorization(context);
 	const { approval, organizationId } = input;
 	if (approval.orgId !== organizationId) {
 		throw createError(
