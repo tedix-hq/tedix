@@ -57,10 +57,13 @@ export interface CheckResult {
 	ok: boolean;
 	ms: number;
 	detail: string;
+	failureClass: "product" | "infra" | null;
 }
 
 export interface SmokeOptions {
 	health: string[];
+	expectedShas?: Record<string, string>;
+	shaFields?: Record<string, string>;
 	mcpUrl?: string;
 	organization?: string;
 	principal?: string;
@@ -75,6 +78,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function message(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error);
 	return text.replace(/\s+/g, " ").slice(0, 500);
+}
+
+/** Transport and credential failures cannot justify reverting product code. */
+export function failureClass(
+	error: unknown,
+	checkName = "",
+): "product" | "infra" {
+	const text = [
+		message(error),
+		isRecord(error) ? String(error.code ?? "") : "",
+		isRecord(error) && error.cause ? message(error.cause) : "",
+	].join(" ");
+	const status = isRecord(error)
+		? (error.status ?? error.statusCode)
+		: undefined;
+	if (
+		[401, 403, 429].includes(Number(status)) ||
+		/\b(?:401|403|429)\b|unauthorized|forbidden|too many requests/i.test(text)
+	)
+		return "infra";
+	if (/\b5\d\d\b/.test(text) || Number(status) >= 500) return "product";
+	if (
+		/timeout|timed out|abort|fetch failed|failed to fetch|unable to connect|connection|network|DNS|TLS|certificate|ENOTFOUND|EAI_AGAIN|ECONN|ETIMEDOUT|EHOST|ENET|EPIPE|CERT_|socket/i.test(
+			text,
+		)
+	)
+		return "infra";
+	return checkName === "workload credential" ? "infra" : "product";
 }
 
 export function parseArgs(argv: string[]): SmokeOptions {
@@ -94,7 +125,16 @@ export function parseArgs(argv: string[]): SmokeOptions {
 		else if (flag === "--principal") options.principal = value;
 		else if (flag === "--session-key") options.sessionKey = value;
 		else if (flag === "--report") options.report = value;
-		else throw new Error(`Unknown option ${flag}`);
+		else if (flag === "--health-sha") {
+			const match = value.match(/^(https?:\/\/.+)=(\w{40})$/);
+			if (!match || !/^[a-f0-9]{40}$/.test(match[2]!))
+				throw new Error("--health-sha needs URL=full-sha");
+			(options.expectedShas ??= {})[match[1]!] = match[2]!;
+		} else if (flag === "--health-sha-field") {
+			const match = value.match(/^(https?:\/\/.+)=([a-zA-Z][a-zA-Z0-9]*)$/);
+			if (!match) throw new Error("--health-sha-field needs URL=field");
+			(options.shaFields ??= {})[match[1]!] = match[2]!;
+		} else throw new Error(`Unknown option ${flag}`);
 	}
 	if (options.mcpUrl && !options.organization)
 		throw new Error("--mcp-url needs --organization");
@@ -104,16 +144,23 @@ export function parseArgs(argv: string[]): SmokeOptions {
 }
 
 /** A healthy surface answers 200 and, when it reports a status, "ok". */
-export function healthProblem(status: number, body: string): string | null {
+export function healthProblem(
+	status: number,
+	body: string,
+	expectedSha?: string,
+	shaField = "deployedSha",
+): string | null {
 	if (status !== 200) return `HTTP ${status}`;
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(body);
 	} catch {
-		return null;
+		return expectedSha ? "health SHA is missing" : null;
 	}
 	if (isRecord(parsed) && "status" in parsed && parsed.status !== "ok")
 		return `status ${JSON.stringify(parsed.status)}`;
+	if (expectedSha && (!isRecord(parsed) || parsed[shaField] !== expectedSha))
+		return `health SHA mismatch: expected ${expectedSha}, got ${isRecord(parsed) ? parsed[shaField] : "missing"}`;
 	return null;
 }
 
@@ -208,13 +255,20 @@ async function timed(
 	const started = Date.now();
 	try {
 		const detail = await run();
-		return { name, ok: true, ms: Date.now() - started, detail };
+		return {
+			name,
+			ok: true,
+			ms: Date.now() - started,
+			detail,
+			failureClass: null,
+		};
 	} catch (error) {
 		return {
 			name,
 			ok: false,
 			ms: Date.now() - started,
 			detail: message(error),
+			failureClass: failureClass(error, name),
 		};
 	}
 }
@@ -222,6 +276,8 @@ async function timed(
 export async function checkHealth(
 	urls: string[],
 	fetchFn: FetchLike = fetch,
+	expectedShas: Record<string, string> = {},
+	shaFields: Record<string, string> = {},
 ): Promise<CheckResult[]> {
 	return Promise.all(
 		urls.map((url) =>
@@ -230,7 +286,12 @@ export async function checkHealth(
 					headers: { "cache-control": "no-store" },
 					signal: AbortSignal.timeout(15_000),
 				});
-				const problem = healthProblem(response.status, await response.text());
+				const problem = healthProblem(
+					response.status,
+					await response.text(),
+					expectedShas[url],
+					shaFields[url],
+				);
 				if (problem) throw new Error(problem);
 				return "ok";
 			}),
@@ -421,7 +482,12 @@ export async function runSmoke(
 	options: SmokeOptions,
 	env: Record<string, string | undefined> = process.env,
 ): Promise<CheckResult[]> {
-	const results = await checkHealth(options.health);
+	const results = await checkHealth(
+		options.health,
+		fetch,
+		options.expectedShas,
+		options.shaFields,
+	);
 	if (!options.mcpUrl || !options.organization) return results;
 	const mcpUrl = options.mcpUrl;
 	const organization = options.organization;
