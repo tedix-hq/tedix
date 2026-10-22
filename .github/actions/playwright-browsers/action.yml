@@ -51,7 +51,12 @@ runs:
         key: ${{ steps.playwright.outputs.apt-key }}
         restore-keys: ${{ steps.playwright.outputs.apt-prefix }}
 
-    # On a cache hit the browsers are present and only OS packages install.
+    # Restored OS packages install through dpkg, without the mirror, whose
+    # index update alone has stalled for over 9 minutes. Each package is
+    # installed at its newest restored version unless the image already has
+    # that version or a newer one. Playwright then fetches only browsers; if
+    # dpkg fails, or nothing was restored, Playwright installs the packages
+    # through apt. On a browser cache hit the browsers are present.
     # A miss downloads from the Playwright CDN; that download is the only
     # step retried, and every retry is recorded as a warning on the run.
     # An attempt that outlives its limit is a stalled mirror: it fails the
@@ -63,13 +68,34 @@ runs:
         INSTALL_LIMIT_MINUTES: "10"
       run: |
         set -uo pipefail
+        deps=--with-deps
+        restored=0
+        declare -A chosen=()
+        # shellcheck disable=SC2016 # dpkg expands these fields.
+        for deb in "$HOME"/.cache/playwright-apt/*.deb; do
+          [ -e "$deb" ] || continue
+          restored=$((restored + 1))
+          read -r name version < <(dpkg-deb -W --showformat='${Package} ${Version}\n' "$deb")
+          read -r state installed < <(dpkg-query -W --showformat='${db:Status-Status} ${Version}\n' "$name" 2>/dev/null || echo "absent -")
+          if [ "$state" = installed ] && dpkg --compare-versions "$installed" ge "$version"; then continue; fi
+          if [ -n "${chosen[$name]:-}" ] && dpkg --compare-versions "$(dpkg-deb -f "${chosen[$name]}" Version)" ge "$version"; then continue; fi
+          chosen[$name]=$deb
+        done
+        if [ "$restored" -gt 0 ]; then
+          if [ "${#chosen[@]}" -eq 0 ] || timeout --kill-after=30s "${INSTALL_LIMIT_MINUTES}m" \
+            sudo dpkg -i "${chosen[@]}" >/dev/null; then
+            deps=
+          else
+            echo "::warning title=Infrastructure retry::Installing the restored OS packages failed; installing them through apt"
+          fi
+        fi
         for attempt in 1 2 3; do
           # The runner starts bash with -e; "|| status=$?" keeps a failed
           # attempt from ending the step before it is reported or retried.
           status=0
-          # shellcheck disable=SC2086 # BROWSERS is a word list.
+          # shellcheck disable=SC2086 # deps and BROWSERS are word lists.
           timeout --kill-after=30s "${INSTALL_LIMIT_MINUTES}m" \
-            bun run --cwd apps/os playwright install --with-deps --only-shell $BROWSERS || status=$?
+            bun run --cwd apps/os playwright install $deps --only-shell $BROWSERS || status=$?
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
@@ -91,6 +117,22 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: ${{ steps.playwright.outputs.key }}
+
+    # A cache restored from another image can hold versions this image did
+    # not install; only the installed versions are saved, so dpkg can
+    # install the saved set on its own.
+    - name: Keep only the installed OS package versions
+      if: steps.restore-apt.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC2016 # dpkg expands these fields.
+        for deb in "$HOME"/.cache/playwright-apt/*.deb; do
+          [ -e "$deb" ] || continue
+          read -r name version < <(dpkg-deb -W --showformat='${Package} ${Version}\n' "$deb")
+          installed="$(dpkg-query -W --showformat='${Version}' "$name" 2>/dev/null || true)"
+          if [ "$installed" != "$version" ]; then rm -f "$deb"; fi
+        done
 
     - name: Save OS packages to the cache
       if: steps.restore-apt.outputs.cache-hit != 'true'
