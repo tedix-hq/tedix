@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { detachedGitEnv } from "../oss/git-env";
-import { observeCiCompletion } from "./watch-main-ci.mjs";
+import {
+	buildQueueStallDispatch,
+	observeCiCompletion,
+} from "./watch-main-ci.mjs";
 
 const pushedSha = "a".repeat(40);
 const descendant = "b".repeat(40);
@@ -19,6 +22,7 @@ type Run = {
 	head_sha: string;
 	status: string;
 	conclusion: string | null;
+	created_at?: string;
 };
 const green = (sha = pushedSha): Run => ({
 	id: 1,
@@ -31,9 +35,11 @@ function fixture(polls: Run[][], included = true) {
 	let time = 0,
 		poll = 0;
 	const notifications: Run[] = [];
+	const queueEscalations: { run: Run; queuedForMs: number }[] = [];
 	const comparisons: string[] = [];
 	return {
 		notifications,
+		queueEscalations,
 		comparisons,
 		options: {
 			pushedSha,
@@ -45,12 +51,16 @@ function fixture(polls: Run[][], included = true) {
 			notify: async (run: Run) => {
 				notifications.push(run);
 			},
+			escalateQueued: async (run: Run, queuedForMs: number) => {
+				queueEscalations.push({ run, queuedForMs });
+			},
 			now: () => time,
 			sleep: async (ms: number) => {
 				time += ms;
 			},
 			intervalMs: 10,
 			timeoutMs: 30,
+			queuedAfterMs: 10,
 			log: () => {},
 		},
 	};
@@ -89,6 +99,60 @@ test("a newer failed or pending attempt prevents reuse of that SHA's old success
 		await expect(observeCiCompletion(f.options)).rejects.toThrow("timed out");
 		expect(f.notifications).toEqual([]);
 	}
+});
+
+test("escalates a stalled queued run once and keeps watching for success", async () => {
+	const queued = {
+		...green(),
+		status: "queued",
+		conclusion: null,
+		created_at: new Date(0).toISOString(),
+	};
+	const f = fixture([[queued], [queued], [green()]]);
+	expect(await observeCiCompletion(f.options)).toEqual({
+		sha: pushedSha,
+		runId: 1,
+	});
+	expect(f.queueEscalations).toEqual([{ run: queued, queuedForMs: 10 }]);
+});
+
+test("queue escalation distinguishes runner stalls from human gates", () => {
+	const dispatch = buildQueueStallDispatch({
+		pushedSha,
+		run: {
+			...green(),
+			status: "queued",
+			created_at: "2026-10-22T12:00:00Z",
+			html_url: "https://github.com/example/product/actions/runs/1",
+		},
+		queuedForMs: 600_000,
+		newerRuns: [{ ...green(descendant), id: 2, status: "in_progress" }],
+		jobs: [
+			{
+				id: 3,
+				name: "Plan",
+				status: "queued",
+				conclusion: null,
+				runner_name: null,
+				steps: [],
+			},
+		],
+		pendingDeployments: [
+			{
+				environment: { name: "release" },
+				wait_timer: 15,
+				reviewers: [{ type: "User" }],
+				current_user_can_approve: false,
+			},
+		],
+	});
+	expect(dispatch.event_type).toBe("product-ci-queue-stalled");
+	expect(dispatch.client_payload).toMatchObject({
+		queued_for_seconds: 600,
+		jobs: [{ runner_name: null, step_count: 0 }],
+		pending_deployments: [{ wait_timer_minutes: 15, reviewer_count: 1 }],
+		newer_runs: [{ id: 2, status: "in_progress" }],
+	});
 });
 
 test("transient notification errors retry; persistent errors leave fallback active", async () => {
