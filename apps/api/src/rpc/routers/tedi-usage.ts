@@ -18,10 +18,8 @@ import {
 	getCallCostTotals,
 } from "@tedix/db/queries/tedi-usage";
 import { getTediById } from "@tedix/db/queries/tedis";
-import {
-	getUserToolCallMetrics,
-	hasAEConfig,
-} from "../../lib/analytics-engine";
+import { getUserToolCallMetrics } from "../../lib/analytics-engine";
+import { hasAEConfig } from "../../lib/analytics-engine-query";
 import {
 	AUTHZ,
 	type BaseContext,

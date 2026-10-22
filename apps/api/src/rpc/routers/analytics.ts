@@ -45,15 +45,19 @@ import type { NewWidgetEvent } from "@tedix/db/schema/analytics";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	getAppMetricsFromAE,
+	getAppToolBreakdownFromAE,
+} from "../../lib/analytics-engine";
+import {
 	getAppSummaryFromAE,
 	getAppTimeSeriesFromAE,
-	getAppToolBreakdownFromAE,
 	getExecutionDrilldownFromAE,
 	getRecentExecutionsFromAE,
-	hasAEConfig,
+} from "../../lib/analytics-engine-apps";
+import { hasAEConfig } from "../../lib/analytics-engine-query";
+import {
 	hasCodemodeAEConfig,
 	queryCodemodeAnalyticsSummary,
-} from "../../lib/analytics-engine";
+} from "../../lib/analytics-engine-codemode";
 import { buildDrilldownFromAuditRows } from "../../lib/execution-drilldown";
 import { getToolCallPayloadsFromR2, hasR2SqlConfig } from "../../lib/r2-sql";
 import {

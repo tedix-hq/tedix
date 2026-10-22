@@ -62,14 +62,34 @@ vi.mock("@tedix/db/queries/audit", () => ({
 	insertAuditEvent: mocks.insertAuditEvent,
 }));
 
-vi.mock("../../lib/analytics-engine", async (importOriginal) => {
+vi.mock("../../lib/analytics-engine-query", async (importOriginal) => {
 	const original =
-		await importOriginal<typeof import("../../lib/analytics-engine")>();
+		await importOriginal<typeof import("../../lib/analytics-engine-query")>();
 	return {
 		...original,
 		hasAEConfig: mocks.hasAEConfig,
+	};
+});
+
+vi.mock("../../lib/analytics-engine-protocol", async (importOriginal) => {
+	const original =
+		await importOriginal<
+			typeof import("../../lib/analytics-engine-protocol")
+		>();
+	return {
+		...original,
 		getExternalAgentValidationSloFromAE:
 			mocks.getExternalAgentValidationSloFromAE,
+	};
+});
+
+vi.mock("../../lib/analytics-engine-codemode", async (importOriginal) => {
+	const original =
+		await importOriginal<
+			typeof import("../../lib/analytics-engine-codemode")
+		>();
+	return {
+		...original,
 		hasCodemodeAEConfig: mocks.hasCodemodeAEConfig,
 		queryCodemodeAnalyticsSummary: mocks.queryCodemodeAnalyticsSummary,
 	};

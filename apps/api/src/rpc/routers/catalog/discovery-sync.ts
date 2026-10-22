@@ -47,10 +47,8 @@ import {
 } from "./policy-quality";
 import { runClaudeRegistrySync } from "./install-scan";
 import { isSupportedCatalogR2Path } from "../../../lib/catalog-sync-source";
-import {
-	getUpstreamProtocolUsageFromAE,
-	hasAEConfig,
-} from "../../../lib/analytics-engine";
+import { getUpstreamProtocolUsageFromAE } from "../../../lib/analytics-engine-protocol";
+import { hasAEConfig } from "../../../lib/analytics-engine-query";
 
 /** Installability states the catalog list hides behind a runnable sibling. */
 const NON_RUNNABLE_INSTALLABILITY_STATES = new Set<string>([
