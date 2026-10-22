@@ -22,19 +22,36 @@
  * list; `scripts/logs-db-schema.test.ts` keeps the two in step.
  */
 
-import type { SQLiteTable } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, type SQLiteTable } from "drizzle-orm/sqlite-core";
 import { auditEvents } from "./audit-events";
 import { skillRunArtifacts } from "./cognitive";
 import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
+
+/**
+ * Logs-local directory, never part of the main migration chain. Apply the logs
+ * migrations to every binding before attaching numbered historical partitions.
+ * An empty directory reads all dates. Otherwise the operator supplies one row
+ * whose bounds cover every stored event (including retention backfill). Keep
+ * fromTs fixed; seal with an inclusive toTs after writes stop. Active ranges
+ * have no upper bound, so a cached active row remains safe during rotation.
+ */
+export const logPartition = sqliteTable("log_partition", {
+	id: text("id").primaryKey(),
+	state: text("state", { enum: ["active", "sealed"] }).notNull(),
+	fromTs: text("from_ts").notNull(),
+	toTs: text("to_ts"),
+	createdAt: text("created_at").notNull(),
+});
 
 export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	auditEvents,
 	tediRuntimeEvents,
 	kernelRuntimeEvents,
 	skillRunArtifacts,
+	logPartition,
 ];
 
-/** Physical names of the tables above, for policy and engine checks. */
+/** Movable log tables for retention policy checks; excludes directory metadata. */
 export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"audit_events",
 	"tedi_runtime_events",

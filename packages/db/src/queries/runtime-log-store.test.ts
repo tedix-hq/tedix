@@ -12,6 +12,7 @@ import {
 	kernelRuntimeEvents,
 	tediRuntimeEvents,
 } from "../schema/cognitive-runtime";
+import { logPartition } from "../schema/logs-db";
 import { createD1Facade } from "../test/d1-facade";
 import { tableDdl } from "../test/schema-ddl";
 import {
@@ -36,7 +37,7 @@ const TEDI = "tedi-ada";
 function store() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		[tediRuntimeEvents, kernelRuntimeEvents, skillRunArtifacts]
+		[tediRuntimeEvents, kernelRuntimeEvents, skillRunArtifacts, logPartition]
 			.flatMap((table) => tableDdl(table, { foreignKeys: false }))
 			.join("\n"),
 	);
@@ -179,5 +180,33 @@ describe("merged runtime event reads", () => {
 			order: "asc",
 		});
 		expect(rows.map((row) => row.id)).toEqual(["e2"]);
+	});
+
+	it("keeps rotated runtime events and artifacts visible across multiple bindings", async () => {
+		const { main, logs } = split();
+		const active = store();
+		active.tedi("e5", "2026-10-02T00:00:00.000Z");
+		active.tedi("e6", "2026-10-03T00:00:00.000Z");
+		configureLogStore(main.db, {
+			LOGS_DB: active.binding,
+			LOGS_DB_3: logs.binding,
+		});
+		const page = await listTediRuntimeEvents(main.db, {
+			organizationId: ORG,
+			tediId: TEDI,
+			order: "asc",
+			offset: 1,
+			limit: 4,
+		});
+		expect(page.map((row) => row.id)).toEqual(["e2", "e3", "e4", "e5"]);
+		expect((await getTediRuntimeEventById(main.db, "e1"))?.id).toBe("e1");
+		expect((await getKernelRuntimeEventById(main.db, "k1"))?.id).toBe("k1");
+		expect((await getRunArtifact(main.db, "run-1", "old.json"))?.id).toBe("a1");
+		expect(
+			await listTediRuntimeEvents(main.db, {
+				organizationId: "org-other",
+				tediId: TEDI,
+			}),
+		).toEqual([]);
 	});
 });

@@ -2,8 +2,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { getTableName } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
-import { LOGS_DB_TABLE_NAMES } from "../src/schema/logs-db";
+import { LOGS_DB_TABLES } from "../src/schema/logs-db";
 import { renderLogsDbSchema } from "./logs-db-schema";
 
 const MIGRATIONS_DIR = path.resolve(
@@ -16,7 +17,7 @@ const MIGRATIONS_DIR = path.resolve(
 /** Column and index shape of every logs table, as SQLite reports it. */
 function shape(sqlite: DatabaseSync) {
 	const result: Record<string, { columns: unknown[]; indexes: unknown[] }> = {};
-	for (const table of [...LOGS_DB_TABLE_NAMES].sort()) {
+	for (const table of LOGS_DB_TABLES.map(getTableName).sort()) {
 		const columns = sqlite
 			.prepare(`PRAGMA table_info("${table}")`)
 			.all()
@@ -68,7 +69,7 @@ describe("logs database migrations", () => {
 		const applied = new DatabaseSync(":memory:");
 		for (const file of readdirSync(MIGRATIONS_DIR).sort())
 			applied.exec(readFileSync(path.join(MIGRATIONS_DIR, file), "utf8"));
-		for (const table of LOGS_DB_TABLE_NAMES)
+		for (const table of LOGS_DB_TABLES.map(getTableName))
 			expect(
 				applied.prepare(`PRAGMA foreign_key_list("${table}")`).all(),
 			).toEqual([]);

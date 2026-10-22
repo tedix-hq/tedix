@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { getLogStores, type DbClient } from "../client";
+import type { DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { tediRationaleRecords } from "../schema/rationale-records";
 import { chunkForBoundParams } from "../utils/batch";
+import { readLogStores } from "../utils/log-store";
 
 const D1_IN_LIST_CHUNK = 50;
 
@@ -115,13 +116,15 @@ export async function getAnalyticsAppFreshness(
 	countsRow: AnalyticsFreshnessCountsRow | undefined;
 	latestRow: AnalyticsLatestAuditRow | undefined;
 }> {
-	const stores = getLogStores(db);
-	if (stores) {
-		const pages = await Promise.all(
-			[stores.main, stores.logs].map((store) =>
-				getAnalyticsAppFreshness(store, input),
-			),
-		);
+	const pages = await readLogStores(
+		db,
+		(store) => getAnalyticsAppFreshness(store, input),
+		{
+			from: new Date(input.windowStartSeconds * 1000).toISOString(),
+			to: new Date(input.windowEndSeconds * 1000).toISOString(),
+		},
+	);
+	if (pages) {
 		const countsRow: AnalyticsFreshnessCountsRow = {
 			totalEvents: 0,
 			toolExecutions: 0,
@@ -177,13 +180,10 @@ export async function listAnalyticsExecutionAuditRows(
 	db: DbClient,
 	input: { executionId: string; organizationId?: string },
 ): Promise<AnalyticsAuditDrilldownRow[]> {
-	const stores = getLogStores(db);
-	if (stores) {
-		const pages = await Promise.all(
-			[stores.main, stores.logs].map((store) =>
-				listAnalyticsExecutionAuditRows(store, input),
-			),
-		);
+	const pages = await readLogStores(db, (store) =>
+		listAnalyticsExecutionAuditRows(store, input),
+	);
+	if (pages) {
 		const rows = pages
 			.flat()
 			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
@@ -224,13 +224,10 @@ export async function listRecentAnalyticsAuditActivity(
 		limit: number;
 	},
 ): Promise<AnalyticsAuditActivityRow[]> {
-	const stores = getLogStores(db);
-	if (stores) {
-		const pages = await Promise.all(
-			[stores.main, stores.logs].map((store) =>
-				listRecentAnalyticsAuditActivity(store, input),
-			),
-		);
+	const pages = await readLogStores(db, (store) =>
+		listRecentAnalyticsAuditActivity(store, input),
+	);
+	if (pages) {
 		const rows = pages
 			.flat()
 			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));
@@ -259,13 +256,10 @@ export async function listAnalyticsTraceActivity(
 	db: DbClient,
 	input: { traceId: string; organizationId?: string },
 ): Promise<AnalyticsAuditActivityRow[]> {
-	const stores = getLogStores(db);
-	if (stores) {
-		const pages = await Promise.all(
-			[stores.main, stores.logs].map((store) =>
-				listAnalyticsTraceActivity(store, input),
-			),
-		);
+	const pages = await readLogStores(db, (store) =>
+		listAnalyticsTraceActivity(store, input),
+	);
+	if (pages) {
 		const rows = pages
 			.flat()
 			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
@@ -295,13 +289,15 @@ export async function listAnalyticsAuditActivityWindow(
 		limit: number;
 	},
 ): Promise<AnalyticsAuditActivityRow[]> {
-	const stores = getLogStores(db);
-	if (stores) {
-		const pages = await Promise.all(
-			[stores.main, stores.logs].map((store) =>
-				listAnalyticsAuditActivityWindow(store, input),
-			),
-		);
+	const pages = await readLogStores(
+		db,
+		(store) => listAnalyticsAuditActivityWindow(store, input),
+		{
+			from: new Date(input.startSeconds * 1000).toISOString(),
+			to: new Date(input.endSeconds * 1000).toISOString(),
+		},
+	);
+	if (pages) {
 		const rows = pages
 			.flat()
 			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));

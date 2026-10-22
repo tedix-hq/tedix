@@ -13,18 +13,45 @@
  */
 
 import { getLogStores, type LogStores } from "../client";
+import { readLogPartition } from "../queries/log-partitions";
+
+export interface LogTimeRange {
+	from?: string;
+	to?: string;
+}
 
 /**
- * Run `read` against both stores, main first; null when the client has no
+ * Run `read` against main and overlapping partitions; null when the client has no
  * logs store, so the caller falls through to its single-store statement.
  */
 export async function readLogStores<T>(
 	db: object,
 	read: (store: LogStores["main"]) => Promise<T>,
-): Promise<[T, T] | null> {
+	range: LogTimeRange = {},
+): Promise<T[] | null> {
 	const stores = getLogStores(db);
 	if (!stores) return null;
-	return Promise.all([read(stores.main), read(stores.logs)]);
+	const partitions = await Promise.all(
+		stores.partitions.map(async ({ db }) => {
+			// A lone legacy LOGS_DB has no directory migration requirement.
+			const row =
+				stores.partitions.length === 1 &&
+				stores.partitions[0]?.binding === "LOGS_DB"
+					? null
+					: await readLogPartition(db);
+			// Inclusive bounds are conservative for strict cursors and second-granular audit rows.
+			const overlaps =
+				!row ||
+				((!range.to || Date.parse(row.fromTs) <= Date.parse(range.to)) &&
+					(!range.from ||
+						!row.toTs ||
+						Date.parse(row.toTs) >= Date.parse(range.from)));
+			return overlaps ? db : null;
+		}),
+	);
+	return Promise.all(
+		[stores.main, ...partitions.filter((db) => db !== null)].map(read),
+	);
 }
 
 export interface MergeLogStoreRowsOptions<T> {
