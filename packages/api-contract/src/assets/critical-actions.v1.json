@@ -66,6 +66,27 @@
 			"blastRadius": "single_resource"
 		}
 	},
+	"neutralPhrases": [
+		"\\bpayment[_ -]+terms?\\b",
+		"\\bterms[_ -]+of[_ -]+payment\\b",
+		"\\b[a-z]{2,}-\\d{2,}\\b"
+	],
+	"negatedVerbs": [
+		"send",
+		"email",
+		"publish",
+		"delete",
+		"pay",
+		"purchase",
+		"finalize",
+		"finalise",
+		"book",
+		"post"
+	],
+	"draftOnly": {
+		"pattern": "\\bdrafts?[ -]only\\b|\\bonly\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b|\\bas\\s+(?:a\\s+)?drafts?\\b|\\bkeep\\s+(?:it|them|the\\s+\\w+)\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b",
+		"waivedClasses": ["money", "external_message", "public_publish"]
+	},
 	"classes": [
 		{
 			"id": "legal",

@@ -28,6 +28,7 @@ vi.mock("@tedix/db/queries/organization-secrets", () => ({
 vi.mock("@tedix/db/utils/secrets-encryption", () => ({
 	decryptSecret: mocks.decrypt,
 }));
+import { resetResidencyPolicyCache } from "./data-residency";
 vi.mock("./runtime-budget-admission", () => ({
 	authorizeRuntimeBudget: mocks.budget,
 }));
@@ -84,6 +85,7 @@ function send() {
 }
 beforeEach(() => {
 	vi.resetAllMocks();
+	resetResidencyPolicyCache();
 	mocks.persisted = null;
 	mocks.policy.mockResolvedValue({ mode: "eu", revision: 1 });
 	mocks.pool.mockResolvedValue([member]);

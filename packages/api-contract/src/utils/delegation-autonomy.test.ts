@@ -71,6 +71,10 @@ describe("critical-only autonomy v1", () => {
 		'Sweep stale blocker items and give me a table of what can be closed. Read-only on the board; do not cancel, complete or edit anything. Rules: anything whose blocker involves a client, money, credentials or a person waiting on the owner stays "keep". Save it as a document in the internal project. Low risk; no external sends; drafts only.',
 		"Reconcile accepted Work items against these commits and give me a settle-or-keep table. Read-only.\nCommits on main:\n1a2b3c4 fix(auth): cap agent credentials without rejecting provider lifetimes\n5d6e7f8 feat(deck): retire and merge Deck cards without answering them\n9a8b7c6 fix(cli): delete stale lane caches before sending telemetry\nSave the table as a document. Low risk; no external sends; drafts only.",
 		"Draft (do not publish or change any skill) a proposal for how to avoid counting the same bank or card statement line twice, and how to treat two identical coffee charges on the same day. Low risk; no external sends; drafts only.",
+		"Please retry the delegation to the CFO for this invoice draft - the run yesterday failed and no draft was created. All details still apply: Example Customer GmbH, EUR 8,000 net, single invoice 100% now, order no. Buy-20116 on it, 7-day payment terms, VAT rate to verify against the accounting app. Draft only: do not finalize, send or book, nothing goes to the customer.",
+		"Create the customer invoice in the accounting app with 7-day payment terms and order no. PO-4471 on it. Draft only: do not finalize, send or book.",
+		"Prepare the reply to the customer as a draft; do not send, post or publish it.",
+		"Create an invoice for the pilot; keep it as a draft.",
 	])("allows non-critical low and medium work: %s", (content) => {
 		for (const risk of ["low", "medium"] as const)
 			expect(
@@ -159,6 +163,11 @@ describe("critical-only autonomy v1", () => {
 		"1a2b3c4 fix(auth): cap agent credentials\nPay the invoice",
 		"Refund the duplicate charges",
 		"Charge the card for the bank statement fee",
+		"Create the invoice in the accounting app and send it to the customer",
+		"Draft the invoice, then book it and pay the supplier",
+		"Draft only: do not finalize or send it; also delete the old customer records",
+		"Draft only: do not finalize; then grant admin role to bob",
+		"Do not finalize, send or book the invoice; transfer the funds to the vendor now",
 	])("requires a human even if a caller labels it low: %s", (content) => {
 		expect(humanReservedActionClasses(content).length).toBeGreaterThan(0);
 		expect(

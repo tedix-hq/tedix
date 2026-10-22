@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { resolveWebSearchAccess } from "@tedix/api-contract/schemas/web-search";
+import { isAppLevelGrant } from "./delegation-capabilities";
 import {
 	buildDelegationWorkOrder,
 	decideDelegationDispatch,
@@ -339,6 +340,33 @@ describe("request-derived capability plans", () => {
 			order("Read that output", ["acme_os.get_os_output"]).capabilityPlan
 				?.missingCapabilities,
 		).toContain("output.reference");
+	});
+	it("runs an app-level Code Mode grant under the executor ceiling instead of an unsatisfiable plan", () => {
+		const content =
+			"Draft a customer invoice in the accounting app for Example Customer GmbH, EUR 8,000 net. Draft only: do not finalize, send or book.";
+		// Connected app slugs are not tool ids the child runtime can serve.
+		expect(
+			order(content, ["tedix-unified", "sevdesk-tedix"]).capabilityPlan,
+		).toBeUndefined();
+		// Neither is the aggregate alias of one app tool.
+		expect(
+			order(content, ["mcp__tedix-unified__code"]).capabilityPlan,
+		).toBeUndefined();
+		// A known assigned app is recognized by its slug even without a hyphen.
+		expect(
+			buildDelegationWorkOrder({
+				userContent: content,
+				card: { ...readerCard, apps: ["sevdesk"] },
+				route: { ...route, plannedToolIds: ["sevdesk"] },
+			}).capabilityPlan,
+		).toBeUndefined();
+		// Exact callables and native ids still narrow as before.
+		expect(
+			order(content, ["sevdesk_tedix.create_invoice_draft"]).capabilityPlan
+				?.allowedToolIds,
+		).toEqual(["sevdesk_tedix.create_invoice_draft"]);
+		expect(isAppLevelGrant("browser_markdown", null)).toBe(false);
+		expect(isAppLevelGrant("acme_os.get_os_output", null)).toBe(false);
 	});
 	it("blocks a mandatory capability with no exact mapping, with Home owning the reroute", () => {
 		const result = order("Draft an email reply");

@@ -2507,6 +2507,40 @@ describe("organization critical-only delegation autonomy", () => {
 		expect(d).toMatchObject({ mode: "auto", canAutoDispatch: true });
 	});
 
+	it("auto-dispatches an owner's draft-only invoice request to a standby embodied finance tedi", () => {
+		// Replay of the CFO sevDesk thread: the request names payment terms, an
+		// order number and the negated verbs "finalize, send or book"; none of
+		// them is a payment, a send or a publication.
+		const d = decideDelegationDispatch({
+			...base(),
+			route: makeRoute({
+				risk: "medium",
+				effortClass: "embodied",
+				plannedToolIds: ["mcp__tedix-unified__code"],
+			}),
+			card: makeCard({
+				requiresApproval: false,
+				embodied: true,
+				availability: "standby",
+				hasWarmWorkstationLease: false,
+			}),
+			workOrderContent:
+				"Please retry the delegation to the CFO for this invoice draft. Example Customer GmbH, EUR 8,000 net, single invoice 100% now, order no. Buy-20116 on it, 7-day payment terms, VAT rate to verify against the accounting app. Draft only: do not finalize, send or book, nothing goes to the customer.",
+		});
+		expect(d).toMatchObject({ mode: "auto", canAutoDispatch: true });
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				workOrderContent:
+					"Create the invoice in the accounting app, book it and send it to the customer.",
+			}),
+		).toMatchObject({
+			mode: "needs_approval",
+			approvalRoute: "human",
+			reason: "human-reserved: money, external_message",
+		});
+	});
+
 	it("org autonomy cannot override the target's requiresApproval", () => {
 		expect(
 			decideDelegationDispatch({

@@ -634,7 +634,11 @@ export const respondApprovalRoute = authed.respondApproval
 					`Home run ${input.runId} is awaiting ${agentReview?.approverTediLabel ?? "the designated approval tedi"}'s decision until ${agentReview?.expiresAt}; you can reject it now or decide after the approver declines or the review expires.`,
 				);
 			}
-			const result = await respondKernelDelegationRecommendationApprovalCore(
+			// The approval latches, promotes Work and dispatches in sequence. A
+			// browser that navigates away mid-request cancels the invocation,
+			// which once left the Attempt admitted and the card unresolved; keep
+			// the invocation alive until the dispatch settles either way.
+			const resolution = respondKernelDelegationRecommendationApprovalCore(
 				context,
 				{
 					decision: input.decision,
@@ -643,6 +647,13 @@ export const respondApprovalRoute = authed.respondApproval
 					run: existingRun,
 				},
 			);
+			context.waitUntil?.(
+				resolution.then(
+					() => undefined,
+					() => undefined,
+				),
+			);
+			const result = await resolution;
 			if (agentReview?.workItemId && agentReview.status !== "approved") {
 				// The operator decided instead: retire the held review item so it
 				// cannot be admitted by a late approver decision.

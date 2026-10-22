@@ -382,6 +382,24 @@ describe("operator route authorization before delegation resolution", () => {
 		expect(effects.learning).toHaveBeenCalledTimes(1);
 		expect(effects.dispatch).not.toHaveBeenCalled();
 	});
+	it("keeps the invocation alive until an approval's dispatch settles", async () => {
+		// A browser leaving the page cancels the request; without this the
+		// invocation died between admitting the Attempt and delivering the
+		// work order, leaving the card pending behind an orphaned Attempt.
+		const f = await fixture();
+		const kept: Promise<unknown>[] = [];
+		f.context.waitUntil = (promise) => {
+			kept.push(promise);
+		};
+		const result = await f.client.respond({
+			runId: f.run.id,
+			decision: "approve",
+		});
+		expect(result.run.status).toBe("queued");
+		expect(kept).toHaveLength(1);
+		await expect(kept[0]).resolves.toBeUndefined();
+		expect(effects.dispatch).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("Home plan Work promotion", () => {

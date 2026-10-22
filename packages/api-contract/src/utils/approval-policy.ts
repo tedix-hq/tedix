@@ -60,6 +60,26 @@ const criticalActionRules = criticalActions.classes.map((rule) => ({
 			: null,
 }));
 
+// Invoice fields and record identifiers ("7-day payment terms", order
+// "Buy-20116") describe a document, not a payment or a purchase.
+const neutralPhrasePatterns = criticalActions.neutralPhrases.map(
+	(pattern) => new RegExp(pattern, "gi"),
+);
+
+// "do not finalize, send or book" negates every verb in the list, not only
+// the first one; a non-verb word ends the list ("never delete anything or pay").
+const negatedVerbs = criticalActions.negatedVerbs.join("|");
+const negatedVerbListPattern = new RegExp(
+	`\\b(?:do not|don't|don’t|never)\\s+(?:(?:${negatedVerbs})\\s*(?:,|\\bor\\b|\\band\\b|\\bnor\\b)\\s*)*(?:${negatedVerbs})\\b(?:\\s*(?:,|\\bor\\b|\\band\\b|\\bnor\\b)\\s*(?:${negatedVerbs})\\b)*`,
+	"gi",
+);
+
+// A request that declares its effect is a draft creates or edits a record a
+// human still has to finalize; the classes that describe the finalized effect
+// (payment, external message, publication) do not apply to the draft itself.
+const draftOnlyPattern = new RegExp(criticalActions.draftOnly.pattern, "i");
+const draftOnlyWaivedClasses = new Set(criticalActions.draftOnly.waivedClasses);
+
 export function isSafeNotionPageUpdateCall(args: unknown): boolean {
 	if (!args || typeof args !== "object" || Array.isArray(args)) return false;
 	const call = args as Record<string, unknown>;
@@ -245,24 +265,26 @@ export function humanReservedActionClasses(content: string): string[] {
 			/\b(?:do not|don't|don’t|never)\s+read\s+(?:`[^`\r\n]+`|"[^"\r\n]+"|'[^'\r\n]+'|[^\s;,!?]+)(?=\s*(?:$|[.!?;,]|\b(?:and|or|but|then|however|while|before|after|also|except)\b))/gi,
 			" ",
 		)
-		.replace(
-			/\b(?:do not|don't|don’t|never)\s+(?:send|email|publish|delete|pay|purchase)\b/gi,
-			" ",
-		)
+		.replace(negatedVerbListPattern, " ")
 		.replace(/\bno\s+(?:bulk\s+outreach\s+or\s+)?automatic\s+sends\b/gi, " ")
 		.replace(
 			/\b(?:reviews?|approves?)\s+(?:every|each|all)\s+(?:messages?|emails?|drafts?)\s+before\s+sending\b/gi,
 			" ",
 		);
-	const normalized = actionable
-		.replace(/([a-z])([A-Z])/g, "$1 $2")
+	const normalized = neutralPhrasePatterns
+		.reduce(
+			(text, pattern) => text.replace(pattern, "record"),
+			actionable.replace(/([a-z])([A-Z])/g, "$1 $2"),
+		)
 		.replace(/[_:.]/g, " ");
+	const draftOnly = draftOnlyPattern.test(normalized);
 	return criticalActionRules
 		.filter(
 			(rule) =>
 				rule.pattern.test(normalized) || rule.filePattern?.test(actionable),
 		)
-		.map((rule) => rule.id);
+		.map((rule) => rule.id)
+		.filter((id) => !(draftOnly && draftOnlyWaivedClasses.has(id)));
 }
 
 export function decideAutonomousAction(input: {
