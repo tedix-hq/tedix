@@ -1341,6 +1341,26 @@ assert.notEqual(
 		originTediRunId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 	}),
 );
+assert.notEqual(
+	implicitAdmissionFingerprint,
+	await workflowAdmissionFingerprint({
+		...implicitAdmissionIdentity,
+		certification: true,
+		createdBy: "user:owner",
+	}),
+);
+assert.notEqual(
+	await workflowAdmissionFingerprint({
+		...implicitAdmissionIdentity,
+		certification: true,
+		createdBy: "user:owner",
+	}),
+	await workflowAdmissionFingerprint({
+		...implicitAdmissionIdentity,
+		certification: true,
+		createdBy: "user:other",
+	}),
+);
 const implicitAdmissionSqlite = new Database(":memory:");
 implicitAdmissionSqlite.exec(`
 	CREATE TABLE skill_run_admission_dedup (
@@ -1462,6 +1482,7 @@ snapshotSqlite.exec(`
 		skill_doc TEXT,
 		capability_manifest TEXT,
 		created_by TEXT,
+		certification INTEGER DEFAULT 0,
 		work_item_id TEXT,
 		origin_tedi_run_id TEXT,
 		resource_access_envelope TEXT
@@ -3330,6 +3351,7 @@ usageStampSqlite.exec(`
 		completed_at TEXT,
 		paused_at TEXT,
 		created_by TEXT,
+		certification INTEGER DEFAULT 0,
 		work_item_id TEXT,
 		origin_tedi_run_id TEXT,
 		resource_access_envelope TEXT

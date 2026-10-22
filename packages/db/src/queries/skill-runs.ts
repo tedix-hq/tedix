@@ -90,6 +90,7 @@ export interface CreatePinnedSkillRunParams {
 	skillSlug?: string | null;
 	capabilityManifest?: unknown;
 	resourceAccessEnvelope?: OsDerivedAccessEnvelope;
+	certification?: boolean;
 	createdBy?: string | null;
 	workItemId?: string | null;
 	originTediRunId?: string | null;
@@ -124,6 +125,7 @@ export async function createPinnedSkillRun(
 				? null
 				: (toJsonValue(input.capabilityManifest) as Record<string, JsonValue>),
 		runtimeEnvironment: input.runtimeEnvironment,
+		certification: input.certification ?? false,
 		createdBy: input.createdBy ?? null,
 		workItemId: input.workItemId ?? null,
 		originTediRunId: input.originTediRunId ?? null,

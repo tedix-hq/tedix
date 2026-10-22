@@ -176,7 +176,7 @@ import {
 it("persists source consent independently of caller params in a real D1 run snapshot", async () => {
 	const db = (env as unknown as { DB: D1Database }).DB;
 	await db.exec(
-		`CREATE TABLE IF NOT EXISTS skill_runs(id TEXT PRIMARY KEY,skill_id TEXT,tedi_id TEXT,organization_id TEXT,workflow_instance_id TEXT,params TEXT,status TEXT,error TEXT,started_at TEXT,workflow_source TEXT,workflow_source_hash TEXT,skill_doc TEXT,skill_revision INTEGER,skill_slug TEXT,capability_manifest TEXT,runtime_environment TEXT,created_by TEXT,work_item_id TEXT,origin_tedi_run_id TEXT,resource_access_envelope TEXT,execution_epoch INTEGER DEFAULT 0,workflow_retired_at TEXT,restart_requested_at TEXT,restart_command_id TEXT,last_reconciled_at TEXT,result TEXT,cost_summary TEXT,completed_at TEXT,paused_at TEXT)`,
+		`CREATE TABLE IF NOT EXISTS skill_runs(id TEXT PRIMARY KEY,skill_id TEXT,tedi_id TEXT,organization_id TEXT,workflow_instance_id TEXT,params TEXT,status TEXT,error TEXT,started_at TEXT,workflow_source TEXT,workflow_source_hash TEXT,skill_doc TEXT,skill_revision INTEGER,skill_slug TEXT,capability_manifest TEXT,runtime_environment TEXT,created_by TEXT, certification INTEGER DEFAULT 0,work_item_id TEXT,origin_tedi_run_id TEXT,resource_access_envelope TEXT,execution_epoch INTEGER DEFAULT 0,workflow_retired_at TEXT,restart_requested_at TEXT,restart_command_id TEXT,last_reconciled_at TEXT,result TEXT,cost_summary TEXT,completed_at TEXT,paused_at TEXT)`,
 	);
 	await db.exec(
 		"CREATE TABLE IF NOT EXISTS skill_workflow_sources(skill_id TEXT NOT NULL, sha256 TEXT NOT NULL, workflow_source TEXT NOT NULL, PRIMARY KEY(skill_id, sha256))",
@@ -216,8 +216,47 @@ it("persists source consent independently of caller params in a real D1 run snap
 		skillSlug: "calendar",
 		runtimeEnvironment: "development",
 		resourceAccessEnvelope: envelope,
+		certification: true,
+		capabilityManifest: {},
+		createdBy: "user:owner",
 	});
 	const snapshot = await loadSkillRunSnapshot(db, id);
+	const { snapshotMatchesAdmission } = await import("./control-admission");
+	const admission = {
+		skillId: id,
+		tediId: id,
+		orgId: id,
+		params: snapshot!.params,
+		skillSlug: "calendar",
+		skillRevision: 1,
+		workflowSource: "export default {}",
+		skillDoc: "Pinned skill",
+		capabilityManifest: {},
+		resourceAccessEnvelope: envelope,
+		certification: true,
+		createdBy: "user:owner",
+	};
+	expect(snapshot?.certification).toBe(true);
+	expect(snapshot?.createdBy).toBe("user:owner");
+	expect(await snapshotMatchesAdmission(db, admission, id, "development")).toBe(
+		true,
+	);
+	expect(
+		await snapshotMatchesAdmission(
+			db,
+			{ ...admission, certification: false },
+			id,
+			"development",
+		),
+	).toBe(false);
+	expect(
+		await snapshotMatchesAdmission(
+			db,
+			{ ...admission, createdBy: "user:other" },
+			id,
+			"development",
+		),
+	).toBe(false);
 	expect(snapshot?.resourceAccessEnvelope).toEqual(envelope);
 	expect(snapshot?.params).toEqual({
 		_tedixContext: { resourceAccessEnvelope: { version: 1, sources: [] } },

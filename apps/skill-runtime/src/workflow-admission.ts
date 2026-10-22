@@ -78,6 +78,8 @@ export async function workflowAdmissionFingerprint(input: {
 	workflowSource: string;
 	skillDoc: string;
 	capabilityManifest: unknown;
+	certification?: boolean;
+	createdBy?: string | null;
 	workItemId: string | null;
 	originTediRunId: string | null;
 }): Promise<string> {
@@ -95,6 +97,7 @@ export async function workflowAdmissionFingerprint(input: {
 			canonicalJson(input.capabilityManifest),
 			input.workItemId ?? "null",
 			input.originTediRunId ?? "null",
+			input.certification ? `certification:${input.createdBy}` : "ordinary",
 		]),
 	);
 }

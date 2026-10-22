@@ -121,6 +121,7 @@ export function publicSkillRun(
 		startedAt: run.startedAt,
 		completedAt: run.completedAt,
 		pausedAt: run.pausedAt,
+		certification: run.certification ?? false,
 		createdBy: run.createdBy,
 		workItemId: run.workItemId ?? null,
 		costSummary: retired ? null : (run.costSummary ?? null),

@@ -670,6 +670,8 @@ export const skillRuns = sqliteTable(
 
 		// `tediId` or descope user id of invoker
 		createdBy: text("created_by"),
+		/** Explicit owner/admin certification admission, never a tenant workflow param. */
+		certification: integer("certification", { mode: "boolean" }).default(false),
 		/** Work Item admitted with this run and propagated to every MCP call. */
 		workItemId: text("work_item_id"),
 		/** Chat turn that dispatched this run; attribution still requires runtime evidence. */

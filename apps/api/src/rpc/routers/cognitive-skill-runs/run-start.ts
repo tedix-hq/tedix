@@ -1,3 +1,4 @@
+import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { validatePersonalRunSources } from "../../../services/personal-resource-delegation-authority";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import {
@@ -52,6 +53,19 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
+		if (
+			input.certification &&
+			(context.authType !== "user" ||
+				!context.user?.sub ||
+				context.tediId ||
+				context.externalAgentPrincipalId ||
+				!["owner", "admin"].includes(context.userRole ?? ""))
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Certification runs require a signed-in organization owner or admin",
+			);
+		}
 		await requireOwnedTedi(context, input.tediId, orgId);
 		if (input.workItemId) {
 			const workItem = await getWorkItemById(context.db, input.workItemId);
@@ -147,6 +161,7 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 			"/run",
 			{
 				runId: input.runId,
+				certification: input.certification ?? false,
 				createdBy,
 				...(originTediRunId ? { originTediRunId } : {}),
 				workItemId: input.workItemId,
@@ -163,6 +178,25 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 				resourceAccessEnvelope,
 			},
 		);
+
+		if (input.certification) {
+			await insertAuditEvent(context.db, {
+				id: `skill-certification:${dispatched.runId}`,
+				ignoreDuplicates: true,
+				organizationId: orgId,
+				actorId: context.user!.sub!,
+				actorType: "user",
+				action: "skill.certification.started",
+				resourceType: "skill_run",
+				resourceId: dispatched.runId,
+				metadata: {
+					skillId: skill.id,
+					revision: skill.revision,
+					certification: true,
+					reason: input.reason ?? null,
+				},
+			});
+		}
 
 		// Durable submission ledger (tedi subject, skill_workflow source): admit at
 		// dispatch, then immediately settle a fast terminal recovery response.

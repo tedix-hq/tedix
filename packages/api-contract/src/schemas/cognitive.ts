@@ -287,6 +287,7 @@ export const SkillRunSchema = z.object({
 	startedAt: z.string().nullable().optional(),
 	completedAt: z.string().nullable().optional(),
 	pausedAt: z.string().nullable().optional(),
+	certification: z.boolean().nullable().optional(),
 	createdBy: z.string().nullable().optional(),
 	workItemId: z.string().nullable().optional(),
 	// Populated best-effort at the first terminal (completed/failed)

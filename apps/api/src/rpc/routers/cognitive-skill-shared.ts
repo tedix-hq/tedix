@@ -268,9 +268,7 @@ export function scheduledSkillPromotionBlocker(
 /**
  * Whether a skill's manifest schedule belongs in skill_schedules. Stale and
  * archived skills never run on a schedule, and a new draft has not earned one.
- * A draft that already holds a schedule row was active and was demoted by
- * failed runs; the scheduler keeps firing it, so an edit (the way its owner
- * repairs it) keeps the schedule instead of dropping it.
+ * Existing draft schedules stay stored but disabled until activation.
  */
 function skillKeepsSchedule(
 	entry: SkillEntry,
@@ -310,7 +308,7 @@ export async function syncSkillScheduleProjection(
 		tediId: entry.tediId,
 		cron: schedule.cron,
 		params: toJsonRecord(schedule.params),
-		enabled: schedule.enabled,
+		enabled: schedule.enabled && entry.lifecycleState !== "draft",
 		nextFireAt,
 	});
 }
@@ -341,7 +339,7 @@ export function expectedSkillScheduleProjection(
 		tediId: entry.tediId,
 		cron: schedule.cron,
 		params: schedule.params,
-		enabled: schedule.enabled,
+		enabled: schedule.enabled && entry.lifecycleState !== "draft",
 	};
 }
 

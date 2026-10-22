@@ -86,6 +86,33 @@ describe("workflow manifest authorization", () => {
 			);
 		},
 	);
+	it("allows only a current-revision human certification run of a draft", async () => {
+		vi.mocked(getSkillEntry).mockResolvedValue({
+			...skill,
+			lifecycleState: "draft",
+		} as never);
+		for (const patch of [
+			{ certification: true, createdBy: "user:owner" },
+			{ certification: false, createdBy: "schedule" },
+			{ certification: true, createdBy: "agent:executor" },
+			{ certification: true, createdBy: "user:owner", skillRevision: 39 },
+		]) {
+			vi.mocked(getSkillRun).mockResolvedValue({ ...run, ...patch } as never);
+			const allowed =
+				patch.certification &&
+				patch.createdBy === "user:owner" &&
+				!patch.skillRevision;
+			await expect(
+				client().resolveSkillManifestAuthorization(input),
+			).resolves.toMatchObject({ approved: allowed });
+			await expect(
+				client().resolveSkillManifestAuthorization({
+					...input,
+					method: "messages_send",
+				}),
+			).resolves.toEqual({ approved: false });
+		}
+	});
 	it("resolves renamed app bindings and matches the dispatched provider", async () => {
 		const call = {
 			...input,

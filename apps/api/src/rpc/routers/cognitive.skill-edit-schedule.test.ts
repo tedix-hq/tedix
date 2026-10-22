@@ -5,10 +5,8 @@ import type { BaseContext } from "../orpc";
 
 /**
  * Editing a scheduled skill with skills.improve (improve_skills) creates a new
- * revision and leaves lifecycle and schedule alone. The schedule row is keyed
- * by skill id, so it fires the new revision. A skill demoted to draft by failed
- * runs keeps its schedule through the edit that repairs it; a new draft still
- * gets none.
+ * revision and preserves lifecycle. Existing draft schedules pause until
+ * activation; new drafts still get none.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -170,7 +168,7 @@ describe("skills.improve keeps a scheduled skill running", () => {
 		},
 	);
 
-	it("an edit of a skill demoted by failed runs keeps its schedule", async () => {
+	it("an edit of a draft pauses its schedule", async () => {
 		useSkill(skillFixture({ lifecycleState: "draft" }));
 		const client = createRouterClient(skillsContractRouter, {
 			context: ownerContext(),
@@ -182,7 +180,39 @@ describe("skills.improve keeps a scheduled skill running", () => {
 		expect(mocks.deleteSkillSchedule).not.toHaveBeenCalled();
 		expect(mocks.upsertSkillSchedule).toHaveBeenCalledWith(
 			expect.anything(),
-			expect.objectContaining({ skillId: "skill-1", cron: "0 2 * * *" }),
+			expect.objectContaining({
+				skillId: "skill-1",
+				cron: "0 2 * * *",
+				enabled: false,
+			}),
+		);
+	});
+
+	it("activation restores the manifest schedule after a draft pause", async () => {
+		const { syncSkillScheduleProjection } =
+			await import("./cognitive-skill-shared");
+		const policy = { cron: "0 2 * * *", params: {}, enabled: true };
+		await syncSkillScheduleProjection(
+			ownerContext(),
+			skillFixture({ lifecycleState: "draft" }),
+			policy,
+		);
+		expect(mocks.upsertSkillSchedule).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ enabled: false }),
+		);
+		mocks.getSkillSchedule.mockResolvedValue({
+			...STORED_SCHEDULE,
+			enabled: false,
+		});
+		await syncSkillScheduleProjection(
+			ownerContext(),
+			skillFixture({ lifecycleState: "active" }),
+			policy,
+		);
+		expect(mocks.upsertSkillSchedule).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ enabled: true }),
 		);
 	});
 
