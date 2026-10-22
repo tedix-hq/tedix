@@ -1,5 +1,11 @@
-import { readdirSync, readFileSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+	appendFileSync,
+	existsSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export function testScriptShards(scripts, name, ancestors = []) {
@@ -12,6 +18,64 @@ export function testScriptShards(scripts, name, ancestors = []) {
 	return references.flatMap((reference) =>
 		testScriptShards(scripts, reference, [...ancestors, name]),
 	);
+}
+
+const playwrightBrowsers = ["chromium", "firefox", "webkit"];
+const sourceExtensions = ["", ".ts", ".tsx", ".mts", ".js", ".mjs"];
+
+function resolveSource(from, specifier) {
+	const base = resolve(dirname(from), specifier);
+	for (const candidate of [
+		...sourceExtensions.map((extension) => `${base}${extension}`),
+		...sourceExtensions
+			.slice(1)
+			.map((extension) => join(base, `index${extension}`)),
+	])
+		if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+	return undefined;
+}
+
+// The browsers a file launches: names imported from Playwright by the file or
+// by any module it reaches through relative imports.
+export function sourceBrowsers(file, seen = new Set()) {
+	// A missing file fails its own job when it runs; it needs no browser.
+	if (seen.has(file) || !existsSync(file)) return [];
+	seen.add(file);
+	const source = readFileSync(file, "utf8");
+	const browsers = new Set();
+	for (const [, names] of source.matchAll(
+		/import\s*\{([^}]*)\}\s*from\s*["'](?:playwright|playwright-core|@playwright\/test)["']/g,
+	))
+		for (const name of names.split(","))
+			if (playwrightBrowsers.includes(name.trim())) browsers.add(name.trim());
+	for (const [, specifier] of source.matchAll(
+		/(?:from\s*|import\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g,
+	)) {
+		const imported = resolveSource(file, specifier);
+		if (imported)
+			for (const browser of sourceBrowsers(imported, seen))
+				browsers.add(browser);
+	}
+	return [...browsers].sort();
+}
+
+// The Playwright browsers a package script needs, from the files its
+// `bun <file>` commands run, following `bun run <script>` references.
+export function scriptBrowsers(workspaceRoot, scripts, name, ancestors = []) {
+	if (ancestors.includes(name)) throw new Error(`Cyclic test script: ${name}`);
+	if (!scripts[name]) throw new Error(`Unknown script: ${name}`);
+	const browsers = new Set();
+	for (const command of scripts[name].split("&&").map((part) => part.trim())) {
+		const reference = /^bun run ([\w:.-]+)$/.exec(command)?.[1];
+		const file = /^bun ([\w./-]+\.(?:[mc]?[jt]sx?))$/.exec(command)?.[1];
+		const found = reference
+			? scriptBrowsers(workspaceRoot, scripts, reference, [...ancestors, name])
+			: file
+				? sourceBrowsers(join(workspaceRoot, file))
+				: [];
+		for (const browser of found) browsers.add(browser);
+	}
+	return [...browsers].sort();
 }
 
 export function workspaceMatrix(root = ".") {
@@ -39,6 +103,11 @@ export function workspaceMatrix(root = ".") {
 					testScript,
 				).entries()) {
 					const count = tedixCi.testScriptShards?.[script] ?? 1;
+					const browsers = scriptBrowsers(
+						join(root, workspace),
+						scripts,
+						script,
+					).join(" ");
 					if (!Number.isInteger(count) || count < 1)
 						throw new Error(`Invalid shard count for ${workspace} ${script}`);
 					for (let shard = 1; shard <= count; shard++)
@@ -47,6 +116,7 @@ export function workspaceMatrix(root = ".") {
 							test: true,
 							testScript: script,
 							...(count > 1 ? { shard: `${shard}/${count}` } : {}),
+							...(browsers ? { browsers } : {}),
 							types: index === 0 && shard === 1 && !!scripts["type-check"],
 						});
 				}
@@ -126,6 +196,19 @@ export async function githubRequest(path, env = process.env) {
 }
 
 if (
+	process.argv[1] &&
+	import.meta.url === pathToFileURL(process.argv[1]).href &&
+	process.argv[2] === "browsers"
+) {
+	// node scripts/ci/full-suite-hourly.mjs browsers <workspace> <script>
+	const [, , , workspace, script] = process.argv;
+	const { scripts = {} } = JSON.parse(
+		readFileSync(join(workspace, "package.json"), "utf8"),
+	);
+	console.log(
+		`browsers=${scriptBrowsers(workspace, scripts, script).join(" ")}`,
+	);
+} else if (
 	process.argv[1] &&
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {

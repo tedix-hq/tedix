@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import type { Page } from "playwright";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
@@ -36,11 +37,11 @@ export async function createDeckSourceFixture(scored = false) {
 		return (await response.json()).json;
 	}
 
-	for (let i = 0; i < 100; i++) {
-		try {
-			if ((await fetch(origin)).ok) break;
-		} catch {}
-		await Bun.sleep(250);
+	try {
+		await waitForFixtureServer(origin, { server });
+	} catch (error) {
+		process.kill(-server.pid, "SIGTERM");
+		throw error;
 	}
 	const { items: spaces } = await rpc("osWorkspaces/workspaces/list", {
 		status: "active",

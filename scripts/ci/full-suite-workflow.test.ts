@@ -43,3 +43,51 @@ test("aggregate accepts proven exact-SHA reuse but fails missing, cancelled, or 
 	}
 	expect(check({ SKIP: "true", PLAN: "failure" })).not.toBe(0);
 });
+
+const browserAction = readFileSync(
+	new URL(
+		"../../.github/actions/playwright-browsers/action.yml",
+		import.meta.url,
+	),
+	"utf8",
+);
+
+test("browser jobs install only their planned browsers, restoring the cache first", () => {
+	const workspace = workflow
+		.split("\n  workspace:\n")[1]!
+		.split("\n  repository:\n")[0]!;
+	const install = workspace.indexOf(
+		"uses: ./.github/actions/playwright-browsers",
+	);
+	expect(install).toBeGreaterThan(-1);
+	expect(workspace).toContain("browsers: ${{ matrix.browsers }}");
+	expect(workspace).not.toContain("test:browser:install");
+	expect(install).toBeLessThan(workspace.indexOf("- name: Full test suite"));
+
+	const restore = browserAction.indexOf("uses: actions/cache/restore@");
+	const download = browserAction.indexOf("playwright install --with-deps");
+	const save = browserAction.indexOf("uses: actions/cache/save@");
+	expect(restore).toBeGreaterThan(-1);
+	expect(restore).toBeLessThan(download);
+	expect(download).toBeLessThan(save);
+	expect(browserAction).toContain(
+		"if: steps.restore.outputs.cache-hit != 'true'",
+	);
+	expect(browserAction).toContain("path: ~/.cache/ms-playwright");
+	expect(browserAction).toContain("playwright --version");
+	for (const [, action] of browserAction.matchAll(/^\s*uses:\s+([^\s#]+)/gm))
+		expect(action).toMatch(/@[0-9a-f]{40}$/);
+});
+
+test("only browser suites run under the recorded infrastructure rerun", () => {
+	const step = workflow
+		.split("- name: Full test suite\n")[1]!
+		.split("- name: Type-check")[0]!;
+	expect(step).toContain('if [ -n "$BROWSERS" ]; then');
+	expect(step).toContain(
+		'node scripts/ci/rerun-on-infrastructure.mjs -- "${command[@]}"',
+	);
+	expect(workflow).toContain(
+		'echo "FROZEN_INSTALL_SECONDS=$((SECONDS - started))" >> "$GITHUB_ENV"',
+	);
+});

@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 
@@ -32,16 +33,9 @@ const server = Bun.spawn(
 );
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null) throw new Error("Fixture server exited");
-		try {
-			ready = (await fetch(`${origin}/browser-tests/feed-deck-polish.html`)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(200);
-	}
-	if (!ready) throw new Error("Fixture server did not start");
+	await waitForFixtureServer(`${origin}/browser-tests/feed-deck-polish.html`, {
+		server,
+	});
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage({
 		viewport: { width: 1440, height: 1000 },

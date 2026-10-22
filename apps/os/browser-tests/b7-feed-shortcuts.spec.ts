@@ -1,3 +1,4 @@
+import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
@@ -36,16 +37,9 @@ await mkdir(receipts, { recursive: true });
 let browser: Browser | undefined;
 const results = [];
 try {
-	let ready = false;
-	for (let i = 0; i < 100 && !ready; i++) {
-		if (server && server.exitCode !== null)
-			throw new Error("Feed test server exited");
-		try {
-			ready = (await fetch(`${origin}/browser-tests/feed-deck-polish.html`)).ok;
-		} catch {}
-		if (!ready) await Bun.sleep(200);
-	}
-	if (!ready) throw new Error("Feed test server did not start");
+	await waitForFixtureServer(`${origin}/browser-tests/feed-deck-polish.html`, {
+		server,
+	});
 	browser = await chromium.launch({ headless: true });
 	for (const viewport of [
 		{ width: 1440, height: 1000 },

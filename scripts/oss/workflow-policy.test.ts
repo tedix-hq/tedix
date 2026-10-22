@@ -62,10 +62,17 @@ describe("public CI policy", () => {
 			["tests", "run: bun run test:ci"],
 		] as const) {
 			const lane = job(workflow, name);
-			const install = lane.indexOf(
-				"run: bun run --cwd apps/os test:browser:install",
+			const resolve = lane.indexOf(
+				"run: node scripts/ci/full-suite-hourly.mjs browsers apps/os test:ci",
 			);
-			expect(install).toBeGreaterThan(-1);
+			const install = lane.indexOf(
+				"uses: ./.github/actions/playwright-browsers",
+			);
+			expect(resolve).toBeGreaterThan(-1);
+			expect(resolve).toBeLessThan(install);
+			expect(lane).toContain(
+				"browsers: ${{ steps.os-browsers.outputs.browsers }}",
+			);
 			expect(install).toBeLessThan(lane.indexOf(command));
 		}
 	});

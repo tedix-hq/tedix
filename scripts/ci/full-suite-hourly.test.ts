@@ -6,7 +6,17 @@ import {
 	workspaceMatrix,
 	alreadyPassed,
 	ciObservation,
+	scriptBrowsers,
 } from "./full-suite-hourly.mjs";
+
+function fixtureTree(files: Record<string, string>) {
+	const root = mkdtempSync(join(tmpdir(), "hourly-browsers-"));
+	for (const [path, text] of Object.entries(files)) {
+		mkdirSync(join(root, path, ".."), { recursive: true });
+		writeFileSync(join(root, path), text);
+	}
+	return root;
+}
 
 describe("hourly full suite", () => {
 	test("discovers every workspace with tests or types, including new and type-only packages", () => {
@@ -126,5 +136,67 @@ describe("hourly full suite", () => {
 			{ conclusion: "cancelled" },
 		])
 			expect(() => report(changed)).toThrow();
+	});
+	test("derives each browser script's Playwright browsers from the specs it runs", () => {
+		const scripts = {
+			"test:unit": "vp test run",
+			"test:browser:a": "bun specs/a.spec.ts && bun specs/b.spec.ts",
+			"test:browser:c": "bun specs/c.spec.ts",
+			"test:browser:all": "bun run test:browser:a && bun run test:browser:c",
+		};
+		const root = fixtureTree({
+			"apps/web/package.json": JSON.stringify({
+				scripts: {
+					...scripts,
+					"test:run": "bun run test:unit && bun run test:browser:all",
+				},
+				tedixCi: { splitTestScripts: true },
+			}),
+			"apps/web/specs/a.spec.ts":
+				'import { chromium, type Browser } from "playwright";\nimport { helper } from "./shared";',
+			"apps/web/specs/shared.ts":
+				'import {\n\twebkit,\n\ttype Page,\n} from "playwright";\nimport "./a.spec";',
+			"apps/web/specs/b.spec.ts":
+				'import { devices, chromium } from "playwright";\n// webkit.launch() in a comment is not an import',
+			"apps/web/specs/c.spec.ts": 'import assert from "node:assert";',
+		});
+		try {
+			const workspace = join(root, "apps/web");
+			expect(scriptBrowsers(workspace, scripts, "test:browser:a")).toEqual([
+				"chromium",
+				"webkit",
+			]);
+			expect(scriptBrowsers(workspace, scripts, "test:browser:c")).toEqual([]);
+			expect(scriptBrowsers(workspace, scripts, "test:unit")).toEqual([]);
+			expect(scriptBrowsers(workspace, scripts, "test:browser:all")).toEqual([
+				"chromium",
+				"webkit",
+			]);
+			expect(() => scriptBrowsers(workspace, scripts, "missing")).toThrow();
+			mkdirSync(join(root, "packages"));
+			expect(workspaceMatrix(root).include).toEqual([
+				{
+					workspace: "apps/web",
+					test: true,
+					testScript: "test:unit",
+					types: false,
+				},
+				{
+					workspace: "apps/web",
+					test: true,
+					testScript: "test:browser:a",
+					browsers: "chromium webkit",
+					types: false,
+				},
+				{
+					workspace: "apps/web",
+					test: true,
+					testScript: "test:browser:c",
+					types: false,
+				},
+			]);
+		} finally {
+			rmSync(root, { recursive: true });
+		}
 	});
 });
