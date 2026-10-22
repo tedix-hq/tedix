@@ -16,7 +16,8 @@
  * So this asserts the read itself, at the module boundary.
  */
 
-import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+import * as projection from "./tool-schema-projection";
 
 const mocks = vi.hoisted(() => ({
 	listToolsForSchemaSync: vi.fn(async () => []),
@@ -28,6 +29,28 @@ vi.mock("@tedix/db/queries/tools", async (importOriginal) => ({
 	listToolsForSchemaSync: mocks.listToolsForSchemaSync,
 	listToolsForSchemaSyncScoped: mocks.listToolsForSchemaSyncScoped,
 }));
+
+// Read selection does not depend on the size of the contract registry. Keep
+// real schema generation for one endpoint, including runs with no batch scope.
+vi.mock(
+	"@tedix/api-contract/utils/contract-routers",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("@tedix/api-contract/utils/contract-routers")
+			>();
+		return {
+			...actual,
+			listContractEndpoints: (
+				options: Parameters<typeof actual.listContractEndpoints>[0] = {},
+			) =>
+				actual.listContractEndpoints({
+					...options,
+					endpoints: options.endpoints ?? ["osWorkspaces/workspaces/create"],
+				}),
+		};
+	},
+);
 
 const { runToolSchemaSync } = await import("./tool-schema-sync");
 
@@ -52,16 +75,15 @@ async function run(options: Record<string, unknown>) {
 }
 
 describe("a scoped batch reads only its own rows", () => {
-	// Warm the expensive fixture once, outside any assertion body. `runToolSchemaSync` walks the router on its first call.
-	// Paying that inside whichever `it()` runs first puts it under vitest's 5s
-	// default, so under CPU contention — a shared CI runner, or a busy laptop —
-	// the test times out and reports as a failure of the assertion rather than
-	// of the fixture.
-	beforeAll(async () => {
-		// `run()` clears mocks before each assertion, so this warm-up cannot
-		// leak into the call-count expectations below.
-		await run({ mode: "projection", apply: false });
-	}, 120_000);
+	it("keeps the read-boundary fixture to one projected contract", async () => {
+		const build = vi.spyOn(projection, "buildProjectedTool");
+		try {
+			await run({ mode: "projection", apply: false });
+			expect(build).toHaveBeenCalledTimes(1);
+		} finally {
+			build.mockRestore();
+		}
+	});
 
 	it("projection mode with endpoints uses the SCOPED read, never the full-table one", async () => {
 		await run({

@@ -1,8 +1,8 @@
-import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { createMigratedSqlite } from "../../../../packages/db/src/test/migrated-sqlite";
 import type { BaseContext } from "../rpc/orpc";
 import { reviseCardContent } from "./card-revisions";
 import { mergeDeckCards, retireDeckCard } from "./deck-retirement";
@@ -94,16 +94,7 @@ const twin = "55555555-5555-4555-8555-555555555555";
 const evidence = ["https://example.test/work/evidence"];
 
 function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	const migrations = new URL(
-		"../../../../packages/db/drizzle/",
-		import.meta.url,
-	);
-	for (const name of readdirSync(migrations).sort())
-		sqlite.exec(
-			readFileSync(new URL(`${name}/migration.sql`, migrations), "utf8"),
-		);
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(
 		`INSERT INTO organizations(id,name,slug) VALUES('${org}','Fictional','fictional'); INSERT INTO users(id,email) VALUES('person','person@example.test'),('other','other@example.test'); INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status,role) VALUES('member','${org}','person-sub','person','person@example.test','active','owner'),('other-member','${org}','other-sub','other','other@example.test','active','member'); INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('${agent}','${org}','Draft author','draft-author','active'); INSERT INTO work_items(id,org_id,title,work_class,purpose_exception_expires_at,admission_spec_revision,created_at) VALUES('${work}','${org}','Draft','hygiene','2027-01-01T00:00:00.000Z','fixture','2026-10-19T00:00:00.000Z'),('${otherWork}','${org}','Other','hygiene','2027-01-01T00:00:00.000Z','fixture','2026-10-19T00:00:00.000Z');`,
 	);
@@ -169,6 +160,19 @@ function fixture() {
 				.get(),
 	};
 }
+
+it("copies the migrated fixture without replaying DDL for each card", () => {
+	fixture().sqlite.close();
+	const exec = vi.spyOn(DatabaseSync.prototype, "exec");
+	try {
+		fixture().sqlite.close();
+		expect(
+			exec.mock.calls.some(([sql]) => /\b(?:CREATE|ALTER|DROP)\b/i.test(sql)),
+		).toBe(false);
+	} finally {
+		exec.mockRestore();
+	}
+});
 
 it("lets the recipient retire a card without a successor, without answering it, and undo it", async () => {
 	const f = fixture();
