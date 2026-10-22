@@ -75,8 +75,12 @@ it("jumps to Today without taking t from text editing or modified shortcuts", ()
 	expect(
 		todayShortcut(new KeyboardEvent("keydown", { key: "t", ctrlKey: true })),
 	).toBe(false);
-	const input = document.createElement("input");
-	const event = new KeyboardEvent("keydown", { key: "t" });
-	Object.defineProperty(event, "target", { value: input });
-	expect(todayShortcut(event)).toBe(false);
+	const input = document.body.appendChild(document.createElement("input"));
+	let typed: boolean | undefined;
+	input.addEventListener("keydown", (event) => {
+		typed = todayShortcut(event);
+	});
+	input.dispatchEvent(new KeyboardEvent("keydown", { key: "t" }));
+	input.remove();
+	expect(typed).toBe(false);
 });

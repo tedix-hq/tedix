@@ -8,6 +8,7 @@ import { DecisionRailContext } from "@/components/decision-context-rail";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import { FactoryAgentHandoff } from "@/components/factory-agent-handoff";
 import { useCardSchedule } from "@/lib/use-card-schedule";
+import { isTypingEvent } from "@/lib/keyboard";
 import {
 	ArrowArcLeft,
 	ArrowSquareOut,
@@ -146,16 +147,6 @@ function sheetState(
 		body: { columns: content.columns, rows: content.rows },
 		revision,
 	};
-}
-
-function isTypingTarget(target: EventTarget | null) {
-	if (!(target instanceof HTMLElement)) return false;
-	return (
-		target.isContentEditable ||
-		target.tagName === "INPUT" ||
-		target.tagName === "TEXTAREA" ||
-		target.tagName === "SELECT"
-	);
 }
 
 type UndoEntry =
@@ -889,7 +880,7 @@ export function CardReviewApp({
 			event.altKey
 		)
 			return;
-		if (isTypingTarget(event.target)) {
+		if (isTypingEvent(event.nativeEvent)) {
 			if (event.key === "Escape") rootRef.current?.focus();
 			return;
 		}

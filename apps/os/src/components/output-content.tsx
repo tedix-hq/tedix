@@ -8,6 +8,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
+import { isTypingEvent } from "@/lib/keyboard";
 import { ReadOnlySlide } from "@/components/output-slide-element";
 import {
 	bareKey,
@@ -474,7 +475,7 @@ function DeckView({
 	useEffect(() => {
 		if (presenting) return;
 		const onKey = (event: KeyboardEvent) => {
-			if (event.defaultPrevented) return;
+			if (event.defaultPrevented || isTypingEvent(event)) return;
 			// A thumbnail keeps Space and Enter; arrows still browse from it.
 			const onThumbnail =
 				event.target instanceof HTMLElement &&
