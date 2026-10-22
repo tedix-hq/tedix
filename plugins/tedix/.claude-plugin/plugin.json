@@ -7,6 +7,7 @@
 		"url": "https://tedix.dev"
 	},
 	"homepage": "https://docs.tedix.dev",
+	"privacyPolicyUrl": "https://tedix.dev/privacy/",
 	"repository": "https://github.com/tedix-hq/tedix",
 	"license": "AGPL-3.0-only",
 	"keywords": ["tedix", "digital-workers", "work-items", "workspace-outputs"],
