@@ -67,6 +67,8 @@ TEDIX_LOCAL_API_PORT=8890 TEDIX_LOCAL_OS_PORT=3042 TEDIX_LOCAL_MCP_PORT=3043 bun
 The [Tedix CLI](./cli.md) wraps this launcher: `tedix setup` runs it in a
 checkout, or clones the source release matching your CLI version when one is
 published, and `tedix dev` restarts the saved installation later.
+When contributing from a checkout, use `bun run push` to queue, validate, and
+publish your changes safely; repeated gate failures pause for a handoff.
 
 ### A first offline task
 

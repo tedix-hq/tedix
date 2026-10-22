@@ -157,14 +157,21 @@ describe("push train with real repositories and hooks", () => {
 
 	test("one red lane fails individually while the others publish in order", () => {
 		const f = fixture(3);
+		const failures: string[] = [];
 		amend(f.tickets[1]!, "red", "bad\n");
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+		expect(
+			runTrain(f.repo, f.common, f.tickets, {
+				onFailure: (cwd, gate) => failures.push(`${cwd}:${gate}`),
+				onPass: () => {},
+			}),
+		).toBe(true);
 		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([0, 1, 0]);
+		expect(failures).toEqual([`${f.tickets[1]!.lane.cwd}:pre-push gates`]);
 		expect(f.gates()).toBe(4);
 		expect(
 			git(f.remote, "ls-tree", "--name-only", "main").split("\n"),
 		).not.toContain("red");
-	});
+	}, 20_000);
 
 	test("a conflicting lane is left out; the rest publish under one gate", () => {
 		const f = fixture(3);

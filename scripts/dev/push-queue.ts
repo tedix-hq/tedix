@@ -79,6 +79,13 @@ export type TrainRecord = {
 	lanes: number;
 };
 
+export type RetryRecord = {
+	key: string;
+	gate: string;
+	result: "failed" | "passed";
+	at: number;
+};
+
 /**
  * Waiting tickets that can join this train, oldest first, up to `max`.
  * Incompatible tickets (no lane snapshot, other dry-run mode, changed
@@ -125,6 +132,83 @@ export function recordTrain(file: string, record: TrainRecord) {
 		[...kept, record].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
 	);
 	renameSync(`${file}.tmp`, file);
+}
+
+export function readRetryHistory(file: string): RetryRecord[] {
+	try {
+		return readFileSync(file, "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => JSON.parse(line) as RetryRecord)
+			.filter(
+				(record) =>
+					typeof record.key === "string" &&
+					typeof record.gate === "string" &&
+					(record.result === "failed" || record.result === "passed") &&
+					Number.isFinite(record.at),
+			);
+	} catch {
+		return [];
+	}
+}
+
+export function recordRetry(file: string, record: RetryRecord) {
+	const kept = readRetryHistory(file).slice(-(HISTORY_KEEP - 1));
+	writeFileSync(
+		`${file}.tmp`,
+		[...kept, record].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+	);
+	renameSync(`${file}.tmp`, file);
+}
+
+export function retryFailures(
+	file: string,
+	key: string,
+	now = Date.now(),
+): RetryRecord[] {
+	const cutoff = now - 2 * 60 * 60 * 1000;
+	let failures: RetryRecord[] = [];
+	for (const record of readRetryHistory(file)) {
+		if (record.key !== key || record.at < cutoff) continue;
+		if (record.result === "passed") failures = [];
+		else failures.push(record);
+	}
+	return failures;
+}
+
+export function retryRefusal(
+	file: string,
+	key: string,
+	now = Date.now(),
+): string | null {
+	const failures = retryFailures(file, key, now);
+	if (failures.length < 2 || process.env.TEDIX_PUSH_RETRY_OVERRIDE === "1")
+		return null;
+	return (
+		`push: retry budget exhausted for ${key}; previous failures: ${failures
+			.slice(-2)
+			.map((failure) => failure.gate)
+			.join(", ")}. ` +
+		"post the failure on the Work item and hand off. " +
+		"For a human override, set TEDIX_PUSH_RETRY_OVERRIDE=1."
+	);
+}
+
+export function ticketKey(cwd: string): string {
+	const workItem =
+		process.env.TEDIX_WORK_ITEM?.trim() ||
+		git(["log", "-1", "--format=%B"], false, cwd).out.match(
+			/^Work-Item:\s*(\S+)/m,
+		)?.[1] ||
+		"unassigned";
+	return `${resolve(cwd)}|${workItem}`;
+}
+
+export function gateName(output: string): string {
+	const names = [...output.matchAll(/^✗\s+(.+?)(?:\s+\([^\n]*\))?$/gm)].map(
+		(match) => match[1]!.trim(),
+	);
+	return names.at(-1) ?? "pre-push gates";
 }
 
 const minutes = (ms: number) => `${Math.max(1, Math.round(ms / 60000))} min`;
@@ -248,8 +332,9 @@ export function liveTickets(
 	);
 }
 
-function git(args: string[], inherit = false) {
+function git(args: string[], inherit = false, cwd = process.cwd()) {
 	const result = spawnSync("git", args, {
+		cwd,
 		encoding: "utf8",
 		stdio: inherit ? "inherit" : "pipe",
 	});
@@ -275,19 +360,25 @@ function fetchAndRebase(expectedMain?: string): boolean {
 	return false;
 }
 
-function pushOnce(dryRun: boolean): "pushed" | "main-moved" | "failed" {
+function pushOnce(dryRun: boolean): {
+	outcome: "pushed" | "main-moved" | "failed";
+	gate?: string;
+} {
 	const args = [
 		"push",
 		...(dryRun ? ["--dry-run"] : []),
 		"origin",
 		"HEAD:main",
 	];
-	if (git(args, true).ok) return "pushed";
+	const push = git(args);
+	if (push.out) console.log(push.out);
+	if (push.err) console.error(push.err);
+	if (push.ok) return { outcome: "pushed" };
 	// Gates or the remote said no. It was a race only if main moved past us.
 	git(["fetch", "--quiet", "origin", "main"]);
 	return git(["merge-base", "--is-ancestor", "origin/main", "HEAD"]).ok
-		? "failed"
-		: "main-moved";
+		? { outcome: "failed", gate: gateName(`${push.out}\n${push.err}`) }
+		: { outcome: "main-moved" };
 }
 
 /** True when the last weekly worktree gc (stamp mtime) is a week old or missing. */
@@ -341,6 +432,13 @@ async function main() {
 			: snapshotLane(process.cwd(), dryRun);
 	const resultsDir = join(commonDir, "push-results");
 	mkdirSync(resultsDir, { recursive: true });
+	const retryFile = join(commonDir, "push-queue-retries.jsonl");
+	const key = ticketKey(process.cwd());
+	const refusal = retryRefusal(retryFile, key);
+	if (refusal) {
+		console.error(refusal);
+		process.exit(1);
+	}
 	const resultTicket = join(resultsDir, ticket.slice(queueDir.length + 1));
 	writeFileSync(ticket, lane ? JSON.stringify(lane) : "");
 
@@ -437,6 +535,22 @@ async function main() {
 				...entry,
 				result: join(resultsDir, entry.file.slice(queueDir.length + 1)),
 			})),
+			{
+				onFailure: (cwd, gate) =>
+					recordRetry(retryFile, {
+						key: ticketKey(cwd),
+						gate,
+						result: "failed",
+						at: Date.now(),
+					}),
+				onPass: (cwd) =>
+					recordRetry(retryFile, {
+						key: ticketKey(cwd),
+						gate: "pass",
+						result: "passed",
+						at: Date.now(),
+					}),
+			},
 		);
 		if (published) {
 			startWeeklyWorktreeGc(commonDir);
@@ -455,7 +569,13 @@ async function main() {
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 		if (!fetchAndRebase(expectedMain)) process.exit(1);
 		const outcome = pushOnce(dryRun);
-		if (outcome === "pushed") {
+		if (outcome.outcome === "pushed") {
+			recordRetry(retryFile, {
+				key,
+				gate: "pass",
+				result: "passed",
+				at: Date.now(),
+			});
 			console.log(
 				dryRun
 					? "push: dry run passed; nothing pushed."
@@ -466,7 +586,13 @@ async function main() {
 			}
 			process.exit(0);
 		}
-		if (outcome === "failed") {
+		if (outcome.outcome === "failed") {
+			recordRetry(retryFile, {
+				key,
+				gate: outcome.gate ?? "pre-push gates",
+				result: "failed",
+				at: Date.now(),
+			});
 			console.error(
 				"push: rejected by a gate or the remote; fix it and run again.",
 			);

@@ -22,6 +22,10 @@ export type Lane = {
 };
 export type TrainTicket = { file: string; result: string; lane: Lane };
 export type TrainResult = { code: number; sha?: string; message: string };
+export type RetryHooks = {
+	onFailure: (cwd: string, gate: string) => void;
+	onPass: (cwd: string) => void;
+};
 
 function git(cwd: string, args: string[], ranges?: string[]) {
 	const result = spawnSync("git", args, {
@@ -174,7 +178,12 @@ type Attempt = {
 	pushed: boolean;
 	accepted: { ticket: TrainTicket; sha: string }[];
 	skipped: Skip[];
+	gate?: string;
 };
+
+const failedGate = (output: string) =>
+	[...output.matchAll(/^✗\s+(.+?)(?:\s+\([^\n]*\))?$/gm)].at(-1)?.[1]?.trim() ??
+	"pre-push gates";
 
 const REJECTED = "lane rejected by a gate or the remote; fix it and run again";
 const UNREACHABLE = "could not fetch or reset to origin/main; run again";
@@ -193,6 +202,7 @@ export function runTrain(
 	cwd: string,
 	commonDir: string,
 	tickets: TrainTicket[],
+	retryHooks?: RetryHooks,
 ): boolean {
 	// Vite cannot load workspace tests from Git's metadata directory.
 	const worktreeRoot = join(commonDir, "..", ".worktrees");
@@ -280,6 +290,7 @@ export function runTrain(
 		const attempt = (batch: TrainTicket[]): Attempt => {
 			let accepted: Attempt["accepted"] = [];
 			let skipped: Skip[] = [];
+			let gate: string | undefined;
 			for (let retry = 0; retry <= 2; retry++) {
 				if (!git(integration, ["fetch", "--quiet", "origin", "main"]).ok) break;
 				const base = git(integration, ["rev-parse", "origin/main"]).out;
@@ -324,6 +335,8 @@ export function runTrain(
 				if (push.out) console.log(push.out);
 				if (push.err) console.error(push.err);
 				if (push.ok) {
+					for (const { ticket } of accepted)
+						retryHooks?.onPass(ticket.lane.cwd);
 					for (const { ticket, sha } of accepted)
 						complete(ticket, {
 							code: 0,
@@ -337,13 +350,14 @@ export function runTrain(
 					return { pushed: true, accepted, skipped };
 				}
 				rmSync(journal, { force: true });
+				gate = failedGate(`${push.out}\n${push.err}`);
 				if (
 					!git(integration, ["fetch", "--quiet", "origin", "main"]).ok ||
 					git(integration, ["rev-parse", "origin/main"]).out === base
 				)
 					break;
 			}
-			return { pushed: false, accepted, skipped };
+			return { pushed: false, accepted, skipped, gate };
 		};
 		const deferred: Skip[] = [];
 		const run = (batch: TrainTicket[]) => {
@@ -358,6 +372,11 @@ export function runTrain(
 			}
 			const rejected = outcome.accepted.map(({ ticket }) => ticket);
 			if (rejected.length === 1) {
+				if (outcome.skipped.length === 0)
+					retryHooks?.onFailure(
+						rejected[0]!.lane.cwd,
+						outcome.gate ?? "pre-push gates",
+					);
 				complete(rejected[0]!, { code: 1, message: REJECTED });
 				return;
 			}
@@ -373,6 +392,8 @@ export function runTrain(
 		for (const { ticket, reason } of deferred) {
 			const solo = attempt([ticket]);
 			if (solo.pushed) continue;
+			if (!solo.skipped.length && solo.accepted.length === 1)
+				retryHooks?.onFailure(ticket.lane.cwd, solo.gate ?? "pre-push gates");
 			complete(ticket, {
 				code: 1,
 				message: solo.skipped.length
