@@ -1,0 +1,1 @@
+CREATE INDEX `idx_memory_facts_org_source_id` ON `memory_facts` (`organization_id`,`source`,`id`);

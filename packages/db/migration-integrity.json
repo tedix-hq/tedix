@@ -1092,6 +1092,10 @@
 		{
 			"name": "20261022003703_billing_cost_rollups/migration.sql",
 			"sha256": "59895700a7eed869a624c839a74c4f2aa9d1ed8a2892eb24f44731de2c8258d6"
+		},
+		{
+			"name": "20261022015004_memory-facts-org-source-index/migration.sql",
+			"sha256": "5687cfd58646afa66384cf4e3497445ba23a7582727c898bd9692a9250e44e67"
 		}
 	]
 }

@@ -4,6 +4,8 @@
  * scheduled() handler.
  */
 
+const CITATION_BACKFILL_BUDGET = 2000;
+
 export async function runMemoryReflection(
 	env: CloudflareEnv,
 	runId: string,
@@ -30,12 +32,16 @@ export async function runMemoryReflection(
 			});
 		}
 		try {
-			if (citationFactsBackfilled < 100) {
-				citationFactsBackfilled += await backfillFactCitations(
+			// Drain each org in resumable 100-fact pages; recall skips the legacy
+			// fallback once an org's marker is done, so finish within days, not years.
+			while (citationFactsBackfilled < CITATION_BACKFILL_BUDGET) {
+				const page = await backfillFactCitations(
 					db,
 					org.id,
-					100 - citationFactsBackfilled,
+					CITATION_BACKFILL_BUDGET - citationFactsBackfilled,
 				);
+				citationFactsBackfilled += page;
+				if (page < 100) break;
 			}
 		} catch (error) {
 			console.warn("[Scheduled] Memory citation backfill unavailable", {
