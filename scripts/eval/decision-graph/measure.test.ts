@@ -12,9 +12,31 @@ import {
 	assertStoredDeckSchema,
 	deploymentContains,
 	readWithRetry,
+	selectReadTool,
 } from "./run.mjs";
 
 describe("decision graph measurement", () => {
+	test("public discovery selects exact callables without private native metadata", () => {
+		const tool = {
+			tool: "get_preferences",
+			callable: "user.get_preferences",
+			parameters: {},
+			readOnly: true,
+		};
+		expect(
+			selectReadTool([tool], "get_preferences", "user.get_preferences"),
+		).toEqual(tool);
+		for (const matches of [
+			[],
+			[tool, tool],
+			[{ ...tool, readOnly: false }],
+			[{ ...tool, callable: "other.get_preferences" }],
+		]) {
+			expect(() =>
+				selectReadTool(matches, "get_preferences", "user.get_preferences"),
+			).toThrow("Exact read-only tool unavailable");
+		}
+	});
 	test("transient read checks retry with bounded backoff", async () => {
 		let calls = 0;
 		const delays: number[] = [];
