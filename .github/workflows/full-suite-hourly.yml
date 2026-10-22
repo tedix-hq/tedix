@@ -181,6 +181,9 @@ jobs:
       - if: ${{ !cancelled() && matrix.check == 'scripts' }}
         run: bun run docs:public:check
 
+      - name: Fetch canonical main for the migration order gate
+        if: ${{ !cancelled() && matrix.check == 'policy' }}
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
       - if: ${{ !cancelled() && matrix.check == 'policy' }}
         run: bun run verify --all --ci-policy
       - name: Require shellcheck
