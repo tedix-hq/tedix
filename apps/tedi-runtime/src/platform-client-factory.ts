@@ -25,6 +25,7 @@ import {
 	resolveTediRuntimeIdentity,
 } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { decryptTediSecret } from "@tedix/db/utils/secrets-encryption";
+import { WEB_SEARCH_EXECUTE_SCOPE } from "@tedix/api-contract/schemas/web-search";
 
 const DESCOPE_ACCESS_KEY_NAME = "DESCOPE_ACCESS_KEY";
 const ACCESS_KEY_VALIDATION_TTL_MS = 10 * 60 * 1000;
@@ -40,6 +41,9 @@ const ACCESS_KEY_VALIDATION_TTL_MS = 10 * 60 * 1000;
 export const TEDI_RUNTIME_SERVICE_BINDING_SCOPES = [
 	...TEDI_RUNTIME_API_SCOPES,
 	"mcp:memory.read",
+	// The native `web_search` tool calls `webSearch.search` for the calling
+	// tedi; the API still applies the organization switch and the tedi policy.
+	WEB_SEARCH_EXECUTE_SCOPE,
 ] as const;
 
 /** Exact headers for one trusted runtime -> API service-binding procedure. */
