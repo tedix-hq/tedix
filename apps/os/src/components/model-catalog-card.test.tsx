@@ -197,7 +197,7 @@ describe("ModelCatalogCard", () => {
 					}),
 				]}
 				routing={routing}
-				wiredProviders={["azure-openai"]}
+				wiredProviders={["azure-openai", "cloudflare"]}
 			/>,
 		);
 		expect(container.textContent).toContain("1 allowed");
@@ -205,15 +205,16 @@ describe("ModelCatalogCard", () => {
 		expect(container.textContent).toContain(
 			"Organization model-tier policy denies tier `economy`.",
 		);
-		expect(container.textContent).toContain("Wired providers: azure-openai");
+		expect(container.textContent).toContain("2 model providers connected");
+		expect(container.textContent).not.toMatch(/cloudflare/i);
 	});
 
-	it("says no provider is wired rather than rendering an empty provider line", () => {
+	it("says no provider is connected rather than rendering an empty provider line", () => {
 		const container = render(
 			<ModelCatalogCard models={[]} routing={routing} wiredProviders={[]} />,
 		);
 		expect(container.textContent).toContain(
-			"No model provider is wired in this deployment",
+			"No model provider is connected in this deployment",
 		);
 	});
 });

@@ -80,8 +80,8 @@ export function ModelCatalogCard({
 			</Text>
 			<Text as="span" role="label" tone="secondary">
 				{wiredProviders.length > 0
-					? `Wired providers: ${wiredProviders.join(" · ")}`
-					: "No model provider is wired in this deployment."}
+					? `${wiredProviders.length} model ${wiredProviders.length === 1 ? "provider" : "providers"} connected`
+					: "No model provider is connected in this deployment."}
 			</Text>
 			{groups.length > 0 && (
 				<ul className="m-0 grid gap-1 pl-4">

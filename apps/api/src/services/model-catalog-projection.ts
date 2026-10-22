@@ -234,12 +234,7 @@ async function buildSelections(args: {
 	const selections: ModelCatalogSelection[] = [];
 
 	// ── org default ──────────────────────────────────────────────────────────
-	// There is NO organization-scoped default model ref in D1: the effective
-	// default is the serving Worker's `AZURE_CHAT_DEPLOYMENT` var, which is a
-	// DEPLOYMENT value shared by every organization (and differs between the API
-	// Worker and the Agent runtime Worker). Reported with `scope: "deployment"`
-	// so a caller cannot mistake it for an org setting.
-	const deployment = args.env.AZURE_CHAT_DEPLOYMENT?.trim();
+	// The platform default is deployment-scoped, not an organization setting.
 	const orgDefaultRef = CLOUDFLARE_AUTO_MODEL_REF;
 	selections.push({
 		kind: "org_default",
@@ -248,7 +243,8 @@ async function buildSelections(args: {
 		status: "set",
 		modelRef: orgDefaultRef,
 		source: MODEL_CATALOG_SOURCES.orgDefault,
-		detail: `Cloudflare Auto Router is the platform default for compatible ordinary inference. Governed exceptions fall back to the fixed deployment${deployment ? ` azure-openai/${deployment}` : " configured by the serving runtime"}.`,
+		detail:
+			"Auto is the platform default for compatible ordinary inference. Governed exceptions fall back to the fixed deployment configured by the serving runtime.",
 		...verdictFor(args.models, orgDefaultRef),
 	});
 
@@ -456,7 +452,7 @@ function buildRouting(
 	}
 
 	const verdict = verdictFor(models, winner.modelRef);
-	const inCatalog = models.some((model) => model.ref === winner.modelRef);
+	const model = models.find((model) => model.ref === winner.modelRef);
 	const precedence =
 		winner.kind === "tedi_explicit"
 			? "the per-tedi pin (highest precedence)"
@@ -467,13 +463,13 @@ function buildRouting(
 		slot: "chat",
 		modelRef: winner.modelRef,
 		selectedBy: winner.kind,
-		detail: inCatalog
-			? `Chat turns route at \`${winner.modelRef}\`, selected by ${precedence}.${
+		detail: model
+			? `Chat turns use ${model.label}, selected by ${precedence}.${
 					verdict.deniedBy
 						? ` The filter chain DENIES this ref (${verdict.deniedBy.reason}), so the turn is refused or degrades rather than running it.`
 						: ""
 				}`
-			: `Chat turns route at \`${winner.modelRef}\`, selected by ${precedence}. This ref is NOT in the cognition catalog, so the filter chain returns no verdict for it.`,
+			: `Chat turns use an unlisted model, selected by ${precedence}. This model is not in the cognition catalog, so the filter chain returns no verdict for it.`,
 		...verdict,
 	};
 }

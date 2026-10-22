@@ -2342,12 +2342,14 @@ export function ChatThread({
 								</DropdownMenu>
 							) : null}
 							{localWorkersAi ? (
-								<span
-									className="text-xs text-kumo-subtle"
-									title="Model configured by the local launcher; inference billed to your Cloudflare account"
+								<Text
+									as="span"
+									role="label"
+									tone="secondary"
+									title="Model configured by the local launcher; inference billed to your inference account"
 								>
-									Workers AI · local config
-								</span>
+									Auto
+								</Text>
 							) : (
 								<DropdownMenu>
 									<DropdownMenuTrigger
