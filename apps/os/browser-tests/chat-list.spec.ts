@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import {
+	readQuarantine,
+	quarantineFailure,
+} from "../../../scripts/ci/browser-quarantine.mjs";
+import {
 	chromium,
 	webkit,
 	type Browser,
@@ -10,6 +14,8 @@ import {
 	type Page,
 } from "playwright";
 
+const quarantine = readQuarantine();
+const failures: Error[] = [];
 const cwd = new URL("../", import.meta.url).pathname;
 const probe = Bun.serve({
 	port: 0,
@@ -339,17 +345,28 @@ try {
 			browsers.set(c.engine, browser);
 		}
 		const label = `${c.engine} ${c.width}x${c.height} ${c.theme}`;
-		let result;
 		try {
-			result = await runCase(browser, c);
+			const result = await runCase(browser, c);
+			const bad = result.diagnostics.filter((d) => !d.startsWith("console:"));
+			assert.deepEqual(bad, [], `${label} page/request diagnostics`);
+			assert(result.overflow <= 0, `${label} no horizontal overflow`);
+			results.push(result);
+			console.log(`Chat list passed: ${label}`);
 		} catch (error) {
-			throw new Error(`Chat list failed: ${label}`, { cause: error });
+			if (
+				!quarantineFailure(
+					`apps/os/browser-tests/chat-list.spec.ts::${label}`,
+					error,
+					quarantine,
+				)
+			) {
+				const failure = new Error(`Chat list failed: ${label}`, {
+					cause: error,
+				});
+				console.error(failure);
+				failures.push(failure);
+			}
 		}
-		const bad = result.diagnostics.filter((d) => !d.startsWith("console:"));
-		assert.deepEqual(bad, [], `${label} page/request diagnostics`);
-		assert(result.overflow <= 0, `${label} no horizontal overflow`);
-		results.push(result);
-		console.log(`Chat list passed: ${label}`);
 	}
 	if (evidenceDir)
 		await writeFile(
@@ -365,3 +382,5 @@ try {
 	}
 	await server.exited;
 }
+if (failures.length)
+	throw new AggregateError(failures, "Chat list regressions");

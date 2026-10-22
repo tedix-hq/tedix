@@ -113,6 +113,10 @@ jobs:
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.repository == 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [onboarding, scripts, policy]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -129,18 +133,22 @@ jobs:
       - name: Provide the Vite+ package manager
         uses: ./.github/actions/vite-plus-package-manager
       - name: Local onboarding smoke
+        if: matrix.check == 'onboarding'
         run: bun run-local --smoke --no-install
-      - run: bun run test:scripts
-      - if: ${{ !cancelled() }}
+      - if: matrix.check == 'scripts'
+        run: bun run test:scripts
+      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
         run: bun run type-check:scripts
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
         run: bun run docs:public:check
 
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && matrix.check == 'policy' }}
         run: bun run verify --all --ci-policy
       - name: Require shellcheck
+        if: matrix.check == 'policy'
         run: command -v shellcheck
       - name: Lint workflows with shellcheck
+        if: matrix.check == 'policy'
         uses: ./.github/actions/actionlint
 
   aggregate:
