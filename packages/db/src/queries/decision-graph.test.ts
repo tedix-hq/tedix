@@ -4,6 +4,9 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { decisionEdges } from "../schema/decision-graph";
 import { organizations } from "../schema/organizations";
+import { workItems } from "../schema/work-items";
+import { projects } from "../schema/projects";
+import { tediObjectives } from "../schema/tedi-objectives";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
@@ -22,7 +25,15 @@ const OTHER_ORG = "fictional-harbor";
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(organizations, decisionEdges));
+	sqlite.exec(
+		schemaDdl(
+			organizations,
+			decisionEdges,
+			projects,
+			tediObjectives,
+			workItems,
+		),
+	);
 	sqlite
 		.prepare("INSERT INTO organizations(id,name,slug) VALUES(?,?,?),(?,?,?)")
 		.run(ORG, "Lighthouse", "lighthouse", OTHER_ORG, "Harbor", "harbor");
@@ -90,6 +101,50 @@ const githubCardEdges: DecisionEdgeInput[] = [
 ];
 
 describe("decision graph", () => {
+	it("resolves backfilled Work titles at read time without leaking other organizations", async () => {
+		const f = fixture();
+		try {
+			f.sqlite
+				.prepare(
+					"INSERT INTO work_items(id,org_id,title,created_at) VALUES(?,?,?,'2026-10-22'),(?,?,?,'2026-10-22')",
+				)
+				.run(
+					"work-source",
+					ORG,
+					"Review launch checklist",
+					"work-other",
+					OTHER_ORG,
+					"Private title",
+				);
+			for (const id of ["work-source", "work-other", "work-missing"]) {
+				await upsertDecisionEdges(f.db, ORG, [
+					{
+						kind: "card_from_work",
+						from: card(id),
+						to: work(id),
+						source: "backfill",
+						note: "Source Work item",
+					},
+				]);
+			}
+			const read = (id: string) => getDecisionContext(f.db, ORG, id);
+			expect(explainChain(await read("work-source"))).toBe(
+				'From Work "Review launch checklist"',
+			);
+			f.sqlite
+				.prepare("UPDATE work_items SET title = ? WHERE id = ?")
+				.run("Approve launch checklist", "work-source");
+			expect((await read("work-source")).chain[0]?.edge.note).toBe(
+				"Approve launch checklist",
+			);
+			for (const id of ["work-other", "work-missing"]) {
+				expect(explainChain(await read(id))).toBe("From a Work item");
+			}
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
 	it("explains the GitHub card from the owner's earlier instruction", async () => {
 		const f = fixture();
 		try {
