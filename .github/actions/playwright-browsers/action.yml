@@ -19,7 +19,11 @@ runs:
         version="$(bun run --cwd apps/os playwright --version | sed -n 's/^Version //p')"
         test -n "$version"
         echo "key=playwright-${RUNNER_OS}-${RUNNER_ARCH}-${version}-${BROWSERS// /-}" >> "$GITHUB_OUTPUT"
-        echo "apt-key=playwright-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-${version}-${BROWSERS// /-}" >> "$GITHUB_OUTPUT"
+        # Several runner images are in service at once; the image version
+        # comes last so a new image restores another image's packages.
+        apt_prefix="playwright-apt-${ImageOS:-unknown}-${version}-${BROWSERS// /-}@"
+        echo "apt-prefix=${apt_prefix}" >> "$GITHUB_OUTPUT"
+        echo "apt-key=${apt_prefix}${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
     - name: Restore cached browsers
       id: restore
@@ -29,7 +33,8 @@ runs:
         key: ${{ steps.playwright.outputs.key }}
 
     # The runner's apt mirror has stalled for over 20 minutes on the ~150 OS
-    # packages, so apt keeps their downloads in a cache restored per image.
+    # packages, so apt keeps their downloads in a cache saved per image and
+    # restored from any image; apt downloads only the packages that differ.
     - name: Keep downloaded OS packages
       shell: bash
       run: |
@@ -44,20 +49,31 @@ runs:
       with:
         path: ~/.cache/playwright-apt/*.deb
         key: ${{ steps.playwright.outputs.apt-key }}
+        restore-keys: ${{ steps.playwright.outputs.apt-prefix }}
 
     # On a cache hit the browsers are present and only OS packages install.
     # A miss downloads from the Playwright CDN; that download is the only
     # step retried, and every retry is recorded as a warning on the run.
+    # An attempt that outlives its limit is a stalled mirror: it fails the
+    # job at once with that reason instead of running into the job timeout.
     - name: Install browsers and OS packages
       shell: bash
       env:
         BROWSERS: ${{ inputs.browsers }}
+        INSTALL_LIMIT_MINUTES: "10"
       run: |
         set -uo pipefail
         for attempt in 1 2 3; do
           # shellcheck disable=SC2086 # BROWSERS is a word list.
-          if bun run --cwd apps/os playwright install --with-deps --only-shell $BROWSERS; then
+          timeout --kill-after=30s "${INSTALL_LIMIT_MINUTES}m" \
+            bun run --cwd apps/os playwright install --with-deps --only-shell $BROWSERS
+          status=$?
+          if [ "$status" -eq 0 ]; then
             exit 0
+          fi
+          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+            echo "::error title=Playwright install stalled::Installing $BROWSERS and its OS packages took over $INSTALL_LIMIT_MINUTES minutes (attempt $attempt); the apt mirror or Playwright CDN stalled"
+            exit 1
           fi
           if [ "$attempt" -lt 3 ]; then
             echo "::warning title=Infrastructure retry::Playwright browser install failed (attempt $attempt of 3); retrying"
