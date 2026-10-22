@@ -1,6 +1,9 @@
+import { useFactoryDelivery } from "@/lib/use-factory-delivery";
 import { workRefreshOptions } from "@/lib/work-refresh";
-import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
-import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
+import type {
+	DecisionDeckConfig,
+	DeckRoutingPolicy,
+} from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionRailContext } from "@/components/decision-context-rail";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import { FactoryAgentHandoff } from "@/components/factory-agent-handoff";
@@ -51,6 +54,7 @@ import { toast } from "@/components/kumo/toast";
 import { osApi } from "@/lib/api";
 import {
 	cardActionKind,
+	routeFactoryCard,
 	cardSheetsForSource,
 	cardsFromSheet,
 	cellText,
@@ -190,12 +194,14 @@ export function CardReviewApp({
 	config,
 	inDeck = false,
 	routing,
+	classPolicies,
 	focusCardKey,
 	onFocusHandled,
 }: {
 	config: CardReviewConfig;
 	inDeck?: boolean;
 	routing?: DeckRoutingPolicy;
+	classPolicies?: DecisionDeckConfig["classPolicies"];
 	focusCardKey?: string;
 	onFocusHandled?: () => void;
 }) {
@@ -211,6 +217,7 @@ export function CardReviewApp({
 		: null;
 	const [learningEventId, setLearningEventId] = useState<string | null>(null);
 	const sources = config.sources;
+	const delivery = useFactoryDelivery(sources, classPolicies, routing);
 	const recordChoice = useCallback(
 		async (
 			card: ReviewCard,
@@ -388,15 +395,16 @@ export function CardReviewApp({
 	const setSnoozes = (value: Record<string, string>) =>
 		setStoredSnoozes({ key: snoozeKey, value });
 	const { now, timeZone } = useCardSchedule();
-	const queue = useMemo(() => {
+	const queue = (() => {
+		const reviewable = cards.filter((card) => !delivery.quiet(card));
 		const pending = reviewQueue(
 			inDeck
-				? cards.filter(
+				? reviewable.filter(
 						(card) =>
 							routeFactoryCard(card, routing, now, learningModel.data)
 								.destination === "deck",
 					)
-				: cards,
+				: reviewable,
 			{
 				channel: activeChannel,
 				snoozes,
@@ -422,18 +430,7 @@ export function CardReviewApp({
 				now,
 			).score;
 		return pending.sort((a, b) => score(b) - score(a));
-	}, [
-		cards,
-		activeChannel,
-		snoozes,
-		skipped,
-		now,
-		timeZone,
-		sources,
-		learningModel.data,
-		inDeck,
-		routing,
-	]);
+	})();
 	const inChannel = cards.filter(
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
@@ -920,6 +917,11 @@ export function CardReviewApp({
 				data-has-next={queue.length > 1}
 			>
 				<DecisionLearningFeedback eventId={learningEventId} />
+				<FactoryAgentHandoff
+					sources={sources}
+					routing={routing}
+					policies={classPolicies}
+				/>
 				{failed ? (
 					<Text>{OS_COPY.feed.partial}</Text>
 				) : card && source ? (
@@ -1065,9 +1067,22 @@ export function CardReviewApp({
 					</Text>
 				)}
 			</header>
-			{sources.some(
-				(source) => (source.scoring?.agentDecidableClasses.length ?? 0) > 0,
-			) && <FactoryAgentHandoff sources={sources} routing={routing} />}
+			<FactoryAgentHandoff
+				sources={sources}
+				routing={routing}
+				policies={classPolicies}
+			/>
+			{inChannel.some((card) => delivery.quiet(card)) && (
+				<section aria-label="Updates" className="flex flex-col gap-2">
+					{inChannel
+						.filter((card) => delivery.quiet(card))
+						.map((card) => (
+							<Text key={card.key} as="p" role="caption" tone="secondary">
+								Update: {card.why || card.sourceText}
+							</Text>
+						))}
+				</section>
+			)}
 			{inChannel.length > 0 && (
 				<Progress
 					aria-label="Cards reviewed"

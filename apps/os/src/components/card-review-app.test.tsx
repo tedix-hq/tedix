@@ -542,3 +542,71 @@ describe("CardReviewApp scored factory cards", () => {
 		expect(button("Too much effort")).toBeDefined();
 	});
 });
+
+it("delivers earned cards as updates while audit samples and protected cards still ask", async () => {
+	const appConfig = CardReviewConfigSchema.parse({
+		...config,
+		sources: config.sources.map((source) => ({
+			...source,
+			scoring: { agentDecidableClasses: ["opportunity"] },
+		})),
+	});
+	vi.mocked(osApi.learningFeedback.listInteractions).mockResolvedValue({
+		events: Array.from({ length: 5 }, (_, i) => ({
+			id: `event-${i}`,
+			clientEventId: `client-${i}`,
+			actorType: "user",
+			actorId: "practice-viewer",
+			targetId: `earlier-${i}`,
+			scopeId: "practice-viewer",
+			eventKind: "accepted",
+			surface: "decision_deck",
+			occurredAt: `2026-10-20T10:0${i}:00Z`,
+			metadata: {
+				decisionClass: "factory:Practice:opportunity",
+				decisionChoice: "do_it",
+			},
+		})),
+	} as never);
+	// All test cards are benign reversible choices; audit is controlled by policy.
+	sheet.rows.forEach((row) => {
+		row[row.length - 1] = "File this item";
+	});
+	await mount(false, false, appConfig);
+	const renderPolicy = async (
+		autoApprove: boolean,
+		auditSampleRate: number,
+	) => {
+		await act(async () =>
+			root!.render(
+				<QueryClientProvider client={client}>
+					<CardReviewApp
+						config={appConfig}
+						classPolicies={{
+							"factory:Practice:opportunity": {
+								autoApprove,
+								unchangedThreshold: 5,
+								auditSampleRate,
+							},
+						}}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		await flush();
+	};
+	await renderPolicy(true, 0);
+	expect(host.querySelector('[aria-label="Updates"]')?.textContent).toContain(
+		"Update:",
+	);
+	expect(host.textContent).toContain("0 of 3 left");
+	expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+	await renderPolicy(true, 1);
+	expect(host.querySelector('[aria-label="Updates"]')).toBeNull();
+	expect(host.textContent).toContain("3 of 3 left");
+	await renderPolicy(false, 0);
+	expect(host.textContent).toContain("3 of 3 left");
+	appConfig.sources[0]!.protectedEffects = ["message"];
+	await renderPolicy(true, 0);
+	expect(host.textContent).toContain("3 of 3 left");
+});

@@ -1,7 +1,11 @@
+import { useFactoryDelivery } from "./use-factory-delivery";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import type { ReviewCard } from "@tedix/api-contract/utils/card-review";
-import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
+import type {
+	DecisionDeckConfig,
+	DeckRoutingPolicy,
+} from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDeckRoutingAudit } from "@/lib/use-deck-routing-audit";
 import { cardIsDue } from "@tedix/api-contract/utils/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
@@ -24,8 +28,10 @@ export function useFactoryCardCount(
 	sources: readonly CardReviewSource[],
 	routing?: DeckRoutingPolicy,
 	model?: DecisionLearningModel,
+	policies?: DecisionDeckConfig["classPolicies"],
 ) {
 	const { now, timeZone } = useCardSchedule();
+	const delivery = useFactoryDelivery(sources, policies, routing);
 	const visible = useVisibleCardSources(
 		sources,
 		(source) => source.workspaceId,
@@ -73,13 +79,13 @@ export function useFactoryCardCount(
 		if (!isOpen(card) || !cardIsDue(card, now, timeZone)) continue;
 		const route = routeFactoryCard(card, routing, now, model);
 		routes.push(route);
-		if (route.destination === "deck") cards.push(card);
+		if (route.destination === "deck" && !delivery.quiet(card)) cards.push(card);
 	}
 	useDeckRoutingAudit(routes);
 	return {
 		cards,
 		refetch: async () => {
-			await visible.refetch();
+			await Promise.all([visible.refetch(), delivery.refetch()]);
 			await Promise.all(
 				[...outputs, ...details].map((query) => query.refetch()),
 			);

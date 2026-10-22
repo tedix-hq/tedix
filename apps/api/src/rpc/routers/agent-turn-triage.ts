@@ -72,7 +72,7 @@ import {
 	getTedisByOrganization,
 } from "@tedix/db/queries/tedis";
 import { listLearningInteractions } from "@tedix/db/queries/learning-feedback";
-import { learnedClassDelivery } from "../../services/decision-class-policy";
+import { learnedClassDelivery } from "@tedix/api-contract/utils/decision-class-policy";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
 import { listWorkAgentSessions } from "@tedix/db/queries/work-agent-sessions";
 import {

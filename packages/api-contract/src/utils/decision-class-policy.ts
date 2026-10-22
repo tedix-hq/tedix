@@ -3,11 +3,11 @@ import {
 	decisionNeedsPerson,
 	type DecisionDeckConfig,
 	type DeckRoutingPolicy,
-} from "@tedix/api-contract/schemas/os-decision-deck";
-import type { LearningInteractionEvent } from "@tedix/api-contract/schemas/learning-feedback";
-import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
-import type { ReviewCard } from "@tedix/api-contract/utils/card-review";
-import { unchangedApprovalStreak } from "@tedix/api-contract/utils/decision-class-streak";
+} from "../schemas/os-decision-deck";
+import type { LearningInteractionEvent } from "../schemas/learning-feedback";
+import type { CardReviewSource } from "../schemas/os-card-review";
+import type { ReviewCard } from "./card-review";
+import { unchangedApprovalStreak } from "./decision-class-streak";
 import {
 	type DecisionClassPolicy,
 	type FactoryAutonomyEvent,
@@ -15,7 +15,7 @@ import {
 	factoryCardBlockers,
 	factoryClassEvidence,
 	factoryClassPolicy,
-} from "@tedix/api-contract/utils/factory-class-autonomy";
+} from "./factory-class-autonomy";
 
 /** A class can earn quiet delivery only inside the existing drafting permission. */
 export function learnedClassDelivery(input: {

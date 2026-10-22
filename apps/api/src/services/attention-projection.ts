@@ -57,7 +57,7 @@ import {
 	factoryStandingSentence,
 	stableAuditSample,
 } from "@tedix/api-contract/utils/factory-class-autonomy";
-import { factoryCardDelivery } from "./decision-class-policy";
+import { factoryCardDelivery } from "@tedix/api-contract/utils/decision-class-policy";
 import { osWorkspacesContractRouter } from "../rpc/routers/os-workspaces";
 import { userSettingsContractRouter } from "../rpc/routers/user-settings";
 import { workItemsContractRouter } from "../rpc/routers/work-items";
@@ -70,11 +70,7 @@ import { deckCardStale } from "@tedix/api-contract/utils/deck-ask";
 
 type ViewInput = z.infer<typeof AttentionViewInputSchema>;
 
-async function appManifest(
-	context: BaseContext,
-	role: "deck" | "feed",
-	gadgetId?: string,
-) {
+async function workAppInventory(context: BaseContext) {
 	const apps = await call(
 		osWorkspacesContractRouter.gadgets.workApps,
 		{ limit: 200 },
@@ -82,6 +78,15 @@ async function appManifest(
 	);
 	if (apps.truncated)
 		throw createError(ErrorCodes.CONFLICT, "Work app inventory is incomplete");
+	return apps;
+}
+
+function appManifest(
+	apps: Awaited<ReturnType<typeof workAppInventory>>,
+	role: "deck" | "feed",
+	gadgetId?: string,
+	optional = false,
+) {
 	const candidates = apps.items.filter(
 		({ gadget, currentRevision: { manifest } }) =>
 			(!gadgetId || gadget.id === gadgetId) &&
@@ -92,6 +97,7 @@ async function appManifest(
 							? "tedix:app/decision-deck"
 							: "tedix:app/activity-feed"))),
 	);
+	if (optional && candidates.length !== 1) return null;
 	if (candidates.length !== 1)
 		throw createError(
 			candidates.length ? ErrorCodes.CONFLICT : ErrorCodes.NOT_FOUND,
@@ -100,6 +106,23 @@ async function appManifest(
 				: "No visible Work app has that role",
 		);
 	return candidates[0]!.currentRevision.manifest;
+}
+
+async function factoryAutonomyHistory(
+	context: BaseContext,
+	sources: z.infer<typeof DecisionDeckConfigSchema>["factorySources"],
+) {
+	return sources.some((source) => source.scoring?.agentDecidableClasses.length)
+		? call(
+				learningFeedbackContractRouter.listInteractions,
+				{
+					scopeKind: "personal",
+					limit: 200,
+					surfaces: ["decision_deck", "decision_learning"],
+				},
+				{ context },
+			)
+		: { events: [] };
 }
 
 async function factoryCards(
@@ -186,11 +209,15 @@ export async function loadDeckProjection(
 	context: BaseContext,
 	input: ViewInput,
 ) {
-	const manifest = await appManifest(context, "deck", input.gadgetId);
+	const manifest = appManifest(
+		await workAppInventory(context),
+		"deck",
+		input.gadgetId,
+	);
 	return loadConfiguredDeckProjection(
 		context,
 		input,
-		DecisionDeckConfigSchema.parse(manifest.config),
+		DecisionDeckConfigSchema.parse(manifest!.config),
 	);
 }
 
@@ -211,27 +238,29 @@ async function loadConfiguredDeckProjection(
 	const qualification = (
 		await getDecisionLearningConfig(context.db, requireOrgId(context))
 	).deckPipeline.qualification;
-	const [model, first, work, runtime, factories] = await Promise.all([
-		call(learningFeedbackContractRouter.model, {}, { context }),
-		call(
-			workInteractionsContractRouter.listInbox,
-			{ projectId, limit: config.limit, states: ["open"] },
-			{ context },
-		),
-		call(
-			workApprovalsContractRouter.listInbox,
-			{ projectId, limit: config.limit, statuses: ["pending"] },
-			{ context },
-		),
-		projectId
-			? Promise.resolve(null)
-			: call(
-					tediApprovalsContractRouter.list,
-					{ status: "pending", decidableOnly: true },
-					{ context },
-				),
-		factoryCards(context, config.factorySources, now, timeZone),
-	]);
+	const [model, first, work, runtime, factories, autonomyHistory] =
+		await Promise.all([
+			call(learningFeedbackContractRouter.model, {}, { context }),
+			call(
+				workInteractionsContractRouter.listInbox,
+				{ projectId, limit: config.limit, states: ["open"] },
+				{ context },
+			),
+			call(
+				workApprovalsContractRouter.listInbox,
+				{ projectId, limit: config.limit, statuses: ["pending"] },
+				{ context },
+			),
+			projectId
+				? Promise.resolve(null)
+				: call(
+						tediApprovalsContractRouter.list,
+						{ status: "pending", decidableOnly: true },
+						{ context },
+					),
+			factoryCards(context, config.factorySources, now, timeZone),
+			factoryAutonomyHistory(context, config.factorySources),
+		]);
 	const requests = [...first.data];
 	let cursor = first.nextCursor;
 	// Read every bounded page; expose incompleteness if the safety ceiling is reached.
@@ -257,6 +286,22 @@ async function loadConfiguredDeckProjection(
 	});
 	for (const { card, revision } of factories.cards) {
 		if (!isOpen(card)) continue;
+		const source = config.factorySources[card.sourceIndex]!;
+		const viewer = resolveLearningActor(context);
+		if (
+			viewer.actorType === "user" &&
+			viewer.actorId &&
+			factoryCardDelivery({
+				source,
+				card,
+				events: autonomyHistory.events,
+				userId: viewer.actorId,
+				sample: stableAuditSample(`${viewer.actorId}:${card.key}`),
+				policies: config.classPolicies,
+				routing: config.routing,
+			}) === "auto"
+		)
+			continue;
 		const route = routeFactoryCard(card, config.routing, now, model);
 		if (route.destination !== "deck") continue;
 		const project =
@@ -375,8 +420,13 @@ export async function loadForYouProjection(
 	context: BaseContext,
 	input: ViewInput,
 ) {
-	const manifest = await appManifest(context, "feed", input.gadgetId);
-	const config = ActivityFeedConfigSchema.parse(manifest.config);
+	const apps = await workAppInventory(context);
+	const manifest = appManifest(apps, "feed", input.gadgetId);
+	const config = ActivityFeedConfigSchema.parse(manifest!.config);
+	const deckManifest = appManifest(apps, "deck", undefined, true);
+	const deckConfig = deckManifest
+		? DecisionDeckConfigSchema.parse(deckManifest.config)
+		: null;
 	const preferenceState = await call(
 		userSettingsContractRouter.getPreferences,
 		{},
@@ -475,20 +525,10 @@ export async function loadForYouProjection(
 			{ projectId: input.projectId, limit: 100, states: ["cancelled"] },
 			{ context },
 		),
-		// Undo corrections live on decision_learning; both are needed to demote.
-		config.factorySources.some(
-			(binding) => binding.source.scoring?.agentDecidableClasses.length,
-		)
-			? call(
-					learningFeedbackContractRouter.listInteractions,
-					{
-						scopeKind: "personal",
-						limit: 200,
-						surfaces: ["decision_deck", "decision_learning"],
-					},
-					{ context },
-				)
-			: Promise.resolve({ events: [] }),
+		factoryAutonomyHistory(
+			context,
+			config.factorySources.map((binding) => binding.source),
+		),
 	]);
 	const items: ActivityFeedItem[] = [
 		...handledInternal.filter(
@@ -593,6 +633,7 @@ export async function loadForYouProjection(
 		// Earned quiet delivery: an agent-decidable class this person approved
 		// unchanged often enough becomes an update; audit samples still ask.
 		const quiet =
+			!!deckConfig &&
 			isOpen(card) &&
 			viewer.actorType === "user" &&
 			!!viewer.actorId &&
@@ -602,6 +643,8 @@ export async function loadForYouProjection(
 				events: autonomyHistory.events,
 				userId: viewer.actorId,
 				sample: stableAuditSample(`${viewer.actorId}:${card.key}`),
+				policies: deckConfig.classPolicies,
+				routing: deckConfig.routing,
 			}) === "auto";
 		const quietLine =
 			quiet && viewer.actorId
@@ -611,6 +654,8 @@ export async function loadForYouProjection(
 							type: card.type,
 							events: autonomyHistory.events,
 							userId: viewer.actorId,
+							policies: deckConfig?.classPolicies,
+							routing: deckConfig?.routing,
 						}),
 					)}\n`
 				: "";

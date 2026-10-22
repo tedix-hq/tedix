@@ -878,6 +878,7 @@ function DecisionDeckContent({
 										key={selected.id}
 										inDeck
 										routing={config.routing}
+										classPolicies={config.classPolicies}
 										config={{ version: 1, sources: factories.sources }}
 										focusCardKey={selected.id.slice("factory:".length)}
 									/>

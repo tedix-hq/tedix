@@ -494,10 +494,22 @@ it("quietly delivers an earned agent-decidable factory class to Feed and keeps a
 		},
 	}));
 	let protectedEffects: string[] = [];
+	let deckAvailable = true;
+	let policy = { autoApprove: true, unchangedThreshold: 5, auditSampleRate: 0 };
 	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {
 		if (procedure === "history") return { events: approvals };
 		const result = await implementation(procedure, input);
 		if (procedure !== "apps") return result;
+		result.items[0].currentRevision.manifest.config.classPolicies = {
+			"factory:Inbox:opportunity": policy,
+		};
+		result.items[0].currentRevision.manifest.config.factorySources = [
+			{
+				...source,
+				protectedEffects,
+				scoring: { agentDecidableClasses: ["opportunity"] },
+			},
+		];
 		result.items[1].currentRevision.manifest.config.factorySources = [
 			{
 				projectId,
@@ -508,6 +520,7 @@ it("quietly delivers an earned agent-decidable factory class to Feed and keeps a
 				},
 			},
 		];
+		if (!deckAvailable) result.items.shift();
 		return result;
 	});
 	const quiet = (
@@ -515,7 +528,34 @@ it("quietly delivers an earned agent-decidable factory class to Feed and keeps a
 	).items.find((item) => item.id === `factory:${outputId}:0`);
 	expect(quiet).toMatchObject({ kind: "result", needsAction: false });
 	expect(quiet?.explanation).toContain("An agent may decide Inbox opportunity");
+	expect((await loadDeckProjection(context, { limit: 100 })).count).toBe(0);
+	for (const override of [
+		{ autoApprove: false, unchangedThreshold: 5, auditSampleRate: 0 },
+		{ autoApprove: true, unchangedThreshold: 6, auditSampleRate: 0 },
+		{ autoApprove: true, unchangedThreshold: 5, auditSampleRate: 1 },
+	]) {
+		policy = override;
+		expect((await loadDeckProjection(context, { limit: 100 })).cards).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: `factory:${outputId}:0` }),
+			]),
+		);
+		expect(
+			(await loadForYouProjection(context, { limit: 100 })).items.find(
+				(item) => item.id === `factory:${outputId}:0`,
+			),
+		).toMatchObject({ kind: "decision", needsAction: true });
+	}
+	policy = { autoApprove: true, unchangedThreshold: 5, auditSampleRate: 0 };
+	deckAvailable = false;
+	expect(
+		(await loadForYouProjection(context, { limit: 100 })).items.find(
+			(item) => item.id === `factory:${outputId}:0`,
+		),
+	).toMatchObject({ kind: "decision", needsAction: true });
+	deckAvailable = true;
 	protectedEffects = ["message"];
+	expect((await loadDeckProjection(context, { limit: 100 })).count).toBe(1);
 	expect(
 		(await loadForYouProjection(context, { limit: 100 })).items.find(
 			(item) => item.id === `factory:${outputId}:0`,
