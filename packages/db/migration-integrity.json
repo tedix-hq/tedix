@@ -1100,6 +1100,10 @@
 		{
 			"name": "20261022020431_audit_events_move_to_logs_db/migration.sql",
 			"sha256": "2935eafe22801eac5b8af0f24f5a1fd7e8b1bbb706e5226ae83d13130c246a5a"
+		},
+		{
+			"name": "20261022072410_billing_settlement_watermark/migration.sql",
+			"sha256": "4601d30f95d8545dc9a4db7266d3da066d5875604ca3805136daaea8c2eb5ae4"
 		}
 	]
 }

@@ -23,7 +23,18 @@ vi.mock("../services/runtime-entitlement-admission", () => ({
 	authorizeRuntimeInference: mocks.authorize,
 }));
 vi.mock("@tedix/db/queries/platform-job-storage", () => ({
-	listUnsettledBillableGatewayCalls: mocks.pending,
+	scanUnsettledBillableGatewayCalls: async () => ({
+		mode: "incremental",
+		expected: null,
+		limit: 500,
+		throughRowid: 0,
+		moreAbove: false,
+		calls: ((await mocks.pending()) as TediCallCost[]).map((call, i) => ({
+			rowid: i + 1,
+			call,
+		})),
+	}),
+	commitUnsettledBillableGatewayScan: async () => true,
 	listUnrecordedProviderUsageCalls: mocks.units,
 }));
 vi.mock("@tedix/db/queries/billing/settlement", () => ({

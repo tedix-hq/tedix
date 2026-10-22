@@ -726,6 +726,11 @@ export const tediCallCosts = sqliteTable(
 		index("idx_call_costs_work_item").on(table.workItemId, table.snapshotAt),
 		index("idx_call_costs_billing_reservation").on(table.billingReservationId),
 		uniqueIndex("idx_call_costs_gateway_log_id").on(table.gatewayLogId),
+		// Provider-unit settlement reads only the rare rows that carry units, in
+		// queue order, instead of scanning every token call.
+		index("idx_call_costs_provider_units_queue")
+			.on(table.snapshotAt, table.gatewayLogId)
+			.where(sql`${table.usageKind} IS NOT NULL`),
 	],
 );
 

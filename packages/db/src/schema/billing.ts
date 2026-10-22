@@ -667,6 +667,22 @@ export const billingUsageQuarantines = sqliteTable(
 	],
 );
 
+/**
+ * Settlement watermark over `tedi_call_costs` insertion order (rowid). The
+ * frequent settlement tick reads only rows above `afterRowid`; a periodic full
+ * sweep (`fullSweepAt`) re-checks the whole ledger for anything the watermark
+ * skipped, so the cursor bounds cost without becoming a correctness boundary.
+ */
+export const billingSettlementCursors = sqliteTable(
+	"billing_settlement_cursors",
+	{
+		name: text("name").primaryKey(),
+		afterRowid: integer("after_rowid").notNull(),
+		fullSweepAt: text("full_sweep_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+);
+
 export const BILLING_PROVIDER_USAGE_KINDS = [
 	"voice_stt",
 	"voice_tts",
