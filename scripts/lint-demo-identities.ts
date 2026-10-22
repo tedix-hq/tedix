@@ -191,7 +191,12 @@ export function createDemoIdentityScanner(
 					for (const [length, digests] of byLength) {
 						const start = end - length + 1;
 						if (start < 0) continue;
-						const phrase = tokens.slice(start, end + 1).join(" ");
+						const phrase =
+							length === 1
+								? tokens[end]!
+								: length === 2
+									? tokens[start]! + " " + tokens[end]!
+									: tokens.slice(start, end + 1).join(" ");
 						const verdicts = phraseCaches.get(length);
 						let found = verdicts?.get(phrase);
 						if (found === undefined) {
