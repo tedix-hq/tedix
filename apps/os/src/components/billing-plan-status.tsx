@@ -8,6 +8,7 @@ import { Button } from "@/components/kumo/button";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
+import { osLocale, osTimeZone } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 
 const tierBadgeVariant = {
@@ -42,10 +43,12 @@ export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
 
 	const formatDate = (dateString?: string | null) => {
 		if (!dateString) return null;
-		return new Date(dateString).toLocaleDateString("en-US", {
+		const timeZone = osTimeZone();
+		return new Date(dateString).toLocaleDateString(osLocale(), {
 			year: "numeric",
 			month: "long",
 			day: "numeric",
+			...(timeZone ? { timeZone } : {}),
 		});
 	};
 

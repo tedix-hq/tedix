@@ -26,6 +26,7 @@ import { Text } from "@/components/kumo/text";
 import { BillingCreditBudget } from "@/components/billing-credit-budget";
 import { osApi } from "@/lib/api";
 import { formatBillingAmount } from "@/lib/billing-price";
+import { formatCount } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 import { billingOverviewQueryOptions } from "@/lib/os-query-options";
 
@@ -167,7 +168,7 @@ function OverageForm({
 						/>
 						<Text tone={capInvalid ? "error" : "secondary"}>
 							{capInvalid
-								? `Enter an amount above 0 and at most ${MAX_CAP_UNITS.toLocaleString()}.`
+								? `Enter an amount above 0 and at most ${formatCount(MAX_CAP_UNITS)}.`
 								: "Hard stop: overage charges this month never exceed the cap."}
 						</Text>
 					</div>

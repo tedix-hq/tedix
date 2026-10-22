@@ -13,6 +13,7 @@ import {
 	formatUsageCredits,
 } from "@/lib/billing-credit-display";
 import { hasUnlimitedTokenUsage } from "@/lib/billing-display";
+import { formatCount } from "@/lib/format";
 import { settledCreditCoverage } from "@/lib/billing-inference-spending";
 
 export function BillingCreditWallet({
@@ -99,7 +100,7 @@ export function BillingCreditWallet({
 						>
 							{hasUnlimitedTokenUsage(overview.snapshot, overview.plan)
 								? "Unlimited tokens"
-								: `${overview.snapshot.remainingIncludedTokens.toLocaleString()} tokens`}
+								: `${formatCount(overview.snapshot.remainingIncludedTokens)} tokens`}
 						</Text>
 						<Text tone="secondary">
 							This billing period, after tokens reserved for running work. Daily
