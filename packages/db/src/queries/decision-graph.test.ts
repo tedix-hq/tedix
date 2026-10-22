@@ -38,13 +38,6 @@ function fixture() {
 		.prepare("INSERT INTO organizations(id,name,slug) VALUES(?,?,?),(?,?,?)")
 		.run(ORG, "Lighthouse", "lighthouse", OTHER_ORG, "Harbor", "harbor");
 	sqlite.exec(`
-		CREATE TABLE work_items (
-			id TEXT PRIMARY KEY,
-			org_id TEXT NOT NULL,
-			title TEXT NOT NULL,
-			disposition TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
 		INSERT INTO work_items(id,org_id,title,disposition,created_at) VALUES
 			('work-github-audit','${ORG}','Audit access','accepted','2026-10-21T08:00:00.000Z'),
 			('work-release-train','${ORG}','Release train','accepted','2026-10-21T08:00:00.000Z'),
