@@ -2,7 +2,7 @@ import type { LanguageModel } from "ai";
 import type { SelectedKernelModel } from "./llm";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { KernelContext } from "./context-assembly";
 import {
 	planKernelRoute as runPlanKernelRoute,
@@ -38,11 +38,11 @@ function shapeRouteUsage(usage: unknown, model: LanguageModel) {
 	return actualShapeRouteUsage(usage, selected(model));
 }
 
-// The Azure circuit breaker is module-level state (per-isolate in prod). A
-// fail-soft case (throwing model / schema violation) trips it for the 5-min
-// cooldown, which would silently reroute every LATER test in this file onto
-// the Workers AI fallback (null without env.AI). Reset it before each test.
-beforeEach(() => {});
+// The route planner keeps no module-level state (the per-isolate Azure
+// breaker lives in apps/tedi-runtime), so tests need no reset hook. The only
+// shared hazard is real time: tests that exercise the planner's deadlines use
+// fake timers with a setTimeout-driven AbortSignal.timeout mock (the fake
+// clock does not drive AbortSignal.timeout itself).
 
 const EMPTY_CONTEXT: KernelContext = {
 	tedis: [],
@@ -1098,7 +1098,15 @@ describe("planKernelRoute", () => {
 	});
 
 	it("bounds the retry by the remaining route deadline", async () => {
-		vi.useFakeTimers();
+		vi.useFakeTimers({
+			toFake: [
+				"setTimeout",
+				"clearTimeout",
+				"setInterval",
+				"clearInterval",
+				"Date",
+			],
+		});
 		const timeouts = vi
 			.spyOn(AbortSignal, "timeout")
 			.mockImplementation((ms) => {
@@ -1110,6 +1118,7 @@ describe("planKernelRoute", () => {
 				return controller.signal;
 			});
 		try {
+			const started = Date.now();
 			const invalid = objectModel({ routeKind: "invalid" });
 			const model = new MockLanguageModelV3({
 				doStream: async () => ({ stream: fallbackAnswerStream() }),
@@ -1126,26 +1135,21 @@ describe("planKernelRoute", () => {
 					});
 				},
 			});
-			let settled = false;
-			const pending = expect(
-				planKernelRoute({
-					model,
-					context: EMPTY_CONTEXT,
-					content: "Status",
-					generationTimeoutMs: 100,
-				}),
-			)
-				.resolves.toMatchObject({
-					routeKind: "answer_in_home",
-					recovery: "invalid_route_decision",
-				})
-				.then(() => {
-					settled = true;
-				});
-			await vi.advanceTimersByTimeAsync(100);
-			expect(settled).toBe(true);
-			await pending;
+			const pending = planKernelRoute({
+				model,
+				context: EMPTY_CONTEXT,
+				content: "Status",
+				generationTimeoutMs: 100,
+			});
+			// The re-ask gets ~75% of the remaining budget (~75 ms); advance past
+			// it so it aborts and the tool-free fallback still answers.
+			await vi.advanceTimersByTimeAsync(200);
+			await expect(pending).resolves.toMatchObject({
+				routeKind: "answer_in_home",
+				recovery: "invalid_route_decision",
+			});
 			expect(model.doGenerateCalls).toHaveLength(2);
+			expect(Date.now() - started).toBeLessThan(1000);
 		} finally {
 			vi.clearAllTimers();
 			timeouts.mockRestore();
