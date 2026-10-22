@@ -710,8 +710,7 @@ function Activity() {
 									opacity={count ? 1 : 0.25}
 								>
 									<title>
-										{count} {count === 1 ? "knock" : "knocks"},{" "}
-										{23 - index === 0 ? "this hour" : `${23 - index}h ago`}
+										{`${count} ${count === 1 ? "knock" : "knocks"}, ${23 - index === 0 ? "this hour" : `${23 - index}h ago`}`}
 									</title>
 								</rect>
 							);
