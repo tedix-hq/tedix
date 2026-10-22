@@ -10,7 +10,6 @@ export const ProtectedEffectSchema = z.enum([
 	"message",
 	"commitment",
 ]);
-export type ProtectedEffect = z.infer<typeof ProtectedEffectSchema>;
 
 /** Finite adapters reuse each product's authorization and revision fences. */
 export const DecisionEffectSchema = z.discriminatedUnion("kind", [
