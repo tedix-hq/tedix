@@ -1,10 +1,9 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 import {
 	afterEach,
 	beforeEach,
@@ -26,26 +25,9 @@ vi.mock("./approval-control", () => ({
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const RUN_ID = "home-run-held-1";
 
-const migrationRoot = new URL(
-	"../../../../../../packages/db/drizzle/",
-	import.meta.url,
-);
-
-/** Real migrated schema: the approval-decision triggers are load-bearing. */
-function migratedSqlite(): DatabaseSync {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=OFF");
-	for (const name of readdirSync(migrationRoot).sort()) {
-		sqlite.exec(
-			readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
-		);
-	}
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	return sqlite;
-}
-
 function fixture() {
-	const sqlite = migratedSqlite();
+	const sqlite = createMigratedSqlite({ foreignKeys: false });
+	sqlite.exec("PRAGMA foreign_keys=ON");
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('${ORG_ID}','Org','org');
 		INSERT INTO tedis(id,organization_id,name,slug,status,mcp_capability_profile)

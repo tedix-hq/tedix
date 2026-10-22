@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vite-plus/test";
 import asset from "@tedix/api-contract/assets/attention-app-views.v2.json";
+import { createMigratedSqlite } from "../src/test/migrated-sqlite";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const names = readdirSync(join(root, "drizzle"))
 	.filter((n) => /^\d{14}_/.test(n))
@@ -17,12 +18,8 @@ function apply(db: DatabaseSync, name: string) {
 	);
 }
 it("seeds owning apps idempotently and leaves the exact versioned specs in D1", () => {
-	const db = new DatabaseSync(":memory:");
+	const db = createMigratedSqlite({ beforeMigration: "20261019204457_" });
 	try {
-		for (const name of names) {
-			if (name.startsWith("20261019204457_")) break;
-			apply(db, name);
-		}
 		db.exec("PRAGMA foreign_keys = OFF");
 		const insert = db.prepare(
 			"INSERT INTO app_tools(id,app_id,tool_type_id,tool_id,title,config,adapter_scope,result_strategy,visibility,enabled) VALUES(?,?,'rpc',?,?,?,'primary','merge','private',1)",
