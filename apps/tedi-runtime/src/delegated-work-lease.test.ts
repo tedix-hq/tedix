@@ -1072,3 +1072,51 @@ console.log(
 	assert.equal(f.rows.get("worklease:run-1"), binding);
 	assert.equal(f.canceled, false);
 }
+
+// A platform outage during renewal is not lease loss. The CFO delegation of
+// 2026-10-21 was fenced ("inference denied for canceled run") because one
+// renewal heartbeat failed while the API was saturated, although the Attempt
+// was still running and owned by that run. A 5xx/timeout defers to the next
+// tick; the Attempt's own lease keeps the eventual refusal definitive.
+{
+	const f = fixture();
+	await withDelegatedWorkLease(input, f.deps, async () => "started");
+	f.rows.set(RENEWAL_KEY, {
+		attemptId: "attempt-1",
+		armedAt: 0,
+		runId: "run-1",
+		sessionKey: input.sessionKey,
+		workItemId: "work-1",
+	} satisfies DelegatedWorkLeaseRenewal);
+	let outage: Error | null = new RpcCallError(
+		"workItems/heartbeatAttempt",
+		503,
+		"",
+		"Service Unavailable",
+		undefined,
+	);
+	const heartbeat = f.client.heartbeatWorkAttempt;
+	f.client.heartbeatWorkAttempt = async (binding) => {
+		if (outage) throw outage;
+		return heartbeat(binding);
+	};
+	assert.equal(await f.tick(), true, "a 503 defers renewal");
+	assert.equal(f.canceled, false, "an outage must not fence the run");
+	assert.ok(f.rows.has(RENEWAL_KEY), "renewal is still owed");
+	assert.equal(f.armed, DELEGATED_WORK_LEASE_RENEWAL_INTERVAL_SECONDS);
+	outage = new Error("RPC workItems/heartbeatAttempt timed out after 8000ms");
+	assert.equal(await f.tick(), true, "a timeout defers renewal");
+	assert.equal(f.canceled, false);
+	outage = null;
+	const before = f.heartbeats;
+	assert.equal(await f.tick(), true, "the next tick renews normally");
+	assert.equal(f.heartbeats, before + 1);
+	assert.equal(f.canceled, false);
+	// A definitive refusal still fences: the lease lapsed server-side.
+	f.attempts[0]!.runtimeState = "expired";
+	f.attempts[0]!.finishedAt = "2026-10-21T17:56:52.000Z";
+	outage = staleHeartbeat();
+	assert.equal(await f.tick(), false);
+	assert.equal(f.canceled, true, "a 409 stale refusal is lease loss");
+	assert.equal(f.rows.has(RENEWAL_KEY), false);
+}

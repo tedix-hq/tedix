@@ -184,6 +184,39 @@ export function requiredProofKindForExecution(
 }
 
 /**
+ * Whether the Work Item already has an unexpired active Attempt bound to this
+ * exact child run and tedi executor — the signature of a repeated dispatch of
+ * one delegation, never of a different run competing for the item.
+ */
+async function hasOwnActiveAttempt(
+	context: BaseContext,
+	input: {
+		assigneeTediId: string;
+		childRunId: string;
+		now: string;
+		organizationId: string;
+		workItemId: string;
+	},
+): Promise<boolean> {
+	const page = await listWorkItemAttempts(context.db, {
+		orgId: input.organizationId,
+		workItemId: input.workItemId,
+		limit: 100,
+	});
+	return page.data.some(
+		(attempt) =>
+			["queued", "running", "waiting", "retrying"].includes(
+				attempt.runtimeState,
+			) &&
+			attempt.executorType === "tedi" &&
+			attempt.executorId === input.assigneeTediId &&
+			attempt.runId === input.childRunId &&
+			attempt.expiresAt !== null &&
+			Date.parse(attempt.expiresAt) > Date.parse(input.now),
+	);
+}
+
+/**
  * Reuse an operator-selected canonical Work Item or eagerly create one and
  * start its fenced attempt
  * for a kernel DIRECT delegation. New items are keyed to the child run id so a
@@ -237,6 +270,21 @@ export async function createDelegationWorkItem(
 			nonNullRecord(existing.metadata)?.source ===
 				HOME_DELEGATION_REVIEW_SOURCE &&
 			nonNullRecord(existing.metadata)?.homeRunId === input.homeRunId;
+		// A re-dispatch of the SAME child run (an approval whose request was
+		// canceled after it admitted the Attempt but before delivery, then
+		// approved again) already owns its Attempt. Re-admitting it would be
+		// refused as `already_running` and strand the card until the lease
+		// lapses; the retained Attempt is the authority the runtime binds to.
+		if (
+			await hasOwnActiveAttempt(context, {
+				assigneeTediId: input.assigneeTediId,
+				childRunId: input.childRunId,
+				now: input.createdAt,
+				organizationId: input.organizationId,
+				workItemId: existing.id,
+			})
+		)
+			return existing.id;
 		const admission = await admitWorkAttempt(context.db, {
 			workItem: existing,
 			executor: { type: "tedi", id: input.assigneeTediId },

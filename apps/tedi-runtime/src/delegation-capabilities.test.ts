@@ -71,6 +71,21 @@ assert.throws(
 	() => capabilityToolSet({ tools: {}, plan: page }),
 	/tool unavailable/,
 );
+// A connected app slug is neither a native tool id nor a `namespace.tool`
+// callable; the planner must never emit one (it would fail every turn here).
+assert.throws(
+	() =>
+		capabilityToolSet({
+			tools,
+			plan: {
+				...page,
+				requiredCapabilities: ["planned_tools"],
+				allowedToolIds: ["sevdesk-tedix"],
+				urls: [],
+			},
+		}),
+	/capability tool unavailable: sevdesk-tedix/,
+);
 assert.throws(
 	() =>
 		capabilityToolSet({

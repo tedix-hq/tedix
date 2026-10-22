@@ -10,6 +10,23 @@ export function delegationRequestContent(content: string): string {
 	return content.split(/\n\nLocal terminal context:\n- cwd: /, 1)[0] ?? content;
 }
 
+/**
+ * Native tool ids are bare snake_case names and provider callables are
+ * `namespace.tool`; a planned id of any other shape names a connected app
+ * (slug, or the `mcp__<app>__<tool>` aggregate alias) rather than a tool.
+ */
+export function isAppLevelGrant(
+	id: string,
+	card: Pick<TediCapabilityCard, "apps"> | null,
+): boolean {
+	if (id.includes(".")) return false;
+	return (
+		id.startsWith("mcp__") ||
+		id.includes("-") ||
+		Boolean(card?.apps.includes(id))
+	);
+}
+
 /** A task ceiling, never a substitute for executor entitlement or dispatch policy. */
 export function deriveDelegationCapabilityPlan(input: {
 	content: string;
@@ -222,6 +239,14 @@ export function deriveDelegationCapabilityPlan(input: {
 	}
 	// A narrow read/draft may not inherit unrelated planner-selected mutations.
 	if (capabilities.length === 0 && route.plannedToolIds.length > 0) {
+		// An app-level grant (a connected app slug such as `sevdesk-tedix`, or
+		// the aggregate alias `mcp__<app>__<tool>`) names the executor's Code
+		// Mode on that app, not a tool the runtime can serve by name: the child
+		// narrows a plan to exact native ids and `namespace.tool` callables and
+		// fails the whole run on anything else. Such a delegation runs under
+		// the executor's supervised ceiling instead of an unsatisfiable plan.
+		if (route.plannedToolIds.some((id) => isAppLevelGrant(id, card)))
+			return undefined;
 		capabilities.push("planned_tools");
 		for (const id of route.plannedToolIds) {
 			if (id === "web_search" && !card?.webSearch) continue;

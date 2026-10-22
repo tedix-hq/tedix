@@ -111,6 +111,111 @@ export function homeDelegationVerdictMetadata(input: {
 	};
 }
 
+const TURN_FAILURE_NOTICE_PREFIX =
+	/^This turn ended without a reply\b[^]*?\bReason:\s*/;
+
+/**
+ * Plain-English reading of a runtime failure reason, with the one next step
+ * the operator can take. Each entry names a runtime error family the
+ * delegated turn can die with (`runtime-error-settlement.ts`, the billing
+ * admission denial, the residency gate). Tenant-free by construction: only
+ * the reason's own detail (a tool name, a run id) is echoed back.
+ */
+const FAILURE_READINGS: ReadonlyArray<{
+	match: RegExp;
+	reason: (match: RegExpMatchArray) => string;
+	nextStep: string;
+}> = [
+	{
+		match: /^capability tool unavailable:\s*([^;]+)/i,
+		reason: (m) =>
+			`The plan asked for a tool the worker cannot use (${m[1]?.trim() ?? "unknown"}).`,
+		nextStep: "Ask again in Home; it will plan the tools differently.",
+	},
+	{
+		match: /^capability gap:\s*([^;]+)/i,
+		reason: (m) =>
+			`The worker is missing a capability this task needs (${m[1]?.trim() ?? "unknown"}).`,
+		nextStep: "Ask again in Home; it will route the task differently.",
+	},
+	{
+		match: /^Chat inference denied for (?:canceled or )?stopped run\b/i,
+		reason: () => "The run was stopped before the worker could answer.",
+		nextStep: "Send the request again to start a fresh run.",
+	},
+	{
+		match: /^Delegation preflight failed:\s*(.+?)(?:;|$)/i,
+		reason: (m) =>
+			`The hand-off could not start: ${m[1]?.trim() ?? "unknown"}.`,
+		nextStep: "Ask again in Home.",
+	},
+	{
+		match: /^delegated_work_authority_lost\b/i,
+		reason: () => "The worker lost its hold on this Work Item mid-turn.",
+		nextStep: "Send the request again to start a fresh run.",
+	},
+	{
+		match:
+			/(?:RESIDENCY_POLICY_UNAVAILABLE|residency_policy_unavailable|data residency setting could not be verified)/i,
+		reason: () =>
+			"The organization's data residency setting could not be read, so no model request was sent.",
+		nextStep:
+			"Try again; if it repeats, an administrator should check the residency setting.",
+	},
+	{
+		match: /Inference blocked by billing policy:\s*(eu_[a-z_]+)/i,
+		reason: () =>
+			"This organization requires EU model processing and no verified EU provider route is configured.",
+		nextStep: "An administrator must configure the EU provider and credential.",
+	},
+	{
+		match: /Inference blocked by billing policy:\s*([a-z_]+)/i,
+		reason: (m) =>
+			`The billing policy blocked inference (${m[1] ?? "unknown"}).`,
+		nextStep: "Check the organization's credits and plan, then try again.",
+	},
+	{
+		match: /inference budget|budget exhausted/i,
+		reason: () => "The daily inference budget is exhausted.",
+		nextStep: "It will run again once the budget window resets.",
+	},
+	{
+		match: /^Durable provider-call ceiling reached/i,
+		reason: () => "The worker hit its per-run model-call limit.",
+		nextStep: "Ask again with a narrower task.",
+	},
+];
+
+/**
+ * One operator-facing line for a delegated turn that failed before producing
+ * anything: the real reason in plain English, once, plus the one next step.
+ * `null` when the message is not a runtime failure notice.
+ */
+export function delegationFailureNotice(finalMessage: string): string | null {
+	const trimmed = finalMessage.trim();
+	const noticeMatch = TURN_FAILURE_NOTICE_PREFIX.exec(trimmed);
+	const raw = noticeMatch ? trimmed.slice(noticeMatch[0].length) : trimmed;
+	const reasonText = raw
+		.replace(/^workflow errored before terminal:\s*/i, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	const reading = FAILURE_READINGS.find((entry) =>
+		entry.match.test(reasonText),
+	);
+	if (reading) {
+		const match = reasonText.match(reading.match) as RegExpMatchArray;
+		return `I couldn't finish this request. ${reading.reason(match)} ${reading.nextStep}`;
+	}
+	if (!noticeMatch) return null;
+	const clipped =
+		reasonText.length > 200
+			? `${reasonText.slice(0, 197).trimEnd()}...`
+			: reasonText;
+	return clipped && clipped !== "unknown error"
+		? `I couldn't finish this request. The worker's turn failed before it produced anything: ${clipped}. Please try again.`
+		: "I couldn't finish this request. Nothing was produced. Please try again.";
+}
+
 export function homeDelegationCompletionContent(input: {
 	preview: string | null;
 	synthesized?: string | null;
@@ -138,11 +243,15 @@ export function homeDelegationCompletionContent(input: {
 	const finalMessage = input.finalMessage
 		? stripSyntheticMarkers(input.finalMessage)
 		: null;
+	// A runtime failure notice carries the real reason after "Reason:"; the
+	// operator reads it once, in plain English, with the one next step.
 	if (
 		input.status === "failed" &&
-		/^This turn ended without a reply\b/.test(finalMessage ?? "")
+		input.stop?.outcome !== "partial" &&
+		finalMessage
 	) {
-		return "I couldn't finish this request. Nothing was produced. Please try again.";
+		const notice = delegationFailureNotice(finalMessage);
+		if (notice) return notice;
 	}
 	// The child's own closing message is the next-best operator-facing answer:
 	// show it as the result, not as wrapped "evidence".

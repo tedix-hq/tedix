@@ -168,6 +168,26 @@ async function settledItsOwnAttempt(
 	return isSelfSettledAttempt(await readBoundAttempt(client, bound), runId);
 }
 
+/**
+ * A heartbeat that never reached a verdict: the platform answered with a
+ * server or throttling status, or the call timed out or could not connect. A
+ * refusal (409 stale, 403, 404) and every other error stay definitive.
+ */
+export function isTransientHeartbeatFailure(error: unknown): boolean {
+	if (error instanceof RpcCallError)
+		return (
+			error.status === 408 ||
+			error.status === 425 ||
+			error.status === 429 ||
+			error.status >= 500
+		);
+	if (error instanceof TypeError) return true; // fetch could not connect
+	return (
+		error instanceof Error &&
+		(error.name === "AbortError" || /\btimed out\b/i.test(error.message))
+	);
+}
+
 /** A concurrent newer heartbeat can produce this same error; it is not terminal proof. */
 function isStaleBoundHeartbeat(error: unknown, bound: Binding): boolean {
 	if (
@@ -316,7 +336,19 @@ export async function renewDelegatedWorkLease(
 			workItemId: record.workItemId,
 			attemptId: record.attemptId,
 		});
-	} catch {
+	} catch (error) {
+		// A platform outage (5xx, timeout, unreachable) says nothing about
+		// authority: the Attempt is still ours until its own lease lapses, at
+		// which point the next heartbeat is refused definitively. Fencing the
+		// run here destroyed live turns during API saturation.
+		if (isTransientHeartbeatFailure(error)) {
+			console.warn("[work-lease] heartbeat deferred by a transient failure", {
+				runId,
+				error: String(error),
+			});
+			await deps.rearm(DELEGATED_WORK_LEASE_RENEWAL_INTERVAL_SECONDS);
+			return true;
+		}
 		await deps.storage.delete(key);
 		// Self-settlement ENDS the lease; it is not lease loss. No cancellation
 		// fence — the turn still owes an answer.

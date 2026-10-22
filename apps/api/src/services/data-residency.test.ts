@@ -18,6 +18,7 @@ vi.mock("@tedix/db/utils/secrets-encryption", () => ({
 import {
 	authorizeDataResidency,
 	eligibleResidencyProvider,
+	resetResidencyPolicyCache,
 } from "./data-residency";
 import { ResidencyProviderSchema } from "@tedix/api-contract/schemas/data-residency";
 const execution = {
@@ -51,6 +52,7 @@ const input = {
 };
 beforeEach(() => {
 	vi.resetAllMocks();
+	resetResidencyPolicyCache();
 	mocks.policy.mockResolvedValue({
 		organizationId: "org_lark",
 		mode: "eu",
@@ -174,23 +176,88 @@ describe("EU model egress admission", () => {
 		).toThrow("EU_PROVIDER_ROUTE_REQUIRED");
 	});
 	it("retries one transient policy read instead of failing the turn", async () => {
-		mocks.policy
-			.mockRejectedValueOnce(
-				Error("D1_ERROR: database temporarily unavailable"),
-			)
-			.mockResolvedValueOnce({
+		vi.useFakeTimers();
+		try {
+			mocks.policy
+				.mockRejectedValueOnce(
+					Error("D1_ERROR: database temporarily unavailable"),
+				)
+				.mockResolvedValueOnce({
+					organizationId: "org_lark",
+					mode: "unrestricted",
+					revision: 1,
+				});
+			const pending = authorizeDataResidency(input);
+			await vi.runAllTimersAsync();
+			expect(await pending).toBeNull();
+			expect(mocks.policy).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("survives a D1 burst that outlasts the retry window with the last known setting", async () => {
+		vi.useFakeTimers();
+		try {
+			mocks.policy.mockResolvedValueOnce(null);
+			expect(await authorizeDataResidency(input)).toBeNull();
+			mocks.policy.mockRejectedValue(
+				Error("D1_ERROR: storage caused object reset"),
+			);
+			const unrestricted = authorizeDataResidency(input);
+			await vi.runAllTimersAsync();
+			expect(await unrestricted).toBeNull();
+			expect(mocks.policy).toHaveBeenCalledTimes(6);
+
+			mocks.policy.mockResolvedValueOnce({
 				organizationId: "org_lark",
-				mode: "unrestricted",
-				revision: 1,
+				mode: "eu",
+				revision: 2,
 			});
-		expect(await authorizeDataResidency(input)).toBeNull();
-		expect(mocks.policy).toHaveBeenCalledTimes(2);
+			expect(await authorizeDataResidency(input)).toMatchObject({ member });
+			mocks.policy.mockRejectedValue(
+				Error("D1_ERROR: storage caused object reset"),
+			);
+			const eu = authorizeDataResidency(input);
+			await vi.runAllTimersAsync();
+			expect(await eu).toMatchObject({ member });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("forgets a cached setting after its TTL", async () => {
+		vi.useFakeTimers();
+		try {
+			mocks.policy.mockResolvedValueOnce(null);
+			expect(await authorizeDataResidency(input)).toBeNull();
+			mocks.policy.mockRejectedValue(Error("db unavailable"));
+			const stale = authorizeDataResidency({
+				...input,
+				now: input.now + 16 * 60 * 1000,
+			});
+			const settled = stale.then(
+				() => "resolved",
+				(error: Error) => error.message,
+			);
+			await vi.runAllTimersAsync();
+			expect(await settled).toContain("RESIDENCY_POLICY_UNAVAILABLE");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 	it("fails closed on a policy read failure and hides decryption details", async () => {
-		mocks.policy.mockRejectedValue(Error("db unavailable"));
-		await expect(authorizeDataResidency(input)).rejects.toThrow(
-			"RESIDENCY_POLICY_UNAVAILABLE",
-		);
+		vi.useFakeTimers();
+		try {
+			mocks.policy.mockRejectedValue(Error("db unavailable"));
+			const denied = authorizeDataResidency(input);
+			const settled = denied.then(
+				() => "resolved",
+				(error: Error) => error.message,
+			);
+			await vi.runAllTimersAsync();
+			expect(await settled).toContain("RESIDENCY_POLICY_UNAVAILABLE");
+		} finally {
+			vi.useRealTimers();
+		}
 		mocks.policy.mockResolvedValue({
 			organizationId: "org_lark",
 			mode: "eu",

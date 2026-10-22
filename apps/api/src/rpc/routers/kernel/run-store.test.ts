@@ -794,7 +794,7 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 		);
 	});
 
-	it("keeps runtime failure diagnostics out of the user reply", () => {
+	it("reads a runtime failure notice as one plain reason plus one next step", () => {
 		expect(
 			homeDelegationCompletionContent({
 				preview: null,
@@ -803,7 +803,76 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: Delegation preflight failed: native research requires exact source/tool mappings; return to Home before inference or setup",
 			}),
 		).toBe(
+			"I couldn't finish this request. The hand-off could not start: native research requires exact source/tool mappings. Ask again in Home.",
+		);
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: capability tool unavailable: tedix-unified; return to Home for rerouting",
+			}),
+		).toBe(
+			"I couldn't finish this request. The plan asked for a tool the worker cannot use (tedix-unified). Ask again in Home; it will plan the tools differently.",
+		);
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: Chat inference denied for canceled or stopped run: tedi:mcp:run_workstation_tedi",
+			}),
+		).toBe(
+			"I couldn't finish this request. The run was stopped before the worker could answer. Send the request again to start a fresh run.",
+		);
+	});
+
+	it("reads the residency gate message once, with the next step", () => {
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					"The organization's data residency setting could not be verified. No model request was sent. Retry when the setting is available.",
+			}),
+		).toBe(
+			"I couldn't finish this request. The organization's data residency setting could not be read, so no model request was sent. Try again; if it repeats, an administrator should check the residency setting.",
+		);
+	});
+
+	it("keeps the generic line only when the notice carries no reason", () => {
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: unknown error",
+			}),
+		).toBe(
 			"I couldn't finish this request. Nothing was produced. Please try again.",
+		);
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: workflow errored before terminal: TypeError: x is not a function",
+			}),
+		).toBe(
+			"I couldn't finish this request. The worker's turn failed before it produced anything: TypeError: x is not a function. Please try again.",
+		);
+	});
+
+	it("leaves a partial result alone even when its prose names a budget", () => {
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage: "Checked the inference budget exhausted report.",
+				stop: { outcome: "partial", detail: "ceiling" },
+			}),
+		).toBe(
+			"Here's what I found so far:\n\nChecked the inference budget exhausted report.\n\nWant me to continue?",
 		);
 	});
 });

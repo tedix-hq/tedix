@@ -66,23 +66,59 @@ export function eligibleResidencyProvider(
 	return member;
 }
 
-const RESIDENCY_POLICY_READ_BACKOFF_MS = [100, 400];
+const RESIDENCY_POLICY_READ_BACKOFF_MS = [100, 400, 1000, 2000];
+const RESIDENCY_POLICY_JITTER_MS = 200;
+const RESIDENCY_POLICY_CACHE_TTL_MS = 15 * 60 * 1000;
+
+type ResidencyPolicyRow = Awaited<
+	ReturnType<typeof getOrganizationResidencyPolicy>
+>;
+
+/**
+ * Last policy this isolate read per organization. A D1 burst that outlasts
+ * the retry window must not fail a turn for an organization whose setting is
+ * already known; the verdict falls back to the last read, which keeps the
+ * EU posture for an eu-mode organization and admits an unrestricted one.
+ */
+const lastKnownResidencyPolicy = new Map<
+	string,
+	{ policy: ResidencyPolicyRow; readAt: number }
+>();
+
+/** Test seam: forget every cached policy. */
+export function resetResidencyPolicyCache() {
+	lastKnownResidencyPolicy.clear();
+}
 
 /**
  * One busy D1 read must not fail a whole delegated turn before inference.
- * Bounded retries keep the fail-closed verdict for a persistent outage.
+ * Jittered, bounded retries survive a burst; the fail-closed verdict stays
+ * for an organization whose policy was never read in this isolate.
  */
 async function readResidencyPolicyWithRetry(
 	db: DbClient,
 	organizationId: string,
-) {
+	now: number,
+): Promise<ResidencyPolicyRow> {
 	for (let attempt = 0; ; attempt++) {
 		try {
-			return await getOrganizationResidencyPolicy(db, organizationId);
+			const policy = await getOrganizationResidencyPolicy(db, organizationId);
+			lastKnownResidencyPolicy.set(organizationId, { policy, readAt: now });
+			return policy;
 		} catch (error) {
 			const delay = RESIDENCY_POLICY_READ_BACKOFF_MS[attempt];
-			if (delay === undefined) throw error;
-			await new Promise((resolve) => setTimeout(resolve, delay));
+			if (delay === undefined) {
+				const known = lastKnownResidencyPolicy.get(organizationId);
+				if (known && now - known.readAt <= RESIDENCY_POLICY_CACHE_TTL_MS)
+					return known.policy;
+				throw error;
+			}
+			await new Promise((resolve) =>
+				setTimeout(
+					resolve,
+					delay + Math.floor(Math.random() * RESIDENCY_POLICY_JITTER_MS),
+				),
+			);
 		}
 	}
 }
@@ -97,7 +133,11 @@ export async function authorizeDataResidency(input: {
 }) {
 	let policy;
 	try {
-		policy = await readResidencyPolicyWithRetry(input.db, input.organizationId);
+		policy = await readResidencyPolicyWithRetry(
+			input.db,
+			input.organizationId,
+			input.now,
+		);
 	} catch {
 		throw new DataResidencyError(
 			"RESIDENCY_POLICY_UNAVAILABLE",
