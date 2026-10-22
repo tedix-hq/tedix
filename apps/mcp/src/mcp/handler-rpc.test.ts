@@ -327,7 +327,7 @@ describe("Home Work creator provenance", () => {
 			kernel: true,
 			endpoint: "workItems/create",
 			tediId: "worker",
-			expected: null,
+			expected: "true",
 		},
 		{
 			authType: "tedi" as const,

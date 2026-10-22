@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { workEvents } from "@tedix/db/schema/work-items";
+import { tedis } from "@tedix/db/schema/tedis";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import { CreateWorkItemInputSchema } from "@tedix/api-contract/schemas/work-items";
@@ -20,12 +21,32 @@ afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 });
 
+it.each(["foreign", "retired"])(
+	"rejects a %s bound worker before granting member creation authority",
+	async (state) => {
+		const { context, db, sqlite } = fixture();
+		await db.insert(tedis).values({
+			id: "bound-worker",
+			organizationId: state === "foreign" ? "foreign" : org,
+			name: "Worker",
+			slug: "worker",
+			retiredAt: state === "retired" ? "2026-10-19T00:00:00Z" : null,
+		});
+		context.tediId = "bound-worker";
+		await expect(create(context)).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			sqlite.prepare("SELECT count(*) AS count FROM work_items").get(),
+		).toEqual({ count: 0 });
+	},
+);
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
-		canonicalWorkFactoryDdl() + schemaDdl(organizationMembers, workEvents),
+		canonicalWorkFactoryDdl() +
+			schemaDdl(organizationMembers, workEvents, tedis),
 	);
 	sqlite.exec(`INSERT INTO organizations(id,name,slug) VALUES('${org}','Example','example');
 		INSERT INTO projects(id,org_id,key,name,status,metadata,created_at) VALUES('${project}','${org}','P','Project','active','{}','2026-10-19');
@@ -35,6 +56,7 @@ function fixture() {
 		db,
 		organizationId: org,
 		authType: "service-binding",
+		serviceBindingPrincipal: "mcp-edge",
 		descopeUserId: "subject",
 		headers: new Headers({
 			"X-Service-Binding": "true",
@@ -63,12 +85,26 @@ async function create(context: BaseContext) {
 	});
 }
 
-it.each(["subject", "member"])(
-	"records the initiating member (%s) in the creation ledger and permits their subsequent bounded edit",
-	async (subject) => {
+it.each([
+	{ subject: "subject", bound: false },
+	{ subject: "member", bound: false },
+	{ subject: "subject", bound: true },
+	{ subject: "member", bound: true },
+])(
+	"records the initiating member ($subject, primary worker bound=$bound) and permits their subsequent bounded edit",
+	async ({ subject, bound }) => {
 		const { context, sqlite, db } = fixture();
 		context.headers.set("X-Tedix-Acting-User", subject);
 		context.descopeUserId = subject;
+		if (bound) {
+			await db.insert(tedis).values({
+				id: "primary",
+				organizationId: org,
+				name: "Worker",
+				slug: "worker",
+			});
+			context.tediId = "primary";
+		}
 		const item = await create(context);
 		expect(
 			sqlite
@@ -81,6 +117,7 @@ it.each(["subject", "member"])(
 			...context,
 			authType: "user" as const,
 			user: { sub: "subject" },
+			tediId: undefined,
 			headers: new Headers(),
 		} as BaseContext;
 		const input = {
@@ -150,12 +187,16 @@ it("rejects conflicting trusted creator claims before writing", async () => {
 	).toEqual({ count: 0 });
 });
 
-it.each(["apikey", "tedi", "unmarked", "public"])(
+it.each(["apikey", "tedi", "unmarked", "public", "internal"])(
 	"does not manufacture member ownership from a %s acting-user claim",
 	async (principal) => {
 		const { context, sqlite } = fixture();
 		if (principal === "apikey") context.authType = "apikey";
-		if (principal === "tedi") context.tediId = "fictional-tedi";
+		if (principal === "tedi") {
+			context.authType = "tedi";
+			context.tediId = "fictional-tedi";
+		}
+		if (principal === "internal") context.serviceBindingPrincipal = undefined;
 		if (principal === "unmarked") context.headers.delete("X-Tedix-Kernel");
 		if (principal === "public")
 			applyInboundTrustHeaderHygiene(context.headers, false);

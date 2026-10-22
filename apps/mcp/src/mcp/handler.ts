@@ -1063,7 +1063,6 @@ export class ToolHandler {
 			useServiceBinding &&
 			kernelActingUser &&
 			ctx.callerIdentity?.userId &&
-			!ctx.callerIdentity.tediId &&
 			endpoint === "workItems/create"
 		)
 			headers["X-Tedix-Kernel"] = "true";
