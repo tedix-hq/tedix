@@ -455,7 +455,7 @@ export function SlideInspector({
 								Advanced
 							</CollapsibleTrigger>
 							<CollapsibleContent>
-								<div className="slide-inspector-advanced grid grid-cols-2 gap-2 pt-2">
+								<div className="grid grid-cols-2 gap-2 pt-2">
 									{fields.advanced.map((field) => (
 										<InspectorField
 											key={`${field.kind}-${field.label}`}
