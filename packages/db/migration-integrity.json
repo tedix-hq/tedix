@@ -1112,6 +1112,10 @@
 		{
 			"name": "20261022074146_skill_entries_inventory_indexes/migration.sql",
 			"sha256": "d9ae570f5e605abd6569bf949f0bfecdb07aa57ad42b372fd5f74b80657f4f88"
+		},
+		{
+			"name": "20261022074345_stall_recovery_indexed_pages/migration.sql",
+			"sha256": "9a876760dce3ea29e29a259b9d45cd3bd7e294a6ee911fe26537a90a8fe07b1e"
 		}
 	]
 }

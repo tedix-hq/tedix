@@ -3,6 +3,9 @@ import type * as z from "zod";
 import type { DbClient } from "@tedix/db/client";
 import {
 	countContinuityResults,
+	CONTINUITY_SCOPE_BATCH_SIZE,
+	getStallRecoveryCheckpoint,
+	advanceStallRecoveryCheckpoint,
 	getStallReceipt,
 	hasContinuityFix,
 	listContinuityScopes,
@@ -189,48 +192,58 @@ export async function dispatchStallRecovery(
 	env: CloudflareEnv,
 	scheduledTime: number,
 ) {
-	let after = "";
+	const previous = await getStallRecoveryCheckpoint(db, env.ENVIRONMENT);
+	const checkpoint: { after: string; scheduledTime: number } = previous
+		? JSON.parse(previous)
+		: { after: "", scheduledTime: 0 };
+	if (checkpoint.scheduledTime >= scheduledTime) return 0;
 	let dispatched = 0;
 	const failures: unknown[] = [];
 	const now = new Date(scheduledTime).toISOString();
-	for (;;) {
-		const scopes = await listContinuityScopes(
-			db,
-			after,
-			undefined,
-			env.ENVIRONMENT,
-		);
-		for (const scope of scopes) {
-			try {
-				const assessment = await assessContinuity(
+	const scopes = await listContinuityScopes(
+		db,
+		checkpoint.after,
+		undefined,
+		env.ENVIRONMENT,
+	);
+	for (const scope of scopes) {
+		try {
+			const assessment = await assessContinuity(
+				db,
+				scope,
+				scheduledTime,
+				env.ENVIRONMENT,
+			);
+			if (
+				await recoverStall(
 					db,
 					scope,
-					scheduledTime,
+					assessment,
+					now,
+					(request) => env.TEDI_SERVICE.fetch(request),
 					env.ENVIRONMENT,
-				);
-				if (
-					await recoverStall(
-						db,
-						scope,
-						assessment,
-						now,
-						(request) => env.TEDI_SERVICE.fetch(request),
-						env.ENVIRONMENT,
-					)
 				)
-					dispatched++;
-			} catch (error) {
-				// Continue other tenants; the failed cron receipt retains the retry boundary.
-				failures.push(error);
-			}
+			)
+				dispatched++;
+		} catch (error) {
+			// Continue other tenants; the failed cron receipt retains the retry boundary.
+			failures.push(error);
 		}
-		if (scopes.length < 100) break;
-		after = scopes.at(-1)!.key;
 	}
 	if (failures.length)
 		throw new AggregateError(
 			failures,
 			"Stall recovery incomplete; accepted wakes retained",
 		);
+	await advanceStallRecoveryCheckpoint(
+		db,
+		env.ENVIRONMENT,
+		previous,
+		JSON.stringify({
+			after:
+				scopes.length === CONTINUITY_SCOPE_BATCH_SIZE ? scopes.at(-1)!.key : "",
+			scheduledTime,
+		}),
+	);
 	return dispatched;
 }

@@ -1,5 +1,9 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import type { DbQueryClient } from "../../query-client";
+import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+
+export const CONTINUITY_SCOPE_BATCH_SIZE = 100;
 
 export interface ContinuityScope {
 	key: string;
@@ -20,58 +24,69 @@ export interface ContinuityScope {
 /**
  * Materialize the bounded scope page and its Work once. Correlated history
  * scans per scope saturated D1 when Attention polling repeated this inventory.
- * All activity/ownership joins retain the scope's tenant.
+ * CROSS JOIN keeps the page outside indexed history lookups; SQLite must not
+ * scan runtime history to build an automatic index. Joins retain tenant scope.
  */
 export async function listContinuityScopes(
-	db: DbClient,
+	db: DbQueryClient,
 	after = "",
 	orgId?: string,
 	environment = "production",
 ): Promise<ContinuityScope[]> {
 	return db.all<ContinuityScope>(sql`
- WITH scopes AS (
+ WITH project_page AS MATERIALIZED (
  SELECT 'project:' || p.id AS key, p.id, p.org_id AS orgId, 'project' AS kind, p.name,
  CASE WHEN json_type(p.metadata, '$.continuity') = 'object' THEN json_extract(p.metadata, '$.continuity') END AS policy, p.created_at AS createdAt,
  coalesce(p.lead_tedi_id, o.tedi_id) AS owner, p.objective_id AS objectiveId
  FROM projects p LEFT JOIN tedi_objectives o ON o.id = p.objective_id AND o.org_id = p.org_id AND o.status = 'active'
  WHERE p.status = 'active'
- UNION ALL
+ AND p.id > ${after.startsWith("project:") ? after.slice(8) : ""}
+ ${after && !after.startsWith("project:") && after > "project:" ? sql`AND p.id < ${""}` : sql``}
+ ${orgId !== undefined ? sql`AND p.org_id = ${orgId}` : sql``}
+ ORDER BY p.id LIMIT ${CONTINUITY_SCOPE_BATCH_SIZE}
+ ), objective_page AS MATERIALIZED (
  SELECT 'objective:' || o.id, o.id, o.org_id, 'objective', o.title,
  CASE WHEN json_type(o.gate_config, '$.continuity') = 'object' THEN json_extract(o.gate_config, '$.continuity') END, o.created_at,
  o.tedi_id, o.id
  FROM tedi_objectives o WHERE o.status = 'active'
+ AND o.id > ${after.startsWith("objective:") ? after.slice(10) : ""}
+ ${after && !after.startsWith("objective:") && after > "objective:" ? sql`AND o.id < ${""}` : sql``}
+ ${orgId !== undefined ? sql`AND o.org_id = ${orgId}` : sql``}
  AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.org_id = o.org_id AND p.objective_id = o.id AND p.status = 'active')
+ ORDER BY o.id LIMIT ${CONTINUITY_SCOPE_BATCH_SIZE}
+ ), scopes AS (
+ SELECT * FROM project_page UNION ALL SELECT * FROM objective_page
  ), page AS MATERIALIZED (
- SELECT * FROM scopes WHERE key > ${after} AND (${orgId ?? null} IS NULL OR orgId = ${orgId ?? null}) ORDER BY key LIMIT 100
+ SELECT * FROM scopes ORDER BY key LIMIT ${CONTINUITY_SCOPE_BATCH_SIZE}
  ), scope_work AS MATERIALIZED (
  SELECT s.key, w.id AS workItemId, w.org_id AS orgId, w.disposition
- FROM page s JOIN work_items w ON w.org_id = s.orgId AND w.project_id = s.id WHERE s.kind = 'project'
+ FROM page s CROSS JOIN work_items w ON w.org_id = s.orgId AND w.project_id = s.id WHERE s.kind = 'project'
  UNION ALL
  SELECT s.key, w.id, w.org_id, w.disposition
- FROM page s JOIN work_items w ON w.org_id = s.orgId AND w.objective_id = s.id WHERE s.kind = 'objective'
+ FROM page s CROSS JOIN work_items w ON w.org_id = s.orgId AND w.objective_id = s.id WHERE s.kind = 'objective'
  ), work_counts AS (
  SELECT key, sum(disposition IN ('proposed','accepted')) AS pendingCount FROM scope_work GROUP BY key
  ), attempt_activity AS MATERIALIZED (
  SELECT w.key, max(julianday(coalesce(a.finished_at, a.heartbeat_at, a.started_at))) AS activity,
  sum(a.outcome = 'failed' AND w.disposition NOT IN ('completed','cancelled')) AS failedCount
- FROM scope_work w JOIN work_attempts a ON a.work_item_id = w.workItemId AND a.org_id = w.orgId GROUP BY w.key
+ FROM scope_work w CROSS JOIN work_attempts a ON a.work_item_id = w.workItemId AND a.org_id = w.orgId GROUP BY w.key
  ), activity AS (
  SELECT key, activity FROM attempt_activity
  UNION ALL
- SELECT s.key, max(julianday(l.last_event_at)) FROM page s JOIN work_agent_sessions l
+ SELECT s.key, max(julianday(l.last_event_at)) FROM page s CROSS JOIN work_agent_sessions l
  ON l.organization_id = s.orgId AND l.project_id = s.id WHERE s.kind = 'project' GROUP BY s.key
  UNION ALL
  SELECT w.key, max(julianday(CASE WHEN r.status IN ('completed','failed','canceled') THEN coalesce(r.completed_at, r.started_at) ELSE coalesce(r.last_reconciled_at, r.started_at) END))
- FROM scope_work w JOIN skill_runs r ON r.work_item_id = w.workItemId AND r.organization_id = w.orgId
+ FROM scope_work w CROSS JOIN skill_runs r ON r.work_item_id = w.workItemId AND r.organization_id = w.orgId
  WHERE r.runtime_environment = ${environment} GROUP BY w.key
  UNION ALL
  SELECT s.key, max(julianday(coalesce(g.completed_at, g.created_at)))
- FROM page s JOIN os_workspace_projects p ON p.organization_id = s.orgId AND p.project_id = s.id AND p.status = 'active'
- JOIN os_gadget_executions g ON g.organization_id = p.organization_id AND g.workspace_id = p.workspace_id
+ FROM page s CROSS JOIN os_workspace_projects p ON p.organization_id = s.orgId AND p.project_id = s.id AND p.status = 'active'
+ CROSS JOIN os_gadget_executions g ON g.organization_id = p.organization_id AND g.workspace_id = p.workspace_id
  WHERE s.kind = 'project' AND g.runtime_environment = ${environment} GROUP BY s.key
  UNION ALL
  SELECT s.key, max(julianday(coalesce(k.updated_at, k.created_at)))
- FROM page s JOIN tedi_tasks k ON k.org_id = s.orgId AND k.objective_id = s.objectiveId GROUP BY s.key
+ FROM page s CROSS JOIN tedi_tasks k ON k.org_id = s.orgId AND k.objective_id = s.objectiveId GROUP BY s.key
  ), latest_activity AS (
  SELECT key, max(activity) AS activity FROM activity GROUP BY key
  )
@@ -86,6 +101,41 @@ export async function listContinuityScopes(
  LEFT JOIN attempt_activity a ON a.key = s.key
  ORDER BY s.key
  `);
+}
+
+/** Environment-specific progress survives isolate recycling and cron receipt retention. */
+export async function getStallRecoveryCheckpoint(
+	db: DbQueryClient,
+	environment: string,
+) {
+	const [row] = await db
+		.select()
+		.from(platformCronCheckpoints)
+		.where(
+			eq(platformCronCheckpoints.scheduleId, `stall-recovery:${environment}`),
+		)
+		.limit(1);
+	return row?.through ?? null;
+}
+
+/** A delayed tick cannot overwrite a checkpoint advanced by another invocation. */
+export async function advanceStallRecoveryCheckpoint(
+	db: DbQueryClient,
+	environment: string,
+	previous: string | null,
+	next: string,
+) {
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId: `stall-recovery:${environment}`, through: next })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through: next },
+			setWhere:
+				previous === null
+					? sql`0`
+					: eq(platformCronCheckpoints.through, previous),
+		});
 }
 
 /** Count canonical completed Work, not model turns or heartbeat traffic. */

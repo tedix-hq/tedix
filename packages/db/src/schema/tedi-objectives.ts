@@ -141,6 +141,12 @@ export const tediObjectives = sqliteTable(
 	},
 	(table) => [
 		index("idx_objectives_org").on(table.orgId),
+		index("idx_objectives_status_id").on(table.status, table.id),
+		index("idx_objectives_org_status_id").on(
+			table.orgId,
+			table.status,
+			table.id,
+		),
 		index("idx_objectives_purpose_charter").on(table.purposeCharterId),
 		index("idx_objectives_tedi_status").on(table.tediId, table.status),
 		index("idx_objectives_tedi_type").on(table.tediId, table.type),

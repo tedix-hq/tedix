@@ -677,6 +677,11 @@ export const skillRuns = sqliteTable(
 	},
 	(table) => [
 		index("idx_skill_runs_completed").on(table.completedAt),
+		index("idx_skill_runs_org_work_environment").on(
+			table.organizationId,
+			table.workItemId,
+			table.runtimeEnvironment,
+		),
 		index("idx_skill_runs_org_status").on(table.organizationId, table.status),
 		index("idx_skill_runs_skill").on(table.skillId),
 		index("idx_skill_runs_tedi_started").on(table.tediId, table.startedAt),
