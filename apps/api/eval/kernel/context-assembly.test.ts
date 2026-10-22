@@ -300,6 +300,13 @@ function createMockDb(seeded: SeededRows, failTables: FailTables): DbClient {
 			};
 		},
 
+		// ── all() ───────────────────────────────────────────────────────────────
+		// Raw citation scans behind consolidated-fact preference: no consolidated
+		// fact cites the seeded facts.
+		async all(): Promise<unknown[]> {
+			return [];
+		},
+
 		// ── batch() ─────────────────────────────────────────────────────────────
 		// D1's transaction primitive, and the only one available: `db.transaction()`
 		// throws against real D1 (error 7500), so any query that needs several
