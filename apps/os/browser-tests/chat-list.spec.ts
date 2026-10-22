@@ -85,6 +85,29 @@ async function focusPrevious(page: Page, target: Locator) {
 	else await page.keyboard.press("Shift+Tab");
 }
 
+// Escape must hand focus back to the menu trigger. On failure, report where
+// focus went, whether the menu is still open and the URL, so a CI-only miss
+// shows its cause in the log.
+async function expectFocusReturn(page: Page, trigger: Locator) {
+	const label = await trigger.getAttribute("aria-label");
+	try {
+		await page.waitForFunction(
+			(label) => document.activeElement?.getAttribute("aria-label") === label,
+			label,
+		);
+	} catch (error) {
+		const active = await page.evaluate(
+			() => document.activeElement?.outerHTML.slice(0, 200) ?? "none",
+		);
+		const menus = await page.getByRole("menu").count();
+		const triggers = await trigger.count();
+		throw new Error(
+			`Escape left focus on ${active} (open menus: ${menus}, triggers: ${triggers}, url: ${page.url()})`,
+			{ cause: error },
+		);
+	}
+}
+
 async function runCase(browser: Browser, c: Case) {
 	const { width, height, theme } = c;
 	const phone = width <= 390;
@@ -187,10 +210,7 @@ async function runCase(browser: Browser, c: Case) {
 			"opening the menu does not select a conversation",
 		);
 		await page.keyboard.press("Escape");
-		await page.waitForFunction(
-			(label) => document.activeElement?.getAttribute("aria-label") === label,
-			await actions.getAttribute("aria-label"),
-		);
+		await expectFocusReturn(page, actions);
 		await focusPrevious(page, open);
 		assert(
 			await open.evaluate((el) => el === document.activeElement),
@@ -212,10 +232,7 @@ async function runCase(browser: Browser, c: Case) {
 			.and(page.locator(":focus"))
 			.waitFor();
 		await page.keyboard.press("Escape");
-		await page.waitForFunction(
-			(label) => document.activeElement?.getAttribute("aria-label") === label,
-			await actions.getAttribute("aria-label"),
-		);
+		await expectFocusReturn(page, actions);
 		await focusPrevious(page, open);
 		await page.keyboard.press("Enter");
 		await page.waitForURL(/conversation=/);
