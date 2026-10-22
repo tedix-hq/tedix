@@ -75,7 +75,6 @@ import {
 	healthTone,
 	lifecycleTone,
 	scheduleSummary,
-	SkillChip,
 	SkillCatalogTree,
 	skillOwnerLabel,
 	SkillRow,
@@ -86,6 +85,7 @@ import {
 	workflowMetaLabel,
 	WorkflowsEmpty,
 } from "./skills-page";
+import { SkillChip } from "./skill-chip";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
