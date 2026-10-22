@@ -5,15 +5,19 @@ import {
 import { afterEach, describe, expect, test } from "vite-plus/test";
 import {
 	getAppSummaryFromAE,
-	getAppToolBreakdownFromAE,
 	getExecutionDrilldownFromAE,
-	getExternalAgentValidationSloFromAE,
 	getWidgetLifecycleHealthFromAE,
 	getRecentExecutionsFromAE,
-	getUpstreamProtocolUsageFromAE,
+} from "./analytics-engine-apps";
+import {
+	getAppToolBreakdownFromAE,
 	getUserToolCallMetrics,
-	queryCodemodeAnalyticsSummary,
 } from "./analytics-engine";
+import {
+	getExternalAgentValidationSloFromAE,
+	getUpstreamProtocolUsageFromAE,
+} from "./analytics-engine-protocol";
+import { queryCodemodeAnalyticsSummary } from "./analytics-engine-codemode";
 
 const realFetch = globalThis.fetch;
 

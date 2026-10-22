@@ -1,11 +1,11 @@
 import { implement } from "@orpc/server";
 import { analyticsContract } from "@tedix/api-contract/contracts/analytics";
+import { getWidgetLifecycleHealthFromAE } from "../../lib/analytics-engine-apps";
+import { getExternalAgentValidationSloFromAE } from "../../lib/analytics-engine-protocol";
 import {
-	getWidgetLifecycleHealthFromAE,
-	getExternalAgentValidationSloFromAE,
 	hasAEConfig,
 	hasWidgetAEConfig,
-} from "../../lib/analytics-engine";
+} from "../../lib/analytics-engine-query";
 import { AUTHZ, type BaseContext, withAuth } from "../orpc";
 import { requireOrgId } from "../org-scope";
 
