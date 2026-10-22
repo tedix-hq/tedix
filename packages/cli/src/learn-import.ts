@@ -750,7 +750,7 @@ export async function runLearnCommand(
 	});
 	// Preference notes the person's agents already keep join as personal
 	// decisions; idempotent per note text like every other pair.
-	const { memoryNotes, planNotes } = await import("./learn-context");
+	const { memoryNotes, planNotes } = await import("./learn-context-notes");
 	const notes = planNotes({
 		notes: memoryNotes(deps.home),
 		targets,

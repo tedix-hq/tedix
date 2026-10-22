@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Proposal } from "./learn-context";
+import type { Proposal } from "./learn-context-candidates";
 import { proposalRequest, publishSource } from "./learn-proposals";
 
 const now = new Date("2026-10-16T12:00:00.000Z");

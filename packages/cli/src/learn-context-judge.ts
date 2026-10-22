@@ -5,18 +5,18 @@ import {
 } from "./learn-context-board";
 import {
 	type Candidate,
+	EPIC_MIN_TASKS,
+	inPool,
+	type Json,
+	parseArray,
 	type Proposal,
 	THRESHOLDS,
-	type Json,
-} from "./learn-context";
+} from "./learn-context-candidates";
 import { type RunModel } from "./learn-analyze";
-import { inPool, parseArray } from "./learn-context-candidates";
 
 // ---------------------------------------------------------------------------
 // Judge and propose
 // ---------------------------------------------------------------------------
-
-export type ProposalAction = "tracked" | "create" | "unplaced" | "nested";
 
 export const JUDGE_PROMPT = `Each numbered candidate below is work one person did in coding-agent sessions, with the titles of the sessions it came from. Under it are existing Work Items (W1..) on their team's board; the team's projects (P1..) are listed first.
 For each candidate decide:
@@ -380,8 +380,6 @@ export function placeByProjects(
 	});
 }
 
-/** Tasks a body of work needs before it is proposed as one epic. */
-export const EPIC_MIN_TASKS = 3;
 const EPIC_MAX_TASKS = 25;
 
 /**

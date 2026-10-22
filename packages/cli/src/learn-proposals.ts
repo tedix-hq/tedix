@@ -12,17 +12,9 @@ import {
 	WORK_PROPOSAL_SCHEMA,
 } from "@tedix/api-contract/schemas/work-interactions";
 import { asciiJson } from "./hooks/agent-status";
-import type { Proposal } from "./learn-context";
+import type { Citation, Proposal } from "./learn-context-candidates";
 
 type Json = Record<string, any>;
-
-/** A session a proposal came from, as the member's host named it. */
-export interface Citation {
-	harness: string;
-	session: string;
-	title: string | null;
-	at: string;
-}
 
 /** A proposal already in the member's inbox, in any state. */
 export interface AskedProposal {
