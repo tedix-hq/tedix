@@ -48,9 +48,6 @@ vi.mock("@/components/work-read-region", () => ({
 	useWorkReadFailure: () => false,
 	WorkReadNotice: () => null,
 }));
-vi.mock("@/components/work-interaction-decision-card", () => ({
-	WorkInteractionDecisionCard: () => null,
-}));
 vi.mock("@/components/work-decision-card", () => ({
 	WorkDecisionCard: (props: Parameters<typeof WorkDecisionCard>[0]) => {
 		state.card = props;
@@ -61,6 +58,11 @@ vi.mock("@/components/work-decision-card", () => ({
 import { ApprovalDecisionCard } from "./work-decision-stack";
 
 describe("Deck standing approval", () => {
+	it("does not expose the obsolete decision stack", async () => {
+		expect(await import("./work-decision-stack")).not.toHaveProperty(
+			"WorkDecisionStack",
+		);
+	});
 	it("names the exact tool in confirmation and saves only that scope", async () => {
 		renderToStaticMarkup(
 			<ApprovalDecisionCard

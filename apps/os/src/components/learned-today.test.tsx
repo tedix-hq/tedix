@@ -1,6 +1,11 @@
 import { expect, it, vi } from "vite-plus/test";
 import { feedbackToday } from "./learned-today";
 vi.mock("@/lib/api", () => ({ osApi: {} }));
+it("does not expose the obsolete feedback notebook", async () => {
+	expect(await import("./learned-today")).not.toHaveProperty(
+		"FeedbackNotebook",
+	);
+});
 it("counts only the owner's active feedback on the person's local day", () => {
 	const base = {
 		id: "fixture",
