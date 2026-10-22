@@ -1,5 +1,5 @@
 import type { SessionFacts } from "./learn-facts";
-import { words } from "./learn-context";
+import { words } from "./learn-context-candidates";
 import { asciiJson } from "./hooks/agent-status";
 import { type PersonProfile, usageStats } from "./learn-profile-insights";
 import { day, type SessionSummary, publicText } from "./learn-profile-digest";

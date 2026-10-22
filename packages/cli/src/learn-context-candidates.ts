@@ -1,18 +1,80 @@
 import { createHash } from "node:crypto";
-import {
-	type Candidate,
-	type Json,
-	words,
-	withoutNames,
-} from "./learn-context";
-import { type SessionDigest, short, substantive } from "./learn-context-notes";
+import { redact } from "./hooks/decision-capture";
+import { scrub, type SessionFile } from "./learn-import";
 import { type RunModel } from "./learn-analyze";
-import { EPIC_MIN_TASKS } from "./learn-context-judge";
+
+export type Json = Record<string, any>;
 
 export const sha = (value: string) =>
 	createHash("sha256").update(value).digest("hex").slice(0, 16);
 
 export type CandidateKind = "task" | "goal" | "project";
+
+export interface Candidate {
+	key: string;
+	kind: CandidateKind;
+	title: string;
+	confidence: number;
+	sessions: string[];
+	from: string;
+	to: string;
+	goal: boolean;
+	/** The sessions show it finished: context only, never a new item. */
+	done?: boolean;
+	/** The cited sessions' own titles, which widen the board search. */
+	context?: string;
+	/** The first thing asked in one of its sessions: for the local model only, never sent. */
+	ask?: string;
+}
+
+export interface SessionDigest {
+	harness: SessionFile["harness"];
+	sessionId: string;
+	title: string | null;
+	goal: boolean;
+	asks: string[];
+	repository: string | null;
+	from: string;
+	to: string;
+}
+
+export type ProposalAction = "tracked" | "create" | "unplaced" | "nested";
+
+export interface Citation {
+	harness: string;
+	session: string;
+	title: string | null;
+	at: string;
+}
+
+export interface Proposal {
+	key: string;
+	kind: CandidateKind;
+	title: string;
+	confidence: number;
+	sessions: number;
+	from: string;
+	to: string;
+	action: ProposalAction;
+	/** The existing item that already covers it (tracked). */
+	workId?: string;
+	workTitle?: string;
+	workDisposition?: string;
+	projectId?: string;
+	projectKey?: string;
+	parentId?: string;
+	/** Closest existing item, shown to the reviewer. */
+	nearest?: { id: string; title: string; score: number };
+	reason: string;
+	/** An epic proposal's tasks, created under it on acceptance. */
+	children?: Proposal[];
+	/** The epic proposal a nested task belongs to. */
+	epicKey?: string;
+	/** The sessions it came from (the evidence the reviewer sees). */
+	citations?: Citation[];
+	/** Title of the open item it goes under, when it has one. */
+	parentTitle?: string;
+}
 
 export const STOP = new Set(
 	"a an the to and or of for in on at is are be it this that these those please can could would will you we i me my our us now then just ok so do its with from what how also all any into by as about via per new make get set use using".split(
@@ -23,6 +85,59 @@ export const STOP = new Set(
 /** Crude suffix folding so "adopt", "adoption" and "adopting" meet. */
 export const SUFFIX =
 	/(?:abilities|ability|ations|ation|ings|ing|ions|ion|able|ers|er|ed|es|s|ly|e)$/;
+
+export function words(text: string): string[] {
+	return text
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}\s]/gu, " ")
+		.split(/\s+/)
+		.filter((word) => word.length > 1 && !STOP.has(word))
+		.map((word) => {
+			if (word.length <= 4) return word;
+			const stem = word.replace(SUFFIX, "");
+			return stem.length >= 3 ? stem : word;
+		});
+}
+
+/** Each of these names, as a whole word, replaced by "[name]". */
+export function withoutNames(text: string, names: Set<string>): string {
+	if (!names.size) return text;
+	return text.replace(/[\p{L}][\p{L}'-]*/gu, (word) => {
+		const possessive = /'s$/i.test(word) ? word.slice(-2) : "";
+		const bare = possessive ? word.slice(0, -2) : word;
+		return names.has(bare.toLowerCase()) ? `[name]${possessive}` : word;
+	});
+}
+
+export const short = (text: string, limit: number) =>
+	redact(scrub(text).replace(/\s+/g, " "), limit)[0];
+
+/** Asks that say what a session is about, not "status?" or "go on". */
+const FILLER =
+	/^(?:status( now)?\??|what'?s next\??|whats next\??|next\??|continue\b.*|go on|go ahead|proceed|make it happen|ok\b.*|yes\b.*|no\b.*|thanks?\b.*|done\??|any (?:pending|updates?)\b.*)$/i;
+
+export function substantive(text: string): boolean {
+	const clean = text.trim();
+	return clean.length >= 16 && !FILLER.test(clean);
+}
+
+export const THRESHOLDS = {
+	/** Score at which an existing item covers a candidate without a model. */
+	same: 0.6,
+	/** A covering item's project is the candidate's project from here. */
+	workProject: 0.3,
+	/** A project's own words place a candidate from here. */
+	project: 0.25,
+	/** Below this confidence a task is listed, never proposed. */
+	propose: 0.6,
+	/** A proposal this close to an existing item gets a second, focused look. */
+	confirm: 0.35,
+	/** With a model, a match on words alone below this gets a second look. */
+	clear: 0.75,
+};
+
+/** Tasks a body of work needs before it is proposed as one epic. */
+export const EPIC_MIN_TASKS = 3;
 
 export function jaccard(a: Set<string>, b: Set<string>): number {
 	let shared = 0;

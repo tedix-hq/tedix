@@ -1,7 +1,6 @@
-import { redact } from "./hooks/decision-capture";
 import {
-	scrub,
 	parseLines,
+	type Location,
 	type SessionFile,
 	type Unrouted,
 	sessionLocator,
@@ -9,8 +8,9 @@ import {
 	targetKey,
 } from "./learn-import";
 import { type AgentSessionDecision } from "@tedix/api-contract/schemas/agent-session-decisions";
-import { type Json, type Proposal, words } from "./learn-context";
 import {
+	existsSync,
+	statSync,
 	readdirSync,
 	readFileSync,
 	mkdirSync,
@@ -18,16 +18,23 @@ import {
 	renameSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { type OrganizationTarget } from "./agent-context";
 import {
 	type SessionSignals,
 	codexSignals,
 	claudeSignals,
 } from "./learn-analyze";
-import { jaccard } from "./learn-context-candidates";
-
-export const short = (text: string, limit: number) =>
-	redact(scrub(text).replace(/\s+/g, " "), limit)[0];
+import {
+	type Json,
+	type Proposal,
+	type SessionDigest,
+	jaccard,
+	sha,
+	short,
+	substantive,
+	words,
+} from "./learn-context-candidates";
 
 /** The first sentence of a goal, which is its point. */
 export function goalTitle(objective: string): string {
@@ -84,6 +91,111 @@ export function preferenceBullets(markdown: string): string[] {
 export const MIN_NOTE_CHARS = 24;
 export const NOTE_CHARS = 900;
 
+/**
+ * Preference notes the person's agents already keep: Claude Code memories of
+ * type `user` or `feedback` (their one-line description), and the preference
+ * sections of Codex's memory summary. Project and reference memories stay on
+ * the machine.
+ */
+export function memoryNotes(home = homedir()): MemoryNote[] {
+	const notes: MemoryNote[] = [];
+	const add = (
+		harness: MemoryNote["harness"],
+		path: string,
+		text: string,
+		sessionDirectory: string | null,
+	) => {
+		const clean = text.replace(/\s+/g, " ").trim();
+		if (clean.length < MIN_NOTE_CHARS) return;
+		let at: string;
+		try {
+			at = statSync(path).mtime.toISOString();
+		} catch {
+			return;
+		}
+		notes.push({ harness, path, text: clean, at, sessionDirectory });
+	};
+	const projects = join(home, ".claude", "projects");
+	if (existsSync(projects))
+		for (const entry of readdirSync(projects, { withFileTypes: true })) {
+			if (!entry.isDirectory()) continue;
+			const directory = join(projects, entry.name);
+			const memory = join(directory, "memory");
+			if (!existsSync(memory)) continue;
+			for (const file of readdirSync(memory)) {
+				if (!file.endsWith(".md") || file === "MEMORY.md") continue;
+				const path = join(memory, file);
+				let text: string;
+				try {
+					text = readFileSync(path, "utf8");
+				} catch {
+					continue;
+				}
+				const meta = frontmatter(text);
+				if (meta.type !== "user" && meta.type !== "feedback") continue;
+				if (meta.description)
+					add("claude-code", path, meta.description, directory);
+			}
+		}
+	const summary = join(home, ".codex", "memories", "memory_summary.md");
+	if (existsSync(summary))
+		for (const bullet of preferenceBullets(readFileSync(summary, "utf8")))
+			add("codex", summary, bullet, null);
+	return notes;
+}
+
+/** Notes as personal decision events, routed like the sessions they sit beside. */
+export function planNotes(input: {
+	notes: MemoryNote[];
+	targets: Map<string, OrganizationTarget>;
+	defaultTarget: OrganizationTarget | undefined;
+	locate: (session: { cwd: string | null; origin: string | null }) => Location;
+	cwdOf?: (directory: string) => string | null;
+	unrouted: Unrouted;
+	limitPerTarget?: number;
+}): Map<
+	string,
+	{ target: OrganizationTarget; decisions: AgentSessionDecision[] }
+> {
+	const out = new Map<
+		string,
+		{ target: OrganizationTarget; decisions: AgentSessionDecision[] }
+	>();
+	const cwdOf = input.cwdOf ?? ((directory: string) => directoryCwd(directory));
+	const cwds = new Map<string, string | null>();
+	const limit = input.limitPerTarget ?? 300;
+	for (const note of input.notes) {
+		let location: Location = { kind: "none" };
+		if (note.sessionDirectory) {
+			if (!cwds.has(note.sessionDirectory))
+				cwds.set(note.sessionDirectory, cwdOf(note.sessionDirectory));
+			const cwd = cwds.get(note.sessionDirectory);
+			// A note whose checkout is gone is still the person's own: it goes
+			// where notes outside a repository go.
+			if (cwd) location = input.locate({ cwd, origin: null });
+			if (location.kind === "unknown") location = { kind: "none" };
+		}
+		const target = routedTarget(location, input, input.unrouted, 1);
+		if (!target) continue;
+		const key = targetKey(target);
+		const bucket = out.get(key) ?? { target, decisions: [] };
+		out.set(key, bucket);
+		if (bucket.decisions.length >= limit) continue;
+		const reply = short(note.text, NOTE_CHARS);
+		bucket.decisions.push({
+			harness: note.harness,
+			sessionId: `memory:${sha(note.path)}`,
+			turnId: sha(reply),
+			repository: location.kind === "repo" ? location.repository : null,
+			topic: "preference",
+			occurredAt: note.at,
+			agentMessage: "",
+			reply,
+		});
+	}
+	return out;
+}
+
 /** A transcript directory's checkout, from the first session that names one. */
 export function directoryCwd(
 	directory: string,
@@ -111,26 +223,6 @@ export function directoryCwd(
 // ---------------------------------------------------------------------------
 // Session digests and candidates
 // ---------------------------------------------------------------------------
-
-export interface SessionDigest {
-	harness: SessionFile["harness"];
-	sessionId: string;
-	title: string | null;
-	goal: boolean;
-	asks: string[];
-	repository: string | null;
-	from: string;
-	to: string;
-}
-
-/** Asks that say what a session is about, not "status?" or "go on". */
-const FILLER =
-	/^(?:status( now)?\??|what'?s next\??|whats next\??|next\??|continue\b.*|go on|go ahead|proceed|make it happen|ok\b.*|yes\b.*|no\b.*|thanks?\b.*|done\??|any (?:pending|updates?)\b.*)$/i;
-
-export function substantive(text: string): boolean {
-	const clean = text.trim();
-	return clean.length >= 16 && !FILLER.test(clean);
-}
 
 export interface ContextPlan {
 	files: number;

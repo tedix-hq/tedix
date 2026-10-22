@@ -1,6 +1,6 @@
 import type { SessionFacts } from "./learn-facts";
 import type { RunModel } from "./learn-analyze";
-import { words } from "./learn-context";
+import { words } from "./learn-context-candidates";
 import {
 	sha,
 	type SessionSummary,

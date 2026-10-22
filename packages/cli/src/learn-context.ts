@@ -35,7 +35,6 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import {
 	existsSync,
-	statSync,
 	readdirSync,
 	readFileSync,
 	mkdirSync,
@@ -46,9 +45,6 @@ import {
 } from "node:fs";
 import {
 	parseLines,
-	type Location,
-	type Unrouted,
-	routedTarget,
 	targetKey,
 	type LearnDeps,
 	type SessionFile,
@@ -57,13 +53,8 @@ import {
 	runLearnCommand,
 } from "./learn-import";
 import {
-	type MemoryNote,
-	MIN_NOTE_CHARS,
-	frontmatter,
-	preferenceBullets,
-	directoryCwd,
-	short,
-	NOTE_CHARS,
+	memoryNotes,
+	planNotes,
 	planContext,
 	statePath,
 	readState,
@@ -75,30 +66,20 @@ import {
 	repositoryTargetsByOrigin,
 	defaultOrganizationTarget,
 } from "./agent-context";
-import { type AgentSessionDecision } from "@tedix/api-contract/schemas/agent-session-decisions";
 import {
-	sha,
-	type CandidateKind,
-	STOP,
-	SUFFIX,
-	inPool,
+	type Json,
 	jaccard,
+	type Proposal,
+	words,
 	extractCandidates,
 } from "./learn-context-candidates";
 import {
-	CATALOG_MAX,
-	CATALOG_PAGE,
-	projectCatalogSource,
 	type BoardMatches,
-	MATCH_CHUNK,
-	HISTORY_MATCH_CHUNK,
-	boardMatchSource,
-	type WorkMatch,
+	matchBoard,
 	withProjectKeys,
 } from "./learn-context-board";
-import { type ProposalAction, judge } from "./learn-context-judge";
+import { judge } from "./learn-context-judge";
 import {
-	type Citation,
 	type AskedProposal,
 	listProposalsSource,
 	publishSource,
@@ -110,8 +91,6 @@ import { createHash } from "node:crypto";
 import { type ReadJson, cliRead, AGENT_IDENTITY_ENV } from "./hooks/hook-io";
 import { selfCommand } from "./shared";
 import { spawn } from "node:child_process";
-
-export type Json = Record<string, any>;
 
 // ---------------------------------------------------------------------------
 // Local sources beside the transcripts
@@ -151,273 +130,6 @@ export async function codexGoals(
 	}
 	return goals;
 }
-
-/**
- * Preference notes the person's agents already keep: Claude Code memories of
- * type `user` or `feedback` (their one-line description), and the preference
- * sections of Codex's memory summary. Project and reference memories stay on
- * the machine.
- */
-export function memoryNotes(home = homedir()): MemoryNote[] {
-	const notes: MemoryNote[] = [];
-	const add = (
-		harness: MemoryNote["harness"],
-		path: string,
-		text: string,
-		sessionDirectory: string | null,
-	) => {
-		const clean = text.replace(/\s+/g, " ").trim();
-		if (clean.length < MIN_NOTE_CHARS) return;
-		let at: string;
-		try {
-			at = statSync(path).mtime.toISOString();
-		} catch {
-			return;
-		}
-		notes.push({ harness, path, text: clean, at, sessionDirectory });
-	};
-	const projects = join(home, ".claude", "projects");
-	if (existsSync(projects))
-		for (const entry of readdirSync(projects, { withFileTypes: true })) {
-			if (!entry.isDirectory()) continue;
-			const directory = join(projects, entry.name);
-			const memory = join(directory, "memory");
-			if (!existsSync(memory)) continue;
-			for (const file of readdirSync(memory)) {
-				if (!file.endsWith(".md") || file === "MEMORY.md") continue;
-				const path = join(memory, file);
-				let text: string;
-				try {
-					text = readFileSync(path, "utf8");
-				} catch {
-					continue;
-				}
-				const meta = frontmatter(text);
-				if (meta.type !== "user" && meta.type !== "feedback") continue;
-				if (meta.description)
-					add("claude-code", path, meta.description, directory);
-			}
-		}
-	const summary = join(home, ".codex", "memories", "memory_summary.md");
-	if (existsSync(summary))
-		for (const bullet of preferenceBullets(readFileSync(summary, "utf8")))
-			add("codex", summary, bullet, null);
-	return notes;
-}
-
-/** Notes as personal decision events, routed like the sessions they sit beside. */
-export function planNotes(input: {
-	notes: MemoryNote[];
-	targets: Map<string, OrganizationTarget>;
-	defaultTarget: OrganizationTarget | undefined;
-	locate: (session: { cwd: string | null; origin: string | null }) => Location;
-	cwdOf?: (directory: string) => string | null;
-	unrouted: Unrouted;
-	limitPerTarget?: number;
-}): Map<
-	string,
-	{ target: OrganizationTarget; decisions: AgentSessionDecision[] }
-> {
-	const out = new Map<
-		string,
-		{ target: OrganizationTarget; decisions: AgentSessionDecision[] }
-	>();
-	const cwdOf = input.cwdOf ?? ((directory: string) => directoryCwd(directory));
-	const cwds = new Map<string, string | null>();
-	const limit = input.limitPerTarget ?? 300;
-	for (const note of input.notes) {
-		let location: Location = { kind: "none" };
-		if (note.sessionDirectory) {
-			if (!cwds.has(note.sessionDirectory))
-				cwds.set(note.sessionDirectory, cwdOf(note.sessionDirectory));
-			const cwd = cwds.get(note.sessionDirectory);
-			// A note whose checkout is gone is still the person's own: it goes
-			// where notes outside a repository go.
-			if (cwd) location = input.locate({ cwd, origin: null });
-			if (location.kind === "unknown") location = { kind: "none" };
-		}
-		const target = routedTarget(location, input, input.unrouted, 1);
-		if (!target) continue;
-		const key = targetKey(target);
-		const bucket = out.get(key) ?? { target, decisions: [] };
-		out.set(key, bucket);
-		if (bucket.decisions.length >= limit) continue;
-		const reply = short(note.text, NOTE_CHARS);
-		bucket.decisions.push({
-			harness: note.harness,
-			sessionId: `memory:${sha(note.path)}`,
-			turnId: sha(reply),
-			repository: location.kind === "repo" ? location.repository : null,
-			topic: "preference",
-			occurredAt: note.at,
-			agentMessage: "",
-			reply,
-		});
-	}
-	return out;
-}
-
-export interface Candidate {
-	key: string;
-	kind: CandidateKind;
-	title: string;
-	confidence: number;
-	sessions: string[];
-	from: string;
-	to: string;
-	goal: boolean;
-	/** The sessions show it finished: context only, never a new item. */
-	done?: boolean;
-	/** The cited sessions' own titles, which widen the board search. */
-	context?: string;
-	/** The first thing asked in one of its sessions: for the local model only, never sent. */
-	ask?: string;
-}
-
-export function words(text: string): string[] {
-	return text
-		.toLowerCase()
-		.replace(/[^\p{L}\p{N}\s]/gu, " ")
-		.split(/\s+/)
-		.filter((word) => word.length > 1 && !STOP.has(word))
-		.map((word) => {
-			if (word.length <= 4) return word;
-			const stem = word.replace(SUFFIX, "");
-			return stem.length >= 3 ? stem : word;
-		});
-}
-
-/** Each of these names, as a whole word, replaced by "[name]". */
-export function withoutNames(text: string, names: Set<string>): string {
-	if (!names.size) return text;
-	return text.replace(/[\p{L}][\p{L}'-]*/gu, (word) => {
-		const possessive = /'s$/i.test(word) ? word.slice(-2) : "";
-		const bare = possessive ? word.slice(0, -2) : word;
-		return names.has(bare.toLowerCase()) ? `[name]${possessive}` : word;
-	});
-}
-
-/** [id, key, name, description] */
-export type ProjectInfo = [string, string, string, string];
-
-/** Every open project, page by page; empty when the listing fails. */
-export async function projectCatalog(
-	call: (source: string) => Promise<Json>,
-): Promise<ProjectInfo[]> {
-	const out: ProjectInfo[] = [];
-	try {
-		for (let offset = 0; offset < CATALOG_MAX; offset += CATALOG_PAGE) {
-			const page = await call(projectCatalogSource(offset));
-			if (!Array.isArray(page.projects)) break;
-			out.push(...(page.projects as ProjectInfo[]));
-			if (!page.more) break;
-		}
-	} catch {
-		/* Placement falls back to the closest projects by words. */
-	}
-	return out;
-}
-
-/**
- * Run the match as programs over open and over finished Work, each inside the
- * gateway's wait and under its result cap.
- */
-export async function matchBoard(
-	candidates: Candidate[],
-	call: (source: string) => Promise<Json>,
-	/** Also read every open project (for a model to place work with). */
-	withCatalog = false,
-): Promise<BoardMatches> {
-	const out: BoardMatches = { me: null, scanned: {}, matches: {} };
-	const open: Json = {};
-	const closed: Json = {};
-	const catalog = withCatalog ? projectCatalog(call) : Promise.resolve([]);
-	for (let i = 0; i < candidates.length; i += MATCH_CHUNK) {
-		const list = candidates.slice(i, i + MATCH_CHUNK).map((c) => ({
-			k: c.key,
-			t: c.title,
-			...(c.context ? { q: c.context } : {}),
-		}));
-		const jobs = [
-			{
-				candidates: list,
-				dispositions: ["proposed", "accepted"],
-				projects: true,
-			},
-		];
-		for (let j = 0; j < list.length; j += HISTORY_MATCH_CHUNK)
-			jobs.push({
-				candidates: list.slice(j, j + HISTORY_MATCH_CHUNK),
-				dispositions: ["completed", "cancelled"],
-				projects: false,
-			});
-		await inPool(jobs, 4, async (job) => {
-			const result = await call(boardMatchSource(job));
-			if (!result.matches || typeof result.matches !== "object")
-				throw new Error("the board match returned no matches");
-			Object.assign(job.projects ? open : closed, result.matches);
-			out.me ??= result.me ?? null;
-			Object.assign(out.scanned, result.scanned);
-		});
-	}
-	for (const c of candidates) {
-		const a = open[c.key] ?? { w: [], p: [] };
-		const b = closed[c.key] ?? { w: [], p: [] };
-		out.matches[c.key] = {
-			w: [...a.w, ...b.w]
-				.sort((x: WorkMatch, y: WorkMatch) => y[5] - x[5])
-				.slice(0, 8),
-			p: a.p,
-		};
-	}
-	const projects = await catalog;
-	if (projects.length) out.projects = projects;
-	return out;
-}
-
-export interface Proposal {
-	key: string;
-	kind: CandidateKind;
-	title: string;
-	confidence: number;
-	sessions: number;
-	from: string;
-	to: string;
-	action: ProposalAction;
-	/** The existing item that already covers it (tracked). */
-	workId?: string;
-	workTitle?: string;
-	workDisposition?: string;
-	projectId?: string;
-	projectKey?: string;
-	parentId?: string;
-	/** Closest existing item, shown to the reviewer. */
-	nearest?: { id: string; title: string; score: number };
-	reason: string;
-	/** An epic proposal's tasks, created under it on acceptance. */
-	children?: Proposal[];
-	/** The epic proposal a nested task belongs to. */
-	epicKey?: string;
-	/** The sessions it came from (the evidence the reviewer sees). */
-	citations?: Citation[];
-	/** Title of the open item it goes under, when it has one. */
-	parentTitle?: string;
-}
-
-export const THRESHOLDS = {
-	/** Score at which an existing item covers a candidate without a model. */
-	same: 0.6,
-	/** A covering item's project is the candidate's project from here. */
-	workProject: 0.3,
-	/** A project's own words place a candidate from here. */
-	project: 0.25,
-	/** Below this confidence a task is listed, never proposed. */
-	propose: 0.6,
-	/** A proposal this close to an existing item gets a second, focused look. */
-	confirm: 0.35,
-	/** With a model, a match on words alone below this gets a second look. */
-	clear: 0.75,
-};
 
 export function stateDirectory(env = process.env, home = homedir()): string {
 	return join(env.TEDIX_CONFIG_DIR || join(home, ".tedix"), "learn");

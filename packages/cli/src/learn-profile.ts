@@ -27,16 +27,18 @@ import {
 	stateDirectory,
 	cachedModel,
 	caller,
-	memoryNotes,
 	codexGoals,
 	askedFor,
+} from "./learn-context";
+import {
 	withoutNames,
 	type Candidate,
-	matchBoard,
 	words,
 	THRESHOLDS,
 	type Proposal,
-} from "./learn-context";
+} from "./learn-context-candidates";
+import { matchBoard } from "./learn-context-board";
+import { memoryNotes } from "./learn-context-notes";
 import { type TranscriptFile, transcriptFiles, trivial } from "./learn-facts";
 import type { RunModel } from "./learn-analyze";
 import { homedir } from "node:os";

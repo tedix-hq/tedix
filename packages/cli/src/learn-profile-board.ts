@@ -1,5 +1,5 @@
 import { asciiJson } from "./hooks/agent-status";
-import { type ProjectInfo, projectCatalog } from "./learn-context";
+import { type ProjectInfo, projectCatalog } from "./learn-context-board";
 import type { SessionFacts } from "./learn-facts";
 import type { Workstream } from "./learn-profile-workstreams";
 import type { Json } from "./learn-profile-model";

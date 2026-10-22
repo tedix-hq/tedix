@@ -1,6 +1,12 @@
-import { type ProjectInfo, type Proposal, type Json } from "./learn-context";
 import { asciiJson } from "./hooks/agent-status";
-import { STOP, SUFFIX } from "./learn-context-candidates";
+import {
+	type Candidate,
+	inPool,
+	type Json,
+	type Proposal,
+	STOP,
+	SUFFIX,
+} from "./learn-context-candidates";
 
 // ---------------------------------------------------------------------------
 // Board match (read-only Code Mode)
@@ -17,6 +23,9 @@ export type WorkMatch = [
 ];
 /** [id, key, name, score] */
 export type ProjectMatch = [string, string, string, number];
+
+/** [id, key, name, description] */
+export type ProjectInfo = [string, string, string, string];
 
 export interface BoardMatches {
 	me: { id: string; name: string } | null;
@@ -46,6 +55,24 @@ export function projectCatalogSource(offset: number): string {
 }
 
 export const CATALOG_MAX = 400;
+
+/** Every open project, page by page; empty when the listing fails. */
+export async function projectCatalog(
+	call: (source: string) => Promise<Json>,
+): Promise<ProjectInfo[]> {
+	const out: ProjectInfo[] = [];
+	try {
+		for (let offset = 0; offset < CATALOG_MAX; offset += CATALOG_PAGE) {
+			const page = await call(projectCatalogSource(offset));
+			if (!Array.isArray(page.projects)) break;
+			out.push(...(page.projects as ProjectInfo[]));
+			if (!page.more) break;
+		}
+	} catch {
+		/* Placement falls back to the closest projects by words. */
+	}
+	return out;
+}
 
 /**
  * Code Mode program: read projects and Work, score each candidate title
@@ -145,6 +172,63 @@ export const MATCH_CHUNK = 8;
 // Topic searches make more inner calls; keep their gateway telemetry below
 // the Analytics Engine per-request write limit.
 export const HISTORY_MATCH_CHUNK = 2;
+
+/**
+ * Run the match as programs over open and over finished Work, each inside the
+ * gateway's wait and under its result cap.
+ */
+export async function matchBoard(
+	candidates: Candidate[],
+	call: (source: string) => Promise<Json>,
+	/** Also read every open project (for a model to place work with). */
+	withCatalog = false,
+): Promise<BoardMatches> {
+	const out: BoardMatches = { me: null, scanned: {}, matches: {} };
+	const open: Json = {};
+	const closed: Json = {};
+	const catalog = withCatalog ? projectCatalog(call) : Promise.resolve([]);
+	for (let i = 0; i < candidates.length; i += MATCH_CHUNK) {
+		const list = candidates.slice(i, i + MATCH_CHUNK).map((c) => ({
+			k: c.key,
+			t: c.title,
+			...(c.context ? { q: c.context } : {}),
+		}));
+		const jobs = [
+			{
+				candidates: list,
+				dispositions: ["proposed", "accepted"],
+				projects: true,
+			},
+		];
+		for (let j = 0; j < list.length; j += HISTORY_MATCH_CHUNK)
+			jobs.push({
+				candidates: list.slice(j, j + HISTORY_MATCH_CHUNK),
+				dispositions: ["completed", "cancelled"],
+				projects: false,
+			});
+		await inPool(jobs, 4, async (job) => {
+			const result = await call(boardMatchSource(job));
+			if (!result.matches || typeof result.matches !== "object")
+				throw new Error("the board match returned no matches");
+			Object.assign(job.projects ? open : closed, result.matches);
+			out.me ??= result.me ?? null;
+			Object.assign(out.scanned, result.scanned);
+		});
+	}
+	for (const c of candidates) {
+		const a = open[c.key] ?? { w: [], p: [] };
+		const b = closed[c.key] ?? { w: [], p: [] };
+		out.matches[c.key] = {
+			w: [...a.w, ...b.w]
+				.sort((x: WorkMatch, y: WorkMatch) => y[5] - x[5])
+				.slice(0, 8),
+			p: a.p,
+		};
+	}
+	const projects = await catalog;
+	if (projects.length) out.projects = projects;
+	return out;
+}
 
 /**
  * The key of a project a proposal names that the board match did not return
