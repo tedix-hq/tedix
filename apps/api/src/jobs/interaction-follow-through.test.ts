@@ -20,9 +20,11 @@ import {
 import {
 	createWorkInteraction,
 	getWorkInteraction,
+} from "@tedix/db/queries/work-items/interactions";
+import {
 	listDueWorkInteractionReviews,
 	reviewWorkInteraction,
-} from "@tedix/db/queries/work-items/interactions";
+} from "@tedix/db/queries/work-items/interaction-reviews";
 import { workInteractionsContractRouter } from "../rpc/routers/work-interactions";
 import type { BaseContext } from "../rpc/orpc";
 import { dispatchInteractionReviews } from "./interaction-follow-through";

@@ -49,16 +49,16 @@ import {
 	delegateWorkInteraction,
 	respondToWorkInteraction,
 	createWorkInteraction,
-	flushWorkInteractionDigests,
-	reviewWorkInteraction,
 } from "./interactions";
+import { flushWorkInteractionDigests } from "./interaction-digests";
+import { reviewWorkInteraction } from "./interaction-reviews";
 import { boundSchedulerFactChunks, listReadyWork } from "./scheduler";
 import { nudgeLaneHandoffs } from "./lane-handoffs";
 import {
-	listDueWorkInteractionReviews,
 	listRequestedWorkInteractionEvents,
 	listWorkInteractionInbox,
 } from "./interactions";
+import { listDueWorkInteractionReviews } from "./interaction-reviews";
 import {
 	linkWorkItemToMilestone,
 	listWorkMilestoneViews,

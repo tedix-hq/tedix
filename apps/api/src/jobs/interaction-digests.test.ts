@@ -14,11 +14,13 @@ import {
 } from "@tedix/db/schema/work-factory";
 import {
 	createWorkInteraction,
-	flushWorkInteractionDigests,
 	listWorkInteractionInbox,
 	listRequestedWorkInteractionEvents,
-	nextInteractionDigestAt,
 } from "@tedix/db/queries/work-items/interactions";
+import {
+	flushWorkInteractionDigests,
+	nextInteractionDigestAt,
+} from "@tedix/db/queries/work-items/interaction-digests";
 
 const now = "2026-10-16T22:00:00.000Z";
 function fixture() {

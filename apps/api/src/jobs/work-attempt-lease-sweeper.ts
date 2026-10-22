@@ -1,8 +1,6 @@
 import { createDbQueryClient } from "@tedix/db/query-client";
-import {
-	sweepObsoleteWorkInteractions,
-	flushWorkInteractionDigests,
-} from "@tedix/db/queries/work-items/interactions";
+import { sweepObsoleteWorkInteractions } from "@tedix/db/queries/work-items/interactions";
+import { flushWorkInteractionDigests } from "@tedix/db/queries/work-items/interaction-digests";
 import { sweepElapsedWorkAttempts } from "@tedix/db/queries/work-items/attempts";
 import {
 	recordStaleLanes,

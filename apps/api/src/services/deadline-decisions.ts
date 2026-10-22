@@ -7,8 +7,8 @@ import { listWorkItemsPage } from "@tedix/db/queries/work-items/crud";
 import {
 	createWorkInteraction,
 	getWorkInteraction,
-	getDeadlineDecision,
 } from "@tedix/db/queries/work-items/interactions";
+import { getDeadlineDecision } from "@tedix/db/queries/work-items/interaction-reviews";
 
 /** One owner-addressed decision per Work deadline, including resolved decisions. */
 export async function materializeDeadlineDecisions(
