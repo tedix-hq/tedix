@@ -1,9 +1,9 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import type { CompetencyCareerLadder } from "@tedix/api-contract/schemas/earned-delegation";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { respondToWorkInteraction } from "../work-items/interactions";
 import {
 	insertReplyDraft,
@@ -19,13 +19,6 @@ import {
 	recordReplyDraftObservations,
 	stoodStreakDays,
 } from "./reply-draft-career";
-
-const migrationRoot = new URL("../../../drizzle/", import.meta.url);
-const migrations = readdirSync(migrationRoot)
-	.sort()
-	.map((name) =>
-		readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
-	);
 
 const LADDER: CompetencyCareerLadder = {
 	version: 1,
@@ -45,9 +38,7 @@ const QUIET = {
 const NOW = "2026-08-21T12:00:00.000Z";
 
 function seed() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	for (const sqlText of migrations) sqlite.exec(sqlText);
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');
 		INSERT INTO users(id,email) VALUES('user','user@example.com');

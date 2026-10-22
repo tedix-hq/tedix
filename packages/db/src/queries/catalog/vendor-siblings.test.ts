@@ -1,12 +1,10 @@
 // @ts-nocheck - package test type dependencies are not part of the db tsconfig.
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { organizations } from "../../schema/organizations";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { getCatalogAppById, updateCatalogApp } from "./get-app";
 import { syncCatalogAppFromStore } from "./upsert-sync";
 import {
@@ -17,19 +15,9 @@ import {
 } from "./vendor-siblings";
 
 function migratedDb(): DbClient {
-	const sqlite = new DatabaseSync(":memory:");
-	const dir = join(__dirname, "../../../drizzle");
-	const files = readdirSync(dir)
-		.filter((name) => /^\d{14}_/.test(name))
-		.sort();
-	for (const file of files) {
-		sqlite.exec(
-			readFileSync(join(dir, file, "migration.sql"), "utf8").replaceAll(
-				"--> statement-breakpoint",
-				"",
-			),
-		);
-	}
+	const sqlite = createMigratedSqlite({
+		transformMigration: (sql) => sql.replaceAll("--> statement-breakpoint", ""),
+	});
 	return createDbClient(createD1Facade(sqlite));
 }
 

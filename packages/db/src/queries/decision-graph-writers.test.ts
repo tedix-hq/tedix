@@ -1,8 +1,7 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
 import {
 	createApprovalRequest,
 	resolveApprovalRequest,
@@ -93,13 +92,8 @@ it("links only confirmed lessons from a user's same-organization Work comment", 
 });
 
 function fixture(broken = false) {
-	const sqlite = new DatabaseSync(":memory:");
+	const sqlite = createMigratedSqlite();
 	cleanups.push(() => sqlite.close());
-	const migrations = new URL("../../drizzle/", import.meta.url);
-	for (const name of readdirSync(migrations).sort())
-		sqlite.exec(
-			readFileSync(new URL(`${name}/migration.sql`, migrations), "utf8"),
-		);
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Orchard','orchard'),('foreign','Harbor','harbor');
 		INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,name,status,role) VALUES('member','org','owner','owner','owner@example.test','Morgan','active','owner');

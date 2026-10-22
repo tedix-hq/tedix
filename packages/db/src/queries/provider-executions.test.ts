@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import {
 	FiniteExecutionAuthorizationSchema,
@@ -13,6 +13,7 @@ import { createDbClient } from "../client";
 import * as billing from "../schema/billing";
 import type { NewProviderExecutionAttemptRow } from "../schema/provider-executions";
 import { createD1Facade } from "../test/d1-facade";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
 import { schemaDdl } from "../test/schema-ddl";
 import { providerDeploymentScope } from "@tedix/api-contract/schemas/provider-execution";
 import {
@@ -229,18 +230,9 @@ describe("immutable provider execution admission", () => {
 
 describe("populated canonical cost migration", () => {
 	it("preserves historical values, attribution and the org guard trigger", () => {
-		const sqlite = new DatabaseSync(":memory:");
 		const directory = new URL("../../drizzle/", import.meta.url);
 		const target = "20260920072429_provider_execution_cost_provenance";
-		for (const entry of readdirSync(directory, { withFileTypes: true })
-			.filter(
-				(entry) =>
-					entry.isDirectory() && /^\d/.test(entry.name) && entry.name < target,
-			)
-			.sort((a, b) => a.name.localeCompare(b.name)))
-			sqlite.exec(
-				readFileSync(new URL(`${entry.name}/migration.sql`, directory), "utf8"),
-			);
+		const sqlite = createMigratedSqlite({ beforeMigration: target });
 		sqlite.exec(
 			"INSERT INTO organizations(id,name,slug) VALUES ('migration-org','Migration org','migration-org')",
 		);
@@ -415,18 +407,9 @@ it("persists direct TypeSafe admission without invented Cloudflare fields", asyn
 });
 
 it("preserves populated execution ledger and indexes through Jev migration", () => {
-	const sqlite = new DatabaseSync(":memory:");
 	const root = new URL("../../drizzle/", import.meta.url);
 	const target = "20260923094659_jev_provider_execution";
-	for (const entry of readdirSync(root, { withFileTypes: true })
-		.filter(
-			(entry) =>
-				entry.isDirectory() && /^\d/.test(entry.name) && entry.name < target,
-		)
-		.sort((a, b) => a.name.localeCompare(b.name)))
-		sqlite.exec(
-			readFileSync(new URL(`${entry.name}/migration.sql`, root), "utf8"),
-		);
+	const sqlite = createMigratedSqlite({ beforeMigration: target });
 	sqlite
 		.prepare(
 			`INSERT INTO provider_execution_attempts(id,organization_id,source,idempotency_key,settlement_mode,provider,request_model,gateway_account_id,gateway_id,transport_kind,api_kind,provider_resource,provider_origin,deployment,deployment_scope,authorized_at,send_before) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,

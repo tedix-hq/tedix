@@ -5,11 +5,10 @@
  * as external_agent:P naming user:U, then decides as user:U.
  */
 
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	areSameWorkParty,
 	resolveCanonicalWorkParties,
@@ -17,20 +16,11 @@ import {
 import { evaluateAndRecordWorkAdmission } from "./admissions";
 import { decideWorkApproval, proposeWorkApproval } from "./approvals";
 
-const migrationRoot = new URL("../../../drizzle/", import.meta.url);
-const migrations = readdirSync(migrationRoot)
-	.sort()
-	.map((name) =>
-		readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
-	);
-
 const NOW = "2026-08-20T00:30:00.000Z";
 const LIVE_PURPOSE_EXCEPTION = "2026-09-01T00:00:00.000Z";
 
 function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=ON");
-	for (const sql of migrations) sqlite.exec(sql);
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');
 		INSERT INTO users(id,email) VALUES('owner','owner@example.test');

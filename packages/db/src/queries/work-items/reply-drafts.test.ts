@@ -1,8 +1,8 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { listUndeliveredWorkInteractionResponses } from "./interaction-deliveries";
 import { respondToWorkInteraction } from "./interactions";
 import {
@@ -14,19 +14,6 @@ import {
 	recordAutoReplyDelivery,
 } from "./reply-drafts";
 
-const migrationRoot = new URL("../../../drizzle/", import.meta.url);
-const migrations = readdirSync(migrationRoot)
-	.sort()
-	.map((name) =>
-		readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
-	);
-function migrated() {
-	const db = new DatabaseSync(":memory:");
-	db.exec("PRAGMA foreign_keys=ON");
-	for (const sqlText of migrations) db.exec(sqlText);
-	return db;
-}
-
 const CREATED = "2026-08-20T00:00:00.000Z";
 const NOW = "2026-08-20T01:00:00.000Z";
 const QUIET = {
@@ -35,7 +22,7 @@ const QUIET = {
 };
 
 function seed() {
-	const sqlite = migrated();
+	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');
 		INSERT INTO organizations(id,name,slug) VALUES('foreign','Foreign','foreign');
