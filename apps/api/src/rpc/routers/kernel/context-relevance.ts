@@ -1,3 +1,20 @@
+import type { assembleHomeContext, KernelContext } from "./context-assembly";
+import type { ConversationHistoryRead } from "./context-history";
+import { rerankContextCandidates } from "./jev-context-ranking";
+import {
+	RENDER_TEDIS_CAP,
+	RENDER_FACTS_CAP,
+	RENDER_RATIONALE_CAP,
+	renderHomeContextPrompt,
+} from "./context-render";
+import {
+	assessStepPressure,
+	compactKernelHistory,
+	getHistoryTokenLimits,
+	historyReplayChars,
+	shouldCompactHistory,
+} from "./context-compaction";
+
 import { type AgentMemoryCandidate } from "../../../integrations/cloudflare/agent-memory";
 import type {
 	RelevanceRecallOutcome,
@@ -265,4 +282,365 @@ export async function resolveRelevanceCandidates(input: {
 		candidates: [],
 		outcome: { source: "static", ageMs: null, candidates: 0, waitedMs },
 	};
+}
+
+// Org workflow catalog: bounded slug list for run_workflow grounding (rendered).
+const WORKFLOW_CATALOG_LIMIT = 24;
+
+export async function rankHomeContextCandidates(
+	workflowCatalog: KernelContext["workflows"],
+	tedis: KernelContext["tedis"],
+	blendedFacts: { id: string; text: string; confidence?: number }[],
+	rationale: KernelContext["rationale"],
+	operatorMessage: string | undefined,
+	opts: Parameters<typeof assembleHomeContext>[2],
+) {
+	// Query-scoped slot filling: when an inventory outgrows its fixed render
+	// slots, rank candidates by relevance to this turn's operator message and
+	// let the top-K fill the same bounded slots. Ties preserve the source order,
+	// so a message with no lexical signal degrades to today's exact behavior.
+	const lexicalWorkflows = rankByQueryRelevance(
+		workflowCatalog,
+		operatorMessage,
+		(workflow) => `${workflow.slug} ${workflow.title}`,
+	);
+	const lexicalTedis =
+		tedis.length > RENDER_TEDIS_CAP
+			? rankByQueryRelevance(
+					tedis,
+					operatorMessage,
+					(tedi) =>
+						`${tedi.slug} ${tedi.name} ${tedi.role ?? ""} ${tedi.capability ? `${tedi.capability.apps.join(" ")} ${tedi.capability.skills.join(" ")} ${tedi.capability.scopeGroups.join(" ")}` : ""}`,
+				)
+			: tedis;
+	// One paid judgment covers both oversubscribed memory sections. Keep the
+	// canonical D1/Agent Memory ordering unless finite prompt slots would drop
+	// candidates; the model can only permute facts that passed D1 hydration and
+	// rationale from this organization's read. A failed/denied judgment keeps
+	// those exact source orders. The recall budget is already resolved above
+	// and is never extended by this independent, concurrent ranking pass.
+	const memoryCandidates = [
+		...(blendedFacts.length > RENDER_FACTS_CAP
+			? blendedFacts.map((fact) => ({
+					kind: "fact" as const,
+					id: `fact:${fact.id}`,
+					description: `Fact: ${fact.text}`,
+					fact,
+				}))
+			: []),
+		...(rationale.length > RENDER_RATIONALE_CAP
+			? rationale.map((record, index) => ({
+					kind: "outcome" as const,
+					id: `outcome:${index}`,
+					description: `Prior action: ${record.action}; outcome: ${record.outcome ?? "unknown"}; category: ${record.category ?? "unknown"}`,
+					record,
+				}))
+			: []),
+	];
+
+	// Ranking is an enrichment, never a dependency: the whole wave gets a hard
+	// bound and falls back to the lexical orders. One stalled turn waited 56 s
+	// here before its route call (Work f9861b56).
+	const rankingStartedAtMs = Date.now();
+	let rankingTimedOut = false;
+	const rankingBudgetMs = opts?.rankingBudgetMs ?? HOME_ROUTE_RANKING_BUDGET_MS;
+	const rankingSkipped = rankingBudgetMs <= 0;
+	const [workflowOrder, rankedTedis, rankedMemory] = rankingSkipped
+		? [lexicalWorkflows, lexicalTedis, memoryCandidates]
+		: await withRankingBudget(
+				Promise.all([
+					lexicalWorkflows.length > WORKFLOW_CATALOG_LIMIT
+						? rerankContextCandidates(
+								lexicalWorkflows,
+								operatorMessage,
+								"workflow",
+								(workflow) => ({
+									id: workflow.slug,
+									description: `${workflow.slug} ${workflow.title}`,
+								}),
+								opts?.candidateRanker,
+							)
+						: Promise.resolve(lexicalWorkflows),
+					tedis.length > RENDER_TEDIS_CAP
+						? rerankContextCandidates(
+								lexicalTedis,
+								operatorMessage,
+								"tedi",
+								(tedi) => ({
+									id: tedi.id,
+									description: `${tedi.slug} ${tedi.name} ${tedi.role ?? ""} ${tedi.capability?.skills.join(" ") ?? ""}`,
+								}),
+								opts?.candidateRanker,
+							)
+						: Promise.resolve(lexicalTedis),
+					memoryCandidates.length > 1
+						? rerankContextCandidates(
+								memoryCandidates,
+								operatorMessage,
+								"memory",
+								(candidate) => ({
+									id: candidate.id,
+									description: candidate.description,
+								}),
+								opts?.candidateRanker,
+							)
+						: Promise.resolve(memoryCandidates),
+				]),
+				rankingBudgetMs,
+				() => {
+					rankingTimedOut = true;
+					console.warn({
+						component: "kernel.context",
+						event: "ranking_budget_exceeded",
+						budgetMs: CONTEXT_RANKING_BUDGET_MS,
+					});
+					return [lexicalWorkflows, lexicalTedis, memoryCandidates] as const;
+				},
+			);
+	const rankingMs = Date.now() - rankingStartedAtMs;
+	const rankedWorkflows = workflowOrder.slice(0, WORKFLOW_CATALOG_LIMIT);
+	const rankedFacts =
+		blendedFacts.length > RENDER_FACTS_CAP
+			? rankedMemory.flatMap((candidate) =>
+					candidate.kind === "fact" ? [candidate.fact] : [],
+				)
+			: blendedFacts;
+	const rankedRationale =
+		rationale.length > RENDER_RATIONALE_CAP
+			? rankedMemory.flatMap((candidate) =>
+					candidate.kind === "outcome" ? [candidate.record] : [],
+				)
+			: rationale;
+	return {
+		rankedWorkflows,
+		rankedTedis,
+		rankedFacts,
+		rankedRationale,
+		rankingMs,
+		rankingTimedOut,
+		rankingSkipped,
+	};
+}
+
+export async function applyHomeContextBudget(
+	draftCtx: KernelContext,
+	maxPromptTokens: number,
+	extraPromptChars: number,
+	operatorMessage: string | undefined,
+	historyRead: ConversationHistoryRead,
+	relevanceRecall: RelevanceRecallOutcome,
+	opts: Parameters<typeof assembleHomeContext>[2],
+): Promise<KernelContext> {
+	// ── Token-budget guard ────────────────────────────────────────────────────
+	// Assemble a draft context, render it, then check whether we are over the
+	// token budget.  If so, first compact the transcript (oldest turns fold into
+	// a checkpoint; the canonical ledger is untouched), then trim the
+	// lowest-priority sections (history → facts → rationale) and re-render until
+	// we are under budget.  Each trimming step
+	// emits a structured warning so the caller / telemetry pipeline can see what
+	// was dropped.  Under-budget assemblies are returned unchanged.
+	//
+	// Priority order (highest → lowest):
+	//   speaker, tedis, apps, workItems  — static org knowledge; never trimmed
+	//   rationale                         — medium priority
+	//   facts                             — medium priority
+	//   history                           — lowest priority (trimmed first)
+	// Measured pressure, not a proxy: account for everything the planner actually
+	// sends, so the compaction trigger fires against the real prompt.
+	//   - the SYSTEM_PROMPT reserve, which this module cannot import without a
+	//     cycle but which is unconditionally part of every planner call,
+	//   - the rendered context block,
+	//   - the history the planner fences into <conversation_history>,
+	//   - this turn's operator message.
+	// Only the SYSTEM_PROMPT term is a reserve; the rest are exact lengths.
+	function historyChars(ctx: KernelContext): number {
+		return historyReplayChars(ctx.history);
+	}
+	function estimateContextChars(ctx: KernelContext): number {
+		return (
+			SYSTEM_PROMPT_RESERVE_CHARS +
+			renderHomeContextPrompt(ctx).length +
+			historyChars(ctx) +
+			(operatorMessage?.length ?? 0) +
+			extraPromptChars
+		);
+	}
+
+	const totalChars = estimateContextChars(draftCtx);
+	const estimatedTokens = Math.ceil(totalChars / 4);
+
+	// ── Step 0: compaction ────────────────────────────────────────────────────
+	// Before anything is discarded, fold the oldest turns into a checkpoint. This
+	// fires at COMPACTION_TRIGGER_RATIO of the budget — ahead of the hard
+	// boundary, so the turn is compacted rather than cornered. `history` here is
+	// the replay projection; the canonical D1 ledger is untouched and the UI still
+	// pages back through every turn.
+	// Non-history chars = everything measured except the transcript: the
+	// SYSTEM_PROMPT reserve, the rendered context block, and the operator message.
+	const { inputBudgetChars, historyBudgetChars, retainTargetChars } =
+		getHistoryTokenLimits(maxPromptTokens, totalChars - historyChars(draftCtx));
+
+	// Per-step pressure. The estimator above is char/4 over the rows this pass
+	// read; it does not know what the provider actually charged for the last
+	// persisted step. Project the next request from that measured number plus the
+	// chars appended since, and let the same trigger decide. The projection is a
+	// max, so this arm can only make compaction fire earlier — never later.
+	const measuredPromptTokens =
+		opts?.measuredPromptTokens !== undefined
+			? opts.measuredPromptTokens
+			: historyRead.lastStepPromptTokens;
+	const stepPressure = assessStepPressure({
+		measuredPromptTokens,
+		// Everything this pass adds on top of the measured step: the assistant
+		// answer that step produced and every row persisted after it are already
+		// in `history`, so the honest increment is the chars the caller told us it
+		// will append (hydrated attachment bodies) plus this turn's operator
+		// message. Under-counting here is safe — the estimator term is the floor.
+		appendedChars: extraPromptChars + (operatorMessage?.length ?? 0),
+		estimatedTotalChars: totalChars,
+		inputBudgetChars,
+	});
+
+	// Re-check after every fold, not once. A single fold can leave the prompt
+	// still over the trigger (a huge retained tail, or a context block that grew
+	// since the last pass); folding again is strictly better than the truncation
+	// ladder below, whose first rung erases the transcript outright.
+	let workingCtx = draftCtx;
+	let workingChars = totalChars;
+	// The measured projection buys exactly one fold; every further fold must be
+	// justified by this pass's own re-measurement of the folded prompt.
+	let measuredFoldPending = stepPressure.action === "compact";
+	let forcedFoldPending = opts?.forceCompaction ?? false;
+	for (let fold = 0; fold < MAX_COMPACTION_FOLDS; fold += 1) {
+		const mustCompact =
+			forcedFoldPending ||
+			measuredFoldPending ||
+			shouldCompactHistory(workingChars, inputBudgetChars);
+		if (!mustCompact || workingCtx.history.length <= 1) break;
+
+		const compacted = await compactKernelHistory(workingCtx.history, {
+			historyBudgetChars,
+			retainTargetChars,
+			...(opts?.summarizeHistory ? { summarize: opts.summarizeHistory } : {}),
+		});
+		if (!compacted) break;
+
+		workingCtx = {
+			...workingCtx,
+			history: compacted.replay,
+			historyCheckpoint: compacted.checkpoint,
+		};
+		workingChars = estimateContextChars(workingCtx);
+		console.warn({
+			component: "kernel.context",
+			event: "history_compacted",
+			compactedMessages: compacted.checkpoint.compactedMessages,
+			retainedTurns: compacted.replay.length - 1,
+			estimatedTokens,
+			budget: maxPromptTokens,
+			boundaryIndex: compacted.checkpoint.boundaryIndex,
+			source: compacted.checkpoint.source,
+			fold: fold + 1,
+			measuredPromptTokens: stepPressure.measuredPromptTokens,
+			stepPressure: stepPressure.reason,
+		});
+		measuredFoldPending = false;
+		forcedFoldPending = false;
+	}
+
+	// Publish what this pass measured so the caller can re-check after it appends
+	// to the prompt (hydrated attachments) without re-reading the ledger.
+	function published(ctx: KernelContext): KernelContext {
+		return {
+			...ctx,
+			lastStepPromptTokens: measuredPromptTokens,
+			promptCharsEstimate: estimateContextChars(ctx),
+			stepPressure,
+			relevanceRecall,
+		};
+	}
+
+	if (Math.ceil(workingChars / 4) <= maxPromptTokens) {
+		return published(workingCtx);
+	}
+
+	// Over budget even after compaction — truncate lowest-priority sections first.
+	const trimmedCtx = { ...workingCtx };
+	const charBudget = maxPromptTokens * 4;
+
+	// Step 1: Drop history entirely. Last resort: reached only when the compacted
+	// history (or a history too short to compact) still does not fit.
+	if (trimmedCtx.history.length > 0) {
+		const droppedCount = trimmedCtx.history.length;
+		trimmedCtx.history = [];
+		delete trimmedCtx.historyCheckpoint;
+		const newChars = estimateContextChars(trimmedCtx);
+		console.warn({
+			component: "kernel.context",
+			event: "history_dropped",
+			droppedCount,
+			savedChars: workingChars - newChars,
+			estimatedTokens,
+			budget: maxPromptTokens,
+		});
+		if (newChars <= charBudget) {
+			return published(trimmedCtx);
+		}
+	}
+
+	// Step 2: Halve facts until under budget or exhausted.
+	while (trimmedCtx.facts.length > 0) {
+		const before = estimateContextChars(trimmedCtx);
+		if (before <= charBudget) break;
+		const prevCount = trimmedCtx.facts.length;
+		trimmedCtx.facts = trimmedCtx.facts.slice(
+			0,
+			Math.max(0, Math.floor(prevCount / 2)),
+		);
+		const after = estimateContextChars(trimmedCtx);
+		console.warn({
+			component: "kernel.context",
+			event: "facts_trimmed",
+			previousCount: prevCount,
+			remainingCount: trimmedCtx.facts.length,
+			savedChars: before - after,
+			budget: maxPromptTokens,
+		});
+		if (trimmedCtx.facts.length === 0) break;
+	}
+
+	// Step 3: Halve rationale until under budget or exhausted.
+	while (trimmedCtx.rationale.length > 0) {
+		const before = estimateContextChars(trimmedCtx);
+		if (before <= charBudget) break;
+		const prevCount = trimmedCtx.rationale.length;
+		trimmedCtx.rationale = trimmedCtx.rationale.slice(
+			0,
+			Math.max(0, Math.floor(prevCount / 2)),
+		);
+		const after = estimateContextChars(trimmedCtx);
+		console.warn({
+			component: "kernel.context",
+			event: "rationale_trimmed",
+			previousCount: prevCount,
+			remainingCount: trimmedCtx.rationale.length,
+			savedChars: before - after,
+			budget: maxPromptTokens,
+		});
+		if (trimmedCtx.rationale.length === 0) break;
+	}
+
+	// If still over budget (extremely unusual — e.g. tedis/apps alone exceed the
+	// window), log but return the best-effort context rather than throwing.
+	const finalChars = estimateContextChars(trimmedCtx);
+	if (finalChars > charBudget) {
+		console.warn({
+			component: "kernel.context",
+			event: "budget_exceeded_after_trim",
+			finalTokens: Math.ceil(finalChars / 4),
+			budget: maxPromptTokens,
+		});
+	}
+
+	return published(trimmedCtx);
 }
