@@ -55,31 +55,3 @@ export function LearnedToday({ timeZone }: { timeZone?: string }) {
 		</div>
 	);
 }
-
-export function FeedbackNotebook() {
-	const query = useQuery({
-		...osQuery.agentTurnTriage.listLessons.queryOptions({
-			input: { limit: 100 },
-		}),
-		refetchInterval: 30_000,
-	});
-	if (!query.data) return null;
-	return (
-		<section aria-label="Your feedback rules" className="grid gap-3">
-			{query.data.lessons
-				.filter((lesson) => lesson.fromCallerFeedback)
-				.map((lesson) => (
-					<article
-						id={`lesson-${lesson.id}`}
-						key={lesson.id}
-						className="scroll-mt-6 border-b py-3"
-					>
-						<Text weight="semibold">{lesson.text}</Text>
-						{lesson.evidence?.sources.map((source) => (
-							<blockquote key={source.id}>{source.quote}</blockquote>
-						))}
-					</article>
-				))}
-		</section>
-	);
-}
