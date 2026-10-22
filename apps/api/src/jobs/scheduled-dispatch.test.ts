@@ -28,6 +28,7 @@ const FLEET_COMMERCIAL_CRONS = [
 
 const catchup = vi.hoisted(() => ({
 	providerEvents: vi.fn().mockResolvedValue({ dispatched: 0 }),
+	commitment: vi.fn().mockResolvedValue({ observed: 0, dispatched: 0 }),
 	ingest: vi.fn(),
 	billing: vi.fn(),
 	stall: vi.fn().mockResolvedValue(0),
@@ -66,9 +67,7 @@ vi.mock("./work-approval-redrive", () => ({
 	dispatchWorkApprovalRedrives: vi.fn(),
 }));
 vi.mock("./commitment-wakes", () => ({
-	dispatchCommitmentWakes: vi
-		.fn()
-		.mockResolvedValue({ observed: 0, dispatched: 0 }),
+	dispatchCommitmentWakes: catchup.commitment,
 }));
 vi.mock("./stall-recovery", () => ({ dispatchStallRecovery: catchup.stall }));
 vi.mock("./repository-observer", () => ({
@@ -268,6 +267,7 @@ it("logs a content-free exception when a cron path throws and continues siblings
 			event: "platform.cron.path_failed",
 			scheduleId: "gateway-cost-catchup",
 			exception: { type: "Error", cause: { type: "TypeError" } },
+			causeChain: [{}],
 		});
 		expect(JSON.stringify(errorLog.mock.calls)).not.toContain(secret);
 	} finally {
@@ -389,5 +389,50 @@ it("keeps commitment replay and later paths live while stall recovery is pending
 		});
 	} finally {
 		errorLog.mockRestore();
+	}
+});
+
+it("keeps repository and support maintenance running after a commitment failure", async () => {
+	catchup.outcomes.length = 0;
+	catchup.commitment.mockRejectedValueOnce(
+		new Error("D1_ERROR Network connection lost: secret-sql"),
+	);
+	const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+	try {
+		await scheduled(
+			{
+				cron: "*/2 * * * *",
+				scheduledTime: Date.UTC(2026, 9, 22, 7, 4),
+				noRetry: () => {},
+			} as ScheduledController,
+			{
+				TEDIX_FLEET_AUTHORITY_MODE: "disabled",
+				TEDI_SERVICE: {},
+				DB: {},
+			} as unknown as CloudflareEnv,
+			{ waitUntil: () => {} } as unknown as ExecutionContext,
+		);
+		expect(catchup.outcomes).toContainEqual({
+			id: "commitment-wakes",
+			status: "failure",
+		});
+		expect(catchup.outcomes).toContainEqual({
+			id: "repository-observer",
+			status: "success",
+		});
+		expect(catchup.outcomes).toContainEqual({
+			id: "support-maintenance",
+			status: "success",
+		});
+		const failure = errors.mock.calls
+			.map(([entry]) => JSON.parse(String(entry)))
+			.find((entry) => entry.scheduleId === "commitment-wakes");
+		expect(failure.messageClass).toEqual([
+			"D1_ERROR",
+			"Network connection lost",
+		]);
+		expect(JSON.stringify(errors.mock.calls)).not.toContain("secret-sql");
+	} finally {
+		errors.mockRestore();
 	}
 });

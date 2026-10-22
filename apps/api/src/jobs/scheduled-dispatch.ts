@@ -1,5 +1,8 @@
 import { fleetAuthorityIsEnabled } from "../lib/fleet-authority";
-import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import {
+	safeErrorClassification,
+	safeExceptionTopology,
+} from "../lib/safe-log-metadata";
 import type { PlatformCronId } from "./platform-cron-catalog";
 
 async function trackPlatformCronPath(
@@ -20,6 +23,7 @@ async function trackPlatformCronPath(
 				event: "platform.cron.path_failed",
 				scheduleId,
 				exception: safeExceptionTopology(error),
+				...safeErrorClassification(error),
 			}),
 		);
 	}
@@ -91,12 +95,14 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		}
 
 		if (cron === "*/2 * * * *") {
-			const { maintainProviderEvents } = await import("./provider-events");
 			await trackPlatformCronPath(
 				env,
 				event,
 				"provider-event-maintenance",
-				() => maintainProviderEvents(env),
+				async () => {
+					const { maintainProviderEvents } = await import("./provider-events");
+					return maintainProviderEvents(env);
+				},
 			);
 		}
 
@@ -209,10 +215,15 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
 				dispatchCommitmentWakes(env, event.scheduledTime),
 			);
-			const { maintainRepositoryObservers } =
-				await import("./repository-observer");
-			await trackPlatformCronPath(env, event, "repository-observer", () =>
-				maintainRepositoryObservers(env),
+			await trackPlatformCronPath(
+				env,
+				event,
+				"repository-observer",
+				async () => {
+					const { maintainRepositoryObservers } =
+						await import("./repository-observer");
+					return maintainRepositoryObservers(env);
+				},
 			);
 			const { maintainSupport } = await import("./support-maintenance");
 			await trackPlatformCronPath(env, event, "support-maintenance", () =>

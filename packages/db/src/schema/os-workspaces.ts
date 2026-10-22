@@ -458,6 +458,11 @@ export const osGadgetExecutions = sqliteTable(
 	},
 	(table) => [
 		index("idx_os_gadget_executions_completed").on(table.completedAt),
+		index("idx_os_gadget_executions_run").on(
+			table.organizationId,
+			table.runId,
+			table.runtimeEnvironment,
+		),
 		index("os_gadget_executions_org_workspace_environment_idx").on(
 			table.organizationId,
 			table.workspaceId,

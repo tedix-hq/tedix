@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync, readdirSync } from "node:fs";
 import {
 	afterEach,
 	beforeEach,
@@ -30,6 +31,8 @@ import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
 import { buildRuntimeRunId } from "@tedix/api-contract/utils/runtime-identity";
 import {
 	advanceCommitmentWakeCheckpoint,
+	advanceCommitmentWakeCursor,
+	getCommitmentWakeCursor,
 	listCommitmentChanges,
 	lastCommitmentWakeCheckpoint,
 } from "@tedix/db/queries/work-items/commitment-changes";
@@ -39,6 +42,7 @@ import {
 } from "@tedix/db/schema/platform-cron-executions";
 import {
 	buildCommitmentWakeRequest,
+	MAX_COMMITMENT_CHANGES_PER_RUN,
 	commitmentWakeWindows,
 	dispatchCommitmentWakes,
 } from "./commitment-wakes";
@@ -47,29 +51,36 @@ const after = "2026-10-16T12:00:00.000Z";
 const through = "2026-10-16T12:02:00.000Z";
 const changedAt = "2026-10-16T12:01:00.000Z";
 
-function fixture(plans: string[] = []) {
+function fixture(plans: string[] = [], migrated = false) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(
-		schemaDdl(
-			tedis,
-			projects,
-			workItems,
-			workEvents,
-			workAttempts,
-			workApprovalProposals,
-			workApprovalDecisions,
-			workInteractions,
-			workInteractionResponses,
-			tediApprovalRequests,
-			osGadgetExecutions,
-			skillRuns,
-			tediRuntimeEvents,
-			platformCronExecutions,
-			platformCronCheckpoints,
-		),
-	);
-	sqlite.exec(`INSERT INTO tedis (id,organization_id,name,slug,status) VALUES ('worker-1','org-1','Orion','orion','active'),('worker-2','org-2','Lyra','lyra','active');
+	if (migrated) {
+		const root = new URL("../../../../packages/db/drizzle/", import.meta.url);
+		for (const name of readdirSync(root).sort())
+			sqlite.exec(readFileSync(new URL(`${name}/migration.sql`, root), "utf8"));
+	} else
+		sqlite.exec(
+			schemaDdl(
+				tedis,
+				projects,
+				workItems,
+				workEvents,
+				workAttempts,
+				workApprovalProposals,
+				workApprovalDecisions,
+				workInteractions,
+				workInteractionResponses,
+				tediApprovalRequests,
+				osGadgetExecutions,
+				skillRuns,
+				tediRuntimeEvents,
+				platformCronExecutions,
+				platformCronCheckpoints,
+			),
+		);
+	sqlite.exec("PRAGMA foreign_keys = OFF");
+	if (!migrated)
+		sqlite.exec(`INSERT INTO tedis (id,organization_id,name,slug,status) VALUES ('worker-1','org-1','Orion','orion','active'),('worker-2','org-2','Lyra','lyra','active');
 	INSERT INTO work_items(id,org_id,title,created_at,disposition,accountable_owner_type,accountable_owner_id) VALUES ('work-1','org-1','Scratch commitment','${after}','accepted','tedi','worker-1');`);
 	const binding = createD1Facade({
 		prepare(query) {
@@ -631,6 +642,167 @@ it("verifies an external lane success even when lane done already completed Work
 	expect(await listCommitmentChanges(db, after, through, "production")).toEqual(
 		[],
 	);
+});
+
+describe("bounded commitment pages", () => {
+	beforeEach(() =>
+		vi.spyOn(Date, "now").mockReturnValue(Date.parse(through) + 30_000),
+	);
+	afterEach(() => vi.restoreAllMocks());
+	it("uses indexed hot-path lookups on the complete migrated schema", async () => {
+		const plans: string[] = [];
+		const { db, sqlite } = fixture(plans, true);
+		await listCommitmentChanges(db, after, through, "test", {
+			limit: 25,
+			cursor: null,
+		});
+		expect(plans).toContainEqual(
+			expect.stringContaining(
+				"SEARCH a USING INDEX uniq_work_attempt_number (org_id=? AND work_item_id=?)",
+			),
+		);
+		expect(plans).toContainEqual(
+			expect.stringContaining(
+				"SEARCH g USING COVERING INDEX idx_os_gadget_executions_run (organization_id=? AND run_id=? AND runtime_environment=?)",
+			),
+		);
+		// Materialized, time-range result sets may scan; persistent hot tables must seek.
+		expect(
+			plans.filter((line) =>
+				/SCAN (work_events|work_items|work_attempts|work_approval_proposals|work_interactions|work_interaction_responses|skill_runs|os_gadget_executions|tedis)\b/.test(
+					line,
+				),
+			),
+		).toEqual([]);
+		await advanceCommitmentWakeCheckpoint(db, after);
+		const cursor = { changedAt, key: "work:z", tediId: "worker-1" };
+		await advanceCommitmentWakeCursor(db, after, cursor);
+		await advanceCommitmentWakeCursor(db, after, { ...cursor, key: "work:a" });
+		expect(await getCommitmentWakeCursor(db, after)).toEqual(cursor);
+		await advanceCommitmentWakeCheckpoint(db, through);
+		await advanceCommitmentWakeCursor(db, after, cursor);
+		expect(await getCommitmentWakeCursor(db, through)).toBeNull();
+		sqlite.close();
+	});
+	it("times out an unresponsive wake and preserves replay progress", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(
+			`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('a','org-1','work-1','work.accepted','user','owner','${changedAt}')`,
+		);
+		vi.useFakeTimers();
+		try {
+			const fetch = vi.fn(() => new Promise<Response>(() => {}));
+			const result = dispatchCommitmentWakes(
+				{
+					DB: binding,
+					ENVIRONMENT: "test",
+					TEDI_SERVICE: { fetch },
+				} as unknown as CloudflareEnv,
+				Date.parse(through) + 30_000,
+			);
+			const rejected = expect(result).rejects.toThrow(
+				"Commitment wake delivery failed",
+			);
+			await vi.advanceTimersByTimeAsync(5_000);
+			await rejected;
+			expect(fetch).toHaveBeenCalledOnce();
+			expect(
+				(fetch.mock.calls[0] as unknown as [Request])[0].signal.aborted,
+			).toBe(true);
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("defers a whole page when earlier windows used the remaining run budget", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		const insert = sqlite.prepare(
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES (?,'org-1','work-1','work.accepted','user','owner',?)",
+		);
+		for (let i = 0; i < MAX_COMMITMENT_CHANGES_PER_RUN - 1; i++)
+			insert.run(`early-${i}`, changedAt);
+		insert.run("later-a", "2026-10-16T12:03:00.000Z");
+		insert.run("later-b", "2026-10-16T12:03:00.000Z");
+		const fetch = vi.fn(async () =>
+			Response.json({ run_id: "accepted", accepted: true }),
+		);
+		const env = {
+			DB: binding,
+			ENVIRONMENT: "test",
+			TEDI_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		const now = Date.parse("2026-10-16T12:04:30.000Z");
+		expect(await dispatchCommitmentWakes(env, now)).toMatchObject({
+			observed: MAX_COMMITMENT_CHANGES_PER_RUN - 1,
+			budgetExhausted: 1,
+		});
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		expect(await dispatchCommitmentWakes(env, now)).toMatchObject({
+			observed: 2,
+		});
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+	it("resumes a dense window without dropping equal-time changes or reusing page delivery keys", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		const total = MAX_COMMITMENT_CHANGES_PER_RUN + 2;
+		const insert = sqlite.prepare(
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES (?,'org-1','work-1','work.accepted','user','owner',?)",
+		);
+		for (let i = 0; i < total; i++)
+			insert.run(`event-${String(i).padStart(4, "0")}`, changedAt);
+		const keys: string[] = [];
+		const fetch = vi.fn(async (request: Request) => {
+			keys.push(
+				((await request.json()) as { client_request_id: string })
+					.client_request_id,
+			);
+			return Response.json({ run_id: "accepted", accepted: true });
+		});
+		const env = {
+			DB: binding,
+			ENVIRONMENT: "test",
+			TEDI_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		expect(
+			await dispatchCommitmentWakes(env, Date.parse(through) + 30_000),
+		).toMatchObject({
+			observed: MAX_COMMITMENT_CHANGES_PER_RUN,
+			budgetExhausted: 1,
+		});
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+		expect(
+			await dispatchCommitmentWakes(env, Date.parse(through) + 30_000),
+		).toMatchObject({ observed: 2 });
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		expect(new Set(keys).size).toBe(2);
+	});
+
+	it("continues to the other tedi when one wake fails and leaves the page retryable", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(`INSERT INTO work_items(id,org_id,title,created_at,disposition,accountable_owner_type,accountable_owner_id) VALUES ('work-2','org-2','Other','${after}','accepted','tedi','worker-2');
+	INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('a','org-1','work-1','work.accepted','user','owner','${changedAt}'),('b','org-2','work-2','work.accepted','user','owner','${changedAt}');`);
+		const fetch = vi.fn(async (request: Request) =>
+			request.headers.get("X-Tedix-Host")?.startsWith("orion.")
+				? new Response("retry", { status: 503 })
+				: Response.json({ run_id: "accepted", accepted: true }),
+		);
+		await expect(
+			dispatchCommitmentWakes(
+				{
+					DB: binding,
+					ENVIRONMENT: "test",
+					TEDI_SERVICE: { fetch },
+				} as unknown as CloudflareEnv,
+				Date.parse(through) + 30_000,
+			),
+		).rejects.toThrow();
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+	});
 });
 
 it("wakes the project's lead tedi for a lane without a Work-level owner", async () => {
