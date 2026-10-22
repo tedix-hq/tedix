@@ -286,6 +286,13 @@ interface InferredLayout {
 	viewData?: Record<string, unknown>;
 }
 
+interface UiViewApp {
+	id: string;
+	slug: string;
+	name: string;
+	logoUrl?: string;
+}
+
 export function recordFrom(value: unknown): Record<string, unknown> | null {
 	return isRecord(value) ? value : null;
 }
@@ -531,13 +538,7 @@ function createCodeModeMcpApp(
 			renderMode: "sandboxed-html-css",
 		},
 		app,
-		_meta: {
-			"openai/outputTemplate": resourceUri,
-			ui: {
-				app,
-				resourceUri,
-			},
-		},
+		_meta: codeModeViewResultMeta(app, resourceUri),
 	};
 }
 
@@ -704,7 +705,6 @@ function createCodeModeUiView(
 	);
 	const resourceUri = `ui://widgets/mcp-app/${app.slug}/r/${layoutId}.html`;
 	const title = input.title ?? input.summary ?? `${app.name} view`;
-	const existingMeta = recordFrom(outputData._meta) ?? {};
 
 	return {
 		...outputData,
@@ -712,15 +712,7 @@ function createCodeModeUiView(
 		...(input.summary ? { summary: input.summary } : {}),
 		layoutSpec,
 		app,
-		_meta: {
-			...existingMeta,
-			"openai/outputTemplate": resourceUri,
-			ui: {
-				...recordFrom(existingMeta.ui),
-				app,
-				resourceUri,
-			},
-		},
+		_meta: codeModeViewResultMeta(app, resourceUri, outputData._meta),
 	};
 }
 
@@ -2255,10 +2247,27 @@ function readJsonRenderIssues(issues: unknown): string[] {
 		: ["Unknown json-render validation error."];
 }
 
+function codeModeViewResultMeta(
+	app: UiViewApp,
+	resourceUri: string,
+	existingMeta?: unknown,
+): Record<string, unknown> {
+	const existing = recordFrom(existingMeta) ?? {};
+	return {
+		...existing,
+		"openai/outputTemplate": resourceUri,
+		ui: {
+			...recordFrom(existing.ui),
+			app,
+			resourceUri,
+		},
+	};
+}
+
 function normalizeUiViewApp(
 	serverCtx: ServerContext,
 	input: UiViewInput,
-): { id: string; slug: string; name: string; logoUrl?: string } {
+): UiViewApp {
 	const slug = isWidgetAppSlug(input.appSlug)
 		? input.appSlug
 		: serverCtx.appSlug;
