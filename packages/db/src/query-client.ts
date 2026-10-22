@@ -10,9 +10,10 @@
  */
 
 import { drizzle } from "drizzle-orm/d1";
+import { observeD1 } from "./slow-query";
 
 export function createDbQueryClient(d1: D1Database) {
-	return drizzle(d1);
+	return drizzle(observeD1(d1));
 }
 
 export type DbQueryClient = ReturnType<typeof createDbQueryClient>;

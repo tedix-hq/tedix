@@ -6,9 +6,10 @@
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema/index";
 import { relations } from "./schema/relations";
+import { observeD1 } from "./slow-query";
 
 export function createDbClient(d1: D1Database) {
-	return drizzle(d1, { relations });
+	return drizzle(observeD1(d1), { relations });
 }
 
 /**
@@ -123,7 +124,7 @@ export function createDbSession(
 ): DbSession {
 	// A bookmark is strictly more specific than a constraint — prefer it when the
 	// caller supplied one, so the session resumes rather than restarting.
-	const session = d1.withSession(bookmark?.trim() || constraint);
+	const session = observeD1(d1.withSession(bookmark?.trim() || constraint));
 	const metrics = { queries: 0, rowsRead: 0, rowsWritten: 0, withoutMeta: 0 };
 	const statements = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
 	const record = (result: D1Result) => {
