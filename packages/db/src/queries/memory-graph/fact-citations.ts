@@ -16,26 +16,33 @@ async function progress(db: DbQueryClient, orgId: string) {
 	return row;
 }
 
-/** Only unindexed legacy facts may parse evidence, in bounded pages. */
+/**
+ * Only unindexed legacy facts may parse evidence, in bounded pages. Until the
+ * org's backfill marker is done, `legacyPages` caps how many 100-fact pages one
+ * call reads: a hot read passes a small budget and may miss a legacy dependent
+ * past it; the mutation path walks every page.
+ */
 export async function findCitationDependents(
 	db: DbQueryClient,
 	orgId: string,
 	citedIds: string[],
+	options?: { legacyPages?: number },
 ) {
 	if (!citedIds.length) return [];
 	const checkpoint = await progress(db, orgId);
 	const ids = new Set<string>();
+	let pages = options?.legacyPages ?? Number.POSITIVE_INFINITY;
 	if (!checkpoint?.done) {
 		for (const source of SOURCES) {
 			if (checkpoint && source < checkpoint.source) continue;
 			let cursor = checkpoint?.source === source ? checkpoint.factId : "";
-			while (true) {
+			while (pages-- > 0) {
 				// Materialize the page before evaluating JSON; LIMIT after EXISTS would still
 				// parse an unbounded number of candidates when evidence does not match.
 				const page = await db.all<{
 					id: string;
-				}>(sql`SELECT id AS id FROM memory_facts INDEXED BY idx_memory_facts_source
-    WHERE source = ${source} AND organization_id = ${orgId} AND id > ${cursor}
+				}>(sql`SELECT id AS id FROM memory_facts INDEXED BY idx_memory_facts_org_source_id
+    WHERE organization_id = ${orgId} AND source = ${source} AND id > ${cursor}
     AND NOT EXISTS (SELECT 1 FROM memory_fact_citations link WHERE link.consolidated_fact_id = memory_facts.id)
     ORDER BY id LIMIT ${PAGE_SIZE}`);
 				if (!page.length) break;
@@ -82,7 +89,7 @@ export async function backfillFactCitations(
 				id: string;
 				source: string;
 			}>(sql`SELECT id AS id, source AS source
-   FROM memory_facts INDEXED BY idx_memory_facts_source
+   FROM memory_facts INDEXED BY idx_memory_facts_org_source_id
    WHERE organization_id = ${orgId} AND source = ${source} AND id > ${cursor}
    ORDER BY id LIMIT ${size - page.length}`)),
 		);

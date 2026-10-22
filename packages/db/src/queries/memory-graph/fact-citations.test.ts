@@ -292,9 +292,15 @@ describe("indexed memory fact citations", () => {
 		).toBe(true);
 		expect(
 			plans.some((detail) =>
-				/SEARCH memory_facts USING INDEX idx_memory_facts_source/.test(detail),
+				/SEARCH memory_facts USING (?:COVERING )?INDEX idx_memory_facts_org_source_id \(organization_id=\? AND source=\? AND id>\?\)/.test(
+					detail,
+				),
 			),
 		).toBe(true);
+		// Pages come off the org-scoped index in id order; no other org's rows, no sort.
+		expect(
+			plans.some((detail) => /TEMP B-TREE FOR ORDER BY/.test(detail)),
+		).toBe(false);
 		expect(
 			plans.some((detail) =>
 				/SEARCH memory_facts USING INDEX sqlite_autoindex_memory_facts_1/.test(
@@ -311,5 +317,36 @@ describe("indexed memory fact citations", () => {
 		expect(queries.some((query) => query.includes("citation.value"))).toBe(
 			false,
 		);
+	});
+
+	it("bounds a hot read to its legacy page budget before the backfill is done", async () => {
+		const queries: string[] = [];
+		const { db, add, legacy } = fixture((query) => {
+			if (/^SELECT/i.test(query)) queries.push(query);
+		});
+		for (let i = 0; i < 305; i++)
+			add(`head-${String(i).padStart(3, "0")}`, [{ id: "a" }]);
+		add("summary", [{ id: "a" }], ORG, "consolidation://standing_summary");
+		legacy();
+		const found = await findCitationDependents(db, ORG, ["a"], {
+			legacyPages: 2,
+		});
+		expect(found).toHaveLength(200);
+		expect(
+			queries.filter((query) =>
+				query.includes("INDEXED BY idx_memory_facts_org_source_id"),
+			),
+		).toHaveLength(2);
+		// A done marker removes the fallback; links alone answer the read.
+		while (await backfillFactCitations(db, ORG)) {}
+		queries.length = 0;
+		expect(
+			await findCitationDependents(db, ORG, ["a"], { legacyPages: 2 }),
+		).toHaveLength(306);
+		expect(
+			queries.some((query) =>
+				query.includes("INDEXED BY idx_memory_facts_org_source_id"),
+			),
+		).toBe(false);
 	});
 });

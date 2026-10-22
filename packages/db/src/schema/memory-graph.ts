@@ -192,6 +192,13 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_type").on(table.factType),
 		index("idx_memory_facts_confidence").on(table.confidence),
 		index("idx_memory_facts_source").on(table.source),
+		// Citation backfill and legacy recall page one org's consolidation facts by
+		// id; the source-only index read every org's rows and sorted them.
+		index("idx_memory_facts_org_source_id").on(
+			table.organizationId,
+			table.source,
+			table.id,
+		),
 		index("idx_memory_facts_archived").on(table.archivedAt),
 		index("idx_memory_facts_valid_to").on(table.validTo),
 		index("idx_memory_facts_org_recall_time").on(

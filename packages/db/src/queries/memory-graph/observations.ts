@@ -729,10 +729,13 @@ export async function preferConsolidatedFacts(
 	tediId?: string,
 ) {
 	if (!facts.length) return facts;
+	// Runs on every Home turn: at most one legacy page per source until the
+	// org's citation backfill is done, so recall never walks the whole corpus.
 	const ids = await findCitationDependents(
 		db,
 		orgId,
 		facts.map((fact) => fact.id),
+		{ legacyPages: 2 },
 	);
 	const candidates = await db
 		.select(prefixedColumns(memoryFacts, "fact"))
