@@ -471,7 +471,7 @@ test("maintenance completion verifies persisted acknowledgments on duplicate wak
 	assert.equal(f.completions(), 2);
 });
 
-test("maintenance callbacks with no acknowledgment remain uncertain and never replay", async () => {
+test("maintenance callbacks retry their original effect until an acknowledgment is available", async () => {
 	const f = maintenanceFixture();
 	await f.create().ensure();
 	const row = [...f.rows.values()].find(
@@ -485,8 +485,11 @@ test("maintenance callbacks with no acknowledgment remain uncertain and never re
 		f.create().run(row.payload, row),
 		/acknowledgment missing/,
 	);
-	await assert.rejects(f.create().run(row.payload, row), /uncertain/);
-	assert.equal(attempts, 1);
+	await assert.rejects(
+		f.create().run(row.payload, row),
+		/acknowledgment missing/,
+	);
+	assert.equal(attempts, 2);
 	assert.equal(f.completions(), 0);
 	assert.equal(
 		f.storage.rows.get(

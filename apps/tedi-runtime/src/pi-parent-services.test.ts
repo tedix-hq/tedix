@@ -55,10 +55,15 @@ class Storage {
 	async put(key: string, value: any) {
 		this.rows.set(key, structuredClone(value));
 	}
-	async list<T>({ prefix }: any): Promise<Map<string, T>> {
+	async list<T>({ prefix, startAfter, limit }: any): Promise<Map<string, T>> {
 		return new Map(
 			[...this.rows]
-				.filter(([key]) => key.startsWith(prefix))
+				.filter(
+					([key]) =>
+						key.startsWith(prefix) && (!startAfter || key > startAfter),
+				)
+				.sort(([a], [b]) => a.localeCompare(b))
+				.slice(0, limit)
 				.map(([key, row]) => [key, structuredClone(row)]),
 		);
 	}
@@ -495,8 +500,9 @@ const schedule = {
 	f.fail = true;
 	await assert.rejects(f.service.run(payload, schedule), /lost task/);
 	f.fail = false;
-	await assert.rejects(f.service.run(payload, schedule), /uncertain/);
-	assert.equal(f.runs, 1);
+	await f.service.run(payload, schedule);
+	assert.equal(f.gate.completes, 1);
+	assert.equal(f.runs, 2);
 	assert.equal(f.gate.admits, 1);
 }
 {
@@ -528,8 +534,9 @@ for (const outcome of ["void", "uncertain", "foreign"] as const) {
 	assert.equal(f.gate.completes, 0);
 	assert.equal([...f.storage.rows.values()][0].stage, "uncertain");
 	f.outcome = "acknowledged";
-	await assert.rejects(f.service.run(payload, schedule), /uncertain/);
-	assert.equal(f.runs, 1);
+	await f.service.run(payload, schedule);
+	assert.equal(f.gate.completes, 1);
+	assert.equal(f.runs, 2);
 	assert.equal(f.gate.admits, 1);
 }
 {
@@ -637,3 +644,51 @@ stored.set("tedix:pi:maintenance:v1:unknown", {
 	legacyCancelled: true,
 });
 assert.throws(() => inspectMaintenanceRecords(passiveStorage), /task identity/);
+
+{
+	const f = maintenance();
+	f.fail = true;
+	await assert.rejects(f.service.run(payload, schedule), /lost task/);
+	f.fail = false;
+	await f.service.run(payload, { ...schedule, time: schedule.time + 300 });
+	assert.equal(
+		f.gate.completes,
+		2,
+		"a later native fire reconciles its old fire first",
+	);
+	assert.equal(f.gate.admits, 2, "old original admission is reused");
+}
+{
+	const { recordMaintenanceScheduleError } =
+		await import("./runtime-diagnostics");
+	const logs: unknown[] = [],
+		events: any[] = [];
+	const warn = console.warn;
+	console.warn = (value) => {
+		logs.push(value);
+	};
+	try {
+		await recordMaintenanceScheduleError(
+			{
+				state: { tediId: "fixture", slug: "fixture" },
+				ensureIdentity: async () => {},
+				eventOutbox: {
+					publish: async (event: any) => {
+						events.push(event);
+					},
+				},
+			} as any,
+			{
+				callback: "onParentMaintenance",
+				id: "native-tick",
+				error: "retry budget exhausted",
+				attempts: 3,
+			},
+		);
+	} finally {
+		console.warn = warn;
+	}
+	assert.equal((logs[0] as any).event, "tedi.maintenance.schedule_error");
+	assert.equal(events[0].kind, "runtime.health_changed");
+	assert.equal(events[0].payload.phase, "maintenance_schedule_error");
+}

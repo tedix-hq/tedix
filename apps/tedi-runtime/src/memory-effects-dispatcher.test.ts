@@ -8,6 +8,7 @@
  * first act is the lean-session gate — no per-surface vigilance checks.
  */
 import assert from "node:assert/strict";
+import { readDailyLogQueue } from "./runtime-memory-effects";
 import {
 	isBlindVerificationSession,
 	isLeanContextSession,
@@ -38,7 +39,9 @@ assert.equal(isLeanContextSession("agent:main:main"), false);
 // the brain bridge (or await it for workflow ordering) and log the pair.
 function dispatcherProbe() {
 	const effects: string[] = [];
+	const storage = memoryStorage();
 	const agent = tediDo({
+		ctx: { storage: { ...storage, transactionSync: <T>(fn: () => T) => fn() } },
 		state: { tediId: "tedi-1", pendingDailyEntries: [] },
 		setState(next: unknown) {
 			agent.state = next;
@@ -107,7 +110,8 @@ for (const sessionKey of [
 		dailyLog: false,
 	});
 	assert.deepEqual(probe.effects, ["queue:onBridgeTurn", "await:onBridgeTurn"]);
-	assert.equal(probe.agent.state.pendingDailyEntries.length, 2);
+	assert.equal(probe.agent.state.pendingDailyEntries.length, 0);
+	assert.equal(readDailyLogQueue(probe.agent as any).length, 2);
 	assert.deepEqual(
 		["run-1:memory", "run-2:memory"].map(
 			(id) => probe.agent.runtimeAdmission().gate.claim(id)?.principalId,
