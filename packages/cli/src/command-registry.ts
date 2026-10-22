@@ -1,4 +1,5 @@
 import { attentionUsage } from "./attention";
+import { decideUsage } from "./decide";
 import { COMMANDS, interactiveSlashCommands } from "./commands";
 import { agentContextUsage } from "./agent-context";
 import { HUMAN_CONNECT_CONSENT_SCOPES } from "@tedix/mcp-shared/auth/consent-scopes";
@@ -65,6 +66,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		mutability: "mixed",
 		output: HUMAN_JSON,
 		help: attentionUsage,
+	},
+	{
+		name: "decide",
+		argHint: "<decision-json|outcome|list>",
+		surface: "gateway-direct",
+		summary: "Record a decision this agent made on its own",
+		mutability: "mixed",
+		output: HUMAN_JSON,
+		help: decideUsage,
 	},
 	{
 		name: "feed",
