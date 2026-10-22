@@ -120,7 +120,8 @@
 	"tedixCi": {
 		"splitTestScripts": true,
 		"testScriptShards": {
-			"test:unit": 4
+			"test:unit": 4,
+			"test:browser:focus-clip": 4
 		}
 	}
 }

@@ -8,6 +8,7 @@
  * reuse a running fixture server, FOCUS_CLIP_ROUTES to a comma list to narrow
  * the crawl, FOCUS_CLIP_REPORT to write the findings as JSON.
  * FOCUS_CLIP_SCREENSHOTS saves Work loading/error images to an existing directory.
+ * `--shard i/n` audits only every n-th viewport/theme config.
  */
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
@@ -24,6 +25,35 @@ type Finding = {
 	overshoot: number;
 	clipper: string;
 };
+
+// `--shard i/n` (the CI matrix) audits every n-th viewport/theme config.
+const shardFlag = process.argv.indexOf("--shard");
+const [shard, shardCount] =
+	shardFlag < 0
+		? [1, 1]
+		: (process.argv[shardFlag + 1] ?? "").split("/").map(Number);
+assert(
+	Number.isInteger(shard) &&
+		Number.isInteger(shardCount) &&
+		shard! >= 1 &&
+		shard! <= shardCount!,
+	`Invalid --shard ${process.argv[shardFlag + 1]}`,
+);
+const configs = [
+	{ width: 1280, height: 900 },
+	{ width: 390, height: 844 },
+]
+	.flatMap((viewport) =>
+		(["light", "dark"] as const).map((theme) => ({ viewport, theme })),
+	)
+	.filter((_, index) => index % shardCount! === shard! - 1);
+// Readiness budgets assume about two cores per page beside the dev server.
+const pages = Math.max(1, Math.floor(availableParallelism() / 2));
+const CRAWL_PAGES = Math.min(3, pages);
+const PAGES_PER_CONFIG = Math.max(
+	1,
+	Math.min(2, Math.floor(pages / configs.length)),
+);
 
 const cwd = new URL("../", import.meta.url).pathname;
 const probe = Bun.serve({
@@ -651,12 +681,6 @@ async function auditRoute(page: Page, route: string, label: string) {
 	}
 }
 
-// Readiness budgets assume roughly a core per page beside the dev server. The
-// four audit configs run side by side, so a 4-core CI runner gets one page each.
-const lanes = Math.max(1, Math.floor(availableParallelism() / 4));
-const CRAWL_PAGES = Math.min(3, lanes);
-const PAGES_PER_CONFIG = Math.min(2, lanes);
-
 let browser: Browser | undefined;
 const findings: Finding[] = [];
 try {
@@ -723,12 +747,6 @@ try {
 		JSON.stringify([...routes.values()]),
 	);
 
-	const configs = [
-		{ width: 1280, height: 900 },
-		{ width: 390, height: 844 },
-	].flatMap((viewport) =>
-		(["light", "dark"] as const).map((theme) => ({ viewport, theme })),
-	);
 	await Promise.all(
 		configs.map(async ({ viewport, theme }) => {
 			const configStarted = performance.now();
