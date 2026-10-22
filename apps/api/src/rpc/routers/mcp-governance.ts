@@ -31,6 +31,7 @@ const mcpGovernanceOs = implement(
 	mcpGovernanceContract,
 ).$context<BaseContext>();
 const serviceOs = mcpGovernanceOs.use(withServiceAuth);
+const RESERVED_SKILL_NAMESPACES = new Set(["tedi", "home", "kernel"]);
 
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	resolveSkillManifestAuthorization:
@@ -79,16 +80,39 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						namespaces,
 					},
 				);
-				const declared = namespaces.some((namespace) => {
-					if (!isMethodAllowed(manifest, namespace, input.method)) return false;
-					// The target comes from the gateway's resolved tool, never call arguments.
-					if (input.targetTediId)
-						return input.targetTediId === run.tediId && namespace === "tedi";
-					if (namespace === "tedi") return false;
-					if (namespaceToSlug[namespace])
-						return namespaceToSlug[namespace] === input.sourceAppSlug;
-					return namespace === input.namespace;
-				});
+				const declaredNamespaces = namespaces.filter((namespace) =>
+					isMethodAllowed(manifest, namespace, input.method),
+				);
+				// The target and namespace come from the gateway's resolved tool,
+				// never call arguments.
+				let declared: boolean;
+				if (input.targetTediId) {
+					// `tedi` is the run's own tedi. A named tedi namespace
+					// (`ceo: [run_tedi_turn]`) declares that tedi of the same org.
+					declared =
+						(input.targetTediId === run.tediId &&
+							declaredNamespaces.includes("tedi")) ||
+						(declaredNamespaces.some(
+							(namespace) =>
+								namespace === input.namespace &&
+								!RESERVED_SKILL_NAMESPACES.has(namespace) &&
+								!namespaceToSlug[namespace],
+						) &&
+							Boolean(
+								await getTediByIdForOrganization(
+									context.db,
+									input.targetTediId,
+									input.organizationId,
+								).then((tedi) => tedi && !tedi.retiredAt),
+							));
+				} else {
+					declared = declaredNamespaces.some((namespace) => {
+						if (namespace === "tedi") return false;
+						if (namespaceToSlug[namespace])
+							return namespaceToSlug[namespace] === input.sourceAppSlug;
+						return namespace === input.namespace;
+					});
+				}
 				return declared
 					? { approved: true, skillId: skill.id, revision: run.skillRevision }
 					: { approved: false };
