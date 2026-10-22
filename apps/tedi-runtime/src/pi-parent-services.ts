@@ -167,6 +167,7 @@ interface MaintenanceRecord {
 
 /** Native Agents scheduling; no Think class, declarations or alarm override. */
 export class ParentMaintenanceServices {
+	private readonly inFlight = new Map<string, Promise<void>>();
 	constructor(private readonly host: MaintenanceHost) {}
 
 	private key(taskId: ParentMaintenanceTask): string {
@@ -290,6 +291,70 @@ export class ParentMaintenanceServices {
 		payload: MaintenancePayload,
 		schedule: Schedule<MaintenancePayload>,
 	): Promise<void> {
+		const key = `${schedule?.id}:${schedule?.time}`;
+		const existing = this.inFlight.get(key);
+		if (existing) return existing;
+		const next = this.recoverAndRun(payload, schedule).finally(() =>
+			this.inFlight.delete(key),
+		);
+		this.inFlight.set(key, next);
+		return next;
+	}
+	private async recoverAndRun(
+		payload: MaintenancePayload,
+		schedule: Schedule<MaintenancePayload>,
+	): Promise<void> {
+		// Scan one bounded page per cycle, retaining a cursor for old deployments
+		// whose uncertain fires predate recovery support.
+		const cursorKey = `memory:maintenance:recovery-cursor:${payload.taskId}`;
+		const startAfter = await this.host.storage.get<string>(cursorKey);
+		const page = await this.host.storage.list<MaintenanceFire>({
+			prefix: "tedix:pi:maintenance:fire:",
+			limit: 100,
+			...(startAfter ? { startAfter } : {}),
+		});
+		let cursor = "";
+		for (const [key, fire] of page) {
+			cursor = key;
+			const op = fire.operation;
+			if (
+				op?.input.taskId !== payload.taskId ||
+				(fire.stage !== "uncertain" &&
+					fire.stage !== "running" &&
+					fire.stage !== "acknowledged")
+			)
+				continue;
+			if (op.operationId === `maintenance:${schedule?.id}:${schedule?.time}`)
+				continue;
+			const oldPayload: MaintenancePayload = {
+				taskId: payload.taskId,
+				...(op.input.bridge ? { bridge: true as const } : {}),
+			};
+			const oldSchedule = {
+				id: op.input.scheduleId,
+				callback: "onParentMaintenance",
+				payload: oldPayload,
+				type: op.input.scheduleType,
+				time: Number(op.input.scheduledAt) / 1000,
+			} as Schedule<MaintenancePayload>;
+			const oldKey = `${oldSchedule.id}:${oldSchedule.time}`;
+			if (!this.inFlight.has(oldKey)) {
+				const recovery = this.runFire(oldPayload, oldSchedule).finally(() =>
+					this.inFlight.delete(oldKey),
+				);
+				this.inFlight.set(oldKey, recovery);
+				await recovery;
+			}
+			break;
+		}
+		if (page.size >= 100 || startAfter)
+			await this.host.storage.put(cursorKey, page.size < 100 ? "" : cursor);
+		await this.runFire(payload, schedule);
+	}
+	private async runFire(
+		payload: MaintenancePayload,
+		schedule: Schedule<MaintenancePayload>,
+	): Promise<void> {
 		if (!(payload.taskId in PARENT_MAINTENANCE_TASKS))
 			throw new Error("Invalid parent maintenance task");
 		if (
@@ -321,6 +386,19 @@ export class ParentMaintenanceServices {
 		let fire = await this.host.storage.get<MaintenanceFire>(fireKey);
 		if (fire && JSON.stringify(fire.operation) !== JSON.stringify(operation))
 			throw new Error("Maintenance accepted fire input changed");
+		if (fire?.stage === "running" || fire?.stage === "uncertain") {
+			await this.host.assertOriginal(fire.operation, fire.claim);
+			await this.host.assertActive(fire.operation, fire.claim);
+			// host.run reads the original durable effect journal before replaying any work.
+			const outcome = maintenanceEffect(
+				fire.operation,
+				await this.host.run(payload.taskId, structuredClone(fire.operation)),
+			);
+			if (outcome.status !== "acknowledged")
+				throw new Error("Maintenance effect remains uncertain");
+			fire = { ...fire, stage: "acknowledged", effectReceipt: outcome };
+			await this.host.storage.put(fireKey, fire);
+		}
 		if (fire?.stage === "completed" || fire?.stage === "acknowledged") {
 			if (!fire.effectReceipt)
 				throw new Error("Maintenance completed effect receipt missing");
@@ -335,8 +413,7 @@ export class ParentMaintenanceServices {
 			await this.host.storage.put(fireKey, { ...fire, stage: "completed" });
 			return;
 		}
-		if (fire?.stage === "running" || fire?.stage === "uncertain")
-			throw new Error("Maintenance prior execution is uncertain");
+
 		await this.host.assertRuntimeActive();
 		if (!(await this.host.isCanonical())) return;
 		if (!fire) {

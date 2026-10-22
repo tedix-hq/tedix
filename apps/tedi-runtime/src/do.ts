@@ -1,3 +1,4 @@
+import { recordMaintenanceScheduleError } from "./runtime-diagnostics";
 import { createObjectStoreTools } from "./object-store-tools";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
 import {
@@ -1611,6 +1612,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		if (type === "alarm:memory_limit_reset") {
 			this.ctx.waitUntil(this.recordAlarmMemoryLimitResetTelemetry(payload));
 		}
+		if (type === "schedule:error")
+			this.ctx.waitUntil(
+				recordMaintenanceScheduleError(this.memoryHost(), payload),
+			);
 	}
 
 	private readonly meshSendWindow = new MeshSendWindow();

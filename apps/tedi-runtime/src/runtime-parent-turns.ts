@@ -1041,8 +1041,11 @@ export const runtimeParentTurns = {
 				runId,
 				input: prior.operation,
 			});
+			if (JSON.stringify(prior.operation) !== JSON.stringify(operation))
+				throw new Error("Maintenance original effect changed");
 			if (prior.stage === "acknowledged" && prior.receipt) return prior.receipt;
-			return { ...identity, status: "uncertain", reason: "unconfirmed" };
+			// Re-enter only the original admitted task. Each local memory writer records
+			// its durable result; Artifacts checks remote blocks after a lost response.
 		}
 		await this.runtimeAdmission()?.assertAcceptedTurn({
 			runId,
@@ -1051,27 +1054,31 @@ export const runtimeParentTurns = {
 		await this.ctx.storage.put(key, { operation, stage: "running" });
 		try {
 			let artifactsReceipt: ArtifactsPushReceipt | null = null;
-			switch (task) {
-				case "isolate-daily-log-flush": {
-					const cleanup = await this.imageCleanupJournal().redrive();
-					if (cleanup.failed)
-						throw new Error("Maintenance image cleanup is unresolved");
-					artifactsReceipt = await this.onDailyLogFlush(runId);
-					break;
+			const persisted = this.ctx.storage.kv.get(
+				`memory:maintenance:result:${runId}`,
+			);
+			if (!persisted)
+				switch (task) {
+					case "isolate-daily-log-flush": {
+						const cleanup = await this.imageCleanupJournal().redrive();
+						if (cleanup.failed)
+							throw new Error("Maintenance image cleanup is unresolved");
+						artifactsReceipt = await this.onDailyLogFlush(runId);
+						break;
+					}
+					case "isolate-directive-compile":
+						await this.onCompileDirectives(runId);
+						break;
+					case "isolate-brain-digest":
+						await this.onCompileBrainDigest(runId);
+						break;
+					case "isolate-corpus-audit":
+						await this.onAuditCorpus(runId);
+						break;
+					case "isolate-skill-guidance-refresh":
+						await this.onRefreshSkillGuidance(runId);
+						break;
 				}
-				case "isolate-directive-compile":
-					await this.onCompileDirectives(runId);
-					break;
-				case "isolate-brain-digest":
-					await this.onCompileBrainDigest(runId);
-					break;
-				case "isolate-corpus-audit":
-					await this.onAuditCorpus(runId);
-					break;
-				case "isolate-skill-guidance-refresh":
-					await this.onRefreshSkillGuidance(runId);
-					break;
-			}
 			await this.runtimeAdmission()?.assertOriginalClaim({
 				runId,
 				input: operation,
@@ -1083,6 +1090,8 @@ export const runtimeParentTurns = {
 				acknowledgmentId,
 				status: "acknowledged",
 				artifactsReceipt,
+				memoryResult:
+					this.ctx.storage.kv.get(`memory:maintenance:result:${runId}`) ?? null,
 			};
 			const receipt: MaintenanceEffectReceipt = {
 				...identity,
