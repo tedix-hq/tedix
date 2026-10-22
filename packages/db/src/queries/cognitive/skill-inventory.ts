@@ -52,10 +52,12 @@ export async function listAllSkillsForOrg(
 		if (!options.lifecycleState)
 			conditions.push(ne(skillEntries.lifecycleState, "draft"));
 		const override = alias(skillEntries, "tedi_skill_override");
+		// Selecting a constant keeps this per-row probe inside the covering
+		// idx_skill_entries_org_tedi_supersedes index.
 		conditions.push(
 			notExists(
 				db
-					.select({ id: override.id })
+					.select({ one: sql`1` })
 					.from(override)
 					.where(
 						and(
@@ -99,7 +101,12 @@ export async function listAllSkillsForOrg(
 			.select()
 			.from(skillEntries)
 			.where(whereClause)
-			.orderBy(desc(skillEntries.updatedAt), desc(skillEntries.successCount))
+			// id breaks ties so offset pages never repeat or skip a skill.
+			.orderBy(
+				desc(skillEntries.updatedAt),
+				desc(skillEntries.successCount),
+				desc(skillEntries.id),
+			)
 			.limit(Math.min(options?.limit ?? 50, 200))
 			.offset(options?.offset ?? 0),
 		db.$count(skillEntries, whereClause),

@@ -1,7 +1,8 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	listAllSkillsForOrg,
 	listExecutableSkillWorkflowsForOrg,
@@ -137,4 +138,122 @@ describe("skill inventory search", () => {
 		expect(overrides.total).toBe(1);
 		expect(overrides.entries.map((entry) => entry.id)).toEqual(["skill-5"]);
 	});
+});
+
+describe("skill inventory plan", () => {
+	const inventoryIndexes = [
+		"idx_skill_entries_org_updated",
+		"idx_skill_entries_org_tedi_supersedes",
+	];
+
+	function seededSqlite(): DatabaseSync {
+		const sqlite = createMigratedSqlite({ foreignKeys: false });
+		const insert = sqlite.prepare(`
+			INSERT INTO skill_entries (
+				id, organization_id, tedi_id, title, slug, content, visibility,
+				lifecycle_state, supersedes_id, success_count, updated_at
+			) VALUES (?, ?, ?, ?, ?, '# Skill', ?, ?, ?, ?, ?)`);
+		const lifecycles = ["active", "proven", "draft", "archived", "stale"];
+		for (let index = 0; index < 160; index += 1) {
+			const tediId = index % 4 === 0 ? null : `tedi-${index % 3}`;
+			// tedi-1 overrides some org baselines, in every lifecycle state.
+			const supersedesId =
+				tediId === "tedi-1" && index % 5 === 1 ? `skill-${index - 1}` : null;
+			insert.run(
+				`skill-${index}`,
+				index % 7 === 6 ? "org-2" : "org-1",
+				tediId,
+				`Skill ${index}`,
+				`skill-${index}`,
+				index % 6 === 0 ? "private" : "org",
+				lifecycles[index % lifecycles.length]!,
+				supersedesId,
+				index % 3,
+				// Shared timestamps make success_count the deciding tie-breaker.
+				`2026-10-${String(1 + (index % 20)).padStart(2, "0")}T00:00:00.000Z`,
+			);
+		}
+		return sqlite;
+	}
+
+	const cases: Parameters<typeof listAllSkillsForOrg>[2][] = [
+		undefined,
+		{ tediId: "tedi-1" },
+		{ tediId: "tedi-1", limit: 7, offset: 5 },
+		{ tediId: "tedi-1", lifecycleState: "active" },
+		{ tediId: "tedi-2", visibility: "org" },
+		{ lifecycleState: "proven", limit: 3, offset: 2 },
+	];
+
+	it("returns the same pages and totals with and without the inventory indexes", async () => {
+		const indexed = seededSqlite();
+		const unindexed = seededSqlite();
+		for (const name of inventoryIndexes) unindexed.exec(`DROP INDEX ${name}`);
+		for (const options of cases) {
+			const expected = await listAllSkillsForOrg(
+				createDbClient(createD1Facade(unindexed)),
+				"org-1",
+				options,
+			);
+			const actual = await listAllSkillsForOrg(
+				createDbClient(createD1Facade(indexed)),
+				"org-1",
+				options,
+			);
+			expect(expected.total).toBeGreaterThan(0);
+			expect(actual).toEqual(expected);
+		}
+	});
+
+	it.each([false, true])(
+		"reads the tedi inventory through indexes without a sort (analyzed: %s)",
+		async (analyzed) => {
+			const sqlite = seededSqlite();
+			if (analyzed) sqlite.exec("ANALYZE");
+			const statements: { sql: string; params: unknown[] }[] = [];
+			const recording = {
+				exec: (sql: string) => sqlite.exec(sql),
+				prepare(sql: string) {
+					const statement = sqlite.prepare(sql);
+					const record =
+						(method: "all" | "get" | "run") =>
+						(...params: unknown[]) => {
+							statements.push({ sql, params });
+							return (statement[method] as (...args: unknown[]) => never)(
+								...params,
+							);
+						};
+					return { all: record("all"), get: record("get"), run: record("run") };
+				},
+			};
+			await listAllSkillsForOrg(
+				createDbClient(createD1Facade(recording)),
+				"org-1",
+				{ tediId: "tedi-1", limit: 200 },
+			);
+			expect(statements).toHaveLength(2);
+			for (const { sql, params } of statements) {
+				const plan = sqlite
+					.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+					.all(...(params as SQLInputValue[]))
+					.map((row) => String(row.detail));
+				// Before these indexes the page sorted the tenant in a temp B-tree and
+				// the override probe walked the tenant once per candidate row.
+				expect(plan.join("\n")).not.toMatch(/SCAN skill_entries|TEMP B-TREE/);
+				if (sql.startsWith("select count(*)")) {
+					// With statistics the count may union two index seeks instead.
+					expect(
+						plan.some((line) => line.startsWith("SEARCH skill_entries USING")),
+					).toBe(true);
+				} else {
+					expect(plan).toContain(
+						"SEARCH skill_entries USING INDEX idx_skill_entries_org_updated (organization_id=?)",
+					);
+				}
+				expect(plan).toContain(
+					"SEARCH tedi_skill_override USING COVERING INDEX idx_skill_entries_org_tedi_supersedes (organization_id=? AND tedi_id=? AND supersedes_id=?)",
+				);
+			}
+		},
+	);
 });

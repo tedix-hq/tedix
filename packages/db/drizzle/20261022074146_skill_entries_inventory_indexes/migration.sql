@@ -1,0 +1,2 @@
+CREATE INDEX `idx_skill_entries_org_updated` ON `skill_entries` (`organization_id`,`updated_at`,`success_count`,`id`);--> statement-breakpoint
+CREATE INDEX `idx_skill_entries_org_tedi_supersedes` ON `skill_entries` (`organization_id`,`tedi_id`,`supersedes_id`,`lifecycle_state`);

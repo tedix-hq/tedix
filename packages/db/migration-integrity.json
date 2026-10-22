@@ -1108,6 +1108,10 @@
 		{
 			"name": "20261022073425_work_items_lane_dispatch_indexes/migration.sql",
 			"sha256": "55d5e94ee75cb89f0bfd72fab8da64b72a92fa78daf4a6de542cb502009ce966"
+		},
+		{
+			"name": "20261022074146_skill_entries_inventory_indexes/migration.sql",
+			"sha256": "d9ae570f5e605abd6569bf949f0bfecdb07aa57ad42b372fd5f74b80657f4f88"
 		}
 	]
 }

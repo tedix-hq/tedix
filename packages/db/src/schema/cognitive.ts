@@ -311,6 +311,23 @@ export const skillEntries = sqliteTable(
 		),
 		index("idx_skill_entries_lifecycle").on(table.lifecycleState),
 		index("idx_skill_entries_pace_layer").on(table.paceLayer),
+		// Skill inventory pages read in this order; without it every page sorts
+		// the whole tenant in a temp B-tree.
+		index("idx_skill_entries_org_updated").on(
+			table.organizationId,
+			table.updatedAt,
+			table.successCount,
+			table.id,
+		),
+		// Covers the per-row "does this tedi override the skill" probe in
+		// listAllSkillsForOrg. Without it the probe walked every tenant row once
+		// per candidate (~94k rows read per call for a 500-skill tenant).
+		index("idx_skill_entries_org_tedi_supersedes").on(
+			table.organizationId,
+			table.tediId,
+			table.supersedesId,
+			table.lifecycleState,
+		),
 	],
 );
 
