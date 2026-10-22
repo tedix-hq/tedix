@@ -57,7 +57,7 @@ import {
 	readOptionalHomePlanFromRun,
 } from "../kernel/home-plan";
 import { resolveRuntimeApprovalTimeout } from "@tedix/api-contract/utils/approval-policy";
-import { summarizeChildRuntimeEvents } from "../kernel/child-run-reads";
+import { summarizeChildRuntimeEvents } from "../kernel/child-run-events";
 import { toJsonRecord } from "@tedix/db/utils/json";
 
 export /**

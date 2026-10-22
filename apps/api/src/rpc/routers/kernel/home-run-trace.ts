@@ -15,11 +15,11 @@ import {
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { listHarnessSubjectTraceBundles } from "../../../services/harness-persistence";
 import type { BaseContext } from "../../orpc";
+import { readChildRunEvidenceRows } from "./child-run-reads";
 import {
-	readChildRunEvidenceRows,
 	summarizeChildRuntimeEvents,
 	workstationProcessOutcomeFromArtifactEvent,
-} from "./child-run-reads";
+} from "./child-run-events";
 import { readOptionalHomePlanFromRun } from "./home-plan";
 import {
 	evaluateHomeRunConvergenceHealth,

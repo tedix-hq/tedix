@@ -73,7 +73,7 @@ import {
 import {
 	childRunPreviewFromEvents,
 	latestActivityLabelFromEvents,
-} from "../kernel/child-run-reads";
+} from "../kernel/child-run-events";
 import { cognitiveRuntimeContractRouter } from "../cognitive-runtime";
 import { createRouterClient, implement } from "@orpc/server";
 import {
