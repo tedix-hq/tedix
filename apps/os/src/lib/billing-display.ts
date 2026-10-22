@@ -2,6 +2,7 @@ import type {
 	BillingOverview,
 	BillingPlanCatalogItem,
 } from "@tedix/api-contract/schemas/billing";
+import { formatCount } from "@/lib/format";
 
 type BillingSnapshot = BillingOverview["snapshot"];
 type BillingPlan = BillingOverview["plan"];
@@ -45,7 +46,14 @@ export function formatPlanTokenAllowance(
 }
 
 export function formatPlanLimit(value: number): string {
-	return value < 0 ? "Unlimited" : value.toLocaleString();
+	return value < 0 ? "Unlimited" : formatCount(value);
+}
+
+/** Compact token counts for meters and tiles: 250 → "250", 64_000 → "64K", 1_500_000 → "1.5M". */
+export function formatTokens(value: number): string {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+	if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
+	return formatCount(value);
 }
 
 /** Share of an allowance or limit left (or used) at which the sidebar speaks up. */

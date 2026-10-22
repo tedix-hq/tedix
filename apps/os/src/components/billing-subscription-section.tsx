@@ -33,6 +33,7 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { formatPlanTokenAllowance } from "@/lib/billing-display";
 import { formatBillingAmount, formatBillingPrice } from "@/lib/billing-price";
+import { formatCount } from "@/lib/format";
 import {
 	billingOverviewQueryOptions,
 	billingPlansQueryOptions,
@@ -127,19 +128,19 @@ export function SubscriptionSection() {
 	const isStripeTestMode = overview.stripeEnvironment === "test";
 	const tier = overview.snapshot.planKey;
 	const status = overview.snapshot.status;
-	const formatCount = (value: number, unit: string) =>
-		value < 0 ? `Unlimited ${unit}` : `${value.toLocaleString()} ${unit}`;
+	const formatLimit = (value: number, unit: string) =>
+		value < 0 ? `Unlimited ${unit}` : `${formatCount(value)} ${unit}`;
 	const featuresForPlan = (plan: BillingPlanCatalogItem) => [
-		formatCount(
+		formatLimit(
 			plan.maxTedis,
 			plan.maxTedis === 1 ? "autonomous tedi" : "autonomous tedis",
 		),
 		formatPlanTokenAllowance(plan),
-		formatCount(plan.maxCronJobsPerTedi, "scheduled jobs per tedi"),
-		formatCount(plan.maxIterationsPerTask, "steps per task"),
+		formatLimit(plan.maxCronJobsPerTedi, "scheduled jobs per tedi"),
+		formatLimit(plan.maxIterationsPerTask, "steps per task"),
 		...(plan.overageUnitPriceMicros > 0
 			? [
-					`${formatBillingPrice(plan.overageUnitPriceMicros, plan.currency)} per ${plan.overageUnitTokens.toLocaleString()} overage tokens`,
+					`${formatBillingPrice(plan.overageUnitPriceMicros, plan.currency)} per ${formatCount(plan.overageUnitTokens)} overage tokens`,
 				]
 			: []),
 	];

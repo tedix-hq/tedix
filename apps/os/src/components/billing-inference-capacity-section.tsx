@@ -19,17 +19,14 @@ import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
+import { formatTokens } from "@/lib/billing-display";
 import { formatBillingAmount } from "@/lib/billing-price";
+import { formatCount } from "@/lib/format";
 import {
 	billingOverviewQueryOptions,
 	providerCapacitySponsorshipsQueryOptions,
 } from "@/lib/os-query-options";
-
-function formatTokens(value: number): string {
-	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-	if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
-	return value.toLocaleString();
-}
+import { absoluteTime } from "@/lib/time";
 
 function capacityReturnUrl(state: "topup-success" | "topup-cancelled") {
 	return `${window.location.origin}/admin/billing?checkout=${state}`;
@@ -113,11 +110,7 @@ export function BillingInferenceCapacitySection() {
 			: capacity.baseDailySpendLimitMicros +
 				capacity.allocatedSpendCapacityMicros;
 	const isTest = overviewQuery.data.stripeEnvironment === "test";
-	const expiresAt = new Date(capacity.expiresAt).toLocaleString(undefined, {
-		hour: "numeric",
-		minute: "2-digit",
-		timeZoneName: "short",
-	});
+	const expiresAt = absoluteTime(capacity.expiresAt);
 
 	return (
 		<SettingsSection>
@@ -398,7 +391,7 @@ export function BillingInferenceCapacitySection() {
 												{allocation.state}
 											</Badge>
 											<Text role="label" tone="secondary" className="mt-1">
-												{allocation.tokenAmount.toLocaleString()} tokens ·{" "}
+												{formatCount(allocation.tokenAmount)} tokens ·{" "}
 												{formatBillingAmount(
 													allocation.spendAmountMicros,
 													"usd",
@@ -422,7 +415,7 @@ export function BillingInferenceCapacitySection() {
 							>
 								<span>{row.displayName}</span>
 								<Text as="span" tone="secondary">
-									+{row.overflowTokens.toLocaleString()} tokens · +
+									+{formatCount(row.overflowTokens)} tokens · +
 									{formatBillingAmount(row.overflowSpendMicros, "usd")}
 								</Text>
 							</Surface>

@@ -32,9 +32,13 @@ import { Text } from "@/components/kumo/text";
 import { BillingPlanStatus } from "@/components/billing-plan-status";
 import { BillingCreditWallet } from "@/components/billing-credit-wallet";
 import { BillingRunCosts } from "@/components/billing-run-costs";
-import { formatPlanLimit, hasUnlimitedTokenUsage } from "@/lib/billing-display";
+import {
+	formatPlanLimit,
+	formatTokens,
+	hasUnlimitedTokenUsage,
+} from "@/lib/billing-display";
 import { formatCurrencyAmount } from "@/lib/billing-price";
-import { sentenceCase } from "@/lib/format";
+import { formatCount, osLocale, sentenceCase } from "@/lib/format";
 import { formatCreditWorth } from "@/lib/billing-credit-display";
 import {
 	billingOverviewQueryOptions,
@@ -48,12 +52,6 @@ const BillingUsageCharts = lazy(() =>
 	})),
 );
 
-function formatTokens(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-	return n.toLocaleString();
-}
-
 function formatCost(n: number): string {
 	return formatCurrencyAmount(n, "usd", n !== 0 && Math.abs(n) < 0.01 ? 6 : 2);
 }
@@ -66,7 +64,7 @@ function formatPeriod(start: string, end: string): string {
 	// reads as a zero-length period — on the card an operator stares at while
 	// working out why they are blocked.
 	const sameYear = from.getUTCFullYear() === to.getUTCFullYear();
-	const formatter = new Intl.DateTimeFormat("en-US", {
+	const formatter = new Intl.DateTimeFormat(osLocale(), {
 		month: "short",
 		day: "numeric",
 		...(sameYear ? {} : { year: "numeric" }),
@@ -451,19 +449,25 @@ export function BillingUsageOverview({
 							<Text>
 								{overview.workstationCostCoverage.reconciled.rowCount}{" "}
 								reconciled rows ·{" "}
-								{overview.workstationCostCoverage.reconciled.leaseSeconds.toLocaleString()}{" "}
+								{formatCount(
+									overview.workstationCostCoverage.reconciled.leaseSeconds,
+								)}{" "}
 								lease seconds
 							</Text>
 							<Text>
 								{overview.workstationCostCoverage.pending.rowCount} pending rows
 								·{" "}
-								{overview.workstationCostCoverage.pending.leaseSeconds.toLocaleString()}{" "}
+								{formatCount(
+									overview.workstationCostCoverage.pending.leaseSeconds,
+								)}{" "}
 								lease seconds
 							</Text>
 							<Text>
 								{overview.workstationCostCoverage.unproven.rowCount} unproven
 								rows ·{" "}
-								{overview.workstationCostCoverage.unproven.leaseSeconds.toLocaleString()}{" "}
+								{formatCount(
+									overview.workstationCostCoverage.unproven.leaseSeconds,
+								)}{" "}
 								lease seconds
 							</Text>
 							<Text tone="secondary">

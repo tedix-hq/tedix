@@ -3,6 +3,7 @@ import {
 	billingNeedsAttention,
 	formatPlanLimit,
 	formatPlanTokenAllowance,
+	formatTokens,
 	hasUnlimitedTokenUsage,
 } from "./billing-display";
 
@@ -34,6 +35,13 @@ describe("billing display semantics", () => {
 	it("formats negative operating limits as unlimited", () => {
 		expect(formatPlanLimit(-1)).toBe("Unlimited");
 		expect(formatPlanLimit(64)).toBe("64");
+	});
+
+	it("compacts token counts for meters and tiles", () => {
+		expect(formatTokens(250)).toBe("250");
+		expect(formatTokens(1_500)).toBe("2K");
+		expect(formatTokens(64_000)).toBe("64K");
+		expect(formatTokens(1_500_000)).toBe("1.5M");
 	});
 });
 
