@@ -30,6 +30,7 @@ vi.mock("@/lib/api", () => ({
 		},
 		learningFeedback: {
 			model: vi.fn(),
+			listInteractions: vi.fn().mockResolvedValue({ events: [] }),
 			recordInteraction: vi.fn(),
 			correct: vi.fn(),
 		},

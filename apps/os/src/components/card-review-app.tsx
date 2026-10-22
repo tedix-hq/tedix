@@ -3,6 +3,7 @@ import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-
 import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
 import { DecisionRailContext } from "@/components/decision-context-rail";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
+import { FactoryAgentHandoff } from "@/components/factory-agent-handoff";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import {
 	ArrowArcLeft,
@@ -1064,6 +1065,9 @@ export function CardReviewApp({
 					</Text>
 				)}
 			</header>
+			{sources.some(
+				(source) => (source.scoring?.agentDecidableClasses.length ?? 0) > 0,
+			) && <FactoryAgentHandoff sources={sources} routing={routing} />}
 			{inChannel.length > 0 && (
 				<Progress
 					aria-label="Cards reviewed"

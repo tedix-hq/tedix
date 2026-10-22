@@ -48,7 +48,16 @@ import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
 import { workInteractionsContractRouter } from "../rpc/routers/work-interactions";
 import { workApprovalsContractRouter } from "../rpc/routers/work-approvals";
 import { tediApprovalsContractRouter } from "../rpc/routers/tedi-approvals";
-import { learningFeedbackContractRouter } from "../rpc/routers/learning-feedback";
+import {
+	learningFeedbackContractRouter,
+	resolveLearningActor,
+} from "../rpc/routers/learning-feedback";
+import {
+	factoryClassStanding,
+	factoryStandingSentence,
+	stableAuditSample,
+} from "@tedix/api-contract/utils/factory-class-autonomy";
+import { factoryCardDelivery } from "./decision-class-policy";
 import { osWorkspacesContractRouter } from "../rpc/routers/os-workspaces";
 import { userSettingsContractRouter } from "../rpc/routers/user-settings";
 import { workItemsContractRouter } from "../rpc/routers/work-items";
@@ -395,6 +404,7 @@ export async function loadForYouProjection(
 		handledInternal,
 		pipeline,
 		retired,
+		autonomyHistory,
 	] = await Promise.all([
 		loadConfiguredDeckProjection(
 			context,
@@ -465,6 +475,20 @@ export async function loadForYouProjection(
 			{ projectId: input.projectId, limit: 100, states: ["cancelled"] },
 			{ context },
 		),
+		// Undo corrections live on decision_learning; both are needed to demote.
+		config.factorySources.some(
+			(binding) => binding.source.scoring?.agentDecidableClasses.length,
+		)
+			? call(
+					learningFeedbackContractRouter.listInteractions,
+					{
+						scopeKind: "personal",
+						limit: 200,
+						surfaces: ["decision_deck", "decision_learning"],
+					},
+					{ context },
+				)
+			: Promise.resolve({ events: [] }),
 	]);
 	const items: ActivityFeedItem[] = [
 		...handledInternal.filter(
@@ -563,8 +587,33 @@ export async function loadForYouProjection(
 			}
 	}
 	const faceSources = new Map(deck.cards.map((card) => [card.id, card]));
+	const viewer = resolveLearningActor(context);
 	for (const { card, revision } of factories.cards) {
 		const binding = config.factorySources[card.sourceIndex]!;
+		// Earned quiet delivery: an agent-decidable class this person approved
+		// unchanged often enough becomes an update; audit samples still ask.
+		const quiet =
+			isOpen(card) &&
+			viewer.actorType === "user" &&
+			!!viewer.actorId &&
+			factoryCardDelivery({
+				source: binding.source,
+				card,
+				events: autonomyHistory.events,
+				userId: viewer.actorId,
+				sample: stableAuditSample(`${viewer.actorId}:${card.key}`),
+			}) === "auto";
+		const quietLine =
+			quiet && viewer.actorId
+				? `${factoryStandingSentence(
+						factoryClassStanding({
+							source: binding.source,
+							type: card.type,
+							events: autonomyHistory.events,
+							userId: viewer.actorId,
+						}),
+					)}\n`
+				: "";
 		faceSources.set(`factory:${card.outputId}:${card.rowIndex}`, {
 			id: `factory:${card.outputId}:${card.rowIndex}`,
 			kind: "decision",
@@ -597,16 +646,16 @@ export async function loadForYouProjection(
 			projectId: binding.projectId,
 			workItemId: null,
 			tediId: null,
-			kind: isOpen(card) ? "decision" : "result",
+			kind: isOpen(card) && !quiet ? "decision" : "result",
 			attachment: { title: card.sheetTitle },
 			classId: factoryLearningClass(binding.source.label, card.type),
 			importance: "normal",
 			at: card.runCreatedAt,
 			dueAt: null,
-			needsAction: isOpen(card),
+			needsAction: isOpen(card) && !quiet,
 			stalled: /^failed/i.test(card.result),
 			done: !isOpen(card),
-			explanation: `${card.why}\n${card.sourceText}\nOutput ${card.outputId}, revision ${revision}, row ${card.rowIndex + 1}`,
+			explanation: `${quietLine}${card.why}\n${card.sourceText}\nOutput ${card.outputId}, revision ${revision}, row ${card.rowIndex + 1}`,
 			reactions: ["more", "why", "mute", "comment", "work"],
 		});
 	}

@@ -37,6 +37,7 @@ vi.mock("../rpc/routers/learning-feedback", () => ({
 		model: "model",
 		listInteractions: "history",
 	},
+	resolveLearningActor: () => ({ actorType: "user", actorId: "river" }),
 }));
 vi.mock("../rpc/routers/user-settings", () => ({
 	userSettingsContractRouter: { getPreferences: "preferences" },
@@ -473,4 +474,51 @@ it("withholds overdue priority for a blocked source reached through the graph", 
 		["maple-source"],
 		expect.any(Date),
 	);
+});
+
+it("quietly delivers an earned agent-decidable factory class to Feed and keeps audits and others in the Deck", async () => {
+	const implementation = mocks.call.getMockImplementation()!;
+	const approvals = Array.from({ length: 5 }, (_, i) => ({
+		id: `approval-${i}`,
+		clientEventId: `client-${i}`,
+		eventKind: "accepted",
+		surface: "decision_deck",
+		actorType: "user",
+		actorId: "river",
+		targetId: `earlier-sheet-${i}`,
+		occurredAt: `2026-10-20T10:0${i}:00Z`,
+		metadata: {
+			decisionClass: "factory:Inbox:opportunity",
+			decisionChoice: "do_it",
+			rowIndex: i,
+		},
+	}));
+	let protectedEffects: string[] = [];
+	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {
+		if (procedure === "history") return { events: approvals };
+		const result = await implementation(procedure, input);
+		if (procedure !== "apps") return result;
+		result.items[1].currentRevision.manifest.config.factorySources = [
+			{
+				projectId,
+				source: {
+					...source,
+					protectedEffects,
+					scoring: { agentDecidableClasses: ["opportunity"] },
+				},
+			},
+		];
+		return result;
+	});
+	const quiet = (
+		await loadForYouProjection(context, { limit: 100 })
+	).items.find((item) => item.id === `factory:${outputId}:0`);
+	expect(quiet).toMatchObject({ kind: "result", needsAction: false });
+	expect(quiet?.explanation).toContain("An agent may decide Inbox opportunity");
+	protectedEffects = ["message"];
+	expect(
+		(await loadForYouProjection(context, { limit: 100 })).items.find(
+			(item) => item.id === `factory:${outputId}:0`,
+		),
+	).toMatchObject({ kind: "decision", needsAction: true });
 });
