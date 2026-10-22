@@ -1,0 +1,2 @@
+ALTER TABLE `platform_cron_checkpoints` ADD `cursor` text;--> statement-breakpoint
+CREATE INDEX `idx_os_gadget_executions_run` ON `os_gadget_executions` (`organization_id`,`run_id`,`runtime_environment`);

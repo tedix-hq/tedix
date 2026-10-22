@@ -78,5 +78,10 @@ export const platformCronCheckpoints = sqliteTable(
 	{
 		scheduleId: text("schedule_id").primaryKey(),
 		through: text("through").notNull(),
+		cursor: text("cursor", { mode: "json" }).$type<{
+			changedAt: string;
+			key: string;
+			tediId: string;
+		}>(),
 	},
 );

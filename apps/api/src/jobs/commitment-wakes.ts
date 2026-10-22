@@ -5,6 +5,8 @@ import {
 import { createDbClient } from "@tedix/db/client";
 import {
 	advanceCommitmentWakeCheckpoint,
+	advanceCommitmentWakeCursor,
+	getCommitmentWakeCursor,
 	lastCommitmentWakeCheckpoint,
 	listCommitmentChanges,
 	type CommitmentChange,
@@ -14,6 +16,9 @@ const WINDOW_MS = 120_000;
 const DEBOUNCE_MS = 30_000;
 const MAX_REPLAY_WINDOWS = 10;
 const MAX_WAKE_AGE_MS = 15 * 60_000;
+export const MAX_COMMITMENT_CHANGES_PER_RUN = 25;
+const RUN_BUDGET_MS = 20_000;
+const OPERATION_TIMEOUT_MS = 5_000;
 
 export function commitmentWakeWindows(
 	checkpoint: string | null,
@@ -54,29 +59,70 @@ export async function dispatchCommitmentWakes(
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
 	const db = createDbClient(env.DB);
-	const checkpoint = await lastCommitmentWakeCheckpoint(db);
+	const deadline = Date.now() + RUN_BUDGET_MS;
+	async function bounded<T>(
+		operation: (signal: AbortSignal) => Promise<T>,
+	): Promise<T> {
+		const controller = new AbortController();
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			return await Promise.race([
+				operation(controller.signal),
+				new Promise<never>((_, reject) => {
+					timer = setTimeout(
+						() => {
+							controller.abort();
+							reject(new Error("Commitment wake timed out"));
+						},
+						Math.max(1, Math.min(OPERATION_TIMEOUT_MS, deadline - Date.now())),
+					);
+				}),
+			]);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+	const checkpoint = await bounded(() => lastCommitmentWakeCheckpoint(db));
 	let observed = 0;
 	let dispatched = 0;
 	let deduplicated = 0;
 	let windowsSkippedMaxAge = 0;
+	let windowsProcessed = 0;
+	let checkpointMs = checkpoint ? Date.parse(checkpoint) : undefined;
+	let budgetExhausted = 0;
 	const oldestWakeMs = Math.max(scheduledTime, Date.now()) - MAX_WAKE_AGE_MS;
 	const windows = commitmentWakeWindows(checkpoint, scheduledTime);
 	// Preserve the initial boundary even if the very first acceptance fails.
-	if (checkpoint === null && windows[0])
-		await advanceCommitmentWakeCheckpoint(db, windows[0].after);
+	if (windows[0])
+		await bounded(() => advanceCommitmentWakeCheckpoint(db, windows[0]!.after));
 	for (const window of windows) {
+		if (Date.now() >= deadline || observed >= MAX_COMMITMENT_CHANGES_PER_RUN) {
+			budgetExhausted = 1;
+			break;
+		}
 		// Historical notifications start model turns even when the prompt says to stop quietly.
 		if (Date.parse(window.through) < oldestWakeMs) {
-			await advanceCommitmentWakeCheckpoint(db, window.through);
+			await bounded(() => advanceCommitmentWakeCheckpoint(db, window.through));
 			windowsSkippedMaxAge++;
+			windowsProcessed++;
+			checkpointMs = Date.parse(window.through);
 			continue;
 		}
-		const changes = await listCommitmentChanges(
-			db,
-			window.after,
-			window.through,
-			env.ENVIRONMENT,
+		const cursor = await bounded(() =>
+			getCommitmentWakeCursor(db, window.after),
 		);
+		// Page membership must stay fixed across retries, even after earlier windows finish.
+		const limit = MAX_COMMITMENT_CHANGES_PER_RUN;
+		const changes = await bounded(() =>
+			listCommitmentChanges(db, window.after, window.through, env.ENVIRONMENT, {
+				limit,
+				cursor,
+			}),
+		);
+		if (observed + changes.length > MAX_COMMITMENT_CHANGES_PER_RUN) {
+			budgetExhausted = 1;
+			break;
+		}
 		observed += changes.length;
 		const batches = new Map<string, CommitmentChange[]>();
 		for (const change of changes) {
@@ -85,31 +131,69 @@ export async function dispatchCommitmentWakes(
 			batch.push(change);
 			batches.set(key, batch);
 		}
+		const failures: unknown[] = [];
+		let pageDelivered = true;
 		for (const batch of batches.values()) {
+			if (Date.now() >= deadline) {
+				pageDelivered = false;
+				budgetExhausted = 1;
+				break;
+			}
 			const first = batch[0]!;
-			const receipt = await deliverTediContextWake(db, {
-				orgId: first.orgId,
-				tediId: first.tediId,
-				request: buildCommitmentWakeRequest(
-					batch,
-					window.through,
-					env.ENVIRONMENT,
-				),
-				send: (request) => env.TEDI_SERVICE.fetch(request),
-			});
-			if (receipt.deduplicated) deduplicated++;
-			else dispatched++;
+			// Partial windows need distinct, repeatable ingress keys for each page.
+			const deliveryBoundary =
+				cursor || changes.length === limit
+					? `${window.through}:${JSON.stringify([changes[0]!.key, changes.at(-1)!.key, changes.at(-1)!.tediId])}`
+					: window.through;
+			try {
+				const receipt = await bounded((signal) =>
+					deliverTediContextWake(db, {
+						orgId: first.orgId,
+						tediId: first.tediId,
+						request: buildCommitmentWakeRequest(
+							batch,
+							deliveryBoundary,
+							env.ENVIRONMENT,
+						),
+						send: (request) =>
+							env.TEDI_SERVICE.fetch(new Request(request, { signal })),
+					}),
+				);
+				if (receipt.deduplicated) deduplicated++;
+				else dispatched++;
+			} catch (error) {
+				failures.push(error);
+			}
 		}
-		await advanceCommitmentWakeCheckpoint(db, window.through);
+		if (failures.length)
+			throw new AggregateError(failures, "Commitment wake delivery failed", {
+				cause: failures[0],
+			});
+		if (!pageDelivered) break;
+		if (changes.length === limit) {
+			const last = changes.at(-1)!;
+			await bounded(() =>
+				advanceCommitmentWakeCursor(db, window.after, {
+					changedAt: last.changedAt,
+					key: last.key,
+					tediId: last.tediId,
+				}),
+			);
+			budgetExhausted = 1;
+			break;
+		}
+		await bounded(() => advanceCommitmentWakeCheckpoint(db, window.through));
+		windowsProcessed++;
+		checkpointMs = Date.parse(window.through);
 	}
-	const lastWindow = windows.at(-1);
 	return {
 		observed,
 		dispatched,
 		deduplicated,
 		windowsSkippedMaxAge,
 		maxWakeAgeMs: MAX_WAKE_AGE_MS,
-		windowsProcessed: windows.length,
-		...(lastWindow ? { checkpointMs: Date.parse(lastWindow.through) } : {}),
+		windowsProcessed,
+		budgetExhausted,
+		...(checkpointMs !== undefined ? { checkpointMs } : {}),
 	};
 }

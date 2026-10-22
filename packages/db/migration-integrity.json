@@ -1128,6 +1128,10 @@
 		{
 			"name": "20261022144416_skill-certification-admission/migration.sql",
 			"sha256": "5f253a14234869c86733af4615e00dc6227d899511978ebca160462d4e0aab55"
+		},
+		{
+			"name": "20261022203933_commitment_wake_pages_and_run_lookup/migration.sql",
+			"sha256": "534e6bb639b0cc6dce8ccb73524b17f3529dbc535564e8bf602b0b81ec8d2cc3"
 		}
 	]
 }

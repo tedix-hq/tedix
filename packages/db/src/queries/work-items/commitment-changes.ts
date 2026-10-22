@@ -19,7 +19,13 @@ export async function listCommitmentChanges(
 	after: string,
 	through: string,
 	environment: string,
+	page?: { limit: number; cursor: CommitmentWakeCursor | null },
 ): Promise<CommitmentChange[]> {
+	const limit = page ? Math.max(1, Math.min(100, Math.floor(page.limit))) : 100;
+	const cursor = page?.cursor;
+	const pageFilter = cursor
+		? sql`WHERE (changedAt, key, tediId) > (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})`
+		: sql``;
 	// D1 rejects the eight-term compound scan; keep each statement to four terms.
 	const statements = [
 		sql`
@@ -40,7 +46,7 @@ export async function listCommitmentChanges(
 				AND ((w.accountable_owner_type = 'tedi' AND w.accountable_owner_id = t.id)
 				OR (w.steward_type = 'tedi' AND w.steward_id = t.id)
 				OR EXISTS (SELECT 1 FROM projects p WHERE p.org_id = w.org_id AND p.id = w.project_id AND p.lead_tedi_id = t.id)
-				OR EXISTS (SELECT 1 FROM work_attempts a WHERE a.org_id = w.org_id AND a.work_item_id = w.id AND a.executor_type = 'tedi' AND a.executor_id = t.id))
+				OR EXISTS (SELECT 1 FROM work_attempts a INDEXED BY uniq_work_attempt_number WHERE a.org_id = w.org_id AND a.work_item_id = w.id AND a.executor_type = 'tedi' AND a.executor_id = t.id))
 			WHERE w.disposition != 'cancelled'
 				AND (w.disposition != 'completed' OR (
 					e.event_type = 'attempt.settled' AND e.actor_type = 'external_agent'
@@ -124,15 +130,51 @@ export async function listCommitmentChanges(
 		SELECT DISTINCT key, orgId, tediId, slug, kind, objectId, state, changedAt FROM changes
 		`,
 	];
-	const groups = await Promise.all(
-		statements.map((statement) => db.all<CommitmentChange>(statement)),
-	);
+	const groups: CommitmentChange[][] = [];
+	for (const statement of statements)
+		groups.push(
+			await db.all<CommitmentChange>(
+				sql`SELECT * FROM (${statement}) ${pageFilter} ORDER BY changedAt COLLATE BINARY, key COLLATE BINARY, tediId COLLATE BINARY LIMIT ${limit}`,
+			),
+		);
 	return groups
 		.flat()
-		.sort(
-			(a, b) =>
-				a.changedAt.localeCompare(b.changedAt) || a.key.localeCompare(b.key),
-		);
+		.sort((a, b) => {
+			for (const field of ["changedAt", "key", "tediId"] as const) {
+				if (a[field] !== b[field]) return a[field] < b[field] ? -1 : 1;
+			}
+			return 0;
+		})
+		.slice(0, limit);
+}
+
+export type CommitmentWakeCursor = NonNullable<
+	typeof platformCronCheckpoints.$inferSelect.cursor
+>;
+
+export async function getCommitmentWakeCursor(
+	db: DbClient,
+	after: string,
+): Promise<CommitmentWakeCursor | null> {
+	const [row] = await db
+		.select({ cursor: platformCronCheckpoints.cursor })
+		.from(platformCronCheckpoints)
+		.where(
+			sql`${platformCronCheckpoints.scheduleId} = 'commitment-wakes' AND ${platformCronCheckpoints.through} = ${after}`,
+		)
+		.limit(1);
+	return row?.cursor ?? null;
+}
+
+export async function advanceCommitmentWakeCursor(
+	db: DbClient,
+	after: string,
+	cursor: CommitmentWakeCursor,
+): Promise<void> {
+	await db.update(platformCronCheckpoints).set({ cursor }).where(sql`
+		${platformCronCheckpoints.scheduleId} = 'commitment-wakes' AND ${platformCronCheckpoints.through} = ${after}
+		AND (${platformCronCheckpoints.cursor} IS NULL OR
+			(json_extract(${platformCronCheckpoints.cursor}, '$.changedAt'), json_extract(${platformCronCheckpoints.cursor}, '$.key'), json_extract(${platformCronCheckpoints.cursor}, '$.tediId')) < (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId}))`);
 }
 
 export async function lastCommitmentWakeCheckpoint(
@@ -167,7 +209,7 @@ export async function advanceCommitmentWakeCheckpoint(
 		.values({ scheduleId: "commitment-wakes", through })
 		.onConflictDoUpdate({
 			target: platformCronCheckpoints.scheduleId,
-			set: { through },
+			set: { through, cursor: null },
 			setWhere: sql`${platformCronCheckpoints.through} < ${through}`,
 		});
 }
