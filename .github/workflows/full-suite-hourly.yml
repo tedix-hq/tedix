@@ -25,7 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      skip: ${{ steps.plan.outputs.skip }}
+      workspace: ${{ steps.plan.outputs.workspace }}
+      repository: ${{ steps.plan.outputs.repository }}
       matrix: ${{ steps.plan.outputs.matrix }}
       runners: ${{ steps.plan.outputs.runners }}
     steps:
@@ -33,6 +34,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
@@ -46,7 +48,7 @@ jobs:
   workspace:
     name: Workspace ${{ matrix.workspace }}${{ matrix.testScript && format(' / {0}', matrix.testScript) || '' }}${{ matrix.shard && format(' [{0}]', matrix.shard) || '' }}
     needs: plan
-    if: ${{ !cancelled() && needs.plan.outputs.skip != 'true' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.workspace == 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
     # The slowest job takes about 13 minutes; a hang fails here instead of
     # holding the run open.
@@ -108,7 +110,7 @@ jobs:
 
   repository:
     needs: plan
-    if: ${{ !cancelled() && needs.plan.outputs.skip != 'true' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.repository == 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
     timeout-minutes: 30
     steps:
@@ -151,12 +153,18 @@ jobs:
       - name: Require every shard
         env:
           PLAN: ${{ needs.plan.result }}
-          SKIP: ${{ needs.plan.outputs.skip }}
+          WORKSPACE_REQUIRED: ${{ needs.plan.outputs.workspace }}
+          REPOSITORY_REQUIRED: ${{ needs.plan.outputs.repository }}
           WORKSPACE: ${{ needs.workspace.result }}
           REPOSITORY: ${{ needs.repository.result }}
         run: |
           test "$PLAN" = success
-          if [ "$SKIP" != true ]; then
-            test "$WORKSPACE" = success
-            test "$REPOSITORY" = success
-          fi
+          for lane in WORKSPACE REPOSITORY; do
+            required="${lane}_REQUIRED"
+            if [ "${!required}" = true ]; then
+              test "${!lane}" = success
+            else
+              test "${!required}" = false
+              test "${!lane}" = skipped
+            fi
+          done

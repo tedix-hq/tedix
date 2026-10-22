@@ -12,6 +12,7 @@
 	"include": [
 		"ci/full-suite-hourly.mjs",
 		"ci/full-suite-hourly.test.ts",
+		"ci/affected-suite.test.ts",
 		"ci/full-suite-workflow.test.ts",
 		"ci/notify-repository-observer.mjs",
 		"ci/notify-repository-observer.test.ts",

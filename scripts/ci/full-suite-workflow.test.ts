@@ -20,13 +20,14 @@ test("every main push is certified and scheduled runs cannot supersede its lane"
 	expect(aggregate).toContain("if: ${{ always() }}");
 });
 
-test("aggregate accepts proven exact-SHA reuse but fails missing, cancelled, or failed shards", () => {
+test("aggregate requires every selected shard and accepts only explicitly unselected skips", () => {
 	const check = (overrides: Record<string, string>) =>
 		spawnSync("bash", ["-e", "-c", command], {
 			env: {
 				...process.env,
 				PLAN: "success",
-				SKIP: "false",
+				WORKSPACE_REQUIRED: "true",
+				REPOSITORY_REQUIRED: "true",
 				WORKSPACE: "success",
 				REPOSITORY: "success",
 				...overrides,
@@ -34,14 +35,25 @@ test("aggregate accepts proven exact-SHA reuse but fails missing, cancelled, or 
 		}).status;
 	expect(check({})).toBe(0);
 	expect(
-		check({ SKIP: "true", WORKSPACE: "skipped", REPOSITORY: "skipped" }),
+		check({
+			WORKSPACE_REQUIRED: "false",
+			REPOSITORY_REQUIRED: "false",
+			WORKSPACE: "skipped",
+			REPOSITORY: "skipped",
+		}),
 	).toBe(0);
 	for (const status of ["failure", "cancelled", "skipped", ""]) {
 		for (const job of ["PLAN", "WORKSPACE", "REPOSITORY"]) {
 			expect(check({ [job]: status })).not.toBe(0);
 		}
 	}
-	expect(check({ SKIP: "true", PLAN: "failure" })).not.toBe(0);
+	expect(check({ WORKSPACE_REQUIRED: "false", PLAN: "failure" })).not.toBe(0);
+	for (const job of ["WORKSPACE", "REPOSITORY"]) {
+		expect(check({ [`${job}_REQUIRED`]: "false", [job]: "failure" })).not.toBe(
+			0,
+		);
+		expect(check({ [`${job}_REQUIRED`]: "", [job]: "skipped" })).not.toBe(0);
+	}
 });
 
 const browserAction = readFileSync(
@@ -65,7 +77,9 @@ test("browser jobs install only their planned browsers, restoring the cache firs
 	expect(install).toBeLessThan(workspace.indexOf("- name: Full test suite"));
 
 	const restore = browserAction.indexOf("uses: actions/cache/restore@");
-	const download = browserAction.indexOf("playwright install --with-deps");
+	const download = browserAction.indexOf(
+		"playwright install $deps --only-shell $BROWSERS",
+	);
 	const save = browserAction.indexOf("uses: actions/cache/save@");
 	expect(restore).toBeGreaterThan(-1);
 	expect(restore).toBeLessThan(download);

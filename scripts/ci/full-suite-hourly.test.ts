@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	workspaceMatrix,
-	alreadyPassed,
 	ciObservation,
 	scriptBrowsers,
 } from "./full-suite-hourly.mjs";
@@ -43,55 +42,6 @@ describe("hourly full suite", () => {
 		} finally {
 			rmSync(root, { recursive: true });
 		}
-	});
-	test("skips only a successful run of this exact SHA and paginates history", async () => {
-		const sha = "a".repeat(40);
-		const requests: string[] = [];
-		const request = async (path: string) => {
-			requests.push(path);
-			return {
-				workflow_runs:
-					requests.length === 1
-						? Array.from({ length: 100 }, () => ({
-								id: 1,
-								head_sha: "b".repeat(40),
-								conclusion: "success",
-							}))
-						: [{ id: 2, head_sha: sha, conclusion: "success" }],
-			};
-		};
-		expect(
-			await alreadyPassed({
-				repository: "example/product",
-				sha,
-				runId: 3,
-				request,
-			}),
-		).toBe(true);
-		expect(requests[1]).toContain("page=2");
-		for (const run of [
-			{ id: 3, head_sha: sha, conclusion: "success" },
-			{ id: 2, head_sha: sha, conclusion: "failure" },
-			{ id: 2, head_sha: sha, conclusion: "cancelled" },
-		])
-			expect(
-				await alreadyPassed({
-					repository: "example/product",
-					sha,
-					runId: 3,
-					request: async () => ({ workflow_runs: [run] }),
-				}),
-			).toBe(false);
-		await expect(
-			alreadyPassed({
-				repository: "example/product",
-				sha,
-				runId: 3,
-				request: async () => {
-					throw new Error("API unavailable");
-				},
-			}),
-		).rejects.toThrow("API unavailable");
 	});
 	test("aggregates all failing workspaces into one incident for the tested SHA", () => {
 		const run = {

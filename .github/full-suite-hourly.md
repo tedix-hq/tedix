@@ -9,11 +9,24 @@ Normal pushes always load the fetched main version.
 `full-suite-hourly.yml` runs on every main push, hourly, and manual dispatch.
 Each run has its own concurrency group, including its SHA and run ID. New pushes,
 scheduled runs and manual dispatches cannot cancel unfinished certification.
-The required aggregate is `Main CI`. Every discovered workspace runs its full
-`test:ci` (or `test:run`) and type-check. Repository checks retain script tests,
-public docs, generated types, migration validation, builds, licenses and lint.
-The latest successful certification of the same SHA can be reused by the hourly
-run. A newer failed or pending run prevents reuse of an older success.
+The required aggregate is `Main CI`. Pushes run every test/type-check shard of
+workspaces affected since the latest green main ancestor, including transitive
+package consumers. This includes earlier changes whose CI is red or pending;
+a docs push cannot certify an untested code change. Docs/Markdown-only ranges
+skip tests. Unknown paths or missing certification history run everything.
+
+Shared inputs (root manifests, lockfiles, TypeScript/Vite/Vitest and formatter
+configuration, workflows, scripts, API contracts, DB schema/migrations and Worker
+configuration) run all workspace and repository checks. The selection rules live
+in `scripts/ci/full-suite-hourly.mjs`. Scheduled and manual runs always run the
+complete suite, even when the same SHA already passed affected checks. Repository
+checks retain script tests, public docs, generated types, migration validation,
+builds, licenses and lint. The aggregate requires success from each selected lane
+and accepts a skipped lane only when the plan explicitly omitted it.
+
+Ship continues to require a successful exact-SHA `Main CI` from this workflow
+when green-only deployment is enabled; affected certification does not bypass
+that selection. The plan summary records the selected shard count and scope.
 
 Workspace and repository shards default to GitHub-hosted `ubuntu-latest`.
 Standard hosted runners are free for this public repository. Set
