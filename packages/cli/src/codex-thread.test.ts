@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexThreadPath } from "./codex-thread";
-import { codexDriver } from "./supervise";
+import { codexDriver } from "./supervise-drivers";
 
 const THREAD = "11111111-1111-4111-8111-111111111111";
 let home: string;

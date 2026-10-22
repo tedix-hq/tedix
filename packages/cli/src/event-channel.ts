@@ -15,7 +15,7 @@
  * Interaction text. Home titles are read separately through authorized tools.
  */
 import { sleep } from "@tedix/worker-kit/sleep";
-import type { CodexDriver } from "./supervise";
+import type { CodexDriver } from "./supervise-drivers";
 import { CLI_VERSION } from "./shared";
 
 export const channelUsage = (): string => `Tedix event channel
