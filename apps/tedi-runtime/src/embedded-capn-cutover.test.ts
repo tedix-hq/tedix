@@ -325,6 +325,7 @@ async function streamInput(payload: Record<string, unknown>) {
 	await agent.onRequest(
 		new Request("https://do.internal/__internal/chat/stream", {
 			method: "POST",
+			headers: { "X-Service-Binding": "true" },
 			body: JSON.stringify({
 				client_request_id: "req-1",
 				text: "hi",

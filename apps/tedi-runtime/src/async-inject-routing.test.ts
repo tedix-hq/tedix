@@ -224,6 +224,7 @@ const WORKFLOW_ID = buildWorkflowInstanceId("req-1");
 const post = (path: string, body: unknown) =>
 	new Request(`https://do.internal${path}`, {
 		method: "POST",
+		headers: { "X-Service-Binding": "true" },
 		body: JSON.stringify(body),
 	});
 

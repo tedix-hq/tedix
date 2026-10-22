@@ -135,6 +135,7 @@ for (const warmResponse of [
 		probe.agent.onRequest(
 			new Request("https://do.internal/__internal/chat/warm", {
 				method: "POST",
+				headers: { "X-Service-Binding": "true" },
 				body: JSON.stringify(body),
 			}),
 		);
@@ -182,6 +183,7 @@ for (const warmResponse of [
 	const response = await agent.onRequest(
 		new Request("https://do.internal/__internal/chat/warm", {
 			method: "POST",
+			headers: { "X-Service-Binding": "true" },
 			body: JSON.stringify({
 				session_key: "embed:acme:1",
 				tool_argument_constraints: { company_id: "1" },

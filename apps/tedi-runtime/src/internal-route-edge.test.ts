@@ -171,3 +171,16 @@ for (const route of [
 	assert.equal(chat.response.status, 200);
 	assert.equal(new URL(chat.forwarded[0]!.url).pathname, "/internal-notes");
 }
+
+// --- an untrusted caller's marker never travels on to the DO ---
+// The DO trusts the marker on its own `/__internal/*` dispatch, so the edge
+// drops every spelling an external caller sent before forwarding.
+for (const value of ["1", "TRUE", "yes"]) {
+	const run = await edgeFetch(
+		tediRequest("/internal-notes", {
+			headers: { ...FORGED_HEADERS, "X-Service-Binding": value },
+		}),
+	);
+	assert.equal(run.response.status, 200);
+	assert.equal(run.forwarded[0]!.headers.get("X-Service-Binding"), null, value);
+}

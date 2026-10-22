@@ -45,7 +45,11 @@ import { EDGE_TEDI, edgeFetch, tediRequest } from "../test/tedi-edge";
 const cronSync = (search = "") =>
 	new Request(`https://do.internal/__internal/cron/sync${search}`, {
 		method: "POST",
-		headers: { "X-Tedi-Id": "tedi-1", "X-Tedi-Slug": "acme" },
+		headers: {
+			"X-Service-Binding": "true",
+			"X-Tedi-Id": "tedi-1",
+			"X-Tedi-Slug": "acme",
+		},
 	});
 
 {

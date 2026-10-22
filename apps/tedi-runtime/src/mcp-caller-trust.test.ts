@@ -218,7 +218,10 @@ async function inject(
 	dispatched: Record<string, unknown> | undefined;
 }> {
 	const probe = injectProbe();
-	const headers = new Headers({ "Content-Type": "application/json" });
+	const headers = new Headers({
+		"Content-Type": "application/json",
+		"X-Service-Binding": "true",
+	});
 	if (tier !== null) headers.set(CALLER_TRUST_HEADER, tier);
 	if (noFunds) headers.set("X-Tedix-No-Funds", "true");
 	const response = await probe.agent.onRequest(

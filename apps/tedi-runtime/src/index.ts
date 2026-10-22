@@ -48,11 +48,13 @@ import {
 	extractWebSocketBearerToken,
 	isServiceBinding,
 	pickEchoableSubprotocol,
+	stripServiceBindingMarker,
 } from "@tedix/worker-kit/request-auth";
 import {
 	handleMasterKeyFingerprint,
 	MASTER_KEY_FINGERPRINT_PATH,
 } from "./master-key-fingerprint";
+import { targetsInternalRoute } from "./runtime-request-handler";
 import {
 	getTediRuntimeBodyGeneration,
 	getTediRuntimeRouteBySlug,
@@ -943,6 +945,10 @@ function createEmbeddedCapabilityAdapter(
 		target.pathname = path;
 		if (runId) target.searchParams.set("run_id", runId);
 		const headers = new Headers(init.headers);
+		// Every operation verifies its session token before calling this, so
+		// the hop to the DO's internal route is the edge's own trusted hop and
+		// carries the marker the DO requires.
+		headers.set("X-Service-Binding", "true");
 		headers.set("X-Tedi-Id", tedi.id);
 		if (tedi.orgId) headers.set("X-Tedi-Org-Id", tedi.orgId);
 		headers.set("X-Tedi-Slug", tedi.slug);
@@ -1555,26 +1561,6 @@ function createEmbeddedCapabilityAdapter(
 	};
 }
 
-/**
- * Whether a request path names a tedi DO `/__internal/*` route under any
- * spelling. The DO matches those routes by exact pathname, so the edge
- * decodes percent-escapes, resolves dot segments and collapses repeated
- * slashes before deciding: a caller must not reach a privileged handler
- * through a spelling the exact match would miss on a later rewrite.
- */
-function targetsInternalRoute(url: URL): boolean {
-	let pathname = url.pathname;
-	try {
-		pathname = decodeURIComponent(pathname);
-	} catch {
-		// Undecodable escapes stay literal; they are compared as written.
-	}
-	// Resolve `.`/`..` segments the decode may have revealed.
-	pathname = new URL(pathname.replace(/\/{2,}/g, "/"), "https://internal")
-		.pathname;
-	return /^\/__internal(?:\/|$)/i.test(pathname.replace(/\/{2,}/g, "/"));
-}
-
 // ---------------------------------------------------------------------------
 // Main fetch
 // ---------------------------------------------------------------------------
@@ -1588,7 +1574,13 @@ export default {
 		await handleInboundEmail(message, env, ctx);
 	},
 
-	async fetch(request: Request, env: Cloudflare.Env): Promise<Response> {
+	async fetch(inbound: Request, env: Cloudflare.Env): Promise<Response> {
+		// The tedi DO trusts the service-binding marker on its `/__internal/*`
+		// routes, so only the exact marker a trusted hop stamped may travel on
+		// to it: any other spelling an untrusted caller sent is dropped here.
+		const request = isServiceBinding(inbound.headers)
+			? inbound
+			: stripServiceBindingMarker(inbound);
 		const url = new URL(request.url);
 
 		// authz: public — liveness + deployed-sha probe; serves no tenant data.

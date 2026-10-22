@@ -24,6 +24,7 @@ const allowed = ["shop.list_orders", "shop.get_order"];
 	await agent.onRequest(
 		new Request("https://do.internal/__internal/chat/stream", {
 			method: "POST",
+			headers: { "X-Service-Binding": "true" },
 			body: JSON.stringify({
 				client_request_id: "req-1",
 				session_key: "embed:host:1",

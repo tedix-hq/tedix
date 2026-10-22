@@ -141,7 +141,10 @@ for (const stale of ["value", "missing", "failure"] as const) {
 	});
 	const refresh = (method: string) =>
 		agent.onRequest(
-			new Request("https://do.internal/__internal/config/refresh", { method }),
+			new Request("https://do.internal/__internal/config/refresh", {
+				method,
+				headers: { "X-Service-Binding": "true" },
+			}),
 		);
 	assert.equal((await refresh("GET")).status, 405);
 	const response = await refresh("POST");

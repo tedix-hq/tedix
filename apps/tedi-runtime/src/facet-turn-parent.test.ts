@@ -772,7 +772,7 @@ for (const stream of [false, true]) {
 	const response = await agent.onRequest(
 		new Request("https://do.internal/__internal/inject", {
 			method: "POST",
-			headers: { [CALLER_TRUST_HEADER]: "member" },
+			headers: { "X-Service-Binding": "true", [CALLER_TRUST_HEADER]: "member" },
 			body: JSON.stringify({
 				text: "do the work",
 				client_request_id: "req-1",

@@ -249,7 +249,10 @@ assert.match(AGENT_RUNTIME_PROMPT, /untrusted information/);
 		await agent.onRequest(
 			new Request("https://do.internal/__internal/inject", {
 				method: "POST",
-				headers: { [CALLER_TRUST_HEADER]: "member" },
+				headers: {
+					"X-Service-Binding": "true",
+					[CALLER_TRUST_HEADER]: "member",
+				},
 				body: JSON.stringify({
 					text: "fix the bug",
 					client_request_id: `req-${operation}`,

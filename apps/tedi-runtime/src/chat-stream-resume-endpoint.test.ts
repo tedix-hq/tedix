@@ -127,7 +127,7 @@ function firstConnectId(runId: string) {
 		const response = await probe.agent.onRequest(
 			new Request(
 				`https://do.internal/__internal/chat/stream?run_id=${encodeURIComponent(runId)}`,
-				{ method: "GET", headers },
+				{ method: "GET", headers: { "X-Service-Binding": "true", ...headers } },
 			),
 		);
 		assert.equal(response.status, 200);
@@ -150,6 +150,7 @@ function firstConnectId(runId: string) {
 	const unknown = await probe.agent.onRequest(
 		new Request("https://do.internal/__internal/chat/stream?run_id=gone", {
 			method: "GET",
+			headers: { "X-Service-Binding": "true" },
 		}),
 	);
 	const [error] = sseFrames(await unknown.text());

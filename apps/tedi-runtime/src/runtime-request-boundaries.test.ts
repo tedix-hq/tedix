@@ -3,6 +3,14 @@ import { tediDo } from "../test/tedi-do";
 
 const request = (path: string, method = "POST", body?: string) =>
 	new Request(`https://runtime.example${path}`, { method, body });
+// An internal route reached on a trusted hop; `do-internal-caller.test.ts`
+// proves the DO refuses it without the marker.
+const internal = (path: string, method = "POST", body?: string) =>
+	new Request(`https://runtime.example${path}`, {
+		method,
+		headers: { "X-Service-Binding": "true" },
+		body,
+	});
 
 {
 	const calls: string[] = [];
@@ -80,13 +88,15 @@ const request = (path: string, method = "POST", body?: string) =>
 		},
 	});
 	assert.equal(
-		(await agent.onRequest(request("/__internal/config/refresh", "GET")))
+		(await agent.onRequest(internal("/__internal/config/refresh", "GET")))
 			.status,
 		405,
 	);
 	assert.deepEqual(calls, []);
 	assert.deepEqual(
-		await (await agent.onRequest(request("/__internal/config/refresh"))).json(),
+		await (
+			await agent.onRequest(internal("/__internal/config/refresh"))
+		).json(),
 		{ ok: true },
 	);
 	assert.deepEqual(calls, ["invalidate", "state"]);
@@ -113,7 +123,7 @@ const request = (path: string, method = "POST", body?: string) =>
 			"client_request_id (or message_id / idempotency_key) is required",
 		],
 	]) {
-		const response = await agent.onRequest(request(path!, "POST", body));
+		const response = await agent.onRequest(internal(path!, "POST", body));
 		assert.equal(response.status, 400);
 		assert.equal(((await response.json()) as { error: string }).error, error);
 	}
