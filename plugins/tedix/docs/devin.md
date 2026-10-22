@@ -29,8 +29,10 @@ check hook JSON syntax only.
 
 The plugin and `tedix setup agents --devin` use the public CIMD client ID
 `https://os.tedix.dev/.well-known/oauth-client/devin.json`. Use the same ID
-for a custom web MCP, leave the client secret blank, and request only
-`mcp:apps.read mcp:work.read`. Devin uses the shared Tedix consent flow;
+for a custom web MCP and leave the client secret blank. The client declares the
+member permissions (read and write, no administration), and Tedix asks every
+host to start there; admin access needs a separate step-up sign-in. Devin uses
+the shared Tedix consent flow;
 installation does not grant access. The registration must appear as a verified
 client of the selected MCP resource before Tedix can save consent.
 

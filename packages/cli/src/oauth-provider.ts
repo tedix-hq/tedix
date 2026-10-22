@@ -1,6 +1,7 @@
 import {
 	CONSENT_PROTOCOL_SCOPES,
 	HUMAN_CONNECT_CONSENT_SCOPES,
+	isMemberConsentScope,
 	isReadConsentScope,
 	selectConnectConsentRequestScopes,
 } from "@tedix/mcp-shared/auth/consent-scopes";
@@ -98,17 +99,9 @@ export function selectInteractiveOAuthScope(
 		if (!scope) return false;
 		if (profile === "read") return isReadConsentScope(scope);
 		if (profile === "platform-admin") return true;
-		if (protocolScopes.has(scope)) return true;
+		if (profile === "member") return isMemberConsentScope(scope);
 		// Discovery is untrusted inventory, not a permission classification.
-		// In particular, connection administration and unknown non-MCP scopes
-		// must not pass through the member profile simply because of their prefix.
-		if (!humanCapabilityScopes.has(scope)) return false;
-		return (
-			profile === "admin" ||
-			isReadConsentScope(scope) ||
-			scope.endsWith(".write") ||
-			scope === "connections.execute"
-		);
+		return protocolScopes.has(scope) || humanCapabilityScopes.has(scope);
 	});
 	if (scopes.length === 0) {
 		throw new Error(
