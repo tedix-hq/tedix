@@ -1,43 +1,45 @@
 import {
+	NativeCallScope,
+	rawModernRequest,
+	sendTransportRequest,
+	modernToolCallRounds,
+	registerNativeResumption,
+} from "./home-client-native-scope";
+import {
+	callHomeTool,
+	readHomeRun,
+	readHomeMessages,
+	readHomeRunSet,
+	readHomeConversationTitle,
+	listHomeConversations,
+	readDelegatedTediTraces,
+	listKernelTraceBundles,
+	readHomeTrace,
+	readChildRunEvidence,
+	readChildRunTree,
+	readHomeRunEvents,
+} from "./home-client-code-reads";
+import {
 	homePayloadFromTask,
 	type HomeRunEventsPage,
-	HOME_RUN_EVENTS_START,
-	HOME_RUN_EVENTS_PAGE,
-	HOME_MESSAGES_PAGE,
-	HOME_RUN_SET_PAGE,
-	HOME_RUN_SET_RUN_KEYS,
-	HOME_RUN_SET_METADATA_KEYS,
-	HOME_CHILD_TREE_NODE_KEYS,
-	parseMcpResponsePayload,
 	isExpiredSessionError,
 	unwrapToolResult,
-	parseHomeRunEventsPage,
 } from "./home-payload";
 import {
 	resolveCliDestructiveElicitation,
 	resolveCliTaskInputResponses,
 } from "./home-elicitation";
 import { isRateLimitError, rateLimitRetryAfterMs } from "./home-rate-limit";
-import { normalizeCodeResult, resolveCodeResult } from "./code-result";
 import {
 	extractWWWAuthenticateParams,
 	type JSONRPCMessage,
-	InsufficientScopeError,
 	type OAuthClientProvider,
 	StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { McpCreateTaskResultSchema } from "@tedix/api-contract/schemas/mcp-tasks";
 import {
-	MCP_CLIENT_CAPABILITIES_META_KEY,
-	MCP_CLIENT_INFO_META_KEY,
-	MCP_METHOD_HEADER,
 	MCP_MODERN_PROTOCOL_VERSION,
-	MCP_NAME_REQUIRED_METHODS,
-	MCP_NAME_HEADER,
-	MCP_PROTOCOL_VERSION_HEADER,
-	MCP_PROTOCOL_VERSION_META_KEY,
 	MCP_TASKS_EXTENSION,
-	mcpRequestTargetName,
 } from "@tedix/mcp-shared/protocol";
 import {
 	formatTraceparent,
@@ -58,14 +60,7 @@ import {
 	retryRateLimitedPosts,
 } from "./gateway-retry";
 import type { SessionRefreshOutcome } from "./oauth-provider";
-import { CLI_VERSION } from "./shared";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-const MAX_SYNC_INPUT_ROUNDS = 8;
-const CLI_CLIENT_INFO = { name: "tedix-cli", version: CLI_VERSION };
-const CLI_CLIENT_CAPABILITIES = {
-	elicitation: { form: {} },
-	extensions: { [MCP_TASKS_EXTENSION]: {} },
-};
 type FetchLike = (
 	...args: Parameters<typeof fetch>
 ) => ReturnType<typeof fetch>;
@@ -158,200 +153,6 @@ export interface TedixHomeClientOptions {
 	url: string;
 	/** Reuse a recent `server/discover` answer across CLI processes. */
 	discoveryCache?: DiscoveryCache;
-}
-
-/** One bounded typed call; never shared by unrelated callers or renewed by progress. */
-class NativeCallScope {
-	readonly controller = new AbortController();
-	readonly signal = this.controller.signal;
-	readonly deadlineAt: number;
-	readonly maxBytes: number;
-	#budget: { bytes: number };
-	#timer: ReturnType<typeof setTimeout>;
-	#parent: AbortSignal | undefined;
-	#parentAbort: () => void;
-	#cancellations = new Set<() => void>();
-	constructor(
-		options: McpCallOptions,
-		timeoutMs: number,
-		budget = { bytes: 0 },
-	) {
-		this.#budget = budget;
-		const duration = options.timeoutMs ?? timeoutMs;
-		const ceiling = options.maxResponseBytes!;
-		if (
-			!Number.isSafeInteger(ceiling) ||
-			ceiling < 1 ||
-			ceiling > 4 * 1024 * 1024 ||
-			!Number.isFinite(duration) ||
-			duration <= 0 ||
-			(options.deadlineAt !== undefined && !Number.isFinite(options.deadlineAt))
-		)
-			throw new Error("Invalid bounded native call options");
-		this.maxBytes = ceiling;
-		this.deadlineAt = Math.min(
-			Date.now() + duration,
-			options.deadlineAt ?? Infinity,
-		);
-		this.#parent = options.signal;
-		this.#parentAbort = () =>
-			this.abort(
-				options.signal?.reason ?? new DOMException("Aborted", "AbortError"),
-			);
-		options.signal?.addEventListener("abort", this.#parentAbort, {
-			once: true,
-		});
-		if (options.signal?.aborted) this.#parentAbort();
-		this.#timer = setTimeout(
-			() =>
-				this.abort(
-					new DOMException("Native call deadline elapsed", "TimeoutError"),
-				),
-			Math.max(0, this.deadlineAt - Date.now()),
-		);
-		try {
-			this.guard();
-		} catch (error) {
-			this.close();
-			throw error;
-		}
-	}
-	abort(reason: unknown): void {
-		if (this.signal.aborted) return;
-		this.controller.abort(reason);
-		for (const cancel of [...this.#cancellations]) cancel();
-	}
-	guard(): void {
-		if (Date.now() >= this.deadlineAt)
-			this.abort(
-				new DOMException("Native call deadline elapsed", "TimeoutError"),
-			);
-		this.signal.throwIfAborted();
-	}
-	charge(bytes: number): void {
-		this.guard();
-		if (
-			!Number.isSafeInteger(bytes) ||
-			bytes < 0 ||
-			bytes > this.maxBytes - this.#budget.bytes
-		) {
-			this.abort(
-				new Error(
-					"Native response exceeds call-local byte limit; persistence is unknown",
-				),
-			);
-			this.guard();
-		}
-		this.#budget.bytes += bytes;
-	}
-	async wait<T>(operation: Promise<T>): Promise<T> {
-		// Observe an already-started owned operation even when the guard is sticky.
-		void operation.catch(() => {});
-		this.guard();
-		let rejectAbort: () => void = () => {};
-		const aborted = new Promise<never>((_, reject) => {
-			rejectAbort = () => reject(this.signal.reason);
-			this.signal.addEventListener("abort", rejectAbort, { once: true });
-			if (this.signal.aborted) rejectAbort();
-		});
-		try {
-			const value = await Promise.race([operation, aborted]);
-			this.guard();
-			return value;
-		} finally {
-			this.signal.removeEventListener("abort", rejectAbort);
-		}
-	}
-	cancellationScope(): NativeCallScope | undefined {
-		if (Date.now() >= this.deadlineAt || this.#budget.bytes >= this.maxBytes)
-			return undefined;
-		return new NativeCallScope(
-			{
-				deadlineAt: this.deadlineAt,
-				timeoutMs: Math.max(1, this.deadlineAt - Date.now()),
-				maxResponseBytes: this.maxBytes,
-			},
-			Math.max(1, this.deadlineAt - Date.now()),
-			this.#budget,
-		);
-	}
-	async receive(fetching: Promise<Response>): Promise<Response> {
-		return this.wait(
-			fetching.then((response) => {
-				if (this.signal.aborted) {
-					void response.body?.cancel(this.signal.reason).catch(() => {});
-					this.guard();
-				}
-				return this.wrap(response);
-			}),
-		);
-	}
-	wrap(response: Response): Response {
-		this.guard();
-		if (!response.body) return response;
-		const reader = response.body.getReader();
-		const utf8 = new TextDecoder("utf-8", { fatal: true });
-		let done = false;
-		let controller: ReadableStreamDefaultController<Uint8Array>;
-		const release = () => {
-			this.#cancellations.delete(cancel);
-		};
-		const cancel = () => {
-			if (done) return;
-			done = true;
-			void reader.cancel(this.signal.reason).catch(() => {});
-			controller.error(this.signal.reason);
-			release();
-		};
-		const stream = new ReadableStream<Uint8Array>({
-			start: (c) => {
-				controller = c;
-				this.#cancellations.add(cancel);
-				if (this.signal.aborted) cancel();
-			},
-			pull: async (c) => {
-				try {
-					const chunk = await this.wait(reader.read());
-					if (done) return;
-					if (chunk.done) {
-						utf8.decode();
-						done = true;
-						release();
-						c.close();
-						return;
-					}
-					this.charge(chunk.value.byteLength);
-					utf8.decode(chunk.value, { stream: true });
-					c.enqueue(chunk.value);
-				} catch (error) {
-					if (!done) {
-						done = true;
-						void reader.cancel(error).catch(() => {});
-						release();
-						c.error(error);
-					}
-				}
-			},
-			cancel: (reason) => {
-				done = true;
-				release();
-				return reader.cancel(reason);
-			},
-		});
-		const bounded = new Response(stream, {
-			status: response.status,
-			statusText: response.statusText,
-			headers: response.headers,
-		});
-		for (const key of ["url", "redirected", "type"] as const)
-			Object.defineProperty(bounded, key, { value: response[key] });
-		return bounded;
-	}
-	close(): void {
-		clearTimeout(this.#timer);
-		this.#parent?.removeEventListener("abort", this.#parentAbort);
-		this.abort(new DOMException("Native call finished", "AbortError"));
-	}
 }
 
 export interface McpCallOptions {
@@ -633,23 +434,14 @@ export class TedixHomeClient {
 		token: string,
 		scope?: NativeCallScope,
 	): void {
-		// Keep only the latest SDK-issued token for each request. No live owner
-		// is evicted when the finite connection registration limit is reached.
-		if (
-			!this.#nativeResumptionTokens.has(requestId) &&
-			this.#nativeResumptionTokens.size >= 64
-		) {
-			const error = new Error("Native SSE active resumption limit exceeded");
-			scope?.abort(error);
-			throw error;
-		}
-		this.#releaseNativeResumption(requestId);
-		const owners =
-			this.#nativeResumptions.get(token) ??
-			new Map<string, NativeCallScope | undefined>();
-		owners.set(requestId, scope);
-		this.#nativeResumptions.set(token, owners);
-		this.#nativeResumptionTokens.set(requestId, token);
+		return registerNativeResumption(
+			this.#nativeResumptionTokens,
+			this.#nativeResumptions,
+			(requestId) => this.#releaseNativeResumption(requestId),
+			requestId,
+			token,
+			scope,
+		);
 	}
 
 	async #rawModernRequest(
@@ -659,113 +451,23 @@ export class TedixHomeClient {
 		scope?: NativeCallScope,
 		extraHeaders: Record<string, string> = {},
 	): Promise<unknown> {
-		scope?.guard();
-		const target = mcpRequestTargetName(method, params);
-		if (MCP_NAME_REQUIRED_METHODS.has(method) && !target) {
-			throw new Error(`${method} requires a request target`);
-		}
-		const trace = createCliRequestTrace(this.#options.headers, params._meta);
-		const request = {
-			jsonrpc: "2.0" as const,
-			id: crypto.randomUUID(),
-			method,
-			params: {
-				...params,
-				_meta: {
-					...trace.meta,
-					[MCP_PROTOCOL_VERSION_META_KEY]: MCP_MODERN_PROTOCOL_VERSION,
-					[MCP_CLIENT_INFO_META_KEY]: CLI_CLIENT_INFO,
-					[MCP_CLIENT_CAPABILITIES_META_KEY]: CLI_CLIENT_CAPABILITIES,
-				},
+		return rawModernRequest(
+			{
+				createCliRequestTrace,
+				options: this.#options,
+				fetch: this.#fetch,
+				transport: this.#transport,
+				nativeScopes: this.#nativeScopes,
+				sendTransportRequest: (...args) => this.#sendTransportRequest(...args),
+				releaseNativeResumption: (requestId) =>
+					this.#releaseNativeResumption(requestId),
 			},
-		};
-		const requestHeaders = {
-			...extraHeaders,
-			...trace.headers,
-			[MCP_METHOD_HEADER]: method,
-			...(target ? { [MCP_NAME_HEADER]: target } : {}),
-			[MCP_PROTOCOL_VERSION_HEADER]: MCP_MODERN_PROTOCOL_VERSION,
-		};
-		try {
-			if (this.#transport) {
-				if (scope) this.#nativeScopes.set(String(request.id), scope);
-				try {
-					return await this.#sendTransportRequest(
-						request,
-						requestHeaders,
-						signal,
-						true,
-						scope,
-					);
-				} finally {
-					this.#nativeScopes.delete(String(request.id));
-					this.#releaseNativeResumption(String(request.id));
-				}
-			}
-			const fetching = this.#fetch(this.#options.url, {
-				method: "POST",
-				headers: {
-					...requestHeaders,
-					"Accept-Encoding": "identity",
-					"Content-Type": "application/json",
-					Accept: "application/json, text/event-stream",
-				},
-				body: JSON.stringify(request),
-				signal,
-			});
-			const response = scope ? await scope.receive(fetching) : await fetching;
-			const reading = response.text();
-			const text = scope ? await scope.wait(reading) : await reading;
-			let payload: { error?: unknown; result?: unknown };
-			try {
-				payload = parseMcpResponsePayload(text, method);
-			} catch (error) {
-				if (!response.ok) {
-					throw new Error(
-						`MCP ${method} failed (${response.status}): ${text.slice(0, 500)}`,
-						{ cause: error },
-					);
-				}
-				throw error;
-			}
-			if (payload.error !== undefined) {
-				throw new Error(
-					`MCP ${method} error: ${JSON.stringify(payload.error)}`,
-				);
-			}
-			if (!response.ok) {
-				throw new Error(
-					`MCP ${method} failed (${response.status}): ${text.slice(0, 500)}`,
-				);
-			}
-			return payload.result;
-		} catch (error) {
-			// Preserve auth/retry classification. Add only the validated trace identifier,
-			// never request headers, URLs, credentials, or tool arguments.
-			if (error instanceof Error) {
-				const message = `${error.message} [traceId: ${trace.traceId}]`;
-				// Clone rather than mutate shared or immutable provider errors. Preserve
-				// their prototype and fields for existing retry, auth and abort classification.
-				const receipt =
-					error instanceof DOMException
-						? new DOMException(message, error.name)
-						: new Error(message);
-				if (!(error instanceof DOMException))
-					Object.setPrototypeOf(receipt, Object.getPrototypeOf(error));
-				for (const key of Reflect.ownKeys(error)) {
-					if (key === "message" || key === "stack") continue;
-					const descriptor = Object.getOwnPropertyDescriptor(error, key);
-					if (descriptor) Object.defineProperty(receipt, key, descriptor);
-				}
-				if (!("cause" in receipt))
-					Object.defineProperty(receipt, "cause", { value: error });
-				throw receipt;
-			}
-			throw new Error(
-				`MCP ${method} request failed [traceId: ${trace.traceId}]`,
-				{ cause: error },
-			);
-		}
+			method,
+			params,
+			signal,
+			scope,
+			extraHeaders,
+		);
 	}
 
 	async #sendTransportRequest(
@@ -775,67 +477,25 @@ export class TedixHomeClient {
 		allowAuthRetry = true,
 		scope?: NativeCallScope,
 	): Promise<unknown> {
-		const transport = this.#transport;
-		if (!transport || !("id" in request) || request.id === undefined) {
-			throw new Error("SDK MCP transport is not available");
-		}
-		this.#transportStarted ??= transport.start();
-		if (scope) await scope.wait(this.#transportStarted);
-		else await this.#transportStarted;
-		const key = String(request.id);
-		signal?.throwIfAborted();
-		let onAbort = () => {};
-		const response = new Promise<{ error?: unknown; result?: unknown }>(
-			(resolve) => {
-				this.#pendingTransport.set(key, { resolve });
-				onAbort = () =>
-					resolve({
-						error: signal?.reason ?? new DOMException("Aborted", "AbortError"),
-					});
-				signal?.addEventListener("abort", onAbort, { once: true });
+		return sendTransportRequest(
+			{
+				transport: this.#transport,
+				startTransport: () =>
+					(this.#transportStarted ??= this.#transport!.start()),
+				pendingTransport: this.#pendingTransport,
+				registerNativeResumption: (...args) =>
+					this.#registerNativeResumption(...args),
+				oauthProvider: this.#oauthProvider,
+				runOAuthTransaction: (operation) =>
+					this.#runOAuthTransaction(operation),
+				sendTransportRequest: (...args) => this.#sendTransportRequest(...args),
 			},
+			request,
+			headers,
+			signal,
+			allowAuthRetry,
+			scope,
 		);
-		try {
-			try {
-				const sending = transport.send(request, {
-					headers,
-					...(signal ? { requestSignal: signal } : {}),
-					onresumptiontoken: (token: string) => {
-						signal?.throwIfAborted();
-						scope?.guard();
-						this.#registerNativeResumption(String(request.id), token, scope);
-					},
-				});
-				if (scope) await scope.wait(sending);
-				else await sending;
-			} catch (error) {
-				this.#pendingTransport.delete(key);
-				if (
-					!scope &&
-					allowAuthRetry &&
-					error instanceof InsufficientScopeError &&
-					error.requiredScope &&
-					this.#oauthProvider?.authorizeScopeChallenge
-				) {
-					const provider = this.#oauthProvider;
-					const scope = error.requiredScope;
-					await this.#runOAuthTransaction(() =>
-						provider.authorizeScopeChallenge!(scope),
-					);
-					return this.#sendTransportRequest(request, headers, signal, false);
-				}
-				throw error;
-			}
-			const payload = scope ? await scope.wait(response) : await response;
-			if (payload.error instanceof Error) throw payload.error;
-			if (payload.error !== undefined) {
-				throw new Error(`MCP request error: ${JSON.stringify(payload.error)}`);
-			}
-			return payload.result;
-		} finally {
-			signal?.removeEventListener("abort", onAbort);
-			this.#pendingTransport.delete(key);
-		}
 	}
 
 	async #ensureModernProtocol(
@@ -928,47 +588,14 @@ export class TedixHomeClient {
 		protocol: { supportsTasks: boolean },
 		scope?: NativeCallScope,
 	): Promise<unknown> {
-		let params: Record<string, unknown> = {
-			name: toolName,
-			arguments: args,
-		};
-		let result: unknown;
-		for (let round = 0; round <= MAX_SYNC_INPUT_ROUNDS; round++) {
-			result = await this.#rawModernRequest(
-				"tools/call",
-				params,
-				options.signal,
-				scope,
-			);
-			if (!isRecord(result) || result.resultType !== "input_required") {
-				if (
-					isRecord(result) &&
-					result.resultType === "task" &&
-					!protocol.supportsTasks
-				) {
-					throw new Error(
-						`MCP gateway returned a Task without advertising ${MCP_TASKS_EXTENSION}`,
-					);
-				}
-				return result;
-			}
-			const inputRequests = isRecord(result.inputRequests)
-				? result.inputRequests
-				: {};
-			const inputResponses = resolveCliTaskInputResponses(
-				options.destructiveApprovalReason,
-				inputRequests,
-			);
-			if (!inputResponses || round === MAX_SYNC_INPUT_ROUNDS) return result;
-			params = {
-				...params,
-				inputResponses,
-				...(result.requestState !== undefined
-					? { requestState: result.requestState }
-					: {}),
-			};
-		}
-		return result;
+		return modernToolCallRounds(
+			(...args) => this.#rawModernRequest(...args),
+			toolName,
+			args,
+			options,
+			protocol,
+			scope,
+		);
 	}
 
 	async #getClient(): Promise<McpClientLike> {
@@ -1381,207 +1008,30 @@ export class TedixHomeClient {
 		return unwrapToolResult(result, "ask");
 	}
 
-	async #callHomeTool(
-		toolName: string,
-		args: Record<string, unknown>,
-		options: McpCallOptions = {},
-	): Promise<unknown> {
-		if (!/^[a-z][a-z0-9_]*$/.test(toolName)) {
-			throw new Error(`Invalid Home tool name: ${toolName}`);
-		}
-		return this.callTool(
-			"code",
-			{
-				code: `async () => await home.${toolName}(${JSON.stringify(args)})`,
-			},
-			options,
-		);
-	}
-
 	async readHomeRun(homeRunId: string, signal?: AbortSignal): Promise<unknown> {
-		return this.#callHomeTool(
-			"read_home_run",
-			{ runId: homeRunId },
-			{ retryable: true, signal },
-		);
+		return readHomeRun.call(this, homeRunId, signal);
 	}
-
-	/**
-	 * Read Home transcript messages, projected to the fields the CLI renders.
-	 *
-	 * A raw `read_home_messages` row carries its whole `runtime.metadata` — the
-	 * delegation work order, execution requirement, usage — so even TWO rows
-	 * exceed the Code Mode gateway's result budget and come back as a truncation
-	 * preview with no messages in it. Project inside the gateway program so the
-	 * result is small by construction, and halve the page when it still does not
-	 * fit (one message with a very long answer can be over budget on its own).
-	 */
 	async readHomeMessages(input: ReadHomeMessagesInput): Promise<unknown> {
-		let limit = Math.max(1, input.limit ?? HOME_MESSAGES_PAGE);
-		while (true) {
-			const args = {
-				conversationId: input.conversationId,
-				...(input.cursor ? { cursor: input.cursor } : {}),
-				limit,
-			};
-			const payload = await this.callTool(
-				"code",
-				{
-					code: `async () => {
-	const page = await home.read_home_messages(${JSON.stringify(args)});
-	const rows = Array.isArray(page && page.messages) ? page.messages : [];
-	return {
-		messages: rows.map((m) => ({
-			id: m.id,
-			role: m.role,
-			content: typeof m.content === "string" ? m.content : "",
-			runId: m.runId ?? undefined,
-			createdAt: m.createdAt ?? undefined,
-		})),
-		nextCursor: (page && page.nextCursor) ?? undefined,
-	};
-}`,
-				},
-				{ retryable: true },
-			);
-			const normalized = await this.#resolveCodeResult(payload);
-			if (!normalized.truncated) return normalized.value;
-			if (limit <= 1) {
-				throw new Error(
-					`Home message page is too large for the Code Mode gateway to return${
-						normalized.truncationHint ? `: ${normalized.truncationHint}` : "."
-					}`,
-				);
-			}
-			limit = Math.max(1, Math.floor(limit / 2));
-		}
+		return readHomeMessages.call(this, input);
 	}
-
-	/**
-	 * Read the conversation's run set, projected to the fields the CLI renders.
-	 *
-	 * A raw run row carries its whole `runtime.metadata` (execution requirement,
-	 * redrive input, work orders) so a page of twenty real runs is several times
-	 * the Code Mode gateway's result budget and comes back as a truncation
-	 * preview with no runs in it. `tedix status` used to read that preview as an
-	 * empty conversation. Project inside the gateway program so the result is
-	 * small by construction, halve the page while it still does not fit, and
-	 * return the unwrapped `{ runSet }` payload rather than the gateway envelope.
-	 */
 	async readHomeRunSet(input: ReadHomeRunSetInput): Promise<unknown> {
-		let limit = Math.max(1, input.limit ?? HOME_RUN_SET_PAGE);
-		while (true) {
-			const args = { conversationId: input.conversationId, limit };
-			const payload = await this.callTool(
-				"code",
-				{
-					code: `async () => {
-	const clip = (value, max) =>
-		typeof value === "string" && value.length > max
-			? value.slice(0, max) + "…"
-			: value;
-	const pick = (source, keys) => {
-		const out = {};
-		if (!source || typeof source !== "object") return out;
-		for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
-		return out;
-	};
-	const projectRun = (run) => {
-		const metadata = run.metadata && typeof run.metadata === "object" ? run.metadata : {};
-		const route = metadata.kernelRoute && typeof metadata.kernelRoute === "object" ? metadata.kernelRoute : undefined;
-		const body = metadata.bodyExecutionResult && typeof metadata.bodyExecutionResult === "object" ? metadata.bodyExecutionResult : undefined;
-		return {
-			...pick(run, ${JSON.stringify(HOME_RUN_SET_RUN_KEYS)}),
-			metadata: {
-				...pick(metadata, ${JSON.stringify(HOME_RUN_SET_METADATA_KEYS)}),
-				...(route ? { kernelRoute: { ...route, answer: clip(route.answer, 2000) } } : {}),
-				...(body ? { bodyExecutionResult: { summary: clip(body.summary, 2000) } } : {}),
-				...(metadata.childRunPreview !== undefined ? { childRunPreview: clip(metadata.childRunPreview, 500) } : {}),
-			},
-		};
-	};
-	const payload = await home.read_home_run_set(${JSON.stringify(args)});
-	const runSet = payload && typeof payload === "object" && payload.runSet && typeof payload.runSet === "object" ? payload.runSet : payload;
-	if (!runSet || typeof runSet !== "object") return payload;
-	return {
-		runSet: {
-			...pick(runSet, ["organizationId", "conversationId", "activeRunIds", "approvalMirrors", "updatedAt"]),
-			runs: (Array.isArray(runSet.runs) ? runSet.runs : []).map(projectRun),
-		},
-	};
-}`,
-				},
-				{ retryable: true },
-			);
-			const normalized = await this.#resolveCodeResult(payload);
-			if (!normalized.truncated) return normalized.value;
-			if (limit <= 1) {
-				throw new Error(
-					`Home run set is too large for the Code Mode gateway to return${
-						normalized.truncationHint ? `: ${normalized.truncationHint}` : "."
-					}`,
-				);
-			}
-			limit = Math.max(1, Math.floor(limit / 2));
-		}
+		return readHomeRunSet.call(this, input);
 	}
-
 	async readHomeConversationTitle(
 		conversationId: string,
 	): Promise<string | undefined> {
-		let cursor: string | undefined;
-		do {
-			const args = {
-				limit: 100,
-				includeArchived: true,
-				...(cursor ? { cursor } : {}),
-			};
-			const payload = await this.callTool(
-				"code",
-				{
-					code: `async () => {
-const page = await home.list_conversations(${JSON.stringify(args)});
-const conversation = page.conversations.find(row => row.id === ${JSON.stringify(conversationId)});
-return { found: Boolean(conversation), title: conversation?.title ?? null, nextCursor: page.nextCursor ?? null };
-}`,
-				},
-				{ retryable: true },
-			);
-			const normalized = normalizeCodeResult(payload);
-			if (normalized.truncated || !isRecord(normalized.value))
-				throw new Error(
-					"Home conversation title read was truncated or invalid",
-				);
-			const page = normalized.value;
-			if (page.found)
-				return typeof page.title === "string" ? page.title : undefined;
-			cursor =
-				typeof page.nextCursor === "string" ? page.nextCursor : undefined;
-		} while (cursor);
-		return undefined;
+		return readHomeConversationTitle.call(this, conversationId);
 	}
-
 	async listHomeConversations(
 		input: ListHomeConversationsInput,
 	): Promise<unknown> {
-		return this.#callHomeTool(
-			"list_conversations",
-			{
-				...(input.channel ? { channel: input.channel } : {}),
-				...(input.cursor ? { cursor: input.cursor } : {}),
-				...(input.includeArchived ? { includeArchived: true } : {}),
-				...(input.limit ? { limit: input.limit } : {}),
-				...(input.search ? { search: input.search } : {}),
-			},
-			{ retryable: true },
-		);
+		return listHomeConversations.call(this, input);
 	}
-
 	async renameConversation(input: {
 		conversationId: string;
 		title: string;
 	}): Promise<unknown> {
-		return this.#callHomeTool("rename_conversation", {
+		return callHomeTool.call(this, "rename_conversation", {
 			conversationId: input.conversationId,
 			title: input.title,
 		});
@@ -1591,7 +1041,7 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 		conversationId: string;
 		pinned: boolean;
 	}): Promise<unknown> {
-		return this.#callHomeTool("pin_conversation", {
+		return callHomeTool.call(this, "pin_conversation", {
 			conversationId: input.conversationId,
 			pinned: input.pinned,
 		});
@@ -1600,7 +1050,7 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 	async deleteConversation(input: {
 		conversationId: string;
 	}): Promise<unknown> {
-		return this.#callHomeTool("delete_conversation", {
+		return callHomeTool.call(this, "delete_conversation", {
 			conversationId: input.conversationId,
 			confirmDestructive: true,
 			reason: `CLI delete command for ${input.conversationId}`,
@@ -1612,41 +1062,16 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 		runId?: string;
 		limit?: number;
 	}): Promise<unknown> {
-		return this.#callHomeTool(
-			"read_delegated_tedi_traces",
-			{
-				tediId: input.tediId,
-				...(input.runId ? { runId: input.runId } : {}),
-				...(input.limit ? { limit: input.limit } : {}),
-			},
-			{ retryable: true },
-		);
+		return readDelegatedTediTraces.call(this, input);
 	}
-
 	async listKernelTraceBundles(
 		input: ListKernelTraceBundlesInput,
 	): Promise<unknown> {
-		return this.#callHomeTool(
-			"list_kernel_trace_bundles",
-			{
-				...(input.harnessVersionId
-					? { harnessVersionId: input.harnessVersionId }
-					: {}),
-				...(input.limit ? { limit: input.limit } : {}),
-				...(input.runId ? { runId: input.runId } : {}),
-			},
-			{ retryable: true },
-		);
+		return listKernelTraceBundles.call(this, input);
 	}
-
 	async readHomeTrace(homeRunId: string): Promise<unknown> {
-		return this.#callHomeTool(
-			"read_home_trace",
-			{ runId: homeRunId },
-			{ retryable: true },
-		);
+		return readHomeTrace.call(this, homeRunId);
 	}
-
 	/**
 	 * Run a Code Mode snippet on the gateway's single `code` tool. `source` is a
 	 * JS async function (e.g. `async () => await discover.search({ query })`)
@@ -1655,18 +1080,6 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 	 */
 	async runCode(source: string): Promise<unknown> {
 		return this.callTool("code", { code: source });
-	}
-
-	/**
-	 * Normalize a gateway payload, paging a handle-kept result back in full.
-	 * Only a result the gateway could not keep stays `truncated: true`, and the
-	 * callers above then shrink their page as before.
-	 */
-	async #resolveCodeResult(payload: unknown) {
-		return resolveCodeResult(
-			(source) => this.callTool("code", { code: source }, { retryable: true }),
-			payload,
-		);
 	}
 
 	/**
@@ -1692,141 +1105,23 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 	async readChildRunEvidence(
 		input: ReadChildRunEvidenceInput,
 	): Promise<unknown> {
-		return this.#callHomeTool(
-			"read_child_run_evidence",
-			{
-				childRunId: input.childRunId,
-				delegatedTediId: input.delegatedTediId,
-				...(input.artifactLimit ? { artifactLimit: input.artifactLimit } : {}),
-				...(input.limit ? { limit: input.limit } : {}),
-			},
-			{ retryable: true },
-		);
+		return readChildRunEvidence.call(this, input);
 	}
-
-	/**
-	 * Read the conversation's delegated child-run tree, projected to the node
-	 * fields the CLI renders (a child's preview is the delegated tedi's whole
-	 * answer, so unprojected nodes overrun the gateway budget together). Returns
-	 * the unwrapped `{ tree }` payload rather than the gateway envelope, halving
-	 * the page while the gateway still truncates it.
-	 */
 	async readChildRunTree(input: ReadChildRunTreeInput): Promise<unknown> {
-		let limit = input.limit ? Math.max(1, input.limit) : undefined;
-		while (true) {
-			const args = {
-				conversationId: input.conversationId,
-				...(limit ? { limit } : {}),
-			};
-			const payload = await this.callTool(
-				"code",
-				{
-					code: `async () => {
-	const clip = (value, max) =>
-		typeof value === "string" && value.length > max
-			? value.slice(0, max) + "…"
-			: value;
-	const pick = (source, keys) => {
-		const out = {};
-		if (!source || typeof source !== "object") return out;
-		for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
-		return out;
-	};
-	const projectNode = (node) => {
-		if (!node || typeof node !== "object") return node;
-		const metadata = node.metadata && typeof node.metadata === "object" ? node.metadata : {};
-		return {
-			...pick(node, ${JSON.stringify(HOME_CHILD_TREE_NODE_KEYS)}),
-			metadata: {
-				...pick(metadata, ["progress"]),
-				...(metadata.preview !== undefined ? { preview: clip(metadata.preview, 300) } : {}),
-			},
-			children: (Array.isArray(node.children) ? node.children : []).map(projectNode),
-		};
-	};
-	const payload = await home.read_child_run_tree(${JSON.stringify(args)});
-	const tree = payload && typeof payload === "object" && payload.tree && typeof payload.tree === "object" ? payload.tree : null;
-	if (!tree) return payload;
-	return {
-		tree: {
-			...pick(tree, ["organizationId", "conversationId", "activeNodeId", "updatedAt"]),
-			nodes: (Array.isArray(tree.nodes) ? tree.nodes : []).map(projectNode),
-		},
-	};
-}`,
-				},
-				{ retryable: true },
-			);
-			const normalized = await this.#resolveCodeResult(payload);
-			if (!normalized.truncated) return normalized.value;
-			if (limit !== undefined && limit <= 1) {
-				throw new Error(
-					`Home child-run tree is too large for the Code Mode gateway to return${
-						normalized.truncationHint ? `: ${normalized.truncationHint}` : "."
-					}`,
-				);
-			}
-			limit = Math.max(1, Math.floor((limit ?? HOME_RUN_SET_PAGE) / 2));
-		}
+		return readChildRunTree.call(this, input);
 	}
-
 	async readHomeRunEvents(
 		input: ReadHomeRunEventsInput,
 		signal?: AbortSignal,
 	): Promise<HomeRunEventsPage> {
-		const offset = input.offset ?? HOME_RUN_EVENTS_START;
-		const parsedOffset = Number.parseInt(offset, 10);
-		const start =
-			Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
-		// Home events carry full payloads — a delegation work order or a final
-		// report is kilobytes on its own — and the Code Mode gateway replaces any
-		// result over its token budget with a preview string. An unpaged read of a
-		// real run is therefore truncated by default, which is why this used to
-		// return nothing at all. Ask for a bounded slice, and halve it whenever the
-		// gateway still says the answer did not fit.
-		let limit = Math.max(1, input.limit ?? HOME_RUN_EVENTS_PAGE);
-		let lastHint: string | undefined;
-		while (true) {
-			const payload = await this.#callHomeTool(
-				"read_home_run_events",
-				{
-					runId: input.homeRunId,
-					offset: start,
-					limit,
-					...(typeof input.waitMs === "number" ? { waitMs: input.waitMs } : {}),
-					...(input.childRunId ? { childRunId: input.childRunId } : {}),
-					...(input.delegatedTediId
-						? { delegatedTediId: input.delegatedTediId }
-						: {}),
-				},
-				{ retryable: true, signal },
-			);
-			// `#callHomeTool` runs the read as Code Mode, so `payload` is the gateway
-			// envelope `{ executionId, result, logs }`; the page lives under `result`.
-			const normalized = await this.#resolveCodeResult(payload);
-			if (!normalized.truncated) {
-				return parseHomeRunEventsPage(normalized.value, offset);
-			}
-			lastHint = normalized.truncationHint;
-			if (limit <= 1) {
-				// One event that does not fit cannot be paged around. Fail loudly:
-				// swallowing this is what turned `tedix tail` into silence.
-				throw new Error(
-					`Home run event at offset ${start} is too large for the Code Mode gateway to return${
-						lastHint ? `: ${lastHint}` : "."
-					}`,
-				);
-			}
-			limit = Math.max(1, Math.floor(limit / 2));
-		}
+		return readHomeRunEvents.call(this, input, signal);
 	}
-
 	async respondHomeApproval(input: {
 		homeRunId: string;
 		decision: "approve" | "reject";
 		note?: string;
 	}): Promise<unknown> {
-		return this.#callHomeTool("respond_home_approval", {
+		return callHomeTool.call(this, "respond_home_approval", {
 			runId: input.homeRunId,
 			decision: input.decision,
 			...(input.note ? { note: input.note } : {}),
@@ -1834,7 +1129,7 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 	}
 
 	async retryDelegation(workItemId: string): Promise<unknown> {
-		return this.#callHomeTool("retry_delegation", { workItemId });
+		return callHomeTool.call(this, "retry_delegation", { workItemId });
 	}
 
 	async cancelHomeRun(input: {
@@ -1846,7 +1141,8 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 			throw new Error("A cancellation reason is required");
 		}
 		return this.#withDestructiveApproval(reason, () =>
-			this.#callHomeTool(
+			callHomeTool.call(
+				this,
 				"cancel_home_run",
 				{
 					confirmDestructive: true,
@@ -1895,7 +1191,7 @@ return { found: Boolean(conversation), title: conversation?.title ?? null, nextC
 		homeRunId: string;
 		instruction: string;
 	}): Promise<unknown> {
-		return this.#callHomeTool("steer_home_run", {
+		return callHomeTool.call(this, "steer_home_run", {
 			runId: input.homeRunId,
 			instruction: input.instruction,
 		});
