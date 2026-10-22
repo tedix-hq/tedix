@@ -20,23 +20,23 @@ import {
 	workToolCall,
 } from "./hooks/decision-capture";
 import type { JsonObject } from "./hooks/hook-io";
+import { CODEX_IDLE_MS, Supervisor } from "./supervise";
 import {
-	answerAction,
 	claudeDriver,
 	type ClaudeDriver,
-	CODEX_IDLE_MS,
 	type CodexDriver,
 	codexDriver,
 	codexMessageReceived,
+	privacyProtected,
+	protectedResumeReason,
+} from "./supervise-drivers";
+import {
 	launchAgentPlist,
 	localSigningHint,
 	loadLaunchAgent,
-	OPEN_SESSION_GRACE_MS,
-	privacyProtected,
-	protectedResumeReason,
-	Supervisor,
 	systemLaunchctl,
-} from "./supervise";
+} from "./supervise-launch-agent";
+import { answerAction, OPEN_SESSION_GRACE_MS } from "./supervise-questions";
 
 const SESSION = "01a11c83-81a9-7a32-9332-21edc1832f00";
 const REQUEST = "99999999-9999-4999-8999-999999999999";

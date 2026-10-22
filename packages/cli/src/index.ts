@@ -1253,7 +1253,7 @@ async function main() {
 			if (host === "codex") {
 				const [thread, ...codexEvents] = eventNames;
 				if (!thread || !looksLikeUuid(thread)) throw new Error(channelUsage());
-				const { codexDriver } = await import("./supervise");
+				const { codexDriver } = await import("./supervise-drivers");
 				await runCodexEventChannel({
 					client: channelClient,
 					resolveSubscriptions: subscriptionsFor(codexEvents),
