@@ -85,12 +85,14 @@ async function focusPrevious(page: Page, target: Locator) {
 	else await page.keyboard.press("Shift+Tab");
 }
 
-// Escape must hand focus back to the menu trigger. On failure, report where
-// focus went, whether the menu is still open and the URL, so a CI-only miss
-// shows its cause in the log.
+// Escape must hand focus back to the menu trigger. Wait for the menu to leave
+// the DOM first: WebKit on Linux focuses a clicked button, so a focus check
+// alone passes while the menu is still open. On failure, report where focus
+// went, whether the menu is still open and the URL.
 async function expectFocusReturn(page: Page, trigger: Locator) {
 	const label = await trigger.getAttribute("aria-label");
 	try {
+		await page.getByRole("menu").waitFor({ state: "detached" });
 		await page.waitForFunction(
 			(label) => document.activeElement?.getAttribute("aria-label") === label,
 			label,
@@ -282,10 +284,7 @@ async function runCase(browser: Browser, c: Case) {
 				`${label} cycle ${cycle}: menu open does not navigate`,
 			);
 			await page.keyboard.press("Escape");
-			await page.waitForFunction(
-				(text) => document.activeElement?.getAttribute("aria-label") === text,
-				await actions.getAttribute("aria-label"),
-			);
+			await expectFocusReturn(page, actions);
 			await open.click();
 			await page.waitForURL(/conversation=/);
 			if (phone) {
