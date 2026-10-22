@@ -466,7 +466,7 @@
 		"@cloudflare/workers-types": "catalog:",
 		"@tedix/tsconfig": "workspace:*",
 		"dotenv": "^18.0.8",
-		"drizzle-kit": "1.0.0-rc.4",
+		"drizzle-kit": "1.0.0-rc.5",
 		"jiti": "catalog:",
 		"vite": "catalog:",
 		"vite-plus": "catalog:",
