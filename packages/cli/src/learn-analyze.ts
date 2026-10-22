@@ -17,6 +17,7 @@
  * Only counts and short redacted paraphrases leave the machine, and a re-run
  * updates the same three items.
  */
+import { unknownOptionError } from "./unknown-option";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -1271,7 +1272,14 @@ function parseOptions(args: string[]) {
 				throw new Error("--since must be a date, e.g. 2026-01-01");
 			options.since = since.toISOString();
 		} else if (arg === "--project") options.projects.push(value());
-		else throw new Error(`Unknown option ${arg}`);
+		else
+			throw unknownOptionError("learn analyze-sessions", arg, [
+				"--dry-run",
+				"--json",
+				"--no-model",
+				"--since",
+				"--project",
+			]);
 	}
 	return options;
 }

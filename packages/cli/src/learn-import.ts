@@ -14,6 +14,7 @@
  * session with no unambiguous binding is skipped and counted, never guessed.
  * After the upload the caller's own decisions are mined into personal lessons.
  */
+import { unknownOptionError } from "./unknown-option";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -722,7 +723,8 @@ export async function runLearnCommand(
 	]);
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i]!;
-		if (!known.has(arg)) throw new Error(`Unknown option ${arg}`);
+		if (!known.has(arg))
+			throw unknownOptionError("learn import-sessions", arg, known);
 		if (arg === "--since" || arg === "--limit") i++;
 	}
 	const sinceArg = option(args, "--since");

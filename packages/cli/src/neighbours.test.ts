@@ -441,3 +441,15 @@ describe("neighbours without any Tedix adoption", () => {
 
 	afterAll(() => rmSync(root2, { recursive: true, force: true }));
 });
+
+test("neighbours suggests the nearest supported flag", () => {
+	expect(() => parseArgs(["--huors"])).toThrow(
+		'Unknown option --huors for "tedix neighbours"; did you mean --hours? See tedix neighbours --help',
+	);
+});
+
+test("neighbours omits distant flag suggestions", () => {
+	expect(() => parseArgs(["--completely-unrelated"])).toThrow(
+		'Unknown option --completely-unrelated for "tedix neighbours"; See tedix neighbours --help',
+	);
+});

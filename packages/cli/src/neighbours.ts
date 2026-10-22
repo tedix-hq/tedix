@@ -49,6 +49,7 @@
  *   bun run work:neighbours --fetch          # opt in to a git fetch
  */
 
+import { unknownOptionError } from "./unknown-option";
 import { execFileSync } from "node:child_process";
 
 export type GitRunner = (args: string[]) => string;
@@ -135,6 +136,14 @@ export function parseArgs(argv: string[]) {
 				.map((entry) => entry.trim())
 				.filter(Boolean);
 		else if (!value.startsWith("--")) args.paths.push(value);
+		else
+			throw unknownOptionError("neighbours", value, [
+				"--json",
+				"--fetch",
+				"--hours",
+				"--session",
+				"--paths",
+			]);
 	}
 	if (!Number.isFinite(args.hours) || args.hours <= 0) args.hours = 24;
 	return args;

@@ -484,3 +484,19 @@ describe("runLearnCommand", () => {
 		});
 	});
 });
+
+it("learn import-sessions suggests the nearest supported flag", async () => {
+	await expect(
+		runLearnCommand(["import-sessions", "--no-mnie"]),
+	).rejects.toThrow(
+		'Unknown option --no-mnie for "tedix learn import-sessions"; did you mean --no-mine? See tedix learn import-sessions --help',
+	);
+});
+
+it("learn import-sessions omits distant flag suggestions", async () => {
+	await expect(
+		runLearnCommand(["import-sessions", "--completely-unrelated"]),
+	).rejects.toThrow(
+		'Unknown option --completely-unrelated for "tedix learn import-sessions"; See tedix learn import-sessions --help',
+	);
+});

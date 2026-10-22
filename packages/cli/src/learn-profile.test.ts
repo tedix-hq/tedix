@@ -1361,3 +1361,15 @@ describe("publishDocSource", () => {
 		]);
 	});
 });
+
+it("learn profile suggests the nearest supported flag", async () => {
+	await expect(runProfile(["--no-uplaod"])).rejects.toThrow(
+		'Unknown option --no-uplaod for "tedix learn profile"; did you mean --no-upload? See tedix learn profile --help',
+	);
+});
+
+it("learn profile omits distant flag suggestions", async () => {
+	await expect(runProfile(["--completely-unrelated"])).rejects.toThrow(
+		'Unknown option --completely-unrelated for "tedix learn profile"; See tedix learn profile --help',
+	);
+});
