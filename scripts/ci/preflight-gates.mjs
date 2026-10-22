@@ -37,7 +37,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { gateInProfile } from "./preflight-profiles.mjs";
+import { gateInProfile, migrationOrderGate } from "./preflight-profiles.mjs";
 import {
 	existsSync,
 	mkdtempSync,
@@ -546,23 +546,7 @@ const gates = [
 		],
 		fix: "fix the migration the gate names — a destructive rebuild needs a reviewed directive; applied migrations are never edited",
 	},
-	{
-		// Two migrations rebased behind one production had applied blocked
-		// every deploy on 2026-10-21; only the push base shows the order.
-		name: "migration order against the push base",
-		when: migrationsTouched,
-		cmd: [
-			"bun",
-			"scripts/ci/migration-order.ts",
-			...pushRanges.flatMap(({ base, head }) => [
-				"--base",
-				base,
-				"--head",
-				head,
-			]),
-		],
-		fix: "regenerate the migration with bun run db:migrate:generate so its timestamp sorts after every migration on origin/main",
-	},
+	migrationOrderGate(files, pushRanges),
 	{
 		name: "CMS Tedix starter template build",
 		when: cmsTedixTemplateTouched,

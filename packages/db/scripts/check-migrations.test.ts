@@ -14,6 +14,7 @@ import { readMigrationManifest } from "./check-live-migration-ledger";
 import { splitMigrationStatements } from "./expected-schema";
 import {
 	APPLIED_BASELINE,
+	assertMigrationOrder,
 	assertNoLegacyMigrationFiles,
 	assertSnapshotPerMigration,
 	checkMigrations,
@@ -22,6 +23,62 @@ import {
 } from "./check-migrations";
 
 const snapshotDirectories: string[] = [];
+
+describe("migration ledger order", () => {
+	const recorded = ["20260103000000_applied/migration.sql"];
+	it("accepts two new migrations strictly after recorded history", () => {
+		expect(() =>
+			assertMigrationOrder(
+				[
+					...recorded,
+					"20260104000000_a/migration.sql",
+					"20260105000000_b/migration.sql",
+				],
+				recorded,
+			),
+		).not.toThrow();
+	});
+	it("refuses an older addition and names the restamp command", () => {
+		expect(() =>
+			assertMigrationOrder(
+				[...recorded, "20260102000000_older/migration.sql"],
+				recorded,
+			),
+		).toThrow(
+			"bun run --cwd packages/db migration:restamp 20260102000000_older",
+		);
+	});
+	it("rejects equal timestamps and an out-of-order ledger", () => {
+		expect(() =>
+			assertMigrationOrder(
+				[...recorded, "20260103000000_zzz/migration.sql"],
+				recorded,
+			),
+		).toThrow(/strictly after/);
+		expect(() =>
+			assertMigrationOrder(recorded, [
+				...recorded,
+				"20260102000000_older/migration.sql",
+			]),
+		).toThrow(/ledger history/);
+	});
+	it("checks the history file beside a migration tree", () => {
+		const { directory } = snapshotFixture();
+		const manifestPath = path.join(directory, "ledger.json");
+		writeFileSync(
+			manifestPath,
+			JSON.stringify({
+				version: 1,
+				migrations: [
+					{ name: "20260103000000_c/migration.sql", sha256: "a".repeat(64) },
+				],
+			}),
+		);
+		expect(() => checkMigrations(directory, { manifestPath })).toThrow(
+			/strictly after/,
+		);
+	});
+});
 
 function snapshotFixture(...withSnapshot: readonly string[]): {
 	directory: string;

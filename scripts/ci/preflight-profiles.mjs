@@ -9,3 +9,20 @@ export function gateInProfile(name, profile) {
 		name,
 	);
 }
+
+export function migrationOrderGate(files, ranges) {
+	return {
+		name: "migration order against the push base",
+		when:
+			files === null ||
+			files.some((file) => /^packages\/db\/drizzle\//.test(file)),
+		cmd: [
+			"node",
+			"node_modules/jiti/lib/jiti-cli.mjs",
+			"packages/db/scripts/generate-migration.ts",
+			"--check-order",
+			...ranges.flatMap(({ base, head }) => ["--base", base, "--head", head]),
+		],
+		fix: "run the migration:restamp command above, then retry bun run push",
+	};
+}
