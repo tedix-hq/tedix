@@ -299,6 +299,73 @@ describe("kernel acting user", () => {
 	);
 });
 
+describe("Home Work creator provenance", () => {
+	it.each([
+		{
+			authType: "service" as const,
+			kernel: true,
+			endpoint: "workItems/create",
+			tediId: undefined,
+			expected: "true",
+		},
+		{
+			authType: "service" as const,
+			kernel: false,
+			endpoint: "workItems/create",
+			tediId: undefined,
+			expected: null,
+		},
+		{
+			authType: "service" as const,
+			kernel: true,
+			endpoint: "workItems/updateSpecification",
+			tediId: undefined,
+			expected: null,
+		},
+		{
+			authType: "service" as const,
+			kernel: true,
+			endpoint: "workItems/create",
+			tediId: "worker",
+			expected: null,
+		},
+		{
+			authType: "tedi" as const,
+			kernel: true,
+			endpoint: "workItems/create",
+			tediId: "worker",
+			expected: null,
+		},
+	])(
+		"forwards the creator marker only for a member's Home creation ($authType, $kernel, $endpoint, $tediId)",
+		async ({ authType, kernel, endpoint, tediId, expected }) => {
+			const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
+			await new ToolHandler().execute(
+				{ title: "Fictional task" },
+				{
+					...ctx({ transport: "rpc", endpoint }),
+					env: {
+						ENVIRONMENT: "test",
+						API_URL: "https://api.example.test",
+						API_SERVICE: { fetch: apiFetch },
+					} as unknown as CloudflareEnv,
+					callerIdentity: {
+						authType,
+						kernel,
+						userId: "member-sub",
+						organizationId: "org_1",
+						tediId,
+					},
+				},
+			);
+			const call = apiFetch.mock.calls[0] as unknown as Parameters<
+				typeof fetch
+			>;
+			expect(headersFromFetch(...call).get("X-Tedix-Kernel")).toBe(expected);
+		},
+	);
+});
+
 describe("ToolHandler RPC transport logging", () => {
 	afterEach(() => {
 		globalThis.fetch = originalFetch;

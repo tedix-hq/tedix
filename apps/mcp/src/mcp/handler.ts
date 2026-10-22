@@ -1057,6 +1057,16 @@ export class ToolHandler {
 		if (useServiceBinding && forwardActingUser && ctx.callerIdentity?.userId) {
 			headers["X-Tedix-Acting-User"] = ctx.callerIdentity.userId;
 		}
+		// Only a Home creation carries this provenance to the creator ledger.
+		// The API rechecks active tenant membership; service scopes still apply.
+		if (
+			useServiceBinding &&
+			kernelActingUser &&
+			ctx.callerIdentity?.userId &&
+			!ctx.callerIdentity.tediId &&
+			endpoint === "workItems/create"
+		)
+			headers["X-Tedix-Kernel"] = "true";
 		if (
 			useServiceBinding &&
 			ctx.callerIdentity?.tediId &&
