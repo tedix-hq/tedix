@@ -129,3 +129,91 @@ export function turnFailureNoticeText(error: string): string {
 	}
 	return `This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: ${clipped || "unknown error"}`;
 }
+
+export const MAX_DELAYED_TERMINAL_RECONCILIATIONS = 16;
+interface TerminalScheduleHost {
+	ctx: { storage: Pick<DurableObjectStorage, "get"> };
+	listSchedules(): Promise<
+		Array<{ id: string; callback: string; payload: unknown }>
+	>;
+	cancelSchedule(id: string): Promise<boolean>;
+	schedule(
+		delay: number,
+		callback: "reconcileChatWorkflowTerminal",
+		payload: { workflowInstanceId: string; attempt: number },
+		options: { idempotent: boolean; retry: { maxAttempts: number } },
+	): Promise<unknown>;
+}
+const scheduleLocks = new WeakMap<object, Promise<unknown>>();
+/** Serialize inventory + insertion across every workflow facade of this parent. */
+export async function scheduleWorkflowTerminalReconciliation(
+	host: TerminalScheduleHost,
+	input: { workflowInstanceId: string; attempt: number },
+	delay = WORKFLOW_TERMINAL_RECONCILE_DELAY_SECONDS,
+): Promise<unknown> {
+	const storage = host.ctx.storage;
+	const run = async () => {
+		const schedules = (await host.listSchedules()).filter(
+			(row) => row.callback === "reconcileChatWorkflowTerminal",
+		);
+		let retained = 0;
+		const seen = new Set<string>();
+		for (const row of schedules) {
+			const id = (row.payload as { workflowInstanceId?: string } | null)
+				?.workflowInstanceId;
+			if (
+				!id ||
+				id === input.workflowInstanceId ||
+				seen.has(id) ||
+				!(await storage.get(`wfctx:${id}`)) ||
+				retained >= MAX_DELAYED_TERMINAL_RECONCILIATIONS
+			) {
+				await host.cancelSchedule(row.id);
+			} else {
+				seen.add(id);
+				retained++;
+			}
+		}
+		if (retained >= MAX_DELAYED_TERMINAL_RECONCILIATIONS) {
+			console.warn({
+				event: "tedi.workflow.terminal_schedule_cap",
+				workflowInstanceId: input.workflowInstanceId,
+				cap: MAX_DELAYED_TERMINAL_RECONCILIATIONS,
+			});
+			return;
+		}
+		if (!(await storage.get(`wfctx:${input.workflowInstanceId}`))) return;
+		return host.schedule(delay, "reconcileChatWorkflowTerminal", input, {
+			idempotent: true,
+			retry: { maxAttempts: 3 },
+		});
+	};
+	const next = (scheduleLocks.get(storage) ?? Promise.resolve()).then(run, run);
+	scheduleLocks.set(
+		storage,
+		next.catch(() => {}),
+	);
+	return next;
+}
+export async function cancelWorkflowTerminalReconciliations(
+	host: Pick<TerminalScheduleHost, "ctx" | "listSchedules" | "cancelSchedule">,
+	workflowInstanceId: string,
+): Promise<void> {
+	const storage = host.ctx.storage;
+	const run = async () => {
+		for (const row of await host.listSchedules()) {
+			if (
+				row.callback === "reconcileChatWorkflowTerminal" &&
+				(row.payload as { workflowInstanceId?: string } | null)
+					?.workflowInstanceId === workflowInstanceId
+			)
+				await host.cancelSchedule(row.id);
+		}
+	};
+	const next = (scheduleLocks.get(storage) ?? Promise.resolve()).then(run, run);
+	scheduleLocks.set(
+		storage,
+		next.catch(() => {}),
+	);
+	return next;
+}
