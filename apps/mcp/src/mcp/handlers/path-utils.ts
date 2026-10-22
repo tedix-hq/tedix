@@ -17,6 +17,10 @@ function isUnsafePathKey(key: string): boolean {
 	return key === "__proto__" || key === "constructor" || key === "prototype";
 }
 
+function hasOwn(value: object, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(value, key);
+}
+
 /**
  * Extract a value from a nested object using dot-path notation.
  * e.g., getByPath({ a: { b: [1,2] } }, "a.b") => [1,2]
@@ -27,7 +31,13 @@ function isUnsafePathKey(key: string): boolean {
 export function getByPath(obj: unknown, path: string): unknown {
 	let current = obj;
 	for (const key of path.split(".")) {
-		if (current == null || typeof current !== "object") return undefined;
+		if (
+			current == null ||
+			typeof current !== "object" ||
+			isUnsafePathKey(key) ||
+			!hasOwn(current, key)
+		)
+			return undefined;
 		current = (current as Record<string, unknown>)[key];
 	}
 	return current;
@@ -46,20 +56,31 @@ export function redactByPath(obj: Record<string, unknown>, path: string): void {
 		const wildcardMatch = seg.match(/^([^[]+)\[\*\]$/);
 		if (wildcardMatch) {
 			const key = wildcardMatch[1]!;
-			if (typeof node !== "object") return;
+			if (
+				typeof node !== "object" ||
+				node === null ||
+				isUnsafePathKey(key) ||
+				!hasOwn(node, key)
+			)
+				return;
 			const arr = (node as Record<string, unknown>)[key];
 			if (!Array.isArray(arr)) return;
 			if (idx === segments.length - 1) {
 				for (let i = 0; i < arr.length; i++) {
-					if (typeof arr[i] === "string") arr[i] = "<redacted>";
+					if (hasOwn(arr, String(i)) && typeof arr[i] === "string") {
+						arr[i] = "<redacted>";
+					}
 				}
 				return;
 			}
-			for (const item of arr) visit(item, idx + 1);
+			for (let i = 0; i < arr.length; i++) {
+				if (hasOwn(arr, String(i))) visit(arr[i], idx + 1);
+			}
 			return;
 		}
 		if (typeof node !== "object" || isUnsafePathKey(seg)) return;
 		const target = node as Record<string, unknown>;
+		if (!hasOwn(target, seg)) return;
 		if (idx === segments.length - 1) {
 			if (typeof target[seg] === "string") target[seg] = "<redacted>";
 			return;
@@ -83,7 +104,11 @@ export function setByPath(
 	let current: Record<string, unknown> = obj;
 	for (let i = 0; i < keys.length - 1; i++) {
 		const key = keys[i]!;
-		if (current[key] == null || typeof current[key] !== "object") {
+		if (
+			!hasOwn(current, key) ||
+			current[key] == null ||
+			typeof current[key] !== "object"
+		) {
 			current[key] = {};
 		}
 		current = current[key] as Record<string, unknown>;
@@ -120,8 +145,8 @@ export function applyToNestedArrays(
 			// Intermediate segment — resolve path, expect array, recurse
 			const arr = path ? getByPath(current, path) : current;
 			if (!Array.isArray(arr)) return;
-			for (const item of arr) {
-				walk(item, segIdx + 1);
+			for (let i = 0; i < arr.length; i++) {
+				if (hasOwn(arr, String(i))) walk(arr[i], segIdx + 1);
 			}
 		}
 	}
@@ -155,18 +180,23 @@ export function applyStripField(obj: unknown, pathExpr: string): void {
 
 		if (idx === segments.length - 1) {
 			// Terminal: delete the field
-			if (!Array.isArray(current)) {
+			if (
+				!Array.isArray(current) &&
+				!isUnsafePathKey(seg.key) &&
+				hasOwn(current, seg.key)
+			) {
 				delete (current as Record<string, unknown>)[seg.key];
 			}
 			return;
 		}
 
 		// Intermediate: resolve and optionally iterate
+		if (isUnsafePathKey(seg.key) || !hasOwn(current, seg.key)) return;
 		const value = (current as Record<string, unknown>)[seg.key];
 		if (seg.iterate) {
 			if (!Array.isArray(value)) return;
-			for (const item of value) {
-				walk(item, idx + 1);
+			for (let i = 0; i < value.length; i++) {
+				if (hasOwn(value, String(i))) walk(value[i], idx + 1);
 			}
 		} else {
 			walk(value, idx + 1);
