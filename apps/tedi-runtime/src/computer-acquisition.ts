@@ -304,16 +304,19 @@ export class ComputerAcquisitionDeadline extends Error {
 export class AcquisitionDeadline {
 	private active = true;
 	readonly at: number;
-	constructor(budgetMs: number) {
-		this.at = Date.now() + budgetMs;
+	constructor(
+		budgetMs: number,
+		private readonly now: () => number = Date.now,
+	) {
+		this.at = this.now() + budgetMs;
 	}
 	check() {
-		if (!this.active || Date.now() >= this.at)
+		if (!this.active || this.now() >= this.at)
 			throw new ComputerAcquisitionDeadline();
 	}
 	remaining() {
 		this.check();
-		return Math.max(1, this.at - Date.now());
+		return Math.max(1, this.at - this.now());
 	}
 	async run<T>(operation: Promise<T>): Promise<T> {
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -326,7 +329,7 @@ export class AcquisitionDeadline {
 							this.active = false;
 							reject(new ComputerAcquisitionDeadline());
 						},
-						Math.max(0, this.at - Date.now()),
+						Math.max(0, this.at - this.now()),
 					);
 				}),
 			]);
