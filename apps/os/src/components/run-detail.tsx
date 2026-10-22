@@ -1,29 +1,16 @@
 import {
 	ArrowCounterClockwise,
-	Brain,
-	CaretDown,
 	Check,
-	Package,
 	Prohibit,
-	Scroll,
 	X,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import type {
-	SkillWorkflowArtifactSummary,
-	SkillWorkflowStep,
-} from "@tedix/api-contract/contracts/cognitive";
-import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
-import {
-	RUN_ERROR_HEADLINE_LENGTH,
-	summarizeRunError,
-} from "@tedix/api-contract/utils/run-error";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import type { SkillWorkflowStep } from "@tedix/api-contract/contracts/cognitive";
+import { useEffect, useRef, useState } from "react";
 import { RunStatusChip } from "@/components/activity-runs";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Badge } from "@/components/kumo/badge";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -37,11 +24,6 @@ import {
 } from "@/components/kumo/alert-dialog";
 import { Button } from "@/components/kumo/button";
 import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
-import {
 	Card,
 	CardContent,
 	CardDescription,
@@ -49,39 +31,27 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { Input } from "@/components/kumo/input";
-import { IconFrame } from "@/components/kumo/icon-frame";
-import { Empty, EmptyMedia } from "@/components/kumo/empty";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
-	Collection,
 	Page,
 	PageActions,
 	PageBack,
 	PageHeader,
 	PageHeading,
 	PageMeta,
-	PageSection,
 	PageTitle,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
+import { partitionEventGates } from "@/components/run-trace";
 import {
-	findSkillDefinitionHealth,
-	partitionEventGates,
-	RunEventGateRow,
-	RunReconciliationPanel,
-	RunToolCallRow,
-} from "@/components/run-trace";
-import { CostChip } from "@/components/cost-chip";
+	RunCostsSection,
+	RunErrorAlert,
+	RunEvidenceSections,
+	RunTechnicalSection,
+} from "@/components/run-detail-sections";
 import { useRunWebMcpTools } from "@/components/run-webmcp-tools";
-import { cn } from "@/lib/utils";
 import { osApi } from "@/lib/api";
-import { callCostRunReading, queryReading } from "@/lib/cost-reading";
-import { useOsFormattingPreferences, formatCount } from "@/lib/format";
+import { useOsFormattingPreferences } from "@/lib/format";
 import {
 	RUN_RATIONALE_LIMIT,
 	WORKFLOW_DEFINITIONS_LIMIT,
@@ -93,231 +63,24 @@ import {
 	workflowRetryCandidatesQueryOptions,
 	workflowRunInspectQueryOptions,
 } from "@/lib/os-query-options";
-import { absoluteTime, formatDurationMs } from "@/lib/time";
+import { absoluteTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { useTediNames } from "@/lib/use-tedi-names";
-
-// ---------------------------------------------------------------------------
-// Pure helpers (exported for tests)
-// ---------------------------------------------------------------------------
 
 /** The call-cost window this surface groups by run. Part of the request, and
  * therefore part of the generated key — it stays a literal so the read and the
  * post-action invalidation address the same cache entry. */
 const RUN_COST_PERIOD = "30d";
 
-export function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${Math.round((bytes / 1024) * 10) / 10} KB`;
-	return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
-}
-
-/**
- * An approval id lives in the waiting wait_for_event step's durable evidence
- * when the workflow author recorded one. This is best-effort extraction — the
- * operator can always paste the id from the run evidence instead.
- */
-export function extractApprovalId(step: SkillWorkflowStep): string | null {
+export function extractGateField(
+	step: SkillWorkflowStep,
+	field: "approvalId" | "eventType",
+): string | null {
 	const data = step.data;
 	if (!data || typeof data !== "object") return null;
-	const record = data as Record<string, unknown>;
-	const direct = record.approvalId;
-	if (typeof direct === "string" && direct.length > 0) return direct;
-	return null;
+	const value = (data as Record<string, unknown>)[field];
+	return typeof value === "string" && value.length > 0 ? value : null;
 }
-
-export function extractWaitEventType(step: SkillWorkflowStep): string | null {
-	const data = step.data;
-	if (!data || typeof data !== "object") return null;
-	const record = data as Record<string, unknown>;
-	return typeof record.eventType === "string" && record.eventType.length > 0
-		? record.eventType
-		: null;
-}
-
-// ---------------------------------------------------------------------------
-// Pure presentational subcomponents (exported for tests)
-// ---------------------------------------------------------------------------
-
-export function RunStepRow({ step }: { step: SkillWorkflowStep }) {
-	const detail: string[] = [step.kind.replace(/_/g, " ")];
-	if (step.kind === "tool_call" && step.namespace && step.method) {
-		detail.push(`${step.namespace}.${step.method}`);
-	}
-	if (step.attempt != null && step.attempt > 1) {
-		detail.push(`attempt ${step.attempt}`);
-	}
-	const duration = formatDurationMs(step.durationMs);
-	if (duration) detail.push(duration);
-	detail.push(step.status ?? step.outcome);
-	return (
-		<li className="flex min-w-0 items-center gap-3 px-3 py-2">
-			<span
-				data-outcome={step.outcome}
-				aria-hidden
-				className={cn(
-					"size-2 shrink-0 rounded-full bg-kumo-interact",
-					step.outcome === "success" && "bg-kumo-success",
-					step.outcome === "failure" && "bg-kumo-danger",
-				)}
-			/>
-			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<Text as="strong" role="body" tone="strong" weight="medium">
-					{step.name}
-				</Text>
-				<Text as="span" role="label" tone="secondary" className="tabular-nums">
-					{detail.join(" · ")}
-				</Text>
-			</span>
-		</li>
-	);
-}
-
-export function RunArtifactRow({
-	artifact,
-}: {
-	artifact: SkillWorkflowArtifactSummary;
-}) {
-	const detail = [
-		artifact.mimeType,
-		formatBytes(artifact.sizeBytes),
-		artifact.outcome,
-		artifact.storage === "r2" ? "stored in R2" : "inline",
-	];
-	if (artifact.sha256) detail.push(`sha256 ${artifact.sha256.slice(0, 12)}…`);
-	return (
-		<li className="flex min-w-0 items-center gap-3 px-3 py-2">
-			<IconFrame appearance="fill">
-				<Package size={18} />
-			</IconFrame>
-			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<Text as="strong" role="body" tone="strong" weight="medium">
-					{artifact.path}
-				</Text>
-				<Text as="span" role="label" tone="secondary" className="tabular-nums">
-					{detail.join(" · ")}
-				</Text>
-			</span>
-		</li>
-	);
-}
-
-export function RunRationaleRow({ record }: { record: RationaleRecord }) {
-	const detail = [
-		record.category,
-		`confidence ${Math.round(record.confidence * 100)}%`,
-		record.outcomeStatus,
-	];
-	if (record.workItemId) detail.push(`work item ${record.workItemId}`);
-	return (
-		<li className="flex min-w-0 items-start gap-3 px-3 py-2">
-			<IconFrame appearance="fill">
-				<Brain size={18} />
-			</IconFrame>
-			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<Text as="strong" role="body" tone="strong" weight="medium">
-					{record.action}
-				</Text>
-				<Text as="span" role="label">
-					{record.rationale}
-				</Text>
-				<Text as="span" role="label" tone="secondary">
-					{detail.join(" · ")}
-				</Text>
-			</span>
-		</li>
-	);
-}
-
-export function RunRationaleEmpty({
-	runId,
-	workItemId,
-}: {
-	runId: string;
-	workItemId: string | null;
-}) {
-	return (
-		<Empty
-			appearance="quiet"
-			icon={
-				<EmptyMedia variant="icon">
-					<Scroll size={18} />
-				</EmptyMedia>
-			}
-			title="No rationale records reference this run"
-			description={`Rationale is linked from the run record: decisions carry a runId execution link, and none of this tedi's recent records point at run ${runId}${workItemId ? ` (work item ${workItemId})` : ""}.`}
-		/>
-	);
-}
-
-/**
- * Dense operational evidence reads as one collection, not a stack of cards.
- * The shared Kumo Collection owns the single boundary and semantic hairlines;
- * evidence rows provide content and interaction without standalone chrome.
- */
-export function RunEvidenceList({
-	label,
-	children,
-}: {
-	label: string;
-	children: ReactNode;
-}) {
-	return <Collection aria-label={label}>{children}</Collection>;
-}
-
-export function RunDetailSectionHeader({
-	title,
-	description,
-	count,
-}: {
-	title: string;
-	description: string;
-	count?: number;
-}) {
-	return (
-		<SectionHeader>
-			<SectionHeading>
-				<span className="flex flex-wrap items-center gap-2">
-					<SectionTitle>{title}</SectionTitle>
-					{count !== undefined ? (
-						<Badge variant="secondary">{count}</Badge>
-					) : null}
-				</span>
-				<SectionDescription>{description}</SectionDescription>
-			</SectionHeading>
-		</SectionHeader>
-	);
-}
-
-export function RunErrorAlert({ error }: { error: string }) {
-	// One line on the page; the full stored text stays in Details.
-	const summary = summarizeRunError(error, RUN_ERROR_HEADLINE_LENGTH);
-	return (
-		<Alert variant="destructive">
-			<AlertTitle>Run error</AlertTitle>
-			<AlertDescription className="min-w-0 truncate">
-				{summary}
-			</AlertDescription>
-			{error !== summary && (
-				<Collapsible>
-					<CollapsibleTrigger className="-mx-2 w-fit">
-						<CaretDown size={14} aria-hidden />
-						Details
-					</CollapsibleTrigger>
-					<CollapsibleContent keepMounted>
-						<pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
-							{error}
-						</pre>
-					</CollapsibleContent>
-				</Collapsible>
-			)}
-		</Alert>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// Route component
-// ---------------------------------------------------------------------------
 
 export function RunDetailPage() {
 	useOsFormattingPreferences();
@@ -485,42 +248,6 @@ export function RunDetailPage() {
 	const connectionGate = waitingGates.find(
 		(gate) => gate.connectionRecovery,
 	)?.connectionRecovery;
-	const [approvalIdInput, setApprovalIdInput] = useState<string | null>(null);
-	const [eventTypeInput, setEventTypeInput] = useState<string | null>(null);
-	const [eventPayloadInput, setEventPayloadInput] = useState("{}");
-	const [eventPayloadError, setEventPayloadError] = useState<string | null>(
-		null,
-	);
-	const approvalId =
-		approvalIdInput ??
-		(waitingGates[0] ? extractApprovalId(waitingGates[0]) : null) ??
-		"";
-	const eventType =
-		eventTypeInput ??
-		(waitingGates[0] ? extractWaitEventType(waitingGates[0]) : null) ??
-		"";
-
-	const runRationale = (rationale.data?.data ?? []).filter(
-		(record) => record.runId === runId,
-	);
-	const runCostRows = (costs.data?.costs ?? []).filter(
-		(row) => row.runId === runId,
-	);
-	// The SAME classifier the run chip on the list uses. Summing every row here
-	// — quarantined ones included — into a bare `$` figure made this page and the
-	// chip that links to it disagree: the chip excluded held-out rows and said
-	// "quarantined", while this page priced them and printed a total.
-	// `no_attribution_path`, matching the runs list: no cost row ever carries a
-	// `skill_runs.id`, so an empty filter here is a missing join rather than a
-	// ledger consulted and found empty.
-	const runCostReading =
-		queryReading(costs) ??
-		callCostRunReading(runCostRows, { emptyReason: "no_attribution_path" });
-	const runTokens = runCostRows.reduce(
-		(total, row) => total + row.totalTokens,
-		0,
-	);
-
 	const cancelable =
 		run != null && ["queued", "running", "paused"].includes(run.status);
 	const mutationError = [
@@ -703,143 +430,13 @@ export function RunDetailPage() {
 							}
 						/>
 					)}
-					{waitingGates.length > 0 && !connectionGate && (
-						<Card size="sm">
-							<CardHeader>
-								<CardTitle>
-									Waiting on{" "}
-									{extractWaitEventType(waitingGates[0]!) ?? "an event"} —{" "}
-									{waitingGates[0]!.name}
-								</CardTitle>
-								<CardDescription>
-									{approvalId
-										? "Approve or reject with the approval id recorded in the gate evidence."
-										: "Send the event this non-approval gate is waiting for. The payload must be a JSON object."}
-								</CardDescription>
-							</CardHeader>
-							<CardContent>
-								{approvalId ? (
-									<div className="flex flex-wrap items-center gap-2">
-										<Input
-											aria-label="Approval id"
-											placeholder="approval id"
-											className="max-w-64"
-											value={approvalId}
-											onChange={(event) =>
-												setApprovalIdInput(event.target.value)
-											}
-										/>
-										<Button
-											size="sm"
-											icon={<Check size={15} />}
-											disabled={approvalId.length === 0 || approveRun.isPending}
-											onClick={() => approveRun.mutate(approvalId)}
-										>
-											Approve
-										</Button>
-										<Button
-											size="sm"
-											variant="destructive"
-											icon={<X size={15} />}
-											disabled={approvalId.length === 0 || rejectRun.isPending}
-											onClick={() => rejectRun.mutate(approvalId)}
-										>
-											Reject
-										</Button>
-									</div>
-								) : (
-									<div className="grid max-w-xl gap-2">
-										<Input
-											aria-label="Event type"
-											placeholder="event type"
-											value={eventType}
-											onChange={(event) =>
-												setEventTypeInput(event.target.value)
-											}
-										/>
-										<Input
-											aria-label="Event payload"
-											placeholder="{}"
-											value={eventPayloadInput}
-											onChange={(event) => {
-												setEventPayloadInput(event.target.value);
-												setEventPayloadError(null);
-											}}
-										/>
-										{eventPayloadError ? (
-											<Text
-												as="p"
-												role="label"
-												tone="error"
-												aria-live="polite"
-												className="m-0"
-											>
-												{eventPayloadError}
-											</Text>
-										) : null}
-										<AlertDialog>
-											<AlertDialogTrigger
-												render={
-													<Button
-														size="sm"
-														className="w-fit"
-														disabled={
-															eventType.length === 0 || sendEvent.isPending
-														}
-													/>
-												}
-											>
-												Review event
-											</AlertDialogTrigger>
-											<AlertDialogContent>
-												<AlertDialogHeader>
-													<AlertDialogTitle>
-														Send this workflow event?
-													</AlertDialogTitle>
-													<AlertDialogDescription>
-														The event is non-idempotent. Confirm type{" "}
-														<strong>{eventType}</strong> with payload{" "}
-														<code>{eventPayloadInput}</code>.
-													</AlertDialogDescription>
-												</AlertDialogHeader>
-												<AlertDialogFooter>
-													<AlertDialogCancel>Go back</AlertDialogCancel>
-													<AlertDialogAction
-														onClick={() => {
-															try {
-																const parsed: unknown =
-																	JSON.parse(eventPayloadInput);
-																if (
-																	!parsed ||
-																	typeof parsed !== "object" ||
-																	Array.isArray(parsed)
-																)
-																	throw new Error(
-																		"Event payload must be a JSON object.",
-																	);
-																setEventPayloadError(null);
-																sendEvent.mutate({
-																	type: eventType,
-																	payload: parsed as Record<string, unknown>,
-																});
-															} catch (error) {
-																setEventPayloadError(
-																	error instanceof Error
-																		? error.message
-																		: "Invalid event payload.",
-																);
-															}
-														}}
-													>
-														Send event
-													</AlertDialogAction>
-												</AlertDialogFooter>
-											</AlertDialogContent>
-										</AlertDialog>
-									</div>
-								)}
-							</CardContent>
-						</Card>
+					{waitingGates[0] && !connectionGate && (
+						<RunWaitingGate
+							gate={waitingGates[0]}
+							approveRun={approveRun}
+							rejectRun={rejectRun}
+							sendEvent={sendEvent}
+						/>
 					)}
 
 					{inspect.data.warnings.length > 0 && (
@@ -855,233 +452,13 @@ export function RunDetailPage() {
 						</Alert>
 					)}
 
-					<PageSection>
-						<RunDetailSectionHeader
-							title="Steps"
-							description="Step receipts in execution order."
-							count={inspect.data.steps.length}
-						/>
-						{inspect.data.steps.length === 0 ? (
-							<Text role="body" tone="secondary">
-								No durable step evidence was recorded for this run yet.
-							</Text>
-						) : (
-							<RunEvidenceList label="Steps">
-								{inspect.data.steps.map((step) => (
-									<RunStepRow
-										key={`${step.path}:${step.executionEpoch}:${step.count}`}
-										step={step}
-									/>
-								))}
-							</RunEvidenceList>
-						)}
-					</PageSection>
-
-					<PageSection>
-						<RunDetailSectionHeader
-							title="Tool calls"
-							description="Tool calls and their provider receipts."
-							count={inspect.data.toolCalls.length}
-						/>
-						{inspect.data.toolCalls.length === 0 ? (
-							<Text role="body" tone="secondary">
-								This run made no tool calls.
-							</Text>
-						) : (
-							<RunEvidenceList label="Tool calls">
-								{inspect.data.toolCalls.map((call) => (
-									<RunToolCallRow
-										key={`${call.path}:${call.executionEpoch}:${call.count}`}
-										call={call}
-									/>
-								))}
-							</RunEvidenceList>
-						)}
-					</PageSection>
-
-					<PageSection>
-						<RunDetailSectionHeader
-							title="Event gates"
-							description="Suspension points and durable external-event evidence."
-							count={eventGates.waiting.length + eventGates.resolved.length}
-						/>
-						{eventGates.waiting.length + eventGates.resolved.length === 0 ? (
-							<Text role="body" tone="secondary">
-								This run never suspended on a waitForEvent gate.
-							</Text>
-						) : (
-							<RunEvidenceList label="Event gates">
-								{[...eventGates.waiting, ...eventGates.resolved].map((step) => (
-									<RunEventGateRow
-										key={`${step.path}:${step.executionEpoch}:${step.count}`}
-										step={step}
-									/>
-								))}
-							</RunEvidenceList>
-						)}
-					</PageSection>
-
-					<PageSection>
-						<RunDetailSectionHeader
-							title="Artifacts"
-							description="Persisted output and integrity evidence produced by the run."
-							count={artifacts.data?.artifacts.length}
-						/>
-						{artifacts.isPending && (
-							<Text role="body" tone="secondary">
-								Loading artifacts…
-							</Text>
-						)}
-						{artifacts.isError && (
-							<Alert variant="destructive">
-								<AlertDescription>
-									{(artifacts.error as Error).message}
-								</AlertDescription>
-							</Alert>
-						)}
-						{artifacts.data && artifacts.data.artifacts.length === 0 && (
-							<Text role="body" tone="secondary">
-								This run produced no evidence artifacts.
-							</Text>
-						)}
-						{artifacts.data && artifacts.data.artifacts.length > 0 && (
-							<RunEvidenceList label="Run artifacts">
-								{artifacts.data.artifacts.map((artifact) => (
-									<RunArtifactRow
-										key={`${artifact.path}:${artifact.attempt}`}
-										artifact={artifact}
-									/>
-								))}
-							</RunEvidenceList>
-						)}
-					</PageSection>
-
-					<PageSection>
-						<RunDetailSectionHeader
-							title="Rationale"
-							description="Decision records explicitly linked to this execution."
-							count={runRationale.length}
-						/>
-						{rationale.isPending && (
-							<Text role="body" tone="secondary">
-								Loading rationale…
-							</Text>
-						)}
-						{rationale.isError && (
-							<Alert variant="destructive">
-								<AlertDescription>
-									{(rationale.error as Error).message}
-								</AlertDescription>
-							</Alert>
-						)}
-						{rationale.data && runRationale.length > 0 && (
-							<RunEvidenceList label="Run rationale">
-								{runRationale.map((record) => (
-									<RunRationaleRow key={record.id} record={record} />
-								))}
-							</RunEvidenceList>
-						)}
-						{rationale.data && runRationale.length === 0 && (
-							<RunRationaleEmpty
-								runId={runId}
-								workItemId={run.workItemId ?? null}
-							/>
-						)}
-					</PageSection>
-
-					<PageSection>
-						<RunDetailSectionHeader
-							title="Costs"
-							description="Recorded execution totals and attributable ledger evidence."
-						/>
-						{run.costSummary == null && runCostRows.length === 0 ? (
-							<Text role="body" tone="secondary">
-								No cost evidence was recorded for this run.
-							</Text>
-						) : (
-							<MetricGrid
-								aria-label="Run cost summary"
-								appearance="bounded"
-								columns={6}
-							>
-								{run.costSummary && (
-									<>
-										<MetricItem label="Steps" value={run.costSummary.steps} />
-										<MetricItem
-											label="Tool calls"
-											value={run.costSummary.toolCalls}
-										/>
-										<MetricItem
-											label="Retries"
-											value={run.costSummary.retries}
-										/>
-										{formatDurationMs(run.costSummary.wallMs) && (
-											<MetricItem
-												label="Wall time"
-												value={formatDurationMs(run.costSummary.wallMs)}
-											/>
-										)}
-									</>
-								)}
-								{runCostRows.length > 0 && (
-									<>
-										<MetricItem
-											label="Cost"
-											value={
-												<CostChip
-													reading={runCostReading}
-													subject="Ledger cost attributed to this run"
-												/>
-											}
-										/>
-										<MetricItem label="Tokens" value={formatCount(runTokens)} />
-									</>
-								)}
-							</MetricGrid>
-						)}
-					</PageSection>
-					<PageSection>
-						<Collapsible>
-							<CollapsibleTrigger className="-mx-2 w-fit">
-								<CaretDown size={14} aria-hidden />
-								Technical details: Cloudflare execution
-							</CollapsibleTrigger>
-							<CollapsibleContent>
-								<div className="grid gap-2 pt-2">
-									<Text as="p" role="label" tone="secondary" className="m-0">
-										Which Cloudflare Workflow ran this, when its record was last
-										checked against Cloudflare, and whether the run used the
-										skill's current version.
-									</Text>
-									<RunReconciliationPanel
-										run={run}
-										definitionHealth={
-											definitionHealth.data
-												? findSkillDefinitionHealth(
-														definitionHealth.data.health,
-														run.skillId,
-													)
-												: undefined
-										}
-										definitionEvidenceTruncated={
-											definitionHealth.data?.truncated ?? false
-										}
-									/>
-									{definitionHealth.isError && (
-										<Text
-											as="p"
-											role="label"
-											tone="secondary"
-											aria-live="polite"
-										>
-											The skill's version check is unavailable:{" "}
-											{(definitionHealth.error as Error).message}
-										</Text>
-									)}
-								</div>
-							</CollapsibleContent>
-						</Collapsible>
-					</PageSection>
+					<RunEvidenceSections
+						inspection={inspect.data}
+						artifacts={artifacts}
+						rationale={rationale}
+					/>
+					<RunCostsSection run={run} costs={costs} />
+					<RunTechnicalSection run={run} definitionHealth={definitionHealth} />
 				</>
 			)}
 		</Page>
@@ -1125,6 +502,160 @@ export function ConnectionRecoveryNotice({
 						Check connection and continue
 					</Button>
 				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
+function RunWaitingGate({
+	gate,
+	approveRun,
+	rejectRun,
+	sendEvent,
+}: {
+	gate: SkillWorkflowStep;
+	approveRun: { isPending: boolean; mutate: (id: string) => void };
+	rejectRun: { isPending: boolean; mutate: (id: string) => void };
+	sendEvent: {
+		isPending: boolean;
+		mutate: (input: { type: string; payload: Record<string, unknown> }) => void;
+	};
+}) {
+	const [approvalIdInput, setApprovalIdInput] = useState<string | null>(null);
+	const [eventTypeInput, setEventTypeInput] = useState<string | null>(null);
+	const [eventPayloadInput, setEventPayloadInput] = useState("{}");
+	const [eventPayloadError, setEventPayloadError] = useState<string | null>(
+		null,
+	);
+	const approvalId =
+		approvalIdInput ?? extractGateField(gate, "approvalId") ?? "";
+	const eventType = eventTypeInput ?? extractGateField(gate, "eventType") ?? "";
+
+	return (
+		<Card size="sm">
+			<CardHeader>
+				<CardTitle>
+					Waiting on {extractGateField(gate, "eventType") ?? "an event"} —{" "}
+					{gate.name}
+				</CardTitle>
+				<CardDescription>
+					{approvalId
+						? "Approve or reject with the approval id recorded in the gate evidence."
+						: "Send the event this non-approval gate is waiting for. The payload must be a JSON object."}
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				{approvalId ? (
+					<div className="flex flex-wrap items-center gap-2">
+						<Input
+							aria-label="Approval id"
+							placeholder="approval id"
+							className="max-w-64"
+							value={approvalId}
+							onChange={(event) => setApprovalIdInput(event.target.value)}
+						/>
+						<Button
+							size="sm"
+							icon={<Check size={15} />}
+							disabled={approvalId.length === 0 || approveRun.isPending}
+							onClick={() => approveRun.mutate(approvalId)}
+						>
+							Approve
+						</Button>
+						<Button
+							size="sm"
+							variant="destructive"
+							icon={<X size={15} />}
+							disabled={approvalId.length === 0 || rejectRun.isPending}
+							onClick={() => rejectRun.mutate(approvalId)}
+						>
+							Reject
+						</Button>
+					</div>
+				) : (
+					<div className="grid max-w-xl gap-2">
+						<Input
+							aria-label="Event type"
+							placeholder="event type"
+							value={eventType}
+							onChange={(event) => setEventTypeInput(event.target.value)}
+						/>
+						<Input
+							aria-label="Event payload"
+							placeholder="{}"
+							value={eventPayloadInput}
+							onChange={(event) => {
+								setEventPayloadInput(event.target.value);
+								setEventPayloadError(null);
+							}}
+						/>
+						{eventPayloadError ? (
+							<Text
+								as="p"
+								role="label"
+								tone="error"
+								aria-live="polite"
+								className="m-0"
+							>
+								{eventPayloadError}
+							</Text>
+						) : null}
+						<AlertDialog>
+							<AlertDialogTrigger
+								render={
+									<Button
+										size="sm"
+										className="w-fit"
+										disabled={eventType.length === 0 || sendEvent.isPending}
+									/>
+								}
+							>
+								Review event
+							</AlertDialogTrigger>
+							<AlertDialogContent>
+								<AlertDialogHeader>
+									<AlertDialogTitle>Send this workflow event?</AlertDialogTitle>
+									<AlertDialogDescription>
+										The event is non-idempotent. Confirm type{" "}
+										<strong>{eventType}</strong> with payload{" "}
+										<code>{eventPayloadInput}</code>.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Go back</AlertDialogCancel>
+									<AlertDialogAction
+										onClick={() => {
+											try {
+												const parsed: unknown = JSON.parse(eventPayloadInput);
+												if (
+													!parsed ||
+													typeof parsed !== "object" ||
+													Array.isArray(parsed)
+												)
+													throw new Error(
+														"Event payload must be a JSON object.",
+													);
+												setEventPayloadError(null);
+												sendEvent.mutate({
+													type: eventType,
+													payload: parsed as Record<string, unknown>,
+												});
+											} catch (error) {
+												setEventPayloadError(
+													error instanceof Error
+														? error.message
+														: "Invalid event payload.",
+												);
+											}
+										}}
+									>
+										Send event
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
+					</div>
+				)}
 			</CardContent>
 		</Card>
 	);
