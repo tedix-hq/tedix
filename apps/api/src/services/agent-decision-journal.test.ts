@@ -11,6 +11,7 @@ import { workItems } from "@tedix/db/schema/work-items";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { setDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
+import { classifyDeckCard } from "@tedix/api-contract/schemas/os-decision-deck";
 import {
 	RecordAgentDecisionInputSchema,
 	RecordAgentDecisionOutcomeInputSchema,
@@ -388,8 +389,19 @@ describe("agent decision journal", () => {
 		});
 		expect(cards[0]?.metadata).toMatchObject({
 			source: "agent-decision-review",
-			decisionDeck: { classId: "agent-decisions.review", protectedEffects: [] },
+			decisionDeck: {
+				classId: "agent-decisions.review",
+				protectedEffects: [],
+				tasteOrStrategy: true,
+			},
 		});
+		const routed = classifyDeckCard({
+			kind: "question",
+			classId: "agent-decisions.review",
+			tasteOrStrategy: true,
+			needsPerson: true,
+		});
+		expect(routed.destination).toBe("deck");
 		const prompt = String(cards[0]?.prompt ?? "");
 		expect(prompt.split("\n\n")[0]!.split(/\s+/).length).toBeLessThanOrEqual(
 			60,

@@ -567,6 +567,9 @@ export async function runAgentDecisionMorningReview(
 				recommendation:
 					"Keep them unless one looks wrong. Tell the agent which to undo.",
 				reversibility: "two_way",
+				// Judging an agent's judgement calls is the owner's call: this
+				// routes the review to the Deck instead of the Feed.
+				tasteOrStrategy: true,
 				protectedEffects: [],
 				blastRadius: "Decisions your agents already made",
 				confidence: null,
