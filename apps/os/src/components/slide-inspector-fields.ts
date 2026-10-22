@@ -68,7 +68,7 @@ export type SlideInspectorField =
 	/** Bullet list items, one per line, stored as the element's text. */
 	| { kind: "items"; label: string };
 
-export type SlideInspectorEntry = SlideInspectorField & { advanced?: boolean };
+type SlideInspectorEntry = SlideInspectorField & { advanced?: boolean };
 
 /** Families the Google Fonts loader can fetch; the stack keeps a fallback. */
 export const SLIDE_FONT_FAMILIES = OS_COPY.slideFontFamilies;
@@ -195,7 +195,7 @@ const appearance = advanced([
 		placeholder: 0,
 	},
 ]);
-export const SLIDE_GEOMETRY_FIELDS = advanced([
+const SLIDE_GEOMETRY_FIELDS = advanced([
 	{ kind: "number", key: "x", label: "X", min: 0, max: PRESENTATION_WIDTH },
 	{ kind: "number", key: "y", label: "Y", min: 0, max: PRESENTATION_HEIGHT },
 	{ kind: "number", key: "width", label: "W", min: 8, max: PRESENTATION_WIDTH },
@@ -209,7 +209,7 @@ export const SLIDE_GEOMETRY_FIELDS = advanced([
 ]);
 
 /** Clears the prop, so the renderer's own default applies. */
-export const DEFAULT_PROP_OPTION = "default";
+const DEFAULT_PROP_OPTION = "default";
 const tone: SlideInspectorEntry = {
 	kind: "prop-select",
 	key: "tone",
@@ -345,10 +345,7 @@ export function slideInspectorFields(type: OsPresentationElementType) {
 
 const GEOMETRY_KEYS = new Set(["x", "y", "width", "height"]);
 
-export function readSlideField(
-	element: OsPresentationElement,
-	key: string,
-): unknown {
+function readSlideField(element: OsPresentationElement, key: string): unknown {
 	if (GEOMETRY_KEYS.has(key) || key === "text")
 		return element[key as "x" | "text"];
 	return element.style[key as keyof Style];
