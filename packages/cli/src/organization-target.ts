@@ -45,31 +45,31 @@ export function resolveOrganizationTarget(
 	if ((input.command === "code" || input.command === "mcp") && !organization) {
 		return { headers: {}, workspace: input.workspace };
 	}
-	const selected = decodeJwtPayload(
-		input.accessToken ?? "",
-	)?.tedixSelectedOrganizations;
-	if (
-		!Array.isArray(selected) ||
-		selected.length < 1 ||
-		selected.length > 10 ||
-		selected.some((id) => typeof id !== "string" || !id || id.length > 256) ||
-		new Set(selected).size !== selected.length
-	) {
-		throw new Error(
-			"Connect has no valid organization selection. Run tedix login to renew consent.",
-		);
-	}
-	const saved = organization
-		? undefined
-		: savedDefaultOrganization(input.workspace, options);
-	const target =
-		organization ??
-		(saved && selected.includes(saved) ? saved : undefined) ??
-		(selected.length === 1 ? (selected[0] as string) : undefined);
+	let target = organization;
 	if (!target) {
-		throw new Error(
-			`Several organizations are selected. Add one of these flags to your command.\nSelectable organizations:\n${selected.map((id) => `  --organization ${id}`).join("\n")}\nRun tedix orgs -w ${input.workspace} to see organization names, or set TEDIX_ORGANIZATION for this terminal.`,
-		);
+		const selected = decodeJwtPayload(
+			input.accessToken ?? "",
+		)?.tedixSelectedOrganizations;
+		if (
+			!Array.isArray(selected) ||
+			selected.length < 1 ||
+			selected.length > 10 ||
+			selected.some((id) => typeof id !== "string" || !id || id.length > 256) ||
+			new Set(selected).size !== selected.length
+		) {
+			throw new Error(
+				"Connect has no valid organization selection. Add --organization <id-or-slug> or set TEDIX_ORGANIZATION to target your authorized organization.",
+			);
+		}
+		const saved = savedDefaultOrganization(input.workspace, options);
+		target =
+			(saved && selected.includes(saved) ? saved : undefined) ??
+			(selected.length === 1 ? (selected[0] as string) : undefined);
+		if (!target) {
+			throw new Error(
+				`Several organizations are selected. Add one of these flags to your command.\nSelectable organizations:\n${selected.map((id) => `  --organization ${id}`).join("\n")}\nRun tedix orgs -w ${input.workspace} to see organization names, or set TEDIX_ORGANIZATION for this terminal.`,
+			);
+		}
 	}
 	// This is a routing hint only; the server checks live consent on every call.
 	return {
