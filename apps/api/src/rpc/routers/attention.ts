@@ -124,8 +124,18 @@ export const attentionContractRouter = os.router({
 			throw errors.CONFLICT({
 				message: "Deck inventory is incomplete; absence is unknown",
 			});
-		if (!card)
-			throw errors.NOT_FOUND({ message: "Card is not in your current Deck" });
+		if (!card) {
+			const { explainDeckCardAbsence } =
+				await import("../../services/deck-card-absence");
+			throw errors.NOT_FOUND({
+				message: await explainDeckCardAbsence(context, input.cardId, {
+					projectId: input.projectId ?? projection.config?.projectId,
+					timeZone: input.timeZone,
+					routing: projection.config?.routing,
+					model: projection.model,
+				}),
+			});
+		}
 		const { prepareDeckCardFaces } =
 			await import("../../services/deck-card-face");
 		const display = (
@@ -174,8 +184,18 @@ export const attentionContractRouter = os.router({
 							? `work-approval:${input.decision.proposalId}`
 							: `approval:${input.decision.id}`;
 			const card = projection.cards.find((card) => card.id === cardId);
-			if (!card)
-				throw errors.NOT_FOUND({ message: "Card is not in your current Deck" });
+			if (!card) {
+				const { explainDeckCardAbsence } =
+					await import("../../services/deck-card-absence");
+				throw errors.NOT_FOUND({
+					message: await explainDeckCardAbsence(context, cardId, {
+						projectId: projection.config?.projectId,
+						timeZone: input.timeZone,
+						routing: projection.config?.routing,
+						model: projection.model,
+					}),
+				});
+			}
 			if (
 				input.kind === "request_changes" ||
 				input.kind === "restore_revision"

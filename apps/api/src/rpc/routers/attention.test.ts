@@ -7,12 +7,16 @@ const mocks = vi.hoisted(() => ({
 	loadDeckProjection: vi.fn(),
 	loadForYouProjection: vi.fn(),
 	prepareFaces: vi.fn(),
+	explainAbsence: vi.fn(),
 	call: vi.fn(),
 	record: vi.fn(),
 }));
 vi.mock("../../services/attention-projection", () => ({
 	loadDeckProjection: mocks.loadDeckProjection,
 	loadForYouProjection: mocks.loadForYouProjection,
+}));
+vi.mock("../../services/deck-card-absence", () => ({
+	explainDeckCardAbsence: mocks.explainAbsence,
 }));
 vi.mock("../../services/deck-card-face", async (original) => ({
 	...(await original<Record<string, unknown>>()),
@@ -180,6 +184,33 @@ it("does not call a missing card absent when its inventory is incomplete", async
 	await expect(
 		client().getDeckCard({ cardId: "missing" }),
 	).rejects.toMatchObject({ code: "CONFLICT" });
+});
+it("tells the caller which filter kept a real card off its Deck", async () => {
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [],
+		count: 0,
+		complete: true,
+	});
+	mocks.explainAbsence.mockResolvedValue(
+		"It routes to your Feed, not your Deck (routine)",
+	);
+	await expect(
+		client().getDeckCard({ cardId: requestId }),
+	).rejects.toMatchObject({
+		code: "NOT_FOUND",
+		message: "It routes to your Feed, not your Deck (routine)",
+	});
+	expect(mocks.explainAbsence).toHaveBeenCalledWith(
+		expect.anything(),
+		requestId,
+		expect.objectContaining({ projectId: undefined }),
+	);
+	await expect(
+		client().decideDeckCard({ decision: response() }),
+	).rejects.toMatchObject({
+		code: "NOT_FOUND",
+		message: "It routes to your Feed, not your Deck (routine)",
+	});
 });
 it("rejects a decision before its effect when inventory is incomplete", async () => {
 	mocks.loadDeckProjection.mockResolvedValue({
