@@ -55,7 +55,12 @@ export const CatalogueSearchInputJsonSchema = z.toJSONSchema(
 export const CatalogueDescribeInputJsonSchema = z.toJSONSchema(
 	CatalogueDescribeInputSchema,
 );
-/** Stored declarations must describe the closed parser exactly, independent of key order. */
+/**
+ * Stored declarations must describe the closed parser exactly, independent of
+ * key order. A row synced before the parser gained an optional property still
+ * matches: it declares the same closed object minus those optional properties,
+ * so every input it allows is still valid.
+ */
 export function catalogueInputDeclarationMatches(
 	endpoint: CatalogueTransportConfig["endpoint"],
 	input: unknown,
@@ -88,7 +93,32 @@ export function catalogueInputDeclarationMatches(
 			)
 		);
 	}
-	return equal(expected, input);
+	if (equal(expected, input)) return true;
+	if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+	const declared = (input as { properties?: unknown }).properties;
+	if (!declared || typeof declared !== "object" || Array.isArray(declared))
+		return false;
+	const properties = expected.properties as Record<string, unknown>;
+	const required = new Set(
+		(expected as { required?: string[] }).required ?? [],
+	);
+	if (
+		Object.keys(properties).some(
+			(key) => !Object.hasOwn(declared, key) && required.has(key),
+		)
+	)
+		return false;
+	return equal(
+		{
+			...expected,
+			properties: Object.fromEntries(
+				Object.entries(properties).filter(([key]) =>
+					Object.hasOwn(declared, key),
+				),
+			),
+		},
+		input,
+	);
 }
 
 export type CatalogueTransportCallback = (

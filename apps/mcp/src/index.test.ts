@@ -1150,6 +1150,10 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 	it("uses original OAuth context and owning native handlers with zero loader diagnostics", async () => {
 		const { validateAuth } = await import("./auth-helpers");
 		const factory = await import("./mcp/server-factory");
+		// Deployed rows were synced before the parser gained includeMetadata;
+		// the CLI's bootstrap must still accept them (regression 687bb7306).
+		const { includeMetadata: _added, ...legacySearchProperties } =
+			CatalogueSearchInputJsonSchema.properties as Record<string, unknown>;
 		const search = {
 			id: "search-row",
 			toolId: "find_native_entries",
@@ -1161,7 +1165,10 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 				endpoint: "catalog/search",
 				nativeDirect: true,
 			},
-			inputSchema: CatalogueSearchInputJsonSchema,
+			inputSchema: {
+				...CatalogueSearchInputJsonSchema,
+				properties: legacySearchProperties,
+			},
 			outputSchema: null,
 		};
 		const describeRow = {
@@ -1327,10 +1334,8 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 					describe: { name: describeRow.toolId },
 				},
 			});
-			const found = await invoke(search.toolId, {
-				query: "",
-				includeMetadata: true,
-			});
+			// The CLI searches without includeMetadata and resolves rows by `native`.
+			const found = await invoke(search.toolId, { query: "" });
 			expect(found.status, await found.clone().text()).toBe(200);
 			const result = (await found.json()) as {
 				result: {

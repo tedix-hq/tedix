@@ -2064,7 +2064,7 @@ it("preserves native projection parity for scopes, freshness, paging, aliases, s
 					string,
 					{ execute(input: unknown): Promise<unknown> }
 				>
-			).search!.execute(input);
+			).search!.execute({ includeMetadata: true, ...input });
 			expect(
 				await executeCatalogOperation(
 					ctx,
@@ -2093,6 +2093,7 @@ it("preserves native projection parity for scopes, freshness, paging, aliases, s
 				buildCatalogProvider(skills, undefined),
 				"inspect work",
 				25,
+				{ includeMetadata: true },
 			),
 		);
 		expect(
@@ -2121,6 +2122,7 @@ it("preserves native projection parity for scopes, freshness, paging, aliases, s
 		).toEqual(
 			await runSearch(buildCatalogProvider(aliases, undefined), "", 25, {
 				namespace: "app",
+				includeMetadata: true,
 			}),
 		);
 		expect(rankDiscovery).toHaveBeenCalled();
@@ -2208,6 +2210,7 @@ it("keeps reviewed endpoint floors and denials identical in native discovery", a
 				).toEqual(
 					await runSearch(buildCatalogProvider(ctx, undefined), "", 25, {
 						namespace: "customer",
+						includeMetadata: true,
 					}),
 				);
 			}
