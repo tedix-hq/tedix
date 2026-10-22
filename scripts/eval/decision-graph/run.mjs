@@ -8,6 +8,19 @@ import { markdown, measure } from "./measure.mjs";
 import { approvalHistory } from "./approval-history.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+/** @param {string | null} callable */
+export function selectReadTool(tools, name, callable = null) {
+	const matches = tools.filter(
+		(tool) => tool.tool === name && (!callable || tool.callable === callable),
+	);
+	if (
+		matches.length !== 1 ||
+		matches[0].readOnly !== true ||
+		!/^[a-zA-Z_][\w]*\.[a-zA-Z_][\w]*$/.test(matches[0].callable)
+	)
+		throw new Error(`Exact read-only tool unavailable: ${name}`);
+	return matches[0];
+}
 /** @template T
  * @param {() => Promise<T>} read
  * @param {(ms: number) => Promise<unknown>} wait
@@ -158,23 +171,18 @@ async function main() {
 				return result;
 			});
 		}
-		async function discover(name, endpoint = null) {
-			const matches = await code(
-				`const endpoint=${codeModeLiteral(endpoint)}; const r=await discover.search(${codeModeLiteral({ query: name, limit: 10, includeParameters: true })}); return r.filter(x=>x.tool===${codeModeLiteral(name)} && (!endpoint || x.native?.endpoint===endpoint)).map(x=>({callable:x.callable,parameters:x.parameters,readOnly:x.annotations?.readOnlyHint}));`,
+		/** @param {string | null} callable */
+		async function discover(name, callable = null) {
+			const tools = await code(
+				`const r=await discover.search(${codeModeLiteral({ query: name, limit: 10, includeParameters: true })}); return r.filter(x=>x.tool===${codeModeLiteral(name)}).map(x=>({tool:x.tool,callable:x.callable,parameters:x.parameters,readOnly:x.annotations?.readOnlyHint}));`,
 			);
-			if (
-				matches.length !== 1 ||
-				matches[0].readOnly !== true ||
-				!/^[a-zA-Z_][\w]*\.[a-zA-Z_][\w]*$/.test(matches[0].callable)
-			)
-				throw new Error(`Exact read-only tool unavailable: ${name}`);
-			if (name === "list_deck_cards")
-				assertStoredDeckSchema(matches[0].parameters);
+			const tool = selectReadTool(tools, name, callable);
+			if (name === "list_deck_cards") assertStoredDeckSchema(tool.parameters);
 			await writeFile(
 				join(out, `schema-${name}.json`),
-				JSON.stringify(matches[0], null, 2),
+				JSON.stringify(tool, null, 2),
 			);
-			return matches[0].callable;
+			return tool.callable;
 		}
 		const deckTool = await discover("list_deck_cards"),
 			inboxTool = await discover("list_work_interactions"),
@@ -183,7 +191,7 @@ async function main() {
 			learningTool = await discover("get_decision_learning"),
 			preferencesTool = await discover(
 				"get_preferences",
-				"userSettings/getPreferences",
+				"user.get_preferences",
 			);
 		const learning = await code(
 			`const r=await ${learningTool}({}); return {pipeline:r.config.deckPipeline};`,
@@ -269,9 +277,12 @@ async function main() {
 			read: code,
 			workTool: await discover(
 				"list_work_approvals",
-				"workApprovals/listInbox",
+				"work.list_work_approvals",
 			),
-			runtimeTool: await discover("list_tedi_approvals", "tediApprovals/list"),
+			runtimeTool: await discover(
+				"list_tedi_approvals",
+				"tedi.list_tedi_approvals",
+			),
 			cutoff,
 			maxPages,
 			currentIds: snapshot.currentIds,
