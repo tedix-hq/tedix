@@ -92,6 +92,7 @@ export interface SkillRunSnapshot {
 	skillDoc: string;
 	capabilityManifest: unknown;
 	resourceAccessEnvelope: OsDerivedAccessEnvelope | null;
+	certification?: boolean;
 	createdBy: string | null;
 	workItemId: string | null;
 	originTediRunId: string | null;
@@ -108,7 +109,7 @@ export async function loadSkillRunSnapshot(
 			        started_at,
 			        skill_slug, skill_revision,
 			        workflow_source, skill_doc, capability_manifest, resource_access_envelope, created_by,
-			        work_item_id, origin_tedi_run_id
+			        work_item_id, origin_tedi_run_id, certification
 			 FROM skill_runs WHERE id = ?1 LIMIT 1`,
 		)
 		.bind(runId)
@@ -128,6 +129,7 @@ export async function loadSkillRunSnapshot(
 			skill_doc: string | null;
 			capability_manifest: string | null;
 			resource_access_envelope: string | null;
+			certification: number | null;
 			created_by: string | null;
 			work_item_id: string | null;
 			origin_tedi_run_id: string | null;
@@ -162,6 +164,7 @@ export async function loadSkillRunSnapshot(
 		resourceAccessEnvelope: row.resource_access_envelope
 			? JSON.parse(row.resource_access_envelope)
 			: null,
+		certification: row.certification === 1,
 		createdBy: row.created_by ?? null,
 		workItemId: row.work_item_id ?? null,
 		originTediRunId: row.origin_tedi_run_id ?? null,

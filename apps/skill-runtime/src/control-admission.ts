@@ -234,6 +234,7 @@ export async function snapshotMatchesAdmission(
 			snapshot.capabilityManifest,
 			input.capabilityManifest,
 		) &&
+		Boolean(snapshot.certification) === (input.certification ?? false) &&
 		snapshot.createdBy === (input.createdBy ?? null) &&
 		snapshot.workItemId === (input.workItemId ?? null) &&
 		snapshot.originTediRunId === (input.originTediRunId ?? null)

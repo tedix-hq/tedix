@@ -1430,6 +1430,12 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 				reason: destructiveAuditReason(
 					"Audit reason for the confirmed workflow dispatch",
 				),
+				certification: z
+					.boolean()
+					.optional()
+					.describe(
+						"Owner/admin-only certification run; allows the pinned draft revision's declared manifest calls",
+					),
 				runId: z
 					.string()
 					.uuid()

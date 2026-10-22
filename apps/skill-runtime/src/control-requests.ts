@@ -18,6 +18,7 @@ export const RunRequestSchema = z.object({
 	skillDoc: z.string(),
 	capabilityManifest: z.record(z.string(), z.unknown()),
 	resourceAccessEnvelope: OsDerivedAccessEnvelopeSchema.optional(),
+	certification: z.boolean().optional(),
 	createdBy: z.string().min(1).max(128).optional(),
 	workItemId: z.string().uuid().optional(),
 	originTediRunId: z.string().uuid().optional(),

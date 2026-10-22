@@ -80,6 +80,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 			completed_at TEXT,
 			paused_at TEXT,
 			created_by TEXT,
+			certification INTEGER DEFAULT 0,
 			work_item_id TEXT,
 			origin_tedi_run_id TEXT
 		);

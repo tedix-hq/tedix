@@ -64,9 +64,15 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				);
 				if (
 					!skill ||
-					!["active", "proven", "crystallized"].includes(
+					(!["active", "proven", "crystallized"].includes(
 						skill.lifecycleState ?? "",
-					)
+					) &&
+						!(
+							skill.lifecycleState === "draft" &&
+							run.certification === true &&
+							run.createdBy?.startsWith("user:") &&
+							skill.revision === run.skillRevision
+						))
 				)
 					return { approved: false };
 				const manifest = readPinnedCapabilityManifest(run.capabilityManifest);

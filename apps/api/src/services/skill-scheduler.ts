@@ -11,6 +11,7 @@ import type { PersonalResourceDelegationRow } from "@tedix/db/schema/personal-re
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import {
 	listDueSkillSchedules,
+	pauseSkillSchedule,
 	recordSkillScheduleDispatch,
 	recordSkillScheduleError,
 	recordSkillScheduleSuppressed,
@@ -211,6 +212,21 @@ export async function dispatchDueSkillSchedules(
 			);
 			if (!skill || skill.tediId !== schedule.tediId) {
 				throw new Error("scheduled skill or owning tedi no longer matches");
+			}
+			if (
+				!["active", "proven", "crystallized"].includes(
+					skill.lifecycleState ?? "",
+				)
+			) {
+				await pauseSkillSchedule(db, skill.id, schedule.organizationId);
+				result.suppressed++;
+				result.runs.push({
+					scheduleId: schedule.id,
+					skillId: skill.id,
+					status: "suppressed",
+					error: "Skill is not active; schedule paused until activation",
+				});
+				continue;
 			}
 			const budgetClass = scheduledBudgetClassForSkillSlug(skill.slug);
 			// Budget-aware suppression: if the owning tedi's background inference

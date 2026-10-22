@@ -63,7 +63,7 @@ export async function upsertSkillSchedule(
 /**
  * Write the schedule row a skill earns when verified runs promote it out of
  * draft. Drafts get no row, so without this a skill activated by its own runs
- * never fires until someone edits it. An existing row is left untouched, and a
+ * never fires until someone edits it. A paused row resumes from the manifest; a
  * manifest without a valid schedule or a skill without an owning tedi writes
  * nothing.
  */
@@ -90,9 +90,33 @@ export async function insertActivatedSkillSchedule(
 			createdAt: timestamp,
 			updatedAt: timestamp,
 		})
-		.onConflictDoNothing({ target: skillSchedules.skillId })
+		.onConflictDoUpdate({
+			target: skillSchedules.skillId,
+			set: {
+				enabled: schedule.enabled,
+				nextFireAt: nextSkillScheduleFireAt(schedule.cron, now),
+				updatedAt: timestamp,
+			},
+		})
 		.returning({ id: skillSchedules.id });
 	return inserted.length > 0;
+}
+
+/** Pause an existing timer without discarding its next fire or manifest intent. */
+export async function pauseSkillSchedule(
+	db: DbClient,
+	skillId: string,
+	organizationId: string,
+): Promise<void> {
+	await db
+		.update(skillSchedules)
+		.set({ enabled: false, updatedAt: new Date().toISOString() })
+		.where(
+			and(
+				eq(skillSchedules.skillId, skillId),
+				eq(skillSchedules.organizationId, organizationId),
+			),
+		);
 }
 
 export async function deleteSkillSchedule(

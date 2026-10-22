@@ -5,6 +5,9 @@ import { createD1Facade } from "../test/d1-facade";
 import { getGovernedLearningScheduleStates } from "./flywheel/cron-executions";
 import {
 	listSkillSchedulesPage,
+	getSkillSchedule,
+	pauseSkillSchedule,
+	insertActivatedSkillSchedule,
 	recordSkillScheduleDispatch,
 	recordSkillScheduleError,
 	recordSkillScheduleSuppressed,
@@ -61,6 +64,24 @@ describe("skill schedule budget state", () => {
 			);
 		`);
 		db = createDbClient(createD1Facade(sqlite));
+	});
+
+	it("pauses only the owning org timer and resumes it on activation", async () => {
+		sqlite.exec(
+			"CREATE UNIQUE INDEX schedule_skill ON skill_schedules(skill_id)",
+		);
+		await pauseSkillSchedule(db, "skill-1", "other-org");
+		expect((await getSkillSchedule(db, "skill-1"))?.enabled).toBe(true);
+		await pauseSkillSchedule(db, "skill-1", "org-1");
+		expect((await getSkillSchedule(db, "skill-1"))?.enabled).toBe(false);
+		await insertActivatedSkillSchedule(db, {
+			id: "skill-1",
+			organizationId: "org-1",
+			tediId: "tedi-1",
+			content:
+				'---\ncapabilities:\n  schedule:\n    cron: "0 * * * *"\n    enabled: true\n---',
+		});
+		expect((await getSkillSchedule(db, "skill-1"))?.enabled).toBe(true);
 	});
 
 	it("searches canonical skill metadata and reports an accurate page total", async () => {
