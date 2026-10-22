@@ -136,3 +136,48 @@ console.log("PASS: workflow terminal reconciliation decisions");
 	// Never render an empty reason.
 	assert.match(turnFailureNoticeText("   "), /unknown error/);
 }
+
+{
+	const {
+		scheduleWorkflowTerminalReconciliation,
+		cancelWorkflowTerminalReconciliations,
+		MAX_DELAYED_TERMINAL_RECONCILIATIONS,
+	} = await import("./workflow-terminal-reconciliation");
+	const rows = new Map<string, any>();
+	const contexts = new Map<string, unknown>();
+	let serial = 0;
+	const host: any = {
+		ctx: { storage: { get: async (key: string) => contexts.get(key) } },
+		listSchedules: async () => [...rows.values()],
+		cancelSchedule: async (id: string) => rows.delete(id),
+		schedule: async (_: unknown, callback: string, payload: any) => {
+			const id = `s${++serial}`;
+			rows.set(id, { id, callback, payload });
+			return { id };
+		},
+	};
+	contexts.set("wfctx:active", {});
+	for (let i = 0; i < 21; i++)
+		rows.set(`old${i}`, {
+			id: `old${i}`,
+			callback: "reconcileChatWorkflowTerminal",
+			payload: { workflowInstanceId: i % 2 ? "terminal" : "active" },
+		});
+	await scheduleWorkflowTerminalReconciliation(host, {
+		workflowInstanceId: "active",
+		attempt: 1,
+	});
+	assert.equal(rows.size, 1, "old terminal and duplicate schedules are pruned");
+	await Promise.all(
+		Array.from({ length: 30 }, (_, i) => {
+			contexts.set(`wfctx:run${i}`, {});
+			return scheduleWorkflowTerminalReconciliation(host, {
+				workflowInstanceId: `run${i}`,
+				attempt: 0,
+			});
+		}),
+	);
+	assert.equal(rows.size, MAX_DELAYED_TERMINAL_RECONCILIATIONS);
+	await cancelWorkflowTerminalReconciliations(host, "active");
+	assert.equal(rows.size, MAX_DELAYED_TERMINAL_RECONCILIATIONS - 1);
+}
