@@ -210,6 +210,8 @@ export const ForYouProjectionSchema = z.strictObject({
 	used: z.number().int().min(0),
 	day: z.string(),
 	complete: z.boolean(),
+	/** Named sources that could not be fully read; empty when complete. */
+	incompleteSources: z.array(z.string()).optional(),
 	observedAt: z.iso.datetime(),
 });
 
@@ -263,6 +265,8 @@ export const AttentionAppViewSchema = z.strictObject({
 	needsYou: z.array(AttentionDisplayCardSchema),
 	updates: z.array(AttentionDisplayCardSchema),
 	complete: z.boolean(),
+	/** Named sources that could not be fully read; empty when complete. */
+	incompleteSources: z.array(z.string()).optional(),
 	observedAt: z.iso.datetime(),
 	empty: z.boolean(),
 	notice: z.string(),

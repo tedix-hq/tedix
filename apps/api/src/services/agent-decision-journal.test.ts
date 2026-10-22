@@ -6,6 +6,10 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import {
+	externalAgentPrincipals,
+	externalAgentSessions,
+} from "@tedix/db/schema/external-agent-identity";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { workItems } from "@tedix/db/schema/work-items";
 import { workInteractions } from "@tedix/db/schema/work-factory";
@@ -39,6 +43,8 @@ function fixture() {
 			organizations,
 			organizationMembers,
 			decisionEdges,
+			externalAgentPrincipals,
+			externalAgentSessions,
 			learningInteractionEvents,
 			workItems,
 			workInteractions,
@@ -338,6 +344,81 @@ describe("agent decision journal", () => {
 			user: { sub: "someone-else" },
 		} as unknown as BaseContext;
 		expect(await agentDecisionFeed(other, ORG, NOW)).toEqual([]);
+		f.sqlite.close();
+	});
+
+	it("shows an external agent the decisions its principal's sessions recorded", async () => {
+		const f = fixture();
+		await seed(f);
+		await f.db.insert(externalAgentPrincipals).values({
+			id: "principal-1",
+			organizationId: ORG,
+			key: "local-agents",
+			displayName: "Local coding agents",
+			credentialBindingType: "api_key",
+			credentialBindingId: "key-1",
+			createdByType: "user",
+			createdById: "river-sub",
+		});
+		await f.db.insert(externalAgentSessions).values({
+			id: "session-1",
+			organizationId: ORG,
+			principalId: "principal-1",
+			externalSessionKey: "claude-code:11111111-2222-4333-8444-555566667777",
+			harness: "claude-code",
+			harnessVersion: "1",
+			modelProvider: "anthropic",
+			modelId: "fable",
+			modelVersion: "fable-1",
+			identitySource: "native",
+			startedAt: NOW.toISOString(),
+			lastSeenAt: NOW.toISOString(),
+		});
+		// Recorded under the owner login, keyed to the agent's session.
+		await recordAgentDecision(f.context, ORG, decisionInput(), NOW);
+		const agent = {
+			db: f.db,
+			authType: "service-binding",
+			externalAgentPrincipalId: "principal-1",
+		} as unknown as BaseContext;
+		const items = await agentDecisionFeed(agent, ORG, NOW);
+		expect(items.map((item) => item.id)).toEqual([
+			expect.stringContaining("agent-decision"),
+		]);
+		expect(items[0]?.sentence).toContain("Decided by Lead");
+		f.sqlite.close();
+	});
+
+	it("attributes an external agent's recording to its represented owner", async () => {
+		const f = fixture();
+		await seed(f);
+		await f.db.insert(externalAgentPrincipals).values({
+			id: "principal-2",
+			organizationId: ORG,
+			key: "owner-host-river",
+			displayName: "River's plugin hosts",
+			credentialBindingType: "owner_user",
+			credentialBindingId: "river",
+			createdByType: "user",
+			createdById: "river",
+		});
+		const agent = {
+			db: f.db,
+			authType: "service-binding",
+			externalAgentPrincipalId: "principal-2",
+		} as unknown as BaseContext;
+		const recorded = await recordAgentDecision(
+			agent,
+			ORG,
+			decisionInput(),
+			NOW,
+		);
+		const [event] = await f.db.select().from(learningInteractionEvents);
+		expect(event).toMatchObject({
+			id: recorded.decisionId,
+			actorType: "user",
+			actorId: "river",
+		});
 		f.sqlite.close();
 	});
 

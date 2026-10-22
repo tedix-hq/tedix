@@ -2,6 +2,7 @@ import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import type { DbQueryClient } from "../../query-client";
 import {
 	type ExternalAgentPrincipal,
 	type ExternalAgentSession,
@@ -270,6 +271,34 @@ export async function listExternalAgentSessions(
 		)
 		.orderBy(desc(externalAgentSessions.startedAt))
 		.limit(Math.min(Math.max(params.limit ?? 100, 1), 500));
+}
+
+/**
+ * External session keys of the given principals, newest first — the values
+ * journal callers stamp as `threadId`/`agentSession`. Ended sessions count:
+ * their recorded decisions remain theirs.
+ */
+export async function listExternalAgentSessionKeys(
+	db: DbQueryClient,
+	params: { organizationId: string; principalIds: string[]; limit?: number },
+): Promise<string[]> {
+	if (params.principalIds.length === 0) return [];
+	const rows = await db
+		.select({ key: externalAgentSessions.externalSessionKey })
+		.from(externalAgentSessions)
+		.where(
+			and(
+				eq(externalAgentSessions.organizationId, params.organizationId),
+				// bound-params: callers cap principal ids at 50
+				inArray(
+					externalAgentSessions.principalId,
+					params.principalIds.slice(0, 50),
+				),
+			),
+		)
+		.orderBy(desc(externalAgentSessions.startedAt))
+		.limit(Math.min(Math.max(params.limit ?? 100, 1), 100));
+	return rows.map((row) => row.key);
 }
 
 export async function resolveActiveExternalAgentSession(

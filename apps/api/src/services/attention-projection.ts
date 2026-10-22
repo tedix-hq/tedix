@@ -15,6 +15,7 @@ import {
 	annotateDeckAsk,
 	compareDecisionFreshness,
 	rankDeckCard,
+	type DeckRoutingReceipt,
 } from "@tedix/api-contract/utils/deck-projection";
 import {
 	cardIsDue,
@@ -227,6 +228,7 @@ async function loadConfiguredDeckProjection(
 	input: ViewInput,
 	config: z.infer<typeof DecisionDeckConfigSchema>,
 	destination: "deck" | "all" = "deck",
+	onRoute?: (route: DeckRoutingReceipt) => void,
 ) {
 	const preferences = await call(
 		userSettingsContractRouter.getPreferences,
@@ -284,6 +286,7 @@ async function loadConfiguredDeckProjection(
 		routing: config.routing,
 		destination,
 		staleDraftHours: config.staleDraftHours,
+		onRoute,
 	});
 	for (const { card, revision } of factories.cards) {
 		if (!isOpen(card)) continue;
@@ -450,6 +453,18 @@ export async function loadForYouProjection(
 			...projectIds,
 		]),
 	];
+	const incompleteSources: string[] = [];
+	const deckDestinations = new Map<string, string>();
+	// The Feed's Needs-you must be the same cards the Deck shows: project with
+	// the real deck app's config, not a default that routes differently.
+	const feedDeckConfig = deckConfig
+		? { ...deckConfig, projectId: input.projectId ?? deckConfig.projectId }
+		: DecisionDeckConfigSchema.parse({
+				version: 1,
+				projectId: input.projectId,
+			});
+	let agentDecisionsFailed = false;
+	let pipelineFailed = false;
 	const [
 		deck,
 		preferences,
@@ -466,11 +481,9 @@ export async function loadForYouProjection(
 		loadConfiguredDeckProjection(
 			context,
 			{ ...input, limit: 100 },
-			DecisionDeckConfigSchema.parse({
-				version: 1,
-				projectId: input.projectId,
-			}),
+			feedDeckConfig,
 			"all",
+			(route) => deckDestinations.set(route.id, route.destination),
 		),
 		Promise.resolve(preferenceState),
 		call(
@@ -525,7 +538,11 @@ export async function loadForYouProjection(
 					getDecisionLearningConfig(context.db, requireOrgId(context)),
 				)
 				.then((config) => loadDeckPipelineStatus(context, config, now))
-				.catch(() => undefined),
+				.catch((error) => {
+					pipelineFailed = true;
+					console.error("[feed] deck pipeline status unavailable:", error);
+					return undefined;
+				}),
 		),
 		call(
 			workInteractionsContractRouter.listInbox,
@@ -541,10 +558,20 @@ export async function loadForYouProjection(
 				agentDecisionFeed(context, requireOrgId(context), now),
 			)
 			.catch((error) => {
+				agentDecisionsFailed = true;
 				console.error("[feed] agent decisions unavailable:", error);
 				return [] as ActivityFeedItem[];
 			}),
 	]);
+	// Needs-you is the Deck, not every routed card: a card the deck app routes
+	// to "feed" stays an update, never something that needs you.
+	const deckOnly = (item: ActivityFeedItem) => {
+		if (!item.needsAction) return item;
+		const destination = deckDestinations.get(item.id.replace(/^decision:/, ""));
+		return destination && destination !== "deck"
+			? { ...item, needsAction: false }
+			: item;
+	};
 	const items: ActivityFeedItem[] = [
 		...agentDecisions,
 		...handledInternal.filter(
@@ -562,21 +589,23 @@ export async function loadForYouProjection(
 			),
 			now,
 			timeZone,
-		),
+		).map(deckOnly),
 		...approvalFeedItems(
 			deck.cards.flatMap((card) =>
 				card.workApproval ? [card.workApproval] : [],
 			),
 			now,
 			timeZone,
-		).map((item) => ({
-			...item,
-			id: item.id.replace(/^approval:/, "work-approval:"),
-		})),
+		).map((item) =>
+			deckOnly({
+				...item,
+				id: item.id.replace(/^approval:/, "work-approval:"),
+			}),
+		),
 		...deck.cards.flatMap((card) =>
 			card.runtimeApproval
 				? [
-						{
+						deckOnly({
 							id: card.id,
 							actor: "Tedix",
 							sentence:
@@ -599,7 +628,7 @@ export async function loadForYouProjection(
 							done: false,
 							explanation: card.runtimeApproval.description,
 							reactions: [],
-						},
+						}),
 					]
 				: [],
 		),
@@ -646,6 +675,11 @@ export async function loadForYouProjection(
 	const viewer = resolveLearningActor(context);
 	for (const { card, revision } of factories.cards) {
 		const binding = config.factorySources[card.sourceIndex]!;
+		// A factory card only asks when the deck app would put it on the Deck.
+		const onDeck =
+			isOpen(card) &&
+			routeFactoryCard(card, feedDeckConfig.routing, now, deck.model)
+				.destination === "deck";
 		// Earned quiet delivery: an agent-decidable class this person approved
 		// unchanged often enough becomes an update; audit samples still ask.
 		const quiet =
@@ -707,13 +741,13 @@ export async function loadForYouProjection(
 			projectId: binding.projectId,
 			workItemId: null,
 			tediId: null,
-			kind: isOpen(card) && !quiet ? "decision" : "result",
+			kind: onDeck && !quiet ? "decision" : "result",
 			attachment: { title: card.sheetTitle },
 			classId: factoryLearningClass(binding.source.label, card.type),
 			importance: "normal",
 			at: card.runCreatedAt,
 			dueAt: null,
-			needsAction: isOpen(card) && !quiet,
+			needsAction: onDeck && !quiet,
 			stalled: /^failed/i.test(card.result),
 			done: !isOpen(card),
 			explanation: `${quietLine}${card.why}\n${card.sourceText}\nOutput ${card.outputId}, revision ${revision}, row ${card.rowIndex + 1}`,
@@ -793,15 +827,19 @@ export async function loadForYouProjection(
 				.map((card) => prepareDeckCardFace(context, card, true, deck.model)),
 		).catch(() => {}),
 	);
+	if (!deck.complete) incompleteSources.push("the Deck");
+	if (!factories.complete) incompleteSources.push("a card source");
+	if (sourcePages.some((page) => !page.complete))
+		incompleteSources.push("project activity");
+	if (agentDecisionsFailed) incompleteSources.push("agent decisions");
+	if (pipelineFailed) incompleteSources.push("the Deck sweep");
 	return {
 		items: visible,
 		heldCount: ranked.filter((item) => !shownIds.has(item.id)).length,
 		used: selection.used,
 		day: selection.day,
-		complete:
-			deck.complete &&
-			factories.complete &&
-			sourcePages.every((page) => page.complete),
+		complete: incompleteSources.length === 0,
+		incompleteSources,
 		observedAt: now.toISOString(),
 	};
 }

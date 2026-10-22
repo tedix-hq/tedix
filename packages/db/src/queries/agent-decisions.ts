@@ -66,7 +66,10 @@ export async function getAgentDecisionEvent(
 
 /**
  * Decisions made since `since`, newest first, optionally only those recorded
- * by one principal, plus every outcome recorded for them.
+ * by the given identities or agent sessions, plus every outcome recorded for
+ * them. `recordedBy.actors` matches the stamped credential; `threadIds` matches
+ * the journaled Agent-Session so a viewer sees decisions their own agent
+ * sessions recorded under any credential.
  */
 export async function listAgentDecisionJournal(
 	db: DbQueryClient,
@@ -75,12 +78,32 @@ export async function listAgentDecisionJournal(
 		since: string;
 		limit: number;
 		recordedBy?: {
-			actorType: LearningInteractionEventRow["actorType"];
-			actorId: string;
+			actors: Array<{
+				actorType: LearningInteractionEventRow["actorType"];
+				actorId: string;
+			}>;
+			threadIds?: string[];
 		};
 		issueKey?: string;
 	},
 ): Promise<LearningInteractionEventRow[]> {
+	// Session keys are bounded by listExternalAgentSessionKeys' 100-row limit;
+	// the slice keeps the IN list under half the D1 bound-parameter cap.
+	const threadIds = input.recordedBy?.threadIds?.slice(0, 50);
+	const recordedBy = input.recordedBy
+		? or(
+				...input.recordedBy.actors.map((actor) =>
+					and(
+						eq(learningInteractionEvents.actorType, actor.actorType),
+						eq(learningInteractionEvents.actorId, actor.actorId),
+					),
+				),
+				threadIds?.length
+					? // bound-params: threadIds is sliced to 50 above.
+						inArray(learningInteractionEvents.threadId, threadIds)
+					: undefined,
+			)
+		: undefined;
 	const decisions = await db
 		.select()
 		.from(learningInteractionEvents)
@@ -90,15 +113,7 @@ export async function listAgentDecisionJournal(
 				eq(learningInteractionEvents.surface, AGENT_DECISION_SURFACE),
 				eq(learningInteractionEvents.eventKind, "decided"),
 				gte(learningInteractionEvents.occurredAt, input.since),
-				input.recordedBy
-					? and(
-							eq(
-								learningInteractionEvents.actorType,
-								input.recordedBy.actorType,
-							),
-							eq(learningInteractionEvents.actorId, input.recordedBy.actorId),
-						)
-					: undefined,
+				recordedBy,
 				input.issueKey
 					? eq(learningInteractionEvents.issueKey, input.issueKey)
 					: undefined,
