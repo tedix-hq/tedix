@@ -132,9 +132,13 @@ async function runCase(browser: Browser, c: Case) {
 		page.on("console", (m) => {
 			if (m.type() === "error") diagnostics.push(`console: ${m.text()}`);
 		});
-		page.on("requestfailed", (r) =>
-			diagnostics.push(`requestfailed: ${r.method()} ${r.url()}`),
-		);
+		page.on("requestfailed", (r) => {
+			const reason = r.failure()?.errorText ?? "";
+			// A read the app cancels itself (a query whose view unmounted) is not a
+			// failure; every other network error still is.
+			if (/ERR_ABORTED|cancelled/i.test(reason)) return;
+			diagnostics.push(`requestfailed: ${r.method()} ${r.url()} ${reason}`);
+		});
 		page.on("request", (r) => {
 			// The app reads over POST RPC; flag only calls that change a chat.
 			if (
