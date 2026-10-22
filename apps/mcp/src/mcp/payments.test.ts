@@ -5,7 +5,8 @@ import {
 } from "@tedix/mcp-shared/payment";
 import { PaymentRequiredV2Schema } from "@x402/core/schemas";
 import { describe, expect, it } from "vite-plus/test";
-import { checkToolPayment, getToolPaymentPolicy } from "./payments";
+import { checkToolPayment } from "./payments";
+import { getToolPaymentPolicy } from "./payments-policy";
 import type { AppTool, ServerContext } from "./server-context";
 
 const ORG_ID = "0f0f0f0f-0000-4000-8000-000000000001";

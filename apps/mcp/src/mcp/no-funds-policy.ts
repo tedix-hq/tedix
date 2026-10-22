@@ -1,7 +1,7 @@
 import policy from "./no-funds-policy.json";
 import type { AppTool, ServerContext } from "./server-context";
 import { isNonPayingConnection } from "./connect-payment-policy";
-import { getToolPaymentPolicy } from "./payments";
+import { getToolPaymentPolicy } from "./payments-policy";
 
 const financialPattern = new RegExp(
 	`(?:^|_)(?:${policy.moneyMovingOperations.join("|")})$`,

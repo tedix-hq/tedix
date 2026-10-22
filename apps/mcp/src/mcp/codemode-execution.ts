@@ -69,11 +69,8 @@ import {
 import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { INPUT_REQUIRED_META_KEY } from "./mrtr";
-import {
-	checkToolPayment,
-	settleToolPayment,
-	attachPaymentResponseMeta,
-} from "./payments";
+import { checkToolPayment, attachPaymentResponseMeta } from "./payments";
+import { settleToolPayment } from "./payments-settlement";
 import { executeTool } from "./tool-execution";
 import {
 	collectCodeModeCollectionRead,
