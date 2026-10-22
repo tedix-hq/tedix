@@ -64,6 +64,36 @@ describe("conversation pending approval lookups", () => {
 		).toBe("delegation");
 	});
 
+	it("finds the requested worker behind another pending delegation", async () => {
+		const { db, row, target } = fixture();
+		await db.insert(kernelRuntimeRuns).values([
+			row("worker-card", { metadata: delegation }),
+			row("newer-card", {
+				updatedAt: "2026-10-21T18:05:00.000Z",
+				metadata: {
+					homeDelegation: {
+						...delegation.homeDelegation,
+						workOrder: { targetTediId: "other-worker" },
+					},
+				},
+			}),
+		]);
+		expect(
+			(
+				await readLatestRunAwaitingDelegationApproval(db, {
+					...target,
+					targetTediId: "worker",
+				})
+			)?.id,
+		).toBe("worker-card");
+		expect(
+			await readLatestRunAwaitingDelegationApproval(db, {
+				...target,
+				targetTediId: "missing",
+			}),
+		).toBeNull();
+	});
+
 	it("filters tenant, conversation, caller run and malformed or resolved targets before limiting", async () => {
 		const { db, row, target } = fixture();
 		const newer = { updatedAt: "2026-10-21T18:05:00.000Z" };

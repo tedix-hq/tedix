@@ -588,6 +588,24 @@ describe("ApprovalCard", () => {
 	});
 });
 
+it("shows the approval reason without opening Details", () => {
+	const container = document.createElement("div");
+	container.innerHTML = renderToStaticMarkup(
+		<ApprovalCard
+			approval={approval({
+				detail: "Human approval required: money, external_message",
+			})}
+		/>,
+	);
+	const reason = [...container.querySelectorAll("p, span")].find(
+		(node) =>
+			node.textContent === "Human approval required: money, external_message",
+	);
+	expect(reason).toBeDefined();
+	expect(reason?.closest("[hidden]")).toBeNull();
+	expect(container.querySelector("button[aria-expanded]")).toBeNull();
+});
+
 describe("approval builders", () => {
 	it("joins approval mirrors to their parent requires_approval run", () => {
 		const cards = approvalsFromRunSet(
@@ -787,7 +805,7 @@ describe("approval builders", () => {
 				[...container.querySelectorAll("button")].map(
 					(button) => button.textContent,
 				),
-			).toEqual(["Details"]);
+			).toEqual([]);
 			expect(run).toEqual(original);
 		},
 	);

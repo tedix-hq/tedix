@@ -3424,6 +3424,25 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 		expect(result.run.status).toBe("failed");
 	});
 
+	it("keeps an earlier approval gate when a follow-up is classified automatic", async () => {
+		const dispatch = vi.fn();
+		const deps = stubDeps({
+			db: sequencedSelectDbProxy([
+				{ id: "pending-request" },
+				{ status: "running", metadata: {} },
+			]),
+			kernel: autoDelegateKernel(),
+			dispatchAutoDelegation: dispatch,
+		});
+		const result = await runKernelTurnWork(deps, turnInput());
+		expect(dispatch).not.toHaveBeenCalled();
+		expect(result.run.status).toBe("completed");
+		expect(result.run.metadata).toMatchObject({
+			pendingDelegationRunId: "pending-request",
+			homeDelegation: null,
+		});
+	});
+
 	it("a cancel that lands AFTER a successful dispatch settles with the stopping marker and persists the child link for reconcile", async () => {
 		const updateSets: Array<Record<string, unknown>> = [];
 		const capturedEvents: Array<{
@@ -3444,6 +3463,7 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 			// `canceled` — the exact race where the spawn slipped through.
 			db: sequencedSelectDbProxy(
 				[
+					{}, // No earlier pending delegation.
 					{ status: "running", metadata: {} },
 					{ status: "canceled", metadata: {} },
 				],
