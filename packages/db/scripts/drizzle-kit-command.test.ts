@@ -218,9 +218,15 @@ describe("installed generator CLI review before recording", () => {
 			path.dirname(fileURLToPath(import.meta.url)),
 			"..",
 		);
-		const root = mkdtempSync(path.join(tmpdir(), "tedix-generator-review-"));
+		const fixture = mkdtempSync(path.join(tmpdir(), "tedix-generator-review-"));
+		const root = path.join(fixture, "packages/db");
 		try {
-			mkdirSync(path.join(root, "scripts"));
+			mkdirSync(path.join(root, "scripts"), { recursive: true });
+			for (const name of ["oss/git-env.ts", "ci/push-range-selection.mjs"]) {
+				const destination = path.join(fixture, "scripts", name);
+				mkdirSync(path.dirname(destination), { recursive: true });
+				copyFileSync(path.resolve(dbRoot, "../../scripts", name), destination);
+			}
 			// Relocate byte-exact owning scripts: their DB_ROOT must point at this fixture,
 			// not the product manifest. Dependencies remain the installed pinned packages.
 			for (const name of readdirSync(path.join(dbRoot, "scripts")))
@@ -347,7 +353,7 @@ describe("installed generator CLI review before recording", () => {
 			).not.toBe(0);
 			expect(readdirSync(path.join(root, "drizzle"))).toEqual(before);
 		} finally {
-			rmSync(root, { recursive: true, force: true });
+			rmSync(fixture, { recursive: true, force: true });
 		}
 	}, 30000);
 });

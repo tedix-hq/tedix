@@ -440,6 +440,7 @@
 		"test:watch": "vp test",
 		"test:ci": "bun run test:run",
 		"db:migrate:generate": "bun scripts/generate-migration.ts",
+		"migration:restamp": "node ../../node_modules/jiti/lib/jiti-cli.mjs scripts/generate-migration.ts --restamp",
 		"db:schema:check": "bun scripts/generate-migration.ts --check",
 		"db:migrate:history-check": "bun scripts/check-migration-history.ts",
 		"db:migrate:chain-check": "bun scripts/check-d1-migration-chain.ts",

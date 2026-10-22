@@ -349,7 +349,7 @@ function checkLegacyMigrationDirectory(): void {
 
 export function checkMigrations(
 	directory = MIGRATIONS_DIR,
-	options: { appliedBaseline?: string | null } = {},
+	options: { appliedBaseline?: string | null; manifestPath?: string } = {},
 ): string[] {
 	const appliedBaseline =
 		options.appliedBaseline === undefined
@@ -361,6 +361,18 @@ export function checkMigrations(
 		.map((entry) => `${entry.name}/migration.sql`)
 		.sort();
 	if (files.length === 0) throw new Error("No D1 migration SQL files found");
+	const manifestPath =
+		options.manifestPath ??
+		path.join(directory, "..", "migration-integrity.json");
+	if (existsSync(manifestPath)) {
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+			migrations: { name: string }[];
+		};
+		assertMigrationOrder(
+			files,
+			manifest.migrations.map(({ name }) => name),
+		);
+	}
 
 	const timestamps = new Set<string>();
 	const pragmaOffenders: string[] = [];
@@ -429,6 +441,32 @@ export function checkMigrations(
 		);
 	}
 	return files;
+}
+
+export function assertMigrationOrder(
+	files: readonly string[],
+	recorded: readonly string[],
+): void {
+	for (let index = 1; index < recorded.length; index++) {
+		if (recorded[index]!.slice(0, 14) <= recorded[index - 1]!.slice(0, 14)) {
+			throw new Error(
+				`Migration ledger history is out of order: ${recorded[index]} follows ${recorded[index - 1]}. Applied history must never be reordered.`,
+			);
+		}
+	}
+	const latest = recorded.at(-1);
+	if (!latest) return;
+	const known = new Set(recorded);
+	const stale = files
+		.filter(
+			(name) => !known.has(name) && name.slice(0, 14) <= latest.slice(0, 14),
+		)
+		.sort();
+	if (stale.length) {
+		throw new Error(
+			`${stale.join(", ")}: new migrations must be strictly after ${latest} in ledger history.\nRun: bun run --cwd packages/db migration:restamp ${stale[0]!.split("/")[0]}`,
+		);
+	}
 }
 
 if (
