@@ -23,7 +23,7 @@
 		"test:run": "bun run test:unit && bun run test:workerd && bun run test:browser:avatars && bun run test:browser:dialogs && bun run test:browser:deck && bun run test:browser:feed-deck && bun run test:browser:viewport && bun run test:browser:members && bun run test:browser:shell && bun run test:browser:social-cards && bun run test:browser:chat-list && bun run test:browser:chat-actions && bun run test:browser:state-gallery && bun run test:browser:memory && bun run test:browser:templates && bun run test:browser:outputs && bun run test:browser:tedis && bun run test:browser:work-iphone && bun run test:browser:settings",
 		"test:workerd": "vp test run --config vitest.workers.config.ts",
 		"test:browser:install": "playwright install --with-deps chromium webkit",
-		"test:browser:shell": "bun browser-tests/shell.spec.ts",
+		"test:browser:shell": "bun browser-tests/run-specs.ts browser-tests/shell.spec.ts browser-tests/shell-navigation.spec.ts",
 		"test:browser:avatars": "bun browser-tests/entity-avatar.spec.ts",
 		"test:browser:dialogs": "bun browser-tests/run-specs.ts browser-tests/dialogs.spec.ts browser-tests/b9-toast-phone.spec.ts browser-tests/approvals-popover.spec.ts",
 		"test:browser:memory": "bun browser-tests/b9-memory-browser.spec.ts",
@@ -121,6 +121,10 @@
 		"splitTestScripts": true,
 		"testScriptShards": {
 			"test:unit": 4,
+			"test:browser:deck": 2,
+			"test:browser:feed-deck": 2,
+			"test:browser:viewport": 2,
+			"test:browser:shell": 2,
 			"test:browser:focus-clip": 8
 		}
 	}
