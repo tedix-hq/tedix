@@ -1,6 +1,9 @@
 import { implement } from "@orpc/server";
 import { webSearchContract } from "@tedix/api-contract/contracts/web-search";
-import { resolveWebSearchAccess } from "@tedix/api-contract/schemas/web-search";
+import {
+	resolveWebSearchAccess,
+	WEB_SEARCH_EXECUTE_SCOPE,
+} from "@tedix/api-contract/schemas/web-search";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { insertCallCosts } from "@tedix/db/queries/tedi-usage";
@@ -15,13 +18,16 @@ import {
 } from "../orpc";
 
 const webSearchOs = implement(webSearchContract).$context<BaseContext>();
+// Machine plane: the dedicated scope the tedi runtime delegates over its
+// service binding (`TEDI_RUNTIME_SERVICE_BINDING_SCOPES`). Human plane: no
+// person calls this; the handler refuses every caller without a tedi identity.
 const searchOs = webSearchOs.use(withAuth).use(
 	withAuthorization(
 		{
 			handlerOwnedUserAuthorization:
 				"Web search runs only for the calling tedi, verified inside the caller's organization",
 		},
-		"connections.execute",
+		WEB_SEARCH_EXECUTE_SCOPE,
 	),
 );
 

@@ -3,6 +3,14 @@ import * as z from "zod";
 /** Native runtime tool name; verb-first per MCP tool naming. */
 export const WEB_SEARCH_TOOL_NAME = "web_search";
 
+/**
+ * The one machine scope `webSearch.search` accepts. The tedi runtime delegates
+ * it over its trusted service binding for the calling tedi; nothing else
+ * (API keys, M2M, direct tedi JWTs, MCP callers) holds it, so the endpoint
+ * stays tedi-runtime-only without the broader `connections.execute` authority.
+ */
+export const WEB_SEARCH_EXECUTE_SCOPE = "web-search:execute";
+
 /** Provider ceiling for one search. */
 export const WEB_SEARCH_MAX_RESULTS = 10;
 export const WEB_SEARCH_DEFAULT_RESULTS = 5;

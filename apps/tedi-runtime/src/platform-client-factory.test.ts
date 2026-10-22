@@ -3,7 +3,11 @@
  */
 import assert from "node:assert/strict";
 import { encryptTediSecret } from "@tedix/db/utils/secrets-encryption";
-import { TEDI_RUNTIME_API_SCOPES_CLAIM } from "@tedix/auth/tedi-identity";
+import {
+	TEDI_RUNTIME_API_SCOPES,
+	TEDI_RUNTIME_API_SCOPES_CLAIM,
+} from "@tedix/auth/tedi-identity";
+import { WEB_SEARCH_EXECUTE_SCOPE } from "@tedix/api-contract/schemas/web-search";
 import type { HttpPlatformClient } from "./brain/platform-client";
 import {
 	findMissingRuntimeApiScopes,
@@ -45,6 +49,23 @@ assert.equal(
 		new Set<string>(TEDI_RUNTIME_SERVICE_BINDING_SCOPES).has("platform:admin"),
 	false,
 	"runtime service binding never receives wildcard or platform authority",
+);
+assert.equal(
+	TEDI_RUNTIME_SERVICE_BINDING_SCOPES.includes(WEB_SEARCH_EXECUTE_SCOPE),
+	true,
+	"the native web_search tool may call webSearch.search for the calling tedi",
+);
+assert.equal(
+	new Set<string>(TEDI_RUNTIME_SERVICE_BINDING_SCOPES).has(
+		"connections.execute",
+	),
+	false,
+	"web search never rides on connected-provider authority",
+);
+assert.equal(
+	new Set<string>(TEDI_RUNTIME_API_SCOPES).has(WEB_SEARCH_EXECUTE_SCOPE),
+	false,
+	"direct tedi JWTs keep the narrower claim; only the service binding searches",
 );
 
 assert.deepEqual(
