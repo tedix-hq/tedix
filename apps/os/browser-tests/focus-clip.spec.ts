@@ -483,26 +483,171 @@ async function auditWorkText(page: Page, label: string) {
 	}
 }
 
+type ReadinessPhase = "route" | "content" | "animations";
+
+// Runs in the page: only the rendered route and open dialogs own loading state.
+function readiness({
+	phase,
+	diagnostic = false,
+}: {
+	phase: ReadinessPhase;
+	diagnostic?: boolean;
+}) {
+	const visible = (element: Element) => element.checkVisibility();
+	const main = document.querySelector("main");
+	const regions = [
+		...document.querySelectorAll("main, [role=dialog], [role=alertdialog]"),
+	].filter(visible);
+	const live = (element: Element) => {
+		const stream = element.closest(
+			"[data-slot=streaming-bubble][data-streaming=true], [data-slot=streaming-phase], [data-slot=running-indicator]",
+		);
+		return (
+			!!stream?.textContent?.trim() &&
+			!stream.querySelector("[data-slot=skeleton]")
+		);
+	};
+	const busy = regions
+		.flatMap((region) => [
+			region,
+			...region.querySelectorAll("[aria-busy=true], [data-slot=skeleton]"),
+		])
+		.filter(
+			(element) =>
+				element.matches("[aria-busy=true], [data-slot=skeleton]") &&
+				visible(element) &&
+				!live(element),
+		);
+	const pending = busy.filter((element) =>
+		element.matches(
+			"main, main > [aria-busy=true], [data-slot=page][aria-busy=true]",
+		),
+	);
+	const animations = document.getAnimations().filter((animation) => {
+		if (animation.playState !== "running") return false;
+		// Scroll/view timelines describe a static scroll position, not unfinished motion.
+		if (animation.timeline !== document.timeline) return false;
+		const target =
+			animation.effect instanceof KeyframeEffect
+				? animation.effect.target
+				: null;
+		return !(
+			target instanceof Element &&
+			live(target) &&
+			animation.effect?.getComputedTiming().iterations === Infinity
+		);
+	});
+	const blocked = phase === "route" ? pending : busy;
+	const ready =
+		!!main &&
+		visible(main) &&
+		!!main.textContent?.trim() &&
+		blocked.length === 0 &&
+		(phase !== "animations" || animations.length === 0);
+	return diagnostic
+		? {
+				phase,
+				ready,
+				busy: blocked.map((element) => element.outerHTML.slice(0, 350)),
+				animations: animations.map((animation) => ({
+					timing: animation.effect?.getComputedTiming(),
+					target:
+						animation.effect instanceof KeyframeEffect &&
+						animation.effect.target instanceof Element
+							? animation.effect.target.outerHTML.slice(0, 250)
+							: null,
+				})),
+			}
+		: ready;
+}
+
 async function settle(page: Page) {
-	// Live lanes keep sockets open, so wait for rendered content rather than network idle.
-	await page
-		.waitForFunction(
-			() =>
-				document.querySelector("main, [role=dialog]") &&
-				!document.querySelector("[aria-busy=true], [data-slot=skeleton]"),
-			undefined,
-			{ timeout: 4000 },
-		)
-		.catch(() => {});
-	await page.evaluate(() => document.fonts.ready);
-	await page.waitForTimeout(150);
-	await page
-		.waitForFunction(
-			() => document.getAnimations().every((a) => a.playState !== "running"),
-			undefined,
-			{ timeout: 3000 },
-		)
-		.catch(() => {});
+	// Loader boundaries and the mounted component have separate ready signals.
+	for (const phase of ["route", "content", "animations"] as const) {
+		if (phase === "animations") await page.evaluate(() => document.fonts.ready);
+		try {
+			await page.waitForFunction(
+				readiness,
+				{ phase },
+				{ timeout: phase === "animations" ? 3000 : 4000 },
+			);
+		} catch (cause) {
+			throw new Error(
+				`Readiness failed at ${page.url()}: ${JSON.stringify(await page.evaluate(readiness, { phase, diagnostic: true }))}`,
+				{ cause },
+			);
+		}
+	}
+}
+
+async function auditRoute(page: Page, route: string, label: string) {
+	try {
+		const routeStarted = performance.now();
+		await page.goto(`${origin}${route}`, NAVIGATION);
+		await settle(page);
+		// Keyboard modality, so `:focus-visible` rings paint like a real Tab.
+		await page.keyboard.press("Shift");
+		const record = (
+			hits: Omit<Finding, "route" | "viewport">[],
+			at: string,
+		) => {
+			for (const hit of hits)
+				findings.push({ route: at, viewport: label, ...hit });
+		};
+		record(await audit(page), route);
+		// Open disclosures (collapsibles, expandable rows) show their panels' controls.
+		const disclosures = page.locator(
+			"main button[aria-expanded='false']:not([aria-haspopup]):visible",
+		);
+		const closed = Math.min(await disclosures.count(), 6);
+		if (closed) {
+			for (let i = closed - 1; i >= 0; i--)
+				// Focus can reveal a sibling hover toolbar over the pointer.
+				await disclosures.nth(i).press("Space", { timeout: 2000 });
+			await settle(page);
+			await page.keyboard.press("Shift");
+			record(await audit(page), `${route} › expanded`);
+			await page.goto(`${origin}${route}`, NAVIGATION);
+			await settle(page);
+		}
+		// Dialogs and sheets the route opens are part of its surface.
+		const triggers = page.locator("main [aria-haspopup='dialog']:visible");
+		const count = Math.min(await triggers.count(), 4);
+		for (let i = 0; i < count; i++) {
+			const trigger = triggers.nth(i);
+			const name =
+				(await trigger.getAttribute("aria-label")) ??
+				(await trigger.innerText()).trim().slice(0, 24);
+			if (!(await trigger.isEnabled())) {
+				console.log(`Disabled dialog trigger ${label} ${route} ${name}`);
+				continue;
+			}
+			await trigger.press("Enter", { timeout: 2000 });
+			const dialog = page
+				.locator("[role=dialog]:visible, [role=alertdialog]:visible")
+				.first();
+			await dialog.waitFor({ state: "visible", timeout: 2000 });
+			await settle(page);
+			await page.keyboard.press("Shift");
+			record(await audit(page), `${route} › ${name}`);
+			console.log(
+				`Dialog ${label} ${route} › ${name}: ${await dialog.getAttribute("role")}`,
+			);
+			if ((await dialog.getAttribute("role")) === "alertdialog")
+				await dialog
+					.getByRole("button", { name: "Cancel", exact: true })
+					.press("Enter", { timeout: 2000 });
+			else await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden", timeout: 2000 });
+		}
+		console.log(
+			`Route ${label} ${route}: ${Math.round(performance.now() - routeStarted)} ms`,
+		);
+	} catch (cause) {
+		throw new Error(`Audit failed for ${label} ${route}`, {
+			cause,
+		});
+	}
 }
 
 let browser: Browser | undefined;
@@ -517,29 +662,59 @@ try {
 	if (narrowed)
 		for (const route of narrowed) routes.set(routePattern(route), route);
 	else {
-		const crawler = await browser.newPage({
-			viewport: { width: 1280, height: 900 },
-		});
+		const crawlers = await Promise.all(
+			Array.from({ length: 3 }, () =>
+				browser!.newPage({ viewport: { width: 1280, height: 900 } }),
+			),
+		);
 		const queue = [...SEEDS];
-		while (queue.length && routes.size < MAX_ROUTES) {
-			const next = queue.shift()!;
-			const pattern = routePattern(next);
-			if (routes.has(pattern)) continue;
-			routes.set(pattern, next);
-			await crawler.goto(`${origin}${next}`, NAVIGATION);
-			await settle(crawler);
-			const hrefs = await crawler.$$eval("a[href^='/']", (links) =>
-				links.map((link) => link.getAttribute("href")!),
-			);
-			for (const href of hrefs) {
-				if (/^\/(auth|login|logout|cli|oauth|api|browser-tests)\b/.test(href))
-					continue;
-				if (!routes.has(routePattern(href))) queue.push(href);
+		try {
+			while (queue.length && routes.size < MAX_ROUTES) {
+				const batch: string[] = [];
+				while (
+					queue.length &&
+					batch.length < crawlers.length &&
+					routes.size < MAX_ROUTES
+				) {
+					const next = queue.shift()!;
+					const pattern = routePattern(next);
+					if (routes.has(pattern)) continue;
+					routes.set(pattern, next);
+					batch.push(next);
+				}
+				const results = await Promise.all(
+					batch.map(async (route, index) => {
+						const started = performance.now();
+						const crawler = crawlers[index]!;
+						await crawler.goto(`${origin}${route}`, NAVIGATION);
+						await settle(crawler);
+						const hrefs = await crawler.$$eval("a[href^='/']", (links) =>
+							links.map((link) => link.getAttribute("href")!),
+						);
+						console.log(
+							`Crawl ${route}: ${Math.round(performance.now() - started)} ms`,
+						);
+						return hrefs;
+					}),
+				);
+				// Consume links in queue order, independent of which page finished first.
+				for (const hrefs of results)
+					for (const href of hrefs) {
+						if (
+							/^\/(auth|login|logout|cli|oauth|api|browser-tests)\b/.test(href)
+						)
+							continue;
+						if (!routes.has(routePattern(href))) queue.push(href);
+					}
 			}
+		} finally {
+			await Promise.all(crawlers.map((page) => page.close()));
 		}
-		await crawler.close();
 	}
-	console.log(`Checking ${routes.size} routes`);
+	console.log(
+		`Checking ${routes.size} routes`,
+		JSON.stringify([...routes.values()]),
+	);
 
 	const configs = [
 		{ width: 1280, height: 900 },
@@ -549,68 +724,29 @@ try {
 	);
 	await Promise.all(
 		configs.map(async ({ viewport, theme }) => {
+			const configStarted = performance.now();
 			const label = `${viewport.width}-${theme}`;
-			const page = await browser.newPage({ viewport, colorScheme: theme });
-			await page.addInitScript(
-				(value) => localStorage.setItem("tedix-os-theme", value),
-				theme,
-			);
-			await auditWorkText(page, label);
-			for (const route of routes.values()) {
-				await page.goto(`${origin}${route}`, NAVIGATION);
-				await settle(page);
-				// Keyboard modality, so `:focus-visible` rings paint like a real Tab.
-				await page.keyboard.press("Shift");
-				const record = (
-					hits: Omit<Finding, "route" | "viewport">[],
-					at: string,
-				) => {
-					for (const hit of hits)
-						findings.push({ route: at, viewport: label, ...hit });
-				};
-				record(await audit(page), route);
-				// Open disclosures (collapsibles, expandable rows) show their panels' controls.
-				const disclosures = page.locator(
-					"main button[aria-expanded='false']:not([aria-haspopup]):visible",
-				);
-				const closed = Math.min(await disclosures.count(), 6);
-				if (closed) {
-					for (let i = closed - 1; i >= 0; i--)
-						await disclosures
-							.nth(i)
-							.click({ timeout: 2000 })
-							.catch(() => {});
-					await settle(page);
-					await page.keyboard.press("Shift");
-					record(await audit(page), `${route} › expanded`);
-					await page.goto(`${origin}${route}`, NAVIGATION);
-					await settle(page);
-				}
-				// Dialogs and sheets the route opens are part of its surface.
-				const triggers = page.locator("main [aria-haspopup='dialog']:visible");
-				const count = Math.min(await triggers.count(), 4);
-				for (let i = 0; i < count; i++) {
-					const trigger = triggers.nth(i);
-					const name =
-						(await trigger.getAttribute("aria-label")) ??
-						(await trigger.innerText().catch(() => "")).trim().slice(0, 24);
-					await trigger.click({ timeout: 2000 }).catch(() => {});
-					const dialog = page.locator("[role=dialog]:visible").first();
-					if (await dialog.isVisible().catch(() => false)) {
-						await settle(page);
-						await page.keyboard.press("Shift");
-						record(await audit(page), `${route} › ${name}`);
+			await Promise.all(
+				Array.from({ length: 2 }, async (_, worker) => {
+					const page = await browser!.newPage({ viewport, colorScheme: theme });
+					try {
+						await page.addInitScript(
+							(value) => localStorage.setItem("tedix-os-theme", value),
+							theme,
+						);
+						if (worker === 0) await auditWorkText(page, label);
+						for (const [index, route] of [...routes.values()].entries()) {
+							if (index % 2 !== worker) continue;
+							await auditRoute(page, route, label);
+						}
+					} finally {
+						await page.close();
 					}
-					await page.keyboard.press("Escape");
-					await page
-						.locator("[role=dialog]:visible")
-						.first()
-						.waitFor({ state: "hidden", timeout: 2000 })
-						.catch(() => {});
-				}
-			}
-			await page.close();
-			console.log(`Audited ${label}`);
+				}),
+			);
+			console.log(
+				`Audited ${label}: ${Math.round(performance.now() - configStarted)} ms`,
+			);
 		}),
 	);
 
