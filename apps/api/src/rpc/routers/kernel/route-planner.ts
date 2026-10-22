@@ -28,7 +28,7 @@ import type { KernelContext } from "./context-assembly";
 import {
 	renderHomeStableContext,
 	renderHomeTurnContext,
-} from "./context-assembly";
+} from "./context-render";
 import type { KernelGatewayContext } from "./gateway-attribution";
 import {
 	type KernelExecutionAttempt,

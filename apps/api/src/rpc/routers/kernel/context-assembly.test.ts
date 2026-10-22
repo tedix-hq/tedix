@@ -43,18 +43,21 @@ import {
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	stripLocalTerminalContext,
+	dedupeConversationHistory,
+} from "./context-history";
+import {
 	asksAboutConversations,
 	conversationListWorkspaceId,
 	assembleHomeContext,
-	dedupeConversationHistory,
 	deriveAppCapabilities,
 	type KernelContext,
-	rankByQueryRelevance,
+	unresolvedSkillReferences,
+} from "./context-assembly";
+import { rankByQueryRelevance, withRankingBudget } from "./context-relevance";
+import {
 	renderHomeContextPrompt,
 	renderHomeTurnContext,
-	unresolvedSkillReferences,
-	withRankingBudget,
-} from "./context-assembly";
+} from "./context-render";
 import { selectSkillsForTurn } from "@tedix/context-core/skill-retrieval";
 import type { ContextCandidateRanker } from "./jev-context-ranking";
 import {
@@ -1728,7 +1731,7 @@ import {
 	RESERVED_COMPLETION_TOKENS,
 	SYSTEM_PROMPT_RESERVE_CHARS,
 	WORKERS_AI_CONTEXT_WINDOW_TOKENS,
-} from "./context-assembly";
+} from "./context-relevance";
 import { SYSTEM_PROMPT } from "./route-planner";
 
 describe("assembleHomeContext — token-budget guard", () => {
@@ -1866,7 +1869,7 @@ describe("assembleHomeContext — token-budget guard", () => {
 		// must fit within 100 tokens (400 chars).
 		// (tedis/apps/workItems are empty in this test so it will fit.)
 		const { renderHomeContextPrompt: render } =
-			await import("./context-assembly");
+			await import("./context-render");
 		const rendered = render(ctx);
 		// History was dropped, so history chars = 0.  Only the context prompt matters.
 		expect(Math.ceil(rendered.length / 4)).toBeLessThanOrEqual(100);
@@ -1896,7 +1899,7 @@ describe("assembleHomeContext — token-budget guard", () => {
 
 		// Render without budget — should include all facts.
 		const { renderHomeContextPrompt: render } =
-			await import("./context-assembly");
+			await import("./context-render");
 		const fullRendered = render(largeCtx);
 		// Sanity: facts section is present
 		expect(fullRendered).toContain("TOP FACTS");

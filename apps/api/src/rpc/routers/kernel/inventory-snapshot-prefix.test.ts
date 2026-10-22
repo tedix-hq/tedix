@@ -10,7 +10,8 @@ import {
 	type HomeInventorySnapshot,
 	resolveInventorySnapshot,
 } from "../../../kernel/inventory-snapshot";
-import { type KernelContext, renderHomeInventory } from "./context-assembly";
+import { type KernelContext } from "./context-assembly";
+import { renderHomeInventory } from "./context-render";
 import { buildUserPrompt } from "./route-planner";
 
 type Tedi = KernelContext["tedis"][number];

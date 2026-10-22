@@ -4,7 +4,7 @@ import {
 	AZURE_CONTEXT_WINDOW_TOKENS,
 	maxPromptTokensForWindow,
 	WORKERS_AI_CONTEXT_WINDOW_TOKENS,
-} from "../../src/rpc/routers/kernel/context-assembly";
+} from "../../src/rpc/routers/kernel/context-relevance";
 import {
 	CHECKPOINT_MAX_CHARS,
 	COMPACTION_TARGET_RATIO,
