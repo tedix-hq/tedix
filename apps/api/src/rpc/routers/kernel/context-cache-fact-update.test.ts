@@ -4,6 +4,10 @@ import * as appQueries from "@tedix/db/queries/apps";
 import * as workflowQueries from "@tedix/db/queries/cognitive/skill-catalog";
 import { createFact, updateFact } from "@tedix/db/queries/memory-graph/facts";
 import * as tediQueries from "@tedix/db/queries/tedis";
+import {
+	memoryFactCitationBackfills,
+	memoryFactCitations,
+} from "@tedix/db/schema";
 import { memoryDomains, memoryFacts } from "@tedix/db/schema/memory-graph";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -19,7 +23,14 @@ describe("Home fact freshness with a warm context cache", () => {
 		const sqlite = new DatabaseSync(":memory:");
 		// Only memory persistence is under test; inventory reads warm the cache.
 		sqlite.exec("PRAGMA foreign_keys = OFF");
-		sqlite.exec(schemaDdl(memoryDomains, memoryFacts));
+		sqlite.exec(
+			schemaDdl(
+				memoryDomains,
+				memoryFacts,
+				memoryFactCitations,
+				memoryFactCitationBackfills,
+			),
+		);
 		const db = createDbClient(createD1Facade(sqlite));
 		vi.spyOn(tediQueries, "getTedisByOrganization").mockResolvedValue([]);
 		vi.spyOn(appQueries, "getAppsByOrganization").mockResolvedValue([]);

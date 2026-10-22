@@ -27,7 +27,11 @@ import * as workItemQueries from "@tedix/db/queries/work-items/crud";
 import * as memberQueries from "@tedix/db/queries/organization-members";
 import * as workspaceResourceQueries from "@tedix/db/queries/os-workspaces/resources";
 import * as rationaleQueries from "@tedix/db/queries/rationale-records";
-import { kernelRuntimeEvents, memoryFacts } from "@tedix/db/schema";
+import {
+	kernelRuntimeEvents,
+	memoryFactCitationBackfills,
+	memoryFacts,
+} from "@tedix/db/schema";
 import type { MemoryFact } from "@tedix/db/schema/memory-graph";
 import { generateText } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
@@ -2135,6 +2139,10 @@ function createFactsDb(opts: {
 			}
 			return results;
 		},
+		// Raw citation scans: no consolidated fact cites the facts under test.
+		async all() {
+			return [];
+		},
 		select(_selectArg?: unknown) {
 			let hasLeftJoin = false;
 			let targetTable: unknown;
@@ -2174,6 +2182,9 @@ function createFactsDb(opts: {
 						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
 						| null,
 				) {
+					// Citation backfill progress: none recorded, no links.
+					if (targetTable === memoryFactCitationBackfills)
+						return Promise.resolve([]).then(onfulfilled, onrejected);
 					if (targetTable !== memoryFacts) {
 						return Promise.reject(
 							new Error("unexpected table in facts test"),

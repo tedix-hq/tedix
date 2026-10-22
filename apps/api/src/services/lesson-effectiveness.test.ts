@@ -10,6 +10,10 @@ import {
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
+import {
+	memoryFactCitationBackfills,
+	memoryFactCitations,
+} from "@tedix/db/schema";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -31,7 +35,9 @@ const NOW = new Date("2026-10-08T12:00:00Z");
 function setup(): { db: DbClient; sqlite: DatabaseSync } {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(memoryFacts));
+	sqlite.exec(
+		schemaDdl(memoryFacts, memoryFactCitations, memoryFactCitationBackfills),
+	);
 	// The generated DDL leaves out SQL defaults; D1 has CURRENT_TIMESTAMP.
 	const ddl = schemaDdl(learningInteractionEvents).replace(
 		/(created_at\W*\s+text\s+NOT NULL)/i,
