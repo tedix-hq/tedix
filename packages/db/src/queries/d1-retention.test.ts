@@ -5,9 +5,13 @@ import { auditEvents } from "../schema/audit-events";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { d1RetentionPolicies } from "../schema/d1-retention";
 import { createD1Facade } from "../test/d1-facade";
-import { schemaDdl } from "../test/schema-ddl";
+import { schemaDdl, tableDdl } from "../test/schema-ddl";
 import {
+	D1_LOGS_COPY_STATEMENT_BYTES,
+	D1_RETENTION_PAGE_ROWS,
+	buildD1LogsCopyStatements,
 	buildD1RetentionDeleteStatements,
+	copyD1RetentionRowsToLogs,
 	d1RetentionCutoff,
 	d1RetentionEffectiveKeepDays,
 	d1RetentionPolicyProblem,
@@ -18,6 +22,7 @@ import {
 	listActiveD1RetentionPolicies,
 	readD1RetentionPage,
 	recordD1RetentionRun,
+	verifyD1LogsCopy,
 } from "./d1-retention";
 
 const NOW = new Date("2026-10-21T12:00:00.000Z");
@@ -132,40 +137,42 @@ describe("d1 retention policy validation", () => {
 });
 
 describe("d1 retention statements", () => {
-	it("reads at most 50 rows per statement from the oldest end", async () => {
+	it("reads at most one page per statement from the oldest end", async () => {
 		const { db, seedAudit } = fixture();
-		seedAudit(Array.from({ length: 120 }, (_, i) => 200 - i));
-		const page = await readD1RetentionPage(db, audit(), -1, 500);
-		expect(page).toHaveLength(50);
+		seedAudit(Array.from({ length: 620 }, (_, i) => 700 - i));
+		const page = await readD1RetentionPage(db, audit(), -1, 5000);
+		expect(page).toHaveLength(D1_RETENTION_PAGE_ROWS);
 		expect(page[0]?.__rowid).toBe(1);
 		expect(page[0]?.id).toBe("audit-0");
-		const next = await readD1RetentionPage(db, audit(), 50);
-		expect(next[0]?.__rowid).toBe(51);
+		const next = await readD1RetentionPage(db, audit(), 50, 10);
+		expect(next.map((row) => row.__rowid)).toEqual(
+			Array.from({ length: 10 }, (_, i) => 51 + i),
+		);
 	});
 
-	it("deletes in statements of at most 50 rowids and never inside the keep window", async () => {
+	it("deletes one page of rowids per statement with two bound parameters and never inside the keep window", async () => {
 		const { db, seedAudit, count } = fixture();
-		// 110 expired rows, then 10 inside a 30-day window.
+		// 610 expired rows, then 10 inside a 30-day window.
 		seedAudit([
-			...Array.from({ length: 110 }, () => 100),
+			...Array.from({ length: 610 }, () => 100),
 			...Array.from({ length: 10 }, () => 1),
 		]);
 		const cutoff = d1RetentionCutoff(audit(), NOW, 30);
-		const rowids = Array.from({ length: 120 }, (_, i) => i + 1);
+		const rowids = Array.from({ length: 620 }, (_, i) => i + 1);
 		const statements = buildD1RetentionDeleteStatements(
 			db,
 			audit(),
 			rowids,
 			cutoff,
 		);
-		expect(statements).toHaveLength(3);
+		expect(statements).toHaveLength(2);
 		for (const statement of statements) {
-			expect(statement.toSQL().params.length).toBeLessThanOrEqual(51);
+			expect(statement.toSQL().params).toHaveLength(2);
 		}
-		// Asking to delete all 120 removes only the 110 expired rows.
+		// Asking to delete all 620 removes only the 610 expired rows.
 		await expect(
 			deleteD1RetentionRows(db, audit(), rowids, cutoff),
-		).resolves.toBe(110);
+		).resolves.toBe(610);
 		expect(count("audit_events")).toBe(10);
 	});
 
@@ -254,5 +261,107 @@ describe("d1 retention policy rows", () => {
 		expect(row.a).toBe(42);
 		expect(row.d).toBe(42);
 		expect(JSON.parse(row.r)).toEqual({ mode: "dry_run", deletedRows: 2 });
+	});
+});
+
+describe("d1 logs copy statements", () => {
+	function logsFixture() {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(
+			[auditEvents, tediRuntimeEvents]
+				.flatMap((table) => tableDdl(table, { foreignKeys: false }))
+				.join("\n"),
+		);
+		const facade = createD1Facade(sqlite);
+		let batches = 0;
+		const batch = facade.batch.bind(facade);
+		facade.batch = (statements) => {
+			batches += 1;
+			return batch(statements);
+		};
+		return {
+			sqlite,
+			db: createDbQueryClient(facade),
+			batches: () => batches,
+		};
+	}
+
+	it("copies a page with one bound parameter per statement and reads every column back in one batch", async () => {
+		const { db, seedAudit } = fixture();
+		seedAudit(Array.from({ length: 500 }, () => 90));
+		const rows = await readD1RetentionPage(db, audit(), -1);
+		// JSON transport must not change any value: quotes, escapes, unicode,
+		// JSON-looking and numeric-looking text, blanks and nulls.
+		const tricky = [
+			'{"a":[1,2]}',
+			"1.50",
+			"",
+			"  ",
+			'quote " \\ \n tab\t',
+			"Zoë ✓ 🚀",
+		];
+		rows.forEach((row, index) => {
+			row.metadata = index % 7 === 0 ? null : (tricky[index % 6] ?? null);
+		});
+		const statements = buildD1LogsCopyStatements(audit(), rows);
+		expect(statements.length).toBeLessThan(5);
+		for (const statement of statements) {
+			expect(db.all(statement.query).getQuery().params).toHaveLength(1);
+		}
+		const logs = logsFixture();
+		const copied = await copyD1RetentionRowsToLogs(logs.db, audit(), rows);
+		expect(logs.batches()).toBe(1);
+		expect(copied.size).toBe(500);
+		expect(verifyD1LogsCopy(audit(), rows, copied)).toEqual({
+			missing: [],
+			mismatched: [],
+		});
+		expect(
+			logs.sqlite
+				.prepare(
+					"SELECT metadata, timestamp FROM audit_events WHERE id = 'audit-5'",
+				)
+				.get(),
+		).toEqual({ metadata: "Zoë ✓ 🚀", timestamp: rows[5]?.timestamp });
+	});
+
+	it("binds an oversized row column by column and splits a large page into more batches", async () => {
+		const { db, seedAudit } = fixture();
+		seedAudit(Array.from({ length: 12 }, () => 90));
+		const rows = await readD1RetentionPage(db, audit(), -1);
+		rows.forEach((row, index) => {
+			row.metadata = (index === 0 ? "y" : "z").repeat(
+				index === 0 ? D1_LOGS_COPY_STATEMENT_BYTES + 10 : 200 * 1024,
+			);
+		});
+		const params = buildD1LogsCopyStatements(audit(), rows).map(
+			(statement) => db.all(statement.query).getQuery().params.length,
+		);
+		// The oversized row binds one parameter per column; the rest one each.
+		expect(params[0]).toBe(11);
+		expect(params.slice(1).every((count) => count === 1)).toBe(true);
+		const logs = logsFixture();
+		const copied = await copyD1RetentionRowsToLogs(logs.db, audit(), rows);
+		expect(logs.batches()).toBeGreaterThan(1);
+		expect(verifyD1LogsCopy(audit(), rows, copied)).toEqual({
+			missing: [],
+			mismatched: [],
+		});
+	});
+
+	it("flags a logs row that differs in any column", async () => {
+		const { db, seedAudit } = fixture();
+		seedAudit(Array.from({ length: 3 }, () => 90));
+		const rows = await readD1RetentionPage(db, audit(), -1);
+		const logs = logsFixture();
+		// A logs database that rewrites one value on insert.
+		logs.sqlite.exec(
+			"CREATE TRIGGER rewrite AFTER INSERT ON audit_events WHEN NEW.id = 'audit-1' BEGIN UPDATE audit_events SET timestamp = timestamp + 1 WHERE id = NEW.id; END;",
+		);
+		const copied = await copyD1RetentionRowsToLogs(logs.db, audit(), rows);
+		expect(verifyD1LogsCopy(audit(), rows, copied)).toEqual({
+			missing: [],
+			mismatched: ["audit-1"],
+		});
 	});
 });

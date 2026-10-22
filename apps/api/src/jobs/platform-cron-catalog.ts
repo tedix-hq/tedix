@@ -245,8 +245,8 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "d1-retention",
-		cron: "0 * * * *",
-		intervalMinutes: 60,
+		cron: "*/15 * * * *",
+		intervalMinutes: 15,
 		requiresFleet: true,
 	},
 ];

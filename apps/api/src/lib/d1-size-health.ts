@@ -1,5 +1,5 @@
 /**
- * D1 size alert. Every hourly retention tick measures the main database and,
+ * D1 size alert. Every retention tick (15 minutes) measures the main database and,
  * when bound, the logs database, and pages the ops channel when either is
  * near its ceiling:
  *

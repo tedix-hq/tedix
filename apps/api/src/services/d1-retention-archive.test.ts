@@ -19,15 +19,49 @@ const DAY = 86_400;
 class MemoryBucket {
 	readonly objects = new Map<string, Uint8Array>();
 	failPuts = false;
+	/** Simulates a write R2 acknowledged with the wrong size. */
+	shortPuts = false;
+	puts = 0;
 	async put(key: string, value: Uint8Array) {
+		this.puts += 1;
 		if (this.failPuts) throw new Error("r2 unavailable");
 		this.objects.set(key, value);
-		return { key };
+		return { key, size: value.byteLength - (this.shortPuts ? 1 : 0) };
 	}
-	async head(key: string) {
-		const value = this.objects.get(key);
-		return value ? { key, size: value.byteLength } : null;
-	}
+}
+
+/** Count what reaches a D1 database: statements outside batches, and batches. */
+function countCalls(d1: D1Database) {
+	const calls = { statements: 0, batches: 0 };
+	const batched = new WeakSet<object>();
+	const prepare = d1.prepare.bind(d1);
+	const batch = d1.batch.bind(d1);
+	d1.prepare = (query: string) => {
+		const statement = prepare(query);
+		const bind = statement.bind.bind(statement);
+		const counted = (target: D1PreparedStatement): D1PreparedStatement => {
+			for (const method of ["all", "run", "first", "raw"] as const) {
+				const original = target[method].bind(target) as (
+					...args: unknown[]
+				) => unknown;
+				(target as unknown as Record<string, unknown>)[method] = (
+					...args: unknown[]
+				) => {
+					if (!batched.has(target)) calls.statements += 1;
+					return original(...args);
+				};
+			}
+			return target;
+		};
+		statement.bind = (...values: unknown[]) => counted(bind(...values));
+		return counted(statement);
+	};
+	d1.batch = (statements) => {
+		calls.batches += 1;
+		for (const statement of statements) batched.add(statement);
+		return batch(statements);
+	};
+	return calls;
 }
 
 function fixture(policies: string) {
@@ -91,9 +125,11 @@ function fixture(policies: string) {
 				"SELECT last_report AS report, archived_rows_total AS archived, deleted_rows_total AS deleted FROM d1_retention_policies WHERE table_name = ?",
 			)
 			.get(table) as { report: string; archived: number; deleted: number };
+	const d1 = createD1Facade(sqlite);
 	return {
 		sqlite,
-		db: createDbQueryClient(createD1Facade(sqlite)),
+		d1,
+		db: createDbQueryClient(d1),
 		seed,
 		seedRuntime,
 		count,
@@ -117,7 +153,8 @@ function logsFixture() {
 				}
 			).n,
 		);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)), count };
+	const d1 = createD1Facade(sqlite);
+	return { sqlite, d1, db: createDbQueryClient(d1), count };
 }
 
 async function gunzipLines(bytes: Uint8Array): Promise<string[]> {
@@ -216,7 +253,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 120 }, () => 1), 90]);
+		seed([...Array.from({ length: 1000 }, () => 1), 90]);
 		const bucket = new MemoryBucket();
 		let clock = 0;
 		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock++);
@@ -232,13 +269,15 @@ describe("runD1Retention", () => {
 			expect(first.tables[0]).toMatchObject({
 				deletedRows: 0,
 				stoppedBy: "time_budget",
-				scanAfterRowid: 50,
+				scanAfterRowid: 500,
 			});
-			expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(50);
+			expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(
+				500,
+			);
 			await tick();
 			const third = await tick();
 			expect(third.deletedRows).toBe(1);
-			expect(count()).toBe(120);
+			expect(count()).toBe(1000);
 		} finally {
 			mocked.mockRestore();
 		}
@@ -253,7 +292,7 @@ describe("runD1Retention", () => {
 			bucket: bucket as unknown as R2Bucket,
 			now: new Date(NOW.getTime() + 90 * DAY * 1000),
 		});
-		expect(later.deletedRows).toBe(120);
+		expect(later.deletedRows).toBe(1000);
 		expect(count()).toBe(0);
 	});
 
@@ -515,6 +554,94 @@ describe("runD1Retention", () => {
 		expect(resumed.tables[0]).toMatchObject({ movedRows: 60, deletedRows: 60 });
 		expect(count()).toBe(0);
 		expect(logs.count()).toBe(60);
+	});
+
+	it("moves a page in one read, one logs batch, one archive write and one delete", async () => {
+		const { db, d1, seed, count, policy } = fixture(
+			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
+		);
+		seed([...Array.from({ length: 1200 }, () => 90), 1]);
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const main = countCalls(d1);
+		const logsCalls = countCalls(logs.d1);
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			movedRows: 1200,
+			deletedRows: 1200,
+			objects: 3,
+			stoppedBy: "done",
+			scanAfterRowid: -1,
+		});
+		expect(count()).toBe(1);
+		expect(logs.count()).toBe(1200);
+		// Three pages: one logs batch (copy + read-back) and one archive each.
+		expect(logsCalls).toEqual({ statements: 0, batches: 3 });
+		expect(bucket.puts).toBe(3);
+		// Main: three page reads and three delete batches, plus the backlog
+		// estimate (about eight point reads) and the policy bookkeeping; the
+		// old 50-row pages took ten reads per page alone.
+		expect(main.batches).toBe(3);
+		expect(main.statements).toBeLessThanOrEqual(15);
+		const report = JSON.parse(policy("audit_events").report);
+		expect(report.timings).toMatchObject({ pages: 3 });
+		expect(report.eligibleRows).toBe(0);
+	});
+
+	it("keeps rows when R2 acknowledges a different size than was written", async () => {
+		const { db, seed, count } = fixture(
+			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
+		);
+		seed(Array.from({ length: 30 }, () => 90));
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		bucket.shortPuts = true;
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			stoppedBy: "error",
+			deletedRows: 0,
+			archivedRows: 0,
+		});
+		expect(result.tables[0]?.error).toContain("archive object not confirmed");
+		expect(count()).toBe(30);
+	});
+
+	it("leaves the cursor on the last deleted page when a later page fails", async () => {
+		const { db, seed, count, policy } = fixture(
+			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
+		);
+		seed(Array.from({ length: 700 }, () => 90));
+		const logs = logsFixture();
+		// The second page's copy loses a row, so it never verifies.
+		logs.sqlite.exec(
+			"CREATE TRIGGER lose_row AFTER INSERT ON audit_events WHEN NEW.id = 'audit-650' BEGIN DELETE FROM audit_events WHERE id = NEW.id; END;",
+		);
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			stoppedBy: "error",
+			movedRows: 500,
+			deletedRows: 500,
+			scanAfterRowid: 500,
+		});
+		expect(count()).toBe(200);
+		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(500);
+		expect(bucket.objects.size).toBe(1);
 	});
 
 	it("reports a missing logs binding and changes nothing", async () => {

@@ -1,6 +1,6 @@
 /// <reference path="../../worker-configuration.d.ts" />
 /**
- * Hourly D1 retention tick. Policy rows in `d1_retention_policies` decide
+ * D1 retention tick, every 15 minutes. Policy rows in `d1_retention_policies` decide
  * what runs; with no active row this reads one small table and returns.
  * Archives go to the private tedi bucket under `d1-archive/v1/`; the
  * `move_to_logs_db` mode also needs the optional `LOGS_DB` binding.
@@ -52,6 +52,7 @@ export async function runD1RetentionTick(
 					deletedRows: table.deletedRows,
 					stoppedBy: table.stoppedBy,
 					error: table.error ?? null,
+					timings: table.timings,
 				})),
 			}),
 		);

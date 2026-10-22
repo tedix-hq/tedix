@@ -3,20 +3,23 @@
  * the core D1 database, driven by `d1_retention_policies` rows (no row =
  * untouched).
  *
- * A pass reads the oldest rows 50 at a time, writes one gzip NDJSON object
- * per chunk to R2, confirms the object exists, and only then deletes exactly
- * those rows in one D1 batch of <=50-row statements. A run that stops midway
- * resumes on the next tick from its last processed rowid in `last_report`.
- * A completed sweep wraps to reconsider retained rows. If it stops between
- * the R2 write and the delete, the next tick rewrites the same rows to the
- * same deterministic key before deleting them.
+ * A pass reads the oldest rows one page (500 rows) per statement, writes one
+ * gzip NDJSON object per page to R2, confirms the stored object, and only
+ * then deletes exactly those rows with one statement. The next page is read
+ * while the current one is copied, archived and deleted, so a page costs a
+ * few round trips instead of one per 50 rows. A run that stops midway resumes
+ * on the next tick from its last processed rowid in `last_report`. A
+ * completed sweep wraps to reconsider retained rows. If it stops between the
+ * R2 write and the delete, the next tick rewrites the same rows to the same
+ * deterministic key before deleting them.
  *
- * `move_to_logs_db` adds a step in front of the archive: the chunk is copied
- * into the logs database with insert-or-ignore, read back and compared column
- * by column, and only a chunk that reads back identical is archived and then
- * removed from the main database. A crash anywhere leaves the main rows in
- * place; the next tick repeats the copy (a no-op for rows already there),
- * the check, the archive and the delete. Deletes and copies back off on
+ * `move_to_logs_db` adds a step in front of the archive: the page is copied
+ * into the logs database with insert-or-ignore, read back in the same batch
+ * and compared column by column with the rows read from the main database,
+ * and only a page that reads back identical is archived and then removed
+ * from the main database. A crash anywhere leaves the main rows in place;
+ * the next tick repeats the copy (a no-op for rows already there), the
+ * check, the archive and the delete. Reads, copies and deletes back off on
  * D1 `overloaded` errors before the run gives up.
  */
 
@@ -25,18 +28,16 @@ import {
 	type D1RetentionCutoff,
 	type D1RetentionRow,
 	type D1RetentionTableSpec,
-	D1_RETENTION_ROWS_PER_STATEMENT,
+	D1_RETENTION_PAGE_ROWS,
 	copyD1RetentionRowsToLogs,
 	d1RetentionCutoff,
 	d1RetentionEffectiveKeepDays,
 	d1RetentionPolicyProblem,
-	d1RetentionRowId,
 	deleteD1RetentionRows,
 	estimateD1RetentionBacklog,
 	getD1RetentionTableSpec,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
-	readD1LogsRowsByIds,
 	readD1RetentionPage,
 	recordD1RetentionRun,
 	verifyD1LogsCopy,
@@ -45,8 +46,8 @@ import type { DbQueryClient } from "@tedix/db/query-client";
 import type { D1RetentionPolicyRow } from "@tedix/db/schema/d1-retention";
 
 export const D1_ARCHIVE_PREFIX = "d1-archive/v1/";
-/** Rows per R2 object and per delete batch (10 statements of 50). */
-export const D1_ARCHIVE_CHUNK_ROWS = 500;
+/** Rows per R2 object, per logs copy and per delete statement. */
+export const D1_ARCHIVE_CHUNK_ROWS = D1_RETENTION_PAGE_ROWS;
 const DEFAULT_TIME_BUDGET_MS = 20_000;
 /** Waits before each retry of a statement D1 refused as overloaded. */
 const OVERLOAD_BACKOFF_MS = [500, 1000, 2000] as const;
@@ -79,6 +80,18 @@ export async function withOverloadBackoff<T>(
 	}
 }
 
+/** Wall time per step, summed over a run's pages. */
+export interface D1RetentionTimings {
+	/** Waiting for a page; most reads overlap the previous page's work. */
+	readMs: number;
+	/** Logs copy and its read-back. */
+	copyMs: number;
+	archiveMs: number;
+	deleteMs: number;
+	estimateMs: number;
+	pages: number;
+}
+
 export interface D1RetentionTableResult {
 	tableName: string;
 	mode: D1RetentionPolicyRow["mode"];
@@ -94,6 +107,7 @@ export interface D1RetentionTableResult {
 	scanAfterRowid: number;
 	stoppedBy: "done" | "row_cap" | "time_budget" | "error" | "skipped";
 	error?: string;
+	timings: D1RetentionTimings;
 }
 
 export interface D1RetentionRunResult {
@@ -102,6 +116,30 @@ export interface D1RetentionRunResult {
 	movedRows: number;
 	deletedRows: number;
 	eligibleBytes: number;
+}
+
+function emptyResult(policy: D1RetentionPolicyRow): D1RetentionTableResult {
+	return {
+		tableName: policy.tableName,
+		mode: policy.mode,
+		problem: null,
+		eligibleRows: 0,
+		eligibleBytes: 0,
+		archivedRows: 0,
+		movedRows: 0,
+		deletedRows: 0,
+		objects: 0,
+		scanAfterRowid: -1,
+		stoppedBy: "skipped",
+		timings: {
+			readMs: 0,
+			copyMs: 0,
+			archiveMs: 0,
+			deleteMs: 0,
+			estimateMs: 0,
+			pages: 0,
+		},
+	};
 }
 
 function archiveDay(
@@ -137,7 +175,13 @@ export async function gzipNdjson(
 	return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-/** Read a bounded rowid window, retaining newer and invalid timestamps. */
+interface ExpiredChunk {
+	rows: D1RetentionRow[];
+	afterRowid: number;
+	reachedEnd: boolean;
+}
+
+/** Read one page after the cursor; keep its expired rows, retain newer and invalid timestamps. */
 async function readExpiredChunk(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
@@ -145,39 +189,19 @@ async function readExpiredChunk(
 	limit: number,
 	afterRowid: number,
 	deadline: number,
-): Promise<{
-	rows: D1RetentionRow[];
-	afterRowid: number;
-	reachedEnd: boolean;
-}> {
-	const rows: D1RetentionRow[] = [];
-	let scanned = 0;
-	while (
-		rows.length < limit &&
-		scanned < D1_ARCHIVE_CHUNK_ROWS &&
-		Date.now() < deadline
-	) {
-		const page = await readD1RetentionPage(
-			db,
-			tableSpec,
-			afterRowid,
-			Math.min(
-				D1_RETENTION_ROWS_PER_STATEMENT,
-				limit - rows.length,
-				D1_ARCHIVE_CHUNK_ROWS - scanned,
-			),
-		);
-		if (page.length === 0) return { rows, afterRowid, reachedEnd: true };
-		for (const row of page) {
-			if (
-				isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff)
-			)
-				rows.push(row);
-		}
-		scanned += page.length;
-		afterRowid = page[page.length - 1]?.__rowid ?? afterRowid;
-	}
-	return { rows, afterRowid, reachedEnd: false };
+): Promise<ExpiredChunk> {
+	const page = await withOverloadBackoff(
+		() => readD1RetentionPage(db, tableSpec, afterRowid, limit),
+		deadline,
+	);
+	return {
+		rows: page.filter((row) =>
+			isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff),
+		),
+		afterRowid: page[page.length - 1]?.__rowid ?? afterRowid,
+		// A short page is the end of the table as of this read.
+		reachedEnd: page.length < limit,
+	};
 }
 
 /**
@@ -191,20 +215,59 @@ async function copyChunkToLogs(
 	rows: readonly D1RetentionRow[],
 	deadline: number,
 ): Promise<void> {
-	await withOverloadBackoff(
+	const copied = await withOverloadBackoff(
 		() => copyD1RetentionRowsToLogs(logsDb, tableSpec, rows),
 		deadline,
-	);
-	const copied = await readD1LogsRowsByIds(
-		logsDb,
-		tableSpec,
-		rows.map(d1RetentionRowId),
 	);
 	const check = verifyD1LogsCopy(tableSpec, rows, copied);
 	if (check.missing.length > 0 || check.mismatched.length > 0) {
 		throw new Error(
 			`logs copy not verified for ${tableSpec.tableName}: ${check.missing.length} missing, ${check.mismatched.length} mismatched (first: ${check.missing[0] ?? check.mismatched[0]})`,
 		);
+	}
+}
+
+/**
+ * Write the chunk to R2 and confirm the stored object. R2 resolves a put only
+ * once the object is durably stored (reads after it are strongly consistent),
+ * and the object it returns must carry this key and the body's exact size.
+ */
+async function archiveChunk(
+	bucket: R2Bucket,
+	tableSpec: D1RetentionTableSpec,
+	rows: readonly D1RetentionRow[],
+	cutoff: D1RetentionCutoff,
+): Promise<void> {
+	const key = d1ArchiveObjectKey(tableSpec, rows);
+	const body = await gzipNdjson(rows);
+	const stored = await bucket.put(key, body, {
+		httpMetadata: {
+			contentType: "application/x-ndjson",
+			contentEncoding: "gzip",
+		},
+		customMetadata: {
+			table: tableSpec.tableName,
+			rows: String(rows.length),
+			firstRowid: String(rows[0]?.__rowid),
+			lastRowid: String(rows[rows.length - 1]?.__rowid),
+			cutoff: String(cutoff),
+		},
+	});
+	if (!stored || stored.key !== key || stored.size !== body.byteLength) {
+		throw new Error(`archive object not confirmed: ${key}`);
+	}
+}
+
+async function timed<T>(
+	timings: D1RetentionTimings,
+	step: Exclude<keyof D1RetentionTimings, "pages">,
+	run: () => Promise<T>,
+): Promise<T> {
+	const started = Date.now();
+	try {
+		return await run();
+	} finally {
+		timings[step] += Date.now() - started;
 	}
 }
 
@@ -216,19 +279,8 @@ async function runPolicy(
 	now: Date,
 	deadline: number,
 ): Promise<D1RetentionTableResult> {
-	const result: D1RetentionTableResult = {
-		tableName: policy.tableName,
-		mode: policy.mode,
-		problem: d1RetentionPolicyProblem(policy),
-		eligibleRows: 0,
-		eligibleBytes: 0,
-		archivedRows: 0,
-		movedRows: 0,
-		deletedRows: 0,
-		objects: 0,
-		scanAfterRowid: -1,
-		stoppedBy: "skipped",
-	};
+	const result = emptyResult(policy);
+	result.problem = d1RetentionPolicyProblem(policy);
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (result.problem || !tableSpec) return result;
 	const archives =
@@ -243,103 +295,131 @@ async function runPolicy(
 	}
 	const keepDays = d1RetentionEffectiveKeepDays(tableSpec, policy);
 	const cutoff = d1RetentionCutoff(tableSpec, now, keepDays);
-	const estimate = await estimateD1RetentionBacklog(db, tableSpec, cutoff);
-	result.eligibleRows = estimate.eligibleRows;
-	result.eligibleBytes = estimate.eligibleBytes;
-	if (policy.mode === "dry_run") {
-		result.stoppedBy = "done";
-		return result;
-	}
-
-	const previousCursor = policy.lastReport?.scanAfterRowid;
-	if (
-		typeof previousCursor === "number" &&
-		Number.isSafeInteger(previousCursor) &&
-		previousCursor >= -1
-	)
-		result.scanAfterRowid = previousCursor;
-	const rowCap = Math.max(0, policy.maxRowsPerRun);
+	const { timings } = result;
 	result.stoppedBy = "done";
-	try {
-		while (true) {
-			const remaining = rowCap - result.deletedRows;
-			if (remaining <= 0) {
-				result.stoppedBy = "row_cap";
-				break;
-			}
-			if (Date.now() >= deadline) {
-				result.stoppedBy = "time_budget";
-				break;
-			}
-			const { rows, afterRowid, reachedEnd } = await readExpiredChunk(
+
+	if (policy.mode !== "dry_run") {
+		const previousCursor = policy.lastReport?.scanAfterRowid;
+		if (
+			typeof previousCursor === "number" &&
+			Number.isSafeInteger(previousCursor) &&
+			previousCursor >= -1
+		)
+			result.scanAfterRowid = previousCursor;
+		const rowCap = Math.max(0, policy.maxRowsPerRun);
+		const read = (afterRowid: number, limit: number) => {
+			const pending = readExpiredChunk(
 				db,
 				tableSpec,
 				cutoff,
-				Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining),
-				result.scanAfterRowid,
+				limit,
+				afterRowid,
 				deadline,
 			);
-			if (rows.length === 0) {
+			// Awaited later or abandoned when the run stops; never unhandled.
+			pending.catch(() => {});
+			return pending;
+		};
+		let next: Promise<ExpiredChunk> | null = null;
+		try {
+			while (true) {
+				const remaining = rowCap - result.deletedRows;
+				if (remaining <= 0) {
+					result.stoppedBy = "row_cap";
+					break;
+				}
+				if (Date.now() >= deadline) {
+					result.stoppedBy = "time_budget";
+					break;
+				}
+				const pending: Promise<ExpiredChunk> =
+					next ??
+					read(
+						result.scanAfterRowid,
+						Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining),
+					);
+				next = null;
+				const { rows, afterRowid, reachedEnd } = await timed(
+					timings,
+					"readMs",
+					() => pending,
+				);
+				timings.pages += 1;
+				// The next page has higher rowids than every row this one may
+				// delete, so it is read while this page is copied and deleted.
+				const nextLimit = Math.min(
+					D1_ARCHIVE_CHUNK_ROWS,
+					remaining - rows.length,
+				);
+				if (!reachedEnd && nextLimit > 0) next = read(afterRowid, nextLimit);
+				if (rows.length === 0) {
+					result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
+					if (reachedEnd) break;
+					continue;
+				}
+				if (policy.mode === "move_to_logs_db" && logsDb) {
+					await timed(timings, "copyMs", () =>
+						copyChunkToLogs(logsDb, tableSpec, rows, deadline),
+					);
+				}
+				if (archives && bucket) {
+					await timed(timings, "archiveMs", () =>
+						archiveChunk(bucket, tableSpec, rows, cutoff),
+					);
+					result.archivedRows += rows.length;
+					result.objects += 1;
+				}
+				// Only a chunk that is in the logs database (verified) and in R2
+				// (confirmed) reaches this delete.
+				const deleted = await timed(timings, "deleteMs", () =>
+					withOverloadBackoff(
+						() =>
+							deleteD1RetentionRows(
+								db,
+								tableSpec,
+								rows.map((row) => row.__rowid),
+								cutoff,
+							),
+						deadline,
+					),
+				);
+				if (policy.mode === "move_to_logs_db") result.movedRows += deleted;
+				result.deletedRows += deleted;
+				// Fewer deletions than rows read means something else changed these
+				// rows; stop instead of re-reading the same chunk forever.
+				if (deleted < rows.length) {
+					throw new Error(
+						`deleted ${deleted} of ${rows.length} rows read; stopping`,
+					);
+				}
 				result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
 				if (reachedEnd) break;
-				continue;
 			}
-			if (policy.mode === "move_to_logs_db" && logsDb) {
-				await copyChunkToLogs(logsDb, tableSpec, rows, deadline);
-			}
-			if (archives && bucket) {
-				const key = d1ArchiveObjectKey(tableSpec, rows);
-				const body = await gzipNdjson(rows);
-				await bucket.put(key, body, {
-					httpMetadata: {
-						contentType: "application/x-ndjson",
-						contentEncoding: "gzip",
-					},
-					customMetadata: {
-						table: tableSpec.tableName,
-						rows: String(rows.length),
-						firstRowid: String(rows[0]?.__rowid),
-						lastRowid: String(rows[rows.length - 1]?.__rowid),
-						cutoff: String(cutoff),
-					},
-				});
-				const stored = await bucket.head(key);
-				if (!stored || stored.size !== body.byteLength) {
-					throw new Error(`archive object not confirmed: ${key}`);
-				}
-				result.archivedRows += rows.length;
-				result.objects += 1;
-			}
-			// Only a chunk that is in the logs database (verified) and in R2
-			// (confirmed) reaches this delete.
-			const deleted = await withOverloadBackoff(
-				() =>
-					deleteD1RetentionRows(
-						db,
-						tableSpec,
-						rows.map((row) => row.__rowid),
-						cutoff,
-					),
-				deadline,
-			);
-			if (policy.mode === "move_to_logs_db") result.movedRows += deleted;
-			result.deletedRows += deleted;
-			// Fewer deletions than rows read means something else changed these
-			// rows; stop instead of re-reading the same chunk forever.
-			if (deleted < rows.length) {
-				throw new Error(
-					`deleted ${deleted} of ${rows.length} rows read; stopping`,
-				);
-			}
-			result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
-			if (reachedEnd) break;
+		} catch (error) {
+			result.stoppedBy = "error";
+			result.error = error instanceof Error ? error.message : String(error);
+		} finally {
+			if (next) await next.then(noop, noop);
 		}
+	}
+
+	// Estimated after the moves, so the moves get the time budget first and
+	// the report shows what is still left.
+	try {
+		const estimate = await timed(timings, "estimateMs", () =>
+			estimateD1RetentionBacklog(db, tableSpec, cutoff),
+		);
+		result.eligibleRows = estimate.eligibleRows;
+		result.eligibleBytes = estimate.eligibleBytes;
 	} catch (error) {
-		result.stoppedBy = "error";
-		result.error = error instanceof Error ? error.message : String(error);
+		const message = error instanceof Error ? error.message : String(error);
+		if (policy.mode === "dry_run") result.stoppedBy = "error";
+		result.error ??= `estimate: ${message}`;
 	}
 	return result;
 }
+
+function noop(): void {}
 
 function reportFor(
 	result: D1RetentionTableResult,
@@ -364,13 +444,14 @@ function reportFor(
 		scanAfterRowid: result.scanAfterRowid,
 		stoppedBy: result.stoppedBy,
 		error: result.error ?? null,
+		timings: { ...result.timings },
 	};
 }
 
 /**
  * Run every active policy once. Tables run one after another so the database
- * sees at most one retention statement at a time; one table's failure is
- * recorded on its row and never stops the next table.
+ * sees at most one retention statement at a time per store; one table's
+ * failure is recorded on its row and never stops the next table.
  */
 export async function runD1Retention(params: {
 	db: DbQueryClient;
@@ -396,16 +477,7 @@ export async function runD1Retention(params: {
 			);
 		} catch (error) {
 			result = {
-				tableName: policy.tableName,
-				mode: policy.mode,
-				problem: null,
-				eligibleRows: 0,
-				eligibleBytes: 0,
-				archivedRows: 0,
-				movedRows: 0,
-				deletedRows: 0,
-				objects: 0,
-				scanAfterRowid: -1,
+				...emptyResult(policy),
 				stoppedBy: "error",
 				error: error instanceof Error ? error.message : String(error),
 			};
