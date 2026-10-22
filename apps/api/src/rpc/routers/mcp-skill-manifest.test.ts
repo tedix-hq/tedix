@@ -4,6 +4,7 @@ import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifes
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { resolveSkillMcpNamespaceSlugs } from "@tedix/db/queries/cognitive/skill-mcp-bindings";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { BaseContext } from "../orpc";
 import { mcpGovernanceContractRouter } from "./mcp-governance";
 
@@ -13,6 +14,9 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
 }));
 vi.mock("@tedix/db/queries/cognitive/skill-mcp-bindings", () => ({
 	resolveSkillMcpNamespaceSlugs: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/tedis", () => ({
+	getTediByIdForOrganization: vi.fn(),
 }));
 
 const input = {
@@ -156,5 +160,95 @@ describe("workflow manifest authorization", () => {
 		await expect(
 			client("user").resolveSkillManifestAuthorization(input),
 		).rejects.toThrow();
+	});
+
+	describe("scheduled coordinator manifest", () => {
+		// Shape of a scheduled coordinator skill: Work reads on the org gateway,
+		// its own tedi turn, and turns on two named tedis of the same org.
+		const coordinatorManifest = parseCapabilityManifest(`---
+capabilities:
+  mcp:
+    tedix: [list_projects, list_work_items, add_comment]
+    tedi: [run_tedi_turn]
+    lead: [run_tedi_turn]
+    sales: [run_tedi_turn]
+---
+`);
+		const workRead = {
+			...input,
+			targetTediId: undefined,
+			method: "list_projects",
+			namespace: "tedix",
+			sourceAppSlug: "tedix",
+		};
+		const leadTurn = {
+			...input,
+			method: "run_tedi_turn",
+			namespace: "lead",
+			targetTediId: "tedi-lead",
+		};
+		beforeEach(() => {
+			vi.mocked(getSkillRun).mockResolvedValue({
+				...run,
+				capabilityManifest: coordinatorManifest,
+			} as never);
+			vi.mocked(resolveSkillMcpNamespaceSlugs).mockResolvedValue({
+				namespaceToSlug: { tedix: "tedix" },
+				backfill: {},
+				repair: {},
+			});
+			vi.mocked(getTediByIdForOrganization).mockResolvedValue({
+				id: "tedi-lead",
+				retiredAt: null,
+			} as never);
+		});
+		it("approves declared Work reads while the skill is active", async () => {
+			for (const method of ["list_projects", "list_work_items"])
+				await expect(
+					client().resolveSkillManifestAuthorization({ ...workRead, method }),
+				).resolves.toEqual({
+					approved: true,
+					skillId: "skill-1",
+					revision: 40,
+				});
+		});
+		it("refuses the same declared reads once an edit returns the skill to draft", async () => {
+			vi.mocked(getSkillEntry).mockResolvedValue({
+				...skill,
+				lifecycleState: "draft",
+			} as never);
+			await expect(
+				client().resolveSkillManifestAuthorization(workRead),
+			).resolves.toEqual({ approved: false });
+		});
+		it("approves a declared turn on a named tedi of the same organization", async () => {
+			await expect(
+				client().resolveSkillManifestAuthorization(leadTurn),
+			).resolves.toMatchObject({ approved: true, revision: 40 });
+			expect(getTediByIdForOrganization).toHaveBeenCalledWith(
+				expect.anything(),
+				"tedi-lead",
+				"org-example",
+			);
+		});
+		it.each([
+			["an undeclared tedi namespace", { namespace: "finance" }],
+			["the reserved tedi namespace for another tedi", { namespace: "tedi" }],
+			["a namespace bound to an app", { namespace: "tedix" }],
+			["an undeclared method", { method: "messages_send" }],
+		])("refuses %s", async (_label, patch) => {
+			await expect(
+				client().resolveSkillManifestAuthorization({ ...leadTurn, ...patch }),
+			).resolves.toEqual({ approved: false });
+		});
+		it.each([
+			["outside the organization", undefined],
+			["retired", { id: "tedi-lead", retiredAt: "2026-10-01" }],
+		])("refuses a named tedi %s", async (_label, tedi) => {
+			vi.mocked(getTediByIdForOrganization).mockResolvedValue(tedi as never);
+			await expect(
+				client().resolveSkillManifestAuthorization(leadTurn),
+			).resolves.toEqual({ approved: false });
+		});
 	});
 });
