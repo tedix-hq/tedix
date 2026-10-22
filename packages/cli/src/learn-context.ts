@@ -31,68 +31,87 @@
  *    or with `tedix learn review`; the inbox is checked first, so a re-run
  *    never asks or creates twice.
  */
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { join, dirname } from "node:path";
 import {
-	closeSync,
 	existsSync,
-	mkdirSync,
-	openSync,
+	statSync,
 	readdirSync,
 	readFileSync,
-	renameSync,
-	statSync,
+	mkdirSync,
 	writeFileSync,
+	renameSync,
+	openSync,
+	closeSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import type { AgentSessionDecision } from "@tedix/api-contract/schemas/agent-session-decisions";
 import {
-	defaultOrganizationTarget,
-	type OrganizationTarget,
-	repositoryTargetsByOrigin,
-} from "./agent-context";
-import { asciiJson } from "./hooks/agent-status";
-import { redact } from "./hooks/decision-capture";
-import { AGENT_IDENTITY_ENV, cliRead, type ReadJson } from "./hooks/hook-io";
-import {
-	claudeSignals,
-	codexSignals,
-	localModel,
-	runAnalyzeSessions,
-	type RunModel,
-	type SessionSignals,
-} from "./learn-analyze";
-import {
-	type LearnDeps,
-	type Location,
 	parseLines,
-	runLearnCommand,
-	sessionFiles,
-	routedTarget,
-	scrub,
-	type SessionFile,
-	sessionLocator,
-	targetKey,
+	type Location,
 	type Unrouted,
+	routedTarget,
+	targetKey,
+	type LearnDeps,
+	type SessionFile,
+	sessionFiles,
+	sessionLocator,
+	runLearnCommand,
 } from "./learn-import";
 import {
-	type AskedProposal,
+	type MemoryNote,
+	MIN_NOTE_CHARS,
+	frontmatter,
+	preferenceBullets,
+	directoryCwd,
+	short,
+	NOTE_CHARS,
+	planContext,
+	statePath,
+	readState,
+	decidedFor,
+	writeState,
+} from "./learn-context-notes";
+import {
+	type OrganizationTarget,
+	repositoryTargetsByOrigin,
+	defaultOrganizationTarget,
+} from "./agent-context";
+import { type AgentSessionDecision } from "@tedix/api-contract/schemas/agent-session-decisions";
+import {
+	sha,
+	type CandidateKind,
+	STOP,
+	SUFFIX,
+	inPool,
+	jaccard,
+	extractCandidates,
+} from "./learn-context-candidates";
+import {
+	CATALOG_MAX,
+	CATALOG_PAGE,
+	projectCatalogSource,
+	type BoardMatches,
+	MATCH_CHUNK,
+	HISTORY_MATCH_CHUNK,
+	boardMatchSource,
+	type WorkMatch,
+	withProjectKeys,
+} from "./learn-context-board";
+import { type ProposalAction, judge } from "./learn-context-judge";
+import {
 	type Citation,
+	type AskedProposal,
 	listProposalsSource,
-	proposalRequest,
 	publishSource,
+	proposalRequest,
 	respondSource,
 } from "./learn-proposals";
+import { type RunModel, localModel, runAnalyzeSessions } from "./learn-analyze";
+import { createHash } from "node:crypto";
+import { type ReadJson, cliRead, AGENT_IDENTITY_ENV } from "./hooks/hook-io";
 import { selfCommand } from "./shared";
+import { spawn } from "node:child_process";
 
-type Json = Record<string, any>;
-
-const sha = (value: string) =>
-	createHash("sha256").update(value).digest("hex").slice(0, 16);
-
-export const short = (text: string, limit: number) =>
-	redact(scrub(text).replace(/\s+/g, " "), limit)[0];
+export type Json = Record<string, any>;
 
 // ---------------------------------------------------------------------------
 // Local sources beside the transcripts
@@ -132,61 +151,6 @@ export async function codexGoals(
 	}
 	return goals;
 }
-
-/** The first sentence of a goal, which is its point. */
-export function goalTitle(objective: string): string {
-	const first = objective.split(/(?<=[.!?:;])\s|\n/)[0] ?? objective;
-	return short(first, 140);
-}
-
-// ---------------------------------------------------------------------------
-// Preference notes in local memory files (personal, never shared)
-// ---------------------------------------------------------------------------
-
-export interface MemoryNote {
-	harness: AgentSessionDecision["harness"];
-	path: string;
-	text: string;
-	at: string;
-	/** A transcript directory whose sessions locate the note, if any. */
-	sessionDirectory: string | null;
-}
-
-function frontmatter(text: string): Record<string, string> {
-	const match = /^---\n([\s\S]*?)\n---/.exec(text);
-	const out: Record<string, string> = {};
-	if (!match) return out;
-	for (const line of match[1]!.split("\n")) {
-		const field = /^\s*([\w-]+):\s*(.*)$/.exec(line);
-		if (field)
-			out[field[1]!] = field[2]!
-				.replace(/^["']|["']$/g, "")
-				.replace(/\\"/g, '"');
-	}
-	return out;
-}
-
-/** Bullets under a heading whose name says it is about the person. */
-function preferenceBullets(markdown: string): string[] {
-	const out: string[] = [];
-	let inSection = false;
-	for (const line of markdown.split("\n")) {
-		const heading = /^#{1,4}\s+(.*)$/.exec(line);
-		if (heading) {
-			inSection =
-				/prefer|style|how (?:i|the user|we) work|about me|working/i.test(
-					heading[1]!,
-				);
-			continue;
-		}
-		const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
-		if (inSection && bullet) out.push(bullet[1]!);
-	}
-	return out;
-}
-
-const MIN_NOTE_CHARS = 24;
-const NOTE_CHARS = 900;
 
 /**
  * Preference notes the person's agents already keep: Claude Code memories of
@@ -241,30 +205,6 @@ export function memoryNotes(home = homedir()): MemoryNote[] {
 	return notes;
 }
 
-/** A transcript directory's checkout, from the first session that names one. */
-export function directoryCwd(
-	directory: string,
-	read: (path: string) => Json[] = parseLines,
-): string | null {
-	let files: string[];
-	try {
-		files = readdirSync(directory).filter((f) => f.endsWith(".jsonl"));
-	} catch {
-		return null;
-	}
-	for (const file of files.slice(0, 5)) {
-		try {
-			const row = read(join(directory, file)).find(
-				(r) => typeof r.cwd === "string",
-			);
-			if (row) return row.cwd as string;
-		} catch {
-			/* Next one. */
-		}
-	}
-	return null;
-}
-
 /** Notes as personal decision events, routed like the sessions they sit beside. */
 export function planNotes(input: {
 	notes: MemoryNote[];
@@ -317,117 +257,6 @@ export function planNotes(input: {
 	return out;
 }
 
-// ---------------------------------------------------------------------------
-// Session digests and candidates
-// ---------------------------------------------------------------------------
-
-export interface SessionDigest {
-	harness: SessionFile["harness"];
-	sessionId: string;
-	title: string | null;
-	goal: boolean;
-	asks: string[];
-	repository: string | null;
-	from: string;
-	to: string;
-}
-
-/** Asks that say what a session is about, not "status?" or "go on". */
-const FILLER =
-	/^(?:status( now)?\??|what'?s next\??|whats next\??|next\??|continue\b.*|go on|go ahead|proceed|make it happen|ok\b.*|yes\b.*|no\b.*|thanks?\b.*|done\??|any (?:pending|updates?)\b.*)$/i;
-
-function substantive(text: string): boolean {
-	const clean = text.trim();
-	return clean.length >= 16 && !FILLER.test(clean);
-}
-
-export interface ContextPlan {
-	files: number;
-	byTarget: Map<
-		string,
-		{ target: OrganizationTarget; sessions: SessionDigest[] }
-	>;
-	unrouted: Unrouted;
-}
-
-export function planContext(input: {
-	files: SessionFile[];
-	since?: string;
-	targets: Map<string, OrganizationTarget>;
-	defaultTarget: OrganizationTarget | undefined;
-	titles?: Map<string, string>;
-	goals?: Map<string, string>;
-	originOf?: (directory: string) => string | null | undefined;
-	read?: (path: string) => Json[];
-}): ContextPlan {
-	const plan: ContextPlan = {
-		files: input.files.length,
-		byTarget: new Map(),
-		unrouted: {
-			unboundRepository: {},
-			unknownLocation: 0,
-			noDefaultOrganization: 0,
-		},
-	};
-	const read = input.read ?? parseLines;
-	const locate = sessionLocator(input.originOf);
-	const seen = new Set<string>();
-	const since = input.since ?? "";
-	for (const file of input.files) {
-		let signals: SessionSignals | null;
-		try {
-			const rows = read(file.path);
-			signals =
-				file.harness === "codex" ? codexSignals(rows) : claudeSignals(rows);
-		} catch {
-			continue;
-		}
-		if (!signals || seen.has(signals.sessionId)) continue;
-		const asks = signals.asks.filter((ask) => ask.at >= since);
-		if (!asks.length) continue;
-		seen.add(signals.sessionId);
-		const goal = input.goals?.get(signals.sessionId);
-		const title = goal
-			? goalTitle(goal)
-			: (signals.title ?? input.titles?.get(signals.sessionId) ?? null);
-		const said = asks.map((ask) => ask.text).filter(substantive);
-		if (!title && !said.length) continue;
-		// The last thing typed, however short ("merged, done"), tells whether
-		// the work finished.
-		const last = asks[asks.length - 1]!.text;
-		const firsts = [
-			...said.slice(0, 2),
-			...(said.slice(0, 2).includes(last) ? [] : [last]),
-		].map((text) => short(text, 200));
-		const location = locate(signals);
-		const target = routedTarget(location, input, plan.unrouted, 1);
-		if (!target) continue;
-		const key = targetKey(target);
-		const bucket = plan.byTarget.get(key) ?? { target, sessions: [] };
-		plan.byTarget.set(key, bucket);
-		const times = asks.map((ask) => ask.at).sort();
-		bucket.sessions.push({
-			harness: signals.harness,
-			sessionId: signals.sessionId,
-			title: title ? short(title, 140) : null,
-			goal: Boolean(goal),
-			asks: firsts,
-			repository: location.kind === "repo" ? location.repository : null,
-			from: times[0]!,
-			to: times[times.length - 1]!,
-		});
-	}
-	// Oldest first: sessions still being written land in the last model
-	// chunk, so the earlier chunks keep their cached answers on a re-run.
-	for (const bucket of plan.byTarget.values())
-		bucket.sessions.sort((a, b) =>
-			a.from < b.from ? -1 : a.from > b.from ? 1 : 0,
-		);
-	return plan;
-}
-
-export type CandidateKind = "task" | "goal" | "project";
-
 export interface Candidate {
 	key: string;
 	kind: CandidateKind;
@@ -445,16 +274,6 @@ export interface Candidate {
 	ask?: string;
 }
 
-const STOP = new Set(
-	"a an the to and or of for in on at is are be it this that these those please can could would will you we i me my our us now then just ok so do its with from what how also all any into by as about via per new make get set use using".split(
-		" ",
-	),
-);
-
-/** Crude suffix folding so "adopt", "adoption" and "adopting" meet. */
-const SUFFIX =
-	/(?:abilities|ability|ations|ation|ings|ing|ions|ion|able|ers|er|ed|es|s|ly|e)$/;
-
 export function words(text: string): string[] {
 	return text
 		.toLowerCase()
@@ -468,131 +287,6 @@ export function words(text: string): string[] {
 		});
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
-	let shared = 0;
-	for (const word of a) if (b.has(word)) shared++;
-	return shared / (a.size + b.size - shared || 1);
-}
-
-export const EXTRACT_PROMPT = `Below are numbered summaries of one person's coding-agent sessions: the session title, then the first things they typed.
-List the durable work these sessions show:
-- "task": one concrete deliverable (fix, build, write, ship, research something specific);
-- "goal": an outcome pursued across several sessions;
-- "project": a named product area, client or body of work; when three or more tasks belong to the same one, list it as well, citing all their sessions. Name the narrowest body of work that groups them (a feature or initiative such as "billing exports", not the whole product).
-Merge sessions only when they work on the same deliverable or outcome; related but different deliverables stay separate entries. Skip status checks, one-off questions, small talk, personal errands unrelated to their work, and tests or demos of the agent itself.
-Each summary ends with the last thing typed. Mark "done" true only when the person explicitly confirms completion in the cited sessions (shipped, merged, closed, answered). A request to build, write, review or finish something is not confirmation that it happened. Without explicit completion evidence, "done" is false.
-Return ONLY a JSON array, no prose: [{"kind":"task|goal|project","title":"<at most 12 words; a task starts with a verb>","sessions":[<numbers>],"confidence":<0 to 1>,"done":<true|false>}].
-Paraphrase. Keep product, client and project names; never include people's names, email addresses, secrets, tokens or URLs.
-End the array with one more entry, {"kind":"people","names":[...]}: every first or last name of a person that appears anywhere below (not companies, products, places or programs).
-Return [{"kind":"people","names":[]}] if nothing qualifies.
-
-`;
-
-const EXTRACT_CHUNK = 30;
-const KINDS = new Set(["task", "goal", "project"]);
-
-function parseArray(raw: string): unknown[] {
-	const start = raw.indexOf("[");
-	const end = raw.lastIndexOf("]");
-	if (start < 0 || end < start) return [];
-	try {
-		const parsed = JSON.parse(raw.slice(start, end + 1));
-		return Array.isArray(parsed) ? parsed : [];
-	} catch {
-		return [];
-	}
-}
-
-async function inPool<T>(
-	items: T[],
-	concurrency: number,
-	work: (item: T) => Promise<void>,
-) {
-	let next = 0;
-	await Promise.all(
-		Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-			while (next < items.length) await work(items[next++]!);
-		}),
-	);
-}
-
-type RawCandidate = Omit<Candidate, "key" | "from" | "to" | "goal">;
-
-/**
- * Raw candidates per session group, from the model or from titles alone, and
- * the names of people the model saw in the sessions.
- */
-async function rawCandidates(
-	sessions: SessionDigest[],
-	runModel: RunModel | null,
-): Promise<{ items: RawCandidate[]; people: Set<string> }> {
-	const people = new Set<string>();
-	if (!runModel)
-		return {
-			people,
-			items: sessions
-				.filter((s) => s.title || s.asks[0])
-				.map((s) => ({
-					kind: s.goal ? "goal" : "task",
-					title: s.title ?? s.asks[0]!,
-					confidence: s.goal ? 0.9 : 0.5,
-					sessions: [s.sessionId],
-				})),
-		};
-	const chunks: SessionDigest[][] = [];
-	for (let i = 0; i < sessions.length; i += EXTRACT_CHUNK)
-		chunks.push(sessions.slice(i, i + EXTRACT_CHUNK));
-	const out: RawCandidate[] = [];
-	await inPool(chunks, 4, async (chunk) => {
-		const prompt =
-			EXTRACT_PROMPT +
-			chunk
-				.map((s, i) =>
-					`${i + 1}. [${s.repository ?? "no repository"}] ${s.goal ? "GOAL: " : ""}${s.title ?? "(untitled)"} | ${s.asks.join(" / ")}`.slice(
-						0,
-						700,
-					),
-				)
-				.join("\n");
-		let raw: string;
-		try {
-			raw = await runModel(prompt);
-		} catch {
-			return;
-		}
-		for (const entry of parseArray(raw) as Json[]) {
-			if (entry?.kind === "people" && Array.isArray(entry.names)) {
-				for (const name of entry.names)
-					if (typeof name === "string")
-						for (const part of name.split(/\s+/))
-							if (part.length >= 3) people.add(part.toLowerCase());
-				continue;
-			}
-			if (!entry || !KINDS.has(entry.kind) || typeof entry.title !== "string")
-				continue;
-			const cited = (Array.isArray(entry.sessions) ? entry.sessions : [])
-				.map((n: unknown) =>
-					Number.isInteger(n) ? chunk[(n as number) - 1] : undefined,
-				)
-				.filter(Boolean) as SessionDigest[];
-			if (!cited.length) continue;
-			const title = short(entry.title, 120);
-			if (words(title).length < 2) continue;
-			const confidence = Number(entry.confidence);
-			out.push({
-				kind: entry.kind,
-				title,
-				confidence: Number.isFinite(confidence)
-					? Math.min(1, Math.max(0, confidence))
-					: 0.5,
-				sessions: cited.map((s) => s.sessionId),
-				...(entry.done === true ? { done: true } : {}),
-			});
-		}
-	});
-	return { items: out, people };
-}
-
 /** Each of these names, as a whole word, replaced by "[name]". */
 export function withoutNames(text: string, names: Set<string>): string {
 	if (!names.size) return text;
@@ -603,200 +297,8 @@ export function withoutNames(text: string, names: Set<string>): string {
 	});
 }
 
-/**
- * Merge near-identical candidates and keep the ones with real support.
- *
- * Session titles come from the host and can name people. Every name the
- * model saw is taken out of the digests' titles here, in place, so the board
- * search, the proposals and their citations, all built from these digests
- * later, carry none.
- */
-export async function extractCandidates(
-	sessions: SessionDigest[],
-	runModel: RunModel | null,
-	options = { threshold: 0.5, minSessions: 2, confident: 0.8 },
-): Promise<Candidate[]> {
-	const byId = new Map(sessions.map((s) => [s.sessionId, s]));
-	const { items, people } = await rawCandidates(sessions, runModel);
-	for (const s of sessions)
-		if (s.title) s.title = withoutNames(s.title, people);
-	const raw = items.map((item) => ({
-		...item,
-		title: withoutNames(item.title, people),
-	}));
-	const clusters: Array<{ words: Set<string>; items: typeof raw }> = [];
-	for (const item of raw) {
-		const set = new Set(words(item.title));
-		if (!set.size) continue;
-		const cluster = clusters.find(
-			(c) => jaccard(c.words, set) >= options.threshold,
-		);
-		if (cluster) {
-			cluster.items.push(item);
-			for (const word of set) cluster.words.add(word);
-		} else clusters.push({ words: set, items: [item] });
-	}
-	const out: Candidate[] = [];
-	for (const cluster of clusters) {
-		const ids = [...new Set(cluster.items.flatMap((i) => i.sessions))];
-		const cited = ids
-			.map((id) => byId.get(id))
-			.filter(Boolean) as SessionDigest[];
-		const goal = cited.some((s) => s.goal);
-		const best = [...cluster.items].sort(
-			(a, b) =>
-				b.confidence - a.confidence || b.sessions.length - a.sessions.length,
-		)[0]!;
-		// Without a model, support across sessions is the only confidence.
-		const confidence = runModel
-			? Math.max(...cluster.items.map((i) => i.confidence))
-			: Math.min(0.8, 0.5 + 0.1 * ids.length);
-		if (
-			ids.length < options.minSessions &&
-			!goal &&
-			confidence < options.confident
-		)
-			continue;
-		const times = cited.flatMap((s) => [s.from, s.to]).sort();
-		const context = [...new Set(cited.map((s) => s.title).filter(Boolean))]
-			.join("; ")
-			.slice(0, 300);
-		out.push({
-			key: sha(words(best.title).sort().join(" ")),
-			// A Codex goal makes its sessions a goal; the model's own task of
-			// that goal stays a task.
-			kind: goal && (!runModel || best.kind !== "task") ? "goal" : best.kind,
-			title: best.title,
-			confidence,
-			sessions: ids,
-			from: times[0] ?? "",
-			to: times[times.length - 1] ?? "",
-			goal,
-			// Finished only when every entry merged here says so.
-			...(cluster.items.every((i) => i.done) ? { done: true } : {}),
-			...(context ? { context } : {}),
-			...(cited[0]?.asks[0] ? { ask: cited[0].asks[0].slice(0, 160) } : {}),
-		});
-	}
-	return withFoldedTasks(withoutUmbrellas(out), byId).sort(
-		(a, b) => b.sessions.length - a.sessions.length,
-	);
-}
-
-/**
- * A project or goal can cite sessions no task of its own explains: the model
- * folded those deliverables into the body of work instead of listing them.
- * Each such session (titled, with something the person actually asked) is a
- * task of that body of work under its own title, so the body of work still
- * reaches the {@link EPIC_MIN_TASKS} it needs to become an epic.
- */
-function withFoldedTasks(
-	candidates: Candidate[],
-	byId: Map<string, SessionDigest>,
-): Candidate[] {
-	const out = [...candidates];
-	const covered = new Set(
-		candidates.filter((c) => c.kind === "task").flatMap((c) => c.sessions),
-	);
-	for (const head of candidates) {
-		if (head.kind === "task" || head.done) continue;
-		if (head.sessions.length < EPIC_MIN_TASKS) continue;
-		for (const id of head.sessions) {
-			const s = byId.get(id);
-			if (covered.has(id) || !s?.title || s.goal) continue;
-			if (!s.asks.some(substantive)) continue;
-			if (words(s.title).length < 2) continue;
-			covered.add(id);
-			out.push({
-				key: sha(words(s.title).sort().join(" ")),
-				kind: "task",
-				title: s.title,
-				confidence: head.confidence,
-				sessions: [id],
-				from: s.from,
-				to: s.to,
-				goal: false,
-				context: s.title,
-				...(s.asks[0] ? { ask: s.asks[0].slice(0, 160) } : {}),
-			});
-		}
-	}
-	return out;
-}
-
-/**
- * A broad entry whose sessions are mostly explained by narrower ones ("the
- * open-source project" over its three concrete tasks) would only restate them
- * as a Work Item of its own, so it is kept as a project: context for placement
- * and, when the board has nothing for it, the epic its tasks go under.
- */
-function withoutUmbrellas(candidates: Candidate[]): Candidate[] {
-	return candidates.map((c) => {
-		if (c.kind === "project" || c.sessions.length < 3) return c;
-		const covered = new Set(
-			candidates
-				.filter(
-					(o) =>
-						o !== c &&
-						o.kind !== "project" &&
-						o.sessions.length < c.sessions.length,
-				)
-				.flatMap((o) => o.sessions),
-		);
-		return c.sessions.filter((id) => covered.has(id)).length * 3 <
-			c.sessions.length * 2
-			? c
-			: { ...c, kind: "project" };
-	});
-}
-
-// ---------------------------------------------------------------------------
-// Board match (read-only Code Mode)
-// ---------------------------------------------------------------------------
-
-/** [id, title, projectId, disposition, parentId, score] */
-export type WorkMatch = [
-	string,
-	string,
-	string | null,
-	string,
-	string | null,
-	number,
-];
-/** [id, key, name, score] */
-export type ProjectMatch = [string, string, string, number];
-
 /** [id, key, name, description] */
 export type ProjectInfo = [string, string, string, string];
-
-export interface BoardMatches {
-	me: { id: string; name: string } | null;
-	scanned: Record<string, number>;
-	matches: Record<string, { w: WorkMatch[]; p: ProjectMatch[] }>;
-	/**
-	 * Every open project, so the model places work by what a project is for,
-	 * not by the words it happens to share with the closest few.
-	 */
-	projects?: ProjectInfo[];
-}
-
-/** Projects per catalog program, well under the gateway's result cap. */
-const CATALOG_PAGE = 40;
-
-/** Code Mode program: one page of open projects, key, name and description. */
-export function projectCatalogSource(offset: number): string {
-	return `async () => {
-	const r = await projects.list_projects({ limit: ${CATALOG_PAGE}, offset: ${offset} });
-	if (r?.ok === false || !Array.isArray(r?.data)) return { ok: false, error: "listing projects failed: " + String(r?.error ?? "no data") };
-	const clean = (text) => String(text || "").replace(/\\s+/g, " ").replace(/^BRIEF \\([^)]*\\)\\s*/, "").trim();
-	return {
-		projects: r.data.filter((p) => p.status !== "archived" && p.status !== "done" && !p.archivedAt).map((p) => [p.id, p.key, clean(p.name).slice(0, 80), clean(p.description).slice(0, 140)]),
-		more: Boolean(r.pagination?.hasMore) && r.data.length > 0,
-	};
-}`;
-}
-
-const CATALOG_MAX = 400;
 
 /** Every open project, page by page; empty when the listing fails. */
 export async function projectCatalog(
@@ -815,105 +317,6 @@ export async function projectCatalog(
 	}
 	return out;
 }
-
-/**
- * Code Mode program: read projects and Work, score each candidate title
- * against them, return only the closest few. Reads only; writes nothing.
- */
-export function boardMatchSource(input: {
-	/** Key, title and the titles of the sessions behind it. */
-	candidates: Array<{ k: string; t: string; q?: string }>;
-	dispositions: string[];
-	projects: boolean;
-}): string {
-	return `async () => {
-	const input = ${asciiJson(input)};
-	const STOP = new Set(${asciiJson([...STOP])});
-	const SUFFIX = new RegExp(${JSON.stringify(SUFFIX.source)});
-	const words = (text) => String(text || "").toLowerCase().replace(/[^\\p{L}\\p{N}\\s]/gu, " ").split(/\\s+/).filter((w) => w.length > 1 && !STOP.has(w)).map((w) => { if (w.length <= 4) return w; const stem = w.replace(SUFFIX, ""); return stem.length >= 3 ? stem : w; });
-	let me = null;
-	try { const p = await user.get_mine({}); if (p && p.id) me = { id: p.id, name: String(p.name || "") }; } catch {}
-	const items = [];
-	const scanned = {};
-	for (const disposition of input.dispositions) {
-		scanned[disposition] = 0;
-		if (disposition === "completed" || disposition === "cancelled") continue;
-		for (let offset = 0; offset < 30000; offset += 100) {
-			const r = await work.list_work_items({ limit: 100, offset, disposition });
-			if (r?.ok === false || !Array.isArray(r?.data)) return { ok: false, error: "listing Work Items failed: " + String(r?.error ?? "no data") };
-			for (const w of r.data) {
-				items.push({ id: w.id, t: w.title, p: w.projectId || null, d: w.disposition, par: w.parentWorkItemId || null, ws: new Set(words(w.title)) });
-			}
-			scanned[disposition] += r.data.length;
-			if (!r.pagination?.hasMore) break;
-		}
-	}
-	// Older finished work still prevents duplicates; search it by topic rather
-	// than scanning the organization's entire history in one gateway call.
-	if (input.dispositions.includes("completed")) {
-		const seen = new Set(items.map((w) => w.id));
-		const terms = new Set(input.candidates.flatMap((c) => words(c.t).filter((w) => w.length >= 3).sort((a, b) => b.length - a.length).slice(0, 3)));
-		for (const titleContains of terms) {
-			for (let offset = 0; ; offset += 100) {
-				const r = await work.list_work_items({ titleContains, limit: 100, offset });
-				if (r?.ok === false || !Array.isArray(r?.data)) return { ok: false, error: "searching older Work Items failed: " + String(r?.error ?? "no data") };
-				for (const w of r.data) {
-					if (seen.has(w.id) || !input.dispositions.includes(w.disposition)) continue;
-					seen.add(w.id);
-					scanned[w.disposition]++;
-					items.push({ id: w.id, t: w.title, p: w.projectId || null, d: w.disposition, par: w.parentWorkItemId || null, ws: new Set(words(w.title)) });
-				}
-				if (!r.pagination?.hasMore || r.data.length === 0) break;
-			}
-		}
-	}
-	const plist = [];
-	if (input.projects) {
-		for (let offset = 0; offset < 2000; offset += 100) {
-			const r = await projects.list_projects({ limit: 100, offset });
-			if (r?.ok === false || !Array.isArray(r?.data)) return { ok: false, error: "listing projects failed: " + String(r?.error ?? "no data") };
-			for (const p of r.data) if (p.status !== "archived" && p.status !== "done" && !p.archivedAt) plist.push({ id: p.id, key: p.key, name: p.name, ws: new Set(words(p.key.replace(/[-_]/g, " ") + " " + p.name)), ds: new Set(words((p.description || "").slice(0, 400))) });
-			if (!r.pagination?.hasMore) break;
-		}
-		scanned.projects = plist.length;
-	}
-	const df = new Map();
-	for (const x of [...items, ...plist]) for (const w of new Set([...x.ws, ...(x.ds ?? [])])) df.set(w, (df.get(w) || 0) + 1);
-	const total = items.length + plist.length + 1;
-	const idf = (w) => Math.log(1 + total / (1 + (df.get(w) || 0)));
-	const weight = (ws) => { let s = 0; for (const w of ws) s += idf(w); return s; };
-	// Half how alike the two titles are, half how much of the candidate the item explains.
-	const score = (cw, cWeight, x) => {
-		let shared = 0, described = 0;
-		for (const w of cw) { if (x.ws.has(w)) shared += idf(w); else if (x.ds?.has(w)) described += idf(w); }
-		if (!cWeight) return 0;
-		const dice = shared ? (2 * shared) / (cWeight + (x.wt ??= weight(x.ws))) : 0;
-		return Math.max((dice + shared / cWeight) / 2, (0.6 * (shared + described)) / cWeight * 0.5);
-	};
-	const matches = {};
-	for (const c of input.candidates) {
-		const cw = new Set(words(c.t));
-		const cWeight = weight(cw);
-		const qw = new Set(words(c.t + " " + (c.q || "")));
-		const qWeight = weight(qw);
-		const top = (list, n) => list.map((x) => [x, Math.max(score(cw, cWeight, x), 0.9 * score(qw, qWeight, x))]).filter(([, s]) => s > 0.12).sort((a, b) => b[1] - a[1]).slice(0, n);
-		matches[c.k] = {
-			w: top(items, 6).map(([x, s]) => [x.id, String(x.t).slice(0, 120), x.p, x.d, x.par, Math.round(s * 100) / 100]),
-			p: top(plist, 3).map(([x, s]) => [x.id, x.key, x.name, Math.round(s * 100) / 100]),
-		};
-	}
-	return { me, scanned, matches };
-}`;
-}
-
-/**
- * Candidates per program: the gateway truncates a Code Mode result past about
- * six thousand tokens, and each candidate returns up to nine matches.
- */
-const MATCH_CHUNK = 8;
-// Topic searches make more inner calls; keep their gateway telemetry below
-// the Analytics Engine per-request write limit.
-const HISTORY_MATCH_CHUNK = 2;
 
 /**
  * Run the match as programs over open and over finished Work, each inside the
@@ -972,12 +375,6 @@ export async function matchBoard(
 	return out;
 }
 
-// ---------------------------------------------------------------------------
-// Judge and propose
-// ---------------------------------------------------------------------------
-
-export type ProposalAction = "tracked" | "create" | "unplaced" | "nested";
-
 export interface Proposal {
 	key: string;
 	kind: CandidateKind;
@@ -1022,513 +419,8 @@ export const THRESHOLDS = {
 	clear: 0.75,
 };
 
-export const JUDGE_PROMPT = `Each numbered candidate below is work one person did in coding-agent sessions, with the titles of the sessions it came from. Under it are existing Work Items (W1..) on their team's board; the team's projects (P1..) are listed first.
-For each candidate decide:
-- "same": the W that already is this deliverable or outcome, even if worded differently or scoped a little differently (a completed item counts: the work is done). It must cover the requested platform, client and output: a generic getting-started guide does not establish that a Windows install guide exists. An item for a whole area, period or program that only includes this work is not the same; neither is an item for one part of a larger candidate. Empty if none is.
-- "parent": when not "same", an OPEN W that is a broader effort this belongs under, else empty.
-- "project": the P this work most likely belongs to: its product, client, program or kind of work (outreach to leads belongs with go-to-market work). A word in common is not enough (a "catalog" screen in someone's own app is not an MCP catalog). Empty when no project is about this kind of work.
-When unsure about "same" or "parent", leave it empty.
-Return ONLY a JSON array: [{"c":<number>,"same":"W<n> or empty","parent":"W<n> or empty","project":"P<n> or empty"}].
-
-`;
-
-const JUDGE_CHUNK = 10;
-const OPEN = new Set(["proposed", "accepted"]);
-
-/** What the model chose for one candidate. */
-interface Choice {
-	same?: WorkMatch;
-	/** Both votes named the same covering item. */
-	agreed?: boolean;
-	/** The covering item came from the focused second look. */
-	second?: boolean;
-	/** The second look found no item the same, whatever the words say. */
-	rejected?: boolean;
-	parent?: WorkMatch;
-	project?: ProjectMatch;
-}
-
-function decide(
-	candidate: Candidate,
-	match: { w: WorkMatch[]; p: ProjectMatch[] },
-	projectKeys: Map<string, string>,
-	pick?: Choice,
-): Proposal {
-	const base = {
-		key: candidate.key,
-		kind: candidate.kind,
-		title: candidate.title,
-		confidence: candidate.confidence,
-		sessions: candidate.sessions.length,
-		from: candidate.from.slice(0, 10),
-		to: candidate.to.slice(0, 10),
-	};
-	const nearestWork = match.w[0];
-	const nearest = nearestWork
-		? { id: nearestWork[0], title: nearestWork[1], score: nearestWork[5] }
-		: undefined;
-	// Either the model or a clear score is enough to call it covered: a missed
-	// match costs a duplicate on a shared board, a false one only a proposal.
-	const same =
-		pick?.same ??
-		(nearestWork && nearestWork[5] >= THRESHOLDS.same && !pick?.rejected
-			? nearestWork
-			: undefined);
-	if (same)
-		return {
-			...base,
-			action: "tracked",
-			workId: same[0],
-			workTitle: same[1],
-			workDisposition: same[3],
-			...(same[2]
-				? { projectId: same[2], projectKey: projectKeys.get(same[2]) }
-				: {}),
-			reason: pick?.second
-				? "the model matched an existing item on a second look"
-				: pick?.same
-					? "the model matched an existing item"
-					: `similarity ${same[5]}`,
-		};
-	const parent =
-		pick?.parent && OPEN.has(pick.parent[3]) ? pick.parent : undefined;
-	let projectId = pick?.project?.[0] ?? parent?.[2] ?? undefined;
-	if (!pick) {
-		const workWithProject = match.w.find(
-			(w) => w[2] && w[5] >= THRESHOLDS.workProject,
-		);
-		const project = match.p[0];
-		projectId =
-			workWithProject?.[2] ??
-			(project && project[3] >= THRESHOLDS.project ? project[0] : undefined);
-	}
-	// A project or a standing goal is context for the board (its project or
-	// epic), never a new Work Item of its own.
-	if (candidate.kind === "project" || candidate.kind === "goal") {
-		const id = pick?.project?.[0] ?? projectId;
-		return id
-			? {
-					...base,
-					action: "tracked",
-					projectId: id,
-					projectKey: projectKeys.get(id),
-					reason: "an existing project",
-				}
-			: {
-					...base,
-					action: "unplaced",
-					...(nearest ? { nearest } : {}),
-					reason: "no project on the board fits",
-				};
-	}
-	if (!projectId)
-		return {
-			...base,
-			action: "unplaced",
-			...(nearest ? { nearest } : {}),
-			reason: "no project on the board fits",
-		};
-	if (candidate.confidence < THRESHOLDS.propose || candidate.done)
-		return {
-			...base,
-			action: "unplaced",
-			projectId,
-			projectKey: projectKeys.get(projectId),
-			...(nearest ? { nearest } : {}),
-			reason: candidate.done
-				? "finished in the sessions, not on the board"
-				: "too uncertain to propose",
-		};
-	return {
-		...base,
-		action: "create",
-		projectId,
-		projectKey: projectKeys.get(projectId),
-		...(parent ? { parentId: parent[0], parentTitle: parent[1] } : {}),
-		...(nearest ? { nearest } : {}),
-		reason: "nothing on the board covers it yet",
-	};
-}
-
-export async function judge(
-	candidates: Candidate[],
-	board: BoardMatches,
-	runModel: RunModel | null,
-	projectKeys: Map<string, string>,
-): Promise<Proposal[]> {
-	for (const match of Object.values(board.matches))
-		for (const p of match.p) projectKeys.set(p[0], p[1]);
-	const empty = { w: [], p: [] };
-	if (!runModel)
-		return proposeEpics(
-			candidates,
-			placeByProjects(
-				candidates,
-				candidates.map((c) =>
-					decide(c, board.matches[c.key] ?? empty, projectKeys),
-				),
-			),
-		);
-	const catalog = board.projects ?? [];
-	for (const p of catalog) projectKeys.set(p[0], p[1]);
-	const catalogText = catalog.length
-		? `Projects:\n${catalog
-				.map(
-					(p, j) =>
-						`P${j + 1} ${p[1]}: ${p[2]}${p[3] && p[3] !== p[2] ? `. ${p[3]}` : ""}`,
-				)
-				.join("\n")}\n\nCandidates:\n`
-		: "";
-	const picks = new Map<string, Choice>();
-	const chunks: Candidate[][] = [];
-	for (let i = 0; i < candidates.length; i += JUDGE_CHUNK)
-		chunks.push(candidates.slice(i, i + JUDGE_CHUNK));
-	// Two independent votes: an item either vote calls covering is covering
-	// until the second look below says otherwise.
-	await inPool([...chunks, ...chunks], 4, async (chunk) => {
-		const prompt =
-			JUDGE_PROMPT +
-			catalogText +
-			chunk
-				.map((c, i) => {
-					const m = board.matches[c.key] ?? empty;
-					return [
-						`${i + 1}. ${c.title}${c.context ? ` (sessions: ${c.context.slice(0, 200)})` : ""}${c.ask ? ` (first ask: ${c.ask})` : ""}`,
-						...m.w.map(
-							(w, j) =>
-								`   W${j + 1} [${w[3]}${w[2] ? `, ${projectKeys.get(w[2]) ?? "project"}` : ""}] ${w[1].slice(0, 160)}`,
-						),
-						...(catalog.length
-							? []
-							: m.p.map(
-									(p, j) => `   P${j + 1} ${p[1]}: ${p[2].slice(0, 120)}`,
-								)),
-					].join("\n");
-				})
-				.join("\n");
-		let raw: string;
-		try {
-			raw = await runModel(prompt);
-		} catch {
-			return;
-		}
-		for (const entry of parseArray(raw) as Json[]) {
-			const c = Number.isInteger(entry?.c) ? chunk[entry.c - 1] : undefined;
-			if (!c) continue;
-			const m = board.matches[c.key] ?? empty;
-			const ref = <T>(value: unknown, prefix: string, list: T[]) => {
-				const n = new RegExp(`^${prefix}(\\d+)$`).exec(
-					String(value ?? "").trim(),
-				);
-				return n ? list[Number(n[1]) - 1] : undefined;
-			};
-			const placed = ref(entry.project, "P", catalog);
-			const project: ProjectMatch | undefined = catalog.length
-				? placed && [placed[0], placed[1], placed[2], 1]
-				: ref(entry.project, "P", m.p);
-			const same = ref(entry.same, "W", m.w);
-			const prior = picks.get(c.key);
-			picks.set(c.key, {
-				same: prior?.same ?? same,
-				agreed: Boolean(prior?.same && same && prior.same[0] === same[0]),
-				parent: prior?.parent ?? ref(entry.parent, "W", m.w),
-				project: prior?.project ?? project,
-			});
-		}
-	});
-	// Confirm each match and each new task on its own first, so an epic only
-	// ever holds tasks that passed the same duplicate check as a single
-	// proposal. A candidate the model did not answer falls back to the
-	// thresholds.
-	const first = candidates.map((c) =>
-		decide(c, board.matches[c.key] ?? empty, projectKeys, picks.get(c.key)),
-	);
-	await secondLook(candidates, first, picks, board, runModel);
-	return proposeEpics(
-		candidates,
-		placeByProjects(
-			candidates,
-			candidates.map((c) =>
-				decide(c, board.matches[c.key] ?? empty, projectKeys, picks.get(c.key)),
-			),
-		),
-	);
-}
-
-export const CONFIRM_PROMPT = `Below is a piece of work one person did, then the existing Work Items on their team's board closest to it. Does one of those items already cover this work?
-- It covers it when it is the same problem, fix or deliverable, even if worded differently, or when this work is just a step toward the item's own deliverable (writing the slides for "Prepare and give the keynote at the summit").
-- It is BROADER when it spans several separate deliverables, periods, clients or a whole program, and this work is one distinct piece of it that is worth tracking on its own (matching the August card payments within "Close the books for January to September").
-- An item for only one part of this work does not cover it.
-Reply with exactly one token and nothing else: the number of the item that covers it, B and the number of a broader item (for example B2), or 0.
-
-`;
-
-/** Second looks per run, the closest first, so the cost stays bounded. */
-const SECOND_LOOKS = 24;
-
-/**
- * One focused question per candidate whose fate rests on a close call: a new
- * task with a close item on the board (a batch of ten misses matches one pair
- * at a time does not), and a covering match only the batch saw (a broad item
- * such as "reconcile January to September" is not the September payout
- * task). The answer updates the candidate's pick: the same item, a broader
- * open item to go under, or nothing. A match both batch votes agreed on
- * stands unless the item turns out broader.
- */
-async function secondLook(
-	candidates: Candidate[],
-	proposals: Proposal[],
-	picks: Map<string, Choice>,
-	board: BoardMatches,
-	runModel: RunModel,
-): Promise<void> {
-	const doubtful = proposals
-		.map((p, i) => {
-			const c = candidates[i]!;
-			const best = board.matches[c.key]?.w[0]?.[5] ?? 0;
-			const same = picks.get(c.key)?.same;
-			// A match only the batch saw, or only the words saw.
-			const unsure =
-				p.action === "tracked" &&
-				Boolean(p.workId) &&
-				(same ? same[5] < THRESHOLDS.same : best < THRESHOLDS.clear);
-			const open =
-				(p.action === "create" || mayJoinEpic(c, p)) &&
-				(best >= THRESHOLDS.confirm || Boolean(picks.get(c.key)?.parent));
-			return { i, c, best, unsure, open };
-		})
-		.filter((d) => d.unsure || d.open)
-		.sort((a, b) => b.best - a.best)
-		.slice(0, SECOND_LOOKS);
-	await inPool(doubtful, 4, async ({ c, unsure }) => {
-		const pick = picks.get(c.key) ?? {};
-		const options = (board.matches[c.key]?.w ?? []).slice(0, 3);
-		if (pick.same && !options.some((w) => w[0] === pick.same![0]))
-			options.push(pick.same);
-		if (pick.parent && !options.some((w) => w[0] === pick.parent![0]))
-			options.push(pick.parent);
-		const prompt = `${CONFIRM_PROMPT}Work: ${c.title}${c.context ? `\nIts sessions: ${c.context.slice(0, 300)}` : ""}${c.ask ? `\nFirst ask: ${c.ask}` : ""}\n\nExisting items:\n${options
-			.map((w, j) => `${j + 1}. [${w[3]}] ${w[1]}`)
-			.join("\n")}`;
-		let raw: string;
-		try {
-			raw = await runModel(prompt);
-		} catch {
-			return;
-		}
-		// Only a bare answer counts; anything else changes nothing.
-		const answer = /^[`*"\s]*(B)?\s*(\d+)[`*".\s]*$/i.exec(raw);
-		if (!answer) return;
-		const n = Number(answer[2]);
-		const same = !answer[1] && n >= 1 ? options[n - 1] : undefined;
-		const wider = answer[1] ? options[n - 1] : undefined;
-		const next: Choice = { ...pick };
-		if (same) {
-			next.same = same;
-			next.second = true;
-		} else if (wider) {
-			// Finished broad work includes this; open broad work is its parent.
-			const agreed = unsure && pick.agreed && c.kind === "task";
-			if (OPEN.has(wider[3]) && !agreed) {
-				if (unsure) {
-					next.same = undefined;
-					next.rejected = true;
-				}
-				next.parent ??= wider;
-			}
-		} else if (unsure && (!pick.agreed || c.kind !== "task")) {
-			next.same = undefined;
-			next.rejected = true;
-		}
-		picks.set(c.key, next);
-	});
-}
-
-/**
- * An unplaced task whose sessions mostly belong to a project the board knows
- * ("Acme client work" → ACME) goes under that project.
- */
-export function placeByProjects(
-	candidates: Candidate[],
-	proposals: Proposal[],
-): Proposal[] {
-	const projectOf = new Map<string, Proposal>();
-	proposals.forEach((p, i) => {
-		if (candidates[i]!.kind !== "task" && p.action === "tracked" && p.projectId)
-			for (const id of candidates[i]!.sessions) projectOf.set(id, p);
-	});
-	return proposals.map((p, i) => {
-		const c = candidates[i]!;
-		if (
-			p.action !== "unplaced" ||
-			c.kind !== "task" ||
-			c.confidence < THRESHOLDS.propose ||
-			c.done
-		)
-			return p;
-		const counts = new Map<Proposal, number>();
-		for (const id of c.sessions) {
-			const project = projectOf.get(id);
-			if (project) counts.set(project, (counts.get(project) ?? 0) + 1);
-		}
-		const [project, n] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [];
-		if (!project || !n || n * 2 < c.sessions.length) return p;
-		return {
-			...p,
-			action: "create",
-			projectId: project.projectId,
-			projectKey: project.projectKey,
-			reason:
-				"nothing on the board covers it; its sessions belong to this project",
-		};
-	});
-}
-
-/** Tasks a body of work needs before it is proposed as one epic. */
-export const EPIC_MIN_TASKS = 3;
-const EPIC_MAX_TASKS = 25;
-
-/**
- * Could become part of an epic: a project or goal no existing item covers,
- * or a confident, unfinished task that no project fits.
- */
-function mayJoinEpic(c: Candidate, p: Proposal): boolean {
-	if (c.kind !== "task")
-		return !p.workId && (p.action === "unplaced" || p.action === "tracked");
-	return (
-		p.action === "unplaced" &&
-		!p.projectId &&
-		c.confidence >= THRESHOLDS.propose &&
-		!c.done
-	);
-}
-
-/**
- * A project or goal from the sessions that the board has no item for, with
- * at least {@link EPIC_MIN_TASKS} of its own tasks (most of each task's
- * sessions are its sessions) that would otherwise go up one by one or not at
- * all, becomes ONE epic proposal with those tasks under it: in its project
- * when it has one, else unfiled. Every task already passed the duplicate
- * checks a single proposal does.
- */
-export function proposeEpics(
-	candidates: Candidate[],
-	proposals: Proposal[],
-): Proposal[] {
-	const out = [...proposals];
-	const taken = new Set<number>();
-	const heads = candidates
-		.map((_, i) => i)
-		.filter((i) => {
-			const c = candidates[i]!;
-			return (
-				c.kind !== "task" &&
-				mayJoinEpic(c, out[i]!) &&
-				c.confidence >= THRESHOLDS.propose &&
-				!c.done
-			);
-		})
-		.sort(
-			(a, b) => candidates[b]!.sessions.length - candidates[a]!.sessions.length,
-		);
-	for (const h of heads) {
-		const head = out[h]!;
-		const own = new Set(candidates[h]!.sessions);
-		const members = candidates
-			.map((_, i) => i)
-			.filter((i) => {
-				const c = candidates[i]!;
-				const p = out[i]!;
-				if (i === h || taken.has(i) || c.kind !== "task") return false;
-				// A task of a body of work the board lacks belongs with it, even
-				// when a word it shares with some board project placed it there:
-				// its sessions say where it belongs.
-				const fits =
-					mayJoinEpic(c, p) || (p.action === "create" && !p.parentId);
-				return (
-					fits &&
-					c.sessions.filter((id) => own.has(id)).length * 2 >= c.sessions.length
-				);
-			})
-			.slice(0, EPIC_MAX_TASKS);
-		if (members.length < EPIC_MIN_TASKS) continue;
-		// Unplaced, the epic goes where most of its tasks were placed, if
-		// anywhere; its tasks go where the epic goes.
-		let place = head.projectId
-			? { projectId: head.projectId, projectKey: head.projectKey }
-			: undefined;
-		if (!place) {
-			const counts = new Map<string, number>();
-			for (const i of members) {
-				const id = out[i]!.projectId;
-				if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
-			}
-			const [id, n] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [];
-			const owner = members.find((i) => out[i]!.projectId === id);
-			if (id && n && n * 2 > members.length && owner !== undefined)
-				place = { projectId: id, projectKey: out[owner]!.projectKey };
-		}
-		taken.add(h);
-		for (const i of members) {
-			taken.add(i);
-			const { projectId: _id, projectKey: _key, ...task } = out[i]!;
-			out[i] = { ...task, ...place, action: "nested", epicKey: head.key };
-		}
-		const { projectId: _id, projectKey: _key, ...epic } = head;
-		out[h] = {
-			...epic,
-			...place,
-			action: "create",
-			children: members.map((i) => out[i]!),
-			reason: place
-				? `${members.length} tasks in this project and no epic on the board for them`
-				: `${members.length} related tasks and no project on the board fits them`,
-		};
-	}
-	return out;
-}
-
-// ---------------------------------------------------------------------------
-// Local state: proposals and the person's decisions
-// ---------------------------------------------------------------------------
-
-export interface Decision {
-	decision: "accepted" | "rejected";
-	title: string;
-	workId?: string;
-	at: string;
-}
-
-export interface ContextState {
-	version: 1;
-	target: OrganizationTarget;
-	userId: string | null;
-	userName: string | null;
-	generatedAt: string;
-	proposals: Proposal[];
-	unplaced: Proposal[];
-	tracked: Proposal[];
-	decided: Record<string, Decision>;
-}
-
 export function stateDirectory(env = process.env, home = homedir()): string {
 	return join(env.TEDIX_CONFIG_DIR || join(home, ".tedix"), "learn");
-}
-
-export function statePath(
-	target: OrganizationTarget,
-	directory: string,
-): string {
-	const name = targetKey(target).replace(/[^\w.-]+/g, "_");
-	return join(directory, `context-${name}.json`);
-}
-
-export function readState(path: string): ContextState | null {
-	try {
-		return JSON.parse(readFileSync(path, "utf8")) as ContextState;
-	} catch {
-		return null;
-	}
 }
 
 const CACHE_ENTRIES = 2000;
@@ -1571,25 +463,6 @@ export function cachedModel(
 			renameSync(temp, path);
 		},
 	};
-}
-
-export function writeState(path: string, state: ContextState) {
-	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-	const temp = `${path}.${process.pid}.tmp`;
-	writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-	renameSync(temp, path);
-}
-
-/** A proposal the person already decided, by key or by a near-identical title. */
-export function decidedFor(
-	proposal: Pick<Proposal, "key" | "title">,
-	decided: Record<string, Decision>,
-): Decision | undefined {
-	if (decided[proposal.key]) return decided[proposal.key];
-	const set = new Set(words(proposal.title));
-	return Object.values(decided).find(
-		(d) => jaccard(new Set(words(d.title)), set) >= 0.6,
-	);
 }
 
 /** Already in the member's inbox (any state), by key or a near-identical title. */
@@ -1690,52 +563,6 @@ async function askedProposals(
 	if (!Array.isArray(result.rows))
 		throw new Error("reading your inbox returned no rows");
 	return { me: result.me ?? null, rows: result.rows };
-}
-
-/**
- * The key of a project a proposal names that the board match did not return
- * (a covering item's project), so the member reads "FINANCE", not an id.
- */
-async function withProjectKeys(
-	proposals: Proposal[],
-	call: (source: string) => Promise<Json>,
-): Promise<Proposal[]> {
-	const missing = [
-		...new Set(
-			proposals
-				.flatMap((p) => [p, ...(p.children ?? [])])
-				.filter((p) => p.projectId && !p.projectKey)
-				.map((p) => p.projectId!),
-		),
-	];
-	if (!missing.length) return proposals;
-	let keys: Record<string, string> = {};
-	try {
-		keys =
-			(
-				await call(`async () => {
-	const want = new Set(${asciiJson(missing)});
-	const keys = {};
-	for (let offset = 0; offset < 2000; offset += 100) {
-		const r = await projects.list_projects({ limit: 100, offset });
-		if (r?.ok === false || !Array.isArray(r?.data)) break;
-		for (const p of r.data) if (want.has(p.id)) keys[p.id] = p.key;
-		if (!r.pagination?.hasMore) break;
-	}
-	return { keys };
-}`)
-			).keys ?? {};
-	} catch {
-		return proposals;
-	}
-	const fill = (p: Proposal): Proposal => ({
-		...p,
-		...(p.projectId && !p.projectKey && keys[p.projectId]
-			? { projectKey: keys[p.projectId] }
-			: {}),
-		...(p.children ? { children: p.children.map(fill) } : {}),
-	});
-	return proposals.map(fill);
 }
 
 function where(p: Proposal): string {

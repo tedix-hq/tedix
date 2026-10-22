@@ -3,20 +3,19 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { normalizeGitOrigin, type OrganizationTarget } from "./agent-context";
+import { boardMatchSource } from "./learn-context-board";
 import {
-	boardMatchSource,
 	type Candidate,
-	extractCandidates,
-	judge,
 	matchBoard,
 	memoryNotes,
-	planContext,
 	planNotes,
 	runContext,
 	runOnboard,
 	runReview,
-	type SessionDigest,
 } from "./learn-context";
+import { extractCandidates } from "./learn-context-candidates";
+import { judge } from "./learn-context-judge";
+import { planContext, type SessionDigest } from "./learn-context-notes";
 import { emptyUnrouted, sessionLocator } from "./learn-import";
 
 const ORIGIN = "git@github.com:acme/app.git";
