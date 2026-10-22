@@ -472,5 +472,11 @@
 		"vite": "catalog:",
 		"vite-plus": "catalog:",
 		"vitest": "catalog:"
+	},
+	"tedixCi": {
+		"splitTestScripts": true,
+		"testScriptShards": {
+			"test:run": 2
+		}
 	}
 }

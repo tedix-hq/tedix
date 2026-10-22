@@ -20,7 +20,8 @@
 		"deploy:production": "bun run types && wrangler deploy --env production --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"tail": "wrangler tail",
 		"test": "bun run test:run",
-		"test:run": "vp test run && bun scripts/check-lazy-imports.ts",
+		"test:run": "bun run test:unit",
+		"test:unit": "bun scripts/test-unit.ts",
 		"test:watch": "vp test",
 		"test:ci": "bun run test:run",
 		"type-check": "tsc --noEmit",
@@ -73,5 +74,11 @@
 		"vite": "catalog:",
 		"vite-plus": "catalog:",
 		"vitest": "catalog:"
+	},
+	"tedixCi": {
+		"splitTestScripts": true,
+		"testScriptShards": {
+			"test:unit": 4
+		}
 	}
 }

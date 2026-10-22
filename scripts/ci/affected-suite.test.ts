@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { suiteSelection, certificationFiles } from "./full-suite-hourly.mjs";
@@ -109,6 +115,92 @@ test("global changes and unknown paths/ranges run everything; schedule and manua
 			suiteSelection(root, { eventName: "schedule", files: ["README.md"] })
 				.matrix.include,
 		).toHaveLength(4);
+	} finally {
+		rmSync(root, { recursive: true });
+	}
+});
+
+test("only the shared CI, gate, push and hook scripts still force the full suite", () => {
+	const root = fixture();
+	try {
+		for (const file of [
+			"scripts/ci/x.mjs",
+			"scripts/check-package-exports.ts",
+			"scripts/lint-d1.ts",
+			"scripts/dev/push-queue.ts",
+			"scripts/dev/push-hook-profile.test.ts",
+			".githooks/pre-push",
+			".githooks/pre-push.d/policy",
+		]) {
+			const plan = suiteSelection(root, { eventName: "push", files: [file] });
+			expect(plan.repository).toBe(true);
+			expect(plan.matrix.include).toHaveLength(4);
+		}
+	} finally {
+		rmSync(root, { recursive: true });
+	}
+});
+
+test("other scripts paths select their consumer workspaces plus the repository lane", () => {
+	const root = fixture();
+	try {
+		mkdirSync(join(root, "apps/ui/src"), { recursive: true });
+		mkdirSync(join(root, "apps/api/src"), { recursive: true });
+		mkdirSync(join(root, "packages/core/src"), { recursive: true });
+		mkdirSync(join(root, "scripts/tools"), { recursive: true });
+		mkdirSync(join(root, "scripts/release"), { recursive: true });
+		writeFileSync(join(root, "scripts/tools/helper.ts"), "export const x = 1;");
+		writeFileSync(
+			join(root, "apps/ui/src/tool-use.ts"),
+			'import { x } from "../../../scripts/tools/helper";',
+		);
+		const plan = suiteSelection(root, {
+			eventName: "push",
+			files: ["scripts/tools/helper.ts"],
+		});
+		expect(plan.repository).toBe(true);
+		expect(plan.matrix.include.map((job) => job.workspace)).toEqual([
+			"apps/ui",
+			"apps/ui",
+		]);
+		const apiManifest = JSON.parse(
+			readFileSync(join(root, "apps/api/package.json"), "utf8"),
+		);
+		apiManifest.scripts.dev = "bun ../../scripts/tools/helper";
+		writeFileSync(
+			join(root, "apps/api/package.json"),
+			JSON.stringify(apiManifest),
+		);
+		expect(
+			new Set(
+				suiteSelection(root, {
+					eventName: "push",
+					files: ["scripts/tools/helper.ts"],
+				}).matrix.include.map((job) => job.workspace),
+			),
+		).toEqual(new Set(["apps/api", "apps/ui"]));
+		writeFileSync(
+			join(root, "scripts/tools/run.ts"),
+			'import { x } from "./helper";',
+		);
+		writeFileSync(
+			join(root, "packages/core/src/uses-run.ts"),
+			'import "../../../scripts/tools/run";',
+		);
+		expect(
+			new Set(
+				suiteSelection(root, {
+					eventName: "push",
+					files: ["scripts/tools/helper.ts"],
+				}).matrix.include.map((job) => job.workspace),
+			),
+		).toEqual(new Set(["apps/api", "apps/ui", "packages/core"]));
+		const solo = suiteSelection(root, {
+			eventName: "push",
+			files: ["scripts/release/publish.mjs"],
+		});
+		expect(solo.repository).toBe(true);
+		expect(solo.matrix.include).toEqual([]);
 	} finally {
 		rmSync(root, { recursive: true });
 	}

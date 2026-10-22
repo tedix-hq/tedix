@@ -7,7 +7,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { affectedWorkspaces } from "./preflight-test-targets.mjs";
 import { readQuarantine } from "./browser-quarantine.mjs";
@@ -142,11 +142,125 @@ export function workspaceMatrix(root = ".") {
 }
 
 // Unknown paths and shared execution/configuration inputs deliberately run all checks.
+// Under scripts/ that is only the CI machinery itself, the repo gates, the push
+// machinery and the pre-push hook; every other scripts path is scoped to the
+// workspaces that reach it (scriptsConsumers below) plus the repository lane.
 const GLOBAL_INPUT =
-	/^(?:package\.json$|(?:bun\.lockb?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$|(?:tsconfig[^/]*\.json|(?:vite|vitest)[^/]*\.config\.[^/]+)$|\.ox(?:lint|fmt)[^/]*$|\.github\/|scripts\/|packages\/api-contract\/|packages\/db\/(?:src\/schema|migrations|drizzle)(?:\/|$))/;
+	/^(?:package\.json$|(?:bun\.lockb?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$|(?:tsconfig[^/]*\.json|(?:vite|vitest)[^/]*\.config\.[^/]+)$|\.ox(?:lint|fmt)[^/]*$|\.github\/|\.githooks\/|scripts\/(?:ci\/|check-|lint-|dev\/push-)|packages\/api-contract\/|packages\/db\/(?:src\/schema|migrations|drizzle)(?:\/|$))/;
 const DEPLOY_CONFIG =
 	/(?:^|\/)(?:wrangler\.(?:jsonc?|toml)|cloudflare\.config\.[^/]+)$/;
 const PROSE = /(?:^docs\/|\.mdx?$)/i;
+
+// Files whose text can hold a path reference: sources, specs and manifests.
+const REPO_SOURCE = /\.(?:[cm]?[jt]sx?|json)$/;
+const SKIP_DIR = new Set([
+	"node_modules",
+	"dist",
+	".wrangler",
+	".cloudflare",
+	".turbo",
+	"coverage",
+]);
+// Any quoted relative path — imports, requires and literal joins such as
+// `join(dir, "../x")` all declare a dependency on the resolved file.
+const RELATIVE_REF = /["'`](\.{1,2}\/[^"'`\s]+)["'`]/g;
+// A scripts/ path written `../../scripts/x` (in code or a package.json script)
+// or `"scripts/x"` (joined with the repo root) — both spell the same file.
+const SCRIPTS_REF = /(?:\.\.\/)*scripts\/[\w$@][\w./@$-]*/g;
+
+function* repoSourceFiles(directory) {
+	let entries;
+	try {
+		entries = readdirSync(directory, { withFileTypes: true });
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		const path = join(directory, entry.name);
+		if (entry.isDirectory()) {
+			if (!SKIP_DIR.has(entry.name)) yield* repoSourceFiles(path);
+		} else if (entry.isFile() && REPO_SOURCE.test(entry.name)) {
+			yield path;
+		}
+	}
+}
+
+/**
+ * The workspace dirs whose files reference one of `files`, where each `file` is
+ * a repo-relative path under `scripts/`. A reference is a relative import or
+ * path specifier resolvable to the file, or a literal `scripts/...`/`../scripts/...`
+ * spelling (which covers extensionless imports, `join(root, "scripts/x")` and
+ * manifest `bun ../../scripts/x` commands). Reachability is transitive through
+ * other scripts files: a helper's consumer is every workspace reaching a file
+ * that imports it. Derived from the tree, never listed — a new consumer is
+ * picked up automatically.
+ */
+export function scriptsConsumers(root, workspaceDirs, files) {
+	// The changed file and the spellings a consumer can use for it: the exact
+	// path, its extensionless form (`import "../scripts/x"`) and — for an index
+	// file — its directory (`import "../scripts/x"` reaching `x/index.ts`).
+	const wanted = new Set();
+	for (const file of files) {
+		wanted.add(file);
+		const bare = file.replace(/\.[^/.]+$/, "");
+		wanted.add(bare);
+		if (bare.endsWith("/index")) wanted.add(bare.slice(0, -"/index".length));
+	}
+	// dependency -> files that reference it. Keys are resolved absolute paths
+	// (relative refs and resolvable scripts spellings) or `scripts:<rel>`
+	// (unresolvable literal spellings — the changed file is matched by string).
+	const dependents = new Map();
+	const addEdge = (key, consumer) => {
+		const list = dependents.get(key) ?? [];
+		list.push(consumer);
+		dependents.set(key, list);
+	};
+	const rootAnchor = join(root, "package.json");
+	for (const directory of [...workspaceDirs, "scripts"]) {
+		for (const file of repoSourceFiles(join(root, directory))) {
+			let text;
+			try {
+				text = readFileSync(file, "utf8");
+			} catch {
+				continue;
+			}
+			for (const [, specifier] of text.matchAll(RELATIVE_REF)) {
+				const resolved = resolveSource(file, specifier);
+				if (resolved) addEdge(resolved, file);
+			}
+			for (const [ref] of text.matchAll(SCRIPTS_REF)) {
+				const rel = ref.replace(/^(?:\.\.\/)+/, "").replace(/[./]+$/, "");
+				const resolved = resolveSource(rootAnchor, rel);
+				addEdge(resolved ?? `scripts:${rel}`, file);
+			}
+		}
+	}
+	// Walk the reverse map from each changed file: every file reached is a
+	// dependent, and its own dependents follow.
+	const consumers = new Set();
+	const seen = new Set();
+	const queue = [...wanted].flatMap((file) => [
+		join(root, file),
+		`scripts:${file}`,
+	]);
+	while (queue.length) {
+		const item = queue.pop();
+		if (seen.has(item)) continue;
+		seen.add(item);
+		for (const consumer of dependents.get(item) ?? []) {
+			const rel = relative(root, consumer);
+			if (rel.startsWith("..")) continue;
+			const owner = rel.split("/").slice(0, 2).join("/");
+			if (workspaceDirs.includes(owner)) consumers.add(owner);
+			queue.push(consumer);
+		}
+		if (!item.startsWith("scripts:")) {
+			const rel = relative(root, item);
+			if (rel.startsWith("scripts/")) queue.push(`scripts:${rel}`);
+		}
+	}
+	return consumers;
+}
 
 export function suiteSelection(root, { eventName, files }) {
 	const matrix = workspaceMatrix(root);
@@ -179,22 +293,31 @@ export function suiteSelection(root, { eventName, files }) {
 				),
 			});
 		}
+	const scriptFiles = source.filter((file) => file.startsWith("scripts/"));
+	const scoped = source.filter((file) => !file.startsWith("scripts/"));
 	if (
-		source.some((file) => !manifests.has(file.split("/").slice(0, 2).join("/")))
+		scoped.some((file) => !manifests.has(file.split("/").slice(0, 2).join("/")))
 	)
 		return full();
 	const affected = new Set(
-		affectedWorkspaces(source, {
+		affectedWorkspaces(scoped, {
 			workspaceDirs: [...manifests.keys()],
 			readManifest: (workspace) => manifests.get(workspace),
 			isRelevantWorkspace: () => true,
 		}),
 	);
+	if (scriptFiles.length)
+		for (const workspace of scriptsConsumers(
+			root,
+			[...manifests.keys()],
+			scriptFiles,
+		))
+			affected.add(workspace);
 	return {
 		matrix: {
 			include: matrix.include.filter((job) => affected.has(job.workspace)),
 		},
-		repository: false,
+		repository: scriptFiles.length > 0,
 		scope: "affected",
 	};
 }
