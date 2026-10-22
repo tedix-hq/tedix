@@ -1367,7 +1367,7 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 	for (let reset = 0; reset < 2; reset++) {
 		const apps = read("osWorkspaces/gadgets/workApps", { limit: 100 }) as {
 			items: {
-				gadget: { name: string };
+				gadget: { id: string; name: string; workspaceId: string };
 				currentRevision: { manifest: { entry: string } };
 			}[];
 		};
@@ -1401,6 +1401,40 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		);
 		expect(blocked?.status).toBe(403);
 		expect(JSON.stringify(blocked?.body)).toMatch(/sending.*off/i);
+		for (const app of apps.items.filter((app) =>
+			["Feed", "Deck"].includes(app.gadget.name),
+		)) {
+			read("osWorkspaces/gadgets/archive", {
+				workspaceId: app.gadget.workspaceId,
+				gadgetId: app.gadget.id,
+			});
+		}
+		expect(read("osWorkspaces/gadgets/workApps", { limit: 100 })).toMatchObject(
+			{ items: [{ gadget: { name: "Projects" } }] },
+		);
+		const reinstalled = read("osWorkspaces/gadgets/installWorkDefaults");
+		await expectParsesAgainstContract(
+			"osWorkspaces/gadgets/installWorkDefaults",
+			reinstalled,
+		);
+		const restored = read("osWorkspaces/gadgets/workApps", {
+			limit: 100,
+		}) as typeof apps;
+		await expectParsesAgainstContract(
+			"osWorkspaces/gadgets/workApps",
+			restored,
+		);
+		expect(restored.items.map((app) => app.gadget.name).sort()).toEqual([
+			"Deck",
+			"Feed",
+			"Projects",
+		]);
+		expect(read("osWorkspaces/gadgets/installWorkDefaults")).toEqual(
+			reinstalled,
+		);
+		expect(read("osWorkspaces/gadgets/workApps", { limit: 100 })).toEqual(
+			restored,
+		);
 		sample.resetLocalFixtures();
 	}
 });

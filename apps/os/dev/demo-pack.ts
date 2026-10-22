@@ -887,8 +887,5 @@ export function applyDemoPack(
 			config: { version: 1 },
 		},
 	});
-	h["osWorkspaces/gadgets/installWorkDefaults"] = () => ({
-		workspaceId: workspaces[0]!.id,
-	});
 	return { builtAt };
 }
