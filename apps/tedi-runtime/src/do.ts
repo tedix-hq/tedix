@@ -116,6 +116,7 @@ import {
 import { createSkillReadTool } from "./skill-read";
 import { WorkflowImageCleanup } from "./workflow-image-cleanup";
 import { type WorkflowImageRef } from "./workflow-image-handoff";
+import { validateRuntimeStateChange } from "./runtime-state-validation";
 
 /**
  * AgentTediDO — the Cloudflare Agents parent of native Pi conversation facets.
@@ -3216,14 +3217,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * persistence/broadcast. Sync per the SDK contract; throwing aborts.
 	 */
 	override validateStateChange(
-		_nextState: State,
+		nextState: State,
 		source: Connection | "server",
 	): void {
-		if (source !== "server") {
-			throw new Error(
-				"State update rejected: client-originated state mutation is not permitted on a tedi runtime",
-			);
-		}
+		validateRuntimeStateChange(nextState, source);
 	}
 
 	async assertChatTurnActive(runId: string | null | undefined): Promise<void> {
