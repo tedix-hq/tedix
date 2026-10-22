@@ -236,6 +236,32 @@ export function localCommandArgs(argv: string[]): string[] {
 	return args;
 }
 
+function withoutJsonFlag(args: string[]): string[] {
+	const separator = args.indexOf("--");
+	return args.filter(
+		(arg, index) => arg !== "--json" || (separator >= 0 && index > separator),
+	);
+}
+
+function rejectUnsupportedJson(
+	command: string,
+	json: boolean,
+	humanOnly = false,
+): boolean {
+	const spec = findTopLevelCommand(command);
+	if (
+		!json ||
+		!spec ||
+		(!humanOnly && spec.output.some((format) => format !== "human"))
+	)
+		return false;
+	console.error(
+		JSON.stringify({ error: `--json is not supported by tedix ${spec.name}` }),
+	);
+	process.exitCode = 2;
+	return true;
+}
+
 async function main() {
 	let commandIndex = 2;
 	while (
@@ -247,10 +273,12 @@ async function main() {
 	const laneIndex = process.argv[commandIndex] === "lane" ? commandIndex : -1;
 	if (laneIndex >= 0) {
 		const { runLane } = await import("./lane");
-		process.exitCode = await runLane([
-			...process.argv.slice(2, laneIndex),
-			...process.argv.slice(laneIndex + 1),
-		]);
+		process.exitCode = await runLane(
+			withoutJsonFlag([
+				...process.argv.slice(2, laneIndex),
+				...process.argv.slice(laneIndex + 1),
+			]),
+		);
 		return;
 	}
 	if (process.argv[commandIndex] === "commit-handoff") {
@@ -264,6 +292,17 @@ async function main() {
 	// Installation lifecycle commands are local and never resolve gateway auth.
 	const argv = localCommandArgs(process.argv.slice(2));
 	const localCommand = argv[0];
+	const separator = argv.indexOf("--");
+	const flags = separator < 0 ? argv : argv.slice(0, separator);
+	if (
+		rejectUnsupportedJson(
+			localCommand ?? "",
+			flags.includes("--json"),
+			localCommand === "setup" &&
+				!(argv[1] === "agents" && argv[2] === "context"),
+		)
+	)
+		return;
 	if (localCommand === "setup" || localCommand === "dev") {
 		process.exitCode = await runLocalInstallation(localCommand, argv.slice(1));
 		return;
@@ -271,7 +310,7 @@ async function main() {
 	// Agent-host hooks write one JSON line to stdout and must stay silent otherwise.
 	if (localCommand === "hooks") {
 		const { runHooksCommand } = await import("./hooks/command");
-		process.exitCode = await runHooksCommand(argv.slice(1));
+		process.exitCode = await runHooksCommand(withoutJsonFlag(argv.slice(1)));
 		return;
 	}
 	if (localCommand === "supervise") {
@@ -288,7 +327,7 @@ async function main() {
 	// P4 BONUS: reset terminal modes on startup and on exit so a crash never
 	// leaves the parent shell with mouse-tracking / bracketed-paste / alt-screen
 	// escape garbage. Only write to stdout if it's a real TTY.
-	if (process.stdout.isTTY) {
+	if (process.stdout.isTTY && !flags.includes("--json")) {
 		const write = process.stdout.write.bind(process.stdout);
 		resetTerminalModes(write);
 		process.on("exit", () => resetTerminalModes(write));
@@ -296,12 +335,21 @@ async function main() {
 
 	const parsed = parseOptions(process.argv.slice(2));
 	const { command, options } = parsed;
+	if (rejectUnsupportedJson(command, options.json)) return;
 	if (options.version) {
-		console.log(CLI_VERSION);
+		console.log(options.json ? JSON.stringify(CLI_VERSION) : CLI_VERSION);
 		return;
 	}
 	if (options.help) {
-		console.log(options.commandExplicit ? topLevelHelp(command) : rootHelp());
+		console.log(
+			options.json
+				? JSON.stringify(
+						machineHelp(options.commandExplicit ? command : undefined),
+					)
+				: options.commandExplicit
+					? topLevelHelp(command)
+					: rootHelp(),
+		);
 		return;
 	}
 	if (command === "help") {
