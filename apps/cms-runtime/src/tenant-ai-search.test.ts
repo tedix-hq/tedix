@@ -1,4 +1,6 @@
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
+import { PublicRestorePermits } from "./public-restore-permits";
 import {
 	afterEach,
 	beforeAll,
@@ -29,13 +31,37 @@ const db = createDbQueryClient(platformD1);
 const coordinators = (
 	env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
 ).DB_DO;
-let lastCall = 0;
+let now = 0;
+const cleanups: Array<() => Promise<void>> = [];
+function clockFor(coordinator: DurableObjectStub<EmDashDB>) {
+	return {
+		now: () => now,
+		schedule: (task: () => Promise<void>, delayMs: number) =>
+			new Promise<void>((resolve, reject) => {
+				const expiresAt = now + delayMs;
+				cleanups.push(async () => {
+					if (now < expiresAt) throw new Error("reservation has not expired");
+					// Resolve waitUntil's promise in the object that created it.
+					await runInDurableObject(coordinator, async () => {
+						try {
+							await task();
+							resolve();
+						} catch (error) {
+							reject(error);
+							throw error;
+						}
+					});
+				});
+			}),
+	};
+}
+async function reservationExpiry() {
+	now += 10_100;
+	for (const cleanup of cleanups.splice(0)) await cleanup();
+}
 afterEach(async () => {
-	const remaining = lastCall + 10_100 - Date.now();
-	if (remaining > 0)
-		await new Promise((resolve) => setTimeout(resolve, remaining));
-	lastCall = 0;
-}, 20_000);
+	await reservationExpiry();
+});
 
 beforeAll(async () => {
 	await platformD1
@@ -72,9 +98,18 @@ async function site() {
 		.prepare("INSERT INTO cms_sites (id, slug, status) VALUES (?, ?, 'active')")
 		.bind(siteId, slug)
 		.run();
-	await coordinators
-		.get(coordinators.idFromName(slug))
-		.query("CREATE TABLE content (id INTEGER PRIMARY KEY, title TEXT)");
+	const coordinator = coordinators.get(coordinators.idFromName(slug));
+	await runInDurableObject(coordinator, (instance) => {
+		Object.assign(instance, {
+			databasePermits: new PublicRestorePermits(
+				undefined,
+				clockFor(coordinator),
+			),
+		});
+	});
+	await coordinator.query(
+		"CREATE TABLE content (id INTEGER PRIMARY KEY, title TEXT)",
+	);
 	return { siteId, slug, instanceId: `instance-${siteId}`, restoreEpoch: 0 };
 }
 
@@ -96,7 +131,6 @@ function facade(
 					runWithRestorePermit: (
 						...args: Parameters<EmDashDB["runWithRestorePermit"]>
 					) => {
-						lastCall = Date.now();
 						return coordinator.runWithRestorePermit(...args);
 					},
 				}),
@@ -160,11 +194,8 @@ describe("tenant AI Search restore permit", () => {
 		expect(service.create).not.toHaveBeenCalled();
 		finish({ id: "item-1" });
 		await expect(pending).resolves.toEqual({ id: "item-1" });
-		await vi.waitFor(
-			async () =>
-				expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0),
-			{ timeout: 15_000 },
-		);
+		await reservationExpiry();
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 		await expect(instance.items.delete("item-1")).rejects.toBeInstanceOf(
 			CmsRestoreFenceUnavailableError,
@@ -193,13 +224,8 @@ describe("tenant AI Search restore permit", () => {
 		await expect(instance.items.upload("page", "body")).rejects.toThrow(
 			"AI Search failed",
 		);
-		await vi.waitFor(
-			async () =>
-				expect((await getCmsRestoreFenceState(db, openIdentity)).inFlight).toBe(
-					0,
-				),
-			{ timeout: 15_000 },
-		);
+		await reservationExpiry();
+		expect((await getCmsRestoreFenceState(db, openIdentity)).inFlight).toBe(0);
 		await expect(
 			open.create({ id: TENANT_AI_SEARCH_LOGICAL_NAME }),
 		).resolves.toBeDefined();

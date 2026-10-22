@@ -31,6 +31,11 @@ export class PublicRestorePermits {
 			leave: leaveCmsRestorePermit,
 			reuse: canReuseCmsRestorePermit,
 		},
+		private clock = {
+			now: () => Date.now(),
+			schedule: (task: () => Promise<void>, delayMs: number) =>
+				new Promise<void>((resolve) => setTimeout(resolve, delayMs)).then(task),
+		},
 	) {}
 
 	forRequest(waitUntil: (task: Promise<unknown>) => void) {
@@ -52,7 +57,7 @@ export class PublicRestorePermits {
 					permit.kind,
 				]);
 				const reservation = this.reservations.get(key);
-				if (reservation && Date.now() < reservation.expiresAt) {
+				if (reservation && this.clock.now() < reservation.expiresAt) {
 					borrowed = reservation;
 					reservation.borrowers++;
 					try {
@@ -69,7 +74,7 @@ export class PublicRestorePermits {
 				if (!(await this.queries.enter(db, permit))) return false;
 				borrowed = {
 					permit,
-					expiresAt: Date.now() + REUSE_MS,
+					expiresAt: this.clock.now() + REUSE_MS,
 					borrowers: 1,
 					retired: false,
 				};
@@ -79,20 +84,18 @@ export class PublicRestorePermits {
 				else created.retired = true;
 				if (!created.retired)
 					waitUntil(
-						new Promise<void>((resolve) => setTimeout(resolve, REUSE_MS)).then(
-							async () => {
-								created.retired = true;
-								if (this.reservations.get(key) === created)
-									this.reservations.delete(key);
-								if (
-									created.borrowers === 0 &&
-									!(await this.queries.leave(db, created.permit))
-								)
-									throw new Error(
-										"CMS public restore reservation release failed",
-									);
-							},
-						),
+						this.clock.schedule(async () => {
+							created.retired = true;
+							if (this.reservations.get(key) === created)
+								this.reservations.delete(key);
+							if (
+								created.borrowers === 0 &&
+								!(await this.queries.leave(db, created.permit))
+							)
+								throw new Error(
+									"CMS public restore reservation release failed",
+								);
+						}, REUSE_MS),
 					);
 				return true;
 			},

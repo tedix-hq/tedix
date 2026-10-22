@@ -1,4 +1,6 @@
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
+import { PublicRestorePermits } from "./public-restore-permits";
 import {
 	afterEach,
 	beforeAll,
@@ -18,13 +20,37 @@ const db = createDbQueryClient(platformD1);
 const namespace = (
 	env as unknown as { DB_DO: DurableObjectNamespace<EmDashDB> }
 ).DB_DO;
-let lastCall = 0;
+let now = 0;
+const cleanups: Array<() => Promise<void>> = [];
+function clockFor(coordinator: DurableObjectStub<EmDashDB>) {
+	return {
+		now: () => now,
+		schedule: (task: () => Promise<void>, delayMs: number) =>
+			new Promise<void>((resolve, reject) => {
+				const expiresAt = now + delayMs;
+				cleanups.push(async () => {
+					if (now < expiresAt) throw new Error("reservation has not expired");
+					// Resolve waitUntil's promise in the object that created it.
+					await runInDurableObject(coordinator, async () => {
+						try {
+							await task();
+							resolve();
+						} catch (error) {
+							reject(error);
+							throw error;
+						}
+					});
+				});
+			}),
+	};
+}
+async function reservationExpiry() {
+	now += 10_100;
+	for (const cleanup of cleanups.splice(0)) await cleanup();
+}
 afterEach(async () => {
-	const remaining = lastCall + 10_100 - Date.now();
-	if (remaining > 0)
-		await new Promise((resolve) => setTimeout(resolve, remaining));
-	lastCall = 0;
-}, 20_000);
+	await reservationExpiry();
+});
 
 beforeAll(async () => {
 	await platformD1
@@ -62,6 +88,14 @@ async function fixture() {
 		.bind(siteId, identity.slug)
 		.run();
 	const coordinator = namespace.get(namespace.idFromName(identity.slug));
+	await runInDurableObject(coordinator, (instance) => {
+		Object.assign(instance, {
+			databasePermits: new PublicRestorePermits(
+				undefined,
+				clockFor(coordinator),
+			),
+		});
+	});
 	const query = vi.fn().mockResolvedValue({ rows: [] });
 	const props = {
 		tenantSlug: identity.slug,
@@ -87,7 +121,6 @@ async function fixture() {
 					runWithRestorePermit: (
 						...args: Parameters<EmDashDB["runWithRestorePermit"]>
 					) => {
-						lastCall = Date.now();
 						return coordinator.runWithRestorePermit(...args);
 					},
 				}),
