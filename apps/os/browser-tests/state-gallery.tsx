@@ -29,7 +29,7 @@ import {
 	TediRow,
 	type TediDetailLinkProps,
 } from "../src/components/team-page";
-import { FocusDecisionRow } from "../src/components/focus-feed";
+import { FocusDecisionRow } from "../src/components/focus-decision-row";
 import { WorkReadNotice } from "../src/components/work-read-region";
 import "../src/components/feed-timeline.css";
 import "../src/components/focus-feed.css";
