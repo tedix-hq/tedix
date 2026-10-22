@@ -1,4 +1,5 @@
 /** Human MCP authorizations, multi-org consent and CLI workspace bootstrap procedures. */
+import { createDbSession } from "@tedix/db/client";
 import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
 import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
 import {
@@ -138,9 +139,19 @@ export const revokeHumanMcpConsentContract =
 export const verifyHumanMcpGrantContract =
 	organizationsOs.verifyMultiOrgMcpGrant
 		.use(withServiceAuth)
-		.handler(async ({ input, context }) =>
-			verifyHumanMcpGrant(context.db, context.env, input),
-		);
+		.handler(async ({ input, context }) => {
+			const decision = await verifyHumanMcpGrant(
+				context.db,
+				context.env,
+				input,
+			);
+			// Positive replica answers can still reflect a revoke within the lag window.
+			if (decision.allowed) return decision;
+			// Consent may have just finished on the primary while this session still
+			// sees a missing grant or an older pending decision. Retry once there.
+			const primary = createDbSession(context.env.DB, null, "first-primary");
+			return verifyHumanMcpGrant(primary.db, context.env, input);
+		});
 
 /**
  * Public, exact-slug bootstrap for CLI OAuth.
