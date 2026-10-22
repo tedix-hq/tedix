@@ -3,7 +3,10 @@ import {
 	getMemberByUserId,
 } from "@tedix/db/queries/organization-members";
 import { createError, ErrorCodes, type BaseContext } from "../../orpc";
-import { verifiedActiveWorkActor } from "../work-items-principal";
+import {
+	assertTediAccess,
+	verifiedActiveWorkActor,
+} from "../work-items-principal";
 
 /** Attribute a Home-requested creation without changing its service authorization. */
 export async function workItemCreationActor(
@@ -14,8 +17,8 @@ export async function workItemCreationActor(
 		return verifiedActiveWorkActor(context, orgId);
 	if (
 		context.authType !== "service-binding" ||
+		context.serviceBindingPrincipal !== "mcp-edge" ||
 		context.headers.get("X-Tedix-Kernel") !== "true" ||
-		context.tediId ||
 		context.externalAgentPrincipalId ||
 		context.externalAgentSessionId ||
 		context.externalAgentClientRecordId ||
@@ -29,6 +32,9 @@ export async function workItemCreationActor(
 			ErrorCodes.FORBIDDEN,
 			"Conflicting Home creator identity",
 		);
+	// Home uses the primary worker's scopes but keeps the requesting member
+	// distinct. Check the bound worker without promoting it to user auth.
+	if (context.tediId) await assertTediAccess(context, context.tediId, orgId);
 	const member =
 		(await getMemberByCanonicalUserId(context.db, orgId, subject)) ??
 		(await getMemberByUserId(context.db, orgId, subject));
