@@ -99,29 +99,6 @@ export async function listRecipientCards(
 		.limit(Math.min(p.limit, 200));
 }
 
-/** Work Item dispositions for a bounded id list (chunks of 50 bound parameters). */
-export async function listWorkItemDispositions(
-	db: DbQueryClient,
-	orgId: string,
-	ids: readonly string[],
-) {
-	const result = new Map<string, string>();
-	const unique = [...new Set(ids)];
-	for (let offset = 0; offset < unique.length; offset += 50) {
-		const rows = await db
-			.select({ id: workItems.id, disposition: workItems.disposition })
-			.from(workItems)
-			.where(
-				and(
-					eq(workItems.orgId, orgId),
-					inArray(workItems.id, unique.slice(offset, offset + 50)),
-				),
-			);
-		for (const row of rows) result.set(row.id, row.disposition);
-	}
-	return result;
-}
-
 /** Terminal Work wins; unresolved dependency edges and the latest expired Attempt withdraw old asks. */
 export async function listDeckSourceStates(
 	db: DbQueryClient,
