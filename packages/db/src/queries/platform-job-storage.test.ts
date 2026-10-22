@@ -22,8 +22,125 @@ import {
 	getGatewayLogIngestionCursor,
 	listUnrecordedProviderUsageCalls,
 	listUnsettledBillableGatewayCalls,
+	scanLegacyUnreservedGatewayCalls,
 	scanUnsettledBillableGatewayCalls,
 } from "./platform-job-storage";
+
+it("watermarks legacy quarantine independently, includes late rows and rejects stale commits", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec("PRAGMA foreign_keys = OFF;");
+		sqlite.exec(
+			schemaDdl(
+				tediCallCosts,
+				billingUsageCharges,
+				billingUsageQuarantines,
+				billingSettlementCursors,
+			),
+		);
+		let query = "";
+		const db = createDbClient(
+			createD1Facade(sqlite, {
+				onPrepare: (sql) => {
+					query = sql;
+				},
+			}),
+		);
+		const insert = (id: string, reservation: string | null = null) =>
+			sqlite
+				.prepare(
+					"INSERT INTO tedi_call_costs (id, gateway_log_id, gateway_id, org_id, billing_reservation_id, snapshot_at, model, success) VALUES (?, ?, 'gateway-example', 'org-example', ?, '2020-01-01', 'model', 1)",
+				)
+				.run(id, id, reservation);
+		const at = "2026-10-22T00:00:00.000Z";
+		const read = (now = at) =>
+			scanLegacyUnreservedGatewayCalls(db, { limit: 2, now, scanWindow: 3 });
+		insert("legacy-1");
+		insert("reserved", "reservation-example");
+		const first = await read();
+		expect(first.mode).toBe("full");
+		expect(first.calls.map(({ call }) => call.gatewayLogId)).toEqual([
+			"legacy-1",
+		]);
+		await recordBillingUsageQuarantines(
+			db,
+			first.calls.map(({ call }) => ({
+				gatewayLogId: call.gatewayLogId,
+				organizationId: call.orgId,
+				reason: "missing_reservation",
+				sourceSnapshotAt: call.snapshotAt,
+				createdAt: at,
+			})),
+		);
+		expect(
+			await commitUnsettledBillableGatewayScan(db, first, {
+				failedRowids: [],
+				now: at,
+			}),
+		).toBe(true);
+		const reserved = await scanUnsettledBillableGatewayCalls(db, {
+			limit: 2,
+			now: at,
+		});
+		expect(reserved.mode).toBe("full");
+		expect(reserved.calls.map(({ call }) => call.gatewayLogId)).toEqual([
+			"reserved",
+		]);
+		insert("late");
+		const late = await read();
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(2, 3, 2)
+			.map((row) => String(row.detail));
+		expect(plan).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(
+					/SEARCH tedi_call_costs USING INDEX idx_call_costs_billing_reservation \(billing_reservation_id=\? AND rowid>\? AND rowid<\?\)/,
+				),
+			]),
+		);
+		expect(
+			plan.some((detail) => /TEMP B-TREE|SCAN tedi_call_costs/.test(detail)),
+		).toBe(false);
+		expect(late.mode).toBe("incremental");
+		expect(late.calls.map(({ call }) => call.gatewayLogId)).toEqual(["late"]);
+		expect(
+			await commitUnsettledBillableGatewayScan(db, late, {
+				failedRowids: [],
+				now: at,
+			}),
+		).toBe(true);
+		expect(
+			await commitUnsettledBillableGatewayScan(db, late, {
+				failedRowids: [],
+				now: at,
+			}),
+		).toBe(false);
+		for (let i = 0; i < 8; i++) insert(`reserved-${i}`, "reservation-example");
+		const window = await read();
+		expect(window.throughRowid - window.expected!.afterRowid).toBe(3);
+		expect(window.moreAbove).toBe(true);
+		expect(window.calls).toEqual([]);
+		expect((await read("2026-10-23T00:00:00.000Z")).mode).toBe("incremental");
+		// The unquarantined late row is behind the cursor, so the periodic
+		// full sweep must recover it and a full backlog must hold the cursor.
+		insert("another-legacy");
+		const sweep = await read("2026-10-30T00:00:00.000Z");
+		expect(sweep.mode).toBe("full");
+		expect(sweep.calls.map(({ call }) => call.gatewayLogId).sort()).toEqual([
+			"another-legacy",
+			"late",
+		]);
+		expect(
+			await commitUnsettledBillableGatewayScan(db, sweep, {
+				failedRowids: [],
+				now: at,
+			}),
+		).toBe(false);
+	} finally {
+		sqlite.close();
+	}
+});
 
 describe("durable unpriced gateway holds", () => {
 	it.each([false, true])(

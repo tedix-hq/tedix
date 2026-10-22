@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { type NewTediCallCost, tediCallCosts } from "../schema/tedis";
 import { createD1Facade } from "../test/d1-facade";
@@ -10,6 +10,30 @@ import {
 } from "./tedi-usage";
 
 const SOURCE = "provider-response:web-search";
+
+it("writes Gateway pages in bounded batches with idempotent returned rows", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec("PRAGMA foreign_keys = OFF;");
+		sqlite.exec(schemaDdl(tediCallCosts));
+		const binding = createD1Facade(sqlite);
+		const batch = vi.spyOn(binding, "batch");
+		const db = createDbClient(binding);
+		const costs = Array.from({ length: 102 }, (_, index) =>
+			receipt(`log-${index}`),
+		);
+		expect(
+			(await insertCallCosts(db, costs)).map((row) => row.gatewayLogId),
+		).toEqual(costs.map((row) => row.gatewayLogId));
+		expect(batch.mock.calls.map(([statements]) => statements.length)).toEqual([
+			25, 25, 1,
+		]);
+		expect(await insertCallCosts(db, costs)).toEqual([]);
+		expect(await db.select().from(tediCallCosts)).toHaveLength(102);
+	} finally {
+		sqlite.close();
+	}
+});
 
 function fixture(): DbClient {
 	const sqlite = new DatabaseSync(":memory:");

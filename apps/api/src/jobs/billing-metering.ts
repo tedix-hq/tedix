@@ -20,7 +20,7 @@ import {
 import { settleBillingUsage } from "@tedix/db/queries/billing/settlement";
 import {
 	commitUnsettledBillableGatewayScan,
-	listLegacyUnreservedGatewayCalls,
+	scanLegacyUnreservedGatewayCalls,
 	listUnrecordedProviderUsageCalls,
 	scanUnsettledBillableGatewayCalls,
 } from "@tedix/db/queries/platform-job-storage";
@@ -363,7 +363,11 @@ export async function quarantineLegacyGatewayCosts(
 		Math.min(LEGACY_QUARANTINE_BATCH_SIZE, Math.floor(limit)),
 	);
 	const now = new Date().toISOString();
-	const legacyRows = await listLegacyUnreservedGatewayCalls(db, batchSize);
+	const scan = await scanLegacyUnreservedGatewayCalls(db, {
+		limit: batchSize,
+		now,
+	});
+	const legacyRows = scan.calls.map(({ call }) => call);
 	const quarantined = await recordBillingUsageQuarantines(
 		db,
 		legacyRows.map((call) => ({
@@ -385,10 +389,12 @@ export async function quarantineLegacyGatewayCosts(
 		})),
 	);
 
+	// A failed write throws before this CAS: the next run retries the same range.
+	await commitUnsettledBillableGatewayScan(db, scan, { failedRowids: [], now });
 	return {
 		selected: legacyRows.length,
 		quarantined,
-		remainingAtLeast: legacyRows.length === batchSize ? 1 : 0,
+		remainingAtLeast: legacyRows.length === batchSize || scan.moreAbove ? 1 : 0,
 	};
 }
 

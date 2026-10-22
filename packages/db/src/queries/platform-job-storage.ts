@@ -38,6 +38,7 @@ async function selectUnsettledBillableGatewayCalls(
 	db: DbClient,
 	limit: number,
 	range: { afterRowid: number; throughRowid: number } | null,
+	legacy = false,
 ): Promise<UnsettledGatewayCall[]> {
 	return db
 		.select({ rowid: callRowid.as("call_rowid"), call: tediCallCosts })
@@ -59,7 +60,9 @@ async function selectUnsettledBillableGatewayCalls(
 						]
 					: []),
 				isNotNull(tediCallCosts.orgId),
-				isNotNull(tediCallCosts.billingReservationId),
+				legacy
+					? isNull(tediCallCosts.billingReservationId)
+					: isNotNull(tediCallCosts.billingReservationId),
 				isNull(tediCallCosts.usageKind),
 				eq(tediCallCosts.success, true),
 				isNull(billingUsageCharges.id),
@@ -84,12 +87,15 @@ export async function listUnsettledBillableGatewayCalls(
 }
 
 const UNSETTLED_GATEWAY_CURSOR = "unsettled_gateway_calls";
+const LEGACY_GATEWAY_CURSOR = "legacy_unreserved_gateway_calls";
 /** Most rowids one incremental tick may walk past the watermark. */
 export const UNSETTLED_GATEWAY_SCAN_WINDOW = 20_000;
 /** How often the tick falls back to the full-ledger read as a backstop. */
 export const UNSETTLED_GATEWAY_FULL_SWEEP_MS = 24 * 60 * 60 * 1_000;
 
 export interface UnsettledGatewayCallScan {
+	/** Omitted by older callers for the reserved-token settlement queue. */
+	queue?: "legacy";
 	/** `full` re-reads the whole ledger; `incremental` reads above the watermark. */
 	mode: "full" | "incremental";
 	/** Cursor observed before reading; the commit applies only on top of it. */
@@ -121,6 +127,27 @@ export async function scanUnsettledBillableGatewayCalls(
 		fullSweepMs?: number;
 	},
 ): Promise<UnsettledGatewayCallScan> {
+	return scanGatewayCalls(db, options, false);
+}
+
+/** Legacy token rows use their own watermark; provider receipts stay excluded. */
+export async function scanLegacyUnreservedGatewayCalls(
+	db: DbClient,
+	options: Parameters<typeof scanUnsettledBillableGatewayCalls>[1],
+): Promise<UnsettledGatewayCallScan> {
+	// This job runs daily, so a daily backstop would never use its watermark.
+	return scanGatewayCalls(
+		db,
+		{ fullSweepMs: 7 * UNSETTLED_GATEWAY_FULL_SWEEP_MS, ...options },
+		true,
+	);
+}
+
+async function scanGatewayCalls(
+	db: DbClient,
+	options: Parameters<typeof scanUnsettledBillableGatewayCalls>[1],
+	legacy: boolean,
+): Promise<UnsettledGatewayCallScan> {
 	const scanWindow = options.scanWindow ?? UNSETTLED_GATEWAY_SCAN_WINDOW;
 	const fullSweepMs = options.fullSweepMs ?? UNSETTLED_GATEWAY_FULL_SWEEP_MS;
 	const [cursor] = await db
@@ -129,7 +156,12 @@ export async function scanUnsettledBillableGatewayCalls(
 			fullSweepAt: billingSettlementCursors.fullSweepAt,
 		})
 		.from(billingSettlementCursors)
-		.where(eq(billingSettlementCursors.name, UNSETTLED_GATEWAY_CURSOR))
+		.where(
+			eq(
+				billingSettlementCursors.name,
+				legacy ? LEGACY_GATEWAY_CURSOR : UNSETTLED_GATEWAY_CURSOR,
+			),
+		)
 		.limit(1);
 	// Read the head before the batch: a row inserted after this point gets a
 	// higher rowid, so it is never behind the cursor this scan commits.
@@ -144,25 +176,37 @@ export async function scanUnsettledBillableGatewayCalls(
 		!(Date.parse(options.now) - Date.parse(expected.fullSweepAt) < fullSweepMs)
 	) {
 		return {
+			...(legacy ? { queue: "legacy" as const } : {}),
 			mode: "full",
 			expected,
 			limit: options.limit,
 			throughRowid: headRowid,
 			moreAbove: false,
-			calls: await selectUnsettledBillableGatewayCalls(db, options.limit, null),
+			calls: await selectUnsettledBillableGatewayCalls(
+				db,
+				options.limit,
+				null,
+				legacy,
+			),
 		};
 	}
 	const throughRowid = Math.min(headRowid, expected.afterRowid + scanWindow);
 	return {
+		...(legacy ? { queue: "legacy" as const } : {}),
 		mode: "incremental",
 		expected,
 		limit: options.limit,
 		throughRowid,
 		moreAbove: throughRowid < headRowid,
-		calls: await selectUnsettledBillableGatewayCalls(db, options.limit, {
-			afterRowid: expected.afterRowid,
-			throughRowid,
-		}),
+		calls: await selectUnsettledBillableGatewayCalls(
+			db,
+			options.limit,
+			{
+				afterRowid: expected.afterRowid,
+				throughRowid,
+			},
+			legacy,
+		),
 	};
 }
 
@@ -178,6 +222,8 @@ export async function commitUnsettledBillableGatewayScan(
 	scan: UnsettledGatewayCallScan,
 	input: { failedRowids: number[]; now: string; scanWindow?: number },
 ): Promise<boolean> {
+	const cursorName =
+		scan.queue === "legacy" ? LEGACY_GATEWAY_CURSOR : UNSETTLED_GATEWAY_CURSOR;
 	const complete = scan.calls.length < scan.limit;
 	if (scan.mode === "full" && !complete) return false;
 	const examined = complete
@@ -199,7 +245,7 @@ export async function commitUnsettledBillableGatewayScan(
 		const rows = await db
 			.insert(billingSettlementCursors)
 			.values({
-				name: UNSETTLED_GATEWAY_CURSOR,
+				name: cursorName,
 				afterRowid,
 				fullSweepAt,
 				updatedAt: input.now,
@@ -213,7 +259,7 @@ export async function commitUnsettledBillableGatewayScan(
 		.set({ afterRowid, fullSweepAt, updatedAt: input.now })
 		.where(
 			and(
-				eq(billingSettlementCursors.name, UNSETTLED_GATEWAY_CURSOR),
+				eq(billingSettlementCursors.name, cursorName),
 				eq(billingSettlementCursors.afterRowid, scan.expected.afterRowid),
 				eq(billingSettlementCursors.fullSweepAt, scan.expected.fullSweepAt),
 			),
@@ -244,36 +290,6 @@ export async function listUnrecordedProviderUsageCalls(
 				isNotNull(tediCallCosts.usageUnit),
 				isNotNull(tediCallCosts.usageQuantity),
 				isNull(billingProviderUsage.id),
-				isNull(billingUsageQuarantines.id),
-			),
-		)
-		.orderBy(asc(tediCallCosts.snapshotAt), asc(tediCallCosts.gatewayLogId))
-		.limit(limit);
-	return rows.map(({ call }) => call);
-}
-
-export async function listLegacyUnreservedGatewayCalls(
-	db: DbClient,
-	limit: number,
-): Promise<TediCallCost[]> {
-	const rows = await db
-		.select({ call: tediCallCosts })
-		.from(tediCallCosts)
-		.leftJoin(
-			billingUsageCharges,
-			eq(billingUsageCharges.gatewayLogId, tediCallCosts.gatewayLogId),
-		)
-		.leftJoin(
-			billingUsageQuarantines,
-			eq(billingUsageQuarantines.gatewayLogId, tediCallCosts.gatewayLogId),
-		)
-		.where(
-			and(
-				isNotNull(tediCallCosts.orgId),
-				isNull(tediCallCosts.billingReservationId),
-				isNull(tediCallCosts.usageKind),
-				eq(tediCallCosts.success, true),
-				isNull(billingUsageCharges.id),
 				isNull(billingUsageQuarantines.id),
 			),
 		)
