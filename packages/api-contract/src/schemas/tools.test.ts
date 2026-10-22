@@ -110,6 +110,7 @@ describe("configured native catalog inputs", () => {
 });
 
 import {
+	CatalogueDescribeInputJsonSchema,
 	CatalogueSearchInputJsonSchema,
 	catalogueInputDeclarationMatches,
 } from "./tools";
@@ -139,6 +140,34 @@ it("binds configured declarations to the closed parser and ignores only key orde
 			"catalog/describe",
 			CatalogueSearchInputJsonSchema,
 		),
+	).toBe(false);
+});
+
+it("accepts declarations synced before an optional property was added", () => {
+	const { includeMetadata: _added, ...legacy } =
+		CatalogueSearchInputJsonSchema.properties as Record<string, unknown>;
+	const withProperties = (properties: Record<string, unknown>) => ({
+		...CatalogueSearchInputJsonSchema,
+		properties,
+	});
+	expect(
+		catalogueInputDeclarationMatches("catalog/search", withProperties(legacy)),
+	).toBe(true);
+	for (const properties of [
+		{ ...legacy, code: { type: "string" } },
+		{ ...legacy, limit: { type: "number" } },
+	])
+		expect(
+			catalogueInputDeclarationMatches(
+				"catalog/search",
+				withProperties(properties),
+			),
+		).toBe(false);
+	expect(
+		catalogueInputDeclarationMatches("catalog/describe", {
+			...CatalogueDescribeInputJsonSchema,
+			properties: {},
+		}),
 	).toBe(false);
 });
 

@@ -263,11 +263,13 @@ export const executeCatalogOperation: (
 	const execute =
 		provider.fns[config.endpoint === "catalog/search" ? "search" : "describe"];
 	if (!execute) throw new Error("Catalog operation unavailable");
-	// Native catalog clients validate results against this established full descriptor.
+	// Native catalog clients validate results against this established full
+	// descriptor and resolve rows by their `native` field, so native search
+	// keeps metadata unless the client opts out.
 	return execute(
 		config.endpoint === "catalog/describe"
 			? { ...input, includeOutputSchema: true }
-			: input,
+			: { includeMetadata: true, ...input },
 	);
 };
 
