@@ -186,22 +186,21 @@ describe("skill inventory plan", () => {
 	];
 
 	it("returns the same pages and totals with and without the inventory indexes", async () => {
-		const indexed = seededSqlite();
-		const unindexed = seededSqlite();
-		for (const name of inventoryIndexes) unindexed.exec(`DROP INDEX ${name}`);
-		for (const options of cases) {
-			const expected = await listAllSkillsForOrg(
-				createDbClient(createD1Facade(unindexed)),
+		// One seeded database: two seedings can straddle a second and differ in created_at.
+		const sqlite = seededSqlite();
+		const list = (options: (typeof cases)[number]) =>
+			listAllSkillsForOrg(
+				createDbClient(createD1Facade(sqlite)),
 				"org-1",
 				options,
 			);
-			const actual = await listAllSkillsForOrg(
-				createDbClient(createD1Facade(indexed)),
-				"org-1",
-				options,
-			);
+		const indexed = [];
+		for (const options of cases) indexed.push(await list(options));
+		for (const name of inventoryIndexes) sqlite.exec(`DROP INDEX ${name}`);
+		for (const [index, options] of cases.entries()) {
+			const expected = await list(options);
 			expect(expected.total).toBeGreaterThan(0);
-			expect(actual).toEqual(expected);
+			expect(indexed[index]).toEqual(expected);
 		}
 	});
 
