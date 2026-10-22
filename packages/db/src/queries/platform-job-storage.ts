@@ -1,7 +1,19 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	inArray,
+	isNotNull,
+	isNull,
+	lt,
+	lte,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	billingProviderUsage,
+	billingSettlementCursors,
 	billingUsageCharges,
 	billingUsageQuarantines,
 } from "../schema/billing";
@@ -15,12 +27,20 @@ import {
 } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
 
-export async function listUnsettledBillableGatewayCalls(
+const callRowid = sql<number>`${tediCallCosts}.rowid`;
+
+export interface UnsettledGatewayCall {
+	rowid: number;
+	call: TediCallCost;
+}
+
+async function selectUnsettledBillableGatewayCalls(
 	db: DbClient,
 	limit: number,
-): Promise<TediCallCost[]> {
-	const rows = await db
-		.select({ call: tediCallCosts })
+	range: { afterRowid: number; throughRowid: number } | null,
+): Promise<UnsettledGatewayCall[]> {
+	return db
+		.select({ rowid: callRowid.as("call_rowid"), call: tediCallCosts })
 		.from(tediCallCosts)
 		.leftJoin(
 			billingUsageCharges,
@@ -32,6 +52,12 @@ export async function listUnsettledBillableGatewayCalls(
 		)
 		.where(
 			and(
+				...(range
+					? [
+							gt(callRowid, range.afterRowid),
+							lte(callRowid, range.throughRowid),
+						]
+					: []),
 				isNotNull(tediCallCosts.orgId),
 				isNotNull(tediCallCosts.billingReservationId),
 				isNull(tediCallCosts.usageKind),
@@ -40,9 +66,160 @@ export async function listUnsettledBillableGatewayCalls(
 				isNull(billingUsageQuarantines.id),
 			),
 		)
-		.orderBy(asc(tediCallCosts.snapshotAt), asc(tediCallCosts.gatewayLogId))
+		.orderBy(
+			...(range
+				? [asc(callRowid)]
+				: [asc(tediCallCosts.snapshotAt), asc(tediCallCosts.gatewayLogId)]),
+		)
 		.limit(limit);
+}
+
+/** Full-ledger read: every reserved token call with no charge or quarantine. */
+export async function listUnsettledBillableGatewayCalls(
+	db: DbClient,
+	limit: number,
+): Promise<TediCallCost[]> {
+	const rows = await selectUnsettledBillableGatewayCalls(db, limit, null);
 	return rows.map(({ call }) => call);
+}
+
+const UNSETTLED_GATEWAY_CURSOR = "unsettled_gateway_calls";
+/** Most rowids one incremental tick may walk past the watermark. */
+export const UNSETTLED_GATEWAY_SCAN_WINDOW = 20_000;
+/** How often the tick falls back to the full-ledger read as a backstop. */
+export const UNSETTLED_GATEWAY_FULL_SWEEP_MS = 24 * 60 * 60 * 1_000;
+
+export interface UnsettledGatewayCallScan {
+	/** `full` re-reads the whole ledger; `incremental` reads above the watermark. */
+	mode: "full" | "incremental";
+	/** Cursor observed before reading; the commit applies only on top of it. */
+	expected: { afterRowid: number; fullSweepAt: string } | null;
+	limit: number;
+	/** Last rowid the read covered when it returned fewer than `limit` calls. */
+	throughRowid: number;
+	/** True when rows above `throughRowid` were not examined yet. */
+	moreAbove: boolean;
+	calls: UnsettledGatewayCall[];
+}
+
+/**
+ * Read the next settlement batch without scanning settled history.
+ *
+ * Reserved token rows are never updated after insert (only provider-unit
+ * receipts are, and those carry a usage kind), so insertion order is a safe
+ * watermark: a late Gateway row with an old `snapshot_at` still gets a rowid
+ * above the cursor. One read covers at most `scanWindow` rowids. Once per
+ * `fullSweepMs`, and whenever no usable cursor exists, the tick reads the whole
+ * ledger exactly as before, which retries anything the watermark moved past.
+ */
+export async function scanUnsettledBillableGatewayCalls(
+	db: DbClient,
+	options: {
+		limit: number;
+		now: string;
+		scanWindow?: number;
+		fullSweepMs?: number;
+	},
+): Promise<UnsettledGatewayCallScan> {
+	const scanWindow = options.scanWindow ?? UNSETTLED_GATEWAY_SCAN_WINDOW;
+	const fullSweepMs = options.fullSweepMs ?? UNSETTLED_GATEWAY_FULL_SWEEP_MS;
+	const [cursor] = await db
+		.select({
+			afterRowid: billingSettlementCursors.afterRowid,
+			fullSweepAt: billingSettlementCursors.fullSweepAt,
+		})
+		.from(billingSettlementCursors)
+		.where(eq(billingSettlementCursors.name, UNSETTLED_GATEWAY_CURSOR))
+		.limit(1);
+	// Read the head before the batch: a row inserted after this point gets a
+	// higher rowid, so it is never behind the cursor this scan commits.
+	const [head] = await db
+		.select({ rowid: sql<number | null>`max(${callRowid})` })
+		.from(tediCallCosts);
+	const headRowid = head?.rowid ?? 0;
+	const expected = cursor ?? null;
+	if (
+		!expected ||
+		expected.afterRowid > headRowid ||
+		!(Date.parse(options.now) - Date.parse(expected.fullSweepAt) < fullSweepMs)
+	) {
+		return {
+			mode: "full",
+			expected,
+			limit: options.limit,
+			throughRowid: headRowid,
+			moreAbove: false,
+			calls: await selectUnsettledBillableGatewayCalls(db, options.limit, null),
+		};
+	}
+	const throughRowid = Math.min(headRowid, expected.afterRowid + scanWindow);
+	return {
+		mode: "incremental",
+		expected,
+		limit: options.limit,
+		throughRowid,
+		moreAbove: throughRowid < headRowid,
+		calls: await selectUnsettledBillableGatewayCalls(db, options.limit, {
+			afterRowid: expected.afterRowid,
+			throughRowid,
+		}),
+	};
+}
+
+/**
+ * Move the watermark past what a scan examined. A transiently failed call holds
+ * the watermark just below it for one more incremental attempt; a call that
+ * fails again from the held position is left to the next full sweep, so one
+ * poison row never stalls the queue. A full read that hit its limit commits
+ * nothing, so the next tick reads the whole ledger again.
+ */
+export async function commitUnsettledBillableGatewayScan(
+	db: DbClient,
+	scan: UnsettledGatewayCallScan,
+	input: { failedRowids: number[]; now: string; scanWindow?: number },
+): Promise<boolean> {
+	const complete = scan.calls.length < scan.limit;
+	if (scan.mode === "full" && !complete) return false;
+	const examined = complete
+		? scan.throughRowid
+		: (scan.calls.at(-1)?.rowid ?? scan.throughRowid);
+	const floor =
+		scan.mode === "incremental" && scan.expected
+			? scan.expected.afterRowid
+			: examined - (input.scanWindow ?? UNSETTLED_GATEWAY_SCAN_WINDOW);
+	const retry = input.failedRowids.filter(
+		(rowid) => rowid - 1 > floor && rowid <= examined,
+	);
+	const afterRowid = retry.length > 0 ? Math.min(...retry) - 1 : examined;
+	const fullSweepAt =
+		scan.mode === "full" || !scan.expected
+			? input.now
+			: scan.expected.fullSweepAt;
+	if (!scan.expected) {
+		const rows = await db
+			.insert(billingSettlementCursors)
+			.values({
+				name: UNSETTLED_GATEWAY_CURSOR,
+				afterRowid,
+				fullSweepAt,
+				updatedAt: input.now,
+			})
+			.onConflictDoNothing({ target: billingSettlementCursors.name })
+			.returning({ name: billingSettlementCursors.name });
+		return rows.length === 1;
+	}
+	const rows = await db
+		.update(billingSettlementCursors)
+		.set({ afterRowid, fullSweepAt, updatedAt: input.now })
+		.where(
+			and(
+				eq(billingSettlementCursors.name, UNSETTLED_GATEWAY_CURSOR),
+				eq(billingSettlementCursors.afterRowid, scan.expected.afterRowid),
+				eq(billingSettlementCursors.fullSweepAt, scan.expected.fullSweepAt),
+			),
+		)
+		.returning({ name: billingSettlementCursors.name });
+	return rows.length === 1;
 }
 
 export async function listUnrecordedProviderUsageCalls(

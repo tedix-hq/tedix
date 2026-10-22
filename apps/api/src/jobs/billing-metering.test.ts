@@ -28,6 +28,26 @@ vi.mock("@tedix/db/queries/billing/provider-usage", () => ({
 vi.mock("@tedix/db/queries/billing/settlement", () => ({
 	settleBillingUsage: billingMocks.settleBillingUsage,
 }));
+const storageMocks = vi.hoisted(() => ({
+	results: [] as Array<Array<{ call: unknown }>>,
+	commitScan: vi.fn(async () => true),
+}));
+vi.mock("@tedix/db/queries/platform-job-storage", () => {
+	const next = () => (storageMocks.results.shift() ?? []).map((r) => r.call);
+	return {
+		scanUnsettledBillableGatewayCalls: async () => ({
+			mode: "incremental",
+			expected: { afterRowid: 0, fullSweepAt: "2026-07-27T00:00:00.000Z" },
+			limit: 500,
+			throughRowid: 0,
+			moreAbove: false,
+			calls: next().map((call, i) => ({ rowid: i + 1, call })),
+		}),
+		commitUnsettledBillableGatewayScan: storageMocks.commitScan,
+		listUnrecordedProviderUsageCalls: async () => next(),
+		listLegacyUnreservedGatewayCalls: async () => next(),
+	};
+});
 
 import {
 	drainStripeMeterOutbox,
@@ -109,23 +129,12 @@ function call(gatewayLogId: string, billingReservationId: string | null) {
 	};
 }
 
+/** Queue each queue read's result in call order: unsettled, then provider units. */
 function fakeDb(
 	...queryResults: Array<Array<{ call: ReturnType<typeof call> }>>
 ) {
-	let selectCount = 0;
-	return {
-		select: () => {
-			const rows = queryResults[selectCount++] ?? [];
-			const builder = {
-				from: () => builder,
-				leftJoin: () => builder,
-				where: () => builder,
-				orderBy: () => builder,
-				limit: async () => rows,
-			};
-			return builder;
-		},
-	};
+	storageMocks.results = [...queryResults];
+	return {};
 }
 
 describe("settleUnbilledGatewayCosts", () => {
@@ -181,6 +190,12 @@ describe("settleUnbilledGatewayCosts", () => {
 			],
 		});
 		expect(billingMocks.settleBillingUsage).toHaveBeenCalledTimes(4);
+		// Only the transient failures hold the settlement watermark.
+		expect(storageMocks.commitScan).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ mode: "incremental" }),
+			expect.objectContaining({ failedRowids: [3, 4] }),
+		);
 		expect(billingMocks.recordBillingUsageQuarantines).toHaveBeenCalledTimes(1);
 		expect(
 			billingMocks.recordBillingUsageQuarantines.mock.calls[0]?.[1],

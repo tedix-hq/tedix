@@ -19,9 +19,10 @@ import {
 } from "@tedix/db/queries/billing/provider-usage";
 import { settleBillingUsage } from "@tedix/db/queries/billing/settlement";
 import {
+	commitUnsettledBillableGatewayScan,
 	listLegacyUnreservedGatewayCalls,
 	listUnrecordedProviderUsageCalls,
-	listUnsettledBillableGatewayCalls,
+	scanUnsettledBillableGatewayCalls,
 } from "@tedix/db/queries/platform-job-storage";
 import type { TediCallCost } from "@tedix/db/schema/tedis";
 import type { StripeEnvironment } from "@tedix/api-contract/schemas/billing";
@@ -163,17 +164,18 @@ export async function settleUnbilledGatewayCosts(
 	stripeEnvironment: StripeEnvironment = "live",
 ): Promise<BillingSettlementResult> {
 	const now = new Date().toISOString();
-	const rows = await listUnsettledBillableGatewayCalls(
-		db,
-		SETTLEMENT_BATCH_SIZE,
-	);
+	const scan = await scanUnsettledBillableGatewayCalls(db, {
+		limit: SETTLEMENT_BATCH_SIZE,
+		now,
+	});
 
 	let settled = 0;
 	let failed = 0;
 	let quarantined = 0;
 	let providerUsageRecorded = 0;
 	const errorCounts = new Map<string, number>();
-	for (const call of rows) {
+	const failedRowids: number[] = [];
+	for (const { rowid, call } of scan.calls) {
 		if (!call.orgId) continue;
 		try {
 			const holdReason = unpricedUsageReason(call);
@@ -243,9 +245,21 @@ export async function settleUnbilledGatewayCosts(
 				continue;
 			}
 			failed++;
+			failedRowids.push(rowid);
 			const signature = settlementErrorSignature(error);
 			errorCounts.set(signature, (errorCounts.get(signature) ?? 0) + 1);
 		}
+	}
+	try {
+		await commitUnsettledBillableGatewayScan(db, scan, { failedRowids, now });
+	} catch (error) {
+		// Settled rows are durable; an unmoved watermark only re-reads them.
+		console.warn(
+			JSON.stringify({
+				signal: "billing.settlement.cursor_failed",
+				error: settlementErrorSignature(error),
+			}),
+		);
 	}
 
 	const providerRows = await listUnrecordedProviderUsageCalls(
@@ -319,7 +333,8 @@ export async function settleUnbilledGatewayCosts(
 		quarantined,
 		providerUsageRecorded,
 		remainingAtLeast:
-			rows.length === SETTLEMENT_BATCH_SIZE ||
+			scan.calls.length === SETTLEMENT_BATCH_SIZE ||
+			scan.moreAbove ||
 			providerRows.length === PROVIDER_USAGE_BATCH_SIZE
 				? 1
 				: 0,
