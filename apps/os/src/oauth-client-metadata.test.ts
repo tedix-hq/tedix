@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { MEMBER_CLIENT_SCOPE } from "@tedix/mcp-shared/auth/consent-scopes";
 import {
 	handleOAuthClientMetadata,
 	TEDIX_CLI_CLIENT_METADATA,
@@ -47,7 +48,7 @@ describe("Tedix CLI client metadata", () => {
 			grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"],
 			token_endpoint_auth_method: "none",
-			scope: "mcp:apps.read mcp:work.read",
+			scope: MEMBER_CLIENT_SCOPE,
 		});
 		const head = handleOAuthClientMetadata(new Request(id, { method: "HEAD" }));
 		expect(head?.status).toBe(200);
@@ -76,6 +77,7 @@ describe("Tedix CLI client metadata", () => {
 			grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"],
 			token_endpoint_auth_method: "none",
+			scope: MEMBER_CLIENT_SCOPE,
 		});
 	});
 

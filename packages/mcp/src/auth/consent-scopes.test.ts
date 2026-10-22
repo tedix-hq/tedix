@@ -3,6 +3,7 @@ import {
 	isReadOnlyConsentSelection,
 	selectConsentPreset,
 	HUMAN_CONNECT_CONSENT_SCOPES,
+	MEMBER_CLIENT_SCOPE,
 	selectConnectConsentRequestScopes,
 } from "./consent-scopes";
 describe("human consent presets", () => {
@@ -79,4 +80,16 @@ it("offers platform authority only when explicitly requested and advertised", ()
 	expect(selectConnectConsentRequestScopes(["mcp:apps.read"], true)).toEqual([
 		"mcp:apps.read",
 	]);
+});
+
+it("declares a member client scope with reads and writes but no administration", () => {
+	const scopes = MEMBER_CLIENT_SCOPE.split(" ");
+	expect(scopes).toContain("offline_access");
+	expect(scopes).toContain("mcp:work.write");
+	expect(scopes).toContain("connections.execute");
+	expect(
+		scopes.filter(
+			(scope) => scope.endsWith(".admin") || scope === "platform:admin",
+		),
+	).toEqual([]);
 });

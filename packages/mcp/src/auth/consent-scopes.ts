@@ -32,6 +32,32 @@ const readScopes = new Set<string>([
 export function isReadConsentScope(scope: string): boolean {
 	return readScopes.has(scope);
 }
+const protocolScopes = new Set<string>(CONSENT_PROTOCOL_SCOPES);
+const humanCapabilityScopes = new Set<string>([
+	...HUMAN_CONNECT_CONSENT_SCOPES,
+	...TEDI_MCP_SCOPES,
+]);
+/**
+ * The default human grant: read and write, never administration. Unknown
+ * scopes are excluded even when their prefix looks harmless. A host that needs
+ * more steps up through an insufficient_scope challenge.
+ */
+export function isMemberConsentScope(scope: string): boolean {
+	if (protocolScopes.has(scope)) return true;
+	if (!humanCapabilityScopes.has(scope)) return false;
+	return (
+		isReadConsentScope(scope) ||
+		scope.endsWith(".write") ||
+		scope === "connections.execute"
+	);
+}
+/** What a third-party MCP host declares and is first asked to request. */
+export const MEMBER_CLIENT_SCOPE = [
+	...CONSENT_PROTOCOL_SCOPES,
+	...HUMAN_CONNECT_CONSENT_SCOPES,
+]
+	.filter(isMemberConsentScope)
+	.join(" ");
 export function selectConsentPreset(
 	offered: readonly { name: string; required?: boolean }[],
 	preset: Exclude<HumanConsentPreset, "custom">,

@@ -1,5 +1,7 @@
 import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
 import { hasScope, toolToScope } from "@tedix/mcp-shared/auth/scopes";
+import { isMemberConsentScope } from "@tedix/mcp-shared/auth/consent-scopes";
+import { protectedResourceScopes } from "./well-known";
 import { collectAdvertisedScopes } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import {
 	buildWwwAuthenticate,
@@ -139,8 +141,21 @@ export async function enforceMcpAccess(params: {
 		const hasOAuth =
 			advertisedScopes.length > 0 ||
 			Boolean(metadata?.mcpConfig?.protectedResourceMetadata);
+		// MCP hosts request the challenge scope, else every advertised scope
+		// (platform:admin included). Start explicit metadata at the member grant;
+		// administration arrives through an insufficient_scope step-up.
+		const protectedResource = metadata?.mcpConfig?.protectedResourceMetadata;
 		const wwwAuth = hasOAuth
-			? buildWwwAuthenticate(hostname)
+			? buildWwwAuthenticate(
+					hostname,
+					undefined,
+					undefined,
+					protectedResource
+						? protectedResourceScopes(protectedResource).filter(
+								isMemberConsentScope,
+							)
+						: undefined,
+				)
 			: 'Bearer realm="MCP"';
 
 		return {
