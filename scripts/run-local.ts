@@ -294,20 +294,58 @@ async function assertLauncherPortsAvailable(): Promise<void> {
 
 const DEMO_STATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function waitForLocalDemo(
-	timeoutMs = READY_TIMEOUT_MS,
+async function waitUntilReady(
+	isReady: (signal: AbortSignal) => Promise<boolean>,
+	timeoutMs: number,
+	label: string,
 ): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
 		const signal = AbortSignal.timeout(
 			Math.max(1, Math.min(5000, deadline - Date.now())),
 		);
-		if ((await isApiReady(signal)) && (await isOsReady(signal))) {
-			return;
-		}
+		if (await isReady(signal)) return;
 		await Bun.sleep(Math.max(0, Math.min(500, deadline - Date.now())));
 	}
-	throw new Error(`Local Tedix did not become ready within ${timeoutMs}ms`);
+	throw new Error(`${label} did not become ready within ${timeoutMs}ms`);
+}
+
+export function waitForLocalApi(timeoutMs = READY_TIMEOUT_MS): Promise<void> {
+	return waitUntilReady(isApiReady, timeoutMs, "The local API");
+}
+
+export function waitForLocalDemo(timeoutMs = READY_TIMEOUT_MS): Promise<void> {
+	return waitUntilReady(
+		async (signal) => (await isApiReady(signal)) && (await isOsReady(signal)),
+		timeoutMs,
+		"Local Tedix",
+	);
+}
+
+/**
+ * The servers start in two stages over one persistence directory.
+ *
+ * Every local Workers runtime opens the shared Miniflare metadata databases
+ * under `v3/{cache,d1,kv,r2,observability}` (and the API and MCP gateway both
+ * open `v3/ratelimit`) while it boots. When several runtimes create or recover
+ * the same SQLite write-ahead log at once, the loser fails fatally with
+ * SQLITE_BUSY_RECOVERY. The API owns the shared D1 state, so it boots alone;
+ * the MCP gateway and Tedix OS start only once the API is healthy, when those
+ * databases are already open and need no recovery.
+ */
+export const LOCAL_STACK_STAGES = [
+	["@tedix/api"],
+	["@tedix/mcp", "@tedix/os"],
+] as const;
+
+export function localStackStageCommand(packages: readonly string[]): string[] {
+	return [
+		"vp",
+		"run",
+		...(packages.length > 1 ? ["--parallel"] : []),
+		...packages.flatMap((name) => ["--filter", name]),
+		"dev:local-launcher",
+	];
 }
 
 function stopProcessGroup(child: ChildProcess): void {
@@ -429,16 +467,6 @@ async function main(): Promise<void> {
 	await assertLauncherPortsAvailable();
 	console.log("→ Starting the API, MCP gateway and Tedix OS");
 
-	const stack = spawn("bun", ["run", "dev:local:demo-stack"], {
-		stdio: options.verbose
-			? ["ignore", "inherit", "inherit"]
-			: ["ignore", "pipe", "pipe"],
-		detached: true,
-		env: {
-			...process.env,
-			...localEnvironment,
-		},
-	});
 	// Three servers print hundreds of lines; keep them in a file so the ready
 	// lines stay visible. --verbose streams them here instead.
 	const serverLogPath = options.smoke ? null : join(statePath, "server.log");
@@ -452,33 +480,61 @@ async function main(): Promise<void> {
 		serverLog?.write(chunk);
 		capturedOutput = `${capturedOutput}${chunk.toString()}`.slice(-64_000);
 	};
-	stack.stdout?.on("data", capture);
-	stack.stderr?.on("data", capture);
+	interface StackExit {
+		error?: Error;
+		code: number | null;
+		signal: NodeJS.Signals | null;
+	}
+	// The first stage to exit or fail ends the whole stack.
+	let settleExit: (exit: StackExit) => void = () => {};
+	const stackExit = new Promise<StackExit>((resolve) => {
+		settleExit = resolve;
+	});
+	const stages: ChildProcess[] = [];
+	const startStage = (packages: readonly string[]) => {
+		if (stopping) throw new Error("Stopped before Local Tedix was ready");
+		const stage = spawn("bunx", localStackStageCommand(packages), {
+			stdio: options.verbose
+				? ["ignore", "inherit", "inherit"]
+				: ["ignore", "pipe", "pipe"],
+			detached: true,
+			env: {
+				...process.env,
+				...localEnvironment,
+			},
+		});
+		stage.stdout?.on("data", capture);
+		stage.stderr?.on("data", capture);
+		stage.once("error", (error) =>
+			settleExit({ error, code: null, signal: null }),
+		);
+		stage.once("exit", (code, signal) => settleExit({ code, signal }));
+		stages.push(stage);
+	};
+	const readyBeforeExit = async (ready: Promise<void>) => {
+		const exit = await Promise.race([ready.then(() => null), stackExit]);
+		if (exit)
+			throw new Error(
+				exit.error?.message ??
+					`stack exited with ${exit.code ?? exit.signal ?? "unknown"}`,
+			);
+	};
 	let stopping = false;
 	const stop = () => {
 		if (stopping) return;
 		stopping = true;
-		stopProcessGroup(stack);
+		for (const stage of stages) stopProcessGroup(stage);
 	};
 	process.once("SIGINT", stop);
 	process.once("SIGTERM", stop);
 
 	try {
-		const startup = await Promise.race([
-			waitForLocalDemo().then(() => ({ ready: true as const })),
-			new Promise<{ ready: false; detail: string }>((resolve) => {
-				stack.once("error", (error) =>
-					resolve({ ready: false, detail: error.message }),
-				);
-				stack.once("exit", (code, signal) =>
-					resolve({
-						ready: false,
-						detail: `stack exited with ${code ?? signal ?? "unknown"}`,
-					}),
-				);
-			}),
-		]);
-		if (!startup.ready) throw new Error(startup.detail);
+		const readyDeadline = Date.now() + READY_TIMEOUT_MS;
+		const [apiStage, gatewayAndOsStage] = LOCAL_STACK_STAGES;
+		startStage(apiStage);
+		await readyBeforeExit(waitForLocalApi(readyDeadline - Date.now()));
+		startStage(gatewayAndOsStage);
+		await readyBeforeExit(waitForLocalDemo(readyDeadline - Date.now()));
 		console.log(`\n✓ Tedix OS: ${LOCAL_OS_URL}`);
 		console.log(`✓ API health: ${LOCAL_API_URL}/health`);
 		console.log(LOCAL_LOOPBACK_MESSAGE);
@@ -520,18 +576,12 @@ async function main(): Promise<void> {
 			);
 			stop();
 		} else {
-			await new Promise<void>((resolve, reject) => {
-				stack.once("error", reject);
-				stack.once("exit", (code, signal) => {
-					if (stopping || code === 0 || signal === "SIGTERM") resolve();
-					else
-						reject(
-							new Error(
-								`Local stack exited with ${code ?? signal ?? "unknown"}`,
-							),
-						);
-				});
-			});
+			const exit = await stackExit;
+			if (exit.error) throw exit.error;
+			if (!stopping && exit.code !== 0 && exit.signal !== "SIGTERM")
+				throw new Error(
+					`Local stack exited with ${exit.code ?? exit.signal ?? "unknown"}`,
+				);
 		}
 	} catch (error) {
 		if (capturedOutput) console.error(`\n${capturedOutput.trim()}\n`);

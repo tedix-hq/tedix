@@ -7,9 +7,12 @@ import {
 	LOCAL_API_URL,
 	LOCAL_LOOPBACK_MESSAGE,
 	LOCAL_OS_URL,
+	LOCAL_STACK_STAGES,
 	defaultLocalRunState,
+	localStackStageCommand,
 	localInferenceEnvironment,
 	parseRunLocalOptions,
+	waitForLocalApi,
 	waitForLocalDemo,
 	assertSupportedNodeRuntime,
 } from "./run-local";
@@ -136,6 +139,59 @@ describe("run-local options", () => {
 			expect(Date.now() - started).toBeLessThan(1000);
 		} finally {
 			globalThis.fetch = originalFetch;
+		}
+	});
+	test("bounds API readiness for the first stack stage", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (() =>
+			Promise.resolve(
+				new Response("starting", { status: 503 }),
+			)) as unknown as typeof fetch;
+		try {
+			await expect(waitForLocalApi(30)).rejects.toThrow(
+				"The local API did not become ready within 30ms",
+			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+	test("boots the API alone before the servers that share its local state", async () => {
+		// Concurrent first opens of the shared Miniflare SQLite metadata failed
+		// with SQLITE_BUSY_RECOVERY; the API stage must own them first.
+		expect(LOCAL_STACK_STAGES).toEqual([
+			["@tedix/api"],
+			["@tedix/mcp", "@tedix/os"],
+		]);
+		expect(localStackStageCommand(LOCAL_STACK_STAGES[0])).toEqual([
+			"vp",
+			"run",
+			"--filter",
+			"@tedix/api",
+			"dev:local-launcher",
+		]);
+		expect(localStackStageCommand(LOCAL_STACK_STAGES[1])).toEqual([
+			"vp",
+			"run",
+			"--parallel",
+			"--filter",
+			"@tedix/mcp",
+			"--filter",
+			"@tedix/os",
+			"dev:local-launcher",
+		]);
+		const root = join(import.meta.dir, "..");
+		for (const [workspace, name] of [
+			["apps/api", "@tedix/api"],
+			["apps/mcp", "@tedix/mcp"],
+			["apps/os", "@tedix/os"],
+		] as const) {
+			const manifest = (await Bun.file(
+				join(root, workspace, "package.json"),
+			).json()) as { name: string; scripts: Record<string, string> };
+			expect(manifest.name).toBe(name);
+			expect(manifest.scripts["dev:local-launcher"]).toContain(
+				"scripts/dev-local.ts",
+			);
 		}
 	});
 	test("installs dependencies and stays running by default", () => {
