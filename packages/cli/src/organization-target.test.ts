@@ -28,6 +28,27 @@ const base = {
 };
 
 describe("CLI organization target", () => {
+	test("routes explicit organizations without token selection claims", () => {
+		for (const accessToken of [undefined, "opaque-bearer", token(undefined)]) {
+			for (const target of [
+				{ organization: "org_example" },
+				{ environmentOrganization: " org_example " },
+			]) {
+				expect(
+					resolveOrganizationTarget({ ...base, accessToken, ...target }),
+				).toEqual({
+					headers: { "X-Tedix-Organization": "org_example" },
+					workspace: JSON.stringify(["connect", "org_example"]),
+					organization: "org_example",
+				});
+			}
+		}
+	});
+	test("missing token selection explains how to supply a routing target", () => {
+		expect(() =>
+			resolveOrganizationTarget({ ...base, accessToken: "opaque-bearer" }),
+		).toThrow("--organization <id-or-slug> or set TEDIX_ORGANIZATION");
+	});
 	test("ambiguity lists every selected ID and the exact flag to add", () => {
 		expect(() =>
 			resolveOrganizationTarget({
