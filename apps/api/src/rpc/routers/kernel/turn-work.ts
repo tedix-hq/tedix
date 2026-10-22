@@ -66,6 +66,7 @@ import {
 } from "@tedix/db/queries/approvals";
 import {
 	getKernelRuntimeRun,
+	readLatestRunAwaitingDelegationApproval,
 	transitionKernelRuntimeRunStatus,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -786,7 +787,7 @@ export async function runKernelTurnWork(
 	const executionAttempts: KernelExecutionAttempt[] = [];
 	let billingDenialCode: BillingPolicyDenialCode | null = null;
 	let residencyDenialMessage: string | null = null;
-	const kernelResult = await deps
+	let kernelResult = await deps
 		.kernel({
 			holdDecisionWork: deps.holdAfterSettle,
 			onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
@@ -917,6 +918,30 @@ export async function runKernelTurnWork(
 			}
 			return null;
 		});
+	// A follow-up must not bypass or multiply an unresolved decision. Keep the
+	// original payload immutable; changing it requires rejecting that card first.
+	const pendingDelegation =
+		!observeOnly &&
+		kernelResult?.delegation &&
+		kernelResult.route.routeKind === "delegate_tedi"
+			? await readLatestRunAwaitingDelegationApproval(deps.db, {
+					organizationId,
+					conversationId,
+					excludeRunId: runId,
+					targetTediId: kernelResult.delegation.workOrder.targetTediId,
+				})
+			: null;
+	const pendingDelegationRunId = pendingDelegation?.id ?? null;
+	if (pendingDelegationRunId && kernelResult) {
+		const label =
+			kernelResult.delegation?.workOrder.targetTediLabel ?? "this worker";
+		kernelResult = {
+			...kernelResult,
+			route: { ...kernelResult.route, routeKind: "answer_in_home" },
+			delegation: null,
+			assistantContent: `A delegation to ${label} is already waiting for a decision on the existing card. No additional request was dispatched. To change the request, reject that card first, then describe the updated task.`,
+		};
+	}
 	stageTimings.mark("routePlanEnded");
 	// The streamed pass is over: persist the trailing answer/rationale partial
 	// now, before `settledAt` is read below, so the last delta row sorts ahead
@@ -1572,6 +1597,7 @@ export async function runKernelTurnWork(
 				}
 			: {}),
 		kernelEvidence: null,
+		...(pendingDelegationRunId ? { pendingDelegationRunId } : {}),
 		// delegate_tedi authorization evidence: the constructed work order + the
 		// fail-closed dispatch verdict (mode auto|needs_approval|blocked). Recorded
 		// for observability + the next-slice auto-dispatch; null on non-delegation

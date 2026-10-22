@@ -641,6 +641,7 @@ export async function readLatestRunAwaitingDelegationApproval(
 		organizationId: string;
 		conversationId: string;
 		excludeRunId: string;
+		targetTediId?: string;
 	},
 ): Promise<KernelRuntimeRun | null> {
 	const [row] = await db
@@ -653,6 +654,9 @@ export async function readLatestRunAwaitingDelegationApproval(
 				eq(kernelRuntimeRuns.status, "requires_approval"),
 				ne(kernelRuntimeRuns.id, input.excludeRunId),
 				isNull(kernelRuntimeRuns.childRunId),
+				input.targetTediId
+					? sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = ${input.targetTediId}`
+					: undefined,
 				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.decision.mode') = 'needs_approval'`,
 				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`,
 				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = 'text' AND length(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId')) > 0`,

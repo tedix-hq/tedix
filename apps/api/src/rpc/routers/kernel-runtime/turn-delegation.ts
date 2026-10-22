@@ -53,7 +53,7 @@ import {
 	stringFromPayload,
 } from "../kernel/runtime-shared";
 import { createDelegationWorkItem } from "../kernel/delegation-work-item";
-import { createRouterClient } from "@orpc/server";
+import { createRouterClient, ORPCError } from "@orpc/server";
 import { ensureActiveKernelHarnessVersion } from "../../../services/harness-persistence";
 import { generateAndPersistHomeConversationTitle } from "../kernel/conversation-title";
 import { getOrganizationTedi } from "@tedix/db/queries/kernel-runtime-support";
@@ -935,7 +935,10 @@ export async function resolveApprovalByChatReply(
 				tool,
 				targetKind: "delegation",
 				runStatus: null,
-				error: errorMessage(error).slice(0, 300),
+				error:
+					error instanceof ORPCError && error.code === "FORBIDDEN"
+						? "An organization owner or admin must decide this delegation. Your account cannot approve or reject it."
+						: errorMessage(error).slice(0, 300),
 			};
 		}
 	}

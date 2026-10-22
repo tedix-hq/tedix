@@ -752,7 +752,9 @@ export function approvalsFromRunSet(
 		const targetLabel = asString(workOrder?.targetTediLabel);
 		const tediName =
 			targetLabel ?? (targetTediId ? (tediNames[targetTediId] ?? null) : null);
-		const holdReason = asString(decision.reason);
+		const holdReason =
+			asString(decision.reason) ??
+			"Organization policy requires approval before this delegation can start.";
 		if (TERMINAL_RUN_STATUSES.has(run.status)) {
 			return [
 				{
@@ -923,6 +925,7 @@ export function ApprovalCard({
 	const expired = approval.expired === true;
 	const decisionMode = approval.decisionMode ?? "approve_or_reject";
 	const actionable = !expired && decisionMode === "approve_or_reject";
+	const isDelegation = approval.approvalId.startsWith("home-delegation:");
 	return (
 		<li
 			data-slot="approval-card"
@@ -951,7 +954,7 @@ export function ApprovalCard({
 					>
 						{sanitizeUntrustedText(approval.summary)}
 					</Text>
-					{actionable ? (
+					{actionable && !isDelegation ? (
 						<ApprovalDecisionCopy
 							approval={{
 								actionType: "home_request",
@@ -977,21 +980,37 @@ export function ApprovalCard({
 						) : null}
 					</Text>
 					{approval.detail ? (
-						<Collapsible>
-							<CollapsibleTrigger className="group/disclosure">
-								<CaretRight
-									size={14}
-									aria-hidden
-									className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-								/>
-								Details
-							</CollapsibleTrigger>
-							<CollapsibleContent keepMounted>
-								<pre className="whitespace-pre-wrap break-words text-sm">
-									{sanitizeUntrustedText(approval.detail)}
-								</pre>
-							</CollapsibleContent>
-						</Collapsible>
+						approval.detailDisclosure ? (
+							<Collapsible>
+								<CollapsibleTrigger className="group/disclosure">
+									<CaretRight
+										size={14}
+										aria-hidden
+										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+									/>
+									Details
+								</CollapsibleTrigger>
+								<CollapsibleContent keepMounted>
+									<pre className="whitespace-pre-wrap break-words text-sm">
+										{sanitizeUntrustedText(approval.detail)}
+									</pre>
+								</CollapsibleContent>
+							</Collapsible>
+						) : (
+							<Text as="p" role="body" className="break-words">
+								{sanitizeUntrustedText(approval.detail)}
+							</Text>
+						)
+					) : null}
+					{actionable && isDelegation ? (
+						<Text as="p" role="label" tone="secondary">
+							An organization owner or admin can decide. Approving sends this
+							request to{" "}
+							{sanitizeUntrustedText(
+								approval.tediName ?? "the selected worker",
+							)}
+							.
+						</Text>
 					) : null}
 					{expired ? (
 						<Text as="span" role="label" tone="error">

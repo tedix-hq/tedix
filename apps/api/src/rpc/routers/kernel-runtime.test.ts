@@ -10392,13 +10392,41 @@ describe("home approved-write layer (v1)", () => {
 						},
 					}),
 				);
-				const kernel = vi.fn();
+				const kernel = vi.fn(
+					async () =>
+						({
+							route: {
+								routeKind: "delegate_tedi",
+								targetTediId: "tedi-cpo",
+								targetTediLabel: "CPO",
+								risk: "high",
+							},
+							assistantContent: "Approve delegation to CPO",
+							delegation: db.runs[0]!.metadata!.homeDelegation,
+						}) as unknown as KernelResult,
+				);
 				kernelRuntimeTestHooks.setKernelForTest(kernel);
 				const runner = vi.fn(async (input: { childRunId: string }) => ({
 					childRunId: input.childRunId,
 					status: "queued" as const,
 				}));
 				kernelRuntimeTestHooks.setDelegateRunnerForTest(runner);
+				for (const key of ["follow-up-one", "follow-up-two"]) {
+					const followUp = await client.enqueueMessage({
+						conversationId: "home:test",
+						content: "Please continue with that request",
+						idempotencyKey: key,
+					});
+					expect(followUp.run.status).toBe("completed");
+					expect(followUp.run.metadata?.pendingDelegationRunId).toBe(
+						"held-delegation",
+					);
+					expect(
+						db.runs.filter((run) => run.status === "requires_approval"),
+					).toHaveLength(1);
+					expect(runner).not.toHaveBeenCalled();
+				}
+				kernel.mockClear();
 				const result = await client.enqueueMessage({
 					conversationId: "home:test",
 					content: decision,
@@ -10408,13 +10436,13 @@ describe("home approved-write layer (v1)", () => {
 				expect(runner).toHaveBeenCalledTimes(
 					!member && decision === "approve" ? 1 : 0,
 				);
-				expect(db.runs).toHaveLength(2);
+				expect(db.runs).toHaveLength(4);
 				if (member) {
 					expect(result.status).toBe("failed");
 					expect(
 						db.runs.find((run) => run.id === "held-delegation")?.status,
 					).toBe("requires_approval");
-					expect(result.assistantMessage?.content).toContain("tedis:update");
+					expect(result.assistantMessage?.content).toContain("owner or admin");
 				} else {
 					expect(result.assistantMessage?.content).toContain(
 						decision === "approve"
