@@ -97,6 +97,14 @@ async function runCase(browser: Browser, c: Case) {
 	});
 	try {
 		const page: Page = await context.newPage();
+		// Use deterministic Quick Chat branding for this fixture.
+		await page.route(
+			"https://api.tedix.dev/widget/branding/pricepilot?locale=en-US",
+			async (route) => {
+				assert.equal(route.request().method(), "GET");
+				await route.fulfill({ json: { branding: {} } });
+			},
+		);
 		page.on("pageerror", (e) => diagnostics.push(`pageerror: ${e.message}`));
 		page.on("console", (m) => {
 			if (m.type() === "error") diagnostics.push(`console: ${m.text()}`);
@@ -199,6 +207,10 @@ async function runCase(browser: Browser, c: Case) {
 		);
 		await page.keyboard.press("Enter");
 		await page.getByRole("menuitem", { name: "Rename", exact: true }).waitFor();
+		await page
+			.getByRole("menuitem", { name: "Rename", exact: true })
+			.and(page.locator(":focus"))
+			.waitFor();
 		await page.keyboard.press("Escape");
 		await page.waitForFunction(
 			(label) => document.activeElement?.getAttribute("aria-label") === label,
