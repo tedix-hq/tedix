@@ -1,17 +1,31 @@
 import { startFixtureServer } from "./fixture-server";
+import { shardSpecs } from "./spec-shards";
 
 /**
  * Runs browser specs one after another against one fixture server, so a job
  * pays one cold Vite start instead of one per spec. Every spec runs even after
  * an earlier one fails; the exit code is non-zero if any failed.
+ * `--shard i/n` runs only every n-th spec, as assigned by the CI matrix.
  *
  *   bun browser-tests/run-specs.ts browser-tests/deck.spec.ts ...
  */
-const specs = process.argv.slice(2);
+const args = process.argv.slice(2);
+const shardFlag = args.indexOf("--shard");
+const shard = shardFlag < 0 ? "1/1" : (args[shardFlag + 1] ?? "");
+if (shardFlag >= 0) args.splice(shardFlag, 2);
+const specs = shardSpecs(args, shard);
 if (specs.length === 0) {
-	console.error("Usage: bun browser-tests/run-specs.ts <spec>...");
+	console.error(
+		args.length === 0
+			? "Usage: bun browser-tests/run-specs.ts <spec>... [--shard i/n]"
+			: `[run-specs] shard ${shard} selects none of ${args.length} specs`,
+	);
 	process.exit(2);
 }
+if (shardFlag >= 0)
+	console.log(
+		`[run-specs] shard ${shard}: ${specs.length} of ${args.length} specs`,
+	);
 const started = performance.now();
 const server = await startFixtureServer();
 const seconds = (since: number) =>

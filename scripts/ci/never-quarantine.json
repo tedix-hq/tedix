@@ -1,6 +1,6 @@
 [
 	"security|auth|billing|migration|permission|tenant|credential|payment",
 	"focus-clip\\.spec\\.ts",
-	"shell\\.spec\\.ts",
+	"shell[a-z-]*\\.spec\\.ts",
 	"topbar\\.spec\\.ts"
 ]

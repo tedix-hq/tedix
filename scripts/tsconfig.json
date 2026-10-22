@@ -20,6 +20,7 @@
 		"ci/notify-repository-observer.mjs",
 		"ci/notify-repository-observer.test.ts",
 		"ci/sanitize-html.test.ts",
+		"ci/spec-shards.test.ts",
 		"dev/**/*.ts",
 		"eval/memory-bench/**/*.ts",
 		"eval/decision-graph/*.mjs",
