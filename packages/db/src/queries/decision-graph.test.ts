@@ -37,6 +37,19 @@ function fixture() {
 	sqlite
 		.prepare("INSERT INTO organizations(id,name,slug) VALUES(?,?,?),(?,?,?)")
 		.run(ORG, "Lighthouse", "lighthouse", OTHER_ORG, "Harbor", "harbor");
+	sqlite.exec(`
+		CREATE TABLE work_items (
+			id TEXT PRIMARY KEY,
+			org_id TEXT NOT NULL,
+			title TEXT NOT NULL,
+			disposition TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+		INSERT INTO work_items(id,org_id,title,disposition,created_at) VALUES
+			('work-github-audit','${ORG}','Audit access','accepted','2026-10-21T08:00:00.000Z'),
+			('work-release-train','${ORG}','Release train','accepted','2026-10-21T08:00:00.000Z'),
+			('work-ci-runners','${ORG}','CI runners','accepted','2026-10-21T08:00:00.000Z')
+	`);
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	const count = () =>
 		Number(
@@ -373,6 +386,17 @@ describe("decision graph", () => {
 		try {
 			await upsertDecisionEdges(f.db, ORG, githubCardEdges);
 			expect(await countBlocked(f.db, ORG, "work-github-audit")).toBe(2);
+			f.sqlite
+				.prepare("UPDATE work_items SET disposition = 'completed' WHERE id = ?")
+				.run("work-release-train");
+			expect(await countBlocked(f.db, ORG, "work-github-audit")).toBe(1);
+			f.sqlite
+				.prepare("UPDATE work_items SET disposition = 'cancelled' WHERE id = ?")
+				.run("work-ci-runners");
+			expect(await countBlocked(f.db, ORG, "work-github-audit")).toBe(0);
+			expect(
+				(await getDecisionContext(f.db, ORG, "card-github")).blocksCount,
+			).toBe(0);
 			expect(await countBlocked(f.db, ORG, "work-release-train")).toBe(0);
 			expect(await countBlocked(f.db, OTHER_ORG, "work-github-audit")).toBe(0);
 		} finally {

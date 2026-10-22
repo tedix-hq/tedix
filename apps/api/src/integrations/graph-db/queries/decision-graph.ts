@@ -112,8 +112,12 @@ export function blocksReachQuery() {
 				OPTIONAL MATCH (start)-[:DG_CARD_FROM_WORK]->(work:DecisionNode {orgId: $orgId})
 				WITH collect(DISTINCT start) + collect(DISTINCT work) AS starts
 				UNWIND starts AS origin
-				OPTIONAL MATCH (origin)-[:DG_BLOCKS*1..${DECISION_GRAPH_WALK_HOPS}]->(blocked:DecisionNode {orgId: $orgId})
+				OPTIONAL MATCH path = (origin)-[:DG_BLOCKS*1..${DECISION_GRAPH_WALK_HOPS}]->(blocked:DecisionNode {orgId: $orgId})
 				WHERE NOT blocked IN starts
+					AND all(node IN nodes(path) WHERE node.kind <> 'work_item' OR NOT EXISTS {
+						MATCH (work:WorkItem {orgId: $orgId, id: node.id})
+						WHERE work.disposition IN ['completed', 'cancelled']
+					})
 				RETURN count(DISTINCT blocked) AS reach
 			}
 			RETURN card.id AS cardId, reach
