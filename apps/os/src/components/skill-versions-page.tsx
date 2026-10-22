@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
@@ -15,7 +16,7 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { ListQueryBoundary } from "@/components/list-query-boundary";
+import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	Table,
 	TableBody,
@@ -37,6 +38,8 @@ export function SkillVersionsPage() {
 	const { skillId } = useParams({ from: "/_session/_tenant/skills/$skillId" });
 	const detail = useQuery(skillDetailQueryOptions(skillId));
 	const revisions = useQuery(skillRevisionsQueryOptions(skillId));
+	const currentRevision = detail.isSuccess ? detail.data.entry?.revision : null;
+	const canVerifyCurrent = currentRevision != null;
 	const sorted = [...(revisions.data?.revisions ?? [])].sort(
 		(a, b) => (b.revision ?? 0) - (a.revision ?? 0),
 	);
@@ -53,6 +56,30 @@ export function SkillVersionsPage() {
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
+			{detail.isPending ? (
+				<Text role="label" tone="secondary" className="m-0" aria-live="polite">
+					Checking current version…
+				</Text>
+			) : !canVerifyCurrent ? (
+				<Alert variant="warning">
+					<AlertTitle>Current version verification unavailable</AlertTitle>
+					<AlertDescription>
+						Current badges and revision reasoning cannot be verified until skill
+						details load.
+						{detail.isError && detail.error instanceof Error
+							? ` ${detail.error.message}`
+							: null}
+					</AlertDescription>
+					<Button
+						variant="outline"
+						className="mt-2 min-h-11 w-fit"
+						disabled={detail.isFetching}
+						onClick={() => void detail.refetch()}
+					>
+						Retry skill details
+					</Button>
+				</Alert>
+			) : null}
 			{revisions.data ? (
 				<Text role="label" tone="secondary" className="m-0">
 					Based on {formatCount(revisions.data.sampledRunCount)} runs
@@ -62,7 +89,32 @@ export function SkillVersionsPage() {
 					.
 				</Text>
 			) : null}
-			<ListQueryBoundary query={revisions} errorTitle="Versions unavailable" />
+			{revisions.isPending ? <ListSkeleton /> : null}
+			{revisions.isError ? (
+				<Alert variant={revisions.data ? "warning" : "destructive"}>
+					<AlertTitle>
+						{revisions.data
+							? "Versions could not refresh"
+							: "Versions unavailable"}
+					</AlertTitle>
+					<AlertDescription>
+						{revisions.data
+							? "Showing previously loaded execution evidence. "
+							: null}
+						{revisions.error instanceof Error
+							? revisions.error.message
+							: "The versions could not be read."}
+					</AlertDescription>
+					<Button
+						variant="outline"
+						className="mt-2 min-h-11 w-fit"
+						disabled={revisions.isFetching}
+						onClick={() => void revisions.refetch()}
+					>
+						Retry versions
+					</Button>
+				</Alert>
+			) : null}
 			{revisions.data &&
 				(sorted.length === 0 ? (
 					<Empty appearance="inline">
@@ -81,7 +133,9 @@ export function SkillVersionsPage() {
 						<TableBody>
 							{sorted.map((revision) => {
 								const current =
-									revision.revision === detail.data?.entry?.revision;
+									canVerifyCurrent &&
+									revision.revision != null &&
+									revision.revision === currentRevision;
 								return (
 									<TableRow key={revision.runId}>
 										<TableCell className="whitespace-normal align-top">
@@ -94,7 +148,7 @@ export function SkillVersionsPage() {
 												) : null}
 											</span>
 										</TableCell>
-										<TableCell className="whitespace-normal align-top space-y-1">
+										<TableCell className="min-w-0 whitespace-normal align-top space-y-1 [overflow-wrap:anywhere]">
 											<Text as="span" role="label" tone="secondary">
 												Observed {formatCount(revision.observedRunCount)} times
 												· {formatCount(revision.completedCount)} completed ·{" "}
@@ -125,13 +179,13 @@ export function SkillVersionsPage() {
 														<Button
 															size="sm"
 															variant="ghost"
-															className="w-fit px-0"
+															className="min-h-11 w-fit min-w-11 px-2 sm:min-h-8"
 														/>
 													}
 												>
 													Technical evidence
 												</CollapsibleTrigger>
-												<CollapsibleContent className="grid gap-1 pb-2">
+												<CollapsibleContent className="grid min-w-0 gap-1 pb-2 [overflow-wrap:anywhere]">
 													{[
 														[
 															"Workflow SHA-256",
