@@ -129,13 +129,19 @@ Schema changes use Drizzle generation and Wrangler's D1 migration ledger. The
 repository keeps every `migration.sql` and its `snapshot.json` under
 `drizzle/<timestamp>_<slug>/`; Wrangler's `migrations_pattern` reads that layout
 directly. Commit both files. The snapshots are Drizzle Kit's state ledger, not
-an artifact: each carries an `id` and `prevIds`, and `generate` runs
-`drizzle-kit check` across the whole set to find branch points, merging
-commutative branches and reporting a conflicting fork with its fork point. A
-missing snapshot makes the next generated migration record the wrong parent and
-silently disables that detection. They are cheap to keep — about 0.5 MB packed
-in git, because near-identical JSON deltas well — and `.gitattributes` marks
-them generated so they stay out of diffs and reviews.
+an artifact: each carries an `id` and `prevIds`, and `drizzle-kit check`
+(`db:migrate:collision-check`) validates the whole set on every run and walks
+the chain to find branch points, merging commutative branches and reporting a
+conflicting fork with its fork point. A missing snapshot makes the next
+generated migration record the wrong parent and silently disables that
+detection, so the full chain stays committed even though only the newest
+snapshot feeds `generate`. The recorded decision is to accept the checkout
+weight — the set is a few hundred megabytes in the working tree (about 340 MB
+in October 2026), though it packs to about 0.5 MB per snapshot in git because
+near-identical JSON deltas well. A worktree that never runs `db:migrate:*` may
+instead exclude `packages/db/drizzle` with `git sparse-checkout`.
+`.gitattributes` marks the snapshots generated so they stay out of diffs and
+reviews.
 
 A few intermediate snapshots are labeled reconstructions of SQL-replay states
 rather than original generated files. Their IDs link the neighbouring
