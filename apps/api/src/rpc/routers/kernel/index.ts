@@ -64,14 +64,13 @@ import type {
 	CacheTrace,
 	KernelContextCache,
 } from "../../../kernel/context-cache";
+import { assembleHomeContext, type KernelContext } from "./context-assembly";
 import {
-	assembleHomeContext,
 	DEFAULT_MAX_PROMPT_TOKENS,
-	type KernelContext,
 	maxPromptTokensForWindow,
-	renderHomeInventory,
 	WORKERS_AI_CONTEXT_WINDOW_TOKENS,
-} from "./context-assembly";
+} from "./context-relevance";
+import { renderHomeInventory } from "./context-render";
 import {
 	type HomeInventorySnapshot,
 	resolveInventorySnapshot,

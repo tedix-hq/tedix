@@ -377,7 +377,10 @@ describe("assembleHomeContext — history compaction", () => {
 		expect(ctx.history[1]?.role).toBe("user");
 		// And the whole thing now fits — measured the way the guard measures it,
 		// fixed system-prompt reserve included.
-		const assembly = await import("./context-assembly");
+		const assembly = {
+			...(await import("./context-relevance")),
+			...(await import("./context-render")),
+		};
 		const chars =
 			assembly.SYSTEM_PROMPT_RESERVE_CHARS +
 			renderedLength(ctx.history) +

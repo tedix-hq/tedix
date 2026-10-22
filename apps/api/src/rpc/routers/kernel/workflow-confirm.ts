@@ -15,7 +15,7 @@
  * only detects the intent and reads the pending state.
  */
 
-import { stripLocalTerminalContext } from "./context-assembly";
+import { stripLocalTerminalContext } from "./context-history";
 
 export { readPendingWorkflowHint } from "@tedix/db/queries/kernel-runtime-runs";
 

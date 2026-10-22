@@ -13,10 +13,8 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { KernelContextCache } from "../../../kernel/context-cache";
-import {
-	assembleHomeContext,
-	renderHomeContextPrompt,
-} from "./context-assembly";
+import { assembleHomeContext } from "./context-assembly";
+import { renderHomeContextPrompt } from "./context-render";
 
 describe("Home fact freshness with a warm context cache", () => {
 	it("renders an updated fact on the next turn and withholds it after archival", async () => {
