@@ -435,6 +435,54 @@ for (const path of [
 		path,
 	);
 }
+// The outside-agent contribution path is contractual public surface: the
+// README says the repository is built by Tedix-coordinated agents and links
+// the one-step paths, and CONTRIBUTING.md keeps the section those links
+// target. A removed line or renamed heading would silently close the path,
+// and validateReadmeLinks drops anchors before resolving, so check them here.
+const readmeText = await readFile(resolve(repoRoot, "README.md"), "utf8");
+const contributingText = await readFile(
+	resolve(repoRoot, "CONTRIBUTING.md"),
+	"utf8",
+);
+if (!/built by[^\n.]*agents/i.test(readmeText)) {
+	throw new Error(
+		"README.md: no longer says the repository is built by agents",
+	);
+}
+for (const target of ["AGENT-REVIEW.md", "CONTRIBUTING.md"]) {
+	if (!new RegExp(`\\]\\(${target}(?:#[^)]+)?\\)`).test(readmeText)) {
+		throw new Error(`README.md: outside-agent path lost its link to ${target}`);
+	}
+}
+if (!/\]\(AGENT-REVIEW\.md\)/.test(contributingText)) {
+	throw new Error(
+		"CONTRIBUTING.md: outside-agent path lost its AGENT-REVIEW.md link",
+	);
+}
+if (
+	!/re-author/i.test(contributingText) ||
+	!/Reported-by/.test(contributingText)
+) {
+	throw new Error(
+		"CONTRIBUTING.md: outside-agent path lost its re-author and credit terms",
+	);
+}
+const contributingAnchors = new Set(
+	[...contributingText.matchAll(/^#+ (.+)$/gm)].map((match) =>
+		match[1]!
+			.toLowerCase()
+			.replace(/[^\p{L}\p{N} _-]/gu, "")
+			.replaceAll(" ", "-"),
+	),
+);
+for (const match of readmeText.matchAll(/\]\(CONTRIBUTING\.md#([^)]+)\)/g)) {
+	if (!contributingAnchors.has(match[1]!)) {
+		throw new Error(
+			`CONTRIBUTING.md: README-linked section anchor is missing: #${match[1]}`,
+		);
+	}
+}
 let workspaceReadmeCount = 0;
 for await (const path of workspaceReadmeGlob.scan({
 	cwd: repoRoot,
