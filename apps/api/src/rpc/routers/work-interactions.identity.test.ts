@@ -22,7 +22,12 @@ import {
 	workInteractionResponses,
 	workInteractions,
 } from "@tedix/db/schema/work-factory";
-import { workEvents, workItems } from "@tedix/db/schema/work-items";
+import {
+	workEvents,
+	workItems,
+	workItemComments,
+	workItemRelations,
+} from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -42,6 +47,8 @@ function fixture(
 		schemaDdl(
 			workItems,
 			workEvents,
+			workItemComments,
+			workItemRelations,
 			workInteractions,
 			workInteractionCardPresentations,
 			workInteractionResponses,
@@ -298,6 +305,46 @@ describe("Work interaction canonical actor projections", () => {
 				.all(request.id),
 		).toEqual([]);
 	});
+
+	it.each([false, true])(
+		"rechecks a saved Yes before hook delivery (stale=%s)",
+		async (stale) => {
+			const { sqlite, owner, target } = fixture();
+			const request = await owner.create({
+				workItemId: WORK_ITEM_ID,
+				kind: "question",
+				subject: "Delete the paused copy?",
+				prompt: "Delete before it resumes?",
+				reason: "Deletion needs a decision.",
+				requestedFrom: { type: "user", id: "target-id" },
+				metadata: {
+					sessionId: "00000000-0000-4000-8000-000000000009",
+					decisionSources: [
+						{ kind: "work", id: WORK_ITEM_ID, version: 1, commentCount: 0 },
+					],
+				},
+			});
+			await target.respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "answer",
+				body: "Yes: Delete",
+				resolvesRequest: true,
+			});
+			if (stale)
+				sqlite
+					.prepare(
+						"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,body,created_at) VALUES ('credits',?,?,'user','Credits renewed; production is live.',?)",
+					)
+					.run(ORG_ID, WORK_ITEM_ID, new Date(Date.now() + 1000).toISOString());
+			const pending = await target.listUndelivered({});
+			expect(pending.data).toHaveLength(1);
+			expect(pending.data[0]!.body).toContain(
+				stale ? "Do not act on the earlier answer" : "Yes: Delete",
+			);
+			if (stale) expect(pending.data[0]!.body).toContain("production is live");
+		},
+	);
 
 	it("learns the canonical Work project while keeping the decision personal", async () => {
 		const { sqlite, owner, target } = fixture();

@@ -6,7 +6,12 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
-import { workItems, workAttempts } from "@tedix/db/schema/work-items";
+import {
+	workItems,
+	workAttempts,
+	workItemComments,
+	workItemRelations,
+} from "@tedix/db/schema/work-items";
 import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
 import {
 	externalAgentSessions,
@@ -46,6 +51,8 @@ async function fixture(fetchWake?: (request: Request) => Promise<Response>) {
 			tedis,
 			workItems,
 			workAttempts,
+			workItemComments,
+			workItemRelations,
 			tediRuntimeEvents,
 			externalAgentSessions,
 			externalAgentPrincipals,
@@ -390,3 +397,62 @@ it("redrives an answered ask only while its continuation receipt is missing", as
 		await dispatchInteractionReviews(env, Date.parse(now) + 7 * 3_600_000),
 	).toEqual({ interactionReviews: 0 });
 });
+
+it.each([false, true])(
+	"rechecks an answered delete card before waking its executor (stale=%s)",
+	async (stale) => {
+		const wakes: Array<Record<string, unknown>> = [];
+		const { env, db, sqlite, answer } = await fixture(async (request) => {
+			wakes.push(await request.json());
+			return Response.json({ accepted: true, run_id: "delete-run" });
+		});
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET subject='Delete the paused copy?',prompt='Delete before it resumes?',metadata=json_set(metadata,'$.decisionSources',json(?)) WHERE id=?",
+			)
+			.run(
+				JSON.stringify([
+					{ kind: "work", id: WORK, version: 1, commentCount: 0 },
+				]),
+				ASK,
+			);
+		answer();
+		if (stale)
+			sqlite
+				.prepare(
+					"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,body,created_at) VALUES ('credit',?,?,'user','Credits renewed; the instance is live production.',?)",
+				)
+				.run(ORG, WORK, now);
+		await dispatchInteractionReviews(env, Date.parse(now) + 360_000);
+		expect(wakes).toHaveLength(stale ? 0 : 1);
+		if (stale) {
+			const replacements = sqlite
+				.prepare(
+					"SELECT id,metadata FROM work_interactions WHERE json_extract(metadata,'$.replacesDecisionId')=?",
+				)
+				.all(ASK) as Array<{ id: string; metadata: string }>;
+			expect(replacements).toHaveLength(1);
+			const decision = JSON.parse(replacements[0]!.metadata).decisionDeck;
+			expect(decision.whyNow).toContain("live production");
+			expect(
+				decision.options.every(
+					(option: { effect?: unknown }) => !option.effect,
+				),
+			).toBe(true);
+			const { recheckDecisionAction } =
+				await import("../services/decision-action-recheck");
+			await recheckDecisionAction(
+				db,
+				(await getWorkInteraction(db, { orgId: ORG, interactionId: ASK }))!,
+			);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT id FROM work_interactions WHERE json_extract(metadata,'$.replacesDecisionId')=?",
+					)
+					.all(ASK),
+			).toHaveLength(1);
+		}
+		sqlite.close();
+	},
+);

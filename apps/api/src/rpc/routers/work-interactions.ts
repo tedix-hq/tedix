@@ -15,6 +15,7 @@ import {
 	DECISION_SOURCE_CHANGED,
 } from "@tedix/db/queries/work-items/decision-sources";
 import { refreshDecisionSourceCards } from "../../services/decision-sources";
+import { recheckDecisionAction } from "../../services/decision-action-recheck";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import {
@@ -631,6 +632,18 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				})
 			: null;
 		if (input.resolvesRequest) {
+			if (
+				initialRequest?.status === "open" &&
+				initialRequest.targetType === responder.type &&
+				initialRequest.targetId === responder.id
+			) {
+				const changed = await recheckDecisionAction(context.db, initialRequest);
+				if (changed)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						`${changed.change} Review the fresh card ${changed.requestId}.`,
+					);
+			}
 			if (
 				initialRequest &&
 				initialRequest.targetType === responder.type &&
@@ -1359,6 +1372,17 @@ const listUndeliveredProcedure = readOs.listUndelivered.handler(
 			host: input.host,
 			limit: input.limit,
 		});
+		for (const row of rows) {
+			const request = await getWorkInteraction(context.db, {
+				orgId,
+				interactionId: row.interactionId,
+			});
+			const changed =
+				request &&
+				(await recheckDecisionAction(context.db, request, observedAt));
+			if (changed)
+				row.body = `Do not act on the earlier answer. ${changed.change} Review the fresh card ${changed.requestId}.`;
+		}
 		return {
 			data: rows.flatMap((row) =>
 				row.sessionId

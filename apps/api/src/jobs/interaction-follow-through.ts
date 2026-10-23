@@ -15,6 +15,7 @@ import {
 } from "@tedix/db/queries/work-items/interaction-reviews";
 import { assertWorkApprovalWakeAccepted } from "./work-approval-redrive";
 import { cardOwningTedi } from "../services/card-revisions";
+import { recheckDecisionAction } from "../services/decision-action-recheck";
 
 function interactionReviewPrompt(requestId: string, version: number): string {
 	return `You own an unanswered Needs-you ask. Read Interaction ${requestId} (observed version ${version}) and its current Work/source now. If already answered, act on the exact answer within existing authority and post a review_work_interaction continued receipt naming its responseId and an owner tool.completed event evidenceId. Otherwise re-check whether the ask is still needed: use review_work_interaction to close it with a note or reask once with a note. A second unanswered review may close, never nudge again. Do not create another ask or send a separate channel nudge. No new authority is granted.`;
@@ -31,6 +32,22 @@ export async function dispatchInteractionReviews(
 		db,
 		new Date(scheduledTime).toISOString(),
 	)) {
+		if (
+			row.status === "resolved" &&
+			(await recheckDecisionAction(
+				db,
+				row,
+				new Date(scheduledTime).toISOString(),
+			))
+		) {
+			await recordWorkInteractionReviewWake(
+				db,
+				row,
+				new Date(scheduledTime).toISOString(),
+				null,
+			);
+			continue;
+		}
 		const rawFollow = row.metadata.followThrough;
 		const follow =
 			rawFollow && typeof rawFollow === "object" && !Array.isArray(rawFollow)
