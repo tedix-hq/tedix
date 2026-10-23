@@ -42,6 +42,20 @@
 		"\\b(production auth|production provider)\\b",
 		"magic[_ -]?link"
 	],
+	"criticalSubjectClasses": [
+		"legal",
+		"money",
+		"external_message",
+		"public_publish",
+		"credentials",
+		"access_control",
+		"delete_data",
+		"production_settings"
+	],
+	"criticalSubjectPatterns": [
+		"\\b(?:tax(?:es)?|tax advis[eo]rs?|bookkeeping|accountancy|expenses?|invoices?|vat|steuer\\w*|buchhaltung)\\b",
+		"\\b(?:contact|outreach|follow-?up|reply|message|email|whatsapp|linkedin)\\s+drafts?\\b"
+	],
 	"learnedMinimumExamples": 3,
 	"learnedFeedThreshold": -2,
 	"criticalQuestionPatterns": [

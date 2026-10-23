@@ -1135,7 +1135,7 @@ export const workItemsContract = oc
 						.max(2_000)
 						.optional()
 						.describe(
-							"Exact next click the requesting person must take. Creates one Needs-you ask atomically with settlement; does not complete the Work.",
+							"Exact next click the requesting person must take. Creates one Needs-you ask atomically with settlement when the click names an owner-only act (money, legal or tax, consent or credentials, access, deletion, publishing or messaging); any other next step is filed with the Work's agent steward or this lane instead. Does not complete the Work.",
 						),
 					requestId: z
 						.uuid()
