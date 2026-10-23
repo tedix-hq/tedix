@@ -9,6 +9,47 @@ import { resolveMediaRouteOrgId, untrustedContentRedirect } from "./shared";
  */
 const SESSION_BYTE_REDIRECT_TTL_SECONDS = 300;
 
+interface StoredSkillMediaArtifact {
+	mimeType: string;
+	contentInline: string | null;
+	contentR2Key: string | null;
+}
+
+async function readSkillMedia(
+	env: CloudflareEnv,
+	artifact: StoredSkillMediaArtifact,
+): Promise<
+	| {
+			bytes: ArrayBuffer | Uint8Array<ArrayBufferLike>;
+			mimeType: string;
+	  }
+	| null
+	| undefined
+> {
+	if (
+		artifact.contentR2Key &&
+		/^(?:audio|image|video)\//.test(artifact.mimeType)
+	) {
+		const object = await (
+			env as unknown as { SKILL_ARTIFACTS?: R2Bucket }
+		).SKILL_ARTIFACTS?.get(artifact.contentR2Key);
+		return object
+			? { bytes: await object.arrayBuffer(), mimeType: artifact.mimeType }
+			: undefined;
+	}
+
+	let content = artifact.contentInline;
+	if (content == null && artifact.contentR2Key) {
+		const object = await (
+			env as unknown as { SKILL_ARTIFACTS?: R2Bucket }
+		).SKILL_ARTIFACTS?.get(artifact.contentR2Key);
+		content = object ? await object.text() : null;
+	}
+	if (content == null) return undefined;
+	const { extractMediaBytes } = await import("../lib/skill-media-url");
+	return extractMediaBytes(content);
+}
+
 export function registerSkillMediaRoutes(
 	app: Hono<{ Bindings: CloudflareEnv }>,
 ) {
@@ -54,8 +95,7 @@ export function registerSkillMediaRoutes(
 		const exp = Number(c.req.query("exp"));
 		const sig = c.req.query("sig") ?? "";
 		const downloadName = c.req.query("download") || undefined;
-		const { verifyMediaToken, extractMediaBytes } =
-			await import("../lib/skill-media-url");
+		const { verifyMediaToken } = await import("../lib/skill-media-url");
 		const ok = await verifyMediaToken({
 			secret: c.env.SECRETS_MASTER_KEY,
 			runId,
@@ -77,16 +117,8 @@ export function registerSkillMediaRoutes(
 		);
 		if (!artifact) return c.text("Artifact not found", 404);
 
-		let content: string | null = artifact.contentInline;
-		if (content == null && artifact.contentR2Key) {
-			const obj = await (
-				c.env as unknown as { SKILL_ARTIFACTS?: R2Bucket }
-			).SKILL_ARTIFACTS?.get(artifact.contentR2Key);
-			content = obj ? await obj.text() : null;
-		}
-		if (content == null) return c.text("Artifact content unavailable", 404);
-
-		const media = extractMediaBytes(content);
+		const media = await readSkillMedia(c.env, artifact);
+		if (media === undefined) return c.text("Artifact content unavailable", 404);
 		if (!media) return c.text("Artifact is not decodable media", 415);
 
 		return new Response(media.bytes, {
@@ -174,17 +206,8 @@ export function registerSkillMediaRoutes(
 		const artifact = await getRunArtifact(db, runId, path);
 		if (!artifact) return c.text("Artifact not found", 404);
 
-		let content: string | null = artifact.contentInline;
-		if (content == null && artifact.contentR2Key) {
-			const obj = await (
-				c.env as unknown as { SKILL_ARTIFACTS?: R2Bucket }
-			).SKILL_ARTIFACTS?.get(artifact.contentR2Key);
-			content = obj ? await obj.text() : null;
-		}
-		if (content == null) return c.text("Artifact content unavailable", 404);
-
-		const { extractMediaBytes } = await import("../lib/skill-media-url");
-		const media = extractMediaBytes(content);
+		const media = await readSkillMedia(c.env, artifact);
+		if (media === undefined) return c.text("Artifact content unavailable", 404);
 		if (!media) return c.text("Artifact is not decodable media", 415);
 
 		return new Response(media.bytes, {

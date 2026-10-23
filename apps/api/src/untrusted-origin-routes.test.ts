@@ -41,8 +41,13 @@ const artifactMock = vi.hoisted(() => ({
 	},
 }));
 const releaseMock = vi.hoisted(() => ({ active: vi.fn() }));
+const skillArtifactMock = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock("@tedix/db/queries/artifact-policy/releases", () => ({
 	getActiveArtifactReleaseApproval: releaseMock.active,
+}));
+vi.mock("@tedix/db/queries/skill-run-artifacts", async (importOriginal) => ({
+	...(await importOriginal<Record<string, unknown>>()),
+	getRunArtifact: async () => skillArtifactMock.current,
 }));
 
 vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
@@ -75,6 +80,7 @@ vi.mock("@tedix/db/queries/kernel-runtime-events", async (importOriginal) => ({
 
 import worker from "./worker-app";
 import { signArtifactReleaseUrl } from "./lib/artifact-url";
+import { signMediaUrl } from "./lib/skill-media-url";
 
 const UNTRUSTED = "https://artifacts.tedix-usercontent.example";
 
@@ -105,6 +111,10 @@ const invalid = {
 	...baseEnv,
 	UNTRUSTED_CONTENT_ORIGIN: "https://artifacts.tedix.dev",
 };
+
+afterEach(() => {
+	skillArtifactMock.current = null;
+});
 
 describe("unset — the switch is genuinely off", () => {
 	it("serves an org-scoped historical render from R2 with range context", async () => {
@@ -164,6 +174,31 @@ describe("unset — the switch is genuinely off", () => {
 			unset,
 		);
 		expect(res.status).toBe(403);
+	});
+
+	it("serves a raw generated-media artifact without treating it as JSON", async () => {
+		skillArtifactMock.current = {
+			mimeType: "image/png",
+			contentInline: null,
+			contentR2Key: "run-1/outputs/generate-image.media",
+		};
+		const signed = await signMediaUrl({
+			baseUrl: "https://api.tedix.dev",
+			secret: baseEnv.SECRETS_MASTER_KEY,
+			runId: "run-1",
+			path: "outputs/generate-image.media",
+			nowMs: Date.now(),
+		});
+		const res = await call(signed.url, {
+			...unset,
+			SKILL_ARTIFACTS: {
+				get: async () => new Response("image bytes"),
+			},
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/png");
+		expect(await res.text()).toBe("image bytes");
 	});
 
 	it("gates nothing on an unrelated host", async () => {

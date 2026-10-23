@@ -105,9 +105,10 @@ function wrapStep(step, env, timeline, runContext) {
           throw new NonRetryableError("WORKFLOW_RESERVED_RESULT: reserved connection recovery output");
         }
         const durationMs = workflowNowMs() - t0;
+        const media = sensitiveOutput ? null : stepMediaArtifact(value, encodedStepName);
         const output = sensitiveOutput
           ? { redacted: true, reason: "workflow_step_sensitive_output" }
-          : value;
+          : mediaOutputEvidence(value, media);
         timeline.push({
           kind: "step.do",
           name: ctx.step.name,
@@ -352,6 +353,8 @@ function wrapStep(step, env, timeline, runContext) {
         }
         await persistConnectionControl(env, { path: recoveryPath, value: { ...pending, status: "resolved" }, outcome: "success" });
       }
+      const media = declaredSensitiveOutput ? null : stepMediaArtifact(value, encodedStepName);
+      if (media) await persistStepMediaArtifact(env, media);
       return value;
     } catch (error) {
       const failure = lastFailure || {

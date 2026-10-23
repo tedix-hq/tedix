@@ -111,7 +111,7 @@ export function skillRuntimeStubKey(
 
 // Bump when DISPATCH_SHIM source changes so cached isolates from a previous
 // deploy don't shadow updated routing logic.
-export const DISPATCH_SHIM_VERSION = "v48-terminal-task-failures";
+export const DISPATCH_SHIM_VERSION = "v49-safe-media-post-step";
 
 // Bump when loader-side bridges or host orchestration change the observable
 // semantics of an already-started execution epoch. Exact tenant module sources
@@ -344,13 +344,9 @@ ${RUNNER_RPC_SOURCE}${RUNNER_EVIDENCE_SOURCE}${RUNNER_STEPS_SOURCE}export class 
 	      // service bindings) that the workflow has no business touching. Tenant
 	      // code reaches the platform via env.MCP only.
 	      //
-	      // NOTE: env.artifacts.writeBlob was intentionally REMOVED. Calling it
-	      // from inside step.do with a large (~1 MB) base64 payload stalls the
-	      // step past its own timeout (verified: tiny blob completes, large blob
-	      // hangs). The ArtifactBridge.writeBlob method remains for a future
-	      // shim-driven raw-bytes path, but it is not exposed to tenant code —
-	      // exposing it was a size-triggered stall trap. Media skills return
-	      // base64 as the step value (shim auto-persists outside the step).
+	      // Tenant code cannot write blobs directly: a large bridge RPC inside
+	      // step.do can stall the native step. The wrapper recognizes generated
+	      // media outputs and writes their raw bytes only after step.do resolves.
 	      const meta = freezeWorkflowValue(this.env.__RUN_CONTEXT__ || {});
 	      const tenantEnv = {
 	        MCP: buildMcpProxy(this.env, meta),
