@@ -1127,6 +1127,8 @@
 @media (min-width: 640px) {
 	.fd-app-toolbar {
 		flex-wrap: wrap;
+		/* Room for focus rings when the tabs and filters wrap to two rows. */
+		padding-block: 0.25rem;
 	}
 }
 .fd-toolbar-filters {
