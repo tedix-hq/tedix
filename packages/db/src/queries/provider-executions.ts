@@ -319,7 +319,7 @@ function balancedConjunction(conditions: readonly [SQL, ...SQL[]]): SQL {
 }
 
 /** Bind the captured SQL policy once; the D1 100-parameter limit also covers its outer batch statements. */
-function compactAdmissionPredicate(predicate: SQL): SQL {
+export function compactAdmissionPredicate(predicate: SQL): SQL {
 	const values: unknown[] = [];
 	const visit = (statement: SQL): SQL =>
 		new SQL(
@@ -331,13 +331,13 @@ function compactAdmissionPredicate(predicate: SQL): SQL {
 					["string", "number", "boolean"].includes(typeof chunk)
 				) {
 					const index = values.length;
-					values.push(
-						chunk instanceof Param
-							? chunk.value === null
+					if (chunk instanceof Param) {
+						const value =
+							chunk.value === null
 								? null
-								: chunk.encoder.mapToDriverValue(chunk.value)
-							: chunk,
-					);
+								: chunk.encoder.mapToDriverValue(chunk.value);
+						values.push(chunk.codec ? chunk.codec(value) : value);
+					} else values.push(chunk);
 					return sql`json_extract(__provider_policy.value, ${sql.raw(`'$[${index}]'`)})`;
 				}
 				return chunk;
