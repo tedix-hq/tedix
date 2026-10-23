@@ -135,7 +135,7 @@ export async function retireDecisionSourceCard(
 }
 
 /** Only tenant-scoped reads; missing/archived sources never validate a decision. */
-export async function decisionSourceMatches(
+async function decisionSourceMatches(
 	db: DbQueryClient,
 	orgId: string,
 	source: DecisionSource,
