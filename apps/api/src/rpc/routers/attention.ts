@@ -277,60 +277,39 @@ export const attentionContractRouter = os.router({
 							message:
 								"Link this source's writing skill and draft column before requesting changes",
 						});
-					const schedules = await call(
-						osWorkspacesContractRouter.schedules.list,
-						{ workspaceId: source.workspaceId },
+					// A run of the source skill itself rewrites the draft: the sheet is
+					// derived from the reviewer's delegated sources, which only that
+					// skill's own runs may read and write.
+					const started = await call(
+						osWorkspacesContractRouter.schedules.runNow,
+						{
+							workspaceId: source.workspaceId,
+							skillId: source.run.skillId,
+							params: {
+								revise: {
+									cardSheetId: original.outputId,
+									row: original.rowIndex,
+									draftColumn: source.columns.draft,
+									instruction: input.instruction,
+									expectedRevision: input.expectedRevision,
+								},
+							},
+							idempotencyKey: crypto.randomUUID(),
+						},
 						{ context },
 					);
-					if (
-						!schedules.items.some(
-							(schedule) => schedule.skillId === source.run!.skillId,
-						)
-					)
+					if (started.status === "needs_access")
 						throw errors.BAD_REQUEST({
-							message: "The source's writing skill is no longer linked",
+							message: `Allow this factory to use your ${started.providerName ?? "account"} first, then ask again`,
 						});
-					const { getSkillEntry } =
-						await import("@tedix/db/queries/cognitive/skill-crud");
-					const skill = await getSkillEntry(
-						context.db,
-						source.run.skillId,
-						requireOrgId(context),
-					);
-					if (!skill?.tediId)
-						throw errors.BAD_REQUEST({
-							message: "The source's writing agent is unavailable",
-						});
-					// The reviewer's click is the request, so the rewrite goes straight to
-					// the writing tedi as a tedi turn, the path the factory's own runs
-					// use, not through Home delegation and its approval card.
-					const { AutomationEventSchema } =
-						await import("@tedix/api-contract/schemas/automation-events");
-					const requestKey = `factory-revision:${original.outputId}:${original.rowIndex}:${input.expectedRevision}`;
-					try {
-						await context.env.AUTOMATION_EVENTS!.send(
-							AutomationEventSchema.parse({
-								kind: "tedi_turn",
-								organizationId: requireOrgId(context),
-								tediId: skill.tediId,
-								idempotencyKey: requestKey,
-								conversationId: `factory-card:${original.outputId}:${original.rowIndex}`,
-								source: "factory-card-change",
-								content: `Revise the agent-written draft for factory card ${original.number} in output ${original.outputId}, row ${original.rowIndex}, draft column ${source.columns.draft}. Use the existing source skill ${skill.id} as writing context. Human instruction: ${input.instruction}\nCurrent draft: ${original.draft}\nRead the current output and CAS-write only this draft cell through outputs.setSheetRange. Keep this same card and all action/decision cells unchanged. Include the human instruction in the revision note and preserve sources. Do not run the card's action, send messages or approve anything.`,
-							}),
-						);
-					} catch {
-						throw errors.SERVICE_UNAVAILABLE({
-							message: "The writing agent could not start. Try again.",
-						});
-					}
 					await recordObservedLearningInteraction(context, {
 						organizationId: requireOrgId(context),
-						clientEventId: `factory-revision-request:${requestKey}`,
+						clientEventId: `factory-revision-request:${started.runId}`,
 						eventKind: "answered",
 						surface: "decision_capture",
 						targetType: "output",
 						targetId: original.outputId,
+						runId: started.runId,
 						metadata: {
 							schema: "tedix.factory-card-change.v1",
 							cardId,
@@ -341,7 +320,7 @@ export const attentionContractRouter = os.router({
 							instruction: input.instruction,
 							before: original.draft,
 							sourceRevision: input.expectedRevision,
-							skillId: skill.id,
+							skillId: source.run.skillId,
 						},
 					});
 					return { saved: true as const, cardId };

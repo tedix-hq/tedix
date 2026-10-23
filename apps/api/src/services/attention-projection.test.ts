@@ -19,12 +19,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
 	listCardSourceApps: mocks.sourceApps,
 }));
-vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
-	getSkillEntry: vi.fn(async () => ({
-		id: "writing-skill",
-		tediId: "66666666-6666-4666-8666-666666666666",
-	})),
-}));
 vi.mock("./learning-interaction-recorder", async (original) => ({
 	...(await original<Record<string, unknown>>()),
 	recordObservedLearningInteraction: vi.fn(),
@@ -38,7 +32,7 @@ vi.mock("../rpc/routers/os-workspaces", () => ({
 		gadgets: { workApps: "apps" },
 		workspaces: { list: "spaces" },
 		outputs: { list: "outputs", get: "output" },
-		schedules: { list: "schedules" },
+		schedules: { list: "schedules", runNow: "runNow" },
 	},
 }));
 vi.mock("../rpc/routers/work-interactions", () => ({
@@ -151,8 +145,8 @@ it("requests changes through the router for a discovered card using its merged s
 	const base = mocks.call.getMockImplementation()!;
 	mocks.call.mockImplementation(
 		async (procedure: string, ...rest: unknown[]) => {
-			if (procedure === "schedules")
-				return { items: [{ skillId: "44444444-4444-4444-8444-444444444444" }] };
+			if (procedure === "runNow")
+				return { status: "started", runId: "rewrite-run" };
 			const result = await base(procedure, ...rest);
 			if (procedure === "output")
 				result.output = {
@@ -162,12 +156,10 @@ it("requests changes through the router for a discovered card using its merged s
 			return result;
 		},
 	);
-	const send = vi.fn();
 	const client = createRouterClient(attentionContractRouter, {
 		context: {
 			...context,
-			organizationId: "77777777-7777-4777-8777-777777777777",
-			env: { ENVIRONMENT: "test", AUTOMATION_EVENTS: { send } },
+			env: { ENVIRONMENT: "test" },
 			headers: new Headers(),
 			authType: "apikey",
 			apiKey: { id: "key", scopes: ["mcp:messaging.write"] },
@@ -183,14 +175,23 @@ it("requests changes through the router for a discovered card using its merged s
 			},
 		}),
 	).resolves.toEqual({ saved: true, cardId: `factory:${outputId}:0` });
-	// The reviewer's request goes straight to the writing tedi, not through Home delegation.
-	expect(send).toHaveBeenCalledWith(
+	// The source skill's own run rewrites the draft, with the reviewer's grants.
+	expect(mocks.call).toHaveBeenCalledWith(
+		"runNow",
 		expect.objectContaining({
-			kind: "tedi_turn",
-			tediId: "66666666-6666-4666-8666-666666666666",
-			conversationId: `factory-card:${outputId}:0`,
-			source: "factory-card-change",
+			workspaceId,
+			skillId: "44444444-4444-4444-8444-444444444444",
+			params: {
+				revise: {
+					cardSheetId: outputId,
+					row: 0,
+					draftColumn: "Draft",
+					instruction: "Make the draft clearer",
+					expectedRevision: 1,
+				},
+			},
 		}),
+		expect.anything(),
 	);
 });
 
