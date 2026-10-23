@@ -40,7 +40,9 @@ const CONTINUING_HTML = renderLoopbackPage({
 				if (typeof body.authorizationUrl !== "string") throw new Error("invalid authorization response");
 				location.replace(body.authorizationUrl);
 			} catch {
-				setTimeout(poll, 500);
+				document.querySelector("h1").textContent = "Authorization stopped";
+				document.querySelector("body > p:last-of-type").textContent = "Return to your terminal and run tedix login again.";
+				document.querySelector(".mark").textContent = "✕";
 			}
 		};
 		void poll();

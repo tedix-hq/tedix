@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { runInNewContext } from "node:vm";
 import {
 	buildBrowserWorkspaceSelectionUrl,
 	parseBrowserWorkspaceSelection,
@@ -6,6 +7,56 @@ import {
 } from "./browser-workspace-selection";
 
 describe("browser workspace selection", () => {
+	for (const failure of ["closed", "expired", "invalid"] as const) {
+		test(`stops browser polling when the loopback callback is ${failure}`, async () => {
+			let page!: Promise<string>;
+			const session = await selectWorkspaceInBrowser({
+				state: "expired-callback",
+				openBrowser: (rawUrl) => {
+					const port = new URL(rawUrl).searchParams.get("port");
+					page = fetch(
+						`http://127.0.0.1:${port}/workspace?state=expired-callback&organization=acme&tenant=org_acme`,
+					).then((response) => response.text());
+				},
+			});
+			const html = await page;
+			expect(() => session.continueInBrowser("http://unsafe.example")).toThrow(
+				"unsafe URL",
+			);
+			const heading = { textContent: "" };
+			const body = { textContent: "" };
+			const mark = { textContent: "" };
+			const timers: unknown[] = [];
+			let requests = 0;
+			await runInNewContext(
+				html
+					.match(/<script>([\s\S]*?)<\/script>/)![1]!
+					.replace("void poll()", "poll()"),
+				{
+					URLSearchParams,
+					location: { search: "?state=expired-callback" },
+					document: {
+						querySelector: (selector: string) =>
+							selector === "h1" ? heading : selector === ".mark" ? mark : body,
+					},
+					setTimeout: (callback: unknown) => timers.push(callback),
+					fetch: async () => {
+						requests++;
+						if (failure === "closed") throw new TypeError("Failed to fetch");
+						return failure === "expired"
+							? new Response(null, { status: 400 })
+							: Response.json({});
+					},
+				},
+			);
+			expect(requests).toBe(1);
+			expect(timers).toHaveLength(0);
+			expect(heading.textContent).toBe("Authorization stopped");
+			expect(body.textContent).toBe(
+				"Return to your terminal and run tedix login again.",
+			);
+		});
+	}
 	test("opens the OS launcher with a loopback port and one-time state", () => {
 		const url = new URL(
 			buildBrowserWorkspaceSelectionUrl({
