@@ -1,7 +1,53 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { startFixtureServer } from "./fixture-server";
-import { webkit, type Browser } from "playwright";
+import { webkit, type Browser, type Locator, type Page } from "playwright";
+
+async function checkCardKeyboard(page: Page, card: Locator) {
+	assert.equal(await card.getAttribute("role"), null);
+	assert.equal(await card.getAttribute("tabindex"), null);
+	assert.equal(
+		await card.locator("button button, [role=button] button").count(),
+		0,
+	);
+	const open = card.getByRole("button", { name: /^Open / });
+	const share = card.getByRole("button", { name: "Share", exact: true });
+	const actions = card.getByRole("button", { name: /^Actions for/ });
+	assert.equal(
+		await open.evaluate((el) => getComputedStyle(el).backgroundColor),
+		"rgba(0, 0, 0, 0)",
+		"Open keeps the preview and metadata visible",
+	);
+	const libraryUrl = page.url();
+	for (const key of ["Enter", "Space"]) {
+		await open.focus();
+		await page.keyboard.press("Tab");
+		assert(
+			await share.evaluate((el) => el === document.activeElement),
+			"Tab moves from Open to Share",
+		);
+		await share.press(key);
+		await page.getByRole("heading", { name: "Share this file" }).waitFor();
+		assert.equal(page.url(), libraryUrl, "Share does not open the output");
+		await page.keyboard.press("Escape");
+		await share.focus();
+		await page.keyboard.press("Tab");
+		assert(
+			await actions.evaluate((el) => el === document.activeElement),
+			"Tab moves from Share to Actions",
+		);
+		await actions.press(key);
+		await page
+			.getByRole("menuitem", { name: "Open standalone", exact: true })
+			.waitFor();
+		assert.equal(page.url(), libraryUrl, "Actions does not open the output");
+		await page.keyboard.press("Escape");
+		await open.press(key);
+		await page.waitForURL((url) => url.href !== libraryUrl);
+		await page.goBack();
+		await open.waitFor();
+	}
+}
 
 const server = await startFixtureServer("/outputs");
 const { origin } = server;
@@ -66,9 +112,11 @@ try {
 				);
 			}
 			await page.keyboard.press("Tab");
-			await card.focus();
+			await card.locator(".output-card-open").focus();
 			assert.equal(
-				await card.evaluate((el) => getComputedStyle(el).outlineOffset),
+				await card
+					.locator(".output-card-open")
+					.evaluate((el) => getComputedStyle(el).outlineOffset),
 				"-1px",
 				"focus straddles the retained border",
 			);
@@ -87,6 +135,7 @@ try {
 				await page.screenshot({
 					path: `${evidenceDir}/after-grid-${width}-${theme}.png`,
 				});
+			await checkCardKeyboard(page, card);
 			await library
 				.getByRole("button", { name: "List view", exact: true })
 				.click();
@@ -108,6 +157,7 @@ try {
 				await page.screenshot({
 					path: `${evidenceDir}/after-list-${width}-${theme}.png`,
 				});
+			await checkCardKeyboard(page, row);
 			await row.getByRole("button", { name: /^Actions for/ }).click();
 			await page
 				.getByRole("menuitem", { name: "Open standalone", exact: true })

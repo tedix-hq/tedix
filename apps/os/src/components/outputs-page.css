@@ -3,8 +3,7 @@
 	padding: 2px;
 }
 
-.outputs-library .output-grid-card:focus-visible,
-.outputs-library .output-list-row:focus-visible {
+.outputs-library .output-card-open:focus-visible {
 	border-color: var(--ring);
 	outline: 2px solid var(--ring);
 	outline-offset: -1px;
@@ -17,7 +16,6 @@
 
 .outputs-library .output-card-footer > .output-card-actions {
 	display: flex;
-	position: static;
 	grid-column: 2 / -1;
 	justify-self: end;
 }
