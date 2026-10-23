@@ -36,6 +36,7 @@ export class PublicRestorePermits {
 			schedule: (task: () => Promise<void>, delayMs: number) =>
 				new Promise<void>((resolve) => setTimeout(resolve, delayMs)).then(task),
 		},
+		private verifyReuse = true,
 	) {}
 
 	forRequest(waitUntil: (task: Promise<unknown>) => void) {
@@ -60,6 +61,7 @@ export class PublicRestorePermits {
 				if (reservation && this.clock.now() < reservation.expiresAt) {
 					borrowed = reservation;
 					reservation.borrowers++;
+					if (!this.verifyReuse) return true;
 					try {
 						if (await this.queries.reuse(db, reservation.permit)) return true;
 					} catch (error) {
@@ -71,9 +73,15 @@ export class PublicRestorePermits {
 				}
 				// Do not share another request's pending D1 I/O. Concurrent cold
 				// requests can each reserve a row, then share the last completed one.
-				if (!(await this.queries.enter(db, permit))) return false;
+				// A pooled outer claim must not be reclaimed as an abandoned response;
+				// the nested kind makes fence closure wait for pool expiry and borrowers.
+				const durablePermit =
+					!this.verifyReuse && permit.kind === "outer"
+						? { ...permit, kind: "nested" as const }
+						: permit;
+				if (!(await this.queries.enter(db, durablePermit))) return false;
 				borrowed = {
-					permit,
+					permit: durablePermit,
 					expiresAt: this.clock.now() + REUSE_MS,
 					borrowers: 1,
 					retired: false,
@@ -105,9 +113,9 @@ export class PublicRestorePermits {
 	}
 }
 
-// One PLATFORM_DB binding belongs to this serving Worker. Its JS wrapper's
-// identity is not a reservation key; every reuse validates the durable row.
-const pool = new PublicRestorePermits();
+// The durable row remains claimed until the TTL expires and all borrowers leave,
+// so fence closure drains every request admitted by this short-lived reservation.
+const pool = new PublicRestorePermits(undefined, undefined, false);
 
 export function publicRestorePermitQueries(
 	waitUntil: (task: Promise<unknown>) => void,
