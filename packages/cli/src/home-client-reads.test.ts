@@ -268,3 +268,62 @@ describe("@tedix/cli readChildRunTree", () => {
 		).rejects.toThrow(/Home child-run tree is too large/);
 	});
 });
+
+describe("@tedix/cli Home event resume cursors", () => {
+	for (const offset of [
+		"3junk",
+		"3.5",
+		"invalid",
+		"-1",
+		"-0",
+		"",
+		" ",
+		" 3",
+		"3\n",
+		"+3",
+		"1e3",
+		"0x10",
+		"NaN",
+		"Infinity",
+		"9007199254740992",
+		"9007199254740993",
+	]) {
+		test(`rejects ${JSON.stringify(offset)} before transport`, async () => {
+			const { client, sources } = harness(async () =>
+				gatewayResult({ events: [] }),
+			);
+			await expect(
+				client.readHomeRunEvents({ homeRunId: "run-1", offset }),
+			).rejects.toThrow(
+				/Home event offset must be a non-negative safe integer in decimal digits/,
+			);
+			expect(sources).toEqual([]);
+		});
+	}
+
+	for (const offset of [undefined, "0", "3", "0003", "9007199254740991"]) {
+		test(`preserves valid cursor ${JSON.stringify(offset)}`, async () => {
+			const start = Number(offset ?? "0");
+			const { client, sources } = harness(async (_index, params) => {
+				const source = String(params?.arguments.code);
+				return gatewayResult(
+					await new Function("home", `return (${source})()`)({
+						read_home_run_events: async (args: { offset: number }) => {
+							expect(args.offset).toBe(start);
+							return {
+								events: [],
+								stream: { offset: start, nextOffset: start, closed: false },
+							};
+						},
+					}),
+				);
+			});
+			const page = await client.readHomeRunEvents({
+				homeRunId: "run-1",
+				offset,
+			});
+			expect(page.nextOffset).toBe(String(start));
+			expect(sources).toHaveLength(1);
+		});
+	}
+});
