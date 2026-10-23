@@ -174,27 +174,28 @@ export async function syncSupportDraftFromCard(
 		effect.ticketId,
 	);
 	const text = redactSupportText(body);
-	if (
-		!row?.draft ||
-		row.version !== effect.expectedVersion ||
-		row.draft.body === text
-	)
-		return;
-	const { changeSupportTicket } = await import("./support");
-	const draft = { ...row.draft, body: text };
-	const changed = await changeSupportTicket(context, row, {
-		key: change.key,
-		actorId: change.actorId,
-		actorType: change.actorType,
-		now: new Date().toISOString(),
-		patch: { draft },
-		commentBody: `DRAFT — not sent\n${JSON.stringify(draft)}`,
-	});
+	if (!row?.draft) return;
+	let ticket = row;
+	if (row.draft.body !== text) {
+		if (row.version !== effect.expectedVersion) return;
+		const { changeSupportTicket } = await import("./support");
+		const draft = { ...row.draft, body: text };
+		ticket = await changeSupportTicket(context, row, {
+			key: change.key,
+			actorId: change.actorId,
+			actorType: change.actorType,
+			now: new Date().toISOString(),
+			patch: { draft },
+			commentBody: `DRAFT — not sent\n${JSON.stringify(draft)}`,
+		});
+	}
+	// The ticket already holds this card's text: publish from its current version.
+	if (ticket.version === effect.expectedVersion) return;
 	await setSupportReplyPublishVersion(context.db, {
 		orgId: request.orgId,
 		interactionId: request.id,
 		optionIndex,
-		ticketVersion: changed.version,
+		ticketVersion: ticket.version,
 		body: text,
 	});
 }

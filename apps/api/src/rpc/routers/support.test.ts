@@ -346,6 +346,40 @@ describe("Support intake authorization and human publication", () => {
 			actorType: "tedi",
 			actorId: worker,
 		});
+		// A card whose text the ticket already holds catches up to that version.
+		const lagging = {
+			...card,
+			metadata: JSON.parse(
+				String(
+					sqlite
+						.prepare("select metadata from work_interactions where id=?")
+						.get(card.id)?.metadata,
+				),
+			),
+		};
+		lagging.metadata.decisionDeck.options[0].effect.expectedVersion = 2;
+		sqlite
+			.prepare("update work_interactions set metadata=? where id=?")
+			.run(JSON.stringify(lagging.metadata), card.id);
+		await syncSupportDraftFromCard(
+			context(worker_),
+			lagging,
+			"Short new answer",
+			{
+				key: "card-revision:3",
+				actorType: "tedi",
+				actorId: worker,
+			},
+		);
+		expect(
+			JSON.parse(
+				String(
+					sqlite
+						.prepare("select metadata from work_interactions where id=?")
+						.get(card.id)?.metadata,
+				),
+			).decisionDeck.options[0].effect.expectedVersion,
+		).toBe(3);
 		await client(admin).publish({
 			ticketId: receipt.ticketId,
 			expectedVersion: 3,
