@@ -377,7 +377,23 @@ describe("commitment wakes", () => {
 	});
 	it("seeks the polling time window before joining Work ownership", async () => {
 		const plans: string[] = [];
-		const { db } = fixture(plans);
+		const { sqlite, db } = fixture(plans);
+		// Production sqlite_stat1 on 23 Oct 2026. With these, a plain JOIN made
+		// SQLite loop over every tedi and walk each tenant's work_items index.
+		sqlite.exec(`ANALYZE;
+			INSERT OR REPLACE INTO sqlite_stat1(tbl,idx,stat) VALUES
+				('tedis','idx_tedis_org','30 2'),('tedis','sqlite_autoindex_tedis_1','30 1'),
+				('work_items','idx_work_items_org_objective','22796 94 94'),
+				('work_items','uniq_work_items_org_id','22796 94 1'),
+				('work_items','idx_work_items_org_disposition','22796 94 47'),
+				('work_items','idx_work_items_accountable_owner','22796 94 63 63'),
+				('work_items','idx_work_items_org_created','22796 94 1'),
+				('work_events','idx_work_events_occurred','64248 1'),
+				('work_events','idx_work_events_item_sequence','64248 215 4 1'),
+				('work_events','idx_work_events_org_type_actor','64248 215 43 34'),
+				('projects','uniq_projects_org_id','161 27 1'),
+				('work_attempts','uniq_work_attempt_number','13197 62 1 1');
+			ANALYZE sqlite_master;`);
 		await listCommitmentChanges(db, after, through, "production");
 		expect(plans).toContain("MATERIALIZE recent_work_events");
 		for (const name of [
@@ -397,6 +413,18 @@ describe("commitment wakes", () => {
 		expect(plans).toContainEqual(
 			expect.stringMatching(
 				/SEARCH work_events USING INDEX idx_work_events_occurred/,
+			),
+		);
+		// The window drives the Work Item seek; production once started from
+		// every tedi and walked each tenant's work_items index per tedi.
+		expect(plans).toContainEqual(
+			expect.stringMatching(
+				/SEARCH w USING (COVERING )?INDEX uniq_work_items_org_id \(org_id=\? AND id=\?\)/,
+			),
+		);
+		expect(plans).not.toContainEqual(
+			expect.stringMatching(
+				/SEARCH w USING (COVERING )?INDEX \w+ \(org_id=\?\)$/,
 			),
 		);
 	});
