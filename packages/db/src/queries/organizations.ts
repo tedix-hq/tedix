@@ -8,7 +8,7 @@
  * - Descope integration for SSO
  */
 
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type {
 	BillingSettlementMode,
 	RuntimeEntitlementGrant,
@@ -18,6 +18,7 @@ import type { DbQueryClient } from "../query-client";
 import { apiKeys } from "../schema/api-keys";
 import { apps } from "../schema/apps";
 import { organizationMembers } from "../schema/organization-members";
+import { projects } from "../schema/projects";
 import type {
 	NewOrganization,
 	Organization,
@@ -73,7 +74,22 @@ export async function getOrganizationSessionProjectBindings(
 		.from(organizations)
 		.where(eq(organizations.id, id))
 		.limit(1);
-	return row?.metadata?.sessionProjectBindings ?? [];
+	const bindings = row?.metadata?.sessionProjectBindings ?? [];
+	const ids = [...new Set(bindings.map((binding) => binding.projectId))];
+	const valid = new Set<string>();
+	for (let offset = 0; offset < ids.length; offset += 50) {
+		const targets = await db
+			.select({ id: projects.id })
+			.from(projects)
+			.where(
+				and(
+					eq(projects.orgId, id),
+					inArray(projects.id, ids.slice(offset, offset + 50)),
+				),
+			);
+		for (const target of targets) valid.add(target.id);
+	}
+	return bindings.filter((binding) => valid.has(binding.projectId));
 }
 
 /** Narrow identity-edge lookup that avoids hydrating an organization's relations. */

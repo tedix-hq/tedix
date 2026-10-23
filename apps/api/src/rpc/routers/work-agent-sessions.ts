@@ -266,6 +266,10 @@ const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 const listProcedure = readOs.list.handler(async ({ input, context }) => {
 	const owner = requireBoardOwner(context);
 	const now = new Date().toISOString();
+	const projectBindings = await getOrganizationSessionProjectBindings(
+		context.db,
+		owner.organizationId,
+	);
 	const rows = await listWorkAgentSessions(context.db, {
 		...owner,
 		includeEnded: input.includeEnded === true,
@@ -359,6 +363,10 @@ const listProcedure = readOs.list.handler(async ({ input, context }) => {
 		[
 			...rows.map((row) => ({
 				...sessionOutput(row),
+				projectId:
+					row.workItemProjectId ??
+					sessionProjectBinding(row.label, projectBindings) ??
+					row.projectId,
 				brief:
 					row.telemetry?.brief ||
 					requests.find(

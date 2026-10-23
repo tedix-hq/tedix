@@ -144,6 +144,43 @@ const report = {
 };
 
 describe("workAgentSessions router", () => {
+	it("remaps existing chats without refreshing liveness and ignores foreign project targets", async () => {
+		const { sqlite, ada } = fixture();
+		const customer = "11111111-1111-4111-8111-111111111111";
+		const foreign = "22222222-2222-4222-8222-222222222222";
+		for (const [id, org] of [
+			[customer, ORG_ID],
+			[foreign, "other-org"],
+		])
+			sqlite
+				.prepare(
+					"INSERT INTO projects (id, org_id, key, name, created_at) VALUES (?, ?, ?, 'Example', CURRENT_TIMESTAMP)",
+				)
+				.run(id, org, id);
+		const initial = await ada.report({ ...report, label: "ACME: research" });
+		sqlite
+			.prepare(
+				"INSERT INTO organizations (id, name, slug, metadata) VALUES (?, 'Example', 'example', ?)",
+			)
+			.run(
+				ORG_ID,
+				JSON.stringify({
+					sessionProjectBindings: [
+						{ prefix: "ACME", projectId: customer },
+						{ prefix: "ACME: secret", projectId: foreign },
+					],
+				}),
+			);
+		const row = (await ada.list({})).sessions.find(
+			(s) => s.sessionKey === report.sessionKey,
+		)!;
+		expect(row.projectId).toBe(customer);
+		expect(row.lastEventAt).toBe(initial.session.lastEventAt);
+		expect(
+			(await ada.report({ ...report, label: "ACME: secret" })).session
+				.projectId,
+		).toBe(customer);
+	});
 	it("routes named chats by org settings while linked Work wins over prefix and checkout", async () => {
 		const { sqlite, ada } = fixture();
 		const customer = "11111111-1111-4111-8111-111111111111";
