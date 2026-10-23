@@ -2910,6 +2910,52 @@ it("projects bounded Deck feedback through the real object-envelope converter", 
 	});
 });
 
+it("projects plain-English descriptions for the headless Deck tools", async () => {
+	const fixture = makeDb([
+		makeRpcTool({
+			toolId: "list_deck_cards",
+			endpoint: "attention/listDeckCards",
+		}),
+		makeRpcTool({
+			toolId: "get_deck_card",
+			endpoint: "attention/getDeckCard",
+		}),
+		makeRpcTool({
+			toolId: "decide_deck_card",
+			endpoint: "attention/decideDeckCard",
+		}),
+	]);
+
+	await runToolSchemaSync(fixture.db, {
+		mode: "projection",
+		apply: true,
+		endpoints: [
+			"attention/listDeckCards",
+			"attention/getDeckCard",
+			"attention/decideDeckCard",
+		],
+	});
+
+	expect(
+		fixture.updates.find(({ id }) => id === "tool-list_deck_cards")?.patch
+			.description,
+	).toBe(
+		"Read every open decision and factory card waiting for you. This is read-only and does not answer, approve, change or hide any card.",
+	);
+	expect(
+		fixture.updates.find(({ id }) => id === "tool-get_deck_card")?.patch
+			.description,
+	).toBe(
+		"Read one open decision or factory card without answering or changing it.",
+	);
+	expect(
+		fixture.updates.find(({ id }) => id === "tool-decide_deck_card")?.patch
+			.description,
+	).toBe(
+		"Answer a Deck card. For kind factory_changes, ask the factory to rewrite the draft card; each round creates a new revision of the same draft. Use kind factory_restore to restore an earlier revision. This does not approve or execute the card.",
+	);
+});
+
 it("projects the version list as a native read with a plain-text summary and keeps the original history verb", async () => {
 	expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES["workInteractions/cardHistory"]).toBe(
 		"get_card_revision_history",
