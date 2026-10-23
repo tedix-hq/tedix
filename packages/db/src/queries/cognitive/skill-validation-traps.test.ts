@@ -185,4 +185,14 @@ ${body}`;
 		expect(detectPrematureHeaderClose(body)).toBeNull();
 		expect(detectPrematureHeaderClose(`/* note */ ${body}`)).toBeNull();
 	});
+
+	it("ignores runtime imports inside comments", () => {
+		const source = `/* Example only:
+import fs from "node:fs";
+*/
+export default { async run(event, step, env) { return { ok: true }; } };`;
+		expect(validateWorkflowSource(source, "scripts/workflow.ts", caps)).toEqual(
+			[],
+		);
+	});
 });
