@@ -59,8 +59,10 @@ describe("skill commands", () => {
 		});
 		expect(await runSkillCommand(`run ${SKILL_ID}`, ctx)).toBe(0);
 		expect(calls[0]).toContain("flow.run");
-		expect(calls[0]).toContain(`"skillId":"${SKILL_ID}"`);
-		expect(calls[0]).not.toContain('"source"');
+		expect(calls[0]).toContain(
+			JSON.stringify(`"skillId":"${SKILL_ID}"`).slice(1, -1),
+		);
+		expect(calls[0]).not.toContain(JSON.stringify('"source"').slice(1, -1));
 		expect(approvals).toHaveLength(1);
 	});
 
