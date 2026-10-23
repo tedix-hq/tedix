@@ -8,6 +8,7 @@ import { call, implement } from "@orpc/server";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
 import { sourceInteractionDeadline } from "@tedix/api-contract/utils/deck-ask";
+import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
 import { bindCardPresentationSource } from "../../services/card-presentation-source";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
@@ -21,6 +22,7 @@ import { listCardObjectives } from "@tedix/db/queries/work-items/deck-sweep";
 import { listExternalAgentSessionHarnessesByIds } from "@tedix/db/queries/external-agent-identity/session-state";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
+	getWorkItemById,
 	getWorkItemBySourceIntentId,
 	listWorkItemTitlesByShortIds,
 } from "@tedix/db/queries/work-items/crud";
@@ -306,14 +308,40 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			ErrorCodes.UNPROCESSABLE_CONTENT,
 			"Unclassified agent turns must stay on the agent's Work",
 		);
+	const capturedTurn =
+		input.kind === "question" &&
+		input.metadata?.schema === "tedix.decision-capture.v1" &&
+		input.metadata.source === "agent-turn-end";
 	const { internalDecisionRouting } =
 		await import("../../services/internal-decision-routing");
 	const internalRoute =
-		input.requestedFrom.type === "user"
+		input.requestedFrom.type === "user" && !capturedTurn
 			? await internalDecisionRouting(context, orgId, actor, input)
 			: null;
-	const target =
+	let target =
 		capturedWithoutTriage || internalRoute ? actor : input.requestedFrom;
+	if (
+		capturedTurn &&
+		!capturedWithoutTriage &&
+		input.requestedFrom.type === "user" &&
+		humanOnlyAskReasons(input.subject).length === 0
+	) {
+		const work = input.workItemId
+			? await getWorkItemById(context.db, input.workItemId, orgId)
+			: null;
+		if (
+			actor.type === "user" &&
+			!(work?.stewardType === "tedi" && work.stewardId)
+		)
+			throw createError(
+				ErrorCodes.UNPROCESSABLE_CONTENT,
+				"Agent decisions require an authenticated agent or a Work tedi steward",
+			);
+		target =
+			work?.stewardType === "tedi" && work.stewardId
+				? { type: "tedi", id: work.stewardId }
+				: actor;
+	}
 	const { deckCreateGate } = await import("../../services/deck-create-gate");
 	const gate =
 		target.type === "user" && actor.type !== "user"
