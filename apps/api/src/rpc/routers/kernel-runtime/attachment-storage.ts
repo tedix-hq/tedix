@@ -14,6 +14,7 @@ const imageSignatures: Record<string, readonly number[]> = {
 	"image/jpeg": [255, 216, 255],
 	"image/webp": [82, 73, 70, 70],
 };
+const pdfSignature = [37, 80, 68, 70, 45];
 export function validateHomeAttachment(
 	input: TediMessageAttachment,
 ): TediMessageAttachment {
@@ -52,25 +53,32 @@ export function validateHomeAttachment(
 				"Use a valid PNG, JPEG, or WebP image",
 			);
 	} else {
-		if (
-			!mimeType.startsWith("text/") &&
-			![
-				"application/json",
-				"application/xml",
-				"application/javascript",
-			].includes(mimeType)
-		)
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"This chat supports images and UTF-8 text files. PDF and other binary formats are not supported yet.",
-			);
-		try {
-			new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
-		} catch {
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Text attachments must be valid UTF-8",
-			);
+		if (mimeType === "application/pdf") {
+			if (!pdfSignature.every((byte, i) => bytes[i] === byte))
+				throw createError(ErrorCodes.BAD_REQUEST, "Use a valid PDF file");
+		} else {
+			if (
+				!mimeType.startsWith("text/") &&
+				![
+					"application/json",
+					"application/xml",
+					"application/javascript",
+				].includes(mimeType)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"This chat supports images, PDFs, and UTF-8 text files.",
+				);
+			try {
+				new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+					bytes,
+				);
+			} catch {
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Text attachments must be valid UTF-8",
+				);
+			}
 		}
 	}
 	return {

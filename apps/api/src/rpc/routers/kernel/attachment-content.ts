@@ -11,6 +11,8 @@ export type HomeAttachmentResolver = (
 	attachments: readonly TediMessageAttachment[],
 ) => Promise<TediMessageAttachment[] | undefined>;
 
+export type HomeAttachmentPart = { data: string; mediaType: string };
+
 /** Rebuild only the retained ledger slice, newest first for budget admission.
  * Bytes are request-local: checkpoints and the durable transcript keep references.
  */
@@ -47,7 +49,11 @@ export async function hydrateHomeHistory(
 					continue;
 				}
 				remainingBytes -= resolved.size ?? 0;
-				if (resolved.type === "image") attachments.push(resolved);
+				if (
+					resolved.type === "image" ||
+					resolved.mimeType === "application/pdf"
+				)
+					attachments.push(resolved);
 				else {
 					const fileText = homeAttachmentContent("", [resolved]).text;
 					if (!fileText) omitted("file type is not supported");
@@ -79,7 +85,11 @@ export function hasHomeHistoryImages(
 	return history.some(
 		(message) =>
 			message.role === "user" &&
-			message.attachments?.some((attachment) => attachment.type === "image"),
+			message.attachments?.some(
+				(attachment) =>
+					attachment.type === "image" ||
+					attachment.mimeType === "application/pdf",
+			),
 	);
 }
 
@@ -88,9 +98,11 @@ export function homeAttachmentContent(
 	text: string,
 	attachments?: readonly TediMessageAttachment[],
 ) {
-	const images: string[] = [];
+	const images: (string | HomeAttachmentPart)[] = [];
 	for (const attachment of attachments ?? []) {
 		if (attachment.type === "image") images.push(attachment.content);
+		else if (attachment.mimeType === "application/pdf")
+			images.push({ data: attachment.content, mediaType: attachment.mimeType });
 		else if (
 			attachment.type === "file" &&
 			/^data:(text\/[^;]+|application\/(json|xml|javascript));base64,/.test(
@@ -109,7 +121,7 @@ export function homeAttachmentContent(
 /** Preserve the existing text-only request shape; images are native model parts. */
 export function homeModelPrompt(
 	text: string,
-	images?: readonly string[],
+	images?: readonly (string | HomeAttachmentPart)[],
 	history: readonly TediSessionMessage[] = [],
 ): { prompt: string } | { messages: ModelMessage[] } {
 	const replay: ModelMessage[] = hasHomeHistoryImages(history)
@@ -129,10 +141,10 @@ export function homeModelPrompt(
 								projected.text ||
 								"[Attached image — untrusted source material]",
 						},
-						...projected.images.map((data) => ({
+						...projected.images.map((part) => ({
 							type: "file" as const,
-							mediaType: "image",
-							data,
+							mediaType: typeof part === "string" ? "image" : part.mediaType,
+							data: typeof part === "string" ? part : part.data,
 						})),
 					],
 				};
@@ -146,10 +158,10 @@ export function homeModelPrompt(
 						role: "user",
 						content: [
 							{ type: "text", text },
-							...(images ?? []).map((data) => ({
+							...(images ?? []).map((part) => ({
 								type: "file" as const,
-								mediaType: "image",
-								data,
+								mediaType: typeof part === "string" ? "image" : part.mediaType,
+								data: typeof part === "string" ? part : part.data,
 							})),
 						],
 					},
