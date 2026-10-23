@@ -1,4 +1,4 @@
-ARG SANDBOX_TOOLS_IMAGE=docker.io/cloudflare/sandbox:1.0.0@sha256:5bc187515bad0d9d486a4f1476f7d8ad39fe97c57965f044e4b0a0dcc93eac06
+ARG SANDBOX_TOOLS_IMAGE=docker.io/cloudflare/sandbox:1.0.3@sha256:fc1740c3cba26461f0ab1771287c84018ab2cca43a70ebb823087c85d780aaec
 FROM ${SANDBOX_TOOLS_IMAGE} AS sandbox-tools
 
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe
@@ -25,8 +25,8 @@ RUN apt-get update \
     && gh --version \
     && node --version \
     && npm --version \
-    && npm install -g bun@1.4.2 \
-    && test "$(bun --version)" = "1.4.2"
+    && npm install -g bun@1.4.4 \
+    && test "$(bun --version)" = "1.4.4"
 
 ENV HOME=/home/tedi
 ENV TEDIX_WORKSTATION_HOME=/home/tedi
