@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { Link } from "@/components/kumo/link";
 import { canAccessAdminSection } from "@/components/admin-layout";
 import { OS_SETTINGS_NAVIGATION } from "@/lib/os-navigation";
@@ -14,6 +15,7 @@ export function OsSettingsFrame({
 	children: ReactNode;
 }) {
 	const context = useOsOperationalContext();
+	const router = useRouter();
 	const navigation = useRef<HTMLElement>(null);
 	const isAdmin = context.data?.authority
 		? canAccessAdminSection(context.data.authority)
@@ -24,15 +26,18 @@ export function OsSettingsFrame({
 		pathname === "/admin" ||
 		pathname.startsWith("/admin/") ||
 		OS_SETTINGS_NAVIGATION.some((item) => item.path === pathname);
-	// Permission-dependent items arrive with the operational context after the
-	// pathname commit and shift the active link sideways, so its reveal must
-	// re-run whenever the item set can change — a pathname-only dependency can
-	// leave it outside the rail's viewport after history navigation.
 	useEffect(() => {
-		navigation.current
-			?.querySelector<HTMLElement>("[data-settings-active]")
-			?.parentElement?.scrollIntoView({ block: "nearest", inline: "end" });
-	}, [pathname, isAdmin, canManageBilling]);
+		if (!isSettings) return;
+		const reveal = () =>
+			navigation.current
+				?.querySelector<HTMLElement>("[data-settings-active]")
+				?.parentElement?.scrollIntoView({ block: "nearest", inline: "end" });
+		// Authority reads can prepend links after the pathname commits.
+		reveal();
+		// Router history restoration runs onRendered and can overwrite the reveal.
+		// Wait until all synchronous restoration listeners have finished.
+		return router.subscribe("onRendered", () => queueMicrotask(reveal));
+	}, [pathname, isAdmin, canManageBilling, isSettings, router]);
 	if (!isSettings) return children;
 	const usageActive = pathname === "/compute" || pathname === "/admin/billing";
 	const items = [
