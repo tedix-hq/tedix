@@ -1140,6 +1140,10 @@
 		{
 			"name": "20261023124403_d1_hot_query_indexes/migration.sql",
 			"sha256": "90d325056cd024f1b41678e5c28d3f8560538fea2bb3b2ea8a986ca5aeb76ca2"
+		},
+		{
+			"name": "20261023142421_release-lock-github-jobs/migration.sql",
+			"sha256": "e7917286644d240dbc68fb92c27a4e9801fccd8b3a474003f171e8e633f13615"
 		}
 	]
 }
