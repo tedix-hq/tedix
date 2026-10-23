@@ -14,7 +14,6 @@ export default defineConfig({
 		cloudflare({
 			inspectorPort: 19255,
 			persistState: { path: path.resolve(__dirname, "../../.wrangler/state") },
-			experimental: { newConfig: { cfBuildOutput: true } },
 		}),
 	]),
 	server: {

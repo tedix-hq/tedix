@@ -13,7 +13,6 @@ export default defineConfig({
 						path.resolve(__dirname, "../../.wrangler/state"),
 				),
 			},
-			experimental: { newConfig: { cfBuildOutput: true } },
 		}),
 	]),
 	resolve: { alias: { "@": path.resolve(__dirname, "src") } },
