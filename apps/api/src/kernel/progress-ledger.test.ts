@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	KERNEL_RECONCILIATION_METADATA_KEY,
+	homeDelegationApprovalExpiresAt,
 	type LedgerApprovalRow,
 	type LedgerRunRow,
 	MAX_LEDGER_ACTIONS_PER_SWEEP,
@@ -255,6 +256,190 @@ describe("planRunReconciliation — requires_approval runs", () => {
 				[{ id: "appr-1", status: "expired", expiresAt: iso(60 * 1000) }],
 			),
 		).toEqual([]);
+	});
+});
+
+describe("planRunReconciliation — held Home delegations", () => {
+	const HOUR = 60 * 60 * 1000;
+	const held = (input: {
+		id?: string;
+		createdAgoMs?: number;
+		reason?: string;
+		request?: string;
+		target?: string;
+		expiresAt?: string;
+		childRunId?: string;
+	}) =>
+		run({
+			id: input.id ?? "held-1",
+			status: "requires_approval",
+			createdAt: iso(input.createdAgoMs ?? HOUR),
+			updatedAt: iso(input.createdAgoMs ?? HOUR),
+			childRunId: input.childRunId ?? null,
+			metadata: {
+				approvalRequestId: null,
+				homeDelegation: {
+					workOrder: {
+						kind: "tedi.delegate",
+						status: "draft",
+						targetTediId: input.target ?? "tedi-cto",
+						targetTediLabel: "CTO",
+						sourceContent:
+							input.request ?? "Refactor the scheduler module in the repo.",
+					},
+					decision: {
+						canAutoDispatch: false,
+						mode: "needs_approval",
+						reason: input.reason ?? "high risk requires human approval",
+					},
+					...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+				},
+			},
+		});
+	const planWithTtl = (runs: LedgerRunRow[], approvalTtlHours?: number) =>
+		planRunReconciliation({
+			runs,
+			approvals: new Map(),
+			now: NOW,
+			approvalTtlHours,
+		});
+
+	it("keeps a held delegation open inside the organization's review window", () => {
+		expect(planWithTtl([held({ createdAgoMs: 23 * HOUR })], 24)).toEqual([]);
+	});
+
+	it("expires a held delegation once the review window passes, without approving it", () => {
+		const actions = planWithTtl([held({ createdAgoMs: 25 * HOUR })], 24);
+		expect(actions).toHaveLength(1);
+		expect(actions[0]).toMatchObject({
+			kind: "mark_expired",
+			runId: "held-1",
+			expectedStatus: "requires_approval",
+			patchStatus: "canceled",
+			progressLabel: "Approval expired",
+			approvalRequestId: null,
+		});
+		expect(actions[0]?.reason).toMatch(/^no decision before it expired at /);
+		expect(actions[0]?.operatorMessage).toMatch(/Nothing was dispatched/);
+	});
+
+	it("prefers the expiry stamped when Home parked the card over the org TTL", () => {
+		expect(
+			planWithTtl(
+				[held({ createdAgoMs: 30 * HOUR, expiresAt: iso(-HOUR) })],
+				24,
+			),
+		).toEqual([]);
+		expect(
+			planWithTtl([held({ createdAgoMs: HOUR, expiresAt: iso(60_000) })]),
+		).toHaveLength(1);
+	});
+
+	it("takes no TTL action when neither a stamp nor an org TTL is known", () => {
+		expect(planWithTtl([held({ createdAgoMs: 900 * HOUR })])).toEqual([]);
+	});
+
+	it("expires the older of two identical requests and keeps the newest", () => {
+		const actions = planWithTtl(
+			[
+				held({ id: "older", createdAgoMs: 2 * HOUR }),
+				held({ id: "newer", createdAgoMs: HOUR }),
+				held({
+					id: "other-target",
+					createdAgoMs: 3 * HOUR,
+					target: "tedi-cfo",
+				}),
+			],
+			24,
+		);
+		expect(actions.map((action) => action.runId)).toEqual(["older"]);
+		expect(actions[0]?.reason).toBe(
+			"a newer identical request is waiting for approval (run newer)",
+		);
+	});
+
+	it("treats context tokens and whitespace as the same request", () => {
+		const actions = planWithTtl(
+			[
+				held({
+					id: "older",
+					createdAgoMs: 2 * HOUR,
+					request: "[[tedix-context:output:abc:Output]]\n\nShip  the fix.",
+				}),
+				held({ id: "newer", request: "Ship the fix." }),
+			],
+			24,
+		);
+		expect(actions.map((action) => action.runId)).toEqual(["older"]);
+	});
+
+	it("expires a human-reserved hold whose classes no longer match the request", () => {
+		const actions = planWithTtl(
+			[
+				held({
+					reason: "human-reserved: money, external_message",
+					request:
+						"Draft only: create an invoice draft with 7-day payment terms for order Buy-20116. Do not finalize, send or book.",
+				}),
+			],
+			24,
+		);
+		expect(actions).toHaveLength(1);
+		expect(actions[0]?.reason).toBe(
+			"the hold reason (money, external_message) no longer applies under the current approval policy",
+		);
+	});
+
+	it("keeps a human-reserved hold that still matches the request", () => {
+		expect(
+			planWithTtl(
+				[
+					held({
+						reason: "human-reserved: external_message",
+						request: "Email the customer that their account is closed.",
+					}),
+				],
+				24,
+			),
+		).toEqual([]);
+	});
+
+	it("leaves dispatched and row-backed approvals to their own paths", () => {
+		expect(
+			planWithTtl(
+				[held({ createdAgoMs: 900 * HOUR, childRunId: "child-1" })],
+				24,
+			),
+		).toEqual([]);
+		const rowBacked = held({ createdAgoMs: 900 * HOUR });
+		rowBacked.metadata = { ...rowBacked.metadata, approvalRequestId: "appr-1" };
+		expect(
+			planRunReconciliation({
+				runs: [rowBacked],
+				approvals: new Map([
+					[
+						"appr-1",
+						{ id: "appr-1", status: "pending", expiresAt: iso(-HOUR) },
+					],
+				]),
+				now: NOW,
+				approvalTtlHours: 24,
+			}),
+		).toEqual([]);
+	});
+});
+
+describe("homeDelegationApprovalExpiresAt", () => {
+	it("derives the window from creation plus the organization TTL", () => {
+		expect(
+			homeDelegationApprovalExpiresAt(
+				{
+					createdAt: "2026-10-20 10:00:00",
+					metadata: { homeDelegation: { workOrder: {} } },
+				},
+				48,
+			),
+		).toBe("2026-10-22T10:00:00.000Z");
 	});
 });
 

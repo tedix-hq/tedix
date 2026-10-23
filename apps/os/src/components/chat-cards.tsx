@@ -664,6 +664,10 @@ export type ApprovalCardData = {
 	/** Tool arguments stay behind the details disclosure. */
 	detailDisclosure?: boolean;
 	tediName?: string | null;
+	/** The tedi the request acts for or delegates to, when known. */
+	tediId?: string | null;
+	/** First words of the operator's delegated request (untrusted text). */
+	requestPreview?: string | null;
 	status: "pending" | "escalated";
 	/** Defaults to "approve_or_reject"; "no_action" renders without buttons. */
 	decisionMode?: "approve_or_reject" | "no_action";
@@ -672,6 +676,8 @@ export type ApprovalCardData = {
 	/** Expired approvals are denied by default and render without buttons. */
 	expired?: boolean;
 	requestedAt?: string | null;
+	/** End of the review window; the request expires unanswered after it. */
+	expiresAt?: string | null;
 	/** In-memory-only CLI-compatible scope for "always allow this session". */
 	sessionScopeKey?: string;
 };
@@ -756,21 +762,32 @@ export function approvalsFromRunSet(
 			asString(decision.reason) ??
 			"Organization policy requires approval before this delegation can start.";
 		if (TERMINAL_RUN_STATUSES.has(run.status)) {
+			const reconciliation = asRecord(metadata?.kernelReconciliation);
+			const expiredReason =
+				reconciliation?.action === "mark_expired"
+					? asString(reconciliation.reason)
+					: undefined;
 			return [
 				{
 					approvalId: `home-delegation:${run.id}`,
 					runId: run.id,
-					summary: `Delegation proposal from ${run.status} run`,
+					summary: expiredReason
+						? "Delegation approval expired"
+						: `Delegation proposal from ${run.status} run`,
 					detail: holdReason,
 					tediName,
+					tediId: targetTediId ?? null,
 					status: "pending",
 					decisionMode: "no_action",
-					noActionNote:
-						"This run has ended. The proposal is retained as history and cannot be approved or rejected.",
+					noActionNote: expiredReason
+						? `Expired without a decision: ${expiredReason}. Nothing was dispatched.`
+						: "This run has ended. The proposal is retained as history and cannot be approved or rejected.",
 					requestedAt: run.updatedAt ?? run.createdAt,
 				},
 			];
 		}
+		const expiresAt = asString(delegation.expiresAt) ?? null;
+		const expiresAtMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
 		const review = delegationAgentReviewState(
 			asRecord(delegation.agentReview),
 			tediNames,
@@ -805,8 +822,14 @@ export function approvalsFromRunSet(
 					? [review.outcome, holdReason].filter(Boolean).join(" · ")
 					: holdReason,
 				tediName,
+				tediId: targetTediId ?? null,
+				requestPreview: delegationRequestPreview(workOrder),
 				status: "pending" as const,
 				requestedAt: run.updatedAt ?? run.createdAt,
+				expiresAt,
+				...(Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs
+					? { expired: true }
+					: {}),
 				sessionScopeKey: `delegate:${targetTediId ?? targetLabel ?? "?"}`,
 			},
 		];
@@ -837,6 +860,23 @@ export function approvalsFromRunSet(
 		];
 	});
 	return [...mirrored, ...recommendations, ...writes];
+}
+
+/** The operator's request without context tokens, cut to one readable line. */
+function delegationRequestPreview(
+	workOrder: Record<string, unknown> | null,
+): string | null {
+	const request = (
+		asString(workOrder?.sourceContent) ??
+		asString(workOrder?.objective) ??
+		""
+	)
+		.replace(/\[\[tedix-context:[^\]]*\]\]/g, " ")
+		.replace(/^#+\s*/gm, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!request) return null;
+	return request.length > 160 ? `${request.slice(0, 159).trimEnd()}…` : request;
 }
 
 /**
@@ -975,6 +1015,17 @@ export function ApprovalCard({
 									title={absoluteTime(approval.requestedAt)}
 								>
 									{relativeTime(approval.requestedAt)}
+								</time>
+							</>
+						) : null}
+						{actionable && approval.expiresAt ? (
+							<>
+								{" · expires "}
+								<time
+									dateTime={approval.expiresAt}
+									title={absoluteTime(approval.expiresAt)}
+								>
+									{relativeTime(approval.expiresAt)}
 								</time>
 							</>
 						) : null}

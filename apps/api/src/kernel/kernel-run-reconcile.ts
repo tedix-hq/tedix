@@ -3,6 +3,7 @@ import type { BaseContext } from "../rpc/context";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import type { KernelTurnWorkInput } from "../rpc/routers/kernel/turn-work-context";
 import { injectAgentMessage } from "@tedix/provisioning";
+import { resolveApprovalTtlHours } from "@tedix/api-contract/utils/approval-policy";
 import type { TediRequeueDeps } from "./runtime-submission-bridge";
 import {
 	loadRuntimeSubmissionBridge,
@@ -199,10 +200,25 @@ export async function reconcileRuns(
 			}
 		}
 
+		// Held Home delegations carry no approval row; their review window is the
+		// organization's approval TTL (policy pack `approvalTtlHours`).
+		const approvalTtlHours = ledgerRuns.some(
+			(run) =>
+				run.status === "requires_approval" &&
+				run.metadata?.homeDelegation !== undefined &&
+				run.metadata?.homeDelegation !== null,
+		)
+			? resolveApprovalTtlHours(
+					await (
+						await import("../rpc/routers/kernel-runtime/policy-normalization")
+					).readOrgGovernancePolicy(context, organizationId),
+				)
+			: undefined;
 		const actions = planRunReconciliation({
 			runs: ledgerRuns,
 			approvals,
 			now: Date.now(),
+			approvalTtlHours,
 		});
 		let appliedCount = 0;
 		for (const action of actions) {

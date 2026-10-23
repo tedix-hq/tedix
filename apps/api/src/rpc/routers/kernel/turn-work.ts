@@ -1122,6 +1122,13 @@ export async function runKernelTurnWork(
 		}
 	}
 	const agentReviewPending = delegationAgentReview?.status === "pending";
+	// The operator card's review window; reconciliation expires it afterwards.
+	const delegationApprovalExpiresAt = heldDelegation
+		? new Date(
+				Date.parse(deps.nowIso()) +
+					resolveApprovalTtlHours(input.governancePolicy) * 3_600_000,
+			).toISOString()
+		: null;
 	if (writeProposalActive || delegationApprovalActive) {
 		// The approval row exists — the run parks as requires_approval; either a
 		// human resolves the card, or (when trusted) the auto-resolve sink settles
@@ -1609,6 +1616,9 @@ export async function runKernelTurnWork(
 						...kernelResult.delegation,
 						...(delegationAgentReview
 							? { agentReview: delegationAgentReview }
+							: {}),
+						...(delegationApprovalExpiresAt
+							? { expiresAt: delegationApprovalExpiresAt }
 							: {}),
 					}
 				: null,

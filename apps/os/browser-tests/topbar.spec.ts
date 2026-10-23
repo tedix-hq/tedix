@@ -117,7 +117,7 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 						.getByRole("menuitem", { name: "Activity", exact: true })
 						.click();
 					await page
-						.getByText("No action approvals waiting.", { exact: true })
+						.getByText("No approvals waiting", { exact: true })
 						.waitFor();
 					const panel = page.locator(".kumo-popover-popup");
 					const panelBox = await panel.boundingBox();
