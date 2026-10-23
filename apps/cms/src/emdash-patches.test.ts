@@ -12,8 +12,8 @@ const sections = (patch: string) => patch.split(/^(?=diff --git )/m).slice(1);
 
 describe("starter Emdash patches", () => {
 	for (const name of [
-		"@emdash-cms/cloudflare@1.3.0.patch",
-		"emdash@1.3.0.patch",
+		"@emdash-cms/cloudflare@1.3.1.patch",
+		"emdash@1.3.1.patch",
 	]) {
 		it(`tedix starter copies patches/${name} byte for byte`, () => {
 			expect(read(`apps/cms/templates/tedix/patches/${name}`)).toBe(
@@ -23,7 +23,7 @@ describe("starter Emdash patches", () => {
 	}
 
 	it("marketing starter copies the cloudflare patch byte for byte", () => {
-		const name = "@emdash-cms/cloudflare@1.3.0.patch";
+		const name = "@emdash-cms/cloudflare@1.3.1.patch";
 		expect(read(`apps/cms/templates/marketing/patches/${name}`)).toBe(
 			read(`patches/${name}`),
 		);
@@ -35,9 +35,9 @@ describe("starter Emdash patches", () => {
 	// bundle. Every root hunk must still be present unchanged.
 	it("marketing starter emdash patch contains every root hunk", () => {
 		const marketing = new Set(
-			sections(read("apps/cms/templates/marketing/patches/emdash@1.3.0.patch")),
+			sections(read("apps/cms/templates/marketing/patches/emdash@1.3.1.patch")),
 		);
-		for (const section of sections(read("patches/emdash@1.3.0.patch"))) {
+		for (const section of sections(read("patches/emdash@1.3.1.patch"))) {
 			expect(marketing.has(section)).toBe(true);
 		}
 	});

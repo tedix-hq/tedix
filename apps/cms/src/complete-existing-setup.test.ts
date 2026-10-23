@@ -5,11 +5,11 @@ import { createRequire } from "node:module";
 // @ts-expect-error Pinned native repository chunks have no declarations.
 import { t as OptionsRepository } from "../templates/tedix/node_modules/emdash/dist/options-DhrI7eMv.mjs";
 // @ts-expect-error Pinned native completion chunk has no declarations.
-import { n as finalizeSetup } from "../templates/tedix/node_modules/emdash/dist/setup-complete-BuNxAUiN.mjs";
+import { n as finalizeSetup } from "../templates/tedix/node_modules/emdash/dist/setup-complete-eu6MUQnt.mjs";
 // @ts-expect-error Pinned native repository chunks have no declarations.
-import { t as ContentRepository } from "../templates/tedix/node_modules/emdash/dist/content-DQSRZTVw.mjs";
+import { t as ContentRepository } from "../templates/tedix/node_modules/emdash/dist/content-Dt0Os_WQ.mjs";
 // @ts-expect-error Pinned native repository chunks have no declarations.
-import { n as SchemaRegistry } from "../templates/tedix/node_modules/emdash/dist/registry-TUVaid9Z.mjs";
+import { n as SchemaRegistry } from "../templates/tedix/node_modules/emdash/dist/registry-DymfZkAN.mjs";
 import { createDialect } from "emdash/db/sqlite";
 import { runMigrations } from "emdash/db";
 import {
