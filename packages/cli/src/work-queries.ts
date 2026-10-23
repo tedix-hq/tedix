@@ -438,13 +438,15 @@ const CREATE_PRIORITIES = new Set(["critical", "high", "medium", "low"]);
 export function expiresToIso(raw: string, now = Date.now()): string {
 	const t = raw.trim();
 	const duration = t.match(/^(\d+)\s*([mhdw])$/i);
+	let parsed: number;
 	if (duration) {
 		const unitMs = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }[
 			duration[2]!.toLowerCase() as "m" | "h" | "d" | "w"
 		];
-		return new Date(now + Number(duration[1]) * unitMs).toISOString();
+		parsed = new Date(now + Number(duration[1]) * unitMs).getTime();
+	} else {
+		parsed = Date.parse(t);
 	}
-	const parsed = Date.parse(t);
 	if (!Number.isFinite(parsed)) {
 		throw new Error(
 			`--expires must be a duration (45m, 72h, 7d) or an ISO datetime, got "${raw}"`,
