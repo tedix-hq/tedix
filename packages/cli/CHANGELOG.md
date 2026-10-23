@@ -3,6 +3,19 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.1 — 2026-10-23
+
+### Patch Changes
+
+- The installer no longer adds a folder you chose with `TEDIX_INSTALL_DIR` to your shell profile. It prints the line for you to add instead, so temporary installs stop leaving broken entries behind.
+- `tedix agent start` now says why a sign-in was rejected: a key already used with other settings, a rate limit, or a missing account, each with what to do next.
+- Cloud agent sessions can start from environment credentials without an owner login, and stay signed in during long commands.
+- An organization you name explicitly is used even when your sign-in doesn't select one, and the CLI explains how to supply a missing one.
+- Number options that are too large to handle safely are rejected instead of silently rounded.
+- Unknown options in `learn context`, `review` and `onboard` show that command's help and the closest supported flags.
+- Agent activity stays fresh while a tool runs, permission summaries are written in plain words, and unattended lanes no longer send you desktop notifications.
+- Devin's sandboxed pushes can record their queue receipts, and machine-readable output stays valid across lane briefs and `learn` help.
+
 ## 0.17.0 — 2026-10-22
 
 ### Minor Changes
