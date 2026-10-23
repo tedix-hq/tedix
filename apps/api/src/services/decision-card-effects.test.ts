@@ -20,6 +20,7 @@ import {
 	workEvents,
 	workItemComments,
 	workAttempts,
+	workItemRelations,
 } from "@tedix/db/schema/work-items";
 import {
 	workInteractions,
@@ -91,6 +92,7 @@ async function fixture(decision = envelope, cardContent?: string) {
 			workEvents,
 			workItemComments,
 			workAttempts,
+			workItemRelations,
 			projects,
 			userConfigs,
 			agentSessionRequests,
