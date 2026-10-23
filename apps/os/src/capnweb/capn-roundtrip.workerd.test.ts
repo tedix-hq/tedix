@@ -302,6 +302,9 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 				if (runId === "run-2" && offset === 0) {
 					return eventsPage([streamEvent("f-0", "run-2")], 0);
 				}
+				if (runId === "run-2" && offset === 1) {
+					return eventsPage([], 1);
+				}
 				return HEAD();
 			}
 			throw new Error(`unexpected path ${path}`);
@@ -312,6 +315,7 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 		const sessions = [first.root, second.root];
 		let connects = 0;
 		const frames: ConversationStreamFrame[] = [];
+		const statuses: string[] = [];
 		const machine = createCapnChatMachine({
 			conversationId: CONVERSATION_ID,
 			connect: async () => {
@@ -321,19 +325,30 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 				return root;
 			},
 			onFrame: (frame) => frames.push(frame),
+			onStatus: (status) => statuses.push(status),
 			// Immediate retry so the test does not sit through the 1s backoff.
 			setTimeoutFn: (callback) => setTimeout(callback, 0),
 		});
 
-		await until(() => frames.length >= 3, "the first run's events");
-		expect(machine.getCursor()).toEqual({ runId: "run-1", offset: 3 });
+		await until(
+			() => frames.some((frame) => frame.event.id === "f-0"),
+			"the next run's first event before reconnect",
+		);
+		expect(machine.getCursor()).toEqual({
+			runId: "run-2",
+			offset: 1,
+			runs: [
+				{ runId: "run-2", offset: 1 },
+				{ runId: "run-1", offset: 3 },
+			],
+		});
 
 		// Kill the socket the way a real drop does.
 		first.socket.close(1011, "gone");
 		await until(() => connects === 2, "a reconnect");
 		await until(
-			() => frames.some((frame) => frame.event.id === "f-0"),
-			"the next run's first event",
+			() => statuses.filter((status) => status === "open").length === 2,
+			"the resumed subscription to open",
 		);
 
 		// Exactly once each, in durable order, across the reconnect AND the run
@@ -350,7 +365,14 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 			`${CONVERSATION_ID}:run-1:2`,
 			`${CONVERSATION_ID}:run-2:0`,
 		]);
-		expect(machine.getCursor()).toEqual({ runId: "run-2", offset: 1 });
+		expect(machine.getCursor()).toEqual({
+			runId: "run-2",
+			offset: 1,
+			runs: [
+				{ runId: "run-2", offset: 1 },
+				{ runId: "run-1", offset: 3 },
+			],
+		});
 		machine.close();
 	}, 30_000);
 
