@@ -4330,7 +4330,10 @@ const handlers: Record<string, (input: never) => unknown> = {
 									executorId: TEDI_NOVA,
 									externalSessionKey: null,
 									quantity: 2,
-									expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+									// Whole minutes, so two reads of the same pool agree.
+									expiresAt: new Date(
+										Math.ceil((Date.now() + 60 * 60_000) / 60_000) * 60_000,
+									).toISOString(),
 								},
 							]
 						: [],
