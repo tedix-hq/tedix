@@ -17,6 +17,10 @@ import {
 	mergeLogStoreRows,
 	readLogStores,
 } from "../utils/log-store";
+import {
+	tediRuntimeEventColumns,
+	tediRuntimeEventsRunSource,
+} from "../utils/tedi-runtime-event-source";
 
 /** D1 caps bound parameters at 100 per statement; keep IN() lists ≤50. */
 const D1_IN_LIST_CHUNK = 50;
@@ -236,9 +240,14 @@ export async function listTediRuntimeEvents(
 			// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
 			...(input.kinds ? [inArray(tediRuntimeEvents.kind, input.kinds)] : []),
 		];
+		const runScoped = Boolean(input.runId || runIds) && !input.runIdPrefix;
 		const base = db
-			.select()
-			.from(tediRuntimeEvents)
+			.select(tediRuntimeEventColumns())
+			.from(
+				runScoped
+					? tediRuntimeEventsRunSource({ byKind: Boolean(input.kinds) })
+					: tediRuntimeEvents,
+			)
 			.where(and(...conditions));
 		const query = order
 			? base.orderBy(

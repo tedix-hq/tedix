@@ -23,7 +23,10 @@ import {
 	listTediRuntimeEvents,
 	updateKernelRuntimeEventMetadata,
 } from "./kernel-runtime-events";
-import { insertTediRuntimeEvent } from "./cognitive-runtime";
+import {
+	insertTediRuntimeEvent,
+	listTediRuntimeEventsForRouter,
+} from "./cognitive-runtime";
 import {
 	findKernelRuntimeRunByChild,
 	findKernelRuntimeRunForOutputRevision,
@@ -321,6 +324,124 @@ describe("kernel runtime query boundary", () => {
 				runId: "child-1",
 			}),
 		).resolves.toBe(2);
+	});
+});
+
+/**
+ * Production `sqlite_stat1` on 23 Oct 2026: `organization_id = ?` and the
+ * `(tedi_id, run_id)` prefix both estimate ~515 rows, so a four-kind `IN`
+ * list (4 x 129) made the planner read the whole tenant through
+ * `idx_tedi_runtime_events_org` (334k rows per call).
+ */
+function seedProductionRuntimeEventStatistics(sqlite: DatabaseSync): void {
+	sqlite.exec(`
+		ANALYZE;
+		DELETE FROM sqlite_stat1 WHERE tbl = 'tedi_runtime_events';
+		INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES
+			('tedi_runtime_events', 'idx_tedi_runtime_events_org', '646449 515'),
+			('tedi_runtime_events', 'idx_tedi_runtime_events_created', '646449 2'),
+			('tedi_runtime_events', 'idx_tedi_runtime_events_tedi_created', '646449 515 2'),
+			('tedi_runtime_events', 'idx_tedi_runtime_events_conversation_created', '646449 515 515 1'),
+			('tedi_runtime_events', 'idx_tedi_runtime_events_run_created', '646449 515 515 1'),
+			('tedi_runtime_events', 'idx_tedi_runtime_events_run_kind_created', '646449 515 515 129 1'),
+			('tedi_runtime_events', 'idx_tedi_runtime_events_kind_created', '646449 515 80 1');
+		ANALYZE sqlite_master;
+	`);
+}
+
+function captureStatements(sqlite: DatabaseSync): string[] {
+	const statements: string[] = [];
+	const prepare = sqlite.prepare.bind(sqlite);
+	sqlite.prepare = ((query: string) => {
+		statements.push(query);
+		return prepare(query);
+	}) as typeof sqlite.prepare;
+	return statements;
+}
+
+function queryPlan(sqlite: DatabaseSync, statement: string): string {
+	return (
+		sqlite.prepare(`EXPLAIN QUERY PLAN ${statement}`).all() as Array<{
+			detail: string;
+		}>
+	)
+		.map((row) => row.detail)
+		.join("\n");
+}
+
+describe("run-scoped runtime event reads under production statistics", () => {
+	it("pins the context-wake receipt read to the run-and-kind index", async () => {
+		const { db, sqlite } = fixture();
+		seedProductionRuntimeEventStatistics(sqlite);
+		const statements = captureStatements(sqlite);
+		await listTediRuntimeEvents(db, {
+			organizationId: "org-1",
+			tediId: "tedi-1",
+			runId: "run-1",
+			kinds: ["run.started", "run.completed", "run.failed", "run.canceled"],
+			limit: 1,
+		});
+		const statement = statements.at(-1)!;
+		expect(statement).toContain(
+			"INDEXED BY idx_tedi_runtime_events_run_kind_created",
+		);
+		// Local SQLite costs the unpinned statement differently from D1, where
+		// the same statistics produced `USING INDEX idx_tedi_runtime_events_org`.
+		expect(queryPlan(sqlite, statement)).toContain(
+			"USING INDEX idx_tedi_runtime_events_run_kind_created (tedi_id=? AND run_id=? AND kind=?)",
+		);
+	});
+
+	it("pins ordered run tails to the run index and leaves prefix scans free", async () => {
+		const { db, sqlite } = fixture();
+		seedProductionRuntimeEventStatistics(sqlite);
+		const statements = captureStatements(sqlite);
+		await listTediRuntimeEvents(db, {
+			organizationId: "org-1",
+			tediId: "tedi-1",
+			runId: "run-1",
+			order: "desc",
+			limit: 1,
+		});
+		expect(statements.at(-1)).toContain(
+			"INDEXED BY idx_tedi_runtime_events_run_created",
+		);
+		expect(queryPlan(sqlite, statements.at(-1)!)).toContain(
+			"USING INDEX idx_tedi_runtime_events_run_created (tedi_id=? AND run_id=?)",
+		);
+		await listTediRuntimeEvents(db, {
+			tediId: "tedi-1",
+			runIds: ["run-1", "run-2"],
+			kinds: ["message.completed"],
+			order: "desc",
+			limit: 16,
+		});
+		expect(statements.at(-1)).toContain(
+			"INDEXED BY idx_tedi_runtime_events_run_kind_created",
+		);
+		await listTediRuntimeEvents(db, {
+			tediId: "tedi-1",
+			runIdPrefix: "run-",
+			limit: 5,
+		});
+		expect(statements.at(-1)).not.toContain("INDEXED BY");
+		await listTediRuntimeEventsForRouter(db, {
+			tediId: "tedi-1",
+			runId: "run-1",
+			kinds: ["tool.completed", "tool.failed"],
+			order: "desc",
+			limit: 25,
+		});
+		expect(statements.at(-1)).toContain(
+			"INDEXED BY idx_tedi_runtime_events_run_kind_created",
+		);
+		await listTediRuntimeEventsForRouter(db, {
+			tediId: "tedi-1",
+			conversationId: "conversation-1",
+			order: "desc",
+			limit: 25,
+		});
+		expect(statements.at(-1)).not.toContain("INDEXED BY");
 	});
 });
 

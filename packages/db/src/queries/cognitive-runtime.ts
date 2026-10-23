@@ -30,6 +30,10 @@ import {
 	mergeLogStoreRows,
 	readLogStores,
 } from "../utils/log-store";
+import {
+	tediRuntimeEventColumns,
+	tediRuntimeEventsRunSource,
+} from "../utils/tedi-runtime-event-source";
 import { searchAuditEvents } from "./audit";
 
 export type TediRuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
@@ -302,9 +306,16 @@ export async function listTediRuntimeEventsForRouter(
 				]
 			: []),
 	];
+	const runScoped = Boolean(input.runId || input.runIds);
 	const base = db
-		.select()
-		.from(tediRuntimeEvents)
+		.select(tediRuntimeEventColumns())
+		.from(
+			runScoped
+				? tediRuntimeEventsRunSource({
+						byKind: Boolean(input.kind || input.kinds),
+					})
+				: tediRuntimeEvents,
+		)
 		.where(and(...conditions));
 	const ordered =
 		input.order === "asc"
