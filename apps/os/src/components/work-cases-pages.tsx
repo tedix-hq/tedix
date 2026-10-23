@@ -448,7 +448,9 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 							disabled={update.isPending || stage === record.stage}
 							onClick={() => update.mutate(stage)}
 						>
-							{sentenceCase(stage)}
+							{update.isPending && update.variables === stage
+								? `Moving to ${sentenceCase(stage)}…`
+								: sentenceCase(stage)}
 						</Button>
 					))}
 				</div>
@@ -495,7 +497,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 								)}
 							</FormField>
 							<Button type="submit" disabled={attach.isPending}>
-								Attach Work Item
+								{attach.isPending ? "Attaching…" : "Attach Work Item"}
 							</Button>
 							<MutationError error={attach.error} />
 						</form>
@@ -530,7 +532,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 								)}
 							</FormField>
 							<Button type="submit" disabled={dependency.isPending}>
-								Add dependency
+								{dependency.isPending ? "Adding…" : "Add dependency"}
 							</Button>
 							<MutationError error={dependency.error} />
 						</form>
