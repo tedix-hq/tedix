@@ -790,6 +790,75 @@ describe("tedix hooks status", () => {
 });
 
 describe("session name and binding", () => {
+	test("claimed lane reports its launcher identity and Work, preserving host-local state", async () => {
+		enable();
+		const env = {
+			TEDIX_AGENT_SESSION: `codex:${SESSION}`,
+			TEDIX_WORK_ID: "33333333-3333-4333-8333-333333333333",
+			TEDIX_LANE_LABEL: "session-identity-cleanup",
+			CODEX_THREAD_ID: SESSION,
+		};
+		await fire("UserPromptSubmit", {}, env);
+		expect(lastReport()).toMatchObject({
+			sessionKey: env.TEDIX_AGENT_SESSION,
+			workItemId: env.TEDIX_WORK_ID,
+			label: env.TEDIX_LANE_LABEL,
+			replacesSessionKey: SESSION,
+		});
+		expect(state("codex")?.sessionKey).toBe(SESSION);
+		await fire("PostToolUse", {}, env);
+		expect(reports()).toHaveLength(1);
+	});
+
+	test("prompt heading survives later hook events and Work suppresses the checkout fallback", async () => {
+		enable();
+		const env = { TEDIX_WORK_ID: "33333333-3333-4333-8333-333333333333" };
+		await fire(
+			"UserPromptSubmit",
+			{ prompt: "Read the rules.\n# Repair session identity\n\n## Tests" },
+			env,
+			undefined,
+			false,
+			{ sessionName },
+		);
+		expect(lastReport().label).toBe("Repair session identity");
+		await fire(
+			"Stop",
+			{ last_assistant_message: "Done." },
+			env,
+			undefined,
+			false,
+			{ sessionName },
+		);
+		expect(lastReport().label).toBe("Repair session identity");
+		await fire(
+			"UserPromptSubmit",
+			{ session_id: "another-session" },
+			env,
+			undefined,
+			false,
+			{ sessionName },
+		);
+		expect(lastReport().label).toBe("");
+	});
+
+	test("explicit lane labels win and mismatched or invalid session selectors are ignored", async () => {
+		enable();
+		expect(
+			sessionName({ prompt: "# Heading" }, "opencode", {
+				TEDIX_LANE_LABEL: " My lane ",
+			}),
+		).toBe("My lane");
+		for (const selector of ["codex:wrong-harness", "claude-code:bad/key"]) {
+			await fire(
+				"UserPromptSubmit",
+				{},
+				{ TEDIX_AGENT_SESSION: selector, TEDIX_WORK_ID: "invalid" },
+			);
+			expect(lastReport().sessionKey).toBe(SESSION);
+			expect(lastReport()).not.toHaveProperty("replacesSessionKey");
+		}
+	});
 	const PROJECT = "22222222-2222-4222-8222-222222222222";
 	const WORK_ITEM = "33333333-3333-4333-8333-333333333333";
 	const lastReport = () =>

@@ -108,12 +108,21 @@ export const LaneTelemetrySchema = z.object({
 });
 
 export const ReportWorkAgentSessionStatusInputSchema = z.strictObject({
+	replacesSessionKey: z
+		.string()
+		.regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/)
+		.optional()
+		.describe(
+			"Previous host status key replaced by this claimed lane session; only the caller's same-harness row is retired.",
+		),
 	telemetry: LaneTelemetryInputSchema.optional(),
 	harness: WorkAgentSessionHarnessSchema,
 	sessionKey: z
 		.string()
 		.regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/)
-		.describe("The host's own session id, such as Claude Code session_id."),
+		.describe(
+			"The claimed external session key, otherwise the host's own session id.",
+		),
 	state: WorkAgentSessionStateSchema,
 	summary: SummarySchema,
 	label: z
@@ -121,7 +130,7 @@ export const ReportWorkAgentSessionStatusInputSchema = z.strictObject({
 		.trim()
 		.max(120)
 		.describe(
-			"Short human label: the session's name, else the repository folder and branch.",
+			"Short human label: lane/session name or prompt heading; empty uses the linked Work title.",
 		),
 	projectId: z
 		.uuid()

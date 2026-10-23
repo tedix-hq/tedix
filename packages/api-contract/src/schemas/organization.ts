@@ -417,6 +417,18 @@ export const PortfolioBucketsSchema = z
 	);
 
 export const OrganizationMetadataSchema = z.object({
+	sessionProjectBindings: z
+		.array(
+			z.strictObject({
+				prefix: z.string().trim().min(1).max(120),
+				projectId: z.uuid(),
+			}),
+		)
+		.max(100)
+		.optional()
+		.describe(
+			"Case-insensitive session-name prefixes mapped to projects. Longest prefix wins; linked Work takes precedence.",
+		),
 	modelFallback: ModelFallbackPolicySchema.nullable().optional(),
 	workStewardship: WorkStewardshipPolicySchema.optional().describe(
 		"Creation-time stewardship defaults; explicit ownership and human execution are preserved.",

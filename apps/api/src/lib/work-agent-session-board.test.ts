@@ -161,25 +161,28 @@ describe("buildWorkProjectContributors", () => {
 		expect(rows.map((row) => row.state)).toEqual(["idle", "idle"]);
 	});
 
-	it("merges a session's report and Attempts into one row", () => {
-		const [row, ...rest] = buildWorkProjectContributors(
-			[report],
-			[attempt, { ...attempt, workItemId: "item-0" }],
-			NOW,
-		);
-		expect(rest).toEqual([]);
-		expect(row).toEqual({
-			sessionKey: "claude-code:abc",
-			harness: "claude-code",
-			name: "ALPHA",
-			state: "working",
-			summary: "Editing",
-			lastActivityAt: "2026-10-06T11:56:00.000Z",
-			workItemId: "item-1",
-			workItemTitle: "Ship alpha",
-			attempts: 2,
-		});
-	});
+	it.each(["abc", "claude-code:abc"])(
+		"merges report key %s and Attempts into one row",
+		(sessionKey) => {
+			const [row, ...rest] = buildWorkProjectContributors(
+				[{ ...report, sessionKey }],
+				[attempt, { ...attempt, workItemId: "item-0" }],
+				NOW,
+			);
+			expect(rest).toEqual([]);
+			expect(row).toEqual({
+				sessionKey: "claude-code:abc",
+				harness: "claude-code",
+				name: "ALPHA",
+				state: "working",
+				summary: "Editing",
+				lastActivityAt: "2026-10-06T11:56:00.000Z",
+				workItemId: "item-1",
+				workItemTitle: "Ship alpha",
+				attempts: 2,
+			});
+		},
+	);
 
 	it("uses a newer registered heartbeat instead of an old session report", () => {
 		const [row] = buildWorkProjectContributors(

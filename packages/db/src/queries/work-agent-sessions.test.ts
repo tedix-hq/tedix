@@ -47,6 +47,40 @@ function report(
 }
 
 describe("reportWorkAgentSessionStatus", () => {
+	it("retires only the same owner's previous host key and keeps the canonical lane once", async () => {
+		const db = fixture();
+		await report(db, { sessionKey: "host" });
+		await report(db, { sessionKey: "host", userId: OTHER_USER });
+		await report(db, { sessionKey: "host", organizationId: OTHER_ORG });
+		await report(db, { sessionKey: "host", harness: "codex" });
+		await report(db, {
+			sessionKey: "claude-code:claim",
+			replacesSessionKey: "host",
+			now: T1,
+		});
+		const rows = await listWorkAgentSessions(db, {
+			organizationId: ORG,
+			userId: USER,
+			includeEnded: false,
+			now: T1,
+		});
+		expect(rows.map((r) => r.sessionKey).sort()).toEqual([
+			"claude-code:claim",
+			"host",
+		]);
+		expect(rows.find((r) => r.sessionKey === "host")?.harness).toBe("codex");
+		for (const scope of [
+			{ userId: OTHER_USER, organizationId: ORG },
+			{ userId: USER, organizationId: OTHER_ORG },
+		]) {
+			const peers = await listWorkAgentSessions(db, {
+				...scope,
+				includeEnded: false,
+				now: T1,
+			});
+			expect(peers[0]?.state).toBe("working");
+		}
+	});
 	it("creates a session and reports it as changed", async () => {
 		const db = fixture();
 		const { row, changed } = await report(db);
