@@ -437,6 +437,21 @@ export const MUSCLE_MEMORY_KIND_OVERRIDES: Record<
 	"muscle/usage": "write",
 };
 
+/**
+ * Memory reads served over POST whose names carry no read verb. Inferred as
+ * writes, they emitted unverified action receipts that replaced a tedi's
+ * answer with "I could not verify every action" (CFO memory check, 23 Oct).
+ */
+export const MEMORY_GRAPH_KIND_OVERRIDES: Record<
+	string,
+	"read" | "write" | "destructive"
+> = {
+	"memoryGraph/assemble": "read",
+	"memoryGraph/browse": "read",
+	"memoryGraph/expertise": "read",
+	"memoryGraph/stats": "read",
+};
+
 /** Stable cross-platform workflow catalog surface. */
 export const WORKFLOW_CATALOG_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workflows/listDefinitions": "list_workflow_definitions",
