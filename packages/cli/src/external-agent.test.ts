@@ -388,7 +388,9 @@ describe("external-agent CLI session", () => {
 				await expect(result).rejects.toThrow(
 					status === 0
 						? scenario
-						: `External-agent session exchange failed (${status}${code ? `, ${code}` : ""}). Inspect agent status before retrying; server-side issuance may have changed.`,
+						: code === "immutable_session_conflict"
+							? 'Agent-Session "codex:session-1" is already registered with a different harness version or model than codex 1.2.3 / openai gpt-5.6.\nA session key is immutable: pass the flags it was registered with (see `tedix agent status`), or start a fresh session:\n  export TEDIX_AGENT_SESSION="codex:$(uuidgen'
+							: `External-agent session exchange failed (${status}${code ? `, ${code}` : ""}): ${scenario}. Inspect agent status before retrying; server-side issuance may have changed.`,
 				);
 			expect(bodies).toHaveLength(expectedCalls);
 			expect(new Set(bodies).size).toBe(1);
