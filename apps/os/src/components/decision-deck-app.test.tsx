@@ -647,6 +647,48 @@ it("keeps critical and valuable cards available without browser batch state", as
 	).toBe(false);
 });
 
+it("browses every waiting card and opens one without a verdict or skip", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("No live requests in the fixture"),
+	);
+	const first = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"First fictional supplier",
+	);
+	const second = linkedRow(
+		"33333333-3333-4333-8333-333333333333",
+		"Second fictional supplier",
+	);
+	await mount({ rows: [first, second] });
+	await click("Everything waiting");
+	const list = host.querySelector("[data-deck-waiting]")!;
+	expect(list).not.toBeNull();
+	expect(list.textContent).toContain("First fictional supplier");
+	expect(list.textContent).toContain("Second fictional supplier");
+	expect(list.textContent).toContain("Decision capture");
+	await act(async () =>
+		[...list.querySelectorAll("button")]
+			.find((node) => node.textContent?.includes("Second fictional supplier"))!
+			.click(),
+	);
+	expect(host.textContent).toContain(`Live request ${second.request.id}`);
+	expect(host.querySelector("[data-deck-waiting]")).toBeNull();
+	await click("Everything waiting");
+	expect(host.querySelector("[data-deck-waiting]")).not.toBeNull();
+	expect(
+		writes.record.mock.calls.filter(([input]) => {
+			const event = input as {
+				surface?: string;
+				metadata?: { decisionChoice?: string };
+			};
+			return (
+				event.surface === "decision_deck" ||
+				event.metadata?.decisionChoice === "skip"
+			);
+		}),
+	).toHaveLength(0);
+});
+
 it("resolves the selected project even when it is outside the first project-list page", async () => {
 	const row = linkedRow(
 		"11111111-1111-4111-8111-111111111111",

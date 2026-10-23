@@ -469,6 +469,40 @@ describe("CardReviewApp decision interactions", () => {
 		expect(sheet.rows[0]![6]).toBe("yes");
 		expect(sheet.rows[0]![7]).toBe("Keep this reason.");
 	});
+	it("browses every open card from the Waiting list without a verdict, skip or learning event", async () => {
+		await mount(false);
+		expect(
+			host.querySelector("[data-card-review-card]")?.getAttribute("aria-label"),
+		).toBe("Card 1: opportunity");
+		await click("3 of 3 left");
+		const list = host.querySelector("[data-card-review-waiting]")!;
+		expect(list).not.toBeNull();
+		expect(list.querySelectorAll("button")).toHaveLength(4); // Back + 3 rows
+		for (const example of examples)
+			expect(list.textContent).toContain(example.proposal);
+		expect(host.querySelector("[data-card-review-card]")).toBeNull();
+		await act(async () =>
+			[...list.querySelectorAll("button")]
+				.find((node) => node.textContent?.includes(examples[1]!.proposal))!
+				.click(),
+		);
+		await flush();
+		expect(
+			host.querySelector("[data-card-review-card]")?.getAttribute("aria-label"),
+		).toBe("Card 2: opportunity");
+		expect(host.querySelector("[data-card-review-waiting]")).toBeNull();
+		await click("3 of 3 left");
+		await click("Back");
+		expect(
+			host.querySelector("[data-card-review-card]")?.getAttribute("aria-label"),
+		).toBe("Card 2: opportunity");
+		await key(host.querySelector("[data-card-review]")!, "w");
+		expect(host.querySelector("[data-card-review-waiting]")).not.toBeNull();
+		await key(host.querySelector("[data-card-review]")!, "Escape");
+		expect(host.querySelector("[data-card-review-waiting]")).toBeNull();
+		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+	});
 	it("leaves shortcuts with an interactive overlay that owns focus", async () => {
 		await mount();
 		await mount(true, true);

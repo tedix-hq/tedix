@@ -321,6 +321,7 @@ export const SPANISH_FEED_DECK_COPY = {
 			"Tu corrección queda registrada para aprender tus preferencias.",
 		loading: "Cargando tu actividad…",
 		empty: "Nada necesita tu atención ahora mismo.",
+		nothingWaiting: "Nada te está esperando.",
 		partial: "No se pudieron leer algunas fuentes. Reintenta para ver todo.",
 		retry: "Reintentar",
 		loadMore: "Actividad anterior",

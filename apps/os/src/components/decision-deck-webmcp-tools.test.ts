@@ -90,6 +90,7 @@ describe("Decision deck WebMCP tools", () => {
 		const { tools } = deck();
 		expect(tools.map((tool) => tool.name)).toEqual([
 			"get_decision_deck_card",
+			"list_decision_deck_cards",
 			"set_decision_deck_card",
 			"set_decision_card_answer",
 			"set_decision_card_option",
@@ -97,11 +98,15 @@ describe("Decision deck WebMCP tools", () => {
 			"set_decision_card_not_useful",
 			"respond_decision_card",
 		]);
-		for (const tool of tools.slice(1)) {
+		for (const tool of tools.slice(2)) {
 			expect(tool.annotations.readOnlyHint, tool.name).toBe(false);
 			expect(tool.annotations.consequentialHint, tool.name).toBe(true);
 		}
 		expect(tools[0]!.annotations).toEqual({
+			readOnlyHint: true,
+			untrustedContentHint: true,
+		});
+		expect(tools[1]!.annotations).toEqual({
 			readOnlyHint: true,
 			untrustedContentHint: true,
 		});
@@ -126,6 +131,45 @@ describe("Decision deck WebMCP tools", () => {
 			},
 			queue: [{ id: "card-1" }, { id: "card-2" }],
 		});
+	});
+
+	it("lists every waiting card without touching the card on screen", async () => {
+		const { state, tool, agent } = deck();
+		state.waiting = [
+			{
+				id: "card-1",
+				kind: "question",
+				askKind: "answer",
+				label: "When?",
+				source: "Decision capture",
+				project: "Unfiled",
+				requestedAt: "2026-10-17T09:00:00Z",
+				deadline: null,
+				overdue: false,
+				expired: false,
+				costOfWaiting: "The window closes.",
+			},
+			{
+				id: "factory:sheet-1:3",
+				kind: "decision",
+				askKind: "decide",
+				label: "Reply to Ada",
+				source: "Social opportunities",
+				project: "Unfiled",
+				requestedAt: "2026-10-16T09:00:00Z",
+				deadline: "2026-10-20",
+				overdue: true,
+				expired: false,
+				costOfWaiting: "Today",
+			},
+		];
+		const result = await tool("list_decision_deck_cards").execute({});
+		expect(result.isError).toBeUndefined();
+		expect(result.structuredContent).toEqual({
+			cards: state.waiting,
+		});
+		expect(agent!.fill).not.toHaveBeenCalled();
+		expect(agent!.submit).not.toHaveBeenCalled();
 	});
 
 	it("fills the answer and prepares an option without saving", async () => {
@@ -207,7 +251,7 @@ describe("Decision deck WebMCP tools", () => {
 			reason: "duplicate",
 			confirmedByUser: true,
 		};
-		for (const tool of tools.slice(2)) {
+		for (const tool of tools.slice(3)) {
 			const result = await tool.execute(args);
 			expect(result.isError, tool.name).toBe(true);
 			expect(result.content[0]!.text, tool.name).toContain(

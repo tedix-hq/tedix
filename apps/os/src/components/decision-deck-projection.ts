@@ -38,6 +38,9 @@ export function projectDecisionDeck({
 			timeZone,
 			staleDraftHours: config.staleDraftHours ?? 24,
 		});
+	// The Waiting list is one overview: the Deck's own open cards plus every
+	// open factory card, including ones routing keeps out of the decide queue.
+	const browsing = mode === "waiting";
 	const rows = practiceMode
 		? config.examples.map((decision, i) => ({
 				id: `example:${i}`,
@@ -48,34 +51,40 @@ export function projectDecisionDeck({
 				urgency: "later",
 				decision,
 				row: undefined,
+				sourceLabel: "Example",
+				costOfWaiting: null as string | null,
 				...ask({ kind: decision.kind, decision }),
 			}))
 		: [
-				...(mode === "decide"
-					? decisions.factoryCards.map((card) => ({
-							id: `factory:${card.key}`,
-							requestedAt: card.runCreatedAt,
-							dueAt: factoryCardDeadline(card),
-							kind: "decision",
-							origin: {
-								factory: card.sourceLabel,
-								workspaceId:
-									config.factorySources[card.sourceIndex]?.workspaceId ?? "",
-							} satisfies CardOrigin,
-							label: card.action || card.why || card.sourceText,
-							project:
-								config.factorySources[card.sourceIndex]?.run?.workProjectId ??
-								"Unfiled",
-							urgency: "later",
-							decision: null,
-							row: undefined,
-							...ask({
-								kind: "decision",
-								factory: card,
-								dueAt: factoryCardDeadline(card),
+				...(mode === "decide" || browsing
+					? (browsing ? decisions.factoryWaiting : decisions.factoryCards).map(
+							(card) => ({
+								id: `factory:${card.key}`,
 								requestedAt: card.runCreatedAt,
+								dueAt: factoryCardDeadline(card),
+								kind: "decision",
+								origin: {
+									factory: card.sourceLabel,
+									workspaceId:
+										config.factorySources[card.sourceIndex]?.workspaceId ?? "",
+								} satisfies CardOrigin,
+								label: card.action || card.why || card.sourceText,
+								project:
+									config.factorySources[card.sourceIndex]?.run?.workProjectId ??
+									"Unfiled",
+								urgency: "later",
+								decision: null,
+								row: undefined,
+								sourceLabel: card.sourceLabel,
+								costOfWaiting: card.timing || null,
+								...ask({
+									kind: "decision",
+									factory: card,
+									dueAt: factoryCardDeadline(card),
+									requestedAt: card.runCreatedAt,
+								}),
 							}),
-						}))
+						)
 					: []),
 				...(mode === "history"
 					? history.filter((row) => row.effectiveState === "resolved")
@@ -105,6 +114,8 @@ export function projectDecisionDeck({
 									}
 								: decision,
 						row,
+						sourceLabel: row.askedBy ?? "Decision capture",
+						costOfWaiting: decision?.costOfWaiting ?? null,
 						...ask({
 							kind: cardKind,
 							decision,
@@ -115,7 +126,7 @@ export function projectDecisionDeck({
 						}),
 					};
 				}),
-				...(mode === "decide"
+				...(mode === "decide" || browsing
 					? decisions.work.map((row) => ({
 							id: `work-approval:${row.proposal.id}`,
 							requestedAt: row.proposal.requestedAt,
@@ -125,10 +136,12 @@ export function projectDecisionDeck({
 							urgency: "now",
 							decision: null,
 							row: undefined,
+							sourceLabel: "Work",
+							costOfWaiting: null,
 							...ask({ kind: "approval" }),
 						}))
 					: []),
-				...(!config.projectId && mode === "decide"
+				...(!config.projectId && (mode === "decide" || browsing)
 					? (approvals.data?.data ?? []).map((approval) => ({
 							id: `approval:${approval.id}`,
 							requestedAt: approval.createdAt,
@@ -138,6 +151,8 @@ export function projectDecisionDeck({
 							urgency: "now",
 							decision: null,
 							row: undefined,
+							sourceLabel: "Approval",
+							costOfWaiting: null,
 							...ask({ kind: "approval", runtimeApproval: approval }),
 						}))
 					: []),
@@ -145,20 +160,27 @@ export function projectDecisionDeck({
 	const rank = (row: (typeof rows)[number]) =>
 		rankDeckCard(row, learningModel, now, row.row?.request);
 	const factoryPriority = new Map(
-		decisions.factoryCards.map((card) => {
-			const route = routeFactoryCard(card, config.routing, now, learningModel);
-			return [
-				`factory:${card.key}`,
-				{
-					policyCritical: route.reason === "critical",
-					score: route.score ?? undefined,
-				},
-			];
-		}),
+		(browsing ? decisions.factoryWaiting : decisions.factoryCards).map(
+			(card) => {
+				const route = routeFactoryCard(
+					card,
+					config.routing,
+					now,
+					learningModel,
+				);
+				return [
+					`factory:${card.key}`,
+					{
+						policyCritical: route.reason === "critical",
+						score: route.score ?? undefined,
+					},
+				];
+			},
+		),
 	);
 	// Critical detection sees the same card facts as the server projection.
 	const priorityContext = (row: (typeof rows)[number]) =>
-		mode === "decide"
+		mode === "decide" || browsing
 			? {
 					kind: row.kind,
 					label: row.label,
