@@ -123,7 +123,11 @@ export const DeckProjectionSchema = z.strictObject({
 });
 export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
-		kind: z.literal("factory_changes"),
+		kind: z
+			.literal("factory_changes")
+			.describe(
+				"Ask the factory to rewrite this draft card. Each round creates a new revision of the same draft.",
+			),
 		cardId: z.string().min(1),
 		gadgetId: z.uuid().optional(),
 		timeZone: AttentionTimeZoneSchema.optional(),
@@ -131,7 +135,9 @@ export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 		instruction: CardTextSchema.max(8000),
 	}),
 	z.strictObject({
-		kind: z.literal("factory_restore"),
+		kind: z
+			.literal("factory_restore")
+			.describe("Restore an earlier revision of the same factory draft card."),
 		cardId: z.string().min(1),
 		gadgetId: z.uuid().optional(),
 		timeZone: AttentionTimeZoneSchema.optional(),
@@ -193,7 +199,7 @@ export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 /** Object envelope for native schema projection; the nested union retains domain narrowing. */
 export const DecideDeckCardRequestSchema = z.strictObject({
 	decision: DecideDeckCardInputSchema.describe(
-		"Factory usefulness feedback or a bounded, unprotected interaction response. Governed and critical decisions are refused with OS/Home guidance.",
+		"Answer a Deck card. Factory changes ask the factory to rewrite a draft; factory restore brings back an earlier revision. This does not approve or execute the card.",
 	),
 });
 

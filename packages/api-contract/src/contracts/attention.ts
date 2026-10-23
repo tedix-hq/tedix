@@ -66,6 +66,11 @@ export const attentionContract = oc
 				}),
 			),
 		listDeckCards: oc
+			.route({
+				summary: "List every card waiting for you",
+				description:
+					"Read every open decision and factory card waiting for you. This is read-only and does not answer, approve, change or hide any card.",
+			})
 			.input(
 				AttentionViewInputSchema.extend({
 					presentation: z
@@ -78,6 +83,11 @@ export const attentionContract = oc
 			)
 			.output(DeckProjectionSchema),
 		getDeckCard: oc
+			.route({
+				summary: "Read one card waiting for you",
+				description:
+					"Read one open decision or factory card without answering or changing it.",
+			})
 			.input(
 				AttentionViewInputSchema.extend({
 					cardId: z.string().min(1),
@@ -87,9 +97,9 @@ export const attentionContract = oc
 			.output(DeckCardSchema),
 		decideDeckCard: oc
 			.route({
-				summary: "Record bounded Deck feedback",
+				summary: "Answer a card waiting for you",
 				description:
-					"Requests agent rewrites, restores content revisions, saves factory usefulness feedback and records unprotected, reversible interaction responses. Revision actions use their source owner and never approve or execute the card. Critical decisions, governed approvals, handoffs and executable effects require their originating OS card or Home approval flow.",
+					"Answer a Deck card. For kind factory_changes, ask the factory to rewrite the draft card; each round creates a new revision of the same draft. Use kind factory_restore to restore an earlier revision. This does not approve or execute the card.",
 			})
 			.input(DecideDeckCardRequestSchema)
 			.output(z.strictObject({ saved: z.literal(true), cardId: z.string() })),
