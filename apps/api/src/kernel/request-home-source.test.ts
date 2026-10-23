@@ -170,6 +170,14 @@ describe("Home request source adapter", () => {
 			workItemId: "work-one",
 			attemptId: "attempt-one",
 			delivery: { status: "acknowledged" },
+			workOrder: {
+				workItemId: "work-one",
+				workVersion: 1,
+				goal: "Read the requested revision",
+				citations: ["work:work-one@1"],
+				acceptance: { checks: row.snapshot.checks },
+				destination: { kind: "home", sourceId: "run-one" },
+			},
 		});
 		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
 		const report = (await db.select().from(kernelRuntimeEvents))[0]!;

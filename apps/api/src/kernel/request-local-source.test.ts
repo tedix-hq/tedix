@@ -162,6 +162,21 @@ describe("private local request adapter", () => {
 				revisionId: "revision-one",
 			},
 		]);
+		expect(bound.snapshot.workOrder).toMatchObject({
+			workItemId: "work-one",
+			workVersion: 1,
+			goal: "Authorized brief",
+			citations: ["work:work-one@1"],
+			destination: { kind: "agent_session_request", sourceId: source.id },
+		});
+		expect(JSON.stringify(bound.snapshot)).not.toContain(source.text);
+		const replay = await bindLocalKernelRequest(
+			context,
+			source,
+			"work-one",
+			[],
+		);
+		expect(replay.snapshot.workOrder).toEqual(bound.snapshot.workOrder);
 		const row = await reconcileLocalKernelRequest(
 			context,
 			bound,

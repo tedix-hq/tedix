@@ -1,9 +1,47 @@
 import {
 	KernelRequestSnapshotSchema,
+	KernelWorkOrderSchema,
+	type KernelWorkOrder,
 	type KernelAcceptanceCheck,
 	type KernelAcceptanceObservation,
 	type KernelRequestSnapshot,
 } from "@tedix/api-contract/schemas/kernel-request";
+
+/** Called only after the adapter resolves canonical Work under its existing source ACL. */
+export function kernelWorkOrder(
+	work: {
+		id: string;
+		version: number;
+		title: string;
+		description: string | null;
+		acceptanceContract: { doneLooksLike?: string } | null;
+		requiredCapabilities: string[];
+		requiredAuthorities: string[];
+	},
+	checks: KernelAcceptanceCheck[],
+	destination: KernelWorkOrder["destination"],
+): KernelWorkOrder {
+	const citation = `work:${work.id}@${work.version}`;
+	return KernelWorkOrderSchema.parse({
+		version: 1,
+		workItemId: work.id,
+		workVersion: work.version,
+		goal: work.title,
+		facts: work.description
+			? [{ text: work.description, status: "reported", citation }]
+			: [],
+		citations: [citation],
+		constraints: work.requiredAuthorities.map(
+			(authority) => `Required authority (not granted): ${authority}`,
+		),
+		requiredCapabilities: work.requiredCapabilities,
+		acceptance: {
+			doneLooksLike: work.acceptanceContract?.doneLooksLike ?? null,
+			checks,
+		},
+		destination,
+	});
+}
 
 export function kernelRequestReportMessageId(sourceId: string): string {
 	return `${sourceId}:acceptance:assistant`;
@@ -27,7 +65,12 @@ export function kernelRequestAcceptanceReport(
 
 export type KernelRequestEvent =
 	| { kind: "file"; workItemId: string | null }
-	| { kind: "brief"; revision: number; checks: KernelAcceptanceCheck[] }
+	| {
+			kind: "brief";
+			revision: number;
+			checks: KernelAcceptanceCheck[];
+			workOrder?: KernelWorkOrder;
+	  }
 	| { kind: "start"; attemptId: string }
 	| { kind: "successor"; previousAttemptId: string; attemptId: string }
 	| {
@@ -82,12 +125,14 @@ export function advanceKernelRequest(
 		case "brief":
 			if (
 				(s.state === "filed" || s.state === "verifying") &&
-				event.revision > s.briefRevision
+				event.revision > s.briefRevision &&
+				(!event.workOrder || event.workOrder.workItemId === s.workItemId)
 			)
 				patch = {
 					state: "briefed",
 					briefRevision: event.revision,
 					checks: event.checks,
+					workOrder: event.workOrder,
 					attemptId: null,
 					acceptanceKey: null,
 					probeAttempts: 0,
