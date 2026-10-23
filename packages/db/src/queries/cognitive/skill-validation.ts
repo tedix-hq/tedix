@@ -154,12 +154,20 @@ export function validateWorkflowSource(
 	// Cloudflare's workflow error primitive, but it must never import the loader
 	// environment (`cloudflare:workers`), raw sockets, Node builtins, or arbitrary
 	// packages. `import type` is erased by sucrase and is therefore safe.
+	// Probe each regex match through the lexer so comments and literals stay inert.
+	const executableOffsetProbe = "__tedix_executable_offset__";
 	const runtimeImports = [
 		...source.matchAll(
 			/^\s*import\s+(?!type\b)(?:[^"'`]*?\s+from\s+)?["']([^"']+)["']/gm,
 		),
 		...source.matchAll(/^\s*export\s+[^"'`]*?\s+from\s+["']([^"']+)["']/gm),
-	];
+	].filter(
+		(match) =>
+			match.index !== undefined &&
+			stripCommentsAndStrings(
+				source.slice(0, match.index) + executableOffsetProbe,
+			).endsWith(executableOffsetProbe),
+	);
 	for (const match of runtimeImports) {
 		const specifier = match[1];
 		if (specifier === "cloudflare:workflows") continue;
