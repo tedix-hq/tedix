@@ -177,6 +177,23 @@ describe("score and features columns", () => {
 		});
 	});
 
+	it("asks on the Deck for a type the policy does not name as routine", () => {
+		const route = (type: string) =>
+			routeFactoryCard({ key: "k", type, sourceLabel: "Social" });
+		expect(route("post draft (weekly recap)")).toMatchObject({
+			destination: "deck",
+			reason: "review",
+		});
+		expect(route("ops")).toMatchObject({
+			destination: "feed",
+			reason: "routine",
+		});
+		expect(route("opportunity")).toMatchObject({
+			destination: "deck",
+			reason: "valuable",
+		});
+	});
+
 	it("passes the score through routing", () => {
 		const [card] = sheet("run-a", "2026-10-20T06:00:00Z", [row("1", "0.8")]);
 		expect(routeFactoryCard(card!).score).toBe(0.8);

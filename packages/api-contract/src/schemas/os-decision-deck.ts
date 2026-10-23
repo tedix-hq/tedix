@@ -129,6 +129,28 @@ export type DeckRoutingPolicy = z.infer<typeof DeckRoutingPolicySchema>;
 export const DEFAULT_DECK_ROUTING =
 	DeckRoutingPolicySchema.parse(routingPolicy);
 
+/** A class id matches a policy class exactly or as its `.`/`:` prefix. */
+export function matchesDeckClass(classId: string, classes: readonly string[]) {
+	return classes.some(
+		(value) =>
+			classId === value ||
+			classId.startsWith(`${value}.`) ||
+			classId.startsWith(`${value}:`),
+	);
+}
+
+/** The reviewer taught "less like this" for the class often enough to stop asking. */
+export function learnedFeed(
+	usefulness: { value: number; examples: number } | undefined,
+	policy: DeckRoutingPolicy,
+) {
+	return (
+		!!usefulness &&
+		usefulness.examples >= policy.learnedMinimumExamples &&
+		usefulness.value <= policy.learnedFeedThreshold
+	);
+}
+
 /** Display routing never grants execution, approval, consent or permission. */
 export function classifyDeckCard(
 	card: {
@@ -147,12 +169,7 @@ export function classifyDeckCard(
 	now = new Date(),
 ) {
 	const matches = (classes: readonly string[]) =>
-		classes.some(
-			(value) =>
-				card.classId === value ||
-				card.classId.startsWith(`${value}.`) ||
-				card.classId.startsWith(`${value}:`),
-		);
+		matchesDeckClass(card.classId, classes);
 	let reason = "routine";
 	if (card.needsPerson) {
 		if (
@@ -185,12 +202,7 @@ export function classifyDeckCard(
 		)
 			reason = "owner_deadline";
 	}
-	if (
-		reason === "valuable" &&
-		card.learnedUsefulness &&
-		card.learnedUsefulness.examples >= policy.learnedMinimumExamples &&
-		card.learnedUsefulness.value <= policy.learnedFeedThreshold
-	)
+	if (reason === "valuable" && learnedFeed(card.learnedUsefulness, policy))
 		reason = "learned_feed";
 	return {
 		destination: ["routine", "learned_feed", "missing_effect"].includes(reason)
