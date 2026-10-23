@@ -9,6 +9,7 @@ import { TEDI_DURABLE_CODE_TRANSPORT_TIMEOUT_MS } from "@tedix/api-contract/sche
 import type { ToolSchemaSyncInput } from "@tedix/api-contract/contracts/tool-schema-sync";
 import {
 	deriveToolWriteCapability,
+	TEDIX_TOOL_POLICY_META_KEY,
 	withDerivedToolOperationalRiskPolicy,
 	operatorKindToAnnotations,
 } from "@tedix/api-contract/schemas/tools";
@@ -313,11 +314,29 @@ function mergeGeneratedMeta(
 	existing: AppTool | undefined,
 	endpoint: string,
 ): Record<string, unknown> {
-	return {
+	const meta: Record<string, unknown> = {
 		...(existing?.meta as Record<string, unknown> | null),
 		"com.tedix/schemaSource": "orpc",
 		"com.tedix/orpcEndpoint": endpoint,
 	};
+	// A policy derived from an earlier capability outlives a reclassification
+	// (a read once inferred as a write kept "bounded_write" and stayed a write
+	// on the wire). A policy that any capability would derive is generated, so
+	// it is derived again; a curated policy carries other fields and is kept.
+	const { [TEDIX_TOOL_POLICY_META_KEY]: policy, ...rest } = meta;
+	if (!policy) return meta;
+	const config = existing?.config ? toJsonRecord(existing.config) : null;
+	const generated = (["read", "write", "destructive"] as const).some(
+		(writeCapability) =>
+			JSON.stringify(
+				withDerivedToolOperationalRiskPolicy({
+					meta: {},
+					config,
+					writeCapability,
+				})?.[TEDIX_TOOL_POLICY_META_KEY],
+			) === JSON.stringify(policy),
+	);
+	return generated ? rest : meta;
 }
 
 export function mergeGeneratedConfig(
