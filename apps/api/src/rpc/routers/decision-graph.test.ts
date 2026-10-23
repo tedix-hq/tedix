@@ -4,6 +4,9 @@ import { createDbClient } from "@tedix/db/client";
 import { upsertDecisionEdges } from "@tedix/db/queries/decision-graph";
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
 import { organizations } from "@tedix/db/schema/organizations";
+import { projects } from "@tedix/db/schema/projects";
+import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
+import { workItems } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";
@@ -15,7 +18,15 @@ const OTHER_ORG = "10000000-0000-4000-8000-000000000002";
 
 async function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(organizations, decisionEdges));
+	sqlite.exec(
+		schemaDdl(
+			organizations,
+			decisionEdges,
+			projects,
+			tediObjectives,
+			workItems,
+		),
+	);
 	sqlite
 		.prepare("INSERT INTO organizations(id,name,slug) VALUES(?,?,?),(?,?,?)")
 		.run(ORG, "Fictional Harbor", "harbor", OTHER_ORG, "Lighthouse", "light");
