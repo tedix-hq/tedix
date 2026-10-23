@@ -66,6 +66,60 @@ describe("skill commands", () => {
 		expect(approvals).toHaveLength(1);
 	});
 
+	it.each(["/nonexistent/plan.ts", "", "   "])(
+		"rejects a file source %j before any gateway call or approval",
+		async (file) => {
+			const stderr = spyOn(console, "error").mockImplementation(() => {});
+			try {
+				const { calls, approvals, ctx } = harness({
+					skillId: SKILL_ID,
+					runId: "run-1",
+				});
+				ctx.flow.file = file;
+				expect(await runSkillCommand(`run ${SKILL_ID}`, ctx)).toBe(2);
+				expect(stderr.mock.calls[0]?.[0]).toContain(
+					"skill run does not accept --file; use tedix flow run --file <plan.ts>",
+				);
+				expect(calls).toHaveLength(0);
+				expect(approvals).toHaveLength(0);
+			} finally {
+				stderr.mockRestore();
+			}
+		},
+	);
+
+	it("rejects --file through the executable before contacting the gateway", async () => {
+		const child = Bun.spawn(
+			[
+				process.execPath,
+				`${import.meta.dir}/index.ts`,
+				"skill",
+				"run",
+				SKILL_ID,
+				"--file",
+				"/nonexistent/plan.ts",
+				"--url",
+				"http://127.0.0.1:1/mcp",
+				"--json",
+			],
+			{
+				env: { TEDIX_MCP_BEARER_TOKEN: "synthetic-local-validation-token" },
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		expect(code).toBe(2);
+		expect(stdout).toBe("");
+		expect(stderr.trim()).toBe(
+			"skill run does not accept --file; use tedix flow run --file <plan.ts>",
+		);
+	});
+
 	it("shares flow status diagnostics without inspection, retries, delegation, or mutation", async () => {
 		const stdout = spyOn(console, "log").mockImplementation(() => {});
 		const { calls, approvals, ctx } = harness({

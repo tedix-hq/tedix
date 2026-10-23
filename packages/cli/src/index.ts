@@ -1366,6 +1366,7 @@ async function main() {
 				workspace: workspaceName,
 				...(options.limit ? { limit: options.limit } : {}),
 				flow: {
+					...(options.flowFile !== undefined ? { file: options.flowFile } : {}),
 					...(options.flowWatch ? { watch: options.flowWatch } : {}),
 					...(options.workAs ? { as: options.workAs } : {}),
 					...(options.flowParam ? { param: options.flowParam } : {}),
