@@ -167,7 +167,7 @@ export async function getExternalAgentContextualReputation(
 			repositoryVersion: input.context.repositoryVersion,
 			riskLevel: input.context.riskLevel,
 			environment: input.context.environment,
-			executionAttribution: {},
+			executionAttribution: true,
 			subjectSession: {
 				harness: input.context.harness,
 				harnessVersion: input.context.harnessVersion,

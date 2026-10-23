@@ -6,7 +6,7 @@ import {
 	HistoricalExposureInputSchema,
 } from "@tedix/api-contract/schemas/billing";
 import { historicalRequestHash } from "./billing/historical-exposure";
-import { is } from "drizzle-orm";
+import { is, Param, sql } from "drizzle-orm";
 import { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
@@ -19,6 +19,7 @@ import { providerDeploymentScope } from "@tedix/api-contract/schemas/provider-ex
 import {
 	assertProviderExecutionMatches,
 	buildProviderExecutionInsertStatement,
+	compactAdmissionPredicate,
 	findProviderExecutionAdmission,
 	prepareProviderExecutionAdmission,
 	prepareKernelAutoRoutingAdmission,
@@ -121,6 +122,38 @@ async function setup() {
 	return { sqlite, db };
 }
 describe("immutable provider execution admission", () => {
+	it("preserves SQLite Param codec values in a compacted admission predicate", async () => {
+		const sqlite = createMigratedSqlite();
+		const db = createDbClient(createD1Facade(sqlite));
+		const boolean = new Param(
+			true,
+			{ mapToDriverValue: (value: boolean) => value },
+			(value) => (value ? 1 : 0),
+		);
+		const json = new Param(
+			{ accepted: true },
+			{ mapToDriverValue: (value: { accepted: boolean }) => value },
+			(value) => JSON.stringify(value),
+		);
+		const timestamp = new Param(
+			new Date("2026-09-20T07:00:00.000Z"),
+			{ mapToDriverValue: (value: Date) => value.toISOString() },
+			(value) => `timestamp:${value}`,
+		);
+		const nullable = new Param(
+			"discarded",
+			{ mapToDriverValue: (value: string) => value },
+			() => null,
+		);
+		const predicate = compactAdmissionPredicate(
+			sql`${boolean} = 1 AND json_extract(${json}, '$.accepted') = 1 AND ${timestamp} = 'timestamp:2026-09-20T07:00:00.000Z' AND ${nullable} IS NULL`,
+		);
+
+		await expect(db.get(sql`SELECT ${predicate} AS matched`)).resolves.toEqual({
+			matched: 1,
+		});
+	});
+
 	it("defers the insert until awaited, and retains exact identity", async () => {
 		const { db, sqlite } = await setup();
 		const input = receipt();

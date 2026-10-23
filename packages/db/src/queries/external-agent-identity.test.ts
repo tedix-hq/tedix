@@ -1174,7 +1174,8 @@ describe("external-agent identity", () => {
 	});
 
 	it("requires exact immutable execution context and exact version queries", async () => {
-		const db = fixture();
+		const preparedQueries: string[] = [];
+		const db = fixture((query) => preparedQueries.push(query));
 		const actor = await principal(db);
 		const run = await openExternalAgentSession(db, sessionInput(actor.id));
 		const proof = await execution(db, {
@@ -1215,6 +1216,7 @@ describe("external-agent identity", () => {
 			now: LATER,
 			halfLifeDays: 90,
 		});
+		expect(preparedQueries.at(-1)).toContain("external_agent_attributions");
 		expect(exact.rawReviewCount).toBe(2);
 		expect(exact.reviewedExecutions).toBe(1);
 		expect(exact.distinctReviewerPrincipals).toBe(2);
