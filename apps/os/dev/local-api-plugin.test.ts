@@ -61,7 +61,9 @@ describe("fixture server socket lifecycle", () => {
 		const httpServer = createServer();
 		configureFixtureServer({
 			httpServer,
-			middlewares: { use() {} } as ViteDevServer["middlewares"],
+			middlewares: {
+				use(_handler: Connect.NextHandleFunction) {},
+			} as ViteDevServer["middlewares"],
 		});
 		expect(httpServer.keepAliveTimeout).toBe(0);
 	});

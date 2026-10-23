@@ -171,7 +171,8 @@ export function localApiPlugin(): Plugin {
 			// `requestfailed`, not an HTTP error. This lane only serves local
 			// dev and browser fixtures, so idle sockets stay open until the
 			// client or the process ends them.
-			if (server.httpServer) server.httpServer.keepAliveTimeout = 0;
+			if (server.httpServer && "keepAliveTimeout" in server.httpServer)
+				server.httpServer.keepAliveTimeout = 0;
 			server.middlewares.use((req, res, next) => {
 				const url = req.url ?? "";
 				if (url.split("?")[0] === "/health") {
