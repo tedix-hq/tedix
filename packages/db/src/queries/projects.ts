@@ -9,7 +9,17 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	exists,
+	inArray,
+	isNull,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { workAgentSessions } from "../schema/work-agent-sessions";
@@ -186,7 +196,12 @@ export async function updateProject(
 	const objectiveChanges =
 		params.objectiveId !== undefined &&
 		params.objectiveId !== existing.objectiveId;
-	if (objectiveChanges) {
+	// A project's first objective classifies its Work; only re-purposing is locked.
+	const firstObjective =
+		objectiveChanges &&
+		existing.objectiveId === null &&
+		typeof params.objectiveId === "string";
+	if (objectiveChanges && !firstObjective) {
 		const linked = await db
 			.select({ id: workItems.id })
 			.from(workItems)
@@ -213,7 +228,7 @@ export async function updateProject(
 			ELSE json_remove(json(${metadata}), '$.repositoryObserver') END`;
 	}
 
-	const rows = await db
+	const updateRow = db
 		.update(projects)
 		.set(set)
 		.where(
@@ -225,6 +240,39 @@ export async function updateProject(
 			),
 		)
 		.returning();
+	let rows: Project[];
+	if (firstObjective) {
+		// Unclassified Work inherits the objective; bounded exceptions keep their class.
+		[rows] = await db.batch([
+			updateRow,
+			db
+				.update(workItems)
+				.set({ objectiveId: params.objectiveId, workClass: "objective" })
+				.where(
+					and(
+						eq(workItems.projectId, id),
+						isNull(workItems.objectiveId),
+						or(
+							isNull(workItems.workClass),
+							eq(workItems.workClass, "objective"),
+						),
+						exists(
+							db
+								.select({ id: projects.id })
+								.from(projects)
+								.where(
+									and(
+										eq(projects.id, id),
+										eq(projects.objectiveId, params.objectiveId as string),
+									),
+								),
+						),
+					),
+				),
+		]);
+	} else {
+		rows = await updateRow;
+	}
 	if (!rows[0]) {
 		throw new ProjectPurposeError(
 			"PROJECT_CONTEXT_CONFLICT: project changed concurrently; reload and retry",
