@@ -10,15 +10,16 @@
  * Clones must be clean, idle, unused and fully pushed to the current remote.
  *
  * A worktree is removable only when nothing can be lost and nobody is using it:
- * its HEAD is already in the base branch, it has no changes (untracked files
- * count), it is not locked, no process has its working directory inside it,
+ * its HEAD is already in the base branch (directly or as rebased copies of its
+ * commits), it has no changes (untracked files and ignored files other than
+ * build output and caches count), it is not locked, no process has its working directory inside it,
  * and git has not touched it for `--min-idle` hours. Everything else is
  * reported and kept. Empty interrupted removals with an unchanged index and
  * HEAD on origin/main can be recovered under the same idle/lock/use guards.
  * The default is a dry run; `--apply` removes with plain
  * `git worktree remove` (never `--force`) and deletes their branches, plus any
- * other local branch that no worktree has checked out and whose tip is already
- * in the base branch.
+ * other local branch that no worktree has checked out and whose commits are
+ * already in the base branch.
  *
  *   bun run worktree:gc                 # report
  *   bun run worktree:gc --apply         # remove the "merged" rows
@@ -191,12 +192,17 @@ export function readWorktreeFacts(
 				"--porcelain",
 				"-z",
 				"--untracked-files=all",
+				"--ignored=matching",
 			])
 		: "";
-	const changes = (status ?? "x").split("\0").filter(Boolean);
-	const merged =
-		exists &&
-		tryGit(cwd, ["merge-base", "--is-ancestor", entry.head, base]) !== null;
+	const changes = (status ?? "x")
+		.split("\0")
+		.filter(
+			(change) =>
+				change &&
+				!(change.startsWith("!! ") && DISPOSABLE.test(change.slice(3))),
+		);
+	const merged = exists && inBase(cwd, entry.head, base);
 	let interrupted = false;
 	if (
 		merged &&
@@ -418,12 +424,29 @@ function parseArgs(argv: string[]) {
 	};
 }
 
-/** Local branches whose tip is in `base`, except `main`. */
+/** Ignored paths that are only build output, caches or per-checkout settings. */
+const DISPOSABLE =
+	/(?:^|\/)(?:node_modules|dist|build|out|coverage|storybook-static|\.cache|\.output|\.wrangler|\.cloudflare|\.astro|\.turbo|\.next|\.svelte-kit)\/|\.tsbuildinfo$|(?:^|\/)(?:wrangler\.local\.generated\.json|\.DS_Store)$|^\.claude\/settings\.local\.json$/;
+
+/**
+ * True when every commit of `rev` is in `base`: it is an ancestor, or each of
+ * its own commits has a patch-identical copy there (a rebased lane branch).
+ */
+export function inBase(cwd: string, rev: string, base: string): boolean {
+	if (tryGit(cwd, ["merge-base", "--is-ancestor", rev, base]) !== null)
+		return true;
+	const cherry = tryGit(cwd, ["cherry", base, rev]);
+	return cherry !== null && !/^\+/m.test(cherry);
+}
+
+/** Local branches whose commits are all in `base`, except `main`. */
 export function mergedBranches(cwd: string, base: string): string[] {
-	return git(cwd, ["branch", "--merged", base, "--format=%(refname:short)"])
+	return git(cwd, ["branch", "--format=%(refname:short)"])
 		.split("\n")
 		.map((line) => line.trim())
-		.filter((branch) => branch && branch !== "main");
+		.filter(
+			(branch) => branch && branch !== "main" && inBase(cwd, branch, base),
+		);
 }
 
 /**
@@ -435,8 +458,7 @@ export function deleteMergedBranch(
 	branch: string,
 	base: string,
 ): boolean {
-	if (tryGit(cwd, ["merge-base", "--is-ancestor", branch, base]) === null)
-		return false;
+	if (!inBase(cwd, branch, base)) return false;
 	return tryGit(cwd, ["branch", "-D", branch]) !== null;
 }
 
