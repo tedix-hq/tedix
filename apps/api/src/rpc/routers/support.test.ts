@@ -25,7 +25,10 @@ import {
 } from "@tedix/api-contract/utils/support-report";
 import { putSupportConfiguration } from "@tedix/db/queries/support";
 import { supportContractRouter } from "./support";
-import { syncSupportDraftFromCard } from "../../services/support-draft-decision";
+import {
+	supportReplyPublishVersion,
+	syncSupportDraftFromCard,
+} from "../../services/support-draft-decision";
 import type { BaseContext } from "../orpc";
 const tenant = "11111111-1111-4111-8111-111111111111",
 	platform = "22222222-2222-4222-8222-222222222222",
@@ -294,7 +297,7 @@ describe("Support intake authorization and human publication", () => {
 	it("carries a rewritten reply card into the ticket draft so Publish sends what the card shows", async () => {
 		const { client, sqlite, context } = await fixture(),
 			receipt = await client().file(await request());
-		const worker_ = {
+		const asWorker = {
 			authType: "tedi",
 			user: undefined,
 			userId: undefined,
@@ -303,7 +306,7 @@ describe("Support intake authorization and human publication", () => {
 			tediId: worker,
 			tediScopes: ["mcp:work.read", "mcp:work.write"],
 		} satisfies Partial<BaseContext>;
-		await client(worker_).draft({
+		await client(asWorker).draft({
 			ticketId: receipt.ticketId,
 			expectedVersion: 1,
 			idempotencyKey: "answer-1",
@@ -314,80 +317,51 @@ describe("Support intake authorization and human publication", () => {
 			},
 		});
 		const row = sqlite
-			.prepare("select id, org_id, metadata from work_interactions")
+			.prepare("select org_id, metadata from work_interactions")
 			.get()!;
-		const card = {
-			id: String(row.id),
+		const card = (cardContent?: string) => ({
 			orgId: String(row.org_id),
-			metadata: JSON.parse(String(row.metadata)),
-		};
-		const admin = {
+			metadata: {
+				...JSON.parse(String(row.metadata)),
+				...(cardContent ? { cardContent } : {}),
+			},
+		});
+		const effect = card().metadata.decisionDeck.options[0].effect;
+		const rewrite = (from: string | undefined, body: string, key: string) =>
+			syncSupportDraftFromCard(context(asWorker), card(from), body, {
+				key,
+				actorType: "tedi",
+				actorId: worker,
+			});
+		await rewrite(undefined, "Short new answer", "card-revision:2");
+		await rewrite("Short new answer", "Shorter", "card-revision:3");
+		const ticket = await client({
 			organizationId: platform,
 			userId: "admin",
 			user: { sub: "admin" },
-		};
-		await syncSupportDraftFromCard(context(worker_), card, "Short new answer", {
-			key: "card-revision:1",
-			actorType: "tedi",
-			actorId: worker,
 		});
-		const synced = JSON.parse(
-			String(
-				sqlite
-					.prepare("select metadata from work_interactions where id=?")
-					.get(card.id)?.metadata,
-			),
-		).decisionDeck;
-		expect(synced.preview.body).toBe("Short new answer");
-		expect(synced.options[0].effect.expectedVersion).toBe(3);
-		// A card made for an older ticket version leaves the newer ticket alone.
-		await syncSupportDraftFromCard(context(worker_), card, "Other text", {
-			key: "card-revision:2",
-			actorType: "tedi",
-			actorId: worker,
-		});
-		// A card whose text the ticket already holds catches up to that version.
-		const lagging = {
-			...card,
-			metadata: JSON.parse(
-				String(
-					sqlite
-						.prepare("select metadata from work_interactions where id=?")
-						.get(card.id)?.metadata,
-				),
-			),
-		};
-		lagging.metadata.decisionDeck.options[0].effect.expectedVersion = 2;
-		sqlite
-			.prepare("update work_interactions set metadata=? where id=?")
-			.run(JSON.stringify(lagging.metadata), card.id);
-		await syncSupportDraftFromCard(
-			context(worker_),
-			lagging,
-			"Short new answer",
-			{
-				key: "card-revision:3",
-				actorType: "tedi",
-				actorId: worker,
-			},
+		const version = await supportReplyPublishVersion(
+			context(asWorker),
+			card("Shorter"),
+			effect,
 		);
+		expect(version).toBe(4);
+		// A ticket draft changed by someone else keeps the card's own, stale version.
 		expect(
-			JSON.parse(
-				String(
-					sqlite
-						.prepare("select metadata from work_interactions where id=?")
-						.get(card.id)?.metadata,
-				),
-			).decisionDeck.options[0].effect.expectedVersion,
-		).toBe(3);
-		await client(admin).publish({
+			await supportReplyPublishVersion(
+				context(asWorker),
+				card("Something else"),
+				effect,
+			),
+		).toBe(2);
+		await ticket.publish({
 			ticketId: receipt.ticketId,
-			expectedVersion: 3,
+			expectedVersion: version,
 			idempotencyKey: "publish",
 		});
 		expect(
 			(await client().status({ ticketId: receipt.ticketId })).publicUpdates[0]
 				?.body,
-		).toBe("Short new answer");
+		).toBe("Shorter");
 	});
 });

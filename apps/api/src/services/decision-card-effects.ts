@@ -197,11 +197,19 @@ async function dispatchEffect(
 		}
 		case "publish_support": {
 			const { supportContractRouter } = await import("../rpc/routers/support");
+			const { supportReplyPublishVersion } =
+				await import("./support-draft-decision");
+			const card = await getWorkInteraction(context.db, {
+				orgId: requireOrgId(context),
+				interactionId: requestId,
+			});
 			const receipt = await call(
 				supportContractRouter.publish,
 				{
 					ticketId: effect.ticketId,
-					expectedVersion: effect.expectedVersion,
+					expectedVersion: card
+						? await supportReplyPublishVersion(context, card, effect)
+						: effect.expectedVersion,
 					idempotencyKey: `decision:${requestId}`,
 				},
 				{ context },

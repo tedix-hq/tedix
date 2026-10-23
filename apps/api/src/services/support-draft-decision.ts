@@ -14,7 +14,6 @@ import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry
 import {
 	createWorkInteraction,
 	getWorkInteraction,
-	setSupportReplyPublishVersion,
 	supersedeSupportDraftInteractions,
 } from "@tedix/db/queries/work-items/interactions";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -144,14 +143,31 @@ export async function ensureSupportDraftDecision(
 	});
 }
 
+function supportReplyEffect(metadata: Record<string, unknown>) {
+	const decision = DecisionEnvelopeSchema.safeParse(metadata.decisionDeck);
+	const effect = decision.success
+		? decision.data.options.find(
+				(option) => option.effect?.kind === "publish_support",
+			)?.effect
+		: undefined;
+	return effect?.kind === "publish_support" ? effect : null;
+}
+
+/** The text a support reply card shows now: its latest version, else the original draft. */
+function supportReplyText(metadata: Record<string, unknown>) {
+	if (typeof metadata.cardContent === "string") return metadata.cardContent;
+	const decision = DecisionEnvelopeSchema.safeParse(metadata.decisionDeck);
+	return decision.success ? (decision.data.preview?.body ?? null) : null;
+}
+
 /**
  * A new version of a support reply card becomes the ticket's draft, so Publish
- * sends what the card shows. Skipped when the ticket moved on since the card
- * was made; the card's publish then fails as stale instead of sending old text.
+ * sends what the card shows. Card metadata stays immutable; only a ticket that
+ * still holds this card's draft (its version, or the card's previous text) moves.
  */
 export async function syncSupportDraftFromCard(
 	context: BaseContext,
-	request: { id: string; orgId: string; metadata: Record<string, unknown> },
+	request: { orgId: string; metadata: Record<string, unknown> },
 	body: string,
 	change: {
 		key: string;
@@ -159,43 +175,52 @@ export async function syncSupportDraftFromCard(
 		actorId: string;
 	},
 ) {
-	const decision = DecisionEnvelopeSchema.safeParse(
-		request.metadata.decisionDeck,
-	);
-	if (!decision.success) return;
-	const optionIndex = decision.data.options.findIndex(
-		(option) => option.effect?.kind === "publish_support",
-	);
-	const effect = decision.data.options[optionIndex]?.effect;
-	if (effect?.kind !== "publish_support") return;
+	const effect = supportReplyEffect(request.metadata);
+	if (!effect) return;
 	const row = await getStaffSupportTicket(
 		context.db,
 		request.orgId,
 		effect.ticketId,
 	);
 	const text = redactSupportText(body);
-	if (!row?.draft) return;
-	let ticket = row;
-	if (row.draft.body !== text) {
-		if (row.version !== effect.expectedVersion) return;
-		const { changeSupportTicket } = await import("./support");
-		const draft = { ...row.draft, body: text };
-		ticket = await changeSupportTicket(context, row, {
-			key: change.key,
-			actorId: change.actorId,
-			actorType: change.actorType,
-			now: new Date().toISOString(),
-			patch: { draft },
-			commentBody: `DRAFT — not sent\n${JSON.stringify(draft)}`,
-		});
-	}
-	// The ticket already holds this card's text: publish from its current version.
-	if (ticket.version === effect.expectedVersion) return;
-	await setSupportReplyPublishVersion(context.db, {
-		orgId: request.orgId,
-		interactionId: request.id,
-		optionIndex,
-		ticketVersion: ticket.version,
-		body: text,
+	const previous = supportReplyText(request.metadata);
+	if (
+		!row?.draft ||
+		row.draft.body === text ||
+		(row.version !== effect.expectedVersion &&
+			(previous === null || row.draft.body !== redactSupportText(previous)))
+	)
+		return;
+	const { changeSupportTicket } = await import("./support");
+	const draft = { ...row.draft, body: text };
+	await changeSupportTicket(context, row, {
+		key: change.key,
+		actorId: change.actorId,
+		actorType: change.actorType,
+		now: new Date().toISOString(),
+		patch: { draft },
+		commentBody: `DRAFT — not sent\n${JSON.stringify(draft)}`,
 	});
+}
+
+/**
+ * The ticket version a support reply card publishes from: the card's own, or
+ * the current one when the ticket moved only to hold the card's current text.
+ */
+export async function supportReplyPublishVersion(
+	context: BaseContext,
+	request: { orgId: string; metadata: Record<string, unknown> },
+	effect: { ticketId: string; expectedVersion: number },
+) {
+	const text = supportReplyText(request.metadata);
+	const row = await getStaffSupportTicket(
+		context.db,
+		request.orgId,
+		effect.ticketId,
+	);
+	return row?.draft &&
+		text !== null &&
+		row.draft.body === redactSupportText(text)
+		? row.version
+		: effect.expectedVersion;
 }
