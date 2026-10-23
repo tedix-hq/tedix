@@ -57,12 +57,16 @@ vi.mock("@/lib/api", async (original) => {
 										recordExposure: vi.fn(async () => ({
 											id: "fictional-exposure",
 										})),
-										listInteractions: vi.fn(async () => ({ events: [] })),
+										// The Deck visit receipt invalidates learning reads; refetches
+										// must return the seeded state, not drop it.
+										listInteractions: vi.fn(async () => ({
+											events: writes.learning.events,
+										})),
 										getCalibration:
 											actual.osApi.learningFeedback.getCalibration,
 										getInstrumentation:
 											actual.osApi.learningFeedback.getInstrumentation,
-										model: vi.fn(),
+										model: vi.fn(async () => writes.learning.model),
 										correct: vi.fn(),
 									}
 								: Reflect.get(target, key),
@@ -73,6 +77,10 @@ const writes = vi.hoisted(() => ({
 	save: vi.fn(),
 	getCard: vi.fn(),
 	record: vi.fn(async (_input: { surface?: string }) => ({})),
+	learning: {
+		events: [] as LearningInteractionEvent[],
+		model: undefined as ReturnType<typeof learnDecisions> | undefined,
+	},
 }));
 vi.mock("@/components/kumo/toast", () => ({
 	toast: { success: vi.fn(), error: vi.fn() },
@@ -146,21 +154,23 @@ async function mount(
 		revision: 1,
 		updatedAt: null,
 	});
+	writes.learning.events = input.events ?? [];
+	writes.learning.model = learnDecisions({
+		organizationId: "fictional-acme",
+		personId: "fictional-acme-user",
+		events: [],
+		config: DecisionLearningConfigSchema.parse({}),
+		now: new Date(),
+	});
 	client.setQueryData(
 		osQuery.learningFeedback.listInteractions.queryOptions({
 			input: { scopeKind: "personal", limit: 200 },
 		}).queryKey,
-		{ events: input.events ?? [] },
+		{ events: writes.learning.events },
 	);
 	client.setQueryData(
 		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
-		learnDecisions({
-			organizationId: "fictional-acme",
-			personId: "fictional-acme-user",
-			events: [],
-			config: DecisionLearningConfigSchema.parse({}),
-			now: new Date(),
-		}),
+		writes.learning.model,
 	);
 	client.setQueryData(
 		osQuery.workInteractions.listInbox.queryOptions({
@@ -453,6 +463,16 @@ it("shows the day streak on the All clear screen", async () => {
 	};
 	await mount({
 		events: [decision("e1", 0), decision("e2", 1)],
+	});
+	// The visit receipt invalidates learning reads; the closure must survive
+	// the refetch, not only the first render.
+	await vi.waitFor(() =>
+		expect(writes.record).toHaveBeenCalledWith(
+			expect.objectContaining({ surface: "decision_deck_visit" }),
+		),
+	);
+	await act(async () => {
+		await client.refetchQueries({ queryKey: osQuery.learningFeedback.key() });
 	});
 	await vi.waitFor(() =>
 		expect(host.querySelector(".fd-closure")).not.toBeNull(),

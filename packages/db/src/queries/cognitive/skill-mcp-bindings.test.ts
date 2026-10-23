@@ -177,6 +177,25 @@ describe("skill MCP app bindings", () => {
 		expect(backfill).toEqual({});
 	});
 
+	it("resolves os to the platform tedix app without binding it", async () => {
+		const { db, sqlite } = realDb();
+		insertApp(sqlite, { id: "app-os", organizationId: ACME_ORG, slug: "os" });
+		insertApp(sqlite, {
+			id: "app-tedix",
+			organizationId: ACME_ORG,
+			slug: "tedix",
+		});
+		const skill = await recordSkill(db, { os: ["list_os_outputs"] });
+		expect(skill.mcpAppBindings).toBeNull();
+
+		const { namespaceToSlug, backfill } = await resolveSkillMcpNamespaceSlugs(
+			db,
+			{ organizationId: ACME_ORG, skillId: skill.id, namespaces: ["os"] },
+		);
+		expect(namespaceToSlug).toEqual({ os: "tedix" });
+		expect(backfill).toEqual({});
+	});
+
 	it("does not bind another organization's private app, and ignores a forged binding to one", async () => {
 		const { db, sqlite } = realDb();
 		insertApp(sqlite, {
