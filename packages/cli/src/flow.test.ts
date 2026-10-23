@@ -87,6 +87,72 @@ describe("parsePlan", () => {
 		expect(plan.manifest.yaml).not.toContain("name: audit-annotations");
 	});
 
+	it.each([
+		[">", "Check tool annotations. Keep capabilities intact.\n", ""],
+		[">-", "Check tool annotations. Keep capabilities intact.", ""],
+		["|", "Check tool annotations.\nKeep capabilities intact.\n", ""],
+		["|-", "Check tool annotations.\nKeep capabilities intact.", ""],
+		["|+", "Check tool annotations.\nKeep capabilities intact.\n\n", "\n"],
+		[">2- # folded", "Check tool annotations. Keep capabilities intact.", ""],
+	])(
+		"preserves block descriptions using %s",
+		(style, description, trailing) => {
+			const source = PLAN.replace(
+				"description: Check tool annotations.\n",
+				`description: ${style}\n  Check tool annotations.\n  Keep capabilities intact.\n${trailing}`,
+			);
+			const plan = parsePlan(source);
+			expect(plan.source).toBe(source);
+			expect(plan.manifest.description).toBe(description);
+			expect(plan.manifest.yaml).toBe(
+				"capabilities:\n  mcp:\n    app_config: [list_app_tools]",
+			);
+			expect(
+				parseSkillFrontmatter(
+					renderSkillMd(plan.manifest, "audit-annotations", description),
+				),
+			).toEqual({
+				name: "audit-annotations",
+				description,
+				capabilities: { mcp: { app_config: ["list_app_tools"] } },
+			});
+		},
+	);
+
+	it.each(["\n", "\r\n"])(
+		"preserves a final block and nested identity keys with %j",
+		(newline) => {
+			const source = [
+				"/* tedix",
+				"capabilities:",
+				"  grounding:",
+				"    name: strict",
+				"name: audit-annotations",
+				"description: |+",
+				"  First line.",
+				"",
+				"    Indented line.",
+				"",
+				"*/",
+				"export default {};",
+			].join(newline);
+			const plan = parsePlan(source);
+			expect(plan.manifest.description).toBe(
+				"First line.\n\n  Indented line.\n\n",
+			);
+			expect(plan.manifest.name).toBe("audit-annotations");
+			expect(plan.manifest.yaml).toBe(
+				["capabilities:", "  grounding:", "    name: strict"].join(newline),
+			);
+		},
+	);
+
+	it("rejects an invalid block header", () => {
+		expect(() =>
+			parsePlan(PLAN.replace("Check tool annotations.", "|0")),
+		).toThrow("invalid description block scalar in plan manifest");
+	});
+
 	it("keeps the manifest comment in the stored source", () => {
 		// Stripping it would make the pinned revision differ from the file the
 		// agent wrote, defeating revision comparison.
