@@ -176,6 +176,7 @@ describe("projects CRUD", () => {
 			orgId: ORG,
 			key: "LOCKED",
 			name: "Locked purpose",
+			objectiveId: "objective-old",
 			createdAt: NOW,
 		});
 		await createWorkItem(db, {
@@ -194,6 +195,59 @@ describe("projects CRUD", () => {
 				updatedAt: LATER,
 			}),
 		).rejects.toBeInstanceOf(ProjectPurposeError);
+	});
+
+	it("links a first objective and classifies only unclassified work", async () => {
+		const { db } = fixture();
+		const project = await createProject(db, {
+			id: nextId("proj"),
+			orgId: ORG,
+			key: "FIRST",
+			name: "First purpose",
+			createdAt: NOW,
+		});
+		const unclassified = nextId("wi");
+		await db.insert(workItems).values({
+			id: unclassified,
+			orgId: ORG,
+			title: "legacy",
+			projectId: project.id,
+			createdAt: NOW,
+		});
+		const exception = nextId("wi");
+		await createWorkItem(db, {
+			id: exception,
+			orgId: ORG,
+			title: "maintenance",
+			projectId: project.id,
+			workClass: "maintenance",
+			purposeExceptionExpiresAt: EXPIRY,
+			sourceIntentId: nextId("intent"),
+			createdAt: NOW,
+		});
+
+		const updated = await updateProject(db, project.id, {
+			objectiveId: "objective-new",
+			updatedAt: LATER,
+		});
+
+		expect(updated?.objectiveId).toBe("objective-new");
+		const rows = await db
+			.select({
+				id: workItems.id,
+				objectiveId: workItems.objectiveId,
+				workClass: workItems.workClass,
+			})
+			.from(workItems);
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		expect(byId.get(unclassified)).toMatchObject({
+			objectiveId: "objective-new",
+			workClass: "objective",
+		});
+		expect(byId.get(exception)).toMatchObject({
+			objectiveId: null,
+			workClass: "maintenance",
+		});
 	});
 
 	it("soft-archives (status=archived + archivedAt)", async () => {
