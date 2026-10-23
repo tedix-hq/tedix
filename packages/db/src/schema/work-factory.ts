@@ -503,6 +503,13 @@ export const workApprovalProposals = sqliteTable(
 			table.approverId,
 			table.status,
 		),
+		// Per-item inbox reads (turn memory, task state) ran 225k times a day
+		// over the tenant prefix of idx_work_approval_approver_status.
+		index("idx_work_approval_item_created").on(
+			table.orgId,
+			table.workItemId,
+			table.createdAt,
+		),
 	],
 );
 

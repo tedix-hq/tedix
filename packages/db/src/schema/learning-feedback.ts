@@ -98,6 +98,27 @@ export const learningInteractionEvents = sqliteTable(
 		index("idx_learning_event_issue").on(table.organizationId, table.issueKey),
 		// Standalone created_at for the retention sweep (WHERE created_at < cutoff).
 		index("idx_learning_interaction_events_created").on(table.createdAt),
+		// Producer-surface reads (filing lessons, reflection by surface) used to
+		// walk every event of the tenant through idx_learning_event_issue.
+		index("idx_learning_event_surface_kind_occurred").on(
+			table.organizationId,
+			table.surface,
+			table.eventKind,
+			table.occurredAt,
+		),
+		// A person's own page, newest first, without a tenant-wide reverse scan.
+		index("idx_learning_event_scope_occurred").on(
+			table.organizationId,
+			table.scopeKind,
+			table.scopeId,
+			table.occurredAt,
+		),
+		// The not-corrected predicate looks up `undone` corrections per row; on
+		// the scope index that was the whole scope per row (4.7M rows read per
+		// owner page on 23 Oct 2026).
+		index("idx_learning_event_corrections")
+			.on(table.organizationId, table.scopeKind, table.scopeId, table.actorId)
+			.where(sql`event_kind = 'undone'`),
 	],
 );
 
