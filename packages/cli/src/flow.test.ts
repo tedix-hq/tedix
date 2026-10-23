@@ -239,6 +239,24 @@ describe("collectParams", () => {
 		).toEqual({ a: 1, b: "two", c: true, d: 3 });
 	});
 
+	it("preserves integer strings outside JavaScript's safe range", () => {
+		expect(
+			collectParams({
+				param: [
+					"safe=9007199254740991",
+					"unsafe=9007199254740992",
+					"rounded=9007199254740993",
+					"negative=-9007199254740992",
+				],
+			}),
+		).toEqual({
+			safe: 9007199254740991,
+			unsafe: "9007199254740992",
+			rounded: "9007199254740993",
+			negative: "-9007199254740992",
+		});
+	});
+
 	it("rejects malformed input rather than guessing", () => {
 		expect(() => collectParams({ param: ["novalue"] })).toThrow(/k=v/);
 		expect(() => collectParams({ params: "{" })).toThrow(/valid JSON/);
