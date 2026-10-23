@@ -454,6 +454,9 @@ it("shows the day streak on the All clear screen", async () => {
 	await mount({
 		events: [decision("e1", 0), decision("e2", 1)],
 	});
+	await vi.waitFor(() =>
+		expect(host.querySelector(".fd-closure")).not.toBeNull(),
+	);
 	const closure = host.querySelector(".fd-closure")!;
 	expect(closure.textContent).toContain("All clear");
 	expect(closure.textContent).toContain("1 decided today");
