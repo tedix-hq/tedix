@@ -641,6 +641,10 @@ describe("runKernelTurnWork progress seam", () => {
 		expect(
 			events.find((event) => event.kind === "approval.requested")?.payload,
 		).toMatchObject({ status: "requires_approval" });
+		// No policy pack: the default 24-hour review window is stamped.
+		expect(result.run.metadata?.homeDelegation).toMatchObject({
+			expiresAt: "2026-06-12T00:00:12.500Z",
+		});
 	});
 
 	it("queues a capacity-deferred delegation with no approval card", async () => {

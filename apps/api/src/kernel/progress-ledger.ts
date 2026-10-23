@@ -1,4 +1,5 @@
 import {
+	humanReservedActionClasses,
 	parseRuntimeApprovalTimestamp,
 	resolveRuntimeApprovalTimeout,
 } from "@tedix/api-contract/utils/approval-policy";
@@ -24,8 +25,11 @@ import { isCapacityDeferredDelegation } from "./delegation-deferral";
  *                        expired (`tedi_approval_requests.expires_at` in the
  *                        past while still `pending`, or already patched to
  *                        `expired` by `expireStaleApprovals`) → `mark_expired`
- *                        (patch to `canceled`). Pending unexpired approvals
- *                        are never touched.
+ *                        (patch to `canceled`). A held Home delegation (no
+ *                        approval row) expires the same way once its review
+ *                        window passes, a newer identical request is waiting,
+ *                        or its human-reserved hold reason no longer matches.
+ *                        Nothing is ever approved here.
  *   5. which executor / what instruction? OUT OF SCOPE for v1. Runs with a
  *                        `childRunId` are delegated work — the existing
  *                        child-run reconciliation in `kernelRuntime.readRunSet`
@@ -146,6 +150,143 @@ function hasDelegationMetadata(metadata: Record<string, unknown>): boolean {
 	);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function nonEmptyString(value: unknown): string | null {
+	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+interface HeldHomeDelegation {
+	workOrder: Record<string, unknown>;
+	decision: Record<string, unknown>;
+	stampedExpiresAt: string | null;
+}
+
+/**
+ * A Home run parked on an operator delegation card: `requires_approval`, a
+ * `needs_approval` verdict, no child run yet and no runtime approval row (a
+ * row-backed approval expires through `tedi_approval_requests`).
+ */
+function heldHomeDelegation(
+	run: Pick<LedgerRunRow, "status" | "childRunId" | "metadata">,
+): HeldHomeDelegation | null {
+	if (run.status !== "requires_approval" || run.childRunId) return null;
+	const metadata = run.metadata ?? {};
+	if (nonEmptyString(metadata.approvalRequestId)) return null;
+	const delegation = asRecord(metadata.homeDelegation);
+	const workOrder = asRecord(delegation?.workOrder);
+	const decision = asRecord(delegation?.decision);
+	if (!delegation || !workOrder || decision?.mode !== "needs_approval")
+		return null;
+	return {
+		workOrder,
+		decision,
+		stampedExpiresAt: nonEmptyString(delegation.expiresAt),
+	};
+}
+
+/**
+ * When a held Home delegation's approval lapses: the expiry stamped when Home
+ * parked it, else creation plus the organization's approval TTL. Null when
+ * neither is known (no action).
+ */
+export function homeDelegationApprovalExpiresAt(
+	run: Pick<LedgerRunRow, "createdAt" | "metadata">,
+	approvalTtlHours: number | undefined,
+): string | null {
+	const delegation = asRecord(run.metadata?.homeDelegation);
+	const stamped = nonEmptyString(delegation?.expiresAt);
+	if (stamped && parseLedgerTimestamp(stamped) !== null) return stamped;
+	const createdAt = parseLedgerTimestamp(run.createdAt);
+	if (createdAt === null || approvalTtlHours === undefined) return null;
+	return new Date(createdAt + approvalTtlHours * 3_600_000).toISOString();
+}
+
+/** Identity of the requested action: the target plus the operator's request text. */
+function delegationRequestKey(workOrder: Record<string, unknown>): string {
+	const target =
+		nonEmptyString(workOrder.targetTediId) ??
+		nonEmptyString(workOrder.targetTediLabel) ??
+		"?";
+	const request = (
+		nonEmptyString(workOrder.sourceContent) ??
+		nonEmptyString(workOrder.objective) ??
+		""
+	)
+		.replace(/\[\[tedix-context:[^\]]*\]\]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim()
+		.toLowerCase();
+	return `${target}\u0000${request}`;
+}
+
+function isNewerRun(
+	a: Pick<LedgerRunRow, "id" | "createdAt">,
+	b: Pick<LedgerRunRow, "id" | "createdAt">,
+): boolean {
+	const aAt = parseLedgerTimestamp(a.createdAt) ?? 0;
+	const bAt = parseLedgerTimestamp(b.createdAt) ?? 0;
+	return aAt > bAt || (aAt === bAt && a.id > b.id);
+}
+
+/**
+ * Why a held Home delegation's approval should expire now, or null. Three
+ * objective reasons, never an approval: a newer identical request is waiting,
+ * the human-reserved class that held it no longer matches the request under
+ * the current classifier, or its review window has passed.
+ */
+function heldHomeDelegationExpiry(
+	run: LedgerRunRow,
+	input: {
+		runs: readonly LedgerRunRow[];
+		now: number;
+		approvalTtlHours?: number;
+	},
+): { reason: string } | null {
+	const held = heldHomeDelegation(run);
+	if (!held) return null;
+	const key = delegationRequestKey(held.workOrder);
+	const newer = input.runs.find((other) => {
+		if (other.id === run.id || !isNewerRun(other, run)) return false;
+		const otherHeld = heldHomeDelegation(other);
+		return (
+			otherHeld !== null && delegationRequestKey(otherHeld.workOrder) === key
+		);
+	});
+	if (newer) {
+		return {
+			reason: `a newer identical request is waiting for approval (run ${newer.id})`,
+		};
+	}
+	const holdReason = nonEmptyString(held.decision.reason);
+	const reservedHold = holdReason?.match(/^human-reserved:\s*(.+)$/);
+	const request =
+		nonEmptyString(held.workOrder.sourceContent) ??
+		nonEmptyString(held.workOrder.objective);
+	if (
+		reservedHold &&
+		request &&
+		humanReservedActionClasses(request).length === 0
+	) {
+		return {
+			reason: `the hold reason (${reservedHold[1]}) no longer applies under the current approval policy`,
+		};
+	}
+	const expiresAt = parseLedgerTimestamp(
+		homeDelegationApprovalExpiresAt(run, input.approvalTtlHours),
+	);
+	if (expiresAt !== null && expiresAt <= input.now) {
+		return {
+			reason: `no decision before it expired at ${new Date(expiresAt).toISOString()}`,
+		};
+	}
+	return null;
+}
+
 function approvalIsExpired(approval: LedgerApprovalRow, now: number): boolean {
 	return resolveRuntimeApprovalTimeout({
 		status: approval.status,
@@ -165,6 +306,12 @@ export function planRunReconciliation(input: {
 	approvals: ReadonlyMap<string, LedgerApprovalRow>;
 	/** Epoch ms "now" — injected for determinism. */
 	now: number;
+	/**
+	 * The organization's approval TTL in hours (`approvalTtlHours`). Held Home
+	 * delegations without a stamped expiry expire this long after creation.
+	 * Absent: such rows expire only for a duplicate or a lapsed hold reason.
+	 */
+	approvalTtlHours?: number;
 }): LedgerAction[] {
 	const candidates: Array<{ ageRef: number; action: LedgerAction }> = [];
 
@@ -218,6 +365,25 @@ export function planRunReconciliation(input: {
 
 		// run.status === "requires_approval"
 		// 4. waiting on whom? Only act when the gating approval provably expired.
+		const heldDelegationExpiry = heldHomeDelegationExpiry(run, input);
+		if (heldDelegationExpiry) {
+			candidates.push({
+				ageRef: parseLedgerTimestamp(run.updatedAt) ?? 0,
+				action: {
+					kind: "mark_expired",
+					runId: run.id,
+					conversationId: run.conversationId,
+					expectedStatus: "requires_approval",
+					patchStatus: "canceled",
+					eventKind: "run.canceled",
+					progressLabel: "Approval expired",
+					reason: heldDelegationExpiry.reason,
+					operatorMessage: `This delegation approval expired without a decision: ${heldDelegationExpiry.reason}. Nothing was dispatched. Send the request again if it is still needed.`,
+					approvalRequestId: null,
+				},
+			});
+			continue;
+		}
 		const approvalRequestId =
 			typeof metadata.approvalRequestId === "string" &&
 			metadata.approvalRequestId.length > 0

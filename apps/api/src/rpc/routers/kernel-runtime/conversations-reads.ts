@@ -75,7 +75,10 @@ import {
 	normalizeChildArtifact,
 	normalizeChildRuntimeEvent,
 	normalizeHomeMessage,
+	readOrgGovernancePolicy,
 } from "./policy-normalization";
+import { resolveApprovalTtlHours } from "@tedix/api-contract/utils/approval-policy";
+import { homeDelegationApprovalExpiresAt } from "../../../kernel/progress-ledger";
 import {
 	emptyKernelRunSet,
 	isHomeMessageEvent,
@@ -821,6 +824,32 @@ export const readRunSetRoute = authed.readRunSet
 		};
 	});
 
+/** Show every held delegation's review window, stamped or derived from the org TTL. */
+function withHomeDelegationExpiry<
+	T extends { createdAt: string | null; metadata: unknown },
+>(run: T, approvalTtlHours: number | undefined): T {
+	const metadata = run.metadata as Record<string, unknown> | null;
+	const delegation = metadata?.homeDelegation as
+		| Record<string, unknown>
+		| null
+		| undefined;
+	if (!metadata || !delegation || typeof delegation.expiresAt === "string")
+		return run;
+	const expiresAt = homeDelegationApprovalExpiresAt(
+		{ createdAt: run.createdAt, metadata },
+		approvalTtlHours,
+	);
+	return expiresAt
+		? {
+				...run,
+				metadata: {
+					...metadata,
+					homeDelegation: { ...delegation, expiresAt },
+				},
+			}
+		: run;
+}
+
 export const listPendingHomeDelegationsRoute = authed.listPendingHomeDelegations
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context, input }) => {
@@ -838,6 +867,12 @@ export const listPendingHomeDelegationsRoute = authed.listPendingHomeDelegations
 			limit: input.limit ?? 50,
 			kind: "home_delegation",
 		});
+		const approvalTtlHours =
+			candidates.length > 0
+				? resolveApprovalTtlHours(
+						await readOrgGovernancePolicy(context, organizationId),
+					)
+				: undefined;
 		const visible = [];
 		for (const candidate of candidates) {
 			try {
@@ -846,7 +881,11 @@ export const listPendingHomeDelegationsRoute = authed.listPendingHomeDelegations
 					organizationId,
 					required: "read",
 				});
-				visible.push(normalizeHomeRunRecord(candidate));
+				visible.push(
+					normalizeHomeRunRecord(
+						withHomeDelegationExpiry(candidate, approvalTtlHours),
+					),
+				);
 			} catch {
 				// A global inbox must fail closed for private conversations.
 			}
