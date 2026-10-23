@@ -33,7 +33,7 @@
 	},
 	"devDependencies": {
 		"@tedix/tsconfig": "workspace:*",
-		"happy-dom": "^21.0.3",
+		"happy-dom": "^21.0.4",
 		"typescript": "catalog:",
 		"vite": "catalog:",
 		"vite-plus": "catalog:"
