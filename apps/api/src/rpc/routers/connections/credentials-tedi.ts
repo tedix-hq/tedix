@@ -1,3 +1,4 @@
+import { resolveRequestPersonalCredential } from "../../../services/personal-request-authority";
 import { createConnectionProviderOwnership } from "@tedix/db/queries/connection-providers";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { ORPCError } from "@orpc/server";
@@ -189,6 +190,17 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 					accessToken: resolved.accessToken,
 					scopes: resolved.delegation.requiredScopes,
 				};
+			}
+			if (
+				context.tediId &&
+				(input.scope === "user" || input.scope === "hybrid")
+			) {
+				const personal = await resolveRequestPersonalCredential(context, {
+					...input,
+					organizationId,
+					appId: input.delegatedToolUse?.appId,
+				});
+				if (personal) return personal;
 			}
 			if (context.tediId && input.scope === "user")
 				throw createError(

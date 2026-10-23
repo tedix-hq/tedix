@@ -395,6 +395,9 @@ export function extractCallerIdentity(
 		externalAgentModel:
 			request.headers.get("x-tedix-auth-external-model") ?? undefined,
 		clientId: request.headers.get("x-tedix-auth-client-id") ?? undefined,
+		requestRunId: tokenHeader("x-tedix-auth-request-run-id"),
+		requestRootRunId: tokenHeader("x-tedix-auth-request-root-run-id"),
+		requestWorkItemId: tokenHeader("x-tedix-auth-request-work-item-id"),
 		credentialMode:
 			request.headers.get("x-tedix-auth-credential-mode") ?? undefined,
 		scopes: (request.headers.get("x-tedix-auth-scopes") ?? "")

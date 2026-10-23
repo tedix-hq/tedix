@@ -1193,7 +1193,11 @@ function createKernelRuntimeDb(opts?: {
 						const row = value as Record<string, unknown>;
 						if (row.action === controls.auditInsertErrorAction)
 							throw new Error("audit unavailable");
-						auditRows.push(row);
+						if (!auditRows.some((existing) => existing.id === row.id))
+							auditRows.push(row);
+						return this;
+					},
+					onConflictDoNothing() {
 						return this;
 					},
 				};
@@ -1517,6 +1521,10 @@ function createKernelRuntimeDb(opts?: {
 					);
 					if (table === kernelRuntimeEvents || isKernelEventAlias) {
 						selectedRows = [...events];
+						return this;
+					}
+					if (table === auditEvents) {
+						selectedRows = [...auditRows] as unknown as typeof selectedRows;
 						return this;
 					}
 					if (table === kernelRuntimeRuns) {

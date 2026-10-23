@@ -37,6 +37,9 @@ export interface CallerIdentity {
 	scopes?: string[];
 	/** Exact endpoint ceiling derived from live tedi policy, never client input. */
 	mcpEndpoints?: string[];
+	requestRunId?: string;
+	requestRootRunId?: string;
+	requestWorkItemId?: string;
 	skillRunId?: string;
 	skillRunCreatedBy?: string;
 	skillId?: string;

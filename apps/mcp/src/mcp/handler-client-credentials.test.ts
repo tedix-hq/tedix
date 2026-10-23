@@ -148,3 +148,69 @@ describe("resolveClientCredentialsToken", () => {
 		expect(fetchSpy).toHaveBeenCalledTimes(2);
 	});
 });
+
+// Each personal lookup must recheck run state, expiry and audit before transport.
+describe("request-bound personal credential routing", () => {
+	it("forwards signed child provenance and revalidates on every call", async () => {
+		const { fetchTediConnectionToken } =
+			await import("./handler-connection-credentials");
+		const apiFetch = vi.fn(async (request: Request) => {
+			expect(request.headers.get("X-Tedix-Request-Run-Id")).toBe("child");
+			expect(request.headers.get("X-Tedix-Request-Root-Run-Id")).toBe("home");
+			expect(request.headers.get("X-Tedix-Request-Work-Item-Id")).toBe("work");
+			expect(request.headers.get("X-Tedix-Tedi-Id")).toBe("ceo");
+			const body = (await request.json()) as { json: Record<string, unknown> };
+			expect(body.json.delegatedToolUse).toEqual({
+				appId: "gmail-app",
+				arguments: { query: "week" },
+			});
+			return apiFetch.mock.calls.length === 1
+				? Response.json({ json: { accessToken: "first" } })
+				: Response.json({ json: { message: "run ended" } }, { status: 403 });
+		});
+		const ctx = {
+			appId: "gmail-app",
+			toolId: "search_threads",
+			requestId: "req",
+			config: {},
+			env: { API_SERVICE: { fetch: apiFetch }, ENVIRONMENT: "test" },
+			callerIdentity: {
+				authType: "tedi",
+				tediId: "ceo",
+				organizationId: "org",
+				scopes: ["connections.read"],
+				requestRunId: "child",
+				requestRootRunId: "home",
+				requestWorkItemId: "work",
+			},
+			requestMeta: { "io.tedix/kernelRunId": "forged-other-run" },
+		} as unknown as import("./handler").ToolExecutionContext<
+			import("@tedix/api-contract/schemas/tools").ToolConfig
+		>;
+		expect(
+			await fetchTediConnectionToken(
+				ctx,
+				"ceo",
+				"google-gmail",
+				"user",
+				[],
+				undefined,
+				undefined,
+				{ query: "week" },
+			),
+		).toMatchObject({ token: "first" });
+		expect(
+			await fetchTediConnectionToken(
+				ctx,
+				"ceo",
+				"google-gmail",
+				"user",
+				[],
+				undefined,
+				undefined,
+				{ query: "week" },
+			),
+		).toMatchObject({ token: null, status: 403 });
+		expect(apiFetch).toHaveBeenCalledTimes(2);
+	});
+});

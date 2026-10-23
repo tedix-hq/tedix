@@ -154,6 +154,20 @@ function credentialDelegationHeaders<TConfig>(
 		"X-Tedix-Mcp-Tool-Id": ctx.toolId,
 	};
 	const caller = ctx.callerIdentity;
+	const nativeRunId = ctx.requestMeta?.["io.tedix/kernelRunId"];
+	const requestRunId =
+		caller?.requestRunId ??
+		(caller?.tediId &&
+		typeof nativeRunId === "string" &&
+		nativeRunId.length <= 256
+			? nativeRunId
+			: undefined);
+	if (requestRunId && !caller?.skillRunId)
+		headers["X-Tedix-Request-Run-Id"] = requestRunId;
+	if (caller?.requestRootRunId)
+		headers["X-Tedix-Request-Root-Run-Id"] = caller.requestRootRunId;
+	if (caller?.requestWorkItemId)
+		headers["X-Tedix-Request-Work-Item-Id"] = caller.requestWorkItemId;
 	if (caller?.scopes?.length) {
 		// Delegate the caller's MCP scopes plus their machine-scope
 		// translations (mcp:tedis.read → tedis:read, ...): the apps/api
@@ -458,11 +472,17 @@ export async function fetchTediConnectionToken(
 		callerUserId,
 		connectionInstanceId,
 	);
-	// Named slots bypass credential caching so reconnect/disconnect takes
-	// effect on the next call without an isolate-wide invalidation race.
+	// Recheck named slots and personal run authority on every use; a cached
+	// token must not survive cancellation, expiry, or account disconnection.
 	const backgroundRun = Boolean(ctx.callerIdentity?.skillRunId);
+	const requestRun = Boolean(
+		ctx.callerIdentity?.requestRunId ||
+		(ctx.callerIdentity?.tediId && ctx.requestMeta?.["io.tedix/kernelRunId"]),
+	);
+	const personalTedi =
+		Boolean(ctx.callerIdentity?.tediId) && resolvedScope !== "tenant";
 	const cached =
-		connectionInstanceId || backgroundRun
+		connectionInstanceId || backgroundRun || requestRun || personalTedi
 			? null
 			: getCachedCredential(cacheKey);
 	if (cached) return { token: cached };
@@ -474,7 +494,7 @@ export async function fetchTediConnectionToken(
 			providerId: connectionId,
 			scope: resolvedScope,
 			...(connectionInstanceId ? { connectionInstanceId } : {}),
-			...(backgroundRun
+			...(backgroundRun || requestRun
 				? {
 						delegatedToolUse: {
 							appId: ctx.appId,
@@ -545,7 +565,13 @@ export async function fetchTediConnectionToken(
 			isRecord(data) && typeof data.accessToken === "string"
 				? data.accessToken
 				: null;
-		if (accessToken && !connectionInstanceId && !backgroundRun)
+		if (
+			accessToken &&
+			!connectionInstanceId &&
+			!backgroundRun &&
+			!requestRun &&
+			!personalTedi
+		)
 			setCachedCredential(cacheKey, accessToken);
 		return { token: accessToken };
 	} catch (error) {
