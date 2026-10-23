@@ -1,13 +1,110 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
+import {
+	homeRunSetQueryOptions,
+	operationalContextQueryOptions,
+	pendingApprovalsQueryOptions,
+	pendingHomeDelegationsQueryOptions,
+	tediNamesQueryOptions,
+} from "@/lib/os-query-options";
 import { approvalsFromRunSet } from "./chat-cards";
 import {
 	type ApprovalListItem,
 	approvalAttentionCount,
+	ApprovalNotifications,
 	delegationHoldChip,
 	groupApprovalItems,
 	isActionableHomeApproval,
 	isActionableRuntimeApproval,
 } from "./approval-notifications";
+
+describe("approval popover authority", () => {
+	it.each([
+		{ permissions: undefined, count: 0 },
+		{ permissions: ["tedis:update"], count: 0 },
+		{ permissions: ["os:approve"], count: 2 },
+		{ permissions: ["settings:manage"], count: 2 },
+	])(
+		"counts only decisions this account can make: $permissions",
+		({ permissions, count }) => {
+			const client = new QueryClient();
+			// Cache fixtures contain the render inputs; unrelated API metadata is omitted.
+			// Without a context entry, authority is genuinely still loading.
+			if (permissions) {
+				client.setQueryData<unknown>(
+					operationalContextQueryOptions().queryKey,
+					{
+						authority: { role: "member", permissions },
+					},
+				);
+			}
+			client.setQueryData<unknown>(
+				homeRunSetQueryOptions("home:example").queryKey,
+				{
+					runSet: {
+						runs: [
+							{
+								id: "example-run",
+								status: "requires_approval",
+								metadata: {
+									approvalRequestId: "home-write",
+									kernelWriteProposal: {
+										appSlug: "example",
+										toolName: "update_record",
+										args: {},
+									},
+								},
+							},
+						],
+						approvalMirrors: {},
+					},
+				},
+			);
+			client.setQueryData<unknown>(
+				pendingHomeDelegationsQueryOptions().queryKey,
+				{
+					runSet: { runs: [], approvalMirrors: {} },
+				},
+			);
+			client.setQueryData<unknown>(pendingApprovalsQueryOptions().queryKey, {
+				data: [
+					{
+						id: "runtime-write",
+						tediId: "example-worker",
+						actionType: "tool_write",
+						description: "A saved example change",
+						review: {
+							summary: "Example write",
+							intent: "tool_write",
+							decisionMode: "approve_or_reject",
+							timeout: { expired: false },
+						},
+					},
+				],
+			});
+			client.setQueryData<unknown>(tediNamesQueryOptions().queryKey, {
+				data: [],
+			});
+			const html = renderToStaticMarkup(
+				createElement(
+					QueryClientProvider,
+					{ client },
+					createElement(ApprovalNotifications, {
+						conversationId: "home:example",
+					}),
+				),
+			);
+			expect(html).toContain(
+				count === 0
+					? "Action approvals: none waiting"
+					: `Action approvals: ${count} waiting`,
+			);
+			client.clear();
+		},
+	);
+});
 
 describe("approvalAttentionCount", () => {
 	it("combines Home and runtime decisions without crossing their authorities", () => {

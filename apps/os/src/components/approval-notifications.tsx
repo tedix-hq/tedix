@@ -13,6 +13,8 @@ import { createPortal } from "react-dom";
 import {
 	type ApprovalCardData,
 	approvalsFromRunSet,
+	approvalsForAuthority,
+	hasOsApprovalAuthority,
 } from "@/components/chat-cards";
 import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
@@ -42,6 +44,7 @@ import { OsTopbarMenuContext } from "@/components/os-topbar-actions-context";
 import { osApi, osChatMutationApi } from "@/lib/api";
 import {
 	homeRunSetQueryOptions,
+	operationalContextQueryOptions,
 	osQueryKeys,
 	pendingApprovalsQueryOptions,
 	pendingHomeDelegationsQueryOptions,
@@ -226,6 +229,8 @@ export function ApprovalNotifications({
 	const menu = topbar ? topbarMenu : null;
 	const [open, setOpen] = useState(false);
 	const tediNames = useTediNames();
+	const context = useQuery(operationalContextQueryOptions());
+	const authority = context.data?.authority;
 	const runSet = useQuery({
 		...homeRunSetQueryOptions(conversationId ?? ""),
 		enabled: conversationId !== null,
@@ -240,10 +245,16 @@ export function ApprovalNotifications({
 		...workRefreshOptions,
 	});
 	const homeApprovals = runSet.data
-		? approvalsFromRunSet(runSet.data.runSet).filter(isActionableHomeApproval)
+		? approvalsForAuthority(
+				approvalsFromRunSet(runSet.data.runSet),
+				authority,
+			).filter(isActionableHomeApproval)
 		: [];
 	const globalHomeApprovals = pendingHome.data
-		? approvalsFromRunSet(pendingHome.data.runSet).filter(
+		? approvalsForAuthority(
+				approvalsFromRunSet(pendingHome.data.runSet),
+				authority,
+			).filter(
 				(approval) =>
 					isActionableHomeApproval(approval) &&
 					!homeApprovals.some(
@@ -256,6 +267,7 @@ export function ApprovalNotifications({
 	const homeApprovalIds = new Set(homeApprovals.map((a) => a.approvalId));
 	const runtimeApprovals = (runtime.data?.data ?? []).filter(
 		(approval) =>
+			hasOsApprovalAuthority(authority) &&
 			!homeApprovalIds.has(approval.id) &&
 			isActionableRuntimeApproval(approval),
 	);
