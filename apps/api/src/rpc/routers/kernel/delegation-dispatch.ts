@@ -1294,10 +1294,9 @@ function routeNeedsEmbodiedSurface(route: KernelRouteDecision): boolean {
  * Authorization gate for delegating to a tedi. Fail closed — the only path to
  * `auto` is: a capability card exists, the target is active, the target's
  * capability envelope can carry the route's effort class (embodied work needs a
- * body or workstation adapter),
- * the target does not require approval, the target actually holds relevant
- * scope groups, the
- * speaker carries approval authority, and the route is not high-risk. Anything
+ * body or workstation adapter), organization autonomy permits the work or the
+ * target does not require approval, the target holds relevant scope groups,
+ * the speaker carries approval authority, and the route is not high-risk. Anything
  * else degrades to `needs_approval` (or `blocked` when there is no card at
  * all). The default when uncertain is never `auto`.
  *
@@ -1312,7 +1311,7 @@ function routeNeedsEmbodiedSurface(route: KernelRouteDecision): boolean {
  *  |    |   workstation lease cold (warms own ws first turn) |                 |
  *  | 4  | availability not running/active                    | needs_approval  |
  *  | 5  | embodied route, target not embodied                | needs_approval  |
- *  | 6  | card.requiresApproval === true                     | needs_approval  |
+ *  | 6  | card.requiresApproval, no organization autonomy   | needs_approval  |
  *  | 7  | no relevant scopeGroups                             | needs_approval  |
  *  | 8  | speaker lacks approvalAuthority                    | needs_approval  |
  *  | 9  | route.risk === "high"                              | needs_approval  |
@@ -1698,8 +1697,9 @@ function computeDispatchVerdict(input: {
 		};
 	}
 
-	// 6. Target self-declares it requires approval for its actions.
-	if (card.requiresApproval === true) {
+	// Organization autonomy authorizes the handoff; the runtime still gates
+	// critical tool effects when they are attempted.
+	if (card.requiresApproval === true && !autonomy.autoApprove) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",

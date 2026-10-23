@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { listWorkActivity } from "./activity";
@@ -34,6 +34,49 @@ const input = {
 	},
 };
 describe("delegation FYI and correction lessons", () => {
+	it("recovers a transient lesson read without discarding a stored correction", async () => {
+		const { db } = fixture();
+		await recordDelegationFyi(db, input);
+		await recordDelegationAutonomyFeedback(db, {
+			orgId: input.orgId,
+			workItemId: input.workItemId,
+			eventId: (await readDelegationFyi(db, input))!.id,
+			userId: "owner",
+			at: input.at,
+		});
+		const read = vi.spyOn(db, "selectDistinct").mockImplementationOnce(() => {
+			throw new Error("D1_ERROR: Network connection lost");
+		});
+		try {
+			expect(await readDelegationAutonomyLessons(db, input.orgId)).toEqual([
+				"delegation:multi_hop_read",
+			]);
+			expect(read).toHaveBeenCalledTimes(2);
+		} finally {
+			read.mockRestore();
+		}
+	});
+
+	it("keeps persistent or non-transient lesson failures closed", async () => {
+		const { db } = fixture();
+		for (const [message, attempts] of [
+			["D1_ERROR: Network connection lost", 2],
+			["D1_ERROR: no such table", 1],
+		] as const) {
+			const read = vi.spyOn(db, "selectDistinct").mockImplementation(() => {
+				throw new Error(message);
+			});
+			try {
+				await expect(
+					readDelegationAutonomyLessons(db, input.orgId),
+				).rejects.toThrow(message);
+				expect(read).toHaveBeenCalledTimes(attempts);
+			} finally {
+				read.mockRestore();
+			}
+		}
+	});
+
 	it("records one receipt per outcome on retries and projects task, tedi, and outcome into Feed", async () => {
 		const { db, sqlite } = fixture();
 		await Promise.all([

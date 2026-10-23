@@ -2565,13 +2565,32 @@ describe("organization critical-only delegation autonomy", () => {
 		});
 	});
 
-	it("org autonomy cannot override the target's requiresApproval", () => {
+	it.each([
+		"What did I commit to this week? Read-only, list items with sources.",
+		"Prepare a draft summary of this week's commitments with sources.",
+	])("dispatches %s even when the target gates its actions", (content) => {
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				route: makeRoute({ effortClass: "multi_hop_read" }),
+				card: makeCard({ requiresApproval: true, availability: "standby" }),
+				workOrderContent: content,
+			}),
+		).toMatchObject({ mode: "auto", canAutoDispatch: true });
+	});
+
+	it.each([
+		"Send the summary by email",
+		"Publish the summary",
+		"Delete the records",
+	])("keeps the critical effect gated: %s", (content) => {
 		expect(
 			decideDelegationDispatch({
 				...base(),
 				card: makeCard({ requiresApproval: true }),
-			}).canAutoDispatch,
-		).toBe(false);
+				workOrderContent: content,
+			}),
+		).toMatchObject({ mode: "needs_approval", approvalRoute: "human" });
 	});
 
 	it("keeps members gated even with standing organization autonomy", () => {
