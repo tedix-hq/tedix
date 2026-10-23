@@ -689,6 +689,7 @@ describe("Home delegation approval copy", () => {
 		});
 		const html = renderToStaticMarkup(<ApprovalCard approval={card!} />);
 		expect(html).toContain('data-slot="approval-reason-code"');
+		expect(html).toContain("coarse:min-h-11 coarse:min-w-11");
 		expect(html).toContain("An organization owner or admin can decide.");
 		expect(html).not.toContain("human-reserved");
 		expect(html).not.toContain("kernel");

@@ -1136,7 +1136,7 @@ export function ApprovalCard({
 													type="button"
 													aria-label={OS_COPY.approvalCard.policyDetails}
 													data-slot="approval-reason-code"
-													className="ml-1 inline-flex align-[-2px] text-kumo-subtle hover:text-kumo-default"
+													className="coarse:min-h-11 coarse:min-w-11 ml-1 inline-flex items-center justify-center align-[-2px] text-kumo-subtle hover:text-kumo-default"
 												/>
 											}
 										>
