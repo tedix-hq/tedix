@@ -378,6 +378,11 @@ export function decideAutonomousAction(input: {
  *                      as the first delegation (analogous to a common
  *                      spawn_bounds.max_dispatches_per_turn pattern). Default 4;
  *                      max 20. Fail-closed past the cap.
+ * coordinationTtlHours — how long an unanswered status/FYI request (Work
+ *                      interaction kind `coordination`) addressed to a person
+ *                      stays open before the interaction sweep expires it.
+ *                      Counted from creation or the last refresh
+ *                      (`metadata.refreshedAt`). Default 24h; max 168h.
  * writeTier          — the trusted-write auto-approve tier. A LOW-RISK write on
  *                      an explicitly trusted tool auto-resolves through the same
  *                      approval latch (resolvedBy:'policy') instead of parking
@@ -388,6 +393,7 @@ export function decideAutonomousAction(input: {
 export interface KernelGovernancePolicy {
 	autonomy?: DelegationAutonomyPolicy;
 	approvalTtlHours?: number;
+	coordinationTtlHours?: number;
 	maxDelegationsPerTurn?: number;
 	writeTier?: KernelWriteTierPolicy;
 	/**
@@ -426,6 +432,11 @@ export interface KernelWriteTierPolicy {
 const APPROVAL_TTL_DEFAULT_HOURS = 24;
 const APPROVAL_TTL_MIN_HOURS = 1;
 const APPROVAL_TTL_MAX_HOURS = 168; // 1 week
+
+/** Bounds for `coordinationTtlHours`; the D1 interaction sweep applies the same. */
+export const COORDINATION_TTL_DEFAULT_HOURS = 24;
+export const COORDINATION_TTL_MIN_HOURS = 1;
+export const COORDINATION_TTL_MAX_HOURS = 168;
 
 const FAN_OUT_CAP_DEFAULT = 4;
 const FAN_OUT_CAP_MIN = 1;
@@ -475,6 +486,14 @@ export function parseKernelGovernancePolicy(
 			APPROVAL_TTL_MAX_HOURS,
 		);
 		if (ttl !== null) out.approvalTtlHours = ttl;
+	}
+	if (record.coordinationTtlHours !== undefined) {
+		const ttl = clampIntOrNull(
+			record.coordinationTtlHours,
+			COORDINATION_TTL_MIN_HOURS,
+			COORDINATION_TTL_MAX_HOURS,
+		);
+		if (ttl !== null) out.coordinationTtlHours = ttl;
 	}
 	if (record.maxDelegationsPerTurn !== undefined) {
 		const cap = clampIntOrNull(

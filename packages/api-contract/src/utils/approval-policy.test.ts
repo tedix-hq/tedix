@@ -417,6 +417,21 @@ describe("parseKernelGovernancePolicy", () => {
 		);
 	});
 
+	it("parses and clamps coordinationTtlHours", () => {
+		expect(parseKernelGovernancePolicy({ coordinationTtlHours: 12 })).toEqual({
+			coordinationTtlHours: 12,
+		});
+		expect(parseKernelGovernancePolicy({ coordinationTtlHours: 0 })).toEqual({
+			coordinationTtlHours: 1,
+		});
+		expect(parseKernelGovernancePolicy({ coordinationTtlHours: 500 })).toEqual({
+			coordinationTtlHours: 168,
+		});
+		expect(
+			parseKernelGovernancePolicy({ coordinationTtlHours: "bad" }),
+		).toEqual({});
+	});
+
 	it("parses valid maxDelegationsPerTurn within bounds", () => {
 		expect(parseKernelGovernancePolicy({ maxDelegationsPerTurn: 3 })).toEqual({
 			maxDelegationsPerTurn: 3,
