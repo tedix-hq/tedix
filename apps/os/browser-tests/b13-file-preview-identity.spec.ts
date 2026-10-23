@@ -109,7 +109,10 @@ try {
 				"**/api/rpc/osWorkspaces/resources/getFile*",
 				async (route) => {
 					const raw = new URL(route.request().url()).searchParams.get("data");
-					const parsed = JSON.parse(raw ?? "{}");
+					const parsed =
+						route.request().method() === "GET"
+							? JSON.parse(raw ?? "{}")
+							: route.request().postDataJSON();
 					const input = parsed?.json ?? parsed;
 					reads.push(`${input.workspaceId}/${input.resourceId}`);
 					if (failReads) {

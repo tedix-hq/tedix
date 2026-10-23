@@ -75,7 +75,7 @@ export function WorkspaceFilePreview({
 		playback.current = { fileKey, time: 0, playing: false };
 	const src = file.url;
 	return (
-		<figure className="m-0 grid w-full min-w-0 gap-3">
+		<figure className="m-0 grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
 			{isVideo ? (
 				<video
 					key={src}
@@ -132,7 +132,7 @@ export function WorkspaceFilePreview({
 					as="span"
 					role="label"
 					tone="secondary"
-					className="min-w-0 break-words"
+					className="min-w-0 wrap-anywhere"
 				>
 					{file.filename} · {(file.size / 1024 / 1024).toFixed(1)} MiB
 				</Text>

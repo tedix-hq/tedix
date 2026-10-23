@@ -111,7 +111,7 @@ async function settled(page: Page) {
 }
 const listRead = (page: Page) =>
 	page.waitForResponse((response) =>
-		response.url().includes("/personal-resource-delegations/list"),
+		response.url().includes("/personalResourceDelegations/list"),
 	);
 async function capture(
 	page: Page,
@@ -241,7 +241,7 @@ try {
 						: request.postDataJSON();
 				const input = raw?.json ?? raw;
 				let json: unknown;
-				if (endpoint.endsWith("/personal-resource-delegations/list")) {
+				if (endpoint.endsWith("/personalResourceDelegations/list")) {
 					reads.list++;
 					if (mode === "hold")
 						await new Promise<void>((resolve) => {
@@ -324,7 +324,7 @@ try {
 			// though a verified value is still in the cache.
 			mode = "fail";
 			await Promise.all([
-				page.waitForRequest("**/personal-resource-delegations/list"),
+				page.waitForRequest("**/personalResourceDelegations/list"),
 				refresh(page),
 			]);
 			await page.getByText(unverified, { exact: true }).waitFor();

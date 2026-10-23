@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { Button } from "../src/components/kumo/button";
 import { SlideList } from "../src/components/output-editor-slide-list";
 import "../src/styles.css";
+import "../src/components/output-editor.css";
 
 const mode =
 	new URLSearchParams(location.search).get("theme") === "dark"

@@ -55,7 +55,7 @@ async function rowMeasure(row: Locator) {
 		const dup = li.querySelector('[aria-label="Duplicate slide"]')!;
 		const del = li.querySelector('[aria-label="Delete slide"]')!;
 		const thumb = li.querySelector(".slide-thumb-canvas")!;
-		const label = [...li.querySelectorAll('[role="caption"]')].at(-1)!;
+		const label = [...li.querySelectorAll(".type-tedix-caption")].at(-1)!;
 		const wrap = dup.parentElement!;
 		const wrapStyle = getComputedStyle(wrap);
 		return {
@@ -72,11 +72,11 @@ async function rowMeasure(row: Locator) {
 
 async function keyboardFocus(page: Page, target: Locator) {
 	await target.focus();
-	await page.keyboard.press("Tab");
-	await page.keyboard.press("Shift+Tab");
+	await page.keyboard.press("Alt+Tab");
+	await page.keyboard.press("Alt+Shift+Tab");
 	assert(
 		await target.evaluate((node) => node === document.activeElement),
-		"Tab/Shift+Tab must return focus",
+		`Tab/Shift+Tab must return focus: ${await page.evaluate(() => document.activeElement?.outerHTML)}`,
 	);
 	assert(
 		await target.evaluate((node) => {
