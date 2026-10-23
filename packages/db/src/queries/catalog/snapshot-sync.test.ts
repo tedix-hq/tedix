@@ -16,7 +16,7 @@ import {
 function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		"CREATE TABLE app_catalog (id TEXT PRIMARY KEY); INSERT INTO app_catalog (id) VALUES ('app');",
+		"CREATE TABLE app_catalog (id TEXT PRIMARY KEY, status TEXT DEFAULT 'ENABLED'); INSERT INTO app_catalog (id) VALUES ('app');",
 	);
 	sqlite.exec(schemaDdl(appCatalogSyncLogs));
 	sqlite.exec(schemaDdl(appCatalogStoreListings));

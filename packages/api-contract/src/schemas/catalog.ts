@@ -2352,6 +2352,7 @@ export const AppStatusSchema = z.enum([
 	"DISABLED",
 	"PENDING",
 	"DELISTED",
+	"SUPPRESSED",
 ]);
 export type AppStatus = z.infer<typeof AppStatusSchema>;
 

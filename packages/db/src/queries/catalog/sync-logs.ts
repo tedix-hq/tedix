@@ -159,13 +159,23 @@ export async function markStoreListingsAsRemoved(
 
 	// Step 1: Get existing source app IDs for this source. Listings a snapshot
 	// feed owns are reconciled only by that feed, never by a registry sync.
+	// A suppressed entry's listing is its re-import key, so it is never removed.
 	const existingListings = await db
 		.select({
 			sourceAppId: appCatalogStoreListings.sourceAppId,
 			rawData: appCatalogStoreListings.rawData,
 		})
 		.from(appCatalogStoreListings)
-		.where(eq(appCatalogStoreListings.source, source));
+		.innerJoin(
+			appCatalog,
+			eq(appCatalog.id, appCatalogStoreListings.catalogAppId),
+		)
+		.where(
+			and(
+				eq(appCatalogStoreListings.source, source),
+				sql`${appCatalog.status} != 'SUPPRESSED'`,
+			),
+		);
 
 	const existingIds = existingListings
 		.filter(
@@ -224,7 +234,7 @@ export async function disableOrphanedCatalogApps(
 		)
 		.where(
 			and(
-				sql`${appCatalog.status} != 'DISABLED'`,
+				sql`${appCatalog.status} NOT IN ('DISABLED', 'SUPPRESSED')`,
 				isNull(appCatalogStoreListings.id),
 			),
 		);

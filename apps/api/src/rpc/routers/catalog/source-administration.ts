@@ -53,6 +53,10 @@ import { requireCatalogOperatorAccess } from "../catalog-operator-access";
 import { resolveDriftReport } from "@tedix/db/queries/catalog/drift-reports";
 import { resolveTedixInternalScanHeaders as resolveFirstPartyScanHeaders } from "../../../lib/catalog-internal-scan";
 import { syncCatalogAppFromStore } from "@tedix/db/queries/catalog/upsert-sync";
+import {
+	createCatalogVectorClient,
+	deleteCatalogApp as deleteCatalogSearchItem,
+} from "@tedix/db/vector/catalog";
 import { syncCatalogToolsToApp } from "@tedix/db/queries/catalog/sync-tools-to-app";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { updateCatalogAppHealthMetrics } from "@tedix/db/queries/catalog/health-metrics";
@@ -949,6 +953,13 @@ const updateCatalogAppProcedure = fleetCatalogOs.updateApp
 		const updated = await updateCatalogApp(db, id, updateData);
 		if (!updated) {
 			throw createError(ErrorCodes.NOT_FOUND, `Catalog app ${id} not found`);
+		}
+		if (updated.status === "SUPPRESSED") {
+			// The search index holds the listing text; the index sync only
+			// re-adds enabled rows, so one delete keeps it out.
+			const vectorClient = createCatalogVectorClient(context.env);
+			if (vectorClient) await deleteCatalogSearchItem(vectorClient, id);
+			return null;
 		}
 		if (!updated.slug) return null;
 		const result = await getCatalogAppBySlugWithRelations(db, updated.slug);
