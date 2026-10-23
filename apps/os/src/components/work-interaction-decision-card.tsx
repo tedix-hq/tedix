@@ -563,9 +563,13 @@ export function WorkInteractionDecisionCard({
 							</p>
 						) : lane ? (
 							<>
-								<p className="whitespace-pre-wrap">
-									{handoff?.nextClick ?? request.prompt}
-								</p>
+								<DecisionProposalBody
+									body={
+										typeof request.metadata.cardContent === "string"
+											? request.metadata.cardContent
+											: (handoff?.nextClick ?? request.prompt)
+									}
+								/>
 								<p>
 									Done records that you completed this step. Snooze 1 day
 									postpones the reminder.
