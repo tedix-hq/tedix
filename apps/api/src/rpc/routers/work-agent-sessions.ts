@@ -152,7 +152,21 @@ export function requireBoardOwner(context: BaseContext): {
 	};
 }
 
-function sessionOutput(row: WorkAgentSessionRow) {
+async function sessionInactivityMs(
+	context: BaseContext,
+	owner: { userId: string; organizationId: string },
+) {
+	const { layout } = await readAttentionLayout(
+		context.db,
+		owner.userId,
+		owner.organizationId,
+	);
+	return layout.sessionInactiveAfterMinutes * 60_000;
+}
+
+function sessionOutput(
+	row: WorkAgentSessionRow & { workItemTitle?: string | null },
+) {
 	return {
 		id: row.id,
 		telemetry: row.telemetry
@@ -165,6 +179,7 @@ function sessionOutput(row: WorkAgentSessionRow) {
 		summary: row.summary,
 		projectId: row.projectId,
 		workItemId: row.workItemId,
+		workItemTitle: row.workItemTitle ?? null,
 		stateSince: row.stateSince,
 		lastEventAt: row.lastEventAt,
 	};
@@ -222,10 +237,16 @@ const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 		now:
 			input.telemetry?.source === "import" ? input.telemetry.heartbeatAt : now,
 	});
+	const effectiveState = deriveWorkAgentSessionEffectiveState(
+		row,
+		now,
+		await sessionInactivityMs(context, owner),
+	);
 	return {
 		session: {
 			...sessionOutput(row),
-			effectiveState: deriveWorkAgentSessionEffectiveState(row, now),
+			state: effectiveState,
+			effectiveState,
 		},
 		changed,
 	};
@@ -238,6 +259,12 @@ const listProcedure = readOs.list.handler(async ({ input, context }) => {
 		...owner,
 		includeEnded: input.includeEnded === true,
 		now,
+	});
+	const requests = await listAgentSessionRequests(context.db, {
+		...owner,
+		statuses: ["open", "in_progress"],
+		limit: 200,
+		newestFirst: true,
 	});
 	const tediSources = await listTediLaneSources(
 		context.db,
@@ -311,14 +338,30 @@ const listProcedure = readOs.list.handler(async ({ input, context }) => {
 			summary: attempt.summary ?? "",
 			projectId: attempt.projectId,
 			workItemId: attempt.workItemId,
+			workItemTitle: attempt.title,
 			stateSince: attempt.finishedAt ?? attempt.startedAt,
 			lastEventAt: attempt.heartbeatAt,
 			telemetry,
 		};
 	});
 	return buildWorkAgentSessionBoard(
-		[...rows.map(sessionOutput), ...tediLanes],
+		[
+			...rows.map((row) => ({
+				...sessionOutput(row),
+				brief:
+					row.telemetry?.brief ||
+					requests.find(
+						(request) =>
+							request.harness === row.harness &&
+							request.sessionKey === row.sessionKey &&
+							request.kind === "request",
+					)?.text ||
+					"",
+			})),
+			...tediLanes,
+		],
 		now,
+		await sessionInactivityMs(context, owner),
 	);
 });
 
@@ -333,6 +376,12 @@ const contributorsProcedure = projectReadOs.contributors.handler(
 				reports,
 				attempts,
 				new Date().toISOString(),
+				context.userId
+					? await sessionInactivityMs(context, {
+							userId: context.userId,
+							organizationId: requireOrgId(context),
+						})
+					: undefined,
 			),
 		};
 	},
@@ -716,6 +765,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				requests,
 				now,
 				input.utcOffsetMinutes,
+				await sessionInactivityMs(context, owner),
 			),
 			unattendedObjectives,
 			stalls: continuity.stalls,

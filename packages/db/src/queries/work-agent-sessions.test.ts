@@ -25,6 +25,7 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(workAgentSessions));
+	sqlite.exec(schemaDdl(workItems));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -216,6 +217,18 @@ describe("project contributors", () => {
 			workItemId: OTHER_ITEM,
 		});
 		expect(foreign.row).toMatchObject({ projectId: null, workItemId: null });
+		const listed = await listWorkAgentSessions(db, {
+			organizationId: ORG,
+			userId: USER,
+			includeEnded: false,
+			now: T1,
+		});
+		expect(listed.find((row) => row.id === bound.row.id)?.workItemTitle).toBe(
+			"Ship alpha",
+		);
+		expect(
+			listed.find((row) => row.id === foreign.row.id)?.workItemTitle,
+		).toBeNull();
 
 		const unbound = await report(db, { now: T1, state: "done" });
 		expect(unbound.row).toMatchObject({ projectId: PROJECT, workItemId: ITEM });

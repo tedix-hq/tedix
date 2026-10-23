@@ -32,6 +32,7 @@ import {
 } from "@/components/kumo/select";
 import type * as z from "zod";
 import { Badge } from "@/components/kumo/badge";
+import { Link } from "@/components/kumo/link";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -56,7 +57,7 @@ import {
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
 import { formatCount, useOsFormattingPreferences } from "@/lib/format";
-import { absoluteTime, formatDurationBetween, relativeTime } from "@/lib/time";
+import { absoluteTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 type AgentSessionList = z.output<typeof ListWorkAgentSessionsResultSchema>;
@@ -98,6 +99,7 @@ export const AGENT_BOARD_SECTIONS: readonly {
 export const AGENT_HARNESS_LABEL: Record<string, string> = {
 	"claude-code": ATTENTION_COPY.local_claude,
 	codex: ATTENTION_COPY.local_codex,
+	opencode: "Local session (OpenCode)",
 	devin: "Local session (Devin)",
 	tedi: "Tedi",
 	skill: "Skill",
@@ -258,6 +260,7 @@ function AgentSessionRow({
 	useOsFormattingPreferences();
 	const lane = session.telemetry;
 	const state = session.effectiveState;
+	const brief = session.brief || lane?.brief || session.summary;
 	const ownerId = useContext(WorkActorOwnerContext);
 	return (
 		<li
@@ -289,11 +292,26 @@ function AgentSessionRow({
 				/>
 				<Text as="span" role="body" tone="strong">
 					{lane?.model ??
-						(lane ? "Model unknown" : session.label || "Unnamed session")}
+						(lane
+							? "Model unknown"
+							: `${session.label || "Unnamed session"} · Model unknown`)}
 				</Text>
 				{lane?.reasoningEffort ? (
 					<Text as="span" role="label" tone="secondary">
 						{lane.reasoningEffort} reasoning
+					</Text>
+				) : null}
+				{session.workItemId ? (
+					<Link
+						variant="record"
+						href={`/work/items/${session.workItemId}`}
+						className="min-w-0 truncate"
+					>
+						{session.workItemTitle || "View Work item"}
+					</Link>
+				) : state === "working" ? (
+					<Text as="span" role="label" tone="secondary">
+						No Work item selected
 					</Text>
 				) : null}
 				<Text
@@ -301,45 +319,38 @@ function AgentSessionRow({
 					role="body"
 					tone="secondary"
 					className="min-w-0 flex-1 truncate"
-					title={lane?.brief ?? session.summary}
+					title={brief}
 				>
-					{lane?.brief.split("\n").find((line) => line.trim()) ||
-						session.summary}
+					{brief.split("\n").find((line) => line.trim()) || "Brief unavailable"}
 				</Text>
 				<Text as="span" role="label" tone="secondary">
-					{lane ? (
-						(formatDurationBetween(
-							lane.startedAt,
-							lane.finishedAt ?? now.toISOString(),
-						) ?? "0s")
-					) : (
-						<time
-							dateTime={session.stateSince}
-							title={absoluteTime(session.stateSince)}
-						>
-							{relativeTime(session.stateSince, now)}
-						</time>
-					)}
+					Last activity{" "}
+					<time
+						dateTime={session.lastEventAt}
+						title={absoluteTime(session.lastEventAt)}
+					>
+						{relativeTime(session.lastEventAt, now)}
+					</time>
 				</Text>
 			</div>
 			{lane ? (
 				<div className="mt-2 space-y-2">
-					<Text role="label" tone="secondary">
-						{lane.outcome ?? "Running"} ·{" "}
-						{lane.usage
-							? `${formatCount(lane.usage.input + lane.usage.output)} tokens`
-							: "Tokens unknown"}{" "}
-						·{" "}
-						{lane.estimatedCostUsd === null
-							? "Cost unknown"
-							: `${cost(lane.estimatedCostUsd)} estimated`}
-						{" · "}Heartbeat {relativeTime(lane.heartbeatAt, now)}
-					</Text>
-					<Text role="body">
-						{lane.lesson
-							? `What we learned: ${lane.lesson}`
-							: `What we learned: ${lane.lessonStatus === "pending" ? "waiting for the result" : "unavailable"}`}
-					</Text>
+					{lane.usage || lane.estimatedCostUsd !== null || lane.outcome ? (
+						<Text role="label" tone="secondary">
+							{lane.outcome ?? STATE_BADGE[state].label} ·{" "}
+							{lane.usage
+								? `${formatCount(lane.usage.input + lane.usage.output)} tokens`
+								: "Tokens unknown"}{" "}
+							·{" "}
+							{lane.estimatedCostUsd === null
+								? "Cost unknown"
+								: `${cost(lane.estimatedCostUsd)} estimated`}
+							{" · "}Heartbeat {relativeTime(lane.heartbeatAt, now)}
+						</Text>
+					) : null}
+					{lane.lesson ? (
+						<Text role="body">What we learned: {lane.lesson}</Text>
+					) : null}
 					<Collapsible>
 						<CollapsibleTrigger>
 							Result and execution details

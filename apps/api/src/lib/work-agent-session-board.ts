@@ -25,9 +25,15 @@ export const WORK_AGENT_SESSION_BOARD_ORDER = [
 export function deriveWorkAgentSessionEffectiveState(
 	session: { state: StoredState; lastEventAt: string },
 	now: string,
+	inactiveAfterMs?: number,
 ): WorkAgentSessionEffectiveState {
 	if (session.state === "ended") return "ended";
-	return localSessionInactive(session.lastEventAt, new Date(now))
+	if (!Number.isFinite(Date.parse(session.lastEventAt))) return "idle";
+	return localSessionInactive(
+		session.lastEventAt,
+		new Date(now),
+		inactiveAfterMs,
+	)
 		? "idle"
 		: session.state;
 }
@@ -47,8 +53,14 @@ export function buildWorkAgentSessionBoard<
 >(
 	sessions: readonly T[],
 	now: string,
+	inactiveAfterMs?: number,
 ): {
-	sessions: Array<T & { effectiveState: WorkAgentSessionEffectiveState }>;
+	sessions: Array<
+		Omit<T, "state"> & {
+			state: WorkAgentSessionEffectiveState;
+			effectiveState: WorkAgentSessionEffectiveState;
+		}
+	>;
 	counts: Record<WorkAgentSessionEffectiveState, number>;
 } {
 	const counts = Object.fromEntries(
@@ -58,9 +70,13 @@ export function buildWorkAgentSessionBoard<
 		WORK_AGENT_SESSION_BOARD_ORDER.map((state, index) => [state, index]),
 	);
 	const derived = sessions.map((session) => {
-		const effectiveState = deriveWorkAgentSessionEffectiveState(session, now);
+		const effectiveState = deriveWorkAgentSessionEffectiveState(
+			session,
+			now,
+			inactiveAfterMs,
+		);
 		counts[effectiveState] += 1;
-		return { ...session, effectiveState };
+		return { ...session, state: effectiveState, effectiveState };
 	});
 	derived.sort((a, b) => {
 		const byRank =
@@ -133,6 +149,7 @@ export function buildWorkProjectContributors(
 	reports: readonly ContributorReport[],
 	attempts: readonly ContributorAttempt[],
 	now: string,
+	inactiveAfterMs?: number,
 ): WorkProjectContributor[] {
 	const contributors = new Map<string, WorkProjectContributor>();
 	const reportedStates = new Map<string, StoredState>();
@@ -146,7 +163,7 @@ export function buildWorkProjectContributors(
 			sessionKey,
 			harness: report.harness,
 			name: report.label || sessionKey,
-			state: deriveWorkAgentSessionEffectiveState(report, now),
+			state: deriveWorkAgentSessionEffectiveState(report, now, inactiveAfterMs),
 			summary: report.summary,
 			lastActivityAt: report.lastEventAt,
 			workItemId: report.workItemId,
@@ -187,6 +204,7 @@ export function buildWorkProjectContributors(
 		contributor.state = localSessionInactive(
 			contributor.lastActivityAt,
 			new Date(now),
+			inactiveAfterMs,
 		)
 			? "idle"
 			: (reportedStates.get(contributor.sessionKey) ?? "unknown");

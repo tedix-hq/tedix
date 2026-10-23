@@ -1,4 +1,7 @@
-import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
+import {
+	ATTENTION_COPY,
+	localSessionInactive,
+} from "@tedix/api-contract/utils/attention-copy";
 import type { AttentionResult } from "@tedix/api-contract/schemas/work-attention";
 import type { readAttentionSources } from "@tedix/db/queries/work-attention";
 import type { AgentSessionRequestRow } from "@tedix/db/schema/agent-session-requests";
@@ -11,6 +14,7 @@ export function buildAttention(
 	requests: AgentSessionRequestRow[],
 	now: Date,
 	utcOffsetMinutes = 0,
+	inactiveAfterMs?: number,
 ): AttentionResult {
 	const cards: Card[] = [];
 	const midnight = new Date(now.getTime() - utcOffsetMinutes * 60_000);
@@ -138,7 +142,7 @@ export function buildAttention(
 			row.state === "ended"
 		)
 			continue;
-		const fresh = now.getTime() - Date.parse(row.lastEventAt) < 5 * 60_000;
+		const fresh = !localSessionInactive(row.lastEventAt, now, inactiveAfterMs);
 		if (!fresh && !today(row.lastEventAt)) continue;
 		cards.push({
 			id: row.id,
@@ -150,12 +154,13 @@ export function buildAttention(
 						: ATTENTION_COPY.local_claude,
 			title: row.label,
 			projectId: row.projectId,
-			column:
-				row.state === "needs_you"
+			column: !fresh
+				? "blocked"
+				: row.state === "needs_you"
 					? "waiting"
 					: row.state === "done" && today(row.lastEventAt)
 						? "done"
-						: row.state === "error" || !fresh
+						: row.state === "error"
 							? "blocked"
 							: "moving",
 			startedAt: row.stateSince,

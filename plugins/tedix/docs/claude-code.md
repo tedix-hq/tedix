@@ -190,12 +190,25 @@ to the profile's default organization. `"notify": false` turns off macOS notific
 `TEDIX_AGENT_STATUS=1` or `0` and `TEDIX_AGENT_STATUS_PROFILE` override the
 file for one shell.
 
-A notification appears only when a session starts needing you (a permission
-prompt, a question in its last message) or fails. Local state lives in
+A notification appears only when an interactive session starts needing you
+(a permission prompt, a question in its last message) or fails. Background
+lanes record blocked prompts in session status without notifying the person.
+On macOS, notifications use `terminal-notifier` when installed; without it,
+status still reaches OS and no Script Editor notification is sent. Set `osUrl`
+in the status file (or `TEDIX_OS_URL`) to your HTTPS Tedix OS origin to open
+the selected Work item when clicked; otherwise there is no click action.
+Permission summaries are plain sentences and contain no tool JSON.
+Local state lives in
 `~/.tedix/agent-status/`, with failures logged to `report.log` there. The
-remote report runs as a detached `tedix code` call and sends only the host,
+remote report runs as a detached `tedix lane report` call and sends only the host,
 session ID, state, a 160-character summary and the repo/branch label. The hook
 never prints, prompts or waits for the network.
+
+Tool activity refreshes the heartbeat at most once a minute. The Agents board
+shows sessions without a heartbeat for five minutes as idle, using the same
+state for rows and counts. Change `sessionInactiveAfterMinutes` (1–1440) in
+your existing Attention layout through `update_attention_layout` to adjust
+that timeout. Silence does not claim that a process finished successfully.
 
 Review the new hook entries in `/hooks` after updating the plugin.
 

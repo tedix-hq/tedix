@@ -140,10 +140,14 @@ export const ReportWorkAgentSessionStatusInputSchema = z.strictObject({
 export const WorkAgentSessionStatusSchema = z.strictObject({
 	id: z.uuid(),
 	telemetry: LaneTelemetrySchema.nullable().optional(),
+	brief: z
+		.string()
+		.optional()
+		.describe("The lane brief or latest requesting chat, when recorded."),
 	harness: WorkAgentSessionHarnessSchema,
 	sessionKey: z.string(),
 	label: z.string(),
-	state: WorkAgentSessionStateSchema,
+	state: WorkAgentSessionEffectiveStateSchema,
 	effectiveState: WorkAgentSessionEffectiveStateSchema,
 	summary: z.string(),
 	projectId: z
@@ -154,6 +158,7 @@ export const WorkAgentSessionStatusSchema = z.strictObject({
 		.string()
 		.nullable()
 		.describe("Null when the session has no selected Work Item."),
+	workItemTitle: z.string().nullable().optional(),
 	stateSince: z.iso.datetime(),
 	lastEventAt: z.iso.datetime(),
 });

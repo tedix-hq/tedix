@@ -60,7 +60,7 @@ function enable(config: JsonObject = {}): void {
 async function fire(
 	event: string,
 	fields: JsonObject = {},
-	env: Record<string, string> = {},
+	env: NodeJS.ProcessEnv = {},
 	stdin?: string,
 	captureOwnsStop = false,
 	extra: Partial<StatusDeps> = {},
@@ -92,7 +92,7 @@ function state(harness = "claude-code"): JsonObject | undefined {
 	return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined;
 }
 const notifications = () =>
-	spawned.filter(([args]) => args[0] === "osascript").map(([a]) => a);
+	spawned.filter(([args]) => args[0] === "terminal-notifier").map(([a]) => a);
 const reports = () =>
 	spawned.filter(([args]) => args[0] === "tedix").map(([a]) => a);
 
@@ -197,7 +197,10 @@ describe("tedix hooks status", () => {
 				tool_name: "Bash",
 				tool_input: { command: "git push origin main" },
 			}),
-		).toEqual(["needs_you", "Approve Bash: git push origin main"]);
+		).toEqual([
+			"needs_you",
+			"A Claude Code session wants to run a shell command.",
+		]);
 		expect(
 			transition({
 				hook_event_name: "Notification",
@@ -296,6 +299,21 @@ describe("tedix hooks status", () => {
 		).toBe("ended");
 	});
 
+	test("unchanged tool activity renews the remote heartbeat once a minute", async () => {
+		enable();
+		const now = new Date("2026-10-23T12:00:00Z");
+		await fire("PostToolUse", {}, {}, undefined, false, { now: () => now });
+		await fire("PostToolUse", {}, {}, undefined, false, {
+			now: () => new Date(now.getTime() + 30_000),
+		});
+		expect(reports()).toHaveLength(1);
+		await fire("PostToolUse", {}, {}, undefined, false, {
+			now: () => new Date(now.getTime() + 60_000),
+		});
+		expect(reports()).toHaveLength(2);
+		expect(notifications()).toEqual([]);
+	});
+
 	test("notify false suppresses notifications", async () => {
 		enable({ notify: false });
 		await fire("StopFailure", { error: "server_error" });
@@ -311,15 +329,121 @@ describe("tedix hooks status", () => {
 			message,
 		});
 		const args = notifications()[0]!;
-		expect(
-			args.slice(0, 7).every((part) => !part.includes("do shell script")),
-		).toBe(true);
-		expect(args.slice(-3)).toEqual([
+		expect(args.slice(0, 3)).toEqual([
+			"terminal-notifier",
+			"-message",
 			message,
-			"Tedix · repo · main",
-			"Needs you",
 		]);
+		expect(args.slice(-2)).toEqual(["-subtitle", "Needs you"]);
 		expect(spawned[0]![1].detached).toBe(true);
+	});
+
+	test("permission summaries are plain sentences without tool JSON", async () => {
+		enable();
+		await fire(
+			"PermissionRequest",
+			{
+				tool_name: "external_directory",
+				tool_input: { filepath: "/private/files", nested: { secret: "value" } },
+			},
+			{ TEDIX_HOOK_HOST: "opencode" },
+		);
+		expect(state("opencode")?.summary).toBe(
+			"An OpenCode session wants to read files outside its project.",
+		);
+		expect(notifications()[0]).toContain(state("opencode")!.summary);
+		expect(notifications()[0]!.join(" ")).not.toContain("filepath");
+		expect(notifications()[0]!.join(" ")).not.toContain("{");
+	});
+
+	test.each([
+		{ TEDIX_LANE_ID: "lane-1" },
+		{ TEDIX_LANE_LOG: "/tmp/lane.log" },
+		{ CLAUDE_CODE_SESSION_ATTENDED: "0" },
+		{ TEDIX_DEVIN_HEADLESS: "1" },
+	])(
+		"background permissions stay on the board without Needs you: %j",
+		async (env) => {
+			enable();
+			await fire(
+				"PermissionRequest",
+				{
+					tool_name: "external_directory",
+					tool_input: { filepath: "/private/files" },
+				},
+				env,
+			);
+			expect(state()?.state).toBe("error");
+			expect(state()?.summary).toContain("read files outside its project");
+			expect(notifications()).toEqual([]);
+			expect(reports()).toHaveLength(1);
+		},
+	);
+
+	test("click opens the configured OS Work URL without a shell", async () => {
+		enable({ osUrl: "https://acme.os.example" });
+		const workItemId = "22222222-2222-4222-8222-222222222222";
+		await fire(
+			"PermissionRequest",
+			{ tool_name: "Bash" },
+			{},
+			undefined,
+			false,
+			{ binding: () => ({ workItemId }) },
+		);
+		expect(notifications()[0]).toContain(
+			`https://acme.os.example/work/items/${workItemId}`,
+		);
+		expect(notifications()[0]).toContain("-open");
+		expect(spawned.some(([args]) => args[0] === "osascript")).toBe(false);
+	});
+
+	test("missing notifier or unsafe OS URL never falls back to Script Editor", async () => {
+		enable({ osUrl: "javascript:alert(1)" });
+		await fire("PermissionRequest", { tool_name: "Bash" });
+		expect(notifications()[0]).not.toContain("-open");
+		spawned = [];
+		await fire("PostToolUse");
+		await fire(
+			"PermissionRequest",
+			{ tool_name: "Bash" },
+			{},
+			undefined,
+			false,
+			{ which: () => undefined },
+		);
+		expect(notifications()).toEqual([]);
+		expect(spawned.some(([args]) => args[0] === "osascript")).toBe(false);
+	});
+
+	test("a Codex exec transcript suppresses notifications without lane environment flags", async () => {
+		enable();
+		const transcript = join(base, "exec.jsonl");
+		writeFileSync(
+			transcript,
+			JSON.stringify({ type: "session_meta", payload: { source: "exec" } }) +
+				"\n",
+		);
+		await fire("PermissionRequest", {
+			turn_id: "turn-1",
+			transcript_path: transcript,
+			tool_name: "Bash",
+		});
+		expect(state("codex")?.state).toBe("error");
+		expect(notifications()).toEqual([]);
+		expect(reports()).toHaveLength(1);
+	});
+
+	test("a host notification containing tool JSON is replaced with a plain sentence", async () => {
+		enable();
+		await fire("Notification", {
+			notification_type: "permission_prompt",
+			message: 'Approve external_directory: {"filepath":"/private/files"}',
+		});
+		expect(notifications()[0]![2]).toBe(
+			"An agent session is waiting for your input.",
+		);
+		expect(notifications()[0]!.join(" ")).not.toContain("filepath");
 	});
 
 	test("the remote command selects the configured organization", async () => {

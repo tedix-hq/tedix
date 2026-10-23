@@ -172,9 +172,10 @@ function heartbeatAgeMs(heartbeatAt: string | null, now: Date): number {
 export function localSessionInactive(
 	heartbeatAt: string | null,
 	now: Date,
+	inactiveAfterMs = LOCAL_SESSION_INACTIVE_AFTER_MS,
 ): boolean {
 	const age = heartbeatAgeMs(heartbeatAt, now);
-	return Number.isFinite(age) && age >= LOCAL_SESSION_INACTIVE_AFTER_MS;
+	return Number.isFinite(age) && age >= inactiveAfterMs;
 }
 
 export function inactiveSessionLabel(

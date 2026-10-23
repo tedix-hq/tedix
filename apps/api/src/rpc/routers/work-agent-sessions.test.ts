@@ -219,6 +219,29 @@ describe("workAgentSessions router", () => {
 		expect(board.counts.needs_you).toBe(1);
 		expect(LaneTelemetryInputSchema.safeParse(telemetry).success).toBe(false);
 	});
+	it("shows the latest requesting chat when the session has no lane brief", async () => {
+		const { ada, grace, sqlite } = fixture();
+		const db = createDbClient(createD1Facade(sqlite));
+		const now = new Date().toISOString();
+		await db.insert(agentSessionRequests).values({
+			id: crypto.randomUUID(),
+			organizationId: ORG_ID,
+			userId: "ada",
+			harness: report.harness,
+			sessionKey: report.sessionKey,
+			kind: "request",
+			text: "Make the fictional widget readable",
+			status: "in_progress",
+			sourceAt: now,
+			sourceKey: "request-1",
+			statusChangedAt: now,
+		});
+		await ada.report({ ...report, state: "working" });
+		expect((await ada.list({})).sessions[0]?.brief).toBe(
+			"Make the fictional widget readable",
+		);
+		expect((await grace.list({})).sessions).toEqual([]);
+	});
 
 	it("rejects non-human principals", async () => {
 		const { tediClient } = fixture();
@@ -391,6 +414,42 @@ it("backfilling an old unfinished lane does not claim fresh activity", async () 
 	});
 	expect(result.session.lastEventAt).toBe(observedAt);
 	expect(result.session.effectiveState).toBe("idle");
+	expect(result.session.state).toBe("idle");
+	const board = await ada.list({});
+	expect(board.counts.working).toBe(0);
+	expect(board.counts.idle).toBe(1);
+	expect(board.sessions[0]).toMatchObject({
+		state: "idle",
+		effectiveState: "idle",
+	});
+});
+
+it("uses the saved Attention timeout for rows and counts, then expires a silent session", async () => {
+	const { ada, sqlite } = fixture();
+	await ada.updateAttentionLayout({
+		expectedRevision: 0,
+		layout: { ...DEFAULT_ATTENTION_LAYOUT, sessionInactiveAfterMinutes: 10 },
+	});
+	await ada.report({ ...report, state: "working" });
+	sqlite
+		.prepare("UPDATE work_agent_sessions SET last_event_at = ?")
+		.run(new Date(Date.now() - 6 * 60_000).toISOString());
+	let board = await ada.list({});
+	expect(board.counts.working).toBe(1);
+	expect(board.sessions[0]).toMatchObject({
+		state: "working",
+		effectiveState: "working",
+	});
+	sqlite
+		.prepare("UPDATE work_agent_sessions SET last_event_at = ?")
+		.run(new Date(Date.now() - 11 * 60_000).toISOString());
+	board = await ada.list({});
+	expect(board.counts.working).toBe(0);
+	expect(board.counts.idle).toBe(1);
+	expect(board.sessions[0]).toMatchObject({
+		state: "idle",
+		effectiveState: "idle",
+	});
 });
 
 it("keeps automatic container creation behind existing project permission and explicit owner opt-in", async () => {
