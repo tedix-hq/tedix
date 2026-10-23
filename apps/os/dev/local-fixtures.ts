@@ -1115,7 +1115,7 @@ function installWorkViewFixtures(): void {
 	] as const) {
 		const gadgetId = fid("49", 0x20 + index);
 		const revisionId = fid("50", 0x20 + index);
-		if (state.gadgets.some((gadget) => gadget.id === gadgetId)) continue;
+		if (state.gadgets.some((gadget) => gadget.name === name)) continue;
 		state.gadgets.push({
 			id: gadgetId,
 			organizationId: ORG_ID,
