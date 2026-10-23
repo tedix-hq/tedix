@@ -241,6 +241,23 @@ async function type(selector: string, value: string) {
 }
 
 describe("CardReviewApp decision interactions", () => {
+	it.each([true, false])(
+		"explains denied source sheets without a write (deck=%s)",
+		async (inDeck) => {
+			vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValue(
+				Object.assign(new Error("Output source access is unavailable"), {
+					code: "FORBIDDEN",
+				}),
+			);
+			await mount(inDeck);
+			expect(host.textContent).toContain("Cards are unavailable");
+			expect(host.textContent).toContain("workspace or source sheet");
+			expect(host.textContent).toContain("restricted source sheets");
+			expect(host.textContent).not.toContain("Loading your activity");
+			expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+		},
+	);
+
 	it.each([
 		["Useful", "yes"],
 		["Not useful", "no"],
