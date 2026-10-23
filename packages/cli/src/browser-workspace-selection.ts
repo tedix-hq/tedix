@@ -102,6 +102,8 @@ export function parseBrowserWorkspaceSelection(
 				!ORGANIZATION_SLUG_RE.test(item.organization) ||
 				!DESCOPE_TENANT_ID_RE.test(item.tenant),
 		) ||
+		new Set(organizations.map((item) => item.organization)).size !==
+			organizations.length ||
 		new Set(organizations.map((item) => item.tenant)).size !==
 			organizations.length
 	)
