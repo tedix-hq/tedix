@@ -65,6 +65,11 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 		command === "build" || isPreview || useRemoteWorker || useLocalWorker;
 	const buildSha = readOsBuildSha(process.env);
 	return {
+		// Pin tsconfig for every transform and resolve. Auto-discovery walks
+		// ancestors for files no `include` owns (index.html among them); a
+		// sibling checkout's broken `extends` then fails every transform
+		// (vitejs/vite#23672).
+		tsconfig: "./tsconfig.json",
 		plugins: [
 			osVersionPlugin(buildSha),
 			...(withWorker ? [workerPlugin()] : []),
