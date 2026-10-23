@@ -122,8 +122,12 @@ export async function listCommitmentChanges(
 				'work' AS kind, w.id AS objectId,
 				CASE WHEN e.event_type = 'attempt.settled' THEN json_extract(e.payload, '$.outcome') ELSE e.event_type END AS state,
 				e.occurred_at AS changedAt
-			FROM recent_work_events e JOIN work_items w ON w.id = e.work_item_id AND w.org_id = e.org_id
-			JOIN tedis t ON t.organization_id = w.org_id AND t.status = 'active'
+			-- CROSS JOIN fixes the loop order: the two-minute event window drives
+			-- the Work Item seek, then the tenant's tedis. A plain JOIN let SQLite
+			-- start from every tedi of every tenant and walk each tenant's whole
+			-- work_items index per tedi (273k rows read per window on 23 Oct 2026).
+			FROM recent_work_events e CROSS JOIN work_items w ON w.id = e.work_item_id AND w.org_id = e.org_id
+			CROSS JOIN tedis t ON t.organization_id = w.org_id AND t.status = 'active'
 				AND ((w.accountable_owner_type = 'tedi' AND w.accountable_owner_id = t.id)
 				OR (w.steward_type = 'tedi' AND w.steward_id = t.id)
 				OR EXISTS (SELECT 1 FROM projects p WHERE p.org_id = w.org_id AND p.id = w.project_id AND p.lead_tedi_id = t.id)
