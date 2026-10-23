@@ -705,6 +705,47 @@ describe("Work case detail and clusters", () => {
 		).toEqual([]);
 	});
 
+	it("labels case mutations while preventing duplicate input", async () => {
+		viewport(false);
+		api.reads["workItems.getCase"] = {
+			workCase: {
+				id: "case-1",
+				title: "Refund backlog",
+				kind: "operations",
+				stage: "investigating",
+				version: 2,
+				accountableOwnerId: OWNER,
+			},
+			items: { data: [], nextCursor: null },
+			dependencies: { data: [], nextCursor: null },
+		};
+		const pending = new Promise(() => undefined);
+		api.reads["workItems.updateCase"] = pending;
+		api.reads["workItems.attachCaseWorkItem"] = pending;
+		api.reads["workItems.addCaseDependency"] = pending;
+		const page = await mount(<WorkCasePage caseId="case-1" />);
+
+		await page.submit("Planning");
+		const stage = [...page.host.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Moving to Planning…",
+		);
+		expect(stage?.disabled).toBe(true);
+
+		await page.type("Work Item id", OWNER);
+		await page.submit("Attach Work Item");
+		const attachment = [...page.host.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Attaching…",
+		);
+		expect(attachment?.disabled).toBe(true);
+
+		await page.type("Dependent case id", OWNER);
+		await page.submit("Add dependency");
+		const dependency = [...page.host.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Adding…",
+		);
+		expect(dependency?.disabled).toBe(true);
+	});
+
 	it("uses a schema-backed form for execution cluster lookup", async () => {
 		viewport(false);
 		const page = await mount(<WorkClustersPage />);
