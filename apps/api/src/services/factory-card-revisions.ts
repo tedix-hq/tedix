@@ -1,4 +1,5 @@
 import { listPendingFactoryCardRevisions } from "@tedix/db/queries/factory-card-revisions";
+import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { columnIndex, cellText } from "@tedix/api-contract/utils/card-review";
 import type { OsOutputRevision } from "@tedix/api-contract/schemas/os-workspaces";
 import type { BaseContext } from "../rpc/orpc";
@@ -71,7 +72,7 @@ export async function factoryCardRevisionRequests(
 					rewrittenBy: revision.createdById,
 				},
 			});
-		} else
+		} else if (await rewriteRunActive(context, event.runId))
 			pending.push({
 				cardId: meta.cardId,
 				instruction: meta.instruction,
@@ -79,4 +80,16 @@ export async function factoryCardRevisionRequests(
 			});
 	}
 	return pending;
+}
+
+/** A request stays pending only while the skill run rewriting the card is still going. */
+async function rewriteRunActive(context: BaseContext, runId: string | null) {
+	if (!runId) return false;
+	const run = await getSkillRun(
+		context.db,
+		runId,
+		requireOrgId(context),
+		context.env.ENVIRONMENT,
+	);
+	return run?.status === "queued" || run?.status === "running";
 }
