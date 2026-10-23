@@ -2,6 +2,7 @@ import { describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseSkillFrontmatter } from "@tedix/api-contract/utils/skill-manifest";
 import {
 	collectParams,
 	DEFAULT_WATCH_SECONDS,
@@ -112,6 +113,24 @@ describe("parsePlan", () => {
 });
 
 describe("renderSkillMd", () => {
+	it.each([
+		"Check: tool metadata",
+		"Keep #all fields",
+		"true",
+		"null",
+		"123",
+		'Quotes " and backslash \\',
+		"First line\n---\ncapabilities: changed",
+		"Windows\r\nnext line",
+	])("preserves identity strings in parsed frontmatter: %j", (value) => {
+		const md = renderSkillMd(parsePlan(PLAN).manifest, value, value);
+		expect(parseSkillFrontmatter(md)).toEqual({
+			name: value,
+			description: value,
+			capabilities: { mcp: { app_config: ["list_app_tools"] } },
+		});
+	});
+
 	it("emits frontmatter carrying the capabilities block verbatim", () => {
 		const md = renderSkillMd(
 			parsePlan(PLAN).manifest,
@@ -119,7 +138,7 @@ describe("renderSkillMd", () => {
 			"Check tool annotations.",
 		);
 		const [, frontmatter] = md.split("---");
-		expect(frontmatter).toContain("name: audit-annotations");
+		expect(parseSkillFrontmatter(md)?.name).toBe("audit-annotations");
 		// The manifest is what the runtime enforces env.MCP against — it must
 		// survive into stored content unchanged.
 		expect(frontmatter).toContain("app_config: [list_app_tools]");
@@ -201,7 +220,10 @@ describe("flow run", () => {
 		expect(run).toContain("flow.run");
 		expect(run).toContain(JSON.stringify('"source":"/* tedix').slice(1, -1));
 		expect(run).toContain(
-			JSON.stringify('"skillDoc":"---\\nname: audit-annotations').slice(1, -1),
+			JSON.stringify('"skillDoc":"---\\nname: \\"audit-annotations').slice(
+				1,
+				-1,
+			),
 		);
 		expect(run).toContain("app_config: [list_app_tools]");
 		expect(run).not.toContain("discover.search");
