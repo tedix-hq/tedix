@@ -7,10 +7,6 @@ import { readFileSync } from "node:fs";
  * `.dark`) into semantic text and surface roles through var(), light-dark()
  * and color-mix() chains, so this test resolves each chain the way the
  * browser does and asserts the shipped pairs meet WCAG AA.
- *
- * Pairs that genuinely fail today are pinned in `expectedFailures` with their
- * measured ratio and a TODO: the gate stays green, still catches new
- * regressions, and the entry must be removed when the token is fixed.
  */
 
 type Mode = "light" | "dark";
@@ -410,17 +406,17 @@ const PAIRS: Pair[] = [
 	),
 ];
 
-/*
- * Pairs that cannot meet AA today, pinned at their measured ratio. An entry
- * keeps the gate green; a further drop below the recorded ratio fails it.
- * Removing the entry is part of fixing the token (see the TODO comment).
- */
-const expectedFailures = new Map<string, number>();
-
 interface Measurement {
 	mode: Mode;
 	pair: Pair;
 	ratio: number | null;
+}
+
+function contrastViolations(measurements: Measurement[]) {
+	return measurements.filter(
+		(m): m is Measurement & { ratio: number } =>
+			m.ratio !== null && m.ratio < m.pair.minimum,
+	);
 }
 
 function measure(
@@ -450,6 +446,30 @@ function measure(
 }
 
 describe("kumo token contrast gate", () => {
+	test.each([
+		[4.49, AA_TEXT, 1],
+		[4.5, AA_TEXT, 0],
+		[4.51, AA_TEXT, 0],
+		[2.99, AA_NON_TEXT, 1],
+		[3, AA_NON_TEXT, 0],
+		[3.01, AA_NON_TEXT, 0],
+	])(
+		"ratio %s against minimum %s has %s violations",
+		(ratio, minimum, count) => {
+			const measurement: Measurement = {
+				mode: "light",
+				pair: {
+					name: "boundary",
+					foreground: "black",
+					background: "white",
+					minimum,
+				},
+				ratio,
+			};
+			expect(contrastViolations([measurement])).toHaveLength(count);
+		},
+	);
+
 	const scopes = buildScopes();
 	const measurements = (["light", "dark"] as Mode[]).flatMap((mode) =>
 		PAIRS.map((pair) => measure(mode, pair, scopes[mode])),
@@ -475,22 +495,7 @@ describe("kumo token contrast gate", () => {
 	});
 
 	test("holds semantic text/surface pairs at WCAG AA in light and dark", () => {
-		const resolved = measurements.filter(
-			(m): m is Measurement & { ratio: number } => m.ratio !== null,
-		);
-		const violations = resolved.filter(({ mode, pair, ratio }) => {
-			if (ratio >= pair.minimum) return false;
-			const expected = expectedFailures.get(`${mode}:${pair.name}`);
-			return expected === undefined || ratio < expected - 0.05;
-		});
-		const stale = resolved.filter(
-			({ mode, pair, ratio }) =>
-				ratio >= pair.minimum && expectedFailures.has(`${mode}:${pair.name}`),
-		);
-		for (const { mode, pair, ratio } of stale)
-			console.info(
-				`[contrast] ${mode}:${pair.name} recovered to ${ratio.toFixed(2)}:1 — remove it from expectedFailures`,
-			);
+		const violations = contrastViolations(measurements);
 		expect(
 			violations.map(
 				({ mode, pair, ratio }) =>
