@@ -1,3 +1,4 @@
+import { homeDelegationApprovalId } from "@tedix/api-contract/utils/home-delegation-approval";
 import { findApprovalRule } from "../approval-rule-matcher";
 import {
 	runChatApprovalReplyIntercept,
@@ -1765,7 +1766,10 @@ export async function runKernelTurnWork(
 			...(routeUsage ? { usage: routeUsage } : {}),
 			metadata: {
 				homeSubject: true,
-				approvalRequestId: writeApprovalRequestId ?? approvalRequestId,
+				approvalRequestId:
+					writeApprovalRequestId ??
+					approvalRequestId ??
+					(delegationApprovalActive ? homeDelegationApprovalId(runId) : null),
 				delegatedTediId: autoDelegatedTediId,
 				childConversationId: autoDispatch?.childConversationId ?? null,
 				childRunId: autoChildRunId,
@@ -1838,7 +1842,10 @@ export async function runKernelTurnWork(
 		payload: {
 			status: terminalPayloadStatus,
 			...(routeFailure ? { routeFailure } : {}),
-			approvalRequestId: writeApprovalRequestId ?? approvalRequestId,
+			approvalRequestId:
+				writeApprovalRequestId ??
+				approvalRequestId ??
+				(delegationApprovalActive ? homeDelegationApprovalId(runId) : null),
 			inputMessageId: userMessageId,
 			outputMessageId: assistantMessageId,
 			childConversationId: autoDispatch?.childConversationId ?? null,

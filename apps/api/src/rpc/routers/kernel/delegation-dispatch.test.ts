@@ -2541,6 +2541,30 @@ describe("organization critical-only delegation autonomy", () => {
 		});
 	});
 
+	it("auto-dispatches a read-only memory question to the org's own CFO tedi", () => {
+		// Replay of the 23 Oct 2026 CFO memory check: one question asked whether
+		// we must send e-invoices, which held the whole delegation as an
+		// external message.
+		const d = decideDelegationDispatch({
+			...base(),
+			route: makeRoute({ risk: "medium", effortClass: "single_read" }),
+			workOrderContent:
+				'Please ask the CFO tedi this memory check and return its answer verbatim. Mark each answer "remembered" or "don\'t know":\n1. Tedix GbR\'s VAT status.\n7. Do we have to send e-invoices (E-Rechnung)?',
+		});
+		expect(d).toMatchObject({ mode: "auto", canAutoDispatch: true });
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				workOrderContent:
+					"Ask the CFO to send the e-invoice to the customer by email.",
+			}),
+		).toMatchObject({
+			mode: "needs_approval",
+			approvalRoute: "human",
+			reason: "human-reserved: external_message",
+		});
+	});
+
 	it("org autonomy cannot override the target's requiresApproval", () => {
 		expect(
 			decideDelegationDispatch({

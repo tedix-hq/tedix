@@ -640,7 +640,11 @@ describe("runKernelTurnWork progress seam", () => {
 		expect(events.map((event) => event.kind)).not.toContain("run.completed");
 		expect(
 			events.find((event) => event.kind === "approval.requested")?.payload,
-		).toMatchObject({ status: "requires_approval" });
+		).toMatchObject({
+			status: "requires_approval",
+			// The parent run is the approval; callers answer it by this id.
+			approvalRequestId: `home-delegation:${result.run.id}`,
+		});
 		// No policy pack: the default 24-hour review window is stamped.
 		expect(result.run.metadata?.homeDelegation).toMatchObject({
 			expiresAt: "2026-06-12T00:00:12.500Z",

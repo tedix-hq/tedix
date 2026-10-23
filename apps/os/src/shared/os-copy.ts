@@ -397,6 +397,34 @@ const ENGLISH_COPY = {
 			other: "Task",
 		} satisfies Record<WorkItemKind, string>,
 	},
+	approvalCard: {
+		delegationRequest: (tedi: string) =>
+			`Sends a request to ${tedi} on your behalf.`,
+		reservedActions: {
+			legal: "commit to a legal agreement",
+			money: "move or commit money",
+			external_message: "message people outside your organization",
+			public_publish: "publish something publicly",
+			credentials: "use sign-in details or secrets",
+			access_control: "change who can access what",
+			delete_data: "delete data",
+			production_settings: "change live sign-in settings",
+		} as Record<string, string>,
+		reservedReason: (actions: string) =>
+			`It needs your approval because it may ${actions}.`,
+		askedForApproval: "You asked to approve this kind of work yourself.",
+		heldByOperator: "You asked to approve this before it starts.",
+		riskReason: (risk: string) =>
+			risk === "unknown"
+				? "Tedix could not rate its risk, so a person decides."
+				: `Tedix rated it ${risk} risk, so a person decides.`,
+		notTrusted: (tedi: string) =>
+			`${tedi} is not yet trusted with this kind of work on its own.`,
+		policyReason:
+			"Your organization requires approval before this delegation starts.",
+		ownerOrAdmin: "An organization owner or admin can decide.",
+		policyDetails: "Policy details",
+	},
 	feed: {
 		evidencePreview: "Work evidence preview",
 		actors: {
