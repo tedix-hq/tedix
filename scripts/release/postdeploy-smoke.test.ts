@@ -468,3 +468,33 @@ test("per-surface SHA arguments and custom health fields are checked", () => {
 		parseArgs(["--health", url, "--health-sha-field", "bad"]),
 	).toThrow("URL=field");
 });
+
+test.each([
+	["--health-sha", "a".repeat(40)],
+	["--health-sha-field", "runtimeDeployedSha"],
+])("rejects %s for a URL that is not checked", (flag, value) => {
+	const url = "https://unchecked.example.test/health";
+	for (const checks of [
+		["--health", "https://example.test/health"],
+		["--mcp-url", MCP_URL, "--organization", ORG],
+	]) {
+		expect(() => parseArgs([...checks, flag, `${url}=${value}`])).toThrow(
+			`${flag} URL is not in --health: ${url}`,
+		);
+	}
+});
+
+test("accepts SHA options before their matching health URL", () => {
+	const url = "https://example.test/health";
+	const sha = "a".repeat(40);
+	const options = parseArgs([
+		"--health-sha",
+		`${url}=${sha}`,
+		"--health-sha-field",
+		`${url}=runtimeDeployedSha`,
+		"--health",
+		url,
+	]);
+	expect(options.expectedShas).toEqual({ [url]: sha });
+	expect(options.shaFields).toEqual({ [url]: "runtimeDeployedSha" });
+});

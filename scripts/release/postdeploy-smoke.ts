@@ -140,6 +140,15 @@ export function parseArgs(argv: string[]): SmokeOptions {
 		throw new Error("--mcp-url needs --organization");
 	if (!options.health.length && !options.mcpUrl)
 		throw new Error("Nothing to check: pass --health and/or --mcp-url");
+	for (const [flag, entries] of [
+		["--health-sha", options.expectedShas],
+		["--health-sha-field", options.shaFields],
+	] as const) {
+		for (const url of Object.keys(entries ?? {})) {
+			if (!options.health.includes(url))
+				throw new Error(`${flag} URL is not in --health: ${url}`);
+		}
+	}
 	return options;
 }
 
