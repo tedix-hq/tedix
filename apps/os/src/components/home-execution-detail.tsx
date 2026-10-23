@@ -5,23 +5,30 @@ import {
 } from "@/components/kumo/collapsible";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
 import {
-	ArrowSquareOut,
 	CaretDown,
+	CaretRight,
 	CheckCircle,
+	Clock,
 	TreeStructure,
+	Warning,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import type {
 	HomeChildRunEvidence,
 	HomeRun,
 	HomeRunTrace,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import { compactPreview, RunStatusChip } from "@/components/chat-cards";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { ClipboardText } from "@/components/kumo/clipboard-text";
+import { CodeBlock } from "@/components/kumo/code";
+import { Loader } from "@/components/kumo/loader";
 import { HomeRunIdentity } from "@/components/home-run-identity";
 import {
 	Collection,
@@ -39,6 +46,12 @@ import {
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
+import {
+	delegatedResult,
+	elapsedSince,
+	isActiveRunStatus,
+	traceSummary,
+} from "@/lib/execution-detail-copy";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
 	homeChildRunEvidenceQueryOptions,
@@ -46,11 +59,17 @@ import {
 	homeRunTraceQueryOptions,
 	osQuery,
 } from "@/lib/os-query-options";
-import { absoluteTime, formatDurationMs } from "@/lib/time";
+import {
+	absoluteTime,
+	formatDurationBetween,
+	formatDurationMs,
+} from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { ArtifactReleaseReview } from "@/components/artifact-release-review";
 import { useTediNames } from "@/lib/use-tedi-names";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
+
+const DIGITAL_WORKER = "Digital worker";
 
 function safeText(value: unknown): string | null {
 	return typeof value === "string" && value.trim()
@@ -76,24 +95,69 @@ export function executionTitle(branchId?: string): string {
 	return branchId ? "Delegated execution" : "Home execution";
 }
 
+/** Re-render once a second while `active`, so elapsed time keeps counting. */
+function useNow(active: boolean): number {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!active) return;
+		const timer = setInterval(() => setNow(Date.now()), 1_000);
+		return () => clearInterval(timer);
+	}, [active]);
+	return active ? now : Date.now();
+}
+
+function runTime(run: HomeRun, trace: HomeRunTrace, now: number): string {
+	if (isActiveRunStatus(run.status)) {
+		const elapsed = elapsedSince(run.startedAt ?? run.createdAt, now);
+		return elapsed == null
+			? "Running"
+			: `Running for ${formatDurationMs(Math.floor(elapsed / 1_000) * 1_000)}`;
+	}
+	return (
+		formatDurationMs(trace.latency.parentElapsedMs) ??
+		formatDurationBetween(run.startedAt ?? run.createdAt, run.completedAt) ??
+		"Not recorded"
+	);
+}
+
+const ROW_ICONS = {
+	complete: (
+		<CheckCircle className="mt-0.5 shrink-0 text-kumo-success" size={17} />
+	),
+	pending: <Clock className="mt-0.5 shrink-0 text-kumo-subtle" size={17} />,
+	warning: <Warning className="mt-0.5 shrink-0 text-kumo-warning" size={17} />,
+} as const;
+
 function EvidenceRow({
 	title,
 	detail,
+	tone = "complete",
 	children,
 }: {
 	title: string;
 	detail?: string | null;
+	tone?: keyof typeof ROW_ICONS;
 	children?: React.ReactNode;
 }) {
 	return (
 		<li className="flex min-w-0 items-start gap-3 px-3 py-2">
-			<CheckCircle className="mt-0.5 shrink-0 text-kumo-success" size={17} />
+			{ROW_ICONS[tone]}
 			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<Text as="strong" role="body" weight="medium" className="break-words">
+				<Text
+					as="strong"
+					role="body"
+					weight="medium"
+					className="[overflow-wrap:anywhere]"
+				>
 					{title}
 				</Text>
 				{detail ? (
-					<Text as="span" role="label" tone="secondary" className="break-words">
+					<Text
+						as="span"
+						role="label"
+						tone="secondary"
+						className="[overflow-wrap:anywhere]"
+					>
 						{detail}
 					</Text>
 				) : null}
@@ -103,7 +167,98 @@ function EvidenceRow({
 	);
 }
 
-function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
+/** A long identifier: truncated to the row, copyable in full. */
+function CopyableId({ value }: { value: string }) {
+	return (
+		<ClipboardText
+			size="sm"
+			text={value}
+			textToCopy={value}
+			className="mt-1 max-w-full"
+		/>
+	);
+}
+
+function Disclosure({
+	label,
+	defaultOpen,
+	children,
+}: {
+	label: string;
+	defaultOpen?: boolean;
+	children: React.ReactNode;
+}) {
+	return (
+		<Collapsible defaultOpen={defaultOpen}>
+			<CollapsibleTrigger className="group/disclosure">
+				<CaretDown
+					size={14}
+					aria-hidden
+					className="transition-transform group-data-[panel-open]/disclosure:rotate-180"
+				/>
+				{label}
+			</CollapsibleTrigger>
+			<CollapsibleContent className="min-w-0 pt-3">
+				{children}
+			</CollapsibleContent>
+		</Collapsible>
+	);
+}
+
+export function DelegatedResultView({
+	evidence,
+	tediName,
+}: {
+	evidence: Pick<HomeChildRunEvidence, "status" | "preview">;
+	tediName: string;
+}) {
+	const result = delegatedResult(evidence.status, evidence.preview, tediName);
+	if (result.kind === "working")
+		return (
+			<Text
+				as="p"
+				role="body"
+				tone="secondary"
+				className="flex items-center gap-2"
+			>
+				<Loader size={14} aria-hidden />
+				{result.message}
+			</Text>
+		);
+	if (result.kind === "empty")
+		return (
+			<Text role="body" tone="secondary">
+				{result.message}
+			</Text>
+		);
+	if (result.kind === "text") return <ChatMarkdown content={result.markdown} />;
+	return (
+		<div className="grid min-w-0 gap-3">
+			<Text role="body" tone="secondary">
+				{result.message}
+				{result.truncatedChars != null
+					? ` Only the first part of its ${result.truncatedChars.toLocaleString()} characters was kept.`
+					: ""}
+			</Text>
+			<Disclosure label="Show raw">
+				<CodeBlock
+					lang="json"
+					showCopyButton
+					code={sanitizeUntrustedText(result.raw)}
+					className="max-h-96 min-w-0 max-w-full overflow-auto [&_code]:!whitespace-pre-wrap [&_pre]:!whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
+				/>
+			</Disclosure>
+		</div>
+	);
+}
+
+function DelegationEvidence({
+	evidence,
+	tediName,
+}: {
+	evidence: HomeChildRunEvidence;
+	tediName: string;
+}) {
 	useOsFormattingPreferences();
 	const toolEvents = evidence.events.filter((event) =>
 		event.kind.startsWith("tool."),
@@ -113,21 +268,13 @@ function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>
-						<SectionTitle>Delegated result</SectionTitle>
+						<SectionTitle>{tediName}'s answer</SectionTitle>
 						<SectionDescription>
-							The child runtime's canonical result and control state.
+							What {tediName} sent back to Home.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
-				{evidence.preview ? (
-					<Text role="body" className="whitespace-pre-wrap">
-						{sanitizeUntrustedText(evidence.preview)}
-					</Text>
-				) : (
-					<Text role="body" tone="secondary">
-						No result preview was recorded.
-					</Text>
-				)}
+				<DelegatedResultView evidence={evidence} tediName={tediName} />
 			</PageSection>
 
 			<PageSection>
@@ -135,7 +282,7 @@ function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
 					<SectionHeading>
 						<SectionTitle>Tool activity</SectionTitle>
 						<SectionDescription>
-							Durable child-runtime tool events, in recorded order.
+							Tools {tediName} used, in order.
 						</SectionDescription>
 					</SectionHeading>
 					<Badge variant="secondary">{toolEvents.length}</Badge>
@@ -159,7 +306,7 @@ function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
 					</Collection>
 				) : (
 					<Text role="body" tone="secondary">
-						No tool events were recorded.
+						No tools used yet.
 					</Text>
 				)}
 			</PageSection>
@@ -169,7 +316,7 @@ function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
 					<SectionHeading>
 						<SectionTitle>Artifacts</SectionTitle>
 						<SectionDescription>
-							Artifacts attributed to this delegated run.
+							Files and outputs {tediName} saved.
 						</SectionDescription>
 					</SectionHeading>
 					<Badge variant="secondary">{evidence.artifacts.length}</Badge>
@@ -195,7 +342,7 @@ function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
 					</Collection>
 				) : (
 					<Text role="body" tone="secondary">
-						No durable artifacts were recorded.
+						No artifacts saved.
 					</Text>
 				)}
 			</PageSection>
@@ -207,6 +354,7 @@ export function HomeExecutionDetailView({
 	run,
 	trace,
 	branchId,
+	onSelectBranch,
 	evidence,
 	evidenceError,
 	tediNames = {},
@@ -217,6 +365,8 @@ export function HomeExecutionDetailView({
 	run: HomeRun;
 	trace: HomeRunTrace;
 	branchId?: string;
+	/** Select a delegation in place; without it, rows link to the chat URL. */
+	onSelectBranch?: (childRunId: string) => void;
 	evidence?: HomeChildRunEvidence;
 	evidenceError?: unknown;
 	tediNames?: Record<string, string>;
@@ -225,6 +375,7 @@ export function HomeExecutionDetailView({
 	eventsError?: unknown;
 }) {
 	useOsFormattingPreferences();
+	const now = useNow(isActiveRunStatus(run.status));
 	const selectedBranch = branchId
 		? trace.branches.find((branch) => branch.childRunId === branchId)
 		: undefined;
@@ -233,9 +384,18 @@ export function HomeExecutionDetailView({
 	const delegation = asRecord(metadata?.homeDelegation);
 	const workOrder = asRecord(delegation?.workOrder);
 	const proof = asRecord(metadata?.delegationProof);
+	const nameOfTedi = (tediId: string) => tediNames[tediId] ?? DIGITAL_WORKER;
+	const nameOfBranch = (childRunId: string) => {
+		const branch = trace.branches.find(
+			(candidate) => candidate.childRunId === childRunId,
+		);
+		return branch ? nameOfTedi(branch.delegatedTediId) : "The delegated tedi";
+	};
 	const selectedTedi = selectedBranch
-		? (tediNames[selectedBranch.delegatedTediId] ?? "Digital worker")
+		? nameOfTedi(selectedBranch.delegatedTediId)
 		: null;
+	const summary = traceSummary(trace, run.status, nameOfBranch);
+	const workItemId = safeText(metadata?.workItemId);
 
 	const toolNames = [
 		...new Set(
@@ -259,13 +419,11 @@ export function HomeExecutionDetailView({
 	];
 	const workers = [
 		...new Set(
-			trace.branches.map(
-				(branch) => tediNames[branch.delegatedTediId] ?? "Digital worker",
-			),
+			trace.branches.map((branch) => nameOfTedi(branch.delegatedTediId)),
 		),
 	];
 	if (!workers.length && run.delegatedTediId)
-		workers.push(tediNames[run.delegatedTediId] ?? "Digital worker");
+		workers.push(nameOfTedi(run.delegatedTediId));
 
 	return (
 		<Page width="lg" className={embedded ? "flex-none gap-6 pt-0" : undefined}>
@@ -331,43 +489,33 @@ export function HomeExecutionDetailView({
 					<dt className="text-kumo-subtle">Tedi</dt>
 					<dd>{workers.join(", ") || "Home"}</dd>
 					<dt className="text-kumo-subtle">Tools</dt>
-					<dd className="break-words">
+					<dd>
 						{toolNames.join(", ") ||
 							(trace.branches.some((branch) => branch.toolEventIds.length)
-								? "See delegated tool activity below"
+								? "See the delegation's tool activity"
 								: events
-									? "None in recorded events"
+									? "None used"
 									: "Not available yet")}
 					</dd>
 					<dt className="text-kumo-subtle">Time</dt>
-					<dd>
-						{trace.latency.parentElapsedMs != null
-							? formatDurationMs(trace.latency.parentElapsedMs)
-							: "Not recorded"}
-					</dd>
+					<dd>{runTime(run, trace, now)}</dd>
 					<dt className="text-kumo-subtle">Cost</dt>
 					<dd>
 						{run.usage?.costUsd != null
 							? `$${run.usage.costUsd.toFixed(4)} (Home only)`
-							: "Not recorded"}
+							: isActiveRunStatus(run.status)
+								? "Counted when it finishes"
+								: "Not recorded"}
 					</dd>
 				</dl>
 			</PageSection>
-			<Collapsible defaultOpen={Boolean(branchId)}>
-				<CollapsibleTrigger className="group/disclosure">
-					<CaretDown
-						size={14}
-						aria-hidden
-						className="transition-transform group-data-[panel-open]/disclosure:rotate-180"
-					/>
-					Execution and trace
-				</CollapsibleTrigger>
-				<CollapsibleContent className="space-y-6 pt-3">
+			<Disclosure label="How it ran" defaultOpen={Boolean(branchId)}>
+				<div className="space-y-6">
 					{branchId && !selectedBranch ? (
 						<Alert variant="warning">
 							<AlertTitle>Delegation not found</AlertTitle>
 							<AlertDescription>
-								This child run is not part of the addressed Home execution.
+								This delegation is not part of this response.
 							</AlertDescription>
 						</Alert>
 					) : null}
@@ -377,15 +525,14 @@ export function HomeExecutionDetailView({
 							<SectionHeading>
 								<SectionTitle>Execution</SectionTitle>
 								<SectionDescription>
-									Kernel routing, authority, and durable outcome.
+									How Home handled this request.
 								</SectionDescription>
 							</SectionHeading>
-							<Badge variant={statusVariant(trace.health.status)}>
-								{sentenceCase(trace.health.status)} trace
-							</Badge>
 						</SectionHeader>
 						<Collection aria-label="Execution summary">
-							<EvidenceRow title="Home run" detail={run.id} />
+							<EvidenceRow title="Home run">
+								<CopyableId value={run.id} />
+							</EvidenceRow>
 							{route ? (
 								<EvidenceRow
 									title={`Route: ${sentenceCase(safeText(route.routeKind) ?? "unknown")}`}
@@ -400,26 +547,28 @@ export function HomeExecutionDetailView({
 									detail={safeText(workOrder.outputContract)}
 								/>
 							) : null}
-							{safeText(metadata?.workItemId) ? (
-								<EvidenceRow
-									title="Work item"
-									detail={safeText(metadata?.workItemId)}
-								/>
+							{workItemId ? (
+								<EvidenceRow title="Work item">
+									<CopyableId value={workItemId} />
+								</EvidenceRow>
 							) : null}
-							<EvidenceRow
-								title={trace.complete ? "Trace complete" : "Trace has gaps"}
-								detail={
-									trace.gaps.length
-										? trace.gaps.map(sanitizeUntrustedText).join(" · ")
-										: `${trace.parentEventIds.length} parent events · ${trace.branches.length} delegated branch${trace.branches.length === 1 ? "" : "es"}`
-								}
-							/>
-							{trace.latency.parentElapsedMs != null ? (
-								<EvidenceRow
-									title="Elapsed time"
-									detail={formatDurationMs(trace.latency.parentElapsedMs)}
-								/>
-							) : null}
+							<EvidenceRow title={summary.title} tone={summary.tone}>
+								{summary.notes.length ? (
+									<ul className="grid gap-0.5">
+										{summary.notes.map((note) => (
+											<Text
+												key={note}
+												as="li"
+												role="label"
+												tone="secondary"
+												className="[overflow-wrap:anywhere]"
+											>
+												{note}
+											</Text>
+										))}
+									</ul>
+								) : null}
+							</EvidenceRow>
 							{proof && safeText(proof.verdict) ? (
 								<EvidenceRow
 									title={`Evidence: ${sentenceCase(safeText(proof.verdict)!)}`}
@@ -435,52 +584,77 @@ export function HomeExecutionDetailView({
 								<SectionHeading>
 									<SectionTitle>Delegations</SectionTitle>
 									<SectionDescription>
-										Select a branch to inspect its tool and artifact evidence.
+										Select one to see its answer, tools, and artifacts.
 									</SectionDescription>
 								</SectionHeading>
 							</SectionHeader>
 							<Collection aria-label="Delegated branches">
-								{trace.branches.map((branch) => (
-									<li
-										key={branch.childRunId}
-										className="flex min-w-0 items-center gap-3 px-3 py-2"
-									>
-										<TreeStructure size={18} className="shrink-0" />
-										<span className="flex min-w-0 flex-1 flex-col">
-											<Text as="strong" weight="medium">
-												{tediNames[branch.delegatedTediId] ?? "Digital worker"}
-											</Text>
-											<Text as="span" role="label" tone="secondary">
-												{branch.eventIds.length} events ·{" "}
-												{branch.artifactIds.length} artifacts
-												{branch.workItemId
-													? ` · work item ${branch.workItemId}`
-													: ""}
-											</Text>
-										</span>
-										<Badge variant={statusVariant(branch.status)}>
-											{sentenceCase(branch.status)}
-										</Badge>
-										<Link
-											to="/chat"
-											search={{
-												conversation: run.conversationId,
-												details: run.id,
-												branch: branch.childRunId,
-											}}
-											resetScroll={false}
-											className="inline-flex items-center gap-1 text-kumo-link text-sm"
+								{trace.branches.map((branch) => {
+									const selected = branch.childRunId === branchId;
+									const label = selected ? "Showing" : "Show details";
+									return (
+										<li
+											key={branch.childRunId}
+											className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2"
 										>
-											Inspect <ArrowSquareOut size={14} />
-										</Link>
-									</li>
-								))}
+											<TreeStructure size={18} className="shrink-0" />
+											<span className="flex min-w-0 flex-1 basis-40 flex-col">
+												<Text as="strong" weight="medium">
+													{nameOfTedi(branch.delegatedTediId)}
+												</Text>
+												<Text as="span" role="label" tone="secondary">
+													{branch.eventIds.length} step
+													{branch.eventIds.length === 1 ? "" : "s"} ·{" "}
+													{branch.artifactIds.length} artifact
+													{branch.artifactIds.length === 1 ? "" : "s"}
+												</Text>
+											</span>
+											<Badge variant={statusVariant(branch.status)}>
+												{sentenceCase(branch.status)}
+											</Badge>
+											{branch.workItemId ? (
+												<Link
+													to="/work/items/$workItemId"
+													params={{ workItemId: branch.workItemId }}
+													className="text-kumo-link text-sm"
+												>
+													Work item
+												</Link>
+											) : null}
+											{onSelectBranch ? (
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													aria-pressed={selected}
+													disabled={selected}
+													onClick={() => onSelectBranch(branch.childRunId)}
+												>
+													{label}
+												</Button>
+											) : (
+												<Link
+													to="/work/executions/$runId"
+													params={{ runId: run.id }}
+													search={{ branch: branch.childRunId }}
+													aria-current={selected ? "true" : undefined}
+													className="inline-flex items-center gap-1 text-kumo-link text-sm"
+												>
+													{label} <CaretRight size={12} aria-hidden />
+												</Link>
+											)}
+										</li>
+									);
+								})}
 							</Collection>
 						</PageSection>
 					) : null}
 
 					{selectedBranch && evidence ? (
-						<DelegationEvidence evidence={evidence} />
+						<DelegationEvidence
+							evidence={evidence}
+							tediName={selectedTedi ?? DIGITAL_WORKER}
+						/>
 					) : null}
 					{selectedBranch && evidenceError ? (
 						<DetailUnavailable
@@ -497,45 +671,31 @@ export function HomeExecutionDetailView({
 							<Skeleton className="h-32" />
 						</div>
 					) : null}
-				</CollapsibleContent>
-			</Collapsible>
-			<Collapsible>
-				<CollapsibleTrigger className="group/disclosure">
-					<CaretDown
-						size={14}
-						aria-hidden
-						className="transition-transform group-data-[panel-open]/disclosure:rotate-180"
-					/>
-					Events
-					{events
-						? ` (${events.length}${events.length === 100 ? "+" : ""})`
-						: ""}
-				</CollapsibleTrigger>
-				<CollapsibleContent>
-					{eventsError ? (
-						<DetailUnavailable
-							resource="Execution events"
-							error={eventsError}
+				</div>
+			</Disclosure>
+			<Disclosure
+				label={`Events${events ? ` (${events.length}${events.length === 100 ? "+" : ""})` : ""}`}
+			>
+				{eventsError ? (
+					<DetailUnavailable resource="Execution events" error={eventsError} />
+				) : !events ? (
+					<Skeleton className="h-20" />
+				) : null}
+				{events?.length === 100 ? (
+					<Text role="label" tone="secondary">
+						Showing the first 100 recorded events.
+					</Text>
+				) : null}
+				<Collection aria-label="Execution events">
+					{(events ?? []).map((event) => (
+						<EvidenceRow
+							key={event.id}
+							title={sentenceCase(event.kind.replaceAll(".", " "))}
+							detail={absoluteTime(event.createdAt)}
 						/>
-					) : !events ? (
-						<Skeleton className="h-20" />
-					) : null}
-					{events?.length === 100 ? (
-						<Text role="label" tone="secondary">
-							Showing the first 100 recorded events.
-						</Text>
-					) : null}
-					<Collection aria-label="Execution events">
-						{(events ?? []).map((event) => (
-							<EvidenceRow
-								key={event.id}
-								title={sentenceCase(event.kind.replaceAll(".", " "))}
-								detail={absoluteTime(event.createdAt)}
-							/>
-						))}
-					</Collection>
-				</CollapsibleContent>
-			</Collapsible>
+					))}
+				</Collection>
+			</Disclosure>
 		</Page>
 	);
 }
@@ -549,6 +709,10 @@ export function HomeExecutionDetailPage({
 	branchId?: string;
 	embedded?: boolean;
 }) {
+	// Branch ids are not always URL-safe UUIDs, so selection lives here; the URL
+	// only seeds it.
+	const [selectedBranchId, setSelectedBranchId] = useState(branchId);
+	useEffect(() => setSelectedBranchId(branchId), [branchId, runId]);
 	const runQuery = useQuery({
 		...homeRunQueryOptions(runId),
 		refetchInterval: (query) =>
@@ -576,9 +740,9 @@ export function HomeExecutionDetailPage({
 				: false,
 	});
 	const names = useTediNames();
-	const branch = branchId
+	const branch = selectedBranchId
 		? traceQuery.data?.trace.branches.find(
-				(candidate) => candidate.childRunId === branchId,
+				(candidate) => candidate.childRunId === selectedBranchId,
 			)
 		: undefined;
 	const evidenceQuery = useQuery({
@@ -587,6 +751,11 @@ export function HomeExecutionDetailPage({
 			branch?.childRunId ?? "",
 		),
 		enabled: Boolean(branch),
+		refetchInterval: (query) =>
+			query.state.data?.evidence &&
+			isActiveRunStatus(query.state.data.evidence.status)
+				? 5_000
+				: false,
 	});
 
 	const identity = embedded ? null : <HomeRunIdentity runId={runId} />;
@@ -645,7 +814,8 @@ export function HomeExecutionDetailPage({
 		<HomeExecutionDetailView
 			run={runQuery.data.run}
 			trace={traceQuery.data.trace}
-			branchId={branchId}
+			branchId={selectedBranchId}
+			onSelectBranch={setSelectedBranchId}
 			evidence={evidenceQuery.data?.evidence}
 			evidenceError={evidenceQuery.error}
 			tediNames={names}

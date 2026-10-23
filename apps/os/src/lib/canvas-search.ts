@@ -129,13 +129,28 @@ export type ChatSearch = {
 	branch?: string;
 };
 
+/**
+ * Kernel run and child-run ids are not always UUIDs (a delegated child run can
+ * be `<uuid>:mcp:<slug>`), so execution selections accept a bounded id
+ * alphabet instead; path separators and anything else stay out.
+ */
+const RUN_ID_SEARCH_PARAM = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,255}$/;
+
+function optionalRunIdSearchParam(value: unknown): string | undefined {
+	return typeof value === "string" &&
+		RUN_ID_SEARCH_PARAM.test(value) &&
+		!value.includes("..")
+		? value
+		: undefined;
+}
+
 /** Conversation and execution selections are bounded URL identifiers. */
 export function validateChatSearch(
 	search: Record<string, unknown>,
 ): ChatSearch {
 	const conversation = canvasConversationFromSearch(search.conversation);
-	const details = optionalUuidSearchParam(search.details);
-	const branch = details ? optionalUuidSearchParam(search.branch) : undefined;
+	const details = optionalRunIdSearchParam(search.details);
+	const branch = details ? optionalRunIdSearchParam(search.branch) : undefined;
 	return {
 		...(conversation ? { conversation } : {}),
 		...(details ? { details } : {}),

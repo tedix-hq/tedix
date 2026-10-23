@@ -36,6 +36,9 @@ vi.mock("@/lib/os-query-options", () => ({
 	},
 }));
 vi.mock("@/lib/use-tedi-names", () => ({ useTediNames: () => ({}) }));
+vi.mock("@tanstack/react-router", () => ({
+	Link: ({ children }: { children?: unknown }) => <a>{children as never}</a>,
+}));
 vi.mock("@/components/artifact-release-review", () => ({
 	ArtifactReleaseReview: () => null,
 }));
@@ -45,6 +48,7 @@ vi.mock("@/components/chat-cards", () => ({
 }));
 
 import {
+	DelegatedResultView,
 	HomeExecutionDetailPage,
 	HomeExecutionDetailView,
 } from "./home-execution-detail";
@@ -225,4 +229,115 @@ it("shows actual personal account reads once on the run", async () => {
 	const accounts = host.querySelector('[aria-label="Personal accounts used"]');
 	expect(accounts?.textContent).toBe(notice);
 	expect(host.textContent?.match(/Read your Gmail/g)).toHaveLength(1);
+});
+
+const CHILD_RUN = `e142d015-799c-465b-a564-d3795e8e9f75:mcp:cfo-memory-check-home-${RUN_ID}`;
+const runningRun = {
+	id: `cfo-memory-check-home-${RUN_ID}`,
+	conversationId: RUN_ID,
+	status: "running",
+	startedAt: new Date(Date.now() - 95_000).toISOString(),
+	createdAt: new Date(Date.now() - 95_000).toISOString(),
+	metadata: { workItemId: "a701383c-ca5b-4771-b9fc-845e39d65b03" },
+} as never;
+const runningTrace = {
+	complete: false,
+	gaps: [
+		"parent_not_terminal",
+		`child_not_terminal:${CHILD_RUN}`,
+		"request_acceptance_unverified",
+	],
+	parentEventIds: ["e1"],
+	latency: { parentElapsedMs: null },
+	health: { status: "healthy" },
+	branches: [
+		{
+			delegatedTediId: "cfo",
+			childRunId: CHILD_RUN,
+			workItemId: "a701383c-ca5b-4771-b9fc-845e39d65b03",
+			status: "running",
+			eventIds: Array.from({ length: 21 }, (_, i) => `e${i}`),
+			toolEventIds: [],
+			artifactIds: [],
+		},
+	],
+} as never;
+
+describe("Response details copy", () => {
+	it("shows plain-language trace notes and no raw codes for a running delegation", () => {
+		act(() =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<HomeExecutionDetailView
+						run={runningRun}
+						trace={runningTrace}
+						branchId={CHILD_RUN}
+						onSelectBranch={() => {}}
+						tediNames={{ cfo: "CFO" }}
+						evidence={
+							{
+								status: "running",
+								preview: 'Raw result: ```json\n{"__tedix_truncated":true}\n```',
+								events: [],
+								artifacts: [],
+								delegatedTediId: "cfo",
+							} as never
+						}
+						embedded
+						events={[]}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		const text = host.textContent ?? "";
+		expect(text).toContain("In progress");
+		expect(text).toContain("CFO's delegated run hasn't finished.");
+		expect(text).toContain("Result not yet checked against the request.");
+		expect(text).toContain("Running for 1m 35s");
+		expect(text).toContain("Still working…");
+		expect(text).toContain("Showing");
+		for (const raw of [
+			"parent_not_terminal",
+			"child_not_terminal",
+			"request_acceptance_unverified",
+			"__tedix_truncated",
+			"Trace has gaps",
+			"Not recorded",
+		])
+			expect(text).not.toContain(raw);
+		// The branch id is never printed; long ids appear only in copy fields.
+		expect(text).not.toContain(":mcp:");
+	});
+
+	it("renders a completed child's answer as formatted text", () => {
+		act(() =>
+			root.render(
+				<DelegatedResultView
+					evidence={{ status: "completed", preview: "Cash is **€12k**." }}
+					tediName="CFO"
+				/>,
+			),
+		);
+		expect(host.querySelector("strong")?.textContent).toBe("€12k");
+		expect(host.textContent).not.toContain("Show raw");
+	});
+
+	it("keeps structured output behind a collapsed Show raw disclosure", () => {
+		act(() =>
+			root.render(
+				<DelegatedResultView
+					evidence={{
+						status: "completed",
+						preview: 'Raw result: ```json\n[{"callable":"memory.search"}]\n```',
+					}}
+					tediName="CFO"
+				/>,
+			),
+		);
+		expect(host.textContent).toContain(
+			"CFO returned data instead of a written answer.",
+		);
+		expect(host.textContent).toContain("Show raw");
+		expect(host.textContent).not.toContain("memory.search");
+	});
 });

@@ -615,7 +615,11 @@ const CALLS: Record<string, unknown> = {
 	"kernelRuntime/readRunSet": { conversationId: IDS.conversationHome },
 	"kernelRuntime/listPendingHomeDelegations": {},
 	"kernelRuntime/readRun": { runId: IDS.homeRunDone },
-	"kernelRuntime/readRunTrace": { runId: IDS.homeRunDone },
+	"kernelRuntime/readRunTrace": { runId: IDS.homeRunDelegating },
+	"kernelRuntime/readChildRunEvidence": {
+		delegatedTediId: IDS.tediMiles,
+		childRunId: IDS.childRunDelegating,
+	},
 	"kernelRuntime/readRunEvents": { runId: IDS.homeRunDone, tail: 40 },
 	"kernelRuntime/respondApproval": {
 		runId: IDS.homeRunDone,

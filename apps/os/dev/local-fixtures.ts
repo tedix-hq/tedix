@@ -117,6 +117,18 @@ const BLUEPRINT_DRAFT = fid("50", 2);
 
 const CONVERSATION_HOME = fid("60", 1);
 const HOME_RUN_DONE = fid("62", 1);
+/**
+ * Home → Miles delegations for the Response details panel. Kernel ids are not
+ * always UUIDs; these mirror the live `<slug>-home-<uuid>` and
+ * `<uuid>:mcp:<slug>` shapes. Open with
+ * `/chat?conversation=<CONVERSATION_DELEGATION>&details=<run>&branch=<child>`.
+ */
+const CONVERSATION_DELEGATION = fid("60", 9);
+const HOME_RUN_DELEGATING = `revenue-check-home-${fid("62", 2)}`;
+const CHILD_RUN_DELEGATING = `${fid("63", 2)}:mcp:${HOME_RUN_DELEGATING}`;
+const HOME_RUN_DELEGATED = `revenue-check-home-${fid("62", 3)}`;
+const CHILD_RUN_DELEGATED = `${fid("63", 3)}:mcp:${HOME_RUN_DELEGATED}`;
+const DELEGATION_WORK_ITEM = fid("64", 1);
 
 const APP_STOREFRONT = fid("80", 1);
 const APP_SUPPORT = fid("80", 2);
@@ -967,6 +979,7 @@ const seedState = (): LocalState => ({
 		},
 	],
 	homeRuns: [
+		...delegationRuns(),
 		{
 			id: HOME_RUN_DONE,
 			organizationId: ORG_ID,
@@ -3775,6 +3788,42 @@ const findConversation = (
 	if (!conversation) throw new RpcError("NOT_FOUND", "Conversation not found");
 	return conversation;
 };
+
+/** Running and completed Home → Miles delegations (see HOME_RUN_DELEGATING). */
+function delegationRuns(): HomeRun[] {
+	return [
+		{
+			id: HOME_RUN_DELEGATING,
+			organizationId: ORG_ID,
+			conversationId: CONVERSATION_DELEGATION,
+			status: "running",
+			inputMessageId: fid("61", 9),
+			outputMessageId: null,
+			delegatedTediId: TEDI_MILES,
+			childRunId: CHILD_RUN_DELEGATING,
+			startedAt: new Date(Date.now() - 95_000).toISOString(),
+			completedAt: null,
+			createdAt: new Date(Date.now() - 95_000).toISOString(),
+			updatedAt: now(),
+			metadata: { workItemId: DELEGATION_WORK_ITEM },
+		},
+		{
+			id: HOME_RUN_DELEGATED,
+			organizationId: ORG_ID,
+			conversationId: CONVERSATION_DELEGATION,
+			status: "completed",
+			inputMessageId: fid("61", 10),
+			outputMessageId: null,
+			delegatedTediId: TEDI_MILES,
+			childRunId: CHILD_RUN_DELEGATED,
+			startedAt: T4,
+			completedAt: T5,
+			createdAt: T4,
+			updatedAt: T5,
+			metadata: { workItemId: DELEGATION_WORK_ITEM },
+		},
+	];
+}
 
 const findHomeRun = (runId: string): HomeRun => {
 	const run = state.homeRuns.find((row) => row.id === runId);
@@ -7788,6 +7837,41 @@ const handlers: Record<string, (input: never) => unknown> = {
 	}),
 	"kernelRuntime/readRunTrace": (input: { runId: string }) => {
 		const run = findHomeRun(input.runId);
+		const active = run.status === "queued" || run.status === "running";
+		const branches =
+			run.delegatedTediId && run.childRunId
+				? [
+						{
+							delegatedTediId: run.delegatedTediId,
+							childRunId: run.childRunId,
+							workItemId: DELEGATION_WORK_ITEM,
+							status: run.status,
+							observedRunIds: [run.childRunId],
+							eventIds: Array.from(
+								{ length: 21 },
+								(_, i) => `${run.childRunId}:${i}`,
+							),
+							auditEventIds: [],
+							toolEventIds: [`${run.childRunId}:3`],
+							workstationEventIds: [],
+							artifactIds: [],
+							finalMessageEventId: null,
+							terminalEventId: null,
+							latestEventAt: run.updatedAt ?? run.createdAt,
+							evidenceAvailable: true,
+							truncated: false,
+						},
+					]
+				: [];
+		const gaps = active
+			? [
+					"parent_not_terminal",
+					...branches.map(
+						(branch) => `child_not_terminal:${branch.childRunId}`,
+					),
+					"request_acceptance_unverified",
+				]
+			: [];
 		return {
 			trace: {
 				version: "home-run-trace.v1",
@@ -7798,7 +7882,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 				harnessVersionId: null,
 				status: run.status,
 				parentEventIds: [`${run.id}:0`, `${run.id}:1`],
-				branches: [],
+				branches,
 				wakeReceipts: [],
 				synthesis: [],
 				latency: {
@@ -7820,14 +7904,72 @@ const handlers: Record<string, (input: never) => unknown> = {
 					findings: [],
 					counts: { errors: 0, warnings: 0 },
 				},
-				complete: true,
-				gaps: [],
+				complete: gaps.length === 0,
+				gaps,
 				assembledAt: now(),
 				sources: ["kernel_runtime_events"],
 			},
 		};
 	},
 
+	"kernelRuntime/readChildRunEvidence": (input: {
+		delegatedTediId: string;
+		childRunId: string;
+	}) => {
+		const run = state.homeRuns.find(
+			(row) => row.childRunId === input.childRunId,
+		);
+		if (!run) throw new RpcError("NOT_FOUND", "Child run not found");
+		const active = run.status === "running";
+		const toolListing = JSON.stringify([
+			{
+				callable: "memory.search_memory_graph",
+				namespace: "memory",
+				description: "Search memory graph.",
+				annotations: { readOnlyHint: true },
+			},
+		]);
+		return {
+			evidence: {
+				organizationId: ORG_ID,
+				delegatedTediId: input.delegatedTediId,
+				childRunId: input.childRunId,
+				workItemId: DELEGATION_WORK_ITEM,
+				status: run.status,
+				stopReason: null,
+				// The live defect: a running child's preview is intermediate tool
+				// output wrapped in a truncation envelope.
+				preview: active
+					? `Raw result: \`\`\`json\n${JSON.stringify({
+							__tedix_truncated: true,
+							originalChars: 8211,
+							originalType: "array",
+							preview: toolListing,
+						})}\n\`\`\``
+					: "Week 32 revenue closed at **412,000 MXN**, up 6% week over week.\n\n- Subscriptions: 318,000 MXN\n- Services: 94,000 MXN\n\nNo memory entry contradicts these figures.",
+				events: [
+					{
+						id: `${input.childRunId}:3`,
+						organizationId: ORG_ID,
+						tediId: input.delegatedTediId,
+						runId: input.childRunId,
+						kind: "tool.completed",
+						payload: {
+							name: "memory.search_memory_graph",
+							result: { matches: 2 },
+						},
+						createdAt: run.startedAt ?? run.createdAt,
+					},
+				],
+				artifacts: [],
+				control: {
+					canStop: active,
+					reason: active ? "running" : "terminal",
+					state: active ? "stoppable" : "terminal",
+				},
+			},
+		};
+	},
 	"kernelRuntime/readRunSet": (input: { conversationId: string }) => {
 		const runs = state.homeRuns.filter(
 			(row) => row.conversationId === input.conversationId,
@@ -8045,6 +8187,7 @@ function installDemoPack(): number {
 		rationales: RATIONALES,
 		memoryHealth: MEMORY_HEALTH,
 	} as unknown as Parameters<typeof applyDemoPack>[0]);
+	state.homeRuns.push(...delegationRuns());
 	installWorkViewFixtures();
 	return builtAt;
 }
@@ -8066,6 +8209,8 @@ export const LOCAL_FIXTURE_IDS = {
 	blueprintDraft: BLUEPRINT_DRAFT,
 	conversationHome: CONVERSATION_HOME,
 	homeRunDone: HOME_RUN_DONE,
+	homeRunDelegating: HOME_RUN_DELEGATING,
+	childRunDelegating: CHILD_RUN_DELEGATING,
 	skillRunCompleted: RUN_REVENUE_OK,
 	skillRevenue: SKILL_REVENUE,
 	skillChurn: SKILL_CHURN,
