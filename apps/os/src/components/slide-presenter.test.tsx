@@ -23,7 +23,7 @@ const deck: OsPresentationDeck = {
 let cleanup: () => void;
 afterEach(() => cleanup?.());
 
-function mount(hasSelection = false) {
+function mount(hasSelection = false, closeOnExit = false) {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	const root = createRoot(container);
@@ -33,6 +33,8 @@ function mount(hasSelection = false) {
 	function Harness() {
 		const [slideId, setSlideId] = useState("s1");
 		const [selected, setSelected] = useState(hasSelection);
+		const [open, setOpen] = useState(true);
+		if (!open) return null;
 		return (
 			<SlidePresenter
 				deck={deck}
@@ -42,7 +44,10 @@ function mount(hasSelection = false) {
 					navigate(id);
 					setSlideId(id);
 				}}
-				onExit={exit}
+				onExit={() => {
+					exit();
+					if (closeOnExit) setOpen(false);
+				}}
 				onDeselect={() => {
 					deselect();
 					setSelected(false);
@@ -136,5 +141,27 @@ describe("SlidePresenter", () => {
 		key(document.body, "Escape");
 		expect(mounted.navigate).not.toHaveBeenCalled();
 		expect(mounted.exit).not.toHaveBeenCalled();
+	});
+
+	it("contains focus and returns it to its opener on exit", () => {
+		const opener = document.createElement("button");
+		document.body.appendChild(opener);
+		opener.focus();
+		const mounted = mount(false, true);
+		const dialog =
+			mounted.container.querySelector<HTMLElement>('[role="dialog"]')!;
+		const outside = document.createElement("button");
+		document.body.appendChild(outside);
+		outside.focus();
+		key(outside, "Tab");
+		expect(dialog.contains(document.activeElement)).toBe(true);
+		act(() =>
+			Array.from(dialog.querySelectorAll("button"))
+				.find((button) => button.textContent === "Exit")!
+				.click(),
+		);
+		expect(document.activeElement).toBe(opener);
+		outside.remove();
+		opener.remove();
 	});
 });
