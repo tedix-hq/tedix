@@ -8,7 +8,12 @@ import { getPersonalRequestConsent } from "@tedix/db/queries/personal-request-co
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { getSubmissionById } from "@tedix/db/queries/runtime-submissions/read-models";
 import { getToolByAppAndToolIdForOrganization } from "@tedix/db/queries/tools";
+import {
+	getAppByIdForOrganization,
+	getAppMetadataJson,
+} from "@tedix/db/queries/app-records";
 import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	fetchConnectionToken,
 	fetchConnectionTokenByScopes,
@@ -188,11 +193,37 @@ export async function resolveRequestPersonalCredential(
 	const toolId = context.headers.get("X-Tedix-Mcp-Tool-Id");
 	if (!toolId || !input.appId)
 		return deny("Personal request reads require an exact installed tool");
-	const tool = await getToolByAppAndToolIdForOrganization(context.db, {
+	let tool = await getToolByAppAndToolIdForOrganization(context.db, {
 		organizationId: input.organizationId,
 		appId: input.appId,
 		toolId,
 	});
+	if (!tool) {
+		const app = await getAppByIdForOrganization(
+			context.db,
+			input.appId,
+			input.organizationId,
+		);
+		const links = app && getAppMetadataJson(app)?.mcpConfig?.aggregateApps;
+		if (
+			app?.sourceAppId &&
+			Array.isArray(links) &&
+			links.some(
+				(link) =>
+					isRecord(link) &&
+					link.appId === app.sourceAppId &&
+					link.toolIds === undefined &&
+					link.endpointPrefixes === undefined,
+			)
+		) {
+			// Resolve only the existing proxy link, within the same organization.
+			tool = await getToolByAppAndToolIdForOrganization(context.db, {
+				organizationId: input.organizationId,
+				appId: app.sourceAppId,
+				toolId,
+			});
+		}
+	}
 	const scopes = tool?.enabled
 		? reviewedPersonalResourceReadScopes(
 				input.providerId,
