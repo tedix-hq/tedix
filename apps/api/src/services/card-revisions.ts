@@ -1,4 +1,5 @@
 import {
+	CARD_REVISION_STALL_MINUTES,
 	CardFeedbackAnchorSchema,
 	CardFeedbackFieldSchema,
 	type KeptCardHunk,
@@ -119,22 +120,29 @@ export async function readCardHistory(
 		change &&
 		(await cardChangeHasRevision(context.db, orgId, requestId, change.id));
 	const { readCardStyleRules } = await import("./card-style-rules");
+	const open =
+		change && !paired
+			? {
+					responseId: change.id,
+					instruction:
+						typeof change.metadata.instruction === "string"
+							? change.metadata.instruction
+							: change.body,
+					requestedAt: change.respondedAt,
+				}
+			: null;
+	// An owner that never applies the request must not lock the card for good.
+	const stalled =
+		open &&
+		Date.now() - Date.parse(open.requestedAt) >
+			CARD_REVISION_STALL_MINUTES * 60_000;
 	return {
 		revisions,
 		styleRules: await readCardStyleRules(context, access),
 		nextBeforeRevision:
 			revisions[0] && revisions[0].revision > 1 ? revisions[0].revision : null,
-		pending:
-			change && !paired
-				? {
-						responseId: change.id,
-						instruction:
-							typeof change.metadata.instruction === "string"
-								? change.metadata.instruction
-								: change.body,
-						requestedAt: change.respondedAt,
-					}
-				: null,
+		pending: stalled ? null : open,
+		stalled: stalled ? open : null,
 	};
 }
 

@@ -390,6 +390,12 @@ export function CardRevisionPanel({
 						Revising… Your feedback goes to the agent that owns this card.
 					</p>
 				)}
+				{!revising && history.data?.pages[0]?.stalled && (
+					<p role="status">
+						The agent that owns this card has not applied your last change
+						request. Decide on this version or ask again.
+					</p>
+				)}
 			</div>
 			{open && (
 				<div className="grid gap-2">
