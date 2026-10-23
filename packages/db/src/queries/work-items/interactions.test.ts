@@ -483,6 +483,45 @@ describe("question delegation", () => {
 });
 
 describe("obsolete Work interactions", () => {
+	it.each(["open", "resolved", "cancelled", "expired"])(
+		"keeps a reminder only while its original ask is open: %s",
+		async (status) => {
+			const f = sweepFixture();
+			f.sqlite
+				.prepare("UPDATE work_interactions SET status=? WHERE id='mine'")
+				.run(status);
+			f.sqlite
+				.prepare(`INSERT INTO work_interactions
+			(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,metadata,created_at,expires_at)
+			VALUES ('reminder','org','work','coordination','Needs you: Mine','Open original ask','system','tedix','tedi','cto',?,?,'2026-08-22T12:00:00.000Z')`)
+				.run(JSON.stringify({ laneNudge: { requestId: "mine" } }), NOW);
+			const inbox = await listWorkInteractionInbox(f.db, {
+				orgId: "org",
+				targetType: "tedi",
+				targetId: "cto",
+				states: ["open"],
+				observedAt: NOW,
+			});
+			expect(inbox.data.some((row) => row.request.id === "reminder")).toBe(
+				status === "open",
+			);
+			expect((await sweep(f)).expired).toBe(status === "open" ? 0 : 1);
+			expect(statusOf(f.sqlite, "reminder")).toBe(
+				status === "open" ? "open" : "expired",
+			);
+			const history = await listWorkInteractionInbox(f.db, {
+				orgId: "org",
+				targetType: "tedi",
+				targetId: "cto",
+				states: ["expired"],
+				observedAt: NOW,
+			});
+			expect(history.data.some((row) => row.request.id === "reminder")).toBe(
+				status !== "open",
+			);
+			f.sqlite.close();
+		},
+	);
 	function sweepFixture() {
 		const f = fixture();
 		f.sqlite.exec(
