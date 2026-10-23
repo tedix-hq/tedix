@@ -44,7 +44,10 @@ vi.mock("@/components/chat-cards", () => ({
 	RunStatusChip: () => null,
 }));
 
-import { HomeExecutionDetailPage } from "./home-execution-detail";
+import {
+	HomeExecutionDetailPage,
+	HomeExecutionDetailView,
+} from "./home-execution-detail";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -159,4 +162,67 @@ describe("Home execution read states", () => {
 		expect(host.textContent).toContain("Retry Home execution");
 		expect(host.textContent).toContain("Retry execution trace");
 	});
+});
+
+it("shows actual personal account reads once on the run", async () => {
+	const notice = "Read your Gmail (owner@example.test) for this request";
+	const props: Parameters<typeof HomeExecutionDetailView>[0] = {
+		embedded: true,
+		run: {
+			id: RUN_ID,
+			organizationId: "org",
+			createdAt: "2026-10-23T12:00:00Z",
+			status: "completed",
+			conversationId: "conversation",
+			metadata: {},
+		},
+		trace: {
+			version: "home-run-trace.v1",
+			organizationId: "org",
+			conversationId: "conversation",
+			homeRunId: RUN_ID,
+			traceBundleId: null,
+			harnessVersionId: null,
+			status: "completed",
+			branches: [],
+			wakeReceipts: [],
+			synthesis: [],
+			eventIds: { kernel: [], tedi: [], audit: [] },
+			artifactIds: [],
+			assembledAt: "2026-10-23T12:00:00Z",
+			sources: [],
+			health: {
+				status: "healthy",
+				findings: [],
+				counts: { errors: 0, warnings: 0 },
+			},
+			latency: {
+				parentElapsedMs: 100,
+				maxWakeQueueMs: null,
+				finalWakeToSynthesisMs: null,
+			},
+			complete: true,
+			gaps: [],
+			parentEventIds: [],
+		},
+		events: [
+			{
+				id: "use-1",
+				kind: "context.injected",
+				createdAt: "2026-10-23T12:00:00Z",
+				payload: { personalAccountRead: { notice } },
+			},
+			{
+				id: "use-2",
+				kind: "context.injected",
+				createdAt: "2026-10-23T12:00:01Z",
+				payload: { personalAccountRead: { notice } },
+			},
+		],
+	};
+	act(() => root.render(<HomeExecutionDetailView {...props} />));
+	await flush();
+	const accounts = host.querySelector('[aria-label="Personal accounts used"]');
+	expect(accounts?.textContent).toBe(notice);
+	expect(host.textContent?.match(/Read your Gmail/g)).toHaveLength(1);
 });

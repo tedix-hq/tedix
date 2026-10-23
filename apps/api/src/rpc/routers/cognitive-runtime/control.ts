@@ -1,3 +1,4 @@
+import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
@@ -73,7 +74,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		const createdAt = nowIso();
 		const conversationId = normalizeTediConversationId(input.conversationId);
 		const messageId = crypto.randomUUID();
-		const metadata = nonNullRecord(input.metadata) ?? {};
+		const metadata = { ...nonNullRecord(input.metadata) };
+		delete metadata.personalRequest;
 		// inbox-wake synthetic turns skip voice-transcription (content is already
 		// a plain system string) and the isolate preflight check (the DO delivers
 		// even when a health probe would stale-fail a cold isolate).
@@ -256,6 +258,15 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			);
 		}
 
+		const personalRequest = predictedRunId
+			? await admitPersonalRequest(context, {
+					organizationId: tedi.organizationId,
+					tediId: tedi.id,
+					runId: predictedRunId,
+					conversationId,
+					createdAt,
+				})
+			: false;
 		// Always use async-supervised inject so callers get a quick accept
 		// instead of being capped by the synchronous inject request lifetime.
 		try {
@@ -268,7 +279,10 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						}
 					: {}),
 				clientRequestId: input.idempotencyKey,
-				metadata,
+				metadata: {
+					...metadata,
+					...(personalRequest === true ? { personalRequest: true } : {}),
+				},
 				async: true,
 			}).then((injected) => ({
 				success: injected.success,

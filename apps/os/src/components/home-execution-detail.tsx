@@ -248,6 +248,15 @@ export function HomeExecutionDetailView({
 				}),
 		),
 	];
+	const personalReads = [
+		...new Set(
+			(events ?? []).flatMap((event) => {
+				const read = asRecord(asRecord(event.payload)?.personalAccountRead);
+				const notice = safeText(read?.notice);
+				return event.kind === "context.injected" && notice ? [notice] : [];
+			}),
+		),
+	];
 	const workers = [
 		...new Set(
 			trace.branches.map(
@@ -302,6 +311,15 @@ export function HomeExecutionDetailView({
 						</PageHeading>
 					</PageHeader>
 				</>
+			) : null}
+			{personalReads.length ? (
+				<PageSection aria-label="Personal accounts used">
+					{personalReads.map((notice) => (
+						<Text key={notice} role="body">
+							{notice}
+						</Text>
+					))}
+				</PageSection>
 			) : null}
 			<PageSection aria-label="Response summary">
 				<Text role="body" className="[overflow-wrap:anywhere]">
@@ -547,11 +565,16 @@ export function HomeExecutionDetailPage({
 				? 5_000
 				: false,
 	});
-	const eventsQuery = useQuery(
-		osQuery.kernelRuntime.readRunEvents.queryOptions({
+	const eventsQuery = useQuery({
+		...osQuery.kernelRuntime.readRunEvents.queryOptions({
 			input: { runId, limit: 100 },
 		}),
-	);
+		refetchInterval:
+			runQuery.data?.run.status &&
+			["queued", "running"].includes(runQuery.data.run.status)
+				? 5_000
+				: false,
+	});
 	const names = useTediNames();
 	const branch = branchId
 		? traceQuery.data?.trace.branches.find(

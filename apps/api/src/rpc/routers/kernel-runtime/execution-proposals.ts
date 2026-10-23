@@ -1,3 +1,4 @@
+import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
@@ -810,6 +811,12 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// patch).
 		const promptTokenBudget = metadata.promptTokenBudget;
 		const rankingBudgetMs = metadata.rankingBudgetMs;
+		await admitPersonalRequest(context, {
+			organizationId,
+			runId,
+			conversationId,
+			createdAt,
+		});
 		const runRowMetadata = {
 			source: "kernelRuntime.enqueueMessage",
 			...(kernelRequestId ? { kernelRequestId } : {}),

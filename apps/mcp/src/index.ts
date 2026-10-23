@@ -1748,6 +1748,15 @@ const worker = {
 					}
 					headers.set("x-tedix-auth-type", "tedi");
 					headers.set("x-tedix-auth-credential-mode", "delegated-mcp");
+					headers.set("x-tedix-auth-request-run-id", authResult.claims.runId);
+					headers.set(
+						"x-tedix-auth-request-root-run-id",
+						authResult.claims.homeRunId,
+					);
+					headers.set(
+						"x-tedix-auth-request-work-item-id",
+						authResult.claims.workItemId,
+					);
 					if (liveTedi.mcpEndpoints !== undefined)
 						headers.set(
 							"x-tedix-auth-mcp-endpoints",
