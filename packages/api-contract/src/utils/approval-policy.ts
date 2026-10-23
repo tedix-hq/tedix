@@ -382,7 +382,7 @@ export function decideAutonomousAction(input: {
  *                      interaction kind `coordination`) addressed to a person
  *                      stays open before the interaction sweep expires it.
  *                      Counted from creation or the last refresh
- *                      (`metadata.refreshedAt`). Default 24h; max 168h.
+ *                      (`metadata.refreshedAt`). Default 48h; max 168h.
  * writeTier          — the trusted-write auto-approve tier. A LOW-RISK write on
  *                      an explicitly trusted tool auto-resolves through the same
  *                      approval latch (resolvedBy:'policy') instead of parking
@@ -394,6 +394,8 @@ export interface KernelGovernancePolicy {
 	autonomy?: DelegationAutonomyPolicy;
 	approvalTtlHours?: number;
 	coordinationTtlHours?: number;
+	/** Unanswered questions, inputs and handoffs to a person. Default 7 days. */
+	requestTtlHours?: number;
 	maxDelegationsPerTurn?: number;
 	writeTier?: KernelWriteTierPolicy;
 	/**
@@ -434,9 +436,13 @@ const APPROVAL_TTL_MIN_HOURS = 1;
 const APPROVAL_TTL_MAX_HOURS = 168; // 1 week
 
 /** Bounds for `coordinationTtlHours`; the D1 interaction sweep applies the same. */
-export const COORDINATION_TTL_DEFAULT_HOURS = 24;
+export const COORDINATION_TTL_DEFAULT_HOURS = 48;
 export const COORDINATION_TTL_MIN_HOURS = 1;
 export const COORDINATION_TTL_MAX_HOURS = 168;
+
+export const REQUEST_TTL_DEFAULT_HOURS = 168;
+export const REQUEST_TTL_MIN_HOURS = 1;
+export const REQUEST_TTL_MAX_HOURS = 8760;
 
 const FAN_OUT_CAP_DEFAULT = 4;
 const FAN_OUT_CAP_MIN = 1;
@@ -494,6 +500,14 @@ export function parseKernelGovernancePolicy(
 			COORDINATION_TTL_MAX_HOURS,
 		);
 		if (ttl !== null) out.coordinationTtlHours = ttl;
+	}
+	if (record.requestTtlHours !== undefined) {
+		const ttl = clampIntOrNull(
+			record.requestTtlHours,
+			REQUEST_TTL_MIN_HOURS,
+			REQUEST_TTL_MAX_HOURS,
+		);
+		if (ttl !== null) out.requestTtlHours = ttl;
 	}
 	if (record.maxDelegationsPerTurn !== undefined) {
 		const cap = clampIntOrNull(

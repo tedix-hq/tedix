@@ -6,6 +6,7 @@ import {
 import {
 	CARD_SECRET_MESSAGE,
 	containsCardSecret,
+	credentialCard,
 } from "@tedix/api-contract/utils/card-secrets";
 import {
 	and,
@@ -41,7 +42,21 @@ import {
 	COORDINATION_TTL_DEFAULT_HOURS,
 	COORDINATION_TTL_MAX_HOURS,
 	COORDINATION_TTL_MIN_HOURS,
+	REQUEST_TTL_DEFAULT_HOURS,
+	REQUEST_TTL_MIN_HOURS,
+	REQUEST_TTL_MAX_HOURS,
+	humanReservedActionClasses,
 } from "@tedix/api-contract/utils/approval-policy";
+import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
+import { cardScheduleDates } from "@tedix/api-contract/utils/card-schedule";
+import {
+	DEFAULT_DECK_ROUTING,
+	DecisionEnvelopeSchema,
+	matchesDeckClass,
+} from "@tedix/api-contract/schemas/os-decision-deck";
+import { auditEvents } from "../../schema/audit-events";
+import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+import { organizations } from "../../schema/organizations";
 import { tedis } from "../../schema/tedis";
 
 export type WorkInteractionAttentionRow =
@@ -127,6 +142,47 @@ export async function createWorkInteraction(
 		p.caseId ? requireWorkCase(db, p.orgId, p.caseId) : Promise.resolve(),
 		p.projectId ? requireProject(db, p.orgId, p.projectId) : Promise.resolve(),
 	]);
+	// Reuse the existing create surface for recipient-authorized restore; source content wins.
+	const restore = p.metadata?.restoreExpiry;
+	if (restore !== undefined) {
+		if (
+			!restore ||
+			typeof restore !== "object" ||
+			Array.isArray(restore) ||
+			typeof restore.interactionId !== "string" ||
+			typeof restore.receiptId !== "string" ||
+			typeof restore.expectedVersion !== "number" ||
+			!Number.isInteger(restore.expectedVersion) ||
+			p.creator.type !== "user" ||
+			p.targetType !== "user" ||
+			p.targetId !== p.creator.id
+		)
+			throw new WorkControlError(
+				"NOT_ELIGIBLE",
+				"Restore requires the addressed person and an exact receipt and version",
+			);
+		const restored = await restoreExpiredWorkInteraction(db, {
+			orgId: p.orgId,
+			interactionId: restore.interactionId,
+			receiptId: restore.receiptId,
+			expectedVersion: restore.expectedVersion,
+			actor: p.creator,
+			now: p.now,
+			id: p.id,
+		});
+		const row =
+			restored &&
+			(await getWorkInteraction(db, {
+				orgId: p.orgId,
+				interactionId: restored.id,
+			}));
+		if (!row)
+			throw new WorkControlError(
+				"CONFLICT",
+				"This expiry was already restored or changed",
+			);
+		return row;
+	}
 	const machineUpdate =
 		p.targetType === "user" &&
 		p.kind === "coordination" &&
@@ -1055,19 +1111,28 @@ export async function sweepSupersededSupportDraftInteractions(
 
 /**
  * The organization's `governancePolicy.coordinationTtlHours` from its newest
- * active policy pack, else the published system default, else 24 h; clamped
+ * active policy pack, else the published system default, else 48 h; clamped
  * like `parseKernelGovernancePolicy`. Correlated on the outer interaction row.
  */
-function coordinationTtlHoursSql() {
-	const field = "$.governancePolicy.coordinationTtlHours";
+function interactionTtlHoursSql(request = false) {
+	const field = request
+		? "$.governancePolicy.requestTtlHours"
+		: "$.governancePolicy.coordinationTtlHours";
+	const min = request ? REQUEST_TTL_MIN_HOURS : COORDINATION_TTL_MIN_HOURS;
+	const max = request ? REQUEST_TTL_MAX_HOURS : COORDINATION_TTL_MAX_HOURS;
+	const fallback = request
+		? REQUEST_TTL_DEFAULT_HOURS
+		: COORDINATION_TTL_DEFAULT_HOURS;
 	const numeric = sql`CASE WHEN json_type(pp.definition, ${field}) IN ('integer','real') THEN json_extract(pp.definition, ${field}) END`;
-	return sql`min(${COORDINATION_TTL_MAX_HOURS}, max(${COORDINATION_TTL_MIN_HOURS}, round(coalesce(
+	return sql`min(${max}, max(${min}, round(coalesce(
 		(SELECT ${numeric} FROM ${policyPacks} pp WHERE pp.organization_id = ${workInteractions.orgId} AND pp.status = 'active' ORDER BY pp.version DESC LIMIT 1),
 		(SELECT ${numeric} FROM ${policyPacks} pp WHERE pp.organization_id IS NULL AND pp.scope = 'system' AND pp.slug = 'system-default' AND pp.status = 'active' AND pp.published_at IS NOT NULL ORDER BY pp.version DESC LIMIT 1),
-		${COORDINATION_TTL_DEFAULT_HOURS}))))`;
+		${fallback}))))`;
 }
 
 const OBSOLETE_REQUEST_REASONS = {
+	request_unanswered:
+		"Nobody answered within the organization's request window.",
 	original_request_closed: "Its original request is no longer open.",
 	expiry_passed: "Its expiry date passed.",
 	coordination_stale:
@@ -1089,93 +1154,236 @@ function staleLaneReminder(now: string) {
 	))`;
 }
 
+/** Effects and owner-only topics remain human decisions, including malformed declarations. */
+function protectedExpiryRequest(row: WorkInteraction) {
+	const m = row.metadata;
+	const text = `${row.subject}\n${row.prompt}`;
+	const d = DecisionEnvelopeSchema.safeParse(m.decisionDeck);
+	const classId = String(
+		(m.decisionDeck as Record<string, JsonValue> | undefined)?.classId ?? "",
+	);
+	return (
+		Boolean(m.protected) ||
+		m.schema === "tedix.outbound.v1" ||
+		m.approvalOperation !== undefined ||
+		Boolean(m.localImport) ||
+		["high", "critical"].includes(String(m.riskLevel)) ||
+		(m.protectedEffects !== undefined &&
+			(!Array.isArray(m.protectedEffects) || m.protectedEffects.length > 0)) ||
+		(m.decisionDeck !== undefined &&
+			(!d.success ||
+				d.data.protectedEffects.length > 0 ||
+				["approval", "outbound"].includes(d.data.kind))) ||
+		matchesDeckClass(classId, DEFAULT_DECK_ROUTING.criticalClasses) ||
+		DEFAULT_DECK_ROUTING.criticalQuestionPatterns.some((pattern) =>
+			new RegExp(pattern, "i").test(text),
+		) ||
+		humanReservedActionClasses(text).length > 0 ||
+		humanOnlyAskReasons(row.subject).length > 0 ||
+		credentialCard(text, m)
+	);
+}
+
+const EXPIRY_SCAN = "interaction-expiry:v1";
+const EXPIRY_RECEIPT = "interaction.expiry.run";
+
+/** Receipts are tenant scoped audit records (30-day retention); restore is bounded to seven days. */
+export async function listInteractionExpiryReceipts(
+	db: DbQueryClient,
+	orgId: string,
+	limit = 10,
+) {
+	return db
+		.select()
+		.from(auditEvents)
+		.where(
+			and(
+				eq(auditEvents.organizationId, orgId),
+				eq(auditEvents.action, EXPIRY_RECEIPT),
+			),
+		)
+		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
+		.limit(Math.min(100, Math.max(1, limit)));
+}
+
 /**
- * Retire obsolete requests without answering in the recipient's name:
- * - any request whose `expiresAt` passed;
- * - a status/FYI (`coordination`) request to a person that nobody refreshed
- *   (`metadata.notification.refreshedAt` or `metadata.refreshedAt`, else
- *   creation) within the organization's
- *   `coordinationTtlHours` (default 24 h);
- * - a question, input or handoff request whose Work is completed or cancelled;
- * - unanswered legacy proposals after fourteen days, and decision captures
- *   whose triage never succeeded.
- * For Work-parented requests the reason and cause are recorded as a system
- * note on the Work. The request's metadata stays untouched: the deployed
- * `work_interaction_*_guard` triggers reject a status change that also edits
- * metadata.
+ * Round-robin organizations and keyset pages within each organization. All lifecycle
+ * writes, exact-id receipts and cursor advances commit in one D1 batch. The global
+ * checkpoint CAS fences overlapping fires; every statement also checks that fence.
+ * `limit` budgets ALL row writes, including receipts, notes and checkpoints.
+ * Each organization's first visit is dry-run; only a later fire may enforce.
  */
 export async function sweepObsoleteWorkInteractions(
 	db: DbQueryClient,
-	p: { now: string; limit: number },
+	p: { now: string; limit: number; dryRun?: boolean },
 ) {
-	const proposalCutoff = new Date(
-		Date.parse(p.now) - 14 * 86_400_000,
-	).toISOString();
+	const budget = Math.min(100, Math.max(0, Math.floor(p.limit)));
+	const empty = {
+		observed: 0,
+		expired: 0,
+		candidates: 0,
+		writes: 0,
+		dryRun: 0,
+	};
+	if (!Number.isFinite(budget) || budget < 3) return empty;
+	const [previous] = await db
+		.select()
+		.from(platformCronCheckpoints)
+		.where(eq(platformCronCheckpoints.scheduleId, EXPIRY_SCAN))
+		.limit(1);
+	if (previous && previous.through >= p.now) return empty;
+	const runId = crypto.randomUUID();
+	const gate = sql`EXISTS (SELECT 1 FROM ${platformCronCheckpoints} WHERE ${platformCronCheckpoints.scheduleId}=${EXPIRY_SCAN} AND ${platformCronCheckpoints.through}=${p.now} AND json_extract(${platformCronCheckpoints.cursor}, '$.tediId')=${runId})`;
+	const orgs = await db
+		.select({ id: organizations.id })
+		.from(organizations)
+		.where(
+			exists(
+				db
+					.select({ id: workInteractions.id })
+					.from(workInteractions)
+					.where(
+						and(
+							eq(workInteractions.orgId, organizations.id),
+							eq(workInteractions.status, "open"),
+						),
+					),
+			),
+		)
+		.orderBy(
+			sql`CASE WHEN ${organizations.id}>${previous?.cursor?.key ?? ""} THEN 0 ELSE 1 END`,
+			asc(organizations.id),
+		)
+		.limit(10);
+	if (!orgs.length) return empty;
+	const statements = [];
+	let writes = 1,
+		observed = 0,
+		candidates = 0,
+		dryRuns = 0;
+	let lastOrg = previous?.cursor?.key ?? "";
+	const fences: string[] = [];
+	const unanswered = sql`NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})`;
 	const passedExpiry = sql`(${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now})`;
-	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(coalesce(json_extract(${workInteractions.metadata},'$.notification.refreshedAt'), json_extract(${workInteractions.metadata},'$.refreshedAt'), ${workInteractions.createdAt})) <= julianday(${p.now}) - ${coordinationTtlHoursSql()} / 24.0)`;
-	const terminalWork = sql`(${workInteractions.kind} IN ('question','input','handoff') AND EXISTS (
-			SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId} AND ${workItems.disposition} IN ('completed','cancelled')
-		))`;
+	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(coalesce(json_extract(${workInteractions.metadata},'$.notification.refreshedAt'), json_extract(${workInteractions.metadata},'$.refreshedAt'), ${workInteractions.createdAt})) <= julianday(${p.now}) - ${interactionTtlHoursSql()} / 24.0)`;
+	const staleAsk = sql`(${workInteractions.kind} IN ('question','input','handoff') AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(${workInteractions.createdAt}) <= julianday(${p.now}) - ${interactionTtlHoursSql(true)} / 24.0)`;
+	const terminalWork = sql`(${workInteractions.kind} IN ('question','input','handoff') AND EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId} AND ${workItems.disposition} IN ('completed','cancelled')))`;
 	const triageUnavailable = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.decision-capture.v1' AND json_extract(${workInteractions.metadata},'$.triage.status') IS NOT 'ok')`;
-	const obsolete = sql`(
-		${staleLaneReminder(p.now)} OR
-		${passedExpiry} OR
-		${staleCoordination} OR
-		(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND ${workInteractions.createdAt}<=${proposalCutoff} AND NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})) OR
-		${terminalWork} OR
-		${triageUnavailable}
-	)`;
-	const rows = await db
-		.select({
-			...getColumns(workInteractions),
-			cause: sql<ObsoleteRequestCause>`CASE
-				WHEN ${staleLaneReminder(p.now)} THEN 'original_request_closed'
-				WHEN ${passedExpiry} THEN 'expiry_passed'
-				WHEN ${triageUnavailable} THEN 'triage_unavailable'
-				WHEN ${terminalWork} THEN 'work_closed'
-				WHEN ${staleCoordination} THEN 'coordination_stale'
-				ELSE 'proposal_unanswered' END`.as("obsolete_cause"),
-		})
-		.from(workInteractions)
-		.where(and(eq(workInteractions.status, "open"), obsolete))
-		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
-		.limit(p.limit);
-	let expired = 0;
-	for (const row of rows) {
-		const fence = crypto.randomUUID();
-		const reason = OBSOLETE_REQUEST_REASONS[row.cause];
-		const update = db
-			.update(workInteractions)
-			.set({
-				status: "expired",
-				expiredAt: p.now,
-				resolutionFence: fence,
-				version: sql`${workInteractions.version}+1`,
+	const legacyProposal = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND julianday(${workInteractions.createdAt})<=julianday(${p.now})-14)`;
+	const obsolete = sql`(${staleLaneReminder(p.now)} OR ${passedExpiry} OR ${staleCoordination} OR ${staleAsk} OR ${terminalWork} OR ${triageUnavailable} OR ${legacyProposal})`;
+	for (const org of orgs) {
+		if (writes + 2 > budget) break;
+		const checkpointId = `${EXPIRY_SCAN}:${org.id}`;
+		const [cursor] = await db
+			.select()
+			.from(platformCronCheckpoints)
+			.where(eq(platformCronCheckpoints.scheduleId, checkpointId))
+			.limit(1);
+		const dryRun = p.dryRun !== false && (!cursor || p.dryRun === true);
+		// Do not rotate past an organization without enough budget to serve it.
+		if (!dryRun && writes + 4 > budget) break;
+		const rows = await db
+			.select({
+				...getColumns(workInteractions),
+				cause: sql<ObsoleteRequestCause>`CASE
+                    WHEN ${staleLaneReminder(p.now)} THEN 'original_request_closed'
+                    WHEN ${passedExpiry} THEN 'expiry_passed'
+                    WHEN ${triageUnavailable} THEN 'triage_unavailable'
+                    WHEN ${terminalWork} THEN 'work_closed'
+                    WHEN ${staleCoordination} THEN 'coordination_stale'
+                    WHEN ${staleAsk} THEN 'request_unanswered'
+                    ELSE 'proposal_unanswered' END`.as("obsolete_cause"),
 			})
+			.from(workInteractions)
 			.where(
 				and(
-					eq(workInteractions.orgId, row.orgId),
-					eq(workInteractions.id, row.id),
-					eq(workInteractions.version, row.version),
+					eq(workInteractions.orgId, org.id),
 					eq(workInteractions.status, "open"),
+					unanswered,
 					obsolete,
 				),
 			)
-			.returning({ id: workInteractions.id });
-		const body = `Closed obsolete request: ${row.subject}. ${reason}`;
-		const note =
-			row.workItemId && row.metadata.schema !== "tedix.decision-capture.v1"
-				? db.insert(workItemComments).select(
+			.orderBy(
+				sql`CASE WHEN (${workInteractions.createdAt},${workInteractions.id})>(${cursor?.cursor?.changedAt ?? ""},${cursor?.cursor?.key ?? ""}) THEN 0 ELSE 1 END`,
+				asc(workInteractions.createdAt),
+				asc(workInteractions.id),
+			)
+			.limit(100);
+		const fence = `${runId}:${org.id}`;
+		fences.push(fence);
+		const ids: string[] = [];
+		let last = cursor?.cursor ?? null;
+		writes += 2;
+		for (const row of rows) {
+			const note =
+				row.workItemId && row.metadata.schema !== "tedix.decision-capture.v1";
+			const cost = 1 + (note ? 1 : 0);
+			if (!dryRun && writes + cost > budget) break;
+			observed++;
+			last = { changedAt: row.createdAt, key: row.id, tediId: "" };
+			if (
+				protectedExpiryRequest(row) ||
+				row.dueAt !== null ||
+				Object.entries(row.metadata).some(
+					([key, value]) =>
+						value != null &&
+						["due", "dueat", "duedate", "deadline"].includes(
+							key.replace(/[\s_-]/g, "").toLowerCase(),
+						),
+				) ||
+				cardScheduleDates(row).some(
+					(date) => Date.parse(date) > Date.parse(p.now),
+				) ||
+				(typeof (
+					row.metadata.followThrough as Record<string, JsonValue> | undefined
+				)?.snoozedUntil === "string" &&
+					String(
+						(row.metadata.followThrough as Record<string, JsonValue>)
+							.snoozedUntil,
+					) > p.now)
+			)
+				continue;
+			ids.push(row.id);
+			candidates++;
+			if (dryRun) continue;
+			writes += cost;
+			statements.push(
+				db
+					.update(workInteractions)
+					.set({
+						status: "expired",
+						expiredAt: p.now,
+						resolutionFence: fence,
+						version: sql`${workInteractions.version}+1`,
+					})
+					.where(
+						and(
+							gate,
+							eq(workInteractions.orgId, row.orgId),
+							eq(workInteractions.id, row.id),
+							eq(workInteractions.version, row.version),
+							eq(workInteractions.status, "open"),
+							unanswered,
+							sql`json(${workInteractions.metadata})=json(${JSON.stringify(row.metadata)})`,
+							obsolete,
+						),
+					),
+			);
+			if (note)
+				statements.push(
+					db.insert(workItemComments).select(
 						db
 							.select({
 								id: sql<string>`${crypto.randomUUID()}`.as("id"),
 								workItemId: sql<string>`${row.workItemId}`.as("workItemId"),
-								orgId: sql<string>`${row.orgId}`.as("orgId"),
+								orgId: sql<string>`${org.id}`.as("orgId"),
 								authorType: sql<string>`'system'`.as("authorType"),
 								authorId: sql<string>`'tedix'`.as("authorId"),
-								body: sql<string>`${body}`.as("body"),
+								body: sql<string>`${`Closed obsolete request: ${row.subject}. ${OBSOLETE_REQUEST_REASONS[row.cause]}`}`.as(
+									"body",
+								),
 								metadata:
-									sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id, cause: row.cause })}`.as(
+									sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id, cause: row.cause, runId })}`.as(
 										"metadata",
 									),
 								createdAt: sql<string>`${p.now}`.as("createdAt"),
@@ -1183,19 +1391,230 @@ export async function sweepObsoleteWorkInteractions(
 							.from(workInteractions)
 							.where(
 								and(
-									eq(workInteractions.orgId, row.orgId),
+									gate,
+									eq(workInteractions.orgId, org.id),
 									eq(workInteractions.id, row.id),
 									eq(workInteractions.resolutionFence, fence),
 								),
 							),
-					)
-				: null;
-		const [closed] = note
-			? await db.batch([update, note])
-			: await db.batch([update]);
-		expired += closed.length;
+					),
+				);
+		}
+		if (dryRun) dryRuns++;
+		const metadata = {
+			runId,
+			mode: dryRun ? "dry_run" : "enforce",
+			candidateIds: ids,
+			fence,
+			at: p.now,
+		};
+		statements.push(
+			db.insert(auditEvents).select(
+				db
+					.select({
+						id: sql<string>`${fence}`.as("id"),
+						organizationId: sql<string>`${org.id}`.as("organizationId"),
+						actorId: sql<string>`'interaction-expiry'`.as("actorId"),
+						actorType: sql<string>`'service'`.as("actorType"),
+						action: sql<string>`${EXPIRY_RECEIPT}`.as("action"),
+						resourceType: sql<string>`'work_interaction'`.as("resourceType"),
+						resourceId: sql<string>`${runId}`.as("resourceId"),
+						metadata:
+							sql<string>`json_set(${JSON.stringify(metadata)},'$.expiredIds',json((SELECT json_group_array(id) FROM work_interactions WHERE org_id=${org.id} AND resolution_fence=${fence} AND status='expired')))`.as(
+								"metadata",
+							),
+						timestamp: sql<number>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
+							"timestamp",
+						),
+					})
+					.from(platformCronCheckpoints)
+					.where(
+						and(eq(platformCronCheckpoints.scheduleId, EXPIRY_SCAN), gate),
+					),
+			),
+		);
+		statements.push(
+			db
+				.insert(platformCronCheckpoints)
+				.select(
+					db
+						.select({
+							scheduleId: sql<string>`${checkpointId}`.as("scheduleId"),
+							through: sql<string>`${p.now}`.as("through"),
+							cursor: sql<
+								string | null
+							>`${dryRun ? null : JSON.stringify(last)}`.as("cursor"),
+						})
+						.from(platformCronCheckpoints)
+						.where(
+							and(eq(platformCronCheckpoints.scheduleId, EXPIRY_SCAN), gate),
+						),
+				)
+				.onConflictDoUpdate({
+					target: platformCronCheckpoints.scheduleId,
+					set: { through: p.now, cursor: dryRun ? null : last },
+					setWhere: gate,
+				}),
+		);
+		lastOrg = org.id;
 	}
-	return { observed: rows.length, expired };
+	const claim = db
+		.insert(platformCronCheckpoints)
+		.values({
+			scheduleId: EXPIRY_SCAN,
+			through: p.now,
+			cursor: { changedAt: p.now, key: lastOrg, tediId: runId },
+		})
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: {
+				through: p.now,
+				cursor: { changedAt: p.now, key: lastOrg, tediId: runId },
+			},
+			setWhere: previous
+				? eq(platformCronCheckpoints.through, previous.through)
+				: sql`0`,
+		})
+		.returning({ id: platformCronCheckpoints.scheduleId });
+	const [claimed] = await db.batch([claim, ...statements]);
+	if (!claimed.length) return empty;
+	const receipts = await db
+		.select({ metadata: auditEvents.metadata })
+		.from(auditEvents)
+		// bound-params: at most one fence for each of the ten selected organizations.
+		.where(inArray(auditEvents.id, fences));
+	return {
+		observed,
+		candidates,
+		expired: receipts.reduce(
+			(n, r) =>
+				n +
+				(Array.isArray(r.metadata?.expiredIds)
+					? r.metadata.expiredIds.length
+					: 0),
+			0,
+		),
+		writes,
+		dryRun: dryRuns,
+	};
+}
+
+/** Restore one receipted expiry as a new request; terminal history is immutable. */
+export async function restoreExpiredWorkInteraction(
+	db: DbQueryClient,
+	p: {
+		id?: string;
+		orgId: string;
+		interactionId: string;
+		receiptId: string;
+		expectedVersion: number;
+		actor: InteractionActor;
+		now: string;
+	},
+) {
+	await validateActor(db, p.orgId, p.actor);
+	if (p.actor.type !== "user")
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Only the addressed person can restore an expired request",
+		);
+	const [receipt] = await db
+		.select()
+		.from(auditEvents)
+		.where(
+			and(
+				eq(auditEvents.id, p.receiptId),
+				eq(auditEvents.organizationId, p.orgId),
+				eq(auditEvents.action, EXPIRY_RECEIPT),
+			),
+		)
+		.limit(1);
+	const ids = receipt?.metadata?.expiredIds;
+	if (
+		!receipt ||
+		!Array.isArray(ids) ||
+		!ids.includes(p.interactionId) ||
+		Date.parse(p.now) - receipt.timestamp.getTime() > 7 * 86400000 ||
+		Date.parse(p.now) < receipt.timestamp.getTime()
+	)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Restore requires a matching expiry receipt no older than seven days",
+		);
+	const row = await getWorkInteraction(db, {
+		orgId: p.orgId,
+		interactionId: p.interactionId,
+	});
+	if (
+		!row ||
+		row.targetType !== "user" ||
+		row.targetId !== p.actor.id ||
+		row.status !== "expired" ||
+		row.version !== p.expectedVersion ||
+		row.resolutionFence !== receipt.metadata?.fence
+	)
+		throw new WorkControlError(
+			"CONFLICT",
+			"Expired request changed or belongs to another recipient",
+		);
+	const work = row.workItemId
+		? await requireWorkItem(db, p.orgId, row.workItemId)
+		: null;
+	if (work && ["completed", "cancelled"].includes(work.disposition))
+		throw new WorkControlError("NOT_ELIGIBLE", "Restore requires active Work");
+	const metadata: Record<string, JsonValue> = {
+		...row.metadata,
+		restoredFrom: { id: row.id, receiptId: p.receiptId },
+		refreshedAt: p.now,
+	};
+	// A restored FYI gets a fresh window rather than inheriting its old refresh clock.
+	if (
+		metadata.notification &&
+		typeof metadata.notification === "object" &&
+		!Array.isArray(metadata.notification)
+	)
+		metadata.notification = { ...metadata.notification, refreshedAt: p.now };
+	const id = p.id ?? crypto.randomUUID();
+	const [restored] = await db
+		.insert(workInteractions)
+		.select(
+			db
+				.select({
+					orgId: workInteractions.orgId,
+					workItemId: workInteractions.workItemId,
+					caseId: workInteractions.caseId,
+					projectId: workInteractions.projectId,
+					kind: workInteractions.kind,
+					subject: workInteractions.subject,
+					prompt: workInteractions.prompt,
+					creatorType: sql<string>`'user'`.as("creatorType"),
+					creatorId: sql<string>`${p.actor.id}`.as("creatorId"),
+					targetType: workInteractions.targetType,
+					targetId: workInteractions.targetId,
+					dueAt: workInteractions.dueAt,
+					createdAt: sql<string>`${p.now}`.as("createdAt"),
+					metadata: sql<string>`${JSON.stringify(metadata)}`.as("metadata"),
+					id: sql<string>`${id}`.as("id"),
+					status: sql<string>`'open'`.as("status"),
+					version: sql<number>`1`.as("version"),
+				})
+				.from(workInteractions)
+				.where(
+					and(
+						eq(workInteractions.orgId, p.orgId),
+						eq(workInteractions.id, p.interactionId),
+						eq(workInteractions.version, p.expectedVersion),
+						eq(workInteractions.status, "expired"),
+						eq(workInteractions.resolutionFence, row.resolutionFence!),
+						sql`NOT EXISTS (SELECT 1 FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.interactionId})`,
+						sql`NOT EXISTS (SELECT 1 FROM work_interactions successor WHERE successor.org_id=${p.orgId} AND json_extract(successor.metadata,'$.restoredFrom.id')=${p.interactionId} AND json_extract(successor.metadata,'$.restoredFrom.receiptId')=${p.receiptId})`,
+						sql`NOT EXISTS (SELECT 1 FROM work_items source WHERE source.org_id=${p.orgId} AND source.id=${row.workItemId} AND source.disposition IN ('completed','cancelled'))`,
+					),
+				),
+		)
+		.onConflictDoNothing()
+		.returning({ id: workInteractions.id });
+	return restored ?? null;
 }
 
 export async function getWorkInteraction(
