@@ -21,7 +21,8 @@ export function slugify(title: string): string {
 		.replace(/\s+/g, "-")
 		.replace(/-+/g, "-")
 		.replace(/^-|-$/g, "")
-		.slice(0, 64);
+		.slice(0, 64)
+		.replace(/-$/, "");
 }
 
 // ============================================================================
