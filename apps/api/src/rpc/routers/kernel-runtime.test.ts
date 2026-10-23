@@ -2339,6 +2339,87 @@ describe("kernel runtime router", () => {
 		});
 	});
 
+	it("reads a delegated child's events when the child run id is passed as runId", async () => {
+		const db = createKernelRuntimeDb();
+		const childRunId = "tedi-cto:mcp:home-child-alias-1_approved_tedi-cto";
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "home-child-alias-1",
+				organizationId: ORG_ID,
+				conversationId: "home:child-alias",
+				status: "running",
+				delegatedTediId: "tedi-cto",
+				childRunId,
+			}),
+		);
+		db.runtimeEvents.push(
+			childRuntimeEvent({
+				createdAt: "2026-10-23T14:51:02.000Z",
+				id: "child-alias-context",
+				kind: "context.injected",
+				runId: childRunId,
+				tediId: "tedi-cto",
+			}),
+		);
+
+		const client = createKernelRuntimeClient(createContext(db));
+		const result = await client.readRunEvents({ runId: childRunId });
+
+		expect(result.events.map((event) => event.id)).toEqual([
+			"child-alias-context",
+		]);
+		expect(result.stream.streamId).toBe(
+			`home:home-child-alias-1:child:${childRunId}`,
+		);
+	});
+
+	it("fails a Home run whose delegated child went silent past its deadline", async () => {
+		const db = createKernelRuntimeDb();
+		const childRunId = "tedi-cfo:mcp:home-child-stall-1_approved_tedi-cfo";
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "home-child-stall-1",
+				organizationId: ORG_ID,
+				conversationId: "home:child-stall",
+				status: "running",
+				delegatedTediId: "tedi-cfo",
+				childRunId,
+				startedAt: "2026-01-05T14:50:52.000Z",
+				createdAt: "2026-01-05T14:50:47.000Z",
+				updatedAt: "2026-01-05T14:57:09.000Z",
+				metadata: {
+					delegationWorkOrder: {
+						budget: { maxToolCalls: 12, deadlineMs: 600_000 },
+					},
+				},
+			}),
+		);
+		db.runtimeEvents.push(
+			childRuntimeEvent({
+				createdAt: "2026-01-05T14:50:52.000Z",
+				id: "child-stall-started",
+				kind: "run.started",
+				runId: childRunId,
+				tediId: "tedi-cfo",
+			}),
+			childRuntimeEvent({
+				createdAt: "2026-01-05T14:57:09.000Z",
+				id: "child-stall-context",
+				kind: "context.injected",
+				runId: childRunId,
+				tediId: "tedi-cfo",
+			}),
+		);
+
+		const client = createKernelRuntimeClient(createContext(db));
+		const { run } = await client.readRun({ runId: "home-child-stall-1" });
+
+		expect(run.status).toBe("failed");
+		expect(run.metadata?.childRunPreview).toContain(
+			"The tedi stopped responding and did not finish within its 10-minute limit.",
+		);
+	});
+
 	it("attempts settlement repair for an admitted terminal parent with no receipt", async () => {
 		const db = createKernelRuntimeDb();
 		db.runs.push(
