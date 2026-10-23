@@ -31,7 +31,7 @@ const unavailable = (error: string, retryAfter?: string) =>
 		},
 	);
 
-function harness(responses: Response[]) {
+function harness(responses: Response[], now = Date.now) {
 	const sent: RequestInit[] = [];
 	const waits: number[] = [];
 	const fetchFn = async (_input: unknown, init?: RequestInit) => {
@@ -44,6 +44,7 @@ function harness(responses: Response[]) {
 			waits.push(ms);
 		},
 		random: () => 0.5,
+		now,
 		cooldown: null,
 	});
 	return { wrapped, sent, waits };
@@ -71,6 +72,18 @@ describe("retryRateLimitedPosts", () => {
 		expect(response.status).toBe(429);
 		expect(sent).toHaveLength(3);
 		expect(waits).toEqual([2_250, 2_250]);
+	});
+
+	test("resends after a future HTTP-date Retry-After", async () => {
+		const { wrapped, sent, waits } = harness(
+			[limited(new Date(1_005_000).toUTCString())],
+			() => 1_000_000,
+		);
+		expect((await wrapped("https://gateway.example/mcp", post)).status).toBe(
+			200,
+		);
+		expect(sent).toHaveLength(2);
+		expect(waits).toEqual([5_625]);
 	});
 
 	test("does not resend without a usable Retry-After", async () => {

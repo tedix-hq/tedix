@@ -57,11 +57,22 @@ async function isPreDispatchUnavailable(response: Response) {
 	);
 }
 
-function retryAfterSeconds(response: Response): number | undefined {
+function retryAfterSeconds(
+	response: Response,
+	now = Date.now,
+): number | undefined {
 	const raw = response.headers.get("retry-after")?.trim();
-	if (!raw || !/^\d{1,4}$/.test(raw)) return undefined;
-	const seconds = Number(raw);
-	return seconds <= MAX_RETRY_AFTER_SECONDS ? seconds : undefined;
+	if (!raw) return undefined;
+	if (/^\d{1,4}$/.test(raw)) {
+		const seconds = Number(raw);
+		return seconds <= MAX_RETRY_AFTER_SECONDS ? seconds : undefined;
+	}
+	const date = Date.parse(raw);
+	if (!Number.isFinite(date)) return undefined;
+	const seconds = Math.ceil((date - now()) / 1000);
+	return seconds > 0 && seconds <= MAX_RETRY_AFTER_SECONDS
+		? seconds
+		: undefined;
 }
 
 /**
@@ -105,7 +116,7 @@ export function retryRateLimitedPosts(
 		let response = await send();
 		for (let retry = 0; ; retry++) {
 			if (resendable && (await isPreDispatchUnavailable(response))) {
-				const seconds = retryAfterSeconds(response);
+				const seconds = retryAfterSeconds(response, now);
 				if (seconds === undefined || retry >= MAX_RETRIES) break;
 				await response.body?.cancel().catch(() => {});
 				await wait(Math.max(1, seconds) * 1_000, 1);
@@ -121,7 +132,7 @@ export function retryRateLimitedPosts(
 						? Date.parse(raw)
 						: NaN;
 			if (Number.isFinite(until) && until > now()) cooldown?.extend(url, until);
-			const seconds = retryAfterSeconds(response);
+			const seconds = retryAfterSeconds(response, now);
 			if (seconds === undefined) break;
 			const baseMs = Math.max(1, seconds) * 1_000;
 			if (!resendable || retry >= MAX_RETRIES) break;
