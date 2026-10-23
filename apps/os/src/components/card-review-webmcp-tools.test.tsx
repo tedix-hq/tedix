@@ -378,7 +378,7 @@ describe("Card review WebMCP tools", () => {
 		await mount();
 		await call("card_review_filter", { channel: "x" });
 		expect(shownWho()).toBe("Jonas Feld");
-		expect(shownProgress()).toBe("1 of 1 left");
+		expect(shownProgress()).toBe("1 waiting · 0 decided · 1 total");
 		expect(
 			host?.querySelector('[aria-pressed="true"]')?.textContent?.trim(),
 		).toBe("X");
@@ -387,7 +387,7 @@ describe("Card review WebMCP tools", () => {
 		expect(unknown.isError).toBe(true);
 
 		await call("card_review_filter", { channel: "all" });
-		expect(shownProgress()).toBe("3 of 3 left");
+		expect(shownProgress()).toBe("3 waiting · 0 decided · 3 total");
 	});
 
 	it("writes a verdict with reasons into the row and undoes it", async () => {
@@ -414,7 +414,7 @@ describe("Card review WebMCP tools", () => {
 			}),
 		);
 		expect(shownWho()).toBe("Jonas Feld");
-		expect(shownProgress()).toBe("2 of 3 left");
+		expect(shownProgress()).toBe("2 waiting · 1 decided · 3 total");
 
 		await call("card_review_undo");
 		expect(osApi.learningFeedback.correct).toHaveBeenCalledWith(
@@ -422,7 +422,7 @@ describe("Card review WebMCP tools", () => {
 		);
 		expect(sheets.get(CARDS_ID)!.rows[0]!.slice(6)).toEqual([null, null, null]);
 		expect(shownWho()).toBe("Mira Okafor");
-		expect(shownProgress()).toBe("3 of 3 left");
+		expect(shownProgress()).toBe("3 waiting · 0 decided · 3 total");
 		expect((await call("card_review_undo")).isError).toBe(true);
 	});
 
@@ -522,7 +522,7 @@ describe("Card review WebMCP tools", () => {
 
 		await call("card_review_snooze", { cardKey: (await nextCard()).cardKey });
 		expect(shownWho()).toBe("Jonas Feld");
-		expect(shownProgress()).toBe("2 of 3 left");
+		expect(shownProgress()).toBe("2 waiting · 0 decided · 3 total");
 		await call("card_review_undo");
 		expect(shownWho()).toBe("Mira Okafor");
 		expect(api.outputs.setSheetRange).not.toHaveBeenCalled();
