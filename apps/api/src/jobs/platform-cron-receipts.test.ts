@@ -100,10 +100,56 @@ describe("platform cron path receipts", () => {
 		expect(JSON.parse(row.error)).toEqual({
 			type: "Error",
 			cause: { type: "TypeError" },
+			causeChain: [{}],
 		});
 		expect(row.error).not.toContain(secret);
 	});
 
+	it("records HTTP status without retaining the response body", async () => {
+		const { env, event, sqlite } = fixture();
+		const failure = new Error(
+			"Tedi wake failed with HTTP 503: private-response",
+		);
+		await expect(
+			runPlatformCronPath(env, event, "commitment-wakes", async () => {
+				throw failure;
+			}),
+		).rejects.toBe(failure);
+		const row = sqlite
+			.prepare("SELECT error FROM platform_cron_executions")
+			.get()!;
+		expect(JSON.parse(String(row.error))).toMatchObject({ httpStatus: "503" });
+		expect(String(row.error)).not.toContain("private-response");
+	});
+	it("records the timeout cause and logs it even if the finish receipt fails", async () => {
+		const { env, event, sqlite } = fixture();
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		const failure = new AggregateError(
+			[new Error("Commitment wake delivery timed out")],
+			"Commitment wake delivery failed",
+			{ cause: new Error("Commitment wake delivery timed out") },
+		);
+		try {
+			await expect(
+				runPlatformCronPath(env, event, "commitment-wakes", async () => {
+					throw failure;
+				}),
+			).rejects.toBe(failure);
+			const row = sqlite
+				.prepare("SELECT error FROM platform_cron_executions")
+				.get()!;
+			expect(String(row.error)).toContain("timed out");
+			sqlite.exec("DROP TABLE platform_cron_executions");
+			await expect(
+				runPlatformCronPath(env, event, "commitment-wakes", async () => {
+					throw failure;
+				}),
+			).rejects.toBe(failure);
+			expect(JSON.stringify(log.mock.calls)).toContain("timed out");
+		} finally {
+			log.mockRestore();
+		}
+	});
 	it("keeps the path running when the start receipt fails and logs only topology", async () => {
 		const secret = "Bearer receipt-token";
 		const failure = new Error(`D1 failed: ${secret}`);
@@ -133,6 +179,12 @@ describe("platform cron path receipts", () => {
 					scheduleId: "provider-sync",
 					exception: { type: "UnknownThrown", cause: { type: "Error" } },
 				},
+				expect.objectContaining({
+					event: "platform.cron.path_failed",
+					scheduleId: "provider-sync",
+					executionId: expect.any(String),
+					type: "Error",
+				}),
 				{
 					event: "platform.cron.receipt_finish_failed",
 					scheduleId: "provider-sync",

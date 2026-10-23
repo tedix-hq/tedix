@@ -9,9 +9,13 @@ import {
 	advanceCommitmentWakeCheckpoint,
 	advanceCommitmentWakeCursor,
 	getCommitmentWakeCursor,
+	retainCommitmentWakePage,
+	listCommitmentWakeRetryPages,
+	removeCommitmentWakeRetryPage,
 	lastCommitmentWakeCheckpoint,
 	listCommitmentChanges,
 	type CommitmentChange,
+	type CommitmentWakeCursor,
 } from "@tedix/db/queries/work-items/commitment-changes";
 
 const WINDOW_MS = 120_000;
@@ -19,7 +23,8 @@ const DEBOUNCE_MS = 30_000;
 const MAX_REPLAY_WINDOWS = 10;
 const MAX_WAKE_AGE_MS = 15 * 60_000;
 export const MAX_COMMITMENT_CHANGES_PER_RUN = 25;
-const RUN_BUDGET_MS = 20_000;
+const RUN_BUDGET_MS = 40_000;
+const DELIVERY_TIMEOUT_MS = 15_000;
 const OPERATION_TIMEOUT_MS = 5_000;
 
 export function commitmentWakeWindows(
@@ -62,8 +67,11 @@ export async function dispatchCommitmentWakes(
 ): Promise<Record<string, number>> {
 	const db = createDbClient(env.DB);
 	const deadline = Date.now() + RUN_BUDGET_MS;
+	const deliveryDeadline = deadline - OPERATION_TIMEOUT_MS;
 	async function bounded<T>(
 		operation: (signal: AbortSignal) => Promise<T>,
+		timeoutMs = OPERATION_TIMEOUT_MS,
+		until = deadline,
 	): Promise<T> {
 		const controller = new AbortController();
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -73,10 +81,10 @@ export async function dispatchCommitmentWakes(
 				new Promise<never>((_, reject) => {
 					timer = setTimeout(
 						() => {
-							controller.abort();
 							reject(new Error("Commitment wake timed out"));
+							controller.abort();
 						},
-						Math.max(1, Math.min(OPERATION_TIMEOUT_MS, deadline - Date.now())),
+						Math.max(1, Math.min(timeoutMs, until - Date.now())),
 					);
 				}),
 			]);
@@ -111,22 +119,47 @@ export async function dispatchCommitmentWakes(
 	// Preserve the initial boundary even if the very first acceptance fails.
 	if (windows[0])
 		await bounded(() => advanceCommitmentWakeCheckpoint(db, windows[0]!.after));
-	for (const window of windows) {
-		if (Date.now() >= deadline || observed >= MAX_COMMITMENT_CHANGES_PER_RUN) {
+	// Fresh work runs first so a poison retry cannot consume every run's budget.
+	const retryPages = await bounded(() => listCommitmentWakeRetryPages(db));
+	const pages: Array<{
+		after: string;
+		through: string;
+		retryId?: string;
+		retryCursor?: CommitmentWakeCursor | null;
+	}> = [
+		...windows,
+		...retryPages.map((page) => ({
+			after: new Date(Date.parse(page.through) - WINDOW_MS).toISOString(),
+			through: page.through,
+			retryId: page.scheduleId,
+			retryCursor: page.cursor,
+		})),
+	];
+	const failures: unknown[] = [];
+	for (const window of pages) {
+		if (
+			Date.now() >= deliveryDeadline ||
+			observed >= MAX_COMMITMENT_CHANGES_PER_RUN
+		) {
 			budgetExhausted = 1;
 			break;
 		}
 		// Historical notifications start model turns even when the prompt says to stop quietly.
 		if (Date.parse(window.through) < oldestWakeMs) {
-			await bounded(() => advanceCommitmentWakeCheckpoint(db, window.through));
+			if (window.retryId)
+				await bounded(() => removeCommitmentWakeRetryPage(db, window.retryId!));
+			else
+				await bounded(() =>
+					advanceCommitmentWakeCheckpoint(db, window.through),
+				);
 			windowsSkippedMaxAge++;
 			windowsProcessed++;
-			checkpointMs = Date.parse(window.through);
+			if (!window.retryId) checkpointMs = Date.parse(window.through);
 			continue;
 		}
-		const cursor = await bounded(() =>
-			getCommitmentWakeCursor(db, window.after),
-		);
+		const cursor = window.retryId
+			? (window.retryCursor ?? null)
+			: await bounded(() => getCommitmentWakeCursor(db, window.after));
 		// Page membership must stay fixed across retries, even after earlier windows finish.
 		const limit = MAX_COMMITMENT_CHANGES_PER_RUN;
 		const changes = await bounded(() =>
@@ -147,13 +180,13 @@ export async function dispatchCommitmentWakes(
 			batch.push(change);
 			batches.set(key, batch);
 		}
-		const failures: unknown[] = [];
+		const failuresBeforePage = failures.length;
 		let pageDelivered = true;
-		for (const batch of batches.values()) {
-			if (Date.now() >= deadline) {
+		const deliverBatch = async (batch: CommitmentChange[]) => {
+			if (Date.now() >= deliveryDeadline) {
 				pageDelivered = false;
 				budgetExhausted = 1;
-				break;
+				return;
 			}
 			const first = batch[0]!;
 			// Partial windows need distinct, repeatable ingress keys for each page.
@@ -171,24 +204,27 @@ export async function dispatchCommitmentWakes(
 						),
 					);
 				const deliver = () =>
-					bounded((signal) =>
-						deliverTediContextWake(db, {
-							orgId: first.orgId,
-							tediId: first.tediId,
-							request: buildCommitmentWakeRequest(
-								batch,
-								deliveryBoundary,
-								env.ENVIRONMENT,
-							),
-							send: (request) =>
-								env.TEDI_SERVICE.fetch(new Request(request, { signal })),
-						}),
+					bounded(
+						(signal) =>
+							deliverTediContextWake(db, {
+								orgId: first.orgId,
+								tediId: first.tediId,
+								request: buildCommitmentWakeRequest(
+									batch,
+									deliveryBoundary,
+									env.ENVIRONMENT,
+								),
+								send: (request) =>
+									env.TEDI_SERVICE.fetch(new Request(request, { signal })),
+							}),
+						DELIVERY_TIMEOUT_MS,
+						deliveryDeadline,
 					);
 				let receipt;
 				try {
 					receipt = await deliver();
 				} catch (error) {
-					if (Date.now() >= deadline) throw error;
+					if (Date.now() >= deliveryDeadline) throw error;
 					retried++;
 					receipt = await deliver();
 				}
@@ -198,14 +234,20 @@ export async function dispatchCommitmentWakes(
 				failed++;
 				failures.push(error);
 			}
+		};
+		const pendingBatches = batches.values();
+		await Promise.all(
+			Array.from({ length: Math.min(4, batches.size) }, async () => {
+				for (const batch of pendingBatches) await deliverBatch(batch);
+			}),
+		);
+		if (failures.length > failuresBeforePage || !pageDelivered)
+			await bounded(() => retainCommitmentWakePage(db, window.through, cursor));
+		if (window.retryId) {
+			if (pageDelivered && failures.length === failuresBeforePage)
+				await bounded(() => removeCommitmentWakeRetryPage(db, window.retryId!));
+			continue;
 		}
-		if (failures.length)
-			throw new PlatformCronPathError(
-				failures,
-				"Commitment wake delivery failed",
-				counts(),
-			);
-		if (!pageDelivered) break;
 		if (changes.length === limit) {
 			const last = changes.at(-1)!;
 			await bounded(() =>
@@ -222,5 +264,11 @@ export async function dispatchCommitmentWakes(
 		windowsProcessed++;
 		checkpointMs = Date.parse(window.through);
 	}
+	if (failures.length)
+		throw new PlatformCronPathError(
+			failures,
+			"Commitment wake delivery failed",
+			counts(),
+		);
 	return counts();
 }

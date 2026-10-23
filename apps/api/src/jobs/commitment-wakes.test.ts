@@ -35,6 +35,7 @@ import {
 	advanceCommitmentWakeCheckpoint,
 	advanceCommitmentWakeCursor,
 	getCommitmentWakeCursor,
+	listCommitmentWakeRetryPages,
 	listCommitmentChanges,
 	lastCommitmentWakeCheckpoint,
 } from "@tedix/db/queries/work-items/commitment-changes";
@@ -281,9 +282,7 @@ describe("commitment wakes", () => {
 			else
 				await expect(result).rejects.toThrow("Commitment wake delivery failed");
 			expect(fetch).toHaveBeenCalledTimes(2);
-			expect(await lastCommitmentWakeCheckpoint(db)).toBe(
-				recover ? through : after,
-			);
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
 			const receipt = sqlite
 				.prepare(
 					"SELECT status,affected_row_counts AS counts FROM platform_cron_executions",
@@ -474,7 +473,7 @@ describe("commitment wakes", () => {
 			"2026-10-17T12:58:00.000Z",
 		);
 	});
-	it("pins a fresh scheduler boundary when its first wake fails", async () => {
+	it("retains a failed first page separately from the advancing scan", async () => {
 		const { sqlite, db, binding } = fixture();
 		sqlite.exec(
 			`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('first','org-1','work-1','work.accepted','user','owner','${changedAt}')`,
@@ -489,7 +488,7 @@ describe("commitment wakes", () => {
 		await expect(
 			dispatchCommitmentWakes(env, Date.parse(through) + 30_000),
 		).rejects.toThrow();
-		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
 	});
 	it("retains accepted windows on later failure and retries with the same delivery key", async () => {
 		const { sqlite, db, binding } = fixture();
@@ -514,7 +513,9 @@ describe("commitment wakes", () => {
 		} as unknown as CloudflareEnv;
 		const now = Date.parse("2026-10-16T12:06:30.000Z");
 		await expect(dispatchCommitmentWakes(env, now)).rejects.toThrow();
-		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-16T12:06:00.000Z",
+		);
 		await dispatchCommitmentWakes(env, now);
 		expect(keys[1]).toBe(keys[2]);
 		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
@@ -643,7 +644,7 @@ describe("commitment wakes", () => {
 			),
 		).rejects.toThrow();
 		expect(fetch).toHaveBeenCalledTimes(2);
-		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
 	});
 
 	it("suppresses self writes, completed Work, unchanged records and foreign tenants", async () => {
@@ -905,6 +906,80 @@ describe("bounded commitment pages", () => {
 		expect(await getCommitmentWakeCursor(db, through)).toBeNull();
 		sqlite.close();
 	});
+	it("allows durable wake admission to take longer than five seconds", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(
+			`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('slow','org-1','work-1','work.accepted','user','owner','${changedAt}')`,
+		);
+		vi.useFakeTimers();
+		try {
+			const fetch = vi.fn(
+				() =>
+					new Promise<Response>((resolve) =>
+						setTimeout(
+							() =>
+								resolve(
+									Response.json({ accepted: true, run_id: "slow-accepted" }),
+								),
+							6_000,
+						),
+					),
+			);
+			const result = dispatchCommitmentWakes(
+				{
+					DB: binding,
+					ENVIRONMENT: "test",
+					TEDI_SERVICE: { fetch },
+				} as unknown as CloudflareEnv,
+				Date.parse(through) + 30_000,
+			);
+			const assertion = expect(result).resolves.toMatchObject({
+				dispatched: 1,
+				failed: 0,
+				retried: 0,
+			});
+			await vi.advanceTimersByTimeAsync(12_000);
+			await assertion;
+			expect(fetch).toHaveBeenCalledOnce();
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("delivers another recipient while a poison wake is still pending", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(`INSERT INTO work_items(id,org_id,title,created_at,disposition,accountable_owner_type,accountable_owner_id) VALUES ('work-2','org-2','Other','${after}','accepted','tedi','worker-2');
+		INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('a','org-1','work-1','work.accepted','user','owner','${changedAt}'),('b','org-2','work-2','work.accepted','user','owner','${changedAt}');`);
+		vi.useFakeTimers();
+		try {
+			const fetch = vi.fn(async (request: Request) =>
+				request.headers.get("X-Tedix-Host")?.startsWith("orion.")
+					? new Promise<Response>(() => {})
+					: Response.json({ accepted: true, run_id: "healthy" }),
+			);
+			const result = dispatchCommitmentWakes(
+				{
+					DB: binding,
+					ENVIRONMENT: "test",
+					TEDI_SERVICE: { fetch },
+				} as unknown as CloudflareEnv,
+				Date.parse(through) + 30_000,
+			);
+			const assertion = expect(result).rejects.toMatchObject({
+				counts: expect.objectContaining({ dispatched: 1, failed: 1 }),
+			});
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(fetch).toHaveBeenCalledTimes(2);
+			await vi.advanceTimersByTimeAsync(29_000);
+			await assertion;
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+			expect(await listCommitmentWakeRetryPages(db)).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it("times out an unresponsive wake and preserves replay progress", async () => {
 		const { sqlite, db, binding } = fixture();
 		await advanceCommitmentWakeCheckpoint(db, after);
@@ -925,13 +1000,13 @@ describe("bounded commitment pages", () => {
 			const rejected = expect(result).rejects.toThrow(
 				"Commitment wake delivery failed",
 			);
-			await vi.advanceTimersByTimeAsync(10_000);
+			await vi.advanceTimersByTimeAsync(30_000);
 			await rejected;
 			expect(fetch).toHaveBeenCalledTimes(2);
 			expect(
 				(fetch.mock.calls[0] as unknown as [Request])[0].signal.aborted,
 			).toBe(true);
-			expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -1022,7 +1097,34 @@ describe("bounded commitment pages", () => {
 			),
 		).rejects.toThrow();
 		expect(fetch).toHaveBeenCalledTimes(3);
-		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		expect(await listCommitmentWakeRetryPages(db)).toHaveLength(1);
+		await db.insert(tediRuntimeEvents).values({
+			id: "successful-recipient",
+			organizationId: "org-2",
+			tediId: "worker-2",
+			kind: "run.started",
+			runId: buildRuntimeRunId({
+				tediId: "worker-2",
+				surface: "mcp",
+				turnKey: `commitments:org-2:worker-2:${through}`,
+			}),
+			runtimeBackend: "cloudflare-agents",
+			createdAt: changedAt,
+		});
+		fetch.mockImplementation(async () =>
+			Response.json({ run_id: "recovered", accepted: true }),
+		);
+		await dispatchCommitmentWakes(
+			{
+				DB: binding,
+				ENVIRONMENT: "test",
+				TEDI_SERVICE: { fetch },
+			} as unknown as CloudflareEnv,
+			Date.parse(through) + 30_000,
+		);
+		expect(await listCommitmentWakeRetryPages(db)).toHaveLength(0);
+		expect(fetch).toHaveBeenCalledTimes(4);
 	});
 });
 

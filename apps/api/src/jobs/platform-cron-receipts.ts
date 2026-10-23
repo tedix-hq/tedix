@@ -1,4 +1,7 @@
-import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import {
+	safeExceptionTopology,
+	safeErrorClassification,
+} from "../lib/safe-log-metadata";
 
 const MAX_COUNT_KEYS = 32;
 
@@ -79,6 +82,24 @@ export async function runPlatformCronPath(
 		});
 	} catch (error) {
 		const finishedMs = Date.now();
+		const diagnostic = {
+			...safeExceptionTopology(error),
+			...safeErrorClassification(error),
+			...(error instanceof AggregateError && {
+				failures: error.errors.slice(0, 8).map((failure: unknown) => ({
+					...safeExceptionTopology(failure),
+					...safeErrorClassification(failure),
+				})),
+			}),
+		};
+		console.error(
+			JSON.stringify({
+				event: "platform.cron.path_failed",
+				scheduleId,
+				executionId: id,
+				...diagnostic,
+			}),
+		);
 		try {
 			await recordPlatformCronExecutionFinish(db, {
 				...base,
@@ -88,7 +109,7 @@ export async function runPlatformCronPath(
 				affectedRowCounts: boundedAffectedRows(
 					error instanceof PlatformCronPathError ? error.counts : undefined,
 				),
-				error: JSON.stringify(safeExceptionTopology(error)),
+				error: JSON.stringify(diagnostic),
 			});
 		} catch (receiptFinishError) {
 			console.error(
