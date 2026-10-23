@@ -1,4 +1,8 @@
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import {
+	tediEmailThreads,
+	tediEmailMessages,
+} from "@tedix/db/schema/tedi-email";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import { projects } from "@tedix/db/schema/projects";
 import { externalAgentSessions } from "@tedix/db/schema/external-agent-identity";
@@ -168,6 +172,133 @@ async function createTargetedInteraction(
 }
 
 describe("Work interaction canonical actor projections", () => {
+	it("keeps pagination complete when a page contains only withheld legacy cards", async () => {
+		const { sqlite, owner, target } = fixture();
+		const stale = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Delete the paused copy?",
+			prompt: "No credit reply has arrived.",
+			reason: "Deletion requires its owner.",
+			requestedFrom: { type: "user", id: "target-id" },
+		});
+		const current = await createTargetedInteraction(owner);
+		sqlite
+			.prepare("UPDATE work_interactions SET created_at=? WHERE id=?")
+			.run("2026-01-02T00:00:00.000Z", stale.id);
+		sqlite
+			.prepare("UPDATE work_interactions SET created_at=? WHERE id=?")
+			.run("2026-01-01T00:00:00.000Z", current.id);
+		const first = await target.listInbox({ states: ["open"], limit: 1 });
+		expect(first.data).toEqual([]);
+		expect(first.hasMore).toBe(true);
+		expect(first.nextCursor).not.toBeNull();
+		const next = await target.listInbox({
+			states: ["open"],
+			limit: 1,
+			cursor: first.nextCursor!,
+		});
+		expect(next.data.map((row) => row.request.id)).toEqual([current.id]);
+	});
+
+	it("withholds a stale deletion card and refuses Yes after a credit reply arrives", async () => {
+		const { sqlite, owner, target } = fixture();
+		sqlite.exec(schemaDdl(tediEmailThreads, tediEmailMessages));
+		const tediId = "00000000-0000-4000-8000-000000000003";
+		const before = "2026-10-21T17:16:00.000Z";
+		sqlite
+			.prepare(
+				"INSERT INTO tedi_email_threads (id,organization_id,tedi_id,subject_norm,last_message_at,updated_at) VALUES (?,?,?,?,?,?)",
+			)
+			.run("credit-thread", ORG_ID, tediId, "credit request", before, before);
+		const request = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Delete the paused database copy?",
+			prompt: "No reply to the credit request. Delete the paused copy?",
+			reason: "Deletion needs the owner.",
+			requestedFrom: { type: "user", id: "target-id" },
+			metadata: {
+				decisionSources: [
+					{
+						kind: "email_thread",
+						id: "credit-thread",
+						tediId,
+						updatedAt: before,
+						lastMessageAt: before,
+						messageCount: 0,
+					},
+				],
+			},
+		});
+		expect(
+			(await target.listInbox({ states: ["open"] })).data.map(
+				(row) => row.request.id,
+			),
+		).toContain(request.id);
+		// The vendor approves credits after the card is displayed; the resource can stay running.
+		sqlite
+			.prepare(
+				"UPDATE tedi_email_threads SET last_message_at=?,updated_at=? WHERE id=?",
+			)
+			.run(
+				"2026-10-21T19:35:00.000Z",
+				"2026-10-21T19:35:00.000Z",
+				"credit-thread",
+			);
+		expect(
+			(await target.listInbox({ states: ["open"] })).data.map(
+				(row) => row.request.id,
+			),
+		).not.toContain(request.id);
+		expect((await target.get({ requestId: request.id })).canRespond).toBe(
+			false,
+		);
+		await expect(
+			target.respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "answer",
+				body: "Yes: Delete",
+				resolvesRequest: true,
+			}),
+		).rejects.toThrow(/sources changed|cannot be verified/);
+		expect(
+			sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id=?")
+				.get(request.id)?.status,
+		).toBe("open");
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id FROM work_interaction_responses WHERE interaction_id=?",
+				)
+				.all(request.id),
+		).toEqual([]);
+		const { refreshDecisionSourceCards } =
+			await import("../../services/decision-sources");
+		const db = createDbClient(createD1Facade(sqlite));
+		expect(
+			await refreshDecisionSourceCards(db, ORG_ID, "other-id"),
+		).toMatchObject({ superseded: 0 });
+		expect(
+			await refreshDecisionSourceCards(db, ORG_ID, "target-id"),
+		).toMatchObject({ superseded: 1 });
+		expect(
+			await refreshDecisionSourceCards(db, ORG_ID, "target-id"),
+		).toMatchObject({ superseded: 0 });
+		expect((await target.get({ requestId: request.id })).effectiveState).toBe(
+			"expired",
+		);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id FROM work_interaction_responses WHERE interaction_id=?",
+				)
+				.all(request.id),
+		).toEqual([]);
+	});
+
 	it("learns the canonical Work project while keeping the decision personal", async () => {
 		const { sqlite, owner, target } = fixture();
 		sqlite.exec(schemaDdl(learningInteractionEvents));

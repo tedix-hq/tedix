@@ -175,6 +175,9 @@ async function fixture(decision = envelope, cardContent?: string) {
 		targetId: "person",
 		metadata: {
 			decisionDeck: decision,
+			decisionSources: [
+				{ kind: "work", id: work, version: 1, commentCount: 0 },
+			],
 			...(cardContent ? { cardContent } : {}),
 		},
 		now: new Date().toISOString(),

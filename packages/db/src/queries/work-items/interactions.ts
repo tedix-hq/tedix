@@ -1,5 +1,9 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
+	decisionSourcesCurrent,
+	DECISION_SOURCE_CHANGED,
+} from "./decision-sources";
+import {
 	recordCardCreationEdges,
 	recordDecisionResolutionEdges,
 } from "../decision-graph-writers";
@@ -528,6 +532,42 @@ export async function respondToWorkInteraction(
 			`A ${request.kind} request takes responseKind ${acceptedKinds.join(" or ")}, not ${p.responseKind}`,
 		);
 	const resolvesRequest = corrects ? false : p.resolvesRequest;
+	const effect = p.metadata?.decisionEffect;
+	const effectReceipt =
+		effect && typeof effect === "object" && !Array.isArray(effect)
+			? effect
+			: null;
+	// An effect may itself update a cited task. Its completion uses the source check
+	// made at the persisted claim, never a client-supplied completion receipt alone.
+	const claimedEffect =
+		effectReceipt &&
+		["succeeded", "failed"].includes(String(effectReceipt.status))
+			? (
+					await listWorkInteractionResponses(db, {
+						orgId: p.orgId,
+						interactionId: request.id,
+						limit: 100,
+					})
+				).some((response) => {
+					const started = response.metadata.decisionEffect;
+					return (
+						response.resolvedRequestVersion === p.expectedVersion &&
+						response.responderType === p.responder.type &&
+						response.responderId === p.responder.id &&
+						started &&
+						typeof started === "object" &&
+						!Array.isArray(started) &&
+						started.status === "started" &&
+						started.kind === effectReceipt.kind
+					);
+				})
+			: false;
+	if (
+		(resolvesRequest || effectReceipt?.status === "started") &&
+		!claimedEffect &&
+		!(await decisionSourcesCurrent(db, p.orgId, request))
+	)
+		throw new WorkControlError("CONFLICT", DECISION_SOURCE_CHANGED);
 	const laneAction = p.metadata?.laneAction;
 	const follow = request.metadata.followThrough;
 	const lane =

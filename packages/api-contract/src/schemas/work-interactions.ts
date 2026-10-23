@@ -116,7 +116,9 @@ export const DelegateWorkInteractionInputSchema = z.strictObject({
 	tediId: z.uuid(),
 });
 
-const metadataSchema = BoundedJsonObjectSchema;
+const metadataSchema = BoundedJsonObjectSchema.describe(
+	"Decision facts must include decisionSources (or decisionDeck.sources): 1-10 observed versions. Work: {kind:'work',id,version,commentCount}; email: {kind:'email_thread',id,tediId,updatedAt,lastMessageAt,messageCount}; output: {kind:'output',id,revisionId}. Read every cited source first. Changed, missing or unsupported sources withhold the card and block its answer. One-way decisions and decisions involving data, money or messages require sources. Refresh the facts and create a new card when a source changes.",
+);
 
 export const WorkInteractionRequestSchema = z.strictObject({
 	id: z.uuid(),
