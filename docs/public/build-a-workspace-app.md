@@ -497,6 +497,7 @@ Card review registers these tools:
 | `card_review_next_card`     | Reads the open card (source, type, who, why with its rules, action, draft, link, sheet and row), the Do it label, cards left, filter and reason chips |
 | `card_review_set_verdict`   | Marks the open card `useful` or `not_useful`, with optional reason chips and text                                                                     |
 | `card_review_do_it`         | Presses **Do it**; for `run_skill` it waits and returns the outcome as `result`. It never sends or deletes, and fails when the card has no action     |
+| `revise_review_card_draft`  | Asks the factory to rewrite the open card's draft in the person's words, like **Ask for changes**; each round is a new version, no verdict is written |
 | `card_review_snooze`        | Snoozes the open card until tomorrow for this viewer                                                                                                  |
 | `card_review_skip`          | Moves the open card to the end of the queue                                                                                                           |
 | `card_review_undo`          | Undoes the last action, like the **Undo** button                                                                                                      |

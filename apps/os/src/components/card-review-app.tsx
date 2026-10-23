@@ -98,7 +98,11 @@ import { decisionText } from "@/shared/os-copy";
 import { useOsLocale } from "@/lib/use-os-locale";
 import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
 import { WorkDecisionCard } from "@/components/work-decision-card";
-import { FactoryCardRevisionPanel } from "@/components/factory-card-revision-panel";
+import {
+	FactoryCardRevisionPanel,
+	canReviseFactoryCard,
+	requestFactoryCardRevision,
+} from "@/components/factory-card-revision-panel";
 import { DeckClosure } from "@/components/feed-deck-primitives";
 import { OS_COPY } from "@/shared/os-copy";
 import { cn } from "@/lib/utils";
@@ -628,6 +632,8 @@ export function CardReviewApp({
 		): Promise<CardReviewActionResult> => {
 			if (!card || !source) return { ok: false, error: "No card is open" };
 			if (busy) return { ok: false, error: "The last action is still saving" };
+			if (revisionPending)
+				return { ok: false, error: "Wait for the revised draft first" };
 			if (verdict === "do_it" && actionLabel === null)
 				return { ok: false, error: "This card has no action to do" };
 			const reason = reasonOverride ?? formatReason(selectedChips, note);
@@ -698,6 +704,7 @@ export function CardReviewApp({
 		[
 			actionLabel,
 			busy,
+			revisionPending,
 			card,
 			note,
 			runCardAction,
@@ -843,6 +850,30 @@ export function CardReviewApp({
 			setNote(text);
 			return decide(verdict, formatReason(picked, text));
 		},
+		canRequestChanges: Boolean(
+			card && source && canReviseFactoryCard(card, source),
+		),
+		requestChanges: async (instruction) => {
+			const sheet = card && sheets.get(card.outputId);
+			if (!card || !source || !sheet || !canReviseFactoryCard(card, source))
+				return { ok: false, error: "This card has no draft to revise" };
+			if (revisionPending)
+				return { ok: false, error: "A revision of this card is still running" };
+			try {
+				await requestFactoryCardRevision(card.key, sheet.revision, {
+					instruction,
+				});
+			} catch (error) {
+				return { ok: false, error: (error as Error).message };
+			}
+			await Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: osQuery.osWorkspaces.outputs.key(),
+				}),
+				queryClient.invalidateQueries({ queryKey: osQuery.attention.key() }),
+			]);
+			return { ok: true };
+		},
 		snooze,
 		skip,
 		undo: undoLast,
@@ -944,7 +975,7 @@ export function CardReviewApp({
 								<RankedFor text={whyThisCard(source, card)} />
 								<SourceLine text={card.sourceText} />
 								{card.draft && <Text>{card.draft}</Text>}
-								{inDeck && card.draft && sheets.get(card.outputId) && (
+								{card.draft && sheets.get(card.outputId) && (
 									<FactoryCardRevisionPanel
 										key={card.key}
 										card={card}
@@ -1135,8 +1166,17 @@ export function CardReviewApp({
 						onSwipe={(direction) =>
 							void decide(direction === "right" ? "useful" : "not_useful")
 						}
-						disabled={busy}
+						disabled={busy || revisionPending}
 					/>
+					{card.draft && sheets.get(card.outputId) && (
+						<FactoryCardRevisionPanel
+							key={`revise:${card.key}`}
+							card={card}
+							source={source}
+							revision={sheets.get(card.outputId)!.revision}
+							onPending={setRevisionPending}
+						/>
+					)}
 					<ReasonPicker
 						chips={chips}
 						allChips={allChips}
@@ -1153,7 +1193,7 @@ export function CardReviewApp({
 								variant="outline"
 								className="h-14! w-full justify-center"
 								icon={<ThumbsDown aria-hidden />}
-								disabled={busy}
+								disabled={busy || revisionPending}
 								onClick={() => void decide("not_useful")}
 								aria-keyshortcuts="ArrowLeft"
 							>
@@ -1164,7 +1204,7 @@ export function CardReviewApp({
 								variant="outline"
 								className="h-14! w-full justify-center"
 								icon={<ThumbsUp aria-hidden />}
-								disabled={busy}
+								disabled={busy || revisionPending}
 								onClick={() => void decide("useful")}
 								aria-keyshortcuts="ArrowRight"
 							>
@@ -1175,7 +1215,7 @@ export function CardReviewApp({
 									size="lg"
 									className="col-span-2 h-14! w-full justify-center"
 									icon={<Lightning aria-hidden />}
-									disabled={busy}
+									disabled={busy || revisionPending}
 									loading={running === card.key}
 									onClick={() => void decide("do_it")}
 									aria-keyshortcuts="D"

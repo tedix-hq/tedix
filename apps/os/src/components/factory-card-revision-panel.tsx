@@ -29,6 +29,50 @@ import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
 import { cardRevisionDiff } from "@/lib/card-revision-diff";
 
+/** True when the card's draft can be rewritten by its source's writing skill. */
+export function canReviseFactoryCard(
+	card: ReviewCard,
+	source: CardReviewSource,
+) {
+	return Boolean(
+		card.draft &&
+		source.columns.draft &&
+		source.run &&
+		!credentialCard(`${card.action} ${card.draft}`),
+	);
+}
+
+/**
+ * Ask the source's writing skill for a new version of the card's draft, or
+ * restore an earlier one. Each round is a new revision of the same sheet.
+ */
+export async function requestFactoryCardRevision(
+	cardKey: string,
+	expectedRevision: number,
+	change: { instruction?: string; restoreRevision?: number },
+) {
+	const cardId = `factory:${cardKey}`;
+	if (change.restoreRevision)
+		return osApi.attention.decideDeckCard({
+			decision: {
+				kind: "factory_restore",
+				cardId,
+				expectedRevision,
+				restoreRevision: change.restoreRevision,
+			},
+		});
+	const instruction = change.instruction?.trim() ?? "";
+	if (containsCardSecret(instruction)) throw new Error(CARD_SECRET_MESSAGE);
+	return osApi.attention.decideDeckCard({
+		decision: {
+			kind: "factory_changes",
+			cardId,
+			expectedRevision,
+			instruction,
+		},
+	});
+}
+
 export function FactoryCardRevisionPanel({
 	card,
 	source,
@@ -81,23 +125,11 @@ export function FactoryCardRevisionPanel({
 		]);
 	const mutate = useMutation({
 		mutationFn: async (restoreRevision?: number) => {
-			if (containsCardSecret(instruction)) throw new Error(CARD_SECRET_MESSAGE);
 			if (!restoreRevision) setOptimistic(true);
 			const decidedAt = Date.now();
-			await osApi.attention.decideDeckCard({
-				decision: restoreRevision
-					? {
-							kind: "factory_restore",
-							cardId: `factory:${card.key}`,
-							expectedRevision: revision,
-							restoreRevision,
-						}
-					: {
-							kind: "factory_changes",
-							cardId: `factory:${card.key}`,
-							expectedRevision: revision,
-							instruction,
-						},
+			await requestFactoryCardRevision(card.key, revision, {
+				instruction,
+				restoreRevision,
 			});
 			if (!restoreRevision)
 				attention?.({
