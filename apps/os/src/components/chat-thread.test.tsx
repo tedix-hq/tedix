@@ -2352,6 +2352,58 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.enqueueMessage.mockReset();
 	});
 
+	it.each(["unavailable", "worker editor"])(
+		"keeps a generic write card read-only for %s authority",
+		async (kind) => {
+			userSettingsApi.getContext.mockResolvedValue({
+				organization: { id: ORG_ID },
+				authority:
+					kind === "worker editor"
+						? { role: "member", permissions: ["tedis:update"] }
+						: undefined,
+			});
+			kernelRuntimeApi.readRunSet.mockResolvedValue(
+				runSetPayload({
+					activeRunIds: [RUN_ID],
+					runs: [
+						{
+							id: RUN_ID,
+							organizationId: ORG_ID,
+							conversationId: CONVERSATION_ID,
+							status: "requires_approval",
+							createdAt: "2026-10-16T00:00:00Z",
+							metadata: {
+								approvalRequestId: "appr-write",
+								kernelWriteProposal: {
+									appSlug: "tedix",
+									toolName: "os.update_os_workspace",
+									args: { name: "Renamed" },
+								},
+							},
+						},
+					],
+				}),
+			);
+			const { container } = mountThread();
+			await flush();
+			expect(container.textContent).toContain("Ask an authorized operator");
+			const labels = [...container.querySelectorAll("button")].map((button) =>
+				button.textContent?.trim(),
+			);
+			for (const label of [
+				"Approve",
+				"Reject",
+				"Decide for me",
+				"Always allow this session",
+			]) {
+				expect(labels).not.toContain(label);
+			}
+			expect(
+				container.querySelector('[data-slot="chat-approval-gate"]'),
+			).toBeNull();
+		},
+	);
+
 	it("answers a parked write from its in-thread card", async () => {
 		kernelRuntimeApi.readRunSet.mockResolvedValue(
 			runSetPayload({
@@ -2673,7 +2725,7 @@ beforeEach(() => {
 	kernelRuntimeApi.readRunSet.mockResolvedValue(runSetPayload());
 	userSettingsApi.getContext.mockResolvedValue({
 		organization: { id: ORG_ID },
-		authority: { role: "owner", permissions: ["tedis:update"] },
+		authority: { role: "owner", permissions: ["tedis:update", "os:approve"] },
 	});
 	modelCatalogApi.list.mockResolvedValue(
 		catalogPayload([catalogModel(TEXT_ONLY_REF, "unsupported")]),

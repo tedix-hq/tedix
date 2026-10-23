@@ -518,6 +518,52 @@ describe("ApprovalCard", () => {
 		expect(html).not.toContain(">Approve<");
 	});
 
+	it("hides every generic approval action without approval authority, including worker editors", () => {
+		const pending = approval({ sessionScopeKey: "tools:diagnostic" });
+		for (const authority of [
+			undefined,
+			{ role: "member", permissions: ["tedis:update"] },
+			{ role: "owner", permissions: ["tedis:update"] },
+		]) {
+			const [card] = approvalsForAuthority([pending], authority);
+			const html = renderToStaticMarkup(<ApprovalCard approval={card!} />);
+			expect(html).toContain("Ask an authorized operator");
+			for (const label of [
+				"Approve",
+				"Reject",
+				"Decide for me",
+				"Always allow this session",
+			]) {
+				expect(html).not.toContain(`>${label}<`);
+			}
+			expect(card?.sessionScopeKey).toBeUndefined();
+		}
+	});
+
+	it("keeps generic approval controls for either server-authorized approval permission", () => {
+		const pending = approval({ sessionScopeKey: "tools:diagnostic" });
+		for (const permission of ["os:approve", "settings:manage"]) {
+			const [card] = approvalsForAuthority([pending], {
+				role: "member",
+				permissions: [permission],
+			});
+			expect(card).toEqual(pending);
+			const html = renderToStaticMarkup(<ApprovalCard approval={card!} />);
+			expect(html).toContain(">Approve<");
+			expect(html).toContain(">Reject<");
+			expect(html).toContain("Always allow this session");
+		}
+	});
+
+	it("does not let generic approval authority grant member delegation authority", () => {
+		const [card] = approvalsForAuthority(
+			[approval({ approvalId: `home-delegation:${RUN_ID}` })],
+			{ role: "member", permissions: ["tedis:update", "os:approve"] },
+		);
+		expect(card?.decisionMode).toBe("no_action");
+		expect(card?.noActionNote).toContain("owner or admin");
+	});
+
 	it("explains delegation eligibility to members without offering approval or session allowance", () => {
 		const [card] = approvalsForAuthority(
 			[
