@@ -24,7 +24,6 @@ import {
 } from "@tedix/api-contract/utils/card-secrets";
 import { Button } from "@/components/kumo/button";
 import { Textarea } from "@/components/kumo/textarea";
-import { Link } from "@/components/kumo/link";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
 import { cardRevisionDiff } from "@/lib/card-revision-diff";
@@ -187,8 +186,8 @@ export function FactoryCardRevisionPanel({
 			</div>
 			{pending && (
 				<p role="status">
-					Revising… Your feedback is saved in Home for this card's writing
-					agent. <Link href="/chat">Open Home</Link>
+					Revising… The factory is rewriting this draft. The new version shows
+					here when it is ready.
 				</p>
 			)}
 			{open && (

@@ -3,7 +3,12 @@ import type { BaseContext } from "../rpc/orpc";
 import { OsOutputRevisionSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { factoryCardRevisionRequests } from "./factory-card-revisions";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), record: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	list: vi.fn(),
+	record: vi.fn(),
+	run: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/skill-runs", () => ({ getSkillRun: mocks.run }));
 vi.mock("@tedix/db/queries/factory-card-revisions", () => ({
 	listPendingFactoryCardRevisions: mocks.list,
 }));
@@ -26,6 +31,7 @@ const context = {
 	organizationId: "org",
 	authType: "user",
 	user: { sub: "person" },
+	env: { ENVIRONMENT: "test" },
 } as BaseContext;
 const revision = (body: string, source = "Fictional source") =>
 	OsOutputRevisionSchema.parse({
@@ -48,8 +54,9 @@ const revision = (body: string, source = "Fictional source") =>
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.list.mockResolvedValue([
-		{ id: "request-event", actorId: "person", metadata },
+		{ id: "request-event", actorId: "person", runId: "rewrite-run", metadata },
 	]);
+	mocks.run.mockResolvedValue({ status: "running" });
 	mocks.record.mockResolvedValue(true);
 });
 it("joins a person's exact instruction to its source-row rewrite and records provenance", async () => {
@@ -87,4 +94,16 @@ it("keeps unchanged drafts pending and refuses to attribute another source row",
 		),
 	).toEqual([]);
 	expect(mocks.record).not.toHaveBeenCalled();
+});
+it("stops showing a request as pending once its rewrite run has ended or never started", async () => {
+	mocks.run.mockResolvedValue({ status: "failed" });
+	expect(
+		await factoryCardRevisionRequests(context, revision("Original draft")),
+	).toEqual([]);
+	mocks.list.mockResolvedValue([
+		{ id: "request-event", actorId: "person", runId: null, metadata },
+	]);
+	expect(
+		await factoryCardRevisionRequests(context, revision("Original draft")),
+	).toEqual([]);
 });
