@@ -12,6 +12,13 @@ import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 export const MEMORY_RECALL_BUDGET_MS = 800;
 const MEMORY_RECALL_LIMIT = 6;
+/**
+ * A Home delegation has no one waiting on its first token, and its answer
+ * often IS the tedi's memory. At 800 ms a CFO memory check lost every fact to
+ * an 834 ms search (23 Oct) and spent its tool budget hunting for them.
+ */
+export const DELEGATED_MEMORY_RECALL_BUDGET_MS = 5_000;
+export const DELEGATED_MEMORY_RECALL_LIMIT = 12;
 
 export type MemoryRecallOutcome =
 	| "skipped_trivial"
@@ -120,6 +127,7 @@ export async function recallLongTermMemoryBlock(input: {
 	userText: string;
 	search: (query: string, limit: number) => Promise<MemorySearchResult | null>;
 	budgetMs?: number;
+	limit?: number;
 }): Promise<MemoryRecallReport & { block: string }> {
 	const started = performance.now();
 	const done = (
@@ -139,7 +147,9 @@ export async function recallLongTermMemoryBlock(input: {
 		| { kind: "failed" }
 		| { kind: "timed_out" };
 	const search: Promise<Settled> = Promise.resolve()
-		.then(() => input.search(input.userText, MEMORY_RECALL_LIMIT))
+		.then(() =>
+			input.search(input.userText, input.limit ?? MEMORY_RECALL_LIMIT),
+		)
 		.then(
 			(result): Settled => ({ kind: "result", result }),
 			(error): Settled => {

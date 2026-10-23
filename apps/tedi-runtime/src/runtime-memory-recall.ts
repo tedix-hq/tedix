@@ -13,6 +13,8 @@ import { logTediSourceFailure } from "./context-failure-log";
 import type { ActiveTurnBinding } from "./runtime-state";
 import { selectSkillsWithJev } from "./jev-skill-ranking";
 import {
+	DELEGATED_MEMORY_RECALL_BUDGET_MS,
+	DELEGATED_MEMORY_RECALL_LIMIT,
 	type MemoryRecallReport,
 	recallLongTermMemoryBlock,
 } from "./memory-recall";
@@ -396,6 +398,12 @@ export async function brainDigestAddendum(
 ): Promise<string> {
 	const recallPromise = recallLongTermMemoryBlock({
 		userText,
+		...(isHomeDelegationWorkOrder(userText)
+			? {
+					budgetMs: DELEGATED_MEMORY_RECALL_BUDGET_MS,
+					limit: DELEGATED_MEMORY_RECALL_LIMIT,
+				}
+			: {}),
 		search: async (query, limit) => {
 			const platform = await this.getPlatformClient();
 			return platform ? await platform.memorySearch(query, limit) : null;

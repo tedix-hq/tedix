@@ -88,7 +88,7 @@ describe("Production ConversationFacet on native Pi", () => {
 			{ type: "none" },
 		]);
 	});
-	it("terminalizes a delegated tool budget with one effect and no extra inference, including replay", async () => {
+	it("closes a spent delegated tool budget with one tool-free answer and no extra effect, including replay", async () => {
 		const name = crypto.randomUUID();
 		const agent = await fixture(name);
 		await agent.setup("tool");
@@ -101,16 +101,15 @@ describe("Production ConversationFacet on native Pi", () => {
 		expect(turn.result.assistantText).toContain(
 			"tool-call budget reached (1/1)",
 		);
-		expect((await inspect(agent)).stats).toMatchObject({
-			requests: 1,
-			effects: 1,
-			receipts: 1,
-		});
+		// The closing report is the only extra inference, and it can call no tool.
+		const stats = (await inspect(agent)).stats;
+		expect(stats).toMatchObject({ requests: 2, effects: 1, receipts: 2 });
+		expect(stats.toolChoices.at(-1)).toEqual({ type: "none" });
 		await abortAllDurableObjects();
 		expect(await (await fixture(name)).turn("delegated-limit", input)).toEqual(
 			turn,
 		);
-		expect((await inspect(await fixture(name))).stats.requests).toBe(1);
+		expect((await inspect(await fixture(name))).stats.requests).toBe(2);
 	});
 	it("returns a terminal partial receipt without inference after the delegated deadline", async () => {
 		const agent = await fixture(crypto.randomUUID());

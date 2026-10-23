@@ -7,6 +7,8 @@
 import assert from "node:assert/strict";
 import type { MemorySearchResult } from "./brain/platform-client";
 import {
+	DELEGATED_MEMORY_RECALL_BUDGET_MS,
+	DELEGATED_MEMORY_RECALL_LIMIT,
 	isTrivialRecallQuery,
 	MEMORY_RECALL_BUDGET_MS,
 	recallLongTermMemoryBlock,
@@ -189,6 +191,29 @@ const result: MemorySearchResult = {
 	} finally {
 		console.error = originalError;
 	}
+}
+
+// ── Delegated work orders: a search slower than the chat budget still lands ──
+{
+	let askedLimit = 0;
+	const slow = await recallLongTermMemoryBlock({
+		userText: "Answer the CFO memory check",
+		budgetMs: DELEGATED_MEMORY_RECALL_BUDGET_MS,
+		limit: DELEGATED_MEMORY_RECALL_LIMIT,
+		search: async (_query, limit) => {
+			askedLimit = limit;
+			await new Promise((resolve) =>
+				setTimeout(resolve, MEMORY_RECALL_BUDGET_MS + 50),
+			);
+			return {
+				results: [{ fact: { content: "Tedix GbR is a §19 small business" } }],
+			} as unknown as MemorySearchResult;
+		},
+	});
+	assert.equal(askedLimit, DELEGATED_MEMORY_RECALL_LIMIT);
+	assert.equal(slow.outcome, "completed");
+	assert.equal(slow.factCount, 1);
+	assert.match(slow.block, /§19 small business/);
 }
 
 console.log("memory-recall: all assertions passed");

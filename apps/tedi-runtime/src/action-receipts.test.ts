@@ -55,6 +55,15 @@ assert.doesNotMatch(
 	]),
 	/Everything was published/,
 );
+const stoppedWithUnverified = appendActionReceipts(
+	"Done. Everything was published.\n\n[Turn stopped early: delegated tool-call budget reached (12/12). Partial results above; remaining work was not attempted.]",
+	[{ ...receipt, verified: false }],
+);
+assert.doesNotMatch(stoppedWithUnverified, /Everything was published/);
+assert.match(
+	stoppedWithUnverified,
+	/\n\n\[Turn stopped early: delegated tool-call budget reached \(12\/12\)\. .*\]$/,
+);
 assert.deepEqual(collectActionReceipts("not JSON", "tedix_mcp_code"), []);
 assert.deepEqual(
 	collectActionReceipts({ actionReceipts: [receipt] }, "tedix_mcp_call_tool"),
