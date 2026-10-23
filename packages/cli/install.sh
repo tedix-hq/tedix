@@ -172,7 +172,10 @@ esac
 echo ""
 echo "$INSTALL_DIR is not on your PATH, so 'tedix' is not runnable yet."
 
-if [ -z "$PROFILE" ] || [ "${TEDIX_NO_MODIFY_PATH:-}" = "1" ]; then
+# Only the default location belongs in a shell profile. A custom directory is
+# often temporary (agents, CI), so print the line instead of persisting it.
+if [ -z "$PROFILE" ] || [ "${TEDIX_NO_MODIFY_PATH:-}" = "1" ] ||
+  [ "$INSTALL_DIR" != "$HOME/.local/bin" ]; then
   echo "Add this line to your shell profile, then open a new terminal:"
   echo ""
   printf '  %s\n' "$EXPORT_LINE"

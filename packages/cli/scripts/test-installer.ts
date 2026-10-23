@@ -357,17 +357,33 @@ try {
 		"Installer wrote a shell profile despite TEDIX_NO_MODIFY_PATH",
 	);
 
-	// Profile snippets treat install paths as data, not shell commands.
-	const unusualHome = mkdtempSync(join(tmpdir(), "tedix-home-quoted-"));
-	const sentinel = join(unusualHome, "executed");
-	const unusualDir = join(
-		unusualHome,
-		"spaces ' quote \\ $HOME `touch executed` $(touch executed)",
+	// A custom install directory is printed, never persisted to the profile.
+	const customHome = mkdtempSync(join(tmpdir(), "tedix-home-"));
+	const customDir = join(customHome, "scratch", "bin");
+	const customPrinted = await install({
+		HOME: customHome,
+		SHELL: "/bin/zsh",
+		TEDIX_INSTALL_DIR: customDir,
+	});
+	assert(
+		customPrinted.includes(`export PATH='${customDir}':"$PATH"`),
+		"Installer did not print the PATH export for a custom directory",
 	);
+	assert(
+		!existsSync(join(customHome, ".zshrc")),
+		"Installer wrote a custom install directory to the shell profile",
+	);
+
+	// Profile snippets treat install paths as data, not shell commands.
+	const unusualName =
+		"spaces ' quote \\ $HOME `touch executed` $(touch executed)";
+	const unusualRoot = mkdtempSync(join(tmpdir(), "tedix-home-quoted-"));
+	const sentinel = join(unusualRoot, "executed");
+	const unusualHome = join(unusualRoot, unusualName);
+	const unusualDir = join(unusualHome, ".local", "bin");
 	await install({
 		HOME: unusualHome,
 		SHELL: "/bin/zsh",
-		TEDIX_INSTALL_DIR: unusualDir,
 	});
 	const evaluated = Bun.spawnSync(
 		[
@@ -378,7 +394,7 @@ try {
 			join(unusualHome, ".zshrc"),
 		],
 		{
-			cwd: unusualHome,
+			cwd: unusualRoot,
 			env: { PATH: systemPath },
 			stdout: "pipe",
 			stderr: "pipe",
@@ -397,7 +413,6 @@ try {
 	await install({
 		HOME: unusualHome,
 		SHELL: "/bin/zsh",
-		TEDIX_INSTALL_DIR: unusualDir,
 	});
 	assert(
 		readFileSync(join(unusualHome, ".zshrc"), "utf8") === unusualProfile,
@@ -406,24 +421,27 @@ try {
 	const unusualPrinted = await install({
 		HOME: unusualHome,
 		SHELL: "/bin/zsh",
-		TEDIX_INSTALL_DIR: unusualDir,
 		TEDIX_NO_MODIFY_PATH: "1",
 	});
 	assert(
 		unusualPrinted.includes(unusualProfile.trim().split("\n").at(-1)!),
 		"Printed shell snippet altered escape characters",
 	);
-	const fishHome = mkdtempSync(join(tmpdir(), "tedix-home-fish-"));
+	const fishHome = join(
+		mkdtempSync(join(tmpdir(), "tedix-home-fish-")),
+		unusualName,
+	);
 	await install({
 		HOME: fishHome,
 		SHELL: "/usr/bin/fish",
-		TEDIX_INSTALL_DIR: unusualDir,
 	});
 	const fishProfile = readFileSync(
 		join(fishHome, ".config", "fish", "config.fish"),
 		"utf8",
 	);
-	const fishQuoted = unusualDir.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+	const fishQuoted = join(fishHome, ".local", "bin")
+		.replaceAll("\\", "\\\\")
+		.replaceAll("'", "\\'");
 	assert(
 		fishProfile.includes(`fish_add_path '${fishQuoted}'`),
 		`Fish profile did not quote the literal path: ${fishProfile}`,

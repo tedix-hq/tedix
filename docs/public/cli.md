@@ -65,7 +65,8 @@ terminal afterwards, or run the export line it prints to use `tedix` in the
 current one.
 
 Set `TEDIX_NO_MODIFY_PATH=1` to keep the installer out of your shell profile. It
-then only prints the line to add yourself:
+then only prints the line to add yourself. It does the same for any directory
+you choose with `TEDIX_INSTALL_DIR`:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
