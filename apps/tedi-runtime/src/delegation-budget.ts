@@ -35,6 +35,15 @@ export async function runWithDelegationDeadline<T>(
 	}
 }
 
+const TOOL_CALL_BUDGET_STOP = "delegated tool-call budget reached";
+
+/** Only the tool-call cap leaves room for a tool-free closing answer. */
+export function isDelegatedToolCallBudgetStop(
+	reason: string | null | undefined,
+): boolean {
+	return reason?.startsWith(TOOL_CALL_BUDGET_STOP) === true;
+}
+
 export function delegationBudgetForMetadata(
 	metadata: Record<string, unknown> | null,
 	startedAt: number,
@@ -105,7 +114,7 @@ export class DelegationBudgetGate {
 			budget?.maxToolCalls !== undefined &&
 			budget.calls.length >= budget.maxToolCalls
 		)
-			return `delegated tool-call budget reached (${budget.calls.length}/${budget.maxToolCalls})`;
+			return `${TOOL_CALL_BUDGET_STOP} (${budget.calls.length}/${budget.maxToolCalls})`;
 		return null;
 	}
 	private inferenceStop(budget: BudgetRecord | undefined): string | null {
@@ -193,7 +202,7 @@ export class DelegationBudgetGate {
 				budget.maxToolCalls !== undefined &&
 				budget.calls.length >= budget.maxToolCalls
 			)
-				return `delegated tool-call budget reached (${budget.calls.length}/${budget.maxToolCalls})`;
+				return `${TOOL_CALL_BUDGET_STOP} (${budget.calls.length}/${budget.maxToolCalls})`;
 			await tx.put(key, { ...budget, calls: [...budget.calls, callId] });
 			return null;
 		});

@@ -41,6 +41,9 @@ export interface CognitiveAddendaSources {
 }
 
 const HOME_DELEGATION_WORK_ORDER_PREFIX = "[HOME DELEGATION WORK ORDER ";
+/** A direct delegation wraps the same work order in one introductory line. */
+const DIRECT_DELEGATION_WORK_ORDER =
+	/^Home delegated this request directly to you\.\s+Request: \[HOME DELEGATION WORK ORDER /;
 
 /**
  * Home delegation envelopes are explicit, bounded operator work orders. They
@@ -48,7 +51,11 @@ const HOME_DELEGATION_WORK_ORDER_PREFIX = "[HOME DELEGATION WORK ORDER ";
  * loosely matching learned preference must not redirect the work order.
  */
 export function isHomeDelegationWorkOrder(userText: string): boolean {
-	return userText.trimStart().startsWith(HOME_DELEGATION_WORK_ORDER_PREFIX);
+	const text = userText.trimStart();
+	return (
+		text.startsWith(HOME_DELEGATION_WORK_ORDER_PREFIX) ||
+		DIRECT_DELEGATION_WORK_ORDER.test(text)
+	);
 }
 
 /**

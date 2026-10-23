@@ -89,6 +89,7 @@ import { computerReadToolModelOutput } from "./computer-read-model-output";
 import { computerExecutionModelOutput } from "./computer-execution-model-output";
 import {
 	DelegationBudgetGate,
+	isDelegatedToolCallBudgetStop,
 	type DelegatedTurnBudget,
 } from "./delegation-budget";
 
@@ -507,7 +508,10 @@ export class ConversationFacet extends PiAgent<
 				},
 				prepare: async (_model, context) => {
 					const runId = this.requireRunId();
-					if (await this.checkDelegationBudget())
+					if (
+						(await this.checkDelegationBudget()) &&
+						!this.toolBudgetFinalReport()
+					)
 						throw new Error(this.state.budgetStop!.reason);
 					await this.assertFacetRuntimeDispatch();
 					this.assertToolRegistryAvailable();
@@ -1259,6 +1263,14 @@ export class ConversationFacet extends PiAgent<
 			recoveryBlockedRunId: this.state.runId,
 		});
 	}
+	/** A spent tool-call budget still admits the tool-free closing answer. */
+	private toolBudgetFinalReport(): boolean {
+		return (
+			Boolean(this.state.finalReportStop) &&
+			this.state.budgetStop?.kind === "delegation_budget" &&
+			isDelegatedToolCallBudgetStop(this.state.budgetStop.reason)
+		);
+	}
 	private async checkDelegationBudget(): Promise<boolean> {
 		if (!this.state.delegationBudget) return false;
 		const reason = await new DelegationBudgetGate(this.ctx.storage).stopReason(
@@ -1504,7 +1516,11 @@ export class ConversationFacet extends PiAgent<
 			stopReason: stop?.reason ?? null,
 			assistantText: text,
 		});
-		if (reportReason && stop?.kind !== "delegation_budget") {
+		if (
+			reportReason &&
+			(stop?.kind !== "delegation_budget" ||
+				isDelegatedToolCallBudgetStop(stop.reason))
+		) {
 			this.setState({
 				...this.state,
 				finalReportStop: { reason: reportReason },

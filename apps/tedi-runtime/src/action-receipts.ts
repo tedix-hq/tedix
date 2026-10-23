@@ -70,10 +70,15 @@ export function appendActionReceipts(
 			receipt,
 		]),
 	);
-	const summary = receipts.some((receipt) => !receipt.verified)
+	const unverified = receipts.some((receipt) => !receipt.verified);
+	const summary = unverified
 		? "I could not verify every action. The receipts show what is confirmed."
 		: text;
-	return [summary, ...[...unique.values()].map(renderActionReceipt)]
+	// The runtime's stop notice is not a claim; Home reads it to say why a turn ended.
+	const stopNotice = unverified
+		? text.match(/^\[Turn stopped early: .*\]$/m)?.[0]
+		: undefined;
+	return [summary, ...[...unique.values()].map(renderActionReceipt), stopNotice]
 		.filter(Boolean)
 		.join("\n\n");
 }
