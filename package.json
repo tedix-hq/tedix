@@ -169,7 +169,6 @@
 		"@earendil-works/pi-ai": "1.3.0",
 		"@earendil-works/pi-durable": "1.3.0",
 		"@cloudflare/computer": "0.5.1",
-		"@cloudflare/shell": "0.4.3",
 		"ai": "7.0.146",
 		"@ai-sdk/provider": "^4.0.31"
 	},

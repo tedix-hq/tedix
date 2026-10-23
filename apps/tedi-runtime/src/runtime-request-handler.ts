@@ -1,7 +1,7 @@
 import { memoryDiagnostics } from "./runtime-diagnostics";
 import type { PolicyCronReconcileReceipt } from "./runtime-cron";
 import { type ProxyToolOutput, resolveProvider } from "@cloudflare/codemode";
-import { stateTools } from "@cloudflare/shell/workers";
+import { stateTools } from "./workspace-state/workers";
 import { ExecutionSurfaceSchema } from "@tedix/api-contract/schemas/execution-evidence";
 import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
@@ -1964,7 +1964,7 @@ export async function handleRuntimeRequest(
 										mcpComputer.scope,
 										mcpComputer.turnContext,
 									),
-								) as unknown as Parameters<typeof stateTools>[0],
+								),
 							),
 						),
 					);

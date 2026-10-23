@@ -28,7 +28,6 @@
 		"@chat-adapter/telegram": "4.43.0",
 		"@cloudflare/codemode": "catalog:",
 		"@cloudflare/computer": "catalog:",
-		"@cloudflare/shell": "catalog:",
 		"@cloudflare/voice": "catalog:",
 		"@earendil-works/pi-ai": "catalog:",
 		"@earendil-works/pi-durable": "catalog:",
