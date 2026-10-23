@@ -85,14 +85,52 @@ describe("private chat attachments", () => {
 			],
 		});
 	});
-	it("rejects unsupported binary formats, mismatched images, malformed base64 and invalid UTF-8", () => {
+	it("delivers PDF bytes as a native PDF file part", () => {
+		const pdf = validateHomeAttachment({
+			...textFile(),
+			fileName: "report.pdf",
+			mimeType: "application/pdf",
+			content: "data:application/pdf;base64,JVBERi0xLjQ=",
+		});
+		const prompt = homeAttachmentContent("Read the report", [pdf]);
+		expect(homeModelPrompt(prompt.text, prompt.images)).toEqual({
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Read the report" },
+						{
+							type: "file",
+							mediaType: "application/pdf",
+							data: pdf.content,
+						},
+					],
+				},
+			],
+		});
+	});
+	it("accepts valid PDFs and rejects unsupported binary formats, mismatched images, malformed base64 and invalid UTF-8", () => {
+		const pdf = validateHomeAttachment({
+			...textFile(),
+			fileName: "report.pdf",
+			mimeType: "application/pdf",
+			content: "data:application/pdf;base64,JVBERi0xLjQ=",
+		});
+		expect(pdf.mimeType).toBe("application/pdf");
+		expect(() =>
+			validateHomeAttachment({
+				...textFile(),
+				mimeType: "application/zip",
+				content: "data:application/zip;base64,UEs=",
+			}),
+		).toThrow("supports images, PDFs");
 		expect(() =>
 			validateHomeAttachment({
 				...textFile(),
 				mimeType: "application/pdf",
-				content: "data:application/pdf;base64,JVBERg==",
+				content: "data:application/pdf;base64,SGVsbG8=",
 			}),
-		).toThrow("not supported");
+		).toThrow("valid PDF");
 		expect(() =>
 			validateHomeAttachment({
 				...textFile(),

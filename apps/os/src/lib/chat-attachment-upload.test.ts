@@ -42,17 +42,17 @@ describe("chat attachment upload", () => {
 			),
 		).rejects.toThrow("Upload failed");
 	});
-	it("preserves UTF-8 text files and rejects unsupported formats and oversized files", async () => {
+	it("preserves text and PDF files and rejects oversized files", async () => {
 		const file = new File(["actual contents"], "notes.md");
 		expect(await prepareChatAttachment(file)).toEqual({
 			blob: file,
 			mimeType: "text/plain",
 		});
-		await expect(
-			prepareChatAttachment(
-				new File(["%PDF"], "a.pdf", { type: "application/pdf" }),
-			),
-		).rejects.toThrow("not supported");
+		const pdf = new File(["%PDF"], "a.pdf", { type: "application/pdf" });
+		expect(await prepareChatAttachment(pdf)).toEqual({
+			blob: pdf,
+			mimeType: "application/pdf",
+		});
 		await expect(
 			prepareChatAttachment(
 				new File([new Uint8Array(1048577)], "a.txt", { type: "text/plain" }),

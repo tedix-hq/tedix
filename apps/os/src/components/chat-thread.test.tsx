@@ -2638,7 +2638,7 @@ describe("<ChatThread> attachment dropzone", () => {
 		).toBeNull();
 	});
 
-	it("uses the same image-capability and unsupported-file checks as the picker", async () => {
+	it("uses the same image-capability and file checks as the picker", async () => {
 		const { container } = mountThread();
 		await flush();
 		const composer = container.querySelector('[data-slot="chat-composer"]')!;
@@ -2648,7 +2648,8 @@ describe("<ChatThread> attachment dropzone", () => {
 			new File(["%PDF"], "report.pdf", { type: "application/pdf" }),
 		]);
 		await flush();
-		expect(attachmentAlert(container)).toContain("not supported yet");
+		expect(attachmentAlert(container)).toBeNull();
+		expect(container.textContent).toContain("report.pdf");
 	});
 
 	it("enforces five attachments and prevents concurrent picks during preparation", async () => {
@@ -2871,15 +2872,15 @@ describe("<ChatThread> delegation names", () => {
 });
 
 describe("<ChatThread> image capability gate", () => {
-	it("surfaces unsupported file errors without an unconfirmed send", async () => {
+	it("accepts PDF files without an unconfirmed send", async () => {
 		const { container } = mountThread();
 		await flush();
 		pickFiles(container, [
 			new File(["%PDF"], "report.pdf", { type: "application/pdf" }),
 		]);
-		expect(sendButton(container).disabled).toBe(true);
 		await flush();
-		expect(attachmentAlert(container)).toContain("not supported yet");
+		expect(sendButton(container).disabled).toBe(false);
+		expect(attachmentAlert(container)).toBeNull();
 		expect(container.textContent).not.toContain(
 			"Message may not have been sent",
 		);

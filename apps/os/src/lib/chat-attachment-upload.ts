@@ -47,11 +47,10 @@ export async function prepareChatAttachment(
 				"application/json",
 				"application/xml",
 				"application/javascript",
+				"application/pdf",
 			].includes(mimeType)
 		)
-			throw new Error(
-				"Attach a PNG, JPEG, WebP, or UTF-8 text file. PDF and other binary formats are not supported yet.",
-			);
+			throw new Error("Attach a PNG, JPEG, WebP, PDF, or UTF-8 text file.");
 		if (file.size > CHAT_ATTACHMENT_MAX_BYTES)
 			throw new Error("Attachments must be at most 1 MiB.");
 		return { blob: file, mimeType };

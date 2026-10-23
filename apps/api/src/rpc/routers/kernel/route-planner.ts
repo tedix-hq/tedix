@@ -35,7 +35,11 @@ import {
 	kernelSpanContext,
 } from "./gateway-attribution";
 import { type KernelEnv } from "./llm";
-import { homeModelPrompt, hasHomeHistoryImages } from "./attachment-content";
+import {
+	type HomeAttachmentPart,
+	homeModelPrompt,
+	hasHomeHistoryImages,
+} from "./attachment-content";
 import {
 	flatAbortSignal,
 	type IdleAbort,
@@ -476,7 +480,7 @@ export function shapeRouteUsage(
  * @returns a stamped decision and usage, or null when unavailable/canceled.
  */
 export type PlanKernelRouteArgs = {
-	images?: string[];
+	images?: (string | HomeAttachmentPart)[];
 	content: string;
 	/** Original operator text, before attachment content is added to the prompt. */
 	operatorContent?: string;
@@ -1064,7 +1068,7 @@ interface HedgeLaneState {
  */
 function hedgedRouteStream(input: {
 	routeChoice?: RouteChoice;
-	images?: string[];
+	images?: (string | HomeAttachmentPart)[];
 	content: string;
 	context: KernelContext;
 	model: SelectedKernelModel;
@@ -1246,7 +1250,7 @@ function hedgedRouteStream(input: {
 
 async function streamRoutePlan(args: {
 	routeChoice?: RouteChoice;
-	images?: string[];
+	images?: (string | HomeAttachmentPart)[];
 	content: string;
 	/** Original operator text, before attachment content is added to the prompt. */
 	operatorContent?: string;
