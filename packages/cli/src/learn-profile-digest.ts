@@ -25,19 +25,30 @@ const OWN_LINK =
 /** What may leave the machine: no secrets, email addresses or phone numbers. */
 export function publicText(text: string, limit = 2000): string {
 	const links: string[] = [];
-	const held = String(text ?? "").replace(OWN_LINK, (link) => {
-		links.push(link);
-		return `\u0001${links.length - 1}\u0001`;
-	});
+	const held = String(text ?? "")
+		.replace(/\x01/g, "")
+		.replace(OWN_LINK, (link) => {
+			links.push(link);
+			return `\u0001${links.length - 1}\u0001`;
+		});
 	const cleaned = scrub(held).replace(PHONE, (match) =>
 		match.replace(/\D/g, "").length >= 9 && !/^\d{4}-\d{2}-\d{2}/.test(match)
 			? "[phone]"
 			: match,
 	);
-	return redact(cleaned.replace(/\s+/g, " ").trim(), limit)[0].replace(
-		/\u0001(\d+)\u0001/g,
-		(_, i) => links[Number(i)] ?? "",
-	);
+	const flat = cleaned.replace(/\s+/g, " ").trim();
+	// A fixed cut can land inside a held-link marker, leaking control bytes and
+	// losing the link; move it past the marker's close so it restores whole.
+	const [full] = redact(flat, Infinity);
+	let out = full;
+	if (full.length > limit) {
+		let end = limit - 1;
+		for (const m of full.matchAll(/\x01\d+\x01/g))
+			if (m.index < end && end < m.index + m[0].length)
+				end = m.index + m[0].length;
+		out = end >= full.length ? full : `${full.slice(0, end)}…`;
+	}
+	return out.replace(/\u0001(\d+)\u0001/g, (_, i) => links[Number(i)] ?? "");
 }
 
 export const strings = (
