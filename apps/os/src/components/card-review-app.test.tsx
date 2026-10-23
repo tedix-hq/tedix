@@ -242,6 +242,55 @@ async function type(selector: string, value: string) {
 }
 
 describe("CardReviewApp decision interactions", () => {
+	it("counts recorded verdicts without treating a snoozed open card as decided", async () => {
+		sheet.rows[1]![6] = "yes";
+		await mount(false);
+		expect(host.querySelector("[data-card-review-progress]")?.textContent).toBe(
+			"2 waiting · 1 decided · 3 total",
+		);
+		await click("Snooze");
+		expect(host.querySelector("[data-card-review-progress]")?.textContent).toBe(
+			"1 waiting · 1 decided · 3 total",
+		);
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+	});
+	it("keeps a review note and ignores decision shortcuts while surveying the Waiting list", async () => {
+		await mount(false);
+		await type(
+			'input[placeholder="Add a reason (optional)"]',
+			"Keep this unfinished note.",
+		);
+		await act(async () =>
+			(
+				host.querySelector("[data-card-review-progress]") as HTMLButtonElement
+			).click(),
+		);
+		await flush();
+		const root = host.querySelector("[data-card-review]")!;
+		for (const shortcut of [
+			"ArrowRight",
+			"ArrowLeft",
+			"u",
+			"n",
+			"d",
+			"s",
+			"k",
+			"1",
+			"z",
+		])
+			await key(root, shortcut);
+		expect(host.querySelector("[data-card-review-waiting]")).not.toBeNull();
+		await click("Back");
+		expect(
+			(
+				host.querySelector(
+					'input[placeholder="Add a reason (optional)"]',
+				) as HTMLInputElement
+			).value,
+		).toBe("Keep this unfinished note.");
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
+	});
 	it.each([true, false])(
 		"explains denied source sheets without a write (deck=%s)",
 		async (inDeck) => {
@@ -474,7 +523,7 @@ describe("CardReviewApp decision interactions", () => {
 		expect(
 			host.querySelector("[data-card-review-card]")?.getAttribute("aria-label"),
 		).toBe("Card 1: opportunity");
-		await click("3 of 3 left");
+		await click("3 waiting · 0 decided · 3 total");
 		const list = host.querySelector("[data-card-review-waiting]")!;
 		expect(list).not.toBeNull();
 		expect(list.querySelectorAll("button")).toHaveLength(4); // Back + 3 rows
@@ -491,7 +540,7 @@ describe("CardReviewApp decision interactions", () => {
 			host.querySelector("[data-card-review-card]")?.getAttribute("aria-label"),
 		).toBe("Card 2: opportunity");
 		expect(host.querySelector("[data-card-review-waiting]")).toBeNull();
-		await click("3 of 3 left");
+		await click("3 waiting · 0 decided · 3 total");
 		await click("Back");
 		expect(
 			host.querySelector("[data-card-review-card]")?.getAttribute("aria-label"),
@@ -673,14 +722,14 @@ it("delivers earned cards as updates while audit samples and protected cards sti
 	expect(host.querySelector('[aria-label="Updates"]')?.textContent).toContain(
 		"Update:",
 	);
-	expect(host.textContent).toContain("0 of 3 left");
+	expect(host.textContent).toContain("0 waiting · 0 decided · 3 total");
 	expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 	await renderPolicy(true, 1);
 	expect(host.querySelector('[aria-label="Updates"]')).toBeNull();
-	expect(host.textContent).toContain("3 of 3 left");
+	expect(host.textContent).toContain("3 waiting · 0 decided · 3 total");
 	await renderPolicy(false, 0);
-	expect(host.textContent).toContain("3 of 3 left");
+	expect(host.textContent).toContain("3 waiting · 0 decided · 3 total");
 	appConfig.sources[0]!.protectedEffects = ["message"];
 	await renderPolicy(true, 0);
-	expect(host.textContent).toContain("3 of 3 left");
+	expect(host.textContent).toContain("3 waiting · 0 decided · 3 total");
 });

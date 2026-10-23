@@ -144,6 +144,19 @@ try {
 		);
 		installed.push({ gadget: current, currentRevision: revision });
 	}
+	const { gadget: browseGadget } = await rpc("osWorkspaces/gadgets/create", {
+		workspaceId,
+		name: `Test read-only review ${stamp}`,
+	});
+	await rpc("osWorkspaces/gadgets/revise", {
+		workspaceId,
+		gadgetId: browseGadget.id,
+		manifest: {
+			entry: "tedix:app/card-review",
+			capabilities: [],
+			config: { version: 1, sources },
+		},
+	});
 	const native = WorkInteractionInboxRowSchema.parse({
 		request: {
 			id: "33333333-3333-4333-8333-333333333333",
@@ -321,6 +334,84 @@ try {
 				localStorage.setItem("tedix-os-theme", mode);
 			}, theme);
 			await fixture(page);
+			const screenshots = process.env.SOCIAL_CARDS_SCREENSHOTS;
+			if (screenshots) await mkdir(screenshots, { recursive: true });
+			const decisionWrites: string[] = [];
+			page.on("request", (request) => {
+				if (
+					/\/(?:osWorkspaces\/outputs\/setSheetRange|learningFeedback\/(?:recordInteraction|correct)|attention\/decideDeckCard|skills\/run)/.test(
+						request.url(),
+					)
+				)
+					decisionWrites.push(request.url());
+			});
+			await page.goto(
+				`${origin}/workspace/${workspaceId}?workpiece=${encodeURIComponent(`gadget:${browseGadget.id}`)}&pane=workpiece`,
+			);
+			const review = page.locator("[data-card-review]");
+			const overview = review.getByRole("button", {
+				name: /See every open card:/,
+			});
+			await overview.waitFor();
+			assert.equal(
+				await overview.textContent(),
+				"2 waiting · 0 decided · 2 total",
+			);
+			await overview.click();
+			const waiting = review.locator("[data-card-review-waiting]");
+			await waiting.waitFor();
+			assert.equal(
+				await waiting.getByRole("button").count(),
+				3,
+				"Back plus both open cards",
+			);
+			for (const shortcut of [
+				"ArrowRight",
+				"ArrowLeft",
+				"u",
+				"n",
+				"d",
+				"s",
+				"k",
+				"1",
+				"z",
+			])
+				await review.press(shortcut);
+			assert(
+				await waiting.isVisible(),
+				"decision shortcuts leave the overview open",
+			);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				"read-only overview fits phone and desktop",
+			);
+			if (screenshots)
+				await page.screenshot({
+					path: `${screenshots}/card-review-waiting-${width}-${theme}.png`,
+					fullPage: true,
+				});
+			await waiting
+				.getByRole("button")
+				.filter({ hasText: /Social/ })
+				.click();
+			await review.locator("[data-card-review-card]").waitFor();
+			assert.equal(
+				decisionWrites.length,
+				0,
+				"surveying and opening a card records no decision, skip, action or sheet write",
+			);
+			for (const sheet of sheets) {
+				const unchanged = await rpc("osWorkspaces/outputs/get", {
+					outputId: sheet.output.id,
+				});
+				assert.equal(
+					unchanged.currentRevision.revision,
+					1,
+					"browsing preserves source revision",
+				);
+			}
 			await page.goto(`${origin}/work?view=feed`);
 			await page
 				.getByRole("link", {
@@ -353,7 +444,6 @@ try {
 				),
 				"Feed fits phone and desktop",
 			);
-			const screenshots = process.env.SOCIAL_CARDS_SCREENSHOTS;
 			if (screenshots) {
 				await mkdir(screenshots, { recursive: true });
 				await page.screenshot({
