@@ -24,6 +24,10 @@ import {
 	userPreferencesQueryOptions,
 } from "@/lib/os-query-options";
 
+(
+	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
 vi.mock("@/lib/api", async (original) => {
 	const actual = await original<typeof import("@/lib/api")>();
 	return {
