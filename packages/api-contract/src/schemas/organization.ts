@@ -440,7 +440,7 @@ export const OrganizationMetadataSchema = z.object({
 			"Operator-owned org, installation and repository kill controls for workstation GitHub App authority.",
 		),
 	webSearch: WebSearchPolicySchema.optional().describe(
-		"Public web search for tedis through the model gateway; off unless enabled.",
+		"Public web search for tedis through the configured provider; off unless enabled.",
 	),
 	jev: JevSettingsSchema.optional().describe(
 		"Bounded Jev ranking defaults enabled; explicit tenant and purpose denials remain authoritative.",

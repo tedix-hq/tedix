@@ -2,12 +2,15 @@ import { implement } from "@orpc/server";
 import { webSearchContract } from "@tedix/api-contract/contracts/web-search";
 import {
 	resolveWebSearchAccess,
+	WebSearchPolicySchema,
 	WEB_SEARCH_EXECUTE_SCOPE,
 } from "@tedix/api-contract/schemas/web-search";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { insertCallCosts } from "@tedix/db/queries/tedi-usage";
-import { runGatewayWebSearch } from "../../services/web-search";
+import { getConnectionProviderById } from "@tedix/db/queries/connection-providers";
+import { runWebSearch } from "../../services/web-search";
+import { resolveCredentialChain } from "./connections/policy-resolution";
 import { requireOrgId } from "../org-scope";
 import {
 	type BaseContext,
@@ -58,8 +61,24 @@ const search = searchOs.search.handler(async ({ input, context }) => {
 			message: "Web search is not enabled for this tedi.",
 		};
 	}
-	return runGatewayWebSearch({
+	return runWebSearch({
 		env: context.env,
+		policy: WebSearchPolicySchema.parse(organization.metadata?.webSearch),
+		resolveCredential: async (provider) => {
+			if (!organization.descopeTenantId) return null;
+			const registered = await getConnectionProviderById(
+				context.db,
+				`${provider}-api-key`,
+			);
+			if (!registered?.descopeAppId) return null;
+			const credential = await resolveCredentialChain(context, {
+				organizationId: orgId,
+				descopeTenantId: organization.descopeTenantId,
+				providerId: registered.descopeAppId,
+				scope: "tenant",
+			});
+			return credential.accessToken;
+		},
 		query: input.query,
 		limit: Math.min(input.limit ?? access.maxResults, access.maxResults),
 		organizationId: orgId,

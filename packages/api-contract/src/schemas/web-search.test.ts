@@ -4,7 +4,22 @@ import { ToolPolicySchema } from "./tedi";
 import {
 	resolveWebSearchAccess,
 	WEB_SEARCH_DEFAULT_RESULTS,
+	WebSearchPolicySchema,
 } from "./web-search";
+
+it("validates provider selection in organization metadata", () => {
+	for (const provider of ["tavily", "firecrawl", "ai-gateway"]) {
+		expect(
+			OrganizationMetadataSchema.parse({
+				webSearch: { enabled: true, provider, fallbackProvider: "firecrawl" },
+			}).webSearch,
+		).toMatchObject({ provider, fallbackProvider: "firecrawl" });
+	}
+	expect(
+		WebSearchPolicySchema.safeParse({ enabled: true, provider: "unknown" })
+			.success,
+	).toBe(false);
+});
 
 it("keeps web search off unless the organization enables it", () => {
 	expect(resolveWebSearchAccess({ organization: undefined })).toEqual({

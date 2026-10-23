@@ -22,12 +22,21 @@ export const WEB_SEARCH_MAX_URL_CHARS = 2048;
 /** Ledger source for the call-time receipt that gateway ingestion later prices. */
 export const WEB_SEARCH_COST_SOURCE = "provider-response:web-search";
 
+export const WebSearchProviderSchema = z.enum([
+	"tavily",
+	"firecrawl",
+	"ai-gateway",
+]);
+export type WebSearchProvider = z.infer<typeof WebSearchProviderSchema>;
+
 /**
  * Organization switch for the gateway web search tool. Absent means off: an
  * organization opts in, and each tedi may still opt out via its tool policy.
  */
 export const WebSearchPolicySchema = z.object({
 	enabled: z.boolean(),
+	provider: WebSearchProviderSchema.optional(),
+	fallbackProvider: WebSearchProviderSchema.optional(),
 	maxResults: z
 		.number()
 		.int()
