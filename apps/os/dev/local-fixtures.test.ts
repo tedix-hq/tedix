@@ -1433,7 +1433,7 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		}
 		expect(read("osWorkspaces/gadgets/workApps", { limit: 100 })).toMatchObject(
 			{
-				items: ["Projects", "Agents", "Office", "Outbound"].map((name) => ({
+				items: ["Projects", "Agents", "Outbound"].map((name) => ({
 					gadget: { name },
 				})),
 			},
