@@ -250,8 +250,8 @@ describe("gate retry budget", () => {
 	});
 });
 
-describe("weekly worktree gc", () => {
-	test("is due when the stamp is missing or a week old", () => {
+describe("daily worktree gc", () => {
+	test("is due when the stamp is missing or a day old", () => {
 		const stamp = join(
 			mkdtempSync(join(tmpdir(), "push-gc-")),
 			"worktree-gc.stamp",

@@ -20,10 +20,11 @@
  * Dead holders and tickets are removed. Single-lane locks also expire after
  * STALE_MS; living trains may need longer for fallback. No daemon.
  *
- * At most once a week, a successful push also starts `worktree:gc --apply` in
- * the background (log in <git-common-dir>/worktree-gc.log), so finished
- * worktrees are removed without anyone scheduling it. That command only
- * removes merged, clean, idle worktrees no process is using.
+ * At most once a day, a successful push also starts `worktree:gc --apply` in
+ * the background from the main checkout (log in
+ * <git-common-dir>/worktree-gc.log), so finished worktrees and merged branches
+ * are removed without anyone scheduling it. That command only removes merged,
+ * clean, idle worktrees no process is using.
  *
  *   bun run push              # queue, rebase, gate, push
  *   bun run push --dry-run    # same, but `git push --dry-run` (gates still run)
@@ -42,7 +43,7 @@ import {
 	writeSync,
 	closeSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { runCurrentQueue } from "./push-bootstrap";
 import {
 	finishLane,
@@ -59,7 +60,7 @@ import {
 export const STALE_MS = 30 * 60 * 1000;
 const POLL_MS = 2000;
 const MAX_RETRIES = 2;
-export const GC_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
+export const GC_EVERY_MS = 24 * 60 * 60 * 1000;
 
 export type Holder = {
 	pid: number;
@@ -381,7 +382,7 @@ function pushOnce(dryRun: boolean): {
 		: { outcome: "main-moved" };
 }
 
-/** True when the last weekly worktree gc (stamp mtime) is a week old or missing. */
+/** True when the last worktree gc (stamp mtime) is a day old or missing. */
 export function gcDue(stampFile: string, now = Date.now()): boolean {
 	try {
 		return now - statSync(stampFile).mtimeMs >= GC_EVERY_MS;
@@ -390,24 +391,31 @@ export function gcDue(stampFile: string, now = Date.now()): boolean {
 	}
 }
 
-function startWeeklyWorktreeGc(commonDir: string) {
+function startDailyWorktreeGc(commonDir: string) {
 	if (process.env.TEDIX_DEVIN_HEADLESS === "1") return;
 	const stamp = join(commonDir, "worktree-gc.stamp");
 	if (!gcDue(stamp)) return;
 	writeFileSync(stamp, `${new Date().toISOString()}\n`);
 	const log = openSync(join(commonDir, "worktree-gc.log"), "w");
 	const root = git(["rev-parse", "--show-toplevel"]).out;
+	// Run from the main checkout: the pushing worktree is often removed right
+	// after the push, which would leave the gc without a working directory.
 	spawn(
 		process.execPath,
-		["scripts/dev/worktree-gc.ts", "--apply", "--base", "origin/main"],
+		[
+			join(root, "scripts/dev/worktree-gc.ts"),
+			"--apply",
+			"--base",
+			"origin/main",
+		],
 		{
-			cwd: root,
+			cwd: dirname(commonDir),
 			detached: true,
 			stdio: ["ignore", log, log],
 		},
 	).unref();
 	console.log(
-		`push: weekly worktree gc started (log: ${join(commonDir, "worktree-gc.log")}).`,
+		`push: daily worktree gc started (log: ${join(commonDir, "worktree-gc.log")}).`,
 	);
 }
 
@@ -553,7 +561,7 @@ async function main() {
 			},
 		);
 		if (published) {
-			startWeeklyWorktreeGc(commonDir);
+			startDailyWorktreeGc(commonDir);
 		}
 		const result = readResult(resultTicket);
 		if (!result) throw new Error("train did not return this lane's result");
@@ -582,7 +590,7 @@ async function main() {
 					: "push: pushed to main.",
 			);
 			if (!dryRun) {
-				startWeeklyWorktreeGc(commonDir);
+				startDailyWorktreeGc(commonDir);
 			}
 			process.exit(0);
 		}
