@@ -31,9 +31,9 @@ import {
 	readLogStores,
 } from "../utils/log-store";
 import {
-	tediRuntimeEventColumns,
-	tediRuntimeEventsRunSource,
-} from "../utils/tedi-runtime-event-source";
+	unindexedKind,
+	unindexedKindIn,
+} from "../utils/tedi-runtime-event-predicates";
 import { searchAuditEvents } from "./audit";
 
 export type TediRuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
@@ -279,21 +279,53 @@ export async function listTediRuntimeEventsForRouter(
 			compare: input.order ? compareCreatedAtId(input.order) : undefined,
 			limit: input.limit,
 		});
+	// One statement per run id (one runId plus its dispatch-alias mappings; the
+	// sole caller builds [input.runId, ...mappedRunIds] for a single run): a
+	// `run_id IN (...)` list sends the planner to the tedi-only index under
+	// production statistics. The merged set is re-ordered and re-limited.
+	if (input.runIds) {
+		const { runIds, ...rest } = input;
+		const uniqueRunIds = [...new Set(runIds)];
+		if (uniqueRunIds.length === 1)
+			return listTediRuntimeEventsForRouter(db, {
+				...rest,
+				runId: uniqueRunIds[0],
+			});
+		return mergeLogStoreRows(
+			await Promise.all(
+				uniqueRunIds.map((runId) =>
+					listTediRuntimeEventsForRouter(db, { ...rest, runId }),
+				),
+			),
+			{
+				compare: input.order ? compareCreatedAtId(input.order) : undefined,
+				limit: input.limit,
+			},
+		);
+	}
+	const runScoped = Boolean(input.runId);
 	const conditions = [
 		eq(tediRuntimeEvents.tediId, input.tediId),
 		...(input.conversationId
 			? [eq(tediRuntimeEvents.conversationId, input.conversationId)]
 			: []),
-		// bound-params: one runId plus its dispatch-alias mappings (sole caller
-		// builds [input.runId, ...mappedRunIds] for a single run)
-		...(input.runIds
-			? [inArray(tediRuntimeEvents.runId, input.runIds)]
-			: input.runId
-				? [eq(tediRuntimeEvents.runId, input.runId)]
-				: []),
-		...(input.kind ? [eq(tediRuntimeEvents.kind, input.kind)] : []),
-		// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
-		...(input.kinds ? [inArray(tediRuntimeEvents.kind, input.kinds)] : []),
+		...(input.runId ? [eq(tediRuntimeEvents.runId, input.runId)] : []),
+		// A run read keeps kind out of index selection (see the predicate owner).
+		...(input.kind
+			? [
+					runScoped
+						? unindexedKind(input.kind)
+						: eq(tediRuntimeEvents.kind, input.kind),
+				]
+			: []),
+		...(input.kinds
+			? [
+					runScoped
+						? unindexedKindIn(input.kinds)
+						: // bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
+							inArray(tediRuntimeEvents.kind, input.kinds),
+				]
+			: []),
 		...(input.before
 			? [
 					or(
@@ -306,16 +338,9 @@ export async function listTediRuntimeEventsForRouter(
 				]
 			: []),
 	];
-	const runScoped = Boolean(input.runId || input.runIds);
 	const base = db
-		.select(tediRuntimeEventColumns())
-		.from(
-			runScoped
-				? tediRuntimeEventsRunSource({
-						byKind: Boolean(input.kind || input.kinds),
-					})
-				: tediRuntimeEvents,
-		)
+		.select()
+		.from(tediRuntimeEvents)
 		.where(and(...conditions));
 	const ordered =
 		input.order === "asc"

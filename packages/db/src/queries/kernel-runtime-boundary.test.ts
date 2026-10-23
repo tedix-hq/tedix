@@ -353,7 +353,7 @@ function captureStatements(sqlite: DatabaseSync): string[] {
 	const statements: string[] = [];
 	const prepare = sqlite.prepare.bind(sqlite);
 	sqlite.prepare = ((query: string) => {
-		statements.push(query);
+		if (/^\s*select/i.test(query)) statements.push(query);
 		return prepare(query);
 	}) as typeof sqlite.prepare;
 	return statements;
@@ -370,7 +370,7 @@ function queryPlan(sqlite: DatabaseSync, statement: string): string {
 }
 
 describe("run-scoped runtime event reads under production statistics", () => {
-	it("pins the context-wake receipt read to the run-and-kind index", async () => {
+	it("keeps the context-wake receipt read on the run index", async () => {
 		const { db, sqlite } = fixture();
 		seedProductionRuntimeEventStatistics(sqlite);
 		const statements = captureStatements(sqlite);
@@ -382,66 +382,78 @@ describe("run-scoped runtime event reads under production statistics", () => {
 			limit: 1,
 		});
 		const statement = statements.at(-1)!;
+		expect(statement).toContain('+"tedi_runtime_events"."organization_id" = ?');
 		expect(statement).toContain(
-			"INDEXED BY idx_tedi_runtime_events_run_kind_created",
+			'+"tedi_runtime_events"."kind" in (?, ?, ?, ?)',
 		);
-		// Local SQLite costs the unpinned statement differently from D1, where
-		// the same statistics produced `USING INDEX idx_tedi_runtime_events_org`.
-		expect(queryPlan(sqlite, statement)).toContain(
-			"USING INDEX idx_tedi_runtime_events_run_kind_created (tedi_id=? AND run_id=? AND kind=?)",
+		expect(queryPlan(sqlite, statement)).toMatch(
+			/USING INDEX idx_tedi_runtime_events_run(_kind)?_created \(tedi_id=\? AND run_id=\?\)/,
 		);
 	});
 
-	it("pins ordered run tails to the run index and leaves prefix scans free", async () => {
+	it("issues one run-index statement per run id and merges the tail", async () => {
 		const { db, sqlite } = fixture();
 		seedProductionRuntimeEventStatistics(sqlite);
+		sqlite.exec(`
+			INSERT INTO tedi_runtime_events (id, organization_id, tedi_id, kind, run_id, runtime_backend, created_at) VALUES
+				('e-1', 'org-1', 'tedi-1', 'message.completed', 'run-1', 'custom', '2026-07-31T10:00:00Z'),
+				('e-2', 'org-1', 'tedi-1', 'message.completed', 'run-2', 'custom', '2026-07-31T10:00:02Z'),
+				('e-3', 'org-1', 'tedi-1', 'message.completed', 'run-3', 'custom', '2026-07-31T10:00:03Z'),
+				('e-4', 'org-1', 'tedi-1', 'message.delta', 'run-2', 'custom', '2026-07-31T10:00:04Z');
+		`);
 		const statements = captureStatements(sqlite);
-		await listTediRuntimeEvents(db, {
+		const rows = await listTediRuntimeEvents(db, {
 			organizationId: "org-1",
 			tediId: "tedi-1",
-			runId: "run-1",
+			runIds: ["run-1", "run-2", "run-2"],
+			kinds: ["message.completed"],
 			order: "desc",
 			limit: 1,
 		});
-		expect(statements.at(-1)).toContain(
-			"INDEXED BY idx_tedi_runtime_events_run_created",
-		);
-		expect(queryPlan(sqlite, statements.at(-1)!)).toContain(
-			"USING INDEX idx_tedi_runtime_events_run_created (tedi_id=? AND run_id=?)",
-		);
-		await listTediRuntimeEvents(db, {
+		expect(rows.map((row) => row.id)).toEqual(["e-2"]);
+		expect(statements).toHaveLength(2);
+		for (const statement of statements) {
+			expect(statement).toContain('"tedi_runtime_events"."run_id" = ?');
+			expect(statement).not.toContain('"run_id" in (');
+			expect(queryPlan(sqlite, statement)).toMatch(
+				/USING INDEX idx_tedi_runtime_events_run(_kind)?_created \(tedi_id=\? AND run_id=\?\)/,
+			);
+		}
+		const routerRows = await listTediRuntimeEventsForRouter(db, {
 			tediId: "tedi-1",
-			runIds: ["run-1", "run-2"],
+			runIds: ["run-2", "run-3"],
 			kinds: ["message.completed"],
 			order: "desc",
-			limit: 16,
+			limit: 5,
 		});
-		expect(statements.at(-1)).toContain(
-			"INDEXED BY idx_tedi_runtime_events_run_kind_created",
-		);
+		expect(routerRows.map((row) => row.id)).toEqual(["e-3", "e-2"]);
+		expect(statements.slice(2)).toHaveLength(2);
+		for (const statement of statements.slice(2)) {
+			expect(statement).toContain('+"tedi_runtime_events"."kind" in (?)');
+			expect(statement).not.toContain('"run_id" in (');
+		}
+	});
+
+	it("leaves kind on the index for reads that are not run-scoped", async () => {
+		const { db, sqlite } = fixture();
+		const statements = captureStatements(sqlite);
 		await listTediRuntimeEvents(db, {
 			tediId: "tedi-1",
 			runIdPrefix: "run-",
+			kinds: ["message.completed"],
 			limit: 5,
 		});
-		expect(statements.at(-1)).not.toContain("INDEXED BY");
-		await listTediRuntimeEventsForRouter(db, {
-			tediId: "tedi-1",
-			runId: "run-1",
-			kinds: ["tool.completed", "tool.failed"],
-			order: "desc",
-			limit: 25,
-		});
-		expect(statements.at(-1)).toContain(
-			"INDEXED BY idx_tedi_runtime_events_run_kind_created",
-		);
+		expect(statements.at(-1)).toContain('"tedi_runtime_events"."kind" in (?)');
+		expect(statements.at(-1)).not.toContain("+");
 		await listTediRuntimeEventsForRouter(db, {
 			tediId: "tedi-1",
 			conversationId: "conversation-1",
+			kind: "message.completed",
 			order: "desc",
 			limit: 25,
 		});
-		expect(statements.at(-1)).not.toContain("INDEXED BY");
+		expect(statements.at(-1)).toContain('"tedi_runtime_events"."kind" = ?');
+		expect(statements.at(-1)).not.toContain("+");
 	});
 });
 
