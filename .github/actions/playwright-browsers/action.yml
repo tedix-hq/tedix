@@ -18,7 +18,9 @@ runs:
         set -euo pipefail
         version="$(bun run --cwd apps/os playwright --version | sed -n 's/^Version //p')"
         test -n "$version"
-        echo "key=playwright-${RUNNER_OS}-${RUNNER_ARCH}-${version}-${BROWSERS// /-}" >> "$GITHUB_OUTPUT"
+        # Browser builds depend on the OS release (including its ICU ABI).
+        # Share across runner image revisions, never across Ubuntu releases.
+        echo "key=playwright-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-unknown}-${version}-${BROWSERS// /-}" >> "$GITHUB_OUTPUT"
         # Several runner images are in service at once; the image version
         # comes last so a new image restores another image's packages.
         apt_prefix="playwright-apt-${ImageOS:-unknown}-${version}-${BROWSERS// /-}@"
