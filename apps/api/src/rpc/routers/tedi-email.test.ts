@@ -1,4 +1,6 @@
 import { createRouterClient } from "@orpc/server";
+import { RPCHandler } from "@orpc/server/fetch";
+import { TediEmailTargetNotFoundError } from "@tedix/db/queries/tedi-email/threads";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { tediEmailContractRouter } from "./tedi-email";
@@ -270,6 +272,96 @@ describe("inbound email mailbox acknowledgement", () => {
 		await expect(client().inboundEmail(input)).rejects.toThrow(
 			"mailbox storage unavailable",
 		);
+	});
+});
+
+describe("email mark failures", () => {
+	const target = {
+		tediId: "11111111-1111-4111-8111-111111111111",
+		threadId: "22222222-2222-4222-8222-222222222222",
+		read: true,
+	};
+	function markContext(): BaseContext {
+		return {
+			authType: "user",
+			db: {} as BaseContext["db"],
+			env: { ENVIRONMENT: "test" } as CloudflareEnv,
+			headers: new Headers(),
+			organizationId: "org-1",
+			url: new URL("https://api.tedix.test/mark"),
+			user: { sub: "user-1", permissions: ["tedis:update"] },
+		} as BaseContext;
+	}
+	function markClient() {
+		return createRouterClient(tediEmailContractRouter, {
+			context: markContext(),
+		});
+	}
+
+	beforeEach(() => {
+		vi.resetAllMocks();
+		queries.tedi.mockResolvedValue({
+			id: target.tediId,
+			organizationId: "org-1",
+		});
+	});
+
+	it.each([
+		new Error("D1 overloaded: private storage detail"),
+		new Error("Email message or thread not found"),
+		"event insert failed",
+	])("preserves unexpected query failure %s", async (failure) => {
+		queries.mark.mockRejectedValue(failure);
+		await expect(markClient().mark(target)).rejects.toBe(failure);
+	});
+
+	it.each([
+		{
+			failure: new TediEmailTargetNotFoundError(),
+			status: 404,
+			code: "NOT_FOUND",
+			message: "Email message or thread not found",
+		},
+		{
+			failure: new Error("D1 overloaded: private storage detail"),
+			status: 500,
+			code: "INTERNAL_SERVER_ERROR",
+			message: "Internal Server Error",
+		},
+		{
+			failure: "event insert failed: private storage detail",
+			status: 500,
+			code: "INTERNAL_SERVER_ERROR",
+			message: "Internal Server Error",
+		},
+	])(
+		"serializes $code with status $status",
+		async ({ failure, status, code, message }) => {
+			queries.mark.mockRejectedValue(failure);
+			const handler = new RPCHandler(tediEmailContractRouter);
+			const result = await handler.handle(
+				new Request("https://api.tedix.test/mark", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ json: target }),
+				}),
+				{ context: markContext() },
+			);
+			expect(result.response?.status).toBe(status);
+			expect(await result.response?.json()).toMatchObject({
+				json: { code, message },
+			});
+		},
+	);
+
+	it("returns the successful mark result", async () => {
+		const result = { ok: true, threadId: target.threadId, unreadCount: 0 };
+		queries.mark.mockResolvedValue(result);
+		await expect(markClient().mark(target)).resolves.toEqual(result);
+		expect(queries.mark).toHaveBeenCalledWith(expect.anything(), {
+			...target,
+			organizationId: "org-1",
+		});
 	});
 });
 

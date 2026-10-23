@@ -8,7 +8,7 @@ import {
 } from "../../schema/tedi-email";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { markTediEmail } from "./threads";
+import { markTediEmail, TediEmailTargetNotFoundError } from "./threads";
 
 const SCOPE = { tediId: "tedi-1", organizationId: "org-1" };
 
@@ -73,7 +73,7 @@ describe("mailbox-scoped email marking", () => {
 			const before = snapshot();
 			await expect(
 				markTediEmail(db, { ...SCOPE, ...target, read: true, archived: true }),
-			).rejects.toThrow("Email message or thread not found");
+			).rejects.toBeInstanceOf(TediEmailTargetNotFoundError);
 			expect(snapshot()).toEqual(before);
 		},
 	);
