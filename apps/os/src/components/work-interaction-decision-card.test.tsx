@@ -137,6 +137,8 @@ it("keeps a third-party access subject and its original next step", async () => 
 		prompt: "Change Cedar's membership to Member.",
 		metadata: {
 			laneHandoff: { nextClick: "Open Team and set Cedar to Member." },
+			cardContent:
+				"Open Team and set Cedar to Member. This request concerns Cedar, not you.",
 			cardPresentation: {
 				version: 2,
 				title: "Return your access to Member?",
@@ -168,6 +170,7 @@ it("keeps a third-party access subject and its original next step", async () => 
 	);
 	expect(host.textContent).toContain(request.subject);
 	expect(host.textContent).toContain("Open Team and set Cedar to Member.");
+	expect(host.textContent).toContain("This request concerns Cedar, not you.");
 	expect(host.textContent).not.toContain("Your account loses Admin access.");
 	expect(host.textContent).toContain(
 		"Done records that you completed this step.",
