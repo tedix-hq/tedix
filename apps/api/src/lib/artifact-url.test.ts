@@ -272,6 +272,24 @@ describe("streamArtifactObject", () => {
 		expect(res.headers.get("Content-Length")).toBe("10");
 	});
 
+	it("returns the requested suffix for a suffix Range request", async () => {
+		const env = { TEDI_R2_BUCKET: fakeBucket() };
+		const res = await streamArtifactObject(
+			env,
+			{
+				uri: "r2://tedix-tedi-production/5eed0024/artifacts/deliverable/clip.mp4",
+				mimeType: "video/mp4",
+			},
+			"bytes=-3",
+		);
+		expect(res.status).toBe(206);
+		expect(res.headers.get("Content-Range")).toBe(
+			`bytes ${body.length - 3}-${body.length - 1}/${body.length}`,
+		);
+		expect(res.headers.get("Content-Length")).toBe("3");
+		expect(await res.text()).toBe(body.slice(-3));
+	});
+
 	it("415 for a non-r2 uri, 404 for an unknown bucket", async () => {
 		const env = { TEDI_R2_BUCKET: fakeBucket() };
 		expect(
