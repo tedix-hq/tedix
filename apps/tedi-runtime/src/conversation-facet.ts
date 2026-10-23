@@ -83,6 +83,7 @@ import {
 	finalReportReason,
 } from "./facet-turn-stop";
 import { promptCacheKey, explicitPromptCacheConfig } from "./prompt-cache";
+import { MODEL_TURN_FAILED_PREFIX } from "./runtime-error-settlement";
 import { codeModeToolModelOutput } from "./codemode-model-output";
 import { computerReadToolModelOutput } from "./computer-read-model-output";
 import { computerExecutionModelOutput } from "./computer-execution-model-output";
@@ -1204,7 +1205,8 @@ export class ConversationFacet extends PiAgent<
 	}
 	protected piSettings() {
 		return {
-			retry: { enabled: true, maxRetries: 3, baseDelayMs: 100 },
+			// 2s, 4s, 8s: spans a short D1 or service-binding outage.
+			retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 },
 			compaction: conversationCompactionSettings(
 				this.selectedPiModel().contextWindow,
 			),
@@ -1453,13 +1455,14 @@ export class ConversationFacet extends PiAgent<
 		const terminal = await this.waitForSubmission(id);
 		await this.checkDelegationBudget();
 		const delegatedStop = this.state.budgetStop?.kind === "delegation_budget";
-		if (
-			(terminal.status !== "completed" || !terminal.messageId) &&
-			!delegatedStop
-		)
+		// Pi already spent its own retries, and a re-drive reuses this submission
+		// id, so it can only re-read the same failure. Seal it with the reason.
+		if (terminal.status === "failed" && !delegatedStop)
 			throw new Error(
-				terminal.error ?? "Native Pi submission has no owned answer",
+				`${MODEL_TURN_FAILED_PREFIX}${terminal.error ?? "no reason recorded"}`,
 			);
+		if (!terminal.messageId && !delegatedStop)
+			throw new Error("Native Pi submission has no owned answer");
 		const owned = terminal.messageId
 			? await this.session.getMessage(terminal.messageId)
 			: null;

@@ -9,6 +9,9 @@ import {
 	type BillingPolicyDeniedWorkflowResult,
 } from "./billing-reservation-client";
 
+/** A native Pi submission ended failed; replaying its id re-reads that failure. */
+export const MODEL_TURN_FAILED_PREFIX = "Model turn failed: ";
+
 export interface RuntimeErrorWorkflowResult {
 	text: string;
 	stopReason: "runtime_error";
@@ -25,6 +28,7 @@ export function runtimeErrorWorkflowResult(
 		message !==
 			"Interrupted tool effects require reconciliation before recovery" &&
 		message !== "Paid inference requires private native origin capture" &&
+		!message.startsWith(MODEL_TURN_FAILED_PREFIX) &&
 		!message.startsWith("Delegation preflight failed: ") &&
 		!message.startsWith("capability tool unavailable: ") &&
 		!message.startsWith("capability gap: ") &&

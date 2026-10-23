@@ -97,6 +97,8 @@ export class PiStorageFixture extends ConversationFacet {
 					)) ?? [];
 				requests.push(body);
 				await this.ctx.storage.put("fixture:requests", requests);
+				if (await this.ctx.storage.get("fixture:provider-rejects"))
+					throw new Error("fixture deployment rejected the request");
 				return requests.length;
 			}, this.fixtureToolName),
 			identity: {
@@ -145,6 +147,9 @@ export class PiStorageFixture extends ConversationFacet {
 		} catch (error) {
 			return error instanceof Error ? error.message : String(error);
 		}
+	}
+	async rejectProvider() {
+		await this.ctx.storage.put("fixture:provider-rejects", true);
 	}
 	async cancelRun(id: string) {
 		await this.ctx.storage.put(`cancel:${id}`, true);

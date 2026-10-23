@@ -12,6 +12,7 @@ import {
 for (const message of [
 	"delegated_work_authority_lost: run=run-1 attempt=attempt-1 work=work-1",
 	"cron_tool_failure",
+	"Model turn failed: Inference admission service temporarily unavailable: Database temporarily unavailable; retry shortly",
 	"Durable provider-call ceiling reached",
 	"Interrupted tool effects require reconciliation before recovery",
 	"Paid inference requires private native origin capture",
