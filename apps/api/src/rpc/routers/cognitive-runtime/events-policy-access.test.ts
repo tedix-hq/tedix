@@ -1,4 +1,7 @@
+import { call, os } from "@orpc/server";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { type BaseContext, withAuth, createScopeMiddleware } from "../../orpc";
+import { internalDelegationContext } from "../kernel-runtime/delegation-context";
 import {
 	TEDI_ACCESS_CASES,
 	TEDI_ACCESS_TARGET,
@@ -66,5 +69,37 @@ describe("cognitive-runtime requireTediAccess matrix", () => {
 		} else {
 			await expect(call).rejects.toMatchObject({ code: outcome });
 		}
+	});
+});
+
+describe("Home dispatch after a tedi approval", () => {
+	it.each([
+		{ organizationId: "org-target", tediId: "tedi-target", allowed: true },
+		{ organizationId: "org-other", tediId: "tedi-target", allowed: false },
+		{ organizationId: "org-target", tediId: "tedi-missing", allowed: false },
+	])("authorizes $tediId in $organizationId", async (row) => {
+		const approver = tediAccessContext({
+			env: { ENVIRONMENT: "production" } as CloudflareEnv,
+			authType: "service-binding",
+			serviceBindingPrincipal: "mcp-edge",
+			organizationId: row.organizationId,
+			tediId: "tedi-approver",
+			tediScopes: ["platform:admin"],
+			headers: new Headers({ "X-Tedix-Tedi-Id": "tedi-approver" }),
+		});
+		const guarded = os
+			.$context<BaseContext>()
+			.use(withAuth)
+			.use(createScopeMiddleware("tedis:write"))
+			.handler(({ context }) => requireTediAccess(context, row.tediId));
+		const context = internalDelegationContext(approver, row.organizationId);
+		const result = call(guarded, undefined, { context });
+		if (row.allowed) {
+			await expect(result).resolves.toMatchObject({ id: row.tediId });
+		} else {
+			await expect(result).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+		expect(context.tediId).toBeUndefined();
+		expect(context.tediScopes).toEqual(["tedis:write"]);
 	});
 });
