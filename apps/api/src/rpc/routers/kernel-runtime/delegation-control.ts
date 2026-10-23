@@ -18,6 +18,7 @@ import {
 } from "../kernel/delegation-approver";
 import {
 	type KernelRuntimeRun,
+	findKernelRuntimeRunByChild,
 	getKernelRuntimeRun,
 	getKernelRuntimeRunStatus,
 } from "@tedix/db/queries/kernel-runtime-runs";
@@ -88,11 +89,29 @@ export const readRunEventsRoute = authed.readRunEvents
 		// org scope alone would expose the event stream of runs in restricted
 		// Home conversations to any org caller with the read scope.
 		let runRow: KernelRuntimeRun | undefined;
+		let childRunId = input.childRunId;
 		try {
 			runRow = await getKernelRuntimeRun(context.db, {
 				id: input.runId,
 				organizationId,
 			});
+			// Delegated child run ids lead with the tedi id; a caller holding only
+			// the child id reads it through the parent Home run that owns it.
+			const delegatedTediId =
+				input.delegatedTediId ?? input.runId.split(":", 1)[0];
+			if (
+				!runRow &&
+				!childRunId &&
+				delegatedTediId &&
+				delegatedTediId !== input.runId
+			) {
+				runRow = await findKernelRuntimeRunByChild(context.db, {
+					organizationId,
+					delegatedTediId,
+					childRunId: input.runId,
+				});
+				if (runRow) childRunId = input.runId;
+			}
 		} catch (error) {
 			if (shouldFailSoftHomeRunSetRead(error)) {
 				console.warn("[kernelRuntime] run events read failed", {
@@ -107,6 +126,7 @@ export const readRunEventsRoute = authed.readRunEvents
 		if (!runRow) {
 			throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
 		}
+		const homeRunId = runRow.id;
 		await ensureHomeConversationAccess(context, {
 			conversationId: runRow.conversationId,
 			organizationId,
@@ -117,13 +137,13 @@ export const readRunEventsRoute = authed.readRunEvents
 		// Once authorized, read the child's canonical tedi_runtime_events ledger —
 		// kernel_runtime_events only contains parent projections and cannot provide
 		// answer/tool/approval/terminal parity with the live Agent stream.
-		const childRef = input.childRunId
+		const childRef = childRunId
 			? resolveDelegatedChildRunRef(runRow, {
-					childRunId: input.childRunId,
+					childRunId,
 					delegatedTediId: input.delegatedTediId,
 				})
 			: null;
-		if (input.childRunId && !childRef) {
+		if (childRunId && !childRef) {
 			throw createError(
 				ErrorCodes.NOT_FOUND,
 				"Delegated child run not found for Home run",
@@ -207,7 +227,7 @@ export const readRunEventsRoute = authed.readRunEvents
 					rows = (
 						await listKernelRuntimeEvents(context.db, {
 							organizationId,
-							runId: input.runId,
+							runId: homeRunId,
 							order: "asc",
 						})
 					).map(kernelStreamRow);
@@ -216,14 +236,14 @@ export const readRunEventsRoute = authed.readRunEvents
 					const [parentRows, parentReceiptRows] = await Promise.all([
 						listKernelRuntimeEvents(context.db, {
 							organizationId,
-							runId: input.runId,
+							runId: homeRunId,
 							order: "asc",
 							limit: pageLimit,
 							offset: start,
 						}),
 						listKernelRuntimeEvents(context.db, {
 							organizationId,
-							runId: input.runId,
+							runId: homeRunId,
 							kinds: RUN_EVENT_RECEIPT_KINDS,
 							order: "desc",
 							limit: RUN_EVENT_RECEIPT_ROWS,
@@ -234,7 +254,7 @@ export const readRunEventsRoute = authed.readRunEvents
 				}
 				if (!childRef) {
 					const freshStatus = await getKernelRuntimeRunStatus(context.db, {
-						id: input.runId,
+						id: homeRunId,
 						organizationId,
 					});
 					if (freshStatus) currentRowStatus = freshStatus;
@@ -243,15 +263,15 @@ export const readRunEventsRoute = authed.readRunEvents
 				if (shouldFailSoftHomeRunSetRead(error)) {
 					console.warn("[kernelRuntime] run events read failed", {
 						organizationId,
-						homeRunId: input.runId,
+						homeRunId,
 						error: errorMessage(error),
 					});
 					return {
 						events: [],
 						stream: {
-							streamId: input.childRunId
-								? `home:${input.runId}:child:${input.childRunId}`
-								: `home:${input.runId}`,
+							streamId: childRunId
+								? `home:${homeRunId}:child:${childRunId}`
+								: `home:${homeRunId}`,
 							offset: input.offset ?? 0,
 							nextOffset: input.offset ?? 0,
 							closed: false,
@@ -263,17 +283,17 @@ export const readRunEventsRoute = authed.readRunEvents
 			const page = input.tail
 				? childRef
 					? buildSelectedRunEventStreamPage(rows, receiptRows, {
-							runId: input.runId,
+							runId: homeRunId,
 							start: tailStart ?? 0,
 							childRunId: childRef.childRunId,
 						})
 					: buildRunEventStreamPage(rows, {
-							runId: input.runId,
+							runId: homeRunId,
 							tail: input.tail,
 							rowStatus: currentRowStatus,
 						})
 				: buildSelectedRunEventStreamPage(rows, receiptRows, {
-						runId: input.runId,
+						runId: homeRunId,
 						start: input.offset ?? 0,
 						childRunId: childRef?.childRunId,
 						rowStatus: childRef ? undefined : currentRowStatus,
@@ -294,7 +314,7 @@ export const readRunEventsRoute = authed.readRunEvents
 				// deterministic submission.settled fence and close immediately.
 				settlementRepairAttempted = true;
 				await settleKernelSubmission(context.db, {
-					runId: input.runId,
+					runId: homeRunId,
 					organizationId,
 					conversationId: runRow.conversationId,
 					outcome: submissionOutcome,

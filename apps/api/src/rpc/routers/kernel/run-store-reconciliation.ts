@@ -18,6 +18,7 @@ import {
 } from "../../../kernel/runtime-submission-bridge";
 import { type BaseContext } from "../../orpc";
 import { readSingleChildRunSummary } from "./child-run-reads";
+import { stalledChildRunStatus } from "./child-run-stall";
 import {
 	disposeDelegationWorkItem,
 	disposeTerminalDirectDelegationWorkItem,
@@ -188,9 +189,24 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				});
 			}
 			if (!row.delegatedTediId || !row.childRunId) return row;
-			const childRunStatus = input.childRunStatuses.get(
-				childRunStatusKey(row.delegatedTediId, row.childRunId),
-			);
+			const childKey = childRunStatusKey(row.delegatedTediId, row.childRunId);
+			const observedChildRunStatus = input.childRunStatuses.get(childKey);
+			// A child past its delegation deadline that never settled has lost its
+			// turn; settle it failed through the ordinary terminal path below.
+			const stalled =
+				observedChildRunStatus &&
+				!isTerminalHomeRunStatus(row.status as TediRunStatus)
+					? stalledChildRunStatus(row, observedChildRunStatus)
+					: null;
+			if (stalled) {
+				console.warn("[kernelRuntime] delegated child stalled past deadline", {
+					runId: row.id,
+					childRunId: row.childRunId,
+					childRunLatestEventAt: observedChildRunStatus?.childRunLatestEventAt,
+				});
+				input.childRunStatuses.set(childKey, stalled);
+			}
+			const childRunStatus = stalled ?? observedChildRunStatus;
 			// Post-cancel child reconcile: a parent already `canceled` with a linked
 			// child means the dispatch may have slipped through the cancel race —
 			// stop the still-live child via the same mechanism cancelKernelRunCore
