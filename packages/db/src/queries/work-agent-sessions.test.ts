@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { projects } from "../schema/projects";
+import { organizations } from "../schema/organizations";
+import { getOrganizationSessionProjectBindings } from "./organizations";
 import { workAgentSessions } from "../schema/work-agent-sessions";
 import { workAttempts, workItems } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
@@ -20,6 +22,39 @@ const OTHER_USER = "user-grace";
 const T0 = "2026-10-06T10:00:00.000Z";
 const T1 = "2026-10-06T10:05:00.000Z";
 const T2 = "2026-10-06T10:10:00.000Z";
+
+it("validates a full prefix configuration inside the organization and below D1's parameter ceiling", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys = OFF");
+	for (const table of [organizations, projects]) sqlite.exec(schemaDdl(table));
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const bindings = Array.from({ length: 100 }, (_, i) => ({
+		prefix: `TOPIC ${i}`,
+		projectId: `project-${i}`,
+	}));
+	await db.insert(organizations).values({
+		id: ORG,
+		name: "Example",
+		slug: "example",
+		metadata: { sessionProjectBindings: bindings },
+	});
+	for (const [i, binding] of bindings.entries())
+		await db.insert(projects).values({
+			id: binding.projectId,
+			orgId: i === 99 ? OTHER_ORG : ORG,
+			name: binding.prefix,
+			key: binding.prefix,
+			createdAt: T0,
+		});
+	const result = await getOrganizationSessionProjectBindings(db, ORG);
+	expect(result).toHaveLength(99);
+	expect(result.some((binding) => binding.projectId === "project-99")).toBe(
+		false,
+	);
+	expect(
+		await getOrganizationSessionProjectBindings(db, "missing-org"),
+	).toEqual([]);
+});
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");

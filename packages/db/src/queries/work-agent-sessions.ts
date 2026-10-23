@@ -199,6 +199,9 @@ export async function listWorkAgentSessions(
 		.select({
 			...getColumns(workAgentSessions),
 			workItemTitle: workItems.title,
+			workItemProjectId: sql<string | null>`${workItems.projectId}`.as(
+				"work_item_project_id",
+			),
 		})
 		.from(workAgentSessions)
 		.leftJoin(
@@ -228,6 +231,7 @@ const SESSION_KEY_CHUNK = 80;
 
 export interface WorkProjectSessionReport extends WorkAgentSessionRow {
 	workItemTitle: string | null;
+	workItemProjectId?: string | null;
 }
 
 export interface WorkProjectAttemptSession {
