@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workEvents } from "../../schema/work-items";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 
 async function delegationEventId(key: string): Promise<string> {
 	const hex = await sha256Hex(key);
@@ -132,19 +133,23 @@ export async function readDelegationAutonomyLessons(
 	db: DbQueryClient,
 	orgId: string,
 ): Promise<string[]> {
-	const rows = await db
-		.selectDistinct({
-			classId: sql<string>`json_extract(${workEvents.payload}, '$.classId')`,
-		})
-		.from(workEvents)
-		.where(
-			and(
-				eq(workEvents.orgId, orgId),
-				eq(workEvents.eventType, "delegation.autonomy.corrected"),
-				eq(workEvents.actorType, "user"),
-			),
-		)
-		.limit(101);
+	const rows = await withTransientD1ReadRetry(
+		"delegation-autonomy-lessons",
+		async () =>
+			await db
+				.selectDistinct({
+					classId: sql<string>`json_extract(${workEvents.payload}, '$.classId')`,
+				})
+				.from(workEvents)
+				.where(
+					and(
+						eq(workEvents.orgId, orgId),
+						eq(workEvents.eventType, "delegation.autonomy.corrected"),
+						eq(workEvents.actorType, "user"),
+					),
+				)
+				.limit(101),
+	);
 	if (rows.length > 100)
 		throw new Error("Autonomy lesson inventory exceeds limit");
 	return rows

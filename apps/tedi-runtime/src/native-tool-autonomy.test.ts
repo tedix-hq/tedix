@@ -33,6 +33,19 @@ assert.equal(
 	(await nativeToolAutonomy({ ...base, tool: "browser_execute" })).autoApprove,
 	false,
 );
+for (const command of [
+	"send_email",
+	"publish_post",
+	"rm /workspace/records.json",
+]) {
+	const decision = await nativeToolAutonomy({
+		...base,
+		tool: "exec",
+		args: { command },
+	});
+	assert.equal(decision.autoApprove, false);
+	assert.equal(decision.critical, true);
+}
 assert.equal(
 	(
 		await nativeToolAutonomy({
