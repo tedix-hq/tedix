@@ -355,9 +355,12 @@ describe("tedix hooks session-start", () => {
 			projectId: "project-id",
 		});
 		const text = context(output);
-		expect(text).toContain("activation alone does not authorize creating Work");
-		expect(text).toContain("user-authorized repo task");
-		expect(text).toContain("bookkeeping/admission under repo policy");
+		expect(text).toContain(
+			"Before you change files for a user-authorized repo task, claim its Work Item",
+		);
+		expect(text).toContain("--project project-id -w tedix");
+		expect(text).toContain("tedix work start <id> -w tedix");
+		expect(text).toContain("the pre-push gate rejects a commit without it");
 		expect(text).toContain("do not re-ask permission for that task");
 		expect(text).toContain("ambiguous target or reserved decision");
 		expect(text).toContain(

@@ -246,7 +246,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 		);
 		if (!workId)
 			lines.push(
-				"No selected Work. This hook only reads; activation alone does not authorize creating Work. For a user-authorized repo task, use tedix-session-guide for bounded discovery and required Work bookkeeping/admission under repo policy; do not re-ask permission for that task. Ask only for an ambiguous target or reserved decision.",
+				`No selected Work. Before you change files for a user-authorized repo task, claim its Work Item: find it (tedix work find "<words>" -w ${workspace}) or create it (tedix work create "<title>" --kind coding --project ${binding.projectId ?? "<project>"} -w ${workspace}), then tedix work start <id> -w ${workspace}. Every commit carries Work-Item: <id>; the pre-push gate rejects a commit without it. This hook only reads; do not re-ask permission for that task. Ask only for an ambiguous target or reserved decision.`,
 			);
 	}
 

@@ -77,6 +77,10 @@ import {
 	selectPushRangeFiles,
 } from "./push-range-selection.mjs";
 import { workerConfigShapeWarning } from "./worker-config-shape.mjs";
+import {
+	missingWorkItemTrailers,
+	workItemTrailerError,
+} from "./work-item-trailers.mjs";
 
 /** Network availability never overrides the offline per-config trailer decision. */
 function checkOpsOverlay(repoRoot, ranges) {
@@ -708,6 +712,11 @@ if (!fileArguments?.length) {
 		warnings.push(...overlay.warnings);
 		if (overlay.errors.length) {
 			console.error(overlay.errors.join("\n"));
+			process.exit(1);
+		}
+		const unlinked = missingWorkItemTrailers(repoRoot, shapeRanges);
+		if (unlinked.length) {
+			console.error(workItemTrailerError(unlinked));
 			process.exit(1);
 		}
 	}
