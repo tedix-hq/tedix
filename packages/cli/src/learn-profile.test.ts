@@ -147,6 +147,23 @@ describe("profile summaries", () => {
 		expect(text).toContain("42");
 	});
 
+	it("keeps a held link whole when the limit cuts through its placeholder", () => {
+		const link = `https://os.tedix.dev/work/items/${workId}`;
+		// The held-link marker sits at offset 92..95; a limit of 94 lands the
+		// cut inside it.
+		const text = `${"Review the export plan ".repeat(4)}${link} remains`;
+		const out = publicText(text, 94);
+		expect(out).toContain(link);
+		expect(out).not.toContain("\x01");
+		expect(publicText(`${text}${" extra".repeat(100)}`, 60)).not.toContain(
+			"\x01",
+		);
+	});
+
+	it("never emits control characters present in the source text", () => {
+		expect(publicText("a\x01b \x010\x01 c")).not.toContain("\x01");
+	});
+
 	it("digests the title, typed asks, commits and ending", async () => {
 		const session = await facts();
 		session.commits = [{ sha: "abc1234", subject: "feat: billing export" }];
