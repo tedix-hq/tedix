@@ -75,7 +75,7 @@ function gitLsFiles(): string[] {
 		throw new Error(result.stderr || "git ls-files failed");
 	return result.stdout
 		.split("\n")
-		.filter(Boolean)
+		.filter(isSourceTextFile)
 		.filter((path) => existsSync(path) && statSync(path).isFile())
 		.sort();
 }
@@ -181,7 +181,7 @@ for (const dir of discoverExportingPackageDirs()) {
 	packages.push({ dir, name, exportKeys });
 }
 
-const trackedSourceFiles = gitLsFiles().filter(isSourceTextFile);
+const trackedSourceFiles = gitLsFiles();
 for (const file of trackedSourceFiles) {
 	if (IMPORT_SOURCE_FIXTURE_FILES.has(file)) continue;
 	const source = readFileSync(file, "utf8");
