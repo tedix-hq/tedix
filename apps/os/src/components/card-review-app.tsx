@@ -95,6 +95,7 @@ import {
 } from "@/lib/os-query-options";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import { decisionText } from "@/shared/os-copy";
+import { relativeTime } from "@/lib/time";
 import { useOsLocale } from "@/lib/use-os-locale";
 import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
 import { WorkDecisionCard } from "@/components/work-decision-card";
@@ -396,6 +397,7 @@ export function CardReviewApp({
 			inDeck
 				? reviewable.filter(
 						(card) =>
+							card.key === focusCardKey ||
 							routeFactoryCard(card, routing, now, learningModel.data)
 								.destination === "deck",
 					)
@@ -430,9 +432,17 @@ export function CardReviewApp({
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
 	const [departingCard, setDepartingCard] = useState<ReviewCard | null>(null);
+	// The Waiting list browses without a skip: browseKey pins the card on
+	// screen and never writes a learning choice.
+	const [browsing, setBrowsing] = useState(false);
+	const [browseKey, setBrowseKey] = useState<string | null>(null);
 	const card =
 		departingCard ??
-		(focusCardKey ? queue.find((row) => row.key === focusCardKey) : queue[0]) ??
+		(focusCardKey
+			? queue.find((row) => row.key === focusCardKey)
+			: browseKey
+				? (queue.find((row) => row.key === browseKey) ?? queue[0])
+				: queue[0]) ??
 		null;
 	const source = card ? sources[card.sourceIndex] : undefined;
 	const actionLabel = card && source ? doItLabel(source, card) : null;
@@ -916,6 +926,18 @@ export function CardReviewApp({
 			return;
 		}
 		const key = event.key.toLowerCase();
+		if (browsing) {
+			if (key === "w" || event.key === "Escape") {
+				setBrowsing(false);
+				event.preventDefault();
+			}
+			return;
+		}
+		if (key === "w" && inChannel.length > 0) {
+			setBrowsing(true);
+			event.preventDefault();
+			return;
+		}
 		const digit = Number.parseInt(key, 10);
 		if (key === "arrowright" || key === "u") void decide("useful");
 		else if (key === "arrowleft" || key === "n") void decide("not_useful");
@@ -1089,15 +1111,16 @@ export function CardReviewApp({
 					</Text>
 				)}
 				{inChannel.length > 0 && (
-					<Text
-						as="span"
-						role="label"
-						tone="secondary"
-						aria-live="polite"
+					<Button
+						size="sm"
+						variant="ghost"
+						aria-label={decisionText("See every open card")}
+						aria-pressed={browsing}
 						data-card-review-progress
+						onClick={() => setBrowsing(true)}
 					>
 						{queue.length} of {inChannel.length} left
-					</Text>
+					</Button>
 				)}
 			</header>
 			<FactoryAgentHandoff
@@ -1150,6 +1173,16 @@ export function CardReviewApp({
 				<Skeleton className="h-80 rounded-2xl" role="status">
 					<span className="sr-only">{decisionText("Loading cards…")}</span>
 				</Skeleton>
+			) : browsing ? (
+				<WaitingList
+					queue={queue}
+					now={now}
+					onOpen={(key) => {
+						setBrowseKey(key);
+						setBrowsing(false);
+					}}
+					onBack={() => setBrowsing(false)}
+				/>
 			) : card && source ? (
 				<>
 					{needsAccess?.cardKey === card.key && (
@@ -1263,8 +1296,9 @@ export function CardReviewApp({
 								<Kbd>D</Kbd> do it ·{" "}
 							</>
 						)}
-						<Kbd>S</Kbd> snooze · <Kbd>K</Kbd> skip · <Kbd>1</Kbd>–
-						<Kbd>{allChips.length}</Kbd> reasons · <Kbd>Z</Kbd> undo
+						<Kbd>S</Kbd> snooze · <Kbd>K</Kbd> skip · <Kbd>W</Kbd> waiting ·{" "}
+						<Kbd>1</Kbd>–<Kbd>{allChips.length}</Kbd> reasons · <Kbd>Z</Kbd>{" "}
+						undo
 					</Text>
 					{source.doIt === "approve" && actionLabel !== null && (
 						<Text
@@ -1305,6 +1339,74 @@ export function CardReviewApp({
 				/>
 			)}
 		</div>
+	);
+}
+
+/**
+ * Every open card at once, read-only. Tapping a row puts that card on screen
+ * without the skip a K would have written; Back returns to the queue's top.
+ */
+function WaitingList({
+	queue,
+	now,
+	onOpen,
+	onBack,
+}: {
+	queue: readonly ReviewCard[];
+	now: Date;
+	onOpen: (cardKey: string) => void;
+	onBack: () => void;
+}) {
+	return (
+		<section
+			aria-label={decisionText("Waiting")}
+			data-card-review-waiting
+			className="flex flex-col gap-2"
+		>
+			<div className="flex items-center justify-between gap-2">
+				<Text as="h3" role="section" className="m-0">
+					{decisionText("Everything waiting")}
+				</Text>
+				<Button size="sm" variant="ghost" onClick={onBack}>
+					{decisionText("Back")}
+				</Button>
+			</div>
+			{queue.map((item) => (
+				<button
+					key={item.key}
+					type="button"
+					onClick={() => onOpen(item.key)}
+					className="flex w-full min-w-0 flex-col gap-1 rounded-2xl border border-kumo-line bg-kumo-elevated p-4 text-left transition-colors hover:bg-kumo-tint"
+				>
+					<span className="flex min-w-0 items-baseline justify-between gap-2">
+						<Text
+							as="span"
+							role="caption"
+							tone="secondary"
+							className="truncate"
+						>
+							{`${item.sourceLabel} · ${item.sheetTitle} · #${item.number}`}
+						</Text>
+						<Text
+							as="span"
+							role="caption"
+							tone="secondary"
+							className="shrink-0"
+						>
+							{relativeTime(item.runCreatedAt, now)}
+						</Text>
+					</span>
+					<Text as="span" className="min-w-0">
+						{item.action || plainWhy(item.why) || item.sourceText}
+					</Text>
+					{item.timing && (
+						<Text as="span" role="caption" tone="secondary">
+							{OS_COPY.feed.waiting}: {item.timing}
+						</Text>
+					)}
+				</button>
+			))}
+		</section>
 	);
 }
 

@@ -37,6 +37,24 @@ export interface DecisionDeckController {
 	remaining: number;
 	/** Upcoming cards, so a card the person names can be shown first. */
 	queue?: readonly { id: string; label: string }[];
+	/**
+	 * Every card still waiting on the person — Deck decisions, approvals and
+	 * open factory cards from every card sheet — in the order the Deck ranks
+	 * them. Answers "what is waiting for me?" without deciding anything.
+	 */
+	waiting?: readonly {
+		id: string;
+		kind: string;
+		askKind: string;
+		label: string;
+		source: string;
+		project: string;
+		requestedAt?: string;
+		deadline: string | null;
+		overdue: boolean;
+		expired: boolean;
+		costOfWaiting: string | null;
+	}[];
 	agent?: () => DeckCardAgentHandle | null;
 	notUseful?: () => DeckNotUsefulHandle | null;
 	/** The Deck's Later control for the card on screen, when it offers one. */
@@ -46,6 +64,7 @@ export interface DecisionDeckController {
 }
 
 const READ = "get_decision_deck_card";
+const LIST = "list_decision_deck_cards";
 const SHOW = "set_decision_deck_card";
 const OPTION = "set_decision_card_option";
 
@@ -139,6 +158,26 @@ export function buildDecisionDeckWebMcpTools(
 			execute: async () => {
 				try {
 					return webMcpResult(snapshot(current()));
+				} catch {
+					return webMcpError(
+						"The Decision deck is unavailable. Try again in a moment.",
+					);
+				}
+			},
+		},
+		{
+			name: LIST,
+			description:
+				"List every card still waiting for the person — Deck decisions, Work and organization approvals, and open factory cards from every card sheet — each with its id, kind, what it asks, its source, how long it has waited and the cost of waiting. Read-only: it answers and changes none of them.",
+			annotations: { readOnlyHint: true, untrustedContentHint: true },
+			inputSchema: {
+				type: "object",
+				properties: {},
+				additionalProperties: false,
+			},
+			execute: async () => {
+				try {
+					return webMcpResult({ cards: current().waiting ?? [] });
 				} catch {
 					return webMcpError(
 						"The Decision deck is unavailable. Try again in a moment.",
@@ -373,6 +412,7 @@ export function buildDecisionDeckPageChatExtras(
 		String(optionId ?? "");
 	return {
 		[READ]: { describe: () => null },
+		[LIST]: { describe: () => null },
 		[SHOW]: { describe: () => "showed the card" },
 		set_decision_card_answer: {
 			describe: () =>

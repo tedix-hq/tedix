@@ -1,6 +1,7 @@
 import { useDeckDecision } from "./use-deck-decision";
 import { projectDecisionDeck } from "./decision-deck-projection";
 import { DecisionDeckToolbar } from "./decision-deck-toolbar";
+import { DeckWaitingList } from "./decision-deck-waiting";
 import { useCardSourceFilter } from "./use-card-source-filter";
 import {
 	ALL_CARD_SOURCES,
@@ -261,6 +262,7 @@ function DecisionDeckContent({
 			.catch(() => {});
 	}, [profile.data?.id, client]);
 	const practiceMode = mode === "practice";
+	const waitingMode = mode === "waiting";
 	const { rows, rank, compare } = projectDecisionDeck({
 		config,
 		mode,
@@ -270,6 +272,23 @@ function DecisionDeckContent({
 		now,
 		timeZone,
 	});
+	// The agent tool answers "what is waiting?" in any mode, so the overview is
+	// projected even while another view is on screen.
+	const waitingRows = (
+		waitingMode
+			? rows
+			: projectDecisionDeck({
+					config,
+					mode: "waiting",
+					decisions,
+					history: [],
+					learningModel: learningModel.data,
+					now,
+					timeZone,
+				}).rows
+	)
+		.sort(compare)
+		.filter((row) => !optimisticIds.includes(row.id));
 	const matchesFilters = (row: {
 		origin?: CardOrigin;
 		askKind: string;
@@ -324,10 +343,21 @@ function DecisionDeckContent({
 		project !== "all" ||
 		urgency !== "all" ||
 		search !== "";
-	const selected =
-		mode === "decide" && focusCard
+	const selected = waitingMode
+		? undefined
+		: mode === "decide" && focusCard
 			? filtered.find((row) => row.id === focusCard)
 			: filtered[Math.min(index, Math.max(0, filtered.length - 1))];
+	// A factory card routing kept out of the decide queue can still be opened
+	// from the Waiting list: show it through the same in-deck review view.
+	const focusedFactoryKey =
+		mode === "decide" && focusCard?.startsWith("factory:")
+			? focusCard.slice("factory:".length)
+			: null;
+	const focusedFactoryCard =
+		focusedFactoryKey !== null &&
+		!selected &&
+		decisions.factoryWaiting.some((card) => card.key === focusedFactoryKey);
 	const selectedFocus = mode === "history" ? undefined : selected;
 	const railOpenedBeforeDecision = selected
 		? (rail?.openedBefore(selected.id) ?? false)
@@ -604,6 +634,19 @@ function DecisionDeckContent({
 				id: row.id,
 				label: row.label.slice(0, 160),
 			})),
+			waiting: waitingRows.map((row) => ({
+				id: row.id,
+				kind: row.kind,
+				askKind: row.askKind,
+				label: row.label.slice(0, 160),
+				source: row.sourceLabel,
+				project: projectLabel(row.project) ?? row.project,
+				requestedAt: row.requestedAt,
+				deadline: row.deadline,
+				overdue: row.overdue,
+				expired: row.expired ?? false,
+				costOfWaiting: row.costOfWaiting,
+			})),
 			agent: agentSlots.card.get,
 			notUseful: agentSlots.notUseful.get,
 			later,
@@ -794,6 +837,7 @@ function DecisionDeckContent({
 					factories={factories}
 				/>
 				{progress.total > 0 &&
+					!waitingMode &&
 					(selected ||
 						(!decisions.pending &&
 							!decisions.failed &&
@@ -865,7 +909,19 @@ function DecisionDeckContent({
 					: decisions.pending || learningQuery.isPending) &&
 				!(decisions.failed || learningQuery.isError) ? (
 					<DeckCardSkeleton />
-				) : mode === "decide" && selected?.id.startsWith("factory:") ? (
+				) : waitingMode ? (
+					<DeckWaitingList
+						rows={filtered}
+						onOpen={(cardId) => {
+							setMode("decide");
+							setIndex(0);
+							setFocusCard(cardId);
+						}}
+						projectLabel={projectLabel}
+						now={now}
+					/>
+				) : mode === "decide" &&
+				  (selected?.id.startsWith("factory:") || focusedFactoryCard) ? (
 					<div className="fd-deck-current">
 						<Suspense fallback={<DeckCardSkeleton />}>
 							{factories.pending ? (
@@ -875,12 +931,14 @@ function DecisionDeckContent({
 									value={optimisticDecision}
 								>
 									<FactoryCards
-										key={selected.id}
+										key={selected?.id ?? focusCard}
 										inDeck
 										routing={config.routing}
 										classPolicies={config.classPolicies}
 										config={{ version: 1, sources: factories.sources }}
-										focusCardKey={selected.id.slice("factory:".length)}
+										focusCardKey={(selected?.id ?? focusCard)!.slice(
+											"factory:".length,
+										)}
 									/>
 								</OptimisticDeckDecisionContext.Provider>
 							)}

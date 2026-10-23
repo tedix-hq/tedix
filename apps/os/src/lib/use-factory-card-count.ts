@@ -74,16 +74,21 @@ export function useFactoryCardCount(
 		else loaded.push(...parsed.cards);
 	}
 	const cards: ReviewCard[] = [];
+	const waiting: ReviewCard[] = [];
 	const routes: ReturnType<typeof routeFactoryCard>[] = [];
 	for (const card of scoredCards(loaded, sources, now)) {
 		if (!isOpen(card) || !cardIsDue(card, now, timeZone)) continue;
 		const route = routeFactoryCard(card, routing, now, model);
 		routes.push(route);
-		if (route.destination === "deck" && !delivery.quiet(card)) cards.push(card);
+		if (delivery.quiet(card)) continue;
+		waiting.push(card);
+		if (route.destination === "deck") cards.push(card);
 	}
 	useDeckRoutingAudit(routes);
 	return {
 		cards,
+		/** Every open card that still waits on a person, deck- and feed-routed. */
+		waiting,
 		refetch: async () => {
 			await Promise.all([visible.refetch(), delivery.refetch()]);
 			await Promise.all(

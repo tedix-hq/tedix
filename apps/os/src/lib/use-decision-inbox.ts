@@ -176,6 +176,7 @@ export function useDecisionInbox(
 		work,
 		factoryPending: factories.pending,
 		factoryCards: factories.cards,
+		factoryWaiting: factories.waiting,
 		factoryCount: factories.count,
 		count: requests.length + work.length + runtime.length + factories.count,
 		queuePending:

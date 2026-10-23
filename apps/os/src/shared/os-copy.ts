@@ -461,6 +461,7 @@ const ENGLISH_COPY = {
 			"Your correction is recorded for reflection into personal lessons.",
 		loading: "Loading your activity…",
 		empty: "Nothing here needs your attention right now.",
+		nothingWaiting: "Nothing is waiting for you.",
 		partial: "Some sources could not be read. Retry to see the full picture.",
 		retry: "Retry",
 		loadMore: "Earlier activity",

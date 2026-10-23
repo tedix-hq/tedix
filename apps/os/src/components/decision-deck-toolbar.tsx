@@ -63,6 +63,7 @@ export function DecisionDeckToolbar({
 				>
 					{[
 						"decide",
+						"waiting",
 						"history",
 						...(config.examples.length ? ["practice"] : []),
 					].map((value) => (
@@ -77,9 +78,11 @@ export function DecisionDeckToolbar({
 						>
 							{value === "decide"
 								? decisionText("For you")
-								: value === "history"
-									? decisionText("What you decided")
-									: decisionText("Try examples")}
+								: value === "waiting"
+									? decisionText("Everything waiting")
+									: value === "history"
+										? decisionText("What you decided")
+										: decisionText("Try examples")}
 						</Button>
 					))}
 				</div>
