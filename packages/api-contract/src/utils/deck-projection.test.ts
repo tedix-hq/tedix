@@ -573,10 +573,11 @@ it("keeps a person's open asks on the Deck and lets FYI requests go to the Feed"
 			destination: "deck",
 			reason: "person_ask",
 		}),
+		// A tax judgment is critical, which outranks person_ask; both reach the Deck.
 		expect.objectContaining({
 			id: "expenses",
 			destination: "deck",
-			reason: "person_ask",
+			reason: "critical",
 		}),
 		expect.objectContaining({
 			id: "weekly",
