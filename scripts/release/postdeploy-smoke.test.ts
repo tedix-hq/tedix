@@ -357,6 +357,8 @@ describe("failure classification", () => {
 		"TLS certificate error",
 		"The operation timed out",
 		"ECONNRESET",
+		"Request timed out after 500 ms",
+		"Unable to connect to example.test:503",
 	])("classifies %s as infrastructure", async (detail) => {
 		const results = await checkGateway(
 			healthyClient({
@@ -375,6 +377,9 @@ describe("failure classification", () => {
 		"HTTP 502",
 		"application error",
 		"native catalog unavailable",
+		"Expected 401 records, received 400",
+		"Schema revision 403 is invalid",
+		"Unexpected record 429",
 	])("classifies %s as product", async (detail) => {
 		const results = await checkGateway(
 			healthyClient({
@@ -386,6 +391,22 @@ describe("failure classification", () => {
 		);
 		expect(results.find((r) => r.name === "work list")?.failureClass).toBe(
 			"product",
+		);
+	});
+	test("explicit server statuses still take precedence over transport words", () => {
+		expect(failureClass(new Error("HTTP 503: connection failed"))).toBe(
+			"product",
+		);
+		expect(
+			failureClass(
+				Object.assign(new Error("timeout after 500 ms"), { status: 502 }),
+			),
+		).toBe("product");
+		expect(
+			failureClass(Object.assign(new Error("record 401"), { statusCode: 503 })),
+		).toBe("product");
+		expect(failureClass(new Error("Request failed with status code 429"))).toBe(
+			"infra",
 		);
 	});
 	test("health SHA mismatch is a product fault and successful checks have no failure class", async () => {
