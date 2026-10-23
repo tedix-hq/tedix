@@ -143,7 +143,7 @@ try {
 					path: `${screenshots}/chat-actions-after-details-${width}-${theme}.png`,
 				});
 			await dialog
-				.getByRole("button", { name: "Execution and trace", exact: true })
+				.getByRole("button", { name: "How it ran", exact: true })
 				.click();
 			await dialog.getByLabel("Execution summary").waitFor();
 			await page.keyboard.press("Escape");

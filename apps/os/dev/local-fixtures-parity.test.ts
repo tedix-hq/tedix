@@ -177,7 +177,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 			"kernelRuntime/executeReadOnlyTool",
 			"kernelRuntime/listConversationArtifactPins",
 			"kernelRuntime/listConversationCapabilities",
-			"kernelRuntime/readChildRunEvidence",
 		],
 	"Chat direct-read shortcut falls back to normal chat": [
 		"kernelRuntime/listReadOnlyTools",

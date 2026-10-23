@@ -201,4 +201,14 @@ describe("Chat response details URL", () => {
 		).toEqual({ conversation: OUTPUT_ID });
 		expect(validateChatSearch({ branch: GADGET_ID })).toEqual({});
 	});
+	it("keeps non-UUID kernel run and delegated child-run ids", () => {
+		const details = `cfo-memory-check-home-${OUTPUT_ID}`;
+		const branch = `${GADGET_ID}:mcp:${details}_approved_${GADGET_ID}`;
+		expect(
+			validateChatSearch({ conversation: OUTPUT_ID, details, branch }),
+		).toEqual({ conversation: OUTPUT_ID, details, branch });
+		expect(
+			validateChatSearch({ details, branch: "a/../b" }).branch,
+		).toBeUndefined();
+	});
 });
