@@ -24,15 +24,16 @@
  * consecutive indices starting at `stream.offset` within ONE run, reset to 0
  * for the next run of the same conversation.
  *
- * So the cursor on this wire is explicitly a `(runId, offset)` pair:
+ * So the cursor on this wire carries one primary `(runId, offset)` pair and,
+ * while runs overlap, the bounded per-run positions needed to resume all of
+ * them:
  *
  * - {@link CapnStreamCursor}`.offset` is the NEXT offset to read — i.e. the
  *   previous frame's `nextOffset`. There is no inclusive/exclusive ambiguity
  *   and no negative sentinel: "I have nothing" is expressed by omitting the
  *   cursor (`null`/`undefined`), not by `-1`.
- * - A cursor is only ever applied to the run it names. When the server is
- *   following a different run than `cursor.runId`, it starts that run at 0,
- *   because the client has by definition seen none of it.
+ * - A position is only ever applied to the run it names. A run absent from
+ *   `cursor.runs` starts at 0 because the client has seen none of it.
  * - Every {@link CapnEventFrame} carries `runId`, `offset` AND `nextOffset`,
  *   so the client's resume token is a value the server sent, never one the
  *   client recomputed.
@@ -59,12 +60,15 @@ import type {
  * Resume position in a run's durable event log.
  *
  * `offset` is the next offset to READ (the previous frame's `nextOffset`), and
- * it is meaningful only for `runId`. Absence of a cursor means "start at the
- * beginning of whatever run is current".
+ * it is meaningful only for `runId`. `runs` preserves positions for
+ * simultaneous runs. Absence of a cursor means "start at the beginning of
+ * whatever run is current".
  */
 export type CapnStreamCursor = {
 	runId: string;
 	offset: number;
+	/** Positions reached in overlapping runs, newest delivery first. */
+	runs?: Array<{ runId: string; offset: number }>;
 };
 
 /** One durable event as it crosses the wire, with its exact resume position. */
@@ -268,6 +272,8 @@ export type CapnConnectFn = () => Promise<CapnSessionStub>;
 
 /** The one path this capability is served on. */
 export const CAPN_ROUTE_PATH = "/capn";
+/** Maximum per-run positions retained in one conversation resume cursor. */
+export const CAPN_MAX_CURSOR_RUNS = 50;
 
 /**
  * Max concurrently live subscriptions per session root — a SERVER limit, but

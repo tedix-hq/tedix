@@ -40,6 +40,7 @@
 import { RuntimeStreamEventSchema } from "@tedix/api-contract/schemas/runtime-submissions";
 import type { EnqueueHomeMessageOutput } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
+	CAPN_MAX_CURSOR_RUNS,
 	CAPN_ROUTE_PATH,
 	type CapnConnectFn,
 	type CapnConversationSnapshot,
@@ -423,13 +424,27 @@ export function createCapnChatMachine(
 	};
 
 	const advanceCursor = (frame: CapnEventFrame) => {
-		if (cursor === null || cursor.runId !== frame.runId) {
-			setCursor({ runId: frame.runId, offset: frame.nextOffset });
-			return;
-		}
-		if (frame.nextOffset > cursor.offset) {
-			setCursor({ runId: frame.runId, offset: frame.nextOffset });
-		}
+		const positions = new Map(
+			[...(cursor?.runs ?? (cursor === null ? [] : [cursor]))]
+				.reverse()
+				.map((position) => [position.runId, position.offset]),
+		);
+		const previous = positions.get(frame.runId) ?? 0;
+		positions.delete(frame.runId);
+		positions.set(frame.runId, Math.max(previous, frame.nextOffset));
+		const runs = [...positions]
+			.slice(-CAPN_MAX_CURSOR_RUNS)
+			.reverse()
+			.map(([runId, offset]) => ({ runId, offset }));
+		setCursor(
+			runs.length > 1
+				? {
+						runId: frame.runId,
+						offset: runs[0]?.offset ?? frame.nextOffset,
+						runs,
+					}
+				: { runId: frame.runId, offset: frame.nextOffset },
+		);
 	};
 
 	const deliver = (frame: CapnEventFrame) => {

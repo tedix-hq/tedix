@@ -34,11 +34,12 @@
  *
  * Cursor contract: declared once in `./contract.ts` and implemented here.
  * `readRunEvents` is the canonical replay verb and its offsets are RUN-LOCAL,
- * so the wire cursor is an explicit `(runId, offset)` pair whose `offset` is
- * the NEXT offset to read. A cursor is applied only to the run it names; any
- * other run starts at 0. Absence of a cursor means "from the start of the
- * current run" — there is no negative sentinel, so the `nonnegative()` shape
- * of `readRunEvents.offset` can never reject a well-formed client.
+ * so each wire position is an explicit `(runId, offset)` pair whose `offset`
+ * is the NEXT offset to read. Overlapping runs retain a bounded position list;
+ * a run absent from it starts at 0. Absence of a cursor means "from the start
+ * of the current run" — there is no negative sentinel, so the
+ * `nonnegative()` shape of `readRunEvents.offset` can never reject a
+ * well-formed client.
  *
  * Contract binding: `CapnChatSession`, `ConversationCap` and `SubscriptionCap`
  * `implements` the interfaces in `./contract.ts`, which the browser derives its
@@ -69,6 +70,7 @@ import {
 import { RpcTarget } from "capnweb";
 import {
 	CAPN_MAX_LIVE_SUBSCRIPTIONS,
+	CAPN_MAX_CURSOR_RUNS,
 	type CapnCancelOutput,
 	type CapnConversationApi,
 	type CapnConversationSnapshot,
@@ -177,7 +179,11 @@ function parseCursor(value: unknown): CapnStreamCursor | null {
 			"Invalid cursor: expected {runId, offset} or null",
 		);
 	}
-	const candidate = value as { runId?: unknown; offset?: unknown };
+	const candidate = value as {
+		runId?: unknown;
+		offset?: unknown;
+		runs?: unknown;
+	};
 	const runId = parseOrThrow(
 		NonEmptyStringSchema,
 		candidate.runId,
@@ -189,7 +195,53 @@ function parseCursor(value: unknown): CapnStreamCursor | null {
 			"Invalid cursor.offset: expected a non-negative integer",
 		);
 	}
-	return { runId, offset };
+	if (candidate.runs === undefined) return { runId, offset };
+	if (!Array.isArray(candidate.runs)) {
+		throw new CapnRequestError("Invalid cursor.runs: expected an array");
+	}
+	if (candidate.runs.length > CAPN_MAX_CURSOR_RUNS) {
+		throw new CapnRequestError(
+			`Invalid cursor.runs: expected at most ${CAPN_MAX_CURSOR_RUNS} positions`,
+		);
+	}
+	const positions: Array<{ runId: string; offset: number }> = [];
+	const seenRunIds = new Set<string>();
+	for (const [index, position] of candidate.runs.entries()) {
+		if (
+			typeof position !== "object" ||
+			position === null ||
+			Array.isArray(position)
+		) {
+			throw new CapnRequestError(
+				`Invalid cursor.runs[${index}]: expected {runId, offset}`,
+			);
+		}
+		const item = position as { runId?: unknown; offset?: unknown };
+		const itemRunId = parseOrThrow(
+			NonEmptyStringSchema,
+			item.runId,
+			`cursor.runs[${index}].runId`,
+		);
+		const itemOffset = parseOrThrow(
+			OffsetSchema,
+			item.offset,
+			`cursor.runs[${index}].offset`,
+		);
+		if (itemOffset === undefined) {
+			throw new CapnRequestError(
+				`Invalid cursor.runs[${index}].offset: expected a non-negative integer`,
+			);
+		}
+		if (!seenRunIds.has(itemRunId)) {
+			seenRunIds.add(itemRunId);
+			positions.push({ runId: itemRunId, offset: itemOffset });
+		}
+	}
+	const runs = [
+		{ runId, offset },
+		...positions.filter((position) => position.runId !== runId),
+	].slice(0, CAPN_MAX_CURSOR_RUNS);
+	return runs.length > 1 ? { runId, offset, runs } : { runId, offset };
 }
 
 function parseOrThrow<T>(
@@ -364,22 +416,22 @@ class SessionCore {
 		conversationId: string,
 		afterRunId: string | null,
 	): Promise<string | null> {
-		const output = await this.call<{ runSet: unknown }>(
-			"kernelRuntime/readRunSet",
-			{ conversationId, summary: true },
-			{ retry: 1 },
-		);
-		const runSet: HomeRunSet = parseOrThrow(
-			HomeRunSetSchema,
-			output.runSet,
-			"readRunSet result",
-		);
+		const runSet = await this.readRunSet(conversationId);
 		if (afterRunId === null) {
 			return runSet.activeRunIds[0] ?? runSet.runs[0]?.id ?? null;
 		}
 		const index = runSet.runs.findIndex((run) => run.id === afterRunId);
 		if (index === -1) return runSet.activeRunIds[0] ?? null;
 		return runSet.runs[index - 1]?.id ?? null;
+	}
+
+	async readRunSet(conversationId: string): Promise<HomeRunSet> {
+		const output = await this.call<{ runSet: unknown }>(
+			"kernelRuntime/readRunSet",
+			{ conversationId, summary: true },
+			{ retry: 1 },
+		);
+		return parseOrThrow(HomeRunSetSchema, output.runSet, "readRunSet result");
 	}
 
 	/**
@@ -487,12 +539,10 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 	}
 
 	/**
-	 * Poll loop. Follows the cursor's run (or the current one when the client
-	 * has no cursor); when that run's stream closes it advances to the run
-	 * created immediately after it and starts at offset 0. `SessionCore.nextRunId`
-	 * links runs explicitly rather than re-asking for "the current run", so a
-	 * closed run is never re-read and a run that opened and closed between polls
-	 * is never skipped.
+	 * Poll loop. Every active run gets its own in-flight long-poll, so one quiet
+	 * run cannot hold back another run in the same conversation. Run-set refreshes
+	 * also add every run created since the previous refresh, including a run that
+	 * opened and closed between reads. Each run keeps its own durable offset.
 	 *
 	 * LIVENESS: the pump survives transient trouble instead of ending on it.
 	 * Every failure mode used to fall through one catch into `dispose()`, and
@@ -509,85 +559,197 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 	 *   {@link SUBSCRIBE_ERROR_DELAY_MS} and retries the same turn. Only
 	 *   {@link SUBSCRIBE_MAX_POLL_FAILURES} consecutive failures end the pump.
 	 *
-	 * Both counters reset on the first success, so a long-lived subscription
+	 * Each counter resets on the first success, so a long-lived subscription
 	 * that hiccups hourly never accumulates its way to death. When the pump does
 	 * end, the client's contract is unchanged: reacquire the capability and
 	 * resubscribe from the last `nextOffset` it received — which its own
 	 * watchdog (`capn-chat-machine.ts`) now enforces rather than assumes.
 	 */
 	async #pump(): Promise<void> {
-		let runId: string | null = this.#cursor?.runId ?? null;
-		let offset = this.#cursor?.offset ?? 0;
-		/** The run the follow-chain advances FROM; null until one is chosen. */
-		let previousRunId: string | null = null;
-		let pollFailures = 0;
+		type PollResult =
+			| { kind: "page"; runId: string; page: RuntimeStreamReadOutput }
+			| { kind: "error"; runId: string; error: unknown };
+		type RefreshResult =
+			| { kind: "refresh"; runSet: HomeRunSet }
+			| { kind: "refresh-error"; error: unknown };
+
+		const seenRuns = new Set<string>();
+		const offsets = new Map<string, number>();
+		const polls = new Map<string, Promise<PollResult>>();
+		let newestObservedRunId: string | null = null;
+		const runPollFailures = new Map<string, number>();
+		let refreshFailures = 0;
 		let callbackFailures = 0;
+		let refresh: Promise<RefreshResult> | null = null;
+
+		const schedulePoll = (runId: string, delayMs = 0) => {
+			if (polls.has(runId)) return;
+			const offset = offsets.get(runId) ?? 0;
+			polls.set(
+				runId,
+				(async (): Promise<PollResult> => {
+					try {
+						if (delayMs > 0) await this.#core.sleep(delayMs);
+						if (this.#stopped || this.#core.disposed) {
+							return { kind: "error", runId, error: new Error("disposed") };
+						}
+						const page = await this.#core.readRunEventsPage(
+							runId,
+							offset,
+							SUBSCRIBE_POLL_WAIT_MS,
+						);
+						return { kind: "page", runId, page };
+					} catch (error) {
+						return { kind: "error", runId, error };
+					}
+				})(),
+			);
+		};
+
+		const addRun = (runId: string, offset = 0) => {
+			if (seenRuns.has(runId)) return;
+			seenRuns.add(runId);
+			offsets.set(runId, offset);
+			schedulePoll(runId);
+		};
+
+		const scheduleRefresh = (delayMs = 0) => {
+			if (refresh !== null) return;
+			refresh = (async (): Promise<RefreshResult> => {
+				try {
+					if (delayMs > 0) await this.#core.sleep(delayMs);
+					if (this.#stopped || this.#core.disposed) {
+						return { kind: "refresh-error", error: new Error("disposed") };
+					}
+					return {
+						kind: "refresh",
+						runSet: await this.#core.readRunSet(this.#conversationId),
+					};
+				} catch (error) {
+					return { kind: "refresh-error", error };
+				}
+			})();
+		};
+
+		if (this.#cursor !== null) {
+			for (const position of this.#cursor.runs ?? [this.#cursor]) {
+				addRun(position.runId, position.offset);
+			}
+			addRun(this.#cursor.runId, this.#cursor.offset);
+		}
+		scheduleRefresh();
 		try {
 			while (!this.#stopped && !this.#core.disposed) {
-				try {
-					if (runId === null) {
-						runId = await this.#core.nextRunId(
-							this.#conversationId,
-							previousRunId,
+				const pending: Array<Promise<PollResult | RefreshResult>> = [
+					...polls.values(),
+				];
+				if (refresh !== null) pending.push(refresh);
+				const result = await Promise.race(pending);
+				if (this.#stopped || this.#core.disposed) return;
+
+				if (result.kind === "refresh" || result.kind === "refresh-error") {
+					refresh = null;
+					if (result.kind === "refresh-error") {
+						refreshFailures += 1;
+						if (refreshFailures >= SUBSCRIBE_MAX_POLL_FAILURES)
+							throw result.error;
+						console.warn(
+							`capnweb subscription poll failed (${refreshFailures}/${SUBSCRIBE_MAX_POLL_FAILURES}): ${(result.error as Error).message}`,
 						);
-						if (this.#stopped || this.#core.disposed) return;
-						pollFailures = 0;
-						if (runId === null) {
-							await this.#core.sleep(SUBSCRIBE_IDLE_DELAY_MS);
-							continue;
-						}
-						offset = 0;
+						scheduleRefresh(SUBSCRIBE_ERROR_DELAY_MS);
+						continue;
 					}
-					const page = await this.#core.readRunEventsPage(
-						runId,
-						offset,
-						SUBSCRIBE_POLL_WAIT_MS,
-					);
-					if (this.#stopped || this.#core.disposed) return;
-					pollFailures = 0;
-					for (const [index, event] of page.events.entries()) {
-						const callback = this.#callback;
-						if (callback === null) return;
-						const frameOffset = page.stream.offset + index;
-						try {
-							// Awaited for backpressure.
-							await callback({
-								conversationId: this.#conversationId,
-								runId,
-								offset: frameOffset,
-								nextOffset: frameOffset + 1,
-								event,
-							});
-							callbackFailures = 0;
-						} catch (error) {
-							callbackFailures += 1;
-							if (callbackFailures >= SUBSCRIBE_MAX_CALLBACK_FAILURES) {
-								throw new SubscriberGoneError(error);
+
+					refreshFailures = 0;
+					const { runSet } = result;
+					const candidates: string[] = [];
+					if (newestObservedRunId === null) {
+						if (this.#cursor === null) {
+							candidates.push(
+								...(runSet.activeRunIds.length > 0
+									? runSet.activeRunIds
+									: runSet.runs.slice(0, 1).map((run) => run.id)),
+							);
+						} else {
+							const cursorIndex = runSet.runs.findIndex(
+								(run) => run.id === this.#cursor?.runId,
+							);
+							if (cursorIndex > 0) {
+								candidates.push(
+									...runSet.runs
+										.slice(0, cursorIndex)
+										.reverse()
+										.map((run) => run.id),
+								);
 							}
-							console.warn(
-								`capnweb subscription delivery failed (${callbackFailures}/${SUBSCRIBE_MAX_CALLBACK_FAILURES}): ${(error as Error).message}`,
+						}
+					} else {
+						const frontierIndex = runSet.runs.findIndex(
+							(run) => run.id === newestObservedRunId,
+						);
+						if (frontierIndex > 0) {
+							candidates.push(
+								...runSet.runs
+									.slice(0, frontierIndex)
+									.reverse()
+									.map((run) => run.id),
 							);
 						}
-						if (this.#stopped || this.#core.disposed) return;
 					}
-					offset = page.stream.nextOffset;
-					if (page.stream.closed) {
-						previousRunId = runId;
-						runId = null;
-						await this.#core.sleep(SUBSCRIBE_IDLE_DELAY_MS);
-					} else if (page.events.length === 0) {
-						// The long-poll may return early; pace the loop regardless.
-						await this.#core.sleep(SUBSCRIBE_IDLE_DELAY_MS);
-					}
-				} catch (error) {
-					if (error instanceof SubscriberGoneError) throw error;
-					pollFailures += 1;
-					if (pollFailures >= SUBSCRIBE_MAX_POLL_FAILURES) throw error;
-					console.warn(
-						`capnweb subscription poll failed (${pollFailures}/${SUBSCRIBE_MAX_POLL_FAILURES}): ${(error as Error).message}`,
-					);
-					await this.#core.sleep(SUBSCRIBE_ERROR_DELAY_MS);
+					candidates.push(...runSet.activeRunIds);
+					for (const runId of candidates) addRun(runId);
+					newestObservedRunId = runSet.runs[0]?.id ?? newestObservedRunId;
+					scheduleRefresh(SUBSCRIBE_IDLE_DELAY_MS);
+					continue;
 				}
+
+				polls.delete(result.runId);
+				if (result.kind === "error") {
+					const failures = (runPollFailures.get(result.runId) ?? 0) + 1;
+					runPollFailures.set(result.runId, failures);
+					if (failures >= SUBSCRIBE_MAX_POLL_FAILURES) throw result.error;
+					console.warn(
+						`capnweb subscription poll failed (${failures}/${SUBSCRIBE_MAX_POLL_FAILURES}): ${(result.error as Error).message}`,
+					);
+					schedulePoll(result.runId, SUBSCRIBE_ERROR_DELAY_MS);
+					continue;
+				}
+
+				runPollFailures.delete(result.runId);
+				const { page, runId } = result;
+				for (const [index, event] of page.events.entries()) {
+					const callback = this.#callback;
+					if (callback === null) return;
+					const frameOffset = page.stream.offset + index;
+					try {
+						// Awaited for backpressure.
+						await callback({
+							conversationId: this.#conversationId,
+							runId,
+							offset: frameOffset,
+							nextOffset: frameOffset + 1,
+							event,
+						});
+						callbackFailures = 0;
+					} catch (error) {
+						callbackFailures += 1;
+						if (callbackFailures >= SUBSCRIBE_MAX_CALLBACK_FAILURES) {
+							throw new SubscriberGoneError(error);
+						}
+						console.warn(
+							`capnweb subscription delivery failed (${callbackFailures}/${SUBSCRIBE_MAX_CALLBACK_FAILURES}): ${(error as Error).message}`,
+						);
+					}
+					if (this.#stopped || this.#core.disposed) return;
+				}
+				offsets.set(runId, page.stream.nextOffset);
+				if (!page.stream.closed) {
+					schedulePoll(
+						runId,
+						page.events.length === 0 ? SUBSCRIBE_IDLE_DELAY_MS : 0,
+					);
+				}
+				scheduleRefresh(SUBSCRIBE_IDLE_DELAY_MS);
 			}
 		} catch (error) {
 			console.error(
@@ -671,11 +833,28 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 				closed: page.stream.closed,
 			});
 		}
+		const positions = new Map(
+			[...(resume?.runs ?? (resume === null ? [] : [resume]))]
+				.reverse()
+				.map((position) => [position.runId, position.offset]),
+		);
+		positions.delete(runId);
+		positions.set(runId, page.stream.nextOffset);
+		const runs = [...positions]
+			.slice(-CAPN_MAX_CURSOR_RUNS)
+			.reverse()
+			.map(([positionRunId, positionOffset]) => ({
+				runId: positionRunId,
+				offset: positionOffset,
+			}));
 		return {
 			conversationId: this.#conversationId,
 			runId,
 			events,
-			cursor: { runId, offset: page.stream.nextOffset },
+			cursor:
+				runs.length > 1
+					? { runId, offset: page.stream.nextOffset, runs }
+					: { runId, offset: page.stream.nextOffset },
 			stream: page.stream,
 		};
 	}

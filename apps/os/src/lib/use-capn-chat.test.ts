@@ -366,8 +366,16 @@ describe("createCapnChatMachine connection", () => {
 			`home:main:${RUN_ID_2}:0`,
 			`home:main:${RUN_ID_2}:1`,
 		]);
-		// The cursor follows the NEW run, not the highest number ever seen.
-		expect(machine.getCursor()).toEqual({ runId: RUN_ID_2, offset: 2 });
+		// The primary cursor follows the new run while retaining run 1's position
+		// in case the two streams overlap and reconnect.
+		expect(machine.getCursor()).toEqual({
+			runId: RUN_ID_2,
+			offset: 2,
+			runs: [
+				{ runId: RUN_ID_2, offset: 2 },
+				{ runId: RUN_ID, offset: 1 },
+			],
+		});
 		machine.close();
 	});
 

@@ -56,7 +56,7 @@ function makeSession(
 		env: { API_SERVICE: service },
 		hostTenantId: "T-host-org",
 		credentialHeaders: { ...CREDENTIALS },
-		sleep: async () => {},
+		sleep: () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
 		...overrides,
 	});
 }
@@ -421,7 +421,6 @@ describe("subscribe", () => {
 			.openConversation("conv-1")
 			.subscribe(stub, { runId: "run-1", offset: 0 });
 		await tick();
-		const afterFirstStart = calls.length;
 
 		for (let i = 0; i < 10; i += 1) subscription.start();
 		await tick();
@@ -431,7 +430,6 @@ describe("subscribe", () => {
 		const reads = calls.filter(
 			(call) => call.path === "kernelRuntime/readRunEvents",
 		).length;
-		expect(calls.length).toBeLessThanOrEqual(afterFirstStart + 1);
 		expect(reads).toBeLessThanOrEqual(2);
 		subscription.dispose();
 	});
@@ -490,21 +488,23 @@ describe("subscribe", () => {
 		expect(counters.disposed).toBe(1);
 
 		// A late page landing after dispose is dropped, not delivered.
-		const callsBefore = calls.length;
+		const eventReadsBefore = calls.filter(
+			(call) => call.path === "kernelRuntime/readRunEvents",
+		).length;
 		(releaseHang as unknown as (value: unknown) => void)(
 			eventsPage([streamEvent("e-3")], 3),
 		);
 		await tick();
 		await tick();
 		expect(frames).toHaveLength(3);
-		expect(calls.length).toBe(callsBefore);
+		expect(
+			calls.filter((call) => call.path === "kernelRuntime/readRunEvents"),
+		).toHaveLength(eventReadsBefore);
 	});
 
 	it("follows the run created after the closed one, from its own offset 0", async () => {
-		let runSetReads = 0;
 		const { service } = mockApiService((path, input) => {
 			if (path === "kernelRuntime/readRunSet") {
-				runSetReads += 1;
 				// Newest-first, exactly as readRunSet returns them.
 				return runSetOutput([], ["run-2", "run-1"]);
 			}
@@ -538,9 +538,108 @@ describe("subscribe", () => {
 			offset: 0,
 			nextOffset: 1,
 		});
-		// Exactly one run-set read: the cursor named run-1 directly, and the
-		// rollover resolved run-2 by following the run set's ordering.
-		expect(runSetReads).toBe(1);
+	});
+
+	it("streams a simultaneous run while another run's poll is still pending", async () => {
+		const { service, calls } = mockApiService((path, input) => {
+			if (path === "kernelRuntime/readRunSet") {
+				return runSetOutput(["run-1", "run-2"]);
+			}
+			if (path === "kernelRuntime/readRunEvents") {
+				const { runId, offset } = input as { runId: string; offset: number };
+				if (runId === "run-1") return new Promise(() => {});
+				if (runId === "run-2") {
+					return offset === 0
+						? eventsPage([streamEvent("e-2")], 0)
+						: new Promise(() => {});
+				}
+			}
+			throw new Error(`unexpected path ${path}`);
+		});
+		const session = makeSession(service);
+		const { stub, frames } = subscriberStub();
+
+		const subscription = session.openConversation("conv-1").subscribe(stub);
+		for (let index = 0; index < 5; index += 1) await tick();
+
+		expect(
+			calls.filter((call) => call.path === "kernelRuntime/readRunEvents"),
+		).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					input: expect.objectContaining({ runId: "run-1" }),
+				}),
+				expect.objectContaining({
+					input: expect.objectContaining({ runId: "run-2" }),
+				}),
+			]),
+		);
+		expect(frames).toEqual([
+			expect.objectContaining({ runId: "run-2", offset: 0, nextOffset: 1 }),
+		]);
+		subscription.dispose();
+	});
+
+	it("discovers a new run without waiting for the open run to close", async () => {
+		let runTwoStarted = false;
+		const { service } = mockApiService((path, input) => {
+			if (path === "kernelRuntime/readRunSet") {
+				return runTwoStarted
+					? runSetOutput(["run-2", "run-1"])
+					: runSetOutput(["run-1"]);
+			}
+			if (path === "kernelRuntime/readRunEvents") {
+				const { runId, offset } = input as { runId: string; offset: number };
+				if (runId === "run-1" && offset === 0) {
+					runTwoStarted = true;
+					return eventsPage([streamEvent("e-1")], 0);
+				}
+				if (runId === "run-2" && offset === 0) {
+					return eventsPage([streamEvent("e-2")], 0);
+				}
+				return new Promise(() => {});
+			}
+			throw new Error(`unexpected path ${path}`);
+		});
+		const session = makeSession(service);
+		const { stub, frames } = subscriberStub();
+
+		const subscription = session.openConversation("conv-1").subscribe(stub);
+		while (frames.length < 2) await tick();
+
+		expect(frames.map((frame) => frame.runId)).toEqual(["run-1", "run-2"]);
+		subscription.dispose();
+	});
+
+	it("resumes every overlapping run recorded in the cursor", async () => {
+		const { service } = mockApiService((path, input) => {
+			if (path === "kernelRuntime/readRunSet") {
+				return runSetOutput([], ["run-2", "run-1"]);
+			}
+			if (path === "kernelRuntime/readRunEvents") {
+				const { runId, offset } = input as { runId: string; offset: number };
+				if (runId === "run-1" && offset === 3) {
+					return eventsPage([streamEvent("e-late")], 3, true);
+				}
+				return new Promise(() => {});
+			}
+			throw new Error(`unexpected path ${path}`);
+		});
+		const session = makeSession(service);
+		const { stub, frames } = subscriberStub();
+
+		const subscription = session.openConversation("conv-1").subscribe(stub, {
+			runId: "run-2",
+			offset: 1,
+			runs: [
+				{ runId: "run-2", offset: 1 },
+				{ runId: "run-1", offset: 3 },
+			],
+		});
+		while (frames.length < 1) await tick();
+
+		expect(frames[0]).toMatchObject({ runId: "run-1", offset: 3 });
+		subscription.dispose();
 	});
 
 	it("never re-reads a closed run when no newer run exists", async () => {
