@@ -36,6 +36,7 @@ vi.mock("@/lib/api", () => ({
 		},
 		userProfile: { getMine: vi.fn() },
 		userSettings: { getPreferences: vi.fn() },
+		attention: { decideDeckCard: vi.fn() },
 	},
 }));
 vi.mock("@/components/blueprints-page", () => ({
@@ -551,6 +552,28 @@ describe("CardReviewApp scored factory cards", () => {
 				}),
 			}),
 		);
+	});
+
+	it("asks for wording changes from the standalone gadget without a verdict", async () => {
+		vi.mocked(osApi.attention.decideDeckCard).mockResolvedValue({} as never);
+		await mount(false);
+		const panel = host.querySelector('section[aria-label="Card revisions"]');
+		expect(panel).not.toBeNull();
+		await click("Ask for changes");
+		await type(
+			'textarea[aria-label="What should change?"]',
+			"Mention Demo Day first.",
+		);
+		await click("Request changes");
+		expect(osApi.attention.decideDeckCard).toHaveBeenCalledWith({
+			decision: {
+				kind: "factory_changes",
+				cardId: `factory:${outputId}:0`,
+				expectedRevision: 1,
+				instruction: "Mention Demo Day first.",
+			},
+		});
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 	});
 
 	it("offers the skip reasons as Not useful chips on the review card", async () => {

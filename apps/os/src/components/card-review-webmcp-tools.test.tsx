@@ -29,13 +29,20 @@ type Sheet = {
 };
 
 const api = vi.hoisted(() => ({
-	outputs: { list: vi.fn(), get: vi.fn(), setSheetRange: vi.fn() },
+	outputs: {
+		list: vi.fn(),
+		get: vi.fn(),
+		setSheetRange: vi.fn(),
+		history: vi.fn(),
+	},
 	schedules: { runNow: vi.fn(), setPersonalAccess: vi.fn() },
+	decideDeckCard: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: api,
+		attention: { decideDeckCard: api.decideDeckCard },
 		userSettings: {
 			getPreferences: vi
 				.fn()
@@ -206,6 +213,11 @@ let host: HTMLElement | null = null;
 
 beforeEach(() => {
 	seed();
+	api.outputs.history.mockResolvedValue({
+		revisions: [],
+		pending: [],
+		nextBeforeRevision: null,
+	});
 	// Invocation telemetry posts to the network; it has its own suite.
 	setWebMcpInvocationObserver(null);
 	tools = [];
@@ -308,6 +320,7 @@ describe("Card review WebMCP tools", () => {
 			"card_review_next_card",
 			"card_review_set_verdict",
 			"card_review_do_it",
+			"revise_review_card_draft",
 			"card_review_snooze",
 			"card_review_skip",
 			"card_review_undo",
@@ -462,6 +475,42 @@ describe("Card review WebMCP tools", () => {
 		});
 		expect(refused.isError).toBe(true);
 		expect(api.outputs.setSheetRange).not.toHaveBeenCalled();
+	});
+
+	it("asks the factory to rewrite the open draft without a verdict", async () => {
+		await mount();
+		const { cardKey } = await nextCard();
+		expect((await call(NEXT_CARD)).data.canRequestChanges).toBe(false);
+		const refused = await call("revise_review_card_draft", {
+			cardKey,
+			instruction: "Shorter, please.",
+		});
+		expect(refused.isError).toBe(true);
+		act(() => root?.unmount());
+		root = null;
+
+		api.decideDeckCard.mockResolvedValue({ saved: true });
+		const source = {
+			...config.sources[0]!,
+			run: { skillId: "social-writer", actions: [] },
+		};
+		await mount({ ...config, sources: [source] });
+		const open = await nextCard();
+		expect((await call(NEXT_CARD)).data.canRequestChanges).toBe(true);
+		const result = await call("revise_review_card_draft", {
+			cardKey: open.cardKey,
+			instruction: "Mention Demo Day first.",
+		});
+		expect(result.isError).toBeFalsy();
+		expect(api.decideDeckCard).toHaveBeenCalledWith({
+			decision: expect.objectContaining({
+				kind: "factory_changes",
+				cardId: `factory:${open.cardKey}`,
+				instruction: "Mention Demo Day first.",
+			}),
+		});
+		expect(api.outputs.setSheetRange).not.toHaveBeenCalled();
+		expect((await nextCard()).cardKey).toBe(open.cardKey);
 	});
 
 	it("skips and snoozes on screen, each undoable", async () => {

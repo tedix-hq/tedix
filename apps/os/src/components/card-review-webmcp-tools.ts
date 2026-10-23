@@ -44,6 +44,9 @@ export interface CardReviewController {
 		chips: string[];
 		note: string;
 	}): Promise<CardReviewActionResult>;
+	/** The open card has a draft its source's writing skill can rewrite. */
+	canRequestChanges: boolean;
+	requestChanges(instruction: string): Promise<CardReviewActionResult>;
 	snooze(): CardReviewActionResult;
 	skip(): CardReviewActionResult;
 	undo(): Promise<CardReviewActionResult>;
@@ -168,7 +171,7 @@ export function buildCardReviewWebMcpTools(
 		name: NEXT,
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"Read the card the Card review app shows now: its source, type, who, why (with the rules it cites), suggested action, draft, link, and the sheet and row its verdict is written to. Also returns how many cards are left, the active filter, the reason chips, what Do it does and its button label (doItLabel null: the card has no action and Do it is unavailable). card is null when every card has a verdict.",
+			"Read the card the Card review app shows now: its source, type, who, why (with the rules it cites), suggested action, draft, link, and the sheet and row its verdict is written to. Also returns how many cards are left, the active filter, the reason chips, what Do it does and its button label (doItLabel null: the card has no action and Do it is unavailable) and whether its draft can be rewritten with revise_review_card_draft (canRequestChanges). card is null when every card has a verdict.",
 		inputSchema: { type: "object", properties: {} },
 		execute: async () => {
 			const state = current();
@@ -180,6 +183,7 @@ export function buildCardReviewWebMcpTools(
 				reasonChips: state.reasonChips,
 				doIt: state.doIt,
 				doItLabel: state.doItLabel,
+				canRequestChanges: state.canRequestChanges,
 				undo: state.undoLabel,
 				pendingRules: state.pendingRules.length,
 			});
@@ -242,6 +246,43 @@ export function buildCardReviewWebMcpTools(
 				cardKey: card.key,
 				verdict: "do_it",
 				...(outcome.ok && outcome.result ? { result: outcome.result } : {}),
+			});
+		},
+	};
+
+	const requestChanges: WebMcpToolDef = {
+		name: "revise_review_card_draft",
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
+		description:
+			"Ask the factory to rewrite the open card's draft in the person's words, like the Ask for changes button; each round saves a new version of the same draft and writes no verdict. Fails when the card has no draft or its source has no writing skill.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				cardKey: cardKeyProperty,
+				instruction: {
+					type: "string",
+					minLength: 1,
+					maxLength: 2000,
+					description: "What should change, in the person's words.",
+				},
+			},
+			required: ["cardKey", "instruction"],
+			additionalProperties: false,
+		},
+		execute: async (args) => {
+			const state = current();
+			const card = currentCard(state, args.cardKey);
+			if (!isCard(card)) return card;
+			const instruction =
+				typeof args.instruction === "string" ? args.instruction.trim() : "";
+			if (!instruction) return webMcpError("Say what should change.");
+			return done(await state.requestChanges(instruction), {
+				cardKey: card.key,
+				requested: true,
 			});
 		},
 	};
@@ -387,6 +428,7 @@ export function buildCardReviewWebMcpTools(
 		nextCard,
 		setVerdict,
 		doIt,
+		requestChanges,
 		snooze,
 		skip,
 		undo,
