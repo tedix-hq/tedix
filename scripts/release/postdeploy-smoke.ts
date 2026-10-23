@@ -90,15 +90,17 @@ export function failureClass(
 		isRecord(error) ? String(error.code ?? "") : "",
 		isRecord(error) && error.cause ? message(error.cause) : "",
 	].join(" ");
-	const status = isRecord(error)
-		? (error.status ?? error.statusCode)
-		: undefined;
+	// Durations, ports and record ids are not HTTP status evidence.
+	const status = Number(
+		(isRecord(error) ? (error.status ?? error.statusCode) : undefined) ??
+			text.match(/\b(?:HTTP|status(?: code)?)\s*[:=]?\s*([45]\d{2})\b/i)?.[1],
+	);
 	if (
-		[401, 403, 429].includes(Number(status)) ||
-		/\b(?:401|403|429)\b|unauthorized|forbidden|too many requests/i.test(text)
+		[401, 403, 429].includes(status) ||
+		/unauthorized|forbidden|too many requests/i.test(text)
 	)
 		return "infra";
-	if (/\b5\d\d\b/.test(text) || Number(status) >= 500) return "product";
+	if (status >= 500 && status < 600) return "product";
 	if (
 		/timeout|timed out|abort|fetch failed|failed to fetch|unable to connect|connection|network|DNS|TLS|certificate|ENOTFOUND|EAI_AGAIN|ECONN|ETIMEDOUT|EHOST|ENET|EPIPE|CERT_|socket/i.test(
 			text,
