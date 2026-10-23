@@ -1,5 +1,6 @@
 import { Link } from "@/components/kumo/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useReducer } from "react";
 import type { z } from "zod";
 import type { PersonalReadConsentConfigSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { Button } from "@/components/kumo/button";
@@ -27,18 +28,28 @@ export function PersonalReadConsentApp({
 		retry: false,
 	});
 	const now = new Date().toISOString();
-	const allowed = new Set(
-		(grants.data ?? [])
-			.filter(
-				(grant) =>
-					grant.workspaceId === workspaceId &&
-					grant.skillId === config.skillId &&
-					!grant.revokedAt &&
-					grant.expiresAt > now &&
-					grant.operations.includes("read"),
-			)
-			.map((grant) => grant.providerId),
+	const activeGrants = (grants.data ?? []).filter(
+		(grant) =>
+			grant.workspaceId === workspaceId &&
+			grant.skillId === config.skillId &&
+			!grant.revokedAt &&
+			grant.expiresAt > now &&
+			grant.operations.includes("read"),
 	);
+	const nextExpiry = Math.min(
+		...activeGrants.map((grant) => Date.parse(grant.expiresAt)),
+	);
+	const [, refreshExpiry] = useReducer((value: number) => value + 1, 0);
+	useEffect(() => {
+		if (!Number.isFinite(nextExpiry)) return;
+		// Long-lived grants exceed the browser's maximum timeout delay.
+		const timer = setTimeout(
+			refreshExpiry,
+			Math.min(Math.max(0, nextExpiry - Date.now()), 2_147_483_647),
+		);
+		return () => clearTimeout(timer);
+	}, [nextExpiry, now]);
+	const allowed = new Set(activeGrants.map((grant) => grant.providerId));
 	const missing = config.providers.filter(
 		(provider) => !allowed.has(provider.id),
 	);
