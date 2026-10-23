@@ -1086,8 +1086,10 @@ type ObsoleteRequestCause = keyof typeof OBSOLETE_REQUEST_REASONS;
  * - a question, input or handoff request whose Work is completed or cancelled;
  * - unanswered legacy proposals after fourteen days, and decision captures
  *   whose triage never succeeded.
- * The reason is recorded on the request (`metadata.closure`) and, for
- * Work-parented requests, as a system note on the Work.
+ * For Work-parented requests the reason and cause are recorded as a system
+ * note on the Work. The request's metadata stays untouched: the deployed
+ * `work_interaction_*_guard` triggers reject a status change that also edits
+ * metadata.
  */
 export async function sweepObsoleteWorkInteractions(
 	db: DbQueryClient,
@@ -1134,7 +1136,6 @@ export async function sweepObsoleteWorkInteractions(
 				expiredAt: p.now,
 				resolutionFence: fence,
 				version: sql`${workInteractions.version}+1`,
-				metadata: sql`json_set(${workInteractions.metadata}, '$.closure', json(${JSON.stringify({ source: "interaction-expiry", cause: row.cause, reason, at: p.now })}))`,
 			})
 			.where(
 				and(
@@ -1159,7 +1160,7 @@ export async function sweepObsoleteWorkInteractions(
 								authorId: sql<string>`'tedix'`.as("authorId"),
 								body: sql<string>`${body}`.as("body"),
 								metadata:
-									sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id })}`.as(
+									sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id, cause: row.cause })}`.as(
 										"metadata",
 									),
 								createdAt: sql<string>`${p.now}`.as("createdAt"),
