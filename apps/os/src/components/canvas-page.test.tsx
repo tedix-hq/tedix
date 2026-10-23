@@ -1445,6 +1445,25 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain("Cube Reaction Hybrid Pro 800");
 	});
 
+	it("stops reporting a connection wait when the selected document source is denied", async () => {
+		mockLists();
+		mockCollab({ status: "connecting" });
+		osWorkspacesApi.outputs.get.mockRejectedValue(
+			Object.assign(new Error("Output source access is unavailable"), {
+				code: "FORBIDDEN",
+			}),
+		);
+		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
+		const container = renderPage();
+		await flush();
+		expect(container.textContent).toContain("The document is unavailable");
+		expect(container.textContent).toContain(
+			"This document uses restricted sources",
+		);
+		expect(container.textContent).not.toContain("Connecting…");
+		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
+	});
+
 	it("does not open a file whose source access is unavailable", async () => {
 		mockLists();
 		osWorkspacesApi.outputs.library.mockResolvedValue({

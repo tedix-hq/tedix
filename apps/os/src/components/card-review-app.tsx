@@ -898,7 +898,18 @@ export function CardReviewApp({
 		event.preventDefault();
 	};
 
-	const failed = outputLists.some((q) => q.isError);
+	const failed =
+		outputLists.some((q) => q.isError) || details.some((q) => q.isError);
+	const readFailure = (
+		<Alert variant="warning">
+			<AlertTitle>Cards are unavailable</AlertTitle>
+			<AlertDescription>
+				A workspace or source sheet in this app's settings cannot be read. Check
+				that you can open both. Workspace access does not grant access to
+				restricted source sheets.
+			</AlertDescription>
+		</Alert>
+	);
 	const reviewed = tally.useful + tally.notUseful + tally.doIt;
 	if (inDeck)
 		return (
@@ -914,7 +925,7 @@ export function CardReviewApp({
 					policies={classPolicies}
 				/>
 				{failed ? (
-					<Text>{OS_COPY.feed.partial}</Text>
+					readFailure
 				) : card && source ? (
 					<WorkDecisionCard
 						key={card.key}
@@ -1103,13 +1114,7 @@ export function CardReviewApp({
 			)}
 
 			{failed ? (
-				<Alert variant="warning">
-					<AlertTitle>Cards are unavailable</AlertTitle>
-					<AlertDescription>
-						A workspace in this app's settings cannot be read. Check that it
-						exists and that you can open it.
-					</AlertDescription>
-				</Alert>
+				readFailure
 			) : loading && cards.length === 0 ? (
 				<Skeleton className="h-80 rounded-2xl" role="status">
 					<span className="sr-only">{decisionText("Loading cards…")}</span>

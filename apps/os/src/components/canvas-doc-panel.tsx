@@ -509,21 +509,23 @@ export function CanvasDocPanel({
 				: !draftMatchesSaved
 					? "Save your draft as a version before applying a proposal."
 					: undefined;
-	const documentSaveStatus = !live
-		? status === "connecting"
-			? "Connecting…"
-			: "Disconnected · Changes paused"
-		: recoveryRequired && canonicalDoc
-			? `Newer version saved (v${canonicalDoc.revision})`
-			: outputDraftIssue
-				? "Draft can't be opened"
-				: committing
-					? "Saving version…"
-					: unsynced || unacknowledged
-						? "Syncing changes…"
-						: draftMatchesSaved
-							? "Saved"
-							: "Draft synced · Save version";
+	const documentSaveStatus = detail.isError
+		? "Unavailable"
+		: !live
+			? status === "connecting"
+				? "Connecting…"
+				: "Disconnected · Changes paused"
+			: recoveryRequired && canonicalDoc
+				? `Newer version saved (v${canonicalDoc.revision})`
+				: outputDraftIssue
+					? "Draft can't be opened"
+					: committing
+						? "Saving version…"
+						: unsynced || unacknowledged
+							? "Syncing changes…"
+							: draftMatchesSaved
+								? "Saved"
+								: "Draft synced · Save version";
 	const revisionLabel = isGadget
 		? gadgetDetail.data
 			? gadgetDetail.data.currentRevision
@@ -758,7 +760,17 @@ export function CanvasDocPanel({
 			{detail.isError && (
 				<Alert variant="destructive">
 					<AlertTitle>The document is unavailable</AlertTitle>
-					<AlertDescription>{(detail.error as Error).message}</AlertDescription>
+					<AlertDescription>
+						{(detail.error as Error).message}
+						{(detail.error as Error).message ===
+							"Output source access is unavailable" && (
+							<p>
+								This document uses restricted sources. Workspace access does not
+								grant access to those sources. Ask the document owner for a
+								version they can share with you.
+							</p>
+						)}
+					</AlertDescription>
 				</Alert>
 			)}
 			{!isGadget && detail.data && !live && (
