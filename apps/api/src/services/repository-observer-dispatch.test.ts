@@ -7,10 +7,18 @@ const deps = vi.hoisted(() => ({
 	create: vi.fn(),
 	get: vi.fn(),
 	enqueue: vi.fn(),
+	createAlert: vi.fn(),
+	refreshAlerts: vi.fn(),
+	settleCi: vi.fn(),
 }));
 vi.mock("@orpc/server", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@orpc/server")>()),
 	createRouterClient: () => ({ enqueueMessage: deps.enqueue }),
+}));
+vi.mock("@tedix/db/queries/work-items/interactions", () => ({
+	createWorkInteraction: deps.createAlert,
+	createRepositoryCiAlert: deps.createAlert,
+	refreshRepositoryCiAlerts: deps.refreshAlerts,
 }));
 vi.mock("@tedix/db/queries/projects", () => ({
 	getProjectByIdForOrganization: deps.project,
@@ -21,6 +29,7 @@ vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
 vi.mock("@tedix/db/queries/repository-observer", () => ({
 	createRepositoryObservation: deps.create,
 	getRepositoryObservation: deps.get,
+	settleRecoveredRepositoryCiObservations: deps.settleCi,
 }));
 vi.mock("@tedix/db/queries/skill-schedules", () => ({
 	getSkillSchedule: vi.fn().mockResolvedValue({ enabled: false }),
@@ -31,6 +40,7 @@ vi.mock("./situational-recall", () => ({
 import {
 	observeRepositoryEvent,
 	ownedObservation,
+	escalateObserver,
 } from "./repository-observer";
 const context = { db: {}, tediId: "owner-tedi" } as unknown as BaseContext;
 const event = RepositoryEventSchema.parse({
@@ -45,6 +55,7 @@ const event = RepositoryEventSchema.parse({
 });
 beforeEach(() => {
 	vi.clearAllMocks();
+	deps.refreshAlerts.mockResolvedValue([]);
 	deps.project.mockResolvedValue({
 		id: event.projectId,
 		objectiveId: "objective",
@@ -111,5 +122,61 @@ it("pausing the factory stops future event dispatch", async () => {
 	await expect(
 		observeRepositoryEvent(context, "org-example", event),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	expect(deps.enqueue).not.toHaveBeenCalled();
+});
+
+it("refreshes one open CI alert across failing commits and closes it on green", async () => {
+	const config = (await deps.project()).metadata.repositoryObserver;
+	const red = {
+		...event,
+		kind: "ci_red" as const,
+		surface: "full-suite-hourly",
+	};
+	const row = (event: typeof red) => ({
+		id: event.sha,
+		title: `Red CI ${event.surface} ${event.sha.slice(0, 9)}`,
+		metadata: { event },
+	});
+	await observeRepositoryEvent(context, "org-example", red);
+	await escalateObserver(
+		context,
+		"org-example",
+		row(red),
+		config,
+		"Tests failed",
+	);
+	expect(deps.createAlert).toHaveBeenCalledTimes(1);
+	deps.refreshAlerts.mockResolvedValue([{ id: "alert" }]);
+	const next = { ...red, sha: "b".repeat(40) };
+	await observeRepositoryEvent(context, "org-example", next);
+	await escalateObserver(
+		context,
+		"org-example",
+		row(next),
+		config,
+		"Tests still fail",
+	);
+	expect(deps.createAlert).toHaveBeenCalledTimes(1);
+	expect(deps.refreshAlerts).toHaveBeenLastCalledWith(
+		context.db,
+		expect.objectContaining({ sha: next.sha, green: false }),
+	);
+	deps.enqueue.mockClear();
+	const result = await observeRepositoryEvent(context, "org-example", {
+		...next,
+		kind: "ci_green",
+	});
+	expect(result.status).toBe("recovered");
+	expect(deps.settleCi).toHaveBeenCalledWith(
+		context.db,
+		expect.objectContaining({ surface: next.surface, orgId: "org-example" }),
+	);
+	expect(deps.settleCi.mock.invocationCallOrder[0]).toBeLessThan(
+		deps.refreshAlerts.mock.invocationCallOrder.at(-1)!,
+	);
+	expect(deps.refreshAlerts).toHaveBeenLastCalledWith(
+		context.db,
+		expect.objectContaining({ sha: next.sha, green: true }),
+	);
 	expect(deps.enqueue).not.toHaveBeenCalled();
 });

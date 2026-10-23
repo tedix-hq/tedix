@@ -324,6 +324,44 @@ export async function settleRecoveredRepositoryObservation(
 		.returning({ id: workItems.id });
 }
 
+export async function settleRecoveredRepositoryCiObservations(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		projectId: string;
+		repository: string;
+		branch: string;
+		surface: string;
+		occurredAt?: string;
+		now: string;
+	},
+) {
+	const scope = and(
+		eq(workItems.orgId, p.orgId),
+		eq(workItems.projectId, p.projectId),
+		sql`json_extract(${workItems.metadata}, '$.repositoryObserver')=1`,
+		sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
+		sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
+		sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
+		sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
+		sql`julianday(coalesce(json_extract(${workItems.metadata}, '$.event.occurredAt'), ${workItems.createdAt})) <= julianday(${p.occurredAt ?? p.now})`,
+	);
+	return db.batch([
+		// Active attempts keep their lifecycle, but their late reports cannot reopen alerts.
+		db
+			.update(workItems)
+			.set({
+				metadata: sql`json_set(${workItems.metadata}, '$.ciRecoveredAt', ${p.now})`,
+			})
+			.where(scope),
+		db
+			.update(workItems)
+			.set(settlementValues(p.now, "no action needed: ci_green recovery"))
+			.where(and(scope, settleableObservation(p.now)))
+			.returning({ id: workItems.id }),
+	]);
+}
+
 /** The subquery bounds the mutation without binding a page of IDs or racing a prior read. */
 export async function settleAgedRepositoryPushObservations(
 	db: DbQueryClient,

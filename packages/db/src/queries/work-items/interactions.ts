@@ -217,6 +217,137 @@ export async function createWorkInteraction(
 	return created;
 }
 
+interface RepositoryCiAlertParams {
+	orgId: string;
+	projectId: string;
+	repository: string;
+	branch: string;
+	surface: string;
+	sha: string;
+	ownerTediId: string;
+	escalationUserId: string;
+	occurredAt?: string;
+	now: string;
+}
+
+function repositoryCiScope(p: RepositoryCiAlertParams) {
+	return sql`w.org_id=${p.orgId} AND w.project_id=${p.projectId}
+		AND json_extract(w.metadata, '$.repositoryObserver')=1
+		AND json_extract(w.metadata, '$.event.kind')='ci_red'
+		AND json_extract(w.metadata, '$.event.repository')=${p.repository}
+		AND json_extract(w.metadata, '$.event.branch')=${p.branch}
+		AND json_extract(w.metadata, '$.event.surface')=${p.surface}`;
+}
+
+const ciAlertReasons = sql`('Failing checks need a decision after diagnosis', 'Workflow is still failing.')`;
+
+export async function createRepositoryCiAlert(
+	db: DbQueryClient,
+	p: RepositoryCiAlertParams & {
+		id: string;
+		workItemId: string;
+		subject: string;
+		prompt: string;
+	},
+) {
+	await validateActor(db, p.orgId, { type: "tedi", id: p.ownerTediId });
+	await requireActivePrincipal(db, {
+		orgId: p.orgId,
+		type: "user",
+		id: p.escalationUserId,
+	});
+	const work = await requireWorkItem(db, p.orgId, p.workItemId);
+	const deadline = [work.deadline, work.dueDate]
+		.filter((at): at is string => Boolean(at))
+		.sort()[0];
+	const urgent = Boolean(
+		deadline && Date.parse(deadline) - Date.parse(p.now) < 86_400_000,
+	);
+	const metadata = JSON.stringify({
+		reason: "Failing checks need a decision after diagnosis",
+		latestSha: p.sha,
+		failedShas: [p.sha],
+		latestOccurredAt: p.occurredAt ?? p.now,
+		failureCount: 1,
+		notification: {
+			state: urgent ? "immediate" : "deferred",
+			reason: urgent ? "deadline_under_24h" : "quiet_batch",
+			deliverAt: urgent ? p.now : nextInteractionDigestAt(p.now),
+		},
+	});
+	await db.run(sql`INSERT INTO work_interactions
+		(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata)
+		SELECT ${p.id},${p.orgId},${p.workItemId},'coordination',${p.subject},${p.prompt},'tedi',${p.ownerTediId},'user',${p.escalationUserId},${p.now},${metadata}
+		WHERE EXISTS (SELECT 1 FROM work_items w WHERE ${repositoryCiScope(p)} AND w.id=${p.workItemId} AND w.disposition IN ('proposed','accepted') AND json_extract(w.metadata, '$.ciRecoveredAt') IS NULL)
+		AND NOT EXISTS (SELECT 1 FROM work_interactions a JOIN work_items w ON w.org_id=a.org_id AND w.id=a.work_item_id
+			WHERE ${repositoryCiScope(p)} AND a.status='open' AND a.kind='coordination'
+			AND json_extract(a.metadata, '$.reason') IN ${ciAlertReasons})
+		ON CONFLICT DO NOTHING`);
+	const created = await getWorkInteraction(db, {
+		orgId: p.orgId,
+		interactionId: p.id,
+	});
+	if (created) await recordCardCreationEdges(db, created, work);
+}
+
+export async function refreshRepositoryCiAlerts(
+	db: DbQueryClient,
+	p: RepositoryCiAlertParams & { green: boolean },
+) {
+	const failedShas = sql`coalesce(json_extract(${workInteractions.metadata}, '$.failedShas'), json_array((SELECT json_extract(w.metadata, '$.event.sha') FROM work_items w WHERE w.org_id=${p.orgId} AND w.id=${workInteractions.workItemId})))`;
+	return db
+		.update(workInteractions)
+		.set({
+			subject: `${p.green ? "Green" : "Red"} CI ${p.surface} ${p.sha.slice(0, 9)}`,
+			...(p.green
+				? {
+						status: "cancelled" as const,
+						cancelledAt: p.now,
+						resolutionFence: crypto.randomUUID(),
+					}
+				: {}),
+			metadata: sql`json_set(${workInteractions.metadata}, '$.latestSha', ${p.sha}, '$.latestOccurredAt', ${p.occurredAt ?? p.now}, '$.failedShas', json(${p.green ? failedShas : sql`json_insert(${failedShas}, '$[#]', ${p.sha})`}), '$.failureCount', coalesce(json_extract(${workInteractions.metadata}, '$.failureCount'), 1) + ${p.green ? 0 : 1}, '$.reason', ${p.green ? "Workflow passed; CI alert closed." : "Workflow is still failing."})`,
+			version: sql`${workInteractions.version}+1`,
+		})
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.kind, "coordination"),
+				eq(workInteractions.status, "open"),
+				sql`json_extract(${workInteractions.metadata}, '$.reason') IN ${ciAlertReasons}`,
+				...(p.green
+					? []
+					: [
+							sql`NOT EXISTS (SELECT 1 FROM json_each(${failedShas}) seen WHERE seen.value=${p.sha})
+					AND julianday(${p.occurredAt ?? p.now}) >= julianday(coalesce(json_extract(${workInteractions.metadata}, '$.latestOccurredAt'), (SELECT coalesce(json_extract(w.metadata, '$.event.occurredAt'), w.created_at) FROM work_items w WHERE w.org_id=${p.orgId} AND w.id=${workInteractions.workItemId})))`,
+						]),
+				eq(workInteractions.creatorType, "tedi"),
+				eq(workInteractions.creatorId, p.ownerTediId),
+				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetId, p.escalationUserId),
+				// bound-params: SQL subquery binds a fixed scope, not one parameter per result
+				inArray(
+					workInteractions.workItemId,
+					db
+						.select({ id: workItems.id })
+						.from(workItems)
+						.where(
+							and(
+								eq(workItems.orgId, p.orgId),
+								eq(workItems.projectId, p.projectId),
+								sql`json_extract(${workItems.metadata}, '$.repositoryObserver')=1`,
+								sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
+								sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
+								sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
+								sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
+							),
+						),
+				),
+			),
+		)
+		.returning();
+}
+
 export interface RespondWorkInteractionParams {
 	id: string;
 	orgId: string;

@@ -18,14 +18,14 @@ permissions:
   id-token: write
 
 concurrency:
-  group: repository-observer-${{ github.sha }}
+  group: repository-observer-${{ github.event_name }}-${{ github.run_id }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   notify:
     if: >-
       vars.TEDIX_OBSERVER_URL != '' &&
-      (github.event_name == 'push' || github.event.workflow_run.conclusion == 'failure')
+      (github.event_name == 'push' || contains(fromJSON('["failure","success"]'), github.event.workflow_run.conclusion))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
