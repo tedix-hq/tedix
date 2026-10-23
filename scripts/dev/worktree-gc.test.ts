@@ -18,6 +18,7 @@ import {
 	deleteMergedBranch,
 	findSiblingClones,
 	mergedBranches,
+	inBase,
 	isInside,
 	parseWorktreePorcelain,
 	readWorktreeFacts,
@@ -392,5 +393,36 @@ describe("merged branches", () => {
 		expect(git(canonical, "branch", "--format=%(refname:short)")).toBe(
 			"elsewhere\nmain\nunfinished\n",
 		);
+	});
+});
+
+describe("what counts as finished", () => {
+	test("keeps a worktree holding ignored files that are not build output", () => {
+		const { canonical, path, verdict } = worktreeFixture();
+		mkdirSync(join(path, "node_modules"));
+		writeFileSync(join(path, "node_modules", "dep"), "generated");
+		expect(verdict()).toBe("merged");
+		writeFileSync(join(canonical, ".git", "info", "exclude"), "notes.md\n");
+		writeFileSync(join(path, "notes.md"), "hand-written");
+		expect(verdict()).toBe("dirty");
+	});
+
+	test("treats a branch whose commits landed rebased as merged", () => {
+		const { canonical, git } = worktreeFixture();
+		git(canonical, "checkout", "-q", "-b", "lane");
+		writeFileSync(join(canonical, "lane"), "lane work");
+		git(canonical, "add", "lane");
+		git(canonical, "commit", "-qm", "lane work");
+		git(canonical, "checkout", "-q", "main");
+		writeFileSync(join(canonical, "other"), "someone else landed first");
+		git(canonical, "add", "other");
+		git(canonical, "commit", "-qm", "other work");
+		expect(inBase(canonical, "lane", "main")).toBe(false);
+		git(canonical, "cherry-pick", "lane");
+		expect(inBase(canonical, "lane", "main")).toBe(true);
+		git(canonical, "checkout", "-q", "lane");
+		writeFileSync(join(canonical, "lane"), "unlanded follow-up");
+		git(canonical, "commit", "-qam", "unlanded follow-up");
+		expect(inBase(canonical, "lane", "main")).toBe(false);
 	});
 });
