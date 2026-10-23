@@ -130,6 +130,7 @@ function safeCauseChain(
 		chain.push({
 			name: safeIdentifier(cause.name) ?? "Error",
 			messageClass: safeErrorClass(cause.message),
+			httpStatus: /\bHTTP ([1-5]\d{2})\b/.exec(cause.message)?.[1],
 			numericCode,
 			valueRedacted: true,
 		});
@@ -143,10 +144,14 @@ export function safeErrorClassification(error: unknown) {
 	if (!(error instanceof Error)) return {};
 	return {
 		messageClass: safeErrorClass(error.message),
-		causeChain: safeCauseChain(error)?.map(({ messageClass, numericCode }) => ({
-			messageClass,
-			numericCode,
-		})),
+		httpStatus: /\bHTTP ([1-5]\d{2})\b/.exec(error.message)?.[1],
+		causeChain: safeCauseChain(error)?.map(
+			({ messageClass, numericCode, httpStatus }) => ({
+				messageClass,
+				numericCode,
+				httpStatus,
+			}),
+		),
 	};
 }
 

@@ -296,6 +296,44 @@ export type CommitmentWakeCursor = NonNullable<
 	typeof platformCronCheckpoints.$inferSelect.cursor
 >;
 
+const RETRY_PREFIX = "commitment-wakes:retry:";
+
+/** Retry pointers reuse the scan checkpoint store; the events remain canonical. */
+export async function retainCommitmentWakePage(
+	db: DbClient,
+	through: string,
+	cursor: CommitmentWakeCursor | null,
+): Promise<void> {
+	await db
+		.insert(platformCronCheckpoints)
+		.values({
+			scheduleId: `${RETRY_PREFIX}${through}:${JSON.stringify(cursor)}`,
+			through,
+			cursor,
+		})
+		.onConflictDoNothing();
+}
+
+export async function listCommitmentWakeRetryPages(db: DbClient) {
+	return db
+		.select()
+		.from(platformCronCheckpoints)
+		.where(
+			sql`${platformCronCheckpoints.scheduleId} >= ${RETRY_PREFIX} AND ${platformCronCheckpoints.scheduleId} < ${RETRY_PREFIX + "~"}`,
+		)
+		.orderBy(platformCronCheckpoints.scheduleId)
+		.limit(10);
+}
+
+export async function removeCommitmentWakeRetryPage(
+	db: DbClient,
+	scheduleId: string,
+) {
+	await db
+		.delete(platformCronCheckpoints)
+		.where(eq(platformCronCheckpoints.scheduleId, scheduleId));
+}
+
 export async function getCommitmentWakeCursor(
 	db: DbClient,
 	after: string,
