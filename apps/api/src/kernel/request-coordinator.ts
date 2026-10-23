@@ -9,6 +9,22 @@ export function kernelRequestReportMessageId(sourceId: string): string {
 	return `${sourceId}:acceptance:assistant`;
 }
 
+/** Keep the source reply short; full observations stay in its private metadata. */
+export function kernelRequestAcceptanceReport(
+	snapshot: KernelRequestSnapshot,
+	workItemId: string,
+): string {
+	const s = KernelRequestSnapshotSchema.parse(snapshot);
+	if (
+		s.outcome !== "verified" ||
+		!s.checks.length ||
+		s.observations.length !== s.checks.length ||
+		s.observations.some((observation) => observation.status !== "pass")
+	)
+		throw new Error("Acceptance report requires verified checks");
+	return `Verified ${s.checks.length} acceptance ${s.checks.length === 1 ? "check" : "checks"} for this request. [Open the Work item](/work/items/${encodeURIComponent(workItemId)}). Detailed check receipts are retained in this conversation.`;
+}
+
 export type KernelRequestEvent =
 	| { kind: "file"; workItemId: string | null }
 	| { kind: "brief"; revision: number; checks: KernelAcceptanceCheck[] }
