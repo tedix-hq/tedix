@@ -186,14 +186,25 @@ export async function summarise(
 				parsed = null;
 			}
 		}
-		if (Array.isArray(parsed))
+		if (Array.isArray(parsed)) {
+			const indexCounts = new Map<number, number>();
+			for (const raw of parsed)
+				if (typeof raw?.n === "number" && Number.isInteger(raw.n))
+					indexCounts.set(raw.n, (indexCounts.get(raw.n) ?? 0) + 1);
 			for (const raw of parsed) {
-				const b = batch[Number(raw?.n) - 1];
+				if (
+					typeof raw?.n !== "number" ||
+					!Number.isInteger(raw.n) ||
+					indexCounts.get(raw.n) !== 1
+				)
+					continue;
+				const b = batch[raw.n - 1];
 				if (!b) continue;
 				const summary = toSummary(raw);
 				out.set(b.f.key, summary);
 				state.summaries[b.f.key] = { hash: b.hash, summary };
 			}
+		}
 		done += batch.length;
 		save();
 		log(`    summarised ${done}/${pending.length} new or changed sessions`);

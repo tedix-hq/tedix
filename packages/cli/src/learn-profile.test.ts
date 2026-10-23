@@ -204,6 +204,29 @@ describe("profile summaries", () => {
 		expect(calls).toBe(1);
 		expect(meter.cached).toBe(2);
 	});
+
+	it("rejects duplicate and fractional summary indexes", async () => {
+		const sessions = await Promise.all([facts("acme-a"), facts("acme-b")]);
+		const state: ProfileState = { version: 1, facts: {}, summaries: {} };
+		const result = await summarise(
+			sessions,
+			state,
+			async () =>
+				JSON.stringify([
+					{ n: 1, ...summary("First attempt") },
+					{ n: 1, ...summary("Duplicate attempt") },
+					{ n: 1.5, ...summary("Fractional attempt") },
+					{ n: 2, ...summary("Second session") },
+				]),
+			newMeter(),
+			() => {},
+			() => {},
+		);
+
+		expect(result.has(sessions[0]!.key)).toBe(false);
+		expect(result.get(sessions[1]!.key)?.goal).toBe("Second session");
+		expect(Object.keys(state.summaries)).toEqual([sessions[1]!.key]);
+	});
 });
 
 describe("workstreams and document", () => {
