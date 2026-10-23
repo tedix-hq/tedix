@@ -9,7 +9,7 @@ import {
  * remote workspace owners do: the local-symbol shortcut in getWorkspace exposes
  * raw fs methods without filesystem observer spans.
  */
-export function getTediWorkspaceClient(
+export async function getTediWorkspaceClient(
 	ws: WorkspaceVfs,
 ): Promise<WorkspaceClient> {
 	return getWorkspace({
