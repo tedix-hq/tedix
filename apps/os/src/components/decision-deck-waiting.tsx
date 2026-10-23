@@ -31,10 +31,9 @@ export function DeckWaitingList({
 			data-deck-waiting
 		>
 			{rows.map((row) => {
+				// An unresolved project shows nothing rather than its raw id.
 				const project =
-					row.project === "Unfiled"
-						? null
-						: (projectLabel(row.project) ?? row.project);
+					row.project === "Unfiled" ? null : projectLabel(row.project);
 				return (
 					<li key={row.id}>
 						<button
