@@ -91,4 +91,28 @@ describe("inbound thread selection by sender trust", () => {
 		expect(stranger.thread.id).not.toBe(trusted.thread.id);
 		expect(stranger.thread.senderTrust).toBe("untrusted");
 	});
+
+	it("chunks a long References chain below D1's parameter limit", async () => {
+		const db = fixture();
+		const original = await ingestInboundTediEmail(db, {
+			...mail("trusted", "ana@acme.example"),
+			messageIdHeader: ROOT,
+			inReplyTo: null,
+			references: [],
+		});
+		const references = Array.from(
+			{ length: 101 },
+			(_, index) => `<reference-${index}@acme.example>`,
+		);
+		references[100] = ROOT;
+
+		const reply = await ingestInboundTediEmail(db, {
+			...mail("trusted", "ana@acme.example"),
+			messageIdHeader: "<reply@acme.example>",
+			inReplyTo: null,
+			references,
+		});
+
+		expect(reply.thread.id).toBe(original.thread.id);
+	});
 });
