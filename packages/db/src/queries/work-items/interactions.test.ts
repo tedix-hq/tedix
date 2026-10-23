@@ -31,6 +31,43 @@ import {
 
 const NOW = "2026-08-21T12:00:00.000Z";
 
+/** The deployed BEFORE UPDATE guards on work_interactions, latest definition each. */
+function deployedInteractionGuards() {
+	const migrations = new URL("../../../drizzle/", import.meta.url);
+	const guards = new Map<string, string>();
+	for (const name of readdirSync(migrations).sort()) {
+		if (!/^\d+_/.test(name)) continue;
+		const text = readFileSync(
+			new URL(`${name}/migration.sql`, migrations),
+			"utf8",
+		);
+		for (const statement of text.split("--> statement-breakpoint")) {
+			const drop = statement.match(
+				/DROP TRIGGER(?: IF EXISTS)?\s+[`"]?([\w]+)[`"]?/i,
+			);
+			if (drop) guards.delete(drop[1]!);
+			const create = statement.match(
+				/CREATE TRIGGER\s+[`"]?([\w]+)[`"]?[\s\S]*?\bEND;/i,
+			);
+			if (
+				create &&
+				/BEFORE UPDATE ON\s+[`"]?work_interactions[`"]?(?:\s|$)/i.test(
+					create[0],
+				)
+			)
+				guards.set(create[1]!, create[0]);
+		}
+	}
+	return [...guards.values()];
+}
+const armed = new WeakSet<DatabaseSync>();
+/** Install the deployed update guards once, after a test's setup writes. */
+function armInteractionGuards(sqlite: DatabaseSync) {
+	if (armed.has(sqlite)) return;
+	for (const guard of deployedInteractionGuards()) sqlite.exec(guard);
+	armed.add(sqlite);
+}
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
@@ -534,42 +571,9 @@ describe("obsolete Work interactions", () => {
 		);
 		return f;
 	}
-	/** The deployed BEFORE UPDATE guards on work_interactions, latest definition each. */
-	function deployedInteractionGuards() {
-		const migrations = new URL("../../../drizzle/", import.meta.url);
-		const guards = new Map<string, string>();
-		for (const name of readdirSync(migrations).sort()) {
-			if (!/^\d+_/.test(name)) continue;
-			const text = readFileSync(
-				new URL(`${name}/migration.sql`, migrations),
-				"utf8",
-			);
-			for (const statement of text.split("--> statement-breakpoint")) {
-				const drop = statement.match(
-					/DROP TRIGGER(?: IF EXISTS)?\s+[`"]?([\w]+)[`"]?/i,
-				);
-				if (drop) guards.delete(drop[1]!);
-				const create = statement.match(
-					/CREATE TRIGGER\s+[`"]?([\w]+)[`"]?[\s\S]*?\bEND;/i,
-				);
-				if (
-					create &&
-					/BEFORE UPDATE ON\s+[`"]?work_interactions[`"]?(?:\s|$)/i.test(
-						create[0],
-					)
-				)
-					guards.set(create[1]!, create[0]);
-			}
-		}
-		return [...guards.values()];
-	}
-	const armed = new WeakSet<DatabaseSync>();
 	/** Sweep under the deployed update guards, armed after the test's setup writes. */
 	const sweep = (f: ReturnType<typeof fixture>, now = NOW) => {
-		if (!armed.has(f.sqlite)) {
-			for (const guard of deployedInteractionGuards()) f.sqlite.exec(guard);
-			armed.add(f.sqlite);
-		}
+		armInteractionGuards(f.sqlite);
 		return sweepObsoleteWorkInteractions(f.db, { now, limit: 100 });
 	};
 	const noteFor = (sqlite: DatabaseSync, id: string) =>
@@ -813,6 +817,7 @@ it("refreshes CI alerts in their workflow scope and closes them on recovery", as
 			runtimeProfiles,
 			workspaceTemplateSets,
 			tedis,
+			workInteractionCardRevisions,
 		),
 	);
 	const event = {
@@ -838,9 +843,11 @@ it("refreshes CI alerts in their workflow scope and closes them on recovery", as
 			"INSERT INTO work_interactions (id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES ('alert','org','work','coordination','Red CI','Failed','tedi','owner','user','human',?)",
 		)
 		.run(NOW);
-	sqlite.exec(`UPDATE work_interactions SET metadata='{"reason":"Failing checks need a decision after diagnosis"}' WHERE id='alert';
+	sqlite.exec(`UPDATE work_interactions SET metadata='{"reason":"Failing checks need a decision after diagnosis","notification":{"state":"deferred","reason":"quiet_batch","deliverAt":"2026-08-21T17:00:00.000Z"}}' WHERE id='alert';
 		INSERT INTO work_interactions (id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata)
-		SELECT 'real-question',org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,'{"reason":"Please check the diagnosis"}' FROM work_interactions WHERE id='alert';`);
+		SELECT 'real-question',org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,'{"reason":"Please check the diagnosis","refreshedAt":"2026-08-22T12:00:00.000Z"}' FROM work_interactions WHERE id='alert';`);
+	// Production's update guards: an edit they reject fails here too.
+	armInteractionGuards(sqlite);
 	const input = {
 		...event,
 		orgId: "org",
@@ -865,43 +872,51 @@ it("refreshes CI alerts in their workflow scope and closes them on recovery", as
 			[],
 		);
 	}
-	const [alert] = await refreshRepositoryCiAlerts(db, input);
-	expect(alert).toMatchObject({
-		id: "alert",
-		status: "open",
-		subject: `Red CI full-suite-hourly ${input.sha.slice(0, 9)}`,
-		// The coordination expiry window restarts on every red refresh.
-		metadata: { latestSha: input.sha, failureCount: 2, refreshedAt: input.now },
-	});
-	expect(await refreshRepositoryCiAlerts(db, input)).toEqual([]);
-	expect(
-		await refreshRepositoryCiAlerts(db, {
+	// Every red run of the period refreshes the same alert, so the coordination
+	// expiry window restarts; subject, reason and version stay as created.
+	for (const [sha, now] of [
+		["b", "2026-08-21T14:00:00.000Z"],
+		["c", "2026-08-21T15:00:00.000Z"],
+		["c", "2026-08-21T16:00:00.000Z"],
+	] as const) {
+		const alerts = await refreshRepositoryCiAlerts(db, {
 			...input,
-			sha: event.sha,
-			occurredAt: event.occurredAt,
-		}),
-	).toEqual([]);
+			sha: sha.repeat(40),
+			occurredAt: now,
+			now,
+		});
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0]).toMatchObject({
+			id: "alert",
+			status: "open",
+			version: 1,
+			subject: "Red CI",
+			metadata: {
+				reason: "Failing checks need a decision after diagnosis",
+				notification: { state: "deferred", refreshedAt: now },
+			},
+		});
+	}
+	// 25 h after creation but 21 h after the last red: the alert stays open.
 	expect(
-		await refreshRepositoryCiAlerts(db, {
-			...input,
-			sha: "c".repeat(40),
-			occurredAt: event.occurredAt,
+		await sweepObsoleteWorkInteractions(db, {
+			now: "2026-08-22T13:00:00.000Z",
+			limit: 100,
 		}),
-	).toEqual([]);
-	const [closed] = await refreshRepositoryCiAlerts(db, {
-		...input,
-		sha: event.sha,
-		occurredAt: "2026-08-21T13:00:00.000Z",
-	});
-	expect(closed).toBeUndefined();
+	).toEqual({ observed: 0, expired: 0 });
 	const [recovered] = await refreshRepositoryCiAlerts(db, {
 		...input,
 		green: true,
 	});
 	expect(recovered).toMatchObject({
+		id: "alert",
 		status: "cancelled",
 		cancelledAt: NOW,
-		metadata: { reason: "Workflow passed; CI alert closed.", failureCount: 2 },
+		version: 2,
+		metadata: {
+			reason: "Failing checks need a decision after diagnosis",
+			notification: { refreshedAt: "2026-08-21T16:00:00.000Z" },
+		},
 	});
 	expect(await refreshRepositoryCiAlerts(db, input)).toEqual([]);
 	expect(
@@ -923,6 +938,7 @@ it.each([false, true])(
 				runtimeProfiles,
 				workspaceTemplateSets,
 				tedis,
+				workInteractionCardRevisions,
 			),
 		);
 		sqlite.exec(
@@ -962,6 +978,7 @@ it.each([false, true])(
 					event: { ...p, sha: "b".repeat(40), kind: "ci_red" },
 				}),
 			);
+		armInteractionGuards(sqlite);
 		await Promise.all([
 			createRepositoryCiAlert(db, { ...p, id: "first", workItemId: "work" }),
 			createRepositoryCiAlert(db, {
@@ -984,8 +1001,20 @@ it.each([false, true])(
 					"INSERT INTO work_attempts (id,org_id,work_item_id,attempt_number,runtime_state,started_at,heartbeat_at,executor_type,executor_id) VALUES ('attempt','org','work-2',1,'running',?,?,'tedi','owner')",
 				)
 				.run(NOW, NOW);
+		const later = "2026-08-21T13:00:00.000Z";
+		const [refreshed] = await refreshRepositoryCiAlerts(db, {
+			...p,
+			sha: "c".repeat(40),
+			green: false,
+			now: later,
+		});
+		expect(refreshed?.metadata).toMatchObject({
+			notification: { refreshedAt: later },
+		});
 		await settleRecoveredRepositoryCiObservations(db, p);
-		await refreshRepositoryCiAlerts(db, { ...p, green: true });
+		expect(
+			await refreshRepositoryCiAlerts(db, { ...p, green: true }),
+		).toMatchObject([{ id: refreshed?.id, status: "cancelled" }]);
 		await createRepositoryCiAlert(db, {
 			...p,
 			id: "late",
