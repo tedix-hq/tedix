@@ -930,6 +930,7 @@ export const runtimeFacetTurns = {
 			traceId?: string;
 			workItemId?: string;
 			homeRunId?: string;
+			personalRequest?: boolean;
 			executionSurface?: ExecutionSurface;
 			repositoryMode?: RepositoryMode;
 			authorityEnvelope?: DelegationAuthorityEnvelope;
@@ -966,11 +967,13 @@ export const runtimeFacetTurns = {
 			);
 		}
 		const cronTool = this.cronAiTool(input.sessionKey);
-		// Never let a Home-supervised child reuse this DO's full-profile AIH
-		// connections. Credential caches live inside each MCP runtime instance.
+		// Connections carry the calling run's personal-read lookup and trace.
+		// Isolate them per turn so a scheduled or concurrent turn cannot borrow
+		// another request's binding or its supervised credentials.
 		const { AgentMcpRuntime } = await import("./mcp-client-runtime");
+		const isolatedRequest = supervised || input.personalRequest === true;
 		const mcpRuntime =
-			supervised && this.state.tediId
+			isolatedRequest && this.state.tediId
 				? new AgentMcpRuntime(
 						this.env,
 						this.state.tediId,
@@ -981,14 +984,16 @@ export const runtimeFacetTurns = {
 								kind: "conversation",
 								key: conversationId,
 							}).workspace,
-						{
-							runId: input.runId,
-							homeRunId: input.homeRunId!,
-							workItemId: input.workItemId!,
-						},
+						supervised
+							? {
+									runId: input.runId,
+									homeRunId: input.homeRunId!,
+									workItemId: input.workItemId!,
+								}
+							: undefined,
 					)
 				: await this.getMcpRuntime();
-		if (supervised && mcpRuntime) {
+		if (isolatedRequest && mcpRuntime) {
 			try {
 				await withTimeout(
 					mcpRuntime.ensureSynced(),
@@ -2360,6 +2365,7 @@ export const runtimeFacetTurns = {
 			traceId: input.traceId,
 			workItemId: input.workItemId,
 			homeRunId: input.homeRunId,
+			personalRequest: input.personalRequest,
 			executionSurface: input.executionSurface,
 			repositoryMode: input.repositoryMode,
 			authorityEnvelope: input.authorityEnvelope,

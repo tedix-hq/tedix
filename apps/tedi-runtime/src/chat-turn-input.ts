@@ -40,6 +40,8 @@ export interface ChatTurnParams {
 	runId: string;
 	/** Cross-layer MCP trace propagated into every mirrored runtime event. */
 	traceId?: string;
+	/** Isolate the direct request's MCP binding; API consent is checked independently. */
+	personalRequest?: boolean;
 	/** Disable adaptive after-turn learning for read-only validation/cleanup turns. */
 	learningMode?: "normal" | "disabled";
 	/** Work Item supervising this delegated turn, when dispatched by Home. */
