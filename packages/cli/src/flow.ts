@@ -336,9 +336,11 @@ async function flowCall(
 	args: Record<string, unknown>,
 	destructiveApprovalReason?: string,
 ): Promise<FlowResult> {
+	// Parse JSON at execution time so __proto__ stays data, not a literal setter.
+	const input = JSON.stringify(JSON.stringify(flowInput(ctx, args)));
 	return runSource(
 		ctx,
-		`async () => await ${callable}(${JSON.stringify(flowInput(ctx, args))})`,
+		`async () => await ${callable}(JSON.parse(${input}))`,
 		destructiveApprovalReason,
 	);
 }
@@ -353,7 +355,7 @@ async function statusCall(
 
 /** Merge `--param k=v` repeats and `--params '<json>'` into one params object. */
 export function collectParams(options: FlowOptions): Record<string, unknown> {
-	const params: Record<string, unknown> = {};
+	const params: Record<string, unknown> = Object.create(null);
 	if (options.params) {
 		let parsed: unknown;
 		try {

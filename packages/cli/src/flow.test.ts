@@ -127,6 +127,27 @@ describe("renderSkillMd", () => {
 });
 
 describe("collectParams", () => {
+	it("preserves JSON prototype-named keys without changing the prototype", () => {
+		const input = '{"__proto__":{"polluted":true},"constructor":"value"}';
+		const params = collectParams({ params: input });
+		expect(Object.getPrototypeOf(params)).toBeNull();
+		expect(Object.hasOwn(params, "__proto__")).toBe(true);
+		expect(JSON.stringify(params)).toBe(input);
+	});
+
+	it("lets repeated pairs override prototype-named JSON keys as data", () => {
+		const params = collectParams({
+			params: '{"__proto__":{"old":true}}',
+			param: ["__proto__=replacement", "constructor=false", "toString=text"],
+		});
+		expect(Object.getPrototypeOf(params)).toBeNull();
+		expect(JSON.parse(JSON.stringify(params))).toEqual(
+			JSON.parse(
+				'{"__proto__":"replacement","constructor":false,"toString":"text"}',
+			),
+		);
+	});
+
 	it("merges --params JSON with repeated --param pairs", () => {
 		expect(
 			collectParams({ params: '{"a":1}', param: ["b=two", "c=true", "d=3"] }),
@@ -141,6 +162,33 @@ describe("collectParams", () => {
 });
 
 describe("flow run", () => {
+	it("preserves prototype-named parameters when the gateway evaluates the source", async () => {
+		const { calls, ctx } = harness({
+			"flow.run": [{ skillId: "skill-1", runId: "run-1" }],
+		});
+		const input =
+			'{"__proto__":{"nested":"value"},"message":"quotes \\\" and newline\\n"}';
+		expect(
+			await runFlowCommand(
+				"run",
+				ctx({
+					skill: "5eed0005-0000-4000-8000-000000000005",
+					params: input,
+				}),
+			),
+		).toBe(0);
+		let received: Record<string, unknown> | undefined;
+		const execute = new Function("flow", `return (${calls[0]})();`);
+		await execute({
+			run: (args: { params: Record<string, unknown> }) => {
+				received = args.params;
+			},
+		});
+		expect(Object.getPrototypeOf(received)).toBe(Object.prototype);
+		expect(Object.hasOwn(received!, "__proto__")).toBe(true);
+		expect(JSON.stringify(received)).toBe(input);
+	});
+
 	it("authors a draft, starts it, and returns the run id", async () => {
 		const { calls, approvals, ctx } = harness({
 			"flow.run": [{ skillId: "skill-1", runId: "run-1" }],
@@ -151,8 +199,10 @@ describe("flow run", () => {
 		expect(calls).toHaveLength(1);
 		const run = calls[0]!;
 		expect(run).toContain("flow.run");
-		expect(run).toContain('"source":"/* tedix');
-		expect(run).toContain('"skillDoc":"---\\nname: audit-annotations');
+		expect(run).toContain(JSON.stringify('"source":"/* tedix').slice(1, -1));
+		expect(run).toContain(
+			JSON.stringify('"skillDoc":"---\\nname: audit-annotations').slice(1, -1),
+		);
 		expect(run).toContain("app_config: [list_app_tools]");
 		expect(run).not.toContain("discover.search");
 		expect(run).not.toContain("skills.record_skills");
@@ -167,7 +217,7 @@ describe("flow run", () => {
 		});
 		const file = writePlan();
 		await runFlowCommand("run", ctx({ file, as: "cro" }));
-		expect(calls[0]).toContain('"tediSlug":"cro"');
+		expect(calls[0]).toContain(JSON.stringify('"tediSlug":"cro"').slice(1, -1));
 	});
 
 	it("runs an existing skill without authoring a replacement draft", async () => {
@@ -176,9 +226,11 @@ describe("flow run", () => {
 			"flow.run": [{ skillId, runId: "run-1" }],
 		});
 		expect(await runFlowCommand("run", ctx({ skill: skillId }))).toBe(0);
-		expect(calls[0]).toContain(`"skillId":"${skillId}"`);
-		expect(calls[0]).not.toContain('"source"');
-		expect(calls[0]).not.toContain('"skillDoc"');
+		expect(calls[0]).toContain(
+			JSON.stringify(`"skillId":"${skillId}"`).slice(1, -1),
+		);
+		expect(calls[0]).not.toContain(JSON.stringify('"source"').slice(1, -1));
+		expect(calls[0]).not.toContain(JSON.stringify('"skillDoc"').slice(1, -1));
 	});
 
 	it("rejects a non-UUID existing skill reference", async () => {
@@ -395,7 +447,7 @@ describe("flow inspect and list", () => {
 		expect(await runFlowCommand("inspect run-1", ctx())).toBe(0);
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toContain("flow.inspect");
-		expect(calls[0]).toContain('"runId":"run-1"');
+		expect(calls[0]).toContain(JSON.stringify('"runId":"run-1"').slice(1, -1));
 	});
 
 	it("renders the canonical flow.list runs envelope", async () => {
@@ -405,7 +457,7 @@ describe("flow inspect and list", () => {
 		expect(await runFlowCommand("list", ctx())).toBe(0);
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toContain("flow.list");
-		expect(calls[0]).toContain('"limit":15');
+		expect(calls[0]).toContain(JSON.stringify('"limit":15').slice(1, -1));
 	});
 
 	it("passes --as to every native read as tediSlug", async () => {
@@ -413,7 +465,9 @@ describe("flow inspect and list", () => {
 			"flow.status": [{ executionId: "exec-1", result: { status: "running" } }],
 		});
 		await runFlowCommand("status run-1", ctx({ as: "operator" }));
-		expect(calls[0]).toContain('"tediSlug":"operator"');
+		expect(calls[0]).toContain(
+			JSON.stringify('"tediSlug":"operator"').slice(1, -1),
+		);
 	});
 
 	it("lists the exact workflow-visible tedi methods", async () => {
@@ -432,7 +486,7 @@ describe("flow inspect and list", () => {
 		expect(await runFlowCommand("tools", ctx({ as: "cto" }))).toBe(0);
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toContain("flow.tools");
-		expect(calls[0]).toContain('"tediSlug":"cto"');
+		expect(calls[0]).toContain(JSON.stringify('"tediSlug":"cto"').slice(1, -1));
 	});
 });
 
