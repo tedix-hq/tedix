@@ -26,7 +26,14 @@ if (import.meta.main) {
 			cwd: appRoot,
 			stdio: "inherit",
 		}).status ?? 1;
-	const status = run(["bun", "x", "vp", "test", "run", ...process.argv.slice(2)]);
+	const status = run([
+		"bun",
+		"x",
+		"vp",
+		"test",
+		"run",
+		...process.argv.slice(2),
+	]);
 	process.exit(
 		status !== 0 || !lazyCheckShard()
 			? status
