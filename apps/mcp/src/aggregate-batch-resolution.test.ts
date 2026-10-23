@@ -148,10 +148,10 @@ function installFixtures(fixtures: AppFixture[]) {
 	return bySlug;
 }
 
-async function serveAndCaptureTools(hostSlug: string) {
+async function serveAndCaptureTools(hostSlug: string, env = createEnv()) {
 	const response = await worker.fetch(
 		new Request(`https://${hostSlug}.mcp.tedix.tech/mcp`),
-		createEnv(),
+		env,
 		createExecutionContext(),
 	);
 	expect(response.status).toBe(200);
@@ -707,6 +707,7 @@ describe("aggregate entry resolution is batched", () => {
 		// isolates. Without the single-flight guard this expects 3.
 		const entries = ["herd-a", "herd-b"];
 		installFixtures(hostWith("herd-host", entries));
+		const env = createEnv();
 
 		let release: (() => void) | undefined;
 		const gate = new Promise<void>((resolve) => {
@@ -721,9 +722,9 @@ describe("aggregate entry resolution is batched", () => {
 		});
 
 		const inFlight = [
-			serveAndCaptureTools("herd-host"),
-			serveAndCaptureTools("herd-host"),
-			serveAndCaptureTools("herd-host"),
+			serveAndCaptureTools("herd-host", env),
+			serveAndCaptureTools("herd-host", env),
+			serveAndCaptureTools("herd-host", env),
 		];
 		release?.();
 		await Promise.all(inFlight);
