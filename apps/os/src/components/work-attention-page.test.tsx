@@ -1,12 +1,75 @@
 import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-layout";
 import { expect, it, vi } from "vite-plus/test";
 import { renderToStaticMarkup } from "react-dom/server";
-vi.mock("@/lib/api", () => ({ osApi: {} }));
+
+const attentionQuery = vi.hoisted(() => ({
+	data: undefined as unknown,
+	isError: false,
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+	useMutation: () => ({
+		error: null,
+		isError: false,
+		isPending: false,
+		mutate: vi.fn(),
+		mutateAsync: vi.fn(),
+	}),
+	useQuery: ({ queryKey }: { queryKey: string[] }) =>
+		queryKey[0] === "attention"
+			? attentionQuery
+			: { data: undefined, error: null, isError: false },
+	useQueryClient: () => ({
+		invalidateQueries: vi.fn(),
+		setQueryData: vi.fn(),
+	}),
+}));
+vi.mock("@/lib/api", () => ({
+	OS_USES_FIXTURES: true,
+	osApi: {
+		workAgentSessions: {
+			attention: vi.fn(),
+			fileRequest: vi.fn(),
+			updateAttentionLayout: vi.fn(),
+			visitAttention: vi.fn(),
+		},
+	},
+}));
 vi.mock("@/lib/os-query-options", () => ({
-	workAttentionQueryOptions: () => ({}),
-	osQueryKeys: {},
+	attentionLayoutQueryOptions: () => ({ queryKey: ["layout"] }),
+	workAttentionQueryOptions: () => ({ queryKey: ["attention"] }),
+	osQueryKeys: { agentSessionRequests: () => ["requests"] },
+}));
+vi.mock("@/lib/webmcp/use-app-webmcp-tools", () => ({
+	useAppWebMcpTools: vi.fn(),
 }));
 import { AttentionBoard } from "./attention-live-view";
+import { AttentionApp } from "./work-attention-page";
+
+it("keeps loading, cold-error, and stale-data states mutually exclusive", () => {
+	attentionQuery.data = undefined;
+	attentionQuery.isError = false;
+	expect(renderToStaticMarkup(<AttentionApp />)).toContain(
+		"Loading attention…",
+	);
+
+	attentionQuery.isError = true;
+	const coldError = renderToStaticMarkup(<AttentionApp />);
+	expect(coldError).toContain("Live updates paused");
+	expect(coldError).not.toContain("Loading attention…");
+
+	attentionQuery.data = {
+		cards: [],
+		projects: [],
+		unfiled: [],
+		truncated: false,
+	};
+	const staleData = renderToStaticMarkup(<AttentionApp />);
+	expect(staleData).toContain("Live updates paused");
+	expect(staleData).toContain("Running");
+	expect(staleData).not.toContain("Loading attention…");
+});
+
 it("shows recovery evidence and bounded-data notice", () => {
 	const html = renderToStaticMarkup(
 		<AttentionBoard
