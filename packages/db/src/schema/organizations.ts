@@ -108,6 +108,7 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	sessionProjectBindings?: OrganizationContractMetadata["sessionProjectBindings"];
 	modelFallback?: OrganizationContractMetadata["modelFallback"];
 	workStewardship?: OrganizationContractMetadata["workStewardship"];
 	decisionLearning?: DecisionLearningConfig;

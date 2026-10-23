@@ -164,6 +164,25 @@ describe("organization metadata writes", () => {
 	const organizationId = "00000000-0000-4000-8000-000000000001";
 	const create = organizationsContract.create["~orpc"].inputSchemas[0]!;
 	const update = organizationsContract.update["~orpc"].inputSchemas[0]!;
+	it("validates session prefix bindings as organization settings", () => {
+		const input = {
+			organizationId,
+			metadata: {
+				sessionProjectBindings: [{ prefix: "ACME", projectId: organizationId }],
+			},
+		};
+		expect(update.parse(input)).toEqual(input);
+		for (const binding of [
+			{ prefix: "", projectId: organizationId },
+			{ prefix: "OPS", projectId: "wrong" },
+		])
+			expect(
+				update.safeParse({
+					...input,
+					metadata: { sessionProjectBindings: [binding] },
+				}).success,
+			).toBe(false);
+	});
 
 	it.each([create, update])(
 		"rejects unknown top-level settings and names every key",

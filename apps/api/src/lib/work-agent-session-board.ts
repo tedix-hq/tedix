@@ -154,7 +154,9 @@ export function buildWorkProjectContributors(
 	const contributors = new Map<string, WorkProjectContributor>();
 	const reportedStates = new Map<string, StoredState>();
 	for (const report of reports) {
-		const sessionKey = `${report.harness}:${report.sessionKey}`;
+		const sessionKey = report.sessionKey.startsWith(`${report.harness}:`)
+			? report.sessionKey
+			: `${report.harness}:${report.sessionKey}`;
 		const current = contributors.get(sessionKey);
 		// Two people cannot share a host session id; keep the newest report.
 		if (current && current.lastActivityAt >= report.lastEventAt) continue;

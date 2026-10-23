@@ -570,31 +570,37 @@ function lastJson(
 }
 
 /**
- * The session's name: the last `/rename` title in a Claude Code transcript, or
- * the thread name in the Codex session index. Undefined when it has none.
+ * An explicit lane label, the host's saved name, or the prompt's first heading.
  */
 export function sessionName(
 	event: JsonObject,
 	harness: string,
 	env: NodeJS.ProcessEnv,
 ): string | undefined {
+	if (env.TEDIX_LANE_LABEL?.trim()) return env.TEDIX_LANE_LABEL.trim();
+	const heading =
+		typeof event.prompt === "string"
+			? /^#{1,6}\s+(.+?)\s*#*\s*$/m.exec(event.prompt)?.[1]
+			: undefined;
 	if (harness === "codex") {
 		const index = join(
 			env.CODEX_HOME || join(homedir(), ".codex"),
 			"session_index.jsonl",
 		);
-		return lastJson(
-			tailLines(index, CODEX_INDEX_TAIL),
-			event.session_id,
-			(row) => (row.id === event.session_id ? row.thread_name : undefined),
+		return (
+			lastJson(tailLines(index, CODEX_INDEX_TAIL), event.session_id, (row) =>
+				row.id === event.session_id ? row.thread_name : undefined,
+			) ?? heading
 		);
 	}
 	if (typeof event.transcript_path !== "string" || !event.transcript_path)
-		return undefined;
-	return lastJson(
-		tailLines(event.transcript_path, TRANSCRIPT_TAIL),
-		"custom-title",
-		(row) => (row.type === "custom-title" ? row.customTitle : undefined),
+		return heading;
+	return (
+		lastJson(
+			tailLines(event.transcript_path, TRANSCRIPT_TAIL),
+			"custom-title",
+			(row) => (row.type === "custom-title" ? row.customTitle : undefined),
+		) ?? heading
 	);
 }
 
@@ -652,6 +658,10 @@ export function reportInput(payload: JsonObject): string {
 		state: payload.state,
 		summary: oneLine(payload.summary || "", SUMMARY_LIMIT),
 		label: oneLine(payload.label || "", LABEL_LIMIT),
+		...(typeof payload.replacesSessionKey === "string" &&
+		SESSION_KEY.test(payload.replacesSessionKey)
+			? { replacesSessionKey: payload.replacesSessionKey }
+			: {}),
 		...uuidField("projectId", payload.projectId),
 		...uuidField("workItemId", payload.workItemId),
 		...(payload.telemetry ? { telemetry: payload.telemetry } : {}),
@@ -814,18 +824,31 @@ function recordStatus(
 	} catch {
 		// The name is best effort.
 	}
+	name = env.TEDIX_LANE_LABEL?.trim() || name || previous?.sessionName;
+	const workItemId = looksLikeUuid(env.TEDIX_WORK_ID ?? "")
+		? env.TEDIX_WORK_ID
+		: bound.workItemId;
+	const claimedSession = env.TEDIX_AGENT_SESSION;
+	const reportSession =
+		claimedSession?.startsWith(`${harness}:`) &&
+		SESSION_KEY.test(claimedSession)
+			? claimedSession
+			: env.TEDIX_LANE_ID || sessionKey;
 	const label = name
 		? oneLine(name, LABEL_LIMIT)
-		: (deps.label ?? ((value) => labelFor(value, deps.cwd)))(event.cwd);
+		: workItemId
+			? ""
+			: (deps.label ?? ((value) => labelFor(value, deps.cwd)))(event.cwd);
 	const binding = {
 		...uuidField("projectId", bound.projectId),
-		...uuidField("workItemId", bound.workItemId),
+		...uuidField("workItemId", workItemId),
 	};
 	const changed =
 		!previous ||
 		previousState !== state ||
 		(["done", "needs_you"].includes(state) && previous.summary !== summary) ||
 		previous.label !== label ||
+		previous.reportSession !== reportSession ||
 		previous.projectId !== binding.projectId ||
 		previous.workItemId !== binding.workItemId;
 	const now = (deps.now ?? (() => new Date()))();
@@ -840,6 +863,8 @@ function recordStatus(
 		state,
 		summary,
 		label,
+		sessionName: name,
+		reportSession,
 		...binding,
 		cwd: typeof event.cwd === "string" ? event.cwd : "",
 		updatedAt: isoSeconds(now, true),
@@ -914,7 +939,13 @@ function recordStatus(
 				"lane",
 				"report",
 				"--input",
-				reportInput({ ...record, sessionKey: env.TEDIX_LANE_ID || sessionKey }),
+				reportInput({
+					...record,
+					sessionKey: reportSession,
+					...(reportSession !== sessionKey
+						? { replacesSessionKey: sessionKey }
+						: {}),
+				}),
 				...(typeof event.transcript_path === "string"
 					? ["--lane-transcript", event.transcript_path]
 					: []),

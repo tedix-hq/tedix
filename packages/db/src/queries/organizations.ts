@@ -64,6 +64,18 @@ export async function getOrganizationById(
 	return db.query.organizations.findFirst({ where: { id } });
 }
 
+export async function getOrganizationSessionProjectBindings(
+	db: DbQueryClient,
+	id: string,
+) {
+	const [row] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, id))
+		.limit(1);
+	return row?.metadata?.sessionProjectBindings ?? [];
+}
+
 /** Narrow identity-edge lookup that avoids hydrating an organization's relations. */
 export async function getOrganizationDescopeTenantId(
 	db: DbClient,

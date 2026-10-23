@@ -1,4 +1,6 @@
 import { organizationModelEnv } from "../../services/unrouted-model-egress";
+import { getOrganizationSessionProjectBindings } from "@tedix/db/queries/organizations";
+import { sessionProjectBinding } from "../../services/session-project-binding";
 /**
  * Local agent session status board.
  *
@@ -224,15 +226,24 @@ const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 					input.sessionKey,
 				)
 		: undefined;
+	const label = sanitizeWorkAgentSessionText(input.label, 120);
+	const mappedProjectId = sessionProjectBinding(
+		label,
+		await getOrganizationSessionProjectBindings(
+			context.db,
+			owner.organizationId,
+		),
+	);
 	const { row, changed } = await reportWorkAgentSessionStatus(context.db, {
 		...owner,
 		telemetry,
 		harness: input.harness,
 		sessionKey: input.sessionKey,
+		replacesSessionKey: input.replacesSessionKey,
 		state: input.state,
 		summary: sanitizeWorkAgentSessionText(input.summary, 200),
-		label: sanitizeWorkAgentSessionText(input.label, 120),
-		projectId: input.projectId,
+		label,
+		projectId: mappedProjectId ?? input.projectId,
 		workItemId: input.workItemId,
 		now:
 			input.telemetry?.source === "import" ? input.telemetry.heartbeatAt : now,

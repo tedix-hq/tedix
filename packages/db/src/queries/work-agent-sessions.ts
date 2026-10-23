@@ -40,6 +40,7 @@ export interface ReportWorkAgentSessionStatusParams {
 	userId: string;
 	harness: WorkAgentSessionHarness;
 	sessionKey: string;
+	replacesSessionKey?: string;
 	state: WorkAgentSessionState;
 	summary: string;
 	label: string;
@@ -94,7 +95,11 @@ export async function reportWorkAgentSessionStatus(
 		: [];
 	const [workItem] = params.workItemId
 		? await db
-				.select({ id: workItems.id })
+				.select({
+					id: workItems.id,
+					title: workItems.title,
+					projectId: workItems.projectId,
+				})
 				.from(workItems)
 				.where(
 					and(
@@ -113,9 +118,9 @@ export async function reportWorkAgentSessionStatus(
 			userId: params.userId,
 			harness: params.harness,
 			sessionKey: params.sessionKey,
-			label: params.label,
+			label: params.label || workItem?.title.slice(0, 120) || "",
 			telemetry: params.telemetry,
-			projectId: project?.id ?? null,
+			projectId: workItem?.projectId ?? project?.id ?? null,
 			workItemId: workItem?.id ?? null,
 			state: params.state,
 			summary: params.summary,
@@ -152,6 +157,22 @@ export async function reportWorkAgentSessionStatus(
 	const current = row ?? (await getWorkAgentSession(db, params));
 	if (!current) {
 		throw new Error("Work agent session upsert returned no row");
+	}
+	if (
+		params.replacesSessionKey &&
+		params.replacesSessionKey !== params.sessionKey
+	) {
+		await db
+			.update(workAgentSessions)
+			.set({ state: "ended", updatedAt: params.now })
+			.where(
+				and(
+					eq(workAgentSessions.organizationId, params.organizationId),
+					eq(workAgentSessions.userId, params.userId),
+					eq(workAgentSessions.harness, params.harness),
+					eq(workAgentSessions.sessionKey, params.replacesSessionKey),
+				),
+			);
 	}
 	return { row: current, changed: existing?.state !== current.state };
 }
@@ -306,7 +327,10 @@ export async function listWorkProjectContributorSources(
 	const hostIds = [
 		...new Set(
 			attempts
-				.map((row) => row.externalSessionKey.split(":").slice(1).join(":"))
+				.flatMap((row) => [
+					row.externalSessionKey,
+					row.externalSessionKey.split(":").slice(1).join(":"),
+				])
 				.filter(Boolean),
 		),
 	];

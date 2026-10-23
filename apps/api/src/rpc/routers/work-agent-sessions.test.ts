@@ -5,6 +5,7 @@ import {
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { projects } from "@tedix/db/schema/projects";
+import { organizations } from "@tedix/db/schema/organizations";
 import { workItems, workAttempts } from "@tedix/db/schema/work-items";
 import { skillRuns } from "@tedix/db/schema/cognitive";
 import {
@@ -54,6 +55,7 @@ function fixture() {
 	sqlite.exec(schemaDdl(userConfigs));
 	sqlite.exec(schemaDdl(learningInteractionEvents));
 	for (const table of [
+		organizations,
 		projects,
 		learningImprovementProposals,
 		organizationMembers,
@@ -142,6 +144,61 @@ const report = {
 };
 
 describe("workAgentSessions router", () => {
+	it("routes named chats by org settings while linked Work wins over prefix and checkout", async () => {
+		const { sqlite, ada } = fixture();
+		const customer = "11111111-1111-4111-8111-111111111111";
+		const engineering = "22222222-2222-4222-8222-222222222222";
+		const work = "33333333-3333-4333-8333-333333333333";
+		sqlite
+			.prepare(
+				"INSERT INTO organizations (id, name, slug, metadata) VALUES (?, 'Example', 'example', ?)",
+			)
+			.run(
+				ORG_ID,
+				JSON.stringify({
+					sessionProjectBindings: [{ prefix: "ACME", projectId: customer }],
+				}),
+			);
+		for (const [id, key] of [
+			[customer, "CUSTOMER"],
+			[engineering, "ENG"],
+		])
+			sqlite
+				.prepare(
+					"INSERT INTO projects (id, org_id, key, name, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+				)
+				.run(id, ORG_ID, key, key);
+		sqlite
+			.prepare(
+				"INSERT INTO work_items (id, org_id, title, project_id, created_at) VALUES (?, ?, 'Repair identity', ?, CURRENT_TIMESTAMP)",
+			)
+			.run(work, ORG_ID, engineering);
+		expect(
+			(
+				await ada.report({
+					...report,
+					label: "acme: research",
+					projectId: engineering,
+				})
+			).session.projectId,
+		).toBe(customer);
+		expect(
+			(
+				await ada.report({
+					...report,
+					label: "ACME",
+					workItemId: work,
+					projectId: customer,
+				})
+			).session.projectId,
+		).toBe(engineering);
+		const fallback = await ada.report({
+			...report,
+			label: "",
+			workItemId: work,
+		});
+		expect(fallback.session.label).toBe("Repair identity");
+	});
 	it("records a sanitized report for the calling human and lists it", async () => {
 		const { ada } = fixture();
 		const first = await ada.report(report);

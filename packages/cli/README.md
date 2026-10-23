@@ -79,6 +79,14 @@ and durable answer settlement.
   Connect profiles also specify `"organization"` with the selected ID or slug.
   Keep installation-specific bindings local. Bindings and recent calls grant no
   execution authority. Private scope metadata expires after two hours.
+  Status reports use `TEDIX_LANE_LABEL`, the host session name or the prompt's
+  first Markdown heading; a linked Work title is the fallback. Launchers pass
+  `TEDIX_AGENT_SESSION` and `TEDIX_WORK_ID` so hook status updates the claimed
+  lane and retires its earlier host-only status row. Organization metadata can
+  set `sessionProjectBindings: [{prefix: "ACME", projectId: "11111111-1111-4111-8111-111111111111"}]`
+  through the organization settings API. These case-insensitive topic prefixes
+  route named status reports to projects; longest prefix wins, and linked Work
+  determines its own project. Project targets must belong to the organization.
   Requests are read for this session and project in one snapshot. Completed
   Work explicitly linked in saved request evidence is checked before injection;
   turn reflection settles it. Human approval asks remain open for the user.
