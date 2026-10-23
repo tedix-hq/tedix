@@ -682,6 +682,17 @@ export type ApprovalCardData = {
 	sessionScopeKey?: string;
 };
 
+export function hasOsApprovalAuthority(
+	authority: { permissions: readonly string[] } | undefined,
+): boolean {
+	return (
+		authority?.permissions.some(
+			(permission) =>
+				permission === "os:approve" || permission === "settings:manage",
+		) ?? false
+	);
+}
+
 export function approvalsForAuthority(
 	cards: readonly ApprovalCardData[],
 	authority:
@@ -694,10 +705,7 @@ export function approvalsForAuthority(
 		const canDecide = delegation
 			? authority?.permissions.includes("tedis:update") &&
 				(authority.role === "owner" || authority.role === "admin")
-			: authority?.permissions.some(
-					(permission) =>
-						permission === "os:approve" || permission === "settings:manage",
-				);
+			: hasOsApprovalAuthority(authority);
 		return canDecide
 			? card
 			: {
