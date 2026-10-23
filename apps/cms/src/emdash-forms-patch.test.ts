@@ -68,7 +68,7 @@ describe.each(starters)(
 		it("emits the configured submit label for native client restoration after submission", async () => {
 			const { transform } = await import(
 				new URL(
-					`../templates/${name}/node_modules/@astrojs/compiler/dist/node/index.js`,
+					`../templates/${name}/node_modules/@astrojs/compiler-rs/dist/index.mjs`,
 					import.meta.url,
 				).href
 			);
@@ -227,7 +227,7 @@ it("ships the same Forms patch to both standalone starters", () => {
 	const patch = (slug: string) =>
 		readFileSync(
 			new URL(
-				`../templates/${slug}/patches/@emdash-cms/plugin-forms@0.2.10.patch`,
+				`../templates/${slug}/patches/@emdash-cms/plugin-forms@0.2.11.patch`,
 				import.meta.url,
 			),
 			"utf8",

@@ -75,16 +75,16 @@ describe("template-aware snapshot sync", () => {
 			"src/layouts/BaseMarketing.astro",
 		);
 		expect(marketingResult.copied).toContain("bun.lock");
-		expect(marketingResult.copied).toContain("patches/emdash@1.3.0.patch");
+		expect(marketingResult.copied).toContain("patches/emdash@1.3.1.patch");
 		expect(
 			await marketing.sandbox.readFile("/workspace/bun.lock"),
 		).toMatchObject({
 			content: TEMPLATE_SNAPSHOTS.marketing!["bun.lock"],
 		});
 		expect(
-			await marketing.sandbox.readFile("/workspace/patches/emdash@1.3.0.patch"),
+			await marketing.sandbox.readFile("/workspace/patches/emdash@1.3.1.patch"),
 		).toMatchObject({
-			content: TEMPLATE_SNAPSHOTS.marketing!["patches/emdash@1.3.0.patch"],
+			content: TEMPLATE_SNAPSHOTS.marketing!["patches/emdash@1.3.1.patch"],
 		});
 		expect(marketingResult.copied).toContain("src/lib/platform-branding.ts");
 		expect(marketingResult.copied).toContain("src/lib/platform-rpc.ts");
