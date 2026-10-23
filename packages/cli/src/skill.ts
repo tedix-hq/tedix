@@ -126,9 +126,13 @@ export async function runSkillCommand(
 			case "run":
 				if (!target) throw new Error("Usage: tedix skill run <skillUuid>");
 				requireUuid(target, "skill run");
+				if (ctx.flow.file !== undefined)
+					throw new Error(
+						"skill run does not accept --file; use tedix flow run --file <plan.ts>",
+					);
 				return await runFlowCommand("run", {
 					...ctx,
-					flow: { ...ctx.flow, file: undefined, skill: target },
+					flow: { ...ctx.flow, skill: target },
 				});
 			case "status":
 				return await runFlowCommand(`status ${target}`, ctx);
