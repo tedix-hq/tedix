@@ -6,6 +6,7 @@ import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-
 import { workInteractionDetailQueryOptions } from "@/lib/os-query-options";
 import { WorkInteractionDecisionCard } from "./work-interaction-decision-card";
 import { DecisionAttentionContext } from "./decision-attention-context";
+import { CardFaceContext } from "./deck-presentation-context";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 
 const { get, respond } = vi.hoisted(() => ({
@@ -72,6 +73,105 @@ const preview = WorkInteractionInboxRowSchema.parse({
 	canCancel: false,
 	workItem: null,
 	responseCount: 0,
+});
+
+it("opens the original lane ask instead of offering a misleading Yes", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const request = {
+		...preview.request,
+		kind: "coordination" as const,
+		metadata: {
+			laneNudge: { requestId: "33333333-3333-4333-8333-333333333333" },
+			cardPresentation: {
+				version: 2,
+				title: "Authorize access?",
+				body: "Grants access and resumes testing.",
+				recommendation: "The agent needs access.",
+			},
+		},
+	};
+	client.setQueryData(workInteractionDetailQueryOptions(request.id).queryKey, {
+		request,
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	});
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkInteractionDecisionCard requestId={request.id} />
+			</QueryClientProvider>,
+		),
+	);
+	expect(
+		host.querySelector(
+			'a[href="/work/interactions/33333333-3333-4333-8333-333333333333"]',
+		)?.textContent,
+	).toBe("Open original request");
+	for (const label of ["Yes", "Answer", "No / Not needed"])
+		expect(
+			[...host.querySelectorAll("[data-decision-actions] button")].map(
+				(button) => button.textContent,
+			),
+		).not.toContain(label);
+	expect(host.querySelector("textarea")).toBeNull();
+	expect(host.textContent).not.toContain("Grants access and resumes testing.");
+});
+
+it("keeps a third-party access subject and its original next step", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const request = {
+		...preview.request,
+		subject: "Return Cedar's access to Member?",
+		prompt: "Change Cedar's membership to Member.",
+		metadata: {
+			laneHandoff: { nextClick: "Open Team and set Cedar to Member." },
+			cardPresentation: {
+				version: 2,
+				title: "Return your access to Member?",
+				body: "Your account loses Admin access.",
+				recommendation: "Only limited access is needed.",
+			},
+		},
+	};
+	client.setQueryData(workInteractionDetailQueryOptions(request.id).queryKey, {
+		request,
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	});
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<CardFaceContext.Provider
+					value={{
+						presentation: { ...request.metadata.cardPresentation, version: 2 },
+						confidence: null,
+					}}
+				>
+					<WorkInteractionDecisionCard requestId={request.id} />
+				</CardFaceContext.Provider>
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.textContent).toContain(request.subject);
+	expect(host.textContent).toContain("Open Team and set Cedar to Member.");
+	expect(host.textContent).not.toContain("Your account loses Admin access.");
+	expect(host.textContent).toContain(
+		"Done records that you completed this step.",
+	);
 });
 
 it("shows the authorized inbox proposal before details, without caching invented details or enabling a decision", async () => {

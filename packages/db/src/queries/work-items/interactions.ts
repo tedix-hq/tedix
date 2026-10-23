@@ -1067,6 +1067,7 @@ function coordinationTtlHoursSql() {
 }
 
 const OBSOLETE_REQUEST_REASONS = {
+	original_request_closed: "Its original request is no longer open.",
 	expiry_passed: "Its expiry date passed.",
 	coordination_stale:
 		"It was a status update that nobody refreshed within the organization's coordination window.",
@@ -1076,6 +1077,16 @@ const OBSOLETE_REQUEST_REASONS = {
 	proposal_unanswered: "The proposal received no response for fourteen days.",
 } as const;
 type ObsoleteRequestCause = keyof typeof OBSOLETE_REQUEST_REASONS;
+
+function staleLaneReminder(now: string) {
+	return sql`(json_type(${workInteractions.metadata},'$.laneNudge') IS 'object' AND NOT EXISTS (
+		SELECT 1 FROM work_interactions original
+		WHERE original.org_id=${workInteractions.orgId}
+		AND original.id=json_extract(${workInteractions.metadata},'$.laneNudge.requestId')
+		AND original.target_type=${workInteractions.targetType} AND original.target_id=${workInteractions.targetId}
+		AND original.status='open' AND (original.expires_at IS NULL OR original.expires_at>${now})
+	))`;
+}
 
 /**
  * Retire obsolete requests without answering in the recipient's name:
@@ -1105,6 +1116,7 @@ export async function sweepObsoleteWorkInteractions(
 		))`;
 	const triageUnavailable = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.decision-capture.v1' AND json_extract(${workInteractions.metadata},'$.triage.status') IS NOT 'ok')`;
 	const obsolete = sql`(
+		${staleLaneReminder(p.now)} OR
 		${passedExpiry} OR
 		${staleCoordination} OR
 		(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND ${workInteractions.createdAt}<=${proposalCutoff} AND NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})) OR
@@ -1115,6 +1127,7 @@ export async function sweepObsoleteWorkInteractions(
 		.select({
 			...getColumns(workInteractions),
 			cause: sql<ObsoleteRequestCause>`CASE
+				WHEN ${staleLaneReminder(p.now)} THEN 'original_request_closed'
 				WHEN ${passedExpiry} THEN 'expiry_passed'
 				WHEN ${triageUnavailable} THEN 'triage_unavailable'
 				WHEN ${terminalWork} THEN 'work_closed'
@@ -1370,6 +1383,7 @@ export async function listWorkInteractionInbox(
 				p.excludeSessionCapture
 					? sql`json_extract(${workInteractions.metadata},'$.schema') IS NOT 'tedix.decision-capture.v1'`
 					: undefined,
+				sql`(${workInteractions.status}<>'open' OR NOT ${staleLaneReminder(p.observedAt)})`,
 				// bound-params: states is a closed four-value interaction-state enum
 				p.states?.length ? inArray(effective, p.states) : undefined,
 				// bound-params: kinds is a closed five-value interaction-kind enum

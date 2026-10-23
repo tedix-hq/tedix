@@ -1,4 +1,5 @@
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
+import { CardFaceContext } from "@/components/deck-presentation-context";
 import { DeckWhyChain } from "@/components/deck-why-chain";
 import { workActorReference } from "@/lib/work-actor";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
@@ -18,7 +19,7 @@ import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { renderDecisionCardDates } from "@tedix/api-contract/utils/decision-card-copy";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
-import { useContext, useRef } from "react";
+import { createElement, useContext, useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
@@ -53,9 +54,9 @@ import {
 
 const laneHandoffSchema = z.object({
 	nextClick: z.string().optional(),
-	summary: z.string().optional(),
 });
 const offeredChoices = z.object({
+	laneNudge: z.object({ requestId: z.uuid() }).optional().catch(undefined),
 	laneHandoff: laneHandoffSchema.optional().catch(undefined),
 	followThrough: z
 		.object({ laneHandoff: laneHandoffSchema.optional() })
@@ -94,6 +95,15 @@ const offeredChoices = z.object({
 		.catch(undefined),
 });
 
+function manualStep(metadata: unknown) {
+	const choices = offeredChoices.parse(metadata ?? {});
+	return Boolean(
+		choices.laneNudge ||
+		choices.laneHandoff ||
+		choices.followThrough?.laneHandoff,
+	);
+}
+
 export function WorkInteractionDecisionCard({
 	requestId,
 	preview,
@@ -115,6 +125,7 @@ export function WorkInteractionDecisionCard({
 }) {
 	const client = useQueryClient();
 	const optimistic = useContext(OptimisticDeckDecisionContext);
+	const face = useContext(CardFaceContext);
 	const shown = useRef({ requestId, at: Date.now() });
 	if (shown.current.requestId !== requestId)
 		shown.current = { requestId, at: Date.now() };
@@ -275,12 +286,18 @@ export function WorkInteractionDecisionCard({
 		? decisionEnvelope(preview.request.metadata)
 		: null;
 	if (!detail && preview?.request.id === requestId)
-		return (
+		return createElement(
+			CardFaceContext.Provider,
+			{ value: manualStep(preview.request.metadata) ? null : face },
 			<DecisionAttentionContext.Provider value={null}>
 				{readNotice}
 				<WorkDecisionCard
 					kind={interactionCardKind(preview.request)}
-					title={interactionSubject(preview.request)}
+					title={
+						manualStep(preview.request.metadata)
+							? preview.request.subject
+							: interactionSubject(preview.request)
+					}
 					askedBy={askedBy ?? preview.askedBy ?? OS_COPY.feed.actors.user}
 					actor={workActorReference(
 						preview.request.creatorType,
@@ -322,7 +339,7 @@ export function WorkInteractionDecisionCard({
 					disabled
 					onDecision={(feedback) => respond.mutateAsync(feedback)}
 				/>
-			</DecisionAttentionContext.Provider>
+			</DecisionAttentionContext.Provider>,
 		);
 	if (!detail && query.isPending)
 		return (
@@ -333,29 +350,36 @@ export function WorkInteractionDecisionCard({
 		);
 	if (!detail) return readNotice;
 	const { request, effectiveState, canRespond, canCancel, responses } = detail;
+	const sourceCopy = manualStep(request.metadata);
 	const secureConnection = credentialCard(
 		`${request.subject} ${request.prompt}`,
 		request.metadata,
 	);
 	if (request.metadata?.schema === "tedix.outbound.v1" && request.workItemId)
-		return (
+		return createElement(
+			CardFaceContext.Provider,
+			{ value: sourceCopy ? null : face },
 			<OutboundCard
 				workItemId={request.workItemId}
 				preview={preview?.outbound}
 				presentation={
-					DecisionCardPresentationSchema.safeParse(
-						request.metadata.cardPresentation,
-					).data
+					sourceCopy
+						? undefined
+						: DecisionCardPresentationSchema.safeParse(
+								request.metadata.cardPresentation,
+							).data
 				}
 				autoFocus={autoFocus}
 				onNext={onNext}
 				onPrevious={onPrevious}
-			/>
+			/>,
 		);
 	const choices = offeredChoices.parse(request.metadata ?? {});
-	const storedPresentation = DecisionCardPresentationSchema.safeParse(
-		request.metadata?.cardPresentation,
-	).data;
+	const storedPresentation = sourceCopy
+		? undefined
+		: DecisionCardPresentationSchema.safeParse(
+				request.metadata?.cardPresentation,
+			).data;
 	const presentation = storedPresentation
 		? renderDecisionCardDates(
 				storedPresentation,
@@ -388,9 +412,15 @@ export function WorkInteractionDecisionCard({
 		? WorkProposalMetadataSchema.safeParse(request.metadata).data?.proposal
 		: undefined;
 	const approval = connectorApproval(request.metadata);
-	const lane =
-		request.kind === "question" &&
-		Boolean(choices.laneHandoff ?? choices.followThrough?.laneHandoff);
+	const handoff = choices.laneHandoff ?? choices.followThrough?.laneHandoff;
+	const lane = request.kind === "question" && Boolean(handoff);
+	const reminder = choices.laneNudge;
+	const nextAction = reminder
+		? {
+				label: "Open original request",
+				url: `/work/interactions/${reminder.requestId}`,
+			}
+		: choices.externalAction;
 	const pastDeadline =
 		effectiveState === "open" && decisionDeadlinePassed(request, new Date());
 	const active =
@@ -460,7 +490,9 @@ export function WorkInteractionDecisionCard({
 			actions.push({ id, label: "No / Not needed", intent: "reject" });
 		}
 	}
-	return (
+	return createElement(
+		CardFaceContext.Provider,
+		{ value: sourceCopy ? null : face },
 		<div className="grid min-w-0 gap-3">
 			{readNotice}
 			{deliveryText ? <p className="text-kumo-subtle">{deliveryText}</p> : null}
@@ -469,7 +501,7 @@ export function WorkInteractionDecisionCard({
 				connectionSettings={secureConnection}
 				revisionTarget={
 					!secureConnection &&
-					!lane &&
+					!sourceCopy &&
 					!approval &&
 					(request.creatorType === "tedi" ||
 						request.creatorType === "external_agent") &&
@@ -487,7 +519,11 @@ export function WorkInteractionDecisionCard({
 								? "decision"
 								: "question"
 				}
-				title={presentation?.title ?? interactionSubject(request)}
+				title={
+					sourceCopy
+						? request.subject
+						: (presentation?.title ?? interactionSubject(request))
+				}
 				askedBy={source}
 				actor={workActorReference(
 					request.creatorType,
@@ -520,7 +556,22 @@ export function WorkInteractionDecisionCard({
 						{pastDeadline && (
 							<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
 						)}
-						{approval ? (
+						{reminder ? (
+							<p>
+								Open the original request to take the next step. This reminder
+								grants no access or approval.
+							</p>
+						) : lane ? (
+							<>
+								<p className="whitespace-pre-wrap">
+									{handoff?.nextClick ?? request.prompt}
+								</p>
+								<p>
+									Done records that you completed this step. Snooze 1 day
+									postpones the reminder.
+								</p>
+							</>
+						) : approval ? (
 							<>
 								<p className="fd-card-summary">
 									{presentation?.body ??
@@ -539,9 +590,11 @@ export function WorkInteractionDecisionCard({
 							<DecisionProposalBody
 								key={request.id}
 								body={
-									typeof request.metadata.cardContent === "string"
-										? request.metadata.cardContent
-										: (outboundBody ?? presentation?.body ?? request.prompt)
+									sourceCopy
+										? request.prompt
+										: typeof request.metadata.cardContent === "string"
+											? request.metadata.cardContent
+											: (outboundBody ?? presentation?.body ?? request.prompt)
 								}
 								inline={decision?.kind === "outbound"}
 							/>
@@ -624,30 +677,30 @@ export function WorkInteractionDecisionCard({
 						))}
 					</div>
 				}
-				actions={choices.externalAction || !active ? [] : actions}
+				actions={reminder || choices.externalAction || !active ? [] : actions}
 				suggestedAnswers={choices.suggestedAnswers}
 				initialAnswer={draft && draft.delivery !== "auto" ? draft.body : ""}
-				disabled={!active || Boolean(choices.externalAction)}
+				disabled={!active || Boolean(reminder || choices.externalAction)}
 				pending={respond.isPending}
 				onDecision={(feedback) => respond.mutateAsync(feedback)}
 				onNext={onNext}
 				onPrevious={onPrevious}
 			/>
-			{choices.externalAction && active ? (
+			{nextAction && active ? (
 				<Button
 					className="w-fit"
 					render={
 						<a
-							href={choices.externalAction.url}
-							target="_blank"
-							rel="noopener noreferrer"
+							href={nextAction.url}
+							target={reminder ? undefined : "_blank"}
+							rel={reminder ? undefined : "noopener noreferrer"}
 						/>
 					}
 				>
-					{choices.externalAction.label}
+					{nextAction.label}
 				</Button>
 			) : null}
 			{respond.error ? <p role="alert">{respond.error.message}</p> : null}
-		</div>
+		</div>,
 	);
 }
