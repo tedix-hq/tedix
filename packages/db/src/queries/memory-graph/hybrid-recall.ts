@@ -55,12 +55,18 @@ function eligible(scope: RecallScope): SQL {
 		sql`(json_extract(${f.metadata}, '$.expiresAt') IS NULL OR datetime(json_extract(${f.metadata}, '$.expiresAt')) > datetime(${now}))`,
 		// Edge direction is newer/source -> older/target for supersedes. For a
 		// contradiction either direction is allowed; actual validity time wins.
+		// Seek incident edges first: the combined relation predicate can otherwise
+		// make SQLite scan every edge or every tenant fact for each FTS match.
 		sql`NOT EXISTS (
-			SELECT 1 FROM memory_edges e JOIN memory_facts newer
-			ON newer.organization_id = ${scope.orgId}
+			SELECT 1 FROM memory_edges e CROSS JOIN memory_facts newer INDEXED BY sqlite_autoindex_memory_facts_1
+			WHERE e.rowid IN (
+				SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_source WHERE source_fact_id = ${f.id}
+				UNION SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_target WHERE target_fact_id = ${f.id}
+			)
+			AND newer.organization_id = ${scope.orgId}
 			AND newer.id = CASE WHEN e.target_fact_id = ${f.id} THEN e.source_fact_id ELSE e.target_fact_id END
-			WHERE ((e.relation_type = 'supersedes' AND e.target_fact_id = ${f.id})
-			OR (e.relation_type = 'contradicts' AND (e.source_fact_id = ${f.id} OR e.target_fact_id = ${f.id})
+			AND ((e.relation_type = 'supersedes' AND e.target_fact_id = ${f.id})
+			OR (e.relation_type = 'contradicts'
 			AND newer.archived_at IS NULL AND (newer.valid_to IS NULL OR datetime(newer.valid_to) > datetime(${now}))
 			AND NOT EXISTS (SELECT 1 FROM memory_edges replacement WHERE replacement.relation_type = 'supersedes' AND replacement.source_fact_id = ${f.id} AND replacement.target_fact_id = newer.id)
 			AND (datetime(coalesce(newer.valid_from,newer.created_at)) > datetime(coalesce(${f.validFrom},${f.createdAt}))
