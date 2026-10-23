@@ -52,7 +52,7 @@
 		"fast-xml-parser": "catalog:",
 		"isomorphic-git": "1.44.3",
 		"just-bash": "^3.6.0",
-		"postal-mime": "^4.0.11",
+		"postal-mime": "^4.1.4",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

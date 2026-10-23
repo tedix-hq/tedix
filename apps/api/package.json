@@ -60,7 +60,7 @@
 		"agents": "catalog:",
 		"ai": "catalog:",
 		"hono": "catalog:",
-		"stripe": "^23.0.0",
+		"stripe": "^23.0.1",
 		"yaml": "^2.9.1",
 		"zod": "catalog:"
 	},
