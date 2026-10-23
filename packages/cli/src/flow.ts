@@ -208,8 +208,8 @@ export function renderSkillMd(
 	const body = manifest.yaml.trim();
 	return [
 		"---",
-		`name: ${title}`,
-		`description: ${description}`,
+		`name: ${JSON.stringify(title)}`,
+		`description: ${JSON.stringify(description)}`,
 		...(body ? [body] : []),
 		"---",
 		"",
