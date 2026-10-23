@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
-import { resolveSkillMcpNamespaceSlugs } from "@tedix/db/queries/cognitive/skill-mcp-bindings";
+import {
+	skillMcpProxyIncludesSource,
+	resolveSkillMcpNamespaceSlugs,
+} from "@tedix/db/queries/cognitive/skill-mcp-bindings";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { BaseContext } from "../orpc";
 import { mcpGovernanceContractRouter } from "./mcp-governance";
@@ -13,6 +16,7 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
 	getSkillEntry: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/cognitive/skill-mcp-bindings", () => ({
+	skillMcpProxyIncludesSource: vi.fn(),
 	resolveSkillMcpNamespaceSlugs: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/tedis", () => ({
@@ -59,6 +63,7 @@ function client(authType = "service-binding") {
 }
 
 beforeEach(() => {
+	vi.mocked(skillMcpProxyIncludesSource).mockResolvedValue(false);
 	vi.mocked(getSkillRun).mockResolvedValue(run as never);
 	vi.mocked(getSkillEntry).mockResolvedValue(skill as never);
 	vi.mocked(resolveSkillMcpNamespaceSlugs).mockResolvedValue({
@@ -129,6 +134,34 @@ describe("workflow manifest authorization", () => {
 				sourceAppSlug: "other-app",
 			}),
 		).resolves.toEqual({ approved: false });
+	});
+	it("authorizes a declared provider inherited from a bound proxy, never an undeclared method", async () => {
+		vi.mocked(skillMcpProxyIncludesSource).mockResolvedValue(true);
+		const call = {
+			...input,
+			targetTediId: undefined,
+			method: "firecrawl_agent",
+			sourceAppSlug: "crawler-base",
+		};
+		await expect(
+			client().resolveSkillManifestAuthorization(call),
+		).resolves.toMatchObject({ approved: true });
+		expect(skillMcpProxyIncludesSource).toHaveBeenCalledWith(
+			expect.anything(),
+			{
+				organizationId: "org-example",
+				appSlug: "crawler-example",
+				sourceAppSlug: "crawler-base",
+			},
+		);
+		vi.mocked(skillMcpProxyIncludesSource).mockClear();
+		await expect(
+			client().resolveSkillManifestAuthorization({
+				...call,
+				method: "delete_everything",
+			}),
+		).resolves.toEqual({ approved: false });
+		expect(skillMcpProxyIncludesSource).not.toHaveBeenCalled();
 	});
 	it.each([
 		{ skillId: "forged" },
