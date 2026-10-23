@@ -13,13 +13,22 @@ const shots = process.env.TEDIX_SCREENSHOT_DIR;
 const MIN_CARD_HEIGHT = 240;
 
 async function settle(page: Page) {
+	await page.locator(".fd-deck").evaluate(async (deck) => {
+		await Promise.all(
+			deck
+				.getAnimations({ subtree: true })
+				.filter((animation) =>
+					Number.isFinite(animation.effect?.getComputedTiming().endTime),
+				)
+				.map((animation) => animation.finished.catch(() => {})),
+		);
+	});
 	await page.evaluate(
 		() =>
 			new Promise<void>((resolve) =>
 				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
 			),
 	);
-	await page.waitForTimeout(150);
 }
 
 /** Geometry the Deck must keep at any viewport. */
@@ -335,6 +344,18 @@ try {
 				await page.screenshot({
 					path: `${shots}/deck-${size}-${colorScheme}.png`,
 				});
+			// CI can sample an entrance animation after the old fixed delay.
+			await page.locator(".fd-deck-current .fd-card").evaluate((card) => {
+				card.animate([{ transform: "scale(0.98)" }, { transform: "none" }], {
+					duration: 1_000,
+				});
+			});
+			await settle(page);
+			const animated = await measure(page);
+			assert(
+				Math.abs(animated.cardHeight - loaded.cardHeight) <= 1,
+				`${label}: measured an unfinished card animation ${loaded.cardHeight} -> ${animated.cardHeight}`,
+			);
 			const lean = !process.env.TEDIX_DECK_LEAN_SKIP;
 			if (lean) {
 				assert.deepEqual(await leanDeck(page), [], `${label}: lean Deck`);
