@@ -7,6 +7,7 @@ import {
 	tediEmailMessages,
 	tediEmailThreads,
 } from "../../schema/tedi-email";
+import { chunkForBoundParams } from "../../utils/batch";
 import { toJsonRecord } from "../../utils/json";
 import { recordTediEmailEvent } from "./events";
 import {
@@ -26,6 +27,9 @@ import {
 	uniqueRecipients,
 } from "./storage-normalization";
 import { getTediEmailThread } from "./threads";
+
+// tediId, senderTrust, and Drizzle's LIMIT use three binds.
+const INBOUND_REFERENCE_CHUNK_SIZE = 97;
 
 /**
  * In-Reply-To, References and the subject are all written by the sender, so
@@ -47,25 +51,42 @@ async function findThreadForInbound(
 		...(input.references ?? []),
 	]).filter(Boolean);
 	if (referenceIds.length > 0) {
-		const rows = await db
-			.select({ thread: tediEmailThreads })
-			.from(tediEmailMessages)
-			.innerJoin(
-				tediEmailThreads,
-				eq(tediEmailMessages.threadId, tediEmailThreads.id),
+		let newestMatch: {
+			thread: TediEmailThread;
+			createdAt: string | null;
+		} | null = null;
+		for (const referenceChunk of chunkForBoundParams(
+			referenceIds,
+			INBOUND_REFERENCE_CHUNK_SIZE,
+		)) {
+			const rows = await db
+				.select({
+					thread: tediEmailThreads,
+					createdAt: tediEmailMessages.createdAt.as("message_created_at"),
+				})
+				.from(tediEmailMessages)
+				.innerJoin(
+					tediEmailThreads,
+					eq(tediEmailMessages.threadId, tediEmailThreads.id),
+				)
+				.where(
+					and(
+						eq(tediEmailMessages.tediId, input.tediId),
+						eq(tediEmailThreads.senderTrust, input.senderTrust),
+						inArray(tediEmailMessages.messageIdHeader, referenceChunk),
+					),
+				)
+				.orderBy(desc(tediEmailMessages.createdAt))
+				.limit(1);
+			const match = rows[0];
+			if (
+				match &&
+				(!newestMatch ||
+					(match.createdAt ?? "") > (newestMatch.createdAt ?? ""))
 			)
-			.where(
-				and(
-					eq(tediEmailMessages.tediId, input.tediId),
-					eq(tediEmailThreads.senderTrust, input.senderTrust),
-					// bound-params: In-Reply-To/References header ids of ONE inbound
-					// email (header-size bounded)
-					inArray(tediEmailMessages.messageIdHeader, referenceIds),
-				),
-			)
-			.orderBy(desc(tediEmailMessages.createdAt))
-			.limit(1);
-		if (rows[0]?.thread) return rows[0].thread;
+				newestMatch = match;
+		}
+		if (newestMatch) return newestMatch.thread;
 	}
 
 	const subjectNorm = normalizeEmailSubject(input.subject);
