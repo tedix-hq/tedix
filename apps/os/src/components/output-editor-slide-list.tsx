@@ -407,7 +407,7 @@ export function SlideList({
 								 * thumbnail's copy, so every slide was read out twice.
 								 */
 								aria-label={`Slide ${index + 1}: ${label}`}
-								className="deck-read-thumb w-full flex-col items-stretch gap-1 p-1 text-left coarse:min-w-0"
+								className="deck-read-thumb w-full flex-col items-stretch gap-1 p-1 text-left coarse:min-w-0 coarse:flex-1 coarse:shrink"
 								multiline
 								size="sm"
 								variant={active ? "secondary" : "outline"}
