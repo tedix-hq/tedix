@@ -9,6 +9,12 @@ import type { BaseContext } from "../rpc/orpc";
 import { requireOrgId } from "../rpc/org-scope";
 import { generateDecisionCard } from "./decision-card-generator";
 import {
+	decisionCardSubject,
+	NEXT_STEP_BODY,
+	nextStepCard,
+	subjectIssues,
+} from "./decision-card-subject";
+import {
 	checkDecisionCardCopy,
 	decisionCardFaceText,
 	decisionCardFallbackTitle,
@@ -142,8 +148,28 @@ export function deckCardWritingSource(card: DeckCard) {
 						),
 					}
 				: undefined,
+			// Who is affected and whether a click performs the step shape the face.
+			laneNudge: request?.metadata.laneNudge,
+			cardSubject: request?.metadata.cardSubject,
 		},
 	};
+}
+
+/** A saved face that misnames who is affected, or promises a reminder's effect, is regenerated. */
+function faceKeepsSubject(
+	copy: {
+		title: string;
+		context?: string;
+		body: string;
+		recommendation: string;
+	},
+	source: ReturnType<typeof deckCardWritingSource>,
+) {
+	const step = nextStepCard(source);
+	return (
+		!subjectIssues(copy, decisionCardSubject(source)).length &&
+		(!step || copy.body === NEXT_STEP_BODY[step])
+	);
 }
 
 /** Per-person display projection in the existing personalization store, guarded against duplicate model work. */
@@ -192,7 +218,8 @@ export async function prepareDeckCardFace(
 		existing?.version === 2 &&
 		currentDeadline &&
 		existing.context &&
-		!checkDecisionCardCopy(existing).length
+		!checkDecisionCardCopy(existing).length &&
+		faceKeepsSubject(existing, source)
 	)
 		return existing;
 	const preferences = model
@@ -235,7 +262,8 @@ export async function prepareDeckCardFace(
 		if (
 			copy?.version === 2 &&
 			copy.context &&
-			!checkDecisionCardCopy(copy).length
+			!checkDecisionCardCopy(copy).length &&
+			faceKeepsSubject(copy, source)
 		)
 			return copy;
 		if (

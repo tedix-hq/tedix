@@ -311,6 +311,27 @@ export function planDeckSweep(input: {
 			});
 		}
 	}
+	// A reminder folds into its original ask; it is never kept over it.
+	const byId = new Map(cards.map((card) => [card.id, card]));
+	for (const card of cards) {
+		const nudge = card.metadata.laneNudge;
+		const originalId =
+			nudge && typeof nudge === "object" && "requestId" in nudge
+				? nudge.requestId
+				: undefined;
+		const original =
+			typeof originalId === "string" ? byId.get(originalId) : undefined;
+		if (original && !actions.has(original.id))
+			add({
+				cardId: card.id,
+				reason: "duplicate",
+				cause: "duplicate",
+				successorId: original.id,
+				workItemId: original.workItemId ?? undefined,
+				note: "A reminder of the linked ask.",
+				evidenceRefs: [`work-interaction:${original.id}`],
+			});
+	}
 	// Only linked cards in this recipient's bounded live set can be keepers.
 	const newestFirst = [...cards].sort(
 		(a, b) =>

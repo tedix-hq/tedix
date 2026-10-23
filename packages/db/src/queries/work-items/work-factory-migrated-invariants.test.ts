@@ -53,7 +53,7 @@ import {
 import { flushWorkInteractionDigests } from "./interaction-digests";
 import { reviewWorkInteraction } from "./interaction-reviews";
 import { boundSchedulerFactChunks, listReadyWork } from "./scheduler";
-import { nudgeLaneHandoffs } from "./lane-handoffs";
+import { nudgeLaneHandoffs, withdrawStaleLaneNudges } from "./lane-handoffs";
 import {
 	listRequestedWorkInteractionEvents,
 	listWorkInteractionInbox,
@@ -2213,6 +2213,53 @@ describe("lane human handoffs with production triggers", () => {
 		expect(
 			await listDueWorkInteractionReviews(db, "2026-08-27T08:00:00.000Z"),
 		).toHaveLength(1);
+	});
+	it("withdraws a reminder once its original ask leaves open and never reminds about a closed ask", async () => {
+		const { db, sqlite, settle } = await laneFixture();
+		const { interactionId } = await settle();
+		expect(await nudgeLaneHandoffs(db, "2026-08-21T08:00:00.000Z")).toBe(1);
+		const reminder = sqlite
+			.prepare(
+				"SELECT id,status,prompt FROM work_interactions WHERE json_extract(metadata,'$.laneNudge.requestId')=?",
+			)
+			.get(interactionId!)!;
+		expect(reminder.status).toBe("open");
+		expect(reminder.prompt).toContain("performs no step");
+		// The original still open: a later tick keeps the reminder.
+		expect(await withdrawStaleLaneNudges(db, "2026-08-21T09:00:00.000Z")).toBe(
+			0,
+		);
+		await respondToWorkInteraction(db, {
+			id: "done-original",
+			orgId: "org",
+			interactionId: interactionId!,
+			expectedVersion: 1,
+			responder: { type: "user", id: "user" },
+			responseKind: "answer",
+			body: "Done",
+			resolvesRequest: true,
+			metadata: { laneAction: "done" },
+			now: "2026-08-21T09:30:00.000Z",
+		});
+		expect(await nudgeLaneHandoffs(db, "2026-08-21T14:00:00.000Z")).toBe(0);
+		const withdrawn = sqlite
+			.prepare(
+				"SELECT status,cancelled_at,version FROM work_interactions WHERE id=?",
+			)
+			.get(reminder.id)!;
+		expect(withdrawn).toEqual({
+			status: "cancelled",
+			cancelled_at: "2026-08-21T14:00:00.000Z",
+			version: 2,
+		});
+		expect(await nudgeLaneHandoffs(db, "2026-08-22T08:00:00.000Z")).toBe(0);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) n FROM work_interactions WHERE status='open' AND json_type(metadata,'$.laneNudge')='object'",
+				)
+				.get()!.n,
+		).toBe(0);
 	});
 	it("snoozes for exactly one day, then Done resolves the ask and ledger with the response fence", async () => {
 		const { db, sqlite, settle } = await laneFixture();

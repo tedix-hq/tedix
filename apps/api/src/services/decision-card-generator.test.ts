@@ -807,3 +807,132 @@ it.each(["2026-10-20", "Oct 20, 2026"])(
 		expect(metadata.decisionDeck.costOfWaiting).toBe("Review by 2026-10-20.");
 	},
 );
+const instinctAsk = {
+	...request,
+	subject:
+		"Owner action required before own-member verification: return Instinct membership c30515a1-d83a-46ad-9522-e0e8cdb19fb8 to the intended Member role, retain exactly the previously authorized tedis:update permission.",
+	prompt:
+		"Current own-account View access shows Admin with 22 role permissions. Next click: return Instinct membership to Member and confirm no additional grants.",
+};
+const instinctCopy = {
+	version: 2,
+	title: "Set Instinct back to Member?",
+	context: "Instinct still has Admin with 22 permissions.",
+	body: "Instinct keeps only the update permission it was given.",
+	recommendation: "Its checks need member-level access to prove the setup.",
+};
+it("rejects a card that turns another account into the reader's own", async () => {
+	mocks.model
+		.mockResolvedValueOnce(
+			JSON.stringify({
+				...instinctCopy,
+				title: "Return your access to member-level access?",
+				context: "Your account still shows Admin with 22 permissions.",
+			}),
+		)
+		.mockResolvedValueOnce(JSON.stringify(instinctCopy));
+	const failures: string[] = [];
+	const card = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		instinctAsk,
+		(reason) => failures.push(reason),
+	);
+	// The code-built line names Instinct; "your access" is still rejected.
+	expect(failures[0]).toBe("invalid_copy:subject_not_reader");
+	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
+		"This card affects Instinct, not the reader.",
+	);
+	expect(mocks.model.mock.calls[0]?.[1]).toContain('"name":"Instinct"');
+	// Access cards open with a code-built subject line.
+	expect(card).toMatchObject({
+		title: "Set Instinct back to Member?",
+		context:
+			"Affects Instinct, not you. Instinct still has Admin with 22 permissions.",
+	});
+});
+it("uses a structured subject over names in the text", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({ ...copy, title: "Let Robin's assistant sign in?" }),
+	);
+	const failures: string[] = [];
+	const card = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		{
+			...request,
+			subject: "Review Robin's account sign-in",
+			metadata: { cardSubject: { name: "Kim" } },
+		},
+		(reason) => failures.push(reason),
+	);
+	expect(failures).toEqual([]);
+	expect(card?.title).toBe("Let Robin's assistant sign in?");
+	expect(card?.context).toMatch(/^Affects Kim, not you\. /);
+	expect(mocks.model.mock.calls[0]?.[1]).toContain('"name":"Kim"');
+});
+it("accepts you and your when the reader is the one affected or acting", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...instinctCopy,
+			context: "Instinct waits for your change in Team settings.",
+		}),
+	);
+	const card = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		instinctAsk,
+	);
+	expect(card?.context).toBe(
+		"Affects Instinct, not you. Instinct waits for your change in Team settings.",
+	);
+});
+it("states the real next step on a reminder instead of an effect Yes won't perform", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			version: 2,
+			title: "Authorize Devin in the prepared consent tab?",
+			context: "Devin waits for your Authorize click in that tab.",
+			body: "Devin can read apps and tasks, then resume testing.",
+			recommendation: "Testing and the rule change are blocked until then.",
+		}),
+	);
+	const failures: string[] = [];
+	const card = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		{
+			...request,
+			kind: "coordination",
+			subject:
+				"Needs you: In the prepared Devin consent Chrome tab, review read access and click Authorize.",
+			prompt: "Reminder of an open ask.",
+			metadata: { laneNudge: { requestId: "original", day: "2026-10-23" } },
+		},
+		(reason) => failures.push(reason),
+	);
+	expect(failures).toEqual([]);
+	expect(card?.body).toBe(
+		"Only this reminder closes. Do the step itself, then mark the original ask done.",
+	);
+	expect(card?.title).toContain("Authorize");
+});
+it("states the real next step on a consent ask", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			version: 2,
+			title: "Allow Devin to read apps and tasks?",
+			context: "Devin is blocked until access exists.",
+			body: "Devin can read apps and tasks.",
+			recommendation: "Testing is blocked until then.",
+		}),
+	);
+	const failures: string[] = [];
+	const card = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		{
+			...request,
+			subject: "Authorize read access for Devin in the consent tab",
+			prompt: "Waiting for the owner's consent.",
+		},
+		(reason) => failures.push(reason),
+	);
+	expect(card).toBeNull();
+	expect(failures[0]).toContain("next_step_missing");
+});

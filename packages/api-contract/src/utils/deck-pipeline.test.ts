@@ -244,6 +244,36 @@ describe("S2 sweep", () => {
 		]);
 	});
 
+	it("folds a reminder into its original ask, never the original into the reminder", () => {
+		const original = card({
+			subject: "Authorize Devin in the consent tab",
+			workItemId: agent,
+		});
+		const reminder = card({
+			kind: "coordination",
+			subject: "Needs you: Authorize Devin in the consent tab",
+			creatorType: "system",
+			creatorId: "tedix",
+			workItemId: agent,
+			createdAt: "2026-10-23T08:00:00Z",
+			metadata: { laneNudge: { requestId: original.id, day: "2026-10-23" } },
+		});
+		original.graph = { duplicates: [reminder.id] };
+		const { actions } = planDeckSweep({
+			cards: [original, reminder],
+			now,
+			config: config.sweep,
+			rules: [],
+		});
+		expect(actions).toEqual([
+			expect.objectContaining({
+				cardId: reminder.id,
+				reason: "duplicate",
+				successorId: original.id,
+			}),
+		]);
+	});
+
 	it("keeps similar but different asks", () => {
 		const a = card({ subject: "Create a task to follow up with Oskar?" });
 		const b = card({
