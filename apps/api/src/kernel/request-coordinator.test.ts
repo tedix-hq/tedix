@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { KernelAcceptanceCheck } from "@tedix/api-contract/schemas/kernel-request";
 import {
 	advanceKernelRequest,
+	kernelRequestAcceptanceReport,
 	receivedKernelRequest,
 	runKernelAcceptanceChecks,
 	type KernelAcceptanceReader,
@@ -46,6 +47,39 @@ function terminal() {
 }
 
 describe("kernel request coordinator", () => {
+	it("keeps large verification receipts out of the short source reply without losing them", () => {
+		const snapshot = {
+			...terminal(),
+			outcome: "verified" as const,
+			checks: Array.from({ length: 20 }, () => check),
+			observations: Array.from({ length: 20 }, (_, checkIndex) => ({
+				checkerVersion: 1 as const,
+				checkIndex,
+				inputDigest: "input-one",
+				status: "pass" as const,
+				observedVersion: "revision-one",
+				checkedAt: now(),
+				evidenceRefs: Array.from(
+					{ length: 20 },
+					(_, i) => `receipt-${i}: ${"detail ".repeat(200)}`,
+				),
+				limitations: null,
+			})),
+		};
+		const before = structuredClone(snapshot);
+		const report = kernelRequestAcceptanceReport(snapshot, "work-one");
+		expect(report.split(/\s+/).length).toBeLessThanOrEqual(150);
+		expect(report).toContain("Verified 20 acceptance checks");
+		expect(report).toContain("[Open the Work item](/work/items/work-one)");
+		expect(report).not.toContain("receipt-");
+		expect(snapshot).toEqual(before);
+	});
+	it("does not turn an incomplete or failed check into a verified reply", () => {
+		for (const outcome of ["unknown", "failed"] as const)
+			expect(() =>
+				kernelRequestAcceptanceReport({ ...terminal(), outcome }, "work-one"),
+			).toThrow("requires verified checks");
+	});
 	it("requires trusted target checks and acknowledged delivery before reported and no-new-lesson closure", async () => {
 		let s = terminal();
 		expect(s.state).toBe("verifying");

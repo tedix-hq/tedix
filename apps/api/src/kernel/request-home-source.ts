@@ -24,6 +24,7 @@ import { applyKernelRequestEvent, driveKernelRequest } from "./request-driver";
 import {
 	receivedKernelRequest,
 	kernelRequestReportMessageId,
+	kernelRequestAcceptanceReport,
 } from "./request-coordinator";
 import { kernelAcceptanceReader } from "./request-target-readers";
 
@@ -253,7 +254,10 @@ export async function reconcileHomeKernelRequest(
 						payload: {
 							role: "assistant",
 							channel: "home",
-							content: `Verified the requested target state. ${current.snapshot.observations.flatMap((o) => o.evidenceRefs).join("\n")}`,
+							content: kernelRequestAcceptanceReport(
+								current.snapshot,
+								workItemId,
+							),
 							metadata: {
 								kernelRequestAcceptance: toJsonRecord(current.snapshot),
 								requestId: current.id,

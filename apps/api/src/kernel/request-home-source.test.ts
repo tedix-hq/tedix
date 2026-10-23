@@ -172,6 +172,16 @@ describe("Home request source adapter", () => {
 			delivery: { status: "acknowledged" },
 		});
 		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
+		const report = (await db.select().from(kernelRuntimeEvents))[0]!;
+		expect(report.payload?.content).toContain(
+			"[Open the Work item](/work/items/work-one)",
+		);
+		expect(
+			String(report.payload?.content).split(/\s+/).length,
+		).toBeLessThanOrEqual(150);
+		expect(report.payload?.metadata).toMatchObject({
+			kernelRequestAcceptance: { observations: final.snapshot.observations },
+		});
 		await reconcileHomeKernelRequest(context, final, policy);
 		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
 		expect(
