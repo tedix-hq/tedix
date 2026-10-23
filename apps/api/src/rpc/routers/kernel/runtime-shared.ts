@@ -96,6 +96,7 @@ export function buildInternalServiceBindingContext(
 		factoryOperatorApproval: _factoryOperatorApproval,
 		apiKey: _apiKey,
 		serviceAccount: _serviceAccount,
+		tediId: _tediId,
 		...rest
 	} = context;
 	return {
