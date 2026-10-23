@@ -40,7 +40,6 @@ import {
 	MAIN_HOME_CONVERSATION_ID,
 	ChatConversationHeader,
 } from "@/components/chat-sidebar";
-import { CostChip } from "@/components/cost-chip";
 import {
 	Empty,
 	EmptyContent,
@@ -85,17 +84,11 @@ import {
 	type CanvasWorkpieceMode,
 } from "@/lib/canvas-search";
 import {
-	type CostReading,
-	postureSpendReading,
-	queryReading,
-} from "@/lib/cost-reading";
-import {
 	activeWorkspacesQueryOptions,
 	canvasGadgetDetailQueryOptions,
 	canvasGadgetsQueryOptions,
 	canvasOutputLibraryQueryOptions,
 	canvasOutputsQueryOptions,
-	computePostureQueryOptions,
 	homeConversationsQueryKey,
 	osQueryKeys,
 	outputDetailQueryOptions,
@@ -312,38 +305,6 @@ export function missingWorkpieceCopy(doc: CanvasDocSelection): {
 }
 
 const CanvasIcon = SURFACE_ICONS.workspaces;
-
-/**
- * Compute posture in the workspace header.
- *
- * Deliberately ORGANIZATION-scoped, and the chip's subject says so. Nothing
- * links a workspace to the call-cost ledger — gadget receipts carry effort, not
- * money — so a workspace-scoped figure would have to be invented. What IS true
- * and worth a header slot is the org's spend and whether its ledger is fresh,
- * which is the difference between "this workspace is cheap" and "cost ingestion
- * stopped four days ago".
- *
- * Shares `computePostureQueryOptions` with the Compute surface so React Query
- * serves one posture fetch across both.
- */
-export function WorkspaceComputeChip() {
-	const posture = useQuery({
-		...computePostureQueryOptions("7d"),
-		staleTime: 60_000,
-	});
-	const nonData = queryReading(posture);
-	const reading: CostReading =
-		nonData ??
-		(posture.data
-			? postureSpendReading(posture.data)
-			: { kind: "pending" as const });
-	return (
-		<CostChip
-			reading={reading}
-			subject="Organization model spend over the last 7 days"
-		/>
-	);
-}
 
 const CANVAS_DESKTOP_PANES = [
 	{ value: "workpiece", label: "Editor" },
@@ -1082,7 +1043,6 @@ export function CanvasPage({
 				<PageActions className="canvas-workspace-actions">
 					<ApprovalNotifications conversationId={activeConversationId} />
 					<TransportStatus />
-					<WorkspaceComputeChip />
 					<CanvasWorkspaceControls
 						workspace={selectedWorkspace as OsWorkspace | undefined}
 						showCreate={false}
