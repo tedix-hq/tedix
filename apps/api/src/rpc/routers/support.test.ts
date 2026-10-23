@@ -25,6 +25,7 @@ import {
 } from "@tedix/api-contract/utils/support-report";
 import { putSupportConfiguration } from "@tedix/db/queries/support";
 import { supportContractRouter } from "./support";
+import { syncSupportDraftFromCard } from "../../services/support-draft-decision";
 import type { BaseContext } from "../orpc";
 const tenant = "11111111-1111-4111-8111-111111111111",
 	platform = "22222222-2222-4222-8222-222222222222",
@@ -84,7 +85,7 @@ async function fixture() {
 		}) as BaseContext;
 	const client = (overrides: Partial<BaseContext> = {}) =>
 		createRouterClient(supportContractRouter, { context: context(overrides) });
-	return { sqlite, client };
+	return { sqlite, client, context };
 }
 async function request() {
 	const report = redactSupportReport(
@@ -288,5 +289,71 @@ describe("Support intake authorization and human publication", () => {
 		});
 		expect(retest.status).toBe("resolved");
 		expect(retest.reporterVerification).toBe("unblocked");
+	});
+
+	it("carries a rewritten reply card into the ticket draft so Publish sends what the card shows", async () => {
+		const { client, sqlite, context } = await fixture(),
+			receipt = await client().file(await request());
+		const worker_ = {
+			authType: "tedi",
+			user: undefined,
+			userId: undefined,
+			serviceAccount: { clientId: "support-test" },
+			organizationId: platform,
+			tediId: worker,
+			tediScopes: ["mcp:work.read", "mcp:work.write"],
+		} satisfies Partial<BaseContext>;
+		await client(worker_).draft({
+			ticketId: receipt.ticketId,
+			expectedVersion: 1,
+			idempotencyKey: "answer-1",
+			answer: {
+				body: "Stale answer",
+				evidence: ["https://docs.example.invalid/connect"],
+				nextStep: "Try the first read",
+			},
+		});
+		const row = sqlite
+			.prepare("select id, org_id, metadata from work_interactions")
+			.get()!;
+		const card = {
+			id: String(row.id),
+			orgId: String(row.org_id),
+			metadata: JSON.parse(String(row.metadata)),
+		};
+		const admin = {
+			organizationId: platform,
+			userId: "admin",
+			user: { sub: "admin" },
+		};
+		await syncSupportDraftFromCard(context(worker_), card, "Short new answer", {
+			key: "card-revision:1",
+			actorType: "tedi",
+			actorId: worker,
+		});
+		const synced = JSON.parse(
+			String(
+				sqlite
+					.prepare("select metadata from work_interactions where id=?")
+					.get(card.id)?.metadata,
+			),
+		).decisionDeck;
+		expect(synced.preview.body).toBe("Short new answer");
+		expect(synced.options[0].effect.expectedVersion).toBe(3);
+		// A card made for an older ticket version leaves the newer ticket alone.
+		await syncSupportDraftFromCard(context(worker_), card, "Other text", {
+			key: "card-revision:2",
+			actorType: "tedi",
+			actorId: worker,
+		});
+		await client(admin).publish({
+			ticketId: receipt.ticketId,
+			expectedVersion: 3,
+			idempotencyKey: "publish",
+		});
+		expect(
+			(await client().status({ ticketId: receipt.ticketId })).publicUpdates[0]
+				?.body,
+		).toBe("Short new answer");
 	});
 });

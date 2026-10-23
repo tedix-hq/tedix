@@ -5,11 +5,16 @@ import {
 	ATTENTION_COPY,
 	attentionCopy,
 } from "@tedix/api-contract/utils/attention-copy";
-import { supportObjectId } from "@tedix/api-contract/utils/support-report";
+import {
+	redactSupportText,
+	supportObjectId,
+} from "@tedix/api-contract/utils/support-report";
+import { getStaffSupportTicket } from "@tedix/db/queries/support";
 import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
 import {
 	createWorkInteraction,
 	getWorkInteraction,
+	setSupportReplyPublishVersion,
 	supersedeSupportDraftInteractions,
 } from "@tedix/db/queries/work-items/interactions";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -136,5 +141,60 @@ export async function ensureSupportDraftDecision(
 		ticketId: row.id,
 		targetId: config.adminUserId,
 		now: new Date().toISOString(),
+	});
+}
+
+/**
+ * A new version of a support reply card becomes the ticket's draft, so Publish
+ * sends what the card shows. Skipped when the ticket moved on since the card
+ * was made; the card's publish then fails as stale instead of sending old text.
+ */
+export async function syncSupportDraftFromCard(
+	context: BaseContext,
+	request: { id: string; orgId: string; metadata: Record<string, unknown> },
+	body: string,
+	change: {
+		key: string;
+		actorType: "user" | "tedi" | "external_agent" | "system";
+		actorId: string;
+	},
+) {
+	const decision = DecisionEnvelopeSchema.safeParse(
+		request.metadata.decisionDeck,
+	);
+	if (!decision.success) return;
+	const optionIndex = decision.data.options.findIndex(
+		(option) => option.effect?.kind === "publish_support",
+	);
+	const effect = decision.data.options[optionIndex]?.effect;
+	if (effect?.kind !== "publish_support") return;
+	const row = await getStaffSupportTicket(
+		context.db,
+		request.orgId,
+		effect.ticketId,
+	);
+	const text = redactSupportText(body);
+	if (
+		!row?.draft ||
+		row.version !== effect.expectedVersion ||
+		row.draft.body === text
+	)
+		return;
+	const { changeSupportTicket } = await import("./support");
+	const draft = { ...row.draft, body: text };
+	const changed = await changeSupportTicket(context, row, {
+		key: change.key,
+		actorId: change.actorId,
+		actorType: change.actorType,
+		now: new Date().toISOString(),
+		patch: { draft },
+		commentBody: `DRAFT — not sent\n${JSON.stringify(draft)}`,
+	});
+	await setSupportReplyPublishVersion(context.db, {
+		orgId: request.orgId,
+		interactionId: request.id,
+		optionIndex,
+		ticketVersion: changed.version,
+		body: text,
 	});
 }
