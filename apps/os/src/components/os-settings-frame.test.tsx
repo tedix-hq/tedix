@@ -3,11 +3,21 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 const state = vi.hoisted(() => ({
+	rendered: new Set<() => void>(),
+	router: {
+		subscribe: (_event: string, callback: () => void) => {
+			state.rendered.add(callback);
+			return () => state.rendered.delete(callback);
+		},
+	},
 	pending: false,
 	viewer: {
 		role: "member",
 		permissions: [] as string[],
 	},
+}));
+vi.mock("@tanstack/react-router", () => ({
+	useRouter: () => state.router,
 }));
 vi.mock("@/lib/use-os-preferences", () => ({
 	useOsOperationalContext: () => ({
@@ -38,6 +48,32 @@ function render(pathname: string) {
 		"text/html",
 	);
 }
+
+function mount(pathname: string, scrollIntoView = vi.fn()) {
+	Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+		configurable: true,
+		value: scrollIntoView,
+	});
+	const page = document.createElement("div");
+	document.body.appendChild(page);
+	const root = createRoot(page);
+	const navigate = (pathname: string) =>
+		act(() =>
+			root.render(
+				<OsSettingsFrame pathname={pathname}>
+					<p>Page content</p>
+				</OsSettingsFrame>,
+			),
+		);
+	cleanups.push(() => {
+		act(() => root.unmount());
+		page.remove();
+		Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+	});
+	navigate(pathname);
+	return { page, navigate, scrollIntoView };
+}
+
 describe("Settings navigation", () => {
 	it("preserves member reads without exposing admin or billing links", () => {
 		state.viewer.role = "member";
@@ -82,46 +118,40 @@ describe("Settings navigation", () => {
 		expect(render("/team").querySelector("nav")).toBeNull();
 	});
 	it("reveals the active link again when authority items arrive", () => {
-		const scrollIntoView = vi.fn();
-		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-			configurable: true,
-			value: scrollIntoView,
-		});
-		cleanups.push(() => {
-			Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
-		});
 		state.pending = true;
-		const page = document.createElement("div");
-		document.body.appendChild(page);
-		const root = createRoot(page);
-		act(() =>
-			root.render(
-				<OsSettingsFrame pathname="/audit">
-					<p>Page content</p>
-				</OsSettingsFrame>,
-			),
-		);
-		cleanups.push(() => {
-			act(() => root.unmount());
-			page.remove();
-		});
+		const { page, navigate, scrollIntoView } = mount("/audit");
 		expect(page.querySelector('a[href="/admin"]')).toBeNull();
 		expect(scrollIntoView).toHaveBeenCalledTimes(1);
 
-		// The authority read resolves after the pathname commit: the admin links
-		// prepend ahead of "Activity log" and push it right, so the reveal must
-		// run again against the new item set.
+		// Late authority items push Activity log sideways without changing routes.
 		state.pending = false;
 		state.viewer.role = "owner";
-		act(() =>
-			root.render(
-				<OsSettingsFrame pathname="/audit">
-					<p>Page content</p>
-				</OsSettingsFrame>,
-			),
-		);
+		navigate("/audit");
 
 		expect(page.querySelector('a[href="/admin"]')).not.toBeNull();
 		expect(scrollIntoView).toHaveBeenCalledTimes(2);
+	});
+	it("reveals the active section after router history scroll restoration", async () => {
+		state.viewer.role = "owner";
+		const scrollIntoView = vi.fn(function (this: HTMLElement) {
+			this.closest("nav")!.scrollLeft = 670;
+		});
+		const { page, navigate } = mount("/admin/organization", scrollIntoView);
+		navigate("/audit");
+		navigate("/admin/organization");
+		navigate("/audit");
+		const nav = page.querySelector("nav")!;
+		expect(nav.scrollLeft).toBe(670);
+
+		await act(async () => {
+			for (const callback of state.rendered) callback();
+			// Router restoration runs in onRendered, after the pathname effect.
+			// Its cached position must not hide the newly active section.
+			nav.scrollLeft = 0;
+			await Promise.resolve();
+		});
+		expect(nav.scrollLeft).toBe(670);
+		cleanups.pop()?.();
+		expect(state.rendered.size).toBe(0);
 	});
 });
