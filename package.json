@@ -129,7 +129,7 @@
 		"@cloudflare/ai-chat": "^0.12.2",
 		"@cloudflare/puppeteer": "1.4.0",
 		"@cloudflare/sandbox": "1.0.2",
-		"@cloudflare/vite-plugin": "^1.64.0",
+		"@cloudflare/vite-plugin": "1.64.0",
 		"@cloudflare/vitest-plugin": "1.4.7",
 		"@cloudflare/voice": "0.5.0",
 		"@cloudflare/workers-types": "^5.20261023.1",
