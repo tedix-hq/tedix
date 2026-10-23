@@ -124,7 +124,12 @@ function deckConfigWithReviewSources(
 	];
 	for (const source of discovered) {
 		const key = `${source.workspaceId}:${source.cardSheetPrefix}`;
-		if (!sources.has(key)) sources.set(key, source);
+		const configured = sources.get(key);
+		// The Deck's own binding wins, but a copy saved without a writing skill
+		// takes the review app's, so Ask for changes works from either app.
+		if (!configured) sources.set(key, source);
+		else if (!configured.run && source.run)
+			sources.set(key, { ...configured, run: source.run });
 	}
 	if (sources.size > 10)
 		throw createError(

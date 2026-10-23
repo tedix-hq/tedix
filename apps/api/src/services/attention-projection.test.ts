@@ -231,6 +231,13 @@ it("rejects an incomplete Card review app inventory", async () => {
 	);
 });
 
+it("fills a configured source's missing writing skill from its Card review app", async () => {
+	const run = { skillId: "44444444-4444-4444-8444-444444444444", actions: [] };
+	installReviewSources([{ ...source, run }], [source]);
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.config.factorySources).toEqual([{ ...source, run }]);
+});
+
 it("deduplicates configured and discovered sources and overlapping sheets", async () => {
 	installReviewSources(
 		[source, { ...source, cardSheetPrefix: "Card" }],
