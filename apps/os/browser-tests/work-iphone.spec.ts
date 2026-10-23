@@ -57,7 +57,7 @@ const PAGES: Array<[string, string]> = [
 		"[data-workspace-app-entry=outbound-review] .fd-decision",
 	],
 	["/work/cases", "[data-mobile-case-row]"],
-	["/work/capacity", "[data-slot=surface] li, [data-slot=surface] strong"],
+	["/work/capacity", "[data-slot=card] strong"],
 	["/work/capacity?view=budgets", "[data-slot=card] strong"],
 	["/work/approvals", "summary"],
 	["/work/interactions", "[aria-labelledby=interaction-urgent-title]"],
