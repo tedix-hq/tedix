@@ -177,6 +177,8 @@ export async function appendCardRevision(
 		parentRevision?: number;
 		curation?: DeckCurationState;
 		expectedStatus?: "open" | "cancelled";
+		/** Refuse the revision once anyone has responded to the request. */
+		unanswered?: boolean;
 	},
 ) {
 	if (
@@ -254,6 +256,9 @@ export async function appendCardRevision(
 						eq(workInteractions.status, p.expectedStatus ?? "open"),
 						sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${new Date().toISOString()})`,
 						sql`coalesce((SELECT max(revision) FROM work_interaction_card_revisions WHERE org_id=${p.orgId} AND request_id=${p.requestId}),0)=${p.expectedRevision}`,
+						p.unanswered
+							? sql`NOT EXISTS (SELECT 1 FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.requestId})`
+							: undefined,
 					),
 				),
 		)

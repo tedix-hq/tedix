@@ -129,6 +129,7 @@ export async function appendCuration(
 		state,
 		skipRevisedSince,
 		presentation,
+		unanswered,
 	}: {
 		orgId: string;
 		actor: { type: string; id: string; sessionId?: string };
@@ -138,6 +139,8 @@ export async function appendCuration(
 		state: z.infer<typeof DeckCurationStateSchema>;
 		skipRevisedSince?: string;
 		presentation?: DecisionCardPresentation;
+		/** Refuse when anyone has responded to the request meanwhile. */
+		unanswered?: boolean;
 	},
 ) {
 	let history = await listCardRevisions(context.db, orgId, request.id);
@@ -211,6 +214,7 @@ export async function appendCuration(
 		instruction: JSON.stringify(curation),
 		// Keep the draft snapshot tied to this curation revision; actorType identifies its editor.
 		curation,
+		unanswered,
 		presentation: editedPresentation,
 		summary: presentation
 			? JSON.stringify({

@@ -2,7 +2,11 @@ import type { DecisionContext } from "@tedix/api-contract/schemas/decision-graph
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { listAgentDecisionsWithOutcome } from "@tedix/db/queries/agent-decisions";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
-import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
+import {
+	getWorkInteraction,
+	listWorkInteractionResponses,
+} from "@tedix/db/queries/work-items/interactions";
+import { listCardRevisions } from "@tedix/db/queries/work-items/card-revisions";
 import {
 	getDeckSweepReceipt,
 	listCardStatuses,
@@ -31,9 +35,11 @@ import {
 } from "@tedix/api-contract/utils/deck-pipeline";
 import {
 	deckInteractionKind,
+	interactionDeckRoute,
 	projectDeckCards,
 } from "@tedix/api-contract/utils/deck-projection";
 import { cardOriginalBody } from "../services/card-revisions";
+import { readDecisionLearning } from "../services/decision-learning";
 import { deckQualificationGraph } from "../services/deck-qualification-graph";
 import { appendCuration, criticalDeckRequest } from "../services/deck-curation";
 
@@ -78,7 +84,11 @@ export function sweepCard(
 	};
 }
 
-/** Retire through the same immutable curation revision the retire verb writes. */
+/**
+ * Retire through the same immutable curation revision the retire verb writes:
+ * one batch cancels the request and records why. A request someone already
+ * responded to stays open, also when the response lands mid-retirement.
+ */
 async function applyRetirement(
 	db: DbClient,
 	orgId: string,
@@ -89,6 +99,16 @@ async function applyRetirement(
 		interactionId: action.cardId,
 	});
 	if (!request || request.status !== "open") return false;
+	if (
+		(
+			await listWorkInteractionResponses(db, {
+				orgId,
+				interactionId: request.id,
+				limit: 1,
+			})
+		).length
+	)
+		return false;
 	const prior = DeckCurationStateSchema.safeParse(request.metadata.curation);
 	await appendCuration(
 		{ db },
@@ -98,6 +118,7 @@ async function applyRetirement(
 			request,
 			expectedRevision: Number(request.metadata.cardRevision ?? 0),
 			body: cardOriginalBody(request),
+			unanswered: true,
 			state: DeckCurationStateSchema.parse({
 				schema: "tedix.deck-curation.v1",
 				status: "cancelled",
@@ -250,6 +271,10 @@ export async function sweepOrganizationDeck(
 			const live = open.filter(
 				(row) => !(row.expiresAt && row.expiresAt <= now.toISOString()),
 			);
+			// The person's learned usefulness: an ask they taught away is withdrawn.
+			const model = await readDecisionLearning(db, orgId, recipientId).catch(
+				() => undefined,
+			);
 			const reviewDecisionIds = [
 				...new Set(
 					live.flatMap(
@@ -295,6 +320,13 @@ export async function sweepOrganizationDeck(
 					...sweepCard({ ...row, workItemId: workId }, dispositions),
 					askKind: ask.askKind,
 					responseKind: ask.responseKind,
+					learnedFeed:
+						interactionDeckRoute(
+							{ ...row, targetType: "user" },
+							model,
+							undefined,
+							now,
+						).heldFrom === "learned_feed",
 					actionable:
 						ask.actionable &&
 						!(
@@ -323,6 +355,16 @@ export async function sweepOrganizationDeck(
 						: {}),
 				};
 			});
+			// Undo sticks: a card the recipient restored is never withdrawn again
+			// on learned usefulness alone.
+			for (const card of cards)
+				if (
+					card.learnedFeed &&
+					(await listCardRevisions(db, orgId, card.id)).some(
+						(revision) => revision.cause === "restore",
+					)
+				)
+					card.learnedFeed = false;
 			const plan = planDeckSweep({
 				cards,
 				now,
