@@ -169,6 +169,11 @@ export type SweepCard = {
 	askKind: string;
 	responseKind?: "task" | "choice" | "open";
 	actionable?: boolean;
+	/**
+	 * The person taught "less like this" for the card's class often enough that
+	 * routing would have sent it to the Feed; an ask is withdrawn, never hidden.
+	 */
+	learnedFeed?: boolean;
 	graph?: Partial<
 		Pick<
 			DecisionContext,
@@ -345,7 +350,7 @@ export function planDeckSweep(input: {
 					reason: "superseded",
 					cause: "duplicate",
 					successorId: keeper.id,
-					note: "Replaced by a linked card.",
+					note: `Replaced by ${keeper.id}.`,
 					evidenceRefs: [
 						successor.edge.evidenceRef ?? `work-interaction:${keeper.id}`,
 					],
@@ -370,7 +375,7 @@ export function planDeckSweep(input: {
 					cause: "duplicate",
 					successorId: keeper.id,
 					workItemId: keeper.workItemId ?? undefined,
-					note: "Merged into the linked duplicate.",
+					note: `Merged into ${keeper.id}.`,
 					evidenceRefs: [`work-interaction:${keeper.id}`],
 				});
 		}
@@ -383,7 +388,9 @@ export function planDeckSweep(input: {
 				deckSourceKey(card) !== rule.sourceKey
 			)
 				continue;
-			if (rule.reason === "not_for_me" || rule.reason === "agent_could_do")
+			// An "agent could do it" rule bounces new asks at create time; the
+			// sweep records no agent route, so an open ask stays visible.
+			if (rule.reason === "not_for_me")
 				add({
 					cardId: card.id,
 					cause: "rule",
@@ -394,6 +401,15 @@ export function planDeckSweep(input: {
 				});
 		}
 	}
+	for (const card of cards)
+		if (card.learnedFeed && !card.protected && !actions.has(card.id))
+			add({
+				cardId: card.id,
+				reason: "no_longer_relevant",
+				cause: "rule",
+				note: "Withdrawn: you marked asks like this as not worth your time. Undo puts it back.",
+				evidenceRefs: [`work-interaction:${card.id}`],
+			});
 	return {
 		actions: [...actions.values()].slice(0, config.maxRetirementsPerRun),
 		proposals: [],

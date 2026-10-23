@@ -4,6 +4,7 @@ import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
 	workInteractionCardRevisions,
+	workInteractionResponses,
 	workInteractions,
 } from "@tedix/db/schema/work-factory";
 import {
@@ -20,7 +21,14 @@ import { getDeckSweepReceipt } from "@tedix/db/queries/work-items/deck-sweep";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const models = vi.hoisted(() => ({ qwen: vi.fn(), clef: vi.fn() }));
+const models = vi.hoisted(() => ({
+	qwen: vi.fn(),
+	clef: vi.fn(),
+	learning: vi.fn(),
+}));
+vi.mock("../services/decision-learning", () => ({
+	readDecisionLearning: models.learning,
+}));
 vi.mock("../services/decision-card-copy-model", () => ({
 	runDecisionCardCopyModel: models.qwen,
 }));
@@ -30,6 +38,7 @@ import { sweepOrganizationDeck } from "./deck-pipeline-sweep";
 
 beforeEach(() => {
 	models.qwen.mockReset().mockResolvedValue('{"label":"NOISE"}');
+	models.learning.mockReset().mockResolvedValue(undefined);
 	models.clef.mockReset().mockResolvedValue({
 		ok: true,
 		latencyMs: 5,
@@ -64,6 +73,7 @@ async function fixture(decisionLearning: Record<string, unknown> = {}) {
 			decisionEdges,
 			workInteractions,
 			workInteractionCardRevisions,
+			workInteractionResponses,
 			learningInteractionEvents,
 		),
 	);
@@ -168,6 +178,22 @@ async function status(db: DbClient, id: string) {
 	return row!;
 }
 
+async function respond(db: DbClient, interactionId: string) {
+	await db.insert(workInteractionResponses).values({
+		id: `response-${interactionId}`,
+		orgId: ORG,
+		interactionId,
+		resolvedRequestVersion: 2,
+		resolutionFence: "fence",
+		responderType: "user",
+		responderId: USER,
+		body: "Ask me again tomorrow.",
+		responseKind: "answer",
+		resolvesRequest: false,
+		respondedAt: "2026-10-21T06:00:00.000Z",
+	});
+}
+
 describe("deck pipeline sweep", () => {
 	it("retires expired, finished-Work and duplicate cards and keeps actionable ones", async () => {
 		const { db } = await fixture();
@@ -210,14 +236,115 @@ describe("deck pipeline sweep", () => {
 		expect((await status(db, older)).metadata.curation).toMatchObject({
 			status: "cancelled",
 			successorId: newer,
+			reason: `Merged into ${newer}.`,
 			retirement: { reason: "duplicate" },
+		});
+		expect((await status(db, finished)).metadata.curation).toMatchObject({
+			status: "cancelled",
+			reason: "Already decided.",
+			retirement: { reason: "already_decided", workItemId: WORK_DONE },
 		});
 		for (const id of [overdue, newer, human, gone])
 			expect((await status(db, id)).status).toBe("open");
 		expect(await getDeckSweepReceipt(db, ORG)).toMatchObject({
 			at: now.toISOString(),
-			metrics: [{ recipientId: USER, liveCards: 2, removals: 3 }],
+			// Every open question to the person counts: none routes to the Feed.
+			metrics: [{ recipientId: USER, liveCards: 3, removals: 3 }],
 		});
+	});
+
+	it("leaves a request someone already responded to open", async () => {
+		const { db } = await fixture();
+		const answered = await card(db, { workItemId: WORK_DONE });
+		await respond(db, answered);
+		const receipt = await sweepOrganizationDeck(db, ORG, now);
+		expect(receipt).toMatchObject({ retired: 0, errors: 0 });
+		expect((await status(db, answered)).status).toBe("open");
+	});
+
+	it("keeps the request open when a response lands during retirement", async () => {
+		const { db } = await fixture();
+		const raced = await card(db, { workItemId: WORK_DONE });
+		const batch = db.batch.bind(db);
+		let once = false;
+		// Answer between the sweep's read and its cancelling revision batch.
+		db.batch = (async (queries: Parameters<typeof db.batch>[0]) => {
+			const revises = queries.some((query) =>
+				(query as { toSQL?: () => { sql: string } })
+					.toSQL?.()
+					.sql.includes("work_interaction_card_revisions"),
+			);
+			if (revises && !once) {
+				once = true;
+				await respond(db, raced);
+			}
+			return batch(queries);
+		}) as typeof db.batch;
+		const receipt = await sweepOrganizationDeck(db, ORG, now);
+		expect(receipt).toMatchObject({ retired: 0, errors: 1 });
+		const row = await status(db, raced);
+		expect(row.status).toBe("open");
+		expect(row.metadata.curation).toBeUndefined();
+	});
+
+	it("cancels an ask the person taught is not worth their time instead of hiding it", async () => {
+		const { db } = await fixture();
+		models.learning.mockResolvedValue({
+			config: { enabled: true },
+			weights: {
+				usefulness: [{ key: "class:relationship", value: -3, examples: 5 }],
+			},
+		});
+		const taught = await card(db);
+		const receipt = await sweepOrganizationDeck(db, ORG, now);
+		expect(receipt).toMatchObject({ retired: 1, errors: 0 });
+		const row = await status(db, taught);
+		expect(row.status).toBe("cancelled");
+		expect(row.metadata.curation).toMatchObject({
+			status: "cancelled",
+			reason:
+				"Withdrawn: you marked asks like this as not worth your time. Undo puts it back.",
+			retirement: { reason: "no_longer_relevant" },
+		});
+	});
+
+	it("keeps a taught-away ask the recipient restored", async () => {
+		const { db } = await fixture();
+		models.learning.mockResolvedValue({
+			config: { enabled: true },
+			weights: {
+				usefulness: [{ key: "class:relationship", value: -3, examples: 5 }],
+			},
+		});
+		const taught = await card(db);
+		await sweepOrganizationDeck(db, ORG, now);
+		// Undo: the recipient restores the original revision and reopens the card.
+		await db.insert(workInteractionCardRevisions).values({
+			id: "restore-1",
+			orgId: ORG,
+			requestId: taught,
+			revision: 3,
+			body: "I recommend the first option.",
+			cause: "restore",
+			actorType: "user",
+			actorId: USER,
+			parentRevision: 1,
+			createdAt: "2026-10-21T07:05:00.000Z",
+		});
+		await db
+			.update(workInteractions)
+			.set({
+				status: "open",
+				metadata: { decisionClass: "relationship", cardRevision: 3 },
+			})
+			.where(eq(workInteractions.id, taught));
+		const next = await sweepOrganizationDeck(
+			db,
+			ORG,
+			new Date("2026-10-21T07:15:00.000Z"),
+		);
+		expect(next).toMatchObject({ retired: 0, errors: 0 });
+		expect((await status(db, taught)).status).toBe("open");
 	});
 
 	it("counts an undone removal as a wrong removal on the next tick", async () => {

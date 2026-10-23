@@ -239,6 +239,7 @@ describe("S2 sweep", () => {
 				cardId: older.id,
 				reason: "duplicate",
 				successorId: newer.id,
+				note: `Merged into ${newer.id}.`,
 			}),
 		]);
 	});
@@ -305,6 +306,48 @@ describe("S2 sweep", () => {
 		});
 		expect(result.actions).toEqual([]);
 		expect(result.proposals).toEqual([]);
+	});
+
+	it("withdraws an ask the person taught is not worth their time, never a protected one", () => {
+		const taught = card({ learnedFeed: true });
+		const guarded = card({ learnedFeed: true, protected: true });
+		expect(
+			planDeckSweep({
+				cards: [taught, guarded],
+				now,
+				config: config.sweep,
+				rules: [],
+			}).actions,
+		).toEqual([
+			expect.objectContaining({
+				cardId: taught.id,
+				reason: "no_longer_relevant",
+				cause: "rule",
+				note: "Withdrawn: you marked asks like this as not worth your time. Undo puts it back.",
+			}),
+		]);
+	});
+
+	it("keeps an open ask visible under an agent-could-do rule", () => {
+		const ask = card();
+		expect(
+			planDeckSweep({
+				cards: [ask],
+				now,
+				config: config.sweep,
+				rules: [
+					{
+						id: "rule-agent",
+						recipientId: "recipient",
+						sourceKey: deckSourceKey(ask),
+						reason: "agent_could_do",
+						sentence: "Asks from agent go back to the agent to handle itself.",
+						evidenceIds: ["a", "b", "c"],
+						createdAt: now.toISOString(),
+					},
+				],
+			}).actions,
+		).toEqual([]);
 	});
 
 	it("is bounded by maxRetirementsPerRun", () => {

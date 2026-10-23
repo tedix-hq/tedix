@@ -249,13 +249,24 @@ export function deckInteractionKind(
 							: "question"));
 }
 
-/** One request's routing inputs, shared by the projection and absence explanations. */
+const PERSON_ASK_KINDS = new Set(["question", "input", "handoff"]);
+
+/**
+ * One request's routing inputs, shared by the projection and absence
+ * explanations. A question, input or handoff asked of a person never routes to
+ * the Feed: nothing settles a request there, so it would sit open and unseen.
+ * `heldFrom` names the Feed reason it overrode; the sweep withdraws an ask the
+ * person taught is not worth their time (`learned_feed`) instead of hiding it.
+ */
 export function interactionDeckRoute(
 	r: {
 		kind: string;
 		subject: string;
 		prompt: string;
 		dueAt: string | null;
+		/** Who is asked: `requestedFromType` on API rows, `targetType` on D1 rows. */
+		requestedFromType?: string | null;
+		targetType?: string | null;
 		metadata: Record<string, unknown>;
 	},
 	model: DecisionLearningModel | undefined,
@@ -308,7 +319,18 @@ export function interactionDeckRoute(
 		routing,
 		now,
 	);
-	return { decision, kind, route };
+	if (
+		route.destination === "feed" &&
+		(r.requestedFromType ?? r.targetType) === "user" &&
+		PERSON_ASK_KINDS.has(r.kind)
+	)
+		return {
+			decision,
+			kind,
+			route: { ...route, destination: "deck" as const, reason: "person_ask" },
+			heldFrom: route.reason,
+		};
+	return { decision, kind, route, heldFrom: null };
 }
 
 /** Pure projection shared by the authenticated headless reader and trusted recipient summaries. */

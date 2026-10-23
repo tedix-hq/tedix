@@ -61,7 +61,10 @@ it("keeps the generic answer for absent and other-recipient cards", async () => 
 	expect(await explainDeckCardAbsence(context, crypto.randomUUID())).toBe(
 		GENERIC,
 	);
-	expect(await explainDeckCardAbsence(context, card)).toBe(
+	// A question asked of the person stays on their Deck; only an FYI routes away.
+	expect(await explainDeckCardAbsence(context, card)).toBe(GENERIC);
+	const { context: fyi } = fixture({}, { kind: "coordination" });
+	expect(await explainDeckCardAbsence(fyi, card)).toBe(
 		"It routes to your Feed, not your Deck (routine)",
 	);
 	const { context: otherContext } = fixture({}, { target_id: "other" });
@@ -69,48 +72,52 @@ it("keeps the generic answer for absent and other-recipient cards", async () => 
 });
 
 it("names the routine Feed route for a valid taste envelope in a feed class", async () => {
-	const { context } = fixture({
-		decisionDeck: {
-			version: 1,
-			kind: "decision",
-			classId: "ops.demo",
-			proposal: "Pick a graph index",
-			whyNow: "Demo ready",
-			recommendation: "Use the smaller index",
-			reversibility: "two_way",
-			tasteOrStrategy: true,
-			protectedEffects: [],
-			blastRadius: "Demo index only",
-			confidence: 0.8,
-			costOfWaiting: "Demo waits",
-			reasoning: "Fits the demo",
-			options: [
-				{
-					id: "approve",
-					label: "Use it",
-					intent: "approve",
-					consequence: "Index selected",
-					cost: "One note",
-				},
-				{
-					id: "later",
-					label: "Later",
-					intent: "later",
-					consequence: "No change",
-					cost: "Wait",
-				},
-			],
+	const { context } = fixture(
+		{
+			decisionDeck: {
+				version: 1,
+				kind: "decision",
+				classId: "ops.demo",
+				proposal: "Pick a graph index",
+				whyNow: "Demo ready",
+				recommendation: "Use the smaller index",
+				reversibility: "two_way",
+				tasteOrStrategy: true,
+				protectedEffects: [],
+				blastRadius: "Demo index only",
+				confidence: 0.8,
+				costOfWaiting: "Demo waits",
+				reasoning: "Fits the demo",
+				options: [
+					{
+						id: "approve",
+						label: "Use it",
+						intent: "approve",
+						consequence: "Index selected",
+						cost: "One note",
+					},
+					{
+						id: "later",
+						label: "Later",
+						intent: "later",
+						consequence: "No change",
+						cost: "Wait",
+					},
+				],
+			},
 		},
-	});
+		{ kind: "coordination" },
+	);
 	expect(await explainDeckCardAbsence(context, card)).toBe(
 		"It routes to your Feed, not your Deck (routine)",
 	);
 });
 
 it("says the decision envelope failed validation when it cannot parse", async () => {
-	const { context } = fixture({
-		decisionDeck: { version: 1, kind: "decision" },
-	});
+	const { context } = fixture(
+		{ decisionDeck: { version: 1, kind: "decision" } },
+		{ kind: "coordination" },
+	);
 	expect(await explainDeckCardAbsence(context, card)).toBe(
 		"Its decision envelope failed validation, so it routes to your Feed (routine)",
 	);

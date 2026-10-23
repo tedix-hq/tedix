@@ -532,3 +532,56 @@ it("keeps future deadlines visible in nearest-deadline order while respecting sh
 	expect(cards.map((card) => card.id)).toEqual(["nearer", "later"]);
 	expect(cards.map((card) => card.dueAt)).toEqual(["2026-10-20", "2026-10-23"]);
 });
+
+it("keeps a person's open asks on the Deck and lets FYI requests go to the Feed", () => {
+	const routes: Array<{ id: string; destination: string; reason: string }> = [];
+	const ask = (id: string, kind: string, subject: string, reason: string) => {
+		const request = row(id, { reason });
+		request.request = {
+			...request.request,
+			kind: kind as Row["request"]["kind"],
+			subject,
+			requestedFromType: "user",
+		};
+		return request;
+	};
+	const cards = projectDeckCards({
+		requests: [
+			ask(
+				"neo4j",
+				"question",
+				"Keep the Neo4j copy?",
+				"Keeping a paid resource or paying for it is the owner's money decision.",
+			),
+			ask(
+				"expenses",
+				"input",
+				"Answer 7 expense questions",
+				"These are the owner's own facts and tax judgment; agents must not guess them.",
+			),
+			ask("weekly", "coordination", "Weekly status", "For your information."),
+		],
+		work: [],
+		runtime: [],
+		now,
+		onRoute: (route) => routes.push(route),
+	});
+	expect(cards.map((card) => card.id).sort()).toEqual(["expenses", "neo4j"]);
+	expect(routes).toEqual([
+		expect.objectContaining({
+			id: "neo4j",
+			destination: "deck",
+			reason: "person_ask",
+		}),
+		expect.objectContaining({
+			id: "expenses",
+			destination: "deck",
+			reason: "person_ask",
+		}),
+		expect.objectContaining({
+			id: "weekly",
+			destination: "feed",
+			reason: "routine",
+		}),
+	]);
+});
