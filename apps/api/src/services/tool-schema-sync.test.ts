@@ -2901,6 +2901,52 @@ it("syncs memory reads served over POST as read-only, so they emit no action rec
 	}
 });
 
+it("re-derives a stale generated risk policy but keeps a curated one", async () => {
+	const stale = makeDb([
+		makeRpcTool({
+			toolId: "expertise_memory_graph",
+			endpoint: "memoryGraph/expertise",
+			writeCapability: "read",
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+			},
+		}),
+	]);
+	await runToolSchemaSync(stale.db, {
+		mode: "projection",
+		apply: true,
+		endpoints: ["memoryGraph/expertise"],
+	});
+	expect(stale.updates[0]?.patch).toMatchObject({
+		meta: { "com.tedix/policy": { riskTier: "read", blastRadius: "none" } },
+	});
+
+	const curatedPolicy = {
+		riskTier: "bounded_write",
+		blastRadius: "single_resource",
+		reviewedBy: "operator",
+	};
+	const curated = makeDb([
+		makeRpcTool({
+			toolId: "expertise_memory_graph",
+			endpoint: "memoryGraph/expertise",
+			writeCapability: "read",
+			meta: { "com.tedix/policy": curatedPolicy },
+		}),
+	]);
+	await runToolSchemaSync(curated.db, {
+		mode: "projection",
+		apply: true,
+		endpoints: ["memoryGraph/expertise"],
+	});
+	expect(curated.updates[0]?.patch).toMatchObject({
+		meta: { "com.tedix/policy": curatedPolicy },
+	});
+});
+
 it("projects bounded Deck feedback through the real object-envelope converter", async () => {
 	const fixture = makeDb([
 		makeRpcTool({
