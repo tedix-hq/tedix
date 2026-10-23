@@ -417,6 +417,12 @@ export async function reviseCardContent(
 			ErrorCodes.CONFLICT,
 			"The card changed during the rewrite; reload it",
 		);
+	const { syncSupportDraftFromCard } = await import("./support-draft-decision");
+	await syncSupportDraftFromCard(context, request, body, {
+		key: `card-revision:${revision.id}`,
+		actorType: actor.type,
+		actorId: actor.id,
+	});
 	const { queueDeckCuration } = await import("./deck-curation-trigger");
 	await queueDeckCuration(
 		context,

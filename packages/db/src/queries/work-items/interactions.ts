@@ -862,6 +862,30 @@ export async function cancelWorkInteraction(
 		);
 	return row;
 }
+/** Points a support reply card's publish option at the ticket version that now holds the card's text. */
+export async function setSupportReplyPublishVersion(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		interactionId: string;
+		optionIndex: number;
+		ticketVersion: number;
+		body: string;
+	},
+): Promise<void> {
+	await db
+		.update(workInteractions)
+		.set({
+			metadata: sql`json_set(${workInteractions.metadata}, ${`$.decisionDeck.options[${p.optionIndex}].effect.expectedVersion`}, ${p.ticketVersion}, '$.decisionDeck.preview.body', ${p.body})`,
+		})
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.id, p.interactionId),
+			),
+		);
+}
+
 export interface SetWorkInteractionAttentionParams {
 	orgId: string;
 	interactionId: string;
