@@ -286,8 +286,30 @@ export function laneHandoffStatements(
 	return [insertAsk, ...adopt, ...(ledger ? [ledger] : [])] as const;
 }
 
+/** Once a reminder's original ask leaves open, the reminder is cancelled; metadata stays fenced. */
+export async function withdrawStaleLaneNudges(db: DbQueryClient, now: string) {
+	const rows = await db
+		.update(workInteractions)
+		.set({
+			status: "cancelled",
+			cancelledAt: now,
+			resolutionFence: sql`lower(hex(randomblob(16)))`,
+			version: sql`${workInteractions.version}+1`,
+		})
+		.where(
+			and(
+				eq(workInteractions.status, "open"),
+				sql`json_type(${workInteractions.metadata},'$.laneNudge.requestId')='text'`,
+				sql`NOT EXISTS (SELECT 1 FROM work_interactions o WHERE o.org_id=${workInteractions.orgId} AND o.id=json_extract(${workInteractions.metadata},'$.laneNudge.requestId') AND o.status='open' AND (o.expires_at IS NULL OR o.expires_at>${now}))`,
+			),
+		)
+		.returning({ id: workInteractions.id });
+	return rows.length;
+}
+
 /** One morning reminder per unanswered ask per UTC day, using the existing digest surface. */
 export async function nudgeLaneHandoffs(db: DbQueryClient, now: string) {
+	await withdrawStaleLaneNudges(db, now);
 	const hour = new Date(now).getUTCHours();
 	if (hour < 8 || hour >= 12) return 0;
 	const day = now.slice(0, 10);
@@ -335,7 +357,7 @@ export async function nudgeLaneHandoffs(db: DbQueryClient, now: string) {
 									"subject",
 								),
 							prompt:
-								sql<string>`${`Waiting on you: ${row.subject}\nNext click: /work/interactions/${row.id}\nDone or Snooze 1 day on the original ask.`}`.as(
+								sql<string>`${`Reminder of an open ask. Next step: ${row.subject}\nOpen the original ask: /work/interactions/${row.id}\nMarking this reminder done performs no step and changes nothing; do the step, then use Done or Snooze 1 day on the original ask.`}`.as(
 									"prompt",
 								),
 							metadata:

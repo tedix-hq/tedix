@@ -473,3 +473,36 @@ it.each([undefined, "0".repeat(64)])(
 		expect(mocks.generate).toHaveBeenCalledOnce();
 	},
 );
+it("regenerates a saved face that turns another account into the reader's own", async () => {
+	const misnamed = {
+		version: 2,
+		title: "Return your access to member level?",
+		context: "Your account still shows Admin with 22 permissions.",
+		body: "Keeps only the update permission.",
+		recommendation: "Member checks need member-level access.",
+	};
+	const fixed = {
+		...misnamed,
+		title: "Set Instinct back to Member?",
+		context:
+			"Affects Instinct, not you. Instinct still shows Admin with 22 permissions.",
+	};
+	mocks.generate.mockResolvedValue(fixed);
+	const instinctCard = {
+		...card,
+		id: "interaction:fictional-instinct",
+		factory: undefined,
+		interaction: {
+			request: {
+				id: "10000000-0000-4000-8000-000000000002",
+				subject: "Return Instinct membership to the intended Member role",
+				prompt: "Current own-account View access shows Admin.",
+				requestedFromId: "fictional-person",
+				version: 1,
+				metadata: { cardPresentation: misnamed },
+			},
+		},
+	} as unknown as DeckCard;
+	expect(await prepareDeckCardFace(context, instinctCard)).toMatchObject(fixed);
+	expect(mocks.generate).toHaveBeenCalledTimes(1);
+});

@@ -14,6 +14,15 @@ import {
 	missingDecisionFaceFacts,
 	type FaceFactGap,
 } from "./decision-card-face-facts";
+import {
+	decisionCardSubject,
+	NEXT_STEP_BODY,
+	nextStepCard,
+	nextStepIssues,
+	subjectIssues,
+	subjectLine,
+	subjectRepair,
+} from "./decision-card-subject";
 
 const MAX_WRITING_CONTEXT_CHARS = 3000;
 const RAW_IDENTIFIER = new RegExp(copySpec.rawIdentifierPattern, "i");
@@ -64,6 +73,7 @@ function copyRepairFeedback(
 		message: string;
 	}[],
 	missingFacts: FaceFactGap[] = [],
+	instructions: string[] = [],
 ) {
 	const record =
 		draft && typeof draft === "object"
@@ -83,6 +93,7 @@ function copyRepairFeedback(
 		copySpec.faceWordLimit - (record.context ? copySpec.faceChromeWords : 0);
 	return JSON.stringify({
 		failedChecks: failures,
+		instructions: instructions.length ? instructions : undefined,
 		missingFaceFacts: missingFacts.length
 			? {
 					instruction: copySpec.faceFacts,
@@ -199,8 +210,32 @@ export async function generateDecisionCard(
 					word,
 				),
 		);
+	const subject = filing ? null : decisionCardSubject(request);
+	const nextStep = filing ? null : nextStepCard(request);
+	const subjectInstructions = [
+		...(subject && !subject.isReader ? [subjectRepair(subject)] : []),
+		...(subject?.sensitive
+			? [
+					`The card adds "${subjectLine(subject)}" before your context; do not repeat it.`,
+				]
+			: []),
+		...(nextStep
+			? [
+					`Clicking this card performs none of the step. The ask must name the real next step the reader does elsewhere. The card supplies IF YES itself: "${NEXT_STEP_BODY[nextStep]}"`,
+				]
+			: []),
+	];
 	const source = JSON.stringify({
 		preferences: writingContext(preferences),
+		...(subject
+			? {
+					affectedSubject: {
+						name: subject.name,
+						isReader: subject.isReader,
+					},
+				}
+			: {}),
+		...(subjectInstructions.length ? { cardRules: subjectInstructions } : {}),
 		...(filing
 			? {
 					filingReview: {
@@ -325,8 +360,21 @@ export async function generateDecisionCard(
 					"Rewrite this card for its actual question or task. Do not recommend keeping or returning a filing. A request for approval is not authorization; approval is still pending. State the source-supported consequence in body and a separate reason in recommendation.";
 				continue;
 			}
+			if (parsed.success && parsed.data.version === 2) {
+				// Who is affected and what a click does are never model-written.
+				if (subject?.sensitive) {
+					const line = subjectLine(subject);
+					const rest = (parsed.data.context ?? "").replace(line, "").trim();
+					parsed.data.context = rest ? `${line} ${rest}` : line;
+				}
+				if (nextStep) parsed.data.body = NEXT_STEP_BODY[nextStep];
+			}
 			if (parsed.success) {
 				const issues = checkDecisionCardCopy(parsed.data);
+				if (parsed.data.version === 2) {
+					issues.push(...subjectIssues(parsed.data, subject));
+					if (nextStep) issues.push(...nextStepIssues(parsed.data));
+				}
 				if (hasRelativeCardDates(JSON.stringify(parsed.data)))
 					issues.push("relative_date_use_absolute_source_date");
 				// A face may only restate dates, amounts and addresses from its source.
@@ -353,6 +401,7 @@ export async function generateDecisionCard(
 						failures,
 						undefined,
 						gaps.filter(({ check }) => check !== "context"),
+						subjectInstructions,
 					);
 					continue;
 				}
