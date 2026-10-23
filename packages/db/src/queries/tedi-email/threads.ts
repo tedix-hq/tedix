@@ -90,7 +90,14 @@ export async function listTediEmailThreads(
 		conditions.push(sql`${tediEmailThreads.unreadCount} > 0`);
 	}
 	if (input.cursor) {
-		conditions.push(sql`${tediEmailThreads.lastMessageAt} < ${input.cursor}`);
+		// Timestamp-only cursors from older clients retain their strict boundary.
+		const separator = input.cursor.indexOf("|");
+		const at = separator < 0 ? input.cursor : input.cursor.slice(0, separator);
+		conditions.push(
+			separator < 0
+				? sql`${tediEmailThreads.lastMessageAt} < ${at}`
+				: sql`(${tediEmailThreads.lastMessageAt}, ${tediEmailThreads.id}) < (${at}, ${input.cursor.slice(separator + 1)})`,
+		);
 	}
 	if (input.query?.trim()) {
 		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
@@ -104,7 +111,7 @@ export async function listTediEmailThreads(
 		.select()
 		.from(tediEmailThreads)
 		.where(and(...conditions))
-		.orderBy(desc(tediEmailThreads.lastMessageAt))
+		.orderBy(desc(tediEmailThreads.lastMessageAt), desc(tediEmailThreads.id))
 		.limit(limit + 1);
 
 	const page = rows.slice(0, limit);
@@ -115,10 +122,11 @@ export async function listTediEmailThreads(
 		})),
 	);
 
+	const last = page.at(-1);
 	return {
 		threads,
 		nextCursor:
-			rows.length > limit ? (page.at(-1)?.lastMessageAt ?? null) : null,
+			rows.length > limit && last ? `${last.lastMessageAt}|${last.id}` : null,
 	};
 }
 
