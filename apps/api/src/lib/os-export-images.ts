@@ -68,8 +68,15 @@ export async function fetchOsExportImage(source: string): Promise<string> {
 	} finally {
 		await reader.cancel();
 	}
-	if (size === 0) throw new Error("Export image is empty");
 	const bytes = Buffer.concat(chunks);
+	validateExportImage(bytes, type);
+	return `data:${type};base64,${bytes.toString("base64")}`;
+}
+
+function validateExportImage(bytes: Buffer, type: string): void {
+	if (bytes.length === 0) throw new Error("Export image is empty");
+	if (bytes.length > MAX_IMAGE_BYTES)
+		throw new Error("Export image exceeds 10 MB");
 	if (type === "image/svg+xml") {
 		const svg = bytes.toString("utf8");
 		if (
@@ -93,7 +100,24 @@ export async function fetchOsExportImage(source: string): Promise<string> {
 			);
 		}
 	}
-	return `data:${type};base64,${bytes.toString("base64")}`;
+}
+
+function validateInlineImage(source: string): void {
+	const match = /^data:([^;,]+)((?:;[^,]*)?),([\s\S]*)$/i.exec(source);
+	const type = match?.[1]?.toLowerCase();
+	if (!match || !type || !IMAGE_TYPES.has(type))
+		throw new Error("Invalid export image data URL");
+	// Percent decoding must preserve binary octets as well as UTF-8 SVG text.
+	const payload = Buffer.from(match[3]!, "utf8")
+		.toString("latin1")
+		.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
+			String.fromCharCode(Number.parseInt(hex, 16)),
+		);
+	const bytes = Buffer.from(
+		/;base64$/i.test(match[2]!) ? atob(payload) : payload,
+		"latin1",
+	);
+	validateExportImage(bytes, type);
 }
 
 export async function inlineOsExportImages<T extends OsOutputContent>(
@@ -102,11 +126,14 @@ export async function inlineOsExportImages<T extends OsOutputContent>(
 	const copy = structuredClone(content);
 	const sources = new Map<string, string>();
 	const inline = async (source: string) => {
-		if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);/i.test(source))
-			return source;
 		let result = sources.get(source);
 		if (!result) {
-			result = await fetchOsExportImage(source);
+			if (/^data:/i.test(source)) {
+				validateInlineImage(source);
+				result = source;
+			} else {
+				result = await fetchOsExportImage(source);
+			}
 			sources.set(source, result);
 		}
 		return result;

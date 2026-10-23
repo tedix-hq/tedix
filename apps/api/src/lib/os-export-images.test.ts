@@ -220,3 +220,58 @@ it.each([
 		fetchOsExportImage("https://example.org/logo.svg"),
 	).rejects.toThrow("self-contained");
 });
+
+describe("inline export image validation", () => {
+	const document = (src: string) => ({
+		kind: "document" as const,
+		blocks: [],
+		richText: {
+			type: "doc" as const,
+			content: [{ type: "image", attrs: { src } }],
+		},
+	});
+
+	it.each([
+		'<svg onload="alert(1)"/>',
+		"<svg><script>alert(1)</script></svg>",
+		'<svg><image href="https://example.org/a.png"/></svg>',
+		'<svg><rect fill="url(https://example.org/a.svg)"/></svg>',
+	])("rejects embedded active SVG: %s", async (svg) => {
+		for (const source of [
+			`data:image/svg+xml;base64,${btoa(svg)}`,
+			`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+		]) {
+			await expect(inlineOsExportImages(document(source))).rejects.toThrow(
+				"self-contained",
+			);
+		}
+	});
+
+	it.each([
+		"data:image/png;base64,",
+		"data:image/png;base64,%%%",
+		"data:image/svg+xml;base64,Ym9keQ==",
+	])("rejects empty, malformed or non-image data: %s", async (source) => {
+		await expect(inlineOsExportImages(document(source))).rejects.toThrow();
+	});
+
+	it("caps decoded embedded bytes", async () => {
+		const source = `data:image/png;base64,${Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64")}`;
+		await expect(inlineOsExportImages(document(source))).rejects.toThrow(
+			"10 MB",
+		);
+	});
+
+	it("keeps valid percent-encoded SVG and binary image bytes without fetching", async () => {
+		const fetcher = vi.fn();
+		vi.stubGlobal("fetch", fetcher);
+		for (const source of [
+			`data:image/svg+xml;charset=utf-8,${encodeURIComponent("<svg><text>Grüße</text></svg>")}`,
+			"data:image/png;,%89PNG%0D%0A%1A%0A",
+		]) {
+			const content = document(source);
+			expect(await inlineOsExportImages(content)).toEqual(content);
+		}
+		expect(fetcher).not.toHaveBeenCalled();
+	});
+});
