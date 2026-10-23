@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { workItemsContract } from "./work-items";
+import { zodToToolInputJsonSchema } from "../utils/tool-json-schema";
 import {
 	CreateWorkItemInputSchema,
 	WorkEvidenceSchema,
@@ -10,6 +11,29 @@ describe("Work Item factory contract", () => {
 	function inputSchema(name: keyof typeof workItemsContract) {
 		return workItemsContract[name]["~orpc"].inputSchemas[0]!;
 	}
+
+	it("accepts project objective classification without accepting a client objective", () => {
+		const schema = inputSchema("updateSpecification");
+		const input = {
+			id: "11111111-1111-4111-8111-111111111111",
+			workClass: "objective",
+		};
+		expect(schema.parse(input)).toEqual(input);
+		expect(zodToToolInputJsonSchema(schema)).toMatchObject({
+			properties: {
+				workClass: {
+					enum: ["objective", "maintenance", "incident", "hygiene"],
+				},
+			},
+			additionalProperties: false,
+		});
+		expect(
+			schema.safeParse({
+				...input,
+				objectiveId: "22222222-2222-4222-8222-222222222222",
+			}).success,
+		).toBe(false);
+	});
 
 	it("updates and clears planning dates without changing disposition", () => {
 		const schema = inputSchema("updateSpecification");

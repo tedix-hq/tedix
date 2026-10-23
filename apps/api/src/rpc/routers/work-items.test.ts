@@ -685,6 +685,7 @@ describe("tedi Work stewardship", () => {
 			{ requiredCapabilities: [] },
 			{ stewardId: "tedi-nova" },
 			{ workClass: "maintenance" as const },
+			{ workClass: "objective" as const },
 		]) {
 			await expect(
 				client("tedi").updateSpecification({ id: item.id, ...change }),
@@ -750,6 +751,169 @@ describe("tedi Work stewardship", () => {
 			"accepted",
 		);
 	});
+	it.each(["maintenance", "incident", "hygiene"])(
+		"links %s work to its project's objective and clears its expiry",
+		async (workClass) => {
+			const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+			sqlite
+				.prepare(
+					"INSERT INTO projects(id,org_id,key,objective_id,created_at) VALUES (?,?,?,?,?)",
+				)
+				.run(
+					PROJECT_ID,
+					ORG_ID,
+					"PLAN",
+					OBJECTIVE_ID,
+					new Date().toISOString(),
+				);
+			seed({ id, disposition: "accepted", workClass, projectId: PROJECT_ID });
+			sqlite
+				.prepare(
+					"UPDATE work_items SET purpose_exception_expires_at=? WHERE id=?",
+				)
+				.run("2026-01-01T00:00:00.000Z", id);
+			await expect(
+				client("owner").updateSpecification({
+					id,
+					workClass: "objective",
+					purposeExceptionExpiresAt: new Date(
+						Date.now() + 86400000,
+					).toISOString(),
+					expectedWorkItemVersion: 1,
+				}),
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: "An objective link cannot carry an exception expiry",
+			});
+			const result = await client("owner").updateSpecification({
+				id,
+				workClass: "objective",
+				expectedWorkItemVersion: 1,
+			});
+			expect(result).toMatchObject({
+				workClass: "objective",
+				objectiveId: OBJECTIVE_ID,
+				purposeExceptionExpiresAt: null,
+				disposition: "accepted",
+				version: 2,
+			});
+			expect((await client().getById({ id })).workItem).toMatchObject(result);
+			await expect(
+				client("owner").updateSpecification({
+					id,
+					workClass: "objective",
+					expectedWorkItemVersion: 1,
+				}),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT count(*) AS n FROM work_events WHERE work_item_id=? AND event_type='work.specification_updated'",
+					)
+					.get(id)?.n,
+			).toBe(1);
+		},
+	);
+
+	it("never replaces an objective the item already serves", async () => {
+		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		sqlite
+			.prepare(
+				"INSERT INTO projects(id,org_id,key,objective_id,created_at) VALUES (?,?,?,?,?)",
+			)
+			.run(PROJECT_ID, ORG_ID, "PLAN", OBJECTIVE_ID, new Date().toISOString());
+		seed({ id, workClass: "maintenance", projectId: PROJECT_ID });
+		sqlite
+			.prepare("UPDATE work_items SET objective_id=? WHERE id=?")
+			.run("other-objective", id);
+		await expect(
+			client("owner").updateSpecification({ id, workClass: "objective" }),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: "Purpose repair cannot replace an objective",
+		});
+	});
+
+	it.each(["no project", "no objective"])(
+		"rejects objective classification with %s",
+		async (missing) => {
+			const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+			if (missing === "no objective")
+				sqlite
+					.prepare(
+						"INSERT INTO projects(id,org_id,key,created_at) VALUES (?,?,?,?)",
+					)
+					.run(PROJECT_ID, ORG_ID, "PLAN", new Date().toISOString());
+			seed({
+				id,
+				workClass: "maintenance",
+				projectId: missing === "no project" ? undefined : PROJECT_ID,
+			});
+			await expect(
+				client("owner").updateSpecification({ id, workClass: "objective" }),
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message:
+					missing === "no project"
+						? "This Work item must belong to a project with an objective"
+						: "This project's objective must be set before linking this Work item to it",
+			});
+			expect((await client().getById({ id })).workItem).toMatchObject({
+				workClass: "maintenance",
+				objectiveId: null,
+				version: 1,
+			});
+		},
+	);
+
+	it("keeps parent purpose validation when linking work to its project's objective", async () => {
+		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const parentId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		sqlite
+			.prepare(
+				"INSERT INTO projects(id,org_id,key,objective_id,created_at) VALUES (?,?,?,?,?)",
+			)
+			.run(PROJECT_ID, ORG_ID, "PLAN", OBJECTIVE_ID, new Date().toISOString());
+		seed({ id: parentId, workClass: "maintenance" });
+		seed({ id, workClass: "maintenance", projectId: PROJECT_ID });
+		sqlite
+			.prepare("UPDATE work_items SET parent_work_item_id=? WHERE id=?")
+			.run(parentId, id);
+		await expect(
+			client("owner").updateSpecification({ id, workClass: "objective" }),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("PURPOSE_CONFLICT"),
+		});
+		expect((await client().getById({ id })).workItem).toMatchObject({
+			workClass: "maintenance",
+			objectiveId: null,
+			version: 1,
+		});
+	});
+
+	it("preserves operational class and expiry repair restrictions", async () => {
+		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		seed({ id, workClass: "maintenance" });
+		const expiry = new Date(Date.now() + 7 * 86400000).toISOString();
+		sqlite
+			.prepare(
+				"UPDATE work_items SET purpose_exception_expires_at=? WHERE id=?",
+			)
+			.run(expiry, id);
+		for (const change of [
+			{ workClass: "incident" as const },
+			{
+				purposeExceptionExpiresAt: new Date(
+					Date.now() + 86400000,
+				).toISOString(),
+			},
+		])
+			await expect(
+				client("owner").updateSpecification({ id, ...change }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
 	it("repairs an undeclared purpose without changing acceptance and rejects out-of-window renewal", async () => {
 		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		seed({ id, disposition: "accepted" });

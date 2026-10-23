@@ -279,6 +279,7 @@ export const updateSpecificationProcedure =
 		}
 		try {
 			let purpose: {
+				objectiveId?: string | null;
 				workClass?: typeof workItem.workClass;
 				purposeExceptionExpiresAt?: string | null;
 			} = {};
@@ -286,39 +287,64 @@ export const updateSpecificationProcedure =
 				input.workClass !== undefined ||
 				input.purposeExceptionExpiresAt !== undefined
 			) {
+				const useProjectObjective = input.workClass === "objective";
 				if (
-					workItem.objectiveId ||
-					(workItem.workClass &&
-						input.workClass &&
-						input.workClass !== workItem.workClass) ||
-					(workItem.purposeExceptionExpiresAt &&
-						input.purposeExceptionExpiresAt &&
-						input.purposeExceptionExpiresAt <
-							workItem.purposeExceptionExpiresAt)
+					!useProjectObjective &&
+					(workItem.objectiveId ||
+						(workItem.workClass &&
+							input.workClass &&
+							input.workClass !== workItem.workClass) ||
+						(workItem.purposeExceptionExpiresAt &&
+							input.purposeExceptionExpiresAt &&
+							input.purposeExceptionExpiresAt <
+								workItem.purposeExceptionExpiresAt))
 				) {
 					throw createError(
 						ErrorCodes.BAD_REQUEST,
 						"Purpose repair cannot replace an objective, change an existing class or shorten its window",
 					);
 				}
+				const project = workItem.projectId
+					? await assertValidWorkItemProject(context.db, {
+							orgId: workItem.orgId,
+							projectId: workItem.projectId,
+						})
+					: null;
+				if (useProjectObjective && !project?.objectiveId)
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						project
+							? "This project's objective must be set before linking this Work item to it"
+							: "This Work item must belong to a project with an objective",
+					);
+				if (useProjectObjective && input.purposeExceptionExpiresAt)
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"An objective link cannot carry an exception expiry",
+					);
+				if (
+					useProjectObjective &&
+					workItem.objectiveId &&
+					workItem.objectiveId !== project?.objectiveId
+				)
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"Purpose repair cannot replace an objective",
+					);
 				const resolved = await resolveWorkItemPurpose(context.db, {
 					orgId: workItem.orgId,
 					now: new Date().toISOString(),
 					workClass: input.workClass ?? workItem.workClass,
-					purposeExceptionExpiresAt:
-						input.purposeExceptionExpiresAt ??
-						workItem.purposeExceptionExpiresAt,
+					purposeExceptionExpiresAt: useProjectObjective
+						? null
+						: (input.purposeExceptionExpiresAt ??
+							workItem.purposeExceptionExpiresAt),
 					parent: workItem.parentWorkItemId
 						? await assertWorkItemAccess(context, workItem.parentWorkItemId)
 						: null,
-					project: workItem.projectId
-						? await assertValidWorkItemProject(context.db, {
-								orgId: workItem.orgId,
-								projectId: workItem.projectId,
-							})
-						: null,
+					project,
 				});
-				if (resolved.objectiveId)
+				if (resolved.objectiveId && !useProjectObjective)
 					throw createError(
 						ErrorCodes.BAD_REQUEST,
 						"Operational repair cannot replace inherited objective context",
@@ -350,9 +376,9 @@ export const updateSpecificationProcedure =
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,
+				objectiveId: purpose.objectiveId,
 				workClass: purpose.workClass ?? undefined,
-				purposeExceptionExpiresAt:
-					purpose.purposeExceptionExpiresAt ?? undefined,
+				purposeExceptionExpiresAt: purpose.purposeExceptionExpiresAt,
 				riskLevel: input.riskLevel,
 				priority: input.priority,
 				accountableOwnerType: input.accountableOwnerType,

@@ -707,12 +707,9 @@ export const workItemsContract = oc
 					title: z.string().min(1).max(500).optional(),
 					description: z.string().max(10000).nullable().optional(),
 					workKind: WorkItemKindSchema.optional(),
-					workClass: z
-						.enum(["maintenance", "incident", "hygiene"])
-						.optional()
-						.describe(
-							"Owner/admin repair of missing operational purpose; existing class cannot change.",
-						),
+					workClass: WorkItemClassSchema.optional().describe(
+						"Owner/admin purpose repair. Choose objective to use the project's objective and clear the exception expiry; other existing classes cannot change.",
+					),
 					purposeExceptionExpiresAt: z.iso
 						.datetime()
 						.optional()

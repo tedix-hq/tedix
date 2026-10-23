@@ -972,8 +972,9 @@ export async function updateWorkItemSpecification(
 		title?: string;
 		description?: string | null;
 		workKind?: WorkItemKind;
+		objectiveId?: string | null;
 		workClass?: WorkItemClass;
-		purposeExceptionExpiresAt?: string;
+		purposeExceptionExpiresAt?: string | null;
 		riskLevel?: WorkItemRiskLevel;
 		priority?: WorkItemPriority;
 		accountableOwnerType?: WorkItemAccountabilityPrincipalType | null;
@@ -1020,6 +1021,7 @@ export async function updateWorkItemSpecification(
 			title: params.title,
 			description: params.description,
 			workKind: params.workKind,
+			objectiveId: params.objectiveId,
 			workClass: params.workClass,
 			purposeExceptionExpiresAt: params.purposeExceptionExpiresAt,
 			riskLevel: params.riskLevel,
