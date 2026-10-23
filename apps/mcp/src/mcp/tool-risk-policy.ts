@@ -1,3 +1,4 @@
+import { reviewedConnectedEffect } from "@tedix/api-contract/utils/approval-policy";
 import {
 	parseToolPolicyMetadata,
 	type ToolBlastRadius,
@@ -37,8 +38,20 @@ export function resolveToolRiskPolicy(
 export function toolApprovalMetadata(
 	tool: Pick<AppTool, "toolId" | "config" | "meta">,
 ): Record<string, unknown> {
-	const policy = resolveToolRiskPolicy(tool);
 	const providerId = connectedProviderId(tool);
+	const effect =
+		tool.config?.transport === "mcp"
+			? reviewedConnectedEffect({
+					providerId,
+					toolName:
+						typeof tool.config.mcpToolName === "string"
+							? tool.config.mcpToolName
+							: undefined,
+				})
+			: undefined;
+	const policy = effect
+		? { riskTier: effect, blastRadius: "single_resource" }
+		: resolveToolRiskPolicy(tool);
 	return {
 		...(policy ? { "com.tedix/policy": policy } : {}),
 		...(providerId &&

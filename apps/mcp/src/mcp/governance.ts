@@ -1,6 +1,8 @@
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
 	builtinToolPolicyMetadata,
+	reviewedConnectedEffect,
 	decideAutonomousAction,
 	humanReservedActionClasses,
 	isSafeNotionPageUpdateCall,
@@ -658,6 +660,61 @@ export interface DestructiveApprovalOptions {
 	autoConfirmAgent?: boolean;
 }
 
+/** Park a user call in the canonical OS queue; approval permits one exact retry. */
+async function ownerToolApproval(
+	agent: ApprovalContext,
+	tool: ApprovalTool,
+	options?: DestructiveApprovalOptions,
+): Promise<CallToolResult | null | undefined> {
+	if (
+		!callerIsUserPrincipalPath(agent) ||
+		!agent.callerIdentity?.userId ||
+		!agent.app?.organizationId ||
+		!agent.apiClient?.mcpGovernance?.requestOwnerToolApproval
+	)
+		return undefined;
+	try {
+		const approvalRequestId =
+			options?.extra?._meta?.["com.tedix/approvalRequestId"];
+		const approval =
+			await agent.apiClient.mcpGovernance.requestOwnerToolApproval({
+				organizationId: agent.app.organizationId,
+				userId: agent.callerIdentity.userId,
+				appSlug: agent.appSlug ?? "",
+				toolId: tool.toolId,
+				target: {
+					transport: tool.config?.transport ?? "rpc",
+					endpoint: tool.config?.endpoint ?? null,
+					mcpToolName: tool.config?.mcpToolName ?? null,
+					providerId: connectedProviderId(tool),
+					configHash: await sha256Hex(JSON.stringify(tool.config ?? {})),
+				},
+				args: JSON.parse(JSON.stringify(options?.args ?? {})),
+				...(typeof approvalRequestId === "string" ? { approvalRequestId } : {}),
+			});
+		if (approval.approved) {
+			emitGovernanceAuditEvent(
+				agent,
+				tool,
+				"destructive_approved",
+				"owner_tool_approval",
+				{ approvalRequestId: approval.approvalRequestId },
+			);
+			return null;
+		}
+		return {
+			...approvalFailure(
+				`Human approval required. Request ${approval.approvalRequestId} (${approval.status}): ${approval.url}. Decide in Tedix OS, then retry the identical call with _meta {"com.tedix/approvalRequestId":"${approval.approvalRequestId}"}. No side effect was executed.`,
+			),
+			_meta: { "com.tedix/approval": approval },
+		};
+	} catch {
+		return approvalFailure(
+			"Owner tool approval is unavailable or does not match this call. No side effect was executed.",
+		);
+	}
+}
+
 export async function requireDestructiveToolApproval(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
@@ -696,25 +753,52 @@ export async function requireDestructiveToolApproval(
 		connectedProviderId(tool) === "notion" &&
 		tool.config.mcpToolName === "notion-update-page" &&
 		isSafeNotionPageUpdateCall(options?.args);
-	const risk = ownSessionEnd
-		? "bounded_write"
-		: sessionEnd ||
-			  (policy?.argumentPolicy === "notion_page_update" &&
-					!boundedNotionUpdate)
-			? "high_impact_write"
-			: policy?.riskTier;
-	if (boundedNotionUpdate || ownSessionEnd)
+	const reviewedEffect =
+		tool.config?.transport === "mcp"
+			? reviewedConnectedEffect({
+					providerId: connectedProviderId(tool),
+					toolName:
+						typeof tool.config.mcpToolName === "string"
+							? tool.config.mcpToolName
+							: undefined,
+					args: options?.args,
+				})
+			: undefined;
+	// The API checks active owner/admin membership, draft state and revision.
+	const certificationStart =
+		callerIsUserPrincipalPath(agent) &&
+		tool.config?.transport === "rpc" &&
+		tool.config.endpoint === "skills/runWorkflow" &&
+		options?.args?.certification === true;
+	const risk =
+		reviewedEffect ??
+		(certificationStart ? "bounded_write" : undefined) ??
+		(ownSessionEnd
+			? "bounded_write"
+			: sessionEnd ||
+				  (policy?.argumentPolicy === "notion_page_update" &&
+						!boundedNotionUpdate)
+				? "high_impact_write"
+				: policy?.riskTier);
+	if (
+		boundedNotionUpdate ||
+		ownSessionEnd ||
+		reviewedEffect ||
+		certificationStart
+	)
 		annotations = {
 			...annotations,
-			readOnlyHint: false,
+			readOnlyHint: reviewedEffect === "read",
 			destructiveHint: false,
 		};
 	const configuredApproval = readApprovalPolicy(agent, tool);
 	const workflowCaller = agent.callerIdentity;
 	const humanBoundary =
 		annotations?.destructiveHint === true ||
-		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`).length >
-			0 ||
+		(!reviewedEffect &&
+			!certificationStart &&
+			humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
+				.length > 0) ||
 		risk === "high_impact_write" ||
 		risk === "external_side_effect";
 	// Only a verified run and its pinned, active revision can approve a declared
@@ -931,7 +1015,10 @@ export async function requireDestructiveToolApproval(
 					: risk
 						? "high"
 						: "unknown",
-		content: `${agent.appSlug ?? ""}:${tool.toolId}`,
+		content:
+			reviewedEffect || certificationStart
+				? "reviewed tool effect"
+				: `${agent.appSlug ?? ""}:${tool.toolId}`,
 	});
 	// Org standing consent covers bounded actions; Work authorization is separate.
 	if (
@@ -976,6 +1063,8 @@ export async function requireDestructiveToolApproval(
 	const grantApproval = await tryResolveApprovalGrant(agent, tool);
 	if (grantApproval) {
 		if (!grantApproval.approved) {
+			const ownerApproval = await ownerToolApproval(agent, tool, options);
+			if (ownerApproval !== undefined) return ownerApproval;
 			emitGovernanceAuditEvent(
 				agent,
 				tool,
@@ -1044,6 +1133,10 @@ export async function requireDestructiveToolApproval(
 		);
 	}
 
+	if (autonomy || humanBoundary || isOwnedChannelBoundary) {
+		const ownerApproval = await ownerToolApproval(agent, tool, options);
+		if (ownerApproval !== undefined) return ownerApproval;
+	}
 	if (autonomy) {
 		const reason = humanBoundary
 			? "critical or destructive action requires human approval"

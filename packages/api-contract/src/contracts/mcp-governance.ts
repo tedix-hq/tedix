@@ -12,6 +12,8 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import {
+	RequestOwnerToolApprovalInputSchema,
+	RequestOwnerToolApprovalResponseSchema,
 	ResolveSkillManifestAuthorizationInputSchema,
 	ResolveSkillManifestAuthorizationResponseSchema,
 	ResolveAgentLifecycleAuthorizationInputSchema,
@@ -28,6 +30,15 @@ export const mcpGovernanceContract = oc
 	.route({ tags: ["mcp-governance"], prefix: "/mcpGovernance" })
 	.errors(baseErrors)
 	.router({
+		requestOwnerToolApproval: oc
+			.route({
+				method: "POST",
+				path: "/request-owner-tool-approval",
+				summary: "Park or consume an exact owner tool approval",
+				tags: ["internal"],
+			})
+			.input(RequestOwnerToolApprovalInputSchema)
+			.output(RequestOwnerToolApprovalResponseSchema),
 		resolveSkillManifestAuthorization: oc
 			.route({
 				method: "POST",

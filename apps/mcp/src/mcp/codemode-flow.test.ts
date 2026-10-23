@@ -190,6 +190,35 @@ const SOURCE =
 	"export default { async run(event, step, env) { return { ok: true }; } };";
 
 describe("flow.run", () => {
+	it("lifts the CLI certification request into owner-only run admission", async () => {
+		const { groups, calls } = makeGroups();
+		await tools(groups).run!.execute({
+			skillId: "skill-1",
+			params: { certification: true },
+		});
+		expect(
+			calls.find((call) => call.callable === "cto.run_skill_workflow")?.args,
+		).toMatchObject({ skillId: "skill-1", certification: true });
+	});
+	it("does not infer certification on ordinary runs", async () => {
+		const { groups, calls } = makeGroups();
+		await tools(groups).run!.execute({ skillId: "skill-1", params: {} });
+		expect(
+			calls.find((call) => call.callable === "cto.run_skill_workflow")?.args,
+		).not.toHaveProperty("certification");
+	});
+	it("refuses malformed certification and source-only certification", async () => {
+		for (const input of [
+			{ skillId: "skill-1", params: { certification: "true" } },
+			{ source: SOURCE, params: { certification: true } },
+		]) {
+			const { groups, calls } = makeGroups();
+			await expect(tools(groups).run!.execute(input)).rejects.toThrow(
+				/certification|Certification/,
+			);
+			expect(calls).toEqual([]);
+		}
+	});
 	it("checks caller runner authorization before recording a source draft", async () => {
 		const { groups, calls } = makeGroups();
 		const provider = buildFlowProvider(groups, (namespace) => {

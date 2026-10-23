@@ -1,3 +1,6 @@
+import { reviewedConnectedEffect } from "@tedix/api-contract/utils/approval-policy";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import { hasScope } from "@tedix/mcp-shared/auth/scopes";
 import { tediToolCeilingDenial } from "../tedi-tool-ceiling";
 import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
@@ -35,7 +38,30 @@ export function resolveCodeModeInnerToolScopes(
 	mcpConfig: Record<string, unknown> | undefined,
 	toolCall?: { arguments: unknown },
 ): string[] {
-	return resolveMcpToolRequiredScopes(tool, namespace, mcpConfig, {
+	const effect =
+		tool.config?.transport === "mcp"
+			? reviewedConnectedEffect({
+					providerId: connectedProviderId(tool),
+					toolName:
+						typeof tool.config.mcpToolName === "string"
+							? tool.config.mcpToolName
+							: undefined,
+					args: isRecord(toolCall?.arguments) ? toolCall.arguments : undefined,
+				})
+			: undefined;
+	const effectTool: ToolAuthShape = effect
+		? {
+				...tool,
+				annotations: {
+					...tool.annotations,
+					destructiveHint: false,
+					readOnlyHint: effect === "read",
+				},
+				writeCapability: effect === "read" ? "read" : "write",
+				config: { ...tool.config, connectionReadOnly: effect === "read" },
+			}
+		: tool;
+	return resolveMcpToolRequiredScopes(effectTool, namespace, mcpConfig, {
 		fallbackOnAuthenticatedAuthMode: true,
 		toolCall,
 	});
