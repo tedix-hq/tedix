@@ -20,6 +20,10 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	decisionSourcesCurrent,
+	DECISION_SOURCE_CHANGED,
+} from "./decision-sources";
 import { recordPersistedCardResolutionEdges } from "../decision-graph-writers";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -709,6 +713,8 @@ export async function recordAutoReplyDelivery(
 			"CONFLICT",
 			"Question was answered before the draft was delivered",
 		);
+	if (!(await decisionSourcesCurrent(db, p.orgId, request)))
+		throw new WorkControlError("CONFLICT", DECISION_SOURCE_CHANGED);
 	const { sessionId, host } = request.metadata;
 	try {
 		const [responses, deliveries] = await db.batch([

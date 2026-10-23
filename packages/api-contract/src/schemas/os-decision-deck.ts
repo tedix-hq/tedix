@@ -16,6 +16,37 @@ export const DecisionKindSchema = z.enum([
 	"adr",
 ]);
 
+/** Versions observed by the author, compared with canonical tenant state on each read. */
+const DecisionSourceSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("work"),
+		id: z.uuid(),
+		version: z.number().int().positive(),
+		commentCount: z.number().int().nonnegative(),
+	}),
+	z.strictObject({
+		kind: z.literal("email_thread"),
+		id: z.string().min(1).max(300),
+		tediId: z.uuid(),
+		updatedAt: z.string().nullable(),
+		lastMessageAt: z.string(),
+		messageCount: z.number().int().nonnegative(),
+	}),
+	z.strictObject({
+		kind: z.literal("output"),
+		id: z.uuid(),
+		revisionId: z.uuid(),
+	}),
+]);
+export type DecisionSource = z.infer<typeof DecisionSourceSchema>;
+export const DecisionSourcesSchema = z
+	.array(DecisionSourceSchema)
+	.min(1)
+	.max(10)
+	.describe(
+		"Versions actually read to establish this card's facts. Rechecked before display and answer. Include every source; a new email, Work comment or document revision requires a new card.",
+	);
+
 /** Display and learning context; never an execution or consent grant. */
 export const DecisionEnvelopeSchema = z.strictObject({
 	version: z.literal(1),
@@ -26,6 +57,7 @@ export const DecisionEnvelopeSchema = z.strictObject({
 	recommendation: z.string().min(1).max(4000),
 	preview: z.strictObject({ body: z.string().min(1).max(40000) }).optional(),
 	reversibility: z.enum(["one_way", "two_way", "unknown"]),
+	sources: DecisionSourcesSchema.optional(),
 	tasteOrStrategy: z.boolean().default(false),
 	protectedEffects: z.array(ProtectedEffectSchema).max(7).default([]),
 	blastRadius: z.string().min(1).max(1000),

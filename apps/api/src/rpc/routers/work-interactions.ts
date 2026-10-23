@@ -10,6 +10,11 @@ import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry
 import { sourceInteractionDeadline } from "@tedix/api-contract/utils/deck-ask";
 import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
 import { bindCardPresentationSource } from "../../services/card-presentation-source";
+import {
+	decisionSourcesCurrent,
+	DECISION_SOURCE_CHANGED,
+} from "@tedix/db/queries/work-items/decision-sources";
+import { refreshDecisionSourceCards } from "../../services/decision-sources";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import {
@@ -619,7 +624,20 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 		};
 	}
 	try {
+		const initialRequest = input.resolvesRequest
+			? await getWorkInteraction(context.db, {
+					orgId,
+					interactionId: input.requestId,
+				})
+			: null;
 		if (input.resolvesRequest) {
+			if (
+				initialRequest &&
+				initialRequest.targetType === responder.type &&
+				initialRequest.targetId === responder.id &&
+				!(await decisionSourcesCurrent(context.db, orgId, initialRequest))
+			)
+				throw createError(ErrorCodes.CONFLICT, DECISION_SOURCE_CHANGED);
 			const change = await latestCardChangeRequest(
 				context.db,
 				orgId,
@@ -643,10 +661,7 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			: input.metadata;
 		let body = input.body;
 		if (input.responseKind === "handoff_accepted" && input.resolvesRequest) {
-			const request = await getWorkInteraction(context.db, {
-				orgId,
-				interactionId: input.requestId,
-			});
+			const request = initialRequest;
 			if (
 				request?.status === "open" &&
 				request.kind === "handoff" &&
@@ -949,7 +964,10 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 				presentations[0]?.presentation,
 			),
 			effectiveState: state,
-			canRespond: isTarget && (state === "open" || correctable),
+			canRespond:
+				isTarget &&
+				(state === "open" || correctable) &&
+				(await decisionSourcesCurrent(context.db, orgId, request)),
 			canCancel: isCreator && state === "open",
 			latestDraft: latestDraft
 				? {
@@ -1075,6 +1093,13 @@ const listInboxProcedure = readOs.listInbox.handler(
 			limit: input.limit,
 			observedAt,
 		});
+		// Keep the database cursor even when every card in this page is withheld.
+		const current = await Promise.all(
+			page.data.map((row) =>
+				decisionSourcesCurrent(context.db, orgId, row.request),
+			),
+		);
+		page.data = page.data.filter((_, index) => current[index]);
 		const [outboundRows, presentations] = await Promise.all([
 			outboundInteractionOverlays(
 				context.db,
@@ -1456,11 +1481,17 @@ export const workInteractionsContractRouter = interactionsOs.router({
 					limit: 50,
 				},
 			);
+			const sources = await refreshDecisionSourceCards(
+				context.db,
+				orgId,
+				actor.id,
+				input.projectId,
+			);
 			return {
 				created: deadlines.created,
-				superseded: support.superseded,
-				scanned: deadlines.scanned + support.scanned,
-				hasMore: deadlines.hasMore || support.hasMore,
+				superseded: support.superseded + sources.superseded,
+				scanned: deadlines.scanned + support.scanned + sources.scanned,
+				hasMore: deadlines.hasMore || support.hasMore || sources.hasMore,
 			};
 		},
 	),

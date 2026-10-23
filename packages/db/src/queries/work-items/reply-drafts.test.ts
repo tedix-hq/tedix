@@ -640,6 +640,79 @@ describe("reply draft leaderboard", () => {
 });
 
 describe("auto reply delivery (migrated D1 triggers)", () => {
+	it("refuses both direct answers and automatic delivery when a cited source changed", async () => {
+		const { sqlite, db } = seed();
+		const outputId = "00000000-0000-4000-8000-000000000001";
+		const revisionId = "00000000-0000-4000-8000-000000000002";
+		sqlite
+			.prepare(
+				"INSERT INTO os_outputs (id,organization_id,kind,title,current_revision_id,created_by_kind,created_by_id) VALUES (?,'org','document','Current resource state',?,'user','user')",
+			)
+			.run(outputId, revisionId);
+		question(sqlite, "q1", {
+			metadata: {
+				...QUIET,
+				decisionSources: [{ kind: "output", id: outputId, revisionId }],
+			},
+		});
+		await insertReplyDraft(db, draft({ delivery: "auto" }));
+		sqlite
+			.prepare("UPDATE os_outputs SET current_revision_id=? WHERE id=?")
+			.run(outputId, outputId);
+		const answer: Parameters<typeof respondToWorkInteraction>[1] = {
+			orgId: "org",
+			interactionId: "q1",
+			id: "answer",
+			expectedVersion: 1,
+			responder: { type: "user", id: "user" },
+			body: "Yes",
+			responseKind: "answer",
+			resolvesRequest: true,
+			now: NOW,
+		};
+		await expect(respondToWorkInteraction(db, answer)).rejects.toThrow(
+			/sources changed/,
+		);
+		await expect(
+			respondToWorkInteraction(db, {
+				...answer,
+				metadata: {
+					decisionEffect: { kind: "record_adr", status: "succeeded" },
+				},
+			}),
+		).rejects.toThrow(/sources changed/);
+		await expect(
+			recordAutoReplyDelivery(db, {
+				orgId: "org",
+				interactionId: "q1",
+				draftId: "draft-1",
+				actor: { type: "user", id: "user" },
+				via: "hook",
+				responseId: "auto-answer",
+				now: NOW,
+			}),
+		).rejects.toThrow(/sources changed/);
+		expect(
+			sqlite.prepare("SELECT status FROM work_interactions WHERE id='q1'").get()
+				?.status,
+		).toBe("open");
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id FROM work_interaction_responses WHERE interaction_id='q1'",
+				)
+				.all(),
+		).toEqual([]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT response_id FROM work_interaction_deliveries WHERE interaction_id='q1'",
+				)
+				.all(),
+		).toEqual([]);
+		sqlite.close();
+	});
+
 	const SESSION = "11111111-1111-4111-8111-111111111111";
 	const row = (sqlite: DatabaseSync, id: string) =>
 		sqlite
