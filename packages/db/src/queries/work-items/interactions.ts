@@ -246,7 +246,7 @@ function repositoryCiScope(p: RepositoryCiAlertParams) {
 		AND json_extract(w.metadata, '$.event.surface')=${p.surface}`;
 }
 
-const ciAlertReasons = sql`('Failing checks need a decision after diagnosis', 'Workflow is still failing.')`;
+const ciAlertReason = "Failing checks need a decision after diagnosis";
 
 export async function createRepositoryCiAlert(
 	db: DbQueryClient,
@@ -271,11 +271,7 @@ export async function createRepositoryCiAlert(
 		deadline && Date.parse(deadline) - Date.parse(p.now) < 86_400_000,
 	);
 	const metadata = JSON.stringify({
-		reason: "Failing checks need a decision after diagnosis",
-		latestSha: p.sha,
-		failedShas: [p.sha],
-		latestOccurredAt: p.occurredAt ?? p.now,
-		failureCount: 1,
+		reason: ciAlertReason,
 		notification: {
 			state: urgent ? "immediate" : "deferred",
 			reason: urgent ? "deadline_under_24h" : "quiet_batch",
@@ -288,7 +284,7 @@ export async function createRepositoryCiAlert(
 		WHERE EXISTS (SELECT 1 FROM work_items w WHERE ${repositoryCiScope(p)} AND w.id=${p.workItemId} AND w.disposition IN ('proposed','accepted') AND json_extract(w.metadata, '$.ciRecoveredAt') IS NULL)
 		AND NOT EXISTS (SELECT 1 FROM work_interactions a JOIN work_items w ON w.org_id=a.org_id AND w.id=a.work_item_id
 			WHERE ${repositoryCiScope(p)} AND a.status='open' AND a.kind='coordination'
-			AND json_extract(a.metadata, '$.reason') IN ${ciAlertReasons})
+			AND json_extract(a.metadata, '$.reason')=${ciAlertReason})
 		ON CONFLICT DO NOTHING`);
 	const created = await getWorkInteraction(db, {
 		orgId: p.orgId,
@@ -297,37 +293,42 @@ export async function createRepositoryCiAlert(
 	if (created) await recordCardCreationEdges(db, created, work);
 }
 
+/**
+ * Keep the one open CI alert of a repository, branch and surface current.
+ *
+ * Only writes the deployed `work_interaction_*_guard` triggers accept: an open
+ * request's subject and metadata (bar `notification`/`followThrough`) are
+ * immutable, and a status change may not edit metadata. The red period's SHAs
+ * and failure count therefore stay on the CI observations (`work_items`).
+ * - red: restarts the coordination expiry window by stamping
+ *   `metadata.notification.refreshedAt`; status and version stay unchanged;
+ * - green: cancels the alert without touching its metadata.
+ * Returns the alerts in scope it updated.
+ */
 export async function refreshRepositoryCiAlerts(
 	db: DbQueryClient,
 	p: RepositoryCiAlertParams & { green: boolean },
 ) {
-	const failedShas = sql`coalesce(json_extract(${workInteractions.metadata}, '$.failedShas'), json_array((SELECT json_extract(w.metadata, '$.event.sha') FROM work_items w WHERE w.org_id=${p.orgId} AND w.id=${workInteractions.workItemId})))`;
 	return db
 		.update(workInteractions)
-		.set({
-			subject: `${p.green ? "Green" : "Red"} CI ${p.surface} ${p.sha.slice(0, 9)}`,
-			...(p.green
+		.set(
+			p.green
 				? {
 						status: "cancelled" as const,
 						cancelledAt: p.now,
 						resolutionFence: crypto.randomUUID(),
+						version: sql`${workInteractions.version}+1`,
 					}
-				: {}),
-			metadata: sql`json_set(${workInteractions.metadata}, '$.latestSha', ${p.sha}, '$.latestOccurredAt', ${p.occurredAt ?? p.now}, '$.failedShas', json(${p.green ? failedShas : sql`json_insert(${failedShas}, '$[#]', ${p.sha})`}), '$.failureCount', coalesce(json_extract(${workInteractions.metadata}, '$.failureCount'), 1) + ${p.green ? 0 : 1}, '$.reason', ${p.green ? "Workflow passed; CI alert closed." : "Workflow is still failing."}, '$.refreshedAt', ${p.now})`,
-			version: sql`${workInteractions.version}+1`,
-		})
+				: {
+						metadata: sql`json_set(${workInteractions.metadata}, '$.notification.refreshedAt', ${p.now})`,
+					},
+		)
 		.where(
 			and(
 				eq(workInteractions.orgId, p.orgId),
 				eq(workInteractions.kind, "coordination"),
 				eq(workInteractions.status, "open"),
-				sql`json_extract(${workInteractions.metadata}, '$.reason') IN ${ciAlertReasons}`,
-				...(p.green
-					? []
-					: [
-							sql`NOT EXISTS (SELECT 1 FROM json_each(${failedShas}) seen WHERE seen.value=${p.sha})
-					AND julianday(${p.occurredAt ?? p.now}) >= julianday(coalesce(json_extract(${workInteractions.metadata}, '$.latestOccurredAt'), (SELECT coalesce(json_extract(w.metadata, '$.event.occurredAt'), w.created_at) FROM work_items w WHERE w.org_id=${p.orgId} AND w.id=${workInteractions.workItemId})))`,
-						]),
+				sql`json_extract(${workInteractions.metadata}, '$.reason')=${ciAlertReason}`,
 				eq(workInteractions.creatorType, "tedi"),
 				eq(workInteractions.creatorId, p.ownerTediId),
 				eq(workInteractions.targetType, "user"),
@@ -1092,7 +1093,8 @@ function staleLaneReminder(now: string) {
  * Retire obsolete requests without answering in the recipient's name:
  * - any request whose `expiresAt` passed;
  * - a status/FYI (`coordination`) request to a person that nobody refreshed
- *   (`metadata.refreshedAt`, else creation) within the organization's
+ *   (`metadata.notification.refreshedAt` or `metadata.refreshedAt`, else
+ *   creation) within the organization's
  *   `coordinationTtlHours` (default 24 h);
  * - a question, input or handoff request whose Work is completed or cancelled;
  * - unanswered legacy proposals after fourteen days, and decision captures
@@ -1110,7 +1112,7 @@ export async function sweepObsoleteWorkInteractions(
 		Date.parse(p.now) - 14 * 86_400_000,
 	).toISOString();
 	const passedExpiry = sql`(${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now})`;
-	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(coalesce(json_extract(${workInteractions.metadata},'$.refreshedAt'), ${workInteractions.createdAt})) <= julianday(${p.now}) - ${coordinationTtlHoursSql()} / 24.0)`;
+	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(coalesce(json_extract(${workInteractions.metadata},'$.notification.refreshedAt'), json_extract(${workInteractions.metadata},'$.refreshedAt'), ${workInteractions.createdAt})) <= julianday(${p.now}) - ${coordinationTtlHoursSql()} / 24.0)`;
 	const terminalWork = sql`(${workInteractions.kind} IN ('question','input','handoff') AND EXISTS (
 			SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId} AND ${workItems.disposition} IN ('completed','cancelled')
 		))`;
