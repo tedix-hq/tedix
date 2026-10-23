@@ -5296,7 +5296,10 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"workItems/listEvidence": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvents": () => ({ events: [], nextSequence: null }),
 	"projects/list": (input: Pagination | undefined) => paginate(PROJECTS, input),
-	"projects/get": (input: { id: string }) => localProject(input.id),
+	"projects/get": (input: { id: string }) => ({
+		...localProject(input.id),
+		objective: null,
+	}),
 	"projects/getRollup": (input: { id: string }) => {
 		const items = workItemsInScope(localProject(input.id).id);
 		const done = items.filter((row) => row.disposition === "completed").length;

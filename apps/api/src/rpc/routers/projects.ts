@@ -265,7 +265,21 @@ const listProcedure = authOs.list
 const getProcedure = authOs.get
 	.use(AUTHZ.objectiveRead)
 	.handler(async ({ input, context }) => {
-		return assertProjectAccess(context, input.id);
+		const project = await assertProjectAccess(context, input.id);
+		const objective = project.objectiveId
+			? await getObjectiveById(context.db, project.objectiveId)
+			: undefined;
+		return {
+			...project,
+			objective:
+				objective?.orgId === project.orgId
+					? {
+							id: objective.id,
+							title: objective.title,
+							priority: objective.priority,
+						}
+					: null,
+		};
 	});
 
 const getRollupProcedure = authOs.getRollup
