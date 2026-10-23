@@ -162,6 +162,13 @@ export const tediRuntimeEvents = sqliteTable(
 		// retention scan could not seek on it. Mirrors the analytics tables'
 		// idx_*_created retention indexes.
 		index("idx_tedi_runtime_events_created").on(table.createdAt),
+		// The orphan-run sweep seeks `run.started` rows in a time window across
+		// every tedi; over idx_tedi_runtime_events_created it read seven days of
+		// all event kinds (127k rows per 2-minute tick on 23 Oct 2026).
+		index("idx_tedi_runtime_events_global_kind_created").on(
+			table.kind,
+			table.createdAt,
+		),
 		index("idx_tedi_runtime_events_tedi_created").on(
 			table.tediId,
 			table.createdAt,
@@ -411,6 +418,12 @@ export const kernelRuntimeRuns = sqliteTable(
 		index("idx_kernel_runtime_runs_org_output_revision").on(
 			table.organizationId,
 			table.outputRevisionId,
+		),
+		// Newest runs of a tenant (parent lookup for a terminal child event)
+		// without sorting every run of the tenant.
+		index("idx_kernel_runtime_runs_org_updated").on(
+			table.organizationId,
+			table.updatedAt,
 		),
 	],
 );

@@ -260,6 +260,16 @@ export const memoryFacts = sqliteTable(
 			table.organizationId,
 			table.updatedAt,
 		),
+		// Personal card-style rules: private, confirmed, instruction-grade facts
+		// newest first. Over (organization_id, updated_at) the read walked every
+		// fact of the tenant (64k rows, ~2 s per call on 23 Oct 2026).
+		index("idx_memory_facts_visibility_policy_updated").on(
+			table.organizationId,
+			table.visibility,
+			table.reviewStatus,
+			table.usePolicy,
+			table.updatedAt,
+		),
 		index("idx_memory_facts_use_policy").on(table.usePolicy),
 		index("idx_memory_facts_review_status").on(table.reviewStatus),
 		index("memory_facts_tedi_domain_idx").on(table.tediId, table.domainId),

@@ -1136,6 +1136,10 @@
 		{
 			"name": "20261022211059_drizzle_rc5_snapshot_compatibility/migration.sql",
 			"sha256": "ef6d242e5848a2aac3b453adb2566234e3f17a13c4098ef9d796e46e85033239"
+		},
+		{
+			"name": "20261023124403_d1_hot_query_indexes/migration.sql",
+			"sha256": "90d325056cd024f1b41678e5c28d3f8560538fea2bb3b2ea8a986ca5aeb76ca2"
 		}
 	]
 }
