@@ -28,6 +28,7 @@ import {
 async function recalcUnreadCount(
 	db: DbClient,
 	threadId: string,
+	scope: { tediId: string; organizationId: string },
 ): Promise<number> {
 	const rows = await db
 		.select({ count: sql<number>`count(*)` })
@@ -35,6 +36,8 @@ async function recalcUnreadCount(
 		.where(
 			and(
 				eq(tediEmailMessages.threadId, threadId),
+				eq(tediEmailMessages.tediId, scope.tediId),
+				eq(tediEmailMessages.organizationId, scope.organizationId),
 				eq(tediEmailMessages.direction, "inbound"),
 				isNull(tediEmailMessages.readAt),
 			),
@@ -46,7 +49,13 @@ async function recalcUnreadCount(
 			unreadCount,
 			updatedAt: sql`(CURRENT_TIMESTAMP)`,
 		})
-		.where(eq(tediEmailThreads.id, threadId));
+		.where(
+			and(
+				eq(tediEmailThreads.id, threadId),
+				eq(tediEmailThreads.tediId, scope.tediId),
+				eq(tediEmailThreads.organizationId, scope.organizationId),
+			),
+		);
 	return unreadCount;
 }
 
@@ -233,16 +242,32 @@ export async function markTediEmail(
 		spam?: boolean;
 	},
 ): Promise<{ ok: true; threadId: string; unreadCount: number }> {
-	const targetThreadId =
-		input.threadId ??
-		(
-			await getTediEmailMessage(db, {
-				messageId: input.messageId!,
+	const message = input.messageId
+		? await getTediEmailMessage(db, {
+				messageId: input.messageId,
 				tediId: input.tediId,
 				organizationId: input.organizationId,
 			})
-		)?.threadId;
-	if (!targetThreadId) {
+		: null;
+	const targetThreadId = input.threadId ?? message?.threadId;
+	if (
+		!targetThreadId ||
+		(input.messageId && (!message || message.threadId !== targetThreadId))
+	) {
+		throw new Error("Email message or thread not found");
+	}
+	const [thread] = await db
+		.select({ id: tediEmailThreads.id })
+		.from(tediEmailThreads)
+		.where(
+			and(
+				eq(tediEmailThreads.id, targetThreadId),
+				eq(tediEmailThreads.tediId, input.tediId),
+				eq(tediEmailThreads.organizationId, input.organizationId),
+			),
+		)
+		.limit(1);
+	if (!thread) {
 		throw new Error("Email message or thread not found");
 	}
 
@@ -263,6 +288,7 @@ export async function markTediEmail(
 			.where(
 				and(
 					eq(tediEmailMessages.id, input.messageId),
+					eq(tediEmailMessages.threadId, targetThreadId),
 					eq(tediEmailMessages.tediId, input.tediId),
 					eq(tediEmailMessages.organizationId, input.organizationId),
 				),
@@ -301,7 +327,7 @@ export async function markTediEmail(
 			);
 	}
 
-	const unreadCount = await recalcUnreadCount(db, targetThreadId);
+	const unreadCount = await recalcUnreadCount(db, targetThreadId, input);
 	await recordTediEmailEvent(db, {
 		tediId: input.tediId,
 		organizationId: input.organizationId,
