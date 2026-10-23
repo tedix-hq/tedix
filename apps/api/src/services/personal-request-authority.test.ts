@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	home: vi.fn(),
 	submission: vi.fn(),
 	tool: vi.fn(),
+	app: vi.fn(),
 	instance: vi.fn(),
 	token: vi.fn(),
 	defaultToken: vi.fn(),
@@ -29,6 +30,10 @@ vi.mock("@tedix/db/queries/runtime-submissions/read-models", () => ({
 }));
 vi.mock("@tedix/db/queries/tools", () => ({
 	getToolByAppAndToolIdForOrganization: mocks.tool,
+}));
+vi.mock("@tedix/db/queries/app-records", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/app-records")>()),
+	getAppByIdForOrganization: mocks.app,
 }));
 vi.mock("@tedix/db/queries/connection-instances", () => ({
 	getConnectionInstance: mocks.instance,
@@ -84,6 +89,7 @@ function consent(tediId: string | null = null) {
 }
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.app.mockResolvedValue(undefined);
 	mocks.consent.mockResolvedValue(consent());
 	mocks.home.mockResolvedValue({
 		status: "running",
@@ -111,6 +117,74 @@ beforeEach(() => {
 	mocks.instance.mockResolvedValue(undefined);
 });
 describe("request-bound personal reads", () => {
+	it("resolves an inherited reviewed read through its existing same-org proxy link", async () => {
+		mocks.app.mockResolvedValue({
+			sourceAppId: "gmail-base",
+			metadata: { mcpConfig: { aggregateApps: [{ appId: "gmail-base" }] } },
+		});
+		mocks.tool.mockResolvedValueOnce(undefined);
+		expect(
+			await resolveRequestPersonalCredential(context(), input),
+		).toHaveProperty("accessToken");
+		expect(mocks.tool).toHaveBeenLastCalledWith(expect.anything(), {
+			organizationId: "org-1",
+			appId: "gmail-base",
+			toolId: "search_threads",
+		});
+	});
+
+	it.each([
+		undefined,
+		{
+			sourceAppId: "gmail-base",
+			metadata: { mcpConfig: { aggregateApps: [{ appId: "different" }] } },
+		},
+		{
+			sourceAppId: "gmail-base",
+			metadata: {
+				mcpConfig: { aggregateApps: [{ appId: "gmail-base", toolIds: [] }] },
+			},
+		},
+		{
+			sourceAppId: "gmail-base",
+			metadata: {
+				mcpConfig: {
+					aggregateApps: [{ appId: "gmail-base", endpointPrefixes: [] }],
+				},
+			},
+		},
+	])(
+		"does not infer an inherited tool outside an unrestricted canonical link",
+		async (app) => {
+			mocks.app.mockResolvedValue(app);
+			mocks.tool.mockResolvedValueOnce(undefined);
+			await expect(
+				resolveRequestPersonalCredential(context(), input),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(mocks.tool).toHaveBeenCalledTimes(1);
+			expect(mocks.token).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([
+		undefined,
+		{ enabled: false },
+		{ enabled: true, config: { mcpToolName: "send_email" } },
+	])(
+		"does not authorize a missing, disabled or write tool inherited from a proxy",
+		async (tool) => {
+			mocks.app.mockResolvedValue({
+				sourceAppId: "gmail-base",
+				metadata: { mcpConfig: { aggregateApps: [{ appId: "gmail-base" }] } },
+			});
+			mocks.tool.mockResolvedValueOnce(undefined).mockResolvedValueOnce(tool);
+			await expect(
+				resolveRequestPersonalCredential(context(), input),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(mocks.token).not.toHaveBeenCalled();
+		},
+	);
+
 	it("admits only the authenticated requester, with a fixed expiry and immutable id", async () => {
 		const ctx = userContext({ userId: "canonical" });
 		ctx.descopeUserId = "requester";
