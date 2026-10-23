@@ -269,6 +269,64 @@ assert.deepEqual(
 	originalEvidence,
 	"replay preserves attempt and timing evidence",
 );
+
+// Large generated media crosses the artifact bridge only after the native
+// step has completed. Bridge RPCs carrying the base64 payload can otherwise
+// deadlock the durable step that produced it.
+let insideNativeStep = false;
+const mediaWrites: Array<Record<string, unknown>> = [];
+const mediaArtifacts = new Map<string, unknown>();
+const mediaEnv = {
+	__ARTIFACT_BRIDGE__: {
+		record: async ({ path, value }: { path: string; value: unknown }) => {
+			mediaArtifacts.set(path, structuredClone(value));
+		},
+		writeBlob: async (payload: Record<string, unknown>) => {
+			assert.equal(insideNativeStep, false);
+			mediaWrites.push(structuredClone(payload));
+			return { ok: true };
+		},
+	},
+};
+const mediaNative = {
+	do: async (_name: string, fn: (context: unknown) => Promise<unknown>) => {
+		insideNativeStep = true;
+		const value = await fn({
+			step: { name: "generate-image", count: 1 },
+			attempt: 1,
+			config: {},
+		});
+		insideNativeStep = false;
+		return value;
+	},
+};
+const mediaStep = runtime.wrapStep(
+	mediaNative,
+	mediaEnv,
+	runtime.makeTimeline(),
+	runContext,
+);
+const mediaResult = {
+	ok: true,
+	mimeType: "image/png",
+	imageBase64: "aGVsbG8=",
+	bytes: 5,
+};
+assert.deepEqual(
+	await mediaStep.do("generate-image", async () => mediaResult),
+	mediaResult,
+);
+assert.deepEqual(mediaWrites, [
+	{
+		path: "outputs/x:generate-image.media",
+		base64: "aGVsbG8=",
+		mimeType: "image/png",
+	},
+]);
+assert.doesNotMatch(
+	JSON.stringify(mediaArtifacts.get("outputs/x:generate-image.json")),
+	/aGVsbG8=/,
+);
 rejectOutputOnce = true;
 const failingEvidenceStep = runtime.wrapStep(
 	replayNative,

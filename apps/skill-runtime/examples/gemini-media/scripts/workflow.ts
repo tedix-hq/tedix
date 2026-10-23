@@ -12,16 +12,10 @@
  * code never sees the key, and the key never lands in the persisted Workflow
  * payload.
  *
- * STORAGE NOTE: the raw image bytes are returned (base64) as the
- * `generate-image` step value, which the dispatch shim auto-persists outside
- * the durable step as artifact `outputs/generate-image.json`. We deliberately
- * do not call a bridge write (env.artifacts.writeBlob) from inside `step.do` —
- * a large-payload bridge RPC inside a Workflow step stalls the step (verified:
- * a run sat in `running` past the 120s step timeout). The proper raw-bytes path
- * is a shim post-step hook (TODO), where large bridge writes are proven safe.
- * The run() summary stays light (no base64). Consumers read the bytes via
- * get_skill_run_artifact({ runId, path: "outputs/generate-image.json" }) →
- * .value.imageBase64 (base64-decode to the PNG).
+ * STORAGE NOTE: the image is returned as base64 from `generate-image`. After
+ * the durable step resolves, the dispatch shim decodes and stores the raw
+ * bytes as `outputs/generate-image.media`. No large bridge RPC runs inside the
+ * step, and the run summary stays light.
  *
  * params: { prompt?: string, model?: string }
  */
@@ -53,8 +47,8 @@ export default {
 			};
 		});
 
-		// Step 2 — image generation. Returns the base64 PNG as the step value;
-		// the shim persists it to outputs/generate-image.json (R2 spill).
+		// Step 2 — image generation. The shim persists its raw media after this
+		// durable step resolves.
 		const image = await step.do(
 			"generate-image",
 			{ timeout: "120 seconds" },
@@ -91,8 +85,7 @@ export default {
 			},
 		);
 
-		// Light reference-only summary (no base64). The image lives in the
-		// generate-image artifact; consumers fetch + decode it by runId.
+		// Light reference-only summary (no base64).
 		return {
 			endpoint: "vertex-express",
 			model,
@@ -106,7 +99,7 @@ export default {
 						ok: true,
 						mimeType: image.mimeType,
 						bytes: image.bytes,
-						artifactPath: "outputs/generate-image.json",
+						artifactPath: "outputs/generate-image.media",
 					}
 				: { ok: false, status: image.status, error: image.error },
 		};

@@ -43,12 +43,11 @@ Azure keys.
 
 ## Output
 
-- `credentialInjection` — `verified` when the `GET /models` probe returns 200,
+- `credentialInjection` — `verified` when the text probe returns 200,
   proving the platform key reached Gemini.
-- `image` — `{ ok, status, bytes }`. On success, the base64 image is the
-  return value of the `generate-image` step and is persisted as run artifact
-  `outputs/generate-image.json` (spilled to R2 when larger than 16 KiB). Read
-  it with `get_skill_run_artifact`.
+- `image` — `{ ok, status, bytes, artifactPath }`. On success, the raw image is
+  persisted after the durable generation step as run artifact
+  `outputs/generate-image.media`.
 
 > Paid models (image/video previews) require a funded Gemini billing balance.
 > If the project's prepay credits are exhausted, the `generate-image` step
@@ -63,7 +62,7 @@ a clickable thumbnail; the browser's session cookie authorizes it, so it
 survives transcript scrollback — unlike a short-lived signed URL):
 
 ```
-![image](/skill-runs/{runId}/media/outputs/generate-image.json?kind=image)
+![image](/skill-runs/{runId}/media/outputs/generate-image.media?kind=image)
 ```
 
 Use the `runId` returned by `run_skill_workflow`. Multiple `![image](...)` lines

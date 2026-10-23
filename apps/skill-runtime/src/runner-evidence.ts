@@ -19,6 +19,36 @@ function persistArtifactOnce(env, payload) {
   );
 }
 
+function stepMediaArtifact(value, encodedStepName) {
+  if (!value || typeof value !== "object") return null;
+  const base64 = typeof value.imageBase64 === "string"
+    ? value.imageBase64
+    : typeof value.bytesBase64Encoded === "string"
+      ? value.bytesBase64Encoded
+      : null;
+  const mimeType = typeof value.mimeType === "string" ? value.mimeType : null;
+  if (!base64 || !mimeType || !matchWorkflowString(mimeType, /^(?:audio|image|video)\\//)) return null;
+  return { path: "outputs/" + encodedStepName + ".media", base64, mimeType };
+}
+
+function mediaOutputEvidence(value, media) {
+  if (!media) return value;
+  return {
+    ok: value.ok,
+    status: value.status,
+    mimeType: media.mimeType,
+    bytes: value.bytes,
+    artifactPath: media.path,
+  };
+}
+
+async function persistStepMediaArtifact(env, media) {
+  if (!env.__ARTIFACT_BRIDGE__ || typeof env.__ARTIFACT_BRIDGE__.writeBlob !== "function") {
+    throw createWorkflowError("ARTIFACT_MEDIA_STORE_UNAVAILABLE: cannot preserve generated media");
+  }
+  await observeRpcCall(env.__ARTIFACT_BRIDGE__.writeBlob(media), "artifact.writeBlob:" + media.path);
+}
+
 // Reconnect admission reads this receipt; unlike display evidence it must be
 // durably stored before a native wait or continuation can begin.
 async function persistConnectionControl(env, payload) {
