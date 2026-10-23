@@ -156,7 +156,7 @@
 		"vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
 		"vite-plus": "1.4.0",
 		"vitest": "5.0.5",
-		"cf": "1.0.0-beta.20",
+		"cf": "1.0.0-beta.21",
 		"@cloudflare/config": "0.28.0",
 		"wrangler": "4.152.0",
 		"zod": "^4.6.7",
