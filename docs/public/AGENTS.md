@@ -62,7 +62,9 @@ make it pass. Report exactly what ran, and keep passing tests, a recorded
 outcome, and a deployment distinct.
 
 Before committing, run `bun run format <changed files>`; unformatted files are
-the most common pre-push failure. Push with `bun run push`, not `git push`: it
+the most common pre-push failure. Claim the Work Item before you edit
+(`tedix work start <id>`), and end every commit with `Work-Item: <uuid>`; the
+pre-push gate rejects a push to main with a commit that lacks it. Push with `bun run push`, not `git push`: it
 queues behind other sessions on this machine, rebases onto `origin/main`, runs
 the normal pre-push gates, and retries if main moved elsewhere.
 
