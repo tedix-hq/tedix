@@ -1,5 +1,4 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { cn } from "@/components/kumo/cn";
 import { Link } from "@/components/kumo/link";
 import { canAccessAdminSection } from "@/components/admin-layout";
 import { OS_SETTINGS_NAVIGATION } from "@/lib/os-navigation";
@@ -63,13 +62,7 @@ export function OsSettingsFrame({
 					const isActive =
 						pathname === item.path || (item.path === "/compute" && usageActive);
 					return (
-						<div
-							key={item.path}
-							className={cn(
-								"flex shrink-0 flex-col",
-								item.path === "/account/connections" && "md:hidden",
-							)}
-						>
+						<div key={item.path} className="flex shrink-0 flex-col">
 							<Link
 								href={item.path}
 								data-settings-active={isActive ? "" : undefined}

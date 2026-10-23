@@ -19,14 +19,12 @@ try {
 			'[aria-label="Settings sections"] a[href="/account/connections"]',
 		);
 		await accounts.waitFor({ state: "attached" });
-		assert.equal(await accounts.isVisible(), width < 768);
+		assert.equal(await accounts.isVisible(), true);
 		const capabilityRail = page.locator("[data-capability-nav]");
 		await capabilityRail.waitFor({ state: "attached" });
 		assert.equal(await capabilityRail.isVisible(), width >= 768);
-		if (width < 768) {
-			await accounts.click();
-			await page.waitForURL((url) => url.pathname === "/account/connections");
-		}
+		await accounts.click();
+		await page.waitForURL((url) => url.pathname === "/account/connections");
 		await page.close();
 	}
 	for (const width of mobileSafari ? [390] : [1280, 390]) {

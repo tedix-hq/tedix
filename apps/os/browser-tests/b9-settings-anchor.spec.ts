@@ -420,6 +420,33 @@ try {
 								name: "Settings sections",
 								exact: true,
 							});
+							await settings.waitFor();
+							const accounts = settings.getByRole("link", {
+								name: "My accounts",
+								exact: true,
+							});
+							assert(
+								await accounts.isVisible(),
+								"My accounts must stay visible",
+							);
+							await accounts.click();
+							await page.waitForURL(
+								(url) => url.pathname === "/account/connections",
+							);
+							await page
+								.getByRole("heading", {
+									name: "My accounts",
+									level: 1,
+									exact: true,
+								})
+								.waitFor();
+							await page.screenshot({
+								path: `${evidence}/${name}-my-accounts.png`,
+							});
+							await page.goBack();
+							await page.waitForURL(
+								(url) => url.pathname === "/admin/organization",
+							);
 							await settings
 								.getByRole("link", { name: "Activity log", exact: true })
 								.click();
