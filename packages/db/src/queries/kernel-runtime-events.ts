@@ -18,9 +18,9 @@ import {
 	readLogStores,
 } from "../utils/log-store";
 import {
-	tediRuntimeEventColumns,
-	tediRuntimeEventsRunSource,
-} from "../utils/tedi-runtime-event-source";
+	unindexedKindIn,
+	unindexedOrganizationId,
+} from "../utils/tedi-runtime-event-predicates";
 
 /** D1 caps bound parameters at 100 per statement; keep IN() lists ≤50. */
 const D1_IN_LIST_CHUNK = 50;
@@ -222,32 +222,32 @@ export async function listTediRuntimeEvents(
 	const order =
 		input.order === "asc" ? asc : input.order === "desc" ? desc : null;
 	const runQuery = (
-		runIds: string[] | undefined,
+		runId: string | undefined,
 		limit: number | undefined,
 		offset: number | undefined,
 	) => {
+		const runScoped = Boolean(runId) && !input.runIdPrefix;
 		const conditions = [
 			...(input.organizationId
-				? [eq(tediRuntimeEvents.organizationId, input.organizationId)]
+				? [unindexedOrganizationId(input.organizationId)]
 				: []),
 			eq(tediRuntimeEvents.tediId, input.tediId),
-			...(input.runId ? [eq(tediRuntimeEvents.runId, input.runId)] : []),
-			// bound-params: chunked to ≤D1_IN_LIST_CHUNK ids by the caller below
-			...(runIds ? [inArray(tediRuntimeEvents.runId, runIds)] : []),
+			...(runId ? [eq(tediRuntimeEvents.runId, runId)] : []),
 			...(input.runIdPrefix
 				? [like(tediRuntimeEvents.runId, `${input.runIdPrefix}%`)]
 				: []),
-			// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
-			...(input.kinds ? [inArray(tediRuntimeEvents.kind, input.kinds)] : []),
+			...(input.kinds
+				? [
+						runScoped
+							? unindexedKindIn(input.kinds)
+							: // bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
+								inArray(tediRuntimeEvents.kind, input.kinds),
+					]
+				: []),
 		];
-		const runScoped = Boolean(input.runId || runIds) && !input.runIdPrefix;
 		const base = db
-			.select(tediRuntimeEventColumns())
-			.from(
-				runScoped
-					? tediRuntimeEventsRunSource({ byKind: Boolean(input.kinds) })
-					: tediRuntimeEvents,
-			)
+			.select()
+			.from(tediRuntimeEvents)
 			.where(and(...conditions));
 		const query = order
 			? base.orderBy(
@@ -262,19 +262,20 @@ export async function listTediRuntimeEvents(
 	};
 
 	const uniqueRunIds = input.runIds ? [...new Set(input.runIds)] : undefined;
-	if (!uniqueRunIds || uniqueRunIds.length <= D1_IN_LIST_CHUNK) {
-		return runQuery(uniqueRunIds, input.limit, input.offset);
-	}
+	if (!uniqueRunIds) return runQuery(input.runId, input.limit, input.offset);
+	if (uniqueRunIds.length === 1)
+		return runQuery(uniqueRunIds[0], input.limit, input.offset);
 
-	// Chunked path: D1 caps bound parameters at 100 per statement, so a large
-	// run-id list is issued in chunks. Ordering, offset, and limit then apply
-	// to the MERGED set — each chunk over-fetches (limit + offset) rows and the
-	// single-statement contract is re-established here in memory.
-	const perChunkLimit =
+	// One statement per run id: a `run_id IN (...)` list multiplies the run
+	// index estimate under production statistics and sends the planner to the
+	// tedi-only index (every event of the tedi). Ordering, offset, and limit
+	// apply to the MERGED set — each statement over-fetches (limit + offset)
+	// rows and the single-statement contract is re-established in memory.
+	const perRunLimit =
 		input.limit !== undefined ? input.limit + (input.offset ?? 0) : undefined;
 	const rows: TediRuntimeEventRow[] = [];
-	for (const chunk of chunkForBoundParams(uniqueRunIds, D1_IN_LIST_CHUNK)) {
-		rows.push(...(await runQuery(chunk, perChunkLimit, undefined)));
+	for (const runId of uniqueRunIds) {
+		rows.push(...(await runQuery(runId, perRunLimit, undefined)));
 	}
 	if (order) {
 		const direction = input.order === "desc" ? -1 : 1;
