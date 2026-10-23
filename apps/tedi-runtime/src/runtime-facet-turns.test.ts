@@ -88,3 +88,19 @@ assert.equal(
 	1,
 	"personal request must not use the scheduled MCP client",
 );
+
+const personalReadGuidance = /google_gmail_tedix\.search_threads/;
+for (const request of [
+	{ personalRequest: true },
+	{ homeRunId: "home-1", workItemId: "work-1" },
+]) {
+	const turn = await agent.prepareMcpFacetTurn({
+		...MCP_FACET_TURN_INPUT,
+		...request,
+	});
+	assert.match(turn.system, personalReadGuidance);
+	assert.match(turn.system, /google_calendar_tedix\.list_events/);
+	assert.match(turn.system, /gateway verifies the requester and account owner/);
+}
+const background = await agent.prepareMcpFacetTurn(MCP_FACET_TURN_INPUT);
+assert.doesNotMatch(background.system, personalReadGuidance);

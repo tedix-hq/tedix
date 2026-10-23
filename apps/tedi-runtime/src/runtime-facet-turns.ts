@@ -136,6 +136,7 @@ import {
 import { markFacetToolDispatch } from "./runtime-latency-markers";
 import {
 	type RepositoryMode,
+	PERSONAL_REQUEST_READ_GUIDANCE,
 	selectRepositoryToolSurface,
 	workspaceToolGuidance,
 } from "./runtime-tool-guidance";
@@ -1156,6 +1157,7 @@ export const runtimeFacetTurns = {
 				mcpRuntime?.getSystemInstructions({ includeGuidance: !supervised }) ??
 					"",
 				toolsNote,
+				isolatedRequest ? PERSONAL_REQUEST_READ_GUIDANCE : "",
 				CODE_MODE_BATCHING_NOTE,
 				trust === "untrusted" ? untrustedTurnSystemAddendum("mcp") : "",
 			],
