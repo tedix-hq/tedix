@@ -307,9 +307,12 @@ export async function readHomeRunEvents(
 	signal?: AbortSignal,
 ): Promise<HomeRunEventsPage> {
 	const offset = input.offset ?? HOME_RUN_EVENTS_START;
-	const parsedOffset = Number.parseInt(offset, 10);
-	const start =
-		Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
+	const start = Number(offset);
+	if (!/^[0-9]+$/.test(offset) || !Number.isSafeInteger(start)) {
+		throw new Error(
+			"Home event offset must be a non-negative safe integer in decimal digits",
+		);
+	}
 	// Home events carry full payloads — a delegation work order or a final
 	// report is kilobytes on its own — and the Code Mode gateway replaces any
 	// result over its token budget with a preview string. An unpaged read of a
