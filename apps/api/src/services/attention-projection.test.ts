@@ -1,7 +1,10 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
+import { createRouterClient } from "@orpc/server";
+import { attentionContractRouter } from "../rpc/routers/attention";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { DEFAULT_DECK_ROUTING } from "@tedix/api-contract/schemas/os-decision-deck";
+import { CARD_REVIEW_ENTRY } from "@tedix/api-contract/schemas/os-card-review";
 import type { BaseContext } from "../rpc/orpc";
 import {
 	loadDeckProjection,
@@ -11,6 +14,23 @@ const mocks = vi.hoisted(() => ({
 	call: vi.fn(),
 	graph: vi.fn(),
 	states: vi.fn(),
+	sourceApps: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
+	listCardSourceApps: mocks.sourceApps,
+}));
+vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
+	getSkillEntry: vi.fn(async () => ({
+		id: "writing-skill",
+		tediId: "writing-agent",
+	})),
+}));
+vi.mock("./learning-interaction-recorder", async (original) => ({
+	...(await original<Record<string, unknown>>()),
+	recordObservedLearningInteraction: vi.fn(),
+}));
+vi.mock("../rpc/routers/kernel-runtime", () => ({
+	kernelRuntimeContractRouter: { enqueueMessage: "rewrite" },
 }));
 vi.mock("@orpc/server", async (original) => ({
 	...(await original<Record<string, unknown>>()),
@@ -21,6 +41,7 @@ vi.mock("../rpc/routers/os-workspaces", () => ({
 		gadgets: { workApps: "apps" },
 		workspaces: { list: "spaces" },
 		outputs: { list: "outputs", get: "output" },
+		schedules: { list: "schedules" },
 	},
 }));
 vi.mock("../rpc/routers/work-interactions", () => ({
@@ -85,10 +106,171 @@ const source = {
 	},
 };
 const context = { organizationId: "fictional-orchard" } as BaseContext;
+function installReviewSources(sources: unknown[], deckSources: unknown[] = []) {
+	const base = mocks.call.getMockImplementation()!;
+	mocks.call.mockImplementation(
+		async (procedure: string, ...rest: unknown[]) => {
+			const result = await base(procedure, ...rest);
+			if (procedure === "apps") {
+				result.items[0].currentRevision.manifest.config.factorySources =
+					deckSources;
+				result.items.push({
+					gadget: { id: "review" },
+					currentRevision: {
+						manifest: {
+							entry: CARD_REVIEW_ENTRY,
+							config: { version: 1, sources },
+						},
+					},
+				});
+			}
+			return result;
+		},
+	);
+}
+
+it("discovers Card review sources and returns the source used to decide each card", async () => {
+	installReviewSources([source], [{ ...source, cardSheetPrefix: "Other" }]);
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.cards.map((card) => card.id)).toEqual([`factory:${outputId}:0`]);
+	expect(deck.cards[0]!.factory!.sourceIndex).toBe(1);
+	expect(
+		deck.config.factorySources[deck.cards[0]!.factory!.sourceIndex],
+	).toMatchObject(source);
+});
+
+it("requests changes through the router for a discovered card using its merged source", async () => {
+	installReviewSources(
+		[
+			{
+				...source,
+				columns: { ...source.columns, draft: "Draft" },
+				doIt: "run_skill",
+				run: { skillId: "44444444-4444-4444-8444-444444444444" },
+			},
+		],
+		[{ ...source, cardSheetPrefix: "Other" }],
+	);
+	const base = mocks.call.getMockImplementation()!;
+	mocks.call.mockImplementation(
+		async (procedure: string, ...rest: unknown[]) => {
+			if (procedure === "schedules")
+				return { items: [{ skillId: "44444444-4444-4444-8444-444444444444" }] };
+			if (procedure === "rewrite")
+				return { status: "running", run: { id: "rewrite-run" } };
+			const result = await base(procedure, ...rest);
+			if (procedure === "output")
+				result.output = {
+					title: "Cards today",
+					createdAt: new Date().toISOString(),
+				};
+			return result;
+		},
+	);
+	const client = createRouterClient(attentionContractRouter, {
+		context: {
+			...context,
+			env: { ENVIRONMENT: "test" },
+			headers: new Headers(),
+			authType: "apikey",
+			apiKey: { id: "key", scopes: ["mcp:messaging.write"] },
+		} as BaseContext,
+	});
+	await expect(
+		client.decideDeckCard({
+			decision: {
+				kind: "factory_changes",
+				cardId: `factory:${outputId}:0`,
+				expectedRevision: 1,
+				instruction: "Make the draft clearer",
+			},
+		}),
+	).resolves.toEqual({ saved: true, cardId: `factory:${outputId}:0` });
+	expect(mocks.call).toHaveBeenCalledWith(
+		"rewrite",
+		expect.objectContaining({
+			delegateToTediId: "writing-agent",
+			workspaceContext: {
+				workspaceId,
+				workpiece: { kind: "output", id: outputId },
+			},
+		}),
+		expect.anything(),
+	);
+});
+
+it.each([true, false])(
+	"respects app workspace visibility without board navigation: %s",
+	async (visible) => {
+		installReviewSources([]);
+		mocks.sourceApps.mockResolvedValue([
+			{
+				gadget: {
+					id: "standalone",
+					workspaceId: visible ? workspaceId : projectId,
+				},
+				revision: {
+					manifest: JSON.stringify({
+						entry: CARD_REVIEW_ENTRY,
+						config: { version: 1, sources: [source] },
+					}),
+				},
+			},
+		]);
+		const deck = await loadDeckProjection(context, { limit: 100 });
+		expect(deck.cards.map((card) => card.id)).toEqual(
+			visible ? [`factory:${outputId}:0`] : [],
+		);
+	},
+);
+
+it("rejects an incomplete Card review app inventory", async () => {
+	mocks.sourceApps.mockResolvedValue(Array.from({ length: 201 }, () => ({})));
+	await expect(loadDeckProjection(context, { limit: 100 })).rejects.toThrow(
+		"inventory is incomplete",
+	);
+});
+
+it("deduplicates configured and discovered sources and overlapping sheets", async () => {
+	installReviewSources(
+		[source, { ...source, cardSheetPrefix: "Card" }],
+		[source],
+	);
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.config.factorySources).toHaveLength(2);
+	expect(deck.cards.map((card) => card.id)).toEqual([`factory:${outputId}:0`]);
+	expect(
+		mocks.call.mock.calls.filter(([procedure]) => procedure === "output"),
+	).toHaveLength(1);
+});
+
+it("does not read discovered sources from workspaces hidden from this viewer", async () => {
+	installReviewSources([{ ...source, workspaceId: projectId }]);
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.cards).toEqual([]);
+	expect(
+		mocks.call.mock.calls.some(([procedure]) => procedure === "outputs"),
+	).toBe(false);
+});
+
+it("fails explicitly instead of dropping discovered sources above the ten-source bound", async () => {
+	installReviewSources(
+		Array.from({ length: 10 }, (_, i) => ({
+			...source,
+			cardSheetPrefix: `Cards ${i}`,
+		})),
+		[source],
+	);
+	await expect(loadDeckProjection(context, { limit: 100 })).rejects.toThrow(
+		"10",
+	);
+});
+
 let model: ReturnType<typeof learnDecisions>;
 let routing = DEFAULT_DECK_ROUTING;
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.sourceApps.mockResolvedValue([]);
 	mocks.graph.mockResolvedValue(new Map());
 	mocks.states.mockResolvedValue(new Map());
 	routing = DEFAULT_DECK_ROUTING;

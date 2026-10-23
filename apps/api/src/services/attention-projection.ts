@@ -25,6 +25,7 @@ import {
 	cardSheetsForSource,
 	cardsFromSheet,
 	factoryLearningClass,
+	factorySourcesFromManifest,
 	isOpen,
 	routeFactoryCard,
 	scoredCards,
@@ -69,18 +70,68 @@ import { deckQualificationGraph } from "./deck-qualification-graph";
 import { listDeckSourceStates } from "@tedix/db/queries/work-items/deck-sweep";
 import { agentDecisionReviewIds } from "@tedix/api-contract/utils/agent-decision-journal";
 import { deckCardStale } from "@tedix/api-contract/utils/deck-ask";
+import { listCardSourceApps } from "@tedix/db/queries/os-workspaces/gadgets";
 
 type ViewInput = z.infer<typeof AttentionViewInputSchema>;
 
 async function workAppInventory(context: BaseContext) {
-	const apps = await call(
-		osWorkspacesContractRouter.gadgets.workApps,
-		{ limit: 200 },
-		{ context },
-	);
-	if (apps.truncated)
+	const [apps, sourceApps, spaces] = await Promise.all([
+		call(
+			osWorkspacesContractRouter.gadgets.workApps,
+			{ limit: 200 },
+			{ context },
+		),
+		listCardSourceApps(context.db, {
+			organizationId: requireOrgId(context),
+			limit: 201,
+		}),
+		call(
+			osWorkspacesContractRouter.workspaces.list,
+			{ status: "active", limit: 200 },
+			{ context },
+		),
+	]);
+	if (apps.truncated || sourceApps.length > 200 || spaces.truncated)
 		throw createError(ErrorCodes.CONFLICT, "Work app inventory is incomplete");
-	return apps;
+	const visible = new Set(spaces.items.map((space) => space.id));
+	return {
+		...apps,
+		// Card review apps need no board navigation to contribute their sources.
+		reviewSources: sourceApps.flatMap(({ gadget, revision }) => {
+			if (!visible.has(gadget.workspaceId)) return [];
+			const binding = factorySourcesFromManifest(JSON.parse(revision.manifest));
+			return binding?.path === "sources" ? binding.sources : [];
+		}),
+	};
+}
+
+function deckConfigWithReviewSources(
+	config: z.infer<typeof DecisionDeckConfigSchema>,
+	apps: Awaited<ReturnType<typeof workAppInventory>>,
+) {
+	const sources = new Map(
+		config.factorySources.map((source) => [
+			`${source.workspaceId}:${source.cardSheetPrefix}`,
+			source,
+		]),
+	);
+	const discovered = [
+		...apps.reviewSources,
+		...apps.items.flatMap(({ currentRevision }) => {
+			const binding = factorySourcesFromManifest(currentRevision.manifest);
+			return binding?.path === "sources" ? binding.sources : [];
+		}),
+	];
+	for (const source of discovered) {
+		const key = `${source.workspaceId}:${source.cardSheetPrefix}`;
+		if (!sources.has(key)) sources.set(key, source);
+	}
+	if (sources.size > 10)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Deck supports at most 10 card sources",
+		);
+	return { ...config, factorySources: [...sources.values()] };
 }
 
 function appManifest(
@@ -147,54 +198,65 @@ async function factoryCards(
 	// The caller's active, authorized workspace inventory defines which bindings apply.
 	const visible = new Set(spaces.items.map((space) => space.id));
 	let complete = !spaces.truncated;
-	const groups = await Promise.all(
-		sources
-			.filter((source) => visible.has(source.workspaceId))
-			.map(async (source) => {
+	const workspaces = [
+		...new Set(sources.map((source) => source.workspaceId)),
+	].filter((id) => visible.has(id));
+	const inventories = new Map(
+		await Promise.all(
+			workspaces.map(async (workspaceId) => {
 				const outputs = await call(
 					osWorkspacesContractRouter.outputs.list,
-					{ workspaceId: source.workspaceId, limit: 200 },
+					{ workspaceId, limit: 200 },
 					{ context },
 				);
 				complete &&= !outputs.truncated;
-				const sheets = cardSheetsForSource(source, outputs.items);
-				return (
-					await Promise.all(
-						sheets.map(async (sheet) => {
-							const detail = await call(
-								osWorkspacesContractRouter.outputs.get,
-								{ outputId: sheet.id },
-								{ context },
-							);
-							const body = detail.currentRevision.content;
-							if (body.kind !== "sheet")
-								throw createError(
-									ErrorCodes.CONFLICT,
-									"Configured card output is not a sheet",
-								);
-							const parsed = cardsFromSheet({
-								source,
-								sourceIndex: sources.indexOf(source),
-								outputId: sheet.id,
-								sheetTitle: sheet.title,
-								runCreatedAt: sheet.createdAt,
-								body,
-							});
-							if ("missing" in parsed)
-								throw createError(
-									ErrorCodes.CONFLICT,
-									"Configured card columns are missing",
-								);
-							return parsed.cards
-								.filter((card) => cardIsDue(card, now, timeZone))
-								.map((card) => ({
-									card,
-									revision: detail.currentRevision.revision,
-								}));
-						}),
-					)
-				).flat();
+				return [workspaceId, outputs.items] as const;
 			}),
+		),
+	);
+	// Configured sources win when multiple bindings select the same sheet.
+	const selected = new Set<string>();
+	const groups = await Promise.all(
+		sources.flatMap((source, sourceIndex) =>
+			cardSheetsForSource(source, inventories.get(source.workspaceId) ?? [])
+				.filter((sheet) => {
+					if (selected.has(sheet.id)) return false;
+					selected.add(sheet.id);
+					return true;
+				})
+				.map(async (sheet) => {
+					const detail = await call(
+						osWorkspacesContractRouter.outputs.get,
+						{ outputId: sheet.id },
+						{ context },
+					);
+					const body = detail.currentRevision.content;
+					if (body.kind !== "sheet")
+						throw createError(
+							ErrorCodes.CONFLICT,
+							"Configured card output is not a sheet",
+						);
+					const parsed = cardsFromSheet({
+						source,
+						sourceIndex,
+						outputId: sheet.id,
+						sheetTitle: sheet.title,
+						runCreatedAt: sheet.createdAt,
+						body,
+					});
+					if ("missing" in parsed)
+						throw createError(
+							ErrorCodes.CONFLICT,
+							"Configured card columns are missing",
+						);
+					return parsed.cards
+						.filter((card) => cardIsDue(card, now, timeZone))
+						.map((card) => ({
+							card,
+							revision: detail.currentRevision.revision,
+						}));
+				}),
+		),
 	);
 	const loaded = groups.flat();
 	const kept = new Set(
@@ -211,15 +273,15 @@ export async function loadDeckProjection(
 	context: BaseContext,
 	input: ViewInput,
 ) {
-	const manifest = appManifest(
-		await workAppInventory(context),
-		"deck",
-		input.gadgetId,
-	);
+	const apps = await workAppInventory(context);
+	const manifest = appManifest(apps, "deck", input.gadgetId);
 	return loadConfiguredDeckProjection(
 		context,
 		input,
-		DecisionDeckConfigSchema.parse(manifest!.config),
+		deckConfigWithReviewSources(
+			DecisionDeckConfigSchema.parse(manifest!.config),
+			apps,
+		),
 	);
 }
 
@@ -434,7 +496,10 @@ export async function loadForYouProjection(
 	const config = ActivityFeedConfigSchema.parse(manifest!.config);
 	const deckManifest = appManifest(apps, "deck", undefined, true);
 	const deckConfig = deckManifest
-		? DecisionDeckConfigSchema.parse(deckManifest.config)
+		? deckConfigWithReviewSources(
+				DecisionDeckConfigSchema.parse(deckManifest.config),
+				apps,
+			)
 		: null;
 	const preferenceState = await call(
 		userSettingsContractRouter.getPreferences,
