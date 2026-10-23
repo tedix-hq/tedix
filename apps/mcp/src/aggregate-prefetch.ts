@@ -51,10 +51,12 @@ type AggregatePrefetchRequest = {
 	cacheable: boolean;
 };
 
-/** Keys awaiting the next flush. Swapped out wholesale when the window closes. */
-let aggregatePrefetchBuffer = new Map<string, AggregatePrefetchRequest>();
-/** The in-flight flush that will include everything currently buffered. */
-let aggregatePrefetchFlush: Promise<void> | null = null;
+type AggregatePrefetchBatch = {
+	buffer: Map<string, AggregatePrefetchRequest>;
+	flush: Promise<void> | null;
+};
+
+const aggregatePrefetchBatches = new WeakMap<Fetcher, AggregatePrefetchBatch>();
 
 /**
  * Deadline for the batched prefetch. Same budget as one ordinary upstream
@@ -82,17 +84,20 @@ const AGGREGATE_PREFETCH_TIMEOUT_MS = UPSTREAM_ATTEMPT_TIMEOUT_MS;
  * Fail-open: prefetch is optional acceleration, so a rejection is reported and
  * swallowed — every entry still resolves itself through the normal path.
  */
-async function flushAggregatePrefetch(env: CloudflareEnv): Promise<void> {
-	const buffered = aggregatePrefetchBuffer;
-	aggregatePrefetchBuffer = new Map();
-	aggregatePrefetchFlush = null;
+async function flushAggregatePrefetch(
+	serviceFetch: Fetcher,
+	batch: AggregatePrefetchBatch,
+): Promise<void> {
+	const buffered = batch.buffer;
+	batch.buffer = new Map();
+	batch.flush = null;
 	if (buffered.size === 0) return;
 
 	const requests = [...buffered.entries()];
 	const started = Date.now();
 	try {
 		const client = getApiClient({
-			serviceFetch: env.API_SERVICE,
+			serviceFetch,
 		});
 		const chunks: Array<typeof requests> = [];
 		for (let i = 0; i < requests.length; i += AGGREGATE_PREFETCH_CHUNK) {
@@ -189,21 +194,26 @@ export async function prefetchAggregateEntries(
 		});
 	}
 	if (wanted.size === 0) return;
+	let batch = aggregatePrefetchBatches.get(env.API_SERVICE);
+	if (!batch) {
+		batch = { buffer: new Map(), flush: null };
+		aggregatePrefetchBatches.set(env.API_SERVICE, batch);
+	}
 
 	// Buffer, then join the pending window. Adding and scheduling happen with no
 	// await in between, so the window cannot close between them and drop these
 	// keys into a flush this caller is not awaiting.
 	for (const [cacheKey, request] of wanted) {
-		if (!aggregatePrefetchBuffer.has(cacheKey)) {
-			aggregatePrefetchBuffer.set(cacheKey, request);
+		if (!batch.buffer.has(cacheKey)) {
+			batch.buffer.set(cacheKey, request);
 		}
 	}
-	aggregatePrefetchFlush ??= new Promise<void>((resolve) => {
+	batch.flush ??= new Promise<void>((resolve) => {
 		setTimeout(() => {
-			resolve(flushAggregatePrefetch(env));
+			resolve(flushAggregatePrefetch(env.API_SERVICE, batch));
 		}, AGGREGATE_PREFETCH_COALESCE_MS);
 	});
-	await aggregatePrefetchFlush.catch(() => undefined);
+	await batch.flush.catch(() => undefined);
 }
 
 /** Bound one prefetch so a wedged upstream cannot delay the per-entry fallback. */
