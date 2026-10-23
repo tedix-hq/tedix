@@ -229,6 +229,16 @@ export async function reconcileHomeKernelRequest(
 						fresh.snapshot.delivery?.intentId !== intentId
 					)
 						throw new Error("Acceptance superseded before delivery");
+					// A reply-only check is acknowledged by the reply itself. A separate
+					// report would post an internal receipt key into the chat.
+					if (
+						current.snapshot.checks.every((c) => c.kind === "home_response")
+					) {
+						const receipt = await reader.readHomeResponse!();
+						if (receipt.attemptId !== current.snapshot.attemptId)
+							throw new Error("Home attempt superseded");
+						return { status: "acknowledged", receiptRef: receipt.receiptRef };
+					}
 					const event = await publishKernelRequestReport(context.db, {
 						...current,
 						expectedVersion: current.version,
@@ -243,7 +253,7 @@ export async function reconcileHomeKernelRequest(
 						payload: {
 							role: "assistant",
 							channel: "home",
-							content: `${current.snapshot.checks.every((c) => c.kind === "home_response") ? "Confirmed durable Home reply delivery only; factual correctness and external target state are not verified." : "Verified the requested target state."} ${current.snapshot.observations.flatMap((o) => o.evidenceRefs).join("\n")}`,
+							content: `Verified the requested target state. ${current.snapshot.observations.flatMap((o) => o.evidenceRefs).join("\n")}`,
 							metadata: {
 								kernelRequestAcceptance: toJsonRecord(current.snapshot),
 								requestId: current.id,
