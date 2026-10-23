@@ -1,4 +1,5 @@
 import { DotsThree } from "@phosphor-icons/react";
+import { useRouterState } from "@tanstack/react-router";
 import { Fragment } from "react";
 import { Button } from "@/components/kumo/button";
 import {
@@ -12,7 +13,7 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { Text } from "@/components/kumo/text";
 import { OsRouterLink } from "@/components/kumo/link-provider";
-import { workViewsByGroup, type WorkView } from "@/lib/work-views";
+import { WORK_VIEWS, workViewsByGroup, type WorkView } from "@/lib/work-views";
 import { OS_COPY } from "@/shared/os-copy";
 
 function viewLink(view: WorkView) {
@@ -30,6 +31,21 @@ function viewLink(view: WorkView) {
  */
 export function WorkMoreViewsMenu() {
 	const label = OS_COPY.workHome.moreViews;
+	const activeView = useRouterState({
+		select: ({ location }) => {
+			const pathname = location.pathname.replace(/\/$/, "");
+			const search = location.search as Record<string, unknown>;
+			return WORK_VIEWS.find((view) =>
+				view.to === "/work"
+					? pathname === view.to &&
+						(!search.app || search.app === view.search.app) &&
+						Object.entries(view.search).every(
+							([key, value]) => search[key] === value,
+						)
+					: pathname === view.to || pathname.startsWith(`${view.to}/`),
+			);
+		},
+	});
 	const groups = workViewsByGroup();
 	return (
 		<DropdownMenu>
@@ -37,11 +53,17 @@ export function WorkMoreViewsMenu() {
 				render={
 					<Button
 						variant="ghost"
-						size="icon-sm"
-						aria-label={label}
-						className="shrink-0 text-kumo-subtle data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
+						{...(activeView
+							? {
+									size: "sm" as const,
+									"aria-label": `${label}: ${activeView.label}`,
+								}
+							: { size: "icon-sm" as const, "aria-label": label })}
+						data-active={activeView ? "true" : undefined}
+						className="shrink-0 text-kumo-subtle data-[active]:bg-kumo-tint data-[active]:text-kumo-default data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
 					>
 						<DotsThree size={20} weight="bold" aria-hidden="true" />
+						{activeView?.label}
 					</Button>
 				}
 			/>
@@ -60,8 +82,9 @@ export function WorkMoreViewsMenu() {
 								<DropdownMenuLinkItem
 									key={view.id}
 									data-work-view={view.id}
+									aria-current={activeView?.id === view.id ? "page" : undefined}
 									render={viewLink(view)}
-									className="items-start py-2"
+									className="items-start py-2 aria-[current=page]:bg-kumo-tint"
 								>
 									<span className="grid min-w-0 gap-0.5">
 										<Text as="span" weight="medium">
