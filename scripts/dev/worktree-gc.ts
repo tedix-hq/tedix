@@ -16,8 +16,9 @@
  * reported and kept. Empty interrupted removals with an unchanged index and
  * HEAD on origin/main can be recovered under the same idle/lock/use guards.
  * The default is a dry run; `--apply` removes with plain
- * `git worktree remove` (never `--force`) and deletes merged branches with
- * `git branch -d`.
+ * `git worktree remove` (never `--force`) and deletes their branches, plus any
+ * other local branch that no worktree has checked out and whose tip is already
+ * in the base branch.
  *
  *   bun run worktree:gc                 # report
  *   bun run worktree:gc --apply         # remove the "merged" rows
@@ -417,6 +418,28 @@ function parseArgs(argv: string[]) {
 	};
 }
 
+/** Local branches whose tip is in `base`, except `main`. */
+export function mergedBranches(cwd: string, base: string): string[] {
+	return git(cwd, ["branch", "--merged", base, "--format=%(refname:short)"])
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((branch) => branch && branch !== "main");
+}
+
+/**
+ * `git branch -d` checks against HEAD or the branch's upstream, not `base`, so
+ * it refuses most finished lane branches. Check `base` ourselves, then force.
+ */
+export function deleteMergedBranch(
+	cwd: string,
+	branch: string,
+	base: string,
+): boolean {
+	if (tryGit(cwd, ["merge-base", "--is-ancestor", branch, base]) === null)
+		return false;
+	return tryGit(cwd, ["branch", "-D", branch]) !== null;
+}
+
 function main(): void {
 	const options = parseArgs(process.argv.slice(2));
 	const cwd = process.cwd();
@@ -441,9 +464,10 @@ function main(): void {
 		process.exit(1);
 	}
 	const now = Date.now();
-	const rows = parseWorktreePorcelain(
+	const worktrees = parseWorktreePorcelain(
 		git(cwd, ["worktree", "list", "--porcelain"]),
-	)
+	);
+	const rows = worktrees
 		.filter((entry) => !entry.bare && entry.path !== mainPath)
 		.map((entry) => {
 			const facts = readWorktreeFacts(
@@ -486,6 +510,18 @@ function main(): void {
 		}
 	}
 
+	const checkedOut = new Set(worktrees.map((entry) => entry.branch));
+	const branches = mergedBranches(cwd, options.base).filter(
+		(branch) => !checkedOut.has(branch),
+	);
+	if (branches.length > 0) {
+		const action = options.apply ? "deleting" : "removable";
+		console.log(
+			`\nmerged branches without a worktree (${branches.length}, ${action})`,
+		);
+		for (const branch of branches) console.log(`  ${branch}`);
+	}
+
 	const clones = collectSiblingClones(
 		mainPath,
 		cwds ?? [],
@@ -494,7 +530,9 @@ function main(): void {
 	);
 	if (!options.apply) {
 		const count =
-			rows.filter((row) => REMOVABLE.has(row.verdict)).length + clones;
+			rows.filter((row) => REMOVABLE.has(row.verdict)).length +
+			branches.length +
+			clones;
 		console.log(`\n${count} removable. Re-run with --apply to remove them.`);
 		return;
 	}
@@ -504,10 +542,15 @@ function main(): void {
 		if (!removeWorktree(cwd, entry, options.base, options.minIdleHours))
 			continue;
 		removed += 1;
-		if (entry.branch) tryGit(cwd, ["branch", "-d", entry.branch]);
+		if (entry.branch) deleteMergedBranch(cwd, entry.branch, options.base);
 	}
 	git(cwd, ["worktree", "prune"]);
-	console.log(`\nRemoved ${removed} worktrees and pruned missing ones.`);
+	const deleted = branches.filter((branch) =>
+		deleteMergedBranch(cwd, branch, options.base),
+	).length;
+	console.log(
+		`\nRemoved ${removed} worktrees, deleted ${deleted} merged branches and pruned missing worktrees.`,
+	);
 }
 
 if (import.meta.main) main();

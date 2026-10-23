@@ -15,7 +15,9 @@ import {
 	classifyWorktree,
 	cloneFullyPushed,
 	collectSiblingClones,
+	deleteMergedBranch,
 	findSiblingClones,
+	mergedBranches,
 	isInside,
 	parseWorktreePorcelain,
 	readWorktreeFacts,
@@ -370,5 +372,25 @@ describe("worktree removal", () => {
 			"untracked work",
 		);
 		expect(git(path, "ls-files", "--deleted")).toBe("");
+	});
+});
+
+describe("merged branches", () => {
+	test("deletes branches already in the base even when HEAD is elsewhere, keeps unmerged ones", () => {
+		const { canonical, git } = worktreeFixture();
+		git(canonical, "branch", "finished");
+		git(canonical, "checkout", "-q", "-b", "unfinished");
+		writeFileSync(join(canonical, "file"), "changed");
+		git(canonical, "commit", "-qam", "not in main yet");
+		git(canonical, "checkout", "-q", "-b", "elsewhere");
+
+		expect(mergedBranches(canonical, "origin/main")).toEqual(["finished"]);
+		expect(deleteMergedBranch(canonical, "finished", "origin/main")).toBe(true);
+		expect(deleteMergedBranch(canonical, "unfinished", "origin/main")).toBe(
+			false,
+		);
+		expect(git(canonical, "branch", "--format=%(refname:short)")).toBe(
+			"elsewhere\nmain\nunfinished\n",
+		);
 	});
 });
