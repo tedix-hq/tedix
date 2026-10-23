@@ -1172,7 +1172,11 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 		<Page width="full">
 			<WorkPageHeader
 				title={project.data.name}
-				description={`${project.data.key} · accountable portfolio container`}
+				description={`${project.data.key} · ${
+					project.data.objective
+						? `Serves: ${project.data.objective.title}`
+						: "No objective yet"
+				}`}
 			/>
 			<ProjectBrief description={project.data.description} />
 			<ProjectSummary

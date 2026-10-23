@@ -255,6 +255,7 @@ async function mount(
 				leadTediId: null,
 				ownerUserId: null,
 				objectiveId: null,
+				objective: null,
 				targetDate: null,
 				metadata: null,
 				createdAt: "2026-10-19T00:00:00.000Z",

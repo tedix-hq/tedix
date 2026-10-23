@@ -400,7 +400,17 @@ export const projectsContract = oc
 				summary: "Get project",
 			})
 			.input(z.object({ id: z.uuid() }))
-			.output(ProjectSchema),
+			.output(
+				ProjectSchema.extend({
+					objective: z
+						.object({
+							id: z.string(),
+							title: z.string(),
+							priority: z.number().int(),
+						})
+						.nullable(),
+				}),
+			),
 
 		getRollup: oc
 			.route({
