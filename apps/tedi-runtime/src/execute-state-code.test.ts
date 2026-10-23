@@ -1,95 +1,16 @@
-/**
- * Unit test for the `execute` tool wiring in codeModeExtras.
- *
- * Proves that:
- *   1. The state backend returned by `createWorkspaceStateBackend(workspace)`
- *      correctly proxies readFile/writeFile to the live DO-SQLite workspace.
- *   2. A fake executor receiving those provider fns can perform a
- *      seed→read→write→readback round-trip through the SAME workspace instance.
- *   3. The execute tool response shape (`{ executionId, result, logs? }`) is
- *      what callers expect on success and `{ executionId, error }` on failure.
- *
- * Avoids importing `@cloudflare/codemode` or `@cloudflare/shell/workers` —
- * both transitively import `cloudflare:workers` (Cloudflare runtime-only) and
- * cannot run locally. The real WorkerLoader is a closed-beta Cloudflare
- * binding; the wiring test therefore uses a direct StateBackend call.
- *
- * Run: `bun run src/execute-state-code.test.ts`
- */
-
-import { Database } from "bun:sqlite";
+/** Execute MCP response shapes; Computer filesystem coverage lives in workerd. */
 import assert from "node:assert/strict";
-import { createWorkspaceStateBackend, Workspace } from "@cloudflare/shell";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
-// ── Minimal bun:sqlite backend compatible with @cloudflare/shell ─────────────
-function sqlBackend() {
-	const db = new Database(":memory:");
-	return {
-		query<T>(sql: string, ...params: (string | number | boolean | null)[]) {
-			return db.query(sql).all(...(params as never[])) as T[];
-		},
-		run(sql: string, ...params: (string | number | boolean | null)[]) {
-			db.run(sql, params as never[]);
-		},
-	};
-}
-
-// ── (1) StateBackend reads/writes the live workspace ─────────────────────────
-// Proves that `createWorkspaceStateBackend(workspace)` is the correct bridge
-// between the sandbox provider fns and the DO-SQLite workspace used in do.ts.
-{
-	const ws = new Workspace({
-		sql: sqlBackend(),
-		namespace: "computer_workspace_adapter",
-		name: () => "test-tedi",
-	});
-
-	const backend = createWorkspaceStateBackend(ws);
-
-	// Write via workspace directly; read back via backend (provider path).
-	await ws.writeFile("/seed.txt", "seed content");
-	const content = await backend.readFile("/seed.txt");
-	assert.equal(content, "seed content", "backend reads from live workspace");
-
-	// Write via backend; read back via workspace (proves it's not a copy).
-	await backend.writeFile("/derived.txt", "derived output");
-	const derived = await ws.readFile("/derived.txt");
-	assert.equal(
-		derived,
-		"derived output",
-		"backend writes persist to live workspace",
-	);
-}
-
-// ── (2) Full read→derive→write→readback round-trip ───────────────────────────
-// Simulates what the `execute` tool does: sandbox code reads a seeded file,
-// writes a derived file, caller reads the derived file back from the workspace.
-{
-	const ws = new Workspace({
-		sql: sqlBackend(),
-		namespace: "computer_workspace_adapter",
-		name: () => "test-tedi-rw",
-	});
-	const backend = createWorkspaceStateBackend(ws);
-
-	// Seed.
-	await ws.writeFile("/notes.md", "# Notes\nHello world");
-
-	// Simulate sandbox: read seed, write derived.
-	const notes = await backend.readFile("/notes.md");
-	assert.ok(
-		typeof notes === "string" && notes.includes("Hello world"),
-		"sandbox read hit live workspace",
-	);
-	await backend.writeFile("/summary.txt", `Summary: ${notes.length} chars`);
-
-	// Caller reads derived file from the SAME workspace instance.
-	const summary = await ws.readFile("/summary.txt");
-	assert.ok(
-		typeof summary === "string" && summary.startsWith("Summary:"),
-		"derived file readable from same workspace",
-	);
-}
+const runtimePackage = JSON.parse(
+	await readFile(join(import.meta.dirname, "../package.json"), "utf8"),
+);
+assert.equal(
+	runtimePackage.dependencies["@cloudflare/shell"],
+	undefined,
+	"runtime must not depend on the deprecated package",
+);
 
 // ── (3) Execute tool response shape ─────────────────────────────────────────
 // Validates the structured response the `execute` MCP tool emits.

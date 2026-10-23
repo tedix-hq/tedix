@@ -1,6 +1,6 @@
 /**
  * Computer owns the durable DO-SQLite workspace, native Git, and isolate shell.
- * Pi and Code Mode consume WorkspaceFsLike paths rooted at /workspace;
+ * Pi and Code Mode consume Computer-compatible paths rooted at /workspace;
  * native Computer tools use absolute paths. Canonical identity and artifacts
  * live in D1, Artifacts, and R2; full Linux execution uses workstation leases.
  */
@@ -25,7 +25,6 @@ import {
 	type WorkspaceLike,
 } from "@cloudflare/computer/tools";
 import { createAITools } from "@cloudflare/computer/tools/ai-sdk";
-import type { FileInfo, WorkspaceFsLike } from "@cloudflare/shell";
 import type { ToolSet } from "ai";
 import { z } from "zod";
 import { createPrivacySafeComputerObserver } from "./computer-observer";
@@ -168,7 +167,7 @@ function normalizeSegments(p: string): string {
  * absolute path such as "/repo/x", or an already-absolute VFS path) to a
  * normalized absolute VFS path CONFINED to `/workspace`.
  *
- * WorkspaceFsLike callers can use "/repo/x". Those are workspace-rooted
+ * Computer compatibility callers can use "/repo/x". Those are workspace-rooted
  * logical paths, not host filesystem paths; map them to "/workspace/repo/x".
  * Already-rooted "/workspace/..." paths remain unchanged. Relative escapes
  * ("../secret") and explicit VFS-root escapes ("/workspace/../secret") are
@@ -273,17 +272,43 @@ export interface WorkspaceGlobOptions {
 	exclude?: readonly string[];
 }
 
-/**
- * Pi and Code Mode share WorkspaceFsLike. Code Mode additionally requires
- * deleteFile and diffContent for its workspace state contract. `glob` widens
- * the shared signature with an optional options argument, which keeps it
- * assignable to `WorkspaceFsLike` for every consumer that ignores it.
- */
-export type TediWorkspaceFs = Omit<WorkspaceFsLike, "glob"> & {
-	glob(pattern: string, options?: WorkspaceGlobOptions): Promise<FileInfo[]>;
+type TediFileInfo = {
+	path: string;
+	name: string;
+	type: "file" | "directory" | "symlink";
+	mimeType: string;
+	size: number;
+	createdAt: number;
+	updatedAt: number;
+};
+
+/** Pi and Code Mode use workspace-rooted paths and null-on-missing reads. */
+export interface TediWorkspaceFs {
+	readFile(path: string): Promise<string | null>;
+	readFileBytes(path: string): Promise<Uint8Array | null>;
+	writeFile(path: string, content: string): Promise<void>;
+	writeFileBytes(path: string, data: Uint8Array | ArrayBuffer): Promise<void>;
+	appendFile(path: string, content: string | Uint8Array): Promise<void>;
+	exists(path: string): Promise<boolean>;
+	stat(path: string): Promise<TediFileInfo | null>;
+	lstat(path: string): Promise<TediFileInfo | null>;
+	mkdir(path: string, options?: MkdirOptions): Promise<void>;
+	readDir(
+		dir?: string,
+		opts?: { limit?: number; offset?: number },
+	): Promise<TediFileInfo[]>;
+	rm(path: string, options?: RmOptions): Promise<void>;
+	cp(src: string, dest: string): Promise<void>;
+	mv(src: string, dest: string): Promise<void>;
+	symlink(target: string, linkPath: string): Promise<void>;
+	readlink(path: string): Promise<string>;
+	glob(
+		pattern: string,
+		options?: WorkspaceGlobOptions,
+	): Promise<TediFileInfo[]>;
 	deleteFile(path: string): Promise<boolean>;
 	diffContent(path: string, newContent: string): Promise<string>;
-};
+}
 
 /** Storage surface the VFS needs — structurally `ctx.storage`. */
 export type WorkspaceVfsStorage = ConstructorParameters<
@@ -473,7 +498,7 @@ function toFileInfo(input: {
 	isSymbolicLink?: boolean;
 	size?: number;
 	mtime?: number;
-}): FileInfo {
+}): TediFileInfo {
 	return {
 		path: fromVfsPath(input.path),
 		name: input.name,
@@ -490,8 +515,7 @@ function toFileInfo(input: {
 }
 
 /**
- * Adapt the VFS to the pinned `@cloudflare/shell` `WorkspaceFsLike`
- * surface: null-on-missing reads,
+ * Adapt the VFS to the shared workspace surface: null-on-missing reads,
  * relative-path convention, `FileInfo` result shapes.
  */
 export function adaptVfsToWorkspaceFs(
@@ -501,7 +525,7 @@ export function adaptVfsToWorkspaceFs(
 	const statImpl = async (
 		path: string,
 		kind: "stat" | "lstat",
-	): Promise<FileInfo | null> => {
+	): Promise<TediFileInfo | null> => {
 		try {
 			const s = await fs[kind](toVfsPath(path));
 			return toFileInfo({
@@ -570,10 +594,10 @@ export function adaptVfsToWorkspaceFs(
 		async exists(path: string): Promise<boolean> {
 			return (await statImpl(path, "stat")) !== null;
 		},
-		async stat(path: string): Promise<FileInfo | null> {
+		async stat(path: string): Promise<TediFileInfo | null> {
 			return statImpl(path, "stat");
 		},
-		async lstat(path: string): Promise<FileInfo | null> {
+		async lstat(path: string): Promise<TediFileInfo | null> {
 			return statImpl(path, "lstat");
 		},
 		async mkdir(path: string, options?: MkdirOptions): Promise<void> {
@@ -582,7 +606,7 @@ export function adaptVfsToWorkspaceFs(
 		async readDir(
 			dir?: string,
 			opts?: { limit?: number; offset?: number },
-		): Promise<FileInfo[]> {
+		): Promise<TediFileInfo[]> {
 			const vfsDir = toVfsPath(dir ?? "");
 			let entries: Awaited<ReturnType<typeof fs.readdir>>;
 			try {
@@ -633,7 +657,7 @@ export function adaptVfsToWorkspaceFs(
 		async glob(
 			pattern: string,
 			options?: WorkspaceGlobOptions,
-		): Promise<FileInfo[]> {
+		): Promise<TediFileInfo[]> {
 			// `?? default` and not `|| default`: an explicit empty array is a
 			// caller asking for the unfiltered walk, not an absent option.
 			const exclude = options?.exclude ?? WORKSPACE_GLOB_DEFAULT_EXCLUDE;
