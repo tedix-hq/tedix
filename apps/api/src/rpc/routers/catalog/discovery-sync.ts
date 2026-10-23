@@ -273,7 +273,7 @@ export const getBySlugCatalog = fleetCatalogOs.getBySlug
 		const { db } = context;
 		const { slug } = input;
 		const result = await getCatalogAppBySlugWithRelations(db, slug);
-		if (!result) {
+		if (!result || result.status === "SUPPRESSED") {
 			return null;
 		}
 		const discoverability = calculateDiscoverability(result);

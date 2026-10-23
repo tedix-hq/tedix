@@ -256,6 +256,11 @@ export async function syncCatalogAppFromStore(
 		}
 	}
 
+	// A removal request suppressed this entry: never refresh or republish it.
+	if (existingApp?.status === "SUPPRESSED") {
+		return null;
+	}
+
 	let catalogApp: CatalogApp;
 
 	if (existingApp && attachOnly) {

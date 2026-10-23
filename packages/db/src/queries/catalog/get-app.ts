@@ -310,6 +310,25 @@ export async function updateCatalogAppScanConnection(
 		.where(eq(appCatalog.id, id));
 }
 
+/**
+ * Fields a removal request clears. The tombstone keeps only what a store
+ * refresh matches on (endpoint hash, store source id), so it is recognised
+ * and skipped instead of recreated.
+ */
+const SUPPRESSED_APP_SCRUB = {
+	isDiscoverable: false,
+	developer: null,
+	website: null,
+	privacyPolicy: null,
+	termsOfService: null,
+	documentationUrl: null,
+	supportUrl: null,
+	screenshots: null,
+	seoDescription: null,
+	richContent: null,
+	rawData: null,
+} satisfies Partial<NewCatalogApp>;
+
 export async function updateCatalogApp(
 	db: Database,
 	id: string,
@@ -318,13 +337,25 @@ export async function updateCatalogApp(
 	const existing = await getCatalogAppById(db, id);
 	if (!existing) return null;
 
-	await db
+	const appUpdate = db
 		.update(appCatalog)
 		.set({
 			...data,
+			...(data.status === "SUPPRESSED" ? SUPPRESSED_APP_SCRUB : {}),
 			updatedAt: sql`datetime('now')`,
 		})
 		.where(eq(appCatalog.id, id));
+	if (data.status === "SUPPRESSED") {
+		await db.batch([
+			appUpdate,
+			db
+				.update(appCatalogStoreListings)
+				.set({ storeDescription: null, rawData: null })
+				.where(eq(appCatalogStoreListings.catalogAppId, id)),
+		]);
+	} else {
+		await appUpdate;
+	}
 
 	return getCatalogAppById(db, id);
 }

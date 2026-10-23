@@ -94,12 +94,14 @@ export const developerTypeEnum = [
 ] as const;
 export type DeveloperType = (typeof developerTypeEnum)[number];
 
-// App status
+// App status. SUPPRESSED is a removal-request tombstone: the row keeps only
+// its match keys so a store refresh recognises it, never republishes it.
 export const appStatusEnum = [
 	"ENABLED",
 	"DISABLED",
 	"PENDING",
 	"DELISTED",
+	"SUPPRESSED",
 ] as const;
 export type AppStatus = (typeof appStatusEnum)[number];
 
