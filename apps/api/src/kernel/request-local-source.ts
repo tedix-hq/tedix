@@ -16,7 +16,7 @@ import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import type { BaseContext } from "../rpc/orpc";
 import { applyKernelRequestEvent, driveKernelRequest } from "./request-driver";
-import { receivedKernelRequest } from "./request-coordinator";
+import { receivedKernelRequest, kernelWorkOrder } from "./request-coordinator";
 import { readKernelRequestPolicy } from "./request-home-source";
 import { kernelAcceptanceReader } from "./request-target-readers";
 
@@ -111,7 +111,15 @@ export async function bindLocalKernelRequest(
 		row = await applyKernelRequestEvent(
 			context.db,
 			row,
-			{ kind: "brief", revision: work.version, checks },
+			{
+				kind: "brief",
+				revision: work.version,
+				checks,
+				workOrder: kernelWorkOrder(work, checks, {
+					kind: "agent_session_request",
+					sourceId: source.id,
+				}),
+			},
 			policy,
 			now,
 		);

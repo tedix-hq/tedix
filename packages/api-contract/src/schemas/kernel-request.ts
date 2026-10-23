@@ -59,6 +59,43 @@ export type KernelAcceptanceObservation = z.infer<
 	typeof KernelAcceptanceObservationSchema
 >;
 
+/** Canonical Work context is reported, never promoted to verified evidence or a grant. */
+export const KernelWorkOrderSchema = z
+	.object({
+		version: z.literal(1),
+		workItemId: identity,
+		workVersion: z.number().int().positive(),
+		goal: z.string().min(1).max(20000),
+		facts: z
+			.array(
+				z
+					.object({
+						text: z.string().min(1).max(20000),
+						status: z.literal("reported"),
+						citation: identity,
+					})
+					.strict(),
+			)
+			.max(20),
+		citations: z.array(identity).max(20),
+		constraints: z.array(z.string().min(1).max(1000)).max(100),
+		requiredCapabilities: z.array(identity).max(100),
+		acceptance: z
+			.object({
+				doneLooksLike: z.string().max(20000).nullable(),
+				checks: z.array(KernelAcceptanceCheckSchema).max(20),
+			})
+			.strict(),
+		destination: z
+			.object({
+				kind: z.enum(["home", "agent_session_request"]),
+				sourceId: identity,
+			})
+			.strict(),
+	})
+	.strict();
+export type KernelWorkOrder = z.infer<typeof KernelWorkOrderSchema>;
+
 /** Source adapters establish ACLs; this record never contains private prompt text. */
 export const KernelRequestSnapshotSchema = z
 	.object({
@@ -66,6 +103,7 @@ export const KernelRequestSnapshotSchema = z
 		workItemId: identity.nullable(),
 		attemptId: identity.nullable(),
 		briefRevision: z.number().int().nonnegative(),
+		workOrder: KernelWorkOrderSchema.optional(),
 		checks: z.array(KernelAcceptanceCheckSchema).max(20),
 		acceptanceKey: z.string().nullable(),
 		probeAttempts: z.number().int().nonnegative().optional(),

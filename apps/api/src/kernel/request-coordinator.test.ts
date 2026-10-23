@@ -3,6 +3,7 @@ import type { KernelAcceptanceCheck } from "@tedix/api-contract/schemas/kernel-r
 import {
 	advanceKernelRequest,
 	kernelRequestAcceptanceReport,
+	kernelWorkOrder,
 	receivedKernelRequest,
 	runKernelAcceptanceChecks,
 	type KernelAcceptanceReader,
@@ -47,6 +48,63 @@ function terminal() {
 }
 
 describe("kernel request coordinator", () => {
+	it("freezes a canonical cited brief across caller mutation, replay and running corrections", () => {
+		const work = {
+			id: "work-one",
+			version: 3,
+			title: "Read the revision",
+			description: "Owner reports a missing revision",
+			acceptanceContract: { doneLooksLike: "Read back revision-one" },
+			requiredCapabilities: ["output.read"],
+			requiredAuthorities: ["source.read"],
+		};
+		const checks = [structuredClone(check)];
+		const order = kernelWorkOrder(work, checks, {
+			kind: "home",
+			sourceId: "run-one",
+		});
+		let snapshot = advanceKernelRequest(
+			"request-one",
+			receivedKernelRequest(),
+			{ kind: "file", workItemId: work.id },
+		);
+		const event = {
+			kind: "brief" as const,
+			revision: 3,
+			checks,
+			workOrder: order,
+		};
+		snapshot = advanceKernelRequest("request-one", snapshot, event);
+		work.title = "Changed during execution";
+		work.requiredCapabilities.push("money.send");
+		checks[0] = { kind: "home_response" };
+		expect(snapshot.workOrder).toMatchObject({
+			goal: "Read the revision",
+			workVersion: 3,
+			facts: [{ status: "reported", citation: "work:work-one@3" }],
+			requiredCapabilities: ["output.read"],
+			constraints: ["Required authority (not granted): source.read"],
+			acceptance: { checks: [check] },
+		});
+		expect(advanceKernelRequest("request-one", snapshot, event)).toBe(snapshot);
+		const started = advanceKernelRequest("request-one", snapshot, {
+			kind: "start",
+			attemptId: "attempt-one",
+		});
+		expect(
+			advanceKernelRequest("request-one", started, {
+				...event,
+				revision: 4,
+				workOrder: kernelWorkOrder(work, checks, order.destination),
+			}),
+		).toBe(started);
+		const other = advanceKernelRequest("request-one", receivedKernelRequest(), {
+			kind: "file",
+			workItemId: "work-other",
+		});
+		expect(advanceKernelRequest("request-one", other, event)).toBe(other);
+	});
+
 	it("keeps large verification receipts out of the short source reply without losing them", () => {
 		const snapshot = {
 			...terminal(),

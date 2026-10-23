@@ -25,6 +25,7 @@ import {
 	receivedKernelRequest,
 	kernelRequestReportMessageId,
 	kernelRequestAcceptanceReport,
+	kernelWorkOrder,
 } from "./request-coordinator";
 import { kernelAcceptanceReader } from "./request-target-readers";
 
@@ -149,20 +150,26 @@ export async function reconcileHomeKernelRequest(
 	if (
 		row.snapshot.state === "filed" ||
 		(row.snapshot.state === "verifying" && row.snapshot.checks.length === 0)
-	)
+	) {
+		const checks: KernelAcceptanceCheck[] = row.snapshot.checks.length
+			? row.snapshot.checks.map((c) => KernelAcceptanceCheckSchema.parse(c))
+			: [{ kind: "home_response" }];
 		row = await applyKernelRequestEvent(
 			context.db,
 			row,
 			{
 				kind: "brief",
 				revision: Math.max(work.version, row.snapshot.briefRevision + 1),
-				checks: row.snapshot.checks.length
-					? row.snapshot.checks.map((c) => KernelAcceptanceCheckSchema.parse(c))
-					: [{ kind: "home_response" }],
+				checks,
+				workOrder: kernelWorkOrder(work, checks, {
+					kind: "home",
+					sourceId: row.sourceId,
+				}),
 			},
 			policy,
 			now(),
 		);
+	}
 	if (!attempt) return row;
 	if (row.snapshot.state === "briefed")
 		row = await applyKernelRequestEvent(
