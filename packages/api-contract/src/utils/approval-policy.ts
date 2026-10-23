@@ -1,5 +1,34 @@
 import criticalActions from "../assets/critical-actions.v1.json";
 
+/** Exact provider bindings, never display names or text inside arguments. */
+export function reviewedConnectedEffect(input: {
+	providerId: string | null;
+	toolName: string | undefined;
+	args?: Record<string, unknown>;
+}): "read" | "bounded_write" | undefined {
+	for (const rule of criticalActions.reviewedConnectedEffects) {
+		if (
+			rule.providerId !== input.providerId ||
+			rule.toolName !== input.toolName
+		)
+			continue;
+		if ("operation" in rule) {
+			if (input.args?.operation !== rule.operation) continue;
+			if (
+				Object.keys(input.args ?? {}).some(
+					(key) =>
+						!["operation", "args", "confirmDestructive", "reason"].includes(
+							key,
+						),
+				)
+			)
+				continue;
+		}
+		return rule.riskTier as "read" | "bounded_write";
+	}
+	return undefined;
+}
+
 export interface DelegationAutonomyPolicy {
 	version: 1;
 	maxRisk: "medium";

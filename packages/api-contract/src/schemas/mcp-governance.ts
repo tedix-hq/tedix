@@ -145,3 +145,20 @@ export const ResolveAgentLifecycleAuthorizationInputSchema = z.object({
 export const ResolveAgentLifecycleAuthorizationResponseSchema = z.object({
 	approved: z.boolean(),
 });
+
+/** Gateway-attested caller and resolved target; never a public tool input. */
+export const RequestOwnerToolApprovalInputSchema = z.object({
+	organizationId: z.string().min(1),
+	userId: z.string().min(1),
+	appSlug: z.string().min(1),
+	toolId: z.string().min(1),
+	target: z.record(z.string(), JsonValueSchema),
+	args: z.record(z.string(), JsonValueSchema),
+	approvalRequestId: z.uuid().optional(),
+});
+export const RequestOwnerToolApprovalResponseSchema = z.object({
+	approved: z.boolean(),
+	approvalRequestId: z.uuid(),
+	status: z.string(),
+	url: z.string().url(),
+});

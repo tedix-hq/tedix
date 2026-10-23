@@ -1,3 +1,5 @@
+import { reviewedConnectedEffect } from "@tedix/api-contract/utils/approval-policy";
+import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
 	resolveToolAnnotations,
@@ -84,6 +86,22 @@ function parseToolAnnotations(
 export function resolveWireAnnotations(
 	tool: AppTool,
 ): ToolAnnotations | undefined {
+	const effect =
+		tool.config?.transport === "mcp"
+			? reviewedConnectedEffect({
+					providerId: connectedProviderId(tool),
+					toolName:
+						typeof tool.config.mcpToolName === "string"
+							? tool.config.mcpToolName
+							: undefined,
+				})
+			: undefined;
+	if (effect)
+		return {
+			...parseToolAnnotations(tool.annotations, tool.toolId),
+			destructiveHint: false,
+			readOnlyHint: effect === "read",
+		};
 	return resolveToolAnnotations({
 		annotations: parseToolAnnotations(tool.annotations, tool.toolId) ?? null,
 		writeCapability: tool.writeCapability ?? null,

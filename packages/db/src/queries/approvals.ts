@@ -22,6 +22,7 @@ import {
 	tediApprovalRequests,
 	tediProvisionalOutcomes,
 } from "../schema/approvals";
+import { tedis } from "../schema/tedis";
 import { tediApprovalDependencyEvents } from "../schema/approval-simulations";
 import { getAffectedRows } from "../utils/d1-result";
 import {
@@ -578,4 +579,49 @@ export async function admitKernelAutoWrite(
 			.returning({ id: kernelRuntimeRuns.id }),
 	]);
 	return runs.length > 0;
+}
+
+/** A single approved gateway call can be claimed once, before dispatch. */
+export async function consumeOwnerToolApproval(
+	db: DbClient,
+	input: {
+		id: string;
+		organizationId: string;
+		fingerprint: string;
+		now: string;
+	},
+): Promise<boolean> {
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now})`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "approved"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				gt(tediApprovalRequests.expiresAt, input.now),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') = ${input.fingerprint}`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length === 1;
+}
+
+/** Bounded anchor lookup for the canonical approval queue's tedi foreign key. */
+export async function getApprovalAnchor(
+	db: DbClient,
+	organizationId: string,
+): Promise<{ id: string } | undefined> {
+	const [row] = await db
+		.select({ id: tedis.id })
+		.from(tedis)
+		.where(
+			and(eq(tedis.organizationId, organizationId), isNull(tedis.retiredAt)),
+		)
+		.limit(1);
+	return row;
 }

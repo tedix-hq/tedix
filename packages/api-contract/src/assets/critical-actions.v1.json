@@ -1,5 +1,18 @@
 {
 	"version": 1,
+	"reviewedConnectedEffects": [
+		{
+			"providerId": "google-gmail",
+			"toolName": "create_draft",
+			"riskTier": "bounded_write"
+		},
+		{
+			"providerId": "descope",
+			"toolName": "auth_keys_write",
+			"operation": "SearchAccessKeys",
+			"riskTier": "read"
+		}
+	],
 	"nativeLowRiskTools": [
 		"read",
 		"ls",

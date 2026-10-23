@@ -23,10 +23,7 @@ import {
 	type CatalogSearchMatch,
 } from "./codemode-catalog-entries";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import {
-	type CatalogueTransportCallback,
-	resolveToolAnnotations,
-} from "@tedix/api-contract/schemas/tools";
+import { type CatalogueTransportCallback } from "@tedix/api-contract/schemas/tools";
 import { resolveProvider, type ToolProvider } from "@cloudflare/codemode";
 import { readCodeModeResultPage } from "@tedix/tedi-codemode-core/bounded-result";
 import {
@@ -41,6 +38,7 @@ import { recordFrom, UI_NAMESPACE, UI_CATALOG_TOOLS } from "./codemode-ui";
 import { getToolPaymentPolicy } from "./payments-policy";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
 import { withDestructiveApprovalSchema } from "./governance";
+import { resolveWireAnnotations } from "./tool-registration-policy";
 import { toolApprovalMetadata } from "./tool-risk-policy";
 import { FLOW_NAMESPACE, FLOW_CATALOG_TOOLS } from "./codemode-flow";
 import {
@@ -328,11 +326,7 @@ export function buildCatalogProvider(
 		// Declared write capability folded onto the catalog's annotations, so
 		// discover.search results classify the same way a raw tools/list entry
 		// does (the Kernel write planner consumes both shapes).
-		const wireAnnotations = resolveToolAnnotations({
-			annotations: tool.annotations ?? null,
-			writeCapability: tool.writeCapability ?? null,
-			meta: tool.meta as Record<string, unknown> | null,
-		});
+		const wireAnnotations = resolveWireAnnotations(tool);
 		const paymentDescription = paymentPolicy
 			? `\n\nPaid tool: ${paymentPolicy.amount} ${paymentPolicy.currency ?? "USDC"} on ${paymentPolicy.network}. If this call returns payment requirements, return that object directly from code; retry the outer code tool with _meta["x402/payment"] or the code tool's top-level payment argument.`
 			: "";

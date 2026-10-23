@@ -263,6 +263,12 @@ export function buildFlowProvider(
 					if (input.params !== undefined && !isRecord(input.params))
 						throw new Error("flow.run params must be an object");
 					const params = recordFrom(input.params) ?? {};
+					// The CLI's --params certification flag explicitly requests the owner-only API mode.
+					const certification = input.certification ?? params.certification;
+					if (certification !== undefined && typeof certification !== "boolean")
+						throw new Error("flow.run certification must be a boolean");
+					if (certification && !existingSkillId)
+						throw new Error("Certification requires an existing skillId");
 					if ("__tedixWorkspaceContext" in params) {
 						throw new Error(
 							"flow.run params.__tedixWorkspaceContext is reserved",
@@ -296,6 +302,7 @@ export function buildFlowProvider(
 								? { workItemId: input.workItemId }
 								: {}),
 							params: pinnedParams,
+							...(certification === true ? { certification: true } : {}),
 							confirmDestructive: true,
 							reason:
 								typeof input.reason === "string" && input.reason.trim()
@@ -362,6 +369,7 @@ export function buildFlowProvider(
 						SKILL_WORKFLOW_SURFACES.run.tediTool,
 						{
 							skillId,
+							...(certification === true ? { certification: true } : {}),
 							...(typeof input.workItemId === "string" && input.workItemId
 								? { workItemId: input.workItemId }
 								: {}),

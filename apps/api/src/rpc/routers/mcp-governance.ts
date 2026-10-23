@@ -6,6 +6,20 @@
  * "why not a direct D1 query from apps/mcp" rationale.
  */
 
+import {
+	createApprovalRequestWithAudit,
+	getApprovalRequestById,
+	consumeOwnerToolApproval,
+	getApprovalAnchor,
+} from "@tedix/db/queries/approvals";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getOrganizationById } from "@tedix/db/queries/organizations";
+import { canonicalDigest } from "../../lib/blueprint-digest";
+import {
+	buildSurfaceUrl,
+	platformDomainForEnvironment,
+} from "@tedix/tenant-directory";
+import { createError, ErrorCodes } from "../orpc";
 import { resolveAgentLifecycleAuthorization } from "@tedix/db/queries/mcp-agent-lifecycle";
 import { implement } from "@orpc/server";
 import { mcpGovernanceContract } from "@tedix/api-contract/contracts/mcp-governance";
@@ -34,6 +48,138 @@ const serviceOs = mcpGovernanceOs.use(withServiceAuth);
 const RESERVED_SKILL_NAMESPACES = new Set(["tedi", "home", "kernel", "os"]);
 
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
+	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
+		async ({ input, context }) => {
+			if (context.organizationId !== input.organizationId)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Approval organization does not match the gateway context",
+				);
+			const member = await getMemberByUserId(
+				context.db,
+				input.organizationId,
+				input.userId,
+			);
+			if (
+				member?.status !== "active" ||
+				!["owner", "admin"].includes(member.role)
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Tool approval requests require an active organization owner or admin",
+				);
+			const organization = await getOrganizationById(
+				context.db,
+				input.organizationId,
+			);
+			const origin =
+				organization &&
+				buildSurfaceUrl("os", organization.slug, {
+					platformDomain: platformDomainForEnvironment(context.env.ENVIRONMENT),
+				});
+			if (!origin)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Organization OS is unavailable",
+				);
+			const fingerprint = await canonicalDigest({
+				organizationId: input.organizationId,
+				userId: input.userId,
+				appSlug: input.appSlug,
+				toolId: input.toolId,
+				target: input.target,
+				args: input.args,
+			});
+			const now = new Date().toISOString();
+			if (input.approvalRequestId) {
+				const approval = await getApprovalRequestById(
+					context.db,
+					input.approvalRequestId,
+				);
+				if (
+					!approval ||
+					approval.orgId !== input.organizationId ||
+					approval.actionType !== "mcp.tool_call" ||
+					approval.payload.fingerprint !== fingerprint
+				)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Approval does not match this caller, target and arguments",
+					);
+				const approver = approval.resolvedBy
+					? await getMemberByUserId(
+							context.db,
+							input.organizationId,
+							approval.resolvedBy.replace(/^user:/, ""),
+						)
+					: undefined;
+				const approved =
+					approval.status === "approved" &&
+					approver?.status === "active" &&
+					["owner", "admin"].includes(approver.role) &&
+					(await consumeOwnerToolApproval(context.db, {
+						id: approval.id,
+						organizationId: input.organizationId,
+						fingerprint,
+						now,
+					}));
+				return {
+					approved: Boolean(approved),
+					approvalRequestId: approval.id,
+					status: approved ? "consumed" : approval.status,
+					url: `${origin.replace(/\/+$/, "")}/work/approvals#${approval.id}`,
+				};
+			}
+			// The anchor supplies the existing approval queue's FK, never tedi authority.
+			const anchor = await getApprovalAnchor(context.db, input.organizationId);
+			if (!anchor)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Organization has no approval anchor",
+				);
+			const id = crypto.randomUUID();
+			await createApprovalRequestWithAudit(
+				context.db,
+				{
+					id,
+					orgId: input.organizationId,
+					tediId: anchor.id,
+					actionType: "mcp.tool_call",
+					description: `Approve ${input.appSlug}:${input.toolId}. After deciding in Tedix OS, retry the identical call with approval ${id}. Nothing has been executed.`,
+					payload: {
+						kind: "mcp_tool_call",
+						initiatedByUserId: input.userId,
+						appSlug: input.appSlug,
+						toolId: input.toolId,
+						target: input.target,
+						args: input.args,
+						fingerprint,
+					},
+					createdAt: now,
+					expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+				},
+				{
+					organizationId: input.organizationId,
+					actorId: input.userId,
+					actorType: "user",
+					action: "approval.requested",
+					resourceType: "approval_request",
+					resourceId: id,
+					metadata: {
+						source: "mcp.gateway",
+						appSlug: input.appSlug,
+						toolId: input.toolId,
+					},
+				},
+			);
+			return {
+				approved: false,
+				approvalRequestId: id,
+				status: "pending",
+				url: `${origin.replace(/\/+$/, "")}/work/approvals#${id}`,
+			};
+		},
+	),
 	resolveSkillManifestAuthorization:
 		serviceOs.resolveSkillManifestAuthorization.handler(
 			async ({ input, context }) => {

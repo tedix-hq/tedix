@@ -14,6 +14,7 @@ import { sql } from "drizzle-orm";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
+	consumeOwnerToolApproval,
 	createApprovalRequest,
 	createApprovalRequestWithAudit,
 	createProvisionalOutcome,
@@ -507,5 +508,52 @@ describe("automatic scratch approval", () => {
 				})
 			).total,
 		).toBe(0);
+	});
+});
+
+describe("exact owner tool approval consumption", () => {
+	it("claims once and preserves tenant, fingerprint, expiry and pending fences", async () => {
+		const { db } = setup();
+		await createApprovalRequest(db, {
+			id: "gateway-1",
+			orgId: "org-1",
+			tediId: "tedi-1",
+			actionType: "mcp.tool_call",
+			description: "Send approved content",
+			payload: { fingerprint: "exact-input" },
+			createdAt: "2026-01-01T00:00:00.000Z",
+			expiresAt: "2099-01-02T00:00:00.000Z",
+		});
+		const input = {
+			id: "gateway-1",
+			organizationId: "org-1",
+			fingerprint: "exact-input",
+			now: "2026-01-01T01:00:00.000Z",
+		};
+		expect(await consumeOwnerToolApproval(db, input)).toBe(false);
+		await resolveApprovalRequest(db, input.id, {
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		expect(
+			await consumeOwnerToolApproval(db, {
+				...input,
+				organizationId: "other-org",
+			}),
+		).toBe(false);
+		expect(
+			await consumeOwnerToolApproval(db, {
+				...input,
+				fingerprint: "changed-input",
+			}),
+		).toBe(false);
+		expect(
+			await consumeOwnerToolApproval(db, {
+				...input,
+				now: "2099-01-03T00:00:00.000Z",
+			}),
+		).toBe(false);
+		expect(await consumeOwnerToolApproval(db, input)).toBe(true);
+		expect(await consumeOwnerToolApproval(db, input)).toBe(false);
 	});
 });

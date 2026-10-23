@@ -47,6 +47,7 @@ import {
 	toolRiskAuditMetadata,
 	enforceToolRiskRateLimit,
 } from "./tool-risk-policy";
+import { resolveWireAnnotations } from "./tool-registration-policy";
 import { type NamespaceGroup } from "@tedix/mcp-shared/compact-types";
 import { isToolDeniedForConnection } from "./no-funds-policy";
 import {
@@ -55,7 +56,6 @@ import {
 	hasPaymentProof,
 } from "./connect-payment-policy";
 import {
-	resolveToolAnnotations,
 	parseAdapterScope,
 	type ResultStrategy,
 } from "@tedix/api-contract/schemas/tools";
@@ -357,11 +357,7 @@ export function buildNamespaceGroups(
 				// untouched, for the ~52 third-party tools whose upstream never sends
 				// annotations at all. So the declaration was inert on the one path
 				// tedis actually execute on, which is the gateway-native default.
-				const declaredAnnotations = resolveToolAnnotations({
-					annotations: tool.annotations ?? null,
-					writeCapability: tool.writeCapability ?? null,
-					meta: tool.meta as Record<string, unknown> | null,
-				});
+				const declaredAnnotations = resolveWireAnnotations(tool);
 				const annotationFailure = enforceExpectedAnnotations(
 					serverCtx,
 					tool,
@@ -392,7 +388,17 @@ export function buildNamespaceGroups(
 							serverCtx.callerIdentity?.authType === "tedi" ||
 							serverCtx.callerIdentity?.authType === "service",
 						args: toolArgs,
-						extra: executionRefs.approvalExtra,
+						extra: {
+							_meta: {
+								...executionRefs.approvalExtra?._meta,
+								...(inlineExtra?._meta?.["com.tedix/approvalRequestId"]
+									? {
+											"com.tedix/approvalRequestId":
+												inlineExtra._meta["com.tedix/approvalRequestId"],
+										}
+									: {}),
+							},
+						},
 						requestBinding: executionRefs.approvalSource
 							? await sha256Hex(
 									JSON.stringify([executionRefs.approvalSource, toolArgs]),
@@ -599,11 +605,7 @@ export function buildNamespaceGroups(
 				type: "object",
 				properties: (withDestructiveApprovalSchema(
 					tool,
-					resolveToolAnnotations({
-						annotations: tool.annotations ?? null,
-						writeCapability: tool.writeCapability ?? null,
-						meta: tool.meta as Record<string, unknown> | null,
-					}),
+					resolveWireAnnotations(tool),
 				).properties ??
 					{}) as JsonSchemaToolDescriptors[string]["inputSchema"]["properties"],
 			},
