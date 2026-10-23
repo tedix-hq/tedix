@@ -23,14 +23,16 @@ export function parseFlowOption(
 	}
 	switch (arg) {
 		// `tedix flow` verb-group flags.
-		case "--watch":
+		case "--watch": {
 			// A bare `--watch` takes the default horizon so the common case needs no number.
-			if (args[index + 1] !== undefined && /^\d+$/.test(args[index + 1]!)) {
-				options.flowWatch = readNumberOption(arg, args[++index]);
-			} else {
+			const value = args[index + 1];
+			if (value === undefined || value.startsWith("-")) {
 				options.flowWatch = DEFAULT_WATCH_SECONDS;
+			} else {
+				options.flowWatch = readNumberOption(arg, args[++index]);
 			}
 			break;
+		}
 		case "--param":
 			// Repeatable: each occurrence appends rather than overwriting, so
 			// `--param a=1 --param b=2` carries both.
