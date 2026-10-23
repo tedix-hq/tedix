@@ -5,7 +5,7 @@
  * go through `recordLearningInteraction`.
  */
 
-import { and, count, desc, eq, gte, inArray, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, or, type SQL } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import {
 	type LearningInteractionEventRow,
@@ -87,40 +87,55 @@ export async function listAgentDecisionJournal(
 		issueKey?: string;
 	},
 ): Promise<LearningInteractionEventRow[]> {
-	// Session keys are bounded by listExternalAgentSessionKeys' 100-row limit;
-	// the slice keeps the IN list under half the D1 bound-parameter cap.
-	const threadIds = input.recordedBy?.threadIds?.slice(0, 50);
-	const recordedBy = input.recordedBy
-		? or(
-				...input.recordedBy.actors.map((actor) =>
+	const scopes: Array<SQL | undefined> = [];
+	if (!input.recordedBy) scopes.push(undefined);
+	else {
+		// Each actor uses two binds; common filters and LIMIT add at most six.
+		for (const actors of chunkForBoundParams(input.recordedBy.actors, 40)) {
+			const scope = or(
+				...actors.map((actor) =>
 					and(
 						eq(learningInteractionEvents.actorType, actor.actorType),
 						eq(learningInteractionEvents.actorId, actor.actorId),
 					),
 				),
-				threadIds?.length
-					? // bound-params: threadIds is sliced to 50 above.
-						inArray(learningInteractionEvents.threadId, threadIds)
-					: undefined,
+			);
+			if (scope) scopes.push(scope);
+		}
+		for (const ids of chunkForBoundParams(input.recordedBy.threadIds ?? [], 50))
+			scopes.push(inArray(learningInteractionEvents.threadId, ids));
+		if (!scopes.length) return [];
+	}
+	const byId = new Map<string, LearningInteractionEventRow>();
+	for (const scope of scopes) {
+		const rows = await db
+			.select()
+			.from(learningInteractionEvents)
+			.where(
+				and(
+					eq(learningInteractionEvents.organizationId, input.organizationId),
+					eq(learningInteractionEvents.surface, AGENT_DECISION_SURFACE),
+					eq(learningInteractionEvents.eventKind, "decided"),
+					gte(learningInteractionEvents.occurredAt, input.since),
+					scope,
+					input.issueKey
+						? eq(learningInteractionEvents.issueKey, input.issueKey)
+						: undefined,
+				),
 			)
-		: undefined;
-	const decisions = await db
-		.select()
-		.from(learningInteractionEvents)
-		.where(
-			and(
-				eq(learningInteractionEvents.organizationId, input.organizationId),
-				eq(learningInteractionEvents.surface, AGENT_DECISION_SURFACE),
-				eq(learningInteractionEvents.eventKind, "decided"),
-				gte(learningInteractionEvents.occurredAt, input.since),
-				recordedBy,
-				input.issueKey
-					? eq(learningInteractionEvents.issueKey, input.issueKey)
-					: undefined,
-			),
+			.orderBy(
+				desc(learningInteractionEvents.occurredAt),
+				desc(learningInteractionEvents.id),
+			)
+			.limit(input.limit);
+		for (const row of rows) byId.set(row.id, row);
+	}
+	const decisions = [...byId.values()]
+		.sort(
+			(a, b) =>
+				b.occurredAt.localeCompare(a.occurredAt) || b.id.localeCompare(a.id),
 		)
-		.orderBy(desc(learningInteractionEvents.occurredAt))
-		.limit(input.limit);
+		.slice(0, input.limit);
 	const outcomes: LearningInteractionEventRow[] = [];
 	for (const ids of chunkForBoundParams(
 		decisions.map((row) => row.id),
