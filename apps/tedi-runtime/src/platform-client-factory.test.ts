@@ -251,4 +251,10 @@ await assert.rejects(
 			value,
 			`access-key rotation must send ${name}: ${value}`,
 		);
+	await loadTediSecrets(staleEnv, "tedi-stale");
+	assert.equal(
+		rotations.length,
+		2,
+		"an unchanged rotated key is not cached as validated",
+	);
 }

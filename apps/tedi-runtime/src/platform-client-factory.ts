@@ -246,14 +246,31 @@ async function ensureScopedAccessKey(
 		tediId,
 		DESCOPE_ACCESS_KEY_NAME,
 	);
+	if (nextEncryptedValue === encryptedValue) {
+		console.warn(
+			`[isolate-access-key-guard] ${tediId}: rotation left the stored key unchanged; leaving it unvalidated`,
+		);
+		return { descopeAccessKey, encryptedValue };
+	}
+
 	const nextAccessKey = await decryptAccessKey(env, tediId, nextEncryptedValue);
-	validatedAccessKeyCache.set(tediId, {
-		encryptedValue: nextEncryptedValue,
-		expiresAt: Date.now() + ACCESS_KEY_VALIDATION_TTL_MS,
-	});
-	console.log(
-		`[isolate-access-key-guard] ${tediId}: rotated and reloaded Descope access key`,
-	);
+	const nextProbe = await exchangeAccessKey(env, nextAccessKey);
+	if (nextProbe.ok && nextProbe.missingScopes.length === 0) {
+		validatedAccessKeyCache.set(tediId, {
+			encryptedValue: nextEncryptedValue,
+			expiresAt: Date.now() + ACCESS_KEY_VALIDATION_TTL_MS,
+		});
+		console.log(
+			`[isolate-access-key-guard] ${tediId}: rotated and reloaded Descope access key`,
+		);
+	} else {
+		const nextReason = nextProbe.ok
+			? `missing runtime API scopes: ${nextProbe.missingScopes.join(", ")}`
+			: nextProbe.error;
+		console.warn(
+			`[isolate-access-key-guard] ${tediId}: rotated key failed revalidation (${nextReason}); leaving it unvalidated`,
+		);
+	}
 	return {
 		descopeAccessKey: nextAccessKey,
 		encryptedValue: nextEncryptedValue,
