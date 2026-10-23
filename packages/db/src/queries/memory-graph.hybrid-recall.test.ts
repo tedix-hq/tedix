@@ -213,6 +213,42 @@ describe("canonical hybrid recall D1 queries", () => {
 			),
 		).toBe(false);
 	});
+	it("seeks incident edges and replacement facts for lexical eligibility", async () => {
+		const prepared: string[] = [];
+		const { db, add, sqlite } = fixture((query) => prepared.push(query));
+		add("usable", "cobalt");
+		add("unrelated", "amber");
+		sqlite.exec(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<3000)
+			INSERT INTO memory_edges(id,source_fact_id,target_fact_id,relation_type)
+			SELECT 'edge-'||i,'unrelated','absent-'||i,
+			CASE WHEN i%2=0 THEN 'supersedes' ELSE 'contradicts' END FROM n;
+			ANALYZE;`);
+		expect(
+			(await lexicalRecall(db, { ...scope, now: undefined }, "cobalt")).map(
+				(fact) => fact.factId,
+			),
+		).toEqual(["usable"]);
+		const query = prepared.find((query) => query.includes("lexical_score"))!;
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array(query.match(/\?/g)?.length ?? 0).fill(null))
+			.map((row) => String(row.detail));
+		expect(plan.filter((detail) => /SCAN (e|newer)\b/.test(detail))).toEqual(
+			[],
+		);
+		expect(
+			plan.filter((detail) => detail.includes("idx_memory_edges_type")),
+		).toEqual([]);
+		for (const index of ["idx_memory_edges_source", "idx_memory_edges_target"])
+			expect(plan.some((detail) => detail.includes(index))).toBe(true);
+		expect(
+			plan.some((detail) =>
+				/SEARCH newer USING INDEX sqlite_autoindex_memory_facts_1 \(id=\?\)/.test(
+					detail,
+				),
+			),
+		).toBe(true);
+	});
 	it("filters inactive BM25 matches before limiting candidates", async () => {
 		const { db, add } = fixture();
 		for (let i = 0; i < 520; i++)
