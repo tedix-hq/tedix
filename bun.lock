@@ -697,6 +697,7 @@
       "name": "@tedix/db",
       "version": "0.0.2",
       "dependencies": {
+        "@babel/parser": "^7.29.8",
         "@tedix/api-contract": "workspace:*",
         "@tedix/context-core": "workspace:*",
         "@tedix/tenant-directory": "workspace:*",
