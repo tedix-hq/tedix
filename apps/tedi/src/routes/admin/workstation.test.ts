@@ -979,7 +979,7 @@ describe("dependency preparation identity in a real shell", () => {
 		writeFileSync(
 			join(bin, "bun"),
 			`#!/bin/bash
-if [ "$1" = --version ]; then printf '%s\\n' "\${TEST_BUN_VERSION:-1.4.2}"; exit 0; fi
+if [ "$1" = --version ]; then printf '%s\\n' "\${TEST_BUN_VERSION:-1.4.4}"; exit 0; fi
 if [ -f node_modules/.tedix-dependency-fingerprint ]; then echo 'stale marker survived' >&2; exit 81; fi
 printf '%s|%s\\n' "$*" "$BUN_INSTALL_CACHE_DIR" >> installs.log
 if [ "\${TEST_INSTALL_FAIL:-}" = 1 ]; then exit 1; fi

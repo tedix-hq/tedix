@@ -35,7 +35,7 @@ export const WORKSTATION_BUN_BOOTSTRAP_ARGUMENTS = `--frozen-lockfile --ignore-s
 // Must equal the repo's packageManager pin; bun-version-alignment.test.ts
 // is the guard, because this drifted for a day and made every delegated
 // verification command unsatisfiable.
-export const WORKSTATION_BUN_VERSION = "1.4.2";
+export const WORKSTATION_BUN_VERSION = "1.4.4";
 
 export const WORKSTATION_BUN_ALIGNMENT_TIMEOUT_SECONDS = 120;
 
