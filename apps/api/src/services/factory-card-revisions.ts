@@ -22,7 +22,6 @@ export async function factoryCardRevisionRequests(
 		cardId: string;
 		instruction: string;
 		sourceRevision: number;
-		runId: string;
 	}[] = [];
 	for (const event of requests) {
 		const meta = event.metadata;
@@ -33,8 +32,7 @@ export async function factoryCardRevisionRequests(
 			typeof meta.rowIndex !== "number" ||
 			typeof meta.draftColumn !== "string" ||
 			typeof meta.sourceRevision !== "number" ||
-			typeof meta.before !== "string" ||
-			typeof meta.runId !== "string"
+			typeof meta.before !== "string"
 		)
 			continue;
 		const body = cellText(
@@ -59,7 +57,6 @@ export async function factoryCardRevisionRequests(
 				surface: "decision_capture",
 				targetType: "output",
 				targetId: revision.outputId,
-				runId: meta.runId,
 				metadata: {
 					schema: "tedix.card-revision-pair.v1",
 					cardId: meta.cardId,
@@ -79,7 +76,6 @@ export async function factoryCardRevisionRequests(
 				cardId: meta.cardId,
 				instruction: meta.instruction,
 				sourceRevision: meta.sourceRevision,
-				runId: meta.runId,
 			});
 	}
 	return pending;

@@ -22,15 +22,12 @@ vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
 vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
 	getSkillEntry: vi.fn(async () => ({
 		id: "writing-skill",
-		tediId: "writing-agent",
+		tediId: "66666666-6666-4666-8666-666666666666",
 	})),
 }));
 vi.mock("./learning-interaction-recorder", async (original) => ({
 	...(await original<Record<string, unknown>>()),
 	recordObservedLearningInteraction: vi.fn(),
-}));
-vi.mock("../rpc/routers/kernel-runtime", () => ({
-	kernelRuntimeContractRouter: { enqueueMessage: "rewrite" },
 }));
 vi.mock("@orpc/server", async (original) => ({
 	...(await original<Record<string, unknown>>()),
@@ -156,8 +153,6 @@ it("requests changes through the router for a discovered card using its merged s
 		async (procedure: string, ...rest: unknown[]) => {
 			if (procedure === "schedules")
 				return { items: [{ skillId: "44444444-4444-4444-8444-444444444444" }] };
-			if (procedure === "rewrite")
-				return { status: "running", run: { id: "rewrite-run" } };
 			const result = await base(procedure, ...rest);
 			if (procedure === "output")
 				result.output = {
@@ -167,10 +162,12 @@ it("requests changes through the router for a discovered card using its merged s
 			return result;
 		},
 	);
+	const send = vi.fn();
 	const client = createRouterClient(attentionContractRouter, {
 		context: {
 			...context,
-			env: { ENVIRONMENT: "test" },
+			organizationId: "77777777-7777-4777-8777-777777777777",
+			env: { ENVIRONMENT: "test", AUTOMATION_EVENTS: { send } },
 			headers: new Headers(),
 			authType: "apikey",
 			apiKey: { id: "key", scopes: ["mcp:messaging.write"] },
@@ -186,17 +183,14 @@ it("requests changes through the router for a discovered card using its merged s
 			},
 		}),
 	).resolves.toEqual({ saved: true, cardId: `factory:${outputId}:0` });
-	expect(mocks.call).toHaveBeenCalledWith(
-		"rewrite",
+	// The reviewer's request goes straight to the writing tedi, not through Home delegation.
+	expect(send).toHaveBeenCalledWith(
 		expect.objectContaining({
+			kind: "tedi_turn",
+			tediId: "66666666-6666-4666-8666-666666666666",
 			conversationId: `factory-card:${outputId}:0`,
-			delegateToTediId: "writing-agent",
-			workspaceContext: {
-				workspaceId,
-				workpiece: { kind: "output", id: outputId },
-			},
+			source: "factory-card-change",
 		}),
-		expect.anything(),
 	);
 });
 

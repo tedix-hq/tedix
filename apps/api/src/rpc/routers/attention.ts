@@ -301,30 +301,32 @@ export const attentionContractRouter = os.router({
 						throw errors.BAD_REQUEST({
 							message: "The source's writing agent is unavailable",
 						});
-					const { kernelRuntimeContractRouter } =
-						await import("./kernel-runtime");
-					const result = await call(
-						kernelRuntimeContractRouter.enqueueMessage,
-						{
-							// One thread per card: the caller's Home thread may be pinned to another Workspace.
-							conversationId: `factory-card:${original.outputId}:${original.rowIndex}`,
-							delegateToTediId: skill.tediId,
-							workspaceContext: {
-								workspaceId: source.workspaceId,
-								workpiece: { kind: "output", id: original.outputId },
-							},
-							content: `Revise the agent-written draft for factory card ${original.number} in output ${original.outputId}, row ${original.rowIndex}, draft column ${source.columns.draft}. Use the existing source skill ${skill.id} as writing context. Human instruction: ${input.instruction}\nCurrent draft: ${original.draft}\nRead the current output and CAS-write only this draft cell through outputs.setSheetRange. Keep this same card and all action/decision cells unchanged. Include the human instruction in the revision note and preserve sources. Do not run the card's action, send messages or approve anything.`,
-							idempotencyKey: `factory-revision:${original.outputId}:${original.rowIndex}:${input.expectedRevision}`,
-						},
-						{ context },
-					);
-					if (result.status === "failed")
+					// The reviewer's click is the request, so the rewrite goes straight to
+					// the writing tedi as a tedi turn, the path the factory's own runs
+					// use, not through Home delegation and its approval card.
+					const { AutomationEventSchema } =
+						await import("@tedix/api-contract/schemas/automation-events");
+					const requestKey = `factory-revision:${original.outputId}:${original.rowIndex}:${input.expectedRevision}`;
+					try {
+						await context.env.AUTOMATION_EVENTS!.send(
+							AutomationEventSchema.parse({
+								kind: "tedi_turn",
+								organizationId: requireOrgId(context),
+								tediId: skill.tediId,
+								idempotencyKey: requestKey,
+								conversationId: `factory-card:${original.outputId}:${original.rowIndex}`,
+								source: "factory-card-change",
+								content: `Revise the agent-written draft for factory card ${original.number} in output ${original.outputId}, row ${original.rowIndex}, draft column ${source.columns.draft}. Use the existing source skill ${skill.id} as writing context. Human instruction: ${input.instruction}\nCurrent draft: ${original.draft}\nRead the current output and CAS-write only this draft cell through outputs.setSheetRange. Keep this same card and all action/decision cells unchanged. Include the human instruction in the revision note and preserve sources. Do not run the card's action, send messages or approve anything.`,
+							}),
+						);
+					} catch {
 						throw errors.SERVICE_UNAVAILABLE({
-							message: "The writing agent could not start. Try again in Home.",
+							message: "The writing agent could not start. Try again.",
 						});
+					}
 					await recordObservedLearningInteraction(context, {
 						organizationId: requireOrgId(context),
-						clientEventId: `factory-revision-request:${result.run.id}`,
+						clientEventId: `factory-revision-request:${requestKey}`,
 						eventKind: "answered",
 						surface: "decision_capture",
 						targetType: "output",
@@ -339,7 +341,6 @@ export const attentionContractRouter = os.router({
 							instruction: input.instruction,
 							before: original.draft,
 							sourceRevision: input.expectedRevision,
-							runId: result.run.id,
 							skillId: skill.id,
 						},
 					});
