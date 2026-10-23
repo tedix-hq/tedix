@@ -2,11 +2,14 @@ import type { DecisionLearningModel } from "../schemas/decision-learning";
 import type { DeckNotUsefulReason } from "../schemas/deck-pipeline";
 import {
 	classifyDeckCard,
+	DEFAULT_DECK_ROUTING,
 	DECISION_DECK_ENTRY,
 	DecisionDeckConfigSchema,
 	type DecisionEnvelope,
 	DecisionEnvelopeSchema,
 	type DeckRoutingPolicy,
+	learnedFeed,
+	matchesDeckClass,
 } from "../schemas/os-decision-deck";
 import { cardIsDue, isCardScheduleField } from "./card-schedule";
 import {
@@ -871,18 +874,25 @@ export function routeFactoryCard(
 				(weight) => weight.key === `class:${learningClass}`,
 			)
 		: undefined;
+	const classId = card.type.trim().toLowerCase();
+	const route = classifyDeckCard(
+		{ kind: "proposal", classId, learnedUsefulness, needsPerson: true },
+		policy,
+		now,
+	);
+	// A factory card waits on its reviewer's verdict, so a type the policy does
+	// not name as routine asks on the Deck instead of slipping into the Feed,
+	// unless the reviewer has taught "less like this" for it.
+	const rules = policy ?? DEFAULT_DECK_ROUTING;
+	const unlisted =
+		route.reason === "routine" && !matchesDeckClass(classId, rules.feedClasses);
 	return {
 		id: card.key,
 		score: card.score ?? null,
-		...classifyDeckCard(
-			{
-				kind: "proposal",
-				classId: card.type.trim().toLowerCase(),
-				learnedUsefulness,
-				needsPerson: true,
-			},
-			policy,
-			now,
-		),
+		...route,
+		...(unlisted &&
+			(learnedFeed(learnedUsefulness, rules)
+				? { reason: "learned_feed" }
+				: { destination: "deck" as const, reason: "review" })),
 	};
 }
