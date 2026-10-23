@@ -257,7 +257,7 @@ export async function runWebSearch(input: {
 								: { query: input.query, limit, sources: ["web"] },
 						),
 						signal: AbortSignal.timeout(30_000),
-						redirect: "error",
+						redirect: "manual",
 					},
 				);
 	} catch (error) {
