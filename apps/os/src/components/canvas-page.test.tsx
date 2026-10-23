@@ -1460,8 +1460,28 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain(
 			"This document uses restricted sources",
 		);
-		expect(container.textContent).not.toContain("Connecting…");
+		expect(container.textContent).not.toContain("Connecting");
+		expect(
+			container.querySelector(".canvas-document-status [data-connection]"),
+		).toBeNull();
 		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
+	});
+
+	it("keeps the room connection indicator for a readable saved document", async () => {
+		mockLists();
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision: outputRevisionFixture(),
+		});
+		mockCollab({ status: "connecting" });
+		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
+		const container = renderPage();
+		await flush();
+		expect(
+			container.querySelector(
+				'.canvas-document-status [data-connection="connecting"]',
+			),
+		).not.toBeNull();
 	});
 
 	it("does not open a file whose source access is unavailable", async () => {
