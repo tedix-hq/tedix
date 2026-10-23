@@ -57,6 +57,10 @@ export function OutputDetailPage() {
 	const { outputId } = useParams({
 		from: "/_session/_tenant/outputs_/$outputId",
 	});
+	return <OutputDetail outputId={outputId} key={outputId} />;
+}
+
+function OutputDetail({ outputId }: { outputId: string }) {
 	const detail = useQuery(outputDetailQueryOptions(outputId));
 	const workspaceId = detail.data?.output.workspaceId ?? "";
 	const workspace = useQuery({

@@ -15,13 +15,16 @@ import {
 } from "vite-plus/test";
 
 const OUTPUT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SECOND_OUTPUT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const REVISION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 const harness = vi.hoisted(() => ({
+	outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 	detail: null as unknown,
 	workspace: null as unknown,
 	save: vi.fn(),
+	reviseOutput: vi.fn(),
 	clearOutcome: vi.fn(),
 }));
 
@@ -31,7 +34,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-	useParams: () => ({ outputId: OUTPUT_ID }),
+	useParams: () => ({ outputId: harness.outputId }),
 	Link: ({
 		children,
 		to,
@@ -56,12 +59,15 @@ vi.mock("@/lib/os-query-options", () => ({
 }));
 
 vi.mock("@/lib/use-revise-output", () => ({
-	useReviseOutput: () => ({
-		save: harness.save,
-		saving: false,
-		outcome: null,
-		clearOutcome: harness.clearOutcome,
-	}),
+	useReviseOutput: (outputId: string) => {
+		harness.reviseOutput(outputId);
+		return {
+			save: harness.save,
+			saving: false,
+			outcome: null,
+			clearOutcome: harness.clearOutcome,
+		};
+	},
 }));
 
 vi.mock("@/components/output-content", () => ({
@@ -144,7 +150,10 @@ function renderPage() {
 		act(() => root.unmount());
 		container.remove();
 	});
-	return container;
+	return {
+		container,
+		rerender: () => act(() => root.render(<OutputDetailPage />)),
+	};
 }
 
 function clickButton(container: Element, label: string) {
@@ -156,6 +165,7 @@ function clickButton(container: Element, label: string) {
 }
 
 beforeEach(() => {
+	harness.outputId = OUTPUT_ID;
 	harness.detail = {
 		data: { output, currentRevision },
 		isPending: false,
@@ -171,6 +181,8 @@ beforeEach(() => {
 		},
 	};
 	harness.save.mockReset();
+	harness.save.mockResolvedValue({ kind: "saved" });
+	harness.reviseOutput.mockReset();
 	harness.clearOutcome.mockReset();
 });
 
@@ -187,15 +199,17 @@ describe("OutputDetailPage", () => {
 				authoringHomeRun: { runId: "home-author" },
 			},
 		};
-		const container = renderPage();
+		const { container } = renderPage();
 		expect(container.textContent).toContain("See how it was made");
 		expect(container.textContent).not.toContain("cost");
 	});
 	it("does not invent a Home link when no association is available", () => {
-		expect(renderPage().textContent).not.toContain("See how it was made");
+		expect(renderPage().container.textContent).not.toContain(
+			"See how it was made",
+		);
 	});
 	it("keeps the read-only detail in the standard route lane", () => {
-		const container = renderPage();
+		const { container } = renderPage();
 		const page = container.querySelector('[data-slot="page"]');
 		const back = container.querySelector("[data-page-back]");
 		const title = container.querySelector('[data-slot="page-title"]');
@@ -235,7 +249,7 @@ describe("OutputDetailPage", () => {
 			isError: false,
 			error: null,
 		};
-		const container = renderPage();
+		const { container } = renderPage();
 
 		expect(
 			container.querySelector('[data-slot="page-description"]')?.textContent,
@@ -247,7 +261,7 @@ describe("OutputDetailPage", () => {
 	});
 
 	it("turns edit mode into a full-height edge-to-edge workshop", () => {
-		const container = renderPage();
+		const { container } = renderPage();
 		clickButton(container, "Edit");
 
 		const page = container.querySelector('[data-slot="page"]');
@@ -279,6 +293,33 @@ describe("OutputDetailPage", () => {
 		expect(harness.clearOutcome).toHaveBeenCalledTimes(2);
 	});
 
+	it("discards an active workshop when the output route changes", () => {
+		const { container, rerender } = renderPage();
+		clickButton(container, "Edit");
+		expect(container.querySelector(".output-detail-workshop")).not.toBeNull();
+
+		harness.outputId = SECOND_OUTPUT_ID;
+		harness.detail = {
+			data: {
+				output: { ...output, id: SECOND_OUTPUT_ID, title: "Quarterly plan" },
+				currentRevision: {
+					...currentRevision,
+					id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+					outputId: SECOND_OUTPUT_ID,
+				},
+			},
+			isPending: false,
+			isError: false,
+			error: null,
+		};
+		rerender();
+
+		expect(container.querySelector(".output-detail-workshop")).toBeNull();
+		expect(container.textContent).toContain("Quarterly plan");
+		expect(harness.reviseOutput).toHaveBeenCalledWith(OUTPUT_ID);
+		expect(harness.reviseOutput).toHaveBeenLastCalledWith(SECOND_OUTPUT_ID);
+	});
+
 	/*
 	 * The not-found verdict moved out of the route loader,
 	 * which could not tell a 404 from a cold-isolate timeout, into this query.
@@ -292,7 +333,7 @@ describe("OutputDetailPage", () => {
 				code: "NOT_FOUND",
 			}),
 		};
-		const container = renderPage();
+		const { container } = renderPage();
 
 		expect(container.textContent).toContain("Output not found");
 		expect(container.querySelector("[data-output-content]")).toBeNull();
@@ -305,7 +346,7 @@ describe("OutputDetailPage", () => {
 			isError: true,
 			error: new Error("The request timed out."),
 		};
-		const container = renderPage();
+		const { container } = renderPage();
 
 		expect(container.textContent).toContain("Output is unavailable");
 		expect(container.textContent).toContain("The request timed out.");
@@ -319,7 +360,7 @@ describe("OutputDetailPage", () => {
 			isError: false,
 			error: null,
 		};
-		const container = renderPage();
+		const { container } = renderPage();
 
 		expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
 		expect(container.textContent).not.toContain("not found");
