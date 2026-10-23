@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { Window } from "happy-dom";
 import * as jwt from "@tedix/auth/jwt";
 import type { SessionBrokerRpc } from "@tedix/auth/session-broker";
 import {
@@ -1355,6 +1356,78 @@ describe("Tedix OS origin router", () => {
 		expect(response.status).toBe(503);
 		expect(env.seen).toHaveLength(0);
 	});
+
+	it("offers a manual document retry with a correlated outage reference", async () => {
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		const window = new Window();
+		try {
+			const env = withApiService(envRecordingRequests());
+			const response = await handleOsRequest(
+				new Request(
+					"https://sample.os.tedix.dev/work?private=fictional-token",
+					{
+						headers: { Accept: "text/html" },
+					},
+				),
+				env,
+				failing,
+			);
+			expect(response.status).toBe(503);
+			expect(env.seen).toHaveLength(0);
+			expect(response.headers.get("Content-Type")).toContain("text/html");
+			expect(response.headers.get("Cache-Control")).toContain("no-store");
+			expect(response.headers.get("Retry-After")).toBe("5");
+			const reference = response.headers.get("X-Request-Id");
+			expect(reference).toMatch(/^[0-9a-f-]{36}$/);
+			const html = await response.text();
+			const doc = new window.DOMParser().parseFromString(html, "text/html");
+			expect(doc.querySelector("main h1")?.textContent).toBe(
+				"Workspace temporarily unavailable",
+			);
+			expect(doc.querySelector("a")?.textContent).toBe("Try again");
+			expect(doc.querySelector("a")?.getAttribute("href")).toBe("");
+			expect(html).toContain(reference!);
+			expect(html).not.toContain("fictional-token");
+			expect(html).not.toContain("resolver down");
+			expect(doc.querySelector("script, meta[http-equiv=refresh]")).toBeNull();
+			expect(log).toHaveBeenCalledWith("OS tenant resolution unavailable", {
+				requestId: reference,
+				hostname: "sample.os.tedix.dev",
+			});
+		} finally {
+			log.mockRestore();
+			await window.happyDOM.close();
+		}
+	});
+
+	it.each(["/api/rpc/workItems/list", "/cli/api/rpc/workItems/list"])(
+		"keeps the tenant outage parseable by the oRPC client at %s",
+		async (path) => {
+			const env = withApiService(envRecordingRequests());
+			const response = await handleOsRequest(
+				new Request(`https://sample.os.tedix.dev${path}`, {
+					headers: { Accept: "text/html, application/json" },
+				}),
+				env,
+				failing,
+			);
+			expect(response.status).toBe(503);
+			expect(env.seen).toHaveLength(0);
+			expect(response.headers.get("Content-Type")).toContain(
+				"application/json",
+			);
+			const body = (await response.json()) as {
+				json: { code: string; message: string };
+			};
+			expect(body.json.code).toBe("SERVICE_UNAVAILABLE");
+			expect(body.json.message).toContain(
+				"Tenant resolution is temporarily unavailable.",
+			);
+			expect(body.json.message).toContain(
+				response.headers.get("X-Request-Id")!,
+			);
+		},
+	);
 
 	it.each(["read", "write"])(
 		"uses the authoritative tenant resolution when the cache %s fails",

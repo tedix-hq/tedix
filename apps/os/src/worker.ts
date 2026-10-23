@@ -479,6 +479,45 @@ function refuse(status: number, reason: string): Response {
 	);
 }
 
+/** A routing outage stays closed, but documents can recover without a blank shell. */
+function tenantResolutionUnavailable(request: Request): Response {
+	const requestId = crypto.randomUUID();
+	const url = new URL(request.url);
+	console.error("OS tenant resolution unavailable", {
+		requestId,
+		hostname: url.hostname,
+	});
+	const reason = `Tenant resolution is temporarily unavailable. Reference: ${requestId}`;
+	const document =
+		isDocumentNavigation(request) && !isOrpcTransportPath(url.pathname);
+	const response = document
+		? withSecurityHeaders(
+				new Response(
+					request.method === "HEAD"
+						? null
+						: `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace temporarily unavailable</title>
+<style>body{font:1rem/1.5 system-ui,sans-serif;margin:0;padding:24px;min-height:80vh;display:grid;place-items:center;background:#fafafa;color:#202020}main{max-width:36rem}h1{font-size:1.5rem}a{display:inline-block;padding:12px 20px;border:1px solid currentColor;border-radius:8px;color:inherit}small{display:block;margin-top:24px;overflow-wrap:anywhere}@media(prefers-color-scheme:dark){body{background:#181818;color:#eee}}</style>
+</head><body><main><h1>Workspace temporarily unavailable</h1>
+<p>We couldn’t load this workspace. Please wait a moment, then try again.</p>
+<a href="">Try again</a><small>Reference: ${requestId}</small></main></body></html>`,
+					{
+						status: 503,
+						headers: {
+							"Content-Type": "text/html; charset=utf-8",
+							"Content-Security-Policy":
+								"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+						},
+					},
+				),
+			)
+		: refuseApi(url, 503, "SERVICE_UNAVAILABLE", reason);
+	response.headers.set("Retry-After", "5");
+	response.headers.set("X-Request-Id", requestId);
+	return response;
+}
+
 /** The oRPC transport paths this Worker proxies. */
 function isOrpcTransportPath(pathname: string): boolean {
 	return (
@@ -902,7 +941,7 @@ export async function handleOsRequest(
 	if (tenant.kind === "tenant" && env.API_SERVICE) {
 		const resolution = await resolveWithCache(env, tenant.slug, resolver);
 		if (resolution === "unavailable") {
-			return refuse(503, "Tenant resolution is temporarily unavailable.");
+			return tenantResolutionUnavailable(request);
 		}
 		if (!resolution.provisioned) {
 			return refuse(404, "No Tedix OS workspace at this hostname.");
