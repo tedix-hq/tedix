@@ -24,7 +24,7 @@ const PURPOSE = { objectiveId: OBJECTIVE_ID } as const;
 const DDL = `
 CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 CREATE TABLE organization_members (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT, descope_user_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, avatar_url TEXT, kind TEXT NOT NULL DEFAULT 'human', represented_user_id TEXT, role TEXT NOT NULL, custom_permissions TEXT, status TEXT NOT NULL DEFAULT 'active', invited_at TEXT, invite_accepted_at TEXT, invited_by TEXT, last_active_at TEXT, created_at TEXT, updated_at TEXT);
-CREATE TABLE tedi_objectives (id TEXT PRIMARY KEY, org_id TEXT NOT NULL);
+CREATE TABLE tedi_objectives (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');
 CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, objective_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, name TEXT, description TEXT, lead_tedi_id TEXT, owner_user_id TEXT, target_date TEXT, metadata TEXT DEFAULT '{}', updated_at TEXT, archived_at TEXT);
 CREATE TABLE work_items (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT,
@@ -335,6 +335,45 @@ describe("Work Item router canonical specification reads and writes", () => {
 			}),
 		).rejects.toThrow(/different organization/);
 	});
+	it.each(["paused", "completed"])(
+		"rejects create and purpose repair onto a %s objective",
+		async (status) => {
+			sqlite
+				.prepare("UPDATE tedi_objectives SET status=? WHERE id=?")
+				.run(status, OBJECTIVE_ID);
+			await expect(
+				client().create({ ...PURPOSE, title: "Objective work" }),
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: `Objective ${OBJECTIVE_ID} is ${status}; Work purpose requires an active objective`,
+			});
+
+			sqlite
+				.prepare(
+					"INSERT INTO projects(id,org_id,key,objective_id,created_at) VALUES (?,?,?,?,?)",
+				)
+				.run(
+					PROJECT_ID,
+					ORG_ID,
+					"PLAN",
+					OBJECTIVE_ID,
+					"2026-08-20T00:00:00.000Z",
+				);
+			const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+			seed({
+				id,
+				disposition: "accepted",
+				workClass: "maintenance",
+				projectId: PROJECT_ID,
+			});
+			await expect(
+				client("owner").updateSpecification({ id, workClass: "objective" }),
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: `Objective ${OBJECTIVE_ID} is ${status}; Work purpose requires an active objective`,
+			});
+		},
+	);
 	it("creates a proposed artifact-neutral Work Item and reads it back", async () => {
 		const created = await client().create({
 			...PURPOSE,
