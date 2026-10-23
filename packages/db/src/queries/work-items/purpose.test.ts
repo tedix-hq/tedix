@@ -266,6 +266,42 @@ describe("canonical Work Item purpose", () => {
 		},
 	);
 
+	it.each(
+		["paused", "completed", "failed"].flatMap((status) =>
+			["explicit", "parent", "project"].map((source) => ({ status, source })),
+		),
+	)(
+		"rejects a $status objective from $source context",
+		async ({ status, source }) => {
+			const { sqlite, db } = fixture();
+			sqlite
+				.prepare("UPDATE tedi_objectives SET status=? WHERE id='objective'")
+				.run(status);
+			await expect(
+				resolveWorkItemPurpose(db, {
+					orgId: "org",
+					now: NOW,
+					...(source === "explicit"
+						? { objectiveId: "objective" }
+						: source === "project"
+							? { project: { objectiveId: "objective" } }
+							: {
+									parent: {
+										id: "parent",
+										objectiveId: "objective",
+										workClass: "objective" as const,
+										purposeExceptionExpiresAt: null,
+										projectId: null,
+									},
+								}),
+				}),
+			).rejects.toMatchObject({
+				code: "objective_inactive",
+				message: `Objective objective is ${status}; Work purpose requires an active objective`,
+			});
+		},
+	);
+
 	it("accepts an explicitly bounded operational exception", async () => {
 		const { db } = fixture();
 		expect(

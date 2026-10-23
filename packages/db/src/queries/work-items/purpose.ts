@@ -32,6 +32,7 @@ export class WorkItemPurposeError extends Error {
 			| "context_required"
 			| "objective_not_found"
 			| "objective_wrong_org"
+			| "objective_inactive"
 			| "exception_invalid",
 		message: string,
 	) {
@@ -249,7 +250,7 @@ export async function resolveWorkItemPurpose(
 			);
 		}
 		const rows = await db
-			.select({ orgId: tediObjectives.orgId })
+			.select({ orgId: tediObjectives.orgId, status: tediObjectives.status })
 			.from(tediObjectives)
 			.where(eq(tediObjectives.id, objectiveId))
 			.limit(1);
@@ -264,6 +265,12 @@ export async function resolveWorkItemPurpose(
 			throw new WorkItemPurposeError(
 				"objective_wrong_org",
 				"Objective belongs to a different organization",
+			);
+		}
+		if (objective.status !== "active") {
+			throw new WorkItemPurposeError(
+				"objective_inactive",
+				`Objective ${objectiveId} is ${objective.status}; Work purpose requires an active objective`,
 			);
 		}
 		return {
