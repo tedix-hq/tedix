@@ -117,6 +117,31 @@ describe("canonical Deck projection", () => {
 			]),
 		).toEqual([]);
 	});
+	it("keeps owner-only asks named in the subject and ignores the agent summary", () => {
+		const ask = (id: string, subject: string, prompt = "Details follow.") =>
+			row(id, {}, {
+				request: { ...row(id).request, subject, prompt },
+			} as Partial<Row>);
+		expect(
+			project([
+				ask("money", "Delete the paused graph copy before it auto-resumes?"),
+				ask(
+					"tax",
+					"Bookkeeping: answer 7 expense questions or name your tax adviser",
+				),
+				ask("drafts", "Review two prepared contact drafts — about 4 minutes"),
+				ask("roles", "Change the membership back to the Member role"),
+				ask(
+					"agent",
+					"Extend this lane scope to package.json and bun.lock",
+					"Summary: no sends, publish later through the guarded push.",
+				),
+				ask("routine", "Owner/steward: mark Work complete"),
+			])
+				.map((card) => card.id)
+				.sort(),
+		).toEqual(["drafts", "money", "roles", "tax"]);
+	});
 	it("puts overdue asks first, then approvals", () => {
 		const expired = row("expired", { riskLevel: "critical" });
 		expired.request.dueAt = "2026-10-18T12:00:00.000Z";

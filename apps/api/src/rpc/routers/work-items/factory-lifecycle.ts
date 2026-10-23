@@ -813,7 +813,14 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				summary: input.summary,
 			});
 			const metadata = { ...input.metadata, feedSentence };
-			return await settleWorkItemAttempt(context.db, {
+			const { laneNextStepNeedsPerson, routeLaneNextStepToAgent } =
+				await import("../../../services/lane-handoff-routing");
+			const agentNextStep =
+				input.needsUser && !laneNextStepNeedsPerson(input.needsUser)
+					? input.needsUser
+					: undefined;
+			const settledAt = new Date().toISOString();
+			const settled = await settleWorkItemAttempt(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				attemptId: input.attemptId,
@@ -823,15 +830,25 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				externalSessionKey: external?.externalSessionKey,
 				outcome: input.outcome,
 				summary: input.summary,
-				needsUser: input.needsUser,
+				needsUser: agentNextStep ? undefined : input.needsUser,
 				requestId: input.requestId,
 				metadata: external
 					? toJsonRecord(stampExternalAgentMetadata(external, metadata))
 					: toJsonRecord(metadata),
 				repositoryLifecycle: input.repositoryLifecycle,
 				costMicros: input.costMicros,
-				settledAt: new Date().toISOString(),
+				settledAt,
 			});
+			if (!agentNextStep) return settled;
+			const ask = await routeLaneNextStepToAgent(context.db, {
+				work: settled.workItem,
+				executor,
+				externalSessionKey: external?.externalSessionKey,
+				nextClick: agentNextStep,
+				summary: settled.attempt.summary ?? input.summary,
+				now: settledAt,
+			});
+			return { ...settled, interactionId: ask.id };
 		} catch (error) {
 			rethrowWorkItemWriteError(error);
 		}

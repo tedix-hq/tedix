@@ -120,6 +120,17 @@ export const DeckRoutingPolicySchema = z.strictObject({
 	criticalClasses: z.array(z.string().min(1)).max(100),
 	criticalActionPatterns: z.array(z.string().min(1).max(500)).max(30),
 	criticalQuestionPatterns: z.array(z.string().min(1).max(500)).max(30),
+	/**
+	 * Human-reserved action classes (critical-actions.v1) that keep an ask with
+	 * its person when its subject names one. Read from the subject only: agent
+	 * summaries in the prompt mention such words without asking for the act.
+	 */
+	criticalSubjectClasses: z.array(z.string().min(1)).max(20).optional(),
+	/** Owner-only subjects no action class covers, such as tax facts. */
+	criticalSubjectPatterns: z
+		.array(z.string().min(1).max(500))
+		.max(30)
+		.optional(),
 	learnedMinimumExamples: z.number().int().positive(),
 	learnedFeedThreshold: z.number().negative(),
 	valuableClasses: z.array(z.string().min(1)).max(100),

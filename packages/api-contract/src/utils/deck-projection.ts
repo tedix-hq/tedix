@@ -16,6 +16,7 @@ import { calendarDay, cardIsDue } from "./card-schedule";
 import { compareFactoryScore } from "./card-priority";
 import { deadlineOverdue, deckAsk } from "./deck-ask";
 import { credentialCard } from "./card-secrets";
+import { humanOnlyAskReasons } from "./human-only-ask";
 import { scoreLearning, type LearningCandidate } from "./decision-learning";
 
 type Request = z.infer<typeof WorkInteractionInboxRowSchema>;
@@ -286,12 +287,17 @@ export function interactionDeckRoute(
 			action: decision
 				? undefined
 				: String(m.approvalOperation ?? `${r.subject ?? ""}\n${r.prompt}`),
-			// A credential ask stays protected whatever generated copy says.
-			risk: credentialCard(`${r.subject ?? ""} ${r.prompt}`, m)
-				? "critical"
-				: typeof m.riskLevel === "string"
-					? m.riskLevel
-					: undefined,
+			// A credential ask stays protected whatever generated copy says, and
+			// so does an envelope-less ask whose subject names an owner-only act.
+			risk:
+				credentialCard(`${r.subject ?? ""} ${r.prompt}`, m) ||
+				(!decision &&
+					kind !== "approval" &&
+					humanOnlyAskReasons(r.subject ?? "", routing).length > 0)
+					? "critical"
+					: typeof m.riskLevel === "string"
+						? m.riskLevel
+						: undefined,
 			protectedEffects:
 				decision?.protectedEffects ??
 				(kind === "outbound" ? ["message"] : m.localImport ? ["consent"] : []),
