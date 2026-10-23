@@ -1,9 +1,32 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	detectPrematureHeaderClose,
+	slugify,
 	validateSkillInput,
 	validateWorkflowSource,
 } from "./skill-validation";
+
+describe("generated skill slug length boundary", () => {
+	it.each([62, 63, 64, 65])(
+		"keeps a %i-character first word valid",
+		(length) => {
+			const slug = slugify(`${"a".repeat(length)} second word`);
+			expect(slug).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+			expect(slug.length).toBeLessThanOrEqual(64);
+			expect(slugify(slug)).toBe(slug);
+		},
+	);
+
+	it("accepts a title whose separator falls at the truncation boundary", async () => {
+		const result = await validateSkillInput({} as never, {
+			title: `${"a".repeat(63)} second word`,
+			content: "Instructions for the skill.",
+		});
+		expect(result.valid).toBe(true);
+		expect(result.errors).toEqual([]);
+		expect(slugify(`${"a".repeat(63)} second word`)).toBe("a".repeat(63));
+	});
+});
 
 const base = {
 	title: "Probe Skill",
