@@ -549,6 +549,9 @@ export function conversationListQueryOptions(
 				}),
 			),
 		initialPageParam: undefined as string | undefined,
+		// No-run edits never reach the run-scoped Cap'n stream. Reconcile the
+		// canonical list while visible, including conversations outside that stream.
+		refetchInterval: 15_000,
 		// The composite keyset cursor is opaque to the UI; pass it back verbatim.
 		getNextPageParam: (lastPage: { nextCursor?: string | null }) =>
 			lastPage.nextCursor ?? undefined,
@@ -619,9 +622,7 @@ export function ChatSidebar({
 	 * IDEMPOTENT: both are event-sourced display overlays (a title, a pinned
 	 * marker) whose inverse call restores the previous state exactly, and
 	 * neither dispatches a run, spends budget, resolves an approval, publishes
-	 * anything, or deletes anything. `CHAT_CONVERSATIONS_QUERY_KEY` is also NOT
-	 * in `REALTIME_PATCHED_EVENT_KINDS`' cache set, so no durable frame can race
-	 * this write and no optimistic row can survive a frame that contradicts it.
+	 * anything, or deletes anything. The canonical list refetch confirms them.
 	 *
 	 * Delete stays authoritative-only right below: it is destructive, and a row
 	 * that vanishes before the server agreed is a lie the operator acts on.

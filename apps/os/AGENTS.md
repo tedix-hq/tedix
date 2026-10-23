@@ -117,10 +117,11 @@ Other properties worth preserving:
   `runId` (e.g. `conversation.updated` from rename/delete/pin) never reach the
   browser stream, and concurrent runs in one conversation are serialized until
   rollover. The active-run reconciliation backstop repairs server run-set
-  state, but nothing consumes no-run conversation frames live today
-  (`realtime-projections.ts` does not patch on `conversation.updated`); if a
-  consumer ever needs them, add a conversation-scoped verb to the contract
-  rather than resurrecting SSE.
+  state. Mounted conversation lists and headers reconcile rename, pin, archive
+  and deletion through their canonical infinite query every 15 seconds while
+  the tab is visible. No-run conversation frames still have no consumer; if
+  one needs them, add a conversation-scoped verb to the contract rather than
+  resurrecting SSE.
 
 ## Capability lifecycle is a document singleton
 

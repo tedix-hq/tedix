@@ -1,7 +1,12 @@
 import type { HomeConversation } from "@tedix/api-contract/schemas/kernel-runtime";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	focusManager,
+	InfiniteQueryObserver,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { relativeTime } from "@/lib/time";
 import { homeConversationsQueryKey } from "@/lib/os-query-options";
 import {
@@ -211,6 +216,61 @@ describe("conversation list discovery contract", () => {
 			queryKey: homeConversationsQueryKey(undefined, false),
 		});
 		expect(queryClient.getQueryState(filteredKey)?.isInvalidated).toBe(true);
+	});
+});
+
+describe("live conversation list reconciliation", () => {
+	it("refreshes rename, pin and deletion across loaded pages without a run or focus change", async () => {
+		vi.useFakeTimers();
+		focusManager.setFocused(true);
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		let rows = [
+			conversation({ id: "first", title: "First" }),
+			conversation({ id: "second", title: "Second" }),
+		];
+		const read = vi.fn(async ({ pageParam }: { pageParam?: string }) => ({
+			conversations: rows.slice(pageParam ? 1 : 0, pageParam ? 2 : 1),
+			nextCursor: !pageParam && rows.length > 1 ? "second-page" : null,
+		}));
+		const observer = new InfiniteQueryObserver(queryClient, {
+			...conversationListQueryOptions("workspace-1", true, "launch"),
+			queryFn: read,
+		});
+		const unsubscribe = observer.subscribe(() => {});
+		const currentRows = () =>
+			observer.getCurrentResult().data?.pages.flatMap((p) => p.conversations);
+		try {
+			await vi.advanceTimersByTimeAsync(0);
+			await observer.fetchNextPage();
+			expect(currentRows()).toEqual(rows);
+			rows = [rows[0]!, { ...rows[1]!, title: "Renamed" }];
+			await vi.advanceTimersByTimeAsync(15_000);
+			expect(currentRows()?.[1]?.title).toBe("Renamed");
+			rows = [{ ...rows[1]!, pinnedAt: NOW.toISOString() }, rows[0]!];
+			await vi.advanceTimersByTimeAsync(15_000);
+			expect(currentRows()).toEqual(rows);
+			expect(sortConversations(currentRows() ?? [])[0]?.id).toBe("second");
+			rows = [rows[1]!];
+			await vi.advanceTimersByTimeAsync(15_000);
+			expect(currentRows()).toEqual(rows);
+			expect(observer.getCurrentResult().hasNextPage).toBe(false);
+
+			focusManager.setFocused(false);
+			const readsWhileVisible = read.mock.calls.length;
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(read).toHaveBeenCalledTimes(readsWhileVisible);
+			focusManager.setFocused(true);
+			unsubscribe();
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(read).toHaveBeenCalledTimes(readsWhileVisible);
+		} finally {
+			unsubscribe();
+			queryClient.clear();
+			focusManager.setFocused(undefined);
+			vi.useRealTimers();
+		}
 	});
 });
 
