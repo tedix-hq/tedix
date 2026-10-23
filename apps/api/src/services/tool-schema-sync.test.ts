@@ -2882,6 +2882,25 @@ it("pins headless attention names and capability kinds", () => {
 	}
 });
 
+it("syncs memory reads served over POST as read-only, so they emit no action receipt", async () => {
+	for (const endpoint of [
+		"memoryGraph/assemble",
+		"memoryGraph/browse",
+		"memoryGraph/expertise",
+		"memoryGraph/stats",
+	]) {
+		const fixture = makeDb([makeRpcTool({ toolId: "memory_read", endpoint })]);
+		await runToolSchemaSync(fixture.db, {
+			mode: "projection",
+			apply: true,
+			endpoints: [endpoint],
+		});
+		expect(fixture.updates[0]?.patch, endpoint).toMatchObject({
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		});
+	}
+});
+
 it("projects bounded Deck feedback through the real object-envelope converter", async () => {
 	const fixture = makeDb([
 		makeRpcTool({
