@@ -35,6 +35,7 @@ export const AttentionLayoutSchema = z.strictObject({
 	focusProjectId: z.string().max(160).nullable().default(null),
 	focusToday: z.string().max(500).default(""),
 	density: z.enum(["comfortable", "compact"]).default("comfortable"),
+	sessionInactiveAfterMinutes: z.number().int().min(1).max(1440).default(5),
 	sourceFilters: z.array(AttentionSourceSchema).max(6).default([]),
 });
 export const AttentionLayoutResultSchema = z.strictObject({

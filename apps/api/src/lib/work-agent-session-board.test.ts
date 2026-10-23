@@ -31,6 +31,21 @@ describe("deriveWorkAgentSessionEffectiveState", () => {
 			),
 		).toBe(expected);
 	});
+	it("uses the configured timeout and treats an invalid heartbeat as inactive", () => {
+		expect(
+			deriveWorkAgentSessionEffectiveState(
+				{ state: "working", lastEventAt: ago(6) },
+				NOW,
+				10 * 60_000,
+			),
+		).toBe("working");
+		expect(
+			deriveWorkAgentSessionEffectiveState(
+				{ state: "working", lastEventAt: "invalid" },
+				NOW,
+			),
+		).toBe("idle");
+	});
 });
 
 describe("buildWorkAgentSessionBoard", () => {
@@ -77,6 +92,14 @@ describe("buildWorkAgentSessionBoard", () => {
 			idle: 1,
 			ended: 1,
 		});
+		for (const [state, count] of Object.entries(board.counts)) {
+			expect(
+				board.sessions.filter((entry) => entry.state === state),
+			).toHaveLength(count);
+			expect(
+				board.sessions.filter((entry) => entry.effectiveState === state),
+			).toHaveLength(count);
+		}
 	});
 
 	it("counts every state as zero for an empty board", () => {

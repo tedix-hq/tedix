@@ -285,7 +285,8 @@ const statusState = () => {
 	const path = join(config, "agent-status", `claude-code-${SESSION}.json`);
 	return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined;
 };
-const notifications = () => spawned.filter((args) => args[0] === "osascript");
+const notifications = () =>
+	spawned.filter((args) => args[0] === "terminal-notifier");
 const reports = () => spawned.filter((args) => args[0] === "tedix");
 const TRIAGE_OK = {
 	status: "ok",
@@ -668,7 +669,7 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(payloads[0]![1].metadata.triage).toEqual(TRIAGE_OK);
 		expect(statusState()?.state).toBe("needs_you");
 		expect(notifications()).toHaveLength(1);
-		expect(notifications()[0]!.at(-3)).toBe(
+		expect(notifications()[0]![2]).toBe(
 			"Blocker: The D1 migration failed; deploy is halted.",
 		);
 		expect(reports()).toHaveLength(1);

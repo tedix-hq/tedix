@@ -39,6 +39,7 @@ import {
 	isoSeconds,
 	type JsonObject,
 	PROFILE,
+	unattendedRun,
 } from "./hook-io";
 
 /**
@@ -387,24 +388,24 @@ function sortedJson(value: unknown): string {
 	return JSON.stringify(sort(value)) ?? "";
 }
 
-function describeToolInput(input: unknown): string {
-	if (isObject(input)) {
-		for (const key of [
-			"command",
-			"description",
-			"file_path",
-			"path",
-			"url",
-			"pattern",
-			"query",
-			"prompt",
-		]) {
-			const value = input[key];
-			if (typeof value === "string" && value.trim()) return value;
-		}
-		return Object.keys(input).length ? sortedJson(input).slice(0, 200) : "";
-	}
-	return String(input || "");
+function permissionSummary(event: JsonObject, env: NodeJS.ProcessEnv): string {
+	const harness = harnessOf(event, env);
+	const name =
+		{ opencode: "An OpenCode", codex: "A Codex", devin: "A Devin" }[harness] ??
+		"A Claude Code";
+	const tool = String(event.tool_name ?? "").toLowerCase();
+	const action = /external_directory/.test(tool)
+		? "read files outside its project"
+		: /bash|shell|terminal/.test(tool)
+			? "run a shell command"
+			: /edit|write|patch/.test(tool)
+				? "change project files"
+				: /read|glob|grep|search/.test(tool)
+					? "read project files"
+					: /web|fetch|browse/.test(tool)
+						? "access a website"
+						: "use a tool";
+	return `${name} session wants to ${action}.`;
 }
 
 function textOf(value: unknown): string {
@@ -424,20 +425,13 @@ function textOf(value: unknown): string {
 export function transition(
 	event: JsonObject,
 	{ supervisorContinued = false }: { supervisorContinued?: boolean } = {},
+	env: NodeJS.ProcessEnv = {},
 ): Outcome | undefined {
 	const name = event.hook_event_name;
 	if (name === "UserPromptSubmit" || name === "PostToolUse")
 		return ["working", "Working"];
 	if (name === "PermissionRequest") {
-		const tool = oneLine(event.tool_name || "tool", 60);
-		const detail = oneLine(describeToolInput(event.tool_input), SUMMARY_LIMIT);
-		return [
-			"needs_you",
-			oneLine(
-				detail ? `Approve ${tool}: ${detail}` : `Approve ${tool}`,
-				SUMMARY_LIMIT,
-			),
-		];
+		return ["needs_you", permissionSummary(event, env)];
 	}
 	if (name === "Notification") {
 		if (
@@ -714,16 +708,10 @@ export async function runAgentStatus(deps: StatusDeps): Promise<void> {
 		return;
 	const harness = harnessOf(event, env);
 	const directory = statusDir(env);
-	const previous = readState(join(directory, `${harness}-${sessionKey}.json`));
-	if (
-		event.hook_event_name === "PostToolUse" &&
-		previous?.state !== "needs_you"
-	)
-		return;
 	const supervisorContinued =
 		event.hook_event_name === "Stop" &&
 		consume(supervisorMarker(directory, harness, sessionKey));
-	const outcome = transition(event, { supervisorContinued });
+	const outcome = transition(event, { supervisorContinued }, env);
 	if (!outcome) return;
 	recordStatus(deps, configured, event, harness, sessionKey, outcome);
 }
@@ -803,6 +791,11 @@ function recordStatus(
 	// sessions the owner started.
 	if (harness === "codex" && codexSideThread(event)) return;
 	const { env } = deps;
+	const unattended =
+		Boolean(env.TEDIX_LANE_ID || env.TEDIX_LANE_LOG) ||
+		env.CLAUDE_CODE_SESSION_ATTENDED === "0" ||
+		unattendedRun(event, env);
+	if (unattended && state === "needs_you") state = "error";
 	const directory = statusDir(env);
 	const path = join(directory, `${harness}-${sessionKey}.json`);
 	const previous = readState(path);
@@ -835,7 +828,10 @@ function recordStatus(
 		previous.label !== label ||
 		previous.projectId !== binding.projectId ||
 		previous.workItemId !== binding.workItemId;
-	if (!changed) return;
+	const now = (deps.now ?? (() => new Date()))();
+	// Tool activity renews liveness even when the state and label do not change.
+	if (!changed && now.getTime() - Date.parse(previous.updatedAt) < 60_000)
+		return;
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	chmodSync(directory, 0o700);
 	const record = {
@@ -846,28 +842,54 @@ function recordStatus(
 		label,
 		...binding,
 		cwd: typeof event.cwd === "string" ? event.cwd : "",
-		updatedAt: isoSeconds((deps.now ?? (() => new Date()))(), true),
+		updatedAt: isoSeconds(now, true),
 	};
 	if (state === "ended") rmSync(path, { force: true });
 	else writeState(path, record);
 	const start = deps.spawn ?? detachedSpawner(env);
 	const platform = deps.platform ?? process.platform;
 	const which = deps.which ?? ((name: string) => Bun.which(name) ?? undefined);
-	if (configured.notify && SUBTITLES[state] && previousState !== state) {
+	if (
+		configured.notify &&
+		!unattended &&
+		SUBTITLES[state] &&
+		previousState !== state
+	) {
 		try {
-			if (platform === "darwin" && which("osascript"))
-				// Values travel as argv, never interpolated into AppleScript source.
+			let url: string | undefined;
+			const origin = env.TEDIX_OS_URL || loadConfig(env).osUrl;
+			if (typeof origin === "string") {
+				try {
+					const parsed = new URL(origin);
+					if (
+						parsed.protocol === "https:" &&
+						!parsed.username &&
+						!parsed.password
+					)
+						url = new URL(
+							binding.workItemId
+								? `/work/items/${binding.workItemId}`
+								: "/work",
+							parsed.origin,
+						).href;
+				} catch {
+					/* An invalid optional URL leaves the notification without an action. */
+				}
+			}
+			if (platform === "darwin" && which("terminal-notifier"))
 				start(
 					[
-						"osascript",
-						"-e",
-						"on run argv",
-						"-e",
-						"display notification (item 1 of argv) with title (item 2 of argv) subtitle (item 3 of argv)",
-						"-e",
-						"end run",
-						summary || SUBTITLES[state]!,
+						"terminal-notifier",
+						"-message",
+						/[{}\[\]]/.test(summary)
+							? state === "needs_you"
+								? "An agent session is waiting for your input."
+								: "An agent session encountered an error."
+							: summary || SUBTITLES[state]!,
+						"-title",
 						oneLine(`Tedix · ${label}`, LABEL_LIMIT + 10),
+						...(url ? ["-open", url] : []),
+						"-subtitle",
 						SUBTITLES[state]!,
 					],
 					DETACHED,

@@ -11,6 +11,7 @@ import {
 	and,
 	desc,
 	eq,
+	getColumns,
 	gte,
 	inArray,
 	isNotNull,
@@ -168,14 +169,24 @@ export interface ListWorkAgentSessionsParams {
 export async function listWorkAgentSessions(
 	db: DbQueryClient,
 	params: ListWorkAgentSessionsParams,
-): Promise<WorkAgentSessionRow[]> {
+): Promise<WorkProjectSessionReport[]> {
 	const endedCutoff = new Date(
 		Date.parse(params.now) - WORK_AGENT_SESSION_ENDED_RETENTION_MS,
 	).toISOString();
 	const notEnded = ne(workAgentSessions.state, "ended");
 	return db
-		.select()
+		.select({
+			...getColumns(workAgentSessions),
+			workItemTitle: workItems.title,
+		})
 		.from(workAgentSessions)
+		.leftJoin(
+			workItems,
+			and(
+				eq(workItems.id, workAgentSessions.workItemId),
+				eq(workItems.orgId, params.organizationId),
+			),
+		)
 		.where(
 			and(
 				eq(workAgentSessions.organizationId, params.organizationId),

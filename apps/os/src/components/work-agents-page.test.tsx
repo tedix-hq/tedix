@@ -2,6 +2,8 @@ import type { AgentsConfig } from "@tedix/api-contract/schemas/os-session-apps";
 import { WorkspaceAppRenderer } from "./workspace-app-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import {
 	afterEach,
 	beforeEach,
@@ -97,6 +99,93 @@ async function render(
 }
 
 describe("Agents board", () => {
+	it("shows the linked Work, harness, model, why and last activity", async () => {
+		const { WorkAgentsBoard } = await import("./work-agents-page");
+		const row = {
+			...session(1, "working", "Working"),
+			workItemId: "fictional-work",
+			workItemTitle: "Fix fictional widget",
+			telemetry: {
+				executor: "opencode" as const,
+				model: "test-model",
+				provider: "test",
+				reasoningEffort: null,
+				brief: "Make the widget readable\nMore detail",
+				startedAt: ago(60),
+				heartbeatAt: ago(10),
+				finishedAt: null,
+				outcome: null,
+				finalMessage: "",
+				tools: {},
+				usage: null,
+				shas: [],
+				workItems: [],
+				corrections: [],
+				source: "wrapper" as const,
+				estimatedCostUsd: null,
+				rateVersionId: null,
+				lesson: null,
+				lessonStatus: "unavailable" as const,
+			},
+		};
+		const html = renderToStaticMarkup(
+			<WorkAgentsBoard
+				data={{
+					sessions: [row],
+					counts: {
+						working: 1,
+						idle: 0,
+						needs_you: 0,
+						done: 0,
+						error: 0,
+						ended: 0,
+					},
+				}}
+				now={new Date(NOW)}
+			/>,
+		);
+		expect(html).toContain('href="/work/items/fictional-work"');
+		expect(html).toContain("Fix fictional widget");
+		expect(html).toContain("Local session (OpenCode)");
+		expect(html).toContain("test-model");
+		expect(html).toContain("Make the widget readable");
+		expect(html).toContain("Last activity");
+		expect(html).toContain('data-agent-state="working"');
+		const host = document.createElement("div");
+		document.body.append(host);
+		const root = createRoot(host);
+		try {
+			await act(async () =>
+				root.render(
+					<WorkAgentsBoard
+						data={{
+							sessions: [{ ...row, effectiveState: "idle", state: "idle" }],
+							counts: {
+								working: 0,
+								idle: 1,
+								needs_you: 0,
+								done: 0,
+								error: 0,
+								ended: 0,
+							},
+						}}
+						now={new Date(NOW)}
+					/>,
+				),
+			);
+			const trigger = [...host.querySelectorAll("button")].find((button) =>
+				button.textContent?.startsWith("Inactive"),
+			);
+			await act(async () => trigger?.click());
+			const idle = host.querySelector('[data-agent-state="idle"]');
+			expect(idle).not.toBeNull();
+			expect(idle?.textContent).not.toContain("Running");
+			expect(idle?.textContent).toContain("Last activity");
+		} finally {
+			await act(async () => root.unmount());
+			host.remove();
+		}
+	});
 	it("leads with the page title and keeps decision context collapsed", async () => {
 		const doc = await render([
 			session(1, "working", "Running tests", PROJECT_A),
