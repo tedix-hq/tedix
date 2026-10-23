@@ -13,6 +13,7 @@ import {
 	desc,
 	eq,
 	exists,
+	getColumns,
 	inArray,
 	isNull,
 	or,
@@ -35,6 +36,12 @@ import {
 	type WorkInteractionTargetType,
 } from "../../schema/work-factory";
 import { prefixedColumns } from "../../utils/select";
+import { policyPacks } from "../../schema/control-plane";
+import {
+	COORDINATION_TTL_DEFAULT_HOURS,
+	COORDINATION_TTL_MAX_HOURS,
+	COORDINATION_TTL_MIN_HOURS,
+} from "@tedix/api-contract/utils/approval-policy";
 import { tedis } from "../../schema/tedis";
 
 export type WorkInteractionAttentionRow =
@@ -306,7 +313,7 @@ export async function refreshRepositoryCiAlerts(
 						resolutionFence: crypto.randomUUID(),
 					}
 				: {}),
-			metadata: sql`json_set(${workInteractions.metadata}, '$.latestSha', ${p.sha}, '$.latestOccurredAt', ${p.occurredAt ?? p.now}, '$.failedShas', json(${p.green ? failedShas : sql`json_insert(${failedShas}, '$[#]', ${p.sha})`}), '$.failureCount', coalesce(json_extract(${workInteractions.metadata}, '$.failureCount'), 1) + ${p.green ? 0 : 1}, '$.reason', ${p.green ? "Workflow passed; CI alert closed." : "Workflow is still failing."})`,
+			metadata: sql`json_set(${workInteractions.metadata}, '$.latestSha', ${p.sha}, '$.latestOccurredAt', ${p.occurredAt ?? p.now}, '$.failedShas', json(${p.green ? failedShas : sql`json_insert(${failedShas}, '$[#]', ${p.sha})`}), '$.failureCount', coalesce(json_extract(${workInteractions.metadata}, '$.failureCount'), 1) + ${p.green ? 0 : 1}, '$.reason', ${p.green ? "Workflow passed; CI alert closed." : "Workflow is still failing."}, '$.refreshedAt', ${p.now})`,
 			version: sql`${workInteractions.version}+1`,
 		})
 		.where(
@@ -1045,25 +1052,73 @@ export async function sweepSupersededSupportDraftInteractions(
 	};
 }
 
-/** Retire obsolete requests without answering in the recipient's name. */
+/**
+ * The organization's `governancePolicy.coordinationTtlHours` from its newest
+ * active policy pack, else the published system default, else 24 h; clamped
+ * like `parseKernelGovernancePolicy`. Correlated on the outer interaction row.
+ */
+function coordinationTtlHoursSql() {
+	const field = "$.governancePolicy.coordinationTtlHours";
+	const numeric = sql`CASE WHEN json_type(pp.definition, ${field}) IN ('integer','real') THEN json_extract(pp.definition, ${field}) END`;
+	return sql`min(${COORDINATION_TTL_MAX_HOURS}, max(${COORDINATION_TTL_MIN_HOURS}, round(coalesce(
+		(SELECT ${numeric} FROM ${policyPacks} pp WHERE pp.organization_id = ${workInteractions.orgId} AND pp.status = 'active' ORDER BY pp.version DESC LIMIT 1),
+		(SELECT ${numeric} FROM ${policyPacks} pp WHERE pp.organization_id IS NULL AND pp.scope = 'system' AND pp.slug = 'system-default' AND pp.status = 'active' AND pp.published_at IS NOT NULL ORDER BY pp.version DESC LIMIT 1),
+		${COORDINATION_TTL_DEFAULT_HOURS}))))`;
+}
+
+const OBSOLETE_REQUEST_REASONS = {
+	expiry_passed: "Its expiry date passed.",
+	coordination_stale:
+		"It was a status update that nobody refreshed within the organization's coordination window.",
+	work_closed: "Its Work is completed or cancelled.",
+	triage_unavailable:
+		"Turn triage was unavailable; retained on the agent's Work.",
+	proposal_unanswered: "The proposal received no response for fourteen days.",
+} as const;
+type ObsoleteRequestCause = keyof typeof OBSOLETE_REQUEST_REASONS;
+
+/**
+ * Retire obsolete requests without answering in the recipient's name:
+ * - any request whose `expiresAt` passed;
+ * - a status/FYI (`coordination`) request to a person that nobody refreshed
+ *   (`metadata.refreshedAt`, else creation) within the organization's
+ *   `coordinationTtlHours` (default 24 h);
+ * - a question, input or handoff request whose Work is completed or cancelled;
+ * - unanswered legacy proposals after fourteen days, and decision captures
+ *   whose triage never succeeded.
+ * The reason is recorded on the request (`metadata.closure`) and, for
+ * Work-parented requests, as a system note on the Work.
+ */
 export async function sweepObsoleteWorkInteractions(
 	db: DbQueryClient,
 	p: { now: string; limit: number },
 ) {
-	const cutoff = new Date(Date.parse(p.now) - 3 * 86_400_000).toISOString();
 	const proposalCutoff = new Date(
 		Date.parse(p.now) - 14 * 86_400_000,
 	).toISOString();
-	const obsolete = sql`(
-		(${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now}) OR
-		(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND ${workInteractions.createdAt}<=${proposalCutoff} AND NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})) OR
-		(${workInteractions.kind}='question' AND ${workInteractions.createdAt}<${cutoff} AND EXISTS (
+	const passedExpiry = sql`(${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.now})`;
+	const staleCoordination = sql`(${workInteractions.kind}='coordination' AND ${workInteractions.targetType}='user' AND ${workInteractions.expiresAt} IS NULL AND julianday(coalesce(json_extract(${workInteractions.metadata},'$.refreshedAt'), ${workInteractions.createdAt})) <= julianday(${p.now}) - ${coordinationTtlHoursSql()} / 24.0)`;
+	const terminalWork = sql`(${workInteractions.kind} IN ('question','input','handoff') AND EXISTS (
 			SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId} AND ${workItems.disposition} IN ('completed','cancelled')
-		)) OR
-		(json_extract(${workInteractions.metadata},'$.schema')='tedix.decision-capture.v1' AND json_extract(${workInteractions.metadata},'$.triage.status') IS NOT 'ok')
+		))`;
+	const triageUnavailable = sql`(json_extract(${workInteractions.metadata},'$.schema')='tedix.decision-capture.v1' AND json_extract(${workInteractions.metadata},'$.triage.status') IS NOT 'ok')`;
+	const obsolete = sql`(
+		${passedExpiry} OR
+		${staleCoordination} OR
+		(json_extract(${workInteractions.metadata},'$.schema')='tedix.work-proposal.v1' AND ${workInteractions.expiresAt} IS NULL AND ${workInteractions.createdAt}<=${proposalCutoff} AND NOT EXISTS (SELECT 1 FROM ${workInteractionResponses} WHERE ${workInteractionResponses.orgId}=${workInteractions.orgId} AND ${workInteractionResponses.interactionId}=${workInteractions.id})) OR
+		${terminalWork} OR
+		${triageUnavailable}
 	)`;
 	const rows = await db
-		.select()
+		.select({
+			...getColumns(workInteractions),
+			cause: sql<ObsoleteRequestCause>`CASE
+				WHEN ${passedExpiry} THEN 'expiry_passed'
+				WHEN ${triageUnavailable} THEN 'triage_unavailable'
+				WHEN ${terminalWork} THEN 'work_closed'
+				WHEN ${staleCoordination} THEN 'coordination_stale'
+				ELSE 'proposal_unanswered' END`.as("obsolete_cause"),
+		})
 		.from(workInteractions)
 		.where(and(eq(workInteractions.status, "open"), obsolete))
 		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
@@ -1071,6 +1126,7 @@ export async function sweepObsoleteWorkInteractions(
 	let expired = 0;
 	for (const row of rows) {
 		const fence = crypto.randomUUID();
+		const reason = OBSOLETE_REQUEST_REASONS[row.cause];
 		const update = db
 			.update(workInteractions)
 			.set({
@@ -1078,6 +1134,7 @@ export async function sweepObsoleteWorkInteractions(
 				expiredAt: p.now,
 				resolutionFence: fence,
 				version: sql`${workInteractions.version}+1`,
+				metadata: sql`json_set(${workInteractions.metadata}, '$.closure', json(${JSON.stringify({ source: "interaction-expiry", cause: row.cause, reason, at: p.now })}))`,
 			})
 			.where(
 				and(
@@ -1089,14 +1146,6 @@ export async function sweepObsoleteWorkInteractions(
 				),
 			)
 			.returning({ id: workInteractions.id });
-		const reason =
-			row.expiresAt && row.expiresAt <= p.now
-				? "Its expiry date passed."
-				: row.metadata.schema === "tedix.decision-capture.v1"
-					? "Turn triage was unavailable; retained on the agent's Work."
-					: row.metadata.schema === "tedix.work-proposal.v1"
-						? "The proposal received no response for fourteen days."
-						: "Its Work is completed or cancelled and the question is older than three days.";
 		const body = `Closed obsolete request: ${row.subject}. ${reason}`;
 		const note =
 			row.workItemId && row.metadata.schema !== "tedix.decision-capture.v1"

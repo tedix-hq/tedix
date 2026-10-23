@@ -481,74 +481,154 @@ describe("question delegation", () => {
 });
 
 describe("obsolete Work interactions", () => {
-	it("closes only questions older than three days on terminal Work, with one system note", async () => {
+	function sweepFixture() {
+		const f = fixture();
+		f.sqlite.exec(schemaDdl(policyPacks));
+		return f;
+	}
+	const sweep = (db: ReturnType<typeof fixture>["db"], now = NOW) =>
+		sweepObsoleteWorkInteractions(db, { now, limit: 100 });
+	const statusOf = (sqlite: DatabaseSync, id: string) =>
+		sqlite.prepare("SELECT status FROM work_interactions WHERE id=?").get(id)
+			?.status;
+
+	it("closes question, input and handoff requests on terminal Work at any age, recording the reason", async () => {
 		for (const disposition of ["completed", "cancelled"]) {
-			const { sqlite, db } = fixture();
+			const { sqlite, db } = sweepFixture();
 			sqlite
 				.prepare("UPDATE work_items SET disposition=? WHERE id='work'")
 				.run(disposition);
 			sqlite
 				.prepare(
-					"UPDATE work_interactions SET created_at='2026-08-18T11:59:59.000Z' WHERE id='mine'",
+					"UPDATE work_interactions SET kind='input' WHERE id='other-target'",
 				)
 				.run();
 			sqlite
 				.prepare(
-					"UPDATE work_interactions SET created_at='2026-08-18T12:00:00.000Z' WHERE id='other-target'",
+					"UPDATE work_interactions SET kind='handoff' WHERE id='other-type'",
 				)
 				.run();
-			expect(
-				await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }),
-			).toEqual({ observed: 1, expired: 1 });
-			expect(
-				sqlite
-					.prepare("SELECT status FROM work_interactions WHERE id='mine'")
-					.get()?.status,
-			).toBe("expired");
-			const note = sqlite
+			sqlite
+				.prepare(
+					"UPDATE work_interactions SET kind='coordination', target_type='tedi', target_id='cto' WHERE id='untargeted'",
+				)
+				.run();
+			expect(await sweep(db)).toEqual({ observed: 3, expired: 3 });
+			for (const id of ["mine", "other-target", "other-type"])
+				expect(statusOf(sqlite, id)).toBe("expired");
+			expect(statusOf(sqlite, "untargeted")).toBe("open");
+			const closure = JSON.parse(
+				String(
+					sqlite
+						.prepare("SELECT metadata FROM work_interactions WHERE id='mine'")
+						.get()?.metadata,
+				),
+			).closure;
+			expect(closure).toMatchObject({
+				source: "interaction-expiry",
+				cause: "work_closed",
+				at: NOW,
+			});
+			const notes = sqlite
 				.prepare("SELECT author_type,body FROM work_item_comments")
-				.get();
-			expect(note?.author_type).toBe("system");
-			expect(note?.body).toContain("older than three days");
+				.all();
+			expect(notes).toHaveLength(3);
+			expect(notes[0]?.author_type).toBe("system");
+			expect(notes[0]?.body).toContain("Its Work is completed or cancelled.");
 			expect(
 				sqlite
 					.prepare("SELECT COUNT(*) AS n FROM work_interaction_responses")
 					.get()?.n,
 			).toBe(0);
-			expect(
-				await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }),
-			).toEqual({ observed: 0, expired: 0 });
+			expect(await sweep(db)).toEqual({ observed: 0, expired: 0 });
 		}
 	});
-	it("keeps old questions on active Work, non-questions, and resolved requests", async () => {
-		const { sqlite, db } = fixture();
+	it("keeps old requests on active Work and resolved requests", async () => {
+		const { sqlite, db } = sweepFixture();
 		sqlite
 			.prepare(
 				"UPDATE work_interactions SET created_at='2026-08-01T00:00:00.000Z'",
 			)
 			.run();
-		expect(
-			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
-				.expired,
-		).toBe(0);
+		expect((await sweep(db)).expired).toBe(0);
 		sqlite.prepare("UPDATE work_items SET disposition='completed'").run();
+		sqlite.prepare("UPDATE work_interactions SET status='resolved'").run();
+		expect((await sweep(db)).expired).toBe(0);
+	});
+	it("expires a status update to a person once its coordination window passes since creation or refresh", async () => {
+		const { sqlite, db } = sweepFixture();
 		sqlite
 			.prepare(
-				"UPDATE work_interactions SET kind='handoff' WHERE id IN ('mine','other-target')",
+				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='aaron'",
 			)
 			.run();
+		const at = (id: string, createdAt: string, metadata = "{}") =>
+			sqlite
+				.prepare(
+					"UPDATE work_interactions SET created_at=?, metadata=? WHERE id=?",
+				)
+				.run(createdAt, metadata, id);
+		at("mine", "2026-08-20T12:00:00.000Z"); // exactly 24 h old
+		at("other-target", "2026-08-20T12:00:00.001Z"); // just inside 24 h
+		at(
+			"other-type",
+			"2026-08-19T00:00:00.000Z",
+			JSON.stringify({ refreshedAt: "2026-08-21T06:00:00.000Z" }),
+		);
 		sqlite
 			.prepare(
-				"UPDATE work_interactions SET status='resolved' WHERE id IN ('other-type','untargeted')",
+				"UPDATE work_interactions SET created_at='2026-08-01T00:00:00.000Z', target_type='tedi' WHERE id='untargeted'",
 			)
 			.run();
+		expect(await sweep(db)).toEqual({ observed: 1, expired: 1 });
+		expect(statusOf(sqlite, "mine")).toBe("expired");
 		expect(
-			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
-				.expired,
-		).toBe(0);
+			JSON.parse(
+				String(
+					sqlite
+						.prepare("SELECT metadata FROM work_interactions WHERE id='mine'")
+						.get()?.metadata,
+				),
+			).closure.cause,
+		).toBe("coordination_stale");
+		for (const id of ["other-target", "other-type", "untargeted"])
+			expect(statusOf(sqlite, id)).toBe("open");
+	});
+	it("reads the coordination window from the organization's active policy pack", async () => {
+		const { sqlite, db } = sweepFixture();
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='aaron', created_at='2026-08-21T05:00:00.000Z'",
+			)
+			.run();
+		const pack = sqlite.prepare(
+			"INSERT INTO policy_packs (id,organization_id,name,slug,scope,status,version,definition) VALUES (?,?,?,?,?,?,?,?)",
+		);
+		pack.run(
+			"old",
+			"org",
+			"Org",
+			"org",
+			"organization",
+			"active",
+			1,
+			JSON.stringify({ governancePolicy: { coordinationTtlHours: 100 } }),
+		);
+		expect((await sweep(db)).expired).toBe(0);
+		pack.run(
+			"new",
+			"org",
+			"Org",
+			"org-2",
+			"organization",
+			"active",
+			2,
+			JSON.stringify({ governancePolicy: { coordinationTtlHours: 6 } }),
+		);
+		expect((await sweep(db)).expired).toBe(4);
 	});
 	it("expires due proposals and legacy unanswered proposals after fourteen days", async () => {
-		const { sqlite, db } = fixture();
+		const { sqlite, db } = sweepFixture();
 		const metadata = JSON.stringify({ schema: "tedix.work-proposal.v1" });
 		sqlite
 			.prepare(
@@ -577,7 +657,7 @@ describe("obsolete Work interactions", () => {
 		expect(open.data.map((r) => r.request.id)).not.toContain("mine");
 	});
 	it("retires legacy unavailable captures but preserves classified requests", async () => {
-		const { sqlite, db } = fixture();
+		const { sqlite, db } = sweepFixture();
 		for (const [id, status] of [
 			["mine", "unavailable"],
 			["other-target", "ok"],
@@ -714,7 +794,8 @@ it("refreshes CI alerts in their workflow scope and closes them on recovery", as
 		id: "alert",
 		status: "open",
 		subject: `Red CI full-suite-hourly ${input.sha.slice(0, 9)}`,
-		metadata: { latestSha: input.sha, failureCount: 2 },
+		// The coordination expiry window restarts on every red refresh.
+		metadata: { latestSha: input.sha, failureCount: 2, refreshedAt: input.now },
 	});
 	expect(await refreshRepositoryCiAlerts(db, input)).toEqual([]);
 	expect(
