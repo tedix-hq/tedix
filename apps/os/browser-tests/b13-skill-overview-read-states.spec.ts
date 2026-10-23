@@ -146,6 +146,7 @@ try {
 				(resolve) => (releaseRuns = resolve),
 			);
 			const methods: string[] = [];
+			const procedures: string[] = [];
 			const reliabilityReads: string[] = [];
 			const runsReads: string[] = [];
 			const detailReads: string[] = [];
@@ -158,6 +159,7 @@ try {
 						? JSON.parse(url.searchParams.get("data") ?? "{}").json
 						: request.postDataJSON()?.json;
 				const pathname = url.pathname;
+				procedures.push(pathname.slice(pathname.lastIndexOf("/skills/")));
 				if (pathname.endsWith("/skills/getWorkflowReliability")) {
 					const skillId = String(input?.skillId);
 					if (skillId === "alpha" && reliabilityHold) await reliabilityHold;
@@ -270,7 +272,10 @@ try {
 				await page.locator('[data-slot="table"] tbody tr').count(),
 				5,
 			);
-			await page.getByRole("link", { name: "View all" }).waitFor();
+			await page
+				.locator('a[href="/skills/alpha/runs"]')
+				.filter({ hasText: "View all" })
+				.waitFor();
 			// Refresh failure keeps the previously loaded evidence on screen.
 			failReliability = true;
 			failRuns = true;
@@ -366,7 +371,11 @@ try {
 				(error) => !error.includes("503 (Service Unavailable)"),
 			);
 			assert.equal(unexpectedErrors.length, 0, unexpectedErrors.join("\n"));
-			assert(methods.every((method) => method === "GET"));
+			assert.deepEqual([...new Set(procedures)].sort(), [
+				"/skills/get",
+				"/skills/getWorkflowReliability",
+				"/skills/runWorkflowHistory",
+			]);
 			receipts.push({
 				...measurement,
 				screenshot,
