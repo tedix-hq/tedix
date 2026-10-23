@@ -236,6 +236,10 @@ async function keyboardRail(page: Page) {
 	await page.waitForFunction((state) => state.rendered, navigation);
 	await navigation.dispose();
 	await currentIs(page, lastId!);
+	assert(
+		await links.last().evaluate((link) => link === document.activeElement),
+		"Hash navigation must retain the keyboard-activated anchor",
+	);
 }
 
 try {
@@ -551,8 +555,6 @@ try {
 							await page.goForward();
 							await currentIs(page, "organization-billing");
 							await keyboardRail(page);
-							// Native hash activation leaves focus on body in WebKit.
-							await page.locator(`${railSelector} a`).last().focus();
 							await page.keyboard.press("ArrowUp");
 							await page.locator(railSelector).evaluate((rail) => {
 								rail.closest<HTMLElement>('[data-slot="page"]')!.scrollTop = 0;

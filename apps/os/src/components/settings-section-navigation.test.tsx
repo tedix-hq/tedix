@@ -102,6 +102,26 @@ describe("SettingsSectionNavigation", () => {
 		expect(links[1]?.getAttribute("aria-current")).toBe("location");
 	});
 
+	it("restores a keyboard-activated anchor when hash navigation drops focus", () => {
+		const page = renderNavigation();
+		const links = Array.from(page.querySelectorAll<HTMLAnchorElement>("a"));
+		const access = links[1]!;
+
+		access.focus();
+		access.dispatchEvent(
+			new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }),
+		);
+		document.body.tabIndex = -1;
+		cleanups.push(() => document.body.removeAttribute("tabindex"));
+		document.body.focus();
+		act(() => {
+			window.history.replaceState(null, "", "#settings-access");
+			window.dispatchEvent(new HashChangeEvent("hashchange"));
+		});
+
+		expect(document.activeElement).toBe(access);
+	});
+
 	it("restores a deep link while lazy settings content settles", async () => {
 		const scrollIntoView = vi.fn();
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
