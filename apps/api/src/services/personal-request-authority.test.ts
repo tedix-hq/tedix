@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { apps, appTools } from "@tedix/db/schema";
 import { userContext } from "../rpc/test-context";
 import {
 	admitPersonalRequest,
@@ -117,6 +122,95 @@ beforeEach(() => {
 	mocks.instance.mockResolvedValue(undefined);
 });
 describe("request-bound personal reads", () => {
+	it("resolves the real gateway → proxy → base path and rejects a foreign base", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		sqlite.exec(schemaDdl(apps));
+		sqlite.exec(schemaDdl(appTools));
+		const db = createDbClient(createD1Facade(sqlite));
+		await db.insert(apps).values([
+			{
+				id: "gmail-app",
+				organizationId: "org-1",
+				name: "Gateway",
+				slug: "gateway",
+				metadata: {
+					mcpConfig: { aggregateApps: [{ appId: "proxy", slug: "mail" }] },
+				},
+			},
+			{
+				id: "proxy",
+				organizationId: "org-1",
+				name: "Mail",
+				slug: "mail",
+				sourceAppId: "base",
+				metadata: {
+					mcpConfig: { aggregateApps: [{ appId: "base", slug: "mail-base" }] },
+				},
+			},
+			{ id: "base", organizationId: "org-1", name: "Base", slug: "mail-base" },
+		]);
+		await db.insert(appTools).values({
+			id: "read-tool",
+			appId: "base",
+			toolId: "search_threads",
+			title: "Search mail",
+			toolTypeId: "external",
+			enabled: true,
+			config: { mcpToolName: "search_threads" },
+		});
+		const tools = await vi.importActual<
+			typeof import("@tedix/db/queries/tools")
+		>("@tedix/db/queries/tools");
+		const records = await vi.importActual<
+			typeof import("@tedix/db/queries/app-records")
+		>("@tedix/db/queries/app-records");
+		mocks.tool.mockImplementation(tools.getToolByAppAndToolIdForOrganization);
+		mocks.app.mockImplementation(records.getAppByIdForOrganization);
+		const ctx = { ...context(), db };
+		ctx.headers.set("X-Tedix-Mcp-Tool-Id", "mail__search_threads");
+		expect(await resolveRequestPersonalCredential(ctx, input)).toHaveProperty(
+			"accessToken",
+		);
+		mocks.token.mockClear();
+		await db.insert(appTools).values({
+			id: "send-tool",
+			appId: "base",
+			toolId: "send_email",
+			title: "Send mail",
+			toolTypeId: "external",
+			enabled: true,
+			config: { mcpToolName: "send_email" },
+		});
+		for (const toolId of ["forged__search_threads", "mail__send_email"]) {
+			ctx.headers.set("X-Tedix-Mcp-Tool-Id", toolId);
+			await expect(
+				resolveRequestPersonalCredential(ctx, input),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+		ctx.headers.set("X-Tedix-Mcp-Tool-Id", "mail__search_threads");
+		sqlite
+			.prepare("UPDATE apps SET organization_id = ? WHERE id = ?")
+			.run("other-org", "base");
+		await expect(
+			resolveRequestPersonalCredential(ctx, input),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(mocks.token).not.toHaveBeenCalled();
+		sqlite.close();
+	});
+	it("bounds cyclic source links without looking outside the organization", async () => {
+		mocks.tool.mockResolvedValue(undefined);
+		mocks.app.mockResolvedValue({
+			sourceAppId: "gmail-app",
+			metadata: { mcpConfig: { aggregateApps: [{ appId: "gmail-app" }] } },
+		});
+		await expect(
+			resolveRequestPersonalCredential(context(), input),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(mocks.tool).toHaveBeenCalledTimes(1);
+		expect(mocks.token).not.toHaveBeenCalled();
+	});
+
 	it("resolves an inherited reviewed read through its existing same-org proxy link", async () => {
 		mocks.app.mockResolvedValue({
 			sourceAppId: "gmail-base",
