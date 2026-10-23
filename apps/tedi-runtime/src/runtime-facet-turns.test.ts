@@ -61,3 +61,30 @@ await assert.rejects(
 	}),
 	/Delegation preflight failed: source.read is unavailable or unauthorized/,
 );
+
+// Direct personal requests cannot reuse or overwrite a concurrent scheduled
+// turn's MCP binding. A cold request failure must not borrow that shared client.
+let sharedClientLookups = 0;
+const requestIsolation = mcpFacetTurnProbe({
+	fields: {
+		async getMcpRuntime() {
+			sharedClientLookups++;
+			return null;
+		},
+	},
+});
+await requestIsolation.prepareMcpFacetTurn({
+	...MCP_FACET_TURN_INPUT,
+	toolsOnly: true,
+});
+assert.equal(sharedClientLookups, 1);
+await requestIsolation.prepareMcpFacetTurn({
+	...MCP_FACET_TURN_INPUT,
+	personalRequest: true,
+	toolsOnly: true,
+});
+assert.equal(
+	sharedClientLookups,
+	1,
+	"personal request must not use the scheduled MCP client",
+);

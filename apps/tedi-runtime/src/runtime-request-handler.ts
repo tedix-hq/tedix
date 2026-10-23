@@ -1003,6 +1003,7 @@ export async function handleRuntimeRequest(
 								learningMode: noFunds ? "disabled" : learningMode,
 								workItemId,
 								homeRunId,
+								personalRequest: metadata?.personalRequest === true,
 								executionSurface,
 								repositoryMode,
 								delegationBudget,
