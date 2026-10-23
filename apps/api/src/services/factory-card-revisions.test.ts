@@ -20,7 +20,6 @@ const metadata = {
 	sourceText: "Fictional source",
 	sourceRevision: 1,
 	before: "Original draft",
-	runId: "home-run",
 };
 const context = {
 	db: {},

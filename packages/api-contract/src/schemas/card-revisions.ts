@@ -76,7 +76,6 @@ export const FactoryCardPendingRevisionSchema = z.strictObject({
 	cardId: z.string(),
 	instruction: z.string(),
 	sourceRevision: z.number().int().positive(),
-	runId: z.string(),
 });
 export const CardHistoryInputSchema = z.strictObject({
 	requestId: z.uuid(),
