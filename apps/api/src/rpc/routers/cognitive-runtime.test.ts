@@ -1,3 +1,4 @@
+import { SQL } from "drizzle-orm";
 import { createRouterClient } from "@orpc/server";
 import {
 	decodeRuntimeEventCursor,
@@ -373,6 +374,15 @@ function normalizeArtifactInsert(input: ArtifactInsert): ArtifactRow {
 	};
 }
 
+// Run-scoped event queries wrap the table in SQL to pin the production index.
+// Keep the fixture's filtering and retry behavior for that same table source.
+function isRuntimeEventSource(source: unknown): boolean {
+	return (
+		source === tediRuntimeEvents ||
+		(source instanceof SQL && source.queryChunks.includes(tediRuntimeEvents))
+	);
+}
+
 function createRuntimeDb() {
 	const events: RuntimeEventRow[] = [];
 	const artifacts: ArtifactRow[] = [];
@@ -382,7 +392,7 @@ function createRuntimeDb() {
 	const rowsFor = (
 		table: unknown,
 	): Array<RuntimeEventRow | ArtifactRow | SessionStateRow> => {
-		if (table === tediRuntimeEvents) return events;
+		if (isRuntimeEventSource(table)) return events;
 		if (table === tediSessionStates) return sessionStates;
 		return artifacts;
 	};
@@ -416,7 +426,7 @@ function createRuntimeDb() {
 				},
 				returning() {
 					const inserted: Array<RuntimeEventRow | ArtifactRow> = [];
-					if (table === tediRuntimeEvents) {
+					if (isRuntimeEventSource(table)) {
 						for (const row of rows as RuntimeEventInsert[]) {
 							if (
 								ignoreConflicts &&
@@ -502,7 +512,7 @@ function createRuntimeDb() {
 					// the org-scoped hide directly: drop any runtime-event row whose
 					// (org, tedi, conversationId) matches a soft-deleted session-state.
 					if (
-						fromTable === tediRuntimeEvents &&
+						isRuntimeEventSource(fromTable) &&
 						whereHasNotExists(whereClause)
 					) {
 						output = output.filter(
@@ -556,7 +566,7 @@ function createRuntimeDb() {
 					return this;
 				},
 				returning() {
-					const target = table === tediRuntimeEvents ? events : artifacts;
+					const target = isRuntimeEventSource(table) ? events : artifacts;
 					const matching = applyWhere(target, whereClause);
 					for (const row of matching) {
 						Object.assign(row, updateValues);

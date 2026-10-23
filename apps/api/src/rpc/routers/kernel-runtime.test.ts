@@ -1,3 +1,4 @@
+import { SQL } from "drizzle-orm";
 import { createRouterClient } from "@orpc/server";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
 import { LOCAL_DEMO_PROJECT_ID } from "@tedix/auth/local-demo";
@@ -728,6 +729,14 @@ type PolicyPackRow = {
 	organizationId?: string;
 	status?: string;
 };
+
+// Indexed event reads still target this fixture's runtime-event table.
+function isRuntimeEventSource(source: unknown): boolean {
+	return (
+		source === tediRuntimeEvents ||
+		(source instanceof SQL && source.queryChunks.includes(tediRuntimeEvents))
+	);
+}
 
 function createKernelRuntimeDb(opts?: {
 	grantRows?: KernelConversationGrantRow[];
@@ -1478,7 +1487,7 @@ function createKernelRuntimeDb(opts?: {
 			return builder;
 		},
 		$count(table: unknown, whereClause: unknown) {
-			if (table === tediRuntimeEvents) {
+			if (isRuntimeEventSource(table)) {
 				return Promise.resolve(
 					applyWhere([...runtimeEvents], whereClause).length,
 				);
@@ -1539,7 +1548,7 @@ function createKernelRuntimeDb(opts?: {
 						selectedRows = [...conversationIndexRows] as typeof selectedRows;
 						return this;
 					}
-					if (table === tediRuntimeEvents) {
+					if (isRuntimeEventSource(table)) {
 						selectedRows = [...runtimeEvents];
 						return this;
 					}
@@ -1678,7 +1687,7 @@ function createKernelRuntimeDb(opts?: {
 						throw controls.kernelRuntimeSelectError;
 					}
 					if (
-						selectedTable === tediRuntimeEvents &&
+						isRuntimeEventSource(selectedTable) &&
 						controls.childRuntimeSelectError
 					) {
 						throw controls.childRuntimeSelectError;
@@ -5128,7 +5137,7 @@ describe("kernel runtime router", () => {
 			const builder = originalSelect();
 			const originalFrom = builder.from.bind(builder);
 			builder.from = (table: unknown) => {
-				if (table === tediRuntimeEvents) childEvidenceSelectCount += 1;
+				if (isRuntimeEventSource(table)) childEvidenceSelectCount += 1;
 				return originalFrom(table);
 			};
 			return builder;
@@ -5289,7 +5298,7 @@ describe("kernel runtime router", () => {
 			const builder = originalSelect();
 			const originalFrom = builder.from.bind(builder);
 			builder.from = (table: unknown) => {
-				if (table === tediRuntimeEvents) childEvidenceSelectCount += 1;
+				if (isRuntimeEventSource(table)) childEvidenceSelectCount += 1;
 				return originalFrom(table);
 			};
 			return builder;

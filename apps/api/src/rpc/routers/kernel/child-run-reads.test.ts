@@ -1,4 +1,4 @@
-import type { SQL } from "drizzle-orm";
+import { SQL } from "drizzle-orm";
 import { SQLiteDialect } from "drizzle-orm/sqlite-core";
 import type { HomeRun } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
@@ -25,6 +25,16 @@ import {
 	readChildRunEvidenceRows,
 	readChildRunResultAndLiveness,
 } from "./child-run-reads";
+
+// Run-scoped event queries wrap the table in SQL to pin the production index.
+// Keep the fixture's filtering and retry behavior for that same table source.
+function isRuntimeEventSource(source: unknown): boolean {
+	return (
+		source === tediRuntimeEventsTable ||
+		(source instanceof SQL &&
+			source.queryChunks.includes(tediRuntimeEventsTable))
+	);
+}
 
 type EventRow = typeof tediRuntimeEvents.$inferSelect;
 
@@ -1216,7 +1226,7 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 						return chain;
 					},
 					where(clause: SQL) {
-						if (table === tediRuntimeEventsTable)
+						if (isRuntimeEventSource(table))
 							eventQueryParams.push(
 								new SQLiteDialect().sqlToQuery(clause).params,
 							);
@@ -1226,7 +1236,7 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 						return chain;
 					},
 					limit() {
-						if (table === tediRuntimeEventsTable) {
+						if (isRuntimeEventSource(table)) {
 							eventReadCalls += 1;
 							if (eventReadCalls > 1 && opts.finalEventRows)
 								return Promise.resolve(opts.finalEventRows);
