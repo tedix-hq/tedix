@@ -11,7 +11,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TEDIX_OPENCODE_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
+import {
+	TEDIX_OPENCODE_OAUTH_CLIENT_ID,
+	TEDIX_OPENCODE_OAUTH_REDIRECT_URI,
+} from "@tedix/auth/oauth-client-registration";
 import * as module from "../../../plugins/tedix/.opencode-plugin/index.js";
 import { ROOT } from "./package-plugin";
 
@@ -567,7 +570,10 @@ test("OpenCode 2 adds the Tedix MCP server with its CIMD client and the shared s
 	expect(fake.mcp.get("tedix")).toEqual({
 		type: "remote",
 		url: mcp.mcpServers.tedix.url,
-		oauth: { client_id: TEDIX_OPENCODE_OAUTH_CLIENT_ID },
+		oauth: {
+			client_id: TEDIX_OPENCODE_OAUTH_CLIENT_ID,
+			redirect_uri: TEDIX_OPENCODE_OAUTH_REDIRECT_URI,
+		},
 	});
 	const names = readdirSync(join(ROOT, "skills"));
 	expect([...fake.skills.keys()].sort()).toEqual(names.sort());
