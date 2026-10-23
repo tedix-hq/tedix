@@ -3,6 +3,7 @@ import {
 	ArrowCounterClockwise,
 	CaretRight,
 	Check,
+	Info,
 	ShieldWarning,
 	StopCircle,
 	TreeStructure,
@@ -31,10 +32,20 @@ import {
 } from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
 import { Text } from "@/components/kumo/text";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import { absoluteTime, formatDurationMs, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { cn } from "@/lib/utils";
+import { OS_COPY } from "@/shared/os-copy";
+import {
+	homeDelegationApprovalId,
+	isHomeDelegationApprovalId,
+} from "@tedix/api-contract/utils/home-delegation-approval";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 // UNTRUSTED TEXT. Every string these cards render that an MCP server or a tool
@@ -663,6 +674,8 @@ export type ApprovalCardData = {
 	detail?: string | null;
 	/** Tool arguments stay behind the details disclosure. */
 	detailDisclosure?: boolean;
+	/** The raw policy code behind `detail`, shown only in a tooltip. */
+	reasonCode?: string | null;
 	tediName?: string | null;
 	/** The tedi the request acts for or delegates to, when known. */
 	tediId?: string | null;
@@ -701,7 +714,7 @@ export function approvalsForAuthority(
 ): ApprovalCardData[] {
 	return cards.map((card) => {
 		if (card.decisionMode === "no_action" || card.expired) return card;
-		const delegation = card.approvalId.startsWith("home-delegation:");
+		const delegation = isHomeDelegationApprovalId(card.approvalId);
 		const canDecide = delegation
 			? authority?.permissions.includes("tedis:update") &&
 				(authority.role === "owner" || authority.role === "admin")
@@ -717,6 +730,39 @@ export function approvalsForAuthority(
 						: "Your account cannot decide this approval. Ask an authorized operator to review it.",
 				};
 	});
+}
+
+/**
+ * Plain-English "why a person decides" for a held delegation. The policy code
+ * stays on the card's tooltip; unknown codes fall back to the generic reason.
+ */
+export function delegationHoldReason(code: string, tediName: string): string {
+	const copy = OS_COPY.approvalCard;
+	const reserved = /^human-reserved:\s*(.+)$/.exec(code);
+	if (reserved) {
+		const actions = [
+			...new Set(
+				reserved[1]!
+					.split(",")
+					.map((id) => copy.reservedActions[id.trim()])
+					.filter((action): action is string => Boolean(action)),
+			),
+		];
+		return actions.length
+			? copy.reservedReason(actions.join(" or "))
+			: copy.policyReason;
+	}
+	if (code.startsWith("human correction requires approval"))
+		return copy.askedForApproval;
+	if (code === "operator explicitly held dispatch for approval")
+		return copy.heldByOperator;
+	const risk =
+		/^(low|medium|high|critical|unknown) risk requires human approval$/.exec(
+			code,
+		);
+	if (risk) return copy.riskReason(risk[1]!);
+	if (/\bentrustment\b/.test(code)) return copy.notTrusted(tediName);
+	return copy.policyReason;
 }
 
 /**
@@ -770,9 +816,17 @@ export function approvalsFromRunSet(
 		const targetLabel = asString(workOrder?.targetTediLabel);
 		const tediName =
 			targetLabel ?? (targetTediId ? (tediNames[targetTediId] ?? null) : null);
-		const holdReason =
-			asString(decision.reason) ??
-			"Organization policy requires approval before this delegation can start.";
+		const reasonCode = asString(decision.reason) ?? null;
+		const request = OS_COPY.approvalCard.delegationRequest(
+			tediName ?? "the selected worker",
+		);
+		const holdReason = [
+			request,
+			delegationHoldReason(reasonCode ?? "", tediName ?? "This worker"),
+		].join(" ");
+		// The hold is placed when the run is created; later run updates (the
+		// decision itself) must not move "asked".
+		const requestedAt = run.createdAt;
 		if (TERMINAL_RUN_STATUSES.has(run.status)) {
 			const reconciliation = asRecord(metadata?.kernelReconciliation);
 			const expiredReason =
@@ -781,12 +835,13 @@ export function approvalsFromRunSet(
 					: undefined;
 			return [
 				{
-					approvalId: `home-delegation:${run.id}`,
+					approvalId: homeDelegationApprovalId(run.id),
 					runId: run.id,
 					summary: expiredReason
 						? "Delegation approval expired"
 						: `Delegation proposal from ${run.status} run`,
 					detail: holdReason,
+					reasonCode,
 					tediName,
 					tediId: targetTediId ?? null,
 					status: "pending",
@@ -794,7 +849,7 @@ export function approvalsFromRunSet(
 					noActionNote: expiredReason
 						? `Expired without a decision: ${expiredReason}. Nothing was dispatched.`
 						: "This run has ended. The proposal is retained as history and cannot be approved or rejected.",
-					requestedAt: run.updatedAt ?? run.createdAt,
+					requestedAt,
 				},
 			];
 		}
@@ -811,33 +866,33 @@ export function approvalsFromRunSet(
 			// session auto-approval) until it declines or the review expires.
 			return [
 				{
-					approvalId: `home-delegation:${run.id}`,
+					approvalId: homeDelegationApprovalId(run.id),
 					runId: run.id,
 					summary: `Awaiting ${review.approverName} decision`,
 					detail: holdReason,
+					reasonCode,
 					tediName,
 					status: "pending" as const,
 					decisionMode: "no_action" as const,
 					noActionNote: `${review.approverName} decides through the Work approval plane; you'll be asked only if it declines or the review expires.`,
-					requestedAt: run.updatedAt ?? run.createdAt,
+					requestedAt,
 				},
 			];
 		}
 		return [
 			{
-				approvalId: `home-delegation:${run.id}`,
+				approvalId: homeDelegationApprovalId(run.id),
 				runId: run.id,
 				summary: tediName
 					? `Approve delegation to ${tediName}`
 					: "Approve delegation",
-				detail: review
-					? [review.outcome, holdReason].filter(Boolean).join(" · ")
-					: holdReason,
+				detail: review ? `${review.outcome}. ${holdReason}` : holdReason,
+				reasonCode,
 				tediName,
 				tediId: targetTediId ?? null,
 				requestPreview: delegationRequestPreview(workOrder),
 				status: "pending" as const,
-				requestedAt: run.updatedAt ?? run.createdAt,
+				requestedAt,
 				expiresAt,
 				...(Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs
 					? { expired: true }
@@ -866,7 +921,7 @@ export function approvalsFromRunSet(
 				detailDisclosure: true,
 				detail: args && args.length > 240 ? `${args.slice(0, 239)}…` : args,
 				status: "pending",
-				requestedAt: run.updatedAt ?? run.createdAt,
+				requestedAt: run.createdAt,
 				sessionScopeKey: `write:${appSlug ?? "?"}:${toolName}`,
 			},
 		];
@@ -977,7 +1032,18 @@ export function ApprovalCard({
 	const expired = approval.expired === true;
 	const decisionMode = approval.decisionMode ?? "approve_or_reject";
 	const actionable = !expired && decisionMode === "approve_or_reject";
-	const isDelegation = approval.approvalId.startsWith("home-delegation:");
+	const isDelegation = isHomeDelegationApprovalId(approval.approvalId);
+	// Only the clicked button shows progress; the rest are just disabled.
+	const [clicked, setClicked] = useState<"approve" | "reject" | "delegate">();
+	const inFlight = resolving ? clicked : undefined;
+	const resolve = (choice: "approve" | "reject" | "delegate"): void => {
+		setClicked(choice);
+		onResolve?.(
+			approval.approvalId,
+			choice === "approve" ? "approve" : "reject",
+			choice === "delegate" ? true : undefined,
+		);
+	};
 	return (
 		<li
 			data-slot="approval-card"
@@ -1062,17 +1128,32 @@ export function ApprovalCard({
 						) : (
 							<Text as="p" role="body" className="break-words">
 								{sanitizeUntrustedText(approval.detail)}
+								{approval.reasonCode ? (
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<button
+													type="button"
+													aria-label={OS_COPY.approvalCard.policyDetails}
+													data-slot="approval-reason-code"
+													className="ml-1 inline-flex align-[-2px] text-kumo-subtle hover:text-kumo-default"
+												/>
+											}
+										>
+											<Info size={14} aria-hidden />
+										</TooltipTrigger>
+										<TooltipContent>
+											{OS_COPY.approvalCard.policyDetails}:{" "}
+											{sanitizeUntrustedText(approval.reasonCode)}
+										</TooltipContent>
+									</Tooltip>
+								) : null}
 							</Text>
 						)
 					) : null}
 					{actionable && isDelegation ? (
 						<Text as="p" role="label" tone="secondary">
-							An organization owner or admin can decide. Approving sends this
-							request to{" "}
-							{sanitizeUntrustedText(
-								approval.tediName ?? "the selected worker",
-							)}
-							.
+							{OS_COPY.approvalCard.ownerOrAdmin}
 						</Text>
 					) : null}
 					{expired ? (
@@ -1093,7 +1174,7 @@ export function ApprovalCard({
 							role="status"
 							data-slot="approval-pending"
 						>
-							Waiting for the kernel to confirm the decision…
+							Waiting for Tedix to confirm your decision…
 						</span>
 					) : null}
 				</div>
@@ -1101,17 +1182,18 @@ export function ApprovalCard({
 					<span className="col-span-2 flex min-w-0 flex-wrap items-center justify-start gap-2 pl-[30px]">
 						<Button
 							size="sm"
+							loading={inFlight === "delegate"}
 							disabled={resolving}
-							onClick={() => onResolve?.(approval.approvalId, "reject", true)}
+							onClick={() => resolve("delegate")}
 						>
 							Decide for me
 						</Button>
 						<Button
 							size="sm"
 							icon={<Check size={14} />}
-							loading={resolving}
+							loading={inFlight === "approve"}
 							disabled={resolving}
-							onClick={() => onResolve?.(approval.approvalId, "approve")}
+							onClick={() => resolve("approve")}
 						>
 							Approve
 						</Button>
@@ -1119,9 +1201,9 @@ export function ApprovalCard({
 							size="sm"
 							variant="destructive"
 							icon={<X size={14} />}
-							loading={resolving}
+							loading={inFlight === "reject"}
 							disabled={resolving}
-							onClick={() => onResolve?.(approval.approvalId, "reject")}
+							onClick={() => resolve("reject")}
 						>
 							Reject
 						</Button>

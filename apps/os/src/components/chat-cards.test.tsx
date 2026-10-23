@@ -1,4 +1,6 @@
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
@@ -12,6 +14,7 @@ import {
 	DelegationProofChip,
 	DelegationWorkCard,
 	delegationFromRun,
+	delegationHoldReason,
 	delegationProofFromRun,
 	ExecutionLinkChip,
 	mergeToolEvents,
@@ -490,7 +493,7 @@ describe("ApprovalCard", () => {
 		expect(html).toContain('data-pending="true"');
 		expect(html).toContain('data-approval-status="pending"');
 		expect(html).toContain('data-slot="approval-pending"');
-		expect(html).toContain("Waiting for the kernel to confirm");
+		expect(html).toContain("Waiting for Tedix to confirm");
 		expect(html).not.toContain('data-approval-status="approved"');
 	});
 
@@ -652,6 +655,108 @@ it("shows the approval reason without opening Details", () => {
 	expect(container.querySelector("button[aria-expanded]")).toBeNull();
 });
 
+describe("Home delegation approval copy", () => {
+	it("explains a held delegation in plain words and keeps the code for the tooltip", () => {
+		const [card] = approvalsFromRunSet({
+			runs: [
+				{
+					id: RUN_ID,
+					organizationId: ORG_ID,
+					conversationId: "home:main",
+					status: "requires_approval",
+					createdAt: "2026-10-23T14:44:17.000Z",
+					// The run moves on after the hold; "asked" must not.
+					updatedAt: "2026-10-23T14:50:45.000Z",
+					metadata: {
+						homeDelegation: {
+							workOrder: { targetTediId: TEDI_ID, targetTediLabel: "CFO" },
+							decision: {
+								mode: "needs_approval",
+								reason: "human-reserved: external_message",
+							},
+						},
+					},
+				},
+			],
+			approvalMirrors: {},
+		});
+		expect(card).toMatchObject({
+			summary: "Approve delegation to CFO",
+			detail:
+				"Sends a request to CFO on your behalf. It needs your approval because it may message people outside your organization.",
+			reasonCode: "human-reserved: external_message",
+			requestedAt: "2026-10-23T14:44:17.000Z",
+		});
+		const html = renderToStaticMarkup(<ApprovalCard approval={card!} />);
+		expect(html).toContain('data-slot="approval-reason-code"');
+		expect(html).toContain("An organization owner or admin can decide.");
+		expect(html).not.toContain("human-reserved");
+		expect(html).not.toContain("kernel");
+	});
+
+	it.each([
+		[
+			"human-reserved: money, external_message",
+			"move or commit money or message people outside your organization",
+		],
+		["high risk requires human approval", "Tedix rated it high risk"],
+		[
+			"operator explicitly held dispatch for approval",
+			"You asked to approve this before it starts.",
+		],
+		[
+			"human correction requires approval for delegation:single_read",
+			"You asked to approve this kind of work yourself.",
+		],
+		[
+			"target lacks a matching production entrustment for this route risk",
+			"CFO is not yet trusted",
+		],
+		["target not active", "Your organization requires approval"],
+	])("maps %s to plain language", (code, expected) => {
+		expect(delegationHoldReason(code, "CFO")).toContain(expected);
+	});
+});
+
+describe("ApprovalCard progress", () => {
+	(
+		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+	).IS_REACT_ACT_ENVIRONMENT = true;
+	it("spins only the clicked button and disables the others", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		const decisions: string[] = [];
+		const card = (resolving: boolean) => (
+			<ApprovalCard
+				approval={approval()}
+				resolving={resolving}
+				onResolve={(_, decision) => decisions.push(decision)}
+			/>
+		);
+		await act(async () => root.render(card(false)));
+		const button = (label: string) =>
+			[...container.querySelectorAll("button")].find(
+				(node) => node.textContent?.trim() === label,
+			)!;
+		await act(async () => button("Approve").click());
+		await act(async () => root.render(card(true)));
+		expect(decisions).toEqual(["approve"]);
+		const spinning = (label: string) =>
+			button(label).querySelector('[aria-label="Loading"]') !== null;
+		expect(spinning("Approve")).toBe(true);
+		expect(spinning("Reject")).toBe(false);
+		expect(spinning("Decide for me")).toBe(false);
+		expect(button("Reject").disabled).toBe(true);
+		expect(button("Decide for me").disabled).toBe(true);
+		expect(container.querySelectorAll('[aria-label="Loading"]')).toHaveLength(
+			1,
+		);
+		await act(async () => root.unmount());
+		container.remove();
+	});
+});
+
 describe("approval builders", () => {
 	it("joins approval mirrors to their parent requires_approval run", () => {
 		const cards = approvalsFromRunSet(
@@ -773,7 +878,9 @@ describe("approval builders", () => {
 				approvalId: `home-delegation:${RUN_ID}`,
 				runId: RUN_ID,
 				summary: "Approve delegation to Acme",
-				detail: "target not active",
+				detail:
+					"Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.",
+				reasonCode: "target not active",
 				status: "pending",
 			}),
 		]);
@@ -848,9 +955,11 @@ describe("approval builders", () => {
 			const container = document.createElement("div");
 			container.innerHTML = html;
 			expect(
-				[...container.querySelectorAll("button")].map(
-					(button) => button.textContent,
-				),
+				[
+					...container.querySelectorAll(
+						"button:not([data-slot=approval-reason-code])",
+					),
+				].map((button) => button.textContent),
 			).toEqual([]);
 			expect(run).toEqual(original);
 		},
@@ -943,7 +1052,9 @@ describe("approval builders", () => {
 					approvalId: `home-delegation:${RUN_ID}`,
 					summary: "Awaiting CTO decision",
 					decisionMode: "no_action",
-					detail: "route classified as high risk",
+					detail:
+						"Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.",
+					reasonCode: "route classified as high risk",
 				}),
 			]);
 			// Never session-auto-approvable while the agent decides.
@@ -976,7 +1087,7 @@ describe("approval builders", () => {
 				expect(cards).toEqual([
 					expect.objectContaining({
 						summary: "Approve delegation to Acme",
-						detail: `${outcome} · route classified as high risk`,
+						detail: `${outcome}. Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.`,
 						sessionScopeKey: `delegate:${TEDI_ID}`,
 					}),
 				]);

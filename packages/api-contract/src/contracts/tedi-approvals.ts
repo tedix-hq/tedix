@@ -412,7 +412,7 @@ export const tediApprovalsContract = oc
 				path: "" as `/${string}`,
 				summary: "List approval requests",
 				description:
-					"List approval requests for the current organization with optional filters",
+					"List approval requests for the current organization with optional filters. Held Home delegations are not listed here: the parent Home run is the approval (id `home-delegation:<runId>`). Read them with `kernelRuntime.listPendingHomeDelegations` and answer with `kernelRuntime.respondApproval`.",
 			})
 			.input(
 				z

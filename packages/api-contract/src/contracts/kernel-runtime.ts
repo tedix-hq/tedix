@@ -339,7 +339,7 @@ export const kernelRuntimeContract = oc
 				path: "/pending-delegations",
 				summary: "List pending Home delegation approvals",
 				description:
-					"Returns the bounded, access-checked Home delegation projection for an eligible organization owner or admin.",
+					"Returns the bounded, access-checked Home delegation projection for an eligible organization owner or admin. Held delegations are not `tediApprovals.list` rows: each pending run is the approval (event id `home-delegation:<runId>`); answer it with `respondApproval` on that run.",
 			})
 			.input(ListPendingHomeDelegationsInputSchema)
 			.output(z.object({ runSet: HomeRunSetSchema })),

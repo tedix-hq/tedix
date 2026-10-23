@@ -242,11 +242,26 @@ export function withoutQuotedCommitSubjects(content: string): string {
 	);
 }
 
+/**
+ * A question about what we must or how to do something ("Do we have to send
+ * e-invoices?", "How do I pay the supplier?") asks for an answer, not the act.
+ * Polite requests ("Can you send ...?") stay actionable, and so does any
+ * instruction outside the question.
+ */
+function withoutKnowledgeQuestions(content: string): string {
+	return content.replace(
+		/(^|[\n.!?;:])([ \t]*(?:\d+[.)][ \t]*)?)(?:(?:do|does|must|should|shall)[ \t]+(?:we|i|they)\b(?:[ \t]+(?:have|need)[ \t]+to)?|(?:are|is|am)[ \t]+(?:we|i|they|it)[ \t]+(?:required|obliged|obligated|supposed|allowed)[ \t]+to|(?:how|when|why)[ \t]+(?:do|does|should|to)\b)[^?\n]*\?/gi,
+		"$1$2record?",
+	);
+}
+
 /** Shared by Home, the runtime, and local lanes; tool names use the same vocabulary. */
 export function humanReservedActionClasses(content: string): string[] {
 	// A read-only comparison can describe a paid option without authorizing it.
 	// Strip only the cost description; positive payment/spend instructions survive.
-	const unquoted = withoutQuotedCommitSubjects(content);
+	const unquoted = withoutKnowledgeQuestions(
+		withoutQuotedCommitSubjects(content),
+	);
 	const actionContent = (
 		/^\s*(?:research|compare|evaluate)\b/i.test(unquoted) &&
 		/\bno spending\b/i.test(unquoted)
