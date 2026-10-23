@@ -148,6 +148,43 @@ afterEach(() => {
 });
 
 describe("OutputsPage", () => {
+	it.each(["grid", "list"])(
+		"keeps Open, Share, and Actions as sibling controls in %s layout",
+		async (layout) => {
+			window.localStorage.setItem("tedix:outputs:layout:v1", layout);
+			outputsApi.library.mockResolvedValue({
+				items: [libraryItem()],
+				truncated: false,
+			});
+			const container = renderPage();
+			await flush();
+			const card = container.querySelector("li[aria-label^='Open ']")!;
+			expect(card.getAttribute("role")).toBeNull();
+			expect(card.hasAttribute("tabindex")).toBe(false);
+			const open = card.querySelector<HTMLButtonElement>(
+				'button[aria-label="Open Weekly report in Q3 planning"]',
+			);
+			expect(open).not.toBeNull();
+			expect(open?.getAttribute("tabindex")).toBe("0");
+			expect(
+				card.querySelector("button button, [role=button] button"),
+			).toBeNull();
+			const share = [...card.querySelectorAll("button")].find(
+				(button) => button.textContent === "Share",
+			)!;
+			const actions = card.querySelector<HTMLButtonElement>(
+				'button[aria-label="Actions for Weekly report"]',
+			)!;
+			for (const control of [share, actions]) {
+				expect(control.closest('button, [role="button"]')).toBe(control);
+				act(() => control.click());
+			}
+			expect(navigate).not.toHaveBeenCalled();
+			act(() => open!.click());
+			expect(navigate).toHaveBeenCalledTimes(1);
+		},
+	);
+
 	it("uses the ordinary desktop lane for the compact filter row", async () => {
 		outputsApi.library.mockResolvedValue({
 			items: [libraryItem()],
@@ -183,7 +220,9 @@ describe("OutputsPage", () => {
 		const container = renderPage();
 		await flush();
 
-		const card = container.querySelector('li[role="button"]');
+		const card = container.querySelector(
+			'button[aria-label="Open Weekly report in Q3 planning"]',
+		);
 		expect(card).not.toBeNull();
 		act(() => (card as HTMLElement).click());
 
@@ -248,9 +287,9 @@ describe("OutputsPage", () => {
 		]);
 
 		for (const card of cards) {
-			const preview = card.querySelector('[data-slot="output-grid-preview"]');
-			expect(preview).not.toBeNull();
-			act(() => (preview as HTMLElement).click());
+			const open = card.querySelector<HTMLButtonElement>(".output-card-open");
+			expect(open).not.toBeNull();
+			act(() => open!.click());
 		}
 
 		expect(navigate.mock.calls.map(([call]) => call)).toEqual([

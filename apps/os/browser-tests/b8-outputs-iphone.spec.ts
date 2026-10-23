@@ -292,8 +292,7 @@ try {
 				}
 			}
 			let search = page.getByRole("searchbox", { name: "Search outputs" });
-			const cards = () =>
-				page.locator('li[role="button"][aria-label^="Open "]');
+			const cards = () => page.locator('li[aria-label^="Open "]');
 			const ready = async () => {
 				await visible(search);
 				await visible(cards().first());
@@ -332,7 +331,7 @@ try {
 						exact: true,
 					}),
 					...(await tabs.all()),
-					cards().first(),
+					cards().first().locator(".output-card-open"),
 					page.getByRole("button", {
 						name: `Actions for ${readable.output.title}`,
 						exact: true,
@@ -376,7 +375,10 @@ try {
 					await page.locator('[data-slot="output-grid-preview"]').count(),
 					0,
 				);
-				await inspect(page, `${label}-list`, phone, [search, cards().first()]);
+				await inspect(page, `${label}-list`, phone, [
+					search,
+					cards().first().locator(".output-card-open"),
+				]);
 				const inert = page.locator('li[aria-disabled="true"]', {
 					hasText: "Revoked source regression",
 				});
@@ -388,9 +390,9 @@ try {
 				assert.equal(page.url(), before);
 				await inert.dispatchEvent("keydown", { key: "Enter" });
 				assert.equal(page.url(), before);
-				await keyboardFocus(page, cards().first());
+				await keyboardFocus(page, cards().first().locator(".output-card-open"));
 				await inspect(page, `${label}-card-focus`, phone);
-				await cards().first().press("Enter");
+				await cards().first().locator(".output-card-open").press("Enter");
 				await page.waitForURL((url) =>
 					readable.workspace?.status === "active"
 						? url.pathname === `/workspace/${readable.workspace.id}` &&

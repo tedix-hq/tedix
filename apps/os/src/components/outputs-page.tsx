@@ -25,7 +25,7 @@ import type {
 	OsOutputLibraryPreview,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { getOsSurface } from "@/lib/os-navigation";
-import type { ComponentType, KeyboardEvent } from "react";
+import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
 import * as z from "zod";
 import { OutputPreview } from "@/components/output-preview";
@@ -175,11 +175,7 @@ function OutputMenu(props: {
 	const opensInWorkspace = affordance.target.kind === "workspace";
 	const contentAvailable = props.item.preview.kind !== "unavailable";
 	return (
-		<div
-			className="output-card-actions flex shrink-0 items-center gap-1"
-			onClick={(event) => event.stopPropagation()}
-			onKeyDown={(event) => event.stopPropagation()}
-		>
+		<div className="output-card-actions relative z-10 flex shrink-0 items-center gap-1">
 			{contentAvailable ? (
 				<ShareControls
 					outputId={props.item.output.id}
@@ -262,24 +258,24 @@ function OutputCard(props: OutputCardProps) {
 			onRename={props.onRename}
 		/>
 	);
-	const activate = (event: KeyboardEvent) => {
-		if (!contentAvailable) return;
-		if (event.key === "Enter" || event.key === " ") {
-			event.preventDefault();
-			props.onOpen();
-		}
-	};
+	const openControl = contentAvailable ? (
+		<Button
+			type="button"
+			tabIndex={0}
+			variant="ghost"
+			aria-label={cardLabel}
+			onClick={props.onOpen}
+			className="output-card-open absolute inset-0 z-0 h-full w-full rounded-[inherit] bg-transparent p-0 hover:bg-transparent"
+		/>
+	) : null;
 	if (props.layout === "list") {
 		return (
 			<li
 				aria-label={cardLabel}
-				role={contentAvailable ? "button" : undefined}
-				tabIndex={contentAvailable ? 0 : undefined}
 				aria-disabled={contentAvailable ? undefined : true}
-				onClick={contentAvailable ? props.onOpen : undefined}
-				onKeyDown={activate}
-				className={`output-list-row group flex min-h-16 items-center gap-3 rounded-lg px-3 py-2.5 outline-none transition-colors motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:bg-kumo-tint focus-visible:ring-2 focus-visible:ring-kumo-ring" : "cursor-default"}`}
+				className={`output-list-row group relative flex min-h-16 items-center gap-3 rounded-lg px-3 py-2.5 outline-none transition-colors motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:bg-kumo-tint" : "cursor-default"}`}
 			>
+				{openControl}
 				<IconFrame>
 					<Icon size={18} />
 				</IconFrame>
@@ -355,14 +351,11 @@ function OutputCard(props: OutputCardProps) {
 		<Surface
 			aria-label={cardLabel}
 			tier="panel"
-			role={contentAvailable ? "button" : undefined}
-			tabIndex={contentAvailable ? 0 : undefined}
 			aria-disabled={contentAvailable ? undefined : true}
-			onClick={contentAvailable ? props.onOpen : undefined}
-			onKeyDown={activate}
-			className={`output-grid-card group relative outline-none transition-[border-color] motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:border-kumo-fill focus-visible:ring-2 focus-visible:ring-kumo-ring" : "cursor-default"}`}
+			className={`output-grid-card group relative outline-none transition-[border-color] motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:border-kumo-fill" : "cursor-default"}`}
 			render={<li />}
 		>
+			{openControl}
 			<div
 				data-slot="output-grid-preview"
 				className="aspect-video overflow-hidden rounded-t-xl border-kumo-line border-b"
