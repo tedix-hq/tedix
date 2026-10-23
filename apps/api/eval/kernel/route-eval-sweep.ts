@@ -340,6 +340,27 @@ const SCENARIOS: Scenario[] = [
 		check: (d) => (d.answer ?? "").toUpperCase().includes("BLUEFIN"),
 	},
 	{
+		id: "trap.retry_after_denial",
+		content: "what are my commitments this week?",
+		history: [
+			{
+				role: "user",
+				content: "what are my commitments this week?",
+			},
+			{
+				role: "assistant",
+				content:
+					"I couldn't read your calendar — access to the source was denied (403), so I can't list this week's commitments.",
+			},
+		],
+		// Live regression: a renewed identical request must route a fresh
+		// authorized read to the capable owner — the historical denial is
+		// evidence of that moment, not a standing refusal.
+		expectRoutes: ["delegate_tedi"],
+		expectTarget: "tedi-ceo",
+		trap: true,
+	},
+	{
 		id: "delegate.embodied_coding",
 		content:
 			"clone the tedix repo and run the full test suite, report failures",

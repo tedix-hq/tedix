@@ -631,6 +631,89 @@ describe("planKernelRoute", () => {
 		expect(capturedSystem).toContain("ask_human remains correct");
 	});
 
+	it("retries a read denied in conversation history instead of repeating the historical refusal", async () => {
+		// Live regression: after the source-read fix, a renewed identical
+		// request in the same conversation still answered with the earlier
+		// 403 denial instead of re-routing a fresh authorized read to the
+		// capable tedi. The denial stays visible inside the untrusted
+		// history fence while the prompt directs a fresh read-only attempt.
+		const decision: KernelRouteDecision = {
+			routeKind: "delegate_tedi",
+			rationale: "CEO tedi owns the calendar connection; retry the read.",
+			risk: "low",
+			confidence: 0.86,
+			effortClass: "single_read",
+			answer: null,
+			targetTediId: "tedi-ceo",
+			targetTediLabel: "CEO",
+			targetActivityId: null,
+			plannedToolIds: ["google_calendar_tedix.list_events"],
+			toolIntent: null,
+			workflowHint: null,
+			clarifyingQuestion: null,
+			evidenceExpectation: null,
+		};
+		let capturedSystem = "";
+		let capturedUser = "";
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => {
+				capturedSystem = options.prompt
+					.filter((message) => message.role === "system")
+					.map((message) => message.content)
+					.join("\n");
+				capturedUser = options.prompt
+					.filter((message) => message.role === "user")
+					.flatMap((message) =>
+						Array.isArray(message.content) ? message.content : [],
+					)
+					.map((part) => ("text" in part ? String(part.text) : ""))
+					.join("\n");
+				return {
+					finishReason: "stop",
+					usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+					warnings: [],
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify(normalizeRouteDecisionCandidate(decision)),
+						},
+					],
+				};
+			},
+		});
+
+		const result = await planKernelRoute({
+			content: "what are my commitments this week?",
+			context: {
+				...EMPTY_CONTEXT,
+				tedis: [{ id: "tedi-ceo", slug: "ceo", name: "CEO" }],
+				history: [
+					{
+						role: "user",
+						content: "what are my commitments this week?",
+					},
+					{
+						role: "assistant",
+						content:
+							"I couldn't read your calendar — access to the source was denied (403), so I can't list this week's commitments.",
+					},
+				],
+			},
+			model,
+		});
+
+		expect(capturedUser).toContain("<conversation_history>");
+		expect(capturedUser).toContain("denied (403)");
+		expect(capturedSystem).toContain("not a standing refusal");
+		expect(capturedSystem).toContain("fresh authorized read-only attempt");
+		// The renewed-request delegation survives the route guard untouched.
+		expect(result).toMatchObject({
+			routeKind: "delegate_tedi",
+			targetTediId: "tedi-ceo",
+			explicitDelegationIntent: false,
+		});
+	});
+
 	it("omits the conversation-history fence entirely when there is no history", async () => {
 		const decision: KernelRouteDecision = {
 			routeKind: "answer_in_home",
