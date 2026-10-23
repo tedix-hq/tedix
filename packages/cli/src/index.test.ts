@@ -569,6 +569,20 @@ describe("parseOptions", () => {
 		expect(options.flowWatch).toBe(120);
 	});
 
+	test("flow watch rejects invalid explicit durations", () => {
+		expect(parseOptions(["flow", "run", "--watch"]).options.flowWatch).toBe(
+			900,
+		);
+		expect(
+			parseOptions(["flow", "run", "--watch", "120"]).options.flowWatch,
+		).toBe(120);
+		for (const duration of ["oops", "1.5"]) {
+			expect(() => parseOptions(["flow", "run", "--watch", duration])).toThrow(
+				"--watch must be a positive integer",
+			);
+		}
+	});
+
 	test("work create flags parse into the work option group", () => {
 		const { command, options } = parseOptions([
 			"work",
@@ -1752,7 +1766,7 @@ describe("parseOptions: --flag=value equals normalization (fix #2)", () => {
 		expect(flow.options.flowWatch).toBe(12);
 		expect(flow.options.prompt).toBe("run");
 		expect(() => parseOptions(["flow", "run", "--watch=false"])).toThrow(
-			"Unexpected value for --watch",
+			"--watch must be a positive integer",
 		);
 		const argv = ["ask", "--", "--no-poll=false", "--json=true"];
 		expect(parseOptions(argv).options.prompt).toBe(
