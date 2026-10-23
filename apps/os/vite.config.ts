@@ -49,7 +49,6 @@ const workerPlugin = () =>
 						),
 					},
 				}),
-		experimental: { newConfig: { cfBuildOutput: true } },
 	});
 
 export default defineConfig(async ({ command, mode, isPreview }) => {
