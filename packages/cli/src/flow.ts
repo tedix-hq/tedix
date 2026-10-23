@@ -46,6 +46,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { parseSkillFrontmatter } from "@tedix/api-contract/utils/skill-manifest";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
 import {
 	cyan,
@@ -170,13 +171,33 @@ export function parsePlan(text: string): Plan {
 	let name: string | undefined;
 	let description: string | undefined;
 	const rest: string[] = [];
-	for (const line of lines) {
-		const scalar = line.match(/^(name|description):\s*(.*)$/);
+	for (let index = 0; index < lines.length; index++) {
+		const line = lines[index]!;
+		const scalar = line.match(/^(name|description):\s*(.*)\r?$/);
 		// Only top-level (unindented) scalars are the skill's own identity; an
 		// indented `name:` belongs to a nested manifest structure and must pass
 		// through untouched.
-		if (scalar && !line.startsWith(" ") && !line.startsWith("\t")) {
-			const value = (scalar[2] ?? "").trim().replace(/^["']|["']$/g, "");
+		if (scalar) {
+			const rawValue = (scalar[2] ?? "").trim();
+			let value = rawValue.replace(/^["']|["']$/g, "");
+			if (/^[|>]/.test(rawValue)) {
+				const start = index;
+				while (
+					index + 1 < lines.length &&
+					/^(?:\s*$|[ \t])/.test(lines[index + 1]!)
+				) {
+					index++;
+				}
+				const yaml =
+					lines.slice(start, index + 1).join("\n") +
+					(index + 1 < lines.length ? "\n" : "");
+				const parsed = parseSkillFrontmatter(`---\n${yaml}\n---\n`);
+				const decoded = parsed?.[scalar[1]!];
+				if (typeof decoded !== "string") {
+					throw new Error(`invalid ${scalar[1]} block scalar in plan manifest`);
+				}
+				value = decoded;
+			}
 			if (scalar[1] === "name") name = value || undefined;
 			else description = value || undefined;
 			continue;
@@ -188,7 +209,7 @@ export function parsePlan(text: string): Plan {
 		manifest: {
 			...(name ? { name } : {}),
 			...(description ? { description } : {}),
-			yaml: rest.join("\n").replace(/\n+$/, ""),
+			yaml: rest.join("\n").replace(/[\r\n]+$/, ""),
 		},
 	};
 }
