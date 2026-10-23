@@ -15,6 +15,7 @@ import { dispatchInteractionReviews } from "./interaction-follow-through";
  * instead of turning one cron invocation into an unbounded write burst.
  */
 const MAX_ATTEMPTS_PER_TICK = 100;
+const MAX_INTERACTION_WRITES_PER_TICK = 100;
 
 /**
  * Retire Attempt leases that have elapsed, independently of admission.
@@ -112,7 +113,7 @@ export async function runWorkAttemptLeaseSweeperTick(
 		createDbQueryClient(env.DB),
 		{
 			now: new Date(scheduledTime).toISOString(),
-			limit: MAX_ATTEMPTS_PER_TICK,
+			limit: MAX_INTERACTION_WRITES_PER_TICK,
 		},
 	);
 	return {
@@ -130,6 +131,9 @@ export async function runWorkAttemptLeaseSweeperTick(
 			new Date(scheduledTime).toISOString(),
 		)),
 		interactionsExpired: interactions.expired,
+		interactionExpiryCandidates: interactions.candidates,
+		interactionExpiryWrites: interactions.writes,
+		interactionExpiryDryRuns: interactions.dryRun,
 		staleDelegationsObserved: stale.observed,
 		staleDelegationsCancelled: stale.cancelled,
 		staleDelegationsSkipped: stale.skipped,
