@@ -33,7 +33,8 @@ beforeEach(() => {
 });
 async function settle() {
 	await act(async () => {
-		await new Promise((done) => setTimeout(done, 10));
+		if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(10);
+		else await new Promise((done) => setTimeout(done, 10));
 	});
 }
 async function mount() {
@@ -95,3 +96,56 @@ it("keeps a missing connection visible without claiming both accounts are allowe
 		await view.close();
 	}
 });
+
+it.each([60_000, 2_147_483_647 + 60_000])(
+	"offers renewal after %i ms and renews only the expired provider after a click",
+	async (lifetime) => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+		const expiresAt = Date.now() + lifetime;
+		mocks.list.mockResolvedValue(
+			config.providers.map((provider, index) => ({
+				id: `grant-${index}`,
+				workspaceId,
+				skillId: config.skillId,
+				providerId: provider.id,
+				operations: ["read"],
+				revokedAt: null,
+				expiresAt: new Date(expiresAt + index * 60_000).toISOString(),
+			})),
+		);
+		const view = await mount();
+		try {
+			expect(view.node.textContent).toContain("Read-only access is allowed.");
+			if (lifetime > 2_147_483_647) {
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(2_147_483_647);
+				});
+				expect(view.node.querySelector("button")).toBeNull();
+			}
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(expiresAt - Date.now() - 1);
+			});
+			expect(view.node.querySelector("button")).toBeNull();
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1);
+			});
+			expect(view.node.textContent).not.toContain(
+				"Read-only access is allowed.",
+			);
+			const button = view.node.querySelector("button");
+			expect(button?.textContent).toContain("Let the research tedi read my");
+			expect(mocks.allow).not.toHaveBeenCalled();
+			await act(async () => button!.click());
+			await settle();
+			expect(mocks.allow).toHaveBeenCalledExactlyOnceWith({
+				workspaceId,
+				resourceId: config.resourceId,
+				providerId: config.providers[0]!.id,
+			});
+		} finally {
+			await view.close();
+			vi.useRealTimers();
+		}
+	},
+);
