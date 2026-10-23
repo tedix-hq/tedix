@@ -7,6 +7,7 @@ import {
 	CardFeedbackAnchorSchema,
 } from "./card-revisions";
 import { JsonValueSchema } from "./common";
+import { ServedObjectiveSchema } from "./organization-purpose";
 import { DecisionEnvelopeSchema } from "./os-decision-deck";
 import { DecisionCardPresentationSchema } from "./decision-card-presentation";
 import { ActivityFeedItemSchema } from "./os-activity-feed";
@@ -84,6 +85,8 @@ export const DeckCardSchema = z.strictObject({
 	blocksCount: z.number().int().min(0).optional(),
 	/** Graph score: items waiting on this card directly or indirectly. Ranks ahead of blocksCount when present. */
 	blocksScore: z.number().int().min(0).optional(),
+	/** The active objective the card's source Work serves: its own when it is objective work, else its project's. Absent when none. */
+	objective: ServedObjectiveSchema.optional(),
 	/** Earliest known deadline: request due date, decision expiry or approval expiry. */
 	deadline: z.string().nullable().optional(),
 	overdue: z.boolean().optional(),

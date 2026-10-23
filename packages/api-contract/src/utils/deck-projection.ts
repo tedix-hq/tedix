@@ -117,8 +117,9 @@ function blockingWeight(card: { blocksCount?: number; blocksScore?: number }) {
 }
 
 /**
- * Actionable asks rank by blocked Work, then overdue, critical policy, the
- * factory's own score, then due today, the curator's label, ranker score and age.
+ * Actionable asks rank by the organization's top objective, blocked Work, then overdue,
+ * critical policy, the factory's own score, then due today, the curator's
+ * label, ranker score and age.
  */
 export function compareDecisionFreshness(
 	a: {
@@ -129,6 +130,7 @@ export function compareDecisionFreshness(
 		actionable?: boolean;
 		blocksCount?: number;
 		blocksScore?: number;
+		objective?: DeckCard["objective"];
 		handled?: boolean;
 		expired?: boolean;
 		requestedAt?: string;
@@ -145,6 +147,7 @@ export function compareDecisionFreshness(
 		actionable?: boolean;
 		blocksCount?: number;
 		blocksScore?: number;
+		objective?: DeckCard["objective"];
 		handled?: boolean;
 		expired?: boolean;
 		requestedAt?: string;
@@ -176,6 +179,11 @@ export function compareDecisionFreshness(
 			: calendarDay(new Date(timestamp), timeZone) === today);
 	return (
 		Number(aSettled) - Number(bSettled) ||
+		// Only settledness ranks above blocks reach, so serving the top
+		// objective slots between them: it beats blocks, never settledness.
+		(!aSettled && !bSettled
+			? Number(Boolean(b.objective?.top)) - Number(Boolean(a.objective?.top))
+			: 0) ||
 		(!aSettled && !bSettled ? blockingWeight(b) - blockingWeight(a) : 0) ||
 		Number(bOverdue) - Number(aOverdue) ||
 		(aOverdue && bOverdue ? aDue - bDue : 0) ||
@@ -363,6 +371,7 @@ export function projectDeckCards(input: {
 			dueAt: r.dueAt,
 			score: 0,
 			interaction: row,
+			...(row.objective ? { objective: row.objective } : {}),
 		});
 	}
 	for (const row of input.work) {
@@ -397,6 +406,7 @@ export function projectDeckCards(input: {
 			dueAt: null,
 			score: 0,
 			workApproval: row,
+			...(row.objective ? { objective: row.objective } : {}),
 		});
 	}
 	for (const row of input.runtime) {

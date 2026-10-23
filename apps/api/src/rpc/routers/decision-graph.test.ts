@@ -78,6 +78,51 @@ describe("decisionGraph.getContext", () => {
 		}
 	});
 
+	it("names the objective the source Work serves", async () => {
+		const f = await fixture();
+		try {
+			f.sqlite.exec("PRAGMA foreign_keys=OFF");
+			f.sqlite
+				.prepare(
+					"INSERT INTO tedi_objectives(id,tedi_id,org_id,title,status,priority,created_at) VALUES(?,?,?,?,?,?,?)",
+				)
+				.run(
+					"obj-secure",
+					"t",
+					ORG,
+					"Keep access tight",
+					"active",
+					1,
+					"2026-10-01T00:00:00Z",
+				);
+			f.sqlite
+				.prepare(
+					"INSERT INTO work_items(id,org_id,title,disposition,work_class,objective_id,created_at) VALUES(?,?,?,?,?,?,?)",
+				)
+				.run(
+					"work-github-audit",
+					ORG,
+					"Audit GitHub access",
+					"accepted",
+					"objective",
+					"obj-secure",
+					"2026-10-01T00:00:00Z",
+				);
+			const result = await f.client().getContext({ cardId: "card-github" });
+			expect(result.context.objective).toEqual({
+				id: "obj-secure",
+				title: "Keep access tight",
+				priority: 1,
+				top: true,
+			});
+			expect(result.explanation).toBe(
+				'You decided this on 20 Oct: "rotate leftover credentials" → from Work "Audit GitHub access" → serves Keep access tight',
+			);
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
 	it("never returns another organization's edges and rejects unbounded hops", async () => {
 		const f = await fixture();
 		try {

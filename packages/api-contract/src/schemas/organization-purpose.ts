@@ -75,3 +75,14 @@ export const OrganizationOwnerBriefSchema = z.object({
 export type OrganizationOwnerBrief = z.infer<
 	typeof OrganizationOwnerBriefSchema
 >;
+
+/** The active objective a piece of Work serves, as shown on a Deck card. */
+export const ServedObjectiveSchema = z.strictObject({
+	id: z.string().min(1),
+	title: z.string(),
+	/** Lower is more important. */
+	priority: z.number().int(),
+	/** The organization's most important active objective. */
+	top: z.boolean(),
+});
+export type ServedObjective = z.infer<typeof ServedObjectiveSchema>;

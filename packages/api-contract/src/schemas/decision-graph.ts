@@ -128,6 +128,18 @@ export const DecisionContextSchema = z.object({
 	 * did not answer; then blocksCount is the only signal.
 	 */
 	blocksReach: z.number().int().min(0).optional(),
+	/**
+	 * The active objective the card's source Work serves. Inline, not imported:
+	 * the OS dev fixtures load this module without a bundler.
+	 */
+	objective: z
+		.object({
+			id: z.string(),
+			title: z.string(),
+			priority: z.number().int(),
+			top: z.boolean(),
+		})
+		.optional(),
 });
 export type DecisionContext = z.infer<typeof DecisionContextSchema>;
 

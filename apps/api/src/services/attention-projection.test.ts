@@ -659,6 +659,57 @@ it("withholds overdue priority for a blocked source reached through the graph", 
 	);
 });
 
+it("carries the objective a card's source Work serves and ranks the top objective first", async () => {
+	const implementation = mocks.call.getMockImplementation()!;
+	const grow = {
+		id: "grow",
+		title: "Grow orchard sales",
+		priority: 1,
+		top: true,
+	};
+	const approval = (id: string, requestedAt: string, objective?: object) => ({
+		proposal: {
+			id,
+			action: "run_workflow",
+			authorityKey: "run_workflow",
+			requestRationale: "Prepare inventory?",
+			requestedAt,
+			expiresAt: null,
+			metadata: {},
+		},
+		workItem: {
+			id: `work-${id}`,
+			title: `Prepare ${id}`,
+			projectId: null,
+			riskLevel: "low",
+		},
+		effectiveStatus: "pending",
+		canDecide: true,
+		...(objective ? { objective } : {}),
+	});
+	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {
+		if (procedure === "work")
+			return {
+				data: [
+					approval("newer", "2026-10-22T11:00:00Z"),
+					approval("serving", "2026-10-22T08:00:00Z", grow),
+				],
+				nextCursor: null,
+				hasMore: false,
+			};
+		return implementation(procedure, input);
+	});
+	routing = { ...DEFAULT_DECK_ROUTING, criticalClasses: ["approval"] };
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	const ids = deck.cards.map((card) => card.id);
+	expect(ids.indexOf("work-approval:serving")).toBe(0);
+	expect(ids).toContain("work-approval:newer");
+	expect(deck.cards[0]?.objective).toEqual(grow);
+	expect(
+		deck.cards.find((card) => card.id === "work-approval:newer"),
+	).not.toHaveProperty("objective");
+});
+
 it("quietly delivers an earned agent-decidable factory class to Feed and keeps audits and others in the Deck", async () => {
 	const implementation = mocks.call.getMockImplementation()!;
 	const approvals = Array.from({ length: 5 }, (_, i) => ({

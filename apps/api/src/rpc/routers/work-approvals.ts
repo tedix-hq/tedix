@@ -10,6 +10,7 @@ import {
 	proposeWorkApproval,
 } from "@tedix/db/queries/work-items/approvals";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
+import { listDeckSourceObjectives } from "@tedix/db/queries/work-items/deck-sweep";
 import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
 import { requireFactoryAcceptance } from "../../services/factory-cycle";
 import { requireOrgId } from "../org-scope";
@@ -310,20 +311,29 @@ const listInboxProcedure = readOs.listInbox.handler(
 			limit: input.limit,
 			observedAt,
 		});
+		const objectives = await listDeckSourceObjectives(
+			context.db,
+			orgId,
+			page.data.map((row) => row.workItem.id),
+		);
 		return {
 			data: await Promise.all(
-				page.data.map(async (row) => ({
-					proposal: proposalOutput(row.proposal),
-					effectiveStatus: row.effectiveStatus,
-					canDecide: row.effectiveStatus === "pending",
-					decision:
-						row.decision.id === null ? null : decisionOutput(row.decision),
-					workItem: row.workItem,
-					admissionSpecification: await getWorkAdmissionSpecification(
-						context.db,
-						{ orgId, workItemId: row.workItem.id },
-					),
-				})),
+				page.data.map(async (row) => {
+					const objective = objectives.get(row.workItem.id);
+					return {
+						proposal: proposalOutput(row.proposal),
+						effectiveStatus: row.effectiveStatus,
+						canDecide: row.effectiveStatus === "pending",
+						decision:
+							row.decision.id === null ? null : decisionOutput(row.decision),
+						workItem: row.workItem,
+						admissionSpecification: await getWorkAdmissionSpecification(
+							context.db,
+							{ orgId, workItemId: row.workItem.id },
+						),
+						...(objective ? { objective } : {}),
+					};
+				}),
 			),
 			nextCursor: page.nextCursor,
 			hasMore: page.hasMore,

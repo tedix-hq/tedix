@@ -9,6 +9,7 @@ import { DEFAULT_STANDING_OBJECTIVE_GATE_CONFIG } from "@tedix/api-contract/cont
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import {
 	type OrganizationPurposeCharter,
 	organizationPurposeCharters,
@@ -160,6 +161,21 @@ export async function listObjectives(
 	const total = await db.$count(tediObjectives, whereClause);
 
 	return { data, total };
+}
+
+/**
+ * The organization's most important active objective (lowest priority
+ * number, then id), as a one-row query that can also run as a subquery.
+ */
+export function topActiveObjectiveQuery(db: DbQueryClient, orgId: string) {
+	return db
+		.select({ id: tediObjectives.id })
+		.from(tediObjectives)
+		.where(
+			and(eq(tediObjectives.orgId, orgId), eq(tediObjectives.status, "active")),
+		)
+		.orderBy(tediObjectives.priority, tediObjectives.id)
+		.limit(1);
 }
 
 export async function getObjectiveById(

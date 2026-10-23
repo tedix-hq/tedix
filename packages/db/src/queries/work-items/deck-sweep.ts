@@ -7,6 +7,11 @@ import { DeckSweepReceiptSchema } from "@tedix/api-contract/schemas/deck-pipelin
 import type { DbQueryClient } from "../../query-client";
 import { organizations } from "../../schema/organizations";
 import { organizationMembers } from "../../schema/organization-members";
+import { projects } from "../../schema/projects";
+import { tediObjectives } from "../../schema/tedi-objectives";
+import { listCardSourceWork } from "../decision-graph";
+import { topActiveObjectiveQuery } from "../tedi-objectives";
+import type { ServedObjective } from "@tedix/api-contract/schemas/organization-purpose";
 import { workInteractions } from "../../schema/work-factory";
 import {
 	workItems,
@@ -127,6 +132,94 @@ export async function listDeckSourceStates(
 			)
 			.limit(50);
 		for (const row of rows) result.set(row.id, row.state);
+	}
+	return result;
+}
+
+/**
+ * The active objective each Work item serves: its own objective when it is
+ * objective work, else its project's. `top` marks the organization's most
+ * important active objective. Items without one are absent.
+ */
+export async function listDeckSourceObjectives(
+	db: DbQueryClient,
+	orgId: string,
+	ids: readonly string[],
+) {
+	const result = new Map<string, ServedObjective>();
+	const unique = [...new Set(ids)];
+	const top = topActiveObjectiveQuery(db, orgId);
+	const served = sql<string>`coalesce(CASE WHEN ${workItems.workClass} = 'objective' THEN ${workItems.objectiveId} END, ${projects.objectiveId})`;
+	for (let offset = 0; offset < unique.length; offset += 50) {
+		const rows = await db
+			.select({
+				workItemId: workItems.id,
+				// Aliased: work_items.id and tedi_objectives.id share an output name.
+				objectiveId: sql<string>`${tediObjectives.id}`.as("objective_id"),
+				title: tediObjectives.title,
+				priority: tediObjectives.priority,
+				top: sql<number>`${tediObjectives.id} = (${top})`.as("is_top"),
+			})
+			.from(workItems)
+			.leftJoin(
+				projects,
+				and(
+					eq(projects.orgId, workItems.orgId),
+					eq(projects.id, workItems.projectId),
+				),
+			)
+			.innerJoin(
+				tediObjectives,
+				and(
+					eq(tediObjectives.orgId, workItems.orgId),
+					eq(tediObjectives.id, served),
+					eq(tediObjectives.status, "active"),
+				),
+			)
+			.where(
+				and(
+					eq(workItems.orgId, orgId),
+					inArray(workItems.id, unique.slice(offset, offset + 50)),
+				),
+			)
+			.limit(50);
+		for (const row of rows)
+			result.set(row.workItemId, {
+				id: row.objectiveId,
+				title: row.title,
+				priority: row.priority,
+				top: Boolean(row.top),
+			});
+	}
+	return result;
+}
+
+/**
+ * The objective each card serves through its Work: the card's own Work item
+ * when it names one, else the Work it was made from in the decision graph.
+ */
+export async function listCardObjectives(
+	db: DbQueryClient,
+	orgId: string,
+	cards: readonly { id: string; workItemId?: string | null }[],
+) {
+	const edges = await listCardSourceWork(
+		db,
+		orgId,
+		cards.filter((card) => !card.workItemId).map((card) => card.id),
+	);
+	const work = new Map(
+		cards.map((card) => [card.id, card.workItemId ?? edges.get(card.id)]),
+	);
+	const objectives = await listDeckSourceObjectives(
+		db,
+		orgId,
+		[...work.values()].filter((id): id is string => Boolean(id)),
+	);
+	const result = new Map<string, ServedObjective>();
+	for (const [cardId, workId] of work) {
+		const objective = workId && objectives.get(workId);
+		if (objective) result.set(cardId, objective);
 	}
 	return result;
 }

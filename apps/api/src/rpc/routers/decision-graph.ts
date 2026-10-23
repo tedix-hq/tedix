@@ -9,6 +9,7 @@ import {
 	explainChain,
 	getDecisionContext,
 } from "@tedix/db/queries/decision-graph";
+import { listDeckSourceObjectives } from "@tedix/db/queries/work-items/deck-sweep";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -48,6 +49,15 @@ const getContext = decisionGraphOs.getContext
 			[{ id: input.cardId }],
 			new Map([[input.cardId, decisionContext]]),
 		);
+		const workId = decisionContext.chain.find(
+			(step) => step.edge.kind === "card_from_work",
+		)?.node.id;
+		const objective = workId
+			? (await listDeckSourceObjectives(context.db, orgId, [workId])).get(
+					workId,
+				)
+			: undefined;
+		if (objective) decisionContext.objective = objective;
 		return {
 			context: decisionContext,
 			explanation: explainChain(decisionContext),
