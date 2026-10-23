@@ -41,7 +41,7 @@ export function acceptsObserverClaims(
 	claims: Record<string, unknown>,
 ) {
 	const push = event.kind === "push";
-	const ci = event.kind === "ci_red";
+	const ci = event.kind === "ci_red" || event.kind === "ci_green";
 	const repo = push || ci ? config.repository : config.shipRepository;
 	const workflow = push || ci ? config.pushWorkflow : config.shipWorkflow;
 	return (
@@ -79,7 +79,9 @@ export async function handleRepositoryObserverWebhook(
 			return c.text("Invalid event", 400);
 		const event = parsed.data;
 		const repo =
-			event.kind === "push" || event.kind === "ci_red"
+			event.kind === "push" ||
+			event.kind === "ci_red" ||
+			event.kind === "ci_green"
 				? config.repository
 				: config.shipRepository;
 		if (!repo) return c.text("Event source unavailable", 403);

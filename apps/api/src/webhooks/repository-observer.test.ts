@@ -69,24 +69,27 @@ describe("observer subject formats", () => {
 	});
 });
 describe("observer workload binding after signature verification", () => {
-	it("binds CI reports to the configured product observer workflow", () => {
-		const red = { ...event, kind: "ci_red" as const };
-		const ci = { ...claims, event_name: "workflow_run", sha: "b".repeat(40) };
-		expect(acceptsObserverClaims(config, red, ci)).toBe(true);
-		for (const changed of [
-			{ repository: "example/ops" },
-			{ ref: "refs/heads/topic" },
-			{
-				workflow_ref:
-					"example/product/.github/workflows/untrusted.yml@refs/heads/main",
-			},
-			{ event_name: "push" },
-			{ event_name: "schedule" },
-		])
-			expect(acceptsObserverClaims(config, red, { ...ci, ...changed })).toBe(
-				false,
-			);
-	});
+	it.each(["ci_red", "ci_green"] as const)(
+		"binds %s reports to the configured product observer workflow",
+		(kind) => {
+			const red = { ...event, kind };
+			const ci = { ...claims, event_name: "workflow_run", sha: "b".repeat(40) };
+			expect(acceptsObserverClaims(config, red, ci)).toBe(true);
+			for (const changed of [
+				{ repository: "example/ops" },
+				{ ref: "refs/heads/topic" },
+				{
+					workflow_ref:
+						"example/product/.github/workflows/untrusted.yml@refs/heads/main",
+				},
+				{ event_name: "push" },
+				{ event_name: "schedule" },
+			])
+				expect(acceptsObserverClaims(config, red, { ...ci, ...changed })).toBe(
+					false,
+				);
+		},
+	);
 	it("accepts only the configured main workflow and exact pushed SHA", () => {
 		expect(acceptsObserverClaims(config, event, claims)).toBe(true);
 		for (const changed of [

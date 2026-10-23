@@ -395,26 +395,27 @@ export function ciObservation({ projectId, repository, run, jobs }) {
 		run.path !== ".github/workflows/full-suite-hourly.yml" ||
 		run.head_branch !== "main" ||
 		run.head_repository?.full_name !== repository ||
-		run.conclusion !== "failure"
+		!["failure", "success"].includes(run.conclusion)
 	)
-		throw new Error("Not a failed main full-suite run");
+		throw new Error("Not a completed main full-suite run");
 	if (!/^[a-f0-9]{40}$/.test(run.head_sha))
 		throw new Error("An exact commit is required");
 	const failed = jobs.filter((job) =>
 		["failure", "timed_out", "action_required"].includes(job.conclusion),
 	);
-	if (!failed.length) throw new Error("Failed run has no failing jobs");
+	if (run.conclusion === "failure" && !failed.length)
+		throw new Error("Failed run has no failing jobs");
 	return {
 		projectId,
 		repository,
 		branch: "main",
 		sha: run.head_sha,
-		kind: "ci_red",
+		kind: run.conclusion === "success" ? "ci_green" : "ci_red",
 		surface: "full-suite-hourly",
 		paths: [],
 		commands: "Every workspace: bun run test:run + bun run type-check",
 		summary:
-			`Full suite failed at ${run.head_sha}\n${failed.map((job) => `${job.name}: ${job.conclusion} ${job.html_url}`).join("\n")}`.slice(
+			`Full suite ${run.conclusion === "success" ? "passed" : "failed"} at ${run.head_sha}\n${failed.map((job) => `${job.name}: ${job.conclusion} ${job.html_url}`).join("\n")}`.slice(
 				0,
 				24000,
 			),

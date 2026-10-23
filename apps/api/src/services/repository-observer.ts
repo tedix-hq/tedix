@@ -1,6 +1,7 @@
 import { ORPCError, createRouterClient } from "@orpc/server";
 import {
 	RepositoryObserverConfigSchema,
+	RepositoryEventSchema,
 	type RepositoryEvent,
 } from "@tedix/api-contract/schemas/repository-observer";
 import { AGENT_LESSON_TOPIC_PREFIX } from "@tedix/api-contract/schemas/agent-session-lessons";
@@ -12,7 +13,11 @@ import { listApprovedAgentLessons } from "@tedix/db/queries/memory-graph/agent-l
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
-import { createWorkInteraction } from "@tedix/db/queries/work-items/interactions";
+import {
+	createWorkInteraction,
+	createRepositoryCiAlert,
+	refreshRepositoryCiAlerts,
+} from "@tedix/db/queries/work-items/interactions";
 import * as observations from "@tedix/db/queries/repository-observer";
 import type { BaseContext } from "../rpc/orpc";
 import { cognitiveRuntimeContractRouter } from "../rpc/routers/cognitive-runtime";
@@ -89,6 +94,28 @@ export async function observeRepositoryEvent(
 		throw new ORPCError("BAD_REQUEST", {
 			message: "Event does not match the configured repository and branch",
 		});
+	if (event.kind === "ci_red" || event.kind === "ci_green") {
+		if (event.kind === "ci_green")
+			await observations.settleRecoveredRepositoryCiObservations(context.db, {
+				...event,
+				orgId,
+				now: new Date().toISOString(),
+			});
+		await refreshRepositoryCiAlerts(context.db, {
+			...event,
+			orgId,
+			ownerTediId: config.ownerTediId,
+			escalationUserId: config.escalationUserId,
+			green: event.kind === "ci_green",
+			now: new Date().toISOString(),
+		});
+		if (event.kind === "ci_green") {
+			const id = await observerId(
+				`${orgId}:${event.projectId}:${event.repository}:${event.sha}:ci:${event.surface}`,
+			);
+			return { observationId: id, workItemId: id, status: "recovered" };
+		}
+	}
 	let id = await observerId(
 		`${orgId}:${event.projectId}:${event.repository}:${event.sha}:${event.kind === "ci_red" ? "ci" : event.kind === "push" ? "push" : "ship"}:${event.surface}`,
 	);
@@ -345,11 +372,33 @@ export async function dispatchObserverRepair(
 export async function escalateObserver(
 	context: BaseContext,
 	orgId: string,
-	row: { id: string; title: string },
+	row: { id: string; title: string; metadata?: { event?: unknown } | null },
 	config: { ownerTediId: string; escalationUserId: string },
 	diagnosis: string,
 ) {
+	const event = RepositoryEventSchema.safeParse(row.metadata?.event);
 	const id = await observerId(`observer-escalation:${orgId}:${row.id}`);
+	if (event.success && event.data.kind === "ci_red") {
+		const alerts = await refreshRepositoryCiAlerts(context.db, {
+			...event.data,
+			...config,
+			orgId,
+			green: false,
+			now: new Date().toISOString(),
+		});
+		if (alerts.length) return;
+		await createRepositoryCiAlert(context.db, {
+			...event.data,
+			...config,
+			orgId,
+			id,
+			workItemId: row.id,
+			subject: row.title,
+			prompt: diagnosis,
+			now: new Date().toISOString(),
+		});
+		return;
+	}
 	try {
 		await createWorkInteraction(context.db, {
 			id,

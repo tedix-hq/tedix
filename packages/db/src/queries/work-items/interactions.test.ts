@@ -16,8 +16,11 @@ import {
 } from "../../schema/work-factory";
 import { createD1Facade } from "../../test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
+import { settleRecoveredRepositoryCiObservations } from "../repository-observer";
 import {
 	createWorkInteraction,
+	createRepositoryCiAlert,
+	refreshRepositoryCiAlerts,
 	delegateWorkInteraction,
 	listWorkInteractionInbox,
 	respondToWorkInteraction,
@@ -644,3 +647,205 @@ it("reads old typed approvals before LIMIT while preserving the recipient fence"
 	expect(page.data.map((row) => row.request.id)).toEqual(["approval"]);
 	expect(page.hasMore).toBe(false);
 });
+
+it("refreshes CI alerts in their workflow scope and closes them on recovery", async () => {
+	const { sqlite, db } = fixture();
+	sqlite.exec(
+		schemaDdl(
+			organizationMembers,
+			policyPacks,
+			runtimeProfiles,
+			workspaceTemplateSets,
+			tedis,
+		),
+	);
+	const event = {
+		kind: "ci_red",
+		repository: "example/repo",
+		branch: "main",
+		surface: "full-suite-hourly",
+		sha: "a".repeat(40),
+		occurredAt: "2026-08-21T11:00:00.000Z",
+	};
+	sqlite
+		.prepare(
+			"INSERT INTO projects (id,org_id,key,name,created_at) VALUES ('project','org','ci','Project','2026-08-21T12:00:00.000Z')",
+		)
+		.run();
+	sqlite
+		.prepare(
+			"UPDATE work_items SET project_id='project', metadata=? WHERE id='work'",
+		)
+		.run(JSON.stringify({ repositoryObserver: 1, event }));
+	sqlite
+		.prepare(
+			"INSERT INTO work_interactions (id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES ('alert','org','work','coordination','Red CI','Failed','tedi','owner','user','human',?)",
+		)
+		.run(NOW);
+	sqlite.exec(`UPDATE work_interactions SET metadata='{"reason":"Failing checks need a decision after diagnosis"}' WHERE id='alert';
+		INSERT INTO work_interactions (id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata)
+		SELECT 'real-question',org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,'{"reason":"Please check the diagnosis"}' FROM work_interactions WHERE id='alert';`);
+	const input = {
+		...event,
+		orgId: "org",
+		projectId: "project",
+		ownerTediId: "owner",
+		escalationUserId: "human",
+		sha: "b".repeat(40),
+		occurredAt: NOW,
+		green: false,
+		now: NOW,
+	};
+	for (const other of [
+		{ orgId: "other" },
+		{ projectId: "other" },
+		{ repository: "other/repo" },
+		{ branch: "other" },
+		{ surface: "other" },
+		{ escalationUserId: "other" },
+		{ ownerTediId: "other" },
+	]) {
+		expect(await refreshRepositoryCiAlerts(db, { ...input, ...other })).toEqual(
+			[],
+		);
+	}
+	const [alert] = await refreshRepositoryCiAlerts(db, input);
+	expect(alert).toMatchObject({
+		id: "alert",
+		status: "open",
+		subject: `Red CI full-suite-hourly ${input.sha.slice(0, 9)}`,
+		metadata: { latestSha: input.sha, failureCount: 2 },
+	});
+	expect(await refreshRepositoryCiAlerts(db, input)).toEqual([]);
+	expect(
+		await refreshRepositoryCiAlerts(db, {
+			...input,
+			sha: event.sha,
+			occurredAt: event.occurredAt,
+		}),
+	).toEqual([]);
+	expect(
+		await refreshRepositoryCiAlerts(db, {
+			...input,
+			sha: "c".repeat(40),
+			occurredAt: event.occurredAt,
+		}),
+	).toEqual([]);
+	const [closed] = await refreshRepositoryCiAlerts(db, {
+		...input,
+		sha: event.sha,
+		occurredAt: "2026-08-21T13:00:00.000Z",
+	});
+	expect(closed).toBeUndefined();
+	const [recovered] = await refreshRepositoryCiAlerts(db, {
+		...input,
+		green: true,
+	});
+	expect(recovered).toMatchObject({
+		status: "cancelled",
+		cancelledAt: NOW,
+		metadata: { reason: "Workflow passed; CI alert closed.", failureCount: 2 },
+	});
+	expect(await refreshRepositoryCiAlerts(db, input)).toEqual([]);
+	expect(
+		sqlite
+			.prepare("SELECT status FROM work_interactions WHERE id='real-question'")
+			.get()?.status,
+	).toBe("open");
+	sqlite.close();
+});
+
+it.each([false, true])(
+	"guards concurrent first CI alerts and ignores a late still-red report after green (active attempt: %s)",
+	async (active) => {
+		const { sqlite, db } = fixture();
+		sqlite.exec(
+			schemaDdl(
+				organizationMembers,
+				policyPacks,
+				runtimeProfiles,
+				workspaceTemplateSets,
+				tedis,
+			),
+		);
+		sqlite.exec(
+			"INSERT INTO organization_members (id,organization_id,user_id,descope_user_id,email,status) VALUES ('member','org','human','human','human@example.test','active'); INSERT INTO tedis (id,organization_id,name,slug,status) VALUES ('owner','org','Worker','worker','active'); INSERT INTO projects (id,org_id,key,name,created_at) VALUES ('project','org','ci','Project','2026-08-21T12:00:00.000Z');",
+		);
+		const p = {
+			orgId: "org",
+			projectId: "project",
+			repository: "example/repo",
+			branch: "main",
+			surface: "hourly",
+			sha: "a".repeat(40),
+			occurredAt: NOW,
+			now: NOW,
+			ownerTediId: "owner",
+			escalationUserId: "human",
+			subject: "Red CI",
+			prompt: "Tests failed",
+		};
+		const metadata = JSON.stringify({
+			repositoryObserver: 1,
+			event: { ...p, kind: "ci_red" },
+		});
+		sqlite
+			.prepare(
+				"UPDATE work_items SET project_id='project',metadata=? WHERE id='work'",
+			)
+			.run(metadata);
+		sqlite
+			.prepare(
+				"INSERT INTO work_items (id,org_id,project_id,title,created_at,metadata) VALUES ('work-2','org','project','Red CI',?,?)",
+			)
+			.run(
+				NOW,
+				JSON.stringify({
+					repositoryObserver: 1,
+					event: { ...p, sha: "b".repeat(40), kind: "ci_red" },
+				}),
+			);
+		await Promise.all([
+			createRepositoryCiAlert(db, { ...p, id: "first", workItemId: "work" }),
+			createRepositoryCiAlert(db, {
+				...p,
+				sha: "b".repeat(40),
+				id: "second",
+				workItemId: "work-2",
+			}),
+		]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_interactions WHERE status='open' AND id IN ('first','second')",
+				)
+				.get()?.n,
+		).toBe(1);
+		if (active)
+			sqlite
+				.prepare(
+					"INSERT INTO work_attempts (id,org_id,work_item_id,attempt_number,runtime_state,started_at,heartbeat_at,executor_type,executor_id) VALUES ('attempt','org','work-2',1,'running',?,?,'tedi','owner')",
+				)
+				.run(NOW, NOW);
+		await settleRecoveredRepositoryCiObservations(db, p);
+		await refreshRepositoryCiAlerts(db, { ...p, green: true });
+		await createRepositoryCiAlert(db, {
+			...p,
+			id: "late",
+			workItemId: "work-2",
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_interactions WHERE status='open' AND creator_id='owner'",
+				)
+				.get()?.n,
+		).toBe(0);
+		expect(
+			sqlite
+				.prepare("SELECT disposition FROM work_items WHERE id='work-2'")
+				.get()?.disposition,
+		).toBe(active ? "proposed" : "cancelled");
+		sqlite.close();
+	},
+);

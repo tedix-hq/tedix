@@ -86,6 +86,10 @@ describe("hourly full suite", () => {
 			surface: "full-suite-hourly",
 			sha: run.head_sha,
 		});
+		expect(report({ conclusion: "success" })).toMatchObject({
+			kind: "ci_green",
+			sha: run.head_sha,
+		});
 		expect(report().summary).toContain("Workspace apps/api");
 		expect(report().summary).toContain("Workspace packages/db");
 		expect(report().summary).not.toContain("Workspace apps/os");

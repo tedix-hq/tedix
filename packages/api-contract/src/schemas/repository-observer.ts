@@ -51,7 +51,7 @@ export const RepositoryEventSchema = z.strictObject({
 	/** Every commit the push added to the branch, newest first; capped. */
 	commitShas: z.array(sha).max(100).optional(),
 	occurredAt: z.iso.datetime().optional(),
-	kind: z.enum(["push", "ship_red", "ship_green", "ci_red"]),
+	kind: z.enum(["push", "ship_red", "ship_green", "ci_red", "ci_green"]),
 	// Same incident across retries: a new run ID is evidence, not a new repair budget.
 	surface: z.string().max(100).default("all"),
 	paths: z.array(z.string().min(1).max(500)).max(500).default([]),
