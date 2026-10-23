@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const workflow = readFileSync(
@@ -81,6 +83,45 @@ const browserAction = readFileSync(
 	),
 	"utf8",
 );
+
+test("browser cache separates Ubuntu releases while sharing image revisions", () => {
+	const resolve = browserAction
+		.split("      run: |\n")[1]!
+		.split("\n    - name:")[0]!
+		.replace(/^        /gm, "");
+	const directory = mkdtempSync(join(tmpdir(), "playwright-cache-"));
+	const key = (image: string, revision: string, architecture = "X64") => {
+		const output = join(directory, `${image}-${revision}-${architecture}`);
+		const result = spawnSync(
+			"bash",
+			["-e", "-c", `bun() { printf 'Version 1.64.1\\n'; }\n${resolve}`],
+			{
+				env: {
+					...process.env,
+					RUNNER_OS: "Linux",
+					RUNNER_ARCH: architecture,
+					ImageOS: image,
+					ImageVersion: revision,
+					BROWSERS: "webkit",
+					GITHUB_OUTPUT: output,
+				},
+				encoding: "utf8",
+			},
+		);
+		expect(result.status, result.stderr).toBe(0);
+		return readFileSync(output, "utf8")
+			.split("\n")
+			.find((line) => line.startsWith("key="));
+	};
+	try {
+		const ubuntu24 = key("ubuntu24", "20261012.1");
+		expect(key("ubuntu26", "20261012.1")).not.toBe(ubuntu24);
+		expect(key("ubuntu24", "20261020.1")).toBe(ubuntu24);
+		expect(key("ubuntu24", "20261012.1", "ARM64")).not.toBe(ubuntu24);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
 
 test("browser jobs install only their planned browsers, restoring the cache first", () => {
 	const workspace = workflow
