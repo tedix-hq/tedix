@@ -165,8 +165,9 @@ export function executorBackoff(
 		return;
 	const consecutiveLimits = (previous?.consecutiveLimits ?? 0) + 1;
 	const retry = message.match(/retry[- ]after[\s:=]+(\d+)/i);
+	const retryMs = retry ? Number(retry[1]) * 1000 : 0;
 	const duration = Math.max(
-		retry ? Number(retry[1]) * 1000 : 0,
+		Number.isFinite(new Date(now + retryMs).getTime()) ? retryMs : 0,
 		Math.min(60 * 60_000, 60_000 * 2 ** Math.min(consecutiveLimits - 1, 6)),
 	);
 	return {

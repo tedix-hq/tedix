@@ -134,6 +134,32 @@ describe("budget observations", () => {
 		).toBeGreaterThan(first.backoffUntil!);
 		expect(executorBackoff("file missing", undefined, 1000)).toBeUndefined();
 	});
+	it.each(["9".repeat(310), "10000000000000"])(
+		"keeps a reportable, persistent cooldown for oversized retry-after %s",
+		(retryAfter) => {
+			const first = executorBackoff("429", undefined, 1000)!;
+			const next = executorBackoff(
+				`429 retry-after: ${retryAfter}`,
+				first,
+				2000,
+			)!;
+			expect(next.backoffUntil).toBe(122000);
+			expect(new Date(next.backoffUntil!).toISOString()).toBe(
+				"1970-01-01T00:02:02.000Z",
+			);
+			const persisted = JSON.parse(JSON.stringify(next));
+			expect(persisted.backoffUntil).toBe(122000);
+			expect(() =>
+				routeLocalWork(
+					{ executor: "codex" },
+					defaultRoutingPolicy,
+					available,
+					{ codex: persisted },
+					2000,
+				),
+			).toThrow("No eligible");
+		},
+	);
 });
 describe("resume recovery before admission", () => {
 	it("resumes first and allocates fresh only for missing native state", async () => {
