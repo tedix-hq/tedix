@@ -250,7 +250,9 @@ export async function streamArtifactObject(
 	}
 
 	// Range request → 206 partial (video scrubbing, large downloads).
-	const range = rangeHeader ? /^bytes=(\d+)-(\d*)$/.exec(rangeHeader) : null;
+	const range = rangeHeader
+		? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim())
+		: null;
 	if (range) {
 		const head = await bucket.head(parsed.key);
 		if (!head) {
@@ -260,8 +262,15 @@ export async function streamArtifactObject(
 			});
 		}
 		const total = head.size;
-		const start = Number(range[1]);
-		const end = range[2] ? Math.min(Number(range[2]), total - 1) : total - 1;
+		const suffixLength = range[2] ? Number(range[2]) : 0;
+		const start = range[1]
+			? Number(range[1])
+			: Math.max(total - suffixLength, 0);
+		const end = range[1]
+			? range[2]
+				? Math.min(Number(range[2]), total - 1)
+				: total - 1
+			: total - 1;
 		if (start >= total || start > end) {
 			return new Response("Range Not Satisfiable", {
 				status: 416,
