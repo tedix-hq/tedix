@@ -109,9 +109,8 @@ function createMockDb(seeded: SeededRows, failTables: FailTables): DbClient {
 				if (typeof chunk?.name !== "string") continue;
 				const opChunk = chunks[i + 1] as { value?: unknown } | undefined;
 				const paramChunk = chunks[i + 2] as { value?: unknown } | undefined;
-				const op = Array.isArray(opChunk?.value)
-					? opChunk!.value.join("").trim()
-					: "";
+				const op =
+					typeof opChunk?.value === "string" ? opChunk.value.trim() : "";
 				if (op === "=" && paramChunk && "value" in paramChunk) {
 					// Map column snake_case → camelCase
 					const colToKey: Record<string, string> = {

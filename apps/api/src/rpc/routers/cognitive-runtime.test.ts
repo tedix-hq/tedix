@@ -231,8 +231,8 @@ const columnKeyByName: Record<string, string> = {
 };
 
 function stringChunkValue(chunk: unknown): string {
-	const value = (chunk as { value?: unknown }).value;
-	return Array.isArray(value) ? value.join("") : "";
+	const value = (chunk as { value?: unknown } | undefined)?.value;
+	return typeof value === "string" ? value : "";
 }
 
 function collectWhereConditions(
@@ -311,17 +311,8 @@ function applyWhere<Row extends Record<string, unknown>>(
 
 /** True if the SQL where-tree contains a `not exists (...)` chunk. */
 function whereHasNotExists(value: unknown): boolean {
-	const chunks = (value as { queryChunks?: unknown[]; value?: unknown[] })
-		?.queryChunks;
-	const valueParts = (value as { value?: unknown[] })?.value;
-	if (
-		Array.isArray(valueParts) &&
-		valueParts.some(
-			(part) => typeof part === "string" && part.includes("not exists"),
-		)
-	) {
-		return true;
-	}
+	const chunks = (value as { queryChunks?: unknown[] })?.queryChunks;
+	if (stringChunkValue(value).includes("not exists")) return true;
 	if (!Array.isArray(chunks)) return false;
 	return chunks.some((chunk) => whereHasNotExists(chunk));
 }

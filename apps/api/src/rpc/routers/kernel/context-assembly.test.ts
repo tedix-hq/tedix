@@ -612,7 +612,7 @@ const columnKeyByName: Record<string, string> = {
 
 function stringChunkValue(chunk: unknown): string {
 	const value = (chunk as { value?: unknown }).value;
-	return Array.isArray(value) ? value.join("") : "";
+	return typeof value === "string" ? value : "";
 }
 
 function collectWhereConditions(

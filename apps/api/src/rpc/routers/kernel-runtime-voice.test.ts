@@ -300,7 +300,7 @@ function createVoiceTestDb() {
 										field as {
 											sql?: { queryChunks?: unknown[] };
 										}
-									).sql?.queryChunks?.[1];
+									).sql?.queryChunks?.[0];
 									if (
 										(key === "payload" || key === "runtimeMetadata") &&
 										typeof sqlValue === "string"

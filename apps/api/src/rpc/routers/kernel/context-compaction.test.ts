@@ -257,7 +257,7 @@ function isDescOrder(clauses: unknown[]): boolean {
 		((clause as { queryChunks?: unknown[] })?.queryChunks ?? []).some(
 			(chunk) => {
 				const value = (chunk as { value?: unknown }).value;
-				return Array.isArray(value) && value.join("").includes(" desc");
+				return typeof value === "string" && value.includes(" desc");
 			},
 		),
 	);

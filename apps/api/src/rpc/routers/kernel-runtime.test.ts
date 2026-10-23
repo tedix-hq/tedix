@@ -334,7 +334,7 @@ const columnKeyByName: Record<string, string> = {
 
 function stringChunkValue(chunk: unknown): string {
 	const value = (chunk as { value?: unknown }).value;
-	return Array.isArray(value) ? value.join("") : "";
+	return typeof value === "string" ? value : "";
 }
 
 function sqlChunkText(chunk: unknown): string {
@@ -456,7 +456,7 @@ function evalRelationWhere(
 			subNodes.push(chunk);
 			continue;
 		}
-		const separator = stringChunkValue(chunk).trim();
+		const separator = stringChunkValue(chunk).replace(/[()]/g, "").trim();
 		if (separator === "and") joiner = "and";
 		else if (separator === "or") joiner = "or";
 	}
@@ -527,7 +527,7 @@ function evalConversationIndexWhere(
 			subNodes.push(chunk);
 			continue;
 		}
-		const separator = stringChunkValue(chunk).trim();
+		const separator = stringChunkValue(chunk).replace(/[()]/g, "").trim();
 		if (separator === "and") joiner = "and";
 		else if (separator === "or") joiner = "or";
 	}
@@ -1652,7 +1652,7 @@ function createKernelRuntimeDb(opts?: {
 										field as {
 											sql?: { queryChunks?: unknown[] };
 										}
-									).sql?.queryChunks?.[1];
+									).sql?.queryChunks?.[0];
 									if (
 										(key === "payload" || key === "runtimeMetadata") &&
 										typeof sqlValue === "string"
