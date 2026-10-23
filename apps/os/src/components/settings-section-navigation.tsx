@@ -34,6 +34,7 @@ export function SettingsSectionNavigation({
 }) {
 	const navigationRef = useRef<HTMLElement>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
+	const keyboardFocusTarget = useRef<string | null>(null);
 	const firstSection = items[0]?.[1] ?? "";
 	const [activeSection, setActiveSection] = useState(() => {
 		if (typeof window === "undefined") return firstSection;
@@ -102,10 +103,22 @@ export function SettingsSectionNavigation({
 		};
 		const updateFromHash = () => {
 			const hash = window.location.hash.slice(1);
+			const focusTarget = keyboardFocusTarget.current;
+			keyboardFocusTarget.current = null;
 			if (items.some(([, id]) => id === hash)) {
 				restoreHashUntil = Date.now() + 3000;
 				setActiveSection(hash);
 				restoreHashTarget();
+				if (
+					focusTarget === hash &&
+					(!document.activeElement || document.activeElement === document.body)
+				) {
+					Array.from(
+						navigation.querySelectorAll<HTMLElement>("[data-section-target]"),
+					)
+						.find((link) => link.dataset.sectionTarget === hash)
+						?.focus({ preventScroll: true });
+				}
 			} else updateActiveSection();
 		};
 		const mutationObserver =
@@ -173,6 +186,9 @@ export function SettingsSectionNavigation({
 							data-section-current={activeSection === id || undefined}
 							data-section-target={id}
 							href={`#${id}`}
+							onClick={(event) => {
+								keyboardFocusTarget.current = event.detail === 0 ? id : null;
+							}}
 							variant="section"
 						>
 							{label}
