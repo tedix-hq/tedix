@@ -35,7 +35,7 @@ describe("calendar coordinator provider workflow", () => {
 		).toEqual([]);
 		const invalid = source.replace(
 			"async run(event: CallbackEvent, step: Step, env: Environment)",
-			"async run(event: CallbackEvent, step: Step, env: Environment,)",
+			"async run(event: CallbackEvent)",
 		);
 		expect(
 			validateWorkflowSource(

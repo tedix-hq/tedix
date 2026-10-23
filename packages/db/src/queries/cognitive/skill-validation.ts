@@ -1,3 +1,4 @@
+import { parse as parseSource } from "@babel/parser";
 import { WORKFLOW_PLATFORM_MCP_METHODS } from "@tedix/api-contract/utils/skill-manifest";
 import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
 import { eq, inArray } from "drizzle-orm";
@@ -57,6 +58,379 @@ export interface SkillValidationInput {
 	organizationId?: string;
 }
 
+/** Only the structural AST fields used by the authoring checks. */
+interface WorkflowAstNode {
+	type: string;
+	[key: string]: unknown;
+}
+
+function isAstNode(value: unknown): value is WorkflowAstNode {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as { type?: unknown }).type === "string" &&
+		// Attached comment trivia (leadingComments & friends) never holds code.
+		!(value as { type: string }).type.startsWith("Comment")
+	);
+}
+
+function childAstNodes(node: WorkflowAstNode): WorkflowAstNode[] {
+	const children: WorkflowAstNode[] = [];
+	for (const value of Object.values(node)) {
+		if (Array.isArray(value)) {
+			for (const item of value) if (isAstNode(item)) children.push(item);
+		} else if (isAstNode(value)) {
+			children.push(value);
+		}
+	}
+	return children;
+}
+
+function walkAst(
+	node: WorkflowAstNode,
+	visit: (node: WorkflowAstNode) => void,
+) {
+	visit(node);
+	for (const child of childAstNodes(node)) walkAst(child, visit);
+}
+
+function nodeArray(node: WorkflowAstNode | undefined, field: string) {
+	const value = node?.[field];
+	if (!Array.isArray(value)) return [] as WorkflowAstNode[];
+	return value.filter(isAstNode);
+}
+
+/** Parse a workflow snapshot as a TypeScript module, tolerating recovery. */
+function parseWorkflowModule(source: string): {
+	body: WorkflowAstNode[];
+	syntaxError: string | null;
+} {
+	try {
+		const file = parseSource(source, {
+			sourceType: "module",
+			plugins: ["typescript"],
+			errorRecovery: true,
+			allowUndeclaredExports: true,
+		});
+		return {
+			body: nodeArray(file.program as unknown as WorkflowAstNode, "body"),
+			syntaxError: file.errors?.[0]?.message ?? null,
+		};
+	} catch (error) {
+		return {
+			body: [],
+			syntaxError: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+/** Unwrap expressions the runtime erases: `as T`, `satisfies T`, `x!`. */
+function unwrapExpression(node: WorkflowAstNode): WorkflowAstNode {
+	let current = node;
+	while (
+		current.type === "TSAsExpression" ||
+		current.type === "TSSatisfiesExpression" ||
+		current.type === "TSNonNullExpression" ||
+		current.type === "ParenthesizedExpression"
+	) {
+		const inner = current.expression;
+		if (!isAstNode(inner)) return current;
+		current = inner;
+	}
+	return current;
+}
+
+/** Top-level `const x = …` / `function x()` bindings, for resolving identifiers. */
+function collectTopLevelBindings(body: WorkflowAstNode[]) {
+	const bindings = new Map<string, WorkflowAstNode>();
+	for (const stmt of body) {
+		if (stmt.type === "VariableDeclaration") {
+			for (const decl of nodeArray(stmt, "declarations")) {
+				const id = decl.id;
+				if (isAstNode(id) && id.type === "Identifier" && isAstNode(decl.init)) {
+					bindings.set(id.name as string, decl.init);
+				}
+			}
+		} else if (
+			(stmt.type === "FunctionDeclaration" ||
+				stmt.type === "ClassDeclaration") &&
+			isAstNode(stmt.id)
+		) {
+			bindings.set(stmt.id.name as string, stmt);
+		}
+	}
+	return bindings;
+}
+
+function resolveBinding(
+	node: WorkflowAstNode,
+	bindings: Map<string, WorkflowAstNode>,
+	depth = 0,
+): WorkflowAstNode {
+	const unwrapped = unwrapExpression(node);
+	if (unwrapped.type !== "Identifier" || depth > 4) return unwrapped;
+	const bound = bindings.get(unwrapped.name as string);
+	if (!bound || bound === unwrapped) return unwrapped;
+	return resolveBinding(bound, bindings, depth + 1);
+}
+
+function resolveObjectExpression(
+	node: WorkflowAstNode,
+	bindings: Map<string, WorkflowAstNode>,
+): WorkflowAstNode | null {
+	const resolved = resolveBinding(node, bindings);
+	return resolved.type === "ObjectExpression" ? resolved : null;
+}
+
+function isFunctionNode(node: WorkflowAstNode): boolean {
+	return (
+		node.type === "FunctionDeclaration" ||
+		node.type === "FunctionExpression" ||
+		node.type === "ArrowFunctionExpression" ||
+		node.type === "ObjectMethod" ||
+		node.type === "ClassMethod" ||
+		node.type === "ClassPrivateMethod"
+	);
+}
+
+function resolveFunctionValue(
+	node: WorkflowAstNode,
+	bindings: Map<string, WorkflowAstNode>,
+): WorkflowAstNode | null {
+	const resolved = resolveBinding(node, bindings);
+	return isFunctionNode(resolved) ? resolved : null;
+}
+
+/** The static name of an object member key, or null for computed keys. */
+function staticMemberName(member: WorkflowAstNode): string | null {
+	if (member.computed === true) return null;
+	const key = member.key;
+	if (!isAstNode(key)) return null;
+	if (key.type === "Identifier") return key.name as string;
+	if (key.type === "StringLiteral" || key.type === "NumericLiteral") {
+		return String(key.value);
+	}
+	return null;
+}
+
+/**
+ * Find the provable `run` function on the default-export object. Resolves
+ * identifier spreads and `run: someFn` references through top-level bindings —
+ * an unresolvable member simply leaves `run` unproven (same verdict the old
+ * text scan produced).
+ */
+function findRunFunction(
+	objectNode: WorkflowAstNode,
+	bindings: Map<string, WorkflowAstNode>,
+	depth = 0,
+): WorkflowAstNode | null {
+	for (const member of nodeArray(objectNode, "properties")) {
+		if (member.type === "SpreadElement") {
+			if (depth >= 4) continue;
+			const spread = resolveObjectExpression(
+				member.argument as WorkflowAstNode,
+				bindings,
+			);
+			const nested = spread && findRunFunction(spread, bindings, depth + 1);
+			if (nested) return nested;
+			continue;
+		}
+		if (staticMemberName(member) !== "run") continue;
+		if (member.type === "ObjectMethod") return member;
+		if (member.type === "ObjectProperty" && isAstNode(member.value)) {
+			const fn = resolveFunctionValue(member.value, bindings);
+			return fn; // a `run` member that is not a provable function fails shape
+		}
+	}
+	return null;
+}
+
+/**
+ * The default-exported expression: `export default <expr>`,
+ * `export { x as default }`, or the CJS assignments `module.exports =` /
+ * `exports.default =` — the same set the regexes accepted.
+ */
+function findDefaultExportValue(
+	body: WorkflowAstNode[],
+): WorkflowAstNode | null {
+	for (const stmt of body) {
+		if (
+			stmt.type === "ExportDefaultDeclaration" &&
+			isAstNode(stmt.declaration)
+		) {
+			return stmt.declaration;
+		}
+		if (stmt.type === "ExportNamedDeclaration" && !isAstNode(stmt.source)) {
+			for (const spec of nodeArray(stmt, "specifiers")) {
+				const exported = spec.exported;
+				if (
+					isAstNode(exported) &&
+					exported.type === "Identifier" &&
+					exported.name === "default" &&
+					isAstNode(spec.local)
+				) {
+					return spec.local;
+				}
+			}
+		}
+		if (stmt.type === "ExpressionStatement") {
+			const expr = stmt.expression;
+			if (!isAstNode(expr) || expr.type !== "AssignmentExpression") continue;
+			if (isCjsDefaultTarget(expr.left)) {
+				return expr.right as WorkflowAstNode;
+			}
+		}
+	}
+	return null;
+
+	function isCjsDefaultTarget(node: unknown): boolean {
+		if (!isAstNode(node) || node.type !== "MemberExpression") return false;
+		if (node.computed === true) return false;
+		const object = node.object;
+		const property = node.property;
+		if (!isAstNode(object) || !isAstNode(property)) return false;
+		if (object.type !== "Identifier" || property.type !== "Identifier") {
+			return false;
+		}
+		return (
+			(object.name === "module" && property.name === "exports") ||
+			(object.name === "exports" && property.name === "default")
+		);
+	}
+}
+
+/** Bare globals and globalThis members, excluding ordinary object methods. */
+function ambientGlobalCallName(node: WorkflowAstNode): string | null {
+	if (node.type !== "CallExpression" && node.type !== "NewExpression")
+		return null;
+	const callee = node.callee;
+	if (!isAstNode(callee)) return null;
+	if (callee.type === "Identifier") return callee.name as string;
+	if (callee.type === "MemberExpression" && callee.computed !== true) {
+		const object = callee.object;
+		const property = callee.property;
+		if (
+			isAstNode(object) &&
+			object.type === "Identifier" &&
+			object.name === "globalThis" &&
+			isAstNode(property) &&
+			property.type === "Identifier"
+		)
+			return property.name as string;
+	}
+	return null;
+}
+
+/** `step.do(…)` calls — any chain ending in `.step.do(` counts, as before. */
+function isStepDoCall(node: WorkflowAstNode): boolean {
+	if (node.type !== "CallExpression" || node.optional === true) return false;
+	const callee = node.callee;
+	if (
+		!isAstNode(callee) ||
+		callee.type !== "MemberExpression" ||
+		callee.computed === true
+	) {
+		return false;
+	}
+	const property = callee.property;
+	const object = callee.object;
+	if (!isAstNode(property) || !isAstNode(object)) return false;
+	const isDo =
+		property.type === "Identifier"
+			? property.name === "do"
+			: property.type === "StringLiteral" && property.value === "do";
+	if (!isDo) return false;
+	if (object.type === "Identifier") return object.name === "step";
+	if (object.type === "MemberExpression" && object.computed !== true) {
+		const inner = object.property;
+		return (
+			isAstNode(inner) && inner.type === "Identifier" && inner.name === "step"
+		);
+	}
+	return false;
+}
+
+/** An import/export-from declaration erased entirely at compile time. */
+function isTypeOnlyModuleTransfer(node: WorkflowAstNode): boolean {
+	if (node.importKind === "type" || node.exportKind === "type") return true;
+	const specifiers = nodeArray(node, "specifiers");
+	return (
+		specifiers.length > 0 &&
+		specifiers.every(
+			(spec) => spec.importKind === "type" || spec.exportKind === "type",
+		)
+	);
+}
+
+/**
+ * Node types whose contents never evaluate at module load: function bodies
+ * (unless invoked immediately), class member initializers, and type-only
+ * declarations.
+ */
+const NOT_EAGER_NODES = new Set([
+	"FunctionDeclaration",
+	"FunctionExpression",
+	"ArrowFunctionExpression",
+	"ObjectMethod",
+	"ClassMethod",
+	"ClassPrivateMethod",
+	"ClassProperty",
+	"ClassPrivateProperty",
+	"ClassAccessorProperty",
+	"TSInterfaceDeclaration",
+	"TSTypeAliasDeclaration",
+	"TSTypeAnnotation",
+	"TSTypeParameterDeclaration",
+	"TSTypeParameterInstantiation",
+	"TSTypeParameter",
+	"TSDeclareFunction",
+	"TSDeclareMethod",
+]);
+
+/**
+ * Scan a top-level statement for side-effect calls that evaluate when the
+ * module loads. Descends into everything an evaluator would run — `if`/`for`/
+ * `try` bodies, object literals, static blocks, and immediately-invoked
+ * functions — but never into a dormant function body. This closes the
+ * brace-deletion gap where `if (x) { fetch() }` scanned clean.
+ */
+function collectEagerSideEffects(
+	stmt: WorkflowAstNode,
+	hits: Set<string>,
+	ambient: ReadonlySet<string>,
+	labels: Readonly<Record<string, string>>,
+) {
+	const visit = (node: WorkflowAstNode) => {
+		// Boundaries stop entry too: a dormant function or class-member body
+		// never evaluates at module load. The callee special-case below is the
+		// only eager re-entry (an immediately-invoked function).
+		if (NOT_EAGER_NODES.has(unwrapExpression(node).type)) return;
+		const name = ambientGlobalCallName(node);
+		if (name && ambient.has(name)) hits.add(labels[name] ?? name);
+		for (const child of childAstNodes(node)) {
+			const unwrapped = unwrapExpression(child);
+			if (!NOT_EAGER_NODES.has(unwrapped.type)) {
+				visit(child);
+				continue;
+			}
+			// A function that is the direct callee still executes its body now.
+			if (
+				(node.type === "CallExpression" || node.type === "NewExpression") &&
+				child === node.callee
+			) {
+				for (const inner of childAstNodes(unwrapped)) visit(inner);
+			}
+		}
+	};
+	visit(stmt);
+}
+
+/**
+ * Validate a workflow source file. Checks run over the TypeScript AST from
+ * `@babel/parser` (pure JS, safe inside the Worker bundle); they remain
+ * authoring feedback, not the runtime trust boundary — the Loader capability
+ * sandbox and injected step-context gates stay authoritative for execution.
+ */
 export function validateWorkflowSource(
 	source: string,
 	filePath: string,
@@ -68,7 +442,8 @@ export function validateWorkflowSource(
 	// 0. WORKFLOW_HEADER_COMMENT_CLOSED_EARLY — a leading `/* tedix ... */`
 	// manifest comment ends at the FIRST close marker, so a cron such as
 	// "*/5 * * * *" inside it turns the rest of the header into code and the
-	// run dies with `SyntaxError: Unexpected token`.
+	// run dies with `SyntaxError: Unexpected token`. Comment trivia is not
+	// part of the AST, so this check stays lexical.
 	const headerIssue = detectPrematureHeaderClose(source);
 	if (headerIssue) {
 		errors.push({
@@ -78,71 +453,83 @@ export function validateWorkflowSource(
 		});
 	}
 
-	// Strip line and block comments + string literals so identifiers inside
-	// them don't trigger false positives. Uses a single-pass scanner.
-	const stripped = stripCommentsAndStrings(source);
+	const { body, syntaxError } = parseWorkflowModule(source);
+	if (syntaxError) {
+		// The runner compiles this snapshot with sucrase; a source that cannot
+		// parse can never execute, so surface it as an authoring diagnostic.
+		errors.push({
+			code: "WORKFLOW_SOURCE_SYNTAX_ERROR",
+			message: `Workflow source does not parse as a TypeScript module: ${syntaxError}`,
+			path,
+		});
+	}
 
-	// 1. WORKFLOW_NO_DEFAULT_EXPORT
-	const hasDefaultExport =
-		/\bexport\s+default\b/.test(stripped) ||
-		/\bmodule\.exports\s*=/.test(stripped) ||
-		/\bexports\.default\s*=/.test(stripped);
-	if (!hasDefaultExport) {
+	const bindings = collectTopLevelBindings(body);
+
+	// 1. WORKFLOW_NO_DEFAULT_EXPORT / 2. WORKFLOW_DEFAULT_NOT_OBJECT — the
+	// default export must be an object with a callable `run`. Identifier
+	// references resolve through top-level bindings, so `export default
+	// workflow` on a literal object no longer reads as unverifiable.
+	const exported = findDefaultExportValue(body);
+	if (!exported) {
 		errors.push({
 			code: "WORKFLOW_NO_DEFAULT_EXPORT",
 			message:
 				"Workflow module must have a default export (the workflow object).",
 			path,
 		});
-	}
-
-	// 2. WORKFLOW_DEFAULT_NOT_OBJECT — default export must be an object literal
-	// with an async `run` method. Match `export default {...}` or
-	// `export default <ident>` where <ident> is later assigned to an object.
-	let runMatch: RegExpMatchArray | null = null;
-	const defaultObjectRe = /export\s+default\s*\{([\s\S]*)\}\s*;?\s*$/m;
-	const defaultObj = stripped.match(defaultObjectRe);
-	if (defaultObj?.[1]) {
-		runMatch = defaultObj[1].match(
-			/(?:async\s+)?run\s*(?:\([^)]*\)|=\s*(?:async\s*)?\([^)]*\)\s*=>)/,
-		);
-		if (!runMatch) {
+	} else {
+		const defaultObject = resolveObjectExpression(exported, bindings);
+		if (!defaultObject) {
 			errors.push({
 				code: "WORKFLOW_DEFAULT_NOT_OBJECT",
-				message: "Default export must be an object with an async `run` method.",
+				message:
+					"Could not statically verify default export is an object literal with `run`. Inline the object: `export default { async run(event, step, env) { ... } }`.",
 				path,
 			});
+		} else {
+			const run = findRunFunction(defaultObject, bindings);
+			if (!run) {
+				errors.push({
+					code: "WORKFLOW_DEFAULT_NOT_OBJECT",
+					message:
+						"Default export must be an object with an async `run` method.",
+					path,
+				});
+			} else {
+				// 3. WORKFLOW_RUN_SIGNATURE_INVALID — (event, step) or
+				// (event, step, env); destructured/rest params are rejected.
+				const params = nodeArray(run, "params");
+				const validArity = params.length === 2 || params.length === 3;
+				if (!validArity || params.some((p) => p.type !== "Identifier")) {
+					errors.push({
+						code: "WORKFLOW_RUN_SIGNATURE_INVALID",
+						message:
+							"`run` method must take (event, step) or (event, step, env). Other signatures are rejected.",
+						path,
+					});
+				}
+			}
 		}
-	} else if (hasDefaultExport) {
-		// Could not statically prove the default-export shape — flag.
-		errors.push({
-			code: "WORKFLOW_DEFAULT_NOT_OBJECT",
-			message:
-				"Could not statically verify default export is an object literal with `run`. Inline the object: `export default { async run(event, step, env) { ... } }`.",
-			path,
-		});
 	}
 
-	// 3. WORKFLOW_RUN_SIGNATURE_INVALID — accept (event, step) or (event, step, env)
-	// Each param may carry an optional TS type annotation (`event: WorkflowEvent<T>`).
-	// The annotation can include generics (`<...>`), unions/intersections, dotted
-	// type refs, and array brackets — but no nested parens or commas at depth 0.
-	const paramRe = String.raw`[A-Za-z_$][\w$]*(?:\s*:\s*[^,)]+)?`;
-	const runSigRe = new RegExp(
-		String.raw`(?:async\s+)?run\s*\(\s*${paramRe}\s*,\s*${paramRe}(?:\s*,\s*${paramRe})?\s*\)`,
-	);
-	const runSig = stripped.match(runSigRe);
-	if (defaultObj && runMatch && !runSig) {
-		errors.push({
-			code: "WORKFLOW_RUN_SIGNATURE_INVALID",
-			message:
-				"`run` method must take (event, step) or (event, step, env). Other signatures are rejected.",
-			path,
+	// 4. WORKFLOW_DYNAMIC_IMPORT — value-position `import(...)` calls. The
+	// type-position `import("…")` annotation is a TSImportType node, which
+	// correctly no longer trips this check.
+	let hasDynamicImport = false;
+	for (const stmt of body) {
+		walkAst(stmt, (node) => {
+			if (
+				node.type === "ImportExpression" ||
+				(node.type === "CallExpression" &&
+					isAstNode(node.callee) &&
+					node.callee.type === "Import")
+			) {
+				hasDynamicImport = true;
+			}
 		});
 	}
-
-	// 4. WORKFLOW_DYNAMIC_IMPORT — `import(...)` calls
-	if (/\bimport\s*\(/.test(stripped)) {
+	if (hasDynamicImport) {
 		errors.push({
 			code: "WORKFLOW_DYNAMIC_IMPORT",
 			message: "Dynamic `import(...)` calls are not allowed in workflow code.",
@@ -153,31 +540,45 @@ export function validateWorkflowSource(
 	// Runtime imports cross the Worker Loader boundary. Tenant code may import
 	// Cloudflare's workflow error primitive, but it must never import the loader
 	// environment (`cloudflare:workers`), raw sockets, Node builtins, or arbitrary
-	// packages. `import type` is erased by sucrase and is therefore safe.
-	// Probe each regex match through the lexer so comments and literals stay inert.
-	const executableOffsetProbe = "__tedix_executable_offset__";
-	const runtimeImports = [
-		...source.matchAll(
-			/^\s*import\s+(?!type\b)(?:[^"'`]*?\s+from\s+)?["']([^"']+)["']/gm,
-		),
-		...source.matchAll(/^\s*export\s+[^"'`]*?\s+from\s+["']([^"']+)["']/gm),
-	].filter(
-		(match) =>
-			match.index !== undefined &&
-			stripCommentsAndStrings(
-				source.slice(0, match.index) + executableOffsetProbe,
-			).endsWith(executableOffsetProbe),
-	);
-	for (const match of runtimeImports) {
-		const specifier = match[1];
-		if (specifier === "cloudflare:workflows") continue;
-		errors.push({
-			code: "WORKFLOW_RUNTIME_IMPORT_NOT_ALLOWED",
-			message: `Runtime import "${specifier ?? "unknown"}" is not allowed. Tenant workflows may import runtime values only from "cloudflare:workflows"; use erased \`import type\` declarations for types.`,
-			path,
+	// packages. `import type` is erased by sucrase and is therefore safe — as is
+	// a declaration whose specifiers are all type-only.
+	for (const stmt of body) {
+		walkAst(stmt, (node) => {
+			if (
+				node.type !== "ImportDeclaration" &&
+				node.type !== "ExportNamedDeclaration" &&
+				node.type !== "ExportAllDeclaration"
+			) {
+				return;
+			}
+			const specifier = node.source;
+			if (!isAstNode(specifier) || specifier.type !== "StringLiteral") return;
+			if (isTypeOnlyModuleTransfer(node)) return;
+			if (specifier.value === "cloudflare:workflows") return;
+			errors.push({
+				code: "WORKFLOW_RUNTIME_IMPORT_NOT_ALLOWED",
+				message: `Runtime import "${String(specifier.value)}" is not allowed. Tenant workflows may import runtime values only from "cloudflare:workflows"; use erased \`import type\` declarations for types.`,
+				path,
+			});
 		});
 	}
-	if (/\brequire\s*\(/.test(stripped)) {
+	let hasCommonJsRequire = false;
+	let hasEvalOrFunction = false;
+	for (const stmt of body) {
+		walkAst(stmt, (node) => {
+			if (ambientGlobalCallName(node) === "require") {
+				hasCommonJsRequire = true;
+			}
+			if (
+				ambientGlobalCallName(node) === "eval" ||
+				(node.type === "NewExpression" &&
+					ambientGlobalCallName(node) === "Function")
+			) {
+				hasEvalOrFunction = true;
+			}
+		});
+	}
+	if (hasCommonJsRequire) {
 		errors.push({
 			code: "WORKFLOW_RUNTIME_IMPORT_NOT_ALLOWED",
 			message: "CommonJS require() is not allowed in tenant workflow source.",
@@ -186,7 +587,7 @@ export function validateWorkflowSource(
 	}
 
 	// 5. WORKFLOW_EVAL_OR_FUNCTION — eval() or new Function()
-	if (/\beval\s*\(/.test(stripped) || /\bnew\s+Function\s*\(/.test(stripped)) {
+	if (hasEvalOrFunction) {
 		errors.push({
 			code: "WORKFLOW_EVAL_OR_FUNCTION",
 			message:
@@ -196,18 +597,26 @@ export function validateWorkflowSource(
 	}
 
 	// 6. WORKFLOW_TOP_LEVEL_SIDE_EFFECT — fetch/setTimeout/setInterval/Worker/
-	// XMLHttpRequest/EventSource at top level (outside any function body).
-	const topLevel = extractTopLevel(stripped);
-	const sideEffectPatterns: Array<[RegExp, string]> = [
-		[/\bfetch\s*\(/, "fetch()"],
-		[/\bsetTimeout\s*\(/, "setTimeout()"],
-		[/\bsetInterval\s*\(/, "setInterval()"],
-		[/\bnew\s+Worker\s*\(/, "new Worker()"],
-		[/\bnew\s+XMLHttpRequest\s*\(/, "new XMLHttpRequest()"],
-		[/\bnew\s+EventSource\s*\(/, "new EventSource()"],
-	];
-	for (const [re, label] of sideEffectPatterns) {
-		if (re.test(topLevel)) {
+	// XMLHttpRequest/EventSource evaluated at module load.
+	const sideEffectLabels: Record<string, string> = {
+		fetch: "fetch()",
+		setTimeout: "setTimeout()",
+		setInterval: "setInterval()",
+		Worker: "new Worker()",
+		XMLHttpRequest: "new XMLHttpRequest()",
+		EventSource: "new EventSource()",
+	};
+	const sideEffectHits = new Set<string>();
+	for (const stmt of body) {
+		collectEagerSideEffects(
+			stmt,
+			sideEffectHits,
+			new Set(Object.keys(sideEffectLabels)),
+			sideEffectLabels,
+		);
+	}
+	for (const label of Object.values(sideEffectLabels)) {
+		if (sideEffectHits.has(label)) {
 			errors.push({
 				code: "WORKFLOW_TOP_LEVEL_SIDE_EFFECT",
 				message: `Top-level ${label} is not allowed. Move side effects inside the \`run\` function or a helper called from \`run\`.`,
@@ -220,8 +629,20 @@ export function validateWorkflowSource(
 	// `step.do` boundary. The lexical placement check is intentionally
 	// conservative: helpers containing fetch cannot be proven to run only from a
 	// step and should instead receive already-fetched data or inline the call.
-	const hasFetch = /\bfetch\s*\(/.test(stripped);
-	const hasFetchOutsideStep = /\bfetch\s*\(/.test(stripStepDoArms(stripped));
+	let hasFetch = false;
+	let hasFetchOutsideStep = false;
+	const scanFetch = (node: WorkflowAstNode, insideStepDo: boolean) => {
+		const inside = insideStepDo || isStepDoCall(node);
+		if (
+			node.type === "CallExpression" &&
+			ambientGlobalCallName(node) === "fetch"
+		) {
+			hasFetch = true;
+			if (!inside) hasFetchOutsideStep = true;
+		}
+		for (const child of childAstNodes(node)) scanFetch(child, inside);
+	};
+	for (const stmt of body) scanFetch(stmt, false);
 	if (hasFetch && !capabilities.network) {
 		errors.push({
 			code: "WORKFLOW_NETWORK_WITHOUT_CAPABILITY",
@@ -256,201 +677,6 @@ export function detectPrematureHeaderClose(source: string): string | null {
 	const rest = trimmed.slice(close + 2, lineEnd === -1 ? undefined : lineEnd);
 	if (rest.trim().length === 0) return null;
 	return "The leading workflow header comment closes early: a `*/` (usually a cron step such as `*/5`) is followed by more text on the same line, so the rest is parsed as code (SyntaxError at run time). Write the cron as an explicit list (`0,5,10,...`) or a range with a step (`0-59/5`), or drop the header and declare capabilities in SKILL.md frontmatter, which is the manifest of record for recorded skills.";
-}
-
-/**
- * Remove // line comments, /* block * / comments, string/template literal
- * contents, and regex literal bodies.
- *
- * Template literals are interpolation-aware: code inside `${...}` stays
- * visible (it IS code — capability and fetch-placement checks must see it),
- * and nested templates inside interpolations re-enter string mode correctly.
- * Regex literals are consumed as literals so a quote or `//` inside a pattern
- * (`/"/g`, `/^https?:\/\//`) cannot desync the scanner — both previously
- * caused false WORKFLOW_NO_DEFAULT_EXPORT rejections of valid workflows.
- */
-function stripCommentsAndStrings(src: string): string {
-	let out = "";
-	let i = 0;
-	const n = src.length;
-	// Scanner mode stack: the base frame is code; a template frame blanks
-	// content until its closing backtick; each `${` pushes a code frame whose
-	// `braces` counter finds the matching `}`.
-	type Frame = { kind: "code"; braces: number } | { kind: "template" };
-	const stack: Frame[] = [{ kind: "code", braces: 0 }];
-
-	// A `/` starts a regex (not division) when the previous meaningful token
-	// cannot end an expression: operators/openers, or an expression keyword.
-	const REGEX_PREV_WORDS = new Set([
-		"return",
-		"typeof",
-		"case",
-		"of",
-		"in",
-		"do",
-		"else",
-		"void",
-		"delete",
-		"instanceof",
-		"new",
-		"yield",
-		"await",
-	]);
-	const regexCanStart = (): boolean => {
-		let j = out.length - 1;
-		while (j >= 0 && /\s/.test(out[j] ?? "")) j--;
-		if (j < 0) return true;
-		const ch = out[j] ?? "";
-		if (/[A-Za-z0-9$_]/.test(ch)) {
-			let k = j;
-			while (k >= 0 && /[A-Za-z0-9$_]/.test(out[k] ?? "")) k--;
-			return REGEX_PREV_WORDS.has(out.slice(k + 1, j + 1));
-		}
-		// `)` / `]` / quote ends an expression → division; anything else opens one.
-		return !")]'\"`".includes(ch);
-	};
-
-	while (i < n) {
-		const top = stack[stack.length - 1];
-		if (!top) break; // stack invariant: always non-empty; satisfies noUncheckedIndexedAccess
-		const c = src[i];
-		if (top.kind === "template") {
-			if (c === "\\") {
-				i += 2;
-				continue;
-			}
-			if (c === "`") {
-				out += "`";
-				stack.pop();
-				i++;
-				continue;
-			}
-			if (c === "$" && src[i + 1] === "{") {
-				out += "${";
-				stack.push({ kind: "code", braces: 0 });
-				i += 2;
-				continue;
-			}
-			i++;
-			continue;
-		}
-		const next = src[i + 1];
-		// Line comment
-		if (c === "/" && next === "/") {
-			while (i < n && src[i] !== "\n") i++;
-			continue;
-		}
-		// Block comment
-		if (c === "/" && next === "*") {
-			i += 2;
-			while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++;
-			i += 2;
-			continue;
-		}
-		// Regex literal — consume body (escapes + char classes) and flags.
-		if (c === "/" && regexCanStart()) {
-			i++;
-			let inClass = false;
-			while (i < n) {
-				const rc = src[i];
-				if (rc === "\\") {
-					i += 2;
-					continue;
-				}
-				if (rc === "\n") break; // unterminated — bail without desync
-				if (rc === "[") inClass = true;
-				else if (rc === "]") inClass = false;
-				else if (rc === "/" && !inClass) break;
-				i++;
-			}
-			i++; // closing slash (or newline bail)
-			while (i < n && /[a-z]/i.test(src[i] ?? "")) i++; // flags
-			out += "/./";
-			continue;
-		}
-		// Plain strings — preserve quotes but blank contents
-		if (c === '"' || c === "'") {
-			out += c;
-			i++;
-			while (i < n && src[i] !== c) {
-				if (src[i] === "\\") i++; // skip escape
-				i++;
-			}
-			out += c;
-			i++;
-			continue;
-		}
-		// Template literal opens
-		if (c === "`") {
-			out += "`";
-			stack.push({ kind: "template" });
-			i++;
-			continue;
-		}
-		if (c === "{") {
-			top.braces++;
-		} else if (c === "}") {
-			if (top.braces === 0 && stack.length > 1) {
-				// End of a `${...}` interpolation — resume the template below.
-				out += "}";
-				stack.pop();
-				i++;
-				continue;
-			}
-			top.braces--;
-		}
-		out += c;
-		i++;
-	}
-	return out;
-}
-
-/**
- * Extract code that runs at module top level — i.e. outside any function or
- * arrow body. Approximated by deleting balanced `{...}` blocks from the
- * source. Crude but adequate: anything inside `function` / `=>` / object
- * methods is removed, leaving raw module statements.
- */
-function extractTopLevel(src: string): string {
-	let depth = 0;
-	let out = "";
-	for (let i = 0; i < src.length; i++) {
-		const c = src[i];
-		if (c === "{") {
-			depth++;
-			continue;
-		}
-		if (c === "}") {
-			if (depth > 0) depth--;
-			continue;
-		}
-		if (depth === 0) out += c;
-	}
-	return out;
-}
-
-/** Remove balanced `step.do(...)` argument lists so callers can scan the rest. */
-function stripStepDoArms(src: string): string {
-	let out = "";
-	let i = 0;
-	const n = src.length;
-	while (i < n) {
-		const slice = src.slice(i, i + 8);
-		if (/^step\.do\s*\(/.test(slice)) {
-			// Advance to opening paren
-			i += slice.indexOf("(") + 1;
-			let depth = 1;
-			while (i < n && depth > 0) {
-				if (src[i] === "(") depth++;
-				else if (src[i] === ")") depth--;
-				i++;
-			}
-			continue;
-		}
-		out += src[i];
-		i++;
-	}
-	return out;
 }
 
 /**
@@ -699,26 +925,18 @@ async function lintCapabilityManifest(
 
 function hasWorkflowEligibility(source: string): boolean | null {
 	if (!source.trim()) return false;
-	const stripped = stripCommentsAndStrings(source);
-	const object = /\bexport\s+default\s*\{/.exec(stripped);
+	const { body } = parseWorkflowModule(source);
+	const bindings = collectTopLevelBindings(body);
+	const exported = findDefaultExportValue(body);
+	if (!exported) return null;
+	const object = resolveObjectExpression(exported, bindings);
 	if (!object) return null;
-	const body = stripped.slice(object.index + object[0].length);
-	const member = /^\s*(?:async\s+)?eligibility\s*(?:\(|:|,|})/;
-	let depth = 0;
-	let memberStart = true;
-	for (let index = 0; index < body.length; index++) {
-		if (memberStart) {
-			const candidate = body.slice(index);
-			if (member.test(candidate)) return true;
-			// Spreads/computed keys can supply the hook; leave uncertain shapes to runtime.
-			if (/^\s*(?:\.\.\.|\[)/.test(candidate)) return null;
+	for (const member of nodeArray(object, "properties")) {
+		if (staticMemberName(member) === "eligibility") return true;
+		// Spreads/computed keys can supply the hook; leave uncertain shapes to runtime.
+		if (member.type === "SpreadElement" || member.computed === true) {
+			return null;
 		}
-		memberStart = false;
-		const character = body[index];
-		if (character === "{" || character === "(" || character === "[") depth++;
-		if (character === "}" || character === ")" || character === "]") depth--;
-		if (depth < 0) break;
-		if (depth === 0 && character === ",") memberStart = true;
 	}
 	return false;
 }

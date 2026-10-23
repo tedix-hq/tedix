@@ -193,14 +193,3 @@ export function validateSkillReliabilityPolicy(
 	}
 	return validateWorkflowReliabilityPolicy(capabilities.reliability).issues;
 }
-
-/**
- * Validate a workflow source file. These lightweight regex-based checks are
- * conservative authoring feedback, not the runtime trust boundary. The
- * Loader capability sandbox and injected step-context gates remain
- * authoritative for execution.
- *
- * TODO: upgrade to TS compiler API once `typescript` is added as a dep. Until
- * then, the following heuristics are intentionally conservative — false
- * positives are preferred over silent escapes.
- */

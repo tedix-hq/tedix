@@ -156,6 +156,107 @@ describe("validate_skill schedule parity with the scheduler", () => {
 	});
 });
 
+describe("validateWorkflowSource AST semantics", () => {
+	const caps = { mcp: {}, network: false } as never;
+	const codes = (source: string) =>
+		validateWorkflowSource(source, "scripts/workflow.ts", caps).map(
+			(issue) => issue.code,
+		);
+
+	it("accepts an arrow-function `run` property", () => {
+		expect(
+			codes(`export default { run: async (event, step) => ({ ok: true }) };`),
+		).toEqual([]);
+	});
+
+	it("accepts a default export bound through a top-level identifier", () => {
+		expect(
+			codes(
+				`const workflow = { async run(event, step, env) { return 1; } }; export default workflow;`,
+			),
+		).toEqual([]);
+	});
+
+	it("does not treat member calls as ambient globals", () => {
+		// `env.MCP.tools.fetch` is an MCP method named "fetch", not ambient fetch;
+		// `scope.eval` is not `eval()`. Text heuristics flagged both.
+		const source = `export default {
+  async run(event, step, env) {
+    const out = await step.do("probe", async () => env.MCP.tools.fetch({ url: "https://example.com" }));
+    return scope.eval(String(out));
+  }
+};`;
+		expect(codes(source)).toEqual([]);
+	});
+
+	it("allows erased type-only imports and type-position import()", () => {
+		const source = `import { type WorkflowEvent } from "cloudflare:workers";
+import { type Foo } from "node:path";
+type Inspect = import("node:util").InspectOptions;
+export default {
+  async run(event: WorkflowEvent, step, env) { return 1; }
+};`;
+		expect(codes(source)).toEqual([]);
+	});
+
+	it("accepts nested type annotations and a trailing parameter comma", () => {
+		expect(
+			codes(`export default {
+  async run(event: { pairs: Map<string, number> }, step: Step, env: Env,) { return 1; }
+};`),
+		).toEqual([]);
+	});
+
+	it.each([
+		['import("node:fs")', "WORKFLOW_DYNAMIC_IMPORT"],
+		['require("node:fs")', "WORKFLOW_RUNTIME_IMPORT_NOT_ALLOWED"],
+		['eval("1")', "WORKFLOW_EVAL_OR_FUNCTION"],
+		['new Function("return 1")', "WORKFLOW_EVAL_OR_FUNCTION"],
+	])("rejects executable %s", (expression, code) => {
+		expect(
+			codes(
+				`export default { async run(event, step) { return ${expression}; } };`,
+			),
+		).toContain(code);
+	});
+
+	it("rejects a mixed type and runtime import", () => {
+		expect(
+			codes(`import { type Foo, bar } from "node:path";
+export default { async run(event, step) { return bar; } };`),
+		).toContain("WORKFLOW_RUNTIME_IMPORT_NOT_ALLOWED");
+	});
+
+	it("reports illegal module-level return syntax", () => {
+		expect(
+			codes(`return 1; export default { async run(event, step) {} };`),
+		).toContain("WORKFLOW_SOURCE_SYNTAX_ERROR");
+	});
+
+	it("ignores import statements inside comments", () => {
+		const source = `/*
+import fs from "node:fs";
+*/
+export default { async run(event, step) { return 1; } };`;
+		expect(codes(source)).toEqual([]);
+	});
+
+	it("flags a fetch that runs at module evaluation inside a top-level block", () => {
+		const found = codes(`if (Date.now() > 0) {
+  fetch("https://example.com");
+}
+export default { async run(event, step) { return 1; } };`);
+		expect(found).toContain("WORKFLOW_TOP_LEVEL_SIDE_EFFECT");
+	});
+
+	it("reports a syntax error instead of silently misreading broken source", () => {
+		const found = codes(
+			`export default { async run(event, step) { return 1; }`,
+		);
+		expect(found).toContain("WORKFLOW_SOURCE_SYNTAX_ERROR");
+	});
+});
+
 describe("workflow header comment", () => {
 	const body = `export default { async run() { return 1; } };`;
 	const caps = { mcp: {}, network: false } as never;
