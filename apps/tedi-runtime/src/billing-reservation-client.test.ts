@@ -1,5 +1,7 @@
 import { privateInferenceOriginGuard } from "./runtime-inference-origin";
 import assert from "node:assert/strict";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import {
 	BillingAdmissionError,
 	applyAuthorizedInferenceAttribution,
@@ -49,6 +51,40 @@ await assert.rejects(
 	),
 	/TEDIX_BILLING_SETTLEMENT_MODE/,
 );
+
+// A failed admission RPC (a D1 blip behind the API) must read as transient to
+// Pi's own retry, or one blip ends the turn with no retry at all.
+const admissionOutage = await authorizeInferenceEntitlement(
+	{
+		SECRETS_MASTER_KEY: "fixture-signing-secret",
+		TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+		API_SERVICE: {
+			fetch: async () => {
+				throw new Error("Billing database temporarily unavailable");
+			},
+		} as unknown as Fetcher,
+	},
+	{
+		metadata: { orgId: "org-1", tediId: "fixture-tedi" },
+		beforeDispatch: fixtureOriginGuard("org-1"),
+		execution,
+		body: "{}",
+	},
+).then(
+	() => null,
+	(error: unknown) => error,
+);
+assert.ok(admissionOutage instanceof BillingAdmissionError);
+assert.equal(admissionOutage.code, "billing_service_error");
+assert.equal(
+	isRetryableAssistantError({
+		stopReason: "error",
+		errorMessage: admissionOutage.message,
+	} as AssistantMessage),
+	true,
+	admissionOutage.message,
+);
+assert.equal(billingPolicyDeniedWorkflowResult(admissionOutage), null);
 
 const attributed = applyAuthorizedInferenceAttribution(
 	{ orgId: "org-1", source: "os" },

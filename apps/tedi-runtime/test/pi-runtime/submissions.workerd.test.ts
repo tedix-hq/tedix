@@ -129,6 +129,18 @@ describe("native Pi provider and durable storage", () => {
 		expect(state.checkpoint.attempts).toHaveLength(0);
 		expect(state.effects).toBe(0);
 	});
+	it("seals a failed Pi submission with its reason and never re-infers on a re-drive", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.rejectProvider();
+		const first = await agent.rejectedTurn("rejected");
+		expect(first).toMatch(/^Model turn failed: .*fixture deployment rejected/);
+		// A Workflow re-drive reuses the submission id; it must re-read the sealed
+		// failure (so the Workflow seals it) rather than look like a fresh transient.
+		expect(await agent.rejectedTurn("rejected")).toBe(first);
+		const state = await inspect(agent, "rejected");
+		expect(state.requests).toHaveLength(1);
+		expect(state.effects).toBe(0);
+	});
 	it("materializes private images through native Pi and replays the settled answer after eviction", async () => {
 		const name = crypto.randomUUID();
 		const agent = await getAgentByName(bindings.PI_FACET_MEDIA, name);

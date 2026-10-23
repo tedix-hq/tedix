@@ -391,9 +391,15 @@ export async function authorizeInferenceEntitlement(
 		);
 	} catch (error) {
 		mark("error", Date.now() - rpcAt);
+		// Pi retries a model error only when its text reads as transient, and it
+		// never retries text containing "billing" (quota exhaustion). This RPC
+		// failure is transient: a D1 blip once ended a delegated turn here.
+		const detail = (error instanceof Error ? error.message : String(error))
+			.replace(/billing/gi, "admission")
+			.slice(0, 300);
 		throw new BillingAdmissionError(
 			"billing_service_error",
-			`Billing admission failed: ${error instanceof Error ? error.message : String(error)}`,
+			`Inference admission service temporarily unavailable: ${detail}`,
 		);
 	}
 	const rpcMs = Date.now() - rpcAt;
