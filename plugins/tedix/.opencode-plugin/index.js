@@ -23,6 +23,8 @@ import { fileURLToPath } from "node:url";
 const MCP_URL = "https://connect.mcp.tedix.dev/mcp";
 const OAUTH_CLIENT_ID =
 	"https://os.tedix.dev/.well-known/oauth-client/opencode.json";
+/** The client's only registered redirect; OpenCode 2 otherwise picks a random port. */
+const OAUTH_REDIRECT_URI = "http://127.0.0.1:19876/mcp/oauth/callback";
 const SKILLS = fileURLToPath(new URL("../skills", import.meta.url));
 const CONTEXT_LIMIT = 10_100;
 /** OpenCode tool (1 and 2) -> the host tool name `situational-recall` matches. */
@@ -468,7 +470,10 @@ async function setup(ctx) {
 				editor.set("tedix", {
 					type: "remote",
 					url: MCP_URL,
-					oauth: { client_id: OAUTH_CLIENT_ID },
+					oauth: {
+						client_id: OAUTH_CLIENT_ID,
+						redirect_uri: OAUTH_REDIRECT_URI,
+					},
 				});
 		});
 	const skills = readSkills();
