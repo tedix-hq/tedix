@@ -3,6 +3,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { WORK_VIEWS, workViewHref } from "@/lib/work-views";
 
+const route = vi.hoisted(() => ({
+	pathname: "/work",
+	search: {} as Record<string, unknown>,
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+	useRouterState: ({
+		select,
+	}: {
+		select: (state: { location: typeof route }) => unknown;
+	}) => select({ location: route }),
+}));
+
 vi.mock("@/components/kumo/link-provider", () => ({
 	OsRouterLink: ({
 		to,
@@ -31,7 +44,7 @@ async function openMenu() {
 		root!.render(<WorkMoreViewsMenu />);
 	});
 	const trigger = document.querySelector<HTMLButtonElement>(
-		'button[aria-label="More views"]',
+		'button[aria-haspopup="menu"]',
 	);
 	expect(trigger).not.toBeNull();
 	await act(async () => trigger!.click());
@@ -52,9 +65,69 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	root = undefined;
 	document.body.innerHTML = "";
+	route.pathname = "/work";
+	route.search = {};
 });
 
 describe("Work more-views menu", () => {
+	it.each(WORK_VIEWS)("exposes the active $label view", async (view) => {
+		route.pathname = view.to;
+		route.search = { ...view.search, source: "review" };
+		const { trigger, menu } = await openMenu();
+		expect(trigger.textContent).toBe(view.label);
+		expect(trigger.getAttribute("aria-label")).toBe(
+			`More views: ${view.label}`,
+		);
+		expect(trigger.getAttribute("data-active")).toBe("true");
+		const current = menu.querySelectorAll('[aria-current="page"]');
+		expect(current).toHaveLength(1);
+		expect(current[0]!.getAttribute("data-work-view")).toBe(view.id);
+	});
+
+	it.each(["/work/cases/", "/work/cases/cedar-case"])(
+		"keeps Cases active at %s",
+		async (pathname) => {
+			route.pathname = pathname;
+			const { trigger, menu } = await openMenu();
+			expect(trigger.textContent).toBe("Cases");
+			expect(
+				menu
+					.querySelector('[aria-current="page"]')
+					?.getAttribute("data-work-view"),
+			).toBe("cases");
+		},
+	);
+
+	it("matches an app before leftover feed filters", async () => {
+		route.search = { app: "office", view: "feed", filter: "history" };
+		const { trigger } = await openMenu();
+		expect(trigger.textContent).toBe("Office");
+	});
+
+	it.each(["/work", "/work/cases-other", "/work/items/cedar-item"])(
+		"has no secondary selection at %s",
+		async (pathname) => {
+			route.pathname = pathname;
+			const { trigger, menu } = await openMenu();
+			expect(trigger.getAttribute("aria-label")).toBe("More views");
+			expect(trigger.hasAttribute("data-active")).toBe(false);
+			expect(menu.querySelector('[aria-current="page"]')).toBeNull();
+		},
+	);
+
+	it("updates context when navigating back to a primary view", async () => {
+		route.pathname = "/work/cases";
+		const { trigger } = await openMenu();
+		expect(trigger.textContent).toBe("Cases");
+		route.pathname = "/work";
+		route.search = { view: "deck" };
+		await act(async () => root!.render(<WorkMoreViewsMenu />));
+		expect(trigger.textContent).toBe("");
+		expect(trigger.getAttribute("aria-label")).toBe("More views");
+		expect(trigger.hasAttribute("data-active")).toBe(false);
+		expect(document.querySelector('[aria-current="page"]')).toBeNull();
+	});
+
 	it("is one quiet icon button, not a tab bar", async () => {
 		const { trigger } = await openMenu();
 		expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
@@ -80,8 +153,9 @@ describe("Work more-views menu", () => {
 		).toEqual(["Planning", "Reviews", "Operations", "History"]);
 	});
 
-	it("moves focus between views with the arrow keys", async () => {
-		const { menu } = await openMenu();
+	it("moves focus between views and returns to the trigger on Escape", async () => {
+		route.pathname = "/work/cases";
+		const { trigger, menu } = await openMenu();
 		const items = [
 			...menu.querySelectorAll<HTMLAnchorElement>('a[role="menuitem"]'),
 		];
@@ -90,9 +164,12 @@ describe("Work more-views menu", () => {
 		expect(items).toContain(first);
 		await key(first!, "ArrowDown");
 		expect(document.activeElement).toBe(
-			items[items.indexOf(first as never) + 1],
+			items[items.indexOf(first as HTMLAnchorElement) + 1],
 		);
 		await key(document.activeElement!, "ArrowUp");
 		expect(document.activeElement).toBe(first);
+		await key(first!, "Escape");
+		expect(document.querySelector('[role="menu"]')).toBeNull();
+		expect(document.activeElement).toBe(trigger);
 	});
 });
