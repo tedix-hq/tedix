@@ -8,6 +8,7 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { createSkillEntry, updateSkillEntry } from "./skill-crud";
 import {
+	skillMcpProxyIncludesSource,
 	recordMissingSkillMcpAppBindings,
 	repairSkillMcpAppBindings,
 	resolveSkillMcpNamespaceSlugs,
@@ -464,5 +465,134 @@ describe("validateSkillInput after an app rename", () => {
 			organizationId: ACME_ORG,
 		});
 		expect(unknownNamespace(result.warnings)).toHaveLength(1);
+	});
+});
+
+describe("skill MCP aggregate source authorization", () => {
+	it("recognizes a public provider inherited through an installed proxy", async () => {
+		const { db, sqlite } = realDb();
+		insertApp(sqlite, {
+			id: "proxy",
+			slug: "acme-source",
+			organizationId: ACME_ORG,
+		});
+		insertApp(sqlite, {
+			id: "provider",
+			slug: "source",
+			organizationId: PLATFORM_ORG,
+			visibility: "public",
+		});
+		sqlite.prepare("UPDATE apps SET metadata=? WHERE id=?").run(
+			JSON.stringify({
+				mcpConfig: {
+					aggregateApps: [{ appId: "provider", slug: "old-source" }],
+				},
+			}),
+			"proxy",
+		);
+		expect(
+			await skillMcpProxyIncludesSource(db, {
+				organizationId: ACME_ORG,
+				appSlug: "acme-source",
+				sourceAppSlug: "source",
+			}),
+		).toBe(true);
+		expect(
+			await skillMcpProxyIncludesSource(db, {
+				organizationId: ACME_ORG,
+				appSlug: "acme-source",
+				sourceAppSlug: "unrelated",
+			}),
+		).toBe(false);
+		sqlite.close();
+	});
+	it.each([
+		{
+			entry: { appId: "provider", slug: "source", toolIds: ["read_one"] },
+			visibility: "public",
+			org: PLATFORM_ORG,
+		},
+		{
+			entry: { appId: "provider", slug: "source", endpointPrefixes: ["safe/"] },
+			visibility: "public",
+			org: PLATFORM_ORG,
+		},
+		{
+			entry: { appId: "provider", slug: "source", readOnly: true },
+			visibility: "public",
+			org: PLATFORM_ORG,
+		},
+		{
+			entry: { appId: "missing", slug: "source" },
+			visibility: "public",
+			org: PLATFORM_ORG,
+		},
+		{
+			entry: { appId: "provider", slug: "source" },
+			visibility: "private",
+			org: OTHER_ORG,
+		},
+	] as const)(
+		"does not widen filtered, stale-id or foreign-private links: %j",
+		async ({ entry, visibility, org }) => {
+			const { db, sqlite } = realDb();
+			insertApp(sqlite, {
+				id: "proxy",
+				slug: "acme-source",
+				organizationId: ACME_ORG,
+			});
+			insertApp(sqlite, {
+				id: "provider",
+				slug: "source",
+				organizationId: org,
+				visibility,
+			});
+			sqlite
+				.prepare("UPDATE apps SET metadata=? WHERE id=?")
+				.run(
+					JSON.stringify({ mcpConfig: { aggregateApps: [entry] } }),
+					"proxy",
+				);
+			expect(
+				await skillMcpProxyIncludesSource(db, {
+					organizationId: ACME_ORG,
+					appSlug: "acme-source",
+					sourceAppSlug: "source",
+				}),
+			).toBe(false);
+			sqlite.close();
+		},
+	);
+	it("bounds cycles and rejects a proxy outside the organization", async () => {
+		const { db, sqlite } = realDb();
+		insertApp(sqlite, {
+			id: "proxy",
+			slug: "acme-source",
+			organizationId: OTHER_ORG,
+		});
+		sqlite
+			.prepare("UPDATE apps SET metadata=? WHERE id=?")
+			.run(
+				JSON.stringify({ mcpConfig: { aggregateApps: [{ appId: "proxy" }] } }),
+				"proxy",
+			);
+		expect(
+			await skillMcpProxyIncludesSource(db, {
+				organizationId: ACME_ORG,
+				appSlug: "acme-source",
+				sourceAppSlug: "source",
+			}),
+		).toBe(false);
+		sqlite
+			.prepare("UPDATE apps SET organization_id=? WHERE id=?")
+			.run(ACME_ORG, "proxy");
+		expect(
+			await skillMcpProxyIncludesSource(db, {
+				organizationId: ACME_ORG,
+				appSlug: "acme-source",
+				sourceAppSlug: "source",
+			}),
+		).toBe(false);
+		sqlite.close();
 	});
 });

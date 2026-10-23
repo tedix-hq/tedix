@@ -377,3 +377,49 @@ export async function repairSkillMcpAppBindings(
 			),
 		);
 }
+
+/**
+ * An installed proxy can inherit a provider's tools without owning tool rows.
+ * Follow only unfiltered aggregate links; filtered mounts require their own
+ * method-level authorization and must not become a grant for the whole app.
+ */
+export async function skillMcpProxyIncludesSource(
+	db: DbClient,
+	params: { organizationId: string; appSlug: string; sourceAppSlug: string },
+): Promise<boolean> {
+	const pending: Array<{ id?: string; slug?: string }> = [
+		{ slug: params.appSlug },
+	];
+	const visited = new Set<string>();
+	for (let reads = 0; pending.length && reads < 8; reads++) {
+		const ref = pending.shift()!;
+		const [app] = await db
+			.select({ ...appColumns, metadata: apps.metadata })
+			.from(apps)
+			.where(ref.id ? eq(apps.id, ref.id) : eq(apps.slug, ref.slug!))
+			.limit(1);
+		if (
+			!app ||
+			visited.has(app.id) ||
+			!isBindable(app, params.organizationId) ||
+			app.visibility === "disabled"
+		)
+			continue;
+		visited.add(app.id);
+		if (app.slug === params.sourceAppSlug) return true;
+		const links = app.metadata?.mcpConfig?.aggregateApps;
+		if (!Array.isArray(links)) continue;
+		for (const link of links) {
+			if (
+				link.toolIds !== undefined ||
+				link.endpointPrefixes !== undefined ||
+				link.readOnly === true
+			)
+				continue;
+			if (link.appId) pending.push({ id: link.appId });
+			else if (link.slug) pending.push({ slug: link.slug });
+			if (pending.length >= 8) break;
+		}
+	}
+	return false;
+}

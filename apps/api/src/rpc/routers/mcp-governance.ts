@@ -30,7 +30,10 @@ import {
 } from "@tedix/api-contract/utils/skill-manifest";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
-import { resolveSkillMcpNamespaceSlugs } from "@tedix/db/queries/cognitive/skill-mcp-bindings";
+import {
+	resolveSkillMcpNamespaceSlugs,
+	skillMcpProxyIncludesSource,
+} from "@tedix/db/queries/cognitive/skill-mcp-bindings";
 import { getPolicyPackById } from "@tedix/db/queries/control-plane/definitions";
 import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-support";
 import {
@@ -258,13 +261,26 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 								).then((tedi) => tedi && !tedi.retiredAt),
 							));
 				} else {
-					declared = declaredNamespaces.some((namespace) => {
-						if (namespace === "tedi") return false;
-						if (namespaceToSlug[namespace])
-							return namespaceToSlug[namespace] === input.sourceAppSlug;
-						// OS must resolve to its platform app, never a namespace-only grant.
-						return namespace !== "os" && namespace === input.namespace;
-					});
+					declared = false;
+					for (const namespace of declaredNamespaces) {
+						if (namespace === "tedi") continue;
+						const appSlug = namespaceToSlug[namespace];
+						if (appSlug) {
+							if (
+								appSlug === input.sourceAppSlug ||
+								(input.sourceAppSlug &&
+									namespace !== "os" &&
+									(await skillMcpProxyIncludesSource(context.db, {
+										organizationId: input.organizationId,
+										appSlug,
+										sourceAppSlug: input.sourceAppSlug,
+									})))
+							)
+								declared = true;
+						} else if (namespace !== "os" && namespace === input.namespace)
+							declared = true;
+						if (declared) break;
+					}
 				}
 				return declared
 					? { approved: true, skillId: skill.id, revision: run.skillRevision }
