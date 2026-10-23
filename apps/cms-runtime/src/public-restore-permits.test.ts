@@ -22,13 +22,14 @@ const permit = {
 
 function fixture(
 	clock?: ConstructorParameters<typeof PublicRestorePermits>[1],
+	verifyReuse = false,
 ) {
 	const queries = {
 		enter: vi.fn().mockResolvedValue(true),
 		leave: vi.fn().mockResolvedValue(true),
 		reuse: vi.fn().mockResolvedValue(true),
 	};
-	const pool = new PublicRestorePermits(queries, clock);
+	const pool = new PublicRestorePermits(queries, clock, verifyReuse);
 	const tasks: Promise<unknown>[] = [];
 	const forRequest = () => pool.forRequest((task) => tasks.push(task));
 	return { queries, forRequest, tasks };
@@ -56,7 +57,7 @@ describe("public restore reservations", () => {
 		await Promise.all(tasks);
 	});
 
-	it("reads 100 stream chunks with one row while checking every pull", async () => {
+	it("reads 100 stream chunks under one reservation without per-pull D1", async () => {
 		const { queries, forRequest, tasks } = fixture();
 		const source = new ReadableStream<Uint8Array>({
 			start(controller) {
@@ -78,7 +79,7 @@ describe("public restore reservations", () => {
 		if (!result.admitted) throw new Error("expected admission");
 		expect((await result.value.arrayBuffer()).byteLength).toBe(100);
 		expect(queries.enter).toHaveBeenCalledOnce();
-		expect(queries.reuse).toHaveBeenCalledTimes(101);
+		expect(queries.reuse).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 		expect(queries.leave).toHaveBeenCalledOnce();
@@ -101,14 +102,14 @@ describe("public restore reservations", () => {
 			forRequest,
 		);
 		if (!result.admitted) throw new Error("expected admission");
-		queries.reuse.mockResolvedValue(false);
+		queries.enter.mockResolvedValue(false);
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(tasks);
 		await expect(result.value.body!.getReader().read()).rejects.toThrow(
 			"fence unavailable",
 		);
 		expect(pull).not.toHaveBeenCalled();
 		expect(cancel).toHaveBeenCalledOnce();
-		await vi.advanceTimersByTimeAsync(10_000);
-		await Promise.all(tasks);
 	});
 
 	it("retains an active stream borrower through expiry and waits for cancellation", async () => {
@@ -168,6 +169,7 @@ describe("public restore reservations", () => {
 		}
 		expect(authenticate).toHaveBeenCalledTimes(2);
 		expect(queries.enter).toHaveBeenCalledOnce();
+		expect(queries.reuse).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 	});
@@ -196,6 +198,33 @@ describe("public restore reservations", () => {
 		await Promise.all(tasks);
 		expect(queries.leave).toHaveBeenCalledTimes(2);
 	});
+
+	it.each([false, new Error("D1 unavailable")])(
+		"fails closed when a verified reuse check returns %s",
+		async (failure) => {
+			const { queries, forRequest, tasks } = fixture(undefined, true);
+			const first = forRequest();
+			await first.enter(db, permit);
+			await first.leave(db, permit);
+			if (failure instanceof Error) queries.reuse.mockRejectedValue(failure);
+			else queries.reuse.mockResolvedValue(failure);
+			const run = vi.fn(async () => new Response("should not serve"));
+			const result = withCmsRestoreResponsePermit(
+				db,
+				identity,
+				run,
+				queries,
+				forRequest(),
+			);
+			if (failure instanceof Error)
+				await expect(result).rejects.toThrow("fence unavailable");
+			else expect(await result).toEqual({ admitted: false });
+			expect(run).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(10_000);
+			await Promise.all(tasks);
+			expect(queries.leave).toHaveBeenCalledOnce();
+		},
+	);
 
 	it("reports an idle cleanup failure and removes the reservation from reuse", async () => {
 		const { queries, forRequest, tasks } = fixture();
@@ -227,7 +256,6 @@ describe("public restore reservations", () => {
 			if (result.admitted) expect(await result.value.text()).toBe("page");
 		}
 		expect(queries.enter).toHaveBeenCalledOnce();
-		expect(queries.reuse).toHaveBeenCalledTimes(99);
 		expect(queries.leave).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
@@ -244,6 +272,10 @@ describe("public restore reservations", () => {
 		const first = forRequest();
 		const second = forRequest();
 		expect(await first.enter(db, permit)).toBe(true);
+		expect(queries.enter).toHaveBeenCalledWith(db, {
+			...permit,
+			kind: "nested",
+		});
 		expect(await second.enter(db, { ...permit, permitId: "second" })).toBe(
 			true,
 		);
@@ -261,39 +293,15 @@ describe("public restore reservations", () => {
 		await Promise.all(tasks);
 		expect(queries.leave).not.toHaveBeenCalled();
 		await second.leave(db, permit);
-		expect(queries.leave).toHaveBeenCalledWith(db, permit);
+		expect(queries.leave).toHaveBeenCalledWith(db, {
+			...permit,
+			kind: "nested",
+		});
 		await next.leave(db, permit);
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 		expect(queries.leave).toHaveBeenCalledTimes(2);
 	});
-
-	it.each([false, new Error("D1 unavailable")])(
-		"fails closed on a reuse check returning %s",
-		async (failure) => {
-			const { queries, forRequest, tasks } = fixture();
-			const first = forRequest();
-			await first.enter(db, permit);
-			await first.leave(db, permit);
-			if (failure instanceof Error) queries.reuse.mockRejectedValue(failure);
-			else queries.reuse.mockResolvedValue(failure);
-			const run = vi.fn(async () => new Response("should not serve"));
-			const result = withCmsRestoreResponsePermit(
-				db,
-				identity,
-				run,
-				queries,
-				forRequest(),
-			);
-			if (failure instanceof Error)
-				await expect(result).rejects.toThrow("fence unavailable");
-			else expect(await result).toEqual({ admitted: false });
-			expect(run).not.toHaveBeenCalled();
-			await vi.advanceTimersByTimeAsync(10_000);
-			await Promise.all(tasks);
-			expect(queries.leave).toHaveBeenCalledOnce();
-		},
-	);
 
 	it("does not share reservations across sites, slugs or epochs", async () => {
 		const { queries, forRequest, tasks } = fixture();
