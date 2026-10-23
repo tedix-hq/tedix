@@ -691,9 +691,13 @@ export function approvalsForAuthority(
 	return cards.map((card) => {
 		if (card.decisionMode === "no_action" || card.expired) return card;
 		const delegation = card.approvalId.startsWith("home-delegation:");
-		const canDecide =
-			authority?.permissions.includes("tedis:update") &&
-			(!delegation || authority.role === "owner" || authority.role === "admin");
+		const canDecide = delegation
+			? authority?.permissions.includes("tedis:update") &&
+				(authority.role === "owner" || authority.role === "admin")
+			: authority?.permissions.some(
+					(permission) =>
+						permission === "os:approve" || permission === "settings:manage",
+				);
 		return canDecide
 			? card
 			: {
