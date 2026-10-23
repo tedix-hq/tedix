@@ -245,11 +245,12 @@ describe("Home request source adapter", () => {
 			attemptId: "attempt-one",
 			checks: [{ kind: "home_response" }],
 			probeAttempts: 1,
-			delivery: { status: "acknowledged" },
+			delivery: { status: "acknowledged", receiptRef: "reply-one" },
 		});
 		expect(final.version).toBeGreaterThan(priorVersion);
 		expect(await db.select().from(workAttempts)).toHaveLength(1);
-		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(2);
+		// The reply is its own receipt; no report message enters the chat.
+		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
 	});
 	it("waits for an unchecked delegation reply without exhausting probes, then verifies delivery only", async () => {
 		const { context, db } = await fixture("revision-one", true);
@@ -274,12 +275,12 @@ describe("Home request source adapter", () => {
 		expect(final.snapshot).toMatchObject({
 			state: "learned",
 			outcome: "verified",
-			delivery: { status: "acknowledged" },
+			delivery: { status: "acknowledged", receiptRef: "reply-one" },
 		});
 		expect(final.snapshot.observations[0]?.limitations).toContain(
 			"not factual correctness or external target state",
 		);
-		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(2);
+		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
 	});
 	it("captures all conversations by default and restricts new capture to a configured cohort", async () => {
 		const { context, db } = await fixture();
