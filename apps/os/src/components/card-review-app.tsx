@@ -66,6 +66,7 @@ import {
 	factoryVerdictLearning,
 	formatReason,
 	isActionLabel,
+	isOpen,
 	type MissingColumns,
 	needsOrganise,
 	pendingRules,
@@ -431,6 +432,8 @@ export function CardReviewApp({
 	const inChannel = cards.filter(
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
+	const decidedCount = inChannel.filter((card) => !isOpen(card)).length;
+	const progressLabel = `${queue.length} ${decisionText("waiting")} · ${decidedCount} ${decisionText("decided")} · ${inChannel.length} ${decisionText("total")}`;
 	const [departingCard, setDepartingCard] = useState<ReviewCard | null>(null);
 	// The Waiting list browses without a skip: browseKey pins the card on
 	// screen and never writes a learning choice.
@@ -1114,12 +1117,12 @@ export function CardReviewApp({
 					<Button
 						size="sm"
 						variant="ghost"
-						aria-label={decisionText("See every open card")}
+						aria-label={`${decisionText("See every open card")}: ${progressLabel}`}
 						aria-pressed={browsing}
 						data-card-review-progress
 						onClick={() => setBrowsing(true)}
 					>
-						{queue.length} of {inChannel.length} left
+						{progressLabel}
 					</Button>
 				)}
 			</header>
@@ -1142,9 +1145,7 @@ export function CardReviewApp({
 			{inChannel.length > 0 && (
 				<Progress
 					aria-label="Cards reviewed"
-					value={Math.round(
-						((inChannel.length - queue.length) / inChannel.length) * 100,
-					)}
+					value={Math.round((decidedCount / inChannel.length) * 100)}
 				/>
 			)}
 
