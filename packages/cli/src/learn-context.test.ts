@@ -689,6 +689,33 @@ describe("board match and judge", () => {
 		});
 	});
 
+	it.each(["2", "B2", "B0", "9007199254740993", "9".repeat(400)])(
+		"ignores the out-of-range second-look answer %s",
+		async (answer) => {
+			const c = candidate("Keyboard navigation for the console");
+			const board = closeBoard(c.key, [
+				[
+					"w-keyboard",
+					"Improve console keyboard navigation",
+					"p-site",
+					"accepted",
+					null,
+					0.62,
+				],
+			]);
+			const [proposal] = await judge(
+				[c],
+				board,
+				async (prompt) => (prompt.startsWith(SECOND) ? answer : "[]"),
+				new Map(),
+			);
+			expect(proposal).toMatchObject({
+				action: "tracked",
+				workId: "w-keyboard",
+			});
+		},
+	);
+
 	it("places with the whole project catalog, not only the closest words", async () => {
 		const [c] = [candidate("Translate the one-pager into German")];
 		const prompts: string[] = [];

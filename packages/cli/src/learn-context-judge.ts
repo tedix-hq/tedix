@@ -316,7 +316,8 @@ async function secondLook(
 		const answer = /^[`*"\s]*(B)?\s*(\d+)[`*".\s]*$/i.exec(raw);
 		if (!answer) return;
 		const n = Number(answer[2]);
-		const same = !answer[1] && n >= 1 ? options[n - 1] : undefined;
+		if (n > options.length || (answer[1] && n === 0)) return;
+		const same = !answer[1] ? options[n - 1] : undefined;
 		const wider = answer[1] ? options[n - 1] : undefined;
 		const next: Choice = { ...pick };
 		if (same) {
