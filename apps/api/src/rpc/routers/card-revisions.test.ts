@@ -251,6 +251,38 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 	}
 });
 
+it("releases a card whose owner never applies the change request", async () => {
+	const { sqlite, target } = fixture();
+	try {
+		await target.requestCardChanges({
+			requestId: card,
+			expectedRequestVersion: 1,
+			instruction: "Shorter please",
+		});
+		await expect(
+			target.requestCardChanges({
+				requestId: card,
+				expectedRequestVersion: 2,
+				instruction: "Shorter still",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 16 * 60_000 });
+		const history = await target.cardHistory({ requestId: card });
+		expect(history.pending).toBeNull();
+		expect(history.stalled?.instruction).toBe("Shorter please");
+		await expect(
+			target.requestCardChanges({
+				requestId: card,
+				expectedRequestVersion: 2,
+				instruction: "Shorter still",
+			}),
+		).resolves.toMatchObject({ version: 3 });
+	} finally {
+		vi.useRealTimers();
+		sqlite.close();
+	}
+});
+
 it("versions a structured plan together with its visible text and restores both", async () => {
 	const { sqlite, target, owner } = fixture();
 	const planCard = "55555555-5555-4555-8555-555555555555";

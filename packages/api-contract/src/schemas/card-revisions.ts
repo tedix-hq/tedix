@@ -131,17 +131,25 @@ export const ReviewCardStyleRuleInputSchema = z.strictObject({
 	ruleId: z.uuid(),
 	decision: z.enum(["keep", "not_true"]),
 });
+/** After this long without a revision, a change request stops locking its card. */
+export const CARD_REVISION_STALL_MINUTES = 15;
+
+const CardChangeRequestSchema = z.strictObject({
+	responseId: z.uuid(),
+	instruction: z.string(),
+	requestedAt: z.string(),
+});
+
 export const CardHistorySchema = z.strictObject({
 	revisions: z.array(CardRevisionSchema),
 	styleRules: z.array(CardStyleRuleSchema).default([]),
 	nextBeforeRevision: z.number().int().positive().nullable(),
-	pending: z
-		.strictObject({
-			responseId: z.uuid(),
-			instruction: z.string(),
-			requestedAt: z.string(),
-		})
-		.nullable(),
+	pending: CardChangeRequestSchema.nullable(),
+	stalled: CardChangeRequestSchema.nullable()
+		.default(null)
+		.describe(
+			"A change request the owning agent did not apply within CARD_REVISION_STALL_MINUTES; it no longer locks the card",
+		),
 });
 
 export const CardVersionsSchema = CardHistorySchema.extend({
