@@ -57,6 +57,16 @@ describe("browser workspace selection", () => {
 			);
 		});
 	}
+
+	test("rejects duplicate organization slugs even with distinct tenants", () => {
+		expect(
+			parseBrowserWorkspaceSelection(
+				"/workspace?state=one-time&organization=acme&tenant=org_acme&selected_org=acme&selected_tenant=org_acme&selected_org=acme&selected_tenant=org_other",
+				"one-time",
+			),
+		).toBeNull();
+	});
+
 	test("opens the OS launcher with a loopback port and one-time state", () => {
 		const url = new URL(
 			buildBrowserWorkspaceSelectionUrl({
