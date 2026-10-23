@@ -649,10 +649,14 @@ export function CanvasDocPanel({
 							: "canvas-document-status"
 					}
 				>
-					{status !== "connected" && (
-						<ConnectionChip status={status} peers={peers} />
+					{detail.data && !detail.isError && (
+						<>
+							{status !== "connected" && (
+								<ConnectionChip status={status} peers={peers} />
+							)}
+							<CanvasPresence participants={participants ?? []} />
+						</>
 					)}
-					<CanvasPresence participants={participants ?? []} />
 					<span className="sr-only" data-canvas-revision-status>
 						{revisionLabel}
 					</span>
