@@ -12,6 +12,29 @@ import { Button } from "@/components/kumo/button";
 import { ReadOnlyElement } from "@/components/output-slide-element";
 import { bareKey, slideNavigationTarget } from "@/components/slide-navigation";
 
+function trapFocus(
+	dialog: HTMLDivElement | null,
+	event: KeyboardEvent | React.KeyboardEvent,
+) {
+	if (event.key !== "Tab" || !dialog) return false;
+	const focusable = Array.from(
+		dialog.querySelectorAll<HTMLElement>(
+			'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+		),
+	);
+	const current = focusable.indexOf(document.activeElement as HTMLElement);
+	if (
+		focusable.length === 0 ||
+		(event.shiftKey
+			? current > 0
+			: current !== -1 && current < focusable.length - 1)
+	)
+		return false;
+	event.preventDefault();
+	focusable[event.shiftKey ? focusable.length - 1 : 0]?.focus();
+	return true;
+}
+
 /**
  * Present mode, shared by the editor and the read view. Keys: the slide
  * navigation grammar, F to leave, and Escape in order — close the jump menu,
@@ -70,16 +93,26 @@ export function SlidePresenter({
 	const handleKeyRef = useRef(handleKey);
 	handleKeyRef.current = handleKey;
 	const dialogRef = useRef<HTMLDivElement>(null);
+	const openerRef = useRef<HTMLElement | null>(
+		typeof document !== "undefined" &&
+			document.activeElement instanceof HTMLElement
+			? document.activeElement
+			: null,
+	);
 	// Clicking the slide, or a jump-menu button that then unmounts, leaves
 	// focus on the page body. Present mode is modal, so it still owns the keys.
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (event.defaultPrevented) return;
+			if (trapFocus(dialogRef.current, event)) return;
 			if (dialogRef.current?.contains(event.target as Node)) return;
 			handleKeyRef.current(event);
 		};
 		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
+		return () => {
+			window.removeEventListener("keydown", onKey);
+			if (openerRef.current?.isConnected) openerRef.current.focus();
+		};
 	}, []);
 	if (!slide) return null;
 	return (
@@ -92,6 +125,7 @@ export function SlidePresenter({
 			data-show-notes={showNotes || undefined}
 			onKeyDown={(event) => {
 				event.stopPropagation();
+				if (trapFocus(dialogRef.current, event)) return;
 				handleKey(event);
 			}}
 		>
