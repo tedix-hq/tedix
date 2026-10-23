@@ -24,8 +24,9 @@ walkthrough for people is
   `codex plugin marketplace add tedix-hq/tedix-plugins`,
   `codex plugin add tedix@tedix-plugins`, then `codex mcp login tedix`; in the
   ChatGPT desktop app, enable **tedix** in the Plugins Directory.
-- OpenCode: add `<checkout>/plugins/tedix/.opencode-plugin/tedix.js` to the
-  `plugin` list in `~/.config/opencode/opencode.json`, restart, then run
+- OpenCode 1 and 2 (including the desktop app): add the directory
+  `<checkout>/plugins/tedix/.opencode-plugin` to the `plugin` list in
+  `~/.config/opencode/opencode.json`, restart, then run
   `opencode mcp auth tedix`. See the [OpenCode guide](docs/opencode.md) for
   what its hooks cover and what is not available yet.
 

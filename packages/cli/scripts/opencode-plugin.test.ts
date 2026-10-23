@@ -3,6 +3,8 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
+	readlinkSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -10,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TEDIX_OPENCODE_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
-import * as module from "../../../plugins/tedix/.opencode-plugin/tedix.js";
+import * as module from "../../../plugins/tedix/.opencode-plugin/index.js";
 import { ROOT } from "./package-plugin";
 
 const SESSION = "ses_ea08bec38ffeGv2rruD2pzxAuC";
@@ -55,7 +57,7 @@ const calls = () =>
 		});
 
 const plugin = (options?: Record<string, unknown>) =>
-	module.TedixPlugin({ directory } as never, options);
+	module.default.server({ directory } as never, options);
 
 const message = (sessionID = SESSION) => ({
 	message: { id: "msg_1" },
@@ -63,8 +65,15 @@ const message = (sessionID = SESSION) => ({
 	sessionID,
 });
 
-test("exports exactly one plugin, because OpenCode loads every exported function", () => {
-	expect(Object.keys(module)).toEqual(["TedixPlugin"]);
+test("one default export serves OpenCode 1 server() and OpenCode 2 setup()", () => {
+	expect(Object.keys(module)).toEqual(["default"]);
+	expect(module.default.id).toBe("tedix");
+	expect(typeof module.default.server).toBe("function");
+	expect(typeof module.default.setup).toBe("function");
+	// OpenCode 1 configurations written before the directory entry name tedix.js.
+	expect(readlinkSync(join(ROOT, ".opencode-plugin", "tedix.js"))).toBe(
+		"index.js",
+	);
 });
 
 test("adds the Tedix MCP connection with its CIMD client and the shared skills", async () => {
@@ -300,7 +309,7 @@ test("idle captures the whole turn and wakes once with the CLI's framed reply", 
 		'if [ "$2" = "await-reply" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
 	);
 	const wakes: unknown[] = [];
-	const hooks = await module.TedixPlugin({
+	const hooks = await module.default.server({
 		directory,
 		client: sessionClient(wakes),
 	});
@@ -395,7 +404,7 @@ test("new prompts and deletion cancel a pending wake", async () => {
 	);
 	for (const cancel of ["prompt", "delete"]) {
 		const wakes: unknown[] = [];
-		const hooks = await module.TedixPlugin({
+		const hooks = await module.default.server({
 			directory,
 			client: sessionClient(wakes),
 		});
@@ -430,13 +439,13 @@ function callsSafeCount() {
 test("disabled hooks and subagent events cannot capture, report or wake", async () => {
 	fakeCli();
 	const wakes: unknown[] = [];
-	const hooks = await module.TedixPlugin(
+	const hooks = await module.default.server(
 		{ directory, client: sessionClient(wakes) },
 		{ hooks: false },
 	);
 	await emit(hooks, "session.idle", { sessionID: SESSION });
 	await emit(hooks, "permission.asked", { sessionID: SESSION });
-	const enabled = await module.TedixPlugin({
+	const enabled = await module.default.server({
 		directory,
 		client: sessionClient(wakes),
 	});
@@ -470,7 +479,7 @@ test("idle does not resume for a silent or failed await-reply hook", async () =>
 		'if [ "$2" = "await-reply" ]; then printf "not a wake" >&2; exit 1; fi',
 	);
 	const wakes: unknown[] = [];
-	const hooks = await module.TedixPlugin({
+	const hooks = await module.default.server({
 		directory,
 		client: sessionClient(wakes),
 	});
@@ -482,4 +491,282 @@ test("idle does not resume for a silent or failed await-reply hook", async () =>
 	);
 	await Bun.sleep(30);
 	expect(wakes).toEqual([]);
+});
+
+/** A fake OpenCode 2 plugin context that records registrations and replays events. */
+function context2(
+	options: Record<string, unknown> = {},
+	messages: unknown[] = [],
+	sessions: Record<string, unknown> = {},
+) {
+	const hooks: Record<string, (event: any) => unknown> = {};
+	const mcp = new Map<string, unknown>();
+	const skills = new Map<string, any>();
+	const synthetic: unknown[] = [];
+	const pending: unknown[] = [];
+	let notify: (() => void) | undefined;
+	const hook =
+		(domain: string) =>
+		async (name: string, callback: (event: any) => unknown) => {
+			hooks[`${domain}.${name}`] = callback;
+		};
+	const ctx = {
+		app: { version: "2.1.2" },
+		location: { directory },
+		options,
+		mcp: {
+			transform: async (edit: (editor: unknown) => void) =>
+				edit({
+					get: (name: string) => mcp.get(name),
+					set: (name: string, config: unknown) => mcp.set(name, config),
+				}),
+		},
+		skill: {
+			transform: async (edit: (editor: unknown) => void) =>
+				edit({
+					get: (id: string) => skills.get(id),
+					add: (skill: any) => skills.set(skill.id, skill),
+				}),
+		},
+		session: {
+			hook: hook("session"),
+			get: async ({ sessionID }: { sessionID: string }) => {
+				if (!sessions[sessionID]) throw new Error("not found");
+				return sessions[sessionID];
+			},
+			context: async () => messages,
+			synthetic: async (input: unknown) => {
+				synthetic.push(input);
+			},
+		},
+		tool: { hook: hook("tool") },
+		shell: { hook: hook("shell") },
+		event: {
+			subscribe: ({ signal }: { signal: AbortSignal }) => ({
+				async *[Symbol.asyncIterator]() {
+					while (!signal.aborted) {
+						if (pending.length) yield pending.shift();
+						else await new Promise<void>((resolve) => (notify = resolve));
+					}
+				},
+			}),
+		},
+	};
+	const emit = async (type: string, data: unknown) => {
+		pending.push({ type, data });
+		notify?.();
+		await Bun.sleep(20);
+	};
+	return { ctx, hooks, mcp, skills, synthetic, emit };
+}
+
+test("OpenCode 2 adds the Tedix MCP server with its CIMD client and the shared skills", async () => {
+	const fake = context2();
+	const cleanup = await module.default.setup(fake.ctx as never);
+	const mcp = JSON.parse(readFileSync(join(ROOT, "mcp.json"), "utf8"));
+	expect(fake.mcp.get("tedix")).toEqual({
+		type: "remote",
+		url: mcp.mcpServers.tedix.url,
+		oauth: { client_id: TEDIX_OPENCODE_OAUTH_CLIENT_ID },
+	});
+	const names = readdirSync(join(ROOT, "skills"));
+	expect([...fake.skills.keys()].sort()).toEqual(names.sort());
+	const connect = fake.skills.get("tedix-connect");
+	expect(connect.path).toBe(join(ROOT, "skills", "tedix-connect", "SKILL.md"));
+	expect(connect.description).toStartWith("Connect an agent host");
+	expect(connect.content).not.toContain("description:");
+	expect(connect.content).toContain("# Connect to Tedix");
+	expect(fake.skills.get("tedix-session-guide").description).toStartWith(
+		"Orient a Codex",
+	);
+	cleanup?.();
+
+	const own = context2({ mcp: false });
+	(await module.default.setup(own.ctx as never))?.();
+	expect(own.mcp.size).toBe(0);
+	expect(own.skills.size).toBe(names.length);
+});
+
+test("OpenCode 2 sends session-start and prompt context as system text on model requests", async () => {
+	fakeCli();
+	const fake = context2();
+	const cleanup = await module.default.setup(fake.ctx as never);
+	await fake.emit("session.created", { sessionID: SESSION });
+	const request = () => {
+		const event = {
+			sessionID: SESSION,
+			model: { providerID: "azure", id: "gpt-example" },
+			system: [] as unknown[],
+		};
+		fake.hooks["session.context"]!(event);
+		return event.system;
+	};
+	expect(request()).toEqual([]);
+	await fake.hooks["session.prompt"]!({
+		sessionID: SESSION,
+		prompt: { text: "Find the Work for this task" },
+	});
+	expect(request()).toEqual([
+		{
+			type: "text",
+			text: "<tedix-context>\ncontext from session-start\n\ncontext from prompt-context\n</tedix-context>",
+		},
+	]);
+	await fake.hooks["session.prompt"]!({
+		sessionID: SESSION,
+		prompt: { text: "Next" },
+	});
+	expect(
+		calls().filter((call) => call.args?.includes("session-start")),
+	).toEqual([
+		{
+			args: "hooks session-start --host opencode",
+			event: {
+				session_id: SESSION,
+				cwd: directory,
+				hook_event_name: "SessionStart",
+				source: "startup",
+			},
+		},
+	]);
+	expect(
+		calls().filter((call) => call.args?.includes("capture-reply")),
+	).toHaveLength(2);
+	cleanup?.();
+});
+
+test("OpenCode 2 shell commands carry the root session's Agent-Session, version and model", async () => {
+	const fake = context2({ hooks: false }, [], {
+		[CHILD]: { id: CHILD, parentID: SESSION, time: { created: 0 } },
+	});
+	const cleanup = await module.default.setup(fake.ctx as never);
+	fake.hooks["session.context"]!({
+		sessionID: SESSION,
+		model: { providerID: "azure", id: "gpt-example" },
+		system: [],
+	});
+	await fake.hooks["tool.execute.before"]!({
+		tool: "shell",
+		sessionID: CHILD,
+		id: "call_1",
+		input: { command: "tedix agent start" },
+	});
+	const other = { command: "ls", env: {} as Record<string, string> };
+	await fake.hooks["shell.create.before"]!(other);
+	expect(other.env).toEqual({});
+	const shell = {
+		command: "tedix agent start",
+		env: {} as Record<string, string>,
+	};
+	await fake.hooks["shell.create.before"]!(shell);
+	expect(shell.env).toEqual({
+		TEDIX_AGENT_SESSION: `opencode:${SESSION}`,
+		OPENCODE_SESSION_ID: SESSION,
+		TEDIX_AGENT_HARNESS_VERSION: "2.1.2",
+		TEDIX_AGENT_MODEL_PROVIDER: "azure",
+		TEDIX_AGENT_MODEL_ID: "gpt-example",
+	});
+	expect(fake.hooks["session.prompt"]).toBeUndefined();
+	cleanup?.();
+});
+
+test("OpenCode 2 edits get advisory recall appended to their result content", async () => {
+	fakeCli();
+	const fake = context2();
+	const cleanup = await module.default.setup(fake.ctx as never);
+	const call = { tool: "edit", sessionID: SESSION, id: "call_1" };
+	await fake.hooks["tool.execute.before"]!({
+		...call,
+		input: { path: "/repo/a.ts", oldString: "a", newString: "b" },
+	});
+	const after = {
+		...call,
+		status: "completed",
+		result: { content: "Edit applied." } as Record<string, unknown>,
+	};
+	await fake.hooks["tool.execute.after"]!(after);
+	expect(after.result.content).toBe(
+		"Edit applied.\n\n<tedix-recall>\ncontext from situational-recall\n</tedix-recall>",
+	);
+	expect(calls()[0]?.event).toMatchObject({
+		hook_event_name: "PreToolUse",
+		tool_name: "Edit",
+		tool_input: { path: "/repo/a.ts", file_path: "/repo/a.ts" },
+	});
+	cleanup?.();
+});
+
+test("OpenCode 2 idle captures the turn and wakes with a synthetic message", async () => {
+	fakeCli(
+		'if [ "$2" = "await-reply" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
+	);
+	const fake = context2({}, [
+		{ type: "user", id: "msg_user", text: "Check it" },
+		{
+			type: "assistant",
+			id: "msg_first",
+			content: [{ type: "text", text: "Checked the example." }],
+		},
+		{
+			type: "assistant",
+			id: "msg_last",
+			content: [
+				{ type: "reasoning", text: "hidden" },
+				{ type: "text", text: "Should I continue?" },
+			],
+		},
+	]);
+	const cleanup = await module.default.setup(fake.ctx as never);
+	await fake.emit("session.status", {
+		sessionID: SESSION,
+		status: { type: "idle" },
+	});
+	await until(() => fake.synthetic.length === 1);
+	expect(fake.synthetic[0]).toEqual({
+		sessionID: SESSION,
+		text: "The user replied in Tedix OS: continue",
+	});
+	expect(
+		calls().find((call) => call.args?.includes("capture-stop"))?.event,
+	).toEqual({
+		session_id: SESSION,
+		cwd: directory,
+		hook_event_name: "Stop",
+		turn_id: "msg_last",
+		last_assistant_message: "Should I continue?",
+		opencode_turn_text: "Checked the example.\n\nShould I continue?",
+	});
+	await fake.emit("session.idle", { sessionID: SESSION });
+	await Bun.sleep(30);
+	expect(fake.synthetic).toHaveLength(1);
+	cleanup?.();
+});
+
+test("OpenCode 2 permission, failure and deletion events report status", async () => {
+	fakeCli();
+	const fake = context2();
+	const cleanup = await module.default.setup(fake.ctx as never);
+	await fake.emit("permission.asked", {
+		sessionID: SESSION,
+		action: "shell",
+		metadata: { command: "bun run test:run" },
+	});
+	await fake.emit("permission.replied", { sessionID: SESSION, reply: "once" });
+	await fake.emit("session.execution.failed", {
+		sessionID: SESSION,
+		error: { type: "provider", message: "Failed" },
+	});
+	await fake.emit("session.deleted", { sessionID: SESSION });
+	await until(() => callsSafeCount() === 4);
+	expect(calls().map((call) => call.event.hook_event_name)).toEqual([
+		"PermissionRequest",
+		"PostToolUse",
+		"StopFailure",
+		"SessionEnd",
+	]);
+	expect(calls()[0]?.event).toMatchObject({
+		tool_name: "shell",
+		tool_input: { command: "bun run test:run" },
+	});
+	cleanup?.();
 });
