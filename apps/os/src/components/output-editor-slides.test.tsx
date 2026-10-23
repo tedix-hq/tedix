@@ -1,4 +1,8 @@
-import type { PresentationContent } from "@/lib/output-models";
+import {
+	PRESENTATION_HEIGHT,
+	PRESENTATION_WIDTH,
+	type PresentationContent,
+} from "@/lib/output-models";
 import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -1065,6 +1069,39 @@ describe("SlidesEditor", () => {
 });
 
 describe("slide resize boundaries", () => {
+	it("resizes the selected element with the keyboard handle controls", () => {
+		const mounted = mountEditor();
+		const title = mounted.container.querySelector<HTMLElement>(
+			'[data-element="title"]',
+		)!;
+		act(() => title.click());
+		const handle = title.querySelector<HTMLButtonElement>(
+			'[aria-label="Resize selected element"]',
+		)!;
+		const original = {
+			width: Number.parseFloat(title.style.width),
+			height: Number.parseFloat(title.style.height),
+		};
+		act(() => handle.focus());
+		for (const [key, shiftKey] of [
+			["ArrowRight", false],
+			["ArrowDown", true],
+		] as const) {
+			act(() =>
+				handle.dispatchEvent(
+					new KeyboardEvent("keydown", { bubbles: true, key, shiftKey }),
+				),
+			);
+		}
+		const resized = mounted.emitted.at(-1)!.deck!.slides[0]!.elements[0]!;
+		expect(resized).toMatchObject({
+			width: (original.width / 100) * PRESENTATION_WIDTH + 1,
+			height: (original.height / 100) * PRESENTATION_HEIGHT + 10,
+		});
+		expect(document.activeElement).toBe(handle);
+		mounted.cleanup();
+	});
+
 	it("previews scaled resizing, commits on release, and clamps to the canvas", () => {
 		const mounted = mountEditor();
 		const canvas = mounted.container.querySelector<HTMLElement>(

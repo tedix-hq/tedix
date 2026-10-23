@@ -207,6 +207,36 @@ function SlideElementView({
 			if (gesture.dx !== 0 || gesture.dy !== 0) onGeometryCommit(current);
 		} else if (gesture.wasSelected) beginEditing(event.clientX, event.clientY);
 	};
+	const resizeWithKeyboard = (event: React.KeyboardEvent) => {
+		const direction: Record<string, [number, number]> = {
+			ArrowLeft: [-1, 0],
+			ArrowRight: [1, 0],
+			ArrowUp: [0, -1],
+			ArrowDown: [0, 1],
+		};
+		const delta = direction[event.key];
+		if (!delta) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const amount = event.shiftKey ? 10 : 1;
+		onGeometryCommit({
+			...element,
+			width: Math.max(
+				24,
+				Math.min(
+					PRESENTATION_WIDTH - element.x,
+					element.width + delta[0] * amount,
+				),
+			),
+			height: Math.max(
+				24,
+				Math.min(
+					PRESENTATION_HEIGHT - element.y,
+					element.height + delta[1] * amount,
+				),
+			),
+		});
+	};
 	return (
 		<>
 			<div
@@ -289,6 +319,7 @@ function SlideElementView({
 						onPointerDown={(event) => startGesture("resize", event)}
 						onPointerMove={moveGesture}
 						onPointerUp={endGesture}
+						onKeyDown={resizeWithKeyboard}
 					/>
 				)}
 			</div>
