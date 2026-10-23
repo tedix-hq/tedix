@@ -70,7 +70,8 @@ export function scheduleToCronJob(s: ScheduleLike): Record<string, unknown> {
 	const payload = (s.payload ?? {}) as Partial<CronFirePayload>;
 	const kind =
 		s.type === "cron" ? "cron" : s.type === "interval" ? "every" : "at";
-	const nextRunMs = typeof s.time === "number" ? s.time * 1000 : null;
+	const nextRunMs = scheduleTimestampMs(s.time, 1000);
+	const expiresAtMs = scheduleTimestampMs(payload.expiresAtMs);
 	return {
 		id: s.id,
 		name: payload.name ?? null,
@@ -83,12 +84,9 @@ export function scheduleToCronJob(s: ScheduleLike): Record<string, unknown> {
 		sessionTarget: payload.sessionKey ?? null,
 		nextRunMs,
 		nextRunIso: nextRunMs !== null ? new Date(nextRunMs).toISOString() : null,
-		expiresAtMs:
-			typeof payload.expiresAtMs === "number" ? payload.expiresAtMs : null,
+		expiresAtMs,
 		expiresAt:
-			typeof payload.expiresAtMs === "number"
-				? new Date(payload.expiresAtMs).toISOString()
-				: null,
+			expiresAtMs !== null ? new Date(expiresAtMs).toISOString() : null,
 		source: payload.source ?? null,
 	};
 }
@@ -135,7 +133,8 @@ export function scheduleToAdminSchedule(
 	const payload = (s.payload ?? {}) as Partial<CronFirePayload>;
 	const kind =
 		s.type === "cron" ? "cron" : s.type === "interval" ? "every" : "at";
-	const nextRunAtMs = typeof s.time === "number" ? s.time * 1000 : null;
+	const nextRunAtMs = scheduleTimestampMs(s.time, 1000);
+	const expiresAtMs = scheduleTimestampMs(payload.expiresAtMs);
 	return {
 		id: s.id,
 		callback: s.callback,
@@ -152,17 +151,21 @@ export function scheduleToAdminSchedule(
 		nextRunAtMs,
 		nextRunAt:
 			nextRunAtMs !== null ? new Date(nextRunAtMs).toISOString() : null,
-		expiresAtMs:
-			typeof payload.expiresAtMs === "number" ? payload.expiresAtMs : null,
+		expiresAtMs,
 		expiresAt:
-			typeof payload.expiresAtMs === "number"
-				? new Date(payload.expiresAtMs).toISOString()
-				: null,
+			expiresAtMs !== null ? new Date(expiresAtMs).toISOString() : null,
 		source:
 			payload.source === "tool" || payload.source === "template"
 				? payload.source
 				: null,
 	};
+}
+
+/** Invalid persisted timestamps degrade to null before ISO serialization. */
+function scheduleTimestampMs(value: unknown, unitMs = 1): number | null {
+	if (typeof value !== "number") return null;
+	const ms = value * unitMs;
+	return Number.isFinite(new Date(ms).getTime()) ? ms : null;
 }
 
 /**

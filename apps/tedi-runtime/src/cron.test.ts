@@ -192,6 +192,73 @@ console.log("PASS: scheduleToCronJob at");
 }
 console.log("PASS: scheduleToAdminSchedule cron/every/at/framework");
 
+// Invalid persisted timestamps must not abort either schedule list.
+const invalidTimestampMs = [
+	NaN,
+	Infinity,
+	-Infinity,
+	Number.MAX_VALUE,
+	-Number.MAX_VALUE,
+	8_640_000_000_000_001,
+	-8_640_000_000_000_001,
+];
+for (const invalidMs of invalidTimestampMs) {
+	for (const field of ["time", "expiresAtMs"] as const) {
+		const row: ScheduleLike = {
+			...cronRow,
+			...(field === "time" ? { time: invalidMs / 1000 } : {}),
+			payload: {
+				...(cronRow.payload as object),
+				...(field === "expiresAtMs" ? { expiresAtMs: invalidMs } : {}),
+			},
+		};
+		const jobs = [row, cronRow].map(scheduleToCronJob);
+		const schedules = [row, cronRow].map(scheduleToAdminSchedule);
+		assert.equal(jobs.length, 2);
+		assert.equal(schedules.length, 2);
+		assert.deepEqual(jobs[1], cronJob, "healthy cron row stays visible");
+		assert.deepEqual(schedules[1], scheduleToAdminSchedule(cronRow));
+		assert.equal(
+			jobs[0]![field === "time" ? "nextRunMs" : "expiresAtMs"],
+			null,
+		);
+		assert.equal(jobs[0]![field === "time" ? "nextRunIso" : "expiresAt"], null);
+		assert.equal(
+			schedules[0]![field === "time" ? "nextRunAtMs" : "expiresAtMs"],
+			null,
+		);
+		assert.equal(
+			schedules[0]![field === "time" ? "nextRunAt" : "expiresAt"],
+			null,
+		);
+	}
+}
+console.log("PASS: invalid timestamps preserve both schedule lists (14 cases)");
+
+for (const ms of [
+	0, -1000, 1234.5, -8_640_000_000_000_000, 8_640_000_000_000_000,
+]) {
+	const row: ScheduleLike = {
+		...cronRow,
+		time: ms / 1000,
+		payload: { expiresAtMs: ms },
+	};
+	const job = scheduleToCronJob(row);
+	const schedule = scheduleToAdminSchedule(row);
+	const iso = new Date(ms).toISOString();
+	assert.equal(job.nextRunMs, ms);
+	assert.equal(job.nextRunIso, iso);
+	assert.equal(job.expiresAtMs, ms);
+	assert.equal(job.expiresAt, iso);
+	assert.equal(schedule.nextRunAtMs, ms);
+	assert.equal(schedule.nextRunAt, iso);
+	assert.equal(schedule.expiresAtMs, ms);
+	assert.equal(schedule.expiresAt, iso);
+}
+console.log(
+	"PASS: valid timestamps retain zero, fractions and Date boundaries (5 cases)",
+);
+
 // onCronFire workflow routing — fireKey sanitization + runId surface tag ------
 // These mirror the CHAT_TURN_WORKFLOW dispatch params built in onCronFire so
 // a colon-bearing fireKey produces a valid workflow instance id and correct runId.
