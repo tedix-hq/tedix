@@ -245,7 +245,8 @@ export async function resolveSkillMcpAppBindings(
  * the org aggregate. Reserved platform namespaces (UNBOUND_NAMESPACES) never
  * produce an entry: no app may own them, and a same-named app row would
  * otherwise become the dispatch target and the source slug the manifest
- * authorization check requires.
+ * authorization check requires. The exception is `os`, which resolves only
+ * to its platform app `tedix` and is never bound or backfilled.
  *
  * `backfill` lists slug-matched namespaces whose app is bindable, for
  * {@link recordMissingSkillMcpAppBindings}.
@@ -301,7 +302,10 @@ export async function resolveSkillMcpNamespaceSlugs(
 		).map((app) => [app.slug, app]),
 	);
 	for (const namespace of namespaces) {
-		if (UNBOUND_NAMESPACES.has(namespace)) continue;
+		const reserved = UNBOUND_NAMESPACES.has(namespace);
+		// OS is the one reserved surface with a fixed platform app (tedix, see
+		// mcpNamespaceSlugCandidates); it still resolves, but is never bound.
+		if (reserved && namespace !== "os") continue;
 		const boundApp = bound.includes(namespace)
 			? byId.get(bindings[namespace]!)
 			: undefined;
@@ -315,7 +319,7 @@ export async function resolveSkillMcpNamespaceSlugs(
 		);
 		if (!app) continue;
 		namespaceToSlug[namespace] = app.slug;
-		if (!row || !isBindable(app, params.organizationId)) continue;
+		if (reserved || !row || !isBindable(app, params.organizationId)) continue;
 		if (!bindings[namespace]) backfill[namespace] = app.id;
 		else if (bindings[namespace] !== app.id) repair[namespace] = app.id;
 	}
