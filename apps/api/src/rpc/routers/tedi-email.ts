@@ -44,6 +44,7 @@ import {
 	listTediEmailThreads,
 	markTediEmail,
 	searchTediEmail,
+	TediEmailTargetNotFoundError,
 } from "@tedix/db/queries/tedi-email/threads";
 import { getActiveTediSlugById, getTediById } from "@tedix/db/queries/tedis";
 import { sendTransactionalEmail } from "../../lib/email";
@@ -657,10 +658,13 @@ const mark = authed.mark
 				spam: input.spam,
 			});
 		} catch (err) {
-			throw createError(
-				ErrorCodes.NOT_FOUND,
-				err instanceof Error ? err.message : "Email target not found",
-			);
+			if (err instanceof TediEmailTargetNotFoundError) {
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Email message or thread not found",
+				);
+			}
+			throw err;
 		}
 	});
 

@@ -238,6 +238,13 @@ export async function searchTediEmail(
 	}));
 }
 
+export class TediEmailTargetNotFoundError extends Error {
+	constructor() {
+		super("Email message or thread not found");
+		this.name = "TediEmailTargetNotFoundError";
+	}
+}
+
 export async function markTediEmail(
 	db: DbClient,
 	input: {
@@ -262,7 +269,7 @@ export async function markTediEmail(
 		!targetThreadId ||
 		(input.messageId && (!message || message.threadId !== targetThreadId))
 	) {
-		throw new Error("Email message or thread not found");
+		throw new TediEmailTargetNotFoundError();
 	}
 	const [thread] = await db
 		.select({ id: tediEmailThreads.id })
@@ -276,7 +283,7 @@ export async function markTediEmail(
 		)
 		.limit(1);
 	if (!thread) {
-		throw new Error("Email message or thread not found");
+		throw new TediEmailTargetNotFoundError();
 	}
 
 	const messagePatch = {
