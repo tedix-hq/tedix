@@ -6,8 +6,8 @@
 
 This package is the **database layer** for Tedix. It provides Drizzle schemas,
 query functions, and database types. It is certified against the exactly pinned
-Drizzle v1 prerelease `drizzle-orm@1.0.0-rc.4` and matching
-`drizzle-kit@1.0.0-rc.4`; upgrade them together and rerun the D1, relation,
+Drizzle v1 prerelease `drizzle-orm@1.0.0-rc.5` and matching
+`drizzle-kit@1.0.0-rc.5`; upgrade them together and rerun the D1, relation,
 migration, and package gates.
 
 ```
@@ -177,7 +177,7 @@ immutable; subsequent corrections require another migration.
 `db:migrate:check` rejects inconsistent Drizzle history, changed applied SQL,
 stale snapshots, unreviewed destructive DDL, and any migration chain that fails
 on an isolated D1 or violates integrity/foreign keys.
-The schema snapshot check passes only when pinned Drizzle Kit RC4 returns the
+The schema snapshot check passes only when pinned Drizzle Kit RC5 returns the
 machine-readable `no_changes` status; an exit-zero `ok` response means the
 dry-run found SQL changes and fails the gate. Drizzle commands run through the
 package-installed binary, never a download-on-demand `bunx` fallback.

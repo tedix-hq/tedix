@@ -67,8 +67,8 @@ export async function searchFacts(
 	}
 	if (!params.includeGraphAnchors) {
 		conditions.push(
-			not(eq(memoryFacts.memoryScope, "graph")),
-			not(eq(memoryFacts.usePolicy, "do_not_inject_automatically")),
+			not(eq(memoryFacts.memoryScope, "graph"))!,
+			not(eq(memoryFacts.usePolicy, "do_not_inject_automatically"))!,
 		);
 	}
 
@@ -205,8 +205,8 @@ export async function searchFactsWithVisibility(
 	}
 	if (!params.includeGraphAnchors) {
 		conditions.push(
-			not(eq(memoryFacts.memoryScope, "graph")),
-			not(eq(memoryFacts.usePolicy, "do_not_inject_automatically")),
+			not(eq(memoryFacts.memoryScope, "graph"))!,
+			not(eq(memoryFacts.usePolicy, "do_not_inject_automatically"))!,
 		);
 	}
 
@@ -250,8 +250,8 @@ export async function getActiveFacts(
 	}
 	if (!options?.includeGraphAnchors) {
 		conditions.push(
-			not(eq(memoryFacts.memoryScope, "graph")),
-			not(eq(memoryFacts.usePolicy, "do_not_inject_automatically")),
+			not(eq(memoryFacts.memoryScope, "graph"))!,
+			not(eq(memoryFacts.usePolicy, "do_not_inject_automatically"))!,
 		);
 	}
 
