@@ -372,11 +372,19 @@ try {
 								name: account ? "Settings" : "Identity & personality",
 								exact: true,
 							});
-							const unavailable = page.getByText(
-								"Tedi settings are unavailable.",
-								{ exact: true },
-							);
-							await (account ? heading : heading.or(unavailable)).waitFor();
+							await heading.waitFor();
+							if (!account) {
+								assert(
+									await page
+										.getByLabel("Display name", { exact: true })
+										.inputValue(),
+								);
+								assert(
+									await page
+										.getByLabel("Personality", { exact: true })
+										.inputValue(),
+								);
+							}
 							await page.waitForFunction(() => {
 								const pages = document.querySelectorAll(
 									'.route-content [data-slot="page"]',
@@ -387,29 +395,23 @@ try {
 									!pages[0].querySelector('[aria-busy="true"]')
 								);
 							});
-							const tediUnavailable =
-								!account && (await unavailable.isVisible());
 							await page.evaluate(() => document.fonts.ready);
+							await heading.scrollIntoViewIfNeeded();
 							const state = await geometry(page);
 							assert.equal(state.theme, theme);
-							if (!tediUnavailable)
-								assert(
-									state.root.scrollHeight > state.root.clientHeight,
-									JSON.stringify(state),
-								);
+							assert(
+								state.root.scrollHeight > state.root.clientHeight,
+								JSON.stringify(state),
+							);
 							assert(
 								state.documentWidth <= state.width + 1,
 								JSON.stringify(state),
 							);
-							results.push({
-								name,
-								...state,
-								unsupportedClaims: tediUnavailable
-									? [
-											"Long tedi settings: fixture has no tedis/get handler; real route renders unavailable",
-										]
-									: [],
-							});
+							assert(
+								state.root.scrollWidth <= state.root.clientWidth + 1,
+								JSON.stringify(state),
+							);
+							results.push({ name, ...state });
 							await page.screenshot({
 								path: `${evidence}/${name}-${path.startsWith("/account") ? "account" : "tedi"}.png`,
 							});
