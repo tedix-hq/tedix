@@ -306,6 +306,8 @@ export const attentionContractRouter = os.router({
 					const result = await call(
 						kernelRuntimeContractRouter.enqueueMessage,
 						{
+							// One thread per card: the caller's Home thread may be pinned to another Workspace.
+							conversationId: `factory-card:${original.outputId}:${original.rowIndex}`,
 							delegateToTediId: skill.tediId,
 							workspaceContext: {
 								workspaceId: source.workspaceId,

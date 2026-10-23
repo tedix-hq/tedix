@@ -189,6 +189,7 @@ it("requests changes through the router for a discovered card using its merged s
 	expect(mocks.call).toHaveBeenCalledWith(
 		"rewrite",
 		expect.objectContaining({
+			conversationId: `factory-card:${outputId}:0`,
 			delegateToTediId: "writing-agent",
 			workspaceContext: {
 				workspaceId,
