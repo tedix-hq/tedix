@@ -33,6 +33,27 @@ type SessionExchangeRejectionCode =
 	| "principal_not_found"
 	| "session_ended";
 
+/**
+ * Fixed public wording per classified rejection. Upstream RPC detail never
+ * reaches the client; a bare "rejected" hides which of several unrelated
+ * causes (a reused session key, an ended session, an inactive principal)
+ * stopped the sign-in, and every harness lane then retries blindly.
+ */
+const REJECTION_MESSAGES: Record<SessionExchangeRejectionCode, string> = {
+	session_backend_unavailable:
+		"Session backend unavailable; retry shortly with the same session",
+	credential_issuance_in_progress: "Credential issuance is busy; retry shortly",
+	credential_binding_mismatch:
+		"External-agent credential does not match the registered principal",
+	immutable_session_conflict:
+		"This Agent-Session key is already registered with a different principal, harness version, or model; reuse the registered values or start a fresh session key",
+	enrollment_expired: "The cloud agent enrollment has expired",
+	exchange_rate_limited: "Session exchange rate limit exceeded; retry shortly",
+	principal_inactive: "External-agent principal is not active",
+	principal_not_found: "External-agent principal not found",
+	session_ended: "This Agent-Session has ended and cannot be reopened",
+};
+
 function sessionExchangeRejectionCode(
 	error: RpcCallError,
 ): SessionExchangeRejectionCode | undefined {
@@ -204,15 +225,10 @@ export async function handleExternalAgentSessionExchange(
 		return jsonResponse(
 			{
 				error:
-					code === "credential_binding_mismatch"
-						? "External-agent credential does not match the registered principal"
-						: code === "session_backend_unavailable"
-							? "Session backend unavailable; retry shortly with the same session"
-							: code === "credential_issuance_in_progress"
-								? "Credential issuance is busy; retry shortly"
-								: status >= 500
-									? "Session exchange failed"
-									: "Session exchange rejected",
+					(code && REJECTION_MESSAGES[code]) ??
+					(status >= 500
+						? "Session exchange failed"
+						: "Session exchange rejected"),
 				...(code ? { code } : {}),
 			},
 			status,

@@ -22,6 +22,20 @@ test("broker retries transient exchanges without retrying rejected identities", 
 		["enrollment_expired", false],
 		["Work lease expired", false],
 		["arbitrary command failed", false],
+		// Edge wording since the exchange started naming each rejection.
+		[
+			'{"error":"This Agent-Session key is already registered with a different principal, harness version, or model; reuse the registered values or start a fresh session key","code":"immutable_session_conflict"}',
+			false,
+		],
+		[
+			'Agent-Session "devin:thread" is already registered with a different harness version or model than devin 1 / devin swe-2.',
+			false,
+		],
+		['{"error":"This Agent-Session has ended and cannot be reopened"}', false],
+		[
+			'{"error":"Session exchange rate limit exceeded; retry shortly","code":"exchange_rate_limited"}',
+			true,
+		],
 	];
 	const result = spawnSync(
 		"python3",

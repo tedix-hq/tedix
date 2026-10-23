@@ -7,6 +7,7 @@ def transient_session_error(message):
     if re.search(
         r"session exchange rejected|session exchange failed \(4(?!29)\d\d"
         r"|session_ended|credential_binding_mismatch|immutable_session_conflict"
+        r"|already registered with a different|has ended and cannot be reopened"
         r"|enrollment_expired|principal_inactive|principal_not_found|lease expired",
         message, re.I,
     ):

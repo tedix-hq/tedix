@@ -65,6 +65,7 @@ type SessionExchangeRejectionCode =
 	| "principal_inactive"
 	| "principal_not_found"
 	| "enrollment_expired"
+	| "exchange_rate_limited"
 	| "session_backend_unavailable"
 	| "session_ended";
 
@@ -565,6 +566,7 @@ async function exchangeSessionRequest(
 				"principal_inactive",
 				"principal_not_found",
 				"enrollment_expired",
+				"exchange_rate_limited",
 				"session_backend_unavailable",
 				"session_ended",
 			].includes(payload.code)
@@ -573,17 +575,32 @@ async function exchangeSessionRequest(
 		const messages: Partial<Record<SessionExchangeRejectionCode, string>> = {
 			principal_inactive:
 				"The external-agent principal is inactive. Ask its owner to inspect its status before retrying.",
+			principal_not_found:
+				"The external-agent principal no longer exists. Run `tedix agent status`; an owner must enroll this machine again before retrying.",
 			enrollment_expired:
 				"The cloud agent enrollment has expired. Ask its owner for a new enrollment before retrying.",
 			credential_binding_mismatch:
 				"External-agent credential does not match the registered principal. Run `tedix agent status` and have an owner inspect the principal credential binding before retrying. The local session is unchanged.",
+			immutable_session_conflict: [
+				`Agent-Session "${tuple.externalSessionKey}" is already registered with a different harness version or model than ${tuple.harness} ${tuple.harnessVersion} / ${tuple.modelProvider} ${tuple.modelId}.`,
+				"A session key is immutable: pass the flags it was registered with (see `tedix agent status`), or start a fresh session:",
+				`  export TEDIX_AGENT_SESSION="${tuple.harness}:$(uuidgen | tr 'A-Z' 'a-z')"`,
+			].join("\n"),
+			exchange_rate_limited:
+				"The session exchange is rate limited. Retry shortly with the same immutable session.",
 			session_backend_unavailable:
 				"The session backend is temporarily unavailable. Retry with the same immutable session; server-side issuance may have changed.",
 		};
+		// The edge sends fixed public wording, never upstream detail; forward it
+		// so an unclassified rejection still says why, not only its status.
+		const edgeReason =
+			isRecord(payload) && typeof payload.error === "string" && payload.error
+				? `: ${payload.error}`
+				: "";
 		throw new ExternalAgentSessionExchangeError(
 			code,
 			(code && messages[code]) ??
-				`External-agent session exchange failed (${response.status}${code ? `, ${code}` : ""}). Inspect agent status before retrying; server-side issuance may have changed.`,
+				`External-agent session exchange failed (${response.status}${code ? `, ${code}` : ""})${edgeReason}. Inspect agent status before retrying; server-side issuance may have changed.`,
 		);
 	}
 	return ExternalAgentSessionExchangeOutputSchema.parse(payload);

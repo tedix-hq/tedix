@@ -195,7 +195,7 @@ describe("external-agent session exchange", () => {
 
 		expect(response.status).toBe(409);
 		expect(await response.json()).toEqual({
-			error: "Session exchange rejected",
+			error: "This Agent-Session has ended and cannot be reopened",
 			code: "session_ended",
 		});
 	});
@@ -371,17 +371,39 @@ describe("external-agent session exchange", () => {
 
 describe("stable external-agent exchange rejections", () => {
 	it.each([
-		[401, "enrollment_expired", "enrollment_expired"],
-		[409, "External-agent principal is suspended", "principal_inactive"],
-		[403, "principal_inactive", "principal_inactive"],
+		[
+			401,
+			"enrollment_expired",
+			"enrollment_expired",
+			"The cloud agent enrollment has expired",
+		],
+		[
+			409,
+			"External-agent principal is suspended",
+			"principal_inactive",
+			"External-agent principal is not active",
+		],
+		[
+			403,
+			"principal_inactive",
+			"principal_inactive",
+			"External-agent principal is not active",
+		],
 		[
 			429,
 			"External-agent exchange rate limit exceeded",
 			"exchange_rate_limited",
+			"Session exchange rate limit exceeded; retry shortly",
+		],
+		[
+			404,
+			"External-agent principal not found",
+			"principal_not_found",
+			"External-agent principal not found",
 		],
 	])(
 		"preserves status %s and public code %s",
-		async (status, message, code) => {
+		async (status, message, code, error) => {
 			callRpc
 				.mockReset()
 				.mockRejectedValueOnce(
@@ -397,10 +419,34 @@ describe("stable external-agent exchange rejections", () => {
 				API_SERVICE: { fetch: vi.fn() } as unknown as Fetcher,
 			});
 			expect(response.status).toBe(status);
-			expect(await response.json()).toEqual({
-				error: "Session exchange rejected",
-				code,
-			});
+			expect(await response.json()).toEqual({ error, code });
 		},
 	);
+
+	it("names a reused Agent-Session key bound to another harness or model tuple", async () => {
+		// A native CLAUDE_CODE_SESSION_ID / Devin thread id replayed with other
+		// --agent-harness-version or --model-id flags is the common local cause;
+		// the client must learn that it is a tuple conflict, not a sign-in outage.
+		callRpc.mockReset().mockRejectedValueOnce(
+			new RpcCallError(
+				"externalAgentIdentity/openSession",
+				409,
+				JSON.stringify({
+					message:
+						"External Agent-Session is already bound to a different principal, harness, or model tuple",
+					internal: "must-not-leak",
+				}),
+				"Conflict",
+				undefined,
+			),
+		);
+		const response = await handleExternalAgentSessionExchange(request(), {
+			API_SERVICE: { fetch: vi.fn() } as unknown as Fetcher,
+		});
+		expect(response.status).toBe(409);
+		const body = (await response.json()) as { error: string; code: string };
+		expect(body.code).toBe("immutable_session_conflict");
+		expect(body.error).toContain("already registered with a different");
+		expect(body.error).not.toContain("must-not-leak");
+	});
 });
