@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import {
@@ -10,6 +11,7 @@ import { organizationMembers } from "../../schema/organization-members";
 import { tedis } from "../../schema/tedis";
 import {
 	workInteractionAttention,
+	workInteractionCardRevisions,
 	workInteractionDeliveries,
 	workInteractionResponses,
 	workInteractions,
@@ -483,18 +485,68 @@ describe("question delegation", () => {
 describe("obsolete Work interactions", () => {
 	function sweepFixture() {
 		const f = fixture();
-		f.sqlite.exec(schemaDdl(policyPacks));
+		f.sqlite.exec(
+			schemaDdl(
+				policyPacks,
+				organizationMembers,
+				tedis,
+				workInteractionCardRevisions,
+			),
+		);
 		return f;
 	}
-	const sweep = (db: ReturnType<typeof fixture>["db"], now = NOW) =>
-		sweepObsoleteWorkInteractions(db, { now, limit: 100 });
+	/** The deployed BEFORE UPDATE guards on work_interactions, latest definition each. */
+	function deployedInteractionGuards() {
+		const migrations = new URL("../../../drizzle/", import.meta.url);
+		const guards = new Map<string, string>();
+		for (const name of readdirSync(migrations).sort()) {
+			if (!/^\d+_/.test(name)) continue;
+			const text = readFileSync(
+				new URL(`${name}/migration.sql`, migrations),
+				"utf8",
+			);
+			for (const statement of text.split("--> statement-breakpoint")) {
+				const drop = statement.match(
+					/DROP TRIGGER(?: IF EXISTS)?\s+[`"]?([\w]+)[`"]?/i,
+				);
+				if (drop) guards.delete(drop[1]!);
+				const create = statement.match(
+					/CREATE TRIGGER\s+[`"]?([\w]+)[`"]?[\s\S]*?\bEND;/i,
+				);
+				if (
+					create &&
+					/BEFORE UPDATE ON\s+[`"]?work_interactions[`"]?(?:\s|$)/i.test(
+						create[0],
+					)
+				)
+					guards.set(create[1]!, create[0]);
+			}
+		}
+		return [...guards.values()];
+	}
+	const armed = new WeakSet<DatabaseSync>();
+	/** Sweep under the deployed update guards, armed after the test's setup writes. */
+	const sweep = (f: ReturnType<typeof fixture>, now = NOW) => {
+		if (!armed.has(f.sqlite)) {
+			for (const guard of deployedInteractionGuards()) f.sqlite.exec(guard);
+			armed.add(f.sqlite);
+		}
+		return sweepObsoleteWorkInteractions(f.db, { now, limit: 100 });
+	};
+	const noteFor = (sqlite: DatabaseSync, id: string) =>
+		sqlite
+			.prepare(
+				"SELECT author_type, body, json_extract(metadata,'$.cause') AS cause FROM work_item_comments WHERE json_extract(metadata,'$.requestId')=?",
+			)
+			.get(id);
 	const statusOf = (sqlite: DatabaseSync, id: string) =>
 		sqlite.prepare("SELECT status FROM work_interactions WHERE id=?").get(id)
 			?.status;
 
 	it("closes question, input and handoff requests on terminal Work at any age, recording the reason", async () => {
 		for (const disposition of ["completed", "cancelled"]) {
-			const { sqlite, db } = sweepFixture();
+			const f = sweepFixture();
+			const { sqlite } = f;
 			sqlite
 				.prepare("UPDATE work_items SET disposition=? WHERE id='work'")
 				.run(disposition);
@@ -513,50 +565,46 @@ describe("obsolete Work interactions", () => {
 					"UPDATE work_interactions SET kind='coordination', target_type='tedi', target_id='cto' WHERE id='untargeted'",
 				)
 				.run();
-			expect(await sweep(db)).toEqual({ observed: 3, expired: 3 });
-			for (const id of ["mine", "other-target", "other-type"])
+			expect(await sweep(f)).toEqual({ observed: 3, expired: 3 });
+			for (const id of ["mine", "other-target", "other-type"]) {
 				expect(statusOf(sqlite, id)).toBe("expired");
+				expect(noteFor(sqlite, id)).toMatchObject({
+					author_type: "system",
+					cause: "work_closed",
+				});
+			}
 			expect(statusOf(sqlite, "untargeted")).toBe("open");
-			const closure = JSON.parse(
-				String(
-					sqlite
-						.prepare("SELECT metadata FROM work_interactions WHERE id='mine'")
-						.get()?.metadata,
-				),
-			).closure;
-			expect(closure).toMatchObject({
-				source: "interaction-expiry",
-				cause: "work_closed",
-				at: NOW,
-			});
-			const notes = sqlite
-				.prepare("SELECT author_type,body FROM work_item_comments")
-				.all();
-			expect(notes).toHaveLength(3);
-			expect(notes[0]?.author_type).toBe("system");
-			expect(notes[0]?.body).toContain("Its Work is completed or cancelled.");
+			expect(String(noteFor(sqlite, "mine")?.body)).toContain(
+				"Its Work is completed or cancelled.",
+			);
 			expect(
 				sqlite
 					.prepare("SELECT COUNT(*) AS n FROM work_interaction_responses")
 					.get()?.n,
 			).toBe(0);
-			expect(await sweep(db)).toEqual({ observed: 0, expired: 0 });
+			expect(await sweep(f)).toEqual({ observed: 0, expired: 0 });
 		}
 	});
 	it("keeps old requests on active Work and resolved requests", async () => {
-		const { sqlite, db } = sweepFixture();
-		sqlite
-			.prepare(
-				"UPDATE work_interactions SET created_at='2026-08-01T00:00:00.000Z'",
-			)
-			.run();
-		expect((await sweep(db)).expired).toBe(0);
-		sqlite.prepare("UPDATE work_items SET disposition='completed'").run();
-		sqlite.prepare("UPDATE work_interactions SET status='resolved'").run();
-		expect((await sweep(db)).expired).toBe(0);
+		for (const finished of [false, true]) {
+			const f = sweepFixture();
+			f.sqlite
+				.prepare(
+					"UPDATE work_interactions SET created_at='2026-08-01T00:00:00.000Z'",
+				)
+				.run();
+			if (finished) {
+				f.sqlite.prepare("UPDATE work_items SET disposition='completed'").run();
+				f.sqlite
+					.prepare("UPDATE work_interactions SET status='resolved'")
+					.run();
+			}
+			expect((await sweep(f)).expired).toBe(0);
+		}
 	});
 	it("expires a status update to a person once its coordination window passes since creation or refresh", async () => {
-		const { sqlite, db } = sweepFixture();
+		const f = sweepFixture();
+		const { sqlite } = f;
 		sqlite
 			.prepare(
 				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='aaron'",
@@ -580,22 +628,15 @@ describe("obsolete Work interactions", () => {
 				"UPDATE work_interactions SET created_at='2026-08-01T00:00:00.000Z', target_type='tedi' WHERE id='untargeted'",
 			)
 			.run();
-		expect(await sweep(db)).toEqual({ observed: 1, expired: 1 });
+		expect(await sweep(f)).toEqual({ observed: 1, expired: 1 });
 		expect(statusOf(sqlite, "mine")).toBe("expired");
-		expect(
-			JSON.parse(
-				String(
-					sqlite
-						.prepare("SELECT metadata FROM work_interactions WHERE id='mine'")
-						.get()?.metadata,
-				),
-			).closure.cause,
-		).toBe("coordination_stale");
+		expect(noteFor(sqlite, "mine")?.cause).toBe("coordination_stale");
 		for (const id of ["other-target", "other-type", "untargeted"])
 			expect(statusOf(sqlite, id)).toBe("open");
 	});
 	it("reads the coordination window from the organization's active policy pack", async () => {
-		const { sqlite, db } = sweepFixture();
+		const f = sweepFixture();
+		const { sqlite } = f;
 		sqlite
 			.prepare(
 				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='aaron', created_at='2026-08-21T05:00:00.000Z'",
@@ -614,7 +655,7 @@ describe("obsolete Work interactions", () => {
 			1,
 			JSON.stringify({ governancePolicy: { coordinationTtlHours: 100 } }),
 		);
-		expect((await sweep(db)).expired).toBe(0);
+		expect((await sweep(f)).expired).toBe(0);
 		pack.run(
 			"new",
 			"org",
@@ -625,10 +666,11 @@ describe("obsolete Work interactions", () => {
 			2,
 			JSON.stringify({ governancePolicy: { coordinationTtlHours: 6 } }),
 		);
-		expect((await sweep(db)).expired).toBe(4);
+		expect((await sweep(f)).expired).toBe(4);
 	});
 	it("expires due proposals and legacy unanswered proposals after fourteen days", async () => {
-		const { sqlite, db } = sweepFixture();
+		const f = sweepFixture();
+		const { sqlite } = f;
 		const metadata = JSON.stringify({ schema: "tedix.work-proposal.v1" });
 		sqlite
 			.prepare(
@@ -645,11 +687,8 @@ describe("obsolete Work interactions", () => {
 				"UPDATE work_interactions SET kind='handoff',metadata=?,created_at=? WHERE id='other-type'",
 			)
 			.run(metadata, "2026-08-07T12:00:00.001Z");
-		expect(
-			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
-				.expired,
-		).toBe(2);
-		const open = await listWorkInteractionInbox(db, {
+		expect((await sweep(f)).expired).toBe(2);
+		const open = await listWorkInteractionInbox(f.db, {
 			orgId: "org",
 			states: ["open"],
 			observedAt: NOW,
@@ -657,7 +696,8 @@ describe("obsolete Work interactions", () => {
 		expect(open.data.map((r) => r.request.id)).not.toContain("mine");
 	});
 	it("retires legacy unavailable captures but preserves classified requests", async () => {
-		const { sqlite, db } = sweepFixture();
+		const f = sweepFixture();
+		const { sqlite } = f;
 		for (const [id, status] of [
 			["mine", "unavailable"],
 			["other-target", "ok"],
@@ -669,10 +709,7 @@ describe("obsolete Work interactions", () => {
 				}),
 				id!,
 			);
-		expect(
-			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
-				.expired,
-		).toBe(1);
+		expect((await sweep(f)).expired).toBe(1);
 		expect(
 			sqlite.prepare("SELECT COUNT(*) AS n FROM work_item_comments").get()?.n,
 		).toBe(0);
