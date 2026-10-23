@@ -1,3 +1,4 @@
+import { CardReviewBrowser } from "./card-review-browser";
 import { useFactoryDelivery } from "@/lib/use-factory-delivery";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import type {
@@ -1177,6 +1178,7 @@ export function CardReviewApp({
 			) : browsing ? (
 				<WaitingList
 					queue={queue}
+					cards={inChannel}
 					now={now}
 					onOpen={(key) => {
 						setBrowseKey(key);
@@ -1349,15 +1351,20 @@ export function CardReviewApp({
  */
 function WaitingList({
 	queue,
+	cards,
 	now,
 	onOpen,
 	onBack,
 }: {
 	queue: readonly ReviewCard[];
+	cards: readonly ReviewCard[];
 	now: Date;
 	onOpen: (cardKey: string) => void;
 	onBack: () => void;
 }) {
+	const [inspect, setInspect] = useState(false);
+	if (inspect)
+		return <CardReviewBrowser cards={cards} onBack={() => setInspect(false)} />;
 	return (
 		<section
 			aria-label={decisionText("Waiting")}
@@ -1372,6 +1379,9 @@ function WaitingList({
 					{decisionText("Back")}
 				</Button>
 			</div>
+			<Button size="sm" variant="ghost" onClick={() => setInspect(true)}>
+				Inspect all cards
+			</Button>
 			{queue.map((item) => (
 				<button
 					key={item.key}

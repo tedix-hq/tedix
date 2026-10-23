@@ -291,6 +291,50 @@ describe("CardReviewApp decision interactions", () => {
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
 	});
+	it("inspects decided feedback without writes and preserves the review note", async () => {
+		sheet.rows[1]![6] = "yes";
+		sheet.rows[1]![7] = "Recorded feedback";
+		await mount(false);
+		await type('input[placeholder="Add a reason (optional)"]', "Unsent note");
+		await act(async () =>
+			(
+				host.querySelector("[data-card-review-progress]") as HTMLButtonElement
+			).click(),
+		);
+		await click("Inspect all cards");
+		const decided = Array.from(host.querySelectorAll("button")).find((button) =>
+			button.textContent?.includes("Decided"),
+		)!;
+		await act(async () => decided.click());
+		expect(host.textContent).toContain("Recorded feedback");
+		for (const shortcut of [
+			"ArrowRight",
+			"ArrowLeft",
+			"u",
+			"n",
+			"d",
+			"s",
+			"k",
+			"1",
+			"z",
+		])
+			await key(host.querySelector("[data-card-review]")!, shortcut);
+		expect(host.textContent).toContain("Recorded feedback");
+		expect(host.querySelector("[data-card-review-card]")).toBeNull();
+		await click("Back to all cards");
+		await click("Back to waiting");
+		await click("Back");
+		expect(
+			(
+				host.querySelector(
+					'input[placeholder="Add a reason (optional)"]',
+				) as HTMLInputElement
+			).value,
+		).toBe("Unsent note");
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
+		expect(osApi.attention.decideDeckCard).not.toHaveBeenCalled();
+	});
 	it.each([true, false])(
 		"explains denied source sheets without a write (deck=%s)",
 		async (inDeck) => {
@@ -526,7 +570,7 @@ describe("CardReviewApp decision interactions", () => {
 		await click("3 waiting · 0 decided · 3 total");
 		const list = host.querySelector("[data-card-review-waiting]")!;
 		expect(list).not.toBeNull();
-		expect(list.querySelectorAll("button")).toHaveLength(4); // Back + 3 rows
+		expect(list.querySelectorAll("button")).toHaveLength(5); // Back, inspector + 3 rows
 		for (const example of examples)
 			expect(list.textContent).toContain(example.proposal);
 		expect(host.querySelector("[data-card-review-card]")).toBeNull();

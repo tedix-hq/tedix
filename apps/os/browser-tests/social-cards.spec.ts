@@ -362,8 +362,8 @@ try {
 			await waiting.waitFor();
 			assert.equal(
 				await waiting.getByRole("button").count(),
-				3,
-				"Back plus both open cards",
+				4,
+				"Back, read-only inspector and both open cards",
 			);
 			for (const shortcut of [
 				"ArrowRight",
@@ -392,6 +392,52 @@ try {
 					path: `${screenshots}/card-review-waiting-${width}-${theme}.png`,
 					fullPage: true,
 				});
+			await waiting
+				.getByRole("button", { name: "Inspect all cards", exact: true })
+				.click();
+			const inspector = review.getByRole("region", {
+				name: "Inspect all cards",
+				exact: true,
+			});
+			await inspector
+				.getByRole("button")
+				.filter({ hasText: /Social/ })
+				.click();
+			await inspector.getByRole("definition").first().waitFor();
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				"read-only details fit the viewport",
+			);
+			if (screenshots)
+				await page.screenshot({
+					path: `${screenshots}/card-review-details-${width}-${theme}.png`,
+					fullPage: true,
+				});
+			for (const shortcut of [
+				"ArrowRight",
+				"ArrowLeft",
+				"u",
+				"n",
+				"d",
+				"s",
+				"k",
+				"1",
+				"z",
+			])
+				await review.press(shortcut);
+			assert.equal(
+				await inspector.getByRole("button").count(),
+				1,
+				"details expose only local Back navigation",
+			);
+			await inspector
+				.getByRole("button", { name: "Back to all cards", exact: true })
+				.click();
+			await inspector
+				.getByRole("button", { name: "Back to waiting", exact: true })
+				.click();
 			await waiting
 				.getByRole("button")
 				.filter({ hasText: /Social/ })
