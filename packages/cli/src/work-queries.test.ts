@@ -162,6 +162,21 @@ describe("expiresToIso", () => {
 	test("rejects invalid expiries", () => {
 		expect(() => expiresToIso("later")).toThrow("--expires");
 	});
+
+	test.each(["999999999999d", `${"9".repeat(309)}w`, "100000000d"])(
+		"rejects out-of-range relative expiry %s with the validation error",
+		(raw) => {
+			const now = Date.parse("2026-10-22T12:00:00.000Z");
+			expect(() => expiresToIso(raw, now)).toThrow(
+				`--expires must be a duration (45m, 72h, 7d) or an ISO datetime, got "${raw}"`,
+			);
+		},
+	);
+
+	test("accepts the maximum date and rejects a duration beyond it", () => {
+		expect(expiresToIso("100000000d", 0)).toBe("+275760-09-13T00:00:00.000Z");
+		expect(() => expiresToIso("100000001d", 0)).toThrow("--expires");
+	});
 });
 
 describe("projectArg", () => {
