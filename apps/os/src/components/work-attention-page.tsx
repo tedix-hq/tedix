@@ -155,9 +155,9 @@ export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 					filing={filing.isPending}
 					file={(id, projectId) => filing.mutate({ id, projectId })}
 				/>
-			) : (
+			) : !query.isError ? (
 				<Text>{ATTENTION_COPY.loading}</Text>
-			)}
+			) : null}
 		</div>
 	);
 }
