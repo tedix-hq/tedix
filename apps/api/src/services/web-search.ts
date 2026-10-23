@@ -1,12 +1,9 @@
 /**
- * Public web search through the deployment's model gateway.
+ * Public web search through organization-selected providers.
  *
- * The search runs on the `AI` binding with the same gateway as model calls, so
- * the provider charge lands in that gateway's log beside model spend. The
- * Gateway log cannot carry Tedix attribution for a search, so this records a
- * call-time receipt in `tedi_call_costs` keyed by the Gateway log id; cost
- * ingestion later finds that id taken and fills in the reported charge
- * (`settleGatewayReportedReceiptCosts`).
+ * Every provider response records an attributed cost receipt. Gateway receipts
+ * are keyed by log id so ingestion can fill in the reported charge. Direct
+ * provider receipts remain unpriced when the provider reports no dollar cost.
  */
 import {
 	WEB_SEARCH_COST_SOURCE,
@@ -15,6 +12,8 @@ import {
 	WEB_SEARCH_MAX_TITLE_CHARS,
 	WEB_SEARCH_MAX_URL_CHARS,
 	type WebSearchOutput,
+	type WebSearchPolicy,
+	type WebSearchProvider,
 	type WebSearchResult,
 } from "@tedix/api-contract/schemas/web-search";
 import type { NewTediCallCost } from "@tedix/db/schema/tedis";
@@ -111,12 +110,13 @@ export function normalizeWebSearchItems(
 	return { results, truncated: items.length > results.length };
 }
 
-/** The receipt that attributes one search's Gateway charge. */
+/** A provider-attributed receipt; only Gateway receipts can be priced by ingestion. */
 export function buildWebSearchReceipt(input: {
 	organizationId: string;
 	tediId: string | null;
 	runId: string | null;
-	gatewayId: string;
+	gatewayId: string | null;
+	provider?: WebSearchProvider;
 	gatewayLogId: string | null;
 	occurredAt: string;
 	success: boolean;
@@ -130,10 +130,10 @@ export function buildWebSearchReceipt(input: {
 		// adding an unattributed second one. Without a log id the receipt stays
 		// unpriced; ingestion must not create a second search usage row.
 		gatewayLogId: input.gatewayLogId ?? `web-search:${crypto.randomUUID()}`,
-		gatewayId: input.gatewayId,
+		gatewayId: input.gatewayId ?? `direct:${input.provider}`,
 		snapshotAt: input.occurredAt,
 		model: WEB_SEARCH_LEDGER_MODEL,
-		provider: "ai-gateway",
+		provider: input.provider ?? "ai-gateway",
 		runId: input.runId,
 		sessionType: input.tediId ? "tedi" : "kernel",
 		source: WEB_SEARCH_COST_SOURCE,
@@ -148,9 +148,12 @@ export function buildWebSearchReceipt(input: {
 		estimatedCostUsd: null,
 		callDurationMs: input.callDurationMs,
 		costBasis: "unknown",
-		costReason: input.gatewayLogId
-			? "awaiting_gateway_cost"
-			: "missing_gateway_log_id",
+		costReason:
+			input.provider && input.provider !== "ai-gateway"
+				? "provider_cost_not_reported"
+				: input.gatewayLogId
+					? "awaiting_gateway_cost"
+					: "missing_gateway_log_id",
 		sessionCount: 1,
 		success: input.success,
 		cached: false,
@@ -174,8 +177,13 @@ async function gatewayErrorCodes(response: Response): Promise<number[]> {
 	}
 }
 
-export async function runGatewayWebSearch(input: {
+export async function runWebSearch(input: {
 	env: WebSearchEnv;
+	policy?: Pick<WebSearchPolicy, "provider" | "fallbackProvider">;
+	resolveCredential?: (
+		provider: "tavily" | "firecrawl",
+	) => Promise<string | null>;
+	fetch?: typeof fetch;
 	query: string;
 	limit: number;
 	organizationId: string;
@@ -184,12 +192,35 @@ export async function runGatewayWebSearch(input: {
 	recordReceipt: (row: NewTediCallCost) => Promise<void>;
 	now?: () => Date;
 }): Promise<WebSearchOutput> {
-	const gateway = resolveWebSearchGateway(input.env);
-	if (!gateway)
-		return {
-			status: "unavailable",
-			message: "Web search is not available on this deployment.",
-		};
+	const provider = input.policy?.provider ?? "ai-gateway";
+	const fallbackProvider = input.policy?.fallbackProvider;
+	const fallback = () =>
+		runWebSearch({
+			...input,
+			policy: { provider: fallbackProvider },
+		});
+	const canFallback = fallbackProvider && fallbackProvider !== provider;
+	const gateway =
+		provider === "ai-gateway" ? resolveWebSearchGateway(input.env) : null;
+	let token: string | null = null;
+	if (provider !== "ai-gateway") {
+		try {
+			token = (await input.resolveCredential?.(provider)) ?? null;
+		} catch (error) {
+			console.warn("[web-search] credential unavailable", {
+				organizationId: input.organizationId,
+				provider,
+				exception: safeExceptionTopology(error),
+			});
+		}
+	}
+	if (provider === "ai-gateway" ? !gateway : !token)
+		return canFallback
+			? fallback()
+			: {
+					status: "unavailable",
+					message: "Web search is not available on this deployment.",
+				};
 	const occurredAt = (input.now?.() ?? new Date()).toISOString();
 	const started = performance.now();
 	let response: Response | null = null;
@@ -197,24 +228,69 @@ export async function runGatewayWebSearch(input: {
 	let thrownException: ReturnType<typeof safeExceptionTopology> | undefined;
 	let errorCodes: number[] = [];
 	try {
-		response = await gateway.binding.websearch({
-			gatewayId: gateway.gatewayId,
-			query: input.query,
-			limit: Math.min(input.limit, WEB_SEARCH_MAX_RESULTS),
-		});
+		const limit = Math.min(input.limit, WEB_SEARCH_MAX_RESULTS);
+		response = gateway
+			? await gateway.binding.websearch({
+					gatewayId: gateway.gatewayId,
+					query: input.query,
+					limit,
+				})
+			: await (input.fetch ?? fetch)(
+					provider === "tavily"
+						? "https://api.tavily.com/search"
+						: "https://api.firecrawl.dev/v2/search",
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${token}`,
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify(
+							provider === "tavily"
+								? {
+										query: input.query,
+										max_results: limit,
+										search_depth: "basic",
+										include_answer: false,
+										include_raw_content: false,
+									}
+								: { query: input.query, limit, sources: ["web"] },
+						),
+						signal: AbortSignal.timeout(30_000),
+						redirect: "error",
+					},
+				);
 	} catch (error) {
 		thrownException = safeExceptionTopology(error);
 		failure = "Web search request threw.";
 	}
 	const callDurationMs = performance.now() - started;
-	const gatewayLogId =
-		response?.headers.get("cf-aig-log-id") ??
-		gateway.binding.aiGatewayLogId ??
-		null;
+	const gatewayLogId = gateway
+		? (response?.headers.get("cf-aig-log-id") ??
+			gateway.binding.aiGatewayLogId ??
+			null)
+		: null;
 	let payload: unknown = null;
 	if (response?.ok) {
 		try {
 			payload = await response.json();
+			if (provider !== "ai-gateway") {
+				const body = payload as {
+					results?: unknown;
+					data?: { web?: unknown };
+				} | null;
+				const items = provider === "tavily" ? body?.results : body?.data?.web;
+				if (!Array.isArray(items)) throw new Error("Invalid search results");
+				payload = {
+					items: items.map((item: Record<string, unknown> | null) => ({
+						url: item?.url,
+						title: item?.title,
+						description:
+							provider === "tavily" ? item?.content : item?.description,
+						lastModifiedDate: item?.published_date,
+					})),
+				};
+			}
 		} catch {
 			failure = "Web search returned an unreadable response.";
 		}
@@ -231,7 +307,8 @@ export async function runGatewayWebSearch(input: {
 					organizationId: input.organizationId,
 					tediId: input.tediId,
 					runId: input.runId,
-					gatewayId: gateway.gatewayId,
+					gatewayId: gateway?.gatewayId ?? null,
+					provider,
 					gatewayLogId,
 					occurredAt,
 					success: failure === null,
@@ -248,6 +325,12 @@ export async function runGatewayWebSearch(input: {
 		}
 	}
 	if (failure !== null) {
+		if (
+			canFallback &&
+			(response?.status === 402 || (response && response.status >= 500))
+		) {
+			return fallback();
+		}
 		console.warn("[web-search] search failed", {
 			organizationId: input.organizationId,
 			failure,

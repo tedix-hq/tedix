@@ -59,6 +59,32 @@ assert.deepEqual(
 );
 
 const tools = createWebSearchAiTools(base);
+for (const provider of ["tavily", "firecrawl"] as const) {
+	assert.deepEqual(
+		Object.keys(
+			createWebSearchAiTools({
+				...base,
+				ai: undefined,
+				organizationWebSearch: { ...enabled, provider },
+			}),
+		),
+		["web_search"],
+	);
+}
+assert.deepEqual(
+	Object.keys(
+		createWebSearchAiTools({
+			...base,
+			ai: undefined,
+			organizationWebSearch: {
+				...enabled,
+				provider: "ai-gateway",
+				fallbackProvider: "firecrawl",
+			},
+		}),
+	),
+	["web_search"],
+);
 assert.deepEqual(Object.keys(tools), ["web_search"]);
 const execute = tools.web_search!.execute as unknown as (
 	input: { query: string; limit?: number },

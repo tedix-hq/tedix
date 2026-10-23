@@ -5,7 +5,7 @@ import { receiptCostsFromConflicts } from "../jobs/gateway-cost-ingestion";
 import {
 	normalizeWebSearchItems,
 	resolveWebSearchGateway,
-	runGatewayWebSearch,
+	runWebSearch,
 } from "./web-search";
 
 function loggedText(spy: { mock: { calls: unknown[][] } }) {
@@ -34,11 +34,11 @@ function searchEnv(response: Response | Error) {
 	};
 }
 
-function run(env: Parameters<typeof runGatewayWebSearch>[0]["env"]) {
+function run(env: Parameters<typeof runWebSearch>[0]["env"]) {
 	const receipts: NewTediCallCost[] = [];
 	return {
 		receipts,
-		result: runGatewayWebSearch({
+		result: runWebSearch({
 			env,
 			query: "example query",
 			limit: 2,
@@ -111,7 +111,7 @@ describe("normalizeWebSearchItems", () => {
 	});
 });
 
-describe("runGatewayWebSearch", () => {
+describe("runWebSearch", () => {
 	it("returns unavailable without touching the ledger when the binding is absent", async () => {
 		const { receipts, result } = run({});
 		await expect(result).resolves.toMatchObject({ status: "unavailable" });
@@ -235,7 +235,7 @@ describe("runGatewayWebSearch", () => {
 				headers: { "cf-aig-log-id": "log-3" },
 			}),
 		);
-		await runGatewayWebSearch({
+		await runWebSearch({
 			env,
 			query: "example query",
 			limit: 2,
@@ -256,6 +256,121 @@ describe("runGatewayWebSearch", () => {
 				exception: { type: "Error" },
 			},
 		);
+	});
+});
+
+describe("configured providers", () => {
+	const item = {
+		url: "https://example.com/releases",
+		title: "Release",
+		content: "Tavily snippet",
+		description: "Firecrawl snippet",
+	};
+	function configured(
+		provider: "tavily" | "firecrawl" | "ai-gateway",
+		statuses = [200],
+		missingCredential = false,
+	) {
+		const receipts: NewTediCallCost[] = [];
+		const http = vi.fn<typeof fetch>(async (url) => {
+			const status = statuses.shift() ?? 200;
+			return Response.json(
+				String(url).includes("tavily")
+					? { results: [item] }
+					: { success: true, data: { web: [item] } },
+				{ status },
+			);
+		});
+		const { env, websearch } = searchEnv(Response.json({ items: [item] }));
+		const credential = vi.fn(async (name: string) =>
+			missingCredential && name === "tavily" ? null : "test-credential",
+		);
+		return {
+			receipts,
+			http,
+			websearch,
+			credential,
+			result: runWebSearch({
+				env,
+				policy: { provider, fallbackProvider: "firecrawl" },
+				query: "release",
+				limit: 2,
+				organizationId: ORG_ID,
+				tediId: TEDI_ID,
+				runId: "run-1",
+				resolveCredential: credential,
+				fetch: http,
+				recordReceipt: async (row) => {
+					receipts.push(row);
+				},
+			}),
+		};
+	}
+	it.each(["tavily", "firecrawl", "ai-gateway"] as const)(
+		"selects %s and preserves numbered citations and cost attribution",
+		async (provider) => {
+			const probe = configured(provider);
+			await expect(probe.result).resolves.toMatchObject({
+				status: "ok",
+				citations: ["[1. example.com](https://example.com/releases)"],
+			});
+			expect(probe.receipts).toHaveLength(1);
+			expect(probe.receipts[0]).toMatchObject({
+				provider,
+				model: "web-search",
+				runId: "run-1",
+				success: true,
+			});
+			if (provider === "ai-gateway") {
+				expect(probe.http).not.toHaveBeenCalled();
+				expect(probe.credential).not.toHaveBeenCalled();
+			} else {
+				expect(probe.websearch).not.toHaveBeenCalled();
+				expect(probe.credential).toHaveBeenCalledWith(provider);
+				expect(probe.http.mock.calls[0]?.[0]).toBe(
+					provider === "tavily"
+						? "https://api.tavily.com/search"
+						: "https://api.firecrawl.dev/v2/search",
+				);
+				expect(probe.http.mock.calls[0]?.[1]?.headers).toMatchObject({
+					Authorization: "Bearer test-credential",
+				});
+				expect(probe.receipts[0]).toMatchObject({
+					gatewayId: `direct:${provider}`,
+					costReason: "provider_cost_not_reported",
+				});
+			}
+		},
+	);
+	it.each([402, 500, 502, 503])(
+		"falls back on HTTP %s and records both provider attempts",
+		async (status) => {
+			const probe = configured("tavily", [status, 200]);
+			await expect(probe.result).resolves.toMatchObject({ status: "ok" });
+			expect(probe.receipts.map((row) => [row.provider, row.success])).toEqual([
+				["tavily", false],
+				["firecrawl", true],
+			]);
+		},
+	);
+	it("uses Firecrawl when Tavily has no credential, without a Tavily request", async () => {
+		const probe = configured("tavily", [200], true);
+		await expect(probe.result).resolves.toMatchObject({ status: "ok" });
+		expect(probe.http).toHaveBeenCalledTimes(1);
+		expect(probe.receipts.map((row) => row.provider)).toEqual(["firecrawl"]);
+	});
+	it.each([400, 401, 403, 429])(
+		"does not fall back on HTTP %s",
+		async (status) => {
+			const probe = configured("tavily", [status, 200]);
+			await expect(probe.result).resolves.toMatchObject({ status: "failed" });
+			expect(probe.http).toHaveBeenCalledTimes(1);
+		},
+	);
+	it("never retries the fallback provider indefinitely", async () => {
+		const probe = configured("tavily", [502, 503]);
+		await expect(probe.result).resolves.toMatchObject({ status: "failed" });
+		expect(probe.http).toHaveBeenCalledTimes(2);
 	});
 });
 
