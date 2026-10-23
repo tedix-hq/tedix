@@ -3,6 +3,7 @@ import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import { AgentReplyDeliveryGateResultSchema } from "./agent-turn-triage";
 import { BoundedJsonObjectSchema } from "./bounded-json";
 import { OutboundRecordSchema } from "./outbound";
+import { ServedObjectiveSchema } from "./organization-purpose";
 import {
 	CredentialWorkActorTypeSchema,
 	WorkFactoryProjectionCursorSchema,
@@ -534,6 +535,9 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 		.max(20)
 		.optional()
 		.describe("Work Item titles for the short ids the ask quotes."),
+	objective: ServedObjectiveSchema.optional().describe(
+		"The active objective the ask's Work serves; absent when none.",
+	),
 });
 
 export const ListWorkInteractionInboxInputSchema = z.strictObject({

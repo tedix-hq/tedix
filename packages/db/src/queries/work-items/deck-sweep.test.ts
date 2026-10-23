@@ -8,7 +8,14 @@ import {
 	workAttempts,
 	workItemRelations,
 } from "../../schema/work-items";
-import { listDeckSourceStates } from "./deck-sweep";
+import { projects } from "../../schema/projects";
+import { tediObjectives } from "../../schema/tedi-objectives";
+import { decisionEdges } from "../../schema/decision-graph";
+import {
+	listCardObjectives,
+	listDeckSourceObjectives,
+	listDeckSourceStates,
+} from "./deck-sweep";
 const now = new Date("2026-10-22T12:00:00Z");
 it("uses tenant-scoped dependencies and latest Attempts with D1-safe chunks", async () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -118,5 +125,192 @@ it("uses tenant-scoped dependencies and latest Attempts with D1-safe chunks", as
 			)
 		).get("maple-0"),
 	).toBe("accepted");
+	sqlite.close();
+});
+
+it("resolves the objective each Work item serves, own before project", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(schemaDdl(workItems, projects, tediObjectives, decisionEdges));
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const objective = sqlite.prepare(
+		"INSERT INTO tedi_objectives(id,tedi_id,org_id,title,status,priority,created_at) VALUES(?,?,?,?,?,?,?)",
+	);
+	objective.run(
+		"grow",
+		"t",
+		"fictional-maple",
+		"Grow orchard sales",
+		"active",
+		1,
+		now.toISOString(),
+	);
+	objective.run(
+		"keep",
+		"t",
+		"fictional-maple",
+		"Keep the cellar dry",
+		"active",
+		2,
+		now.toISOString(),
+	);
+	objective.run(
+		"old",
+		"t",
+		"fictional-maple",
+		"Old harvest",
+		"completed",
+		0,
+		now.toISOString(),
+	);
+	objective.run(
+		"foreign",
+		"t",
+		"fictional-river",
+		"Other tenant",
+		"active",
+		0,
+		now.toISOString(),
+	);
+	const project = sqlite.prepare(
+		"INSERT INTO projects(id,org_id,key,name,objective_id,created_at) VALUES(?,?,?,?,?,?)",
+	);
+	project.run(
+		"cellar",
+		"fictional-maple",
+		"CEL",
+		"Cellar",
+		"keep",
+		now.toISOString(),
+	);
+	project.run(
+		"archive",
+		"fictional-maple",
+		"ARC",
+		"Archive",
+		"old",
+		now.toISOString(),
+	);
+	const item = sqlite.prepare(
+		"INSERT INTO work_items(id,org_id,title,disposition,work_class,objective_id,project_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+	);
+	item.run(
+		"own",
+		"fictional-maple",
+		"Pitch",
+		"accepted",
+		"objective",
+		"grow",
+		"cellar",
+		now.toISOString(),
+	);
+	item.run(
+		"inherits",
+		"fictional-maple",
+		"Fix pump",
+		"accepted",
+		"maintenance",
+		"grow",
+		"cellar",
+		now.toISOString(),
+	);
+	item.run(
+		"inactive",
+		"fictional-maple",
+		"Tidy",
+		"accepted",
+		null,
+		null,
+		"archive",
+		now.toISOString(),
+	);
+	item.run(
+		"none",
+		"fictional-maple",
+		"Loose",
+		"accepted",
+		null,
+		null,
+		null,
+		now.toISOString(),
+	);
+	item.run(
+		"cross",
+		"fictional-maple",
+		"Leak",
+		"accepted",
+		"objective",
+		"foreign",
+		null,
+		now.toISOString(),
+	);
+	const served = await listDeckSourceObjectives(db, "fictional-maple", [
+		"own",
+		"inherits",
+		"inactive",
+		"none",
+		"cross",
+	]);
+	expect(Object.fromEntries(served)).toEqual({
+		own: { id: "grow", title: "Grow orchard sales", priority: 1, top: true },
+		inherits: {
+			id: "keep",
+			title: "Keep the cellar dry",
+			priority: 2,
+			top: false,
+		},
+	});
+	// The top objective is the organization's, even when no card serves it.
+	objective.run(
+		"north",
+		"t",
+		"fictional-maple",
+		"Unlinked north star",
+		"active",
+		0,
+		now.toISOString(),
+	);
+	expect(
+		(await listDeckSourceObjectives(db, "fictional-maple", ["own"])).get("own")
+			?.top,
+	).toBe(false);
+	sqlite.exec("UPDATE tedi_objectives SET status='paused' WHERE id='north'");
+	sqlite
+		.prepare(
+			"INSERT INTO decision_edges(id,org_id,kind,from_kind,from_id,to_kind,to_id,source,confidence,occurred_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+		)
+		.run(
+			"edge",
+			"fictional-maple",
+			"card_from_work",
+			"deck_card",
+			"card-edge",
+			"work_item",
+			"own",
+			"backfill",
+			1,
+			now.toISOString(),
+			now.toISOString(),
+			now.toISOString(),
+		);
+	const cards = await listCardObjectives(db, "fictional-maple", [
+		{ id: "card-edge", workItemId: null },
+		{ id: "card-own", workItemId: "inherits" },
+		{ id: "card-none" },
+	]);
+	expect(Object.fromEntries(cards)).toEqual({
+		"card-edge": {
+			id: "grow",
+			title: "Grow orchard sales",
+			priority: 1,
+			top: true,
+		},
+		"card-own": {
+			id: "keep",
+			title: "Keep the cellar dry",
+			priority: 2,
+			top: false,
+		},
+	});
 	sqlite.close();
 });

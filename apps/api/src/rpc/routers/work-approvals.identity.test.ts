@@ -1,3 +1,5 @@
+import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
+import { projects } from "@tedix/db/schema/projects";
 import { apiKeys } from "@tedix/db/schema/api-keys";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import {
@@ -48,6 +50,8 @@ function fixture(userId = "canonical-user-id") {
 			workApprovalDecisions,
 			organizationMembers,
 			tedis,
+			projects,
+			tediObjectives,
 		),
 	);
 	sqlite

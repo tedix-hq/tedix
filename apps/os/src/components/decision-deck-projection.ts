@@ -114,6 +114,7 @@ export function projectDecisionDeck({
 									}
 								: decision,
 						row,
+						objective: row.objective,
 						sourceLabel: row.askedBy ?? "Decision capture",
 						costOfWaiting: decision?.costOfWaiting ?? null,
 						...ask({
@@ -136,6 +137,7 @@ export function projectDecisionDeck({
 							urgency: "now",
 							decision: null,
 							row: undefined,
+							objective: row.objective,
 							sourceLabel: "Work",
 							costOfWaiting: null,
 							...ask({ kind: "approval" }),
@@ -199,6 +201,7 @@ export function projectDecisionDeck({
 						: a.row?.request.dueAt,
 				deadline: a.deadline,
 				requestedAt: a.requestedAt,
+				objective: "objective" in a ? a.objective : undefined,
 				score: learningModel?.config.enabled ? rank(a).score : undefined,
 			},
 			{
@@ -209,6 +212,7 @@ export function projectDecisionDeck({
 						: b.row?.request.dueAt,
 				deadline: b.deadline,
 				requestedAt: b.requestedAt,
+				objective: "objective" in b ? b.objective : undefined,
 				score: learningModel?.config.enabled ? rank(b).score : undefined,
 			},
 			now,

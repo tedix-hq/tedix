@@ -1,3 +1,6 @@
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
+import { projects } from "@tedix/db/schema/projects";
 import { externalAgentSessions } from "@tedix/db/schema/external-agent-identity";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -44,6 +47,9 @@ function fixture(
 			organizationMembers,
 			tedis,
 			externalAgentSessions,
+			projects,
+			tediObjectives,
+			decisionEdges,
 		),
 	);
 	sqlite

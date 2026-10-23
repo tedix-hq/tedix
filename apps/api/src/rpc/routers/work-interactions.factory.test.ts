@@ -1,3 +1,6 @@
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
+import { projects } from "@tedix/db/schema/projects";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -36,6 +39,9 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workInteractionDeliveries,
 			organizationMembers,
 			tedis,
+			projects,
+			tediObjectives,
+			decisionEdges,
 		),
 	);
 	sqlite

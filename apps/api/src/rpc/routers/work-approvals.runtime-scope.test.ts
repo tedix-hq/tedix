@@ -1,3 +1,5 @@
+import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
+import { projects } from "@tedix/db/schema/projects";
 /**
  * The tedi runtime reaches `workApprovals.listInbox` and `workApprovals.decide`
  * over its trusted service binding, delegating exactly
@@ -61,6 +63,8 @@ function fixture() {
 			workApprovalDecisions,
 			organizationMembers,
 			tedis,
+			projects,
+			tediObjectives,
 		),
 	);
 	sqlite

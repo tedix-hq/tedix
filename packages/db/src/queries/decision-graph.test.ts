@@ -469,5 +469,14 @@ describe("decision graph", () => {
 		).toBe(
 			"You answered this on 5 Mar → same as 1 other card → 1 item waits on this",
 		);
+		expect(
+			explainChain({
+				cardId: "c",
+				chain: [],
+				duplicates: [],
+				blocksCount: 0,
+				objective: { id: "o", title: "Grow orchard sales", priority: 1 },
+			}),
+		).toBe("Serves Grow orchard sales");
 	});
 });

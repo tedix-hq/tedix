@@ -48,7 +48,15 @@ export function DeckWaitingList({
 									tone="secondary"
 									className="truncate"
 								>
-									{[row.sourceLabel, project].filter(Boolean).join(" · ")}
+									{[
+										row.sourceLabel,
+										project,
+										"objective" in row && row.objective
+											? `Serves ${row.objective.title}`
+											: null,
+									]
+										.filter(Boolean)
+										.join(" · ")}
 								</Text>
 								{row.requestedAt && (
 									<Text

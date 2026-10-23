@@ -249,6 +249,39 @@ export async function findPriorDecision(
 	return { node: edge.to, edge };
 }
 
+/** The newest source Work item recorded for each card, read in bounded pages. */
+export async function listCardSourceWork(
+	db: DbQueryClient,
+	orgId: string,
+	cardIds: readonly string[],
+) {
+	const result = new Map<string, string>();
+	const unique = [...new Set(cardIds)];
+	for (let offset = 0; offset < unique.length; offset += FRONTIER_LIMIT) {
+		const rows = await db
+			.select({ cardId: decisionEdges.fromId, workId: decisionEdges.toId })
+			.from(decisionEdges)
+			.where(
+				and(
+					eq(decisionEdges.orgId, orgId),
+					eq(decisionEdges.fromKind, "deck_card"),
+					// bound-params: sliced to FRONTIER_LIMIT (50) ids per statement
+					inArray(
+						decisionEdges.fromId,
+						unique.slice(offset, offset + FRONTIER_LIMIT),
+					),
+					eq(decisionEdges.kind, "card_from_work"),
+					eq(decisionEdges.toKind, "work_item"),
+				),
+			)
+			.orderBy(desc(decisionEdges.occurredAt), decisionEdges.id)
+			.limit(FRONTIER_LIMIT * 4);
+		for (const row of rows)
+			if (!result.has(row.cardId)) result.set(row.cardId, row.workId);
+	}
+	return result;
+}
+
 /** Cards linked by same_as (either direction) or made from the same Work. */
 export async function findDuplicateCards(
 	db: DbQueryClient,
@@ -508,6 +541,8 @@ export function explainChain(context: DecisionContext): string {
 		const note = quote(work.edge.note);
 		parts.push(note ? `from Work "${note}"` : "from a Work item");
 	}
+	const objective = quote(context.objective?.title);
+	if (objective) parts.push(`serves ${objective}`);
 	const evidence = context.chain.find((step) => step.edge.kind === "evidence");
 	if (evidence) parts.push(quote(evidence.edge.note) ?? "evidence attached");
 	const involved = context.chain

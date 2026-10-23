@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { BoundedJsonObjectSchema } from "./bounded-json";
+import { ServedObjectiveSchema } from "./organization-purpose";
 import {
 	WorkItemSchema,
 	WorkItemAcceptanceContractSchema,
@@ -85,6 +86,9 @@ export const WorkApprovalInboxRowSchema = z.strictObject({
 	),
 	workItem: WorkItemSchema,
 	admissionSpecification: WorkAdmissionSpecificationReceiptSchema,
+	objective: ServedObjectiveSchema.optional().describe(
+		"The active objective this Work serves; absent when none.",
+	),
 });
 
 export const CreateWorkApprovalProposalInputSchema = z.strictObject({

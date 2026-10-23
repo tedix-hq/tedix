@@ -448,6 +448,35 @@ it("merges Work asks and factory rows: critical first, then factory score, then 
 	expect(order.indexOf("factory-high")).toBeGreaterThan(lastCritical);
 });
 
+it("ranks cards serving the top objective ahead of blocks reach, never ahead of settled order", () => {
+	const now = new Date("2026-10-20T07:00:00Z");
+	const grow = { id: "grow", title: "Grow sales", priority: 1, top: true };
+	const keep = { id: "keep", title: "Keep dry", priority: 2, top: false };
+	const cards = [
+		{ id: "blocks-many", blocksScore: 9, objective: keep },
+		{ id: "overdue", dueAt: "2026-10-19T15:00:00Z" },
+		{ id: "top-plain", objective: grow },
+		{ id: "top-blocks", blocksScore: 2, objective: grow },
+		{ id: "top-settled", actionable: false, objective: grow },
+	] as unknown as Parameters<typeof compareDecisionFreshness>[0][];
+	const order = (list: typeof cards) =>
+		[...list]
+			.sort((a, b) => compareDecisionFreshness(a, b, now, "UTC"))
+			.map((card) => (card as { id: string }).id);
+	expect(order(cards)).toEqual([
+		"top-blocks",
+		"top-plain",
+		"blocks-many",
+		"overdue",
+		"top-settled",
+	]);
+	// Cards with no top objective keep today's order.
+	expect(order(cards.filter((card) => !card.objective?.top))).toEqual([
+		"blocks-many",
+		"overdue",
+	]);
+});
+
 it("ignores an out-of-range factory score and falls back to the existing order", () => {
 	const now = new Date("2026-10-20T07:00:00Z");
 	const cards = [
