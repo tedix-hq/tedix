@@ -25,7 +25,10 @@ import { publishComputerWorkspaceSnapshot } from "./computer-workspace-snapshot"
 import { readRecordedArtifact } from "./deliverable-artifact-reader";
 import type { AgentTediDO } from "./do";
 import { buildRunId } from "./ledger-mirror";
-import { normalizePortablePath } from "./portable-path";
+import {
+	normalizePortablePath,
+	normalizePortablePrefix,
+} from "./portable-path";
 import {
 	commitRepoChanges as repoApiCommitChanges,
 	openPullRequest as repoApiOpenPullRequest,
@@ -129,10 +132,10 @@ export const runtimeRepository = {
 		if (!this.env.ARTIFACTS || !this.env.CF_ACCOUNT_ID) {
 			return { ok: false, error: "ARTIFACTS binding is not configured" };
 		}
-		const prefix =
-			typeof input.prefix === "string" && input.prefix.trim()
-				? (normalizePortablePath(input.prefix) ?? "")
-				: "";
+		const prefix = normalizePortablePrefix(input.prefix);
+		if (prefix === null) {
+			return { ok: false, error: "prefix must be a safe object path" };
+		}
 		const limit = clampPositiveInt(input.limit, 100, 500);
 		const { listFilesFromExistingRepoWithStatus } =
 			await import("./artifacts-git");

@@ -1,4 +1,7 @@
-import { normalizePortablePath } from "./portable-path";
+import {
+	normalizePortablePath,
+	normalizePortablePrefix,
+} from "./portable-path";
 import type { TediArtifact } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { TEDIX_ARTIFACTS_R2_BUCKET_NAME } from "./artifacts-contract";
@@ -59,10 +62,10 @@ async function listDeliverables(
 	await deps.ensureIdentity();
 	const tediId = deps.getTediId();
 	if (!tediId) return { ok: false, error: "Tedi identity is not resolved" };
-	const prefix =
-		typeof input.prefix === "string" && input.prefix.trim()
-			? (normalizePortablePath(input.prefix) ?? "")
-			: "";
+	const prefix = normalizePortablePrefix(input.prefix);
+	if (prefix === null) {
+		return { ok: false, error: "prefix must be a safe object path" };
+	}
 	const limit = Math.min(500, Math.max(1, Math.floor(input.limit ?? 100)));
 	const root = `${tediId}/${DELIVERABLE_STORE_PREFIX}`;
 	const result = await deps.bucket.list({ prefix: `${root}${prefix}`, limit });
