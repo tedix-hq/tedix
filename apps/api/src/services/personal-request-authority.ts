@@ -26,6 +26,55 @@ import { createError, ErrorCodes, type BaseContext } from "../rpc/orpc";
 
 const REQUEST_TTL_MS = 15 * 60 * 1000;
 
+/** Resolve only server-stored, unrestricted links; every hop stays organization-scoped. */
+async function resolveRequestTool(
+	db: BaseContext["db"],
+	input: { organizationId: string; appId: string; toolId: string },
+) {
+	let { appId, toolId } = input;
+	const visited = new Set<string>();
+	for (let hops = 0; hops < 8; hops++) {
+		const key = `${appId}:${toolId}`;
+		if (visited.has(key)) return;
+		visited.add(key);
+		const tool = await getToolByAppAndToolIdForOrganization(db, {
+			organizationId: input.organizationId,
+			appId,
+			toolId,
+		});
+		if (tool) return tool;
+		const app = await getAppByIdForOrganization(
+			db,
+			appId,
+			input.organizationId,
+		);
+		if (!app) return;
+		const links = getAppMetadataJson(app)?.mcpConfig?.aggregateApps;
+		if (!Array.isArray(links)) return;
+		const namespaced = toolId.includes("__");
+		const candidates = links.flatMap((link) => {
+			if (
+				!isRecord(link) ||
+				typeof link.appId !== "string" ||
+				link.toolIds !== undefined ||
+				link.endpointPrefixes !== undefined
+			)
+				return [];
+			const prefix = link.prefix ?? link.slug;
+			if (namespaced) {
+				if (typeof prefix !== "string" || !toolId.startsWith(`${prefix}__`))
+					return [];
+				return [{ appId: link.appId, toolId: toolId.slice(prefix.length + 2) }];
+			}
+			return link.appId === app.sourceAppId
+				? [{ appId: link.appId, toolId }]
+				: [];
+		});
+		if (candidates.length !== 1) return;
+		({ appId, toolId } = candidates[0]!);
+	}
+}
+
 /** Only authenticated human ingress can mint consent; metadata and acting-user headers cannot. */
 export async function admitPersonalRequest(
 	context: BaseContext,
@@ -193,37 +242,11 @@ export async function resolveRequestPersonalCredential(
 	const toolId = context.headers.get("X-Tedix-Mcp-Tool-Id");
 	if (!toolId || !input.appId)
 		return deny("Personal request reads require an exact installed tool");
-	let tool = await getToolByAppAndToolIdForOrganization(context.db, {
+	const tool = await resolveRequestTool(context.db, {
 		organizationId: input.organizationId,
 		appId: input.appId,
 		toolId,
 	});
-	if (!tool) {
-		const app = await getAppByIdForOrganization(
-			context.db,
-			input.appId,
-			input.organizationId,
-		);
-		const links = app && getAppMetadataJson(app)?.mcpConfig?.aggregateApps;
-		if (
-			app?.sourceAppId &&
-			Array.isArray(links) &&
-			links.some(
-				(link) =>
-					isRecord(link) &&
-					link.appId === app.sourceAppId &&
-					link.toolIds === undefined &&
-					link.endpointPrefixes === undefined,
-			)
-		) {
-			// Resolve only the existing proxy link, within the same organization.
-			tool = await getToolByAppAndToolIdForOrganization(context.db, {
-				organizationId: input.organizationId,
-				appId: app.sourceAppId,
-				toolId,
-			});
-		}
-	}
 	const scopes = tool?.enabled
 		? reviewedPersonalResourceReadScopes(
 				input.providerId,
