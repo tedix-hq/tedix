@@ -754,7 +754,7 @@ it("keeps edited text and the same editor mounted while a save is pending and af
 	expect(editor.value).toBe("Keep my supplier changes");
 });
 
-it("counts feed-routed owner questions in the badge and Feed without adding them to the Deck", async () => {
+it("keeps an owner question on the Deck and counts it once in the badge and Feed", async () => {
 	const row = linkedRow(
 		"11111111-1111-4111-8111-111111111111",
 		"Which fictional supplier?",
@@ -780,7 +780,8 @@ it("counts feed-routed owner questions in the badge and Feed without adding them
 			</QueryClientProvider>,
 		),
 	);
-	expect(host.querySelector("output")?.textContent).toBe("1:1:0");
+	// A question asked of a person always routes to the Deck (ad1e502a9).
+	expect(host.querySelector("output")?.textContent).toBe("1:1:1");
 	expect(
 		writes.record.mock.calls.filter(
 			([input]) => input.surface === "decision_deck_routing",
