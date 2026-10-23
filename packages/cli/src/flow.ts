@@ -396,15 +396,18 @@ export function collectParams(options: FlowOptions): Record<string, unknown> {
 		}
 		const key = entry.slice(0, index);
 		const raw = entry.slice(index + 1);
+		const numeric = Number(raw);
+		const unsafeInteger =
+			/^[+-]?\d+$/.test(raw.trim()) && !Number.isSafeInteger(numeric);
 		// Let obvious scalars through as typed values; everything else stays a
-		// string. Guessing harder than this loses more than it gains.
+		// string. Unsafe integers stay strings because numbers cannot preserve them.
 		params[key] =
 			raw === "true"
 				? true
 				: raw === "false"
 					? false
-					: raw !== "" && !Number.isNaN(Number(raw))
-						? Number(raw)
+					: raw !== "" && !Number.isNaN(numeric) && !unsafeInteger
+						? numeric
 						: raw;
 	}
 	return params;
