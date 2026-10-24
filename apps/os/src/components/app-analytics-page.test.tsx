@@ -584,6 +584,11 @@ describe("AppAnalyticsPage", () => {
 		expect(text).toContain("List invoices session");
 		expect(text).toContain("Adriana Example");
 		expect(text).toContain("22222222…");
+		expect(
+			container.querySelector(
+				'span[title="22222222-2222-4222-8222-222222222222"]',
+			),
+		).not.toBeNull();
 		expect(text).not.toContain("could not be loaded");
 	});
 
