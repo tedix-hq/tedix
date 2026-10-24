@@ -28,7 +28,9 @@ import {
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { KumoTabs } from "@/components/kumo/tabs";
+import type { App } from "@tedix/api-contract/schemas/app";
 import { mcpEndpointHost } from "@/components/app-detail";
+import { useIsOrganizationGateway } from "@/components/app-gateway-overview";
 import { appDetailQueryOptions } from "@/lib/os-query-options";
 
 function AppMetaCode({ children }: { children: ReactNode }) {
@@ -98,6 +100,7 @@ export function AppDetailLayout() {
 	});
 
 	const app = detail.data?.app ?? null;
+	const isGateway = useIsOrganizationGateway(app);
 
 	return (
 		<Page width="lg">
@@ -132,34 +135,20 @@ export function AppDetailLayout() {
 						<PageHeader>
 							<PageHeading>
 								<PageTitle>{app.name}</PageTitle>
-								{app.description && (
-									<PageDescription>{app.description}</PageDescription>
+								{isGateway ? (
+									<PageDescription>
+										Your organization&apos;s shared connection. Add it once to
+										your AI tool, such as Claude, ChatGPT or Cursor, to use your
+										organization&apos;s apps from there.
+									</PageDescription>
+								) : (
+									<>
+										{app.description && (
+											<PageDescription>{app.description}</PageDescription>
+										)}
+										<AppMeta app={app} />
+									</>
 								)}
-								<PageMeta>
-									<li>
-										Slug <strong>{app.slug}</strong>
-									</li>
-									{app.visibility && (
-										<li>
-											Visibility <strong>{app.visibility}</strong>
-										</li>
-									)}
-									{app.appStoreStatus && (
-										<li>
-											App store <strong>{app.appStoreStatus}</strong>
-										</li>
-									)}
-									{app.metadata?.mcpConfig?.authMode && (
-										<li>
-											MCP auth{" "}
-											<strong>{app.metadata.mcpConfig.authMode}</strong>
-										</li>
-									)}
-									<li>
-										MCP endpoint{" "}
-										<AppMetaCode>{mcpEndpointHost(app)}</AppMetaCode>
-									</li>
-								</PageMeta>
 							</PageHeading>
 						</PageHeader>
 
@@ -170,6 +159,34 @@ export function AppDetailLayout() {
 				</>
 			)}
 		</Page>
+	);
+}
+
+function AppMeta({ app }: { app: App }) {
+	return (
+		<PageMeta>
+			<li>
+				Slug <strong>{app.slug}</strong>
+			</li>
+			{app.visibility && (
+				<li>
+					Visibility <strong>{app.visibility}</strong>
+				</li>
+			)}
+			{app.appStoreStatus && (
+				<li>
+					App store <strong>{app.appStoreStatus}</strong>
+				</li>
+			)}
+			{app.metadata?.mcpConfig?.authMode && (
+				<li>
+					MCP auth <strong>{app.metadata.mcpConfig.authMode}</strong>
+				</li>
+			)}
+			<li>
+				MCP endpoint <AppMetaCode>{mcpEndpointHost(app)}</AppMetaCode>
+			</li>
+		</PageMeta>
 	);
 }
 
