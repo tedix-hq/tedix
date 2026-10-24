@@ -431,15 +431,21 @@ export async function prefetchTediMemoryRoute(
 	]);
 }
 
-export async function prefetchTediMailboxRoute(
+/**
+ * Warm the mailbox reads without holding first paint on them. No read decides
+ * this route — the parent already rejected a param whose shape cannot name a
+ * tedi, and every mailbox card renders its own pending/error/retry state.
+ * Awaiting the three independent reads parked first paint on the SLOWEST of
+ * them, retry ladder included; prefetching keeps the requests in flight
+ * against the exact cache entries the surface subscribes to.
+ */
+export function prefetchTediMailboxRoute(
 	queryClient: QueryClient,
 	tediId: string,
 ) {
-	await Promise.allSettled([
-		queryClient.ensureQueryData(tediDetailQueryOptions(tediId)),
-		queryClient.ensureQueryData(tediEmailAddressesQueryOptions(tediId)),
-		queryClient.ensureQueryData(tediEmailInboxQueryOptions(tediId, "open")),
-	]);
+	void queryClient.prefetchQuery(tediDetailQueryOptions(tediId));
+	void queryClient.prefetchQuery(tediEmailAddressesQueryOptions(tediId));
+	void queryClient.prefetchQuery(tediEmailInboxQueryOptions(tediId, "open"));
 }
 
 export async function prefetchTediSettingsRoute(
