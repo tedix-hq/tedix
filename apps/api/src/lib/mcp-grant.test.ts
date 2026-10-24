@@ -57,7 +57,10 @@ vi.mock("@tedix/auth/aih-client", () => ({
 	loadDescopeMcpServer: mocks.loadDescopeMcpServer,
 }));
 
-vi.mock("@tedix/db/queries/organizations", () => ({
+vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
+	isOrganizationOffboarding: (
+		await importOriginal<typeof import("@tedix/db/queries/organizations")>()
+	).isOrganizationOffboarding,
 	getOrganizationByDescopeId: mocks.getOrganizationByDescopeId,
 }));
 vi.mock("@tedix/db/queries/organization-members", () => ({
@@ -284,6 +287,42 @@ describe("verifyHumanMcpGrant", () => {
 			}).success,
 		).toBe(false);
 		expect(mocks.deleteConsents).not.toHaveBeenCalled();
+	});
+
+	it("refuses a new consent that selects a cancelled or retired organization", async () => {
+		const { stageHumanMcpConsent } = await import("./mcp-grant");
+		const stage = {
+			resourceUrl: input.resourceUrl,
+			clientId: input.clientId,
+			approvedScopes: input.tokenScopes,
+			selectedTenantIds: tenantIds,
+		};
+		expect(
+			await stageHumanMcpConsent({} as never, env, input.descopeUserId, stage),
+		).toMatch(/^[0-9a-f-]{36}$/);
+		mocks.stageMcpConsentPending.mockClear();
+
+		for (const lifecycle of [
+			{ cancelledAt: "2026-10-22T10:47:19.000Z" },
+			{ retiredAt: "2026-10-22T10:47:19.000Z" },
+		]) {
+			mocks.getOrganizationByDescopeId.mockImplementation(
+				async (_db: unknown, tenantId: string) => ({
+					id: orgIds[tenantIds.indexOf(tenantId)],
+					descopeTenantId: tenantId,
+					metadata: tenantId === tenantIds[1] ? lifecycle : {},
+				}),
+			);
+			expect(
+				await stageHumanMcpConsent(
+					{} as never,
+					env,
+					input.descopeUserId,
+					stage,
+				),
+			).toBeNull();
+		}
+		expect(mocks.stageMcpConsentPending).not.toHaveBeenCalled();
 	});
 
 	it("does not join an orphaned verification from another request", async () => {

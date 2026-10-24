@@ -4,11 +4,18 @@ import { createDbClient } from "../client";
 import { apps } from "../schema/apps";
 import { appCatalog } from "../schema/catalog";
 import { organizationMembers } from "../schema/organization-members";
+import {
+	policyPacks,
+	runtimeProfiles,
+	workspaceTemplateSets,
+} from "../schema/control-plane";
 import { organizations } from "../schema/organizations";
+import { tedis } from "../schema/tedis";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	getOrganizationAggregatorGateways,
+	getUserOrganizationMemberships,
 	getUserOsMemberships,
 } from "./organization-members";
 
@@ -16,7 +23,18 @@ const NOW = "2026-08-16T00:00:00.000Z";
 
 function setup() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(organizations, organizationMembers, appCatalog, apps));
+	sqlite.exec(
+		schemaDdl(
+			organizations,
+			organizationMembers,
+			appCatalog,
+			apps,
+			runtimeProfiles,
+			policyPacks,
+			workspaceTemplateSets,
+			tedis,
+		),
+	);
 	return createDbClient(createD1Facade(sqlite));
 }
 
@@ -29,6 +47,7 @@ async function seed(
 		status?: "active" | "invited" | "deactivated";
 		lastActiveAt?: string;
 		retiredAt?: string;
+		cancelledAt?: string;
 	},
 ) {
 	await db.insert(organizations).values({
@@ -38,7 +57,13 @@ async function seed(
 		features: input.os === undefined ? undefined : { os: input.os },
 		createdAt: NOW,
 		updatedAt: NOW,
-		metadata: input.retiredAt ? { retiredAt: input.retiredAt } : undefined,
+		metadata:
+			input.retiredAt || input.cancelledAt
+				? {
+						...(input.retiredAt ? { retiredAt: input.retiredAt } : {}),
+						...(input.cancelledAt ? { cancelledAt: input.cancelledAt } : {}),
+					}
+				: undefined,
 	});
 	await db.insert(organizationMembers).values({
 		id: `member-${input.id}`,
@@ -80,6 +105,12 @@ describe("getUserOsMemberships", () => {
 			os: true,
 			retiredAt: NOW,
 		});
+		await seed(db, {
+			id: "org-cancelled",
+			slug: "cancelled",
+			os: true,
+			cancelledAt: NOW,
+		});
 
 		await expect(getUserOsMemberships(db, "U-launcher")).resolves.toEqual([
 			{
@@ -109,6 +140,36 @@ describe("getUserOsMemberships", () => {
 		expect(result.map((organization) => organization.organizationSlug)).toEqual(
 			["new", "old"],
 		);
+	});
+});
+
+describe("getUserOrganizationMemberships", () => {
+	it("omits organizations that are cancelled or retired", async () => {
+		const db = setup();
+		await seed(db, { id: "org-live", slug: "live", os: true });
+		await seed(db, {
+			id: "org-cancelled",
+			slug: "cancelled",
+			os: true,
+			cancelledAt: NOW,
+		});
+		await seed(db, {
+			id: "org-retired",
+			slug: "retired",
+			os: true,
+			retiredAt: NOW,
+		});
+
+		for (const activeOnly of [true, false]) {
+			const memberships = await getUserOrganizationMemberships(
+				db,
+				"U-launcher",
+				{ activeOnly },
+			);
+			expect(memberships.map((row) => row.organizationId)).toEqual([
+				"org-live",
+			]);
+		}
 	});
 });
 

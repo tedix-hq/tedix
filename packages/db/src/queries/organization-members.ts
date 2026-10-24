@@ -19,6 +19,7 @@ import { organizationMembers } from "../schema/organization-members";
 import { organizations } from "../schema/organizations";
 import { tedis } from "../schema/tedis";
 import { chunkForBoundParams } from "../utils/batch";
+import { isOrganizationOffboarding } from "./organizations";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
 
 // ============================================================================
@@ -380,14 +381,12 @@ export async function getUserOrganizationMemberships(
 		tediCounts.map((row) => [row.organizationId, Number(row.total) || 0]),
 	);
 
-	// Filter out members whose organization no longer exists and map to return shape
+	// Skip members whose organization no longer exists or is being offboarded
+	// (cancelled or retired), then map to the return shape.
 	const results = [];
 	for (const row of rows) {
 		const { organization, ...member } = row;
-		if (
-			!organization ||
-			(organization.metadata as { retiredAt?: string } | null)?.retiredAt
-		)
+		if (!organization || isOrganizationOffboarding(organization.metadata))
 			continue;
 
 		results.push({
@@ -438,7 +437,7 @@ export async function getUserOsMemberships(
 		const organization = row.organization;
 		if (
 			!organization ||
-			(organization.metadata as { retiredAt?: string } | null)?.retiredAt ||
+			isOrganizationOffboarding(organization.metadata) ||
 			organization.features?.os !== true
 		)
 			return [];
