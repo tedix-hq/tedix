@@ -5,8 +5,9 @@ import {
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	SlideBackground,
@@ -25,6 +26,17 @@ import {
 
 /** Screen pixels a press travels before it drags rather than clicks. */
 const DRAG_THRESHOLD = 3;
+
+/** The element types whose text edits inline on the stage. */
+const TEXT_ELEMENT_TYPES: readonly OsPresentationElementType[] = [
+	"title",
+	"subtitle",
+	"text",
+	"bullet",
+	"label",
+	"card",
+	"box",
+];
 
 function SlideElementView({
 	element,
@@ -45,6 +57,8 @@ function SlideElementView({
 }) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const [editing, setEditing] = useState(false);
+	// A pointer-led edit carries the pressed point so the caret lands there.
+	const editPointRef = useRef<{ x: number; y: number } | null>(null);
 	const organization = usePresentationAppearance();
 	const [gesture, setGesture] = useState<null | {
 		mode: "move" | "resize";
@@ -103,6 +117,28 @@ function SlideElementView({
 				: element;
 	const current = slideElementGeometry(element, geometry);
 	useSlideElementFont(current.style.fontFamily);
+	// Card and box elements with structured props edit their text in the
+	// inspector instead; the rest take a plain textarea over the element.
+	const editable =
+		TEXT_ELEMENT_TYPES.includes(current.type) &&
+		!current.props?.title &&
+		!current.props?.body;
+	const canEdit = editable && !disabled;
+	// The textarea mounts only when editing starts, so focusing it and placing
+	// the caret happen here rather than in the press that began the edit.
+	useEffect(() => {
+		if (!editing) return;
+		const textarea = textareaRef.current;
+		if (!textarea) return;
+		textarea.focus({ preventScroll: true });
+		const point = editPointRef.current;
+		const caret = point
+			? document.caretPositionFromPoint?.(point.x, point.y)
+			: undefined;
+		const offset =
+			caret?.offsetNode === textarea ? caret.offset : textarea.value.length;
+		textarea.setSelectionRange(offset, offset);
+	}, [editing]);
 	const startGesture = (mode: "move" | "resize", event: React.PointerEvent) => {
 		if (disabled || event.button !== 0) return;
 		// Preventing the press also keeps the textarea from taking focus and
@@ -155,22 +191,21 @@ function SlideElementView({
 				snap: !event.altKey,
 			};
 		});
-	/** Puts the caret where the selected element was clicked. */
-	const editText = (clientX: number, clientY: number) => {
-		const textarea = textareaRef.current;
-		if (!textarea) return;
-		textarea.focus({ preventScroll: true });
-		const caret = document.caretPositionFromPoint?.(clientX, clientY);
-		const offset =
-			caret?.offsetNode === textarea ? caret.offset : textarea.value.length;
-		textarea.setSelectionRange(offset, offset);
+	/** Starts inline editing; a press passes its point so the caret lands there. */
+	const beginEditing = (clientX?: number, clientY?: number) => {
+		if (!canEdit) return;
+		editPointRef.current =
+			clientX === undefined || clientY === undefined
+				? null
+				: { x: clientX, y: clientY };
+		setEditing(true);
 	};
 	const endGesture = (event: React.PointerEvent) => {
 		if (!gesture) return;
 		setGesture(null);
 		if (gesture.dragging) {
 			if (gesture.dx !== 0 || gesture.dy !== 0) onGeometryCommit(current);
-		} else if (gesture.wasSelected) editText(event.clientX, event.clientY);
+		} else if (gesture.wasSelected) beginEditing(event.clientX, event.clientY);
 	};
 	return (
 		<>
@@ -181,6 +216,7 @@ function SlideElementView({
 				tabIndex={disabled ? -1 : 0}
 				data-slide-element={element.id}
 				data-selected={selected || undefined}
+				data-editable={canEdit || undefined}
 				className={`${SLIDE_ELEMENT_CLASS} outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
 				style={slideElementStyle(current, "canvas", organization)}
 				onClick={(event) => {
@@ -191,7 +227,7 @@ function SlideElementView({
 					if (disabled) return;
 					event.stopPropagation();
 					onSelect();
-					editText(event.clientX, event.clientY);
+					beginEditing(event.clientX, event.clientY);
 				}}
 				onKeyDown={(event) => {
 					// Keys typed in the element's textarea bubble here; selecting on them
@@ -200,6 +236,9 @@ function SlideElementView({
 					if (event.key === "Enter" || event.key === " ") {
 						event.preventDefault();
 						onSelect();
+						// The textarea is not in the tab order, so Enter on the
+						// selected element is the keyboard way into inline editing.
+						if (event.key === "Enter" && selected) beginEditing();
 					}
 				}}
 				onPointerDown={(event) => {
@@ -216,46 +255,31 @@ function SlideElementView({
 				onPointerUp={endGesture}
 			>
 				{!editing && <SlideElementContent element={current} />}
-				{!disabled &&
-					[
-						"title",
-						"subtitle",
-						"text",
-						"bullet",
-						"label",
-						"card",
-						"box",
-					].includes(current.type) &&
-					!current.props?.title &&
-					!current.props?.body && (
-						// A bare textarea, not the Kumo one: Kumo's `type-tedix-body` forces a
-						// 14px size and a 20px line height with `!important`, so the stage drew
-						// every slide's text at UI size inside boxes scaled to the slide.
-						// `.slide-element-input` resets it to inherit the shared element style.
-						<textarea
-							ref={textareaRef}
-							aria-label={`${current.type} text`}
-							className="slide-element-input"
-							style={{
-								position: "absolute",
-								inset: 0,
-								opacity: editing ? 1 : 0,
-								padding: "inherit",
-							}}
-							onFocus={() => setEditing(true)}
-							onBlur={() => setEditing(false)}
-							disabled={disabled}
-							value={current.text ?? ""}
-							onKeyDown={(event) => {
-								if (event.key !== "Escape") return;
-								event.preventDefault();
-								(event.currentTarget.parentElement as HTMLElement).focus();
-							}}
-							onChange={(event) =>
-								onChange({ ...element, text: event.target.value })
-							}
-						/>
-					)}
+				{editing && (
+					// A bare textarea, not the Kumo one: Kumo's `type-tedix-body` forces a
+					// 14px size and a 20px line height with `!important`, so the stage drew
+					// every slide's text at UI size inside boxes scaled to the slide.
+					// `.slide-element-input` resets it to inherit the shared element style.
+					// It mounts only once editing starts: an invisible textarea in the
+					// tab order was an extra focus stop that entered edit mode on Tab.
+					<textarea
+						ref={textareaRef}
+						aria-label={`${current.type} text`}
+						className="slide-element-input"
+						style={{ position: "absolute", inset: 0, padding: "inherit" }}
+						onBlur={() => setEditing(false)}
+						disabled={disabled}
+						value={current.text ?? ""}
+						onKeyDown={(event) => {
+							if (event.key !== "Escape") return;
+							event.preventDefault();
+							(event.currentTarget.parentElement as HTMLElement).focus();
+						}}
+						onChange={(event) =>
+							onChange({ ...element, text: event.target.value })
+						}
+					/>
+				)}
 				{selected && !disabled && (
 					<Button
 						aria-label="Resize selected element"

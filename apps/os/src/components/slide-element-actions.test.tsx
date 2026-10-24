@@ -137,7 +137,7 @@ describe("slide element clipboard shortcuts", () => {
 		const source = mounted.stageElements()[0]!;
 		const cut = {
 			type: source.dataset.element,
-			text: source.querySelector("textarea")?.value,
+			text: source.textContent,
 		};
 		mounted.press("x");
 		expect(mounted.stageElements()).toHaveLength(before - 1);
@@ -177,9 +177,11 @@ describe("slide element clipboard shortcuts", () => {
 		expect(mounted.press("d").defaultPrevented).toBe(false);
 		expect(mounted.press("c").defaultPrevented).toBe(false);
 		mounted.select(0);
-		const textarea = mounted.container.querySelector(
-			".slides-editor-stage textarea",
-		)!;
+		const element = mounted.stageElements()[0]!;
+		act(() =>
+			element.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+		);
+		const textarea = element.querySelector("textarea")!;
 		for (const key of ["c", "x", "v", "d"])
 			expect(mounted.press(key, {}, textarea).defaultPrevented).toBe(false);
 		// Nothing was copied from the textarea, so paste has nothing to insert.

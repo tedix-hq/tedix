@@ -126,7 +126,11 @@ describe("SlidesEditor", () => {
 		)!;
 		expect(canvas.style.containerType).toBe("inline-size");
 		// Inline text editing is a borderless, transparent field on the slide:
-		// `.slide-element-input` unsets every control style.
+		// `.slide-element-input` unsets every control style. It mounts only once
+		// editing starts, so a double click brings it up first.
+		await act(async () =>
+			group.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+		);
 		const field = group.querySelector("textarea");
 		expect(field?.className).toBe("slide-element-input");
 		const css = readFileSync("src/components/output-editor.css", "utf8");
@@ -663,13 +667,53 @@ describe("SlidesEditor", () => {
 		mounted.cleanup();
 	});
 
+	it("keeps the stage text field out of the tab order until editing starts", () => {
+		const mounted = mountEditor();
+		const element = mounted.container.querySelector<HTMLElement>(
+			'.slides-editor-stage [data-element="title"]',
+		)!;
+		// The element itself is the focus stop; no hidden textarea sits behind it.
+		expect(element.tabIndex).toBe(0);
+		expect(element.querySelector("textarea")).toBeNull();
+		const press = (key: string) =>
+			act(() => {
+				element.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						key,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			});
+		// Enter selects, then Enter edits: the keyboard route into the field.
+		press("Enter");
+		expect(element.dataset.selected).toBe("true");
+		expect(element.querySelector("textarea")).toBeNull();
+		press("Enter");
+		const textarea = element.querySelector<HTMLTextAreaElement>("textarea")!;
+		expect(document.activeElement).toBe(textarea);
+		// Escape hands focus back to the element and the field is gone again.
+		act(() => {
+			textarea.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+			);
+		});
+		expect(document.activeElement).toBe(element);
+		expect(element.querySelector("textarea")).toBeNull();
+		mounted.cleanup();
+	});
+
 	it("lets the element textarea take Enter, space and Escape", () => {
 		// The element wrapper selected on Enter/Space and prevented the default,
 		// and those keys bubble from the textarea: no line break or space typed.
 		const mounted = mountEditor();
-		const textarea = mounted.container.querySelector<HTMLTextAreaElement>(
-			".slides-editor-stage textarea",
+		const element = mounted.container.querySelector<HTMLElement>(
+			'.slides-editor-stage [data-element="title"]',
 		)!;
+		act(() =>
+			element.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+		);
+		const textarea = element.querySelector<HTMLTextAreaElement>("textarea")!;
 		for (const key of ["Enter", " "]) {
 			const event = new KeyboardEvent("keydown", {
 				key,
@@ -696,7 +740,8 @@ describe("SlidesEditor", () => {
 				new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
 			);
 		});
-		expect(document.activeElement).toBe(textarea.parentElement);
+		expect(document.activeElement).toBe(element);
+		expect(element.querySelector("textarea")).toBeNull();
 		mounted.cleanup();
 	});
 
@@ -706,8 +751,8 @@ describe("SlidesEditor", () => {
 		const mounted = mountEditor();
 		const stage = mounted.container.querySelector(".slides-editor-stage")!;
 		const title = stage.querySelector<HTMLElement>('[data-element="title"]')!;
-		const textarea = title.querySelector("textarea")!;
 		const pointer = (
+			target: Element,
 			type: string,
 			clientX: number,
 			clientY: number,
@@ -723,30 +768,33 @@ describe("SlidesEditor", () => {
 				...init,
 			});
 			act(() => {
-				textarea.dispatchEvent(event);
+				target.dispatchEvent(event);
 			});
 			return event;
 		};
 		const committedTitle = () =>
 			mounted.emitted.at(-1)?.deck?.slides[0]?.elements[0];
 
-		// A click selects without editing the document or focusing the text.
-		pointer("pointerdown", 10, 10);
-		pointer("pointerup", 10, 10);
+		// A click selects without editing the document or mounting the field.
+		pointer(title, "pointerdown", 10, 10);
+		pointer(title, "pointerup", 10, 10);
 		expect(title.dataset.selected).toBe("true");
-		expect(document.activeElement).not.toBe(textarea);
+		expect(title.querySelector("textarea")).toBeNull();
 		expect(mounted.emitted).toEqual([]);
 
 		// Movement within the drag threshold is still a click: it edits the text.
-		const press = pointer("pointerdown", 10, 10);
+		const press = pointer(title, "pointerdown", 10, 10);
 		expect(press.defaultPrevented).toBe(true);
-		pointer("pointermove", 12, 12);
-		pointer("pointerup", 12, 12);
+		pointer(title, "pointermove", 12, 12);
+		pointer(title, "pointerup", 12, 12);
 		expect(mounted.emitted).toEqual([]);
+		const textarea = title.querySelector<HTMLTextAreaElement>("textarea")!;
 		expect(document.activeElement).toBe(textarea);
 		// While editing, presses and spaces reach the textarea untouched.
-		expect(pointer("pointerdown", 10, 10).defaultPrevented).toBe(false);
-		pointer("pointerup", 10, 10);
+		expect(pointer(textarea, "pointerdown", 10, 10).defaultPrevented).toBe(
+			false,
+		);
+		pointer(textarea, "pointerup", 10, 10);
 		const space = new KeyboardEvent("keydown", {
 			key: " ",
 			bubbles: true,
@@ -763,24 +811,24 @@ describe("SlidesEditor", () => {
 		});
 
 		// A drag moves the title (72, 64) by the pointer delta.
-		pointer("pointerdown", 0, 0);
-		pointer("pointermove", 40, 37);
-		pointer("pointerup", 40, 37);
+		pointer(title, "pointerdown", 0, 0);
+		pointer(title, "pointermove", 40, 37);
+		pointer(title, "pointerup", 40, 37);
 		expect(committedTitle()).toMatchObject({ x: 112, y: 101 });
 
 		// Near the bullets' left edge (96) it snaps and draws a guide; Alt frees it.
-		pointer("pointerdown", 0, 0);
-		pointer("pointermove", -12, 0);
+		pointer(title, "pointerdown", 0, 0);
+		pointer(title, "pointermove", -12, 0);
 		expect(
 			stage.querySelector<HTMLElement>('[data-snap-guide="vertical"]')?.style
 				.left,
 		).toBe(`${(96 / 1200) * 100}%`);
-		pointer("pointerup", -12, 0);
+		pointer(title, "pointerup", -12, 0);
 		expect(committedTitle()).toMatchObject({ x: 96, y: 101 });
 		expect(stage.querySelector("[data-snap-guide]")).toBeNull();
-		pointer("pointerdown", 0, 0);
-		pointer("pointermove", 4, 0, { altKey: true });
-		pointer("pointerup", 4, 0, { altKey: true });
+		pointer(title, "pointerdown", 0, 0);
+		pointer(title, "pointermove", 4, 0, { altKey: true });
+		pointer(title, "pointerup", 4, 0, { altKey: true });
 		expect(committedTitle()).toMatchObject({ x: 100 });
 		mounted.cleanup();
 	});
@@ -1072,11 +1120,10 @@ describe("slide regression sweep", () => {
 		const element = mounted.container.querySelector<HTMLElement>(
 			'.slides-editor-stage [data-element="title"]',
 		)!;
-		const textarea = element.querySelector("textarea")!;
 		const layout = mounted.container.querySelector(".slides-editor-layout")!;
 		for (let click = 0; click < 2; click++) {
 			act(() =>
-				textarea.dispatchEvent(
+				element.dispatchEvent(
 					new PointerEvent("pointerdown", {
 						bubbles: true,
 						button: 0,
@@ -1086,7 +1133,7 @@ describe("slide regression sweep", () => {
 				),
 			);
 			act(() =>
-				textarea.dispatchEvent(
+				element.dispatchEvent(
 					new PointerEvent("pointerup", {
 						bubbles: true,
 						button: 0,
@@ -1099,11 +1146,11 @@ describe("slide regression sweep", () => {
 			expect(layout.hasAttribute("data-show-inspector")).toBe(false);
 		}
 		act(() =>
-			textarea.dispatchEvent(
+			element.dispatchEvent(
 				new MouseEvent("dblclick", { bubbles: true, clientX: 10, clientY: 10 }),
 			),
 		);
-		expect(document.activeElement).toBe(textarea);
+		expect(document.activeElement).toBe(element.querySelector("textarea"));
 		expect(mounted.emitted).toEqual([]);
 		mounted.cleanup();
 	});
