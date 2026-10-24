@@ -16,6 +16,7 @@ import { LOCAL_OS_BUILD_SENTINELS } from "../apps/os/dev/build-config";
 
 export const LOCAL_API_URL = `http://localhost:${process.env.TEDIX_LOCAL_API_PORT || "8790"}`;
 export const LOCAL_OS_URL = `http://localhost:${process.env.TEDIX_LOCAL_OS_PORT || "3030"}`;
+export const LOCAL_MCP_URL = `http://localhost:${process.env.TEDIX_LOCAL_MCP_PORT || "3000"}`;
 export const LOCAL_LOOPBACK_MESSAGE =
 	"✓ Every server answers on this machine only (loopback).";
 const READY_TIMEOUT_MS = 120_000;
@@ -280,6 +281,7 @@ function isPortInUse(port: number): Promise<boolean> {
 async function assertLauncherPortsAvailable(): Promise<void> {
 	const ports: Array<readonly [string, string]> = [
 		["Tedix API", LOCAL_API_URL],
+		["Tedix MCP gateway", LOCAL_MCP_URL],
 		["Tedix OS", LOCAL_OS_URL],
 	];
 	for (const [label, url] of ports) {
