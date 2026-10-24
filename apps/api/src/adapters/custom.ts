@@ -641,7 +641,11 @@ export class CustomAdapter extends BaseAdapter {
 		} catch (error) {
 			clearTimeout(timeoutId);
 
-			if (error instanceof Error && error.name === "AbortError") {
+			if (
+				error instanceof Error &&
+				error.name === "AbortError" &&
+				controller.signal.aborted
+			) {
 				throw new Error(`Request timed out after ${options.timeout}ms`);
 			}
 			throw error;
