@@ -202,8 +202,9 @@ try {
 			assertLayout(loading, size.phone, `${label} loading`);
 			if (!lifetimeChecked) {
 				// Kumo's default timeout is 5 s; success must expire, loading not.
+				await page.clock.install();
 				await raise(page, "Raise success", 2);
-				await page.waitForTimeout(6500);
+				await page.clock.fastForward(5_001);
 				await expectCount(page, 1);
 				assert(
 					(await page.locator(toastSelector).innerText()).includes(
