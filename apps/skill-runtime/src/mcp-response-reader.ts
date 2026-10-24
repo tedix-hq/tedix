@@ -149,10 +149,25 @@ export function unwrapMcpResponseBody(
 		return text;
 	}
 	const data: string[] = [];
-	for (const line of text.split(/\r\n|\r|\n/)) {
-		if (line === "" && data.length > 0) return data.join("\n");
+	let skippedRequest = false;
+	for (const line of [...text.split(/\r\n|\r|\n/), ""]) {
+		if (line === "" && data.length > 0) {
+			const body = data.join("\n");
+			const message = JSON.parse(body) as Record<string, unknown> | null;
+			// Streamable HTTP allows notifications and server requests before
+			// the response; neither can stand in for the tool's result.
+			if (message && typeof message.method === "string") {
+				skippedRequest = true;
+				data.length = 0;
+				continue;
+			}
+			return body;
+		}
 		const field = readSseField(line, "data");
 		if (field !== null) data.push(field);
 	}
-	return data.length > 0 ? data.join("\n") : text;
+	if (skippedRequest) {
+		throw new Error("MCP SSE stream ended without a JSON-RPC response");
+	}
+	return text;
 }
