@@ -15,6 +15,7 @@ import {
 	addProviderEventChannel,
 	claimProviderEventWake,
 	listProviderEventSubscriptions,
+	listProviderEventChannels,
 } from "./provider-events";
 function fixture() {
 	const sql = new DatabaseSync(":memory:");
@@ -271,6 +272,34 @@ it("stores a wrapped event payload once per event id", async () => {
 		{ payload: { trust: "untrusted", eventId: "e1" } },
 	]);
 	expect(await addProviderEventDelivery(db, delivery)).toEqual([]);
+});
+
+it("lists active channels even when newer stopped channel history fills the page", async () => {
+	const db = fixture();
+	for (let index = 0; index < 100; index++) {
+		await addProviderEventChannel(db, {
+			id: `stopped-${index}`,
+			subscriptionId: "sub",
+			organizationId: "org-a",
+			tokenHash: "hash",
+			status: "stopped",
+			expiresAt: "2026-02-01",
+			createdAt: `2026-01-02T${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00`,
+		});
+	}
+	await addProviderEventChannel(db, {
+		id: "active",
+		subscriptionId: "sub",
+		organizationId: "org-a",
+		tokenHash: "hash",
+		status: "active",
+		expiresAt: "2026-02-01",
+		createdAt: "2026-01-01",
+	});
+
+	expect(await listProviderEventChannels(db, "org-a", "sub")).toMatchObject([
+		{ id: "active", status: "active" },
+	]);
 });
 
 it("prunes expired callback capabilities and completed deliveries while retaining pending retries", async () => {
