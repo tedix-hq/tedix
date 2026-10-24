@@ -129,6 +129,13 @@ describe("workpiece tab keyboard operation", () => {
 
 		// Roving focus: the selected tab is the strip's only Tab stop.
 		expect(tabs().map((tab) => tab.tabIndex)).toEqual([0, -1, -1]);
+		expect(
+			[
+				...container.querySelectorAll<HTMLButtonElement>(
+					'button:not([role="tab"])',
+				),
+			].map((button) => button.tabIndex),
+		).toEqual([-1, -1, -1]);
 
 		// Arrows wrap around and selection follows focus.
 		act(() => tabs()[0]?.focus());
