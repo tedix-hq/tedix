@@ -5,6 +5,7 @@ import {
 	isBunSuiteInfrastructure,
 	SELECTION_FILE_LIMIT,
 	selectBunTestFiles,
+	selectBunTestWorkspaces,
 } from "./preflight-bun-test-selection.mjs";
 
 /**
@@ -63,6 +64,34 @@ function makeIo(files: Record<string, string> = FILES) {
 
 const select = (changedFiles: string[], io = makeIo()) =>
 	selectBunTestFiles({ workspaceDir: "packages/tool", changedFiles, io });
+
+describe("selectBunTestWorkspaces", () => {
+	const workspaces = ["packages/tool", "apps/runner"];
+	test.each(["tsconfig.json", "tsconfig.base.json", "tsconfig.build.json"])(
+		"root %s selects Bun workspaces without code changes",
+		(file) => {
+			expect(selectBunTestWorkspaces([file], [], workspaces)).toEqual(
+				workspaces,
+			);
+		},
+	);
+	test("other changes keep the existing workspace selection", () => {
+		for (const files of [
+			[],
+			["docs/tsconfig.json"],
+			["packages/tool/tsconfig.json"],
+			["README.md"],
+		]) {
+			expect(
+				selectBunTestWorkspaces(
+					files,
+					["packages/tool", "apps/vitest"],
+					workspaces,
+				),
+			).toEqual(["packages/tool"]);
+		}
+	});
+});
 
 describe("selectBunTestFiles", () => {
 	/*
@@ -167,6 +196,21 @@ describe("selectBunTestFiles", () => {
 		});
 	});
 
+	test.each(["tsconfig.json", "tsconfig.base.json", "tsconfig.build.json"])(
+		"root %s selects the whole suite with an explicit reason",
+		(file) => {
+			for (const workspaceDir of ["packages/tool", "apps/runner"]) {
+				expect(
+					selectBunTestFiles({
+						workspaceDir,
+						changedFiles: [file],
+						io: makeIo(),
+					}),
+				).toEqual({ mode: "all", reason: `${file} changed` });
+			}
+		},
+	);
+
 	test("more than the limit of changed code files runs the whole suite", () => {
 		const changed = Array.from(
 			{ length: SELECTION_FILE_LIMIT + 1 },
@@ -261,6 +305,8 @@ describe("isBunSuiteInfrastructure", () => {
 		for (const file of [
 			"bun.lock",
 			"package.json",
+			"tsconfig.json",
+			"tsconfig.base.json",
 			"packages/cli/package.json",
 			"packages/cli/bunfig.toml",
 			"packages/cli/scripts/run-tests.ts",
@@ -275,6 +321,9 @@ describe("isBunSuiteInfrastructure", () => {
 		for (const file of [
 			"packages/cli/src/index.ts",
 			"packages/cli/src/package.json",
+			"packages/cli/src/tsconfig.json",
+			"packages/db/tsconfig.json",
+			"docs/tsconfig.json",
 			"packages/db/package.json",
 			"apps/os/vitest.config.ts",
 		]) {

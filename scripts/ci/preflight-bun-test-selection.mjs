@@ -42,6 +42,7 @@ const CODE_EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".mjs", ".cjs", ".jsx"];
 const RESOLVE_EXTENSIONS = [...CODE_EXTENSIONS, ".json"];
 /** A test file the workspace's runner could pick up. */
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+const ROOT_TSCONFIG = /^tsconfig[^/]*\.json$/;
 /** `.js` in a TypeScript import names the `.ts` next to it. */
 const JS_TO_TS = { ".js": [".ts", ".tsx"], ".mjs": [".mts"], ".jsx": [".tsx"] };
 /** A test that reads the checkout as data rather than importing it. */
@@ -64,7 +65,8 @@ export function isBunSuiteInfrastructure(file, workspaceDir) {
 	if (
 		file === "bun.lock" ||
 		file === "package.json" ||
-		file === "bunfig.toml"
+		file === "bunfig.toml" ||
+		ROOT_TSCONFIG.test(file)
 	) {
 		return true;
 	}
@@ -74,9 +76,32 @@ export function isBunSuiteInfrastructure(file, workspaceDir) {
 		name === "package.json" ||
 		name === "bunfig.toml" ||
 		name === "scripts/run-tests.ts" ||
-		/^tsconfig[^/]*\.json$/.test(name) ||
+		ROOT_TSCONFIG.test(name) ||
 		/^vitest[^/]*\.config\.[cm]?[jt]s$/.test(name) ||
 		/^vite\.config\.[cm]?[jt]s$/.test(name)
+	);
+}
+
+/**
+ * Root compiler configuration has no code-file import edge, so it must also
+ * select Bun workspaces before the per-workspace file selection runs.
+ *
+ * @param {string[]} changedFiles repo-relative
+ * @param {Iterable<string>} relatedWorkspaces selected by the import graph
+ * @param {string[]} bunWorkspaces all workspaces with a Bun test runner
+ * @returns {string[]}
+ */
+export function selectBunTestWorkspaces(
+	changedFiles,
+	relatedWorkspaces,
+	bunWorkspaces,
+) {
+	const rootConfigChanged = changedFiles.some((file) =>
+		ROOT_TSCONFIG.test(file),
+	);
+	const related = new Set(relatedWorkspaces);
+	return bunWorkspaces.filter(
+		(workspace) => rootConfigChanged || related.has(workspace),
 	);
 }
 
