@@ -168,6 +168,24 @@ describe("skill workflow inspection", () => {
 		expect(parsed).toEqual({ steps: [], toolCalls: [] });
 	});
 
+	it("ignores workflow artifact paths with malformed numeric counters", () => {
+		const paths = [
+			"epochs/2junk/steps/x:test/1/attempts/3.json",
+			"epochs/2/steps/x:test/1oops/attempts/3.json",
+			"epochs/2/steps/x:test/1/attempts/3bad.json",
+			"epochs/2/steps/x:test/1/attempts/3bad/calls/run/1.json",
+			"epochs/2/steps/x:test/1/attempts/3/calls/run/1bad.json",
+			"epochs/2/steps/x:test/1/rollbacks/3bad.json",
+		];
+
+		for (const path of paths) {
+			expect(parseSkillWorkflowRecords([artifact(path, {})])).toEqual({
+				steps: [],
+				toolCalls: [],
+			});
+		}
+	});
+
 	it("ignores timeline events and returns only structured step artifacts", () => {
 		const parsed = parseSkillWorkflowRecords([
 			artifact("epochs/0/steps/x:interpret/1/attempts/1.json", {
