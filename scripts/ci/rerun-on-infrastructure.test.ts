@@ -6,14 +6,22 @@ import { join } from "node:path";
 import { infrastructureFailure } from "./rerun-on-infrastructure.mjs";
 
 test("treats only fixture start failures and slow-runner timeouts as infrastructure", () => {
-	for (const output of [
+	for (const fixture of [
 		"Error: Fixture server http://127.0.0.1:4000/: not ready within 90000ms. Last response: none",
 		"Error: Fixture server http://127.0.0.1:4000/: exited early with code 1. Last response",
 		"error: Avatar fixture did not start",
 		"Error: Feed test server did not start",
 		"Shell fixture server did not serve the SPA entry within 20000ms",
-	])
-		expect(infrastructureFailure(output)).toBeString();
+	]) {
+		expect(infrastructureFailure(fixture)).toBeString();
+		for (const output of [
+			`AssertionError: wrong colour\n${fixture}`,
+			`${fixture}\nAssertionError: wrong colour`,
+		])
+			expect(
+				infrastructureFailure(output, { installSeconds: "80" }),
+			).toBeUndefined();
+	}
 
 	const timeout = "TimeoutError: waitForFunction: Timeout 30000ms exceeded.";
 	expect(
@@ -90,6 +98,11 @@ test("reruns once on an infrastructure failure and records it, never on a test f
 
 		const failing = runSuite('echo "AssertionError: wrong colour" >&2; exit 1');
 		expect(failing).toMatchObject({ status: 1, attempts: 1, summary: "" });
+		const mixed = runSuite(
+			'if [ "$n" = 1 ]; then echo "AssertionError: wrong colour" >&2; echo "Feed test server did not start" >&2; exit 7; fi',
+		);
+		expect(mixed).toMatchObject({ status: 7, attempts: 1, summary: "" });
+		expect(mixed.stdout).not.toContain("::warning");
 
 		const passing = runSuite("exit 0");
 		expect(passing).toMatchObject({ status: 0, attempts: 1, summary: "" });
