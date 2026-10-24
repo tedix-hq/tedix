@@ -6,7 +6,13 @@ import { devinSecretPaths } from "../devin-lane-security";
 import { isObject } from "./hook-io";
 
 function canonical(path: string): string {
-	if (existsSync(path)) return realpathSync(path);
+	try {
+		if (existsSync(path)) return realpathSync(path);
+	} catch {
+		// A denied or unresolvable path cannot be canonicalized; keep its
+		// literal form so deny rules still match it exactly.
+		return path;
+	}
 	const parent = dirname(path);
 	if (parent === path) return path;
 	return resolve(canonical(parent), relative(parent, path));
@@ -17,7 +23,12 @@ export function devinPermissionBlock(
 	raw: string,
 	root: string,
 ): string | undefined {
-	const event = JSON.parse(raw);
+	let event: unknown;
+	try {
+		event = JSON.parse(raw);
+	} catch {
+		return "Malformed Devin tool event";
+	}
 	if (!isObject(event) || !isObject(event.tool_input))
 		return "Malformed Devin tool event";
 	const input = event.tool_input;
@@ -25,7 +36,7 @@ export function devinPermissionBlock(
 		id: process.env.TEDIX_AGENT_SESSION?.replace(/^devin:/, "") ?? "",
 		principalKey: process.env.TEDIX_EXTERNAL_AGENT,
 	});
-	const base = realpathSync(root);
+	const base = canonical(root);
 	const protectedPaths = permissions.deny
 		.filter(
 			(rule) =>

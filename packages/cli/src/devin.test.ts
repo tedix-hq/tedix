@@ -519,6 +519,21 @@ test("permission fence blocks traversal, symlinks, secrets and prohibited comman
 	expect(profile.permissions.deny).toContain("Write(~/.ssh/**)");
 });
 
+test("unresolvable paths keep literal decisions and malformed events stay malformed", () => {
+	const root = temporary();
+	symlinkSync("loop", join(root, "loop"));
+	const block = (tool_name: string, tool_input: object) =>
+		devinPermissionBlock(JSON.stringify({ tool_name, tool_input }), root);
+	// lstat/realpath throw ELOOP through the self-referential link; the
+	// fence must still return a decision, not crash the hook.
+	expect(block("write", { path: "loop/inner" })).toBeUndefined();
+	expect(block("exec", { command: "cat loop/inner" })).toBeUndefined();
+	expect(block("read", { path: "loop/../.env" })).toContain("protected");
+	expect(block("read", { path: "~/.aws/credentials" })).toContain("protected");
+	expect(devinPermissionBlock("{", root)).toBe("Malformed Devin tool event");
+	expect(devinPermissionBlock("[]", root)).toBe("Malformed Devin tool event");
+});
+
 test("a transcript from a different native session fails settlement", async () => {
 	const dir = temporary();
 	const binary = fakeDevin(dir);

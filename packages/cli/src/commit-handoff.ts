@@ -269,8 +269,18 @@ export async function pendingHandoffs(
 
 function git(cwd: string, args: string[], input?: Buffer): Buffer {
 	const env = { ...process.env };
+	// Keep explicit config isolation (lane identity file, /dev/null in tests);
+	// drop inherited repository state so handoff Git stays predictable.
 	for (const key of Object.keys(env))
-		if (key.startsWith("GIT_")) delete env[key];
+		if (
+			key.startsWith("GIT_") &&
+			![
+				"GIT_CONFIG_GLOBAL",
+				"GIT_CONFIG_NOSYSTEM",
+				"GIT_CONFIG_SYSTEM",
+			].includes(key)
+		)
+			delete env[key];
 	const result = spawnSync("git", args, {
 		cwd,
 		env,
