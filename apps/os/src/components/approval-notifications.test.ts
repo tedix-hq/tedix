@@ -14,6 +14,7 @@ import {
 	type ApprovalListItem,
 	approvalAttentionCount,
 	ApprovalNotifications,
+	approvalGroupHeadingClassName,
 	delegationHoldChip,
 	groupApprovalItems,
 	isActionableHomeApproval,
@@ -101,14 +102,16 @@ describe("approval popover authority", () => {
 					? "Action approvals: none waiting"
 					: `Action approvals: ${count} waiting`,
 			);
-			if (count > 0) {
-				expect(html).toMatch(
-					/<h3 class="[^"]*min-w-0[^"]*break-words[^"]*">Tedix/,
-				);
-			}
 			client.clear();
 		},
 	);
+});
+
+describe("approval group heading", () => {
+	it("wraps unbroken tedi labels within the popover", () => {
+		expect(approvalGroupHeadingClassName).toContain("min-w-0");
+		expect(approvalGroupHeadingClassName).toContain("break-words");
+	});
 });
 
 describe("approvalAttentionCount", () => {

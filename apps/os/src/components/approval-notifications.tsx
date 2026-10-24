@@ -217,6 +217,9 @@ export function groupApprovalItems(
 		);
 }
 
+export const approvalGroupHeadingClassName =
+	"m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
+
 export function ApprovalNotifications({
 	conversationId = null,
 	topbar = false,
@@ -442,7 +445,7 @@ export function ApprovalNotifications({
 								className="border-b border-kumo-hairline last:border-b-0"
 								key={group.label}
 							>
-								<h3 className="m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold">
+								<h3 className={approvalGroupHeadingClassName}>
 									{sanitizeUntrustedText(group.label)}
 									<span className="tabular-nums font-normal">
 										{group.items.length}
