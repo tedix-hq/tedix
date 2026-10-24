@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, lte, ne } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, lte, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import {
 	mcpEventSubscriptions,
@@ -46,7 +46,7 @@ export async function upsertMcpEventSubscription(
 	db: DbQueryClient,
 	params: UpsertMcpEventSubscriptionParams,
 ): Promise<McpEventSubscriptionRow | null> {
-	const [held] = await db
+	const held = db
 		.select({ total: count() })
 		.from(mcpEventSubscriptions)
 		.where(
@@ -57,7 +57,6 @@ export async function upsertMcpEventSubscription(
 				ne(mcpEventSubscriptions.id, params.id),
 			),
 		);
-	if ((held?.total ?? 0) >= MAX_MCP_EVENT_SUBSCRIPTIONS_PER_OWNER) return null;
 	const renewed = {
 		mcpUrl: params.mcpUrl,
 		eventName: params.eventName,
@@ -73,13 +72,46 @@ export async function upsertMcpEventSubscription(
 	};
 	const [row] = await db
 		.insert(mcpEventSubscriptions)
-		.values({
-			id: params.id,
-			organizationId: params.organizationId,
-			ownerSubject: params.ownerSubject,
-			...renewed,
-			createdAt: params.now,
-		})
+		// D1 serializes the count and write as one statement. Excluding this id
+		// lets a live lease renew at capacity without admitting another lease.
+		.select(
+			db
+				.select({
+					id: sql<string>`${params.id}`.as("id"),
+					organizationId: sql<string>`${params.organizationId}`.as(
+						"organization_id",
+					),
+					ownerSubject: sql<string>`${params.ownerSubject}`.as("owner_subject"),
+					mcpUrl: sql<string>`${renewed.mcpUrl}`.as("mcp_url"),
+					eventName: sql<string>`${renewed.eventName}`.as("event_name"),
+					arguments: sql<
+						Record<string, string>
+					>`${JSON.stringify(renewed.arguments)}`.as("arguments"),
+					callbackUrl: sql<string>`${renewed.callbackUrl}`.as("callback_url"),
+					sealedCredential: sql<string>`${renewed.sealedCredential}`.as(
+						"sealed_credential",
+					),
+					cursor: sql<string>`${renewed.cursor}`.as("cursor"),
+					status: sql<"active">`${renewed.status}`.as("status"),
+					consecutiveFailures: sql<number>`${renewed.consecutiveFailures}`.as(
+						"consecutive_failures",
+					),
+					nextAttemptAt: sql<string>`${renewed.nextAttemptAt}`.as(
+						"next_attempt_at",
+					),
+					rateWindowStartedAt: sql<string | null>`null`.as(
+						"rate_window_started_at",
+					),
+					rateWindowCount: sql<number>`0`.as("rate_window_count"),
+					lastDeliveredAt: sql<string | null>`null`.as("last_delivered_at"),
+					lastStatus: sql<number | null>`null`.as("last_status"),
+					expiresAt: sql<string>`${renewed.expiresAt}`.as("expires_at"),
+					createdAt: sql<string>`${params.now}`.as("created_at"),
+					updatedAt: sql<string>`${renewed.updatedAt}`.as("updated_at"),
+				})
+				.from(sql`(select 1)`)
+				.where(sql`(${held}) < ${MAX_MCP_EVENT_SUBSCRIPTIONS_PER_OWNER}`),
+		)
 		.onConflictDoUpdate({
 			target: mcpEventSubscriptions.id,
 			set: renewed,

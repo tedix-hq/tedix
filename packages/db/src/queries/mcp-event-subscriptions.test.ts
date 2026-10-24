@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { mcpEventSubscriptions } from "../schema/mcp-event-subscriptions";
-import { createD1Facade } from "../test/d1-facade";
+import { createD1Facade, type D1FacadeOptions } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	claimDueMcpEventSubscriptions,
@@ -21,10 +21,10 @@ const T0 = "2026-10-15T12:00:00.000Z";
 const T1 = "2026-10-15T12:01:00.000Z";
 const LATER = "2026-10-15T13:00:00.000Z";
 
-function fixture() {
+function fixture(options: D1FacadeOptions = {}) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(schemaDdl(mcpEventSubscriptions));
-	return createDbQueryClient(createD1Facade(sqlite));
+	return createDbQueryClient(createD1Facade(sqlite, options));
 }
 
 function params(
@@ -89,6 +89,68 @@ describe("MCP event webhook subscriptions", () => {
 		expect(
 			await upsertMcpEventSubscription(db, params("sub-0")),
 		).not.toBeNull();
+	});
+
+	it("rechecks admission atomically when a competitor takes the last slot", async () => {
+		let competing = false;
+		let inserted = false;
+		const db = fixture({
+			onPrepare(query, sqlite) {
+				if (
+					!competing ||
+					!/^insert into "mcp_event_subscriptions"/i.test(query)
+				)
+					return;
+				competing = false;
+				sqlite.exec(`INSERT INTO mcp_event_subscriptions
+					(id, organization_id, owner_subject, mcp_url, event_name, arguments,
+					callback_url, sealed_credential, cursor, next_attempt_at, expires_at, created_at, updated_at)
+					SELECT 'competitor', organization_id, owner_subject, mcp_url, event_name,
+					arguments, callback_url, sealed_credential, cursor, next_attempt_at, expires_at, created_at, updated_at
+					FROM mcp_event_subscriptions WHERE id = 'sub-0'`);
+				inserted = true;
+			},
+		});
+		for (let i = 0; i < MAX_MCP_EVENT_SUBSCRIPTIONS_PER_OWNER - 1; i++)
+			await upsertMcpEventSubscription(db, params(`sub-${i}`));
+		// Land a competing registration after any preflight read, before the write.
+		competing = true;
+		expect(await upsertMcpEventSubscription(db, params("loser"))).toBeNull();
+		expect(inserted).toBe(true);
+		expect(await db.select().from(mcpEventSubscriptions)).toHaveLength(20);
+		expect(
+			await upsertMcpEventSubscription(db, params("sub-0")),
+		).not.toBeNull();
+		expect(
+			await upsertMcpEventSubscription(db, params("other-org", "org-b")),
+		).not.toBeNull();
+		expect(
+			await upsertMcpEventSubscription(
+				db,
+				params("other-owner", "org-a", { ownerSubject: "user-2" }),
+			),
+		).not.toBeNull();
+	});
+
+	it("counts expired renewals as new admissions but excludes expired leases", async () => {
+		const db = fixture();
+		await upsertMcpEventSubscription(
+			db,
+			params("expired", "org-a", { expiresAt: T1 }),
+		);
+		for (let i = 0; i < MAX_MCP_EVENT_SUBSCRIPTIONS_PER_OWNER; i++)
+			expect(
+				await upsertMcpEventSubscription(
+					db,
+					params(`sub-${i}`, "org-a", { now: T1 }),
+				),
+			).not.toBeNull();
+		expect(
+			await upsertMcpEventSubscription(
+				db,
+				params("expired", "org-a", { now: T1 }),
+			),
+		).toBeNull();
 	});
 
 	it("claims each due row once and drops expired leases", async () => {
