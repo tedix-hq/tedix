@@ -192,9 +192,9 @@ await runShellSpec(
 					"Websites",
 					"Memory",
 				]);
-				const pinned = sidebar.getByRole("list", { name: "Pinned workspaces" });
+				const pinned = sidebar.locator('[aria-label="Pinned workspaces"]');
 				await pinned
-					.getByRole("button", { name: "Revenue Ops", exact: true })
+					.getByRole("button", { name: "Reddit opportunities", exact: true })
 					.waitFor();
 				assert.deepEqual(
 					await sidebar
