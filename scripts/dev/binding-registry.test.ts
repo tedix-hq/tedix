@@ -112,6 +112,18 @@ describe("Wrangler dev registry", () => {
 		});
 	});
 
+	test("skips entries whose heartbeat is dated in the future", () => {
+		const directory = registryDirectory();
+		writeWorker(directory, "tedix-tedi");
+
+		const snapshot = readWorkerRegistry(directory, Date.now() - 600_000);
+		expect(snapshot.workers.size).toBe(0);
+		expect(snapshot.skipped).toContainEqual({
+			file: "tedix-tedi",
+			reason: "stale",
+		});
+	});
+
 	test("reports registered and unregistered targets from one snapshot", () => {
 		const directory = registryDirectory();
 		writeWorker(directory, "tedix-tedi-runtime");
