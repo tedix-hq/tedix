@@ -378,6 +378,42 @@ describe("workload credential", () => {
 		);
 	});
 
+	test.each(["", " \t\n"])(
+		"rejects a blank OIDC assertion %j",
+		async (value) => {
+			await expect(
+				githubWorkloadAssertion(
+					{
+						ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.example.test/token",
+						ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
+					},
+					async () => Response.json({ value }),
+				),
+			).rejects.toThrow("GitHub OIDC token request failed: HTTP 200");
+		},
+	);
+
+	test.each(["", " \t\n"])(
+		"rejects a blank gateway credential %j",
+		async (accessToken) => {
+			await expect(
+				exchangeWorkloadCredential(
+					"assertion",
+					sessionExchangeBody({
+						organizationId: ORG,
+						principalId: PRINCIPAL,
+						sessionKey: "github-actions:smoke",
+						mcpUrl: MCP_URL,
+					}),
+					async () =>
+						Response.json({ credential: { accessToken } }, { status: 201 }),
+				),
+			).rejects.toThrow(
+				"Workload credential exchange failed: HTTP 201 (no credential)",
+			);
+		},
+	);
+
 	test("exchanges at the gateway origin with a stable session tuple", async () => {
 		const body = sessionExchangeBody({
 			organizationId: ORG,

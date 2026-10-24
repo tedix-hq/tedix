@@ -390,7 +390,7 @@ export async function githubWorkloadAssertion(
 	const body = (await response.json().catch(() => null)) as {
 		value?: unknown;
 	} | null;
-	if (!response.ok || typeof body?.value !== "string")
+	if (!response.ok || typeof body?.value !== "string" || !body.value.trim())
 		throw new Error(
 			`GitHub OIDC token request failed: HTTP ${response.status}`,
 		);
@@ -445,7 +445,7 @@ export async function exchangeWorkloadCredential(
 	const token = isRecord(payload?.credential)
 		? payload.credential.accessToken
 		: undefined;
-	if (!response.ok || typeof token !== "string") {
+	if (!response.ok || typeof token !== "string" || !token.trim()) {
 		const code =
 			typeof payload?.code === "string"
 				? payload.code
