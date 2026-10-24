@@ -40,6 +40,100 @@ const row = {
 	updatedAt: "2026-01-01",
 };
 describe("provider event D1 authority and outbox", () => {
+	it("fences maintenance writes after another worker replaces the claimed lease", async () => {
+		const db = fixture();
+		await createProviderEventSubscription(db, row);
+		expect(
+			await claimProviderEventSubscription(
+				db,
+				"org-a",
+				"sub",
+				"2026-01-02",
+				"2026-01-03",
+			),
+		).toBe(true);
+		expect(
+			await claimProviderEventSubscription(
+				db,
+				"org-a",
+				"sub",
+				"2026-01-04",
+				"2026-01-05",
+			),
+		).toBe(true);
+		const current = await getProviderEventSubscription(db, "org-a", "sub");
+		for (const patch of [
+			{ status: "active" as const, expiresAt: "2026-02-01" },
+			{
+				status: "error" as const,
+				lastError: "stale failure",
+				leaseUntil: null,
+			},
+			{ eventCursor: "stale cursor", lastNotificationAt: "2026-01-04" },
+			{
+				status: "active" as const,
+				nextReconcileAt: "2026-02-01",
+				leaseUntil: null,
+			},
+		]) {
+			expect(
+				await updateProviderEventSubscription(
+					db,
+					"org-a",
+					"sub",
+					patch,
+					"2026-01-03",
+				),
+			).toEqual([]);
+			expect(await getProviderEventSubscription(db, "org-a", "sub")).toEqual(
+				current,
+			);
+		}
+		expect(
+			await updateProviderEventSubscription(
+				db,
+				"org-b",
+				"sub",
+				{ expiresAt: "2026-02-01" },
+				"2026-01-05",
+			),
+		).toEqual([]);
+		expect(
+			await updateProviderEventSubscription(
+				db,
+				"org-a",
+				"sub",
+				{ expiresAt: "2026-02-01", eventCursor: "current cursor" },
+				"2026-01-05",
+			),
+		).toHaveLength(1);
+		expect(
+			await updateProviderEventSubscription(
+				db,
+				"org-a",
+				"sub",
+				{ status: "active", leaseUntil: null },
+				"2026-01-05",
+			),
+		).toHaveLength(1);
+		expect(
+			await updateProviderEventSubscription(
+				db,
+				"org-a",
+				"sub",
+				{ status: "error" },
+				"2026-01-05",
+			),
+		).toEqual([]);
+		expect(
+			await getProviderEventSubscription(db, "org-a", "sub"),
+		).toMatchObject({
+			status: "active",
+			expiresAt: "2026-02-01",
+			eventCursor: "current cursor",
+			leaseUntil: null,
+		});
+	});
 	it("isolates records and cannot revive a concurrently disabled subscription", async () => {
 		const db = fixture();
 		await createProviderEventSubscription(db, row);

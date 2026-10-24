@@ -70,6 +70,7 @@ import {
 	queueReconciliation,
 	reconciliationEvent,
 	loadSubscription,
+	recordSubscriptionFailure,
 } from "./subscriptions";
 const id = "11111111-1111-4111-8111-111111111111";
 const context = { db: {}, env: { API_URL: "https://api.test" } } as BaseContext;
@@ -135,6 +136,54 @@ beforeEach(() => {
 	mocks.emit.mockResolvedValue({ queued: true });
 });
 describe("standing subscription lifecycle", () => {
+	it("retires only its own channel when renewal loses its maintenance lease", async () => {
+		mocks.update.mockResolvedValueOnce([]);
+		mocks.channels.mockResolvedValue([
+			{
+				id: "new-owner-channel",
+				status: "active",
+				providerChannelId: "new-owner-provider",
+			},
+		]);
+		await renewSubscription(context, row, "vault-token", "claimed-lease");
+		expect(mocks.update).toHaveBeenCalledWith(
+			context.db,
+			"org-a",
+			id,
+			expect.objectContaining({
+				status: "active",
+				expiresAt: expect.any(String),
+			}),
+			"claimed-lease",
+		);
+		expect(mocks.stop).toHaveBeenCalledExactlyOnceWith(
+			"vault-token",
+			mocks.addChannel.mock.calls[0][1].id,
+			"google-resource",
+		);
+		expect(mocks.channels).not.toHaveBeenCalled();
+		expect(mocks.updateChannel).toHaveBeenLastCalledWith(
+			context.db,
+			"org-a",
+			mocks.addChannel.mock.calls[0][1].id,
+			{ status: "stopped" },
+		);
+	});
+	it("fences maintenance failures with the originally claimed lease", async () => {
+		await recordSubscriptionFailure(
+			context,
+			row,
+			new Error("failed"),
+			"claimed-lease",
+		);
+		expect(mocks.update).toHaveBeenCalledWith(
+			context.db,
+			"org-a",
+			id,
+			expect.objectContaining({ status: "error", leaseUntil: null }),
+			"claimed-lease",
+		);
+	});
 	it("persists a hash-only pending channel before provider registration and retires old channels afterward", async () => {
 		const order: string[] = [];
 		mocks.addChannel.mockImplementation(async () => order.push("persist"));

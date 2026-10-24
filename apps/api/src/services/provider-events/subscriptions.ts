@@ -199,6 +199,7 @@ export async function recordSubscriptionFailure(
 	context: BaseContext,
 	row: Subscription,
 	error: unknown,
+	expectedLeaseUntil?: string,
 ) {
 	// Never persist/log upstream response bodies, bearer tokens or callback secrets.
 	console.error("[provider-events] operation failed", {
@@ -222,12 +223,14 @@ export async function recordSubscriptionFailure(
 			).toISOString(),
 			leaseUntil: null,
 		},
+		expectedLeaseUntil,
 	);
 }
 export async function renewSubscription(
 	context: BaseContext,
 	row: Subscription,
 	credential?: string,
+	expectedLeaseUntil?: string,
 ) {
 	const token =
 		credential ?? (await resolveProviderEventCredential(context, row));
@@ -290,16 +293,27 @@ export async function renewSubscription(
 		);
 		throw error;
 	}
-	// Disabled while provider registration was in flight: retain remote
-	// coordinates until cleanup succeeds instead of reviving the subscription.
 	const current = await loadSubscription(context, row.organizationId, row.id);
-	if (current.status === "disabled") {
-		await updateProviderEventChannel(
-			context.db,
-			row.organizationId,
-			channelId,
-			{ ...result, status: "active" },
-		);
+	// Retain remote coordinates until cleanup succeeds, even after authority is lost.
+	await updateProviderEventChannel(context.db, row.organizationId, channelId, {
+		...result,
+		status: "active",
+	});
+	const updated =
+		current.status === "disabled"
+			? []
+			: await updateProviderEventSubscription(
+					context.db,
+					row.organizationId,
+					row.id,
+					{ status: "active", expiresAt: result.expiresAt, lastError: null },
+					expectedLeaseUntil,
+				);
+	if (
+		current.status === "disabled" ||
+		(expectedLeaseUntil !== undefined && !updated.length)
+	) {
+		// A replaced claimant may retire only its own registration.
 		await adapterFor(context, row).stop(
 			token,
 			result.providerChannelId,
@@ -313,16 +327,6 @@ export async function renewSubscription(
 		);
 		return;
 	}
-	await updateProviderEventChannel(context.db, row.organizationId, channelId, {
-		...result,
-		status: "active",
-	});
-	await updateProviderEventSubscription(
-		context.db,
-		row.organizationId,
-		row.id,
-		{ status: "active", expiresAt: result.expiresAt, lastError: null },
-	);
 	// Keep old registrations until replacement accepted. Failed cleanup stays retryable.
 	await cleanupChannels(context, row, token, channelId);
 }

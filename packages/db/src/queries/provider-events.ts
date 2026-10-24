@@ -65,6 +65,7 @@ export async function updateProviderEventSubscription(
 			| "eventCursor"
 		>
 	>,
+	expectedLeaseUntil?: string,
 ) {
 	return db
 		.update(subscriptions)
@@ -73,6 +74,9 @@ export async function updateProviderEventSubscription(
 			and(
 				eq(subscriptions.organizationId, organizationId),
 				eq(subscriptions.id, id),
+				...(expectedLeaseUntil !== undefined
+					? [eq(subscriptions.leaseUntil, expectedLeaseUntil)]
+					: []),
 				...(patch.status && patch.status !== "disabled"
 					? [ne(subscriptions.status, "disabled")]
 					: []),

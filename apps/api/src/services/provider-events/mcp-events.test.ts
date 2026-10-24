@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 	app: vi.fn(),
 	tools: vi.fn(),
 	emit: vi.fn(),
+	updateSubscription: vi.fn(),
 	credential: vi.fn(),
 }));
 // A faithful in-memory stand-in for the D1 outbox: the real statements are
@@ -70,7 +71,9 @@ vi.mock("@tedix/db/queries/provider-events", () => ({
 		org: string,
 		id: string,
 		patch: Record<string, unknown>,
+		expectedLeaseUntil?: string,
 	) => {
+		mocks.updateSubscription(org, id, patch, expectedLeaseUntil);
 		const sub = state.subscriptions.get(id);
 		if (!sub || sub.organizationId !== org) return [];
 		const next = { ...sub, ...patch };
@@ -237,6 +240,28 @@ beforeEach(() => {
 });
 
 describe("mcp_events poll → wake", () => {
+	it("passes the maintenance lease to cursor and rate-limit notice writes", async () => {
+		state.wakes.set(SUB, row.maxWakesPerHour!);
+		mocks.request.mockResolvedValueOnce({
+			events: [event("evt-limited")],
+			cursor: "next-cursor",
+		});
+		await pollMcpEvents(context, row, "token", "claimed-lease");
+		expect(mocks.updateSubscription).toHaveBeenCalledWith(
+			row.organizationId,
+			SUB,
+			expect.objectContaining({ eventCursor: "next-cursor" }),
+			"claimed-lease",
+		);
+		expect(mocks.updateSubscription).toHaveBeenCalledWith(
+			row.organizationId,
+			SUB,
+			expect.objectContaining({
+				lastError: expect.stringContaining("Wake budget"),
+			}),
+			"claimed-lease",
+		);
+	});
 	it("polls from the stored cursor, queues the event and requests a skill wake carrying it", async () => {
 		mocks.request.mockResolvedValueOnce({
 			events: [event("evt-1")],
