@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	artifactService,
+	evidenceDirVariable,
 	shardArtifactName,
 	uploadEvidenceArtifact,
 	uploadShardEvidence,
@@ -126,6 +127,39 @@ test("evidence is zipped, uploaded to the signed URL and finalized", async () =>
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+for (const configured of [undefined, "diagnostics", "absolute"] as const) {
+	test(`shard uploads use ${configured ?? "default"} evidence directory`, async () => {
+		const root = mkdtempSync(join(tmpdir(), "artifact-upload-"));
+		try {
+			const workspace = join(root, "apps/os");
+			const dir = join(
+				configured === "absolute" ? root : workspace,
+				configured ? "diagnostics" : "browser-tests/.cache",
+			);
+			const setting = configured === "absolute" ? dir : configured;
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "error.txt"), "recorded failure");
+			const { impl, calls } = recordingFetch();
+			const zipped: string[] = [];
+			const result = await uploadShardEvidence(
+				{ ...ciEnv, WORKSPACE: workspace, [evidenceDirVariable]: setting },
+				{
+					fetchImpl: impl,
+					zip: (source: string, archive: string) => {
+						zipped.push(source);
+						writeFileSync(archive, "zip-bytes");
+					},
+				},
+			);
+			expect(result).toMatchObject({ uploaded: true, artifactId: "42" });
+			expect(zipped).toEqual([dir]);
+			expect(calls).toHaveLength(3);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+}
 
 test("a shard upload failure is reported but never thrown", async () => {
 	const root = mkdtempSync(join(tmpdir(), "artifact-upload-"));

@@ -8,7 +8,7 @@ import {
 	statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 /**
  * A workflow artifact upload a `run:` step performs itself. Every step's
@@ -145,7 +145,10 @@ export async function uploadEvidenceArtifact({
 export async function uploadShardEvidence(env, deps = {}) {
 	try {
 		const result = await uploadEvidenceArtifact({
-			dir: join(env.WORKSPACE ?? ".", shardEvidenceDir),
+			dir: resolve(
+				env.WORKSPACE ?? ".",
+				env[evidenceDirVariable] || shardEvidenceDir,
+			),
 			name: shardArtifactName(env),
 			env,
 			...deps,
