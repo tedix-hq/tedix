@@ -18,7 +18,6 @@ import { pluginRepoFiles } from "./build-plugin-repo";
 import { devinHooksSchema } from "./devin-hooks";
 import {
 	build,
-	CLI_GATE,
 	HOOK_GUARD,
 	hookName as commandHook,
 	MIN_CLI,
@@ -422,32 +421,51 @@ describe("plugin packager", () => {
 		);
 	});
 
-	test.skipIf(!Bun.which("sh") || !Bun.which("sort"))(
-		"session-start names an older CLI and runs the preflight on a current one",
-		() =>
-			withDirectory((directory) => {
-				const sh = Bun.which("sh")!;
-				const command = `${HOOK_GUARD}${CLI_GATE}tedix hooks session-start`;
-				const cli = join(directory, "tedix");
-				const run = (version: string) => {
-					writeFileSync(
-						cli,
-						`#!/bin/sh\n[ "$1" = --version ] && echo ${version} && exit 0\necho "$@"\n`,
-					);
-					chmodSync(cli, 0o755);
-					const result = Bun.spawnSync([sh, "-c", command], {
-						env: { PATH: `${directory}:/usr/bin:/bin` },
+	test("packaged session-start gates work without GNU version sort", () =>
+		withDirectory((directory) => {
+			const sort = join(directory, "sort");
+			writeFileSync(
+				sort,
+				'#!/bin/sh\nfor arg do [ "$arg" = -V ] && { echo "sort: illegal option -- V" >&2; exit 2; }; done\nexec /usr/bin/sort "$@"\n',
+			);
+			chmodSync(sort, 0o755);
+			const cli = join(directory, "tedix");
+			writeFileSync(
+				cli,
+				'#!/bin/sh\n[ "$1" = --version ] && { echo "$TEST_CLI_VERSION"; exit 0; }\necho "$@"\n',
+			);
+			chmodSync(cli, 0o755);
+			for (const host of ["openai", "claude"]) {
+				const hooks = decode(
+					packageFiles({ host, local: true }),
+					"hooks/hooks.json",
+				).hooks;
+				const command = hooks.SessionStart[0].hooks[0].command;
+				for (const version of [
+					"0.8.15",
+					"0.8.16",
+					MIN_CLI,
+					"0.8.100",
+					"0.10.0",
+					"1.0.0",
+				]) {
+					const result = spawnSync("/bin/sh", ["-c", command], {
+						env: {
+							PATH: `${directory}:/usr/bin:/bin`,
+							TEST_CLI_VERSION: version,
+						},
+						encoding: "utf8",
 					});
-					expect(result.exitCode).toBe(0);
-					return result.stdout.toString();
-				};
-				expect(run("0.8.15")).toBe(
-					`Tedix preflight: CLI 0.8.15 is older than ${MIN_CLI}, which this plugin needs; run tedix update.\n`,
-				);
-				for (const version of [MIN_CLI, "0.8.100", "0.10.0", "1.0.0"])
-					expect(run(version)).toBe("hooks session-start\n");
-			}),
-	);
+					expect(result.status).toBe(0);
+					expect(result.stderr).toBe("");
+					expect(result.stdout).toBe(
+						version === "0.8.15" || version === "0.8.16"
+							? `Tedix preflight: CLI ${version} is older than ${MIN_CLI}, which this plugin needs; run tedix update.\n`
+							: "hooks session-start\n",
+					);
+				}
+			}
+		}));
 
 	test("explicit local endpoint and remote validation", () => {
 		for (const url of [
