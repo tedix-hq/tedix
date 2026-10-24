@@ -261,6 +261,18 @@ describe("selectBunTestFiles", () => {
 		expect(select(["packages/shared/src/deep.ts"], io).mode).toBe("all");
 	});
 
+	test("a computed require falls back to the whole suite", () => {
+		const io = makeIo({
+			...FILES,
+			"packages/tool/src/a.ts": 'const path = "./changed"; require(path);',
+		});
+		expect(select(["packages/shared/src/deep.ts"], io)).toEqual({
+			mode: "all",
+			reason:
+				"import graph incomplete: packages/tool/src/a.ts: computed require call",
+		});
+	});
+
 	test("a dependency outside the repo is not an edge", () => {
 		// d.test.ts imports node:fs and zod; neither resolves, neither throws.
 		expect(select(["packages/tool/src/b.ts"])).toEqual({
