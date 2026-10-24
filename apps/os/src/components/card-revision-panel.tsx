@@ -151,6 +151,7 @@ export function CardRevisionPanel({
 		};
 		const keyboard = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
+				window.getSelection()?.removeAllRanges();
 				setSelection(null);
 				return;
 			}
@@ -350,7 +351,10 @@ export function CardRevisionPanel({
 						className="fixed z-50 grid w-80 max-w-[calc(100vw-32px)] gap-2 rounded-xl border border-kumo-line bg-kumo-base p-3 shadow-lg"
 						style={{ top: selection.top, left: selection.left }}
 						onKeyDown={(event) => {
-							if (event.key === "Escape") setSelection(null);
+							if (event.key === "Escape") {
+								window.getSelection()?.removeAllRanges();
+								setSelection(null);
+							}
 						}}
 					>
 						<p className="type-tedix-caption line-clamp-2 break-words">
