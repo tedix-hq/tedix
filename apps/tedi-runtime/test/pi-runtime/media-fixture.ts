@@ -1,3 +1,4 @@
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
 	persistWorkflowImages,
 	describeWorkflowImages,
@@ -335,11 +336,7 @@ export class PiFacetMediaFixture extends ConversationFacet {
 				).submissionByRequest(
 					(await this.nativeConversation()).id,
 					`${this.state.runId}:segment:0`,
-					{
-						abortSignal: undefined,
-						value: () => undefined,
-						toString: () => "media-fixture",
-					},
+					BACKGROUND_CONTEXT,
 				),
 			).length,
 			historyBytes: JSON.stringify(await this.historyMessages()).length,

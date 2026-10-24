@@ -271,6 +271,18 @@ it("approval survives eviction without a duplicated effect or provider receipt",
 		(error) => ({ error: String(error) }),
 	);
 	const approval = await waitForApproval(agent);
+	await expect
+		.poll(async () => {
+			const view = await agent.inspectRecovery(
+				"fixture-session",
+				"evicted-approval",
+			);
+			return view.tasks.some(
+				(task) =>
+					task.kind === "tedix.tool-approval" && task.view === "sleeping",
+			);
+		})
+		.toBe(true);
 	await abortAllDurableObjects();
 	await interrupted;
 	const restart = await fixture(name);
@@ -642,7 +654,11 @@ describe("registered facet admission", () => {
 			address.identityName,
 		);
 		expect(next).toBeGreaterThan(due!);
-		expect(next).toBeGreaterThanOrEqual(wakeStartedAt + 60_000);
+		expect(next).toBeGreaterThanOrEqual(wakeStartedAt);
+		// Pi's immediate onWake may precede the separately queued application job.
+		expect(await parent.nativeFollowupTime()).toBeGreaterThanOrEqual(
+			wakeStartedAt + 60_000,
+		);
 		await runInDurableObject(parent, async (actual, state) => {
 			await expect(
 				actual._cf_syncFacetLifecycleAlarm(
@@ -685,6 +701,9 @@ describe("registered facet admission", () => {
 				state.storage.sql.exec("SELECT * FROM cf_agents_sub_agents").toArray(),
 			).toHaveLength(1);
 		});
+		// Stop live onWake callbacks before testing cancellation of the stored mirror.
+		await abortAllDurableObjects();
+		parent = await selected(name);
 		await parent._cf_syncFacetLifecycleAlarm(
 			address.ownerPath,
 			address.identityName,

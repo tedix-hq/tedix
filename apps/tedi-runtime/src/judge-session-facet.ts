@@ -1,3 +1,4 @@
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 /** Native Pi facet for structurally blind, tool-free verification. Parent retains admission and the ledger. */
 import {
 	defineExtension,
@@ -138,11 +139,7 @@ export class JudgeSessionFacet extends PiAgent<
 		}
 		const pending = await (
 			await this.piHarness.pi()
-		).inspect({
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "tool-free-config",
-		});
+		).inspect(BACKGROUND_CONTEXT);
 		if (
 			pending.tasks.length ||
 			pending.submissions.length ||
@@ -191,11 +188,7 @@ export class JudgeSessionFacet extends PiAgent<
 		if (terminal.status !== "done")
 			throw new Error(terminal.reason ?? "judge Pi turn failed");
 		await this.accounting.assertComplete();
-		const context = {
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "judge-answer",
-		};
+		const context = BACKGROUND_CONTEXT;
 		const conversation = await this.nativeConversation();
 		const record = await (
 			await this.piHarness.storage()

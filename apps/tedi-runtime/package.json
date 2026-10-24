@@ -29,6 +29,7 @@
 		"@cloudflare/codemode": "catalog:",
 		"@cloudflare/computer": "catalog:",
 		"@cloudflare/voice": "catalog:",
+		"@earendil-works/chord": "catalog:",
 		"@earendil-works/pi-ai": "catalog:",
 		"@earendil-works/pi-durable": "catalog:",
 		"@platformatic/vfs": "^0.5.0",
@@ -50,7 +51,7 @@
 		"chat": "catalog:",
 		"diff": "9.0.0",
 		"fast-xml-parser": "catalog:",
-		"isomorphic-git": "1.44.3",
+		"isomorphic-git": "1.44.4",
 		"just-bash": "^3.6.0",
 		"postal-mime": "^4.1.4",
 		"zod": "catalog:"

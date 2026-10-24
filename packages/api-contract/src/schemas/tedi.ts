@@ -919,12 +919,25 @@ export const TediRuntimeRecoveryDiagnosticResponseSchema = z.object({
 					"pending",
 					"running",
 					"waiting",
+					"sleeping",
 					"completing",
 					"terminal",
 				]),
-				view: z.enum(["running", "ready", "waiting", "completing", "blocked"]),
+				view: z.enum([
+					"running",
+					"ready",
+					"waiting",
+					"sleeping",
+					"completing",
+					"blocked",
+				]),
 				blockedReason: z
-					.enum(["missing_task", "task_too_old", "migration_failed"])
+					.enum([
+						"missing_task",
+						"task_too_old",
+						"migration_failed",
+						"restart_limit",
+					])
 					.nullable(),
 				waitingOn: z.array(PiDiagnosticIdSchema).max(20),
 				waitingOnTruncated: z.boolean(),

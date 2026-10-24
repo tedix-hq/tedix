@@ -25,7 +25,7 @@
 	"dependencies": {
 		"@cloudflare/codemode": "catalog:",
 		"@json-render/core": "catalog:",
-		"@json-render/yaml": "^0.21.1",
+		"@json-render/yaml": "^0.21.3",
 		"@modelcontextprotocol/client": "catalog:",
 		"@modelcontextprotocol/server": "catalog:",
 		"@tedix/api-client": "workspace:*",
@@ -47,7 +47,7 @@
 		"@cloudflare/vite-plugin": "catalog:",
 		"@cloudflare/vitest-plugin": "catalog:",
 		"@modelcontextprotocol/ext-apps": "catalog:",
-		"@modelcontextprotocol/sdk": "1.32.1",
+		"@modelcontextprotocol/sdk": "1.32.2",
 		"@orpc/server": "catalog:",
 		"@tedix/tsconfig": "workspace:*",
 		"cf": "catalog:",

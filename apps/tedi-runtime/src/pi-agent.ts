@@ -1,3 +1,4 @@
+import { BACKGROUND_CONTEXT as BACKGROUND } from "@earendil-works/chord/context";
 import {
 	privateInferenceOriginGuard,
 	inferenceOriginHash,
@@ -29,20 +30,7 @@ class AdmittedPiHarness extends PiHarness {
 		options: ConstructorParameters<typeof PiHarness>[0],
 		private readonly defer: () => boolean,
 	) {
-		const open = options.harness;
-		let invalidate: (() => Promise<void>) | undefined;
-		super({
-			...options,
-			harness: async (context) => {
-				const pi = await open(context);
-				void pi.closed
-					.then((end) => (end.reason === "failed" ? invalidate?.() : undefined))
-					.catch((error) => console.error("[tedi.pi.reopen]", error));
-				return pi;
-			},
-		});
-		// Agents 0.28.1 caches a successful open after Pi has failed permanently.
-		invalidate = () => this.dispose();
+		super(options);
 	}
 	override async onStart(context: Parameters<PiHarness["onStart"]>[0]) {
 		if (this.defer()) return;
@@ -90,7 +78,6 @@ import {
 import type {
 	ChatOptions,
 	PiApplicationProjection,
-	PiContext,
 	PiSubmissionInspection,
 } from "./pi-types";
 
@@ -103,12 +90,6 @@ function admissionJson(value: unknown): string | undefined {
 			: item,
 	);
 }
-
-const BACKGROUND: PiContext = {
-	abortSignal: undefined,
-	value: () => undefined,
-	toString: () => "tedix-pi-background",
-};
 
 /** Read-only old Sessions are used solely for idempotent passive migration. */
 export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
@@ -131,7 +112,7 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 
 	readonly piHarness = new AdmittedPiHarness(
 		{
-			harness: async ({ storage, context }) => {
+			harness: async ({ storage, context, onWake }) => {
 				await this.assertFacetRuntimeDispatch();
 				this.projectionReady = this.projection();
 				this.piRegistry.install(await this.piExtension());
@@ -141,6 +122,7 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 						models: this.projectionReady.models(),
 						registry: this.piRegistry,
 						settings: this.piSettings(),
+						onWake,
 						onReport: (error) => console.error("[tedi.pi.extension]", error),
 					},
 					context,

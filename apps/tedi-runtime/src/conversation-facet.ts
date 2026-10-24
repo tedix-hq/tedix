@@ -1,3 +1,4 @@
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { selectRetainIndex } from "@tedix/context-core/compaction-boundary";
 import {
 	humanReservedActionClasses,
@@ -857,15 +858,9 @@ export class ConversationFacet extends PiAgent<
 						);
 						return;
 					}
-					await runtime.sleep(Date.now() + 1000, context);
-					await runtime.commit(
-						() => ({
-							status: "running",
-							checkpoint: {
-								phase: "wait",
-								revision: task.state.checkpoint.revision + 1,
-							},
-						}),
+					await runtime.sleepUntil(
+						Math.min(Date.now() + 1000, task.input.expiresAt),
+						{ phase: "wait", revision: task.state.checkpoint.revision + 1 },
 						context,
 					);
 				},
@@ -1736,11 +1731,7 @@ export class ConversationFacet extends PiAgent<
 			throw new Error("Pi resume lost its authenticated run configuration");
 		const encoder = new TextEncoder();
 		let cancelled = false;
-		const context: PiContext = {
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "tedix-pi-resume",
-		};
+		const context: PiContext = BACKGROUND_CONTEXT;
 		return new ReadableStream({
 			start: (controller) => {
 				const task = (async () => {
@@ -1876,11 +1867,7 @@ export class ConversationFacet extends PiAgent<
 	private async compactedModelMessages(
 		messages: readonly Message[],
 	): Promise<readonly Message[]> {
-		const context: PiContext = {
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "tedix-compaction-projection",
-		};
+		const context: PiContext = BACKGROUND_CONTEXT;
 		const view = await (await this.nativeConversation()).context(context);
 		const nativeHead = view.head;
 		if (!nativeHead || nativeHead.kind !== "pi.compaction") return messages;
