@@ -694,7 +694,7 @@ function PaymentEventsTable({
 										</dt>
 										<dd className="mt-0.5 text-kumo-default type-tedix-body">
 											{formatMoney(event.amount, event.currency)}
-											<span className="block truncate text-kumo-subtle type-tedix-label">
+											<span className="block break-words text-kumo-subtle type-tedix-label">
 												{event.network}
 											</span>
 										</dd>
@@ -708,7 +708,7 @@ function PaymentEventsTable({
 										</dd>
 									</div>
 								</dl>
-								<footer className="flex min-w-0 items-center justify-between gap-3 border-kumo-hairline border-t pt-2">
+								<footer className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-kumo-hairline border-t pt-2">
 									<time dateTime={event.createdAt}>
 										<Text as="span" role="label" tone="secondary">
 											{formatDateTime(event.createdAt)}
