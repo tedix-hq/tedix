@@ -375,6 +375,7 @@ export function ConversationRow({
 	useOsFormattingPreferences();
 	const pinned = isPinned(conversation);
 	const archived = conversation.status === "archived";
+	const privateWorkspace = workspace?.visibility === "private";
 	return (
 		<li
 			data-conversation-id={conversation.id}
@@ -401,8 +402,11 @@ export function ConversationRow({
 							<EntityAvatar
 								id={workspace.id}
 								name={workspace.name}
-								role={
-									workspace.visibility === "private" ? "private" : undefined
+								role={privateWorkspace ? "private" : undefined}
+								alt={
+									privateWorkspace
+										? `${workspace.name} (private workspace, only you)`
+										: undefined
 								}
 								kind="workspace"
 								className="size-6 rounded-md"

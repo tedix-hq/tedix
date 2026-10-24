@@ -332,6 +332,40 @@ describe("relativeTime", () => {
 });
 
 describe("ConversationRow", () => {
+	it.each(["private", "org"])(
+		"uses valid avatar semantics for a %s workspace",
+		(visibility) => {
+			const doc = new DOMParser().parseFromString(
+				renderToStaticMarkup(
+					<ConversationRow
+						conversation={conversation({
+							id: "home:os:notes",
+							title: "Planning",
+						})}
+						workspace={{ id: "workspace-notes", name: "Notes", visibility }}
+						now={NOW}
+					/>,
+				),
+				"text/html",
+			);
+			const avatar = doc.querySelector('[data-entity-kind="workspace"]');
+			expect(avatar).not.toBeNull();
+			expect(doc.querySelector('[role="private"]')).toBeNull();
+			if (visibility === "private") {
+				expect(avatar?.getAttribute("role")).toBe("img");
+				expect(avatar?.getAttribute("aria-label")).toBe(
+					"Notes (private workspace, only you)",
+				);
+				expect(avatar?.hasAttribute("aria-hidden")).toBe(false);
+				expect(avatar?.querySelector("svg")).not.toBeNull();
+			} else {
+				expect(avatar?.getAttribute("role")).toBeNull();
+				expect(avatar?.getAttribute("aria-hidden")).toBe("true");
+				expect(avatar?.hasAttribute("aria-label")).toBe(false);
+			}
+		},
+	);
+
 	it("renders the title fallback and the relative time", () => {
 		const html = renderToStaticMarkup(
 			<ConversationRow
