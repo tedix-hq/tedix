@@ -102,6 +102,7 @@ export function osWorkspaceChildVisibleToPredicate(
 export interface ListOsWorkspacesOptions {
 	status?: OsWorkspaceRow["status"];
 	limit?: number;
+	offset?: number;
 }
 
 export interface UpdateOsWorkspacePatch {
@@ -279,8 +280,9 @@ export async function listOsWorkspaces(
 		.select()
 		.from(osWorkspaces)
 		.where(and(...conditions))
-		.orderBy(asc(osWorkspaces.name))
-		.limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
+		.orderBy(asc(osWorkspaces.name), asc(osWorkspaces.id))
+		.limit(Math.min(Math.max(options.limit ?? 100, 1), 500))
+		.offset(options.offset ?? 0);
 }
 
 export async function updateOsWorkspace(

@@ -77,6 +77,17 @@ const command = {
 };
 
 describe("OS command palette matching", () => {
+	it("matches a word inside a workspace title and partial later words", () => {
+		const workspace = {
+			...command,
+			title: "Tedix Books Reference",
+			description: "Workspace",
+		};
+		expect(matchesCommand(workspace, "book")).toBe(true);
+		expect(matchesCommand(workspace, "BOOKS reference")).toBe(true);
+		expect(matchesCommand(workspace, "tedix missing")).toBe(false);
+	});
+
 	it("matches title and description tokens without case sensitivity", () => {
 		expect(matchesCommand(command, "canvas")).toBe(true);
 		expect(matchesCommand(command, "APP previews")).toBe(true);
@@ -461,7 +472,7 @@ describe("mounted palette resource states", () => {
 		await settled();
 		expect(
 			client.getQueryData(commandPaletteWorkspacesQueryOptions(12).queryKey),
-		).toEqual({ items: [] });
+		).toEqual({ pages: [{ items: [] }], pageParams: [0] });
 		await search("go to projects");
 		const input = document.querySelector<HTMLInputElement>("input")!;
 		expect(document.activeElement).toBe(input);

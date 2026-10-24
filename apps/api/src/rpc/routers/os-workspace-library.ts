@@ -261,6 +261,7 @@ const list = readOs.workspaces.list.handler(async ({ input, context }) => {
 		{
 			status: input.status,
 			limit: input.limit + 1,
+			offset: input.offset,
 		},
 	);
 	return {

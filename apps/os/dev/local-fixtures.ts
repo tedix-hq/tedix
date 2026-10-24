@@ -6401,13 +6401,22 @@ const handlers: Record<string, (input: never) => unknown> = {
 
 	// --- Tedix OS workspaces ---
 	"osWorkspaces/workspaces/list": (
-		input: { status?: OsWorkspace["status"]; limit?: number } | undefined,
-	) => ({
-		items: state.workspaces.filter(
-			(row) => input?.status === undefined || row.status === input.status,
-		),
-		truncated: false,
-	}),
+		input:
+			| { status?: OsWorkspace["status"]; limit?: number; offset?: number }
+			| undefined,
+	) => {
+		const rows = state.workspaces
+			.filter(
+				(row) => input?.status === undefined || row.status === input.status,
+			)
+			.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+		const offset = input?.offset ?? 0;
+		const limit = input?.limit ?? 50;
+		return {
+			items: rows.slice(offset, offset + limit),
+			truncated: rows.length > offset + limit,
+		};
+	},
 	"osWorkspaces/workspaces/create": createLocalWorkspace,
 	"osWorkspaces/workspaces/createFromConversation": (input: {
 		conversationId: string;

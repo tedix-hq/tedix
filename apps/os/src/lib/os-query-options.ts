@@ -251,16 +251,13 @@ export const blueprintDetailQueryOptions = (blueprintId: string) =>
 export const blueprintGalleryQueryOptions = (limit: number) =>
 	osQuery.osWorkspaces.blueprints.gallery.queryOptions({ input: { limit } });
 
-/**
- * The command palette's own bounded slices of the workspace and output lists.
- * Deliberately not the surface factories above: the palette renders every row
- * it receives, so its smaller limit is part of the request and therefore part
- * of the key. Both still sit under the workspaces/outputs domain prefixes, so
- * realtime and mutation invalidation reach them.
- */
+/** Search every workspace page within the canonical workspace domain. */
 export const commandPaletteWorkspacesQueryOptions = (limit: number) =>
-	osQuery.osWorkspaces.workspaces.list.queryOptions({
-		input: { status: "active", limit },
+	osQuery.osWorkspaces.workspaces.list.infiniteOptions({
+		input: (offset: number) => ({ status: "active", limit, offset }),
+		initialPageParam: 0,
+		getNextPageParam: (page, _pages, offset) =>
+			page.truncated ? offset + page.items.length : undefined,
 	});
 
 export const commandPaletteOutputLibraryQueryOptions = (limit: number) =>

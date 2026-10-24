@@ -253,6 +253,7 @@ export const osWorkspacesContract = oc
 							"Filter by lifecycle status; omitted returns all statuses",
 						),
 						limit: listLimitSchema,
+						offset: z.number().int().min(0).default(0),
 					}),
 				)
 				.output(
