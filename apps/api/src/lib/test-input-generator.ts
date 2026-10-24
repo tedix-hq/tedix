@@ -617,6 +617,9 @@ export function validateToolOutput(output: unknown): ValidationResult {
 		if (obj.error || obj.Error || obj.ERROR) {
 			issues.push("Output contains error field");
 		}
+		if (obj.isError === true) {
+			issues.push("Output is an MCP tool error");
+		}
 
 		// Check for empty content in MCP response format
 		if (Array.isArray(obj.content) && obj.content.length === 0) {
