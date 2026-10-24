@@ -388,23 +388,29 @@ function McpConfigDisplay({ app }: { app: App }) {
 					</Text>
 					<ClipboardText text={endpoint} className="min-w-0 max-w-full" />
 				</div>
-				<div className="flex justify-between">
-					<Text as="span" role="body" tone="secondary">
+				<div className="flex min-w-0 justify-between gap-3">
+					<Text as="span" role="body" tone="secondary" className="shrink-0">
 						Server name
 					</Text>
-					<span>{mcpConfig?.serverName ?? "Tedix MCP"}</span>
+					<span className="min-w-0 wrap-anywhere text-right">
+						{mcpConfig?.serverName ?? "Tedix MCP"}
+					</span>
 				</div>
-				<div className="flex justify-between">
-					<Text as="span" role="body" tone="secondary">
+				<div className="flex min-w-0 justify-between gap-3">
+					<Text as="span" role="body" tone="secondary" className="shrink-0">
 						Access mode
 					</Text>
-					<Badge variant="outline">{mcpConfig?.authMode ?? "public"}</Badge>
+					<Badge variant="outline" className="shrink-0">
+						{mcpConfig?.authMode ?? "public"}
+					</Badge>
 				</div>
-				<div className="flex justify-between">
-					<Text as="span" role="body" tone="secondary">
+				<div className="flex min-w-0 justify-between gap-3">
+					<Text as="span" role="body" tone="secondary" className="shrink-0">
 						Tool timeout
 					</Text>
-					<span>{mcpConfig?.toolTimeout ?? 30000}ms</span>
+					<span className="min-w-0 wrap-anywhere text-right">
+						{mcpConfig?.toolTimeout ?? 30000}ms
+					</span>
 				</div>
 			</div>
 		</AppTabSection>
