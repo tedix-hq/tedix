@@ -328,6 +328,28 @@ it("renders secrets as a labeled table with the shared date display", async () =
 	).toBe(true);
 });
 
+it("constrains an unbroken MCP server name inside its connection row", async () => {
+	const serverName =
+		"unbrokenmcpservernamethatcannotfitinsidenarrowphoneviewports0123456789";
+	api.get.mockResolvedValue({
+		app: {
+			...detail.app,
+			metadata: { mcpConfig: { serverName, authMode: "public" } },
+		},
+		tools: [],
+	});
+	const { host } = await mount();
+	await settles(() => expect(host.textContent).toContain(serverName));
+	const value = [...host.querySelectorAll("span")].find(
+		(el) => el.textContent === serverName,
+	);
+	expect(value?.className).toContain("wrap-anywhere");
+	expect(value?.className).toContain("min-w-0");
+	const row = value?.parentElement;
+	expect(row?.className).toContain("min-w-0");
+	expect(row?.firstElementChild?.className).toContain("shrink-0");
+});
+
 describe("read recovery", () => {
 	it("keeps the loaded settings usable when a refresh fails, then recovers in place", async () => {
 		const { host, client } = await mount();
