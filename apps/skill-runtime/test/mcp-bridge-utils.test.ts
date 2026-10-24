@@ -674,6 +674,55 @@ assert.deepEqual(
 	),
 	{ run: { id: homeId } },
 );
+// MCP permits progress notifications and server requests before the response.
+for (const newline of ["\n", "\r\n", "\r"]) {
+	const beforeResponse = [
+		{
+			jsonrpc: "2.0",
+			method: "notifications/progress",
+			params: { progress: 1 },
+		},
+		{ jsonrpc: "2.0", id: "server-1", method: "ping" },
+	];
+	const prefix = beforeResponse
+		.map((message) => `data: ${JSON.stringify(message)}${newline}${newline}`)
+		.join("");
+	for (const response of [
+		{
+			jsonrpc: "2.0",
+			id: "call-1",
+			result: { structuredContent: { ok: true } },
+		},
+		{
+			jsonrpc: "2.0",
+			id: "call-1",
+			error: { code: -32603, message: "Failed" },
+		},
+	]) {
+		const body = JSON.stringify(response);
+		assert.equal(
+			unwrapMcpResponseBody(
+				`${prefix}event: message${newline}data: ${body}${newline}${newline}`,
+				"text/event-stream",
+			),
+			body,
+		);
+	}
+	assert.deepEqual(
+		JSON.parse(unwrapMcpResponseBody(prefix + multiline, "text/event-stream")),
+		{ result: { run: { id: homeId } } },
+	);
+	assert.throws(
+		() => unwrapMcpResponseBody(prefix, "text/event-stream"),
+		/without a JSON-RPC response/,
+	);
+	assert.throws(
+		() =>
+			unwrapMcpResponseBody(prefix + "data: broken\n\n", "text/event-stream"),
+		SyntaxError,
+	);
+}
+
 // Direct tools, aggregate Code Mode, and task status retain their respective shapes.
 for (const type of ["application/json", "text/event-stream"]) {
 	const wire = (value: unknown) => {
