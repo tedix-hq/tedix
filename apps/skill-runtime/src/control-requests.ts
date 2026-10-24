@@ -28,6 +28,13 @@ export const StatusRequestSchema = z.object({
 	runId: z.string().min(1),
 });
 
+export const BenchmarkDriveTurnRequestSchema = z.object({
+	slug: z.string().min(1),
+	text: z.string().min(1),
+	session_key: z.string().min(1),
+	client_request_id: z.string().min(1),
+});
+
 export const ControlRequestSchema = z.object({
 	runId: z.string().min(1),
 	// Optional for one rolling-compatible release because production deploys

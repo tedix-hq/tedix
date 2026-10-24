@@ -4,6 +4,10 @@ import { beforeAll, describe, expect, it } from "vite-plus/test";
 // The runtime exposes a module Worker's default object handler here, while the
 // generated loopback type only enumerates RPC-compatible named exports.
 const worker = (exports as typeof exports & { default: Fetcher }).default;
+// InternalEntrypoint is what real service bindings invoke; its fetch keeps the
+// X-Service-Binding marker the public default export strips.
+const internal = (exports as typeof exports & { InternalEntrypoint: Fetcher })
+	.InternalEntrypoint;
 
 describe("skill runtime Worker boundary", () => {
 	it("serves health through the real workerd entry", async () => {
@@ -38,6 +42,47 @@ describe("skill runtime Worker boundary", () => {
 		expect(bindings.LOADER).toBeDefined();
 		expect(bindings.RUN_RATE_LIMITER).toBeDefined();
 		expect(bindings.WORKER_VERSION).toBeDefined();
+	});
+});
+
+describe("benchmark drive-turn admission", () => {
+	const driveTurn = (body: string) =>
+		internal.fetch("https://skill-runtime.tedix.dev/benchmark/drive-turn", {
+			method: "POST",
+			headers: {
+				"X-Service-Binding": "true",
+				"Content-Type": "application/json",
+			},
+			body,
+		});
+
+	it.each([
+		["null", "null"],
+		["an array", '[{"slug":"s"}]'],
+		["a string", '"slug"'],
+		["invalid JSON", "{not json"],
+		[
+			"truthy non-string fields",
+			'{"slug":"s","text":123,"session_key":"k","client_request_id":"r"}',
+		],
+		["a missing field", '{"slug":"s","text":"t","session_key":"k"}'],
+	])("rejects %s with 400 before dispatch", async (_label, body) => {
+		const response = await driveTurn(body);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({ error: "invalid_request" });
+	});
+
+	it("passes a valid request through validation to the binding check", async () => {
+		const response = await driveTurn(
+			'{"slug":"s","text":"t","session_key":"k","client_request_id":"r"}',
+		);
+
+		// Test mode binds no TEDI_RUNTIME_SERVICE; reaching the binding check
+		// proves the body validated and dispatch order is preserved.
+		expect(response.status).toBe(500);
+		expect(await response.json()).toMatchObject({
+			error: "TEDI_RUNTIME_SERVICE binding unavailable",
+		});
 	});
 });
 

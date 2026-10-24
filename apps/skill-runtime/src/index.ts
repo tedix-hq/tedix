@@ -17,7 +17,10 @@ import { OutboundProxy } from "./outbound-proxy";
 import { RationaleBridge } from "./rationale";
 import { reconcileSkillRuns } from "./reconciler";
 import { SkillWorkflow } from "./skill-workflow";
-import { type AppEnv } from "./control-requests";
+import {
+	BenchmarkDriveTurnRequestSchema,
+	type AppEnv,
+} from "./control-requests";
 import { registerRunRoutes } from "./routes/run";
 import { registerStatusRoutes } from "./routes/status";
 import { registerLifecycleRoutes } from "./routes/lifecycle";
@@ -93,19 +96,15 @@ app.get("/health", (c) => c.json(skillRuntimeHealth(c.env)));
  * assistant reply. Foundation for the tau2-bench retail benchmark workflow.
  */
 app.post("/benchmark/drive-turn", async (c) => {
-	const body = (await c.req.json().catch(() => ({}))) as {
-		slug?: string;
-		text?: string;
-		session_key?: string;
-		client_request_id?: string;
-	};
-	const { slug, text, session_key, client_request_id } = body;
-	if (!slug || !text || !session_key || !client_request_id) {
+	const body = await c.req.json().catch(() => ({}));
+	const parsed = BenchmarkDriveTurnRequestSchema.safeParse(body);
+	if (!parsed.success) {
 		return c.json(
-			{ error: "missing slug/text/session_key/client_request_id" },
+			{ error: "invalid_request", issues: parsed.error.issues },
 			400,
 		);
 	}
+	const { slug, text, session_key, client_request_id } = parsed.data;
 	const isolate = c.env.TEDI_RUNTIME_SERVICE;
 	if (!isolate) {
 		return c.json({ error: "TEDI_RUNTIME_SERVICE binding unavailable" }, 500);
