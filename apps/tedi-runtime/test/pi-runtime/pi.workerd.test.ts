@@ -32,6 +32,41 @@ async function waitForApproval(agent: Awaited<ReturnType<typeof fixture>>) {
 	throw new Error("durable approval never paused");
 }
 describe("Production ConversationFacet on native Pi", () => {
+	it("refreshes native compaction thresholds between admitted warm-facet turns", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		const largeModel = "azure-openai/gpt-6.1-sol";
+		await agent.turn("large-settings", { modelRef: largeModel });
+		expect(await agent.nativeCompactionSettings()).toEqual({
+			reserveTokens: 40_800,
+			keepRecentTokens: 20_000,
+			backgroundTokens: 68_000,
+		});
+		await agent.setup("tool");
+		const running = agent.turn("active-settings", {
+			modelRef: largeModel,
+			approval: true,
+		});
+		const approval = await waitForApproval(agent);
+		const queued = agent.turn("small-settings");
+		try {
+			expect((await agent.nativeCompactionSettings()).reserveTokens).toBe(
+				40_800,
+			);
+		} finally {
+			await agent.resolveToolApproval({
+				approvalId: approval.approvalId,
+				approved: false,
+			});
+			await Promise.all([running, queued]);
+		}
+		expect(await agent.nativeCompactionSettings()).toEqual({
+			reserveTokens: 30_000,
+			keepRecentTokens: 20_000,
+			backgroundTokens: 50_000,
+		});
+		await agent.turn("large-settings-again", { modelRef: largeModel });
+		expect((await agent.nativeCompactionSettings()).reserveTokens).toBe(40_800);
+	});
 	it("returns only its owned durable answer after eviction and duplicate input", async () => {
 		const name = crypto.randomUUID();
 		const agent = await fixture(name);

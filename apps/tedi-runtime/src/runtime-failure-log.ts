@@ -1,4 +1,6 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
+import type { ReportInfo } from "@earendil-works/pi-durable";
 import type { FacetBudgetStopReason } from "./conversation-facet";
 
 type RuntimeFailureEvent =
@@ -30,10 +32,12 @@ type RuntimeFailureEvent =
 	| "tedi.runtime.turn_mirror_failed"
 	| "tedi.runtime.failed_turn_ledger_write_failed"
 	| "tedi.runtime.email_ledger_mirror_queue_failed"
+	| "tedi.runtime.email_parse_failed"
 	| "tedi.facet.judge_turn_failed"
 	| "tedi.facet.synthesis_turn_failed"
 	| "tedi.facet.conversation_turn_failed"
 	| "tedi.pi.legacy_message_skipped"
+	| "tedi.pi.report"
 	| "tedi.facet.sse_turn_failed"
 	| "tedi.facet.proxied_tool_failed"
 	| "tedi.workstation.repo_clone_failed"
@@ -109,17 +113,81 @@ export function logTediRuntimeFailure(
 	event: RuntimeFailureEvent,
 	error: unknown,
 	level: "warn" | "error" = "warn",
+	details?:
+		| {
+				reportType: ReportInfo["type"];
+				taskId?: number;
+				conversationId?: number;
+				reason?: Extract<ReportInfo, { reason: unknown }>["reason"];
+				callback?: Extract<ReportInfo, { type: "host_error" }>["callback"];
+		  }
+		| { parserCode: (typeof POSTAL_ERROR_CODES)[number] | "unknown" },
 ): void {
 	const retryable =
 		event === "tedi.runtime.websocket_error" ? retryableFlag(error) : undefined;
 	const messageClass = failureMessageClass(error);
-	console[level]({
+	return console[level]({
 		component: "tedi-runtime",
 		event,
+		...details,
 		...(retryable !== undefined ? { retryable } : {}),
 		exception: exceptionTopology(error),
 		...(messageClass ? { messageClass } : {}),
 	});
+}
+
+const writePiReport = createTelemetryWriter("tedi.pi.report");
+
+const POSTAL_ERROR_CODES = [
+	"EINVALIDOPTION",
+	"EINVALIDINPUT",
+	"EPARSERREUSED",
+	"EMAXNESTINGDEPTH",
+	"EMAXHEADERSIZE",
+	"EMAXPARTCOUNT",
+	"EMAXFORWARDEDADDRESSES",
+] as const;
+const writeEmailParseFailure = createTelemetryWriter(
+	"tedi.runtime.email_parse_failed",
+);
+
+export function logTediEmailParseFailure(error: unknown): void {
+	writeEmailParseFailure(() => {
+		let code: unknown;
+		try {
+			code =
+				error && typeof error === "object"
+					? (error as { code?: unknown }).code
+					: undefined;
+		} catch {
+			// Treat inaccessible error metadata as unknown.
+		}
+		const parserCode =
+			POSTAL_ERROR_CODES.find((allowed) => allowed === code) ?? "unknown";
+		return logTediRuntimeFailure(
+			"tedi.runtime.email_parse_failed",
+			error,
+			"warn",
+			{ parserCode },
+		);
+	});
+}
+
+/** Extension names, task kinds and thrown payloads may contain tenant content. */
+export function logTediPiReport(error: unknown, info: ReportInfo): void {
+	const task = "task" in info ? info.task : undefined;
+	writePiReport(() =>
+		logTediRuntimeFailure("tedi.pi.report", error, "error", {
+			reportType: info.type,
+			...(task
+				? { taskId: task.id, conversationId: task.conversationId }
+				: "conversationId" in info
+					? { conversationId: info.conversationId }
+					: {}),
+			...("reason" in info ? { reason: info.reason } : {}),
+			...(info.type === "host_error" ? { callback: info.callback } : {}),
+		}),
+	);
 }
 
 /** A missing platform client has no exception to project. */

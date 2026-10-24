@@ -4,7 +4,7 @@ import {
 	inferenceOriginHash,
 	type NativeRootProof,
 } from "./runtime-inference-origin";
-import { logTediRuntimeFailure } from "./runtime-failure-log";
+import { logTediPiReport, logTediRuntimeFailure } from "./runtime-failure-log";
 import type { ConfiguredConversationTurn } from "./conversation-facet";
 import { workflowImageUri } from "./workflow-image-handoff";
 import { finalReportInstruction } from "./facet-turn-stop";
@@ -121,9 +121,9 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 					{
 						models: this.projectionReady.models(),
 						registry: this.piRegistry,
-						settings: this.piSettings(),
+						settings: () => this.piSettings(),
 						onWake,
-						onReport: (error) => console.error("[tedi.pi.extension]", error),
+						onReport: logTediPiReport,
 					},
 					context,
 				);
