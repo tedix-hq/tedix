@@ -32,11 +32,20 @@ export async function getProviderEventSubscription(
 export async function listProviderEventSubscriptions(
 	db: DbQueryClient,
 	organizationId: string,
+	options: { personalOwnerUserId?: string } = {},
 ) {
+	const visibleToCaller = options.personalOwnerUserId
+		? or(
+				ne(subscriptions.connectionScope, "user"),
+				eq(subscriptions.personalOwnerUserId, options.personalOwnerUserId),
+			)
+		: ne(subscriptions.connectionScope, "user");
 	return db
 		.select()
 		.from(subscriptions)
-		.where(eq(subscriptions.organizationId, organizationId))
+		.where(
+			and(eq(subscriptions.organizationId, organizationId), visibleToCaller),
+		)
 		.limit(100);
 }
 export async function updateProviderEventSubscription(

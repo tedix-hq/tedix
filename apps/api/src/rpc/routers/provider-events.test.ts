@@ -114,7 +114,7 @@ describe("provider event management auth planes", () => {
 			context: context(),
 		});
 		expect(await client.list({})).toEqual([]);
-		expect(mocks.list).toHaveBeenCalledWith({}, "org-a");
+		expect(mocks.list).toHaveBeenCalledWith({}, "org-a", {});
 	});
 });
 describe("standing provider credential authority", () => {

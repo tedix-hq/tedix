@@ -22,14 +22,16 @@ export const providerEventsContractRouter = authed.router({
 	list: authed.list
 		.use(withAuthorization("integrations:manage", "integrations:manage"))
 		.handler(async ({ context }) =>
-			(await listProviderEventSubscriptions(context.db, requireOrgId(context)))
-				.filter(
-					(row) =>
-						row.connectionScope !== "user" ||
-						(context.authType === "user" &&
-							context.user?.sub === row.personalOwnerUserId),
+			(
+				await listProviderEventSubscriptions(
+					context.db,
+					requireOrgId(context),
+					{
+						personalOwnerUserId:
+							context.authType === "user" ? context.user?.sub : undefined,
+					},
 				)
-				.map(statusProjection),
+			).map(statusProjection),
 		),
 	get: authed.get
 		.use(withAuthorization("integrations:manage", "integrations:manage"))
