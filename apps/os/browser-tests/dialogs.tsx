@@ -133,7 +133,10 @@ function SheetFixture() {
 		<>
 			<Button onClick={() => setSheetOpen(true)}>Open details</Button>
 			<Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-				<SheetContent size="md">
+				<SheetContent
+					size="md"
+					side={params.get("side") === "bottom" ? "bottom" : "right"}
+				>
 					<SheetHeader>
 						<SheetTitle>Source details</SheetTitle>
 						<SheetDescription>
@@ -145,6 +148,9 @@ function SheetFixture() {
 							Remove source
 						</Button>
 					</div>
+					{params.has("long") && (
+						<div className="h-[1500px] shrink-0 p-6">Long sheet content</div>
+					)}
 					<ConfirmDialog
 						open={confirmOpen}
 						onOpenChange={setConfirmOpen}

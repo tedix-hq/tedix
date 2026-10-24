@@ -3,13 +3,7 @@ import "./canvas-page.css";
 import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
-import {
-	ArrowLeft,
-	Files,
-	FileX,
-	SidebarSimple,
-	X,
-} from "@phosphor-icons/react";
+import { ArrowLeft, Files, FileX, SidebarSimple } from "@phosphor-icons/react";
 import type {
 	OsGadget,
 	OsGadgetManifest,
@@ -1572,22 +1566,12 @@ export function CanvasPage({
 			<Sheet open={outputsSheetOpen} onOpenChange={setOutputsSheetOpen}>
 				<SheetContent
 					className="workspace-outputs-sheet"
-					showCloseButton={false}
 					side="right"
 					size="sm"
 				>
-					<SheetHeader className="workspace-outputs-sheet-header">
-						<div className="grid min-w-0 gap-1.5">
-							<SheetTitle>Outputs</SheetTitle>
-							<SheetDescription>Open one to view or edit it.</SheetDescription>
-						</div>
-						<Button
-							aria-label="Close outputs"
-							icon={<X size={16} />}
-							onClick={() => setOutputsSheetOpen(false)}
-							size="icon-sm"
-							variant="ghost"
-						/>
+					<SheetHeader>
+						<SheetTitle>Outputs</SheetTitle>
+						<SheetDescription>Open one to view or edit it.</SheetDescription>
 					</SheetHeader>
 					<WorkspaceOutputsList
 						{...outputsPanelList}

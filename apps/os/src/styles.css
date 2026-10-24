@@ -916,7 +916,8 @@ a {
 	z-index: 10;
 	flex-shrink: 0;
 	background: var(--color-kumo-base);
-	padding-right: 3rem;
+	min-height: 76px;
+	padding-right: 4.75rem;
 }
 
 @media (min-width: 900px) {

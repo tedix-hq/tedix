@@ -7,7 +7,6 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
 import { RunLinkChip, type CardRunLinkProps } from "./chat-cards";
-import { X } from "@phosphor-icons/react";
 import type { Fact } from "@tedix/api-contract/schemas/memory-graph";
 import { MemoryConsolidationSchema } from "@tedix/api-contract/schemas/memory-observations";
 import { osQuery } from "@/lib/os-query-options";
@@ -651,16 +650,7 @@ export function MemoryBrowser({
 							if (!open) onSearch({ detail: "" });
 						}}
 					>
-						<SheetContent size="lg" showCloseButton={false}>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								aria-label="Close memory details"
-								className="absolute top-4 right-4 z-20"
-								onClick={() => onSearch({ detail: "" })}
-							>
-								<X aria-hidden size={16} />
-							</Button>
+						<SheetContent size="lg">
 							<SheetHeader>
 								<SheetTitle>Memory details</SheetTitle>
 								<SheetDescription className="pr-8 wrap-anywhere">
