@@ -3,11 +3,8 @@ import { Skeleton } from "@/components/kumo/skeleton";
 import { Page, PageHeader } from "@/components/kumo/page";
 
 /**
- * The workspace route's pending state, in the WORKBENCH's own geometry: the
- * full-height chrome-free shell with its top bar, the chat pane at its default
- * width, and the stage. This used to render the content-lane `Page` shapes --
- * a small header bar and a floating block -- which belonged to the retired
- * canvas layout and read as debris on the dark shell while the route loaded.
+ * Match the workbench's single mobile pane below 960px and its 420px chat
+ * pane beside the stage on desktop.
  */
 export function CanvasPending() {
 	return (
@@ -22,14 +19,14 @@ export function CanvasPending() {
 					</div>
 				</div>
 				<div className="flex min-h-0 flex-1">
-					<aside className="flex w-[420px] shrink-0 flex-col gap-3 border-kumo-line border-r p-4">
+					<aside className="flex w-full shrink-0 flex-col gap-3 border-kumo-line p-4 min-[960px]:w-[420px] min-[960px]:border-r">
 						<Skeleton className="h-9 w-2/3" />
 						<ListSkeleton rows={3} rowClassName="h-12" />
 						<div className="mt-auto">
 							<Skeleton className="h-24 rounded-2xl" />
 						</div>
 					</aside>
-					<section className="min-w-0 flex-1 p-4">
+					<section className="hidden min-w-0 flex-1 p-4 min-[960px]:block">
 						<Skeleton className="h-full min-h-64" />
 					</section>
 				</div>
