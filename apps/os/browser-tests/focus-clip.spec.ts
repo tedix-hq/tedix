@@ -15,16 +15,24 @@ import { writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Browser, type Page } from "playwright";
+import {
+	findingKey,
+	findingRoute,
+	routePattern,
+	type FocusClipHit,
+} from "./focus-clip-findings";
+import {
+	controlSelector,
+	describeControl,
+	focusClipAudit,
+} from "./focus-clip-page";
 import { focusClipShard, focusClipRoutes } from "./focus-clip-shards";
 
-type Finding = {
+type Finding = FocusClipHit & {
+	// The stable route pattern plus the concrete URL it was seen at.
 	route: string;
+	url: string;
 	viewport: string;
-	control: string;
-	kind: "border" | "ring" | "column" | "focus";
-	sides: string;
-	overshoot: number;
-	clipper: string;
 };
 
 const shardFlag = process.argv.indexOf("--shard");
@@ -99,29 +107,9 @@ const SEEDS = [
  * the entry with the fix (the run fails while a listed defect is gone).
  */
 const KNOWN_DEFECTS: { owner: string; control: RegExp; clipper: RegExp }[] = [];
-const KEPT_QUERY = ["view", "section", "tab"];
 // A cold dev server compiles each route chunk on first visit.
 const NAVIGATION = { waitUntil: "domcontentloaded", timeout: 120_000 } as const;
 const MAX_ROUTES = 90;
-
-// Same id shapes the fixture pack uses: UUIDs, prefixed ids, long slugs with digits.
-function routePattern(href: string) {
-	const url = new URL(href, origin);
-	const path = url.pathname
-		.split("/")
-		.map((segment) =>
-			/^[0-9a-f-]{16,}$/i.test(segment) ||
-			(/\d/.test(segment) && segment.length > 8) ||
-			/^(tedi|wi|run|case|out|skill|app|proj|req|ws)[_-]/.test(segment)
-				? ":id"
-				: segment,
-		)
-		.join("/");
-	const query = KEPT_QUERY.filter((key) => url.searchParams.has(key))
-		.map((key) => `${key}=${url.searchParams.get(key)}`)
-		.join("&");
-	return query ? `${path}?${query}` : path;
-}
 
 async function audit(page: Page) {
 	// Focus styles are read synchronously, so they must not be mid-transition.
@@ -129,280 +117,14 @@ async function audit(page: Page) {
 		content:
 			"*, *::before, *::after { transition: none !important; animation: none !important; }",
 	});
-	return page.evaluate(() => {
-		const px = (value: string) => Number.parseFloat(value) || 0;
-		const describe = (el: Element) => {
-			const name =
-				el.getAttribute("aria-label") ??
-				el.getAttribute("name") ??
-				el.getAttribute("placeholder") ??
-				(el.textContent ?? "").trim().slice(0, 32);
-			const cls = [...el.classList].slice(0, 3).join(".");
-			const id =
-				el.id && !el.id.startsWith("base-ui-") && !/_r_/.test(el.id)
-					? `#${el.id}`
-					: "";
-			return `${el.tagName.toLowerCase()}${id}${cls ? `.${cls}` : ""}${name ? ` "${name}"` : ""}`;
-		};
-		const visible = (el: Element) => {
-			const css = getComputedStyle(el);
-			const rect = el.getBoundingClientRect();
-			return (
-				css.visibility !== "hidden" &&
-				css.display !== "none" &&
-				Number(css.opacity) > 0.05 &&
-				rect.width > 2 &&
-				rect.height > 2 &&
-				!el.closest(".sr-only, [hidden], [inert], [aria-hidden='true']")
-			);
-		};
-		// How far the painted edge (outer box-shadow rings, outline) reaches past the border box.
-		const paintExtent = (el: Element) => {
-			const css = getComputedStyle(el);
-			const extent = { top: 0, right: 0, bottom: 0, left: 0 };
-			for (const shadow of css.boxShadow.split(/,(?![^(]*\))/)) {
-				if (shadow === "none" || shadow.includes("inset")) continue;
-				const lengths = (
-					shadow
-						.replace(
-							/rgba?\([^)]*\)|oklch\([^)]*\)|color\([^)]*\)|oklab\([^)]*\)/g,
-							"",
-						)
-						.match(/-?[\d.]+px/g) ?? []
-				).map(px);
-				const [x = 0, y = 0, blur = 0, spread = 0] = lengths;
-				// Rings and borders are hard edges; a soft elevation shadow may fade into a clip.
-				const reach = spread;
-				if (
-					blur > 0 ||
-					reach <= 0 ||
-					/rgba?\([^)]*,\s*0\)|\/\s*0\)/.test(shadow)
-				)
-					continue;
-				extent.top = Math.max(extent.top, reach - y);
-				extent.bottom = Math.max(extent.bottom, reach + y);
-				extent.left = Math.max(extent.left, reach - x);
-				extent.right = Math.max(extent.right, reach + x);
-			}
-			if (css.outlineStyle !== "none") {
-				const reach = px(css.outlineWidth) + px(css.outlineOffset);
-				for (const side of ["top", "right", "bottom", "left"] as const)
-					extent[side] = Math.max(extent[side], reach);
-			}
-			return extent;
-		};
-		const owner = (el: Element) =>
-			el.closest(
-				"[class*='deck'], [class*='feed'], [class*='decision-card'], [class*='card-review'], [data-deck], [data-feed]",
-			)
-				? "deck-feed"
-				: "";
-		const findings: Array<{
-			control: string;
-			kind: "border" | "ring" | "column" | "focus";
-			sides: string;
-			overshoot: number;
-			clipper: string;
-		}> = [];
-		const controls = [
-			...document.querySelectorAll<HTMLElement>(
-				"input:not([type=hidden]), textarea, select, button, a[href], summary, [role=combobox], [role=tab], [role=switch], [role=checkbox], [role=radio], [role=menuitem], [role=option], [contenteditable=true], [tabindex]:not([tabindex='-1'])",
-			),
-		].filter((el) => visible(el) && !(el as HTMLButtonElement).disabled);
-		for (const el of controls) {
-			// Focus can paint on the box or on a pseudo-element (a resize rail's bar).
-			const look = (target: Element) =>
-				[null, "::before", "::after"]
-					.map((pseudo) => {
-						const css = getComputedStyle(target, pseudo);
-						return `${css.outlineStyle === "none" ? "" : `${css.outlineWidth} ${css.outlineColor}`}|${css.boxShadow}|${css.backgroundColor}|${css.borderColor}`;
-					})
-					.join("/");
-			// A dialog may have focused the control already; compare from rest.
-			if (document.activeElement === el) el.blur();
-			const hadFocus = document.activeElement === el;
-			const resting = look(el);
-			el.focus({ preventScroll: true });
-			if (document.activeElement !== el) continue;
-			const rect = el.getBoundingClientRect();
-			const reach = paintExtent(el);
-			const tag = owner(el);
-			const control = `${tag ? "[deck-feed] " : ""}${describe(el)}`;
-			// Buttons, links and tabs must show that they hold focus.
-			if (
-				el.matches("button, a[href], [role=tab]") &&
-				!hadFocus &&
-				look(el) === resting &&
-				!el.matches(":has(:focus-visible)")
-			)
-				findings.push({
-					control,
-					kind: "focus",
-					sides: "",
-					overshoot: 0,
-					clipper: "no focus indicator",
-				});
-			let node: Element | null = el.parentElement;
-			let scrolledAway = false;
-			while (node && node !== document.documentElement) {
-				const css = getComputedStyle(node);
-				const clipsX = css.overflowX !== "visible";
-				const clipsY = css.overflowY !== "visible";
-				if (clipsX || clipsY) {
-					const box = node.getBoundingClientRect();
-					const margin =
-						css.overflowX === "clip" || css.overflowY === "clip"
-							? px(css.overflowClipMargin)
-							: 0;
-					const left = box.left + node.clientLeft - margin;
-					const top = box.top + node.clientTop - margin;
-					const clip = {
-						left,
-						top,
-						right: left + node.clientWidth + 2 * margin,
-						bottom: top + node.clientHeight + 2 * margin,
-					};
-					const scrollsX =
-						css.overflowX !== "hidden" &&
-						css.overflowX !== "clip" &&
-						node.scrollWidth > node.clientWidth + 1;
-					const scrollsY =
-						css.overflowY !== "hidden" &&
-						css.overflowY !== "clip" &&
-						node.scrollHeight > node.clientHeight + 1;
-					const inside = {
-						left: rect.left >= clip.left - 0.5,
-						right: rect.right <= clip.right + 0.5,
-						top: rect.top >= clip.top - 0.5,
-						bottom: rect.bottom <= clip.bottom + 0.5,
-					};
-					const intersects =
-						rect.right > clip.left &&
-						rect.left < clip.right &&
-						rect.bottom > clip.top &&
-						rect.top < clip.bottom;
-					// Scrolled out of this container's view is not clipping; outer clips are moot.
-					if (
-						!intersects ||
-						(scrollsX && !(inside.left && inside.right)) ||
-						(scrollsY && !(inside.top && inside.bottom))
-					)
-						break;
-					// A border box cut on an axis the container cannot scroll is always a defect.
-					const borderCut: string[] = [];
-					let borderOver = 0;
-					for (const [side, axisClips, scrolls, over] of [
-						["left", clipsX, scrollsX, clip.left - rect.left],
-						["right", clipsX, scrollsX, rect.right - clip.right],
-						["top", clipsY, scrollsY, clip.top - rect.top],
-						["bottom", clipsY, scrollsY, rect.bottom - clip.bottom],
-					] as const) {
-						if (axisClips && !scrolls && over > 0.5 && over < 48) {
-							borderCut.push(side);
-							borderOver = Math.max(borderOver, over);
-						}
-					}
-					if (borderCut.length)
-						findings.push({
-							control,
-							kind: "border",
-							sides: borderCut.join(","),
-							overshoot: Math.round(borderOver * 10) / 10,
-							clipper: describe(node),
-						});
-					// A fully visible control whose ring or outline is cut.
-					else if (inside.left && inside.right && inside.top && inside.bottom) {
-						const ringCut: string[] = [];
-						let ringOver = 0;
-						// On a scrolling axis only the scroll extent clips for good;
-						// any other edge is just the current scroll position.
-						const atStart = (scrolls: boolean, offset: number) =>
-							!scrolls || Math.abs(offset) <= 1;
-						const atEnd = (scrolls: boolean, offset: number, max: number) =>
-							!scrolls || Math.abs(offset) >= max - 1;
-						for (const [side, axisClips, over, edge] of [
-							[
-								"left",
-								clipsX,
-								clip.left - (rect.left - reach.left),
-								atStart(scrollsX, node.scrollLeft),
-							],
-							[
-								"right",
-								clipsX,
-								rect.right + reach.right - clip.right,
-								atEnd(
-									scrollsX,
-									node.scrollLeft,
-									node.scrollWidth - node.clientWidth,
-								),
-							],
-							[
-								"top",
-								clipsY,
-								clip.top - (rect.top - reach.top),
-								atStart(scrollsY, node.scrollTop),
-							],
-							[
-								"bottom",
-								clipsY,
-								rect.bottom + reach.bottom - clip.bottom,
-								atEnd(
-									scrollsY,
-									node.scrollTop,
-									node.scrollHeight - node.clientHeight,
-								),
-							],
-						] as const) {
-							if (axisClips && over > 0.5) {
-								if (!edge) scrolledAway = true;
-								else {
-									ringCut.push(side);
-									ringOver = Math.max(ringOver, over);
-								}
-							}
-						}
-						if (ringCut.length)
-							findings.push({
-								control,
-								kind: "ring",
-								sides: ringCut.join(","),
-								overshoot: Math.round(ringOver * 10) / 10,
-								clipper: describe(node),
-							});
-					}
-				}
-				if (scrolledAway) break;
-				if (css.position === "fixed") break;
-				node = node.parentElement;
-			}
-			// Form fields stay inside the parent's content column.
-			if (el.matches("input, textarea, select, [role=combobox]")) {
-				const parent = el.parentElement;
-				if (parent && getComputedStyle(parent).display !== "contents") {
-					const box = parent.getBoundingClientRect();
-					const css = getComputedStyle(parent);
-					const left = box.left + parent.clientLeft + px(css.paddingLeft);
-					const right =
-						box.left +
-						parent.clientLeft +
-						parent.clientWidth -
-						px(css.paddingRight);
-					const over = Math.max(left - rect.left, rect.right - right);
-					if (over > 0.5 && parent.scrollWidth <= parent.clientWidth + 1)
-						findings.push({
-							control,
-							kind: "column",
-							sides: left - rect.left > 0.5 ? "left" : "right",
-							overshoot: Math.round(over * 10) / 10,
-							clipper: describe(parent),
-						});
-				}
-			}
-			el.blur();
-		}
-		return findings;
-	});
+	// The helpers are serialized into the page, where each sees only the
+	// others declared alongside it in this source.
+	return page.evaluate<FocusClipHit[]>(`(() => {
+${describeControl}
+${controlSelector}
+${focusClipAudit}
+return focusClipAudit();
+})()`);
 }
 
 // Normal route crawls miss transient loading and failed first reads.
@@ -601,12 +323,14 @@ async function auditRoute(page: Page, route: string, label: string) {
 		await settle(page);
 		// Keyboard modality, so `:focus-visible` rings paint like a real Tab.
 		await page.keyboard.press("Shift");
-		const record = (
-			hits: Omit<Finding, "route" | "viewport">[],
-			at: string,
-		) => {
+		const record = (hits: FocusClipHit[], at: string) => {
 			for (const hit of hits)
-				findings.push({ route: at, viewport: label, ...hit });
+				findings.push({
+					route: findingRoute(at, origin),
+					url: at,
+					viewport: label,
+					...hit,
+				});
 		};
 		record(await audit(page), route);
 		// Open disclosures (collapsibles, expandable rows) show their panels' controls.
@@ -674,7 +398,8 @@ try {
 	const routes = new Map<string, string>();
 	const narrowed = process.env.FOCUS_CLIP_ROUTES?.split(",").filter(Boolean);
 	if (narrowed)
-		for (const route of narrowed) routes.set(routePattern(route), route);
+		for (const route of narrowed)
+			routes.set(routePattern(route, origin), route);
 	else {
 		const crawlers = await Promise.all(
 			Array.from({ length: CRAWL_PAGES }, () =>
@@ -691,7 +416,7 @@ try {
 					routes.size < MAX_ROUTES
 				) {
 					const next = queue.shift()!;
-					const pattern = routePattern(next);
+					const pattern = routePattern(next, origin);
 					if (routes.has(pattern)) continue;
 					routes.set(pattern, next);
 					batch.push(next);
@@ -718,7 +443,7 @@ try {
 							/^\/(auth|login|logout|cli|oauth|api|browser-tests)\b/.test(href)
 						)
 							continue;
-						if (!routes.has(routePattern(href))) queue.push(href);
+						if (!routes.has(routePattern(href, origin))) queue.push(href);
 					}
 			}
 		} finally {
@@ -762,7 +487,7 @@ try {
 
 	const unique = new Map<string, Finding & { seen: string[] }>();
 	for (const finding of findings) {
-		const key = `${finding.route}|${finding.control}|${finding.kind}`;
+		const key = findingKey(finding);
 		const existing = unique.get(key);
 		if (existing) {
 			if (!existing.seen.includes(finding.viewport))
@@ -786,7 +511,7 @@ try {
 	);
 	for (const hit of report)
 		console.log(
-			`${known(hit) < 0 ? "" : "known  "}${hit.kind.padEnd(6)} ${hit.route} :: ${hit.control} — ${hit.sides} ${hit.overshoot}px by ${hit.clipper} [${hit.seen.join(" ")}]`,
+			`${known(hit) < 0 ? "" : "known  "}${hit.kind.padEnd(6)} ${hit.route} :: ${hit.control} ‹${hit.selector}› — ${hit.sides} ${hit.overshoot}px by ${hit.clipper}${hit.clipperSelector ? ` ‹${hit.clipperSelector}›` : ""} [${hit.seen.join(" ")}]`,
 		);
 	assert.equal(
 		open.length,

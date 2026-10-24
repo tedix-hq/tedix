@@ -17,6 +17,7 @@
 		"ci/upload-artifact.test.ts",
 		"ci/browser-quarantine.mjs",
 		"ci/browser-quarantine.test.ts",
+		"ci/focus-clip-findings.test.ts",
 		"ci/focus-clip-shards.test.ts",
 		"ci/full-suite-hourly.mjs",
 		"ci/full-suite-hourly.test.ts",
