@@ -56,6 +56,40 @@ assert.equal(
 		.taskCount,
 	0,
 );
+// Pi 1.4's sleeping and restart-limited tasks remain visible without leaking checkpoints.
+for (const state of [
+	{ kind: "sleeping", until: 1234 },
+	{ kind: "blocked", reason: "restart_limit" },
+] as const) {
+	const view = projectPiRecovery({
+		sessionKey: "session",
+		conversationId: 1,
+		inspection: {
+			...inspection,
+			tasks: [
+				{
+					...inspection.tasks[0]!,
+					record: {
+						...inspection.tasks[0]!.record,
+						state: {
+							status: "sleeping",
+							until: 1234,
+							checkpoint: "PRIVATE_CHECKPOINT",
+						},
+					},
+					state,
+				},
+			],
+		},
+	});
+	assert.equal(view.tasks[0]?.status, "sleeping");
+	assert.equal(view.tasks[0]?.view, state.kind);
+	assert.equal(
+		view.tasks[0]?.blockedReason,
+		state.kind === "blocked" ? "restart_limit" : null,
+	);
+	assert.ok(!JSON.stringify(view).includes("PRIVATE_"));
+}
 let gets = 0;
 await assert.rejects(
 	inspectExistingPiFacet({

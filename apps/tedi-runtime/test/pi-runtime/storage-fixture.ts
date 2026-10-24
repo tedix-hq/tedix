@@ -1,3 +1,4 @@
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { ConversationFacet } from "../../src/conversation-facet";
 import { ActionReceiptJournal } from "../../src/action-receipts";
 import { responsesFixtureModel } from "./responses-recovery-fixture";
@@ -184,11 +185,11 @@ export class PiStorageFixture extends ConversationFacet {
 			}).inspect(runId),
 			submission: await (
 				await this.piHarness.storage()
-			).submissionByRequest((await this.nativeConversation()).id, runId, {
-				abortSignal: undefined,
-				value: () => undefined,
-				toString: () => "storage-fixture",
-			}),
+			).submissionByRequest(
+				(await this.nativeConversation()).id,
+				runId,
+				BACKGROUND_CONTEXT,
+			),
 		});
 	}
 }

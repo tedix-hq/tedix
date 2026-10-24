@@ -1,3 +1,4 @@
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
 	readPrivateInferenceOrigin,
 	requestInferenceOriginGuard,
@@ -142,11 +143,7 @@ export class PiRuntimeFixture extends Agent<Cloudflare.Env, State> {
 	async enableTool() {
 		this.setState({ ...this.state, toolMode: true });
 		const pi = await this.native.pi();
-		const context = {
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "fixture",
-		};
+		const context = BACKGROUND_CONTEXT;
 		const conversation = await pi.conversation(
 			1 as Parameters<typeof pi.conversation>[0],
 			context,
@@ -518,11 +515,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 	}
 
 	async compactFixture() {
-		const context = {
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "native-compaction-fixture",
-		};
+		const context = BACKGROUND_CONTEXT;
 		const conversation = await this.nativeConversation();
 		const task = await conversation.compact(undefined, context);
 		return JSON.stringify(
@@ -534,11 +527,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 		offset = 0,
 		crossingToolGroup = false,
 	) {
-		const context = {
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "native-compaction-seed",
-		};
+		const context = BACKGROUND_CONTEXT;
 		const conversation = await this.nativeConversation();
 		const history = crossingToolGroup
 			? (await conversation.context(context)).entries.flatMap(
@@ -595,11 +584,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 		return JSON.stringify(await this.ctx.storage.get("pi-protected-head:v1"));
 	}
 	async failureMessages() {
-		const context = {
-			abortSignal: undefined,
-			value: () => undefined,
-			toString: () => "debug",
-		};
+		const context = BACKGROUND_CONTEXT;
 		return JSON.stringify(
 			(await (await this.nativeConversation()).context(context)).messages
 				.filter((message) => message.role === "assistant")
@@ -1435,6 +1420,9 @@ export class ConversationFacet extends PiConversationFixture {
 			payload: { runId },
 		});
 	}
+	async nativeFollowupTime() {
+		return this.lifecycle.jobs.get("wake-followup")?.time ?? null;
+	}
 	async scheduleNativeProbe(time: number) {
 		await this.lifecycle.jobs.push({
 			id: "wake-probe",
@@ -1548,6 +1536,9 @@ export class PiAdmissionParentFixture extends Agent {
 	}
 	async nativeApprovals() {
 		return this.existingChild().pendingToolApprovals();
+	}
+	async nativeFollowupTime() {
+		return this.existingChild().nativeFollowupTime();
 	}
 	async approveNative(approvalId: string) {
 		return this.existingChild().resolveToolApproval({
