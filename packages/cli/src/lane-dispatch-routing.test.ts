@@ -39,6 +39,7 @@ function fixture() {
 	const options: ServeOptions = {
 		executor: "any-local",
 		coordinated: false,
+		acceptProposed: false,
 		max: 1,
 		rules: "rules",
 		repo: dir,

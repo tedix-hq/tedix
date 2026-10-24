@@ -21,6 +21,7 @@ import {
 	retainedLaneWorktree,
 	dispatchSkip,
 	parseServeOptions,
+	proposedAcceptance,
 	serialCalls,
 	type DispatchItem,
 	type ServeOptions,
@@ -55,6 +56,7 @@ const item = (n = 1): DispatchItem => ({
 const options: ServeOptions = {
 	executor: "codex",
 	coordinated: false,
+	acceptProposed: false,
 	max: 2,
 	project: projectId,
 	rules: projectId,
@@ -70,6 +72,8 @@ function fixture({
 	devinReady = true,
 	executor = "codex" as ServeOptions["executor"],
 	coordinated = false,
+	acceptProposed = false,
+	proposed = [] as DispatchItem[],
 } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-dispatch-test-"));
 	dirs.push(dir);
@@ -111,7 +115,7 @@ function fixture({
 		},
 	};
 	let threadNumber = 0;
-	const config = { ...options, executor, coordinated };
+	const config = { ...options, executor, coordinated, acceptProposed };
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		darkWake: () => dark,
 		available: () => true,
@@ -144,9 +148,12 @@ function fixture({
 			const input =
 				inputIndex < 0 ? undefined : JSON.parse(args[inputIndex + 1]!);
 			events.push({ verb, args, env, input });
-			if (verb === "dispatch-list") expect(input.dispatchReadyOnly).toBe(true);
+			if (verb === "dispatch-list" && input.disposition !== "proposed")
+				expect(input.dispatchReadyOnly).toBe(true);
 			let response: unknown;
-			if (verb === "dispatch-list")
+			if (verb === "dispatch-list" && input.disposition === "proposed")
+				response = { data: proposed, pagination: { hasMore: false } };
+			else if (verb === "dispatch-list")
 				response = { data: items, pagination: { hasMore: false } };
 			else if (verb === "dispatch-get")
 				response = {
@@ -407,6 +414,57 @@ describe("dispatcher admission", () => {
 			),
 		).toContain("no ready");
 		expect(dispatchSkip(item(), [], "codex", false)).toBeUndefined();
+	});
+	it("accepts only shift-assigned proposals with a Done when section when asked to", async () => {
+		const shift = {
+			...item(7),
+			disposition: "proposed" as const,
+			description:
+				"Full suite hourly is red.\n\n## Done when\nFull suite hourly is green again on main.\n",
+		};
+		const bare = { ...item(8), disposition: "proposed" as const };
+		const other = {
+			...shift,
+			id: item(9).id,
+			metadata: { executor: "devin" },
+		};
+		expect(proposedAcceptance(shift, "codex")).toBe(
+			"Full suite hourly is green again on main.",
+		);
+		expect(proposedAcceptance(bare, "codex")).toBeUndefined();
+		expect(proposedAcceptance(other, "codex")).toBeUndefined();
+		expect(proposedAcceptance(other, "any-local")).toBe(
+			"Full suite hourly is green again on main.",
+		);
+		expect(proposedAcceptance(item(), "codex")).toBeUndefined();
+		const silent = fixture({ proposed: [shift, bare, other] });
+		await silent.dispatcher.tick();
+		await until(() => silent.releases.length === 2);
+		for (const release of silent.releases) release();
+		await silent.dispatcher.drain();
+		expect(silent.events.some((e) => e.verb === "accept")).toBe(false);
+		const { dispatcher, events, releases } = fixture({
+			acceptProposed: true,
+			proposed: [shift, bare, other],
+		});
+		await dispatcher.tick();
+		await until(() => releases.length === 2);
+		for (const release of releases) release();
+		await dispatcher.drain();
+		const accepts = events.filter((e) => e.verb === "accept");
+		expect(accepts).toHaveLength(1);
+		expect(accepts[0]!.args.slice(6)).toEqual([
+			shift.id,
+			"--done-when",
+			"Full suite hourly is green again on main.",
+		]);
+		expect(accepts[0]!.env.TEDIX_AGENT_SESSION).toBeUndefined();
+		expect(() =>
+			parseServeOptions(["--executor", "codex", "--accept-proposed"], {
+				TEDIX_WORKSPACE: "acme",
+				TEDIX_ORGANIZATION: "org_acme",
+			} as never),
+		).toThrow("--accept-proposed requires --project");
 	});
 	it("admits the native Claude identity before launch and settles through the same dispatcher", async () => {
 		const { dispatcher, events, releases } = fixture({

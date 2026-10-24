@@ -111,9 +111,34 @@ export function dispatchSkip(
 		return `Possible human-reserved action; needs an owner comment: Delegation: ${item.metadata?.executor} work-version=${item.version} <bounded delegation note>`;
 }
 
+/**
+ * The done-when a dispatcher may accept a proposed item with: the item is
+ * assigned to this executor and its description carries a `## Done when`
+ * section. Anything else stays proposed for a human.
+ */
+export function proposedAcceptance(
+	item: Pick<DispatchItem, "disposition" | "description" | "metadata">,
+	executor: ServeOptions["executor"],
+): string | undefined {
+	if (item.disposition !== "proposed") return;
+	const assigned = String(item.metadata?.executor ?? "");
+	if (
+		executor === "any-local"
+			? !localExecutors.includes(assigned as LocalExecutor)
+			: assigned !== executor
+	)
+		return;
+	const match = /^## Done when\s*\n([\s\S]*?)(?=\n## |$)/m.exec(
+		item.description ?? "",
+	);
+	const done = match?.[1]?.trim();
+	return done && done.length <= 2000 ? done : undefined;
+}
+
 export interface ServeOptions {
 	executor: LocalExecutor | "any-local";
 	coordinated: boolean;
+	acceptProposed: boolean;
 	max: number;
 	project?: string;
 	routingConfig?: string;
@@ -130,6 +155,7 @@ export function parseServeOptions(
 	const result: ServeOptions = {
 		executor: "codex",
 		coordinated: false,
+		acceptProposed: false,
 		max: 5,
 		rules: "lane-rules",
 		repo: process.cwd(),
@@ -152,6 +178,10 @@ export function parseServeOptions(
 		}
 		if (key === "--coordinated") {
 			result.coordinated = true;
+			continue;
+		}
+		if (key === "--accept-proposed") {
+			result.acceptProposed = true;
 			continue;
 		}
 		if (
@@ -198,6 +228,8 @@ export function parseServeOptions(
 		);
 	if (!Number.isSafeInteger(result.max) || result.max < 1 || result.max > 100)
 		throw new Error("--max must be an integer from 1 to 100");
+	if (result.acceptProposed && !result.project)
+		throw new Error("--accept-proposed requires --project");
 	if (!result.scope.includes("--workspace")) {
 		const workspace = env.TEDIX_WORKSPACE || getCurrentWorkspace();
 		if (!workspace) throw new Error("Select a workspace");
@@ -709,6 +741,8 @@ export class LaneDispatcher {
 		const orphaned = retained.filter(
 			(row) => row.pid && alive(row.pid) && !this.running.has(row.itemId),
 		).length;
+		if (this.options.acceptProposed && this.options.project)
+			await this.acceptProposedWork();
 		while (!this.stopping && this.running.size + orphaned < this.options.max) {
 			const page = await this.call<{
 				data: DispatchItem[];
@@ -794,6 +828,39 @@ export class LaneDispatcher {
 			offset += page.data.length;
 			if (!page.data.length)
 				throw new Error("Dispatch pagination made no progress");
+		}
+	}
+	/**
+	 * Proposed Work in the pinned project that a shift assigned to this executor
+	 * and gave a `## Done when` section is accepted with that text as its
+	 * contract, under the dispatcher's own login. Acceptance stays separate from
+	 * admission: the accepted item is picked up by a later page like any other.
+	 */
+	private async acceptProposedWork() {
+		const page = await this.call<{ data: DispatchItem[] }>([
+			"work",
+			"dispatch-list",
+			"--input",
+			JSON.stringify({
+				disposition: "proposed",
+				...(this.options.executor === "any-local"
+					? { executor: [...localExecutors] }
+					: { executor: this.options.executor }),
+				projectId: this.options.project,
+				limit: 25,
+				offset: 0,
+			}),
+		]);
+		for (const item of Array.isArray(page.data) ? page.data : []) {
+			if (this.stopping) break;
+			const done = proposedAcceptance(item, this.options.executor);
+			if (!done) continue;
+			try {
+				await this.call(["work", "accept", item.id, "--done-when", done]);
+				this.log("accepted", item.id, "Shift-assigned proposal accepted");
+			} catch (error) {
+				this.log("accept-failed", item.id, String(error));
+			}
 		}
 	}
 	private async execute(candidate: DispatchItem, previous?: Receipt) {
@@ -1449,7 +1516,7 @@ export function mergeDispatcherReceipts(directory: string, sources: string[]) {
 export async function runLaneServe(args: string[]): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--rules <OS skill UUID|slug>] [--repo path] [--install] [--once]",
+			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--install] [--once]",
 		);
 		return 0;
 	}
