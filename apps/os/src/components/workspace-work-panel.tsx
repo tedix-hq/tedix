@@ -5,7 +5,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { Alert } from "@/components/kumo/alert";
 import { Empty } from "@/components/kumo/empty";
 import { WorkspaceListRow } from "./workspace-list-row";
@@ -635,70 +635,82 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 				) : (
 					<>
 						{scheduled.length ? (
-							<div className="min-w-0 overflow-x-auto rounded-lg border border-kumo-line">
-								<div className="min-w-[52rem]">
-									<div className="grid grid-cols-[16rem_1fr] border-b border-kumo-line">
-										<Text role="label" tone="secondary" className="p-3">
-											Scheduled work
-										</Text>
-										<div className="grid grid-cols-7 border-l border-kumo-line">
-											{Array.from({ length: 7 }, (_, index) => (
+							<section
+								aria-label="Scheduled work"
+								className="min-w-0 rounded-lg border border-kumo-line"
+							>
+								<div className="hidden grid-cols-[16rem_minmax(0,1fr)] border-b border-kumo-line sm:grid">
+									<Text role="label" tone="secondary" className="p-3">
+										Scheduled work
+									</Text>
+									<div className="grid grid-cols-7 border-l border-kumo-line">
+										{Array.from({ length: 7 }, (_, index) => (
+											<Text
+												role="label"
+												tone="secondary"
+												key={index}
+												className="border-l border-kumo-line px-2 py-3 first:border-l-0"
+											>
+												{dateLabel(rangeStart + (span * index) / 7)}
+											</Text>
+										))}
+									</div>
+								</div>
+								{scheduled.map((item) => {
+									const duration = item.durationDays ?? 1;
+									const dates = `${dateLabel(item.startAt!)} · ${duration} ${duration === 1 ? "day" : "days"}`;
+									const barClassName =
+										"min-w-0 sm:absolute sm:top-2 sm:left-[var(--timeline-start)] sm:w-[var(--timeline-width)] sm:overflow-hidden";
+									return (
+										<div
+											key={item.id}
+											className="grid min-w-0 gap-2 border-b border-kumo-line p-3 last:border-b-0 sm:grid-cols-[16rem_minmax(0,1fr)] sm:gap-0 sm:p-0"
+											style={
+												{
+													"--timeline-start": `${((Date.parse(item.startAt!) - rangeStart) / span) * 100}%`,
+													"--timeline-width": `${((duration * DAY) / span) * 100}%`,
+												} as CSSProperties
+											}
+										>
+											<div className="min-w-0 sm:p-3">
+												<ItemLink item={item} />
+											</div>
+											<div className="relative min-w-0 sm:min-h-12 sm:border-l sm:border-kumo-line sm:bg-[linear-gradient(to_right,var(--color-kumo-line)_1px,transparent_1px)] sm:bg-[size:14.285714%_100%]">
 												<Text
 													role="label"
 													tone="secondary"
-													key={index}
-													className="border-l border-kumo-line px-2 py-3 first:border-l-0"
+													className="mb-2 sm:hidden"
 												>
-													{dateLabel(rangeStart + (span * index) / 7)}
+													{dates}
 												</Text>
-											))}
-										</div>
-									</div>
-									{scheduled.map((item) => (
-										<div
-											key={item.id}
-											className="grid grid-cols-[16rem_1fr] border-b border-kumo-line last:border-b-0"
-										>
-											<div className="truncate p-3">
-												<ItemLink item={item} />
-											</div>
-											<div className="relative min-h-12 border-l border-kumo-line bg-[linear-gradient(to_right,var(--color-kumo-line)_1px,transparent_1px)] bg-[size:14.285714%_100%]">
 												{canSchedule(item) ? (
 													<Button
 														variant="default"
 														size="sm"
-														className="absolute top-2 overflow-hidden"
-														style={{
-															left: `${((Date.parse(item.startAt!) - rangeStart) / span) * 100}%`,
-															width: `${(((item.durationDays ?? 1) * DAY) / span) * 100}%`,
-															minWidth: 0,
-														}}
+														className={barClassName}
 														aria-label={`Schedule ${item.title}`}
-														title={`${item.title}: ${dateLabel(item.startAt!)} · ${item.durationDays ?? 1} days`}
+														title={`${item.title}: ${dates}`}
 														onClick={() => setScheduledItem(item)}
 													>
-														{item.durationDays ?? 1}d
+														<span className="sm:hidden">Edit dates</span>
+														<span className="hidden sm:inline">
+															{duration}d
+														</span>
 													</Button>
 												) : (
-													<span
-														className="absolute top-2 overflow-hidden rounded-md bg-kumo-tint px-2 py-1"
-														style={{
-															left: `${((Date.parse(item.startAt!) - rangeStart) / span) * 100}%`,
-															width: `${(((item.durationDays ?? 1) * DAY) / span) * 100}%`,
-															minWidth: 0,
-														}}
-														title={`${item.title}: ${dateLabel(item.startAt!)} · ${item.durationDays ?? 1} days`}
+													<Badge
+														variant="secondary"
+														className={`${barClassName} hidden sm:inline-flex`}
+														title={`${item.title}: ${dates}`}
 													>
-														<Text as="span" role="label" tone="secondary">
-															{item.durationDays ?? 1}d
-														</Text>
-													</span>
+														{duration}d
+													</Badge>
 												)}
 											</div>
 										</div>
-									))}
-								</div>
-							</div>
+									);
+								})}
+							</section>
 						) : (
 							<Text tone="secondary">
 								Schedule a work item to start your timeline.

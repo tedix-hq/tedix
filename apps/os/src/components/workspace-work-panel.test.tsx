@@ -87,7 +87,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
 	for (const cleanup of cleanups.splice(0)) cleanup();
 });
-async function renderPanel(terminal = false) {
+async function renderPanel(terminal = false, scheduled = false) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
@@ -121,8 +121,8 @@ async function renderPanel(terminal = false) {
 						projectId: id,
 						disposition: terminal ? "completed" : "proposed",
 						priority: "high",
-						startAt: null,
-						durationDays: null,
+						startAt: scheduled ? "2026-10-24T00:00:00.000Z" : null,
+						durationDays: scheduled ? 3 : null,
 						version: 1,
 					},
 				],
@@ -212,6 +212,19 @@ describe("Workspace work", () => {
 		expect(
 			host.querySelector('[aria-label="Schedule finance task"]'),
 		).toBeNull();
+	});
+
+	it("shows scheduled dates and duration without relying on a bar tooltip", async () => {
+		const host = await renderPanel(false, true);
+		await act(async () => button("Timeline").click());
+		expect(host.textContent).toContain("Oct 24 · 3 days");
+		const schedule = host.querySelector<HTMLButtonElement>(
+			'[aria-label="Schedule finance task"]',
+		)!;
+		await act(async () => schedule.click());
+		expect(
+			document.querySelector<HTMLInputElement>('input[type="date"]')?.value,
+		).toBe("2026-10-24");
 	});
 
 	it("offers a date editor directly from unscheduled work", async () => {
