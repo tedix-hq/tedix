@@ -71,7 +71,7 @@ export async function signMediaUrl(opts: {
 		tokenMessage(opts.runId, opts.path, exp, downloadName),
 	);
 	const u = new URL(
-		`/skill-media/${encodeURIComponent(opts.runId)}/${opts.path}`,
+		`/skill-media/${encodeURIComponent(opts.runId)}/${opts.path.split("/").map(encodeURIComponent).join("/")}`,
 		opts.baseUrl,
 	);
 	u.searchParams.set("exp", String(exp));
