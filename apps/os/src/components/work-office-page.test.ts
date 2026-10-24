@@ -9,9 +9,16 @@ import {
 	lessonSubject,
 	sessionActivity,
 	sessionsFromKnocks,
+	officeHasMoreKnocks,
 } from "./work-office-page";
 
 describe("office helpers", () => {
+	it("preserves pagination when a page has more unfiltered knocks", () => {
+		expect(officeHasMoreKnocks({ hasMore: true })).toBe(true);
+		expect(officeHasMoreKnocks({ hasMore: false })).toBe(false);
+		expect(officeHasMoreKnocks(undefined)).toBe(false);
+	});
+
 	it("writes the capture health line", () => {
 		expect(captureHealthLine({ turns: 3, drafts: 1, lessons: 0 })).toBe(
 			"Health: 3 turns · 1 drafts · 0 lessons today",

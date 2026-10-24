@@ -70,6 +70,12 @@ import { cn } from "@/lib/utils";
 /** Knocks whose answer is looked up (one detail read each). */
 const KNOCKS_SHOWN = 12;
 
+export function officeHasMoreKnocks(
+	data: { hasMore?: boolean } | null | undefined,
+): boolean {
+	return Boolean(data?.hasMore);
+}
+
 function isToday(iso: string | null | undefined, since: string) {
 	if (!iso) return false;
 	const at = Date.parse(normalizeD1Timestamp(iso));
@@ -183,7 +189,7 @@ function useTodayKnocks(since: string) {
 	return {
 		knocks,
 		rows,
-		more: Boolean(knocks.data?.hasMore && rows.length === 100),
+		more: officeHasMoreKnocks(knocks.data),
 	};
 }
 
