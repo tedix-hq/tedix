@@ -23,7 +23,9 @@ export function healthResponseError(
 	}
 	if (
 		mode === "worker" &&
-		(health.runtime === "fixtures" || typeof health.deployedSha !== "string")
+		(health.runtime === "fixtures" ||
+			typeof health.deployedSha !== "string" ||
+			health.deployedSha.trim().length === 0)
 	) {
 		return "expected OS Worker; stop fixtures and start the Worker-backed OS";
 	}
