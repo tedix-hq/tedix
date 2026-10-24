@@ -25,6 +25,25 @@ export type ToolCollision = {
 	lastSeen: string | null;
 };
 
+const DEFAULT_REPORT_HOURS = 24;
+const MAX_REPORT_HOURS = 168;
+
+export function parseReportHours(args: string[]): number {
+	const hoursIndex = args.indexOf("--hours");
+	if (hoursIndex < 0) return DEFAULT_REPORT_HOURS;
+
+	const value = args[hoursIndex + 1];
+	if (!value || !/^[1-9]\d*$/.test(value)) {
+		throw new Error("--hours must be a positive plain decimal number");
+	}
+
+	const hours = Number(value);
+	if (!Number.isSafeInteger(hours) || hours > MAX_REPORT_HOURS) {
+		throw new Error(`--hours must be at most ${MAX_REPORT_HOURS}`);
+	}
+	return hours;
+}
+
 export function groupToolCollisions(events: CollisionEvent[]): ToolCollision[] {
 	const byKey = new Map<string, ToolCollision>();
 	for (const event of events) {
@@ -112,11 +131,7 @@ async function fetchCollisionEvents(hours: number): Promise<CollisionEvent[]> {
 
 if (import.meta.main) {
 	const args = process.argv.slice(2);
-	const hoursIndex = args.indexOf("--hours");
-	const hours = hoursIndex >= 0 ? Number(args[hoursIndex + 1]) : 24;
-	if (!Number.isFinite(hours) || hours <= 0) {
-		throw new Error("--hours must be a positive number");
-	}
+	const hours = parseReportHours(args);
 	const collisions = groupToolCollisions(await fetchCollisionEvents(hours));
 	if (args.includes("--json")) {
 		console.log(JSON.stringify({ hours, collisions }, null, 2));
