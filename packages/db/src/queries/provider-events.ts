@@ -142,6 +142,7 @@ export async function listProviderEventChannels(
 			and(
 				eq(channels.organizationId, organizationId),
 				eq(channels.subscriptionId, subscriptionId),
+				ne(channels.status, "stopped"),
 			),
 		)
 		.orderBy(desc(channels.createdAt))
