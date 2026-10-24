@@ -9,6 +9,9 @@ import { SlideImageUploadButton } from "@/components/slide-insert-library";
 /** The inset surface the toggle adds: the schema's own defaults. */
 const SLIDE_INSET_SURFACE = { color: "#ffffff", inset: 24, radius: 8 };
 
+/** A complete six-digit hex colour, the form the colour swatch stores. */
+const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
+
 /** Dot grid opacity from a typed value: cleared when empty or zero. */
 function slideDotGridOpacity(raw: string): number | undefined {
 	const value = Number(raw);
@@ -32,19 +35,38 @@ export function SlideBackgroundControls({
 	onBackgroundImageFile: (file: File) => void;
 }) {
 	const [opacityDraft, setOpacityDraft] = useState<string | null>(null);
+	const [hexDraft, setHexDraft] = useState<string | null>(null);
 	const image = slide.backgroundImage;
 	return (
 		<>
-			<SlideField label="Background">
-				<Input
-					type="color"
-					aria-label="Slide background"
-					disabled={disabled}
-					value={slide.background}
-					onChange={(event) =>
-						onChangeSlide({ ...slide, background: event.target.value })
-					}
-				/>
+			<SlideField label="Page colour">
+				<span className="slide-colour-field">
+					<Input
+						type="color"
+						aria-label="Slide background"
+						disabled={disabled}
+						value={slide.background}
+						onChange={(event) =>
+							onChangeSlide({ ...slide, background: event.target.value })
+						}
+					/>
+					<Input
+						aria-label="Slide background hex"
+						className="font-mono uppercase"
+						maxLength={7}
+						spellCheck={false}
+						disabled={disabled}
+						value={hexDraft ?? slide.background}
+						onChange={(event) => {
+							const raw = event.target.value.trim();
+							setHexDraft(raw);
+							const hex = raw.startsWith("#") ? raw : `#${raw}`;
+							if (HEX_COLOUR.test(hex))
+								onChangeSlide({ ...slide, background: hex.toLowerCase() });
+						}}
+						onBlur={() => setHexDraft(null)}
+					/>
+				</span>
 			</SlideField>
 			<SlideField label="Dot grid opacity">
 				<Input

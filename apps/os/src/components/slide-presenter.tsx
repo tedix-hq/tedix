@@ -10,6 +10,7 @@ import type { OsPresentationDeck } from "@tedix/api-contract/schemas/os-workspac
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { ReadOnlyElement } from "@/components/output-slide-element";
+import { useSlideEntrance, useSlideSwipe } from "@/components/slide-motion";
 import { bareKey, slideNavigationTarget } from "@/components/slide-navigation";
 
 function trapFocus(
@@ -93,6 +94,12 @@ export function SlidePresenter({
 	const handleKeyRef = useRef(handleKey);
 	handleKeyRef.current = handleKey;
 	const dialogRef = useRef<HTMLDivElement>(null);
+	const canvasRef = useRef<HTMLDivElement>(null);
+	useSlideEntrance(canvasRef, slide?.id, index);
+	const swipe = useSlideSwipe(
+		() => go(index - 1),
+		() => go(index + 1),
+	);
 	const openerRef = useRef<HTMLElement | null>(
 		typeof document !== "undefined" &&
 			document.activeElement instanceof HTMLElement
@@ -149,9 +156,21 @@ export function SlidePresenter({
 					Exit
 				</Button>
 			</div>
+			<div
+				className="slides-present-progress"
+				role="progressbar"
+				aria-label="Presentation progress"
+				aria-valuemin={1}
+				aria-valuemax={deck.slides.length}
+				aria-valuenow={index + 1}
+				style={{
+					transform: `scaleX(${(index + 1) / deck.slides.length})`,
+				}}
+			/>
 			<div className="slides-present-body">
-				<div className="slides-present-stage">
+				<div className="slides-present-stage" {...swipe}>
 					<div
+						ref={canvasRef}
 						className="slides-editor-canvas relative overflow-hidden"
 						style={{
 							background: slide.background,

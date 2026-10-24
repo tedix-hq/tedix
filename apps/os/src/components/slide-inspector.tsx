@@ -3,13 +3,15 @@ import {
 	ArrowUp,
 	CaretRight,
 	Copy,
+	CursorClick,
 	Trash,
 } from "@phosphor-icons/react";
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
@@ -29,7 +31,11 @@ import {
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import type { SlideElementAction } from "@/components/slide-element-actions";
-import { SlideImageUploadButton } from "@/components/slide-insert-library";
+import {
+	SlideComponentPalette,
+	slideComponentFor,
+	SlideImageUploadButton,
+} from "@/components/slide-insert-library";
 import {
 	SLIDE_FONT_FAMILIES,
 	slideFieldValue,
@@ -382,6 +388,8 @@ export function SlideInspector({
 	onAction,
 	onImageFile,
 	onBackgroundImageFile,
+	onInsert,
+	onUploadImage,
 }: {
 	slide: OsPresentationCanvasSlide;
 	element: OsPresentationElement | null;
@@ -393,42 +401,94 @@ export function SlideInspector({
 	onAction: (action: SlideElementAction) => void;
 	onImageFile: (file: File) => void;
 	onBackgroundImageFile: (file: File) => void;
+	/** Adds an element from the palette; without it the palette is hidden. */
+	onInsert?: (type: OsPresentationElementType) => void;
+	onUploadImage?: (file: File) => void;
 }) {
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const fields = element ? slideInspectorFields(element.type) : null;
+	const selected = element !== null;
+	// The palette leads while nothing is selected; once a block is selected its
+	// own fields lead and the palette folds away under them.
+	const [paletteOpen, setPaletteOpen] = useState(!selected);
+	useEffect(() => setPaletteOpen(!selected), [selected]);
+	const component = element ? slideComponentFor(element.type) : null;
+	const ElementIcon = component?.icon;
+	const slideSection = (
+		<section aria-label="Slide" className="slide-inspector-section">
+			<h3 className="slide-inspector-heading">Slide</h3>
+			<SlideField label="Slide name">
+				<Input
+					id="slide-name"
+					aria-label="Slide name"
+					value={slide.name}
+					disabled={disabled}
+					onChange={(event) =>
+						onChangeSlide({
+							...slide,
+							name: event.target.value.slice(0, 200),
+						})
+					}
+				/>
+			</SlideField>
+			<SlideBackgroundControls
+				slide={slide}
+				disabled={disabled}
+				onChangeSlide={onChangeSlide}
+				onBackgroundImageFile={onBackgroundImageFile}
+			/>
+		</section>
+	);
 	return (
 		<>
 			<div className="slide-inspector-scroll grid min-h-0 content-start gap-3 overflow-y-auto p-3">
-				<SlideField label="Slide name">
-					<Input
-						id="slide-name"
-						aria-label="Slide name"
-						value={slide.name}
-						disabled={disabled}
-						onChange={(event) =>
-							onChangeSlide({
-								...slide,
-								name: event.target.value.slice(0, 200),
-							})
-						}
-					/>
-				</SlideField>
-
-				<SlideBackgroundControls
-					slide={slide}
-					disabled={disabled}
-					onChangeSlide={onChangeSlide}
-					onBackgroundImageFile={onBackgroundImageFile}
-				/>
+				{onInsert ? (
+					<Collapsible
+						open={paletteOpen}
+						onOpenChange={setPaletteOpen}
+						className="slide-inspector-section"
+					>
+						<CollapsibleTrigger className="slide-inspector-heading slide-inspector-toggle w-full">
+							<CaretRight
+								size={11}
+								className="slide-inspector-caret"
+								data-open={paletteOpen || undefined}
+							/>
+							Add component
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<div className="pt-1">
+								<SlideComponentPalette
+									disabled={disabled}
+									onInsert={onInsert}
+									onUploadImage={onUploadImage}
+								/>
+							</div>
+						</CollapsibleContent>
+					</Collapsible>
+				) : null}
+				{element ? null : slideSection}
 				{element && fields ? (
 					<section
 						aria-label={`${element.type} element`}
-						className="grid gap-3"
+						className="slide-inspector-section slide-inspector-selection"
 						data-inspector-element={element.type}
 					>
-						<Text role="body" weight="medium" className="m-0 capitalize">
-							{element.type}
-						</Text>
+						<div className="flex min-w-0 items-center gap-2">
+							{ElementIcon ? (
+								<span className="slide-palette-icon" aria-hidden>
+									<ElementIcon size={16} />
+								</span>
+							) : null}
+							<span className="grid min-w-0">
+								<Text role="body" weight="medium" className="m-0 capitalize">
+									{component?.name ?? element.type}
+								</Text>
+								<Text role="caption" tone="secondary" className="m-0" truncate>
+									Selected block
+								</Text>
+							</span>
+						</div>
 						{fields.basic.map((field) => (
 							<InspectorField
 								key={`${element.id}-${field.kind}-${field.label}`}
@@ -470,11 +530,18 @@ export function SlideInspector({
 						</Collapsible>
 					</section>
 				) : (
-					<Text role="label" tone="secondary" className="m-0">
-						Select an element to edit its type, colour and layout. Arrow keys
-						nudge it; Shift moves 10 px.
-					</Text>
+					<div className="slide-inspector-empty" role="note">
+						<CursorClick size={20} aria-hidden className="text-kumo-subtle" />
+						<Text role="label" weight="medium" className="m-0">
+							Nothing selected
+						</Text>
+						<Text role="caption" tone="secondary" className="m-0">
+							Click any block on the slide to edit its text, colour and layout.
+							Arrow keys nudge a selected block; Shift moves 10 px.
+						</Text>
+					</div>
 				)}
+				{element ? slideSection : null}
 				<SlideField label="Speaker notes">
 					<Textarea
 						aria-label="Speaker notes"

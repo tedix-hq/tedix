@@ -349,9 +349,10 @@ describe("SlidesEditor", () => {
 		});
 		const option = Array.from(
 			document.querySelectorAll('[role="menuitem"]'),
-		).find((candidate) => candidate.textContent === "Four card") as
-			| HTMLElement
-			| undefined;
+		).find(
+			(candidate) =>
+				candidate.getAttribute("data-slide-layout") === "four-card",
+		) as HTMLElement | undefined;
 		expect(option).toBeDefined();
 		await act(async () => {
 			option?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
@@ -383,18 +384,23 @@ describe("SlidesEditor", () => {
 			).find((button) => button.textContent?.trim() === panel);
 			act(() => toggle?.click());
 		}
-		// The toolbar keeps disabled controls focusable, so the menu trigger
-		// reports aria-disabled rather than the native attribute.
+		// Toolbar controls stay focusable and report aria-disabled; the rail's
+		// Add slide uses the native attribute. Either way it cannot add.
+		const isDisabled = (element: Element | null | undefined) =>
+			(element as HTMLButtonElement | null | undefined)?.disabled === true ||
+			element?.getAttribute("aria-disabled") === "true";
 		expect(
-			mounted.container
-				.querySelector('[aria-label="New slide template"]')
-				?.getAttribute("aria-disabled"),
-		).toBe("true");
+			isDisabled(
+				mounted.container.querySelector('[aria-label="New slide template"]'),
+			),
+		).toBe(true);
 		expect(
-			Array.from(mounted.container.querySelectorAll("button"))
-				.find((button) => button.textContent?.trim() === "Add slide")
-				?.getAttribute("aria-disabled"),
-		).toBe("true");
+			isDisabled(
+				Array.from(mounted.container.querySelectorAll("button")).find(
+					(button) => button.textContent?.trim() === "Add slide",
+				),
+			),
+		).toBe(true);
 		expect(
 			mounted.container.querySelector<HTMLTextAreaElement>(
 				'[aria-label="Speaker notes"]',
@@ -551,7 +557,10 @@ describe("SlidesEditor", () => {
 				/^\.slides-editor-thumbnails \[aria-current\] \{[^}]*\}/m,
 			)?.[0] ?? "";
 		expect(current).toContain("--color-kumo-line: var(--color-kumo-focus)");
-		expect(current).toContain("background: var(--tedix-paper)");
+		// A light brand tint over the white paper: still a light fill.
+		expect(current).toMatch(
+			/background: color-mix\(\s*in srgb,\s*var\(--color-kumo-brand\) \d%,\s*var\(--tedix-paper\)\s*\)/,
+		);
 
 		// The rail itself must stay light enough that the shared
 		// `--text-color-kumo-default` ink reads on it.
