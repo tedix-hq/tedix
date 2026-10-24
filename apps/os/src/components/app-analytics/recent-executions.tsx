@@ -197,14 +197,17 @@ function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
 			{(data.actor || data.clientId || data.source === "analytics_engine") && (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-kumo-subtle text-tedix-caption">
 					{data.attribution ? (
-						<span title={data.attribution.actor.id}>
+						<span
+							className="min-w-0 max-w-full [overflow-wrap:anywhere]"
+							title={data.attribution.actor.id}
+						>
 							by{" "}
 							<Text as="span" role="caption" tone="default">
 								{data.attribution.summary}
 							</Text>
 						</span>
 					) : data.actor ? (
-						<span>
+						<span className="min-w-0 max-w-full [overflow-wrap:anywhere]">
 							by{" "}
 							<Text
 								as="span"
@@ -222,7 +225,7 @@ function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
 						</span>
 					) : null}
 					{data.clientId && (
-						<span>
+						<span className="min-w-0 max-w-full [overflow-wrap:anywhere]">
 							via{" "}
 							<Text as="span" role="caption" tone="mono">
 								{data.clientId}
@@ -230,7 +233,12 @@ function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
 						</span>
 					)}
 					{data.traceId && (
-						<Text as="span" role="caption" tone="mono" className="opacity-70">
+						<Text
+							as="span"
+							role="caption"
+							tone="mono"
+							className="min-w-0 max-w-full [overflow-wrap:anywhere] opacity-70"
+						>
 							trace {data.traceId}
 						</Text>
 					)}
