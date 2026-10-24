@@ -17,7 +17,7 @@ const browser = await chromium.launch({ headless: true });
 const started = performance.now();
 let checks = 0;
 try {
-	for (const width of [375, 390, 1280]) {
+	for (const width of [320, 375, 390, 1280]) {
 		for (const theme of ["light", "dark"]) {
 			const page = await browser.newPage({
 				viewport: { width, height: 900 },
@@ -35,12 +35,18 @@ try {
 					lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
 					scrollWidth: element.scrollWidth,
 					width: element.clientWidth,
+					scrollHeight: element.scrollHeight,
+					clientHeight: element.clientHeight,
 					text: element.textContent ?? "",
 				});
+				const descriptions = [
+					...document.querySelectorAll<HTMLElement>("[data-row-description]"),
+				];
 				return {
-					descriptions: [
-						...document.querySelectorAll<HTMLElement>("[data-row-description]"),
-					].map(measure),
+					descriptions: descriptions.map(measure),
+					titles: descriptions.map((description) =>
+						measure(description.previousElementSibling as HTMLElement),
+					),
 					overflow: document.documentElement.scrollWidth - innerWidth,
 				};
 			});
@@ -50,15 +56,16 @@ try {
 				metrics.descriptions.some(({ text }) => text === narrowToken),
 				`${width}/${theme}: exact narrow token row is rendered`,
 			);
-			for (const description of metrics.descriptions) {
+			for (const copy of [...metrics.titles, ...metrics.descriptions]) {
 				assert.ok(
-					description.scrollWidth <= description.width,
-					`${width}/${theme}: clipped description ${description.text}`,
+					copy.scrollWidth <= copy.width &&
+						copy.scrollHeight <= copy.clientHeight,
+					`${width}/${theme}: clipped destination copy ${copy.text}`,
 				);
 				assert.equal(
-					description.whiteSpace,
+					copy.whiteSpace,
 					"normal",
-					`${width}/${theme}: nowrap description ${description.text}`,
+					`${width}/${theme}: nowrap destination copy ${copy.text}`,
 				);
 			}
 			if (width < 600) {
