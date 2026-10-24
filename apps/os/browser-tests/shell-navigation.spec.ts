@@ -192,10 +192,19 @@ await runShellSpec(
 					"Websites",
 					"Memory",
 				]);
-				assert.equal(
-					await sidebar.locator('[data-sidebar="group-label"]').count(),
-					0,
+				const pinned = sidebar.getByRole("list", { name: "Pinned workspaces" });
+				await pinned
+					.getByRole("button", { name: "Revenue Ops", exact: true })
+					.waitFor();
+				assert.deepEqual(
+					await sidebar
+						.locator('[data-sidebar="group-label"]')
+						.allTextContents(),
+					["Pinned workspaces"],
 				);
+				await sidebar
+					.getByRole("button", { name: "Recent workspaces", exact: true })
+					.waitFor();
 				assert.equal(
 					await sidebar.locator('[data-sidebar="footer"] a').count(),
 					0,
