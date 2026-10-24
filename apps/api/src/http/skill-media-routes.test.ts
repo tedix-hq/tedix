@@ -61,3 +61,59 @@ describe("signed skill-media paths", () => {
 		expect(getRunArtifact).not.toHaveBeenCalled();
 	});
 });
+
+describe("malformed stored MIME metadata", () => {
+	const sign = (path: string) =>
+		signMediaUrl({
+			baseUrl: "https://media.example.test",
+			secret: env.SECRETS_MASTER_KEY,
+			runId: "run-1",
+			path,
+			nowMs: Date.now(),
+		});
+
+	it("answers 415, not a thrown response, when the media JSON mimeType breaks headers", async () => {
+		getRunArtifact.mockResolvedValue({
+			mimeType: "application/json",
+			contentInline: JSON.stringify({
+				value: {
+					imageBase64: "SGVsbG8=",
+					mimeType: "image/png\r\nSet-Cookie: session=evil",
+				},
+			}),
+			contentR2Key: null,
+		});
+		const { url } = await sign("outputs/a.json");
+		const response = await app.request(url, undefined, env);
+		expect(response.status).toBe(415);
+	});
+
+	it("answers 415 when the media JSON mimeType is not a string", async () => {
+		getRunArtifact.mockResolvedValue({
+			mimeType: "application/json",
+			contentInline: JSON.stringify({
+				value: { imageBase64: "SGVsbG8=", mimeType: 123 },
+			}),
+			contentR2Key: null,
+		});
+		const { url } = await sign("outputs/a.json");
+		const response = await app.request(url, undefined, env);
+		expect(response.status).toBe(415);
+	});
+
+	it("answers 415 when the stored R2 artifact mimeType breaks headers", async () => {
+		getRunArtifact.mockResolvedValue({
+			mimeType: "image/png\r\nSet-Cookie: session=evil",
+			contentInline: null,
+			contentR2Key: "run-1/outputs/generate-image.media",
+		});
+		const { url } = await sign("outputs/generate-image.media");
+		const response = await app.request(url, undefined, {
+			...env,
+			SKILL_ARTIFACTS: {
+				get: async () => new Response("image bytes"),
+			},
+		} as CloudflareEnv);
+		expect(response.status).toBe(415);
+	});
+});
