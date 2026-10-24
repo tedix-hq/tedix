@@ -14,6 +14,7 @@
  * session with no unambiguous binding is skipped and counted, never guessed.
  * After the upload the caller's own decisions are mined into personal lessons.
  */
+import { readNumberOption } from "./option-values";
 import { unknownOptionError } from "./unknown-option";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -744,9 +745,8 @@ export async function runLearnCommand(
 	const sinceArg = option(args, "--since");
 	const since = sinceArg ? parseLearningDate(sinceArg, "--since") : undefined;
 	const limitArg = option(args, "--limit");
-	const limit = limitArg ? Number(limitArg) : undefined;
-	if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
-		throw new Error("--limit must be a positive integer");
+	const limit =
+		limitArg === undefined ? undefined : readNumberOption("--limit", limitArg);
 	const dryRun = args.includes("--dry-run");
 	const json = args.includes("--json");
 
