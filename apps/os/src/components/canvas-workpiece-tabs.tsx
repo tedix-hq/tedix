@@ -163,6 +163,7 @@ export function CanvasWorkpieceTabs({
 							className="shrink-0"
 							onClick={() => onClose(key)}
 							size="icon-sm"
+							tabIndex={-1}
 							variant="ghost"
 						>
 							<X size={12} />
