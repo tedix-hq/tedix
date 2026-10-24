@@ -90,8 +90,8 @@ export function selectGuidanceSkills<
  *   nothing; the rebuilt block lands before the next turn reads it. A skill
  *   recorded during a session is therefore visible on the following turn
  *   instead of four hours later. Only one refresh is ever in flight.
- * - **Cold cache → build blocking, exactly as before.** Cold-start latency is
- *   unchanged; the first turn is not left skill-blind.
+ * - **Cold cache → await the shared refresh.** Overlapping cold turns pay
+ *   for one lookup; the first turn is not left skill-blind.
  * - **Empty catalog → remember that** for {@link SKILL_GUIDANCE_EMPTY_TTL_MS}.
  *   This is strictly cheaper than the previous behaviour, where an empty block
  *   was falsy and so re-ran the full build on EVERY turn.
@@ -123,11 +123,11 @@ export class SkillGuidanceTurnGate {
 	 */
 	async textForTurn(cachedText: string): Promise<string> {
 		if (cachedText) {
-			this.refreshBehindTurn();
+			if (!this.inFlight) this.background(this.refresh());
 			return cachedText;
 		}
 		if (this.now() < this.emptyUntilMs) return "";
-		const text = await this.build().catch(() => "");
+		const text = await this.refresh();
 		if (!text) this.emptyUntilMs = this.now() + SKILL_GUIDANCE_EMPTY_TTL_MS;
 		return text;
 	}
@@ -137,15 +137,13 @@ export class SkillGuidanceTurnGate {
 		this.emptyUntilMs = 0;
 	}
 
-	private refreshBehindTurn(): void {
-		if (this.inFlight) return;
-		const task = this.build().catch(() => "");
-		this.inFlight = task;
-		this.background(
-			task.finally(() => {
+	private refresh(): Promise<string> {
+		this.inFlight ??= this.build()
+			.catch(() => "")
+			.finally(() => {
 				this.inFlight = null;
-			}),
-		);
+			});
+		return this.inFlight;
 	}
 }
 

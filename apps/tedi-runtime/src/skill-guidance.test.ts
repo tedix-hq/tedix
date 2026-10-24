@@ -410,6 +410,37 @@ function makeGateHarness(catalog: { text: string }) {
 	);
 }
 
+for (const warmFirst of [false, true]) {
+	let builds = 0;
+	let resolve!: (text: string) => void;
+	const background: Promise<unknown>[] = [];
+	const gate = new SkillGuidanceTurnGate({
+		build: () => {
+			builds++;
+			return new Promise<string>((done) => {
+				resolve = done;
+			});
+		},
+		background: (task) => background.push(task),
+	});
+	if (warmFirst) {
+		assert.equal(await gate.textForTurn("cached"), "cached");
+	}
+	const first = gate.textForTurn("");
+	const second = gate.textForTurn("");
+	assert.equal(builds, 1, "cold reads share the pending cold or warm refresh");
+	resolve("fresh guidance");
+	assert.deepEqual(await Promise.all([first, second]), [
+		"fresh guidance",
+		"fresh guidance",
+	]);
+	await Promise.all(background);
+	const next = gate.textForTurn("");
+	assert.equal(builds, 2, "a settled refresh releases the in-flight slot");
+	resolve("next guidance");
+	assert.equal(await next, "next guidance");
+}
+
 {
 	// Cost guard: a warm turn never waits on the platform, and turns that land
 	// while a refresh is still in flight do not each start another one.
@@ -482,6 +513,9 @@ function makeGateHarness(catalog: { text: string }) {
 		2,
 		"an expired negative cache pays for one lookup",
 	);
+	h.gate.invalidateEmpty();
+	await h.gate.textForTurn("");
+	assert.equal(h.buildCount(), 3, "invalidation bypasses the empty TTL");
 }
 
 {
@@ -502,6 +536,32 @@ function makeGateHarness(catalog: { text: string }) {
 		"",
 		"a failed cold build yields no block",
 	);
+}
+
+for (const fails of [false, true]) {
+	let builds = 0;
+	let finish!: () => void;
+	const gate = new SkillGuidanceTurnGate({
+		build: () => {
+			builds++;
+			return new Promise<string>((resolve, reject) => {
+				finish = () =>
+					fails ? reject(new Error("platform down")) : resolve("");
+			});
+		},
+		background: () => assert.fail("cold reads must await their refresh"),
+	});
+	const turns = [gate.textForTurn(""), gate.textForTurn("")];
+	assert.equal(builds, 1, "empty and failed cold reads share one build");
+	finish();
+	assert.deepEqual(await Promise.all(turns), ["", ""]);
+	assert.equal(await gate.textForTurn(""), "");
+	assert.equal(builds, 1, "empty and failed results retain the negative cache");
+	gate.invalidateEmpty();
+	const next = gate.textForTurn("");
+	assert.equal(builds, 2, "invalidation releases an empty or failed refresh");
+	finish();
+	assert.equal(await next, "");
 }
 
 assert.equal(
