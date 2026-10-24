@@ -43,14 +43,14 @@ export function createSkillReadTool(
 		execute: async ({ slug, id }): Promise<Record<string, unknown>> => {
 			if (!slug && !id)
 				return { ok: false, error: "Provide either slug or id" };
-			const platform = await getPlatform();
-			if (!platform)
-				return {
-					ok: false,
-					error:
-						"Platform client not available — tedi identity may not be resolved yet",
-				};
 			try {
+				const platform = await getPlatform();
+				if (!platform)
+					return {
+						ok: false,
+						error:
+							"Platform client not available — tedi identity may not be resolved yet",
+					};
 				const result = await platform.getSkillForMcp(
 					slug ? { slug } : { id: id! },
 				);
