@@ -184,6 +184,7 @@ export async function requestJson(
 ): Promise<Record<string, unknown> | null> {
 	const response = await fetch(url, {
 		...init,
+		redirect: "manual",
 		signal: AbortSignal.timeout(15_000),
 		headers: {
 			Authorization: `Bearer ${token}`,
