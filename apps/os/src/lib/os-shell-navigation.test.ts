@@ -56,7 +56,6 @@ describe("OS shell navigation", () => {
 		);
 
 		expect(gateways).toBeDefined();
-		expect(isOsShellNavigationItemActive(gateways!, "/gateways")).toBe(true);
 		expect(isOsShellNavigationItemActive(gateways!, "/apps")).toBe(true);
 		expect(isOsShellNavigationItemActive(gateways!, "/apps/app-1/tools")).toBe(
 			true,
@@ -109,7 +108,7 @@ describe("OS shell navigation", () => {
 				"/skills",
 				"Research",
 			],
-			["/apps/app-1/tools", { app: "Calendar" }, "/gateways", "Calendar"],
+			["/apps/app-1/tools", { app: "Calendar" }, "/apps", "Calendar"],
 			[
 				"/workspace/workspace-1",
 				{ workspace: "Revenue Ops" },

@@ -46,12 +46,7 @@ await runShellSpec(
 						"/skills",
 						null,
 					],
-					[
-						"app",
-						"/apps/00000080-0000-4000-8000-000000000001",
-						"/gateways",
-						null,
-					],
+					["app", "/apps/00000080-0000-4000-8000-000000000001", "/apps", null],
 					["billing", "/admin/billing", "/admin", "Billing"],
 					[
 						"workspace",

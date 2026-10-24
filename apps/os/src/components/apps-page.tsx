@@ -892,12 +892,31 @@ export function AppsPage({
 					<PageHeading>
 						<PageTitle>{surface.label}</PageTitle>
 						<PageDescription>
-							Apps installed for this organization. Accounts and tool
-							permissions are managed separately.
+							Apps this organization uses. The accounts they sign in with are
+							under Accounts.
 						</PageDescription>
 					</PageHeading>
 				</PageHeader>
 				<CapabilityNavigation active="installed" />
+				{gatewayMemberships.data?.gateway ? (
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						data-gateway-line=""
+						className="m-0 break-words"
+					>
+						Tedix reaches these apps through one gateway,{" "}
+						{gatewayMemberships.data.gateway.name}.{" "}
+						<Link
+							to="/apps/$appId"
+							params={{ appId: gatewayMemberships.data.gateway.id }}
+							className="text-kumo-link underline-offset-2 hover:underline"
+						>
+							Gateway details
+						</Link>
+					</Text>
+				) : null}
 			</div>
 
 			<PageSection>

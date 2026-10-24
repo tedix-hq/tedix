@@ -133,7 +133,7 @@ const OS_SURFACES = [
 		get label() {
 			return OS_COPY.navigation.gateways;
 		},
-		path: "/gateways",
+		path: "/apps",
 		get description() {
 			return navigationDescription(
 				"gateways",
@@ -417,8 +417,9 @@ export const OS_PAGES: readonly OsPage[] = [
 		titleKey: "skill",
 	},
 	{
-		id: "apps",
-		path: "/apps",
+		// Former gateway list; the route redirects to Apps (the surface above).
+		id: "gateways-redirect",
+		path: "/gateways",
 		get label() {
 			return OS_COPY.navigation.gateways;
 		},

@@ -6,6 +6,7 @@ import {
 	CAPABILITY_NAV_CLASSNAME,
 	CAPABILITY_NAV_EDGE_TOLERANCE,
 	CAPABILITY_NAV_ITEMS,
+	CAPABILITY_SUB_NAV_ITEMS,
 	CAPABILITY_NAV_TRACK_CLASSNAME,
 	CAPABILITY_NAV_VIEWPORT_CLASSNAME,
 	getCapabilityNavOverflowState,
@@ -31,13 +32,46 @@ async function renderNavigation(
 describe("CapabilityNavigation", () => {
 	it("keeps the shared capability destinations in their stable order", () => {
 		expect(CAPABILITY_NAV_ITEMS.map((item) => item.id)).toEqual([
-			"gateway",
-			"installed",
-			"browse",
+			"apps",
+			"accounts",
 			"skills",
-			"organization",
-			"personal",
 		]);
+		expect(
+			Object.values(CAPABILITY_SUB_NAV_ITEMS).flatMap((views) =>
+				views.map((view) => view.to),
+			),
+		).toEqual([
+			"/apps",
+			"/explore/apps",
+			"/admin/connections",
+			"/account/connections",
+		]);
+	});
+
+	it.each([
+		["installed", "Apps", "In use"],
+		["browse", "Apps", "Browse and add"],
+		["organization", "Accounts", "Organization"],
+		["personal", "Accounts", "Only you"],
+	] as const)(
+		"marks the %s view inside its tab",
+		async (view, tab, current) => {
+			const container = await renderNavigation(view);
+			expect(
+				[...container.querySelectorAll('[aria-current="page"]')].map(
+					(link) => link.textContent,
+				),
+			).toEqual([tab, current]);
+			container.remove();
+		},
+	);
+
+	it("names no gateway tab", () => {
+		expect(
+			CAPABILITY_NAV_ITEMS.some((item) =>
+				/gateway|connection/i.test(item.label),
+			),
+		).toBe(false);
 	});
 
 	it("uses one contained horizontal rail and reveals the active route", () => {
@@ -132,7 +166,7 @@ describe("CapabilityNavigation", () => {
 
 	it("uses real Kumo route links instead of button-role anchors", async () => {
 		const container = await renderNavigation("skills");
-		const links = [...container.querySelectorAll("nav a")];
+		const links = [...container.querySelectorAll("nav[data-capability-nav] a")];
 		expect(links.map((link) => link.getAttribute("href"))).toEqual(
 			CAPABILITY_NAV_ITEMS.map((item) => item.to),
 		);

@@ -93,7 +93,7 @@ describe("App Store migration", () => {
 		expect(host.querySelector('[data-slot="page"]')?.className).toBe(
 			kumoClass(<Page width="xl" />),
 		);
-		expect(host.textContent).toContain("Browse apps");
+		expect(host.textContent).toContain("Browse and add");
 		// The overview section lives behind the diagnostics disclosure.
 		const diagnostics = [...host.querySelectorAll<HTMLElement>("button")].find(
 			(button) => button.textContent?.trim() === "Catalog diagnostics",
