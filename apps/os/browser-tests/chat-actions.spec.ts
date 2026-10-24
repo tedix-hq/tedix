@@ -42,11 +42,11 @@ try {
 	await waitForFixtureServer(origin, { server });
 	browser = await chromium.launch({ headless: true });
 	if (screenshots) await mkdir(screenshots, { recursive: true });
-	for (const width of [1280, 390]) {
+	for (const width of [1280, 390, 375]) {
 		for (const theme of ["light", "dark"]) {
 			const context = await browser.newContext({
 				viewport: { width, height: 900 },
-				hasTouch: width === 390,
+				hasTouch: width < 1280,
 				permissions: ["clipboard-read", "clipboard-write"],
 				colorScheme: theme as "light" | "dark",
 			});
@@ -67,6 +67,13 @@ try {
 				await page.getByText("Copy response", { exact: true }).count(),
 				0,
 			);
+			assert.equal(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				true,
+				`chat stays within the ${width}px viewport`,
+			);
 			const actions = page.locator('[data-slot="chat-message-actions"]').last();
 			assert.equal(
 				await actions.evaluate((el) => getComputedStyle(el).opacity),
@@ -86,7 +93,7 @@ try {
 				name: "Details",
 				exact: true,
 			});
-			if (width === 390) {
+			if (width < 1280) {
 				const box = await details.boundingBox();
 				assert(
 					box && box.width >= 44 && box.height >= 44,
@@ -182,7 +189,7 @@ try {
 		}
 	}
 	console.log(
-		"Chat actions passed: clipboard, focus, scroll, deep links, legacy redirect, light/dark at 1280/390.",
+		"Chat actions passed: clipboard, focus, scroll, deep links, legacy redirect, light/dark at 1280/390/375.",
 	);
 } finally {
 	await browser?.close();
