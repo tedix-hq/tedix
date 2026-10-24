@@ -345,10 +345,13 @@ try {
 					path: `${shots}/deck-${size}-${colorScheme}.png`,
 				});
 			// CI can sample an entrance animation after the old fixed delay.
-			await page.locator(".fd-deck-current .fd-card").evaluate((card) => {
-				card.animate([{ transform: "scale(0.98)" }, { transform: "none" }], {
-					duration: 1_000,
-				});
+			await page.locator(".fd-deck-current .fd-card").evaluate(async (card) => {
+				await card.animate(
+					[{ transform: "scale(0.98)" }, { transform: "none" }],
+					{
+						duration: 1_000,
+					},
+				).finished;
 			});
 			await settle(page);
 			const animated = await measure(page);
