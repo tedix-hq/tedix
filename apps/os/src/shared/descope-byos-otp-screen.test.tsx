@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -51,6 +52,22 @@ function button(label: string): HTMLButtonElement {
 }
 
 describe("TedixByosOtpScreen", () => {
+	it("stacks full-width secondary actions at the phone breakpoint", () => {
+		const styles = readFileSync("src/styles.css", "utf8");
+		const breakpoint = styles.indexOf("@media (max-width: 560px)");
+		const phoneRules = styles.slice(
+			breakpoint,
+			styles.indexOf("/* Standalone", breakpoint),
+		);
+
+		expect(breakpoint).toBeGreaterThan(-1);
+		expect(phoneRules).toContain(".identity-otp-actions {");
+		expect(phoneRules).toContain("flex-direction: column;");
+		expect(phoneRules).toContain(".identity-otp-actions > button {");
+		expect(phoneRules).toContain("width: 100%;");
+		expect(phoneRules).toContain("min-height: 44px;");
+	});
+
 	it("verifies a 6-digit code through the consent OTP interaction", async () => {
 		const next = vi.fn().mockResolvedValue({ ok: true });
 		act(() => root.render(<TedixByosOtpScreen context={{}} next={next} />));
