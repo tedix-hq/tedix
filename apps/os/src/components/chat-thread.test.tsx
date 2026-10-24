@@ -3124,6 +3124,38 @@ describe("<ChatThread> skill picker", () => {
 		expect(options[0]?.textContent).toContain("Deploy runbook");
 	});
 
+	it("owns and announces the active suggestion without moving focus", async () => {
+		skillsApi.listByOrg.mockResolvedValue({
+			entries: [
+				REACHABLE_SKILL,
+				{ ...REACHABLE_SKILL, id: "skill-review", slug: "review" },
+			],
+			total: 2,
+		});
+		const { container } = mountThread();
+		await flush();
+		const composer = composerTextarea(container);
+		composer.focus();
+
+		typeDraft(container, "/");
+		await flush();
+		const options = pickerOptions(container);
+		const listbox = container.querySelector('[role="listbox"]');
+		expect(composer.getAttribute("role")).toBe("combobox");
+		expect(composer.getAttribute("aria-expanded")).toBe("true");
+		expect(composer.getAttribute("aria-controls")).toBe(listbox?.id);
+		expect(options.map((option) => option.tabIndex)).toEqual([-1, -1]);
+
+		pressKey(container, "ArrowDown");
+		expect(composer.getAttribute("aria-activedescendant")).toBe(options[0]?.id);
+		expect(document.activeElement).toBe(composer);
+
+		pressKey(container, "Escape");
+		expect(composer.getAttribute("aria-expanded")).toBe("false");
+		expect(composer.hasAttribute("aria-activedescendant")).toBe(false);
+		expect(container.querySelector('[role="listbox"]')).toBeNull();
+	});
+
 	it("submits plain slash text instead of confirming a pick", async () => {
 		skillsApi.listByOrg.mockResolvedValue({
 			entries: [REACHABLE_SKILL],

@@ -15,6 +15,7 @@ import type { ComposerSkill } from "@/lib/chat-skill-picker";
 export function ChatSkillPicker({
 	activeIndex,
 	error,
+	listboxId,
 	loading,
 	onRetry,
 	onSelect,
@@ -24,6 +25,7 @@ export function ChatSkillPicker({
 	 *  confirms from a highlighted row, so plain slash text still submits. */
 	activeIndex: number;
 	error: boolean;
+	listboxId: string;
 	loading: boolean;
 	onRetry: () => void;
 	onSelect: (skill: ComposerSkill) => void;
@@ -60,6 +62,7 @@ export function ChatSkillPicker({
 				) : (
 					<ul
 						ref={list}
+						id={listboxId}
 						role="listbox"
 						aria-label="Skills"
 						className="m-0 flex list-none flex-col gap-0.5 p-0"
@@ -67,9 +70,11 @@ export function ChatSkillPicker({
 						{skills.map((skill, index) => (
 							<li key={skill.id} role="none">
 								<Button
+									id={`${listboxId}-option-${index}`}
 									type="button"
 									role="option"
 									aria-selected={index === activeIndex}
+									tabIndex={-1}
 									variant={index === activeIndex ? "secondary" : "ghost"}
 									// The composer must keep focus: a blur here swallows the
 									// next Enter exactly the way a disabled send control does.

@@ -28,6 +28,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useId,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -1500,6 +1501,7 @@ export function ChatThread({
 	// confirmation writes the canonical `/skill <slug>` reference into the
 	// message itself, which the kernel's operator-slash parser understands.
 	const skillTrigger = draftPickerTrigger(draft);
+	const skillListboxId = useId();
 	const [skillPickerDismissed, setSkillPickerDismissed] = useState(false);
 	const [skillActiveIndex, setSkillActiveIndex] = useState(-1);
 	const skillCatalog = useQuery({
@@ -1528,6 +1530,8 @@ export function ChatThread({
 		skillTrigger !== null &&
 		!skillPickerDismissed &&
 		(skillCatalog.isPending || skillCatalog.isError || skillMatches.length > 0);
+	const skillListboxOpen =
+		skillPickerOpen && !skillCatalog.isPending && !skillCatalog.isError;
 	// Pills are a pure projection of the durable text through the shared parser,
 	// so a hand-edited draft and the pill row can never disagree.
 	const referencedSlugs = useMemo(() => parseSkillReferences(draft), [draft]);
@@ -2013,6 +2017,7 @@ export function ChatThread({
 					<ChatSkillPicker
 						activeIndex={skillActiveIndex}
 						error={skillCatalog.isError}
+						listboxId={skillListboxId}
 						loading={skillCatalog.isPending}
 						onRetry={() => void skillCatalog.refetch()}
 						onSelect={confirmSkill}
@@ -2118,6 +2123,15 @@ export function ChatThread({
 					<Textarea
 						ref={composerRef}
 						aria-label="Message"
+						role="combobox"
+						aria-autocomplete="list"
+						aria-expanded={skillListboxOpen}
+						aria-controls={skillListboxOpen ? skillListboxId : undefined}
+						aria-activedescendant={
+							skillListboxOpen && skillActiveIndex >= 0
+								? `${skillListboxId}-option-${skillActiveIndex}`
+								: undefined
+						}
 						placeholder="Message your Tedix OS…"
 						value={draft}
 						onValueChange={updateDraft}
