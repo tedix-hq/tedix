@@ -256,6 +256,17 @@ async function isApiReady(signal: AbortSignal): Promise<boolean> {
 	}
 }
 
+async function isMcpReady(signal: AbortSignal): Promise<boolean> {
+	try {
+		const response = await fetch(`${LOCAL_MCP_URL}/health`, { signal });
+		if (!response.ok) return false;
+		const body = (await response.json()) as Record<string, unknown>;
+		return body.status === "ok" && body.service === "mcp";
+	} catch {
+		return false;
+	}
+}
+
 async function isOsReady(signal: AbortSignal): Promise<boolean> {
 	try {
 		const response = await fetch(LOCAL_OS_URL, { signal });
@@ -320,9 +331,16 @@ export function waitForLocalApi(timeoutMs = READY_TIMEOUT_MS): Promise<void> {
 	return waitUntilReady(isApiReady, timeoutMs, "The local API");
 }
 
+export function waitForLocalMcp(timeoutMs = READY_TIMEOUT_MS): Promise<void> {
+	return waitUntilReady(isMcpReady, timeoutMs, "The local MCP gateway");
+}
+
 export function waitForLocalDemo(timeoutMs = READY_TIMEOUT_MS): Promise<void> {
 	return waitUntilReady(
-		async (signal) => (await isApiReady(signal)) && (await isOsReady(signal)),
+		async (signal) =>
+			(await isApiReady(signal)) &&
+			(await isMcpReady(signal)) &&
+			(await isOsReady(signal)),
 		timeoutMs,
 		"Local Tedix",
 	);
