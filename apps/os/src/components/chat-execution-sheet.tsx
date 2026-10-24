@@ -1,4 +1,4 @@
-import { Info, X } from "@phosphor-icons/react";
+import { Info } from "@phosphor-icons/react";
 import {
 	createContext,
 	lazy,
@@ -55,7 +55,6 @@ function ChatExecutionSheet({
 			<SheetContent
 				side={mobile ? "bottom" : "right"}
 				size="md"
-				showCloseButton={false}
 				className={mobile ? "max-h-[85dvh] rounded-t-xl" : "sm:w-full"}
 				finalFocus={trigger ? () => trigger : undefined}
 			>
@@ -67,21 +66,6 @@ function ChatExecutionSheet({
 						</SheetDescription>
 						{runId ? <HomeRunIdentity runId={runId} /> : null}
 					</div>
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-sm"
-									aria-label="Close"
-									icon={<X size={16} />}
-									onClick={onClose}
-								/>
-							}
-						/>
-						<TooltipContent>Close</TooltipContent>
-					</Tooltip>
 				</SheetHeader>
 				{runId ? (
 					<Suspense fallback={<Skeleton className="mx-4 h-32 sm:mx-6" />}>

@@ -239,13 +239,6 @@
 }
 
 /* Phone sheet: the same list, full-size rows, no rail. */
-.workspace-outputs-sheet-header.workspace-outputs-sheet-header {
-	flex-direction: row;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 12px;
-}
-
 .workspace-outputs-sheet .workspace-outputs-body {
 	padding: 0 12px 16px;
 }

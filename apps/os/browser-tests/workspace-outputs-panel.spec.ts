@@ -211,7 +211,7 @@ try {
 				rowBox && rowBox.height >= 44,
 				`${label}: sheet rows are finger-sized`,
 			);
-			const close = sheet.getByRole("button", { name: "Close outputs" });
+			const close = sheet.getByRole("button", { name: "Close", exact: true });
 			assert(
 				await close.evaluate((node) => {
 					const box = node.getBoundingClientRect();

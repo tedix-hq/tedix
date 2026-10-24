@@ -78,22 +78,24 @@ function SheetContent({
 				)}
 				{...props}
 			>
-				{children}
 				{showCloseButton && (
-					<SheetPrimitive.Close
-						render={
-							<Button
-								aria-label="Close"
-								className="absolute top-4 right-4"
-								size="icon-sm"
-								variant="ghost"
-							/>
-						}
-					>
-						<XIcon aria-hidden className="size-4" />
-						<span className="sr-only">Close</span>
-					</SheetPrimitive.Close>
+					<div className="pointer-events-none sticky top-0 z-20 h-0 shrink-0">
+						<SheetPrimitive.Close
+							render={
+								<Button
+									aria-label="Close"
+									className="pointer-events-auto absolute top-4 right-4 min-h-11 min-w-11"
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
+						>
+							<XIcon aria-hidden className="size-4" />
+							<span className="sr-only">Close</span>
+						</SheetPrimitive.Close>
+					</div>
 				)}
+				{children}
 			</SheetPrimitive.Popup>
 		</SheetPortal>
 	);

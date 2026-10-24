@@ -521,7 +521,7 @@ try {
 							);
 							await capture(page, receipt, "detail");
 							const close = dialog.getByRole("button", {
-								name: "Close memory details",
+								name: "Close",
 								exact: true,
 							});
 							const bounds = await close.boundingBox();
