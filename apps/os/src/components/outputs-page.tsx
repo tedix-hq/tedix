@@ -265,7 +265,7 @@ function OutputCard(props: OutputCardProps) {
 			variant="ghost"
 			aria-label={cardLabel}
 			onClick={props.onOpen}
-			className="output-card-open absolute inset-0 z-0 h-full w-full rounded-[inherit] bg-transparent p-0 hover:bg-transparent"
+			className="output-card-open absolute inset-px z-0 h-auto w-auto rounded-[inherit] bg-transparent p-0 hover:bg-transparent"
 		/>
 	) : null;
 	if (props.layout === "list") {
