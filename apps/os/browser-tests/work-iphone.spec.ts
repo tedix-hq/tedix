@@ -265,6 +265,27 @@ try {
 		"Office fixture support read should resolve",
 	);
 	await office.close();
+	for (const colorScheme of ["light", "dark"] as const) {
+		const context = await browser.newContext({
+			viewport: { width: 1280, height: 800 },
+			colorScheme,
+			reducedMotion: "reduce",
+		});
+		await context.addInitScript(
+			(theme) => localStorage.setItem("tedix-os-theme", theme),
+			colorScheme,
+		);
+		const page = await context.newPage();
+		await page.goto(`${origin}/work/capacity`);
+		await page.locator("[data-slot=card] strong").first().waitFor();
+		await settle(page);
+		assert.deepEqual(
+			await layoutFailures(page),
+			[],
+			`1280x800 ${colorScheme} capacity layout`,
+		);
+		await context.close();
+	}
 	for (const [size, device, viewport] of [
 		["390x844", devices["iPhone 13"], { width: 390, height: 844 }],
 		["375x667", devices["iPhone 8"], { width: 375, height: 667 }],
@@ -325,6 +346,22 @@ try {
 			};
 
 			for (const [path, ready] of PAGES) await check(path, ready);
+			if (viewport.width === 390) {
+				await check("/work/capacity", "[data-slot=card] strong");
+				const holder = page
+					.locator("[data-slot=card] p")
+					.filter({ hasText: "fictional west warehouse" })
+					.first();
+				assert.equal(await holder.count(), 1, `${label}: no capacity holder`);
+				const holderOverflow = await holder.evaluate((node) => ({
+					clientWidth: node.clientWidth,
+					scrollWidth: node.scrollWidth,
+				}));
+				if (holderOverflow.scrollWidth > holderOverflow.clientWidth + 1)
+					failures.push(
+						`/work/capacity: holder details are ${holderOverflow.scrollWidth}px wide in a ${holderOverflow.clientWidth}px row`,
+					);
+			}
 			for (const path of [
 				"/work?app=agents",
 				"/work?app=office",

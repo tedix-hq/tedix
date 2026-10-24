@@ -4374,10 +4374,11 @@ const handlers: Record<string, (input: never) => unknown> = {
 								{
 									attemptId: fid("b4", 1),
 									workItemId: workItemId(1),
-									workTitle: "Review the Maple Books delivery notes",
+									workTitle:
+										"Coordinate the fictional west warehouse overnight capacity handoff",
 									executorType: "tedi",
 									executorId: TEDI_NOVA,
-									externalSessionKey: null,
+									externalSessionKey: `external:session_${"x".repeat(96)}`,
 									quantity: 2,
 									// Whole minutes, so two reads of the same pool agree.
 									expiresAt: new Date(

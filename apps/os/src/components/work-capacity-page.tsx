@@ -144,10 +144,19 @@ export function ResourceHolders({
 			</Text>
 		);
 	return (
-		<div className="mt-2 grid gap-1">
+		<div className="mt-2 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
 			{details.holders.map((holder) => (
-				<Text as="p" role="body" key={holder.attemptId}>
-					<Link variant="record" href={`/work/items/${holder.workItemId}`}>
+				<Text
+					as="p"
+					role="body"
+					className="min-w-0 max-w-full break-words [overflow-wrap:anywhere]"
+					key={holder.attemptId}
+				>
+					<Link
+						variant="record"
+						className="max-w-full [overflow-wrap:anywhere]"
+						href={`/work/items/${holder.workItemId}`}
+					>
 						{holder.workTitle}
 					</Link>
 					{" · "}
@@ -169,7 +178,12 @@ export function ResourceHolders({
 						{absoluteTime(holder.expiresAt)}
 					</time>
 					{holder.externalSessionKey ? (
-						<Text as="span" role="label" tone="secondary">
+						<Text
+							as="span"
+							role="label"
+							tone="secondary"
+							className="[overflow-wrap:anywhere]"
+						>
 							{" "}
 							· {holder.externalSessionKey}
 						</Text>
