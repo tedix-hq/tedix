@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	GC_EVERY_MS,
 	gcDue,
@@ -15,6 +15,7 @@ import {
 	retryRefusal,
 	selectTrain,
 	STALE_MS,
+	ticketKey,
 	tryAcquire,
 	waitNote,
 } from "./push-queue";
@@ -263,5 +264,19 @@ describe("daily worktree gc", () => {
 		const old = (now - GC_EVERY_MS - 1000) / 1000;
 		utimesSync(stamp, old, old);
 		expect(gcDue(stamp, now)).toBe(true);
+	});
+});
+
+describe("push ticket key", () => {
+	test("prefers TEDIX_WORK_ID over the commit trailer", () => {
+		const cwd = process.cwd();
+		const previous = process.env.TEDIX_WORK_ID;
+		process.env.TEDIX_WORK_ID = "explicit-item";
+		try {
+			expect(ticketKey(cwd)).toBe(`${resolve(cwd)}|explicit-item`);
+		} finally {
+			if (previous === undefined) delete process.env.TEDIX_WORK_ID;
+			else process.env.TEDIX_WORK_ID = previous;
+		}
 	});
 });

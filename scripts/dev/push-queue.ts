@@ -197,7 +197,7 @@ export function retryRefusal(
 
 export function ticketKey(cwd: string): string {
 	const workItem =
-		process.env.TEDIX_WORK_ITEM?.trim() ||
+		process.env.TEDIX_WORK_ID?.trim() ||
 		git(["log", "-1", "--format=%B"], false, cwd).out.match(
 			/^Work-Item:\s*(\S+)/m,
 		)?.[1] ||
