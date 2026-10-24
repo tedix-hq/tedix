@@ -324,8 +324,8 @@ try {
 					.locator("[data-card-feedback-content]")
 					.first()
 					.evaluate((content) => {
-						if (document.activeElement instanceof HTMLElement)
-							document.activeElement.blur();
+						content.setAttribute("tabindex", "-1");
+						(content as HTMLElement).focus();
 						const node = document
 							.createTreeWalker(content, NodeFilter.SHOW_TEXT)
 							.nextNode()!;
@@ -334,16 +334,28 @@ try {
 						range.setEnd(node, 10);
 						window.getSelection()!.removeAllRanges();
 						window.getSelection()!.addRange(range);
-						if (!matchMedia("(pointer: coarse)").matches)
-							content.dispatchEvent(
-								new MouseEvent("mouseup", { bubbles: true }),
-							);
+						content.dispatchEvent(
+							new KeyboardEvent("keyup", { bubbles: true }),
+						);
 					});
 			};
 			await selectGreeting();
 			const pill = page.getByRole("dialog", {
 				name: "Comment on selected text",
 			});
+			await page.waitForFunction(
+				() =>
+					document.activeElement?.getAttribute("aria-label") ===
+					"Comment on selected text",
+			);
+			await page.keyboard.press("Escape");
+			await pill.waitFor({ state: "hidden" });
+			await page.waitForFunction(
+				() =>
+					document.activeElement?.matches("[data-card-feedback-content]") ===
+					true,
+			);
+			await selectGreeting();
 			if (screenshotDirectory)
 				await page.screenshot({
 					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-selection.png`,

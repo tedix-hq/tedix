@@ -72,8 +72,25 @@ export function CardRevisionPanel({
 		left: number;
 	} | null>(null);
 	const [comment, setComment] = useState("");
+	const selectionDialog = useRef<HTMLDivElement>(null);
+	const selectionReturnFocus = useRef<HTMLElement | null>(null);
 	const field = contentKind === "plan" ? "plan" : "draft";
 	const options = OS_COPY.cardRevisionChips[contentKind];
+	useEffect(() => {
+		const frame = requestAnimationFrame(() => {
+			if (selection) {
+				selectionReturnFocus.current =
+					document.activeElement instanceof HTMLElement
+						? document.activeElement
+						: null;
+				selectionDialog.current?.focus();
+				return;
+			}
+			selectionReturnFocus.current?.focus();
+			selectionReturnFocus.current = null;
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [selection]);
 	const addComment = (chip?: string) => {
 		if (!selection || (!chip && !comment.trim()) || anchors.length >= 20)
 			return;
@@ -326,8 +343,10 @@ export function CardRevisionPanel({
 			{selection &&
 				createPortal(
 					<div
+						ref={selectionDialog}
 						role="dialog"
 						aria-label="Comment on selected text"
+						tabIndex={-1}
 						className="fixed z-50 grid w-80 max-w-[calc(100vw-32px)] gap-2 rounded-xl border border-kumo-line bg-kumo-base p-3 shadow-lg"
 						style={{ top: selection.top, left: selection.left }}
 						onKeyDown={(event) => {
