@@ -94,6 +94,31 @@ function main() {
 		"header counts ALL turns, not just digest",
 	);
 
+	const boundedTranscript = [
+		{ role: "user" as const, content: "first" },
+		{ role: "assistant" as const, content: "second" },
+	];
+	for (const maxLines of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+		const bounded = buildVoiceCallRecap({
+			transcript: boundedTranscript,
+			maxLines,
+		});
+		assert.equal(
+			bounded,
+			"[Voice call] Live browser voice call ended (2 turns).",
+			`invalid transcript-line budget ${maxLines} omits the digest`,
+		);
+	}
+	const fractional = buildVoiceCallRecap({
+		transcript: boundedTranscript,
+		maxLines: 1.9,
+	});
+	assert.deepEqual(
+		fractional.split("\n").slice(1),
+		["- assistant: second"],
+		"fractional transcript-line budget rounds down",
+	);
+
 	console.log("voice-recap.test.ts: all assertions passed");
 }
 
