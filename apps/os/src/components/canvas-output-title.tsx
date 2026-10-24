@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Input } from "@/components/kumo/input";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 
@@ -20,6 +20,7 @@ export function CanvasOutputTitle({
 	disabled?: boolean;
 }) {
 	const queryClient = useQueryClient();
+	const errorId = useId();
 	const [draft, setDraft] = useState(title);
 	const cancelled = useRef(false);
 	useEffect(() => setDraft(title), [title]);
@@ -44,26 +45,34 @@ export function CanvasOutputTitle({
 		rename.mutate({ outputId, title: next });
 	};
 	return (
-		<Input
-			aria-label="Document title"
-			className="canvas-document-title-input"
-			size="sm"
-			value={draft}
-			maxLength={MAX_TITLE}
-			disabled={disabled || rename.isPending}
-			title={rename.error ? "The name could not be saved." : draft}
-			aria-invalid={rename.isError || undefined}
-			onChange={(event) => setDraft(event.target.value)}
-			onBlur={commit}
-			onKeyDown={(event) => {
-				if (event.key === "Enter") {
-					event.preventDefault();
-					event.currentTarget.blur();
-				} else if (event.key === "Escape") {
-					cancelled.current = true;
-					event.currentTarget.blur();
-				}
-			}}
-		/>
+		<>
+			<Input
+				aria-label="Document title"
+				className="canvas-document-title-input"
+				size="sm"
+				value={draft}
+				maxLength={MAX_TITLE}
+				disabled={disabled || rename.isPending}
+				title={draft}
+				aria-invalid={rename.isError || undefined}
+				aria-describedby={rename.isError ? errorId : undefined}
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") {
+						event.preventDefault();
+						event.currentTarget.blur();
+					} else if (event.key === "Escape") {
+						cancelled.current = true;
+						event.currentTarget.blur();
+					}
+				}}
+			/>
+			{rename.isError && (
+				<span id={errorId} role="alert" className="text-sm text-kumo-danger">
+					The name could not be saved. Try again.
+				</span>
+			)}
+		</>
 	);
 }
