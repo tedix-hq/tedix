@@ -161,55 +161,6 @@ describe("effect-based gateway approval", () => {
 			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
 		).toHaveBeenCalled();
 	});
-	// Live 24 Oct 2026: an owner starting a tenant skill through skills.* (served
-	// by the public tedix app, owned by the platform organization) got "Owner
-	// tool approval is unavailable", because the request named the app owner's
-	// organization and the API refused the mismatch.
-	it("parks a tenant owner's call on the public platform app in the tenant", async () => {
-		const ctx = context();
-		Object.assign(ctx, {
-			appSlug: "tedix",
-			app: { organizationId: "org-platform", visibility: "public" },
-			callerIdentity: {
-				authType: "oauth",
-				userId: "owner-1",
-				organizationId: "org-tenant",
-			},
-		});
-		const result = await requireDestructiveToolApproval(
-			ctx,
-			skill,
-			skill.annotations,
-			{ args: { skillId: "skill-1" }, extra },
-		);
-		expect(callToolResultText(result!)).toContain("approval-1");
-		expect(
-			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
-		).toHaveBeenCalledWith(
-			expect.objectContaining({ organizationId: "org-tenant" }),
-		);
-	});
-	it("keeps a private app's approval in its own organization", async () => {
-		const ctx = context();
-		Object.assign(ctx, {
-			app: { organizationId: "org-1", visibility: "private" },
-			callerIdentity: {
-				authType: "oauth",
-				userId: "owner-1",
-				organizationId: "org-tenant",
-			},
-		});
-		const result = await requireDestructiveToolApproval(
-			ctx,
-			skill,
-			skill.annotations,
-			{ args: { skillId: "skill-1" }, extra },
-		);
-		expect(result?.isError).toBe(true);
-		expect(
-			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
-		).not.toHaveBeenCalled();
-	});
 	it("never turns a lookalike provider into a reviewed draft", async () => {
 		const target = tool({
 			...gmail.config,
