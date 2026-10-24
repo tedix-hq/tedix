@@ -56,6 +56,33 @@ await runShellSpec(
 					],
 				] as const) {
 					await page.goto(`${origin}${path}`);
+					if (width === 390 && name === "workspace") {
+						await page.locator(".canvas-workspace-title h1").waitFor();
+						assert.equal(
+							await page.evaluate(
+								() => document.documentElement.scrollWidth > innerWidth,
+							),
+							false,
+							"Workspace header overflows phone",
+						);
+						await capture(page, `workspace-header-${width}-${theme}`);
+						await page.evaluate(() => {
+							document.documentElement.dataset.navigationProof =
+								"same-document";
+						});
+						await page
+							.getByRole("button", { name: "All workspaces", exact: true })
+							.click();
+						await page.waitForURL((url) => url.pathname === parent);
+						assert.equal(
+							await page.evaluate(
+								() => document.documentElement.dataset.navigationProof,
+							),
+							"same-document",
+							"Workspace back button reloaded document",
+						);
+						continue;
+					}
 					const trail = page.getByRole("navigation", {
 						name: "breadcrumb",
 						exact: true,
@@ -95,8 +122,7 @@ await runShellSpec(
 							)?.trim(),
 						);
 					}
-					const parentHref =
-						width === 390 && name === "workspace" ? path : parent;
+					const parentHref = parent;
 					assert.equal(
 						await trail.locator(`a[href="${parentHref}"]:visible`).count(),
 						1,
