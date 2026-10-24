@@ -118,3 +118,18 @@ it("preserves every scope description and human-only boundary in mobile summarie
 		);
 	}
 });
+
+it("wraps role detail cells in compact tables", () => {
+	const doc = new DOMParser().parseFromString(
+		renderToStaticMarkup(<RolePermissionsMatrix />),
+		"text/html",
+	);
+	const rows = [...doc.querySelectorAll("table tbody tr")];
+	expect(rows).toHaveLength(ASSIGNABLE_ROLES.length);
+	for (const row of rows) {
+		for (const cell of row.querySelectorAll("td")) {
+			expect(cell.classList.contains("whitespace-normal")).toBe(true);
+			expect(cell.classList.contains("whitespace-nowrap")).toBe(false);
+		}
+	}
+});

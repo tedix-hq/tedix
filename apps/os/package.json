@@ -30,7 +30,7 @@
 		"test:browser:templates": "bun browser-tests/b11-templates-phone.spec.ts",
 		"test:browser:state-gallery": "bun browser-tests/state-gallery.spec.ts",
 		"test:browser:outputs": "bun browser-tests/run-specs.ts browser-tests/outputs.spec.ts browser-tests/output-workshop.spec.ts browser-tests/b8-outputs-iphone.spec.ts browser-tests/b9-export-phone.spec.ts browser-tests/b9-editor-toolbar.spec.ts",
-		"test:browser:tedis": "bun browser-tests/tedis.spec.ts",
+		"test:browser:tedis": "bun browser-tests/tedis.spec.ts && bun browser-tests/team-roles.spec.ts",
 		"test:browser:work-iphone": "bun browser-tests/work-iphone.spec.ts && bun browser-tests/portfolio-names.spec.ts && bun browser-tests/workspace-schedule-names.spec.ts",
 		"test:browser:chat-list": "bun browser-tests/chat-list.spec.ts",
 		"test:browser:chat-actions": "bun browser-tests/chat-actions.spec.ts",

@@ -161,14 +161,14 @@ export function RolePermissionsMatrix() {
 								<TableRow key={role}>
 									<TableCell
 										sticky="left"
-										className="whitespace-nowrap align-top"
+										className="whitespace-normal align-top"
 									>
 										<div className="space-y-2">
 											<Badge variant={ROLE_BADGE_VARIANTS[role]}>
 												{details.label}
 											</Badge>
 											<Text
-												className="max-w-64 whitespace-normal leading-relaxed"
+												className="max-w-64 leading-relaxed"
 												role="label"
 												tone="secondary"
 											>
@@ -176,11 +176,11 @@ export function RolePermissionsMatrix() {
 											</Text>
 										</div>
 									</TableCell>
-									<TableCell className="whitespace-nowrap align-top text-kumo-default">
+									<TableCell className="max-w-64 whitespace-normal align-top text-kumo-default">
 										{details.responsibility}
 									</TableCell>
-									<TableCell className="whitespace-nowrap align-top">
-										<div className="max-w-xl whitespace-normal">
+									<TableCell className="whitespace-normal align-top">
+										<div className="max-w-xl">
 											<PermissionBadges role={role} />
 										</div>
 									</TableCell>
