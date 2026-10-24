@@ -5,7 +5,6 @@ import { slideElementGeometry } from "@tedix/api-contract/utils/presentation-sty
 import {
 	ArrowUDownLeft,
 	ArrowUDownRight,
-	CaretDown,
 	Play,
 	Plus,
 	SidebarSimple,
@@ -26,12 +25,6 @@ import {
 	templateSlide,
 } from "@/components/output-editor-slide-list";
 import { Button } from "@/components/kumo/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/kumo/dropdown-menu";
 import { Surface } from "@/components/kumo/surface";
 import { Toolbar } from "@/components/kumo/toolbar";
 import {
@@ -39,6 +32,9 @@ import {
 	ownsSlideKeys,
 	slideNavigationTarget,
 } from "@/components/slide-navigation";
+import { AddSlideButton } from "@/components/slide-add-button";
+import { SLIDE_NAV_ATTRIBUTE, SlideDeckBar } from "@/components/slide-deck-bar";
+import { useSlideEntrance, useSlideSwipe } from "@/components/slide-motion";
 import { SlideInspector } from "@/components/slide-inspector";
 import { SlidePresenter } from "@/components/slide-presenter";
 import {
@@ -70,17 +66,6 @@ import {
 } from "@/lib/slide-image-upload";
 
 const MAX_SLIDES = 200;
-/** The layouts the Add slide caret offers; the button itself adds the first. */
-const SLIDE_LAYOUTS = [
-	["title-content", "Title + content"],
-	["title", "Title"],
-	["two-column", "Two column"],
-	["four-card", "Four card"],
-	["blank", "Blank"],
-] as const satisfies readonly (readonly [
-	OsPresentationCanvasSlide["layout"],
-	string,
-])[];
 function replaceActiveSlide(
 	deck: OsPresentationDeck,
 	next: OsPresentationCanvasSlide,
@@ -131,6 +116,19 @@ export function SlidesEditor({
 		"image" | "svg" | null
 	>(null);
 	const [imageError, setImageError] = useState<string | null>(null);
+	const canvasRef = useRef<HTMLDivElement>(null);
+	const activeIndex = activeSlide ? deck.slides.indexOf(activeSlide) : -1;
+	useSlideEntrance(canvasRef, activeSlide?.id, activeIndex);
+	const viewSlide = (target: number) => {
+		const next = deck.slides[target];
+		if (!next) return;
+		setViewedSlideId(next.id);
+		setSelectedElementId(null);
+	};
+	const swipe = useSlideSwipe(
+		() => viewSlide(activeIndex - 1),
+		() => viewSlide(activeIndex + 1),
+	);
 	const history = useEditorHistory(normalized, onChange, DECK_HISTORY);
 	const selectedElement =
 		activeSlide?.elements.find((element) => element.id === selectedElementId) ??
@@ -274,7 +272,12 @@ export function SlidesEditor({
 				// Slide keys apply when no element is selected and the key does not
 				// belong to a control: F presents, and the navigation keys change
 				// slides. With an element selected, the arrows nudge it instead.
-				if (!ownsSlideKeys(target)) {
+				// The stage's slide controls keep Space and Enter but pass arrows on.
+				const onNavigator =
+					target.closest(`[${SLIDE_NAV_ATTRIBUTE}]`) !== null &&
+					event.key !== " " &&
+					event.key !== "Enter";
+				if (onNavigator || !ownsSlideKeys(target)) {
 					if (bareKey(event) === "f") {
 						event.preventDefault();
 						setPresenting(true);
@@ -395,37 +398,14 @@ export function SlidesEditor({
 				</EditorToolbarButton>
 				<EditorHistoryNotice notice={history.notice} />
 				<EditorToolbarDivider />
-				{/* Split button: one click adds the standard content slide; the
-				    caret picks another layout. */}
-				<div className="slides-add-split flex items-center">
-					<Toolbar.Button
-						type="button"
+				{/* The rail carries Add slide; while it is closed the toolbar does. */}
+				{showThumbnails ? null : (
+					<AddSlideButton
+						placement="toolbar"
 						disabled={disabled}
-						onClick={() => addTemplate("title-content")}
-					>
-						<Plus size={14} /> Add slide
-					</Toolbar.Button>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							disabled={disabled}
-							render={
-								<Toolbar.Button type="button" aria-label="New slide template" />
-							}
-						>
-							<CaretDown size={12} />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="start">
-							{SLIDE_LAYOUTS.map(([layout, label]) => (
-								<DropdownMenuItem
-									key={layout}
-									onClick={() => addTemplate(layout)}
-								>
-									{label}
-								</DropdownMenuItem>
-							))}
-						</DropdownMenuContent>
-					</DropdownMenu>
-				</div>
+						onAdd={addTemplate}
+					/>
+				)}
 				<SlideInsertLibrary
 					disabled={disabled}
 					onInsert={addElement}
@@ -495,12 +475,24 @@ export function SlidesEditor({
 							setSelectedElementId(null);
 						}}
 					/>
+					<AddSlideButton
+						placement="rail"
+						disabled={disabled || deck.slides.length >= MAX_SLIDES}
+						onAdd={addTemplate}
+					/>
 				</aside>
 				<main
 					className="slides-editor-stage grid min-w-0 place-content-center p-4 sm:p-6"
 					// Elements stop their own clicks, so this is a click on empty stage.
 					onClick={() => setSelectedElementId(null)}
+					onPointerUp={(event) => {
+						// A swipe turns the page on touch; a drag on a block moves it.
+						if (!(event.target as HTMLElement).closest("[data-slide-element]"))
+							swipe.onPointerUp(event);
+					}}
+					onPointerCancel={swipe.onPointerCancel}
 					onPointerDown={(event) => {
+						swipe.onPointerDown(event);
 						// A press on the empty stage hands the keyboard to the editor,
 						// so slide navigation and F work right after deselecting.
 						if (!(event.target as HTMLElement).closest("[data-slide-element]"))
@@ -535,6 +527,7 @@ export function SlidesEditor({
 					}}
 				>
 					<SlideCanvas
+						ref={canvasRef}
 						slide={activeSlide}
 						selectedElementId={selectedElementId}
 						disabled={disabled}
@@ -543,6 +536,13 @@ export function SlidesEditor({
 						}}
 						onChangeElement={(next) => updateElement(next)}
 						onGeometryCommit={(next) => updateElement(next)}
+					/>
+					<SlideDeckBar
+						index={activeIndex}
+						count={deck.slides.length}
+						onPrevious={() => viewSlide(activeIndex - 1)}
+						onNext={() => viewSlide(activeIndex + 1)}
+						onPresent={() => setPresenting(true)}
 					/>
 				</main>
 				<aside
@@ -558,6 +558,8 @@ export function SlidesEditor({
 						onChangeSlide={(next) => commitDeck(replaceActiveSlide(deck, next))}
 						onChangeElement={(next) => updateElement(next)}
 						onAction={runElementAction}
+						onInsert={addElement}
+						onUploadImage={(file) => void insertImageFile(file)}
 						onImageFile={async (file) => {
 							const src = await readImageFile(file);
 							if (src && selectedElement)

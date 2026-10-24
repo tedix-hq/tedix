@@ -433,10 +433,10 @@ export function SlideList({
 							>
 								<Text
 									as="span"
-									className="block text-kumo-subtle tabular-nums"
+									className="slide-list-number block tabular-nums"
 									role="caption"
 								>
-									{index + 1}
+									{String(index + 1).padStart(2, "0")}
 								</Text>
 								<ReadOnlySlide slide={slide} className="slide-thumb-canvas" />
 								<Text as="span" className="block wrap-anywhere" role="caption">

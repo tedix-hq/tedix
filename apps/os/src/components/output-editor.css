@@ -524,12 +524,16 @@
 	grid-template-rows: auto minmax(0, 1fr);
 }
 
+/* With the inspector stacked under it, the stage keeps a floor so the slide
+   is never squeezed to nothing; the layout scrolls instead. */
 .slides-editor-layout[data-show-inspector]:not([data-show-thumbnails]) {
-	grid-template-rows: minmax(0, 1fr) auto;
+	grid-template-rows: minmax(13rem, 1fr) auto;
+	overflow-y: auto;
 }
 
 .slides-editor-layout[data-show-thumbnails][data-show-inspector] {
-	grid-template-rows: auto minmax(0, 1fr) auto;
+	grid-template-rows: auto minmax(13rem, 1fr) auto;
+	overflow-y: auto;
 }
 
 .slides-editor-thumbnails[hidden],
@@ -588,6 +592,26 @@
 	.slides-present button:not(:disabled):active,
 	.deck-read-thumb:active {
 		transform: scale(0.96);
+	}
+}
+
+/* A hairline along the top edge of present mode: how far through the deck. */
+.slides-present-progress {
+	position: absolute;
+	inset: 0 0 auto;
+	height: 3px;
+	background: var(--color-kumo-brand);
+	transform-origin: left;
+	pointer-events: none;
+}
+
+.slides-present-stage {
+	touch-action: pan-y;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.slides-present-progress {
+		transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
 	}
 }
 
@@ -743,7 +767,22 @@
 .slides-editor-thumbnails [aria-current] {
 	--color-kumo-line: var(--color-kumo-focus);
 
-	background: var(--tedix-paper);
+	background: color-mix(
+		in srgb,
+		var(--color-kumo-brand) 9%,
+		var(--tedix-paper)
+	);
+}
+
+.slide-list-number {
+	color: var(--text-color-kumo-inactive);
+	font-weight: 500;
+	letter-spacing: 0.02em;
+}
+
+.slides-editor-thumbnails [aria-current] .slide-list-number {
+	color: var(--text-color-kumo-brand);
+	font-weight: 600;
 }
 
 /* The rail's list is the flexible row, so the rail scrolls internally instead
@@ -920,9 +959,28 @@
 }
 
 .deck-read-thumb-name {
+	display: flex;
+	min-width: 0;
+	gap: 6px;
+	padding-inline: 2px;
 	font-size: 12px;
 	line-height: 16px;
 	color: var(--text-color-kumo-subtle);
+}
+
+.deck-read-thumb-number {
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	color: var(--text-color-kumo-inactive);
+}
+
+.deck-read-rail .deck-read-thumb[aria-current] {
+	--color-kumo-line: var(--color-kumo-brand);
+}
+
+.deck-read-thumb[aria-current] .deck-read-thumb-number {
+	color: var(--text-color-kumo-brand);
+	font-weight: 600;
 }
 
 /*
@@ -932,7 +990,7 @@
  * letterbox it. Notes and Present share that width so they sit right under it.
  */
 .deck-read {
-	--deck-read-width: min(100%, max(16rem, 100dvh - 17rem) * 16 / 9);
+	--deck-read-width: min(100%, max(16rem, 100dvh - 20rem) * 16 / 9);
 	display: grid;
 	gap: 12px;
 	grid-template-columns: minmax(0, 1fr);
@@ -964,8 +1022,7 @@
 		overflow-y: auto;
 	}
 
-	.deck-read-stage,
-	.deck-read-footer {
+	.deck-read-desk {
 		grid-column: 2;
 	}
 }
@@ -983,6 +1040,350 @@
 	 * shrinking the inline-size container the slide type is measured against. */
 	outline: 1px solid var(--color-kumo-line);
 	color-scheme: light;
+}
+
+/*
+ * The desk the slide sits on, as documents and sheets have: a recessed field
+ * one step off the shell, so the white slide reads as the artifact rather than
+ * a card floating on nothing. The slide and the control pill centre on it.
+ */
+.deck-read-desk {
+	display: grid;
+	min-width: 0;
+	justify-items: center;
+	align-content: start;
+	gap: 16px;
+	padding: 24px;
+	border-radius: 12px;
+	background: var(--tedix-desk);
+}
+
+.deck-read-stage {
+	touch-action: pan-y;
+}
+
+.deck-read-notes {
+	max-width: 70ch;
+	text-wrap: pretty;
+}
+
+/*
+ * The floating slide control pill (read view and editor stage). It takes the
+ * presentation stage's inverse polarity, so it reads as one dark object on a
+ * light desk and one light-on-black object on a dark one.
+ */
+.slide-deck-bar {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 4px;
+	border-radius: 999px;
+	background: color-mix(
+		in srgb,
+		var(--tedix-presentation-stage) 92%,
+		transparent
+	);
+	color: var(--tedix-presentation-stage-text);
+	box-shadow:
+		0 1px 2px color-mix(in srgb, #000000 18%, transparent),
+		0 8px 24px color-mix(in srgb, #000000 16%, transparent);
+	backdrop-filter: blur(8px);
+}
+
+.slide-deck-bar .slide-deck-bar-button {
+	border-radius: 999px;
+	color: inherit;
+	background: transparent;
+}
+
+.slide-deck-bar .slide-deck-bar-button:not(:disabled):hover,
+.slide-deck-bar .slide-deck-bar-button[aria-pressed="true"] {
+	background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.slide-deck-bar .slide-deck-bar-button:disabled {
+	opacity: 0.4;
+}
+
+.slide-deck-bar .slide-deck-bar-button[data-active] {
+	background: var(--color-kumo-brand);
+	color: #ffffff;
+}
+
+.slide-deck-bar-count {
+	min-width: 3.5rem;
+	padding-inline: 4px;
+	text-align: center;
+	font-size: 13px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+.slide-deck-bar-divider {
+	width: 1px;
+	height: 18px;
+	margin-inline: 4px;
+	background: color-mix(in srgb, currentColor 24%, transparent);
+}
+
+/*
+ * Editor stage: the slide over its control pill. The slide is fitted to the
+ * height left once the pill has its row, so the pair never overflows the
+ * stage and the pill never covers the slide's lower edge.
+ */
+.slides-editor-stage {
+	--slides-stage-bar: 3.5rem;
+	justify-items: center;
+	gap: 12px;
+}
+
+.slides-editor-stage > .slides-editor-canvas {
+	width: min(100cqw, (100cqh - var(--slides-stage-bar)) * 16 / 9);
+}
+
+/* Narrow (stacked) editor: the rail is one swipeable row of slides rather
+   than a two-column grid that pushes the stage below the fold. */
+.slides-editor-thumbnails > ol {
+	grid-template-columns: none;
+	grid-auto-columns: 9.5rem;
+	grid-auto-flow: column;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-inline: contain;
+	scroll-snap-type: x proximity;
+	scrollbar-width: thin;
+}
+
+.slides-editor-thumbnails > ol > li {
+	scroll-snap-align: start;
+}
+
+@media (pointer: coarse) {
+	.slides-editor-thumbnails > ol {
+		grid-auto-columns: 13rem;
+	}
+}
+
+@container (min-width: 52rem) {
+	.slides-editor-layout[data-show-thumbnails] .slides-editor-thumbnails > ol {
+		grid-template-columns: minmax(0, 1fr);
+		grid-auto-columns: auto;
+		grid-auto-flow: row;
+		overflow-x: hidden;
+		overflow-y: auto;
+		scroll-snap-type: none;
+	}
+}
+
+/* Add slide, pinned under the rail: a full-width split button. */
+.slides-rail-add {
+	display: flex;
+	min-width: 0;
+	gap: 1px;
+}
+
+.slides-rail-add .slides-rail-add-main {
+	flex: 1 1 auto;
+	min-width: 0;
+	justify-content: center;
+	border-start-end-radius: 0;
+	border-end-end-radius: 0;
+}
+
+.slides-rail-add .slides-rail-add-caret {
+	flex: none;
+	width: 2.25rem;
+	padding-inline: 0;
+	justify-content: center;
+	border-start-start-radius: 0;
+	border-end-start-radius: 0;
+}
+
+/* The editor stage is fixed-light in either shell, so its pill stays dark. */
+.slides-editor-stage .slide-deck-bar {
+	background: color-mix(in srgb, #171717 92%, transparent);
+	color: #ffffff;
+}
+
+/* Layout sketches in the Add slide menu: fixed-light, like the slides. */
+.slide-layout-sketch {
+	display: grid;
+	flex: none;
+	align-content: start;
+	gap: 3px;
+	width: 52px;
+	aspect-ratio: 16 / 9;
+	padding: 5px;
+	border-radius: 4px;
+	background: var(--tedix-paper);
+	outline: 1px solid color-mix(in srgb, #171717 16%, transparent);
+}
+
+.slide-layout-sketch[data-layout="title"] {
+	align-content: center;
+	background: color-mix(in srgb, var(--color-kumo-brand) 14%, #ffffff);
+}
+
+.slide-layout-title {
+	width: 62%;
+	height: 4px;
+	border-radius: 1px;
+	background: #171717;
+}
+
+.slide-layout-lines {
+	display: grid;
+	gap: 2px;
+}
+
+.slide-layout-lines > span {
+	height: 2px;
+	border-radius: 1px;
+	background: color-mix(in srgb, #171717 28%, transparent);
+}
+
+.slide-layout-lines > span:last-child {
+	width: 60%;
+}
+
+.slide-layout-columns {
+	display: grid;
+	grid-auto-columns: 1fr;
+	grid-auto-flow: column;
+	gap: 2px;
+	height: 13px;
+}
+
+.slide-layout-columns > span {
+	border-radius: 1px;
+	background: color-mix(in srgb, #171717 14%, transparent);
+}
+
+/* Inspector: grouped sections under small uppercase headings. */
+.slide-inspector-heading {
+	margin: 0;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 16px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-color-kumo-subtle);
+}
+
+.slide-inspector-section {
+	display: grid;
+	min-width: 0;
+	gap: 10px;
+	padding-bottom: 14px;
+	border-bottom: 1px solid var(--color-kumo-hairline);
+}
+
+.slide-inspector-section > .slide-inspector-toggle {
+	min-height: 28px;
+	justify-content: flex-start;
+	gap: 6px;
+	padding-inline: 0;
+}
+
+.slide-inspector-selection {
+	padding: 10px;
+	border: 1px solid
+		color-mix(in srgb, var(--color-kumo-brand) 35%, var(--color-kumo-line));
+	border-radius: 10px;
+	background: var(--tedix-paper);
+}
+
+.slide-inspector-empty {
+	display: grid;
+	justify-items: center;
+	gap: 4px;
+	padding: 18px 14px;
+	border: 1px dashed var(--color-kumo-line);
+	border-radius: 10px;
+	text-align: center;
+	text-wrap: pretty;
+}
+
+.slide-colour-field {
+	display: grid;
+	grid-template-columns: 2.5rem minmax(0, 1fr);
+	gap: 6px;
+}
+
+/* Component palette rows: icon tile, name and description, then a "+" that
+   appears on hover or focus (always on touch screens). */
+.slides-editor .slide-palette-row,
+.slide-palette-row {
+	width: 100%;
+	height: auto;
+	min-height: 44px;
+	justify-content: flex-start;
+	gap: 10px;
+	padding: 6px 8px;
+	border-radius: 8px;
+	text-align: left;
+}
+
+.slide-palette-icon {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 7px;
+	background: var(--color-kumo-tint);
+	color: var(--text-color-kumo-default);
+}
+
+.slide-palette-add {
+	flex: none;
+	opacity: 0;
+	color: var(--text-color-kumo-brand);
+}
+
+.slide-palette-row:not(:disabled):hover .slide-palette-add,
+.slide-palette-row:focus-visible .slide-palette-add {
+	opacity: 1;
+}
+
+.slide-palette-row:not(:disabled):hover .slide-palette-icon,
+.slide-palette-row:focus-visible .slide-palette-icon {
+	background: color-mix(in srgb, var(--color-kumo-brand) 14%, transparent);
+	color: var(--text-color-kumo-brand);
+}
+
+@media (hover: none) {
+	.slide-palette-add {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.slide-palette-add,
+	.slide-palette-icon,
+	.slide-deck-bar .slide-deck-bar-button {
+		transition:
+			opacity 120ms ease,
+			background-color 120ms ease,
+			color 120ms ease;
+	}
+}
+
+@media (max-width: 639px) {
+	.slides-editor-stage {
+		--slides-stage-bar: 4.25rem;
+	}
+
+	.deck-read-desk {
+		padding: 12px;
+		border-radius: 10px;
+	}
+
+	/* Touch targets: 44px controls in the pill on phones. */
+	.slide-deck-bar .slide-deck-bar-button {
+		min-width: 44px;
+		min-height: 44px;
+	}
 }
 
 /* The editor stage's text input. It must draw exactly what the read-only

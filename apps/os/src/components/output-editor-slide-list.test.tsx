@@ -400,7 +400,9 @@ describe("SlideList", () => {
 		});
 		const option = Array.from(
 			document.querySelectorAll('[role="menuitem"]'),
-		).find((candidate) => candidate.textContent === "Title") as HTMLElement;
+		).find(
+			(candidate) => candidate.getAttribute("data-slide-layout") === "title",
+		) as HTMLElement;
 		await act(async () => {
 			option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
 			option.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));

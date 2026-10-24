@@ -3,24 +3,14 @@ import type {
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { Play } from "@phosphor-icons/react";
-import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
-import { Button } from "@/components/kumo/button";
+import { lazy, Suspense, useId, useMemo, useState } from "react";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
-import { isTypingEvent } from "@/lib/keyboard";
-import { ReadOnlySlide } from "@/components/output-slide-element";
-import {
-	bareKey,
-	ownsSlideKeys,
-	slideNavigationTarget,
-} from "@/components/slide-navigation";
-import { SlidePresenter } from "@/components/slide-presenter";
+import { DeckReadView } from "@/components/deck-read-view";
 import {
 	activeWorkbookSheet,
 	INDENT_STEP_PX,
 	MAX_INDENT,
-	normalizePresentationContent,
 	normalizeSheetContent,
 	safeImageSource,
 } from "@/lib/output-models";
@@ -68,7 +58,7 @@ export function OutputContentView({
 		case "sheet":
 			return <WorkbookView content={content} />;
 		case "presentation":
-			return <DeckView content={content} onEdit={onEdit} />;
+			return <DeckReadView content={content} onEdit={onEdit} />;
 		case "video":
 			return <VideoOutputView content={content} />;
 	}
@@ -453,120 +443,6 @@ function WorkbookView({
 					/>
 				</div>
 			</div>
-		</div>
-	);
-}
-
-function DeckView({
-	content,
-	onEdit,
-}: {
-	content: Extract<OsOutputContent, { kind: "presentation" }>;
-	onEdit?: () => void;
-}) {
-	const deck = normalizePresentationContent(content).deck!;
-	const [activeSlideId, setActiveSlideId] = useState(deck.activeSlideId);
-	const [presenting, setPresenting] = useState(false);
-	const slide =
-		deck.slides.find((candidate) => candidate.id === activeSlideId) ??
-		deck.slides[0];
-	const index = slide ? deck.slides.indexOf(slide) : -1;
-	// The read view has no focusable stage, so its keys listen on the page;
-	// present mode handles its own while it is open.
-	useEffect(() => {
-		if (presenting) return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.defaultPrevented || isTypingEvent(event)) return;
-			// A thumbnail keeps Space and Enter; arrows still browse from it.
-			const onThumbnail =
-				event.target instanceof HTMLElement &&
-				event.target.closest(".deck-read-thumb") !== null;
-			if (onThumbnail ? event.key === " " : ownsSlideKeys(event.target)) return;
-			const key = bareKey(event);
-			if (key === "f" && index >= 0) {
-				event.preventDefault();
-				setPresenting(true);
-				return;
-			}
-			if (key === "e" && onEdit) {
-				event.preventDefault();
-				onEdit();
-				return;
-			}
-			if (key === null) return;
-			const target = slideNavigationTarget(
-				event.key,
-				index,
-				deck.slides.length,
-			);
-			if (target === null) return;
-			event.preventDefault();
-			setActiveSlideId(deck.slides[target]!.id);
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [presenting, index, deck.slides, onEdit]);
-	if (!slide)
-		return (
-			<Text role="body" tone="secondary">
-				This presentation has no slides yet.
-			</Text>
-		);
-	return (
-		<div className="deck-read">
-			<ol className="deck-read-rail m-0 list-none p-0">
-				{deck.slides.map((candidate, index) => (
-					<li key={candidate.id}>
-						<Button
-							aria-current={candidate.id === slide.id || undefined}
-							aria-label={`Slide ${index + 1}: ${candidate.name}`}
-							className="deck-read-thumb w-full flex-col items-stretch gap-1 p-1 text-left"
-							multiline
-							onClick={() => setActiveSlideId(candidate.id)}
-							size="sm"
-							variant={candidate.id === slide.id ? "secondary" : "outline"}
-						>
-							<ReadOnlySlide
-								slide={candidate}
-								className="deck-read-thumb-canvas"
-							/>
-							<span className="deck-read-thumb-name">
-								{index + 1}. {candidate.name}
-							</span>
-						</Button>
-					</li>
-				))}
-			</ol>
-			{/* The stage hugs the slide: its width is bounded by the column and by
-			    the viewport height, and its height follows from 16:9. No fixed-height
-			    stage, so there is no letterbox above, below or beside the slide. */}
-			<div className="deck-read-stage">
-				<ReadOnlySlide
-					slide={slide}
-					className="deck-read-canvas relative overflow-hidden rounded-md"
-				/>
-			</div>
-			<div className="deck-read-footer flex items-start justify-between gap-3">
-				<Text role="body" tone="secondary">
-					{slide.notes ? `Notes: ${slide.notes}` : null}
-				</Text>
-				<Button
-					size="sm"
-					variant="secondary"
-					title="Present (F)"
-					onClick={() => setPresenting(true)}
-				>
-					<Play size={14} /> Present
-				</Button>
-			</div>
-			{presenting && (
-				<SlidePresenter
-					deck={deck}
-					slideId={slide.id}
-					onNavigate={setActiveSlideId}
-					onExit={() => setPresenting(false)}
-				/>
-			)}
 		</div>
 	);
 }

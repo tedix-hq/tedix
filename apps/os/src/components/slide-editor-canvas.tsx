@@ -7,7 +7,7 @@ import type {
 	OsPresentationElement,
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	SlideBackground,
@@ -319,6 +319,7 @@ export function SlideCanvas({
 	onSelect,
 	onChangeElement,
 	onGeometryCommit,
+	ref,
 }: {
 	slide: OsPresentationCanvasSlide;
 	selectedElementId: string | null;
@@ -326,10 +327,12 @@ export function SlideCanvas({
 	onSelect: (id: string | null) => void;
 	onChangeElement: (next: OsPresentationElement) => void;
 	onGeometryCommit: (next: OsPresentationElement) => void;
+	ref?: Ref<HTMLDivElement>;
 }) {
 	const color = useSlideTextColor();
 	return (
 		<div
+			ref={ref}
 			className="slides-editor-canvas relative overflow-hidden"
 			style={{
 				background: slide.background,
