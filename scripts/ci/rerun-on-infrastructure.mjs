@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import {
+	evidenceDirVariable,
+	shardEvidenceDir,
+	uploadShardEvidence,
+} from "./upload-artifact.mjs";
 
 // A frozen install normally takes about 10 s; one past this marks a slow runner.
 export const slowInstallSeconds = 45;
@@ -37,6 +42,12 @@ function run(command) {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command[0], command.slice(1), {
 			stdio: ["inherit", "pipe", "pipe"],
+			env: {
+				...process.env,
+				// Arms the browser-tests preload; relative to the workspace cwd.
+				[evidenceDirVariable]:
+					process.env[evidenceDirVariable] ?? shardEvidenceDir,
+			},
 		});
 		let output = "";
 		const keep = (stream, target) =>
@@ -68,7 +79,10 @@ if (
 			: infrastructureFailure(first.output, {
 					installSeconds: process.env.FROZEN_INSTALL_SECONDS,
 				});
-	if (!reason) process.exit(first.code);
+	if (!reason) {
+		if (first.code !== 0) await uploadShardEvidence(process.env);
+		process.exit(first.code);
+	}
 	const note = `Infrastructure rerun: \`${command.join(" ")}\` failed because of ${reason}; running it once more.`;
 	console.log(`::warning title=Infrastructure rerun::${note}`);
 	if (process.env.GITHUB_STEP_SUMMARY)
@@ -79,5 +93,6 @@ if (
 			process.env.GITHUB_STEP_SUMMARY,
 			`- Infrastructure rerun ${second.code === 0 ? "passed" : `failed again (exit ${second.code})`}.\n`,
 		);
+	if (second.code !== 0) await uploadShardEvidence(process.env);
 	process.exit(second.code);
 }
