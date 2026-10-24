@@ -83,6 +83,9 @@ describe("connection service health", () => {
 		const actions = container.querySelector(
 			'[data-slot="connection-row-actions"]',
 		);
+		const statusSummary = summary?.querySelector(
+			'[data-slot="text"]:nth-of-type(2)',
+		);
 		expect(summary?.parentElement?.className).toContain(
 			"grid-cols-[minmax(0,1fr)_auto]",
 		);
@@ -93,6 +96,8 @@ describe("connection service health", () => {
 		expect(actions?.className).toContain("row-start-2");
 		expect(actions?.getAttribute("role")).toBe("group");
 		expect(actions?.getAttribute("aria-label")).toBe("Actions for Initech");
+		expect(statusSummary?.className).toContain("min-w-0");
+		expect(statusSummary?.className).toContain("break-words");
 		const manage = [...container.querySelectorAll("button")].find(
 			(button) => button.textContent === "Manage",
 		)!;

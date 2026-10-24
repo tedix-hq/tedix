@@ -214,7 +214,11 @@ export function ConnectionListItem({
 							{provider.name}
 						</Text>
 						{inventory && (
-							<Text role="label" tone="secondary">
+							<Text
+								role="label"
+								tone="secondary"
+								className="min-w-0 break-words"
+							>
 								{inventory.references.length
 									? `Referenced by ${[...new Set(inventory.references.map((ref) => ref.appSlug))].join(", ")}`
 									: inventory.referencesComplete
