@@ -231,7 +231,7 @@ describe("DocumentEditor", () => {
 			.spyOn(HTMLElement.prototype, "clientWidth", "get")
 			.mockReturnValue(1300);
 		const mounted = await mountEditor();
-		// 1300px folds only tier 3: indent, inline code, rule and clear.
+		// 1300px folds only tier 3: colours, indent, inline code, rule and clear.
 		expect(button("Font family", mounted.container)).not.toBeNull();
 		expect(button("Align center", mounted.container)).not.toBeNull();
 		expect(button("Increase indent", mounted.container)).toBeNull();
@@ -621,6 +621,76 @@ describe("DocumentEditor", () => {
 		expect(
 			mounted.container.querySelector('[role="alert"]')?.textContent,
 		).toContain("document is full");
+		mounted.unmount();
+	});
+
+	it("inserts a block from the slash menu and leaves typed text alone on Escape", async () => {
+		const mounted = await mountEditor();
+		const key = (name: string) =>
+			act(() => {
+				mounted.editor.view.dom.dispatchEvent(
+					new KeyboardEvent("keydown", { key: name, bubbles: true }),
+				);
+			});
+		await act(async () => {
+			mounted.editor.commands.setContent("<p></p>");
+			mounted.editor.commands.setTextSelection(1);
+			mounted.editor.commands.insertContent("/tab");
+		});
+		const menu = () =>
+			document.querySelector('[role="listbox"][aria-label="Insert a block"]');
+		expect(menu()).not.toBeNull();
+		expect(
+			menu()!
+				.querySelector('[role="option"]')
+				?.getAttribute("data-document-block"),
+		).toBe("table");
+		expect(mounted.editor.view.dom.getAttribute("aria-activedescendant")).toBe(
+			menu()!.querySelector('[role="option"]')!.id,
+		);
+		key("Enter");
+		expect(menu()).toBeNull();
+		expect(mounted.container.querySelectorAll("table")).toHaveLength(1);
+		expect(mounted.editor.getText()).not.toContain("/tab");
+
+		await act(async () => {
+			mounted.editor.commands.setContent("<p></p>");
+			mounted.editor.commands.setTextSelection(1);
+			mounted.editor.commands.insertContent("/");
+		});
+		expect(menu()).not.toBeNull();
+		key("Escape");
+		expect(menu()).toBeNull();
+		expect(mounted.editor.getText()).toBe("/");
+		mounted.unmount();
+	});
+
+	it("lists headings in the outline and marks the section holding the caret", async () => {
+		const mounted = await mountEditor();
+		await act(async () => {
+			mounted.editor.commands.setContent(
+				"<h1>Plan</h1><p>Intro</p><h2>Goals</h2><p>Ship</p><h3>Risks</h3>",
+			);
+			mounted.editor.commands.setTextSelection(18);
+		});
+		const outline = mounted.container.querySelector(
+			'nav[aria-label="Outline"]',
+		)!;
+		expect(
+			Array.from(outline.querySelectorAll("button"), (b) => b.textContent),
+		).toEqual(["Plan", "Goals", "Risks"]);
+		expect(outline.querySelector("[aria-current]")?.textContent).toBe("Goals");
+		mounted.unmount();
+	});
+
+	it("counts words for the status pill", async () => {
+		const mounted = await mountEditor();
+		await act(async () => {
+			mounted.editor.commands.setContent("<p>One two</p><p>three</p>");
+		});
+		expect(
+			mounted.container.querySelector("[data-document-pill]")?.textContent,
+		).toContain("3 words");
 		mounted.unmount();
 	});
 

@@ -3,7 +3,15 @@ import type {
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { lazy, Suspense, useId, useState } from "react";
+import { FileText, PencilSimple } from "@phosphor-icons/react";
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
+import {
+	DocumentOutline,
+	type DocumentOutlineItem,
+	richTextOutline,
+} from "@/components/document-outline";
+import { Button } from "@/components/kumo/button";
+import { Empty } from "@/components/kumo/empty";
 import { Text } from "@/components/kumo/text";
 import { DeckReadView } from "@/components/deck-read-view";
 import {
@@ -49,7 +57,7 @@ export function OutputContentView({
 			return (
 				<>
 					{content.file ? <FileOutputView {...content.file} /> : null}
-					<RichDocumentView content={content} />
+					<RichDocumentView content={content} onEdit={onEdit} />
 				</>
 			);
 		case "sheet":
@@ -332,27 +340,152 @@ function RichNode({
 	}
 }
 
+/** Headings a saved document needs before its read view lists its contents. */
+const READ_OUTLINE_MIN_HEADINGS = 3;
+
+/**
+ * The heading the reader is in: the last one whose top has passed the upper
+ * fifth of the viewport, measured as the page scrolls in any scroll container.
+ */
+function useReadingHeading(
+	article: HTMLElement | null,
+	headingCount: number,
+): number {
+	const [active, setActive] = useState(0);
+	useEffect(() => {
+		if (!article || headingCount === 0) return;
+		let frame = 0;
+		const measure = () => {
+			frame = 0;
+			const headings = article.querySelectorAll<HTMLElement>(
+				":scope > :is(h1, h2, h3, h4)",
+			);
+			const line = window.innerHeight * 0.2;
+			let next = 0;
+			headings.forEach((heading, index) => {
+				if (heading.getBoundingClientRect().top <= line) next = index;
+			});
+			setActive(next);
+		};
+		const schedule = () => {
+			if (!frame) frame = requestAnimationFrame(measure);
+		};
+		measure();
+		window.addEventListener("scroll", schedule, {
+			capture: true,
+			passive: true,
+		});
+		window.addEventListener("resize", schedule);
+		return () => {
+			if (frame) cancelAnimationFrame(frame);
+			window.removeEventListener("scroll", schedule, { capture: true });
+			window.removeEventListener("resize", schedule);
+		};
+	}, [article, headingCount]);
+	return active;
+}
+
 function RichDocumentView({
 	content,
+	onEdit,
 }: {
 	content: Extract<OsOutputContent, { kind: "document" }>;
+	onEdit?: () => void;
 }) {
 	const document = normalizeDocumentContent(content).richText!;
-	if (document.content.length === 0) {
+	const [article, setArticle] = useState<HTMLElement | null>(null);
+	const outline = useMemo(
+		() => richTextOutline(document.content),
+		[document.content],
+	);
+	// Every top-level heading renders, empty or not, so the DOM index of a
+	// heading is its count among the headings before it.
+	const domIndex = useMemo(() => {
+		const indexes = new Map<number, number>();
+		let count = 0;
+		document.content.forEach((node, index) => {
+			if (node.type !== "heading") return;
+			indexes.set(index, count);
+			count += 1;
+		});
+		return indexes;
+	}, [document.content]);
+	const withOutline = outline.length >= READ_OUTLINE_MIN_HEADINGS;
+	const readingDom = useReadingHeading(
+		withOutline ? article : null,
+		outline.length,
+	);
+	// A fresh document saves one empty paragraph; that is still an empty page.
+	const empty = document.content.every(
+		(node) => node.type === "paragraph" && !node.content?.length,
+	);
+	if (empty) {
 		return (
-			<Text role="body" tone="secondary">
-				This document has no content yet.
-			</Text>
+			<Empty
+				appearance="quiet"
+				className="document-read-empty mx-auto w-full max-w-[52rem]"
+				icon={<FileText size={28} aria-hidden />}
+				title="This document is empty"
+				description={
+					onEdit
+						? "Open the editor to start writing. Type / on an empty line to add headings, lists, tables and images."
+						: "Nothing has been written here yet."
+				}
+			>
+				{onEdit ? (
+					<Button size="sm" variant="secondary" onClick={onEdit}>
+						<PencilSimple size={14} /> Start writing
+					</Button>
+				) : null}
+			</Empty>
 		);
 	}
+	const activeOutline = outline.findIndex(
+		(item) => domIndex.get(item.position) === readingDom,
+	);
+	const jump = (item: DocumentOutlineItem) => {
+		const heading = article?.querySelectorAll<HTMLElement>(
+			":scope > :is(h1, h2, h3, h4)",
+		)[domIndex.get(item.position) ?? -1];
+		if (!heading) return;
+		const reduce = window.matchMedia?.(
+			"(prefers-reduced-motion: reduce)",
+		).matches;
+		heading.scrollIntoView({
+			block: "start",
+			behavior: reduce ? "auto" : "smooth",
+		});
+	};
 	return (
-		<article
-			className="document-page document-prose mx-auto w-full max-w-[52rem] bg-(--tedix-document-paper) px-4 py-8 text-[16px] text-(--tedix-document-ink) leading-relaxed sm:px-10 sm:py-10 [&_a]:text-(--tedix-document-link) [&_blockquote]:border-(--tedix-document-rule) [&_blockquote]:border-l-4 [&_blockquote]:pl-4 [&_h1]:text-[26px] [&_h1]:font-semibold [&_h2]:text-[21px] [&_h2]:font-semibold [&_h3]:text-[17px] [&_h3]:font-semibold [&_img]:max-w-full [&_img]:h-auto [&_mark]:text-(--tedix-document-ink) [&_ol]:list-decimal [&_ol]:pl-6 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-(--tedix-document-code-bg) [&_pre]:p-4 [&_pre]:text-(--tedix-document-code-fg) [&_ul]:list-disc [&_ul]:pl-6"
-			data-kumo-part="document-paper"
-		>
-			{document.content.map((node, index) => (
-				<RichNode key={`root-${index}`} node={node} nodeKey={`root-${index}`} />
-			))}
-		</article>
+		<div className="document-read-frame">
+			<div
+				className="document-read-layout"
+				data-with-outline={withOutline || undefined}
+			>
+				<article
+					ref={setArticle}
+					className="document-page document-prose document-read-page mx-auto w-full bg-(--tedix-document-paper) text-(--tedix-document-ink)"
+					data-kumo-part="document-paper"
+				>
+					{document.content.map((node, index) => (
+						<RichNode
+							key={`root-${index}`}
+							node={node}
+							nodeKey={`root-${index}`}
+						/>
+					))}
+				</article>
+				{withOutline ? (
+					<aside className="document-read-outline">
+						<DocumentOutline
+							label="Contents"
+							items={outline}
+							activeIndex={activeOutline}
+							onSelect={jump}
+						/>
+					</aside>
+				) : null}
+			</div>
+		</div>
 	);
 }

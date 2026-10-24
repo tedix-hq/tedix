@@ -9,7 +9,12 @@ import {
 import { Node, mergeAttributes } from "@tiptap/core";
 import {
 	ArrowCounterClockwise,
+	CaretDown,
 	DotsThree,
+	Keyboard,
+	SidebarSimple,
+	SquaresFour,
+	Table,
 	TextIndent,
 	TextOutdent,
 	ArrowUDownLeft,
@@ -31,6 +36,29 @@ import {
 	TextStrikethrough,
 	TextUnderline,
 } from "@phosphor-icons/react";
+import {
+	type DocumentBlock,
+	DocumentBlockList,
+	DocumentInsertMenu,
+} from "@/components/document-block-library";
+import {
+	activeOutlineIndex,
+	DocumentOutline,
+	type DocumentOutlineItem,
+	editorOutline,
+} from "@/components/document-outline";
+import { DocumentShortcutsDialog } from "@/components/document-shortcuts";
+import {
+	DocumentSlashMenu,
+	useDocumentSlashMenu,
+} from "@/components/document-slash-menu";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
 import { MAX_MESSAGE_BYTES } from "@/collab/protocol";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
 import { MAX_FILE_TEXT_LENGTH } from "@/collab/ot/code-change";
@@ -40,11 +68,18 @@ import { Image } from "@tiptap/extension-image";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style";
 import { Extension, type JSONContent } from "@tiptap/core";
-import { Plugin } from "@tiptap/pm/state";
+import { Plugin, type Transaction } from "@tiptap/pm/state";
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import { DocumentLinkPopover } from "@/components/document-link-popover";
 import { Button } from "@/components/kumo/button";
 import {
@@ -115,10 +150,34 @@ import { useToolbarCollapse } from "@/components/use-toolbar-collapse";
 
 /**
  * Toolbar widths (px) below which tiers 3, 2 and 1 fold into More, measured
- * from the rendered toolbar: every group needs ~1360px, without tier 3
- * ~1230px, and without tiers 2-3 ~760px.
+ * from the rendered toolbar (content plus its 32px padding): every group needs
+ * ~1467px, without tier 3 ~1242px, and without tiers 2-3 ~870px.
  */
-const TOOLBAR_COLLAPSE_WIDTHS = [1380, 1250, 790] as const;
+const TOOLBAR_COLLAPSE_WIDTHS = [1470, 1250, 880] as const;
+
+/** Editor widths (px) at which the outline rail, then both rails, fit. */
+const ONE_RAIL_WIDTH = 880;
+const TWO_RAIL_WIDTH = 1180;
+
+/** Words per minute behind the reading-time estimate. */
+const READING_WPM = 230;
+
+function wordCount(text: string): number {
+	return text.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)?.length ?? 0;
+}
+
+function useElementWidth(element: HTMLElement | null): number {
+	const [width, setWidth] = useState(0);
+	useEffect(() => {
+		if (!element || typeof ResizeObserver === "undefined") return;
+		const measure = () => setWidth(element.clientWidth);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [element]);
+	return width;
+}
 
 const imageFiles = (files: FileList | null | undefined) =>
 	[...(files ?? [])].filter((file) => file.type.startsWith("image/"));
@@ -196,9 +255,32 @@ export function DocumentEditor({
 	const [processingImages, setProcessingImages] = useState(0);
 	const [root, setRoot] = useState<HTMLDivElement | null>(null);
 	const collapse = useToolbarCollapse(root, TOOLBAR_COLLAPSE_WIDTHS);
+	const width = useElementWidth(root);
+	const [showOutline, setShowOutline] = useState(true);
+	const [showBlocks, setShowBlocks] = useState(true);
+	const [shortcutsOpen, setShortcutsOpen] = useState(false);
+	// Keyboard commands registered once with the editor call through this ref,
+	// so they always reach the current render's state setters.
+	const keys = useRef<{
+		openLink: () => void;
+		slashKeyDown: (event: KeyboardEvent) => boolean;
+	}>({ openLink: () => {}, slashKeyDown: () => false });
 	const editor = useEditor({
 		immediatelyRender: false,
 		extensions: [
+			Extension.create({
+				name: "documentKeys",
+				addKeyboardShortcuts: () => ({
+					"Mod-k": () => {
+						keys.current.openLink();
+						return true;
+					},
+					"Mod-/": () => {
+						setShortcutsOpen(true);
+						return true;
+					},
+				}),
+			}),
 			Extension.create({
 				name: "documentSaveLimits",
 				addProseMirrorPlugins() {
@@ -277,12 +359,67 @@ export function DocumentEditor({
 		},
 		editorProps: {
 			attributes: {
-				class:
-					"document-prose min-h-[52rem] outline-none text-[16px] leading-[1.6] text-(--tedix-document-ink)",
+				class: "document-prose outline-none text-(--tedix-document-ink)",
 				"aria-label": "Document body",
 			},
+			handleKeyDown: (_view, event) => keys.current.slashKeyDown(event),
+			// Keep the caret clear of the sticky toolbar above and the status
+			// pill below when typing scrolls the page.
+			scrollThreshold: { top: 72, bottom: 88, left: 0, right: 0 },
+			scrollMargin: { top: 72, bottom: 88, left: 0, right: 0 },
 		},
 	});
+
+	// The toolbar mirrors the caret (bold under the cursor, the current style),
+	// so it re-renders when the selection moves, not only when text changes.
+	const [, refreshToolbar] = useReducer((tick: number) => tick + 1, 0);
+	useEffect(() => {
+		if (!editor) return;
+		// Only caret, content and pending-mark moves change what the toolbar
+		// shows; meta-only transactions such as presence updates are skipped.
+		const refresh = ({ transaction }: { transaction: Transaction }) => {
+			if (
+				transaction.docChanged ||
+				transaction.selectionSet ||
+				transaction.storedMarksSet
+			)
+				refreshToolbar();
+		};
+		editor.on("transaction", refresh);
+		return () => {
+			editor.off("transaction", refresh);
+		};
+	}, [editor]);
+
+	const blockActions = {
+		uploadImage: () => fileInput.current?.click(),
+		imageFromUrl: () => setTextDialog("image"),
+	};
+	const insertBlock = (block: DocumentBlock) => {
+		if (!editor || disabled) return;
+		block.insert(editor, blockActions);
+	};
+	const slash = useDocumentSlashMenu(editor, (block, range) => {
+		if (!editor || disabled) return;
+		editor.chain().focus().deleteRange(range).run();
+		block.insert(editor, blockActions);
+	});
+	keys.current.slashKeyDown = slash.handleKeyDown;
+	keys.current.openLink = () => {
+		if (!disabled) setTextDialog("link");
+	};
+
+	const doc = editor?.state.doc;
+	// The document node is immutable: a new node means new content.
+	const outline = useMemo(
+		() => (editor && doc ? editorOutline(editor) : []),
+		[editor, doc],
+	);
+	const words = useMemo(
+		() =>
+			doc ? wordCount(doc.textBetween(0, doc.content.size, "\n", " ")) : 0,
+		[doc],
+	);
 
 	useEffect(() => {
 		// Permission/connection changes are not document edits.
@@ -290,13 +427,18 @@ export function DocumentEditor({
 	}, [editor, disabled]);
 
 	const richKey = JSON.stringify(normalized.richText);
+	const handedValue = useRef(normalized.richText);
+	handedValue.current = normalized.richText;
 	useEffect(() => {
 		// Live remote changes arrive through `collab`, focused or not. This path
 		// only catches an unfocused editor up with a value it was handed, such as
 		// a newly opened saved version; while focused, the editor is the source.
+		// Keyed on the serialized value: normalizing builds a new object every
+		// render, and an editor that re-renders on its own transactions would
+		// otherwise re-apply the same value forever.
 		if (!editor || editor.isFocused) return;
-		applyIncoming(editor, normalized.richText);
-	}, [editor, richKey, normalized.richText]);
+		applyIncoming(editor, handedValue.current);
+	}, [editor, richKey]);
 
 	useEffect(() => {
 		if (!editor || !collab) return;
@@ -494,6 +636,10 @@ export function DocumentEditor({
 							</SelectContent>
 						</Select>
 						<EditorToolbarDivider />
+					</>
+				)}
+				{visible(3) && (
+					<>
 						<EditorToolbarColorButton
 							label="Text color"
 							swatchRingClassName="ring-(--tedix-document-paper)"
@@ -618,101 +764,6 @@ export function DocumentEditor({
 							<Code size={15} />
 						</EditorToolbarButton>
 						<EditorToolbarButton
-							label="Insert table"
-							disabled={disabled}
-							onClick={() =>
-								editor
-									.chain()
-									.focus()
-									.insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-									.run()
-							}
-						>
-							Table
-						</EditorToolbarButton>
-						{editor.isActive("table") && (
-							<>
-								<EditorToolbarButton
-									label="Add row"
-									disabled={disabled}
-									onClick={() => editor.chain().focus().addRowAfter().run()}
-								>
-									+ Row
-								</EditorToolbarButton>
-								<EditorToolbarButton
-									label="Add column"
-									disabled={disabled}
-									onClick={() => editor.chain().focus().addColumnAfter().run()}
-								>
-									+ Column
-								</EditorToolbarButton>
-								<EditorToolbarButton
-									label="Delete row"
-									disabled={disabled}
-									onClick={() => editor.chain().focus().deleteRow().run()}
-								>
-									− Row
-								</EditorToolbarButton>
-								<EditorToolbarButton
-									label="Delete column"
-									disabled={disabled}
-									onClick={() => editor.chain().focus().deleteColumn().run()}
-								>
-									− Column
-								</EditorToolbarButton>
-								<EditorToolbarButton
-									label="Toggle header row"
-									disabled={disabled}
-									onClick={() => editor.chain().focus().toggleHeaderRow().run()}
-								>
-									Header
-								</EditorToolbarButton>
-								<EditorToolbarButton
-									label="Delete table"
-									disabled={disabled}
-									onClick={() => editor.chain().focus().deleteTable().run()}
-								>
-									Delete table
-								</EditorToolbarButton>
-							</>
-						)}
-						<EditorToolbarButton
-							label="Checklist"
-							active={editor.isActive("taskList")}
-							disabled={disabled}
-							onClick={() => editor.chain().focus().toggleTaskList().run()}
-						>
-							☑
-						</EditorToolbarButton>
-						<EditorToolbarButton
-							label="Callout"
-							disabled={disabled}
-							onClick={() =>
-								editor
-									.chain()
-									.focus()
-									.insertContent({
-										type: "callout",
-										content: [
-											{
-												type: "paragraph",
-												content: [{ type: "text", text: "Note" }],
-											},
-										],
-									})
-									.run()
-							}
-						>
-							Note
-						</EditorToolbarButton>
-						<EditorToolbarButton
-							label="Toggle section"
-							disabled={disabled}
-							onClick={() => editor.chain().focus().setDetails().run()}
-						>
-							Toggle
-						</EditorToolbarButton>
-						<EditorToolbarButton
 							label="Horizontal rule"
 							disabled={disabled}
 							onClick={() => editor.chain().focus().setHorizontalRule().run()}
@@ -733,6 +784,35 @@ export function DocumentEditor({
 			</>
 		);
 	};
+
+	const outlineFits = width === 0 || width >= ONE_RAIL_WIDTH;
+	const outlineVisible = showOutline && outlineFits;
+	const blocksVisible =
+		showBlocks &&
+		(outlineVisible ? width === 0 || width >= TWO_RAIL_WIDTH : outlineFits);
+	const caret = editor.state.selection.from;
+	const activeHeading = activeOutlineIndex(outline, caret);
+	const minutes = Math.max(1, Math.round(words / READING_WPM));
+
+	const jumpTo = (item: DocumentOutlineItem) => {
+		const target = editor.view.nodeDOM(item.position);
+		if (target instanceof HTMLElement) {
+			const reduce = window.matchMedia?.(
+				"(prefers-reduced-motion: reduce)",
+			).matches;
+			target.scrollIntoView({
+				block: "start",
+				behavior: reduce ? "auto" : "smooth",
+			});
+		}
+		editor
+			.chain()
+			.setTextSelection(item.position + 1)
+			.focus(undefined, { scrollIntoView: false })
+			.run();
+	};
+
+	const inTable = editor.isActive("table");
 
 	return (
 		<div
@@ -784,6 +864,53 @@ export function DocumentEditor({
 						))}
 					</SelectContent>
 				</Select>
+				<DocumentInsertMenu disabled={disabled} onInsert={insertBlock} />
+				{inTable && (
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							disabled={disabled}
+							render={
+								<Button size="sm" variant="ghost" aria-label="Table options" />
+							}
+						>
+							<Table size={15} /> Table <CaretDown size={12} />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="start">
+							<DropdownMenuItem
+								onClick={() => editor.chain().focus().addRowAfter().run()}
+							>
+								Add row below
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => editor.chain().focus().addColumnAfter().run()}
+							>
+								Add column to the right
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+							>
+								Turn header row on or off
+							</DropdownMenuItem>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem
+								onClick={() => editor.chain().focus().deleteRow().run()}
+							>
+								Delete row
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => editor.chain().focus().deleteColumn().run()}
+							>
+								Delete column
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								variant="danger"
+								onClick={() => editor.chain().focus().deleteTable().run()}
+							>
+								Delete table
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				)}
 				<EditorToolbarDivider />
 				<EditorToolbarButton
 					label="Bold"
@@ -879,36 +1006,125 @@ export function DocumentEditor({
 					{imageError}
 				</p>
 			)}
-			<div className="document-editor-desk">
-				<div
-					className="document-editor-paper document-page mx-auto w-full max-w-[72rem] bg-(--tedix-document-paper) px-4 py-8 text-(--tedix-document-ink) sm:px-10 sm:py-10 [&_.ProseMirror_a]:text-(--tedix-document-link) [&_.ProseMirror_blockquote]:border-(--tedix-document-rule) [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_h1]:text-[26px] [&_.ProseMirror_h1]:font-semibold [&_.ProseMirror_h2]:text-[21px] [&_.ProseMirror_h2]:font-semibold [&_.ProseMirror_h3]:text-[17px] [&_.ProseMirror_h3]:font-semibold [&_.ProseMirror_img]:max-w-full [&_.ProseMirror_mark]:text-(--tedix-document-ink) [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-6 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-6 [&_.ProseMirror_pre]:overflow-x-auto [&_.ProseMirror_pre]:rounded-lg [&_.ProseMirror_pre]:bg-(--tedix-document-code-bg) [&_.ProseMirror_pre]:p-4 [&_.ProseMirror_pre]:text-(--tedix-document-code-fg)"
-					data-kumo-part="document-paper"
-					onDrop={(event) => {
-						const files = imageFiles(event.dataTransfer.files);
-						if (files.length) {
-							event.preventDefault();
-							void insertImageFiles(files);
-						}
-					}}
-					onPaste={(event) => {
-						const files = imageFiles(event.clipboardData.files);
-						if (files.length) {
-							event.preventDefault();
-							void insertImageFiles(files);
-						}
-					}}
-				>
-					<EditorContent editor={editor} />
+			<div
+				className="document-editor-layout"
+				data-show-outline={outlineVisible || undefined}
+				data-show-blocks={blocksVisible || undefined}
+			>
+				{outlineVisible && (
+					<aside className="document-editor-rail document-editor-rail-start">
+						<DocumentOutline
+							items={outline}
+							activeIndex={activeHeading}
+							disabled={disabled}
+							onSelect={jumpTo}
+						/>
+					</aside>
+				)}
+				<div className="document-editor-desk">
+					<div
+						className="document-editor-paper document-page mx-auto w-full bg-(--tedix-document-paper) text-(--tedix-document-ink)"
+						data-kumo-part="document-paper"
+						onDrop={(event) => {
+							const files = imageFiles(event.dataTransfer.files);
+							if (files.length) {
+								event.preventDefault();
+								void insertImageFiles(files);
+							}
+						}}
+						onPaste={(event) => {
+							const files = imageFiles(event.clipboardData.files);
+							if (files.length) {
+								event.preventDefault();
+								void insertImageFiles(files);
+							}
+						}}
+					>
+						<EditorContent editor={editor} />
+					</div>
 				</div>
+				{blocksVisible && (
+					<aside
+						className="document-editor-rail document-editor-rail-end"
+						aria-label="Add a block"
+					>
+						<Text
+							as="h2"
+							role="caption"
+							tone="secondary"
+							weight="semibold"
+							className="m-0 flex items-center gap-1.5 px-2"
+						>
+							<SquaresFour size={14} aria-hidden />
+							Add a block
+						</Text>
+						<DocumentBlockList disabled={disabled} onInsert={insertBlock} />
+					</aside>
+				)}
 			</div>
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<Text as="span" role="label" tone="secondary">
-					Paste text or drag images onto the page
+			<div className="document-editor-pill" data-document-pill>
+				<Text as="span" role="caption" tone="secondary">
+					{words === 1 ? "1 word" : `${words.toLocaleString()} words`}
+					{words > 0 ? ` · ${minutes} min read` : ""}
 				</Text>
-				<Text as="span" role="label" tone="secondary">
-					{editor.getText().length} characters
-				</Text>
+				<span className="document-editor-pill-hint" aria-hidden>
+					<Text as="span" role="caption" tone="secondary">
+						Type / for blocks
+					</Text>
+				</span>
+				<span className="document-editor-pill-actions">
+					{outlineFits && (
+						<>
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={disabled}
+								aria-label="Outline"
+								aria-pressed={outlineVisible}
+								title={outlineVisible ? "Hide outline" : "Show outline"}
+								onClick={() => setShowOutline((visible) => !visible)}
+							>
+								<SidebarSimple size={15} />
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={disabled}
+								aria-label="Blocks panel"
+								aria-pressed={blocksVisible}
+								title={
+									blocksVisible ? "Hide blocks panel" : "Show blocks panel"
+								}
+								onClick={() => setShowBlocks((visible) => !visible)}
+							>
+								<SquaresFour size={15} />
+							</Button>
+						</>
+					)}
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={disabled}
+						aria-label="Keyboard shortcuts"
+						title="Keyboard shortcuts"
+						onClick={() => setShortcutsOpen(true)}
+					>
+						<Keyboard size={15} />
+					</Button>
+				</span>
 			</div>
+			<DocumentSlashMenu
+				editor={editor}
+				query={slash.query}
+				matches={slash.matches}
+				index={slash.index}
+				onHover={slash.setIndex}
+				onChoose={slash.choose}
+			/>
+			<DocumentShortcutsDialog
+				open={shortcutsOpen}
+				onOpenChange={setShortcutsOpen}
+			/>
 			<DocumentLinkPopover
 				editor={editor}
 				disabled={disabled}

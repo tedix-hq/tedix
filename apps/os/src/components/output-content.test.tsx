@@ -164,11 +164,19 @@ describe("OutputContentView", () => {
 
 		// Page margins, not card padding: the document renders as a page on a
 		// desk, so the vertical inset is deliberately larger than the horizontal
-		// one and matches the editing surface.
-		expect(html).toContain("px-4 py-8");
-		expect(html).toContain("sm:px-10 sm:py-10");
-		expect(html).toContain("[&amp;_h1]:text-[26px]");
-		expect(html).toContain("[&amp;_h2]:text-[21px]");
+		// one, on phones and wider screens alike. The page and its typography
+		// live in the editor stylesheet, shared with the editing surface.
+		expect(html).toContain("document-read-page");
+		expect(html).toContain("document-prose");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
+		const page = [
+			...css.matchAll(/\.document-read-page \{[^}]*padding: (\d+)px (\d+)px/g),
+		].map((match) => [Number(match[1]), Number(match[2])]);
+		expect(page).toHaveLength(2);
+		for (const [vertical, horizontal] of page)
+			expect(vertical).toBeGreaterThan(horizontal!);
+		expect(css).toMatch(/\.document-prose h1 \{[^}]*font-size: 28px/);
+		expect(css).toMatch(/\.document-prose h2 \{[^}]*font-size: 22px/);
 	});
 
 	it("renders a multi-sheet workbook with cached values and formatting", () => {
