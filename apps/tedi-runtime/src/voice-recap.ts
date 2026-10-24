@@ -69,7 +69,10 @@ function clampLine(text: string, maxChars: number): string {
  * any other caller.
  */
 export function buildVoiceCallRecap(input: VoiceRecapInput): string {
-	const maxLines = input.maxLines ?? DEFAULT_MAX_LINES;
+	const requestedMaxLines = input.maxLines ?? DEFAULT_MAX_LINES;
+	const maxLines = Number.isFinite(requestedMaxLines)
+		? Math.max(0, Math.floor(requestedMaxLines))
+		: 0;
 	const maxLineChars = input.maxLineChars ?? DEFAULT_MAX_LINE_CHARS;
 
 	const lines = input.transcript.filter(
@@ -88,7 +91,7 @@ export function buildVoiceCallRecap(input: VoiceRecapInput): string {
 					turnCount === 1 ? "turn" : "turns"
 				}${durationPart}).`;
 
-	if (turnCount === 0) return header;
+	if (turnCount === 0 || maxLines === 0) return header;
 
 	// Keep the most recent `maxLines` turns (the tail of the conversation is the
 	// most relevant context for the next turn).
