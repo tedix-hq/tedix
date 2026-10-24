@@ -3,6 +3,32 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildTedixActionHandlers } from "./handler-utils";
 
 describe("state-backed filter and sort actions", () => {
+	it("preserves literal pointer characters in state keys in one atomic update", async () => {
+		const rows = [{ name: "Alpha" }, { name: "Beta" }];
+		const initial = {
+			source: rows,
+			result: [],
+			"cost/unit": "original",
+			"display~name": "label",
+			"a~1b": "literal escape",
+		};
+		const store = createStateStore(initial);
+		const snapshots: unknown[] = [];
+		const unsubscribe = store.subscribe(() => {
+			snapshots.push(store.getSnapshot());
+		});
+		await buildTedixActionHandlers(store).filter({
+			sourceStatePath: "/source",
+			statePath: "/result",
+			field: "name",
+			value: "Alpha",
+		});
+		unsubscribe();
+		const expected = { ...initial, result: [rows[0]] };
+		expect(store.getSnapshot()).toEqual(expected);
+		expect(snapshots).toEqual([expected]);
+	});
+
 	it("filters a separate source into a nested target, mirrors the trimmed query, and resets", async () => {
 		const rows = [{ name: "Alpha" }, { name: "Beta" }, { name: "Alphabet" }];
 		const store = createStateStore({

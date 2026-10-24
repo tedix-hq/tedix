@@ -62,22 +62,32 @@ describe("run-local options", () => {
 		])
 			expect(() => parseRunLocalOptions(invalid)).toThrow();
 	});
-	test("requires genuine Node 22+ rather than a missing, old, or Bun-shim runtime", () => {
+	test("requires genuine Node within the supported cf, Astro, and Vite+ ranges", () => {
 		for (const runtime of [
 			null,
 			{ node: "20.19.0", bun: null },
+			{ node: "22.0.0", bun: null },
+			{ node: "22.23.3", bun: null },
+			{ node: "23.0.0", bun: null },
+			{ node: "24.21.9", bun: null },
+			{ node: "25.0.0", bun: null },
+			{ node: "26.11.9", bun: null },
+			{ node: "27.0.0", bun: null },
 			{ node: "24.0.0", bun: "1.4.2" },
 			{ node: "invalid", bun: null },
 		]) {
 			expect(() => assertSupportedNodeRuntime(runtime)).toThrow(
-				"genuine Node.js 22+",
+				"genuine Node.js 22.23.4+",
 			);
 		}
 		expect(() =>
-			assertSupportedNodeRuntime({ node: "22.0.0", bun: null }),
+			assertSupportedNodeRuntime({ node: "22.23.4", bun: null }),
 		).not.toThrow();
 		expect(() =>
-			assertSupportedNodeRuntime({ node: "24.1.0", bun: null }),
+			assertSupportedNodeRuntime({ node: "24.22.0", bun: null }),
+		).not.toThrow();
+		expect(() =>
+			assertSupportedNodeRuntime({ node: "26.12.0", bun: null }),
 		).not.toThrow();
 	});
 
@@ -88,7 +98,7 @@ describe("run-local options", () => {
 			{ cwd, env: { PATH: "/nonexistent" } },
 		);
 		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("genuine Node.js 22+");
+		expect(result.stderr.toString()).toContain("genuine Node.js 22.23.4+");
 		expect(readdirSync(cwd)).toEqual([]);
 	});
 	test("rejects an occupied port before installing or writing local state", async () => {

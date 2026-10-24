@@ -27,8 +27,9 @@ Cloud](./learning-paths/first-connection.md).
 
 ## Run Tedix locally
 
-You need Git, [Bun](https://bun.sh), and Node.js 22+ on `PATH` (real Node, not
-a Bun shim; Wrangler needs it). No account or cloud credentials are needed.
+You need Git, [Bun](https://bun.sh), and Node.js 22.23.4+, 24.22+, or 26.12+ within
+those majors on `PATH` (real Node, not a Bun shim; cf, Wrangler, Astro, and Vite+
+need it). No account or cloud credentials are needed.
 
 ```bash
 git clone https://github.com/tedix-hq/tedix.git && cd tedix
@@ -132,7 +133,8 @@ Paste this prompt into it:
 ```text
 Set up Tedix locally from source. Read https://docs.tedix.dev/getting-started
 and the README at https://github.com/tedix-hq/tedix, check that Git, Bun and
-Node.js 22+ are installed, clone the repository, and run `bun run-local`.
+Node.js 22.23.4+, 24.22+, or 26.12+ within those majors are installed, clone the
+repository, and run `bun run-local`.
 Do not log in to anything or turn on model calls. When Tedix OS is running,
 tell me its URL and stop.
 ```
