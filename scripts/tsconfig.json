@@ -10,6 +10,9 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"ci/browser-evidence.test.ts",
+		"ci/upload-artifact.mjs",
+		"ci/upload-artifact.test.ts",
 		"ci/browser-quarantine.mjs",
 		"ci/browser-quarantine.test.ts",
 		"ci/focus-clip-shards.test.ts",
