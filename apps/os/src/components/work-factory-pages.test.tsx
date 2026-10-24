@@ -203,7 +203,7 @@ describe("Work factory queue", () => {
 		const html = renderToStaticMarkup(<WorkItemsTable items={[item]} />);
 		const doc = new DOMParser().parseFromString(html, "text/html");
 		const kindCell = [...doc.querySelectorAll("dd")].find(
-			(cell) => cell.textContent === "Operations",
+			(cell) => cell.textContent === "Operations task",
 		);
 		const updatedCell = [...doc.querySelectorAll("dd")].find(
 			(cell) => cell.querySelector("time") !== null,
