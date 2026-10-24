@@ -5,7 +5,7 @@ import { startFixtureServer } from "./fixture-server";
 const server = await startFixtureServer("/team?tab=roles");
 const browser = await chromium.launch();
 try {
-	for (const width of [390, 1280]) {
+	for (const width of [375, 1280]) {
 		for (const theme of ["light", "dark"] as const) {
 			const page = await browser.newPage({
 				viewport: { width, height: 900 },
@@ -17,7 +17,7 @@ try {
 			);
 			await page.goto(`${server.origin}/team?tab=roles`);
 			await page.getByText("Roles are fixed security boundaries").waitFor();
-			if (width === 390) {
+			if (width === 375) {
 				assert(
 					await page
 						.getByRole("region", { name: "Organization role permissions" })
@@ -27,7 +27,9 @@ try {
 					'[aria-label="Organization role summaries"]',
 				);
 				assert(await summaries.isVisible());
-				await summaries.getByRole("button").first().click();
+				const permissions = summaries.getByRole("button").first();
+				await permissions.click();
+				assert.equal(await permissions.getAttribute("aria-expanded"), "true");
 			} else {
 				const cells = page.locator(
 					'[aria-label="Organization role permissions"] tbody td',
