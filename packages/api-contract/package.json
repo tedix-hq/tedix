@@ -7,6 +7,7 @@
 	"type": "module",
 	"exports": {
 		"./utils/connection-capabilities": "./src/utils/connection-capabilities.ts",
+		"./utils/connection-account-mode": "./src/utils/connection-account-mode.ts",
 		"./utils/decision-autonomy": "./src/utils/decision-autonomy.ts",
 		"./utils/card-version-text": "./src/utils/card-version-text.ts",
 		"./utils/card-secrets": "./src/utils/card-secrets.ts",

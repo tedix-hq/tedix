@@ -120,7 +120,7 @@ export async function readConnectionsOverview(
 				p.supportedScopes.includes(scope),
 		);
 	const rows: Omit<ConnectionInventoryRow, "capabilities">[] = [];
-	let verificationComplete = true;
+	let instancesTruncated = false;
 	// Bound concurrency without serializing every provider request. Each request has a deadline.
 	let cursor = 0;
 	await Promise.all(
@@ -166,9 +166,6 @@ export async function readConnectionsOverview(
 				} finally {
 					if (timer) clearTimeout(timer);
 				}
-				const uncertain =
-					credential.state === "unknown" || credential.state === "restricted";
-				if (uncertain) verificationComplete = false;
 				const appReferences = references.references.get(provider.appId) ?? [];
 				if (
 					!isInventoryProviderVisible(
@@ -216,7 +213,7 @@ export async function readConnectionsOverview(
 	{
 		const owner = scope === "user" ? { userId: userId! } : { organizationId };
 		const instances = await listConnectionInstances(context.db, owner);
-		if (instances.length === 100) verificationComplete = false;
+		instancesTruncated = instances.length === 100;
 		let instanceCursor = 0;
 		await Promise.all(
 			Array.from({ length: Math.min(6, instances.length) }, async () => {
@@ -253,7 +250,7 @@ export async function readConnectionsOverview(
 								})
 							: { state: "missing", expiresAt: null, scopes: [] };
 					} catch {
-						verificationComplete = false;
+						// Leaves the row "unknown"; isInventoryVerified reports it.
 					}
 					const appReferences = [] as ConnectionInventoryRow["references"];
 					const bindingTargets = [] as ConnectionInventoryRow["references"];
@@ -311,6 +308,7 @@ export async function readConnectionsOverview(
 			}),
 		);
 	}
+	const verificationComplete = !instancesTruncated && isInventoryVerified(rows);
 	const filtered = rows
 		.map((row) => ({
 			...row,
@@ -358,6 +356,21 @@ export async function readConnectionsOverview(
 				: []),
 		],
 	};
+}
+
+/**
+ * Only rows the caller can see decide whether the inventory is verified. A
+ * catalog provider that is neither referenced nor connected is skipped before
+ * this check, so a failed read of it can never raise a page-level issue that
+ * names no account.
+ */
+export function isInventoryVerified(
+	rows: readonly Pick<ConnectionInventoryRow, "accountState">[],
+): boolean {
+	return rows.every(
+		(row) =>
+			row.accountState !== "unknown" && row.accountState !== "restricted",
+	);
 }
 
 /** Include setup targets in either ownership scope, but not the global catalog.

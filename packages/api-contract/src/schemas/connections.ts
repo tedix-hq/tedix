@@ -426,6 +426,8 @@ export const ConnectionInventoryInputSchema = z
 export const ConnectionReferenceSchema = z.object({
 	appId: z.string(),
 	appSlug: z.string(),
+	/** Human app name for display; the slug stays the stable identifier. */
+	appName: z.string().optional(),
 	source: z.enum(["app", "tool", "aggregate"]),
 });
 export const ConnectionInventoryRowSchema = z.object({

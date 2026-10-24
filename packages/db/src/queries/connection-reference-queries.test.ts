@@ -35,7 +35,7 @@ describe("connection reference bulk queries", () => {
 
 		expect(mock.queryCount()).toBe(1);
 		expect(mock.selections).toEqual([
-			["id", "slug", "organizationId", "metadata"],
+			["id", "slug", "name", "organizationId", "metadata"],
 		]);
 	});
 
@@ -48,8 +48,8 @@ describe("connection reference bulk queries", () => {
 
 		expect(mock.queryCount()).toBe(2);
 		expect(mock.selections).toEqual([
-			["id", "slug", "organizationId", "metadata"],
-			["id", "slug", "organizationId", "metadata"],
+			["id", "slug", "name", "organizationId", "metadata"],
+			["id", "slug", "name", "organizationId", "metadata"],
 		]);
 	});
 

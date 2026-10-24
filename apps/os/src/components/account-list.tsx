@@ -1,0 +1,935 @@
+/**
+ * The one account list behind Organization connections (/admin/connections)
+ * and My accounts (/account/connections). Both pages render the same row
+ * anatomy and status words; only the owner differs.
+ *
+ * A row is one app's accounts. It answers, in order: is it working (one
+ * status), what needs doing (one action), and — when opened — what it
+ * connects, who can use it, which apps use it, and when it was last checked.
+ * Identifiers and protocol detail stay behind "Technical details".
+ */
+
+import type {
+	ConnectionInventoryRow,
+	ConnectionProvider,
+} from "@tedix/api-contract/schemas/connections";
+import { connectionAccountMode } from "@tedix/api-contract/utils/connection-account-mode";
+import { CaretDown, DotsThree, Key, Plugs, Plus } from "@phosphor-icons/react";
+import { useState, type ReactNode } from "react";
+import { Button } from "@/components/kumo/button";
+import { cn } from "@/components/kumo/cn";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
+import { Link } from "@/components/kumo/link";
+import { Collection, PageSection } from "@/components/kumo/page";
+import { Text } from "@/components/kumo/text";
+import { normalizeConsentPermissions } from "@/shared/consent-permissions";
+
+type Reference = ConnectionInventoryRow["references"][number];
+export type AccountOwner = "organization" | "personal";
+
+export type ServiceHealth = {
+	status: "checking" | "healthy" | "unhealthy" | "error";
+	detail: string;
+	appSlug: string;
+	toolCount: number | null;
+	checkedAt?: string;
+};
+
+export type AccountStatus =
+	| { kind: "connected"; label: string }
+	| {
+			kind: "attention";
+			label: string;
+			reason: string;
+			action: "connect" | "reconnect";
+	  }
+	| { kind: "available"; label: string; action: "connect" };
+
+/** Presentation names only: providers remain separate authorization boundaries. */
+export function friendlyProviderName(
+	provider: Pick<ConnectionProvider, "appId" | "name">,
+): string {
+	if (/^Microsoft Graph Calendar(?: OAuth)?$/i.test(provider.name))
+		return "Outlook Calendar";
+	if (/^Microsoft Graph Mail(?: OAuth)?$/i.test(provider.name))
+		return "Outlook Mail";
+	return provider.name.replace(/ OAuth$/i, "");
+}
+
+export function usableLogoUrl(logoUrl: string | null): string | null {
+	if (!logoUrl) return null;
+	const trimmed = logoUrl.trim();
+	if (trimmed.startsWith("data:image/")) return trimmed;
+	try {
+		const parsed = new URL(trimmed);
+		return parsed.protocol === "https:" || parsed.protocol === "http:"
+			? parsed.toString()
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+/** A readable fallback when the API sent no app name: never the raw slug. */
+export function humanizeAppSlug(slug: string): string {
+	const words = slug
+		.replace(/-[0-9a-f]{8,}$/i, "")
+		.replace(/-tedix$/i, "")
+		.split(/[-_]+/)
+		.filter(Boolean);
+	const text = words.join(" ");
+	return text ? text[0]!.toUpperCase() + text.slice(1) : slug;
+}
+
+/** Distinct apps by id, with human names. */
+export function appNames(references: readonly Reference[]): string[] {
+	const byId = new Map<string, string>();
+	for (const reference of references)
+		if (!byId.has(reference.appId))
+			byId.set(
+				reference.appId,
+				reference.appName?.trim() || humanizeAppSlug(reference.appSlug),
+			);
+	return [...new Set(byId.values())].sort((a, b) => a.localeCompare(b));
+}
+
+function missingPermissions(row: ConnectionInventoryRow) {
+	return (row.capabilities ?? []).filter(
+		(capability) =>
+			capability.verified &&
+			(capability.state === "not_configured" ||
+				capability.state === "needs_reauth"),
+	);
+}
+
+/**
+ * One status per account. A failed status read is "Needs attention", never
+ * "Not connected": a provider that refused the read is not proof of absence.
+ */
+export function accountStatus(row: ConnectionInventoryRow): AccountStatus {
+	const attention = (
+		reason: string,
+		action: "connect" | "reconnect" = "reconnect",
+	): AccountStatus => ({
+		kind: "attention",
+		label: `Needs attention: ${reason}`,
+		reason,
+		action,
+	});
+	const isApiKey = row.provider.connectionType === "api_key";
+	if (row.accountState === "unknown")
+		return attention("Couldn't check this account");
+	if (row.accountState === "restricted")
+		return attention("Provider didn't allow a status check");
+	if (row.accountState === "expired" || row.connection?.status === "expired")
+		return attention(isApiKey ? "Key stopped working" : "Sign-in expired");
+	if (row.connection?.status === "reconnect_needed")
+		return attention("Sign in again to keep it working");
+	if (row.connection?.status === "revoked")
+		return attention("Access removed at the provider");
+	if (row.accountState === "present" && row.connection) {
+		const missing = missingPermissions(row);
+		if (missing.length)
+			return attention(
+				missing.length === 1 && missing[0]!.id === "access"
+					? "Some permissions missing"
+					: `Missing permission for ${missing.map((item) => item.label).join(", ")}`,
+			);
+		return { kind: "connected", label: "Connected" };
+	}
+	// A named slot whose sign-in was never finished is an account the person
+	// started; it belongs with the accounts, not with the catalog.
+	if (row.connectionInstanceId)
+		return attention("Sign-in not finished", "connect");
+	return { kind: "available", label: "Not connected", action: "connect" };
+}
+
+export type AccountGroup = {
+	provider: ConnectionProvider;
+	accounts: ConnectionInventoryRow[];
+	status: AccountStatus;
+};
+
+export function accountLabel(row: ConnectionInventoryRow): string {
+	return row.instanceLabel?.trim() || "Default account";
+}
+
+/** Group by provider, attention first, then connected; unconnected apps last. */
+export function groupAccounts(
+	rows: readonly ConnectionInventoryRow[],
+): AccountGroup[] {
+	const byProvider = new Map<string, ConnectionInventoryRow[]>();
+	for (const row of rows) {
+		const list = byProvider.get(row.provider.appId) ?? [];
+		list.push(row);
+		byProvider.set(row.provider.appId, list);
+	}
+	const rank = { attention: 0, connected: 1, available: 2 } as const;
+	return [...byProvider.values()]
+		.map((list) => {
+			const used = list.filter(
+				(row) => accountStatus(row).kind !== "available",
+			);
+			const accounts = used.length ? used : list.slice(0, 1);
+			const statuses = accounts.map(accountStatus);
+			const needing = statuses.filter((status) => status.kind === "attention");
+			const status: AccountStatus =
+				needing.length === 0
+					? statuses.some((status) => status.kind === "connected")
+						? { kind: "connected", label: "Connected" }
+						: statuses[0]!
+					: accounts.length === 1
+						? needing[0]!
+						: needing.length === 1 && needing[0]!.kind === "attention"
+							? {
+									...needing[0]!,
+									label: `Needs attention: ${accountLabel(accounts[statuses.indexOf(needing[0]!)]!)}: ${needing[0]!.reason}`,
+								}
+							: {
+									kind: "attention",
+									reason: `${needing.length} of ${accounts.length} accounts`,
+									label: `Needs attention: ${needing.length} of ${accounts.length} accounts`,
+									action: "reconnect",
+								};
+			return { provider: list[0]!.provider, accounts, status };
+		})
+		.sort(
+			(a, b) =>
+				rank[a.status.kind] - rank[b.status.kind] ||
+				friendlyProviderName(a.provider).localeCompare(
+					friendlyProviderName(b.provider),
+				),
+		);
+}
+
+export function connectionServiceSummary(
+	serviceHealth: ServiceHealth | undefined,
+): string {
+	if (!serviceHealth) return "MCP service not checked";
+	if (serviceHealth.status === "checking") return "Checking MCP service…";
+	if (serviceHealth.status === "error") {
+		return `MCP check unavailable${serviceHealth.checkedAt ? ` · Checked ${new Date(serviceHealth.checkedAt).toLocaleString()}` : ""}`;
+	}
+	const status =
+		serviceHealth.status === "healthy" ? "MCP healthy" : "MCP service issue";
+	const inventory =
+		serviceHealth.toolCount == null
+			? "tool inventory unavailable"
+			: `${serviceHealth.toolCount.toLocaleString()} live ${serviceHealth.toolCount === 1 ? "tool" : "tools"}`;
+	return `${status} · ${inventory}${serviceHealth.checkedAt ? ` · Checked ${new Date(serviceHealth.checkedAt).toLocaleString()}` : ""}`;
+}
+
+function formatChecked(iso: string | undefined): string | null {
+	if (!iso) return null;
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return null;
+	return date.toLocaleString(undefined, {
+		dateStyle: "medium",
+		timeStyle: "short",
+	});
+}
+
+function listNames(names: readonly string[], max = 3): string {
+	if (names.length <= max) return names.join(", ");
+	return `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
+}
+
+export interface AccountListProps {
+	owner: AccountOwner;
+	groups: AccountGroup[];
+	/** When the inventory was read; the result of each row's last check. */
+	checkedAt?: string;
+	isChecking: boolean;
+	onCheck: () => void;
+	canManage: (row: ConnectionInventoryRow) => boolean;
+	deniedReason: (row: ConnectionInventoryRow) => string;
+	canAdd: (provider: ConnectionProvider) => boolean;
+	canBind: boolean;
+	isConnecting: boolean;
+	isDisconnecting: boolean;
+	isBinding: boolean;
+	onConnect: (row: ConnectionInventoryRow) => void;
+	onReconnect: (row: ConnectionInventoryRow) => void;
+	onDisconnect: (row: ConnectionInventoryRow) => void;
+	onRename: (row: ConnectionInventoryRow) => void;
+	onAdd: (provider: ConnectionProvider) => void;
+	onBind: (row: ConnectionInventoryRow, reference: Reference) => void;
+	serviceHealth: Record<string, ServiceHealth | undefined>;
+	onCheckService: (providerId: string, appSlug: string) => void;
+	/** Open "Available to connect" without a click (search, filters, empty list). */
+	availableOpen?: boolean;
+}
+
+export function AccountList(props: AccountListProps) {
+	const active = props.groups.filter(
+		(group) => group.status.kind !== "available",
+	);
+	const available = props.groups.filter(
+		(group) => group.status.kind === "available",
+	);
+	const [showAvailable, setShowAvailable] = useState(false);
+	const availableOpen =
+		showAvailable || props.availableOpen || active.length === 0;
+	return (
+		<>
+			{active.length > 0 && (
+				<PageSection aria-label="Connected accounts">
+					<Collection aria-label="Connected accounts">
+						{active.map((group) => (
+							<AccountGroupRow
+								key={group.provider.appId}
+								{...props}
+								group={group}
+							/>
+						))}
+					</Collection>
+				</PageSection>
+			)}
+			{available.length > 0 && (
+				<PageSection aria-label="Available to connect">
+					<Collapsible open={availableOpen} onOpenChange={setShowAvailable}>
+						<CollapsibleTrigger className="-ms-2">
+							<CaretDown
+								aria-hidden
+								className={cn(
+									"size-3.5 transition-transform motion-reduce:transition-none",
+									!availableOpen && "-rotate-90",
+								)}
+							/>
+							Available to connect
+							<span className="text-kumo-subtle tabular-nums">
+								{available.length}
+							</span>
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<Collection aria-label="Available to connect" className="mt-2">
+								{available.map((group) => (
+									<AvailableRow
+										key={group.provider.appId}
+										{...props}
+										group={group}
+									/>
+								))}
+							</Collection>
+						</CollapsibleContent>
+					</Collapsible>
+				</PageSection>
+			)}
+		</>
+	);
+}
+
+function ProviderLogo({ provider }: { provider: ConnectionProvider }) {
+	const logo = usableLogoUrl(provider.logoUrl);
+	return logo ? (
+		<img
+			src={logo}
+			alt=""
+			className="size-8 shrink-0 rounded-md border border-kumo-hairline bg-kumo-base object-contain p-1"
+		/>
+	) : (
+		<span
+			aria-hidden
+			className="flex size-8 shrink-0 items-center justify-center rounded-md bg-kumo-fill text-kumo-subtle"
+		>
+			{provider.connectionType === "api_key" ? (
+				<Key className="size-4" />
+			) : (
+				<Plugs className="size-4" />
+			)}
+		</span>
+	);
+}
+
+export function StatusLine({ status }: { status: AccountStatus }) {
+	return (
+		<span
+			data-account-status={status.kind}
+			className="flex min-w-0 items-start gap-1.5 text-kumo-default type-tedix-label"
+		>
+			<span
+				aria-hidden
+				className={cn(
+					"mt-[0.4em] size-1.75 shrink-0 rounded-full",
+					status.kind === "connected"
+						? "bg-kumo-success"
+						: status.kind === "attention"
+							? "bg-kumo-badge-orange"
+							: "bg-kumo-fill ring-1 ring-kumo-line",
+				)}
+			/>
+			<span className="min-w-0 break-words">{status.label}</span>
+		</span>
+	);
+}
+
+function usedByLine(group: AccountGroup): string {
+	const references = group.accounts.flatMap((row) => row.references);
+	const names = appNames(references);
+	if (names.length) return `Used by ${listNames(names)}`;
+	return group.accounts.every((row) => row.referencesComplete)
+		? "Not used by any app yet"
+		: "Apps using it could not be loaded";
+}
+
+function PrimaryAction({
+	row,
+	status,
+	props,
+}: {
+	row: ConnectionInventoryRow;
+	status: AccountStatus;
+	props: AccountListProps;
+}) {
+	if (status.kind === "connected") return null;
+	const allowed = props.canManage(row);
+	const label = status.action === "connect" ? "Connect" : "Reconnect";
+	return (
+		<Button
+			size="sm"
+			variant={status.kind === "available" ? "outline" : "default"}
+			className="shrink-0 max-sm:min-h-11"
+			disabled={!allowed || props.isConnecting}
+			title={allowed ? undefined : props.deniedReason(row)}
+			onClick={() =>
+				status.action === "connect"
+					? props.onConnect(row)
+					: props.onReconnect(row)
+			}
+		>
+			{label}
+		</Button>
+	);
+}
+
+function AvailableRow({
+	group,
+	...props
+}: AccountListProps & { group: AccountGroup }) {
+	const name = friendlyProviderName(group.provider);
+	const row = group.accounts[0]!;
+	return (
+		<li
+			data-account-group={group.provider.appId}
+			className="flex items-center gap-3 px-4 py-2.5"
+		>
+			<ProviderLogo provider={group.provider} />
+			<div className="min-w-0 flex-1">
+				<Text weight="medium" className="break-words">
+					{name}
+				</Text>
+				<Text role="label" tone="secondary" className="break-words">
+					{usedByLine(group)}
+				</Text>
+			</div>
+			<PrimaryAction row={row} status={group.status} props={props} />
+		</li>
+	);
+}
+
+function AccountGroupRow({
+	group,
+	...props
+}: AccountListProps & { group: AccountGroup }) {
+	const [open, setOpen] = useState(false);
+	const { provider, accounts, status } = group;
+	const name = friendlyProviderName(provider);
+	const mode = connectionAccountMode(provider);
+	const multiple = accounts.length > 1;
+	const single = accounts[0]!;
+	return (
+		<li data-account-group={provider.appId}>
+			<Collapsible open={open} onOpenChange={setOpen}>
+				<div className="flex items-center gap-2 pe-4">
+					<CollapsibleTrigger
+						className="flex min-w-0 flex-1 items-center gap-3 rounded-none py-3 ps-4 pe-2 text-kumo-default hover:bg-transparent hover:text-kumo-default"
+						aria-label={`${name} details`}
+					>
+						<ProviderLogo provider={provider} />
+						<span className="grid min-w-0 flex-1 gap-0.5">
+							<Text as="span" weight="medium" className="break-words">
+								{name}
+							</Text>
+							<Text
+								as="span"
+								role="label"
+								tone="secondary"
+								className="break-words"
+							>
+								{!multiple && single.connectionInstanceId
+									? `${accountLabel(single)} · `
+									: null}
+								{usedByLine(group)} ·{" "}
+								{mode.mode === "single" ? "One account" : "Multiple accounts"}
+							</Text>
+							<StatusLine status={status} />
+						</span>
+						<CaretDown
+							aria-hidden
+							className={cn(
+								"size-4 shrink-0 text-kumo-subtle transition-transform motion-reduce:transition-none",
+								open && "rotate-180",
+							)}
+						/>
+					</CollapsibleTrigger>
+					{!multiple && (
+						<PrimaryAction row={single} status={status} props={props} />
+					)}
+				</div>
+				{multiple && (
+					<ul
+						aria-label={`${name} accounts`}
+						className="m-0 grid list-none gap-0 border-kumo-hairline border-t py-1 ps-15 pe-4"
+					>
+						{accounts.map((row) => (
+							<AccountLine
+								key={row.connectionInstanceId ?? "default"}
+								row={row}
+								name={name}
+								props={props}
+							/>
+						))}
+						{props.canAdd(provider) && (
+							<li>
+								<AddAccountButton provider={provider} props={props} />
+							</li>
+						)}
+					</ul>
+				)}
+				<CollapsibleContent>
+					<AccountDetails group={group} props={props} />
+				</CollapsibleContent>
+			</Collapsible>
+		</li>
+	);
+}
+
+function AddAccountButton({
+	provider,
+	props,
+}: {
+	provider: ConnectionProvider;
+	props: AccountListProps;
+}) {
+	return (
+		<Button
+			variant="ghost"
+			size="sm"
+			// Pull the ghost padding back so the icon sits on the text edge.
+			className="-ms-2 max-sm:min-h-11"
+			disabled={props.isConnecting}
+			onClick={() => props.onAdd(provider)}
+		>
+			<Plus aria-hidden className="size-4" />
+			Connect another account
+		</Button>
+	);
+}
+
+function AccountLine({
+	row,
+	name,
+	props,
+}: {
+	row: ConnectionInventoryRow;
+	name: string;
+	props: AccountListProps;
+}) {
+	const status = accountStatus(row);
+	const label = accountLabel(row);
+	const allowed = props.canManage(row);
+	return (
+		<li
+			data-account-row={row.connectionInstanceId ?? "default"}
+			className="flex items-center gap-2 py-1.5"
+		>
+			<div className="min-w-0 flex-1">
+				<Text weight="medium" className="break-words">
+					{label}
+				</Text>
+				{/* The provider row already says Connected; only exceptions repeat here. */}
+				{status.kind !== "connected" && <StatusLine status={status} />}
+			</div>
+			<PrimaryAction row={row} status={status} props={props} />
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							className="max-sm:min-h-11 max-sm:min-w-11"
+							aria-label={`Manage ${name} ${label}`}
+						/>
+					}
+				>
+					<DotsThree aria-hidden className="size-5" />
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					{row.connectionInstanceId && (
+						<DropdownMenuItem
+							disabled={!allowed}
+							onClick={() => props.onRename(row)}
+						>
+							Rename
+						</DropdownMenuItem>
+					)}
+					<DropdownMenuItem
+						disabled={!allowed || props.isConnecting}
+						onClick={() =>
+							status.kind === "connected" ||
+							(status.kind === "attention" && status.action === "reconnect")
+								? props.onReconnect(row)
+								: props.onConnect(row)
+						}
+					>
+						{status.kind === "connected" ||
+						(status.kind === "attention" && status.action === "reconnect")
+							? "Reconnect"
+							: "Connect"}
+					</DropdownMenuItem>
+					<DropdownMenuSeparator />
+					<DropdownMenuItem
+						variant="destructive"
+						disabled={
+							!allowed ||
+							props.isDisconnecting ||
+							!(row.connection || row.connectionInstanceId)
+						}
+						onClick={() => props.onDisconnect(row)}
+					>
+						Disconnect
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</li>
+	);
+}
+
+function DetailRow({ term, children }: { term: string; children: ReactNode }) {
+	return (
+		<div className="grid gap-0.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-4">
+			<dt className="text-kumo-subtle type-tedix-label">{term}</dt>
+			<dd className="m-0 min-w-0 break-words text-kumo-default type-tedix-body">
+				{children}
+			</dd>
+		</div>
+	);
+}
+
+function permissionState(
+	capability: ConnectionInventoryRow["capabilities"][number],
+): string {
+	if (!capability.verified) return "Couldn't check";
+	if (capability.state === "connected") return "Granted";
+	if (capability.state === "needs_reauth") return "Sign in again";
+	if (capability.state === "not_supported") return "Not available here";
+	return "Not granted";
+}
+
+function AccountDetails({
+	group,
+	props,
+}: {
+	group: AccountGroup;
+	props: AccountListProps;
+}) {
+	const { provider, accounts, status } = group;
+	const name = friendlyProviderName(provider);
+	const mode = connectionAccountMode(provider);
+	const multiple = accounts.length > 1;
+	const single = accounts[0]!;
+	const isApiKey = provider.connectionType === "api_key";
+	const names = appNames(accounts.flatMap((row) => row.references));
+	const capabilities = multiple ? [] : (single.capabilities ?? []);
+	const showPermissions =
+		capabilities.length > 1 ||
+		(capabilities.length === 1 && capabilities[0]!.id !== "access");
+	const allowed = props.canManage(single);
+	const checked = formatChecked(props.checkedAt);
+	const bindable = props.canBind
+		? accounts.filter(
+				(row) => row.connectionInstanceId && row.bindingTargets?.length,
+			)
+		: [];
+	return (
+		<div
+			className={cn(
+				"grid gap-4 px-4 pb-4 sm:ps-15",
+				multiple && "border-kumo-hairline border-t pt-3",
+			)}
+		>
+			<dl className="m-0 grid gap-3">
+				<DetailRow term="What it connects">
+					{props.owner === "organization"
+						? `Lets this organization's apps work in ${name} through ${mode.mode === "multiple" ? "shared sign-ins" : isApiKey ? "one shared API key" : "one shared sign-in"}.`
+						: `Lets apps act in ${name} as you.`}
+				</DetailRow>
+				<DetailRow term="Who can use it">
+					{props.owner === "organization"
+						? "Everyone in this organization, through its apps."
+						: "Only you. Others in this organization can't use it."}
+				</DetailRow>
+				<DetailRow term="Used by">
+					{names.length ? names.join(", ") : usedByLine(group)}
+				</DetailRow>
+				<DetailRow term="Accounts">
+					{mode.mode === "single" ? "One account. " : "Multiple accounts. "}
+					{mode.reason}
+				</DetailRow>
+				<DetailRow term="Last checked">
+					{checked
+						? `${checked} · ${status.kind === "attention" ? status.label : "Connected"}`
+						: "Not checked yet"}
+				</DetailRow>
+				{showPermissions && (
+					<DetailRow term="Permissions">
+						<ul className="m-0 grid list-none gap-1 p-0">
+							{capabilities.map((capability) => (
+								<li
+									key={capability.id}
+									data-connection-capability={capability.id}
+									className="flex flex-wrap items-center gap-x-2"
+								>
+									<span>{capability.label}</span>
+									<span className="text-kumo-subtle">
+										{permissionState(capability)}
+									</span>
+									{(capability.state === "not_configured" ||
+										capability.state === "needs_reauth") && (
+										<Link
+											href={capability.setupUrl}
+											aria-label={`Set up ${capability.label}`}
+											className="inline-flex min-h-8 items-center max-sm:min-h-11"
+										>
+											Grant access
+										</Link>
+									)}
+								</li>
+							))}
+						</ul>
+					</DetailRow>
+				)}
+				{bindable.length > 0 && (
+					<DetailRow term="Which account apps use">
+						<div className="grid gap-2">
+							{bindable.map((row) => (
+								<div
+									key={row.connectionInstanceId}
+									className="flex flex-wrap items-center gap-2"
+								>
+									<span>{accountLabel(row)}:</span>
+									{(row.bindingTargets ?? []).map((reference) => {
+										const selected = row.references.some(
+											(bound) => bound.appId === reference.appId,
+										);
+										const appName = appNames([reference])[0];
+										return (
+											<Button
+												key={reference.appId}
+												size="sm"
+												variant="outline"
+												className="max-sm:min-h-11"
+												disabled={
+													props.isBinding ||
+													row.accountState !== "present" ||
+													selected
+												}
+												onClick={() => props.onBind(row, reference)}
+											>
+												{selected ? "Used for" : "Use for"} {appName}
+											</Button>
+										);
+									})}
+								</div>
+							))}
+						</div>
+					</DetailRow>
+				)}
+			</dl>
+			<div
+				role="group"
+				aria-label={`Actions for ${name}`}
+				className="flex flex-wrap items-center gap-2"
+			>
+				<Button
+					size="sm"
+					variant="outline"
+					className="max-sm:min-h-11"
+					loading={props.isChecking}
+					disabled={props.isChecking}
+					onClick={props.onCheck}
+				>
+					Check connection
+				</Button>
+				{!multiple && (
+					<>
+						<Button
+							size="sm"
+							variant="outline"
+							className="max-sm:min-h-11"
+							disabled={!allowed || props.isConnecting}
+							title={allowed ? undefined : props.deniedReason(single)}
+							onClick={() =>
+								status.kind === "attention" && status.action === "connect"
+									? props.onConnect(single)
+									: props.onReconnect(single)
+							}
+						>
+							{status.kind === "attention" && status.action === "connect"
+								? "Connect"
+								: "Reconnect"}
+						</Button>
+						{single.connectionInstanceId && (
+							<Button
+								size="sm"
+								variant="ghost"
+								className="max-sm:min-h-11"
+								disabled={!allowed}
+								onClick={() => props.onRename(single)}
+							>
+								Rename
+							</Button>
+						)}
+						<Button
+							size="sm"
+							variant="ghost"
+							className="text-kumo-danger max-sm:min-h-11"
+							disabled={
+								!allowed ||
+								props.isDisconnecting ||
+								!(single.connection || single.connectionInstanceId)
+							}
+							title={allowed ? undefined : props.deniedReason(single)}
+							onClick={() => props.onDisconnect(single)}
+						>
+							Disconnect
+						</Button>
+						{mode.mode === "multiple" && props.canAdd(provider) && (
+							<AddAccountButton provider={provider} props={props} />
+						)}
+					</>
+				)}
+			</div>
+			<TechnicalDetails group={group} props={props} />
+		</div>
+	);
+}
+
+function TechnicalDetails({
+	group,
+	props,
+}: {
+	group: AccountGroup;
+	props: AccountListProps;
+}) {
+	const { provider, accounts } = group;
+	const health = props.serviceHealth[provider.appId];
+	const slugs = [
+		...new Set(
+			accounts.flatMap((row) => row.references.map((ref) => ref.appSlug)),
+		),
+	].sort();
+	const emails = [
+		...new Set(
+			accounts.flatMap((row) =>
+				row.connection?.connectedByEmail
+					? [row.connection.connectedByEmail]
+					: [],
+			),
+		),
+	];
+	const permissions = [
+		...new Set(
+			accounts.flatMap((row) =>
+				normalizeConsentPermissions(
+					row.connection?.scopes ?? [],
+					provider.credentialProfile?.scopeGroups ?? [],
+				).map((permission) => permission.name),
+			),
+		),
+	];
+	return (
+		<Collapsible>
+			<CollapsibleTrigger className="-ms-2 w-fit">
+				Technical details
+			</CollapsibleTrigger>
+			<CollapsibleContent>
+				<dl className="m-0 grid gap-2 pt-2">
+					<DetailRow term="Provider ID">
+						<code className="type-tedix-label">{provider.appId}</code>
+					</DetailRow>
+					<DetailRow term="Sign-in method">
+						{provider.connectionType === "api_key"
+							? "API key"
+							: `OAuth${provider.registrationMode ? ` (${provider.registrationMode})` : ""}`}
+					</DetailRow>
+					{provider.description && (
+						<DetailRow term="Provider note">{provider.description}</DetailRow>
+					)}
+					{accounts.some((row) => row.connectionInstanceId) && (
+						<DetailRow term="Account IDs">
+							{accounts
+								.filter((row) => row.connectionInstanceId)
+								.map(
+									(row) => `${accountLabel(row)}: ${row.connectionInstanceId}`,
+								)
+								.join(", ")}
+						</DetailRow>
+					)}
+					{emails.length > 0 && (
+						<DetailRow term="Connected by">{emails.join(", ")}</DetailRow>
+					)}
+					{permissions.length > 0 && (
+						<DetailRow term="Granted scopes">
+							{permissions.join(", ")}
+						</DetailRow>
+					)}
+					{slugs.length > 0 && (
+						<DetailRow term="App identifiers">{slugs.join(", ")}</DetailRow>
+					)}
+					{slugs.length > 0 && (
+						<DetailRow term="App service">
+							<div className="grid gap-2">
+								<span>{connectionServiceSummary(health)}</span>
+								<div className="flex flex-wrap gap-2">
+									{slugs.map((slug) => (
+										<Button
+											key={slug}
+											size="sm"
+											variant="outline"
+											className="max-sm:min-h-11"
+											loading={
+												health?.status === "checking" && health.appSlug === slug
+											}
+											disabled={health?.status === "checking"}
+											onClick={() => props.onCheckService(provider.appId, slug)}
+										>
+											{slugs.length === 1
+												? "Check app service"
+												: `Check ${slug}`}
+										</Button>
+									))}
+								</div>
+								<span className="text-kumo-subtle type-tedix-label">
+									{health?.detail ??
+										"Checks the app's MCP service. It does not test the account or the provider's API."}
+								</span>
+							</div>
+						</DetailRow>
+					)}
+				</dl>
+			</CollapsibleContent>
+		</Collapsible>
+	);
+}

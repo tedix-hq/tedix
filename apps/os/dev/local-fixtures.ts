@@ -26,7 +26,12 @@ import type {
 	CatalogAppDetail,
 	ListCatalogAppsInput,
 } from "@tedix/api-contract/schemas/catalog";
-import type { ConnectionInventoryInput } from "@tedix/api-contract/schemas/connections";
+import type {
+	ConnectionInventoryInput,
+	ConnectionInventoryRow,
+	ConnectionProvider,
+} from "@tedix/api-contract/schemas/connections";
+import { projectConnectionCapabilities } from "@tedix/api-contract/utils/connection-capabilities";
 /**
  * Zero-account local API lane: deterministic fixtures + per-procedure handlers
  * for every oRPC procedure the Tedix OS SPA calls.
@@ -3309,6 +3314,165 @@ const CONNECTION_PROVIDERS = [
 	},
 ];
 
+/**
+ * Account inventory behind /admin/connections and /account/connections: one
+ * row per state the shared account list renders (connected, needs attention,
+ * a status check the provider refused, several accounts, never connected).
+ */
+function inventoryProvider(
+	appId: string,
+	name: string,
+	connectionType: "oauth" | "api_key",
+	registrationMode: ConnectionProvider["registrationMode"] = connectionType ===
+	"oauth"
+		? "pre_registered"
+		: null,
+	scopeGroups?: { id: string; label: string; scopes: string[] }[],
+): ConnectionProvider {
+	return {
+		appId,
+		name,
+		description: null,
+		enabled: true,
+		availableScopes: [],
+		logoUrl: null,
+		connectionType,
+		registrationMode,
+		tokenScope: "tenant",
+		supportedScopes: ["tenant", "user"],
+		recommendedScope: "tenant",
+		credentialProfile: scopeGroups ? { scopeGroups } : null,
+		referencedByOrg: true,
+	};
+}
+
+const inventoryAppIds = new Map<string, string>();
+function inventoryAppId(slug: string): string {
+	let id = inventoryAppIds.get(slug);
+	if (!id) {
+		id = fid("8a", inventoryAppIds.size + 1);
+		inventoryAppIds.set(slug, id);
+	}
+	return id;
+}
+
+function inventoryRow(
+	provider: ConnectionProvider,
+	scope: "tenant" | "user",
+	accountState: ConnectionInventoryRow["accountState"],
+	apps: [string, string][],
+	extra: Partial<ConnectionInventoryRow> & { grantedScopes?: string[] } = {},
+): ConnectionInventoryRow {
+	const { grantedScopes, ...rest } = extra;
+	const connection =
+		accountState === "present" || accountState === "expired"
+			? {
+					appId: provider.appId,
+					providerName: provider.name,
+					status:
+						accountState === "expired"
+							? ("expired" as const)
+							: ("connected" as const),
+					connectedAt: null,
+					tokenExpiresAt: null,
+					scopes: grantedScopes ?? [],
+					tokenScope: scope,
+					connectedByEmail: "owner@solstice.example",
+				}
+			: null;
+	const row = {
+		provider,
+		scope,
+		accountState,
+		accountLabel: null,
+		connection,
+		references: apps.map(([appSlug, appName]) => ({
+			appId: inventoryAppId(appSlug),
+			appSlug,
+			appName,
+			source: "app" as const,
+		})),
+		referencesComplete: true,
+		access: "not_evaluated" as const,
+		health: "not_checked" as const,
+		...rest,
+	};
+	return { ...row, capabilities: projectConnectionCapabilities(row) };
+}
+
+const INVENTORY_PROVIDERS = {
+	pricewise: inventoryProvider("pricewise-official", "Pricewise", "api_key"),
+	alegra: inventoryProvider("alegra-api-key", "Alegra", "api_key"),
+	gmail: inventoryProvider("google-gmail", "Google Gmail", "oauth"),
+	stripe: inventoryProvider("stripe", "Stripe", "oauth"),
+	calendar: inventoryProvider("google-calendar", "Google Calendar", "oauth"),
+	sheets: inventoryProvider(
+		"google-sheets",
+		"Google Sheets",
+		"oauth",
+		"pre_registered",
+		[
+			{ id: "identity", label: "Identity", scopes: ["openid", "email"] },
+			{ id: "sheets", label: "Sheets", scopes: ["sheets"] },
+		],
+	),
+	sentry: inventoryProvider("sentry", "Sentry", "oauth", "cimd"),
+	alpic: inventoryProvider("alpic", "Alpic", "oauth"),
+	notion: inventoryProvider("notion", "Notion", "oauth"),
+};
+
+const ORGANIZATION_INVENTORY: ConnectionInventoryRow[] = [
+	inventoryRow(INVENTORY_PROVIDERS.pricewise, "tenant", "present", [
+		["pricewise-official-f9ab445d", "Pricewise pricing"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.alegra, "tenant", "present", [
+		["alegra", "Alegra invoices"],
+		["alegra-tedix", "Alegra"],
+		["tedix-unified", "Tedix gateway"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.gmail, "tenant", "expired", [
+		["storefront", "Storefront"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.stripe, "tenant", "restricted", [
+		["stripe", "Stripe payments"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.calendar, "tenant", "missing", [
+		["google-calendar", "Google Calendar"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.sentry, "tenant", "missing", [
+		["sentry", "Sentry issues"],
+	]),
+];
+
+const PERSONAL_INVENTORY: ConnectionInventoryRow[] = [
+	inventoryRow(INVENTORY_PROVIDERS.calendar, "user", "present", [
+		["google-calendar", "Google Calendar"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.calendar, "user", "present", [], {
+		connectionInstanceId: "00000000-0000-4000-8000-0000000000c2",
+		instanceLabel: "Work",
+	}),
+	inventoryRow(
+		INVENTORY_PROVIDERS.sheets,
+		"user",
+		"present",
+		[["google-sheets", "Google Sheets"]],
+		{ grantedScopes: ["sheets"] },
+	),
+	inventoryRow(INVENTORY_PROVIDERS.notion, "user", "present", [
+		["notion", "Notion"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.stripe, "user", "restricted", [
+		["stripe", "Stripe payments"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.alpic, "user", "missing", [
+		["alpic", "Alpic"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.gmail, "user", "missing", [
+		["google-gmail", "Gmail"],
+	]),
+];
+
 const CONNECTIONS = [
 	{
 		appId: "gmail",
@@ -6219,33 +6383,21 @@ const handlers: Record<string, (input: never) => unknown> = {
 			offset: 0,
 			...raw,
 		};
-		const scope = input.scope === "personal" ? "user" : "tenant";
-		const rows = CONNECTIONS.filter((c) => c.tokenScope === scope)
-			.map((connection) => ({
-				provider: CONNECTION_PROVIDERS.find(
-					(p) => p.appId === connection.appId,
-				)!,
-				scope,
-				accountState: connection.status === "expired" ? "expired" : "present",
-				accountLabel: scope === "user" ? connection.connectedByEmail : null,
-				connection,
-				references:
-					connection.appId === "gmail"
-						? [{ appId: APP_STOREFRONT, appSlug: "storefront", source: "app" }]
-						: [],
-				referencesComplete: true,
-				access: "not_evaluated",
-				health: "not_checked",
-			}))
-			.filter(
-				(row) =>
-					(!input.providerId || row.provider.appId === input.providerId) &&
-					row.provider.name.toLowerCase().includes(input.q.toLowerCase()) &&
-					(input.status === "all" ||
-						(input.status === "attention" && row.accountState !== "present") ||
-						(input.status === "in_use" && row.references.length > 0) ||
-						(input.status === "unused" && row.references.length === 0)),
-			);
+		const rows = (
+			input.scope === "personal" ? PERSONAL_INVENTORY : ORGANIZATION_INVENTORY
+		).filter(
+			(row) =>
+				(!input.providerId || row.provider.appId === input.providerId) &&
+				row.provider.name.toLowerCase().includes(input.q.toLowerCase()) &&
+				(input.status === "all" ||
+					(input.status === "attention" && row.accountState !== "present") ||
+					(input.status === "in_use" && row.references.length > 0) ||
+					(input.status === "unused" && row.references.length === 0)),
+		);
+		const verificationComplete = rows.every(
+			(row) =>
+				row.accountState !== "unknown" && row.accountState !== "restricted",
+		);
 		return {
 			organizationId: ORG_ID,
 			scope: input.scope,
@@ -6253,9 +6405,17 @@ const handlers: Record<string, (input: never) => unknown> = {
 			rows: rows.slice(input.offset, input.offset + input.limit),
 			total: rows.length,
 			hasMore: input.offset + input.limit < rows.length,
-			verificationComplete: true,
+			verificationComplete,
 			referencesComplete: true,
-			issues: [],
+			issues: verificationComplete
+				? []
+				: [
+						{
+							source: "credentials" as const,
+							message:
+								"Some accounts could not be verified. Missing rows do not prove that no account exists.",
+						},
+					],
 		};
 	},
 	"connections/getUserConnections": () => ({ data: CONNECTIONS }),

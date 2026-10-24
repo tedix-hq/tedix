@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ConnectionVerificationNotice } from "../src/components/admin-connections-page";
+import { StatusLine } from "../src/components/account-list";
 import {
 	ConversationRow,
 	ConversationsEmpty,
@@ -138,16 +138,16 @@ const surfaces: {
 			/>
 		),
 		partial: (
-			<ConnectionVerificationNotice
-				issues={[
-					{
-						source: "credentials",
-						message: "Sample account verification is unavailable.",
-					},
-				]}
+			<StatusLine
+				status={{
+					kind: "attention",
+					reason: "Couldn't check this account",
+					label: "Needs attention: Couldn't check this account",
+					action: "reconnect",
+				}}
 			/>
 		),
-		gap: "Connection list branches are embedded in the admin page; shared Empty/ListSkeleton/Alert and the exported verification notice are shown.",
+		gap: "Connection list branches are embedded in the admin page; shared Empty/ListSkeleton/Alert and the per-row needs-attention status are shown.",
 	},
 	{
 		id: "team",

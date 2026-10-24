@@ -7,9 +7,8 @@ import {
 } from "@tedix/api-contract/schemas/connections";
 import {
 	connectionInventoryCountLabel,
-	ConnectionVerificationNotice,
 	AdminConnectionsPage,
-	filterPersonalAccountRows,
+	filterAccountRows,
 } from "./admin-connections-page";
 
 const state = vi.hoisted(() => ({
@@ -176,9 +175,7 @@ describe("Account-first personal integration", () => {
 			);
 			expect(state.connect).not.toHaveBeenCalled();
 			const review = document.querySelector('[role="dialog"]');
-			expect(review?.textContent).toContain(
-				"Connect Microsoft Graph Calendar OAuth",
-			);
+			expect(review?.textContent).toContain("Connect Outlook Calendar");
 			expect(review?.textContent).toContain(
 				"Requested permissions: calendar.read, calendar.write",
 			);
@@ -244,7 +241,17 @@ describe("Account-first personal integration", () => {
 				),
 			);
 			expect(host.textContent).toContain("Shared");
-			expect(host.textContent).toContain("Organization account");
+			expect(host.textContent).toContain(
+				"Needs attention: Sign-in not finished",
+			);
+			await act(async () =>
+				host!
+					.querySelector<HTMLButtonElement>(
+						'button[aria-label="Outlook Calendar details"]',
+					)!
+					.click(),
+			);
+			expect(host.textContent).toContain("Everyone in this organization");
 			const add = [...host.querySelectorAll("button")].find((b) =>
 				b.textContent?.includes("Connect another account"),
 			);
@@ -296,12 +303,12 @@ describe("Account-first personal integration", () => {
 	});
 	it("filters exact rows by friendly provider name, named labels and truthful references", () => {
 		const rows = [row(), row("Work account")];
-		expect(filterPersonalAccountRows(rows, "Outlook", "all")).toHaveLength(2);
-		expect(filterPersonalAccountRows(rows, "Work", "all")).toEqual([rows[1]]);
-		expect(filterPersonalAccountRows(rows, "", "used")).toHaveLength(0);
-		expect(filterPersonalAccountRows(rows, "", "unused")).toHaveLength(2);
+		expect(filterAccountRows(rows, "Outlook", "all")).toHaveLength(2);
+		expect(filterAccountRows(rows, "Work", "all")).toEqual([rows[1]]);
+		expect(filterAccountRows(rows, "", "used")).toHaveLength(0);
+		expect(filterAccountRows(rows, "", "unused")).toHaveLength(2);
 		expect(
-			filterPersonalAccountRows(
+			filterAccountRows(
 				[{ ...rows[1]!, referencesComplete: false }],
 				"",
 				"unused",
@@ -316,15 +323,15 @@ describe("Account-first personal integration", () => {
 			accountState: "present",
 			connection: { status: "expired" },
 		} as ConnectionInventoryRow;
+		expect(filterAccountRows([unknown, expired], "", "connected")).toHaveLength(
+			0,
+		);
 		expect(
-			filterPersonalAccountRows([unknown, expired], "", "connected"),
+			filterAccountRows([unknown, expired], "", "not_connected"),
 		).toHaveLength(0);
-		expect(
-			filterPersonalAccountRows([unknown, expired], "", "not_connected"),
-		).toHaveLength(0);
-		expect(
-			filterPersonalAccountRows([unknown, expired], "", "attention"),
-		).toHaveLength(2);
+		expect(filterAccountRows([unknown, expired], "", "attention")).toHaveLength(
+			2,
+		);
 	});
 
 	it("starts OAuth directly and refreshes inventory after cancellation without creating a label dialog", async () => {
@@ -349,6 +356,13 @@ describe("Account-first personal integration", () => {
 			),
 		);
 		expect(host.textContent).toContain("2 of 2 shown");
+		await act(async () =>
+			host!
+				.querySelector<HTMLButtonElement>(
+					'button[aria-label="Outlook Calendar details"]',
+				)!
+				.click(),
+		);
 		const add = [...host.querySelectorAll("button")].find((button) =>
 			button.textContent?.includes("Connect another account"),
 		)!;
@@ -395,29 +409,32 @@ describe("Connection inventory coverage", () => {
 		expect(metadata?.className).toContain("sm:whitespace-nowrap");
 	});
 
-	it("groups verification failures without describing them as provider health", async () => {
+	it("shows an unverifiable account on its own row instead of a page banner", async () => {
+		state.rows = [{ ...row(), accountState: "restricted" }];
 		host = document.createElement("div");
 		document.body.append(host);
 		root = createRoot(host);
 		await act(async () =>
 			root?.render(
-				<ConnectionVerificationNotice
-					issues={[
-						{ source: "credentials", message: "Credential read timed out." },
-						{ source: "references", message: "App references were partial." },
-					]}
+				<AdminConnectionsPage
+					scope="personal"
+					search={{ q: "", status: "all" }}
+					onSearchChange={() => {}}
 				/>,
 			),
 		);
-		expect(host.textContent).toContain("Verification incomplete");
-		expect(host.textContent).toContain("Some accounts could not be checked");
-		expect(host.querySelectorAll('[data-slot="alert"]')).toHaveLength(1);
-		const details = [...host.querySelectorAll("button")].find((button) =>
-			button.textContent?.includes("View 2 verification issues"),
+		expect(host.textContent).not.toContain("Verification incomplete");
+		const affected = host.querySelector(
+			'[data-account-group="microsoft-graph-ca-tedix-oauth"]',
 		)!;
-		await act(async () => details.click());
-		expect(host.textContent).toContain("Credential read timed out.");
-		expect(host.textContent).toContain("App references were partial.");
+		expect(affected.textContent).toContain(
+			"Needs attention: Provider didn't allow a status check",
+		);
+		expect(
+			[...affected.querySelectorAll("button")].some(
+				(button) => button.textContent === "Reconnect",
+			),
+		).toBe(true);
 		expect(host.textContent).not.toContain("Provider healthy");
 	});
 });
@@ -499,6 +516,21 @@ async function mountRecoveryPage(
 	return host;
 }
 
+const statusCopy = {
+	missing: "Available to connect",
+	expired: "Sign-in expired",
+	needs_consent: "Sign in again to keep it working",
+	error: "Couldn't check this account",
+} as const;
+
+async function openDetails(page: ParentNode, name: string) {
+	const trigger = page.querySelector<HTMLButtonElement>(
+		`button[aria-label="${name} details"]`,
+	);
+	expect(trigger, `${name} details`).not.toBeNull();
+	await act(async () => trigger!.click());
+}
+
 function recoveryButton(parent: ParentNode, label: string) {
 	const button = [
 		...parent.querySelectorAll<HTMLButtonElement>('button, [role="menuitem"]'),
@@ -551,22 +583,27 @@ describe("Disconnected account recovery matrix", () => {
 			state.canManageOrg = personalOauth ? !allowed : allowed;
 			state.connect.mockResolvedValue(undefined);
 			const page = await mountRecoveryPage(scope);
-			expect(page.textContent).toContain(
-				status === "error"
-					? "Could not verify"
-					: status === "missing"
-						? "Not connected"
-						: "Reconnect needed",
-			);
+			const name = kind === "api_key" ? "Acme Projects" : "Acme Calendar";
+			const visibleStatus =
+				kind === "named_oauth" && status === "missing"
+					? "Sign-in not finished"
+					: kind === "api_key" && status === "expired"
+						? "Key stopped working"
+						: statusCopy[status];
+			expect(page.textContent).toContain(visibleStatus);
 			expect(page.textContent).not.toContain("MCP healthy");
-			if (kind !== "api_key")
+			// A never-connected default account has nothing to inspect yet; every
+			// other state opens details that name the owner and the setup link.
+			if (!(status === "missing" && kind !== "named_oauth")) {
+				await openDetails(page, name);
 				expect(page.textContent).toContain(
-					scope === "user" ? "Personal account" : "Organization account",
+					scope === "user" ? "Only you" : "Everyone in this organization",
 				);
-			const link = page.querySelector<HTMLAnchorElement>(
-				'a[aria-label="Set up Read calendar"]',
-			);
-			expect(link?.getAttribute("href")).toBe(setupUrl);
+				const link = page.querySelector<HTMLAnchorElement>(
+					'a[aria-label="Set up Read calendar"]',
+				);
+				expect(link?.getAttribute("href")).toBe(setupUrl);
+			}
 			// Follow the supported local setup route by rendering its validated search.
 			// No browser navigation, OAuth popup or provider call occurs in this suite.
 			await mountRecoveryPage(scope, {
@@ -576,7 +613,9 @@ describe("Disconnected account recovery matrix", () => {
 			});
 			const review = document.querySelector('[role="dialog"]')!;
 			expect(review.textContent).toContain(
-				scope === "user" ? "personal account" : "organization credential",
+				scope === "user"
+					? "Only you will be able to use this account"
+					: "Apps in this organization will use this account",
 			);
 			const proceed = recoveryButton(review, "Continue");
 			expect(proceed.disabled).toBe(!allowed);
@@ -621,24 +660,21 @@ describe("Disconnected account recovery matrix", () => {
 			state.canManageOrg = personalOauth ? !allowed : allowed;
 			state.connect.mockResolvedValue(undefined);
 			const page = await mountRecoveryPage(scope);
-			if (kind === "api_key" && status === "expired")
-				await act(async () => recoveryButton(page, "Manage").click());
-			if (kind !== "api_key" && status !== "missing") {
-				const menu = page.querySelector<HTMLButtonElement>(
-					'button[aria-label^="Manage Acme"]',
-				)!;
-				await act(async () => menu.click());
-			}
-			const parent =
-				kind !== "api_key" && status !== "missing" ? document : page;
 			const action = recoveryButton(
-				parent,
+				page,
 				status === "missing" ? "Connect" : "Reconnect",
 			);
 			expect(
 				action.disabled || action.getAttribute("aria-disabled") === "true",
 			).toBe(!allowed);
 			await act(async () => action.click());
+			// Reconnect replaces a credential, so it confirms the consequence first.
+			if (allowed && status !== "missing") {
+				const review = document.querySelector('[role="dialog"]')!;
+				expect(review.textContent).toContain("replaces the current");
+				expect(state.connect).not.toHaveBeenCalled();
+				await act(async () => recoveryButton(review, "Continue").click());
+			}
 			if (allowed && kind !== "api_key")
 				expect(state.connect).toHaveBeenCalledExactlyOnceWith({
 					appId: target.provider.appId,
@@ -665,9 +701,11 @@ describe("Disconnected account recovery matrix", () => {
 			toolCount: 2,
 		});
 		const page = await mountRecoveryPage("tenant");
+		expect(page.textContent).not.toContain("MCP");
+		await openDetails(page, "Acme Projects");
+		await act(async () => recoveryButton(page, "Technical details").click());
 		expect(page.textContent).toContain("MCP service not checked");
 		expect(page.textContent).not.toContain("MCP healthy");
-		await act(async () => recoveryButton(page, "Manage").click());
 		await act(async () => recoveryButton(page, "Check app service").click());
 		expect(state.checkService).toHaveBeenCalledExactlyOnceWith({
 			appSlug: "acme-calendar",
@@ -675,7 +713,7 @@ describe("Disconnected account recovery matrix", () => {
 			tasksExtension: "ignore",
 		});
 		expect(page.textContent).toContain("MCP healthy · 2 live tools");
-		expect(page.textContent).toContain("Reconnect needed");
+		expect(page.textContent).toContain("Key stopped working");
 		expect(page.textContent).toContain(
 			"Provider API tools and credential usability were not tested",
 		);

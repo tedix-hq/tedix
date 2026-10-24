@@ -154,7 +154,7 @@ export async function getAppBySlug(
 
 export type AppReferenceMetadataRow = Pick<
 	App,
-	"id" | "slug" | "organizationId" | "metadata"
+	"id" | "slug" | "name" | "organizationId" | "metadata"
 >;
 
 /** Narrow organization-scoped seed projection for app-reference traversal. */
@@ -166,6 +166,7 @@ export async function listAppReferenceMetadataByOrganization(
 		.select({
 			id: apps.id,
 			slug: apps.slug,
+			name: apps.name,
 			organizationId: apps.organizationId,
 			metadata: apps.metadata,
 		})
@@ -188,6 +189,7 @@ export async function listAppReferenceMetadataBySlugs(
 				.select({
 					id: apps.id,
 					slug: apps.slug,
+					name: apps.name,
 					organizationId: apps.organizationId,
 					metadata: apps.metadata,
 				})
@@ -214,6 +216,7 @@ export async function listAppReferenceMetadataByIds(
 				.select({
 					id: apps.id,
 					slug: apps.slug,
+					name: apps.name,
 					organizationId: apps.organizationId,
 					metadata: apps.metadata,
 				})
@@ -244,6 +247,7 @@ export async function listPreviewSourceAppsBySlugs(
 				.select({
 					id: apps.id,
 					slug: apps.slug,
+					name: apps.name,
 					organizationId: apps.organizationId,
 					metadata: apps.metadata,
 					sourceOrgSlug: sql<string>`${organizations.slug}`.as(
@@ -274,6 +278,7 @@ export async function listPreviewSourceAppsByIds(
 				.select({
 					id: apps.id,
 					slug: apps.slug,
+					name: apps.name,
 					organizationId: apps.organizationId,
 					metadata: apps.metadata,
 					sourceOrgSlug: sql<string>`${organizations.slug}`.as(

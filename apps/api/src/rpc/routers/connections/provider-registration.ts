@@ -355,6 +355,7 @@ type ReferencedProviders = {
 		Array<{
 			appId: string;
 			appSlug: string;
+			appName: string;
 			source: "app" | "tool" | "aggregate";
 		}>
 	>;
@@ -417,6 +418,7 @@ export async function collectReferencedProviders(
 		let appWave: Array<{
 			id: string;
 			slug: string;
+			name: string;
 			metadata: unknown;
 		}> = await listAppReferenceMetadataByOrganization(db, orgId);
 		while (appWave.length > 0) {
@@ -437,7 +439,12 @@ export async function collectReferencedProviders(
 				const recordReference = (id: unknown, source: "app" | "aggregate") => {
 					if (typeof id !== "string" || !id) return;
 					const refs = referenced.references.get(id) ?? [];
-					refs.push({ appId: app.id, appSlug: app.slug, source });
+					refs.push({
+						appId: app.id,
+						appSlug: app.slug,
+						appName: app.name,
+						source,
+					});
 					referenced.references.set(id, refs);
 				};
 				const mcpConfig = (app.metadata as Record<string, unknown> | null)
@@ -491,7 +498,12 @@ export async function collectReferencedProviders(
 						if (app) {
 							const refs = referenced.references.get(tool.connectionId) ?? [];
 							if (!refs.some((r) => r.appId === app.id && r.source === "tool"))
-								refs.push({ appId: app.id, appSlug: app.slug, source: "tool" });
+								refs.push({
+									appId: app.id,
+									appSlug: app.slug,
+									appName: app.name,
+									source: "tool",
+								});
 							referenced.references.set(tool.connectionId, refs);
 						}
 						rememberReferencedProvider(referenced, tool.connectionId);

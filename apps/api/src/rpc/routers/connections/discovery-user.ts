@@ -46,6 +46,7 @@ import {
 	getAppMetadataJson,
 	updateAppMetadata,
 } from "@tedix/db/queries/app-records";
+import { connectionAccountMode } from "@tedix/api-contract/utils/connection-account-mode";
 import {
 	createConnectionInstance as createConnectionInstanceRecord,
 	getConnectionInstance,
@@ -193,9 +194,9 @@ export const createConnectionInstance = authedOs.createConnectionInstance
 			(p) => p.appId === input.appId,
 		);
 		if (
-			provider?.connectionType !== "oauth" ||
-			!provider.supportedScopes.includes(input.scope) ||
-			provider.registrationMode === "cimd"
+			!provider ||
+			connectionAccountMode(provider).mode !== "multiple" ||
+			!provider.supportedScopes.includes(input.scope)
 		)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -296,9 +297,9 @@ export const preparePersonalConnection = authedOs.preparePersonalConnection
 			(p) => p.appId === input.appId,
 		);
 		if (
-			provider?.connectionType !== "oauth" ||
-			!provider.supportedScopes.includes(input.scope) ||
-			provider.registrationMode === "cimd"
+			!provider ||
+			connectionAccountMode(provider).mode !== "multiple" ||
+			!provider.supportedScopes.includes(input.scope)
 		)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,

@@ -1,5 +1,6 @@
 import {
 	isInventoryProviderVisible,
+	isInventoryVerified,
 	summarizeCredential,
 } from "./connections/inventory";
 import { CreateProviderFromMcpInputSchema } from "@tedix/api-contract/schemas/connections";
@@ -1184,6 +1185,17 @@ describe("connection inventory verification", () => {
 			);
 		},
 	);
+	it("reports verification issues only for rows the caller can see", () => {
+		expect(isInventoryVerified([])).toBe(true);
+		expect(
+			isInventoryVerified([
+				{ accountState: "present" },
+				{ accountState: "missing" },
+			]),
+		).toBe(true);
+		expect(isInventoryVerified([{ accountState: "restricted" }])).toBe(false);
+		expect(isInventoryVerified([{ accountState: "unknown" }])).toBe(false);
+	});
 	it("normalizes Descope int64 string expiries before output validation", () => {
 		expect(
 			summarizeCredential(
