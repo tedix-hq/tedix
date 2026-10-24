@@ -47,7 +47,6 @@ const ROOT_TSCONFIG = /^tsconfig[^/]*\.json$/;
 const JS_TO_TS = { ".js": [".ts", ".tsx"], ".mjs": [".mts"], ".jsx": [".tsx"] };
 /** A test that reads the checkout as data rather than importing it. */
 const READS_REPO = /import\.meta\.dir(name)?\b|__dirname\b/;
-const REQUIRE_CALL = /\brequire\(\s*(["'])([^"'\n]+)\1\s*\)/g;
 
 function isCodeFile(file) {
 	return CODE_EXTENSIONS.some((ext) => file.endsWith(ext));
@@ -123,7 +122,8 @@ export function bunfigPreloads(source) {
  * Module specifiers one source file imports, statically or dynamically, in
  * source order. Type-only imports count: a type change can still break a
  * test that asserts on the shape. A dynamic import whose argument is not a
- * string literal names nothing the graph can follow and is dropped.
+ * string literal names nothing the graph can follow and is dropped. A computed
+ * require cannot be represented by an edge, so it fails the selection closed.
  *
  * @param {string} path for the parser's language choice and error messages
  * @param {string} source
@@ -150,7 +150,39 @@ export function importSpecifiers(path, source) {
 		const literal = /^(["'])([^"'\n]*)\1$/.exec(text.trim());
 		if (literal) specifiers.push(literal[2]);
 	}
-	for (const match of source.matchAll(REQUIRE_CALL)) specifiers.push(match[2]);
+	for (const specifier of requireSpecifiers(parsed.program, path)) {
+		specifiers.push(specifier);
+	}
+	return specifiers;
+}
+
+function requireSpecifiers(node, path) {
+	const specifiers = [];
+	const visit = (value) => {
+		if (!value || typeof value !== "object") return;
+		if (Array.isArray(value)) {
+			for (const entry of value) visit(entry);
+			return;
+		}
+		if (
+			value.type === "CallExpression" &&
+			value.callee?.type === "Identifier" &&
+			value.callee.name === "require"
+		) {
+			const [argument] = value.arguments;
+			if (
+				value.arguments.length !== 1 ||
+				argument?.type !== "Literal" ||
+				typeof argument.value !== "string"
+			) {
+				throw new Error(`${path}: computed require call`);
+			}
+			specifiers.push(argument.value);
+			return;
+		}
+		for (const child of Object.values(value)) visit(child);
+	};
+	visit(node);
 	return specifiers;
 }
 
