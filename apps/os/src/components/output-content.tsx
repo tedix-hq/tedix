@@ -3,19 +3,16 @@ import type {
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { lazy, Suspense, useId, useMemo, useState } from "react";
-import { SegmentedControl } from "@/components/kumo/segmented-control";
+import { lazy, Suspense, useId, useState } from "react";
 import { Text } from "@/components/kumo/text";
 import { DeckReadView } from "@/components/deck-read-view";
 import {
-	activeWorkbookSheet,
 	INDENT_STEP_PX,
 	MAX_INDENT,
-	normalizeSheetContent,
 	safeImageSource,
 } from "@/lib/output-models";
 import { normalizeDocumentContent } from "@tedix/api-contract/utils/os-document";
-import { evaluateWorkbook, formatWorkbookValue } from "@/lib/workbook-formulas";
+import { WorkbookView } from "@/components/sheet-read-view";
 
 const FilePreview = lazy(() =>
 	import("./workspace-file-preview").then((module) => ({
@@ -357,92 +354,5 @@ function RichDocumentView({
 				<RichNode key={`root-${index}`} node={node} nodeKey={`root-${index}`} />
 			))}
 		</article>
-	);
-}
-
-function WorkbookView({
-	content,
-}: {
-	content: Extract<OsOutputContent, { kind: "sheet" }>;
-}) {
-	// Evaluate formulas once per content, not on every tab click.
-	const initial = useMemo(
-		() => evaluateWorkbook(normalizeSheetContent(content).workbook!),
-		[content],
-	);
-	const [activeSheetId, setActiveSheetId] = useState(initial.activeSheetId);
-	const sheet =
-		initial.sheets.find((candidate) => candidate.id === activeSheetId) ??
-		activeWorkbookSheet(initial);
-	return (
-		<div className="grid gap-2">
-			<div className="sheet-read-desk">
-				<div className="sheet-page sheet-read-page">
-					<div className="sheet-read-grid">
-						<table className="border-collapse text-sm">
-							<thead className="sticky top-0 bg-kumo-elevated">
-								<tr>
-									<th className="border border-kumo-line px-2" />
-									{sheet.columns.map((column) => (
-										<th
-											key={column.id}
-											className="border border-kumo-line px-3 py-2 text-left"
-											style={{ minWidth: column.width }}
-										>
-											{column.label}
-										</th>
-									))}
-								</tr>
-							</thead>
-							<tbody>
-								{sheet.rows.map((row, rowIndex) => (
-									<tr key={`row-${rowIndex}`}>
-										<th className="border border-kumo-line bg-kumo-elevated px-2 text-right font-normal text-kumo-subtle">
-											{rowIndex + 1}
-										</th>
-										{sheet.columns.map((column, columnIndex) => {
-											const cell = row[columnIndex] ?? null;
-											return (
-												<td
-													key={column.id}
-													className="border border-kumo-line px-3 py-2"
-													style={{
-														background: cell?.format?.fillColor,
-														color: cell?.format?.textColor,
-														fontWeight: cell?.format?.bold ? 700 : undefined,
-														fontStyle: cell?.format?.italic
-															? "italic"
-															: undefined,
-														textAlign:
-															cell?.format?.horizontalAlign ??
-															(typeof cell?.value === "number"
-																? "right"
-																: undefined),
-													}}
-												>
-													{formatWorkbookValue(cell)}
-												</td>
-											);
-										})}
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-					{/* Tabs live INSIDE the page, as they do in the editor: the grid
-					    scrolls beneath them and the page stays one object. */}
-					<SegmentedControl
-						ariaLabel="Workbook sheets"
-						compact
-						value={sheet.id}
-						options={initial.sheets.map((candidate) => ({
-							value: candidate.id,
-							label: candidate.name,
-						}))}
-						onValueChange={setActiveSheetId}
-					/>
-				</div>
-			</div>
-		</div>
 	);
 }

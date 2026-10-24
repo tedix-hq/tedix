@@ -372,3 +372,138 @@ export function functionGroups(
 		}))
 		.filter((group) => group.functions.length > 0);
 }
+
+/** A computed spreadsheet error such as `#DIV/0!`, `#REF!` or `#CYCLE!`. */
+export function isErrorValue(value: unknown): boolean {
+	return typeof value === "string" && /^#[A-Z0-9/]+[!?]$/.test(value);
+}
+
+/** What the status bar says about a selection: count, and maths over numbers. */
+export interface SelectionStats {
+	/** Non-empty cells. */
+	count: number;
+	/** Cells whose computed value is a number. */
+	numbers: number;
+	sum: number;
+	average: number | null;
+	min: number | null;
+	max: number | null;
+}
+
+export function selectionStats(
+	sheet: OsWorkbookSheet,
+	bounds: Bounds,
+): SelectionStats {
+	let count = 0;
+	let numbers = 0;
+	let sum = 0;
+	let min: number | null = null;
+	let max: number | null = null;
+	for (let row = bounds.rowStart; row <= bounds.rowEnd; row++) {
+		for (
+			let column = bounds.columnStart;
+			column <= bounds.columnEnd;
+			column++
+		) {
+			const value = sheet.rows[row]?.[column]?.value;
+			if (value === null || value === undefined || value === "") continue;
+			count++;
+			if (typeof value !== "number" || !Number.isFinite(value)) continue;
+			numbers++;
+			sum += value;
+			min = min === null ? value : Math.min(min, value);
+			max = max === null ? value : Math.max(max, value);
+		}
+	}
+	return {
+		count,
+		numbers,
+		sum,
+		average: numbers > 0 ? sum / numbers : null,
+		min,
+		max,
+	};
+}
+
+/**
+ * True when a stored sheet holds an input whose cached value was never
+ * computed (an import, or a writer that skipped recalculation), so a view must
+ * evaluate before it can show it.
+ */
+export function hasUncomputedCells(
+	sheets: readonly Pick<OsWorkbookSheet, "rows">[],
+): boolean {
+	return sheets.some((sheet) =>
+		sheet.rows.some((row) =>
+			row.some(
+				(cell) =>
+					!!cell &&
+					cell.input !== "" &&
+					(cell.value === null || cell.value === undefined),
+			),
+		),
+	);
+}
+
+export interface ViewSort {
+	column: number;
+	direction: "ascending" | "descending";
+}
+
+function isBlank(value: unknown): boolean {
+	return value === null || value === undefined || value === "";
+}
+
+/** Numbers before text, text in natural order. Blank handling is the caller's. */
+function compareValues(left: unknown, right: unknown): number {
+	if (typeof left === "number" && typeof right === "number")
+		return left - right;
+	if (typeof left === "number") return -1;
+	if (typeof right === "number") return 1;
+	return String(left).localeCompare(String(right), undefined, {
+		numeric: true,
+		sensitivity: "base",
+	});
+}
+
+/**
+ * Row order for a read-only view: frozen rows stay on top, the rest are
+ * filtered by a case-insensitive query over their displayed text and sorted
+ * by one column, blanks last in either direction. The workbook never changes.
+ */
+export function viewRowOrder(
+	sheet: OsWorkbookSheet,
+	options: {
+		sort?: ViewSort | null;
+		query?: string;
+		display: (row: number, column: number) => string;
+	},
+): number[] {
+	const pinned = Math.min(sheet.frozenRows, sheet.rows.length);
+	const head = Array.from({ length: pinned }, (_, index) => index);
+	let body = Array.from(
+		{ length: sheet.rows.length - pinned },
+		(_, index) => index + pinned,
+	);
+	const query = options.query?.trim().toLocaleLowerCase() ?? "";
+	if (query) {
+		body = body.filter((row) =>
+			sheet.columns.some((_, column) =>
+				options.display(row, column).toLocaleLowerCase().includes(query),
+			),
+		);
+	}
+	const sort = options.sort;
+	if (sort) {
+		const sign = sort.direction === "ascending" ? 1 : -1;
+		const valueAt = (row: number) => sheet.rows[row]?.[sort.column]?.value;
+		body = [...body].sort((left, right) => {
+			const a = valueAt(left);
+			const b = valueAt(right);
+			if (isBlank(a) || isBlank(b))
+				return Number(isBlank(a)) - Number(isBlank(b)) || left - right;
+			return sign * compareValues(a, b) || left - right;
+		});
+	}
+	return [...head, ...body];
+}

@@ -4,11 +4,15 @@ import {
 	ArrowUDownLeft,
 	ArrowUDownRight,
 	Copy,
+	Eraser,
 	Function as FunctionIcon,
+	Keyboard,
 	PaintBucket,
 	Plus,
+	Sigma,
 	SortAscending,
 	SortDescending,
+	SquareSplitVertical,
 	TextAa,
 	TextAlignCenter,
 	TextAlignLeft,
@@ -56,6 +60,12 @@ import {
 import { Input } from "@/components/kumo/input";
 import { Textarea } from "@/components/kumo/textarea";
 import {
+	SheetColumnHeading,
+	sheetCellKind,
+	sheetCellPaint,
+} from "@/components/sheet-read-view";
+import { SheetShortcutsDialog } from "@/components/sheet-shortcuts-dialog";
+import {
 	EditorHistoryNotice,
 	EditorToolbar,
 	EditorToolbarButton,
@@ -84,6 +94,7 @@ import {
 	type CopiedCells,
 	copyBounds,
 	functionGroups,
+	hasUncomputedCells,
 	jumpToDataEdge,
 	moveWithinSelection,
 	parseClipboardTable,
@@ -92,6 +103,7 @@ import {
 	rangeLabel,
 	type Selection,
 	selectedBounds,
+	selectionStats,
 	sheetSelectionToPresence,
 } from "@/lib/sheet-grid";
 import { SheetNumberFormatToolbar } from "@/components/sheet-number-format-toolbar";
@@ -105,6 +117,7 @@ import {
 	deleteRows,
 	deleteSheet,
 	duplicateSheet,
+	fillRange,
 	frozenCellStyle,
 	HEADER_HEIGHT,
 	insertColumns,
@@ -233,24 +246,26 @@ function workbookWithCell(
 	);
 }
 
+/** A cell's own paint over the sheet paper, for the grid and its editor. */
 function cellStyle(cell: OsWorkbookCell) {
-	const format = cell.format;
+	const paint = sheetCellPaint(cell);
 	return {
-		background: format?.fillColor ?? "var(--tedix-sheet-paper)",
-		color: format?.textColor,
-		textAlign:
-			format?.horizontalAlign ??
-			(typeof cell.value === "number" ? "right" : undefined),
-		fontWeight: format?.bold ? 700 : undefined,
-		fontStyle: format?.italic ? "italic" : undefined,
-		textDecoration:
-			[
-				format?.underline ? "underline" : "",
-				format?.strike ? "line-through" : "",
-			]
-				.filter(Boolean)
-				.join(" ") || undefined,
-	} as const;
+		...paint,
+		background: paint.background ?? "var(--tedix-sheet-paper)",
+	};
+}
+
+function withoutFormat(cell: OsWorkbookCell): OsWorkbookCell {
+	const next = { ...cell };
+	delete next.format;
+	return next;
+}
+
+/** Status-bar numbers: grouped, at most two decimals, in the sheet's locale. */
+function statNumber(value: number, locale: string | undefined) {
+	return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(
+		value,
+	);
 }
 
 function dataIndex(element: Element | null, name: string): number | null {
@@ -278,11 +293,16 @@ export function SheetEditor({
 	presence,
 }: SheetEditorProps) {
 	const normalized = useMemo(() => normalizeSheetContent(value), [value]);
-	const storedWorkbook = useMemo(
-		() =>
-			value.workbook ? normalized.workbook! : ensureGrid(normalized.workbook!),
-		[normalized.workbook, value.workbook],
-	);
+	const storedWorkbook = useMemo(() => {
+		const stored = value.workbook
+			? normalized.workbook!
+			: ensureGrid(normalized.workbook!);
+		// A writer that skipped recalculation leaves formulas without a cached
+		// value; showing them blank until the first edit reads as data loss.
+		return hasUncomputedCells(stored.sheets)
+			? evaluateWorkbook(stored)
+			: stored;
+	}, [normalized.workbook, value.workbook]);
 	// Which tab is open is view state, not a document edit: switching tabs must
 	// not recalculate, snapshot, diff or sync the whole workbook.
 	const [viewSheetId, setViewSheetId] = useState(storedWorkbook.activeSheetId);
@@ -313,6 +333,9 @@ export function SheetEditor({
 	const copiedRef = useRef<CopiedCells | null>(null);
 	const history = useEditorHistory(normalized, onChange, SHEET_HISTORY);
 	const [sortHasHeader, setSortHasHeader] = useState(false);
+	// The last copied or cut range, outlined until the next edit or Escape.
+	const [copiedBounds, setCopiedBounds] = useState<Bounds | null>(null);
+	const [shortcutsOpen, setShortcutsOpen] = useState(false);
 	const bounds = selectedBounds(selection);
 	const selectedCell =
 		sheet.rows[selection.focus.row]?.[selection.focus.column] ?? emptyCell();
@@ -414,6 +437,7 @@ export function SheetEditor({
 		const current = editingRef.current;
 		if (!current) return;
 		setEditing(null);
+		setCopiedBounds(null);
 		const previous =
 			sheet.rows[current.coordinate.row]?.[current.coordinate.column]?.input ??
 			"";
@@ -465,8 +489,30 @@ export function SheetEditor({
 	const copySelection = () => {
 		const copied = copyBounds(sheet, bounds);
 		copiedRef.current = copied;
+		setCopiedBounds(bounds);
 		return copied.tsv;
 	};
+
+	const clearFormatting = () => {
+		if (disabled) return;
+		commitWorkbook(updateCells(workbook, bounds, withoutFormat));
+	};
+
+	const fill = (direction: "down" | "right") => {
+		if (disabled) return;
+		commitWorkbook(fillRange(workbook, sheet.id, bounds, direction));
+	};
+
+	const selectColumns = () =>
+		select({
+			anchor: { row: 0, column: bounds.columnStart },
+			focus: { row: rowCount - 1, column: bounds.columnEnd },
+		});
+	const selectRows = () =>
+		select({
+			anchor: { row: bounds.rowStart, column: 0 },
+			focus: { row: bounds.rowEnd, column: columnCount - 1 },
+		});
 
 	const writeClipboard = (text: string) =>
 		void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -611,7 +657,28 @@ export function SheetEditor({
 				moveTo(jumpToDataEdge(sheet, focus, arrow), event.shiftKey);
 				return;
 			}
+			if (key === " " && event.ctrlKey) {
+				event.preventDefault();
+				selectColumns();
+				return;
+			}
+			// Shift changes the key itself ("$", "%"), so match the physical digit.
+			if (
+				event.shiftKey &&
+				(event.code === "Digit4" || event.code === "Digit5")
+			) {
+				event.preventDefault();
+				commitFormat({
+					numberFormat: event.code === "Digit4" ? "currency" : "percent",
+					decimals: undefined,
+				});
+				return;
+			}
 			const shortcuts: Record<string, () => void> = {
+				"/": () => setShortcutsOpen(true),
+				"\\": clearFormatting,
+				d: () => fill("down"),
+				r: () => fill("right"),
 				a: () =>
 					select({
 						anchor: { row: 0, column: 0 },
@@ -716,6 +783,18 @@ export function SheetEditor({
 				event.preventDefault();
 				clearSelection();
 				return;
+			case "Escape":
+				if (copiedBounds) {
+					event.preventDefault();
+					setCopiedBounds(null);
+				}
+				return;
+			case " ":
+				if (event.shiftKey) {
+					event.preventDefault();
+					selectRows();
+					return;
+				}
 		}
 		if (key.length === 1 && !event.altKey && !disabled) {
 			// Typing into a selected cell replaces it, as in every spreadsheet.
@@ -739,6 +818,10 @@ export function SheetEditor({
 			requestAnimationFrame(() =>
 				target.setSelectionRange(start + 1, start + 1),
 			);
+		} else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+			// Save and stay, to check a formula's result where it lands.
+			event.preventDefault();
+			commitEdit("none");
 		} else if (event.key === "Enter") {
 			event.preventDefault();
 			commitEdit(event.shiftKey ? "up" : "down");
@@ -893,6 +976,17 @@ export function SheetEditor({
 
 	const insertFunction = (name: string) => startEdit("cell", `=${name}(`);
 	const menuTab = workbook.sheets.find((tab) => tab.id === menuTabId);
+	const multi =
+		bounds.rowStart !== bounds.rowEnd ||
+		bounds.columnStart !== bounds.columnEnd;
+	const stats = multi ? selectionStats(sheet, bounds) : null;
+	const locale = workbook.locale ?? osSpreadsheetLocale();
+	const sheetEmpty = sheet.rows.every((row) =>
+		row.every((cell) => !cell?.input),
+	);
+	const fullColumns = bounds.rowStart === 0 && bounds.rowEnd === rowCount - 1;
+	const fullRows =
+		bounds.columnStart === 0 && bounds.columnEnd === columnCount - 1;
 
 	return (
 		<div
@@ -1011,13 +1105,20 @@ export function SheetEditor({
 					disabled={disabled}
 					onChange={commitFormat}
 				/>
+				<EditorToolbarButton
+					label="Clear formatting"
+					disabled={disabled}
+					onClick={clearFormatting}
+				>
+					<Eraser size={15} />
+				</EditorToolbarButton>
 				<EditorToolbarDivider />
 				<EditorToolbarButton
 					label="Auto sum"
 					disabled={disabled}
 					onClick={() => commitWorkbook(autoSum(workbook, sheet.id, bounds))}
 				>
-					<FunctionIcon size={15} />
+					<Sigma size={15} />
 				</EditorToolbarButton>
 				<EditorToolbarButton
 					label="Sort ascending"
@@ -1034,10 +1135,25 @@ export function SheetEditor({
 					<SortDescending size={15} />
 				</EditorToolbarButton>
 				<EditorToolbarButton
-					label="Copy selection"
-					onClick={() => writeClipboard(copySelection())}
+					label="Selection has header"
+					active={sortHasHeader}
+					disabled={disabled}
+					onClick={() => setSortHasHeader(!sortHasHeader)}
 				>
-					<Copy size={15} />
+					<SquareSplitVertical size={15} />
+				</EditorToolbarButton>
+				<WorkbookStructureControls
+					workbook={workbook}
+					range={bounds}
+					disabled={disabled}
+					onChange={commitWorkbook}
+				/>
+				<EditorToolbarDivider />
+				<EditorToolbarButton
+					label="Keyboard shortcuts"
+					onClick={() => setShortcutsOpen(true)}
+				>
+					<Keyboard size={15} />
 				</EditorToolbarButton>
 			</EditorToolbar>
 			{/*
@@ -1054,23 +1170,6 @@ export function SheetEditor({
 			<div className="sheet-editor-desk">
 				<div className="sheet-page sheet-editor-page">
 					<div className="sheet-editor-formula grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-1">
-						<div className="col-span-full flex flex-wrap items-center gap-2">
-							<Button
-								size="xs"
-								variant="ghost"
-								disabled={disabled}
-								aria-pressed={sortHasHeader}
-								onClick={() => setSortHasHeader(!sortHasHeader)}
-							>
-								Selection has header
-							</Button>
-							<WorkbookStructureControls
-								workbook={workbook}
-								range={bounds}
-								disabled={disabled}
-								onChange={commitWorkbook}
-							/>
-						</div>
 						<Input
 							aria-label="Selected cell"
 							value={nameDraft ?? rangeLabel(selection)}
@@ -1084,14 +1183,16 @@ export function SheetEditor({
 							className="font-mono"
 							size="sm"
 						/>
-						<div className="flex min-w-0 items-center gap-1">
+						<div className="flex min-w-0 items-stretch">
 							<DropdownMenu>
 								<DropdownMenuTrigger
 									render={
 										<Button
 											aria-label="Insert function"
-											size="icon-xs"
+											title="Insert function"
+											size="icon-sm"
 											variant="ghost"
+											className="sheet-editor-fx rounded-none!"
 											disabled={disabled}
 										>
 											<FunctionIcon size={15} />
@@ -1119,6 +1220,7 @@ export function SheetEditor({
 							</DropdownMenu>
 							<Input
 								aria-label="Formula bar"
+								placeholder={disabled ? undefined : "Enter a value or =formula"}
 								value={editing ? editing.text : selectedCell.input}
 								disabled={disabled}
 								onFocus={() => {
@@ -1137,13 +1239,13 @@ export function SheetEditor({
 									)
 										commitEdit("none");
 								}}
-								className="font-mono"
+								className="min-w-0 flex-1 font-mono"
 								size="sm"
 							/>
 						</div>
 					</div>
 					<ContextMenu>
-						<ContextMenuTrigger className="sheet-editor-grid max-h-[68vh] overflow-auto border border-kumo-line bg-kumo-base">
+						<ContextMenuTrigger className="sheet-editor-grid max-h-[68vh] overflow-auto bg-kumo-base">
 							<table
 								ref={gridRef}
 								role="grid"
@@ -1151,7 +1253,7 @@ export function SheetEditor({
 								aria-multiselectable="true"
 								aria-rowcount={rowCount + 1}
 								aria-colcount={columnCount + 1}
-								className="border-collapse type-tedix-control select-none"
+								className="sheet-grid-table border-separate border-spacing-0 type-tedix-control select-none"
 								style={{
 									width: sheet.columns.reduce(
 										(sum, column) => sum + column.width,
@@ -1184,7 +1286,7 @@ export function SheetEditor({
 									pasteText(event.clipboardData.getData("text/plain"));
 								}}
 							>
-								<thead className="sticky top-0 z-[5] bg-kumo-elevated">
+								<thead>
 									<tr
 										role="row"
 										aria-rowindex={1}
@@ -1194,8 +1296,9 @@ export function SheetEditor({
 											role="columnheader"
 											aria-colindex={1}
 											aria-label="Select all"
+											title="Select all"
 											data-select-all=""
-											className="sticky left-0 z-[3] w-11 border border-kumo-line bg-kumo-elevated"
+											className="sheet-corner w-11"
 										/>
 										{sheet.columns.map((column, columnIndex) => {
 											const columnSelected =
@@ -1207,18 +1310,22 @@ export function SheetEditor({
 													role="columnheader"
 													aria-colindex={columnIndex + 2}
 													data-column-header={columnIndex}
-													className={`relative cursor-default border border-kumo-line px-2 py-1 font-medium ${columnSelected ? "bg-kumo-tint" : ""}`}
+													data-selected={columnSelected ? "" : undefined}
+													data-full={
+														columnSelected && fullColumns ? "" : undefined
+													}
+													className="sheet-column-header relative"
 													style={{
 														...frozenCellStyle(
 															sheet,
 															sheet.rows.length,
 															columnIndex,
 														),
+														top: 0,
+														zIndex: columnIndex < sheet.frozenColumns ? 6 : 5,
 														width: column.width,
 														minWidth: column.width,
-														...(columnSelected
-															? {}
-															: { background: "var(--tedix-sheet-paper)" }),
+														maxWidth: column.width,
 													}}
 													title={`${columnLabel(columnIndex)} · ${column.label}. Double-click to rename.`}
 													onDoubleClick={() =>
@@ -1230,8 +1337,11 @@ export function SheetEditor({
 														})
 													}
 												>
-													<span className="sheet-editor-column-button block truncate">
-														{columnLabel(columnIndex)} · {column.label}
+													<span className="sheet-editor-column-button flex">
+														<SheetColumnHeading
+															index={columnIndex}
+															label={column.label}
+														/>
 													</span>
 													<WorkbookResizeHandle
 														label={`Column ${columnIndex + 1} width`}
@@ -1271,7 +1381,9 @@ export function SheetEditor({
 													role="rowheader"
 													aria-colindex={1}
 													data-row-header={rowIndex}
-													className={`sticky left-0 cursor-default border border-kumo-line px-2 text-right font-normal text-kumo-subtle ${rowSelected ? "bg-kumo-tint" : "bg-kumo-elevated"}`}
+													data-selected={rowSelected ? "" : undefined}
+													data-full={rowSelected && fullRows ? "" : undefined}
+													className="sheet-row-header"
 													style={{
 														top: frozenCellStyle(
 															sheet,
@@ -1314,6 +1426,11 @@ export function SheetEditor({
 														peer &&
 														peer.bounds.rowStart === rowIndex &&
 														peer.bounds.columnStart === columnIndex;
+													const copied =
+														copiedBounds &&
+														boundsContain(copiedBounds, rowIndex, columnIndex)
+															? copiedBounds
+															: null;
 													return (
 														<td
 															key={`${rowIndex}-${columnIndex}`}
@@ -1324,7 +1441,8 @@ export function SheetEditor({
 															tabIndex={active ? 0 : -1}
 															data-cell-row={rowIndex}
 															data-cell-column={columnIndex}
-															className={`relative border border-kumo-line p-0 align-top outline-none ${active ? "ring-2 ring-inset ring-kumo-focus" : ""}`}
+															data-kind={sheetCellKind(cell)}
+															className={`sheet-cell align-top outline-none ${active ? "ring-2 ring-inset ring-kumo-focus" : ""}`}
 															style={{
 																...frozenCellStyle(
 																	sheet,
@@ -1343,10 +1461,16 @@ export function SheetEditor({
 															}}
 														>
 															<div
-																className="sheet-editor-cell overflow-hidden px-2 py-1"
+																className="sheet-editor-cell overflow-hidden px-2"
 																style={{
 																	[cell.format?.wrap ? "minHeight" : "height"]:
 																		rowHeight - 1,
+																	lineHeight: cell.format?.wrap
+																		? undefined
+																		: `${rowHeight - 1}px`,
+																	paddingBlock: cell.format?.wrap
+																		? 4
+																		: undefined,
 																	whiteSpace: cell.format?.wrap
 																		? "pre-wrap"
 																		: "nowrap",
@@ -1363,7 +1487,31 @@ export function SheetEditor({
 															{selected && !active ? (
 																<span
 																	aria-hidden="true"
-																	className="pointer-events-none absolute inset-0 bg-kumo-focus/10"
+																	className="sheet-editor-selection"
+																/>
+															) : null}
+															{copied ? (
+																<span
+																	aria-hidden="true"
+																	className="sheet-editor-copied"
+																	data-top={
+																		rowIndex === copied.rowStart
+																			? ""
+																			: undefined
+																	}
+																	data-bottom={
+																		rowIndex === copied.rowEnd ? "" : undefined
+																	}
+																	data-left={
+																		columnIndex === copied.columnStart
+																			? ""
+																			: undefined
+																	}
+																	data-right={
+																		columnIndex === copied.columnEnd
+																			? ""
+																			: undefined
+																	}
 																/>
 															) : null}
 															{peerLabel ? (
@@ -1430,6 +1578,37 @@ export function SheetEditor({
 									})}
 								</tbody>
 							</table>
+							<div className="sheet-editor-grow">
+								<Button
+									size="xs"
+									variant="ghost"
+									disabled={disabled || rowCount >= SHEET_MAX_ROWS}
+									onClick={() =>
+										structure(() =>
+											insertRows(
+												workbook,
+												sheet.id,
+												rowCount,
+												Math.min(10, SHEET_MAX_ROWS - rowCount),
+											),
+										)
+									}
+								>
+									<Plus size={12} aria-hidden /> Add 10 rows
+								</Button>
+								<Button
+									size="xs"
+									variant="ghost"
+									disabled={disabled || columnCount >= SHEET_MAX_COLUMNS}
+									onClick={() =>
+										structure(() =>
+											insertColumns(workbook, sheet.id, columnCount),
+										)
+									}
+								>
+									<Plus size={12} aria-hidden /> Add column
+								</Button>
+							</div>
 						</ContextMenuTrigger>
 						<ContextMenuContent>
 							<ContextMenuItem
@@ -1544,6 +1723,28 @@ export function SheetEditor({
 								Sort descending
 							</ContextMenuItem>
 							<ContextMenuItem
+								shortcut="⌘D"
+								disabled={disabled || rowSpan < 2}
+								onClick={() => fill("down")}
+							>
+								Fill down
+							</ContextMenuItem>
+							<ContextMenuItem
+								shortcut="⌘R"
+								disabled={disabled || columnSpan < 2}
+								onClick={() => fill("right")}
+							>
+								Fill right
+							</ContextMenuItem>
+							<ContextMenuSeparator />
+							<ContextMenuItem
+								shortcut="⌘\"
+								disabled={disabled}
+								onClick={clearFormatting}
+							>
+								Clear formatting
+							</ContextMenuItem>
+							<ContextMenuItem
 								shortcut="Del"
 								disabled={disabled}
 								onClick={clearSelection}
@@ -1552,64 +1753,73 @@ export function SheetEditor({
 							</ContextMenuItem>
 						</ContextMenuContent>
 					</ContextMenu>
-					<div className="sheet-editor-tabs flex flex-wrap items-center justify-between gap-2">
+					<div className="sheet-editor-tabs">
 						<ContextMenu>
 							<ContextMenuTrigger
-								className="flex min-w-0 flex-wrap items-center gap-1"
+								className="sheet-tab-strip"
 								onContextMenuCapture={() => setMenuTabId(null)}
 							>
-								{workbook.sheets.map((tab) => (
-									<div key={tab.id} className="flex items-center gap-0.5">
-										<Button
-											type="button"
-											size="xs"
-											variant={
-												tab.id === workbook.activeSheetId
-													? "secondary"
-													: "ghost"
-											}
-											aria-pressed={tab.id === workbook.activeSheetId}
-											onClick={() => {
-												if (tab.id !== workbook.activeSheetId)
-													openSheet(tab.id);
-											}}
-											onContextMenu={() => setMenuTabId(tab.id)}
-											onDoubleClick={() =>
-												!disabled &&
-												setRenameTarget({
-													kind: "sheet",
-													id: tab.id,
-													value: tab.name,
-												})
-											}
+								{workbook.sheets.map((tab) => {
+									const open = tab.id === workbook.activeSheetId;
+									return (
+										<div
+											key={tab.id}
+											className="sheet-tab-item"
+											data-active={open ? "" : undefined}
 										>
-											{tab.name}
-										</Button>
-										<Button
-											size="icon-xs"
-											variant="ghost"
-											aria-label={`Duplicate ${tab.name}`}
-											disabled={disabled || workbook.sheets.length >= 32}
-											onClick={() => copySheet(tab.id)}
-										>
-											<Copy size={13} />
-										</Button>
-										<Button
-											size="icon-xs"
-											variant="ghost"
-											aria-label={`Delete ${tab.name}`}
-											disabled={disabled || workbook.sheets.length <= 1}
-											onClick={() => removeSheet(tab.id)}
-										>
-											<Trash size={13} />
-										</Button>
-									</div>
-								))}
+											<Button
+												type="button"
+												size="xs"
+												variant="ghost"
+												className="sheet-tab !h-full"
+												aria-pressed={open}
+												onClick={() => {
+													if (!open) openSheet(tab.id);
+												}}
+												onContextMenu={() => setMenuTabId(tab.id)}
+												onDoubleClick={() =>
+													!disabled &&
+													setRenameTarget({
+														kind: "sheet",
+														id: tab.id,
+														value: tab.name,
+													})
+												}
+											>
+												{tab.name}
+											</Button>
+											<Button
+												size="icon-xs"
+												variant="ghost"
+												className="sheet-tab-action"
+												aria-label={`Duplicate ${tab.name}`}
+												title={`Duplicate ${tab.name}`}
+												disabled={disabled || workbook.sheets.length >= 32}
+												onClick={() => copySheet(tab.id)}
+											>
+												<Copy size={13} />
+											</Button>
+											<Button
+												size="icon-xs"
+												variant="ghost"
+												className="sheet-tab-action mr-1"
+												aria-label={`Delete ${tab.name}`}
+												title={`Delete ${tab.name}`}
+												disabled={disabled || workbook.sheets.length <= 1}
+												onClick={() => removeSheet(tab.id)}
+											>
+												<Trash size={13} />
+											</Button>
+										</div>
+									);
+								})}
 								<Button
 									type="button"
-									size="icon-xs"
+									size="icon-sm"
 									variant="ghost"
+									className="ml-1 shrink-0 self-center"
 									aria-label="Add sheet"
+									title="Add sheet"
 									disabled={disabled || workbook.sheets.length >= 32}
 									onClick={addSheet}
 								>
@@ -1651,10 +1861,41 @@ export function SheetEditor({
 								</ContextMenuContent>
 							) : null}
 						</ContextMenu>
-						<div className="flex flex-wrap items-center gap-2 text-kumo-subtle type-tedix-label">
-							<span>
-								{WORKBOOK_SUPPORTED_FORMULA_COUNT}+ spreadsheet functions
-							</span>
+						{/* What the selection adds up to, or how to begin. */}
+						<div
+							className="sheet-status type-tedix-label"
+							aria-live="polite"
+							data-idle={!stats && !(sheetEmpty && !disabled) ? "" : undefined}
+						>
+							{stats && stats.numbers > 0 ? (
+								<>
+									<span>
+										Sum <b>{statNumber(stats.sum, locale)}</b>
+									</span>
+									<span>
+										Average <b>{statNumber(stats.average ?? 0, locale)}</b>
+									</span>
+									<span data-stat="min">
+										Min <b>{statNumber(stats.min ?? 0, locale)}</b>
+									</span>
+									<span data-stat="max">
+										Max <b>{statNumber(stats.max ?? 0, locale)}</b>
+									</span>
+									<span>
+										Count <b>{stats.count}</b>
+									</span>
+								</>
+							) : stats ? (
+								<span>
+									Count <b>{stats.count}</b>
+								</span>
+							) : sheetEmpty && !disabled ? (
+								<span>Type to start · = begins a formula · paste a table</span>
+							) : (
+								<span>
+									{WORKBOOK_SUPPORTED_FORMULA_COUNT}+ spreadsheet functions
+								</span>
+							)}
 						</div>
 					</div>
 				</div>
@@ -1675,6 +1916,10 @@ export function SheetEditor({
 					if (!open) setRenameTarget(null);
 				}}
 				onSubmit={applyRename}
+			/>
+			<SheetShortcutsDialog
+				open={shortcutsOpen}
+				onOpenChange={setShortcutsOpen}
 			/>
 		</div>
 	);

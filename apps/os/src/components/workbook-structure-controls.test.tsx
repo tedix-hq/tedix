@@ -6,6 +6,7 @@ import {
 	type OsWorkbook,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { projectWorkbook, type SheetContent } from "@/lib/output-models";
+import { HEADER_HEIGHT } from "@/lib/workbook-structure";
 import { SheetEditor } from "./output-editor-sheet";
 
 (
@@ -53,7 +54,11 @@ function mount() {
 		if (!button) {
 			const trigger = [
 				...container.querySelectorAll<HTMLButtonElement>("button"),
-			].find((item) => item.textContent?.includes("Rows and columns"))!;
+			].find((item) =>
+				(item.getAttribute("aria-label") ?? item.textContent)?.includes(
+					"Rows and columns",
+				),
+			)!;
 			act(() => trigger.click());
 			button = [
 				...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
@@ -110,7 +115,7 @@ describe("sheet structure integration", () => {
 		const cell =
 			editor.container.querySelector<HTMLTableCellElement>("tbody td")!;
 		expect(cell.style.position).toBe("sticky");
-		expect(cell.style.top).toBe("36px");
+		expect(cell.style.top).toBe(`${HEADER_HEIGHT}px`);
 		expect(cell.style.left).toBe("44px");
 		editor.click("Unfreeze panes");
 		expect(

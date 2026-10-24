@@ -439,7 +439,7 @@
 /* The committed sheet sits on the same desk the editor uses. */
 .sheet-read-desk {
 	min-width: 0;
-	padding: 16px;
+	padding: 8px;
 	background: var(--tedix-desk);
 }
 
@@ -451,13 +451,40 @@
 
 .sheet-read-page {
 	display: grid;
-	grid-template-rows: minmax(0, 1fr) auto;
+	grid-template-rows: auto minmax(0, 1fr) auto;
 	max-height: 64vh;
 }
 
 .sheet-read-grid {
 	min-height: 0;
 	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+.sheet-read-grid:focus-visible {
+	outline: 2px solid var(--color-kumo-focus);
+	outline-offset: -2px;
+}
+
+.sheet-read-bar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px;
+	border-bottom: 1px solid var(--tedix-sheet-rule);
+}
+
+.sheet-read-filter {
+	width: min(100%, 18rem);
+}
+
+.sheet-read-empty {
+	padding: 48px 24px !important;
+}
+
+.sheet-read-no-match {
+	padding: 16px 12px;
+	color: var(--tedix-sheet-muted);
 }
 
 /*
@@ -466,13 +493,14 @@
  * a bare slab butted straight against the toolbar with no framing at all. The
  * desk reuses `--tedix-desk` deliberately -- one desk tone across
  * output editors is the point; a sheet-specific value would only restate it.
+ * On a phone every pixel of width is grid, so the desk shrinks to a rim.
  */
 .sheet-editor-desk {
 	display: grid;
 	grid-template-rows: minmax(0, 1fr);
 	min-width: 0;
 	min-height: 0;
-	padding: 12px;
+	padding: 6px;
 	background: var(--tedix-desk);
 }
 
@@ -482,25 +510,52 @@
 	}
 }
 
-.sheet-editor-formula,
-.sheet-editor-tabs {
-	padding: 4px 6px;
-	border-right: 1px solid var(--tedix-sheet-rule);
-	border-bottom: 1px solid var(--tedix-sheet-rule);
-	border-left: 1px solid var(--tedix-sheet-rule);
+/*
+ * Formula bar: one row of name box, function picker and formula, divided by
+ * hairlines rather than three boxed inputs, so it reads as part of the page.
+ */
+.sheet-editor-formula {
+	min-height: 36px;
+	padding: 0;
+	border: 1px solid var(--tedix-sheet-rule);
+	border-radius: 0;
 	background: var(--tedix-sheet-paper);
+	column-gap: 0 !important;
 }
 
-.sheet-editor-formula {
-	min-height: 40px;
-	border-top: 1px solid var(--tedix-sheet-rule);
-	border-radius: 0;
+.sheet-editor-formula [data-slot="input"],
+.sheet-editor-formula input {
+	border: 0 !important;
+	border-radius: 0 !important;
+	background: transparent !important;
+	box-shadow: none !important;
+}
+
+.sheet-editor-formula [aria-label="Selected cell"] {
+	border-right: 1px solid var(--tedix-sheet-rule) !important;
+	font-weight: 600;
+	text-align: center;
+}
+
+.sheet-editor-formula [aria-label="Formula bar"]:focus-visible,
+.sheet-editor-formula [aria-label="Selected cell"]:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--color-kumo-focus) !important;
+	outline: none;
+}
+
+.sheet-editor-fx {
+	align-self: stretch;
+	border-right: 1px solid var(--tedix-sheet-rule);
 }
 
 .sheet-editor-grid {
+	position: relative;
 	min-height: 0;
+	border: 1px solid var(--tedix-sheet-rule);
 	border-top: 0;
+	border-bottom: 0;
 	border-radius: 0;
+	overscroll-behavior: contain;
 }
 
 .sheet-editor-column-button {
@@ -508,9 +563,393 @@
 	overflow: hidden;
 }
 
+/* --- The grid, shared by the read view and the editor ---------------------- */
+
+.sheet-grid-table {
+	table-layout: fixed;
+	width: max-content;
+	font-size: 13px;
+	line-height: 1.35;
+}
+
+.sheet-grid-table th,
+.sheet-grid-table td {
+	border-right: 1px solid var(--tedix-sheet-rule);
+	border-bottom: 1px solid var(--tedix-sheet-rule);
+}
+
+.sheet-corner,
+.sheet-column-header,
+.sheet-row-header {
+	position: sticky;
+	background: var(--tedix-sheet-header);
+	color: var(--tedix-sheet-muted);
+	font-weight: 500;
+	user-select: none;
+	transition:
+		background-color var(--duration-tedix-fast) var(--ease-tedix-standard),
+		color var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+
+.sheet-corner {
+	top: 0;
+	left: 0;
+	z-index: 7;
+}
+
+.sheet-column-header {
+	top: 0;
+	z-index: 5;
+	padding: 0;
+	text-align: left;
+}
+
+.sheet-row-header {
+	left: 0;
+	z-index: 3;
+	min-width: 44px;
+	padding: 0 8px;
+	font-size: 11.5px;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	cursor: default;
+}
+
+/* Frozen cells ride above the scrolling ones. */
+.sheet-grid-table td[style*="sticky"] {
+	z-index: 2;
+}
+
+.sheet-column-heading {
+	display: inline-flex;
+	min-width: 0;
+	align-items: baseline;
+	gap: 6px;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.sheet-column-letter {
+	flex: none;
+	color: var(--tedix-sheet-muted);
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+}
+
+.sheet-column-name {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--tedix-sheet-ink);
+	font-weight: 600;
+	text-overflow: ellipsis;
+}
+
+/* A header that holds only its letter centres it, as every spreadsheet does. */
+.sheet-column-heading:not(:has(.sheet-column-name)) {
+	justify-content: center;
+	width: 100%;
+}
+
+.sheet-column-sort {
+	display: flex !important;
+	width: 100%;
+	height: 100% !important;
+	min-height: 0 !important;
+	justify-content: space-between !important;
+	gap: 4px;
+	padding: 0 8px !important;
+	border-radius: 0 !important;
+	color: inherit !important;
+	font: inherit !important;
+}
+
+.sheet-column-header[data-sorted] {
+	color: var(--tedix-sheet-ink);
+}
+
+.sheet-cell {
+	height: inherit;
+	padding: 0 8px;
+	overflow: hidden;
+	background: var(--tedix-sheet-paper);
+	color: var(--tedix-sheet-ink);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	vertical-align: middle;
+}
+
+.sheet-cell[data-wrap] {
+	padding-block: 4px;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+	vertical-align: top;
+}
+
+[data-kind="number"] {
+	font-variant-numeric: tabular-nums;
+}
+
+[data-kind="error"] {
+	color: var(--color-kumo-danger, #c5221f) !important;
+	font-weight: 500;
+}
+
+[data-kind="boolean"] {
+	font-variant-caps: all-small-caps;
+	letter-spacing: 0.04em;
+	text-align: center;
+}
+
+/* --- Editor selection --------------------------------------------------------
+ * The editor paints selection state on headers: the columns and rows a range
+ * touches take a tint, and a whole selected column or row takes the solid
+ * focus colour, so where you are reads from the edges of the grid. */
+.sheet-editor-grid .sheet-column-header[data-selected],
+.sheet-editor-grid .sheet-row-header[data-selected] {
+	background: color-mix(
+		in srgb,
+		var(--color-kumo-focus) 14%,
+		var(--tedix-sheet-header)
+	);
+	color: var(--tedix-sheet-ink);
+}
+
+.sheet-editor-grid .sheet-column-header[data-full],
+.sheet-editor-grid .sheet-row-header[data-full] {
+	background: var(--color-kumo-focus);
+	color: #fff;
+}
+
+.sheet-editor-grid .sheet-column-header[data-full] .sheet-column-letter,
+.sheet-editor-grid .sheet-column-header[data-full] .sheet-column-name {
+	color: inherit;
+}
+
+.sheet-editor-grid .sheet-column-header {
+	padding: 0 8px;
+	cursor: default;
+}
+
+.sheet-editor-grid .sheet-cell {
+	position: relative;
+	padding: 0;
+	cursor: cell;
+}
+
+.sheet-editor-selection {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: color-mix(in srgb, var(--color-kumo-focus) 10%, transparent);
+}
+
+/* The copied range wears a dashed outline until the next edit or Escape. */
+.sheet-editor-copied {
+	position: absolute;
+	inset: -1px;
+	pointer-events: none;
+	border: 0 dashed var(--color-kumo-focus);
+}
+
+.sheet-editor-copied[data-top] {
+	border-top-width: 2px;
+}
+
+.sheet-editor-copied[data-bottom] {
+	border-bottom-width: 2px;
+}
+
+.sheet-editor-copied[data-left] {
+	border-left-width: 2px;
+}
+
+.sheet-editor-copied[data-right] {
+	border-right-width: 2px;
+}
+
+.sheet-editor-cell-editor {
+	animation: sheet-editor-open var(--duration-tedix-fast)
+		var(--ease-tedix-enter);
+}
+
+@keyframes sheet-editor-open {
+	from {
+		opacity: 0.4;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sheet-corner,
+	.sheet-column-header,
+	.sheet-row-header {
+		transition: none;
+	}
+
+	.sheet-editor-cell-editor {
+		animation: none;
+	}
+}
+
+/* Below the last row: room to grow, sticky to the left edge. */
+.sheet-editor-grow {
+	position: sticky;
+	left: 0;
+	display: flex;
+	width: max-content;
+	gap: 4px;
+	padding: 6px;
+}
+
+/* --- Footer: sheet tabs and the status line -------------------------------- */
+
+.sheet-footer,
 .sheet-editor-tabs {
-	min-height: 40px;
+	display: flex;
+	min-height: 36px;
+	align-items: stretch;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 8px 0 0;
+	border: 1px solid var(--tedix-sheet-rule);
 	border-radius: 0;
+	background: var(--tedix-sheet-header);
+}
+
+.sheet-read-page .sheet-footer {
+	border-width: 1px 0 0;
+}
+
+.sheet-tab-strip {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
+	align-items: stretch;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.sheet-tab-strip::-webkit-scrollbar {
+	display: none;
+}
+
+.sheet-tab-item {
+	display: flex;
+	flex: none;
+	align-items: center;
+	border-right: 1px solid var(--tedix-sheet-rule);
+}
+
+.sheet-tab-item {
+	position: relative;
+}
+
+.sheet-tab-item[data-active] {
+	background: var(--tedix-sheet-paper);
+}
+
+/* The open tab's top rule sits above its buttons' own backgrounds. */
+.sheet-tab-item[data-active]::before {
+	position: absolute;
+	z-index: 1;
+	inset: 0 0 auto;
+	height: 2px;
+	background: var(--color-kumo-focus);
+	content: "";
+	pointer-events: none;
+}
+
+.sheet-tab {
+	max-width: 14rem;
+	border-radius: 0 !important;
+	color: var(--tedix-sheet-muted) !important;
+}
+
+.sheet-tab[aria-pressed="true"] {
+	color: var(--tedix-sheet-ink) !important;
+}
+
+.sheet-read-page .sheet-tab {
+	border-right: 1px solid var(--tedix-sheet-rule) !important;
+}
+
+.sheet-read-page .sheet-tab[aria-pressed="true"] {
+	background:
+		linear-gradient(var(--color-kumo-focus), var(--color-kumo-focus)) top / 100%
+			2px no-repeat,
+		var(--tedix-sheet-paper) !important;
+}
+
+/* Per-tab duplicate and delete appear with the pointer or focus, never as
+ * permanent clutter; touch screens keep them on the open tab. */
+.sheet-tab-action {
+	opacity: 0;
+	transition: opacity var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+
+.sheet-tab-item:hover .sheet-tab-action,
+.sheet-tab-item:focus-within .sheet-tab-action,
+.sheet-tab-action:focus-visible {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.sheet-tab-item[data-active] .sheet-tab-action {
+		opacity: 1;
+	}
+
+	.sheet-tab-item:not([data-active]) .sheet-tab-action {
+		display: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sheet-tab-action {
+		transition: none;
+	}
+}
+
+.sheet-status {
+	display: flex;
+	min-width: 0;
+	flex: 0 1 auto;
+	align-items: center;
+	gap: 12px;
+	overflow: hidden;
+	color: var(--tedix-sheet-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.sheet-status b {
+	color: var(--tedix-sheet-ink);
+	font-weight: 600;
+}
+
+/* On a phone the tabs keep the bar; selection maths takes its own line below
+ * them, and the idle hint gives its room back. */
+@media (max-width: 639px) {
+	.sheet-editor-tabs {
+		flex-wrap: wrap;
+		row-gap: 0;
+		padding-right: 0;
+	}
+
+	.sheet-editor-tabs .sheet-status {
+		width: 100%;
+		min-height: 28px;
+		padding: 0 8px;
+		border-top: 1px solid var(--tedix-sheet-rule);
+	}
+
+	.sheet-editor-tabs .sheet-status[data-idle] {
+		display: none;
+	}
+
+	.sheet-status [data-stat="min"],
+	.sheet-status [data-stat="max"] {
+		display: none;
+	}
 }
 
 .slides-editor-layout {

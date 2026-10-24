@@ -38,14 +38,10 @@ function render(format: OsWorkbookCellFormat = {}, disabled = false) {
 }
 
 describe("sheet number format toolbar", () => {
+	// The two formats a sheet reaches for most have their own buttons.
 	it.each([
 		["Currency", "currency"],
-		["Integer", "integer"],
 		["Percent", "percent"],
-		["Date", "date"],
-		["Time", "time"],
-		["Date and time", "datetime"],
-		["Plain text", "text"],
 	] as const)("applies %s", (label, numberFormat) => {
 		const { onChange, click } = render();
 		click(label);
@@ -54,6 +50,36 @@ describe("sheet number format toolbar", () => {
 			decimals: undefined,
 		});
 	});
+	// Every format, those included, is one pick away in the format list, and
+	// each option previews what it does to a value.
+	it.each([
+		["Integer", "integer", "1,235"],
+		["Date", "date", "2025"],
+		["Time", "time", ":"],
+		["Date and time", "datetime", "2025"],
+		["Plain text", "text", ""],
+		["Currency", "currency", "1,234.50"],
+	] as const)(
+		"applies %s from the format list",
+		async (label, numberFormat, sample) => {
+			const { onChange } = render();
+			await act(async () =>
+				host
+					.querySelector<HTMLButtonElement>('[aria-label="Number format"]')!
+					.click(),
+			);
+			const option = [
+				...document.querySelectorAll<HTMLElement>('[role="option"]'),
+			].find((item) => item.textContent?.startsWith(label));
+			expect(option, label).toBeDefined();
+			if (sample) expect(option!.textContent).toContain(sample);
+			await act(async () => option!.click());
+			expect(onChange).toHaveBeenCalledWith({
+				numberFormat,
+				decimals: undefined,
+			});
+		},
+	);
 	it("increases and decreases decimal precision", () => {
 		const { onChange, click } = render({
 			numberFormat: "percent",

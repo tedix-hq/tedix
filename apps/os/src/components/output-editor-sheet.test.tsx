@@ -155,8 +155,9 @@ describe("SheetEditor", () => {
 				.querySelector('[aria-label="Bold"]')
 				?.getAttribute("data-toolbar-control"),
 		).toBe("icon");
-		// history | text style | colour | alignment | number format | structure
-		expect(toolbar?.querySelectorAll("span.w-px")).toHaveLength(5);
+		// history | text style | colour | alignment | number format | data and
+		// structure | help
+		expect(toolbar?.querySelectorAll("span.w-px")).toHaveLength(6);
 		// Polarity split: the toolbar is app chrome and follows the shell, the
 		// desk is the recessed ground, and formula bar + grid + tabs are ONE
 		// fixed-light page on it. `.sheet-editor-page` is the single element that
