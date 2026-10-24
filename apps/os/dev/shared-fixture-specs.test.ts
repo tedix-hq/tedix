@@ -20,12 +20,25 @@ describe("shared browser fixture failures", () => {
 		const child = Promise.withResolvers<number>();
 		const launched: string[] = [];
 		const errors: string[] = [];
+		const signals: NodeJS.Signals[] = [];
+		let childExitCode: number | null = null;
 		const running = runSharedFixtureSpecs(
 			["first.ts", "second.ts", "third.ts"],
 			server,
 			(spec) => {
 				launched.push(spec);
-				return { exited: child.promise, signalCode: "SIGTERM" };
+				return {
+					get exitCode() {
+						return childExitCode;
+					},
+					exited: child.promise,
+					kill(signal: NodeJS.Signals) {
+						signals.push(signal);
+						childExitCode = 143;
+						child.resolve(143);
+					},
+					signalCode: "SIGTERM",
+				};
 			},
 			() => {},
 			(message) => errors.push(message),
@@ -38,8 +51,8 @@ describe("shared browser fixture failures", () => {
 			"[run-specs] NOT RUN (fixture server exited 7)  second.ts",
 			"[run-specs] NOT RUN (fixture server exited 7)  third.ts",
 		]);
-		child.resolve(143);
 		const results = await running;
+		expect(signals).toEqual(["SIGTERM"]);
 		expect(results[0]?.outcome).toMatch(
 			/^FAIL \(fixture server exited 7; spec signal SIGTERM; exit 143\)/,
 		);
@@ -59,7 +72,7 @@ describe("shared browser fixture failures", () => {
 			server,
 			(spec) => {
 				launched.push(spec);
-				return { exited: Promise.resolve(0) };
+				return { exitCode: 0, exited: Promise.resolve(0), kill() {} };
 			},
 			() => {},
 			(message) => errors.push(message),
@@ -80,7 +93,8 @@ describe("shared browser fixture failures", () => {
 			server,
 			(spec) => {
 				launched.push(spec);
-				return { exited: Promise.resolve(spec === "first.ts" ? 1 : 0) };
+				const code = spec === "first.ts" ? 1 : 0;
+				return { exitCode: code, exited: Promise.resolve(code), kill() {} };
 			},
 			() => {},
 			(message) => errors.push(message),
@@ -91,5 +105,40 @@ describe("shared browser fixture failures", () => {
 		exit(0);
 		await server.exited;
 		expect(errors).toEqual([]);
+	});
+
+	it("force-kills a spec that ignores fixture-exit termination", async () => {
+		const { server, exit } = fixture();
+		const child = Promise.withResolvers<number>();
+		const signals: NodeJS.Signals[] = [];
+		let childExitCode: number | null = null;
+		const running = runSharedFixtureSpecs(
+			["first.ts"],
+			server,
+			() => ({
+				get exitCode() {
+					return childExitCode;
+				},
+				exited: child.promise,
+				kill(signal: NodeJS.Signals) {
+					signals.push(signal);
+					if (signal === "SIGKILL") {
+						childExitCode = 137;
+						child.resolve(137);
+					}
+				},
+				signalCode: "SIGKILL",
+			}),
+			() => {},
+			() => {},
+			0,
+		);
+
+		exit(9);
+		const results = await running;
+		expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+		expect(results[0]?.outcome).toMatch(
+			/^FAIL \(fixture server exited 9; spec signal SIGKILL; exit 137\)/,
+		);
 	});
 });
