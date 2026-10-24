@@ -61,6 +61,7 @@ export interface StreamHomeRunEventsOptions {
 	pollIntervalMs?: number;
 	/** Override of ACTIVE_PAGE_PACE_MS (tests). */
 	activePagePaceMs?: number;
+	sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 	signal?: AbortSignal;
 	onConnectionChange?: (connected: boolean) => void;
 }
@@ -79,6 +80,7 @@ export function streamHomeRunEvents(
 		opts.activePagePaceMs ?? ACTIVE_PAGE_PACE_MS,
 		pollIntervalMs,
 	);
+	const wait = opts.sleep ?? sleep;
 	const waitMs = opts.live ? 25_000 : 0;
 
 	let nextOffset: string = input.offset ?? HOME_RUN_EVENTS_START;
@@ -122,7 +124,7 @@ export function streamHomeRunEvents(
 				if (combinedSignal.aborted) return;
 				if (!isTransient(err)) throw err;
 				if (attempt === 0) opts.onConnectionChange?.(false);
-				await sleep(clampBackoff(attempt++), combinedSignal).catch(() => {});
+				await wait(clampBackoff(attempt++), combinedSignal).catch(() => {});
 				if (combinedSignal.aborted) return;
 				continue;
 			}
@@ -176,7 +178,7 @@ export function streamHomeRunEvents(
 			// waits the full interval — the server's `waitMs` holds it open as a
 			// budget, not a guarantee. Polling as fast as the gateway answers is how
 			// this loop used to rate-limit itself out of the run it was tailing.
-			await sleep(
+			await wait(
 				page.events.length > 0 ? activePagePaceMs : pollIntervalMs,
 				combinedSignal,
 			).catch(() => {});

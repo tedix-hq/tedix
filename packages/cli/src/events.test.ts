@@ -32,12 +32,14 @@ function makePage(
 /** Fake source that serves pages from a script. */
 function makePageSource(
 	pages: HomeRunEventsPage[],
+	trace?: string[],
 ): RunEventSource & { calls: string[] } {
 	let callIdx = 0;
 	const calls: string[] = [];
 	return {
 		calls,
 		async readHomeRunEvents(input) {
+			trace?.push(`read:${input.offset ?? HOME_RUN_EVENTS_START}`);
 			calls.push(`readHomeRunEvents:${input.offset ?? HOME_RUN_EVENTS_START}`);
 			const page = pages[callIdx++];
 			if (!page) throw new Error("No more pages");
@@ -202,6 +204,7 @@ describe("streamHomeRunEvents — follow", () => {
 describe("streamHomeRunEvents — transient error retry", () => {
 	test("retries on transient error then succeeds", async () => {
 		let attempts = 0;
+		const waits: number[] = [];
 		const source: RunEventSource = {
 			async readHomeRunEvents() {
 				attempts++;
@@ -212,11 +215,18 @@ describe("streamHomeRunEvents — transient error retry", () => {
 			},
 		};
 
-		const events = await collectHomeRunEvents(source, {
-			homeRunId: "run-retry",
-		});
+		const events = await collectHomeRunEvents(
+			source,
+			{ homeRunId: "run-retry" },
+			{
+				sleep: async (ms) => {
+					waits.push(ms);
+				},
+			},
+		);
 		expect(events.map((e) => e.offset)).toEqual(["1"]);
 		expect(attempts).toBe(3);
+		expect(waits).toEqual([500, 1_000]);
 	});
 
 	test("rethrows non-transient error immediately", async () => {
@@ -336,62 +346,95 @@ describe("streamHomeRunEvents pagination", () => {
 	});
 
 	test("follow paces its polls instead of spinning on an open stream", async () => {
-		const started = Date.now();
-		const source = makePageSource([
-			makePage([], "0", true, undefined, { closed: false }),
-			makePage([], "0", true, undefined, { closed: false }),
-			makePage(
-				[{ offset: "0", kind: "run.completed", id: "t" }],
-				"1",
-				false,
-				undefined,
-				{
+		const trace: string[] = [];
+		const source = makePageSource(
+			[
+				makePage([], "0", true, undefined, { closed: false }),
+				makePage([], "0", true, undefined, { closed: false }),
+				makePage(
+					[{ offset: "0", kind: "run.completed", id: "t" }],
+					"1",
+					false,
+					undefined,
+					{
+						closed: true,
+						terminalEventId: "t",
+					},
+				),
+				makePage([], "1", true, undefined, {
 					closed: true,
 					terminalEventId: "t",
-				},
-			),
-			makePage([], "1", true, undefined, {
-				closed: true,
-				terminalEventId: "t",
-			}),
-		]);
+				}),
+			],
+			trace,
+		);
 		const stream = streamHomeRunEvents(
 			source,
 			{ homeRunId: "r" },
-			{ live: true, pollIntervalMs: 25 },
+			{
+				live: true,
+				pollIntervalMs: 25,
+				sleep: async (ms) => {
+					trace.push(`sleep:${ms}`);
+				},
+			},
 		);
 		const seen: HomeRunEvent[] = [];
 		for await (const event of stream) seen.push(event);
 		expect(seen).toHaveLength(1);
-		// Two caught-up, still-open pages ⇒ two paced sleeps. Without the pause the
-		// loop issues these reads back to back at network speed.
-		expect(Date.now() - started).toBeGreaterThanOrEqual(45);
+		expect(trace).toEqual([
+			"read:0",
+			"sleep:25",
+			"read:0",
+			"sleep:25",
+			"read:0",
+			"read:1",
+		]);
 		expect(stream.status).toBe("completed");
 	});
 
 	test("live: a caught-up page that carried events is followed at the active pace, not the poll interval", async () => {
-		const started = Date.now();
-		const source = makePageSource([
-			makePage([{ offset: "0", kind: "tool.started" }], "1", true, "running"),
-			makePage([{ offset: "1", kind: "tool.completed" }], "2", true, "running"),
-			makePage(
-				[{ offset: "2", kind: "run.completed" }],
-				"3",
-				true,
-				"completed",
-			),
-		]);
+		const trace: string[] = [];
+		const source = makePageSource(
+			[
+				makePage([{ offset: "0", kind: "tool.started" }], "1", true, "running"),
+				makePage(
+					[{ offset: "1", kind: "tool.completed" }],
+					"2",
+					true,
+					"running",
+				),
+				makePage(
+					[{ offset: "2", kind: "run.completed" }],
+					"3",
+					true,
+					"completed",
+				),
+			],
+			trace,
+		);
 		const stream = streamHomeRunEvents(
 			source,
 			{ homeRunId: "r" },
-			{ live: true, pollIntervalMs: 200, activePagePaceMs: 10 },
+			{
+				live: true,
+				pollIntervalMs: 200,
+				activePagePaceMs: 10,
+				sleep: async (ms) => {
+					trace.push(`sleep:${ms}`);
+				},
+			},
 		);
 		const seen: HomeRunEvent[] = [];
 		for await (const event of stream) seen.push(event);
 		expect(seen).toHaveLength(3);
-		// Two non-empty open pages: each is followed after the 10ms active pace,
-		// not the 200ms interval an empty page waits.
-		expect(Date.now() - started).toBeLessThan(150);
+		expect(trace).toEqual([
+			"read:0",
+			"sleep:10",
+			"read:1",
+			"sleep:10",
+			"read:2",
+		]);
 		expect(stream.status).toBe("completed");
 	});
 });
