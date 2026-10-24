@@ -214,6 +214,46 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 						);
 					})}
 				</div>
+				<ul
+					className="mt-3 max-h-48 space-y-2 overflow-y-auto sm:hidden"
+					data-attention-phone-lanes
+					aria-label={attentionCopy("recentLanes", { count: lanes.length })}
+				>
+					{lanes.map((c) => {
+						const source = attentionSource(c);
+						const sourceLabel = attentionSourceLabel(
+							source,
+							source === "factory" ? c.factoryName : c.tediName,
+						);
+						const end = Math.min(
+							now,
+							attentionTimestamp(c.finishedAt || c.heartbeatAt || ""),
+						);
+						return (
+							<li
+								key={`${c.source}:${c.id}`}
+								className="border-kumo-line flex min-w-0 items-start gap-2 border-b pb-2 last:border-b-0 last:pb-0"
+							>
+								<span
+									className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+									style={{ background: ATTENTION_SOURCES[source].color }}
+									aria-hidden="true"
+								/>
+								<div className="min-w-0 flex-1">
+									<Link href={c.href} className="break-words">
+										<Text as="span" role="label" className="text-inherit">
+											{sourceLabel} · {c.title}
+										</Text>
+									</Link>
+									<Text role="label" tone="secondary">
+										{duration(end - attentionTimestamp(c.startedAt))} ·{" "}
+										{attentionStatus(c, now)}
+									</Text>
+								</div>
+							</li>
+						);
+					})}
+				</ul>
 				<div className="hidden max-h-64 space-y-2 overflow-y-auto sm:block">
 					{lanes.map((c) => {
 						const source = attentionSource(c);

@@ -111,6 +111,13 @@ try {
 		false,
 		"phone has horizontal overflow",
 	);
+	const phoneLaneLinks = phone.locator("[data-attention-phone-lanes] a");
+	assert.ok(await phoneLaneLinks.count(), "phone hides every recent lane link");
+	const firstPhoneLane = phoneLaneLinks.first();
+	assert.ok(
+		(await firstPhoneLane.innerText()).trim().length > 0,
+		"phone recent lane link has no accessible name",
+	);
 	await phone.screenshot({
 		path: `${output}/attention-phone-light.png`,
 		fullPage: true,
@@ -120,6 +127,10 @@ try {
 		path: `${output}/attention-phone-dark.png`,
 		fullPage: true,
 	});
+	await Promise.all([
+		phone.waitForURL((url) => url.pathname !== "/work/attention"),
+		firstPhoneLane.click(),
+	]);
 	assert.deepEqual(errors, []);
 	await writeFile(
 		`${output}/attention-browser-checks.json`,
@@ -130,7 +141,8 @@ try {
 				horizontalOverflow: false,
 				timerTicks: true,
 				layoutSurvivesReload: true,
-				hiddenColumns: true,
+				phoneLaneLinks: true,
+				phoneLaneNavigation: true,
 				errors,
 			},
 			null,
