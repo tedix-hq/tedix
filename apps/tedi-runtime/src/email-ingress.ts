@@ -319,17 +319,23 @@ function parseStructuredHeader(value: string | null): {
 }
 
 function splitMultipartBody(body: string, boundary: string): string[] {
-	const segments = body.split(`--${boundary}`);
-	return segments
-		.slice(1)
-		.filter((segment) => !segment.trimStart().startsWith("--"))
-		.map((segment) =>
-			segment
-				.replace(/^\r?\n/, "")
-				.replace(/\r?\n$/, "")
-				.replace(/\r?\n--$/, ""),
-		)
-		.filter((segment) => segment.trim().length > 0);
+	const escapedBoundary = boundary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const delimiter = new RegExp(
+		`(?:^|\\r?\\n)--${escapedBoundary}(--)?[\\t ]*(?=\\r?\\n|$)`,
+		"g",
+	);
+	const parts: string[] = [];
+	let partStart: number | undefined;
+	for (const match of body.matchAll(delimiter)) {
+		// The newline before a delimiter belongs to it, not to the part body.
+		if (partStart !== undefined) parts.push(body.slice(partStart, match.index));
+		if (match[1]) return parts.filter((part) => part.trim().length > 0);
+		partStart = match.index + match[0].length;
+		if (body[partStart] === "\r") partStart += 2;
+		else if (body[partStart] === "\n") partStart += 1;
+	}
+	if (partStart !== undefined) parts.push(body.slice(partStart));
+	return parts.filter((part) => part.trim().length > 0);
 }
 
 function decodeBase64Bytes(value: string): Uint8Array {
