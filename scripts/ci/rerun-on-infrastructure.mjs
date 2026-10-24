@@ -12,6 +12,9 @@ const fixtureNotStarted = [
 	/did not serve the SPA entry within \d+ms/,
 ];
 
+// run-specs reports a crash after startup: every spec still queued is NOT RUN.
+const fixtureExitedMidSuite = /fixture server exited (?:with code )?\d+/;
+
 // The reason a failed browser suite deserves one more attempt, or undefined
 // when the failure may be the code under test. Assertion failures never
 // qualify; a Playwright timeout qualifies only on a runner that was already
@@ -20,6 +23,8 @@ export function infrastructureFailure(output, { installSeconds } = {}) {
 	if (/AssertionError/.test(output)) return undefined;
 	if (fixtureNotStarted.some((pattern) => pattern.test(output)))
 		return "the fixture server did not become ready";
+	if (fixtureExitedMidSuite.test(output))
+		return "the fixture server exited mid-suite";
 	if (
 		Number(installSeconds) > slowInstallSeconds &&
 		/TimeoutError: .*Timeout \d+ms exceeded/.test(output)
