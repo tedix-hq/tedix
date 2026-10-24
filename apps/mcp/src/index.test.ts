@@ -1665,3 +1665,89 @@ it("keeps the exchange endpoint's exact-one-credential rejection at ingress", as
 	expect(response.status).toBe(401);
 	expect(apiFetch).not.toHaveBeenCalled();
 });
+
+it("returns the configured sidebar view from the actual get_info fast path", async () => {
+	const factory = await import("./mcp/server-factory");
+	const sidebarApp = {
+		title: "Tedix",
+		tabs: [
+			{ id: "deck", label: "Deck", tool: "show_deck" },
+			{ id: "feed", label: "Feed", tool: "show_feed" },
+		],
+	};
+	const cached = {
+		app: {
+			id: "fictional-sidebar",
+			slug: "fictional-sidebar",
+			name: "Tedix",
+			organizationId: "fictional-org",
+		},
+		metadata: {
+			mcpConfig: { codeMode: true, authMode: "authenticated", sidebarApp },
+		},
+		tools: [],
+		capabilities: {},
+		organizationId: "fictional-org",
+		catalogResources: [],
+		catalogResourceTemplates: [],
+		catalogPrompts: [],
+	} as unknown as CachedAppData;
+	const context = vi.spyOn(factory, "getAppContext").mockResolvedValue(cached);
+	try {
+		const response = await handleMcpRequest(
+			new Request("http://localhost:3000/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"MCP-Protocol-Version": "2026-07-28",
+					"Mcp-Method": "tools/call",
+					"Mcp-Name": "get_info",
+					"x-tedix-auth-type": "oauth",
+					"x-tedix-auth-user-id": "fictional-member",
+					"x-tedix-auth-org-id": "fictional-org",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: {
+						name: "get_info",
+						arguments: {},
+						_meta: {
+							"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+							"io.modelcontextprotocol/clientCapabilities": {},
+						},
+					},
+				}),
+			}),
+			{ ...cached } as never,
+			createEnv({
+				API_SERVICE: {
+					fetch: vi.fn(() => {
+						throw new Error("API reads are not needed for bootstrap");
+					}),
+				},
+			}),
+			{ waitUntil: () => {} } as unknown as ExecutionContext,
+		);
+		expect(response.status, await response.clone().text()).toBe(200);
+		const result = (
+			(await response.json()) as { result: Record<string, unknown> }
+		).result;
+		expect(result._meta).toMatchObject({
+			ui: {
+				resourceUri:
+					"ui://widgets/mcp-app/fictional-sidebar/r/sidebar-app.html",
+			},
+		});
+		expect(result.structuredContent).toMatchObject({
+			sidebarApp: {
+				title: "Tedix",
+				tabs: sidebarApp.tabs,
+				organizations: [{ id: "fictional-org", label: "Tedix" }],
+			},
+		});
+	} finally {
+		context.mockRestore();
+	}
+});

@@ -22,6 +22,7 @@ import {
 } from "./codemode-targeting";
 import { mcpToolsListResultTransform } from "./mcp-result-transform";
 import { buildBootstrapInfo } from "./mcp/registration/bootstrap";
+import { sidebarAppToolMeta } from "./mcp/sidebar-app";
 /**
  * Tedix MCP Worker
  * Customer-facing stateless MCP server for Apps SDK integration
@@ -697,6 +698,14 @@ export async function handleMcpRequest(
 					},
 				],
 				structuredContent: info,
+				...(info.sidebarApp
+					? {
+							_meta: sidebarAppToolMeta(
+								cachedData.app.slug,
+								cachedData.metadata?.mcpConfig,
+							),
+						}
+					: {}),
 			}),
 		);
 	}
