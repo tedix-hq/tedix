@@ -501,7 +501,11 @@ function trackedFiles(pathspecs: readonly string[]): SourceFile[] {
 		.filter(Boolean)
 		.filter((path) => {
 			const absolutePath = join(REPO_ROOT, path);
-			return existsSync(absolutePath) && statSync(absolutePath).isFile();
+			try {
+				return existsSync(absolutePath) && statSync(absolutePath).isFile();
+			} catch {
+				return false;
+			}
 		})
 		.sort()
 		.map((path) => ({
