@@ -43,7 +43,12 @@ export function scanDemoIdentities(
 		.filter(isDemoIdentityPath)
 		.filter((path) => existsSync(join(root, path)))
 		.flatMap((path) => {
-			const bytes = readFileSync(join(root, path));
+			let bytes: Buffer;
+			try {
+				bytes = readFileSync(join(root, path));
+			} catch {
+				return [];
+			}
 			if (bytes.includes(0)) return [];
 			const digest = sha256(bytes);
 			if (clean.has(digest)) {
