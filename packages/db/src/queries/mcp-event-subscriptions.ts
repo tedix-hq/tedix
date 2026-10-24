@@ -113,17 +113,25 @@ export interface ClaimDueMcpEventSubscriptionsParams {
 }
 
 /**
- * Remove expired leases, then claim healthy due subscriptions across every
- * organization for one delivery pass. The claim is one conditional UPDATE, so
+ * Remove up to 100 expired leases, then claim healthy due subscriptions across
+ * every organization for one delivery pass. The claim is one conditional UPDATE, so
  * two overlapping passes never claim the same row.
  */
 export async function claimDueMcpEventSubscriptions(
 	db: DbQueryClient,
 	params: ClaimDueMcpEventSubscriptionsParams,
 ): Promise<McpEventSubscriptionRow[]> {
-	await db
-		.delete(mcpEventSubscriptions)
-		.where(lte(mcpEventSubscriptions.expiresAt, params.now));
+	await db.delete(mcpEventSubscriptions).where(
+		// bound-params: capped SQL subquery, not a bound id list
+		inArray(
+			mcpEventSubscriptions.id,
+			db
+				.select({ id: mcpEventSubscriptions.id })
+				.from(mcpEventSubscriptions)
+				.where(lte(mcpEventSubscriptions.expiresAt, params.now))
+				.limit(100),
+		),
+	);
 	const due = and(
 		eq(mcpEventSubscriptions.status, "active"),
 		gt(mcpEventSubscriptions.expiresAt, params.now),
