@@ -187,6 +187,9 @@ describe("OsWorkspaceSwitcher", () => {
 			'button[aria-label="Switch workspace or app"]',
 		);
 		expect(trigger?.querySelector("strong")?.textContent).toBe("Tedix");
+		expect(trigger?.querySelector("strong")?.getAttribute("title")).toBe(
+			"Tedix",
+		);
 		const logo = trigger?.querySelector('[data-entity-kind="workspace"] img');
 		expect(logo?.getAttribute("src")).toBe(
 			"https://images.example.test/tedix-logo.png",
