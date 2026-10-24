@@ -4,7 +4,7 @@ import type {
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { Play } from "@phosphor-icons/react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
@@ -106,6 +106,7 @@ function RichNode({
 	node: OsRichTextNode;
 	nodeKey: string;
 }) {
+	const taskLabelId = useId();
 	if (node.type === "text") {
 		let child: React.ReactNode = node.text ?? "";
 		for (const [index, mark] of (node.marks ?? []).entries()) {
@@ -282,10 +283,10 @@ function RichNode({
 							type="checkbox"
 							checked={node.attrs?.checked === true}
 							readOnly
-							aria-label="Checklist item"
+							aria-labelledby={taskLabelId}
 						/>
 					</label>
-					<div>{children}</div>
+					<div id={taskLabelId}>{children}</div>
 				</li>
 			);
 		case "hardBreak":

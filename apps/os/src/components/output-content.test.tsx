@@ -427,6 +427,54 @@ describe("deck read view keys", () => {
 	});
 });
 
+it("names read-only checklist items from their visible task text across outputs", () => {
+	const content: OsOutputContent = {
+		kind: "document",
+		blocks: [
+			{
+				type: "checklist",
+				items: [
+					{ text: "Review **proposal**", checked: true },
+					{ text: "Contact [supplier](https://example.test)", checked: false },
+				],
+			},
+		],
+	};
+	const container = document.createElement("div");
+	container.innerHTML = renderToStaticMarkup(
+		<>
+			<OutputContentView content={content} />
+			<OutputContentView content={content} />
+		</>,
+	);
+	const checkboxes = Array.from(
+		container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+	);
+	expect(checkboxes).toHaveLength(4);
+	const labelIds = checkboxes.map((checkbox) => {
+		expect(checkbox.readOnly).toBe(true);
+		expect(checkbox.hasAttribute("aria-label")).toBe(false);
+		const labelId = checkbox.getAttribute("aria-labelledby");
+		expect(labelId).toBeTruthy();
+		return labelId!;
+	});
+	expect(new Set(labelIds).size).toBe(4);
+	expect(
+		labelIds.map((id) => container.querySelector(`[id="${id}"]`)?.textContent),
+	).toEqual([
+		"Review proposal",
+		"Contact supplier",
+		"Review proposal",
+		"Contact supplier",
+	]);
+	expect(checkboxes.map((checkbox) => checkbox.checked)).toEqual([
+		true,
+		false,
+		true,
+		false,
+	]);
+});
+
 it("renders structured tables, task lists, callouts and toggles", () => {
 	const html = renderToStaticMarkup(
 		<OutputContentView
