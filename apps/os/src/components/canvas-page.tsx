@@ -3,7 +3,13 @@ import "./canvas-page.css";
 import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
-import { ArrowLeft, FileX, SidebarSimple } from "@phosphor-icons/react";
+import {
+	ArrowLeft,
+	Files,
+	FileX,
+	SidebarSimple,
+	X,
+} from "@phosphor-icons/react";
 import type {
 	OsGadget,
 	OsGadgetManifest,
@@ -70,8 +76,22 @@ import {
 	SectionTitle,
 } from "@/components/kumo/page";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
+import {
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
+} from "@/components/kumo/sheet";
 import { Text } from "@/components/kumo/text";
 import { TransportStatus } from "@/components/transport-status";
+import {
+	persistWorkspaceOutputsPanelExpanded,
+	restoreWorkspaceOutputsPanelExpanded,
+	WorkspaceOutputsList,
+	WorkspaceOutputsPanel,
+	workspaceOutputsPanelItems,
+} from "@/components/workspace-outputs-panel";
 import { useWorkspaceWebMcpTools } from "@/components/workspace-webmcp-tools";
 import { osApi } from "@/lib/api";
 import {
@@ -395,6 +415,16 @@ export function CanvasPage({
 		(requestedPane ?? (requestedDoc ? "workpiece" : "chat")) === "resources",
 	);
 	const [chatCollapsed, setChatCollapsed] = useState(false);
+	const [outputsPanelExpanded, setOutputsPanelExpanded] = useState(() =>
+		restoreWorkspaceOutputsPanelExpanded(
+			window.localStorage,
+			window.innerWidth,
+		),
+	);
+	const [outputsSheetOpen, setOutputsSheetOpen] = useState(false);
+	// The header's activity control is the one entry point to the workspace's
+	// activity view; the Outputs panel's Activity row opens that same control.
+	const activityEntryRef = useRef<HTMLSpanElement>(null);
 	const [newConversationKey, setNewConversationKey] = useState(0);
 	const [focusMode, setFocusMode] = useState(requestedFocus === true);
 	const [mobilePane, setMobilePane] = useState<CanvasMobilePane>(
@@ -932,6 +962,38 @@ export function CanvasPage({
 		writeCanvasSearch({ ...canvasSearch, pane: "resources", focus: undefined });
 	};
 
+	const outputsPanelItems = useMemo(
+		() =>
+			workspaceOutputsPanelItems(
+				outputs.data?.items ?? [],
+				gadgets.data?.items ?? [],
+			),
+		[gadgets.data?.items, outputs.data?.items],
+	);
+	const outputsPanelList = {
+		items: outputsPanelItems,
+		loading: workspaceId !== null && (outputs.isPending || gadgets.isPending),
+		error: outputs.isError,
+		selectedDoc,
+	};
+	const openOutputsPanelItem = (doc: CanvasDocSelection) => {
+		setTransitionEnabled(true);
+		setOutputsSheetOpen(false);
+		if (doc.type === "gadget") void selectGadget(doc.id);
+		else selectOutput(doc.id);
+	};
+	const openWorkspaceActivity = () => {
+		setOutputsSheetOpen(false);
+		// After the sheet has returned focus, so the popover keeps it.
+		window.requestAnimationFrame(() => {
+			activityEntryRef.current?.querySelector<HTMLElement>("button")?.click();
+		});
+	};
+	const changeOutputsPanelExpanded = (expanded: boolean) => {
+		setOutputsPanelExpanded(expanded);
+		persistWorkspaceOutputsPanelExpanded(window.localStorage, expanded);
+	};
+
 	const unresolvedWorkpiece =
 		missingWorkpiece && missingWorkpiece.workspaceId === workspaceId
 			? missingWorkpiece.doc
@@ -1073,7 +1135,22 @@ export function CanvasPage({
 					</div>
 				</div>
 				<PageActions className="canvas-workspace-actions">
-					<ApprovalNotifications conversationId={activeConversationId} />
+					<span
+						className="contents"
+						data-workspace-activity-entry=""
+						ref={activityEntryRef}
+					>
+						<ApprovalNotifications conversationId={activeConversationId} />
+					</span>
+					<Button
+						aria-label="Outputs"
+						className="canvas-outputs-sheet-trigger"
+						icon={<Files size={16} />}
+						onClick={() => setOutputsSheetOpen(true)}
+						size="icon-sm"
+						title="Outputs"
+						variant="ghost"
+					/>
 					<TransportStatus />
 					<CanvasWorkspaceControls
 						workspace={selectedWorkspace as OsWorkspace | undefined}
@@ -1482,7 +1559,43 @@ export function CanvasPage({
 						       stays blank (and, in simpleMode, collapsed). */ null}
 					</div>
 				</section>
+				{workspaceId !== null ? (
+					<WorkspaceOutputsPanel
+						{...outputsPanelList}
+						expanded={outputsPanelExpanded}
+						onExpandedChange={changeOutputsPanelExpanded}
+						onOpenActivity={openWorkspaceActivity}
+						onSelect={openOutputsPanelItem}
+					/>
+				) : null}
 			</div>
+			<Sheet open={outputsSheetOpen} onOpenChange={setOutputsSheetOpen}>
+				<SheetContent
+					className="workspace-outputs-sheet"
+					showCloseButton={false}
+					side="right"
+					size="sm"
+				>
+					<SheetHeader className="workspace-outputs-sheet-header">
+						<div className="grid min-w-0 gap-1.5">
+							<SheetTitle>Outputs</SheetTitle>
+							<SheetDescription>Open one to view or edit it.</SheetDescription>
+						</div>
+						<Button
+							aria-label="Close outputs"
+							icon={<X size={16} />}
+							onClick={() => setOutputsSheetOpen(false)}
+							size="icon-sm"
+							variant="ghost"
+						/>
+					</SheetHeader>
+					<WorkspaceOutputsList
+						{...outputsPanelList}
+						onOpenActivity={openWorkspaceActivity}
+						onSelect={openOutputsPanelItem}
+					/>
+				</SheetContent>
+			</Sheet>
 			{mobilePane === "work" && workspaceId ? (
 				<section
 					aria-label="Workspace work"
