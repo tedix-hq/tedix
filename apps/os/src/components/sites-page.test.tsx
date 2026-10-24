@@ -327,6 +327,18 @@ function enterConfirmation(slug: string) {
 }
 
 describe("SitesPage owned-site actions", () => {
+	it("allows the search result count to wrap on narrow screens", () => {
+		const host = renderPage();
+		const resultCount = [...host.querySelectorAll("span")].find((element) =>
+			element.textContent?.includes("1 results"),
+		);
+
+		expect(resultCount).not.toBeNull();
+		expect(resultCount?.className).toContain("whitespace-normal");
+		expect(resultCount?.className).toContain("break-words");
+		expect(resultCount?.className).not.toContain("whitespace-nowrap");
+	});
+
 	it("opens management from the mobile card without mutating the site", () => {
 		authorityPermissions.current = [];
 		siteCustomDomain.current = null;
