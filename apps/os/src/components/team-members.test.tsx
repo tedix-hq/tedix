@@ -399,6 +399,37 @@ describe("multi-recipient invitation dialog", () => {
 		);
 	});
 
+	it("associates its entry help and validation error with the email field", async () => {
+		const mounted = await mountInviteDialog();
+		const describedText = () =>
+			(mounted.input().getAttribute("aria-describedby") ?? "")
+				.split(" ")
+				.map((id) => document.getElementById(id)?.textContent);
+		const HELP = "Separate addresses with Enter, commas, spaces, or new lines.";
+
+		expect(mounted.input().hasAttribute("aria-invalid")).toBe(false);
+		expect(mounted.input().hasAttribute("aria-errormessage")).toBe(false);
+		expect(describedText()).toEqual([HELP]);
+
+		await mounted.change("not-an-email");
+		await mounted.keydown("Enter");
+
+		expect(mounted.input().getAttribute("aria-invalid")).toBe("true");
+		expect(describedText()).toEqual([HELP, "Check this address: not-an-email"]);
+		const errorId = mounted.input().getAttribute("aria-errormessage");
+		expect(errorId).toBeTruthy();
+		expect(document.getElementById(errorId!)?.textContent).toBe(
+			"Check this address: not-an-email",
+		);
+
+		await mounted.change("valid@example.com");
+		await mounted.keydown("Enter");
+
+		expect(mounted.input().hasAttribute("aria-invalid")).toBe(false);
+		expect(mounted.input().hasAttribute("aria-errormessage")).toBe(false);
+		expect(describedText()).toEqual([HELP]);
+	});
+
 	it("preserves invalid pasted text, respects selection, and ignores composing Enter", async () => {
 		const mounted = await mountInviteDialog();
 		await mounted.change("replace me");

@@ -909,6 +909,15 @@ export function InviteMemberDialog({
 						<Input
 							id="invite-recipients"
 							autoComplete="email"
+							aria-describedby={
+								composerError
+									? "invite-recipients-help invite-recipients-error"
+									: "invite-recipients-help"
+							}
+							aria-errormessage={
+								composerError ? "invite-recipients-error" : undefined
+							}
+							aria-invalid={composerError ? true : undefined}
 							disabled={pending || recipients.length >= MAX_INVITE_RECIPIENTS}
 							onChange={(event) => setDraft(event.target.value)}
 							onKeyDown={handleComposerKeyDown}
@@ -916,7 +925,13 @@ export function InviteMemberDialog({
 							placeholder="name@company.com"
 							value={draft}
 						/>
-						<Text as="p" role="label" tone="secondary" className="m-0">
+						<Text
+							as="p"
+							id="invite-recipients-help"
+							role="label"
+							tone="secondary"
+							className="m-0"
+						>
 							Separate addresses with Enter, commas, spaces, or new lines.
 						</Text>
 					</div>
@@ -948,7 +963,9 @@ export function InviteMemberDialog({
 					{composerError ? (
 						<Alert variant="destructive">
 							<AlertTitle>Check the recipients</AlertTitle>
-							<AlertDescription>{composerError}</AlertDescription>
+							<AlertDescription id="invite-recipients-error">
+								{composerError}
+							</AlertDescription>
 						</Alert>
 					) : null}
 					{Object.entries(recipientErrors).map(([email, message]) => (
