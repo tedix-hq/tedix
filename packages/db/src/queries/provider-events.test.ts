@@ -14,6 +14,7 @@ import {
 	pruneProviderEvents,
 	addProviderEventChannel,
 	claimProviderEventWake,
+	listProviderEventSubscriptions,
 } from "./provider-events";
 function fixture() {
 	const sql = new DatabaseSync(":memory:");
@@ -228,6 +229,32 @@ it("spends one hourly wake budget per subscription and organization, then resets
 	expect(
 		await wake("org-a", "sub", "2026-01-03T00:00", "2026-01-02T23:00"),
 	).toBe(false);
+});
+
+it("applies personal subscription visibility before the inventory limit", async () => {
+	const db = fixture();
+	for (let index = 0; index < 100; index += 1) {
+		await createProviderEventSubscription(db, {
+			...row,
+			id: `personal-${index}`,
+			connectionScope: "user",
+			personalOwnerUserId: "another-user",
+		});
+	}
+	await createProviderEventSubscription(db, {
+		...row,
+		id: "visible",
+		connectionScope: "user",
+		personalOwnerUserId: "caller",
+	});
+
+	expect(
+		(
+			await listProviderEventSubscriptions(db, "org-a", {
+				personalOwnerUserId: "caller",
+			})
+		).map((subscription) => subscription.id),
+	).toEqual(["visible"]);
 });
 
 it("stores a wrapped event payload once per event id", async () => {
