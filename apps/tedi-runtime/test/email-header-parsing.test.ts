@@ -106,6 +106,40 @@ describe("email header parsing", () => {
 		).toBe("Plain text wins.");
 	});
 
+	it.each(["\r\n", "\n"])(
+		"preserves boundary-like body text with %j line endings",
+		(newline) => {
+			const body = ["Keep --part.+ inside text.", "--part.+suffix", "Tail."];
+			const parsed = parseInboundEmail(
+				[
+					'Content-Type: multipart/mixed; boundary="part.+"',
+					"",
+					"Ignored preamble.",
+					"--part.+ \t",
+					"Content-Type: text/plain",
+					"",
+					...body,
+					"--part.+",
+					"Content-Type: application/octet-stream",
+					"Content-Disposition: attachment; filename=notes.txt",
+					"",
+					"Keep --part.+ in attachment bytes.",
+					"--part.+-- \t",
+					"Ignored epilogue.",
+					"--part.+",
+					"Content-Type: application/pdf",
+					"",
+					"Not an attachment after the closing delimiter.",
+				].join(newline),
+			);
+			expect(parsed.text).toBe(body.join(newline));
+			expect(parsed.attachmentParts).toHaveLength(1);
+			expect(parsed.attachmentParts[0]?.bytes).toEqual(
+				new TextEncoder().encode("Keep --part.+ in attachment bytes."),
+			);
+		},
+	);
+
 	it("falls back to readable text from HTML-only messages", () => {
 		expect(
 			parseInboundEmail(
