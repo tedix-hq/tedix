@@ -390,6 +390,21 @@ try {
 			};
 
 			for (const [path, ready] of PAGES) await check(path, ready);
+			if (viewport.width === 375) {
+				await check(PROJECT, '[aria-label="Work queue"]');
+				const metadata = page.locator('[aria-label="Work queue"] dd');
+				assert(
+					(await metadata.count()) > 0,
+					`${label} ${PROJECT}: no phone metadata`,
+				);
+				const overflow = await metadata.evaluateAll((cells) =>
+					cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
+				);
+				if (overflow)
+					failures.push(
+						`${PROJECT}: Work queue phone metadata scrolls sideways`,
+					);
+			}
 			if (viewport.width === 390) {
 				await check("/work/capacity", "[data-slot=card] strong");
 				const holder = page
