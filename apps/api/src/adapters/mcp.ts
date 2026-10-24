@@ -52,12 +52,14 @@ function parsePriceValue(value: unknown): number | null {
 	if (typeof value === "number") return value;
 	if (typeof value !== "string") return null;
 	let cleaned = value.replace(/\s/g, "");
-	// European format uses "," as the decimal separator and "." as a thousands
-	// separator (e.g. "1.189,00" = 1189.00) — strip thousands dots before
-	// swapping the decimal comma, or "1.189,00" misparses as 1.189.
-	cleaned = cleaned.includes(",")
-		? cleaned.replace(/\./g, "").replace(",", ".")
-		: cleaned;
+	// With both separators, the last one is decimal: "1,234.56" and
+	// "1.234,56" must retain the same amount. Comma-only decimals stay supported.
+	if (cleaned.includes(",")) {
+		cleaned =
+			cleaned.lastIndexOf(".") > cleaned.lastIndexOf(",")
+				? cleaned.replace(/,/g, "")
+				: cleaned.replace(/\./g, "").replace(",", ".");
+	}
 	const match = cleaned.match(/-?\d+(\.\d+)?/);
 	if (!match) return null;
 	const parsed = Number.parseFloat(match[0]);
