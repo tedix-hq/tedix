@@ -453,7 +453,11 @@ function OrganizationLogoUpload({
 					/>
 				</div>
 			</div>
-			{failure ? <Text tone="error">{failure}</Text> : null}
+			{failure ? (
+				<Text aria-atomic="true" aria-live="assertive" tone="error">
+					{failure}
+				</Text>
+			) : null}
 		</div>
 	);
 }
