@@ -15,7 +15,7 @@ const browser = await chromium.launch({ headless: true });
 const started = performance.now();
 let checks = 0;
 try {
-	for (const width of [390, 1280]) {
+	for (const width of [375, 390, 1280]) {
 		for (const theme of ["light", "dark"]) {
 			const page = await browser.newPage({
 				viewport: { width, height: 900 },
@@ -55,7 +55,7 @@ try {
 					`${width}/${theme}: nowrap description ${description.text}`,
 				);
 			}
-			if (width === 390) {
+			if (width < 600) {
 				for (const description of [
 					metrics.descriptions[0]!,
 					metrics.descriptions[2]!,
