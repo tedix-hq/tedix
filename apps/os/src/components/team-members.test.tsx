@@ -31,6 +31,7 @@ import {
 	inviteRecipientsSequentially,
 	memberActivityLabel,
 	MemberAvatar,
+	MemberIdentityCell,
 	MemberStatusBadge,
 	parseInviteRecipients,
 	roleLabel,
@@ -242,6 +243,27 @@ describe("members pure helpers", () => {
 				lastActiveAt: null,
 			}),
 		).toBe("No recent activity");
+	});
+
+	it("truncates a long identity instead of letting it push out the self badge", () => {
+		const longIdentity = member({
+			email: "a-member-with-a-very-long-identity@fictional.example",
+			name: "A Member With A Very Long Identity",
+		});
+		for (const compact of [false, true]) {
+			const host = document.createElement("div");
+			host.innerHTML = renderToStaticMarkup(
+				<MemberIdentityCell compact={compact} member={longIdentity} self />,
+			);
+			// The name sits beside the badge in a flex row: it must be allowed to
+			// shrink (`min-w-0`) or its min-content width forces the badge out.
+			const name = host.querySelector<HTMLElement>('[data-slot="text"]');
+			expect(name?.className).toContain("min-w-0");
+			expect(name?.className).toContain("truncate");
+			const badge = host.querySelector<HTMLElement>('[data-slot="badge"]');
+			expect(badge?.textContent).toBe("You");
+			expect(badge?.className).toContain("shrink-0");
+		}
 	});
 
 	it("renders an honest badge for every membership status, including null", () => {
