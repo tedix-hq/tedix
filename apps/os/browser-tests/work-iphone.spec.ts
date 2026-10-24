@@ -254,6 +254,57 @@ const allFailures: string[] = [];
 try {
 	await waitForFixtureServer(`${origin}/work`, { server });
 	browser = await webkit.launch({ headless: true });
+	for (const width of [390, 1280]) {
+		for (const colorScheme of ["light", "dark"] as const) {
+			const context = await browser.newContext({
+				viewport: { width, height: 844 },
+				colorScheme,
+				reducedMotion: "reduce",
+			});
+			await context.addInitScript(
+				(theme) => localStorage.setItem("tedix-os-theme", theme),
+				colorScheme,
+			);
+			const page = await context.newPage();
+			for (const view of ["feed", "deck"] as const) {
+				await page.goto(`${origin}/work?view=${view}`);
+				await page
+					.locator(
+						`[data-workspace-app-entry=${view === "feed" ? "activity-feed" : "decision-deck"}]`,
+					)
+					.waitFor();
+				const headings = page.getByRole("heading", { level: 1 });
+				assert.equal(await headings.count(), 1);
+				assert.equal(
+					await headings.textContent(),
+					view === "feed" ? "Feed" : "Deck",
+				);
+				assert(
+					await headings.evaluate((heading) => {
+						const box = heading.getBoundingClientRect();
+						return (
+							box.width <= 1 &&
+							box.height <= 1 &&
+							[...document.querySelectorAll("h2, h3, h4, h5, h6")].every(
+								(other) =>
+									Boolean(
+										heading.compareDocumentPosition(other) &
+										Node.DOCUMENT_POSITION_FOLLOWING,
+									),
+							)
+						);
+					}),
+					`${width} ${colorScheme} ${view}: hidden page heading precedes content headings`,
+				);
+				if (shots)
+					await page.screenshot({
+						path: `${shots}/work-heading-${view}-${width}-${colorScheme}.png`,
+					});
+			}
+			await context.close();
+		}
+	}
+	console.log("Work headings: 8 Feed/Deck viewport/theme checks passed");
 	const office = await browser.newPage();
 	await office.goto(`${origin}/work?app=office`);
 	await office

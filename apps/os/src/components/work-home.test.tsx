@@ -270,3 +270,23 @@ it("opens the Deck without a New Work item form above it", () => {
 		expect(page.querySelector("form")).toBeNull();
 	}
 });
+
+it("names Feed and Deck with one hidden page heading before app content", () => {
+	for (const view of ["feed", "deck"] as const) {
+		for (const search of [{ view }, {}]) {
+			const page = render(
+				search,
+				true,
+				view === "deck" ? "decision-deck" : undefined,
+			);
+			const headings = page.querySelectorAll("h1");
+			expect(headings).toHaveLength(1);
+			expect(headings[0]?.textContent).toBe(view === "feed" ? "Feed" : "Deck");
+			expect(headings[0]?.classList.contains("sr-only")).toBe(true);
+			expect(headings[0]?.nextElementSibling).toBe(
+				page.querySelector("article"),
+			);
+		}
+	}
+	expect(render({ app: "office" }).querySelector("h1")).toBeNull();
+});
