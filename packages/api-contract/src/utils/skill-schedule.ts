@@ -49,7 +49,7 @@ function parseField(
 			end = Number(endSource);
 		} else {
 			start = Number(rangeSource);
-			end = start;
+			end = stepSource === undefined ? start : maximum;
 		}
 		if (
 			!Number.isInteger(start) ||
