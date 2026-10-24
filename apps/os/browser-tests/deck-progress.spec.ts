@@ -225,14 +225,26 @@ async function fixture(
 		return route.continue();
 	});
 }
+async function assertNoOverflow(page: Page, state: string) {
+	assert(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth <= innerWidth,
+		),
+		`${state}: no horizontal overflow`,
+	);
+}
 const screenshots = process.env.DECK_PROGRESS_SCREENSHOTS;
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch();
-	for (const width of [1280, 390])
+	for (const [width, height] of [
+		[375, 667],
+		[390, 844],
+		[1280, 800],
+	])
 		for (const colorScheme of ["light", "dark"] as const) {
 			const context = await browser.newContext({
-				viewport: { width, height: width === 390 ? 844 : 800 },
+				viewport: { width, height },
 				colorScheme,
 			});
 			const page = await context.newPage();
@@ -244,7 +256,7 @@ try {
 				.waitFor();
 			const progress = page.locator("[data-deck-progress]");
 			const tab = page.getByRole("link", { name: /^Deck/ });
-			const screenshot = async (state: string) => {
+			const checkState = async (state: string) => {
 				await page.waitForTimeout(
 					screenshots && state === "finished" ? 5000 : 250,
 				);
@@ -257,14 +269,9 @@ try {
 							element.getBoundingClientRect().right - 8
 						);
 					}),
-					"progress glyphs stay inside the rounded Deck edge",
+					`${width} ${colorScheme} ${state}: progress glyphs stay inside the rounded Deck edge`,
 				);
-				assert(
-					await page.evaluate(
-						() => document.documentElement.scrollWidth <= innerWidth,
-					),
-					"no horizontal overflow",
-				);
+				await assertNoOverflow(page, `${width} ${colorScheme} ${state}`);
 				if (screenshots)
 					await page.screenshot({
 						path: `${screenshots}/deck-progress-${state}-${width}-${colorScheme}.png`,
@@ -276,6 +283,7 @@ try {
 				0,
 				"toolbar keeps only its total",
 			);
+			await checkState("initial");
 			for (let n = 1; n <= 2; n++) {
 				await page
 					.getByRole("region", { name: `Review card ${n}?`, exact: true })
@@ -302,7 +310,7 @@ try {
 					.getAttribute("aria-valuemax"),
 				"20",
 			);
-			await screenshot("mid-deck");
+			await checkState("mid-deck");
 			const search = page.getByRole("textbox", { name: "Find decisions" });
 			// Phone filters live in the toolbar's sheet.
 			if (!(await search.isVisible()))
@@ -310,7 +318,7 @@ try {
 					.getByRole("button", { name: "Filters", exact: true })
 					.click();
 			await search.fill("Review");
-			if (width === 390) await page.keyboard.press("Escape");
+			if (width < 640) await page.keyboard.press("Escape");
 			await page.waitForTimeout(650);
 			assert.equal(
 				await progress.locator("p").innerText(),
@@ -321,7 +329,7 @@ try {
 				/18/,
 				"filter does not change the toolbar total",
 			);
-			await screenshot("filtered");
+			await checkState("filtered");
 			for (let n = 3; n <= 7; n++)
 				await page
 					.getByRole("region", { name: `Review card ${n}?`, exact: true })
@@ -333,9 +341,14 @@ try {
 					exact: true,
 				})
 				.waitFor();
+			await checkState("filter-finished");
 			await page
 				.getByRole("button", { name: "Clear filters", exact: true })
 				.click();
+			await page
+				.getByRole("region", { name: "Planning card 8?", exact: true })
+				.waitFor();
+			await checkState("filters-cleared");
 			for (let n = 8; n <= 20; n++)
 				await page
 					.getByRole("region", { name: `Planning card ${n}?`, exact: true })
@@ -350,10 +363,10 @@ try {
 					.getAttribute("href"),
 				"/work?view=feed",
 			);
-			await screenshot("finished");
+			await checkState("finished");
 			await context.close();
 			const loading = await browser.newContext({
-				viewport: { width, height: width === 390 ? 844 : 800 },
+				viewport: { width, height },
 				colorScheme,
 			});
 			const loadingPage = await loading.newPage();
@@ -379,6 +392,7 @@ try {
 				bounds && bounds.x >= 0 && bounds.width > 0,
 				"placeholder's leading edge stays visible",
 			);
+			await assertNoOverflow(loadingPage, `${width} ${colorScheme} loading`);
 			if (screenshots)
 				await loadingPage.screenshot({
 					path: `${screenshots}/deck-progress-loading-${width}-${colorScheme}.png`,
