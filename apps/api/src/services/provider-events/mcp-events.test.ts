@@ -133,6 +133,7 @@ vi.mock("@orpc/server", () => ({
 }));
 import {
 	ingestMcpEvent,
+	mcpEventsAdapter,
 	pollMcpEvents,
 	receiveMcpEventWebhook,
 	resolveMcpEventsUpstream,
@@ -237,6 +238,27 @@ beforeEach(() => {
 	]);
 	mocks.credential.mockResolvedValue("token");
 	mocks.emit.mockResolvedValue({ queued: true });
+});
+
+describe("mcp_events subscription registration", () => {
+	it.each([undefined, "not-a-date"])(
+		"rejects an invalid upstream refreshBefore: %s",
+		async (refreshBefore) => {
+			mocks.request.mockResolvedValue({
+				id: "upstream-sub",
+				refreshBefore,
+			});
+			await expect(
+				mcpEventsAdapter(context, row).register(
+					"token",
+					row,
+					"channel",
+					SECRET,
+					"https://hooks.example.test/events",
+				),
+			).rejects.toThrow("valid refreshBefore");
+		},
+	);
 });
 
 describe("mcp_events poll → wake", () => {
