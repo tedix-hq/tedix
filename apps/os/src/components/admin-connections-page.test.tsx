@@ -374,6 +374,27 @@ describe("Connection inventory coverage", () => {
 		expect(connectionInventoryCountLabel(12, 12, false)).toBe("12 of 12 shown");
 	});
 
+	it("wraps inventory status metadata at phone width", async () => {
+		state.rows = [row()];
+		host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+		await act(async () =>
+			root?.render(
+				<AdminConnectionsPage
+					scope="personal"
+					search={{ q: "", status: "all" }}
+					onSearchChange={() => {}}
+				/>,
+			),
+		);
+		const metadata = [...host.querySelectorAll("span")].find((element) =>
+			element.textContent?.includes("1 of 1 shown"),
+		);
+		expect(metadata?.className).toContain("whitespace-normal");
+		expect(metadata?.className).toContain("sm:whitespace-nowrap");
+	});
+
 	it("groups verification failures without describing them as provider health", async () => {
 		host = document.createElement("div");
 		document.body.append(host);
