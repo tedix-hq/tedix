@@ -185,12 +185,35 @@ describe("standing subscription lifecycle", () => {
 		await renewSubscription(context, row);
 		expect(row.status).toBe("disabled");
 		expect(mocks.stop).toHaveBeenCalled();
-		expect(mocks.update).not.toHaveBeenCalledWith(
-			expect.anything(),
-			expect.anything(),
-			expect.anything(),
-			expect.objectContaining({ status: "active" }),
+		expect(mocks.updateChannel.mock.calls.map((call) => call[3])).toEqual([
+			expect.objectContaining({
+				providerChannelId: expect.any(String),
+				resourceId: "resource",
+				status: "active",
+			}),
+			{ status: "stopped" },
+		]);
+	});
+	it("retains a disabled registration for cleanup when provider stop fails", async () => {
+		mocks.register.mockImplementation(async (_t, _r, channelId) => {
+			row.status = "disabled";
+			return {
+				providerChannelId: channelId,
+				resourceId: "resource",
+				expiresAt: new Date(Date.now() + 60_000).toISOString(),
+			};
+		});
+		mocks.stop.mockRejectedValue(new Error("cleanup failed"));
+
+		await expect(renewSubscription(context, row)).rejects.toThrow(
+			"cleanup failed",
 		);
+		expect(mocks.updateChannel).toHaveBeenCalledOnce();
+		expect(mocks.updateChannel.mock.calls[0][3]).toMatchObject({
+			providerChannelId: expect.any(String),
+			resourceId: "resource",
+			status: "active",
+		});
 	});
 	it("validates vault authority before recording standing automation", async () => {
 		mocks.credential.mockRejectedValue(new Error("no tenant connection"));
