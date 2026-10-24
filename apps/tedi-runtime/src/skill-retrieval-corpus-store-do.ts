@@ -100,17 +100,32 @@ export function parseSkillRetrievalKnobs(env: {
 	TEDI_SKILL_RETRIEVAL_TOP_K?: string;
 	TEDI_SKILL_RETRIEVAL_MIN_OVERLAP?: string;
 }): { topK: number; minOverlap: number } {
-	const rawTopK = Number.parseInt(env.TEDI_SKILL_RETRIEVAL_TOP_K ?? "", 10);
-	const topK = Number.isNaN(rawTopK)
-		? SKILL_RETRIEVAL_DEFAULT_TOP_K
-		: Math.min(Math.max(rawTopK, 0), SKILL_RETRIEVAL_MAX_TOP_K);
-	const rawFloor = Number.parseInt(
-		env.TEDI_SKILL_RETRIEVAL_MIN_OVERLAP ?? "",
-		10,
+	const parseInteger = (
+		value: string | undefined,
+		fallback: number,
+	): number => {
+		const text = value?.trim() ?? "";
+		if (!/^[+-]?\d+$/.test(text)) return fallback;
+		const parsed = Number(text);
+		return Number.isSafeInteger(parsed) ? parsed : fallback;
+	};
+	const topK = Math.min(
+		Math.max(
+			parseInteger(
+				env.TEDI_SKILL_RETRIEVAL_TOP_K,
+				SKILL_RETRIEVAL_DEFAULT_TOP_K,
+			),
+			0,
+		),
+		SKILL_RETRIEVAL_MAX_TOP_K,
 	);
-	const minOverlap = Number.isNaN(rawFloor)
-		? SKILL_RETRIEVAL_DEFAULT_MIN_OVERLAP
-		: Math.max(rawFloor, 1);
+	const minOverlap = Math.max(
+		parseInteger(
+			env.TEDI_SKILL_RETRIEVAL_MIN_OVERLAP,
+			SKILL_RETRIEVAL_DEFAULT_MIN_OVERLAP,
+		),
+		1,
+	);
 	return { topK, minOverlap };
 }
 

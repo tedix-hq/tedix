@@ -228,4 +228,63 @@ function makeSqlRunner() {
 	console.log("PASS: knob parsing defaults, clamps, kill switch");
 }
 
+for (const value of [
+	"0oops",
+	"3skills",
+	"1.9",
+	"-1.9",
+	"2.0",
+	"1e2",
+	"0x10",
+	"Infinity",
+	"NaN",
+	"",
+	"   ",
+	"--2",
+	"9007199254740992",
+	"-9007199254740992",
+	"9".repeat(400),
+]) {
+	assert.deepEqual(
+		parseSkillRetrievalKnobs({
+			TEDI_SKILL_RETRIEVAL_TOP_K: value,
+			TEDI_SKILL_RETRIEVAL_MIN_OVERLAP: "4",
+		}),
+		{ topK: SKILL_RETRIEVAL_DEFAULT_TOP_K, minOverlap: 4 },
+		`malformed TOP_K ${JSON.stringify(value)} uses its default`,
+	);
+	assert.deepEqual(
+		parseSkillRetrievalKnobs({
+			TEDI_SKILL_RETRIEVAL_TOP_K: "0",
+			TEDI_SKILL_RETRIEVAL_MIN_OVERLAP: value,
+		}),
+		{ topK: 0, minOverlap: SKILL_RETRIEVAL_DEFAULT_MIN_OVERLAP },
+		`malformed MIN_OVERLAP ${JSON.stringify(value)} uses its default`,
+	);
+}
+console.log("PASS: 30 malformed knob cases default independently");
+
+for (const [value, topK, minOverlap] of [
+	[" +3 ", 3, 3],
+	["003", 3, 3],
+	["-2", 0, 1],
+	["0", 0, 1],
+	[
+		String(Number.MAX_SAFE_INTEGER),
+		SKILL_RETRIEVAL_MAX_TOP_K,
+		Number.MAX_SAFE_INTEGER,
+	],
+	[String(Number.MIN_SAFE_INTEGER), 0, 1],
+] as const) {
+	assert.deepEqual(
+		parseSkillRetrievalKnobs({
+			TEDI_SKILL_RETRIEVAL_TOP_K: value,
+			TEDI_SKILL_RETRIEVAL_MIN_OVERLAP: value,
+		}),
+		{ topK, minOverlap },
+		`valid integer ${JSON.stringify(value)} retains clamps`,
+	);
+}
+console.log("PASS: 6 valid integer boundary cases");
+
 console.log("skill-retrieval-corpus.test.ts: all assertions passed");
