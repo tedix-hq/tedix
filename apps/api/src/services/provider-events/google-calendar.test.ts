@@ -44,6 +44,48 @@ describe("Google watch adapter", () => {
 			),
 		).rejects.toThrow("Provider request failed (403)");
 	});
+	it.each([
+		null,
+		[],
+		"invalid",
+		{ id: undefined },
+		{ id: "another-channel" },
+		{ resourceId: {} },
+		{ resourceId: ["resource"] },
+		{ resourceId: 42 },
+		{ resourceId: "" },
+		{ resourceId: "   " },
+		{ expiration: null },
+		{ expiration: ["2000000000000"] },
+		{ expiration: 2000000000000 },
+		{ expiration: "2e12" },
+		{ expiration: "2000000000000.5" },
+		{ expiration: "8640000000000001" },
+		{ expiration: "9007199254740993" },
+		{ expiration: "1" },
+	])("rejects malformed watch metadata: %j", async (override) => {
+		const body =
+			override && typeof override === "object" && !Array.isArray(override)
+				? {
+						id: "channel",
+						resourceId: "resource",
+						expiration: "2000000000000",
+						...override,
+					}
+				: override;
+		const adapter = googleCalendarAdapter(
+			vi.fn().mockResolvedValue(Response.json(body)),
+		);
+		await expect(
+			adapter.register(
+				"vault",
+				{ calendarId: "fixture@example.com" } as Subscription,
+				"channel",
+				"secret",
+				"https://api.test/hook",
+			),
+		).rejects.toThrow("Invalid Google watch response");
+	});
 	it("stops exact channel and resource, tolerating already absent", async () => {
 		const request = vi
 			.fn()
