@@ -203,6 +203,14 @@ describe("complete calendar preview", () => {
 				Date.parse(localMidnight("2026-10-25", "Europe/Berlin")),
 		).toBe(25 * 3600_000);
 	});
+	it.each(["2026-02-30", "2025-02-29"])(
+		"rejects impossible all-day date %s before timezone conversion",
+		(date) => {
+			expect(() => localMidnight(date, "Europe/Berlin")).toThrow(
+				"Invalid all-day date",
+			);
+		},
+	);
 });
 
 describe("rolling owner-approved horizon", () => {

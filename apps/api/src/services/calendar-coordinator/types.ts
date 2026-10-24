@@ -200,9 +200,13 @@ export async function requestJson(
 }
 /** Resolve midnight in an IANA zone without assuming a day is 24 hours. Reject nonexistent midnight. */
 export function localMidnight(date: string, timeZone: string): string {
-	if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
-		throw new Error("Invalid all-day date");
 	const target = Date.parse(`${date}T00:00:00Z`);
+	if (
+		!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+		!Number.isFinite(target) ||
+		new Date(target).toISOString().slice(0, 10) !== date
+	)
+		throw new Error("Invalid all-day date");
 	const format = new Intl.DateTimeFormat("en-CA", {
 		timeZone,
 		year: "numeric",
