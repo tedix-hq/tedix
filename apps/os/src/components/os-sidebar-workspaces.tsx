@@ -180,6 +180,7 @@ export function OsSidebarWorkspaces() {
 								key={entry.workspace.id}
 								icon={<WorkspaceMark workspace={entry.workspace} />}
 								tooltip={entry.workspace.name}
+								title={entry.workspace.name}
 								onClick={() =>
 									void navigate({
 										to: "/workspace/$workspaceId",
