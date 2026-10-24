@@ -1,0 +1,306 @@
+/*
+ * Workspace Outputs panel (workspace-outputs-panel.tsx).
+ *
+ * Every row keeps its icon in a fixed 36px cell at the same x position in
+ * both states, so collapsing only animates the panel's width: the labels clip
+ * and fade behind the icons and nothing reflows mid-motion.
+ */
+.workspace-outputs-panel {
+	--workspace-outputs-width: 240px;
+	--workspace-outputs-rail: 48px;
+	--workspace-outputs-cell: 36px;
+
+	display: flex;
+	width: var(--workspace-outputs-width);
+	min-height: 0;
+	flex: none;
+	flex-direction: column;
+	overflow: hidden;
+	border-left: 1px solid var(--border);
+	background: var(--background-lighter);
+	transition: width var(--duration-tedix-structural) var(--ease-tedix-standard);
+}
+
+.workspace-outputs-panel[data-expanded="false"] {
+	width: var(--workspace-outputs-rail);
+}
+
+.workspace-outputs-header {
+	display: flex;
+	height: 48px;
+	min-height: 48px;
+	box-sizing: border-box;
+	align-items: center;
+	gap: 4px;
+	padding-inline: 8px;
+	border-bottom: 1px solid var(--border);
+}
+
+.workspace-outputs-toggle.workspace-outputs-toggle {
+	flex: none;
+	color: var(--text-color-kumo-subtle);
+}
+
+.workspace-outputs-heading {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	overflow: hidden;
+	color: var(--text-color-kumo-subtle);
+	font-size: var(--text-tedix-caption);
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	line-height: var(--text-tedix-caption--line-height);
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.workspace-outputs-count {
+	color: var(--text-color-kumo-inactive, var(--text-color-kumo-subtle));
+	font-variant-numeric: tabular-nums;
+	font-weight: 500;
+	letter-spacing: 0;
+}
+
+.workspace-outputs-body {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+	overflow-x: hidden;
+	overflow-y: auto;
+	padding: 8px 6px;
+	scrollbar-width: thin;
+}
+
+.workspace-outputs-list {
+	display: grid;
+	margin: 0;
+	padding: 0;
+	gap: 2px;
+	list-style: none;
+}
+
+.workspace-outputs-row.workspace-outputs-row {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	height: auto;
+	min-height: var(--workspace-outputs-cell, 36px);
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0;
+	padding: 2px 8px 2px 0;
+	border-radius: var(--radius-md);
+	color: var(--text-color-kumo-default);
+	text-align: left;
+	transition:
+		background-color var(--duration-tedix-fast) var(--ease-tedix-standard),
+		color var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+
+.workspace-outputs-row.workspace-outputs-row:hover {
+	background: var(--color-kumo-tint);
+}
+
+.workspace-outputs-row.workspace-outputs-row:active {
+	background: var(--color-kumo-tint);
+	transform: scale(0.985);
+}
+
+/* Selection is the solid control step, never the hover tint. */
+.workspace-outputs-row.workspace-outputs-row[data-selected] {
+	background: var(--color-kumo-control);
+	color: var(--text-color-kumo-strong);
+}
+
+.workspace-outputs-icon {
+	box-sizing: content-box;
+	width: 16px;
+	flex: none;
+	padding-inline: 10px;
+	color: var(--text-color-kumo-subtle);
+}
+
+.workspace-outputs-row[data-selected] .workspace-outputs-icon {
+	color: var(--text-color-kumo-strong);
+}
+
+.workspace-outputs-label {
+	display: grid;
+	min-width: 0;
+	flex: 1 1 auto;
+	transition: opacity var(--duration-tedix-standard) var(--ease-tedix-standard);
+}
+
+.workspace-outputs-title {
+	overflow: hidden;
+	font-size: var(--text-tedix-label);
+	font-weight: 500;
+	line-height: var(--text-tedix-label--line-height);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-outputs-meta {
+	overflow: hidden;
+	color: var(--text-color-kumo-subtle);
+	font-size: var(--text-tedix-caption);
+	font-weight: 400;
+	line-height: var(--text-tedix-caption--line-height);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-outputs-footer {
+	margin-top: auto;
+	padding-top: 8px;
+}
+
+.workspace-outputs-footer::before {
+	display: block;
+	margin: 0 4px 8px;
+	border-top: 1px solid var(--border);
+	content: "";
+}
+
+.workspace-outputs-skeleton {
+	display: grid;
+	gap: 6px;
+	padding: 4px;
+}
+
+.workspace-outputs-empty {
+	display: grid;
+	justify-items: start;
+	gap: 8px;
+	padding: 12px 10px;
+	color: var(--text-color-kumo-subtle);
+}
+
+.workspace-outputs-empty p,
+.workspace-outputs-note {
+	margin: 0;
+	color: var(--text-color-kumo-subtle);
+	font-size: var(--text-tedix-label);
+	line-height: var(--text-tedix-label--line-height);
+}
+
+.workspace-outputs-note {
+	padding: 12px 10px;
+}
+
+/* The rail: icons only. Labels fade as the width closes over them. */
+.workspace-outputs-panel[data-expanded="false"] .workspace-outputs-label,
+.workspace-outputs-panel[data-expanded="false"] .workspace-outputs-heading {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.workspace-outputs-panel[data-expanded="false"] .workspace-outputs-empty,
+.workspace-outputs-panel[data-expanded="false"] .workspace-outputs-note,
+.workspace-outputs-panel[data-expanded="false"] .workspace-outputs-skeleton {
+	visibility: hidden;
+}
+
+.workspace-outputs-panel[data-expanded="false"] .workspace-outputs-row {
+	width: var(--workspace-outputs-cell);
+	padding-right: 0;
+}
+
+/*
+ * The panel belongs to the chat + stage workbench. The full Resources
+ * library, focus mode and phones (which get the sheet) do without it.
+ */
+.canvas-surface[data-canvas-focus] .workspace-outputs-panel {
+	display: none;
+}
+
+@media (min-width: 960px) {
+	.canvas-surface[data-resource-rail-open="true"] .workspace-outputs-panel {
+		display: none;
+	}
+}
+
+.canvas-outputs-sheet-trigger {
+	display: none;
+}
+
+@media (max-width: 959px) {
+	.workspace-outputs-panel {
+		display: none;
+	}
+
+	.canvas-outputs-sheet-trigger {
+		display: inline-flex;
+	}
+}
+
+/* Phone sheet: the same list, full-size rows, no rail. */
+.workspace-outputs-sheet-header.workspace-outputs-sheet-header {
+	flex-direction: row;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.workspace-outputs-sheet .workspace-outputs-body {
+	padding: 0 12px 16px;
+}
+
+.workspace-outputs-sheet .workspace-outputs-row.workspace-outputs-row {
+	min-height: 48px;
+}
+
+/* An opened output settles into the stage instead of popping in. */
+@keyframes workspace-stage-enter {
+	from {
+		opacity: 0;
+		transform: translateX(8px);
+	}
+}
+
+.canvas-surface[data-canvas-transition="true"]
+	.canvas-stage-content[data-has-workpiece]
+	> * {
+	animation: workspace-stage-enter var(--duration-tedix-structural)
+		var(--ease-tedix-enter);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workspace-outputs-panel,
+	.workspace-outputs-label,
+	.workspace-outputs-row.workspace-outputs-row {
+		transition: none;
+	}
+
+	.workspace-outputs-row.workspace-outputs-row:active {
+		transform: none;
+	}
+
+	.canvas-surface[data-canvas-transition="true"]
+		.canvas-stage-content[data-has-workpiece]
+		> * {
+		animation: none;
+	}
+}
+
+/* A chat-only workspace still shares its row with the panel. */
+@media (min-width: 960px) {
+	.canvas-chat-pane[data-simple-mode="true"] {
+		flex: 0 1 auto;
+	}
+}
+
+/*
+ * On a phone the header also carries the Outputs button, so the title keeps
+ * the workspace name and drops the breadcrumb trail; the back arrow already
+ * leads to all workspaces.
+ */
+@media (max-width: 639px) {
+	.canvas-workspace-title > :first-child:not(h1) {
+		display: none;
+	}
+}
