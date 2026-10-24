@@ -22,13 +22,6 @@ function surface(toolCount: number): AggregatedMcpSurface {
 	} as unknown as AggregatedMcpSurface;
 }
 
-function never(): Promise<AggregatedMcpSurface> {
-	// Models the 64s rebuild: it resolves eventually, far past any client patience.
-	return new Promise((resolve) =>
-		setTimeout(() => resolve(surface(2636)), 60_000),
-	);
-}
-
 // No ANALYTICS and no R2 binding: readAggregateR2 finds nothing, which is the
 // "first ever build for this key" case.
 const emptyEnv = {} as never;
@@ -115,26 +108,32 @@ describe("aggregate join deadline", () => {
 	});
 
 	it("does NOT hang a joined caller for the length of a cold rebuild", async () => {
-		const slow = never();
-		const outcome = await Promise.race([
-			joinAggregateLoad(
-				slow,
-				"key-slow",
-				emptyEnv,
-				"tedix-unified",
-				"joined",
-				150,
-			)
-				.then(() => "returned" as const)
-				.catch(() => "returned" as const),
-			new Promise<"STILL-WAITING">((r) =>
-				setTimeout(() => r("STILL-WAITING"), 2_000),
-			),
-		]);
+		vi.useFakeTimers();
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const get = vi.fn().mockResolvedValue(null);
+		const env = { AGGREGATE_CACHE: { get } } as never;
+		const slow = new Promise<AggregatedMcpSurface>(() => {});
+		let settled = false;
+		void joinAggregateLoad(
+			slow,
+			"key-slow",
+			env,
+			"tedix-unified",
+			"joined",
+			150,
+		).finally(() => {
+			settled = true;
+		});
+
+		await vi.advanceTimersByTimeAsync(149);
+		expect(get).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(1);
 		// With no cached snapshot anywhere there is nothing better to serve, so the
 		// caller still ends up on the load — but it must have hit the deadline and
 		// gone looking, not silently blocked on the raw in-flight promise.
-		expect(outcome).toBe("STILL-WAITING");
+		expect(get).toHaveBeenCalledOnce();
+		expect(settled).toBe(false);
+		expect(vi.getTimerCount()).toBe(0);
 	});
 
 	it("never serves an empty surface when nothing is cached", async () => {
