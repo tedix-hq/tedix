@@ -13,6 +13,18 @@ export interface WorkflowImageRef {
 }
 
 const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BASE64_LENGTH = Math.ceil(MAX_BYTES / 3) * 4;
+const MAX_FILE_NAME_LENGTH = 512;
+// JSON uses up to six ASCII bytes per filename code unit. Even escaped
+// 8192-character URLs fit below the maximum base64 payload.
+const MAX_STORED_BYTES =
+	MAX_BASE64_LENGTH +
+	JSON.stringify({
+		kind: "base64",
+		data: "",
+		mediaType: "image/jpeg",
+		fileName: "\u0000".repeat(MAX_FILE_NAME_LENGTH),
+	}).length;
 const MAX_IMAGES = 4;
 const MEDIA_TYPES = new Set([
 	"image/png",
@@ -40,7 +52,11 @@ function normalize(value: TurnImagePart): TurnImagePart {
 	)
 		invalid();
 	const mediaType = value.mediaType.toLowerCase().split(";")[0]!.trim();
-	if (!MEDIA_TYPES.has(mediaType) || value.fileName.length > 512) invalid();
+	if (
+		!MEDIA_TYPES.has(mediaType) ||
+		value.fileName.length > MAX_FILE_NAME_LENGTH
+	)
+		invalid();
 	let data = value.data;
 	let kind = value.kind;
 	if (kind === "url" && data.startsWith("data:")) {
@@ -50,7 +66,7 @@ function normalize(value: TurnImagePart): TurnImagePart {
 		kind = "base64";
 	}
 	if (kind === "base64") {
-		if (data.length > Math.ceil(MAX_BYTES / 3) * 4 + 1024) invalid();
+		if (data.length > MAX_BASE64_LENGTH + 1024) invalid();
 		data = data.replace(/\s/g, "");
 		if (!data || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data))
 			invalid();
@@ -173,7 +189,7 @@ export async function loadWorkflowImages(
 			ref.key !== `${owner}${ref.sha256}.json` ||
 			!MEDIA_TYPES.has(ref.mediaType) ||
 			typeof ref.fileName !== "string" ||
-			ref.fileName.length > 512
+			ref.fileName.length > MAX_FILE_NAME_LENGTH
 		)
 			invalid();
 	}
@@ -181,7 +197,7 @@ export async function loadWorkflowImages(
 	for (const ref of refs) {
 		const object = await bucket.get(ref.key);
 		if (!object) throw new Error("workflow_image_missing");
-		if (object.size > Math.ceil(MAX_BYTES / 3) * 4 + 2048) invalid();
+		if (object.size > MAX_STORED_BYTES) invalid();
 		const body = await object.text();
 		if ((await hash(body)) !== ref.sha256)
 			throw new Error("workflow_image_integrity_failed");

@@ -218,6 +218,38 @@ assert.deepEqual(
 	await loadWorkflowImages(bucket, "tedi", "large", compact),
 	four,
 );
+for (const [index, fileName] of [
+	"\u0000".repeat(512),
+	"\ud800".repeat(512),
+	"\uffff".repeat(512),
+	'"\\'.repeat(256),
+].entries()) {
+	const image = { ...inline, data: large, mediaType: "image/jpeg", fileName };
+	const runId = `escaped-${index}`;
+	const escapedRefs = await persistWorkflowImages(bucket, "tedi", runId, [
+		image,
+	]);
+	assert.deepEqual(
+		await loadWorkflowImages(bucket, "tedi", runId, escapedRefs),
+		[image],
+		"maximum payloads round-trip with escaped and multibyte filenames",
+	);
+	if (index === 0) {
+		const oversizedBucket = {
+			...bucket,
+			get: async () => ({
+				size:
+					new TextEncoder().encode(objects.get(escapedRefs[0]!.key)!).length +
+					1,
+				text: async () => assert.fail("oversized objects must not be read"),
+			}),
+		} as unknown as WorkflowImageBucket;
+		await assert.rejects(
+			loadWorkflowImages(oversizedBucket, "tedi", runId, escapedRefs),
+			/workflow_image_invalid/,
+		);
+	}
+}
 const beforeWrites = writes;
 for (const images of [
 	[...four, inline],
@@ -239,6 +271,7 @@ for (const images of [
 	],
 	[{ ...inline, data: "broken!=" }],
 	[{ ...inline, mediaType: "application/pdf" }],
+	[{ ...inline, fileName: "\u0000".repeat(513) }],
 ])
 	await assert.rejects(
 		persistWorkflowImages(bucket, "tedi", "invalid", images),
