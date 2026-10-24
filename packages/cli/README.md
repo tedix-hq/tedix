@@ -456,6 +456,15 @@ of `ready`. Assigning an executor readies accepted Work automatically and record
 a dispatch receipt. A coordinator can explicitly hold an item to keep it queued. Existing service modes
 retain their behavior when `--coordinated` is absent.
 
+`--accept-proposed` (with `--project`) lets a scheduled shift feed the queue
+without a person accepting each item: before paging accepted Work, the
+dispatcher accepts proposed Work in that project that is assigned to its
+executor and whose description has a `## Done when` section, using that
+section as the acceptance contract under the dispatcher's own login. Proposals
+without the section, or assigned elsewhere, stay proposed. Each acceptance is
+logged as `accepted`; admission still happens on a later page like any other
+accepted item.
+
 The dispatcher creates an isolated worktree and native executor session,
 obtains its verified identity and Work Attempt, fetches the current
 revision of the selected OS rules skill, then runs the admitted session. Codex

@@ -429,6 +429,30 @@ It is not repeated while the condition lasts and is withdrawn once a dispatcher
 picks Work up again. An organization setting changes the wait or turns the
 alarm off.
 
+### Engineering shift
+
+Tedix itself can drive the coding queue. An organization records a
+tedi-owned scheduled skill workflow (the Tedix organization's is the CTO's
+`engineering-shift`, every ten minutes) whose `schedule.params` hold the lane
+project, the target number of queued items per executor, the red threshold in
+minutes, the CI and Ship workflows to read through the GitHub app, and the
+Output for the morning summary. Each run keeps accepted coding Work assigned per
+executor round-robin, files one scout item per short executor when the
+unassigned pool is empty, files one high-priority fix item when the latest
+finished CI or Ship run failed and the failing streak is older than the
+threshold, and in the 06:30 Berlin slot inserts a dated section into the
+summary document: Work completed in the last 24 hours, CI and Ship counts and
+red minutes, the queue per executor and what runs next. Counts, cadence and
+executors change through `improve_skills` on that skill, never through code.
+
+The machine only executes: one `tedix lane serve --executor <name> --project
+<lane project> --coordinated --accept-proposed` per executor under launchd,
+with `--max` caps that fit the machine. A tedi's manifest cannot accept Work,
+so a fix or scout item the shift files stays proposed until the dispatcher for
+its executor accepts it from the item's `## Done when` section
+(`--accept-proposed`). A local chat or script is no longer part of the loop;
+when it stops, the schedule and the dispatchers keep running.
+
 ## Authority and evidence rules
 
 - Read-only discovery does not authorize a mutation.

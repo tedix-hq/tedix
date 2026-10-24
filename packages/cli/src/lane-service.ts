@@ -86,6 +86,7 @@ export function installLaneService(options: ServeOptions): number {
 			? ["--routing-config", options.routingConfig]
 			: []),
 		...(options.coordinated ? ["--coordinated"] : []),
+		...(options.acceptProposed ? ["--accept-proposed"] : []),
 	];
 	const domain = `gui/${process.getuid!()}`;
 	const service = `${domain}/${label}`;
