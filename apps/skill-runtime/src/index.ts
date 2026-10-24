@@ -1,3 +1,4 @@
+import { readBenchmarkTurnStream } from "./benchmark-stream";
 import type { SkillRuntimeEnv } from "./env";
 import { DynamicWorkflowBinding } from "@cloudflare/dynamic-workflows";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
@@ -131,42 +132,7 @@ app.post("/benchmark/drive-turn", async (c) => {
 	}
 	// Read the SSE stream INCREMENTALLY and stop at the `done`/`error` frame —
 	// the stream may not close promptly, so buffering with res.text() can hang.
-	const reader = res.body.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	let assistant = "";
-	let runId: string | null = null;
-	let errMsg: string | null = null;
-	let finished = false;
-	try {
-		while (!finished) {
-			const { value, done: streamDone } = await reader.read();
-			if (streamDone) break;
-			buf += decoder.decode(value, { stream: true });
-			let nl = buf.indexOf("\n");
-			while (nl >= 0) {
-				const line = buf.slice(0, nl).trim();
-				buf = buf.slice(nl + 1);
-				if (!line.startsWith("data:")) continue;
-				try {
-					const frame = JSON.parse(line.slice(5).trim());
-					if (frame.kind === "done") {
-						assistant = typeof frame.text === "string" ? frame.text : assistant;
-						runId = frame.runId ?? frame.sessionKey ?? runId;
-						finished = true;
-					} else if (frame.kind === "error") {
-						errMsg = frame.message ?? "error";
-						finished = true;
-					}
-				} catch {
-					/* skip non-JSON data lines */
-				}
-				nl = buf.indexOf("\n");
-			}
-		}
-	} finally {
-		await reader.cancel().catch(() => {});
-	}
+	const { assistant, runId, errMsg } = await readBenchmarkTurnStream(res.body);
 	if (errMsg) return c.json({ error: errMsg, ms: Date.now() - started }, 502);
 	return c.json({
 		ok: true,
