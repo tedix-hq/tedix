@@ -101,8 +101,11 @@ const receipts: Receipt[] = [];
 let browser: Browser | undefined;
 const memory = (page: Page) =>
 	page.getByRole("region", { name: "Memory browser", exact: true });
-const row = (page: Page, title: string) =>
-	memory(page).getByRole("row", { name: `Details: ${title}`, exact: true });
+const recordAction = (page: Page, title: string) =>
+	memory(page).getByRole("button", {
+		name: `Open details: ${title}`,
+		exact: true,
+	});
 async function shown(locator: Locator) {
 	await locator.waitFor({ state: "visible" });
 }
@@ -395,7 +398,7 @@ try {
 								})
 								.fill("Orchard observation 43");
 							await pageCount(page, 1, 1);
-							await shown(row(page, "Orchard observation 43"));
+							await shown(recordAction(page, "Orchard observation 43"));
 							await memory(page)
 								.getByRole("textbox", {
 									name: "Search what we know",
@@ -429,7 +432,7 @@ try {
 							await pageCount(page, 1, 20);
 							await shown(
 								memory(page).getByText(
-									"Search and sort the latest 100 records. Open a row for full text and evidence.",
+									"Search and sort the latest 100 records. Open a memory for full text and evidence.",
 									{ exact: true },
 								),
 							);
@@ -484,7 +487,10 @@ try {
 								),
 							);
 						} else if (scenario === "detail") {
-							const trigger = row(page, "Orchard observation 01");
+							const trigger = recordAction(page, "Orchard observation 01");
+							const recordRow = trigger.locator("xpath=ancestor::tr");
+							assert.equal(await recordRow.getAttribute("tabindex"), null);
+							assert.equal(await recordRow.getAttribute("role"), "row");
 							await trigger.focus();
 							await page.keyboard.press("Enter");
 							const dialog = page.getByRole("dialog", {
@@ -535,7 +541,7 @@ try {
 								await trigger.evaluate(
 									(node) => node === document.activeElement,
 								),
-								"Closing details must return focus to the opening row",
+								"Closing details must return focus to the opening action",
 							);
 							await page.keyboard.press("Space");
 							await shown(dialog);
@@ -554,7 +560,7 @@ try {
 								await trigger.evaluate(
 									(node) => node === document.activeElement,
 								),
-								"Escape must return focus to the opening row",
+								"Escape must return focus to the opening action",
 							);
 						} else {
 							const previous = control.requests;
@@ -574,7 +580,7 @@ try {
 								control.requests > previous,
 								"Focus must start a stale Memory read",
 							);
-							await shown(row(page, "Orchard observation 01"));
+							await shown(recordAction(page, "Orchard observation 01"));
 							await capture(page, receipt, "stale-pending");
 							control.setMode("error");
 							await page.clock.resume();
@@ -586,7 +592,7 @@ try {
 							);
 							await capture(page, receipt, "stale-error");
 							assert(
-								await row(page, "Orchard observation 01").isVisible(),
+								await recordAction(page, "Orchard observation 01").isVisible(),
 								"Stale refresh failure must preserve previously loaded content",
 							);
 							control.setMode("ready");
