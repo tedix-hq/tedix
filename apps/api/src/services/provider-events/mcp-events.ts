@@ -384,6 +384,8 @@ export async function pollMcpEvents(
 	});
 	if (!Array.isArray(result.events))
 		throw new Error("Upstream events/poll returned no events array");
+	if (result.events.length > MAX_EVENTS_PER_BATCH)
+		throw new Error("Upstream events/poll exceeded the event batch limit");
 	const counts = await ingestBatch(context, row, result.events);
 	const cursor =
 		typeof result.cursor === "string" && result.cursor.length <= 4096
