@@ -120,6 +120,48 @@ describe("MCP event webhook subscriptions", () => {
 		).toBeNull();
 	});
 
+	it("drains expired backlogs in bounded passes while claiming live rows", async () => {
+		const db = fixture();
+		for (let i = 0; i < 205; i++)
+			await upsertMcpEventSubscription(
+				db,
+				params(`expired-${i}`, i % 2 ? "org-a" : "org-b", {
+					ownerSubject: `owner-${i}`,
+					expiresAt: i % 2 ? T0 : T1,
+				}),
+			);
+		await upsertMcpEventSubscription(db, params("live-a", "org-a"));
+		await upsertMcpEventSubscription(db, params("live-b", "org-b"));
+		await upsertMcpEventSubscription(
+			db,
+			params("future", "org-a", {
+				now: LATER,
+				expiresAt: "2026-10-15T14:00:00.000Z",
+			}),
+		);
+		const claimedIds: string[] = [];
+		for (const remainingExpired of [105, 5, 0]) {
+			const claimed = await claimDueMcpEventSubscriptions(db, {
+				now: T1,
+				leaseUntil: LATER,
+				limit: 1,
+			});
+			expect(claimed).toHaveLength(remainingExpired ? 1 : 0);
+			claimedIds.push(...claimed.map((row) => row.id));
+			const remaining = await db.select().from(mcpEventSubscriptions);
+			expect(
+				remaining.filter((row) => row.id.startsWith("expired-")),
+			).toHaveLength(remainingExpired);
+			expect(
+				remaining.filter((row) => !row.id.startsWith("expired-")),
+			).toHaveLength(3);
+			expect(remaining.find((row) => row.id === "future")).toMatchObject({
+				nextAttemptAt: LATER,
+			});
+		}
+		expect(claimedIds.sort()).toEqual(["live-a", "live-b"]);
+	});
+
 	it("never claims an unhealthy subscription", async () => {
 		const db = fixture();
 		await upsertMcpEventSubscription(db, params("sick"));
