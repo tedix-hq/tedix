@@ -45,6 +45,30 @@ describe("diceSimilarity", () => {
 });
 
 describe("scoreSkillAdjacency — blocking", () => {
+	it.each([false, true])(
+		"blocks a lower-scoring equivalent title (reversed: %s)",
+		(reverse) => {
+			const candidates = [
+				candidate("Deploy API worker", "different instructions", "twin"),
+				candidate("Deploy API worker service", "ship staging", "near"),
+			];
+			const verdict = scoreSkillAdjacency(
+				{ title: "Deploy API worker", description: "ship production" },
+				reverse ? candidates.reverse() : candidates,
+			);
+			expect(verdict.blocked).toBe(true);
+			expect(verdict.nearest?.candidate.id).toBe("twin");
+			expect(verdict.nearest?.titleEquivalent).toBe(true);
+			expect(verdict.adjacent.map((match) => match.candidate.id)).toEqual([
+				"near",
+				"twin",
+			]);
+			expect(formatAdjacencyRefusal(verdict.nearest!)).toContain(
+				'improve_skills({ id: "twin",',
+			);
+		},
+	);
+
 	it("blocks an equivalent title regardless of description drift", () => {
 		const verdict = scoreSkillAdjacency(
 			{ title: "Deploy the API worker", description: "Ship apps/api" },
