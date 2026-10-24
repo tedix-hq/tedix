@@ -1,5 +1,6 @@
+import { useEffect, useRef, type KeyboardEvent } from "react";
+import { Input } from "@/components/kumo/input";
 import { X } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
@@ -19,6 +20,7 @@ export function ChatSkillPicker({
 	loading,
 	onRetry,
 	onSelect,
+	search,
 	skills,
 }: {
 	/** -1 until the operator explicitly moves into the list. Enter only
@@ -29,18 +31,52 @@ export function ChatSkillPicker({
 	loading: boolean;
 	onRetry: () => void;
 	onSelect: (skill: ComposerSkill) => void;
+	search?: {
+		value: string;
+		onValueChange: (value: string) => void;
+		onKeyDown: (event: KeyboardEvent) => void;
+	};
 	skills: readonly ComposerSkill[];
 }) {
 	const list = useRef<HTMLUListElement>(null);
 	useEffect(() => {
 		list.current?.children[activeIndex]?.scrollIntoView({ block: "nearest" });
 	}, [activeIndex]);
+	const searchRef = useRef<HTMLInputElement>(null);
+	const searchable = search !== undefined;
+	useEffect(() => {
+		if (!searchable) return;
+		// Focus after the menu restores focus to its trigger on close.
+		const frame = requestAnimationFrame(() => searchRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	}, [searchable]);
 	return (
 		<Card
 			data-slot="skill-picker"
 			className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-[50dvh] overflow-y-auto py-1"
 		>
 			<CardContent className="px-1">
+				{search ? (
+					<Input
+						ref={searchRef}
+						aria-label="Search skills"
+						role="combobox"
+						aria-autocomplete="list"
+						aria-expanded={!loading && !error && skills.length > 0}
+						aria-controls={
+							!loading && !error && skills.length > 0 ? listboxId : undefined
+						}
+						aria-activedescendant={
+							activeIndex >= 0 && skills[activeIndex]
+								? `${listboxId}-option-${activeIndex}`
+								: undefined
+						}
+						placeholder="Search skills…"
+						value={search.value}
+						onValueChange={search.onValueChange}
+						onKeyDown={search.onKeyDown}
+					/>
+				) : null}
 				{error ? (
 					// A failed read is NOT an empty library. Saying "no skills" here
 					// would teach the operator their org has none.
@@ -58,6 +94,10 @@ export function ChatSkillPicker({
 				) : loading ? (
 					<Text role="label" tone="secondary" className="block px-2 py-2">
 						Loading skills…
+					</Text>
+				) : skills.length === 0 ? (
+					<Text role="label" tone="secondary" className="block px-2 py-2">
+						No matching skills.
 					</Text>
 				) : (
 					<ul
