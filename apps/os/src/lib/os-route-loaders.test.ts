@@ -11,7 +11,10 @@ const api = vi.hoisted(() => ({
 	listPreferences: vi.fn(),
 	listLibrary: vi.fn(),
 	listTedis: vi.fn(),
+	getTedi: vi.fn(),
 	listTediSummaries: vi.fn(),
+	listEmailAddresses: vi.fn(),
+	listEmailInbox: vi.fn(),
 	listBlueprints: vi.fn(),
 	listGallery: vi.fn(),
 	listSkills: vi.fn(),
@@ -62,7 +65,12 @@ vi.mock("@/lib/api", () => ({
 		},
 		tedis: {
 			list: api.listTedis,
+			get: api.getTedi,
 			listOperationsSummaries: api.listTediSummaries,
+		},
+		tediEmail: {
+			listAddresses: api.listEmailAddresses,
+			listInbox: api.listEmailInbox,
 		},
 		skills: {
 			inspectWorkflowRun: api.inspectRun,
@@ -127,6 +135,7 @@ import {
 	prefetchSkillScheduleRoute,
 	prefetchSkillVersionsRoute,
 	prefetchTeamRoute,
+	prefetchTediMailboxRoute,
 	prefetchWorkspacesRoute,
 } from "@/lib/os-route-loaders";
 import {
@@ -153,6 +162,9 @@ import {
 	skillSchedulesQueryOptions,
 	skillSpecificSchedulesQueryOptions,
 	TEDI_ROSTER_LIMIT,
+	tediDetailQueryOptions,
+	tediEmailAddressesQueryOptions,
+	tediEmailInboxQueryOptions,
 	tediOperationsSummariesQueryOptions,
 	tediRosterQueryOptions,
 	WORKFLOW_DEFINITIONS_LIMIT,
@@ -171,6 +183,7 @@ import {
 
 const WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
 const OUTPUT_ID = "00000000-0000-4000-8000-000000000002";
+const TEDI_ID = "00000000-0000-4000-8000-000000000004";
 
 function client() {
 	return new QueryClient({
@@ -477,6 +490,51 @@ describe("OS route loaders", () => {
 				workspaceMs + Math.max(gadgetMs, outputMs);
 			expect(elapsed).toBe(workspaceMs);
 			expect(priorSerialCriticalPathMs - elapsed).toBe(60);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("warms the mailbox reads without holding first paint on them", async () => {
+		vi.useFakeTimers();
+		try {
+			// Never-settling reads stand in for a slow API: a loader that awaits
+			// them holds the whole route pending, when every mailbox card already
+			// renders its own pending and error state.
+			const pending = () => new Promise<never>(() => {});
+			api.getTedi.mockImplementation(pending);
+			api.listEmailAddresses.mockImplementation(pending);
+			api.listEmailInbox.mockImplementation(pending);
+			const queryClient = client();
+
+			const loaderDone = Promise.resolve(
+				prefetchTediMailboxRoute(queryClient, TEDI_ID),
+			).then(() => true);
+			const verdict = await Promise.race([
+				loaderDone,
+				vi
+					.advanceTimersByTimeAsync(OS_LOADER_FIRST_PAINT_DEADLINE_MS)
+					.then(() => false),
+			]);
+
+			expect(verdict).toBe(true);
+			expect(api.getTedi).toHaveBeenCalledOnce();
+			expect(api.listEmailAddresses).toHaveBeenCalledOnce();
+			expect(api.listEmailInbox).toHaveBeenCalledOnce();
+			expect(
+				queryClient.getQueryState(tediDetailQueryOptions(TEDI_ID).queryKey)
+					?.fetchStatus,
+			).toBe("fetching");
+			expect(
+				queryClient.getQueryState(
+					tediEmailAddressesQueryOptions(TEDI_ID).queryKey,
+				)?.fetchStatus,
+			).toBe("fetching");
+			expect(
+				queryClient.getQueryState(
+					tediEmailInboxQueryOptions(TEDI_ID, "open").queryKey,
+				)?.fetchStatus,
+			).toBe("fetching");
 		} finally {
 			vi.useRealTimers();
 		}
