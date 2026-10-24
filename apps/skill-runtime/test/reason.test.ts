@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import { test } from "bun:test";
+import {
+	parseCapabilityManifest,
+	readPinnedCapabilityManifest,
+} from "@tedix/api-contract/utils/skill-manifest";
 import {
 	AskRequestSchema,
 	awaitReasonTurn,
@@ -75,13 +80,36 @@ assert.equal(
 	resolveReasonBudget({ reason: { maxCalls: 100_000 } }).maxCalls,
 	REASON_MAX_CALLS_CEILING,
 );
-for (const bad of [0, -5, Number.NaN, "many", {}]) {
+for (const bad of [-5, Number.NaN, "many", {}]) {
 	assert.equal(
 		resolveReasonBudget({ reason: { maxCalls: bad } }).maxCalls,
 		REASON_DEFAULT_MAX_CALLS,
 		`nonsense budget must fall back, not be trusted: ${String(bad)}`,
 	);
 }
+
+test.each([0, 0.1, 0.5, 0.999, 1, 1.5, 2.9])(
+	"preserves a %s call ceiling through parsing and pinned snapshots",
+	(declared) => {
+		const manifest = parseCapabilityManifest(`---
+capabilities:
+  reason:
+    maxCalls: ${declared}
+---
+`);
+		const expected = { enabled: true, maxCalls: Math.floor(declared) };
+		assert.deepEqual(manifest.reason, expected);
+		assert.deepEqual(resolveReasonBudget(manifest), expected);
+		assert.deepEqual(
+			resolveReasonBudget({ reason: { maxCalls: declared } }),
+			expected,
+		);
+		const pinned = readPinnedCapabilityManifest(manifest);
+		assert.ok(pinned);
+		assert.deepEqual(pinned.reason, expected);
+		assert.deepEqual(resolveReasonBudget(pinned), expected);
+	},
+);
 
 // --- The platform grant is exactly one method ---------------------------------
 
