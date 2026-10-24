@@ -151,15 +151,12 @@ export function relatedTestTargetsByWorkspace(files, io) {
 	// same question for every changed file in it.
 	/** @type {Map<string, {name?: string, deps: Set<string>}>} */
 	const manifests = new Map();
-	for (const workspaceDir of io.workspaceDirs) {
-		if (!io.isTestableWorkspace(workspaceDir)) continue;
-		const manifest = io.readManifest(workspaceDir);
-		if (manifest) manifests.set(workspaceDir, manifest);
-	}
 	/** @type {Map<string, string | undefined>} */
 	const packageNameOf = new Map();
 	for (const workspaceDir of io.workspaceDirs) {
-		packageNameOf.set(workspaceDir, io.readManifest(workspaceDir)?.name);
+		const manifest = io.readManifest(workspaceDir);
+		if (manifest) manifests.set(workspaceDir, manifest);
+		packageNameOf.set(workspaceDir, manifest?.name);
 	}
 
 	const add = (workspaceDir, file) => {
