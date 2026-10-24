@@ -20,6 +20,7 @@ import {
 	createProvisionalOutcome,
 	ensurePaymentBudgetOverrideRequest,
 	ensureProvisionalPromotionApprovalRequest,
+	findPendingOwnerToolApproval,
 	listApprovalRequests,
 	listProvisionalOutcomes,
 	promoteProvisionalOutcome,
@@ -555,5 +556,42 @@ describe("exact owner tool approval consumption", () => {
 		).toBe(false);
 		expect(await consumeOwnerToolApproval(db, input)).toBe(true);
 		expect(await consumeOwnerToolApproval(db, input)).toBe(false);
+	});
+});
+
+describe("pending owner tool approval lookup", () => {
+	it("finds only the open request for the same organization and call", async () => {
+		const { db } = setup();
+		await createApprovalRequest(db, {
+			id: "gateway-open",
+			orgId: "org-1",
+			tediId: "tedi-1",
+			actionType: "mcp.tool_call",
+			description: "Run skill: Example research",
+			payload: { fingerprint: "exact-input" },
+			createdAt: "2026-01-01T00:00:00.000Z",
+			expiresAt: "2026-01-02T00:00:00.000Z",
+		});
+		const input = {
+			organizationId: "org-1",
+			fingerprint: "exact-input",
+			now: "2026-01-01T01:00:00.000Z",
+		};
+		expect(await findPendingOwnerToolApproval(db, input)).toEqual({
+			id: "gateway-open",
+		});
+		for (const miss of [
+			{ organizationId: "other-org" },
+			{ fingerprint: "changed-input" },
+			{ now: "2026-01-03T00:00:00.000Z" },
+		])
+			expect(
+				await findPendingOwnerToolApproval(db, { ...input, ...miss }),
+			).toBeUndefined();
+		await resolveApprovalRequest(db, "gateway-open", {
+			status: "rejected",
+			resolvedBy: "owner-1",
+		});
+		expect(await findPendingOwnerToolApproval(db, input)).toBeUndefined();
 	});
 });

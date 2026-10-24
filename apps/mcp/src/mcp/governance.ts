@@ -922,6 +922,62 @@ export async function requireDestructiveToolApproval(
 			);
 		}
 	}
+	// An owner starting an active skill of this organization is the human
+	// decision. The API checks membership, lifecycle and the workflow; every
+	// effect inside the run keeps its own manifest and approval gates.
+	if (
+		!configuredApproval &&
+		!isOwnedChannelBoundary &&
+		!certificationStart &&
+		callerIsUserPrincipalPath(agent) &&
+		agent.callerIdentity?.userId &&
+		!agent.callerIdentity.kernel &&
+		tool.config?.transport === "rpc" &&
+		tool.config.endpoint === "skills/runWorkflow" &&
+		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
+			.length === 0 &&
+		agent.app?.organizationId &&
+		agent.apiClient?.mcpGovernance?.resolveOwnerSkillStart
+	) {
+		const skillId =
+			typeof options?.args?.skillId === "string"
+				? options.args.skillId
+				: undefined;
+		const slug =
+			typeof options?.args?.slug === "string" ? options.args.slug : undefined;
+		if (skillId || slug) {
+			try {
+				const start =
+					await agent.apiClient.mcpGovernance.resolveOwnerSkillStart({
+						organizationId: agent.app.organizationId,
+						userId: agent.callerIdentity.userId,
+						...(skillId ? { skillId } : {}),
+						...(slug ? { slug } : {}),
+					});
+				if (start.approved) {
+					emitGovernanceAuditEvent(
+						agent,
+						tool,
+						"destructive_approved",
+						"owner_skill_start",
+						{
+							resolvedBy: "owner_skill_start",
+							skillId: start.skillId,
+							skillRevision: start.revision,
+						},
+					);
+					return null;
+				}
+			} catch (error) {
+				console.warn("[governance] owner_skill_start_unavailable", {
+					errorClass:
+						error instanceof Error ? error.constructor.name : typeof error,
+					organizationId: agent.app.organizationId,
+					toolId: tool.toolId,
+				});
+			}
+		}
+	}
 	// This call IS the human's approval. The API still checks the run, tenant,
 	// conversation access and owner/admin authority; asking again creates a loop.
 	if (

@@ -161,6 +161,96 @@ describe("effect-based gateway approval", () => {
 			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
 		).toHaveBeenCalled();
 	});
+	describe("owner start of an active skill", () => {
+		function ownerStartContext(approved: boolean) {
+			const ctx = context();
+			Object.assign(ctx.apiClient.mcpGovernance, {
+				resolveOwnerSkillStart: vi.fn(async () => ({
+					approved,
+					...(approved ? { skillId: "skill-1", revision: 3 } : {}),
+				})),
+			});
+			return ctx;
+		}
+		const args = {
+			skillId: "skill-1",
+			confirmDestructive: true,
+			reason: "tedix flow run: existing skill",
+		};
+		it("starts directly without parking an approval", async () => {
+			const ctx = ownerStartContext(true);
+			expect(
+				await requireDestructiveToolApproval(ctx, skill, skill.annotations, {
+					args,
+				}),
+			).toBeNull();
+			expect(
+				ctx.apiClient.mcpGovernance.resolveOwnerSkillStart,
+			).toHaveBeenCalledWith({
+				organizationId: "org-1",
+				userId: "owner-1",
+				skillId: "skill-1",
+			});
+			expect(
+				ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+			).not.toHaveBeenCalled();
+		});
+		it("parks when the API does not confirm an active owned skill", async () => {
+			const ctx = ownerStartContext(false);
+			const result = await requireDestructiveToolApproval(
+				ctx,
+				skill,
+				skill.annotations,
+				{ args },
+			);
+			expect(callToolResultText(result!)).toContain("approval-1");
+		});
+		it.each([
+			["a tedi", { authType: "tedi", userId: "owner-1", tediId: "tedi-1" }],
+			[
+				"an external agent",
+				{
+					authType: "oauth",
+					userId: "owner-1",
+					externalAgentPrincipalId: "agent-1",
+				},
+			],
+		])("never applies to %s", async (_label, callerIdentity) => {
+			const ctx = ownerStartContext(true);
+			Object.assign(ctx, { callerIdentity });
+			expect(
+				(
+					await requireDestructiveToolApproval(ctx, skill, skill.annotations, {
+						args,
+						extra,
+					})
+				)?.isError,
+			).toBe(true);
+			expect(
+				ctx.apiClient.mcpGovernance.resolveOwnerSkillStart,
+			).not.toHaveBeenCalled();
+		});
+		it("keeps a configured approval policy", async () => {
+			const ctx = ownerStartContext(true);
+			const target = {
+				...skill,
+				config: { ...skill.config, approvalPolicy: "always" as const },
+			};
+			expect(
+				(
+					await requireDestructiveToolApproval(
+						ctx,
+						target,
+						target.annotations,
+						{ args },
+					)
+				)?.isError,
+			).toBe(true);
+			expect(
+				ctx.apiClient.mcpGovernance.resolveOwnerSkillStart,
+			).not.toHaveBeenCalled();
+		});
+	});
 	it("never turns a lookalike provider into a reviewed draft", async () => {
 		const target = tool({
 			...gmail.config,

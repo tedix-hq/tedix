@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	get: vi.fn(),
 	consume: vi.fn(),
+	pending: vi.fn(),
+	skill: vi.fn(),
+	skillBySlug: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
@@ -23,6 +26,12 @@ vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	getApprovalRequestById: mocks.get,
 	consumeOwnerToolApproval: mocks.consume,
 	getApprovalAnchor: mocks.tedis,
+	findPendingOwnerToolApproval: mocks.pending,
+}));
+vi.mock("@tedix/db/queries/cognitive/skill-crud", async (load) => ({
+	...(await load<object>()),
+	getSkillEntry: mocks.skill,
+	getSkillEntryBySlug: mocks.skillBySlug,
 }));
 import { mcpGovernanceContractRouter } from "./mcp-governance";
 const input = {
@@ -55,6 +64,83 @@ beforeEach(() => {
 	mocks.tedis.mockResolvedValue({ id: "anchor" });
 	mocks.create.mockImplementation(async (_db, row) => row);
 	mocks.consume.mockResolvedValue(true);
+	mocks.pending.mockResolvedValue(undefined);
+	mocks.skill.mockResolvedValue(activeSkill);
+	mocks.skillBySlug.mockResolvedValue(activeSkill);
+});
+const activeSkill = {
+	id: "skill-1",
+	title: "Example Reddit research",
+	lifecycleState: "active",
+	revision: 4,
+	files: { "scripts/workflow.ts": "export default {}" },
+};
+const skillStart = {
+	...input,
+	appSlug: "example-unified",
+	toolId: "tedi_1__run_skill_workflow",
+	target: { transport: "rpc", endpoint: "skills/runWorkflow" },
+	args: { skillId: "skill-1", confirmDestructive: true, reason: "run" },
+};
+describe("owner skill starts", () => {
+	it("approves an active owner's start of an active executable skill", async () => {
+		expect(
+			await client().resolveOwnerSkillStart({
+				organizationId: "org-1",
+				userId: "owner-1",
+				skillId: "skill-1",
+			}),
+		).toEqual({ approved: true, skillId: "skill-1", revision: 4 });
+		expect(mocks.skill).toHaveBeenCalledWith(
+			expect.anything(),
+			"skill-1",
+			"org-1",
+		);
+	});
+	it.each([
+		["a member", { role: "member", status: "active" }, activeSkill],
+		["a suspended owner", { role: "owner", status: "suspended" }, activeSkill],
+		["a draft", undefined, { ...activeSkill, lifecycleState: "draft" }],
+		[
+			"an archived skill",
+			undefined,
+			{ ...activeSkill, lifecycleState: "archived" },
+		],
+		["a skill without a workflow", undefined, { ...activeSkill, files: {} }],
+		["a skill of another organization", undefined, undefined],
+	])("refuses %s", async (_label, member, skill) => {
+		if (member) mocks.member.mockResolvedValue(member);
+		mocks.skill.mockResolvedValue(skill);
+		expect(
+			await client().resolveOwnerSkillStart({
+				organizationId: "org-1",
+				userId: "owner-1",
+				skillId: "skill-1",
+			}),
+		).toEqual({ approved: false });
+	});
+	it("refuses another organization than the gateway names", async () => {
+		await expect(
+			client().resolveOwnerSkillStart({
+				organizationId: "org-2",
+				userId: "owner-1",
+				skillId: "skill-1",
+			}),
+		).rejects.toThrow(/does not match the gateway context/);
+	});
+	it("titles a parked skill start in plain language", async () => {
+		await client().requestOwnerToolApproval(skillStart);
+		const row = mocks.create.mock.calls[0]![1];
+		expect(row.description).toMatch(/^Run skill: Example Reddit research\./);
+		expect(row.description).not.toContain("run_skill_workflow");
+	});
+	it("parks nothing for a skill the API would refuse", async () => {
+		mocks.skill.mockResolvedValue(undefined);
+		await expect(client().requestOwnerToolApproval(skillStart)).rejects.toThrow(
+			/Skill not found/,
+		);
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
 });
 describe("owner gateway approvals", () => {
 	it("creates an audited pending request in the existing OS queue", async () => {
@@ -76,6 +162,22 @@ describe("owner gateway approvals", () => {
 			}),
 		);
 		expect(mocks.consume).not.toHaveBeenCalled();
+		expect(mocks.create.mock.calls[0]![1].description).toMatch(/^Send\./);
+	});
+	it("reuses the open request for an identical call", async () => {
+		mocks.pending.mockResolvedValue({
+			id: "11111111-1111-4111-8111-111111111111",
+		});
+		expect(await client().requestOwnerToolApproval(input)).toMatchObject({
+			approved: false,
+			status: "pending",
+			approvalRequestId: "11111111-1111-4111-8111-111111111111",
+		});
+		expect(mocks.pending).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ organizationId: "org-1" }),
+		);
+		expect(mocks.create).not.toHaveBeenCalled();
 	});
 	it.each([
 		{ role: "member", status: "active" },
