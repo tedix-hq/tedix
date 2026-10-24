@@ -1,5 +1,15 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, desc, eq, inArray, like, lt, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	like,
+	lt,
+	sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
@@ -120,6 +130,11 @@ export async function listKernelRuntimeEvents(
 		organizationId?: string;
 		conversationId?: string;
 		runId?: string;
+		/**
+		 * Select only events that carry NO run id (the conversation-scoped
+		 * overlay lane). Ignored when `runId` is set.
+		 */
+		runIdNull?: boolean;
 		id?: string;
 		kind?: TediRuntimeEventKind;
 		kinds?: readonly TediRuntimeEventKind[];
@@ -158,7 +173,11 @@ export async function listKernelRuntimeEvents(
 		...(input.conversationId
 			? [eq(kernelRuntimeEvents.conversationId, input.conversationId)]
 			: []),
-		...(input.runId ? [eq(kernelRuntimeEvents.runId, input.runId)] : []),
+		...(input.runId
+			? [eq(kernelRuntimeEvents.runId, input.runId)]
+			: input.runIdNull
+				? [isNull(kernelRuntimeEvents.runId)]
+				: []),
 		...(input.id ? [eq(kernelRuntimeEvents.id, input.id)] : []),
 		...(input.kind ? [eq(kernelRuntimeEvents.kind, input.kind)] : []),
 		// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum

@@ -90,6 +90,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"kernelRuntime/retryRun": "mcp:tedis.write",
 	"kernelRuntime/readRun": "mcp:tedis.read",
 	"kernelRuntime/readRunEvents": "mcp:tedis.read",
+	"kernelRuntime/readConversationEvents": "mcp:tedis.read",
 	"kernelRuntime/readMessages": "mcp:tedis.read",
 	"kernelRuntime/readToolResult": "mcp:tedis.read",
 	"kernelRuntime/listConversations": "mcp:tedis.read",

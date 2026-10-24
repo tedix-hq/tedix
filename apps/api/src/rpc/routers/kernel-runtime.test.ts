@@ -355,7 +355,11 @@ function sqlChunkText(chunk: unknown): string {
 
 function collectWhereConditions(
 	value: unknown,
-	conditions: Array<{ key: string; op: "=" | "<"; value: unknown }> = [],
+	conditions: Array<{
+		key: string;
+		op: "=" | "<" | "is null";
+		value: unknown;
+	}> = [],
 ) {
 	const chunks = (value as { queryChunks?: unknown[] } | undefined)
 		?.queryChunks;
@@ -368,9 +372,19 @@ function collectWhereConditions(
 		}
 		if (typeof chunk?.name !== "string") continue;
 		const op = stringChunkValue(chunks[index + 1]).trim();
-		const param = chunks[index + 2] as { value?: unknown } | undefined;
 		const key = columnKeyByName[chunk.name];
-		if (!key || !param || !("value" in param)) continue;
+		if (!key) continue;
+		const trailingSql = chunks
+			.slice(index + 1, index + 4)
+			.map(sqlChunkText)
+			.join("")
+			.trim();
+		if (op === "is null" || trailingSql.startsWith("is null")) {
+			conditions.push({ key, op: "is null", value: null });
+			continue;
+		}
+		const param = chunks[index + 2] as { value?: unknown } | undefined;
+		if (!param || !("value" in param)) continue;
 		if (op === "=" || op === "<") {
 			conditions.push({ key, op, value: param.value });
 		}
@@ -386,16 +400,22 @@ function applyWhere<Row extends Record<string, unknown>>(
 	if (conditions.length === 0) return rows;
 	const equalsByKey = new Map<string, Set<unknown>>();
 	const lessThan: Array<{ key: string; value: unknown }> = [];
+	const nullKeys = new Set<string>();
 	for (const condition of conditions) {
 		if (condition.op === "=") {
 			const values = equalsByKey.get(condition.key) ?? new Set<unknown>();
 			values.add(condition.value);
 			equalsByKey.set(condition.key, values);
+		} else if (condition.op === "is null") {
+			nullKeys.add(condition.key);
 		} else {
 			lessThan.push(condition);
 		}
 	}
 	return rows.filter((row) => {
+		for (const key of nullKeys) {
+			if ((row[key] ?? null) !== null) return false;
+		}
 		for (const [key, values] of equalsByKey) {
 			if (!values.has(row[key] ?? null)) return false;
 		}
@@ -15080,5 +15100,93 @@ describe("respondApproval — held Home delegation authority and agent review fe
 			message: expect.stringContaining("changed while it was being resolved"),
 		});
 		expect(db.workItemRows).toHaveLength(0);
+	});
+});
+
+describe("readConversationEvents", () => {
+	it("pages the conversation's run-free events and excludes run-scoped events", async () => {
+		const db = createKernelRuntimeDb();
+		db.conversationIndexRows.push(
+			normalizeKernelConversationInsert({
+				id: `${ORG_ID}:home:conv-events`,
+				organizationId: ORG_ID,
+				conversationId: "home:conv-events",
+				lastMessageAt: "2026-07-22T19:00:00.000Z",
+			}),
+		);
+		db.events.push(
+			normalizeKernelRuntimeEventInsert({
+				id: "evt-title",
+				organizationId: ORG_ID,
+				conversationId: "home:conv-events",
+				kind: "conversation.updated",
+				payload: { title: "Renamed" },
+				createdAt: "2026-07-22T19:01:00.000Z",
+			}),
+			normalizeKernelRuntimeEventInsert({
+				id: "evt-pin",
+				organizationId: ORG_ID,
+				conversationId: "home:conv-events",
+				kind: "conversation.updated",
+				payload: { pinned: true },
+				createdAt: "2026-07-22T19:02:00.000Z",
+			}),
+			normalizeKernelRuntimeEventInsert({
+				id: "evt-run",
+				organizationId: ORG_ID,
+				conversationId: "home:conv-events",
+				runId: "home-run-1",
+				kind: "run.started",
+				createdAt: "2026-07-22T19:03:00.000Z",
+			}),
+		);
+		const result = await createKernelRuntimeClient(
+			createContext(db),
+		).readConversationEvents({ conversationId: "home:conv-events" });
+		expect(result.events.map((event) => event.id)).toEqual([
+			"evt-title",
+			"evt-pin",
+		]);
+		expect(result.stream).toMatchObject({
+			streamId: "home:conversation:home:conv-events",
+			offset: 0,
+			nextOffset: 2,
+			closed: false,
+		});
+	});
+
+	it("serves a deterministic terminal tombstone frame once the ledger is purged", async () => {
+		const db = createKernelRuntimeDb();
+		db.conversationIndexRows.push(
+			normalizeKernelConversationInsert({
+				id: `${ORG_ID}:home:deleted-conv`,
+				organizationId: ORG_ID,
+				conversationId: "home:deleted-conv",
+				lastMessageAt: "2026-07-22T19:00:00.000Z",
+				deletedAt: "2026-07-22T19:30:00.000Z",
+			}),
+		);
+		// No event rows: deleteConversation purged the ledger, leaving the
+		// content-free tombstone the terminal frame is derived from.
+		const result = await createKernelRuntimeClient(
+			createContext(db),
+		).readConversationEvents({ conversationId: "home:deleted-conv" });
+		expect(result.events).toHaveLength(1);
+		const frame = result.events[0];
+		expect(frame).toMatchObject({
+			kind: "conversation.updated",
+			conversationId: "home:deleted-conv",
+			createdAt: "2026-07-22T19:30:00.000Z",
+		});
+		expect(frame?.id).toContain("deleted:2026-07-22T19:30:00.000Z");
+		expect(frame?.payload).toMatchObject({
+			conversation: { deletedAt: "2026-07-22T19:30:00.000Z" },
+		});
+		expect(result.stream).toMatchObject({
+			offset: 0,
+			nextOffset: 1,
+			closed: true,
+			terminalEventId: frame?.id,
+		});
 	});
 });

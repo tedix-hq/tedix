@@ -69,6 +69,7 @@ import {
 } from "@tedix/api-contract/schemas/runtime-submissions";
 import { RpcTarget } from "capnweb";
 import {
+	CAPN_CONVERSATION_STREAM_ID,
 	CAPN_MAX_LIVE_SUBSCRIPTIONS,
 	CAPN_MAX_CURSOR_RUNS,
 	type CapnCancelOutput,
@@ -455,6 +456,27 @@ class SessionCore {
 			"readRunEvents result",
 		);
 	}
+
+	/**
+	 * One offset page of the conversation's RUN-FREE events — the lane that
+	 * carries `conversation.updated` overlays and the delete tombstone frame.
+	 */
+	async readConversationEventsPage(
+		conversationId: string,
+		offset: number,
+		waitMs: number,
+	): Promise<RuntimeStreamReadOutput> {
+		const output = await this.call<unknown>(
+			"kernelRuntime/readConversationEvents",
+			{ conversationId, offset, ...(waitMs > 0 ? { waitMs } : {}) },
+			{ retry: 1, timeoutMs: waitMs + 15_000 },
+		);
+		return parseOrThrow(
+			RuntimeStreamReadOutputSchema,
+			output,
+			"readConversationEvents result",
+		);
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -593,11 +615,18 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 						if (this.#stopped || this.#core.disposed) {
 							return { kind: "error", runId, error: new Error("disposed") };
 						}
-						const page = await this.#core.readRunEventsPage(
-							runId,
-							offset,
-							SUBSCRIBE_POLL_WAIT_MS,
-						);
+						const page =
+							runId === CAPN_CONVERSATION_STREAM_ID
+								? await this.#core.readConversationEventsPage(
+										this.#conversationId,
+										offset,
+										SUBSCRIBE_POLL_WAIT_MS,
+									)
+								: await this.#core.readRunEventsPage(
+										runId,
+										offset,
+										SUBSCRIBE_POLL_WAIT_MS,
+									);
 						return { kind: "page", runId, page };
 					} catch (error) {
 						return { kind: "error", runId, error };
@@ -637,6 +666,12 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 			}
 			addRun(this.#cursor.runId, this.#cursor.offset);
 		}
+		// The run-free lane follows the same durable-offset model as a run: a
+		// resumed cursor position lands it here via addRun above; a cursor that
+		// never saw it starts it from the ledger's start. `conversation.updated`
+		// overlays (rename, pin, archive) and the delete tombstone ride this
+		// lane — previously they had no stream consumer at all.
+		addRun(CAPN_CONVERSATION_STREAM_ID);
 		scheduleRefresh();
 		try {
 			while (!this.#stopped && !this.#core.disposed) {
@@ -707,7 +742,20 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 				if (result.kind === "error") {
 					const failures = (runPollFailures.get(result.runId) ?? 0) + 1;
 					runPollFailures.set(result.runId, failures);
-					if (failures >= SUBSCRIBE_MAX_POLL_FAILURES) throw result.error;
+					if (failures >= SUBSCRIBE_MAX_POLL_FAILURES) {
+						if (result.runId === CAPN_CONVERSATION_STREAM_ID) {
+							// The conversation lane is supplementary: an API revision
+							// without the verb (or a persistent read fault on it) must
+							// not take down the run streams this subscription exists
+							// for. Retire just the lane — the 15s list poll remains the
+							// documented fallback for those markers.
+							console.warn(
+								`capnweb conversation-events lane retired after ${failures} consecutive failures: ${(result.error as Error).message}`,
+							);
+							continue;
+						}
+						throw result.error;
+					}
 					console.warn(
 						`capnweb subscription poll failed (${failures}/${SUBSCRIBE_MAX_POLL_FAILURES}): ${(result.error as Error).message}`,
 					);
@@ -796,8 +844,22 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 		this.#core.ensureLive();
 		this.#core.takeToken();
 		const resume = parseCursor(cursor);
+		// The conversation lane is a cursor position, not a run: when it holds
+		// the cursor's primary slot (the last frame the client received was a
+		// no-run frame) the run anchor is the newest REAL position in
+		// `resume.runs`, else the current run — never the sentinel itself,
+		// which no run ledger can resolve.
+		const resumePosition =
+			resume === null
+				? null
+				: resume.runId === CAPN_CONVERSATION_STREAM_ID
+					? (resume.runs?.find(
+							(position) => position.runId !== CAPN_CONVERSATION_STREAM_ID,
+						) ?? null)
+					: resume;
 		const runId =
-			resume?.runId ?? (await this.#core.nextRunId(this.#conversationId, null));
+			resumePosition?.runId ??
+			(await this.#core.nextRunId(this.#conversationId, null));
 		if (runId === null) {
 			return {
 				conversationId: this.#conversationId,
@@ -811,7 +873,7 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 		// finishing it is what makes the subsequent subscribe gap-free, and the
 		// pump rolls forward from there. `resume === null` means offset 0 of the
 		// current run — the first-connection case.
-		const offset = resume?.offset ?? 0;
+		const offset = resumePosition?.offset ?? 0;
 		const page = await this.#core.readRunEventsPage(runId, offset, 0);
 		const events: CapnEventFrame[] = page.events.map((event, index) => {
 			const frameOffset = page.stream.offset + index;

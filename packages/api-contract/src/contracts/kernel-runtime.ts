@@ -28,6 +28,7 @@ import {
 	ListHomeConversationsInputSchema,
 	ReadHomeChildRunEvidenceInputSchema,
 	ReadHomeChildRunTreeInputSchema,
+	ReadHomeConversationEventsInputSchema,
 	ReadHomeMessagesInputSchema,
 	ReadHomeRunEventsInputSchema,
 	ReadHomeRunInputSchema,
@@ -332,6 +333,18 @@ export const kernelRuntimeContract = oc
 			})
 			.input(ReadHomeRunSetInputSchema)
 			.output(z.object({ runSet: HomeRunSetSchema })),
+
+		readConversationEvents: oc
+			.route({
+				method: "GET",
+				path: "/conversations/{conversationId}/events",
+				summary:
+					"Read a conversation's run-free durable event stream by offset",
+				description:
+					"Canonical-D1 replay of a Home conversation's durable events that carry no run id — the conversation.updated overlay family (rename, pin, archive, auto-title) and, once the ledger is purged, the permanent-delete tombstone marker as the stream's terminal frame. Returns the same stream receipt shape as readRunEvents so resume-by-offset clients share one cursor model.",
+			})
+			.input(ReadHomeConversationEventsInputSchema)
+			.output(RuntimeStreamReadOutputSchema),
 
 		listPendingHomeDelegations: oc
 			.route({

@@ -40,6 +40,7 @@
 import { RuntimeStreamEventSchema } from "@tedix/api-contract/schemas/runtime-submissions";
 import type { EnqueueHomeMessageOutput } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
+	CAPN_CONVERSATION_STREAM_ID,
 	CAPN_MAX_CURSOR_RUNS,
 	CAPN_ROUTE_PATH,
 	type CapnConnectFn,
@@ -436,14 +437,24 @@ export function createCapnChatMachine(
 			.slice(-CAPN_MAX_CURSOR_RUNS)
 			.reverse()
 			.map(([runId, offset]) => ({ runId, offset }));
+		// A conversation-lane frame must not become the cursor's PRIMARY run
+		// anchor: the snapshot verb resolves the primary slot as a run, and the
+		// liveness probe anchors on it. The lane's position still travels in
+		// `runs`; the primary stays the freshest real run (or the lane itself
+		// when it is the only position seen so far).
+		const primaryRunId =
+			frame.runId === CAPN_CONVERSATION_STREAM_ID
+				? (cursor?.runId ?? frame.runId)
+				: frame.runId;
+		const primaryOffset = positions.get(primaryRunId) ?? frame.nextOffset;
 		setCursor(
 			runs.length > 1
 				? {
-						runId: frame.runId,
-						offset: runs[0]?.offset ?? frame.nextOffset,
+						runId: primaryRunId,
+						offset: primaryOffset,
 						runs,
 					}
-				: { runId: frame.runId, offset: frame.nextOffset },
+				: { runId: primaryRunId, offset: primaryOffset },
 		);
 	};
 

@@ -87,6 +87,7 @@ import type { QueryClient } from "@tanstack/react-query";
 // kept the tests green.
 import { approvalRequestIdOf } from "@/lib/projection-envelope";
 import {
+	homeConversationsQueryPrefix,
 	homeMessagesQueryKey,
 	homeRunSetQueryKey,
 	osQueryKeys,
@@ -369,6 +370,20 @@ export function patchQueryCachesFromEvent(
 			}
 			break;
 		}
+		case "conversation.updated": {
+			// The run-free lane's overlay markers — rename, pin, archive/restore,
+			// auto-title, and the delete tombstone — mutate the durable
+			// `kernel_conversations` row. The paged list shape cannot be patched
+			// (a delete or archive REMOVES a row from some variants and the row
+			// carries fields the event does not), so the canonical read
+			// refetches. The generated prefix is one namespace across the
+			// sidebar's archived/search/workspace variants and the header.
+			void queryClient.invalidateQueries({
+				queryKey: homeConversationsQueryPrefix(),
+			});
+			outcome.invalidated.push("os-home-conversations");
+			break;
+		}
 		case "artifact.created": {
 			// Workspace state: the artifact summary projection is not on the wire,
 			// so the narrowest owning keys refetch. Both are hit because the canvas
@@ -394,4 +409,5 @@ export const REALTIME_PATCHED_EVENT_KINDS: ReadonlySet<string> = new Set([
 	"approval.requested",
 	"approval.resolved",
 	"artifact.created",
+	"conversation.updated",
 ]);

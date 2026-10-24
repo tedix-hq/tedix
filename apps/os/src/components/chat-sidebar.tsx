@@ -549,8 +549,8 @@ export function conversationListQueryOptions(
 				}),
 			),
 		initialPageParam: undefined as string | undefined,
-		// No-run edits never reach the run-scoped Cap'n stream. Reconcile the
-		// canonical list while visible, including conversations outside that stream.
+		// The Cap'n stream covers the FOLLOWED conversation's run-free markers;
+		// edits to every other row still arrive only through the canonical read.
 		refetchInterval: 15_000,
 		// The composite keyset cursor is opaque to the UI; pass it back verbatim.
 		getNextPageParam: (lastPage: { nextCursor?: string | null }) =>

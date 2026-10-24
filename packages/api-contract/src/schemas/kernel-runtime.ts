@@ -1133,6 +1133,27 @@ export type ReadHomeRunEventsInput = z.infer<
 	typeof ReadHomeRunEventsInputSchema
 >;
 
+/**
+ * The conversation-scoped sibling of {@link ReadHomeRunEventsInputSchema}:
+ * pages the durable kernel events that carry NO run id — the
+ * `conversation.updated` overlay family (rename, pin, archive/restore,
+ * auto-title) plus the permanent-delete tombstone marker. Offsets are
+ * ordinals over the conversation's run-free event set ordered by
+ * (created_at, id), so the cursor contract is identical to a run stream's.
+ */
+export const ReadHomeConversationEventsInputSchema = z.object({
+	organizationId: z.string().optional(),
+	conversationId: z.string().min(1),
+	offset: z.number().int().nonnegative().optional(),
+	// Bound one offset page; absent means the server page size, matching
+	// readRunEvents.
+	limit: z.number().int().positive().optional(),
+	waitMs: z.number().int().min(0).max(30000).optional(),
+});
+export type ReadHomeConversationEventsInput = z.infer<
+	typeof ReadHomeConversationEventsInputSchema
+>;
+
 export const ResolveHomePageToolInputSchema = z.object({
 	organizationId: z.string().optional(),
 	runId: z.string().min(1),
