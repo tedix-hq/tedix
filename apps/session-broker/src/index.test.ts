@@ -19,6 +19,22 @@ function sessionStub(label: string) {
 	);
 }
 
+async function observeCoalescing(stub: ReturnType<typeof sessionStub>) {
+	const secondLookup = Promise.withResolvers<boolean>();
+	await runInDurableObject(stub, (instance: SessionRotationOwner) => {
+		// Observe the lookup after fingerprinting, while the outbound fetch is gated.
+		const inFlight = instance["inFlight"];
+		const get = inFlight.get.bind(inFlight);
+		let callers = 0;
+		vi.spyOn(inFlight, "get").mockImplementation((key) => {
+			const pending = get(key);
+			if (++callers === 2) secondLookup.resolve(pending !== undefined);
+			return pending;
+		});
+	});
+	return { secondLookup: secondLookup.promise };
+}
+
 function rotationInput(
 	tenantId: string,
 	refreshToken = "refresh-old",
@@ -175,22 +191,27 @@ describe("worker health", () => {
 
 describe("SessionRotationOwner", () => {
 	it("coalesces identical requests so one old refresh token reaches Descope once", async () => {
-		let releaseFetch: (() => void) | undefined;
-		const fetchGate = new Promise<void>((resolve) => {
-			releaseFetch = resolve;
-		});
+		const fetchStarted = Promise.withResolvers<void>();
+		const fetchGate = Promise.withResolvers<void>();
 		const fetchMock = vi.fn(async () => {
-			await fetchGate;
+			fetchStarted.resolve();
+			await fetchGate.promise;
 			return selectedSession("session-one", "refresh-one");
 		});
 		vi.stubGlobal("fetch", fetchMock);
 		const stub = sessionStub("coalesce");
+		const { secondLookup } = await observeCoalescing(stub);
 		const input = rotationInput("tenant-one");
 
 		const first = stub.rotate(input);
 		const second = stub.rotate(input);
-		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-		releaseFetch?.();
+		await fetchStarted.promise;
+		try {
+			expect(await secondLookup).toBe(true);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			fetchGate.resolve();
+		}
 
 		const [firstResult, secondResult] = await Promise.all([first, second]);
 		expect(firstResult).toEqual(secondResult);
@@ -898,15 +919,18 @@ describe("public Worker isolation", () => {
 			exp: Math.floor(Date.now() / 1000) + 300,
 			sub: "user-concurrent",
 		});
-		let releaseFetch: (() => void) | undefined;
-		const fetchGate = new Promise<void>((resolve) => {
-			releaseFetch = resolve;
-		});
+		const fetchStarted = Promise.withResolvers<void>();
+		const fetchGate = Promise.withResolvers<void>();
 		const fetchMock = vi.fn(async () => {
-			await fetchGate;
+			fetchStarted.resolve();
+			await fetchGate.promise;
 			return selectedSession(sessionToken, "refresh-rotated");
 		});
 		vi.stubGlobal("fetch", fetchMock);
+		const ownerId = await sha256("refresh-coalesce");
+		const { secondLookup } = await observeCoalescing(
+			env.SESSION_ROTATION.getByName(ownerId),
+		);
 
 		const intentIds = await Promise.all(
 			["y", "z"].map(async (suffix) => {
@@ -940,12 +964,13 @@ describe("public Worker isolation", () => {
 			),
 		);
 
-		// Hold the first rotation open. With N random owners a second, independent
-		// rotation would also reach Descope; assert it never does.
-		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		releaseFetch?.();
+		await fetchStarted.promise;
+		try {
+			expect(await secondLookup).toBe(true);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			fetchGate.resolve();
+		}
 
 		const [first, second] = await Promise.all(pending);
 		expect(first.status).toBe(302);
@@ -953,7 +978,6 @@ describe("public Worker isolation", () => {
 		// Exactly one DSR rotation reached Descope for both concurrent logins.
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		// Both requests routed to the same rotation owner (the DSR digest).
-		const ownerId = await sha256("refresh-coalesce");
 		expect(authSessionCookie(first)).toBe(ownerId);
 		expect(authSessionCookie(second)).toBe(ownerId);
 		// Both callbacks still carry a usable single-use authorization code.
