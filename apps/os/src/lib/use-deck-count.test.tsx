@@ -6,8 +6,6 @@ import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decisio
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { useDeckCount } from "./use-deck-count";
-import { deckBatchKey, useDeckBatch } from "./use-deck-batch";
-import { deckBatchWindow } from "./deck-attention";
 import { osQuery, pendingApprovalsQueryOptions } from "./os-query-options";
 
 vi.mock("./use-factory-card-count", () => ({
@@ -88,12 +86,6 @@ const rows = [1, 2, 3, 4].map((number) =>
 		responseCount: 0,
 	}),
 );
-const key = deckBatchKey(
-	"workspace",
-	"morgan",
-	undefined,
-	deckBatchWindow(config.batchTimesUtc).key,
-);
 let root: ReturnType<typeof createRoot>;
 let host: HTMLDivElement;
 let client: QueryClient;
@@ -107,23 +99,15 @@ function Count() {
 	const queue = useDeckCount(config, "workspace");
 	return <output>{queue.count}</output>;
 }
-function LegacyBatch() {
-	const { dismiss } = useDeckBatch(
-		key,
-		rows.map((row) => row.request.id),
-		2,
-		true,
-	);
-	return (
-		<>
-			<button onClick={() => dismiss(rows[0]!.request.id)}>Later</button>
-			<button onClick={() => dismiss(rows[3]!.request.id)}>
-				Later approval
-			</button>
-		</>
-	);
-}
 it("Feed, sidebar and Deck count the same gated queue despite legacy batch state", async () => {
+	sessionStorage.setItem(
+		"decision-deck:legacy-fixture",
+		JSON.stringify({
+			key: "legacy-fixture",
+			ids: rows.map((row) => row.request.id),
+			dismissed: [rows[0]!.request.id, rows[3]!.request.id],
+		}),
+	);
 	client = new QueryClient({
 		defaultOptions: {
 			queries: { enabled: false, staleTime: Infinity, retry: false },
@@ -172,17 +156,13 @@ it("Feed, sidebar and Deck count the same gated queue despite legacy batch state
 				<Count />
 				<Count />
 				<Count />
-				<LegacyBatch />
 			</QueryClientProvider>,
 		),
 	);
 	const counts = () =>
 		[...host.querySelectorAll("output")].map((element) => element.textContent);
 	expect(counts()).toEqual(["4", "4", "4"]);
-	await act(async () => host.querySelector("button")!.click());
-	await act(async () => host.querySelectorAll("button")[1]!.click());
 	expect(sessionStorage.length).toBeGreaterThan(0);
-	expect(counts()).toEqual(["4", "4", "4"]);
 	await act(async () =>
 		client.setQueryData(inboxKey, {
 			data: rows.map((row, index) =>

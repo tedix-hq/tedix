@@ -42,12 +42,6 @@ type Harness = Extract<
 >;
 type Json = Record<string, any>;
 
-/** One extracted pair before routing. */
-export interface SessionDecision extends AgentSessionDecision {
-	/** Normalized Git origin, or null outside a repository. */
-	origin: string | null;
-}
-
 export interface SessionFile {
 	harness: Harness;
 	path: string;

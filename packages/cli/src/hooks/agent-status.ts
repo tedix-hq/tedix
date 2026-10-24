@@ -42,11 +42,6 @@ import {
 	unattendedRun,
 } from "./hook-io";
 
-/**
- * The native `tedix work` verb, as decision capture creates Interactions: the
- * board accepts only the signed-in user, which Code Mode does not carry.
- */
-export const REPORT_VERB = "agent-session-report";
 const SESSION_KEY = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const ORGANIZATION = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const STATES = new Set(["working", "needs_you", "done", "error", "ended"]);

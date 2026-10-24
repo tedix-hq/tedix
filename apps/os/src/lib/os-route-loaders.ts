@@ -104,7 +104,6 @@ import {
 	workBudgetEnvelopesQueryOptions,
 	workCaseListQueryOptions,
 	workFleetQueryOptions,
-	workInteractionsQueryOptions,
 	workNeedsYouInteractionsQueryOptions,
 	workPendingApprovalsQueryOptions,
 	workResourcePoolsQueryOptions,
@@ -767,12 +766,6 @@ export async function prefetchWorkApprovalsRoute(queryClient: QueryClient) {
 		queryClient.ensureQueryData(workPendingApprovalsQueryOptions()),
 		queryClient.ensureQueryData(workApprovalsQueryOptions()),
 	]);
-}
-
-export async function prefetchWorkInteractionsRoute(queryClient: QueryClient) {
-	await queryClient
-		.ensureQueryData(workInteractionsQueryOptions())
-		.catch(() => undefined);
 }
 
 /** Start independent sources together; the page renders each as it arrives. */

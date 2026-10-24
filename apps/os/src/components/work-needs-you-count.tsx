@@ -1,23 +1,9 @@
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { useDeckCount } from "@/lib/use-deck-count";
-import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/kumo/badge";
-import {
-	agentSessionRequestsQueryOptions,
-	factoryScoreboardQueryOptions,
-	pendingApprovalsQueryOptions,
-	userProfileQueryOptions,
-	workNeedsYouInteractionsQueryOptions,
-	workPendingApprovalsQueryOptions,
-	workReadinessProjectionQueryOptions,
-} from "@/lib/os-query-options";
 
-/*
- * What belongs in Work › Needs you, kept apart from the page so the sidebar
- * count loads without the Work page modules. The page builds its rows from
- * these same predicates, so the count and the list cannot disagree.
- */
+/** Shared Needs-you row predicates; the sidebar reads the canonical Deck count. */
 
 const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
 
@@ -102,32 +88,6 @@ export function isBlockedWorkYouOwn(
 		row.workItem.accountableOwnerId === viewerId
 	);
 }
-
-/**
- * The personal sources of Needs you. Every read is a contract-derived key the
- * source pages share, so a decision made anywhere refreshes the list and the
- * count together.
- */
-export function useNeedsYouSources() {
-	const interactions = useQuery(workNeedsYouInteractionsQueryOptions());
-	const workApprovals = useQuery(workPendingApprovalsQueryOptions());
-	const runtimeApprovals = useQuery(pendingApprovalsQueryOptions());
-	const factories = useQuery(factoryScoreboardQueryOptions());
-	const readiness = useQuery(workReadinessProjectionQueryOptions());
-	const profile = useQuery(userProfileQueryOptions());
-	const sessionRequests = useQuery(agentSessionRequestsQueryOptions());
-	return {
-		interactions,
-		workApprovals,
-		runtimeApprovals,
-		factories,
-		readiness,
-		profile,
-		sessionRequests,
-	};
-}
-
-export type NeedsYouSources = ReturnType<typeof useNeedsYouSources>;
 
 /** How many rows of Needs you are yours to act on. */
 export function needsYouSourceCount(sources: {
