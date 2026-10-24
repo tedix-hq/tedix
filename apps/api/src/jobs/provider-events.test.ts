@@ -59,7 +59,20 @@ describe("provider notification maintenance", () => {
 			dispatched: 1,
 			failed: 0,
 		});
-		expect(mocks.renew).toHaveBeenCalledWith(expect.anything(), row, "vault");
+		const lease = mocks.claim.mock.calls[0][4];
+		expect(mocks.renew).toHaveBeenCalledWith(
+			expect.anything(),
+			row,
+			"vault",
+			lease,
+		);
+		expect(mocks.update).toHaveBeenCalledWith(
+			expect.anything(),
+			"org",
+			"sub",
+			expect.objectContaining({ leaseUntil: null }),
+			lease,
+		);
 		expect(mocks.queue).toHaveBeenCalledWith(
 			expect.anything(),
 			row,
@@ -81,7 +94,12 @@ describe("provider notification maintenance", () => {
 			failed: 1,
 			dispatched: 1,
 		});
-		expect(mocks.failure).toHaveBeenCalled();
+		expect(mocks.failure).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ id: "sub" }),
+			expect.any(Error),
+			mocks.claim.mock.calls.at(-1)![4],
+		);
 	});
 	it("polls mcp_events from its cursor instead of queueing a bare reconcile signal", async () => {
 		mocks.due.mockResolvedValue([
@@ -96,6 +114,7 @@ describe("provider notification maintenance", () => {
 			expect.anything(),
 			expect.objectContaining({ adapter: "mcp_events" }),
 			"vault",
+			mocks.claim.mock.calls[0][4],
 		);
 		expect(mocks.queue).not.toHaveBeenCalled();
 		expect(mocks.update).toHaveBeenCalledWith(
@@ -103,6 +122,7 @@ describe("provider notification maintenance", () => {
 			"org",
 			"sub",
 			expect.objectContaining({ status: "active", lastError: null }),
+			mocks.claim.mock.calls[0][4],
 		);
 	});
 	it("renews an mcp_events webhook only near its upstream refreshBefore", async () => {

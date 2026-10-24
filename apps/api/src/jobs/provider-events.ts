@@ -28,13 +28,14 @@ export async function maintainProviderEvents(
 		polled = 0,
 		failed = 0;
 	for (const row of await dueProviderEventSubscriptions(context.db, now)) {
+		const leaseUntil = new Date(Date.now() + 60_000).toISOString();
 		if (
 			!(await claimProviderEventSubscription(
 				context.db,
 				row.organizationId,
 				row.id,
 				now,
-				new Date(Date.now() + 60_000).toISOString(),
+				leaseUntil,
 			))
 		)
 			continue;
@@ -52,7 +53,7 @@ export async function maintainProviderEvents(
 				} = await import("../services/provider-events/mcp-events");
 				let clearError = false;
 				if (row.deliveryMode === "poll") {
-					const counts = await pollMcpEvents(internal, row, token);
+					const counts = await pollMcpEvents(internal, row, token, leaseUntil);
 					polled += counts.queued;
 					// Keep the wake-budget notice visible while events are being shed.
 					clearError = counts.rate_limited === 0;
@@ -60,7 +61,7 @@ export async function maintainProviderEvents(
 					!row.expiresAt ||
 					Date.parse(row.expiresAt) < Date.now() + MCP_EVENTS_RENEW_BEFORE_MS
 				) {
-					await renewSubscription(internal, row, token);
+					await renewSubscription(internal, row, token, leaseUntil);
 					renewed++;
 				}
 				await updateProviderEventSubscription(
@@ -78,6 +79,7 @@ export async function maintainProviderEvents(
 						).toISOString(),
 						leaseUntil: null,
 					},
+					leaseUntil,
 				);
 				continue;
 			}
@@ -86,7 +88,7 @@ export async function maintainProviderEvents(
 				(!row.expiresAt ||
 					Date.parse(row.expiresAt) < Date.now() + RENEW_BEFORE_MS)
 			) {
-				await renewSubscription(internal, row, token);
+				await renewSubscription(internal, row, token, leaseUntil);
 				renewed++;
 			}
 			if (
@@ -105,10 +107,11 @@ export async function maintainProviderEvents(
 					).toISOString(),
 					leaseUntil: null,
 				},
+				leaseUntil,
 			);
 		} catch (error) {
 			failed++;
-			await recordSubscriptionFailure(context, row, error);
+			await recordSubscriptionFailure(context, row, error, leaseUntil);
 		}
 	}
 	const pruned = await pruneProviderEvents(

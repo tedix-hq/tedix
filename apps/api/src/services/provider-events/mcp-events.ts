@@ -274,6 +274,7 @@ export async function ingestMcpEvent(
 	row: Subscription,
 	occurrence: unknown,
 	fallbackEventId?: string,
+	expectedLeaseUntil?: string,
 ): Promise<McpEventIngestOutcome> {
 	if (!isRecord(occurrence)) return "rejected";
 	const eventId =
@@ -331,6 +332,7 @@ export async function ingestMcpEvent(
 			{
 				lastError: `Wake budget of ${maxWakes} per hour reached; further events are recorded and discarded until the window resets`,
 			},
+			expectedLeaseUntil,
 		);
 		return "rate_limited";
 	}
@@ -350,6 +352,7 @@ async function ingestBatch(
 	row: Subscription,
 	occurrences: unknown[],
 	fallbackEventId?: string,
+	expectedLeaseUntil?: string,
 ) {
 	const counts: Record<McpEventIngestOutcome, number> = {
 		queued: 0,
@@ -364,6 +367,7 @@ async function ingestBatch(
 				row,
 				occurrence,
 				occurrences.length === 1 ? fallbackEventId : undefined,
+				expectedLeaseUntil,
 			)
 		]++;
 	return counts;
@@ -374,6 +378,7 @@ export async function pollMcpEvents(
 	context: BaseContext,
 	row: Subscription,
 	token: string,
+	expectedLeaseUntil?: string,
 ) {
 	const upstream = await resolveMcpEventsUpstream(context, row, token);
 	const result = await callUpstream(upstream, "events/poll", {
@@ -386,7 +391,13 @@ export async function pollMcpEvents(
 		throw new Error("Upstream events/poll returned no events array");
 	if (result.events.length > MAX_EVENTS_PER_BATCH)
 		throw new Error("Upstream events/poll exceeded the event batch limit");
-	const counts = await ingestBatch(context, row, result.events);
+	const counts = await ingestBatch(
+		context,
+		row,
+		result.events,
+		undefined,
+		expectedLeaseUntil,
+	);
 	const cursor =
 		typeof result.cursor === "string" && result.cursor.length <= 4096
 			? result.cursor
@@ -401,6 +412,7 @@ export async function pollMcpEvents(
 				? { lastNotificationAt: new Date().toISOString() }
 				: {}),
 		},
+		expectedLeaseUntil,
 	);
 	return counts;
 }
