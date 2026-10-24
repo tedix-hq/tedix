@@ -127,21 +127,21 @@ await runShellSpec(
 				.getByRole("button", { name: "Collapse sidebar", exact: true })
 				.click();
 			await page.mouse.move(600, 400);
+			await stateIs(page, "collapsed");
 			await widthIs(page, 56);
 			await page.waitForTimeout(300);
 			const contentX = await page
 				.locator(".os-main")
 				.evaluate((node) => node.getBoundingClientRect().x);
 			await page.mouse.move(25, 220);
-			await page.waitForTimeout(50);
-			const collapsedWidth = await page
-				.locator('[data-sidebar="content-container"]')
-				.evaluate((node) => node.getBoundingClientRect().width);
-			assert.ok(
-				Math.abs(collapsedWidth - 56) <= 1,
-				`Peek must wait for intent (width: ${collapsedWidth})`,
-			);
 			await stateIs(page, "peeking");
+			assert.equal(
+				await page
+					.locator('[data-sidebar="content-container"]')
+					.evaluate((node) => getComputedStyle(node).transitionDelay),
+				"0.15s",
+				"Peek must wait for intent",
+			);
 			await page.waitForTimeout(450);
 			assert.equal(
 				await page
