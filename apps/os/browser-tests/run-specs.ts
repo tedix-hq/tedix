@@ -1,4 +1,5 @@
 import { startFixtureServer } from "./fixture-server";
+import { specOutcome } from "./spec-outcome";
 import { shardSpecs } from "./spec-shards";
 
 /**
@@ -36,8 +37,9 @@ console.log(
 const results: { spec: string; outcome: string }[] = [];
 try {
 	for (const spec of specs) {
-		if (server.exitCode() !== null) {
-			results.push({ spec, outcome: "NOT RUN (fixture server exited)" });
+		const fixtureCode = server.exitCode();
+		if (fixtureCode !== null) {
+			results.push({ spec, outcome: specOutcome(null, fixtureCode) });
 			continue;
 		}
 		const begin = performance.now();
@@ -48,12 +50,7 @@ try {
 			stderr: "inherit",
 		});
 		const code = await child.exited;
-		const failure =
-			code !== 0
-				? `FAIL (exit ${code})`
-				: server.exitCode() !== null
-					? `FAIL (fixture server exited ${server.exitCode()})`
-					: "PASS";
+		const failure = specOutcome(code, server.exitCode(), child.signalCode);
 		results.push({ spec, outcome: `${failure} ${seconds(begin)}` });
 	}
 } finally {
