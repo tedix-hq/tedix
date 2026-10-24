@@ -20,7 +20,7 @@
 		"lint": "vp lint .",
 		"test": "bun run test:run",
 		"test:unit": "vp test run",
-		"test:run": "bun run test:unit && bun run test:workerd && bun run test:browser:avatars && bun run test:browser:dialogs && bun run test:browser:deck && bun run test:browser:feed-deck && bun run test:browser:viewport && bun run test:browser:members && bun run test:browser:shell && bun run test:browser:social-cards && bun run test:browser:chat-list && bun run test:browser:chat-actions && bun run test:browser:state-gallery && bun run test:browser:memory && bun run test:browser:templates && bun run test:browser:outputs && bun run test:browser:tedis && bun run test:browser:work-iphone && bun run test:browser:settings && bun run test:browser:palette",
+		"test:run": "bun run test:unit && bun run test:workerd && bun run test:browser:avatars && bun run test:browser:dialogs && bun run test:browser:deck && bun run test:browser:feed-deck && bun run test:browser:viewport && bun run test:browser:members && bun run test:browser:team-members && bun run test:browser:shell && bun run test:browser:social-cards && bun run test:browser:chat-list && bun run test:browser:chat-actions && bun run test:browser:state-gallery && bun run test:browser:memory && bun run test:browser:templates && bun run test:browser:outputs && bun run test:browser:tedis && bun run test:browser:work-iphone && bun run test:browser:settings && bun run test:browser:palette",
 		"test:workerd": "vp test run --config vitest.workers.config.ts",
 		"test:browser:install": "playwright install --with-deps chromium webkit",
 		"test:browser:shell": "bun browser-tests/run-specs.ts browser-tests/shell.spec.ts browser-tests/shell-navigation.spec.ts",
@@ -43,6 +43,7 @@
 		"test:browser:social-cards": "bun browser-tests/social-cards.spec.ts",
 		"test:browser:deck-speed": "bun browser-tests/deck-speed.spec.ts",
 		"test:browser:members": "bun browser-tests/members.spec.ts",
+		"test:browser:team-members": "bun browser-tests/team-members.spec.ts",
 		"test:browser:focus-clip": "bun browser-tests/focus-clip.spec.ts",
 		"test:ci": "bun run test:run && bun run test:browser:apps && bun run test:browser:focus-clip",
 		"type-check": "tsc --noEmit"
