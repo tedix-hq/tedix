@@ -212,6 +212,7 @@ try {
 					),
 					"loading toast persists past the default timeout",
 				);
+				await page.clock.resume();
 				lifetimeChecked = true;
 			}
 			await focusClose(page);
