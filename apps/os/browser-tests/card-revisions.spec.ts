@@ -4,13 +4,34 @@ import {
 } from "@tedix/api-contract/schemas/card-revisions";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { chromium } from "playwright";
+import { chromium, type Locator } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
-const origin =
-	process.env.CARD_REVISIONS_TEST_ORIGIN ?? "http://127.0.0.1:3047";
+const server = await startFixtureServer("/browser-tests/card-revisions.html");
+const { origin } = server;
 const screenshotDirectory = process.env.CARD_REVISIONS_SCREENSHOT_DIR;
 if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
+async function checkDisclosure(trigger: Locator, width: number) {
+	await trigger.scrollIntoViewIfNeeded();
+	const box = await trigger.boundingBox();
+	assert(box);
+	assert(
+		box.height >= (width === 390 ? 44 : 32),
+		`Disclosure height: ${box.height}px at ${width}px`,
+	);
+	assert(box.width >= 44);
+	const containerWidth = await trigger.evaluate(
+		(element) => element.parentElement!.getBoundingClientRect().width,
+	);
+	assert(Math.abs(box.width - containerWidth) < 1, "Disclosure fills its row");
+	await trigger.click({ position: { x: box.width - 4, y: box.height - 4 } });
+	assert.equal(await trigger.getAttribute("aria-expanded"), "true");
+	await trigger.press("Space");
+	assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+	await trigger.press("Enter");
+	assert.equal(await trigger.getAttribute("aria-expanded"), "true");
+}
 try {
 	for (const width of [1280, 390])
 		for (const theme of ["light", "dark"] as const) {
@@ -166,7 +187,10 @@ try {
 					.isVisible(),
 				false,
 			);
-			await page.getByText("What changed", { exact: true }).click();
+			await checkDisclosure(
+				page.getByText("What changed", { exact: true }),
+				width,
+			);
 			const credential = page.getByRole("region", {
 				name: "Replace the Firecrawl key for the radar?",
 				includeHidden: true,
@@ -225,7 +249,10 @@ try {
 
 			await page.getByRole("button", { name: "Versions", exact: true }).click();
 			await page.getByRole("button", { name: "Keep", exact: true }).click();
-			await page.getByText("Version history", { exact: true }).click();
+			await checkDisclosure(
+				page.getByText("Version history", { exact: true }),
+				width,
+			);
 			await page
 				.getByRole("spinbutton", { name: "Compare from version" })
 				.fill("1");
@@ -450,4 +477,5 @@ try {
 	);
 } finally {
 	await browser.close();
+	await server.stop();
 }
