@@ -352,7 +352,7 @@ function OutputCard(props: OutputCardProps) {
 			aria-label={cardLabel}
 			tier="panel"
 			aria-disabled={contentAvailable ? undefined : true}
-			className={`output-grid-card group relative outline-none transition-[border-color] motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:border-kumo-fill" : "cursor-default"}`}
+			className={`output-grid-card group relative overflow-visible outline-none transition-[border-color] motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:border-kumo-fill" : "cursor-default"}`}
 			render={<li />}
 		>
 			{openControl}
