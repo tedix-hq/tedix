@@ -11,8 +11,8 @@ document.documentElement.style.colorScheme = dark ? "dark" : "light";
 
 const statusDetail =
 	"Credential or reference verification is incomplete; provider health is unknown.";
-const tokenDescription =
-	"Create, rotate, and revoke automation credentials for tenant-org-0000aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666";
+const narrowToken =
+	"tenant-org-0000aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666";
 
 createRoot(document.getElementById("root")!).render(
 	<Page width="md">
@@ -41,7 +41,7 @@ createRoot(document.getElementById("root")!).render(
 				<AdminLinkRow
 					to="/admin/api-keys"
 					title="API keys"
-					description={tokenDescription}
+					description={narrowToken}
 					icon={Buildings}
 				/>
 			</Collection>
