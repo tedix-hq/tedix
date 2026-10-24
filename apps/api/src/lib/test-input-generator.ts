@@ -18,6 +18,8 @@ interface JSONSchemaProperty {
 	maximum?: number;
 	minLength?: number;
 	maxLength?: number;
+	minItems?: number;
+	maxItems?: number;
 	pattern?: string;
 	format?: string;
 	items?: JSONSchemaProperty;
@@ -322,11 +324,13 @@ function generateNumberValue(schema: JSONSchemaProperty): number {
  * Generate an array value
  */
 function generateArrayValue(schema: JSONSchemaProperty): unknown[] {
-	if (schema.items) {
-		// Generate one item of the specified type
-		return [generateValue("item", schema.items)];
-	}
-	return [];
+	const length = Math.min(
+		Math.max(schema.minItems ?? 0, schema.items ? 1 : 0),
+		schema.maxItems ?? Number.POSITIVE_INFINITY,
+	);
+	return Array.from({ length }, () =>
+		generateValue("item", schema.items ?? {}),
+	);
 }
 
 /**
