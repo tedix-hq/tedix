@@ -49,38 +49,13 @@ try {
 			);
 			assert.equal(
 				await heading.getAttribute("tabindex"),
-				"0",
-				`${label}: name is keyboard reachable`,
-			);
-			const compactHeight = await heading.evaluate((el) => el.clientHeight);
-			assert(
-				await heading.evaluate((el) => el.scrollHeight > el.clientHeight),
-				`${label}: long name starts compact`,
-			);
-			await heading.focus();
-			await page.keyboard.press("Tab");
-			await page.keyboard.press("Shift+Tab");
-			assert(
-				await heading.evaluate((el) => el === document.activeElement),
-				`${label}: Tab reaches name`,
+				null,
+				`${label}: heading is not a noninteractive tab stop`,
 			);
 			assert(
 				await heading.evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
-				`${label}: focused name is fully visible`,
+				`${label}: long name is fully visible`,
 			);
-			assert((await heading.evaluate((el) => el.clientHeight)) > compactHeight);
-			await page.keyboard.press("Tab");
-			assert.equal(
-				await heading.evaluate((el) => el.clientHeight),
-				compactHeight,
-				`${label}: blur compacts name`,
-			);
-			await heading.hover();
-			assert(
-				await heading.evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
-				`${label}: hovered name is fully visible`,
-			);
-			assert((await heading.evaluate((el) => el.clientHeight)) > compactHeight);
 			assert(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth,

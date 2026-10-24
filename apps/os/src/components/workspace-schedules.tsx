@@ -89,8 +89,7 @@ function WorkspaceScheduleRow({
 					role="section"
 					tone="strong"
 					weight="semibold"
-					tabIndex={0}
-					className="m-0 line-clamp-1 wrap-anywhere hover:line-clamp-none focus:line-clamp-none focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-kumo-ring"
+					className="m-0 wrap-anywhere"
 				>
 					{schedule.name}
 				</Text>
