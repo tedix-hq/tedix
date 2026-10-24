@@ -69,6 +69,35 @@ export function WorkspaceLibraryPage() {
 	const [favoriteRefreshFailed, setFavoriteRefreshFailed] = useState(false);
 	const favorite = useMutation({
 		...osQuery.osWorkspaces.workspacePreferences.setFavorite.mutationOptions(),
+		onMutate: async ({ workspaceId, favorite }) => {
+			const options = workspacePreferencesQueryOptions();
+			await queryClient.cancelQueries(options);
+			const previous = queryClient.getQueryData(options.queryKey);
+			queryClient.setQueryData(options.queryKey, (old) => ({
+				items: [
+					...(old?.items ?? []).filter(
+						(item) => item.workspaceId !== workspaceId,
+					),
+					{
+						workspaceId,
+						favorite,
+						lastOpenedAt:
+							old?.items.find((item) => item.workspaceId === workspaceId)
+								?.lastOpenedAt ?? null,
+						updatedAt: new Date().toISOString(),
+					},
+				],
+			}));
+			return { previous };
+		},
+		onError: (_error, _input, context) => {
+			if (context?.previous) {
+				queryClient.setQueryData(
+					workspacePreferencesQueryOptions().queryKey,
+					context.previous,
+				);
+			}
+		},
 		onSettled: () => {
 			favoriteInFlight.current = false;
 		},

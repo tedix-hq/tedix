@@ -194,6 +194,71 @@ describe("WorkspaceLibraryPage", () => {
 		act(() => root.unmount());
 	});
 
+	it("puts stars before alphabetical rows and moves them before saving, with rollback", async () => {
+		api.workspaces.list.mockResolvedValue({
+			items: [
+				workspace({ id: "plain-z", name: "Zulu" }),
+				workspace({ id: "star-z", name: "Zebra" }),
+				workspace({ id: "plain-a", name: "Alpha" }),
+				workspace({ id: "star-b", name: "Beta" }),
+			],
+			truncated: false,
+		});
+		let items = ["star-z", "star-b"].map((workspaceId) => ({
+			workspaceId,
+			favorite: true,
+			lastOpenedAt: null,
+			updatedAt: "2026-10-24",
+		}));
+		api.workspacePreferences.list.mockImplementation(async () => ({ items }));
+		let resolveSave!: () => void;
+		let rejectSave!: (error: Error) => void;
+		api.workspacePreferences.setFavorite.mockImplementation(
+			() =>
+				new Promise<{ preference: (typeof items)[number] }>(
+					(resolve, reject) => {
+						resolveSave = () =>
+							resolve({ preference: items[items.length - 1]! });
+						rejectSave = reject;
+					},
+				),
+		);
+		const { container, root } = await renderPage();
+		const names = () =>
+			[...container.querySelectorAll('ul[aria-label="Workspaces"] strong')].map(
+				(row) => row.textContent,
+			);
+		expect(names()).toEqual(["Beta", "Zebra", "Alpha", "Zulu"]);
+		click(
+			container.querySelector('button[aria-label="Add Alpha to favorites"]')!,
+		);
+		await flush();
+		expect(names()).toEqual(["Alpha", "Beta", "Zebra", "Zulu"]);
+		items = [
+			...items,
+			{
+				workspaceId: "plain-a",
+				favorite: true,
+				lastOpenedAt: null,
+				updatedAt: "2026-10-24",
+			},
+		];
+		await act(async () => resolveSave());
+		await flush();
+		click(
+			container.querySelector(
+				'button[aria-label="Remove Beta from favorites"]',
+			)!,
+		);
+		await flush();
+		expect(names()).toEqual(["Alpha", "Zebra", "Beta", "Zulu"]);
+		await act(async () => rejectSave(new Error("Save failed")));
+		await flush();
+		expect(names()).toEqual(["Alpha", "Beta", "Zebra", "Zulu"]);
+		expect(container.textContent).toContain("Could not save favorite");
+		act(() => root.unmount());
+	});
+
 	it("uses the full page lane and progressively discloses a long library", async () => {
 		api.workspaces.list.mockResolvedValue({
 			items: Array.from({ length: 18 }, (_, index) =>
@@ -544,10 +609,12 @@ describe("Workspace library recovery", () => {
 		const toggle = button(container, "Add Support Desk to favorites");
 		click(toggle);
 		await flush();
-		expect(button(container, "Add Support Desk to favorites").disabled).toBe(
-			true,
+		const pendingToggle = button(
+			container,
+			"Remove Support Desk from favorites",
 		);
-		click(button(container, "Add Support Desk to favorites"));
+		expect(pendingToggle.disabled).toBe(true);
+		click(pendingToggle);
 		expect(api.workspacePreferences.setFavorite).toHaveBeenCalledTimes(1);
 		expect(container.textContent).toContain("Saving favorite");
 		act(() => root.unmount());
@@ -570,10 +637,14 @@ describe("Workspace library recovery", () => {
 				vi.spyOn(queryClient, method).mockRejectedValue(
 					new Error("refresh rejected"),
 				);
-			else
-				vi.spyOn(queryClient, method).mockImplementation(() => {
-					throw new Error("cache rejected");
-				});
+			else {
+				const setQueryData = queryClient.setQueryData.bind(queryClient);
+				vi.spyOn(queryClient, method)
+					.mockImplementationOnce(setQueryData)
+					.mockImplementation(() => {
+						throw new Error("cache rejected");
+					});
+			}
 			click(button(container, "Add Support Desk to favorites"));
 			await flush();
 			expect(container.textContent).toContain("Favorite saved");

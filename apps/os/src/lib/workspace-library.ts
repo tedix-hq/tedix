@@ -34,7 +34,13 @@ export function groupWorkspaceLibrary(
 		.map((workspace) => ({
 			workspace,
 			preference: preferenceById.get(workspace.id) ?? null,
-		}));
+		}))
+		.sort(
+			(left, right) =>
+				Number(right.preference?.favorite ?? false) -
+					Number(left.preference?.favorite ?? false) ||
+				left.workspace.name.localeCompare(right.workspace.name),
+		);
 	return {
 		favorites: all.filter((entry) => entry.preference?.favorite),
 		recent: all
