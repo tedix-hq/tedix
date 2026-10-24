@@ -100,7 +100,7 @@ export function AdminLinkRow({
 					<Text
 						role="label"
 						tone="secondary"
-						className="mt-1 break-words"
+						className="mt-1 max-sm:max-w-[18rem] break-words"
 						data-row-description
 					>
 						{description}
