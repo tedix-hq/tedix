@@ -11,6 +11,8 @@ await mkdir(evidence, { recursive: true });
 const server = await startFixtureServer(
 	"/browser-tests/admin-destinations.html",
 );
+const narrowToken =
+	"tenant-org-0000aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666";
 const browser = await chromium.launch({ headless: true });
 const started = performance.now();
 let checks = 0;
@@ -44,6 +46,10 @@ try {
 			});
 			assert.equal(metrics.overflow, 0, `${width}/${theme}: page overflow`);
 			assert.equal(metrics.descriptions.length, 3);
+			assert.ok(
+				metrics.descriptions.some(({ text }) => text === narrowToken),
+				`${width}/${theme}: exact narrow token row is rendered`,
+			);
 			for (const description of metrics.descriptions) {
 				assert.ok(
 					description.scrollWidth <= description.width,
