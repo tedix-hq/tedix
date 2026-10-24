@@ -152,6 +152,15 @@ function uniqueOverlap(queryWords: ReadonlySet<string>, text: string): number {
 	return overlap;
 }
 
+function finiteFloorOrDefault(
+	value: number | undefined,
+	fallback: number,
+): number {
+	return value !== undefined && Number.isFinite(value)
+		? Math.floor(value)
+		: fallback;
+}
+
 export interface SelectRetrievedSkillsOptions {
 	/** Top-K to return; clamped to [0, {@link SKILL_RETRIEVAL_MAX_TOP_K}]. 0 disables. */
 	topK?: number;
@@ -171,12 +180,18 @@ export function selectRetrievedSkillCandidates(
 	query: string,
 	options?: SelectRetrievedSkillsOptions,
 ): RetrievedSkillMatch[] {
-	const topK = Math.min(Math.max(Math.floor(options?.topK ?? 40), 0), 40);
+	const topK = Math.min(
+		Math.max(finiteFloorOrDefault(options?.topK, 40), 0),
+		40,
+	);
 	if (topK === 0) return [];
 	if (!query || query.length < SKILL_RETRIEVAL_MIN_QUERY_LEN) return [];
 	if (skills.length === 0) return [];
 	const minOverlap = Math.max(
-		Math.floor(options?.minOverlap ?? SKILL_RETRIEVAL_DEFAULT_MIN_OVERLAP),
+		finiteFloorOrDefault(
+			options?.minOverlap,
+			SKILL_RETRIEVAL_DEFAULT_MIN_OVERLAP,
+		),
 		1,
 	);
 	const now = options?.now ?? new Date();
@@ -216,7 +231,10 @@ export function selectRetrievedSkills(
 	options?: SelectRetrievedSkillsOptions,
 ): RetrievedSkillMatch[] {
 	const topK = Math.min(
-		Math.max(Math.floor(options?.topK ?? SKILL_RETRIEVAL_DEFAULT_TOP_K), 0),
+		Math.max(
+			finiteFloorOrDefault(options?.topK, SKILL_RETRIEVAL_DEFAULT_TOP_K),
+			0,
+		),
 		SKILL_RETRIEVAL_MAX_TOP_K,
 	);
 	return selectRetrievedSkillCandidates(skills, query, { ...options, topK });
@@ -264,7 +282,10 @@ export function selectSkillsForTurn(
 	options?: SelectSkillsForTurnOptions,
 ): SkillsForTurnSelection {
 	const topK = Math.min(
-		Math.max(Math.floor(options?.topK ?? SKILL_RETRIEVAL_DEFAULT_TOP_K), 0),
+		Math.max(
+			finiteFloorOrDefault(options?.topK, SKILL_RETRIEVAL_DEFAULT_TOP_K),
+			0,
+		),
 		SKILL_RETRIEVAL_MAX_TOP_K,
 	);
 	const referencedSlugs = options?.referencedSlugs ?? [];
