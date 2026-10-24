@@ -284,8 +284,10 @@ function workflowRecordStatus(data: unknown): SkillWorkflowStep["status"] {
 	}
 }
 
-function numberValue(value: unknown): number | null {
-	return typeof value === "number" && Number.isFinite(value) ? value : null;
+function nonnegativeNumberValue(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0
+		? value
+		: null;
 }
 
 function booleanValue(value: unknown): boolean | null {
@@ -361,7 +363,9 @@ export function parseSkillWorkflowRecords(
 					? ("pending" as const)
 					: artifact.outcome,
 			status,
-			durationMs: numberValue(recordUnknown(parsedData, ["durationMs"])),
+			durationMs: nonnegativeNumberValue(
+				recordUnknown(parsedData, ["durationMs"]),
+			),
 			retryable: workflowRetryable(parsedData),
 			sensitiveOutput: booleanValue(
 				recordUnknown(parsedData, ["sensitiveOutput"]),
@@ -561,7 +565,7 @@ export function computeSkillRunCostSummary(args: {
 		toolCalls: currentToolCalls.length,
 		toolCallsByNamespace,
 		stepDurationMs: attemptRecords.reduce(
-			(sum, step) => sum + (step.durationMs ?? 0),
+			(sum, step) => sum + (nonnegativeNumberValue(step.durationMs) ?? 0),
 			0,
 		),
 		wallMs: durationMs(args),
