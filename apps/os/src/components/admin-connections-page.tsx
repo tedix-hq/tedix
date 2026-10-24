@@ -2,10 +2,11 @@ import { CapabilityNavigation } from "@/components/capability-navigation";
 /**
  * Admin › Connections
  *
- * Organization-wide credential governance on the `connections` oRPC contract:
- * OAuth providers (Connect → session-broker handoff → Descope Vault), API-key
- * providers (Connect → key form → Descope AIH Token Vault), org vs personal
- * credential sections, and the Descope OutboundApplications widget preview.
+ * Organization connections and My accounts on the `connections` oRPC
+ * contract. Both scopes render the same `AccountList`: OAuth providers
+ * (Connect → session-broker handoff → Descope Vault) and API-key providers
+ * (Connect → key form → Descope AIH Token Vault) share one row anatomy and one
+ * status vocabulary; only the owner differs.
  *
  * Section access is gated once by the /admin layout; the page itself is
  * readable with `apps:read`. Personal OAuth uses that same member permission,
@@ -19,14 +20,12 @@ import { CapabilityNavigation } from "@/components/capability-navigation";
  */
 
 import type {
-	ConnectionInventory,
 	ConnectionProvider,
 	ConnectionInventoryRow,
-	UserConnection,
 } from "@tedix/api-contract/schemas/connections";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Buildings, CaretDown, Info, Plugs, User } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Info, Plugs } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
 import { isImeComposing } from "@/lib/keyboard";
 import {
 	Alert,
@@ -34,13 +33,7 @@ import {
 	AlertDescription,
 	AlertTitle,
 } from "@/components/kumo/alert";
-import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
 import {
 	Empty,
 	EmptyDescription,
@@ -60,28 +53,24 @@ import { Input } from "@/components/kumo/input";
 import { SearchInput } from "@/components/kumo/search-input";
 import { SensitiveInput } from "@/components/kumo/sensitive-input";
 import {
-	Collection,
 	Page,
 	PageDescription,
 	PageHeader,
 	PageHeading,
-	PageSection,
 	PageTitle,
 	PageToolbar,
-	SectionActions,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
 } from "@/components/kumo/page";
 
 import { KumoTabs } from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
-import { ConnectionListItem } from "@/components/connection-list-item";
 import {
-	PersonalProviderAccounts,
-	friendlyPersonalProviderName,
-} from "@/components/personal-provider-accounts";
+	AccountList,
+	accountLabel as accountDisplayLabel,
+	accountStatus,
+	friendlyProviderName,
+	groupAccounts,
+	type ServiceHealth,
+} from "@/components/account-list";
 import {
 	DisconnectConnectionDialog,
 	type DisconnectConnectionTarget,
@@ -101,6 +90,7 @@ import {
 	useConnectionCompleteListener,
 	useDisconnectConnection,
 } from "@/lib/connections-actions";
+import { connectionAccountMode } from "@tedix/api-contract/utils/connection-account-mode";
 import { osApi, osDirectReadApi } from "@/lib/api";
 import {
 	connectionsOverviewQueryOptions,
@@ -118,78 +108,30 @@ export function connectionInventoryCountLabel(
 	return `${shown} of ${hasMore ? `first ${loaded}` : loaded} shown`;
 }
 
-export function filterPersonalAccountRows(
+/** Search and status tabs over exact account rows, in either owner scope. */
+export function filterAccountRows(
 	rows: ConnectionInventoryRow[],
 	q: string,
 	status: ConnectionStatusFilter,
 ) {
 	const query = q.trim().toLowerCase();
 	return rows.filter((row) => {
-		if (row.provider.connectionType !== "oauth") return false;
 		if (
 			query &&
-			!`${row.provider.name} ${friendlyPersonalProviderName(row.provider)} ${row.instanceLabel ?? ""}`
+			!`${row.provider.name} ${friendlyProviderName(row.provider)} ${row.instanceLabel ?? ""}`
 				.toLowerCase()
 				.includes(query)
 		)
 			return false;
-		const connected =
-			row.accountState === "present" && row.connection?.status === "connected";
-		if (status === "attention")
-			return (
-				!connected ||
-				row.capabilities?.some((capability) => capability.state !== "connected")
-			);
-		if (status === "connected") return connected;
-		if (status === "not_connected")
-			return (
-				row.accountState === "missing" || row.connection?.status === "revoked"
-			);
+		const kind = accountStatus(row).kind;
+		if (status === "attention") return kind === "attention";
+		if (status === "connected") return kind === "connected";
+		if (status === "not_connected") return kind === "available";
 		if (status === "used") return row.references.length > 0;
 		if (status === "unused")
 			return row.referencesComplete && row.references.length === 0;
 		return true;
 	});
-}
-
-export function ConnectionVerificationNotice({
-	issues,
-}: {
-	issues: ConnectionInventory["issues"];
-}) {
-	if (issues.length === 0) return null;
-	return (
-		<Alert>
-			<Info aria-hidden />
-			<AlertTitle>Verification incomplete</AlertTitle>
-			<AlertDescription>
-				Some accounts could not be checked. Your existing connections have not
-				changed.
-			</AlertDescription>
-			<Collapsible>
-				<CollapsibleTrigger className="mt-2">
-					View {issues.length} verification{" "}
-					{issues.length === 1 ? "issue" : "issues"}
-					<CaretDown size={14} aria-hidden />
-				</CollapsibleTrigger>
-				<CollapsibleContent>
-					<ul className="space-y-2 pt-2 text-kumo-subtle type-tedix-body">
-						{issues.map((issue) => (
-							<li key={issue.source}>
-								<strong className="text-kumo-default">
-									{issue.source === "credentials"
-										? "Credentials"
-										: "App references"}
-									:
-								</strong>{" "}
-								{issue.message}
-							</li>
-						))}
-					</ul>
-				</CollapsibleContent>
-			</Collapsible>
-		</Alert>
-	);
 }
 
 export function AdminConnectionsPage({
@@ -219,15 +161,11 @@ export function AdminConnectionsPage({
 		}),
 	);
 	const inventory = providersQuery.data?.rows ?? [];
-	const defaultInventory = inventory.filter((row) => !row.connectionInstanceId);
-	const namedInventory = inventory.filter((row) => row.connectionInstanceId);
-	const providers = defaultInventory.map((row) => row.provider);
-	const connections = defaultInventory.flatMap((row) =>
-		row.connection ? [row.connection] : [],
-	);
-	const inventoryByProvider = new Map(
-		defaultInventory.map((row) => [row.provider.appId, row]),
-	);
+	const providers = [
+		...new Map(
+			inventory.map((row) => [row.provider.appId, row.provider]),
+		).values(),
+	];
 
 	// ---------------------------------------------------------------------------
 	// Connection / disconnect state
@@ -239,16 +177,18 @@ export function AdminConnectionsPage({
 	);
 	const [apiKeyValue, setApiKeyValue] = useState("");
 	const [apiKeyFields, setApiKeyFields] = useState<Record<string, string>>({});
-	const [disconnectingKey, setDisconnectingKey] = useState<{
-		appId: string;
-	} | null>(null);
 	const [disconnectTarget, setDisconnectTarget] =
 		useState<DisconnectConnectionTarget | null>(null);
 	/** OS mounts no global toaster; action failures render as an inline alert. */
 	const [reviewedProvider, setReviewedProvider] =
 		useState<ConnectionProvider | null>(null);
 	const [pendingConnect, setPendingConnect] = useState<
-		(ConnectionInventoryRow & { requestedScopes?: string[] }) | null
+		| (ConnectionInventoryRow & {
+				requestedScopes?: string[];
+				/** Replaces a working credential, so the dialog states the consequence. */
+				reconnect?: boolean;
+		  })
+		| null
 	>(null);
 	const canConfirmConnect =
 		pendingConnect?.scope === "user" &&
@@ -298,123 +238,28 @@ export function AdminConnectionsPage({
 			setActionError(errorMessage(error, "Could not bind personal account")),
 	});
 	const [serviceHealthByProvider, setServiceHealthByProvider] = useState<
-		Record<
-			string,
-			{
-				status: "checking" | "healthy" | "unhealthy" | "error";
-				detail: string;
-				appSlug: string;
-				toolCount: number | null;
-				checkedAt?: string;
-			}
-		>
+		Record<string, ServiceHealth | undefined>
 	>({});
 
 	// ---------------------------------------------------------------------------
-	// Group connections by provider, split by scope
+	// One list for both owners: filter exact rows, then group by provider.
 	// ---------------------------------------------------------------------------
-	const { orgConnectionsByProvider, personalConnectionsByProvider } =
-		useMemo(() => {
-			const org = new Map<string, UserConnection[]>();
-			const personal = new Map<string, UserConnection[]>();
-			for (const c of connections) {
-				if (c.tokenScope === "user") {
-					const existing = personal.get(c.appId) ?? [];
-					existing.push(c);
-					personal.set(c.appId, existing);
-				} else {
-					const existing = org.get(c.appId) ?? [];
-					existing.push(c);
-					org.set(c.appId, existing);
-				}
-			}
-			return {
-				orgConnectionsByProvider: org,
-				personalConnectionsByProvider: personal,
-			};
-		}, [connections]);
-
-	// ---------------------------------------------------------------------------
-	// Filter providers
-	// ---------------------------------------------------------------------------
-	const filterProviders = (
-		list: ConnectionProvider[],
-		scopedConnections: Map<string, UserConnection[]>,
-	) => {
-		return list.filter((p) => {
-			if (q && !p.name.toLowerCase().includes(q.toLowerCase())) {
-				return false;
-			}
-			const hasConnection = (scopedConnections.get(p.appId)?.length ?? 0) > 0;
-			// "used" — only providers actually referenced by this org's apps OR
-			// already connected. Default view; cuts the project-wide noise of 13+
-			// providers down to the ones that matter for this tenant.
-			if (statusFilter === "used" && !p.referencedByOrg) {
-				return false;
-			}
-			const row = inventoryByProvider.get(p.appId);
-			if (
-				statusFilter === "unused" &&
-				(!row?.referencesComplete || row.references.length > 0)
-			)
-				return false;
-			if (
-				statusFilter === "attention" &&
-				row?.accountState === "present" &&
-				!row.capabilities?.some(
-					(capability) => capability.state !== "connected",
-				)
-			)
-				return false;
-			if (statusFilter === "connected" && !hasConnection) return false;
-			if (statusFilter === "not_connected" && hasConnection) return false;
-			return true;
-		});
-	};
-
-	const orgEligibleProviders = providers.filter((p) => {
-		const hasOrgConnection =
-			(orgConnectionsByProvider.get(p.appId)?.length ?? 0) > 0;
-		return (
-			scope === "organization" &&
-			p.connectionType !== "oauth" &&
-			(p.supportedScopes?.includes("tenant") || hasOrgConnection)
-		);
-	});
-	const personalEligibleProviders = providers.filter(
-		(p) =>
-			scope === "personal" &&
-			p.supportedScopes?.includes("user") &&
-			p.connectionType !== "oauth",
-	);
-	const filteredOrgProviders = filterProviders(
-		orgEligibleProviders,
-		orgConnectionsByProvider,
-	);
-	const filteredPersonalProviders = filterProviders(
-		personalEligibleProviders,
-		personalConnectionsByProvider,
-	);
 	const accountScope = scope === "organization" ? "tenant" : "user";
 	const canManageAccounts =
 		accountScope === "tenant"
 			? canManageConnections
 			: canManagePersonalOauthConnections;
-	const filteredPersonalAccounts = filterPersonalAccountRows(
-		inventory,
-		q,
-		statusFilter,
-	);
-	const personalAccountGroups = new Map<string, ConnectionInventoryRow[]>();
-	for (const row of filteredPersonalAccounts) {
-		const group = personalAccountGroups.get(row.provider.appId) ?? [];
-		group.push(row);
-		personalAccountGroups.set(row.provider.appId, group);
-	}
-	const totalFiltered =
-		filteredOrgProviders.length +
-		filteredPersonalProviders.length +
-		filteredPersonalAccounts.length;
+	const canManageRow = (row: ConnectionInventoryRow) =>
+		row.scope === "user" && row.provider.connectionType === "oauth"
+			? canManagePersonalOauthConnections
+			: canManageConnections;
+	const deniedReason = (row: ConnectionInventoryRow) =>
+		row.scope === "user" && row.provider.connectionType === "oauth"
+			? "Managing your own account requires workspace access."
+			: "Only an organization admin can change shared accounts and API keys.";
+	const filteredAccounts = filterAccountRows(inventory, q, statusFilter);
+	const accountGroups = groupAccounts(filteredAccounts);
+	const totalFiltered = filteredAccounts.length;
 
 	// ---------------------------------------------------------------------------
 	// Review a setup deep link before opening consent or replacing a credential.
@@ -491,14 +336,12 @@ export function AdminConnectionsPage({
 	// ---------------------------------------------------------------------------
 	const disconnectMutation = useDisconnectConnection({
 		onSuccess: () => {
-			setDisconnectingKey(null);
 			setDisconnectTarget(null);
 			setActionError(null);
 		},
 	});
 	useEffect(() => {
 		if (disconnectMutation.isError) {
-			setDisconnectingKey(null);
 			setActionError(
 				errorMessage(
 					disconnectMutation.error,
@@ -532,15 +375,12 @@ export function AdminConnectionsPage({
 	// ---------------------------------------------------------------------------
 	// Connect handler
 	// ---------------------------------------------------------------------------
+	const canAddAccount = (provider: ConnectionProvider) =>
+		canManageAccounts &&
+		provider.referencedByOrg &&
+		connectionAccountMode(provider).mode === "multiple";
 	const handleAddPersonalAccount = (provider: ConnectionProvider) => {
-		if (
-			!canManageAccounts ||
-			connectingAppId ||
-			provider.connectionType !== "oauth" ||
-			provider.registrationMode === "cimd" ||
-			!provider.referencedByOrg
-		)
-			return;
+		if (!canAddAccount(provider) || connectingAppId) return;
 		setConnectingAppId(provider.appId);
 		setActionError(null);
 		void startNamedOauthConnect({
@@ -642,18 +482,6 @@ export function AdminConnectionsPage({
 		});
 	};
 
-	// ---------------------------------------------------------------------------
-	// Disconnect callbacks for list items
-	// ---------------------------------------------------------------------------
-	const handleDisconnect = (appId: string, tokenScope: "tenant" | "user") => {
-		setDisconnectTarget({
-			appId,
-			providerName:
-				providers.find((provider) => provider.appId === appId)?.name ??
-				"service",
-			tokenScope,
-		});
-	};
 	const handleCheckService = async (providerId: string, appSlug: string) => {
 		setServiceHealthByProvider((current) => ({
 			...current,
@@ -770,18 +598,16 @@ export function AdminConnectionsPage({
 				<CapabilityNavigation active={scope} />
 			</div>
 
-			{canManageConnections ? null : (
+			{inventory.some((row) => !canManageRow(row)) && (
 				<Alert>
 					<Info aria-hidden />
 					<AlertTitle>
-						{canManagePersonalOauthConnections
-							? "You can manage your personal OAuth connections"
-							: "You have read-only access to connections"}
+						{inventory.some(canManageRow)
+							? "Some accounts are view-only for you"
+							: "You can view these accounts but not change them"}
 					</AlertTitle>
 					<AlertDescription>
-						{canManagePersonalOauthConnections
-							? "Organization connections and API keys remain read-only. Ask an organization admin to manage shared credentials."
-							: "Connecting and disconnecting requires workspace access. Ask an organization admin to make the change, or to grant it."}
+						Ask an organization admin to make the change, or to give you access.
 					</AlertDescription>
 				</Alert>
 			)}
@@ -814,9 +640,6 @@ export function AdminConnectionsPage({
 				</Alert>
 			)}
 
-			<ConnectionVerificationNotice
-				issues={providersQuery.data?.issues ?? []}
-			/>
 			<Dialog
 				open={accountEditor !== null}
 				onOpenChange={(open) => {
@@ -865,27 +688,23 @@ export function AdminConnectionsPage({
 			)}
 			{isPending ? (
 				<ListSkeleton rows={4} />
-			) : providersQuery.isError ? null : providers.length === 0 &&
-			  namedInventory.length === 0 ? (
+			) : providersQuery.isError ? null : inventory.length === 0 ? (
 				<Empty appearance="quiet">
 					<EmptyHeader>
 						<EmptyMedia variant="icon">
 							<Plugs aria-hidden="true" />
 						</EmptyMedia>
-						<EmptyTitle>No connections in this view</EmptyTitle>
+						<EmptyTitle>No accounts yet</EmptyTitle>
 						<EmptyDescription>
-							No accounts or app requirements were found in this view. Personal
-							accounts are managed separately.
+							{scope === "organization"
+								? "When an app in this organization needs an account, it appears here to connect."
+								: "When an app you use needs your own account, it appears here to connect."}
 						</EmptyDescription>
 					</EmptyHeader>
 				</Empty>
 			) : (
 				<>
-					{/* Filter toolbar */}
-					<PageToolbar
-						aria-label="Connection inventory controls"
-						appearance="inline"
-					>
+					<PageToolbar aria-label="Account list controls" appearance="inline">
 						<div className="min-w-0 flex-1">
 							<KumoTabs
 								className="min-w-0 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-w-11"
@@ -895,7 +714,7 @@ export function AdminConnectionsPage({
 										status: value as ConnectionStatusFilter,
 									})
 								}
-								aria-label="Connection status"
+								aria-label="Account status"
 								size="sm"
 								tabs={[
 									{ value: "all", label: "All", className: "text-xs" },
@@ -904,7 +723,7 @@ export function AdminConnectionsPage({
 										label: "Needs attention",
 										className: "text-xs",
 									},
-									{ value: "used", label: "Referenced", className: "text-xs" },
+									{ value: "used", label: "In use", className: "text-xs" },
 									{ value: "unused", label: "Unused", className: "text-xs" },
 								]}
 							/>
@@ -912,8 +731,8 @@ export function AdminConnectionsPage({
 
 						<SearchInput
 							containerClassName="w-full max-sm:min-h-11 lg:w-72 lg:shrink-0"
-							aria-label="Search connections"
-							placeholder="Search connections..."
+							aria-label="Search accounts"
+							placeholder="Search accounts..."
 							value={q}
 							onChange={(e) => onSearchChange({ q: e.target.value })}
 							trailing={
@@ -928,83 +747,63 @@ export function AdminConnectionsPage({
 						/>
 					</PageToolbar>
 
-					{/* No results after filtering */}
-					{totalFiltered === 0 && (
+					{totalFiltered === 0 ? (
 						<Empty appearance="quiet">
 							<EmptyDescription>
-								No connections match your filters
+								No accounts match your filters
 							</EmptyDescription>
 						</Empty>
-					)}
-
-					{/* Organization connections */}
-					{filteredOrgProviders.length > 0 && (
-						<ProviderSection
-							icon={<Buildings className="h-4 w-4 text-kumo-subtle" />}
-							title="Organization connections"
-							description="Organization-owned credentials. App references do not prove permission to use them or provider health."
-							providers={filteredOrgProviders}
-							inventoryByProvider={inventoryByProvider}
-							connectionsByProvider={orgConnectionsByProvider}
-							connectingAppId={connectingAppId}
-							disconnectingKey={disconnectingKey}
-							isDisconnecting={disconnectMutation.isPending}
-							onConnect={handleConnect}
-							onDisconnect={handleDisconnect}
-							canManageOrganizationConnections={canManageConnections}
-							canManagePersonalOauthConnections={
-								canManagePersonalOauthConnections
-							}
-							serviceHealthByProvider={serviceHealthByProvider}
-							onCheckService={handleCheckService}
-							sectionScope="tenant"
-						/>
-					)}
-
-					{/* Personal connections */}
-					{[...personalAccountGroups.entries()].map(([providerId, rows]) => (
-						<PersonalProviderAccounts
-							key={providerId}
-							provider={rows[0]!.provider}
-							rows={rows}
-							canManage={canManageAccounts}
+					) : (
+						<AccountList
+							owner={scope}
+							groups={accountGroups}
+							checkedAt={providersQuery.data?.observedAt}
+							isChecking={providersQuery.isFetching === true}
+							onCheck={() => void providersQuery.refetch()}
+							canManage={canManageRow}
+							deniedReason={deniedReason}
+							canAdd={canAddAccount}
 							canBind={
 								canBindPersonalAccounts &&
 								(accountScope === "user" || canManageConnections)
 							}
-							canAdd={
-								canManageAccounts &&
-								rows[0]!.provider.registrationMode !== "cimd" &&
-								rows[0]!.provider.referencedByOrg
-							}
 							isConnecting={connectingAppId !== null}
 							isDisconnecting={disconnectMutation.isPending}
 							isBinding={bindMutation.isPending}
-							onAdd={handleAddPersonalAccount}
+							availableOpen={Boolean(q.trim()) || statusFilter !== "all"}
 							onConnect={(row) =>
 								handleConnect(
 									row.provider.appId,
-									"oauth",
-									accountScope,
+									row.provider.connectionType,
+									row.scope,
 									row.connectionInstanceId,
 								)
 							}
+							onReconnect={(row) => {
+								if (!canManageRow(row)) return;
+								setReviewedProvider(row.provider);
+								setPendingConnect({ ...row, reconnect: true });
+							}}
+							onAdd={handleAddPersonalAccount}
 							onRename={(row) => {
-								if (!row.connectionInstanceId || !canManageAccounts) return;
+								if (!row.connectionInstanceId || !canManageRow(row)) return;
 								setAccountEditor({
 									providerId: row.provider.appId,
 									id: row.connectionInstanceId,
 								});
 								setAccountLabel(row.instanceLabel ?? "");
 							}}
-							onDisconnect={(row) =>
+							onDisconnect={(row) => {
+								if (!canManageRow(row)) return;
 								setDisconnectTarget({
 									appId: row.provider.appId,
-									providerName: `${friendlyPersonalProviderName(row.provider)} · ${row.instanceLabel ?? "Default account"}`,
+									providerName: row.connectionInstanceId
+										? `${friendlyProviderName(row.provider)} · ${accountDisplayLabel(row)}`
+										: friendlyProviderName(row.provider),
 									tokenScope: row.scope,
 									connectionInstanceId: row.connectionInstanceId,
-								})
-							}
+								});
+							}}
 							onBind={(row, reference) => {
 								if (!row.connectionInstanceId || !canBindPersonalAccounts)
 									return;
@@ -1014,32 +813,16 @@ export function AdminConnectionsPage({
 									connectionInstanceId: row.connectionInstanceId,
 								});
 							}}
-							serviceHealth={serviceHealthByProvider[providerId]}
+							serviceHealth={serviceHealthByProvider}
 							onCheckService={handleCheckService}
-						/>
-					))}
-					{filteredPersonalProviders.length > 0 && (
-						<ProviderSection
-							icon={<User className="h-4 w-4 text-kumo-subtle" />}
-							title="My accounts"
-							description="Your credentials, not organization-owned accounts. App references do not prove that this workspace can use your account."
-							providers={filteredPersonalProviders}
-							inventoryByProvider={inventoryByProvider}
-							connectionsByProvider={personalConnectionsByProvider}
-							connectingAppId={connectingAppId}
-							disconnectingKey={disconnectingKey}
-							isDisconnecting={disconnectMutation.isPending}
-							onConnect={handleConnect}
-							onDisconnect={handleDisconnect}
-							canManageOrganizationConnections={canManageConnections}
-							canManagePersonalOauthConnections={
-								canManagePersonalOauthConnections
-							}
-							serviceHealthByProvider={serviceHealthByProvider}
-							onCheckService={handleCheckService}
-							sectionScope="user"
 						/>
 					)}
+					<Text role="label" tone="secondary" className="max-w-3xl">
+						One account or several? It depends on how an app signs in: apps that
+						use an API key, or sign in directly with Tedix, take one account per
+						owner; other sign-ins can hold several. This is not a console
+						setting yet.
+					</Text>
 				</>
 			)}
 
@@ -1051,13 +834,24 @@ export function AdminConnectionsPage({
 			>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Connect {pendingConnect?.provider.name}</DialogTitle>
+						<DialogTitle>
+							{pendingConnect?.reconnect ? "Reconnect" : "Connect"}{" "}
+							{pendingConnect
+								? friendlyProviderName(pendingConnect.provider)
+								: null}
+							{pendingConnect?.reconnect ? "?" : null}
+						</DialogTitle>
 						<DialogDescription>
-							{pendingConnect?.scope === "tenant"
-								? "This will create or replace an organization credential."
-								: "This will connect your personal account."}{" "}
-							Continue to review the provider's permissions. Nothing has changed
-							yet.
+							{pendingConnect?.reconnect
+								? pendingConnect.provider.connectionType === "api_key"
+									? "You will enter a new key. It replaces the current key right away, and every app that uses it switches to the new key."
+									: "You will sign in again. The new sign-in replaces the current one right away. If you sign in as a different account, apps use that account from then on."
+								: pendingConnect?.scope === "tenant"
+									? "Apps in this organization will use this account."
+									: "Only you will be able to use this account."}{" "}
+							{pendingConnect?.provider.connectionType === "api_key"
+								? "Nothing changes until you save the key."
+								: "Nothing changes until you finish with the provider."}
 						</DialogDescription>
 					</DialogHeader>
 					{pendingConnect?.requestedScopes?.length ? (
@@ -1227,7 +1021,6 @@ export function AdminConnectionsPage({
 				error={disconnectMutation.error}
 				onCancel={() => setDisconnectTarget(null)}
 				onConfirm={(target) => {
-					setDisconnectingKey({ appId: target.appId });
 					disconnectMutation.mutate({
 						appId: target.appId,
 						tokenScope: target.tokenScope,
@@ -1236,108 +1029,5 @@ export function AdminConnectionsPage({
 				}}
 			/>
 		</Page>
-	);
-}
-
-function ProviderSection({
-	icon,
-	title,
-	description,
-	providers,
-	inventoryByProvider,
-	connectionsByProvider,
-	connectingAppId,
-	disconnectingKey,
-	isDisconnecting,
-	onConnect,
-	onDisconnect,
-	sectionScope,
-	canManageOrganizationConnections,
-	canManagePersonalOauthConnections,
-	serviceHealthByProvider,
-	onCheckService,
-}: {
-	icon: React.ReactNode;
-	title: string;
-	description?: string;
-	providers: ConnectionProvider[];
-	inventoryByProvider: Map<string, ConnectionInventoryRow>;
-	connectionsByProvider: Map<string, UserConnection[]>;
-	connectingAppId: string | null;
-	disconnectingKey: { appId: string } | null;
-	isDisconnecting: boolean;
-	onConnect: (
-		appId: string,
-		connectionType: "oauth" | "api_key",
-		tokenScope?: "tenant" | "user",
-	) => void;
-	onDisconnect: (appId: string, tokenScope: "tenant" | "user") => void;
-	canManageOrganizationConnections: boolean;
-	canManagePersonalOauthConnections: boolean;
-	serviceHealthByProvider: Record<
-		string,
-		{
-			status: "checking" | "healthy" | "unhealthy" | "error";
-			detail: string;
-			appSlug: string;
-			toolCount: number | null;
-			checkedAt?: string;
-		}
-	>;
-	onCheckService: (providerId: string, appSlug: string) => void;
-	sectionScope: "tenant" | "user";
-}) {
-	const titleId = `${sectionScope}-connections-title`;
-
-	return (
-		<PageSection aria-labelledby={titleId}>
-			<SectionHeader>
-				<SectionHeading>
-					<div className="flex items-center gap-2">
-						<span className="text-kumo-subtle" aria-hidden="true">
-							{icon}
-						</span>
-						<SectionTitle id={titleId}>{title}</SectionTitle>
-					</div>
-					{description && (
-						<SectionDescription>{description}</SectionDescription>
-					)}
-				</SectionHeading>
-				<SectionActions>
-					<Badge variant="secondary">{providers.length} shown</Badge>
-				</SectionActions>
-			</SectionHeader>
-			<Collection aria-label={title}>
-				{providers.map((provider) => {
-					const isPersonalOauth =
-						sectionScope === "user" && provider.connectionType === "oauth";
-					const canManage = isPersonalOauth
-						? canManagePersonalOauthConnections
-						: canManageOrganizationConnections;
-					const manageDeniedReason = isPersonalOauth
-						? "Managing your personal OAuth connection requires workspace access."
-						: "Organization connections and API keys require the Manage integrations permission.";
-					return (
-						<li key={provider.appId}>
-							<ConnectionListItem
-								provider={provider}
-								inventory={inventoryByProvider.get(provider.appId)}
-								connections={connectionsByProvider.get(provider.appId) ?? []}
-								onConnect={onConnect}
-								isConnecting={connectingAppId === provider.appId}
-								onDisconnect={onDisconnect}
-								isDisconnecting={isDisconnecting}
-								disconnectingKey={disconnectingKey}
-								sectionScope={sectionScope}
-								canManage={canManage}
-								manageDeniedReason={manageDeniedReason}
-								serviceHealth={serviceHealthByProvider[provider.appId]}
-								onCheckService={onCheckService}
-							/>
-						</li>
-					);
-				})}
-			</Collection>
-		</PageSection>
 	);
 }

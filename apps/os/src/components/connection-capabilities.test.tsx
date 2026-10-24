@@ -1,3 +1,5 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type {
@@ -5,8 +7,7 @@ import type {
 	ConnectionInventoryRow,
 	ConnectionProvider,
 } from "@tedix/api-contract/schemas/connections";
-import { ConnectionListItem } from "./connection-list-item";
-import { PersonalProviderAccounts } from "./personal-provider-accounts";
+import { AccountList, groupAccounts } from "./account-list";
 import { SetupChecklist } from "./tedi-setup";
 import { ConnectionCapabilities } from "./connection-capabilities";
 
@@ -80,39 +81,6 @@ const row: ConnectionInventoryRow = {
 };
 const noop = vi.fn();
 const surfaces = {
-	"organization connections": () => (
-		<ConnectionListItem
-			provider={provider}
-			inventory={row}
-			connections={[row.connection!]}
-			onConnect={noop}
-			isConnecting={false}
-			onDisconnect={noop}
-			isDisconnecting={false}
-			disconnectingKey={null}
-			canManage={false}
-			manageDeniedReason="Ask an administrator"
-			onCheckService={noop}
-		/>
-	),
-	"personal account connections": () => (
-		<PersonalProviderAccounts
-			provider={provider}
-			rows={[row]}
-			canManage={false}
-			canBind={false}
-			canAdd={false}
-			isConnecting={false}
-			isDisconnecting={false}
-			isBinding={false}
-			onConnect={noop}
-			onRename={noop}
-			onDisconnect={noop}
-			onAdd={noop}
-			onBind={noop}
-			onCheckService={noop}
-		/>
-	),
 	"tedi setup checklist": () => (
 		<SetupChecklist
 			setup={{
@@ -163,6 +131,80 @@ describe("capability setup links across every unconfigured surface", () => {
 			}
 		});
 	}
+	it.each(["organization", "personal"] as const)(
+		"%s account list shows each permission and a link for every missing one, including read-only viewers",
+		async (owner) => {
+			(
+				globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT = true;
+			const host = document.createElement("div");
+			document.body.append(host);
+			const root = createRoot(host);
+			await act(async () =>
+				root.render(
+					<AccountList
+						owner={owner}
+						groups={groupAccounts([row])}
+						isChecking={false}
+						onCheck={noop}
+						canManage={() => false}
+						deniedReason={() => "Ask an administrator"}
+						canAdd={() => false}
+						canBind={false}
+						isConnecting={false}
+						isDisconnecting={false}
+						isBinding={false}
+						onConnect={noop}
+						onReconnect={noop}
+						onDisconnect={noop}
+						onRename={noop}
+						onAdd={noop}
+						onBind={noop}
+						serviceHealth={{}}
+						onCheckService={noop}
+					/>,
+				),
+			);
+			// The missing permissions are the row's one status.
+			expect(host.textContent).toContain(
+				"Needs attention: Missing permission for Send mail, Write mail",
+			);
+			await act(async () =>
+				host
+					.querySelector<HTMLButtonElement>(
+						'button[aria-label="Mail details"]',
+					)!
+					.click(),
+			);
+			for (const capability of capabilities) {
+				const element = host.querySelector(
+					`[data-connection-capability="${capability.id}"]`,
+				);
+				expect(element, `${owner}: missing ${capability.label}`).not.toBeNull();
+				expect(element?.textContent).toContain(capability.label);
+				expect(element?.textContent).toContain(
+					{
+						connected: "Granted",
+						not_configured: "Not granted",
+						needs_reauth: "Sign in again",
+						not_supported: "Not available here",
+					}[capability.state],
+				);
+				if (
+					capability.state === "not_configured" ||
+					capability.state === "needs_reauth"
+				) {
+					const link = element?.querySelector("a");
+					expect(link?.getAttribute("aria-label")).toBe(
+						`Set up ${capability.label}`,
+					);
+					expect(link?.getAttribute("href")).toBe(capability.setupUrl);
+				}
+			}
+			await act(async () => root.unmount());
+			host.remove();
+		},
+	);
 	it("keeps unverified account inspection distinct from a missing capability", () => {
 		const host = document.createElement("div");
 		host.innerHTML = renderToStaticMarkup(
