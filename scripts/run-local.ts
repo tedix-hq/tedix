@@ -267,6 +267,8 @@ async function isOsReady(signal: AbortSignal): Promise<boolean> {
 	}
 }
 
+export type LocalPortProbe = (port: number) => Promise<boolean>;
+
 function isPortInUse(port: number): Promise<boolean> {
 	return new Promise((resolve) => {
 		const socket = createConnection({ host: "localhost", port });
@@ -278,7 +280,9 @@ function isPortInUse(port: number): Promise<boolean> {
 	});
 }
 
-async function assertLauncherPortsAvailable(): Promise<void> {
+export async function assertLauncherPortsAvailable(
+	portProbe: LocalPortProbe = isPortInUse,
+): Promise<void> {
 	const ports: Array<readonly [string, string]> = [
 		["Tedix API", LOCAL_API_URL],
 		["Tedix MCP gateway", LOCAL_MCP_URL],
@@ -286,7 +290,7 @@ async function assertLauncherPortsAvailable(): Promise<void> {
 	];
 	for (const [label, url] of ports) {
 		const port = Number(new URL(url).port);
-		if (await isPortInUse(port)) {
+		if (await portProbe(port)) {
 			throw new Error(
 				`${label} port ${port} is already in use. If another Tedix terminal is running, stop it with Ctrl+C, then rerun this command. To find the listener: lsof -nP -iTCP:${port} -sTCP:LISTEN.`,
 			);
