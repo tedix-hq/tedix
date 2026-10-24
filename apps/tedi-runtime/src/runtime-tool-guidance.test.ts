@@ -18,6 +18,7 @@ import {
 	AGENT_RUNTIME_PROMPT,
 	repositoryModeForMetadata,
 	selectRepositoryToolSurface,
+	settledDelegatedReply,
 	workspaceToolGuidance,
 } from "./runtime-tool-guidance";
 
@@ -173,6 +174,7 @@ assert.match(
 	/requested comments or specification updates on the target Work Item/,
 );
 assert.match(checkoutPrompt, /within your existing scopes and ownership/);
+assert.match(checkoutPrompt, /<final_answer>/);
 assert.match(
 	checkoutPrompt,
 	/Critical actions require a human; do not approve them yourself/,
@@ -222,6 +224,17 @@ assert.match(
 );
 assert.doesNotMatch(AGENT_RUNTIME_PROMPT, /codemode\.describe/);
 assert.match(AGENT_RUNTIME_PROMPT, /untrusted information/);
+assert.equal(
+	settledDelegatedReply(
+		"Now I have enough information to answer.\n\n<final_answer>The company qualifies for the exemption.</final_answer>\n\nSources:\n- Memory search",
+	),
+	"The company qualifies for the exemption.",
+);
+assert.equal(
+	settledDelegatedReply("An ordinary answer without report markers."),
+	"An ordinary answer without report markers.",
+	"an unmarked answer must never be discarded",
+);
 // Checkout mode is derived from inject metadata, carried through the durable
 // workflow, and narrows the prepared tool surface.
 {
