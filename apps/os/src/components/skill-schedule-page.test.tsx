@@ -159,8 +159,16 @@ describe("manifest skill schedule clocks", () => {
 				lastBudgetAdmissionClass: "governed_learning",
 			}),
 		]);
-		expect(node.textContent).toContain("last fired 2h ago");
-		expect(node.textContent).toContain("last error: Read failed");
+		const status = [...node.querySelectorAll("span")].find((element) =>
+			element.textContent?.includes("Next run in 1h"),
+		);
+		expect(status?.textContent).toContain("last fired 2h ago");
+		expect(status?.textContent).not.toContain("Last error");
+		expect(
+			[...node.querySelectorAll("span")].some(
+				(element) => element.textContent === "Last error: Read failed",
+			),
+		).toBe(true);
 		expect(node.textContent).toContain(
 			"Budget blocked 1h ago · governed learning · Daily limit",
 		);
