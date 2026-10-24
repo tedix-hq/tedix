@@ -169,7 +169,9 @@ function AppCard({ app }: { app: CatalogApp }) {
 					/>
 					<div className="min-w-0 flex-1">
 						<div className="flex min-w-0 flex-wrap items-center gap-2">
-							<CardTitle className="min-w-0 truncate">{app.name}</CardTitle>
+							<CardTitle className="min-w-0 [overflow-wrap:anywhere]">
+								{app.name}
+							</CardTitle>
 							{app.healthStatus && app.healthStatus !== "unknown" ? (
 								<HealthBadge status={app.healthStatus} />
 							) : null}

@@ -110,7 +110,9 @@ describe("App Store migration", () => {
 			(element) => element.textContent?.includes("Acme"),
 		);
 		expect(title?.classList.contains("min-w-0")).toBe(true);
-		expect(title?.classList.contains("truncate")).toBe(true);
+		expect(title?.textContent).toBe("Acme with a very long catalog name");
+		expect(title?.classList.contains("truncate")).toBe(false);
+		expect(title?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
 		const card = title?.closest('[data-slot="card"]');
 		expect(card?.getAttribute("data-size")).toBe("sm");
 		const byline = card?.querySelector('[data-slot="card-description"]');
