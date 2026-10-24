@@ -422,6 +422,18 @@ export const pendingApprovalsQueryOptions = () =>
 		input: { status: "pending", decidableOnly: true },
 	});
 
+/** The latest approval requests in every state, for Activity history. */
+export const approvalHistoryQueryOptions = () =>
+	osQuery.tediApprovals.list.queryOptions({ input: { limit: 50 } });
+
+/** The organization's saved auto-approval rules, newest first. */
+export const approvalRulesQueryOptions = () =>
+	osQuery.osApprovalRules.list.queryOptions();
+
+/** Recent tool calls across the organization, from the audit log. */
+export const recentToolActivityQueryOptions = () =>
+	osQuery.analytics.getRecentActivity.queryOptions({ input: { limit: 50 } });
+
 export const workItemListQueryOptions = (
 	input: ClientInput<typeof osApi.workItems.list>,
 ) => osQuery.workItems.list.queryOptions({ input });

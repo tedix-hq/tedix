@@ -15,6 +15,7 @@ import {
 	approvalAttentionCount,
 	ApprovalNotifications,
 	approvalGroupHeadingClassName,
+	collapseIdenticalItems,
 	delegationHoldChip,
 	groupApprovalItems,
 	isActionableHomeApproval,
@@ -76,6 +77,7 @@ describe("approval popover authority", () => {
 						tediId: "example-worker",
 						actionType: "tool_write",
 						description: "A saved example change",
+						payload: {},
 						review: {
 							summary: "Example write",
 							intent: "tool_write",
@@ -280,6 +282,10 @@ describe("delegationHoldChip", () => {
 			label: "High risk",
 			tone: "error",
 		});
+		expect(delegationHoldChip("human-reserved: delete_data")).toEqual({
+			label: "Deletes data",
+			tone: "warning",
+		});
 		expect(delegationHoldChip(null)).toEqual({
 			label: "Needs review",
 			tone: "secondary",
@@ -318,5 +324,27 @@ describe("groupApprovalItems", () => {
 			["CFO", 1],
 			["Tedix", 1],
 		]);
+	});
+});
+
+describe("collapseIdenticalItems", () => {
+	it("decides identical requests from one tedi as one row", () => {
+		const item = (key: string, title: string, tedi = "CTO") =>
+			({
+				key,
+				title,
+				kind: "Action",
+				where: null,
+				chip: { label: "Change", tone: "warning" },
+				tedi: { id: tedi, name: tedi },
+			}) as ApprovalListItem;
+		expect(
+			collapseIdenticalItems([
+				item("a", "Create factory"),
+				item("b", "Create factory"),
+				item("c", "Create factory", "CFO"),
+				item("d", "Update role"),
+			]).map((row) => row.map((entry) => entry.key)),
+		).toEqual([["a", "b"], ["c"], ["d"]]);
 	});
 });
