@@ -493,13 +493,15 @@ an uncertain comment response is retained without sending it again. Failed
 settlements keep their separate bounded one-minute retries and check the exact
 server Attempt before writing again.
 
-Possible money or personal messaging requests are skipped and logged unless an
-actual owner comment says `Delegation: codex work-version=<version> <bounded note>`.
+Possible money, personal messaging, login or credential requests are skipped
+and logged unless an actual owner comment says
+`Delegation: codex work-version=<version> <bounded note>`.
 Use the assigned executor name in that comment for Claude Code.
 Work without an accountable user owner must first have one set; a comment from
 any other author cannot delegate that owner's actions.
-Consent, MFA and authentication remain human-only. The lexical screen is
-conservative; provider permissions and atomic Work admission still apply.
+Work that asks the executor to complete consent, MFA or a password step stays
+human-only even with that comment. The lexical screen is conservative; provider
+permissions and atomic Work admission still apply.
 
 On macOS, add `--install` to write and load a user LaunchAgent. It starts now
 and at login, survives the launching session, and defers during dark wake.
