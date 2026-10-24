@@ -353,12 +353,13 @@ describe("SkillRow", () => {
 		expect(html.match(/href=/g)).toHaveLength(1);
 	});
 
-	it("shows one summary line and keeps internal identity in the tooltip", () => {
+	it("shows one responsive summary and keeps internal identity in the tooltip", () => {
 		const html = renderToStaticMarkup(
 			<SkillRow skill={baseSkill} executable={true} />,
 		);
 		expect(html.match(/data-row-summary/g)).toHaveLength(1);
-		expect(html).toContain("max-sm:truncate");
+		expect(html).not.toContain("max-sm:truncate");
+		expect(html).toContain("max-sm:wrap-anywhere");
 		expect(html).toContain("org baseline · 8 successes · 1 failure");
 		expect(skillDetailLabel(baseSkill)).toBe(
 			"weekly-digest · rev 3 · differentiation layer",
