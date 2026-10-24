@@ -95,6 +95,7 @@ import {
 	markdown,
 	publishDocSource,
 } from "./learn-profile-document";
+import { parseLearningDate } from "./learn-import";
 
 // ---------------------------------------------------------------------------
 // Command
@@ -127,7 +128,8 @@ function profileOptions(args: string[]) {
 		if (arg === "--dry-run") options.dryRun = true;
 		else if (arg === "--no-upload") options.noUpload = true;
 		else if (arg === "--json") options.json = true;
-		else if (arg === "--since") options.since = new Date(value()).toISOString();
+		else if (arg === "--since")
+			options.since = parseLearningDate(value(), "--since").toISOString();
 		else if (arg === "--space") options.space = value();
 		else if (arg === "--no-model")
 			throw new Error(

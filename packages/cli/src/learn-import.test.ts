@@ -8,9 +8,20 @@ import {
 	parseClaudeSession,
 	parseCodexSession,
 	planImport,
+	parseLearningDate,
 	runLearnCommand,
 	scrub,
 } from "./learn-import";
+
+it("rejects impossible learning cutoff dates but accepts leap days", () => {
+	expect(parseLearningDate("2024-02-29", "--since").toISOString()).toBe(
+		"2024-02-29T00:00:00.000Z",
+	);
+	for (const value of ["2026-02-30", "2025-02-29", "2026-13-01", "2026-1-01"])
+		expect(() => parseLearningDate(value, "--since")).toThrow(
+			"--since must be a date",
+		);
+});
 
 const T = (minute: number) =>
 	`2026-03-02T10:${String(minute).padStart(2, "0")}:00.000Z`;

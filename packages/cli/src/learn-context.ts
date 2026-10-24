@@ -45,6 +45,7 @@ import {
 } from "node:fs";
 import {
 	parseLines,
+	parseLearningDate,
 	targetKey,
 	type LearnDeps,
 	type SessionFile,
@@ -237,9 +238,7 @@ function contextOptions(command: string, args: string[], allowed: string[]) {
 		else if (arg === "--wait") options.wait = true;
 		else if (arg === "--worker") options.worker = true;
 		else if (arg === "--since") {
-			const since = new Date(value());
-			if (Number.isNaN(since.getTime()))
-				throw new Error("--since must be a date, e.g. 2026-01-01");
+			const since = parseLearningDate(value(), "--since");
 			options.since = since.toISOString();
 		} else if (arg === "--accept") options.accept = value();
 		else if (arg === "--reject") options.reject = value();

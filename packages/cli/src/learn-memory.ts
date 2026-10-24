@@ -7,7 +7,7 @@ import { caller } from "./learn-context";
 import { localFeedbackModel } from "./learn-analyze";
 import { cliRead } from "./hooks/hook-io";
 import { redact } from "./hooks/decision-capture";
-import { scrub, type LearnDeps } from "./learn-import";
+import { parseLearningDate, scrub, type LearnDeps } from "./learn-import";
 import type { SessionFeedbackCandidate } from "@tedix/api-contract/schemas/agent-session-feedback";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 
@@ -100,8 +100,7 @@ export async function runMemoryImport(
 			]);
 	}
 	const value = (key: string) => args[args.indexOf(key) + 1];
-	if (args.includes("--date") && !/^\d{4}-\d{2}-\d{2}$/.test(value("--date")!))
-		throw new Error("--date must be YYYY-MM-DD");
+	if (args.includes("--date")) parseLearningDate(value("--date")!, "--date");
 	if (
 		args.includes("--type") &&
 		!["feedback", "project"].includes(value("--type")!)

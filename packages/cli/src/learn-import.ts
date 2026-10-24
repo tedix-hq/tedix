@@ -631,6 +631,20 @@ export interface LearnDeps {
 	sleep?: (ms: number) => Promise<void>;
 }
 
+export function parseLearningDate(value: string, flag: string): Date {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+		throw new Error(`${flag} must be a date, e.g. 2026-01-01`);
+	const [year, month, day] = value.split("-").map(Number);
+	const date = new Date(Date.UTC(year!, month! - 1, day));
+	if (
+		date.getUTCFullYear() !== year ||
+		date.getUTCMonth() !== month! - 1 ||
+		date.getUTCDate() !== day
+	)
+		throw new Error(`${flag} must be a date, e.g. 2026-01-01`);
+	return date;
+}
+
 function option(args: string[], name: string): string | undefined {
 	const index = args.indexOf(name);
 	if (index < 0) return undefined;
@@ -728,9 +742,7 @@ export async function runLearnCommand(
 		if (arg === "--since" || arg === "--limit") i++;
 	}
 	const sinceArg = option(args, "--since");
-	const since = sinceArg ? new Date(sinceArg) : undefined;
-	if (since && Number.isNaN(since.getTime()))
-		throw new Error("--since must be a date, e.g. 2026-01-01");
+	const since = sinceArg ? parseLearningDate(sinceArg, "--since") : undefined;
 	const limitArg = option(args, "--limit");
 	const limit = limitArg ? Number(limitArg) : undefined;
 	if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
