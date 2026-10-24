@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act } from "react";
+import { runInNewContext } from "node:vm";
 import { createRoot, type Root } from "react-dom/client";
 import {
 	afterEach,
@@ -81,18 +82,23 @@ beforeEach(() => {
 	mocks.call.mockReset().mockImplementation(async (_name, args) => {
 		const code = args.code as string;
 		if (code.includes("discover.search")) {
-			const query = JSON.parse(code.slice(code.indexOf("({") + 1, -1));
-			return result({
-				results: [
-					{
-						tool: query.query,
-						organization: query.organization,
-						authorized: true,
-						annotations: { readOnlyHint: true },
-						callable: `${query.organization}.${query.query}`,
+			return result(
+				await runInNewContext(`(${code})()`, {
+					discover: {
+						search: async (query: { query: string; organization: string }) => ({
+							results: [
+								{
+									tool: query.query,
+									organization: query.organization,
+									authorized: true,
+									annotations: { readOnlyHint: true },
+									callable: `${query.organization}.${query.query}`,
+								},
+							],
+						}),
 					},
-				],
-			});
+				}),
+			);
 		}
 		return result({
 			layoutSpec: code.includes("show_feed")

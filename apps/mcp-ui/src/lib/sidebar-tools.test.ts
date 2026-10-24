@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { runInNewContext } from "node:vm";
 import { callSidebarTool, resolveSidebarTool } from "./sidebar-tools";
 
 const envelope = (result: unknown) => ({ structuredContent: { result } });
@@ -11,6 +12,29 @@ const row = {
 };
 
 describe("sidebar tool bridge", () => {
+	it("projects exact matches before the Code Mode result budget can replace discovery with a handle", async () => {
+		const rows = [
+			row,
+			...Array.from({ length: 99 }, (_, i) => ({
+				...row,
+				tool: `other_${i}`,
+				description: "Unrelated provider metadata. ".repeat(100),
+			})),
+		];
+		const call = vi.fn(async (_name, args) => {
+			const result = await runInNewContext(`(${args.code})()`, {
+				discover: { search: async () => rows },
+			});
+			return envelope(
+				JSON.stringify(result).length > 24_000
+					? { __tedix_result_handle: true }
+					: result,
+			);
+		});
+		expect(
+			await resolveSidebarTool(call, "maple", "show_deck", { readOnly: true }),
+		).toBe(row.callable);
+	});
 	it("never runs a write tool merely by opening a tab", async () => {
 		const call = vi.fn().mockResolvedValue(
 			envelope({

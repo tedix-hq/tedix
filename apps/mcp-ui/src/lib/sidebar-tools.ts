@@ -26,7 +26,7 @@ export async function resolveSidebarTool(
 	const query = { query: tool, organization, limit: 100 };
 	const result = codeResult(
 		await call("code", {
-			code: `async () => await discover.search(${JSON.stringify(query)})`,
+			code: `async () => { const result = await discover.search(${JSON.stringify(query)}); const rows = Array.isArray(result) ? result : result.results; return rows.filter(row => row.tool === ${JSON.stringify(tool)} && row.organization === ${JSON.stringify(organization)}).map(row => ({ callable: row.callable, tool: row.tool, organization: row.organization, authorized: row.authorized, annotations: { readOnlyHint: row.annotations?.readOnlyHint } })); }`,
 		}),
 	);
 	const rows = isRecord(result) ? result.results : result;
