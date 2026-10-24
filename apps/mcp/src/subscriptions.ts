@@ -485,12 +485,16 @@ export class McpSubscriptionDurableObject {
 				continue;
 			}
 
+			const forwarded = isRecord(event.params) ? event.params : {};
 			const params = {
-				_meta: subscriptionIdMeta(subscription.input.requestId),
+				...forwarded,
+				_meta: {
+					...(isRecord(forwarded._meta) ? forwarded._meta : {}),
+					...subscriptionIdMeta(subscription.input.requestId),
+				},
 				...(event.method === RESOURCE_UPDATED_METHOD && event.uri
 					? { uri: event.uri }
 					: {}),
-				...(isRecord(event.params) ? event.params : {}),
 			};
 			this.safeEnqueue(
 				subscription,

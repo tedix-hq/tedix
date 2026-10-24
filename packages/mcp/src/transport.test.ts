@@ -311,7 +311,7 @@ describe("transport — method allow-list", () => {
 	it("PUT returns 405 with JSON-RPC error envelope and Allow header", async () => {
 		const res = await call(new Request(URL_OK, { method: "PUT" }));
 		expect(res.status).toBe(405);
-		expect(res.headers.get("Allow")).toBe("GET, POST, DELETE, OPTIONS");
+		expect(res.headers.get("Allow")).toBe("POST, OPTIONS");
 		const body = (await res.json()) as {
 			jsonrpc: string;
 			error: { message: string };
@@ -320,10 +320,14 @@ describe("transport — method allow-list", () => {
 		expect(body.error.message).toMatch(/method not allowed/i);
 	});
 
-	it("PATCH returns 405", async () => {
-		const res = await call(new Request(URL_OK, { method: "PATCH" }));
-		expect(res.status).toBe(405);
-	});
+	it.each(["GET", "DELETE", "PATCH"])(
+		"%s advertises only implemented methods",
+		async (method) => {
+			const res = await call(new Request(URL_OK, { method }));
+			expect(res.status).toBe(405);
+			expect(res.headers.get("Allow")).toBe("POST, OPTIONS");
+		},
+	);
 });
 
 // =============================================================================
@@ -3299,13 +3303,11 @@ describe("mountMcp — engine dispatch (createMcpHandler for simple mounts)", ()
 			"POST",
 		);
 
-		const get = await simpleCall(new Request(URL_OK, { method: "GET" }));
-		expect(get.status).toBe(405);
-
-		// 405 per MCP 2026-07-28 `basic/transports`; byte-parity with the
-		// hand-rolled engine is the stated invariant for these two paths.
-		const del = await simpleCall(new Request(URL_OK, { method: "DELETE" }));
-		expect(del.status).toBe(405);
+		for (const method of ["GET", "DELETE", "PUT", "PATCH"]) {
+			const response = await simpleCall(new Request(URL_OK, { method }));
+			expect(response.status).toBe(405);
+			expect(response.headers.get("Allow")).toBe("POST, OPTIONS");
+		}
 
 		const post = await simpleCall(
 			postRpc({ jsonrpc: "2.0", id: 9, method: "tools/list" }),

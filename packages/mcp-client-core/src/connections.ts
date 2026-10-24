@@ -1,3 +1,4 @@
+import type { McpSkillEntry } from "@tedix/mcp-shared/skills";
 import type {
 	Client,
 	PriorDiscovery,
@@ -22,6 +23,8 @@ export interface ConnectionSnapshot {
 	resourceTemplates: McpResourceTemplateInfo[];
 	prompts: McpPromptInfo[];
 	guidance: McpGuidanceInfo[];
+	/** Advertised manifests share the resource snapshot and credential boundary. */
+	skills?: McpSkillEntry[];
 	/**
 	 * Extension capabilities the server declared during negotiation —
 	 * `server/discover` for stateless connections, the (legacy) `initialize`
