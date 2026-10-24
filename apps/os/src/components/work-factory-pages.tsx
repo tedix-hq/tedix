@@ -673,7 +673,7 @@ function WorkItemMobileList({
 								<div className="min-w-0 max-w-full">
 									<dt className="sr-only">{OS_COPY.work.owner}</dt>
 									<dd
-										className="m-0"
+										className="m-0 break-words"
 										title={workOwnerTitle(
 											item.accountableOwnerType,
 											item.accountableOwnerId,
