@@ -446,6 +446,14 @@ try {
 									exact: true,
 								})
 								.waitFor();
+							await page
+								.getByRole("navigation", {
+									name: "Account owners",
+									exact: true,
+								})
+								.getByRole("link", { name: "Only you", exact: true })
+								.and(page.locator('[aria-current="page"]'))
+								.waitFor();
 							await page.screenshot({
 								path: `${evidence}/${name}-my-accounts.png`,
 							});
