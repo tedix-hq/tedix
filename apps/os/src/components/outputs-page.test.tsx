@@ -166,6 +166,8 @@ describe("OutputsPage", () => {
 			);
 			expect(open).not.toBeNull();
 			expect(open?.getAttribute("tabindex")).toBe("0");
+			expect(open?.className).toContain("inset-px");
+			expect(open?.className).not.toContain("inset-0");
 			expect(
 				card.querySelector("button button, [role=button] button"),
 			).toBeNull();
