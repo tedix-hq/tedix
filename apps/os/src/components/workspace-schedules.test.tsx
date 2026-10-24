@@ -93,6 +93,23 @@ async function mount() {
 }
 
 describe("personal read on a scheduled skill", () => {
+	it("renders full schedule names without adding headings to the tab order", async () => {
+		const longName =
+			"Review every newly received supplier invoice before the weekly close";
+		mocks.list.mockResolvedValue({
+			items: [{ ...schedule(gmail), name: longName }],
+		});
+		const view = await mount();
+		try {
+			const heading = view.node.querySelector("h3");
+			expect(heading?.textContent).toBe(longName);
+			expect(heading?.tabIndex).toBe(-1);
+			expect(heading?.classList.contains("line-clamp-1")).toBe(false);
+		} finally {
+			await view.close();
+		}
+	});
+
 	it("lets the owner allow a read-only Gmail read with one click", async () => {
 		mocks.list
 			.mockResolvedValueOnce({ items: [schedule(gmail)] })
