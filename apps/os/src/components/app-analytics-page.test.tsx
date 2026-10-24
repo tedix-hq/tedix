@@ -460,6 +460,12 @@ async function renderAnalytics(seeds: Seeds = {}) {
 				eventType: "code_execution",
 				appSlug: "acme",
 			},
+			actor: {
+				actorId: "principal-with-an-intentionally-long-identifier-for-mobile",
+				actorType: "service-account",
+			},
+			clientId: "client-with-an-intentionally-long-identifier-for-mobile",
+			traceId: "trace-with-an-intentionally-long-identifier-for-mobile",
 			toolCalls: [
 				{
 					toolName:
@@ -609,6 +615,25 @@ describe("AppAnalyticsPage", () => {
 			expect(label).toBeDefined();
 			expect(label?.getAttribute("title")).toBe(toolName);
 		}
+	});
+
+	it("constrains long drill-down metadata on narrow layouts", async () => {
+		const container = await renderAnalytics();
+		const expand = container.querySelector<HTMLButtonElement>(
+			'button[aria-label^="Expand execution"]',
+		);
+		expect(expand).not.toBeNull();
+		await act(async () => expand?.click());
+
+		const constrained = [
+			...container.querySelectorAll<HTMLElement>("[class]"),
+		].filter(
+			(node) =>
+				node.textContent?.includes(
+					"intentionally-long-identifier-for-mobile",
+				) && node.className.includes("[overflow-wrap:anywhere]"),
+		);
+		expect(constrained.length).toBeGreaterThanOrEqual(3);
 	});
 
 	it("renders the empty-period states for the audit and Code Mode lanes", async () => {
