@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { webkit, type Page } from "playwright";
 
+const GEOMETRY_TOLERANCE = 0.5;
+
+function matchesGeometry(actual: number, expected: number) {
+	return Math.abs(actual - expected) <= GEOMETRY_TOLERANCE;
+}
+
 export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	const browser = await webkit.launch();
@@ -19,6 +25,7 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 				const page = await browser.newPage({
 					viewport: { width, height },
 					colorScheme: theme,
+					deviceScaleFactor: 1.25,
 					hasTouch: width < 820,
 				});
 				await page.addInitScript(
@@ -49,8 +56,10 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 							.getByRole("button", { name, exact: true })
 							.boundingBox();
 						assert(
-							box && box.width === 44 && box.height === 44,
-							`${name} needs a 44px target`,
+							box &&
+								matchesGeometry(box.width, 44) &&
+								matchesGeometry(box.height, 44),
+							`${name} needs a 44px target: ${JSON.stringify(box)}`,
 						);
 					}
 					const bounds = await bar
@@ -58,7 +67,8 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 						.evaluateAll((nodes) =>
 							nodes.map((node) => node.getBoundingClientRect().toJSON()),
 						);
-					assert.equal(bounds[2].x - (bounds[1].x + bounds[1].width), 8);
+					const gap = bounds[2].x - (bounds[1].x + bounds[1].width);
+					assert(matchesGeometry(gap, 8), `Topbar gap needs 8px: ${gap}`);
 					assert.equal(
 						await page.evaluate(
 							() => document.documentElement.scrollWidth > innerWidth,
