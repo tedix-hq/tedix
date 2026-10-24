@@ -78,8 +78,8 @@ sources, and asks before sending anything. Run the small version in
 
 ### On your computer, no account
 
-You need Git, Bun, and Node.js 22+ (real Node, not a Bun shim). No account or
-cloud credentials are needed.
+You need Git, Bun, and Node.js 22.23.4+, 24.22+, or 26.12+ within those majors
+(real Node, not a Bun shim). No account or cloud credentials are needed.
 
 ```sh
 git clone https://github.com/tedix-hq/tedix.git && cd tedix

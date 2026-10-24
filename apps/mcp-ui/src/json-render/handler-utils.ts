@@ -21,7 +21,8 @@ export function buildTedixActionHandlers(
 			const next = updater(prev);
 			const updates: Record<string, unknown> = {};
 			for (const key of Object.keys(next)) {
-				updates[`/${key}`] = next[key];
+				updates[`/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`] =
+					next[key];
 			}
 			stateStore.update(updates);
 		},

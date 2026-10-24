@@ -25,7 +25,7 @@ export const RUN_LOCAL_HELP = `Usage: bun run-local [options]
 
 Start Tedix OS with isolated, persistent local data and a local owner identity.
 No Tedix account or cloud credentials are required for the default offline mode.
-Requires Bun and genuine Node.js 22+ on PATH for Wrangler.
+Requires Bun and genuine Node.js 22.23.4+, 24.22+, or 26.12+ on PATH (within those majors).
 
   --inference                       Enable paid Workers AI using your Wrangler login
   --workers-ai-account=<account-id>  Explicit 32-character Cloudflare billing account
@@ -57,11 +57,10 @@ export function assertSupportedNodeRuntime(runtime: unknown): void {
 		typeof runtime.node !== "string" ||
 		!("bun" in runtime) ||
 		runtime.bun !== null ||
-		!/^\d+\.\d+\.\d+/.test(runtime.node) ||
-		Number(runtime.node.split(".")[0]) < 22
+		!Bun.semver.satisfies(runtime.node, "^22.23.4 || ^24.22.0 || ^26.12.0")
 	) {
 		throw new Error(
-			"Local Tedix requires genuine Node.js 22+ on PATH for Wrangler. Install Node.js 22 or newer and ensure node resolves to it, not a Bun shim; then rerun the command.",
+			"Local Tedix requires genuine Node.js 22.23.4+, 24.22+, or 26.12+ on PATH (within those majors) for cf, Wrangler, Astro, and Vite+. Ensure node resolves to a supported Node.js runtime, not a Bun shim; then rerun the command.",
 		);
 	}
 }
