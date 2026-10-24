@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { type KeyboardEvent, useEffect, useRef } from "react";
 import {
 	FileText,
 	MonitorPlay,
@@ -73,7 +73,48 @@ export function CanvasWorkpieceTabs({
 		observer.observe(strip);
 		return () => observer.disconnect();
 	}, [selectedKey, opened, gadgets, outputs]);
+	/**
+	 * One Tab stop for the strip: the selected tab holds it and the arrows,
+	 * Home and End roam it, selecting as they go -- the tablist pattern's
+	 * automatic activation. Delete closes the focused tab and hands the stop
+	 * to the neighbour the shell selects next.
+	 */
+	const onTabsKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		const strip = stripRef.current;
+		if (!strip) return;
+		const tabs = Array.from(
+			strip.querySelectorAll<HTMLElement>('[role="tab"]'),
+		);
+		const current = tabs.indexOf(document.activeElement as HTMLElement);
+		if (current < 0) return;
+		if (event.key === "Delete") {
+			const closing = opened[current];
+			if (!closing) return;
+			event.preventDefault();
+			(tabs[current + 1] ?? tabs[current - 1])?.focus();
+			onClose(canvasDocKey(closing));
+			return;
+		}
+		const next =
+			event.key === "ArrowRight"
+				? (current + 1) % tabs.length
+				: event.key === "ArrowLeft"
+					? (current - 1 + tabs.length) % tabs.length
+					: event.key === "Home"
+						? 0
+						: event.key === "End"
+							? tabs.length - 1
+							: -1;
+		const doc = next >= 0 ? opened[next] : undefined;
+		if (!doc) return;
+		event.preventDefault();
+		tabs[next]?.focus();
+		if (canvasDocKey(doc) !== selectedKey) onSelect(doc);
+	};
 	if (opened.length === 0) return null;
+	// With nothing selected the first tab keeps the strip reachable by Tab.
+	const focusableKey =
+		selectedKey ?? (opened[0] ? canvasDocKey(opened[0]) : null);
 	return (
 		<div
 			ref={stripRef}
@@ -81,6 +122,7 @@ export function CanvasWorkpieceTabs({
 			className="canvas-workpiece-tabs"
 			role="tablist"
 			aria-label="Open workpieces"
+			onKeyDown={onTabsKeyDown}
 		>
 			{opened.map((doc) => {
 				const key = canvasDocKey(doc);
@@ -105,6 +147,7 @@ export function CanvasWorkpieceTabs({
 						<Button
 							aria-label={accessibleName}
 							aria-selected={selected}
+							tabIndex={key === focusableKey ? 0 : -1}
 							title={title ?? "Workpiece"}
 							className="min-w-0 flex-1 justify-start px-2 type-tedix-control"
 							onClick={() => onSelect(doc)}
