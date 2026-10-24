@@ -443,6 +443,18 @@ async function setup(ctx) {
 	const contexts = new Map();
 	/** tool call id -> { sessionID, command } until its shell starts. */
 	const shells = new Map();
+	/** command -> tool call ids waiting for their shell, in creation order. */
+	const shellCalls = new Map();
+	const forgetShell = (id) => {
+		const shell = shells.get(id);
+		if (!shell) return;
+		shells.delete(id);
+		const calls = shellCalls.get(shell.command);
+		if (!calls) return;
+		const index = calls.indexOf(id);
+		if (index >= 0) calls.splice(index, 1);
+		if (!calls.length) shellCalls.delete(shell.command);
+	};
 
 	/** Learns a session this plugin has not seen created, such as a resumed one. */
 	const known = async (id) => {
@@ -498,25 +510,30 @@ async function setup(ctx) {
 	});
 	// The shell hook carries no session; the shell tool call that starts it does.
 	await ctx.tool.hook("execute.before", async (event) => {
-		if (typeof event.input?.command === "string" && event.tool === "shell")
+		if (typeof event.input?.command === "string" && event.tool === "shell") {
 			shells.set(event.id, {
 				sessionID: event.sessionID,
 				command: event.input.command,
 			});
+			const calls = shellCalls.get(event.input.command) ?? [];
+			calls.push(event.id);
+			shellCalls.set(event.input.command, calls);
+		}
 		await known(event.sessionID);
 		if (tedix.hooks)
 			await tedix.recall(event.sessionID, event.id, event.tool, event.input);
 	});
 	await ctx.shell.hook("create.before", (event) => {
-		for (const [id, shell] of shells)
-			if (shell.command === event.command) {
-				shells.delete(id);
-				tedix.agentEnv(shell.sessionID, event.env);
-				return;
-			}
+		const calls = shellCalls.get(event.command);
+		const id = calls?.shift();
+		if (!calls?.length) shellCalls.delete(event.command);
+		const shell = id && shells.get(id);
+		if (!shell) return;
+		shells.delete(id);
+		tedix.agentEnv(shell.sessionID, event.env);
 	});
 	await ctx.tool.hook("execute.after", async (event) => {
-		shells.delete(event.id);
+		forgetShell(event.id);
 		if (!tedix.hooks) return;
 		const context = await tedix.toolDone(event.sessionID, event.id);
 		if (!context || event.status !== "completed") return;

@@ -20,6 +20,7 @@ import { ROOT } from "./package-plugin";
 
 const SESSION = "ses_ea08bec38ffeGv2rruD2pzxAuC";
 const CHILD = "ses_ea08bec38fffAbCdEfGhIjKlMn";
+const OTHER_SESSION = "ses_ea08bec38fffMnOpQrStUvWxYz";
 let directory: string;
 let path: string | undefined;
 
@@ -673,6 +674,46 @@ test("OpenCode 2 shell commands carry the root session's Agent-Session, version 
 		TEDIX_AGENT_MODEL_ID: "gpt-example",
 	});
 	expect(fake.hooks["session.prompt"]).toBeUndefined();
+	cleanup?.();
+});
+
+test("OpenCode 2 keeps concurrent identical shell commands tied to their sessions", async () => {
+	const fake = context2({ hooks: false });
+	const cleanup = await module.default.setup(fake.ctx as never);
+	for (const [sessionID, modelID] of [
+		[SESSION, "gpt-first"],
+		[OTHER_SESSION, "gpt-second"],
+	] as const)
+		fake.hooks["session.context"]!({
+			sessionID,
+			model: { providerID: "azure", id: modelID },
+			system: [],
+		});
+	const command = "printf identical";
+	await fake.hooks["tool.execute.before"]!({
+		tool: "shell",
+		sessionID: SESSION,
+		id: "call_first",
+		input: { command },
+	});
+	await fake.hooks["tool.execute.before"]!({
+		tool: "shell",
+		sessionID: OTHER_SESSION,
+		id: "call_second",
+		input: { command },
+	});
+	const first = { command, env: {} as Record<string, string> };
+	const second = { command, env: {} as Record<string, string> };
+	await fake.hooks["shell.create.before"]!(first);
+	await fake.hooks["shell.create.before"]!(second);
+	expect(first.env).toMatchObject({
+		TEDIX_AGENT_SESSION: `opencode:${SESSION}`,
+		TEDIX_AGENT_MODEL_ID: "gpt-first",
+	});
+	expect(second.env).toMatchObject({
+		TEDIX_AGENT_SESSION: `opencode:${OTHER_SESSION}`,
+		TEDIX_AGENT_MODEL_ID: "gpt-second",
+	});
 	cleanup?.();
 });
 
