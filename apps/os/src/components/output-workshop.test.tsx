@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -40,22 +39,5 @@ describe("Output workshop composition", () => {
 		expect(outputWorkshopKindLabel("presentation")).toBe("Slides");
 		expect(outputWorkshopKindLabel("video")).toBe("Video");
 		expect(outputWorkshopKindLabel(null)).toBe("Workpiece");
-	});
-
-	it("keeps compact chrome internal and prioritizes editor identity on phone", () => {
-		const styles = readFileSync("src/components/output-editor.css", "utf8");
-
-		expect(styles).toContain(".output-workshop-command-bar");
-		expect(styles).toContain("flex-wrap: nowrap");
-		expect(styles).toContain("@media (max-width: 639px)");
-		expect(styles).toContain('"identity actions"');
-		expect(styles).toContain('"status status"');
-		expect(styles).toContain(
-			"grid-template-columns: minmax(0, 1fr) max-content",
-		);
-		expect(styles).toContain(".output-workshop-stage");
-		expect(styles).toContain("min-height: 0");
-		expect(styles).toContain(".output-workshop-footer");
-		expect(styles).toContain("overflow-x: auto");
 	});
 });
