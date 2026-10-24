@@ -60,6 +60,51 @@ describe("extractMediaBase64", () => {
 			base64: HELLO_B64,
 			mimeType: "application/octet-stream",
 		});
+		expect(
+			extractMediaBase64(artifact({ imageBase64: HELLO_B64, mimeType: null })),
+		).toEqual({ base64: HELLO_B64, mimeType: "application/octet-stream" });
+	});
+
+	it("keeps a media type with parameters", () => {
+		expect(
+			extractMediaBase64(
+				artifact({
+					imageBase64: HELLO_B64,
+					mimeType: "text/plain; charset=utf-8",
+				}),
+			),
+		).toEqual({ base64: HELLO_B64, mimeType: "text/plain; charset=utf-8" });
+	});
+
+	it("rejects a mimeType containing header-breaking characters", () => {
+		for (const mimeType of [
+			"image/png\nSet-Cookie: session=evil",
+			"image/png\r\nSet-Cookie: session=evil",
+			"image/\tpng",
+			"image/\x00png",
+			"image/png ",
+		]) {
+			expect(
+				extractMediaBase64(artifact({ imageBase64: HELLO_B64, mimeType })),
+			).toBeNull();
+		}
+	});
+
+	it("rejects non-string and malformed mimeType values", () => {
+		for (const mimeType of [
+			123,
+			true,
+			{ type: "image/png" },
+			["image/png"],
+			"",
+			"not-a-mime-type",
+			"image/",
+			"/png",
+		]) {
+			expect(
+				extractMediaBase64(artifact({ imageBase64: HELLO_B64, mimeType })),
+			).toBeNull();
+		}
 	});
 
 	it("returns null for non-media JSON", () => {
@@ -92,6 +137,17 @@ describe("extractMediaBytes", () => {
 
 	it("returns null when no media field is present (shares extractMediaBase64)", () => {
 		expect(extractMediaBytes(artifact({ ok: true }))).toBeNull();
+	});
+
+	it("returns null for malformed mimeType instead of throwing in the byte route", () => {
+		expect(
+			extractMediaBytes(
+				artifact({
+					imageBase64: HELLO_B64,
+					mimeType: "image/png\r\nX-Injected: 1",
+				}),
+			),
+		).toBeNull();
 	});
 
 	it("returns null for malformed base64 instead of throwing in the byte route", () => {

@@ -37,6 +37,21 @@ async function hmac(secret: string, msg: string): Promise<string> {
 
 const DOWNLOAD_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,159}$/;
 
+/**
+ * Header-safe media type — `type "/" subtype` plus optional `; name=value`
+ * parameters, printable ASCII throughout. Stored MIME metadata is untrusted:
+ * anything outside this shape (control characters, non-string JSON values) must
+ * never reach a Content-Type header, where it would throw inside
+ * `new Response()` instead of producing a controlled non-media response.
+ */
+const MEDIA_MIME_TYPE_PATTERN =
+	/^[A-Za-z0-9!#$%&'*+.^_`|~-]+\/[A-Za-z0-9!#$%&'*+.^_`|~-]+(?:[ \t]*;[ \t]*[A-Za-z0-9!#$%&'*+.^_`|~-]+=(?:"[\x20-!#-\x7e]*"|[A-Za-z0-9!#$%&'*+.^_`|~-]+))*$/;
+
+/** Whether a stored MIME value is a well-formed, header-safe media type. */
+export function isMediaMimeType(value: unknown): value is string {
+	return typeof value === "string" && MEDIA_MIME_TYPE_PATTERN.test(value);
+}
+
 function normalizedDownloadName(value: string | undefined): string | undefined {
 	if (value === undefined) return undefined;
 	if (!DOWNLOAD_NAME_PATTERN.test(value)) {
@@ -115,7 +130,7 @@ export async function verifyMediaToken(opts: {
  * directly so a session-authenticated caller (e.g. Tedix OS) can render a `data:`
  * URL — no expiring token, survives transcript scrollback.
  * Recognizes the conventional fields our media skills emit; returns null when no
- * media field is present.
+ * media field is present or the stored mimeType is malformed.
  */
 export function extractMediaBase64(
 	content: string,
@@ -135,7 +150,8 @@ export function extractMediaBase64(
 		(val?.audioBase64 as string) ??
 		(val?.videoBase64 as string);
 	if (typeof b64 !== "string" || b64.length === 0) return null;
-	const mimeType = (val?.mimeType as string) ?? "application/octet-stream";
+	const mimeType = val?.mimeType ?? "application/octet-stream";
+	if (!isMediaMimeType(mimeType)) return null;
 	return { base64: b64, mimeType };
 }
 

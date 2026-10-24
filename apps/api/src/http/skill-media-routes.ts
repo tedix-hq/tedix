@@ -26,8 +26,11 @@ async function readSkillMedia(
 	| null
 	| undefined
 > {
+	const { extractMediaBytes, isMediaMimeType } =
+		await import("../lib/skill-media-url");
 	if (
 		artifact.contentR2Key &&
+		isMediaMimeType(artifact.mimeType) &&
 		/^(?:audio|image|video)\//.test(artifact.mimeType)
 	) {
 		const object = await (
@@ -46,7 +49,6 @@ async function readSkillMedia(
 		content = object ? await object.text() : null;
 	}
 	if (content == null) return undefined;
-	const { extractMediaBytes } = await import("../lib/skill-media-url");
 	return extractMediaBytes(content);
 }
 
