@@ -95,49 +95,55 @@ try {
 		path: `${output}/attention-desktop-dark.png`,
 		fullPage: true,
 	});
-	const phone = await browser.newPage({
-		viewport: { width: 390, height: 844 },
-		isMobile: true,
-		hasTouch: true,
-	});
-	await phone.goto(`${origin}/work/attention`);
-	await phone.locator("[data-attention-live]").waitFor();
-	await phone.keyboard.press("Escape");
-	await phone.waitForTimeout(300);
-	assert.equal(
-		await phone.evaluate(
-			() => document.documentElement.scrollWidth > innerWidth,
-		),
-		false,
-		"phone has horizontal overflow",
-	);
-	const phoneLaneLinks = phone.locator("[data-attention-phone-lanes] a");
-	assert.ok(await phoneLaneLinks.count(), "phone hides every recent lane link");
-	const firstPhoneLane = phoneLaneLinks.first();
-	assert.ok(
-		(await firstPhoneLane.innerText()).trim().length > 0,
-		"phone recent lane link has no accessible name",
-	);
-	await phone.screenshot({
-		path: `${output}/attention-phone-light.png`,
-		fullPage: true,
-	});
-	await phone.evaluate(() => document.documentElement.classList.add("dark"));
-	await phone.screenshot({
-		path: `${output}/attention-phone-dark.png`,
-		fullPage: true,
-	});
-	await Promise.all([
-		phone.waitForURL((url) => url.pathname !== "/work/attention"),
-		firstPhoneLane.click(),
-	]);
+	for (const phoneWidth of [375, 390]) {
+		const phone = await browser.newPage({
+			viewport: { width: phoneWidth, height: phoneWidth === 375 ? 667 : 844 },
+			isMobile: true,
+			hasTouch: true,
+		});
+		await phone.goto(`${origin}/work/attention`);
+		await phone.locator("[data-attention-live]").waitFor();
+		await phone.keyboard.press("Escape");
+		await phone.waitForTimeout(300);
+		assert.equal(
+			await phone.evaluate(
+				() => document.documentElement.scrollWidth > innerWidth,
+			),
+			false,
+			`phone has horizontal overflow at ${phoneWidth}px`,
+		);
+		const phoneLaneLinks = phone.locator("[data-attention-phone-lanes] a");
+		assert.ok(
+			await phoneLaneLinks.count(),
+			`phone hides every recent lane link at ${phoneWidth}px`,
+		);
+		const firstPhoneLane = phoneLaneLinks.first();
+		assert.ok(
+			(await firstPhoneLane.innerText()).trim().length > 0,
+			`phone recent lane link has no accessible name at ${phoneWidth}px`,
+		);
+		await phone.screenshot({
+			path: `${output}/attention-phone-${phoneWidth}-light.png`,
+			fullPage: true,
+		});
+		await phone.evaluate(() => document.documentElement.classList.add("dark"));
+		await phone.screenshot({
+			path: `${output}/attention-phone-${phoneWidth}-dark.png`,
+			fullPage: true,
+		});
+		await Promise.all([
+			phone.waitForURL((url) => url.pathname !== "/work/attention"),
+			firstPhoneLane.click(),
+		]);
+		await phone.close();
+	}
 	assert.deepEqual(errors, []);
 	await writeFile(
 		`${output}/attention-browser-checks.json`,
 		JSON.stringify(
 			{
 				warmFirstPaintMs: paint,
-				phoneWidth: 390,
+				phoneWidths: [375, 390],
 				horizontalOverflow: false,
 				timerTicks: true,
 				layoutSurvivesReload: true,
