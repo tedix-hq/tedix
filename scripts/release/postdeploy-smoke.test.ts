@@ -131,11 +131,34 @@ describe("parseArgs", () => {
 describe("health", () => {
 	test("needs 200 and an ok status when one is reported", () => {
 		expect(healthProblem(200, '{"status":"ok"}')).toBeNull();
-		expect(healthProblem(200, "plain text")).toBeNull();
 		expect(healthProblem(503, "")).toBe("HTTP 503");
 		expect(healthProblem(200, '{"status":"degraded"}')).toBe(
 			'status "degraded"',
 		);
+	});
+
+	test.each([
+		"",
+		"plain text",
+		"<!doctype html><html>SPA fallback</html>",
+		"{broken",
+		"null",
+		"true",
+		"200",
+		'"ok"',
+		"[]",
+		'[{"status":"ok"}]',
+	])("rejects a 200 response without a health object: %s", async (body) => {
+		const url = "https://example.test/health";
+		for (const expectedSha of [undefined, "a".repeat(40)]) {
+			expect(healthProblem(200, body, expectedSha)).not.toBeNull();
+			const [result] = await checkHealth(
+				[url],
+				async () => new Response(body),
+				expectedSha ? { [url]: expectedSha } : {},
+			);
+			expect(result).toMatchObject({ ok: false, failureClass: "product" });
+		}
 	});
 
 	test.each([undefined, "a".repeat(40)])(

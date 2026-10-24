@@ -154,7 +154,7 @@ export function parseArgs(argv: string[]): SmokeOptions {
 	return options;
 }
 
-/** A healthy surface answers 200 and, when it reports a status, "ok". */
+/** A healthy surface answers 200 with a JSON object and, if reported, status "ok". */
 export function healthProblem(
 	status: number,
 	body: string,
@@ -166,12 +166,13 @@ export function healthProblem(
 	try {
 		parsed = JSON.parse(body);
 	} catch {
-		return expectedSha ? "health SHA is missing" : null;
+		return "health response is not JSON";
 	}
-	if (isRecord(parsed) && "status" in parsed && parsed.status !== "ok")
+	if (!isRecord(parsed)) return "health response is not an object";
+	if ("status" in parsed && parsed.status !== "ok")
 		return `status ${JSON.stringify(parsed.status)}`;
-	if (expectedSha && (!isRecord(parsed) || parsed[shaField] !== expectedSha))
-		return `health SHA mismatch: expected ${expectedSha}, got ${isRecord(parsed) ? parsed[shaField] : "missing"}`;
+	if (expectedSha && parsed[shaField] !== expectedSha)
+		return `health SHA mismatch: expected ${expectedSha}, got ${parsed[shaField]}`;
 	return null;
 }
 
