@@ -209,6 +209,33 @@ describe("rotate-master-key", () => {
 		).rejects.toThrow();
 	});
 
+	test.each(["1", "005", String(Number.MAX_SAFE_INTEGER)])(
+		"parseCli accepts the positive decimal row limit %s",
+		(value) => {
+			expect(parseCli(["--local", "--limit", value]).limit).toBe(Number(value));
+		},
+	);
+
+	test.each([
+		"",
+		" ",
+		"0",
+		"-1",
+		"1.5",
+		"1e3",
+		"5junk",
+		"0x10",
+		"+5",
+		" 5 ",
+		"Infinity",
+		"NaN",
+		"9007199254740993",
+	])("parseCli rejects the invalid row limit %j", (value) => {
+		expect(() => parseCli(["--local", "--limit", value])).toThrow(
+			"--limit must be a positive safe integer",
+		);
+	});
+
 	test("parseCli requires a target and defaults to dry run", () => {
 		expect(() => parseCli([])).toThrow("--remote or --local");
 		expect(parseCli(["--remote", "--limit", "5"])).toMatchObject({
