@@ -655,7 +655,7 @@ function WorkItemMobileList({
 							<dl className="m-0 flex min-w-0 basis-full flex-wrap items-center gap-x-1 gap-y-0.5 text-kumo-subtle type-tedix-label">
 								<div className="min-w-0">
 									<dt className="sr-only">Kind</dt>
-									<dd className="m-0 whitespace-nowrap text-kumo-default">
+									<dd className="m-0 break-words text-kumo-default">
 										{OS_COPY.work.kinds[item.workKind] ??
 											OS_COPY.work.kinds.other}
 									</dd>
@@ -663,7 +663,7 @@ function WorkItemMobileList({
 								<span aria-hidden="true">·</span>
 								<div className="min-w-0">
 									<dt className="sr-only">Updated</dt>
-									<dd className="m-0 whitespace-nowrap">
+									<dd className="m-0 break-words">
 										<time dateTime={updatedAt} title={absoluteTime(updatedAt)}>
 											{absoluteDate(updatedAt)}
 										</time>

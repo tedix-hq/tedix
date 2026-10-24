@@ -199,6 +199,20 @@ describe("Work factory queue", () => {
 		expect(ownerCell?.className).toContain("break-words");
 	});
 
+	it("wraps kind and updated metadata inside phone queue rows", () => {
+		const html = renderToStaticMarkup(<WorkItemsTable items={[item]} />);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const kindCell = [...doc.querySelectorAll("dd")].find(
+			(cell) => cell.textContent === "Operations",
+		);
+		const updatedCell = [...doc.querySelectorAll("dd")].find(
+			(cell) => cell.querySelector("time") !== null,
+		);
+
+		expect(kindCell?.className).toContain("break-words");
+		expect(updatedCell?.className).toContain("break-words");
+	});
+
 	it("names the owner without exposing the underlying identifier", () => {
 		const names = new Map([["user:owner-1", "Mira Okafor"]]);
 		const html = renderToStaticMarkup(
