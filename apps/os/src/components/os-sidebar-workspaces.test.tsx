@@ -130,6 +130,7 @@ describe("OsSidebarWorkspaces", () => {
 		expect(container.textContent).not.toContain("Show all");
 		expect(pinnedWorkspace?.textContent).toContain("Revenue Ops");
 		expect(pinnedWorkspace?.getAttribute("title")).toBe("Revenue Ops");
+		expect(container.querySelector('[aria-label="Favorite"]')).toBeNull();
 	});
 
 	it("announces loading until workspace shortcuts are available", async () => {
