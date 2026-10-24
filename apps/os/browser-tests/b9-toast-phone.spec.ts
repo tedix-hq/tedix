@@ -6,7 +6,6 @@ import { webkit, type Browser, type Page } from "playwright";
 // sizes and a desktop size, light and dark, against the app's real CSS.
 const fixturePath = "/browser-tests/b9-toast-phone.html";
 const server = await startFixtureServer(fixturePath);
-const fixture = `${server.origin}${fixturePath}`;
 
 const toastSelector = "[data-os-toast-outlet] [role=dialog]";
 
@@ -172,14 +171,14 @@ try {
 				colorScheme: theme,
 			});
 			const page = await context.newPage();
-			await page.goto(`${fixture}?theme=${theme}`);
+			await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
 
 			// Error: long title + long description with an unbroken URL.
 			await raise(page, "Raise error", 1);
 			const error = await measure(page);
 			assertLayout(error, size.phone, `${label} error`);
 			assert(error.titleLines >= 2, `${label} long title wraps`);
-			titleColors.set(`${label}`, error.titleColor);
+			titleColors.set(label, error.titleColor);
 			await focusClose(page);
 			await page.keyboard.press("Enter");
 			await expectCount(page, 0);
