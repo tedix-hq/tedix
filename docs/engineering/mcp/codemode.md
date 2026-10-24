@@ -133,6 +133,24 @@ MCP-App resources leave `ui.domain` unset so each host chooses its sandbox
 origin. The widget asset origin remains in CSP; it must not be used as the
 host-specific sandbox domain. Legacy Apps SDK domain metadata is separate.
 
+An installation may configure `mcpConfig.sidebarApp` with a title and tabs
+(`id`, `label`, `tool`), and opt `get_info` into
+`codeModeNativeTools`. The existing bootstrap tool then advertises one global
+ChatGPT entrypoint, accepts `{}`, and returns view references plus the
+request's verified organization choices. Its resource is
+`ui://widgets/mcp-app/{slug}/r/sidebar-app.html`. The resource contains no
+member data. Code Mode becomes callable by the app as well as the model;
+its inner scope, tenant and effect checks still apply on every invocation.
+
+The sidebar discovers each exact authorized tool in the chosen organization,
+then calls the returned callable through Code Mode. It renders the existing layout returned by that tool, clears old data on organization or account changes, and
+reloads on tab switches or Refresh. For Tedix Work, configure `show_deck` and
+`show_feed`; their layouts come from the same current tool configuration as
+the conversation views, and card actions retain their authorization.
+Verify the entrypoint in the actual ChatGPT host after deployment and plugin
+discovery refresh. A local render or MCP descriptor does not prove that the
+host displayed the sidebar entry.
+
 ## Result Bounds and Prompt Budget
 
 `shapeBoundedCodeModeResult()` passes results through up to 6,000 tokens

@@ -1,9 +1,13 @@
+import { sidebarAppConfig } from "./sidebar-app";
+
 /** Outer Code Mode auth describes the app, not the union of inner tools.
  * Inner capability checks request additional access only when needed.
  */
 export function codeModeSecurityMeta(
 	config: Record<string, unknown> | null | undefined,
-): { securitySchemes: Array<{ type: string; scopes?: string[] }> } {
+): {
+	securitySchemes: Array<{ type: string; scopes?: string[] }>;
+} {
 	const mode = config?.authMode;
 	const toolScopes = config?.toolScopes as Record<string, string[]> | undefined;
 	const scopes = toolScopes?.code;
@@ -18,5 +22,16 @@ export function codeModeSecurityMeta(
 				: mode === "hybrid"
 					? [{ type: "noauth" }, oauth]
 					: [{ type: "noauth" }],
+	};
+}
+
+export function codeModeToolMeta(
+	config: Record<string, unknown> | null | undefined,
+) {
+	return {
+		...codeModeSecurityMeta(config),
+		...(sidebarAppConfig(config)
+			? { ui: { visibility: ["model", "app"] } }
+			: {}),
 	};
 }

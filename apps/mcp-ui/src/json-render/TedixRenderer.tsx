@@ -66,6 +66,7 @@ interface TedixRendererProps {
 	spec?: Record<string, unknown>;
 	/** Optional state data to hydrate the spec (from tool output) */
 	data?: Record<string, unknown>;
+	callTool?: typeof callHostTool;
 	/** React children (used for Astro slot="fallback") */
 	children?: ReactNode;
 }
@@ -244,6 +245,7 @@ function useRenderCompleteSignal(
 function TedixRendererInner({
 	spec: propSpec,
 	data: propData,
+	callTool = callHostTool,
 }: TedixRendererProps) {
 	// Resolve spec: embedded script tag > props
 	const [spec] = useState<Record<string, unknown> | null>(
@@ -540,7 +542,7 @@ function TedixRendererInner({
 			call_tool: async (params: Record<string, unknown>) => {
 				setActionError(null);
 				try {
-					await runToolAction(params, stateStore, callHostTool);
+					await runToolAction(params, stateStore, callTool);
 				} catch (error) {
 					setActionError(
 						error instanceof Error
@@ -559,6 +561,7 @@ function TedixRendererInner({
 		};
 	}, [
 		stateStore,
+		callTool,
 		openExternal,
 		sendFollowUp,
 		setDetailItem,

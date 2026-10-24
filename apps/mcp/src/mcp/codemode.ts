@@ -76,7 +76,7 @@ import {
 	codeModeInputSchema,
 	hasPaymentProof,
 } from "./connect-payment-policy";
-import { codeModeSecurityMeta } from "./codemode-security";
+import { codeModeToolMeta } from "./codemode-security";
 import { resolveToolRequestMeta } from "./tool-registration";
 import {
 	type McpEvent,
@@ -415,7 +415,7 @@ export async function registerCodeModeTools(
 		{
 			description,
 			annotations: CODE_MODE_TOOL_ANNOTATIONS,
-			_meta: codeModeSecurityMeta(mcpConfig),
+			_meta: codeModeToolMeta(mcpConfig),
 			inputSchema: codeModeInputSchema(
 				serverCtx.connectionAppSlug ?? serverCtx.appSlug,
 			),
