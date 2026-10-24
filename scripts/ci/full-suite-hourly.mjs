@@ -40,13 +40,63 @@ function resolveSource(from, specifier) {
 	return undefined;
 }
 
+// The plan runs before dependencies are installed. Mask prose without a parser,
+// retaining quoted module specifiers for the import scans below.
+function browserImportSource(source) {
+	let output = "";
+	const stack = [{ template: false, depth: 0 }];
+	const literal =
+		/\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/y;
+	for (let index = 0; index < source.length; index++) {
+		const frame = stack.at(-1);
+		const char = source[index];
+		if (frame.template) {
+			if (char === "\\") {
+				output += "  ";
+				index++;
+				continue;
+			}
+			if (char === "`") stack.pop();
+			if (char === "$" && source[index + 1] === "{") {
+				stack.push({ template: false, depth: 0 });
+				output += "  ";
+				index++;
+				continue;
+			}
+			output += /[\r\n]/.test(char) ? char : " ";
+			continue;
+		}
+		literal.lastIndex = index;
+		const match = literal.exec(source);
+		if (match) {
+			const text = match[0];
+			const moduleSpecifier =
+				(text[0] === '"' || text[0] === "'") &&
+				/\b(?:from|import\s*\()\s*$/.test(output);
+			output += moduleSpecifier ? text : text.replace(/[^\r\n]/g, " ");
+			index += text.length - 1;
+		} else if (char === "`") {
+			stack.push({ template: true, depth: 0 });
+			output += " ";
+		} else {
+			if (char === "{") frame.depth++;
+			if (char === "}") {
+				if (frame.depth === 0 && stack.length > 1) stack.pop();
+				else frame.depth--;
+			}
+			output += char;
+		}
+	}
+	return output;
+}
+
 // The browsers a file launches: names imported from Playwright by the file or
 // by any module it reaches through relative imports.
 export function sourceBrowsers(file, seen = new Set()) {
 	// A missing file fails its own job when it runs; it needs no browser.
 	if (seen.has(file) || !existsSync(file)) return [];
 	seen.add(file);
-	const source = readFileSync(file, "utf8");
+	const source = browserImportSource(readFileSync(file, "utf8"));
 	const browsers = new Set();
 	for (const [, names] of source.matchAll(
 		/import\s*\{([^}]*)\}\s*from\s*["'](?:playwright|playwright-core|@playwright\/test)["']/g,

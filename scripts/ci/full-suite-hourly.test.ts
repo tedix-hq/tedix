@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import {
 	workspaceMatrix,
 	ciObservation,
+	sourceBrowsers,
 	scriptBrowsers,
 	reviewPlan,
 	reviewFindings,
@@ -100,6 +101,40 @@ describe("hourly full suite", () => {
 			{ conclusion: "cancelled" },
 		])
 			expect(() => report(changed)).toThrow();
+	});
+	test.each([
+		'// import { firefox } from "playwright";',
+		'/* import { firefox } from "playwright-core"; */',
+		`const example = 'import { firefox } from "@playwright/test";';`,
+		'const example = `import { firefox } from "playwright";`;',
+		'// import { helper } from "./helper";',
+		'/* export { helper } from "./helper"; */',
+		`const example = 'import("./helper")';`,
+		'const example = `outer ${`import { firefox } from "playwright";`}`;',
+		'const example = "escaped \\" import { firefox } from \'playwright\';";',
+		'const example = "https://example.test/*";',
+	])("ignores non-executable imports: %s", (example) => {
+		const root = fixtureTree({
+			"spec.ts": example,
+			"helper.ts": 'import { firefox } from "playwright";',
+		});
+		try {
+			expect(sourceBrowsers(join(root, "spec.ts"))).toEqual([]);
+			writeFileSync(
+				join(root, "spec.ts"),
+				`${example}\nimport /* browser */ { chromium } from /* module */ "playwright";\nconst result = \`loaded \${await import(/* module */ "./real")}\`;`,
+			);
+			writeFileSync(
+				join(root, "real.ts"),
+				'import { webkit } from "playwright-core";',
+			);
+			expect(sourceBrowsers(join(root, "spec.ts"))).toEqual([
+				"chromium",
+				"webkit",
+			]);
+		} finally {
+			rmSync(root, { recursive: true });
+		}
 	});
 	test("derives each browser script's Playwright browsers from the specs it runs", () => {
 		const scripts = {
