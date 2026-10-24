@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createServer } from "node:net";
 import {
 	LOCAL_API_URL,
+	assertLauncherPortsAvailable,
 	LOCAL_LOOPBACK_MESSAGE,
 	LOCAL_OS_URL,
 	LOCAL_STACK_STAGES,
@@ -16,6 +17,22 @@ import {
 	waitForLocalDemo,
 	assertSupportedNodeRuntime,
 } from "./run-local";
+
+function listenOnEphemeralPort() {
+	return new Promise<ReturnType<typeof createServer>>((resolve, reject) => {
+		const server = createServer((socket) => socket.destroy());
+		server.once("error", reject);
+		server.listen(0, "localhost", () => resolve(server));
+	});
+}
+
+function closeServer(server: ReturnType<typeof createServer>) {
+	return new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+function serverPort(server: ReturnType<typeof createServer>) {
+	return (server.address() as { port: number }).port;
+}
 
 describe("run-local options", () => {
 	test("states that every server is loopback-only in the startup copy", () => {
@@ -74,19 +91,17 @@ describe("run-local options", () => {
 	});
 	test("rejects an occupied port before installing or writing local state", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "tedix-local-port-"));
-		const server = createServer((socket) => socket.destroy());
-		await new Promise<void>((resolve, reject) => {
-			server.once("error", (error: NodeJS.ErrnoException) => {
-				if (error.code === "EADDRINUSE") resolve();
-				else reject(error);
-			});
-			server.listen(8790, "localhost", resolve);
-		});
+		const server = await listenOnEphemeralPort();
+		const port = serverPort(server);
 		const child = Bun.spawn(
 			[process.execPath, join(import.meta.dir, "run-local.ts")],
 			{
 				cwd,
-				env: { ...process.env, TEDIX_LOCAL_PERSIST_TO: cwd },
+				env: {
+					...process.env,
+					TEDIX_LOCAL_API_PORT: String(port),
+					TEDIX_LOCAL_PERSIST_TO: cwd,
+				},
 				stdout: "pipe",
 				stderr: "pipe",
 			},
@@ -99,8 +114,8 @@ describe("run-local options", () => {
 				new Response(child.stderr).text(),
 			]);
 			expect(exitCode).not.toBe(0);
-			expect(stderr).toContain("port 8790 is already in use");
-			expect(stderr).toContain("lsof -nP -iTCP:8790 -sTCP:LISTEN");
+			expect(stderr).toContain(`port ${port} is already in use`);
+			expect(stderr).toContain(`lsof -nP -iTCP:${port} -sTCP:LISTEN`);
 			expect(stdout).not.toContain("Installing exact dependencies");
 			expect(stdout).not.toContain(
 				"Applying isolated local database migrations",
@@ -110,29 +125,13 @@ describe("run-local options", () => {
 		} finally {
 			clearTimeout(timeout);
 			child.kill();
-			if (server.listening)
-				await new Promise<void>((resolve) => server.close(() => resolve()));
+			if (server.listening) await closeServer(server);
 		}
 	});
 	test("rejects an occupied MCP port before installing or writing local state", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "tedix-local-mcp-port-"));
-		const listen = () =>
-			new Promise<ReturnType<typeof createServer>>((resolve, reject) => {
-				const server = createServer((socket) => socket.destroy());
-				server.once("error", reject);
-				server.listen(0, "localhost", () => resolve(server));
-			});
-		const close = (server: ReturnType<typeof createServer>) =>
-			new Promise<void>((resolve) => server.close(() => resolve()));
-		const apiServer = await listen();
-		const osServer = await listen();
-		const mcpServer = await listen();
-		const portOf = (server: ReturnType<typeof createServer>) =>
-			(server.address() as { port: number }).port;
-		const apiPort = portOf(apiServer);
-		const osPort = portOf(osServer);
-		const mcpPort = portOf(mcpServer);
-		await Promise.all([close(apiServer), close(osServer)]);
+		const mcpServer = await listenOnEphemeralPort();
+		const mcpPort = serverPort(mcpServer);
 		const child = Bun.spawn(
 			[process.execPath, join(import.meta.dir, "run-local.ts")],
 			{
@@ -140,8 +139,6 @@ describe("run-local options", () => {
 				env: {
 					...process.env,
 					TEDIX_LOCAL_PERSIST_TO: cwd,
-					TEDIX_LOCAL_API_PORT: String(apiPort),
-					TEDIX_LOCAL_OS_PORT: String(osPort),
 					TEDIX_LOCAL_MCP_PORT: String(mcpPort),
 				},
 				stdout: "pipe",
@@ -163,8 +160,18 @@ describe("run-local options", () => {
 		} finally {
 			clearTimeout(timeout);
 			child.kill();
-			if (mcpServer.listening) await close(mcpServer);
+			if (mcpServer.listening) await closeServer(mcpServer);
 		}
+	});
+	test("accepts a deterministic port probe for preflight tests", async () => {
+		const checked: number[] = [];
+		await expect(
+			assertLauncherPortsAvailable(async (port) => {
+				checked.push(port);
+				return false;
+			}),
+		).resolves.toBeUndefined();
+		expect(checked).toEqual([8790, 3000, 3030]);
 	});
 	test("bounds startup readiness even when a server never sends a response body", async () => {
 		const originalFetch = globalThis.fetch;
