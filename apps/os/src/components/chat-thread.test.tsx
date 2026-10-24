@@ -3103,6 +3103,99 @@ const REACHABLE_SKILL = {
 };
 
 describe("<ChatThread> skill picker", () => {
+	async function openComposerMenu(container: Element) {
+		const trigger = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Composer options"]',
+		);
+		if (!trigger) throw new Error("no composer menu");
+		act(() => trigger.click());
+		await flush();
+	}
+
+	function skillMenuItem() {
+		return [
+			...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		].find((item) => item.textContent === "Use a skill…");
+	}
+
+	it("opens the existing picker from the menu with focused search and inserts the slash reference", async () => {
+		skillsApi.listByOrg.mockResolvedValue({
+			entries: [REACHABLE_SKILL],
+			total: 1,
+		});
+		const { container } = mountThread();
+		await flush();
+		typeDraft(container, "ship it");
+		await openComposerMenu(container);
+		const item = skillMenuItem();
+		expect(item).toBeDefined();
+		act(() => item!.click());
+		await flush();
+		await act(async () => {
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+		});
+		const search = container.querySelector<HTMLInputElement>(
+			'input[aria-label="Search skills"]',
+		);
+		expect(search).not.toBeNull();
+		expect(document.activeElement).toBe(search);
+		expect(composerTextarea(container).value).toBe("ship it");
+		const setter = Object.getOwnPropertyDescriptor(
+			HTMLInputElement.prototype,
+			"value",
+		)?.set;
+		act(() => {
+			setter?.call(search, "no-match");
+			search!.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		await flush();
+		expect(pickerOptions(container)).toHaveLength(0);
+		expect(container.textContent).toContain("No matching skills.");
+		act(() => {
+			setter?.call(search, "runbook");
+			search!.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		await flush();
+		expect(pickerOptions(container)).toHaveLength(1);
+		act(() =>
+			search!.dispatchEvent(
+				new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+			),
+		);
+		act(() =>
+			search!.dispatchEvent(
+				new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+			),
+		);
+		await flush();
+		expect(composerTextarea(container).value).toBe(
+			"/skill deploy-runbook\n\nship it",
+		);
+		expect(container.querySelector('[data-slot="skill-picker"]')).toBeNull();
+		expect(document.activeElement).toBe(composerTextarea(container));
+		expect(transport.actions.enqueueMessage).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ entries: [] },
+		{
+			entries: [
+				{ ...REACHABLE_SKILL, visibility: "private" },
+				{ ...REACHABLE_SKILL, id: "owned", tediId: "other-tedi" },
+				{ ...REACHABLE_SKILL, id: "draft", lifecycleState: "draft" },
+			],
+		},
+	])(
+		"hides the menu entry when no skills are reachable (%j)",
+		async ({ entries }) => {
+			skillsApi.listByOrg.mockResolvedValue({ entries, total: entries.length });
+			const { container } = mountThread();
+			await flush();
+			await openComposerMenu(container);
+			expect(skillsApi.listByOrg).toHaveBeenCalled();
+			expect(skillMenuItem()).toBeUndefined();
+		},
+	);
 	it("opens on a slash and offers only skills the turn can reach", async () => {
 		skillsApi.listByOrg.mockResolvedValue({
 			entries: [

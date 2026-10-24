@@ -23,6 +23,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { HomeMessage } from "@tedix/api-contract/schemas/kernel-runtime";
+import type { KeyboardEvent } from "react";
 import {
 	Fragment,
 	type ReactNode,
@@ -1500,13 +1501,16 @@ export function ChatThread({
 	// where the operator types. A bare slash token opens a bounded picker; a
 	// confirmation writes the canonical `/skill <slug>` reference into the
 	// message itself, which the kernel's operator-slash parser understands.
-	const skillTrigger = draftPickerTrigger(draft);
+	const [composerMenuOpen, setComposerMenuOpen] = useState(false);
+	const [skillSearch, setSkillSearch] = useState<string | null>(null);
+	const skillTrigger = skillSearch ?? draftPickerTrigger(draft);
 	const skillListboxId = useId();
 	const [skillPickerDismissed, setSkillPickerDismissed] = useState(false);
 	const [skillActiveIndex, setSkillActiveIndex] = useState(-1);
 	const skillCatalog = useQuery({
 		...skillCatalogQueryOptions(SKILL_CATALOG_LIMIT),
-		enabled: skillTrigger !== null && !skillPickerDismissed,
+		enabled:
+			composerMenuOpen || (skillTrigger !== null && !skillPickerDismissed),
 		// Freshness per open, never per conversation. A catalog cached for the
 		// life of a thread makes a skill recorded a minute ago invisible, and a
 		// cached failure reads as an empty library. staleTime 0 plus
@@ -1529,9 +1533,15 @@ export function ChatThread({
 	const skillPickerOpen =
 		skillTrigger !== null &&
 		!skillPickerDismissed &&
-		(skillCatalog.isPending || skillCatalog.isError || skillMatches.length > 0);
+		(skillSearch !== null ||
+			skillCatalog.isPending ||
+			skillCatalog.isError ||
+			skillMatches.length > 0);
 	const skillListboxOpen =
-		skillPickerOpen && !skillCatalog.isPending && !skillCatalog.isError;
+		skillSearch === null &&
+		skillPickerOpen &&
+		!skillCatalog.isPending &&
+		!skillCatalog.isError;
 	// Pills are a pure projection of the durable text through the shared parser,
 	// so a hand-edited draft and the pill row can never disagree.
 	const referencedSlugs = useMemo(() => parseSkillReferences(draft), [draft]);
@@ -1551,11 +1561,51 @@ export function ChatThread({
 	const confirmSkill = useCallback(
 		(skill: ComposerSkill) => {
 			updateDraft(insertSkillReference(draft, skill.slug));
+			setSkillSearch(null);
 			setSkillActiveIndex(-1);
 			composerRef.current?.focus();
 		},
 		[draft, updateDraft],
 	);
+	const handleSkillPickerKey = (event: KeyboardEvent) => {
+		if (isImeComposing(event)) return false;
+		if (skillPickerOpen && skillMatches.length > 0) {
+			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+				event.preventDefault();
+				setSkillActiveIndex((index) => {
+					const step = event.key === "ArrowDown" ? 1 : -1;
+					const next = index + step;
+					if (next < 0) return skillMatches.length - 1;
+					return next >= skillMatches.length ? 0 : next;
+				});
+				return true;
+			}
+			// Enter confirms only from a row the operator explicitly
+			// highlighted. Typing `/anything` and pressing Enter is
+			// still a plain send — the picker never swallows a message.
+			if (event.key === "Enter" && !event.shiftKey) {
+				const highlighted = skillMatches[skillActiveIndex];
+				if (highlighted) {
+					event.preventDefault();
+					confirmSkill(highlighted);
+					return true;
+				}
+			}
+		}
+		if (skillPickerOpen && event.key === "Escape") {
+			event.preventDefault();
+			setSkillSearch(null);
+			setSkillPickerDismissed(true);
+			composerRef.current?.focus();
+			return true;
+		}
+		if (skillSearch !== null && event.key === "Enter") {
+			event.preventDefault();
+			return true;
+		}
+		return false;
+	};
+
 	// A new trigger is a new list: a stale highlight would confirm a row the
 	// operator can no longer see.
 	useEffect(() => {
@@ -2021,6 +2071,15 @@ export function ChatThread({
 						loading={skillCatalog.isPending}
 						onRetry={() => void skillCatalog.refetch()}
 						onSelect={confirmSkill}
+						search={
+							skillSearch === null
+								? undefined
+								: {
+										value: skillSearch,
+										onValueChange: setSkillSearch,
+										onKeyDown: handleSkillPickerKey,
+									}
+						}
 						skills={skillMatches}
 					/>
 				) : null}
@@ -2140,34 +2199,7 @@ export function ChatThread({
 							// selection is Enter/Arrow traffic that belongs to the IME,
 							// never to the composer.
 							if (isImeComposing(event)) return;
-							if (skillPickerOpen && skillMatches.length > 0) {
-								if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-									event.preventDefault();
-									setSkillActiveIndex((index) => {
-										const step = event.key === "ArrowDown" ? 1 : -1;
-										const next = index + step;
-										if (next < 0) return skillMatches.length - 1;
-										return next >= skillMatches.length ? 0 : next;
-									});
-									return;
-								}
-								// Enter confirms only from a row the operator explicitly
-								// highlighted. Typing `/anything` and pressing Enter is
-								// still a plain send — the picker never swallows a message.
-								if (event.key === "Enter" && !event.shiftKey) {
-									const highlighted = skillMatches[skillActiveIndex];
-									if (highlighted) {
-										event.preventDefault();
-										confirmSkill(highlighted);
-										return;
-									}
-								}
-							}
-							if (skillPickerOpen && event.key === "Escape") {
-								event.preventDefault();
-								setSkillPickerDismissed(true);
-								return;
-							}
+							if (handleSkillPickerKey(event)) return;
 							if (event.key === "Enter" && !event.shiftKey) {
 								event.preventDefault();
 								submit();
@@ -2246,7 +2278,10 @@ export function ChatThread({
 									}
 								/>
 							) : null}
-							<DropdownMenu>
+							<DropdownMenu
+								open={composerMenuOpen}
+								onOpenChange={setComposerMenuOpen}
+							>
 								<DropdownMenuTrigger
 									render={
 										<Button
@@ -2259,6 +2294,17 @@ export function ChatThread({
 									}
 								/>
 								<DropdownMenuContent>
+									{reachableSkills.length > 0 ? (
+										<DropdownMenuItem
+											onClick={() => {
+												setSkillPickerDismissed(false);
+												setSkillActiveIndex(-1);
+												setSkillSearch("");
+											}}
+										>
+											Use a skill…
+										</DropdownMenuItem>
+									) : null}
 									<DropdownMenuItem onClick={() => setDirectReadOpen(true)}>
 										<MagnifyingGlass size={14} />
 										Read from connected app
