@@ -210,7 +210,10 @@ Generate a realistic test input:`;
 	const input = parseJsonResponse<Record<string, unknown>>(response);
 
 	return {
-		input: input ?? generateFallbackInput(tool.inputSchema),
+		input:
+			typeof input === "object" && input !== null && !Array.isArray(input)
+				? input
+				: generateFallbackInput(tool.inputSchema),
 		prompt: userPrompt,
 		tokensUsed,
 	};

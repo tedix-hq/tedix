@@ -14,3 +14,45 @@ it("keeps generative test input construction and uses provider-reported tokens",
 		"@cf/meta/llama-3.3-70b-instruct-fp8-fast",
 	);
 });
+
+it.each([
+	"[]",
+	'[{"id":"o1"}]',
+	"42",
+	"0",
+	"true",
+	"false",
+	'"text"',
+	'""',
+	"null",
+	"```json\n[]\n```",
+	"Generated input: [1, 2]",
+])("falls back to object arguments for model JSON %s", async (response) => {
+	const result = await generateSmartTestInput(
+		{
+			run: async () => ({ response, usage: { total_tokens: 19 } }),
+		},
+		{
+			name: "get_order",
+			inputSchema: {
+				type: "object",
+				properties: { id: { type: "string", default: "fallback-id" } },
+				required: ["id"],
+			},
+		},
+	);
+	expect(result.input).toEqual({ id: "fallback-id" });
+	expect(result.tokensUsed).toBe(19);
+});
+
+it.each([
+	'{"id":"o1"}',
+	'```json\n{"id":"o1"}\n```',
+	'Generated input: {"id":"o1"}',
+])("keeps object arguments extracted from %s", async (response) => {
+	const result = await generateSmartTestInput(
+		{ run: async () => ({ response }) },
+		{ name: "get_order" },
+	);
+	expect(result.input).toEqual({ id: "o1" });
+});
