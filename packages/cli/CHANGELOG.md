@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.3 — 2026-10-24
+
+### Patch Changes
+
+- The CLI keeps your saved access permissions when it renews a sign-in, including when a request is retried.
+
 ## 0.17.2 — 2026-10-24
 
 ### Patch Changes
