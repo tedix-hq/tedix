@@ -190,9 +190,9 @@ export default defineConfig({
 				},
 				{
 					id: "tedix-seo-aeo",
-					...seoAeoPluginMetadata,
 					version: "0.1.0",
 					format: "standard",
+					settingsSchema: seoAeoPluginMetadata.settingsSchema,
 					// Absolute file:// URL so the virtual emdash/plugins module can resolve
 					// this at build time (relative paths fail because the virtual module has
 					// no on-disk location to anchor them).

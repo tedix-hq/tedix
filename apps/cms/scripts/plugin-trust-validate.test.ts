@@ -85,6 +85,17 @@ describe("plugin descriptor extraction", () => {
 			"second",
 		);
 	});
+
+	test("rejects descriptor spreads that can hide trust fields", () => {
+		const source = `const p = {
+			id: "a",
+			capabilities: ["content:read"],
+			...unreviewed,
+		};`;
+		expect(() => extractPluginDescriptors("p.ts", source)).toThrow(
+			/p\.ts: plugin descriptor a contains a spread/,
+		);
+	});
 });
 
 describe("snapshot file extraction", () => {
