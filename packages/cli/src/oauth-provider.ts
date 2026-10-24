@@ -576,6 +576,11 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 		return this.#tokens;
 	}
 
+	/** SDK refresh retries must repeat only the issuer-reported grant. */
+	scopeForRefresh(tokens: StoredOAuthTokens): string | undefined {
+		return tokens.scope?.trim() || undefined;
+	}
+
 	async saveTokens(tokens: StoredOAuthTokens): Promise<void> {
 		await this.saveRenewedTokens(tokens);
 	}
@@ -998,7 +1003,7 @@ export async function refreshStoredSession(
 		}
 		const tokens = provider.tokens();
 		const refreshToken = tokens?.refresh_token;
-		const grantedScope = tokens?.scope?.trim();
+		const grantedScope = tokens ? provider.scopeForRefresh(tokens) : undefined;
 		const clientInformation = provider.clientInformation();
 		const authorizationServerUrl =
 			provider.discoveryState()?.authorizationServerUrl;
@@ -1025,16 +1030,7 @@ export async function refreshStoredSession(
 			else
 				upstreamSignal?.addEventListener("abort", forwardAbort, { once: true });
 			try {
-				let body = init?.body;
-				// RFC 6749 permits a refresh request to narrow but never widen the
-				// original grant. Descope has returned the broader durable consent when
-				// `scope` is omitted, so repeat the exact issuer-reported grant here.
-				if (grantedScope && body instanceof URLSearchParams) {
-					body = new URLSearchParams(body);
-					if (body.get("grant_type") === "refresh_token") {
-						body.set("scope", grantedScope);
-					}
-				}
+				const body = init?.body;
 				if (
 					body instanceof URLSearchParams &&
 					body.get("grant_type") === "refresh_token"
@@ -1105,6 +1101,7 @@ export async function refreshStoredSession(
 		const renewed = await refreshAuthorization(authorizationServerUrl, {
 			clientInformation,
 			refreshToken,
+			scope: grantedScope,
 			...(metadata ? { metadata } : {}),
 			addClientAuthentication: provider.addClientAuthentication,
 			...(resource ? { resource: new URL(resource) } : {}),

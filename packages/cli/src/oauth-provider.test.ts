@@ -865,61 +865,71 @@ describe("WorkspaceOAuthProvider", () => {
 		},
 	);
 
-	test("restores the persisted resource and sends it when refreshing", async () => {
-		let tokenRequest: URLSearchParams | undefined;
-		const provider = new WorkspaceOAuthProvider({
-			mcpUrl: MCP_URL,
-			credential: {
-				loginId: "user-1",
-
-				accessTokenExpiresAtSeconds: 0,
+	test.each([
+		undefined,
+		"",
+		"mcp:apps.read",
+		" mcp:work.read mcp:work.admin platform:admin ",
+	])(
+		"SDK refresh preserves the saved resource and grant (%s)",
+		async (scope) => {
+			let tokenRequest: URLSearchParams | undefined;
+			const provider = new WorkspaceOAuthProvider({
 				mcpUrl: MCP_URL,
-				oauthResourceUrl: MCP_URL,
-				oauthTokens: {
-					access_token: "old-access-token",
-					refresh_token: "refresh-token",
-					token_type: "Bearer",
-					issuer: ISSUER,
-				},
-				oauthClientInformation: {
-					client_id: "client-1",
-					issuer: ISSUER,
-				},
-				oauthDiscoveryState: {
-					authorizationServerUrl: ISSUER,
-					resourceMetadata: {
-						resource: MCP_URL,
-						authorization_servers: [ISSUER],
-					},
-					authorizationServerMetadata: {
-						issuer: ISSUER,
-						authorization_endpoint: `${ISSUER}/authorize`,
-						token_endpoint: `${ISSUER}/token`,
-						response_types_supported: ["code"],
-					},
-				},
-			},
-		});
+				credential: {
+					loginId: "user-1",
 
-		expect(provider.resourceUrl()).toBe(MCP_URL);
-		await expect(
-			auth(provider, {
-				serverUrl: MCP_URL,
-				fetchFn: async (_input, init) => {
-					tokenRequest = new URLSearchParams(String(init?.body));
-					return Response.json({
-						access_token: "refreshed-access-token",
-						refresh_token: "refreshed-refresh-token",
+					accessTokenExpiresAtSeconds: 0,
+					mcpUrl: MCP_URL,
+					oauthResourceUrl: MCP_URL,
+					oauthTokens: {
+						access_token: "old-access-token",
+						refresh_token: "refresh-token",
 						token_type: "Bearer",
-					});
+						issuer: ISSUER,
+						scope,
+					},
+					oauthClientInformation: {
+						client_id: "client-1",
+						issuer: ISSUER,
+					},
+					oauthDiscoveryState: {
+						authorizationServerUrl: ISSUER,
+						resourceMetadata: {
+							resource: MCP_URL,
+							authorization_servers: [ISSUER],
+						},
+						authorizationServerMetadata: {
+							issuer: ISSUER,
+							authorization_endpoint: `${ISSUER}/authorize`,
+							token_endpoint: `${ISSUER}/token`,
+							response_types_supported: ["code"],
+						},
+					},
 				},
-			}),
-		).resolves.toBe("AUTHORIZED");
+			});
 
-		expect(tokenRequest?.get("grant_type")).toBe("refresh_token");
-		expect(tokenRequest?.get("resource")).toBe(MCP_URL);
-		expect(provider.credential().oauthResourceUrl).toBe(MCP_URL);
-	});
+			expect(provider.resourceUrl()).toBe(MCP_URL);
+			await expect(
+				auth(provider, {
+					serverUrl: MCP_URL,
+					fetchFn: async (_input, init) => {
+						tokenRequest = new URLSearchParams(String(init?.body));
+						return Response.json({
+							access_token: "refreshed-access-token",
+							refresh_token: "refreshed-refresh-token",
+							token_type: "Bearer",
+						});
+					},
+				}),
+			).resolves.toBe("AUTHORIZED");
+
+			expect(tokenRequest?.get("grant_type")).toBe("refresh_token");
+			expect(tokenRequest?.get("resource")).toBe(MCP_URL);
+			expect(tokenRequest?.get("scope")).toBe(scope?.trim() || null);
+			expect(provider.credential().oauthResourceUrl).toBe(MCP_URL);
+		},
+	);
 });
 
 test("issued scopes never infer a grant from roles or missing claims", () => {
