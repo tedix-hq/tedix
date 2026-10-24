@@ -114,6 +114,37 @@ assert.equal(
 	"thrown lookup errors must not stamp failed executions",
 );
 
+for (const asynchronous of [false, true]) {
+	let acquisitions = 0;
+	const acquisition = createSkillReadTool(() => {
+		acquisitions++;
+		if (acquisitions === 1) {
+			const error = new Error(`Bearer ${secret} ${"x".repeat(2000)}`);
+			if (asynchronous) return Promise.reject(error);
+			throw error;
+		}
+		return { getSkillForMcp: async () => ({ entry }) };
+	});
+	const acquire = (input: { id?: string }) =>
+		acquisition.execute!(input, {
+			toolCallId: "acquire",
+			messages: [],
+			context: {},
+		});
+	assert.deepEqual(await acquire({}), {
+		ok: false,
+		error: "Provide either slug or id",
+	});
+	assert.equal(acquisitions, 0);
+	const result = (await acquire({ id })) as Record<string, unknown>;
+	assert.equal(result.ok, false);
+	assert.ok(!String(result.error).includes(secret));
+	assert.ok(String(result.error).includes("__TEDIX_REDACTED__"));
+	assert.ok(String(result.error).endsWith("…(truncated)"));
+	assert.ok(String(result.error).length <= 1014);
+	assert.deepEqual(await acquire({ id }), expected);
+}
+
 const absent = createSkillReadTool(() => null);
 assert.deepEqual(
 	await absent.execute!(
