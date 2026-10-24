@@ -1,4 +1,3 @@
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import {
@@ -8,6 +7,7 @@ import {
 	type Locator,
 	type Page,
 } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
 /*
  * Work beyond the Deck on iPhone Safari (WebKit): Feed, Projects, a project,
@@ -16,29 +16,10 @@ import {
  * row links 44px tall. Fields keep 16px text (smaller zooms the page on
  * focus) and stay reachable above the software keyboard.
  */
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
-});
-const port = process.env.TEDIX_BROWSER_TEST_PORT || String(probe.port!);
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "inherit", stderr: "inherit", detached: true },
-);
 const shots = process.env.TEDIX_SCREENSHOT_DIR;
 if (shots) await mkdir(shots, { recursive: true });
+const server = await startFixtureServer("/work");
+const { origin } = server;
 
 const PROJECT = "/work/projects/00000076-0000-4000-8000-000000000001";
 const ITEM = "/work/items/00000070-0000-4000-8000-000000000001";
@@ -252,7 +233,6 @@ async function keyboardFailures(page: Page, field: Locator, action: Locator) {
 let browser: Browser | undefined;
 const allFailures: string[] = [];
 try {
-	await waitForFixtureServer(`${origin}/work`, { server });
 	browser = await webkit.launch({ headless: true });
 	for (const width of [390, 1280]) {
 		for (const colorScheme of ["light", "dark"] as const) {
@@ -274,6 +254,19 @@ try {
 					)
 					.waitFor();
 				const headings = page.getByRole("heading", { level: 1 });
+				assert.equal(
+					await page.locator("vite-error-overlay").count(),
+					0,
+					`${width} ${colorScheme} ${view}: document scripts load without errors`,
+				);
+				assert(
+					await page.evaluate(() =>
+						document.documentElement.style
+							.getPropertyValue("--viewport-tedix-height")
+							.endsWith("px"),
+					),
+					`${width} ${colorScheme} ${view}: document viewport metrics are installed`,
+				);
 				assert.equal(await headings.count(), 1);
 				assert.equal(
 					await headings.textContent(),
@@ -586,6 +579,5 @@ try {
 	assert.deepEqual(allFailures, [], "iPhone Work views");
 } finally {
 	await browser?.close();
-	process.kill(-server.pid, "SIGTERM");
-	await server.exited;
+	await server.stop();
 }

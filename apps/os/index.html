@@ -95,10 +95,7 @@
 			double-invoked effects. `styles.css` ships the pre-JS defaults, so the
 			shell is correctly sized before this runs.
 		-->
-		<script type="module">
-			import { installViewportMetrics } from "/src/lib/viewport-metrics.ts";
-			installViewportMetrics();
-		</script>
+		<script type="module" src="/src/init-viewport.ts"></script>
 	</head>
 	<body>
 		<div id="root">
