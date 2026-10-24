@@ -45,6 +45,7 @@ import {
 	type LearnDeps,
 	parseClaudeSession,
 	parseCodexSession,
+	parseLearningDate,
 	parseLines,
 	routedTarget,
 	scrub,
@@ -1267,9 +1268,7 @@ function parseOptions(args: string[]) {
 		else if (arg === "--json") options.json = true;
 		else if (arg === "--no-model") options.noModel = true;
 		else if (arg === "--since") {
-			const since = new Date(value());
-			if (Number.isNaN(since.getTime()))
-				throw new Error("--since must be a date, e.g. 2026-01-01");
+			const since = parseLearningDate(value(), "--since");
 			options.since = since.toISOString();
 		} else if (arg === "--project") options.projects.push(value());
 		else
