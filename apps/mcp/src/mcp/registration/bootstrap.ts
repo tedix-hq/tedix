@@ -1,3 +1,8 @@
+import { sidebarAppConfig, sidebarAppToolMeta } from "../sidebar-app";
+import {
+	buildMcpAppResourceMeta,
+	WIDGET_MIME_TYPES,
+} from "../utils/register-widget";
 import {
 	MCP_CAPABILITY_SCOPES,
 	MCP_GRANULAR_CAPABILITY_SCOPES,
@@ -222,6 +227,7 @@ export function buildBootstrapInfo(
 	agent: ServerContext,
 	registry?: ReadonlyArray<AppTool>,
 ) {
+	const sidebarApp = sidebarAppConfig(agent.appMetadata?.mcpConfig);
 	return {
 		name: agent.app?.name ?? "Unknown App",
 		slug: agent.appSlug ?? "unknown",
@@ -232,6 +238,29 @@ export function buildBootstrapInfo(
 		toolCount: agent.registeredTools.size,
 		capabilities: agent.appCapabilities,
 		...buildNativeBootstrap(agent, registry),
+		...(sidebarApp
+			? {
+					sidebarApp: {
+						...sidebarApp,
+						organizations:
+							agent.callerIdentity?.verifiedMultiOrgOrganizations?.map(
+								(org) => ({
+									id: org.organizationId,
+									label: org.gatewaySlug.replace(/-unified$/, ""),
+								}),
+							) ??
+							(agent.callerIdentity?.userId && agent.app?.organizationId
+								? [
+										{
+											id: agent.app.organizationId,
+											label: agent.app.name,
+										},
+									]
+								: []),
+						accountId: agent.callerIdentity?.userId ?? null,
+					},
+				}
+			: {}),
 	};
 }
 
@@ -244,7 +273,10 @@ export function registerGetInfoTool(
 	const getInfoTool = agent.server.registerTool(
 		"get_info",
 		{
-			title: `${appName} Info`,
+			title:
+				sidebarAppConfig(agent.appMetadata?.mcpConfig)?.title ??
+				`${appName} Info`,
+			_meta: sidebarAppToolMeta(agent.appSlug, agent.appMetadata?.mcpConfig),
 			description: `Get metadata about the ${appName} MCP server itself (name, version, tool count). Only use when the user asks about this server's identity or capabilities — NOT for answering general questions.`,
 			inputSchema: z.object({}),
 			annotations: {
@@ -268,6 +300,14 @@ export function registerGetInfoTool(
 			return {
 				content: [{ type: "text" as const, text }],
 				structuredContent: info,
+				...(info.sidebarApp
+					? {
+							_meta: sidebarAppToolMeta(
+								agent.appSlug,
+								agent.appMetadata?.mcpConfig,
+							),
+						}
+					: {}),
 			};
 		},
 	);
@@ -396,6 +436,35 @@ export function registerBootstrapTools(
  * Register minimal bootstrap resources (fallback).
  */
 export function registerBootstrapResources(agent: ServerContext): void {
+	if (sidebarAppConfig(agent.appMetadata?.mcpConfig)) {
+		const uri = `ui://widgets/mcp-app/${agent.appSlug}/r/sidebar-app.html`;
+		const resource = agent.server.registerResource(
+			"sidebar-app",
+			uri,
+			{
+				mimeType: WIDGET_MIME_TYPES.MCP_APP,
+			},
+			async () => ({
+				contents: [
+					{
+						uri,
+						mimeType: WIDGET_MIME_TYPES.MCP_APP,
+						text: await agent.fetchWidgetHtml(
+							"/r/sidebar-app",
+							"Workspace",
+							"mcp-app",
+						),
+						_meta: buildMcpAppResourceMeta(
+							null,
+							await agent.buildAppCsp(),
+							agent.getWidgetDomain(),
+						),
+					},
+				],
+			}),
+		);
+		agent.registeredResources.set(uri, resource);
+	}
 	const appSlug = agent.appSlug || "unknown";
 	const infoResourceUri = `info://${appSlug}/app-info.json`;
 

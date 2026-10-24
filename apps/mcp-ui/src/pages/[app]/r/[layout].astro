@@ -26,6 +26,7 @@ import {
 	parseWidgetSpecHeader,
 	parseWidgetSpecParam,
 } from "../../../lib/widget-spec";
+import SidebarApp from "../../../components/SidebarApp";
 import GeneratedMcpAppRenderer from "../../../components/GeneratedMcpAppRenderer";
 import { TedixRenderer } from "../../../json-render/TedixRenderer";
 
@@ -83,7 +84,9 @@ const generatedMcpApp = layoutId === "generated-app";
 		/>
 	)}
 
-	{generatedMcpApp ? (
+	{layoutId === "sidebar-app" ? (
+		<SidebarApp client:only="react" />
+	) : generatedMcpApp ? (
 		<GeneratedMcpAppRenderer client:only="react" />
 	) : (
 		<main class="p-4">

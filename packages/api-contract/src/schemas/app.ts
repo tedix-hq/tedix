@@ -271,6 +271,35 @@ const AggregateAppSchema = z.object({
 		.describe("Omit when no endpoint prefix restriction is configured."),
 });
 
+/** A bootstrap sidebar contains view references, never cached member data. */
+export const SidebarAppSchema = z
+	.strictObject({
+		title: z.string().min(1).max(80),
+		tabs: z
+			.array(
+				z.strictObject({
+					id: z
+						.string()
+						.regex(/^[a-z][a-z0-9_-]*$/)
+						.max(80),
+					label: z.string().min(1).max(80),
+					tool: z
+						.string()
+						.regex(/^[a-z][a-z0-9_]*$/)
+						.max(100),
+				}),
+			)
+			.min(1)
+			.max(10),
+	})
+	.refine(
+		(value) =>
+			new Set(value.tabs.map((tab) => tab.id)).size === value.tabs.length,
+		{
+			message: "Sidebar tab IDs must be unique",
+		},
+	);
+
 export const McpConfigSchema = z
 	.object({
 		embeddedHostDelegation: z
@@ -554,6 +583,8 @@ export const McpConfigSchema = z
 		 * and configured catalog rows). Everything stays callable through Code Mode.
 		 */
 		codeModeNativeTools: z.array(z.string().min(1)).max(50).optional(),
+		/** Opt-in fullscreen app on the existing get_info bootstrap tool. */
+		sidebarApp: SidebarAppSchema.optional(),
 		/**
 		 * Custom ES modules injected into the Code Mode sandbox.
 		 * Keys are module specifiers (e.g. "helpers.js"), values are ES module source code.

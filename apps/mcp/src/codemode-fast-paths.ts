@@ -1,3 +1,4 @@
+import { sidebarAppConfig, sidebarAppToolMeta } from "./mcp/sidebar-app";
 import { ATTENTION_GUIDANCE } from "./mcp/attention-guidance";
 import {
 	capServerInstructions,
@@ -23,7 +24,10 @@ import {
 	DEFAULT_MCP_CACHE_HINT,
 	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 } from "@tedix/mcp-shared/transport";
-import { codeModeSecurityMeta } from "./mcp/codemode-security";
+import {
+	codeModeSecurityMeta,
+	codeModeToolMeta,
+} from "./mcp/codemode-security";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	isMcpToolVisibleToCaller,
@@ -167,13 +171,19 @@ export function compactCodeModeTools(
 			title: "Code Mode",
 			annotations: CODE_MODE_TOOL_ANNOTATIONS,
 			...codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
-			_meta: codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
+			_meta: codeModeToolMeta(resolvedApp.metadata?.mcpConfig),
 			description: compactCodeModeToolDescription(resolvedApp),
 			inputSchema: z.toJSONSchema(codeModeInputSchema(connectionAppSlug)),
 		},
 		{
 			name: "get_info",
-			title: `${appName} Info`,
+			title:
+				sidebarAppConfig(resolvedApp.metadata?.mcpConfig)?.title ??
+				`${appName} Info`,
+			_meta: sidebarAppToolMeta(
+				resolvedApp.app.slug,
+				resolvedApp.metadata?.mcpConfig,
+			),
 			description: `Get metadata about the ${appName} MCP server itself.`,
 			inputSchema: { type: "object", properties: {} },
 			annotations: {

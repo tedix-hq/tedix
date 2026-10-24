@@ -18,6 +18,7 @@ Core routes:
 - `/health` — deployment provenance readback
 - `/{appSlug}/r/{layoutId}` — generated json-render resource
 - `/{appSlug}/r/item-detail` — generic detail resource
+- `/{appSlug}/r/sidebar-app` — configured sidebar tabs using existing layouts
 - `/{appSlug}/r/preview` and `/preview` — preview-only routes
 
 ## Version previews
