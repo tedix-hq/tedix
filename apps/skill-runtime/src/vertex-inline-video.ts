@@ -127,6 +127,16 @@ export async function vertexInlineVideoByteLength(
 			const encoded = end < 0 ? text : text.slice(0, end);
 			base64Length += encoded.length;
 			base64Suffix = (base64Suffix + encoded).slice(-2);
+			// Allow the final group's padding, but never wait for an oversized
+			// response to close its JSON string before rejecting it.
+			if (base64Length > Math.ceil(maxBytes / 3) * 4) {
+				try {
+					await reader.cancel();
+				} catch {
+					// Preserve the size failure if upstream cancellation also fails.
+				}
+				throw new Error("Vertex video exceeds " + maxBytes + " byte limit");
+			}
 			if (end >= 0) {
 				finished = true;
 				await reader.cancel();
