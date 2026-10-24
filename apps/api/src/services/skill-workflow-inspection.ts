@@ -618,8 +618,9 @@ export function aggregateSkillWorkflowReliability(args: {
 			policy &&
 			(typeof selector === "string" ||
 				typeof selector === "number" ||
-				typeof selector === "boolean")
-				? (policy.expectedTerminalStatuses[String(selector)] ?? "completed")
+				typeof selector === "boolean") &&
+			Object.hasOwn(policy.expectedTerminalStatuses, String(selector))
+				? policy.expectedTerminalStatuses[String(selector)]!
 				: "completed";
 		return {
 			runId: run.id,

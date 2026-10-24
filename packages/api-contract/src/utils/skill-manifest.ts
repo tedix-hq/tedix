@@ -247,7 +247,12 @@ export function validateWorkflowReliabilityPolicy(raw: unknown): {
 				});
 				continue;
 			}
-			expectedTerminalStatuses[selector] = status;
+			Object.defineProperty(expectedTerminalStatuses, selector, {
+				value: status,
+				enumerable: true,
+				writable: true,
+				configurable: true,
+			});
 		}
 	}
 	return {
