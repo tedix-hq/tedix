@@ -1,33 +1,13 @@
 [
 	{
-		"path": "apps/os/src/components/feed-deck-primitives.tsx",
-		"symbol": "FeedMomentHeader",
-		"type": "exports"
-	},
-	{
 		"path": "apps/os/src/components/feed-now-strip.tsx",
 		"symbol": "apps/os/src/components/feed-now-strip.tsx",
 		"type": "files"
 	},
 	{
-		"path": "apps/os/src/components/work-factory-pages.tsx",
-		"symbol": "WorkRecoveryPage",
-		"type": "exports"
-	},
-	{
-		"path": "apps/os/src/components/work-item-create.tsx",
-		"symbol": "WorkItemCreate",
-		"type": "exports"
-	},
-	{
 		"path": "apps/os/src/components/work-needs-you-count.tsx",
 		"symbol": "NeedsYouSources",
 		"type": "types"
-	},
-	{
-		"path": "apps/os/src/components/work-portfolio-page.tsx",
-		"symbol": "WorkPortfolioPage",
-		"type": "exports"
 	},
 	{
 		"path": "apps/os/src/lib/os-route-loaders.ts",

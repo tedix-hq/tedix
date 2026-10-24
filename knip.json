@@ -85,6 +85,7 @@
 				"config": ["vitest*.config.ts"]
 			},
 			"ignoreUnresolved": [
+				"/src/router.tsx",
 				"/node_modules/.vite/deps/react.js",
 				"/node_modules/.vite/deps/react-dom_client.js",
 				"/src/components/kumo/dialog.tsx",
