@@ -6,7 +6,10 @@ import {
 	getOrganizationAggregatorGateways,
 	getUserOrganizationMemberships,
 } from "@tedix/db/queries/organization-members";
-import { getOrganizationById } from "@tedix/db/queries/organizations";
+import {
+	getOrganizationById,
+	isOrganizationOffboarding,
+} from "@tedix/db/queries/organizations";
 import {
 	getOrganizationSurfaceSignals,
 	type OrganizationSurfaceSignals,
@@ -27,6 +30,9 @@ import {
  * (OS, MCP, CMS) each authenticated user's organizations exposes
  * and builds their canonical URLs and browser session handoffs server-side via
  * `@tedix/tenant-directory`.
+ *
+ * Cancelled and retired organizations are omitted, so the OS switcher and the
+ * consent screen never offer an organization that is being offboarded.
  *
  * Fail-closed by construction. `provisionComplete` gates the whole org on a
  * minted Descope tenant; an org without one is disabled and every surface
@@ -282,7 +288,9 @@ const resolveWorkspace = authed.resolveWorkspace
 		if (!membership || membership.status !== "active") return null;
 
 		const organization = await getOrganizationById(db, input.organizationId);
-		if (!organization) return null;
+		// A cancelled or retired organization is no longer a workspace to open.
+		if (!organization || isOrganizationOffboarding(organization.metadata))
+			return null;
 
 		const [signals, gateways] = await Promise.all([
 			getOrganizationSurfaceSignals(db, [organization.id]),

@@ -15,7 +15,10 @@ import {
 	getMembershipsByDescopeTenants,
 	getOrganizationAggregatorGateways,
 } from "@tedix/db/queries/organization-members";
-import { getOrganizationByDescopeId } from "@tedix/db/queries/organizations";
+import {
+	getOrganizationByDescopeId,
+	isOrganizationOffboarding,
+} from "@tedix/db/queries/organizations";
 import {
 	getMcpConsentResource,
 	disableMcpConsentSelection,
@@ -226,7 +229,9 @@ export async function stageHumanMcpConsent(
 	const rows = await Promise.all(
 		input.selectedTenantIds.map(async (tenantId) => {
 			const organization = await getOrganizationByDescopeId(db, tenantId);
-			if (!organization) return null;
+			// A new consent may not select an organization being offboarded.
+			if (!organization || isOrganizationOffboarding(organization.metadata))
+				return null;
 			const member = await getMemberByUserId(
 				db,
 				organization.id,

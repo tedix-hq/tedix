@@ -338,6 +338,31 @@ describe("directory.resolveWorkspace", () => {
 		});
 	});
 
+	it("returns null for a cancelled or retired organization", async () => {
+		mocks.getMemberByUserId.mockResolvedValue({ status: "active" });
+		mocks.getOrganizationSurfaceSignals.mockResolvedValue(
+			new Map([[ORG_A, signals({ os: true })]]),
+		);
+		for (const lifecycle of [
+			{ cancelledAt: "2026-10-22T10:47:19.000Z" },
+			{ retiredAt: "2026-10-22T10:47:19.000Z" },
+		]) {
+			mocks.getOrganizationById.mockResolvedValue({
+				id: ORG_A,
+				slug: "acme",
+				name: "Acme",
+				descopeTenantId: "T-acme",
+				features: { os: true },
+				metadata: lifecycle,
+			});
+			await expect(
+				createClient(createContext("user-1")).resolveWorkspace({
+					organizationId: ORG_A,
+				}),
+			).resolves.toBeNull();
+		}
+	});
+
 	it("rejects a machine principal with no verified subject", async () => {
 		const client = createClient(createContext(undefined));
 		await expect(
