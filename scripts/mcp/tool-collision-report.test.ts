@@ -1,5 +1,28 @@
 import { describe, expect, it } from "bun:test";
-import { groupToolCollisions } from "./tool-collision-report";
+import { groupToolCollisions, parseReportHours } from "./tool-collision-report";
+
+describe("parseReportHours", () => {
+	it("uses the default report window when --hours is absent", () => {
+		expect(parseReportHours([])).toBe(24);
+	});
+
+	it("accepts positive plain decimal hours within the report window", () => {
+		expect(parseReportHours(["--hours", "168"])).toBe(168);
+	});
+
+	it.each(["0", "-1", "1.5", "1e3", "0x10", " 24", "024"])(
+		"rejects malformed --hours value %j",
+		(value) => {
+			expect(() => parseReportHours(["--hours", value])).toThrow(
+				"positive plain decimal",
+			);
+		},
+	);
+
+	it("rejects report windows longer than one week", () => {
+		expect(() => parseReportHours(["--hours", "169"])).toThrow("at most 168");
+	});
+});
 
 describe("groupToolCollisions", () => {
 	it("groups events by colliding key with owners, counts and last sighting", () => {
