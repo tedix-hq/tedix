@@ -4,18 +4,13 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { CollabParticipant } from "@/collab/presence";
 
 /*
- * The real Kumo Popover renders its content only while open, and a server
- * render always starts closed — so an unmocked render of `CanvasPresence`
- * contains no popup markup at all and every assertion about the popup's
- * `className` passes for want of a subject. Mock the primitive the way
- * `kumo/tooltip.test.tsx` does, mirroring Kumo's real shape: the portal's
- * positioner (a `div`) wraps the popup (a `section`), and the popup is the only
- * element that receives the call site's `className`.
+ * Server rendering starts the real popover closed, hiding the roster markup.
+ * Mock its composable parts so assertions exercise the popup content and the
+ * positioner's layer.
  */
 vi.mock("@cloudflare/kumo/components/popover", () => {
 	type PartProps = { children?: ReactNode; className?: string };
 	type TriggerProps = PartProps & { render?: ReactElement };
-	type ContentProps = PartProps & { align?: string; sideOffset?: number };
 
 	function Part({ children, className }: PartProps) {
 		return <div className={className}>{children}</div>;
@@ -29,12 +24,15 @@ vi.mock("@cloudflare/kumo/components/popover", () => {
 		return render ?? <>{children}</>;
 	}
 
-	function Content({ children, className }: ContentProps) {
+	function Positioner({ children, className }: PartProps) {
 		return (
-			<div data-part="positioner">
-				<section className={className}>{children}</section>
+			<div data-part="positioner" className={className}>
+				{children}
 			</div>
 		);
+	}
+	function Popup({ children, className }: PartProps) {
+		return <section className={className}>{children}</section>;
 	}
 
 	function Title({ children, className }: PartProps) {
@@ -43,7 +41,10 @@ vi.mock("@cloudflare/kumo/components/popover", () => {
 
 	const Popover = Object.assign(Root, {
 		Trigger,
-		Content,
+		Portal: Part,
+		Positioner,
+		Popup,
+		Arrow: Part,
 		Title,
 		Description: Part,
 		Close: Part,
@@ -51,47 +52,10 @@ vi.mock("@cloudflare/kumo/components/popover", () => {
 
 	return {
 		Popover,
-		PopoverContent: Content,
 		PopoverDescription: Part,
 		PopoverRoot: Root,
 		PopoverTitle: Title,
 		PopoverTrigger: Trigger,
-	};
-});
-
-vi.mock("@cloudflare/kumo/primitives/popover", () => {
-	function Part({
-		children,
-		className,
-	}: {
-		children?: ReactNode;
-		className?: string;
-	}) {
-		return <div className={className}>{children}</div>;
-	}
-	return {
-		Popover: {
-			Portal: Part,
-			Positioner: ({
-				children,
-				className,
-			}: {
-				children?: ReactNode;
-				className?: string;
-			}) => (
-				<div data-part="positioner" className={className}>
-					{children}
-				</div>
-			),
-			Popup: ({
-				children,
-				className,
-			}: {
-				children?: ReactNode;
-				className?: string;
-			}) => <section className={className}>{children}</section>,
-			Arrow: Part,
-		},
 	};
 });
 

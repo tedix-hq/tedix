@@ -5,17 +5,19 @@ import {
 	PopoverTitle as KumoPopoverTitle,
 	PopoverTrigger as KumoPopoverTrigger,
 } from "@cloudflare/kumo/components/popover";
-import { Popover as PopoverPrimitive } from "@cloudflare/kumo/primitives/popover";
 import type { ComponentProps } from "react";
-import type { PopoverContentProps as KumoContentProps } from "@cloudflare/kumo/components/popover";
 
 import { cn } from "@/lib/utils";
 
-type PopoverContentProps = KumoContentProps &
+type PopoverContentProps = Pick<
+	ComponentProps<typeof KumoPopover.Positioner>,
+	"anchor" | "align" | "alignOffset" | "side" | "sideOffset" | "positionMethod"
+> &
+	Pick<ComponentProps<typeof KumoPopover.Portal>, "container"> &
 	Pick<
-		ComponentProps<typeof PopoverPrimitive.Popup>,
-		"initialFocus" | "finalFocus"
-	>;
+		ComponentProps<typeof KumoPopover.Popup>,
+		"children" | "initialFocus" | "finalFocus"
+	> & { className?: string };
 
 /**
  * Kumo's non-modal overlay. Use this for transient anchored panels instead of
@@ -47,8 +49,8 @@ function PopoverContent({
 	...props
 }: PopoverContentProps) {
 	return (
-		<PopoverPrimitive.Portal container={container}>
-			<PopoverPrimitive.Positioner
+		<KumoPopover.Portal container={container}>
+			<KumoPopover.Positioner
 				anchor={anchor}
 				align={align}
 				alignOffset={alignOffset}
@@ -57,32 +59,19 @@ function PopoverContent({
 				positionMethod={positionMethod}
 				className="isolate z-(--tedix-layer-dropdown)"
 			>
-				<PopoverPrimitive.Popup
+				<KumoPopover.Popup
 					className={cn(
-						"kumo-popover-popup max-h-[var(--available-height)] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain flex origin-(--transform-origin) flex-col rounded-lg bg-kumo-base px-4 py-3 text-kumo-default type-tedix-body shadow-tedix-floating outline outline-kumo-line",
-						"transition-[transform,scale,opacity] duration-tedix-standard ease-tedix-standard motion-reduce:transition-none data-ending-style:scale-90 data-starting-style:scale-90 data-ending-style:opacity-0 data-starting-style:opacity-0 data-[instant]:duration-0",
+						"max-h-[var(--available-height)] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain type-tedix-body shadow-tedix-floating",
+						"duration-tedix-standard ease-tedix-standard motion-reduce:transition-none data-[instant]:duration-0",
 						className,
 					)}
 					{...props}
 				>
-					<PopoverPrimitive.Arrow
-						className={cn(
-							"flex text-kumo-base drop-shadow-sm",
-							"data-[side=bottom]:-top-2 data-[side=left]:right-[-13px] data-[side=left]:rotate-90",
-							"data-[side=right]:left-[-13px] data-[side=right]:-rotate-90 data-[side=top]:-bottom-2 data-[side=top]:rotate-180",
-						)}
-					>
-						<svg aria-hidden width="20" height="10" viewBox="0 0 20 10">
-							<path
-								fill="currentColor"
-								d="M9.66 2.6 4.8 6.97A4 4 0 0 1 2.13 8H0v2h20V8h-1.47a4 4 0 0 1-2.67-1.03L11 2.6a1 1 0 0 0-1.34 0Z"
-							/>
-						</svg>
-					</PopoverPrimitive.Arrow>
+					<KumoPopover.Arrow className="text-kumo-base drop-shadow-sm" />
 					{children}
-				</PopoverPrimitive.Popup>
-			</PopoverPrimitive.Positioner>
-		</PopoverPrimitive.Portal>
+				</KumoPopover.Popup>
+			</KumoPopover.Positioner>
+		</KumoPopover.Portal>
 	);
 }
 
