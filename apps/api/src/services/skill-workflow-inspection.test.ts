@@ -326,6 +326,63 @@ describe("skill workflow inspection", () => {
 		});
 	});
 
+	it.each([
+		{ durationMs: -5, expected: null },
+		{ durationMs: 0, expected: 0 },
+		{ durationMs: 2.5, expected: 2.5 },
+	])(
+		"projects duration $durationMs as $expected",
+		({ durationMs, expected }) => {
+			const parsed = parseSkillWorkflowRecords([
+				artifact("epochs/0/steps/x:read/1/attempts/1.json", { durationMs }),
+				artifact("epochs/0/steps/x:read/1/attempts/1/calls/run/1.json", {
+					durationMs,
+				}),
+				artifact("epochs/0/steps/x:read/1/attempts/1/rollback.json", {
+					durationMs,
+				}),
+			]);
+
+			expect(parsed.steps).toHaveLength(3);
+			expect(parsed.toolCalls).toHaveLength(1);
+			for (const step of [...parsed.steps, ...parsed.toolCalls]) {
+				expect(step.durationMs).toBe(expected);
+				expect(SkillWorkflowStepSchema.safeParse(step).success).toBe(true);
+			}
+		},
+	);
+
+	it("excludes invalid durations from cost totals without dropping attempts", () => {
+		const parsed = parseSkillWorkflowRecords([
+			artifact("epochs/0/steps/x:read/1/attempts/1.json", {}),
+		]);
+		const durations = [
+			-5,
+			0,
+			2.5,
+			10,
+			null,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+		];
+		const summary = computeSkillRunCostSummary({
+			steps: durations.map((durationMs, index) => ({
+				...parsed.steps[0]!,
+				attempt: index + 1,
+				durationMs,
+			})),
+			toolCalls: [],
+			executionEpoch: 0,
+			startedAt: null,
+			completedAt: null,
+		});
+
+		expect(summary.stepDurationMs).toBe(12.5);
+		expect(summary.steps).toBe(1);
+		expect(summary.attempts).toBe(durations.length);
+		expect(summary.retries).toBe(durations.length - 1);
+	});
+
 	it("computes a restarted run cost summary from the current epoch only", () => {
 		const parsed = parseSkillWorkflowRecords([
 			artifact("epochs/0/steps/x:publish/1/attempts/1.json", {
