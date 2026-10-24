@@ -596,6 +596,33 @@ describe("CardReviewApp decision interactions", () => {
 		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 	});
+	it("orders Waiting list cards from the oldest factory run", async () => {
+		vi.mocked(osApi.osWorkspaces.outputs.list).mockResolvedValue({
+			items: [
+				{
+					id: "00000000-0000-4000-8000-000000000003",
+					kind: "sheet",
+					status: "active",
+					title: "Practice cards newest",
+					createdAt: "2026-10-24T12:00:00.000Z",
+				},
+				{
+					id: outputId,
+					kind: "sheet",
+					status: "active",
+					title: "Practice cards oldest",
+					createdAt: "2026-10-24T08:00:00.000Z",
+				},
+			],
+		} as never);
+		await mount(false);
+		await click("6 waiting · 0 decided · 6 total");
+		const rows = [
+			...host.querySelectorAll("[data-card-review-waiting] button"),
+		].slice(2);
+		expect(rows[0]?.textContent).toContain("Practice cards oldest");
+		expect(rows[3]?.textContent).toContain("Practice cards newest");
+	});
 	it("leaves shortcuts with an interactive overlay that owns focus", async () => {
 		await mount();
 		await mount(true, true);

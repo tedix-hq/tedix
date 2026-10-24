@@ -1363,6 +1363,11 @@ function WaitingList({
 	onBack: () => void;
 }) {
 	const [inspect, setInspect] = useState(false);
+	const waiting = [...queue].sort((a, b) =>
+		a.runCreatedAt === b.runCreatedAt
+			? a.key.localeCompare(b.key)
+			: a.runCreatedAt.localeCompare(b.runCreatedAt),
+	);
 	if (inspect)
 		return <CardReviewBrowser cards={cards} onBack={() => setInspect(false)} />;
 	return (
@@ -1382,7 +1387,7 @@ function WaitingList({
 			<Button size="sm" variant="ghost" onClick={() => setInspect(true)}>
 				Inspect all cards
 			</Button>
-			{queue.map((item) => (
+			{waiting.map((item) => (
 				<button
 					key={item.key}
 					type="button"
