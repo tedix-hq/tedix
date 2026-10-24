@@ -575,9 +575,16 @@ export function isSettledHomeStatus(status: string | undefined): boolean {
 }
 
 function numericOffset(value: unknown, fallback: number): number {
-	if (typeof value === "number" && Number.isFinite(value)) return value;
-	const parsed = Number.parseInt(stringValue(value) ?? "", 10);
-	return Number.isFinite(parsed) ? parsed : fallback;
+	const parsed =
+		typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : value;
+	if (
+		typeof parsed !== "number" ||
+		!Number.isSafeInteger(parsed) ||
+		parsed < 0
+	) {
+		return fallback;
+	}
+	return parsed;
 }
 
 /**
