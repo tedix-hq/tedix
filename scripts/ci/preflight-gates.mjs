@@ -56,6 +56,7 @@ import {
 import {
 	fsBunSelectionIo,
 	selectBunTestFiles,
+	selectBunTestWorkspaces,
 } from "./preflight-bun-test-selection.mjs";
 import { typeCheckTargets } from "./preflight-typecheck-targets.mjs";
 import { formatCheckCommand } from "./preflight-format-targets.mjs";
@@ -570,9 +571,13 @@ const gates = [
 		cmd: ["bun", "run", "--cwd", "apps/tedi-runtime", "type-check:workers"],
 		fix: TYPE_ERROR_FIX,
 	},
-	...[...relatedByWorkspace.entries()]
-		.filter(([workspace]) => workspaceTestRunner(workspace) === "bun")
-		.map(([workspace]) => bunSuiteGate(workspace)),
+	...selectBunTestWorkspaces(
+		files ?? [],
+		relatedByWorkspace.keys(),
+		workspaceDirs.filter(
+			(workspace) => workspaceTestRunner(workspace) === "bun",
+		),
+	).map((workspace) => bunSuiteGate(workspace)),
 	...[...relatedByWorkspace.entries()]
 		.filter(([workspace]) => workspaceTestRunner(workspace) === "vitest")
 		.map(([workspace, targets]) => ({
