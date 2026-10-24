@@ -297,14 +297,25 @@ function generateStringValue(schema: JSONSchemaProperty): string {
  * Generate a number value respecting min/max constraints
  */
 function generateNumberValue(schema: JSONSchemaProperty): number {
-	const min = schema.minimum ?? 0;
-	const max = schema.maximum ?? 100;
-
-	// Return a value in the valid range
 	if (schema.type === "integer") {
-		return Math.floor((min + max) / 2);
+		if (schema.minimum !== undefined && schema.maximum !== undefined) {
+			return Math.min(
+				Math.max(
+					Math.floor((schema.minimum + schema.maximum) / 2),
+					Math.ceil(schema.minimum),
+				),
+				Math.floor(schema.maximum),
+			);
+		}
+		if (schema.minimum !== undefined) return Math.ceil(schema.minimum);
+		if (schema.maximum !== undefined) return Math.floor(schema.maximum);
+		return 50;
 	}
-	return (min + max) / 2;
+
+	if (schema.minimum !== undefined && schema.maximum !== undefined) {
+		return (schema.minimum + schema.maximum) / 2;
+	}
+	return schema.minimum ?? schema.maximum ?? 50;
 }
 
 /**
