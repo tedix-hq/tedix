@@ -442,7 +442,7 @@ export function ApprovalNotifications({
 								className="border-b border-kumo-hairline last:border-b-0"
 								key={group.label}
 							>
-								<h3 className="m-0 flex items-center gap-2 px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold">
+								<h3 className="m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold">
 									{sanitizeUntrustedText(group.label)}
 									<span className="tabular-nums font-normal">
 										{group.items.length}
