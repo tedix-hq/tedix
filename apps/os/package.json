@@ -31,7 +31,7 @@
 		"test:browser:state-gallery": "bun browser-tests/state-gallery.spec.ts",
 		"test:browser:outputs": "bun browser-tests/run-specs.ts browser-tests/outputs.spec.ts browser-tests/output-workshop.spec.ts browser-tests/b8-outputs-iphone.spec.ts browser-tests/b9-export-phone.spec.ts browser-tests/b9-editor-toolbar.spec.ts",
 		"test:browser:tedis": "bun browser-tests/tedis.spec.ts",
-		"test:browser:work-iphone": "bun browser-tests/work-iphone.spec.ts",
+		"test:browser:work-iphone": "bun browser-tests/work-iphone.spec.ts && bun browser-tests/portfolio-names.spec.ts",
 		"test:browser:chat-list": "bun browser-tests/chat-list.spec.ts",
 		"test:browser:chat-actions": "bun browser-tests/chat-actions.spec.ts",
 		"test:browser:feed-deck": "bun browser-tests/run-specs.ts browser-tests/feed-deck-polish.spec.ts browser-tests/feed-lean.spec.ts browser-tests/b7-feed-shortcuts.spec.ts browser-tests/widget-typing-shortcuts.spec.ts",

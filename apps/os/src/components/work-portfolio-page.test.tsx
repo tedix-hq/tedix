@@ -243,6 +243,19 @@ describe("Portfolio grouping", () => {
 });
 
 describe("PortfolioApp", () => {
+	it("retains the full factory name as the link's accessible text", () => {
+		const name =
+			"Daily harbor operations digest and outstanding supplier follow-ups";
+		const doc = new DOMParser().parseFromString(
+			render(seededClient({ factories: [factory({ name })] })),
+			"text/html",
+		);
+		const link = doc.querySelector<HTMLAnchorElement>("[data-factory] a")!;
+		expect(link.textContent).toBe(name);
+		expect(link.getAttribute("href")).toBe("/skills/skill-digest/runs");
+		expect(link.querySelector('[aria-hidden="true"]')).toBeNull();
+	});
+
 	it("leads with Projects and keeps every project group ahead of factories", () => {
 		const doc = new DOMParser().parseFromString(
 			render(seededClient()),
