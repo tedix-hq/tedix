@@ -3,11 +3,19 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { webkit, type Page } from "playwright";
 
+// A disclosure mounts with data-starting-style and starts its transition a
+// frame later, so "no running animation" alone can pass on the mount frame.
+async function settle(page: Page) {
+	await page.waitForFunction(
+		() =>
+			!document.querySelector("[data-starting-style], [data-ending-style]") &&
+			document.getAnimations().every((a) => a.playState !== "running"),
+	);
+}
+
 async function capture(page: Page, name: string) {
 	if (!evidenceDir) return;
-	await page.waitForFunction(() =>
-		document.getAnimations().every((a) => a.playState !== "running"),
-	);
+	await settle(page);
 	await page.screenshot({ path: `${evidenceDir}/${name}.png` });
 }
 
@@ -30,6 +38,13 @@ try {
 				hasTouch: width < 820,
 			});
 			await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
+			// The shared dev server can still be re-bundling fixture
+			// dependencies when the first page connects, and Vite then
+			// reloads every connected page mid-run. Load once so the whole
+			// module graph is discovered, then restart from a settled
+			// navigation: no optimizer reload can land inside an open menu.
+			await page.getByRole("button", { name: /^Action approvals: / }).waitFor();
+			await page.reload();
 			const trigger = page.getByRole("button", {
 				name: "Action approvals: 3 waiting",
 				exact: true,
@@ -73,6 +88,10 @@ try {
 				await panel.getByRole("button", { name: /Hide details$/ }).count(),
 				1,
 			);
+			// The expanding panel slides the action row down; a press spanning
+			// the motion releases outside the moved trigger and Base UI cancels
+			// the menu it just opened. Settle the disclosure before pressing.
+			await settle(page);
 			// Overflow carries the secondary choices.
 			await panel
 				.getByRole("button", { name: /^More actions for / })
@@ -81,6 +100,11 @@ try {
 			await page
 				.getByRole("menuitem", { name: "Decide for me (reject)", exact: true })
 				.waitFor();
+			const menuBox = await page.getByRole("menu").boundingBox();
+			assert(
+				menuBox && menuBox.x >= 0 && menuBox.x + menuBox.width <= width,
+				"Menu fits",
+			);
 			await page.keyboard.press("Escape");
 			await page.getByRole("menu").waitFor({ state: "hidden" });
 			await capture(page, `approvals-details-${width}-${theme}`);
