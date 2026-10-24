@@ -1,5 +1,14 @@
 import { safeMarkdownHref } from "@tedix/chat-transport/markdown";
-import { createContext, useContext, type MouseEvent } from "react";
+import {
+	Children,
+	cloneElement,
+	createContext,
+	isValidElement,
+	type MouseEvent,
+	type ReactElement,
+	type ReactNode,
+	useContext,
+} from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, CodeInline } from "@/components/kumo/code";
@@ -21,6 +30,18 @@ interface MarkdownNode {
 	value?: string;
 	properties?: { className?: unknown };
 	children?: MarkdownNode[];
+}
+
+function markdownText(children: ReactNode): string {
+	let text = "";
+	Children.forEach(children, (child) => {
+		if (typeof child === "string" || typeof child === "number") {
+			text += child;
+		} else if (isValidElement(child)) {
+			text += markdownText((child.props as { children?: ReactNode }).children);
+		}
+	});
+	return text;
 }
 
 /**
@@ -148,21 +169,40 @@ export function ChatMarkdown({
 					ol: ({ children }) => (
 						<ol className="my-[0.4em] list-decimal pl-6">{children}</ol>
 					),
-					li: ({ className, children }) => (
-						<li
-							className={cn(
-								"my-[0.2em]",
-								className?.includes("task-list-item") && "list-none",
-							)}
-						>
-							{children}
-						</li>
-					),
-					input: ({ type, checked }) =>
+					li: ({ className, children }) => {
+						const taskLabel = className?.includes("task-list-item")
+							? markdownText(children).trim()
+							: null;
+						let inputLabelled = false;
+						const renderedChildren = taskLabel
+							? Children.map(children, (child) => {
+									if (!inputLabelled && isValidElement(child)) {
+										inputLabelled = true;
+										return cloneElement(
+											child as ReactElement<{ "aria-label"?: string }>,
+											{ "aria-label": taskLabel },
+										);
+									}
+									return child;
+								})
+							: children;
+						return (
+							<li
+								className={cn(
+									"my-[0.2em]",
+									className?.includes("task-list-item") && "list-none",
+								)}
+							>
+								{renderedChildren}
+							</li>
+						);
+					},
+					input: ({ type, checked, "aria-label": ariaLabel }) =>
 						type === "checkbox" ? (
 							<input
 								type="checkbox"
 								checked={checked}
+								aria-label={ariaLabel}
 								readOnly
 								disabled
 								className="mr-2 size-3.5 align-middle accent-[var(--primary)]"
