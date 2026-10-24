@@ -43,7 +43,7 @@ export interface AdjacencyMatch {
 }
 
 export interface AdjacencyVerdict {
-	/** Highest-scoring candidate, or null when nothing was adjacent at all. */
+	/** Highest-scoring blocker when present, otherwise the highest-scoring candidate. */
 	nearest: AdjacencyMatch | null;
 	/** All candidates at or above the report floor, best first. */
 	adjacent: AdjacencyMatch[];
@@ -133,13 +133,15 @@ export function scoreSkillAdjacency(
 	}
 
 	scored.sort((a, b) => b.score - a.score);
-	const nearest = scored[0] ?? null;
+	const blockingMatch = scored.find(
+		(match) =>
+			match.score >= SKILL_ADJACENCY_BLOCK_SCORE || match.titleEquivalent,
+	);
+	const nearest = blockingMatch ?? scored[0] ?? null;
 	const adjacent = scored.filter(
 		(match) => match.score >= SKILL_ADJACENCY_REPORT_SCORE,
 	);
-	const blocked =
-		nearest !== null &&
-		(nearest.score >= SKILL_ADJACENCY_BLOCK_SCORE || nearest.titleEquivalent);
+	const blocked = blockingMatch !== undefined;
 
 	return { nearest, adjacent, blocked };
 }
