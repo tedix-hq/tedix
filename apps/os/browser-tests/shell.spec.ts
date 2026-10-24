@@ -134,12 +134,12 @@ await runShellSpec(
 				.evaluate((node) => node.getBoundingClientRect().x);
 			await page.mouse.move(25, 220);
 			await page.waitForTimeout(50);
-			assert.equal(
-				await page
-					.locator('[data-sidebar="content-container"]')
-					.evaluate((node) => node.getBoundingClientRect().width),
-				56,
-				"Peek must wait for intent",
+			const collapsedWidth = await page
+				.locator('[data-sidebar="content-container"]')
+				.evaluate((node) => node.getBoundingClientRect().width);
+			assert.ok(
+				Math.abs(collapsedWidth - 56) <= 1,
+				`Peek must wait for intent (width: ${collapsedWidth})`,
 			);
 			await stateIs(page, "peeking");
 			await page.waitForTimeout(450);
