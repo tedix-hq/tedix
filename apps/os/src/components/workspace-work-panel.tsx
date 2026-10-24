@@ -570,67 +570,65 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 							</section>
 						))
 				) : view === "board" ? (
-					<div className="min-w-0 overflow-x-auto pb-3">
-						<div className="flex items-start gap-4">
-							{groups
-								.filter((group) => !hideEmpty || group.items.length)
-								.map((group) => (
-									<section
-										key={group.disposition}
-										className="w-72 shrink-0"
-										aria-label={label(group.disposition)}
-									>
-										<SectionTitle className="mb-3">
-											{label(group.disposition)}{" "}
-											<Text
-												as="span"
-												role="label"
-												tone="secondary"
-												className="ml-1"
-											>
-												{group.items.length}
-											</Text>
-										</SectionTitle>
-										<div className="grid gap-2">
-											{group.items.map((item) => (
-												<Card key={item.id} size="sm">
-													<CardContent className="grid gap-3">
-														<ItemLink item={item} />
-														<div className="flex items-center justify-between gap-2">
-															<Text role="label" tone="secondary">
-																{label(item.priority)}
+					<div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:overflow-x-auto sm:pb-3">
+						{groups
+							.filter((group) => !hideEmpty || group.items.length)
+							.map((group) => (
+								<section
+									key={group.disposition}
+									className="min-w-0 w-full sm:w-72 sm:shrink-0"
+									aria-label={label(group.disposition)}
+								>
+									<SectionTitle className="mb-3">
+										{label(group.disposition)}{" "}
+										<Text
+											as="span"
+											role="label"
+											tone="secondary"
+											className="ml-1"
+										>
+											{group.items.length}
+										</Text>
+									</SectionTitle>
+									<div className="grid gap-2">
+										{group.items.map((item) => (
+											<Card key={item.id} size="sm">
+												<CardContent className="grid gap-3">
+													<ItemLink item={item} />
+													<div className="flex items-center justify-between gap-2">
+														<Text role="label" tone="secondary">
+															{label(item.priority)}
+														</Text>
+														{canSchedule(item) ? (
+															<Button
+																size="sm"
+																variant="ghost"
+																aria-label={`Schedule ${item.title}`}
+																onClick={() => setScheduledItem(item)}
+															>
+																{item.startAt
+																	? dateLabel(item.startAt)
+																	: "Schedule"}
+															</Button>
+														) : (
+															<Text role="caption" tone="secondary">
+																{item.startAt
+																	? dateLabel(item.startAt)
+																	: "Unscheduled"}
 															</Text>
-															{canSchedule(item) ? (
-																<Button
-																	size="sm"
-																	variant="ghost"
-																	aria-label={`Schedule ${item.title}`}
-																	onClick={() => setScheduledItem(item)}
-																>
-																	{item.startAt
-																		? dateLabel(item.startAt)
-																		: "Schedule"}
-																</Button>
-															) : (
-																<Text role="caption" tone="secondary">
-																	{item.startAt
-																		? dateLabel(item.startAt)
-																		: "Unscheduled"}
-																</Text>
-															)}
-														</div>
-													</CardContent>
-												</Card>
-											))}
-											{!group.items.length ? (
-												<Text role="caption" tone="secondary">
-													No work
-												</Text>
-											) : null}
-										</div>
-									</section>
-								))}
-						</div>
+														)}
+													</div>
+												</CardContent>
+											</Card>
+										))}
+										{!group.items.length ? (
+											<Text role="caption" tone="secondary">
+												No work
+											</Text>
+										) : null}
+									</div>
+								</section>
+							))}
 					</div>
 				) : (
 					<>
