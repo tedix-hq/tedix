@@ -70,6 +70,19 @@ describe("BillingOverageSection", () => {
 		expect(control?.getAttribute("aria-label")).toBe("Allow overage");
 		expect(control?.hasAttribute("disabled")).toBe(true);
 	});
+
+	it("associates an invalid cap with its validation explanation", () => {
+		const html = render({ ...off, enabled: true });
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const input = doc.querySelector("#overage-cap");
+		expect(input?.getAttribute("aria-invalid")).toBe("true");
+		expect(input?.getAttribute("aria-describedby")).toBe(
+			"overage-cap-description",
+		);
+		expect(input?.getAttribute("aria-errormessage")).toBe(
+			"overage-cap-description",
+		);
+	});
 });
 
 describe("parseOverageCapMicros", () => {
