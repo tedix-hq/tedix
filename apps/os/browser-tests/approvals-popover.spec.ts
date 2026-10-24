@@ -126,10 +126,11 @@ try {
 			// the menu it just opened. Settle the disclosure before pressing.
 			await settle(page);
 			// Overflow carries the secondary choices.
-			await panel
+			const moreActions = panel
 				.getByRole("button", { name: /^More actions for / })
-				.first()
-				.click();
+				.first();
+			await moreActions.focus();
+			await page.keyboard.press("Enter");
 			await page
 				.getByRole("menuitem", { name: "Decide for me (reject)", exact: true })
 				.waitFor();
