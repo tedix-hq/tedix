@@ -1,4 +1,5 @@
 import { startFixtureServer } from "./fixture-server";
+import { settleAnimations } from "./deck-controls";
 import assert from "node:assert/strict";
 import { devices, webkit, type Browser, type Page } from "playwright";
 
@@ -11,25 +12,6 @@ const server = await startFixtureServer("/work?view=deck");
 const { origin } = server;
 const shots = process.env.TEDIX_SCREENSHOT_DIR;
 const MIN_CARD_HEIGHT = 240;
-
-async function settle(page: Page) {
-	await page.locator(".fd-deck").evaluate(async (deck) => {
-		await Promise.all(
-			deck
-				.getAnimations({ subtree: true })
-				.filter((animation) =>
-					Number.isFinite(animation.effect?.getComputedTiming().endTime),
-				)
-				.map((animation) => animation.finished.catch(() => {})),
-		);
-	});
-	await page.evaluate(
-		() =>
-			new Promise<void>((resolve) =>
-				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-			),
-	);
-}
 
 /** Geometry the Deck must keep at any viewport. */
 function measure(page: Page) {
@@ -326,8 +308,7 @@ try {
 						?.shadowRoot?.querySelector(".tedix-launcher")
 						?.getBoundingClientRect().height,
 			);
-			await page.evaluate(() => document.fonts.ready);
-			await settle(page);
+			await settleAnimations(page, ".fd-deck");
 
 			const loaded = await measure(page);
 			assert.equal(loaded.focused, null, `${label}: focused on load`);
@@ -353,7 +334,7 @@ try {
 					},
 				).finished;
 			});
-			await settle(page);
+			await settleAnimations(page, ".fd-deck");
 			const animated = await measure(page);
 			assert(
 				Math.abs(animated.cardHeight - loaded.cardHeight) <= 1,
@@ -375,7 +356,7 @@ try {
 					await page.getByRole("menu").waitFor({ state: "hidden" });
 				}
 				await page.locator(".fd-decision").first().blur();
-				await settle(page);
+				await settleAnimations(page, ".fd-deck");
 			}
 			// "More" may have opened the consequence; the keyboard compares against this.
 			const reference = await measure(page);
@@ -395,7 +376,7 @@ try {
 				viewport.dispatchEvent(new Event("resize"));
 				viewport.dispatchEvent(new Event("scroll"));
 			});
-			await settle(page);
+			await settleAnimations(page, ".fd-deck");
 			const keyboard = await measure(page);
 			assert.deepEqual(
 				keyboard.failures,
@@ -417,7 +398,7 @@ try {
 
 			// A browser that shrinks the layout viewport for its keyboard still keeps a usable card.
 			await page.setViewportSize({ width: device.viewport.width, height: 360 });
-			await settle(page);
+			await settleAnimations(page, ".fd-deck");
 			const short = await measure(page);
 			assert.deepEqual(short.failures, [], `${label}: card layout at 360px`);
 			assert(
@@ -429,7 +410,7 @@ try {
 				content:
 					".fd-deck-current [data-decision-actions] > button { padding-inline: 1.6rem !important }",
 			});
-			await settle(page);
+			await settleAnimations(page, ".fd-deck");
 			const wrapped = await measure(page);
 			assert.deepEqual(
 				wrapped.failures,
