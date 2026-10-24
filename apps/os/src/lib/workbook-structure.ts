@@ -11,7 +11,7 @@ export interface WorkbookRange {
 	columnEnd: number;
 }
 export const DEFAULT_ROW_HEIGHT = 28;
-export const HEADER_HEIGHT = 36;
+export const HEADER_HEIGHT = 32;
 export const ROW_HEADER_WIDTH = 44;
 
 export function columnLabel(index: number): string {
@@ -468,6 +468,77 @@ export function autoSum(
 				while (top <= range.rowEnd && !numeric(top, c)) top++;
 				if (top <= range.rowEnd)
 					put(range.rowEnd + 1, c, top, c, range.rowEnd, c);
+			}
+		}
+		return { ...sheet, rows };
+	});
+}
+
+/**
+ * Move a formula's relative references by an offset, as copying it to another
+ * cell does: `=B2*2` filled one row down is `=B3*2`, `$B$2` stays put, and a
+ * reference pushed off the top or left edge becomes `#REF!`.
+ */
+export function offsetFormula(
+	input: string,
+	rowOffset: number,
+	columnOffset: number,
+): string {
+	if (!input.startsWith("=")) return input;
+	const move = (ref: string) => {
+		const [, absoluteColumn, column, absoluteRow, row] =
+			/^(\$?)([A-Za-z]+)(\$?)(\d+)$/.exec(ref)!;
+		const nextColumn = absoluteColumn
+			? columnIndex(column!)
+			: columnIndex(column!) + columnOffset;
+		const nextRow = absoluteRow ? Number(row) - 1 : Number(row) - 1 + rowOffset;
+		if (nextColumn < 0 || nextRow < 0) return null;
+		return `${absoluteColumn}${columnLabel(nextColumn)}${absoluteRow}${nextRow + 1}`;
+	};
+	return input.replace(
+		REFERENCE,
+		(
+			whole,
+			literal: string | undefined,
+			prefix: string | undefined,
+			first: string,
+			last: string | undefined,
+		) => {
+			if (literal) return whole;
+			const a = move(first);
+			const b = last ? move(last) : a;
+			if (a === null || b === null) return "#REF!";
+			return `${prefix ?? ""}${a}${last ? `:${b}` : ""}`;
+		},
+	);
+}
+
+/**
+ * Fill a range from its first row (down) or first column (right): inputs and
+ * formats copy across, formulas keep pointing at the same relative cells.
+ */
+export function fillRange(
+	workbook: OsWorkbook,
+	sheetId: string,
+	range: WorkbookRange,
+	direction: "down" | "right",
+): OsWorkbook {
+	return changeSheet(workbook, sheetId, (sheet) => {
+		const rows = sheet.rows.map((row) => [...row]);
+		for (let r = range.rowStart; r <= range.rowEnd; r++) {
+			for (let c = range.columnStart; c <= range.columnEnd; c++) {
+				const fromRow = direction === "down" ? range.rowStart : r;
+				const fromColumn = direction === "right" ? range.columnStart : c;
+				if (r === fromRow && c === fromColumn) continue;
+				const source = sheet.rows[fromRow]?.[fromColumn] ?? emptyCell();
+				if (!rows[r]) continue;
+				const target: OsWorkbookCell = {
+					...(rows[r]![c] ?? emptyCell()),
+					input: offsetFormula(source.input, r - fromRow, c - fromColumn),
+				};
+				if (source.format) target.format = source.format;
+				else delete target.format;
+				rows[r]![c] = target;
 			}
 		}
 		return { ...sheet, rows };

@@ -1,14 +1,4 @@
-import {
-	ArrowLeft,
-	ArrowRight,
-	CalendarBlank,
-	Clock,
-	CalendarDots,
-	Coins,
-	Hash,
-	Percent,
-	TextAa,
-} from "@phosphor-icons/react";
+import { Coins, Percent } from "@phosphor-icons/react";
 import {
 	workbookDecimals,
 	type WorkbookNumberContext,
@@ -22,8 +12,11 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
+import { formatWorkbookValue } from "@/lib/workbook-formulas";
 
-const formats = [
+type NumberFormat = NonNullable<OsWorkbookCellFormat["numberFormat"]>;
+
+const formats: readonly (readonly [NumberFormat, string])[] = [
 	["automatic", "Automatic"],
 	["number", "Number"],
 	["integer", "Integer"],
@@ -34,7 +27,57 @@ const formats = [
 	["time", "Time"],
 	["datetime", "Date and time"],
 	["text", "Plain text"],
-] as const;
+];
+
+/** 26 Sept 2025, 15:54 as a spreadsheet serial: one sample for every format. */
+const SAMPLE_SERIAL = 45926.6625;
+const SAMPLE_NUMBER = 1234.5;
+
+/** What each format does to a value, in the workbook's own locale and currency. */
+function formatExample(
+	numberFormat: NumberFormat,
+	context: WorkbookNumberContext | undefined,
+): string {
+	if (numberFormat === "automatic" || numberFormat === "text") return "";
+	const value = ["date", "time", "datetime"].includes(numberFormat)
+		? SAMPLE_SERIAL
+		: numberFormat === "percent"
+			? 0.125
+			: SAMPLE_NUMBER;
+	return formatWorkbookValue(
+		{ input: String(value), value, format: { numberFormat } },
+		context,
+	);
+}
+
+/**
+ * Decimal-place glyphs: a baseline dot, one or two zeros, and an arrow saying
+ * which way the precision moves. Drawn as paths so the toolbar stays text-free.
+ */
+function DecimalsIcon({ more }: { more: boolean }) {
+	return (
+		<svg
+			width="18"
+			height="16"
+			viewBox="0 0 18 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.4"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			<circle cx="2" cy="10.5" r="0.9" fill="currentColor" stroke="none" />
+			<ellipse cx="6.2" cy="8" rx="1.9" ry="2.9" />
+			{more ? <ellipse cx="11.6" cy="8" rx="1.9" ry="2.9" /> : null}
+			{more ? (
+				<path d="M13.5 14h4m-1.5-1.5L17.5 14 16 15.5" />
+			) : (
+				<path d="M13 14H9m1.5-1.5L9 14l1.5 1.5" />
+			)}
+		</svg>
+	);
+}
 
 export function SheetNumberFormatToolbar({
 	format,
@@ -49,6 +92,7 @@ export function SheetNumberFormatToolbar({
 }) {
 	const current = format?.numberFormat ?? "automatic";
 	const decimals = workbookDecimals(format ?? {}, context);
+	const fixedPrecision = ["date", "time", "datetime", "text"].includes(current);
 	const changeDecimals = (delta: number) =>
 		onChange({
 			numberFormat:
@@ -62,7 +106,7 @@ export function SheetNumberFormatToolbar({
 				value={current}
 				onValueChange={(value) =>
 					onChange({
-						numberFormat: value as OsWorkbookCellFormat["numberFormat"],
+						numberFormat: value as NumberFormat,
 						decimals: undefined,
 					})
 				}
@@ -75,22 +119,27 @@ export function SheetNumberFormatToolbar({
 					</SelectValue>
 				</SelectTrigger>
 				<SelectContent>
-					{formats.map(([id, label]) => (
-						<SelectItem key={id} value={id}>
-							{label}
-						</SelectItem>
-					))}
+					{formats.map(([id, label]) => {
+						const example = formatExample(id, context);
+						return (
+							<SelectItem key={id} value={id}>
+								<span className="flex w-full min-w-48 items-baseline justify-between gap-6">
+									<span>{label}</span>
+									{example ? (
+										<span className="text-kumo-subtle tabular-nums type-tedix-caption">
+											{example}
+										</span>
+									) : null}
+								</span>
+							</SelectItem>
+						);
+					})}
 				</SelectContent>
 			</Select>
 			{(
 				[
 					["currency", "Currency", Coins],
-					["integer", "Integer", Hash],
 					["percent", "Percent", Percent],
-					["date", "Date", CalendarBlank],
-					["time", "Time", Clock],
-					["datetime", "Date and time", CalendarDots],
-					["text", "Plain text", TextAa],
 				] as const
 			).map(([numberFormat, label, Icon]) => (
 				<EditorToolbarButton
@@ -105,25 +154,17 @@ export function SheetNumberFormatToolbar({
 			))}
 			<EditorToolbarButton
 				label="Decrease decimals"
-				disabled={
-					disabled ||
-					decimals === 0 ||
-					["date", "time", "datetime", "text"].includes(current)
-				}
+				disabled={disabled || decimals === 0 || fixedPrecision}
 				onClick={() => changeDecimals(-1)}
 			>
-				<ArrowLeft size={15} />
+				<DecimalsIcon more={false} />
 			</EditorToolbarButton>
 			<EditorToolbarButton
 				label="Increase decimals"
-				disabled={
-					disabled ||
-					decimals === 15 ||
-					["date", "time", "datetime", "text"].includes(current)
-				}
+				disabled={disabled || decimals === 15 || fixedPrecision}
 				onClick={() => changeDecimals(1)}
 			>
-				<ArrowRight size={15} />
+				<DecimalsIcon more />
 			</EditorToolbarButton>
 		</>
 	);

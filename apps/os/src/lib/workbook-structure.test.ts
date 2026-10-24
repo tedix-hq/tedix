@@ -10,10 +10,13 @@ import {
 	deleteRows,
 	deleteSheet,
 	duplicateSheet,
+	fillRange,
 	freezePanes,
 	frozenCellStyle,
+	HEADER_HEIGHT,
 	insertColumns,
 	insertRows,
+	offsetFormula,
 	renameSheet,
 	resizeColumn,
 	resizeRow,
@@ -252,7 +255,7 @@ describe("workbook structure", () => {
 		);
 		expect(frozenCellStyle(next.sheets[0]!, 1, 1)).toEqual({
 			position: "sticky",
-			top: 76,
+			top: HEADER_HEIGHT + 40,
 			left: 124,
 			zIndex: 4,
 		});
@@ -328,5 +331,56 @@ describe("table sort expansion", () => {
 				"ascending",
 			),
 		).toEqual(value);
+	});
+});
+
+describe("fill", () => {
+	it("offsets relative references, keeps absolute ones and literals", () => {
+		expect(offsetFormula("=B2*2+$C$1", 1, 0)).toBe("=B3*2+$C$1");
+		expect(offsetFormula("=SUM(A1:B2)", 0, 2)).toBe("=SUM(C1:D2)");
+		expect(offsetFormula("=$A1+A$1", 2, 1)).toBe("=$A3+B$1");
+		expect(offsetFormula('="A1"&A1', 1, 0)).toBe('="A1"&A2');
+		expect(offsetFormula("=A1", -1, 0)).toBe("=#REF!");
+		expect(offsetFormula("plain A1", 3, 3)).toBe("plain A1");
+	});
+
+	it("fills down and right from the first row or column with formats", () => {
+		const value = book([
+			["1", "=A1*2"],
+			["2", ""],
+			["3", ""],
+		]);
+		const bold = {
+			...value,
+			sheets: value.sheets.map((sheet) => ({
+				...sheet,
+				rows: sheet.rows.map((row, r) =>
+					row.map((cell, c) =>
+						r === 0 && c === 1 && cell
+							? { ...cell, format: { bold: true } }
+							: cell,
+					),
+				),
+			})),
+		};
+		const down = fillRange(
+			bold,
+			"data",
+			{ rowStart: 0, rowEnd: 2, columnStart: 1, columnEnd: 1 },
+			"down",
+		);
+		expect(down.sheets[0]!.rows.map((row) => row[1]?.input)).toEqual([
+			"=A1*2",
+			"=A2*2",
+			"=A3*2",
+		]);
+		expect(down.sheets[0]!.rows[2]![1]?.format?.bold).toBe(true);
+		const right = fillRange(
+			value,
+			"data",
+			{ rowStart: 1, rowEnd: 1, columnStart: 0, columnEnd: 1 },
+			"right",
+		);
+		expect(right.sheets[0]!.rows[1]![1]?.input).toBe("2");
 	});
 });

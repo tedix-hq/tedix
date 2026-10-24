@@ -3,14 +3,116 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	boundsToTsv,
 	functionGroups,
+	hasUncomputedCells,
+	isErrorValue,
 	jumpToDataEdge,
 	moveWithinSelection,
 	parseClipboardTable,
 	parseRangeLabel,
 	presenceToSheetSelection,
 	rangeLabel,
+	selectionStats,
 	sheetSelectionToPresence,
+	viewRowOrder,
 } from "./sheet-grid";
+
+function valuesSheet(
+	values: (string | number | null)[][],
+	frozenRows = 0,
+): OsWorkbookSheet {
+	return {
+		id: "v",
+		name: "Values",
+		columns: values[0]!.map((_, index) => ({
+			id: `v${index}`,
+			label: String(index),
+			width: 100,
+		})),
+		rows: values.map((row) =>
+			row.map((value) => ({
+				input: value === null ? "" : String(value),
+				value,
+			})),
+		),
+		frozenRows,
+		frozenColumns: 0,
+	};
+}
+
+describe("sheet read helpers", () => {
+	it("recognises computed errors and nothing else", () => {
+		for (const error of ["#DIV/0!", "#REF!", "#CYCLE!", "#NAME?", "#N/A!"])
+			expect(isErrorValue(error), error).toBe(true);
+		for (const plain of ["#1 seller", "#", "Total", 3, null])
+			expect(isErrorValue(plain), String(plain)).toBe(false);
+	});
+
+	it("counts non-empty cells and does maths over numbers only", () => {
+		const sheet = valuesSheet([
+			["Week", "Revenue"],
+			["W1", 10],
+			["W2", 30],
+			["W3", null],
+		]);
+		expect(
+			selectionStats(sheet, {
+				rowStart: 0,
+				rowEnd: 3,
+				columnStart: 0,
+				columnEnd: 1,
+			}),
+		).toEqual({ count: 7, numbers: 2, sum: 40, average: 20, min: 10, max: 30 });
+		expect(
+			selectionStats(sheet, {
+				rowStart: 3,
+				rowEnd: 3,
+				columnStart: 1,
+				columnEnd: 1,
+			}).average,
+		).toBeNull();
+	});
+
+	it("finds inputs whose value was never computed", () => {
+		expect(hasUncomputedCells([valuesSheet([["a", 1]])])).toBe(false);
+		expect(
+			hasUncomputedCells([
+				{ rows: [[{ input: "=SUM(1,2)", value: null }, null]] },
+			]),
+		).toBe(true);
+		expect(hasUncomputedCells([{ rows: [[{ input: "", value: null }]] }])).toBe(
+			false,
+		);
+	});
+
+	it("sorts and filters a view, keeping frozen rows on top and blanks last", () => {
+		const sheet = valuesSheet(
+			[
+				["Name", "Score"],
+				["Bea", 7],
+				["Al", null],
+				["Cy", 12],
+				["Di", 2],
+			],
+			1,
+		);
+		const display = (row: number, column: number) =>
+			String(sheet.rows[row]?.[column]?.value ?? "");
+		expect(
+			viewRowOrder(sheet, {
+				sort: { column: 1, direction: "ascending" },
+				display,
+			}),
+		).toEqual([0, 4, 1, 3, 2]);
+		expect(
+			viewRowOrder(sheet, {
+				sort: { column: 1, direction: "descending" },
+				display,
+			}),
+		).toEqual([0, 3, 1, 4, 2]);
+		expect(viewRowOrder(sheet, { query: "  b ", display })).toEqual([0, 1]);
+		expect(viewRowOrder(sheet, { display })).toEqual([0, 1, 2, 3, 4]);
+	});
+});
 
 function sheetOf(inputs: string[][]): OsWorkbookSheet {
 	return {

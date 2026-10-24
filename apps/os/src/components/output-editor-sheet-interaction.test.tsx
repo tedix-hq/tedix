@@ -412,6 +412,128 @@ describe("SheetEditor interaction", () => {
 	});
 });
 
+describe("SheetEditor keyboard and status", () => {
+	it("fills down from the first row with Cmd+D", () => {
+		const view = mount();
+		view.mouse(view.cell("A1"), "mousedown");
+		view.mouse(view.cell("A3"), "mousedown", { shiftKey: true });
+		view.key(view.active(), "d", { metaKey: true });
+		expect(
+			view
+				.last()
+				.rows.slice(0, 3)
+				.map((row) => row[0]?.input),
+		).toEqual(["Acme", "Acme", "Acme"]);
+		view.cleanup();
+	});
+
+	it("clears formatting with Cmd+Backslash and leaves the value", () => {
+		const view = mount();
+		view.key(view.active(), "b", { metaKey: true });
+		expect(view.last().rows[0]?.[0]?.format?.bold).toBe(true);
+		view.key(view.active(), "\\", { metaKey: true });
+		expect(view.last().rows[0]?.[0]?.format).toBeUndefined();
+		expect(view.last().rows[0]?.[0]?.input).toBe("Acme");
+		view.cleanup();
+	});
+
+	it("applies currency and percent with Cmd+Shift+4 and 5", () => {
+		const view = mount();
+		view.mouse(view.cell("B1"), "mousedown");
+		view.key(view.active(), "$", {
+			metaKey: true,
+			shiftKey: true,
+			code: "Digit4",
+		});
+		expect(view.last().rows[0]?.[1]?.format?.numberFormat).toBe("currency");
+		view.key(view.active(), "%", {
+			metaKey: true,
+			shiftKey: true,
+			code: "Digit5",
+		});
+		expect(view.last().rows[0]?.[1]?.format?.numberFormat).toBe("percent");
+		view.cleanup();
+	});
+
+	it("outlines a copied range until Escape", () => {
+		const view = mount();
+		view.mouse(view.cell("A1"), "mousedown");
+		view.mouse(view.cell("B2"), "mousedown", { shiftKey: true });
+		view.clipboard("copy");
+		expect(
+			view.container.querySelectorAll(".sheet-editor-copied"),
+		).toHaveLength(4);
+		view.key(view.active(), "Escape");
+		expect(view.query(".sheet-editor-copied")).toBeNull();
+		view.cleanup();
+	});
+
+	it("selects the row with Shift+Space and the column with Ctrl+Space", () => {
+		const view = mount();
+		view.mouse(view.cell("B2"), "mousedown");
+		view.key(view.active(), " ", { shiftKey: true });
+		expect(view.nameBox()).toBe("A2:J2");
+		view.mouse(view.cell("B2"), "mousedown");
+		view.key(view.active(), " ", { ctrlKey: true });
+		expect(view.nameBox()).toBe("B1:B30");
+		view.cleanup();
+	});
+
+	it("saves and stays with Cmd+Enter", () => {
+		const view = mount();
+		view.key(view.active(), "x");
+		view.key(view.editor()!, "Enter", { metaKey: true });
+		expect(view.nameBox()).toBe("A1");
+		expect(view.last().rows[0]?.[0]?.input).toBe("x");
+		view.cleanup();
+	});
+
+	it("sums a numeric selection and counts a text one", () => {
+		const view = mount();
+		const status = () =>
+			view.query(".sheet-editor-tabs .sheet-status")?.textContent ?? "";
+		expect(status()).toContain("spreadsheet functions");
+		view.mouse(view.cell("B1"), "mousedown");
+		view.mouse(view.cell("B2"), "mousedown", { shiftKey: true });
+		expect(status()).toMatch(/Sum\s*1,500/);
+		expect(status()).toMatch(/Average\s*750/);
+		view.mouse(view.cell("A1"), "mousedown");
+		view.mouse(view.cell("A2"), "mousedown", { shiftKey: true });
+		expect(status()).toBe("Count 2");
+		view.cleanup();
+	});
+
+	it("shows formulas a writer saved without computing them", () => {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		const value = {
+			kind: "sheet",
+			columns: ["A"],
+			rows: [],
+			workbook: {
+				activeSheetId: "s",
+				sheets: [
+					{
+						id: "s",
+						name: "S",
+						columns: [{ id: "a", label: "A", width: 120 }],
+						rows: [[{ input: "=SUM(1,2)", value: null }]],
+						frozenRows: 0,
+						frozenColumns: 0,
+					},
+				],
+			},
+		} as unknown as SheetContent;
+		act(() => root.render(<SheetEditor value={value} onChange={vi.fn()} />));
+		expect(
+			container.querySelector('[role="gridcell"]')?.getAttribute("aria-label"),
+		).toBe("A1 3");
+		act(() => root.unmount());
+		container.remove();
+	});
+});
+
 describe("sheet regression sweep", () => {
 	it("extends the grid on ArrowDown so typing preserves the previous last row", () => {
 		const view = mount();

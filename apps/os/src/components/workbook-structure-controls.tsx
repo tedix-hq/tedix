@@ -1,4 +1,4 @@
-import { CaretDown } from "@phosphor-icons/react";
+import { CaretDown, Rows } from "@phosphor-icons/react";
 import type { OsWorkbook } from "@tedix/api-contract/schemas/os-workspaces";
 import { useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
@@ -93,10 +93,23 @@ export function WorkbookStructureControls({
 	];
 	return (
 		<DropdownMenu>
+			{/* An icon target in the editor toolbar: rows, columns and freezing
+			    are one menu, so the toolbar stays a row of glyphs. */}
 			<DropdownMenuTrigger
-				render={<Button size="xs" variant="ghost" disabled={disabled} />}
+				render={
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={disabled}
+						aria-label="Rows and columns"
+						title="Rows and columns"
+						data-toolbar-control="menu"
+						className="shrink-0 gap-0.5 px-1.5 max-sm:min-h-11"
+					/>
+				}
 			>
-				Rows and columns <CaretDown size={12} aria-hidden />
+				<Rows size={15} aria-hidden />
+				<CaretDown size={10} aria-hidden />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" aria-label="Sheet structure">
 				{actions.map(([label, run, unavailable]) => (
