@@ -69,6 +69,69 @@ describe("runtime recovery diagnostic result", () => {
 		expect(html).toContain("cancellation requested");
 		expect(html).toContain("first 50");
 		expect(html).toContain("Live tasks: 60");
+		expect(html).toContain("restart count unknown");
+		expect(html).not.toContain("interrupted restarts: 0");
+	});
+	it("shows native sleep deadlines and parked restart counts without retry controls", () => {
+		const base = {
+			id: 1,
+			conversationId: 1,
+			kind: "native.tool",
+			owner: null,
+			background: false,
+			abortRequested: false,
+			waitingOn: [],
+			waitingOnTruncated: false,
+		};
+		const html = renderToStaticMarkup(
+			<RecoveryDiagnosticResult
+				data={{
+					ok: true,
+					runtime: "pi",
+					sessionKey: "session",
+					sampledAt: "2026-10-24T12:00:00.000Z",
+					conversationId: 1,
+					scheduling: "running",
+					operation: null,
+					tasks: [
+						{
+							...base,
+							status: "sleeping",
+							view: "sleeping",
+							blockedReason: null,
+							sleepUntil: Date.parse("2026-10-24T12:01:00.000Z"),
+							restarts: 0,
+						},
+						{
+							...base,
+							id: 2,
+							status: "pending",
+							view: "blocked",
+							blockedReason: "restart_limit",
+							restarts: 5,
+						},
+						{
+							...base,
+							id: 3,
+							status: "sleeping",
+							view: "sleeping",
+							blockedReason: null,
+						},
+					],
+					submissions: [],
+					taskCount: 3,
+					submissionCount: 0,
+					truncated: false,
+				}}
+			/>,
+		);
+		expect(html).toContain("sleeping until 2026-10-24T12:01:00.000Z");
+		expect(html).toContain("interrupted restarts: 0");
+		expect(html).toContain("restart_limit");
+		expect(html).toContain("interrupted restarts: 5");
+		expect(html).toContain("sleep deadline unknown");
+		expect(html).toContain("restart count unknown");
+		expect(html).not.toContain("<button");
 	});
 });
 

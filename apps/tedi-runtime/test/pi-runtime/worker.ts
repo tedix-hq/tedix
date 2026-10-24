@@ -43,6 +43,7 @@ import {
 	Harness,
 	createRegistry,
 	defineExtension,
+	defineTask,
 	defineTool,
 } from "@earendil-works/pi-durable";
 import {
@@ -286,7 +287,64 @@ const conversationStats = (): ConversationStats => ({
 	prompts: [],
 	toolChoices: [],
 });
+const SettingsProbeTask = defineTask<
+	null,
+	{ phase: "sample" },
+	{ reserveTokens: number; keepRecentTokens: number; backgroundTokens: number }
+>({
+	name: "fixture.settings-probe",
+	version: 1,
+	initial: () => ({ phase: "sample" }),
+	phases: {
+		sample: async (_task, runtime, context) => {
+			const { reserveTokens, keepRecentTokens, backgroundTokens } =
+				runtime.settings.compaction;
+			await runtime.commit(
+				() => ({
+					status: "terminal",
+					outcome: {
+						status: "completed",
+						result: { reserveTokens, keepRecentTokens, backgroundTokens },
+					},
+				}),
+				context,
+			);
+		},
+	},
+	abort: async (_task, runtime, context) => {
+		await runtime.commit(
+			() => ({
+				status: "terminal",
+				outcome: { status: "aborted", reason: "probe cancelled" },
+			}),
+			context,
+		);
+	},
+});
 export class PiConversationFixture extends ProductionConversationFacet {
+	protected override async piExtension() {
+		const extension = await super.piExtension();
+		return {
+			...extension,
+			tasks: [...(extension.tasks ?? []), SettingsProbeTask],
+		};
+	}
+	async nativeCompactionSettings() {
+		const pi = await this.piHarness.pi();
+		const conversation = await this.nativeConversation();
+		const taskId = await pi.commit(
+			(tx) =>
+				tx.createTask(SettingsProbeTask, null, {
+					conversationId: conversation.id,
+					ownership: { kind: "conversation" },
+				}),
+			BACKGROUND_CONTEXT,
+		);
+		const task = await pi.waitForTask(taskId, BACKGROUND_CONTEXT);
+		if (task.state.outcome.status !== "completed")
+			throw new Error("Settings probe failed");
+		return task.state.outcome.result;
+	}
 	protected override async facetAdmissionCustody(
 		_runId: string,
 		_sessionKey: string,
@@ -383,7 +441,12 @@ export class PiConversationFixture extends ProductionConversationFacet {
 	protected selectModelForTurn() {
 		return {
 			model: this.conversationModel(),
-			identity: { provider: "workers-ai" as const, model: "@cf/test" },
+			identity: this.state.modelRef?.startsWith("azure-openai/")
+				? {
+						provider: "azure-openai" as const,
+						model: this.state.modelRef.slice("azure-openai/".length),
+					}
+				: { provider: "workers-ai" as const, model: "@cf/test" },
 		};
 	}
 	private conversationModel(): LanguageModelV3 {
@@ -988,6 +1051,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 		id: string,
 		input: {
 			approval?: boolean;
+			modelRef?: string;
 			maxSteps?: number;
 			freshHistory?: boolean;
 			delegationBudget?: { maxToolCalls?: number; deadlineAt?: number };
@@ -999,6 +1063,7 @@ export class PiConversationFixture extends ProductionConversationFacet {
 			freshHistory: input.freshHistory,
 			configuration: {
 				...this.configuration(id, input.approval, input.maxSteps ?? null),
+				modelRef: input.modelRef ?? null,
 				delegationBudget: input.delegationBudget,
 			},
 		});

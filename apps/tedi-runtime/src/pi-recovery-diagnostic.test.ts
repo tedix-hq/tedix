@@ -50,6 +50,8 @@ assert.equal(projected.truncated, true);
 assert.equal(projected.tasks[0]?.blockedReason, "missing_task");
 assert.equal(projected.tasks[1]?.waitingOn.length, 20);
 assert.equal(projected.tasks[1]?.waitingOnTruncated, true);
+assert.equal(projected.tasks[0]?.restarts, undefined);
+assert.equal(projected.tasks[0]?.sleepUntil, undefined);
 assert.ok(!JSON.stringify(projected).includes("PRIVATE_"));
 assert.equal(
 	projectPiRecovery({ sessionKey: "session", conversationId: 2, inspection })
@@ -71,6 +73,7 @@ for (const state of [
 					...inspection.tasks[0]!,
 					record: {
 						...inspection.tasks[0]!.record,
+						restarts: 5,
 						state: {
 							status: "sleeping",
 							until: 1234,
@@ -84,11 +87,34 @@ for (const state of [
 	});
 	assert.equal(view.tasks[0]?.status, "sleeping");
 	assert.equal(view.tasks[0]?.view, state.kind);
+	assert.equal(view.tasks[0]?.restarts, 5);
+	assert.equal(
+		view.tasks[0]?.sleepUntil,
+		state.kind === "sleeping" ? 1234 : undefined,
+	);
 	assert.equal(
 		view.tasks[0]?.blockedReason,
 		state.kind === "blocked" ? "restart_limit" : null,
 	);
 	assert.ok(!JSON.stringify(view).includes("PRIVATE_"));
+}
+for (const invalid of [-1, Infinity, NaN, Number.MAX_VALUE]) {
+	const result = projectPiRecovery({
+		sessionKey: "session",
+		conversationId: 1,
+		inspection: {
+			...inspection,
+			tasks: [
+				{
+					...inspection.tasks[0]!,
+					record: { ...inspection.tasks[0]!.record, restarts: invalid },
+					state: { kind: "sleeping", until: invalid },
+				},
+			],
+		},
+	});
+	assert.equal(result.tasks[0]?.sleepUntil, undefined);
+	assert.equal(result.tasks[0]?.restarts, undefined);
 }
 let gets = 0;
 await assert.rejects(

@@ -137,10 +137,7 @@ export class ScopedComputerWorkspace {
 		run: (client: WorkspaceClient) => Promise<T>,
 	): Promise<T> {
 		await this.initialize();
-		// Computer types its host as the local RpcTarget; Workers maps that target to a remote stub.
-		using client = await getWorkspace(
-			this.stub as unknown as Parameters<typeof getWorkspace>[0],
-		);
+		using client = await getWorkspace(this.stub);
 		return await run(client);
 	}
 }

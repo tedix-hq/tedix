@@ -50,6 +50,17 @@ export function projectPiRecovery(input: {
 			status: view.record.state.status,
 			view: view.state.kind,
 			blockedReason: view.state.kind === "blocked" ? view.state.reason : null,
+			...(view.state.kind === "sleeping" &&
+			Number.isFinite(view.state.until) &&
+			view.state.until >= 0 &&
+			view.state.until <= 8_640_000_000_000_000
+				? { sleepUntil: view.state.until }
+				: {}),
+			...(typeof view.record.restarts === "number" &&
+			Number.isSafeInteger(view.record.restarts) &&
+			view.record.restarts >= 0
+				? { restarts: view.record.restarts }
+				: {}),
 			waitingOn:
 				view.state.kind === "waiting" ? view.state.on.slice(0, 20) : [],
 			waitingOnTruncated:

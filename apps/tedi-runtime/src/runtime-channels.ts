@@ -2,7 +2,7 @@ import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-ident
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
 import type { AgentEmail } from "agents/email";
 import { jsonSchema, tool, type ToolSet } from "ai";
-import PostalMime from "postal-mime";
+import { parseInboundEmailMime } from "./email-mime-parser";
 import { type NativeAcpTurnInput } from "./acp-channel";
 import { adaptiveLearningModeForTurn } from "./adaptive-learning";
 import { preparedTedixMcpAITools, tedixMcpAITools } from "./ai-sdk-adapter";
@@ -178,7 +178,7 @@ export const runtimeChannels = {
 		// headers eagerly, but body content + Message-Id headers come from the
 		// parsed MIME tree.
 		const raw = await email.getRaw();
-		const parsedMime = await PostalMime.parse(raw);
+		const parsedMime = await parseInboundEmailMime(raw);
 		const subject =
 			parsedMime.subject?.trim() ||
 			email.headers.get("subject") ||

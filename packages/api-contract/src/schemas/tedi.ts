@@ -939,6 +939,18 @@ export const TediRuntimeRecoveryDiagnosticResponseSchema = z.object({
 						"restart_limit",
 					])
 					.nullable(),
+				sleepUntil: z
+					.number()
+					.finite()
+					.nonnegative()
+					.max(8_640_000_000_000_000)
+					.optional(),
+				restarts: z
+					.number()
+					.int()
+					.nonnegative()
+					.max(Number.MAX_SAFE_INTEGER)
+					.optional(),
 				waitingOn: z.array(PiDiagnosticIdSchema).max(20),
 				waitingOnTruncated: z.boolean(),
 			}),

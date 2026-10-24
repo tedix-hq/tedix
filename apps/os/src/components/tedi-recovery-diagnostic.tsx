@@ -59,6 +59,14 @@ export function RecoveryDiagnosticResult({
 				<p key={task.id}>
 					Task {task.id}: {task.kind}, {task.view}
 					{task.blockedReason ? ` (${task.blockedReason})` : ""}
+					{task.view === "sleeping"
+						? task.sleepUntil !== undefined
+							? `; sleeping until ${new Date(task.sleepUntil).toISOString()}`
+							: "; sleep deadline unknown"
+						: ""}
+					{task.restarts !== undefined
+						? `; interrupted restarts: ${task.restarts}`
+						: "; restart count unknown"}
 					{task.waitingOn.length
 						? `; waiting on ${task.waitingOn.join(", ")}${task.waitingOnTruncated ? "…" : ""}`
 						: ""}
