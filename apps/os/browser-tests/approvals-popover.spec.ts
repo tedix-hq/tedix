@@ -24,10 +24,24 @@ async function fits(page: Page, width: number) {
 	await settle(page);
 	const box = await panel.boundingBox();
 	assert(box && box.x >= 0 && box.x + box.width <= width, "Panel fits");
+	const layout = await panel.evaluate((node) => ({
+		width: node.clientWidth,
+		scrollWidth: node.scrollWidth,
+		tab: node.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+		overflow: Array.from(node.querySelectorAll<HTMLElement>("*"))
+			.filter((child) => child.scrollWidth > child.clientWidth)
+			.map((child) => ({
+				tag: child.tagName,
+				className: child.className,
+				text: child.textContent?.slice(0, 120),
+				width: child.clientWidth,
+				scrollWidth: child.scrollWidth,
+			})),
+	}));
 	assert.equal(
-		await panel.evaluate((node) => node.scrollWidth <= node.clientWidth),
+		layout.scrollWidth <= layout.width,
 		true,
-		"No horizontal overflow",
+		`No horizontal overflow: ${JSON.stringify(layout)}`,
 	);
 }
 
