@@ -6,7 +6,7 @@
 .outputs-library .output-card-open:focus-visible {
 	border-color: var(--ring);
 	outline: 2px solid var(--ring);
-	outline-offset: -1px;
+	outline-offset: -2px;
 	box-shadow: none;
 }
 

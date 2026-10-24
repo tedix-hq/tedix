@@ -22,6 +22,31 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 	for (const key of ["Enter", "Space"]) {
 		await open.focus();
 		await page.keyboard.press("Tab");
+		await page.keyboard.press("Shift+Tab");
+		const focus = await open.evaluate((el) => {
+			const css = getComputedStyle(el);
+			const width = Number.parseFloat(css.outlineWidth);
+			const reach = Math.max(0, width + Number.parseFloat(css.outlineOffset));
+			const rect = el.getBoundingClientRect();
+			const parent = el.parentElement!;
+			const clip = parent.getBoundingClientRect();
+			const left = clip.left + parent.clientLeft;
+			const top = clip.top + parent.clientTop;
+			return {
+				style: css.outlineStyle,
+				width,
+				overshoot: Math.max(
+					left - (rect.left - reach),
+					rect.right + reach - (left + parent.clientWidth),
+					top - (rect.top - reach),
+					rect.bottom + reach - (top + parent.clientHeight),
+				),
+			};
+		});
+		assert.equal(focus.style, "solid");
+		assert(focus.width >= 2, "Open has a visible focus outline");
+		assert(focus.overshoot <= 0.5, "Open focus stays inside the card");
+		await page.keyboard.press("Tab");
 		assert(
 			await share.evaluate((el) => el === document.activeElement),
 			"Tab moves from Open to Share",
@@ -113,13 +138,6 @@ try {
 			}
 			await page.keyboard.press("Tab");
 			await card.locator(".output-card-open").focus();
-			assert.equal(
-				await card
-					.locator(".output-card-open")
-					.evaluate((el) => getComputedStyle(el).outlineOffset),
-				"-1px",
-				"focus straddles the retained border",
-			);
 			assert.equal(
 				await card.evaluate((el) => getComputedStyle(el).borderTopWidth),
 				"1px",
