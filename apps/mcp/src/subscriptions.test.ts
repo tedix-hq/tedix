@@ -265,6 +265,58 @@ describe("McpSubscriptionDurableObject", () => {
 		}
 	});
 
+	it("retains publisher metadata without replacing subscription or resource identity", async () => {
+		const durableObject = new McpSubscriptionDurableObject(
+			{} as DurableObjectState,
+			{} as CloudflareEnv,
+		);
+		const response = await durableObject.fetch(
+			makeSubscriptionRequest({
+				requestId: "owned-subscription",
+				params: {
+					notifications: { resourceSubscriptions: ["resource://owned"] },
+				},
+			}),
+		);
+		const reader = response.body!.getReader();
+		const buffer = { buffer: "" };
+		try {
+			await readSseMessage(reader, buffer);
+			const publish = await durableObject.fetch(
+				new Request("https://mcp-subscriptions.internal/publish", {
+					method: "POST",
+					body: JSON.stringify({
+						organizationId: "org-1",
+						method: "notifications/resources/updated",
+						uri: "resource://owned",
+						params: {
+							uri: "resource://unsubscribed",
+							revision: 7,
+							_meta: {
+								"example.com/trace": "trace-1",
+								"io.modelcontextprotocol/subscriptionId": "spoofed",
+							},
+						},
+					}),
+				}),
+			);
+			expect(await publish.json()).toMatchObject({ delivered: 1 });
+			expect(await readSseMessage(reader, buffer)).toMatchObject({
+				method: "notifications/resources/updated",
+				params: {
+					uri: "resource://owned",
+					revision: 7,
+					_meta: {
+						"example.com/trace": "trace-1",
+						"io.modelcontextprotocol/subscriptionId": "owned-subscription",
+					},
+				},
+			});
+		} finally {
+			await reader.cancel();
+		}
+	});
+
 	it("accepts the task extension subscription filter", async () => {
 		const durableObject = new McpSubscriptionDurableObject(
 			{} as DurableObjectState,

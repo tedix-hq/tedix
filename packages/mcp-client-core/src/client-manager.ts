@@ -19,7 +19,13 @@ import {
 	GetSkillResultSchema,
 	ListSkillsResultSchema,
 	MCP_SKILLS_EXTENSION,
+	type McpSkillEntry,
 } from "@tedix/mcp-shared/skills";
+import { collectBoundedMcpList } from "@tedix/mcp-shared/bounded-list";
+import {
+	resolveAdvertisedSkill,
+	verifySkillResourceRead,
+} from "./skill-verification";
 import {
 	outboundTraceMeta,
 	type TraceContext,
@@ -511,7 +517,7 @@ export class McpClientManager {
 			guidance: [],
 			extensions: snapshot.extensions,
 		};
-		await this.mergeSkillIndex(conn, serverId, conn.resources);
+		conn.skills = await this.mergeSkillIndex(conn, serverId, conn.resources);
 		conn.guidance = buildGuidanceResourceSummaries(
 			conn,
 			this.disabledSkills,
@@ -538,18 +544,22 @@ export class McpClientManager {
 			serverId,
 			conn.config,
 		);
-		conn.tools = snapshot.tools;
-		conn.resources = snapshot.resources;
-		conn.resourceTemplates = snapshot.resourceTemplates;
-		conn.prompts = snapshot.prompts;
-		conn.info.capabilities = snapshot.capabilities;
-		conn.extensions = snapshot.extensions;
-		await this.mergeSkillIndex(conn, serverId, conn.resources);
-		conn.guidance = buildGuidanceResourceSummaries(
-			conn,
+		const next: StatelessManagedConnection = {
+			...conn,
+			tools: snapshot.tools,
+			resources: snapshot.resources,
+			resourceTemplates: snapshot.resourceTemplates,
+			prompts: snapshot.prompts,
+			info: { ...conn.info, capabilities: snapshot.capabilities },
+			extensions: snapshot.extensions,
+		};
+		next.skills = await this.mergeSkillIndex(next, serverId, next.resources);
+		next.guidance = buildGuidanceResourceSummaries(
+			next,
 			this.disabledSkills,
 			this.guidanceSummaryMaxChars,
 		);
+		Object.assign(conn, next);
 		return conn.info;
 	}
 
@@ -706,16 +716,15 @@ export class McpClientManager {
 						nextPromptsPromise,
 					]);
 
-				if (capabilities?.resources) {
-					// SEP-2640 index-first skill discovery — operates on local
-					// arrays so the merge doesn't briefly reveal a partial state.
-					await this.mergeSkillIndex(conn, serverId, nextResources);
-				}
+				const nextSkills = capabilities?.resources
+					? await this.mergeSkillIndex(conn, serverId, nextResources)
+					: [];
 
 				// Atomic swap. From this point a concurrent reader sees the new
 				// snapshot consistently across all four slots.
 				conn.tools = nextTools;
 				conn.resources = nextResources;
+				conn.skills = nextSkills;
 				conn.resourceTemplates = nextResourceTemplates;
 				conn.prompts = nextPrompts;
 
@@ -1182,14 +1191,19 @@ export class McpClientManager {
 		conn: ManagedConnection,
 		uri: string,
 	): Promise<unknown> {
+		const skill = resolveAdvertisedSkill(conn.skills ?? [], uri);
+		let result: unknown;
 		if (conn.mode === "stateless") {
-			return this.rawMcpPost(conn.config, "resources/read", { uri });
+			result = await this.rawMcpPost(conn.config, "resources/read", { uri });
+		} else {
+			try {
+				result = await conn.client.readResource({ uri });
+			} catch {
+				result = await this.rawMcpPost(conn.config, "resources/read", { uri });
+			}
 		}
-		try {
-			return await conn.client.readResource({ uri });
-		} catch {
-			return this.rawMcpPost(conn.config, "resources/read", { uri });
-		}
+		if (skill) await verifySkillResourceRead(skill, uri, result);
+		return result;
 	}
 
 	listPrompts(serverId?: string): McpPromptInfo[] {
@@ -1316,54 +1330,67 @@ export class McpClientManager {
 		// build the full snapshot off-side and swap atomically. Mutating
 		// `conn.resources` directly here would briefly reveal a partial state.
 		resources: McpResourceInfo[],
-	): Promise<void> {
-		if (!conn.extensions[MCP_SKILLS_EXTENSION]) return;
+	): Promise<McpSkillEntry[]> {
+		if (!conn.extensions[MCP_SKILLS_EXTENSION]) return [];
+		let entries: McpSkillEntry[];
 		try {
-			const raw =
-				conn.mode === "sdk"
-					? await conn.client.request(
-							{ method: "skills/list", params: {} },
-							ListSkillsResultSchema,
-						)
-					: await this.rawMcpListAll(conn.config, "skills/list", "skills");
-			const parsed = ListSkillsResultSchema.parse(raw);
-			const known = new Map(
-				resources.map((resource) => [resource.uri, resource]),
+			const collected = await collectBoundedMcpList<McpSkillEntry>(
+				async (cursor) => {
+					const params = cursor === undefined ? {} : { cursor };
+					const raw =
+						conn.mode === "sdk"
+							? await conn.client.request(
+									{ method: "skills/list", params },
+									ListSkillsResultSchema,
+								)
+							: await this.rawMcpPost(conn.config, "skills/list", params);
+					const page = ListSkillsResultSchema.parse(raw);
+					return { items: page.skills, nextCursor: page.nextCursor };
+				},
 			);
-			for (const entry of parsed.skills) {
-				const audience = Array.isArray(entry.frontmatter.audience)
-					? entry.frontmatter.audience.filter(
-							(value): value is string => typeof value === "string",
-						)
-					: undefined;
-				const existing = known.get(entry.uri);
-				const projected: McpResourceInfo = {
-					serverId,
-					uri: entry.uri,
-					name:
-						typeof entry.frontmatter.name === "string"
-							? entry.frontmatter.name
-							: guidanceNameFromUri(entry.uri),
-					description:
-						typeof entry.frontmatter.description === "string"
-							? entry.frontmatter.description
-							: undefined,
-					mimeType: "text/markdown",
-					annotations: {
-						...(existing?.annotations ?? {}),
-						...(audience?.length ? { audience } : {}),
-						...(entry.resources ? { resources: entry.resources } : {}),
-					},
-				};
-				if (existing) Object.assign(existing, projected);
-				else {
-					resources.push(projected);
-					known.set(entry.uri, projected);
-				}
-			}
+			if (collected.truncated) throw new Error("MCP skill index is incomplete");
+			entries = collected.items;
+			if (new Set(entries.map((entry) => entry.uri)).size !== entries.length)
+				throw new Error("MCP skill index contains duplicate URIs");
 		} catch {
-			// A falsely advertised extension must not erase resources/list guidance.
+			// Keep guidance and its last advertised integrity boundary together.
+			entries = conn.skills ?? [];
 		}
+		const known = new Map(
+			resources.map((resource) => [resource.uri, resource]),
+		);
+		for (const entry of entries) {
+			const audience = Array.isArray(entry.frontmatter.audience)
+				? entry.frontmatter.audience.filter(
+						(value): value is string => typeof value === "string",
+					)
+				: undefined;
+			const existing = known.get(entry.uri);
+			const projected: McpResourceInfo = {
+				serverId,
+				uri: entry.uri,
+				name:
+					typeof entry.frontmatter.name === "string"
+						? entry.frontmatter.name
+						: guidanceNameFromUri(entry.uri),
+				description:
+					typeof entry.frontmatter.description === "string"
+						? entry.frontmatter.description
+						: undefined,
+				mimeType: "text/markdown",
+				annotations: {
+					...(existing?.annotations ?? {}),
+					...(audience?.length ? { audience } : {}),
+					...(entry.resources ? { resources: entry.resources } : {}),
+				},
+			};
+			if (existing) Object.assign(existing, projected);
+			else {
+				resources.push(projected);
+				known.set(entry.uri, projected);
+			}
+		}
+		return entries;
 	}
 
 	/** Unsolicited SDK requests have no invocation authority: deterministic form fill only. */

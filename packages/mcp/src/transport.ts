@@ -252,7 +252,13 @@ function rpcError(
 			error: { code, message, ...(data ? { data } : {}) },
 			id,
 		}),
-		{ status, headers: JSONRPC_ERROR_HEADERS(cors) },
+		{
+			status,
+			headers: {
+				...JSONRPC_ERROR_HEADERS(cors),
+				...(status === 405 ? { Allow: "POST, OPTIONS" } : {}),
+			},
+		},
 	);
 }
 
@@ -819,7 +825,7 @@ export class StatelessMcpTransport implements Transport {
 					{
 						status: 405,
 						headers: {
-							Allow: "GET, POST, DELETE, OPTIONS",
+							Allow: "POST, OPTIONS",
 							"Content-Type": "application/json",
 						},
 					},
@@ -1798,7 +1804,7 @@ async function serveSimpleMountViaSdk(
 				{
 					status: 405,
 					headers: {
-						Allow: "GET, POST, DELETE, OPTIONS",
+						Allow: "POST, OPTIONS",
 						"Content-Type": "application/json",
 					},
 				},
