@@ -19,9 +19,12 @@ export function SkillChip({
 	tone: ChipTone;
 	children: ReactNode;
 }) {
-	// Sentence-case is applied by callers via sentenceCase — no CSS capitalize.
 	return (
-		<Badge variant={CHIP_VARIANTS[tone]} data-tone={tone}>
+		<Badge
+			variant={CHIP_VARIANTS[tone]}
+			data-tone={tone}
+			className="max-w-full max-sm:wrap-anywhere max-sm:whitespace-normal"
+		>
 			{children}
 		</Badge>
 	);

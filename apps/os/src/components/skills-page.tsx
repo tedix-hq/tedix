@@ -354,7 +354,7 @@ export function SkillRow({
 						as="span"
 						role="label"
 						tone="secondary"
-						className="max-sm:truncate"
+						className="max-sm:wrap-anywhere"
 						data-row-summary
 					>
 						{executable !== undefined
