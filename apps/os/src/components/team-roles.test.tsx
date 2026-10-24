@@ -108,6 +108,11 @@ it("preserves every scope description and human-only boundary in mobile summarie
 		)!;
 		const meta = CAPABILITY_SCOPE_METADATA[scope];
 		expect(section.textContent).toContain(meta.description);
+		expect(
+			[...section.querySelectorAll('[data-slot="text"]')]
+				.find((node) => node.textContent === meta.description)
+				?.classList.contains("break-words"),
+		).toBe(true);
 		expect(section.querySelector('[data-slot="badge"]')?.textContent).toBe(
 			meta.humanOnly ? "People only" : "People and tedis",
 		);

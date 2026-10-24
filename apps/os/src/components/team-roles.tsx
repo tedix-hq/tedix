@@ -284,7 +284,7 @@ export function CapabilityScopeReference() {
 							>
 								{scope}
 							</Text>
-							<Text>{meta.description}</Text>
+							<Text className="break-words">{meta.description}</Text>
 							<Badge variant={meta.humanOnly ? "secondary" : "outline"}>
 								{meta.humanOnly ? "People only" : "People and tedis"}
 							</Badge>
