@@ -121,6 +121,10 @@ describe("browser workspace selection", () => {
 	test("continues the selected browser tab into OAuth without opening another tab", async () => {
 		const state = "single-tab";
 		let continuedTo = "";
+		let completeBrowserContinuation!: () => void;
+		const browserContinuation = new Promise<void>((resolve) => {
+			completeBrowserContinuation = resolve;
+		});
 		const selected = selectWorkspaceInBrowser({
 			state,
 			timeoutMs: 1_000,
@@ -140,6 +144,7 @@ describe("browser workspace selection", () => {
 					continuedTo = (
 						(await continuation.json()) as { authorizationUrl: string }
 					).authorizationUrl;
+					completeBrowserContinuation();
 					break;
 				}
 			},
@@ -148,7 +153,7 @@ describe("browser workspace selection", () => {
 		session.continueInBrowser(
 			"https://auth.tedix.dev/oauth2/v1/apps/authorize?prompt=consent",
 		);
-		await Bun.sleep(10);
+		await browserContinuation;
 		expect(continuedTo).toBe(
 			"https://auth.tedix.dev/oauth2/v1/apps/authorize?prompt=consent",
 		);
