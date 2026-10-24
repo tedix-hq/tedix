@@ -33,7 +33,7 @@ import { OS_COPY } from "@/shared/os-copy";
 import { cn } from "@/lib/utils";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
-type AdminDestination = {
+export type AdminDestination = {
 	to: string;
 	title: string;
 	description: string;
@@ -73,7 +73,7 @@ type OverviewStatus = {
 	detail: string;
 };
 
-function AdminLinkRow({
+export function AdminLinkRow({
 	to,
 	title,
 	description,
@@ -97,7 +97,12 @@ function AdminLinkRow({
 				)}
 				<div className="min-w-0 flex-1">
 					<Text weight="medium">{title}</Text>
-					<Text role="label" tone="secondary" className="mt-1">
+					<Text
+						role="label"
+						tone="secondary"
+						className="mt-1 break-words"
+						data-row-description
+					>
 						{description}
 					</Text>
 				</div>
