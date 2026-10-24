@@ -298,6 +298,7 @@ vi.mock("@/components/workspace-resources-panel", () => ({
 	WorkspaceResourcesPanel: ({ workspaceId }: { workspaceId: string }) => (
 		<div data-workspace-resources-panel={workspaceId}>Workspace resources</div>
 	),
+	availabilityLabel: () => "App connected",
 }));
 
 vi.mock("@/components/workspace-work-panel", () => ({
@@ -2178,6 +2179,14 @@ describe("CanvasPage listing", () => {
 			container.querySelector('[aria-label="Code files"]')?.textContent,
 		).toContain("manifest.json");
 		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
+		click(findButton(container, "README.md"));
+		const readme = container.querySelector("[data-canvas-app-readme]");
+		expect(readme?.textContent).toContain("What it shows");
+		expect(readme?.textContent).toContain("Tedix tools: orders.read");
+		expect(readme?.textContent).toContain(`Client: the view at ${resourceUri}`);
+		expect(container.querySelector("[data-collab-editor]")).toBeNull();
+		click(findButton(container, "manifest.json"));
+		expect(container.querySelector("[data-collab-editor]")).not.toBeNull();
 
 		click(findButton(container, "Runs"));
 		expect(
@@ -2203,6 +2212,13 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain(
 			"required permissions and approvals",
 		);
+		await vi.waitFor(() =>
+			expect(
+				container.querySelector("[data-app-connections]")?.textContent,
+			).toContain("This app uses no external resources."),
+		);
+		click(findButton(container, "Connect an app"));
+		expect(accountConnections?.hasAttribute("open")).toBe(true);
 		expect(
 			container.querySelector(
 				'.canvas-secondary-view > [data-slot="section-header"]',

@@ -1,6 +1,12 @@
 import { ReviewFeedbackSummary } from "./review-feedback-summary";
 import { CreateReviewBatch } from "./create-review-batch";
-import { Copy, LinkSimple, Prohibit } from "@phosphor-icons/react";
+import {
+	Copy,
+	LinkSimple,
+	Prohibit,
+	User,
+	UsersThree,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	OsShareLink,
@@ -15,6 +21,7 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { DateTimePicker } from "@/components/kumo/date-picker";
 import { Input } from "@/components/kumo/input";
+import { Link } from "@/components/kumo/link";
 import {
 	PopoverContent,
 	PopoverRoot,
@@ -25,7 +32,12 @@ import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
-import { osSharesQueryOptions } from "@/lib/os-query-options";
+import {
+	osSharesQueryOptions,
+	userProfileQueryOptions,
+	workspaceDetailQueryOptions,
+} from "@/lib/os-query-options";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
@@ -248,6 +260,95 @@ function OneTimeLink(props: {
 	);
 }
 
+/** Who can open a workspace, and everything in it, without a link. */
+export type WorkspaceAccessRow = {
+	key: string;
+	name: string;
+	role: "Owner" | "Can edit";
+};
+
+export function workspaceAccessRows(input: {
+	visibility: "org" | "private";
+	ownerUserId: string | null;
+	createdById: string;
+	viewerUserId: string | null;
+	organizationName: string;
+}): WorkspaceAccessRow[] {
+	const ownerId =
+		input.visibility === "private" ? input.ownerUserId : input.createdById;
+	const viewerOwns = ownerId !== null && ownerId === input.viewerUserId;
+	const rows: WorkspaceAccessRow[] = [
+		{
+			key: "owner",
+			name: viewerOwns ? "You" : "The workspace owner",
+			role: "Owner",
+		},
+	];
+	if (input.visibility === "org")
+		rows.push({
+			key: "organization",
+			name: `Everyone in ${input.organizationName}`,
+			role: "Can edit",
+		});
+	return rows;
+}
+
+function PeopleWithAccess(props: { workspaceId: string; noun: string }) {
+	const workspace = useQuery(workspaceDetailQueryOptions(props.workspaceId));
+	const profile = useQuery(userProfileQueryOptions());
+	const context = useOsOperationalContext();
+	const detail = workspace.data?.workspace;
+	const organization = context.data?.organization.name ?? "your organization";
+	const canInvite =
+		context.data?.authority.permissions.includes("team:manage") === true;
+	return (
+		<section className="grid gap-2" data-share-people>
+			<Text as="h3" role="label" tone="strong" className="m-0">
+				People with access
+			</Text>
+			{detail ? (
+				<ul className="m-0 grid list-none gap-0.5 p-0">
+					{workspaceAccessRows({
+						visibility: detail.visibility,
+						ownerUserId: detail.ownerUserId,
+						createdById: detail.createdById,
+						viewerUserId: profile.data?.id ?? null,
+						organizationName: organization,
+					}).map((row) => (
+						<li key={row.key} className="flex items-center gap-2 py-1.5">
+							{row.key === "organization" ? (
+								<UsersThree size={14} className="shrink-0 text-kumo-subtle" />
+							) : (
+								<User size={14} className="shrink-0 text-kumo-subtle" />
+							)}
+							<Text as="span" role="body" className="min-w-0 flex-1 truncate">
+								{row.name}
+							</Text>
+							<Badge variant="secondary">{row.role}</Badge>
+						</li>
+					))}
+				</ul>
+			) : (
+				<Text role="label" tone="secondary" className="m-0">
+					{workspace.isError
+						? "Can't load who has access right now."
+						: "Loading who has access…"}
+				</Text>
+			)}
+			<Text role="label" tone="secondary" className="m-0">
+				{detail?.visibility === "private"
+					? `Private workspace: no one else in ${organization} can open this ${props.noun}.`
+					: props.noun === "workspace"
+						? `Every member of ${organization} can open it.`
+						: `Everyone who can open its workspace can open this ${props.noun}.`}{" "}
+				{canInvite ? (
+					<Link href="/team?tab=members">Invite people to {organization}</Link>
+				) : null}
+			</Text>
+		</section>
+	);
+}
+
 type ShareControlsProps = (
 	| { outputId: string; currentRevisionId?: string | null }
 	| {
@@ -255,7 +356,11 @@ type ShareControlsProps = (
 			resourceId: string;
 			currentRevisionId?: string | null;
 	  }
-) & { compact?: boolean };
+) & {
+	compact?: boolean;
+	/** The workspace holding this resource; shows who can open it without a link. */
+	workspaceId?: string;
+};
 
 function normalizeResource(props: ShareControlsProps): {
 	resourceType: OsShareResourceType;
@@ -385,6 +490,19 @@ export function ShareControls(props: ShareControlsProps) {
 						Links made here only work on this local copy of Tedix.
 					</Surface>
 				)}
+				{props.workspaceId && open ? (
+					<PeopleWithAccess workspaceId={props.workspaceId} noun={noun} />
+				) : null}
+				{props.workspaceId ? (
+					<Text
+						as="h3"
+						role="label"
+						tone="strong"
+						className="m-0 border-kumo-line border-t pt-4"
+					>
+						Share links
+					</Text>
+				) : null}
 				{createShare.data && (
 					<OneTimeLink
 						token={createShare.data.token}
