@@ -196,6 +196,12 @@ function decodedStepName(value: string): string | null {
 	}
 }
 
+function parsePathCounter(value: string, minimum: number): number | null {
+	if (!/^\d+$/.test(value)) return null;
+	const parsed = Number.parseInt(value, 10);
+	return Number.isInteger(parsed) && parsed >= minimum ? parsed : null;
+}
+
 function parseJson(content: string | null): unknown {
 	if (content == null) return null;
 	try {
@@ -327,19 +333,16 @@ export function parseSkillWorkflowRecords(
 		let stepIndex = 0;
 		let executionEpoch = 0;
 		if (segments[0] === "epochs" && segments[2] === "steps") {
-			executionEpoch = Number.parseInt(segments[1] ?? "", 10);
+			const parsedEpoch = parsePathCounter(segments[1] ?? "", 0);
+			if (parsedEpoch == null) continue;
+			executionEpoch = parsedEpoch;
 			stepIndex = 2;
 		}
-		if (
-			segments[stepIndex] !== "steps" ||
-			segments.length < stepIndex + 4 ||
-			!Number.isInteger(executionEpoch) ||
-			executionEpoch < 0
-		) {
+		if (segments[stepIndex] !== "steps" || segments.length < stepIndex + 4) {
 			continue;
 		}
-		const count = Number.parseInt(segments[stepIndex + 2] ?? "", 10);
-		if (!Number.isInteger(count) || count < 1) continue;
+		const count = parsePathCounter(segments[stepIndex + 2] ?? "", 1);
+		if (count == null) continue;
 
 		const name = decodedStepName(segments[stepIndex + 1] ?? "");
 		if (name == null) continue;
@@ -386,14 +389,10 @@ export function parseSkillWorkflowRecords(
 			// attempt: attempts/<attempt>/calls/<phase>/<ordinal>.json and
 			// attempts/<attempt>/rollback.json. Older runners emitted the flatter
 			// attempts/<attempt>.json shape, so retain both.
-			const nestedAttempt = Number.parseInt(segments[stepIndex + 4] ?? "", 10);
-			if (
-				Number.isInteger(nestedAttempt) &&
-				nestedAttempt >= 1 &&
-				segments[stepIndex + 5] === "calls"
-			) {
-				const ordinal = Number.parseInt(leaf.replace(/\.json$/i, ""), 10);
-				if (!Number.isInteger(ordinal) || ordinal < 1) continue;
+			const nestedAttempt = parsePathCounter(segments[stepIndex + 4] ?? "", 1);
+			if (nestedAttempt != null && segments[stepIndex + 5] === "calls") {
+				const ordinal = parsePathCounter(leaf.replace(/\.json$/i, ""), 1);
+				if (ordinal == null) continue;
 				const idempotency = recordUnknown(parsedData, ["idempotency"]);
 				const toolCall: SkillWorkflowToolCall = {
 					...base,
@@ -420,24 +419,24 @@ export function parseSkillWorkflowRecords(
 				continue;
 			}
 			if (
-				Number.isInteger(nestedAttempt) &&
-				nestedAttempt >= 1 &&
+				nestedAttempt != null &&
 				segments[stepIndex + 5] === "rollback.json"
 			) {
 				steps.push({ ...base, kind: "rollback", attempt: nestedAttempt });
 				continue;
 			}
 
-			const attempt = Number.parseInt(leaf.replace(/\.json$/i, ""), 10);
-			if (Number.isInteger(attempt) && attempt >= 1) {
+			if (segments.length !== stepIndex + 5) continue;
+			const attempt = parsePathCounter(leaf.replace(/\.json$/i, ""), 1);
+			if (attempt != null) {
 				steps.push({ ...base, kind: "attempt", attempt });
 			}
 			continue;
 		}
 
 		if (family === "rollbacks") {
-			const attempt = Number.parseInt(leaf.replace(/\.json$/i, ""), 10);
-			if (Number.isInteger(attempt) && attempt >= 1) {
+			const attempt = parsePathCounter(leaf.replace(/\.json$/i, ""), 1);
+			if (attempt != null) {
 				steps.push({ ...base, kind: "rollback", attempt });
 			}
 			continue;
