@@ -157,6 +157,99 @@ describe("Workspace Google Drive PDF read", () => {
 		).rejects.toThrow("2 MB");
 	});
 
+	it("bounds a hung metadata request with the request deadline", async () => {
+		const fetchImpl = vi.fn(
+			(_url: string | URL | Request, init?: RequestInit) => {
+				expect(init?.signal).toBeInstanceOf(AbortSignal);
+				return new Promise<Response>(() => {});
+			},
+		) as unknown as typeof fetch;
+		await expect(
+			readWorkspaceDrivePdf(
+				context,
+				{
+					resource,
+					requiredScopes: [],
+					pageStart: 1,
+					pageLimit: 1,
+					charOffset: 0,
+				},
+				{
+					resolveToken: async () => "secret-token",
+					fetchImpl,
+					ai,
+					requestTimeoutMs: 5,
+				},
+			),
+		).rejects.toThrow("metadata request timed out");
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+	});
+
+	it("bounds a hung media request with the request deadline", async () => {
+		const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+			if (new URL(String(url)).searchParams.get("alt") === "media") {
+				return new Promise<Response>(() => {});
+			}
+			return Response.json({
+				id: "drive-file-1",
+				name: "CSF.pdf",
+				mimeType: "application/pdf",
+			});
+		}) as unknown as typeof fetch;
+		await expect(
+			readWorkspaceDrivePdf(
+				context,
+				{
+					resource,
+					requiredScopes: [],
+					pageStart: 1,
+					pageLimit: 1,
+					charOffset: 0,
+				},
+				{
+					resolveToken: async () => "secret-token",
+					fetchImpl,
+					ai,
+					requestTimeoutMs: 5,
+				},
+			),
+		).rejects.toThrow("PDF request timed out");
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	it("cancels a stalled media body at the idle deadline", async () => {
+		const cancel = vi.fn(async () => undefined);
+		const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+			if (new URL(String(url)).searchParams.get("alt") === "media") {
+				return new Response(new ReadableStream<Uint8Array>({ cancel }));
+			}
+			return Response.json({
+				id: "drive-file-1",
+				name: "CSF.pdf",
+				mimeType: "application/pdf",
+			});
+		}) as unknown as typeof fetch;
+		await expect(
+			readWorkspaceDrivePdf(
+				context,
+				{
+					resource,
+					requiredScopes: [],
+					pageStart: 1,
+					pageLimit: 1,
+					charOffset: 0,
+				},
+				{
+					resolveToken: async () => "secret-token",
+					fetchImpl,
+					ai,
+					bodyIdleTimeoutMs: 5,
+				},
+			),
+		).rejects.toThrow("PDF download timed out");
+		expect(cancel).toHaveBeenCalledTimes(1);
+	});
+
 	it("refuses to fabricate page citations when conversion lacks page markers", () => {
 		expect(() => splitPdfPages("No page boundaries")).toThrow(
 			"no verifiable page boundaries",
