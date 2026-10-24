@@ -14,6 +14,10 @@ import { splitConvertedPdf } from "../workflows/content-ingestion-pdf";
 
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const PDF_MAX_BYTES = 2 * 1024 * 1024;
+// Flat deadline per provider request, including its JSON body.
+const DRIVE_REQUEST_TIMEOUT_MS = 15_000;
+// Idle deadline between media body chunks; a progressing download never trips it.
+const PDF_BODY_IDLE_TIMEOUT_MS = 15_000;
 // Two pages plus metadata stay below Code Mode's 24,000-character result cap.
 const PAGE_MAX_CHARS = 7_000;
 const DRIVE_FILE_ID = /^[A-Za-z0-9_-]{1,255}$/;
@@ -30,6 +34,8 @@ type ReadDependencies = {
 	resolveToken?: () => Promise<string | null>;
 	fetchImpl?: typeof fetch;
 	ai?: Pick<Ai, "toMarkdown">;
+	requestTimeoutMs?: number;
+	bodyIdleTimeoutMs?: number;
 };
 
 function metadataUrl(fileId: string): string {
@@ -66,16 +72,58 @@ function driveReadError(status: number): Error {
 	);
 }
 
+// Bounds a provider await even when the fetch impl ignores its abort signal;
+// abort rejections surface as the same typed timeout.
+async function withDeadline<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	message: string,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() => reject(createError(ErrorCodes.BAD_GATEWAY, message)),
+			timeoutMs,
+		);
+	});
+	try {
+		return await Promise.race([promise, timeout]);
+	} catch (error) {
+		if (
+			error instanceof Error &&
+			(error.name === "AbortError" || error.name === "TimeoutError")
+		) {
+			throw createError(ErrorCodes.BAD_GATEWAY, message);
+		}
+		throw error;
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+}
+
 async function readMetadata(
 	fetchImpl: typeof fetch,
 	fileId: string,
 	token: string,
+	timeoutMs: number,
 ): Promise<DriveFileMetadata> {
-	const response = await fetchImpl(metadataUrl(fileId), {
-		headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-	});
+	const response = await withDeadline(
+		fetchImpl(metadataUrl(fileId), {
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: "application/json",
+			},
+			signal: AbortSignal.timeout(timeoutMs),
+		}),
+		timeoutMs,
+		"Google Drive metadata request timed out",
+	);
 	if (!response.ok) throw driveReadError(response.status);
-	const value: unknown = await response.json();
+	const value: unknown = await withDeadline(
+		response.json(),
+		timeoutMs,
+		"Google Drive metadata read timed out",
+	);
 	if (typeof value !== "object" || value === null) {
 		throw createError(
 			ErrorCodes.BAD_GATEWAY,
@@ -105,6 +153,7 @@ async function readMetadata(
 
 async function readBoundedPdf(
 	response: Response,
+	idleTimeoutMs: number,
 ): Promise<Uint8Array<ArrayBuffer>> {
 	const contentLength = Number(response.headers.get("content-length") ?? 0);
 	if (contentLength > PDF_MAX_BYTES) {
@@ -124,11 +173,14 @@ async function readBoundedPdf(
 	let size = 0;
 	try {
 		while (true) {
-			const { done, value } = await reader.read();
+			const { done, value } = await withDeadline(
+				reader.read(),
+				idleTimeoutMs,
+				"Google Drive PDF download timed out",
+			);
 			if (done) break;
 			size += value.byteLength;
 			if (size > PDF_MAX_BYTES) {
-				await reader.cancel();
 				throw createError(
 					ErrorCodes.UNPROCESSABLE_CONTENT,
 					"PDF exceeds the 2 MB read limit",
@@ -137,6 +189,7 @@ async function readBoundedPdf(
 			chunks.push(value);
 		}
 	} finally {
+		await reader.cancel().catch(() => {});
 		reader.releaseLock();
 	}
 	const bytes = new Uint8Array(size);
@@ -244,20 +297,34 @@ export async function readWorkspaceDrivePdf(
 		);
 	}
 	const fetchImpl = dependencies.fetchImpl ?? fetch;
+	const requestTimeoutMs =
+		dependencies.requestTimeoutMs ?? DRIVE_REQUEST_TIMEOUT_MS;
+	const bodyIdleTimeoutMs =
+		dependencies.bodyIdleTimeoutMs ?? PDF_BODY_IDLE_TIMEOUT_MS;
 	const metadata = await readMetadata(
 		fetchImpl,
 		input.resource.providerResourceId,
 		token,
+		requestTimeoutMs,
 	);
-	const response = await fetchImpl(mediaUrl(metadata.id), {
-		headers: { Authorization: `Bearer ${token}`, Accept: "application/pdf" },
-	});
+	const response = await withDeadline(
+		fetchImpl(mediaUrl(metadata.id), {
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: "application/pdf",
+			},
+			signal: AbortSignal.timeout(requestTimeoutMs),
+		}),
+		requestTimeoutMs,
+		"Google Drive PDF request timed out",
+	);
 	if (!response.ok) throw driveReadError(response.status);
-	const bytes = await readBoundedPdf(response);
+	const bytes = await readBoundedPdf(response, bodyIdleTimeoutMs);
 	const checkedMetadata = await readMetadata(
 		fetchImpl,
 		input.resource.providerResourceId,
 		token,
+		requestTimeoutMs,
 	);
 	if (
 		checkedMetadata.version !== metadata.version ||
