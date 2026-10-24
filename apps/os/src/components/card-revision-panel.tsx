@@ -14,8 +14,14 @@ import {
 	proposalRevisionBody,
 } from "@/lib/card-revision-diff";
 import { DecisionContextSection } from "@/components/decision-context-rail";
+import { CaretRight } from "@phosphor-icons/react";
 
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import { Input } from "@/components/kumo/input";
 import { createPortal } from "react-dom";
@@ -484,113 +490,122 @@ export function CardRevisionPanel({
 			)}
 
 			{previous && current && reviewed && (
-				<details>
-					<summary>What changed</summary>
-					{reviewed.summary && <p className="py-2">{reviewed.summary}</p>}
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={() => setShowClean(!showClean)}
-					>
-						{showClean ? "Show changes" : "Show clean"}
-					</Button>
-					<div
-						className="whitespace-pre-wrap break-words"
-						aria-label="Revision diff"
-					>
-						{showClean
-							? current.body
-							: hunks.map((hunk) =>
-									hunk.unchanged ? (
-										<span key={hunk.index}>{hunk.replacement}</span>
-									) : (
-										<span
-											key={hunk.index}
-											className="block rounded-lg border border-kumo-line p-3"
-										>
-											{keptHunks.some((kept) => kept.index === hunk.index) ? (
-												<span>
-													{hunk.original}
-													<span className="type-tedix-caption text-kumo-subtle">
-														{" "}
-														(Original kept)
+				<Collapsible>
+					<CollapsibleTrigger className="group/disclosure w-full px-0">
+						What changed
+						<CaretRight
+							size={14}
+							aria-hidden
+							className="ml-auto shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+						/>
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						{reviewed.summary && <p className="py-2">{reviewed.summary}</p>}
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => setShowClean(!showClean)}
+						>
+							{showClean ? "Show changes" : "Show clean"}
+						</Button>
+						<div
+							className="whitespace-pre-wrap break-words"
+							aria-label="Revision diff"
+						>
+							{showClean
+								? current.body
+								: hunks.map((hunk) =>
+										hunk.unchanged ? (
+											<span key={hunk.index}>{hunk.replacement}</span>
+										) : (
+											<span
+												key={hunk.index}
+												className="block rounded-lg border border-kumo-line p-3"
+											>
+												{keptHunks.some((kept) => kept.index === hunk.index) ? (
+													<span>
+														{hunk.original}
+														<span className="type-tedix-caption text-kumo-subtle">
+															{" "}
+															(Original kept)
+														</span>
 													</span>
-												</span>
-											) : (
-												<>
-													{cardRevisionDiff(
-														hunk.original,
-														hunk.replacement,
-													).map(([kind, text], index) =>
-														kind < 0 ? (
-															<del
-																key={index}
-																className="px-1 text-kumo-subtle"
-															>
-																{text}
-															</del>
-														) : kind > 0 ? (
-															<ins
-																key={index}
-																className="rounded bg-kumo-tint px-1 font-medium no-underline"
-															>
-																{text}
-															</ins>
-														) : (
-															<span key={index}>{text}</span>
-														),
-													)}
-													{hunk.canKeep !== false &&
-														(!current.proposal || previous.proposal) && (
-															<Button
-																variant="ghost"
-																size="xs"
-																aria-label={`Keep original change ${hunk.index + 1}`}
-																disabled={
-																	disabled ||
-																	revising ||
-																	keep.isPending ||
-																	restore.isPending
-																}
-																onClick={() => keep.mutate(hunk.index)}
-															>
-																Keep original
-															</Button>
+												) : (
+													<>
+														{cardRevisionDiff(
+															hunk.original,
+															hunk.replacement,
+														).map(([kind, text], index) =>
+															kind < 0 ? (
+																<del
+																	key={index}
+																	className="px-1 text-kumo-subtle"
+																>
+																	{text}
+																</del>
+															) : kind > 0 ? (
+																<ins
+																	key={index}
+																	className="rounded bg-kumo-tint px-1 font-medium no-underline"
+																>
+																	{text}
+																</ins>
+															) : (
+																<span key={index}>{text}</span>
+															),
 														)}
-												</>
-											)}
-										</span>
-									),
-								)}
-					</div>
-					{reviewed.anchors?.length ? (
-						<ol className="grid gap-2 pt-3" aria-label="Comment results">
-							{reviewed.anchors.map((anchor, index) => {
-								const resolution = reviewed.anchorsResolved?.find(
-									(item) => item.index === index,
-								);
-								return (
-									<li
-										key={index}
-										className={
-											resolution?.status === "done"
-												? "text-kumo-subtle"
-												: "text-kumo-default"
-										}
-									>
-										{index + 1}. {anchor.chip ?? anchor.note} —{" "}
-										{resolution?.status === "done"
-											? "Done"
-											: resolution?.status === "kept"
-												? "Kept"
-												: "Still open"}
-										{resolution?.note ? `: ${resolution.note}` : ""}
-									</li>
-								);
-							})}
-						</ol>
-					) : null}
-				</details>
+														{hunk.canKeep !== false &&
+															(!current.proposal || previous.proposal) && (
+																<Button
+																	variant="ghost"
+																	size="xs"
+																	aria-label={`Keep original change ${hunk.index + 1}`}
+																	disabled={
+																		disabled ||
+																		revising ||
+																		keep.isPending ||
+																		restore.isPending
+																	}
+																	onClick={() => keep.mutate(hunk.index)}
+																>
+																	Keep original
+																</Button>
+															)}
+													</>
+												)}
+											</span>
+										),
+									)}
+						</div>
+						{reviewed.anchors?.length ? (
+							<ol className="grid gap-2 pt-3" aria-label="Comment results">
+								{reviewed.anchors.map((anchor, index) => {
+									const resolution = reviewed.anchorsResolved?.find(
+										(item) => item.index === index,
+									);
+									return (
+										<li
+											key={index}
+											className={
+												resolution?.status === "done"
+													? "text-kumo-subtle"
+													: "text-kumo-default"
+											}
+										>
+											{index + 1}. {anchor.chip ?? anchor.note} —{" "}
+											{resolution?.status === "done"
+												? "Done"
+												: resolution?.status === "kept"
+													? "Kept"
+													: "Still open"}
+											{resolution?.note ? `: ${resolution.note}` : ""}
+										</li>
+									);
+								})}
+							</ol>
+						) : null}
+					</CollapsibleContent>
+				</Collapsible>
 			)}
 			{current &&
 				current.revision > 1 &&
@@ -671,140 +686,146 @@ export function CardRevisionPanel({
 					trigger
 					defaultOpen
 				>
-					<details
-						open={historyOpen}
-						onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
-					>
-						<summary>Version history</summary>
-						{left && right && (
-							<div className="grid min-w-0 gap-3 pt-3">
-								<div className="grid grid-cols-2 gap-2">
-									<label className="grid min-w-0 gap-2 type-tedix-control">
-										From version
-										<Input
-											type="number"
-											min={revisions[0]!.revision}
-											max={current!.revision}
-											value={left.revision}
-											aria-label="Compare from version"
-											onChange={(event) =>
-												setCompareBefore(Number(event.target.value))
-											}
-										/>
-									</label>
-									<label className="grid min-w-0 gap-2 type-tedix-control">
-										To version
-										<Input
-											type="number"
-											min={revisions[0]!.revision}
-											max={current!.revision}
-											value={right.revision}
-											aria-label="Compare to version"
-											onChange={(event) =>
-												setCompareAfter(Number(event.target.value))
-											}
-										/>
-									</label>
-								</div>
-								<div
-									className="grid min-w-0 gap-3 sm:grid-cols-2"
-									aria-label="Version comparison"
-								>
-									<div className="min-w-0 rounded-lg border border-kumo-line p-3">
-										<h4 className="type-tedix-control mb-3">
-											Version {left.revision}
-										</h4>
-										<p className="whitespace-pre-wrap break-words">
-											{comparison
-												.filter(([kind]) => kind <= 0)
-												.map(([kind, text], index) =>
-													kind < 0 ? (
-														<del key={index} className="text-kumo-subtle">
-															{text}
-														</del>
-													) : (
-														<span key={index}>{text}</span>
-													),
-												)}
-										</p>
+					<Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+						<CollapsibleTrigger className="group/disclosure w-full px-0">
+							Version history
+							<CaretRight
+								size={14}
+								aria-hidden
+								className="ml-auto shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+							/>
+						</CollapsibleTrigger>
+						<CollapsibleContent keepMounted>
+							{left && right && (
+								<div className="grid min-w-0 gap-3 pt-3">
+									<div className="grid grid-cols-2 gap-2">
+										<label className="grid min-w-0 gap-2 type-tedix-control">
+											From version
+											<Input
+												type="number"
+												min={revisions[0]!.revision}
+												max={current!.revision}
+												value={left.revision}
+												aria-label="Compare from version"
+												onChange={(event) =>
+													setCompareBefore(Number(event.target.value))
+												}
+											/>
+										</label>
+										<label className="grid min-w-0 gap-2 type-tedix-control">
+											To version
+											<Input
+												type="number"
+												min={revisions[0]!.revision}
+												max={current!.revision}
+												value={right.revision}
+												aria-label="Compare to version"
+												onChange={(event) =>
+													setCompareAfter(Number(event.target.value))
+												}
+											/>
+										</label>
 									</div>
-									<div className="min-w-0 rounded-lg border border-kumo-line p-3">
-										<h4 className="type-tedix-control mb-3">
-											Version {right.revision}
-										</h4>
-										<p className="whitespace-pre-wrap break-words">
-											{comparison
-												.filter(([kind]) => kind >= 0)
-												.map(([kind, text], index) =>
-													kind > 0 ? (
-														<ins
-															key={index}
-															className="rounded bg-kumo-tint font-medium no-underline"
-														>
-															{text}
-														</ins>
-													) : (
-														<span key={index}>{text}</span>
-													),
-												)}
-										</p>
-									</div>
-								</div>
-							</div>
-						)}
-
-						<div className="grid gap-4 pt-3">
-							{[...revisions].reverse().map((revision) => (
-								<article key={revision.id} className="grid gap-2">
-									<p>
-										Version {revision.revision} ·{" "}
-										{revision.cause === "agent_rewrite"
-											? "Agent rewrite"
-											: revision.cause === "human_edit"
-												? "Your edit"
-												: revision.cause === "restore"
-													? "Restored"
-													: "Original"}
-									</p>
-									{revision.instruction && (
-										<p className="text-kumo-subtle">
-											Requested: {revision.instruction}
-										</p>
-									)}
-									<p className="whitespace-pre-wrap break-words">
-										{revision.body}
-									</p>
-									{revision.proposal && (
-										<ul className="grid gap-2">
-											{[
-												revision.proposal.item,
-												...revision.proposal.children,
-											].map((item) => (
-												<li key={item.sourceIntentId}>
-													<strong>{item.title}</strong>
-													{item.description && (
-														<p className="whitespace-pre-wrap">
-															{item.description}
-														</p>
+									<div
+										className="grid min-w-0 gap-3 sm:grid-cols-2"
+										aria-label="Version comparison"
+									>
+										<div className="min-w-0 rounded-lg border border-kumo-line p-3">
+											<h4 className="type-tedix-control mb-3">
+												Version {left.revision}
+											</h4>
+											<p className="whitespace-pre-wrap break-words">
+												{comparison
+													.filter(([kind]) => kind <= 0)
+													.map(([kind, text], index) =>
+														kind < 0 ? (
+															<del key={index} className="text-kumo-subtle">
+																{text}
+															</del>
+														) : (
+															<span key={index}>{text}</span>
+														),
 													)}
-												</li>
-											))}
-										</ul>
-									)}
-									{revision.revision !== current?.revision && (
-										<Button
-											variant="outline"
-											className="w-fit"
-											disabled={disabled || restore.isPending || revising}
-											onClick={() => restore.mutate(revision.revision)}
-										>
-											Restore version {revision.revision}
-										</Button>
-									)}
-								</article>
-							))}
-						</div>
-					</details>
+											</p>
+										</div>
+										<div className="min-w-0 rounded-lg border border-kumo-line p-3">
+											<h4 className="type-tedix-control mb-3">
+												Version {right.revision}
+											</h4>
+											<p className="whitespace-pre-wrap break-words">
+												{comparison
+													.filter(([kind]) => kind >= 0)
+													.map(([kind, text], index) =>
+														kind > 0 ? (
+															<ins
+																key={index}
+																className="rounded bg-kumo-tint font-medium no-underline"
+															>
+																{text}
+															</ins>
+														) : (
+															<span key={index}>{text}</span>
+														),
+													)}
+											</p>
+										</div>
+									</div>
+								</div>
+							)}
+
+							<div className="grid gap-4 pt-3">
+								{[...revisions].reverse().map((revision) => (
+									<article key={revision.id} className="grid gap-2">
+										<p>
+											Version {revision.revision} ·{" "}
+											{revision.cause === "agent_rewrite"
+												? "Agent rewrite"
+												: revision.cause === "human_edit"
+													? "Your edit"
+													: revision.cause === "restore"
+														? "Restored"
+														: "Original"}
+										</p>
+										{revision.instruction && (
+											<p className="text-kumo-subtle">
+												Requested: {revision.instruction}
+											</p>
+										)}
+										<p className="whitespace-pre-wrap break-words">
+											{revision.body}
+										</p>
+										{revision.proposal && (
+											<ul className="grid gap-2">
+												{[
+													revision.proposal.item,
+													...revision.proposal.children,
+												].map((item) => (
+													<li key={item.sourceIntentId}>
+														<strong>{item.title}</strong>
+														{item.description && (
+															<p className="whitespace-pre-wrap">
+																{item.description}
+															</p>
+														)}
+													</li>
+												))}
+											</ul>
+										)}
+										{revision.revision !== current?.revision && (
+											<Button
+												variant="outline"
+												className="w-fit"
+												disabled={disabled || restore.isPending || revising}
+												onClick={() => restore.mutate(revision.revision)}
+											>
+												Restore version {revision.revision}
+											</Button>
+										)}
+									</article>
+								))}
+							</div>
+						</CollapsibleContent>
+					</Collapsible>
 					{history.hasNextPage && (
 						<Button
 							variant="ghost"
