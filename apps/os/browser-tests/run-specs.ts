@@ -1,5 +1,5 @@
 import { startFixtureServer } from "./fixture-server";
-import { specOutcome } from "./spec-outcome";
+import { runSharedFixtureSpecs } from "./shared-fixture-specs";
 import { shardSpecs } from "./spec-shards";
 
 /**
@@ -34,25 +34,20 @@ const seconds = (since: number) =>
 console.log(
 	`[run-specs] fixture server ${server.origin} ready in ${seconds(started)}`,
 );
-const results: { spec: string; outcome: string }[] = [];
+let results: Awaited<ReturnType<typeof runSharedFixtureSpecs>>;
 try {
-	for (const spec of specs) {
-		const fixtureCode = server.exitCode();
-		if (fixtureCode !== null) {
-			results.push({ spec, outcome: specOutcome(null, fixtureCode) });
-			continue;
-		}
-		const begin = performance.now();
-		console.log(`[run-specs] ${spec}`);
-		const child = Bun.spawn([process.execPath, spec], {
-			env: { ...process.env, OS_FIXTURE_ORIGIN: server.origin },
-			stdout: "inherit",
-			stderr: "inherit",
-		});
-		const code = await child.exited;
-		const failure = specOutcome(code, server.exitCode(), child.signalCode);
-		results.push({ spec, outcome: `${failure} ${seconds(begin)}` });
-	}
+	results = await runSharedFixtureSpecs(
+		specs,
+		server,
+		(spec) =>
+			Bun.spawn([process.execPath, spec], {
+				env: { ...process.env, OS_FIXTURE_ORIGIN: server.origin },
+				stdout: "inherit",
+				stderr: "inherit",
+			}),
+		console.log,
+		console.error,
+	);
 } finally {
 	await server.stop();
 }

@@ -10,6 +10,7 @@ export type FixtureServer = {
 	origin: string;
 	/** Exit code of an owned server; null while it runs or when it is shared. */
 	exitCode(): number | null;
+	exited?: Promise<number>;
 	stop(): Promise<void>;
 };
 
@@ -89,5 +90,10 @@ export async function startFixtureServer(
 		await stop();
 		throw error;
 	}
-	return { origin, exitCode: () => server.exitCode, stop };
+	return {
+		origin,
+		exitCode: () => server.exitCode,
+		exited: server.exited,
+		stop,
+	};
 }
