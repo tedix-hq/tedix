@@ -121,7 +121,12 @@ function ExecutionRow({
 					/>
 				</TableCell>
 				<TableCell>
-					<Text as="span" role="label" tone="mono">
+					<Text
+						as="span"
+						role="label"
+						tone="mono"
+						title={execution.executionId}
+					>
 						{execution.executionId.slice(0, 8)}…
 					</Text>
 				</TableCell>
