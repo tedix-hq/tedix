@@ -568,3 +568,133 @@ test("a failed tedi turn ends the waiting call with a permanent error", async ()
 	assert.deepEqual(methods, ["tools/call", "tasks/get"]);
 	assert.ok(Date.now() - startedAt < 5_000);
 });
+
+for (const failure of [
+	"tool",
+	"protocol",
+	"transport",
+	"approval",
+	"connection",
+	"task",
+] as const) {
+	test(`mapped Code Mode ${failure} failure is not replayed on the aggregate`, async () => {
+		const calls: string[] = [];
+		const recovery = {
+			providerId: "notion",
+			connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+			scope: "user" as const,
+			scopes: ["write"],
+		};
+		const failureEnv = {
+			MCP_SERVICE: {
+				fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+					const request = new Request(input, init);
+					const body = (await request.json()) as {
+						id: string;
+						method: string;
+						params?: { name?: string };
+					};
+					const host = new URL(request.url).hostname;
+					calls.push(`${host} ${body.method} ${body.params?.name ?? ""}`);
+					if (body.method === "tools/list") {
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							result: { tools: [{ name: "code" }] },
+						});
+					}
+					if (body.method === "tasks/get") {
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							result: {
+								taskId: "task-failed",
+								status: "failed",
+								error: { message: "Method not found after provider write" },
+							},
+						});
+					}
+					if (body.params?.name !== "code") {
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							error: { code: -32601, message: "Method not found" },
+						});
+					}
+					assert.equal(
+						host,
+						"notion-tedix.mcp.tedix.dev",
+						"must not replay at another target",
+					);
+					if (failure === "transport")
+						throw new Error("response lost after provider write");
+					if (failure === "protocol") {
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							error: {
+								code: -32603,
+								message: "Method not found after provider write",
+							},
+						});
+					}
+					if (failure === "task") {
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							result: {
+								structuredContent: {
+									executionId: "e-failed",
+									result: { resultType: "task", taskId: "task-failed" },
+								},
+							},
+						});
+					}
+					const result =
+						failure === "approval"
+							? { resultType: "input_required", inputRequests: [] }
+							: {
+									isError: true,
+									...(failure === "connection"
+										? { _meta: { "tedix/connectionRecovery": recovery } }
+										: {}),
+									content: [
+										{
+											type: "text",
+											text: "Method not found after provider write",
+										},
+									],
+								};
+					return Response.json({ jsonrpc: "2.0", id: body.id, result });
+				},
+			},
+		} as unknown as Parameters<typeof callMcpTool>[0];
+		const operation = callMcpTool(failureEnv, props, {
+			namespace: "notion_tedix",
+			method: "notion_search",
+			args: {},
+			workflow,
+		});
+		if (failure === "connection") {
+			assert.deepEqual(await operation, {
+				__tedixConnectionRequired: true,
+				recovery,
+			});
+		} else {
+			await assert.rejects(
+				operation,
+				failure === "approval"
+					? /MCP_INPUT_REQUIRED/
+					: failure === "transport"
+						? /response lost after provider write/
+						: /Method not found after provider write/,
+			);
+		}
+		assert.deepEqual(calls, [
+			"notion-tedix.mcp.tedix.dev tools/call notion_search",
+			"notion-tedix.mcp.tedix.dev tools/list ",
+			"notion-tedix.mcp.tedix.dev tools/call code",
+			...(failure === "task" ? ["notion-tedix.mcp.tedix.dev tasks/get "] : []),
+		]);
+	});
+}

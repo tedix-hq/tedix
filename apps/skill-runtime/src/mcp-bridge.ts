@@ -118,6 +118,8 @@ export class CapabilityNotDeclaredError extends Error {
 	}
 }
 
+class McpCodeModeMethodNotFoundError extends Error {}
+
 /**
  * Tool input schemas learned from a HeaderMismatch rejection, per server URL and
  * tool, so later calls in this isolate send their `Mcp-Param-*` headers first.
@@ -689,11 +691,25 @@ async function executeMcpTool(
 			},
 			aggUrl,
 		);
+		const body = unwrapMcpResponseBody(text, contentType);
+		let envelope: unknown;
+		try {
+			envelope = JSON.parse(body);
+		} catch {
+			// Leave non-JSON tool responses to the shared result normalizer.
+		}
+		if (
+			isRecord(envelope) &&
+			envelope.jsonrpc === "2.0" &&
+			isRecord(envelope.error) &&
+			envelope.error.code === -32601
+		) {
+			throw new McpCodeModeMethodNotFoundError(
+				`MCP tool error -32601: ${envelope.error.message ?? "unknown"}`,
+			);
+		}
 		const codeModeResult = stripCodeModeExecutionEnvelope(
-			unwrapJsonRpcToolResult(
-				unwrapMcpResponseBody(text, contentType),
-				`${codeModeNamespace}.${method}`,
-			),
+			unwrapJsonRpcToolResult(body, `${codeModeNamespace}.${method}`),
 		);
 		// Code Mode preserves the inner tool's task linkage. Mirror the direct
 		// path's task semantics and poll on the same aggregate that created it so
@@ -736,8 +752,9 @@ async function executeMcpTool(
 			if (resolvedSlug !== props.aggregateMcpSlug) {
 				try {
 					return await invokeViaCodeMode(resolvedSlug);
-				} catch {
-					// Fall through to the organization gateway.
+				} catch (error) {
+					// Only an absent code method proves no tenant code executed.
+					if (!(error instanceof McpCodeModeMethodNotFoundError)) throw error;
 				}
 			}
 			return await invokeViaCodeMode();
