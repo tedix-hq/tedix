@@ -852,6 +852,15 @@ a {
 	.consent-page {
 		padding: 12px;
 	}
+
+	.identity-otp-actions {
+		flex-direction: column;
+	}
+
+	.identity-otp-actions > button {
+		width: 100%;
+		min-height: 44px;
+	}
 }
 
 /* Standalone "authorize the Tedix CLI" page (os.tedix.dev/cli/login). A
