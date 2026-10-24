@@ -441,7 +441,7 @@ try {
 							);
 							await page
 								.getByRole("heading", {
-									name: "My accounts",
+									name: "Accounts",
 									level: 1,
 									exact: true,
 								})
