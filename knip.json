@@ -80,7 +80,10 @@
 		"apps/os": {
 			"project": ["src/**/*.{ts,tsx}!"],
 			"ignoreDependencies": ["@tedix/design-tokens", "tailwindcss"],
-			"entry": ["src/worker.ts!"],
+			"entry": [
+				"src/worker.ts!",
+				"src/components/kumo/popover.test.browser.tsx"
+			],
 			"vitest": {
 				"config": ["vitest*.config.ts"]
 			},
