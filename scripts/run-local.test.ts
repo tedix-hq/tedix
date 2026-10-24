@@ -7,6 +7,7 @@ import {
 	LOCAL_API_URL,
 	assertLauncherPortsAvailable,
 	LOCAL_LOOPBACK_MESSAGE,
+	LOCAL_MCP_URL,
 	LOCAL_OS_URL,
 	LOCAL_STACK_STAGES,
 	defaultLocalRunState,
@@ -15,6 +16,7 @@ import {
 	parseRunLocalOptions,
 	waitForLocalApi,
 	waitForLocalDemo,
+	waitForLocalMcp,
 	assertSupportedNodeRuntime,
 } from "./run-local";
 
@@ -210,6 +212,73 @@ describe("run-local options", () => {
 			await expect(waitForLocalApi(30)).rejects.toThrow(
 				"The local API did not become ready within 30ms",
 			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+	test("waits for the MCP gateway before declaring the stack ready", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = ((input: unknown) => {
+			const url = String(input);
+			if (url === `${LOCAL_API_URL}/health`)
+				return Promise.resolve(Response.json({ status: "ok", service: "api" }));
+			if (url === `${LOCAL_MCP_URL}/health`)
+				return Promise.resolve(new Response("starting", { status: 503 }));
+			if (url === LOCAL_OS_URL)
+				return Promise.resolve(
+					new Response("<title>Tedix OS</title>", { status: 200 }),
+				);
+			return Promise.resolve(new Response("not found", { status: 404 }));
+		}) as typeof fetch;
+		try {
+			await expect(waitForLocalDemo(30)).rejects.toThrow(
+				"Local Tedix did not become ready within 30ms",
+			);
+			await expect(waitForLocalMcp(30)).rejects.toThrow(
+				"The local MCP gateway did not become ready within 30ms",
+			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+	test("does not accept another service answering on the MCP port", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = ((input: unknown) => {
+			const url = String(input);
+			if (url === `${LOCAL_API_URL}/health`)
+				return Promise.resolve(Response.json({ status: "ok", service: "api" }));
+			if (url === `${LOCAL_MCP_URL}/health`)
+				return Promise.resolve(Response.json({ status: "ok", service: "api" }));
+			if (url === LOCAL_OS_URL)
+				return Promise.resolve(
+					new Response("<title>Tedix OS</title>", { status: 200 }),
+				);
+			return Promise.resolve(new Response("not found", { status: 404 }));
+		}) as typeof fetch;
+		try {
+			await expect(waitForLocalDemo(30)).rejects.toThrow(
+				"Local Tedix did not become ready within 30ms",
+			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+	test("declares the stack ready once all three servers answer", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = ((input: unknown) => {
+			const url = String(input);
+			if (url === `${LOCAL_API_URL}/health`)
+				return Promise.resolve(Response.json({ status: "ok", service: "api" }));
+			if (url === `${LOCAL_MCP_URL}/health`)
+				return Promise.resolve(Response.json({ status: "ok", service: "mcp" }));
+			if (url === LOCAL_OS_URL)
+				return Promise.resolve(
+					new Response("<title>Tedix OS</title>", { status: 200 }),
+				);
+			return Promise.resolve(new Response("not found", { status: 404 }));
+		}) as typeof fetch;
+		try {
+			await expect(waitForLocalDemo(30)).resolves.toBeUndefined();
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

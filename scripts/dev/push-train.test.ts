@@ -29,6 +29,10 @@ afterEach(() => {
 		rmSync(root, { recursive: true, force: true });
 });
 const env = detachedGitEnv();
+// Spawned queue processes must not inherit an ambient Devin headless lane
+// marker: it disables lane snapshots, so no train forms and the single-lane
+// output the tests reject is what a real lane produces instead.
+delete env.TEDIX_DEVIN_HEADLESS;
 function git(cwd: string, ...args: string[]): string {
 	const result = spawnSync("git", args, { cwd, env, encoding: "utf8" });
 	if (result.status !== 0) throw new Error(result.stderr);
