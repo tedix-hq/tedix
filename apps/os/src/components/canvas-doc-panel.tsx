@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { isConflictError } from "@/components/blueprints-page";
 import { CanvasCodeEditor } from "@/components/canvas-editor";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import {
 	CanvasGadgetExecutions,
 	gadgetExecutionToolResult,
@@ -73,6 +74,7 @@ import {
 	useCollabDoc,
 } from "@/lib/use-collab-doc";
 import { useReviseOutput } from "@/lib/use-revise-output";
+import { workspaceAppReadme } from "@/lib/workspace-apps";
 import { useDocumentCollab } from "@/lib/use-document-collab";
 
 /**
@@ -149,6 +151,22 @@ const DEFAULT_GADGET_MANIFEST: OsGadgetManifest = {
 	capabilities: [],
 	entry: "main.tsx",
 };
+
+/**
+ * The files the Code view lists for an app. The manifest is the app's only
+ * stored source; the README is generated from it so it always says what the
+ * current revision shows, does and connects to.
+ */
+const APP_CODE_FILES = [
+	{
+		path: "README.md",
+		hint: "What the app shows, how people use it, what it connects to and where its code lives. Generated from manifest.json.",
+	},
+	{
+		path: "manifest.json",
+		hint: "The app's settings, connections and notes. Commit to save a new revision.",
+	},
+] as const;
 
 const GADGET_VIEW_OPTIONS = [
 	{ value: "preview", label: "App" },
@@ -363,6 +381,19 @@ export function CanvasDocPanel({
 		"preview",
 	);
 	const effectiveGadgetView = gadgetViewOverride ?? gadgetView;
+	const [codeFile, setCodeFile] =
+		useState<(typeof APP_CODE_FILES)[number]["path"]>("manifest.json");
+	const appReadme = useMemo(
+		() =>
+			gadgetDetail.data
+				? workspaceAppReadme({
+						name: gadgetDetail.data.gadget.name,
+						description: gadgetDetail.data.gadget.description,
+						manifest: gadgetDetail.data.currentRevision?.manifest,
+					})
+				: "",
+		[gadgetDetail.data],
+	);
 	const [previewExecution, setPreviewExecution] =
 		useState<OsGadgetExecution | null>(null);
 
@@ -717,6 +748,7 @@ export function CanvasDocPanel({
 							resourceType="gadget"
 							resourceId={gadgetDetail.data.gadget.id}
 							currentRevisionId={gadgetDetail.data.currentRevision?.id}
+							workspaceId={workspaceId}
 							compact
 						/>
 					)}
@@ -730,6 +762,7 @@ export function CanvasDocPanel({
 							<ShareControls
 								outputId={doc.id}
 								currentRevisionId={outputDetail.data.currentRevision.id}
+								workspaceId={workspaceId}
 								compact
 							/>
 						</>
@@ -960,36 +993,53 @@ export function CanvasDocPanel({
 								>
 									Files
 								</Text>
-								<Button
-									variant="secondary"
-									className="w-full justify-start"
-									aria-current="page"
-								>
-									manifest.json
-								</Button>
+								{APP_CODE_FILES.map((file) => (
+									<Button
+										key={file.path}
+										variant={codeFile === file.path ? "secondary" : "ghost"}
+										className="w-full justify-start"
+										aria-current={codeFile === file.path ? "page" : undefined}
+										onClick={() => setCodeFile(file.path)}
+									>
+										{file.path}
+									</Button>
+								))}
 								<Text
 									as="p"
 									role="label"
 									tone="secondary"
 									className="px-3 leading-relaxed"
 								>
-									App configuration. App code is managed by the referenced
-									widget provider.
+									{APP_CODE_FILES.find((file) => file.path === codeFile)?.hint}
 								</Text>
 							</aside>
-							<div className="canvas-code-file">
-								<div className="canvas-code-file-header">
-									<Text as="span" role="label" tone="secondary">
-										Editing <code>manifest.json</code>
-									</Text>
-									<Badge variant="secondary">JSON</Badge>
+							{codeFile === "README.md" ? (
+								<div className="canvas-code-file" data-canvas-app-readme>
+									<div className="canvas-code-file-header">
+										<Text as="span" role="label" tone="secondary">
+											Viewing <code>README.md</code>
+										</Text>
+										<Badge variant="secondary">Generated</Badge>
+									</div>
+									<div className="overflow-y-auto px-4 py-3">
+										<ChatMarkdown content={appReadme} />
+									</div>
 								</div>
-								<CanvasCodeEditor
-									session={session}
-									path={COLLAB_DOC_PATH}
-									readOnly={!live}
-								/>
-							</div>
+							) : (
+								<div className="canvas-code-file">
+									<div className="canvas-code-file-header">
+										<Text as="span" role="label" tone="secondary">
+											Editing <code>manifest.json</code>
+										</Text>
+										<Badge variant="secondary">JSON</Badge>
+									</div>
+									<CanvasCodeEditor
+										session={session}
+										path={COLLAB_DOC_PATH}
+										readOnly={!live}
+									/>
+								</div>
+							)}
 						</Surface>
 					)}
 				</div>

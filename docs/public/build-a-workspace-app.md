@@ -56,7 +56,20 @@ From chat or MCP, use the OS app tools in the organization's namespace
    Add `&pane=workpiece` to open it full screen on a phone.
 
 In the OS, the same settings are editable under the app's **Code** view
-(`manifest.json`).
+(`manifest.json`). The Code view also lists `README.md`, generated from the
+current manifest: what the app shows, how people use it, its connections,
+where its code lives (built in, a widget view, or a skill) and the manifest
+`notes`. Write `description` and `notes` so that README reads well.
+
+The app's **Connections** tab starts with **Used by this app**: one row per
+`resourceGrants` slot, with the attached resource's name, "Referenced in code
+as `<slot>`", the allowed operations and whether its account is connected.
+**Connect** opens the workspace's connected apps. A slot is filled when the
+app is installed from its blueprint.
+
+The app's **Share** dialog shows **People with access** (the workspace owner
+and, for an organization workspace, everyone in the organization) above its
+share links. Admins get a link to invite people to the organization.
 
 For one read-only consent button covering several personal accounts, use
 `entry: "tedix:app/personal-read-consent"`. Its `config` contains `version: 1`,

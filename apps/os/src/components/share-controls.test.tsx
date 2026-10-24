@@ -31,6 +31,7 @@ import {
 	shareExpiryLabel,
 	shareStatus,
 	shareStatusVariant,
+	workspaceAccessRows,
 } from "./share-controls";
 
 (
@@ -601,5 +602,37 @@ describe("ShareControls", () => {
 		await flush();
 		expect(container.querySelector('[data-slot="share-pending"]')).toBeNull();
 		expect(container.textContent).toContain(TOKEN);
+	});
+});
+
+describe("workspaceAccessRows", () => {
+	const base = {
+		createdById: "user-ana",
+		ownerUserId: null,
+		organizationName: "Acme",
+	};
+
+	it("lists the owner and the whole organization for an org workspace", () => {
+		expect(
+			workspaceAccessRows({
+				...base,
+				visibility: "org",
+				viewerUserId: "user-ana",
+			}),
+		).toEqual([
+			{ key: "owner", name: "You", role: "Owner" },
+			{ key: "organization", name: "Everyone in Acme", role: "Can edit" },
+		]);
+	});
+
+	it("lists only the owner of a private workspace", () => {
+		expect(
+			workspaceAccessRows({
+				...base,
+				visibility: "private",
+				ownerUserId: "user-ben",
+				viewerUserId: "user-ana",
+			}),
+		).toEqual([{ key: "owner", name: "The workspace owner", role: "Owner" }]);
 	});
 });

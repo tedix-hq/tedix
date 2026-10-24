@@ -130,6 +130,10 @@ const WorkspaceResourcesPanel = lazy(async () => ({
 	default: (await import("@/components/workspace-resources-panel"))
 		.WorkspaceResourcesPanel,
 }));
+const WorkspaceAppConnections = lazy(async () => ({
+	default: (await import("@/components/workspace-app-connections"))
+		.WorkspaceAppConnections,
+}));
 const WorkspaceWorkPanel = lazy(async () => ({
 	default: (await import("@/components/workspace-work-panel"))
 		.WorkspaceWorkPanel,
@@ -267,14 +271,40 @@ export function workspaceConnectionContext(
 function WorkspaceConnectionsBody({
 	workspaceId,
 	documentType,
+	gadgetId,
 }: {
 	workspaceId: string;
 	documentType: CanvasDocSelection["type"] | null;
+	/** The open app, whose declared resources lead the tab. */
+	gadgetId?: string;
 }) {
+	const [appsOpen, setAppsOpen] = useState(false);
+	const appsRef = useRef<HTMLDetailsElement>(null);
+	const openConnectedApps = () => {
+		setAppsOpen(true);
+		// After the list has opened, so there is room to scroll it into view.
+		requestAnimationFrame(() =>
+			appsRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
+		);
+	};
 	return (
 		<>
+			{gadgetId ? (
+				<Suspense fallback={null}>
+					<WorkspaceAppConnections
+						workspaceId={workspaceId}
+						gadgetId={gadgetId}
+						onConnect={openConnectedApps}
+					/>
+				</Suspense>
+			) : null}
 			<WorkspaceResourcesPanel workspaceId={workspaceId} />
-			<details className="canvas-account-connections">
+			<details
+				ref={appsRef}
+				className="canvas-account-connections"
+				open={appsOpen}
+				onToggle={(event) => setAppsOpen(event.currentTarget.open)}
+			>
 				<summary>Manage connected apps</summary>
 				<Text as="p" role="body" tone="secondary">
 					Connect an app here, then attach the resources you need above.
@@ -1324,14 +1354,20 @@ export function CanvasPage({
 											<SectionHeading>
 												<SectionTitle>Connections</SectionTitle>
 												<SectionDescription className="max-w-3xl">
-													Add resources from your connected apps. Workers still
-													need permission and approval to use them.
+													{selectedDoc.type === "gadget"
+														? "What this app can use, then everything attached to the workspace. Workers still need permission and approval to use them."
+														: "Add resources from your connected apps. Workers still need permission and approval to use them."}
 												</SectionDescription>
 											</SectionHeading>
 										</SectionHeader>
 										<WorkspaceConnectionsBody
 											workspaceId={workspaceId}
 											documentType={selectedDoc.type}
+											gadgetId={
+												selectedDoc.type === "gadget"
+													? selectedDoc.id
+													: undefined
+											}
 										/>
 									</div>
 								) : workpieceMode === "activity" ? (

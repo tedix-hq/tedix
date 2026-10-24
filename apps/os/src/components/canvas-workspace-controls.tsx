@@ -223,6 +223,7 @@ export function CanvasWorkspaceControls({
 						<ShareControls
 							resourceType="workspace"
 							resourceId={workspace.id}
+							workspaceId={workspace.id}
 							compact={compactActions}
 						/>
 						<span className="hidden items-center gap-2 sm:flex">
