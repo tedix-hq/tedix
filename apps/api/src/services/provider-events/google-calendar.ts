@@ -43,23 +43,32 @@ export function googleCalendarAdapter(
 					},
 				),
 			);
-			const result = (await response.json()) as {
-				id?: string;
-				resourceId?: string;
-				expiration?: string;
-			};
-			const expires = Number(result.expiration);
+			const result: unknown = await response.json();
 			if (
+				typeof result !== "object" ||
+				result === null ||
+				!("id" in result) ||
 				result.id !== channelId ||
-				!result.resourceId ||
-				!Number.isFinite(expires) ||
-				expires <= Date.now()
+				!("resourceId" in result) ||
+				typeof result.resourceId !== "string" ||
+				!result.resourceId.trim() ||
+				!("expiration" in result) ||
+				typeof result.expiration !== "string" ||
+				!/^\d+$/.test(result.expiration)
+			)
+				throw new Error("Invalid Google watch response");
+			const expires = Number(result.expiration);
+			const expiresAt = new Date(expires);
+			if (
+				!Number.isSafeInteger(expires) ||
+				expires <= Date.now() ||
+				!Number.isFinite(expiresAt.getTime())
 			)
 				throw new Error("Invalid Google watch response");
 			return {
 				providerChannelId: channelId,
 				resourceId: result.resourceId,
-				expiresAt: new Date(expires).toISOString(),
+				expiresAt: expiresAt.toISOString(),
 			};
 		},
 		async stop(token, id, resourceId) {
