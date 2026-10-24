@@ -660,16 +660,35 @@ export interface DestructiveApprovalOptions {
 	autoConfirmAgent?: boolean;
 }
 
+/**
+ * The organization a call is authorized in. Platform tools (os.*, tedix.*,
+ * skills.*) are served by the public tedix app, which another organization
+ * owns; the caller's runs, skills, tedis, members and approvals belong to the
+ * caller's organization. The API re-checks every record in that organization.
+ */
+function callerAuthorizationOrganizationId(
+	agent: ApprovalContext,
+): string | undefined {
+	if (!agent.app?.organizationId) return undefined;
+	const callerOrganizationId = agent.callerIdentity?.organizationId;
+	if (!callerOrganizationId) return agent.app.organizationId;
+	return callerOrganizationId === agent.app.organizationId ||
+		agent.app.visibility === "public"
+		? callerOrganizationId
+		: undefined;
+}
+
 /** Park a user call in the canonical OS queue; approval permits one exact retry. */
 async function ownerToolApproval(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
 	options?: DestructiveApprovalOptions,
 ): Promise<CallToolResult | null | undefined> {
+	const organizationId = callerAuthorizationOrganizationId(agent);
 	if (
 		!callerIsUserPrincipalPath(agent) ||
 		!agent.callerIdentity?.userId ||
-		!agent.app?.organizationId ||
+		!organizationId ||
 		!agent.apiClient?.mcpGovernance?.requestOwnerToolApproval
 	)
 		return undefined;
@@ -678,7 +697,7 @@ async function ownerToolApproval(
 			options?.extra?._meta?.["com.tedix/approvalRequestId"];
 		const approval =
 			await agent.apiClient.mcpGovernance.requestOwnerToolApproval({
-				organizationId: agent.app.organizationId,
+				organizationId,
 				userId: agent.callerIdentity.userId,
 				appSlug: agent.appSlug ?? "",
 				toolId: tool.toolId,
@@ -807,16 +826,7 @@ export async function requireDestructiveToolApproval(
 		humanReservedActionClasses(
 			`${tool.config?.endpoint ?? ""} ${tool.config?.mcpToolName ?? ""}`,
 		).length > 0;
-	// A tenant skill reaches platform tools (os.*, tedix.*) on the public tedix
-	// app, which another organization owns. The run, skill, tedi and policy
-	// belong to the caller's organization, so authorize there; the API checks
-	// that the run and declared namespace exist in that organization.
-	const manifestOrganizationId =
-		workflowCaller?.organizationId &&
-		(workflowCaller.organizationId === agent.app?.organizationId ||
-			agent.app?.visibility === "public")
-			? workflowCaller.organizationId
-			: undefined;
+	const manifestOrganizationId = callerAuthorizationOrganizationId(agent);
 	if (
 		!humanBoundary &&
 		!manifestProtectedEffect &&
@@ -827,7 +837,8 @@ export async function requireDestructiveToolApproval(
 		workflowCaller.skillRunId &&
 		workflowCaller.skillId &&
 		workflowCaller.tediId &&
-		manifestOrganizationId &&
+		workflowCaller.organizationId &&
+		manifestOrganizationId === workflowCaller.organizationId &&
 		workflowCaller.workflowExecutionEpoch !== undefined &&
 		agent.app?.organizationId &&
 		agent.apiClient?.mcpGovernance?.resolveSkillManifestAuthorization
