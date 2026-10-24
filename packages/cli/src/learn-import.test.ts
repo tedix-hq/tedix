@@ -494,6 +494,51 @@ describe("runLearnCommand", () => {
 			samples: [],
 		});
 	});
+
+	it("rejects a non-decimal or unsafe --limit before touching files or the gateway", async () => {
+		const home = mkdtempSync(join(tmpdir(), "tedix-learn-"));
+		// A file where the transcript directory belongs makes any scan throw.
+		mkdirSync(join(home, ".claude"));
+		writeFileSync(join(home, ".claude", "projects"), "not a directory");
+		for (const value of [
+			"1e3",
+			"0x10",
+			"5.5",
+			"0",
+			"-2",
+			"abc",
+			String(Number.MAX_SAFE_INTEGER + 1),
+		])
+			await expect(
+				runLearnCommand(["import-sessions", "--limit", value], {
+					home,
+					read: async () => {
+						throw new Error("must not call the gateway");
+					},
+					targets: new Map(),
+					defaultTarget: undefined,
+				}),
+			).rejects.toThrow("--limit must be a positive integer");
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	it("accepts a plain decimal --limit", async () => {
+		const lines: string[] = [];
+		const code = await runLearnCommand(
+			["import-sessions", "--dry-run", "--limit", "5", "--json"],
+			{
+				home: "/nonexistent-home",
+				read: async () => {
+					throw new Error("must not call the gateway");
+				},
+				write: (line) => lines.push(line),
+				targets: new Map(),
+				defaultTarget: undefined,
+			},
+		);
+		expect(code).toBe(0);
+		expect(JSON.parse(lines[0]!)).toMatchObject({ files: 0, pairs: 0 });
+	});
 });
 
 it("learn import-sessions suggests the nearest supported flag", async () => {
