@@ -30,6 +30,11 @@ export function vertexInlineVideoStream(
 	let finished = false;
 	let sizeBytes = 0;
 
+	// Canceling the readable side errors the writable; propagate that into
+	// upstream cancellation so a consumer that abandons the decoded video
+	// also stops the response body read.
+	void writer.closed.catch(() => reader.cancel().catch(() => undefined));
+
 	const writeBase64 = async (value: string, final = false): Promise<void> => {
 		base64Tail += value;
 		const length = final
@@ -85,6 +90,11 @@ export function vertexInlineVideoStream(
 			await writer.abort(error);
 			throw error;
 		} finally {
+			try {
+				await reader.cancel();
+			} catch {
+				// Preserve the decode outcome if upstream cancellation also fails.
+			}
 			reader.releaseLock();
 		}
 	})();
@@ -130,20 +140,19 @@ export async function vertexInlineVideoByteLength(
 			// Allow the final group's padding, but never wait for an oversized
 			// response to close its JSON string before rejecting it.
 			if (base64Length > Math.ceil(maxBytes / 3) * 4) {
-				try {
-					await reader.cancel();
-				} catch {
-					// Preserve the size failure if upstream cancellation also fails.
-				}
 				throw new Error("Vertex video exceeds " + maxBytes + " byte limit");
 			}
 			if (end >= 0) {
 				finished = true;
-				await reader.cancel();
 				break;
 			}
 		}
 	} finally {
+		try {
+			await reader.cancel();
+		} catch {
+			// Preserve the size outcome if upstream cancellation also fails.
+		}
 		reader.releaseLock();
 	}
 	if (!found || !finished || base64Length % 4 !== 0) {
@@ -178,16 +187,18 @@ export async function vertexOperationDone(
 			if (done) return false;
 			const text = tail + decoder.decode(value, { stream: true });
 			const state = /"done"\s*:\s*(true|false)/.exec(text)?.[1];
-			if (state === "true") {
-				await reader.cancel();
-				return true;
-			}
+			if (state === "true") return true;
 			if (state === "false") return false;
 			// Google APIs commonly pretty-print JSON, and the field can straddle
 			// arbitrary chunks. Retain enough context for whitespace around done.
 			tail = text.slice(-32);
 		}
 	} finally {
+		try {
+			await reader.cancel();
+		} catch {
+			// Preserve the polled state if upstream cancellation also fails.
+		}
 		reader.releaseLock();
 	}
 }

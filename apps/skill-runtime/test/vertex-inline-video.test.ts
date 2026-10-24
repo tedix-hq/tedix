@@ -54,6 +54,80 @@ const oversized = vertexInlineVideoStream(chunked(payload, 10), 3);
 await assert.rejects(new Response(oversized.readable).arrayBuffer());
 await assert.rejects(oversized.completed);
 
+// A finished inline video leaves the rest of the response unread; the source
+// must be canceled, not merely released.
+{
+	let cancels = 0;
+	const open = new ReadableStream<Uint8Array>(
+		{
+			pull(controller) {
+				controller.enqueue(
+					encoder.encode(
+						'{"bytesBase64Encoded":"' + btoa("motion-video") + '","more":',
+					),
+				);
+			},
+			cancel() {
+				cancels++;
+			},
+		},
+		{ highWaterMark: 0 },
+	);
+	const decoded = vertexInlineVideoStream(open, 100);
+	assert.equal(await new Response(decoded.readable).text(), "motion-video");
+	await decoded.completed;
+	assert.equal(cancels, 1);
+	assert.equal(open.locked, false);
+}
+
+// A decode failure must also cancel the source.
+{
+	let pulls = 0;
+	let cancels = 0;
+	const open = new ReadableStream<Uint8Array>(
+		{
+			pull(controller) {
+				pulls++;
+				if (pulls > 2) throw new Error("read past video size limit");
+				controller.enqueue(
+					encoder.encode(pulls === 1 ? '{"bytesBase64Encoded":"' : "AAAAAAAA"),
+				);
+			},
+			cancel() {
+				cancels++;
+			},
+		},
+		{ highWaterMark: 0 },
+	);
+	const decoded = vertexInlineVideoStream(open, 3);
+	await assert.rejects(new Response(decoded.readable).arrayBuffer());
+	await assert.rejects(decoded.completed, /exceeds 3 byte limit/);
+	assert.equal(pulls, 2);
+	assert.equal(cancels, 1);
+	assert.equal(open.locked, false);
+}
+
+// Canceling the decoded stream must stop upstream reading too.
+{
+	let cancels = 0;
+	const open = new ReadableStream<Uint8Array>(
+		{
+			pull(controller) {
+				controller.enqueue(encoder.encode("AAAA"));
+			},
+			cancel() {
+				cancels++;
+			},
+		},
+		{ highWaterMark: 0 },
+	);
+	const decoded = vertexInlineVideoStream(open, 100);
+	await decoded.readable.cancel();
+	await assert.rejects(decoded.completed);
+	assert.equal(cancels, 1);
+	assert.equal(open.locked, false);
+}
+
 for (const cancelThrows of [false, true]) {
 	let pulls = 0;
 	let canceled = false;
@@ -109,6 +183,23 @@ assert.equal(
 	),
 	true,
 );
+
+for (const state of [true, false]) {
+	let cancels = 0;
+	const open = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(
+				encoder.encode(`{"name":"op","done":${state},"response":{"videos":[`),
+			);
+		},
+		cancel() {
+			cancels++;
+		},
+	});
+	assert.equal(await vertexOperationDone(open), state);
+	assert.equal(cancels, 1, `done:${state} poll cancels the response stream`);
+	assert.equal(open.locked, false);
+}
 
 assert.equal(decoder.decode(encoder.encode("round-trip")), "round-trip");
 console.log("vertex inline video stream tests passed");
