@@ -59,14 +59,6 @@ function SidebarWorkspaceRow({ entry }: { entry: WorkspaceLibraryEntry }) {
 			<span className="min-w-0 flex-1 truncate text-tedix-control">
 				{entry.workspace.name}
 			</span>
-			{entry.preference?.favorite ? (
-				<Star
-					aria-label="Favorite"
-					className="shrink-0 text-kumo-link"
-					size={12}
-					weight="fill"
-				/>
-			) : null}
 		</SidebarMenuSubButton>
 	);
 }
