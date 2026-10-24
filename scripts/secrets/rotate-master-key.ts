@@ -357,9 +357,10 @@ export function parseCli(argv: readonly string[]): CliArgs {
 		if (arg === "--apply") apply = true;
 		else if (arg === "--remote" || arg === "--local") target = arg;
 		else if (arg === "--limit") {
-			limit = Number.parseInt(next(), 10);
-			if (!Number.isFinite(limit) || limit <= 0)
-				throw new Error("--limit must be a positive integer");
+			const value = next();
+			limit = Number(value);
+			if (!/^\d+$/.test(value) || !Number.isSafeInteger(limit) || limit <= 0)
+				throw new Error("--limit must be a positive safe integer");
 		} else if (arg === "--database") database = next();
 		else if (arg === "--config") config = resolve(next());
 		else throw new Error(`Unknown argument: ${arg}`);
