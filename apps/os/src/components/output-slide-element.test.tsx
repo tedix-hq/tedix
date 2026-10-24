@@ -225,15 +225,28 @@ describe("one slide renderer", () => {
 		viewer.cleanup();
 	});
 
-	it("edits text in a bare textarea that inherits the element style", () => {
+	it("edits text in a bare textarea that mounts only when editing starts", () => {
 		const editor = mount(<SlidesEditor value={deck} onChange={() => {}} />);
-		const input = editor.container.querySelector<HTMLTextAreaElement>(
-			'.slides-editor-stage [data-slide-element="line-1"] textarea',
+		const element = editor.container.querySelector<HTMLElement>(
+			'.slides-editor-stage [data-slide-element="line-1"]',
+		)!;
+		// No hidden field in the tab order before editing starts: an invisible
+		// textarea was an extra focus stop that entered edit mode on Tab.
+		expect(element.querySelector("textarea")).toBeNull();
+		act(() =>
+			element.dispatchEvent(
+				new MouseEvent("dblclick", {
+					bubbles: true,
+					clientX: 10,
+					clientY: 10,
+				}),
+			),
 		);
+		const input = element.querySelector<HTMLTextAreaElement>("textarea");
 		expect(input?.className).toBe("slide-element-input");
 		// No Kumo type role: `type-tedix-body` forced a 14px size with !important.
-		expect(input?.style.opacity).toBe("0");
 		expect(input?.style.padding).toBe("inherit");
+		expect(document.activeElement).toBe(input);
 		editor.cleanup();
 	});
 
@@ -259,10 +272,14 @@ describe("one slide renderer", () => {
 		);
 		expect(title?.querySelector("strong")?.textContent).toBe("bold <tag>");
 		expect(title?.querySelector("tag")).toBeNull();
+		const editorTitle = editor.container.querySelector<HTMLElement>(
+			'.slides-editor-stage [data-slide-element="line-1"]',
+		)!;
+		act(() =>
+			editorTitle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+		);
 		expect(
-			editor.container.querySelector<HTMLTextAreaElement>(
-				'.slides-editor-stage [data-slide-element="line-1"] textarea',
-			)?.value,
+			editorTitle.querySelector<HTMLTextAreaElement>("textarea")?.value,
 		).toBe("A **bold <tag>** title");
 		expect(
 			viewer.container

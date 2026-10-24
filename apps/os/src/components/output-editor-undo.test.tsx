@@ -55,7 +55,13 @@ describe("structured editor undo", () => {
 			{ kind: "presentation", slides: [{ title: "Q3", bullets: [] }] },
 			SlidesEditor,
 		);
-		const textarea = mounted.container.querySelector<HTMLTextAreaElement>(
+		const element = mounted.container.querySelector<HTMLElement>(
+			'.slides-editor-stage [data-element="title"]',
+		)!;
+		act(() =>
+			element.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+		);
+		const textarea = element.querySelector<HTMLTextAreaElement>(
 			".slide-element-input",
 		)!;
 		typeInto(textarea, "Quarter");
