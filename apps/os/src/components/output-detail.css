@@ -4,9 +4,6 @@
 
 @media (max-width: 639px) {
 	.output-detail-workshop > .output-workshop-command-bar {
-		grid-template-areas:
-			"identity identity"
-			"status actions";
 		padding: 8px 16px;
 	}
 
