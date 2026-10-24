@@ -182,6 +182,23 @@ describe("Work factory queue", () => {
 		expect(html).toContain("hidden truncate py-2! xl:table-cell");
 	});
 
+	it("wraps long unbroken owner names inside phone queue rows", () => {
+		const owner = "UnbreakableOwnerNameWithoutAnySpacesThatKeepsGoingAndGoing";
+		const html = renderToStaticMarkup(
+			<WorkItemsTable
+				items={[item]}
+				principalNames={new Map([["user:owner-1", owner]])}
+			/>,
+		);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const ownerCell = [...doc.querySelectorAll("dd")].find(
+			(cell) => cell.textContent === owner,
+		);
+
+		expect(ownerCell).not.toBeNull();
+		expect(ownerCell?.className).toContain("break-words");
+	});
+
 	it("names the owner without exposing the underlying identifier", () => {
 		const names = new Map([["user:owner-1", "Mira Okafor"]]);
 		const html = renderToStaticMarkup(
