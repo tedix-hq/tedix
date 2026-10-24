@@ -5,7 +5,7 @@
  * Tests drive `processPollPage` (pure function, no timers) and the
  * `ConversationPoller` class for the inflight + markSeen + stop behaviours.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import {
 	ConversationPoller,
 	type PolledMessage,
@@ -28,6 +28,64 @@ function makeState(
 		seenRunIds: new Set(overrides?.seenRunIds ?? []),
 		inflightCount: overrides?.inflightCount ?? 0,
 	};
+}
+
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
+const timerHandles: ReturnType<typeof setTimeout>[] = [];
+
+afterEach(() => {
+	for (const handle of timerHandles.splice(0)) originalClearTimeout(handle);
+	spyOn(globalThis, "setTimeout").mockRestore();
+	spyOn(globalThis, "clearTimeout").mockRestore();
+});
+
+function controlledTimers() {
+	const scheduled: Array<{
+		active: boolean;
+		fire: () => void;
+		handle: ReturnType<typeof setTimeout>;
+	}> = [];
+	spyOn(globalThis, "setTimeout").mockImplementation(
+		Object.assign(
+			(...[callback, _ms, ...args]: Parameters<typeof setTimeout>) => {
+				const handle = originalSetTimeout(() => {}, 60_000);
+				timerHandles.push(handle);
+				scheduled.push({
+					active: true,
+					fire: () => callback(...args),
+					handle,
+				});
+				return handle;
+			},
+			{ __promisify__: originalSetTimeout.__promisify__ },
+		),
+	);
+	spyOn(globalThis, "clearTimeout").mockImplementation((handle) => {
+		const timer = scheduled.find((candidate) => candidate.handle === handle);
+		if (!timer) return;
+		timer.active = false;
+		originalClearTimeout(timer.handle);
+	});
+
+	return {
+		fireNext(): boolean {
+			const timer = scheduled.find((candidate) => candidate.active);
+			if (!timer) return false;
+			timer.active = false;
+			originalClearTimeout(timer.handle);
+			timer.fire();
+			return true;
+		},
+	};
+}
+
+function barrier() {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
 }
 
 // ── parseHomeMessagesPayload ──────────────────────────────────────────────────
@@ -308,7 +366,8 @@ describe("ConversationPoller class", () => {
 		expect(poller.isInflight).toBe(false);
 	});
 
-	test("skips polls while a dispatch is in-flight within the grace window", async () => {
+	test("skips polls while a dispatch is in-flight within the grace window", () => {
+		const timers = controlledTimers();
 		const readMessages = mock(async () => ({ messages: [] }));
 		const poller = new ConversationPoller({
 			conversationId: "c1",
@@ -319,7 +378,7 @@ describe("ConversationPoller class", () => {
 		});
 		poller.setInflight();
 		poller.start();
-		await new Promise<void>((resolve) => setTimeout(resolve, 30));
+		expect(timers.fireNext()).toBe(true);
 		poller.stop();
 		expect(readMessages).not.toHaveBeenCalled();
 	});
@@ -327,7 +386,12 @@ describe("ConversationPoller class", () => {
 	test("keeps polling while in-flight once the grace period has elapsed", async () => {
 		// A run that settles server-side while the CLI's settle path is blind must
 		// still surface: after the grace period the poller polls even in-flight.
-		const readMessages = mock(async () => ({ messages: [] }));
+		const timers = controlledTimers();
+		const read = barrier();
+		const readMessages = mock(async () => {
+			read.resolve();
+			return { messages: [] };
+		});
 		const poller = new ConversationPoller({
 			conversationId: "c1",
 			intervalMs: 1,
@@ -337,12 +401,14 @@ describe("ConversationPoller class", () => {
 		});
 		poller.setInflight();
 		poller.start();
-		await new Promise<void>((resolve) => setTimeout(resolve, 40));
+		expect(timers.fireNext()).toBe(true);
+		await read.promise;
 		poller.stop();
-		expect(readMessages.mock.calls.length).toBeGreaterThanOrEqual(1);
+		expect(readMessages).toHaveBeenCalledTimes(1);
 	});
 
-	test("stop() prevents the poller from calling readMessages again", async () => {
+	test("stop() prevents the poller from calling readMessages again", () => {
+		const timers = controlledTimers();
 		const readMessages = mock(async () => ({ messages: [] }));
 		const onNewAssistantMessage = mock((_msg: PolledMessage) => {});
 
@@ -356,16 +422,15 @@ describe("ConversationPoller class", () => {
 		poller.start();
 		// Stop before any timer fires
 		poller.stop();
-
-		// Wait a tick to ensure any scheduled callbacks would have fired
-		await new Promise<void>((resolve) => setImmediate(resolve));
-		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(timers.fireNext()).toBe(false);
 
 		// readMessages should NOT have been called after stop
 		expect(readMessages).not.toHaveBeenCalled();
 	});
 
 	test("fail-soft: readMessages throwing calls onError and does not throw", async () => {
+		const timers = controlledTimers();
+		const failed = barrier();
 		const errors: unknown[] = [];
 		const readMessages = mock(async (): Promise<unknown> => {
 			throw new Error("network failure");
@@ -377,15 +442,18 @@ describe("ConversationPoller class", () => {
 			intervalMs: 0,
 			readMessages,
 			onNewAssistantMessage,
-			onError: (err) => errors.push(err),
+			onError: (err) => {
+				errors.push(err);
+				failed.resolve();
+			},
 		});
 
-		// Manually trigger the internal poll via start + wait for the 0ms timer
 		poller.start();
-		await new Promise<void>((resolve) => setTimeout(resolve, 20));
+		expect(timers.fireNext()).toBe(true);
+		await failed.promise;
 		poller.stop();
 
-		expect(errors.length).toBeGreaterThanOrEqual(1);
+		expect(errors).toHaveLength(1);
 		expect((errors[0] as Error).message).toBe("network failure");
 		expect(onNewAssistantMessage).not.toHaveBeenCalled();
 	});
