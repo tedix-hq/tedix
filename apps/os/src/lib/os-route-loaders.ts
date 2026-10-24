@@ -668,10 +668,12 @@ export async function prefetchSkillDetailRoute(
 	skillId: string,
 ) {
 	const validatedSkillId = requireUuidRouteParam(skillId);
-	const detail = await queryClient.ensureQueryData(
-		skillDetailQueryOptions(validatedSkillId),
+	const detail = await withFirstPaintDeadline(
+		queryClient.ensureQueryData(skillDetailQueryOptions(validatedSkillId)),
 	);
-	if (!detail.entry) throw notFound();
+	// A slow read stays in the cache for the detail component to observe. Only
+	// an already-settled empty response proves that the skill is missing.
+	if (detail && !detail.entry) throw notFound();
 	return { skillId: validatedSkillId };
 }
 

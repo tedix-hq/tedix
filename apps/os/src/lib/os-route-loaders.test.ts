@@ -684,6 +684,33 @@ describe("list-route prefetchers", () => {
 		);
 	});
 
+	it("does not block a detail route on a slow skill read", async () => {
+		vi.useFakeTimers();
+		try {
+			let resolveDetail!: (value: { entry: { id: string } }) => void;
+			api.getSkill.mockReturnValue(
+				new Promise<{ entry: { id: string } }>((resolve) => {
+					resolveDetail = resolve;
+				}),
+			);
+			const queryClient = client();
+			const loading = prefetchSkillDetailRoute(queryClient, OUTPUT_ID);
+
+			await vi.advanceTimersByTimeAsync(OS_LOADER_FIRST_PAINT_DEADLINE_MS);
+			expect(await loading).toEqual({ skillId: OUTPUT_ID });
+			expect(api.getSkill).toHaveBeenCalledTimes(1);
+			expect(
+				queryClient.getQueryState(skillDetailQueryOptions(OUTPUT_ID).queryKey)
+					?.fetchStatus,
+			).toBe("fetching");
+
+			resolveDetail({ entry: { id: OUTPUT_ID } });
+			await vi.runAllTimersAsync();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("treats a missing authoritative skill entry as not found", async () => {
 		api.getSkill.mockResolvedValueOnce({ entry: null });
 		await expect(
