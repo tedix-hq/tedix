@@ -307,6 +307,37 @@ describe("mcp_events poll → wake", () => {
 		expect(state.wakes.get(SUB)).toBe(2);
 	});
 
+	it("rejects oversized poll batches without spending wakes or advancing the cursor", async () => {
+		mocks.request.mockResolvedValueOnce({
+			events: Array.from({ length: 101 }, (_, index) => event(`evt-${index}`)),
+			cursor: "cursor-after-101",
+		});
+		await expect(pollMcpEvents(context, row, "token")).rejects.toThrow(
+			"Upstream events/poll exceeded the event batch limit",
+		);
+		expect(state.deliveries.size).toBe(0);
+		expect(state.wakes.size).toBe(0);
+		expect(state.subscriptions.get(SUB)).toEqual(row);
+	});
+
+	it("queues every event at the poll batch limit before advancing the cursor", async () => {
+		row = subscription({ maxWakesPerHour: 100 });
+		state.subscriptions.set(SUB, row);
+		mocks.request.mockResolvedValueOnce({
+			events: Array.from({ length: 100 }, (_, index) => event(`evt-${index}`)),
+			cursor: "cursor-after-100",
+		});
+		expect(await pollMcpEvents(context, row, "token")).toEqual({
+			queued: 100,
+			duplicate: 0,
+			rate_limited: 0,
+			rejected: 0,
+		});
+		expect(state.deliveries.size).toBe(100);
+		expect(state.wakes.get(SUB)).toBe(100);
+		expect(state.subscriptions.get(SUB)?.eventCursor).toBe("cursor-after-100");
+	});
+
 	it("caps wakes per subscription and records shed events as discarded", async () => {
 		row = subscription({ maxWakesPerHour: 2 });
 		state.subscriptions.set(SUB, row);
