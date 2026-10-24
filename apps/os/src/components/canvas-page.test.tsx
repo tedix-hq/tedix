@@ -3637,6 +3637,7 @@ describe("CanvasPage chat-first workspace", () => {
 
 		const stage = container.querySelector(".canvas-stage") as HTMLElement;
 		expect(stage.getAttribute("aria-hidden")).toBe("true");
+		expect(stage.hasAttribute("inert")).toBe(true);
 		expect(stage.style.width).toBe("0px");
 		expect(stage.style.opacity).toBe("0");
 		// A fresh workspace has nothing to pick, so it never says so.
@@ -3665,6 +3666,28 @@ describe("CanvasPage chat-first workspace", () => {
 		expect(
 			container.querySelector(".canvas-stage")?.getAttribute("aria-hidden"),
 		).toBeNull();
+	});
+
+	it("removes the inert boundary when revealing the workpiece and restores it when hidden", async () => {
+		mockEmptyWorkspace();
+		const { container, rerender } = createPageHarness();
+		await flush();
+		const stage = container.querySelector(".canvas-stage") as HTMLElement;
+		expect(stage.hasAttribute("inert")).toBe(true);
+
+		routing.search = { pane: "workpiece" };
+		rerender();
+		await flush();
+		expect(container.querySelector(".canvas-stage")).toBe(stage);
+		expect(stage.hasAttribute("aria-hidden")).toBe(false);
+		expect(stage.hasAttribute("inert")).toBe(false);
+
+		routing.search = {};
+		rerender();
+		await flush();
+		expect(container.querySelector(".canvas-stage")).toBe(stage);
+		expect(stage.getAttribute("aria-hidden")).toBe("true");
+		expect(stage.hasAttribute("inert")).toBe(true);
 	});
 
 	it("respects an explicit pane on a fresh workspace without inventing a document to pick", async () => {
