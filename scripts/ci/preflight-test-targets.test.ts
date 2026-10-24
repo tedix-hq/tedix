@@ -79,6 +79,45 @@ describe("relatedTestTargetsByWorkspace", () => {
 		expect(targets.has("apps/mcp")).toBe(true);
 	});
 
+	test.each([false, true])(
+		"traverses packages without tests (dependency cycle: %s)",
+		(cycle) => {
+			const manifests: typeof MANIFESTS = {
+				...MANIFESTS,
+				"packages/api-contract": {
+					name: "@tedix/api-contract",
+					deps: new Set(cycle ? ["@tedix/untested"] : []),
+				},
+				"packages/untested": {
+					name: "@tedix/untested",
+					deps: new Set(["@tedix/api-contract"]),
+				},
+				"apps/mcp": {
+					name: "@tedix/mcp",
+					deps: new Set(["@tedix/untested"]),
+				},
+			};
+			const reads: string[] = [];
+			const targets = relatedTestTargetsByWorkspace(
+				["packages/api-contract/src/schema.ts"],
+				{
+					...io,
+					isTestableWorkspace: (dir: string) =>
+						dir === "packages/api-contract" || dir === "apps/mcp",
+					readManifest: (dir: string) => {
+						reads.push(dir);
+						return manifests[dir] ?? null;
+					},
+				},
+			);
+			expect([...targets]).toEqual([
+				["apps/mcp", ["../../packages/api-contract/src/schema.ts"]],
+				["packages/api-contract", ["src/schema.ts"]],
+			]);
+			expect(reads).toEqual(WORKSPACE_DIRS);
+		},
+	);
+
 	/*
 	 * An app is a leaf: nothing imports it, so it must not fan out. Without this
 	 * the gate would re-run unrelated suites on every ordinary app change and
