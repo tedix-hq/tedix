@@ -81,6 +81,8 @@ describe("ChatMarkdown document flow", () => {
 		expect(html).toContain("list-none pl-0");
 		expect(html).toContain('type="checkbox"');
 		expect(html).toContain("accent-[var(--primary)]");
+		expect(html).toContain('aria-label="shipped"');
+		expect(html).toContain('aria-label="verify production"');
 		expect(html).toContain("shipped");
 		expect(html).toContain("verify production");
 	});
