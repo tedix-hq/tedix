@@ -5,11 +5,16 @@ import { webkit, type Page } from "playwright";
 
 // A disclosure mounts with data-starting-style and starts its transition a
 // frame later, so "no running animation" alone can pass on the mount frame.
+// Scroll-driven tab fades stay running at rest; only document-timed motion settles.
 async function settle(page: Page) {
 	await page.waitForFunction(
 		() =>
 			!document.querySelector("[data-starting-style], [data-ending-style]") &&
-			document.getAnimations().every((a) => a.playState !== "running"),
+			document
+				.getAnimations()
+				.every(
+					(a) => a.timeline !== document.timeline || a.playState !== "running",
+				),
 	);
 }
 
@@ -45,7 +50,7 @@ async function fits(page: Page, width: number) {
 	);
 }
 
-// The topbar Activity panel against the app's real CSS: WebKit at 375 and
+// The topbar Activity panel against the app's real CSS: WebKit at 320, 375 and
 // 1280 px, light and dark, with three held delegations, with mixed action
 // requests and history, and with nothing.
 const fixturePath = "/browser-tests/approvals-popover.html";
@@ -56,6 +61,7 @@ const browser = await webkit.launch();
 try {
 	for (const theme of ["light", "dark"] as const)
 		for (const [width, height] of [
+			[320, 812],
 			[375, 812],
 			[1280, 900],
 		] as const) {
@@ -230,7 +236,7 @@ try {
 			await page.close();
 		}
 	console.log(
-		"PASS: Activity panel review groups, plain titles, identical-request rows, auto-approval policy, history filters, overflow, focus return and empty states; 375/1280 × light/dark",
+		"PASS: Activity panel review groups, plain titles, identical-request rows, auto-approval policy, history filters, overflow, focus return and empty states; 320/375/1280 × light/dark",
 	);
 } finally {
 	await browser.close();

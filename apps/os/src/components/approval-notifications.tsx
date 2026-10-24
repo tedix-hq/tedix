@@ -695,7 +695,7 @@ function ApprovalRow({
 					</dl>
 				</CollapsibleContent>
 			</Collapsible>
-			<div className="flex items-center gap-2 pl-10">
+			<div className="flex min-w-0 flex-wrap items-center gap-2 sm:pl-10">
 				<Button
 					disabled={busy}
 					icon={<Check size={14} />}
