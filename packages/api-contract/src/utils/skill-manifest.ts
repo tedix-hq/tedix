@@ -143,7 +143,7 @@ export function readReasonPolicy(value: unknown): ReasonPolicy {
 	return {
 		enabled: true,
 		maxCalls:
-			typeof declared === "number" && Number.isFinite(declared) && declared > 0
+			typeof declared === "number" && Number.isFinite(declared) && declared >= 0
 				? Math.floor(declared)
 				: null,
 	};

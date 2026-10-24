@@ -348,7 +348,7 @@ capabilities:
 		});
 		// A nonsense budget is dropped, not trusted; the runtime clamps again on
 		// its own side, so a manifest can only ever ask for LESS.
-		for (const bad of [0, -1, Number.NaN, "lots"]) {
+		for (const bad of [-1, Number.NaN, "lots"]) {
 			expect(readReasonPolicy({ maxCalls: bad })).toEqual({
 				enabled: true,
 				maxCalls: null,

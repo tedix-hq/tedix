@@ -233,7 +233,7 @@ export function resolveReasonBudget(capabilities: unknown): {
 	if (record.enabled === false) return { enabled: false, maxCalls: 0 };
 	const declared = record.maxCalls;
 	const maxCalls =
-		typeof declared === "number" && Number.isFinite(declared) && declared > 0
+		typeof declared === "number" && Number.isFinite(declared) && declared >= 0
 			? Math.min(Math.floor(declared), REASON_MAX_CALLS_CEILING)
 			: REASON_DEFAULT_MAX_CALLS;
 	return { enabled: true, maxCalls };
