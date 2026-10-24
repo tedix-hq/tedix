@@ -8,7 +8,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { suiteSelection, certificationFiles } from "./full-suite-hourly.mjs";
+import {
+	suiteSelection,
+	certificationFiles,
+	certificationFilesOrFull,
+} from "./full-suite-hourly.mjs";
 
 function fixture() {
 	const root = mkdtempSync(join(tmpdir(), "affected-suite-"));
@@ -331,4 +335,58 @@ test("certification history is paginated and only a main ancestor with a success
 			git: () => head,
 		}),
 	).rejects.toThrow("unavailable");
+});
+
+test("a failed certification lookup certifies the full suite rather than failing the plan job", async () => {
+	const head = "a".repeat(40),
+		base = "c".repeat(40);
+	// A request or git failure resolves to null — the scope discovery input
+	// that runs every lane — instead of throwing the plan job dead.
+	for (const options of [
+		{
+			request: async () => {
+				throw new Error("GitHub request failed (502)");
+			},
+			git: () => head,
+		},
+		{
+			request: async () => ({ workflow_runs: [] }),
+			git: () => {
+				throw new Error("object file is empty");
+			},
+		},
+	])
+		expect(
+			await certificationFilesOrFull({
+				repository: "example/product",
+				sha: head,
+				runId: "9",
+				...options,
+			}),
+		).toBeNull();
+	expect(
+		await certificationFilesOrFull({
+			repository: "example/product",
+			sha: head,
+			runId: "9",
+			request: async (path: string) =>
+				path.includes("/jobs?")
+					? { jobs: [{ name: "Main CI", conclusion: "success" }] }
+					: {
+							workflow_runs: [
+								{
+									id: 7,
+									head_sha: base,
+									conclusion: "success",
+									status: "completed",
+									head_branch: "main",
+									head_repository: { full_name: "example/product" },
+									run_attempt: 1,
+								},
+							],
+						},
+			git: (args: string[]) =>
+				args[0] === "rev-list" ? `${head}\n${base}\n` : "README.md\0",
+		}),
+	).toEqual(["README.md"]);
 });

@@ -390,6 +390,20 @@ export async function certificationFiles({
 	return null;
 }
 
+// A failed certification lookup — rate limit, 5xx, a lost fetch or a broken
+// git read — must not red the run: the plan job's failure skips every lane and
+// the aggregate fails. Null means scope discovery certifies the entire suite.
+export async function certificationFilesOrFull(options) {
+	try {
+		return await certificationFiles(options);
+	} catch (error) {
+		console.log(
+			`::warning::Certification range lookup failed (${error.message}); certifying the full suite`,
+		);
+		return null;
+	}
+}
+
 export function ciObservation({ projectId, repository, run, jobs }) {
 	if (
 		run.path !== ".github/workflows/full-suite-hourly.yml" ||
@@ -676,7 +690,7 @@ if (
 		);
 	const files =
 		env.GITHUB_EVENT_NAME === "push"
-			? await certificationFiles({
+			? await certificationFilesOrFull({
 					repository: env.GITHUB_REPOSITORY,
 					sha: env.GITHUB_SHA,
 					runId: env.GITHUB_RUN_ID,
