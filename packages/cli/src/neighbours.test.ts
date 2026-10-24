@@ -341,6 +341,24 @@ describe("neighbours", () => {
 		// A nonsense window must not silently become "everything".
 		expect(parseArgs(["--hours", "0"]).hours).toBe(24);
 	});
+
+	test("keeps unsupported hour windows out of git arguments", () => {
+		for (const value of ["1e100", "Infinity", "0x10", "9007199254740992"]) {
+			const calls: string[][] = [];
+			readCommits(
+				(args) => {
+					calls.push(args);
+					return "";
+				},
+				parseArgs(["--hours", value]).hours,
+				{ hasHead: true, remoteRefs: [], revs: ["HEAD"] },
+			);
+			expect(calls).toHaveLength(3);
+			expect(calls.every((args) => args.includes("--since=24.hours"))).toBe(
+				true,
+			);
+		}
+	});
 });
 
 /**
