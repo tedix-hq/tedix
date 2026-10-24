@@ -52,6 +52,7 @@ import {
 	appRecentExecutionsQueryOptions,
 	appTimeSeriesQueryOptions,
 	appToolBreakdownQueryOptions,
+	executionDrilldownQueryOptions,
 } from "@/lib/os-query-options";
 import { AppAnalyticsPage } from "./app-analytics-page";
 import * as analyticsShared from "./app-analytics/shared";
@@ -447,6 +448,32 @@ async function renderAnalytics(seeds: Seeds = {}) {
 	});
 	client.setQueryData(appMetricsQueryOptions(APP_ID, range).queryKey, metrics);
 	client.setQueryData(
+		executionDrilldownQueryOptions("22222222-2222-4222-8222-222222222222")
+			.queryKey,
+		{
+			execution: {
+				toolName:
+					"acme.execute_monthly_invoice_reconciliation_with_detailed_audit_summary",
+				success: true,
+				durationMs: 420,
+				timestamp: NOW.toISOString(),
+				eventType: "code_execution",
+				appSlug: "acme",
+			},
+			toolCalls: [
+				{
+					toolName:
+						"acme.list_outstanding_customer_invoices_with_payment_details",
+					success: true,
+					durationMs: 120,
+					timestamp: NOW.toISOString(),
+					eventType: "tool_execution",
+					appSlug: "acme",
+				},
+			],
+		},
+	);
+	client.setQueryData(
 		appAnalyticsSummaryQueryOptions(APP_ID, range).queryKey,
 		seeds.summary ?? summary,
 	);
@@ -558,6 +585,25 @@ describe("AppAnalyticsPage", () => {
 		expect(text).toContain("Adriana Example");
 		expect(text).toContain("22222222…");
 		expect(text).not.toContain("could not be loaded");
+	});
+
+	it("exposes full tool names in truncated recent execution summaries", async () => {
+		const container = await renderAnalytics();
+		const expand = container.querySelector<HTMLButtonElement>(
+			'button[aria-label^="Expand execution"]',
+		);
+		expect(expand).not.toBeNull();
+		await act(async () => expand?.click());
+		for (const toolName of [
+			"acme.execute_monthly_invoice_reconciliation_with_detailed_audit_summary",
+			"acme.list_outstanding_customer_invoices_with_payment_details",
+		]) {
+			const label = [...container.querySelectorAll("span.truncate")].find(
+				(node) => node.textContent === toolName,
+			);
+			expect(label).toBeDefined();
+			expect(label?.getAttribute("title")).toBe(toolName);
+		}
 	});
 
 	it("renders the empty-period states for the audit and Code Mode lanes", async () => {
