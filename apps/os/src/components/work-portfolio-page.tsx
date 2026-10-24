@@ -286,9 +286,11 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 				<Link
 					variant="record"
 					href={factoryHref(row)}
-					className="tap-target-y min-w-0 font-medium"
+					className="group/factory-name tap-target-y min-w-0 font-medium"
 				>
-					<span className="line-clamp-1">{row.name}</span>
+					<span className="line-clamp-1 wrap-anywhere group-hover/factory-name:line-clamp-none group-focus/factory-name:line-clamp-none">
+						{row.name}
+					</span>
 				</Link>
 			}
 			actions={
