@@ -42,7 +42,11 @@ import {
 } from "@tedix/db/queries/mcp-governance";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
-import { type BaseContext, withServiceAuth } from "../orpc";
+import {
+	type BaseContext,
+	resolveServiceBindingOrganizationId,
+	withServiceAuth,
+} from "../orpc";
 
 const mcpGovernanceOs = implement(
 	mcpGovernanceContract,
@@ -53,7 +57,12 @@ const RESERVED_SKILL_NAMESPACES = new Set(["tedi", "home", "kernel", "os"]);
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
 		async ({ input, context }) => {
-			if (context.organizationId !== input.organizationId)
+			// withServiceAuth does not resolve the organization; the gateway's
+			// governance client carries it in X-Tedix-Org-Id.
+			const gatewayOrganizationId =
+				context.organizationId ??
+				(await resolveServiceBindingOrganizationId(context));
+			if (gatewayOrganizationId !== input.organizationId)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
 					"Approval organization does not match the gateway context",
