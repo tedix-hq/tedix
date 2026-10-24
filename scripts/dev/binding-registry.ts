@@ -15,6 +15,8 @@ import { createLocalWranglerConfig } from "../dev-local";
  * `WORKER_STALE_MS`) and wrangler's `WRANGLER_REGISTRY_PATH` factory.
  */
 const WORKER_STALE_MS = 90_000;
+// Date.now() truncates to milliseconds while filesystem mtimes may not.
+const FUTURE_HEARTBEAT_TOLERANCE_MS = 1_000;
 /**
  * Miniflare writes its own storage-arbitration entries into the same directory
  * under this prefix. They are not Workers and must never satisfy a binding.
@@ -175,7 +177,7 @@ export function readWorkerRegistry(
 			continue;
 		}
 		const age = now - mtimeMs;
-		if (age > WORKER_STALE_MS) {
+		if (age < -FUTURE_HEARTBEAT_TOLERANCE_MS || age > WORKER_STALE_MS) {
 			snapshot.skipped.push({ file, reason: "stale" });
 			continue;
 		}
