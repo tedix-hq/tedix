@@ -102,10 +102,12 @@ export function SkillSchedulePage() {
 									{schedule.lastFireAt
 										? ` · last fired ${relativeTime(schedule.lastFireAt)}`
 										: ""}
-									{schedule.lastError
-										? ` · last error: ${schedule.lastError}`
-										: ""}
 								</Text>
+								{schedule.lastError ? (
+									<Text as="span" role="label" tone="warning">
+										Last error: {schedule.lastError}
+									</Text>
+								) : null}
 								{schedule.lastBudgetBlockedAt ? (
 									<Text as="span" role="label" tone="warning">
 										Budget blocked {relativeTime(schedule.lastBudgetBlockedAt)}
