@@ -274,6 +274,7 @@ function MobileNavigationTrigger() {
 export function OsShell() {
 	useOsLocale();
 	const phone = useMediaQuery("(max-width: 819px)");
+	const mainContent = useRef<HTMLElement>(null);
 	const overflowTrigger = useRef<HTMLButtonElement>(null);
 	const [menuActions, setMenuActions] = useState<HTMLDivElement | null>(null);
 	const [paletteOpen, setPaletteOpen] = useState(false);
@@ -334,6 +335,16 @@ export function OsShell() {
 					resizable
 					peekable
 				>
+					<a
+						href="#os-main-content"
+						className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-kumo-base focus:px-4 focus:py-3 focus:text-kumo-default focus:shadow-tedix-floating focus:outline-2 focus:outline-kumo-focus"
+						onClick={(event) => {
+							event.preventDefault();
+							mainContent.current?.focus();
+						}}
+					>
+						Skip to main content
+					</a>
 					<CloseMobileNavigationOnNavigate />
 					{workspaceWorkbench ? null : <SidebarKeyboardShortcut />}
 					{workspaceWorkbench ? null : (
@@ -392,7 +403,12 @@ export function OsShell() {
 								</div>
 							</header>
 						)}
-						<main className="route-content">
+						<main
+							ref={mainContent}
+							id="os-main-content"
+							tabIndex={-1}
+							className="route-content"
+						>
 							<OsTopbarActionsTargetContext.Provider value={topbarActions}>
 								<WorkActorDirectory>
 									<OsSettingsFrame pathname={pathname}>

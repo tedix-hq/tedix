@@ -152,6 +152,19 @@ afterEach(() => {
 });
 
 describe("OS shell chrome", () => {
+	it("lets keyboard users bypass the shell navigation", () => {
+		const container = renderShell();
+		const skipLink = container.querySelector<HTMLAnchorElement>(
+			'a[href="#os-main-content"]',
+		)!;
+		const main = container.querySelector<HTMLElement>("#os-main-content")!;
+
+		expect(skipLink.textContent).toBe("Skip to main content");
+		expect(main.tabIndex).toBe(-1);
+		act(() => skipLink.click());
+		expect(document.activeElement).toBe(main);
+	});
+
 	it("opens route context from the shell topbar and removes the entry on navigation", async () => {
 		route.context = true;
 		const container = renderShell();
