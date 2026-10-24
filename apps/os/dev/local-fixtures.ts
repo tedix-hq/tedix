@@ -8039,6 +8039,18 @@ const handlers: Record<string, (input: never) => unknown> = {
 			},
 		};
 	},
+	"kernelRuntime/readConversationEvents": (input: {
+		conversationId: string;
+		offset?: number;
+	}) => ({
+		events: [],
+		stream: {
+			streamId: `home:conversation:${input.conversationId}`,
+			offset: input.offset ?? 0,
+			nextOffset: input.offset ?? 0,
+			closed: false,
+		},
+	}),
 	"kernelRuntime/respondApproval": (input: { runId: string }) => ({
 		run: findHomeRun(input.runId),
 		assignments: [],

@@ -100,8 +100,12 @@ function eventsPage(
 	};
 }
 
-/** Handler answering the two read verbs a snapshot/subscription touches. */
-function readOnlyHandler(runId: string | null, pages: Map<number, unknown>) {
+/** Handler answering the read verbs a snapshot/subscription touches. */
+function readOnlyHandler(
+	runId: string | null,
+	pages: Map<number, unknown>,
+	conversationPages: Map<number, unknown> = new Map(),
+) {
 	return (path: string, input: unknown) => {
 		if (path === "kernelRuntime/readRunSet") {
 			return runSetOutput(
@@ -113,6 +117,12 @@ function readOnlyHandler(runId: string | null, pages: Map<number, unknown>) {
 			const offset = (input as { offset: number }).offset;
 			const page = pages.get(offset);
 			if (page === undefined) return new Promise(() => {}); // hang: no more pages
+			return page;
+		}
+		if (path === "kernelRuntime/readConversationEvents") {
+			const offset = (input as { offset: number }).offset;
+			const page = conversationPages.get(offset);
+			if (page === undefined) return new Promise(() => {}); // hang: quiet lane
 			return page;
 		}
 		throw new Error(`unexpected path ${path}`);
@@ -829,6 +839,9 @@ describe("subscribe", () => {
 		let reads = 0;
 		const { service } = mockApiService((path) => {
 			if (path === "kernelRuntime/readRunSet") return runSetOutput(["run-1"]);
+			// Only the run lane's own turns count toward its failure budget; the
+			// conversation lane fails too here and retires without ending the pump.
+			if (path !== "kernelRuntime/readRunEvents") return new Promise(() => {});
 			reads += 1;
 			return { stream: { nope: true } };
 		});
@@ -841,6 +854,106 @@ describe("subscribe", () => {
 		while (!subscription.isDisposed()) await tick();
 		expect(reads).toBe(SUBSCRIBE_MAX_POLL_FAILURES);
 		expect(counters.disposed).toBe(1);
+	});
+
+	it("delivers run-free conversation events on the conversation lane", async () => {
+		const conversationPages = new Map<number, unknown>([
+			[0, eventsPage([streamEvent("conv-updated", "conversation.updated")], 0)],
+		]);
+		const { service, calls } = mockApiService(
+			readOnlyHandler("run-1", new Map(), conversationPages),
+		);
+		const session = makeSession(service);
+		const { stub, frames } = subscriberStub();
+
+		const subscription = session.openConversation("conv-1").subscribe(stub);
+		while (frames.length < 1) await tick();
+
+		expect(frames[0]).toMatchObject({
+			conversationId: "conv-1",
+			runId: "$conversation",
+			offset: 0,
+			nextOffset: 1,
+			event: { kind: "conversation.updated" },
+		});
+		expect(
+			calls.filter(
+				(call) => call.path === "kernelRuntime/readConversationEvents",
+			).length,
+		).toBeGreaterThan(0);
+		subscription.dispose();
+	});
+
+	it("retires the conversation lane on repeated failures without ending the run streams", async () => {
+		const { service } = mockApiService((path, input) => {
+			if (path === "kernelRuntime/readRunSet") return runSetOutput(["run-1"]);
+			if (path === "kernelRuntime/readConversationEvents") {
+				throw new Error("endpoint not implemented on this API revision");
+			}
+			if (path === "kernelRuntime/readRunEvents") {
+				const offset = (input as { offset: number }).offset;
+				if (offset === 0) return eventsPage([streamEvent("e-0")], 0);
+				return new Promise(() => {});
+			}
+			throw new Error(`unexpected path ${path}`);
+		});
+		const session = makeSession(service);
+		const { stub, frames } = subscriberStub();
+
+		const subscription = session
+			.openConversation("conv-1")
+			.subscribe(stub, { runId: "run-1", offset: 0 });
+		while (frames.length < 1) await tick();
+		for (let i = 0; i < 10; i += 1) await tick();
+
+		expect(frames).toEqual([
+			expect.objectContaining({ runId: "run-1", offset: 0 }),
+		]);
+		expect(subscription.isDisposed()).toBe(false);
+		subscription.dispose();
+	});
+
+	it("resolves the newest real run when the cursor primary is the conversation lane", async () => {
+		const { service, calls } = mockApiService((path, input) => {
+			if (path === "kernelRuntime/readRunSet") {
+				return runSetOutput(["run-1"]);
+			}
+			if (path === "kernelRuntime/readRunEvents") {
+				const { runId, offset } = input as { runId: string; offset: number };
+				if (runId === "run-1" && offset === 7) {
+					return eventsPage([streamEvent("e-tail")], 7, true);
+				}
+				return new Promise(() => {});
+			}
+			throw new Error(`unexpected path ${path}`);
+		});
+		const snapshot = await makeSession(service)
+			.openConversation("conv-1")
+			.snapshot({
+				runId: "$conversation",
+				offset: 3,
+				runs: [
+					{ runId: "$conversation", offset: 3 },
+					{ runId: "run-1", offset: 7 },
+				],
+			});
+		expect(snapshot.runId).toBe("run-1");
+		expect(snapshot.events).toEqual([
+			expect.objectContaining({ runId: "run-1", offset: 7, nextOffset: 8 }),
+		]);
+		// The sentinel never reaches the run ledger; the lane's own position is
+		// preserved in the returned cursor's runs.
+		expect(snapshot.cursor?.runs).toContainEqual({
+			runId: "$conversation",
+			offset: 3,
+		});
+		expect(
+			calls.filter((call) => call.path === "kernelRuntime/readRunEvents"),
+		).toEqual([
+			expect.objectContaining({
+				input: expect.objectContaining({ runId: "run-1", offset: 7 }),
+			}),
+		]);
 	});
 
 	it("caps live subscriptions per session and frees a slot on dispose", () => {

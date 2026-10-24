@@ -112,15 +112,16 @@ Other properties worth preserving:
   synthetic new-thread send remains an explicit control-plane bootstrap because
   no conversation id exists to bind yet. Do not reintroduce a second event or
   mutation pipeline.
-- **Known limitation (run-scoped delivery).** The Cap'n pump follows every
-  active run independently (`session-root.ts`), but durable events written with
-  no `runId` (e.g. `conversation.updated` from rename/delete/pin) never reach
-  the browser stream. The active-run reconciliation backstop repairs server
-  run-set state. Mounted conversation lists and headers reconcile rename, pin,
-  archive and deletion through their canonical infinite query every 15 seconds
-  while the tab is visible. No-run conversation frames still have no consumer;
-  if one needs them, add a conversation-scoped verb to the contract rather than
-  resurrecting SSE.
+- **Conversation-scoped delivery.** The Cap'n pump follows every active run
+  independently (`session-root.ts`) plus ONE run-free lane keyed
+  `CAPN_CONVERSATION_STREAM_ID` (`capnweb/contract.ts`): it polls
+  `kernelRuntime/readConversationEvents` — durable events written with no
+  `runId` (`conversation.updated` from rename/pin/archive/auto-title, plus the
+  delete tombstone frame the API synthesizes from `kernel_conversations`
+  after the ledger purge). Those frames invalidate the generated
+  `listConversations` key prefix, updating the mounted sidebar and header.
+  Mutations on conversations the client is NOT following still converge
+  through the canonical infinite query's 15-second visible poll.
 
 ## Capability lifecycle is a document singleton
 

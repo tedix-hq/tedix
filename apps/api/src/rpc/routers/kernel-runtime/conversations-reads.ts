@@ -9,6 +9,7 @@ import {
 } from "../kernel/child-run-delegated-result";
 import { summarizeChildRuntimeEvents } from "../kernel/child-run-events";
 import { HOME_MAIN_CONVERSATION_ID } from "../kernel/conversation-index";
+import { homeRuntimeEventId } from "@tedix/api-contract/utils/runtime-events";
 import type { HomeChildRunEvidence } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	type KernelRuntimeEvent,
@@ -52,7 +53,11 @@ import {
 } from "../../../services/learning-interaction-recorder";
 import { readChildRunStatusesForRunRows } from "../kernel/home-plan";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { purgeKernelConversation } from "@tedix/db/queries/kernel-conversations";
+import {
+	type KernelConversationRow,
+	getKernelConversation,
+	purgeKernelConversation,
+} from "@tedix/db/queries/kernel-conversations";
 import { cleanupExactKernelToolResults } from "../../../services/kernel-tool-result-retention";
 import {
 	attachConversationCapability,
@@ -85,6 +90,9 @@ import {
 	listKernelConversationsFromIndex,
 	readChildRunStatuses,
 	readKernelRunRecordsForConversation,
+	RUN_EVENT_STREAM_PAGE,
+	buildSelectedRunEventStreamPage,
+	kernelStreamRow,
 } from "./run-reads-streams";
 import { approveHomePlanAssignmentsCore } from "./approval-control";
 import {
@@ -622,6 +630,140 @@ export const archiveConversationRoute = authed.archiveConversation
 				updatedAt: changedAt,
 			},
 		};
+	});
+
+/**
+ * A `conversation.updated` payload's permanent-delete marker — the same shape
+ * `conversation-index.ts`'s write-through reads (top level or nested under
+ * `conversation`).
+ */
+function conversationEventHasDeletedMarker(payload: unknown): boolean {
+	const record = nonNullRecord(payload);
+	return (
+		stringFromPayload(nonNullRecord(record?.conversation)?.deletedAt) !==
+			undefined || stringFromPayload(record?.deletedAt) !== undefined
+	);
+}
+
+/**
+ * The conversation-scoped durable stream: every kernel event that carries no
+ * run id, in the same offset/receipt envelope as `readRunEvents`. The
+ * `conversation.updated` family (rename, pin, archive/restore, auto-title)
+ * lives here; without this lane those events were unreachable by any stream
+ * consumer and mounted surfaces depended on the list poll.
+ *
+ * Deletion is the one event the ledger can no longer carry: `deleteConversation`
+ * purges the conversation's event rows, so the terminal frame is derived from
+ * the content-free `kernel_conversations` tombstone with a deterministic id —
+ * resumable, dedupe-safe, and exactly the `conversation.updated` marker the
+ * projection records for a soft delete.
+ */
+export const readConversationEventsRoute = authed.readConversationEvents
+	.use(AUTHZ.tedisRead)
+	.handler(async ({ context, input }) => {
+		const organizationId = resolveOrganizationId(context, input.organizationId);
+		await ensureHomeConversationAccess(context, {
+			conversationId: input.conversationId,
+			organizationId,
+			required: "read",
+		});
+		const waitMs = Math.min(Math.max(input.waitMs ?? 0, 0), 30_000);
+		const pageLimit = Math.min(
+			Math.max(input.limit ?? RUN_EVENT_STREAM_PAGE, 1),
+			RUN_EVENT_STREAM_PAGE,
+		);
+		const deadline = Date.now() + waitMs;
+		const start = input.offset ?? 0;
+		while (true) {
+			let conversation: KernelConversationRow | undefined;
+			let rows: KernelRuntimeEvent[];
+			try {
+				[conversation, rows] = await Promise.all([
+					getKernelConversation(context.db, {
+						organizationId,
+						conversationId: input.conversationId,
+					}),
+					listKernelRuntimeEvents(context.db, {
+						organizationId,
+						conversationId: input.conversationId,
+						runIdNull: true,
+						order: "asc",
+						limit: pageLimit,
+						offset: start,
+					}),
+				]);
+			} catch (error) {
+				if (shouldFailSoftKernelRuntimeRead(error)) {
+					console.warn("[kernelRuntime] conversation events read failed", {
+						organizationId,
+						conversationId: input.conversationId,
+						error: errorMessage(error),
+					});
+					return {
+						events: [],
+						stream: {
+							streamId: `home:conversation:${input.conversationId}`,
+							offset: start,
+							nextOffset: start,
+							closed: false,
+						},
+					};
+				}
+				throw error;
+			}
+			const page = buildSelectedRunEventStreamPage(
+				rows.map(kernelStreamRow),
+				[],
+				{ runId: input.conversationId, start },
+			);
+			page.stream.streamId = `home:conversation:${input.conversationId}`;
+			const deletedAt = conversation?.deletedAt ?? null;
+			// The tombstone frame occupies the position after the last live row;
+			// a full page means more live rows remain, so the marker waits for
+			// the next (empty-tail) read.
+			if (deletedAt !== null && rows.length < pageLimit) {
+				page.stream.closed = true;
+				const ledgerFrame = page.events.findLast(
+					(event) =>
+						event.kind === "conversation.updated" &&
+						conversationEventHasDeletedMarker(event.payload),
+				);
+				if (ledgerFrame) {
+					page.stream.terminalEventId = ledgerFrame.id;
+				} else {
+					const frame = {
+						id: homeRuntimeEventId({
+							organizationId,
+							kind: "conversation.updated",
+							conversationId: input.conversationId,
+							suffix: `deleted:${deletedAt}`,
+						}),
+						kind: "conversation.updated",
+						conversationId: input.conversationId,
+						payload: {
+							conversation: { deletedAt },
+							deletedAt,
+							source: "kernelRuntime.deleteConversation",
+						},
+						createdAt: deletedAt,
+					};
+					page.events.push(frame);
+					page.stream.nextOffset = start + page.events.length;
+					page.stream.terminalEventId = frame.id;
+				}
+			}
+			if (
+				waitMs === 0 ||
+				page.events.length > 0 ||
+				page.stream.closed ||
+				Date.now() >= deadline
+			) {
+				return page;
+			}
+			await new Promise((resolve) =>
+				setTimeout(resolve, Math.min(1000, deadline - Date.now())),
+			);
+		}
 	});
 
 export const readMessagesRoute = authed.readMessages

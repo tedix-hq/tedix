@@ -621,6 +621,9 @@ const CALLS: Record<string, unknown> = {
 		childRunId: IDS.childRunDelegating,
 	},
 	"kernelRuntime/readRunEvents": { runId: IDS.homeRunDone, tail: 40 },
+	"kernelRuntime/readConversationEvents": {
+		conversationId: IDS.conversationHome,
+	},
 	"kernelRuntime/respondApproval": {
 		runId: IDS.homeRunDone,
 		decision: "approve",

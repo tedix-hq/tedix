@@ -144,6 +144,25 @@ describe("patchQueryCachesFromEvent", () => {
 		expect(outcome).toEqual({ patched: [], invalidated: ["os-home-run-set"] });
 	});
 
+	it("invalidates the canonical conversation list on a run-free conversation.updated marker", () => {
+		const queryClient = client();
+		const outcome = patchQueryCachesFromEvent(
+			queryClient,
+			event({
+				kind: "conversation.updated",
+				runId: null,
+				payload: { title: "Renamed thread" },
+			}),
+			CONVERSATION_ID,
+		);
+		// Rename/pin/archive/delete markers mutate the durable conversation row;
+		// the paged list owns the converge, never a patch.
+		expect(outcome).toEqual({
+			patched: [],
+			invalidated: ["os-home-conversations"],
+		});
+	});
+
 	it("appends the assistant turn from message.completed using cached identity", () => {
 		const queryClient = client();
 		queryClient.setQueryData(homeMessagesQueryKey(CONVERSATION_ID), {

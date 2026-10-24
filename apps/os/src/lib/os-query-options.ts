@@ -190,6 +190,15 @@ export const userProfileQueryOptions = () =>
 		staleTime: 60_000,
 	});
 
+/**
+ * The generated key PREFIX every conversation-list variant shares. Prefix
+ * invalidation reaches the sidebar's archived/search/workspace variants and
+ * the header's read with one namespace — the narrowest key that owns the
+ * whole domain.
+ */
+export const homeConversationsQueryPrefix = () =>
+	osQuery.kernelRuntime.listConversations.key({ type: "query" });
+
 /** Exact cache key for an infinite Home/Workspace conversation list. */
 export const homeConversationsQueryKey = (
 	workspaceId?: string,

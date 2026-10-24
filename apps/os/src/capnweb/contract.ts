@@ -272,6 +272,17 @@ export type CapnConnectFn = () => Promise<CapnSessionStub>;
 
 /** The one path this capability is served on. */
 export const CAPN_ROUTE_PATH = "/capn";
+
+/**
+ * Reserved `runId` slot value for a conversation's RUN-FREE durable events —
+ * the `conversation.updated` overlay family and the delete tombstone, served
+ * by `kernelRuntime/readConversationEvents`. It rides the same `(runId,
+ * offset)` cursor model as a real run: `capnFrameId` dedupes it, `cursor.runs`
+ * resumes it, and the pump polls it as one more lane. A real Home run id can
+ * never equal it (server ids are uuids/`home:`-namespaced), so the lanes can
+ * never collide on the wire.
+ */
+export const CAPN_CONVERSATION_STREAM_ID = "$conversation";
 /** Maximum per-run positions retained in one conversation resume cursor. */
 export const CAPN_MAX_CURSOR_RUNS = 50;
 
