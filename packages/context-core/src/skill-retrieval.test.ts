@@ -493,3 +493,53 @@ it("expands eligible candidates without raising the original prompt top-K ceilin
 		selectRetrievedSkills(skills, "Accounting invoice review", { topK: 40 }),
 	).toHaveLength(5);
 });
+
+describe("non-finite skill selection options", () => {
+	it.each([NaN, Infinity, -Infinity])(
+		"uses bounded defaults for topK=%s",
+		(topK) => {
+			const corpus = Array.from({ length: 50 }, (_, i) =>
+				skill({ slug: `bounded-${i}` }),
+			);
+			expect(
+				selectRetrievedSkillCandidates(corpus, QUERY, { topK }),
+			).toHaveLength(40);
+			expect(selectRetrievedSkills(corpus, QUERY, { topK })).toHaveLength(
+				SKILL_RETRIEVAL_DEFAULT_TOP_K,
+			);
+			const references = corpus.map((entry) => entry.slug!);
+			const selection = selectSkillsForTurn(corpus, QUERY, {
+				topK,
+				referencedSlugs: references,
+			});
+			expect(selection.matches.map(({ skill }) => skill.slug)).toEqual(
+				references.slice(0, SKILL_RETRIEVAL_DEFAULT_TOP_K),
+			);
+			expect(selection.unresolvedReferences).toEqual(
+				references.slice(SKILL_RETRIEVAL_DEFAULT_TOP_K),
+			);
+		},
+	);
+
+	it.each([NaN, Infinity, -Infinity])(
+		"uses the relevance default for minOverlap=%s",
+		(minOverlap) => {
+			const strong = skill({ slug: "strong" });
+			const weak = skill({
+				slug: "weak",
+				title: "Quarterly finance report",
+				summary: "Quarterly finance rollup",
+			});
+			for (const select of [
+				selectRetrievedSkillCandidates,
+				selectRetrievedSkills,
+			]) {
+				expect(
+					select([strong, weak], QUERY, { minOverlap }).map(
+						({ skill }) => skill.slug,
+					),
+				).toEqual(["strong"]);
+			}
+		},
+	);
+});
