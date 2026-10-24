@@ -412,15 +412,24 @@ export function collectSiblingClones(
 	return count;
 }
 
-function parseArgs(argv: string[]) {
+export function parseArgs(argv: string[]) {
 	const value = (flag: string) => {
 		const index = argv.indexOf(flag);
 		return index >= 0 ? argv[index + 1] : undefined;
 	};
+	const minIdleValue = value("--min-idle");
+	if (
+		argv.includes("--min-idle") &&
+		(!minIdleValue || minIdleValue.startsWith("--"))
+	)
+		throw new Error("--min-idle needs a non-negative number of hours");
+	const minIdleHours = Number(minIdleValue ?? 2);
+	if (!Number.isFinite(minIdleHours) || minIdleHours < 0)
+		throw new Error("--min-idle must be a finite non-negative number of hours");
 	return {
 		apply: argv.includes("--apply"),
 		base: value("--base") ?? "origin/main",
-		minIdleHours: Number(value("--min-idle") ?? 2),
+		minIdleHours,
 	};
 }
 

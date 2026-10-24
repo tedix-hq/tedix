@@ -20,6 +20,7 @@ import {
 	mergedBranches,
 	inBase,
 	isInside,
+	parseArgs,
 	parseWorktreePorcelain,
 	readWorktreeFacts,
 	removeWorktree,
@@ -57,6 +58,33 @@ const finished: WorktreeFacts = {
 	idleHours: 24,
 	merged: true,
 };
+
+describe("parseArgs", () => {
+	test("uses safe defaults and accepts finite non-negative idle thresholds", () => {
+		expect(parseArgs([])).toEqual({
+			apply: false,
+			base: "origin/main",
+			minIdleHours: 2,
+		});
+		expect(
+			parseArgs(["--apply", "--base", "main", "--min-idle", "0.5"]),
+		).toEqual({
+			apply: true,
+			base: "main",
+			minIdleHours: 0.5,
+		});
+	});
+
+	test.each([
+		["missing", ["--min-idle"]],
+		["followed by a flag", ["--min-idle", "--apply"]],
+		["not a number", ["--min-idle", "nope"]],
+		["infinite", ["--min-idle", "Infinity"]],
+		["negative", ["--min-idle", "-1"]],
+	])("rejects a %s idle threshold", (_name, argv) => {
+		expect(() => parseArgs(argv)).toThrow("--min-idle");
+	});
+});
 
 describe("parseWorktreePorcelain", () => {
 	test("reads branch, detached and locked worktrees", () => {
