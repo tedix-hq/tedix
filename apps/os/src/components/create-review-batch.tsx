@@ -5,7 +5,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
 	OsReviewCardSchema,
 	type OsReviewCard,
@@ -33,12 +33,13 @@ export function CreateReviewBatch({
 	gadgetId: string;
 	label?: string;
 }) {
+	const sourceSelectId = useId();
 	const [sources, setSources] = useState<Array<{ id: string; title: string }>>(
 		[],
 	);
 	const [sourceId, setSourceId] = useState("");
 	const [title, setTitle] = useState("Review batch");
-	const [cards, setCards] = useState<OsReviewCard[]>([blank()]);
+	const [cards, setCards] = useState<OsReviewCard[]>(() => [blank()]);
 	const [rawChecks, setRawChecks] = useState<Record<string, string>>({});
 	const [rawEvidence, setRawEvidence] = useState<Record<string, string>>({});
 	const [status, setStatus] = useState("");
@@ -139,7 +140,7 @@ export function CreateReviewBatch({
 			</p>
 			{!done && (
 				<div className="grid gap-3">
-					<label>
+					<label htmlFor={sourceSelectId}>
 						Source document
 						<Select
 							value={sourceId || null}
@@ -149,7 +150,7 @@ export function CreateReviewBatch({
 							}))}
 							onValueChange={(value) => setSourceId(value ?? "")}
 						>
-							<SelectTrigger aria-label="Review source" className="w-full">
+							<SelectTrigger id={sourceSelectId} className="w-full">
 								<SelectValue placeholder="Choose a source" />
 							</SelectTrigger>
 							<SelectContent>
