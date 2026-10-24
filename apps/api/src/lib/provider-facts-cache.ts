@@ -53,6 +53,7 @@ export class ProviderFactsCache<T> {
 type McpServerRegistration = Awaited<ReturnType<typeof loadDescopeMcpServer>>;
 
 const registrations = new ProviderFactsCache<McpServerRegistration>();
+let registrationGeneration = 0;
 
 /**
  * The provider's registration of one MCP server (audience, approved scopes).
@@ -68,13 +69,17 @@ export async function loadMcpServerRegistration(
 		const known = registrations.get(mcpServerId);
 		if (known) return known;
 	}
+	const generation = registrationGeneration;
 	const server = await loadDescopeMcpServer(env, mcpServerId);
-	if (server?.id === mcpServerId) registrations.set(mcpServerId, server);
+	if (generation === registrationGeneration && server?.id === mcpServerId)
+		registrations.set(mcpServerId, server);
 	return server;
 }
 
 /** Forget remembered MCP server registrations (one server, or all). */
 export function forgetMcpServerRegistrations(mcpServerId?: string): void {
+	// Invalidate pending loads too, before they can restore old scopes.
+	registrationGeneration++;
 	registrations.forget(
 		mcpServerId === undefined ? undefined : (key) => key === mcpServerId,
 	);

@@ -78,4 +78,45 @@ describe("MCP server registration cache", () => {
 		await deleteMcpServerRegistration(env, "srv-1");
 		expect(await loadMcpServerRegistration(env, "srv-1")).toBeUndefined();
 	});
+
+	it.each(["update", "failed update", "delete", "forget", "forget all"])(
+		"does not cache an old lookup that finishes after %s",
+		async (action) => {
+			const original = provider.registrations.get("srv-1")!;
+			let finish!: (value: typeof original) => void;
+			provider.load.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			);
+			const pending = loadMcpServerRegistration(env, "srv-1");
+			const replacement = { ...original, approvedScopes: ["tedis:read"] };
+			provider.registrations.set("srv-1", replacement);
+			if (action === "update") {
+				await updateMcpServerRegistration(
+					env,
+					replacement as Parameters<typeof updateMcpServerRegistration>[1],
+				);
+			} else if (action === "failed update") {
+				provider.update.mockRejectedValueOnce(new Error("provider down"));
+				await expect(
+					updateMcpServerRegistration(
+						env,
+						replacement as Parameters<typeof updateMcpServerRegistration>[1],
+					),
+				).rejects.toThrow("provider down");
+			} else if (action === "delete") {
+				await deleteMcpServerRegistration(env, "srv-1");
+			} else {
+				forgetMcpServerRegistrations(action === "forget" ? "srv-1" : undefined);
+			}
+			finish(original);
+			expect(await pending).toBe(original);
+			expect(await loadMcpServerRegistration(env, "srv-1")).toEqual(
+				provider.registrations.get("srv-1"),
+			);
+			expect(provider.load).toHaveBeenCalledTimes(2);
+		},
+	);
 });
