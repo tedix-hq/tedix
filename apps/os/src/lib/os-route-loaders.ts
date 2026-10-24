@@ -26,6 +26,7 @@ import {
 	appAnalyticsSummaryQueryOptions,
 	appDetailQueryOptions,
 	appFreshnessQueryOptions,
+	appGatewayMembershipQueryOptions,
 	appMetricsQueryOptions,
 	appRecentExecutionsQueryOptions,
 	appSecretsListQueryOptions,
@@ -841,6 +842,8 @@ export async function prefetchAppOverviewRoute(
 		queryClient.ensureQueryData(
 			appMetricsQueryOptions(appId, appAnalyticsRange()),
 		),
+		// Decides whether the overview renders the gateway page.
+		queryClient.ensureQueryData(appGatewayMembershipQueryOptions(appId)),
 	]);
 }
 
