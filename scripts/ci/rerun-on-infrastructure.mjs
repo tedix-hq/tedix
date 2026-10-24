@@ -17,12 +17,12 @@ const fixtureNotStarted = [
 // qualify; a Playwright timeout qualifies only on a runner that was already
 // measured as slow before any test ran.
 export function infrastructureFailure(output, { installSeconds } = {}) {
+	if (/AssertionError/.test(output)) return undefined;
 	if (fixtureNotStarted.some((pattern) => pattern.test(output)))
 		return "the fixture server did not become ready";
 	if (
 		Number(installSeconds) > slowInstallSeconds &&
-		/TimeoutError: .*Timeout \d+ms exceeded/.test(output) &&
-		!/AssertionError/.test(output)
+		/TimeoutError: .*Timeout \d+ms exceeded/.test(output)
 	)
 		return `a Playwright timeout on a slow runner (frozen install took ${installSeconds}s)`;
 	return undefined;
