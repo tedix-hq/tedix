@@ -119,15 +119,17 @@ afterEach(() => {
 describe("OsSidebarWorkspaces", () => {
 	it("shows pinned workspaces directly without duplicate history or empty counters", async () => {
 		const container = await renderSidebar();
+		const pinnedWorkspace = container.querySelector<HTMLElement>(
+			'[data-sidebar="menu-button"]',
+		);
 		expect(container.textContent).toContain("Pinned workspaces");
 		expect(
 			container.querySelectorAll('[data-sidebar="menu-button"]'),
 		).toHaveLength(1);
 		expect(container.textContent).not.toContain("Recent workspaces");
 		expect(container.textContent).not.toContain("Show all");
-		expect(
-			container.querySelector('[data-sidebar="menu-button"]')?.textContent,
-		).toContain("Revenue Ops");
+		expect(pinnedWorkspace?.textContent).toContain("Revenue Ops");
+		expect(pinnedWorkspace?.getAttribute("title")).toBe("Revenue Ops");
 	});
 
 	it("announces loading until workspace shortcuts are available", async () => {
