@@ -114,6 +114,58 @@ describe("run-local options", () => {
 				await new Promise<void>((resolve) => server.close(() => resolve()));
 		}
 	});
+	test("rejects an occupied MCP port before installing or writing local state", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "tedix-local-mcp-port-"));
+		const listen = () =>
+			new Promise<ReturnType<typeof createServer>>((resolve, reject) => {
+				const server = createServer((socket) => socket.destroy());
+				server.once("error", reject);
+				server.listen(0, "localhost", () => resolve(server));
+			});
+		const close = (server: ReturnType<typeof createServer>) =>
+			new Promise<void>((resolve) => server.close(() => resolve()));
+		const apiServer = await listen();
+		const osServer = await listen();
+		const mcpServer = await listen();
+		const portOf = (server: ReturnType<typeof createServer>) =>
+			(server.address() as { port: number }).port;
+		const apiPort = portOf(apiServer);
+		const osPort = portOf(osServer);
+		const mcpPort = portOf(mcpServer);
+		await Promise.all([close(apiServer), close(osServer)]);
+		const child = Bun.spawn(
+			[process.execPath, join(import.meta.dir, "run-local.ts")],
+			{
+				cwd,
+				env: {
+					...process.env,
+					TEDIX_LOCAL_PERSIST_TO: cwd,
+					TEDIX_LOCAL_API_PORT: String(apiPort),
+					TEDIX_LOCAL_OS_PORT: String(osPort),
+					TEDIX_LOCAL_MCP_PORT: String(mcpPort),
+				},
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		const timeout = setTimeout(() => child.kill(), 5000);
+		try {
+			const [exitCode, stdout, stderr] = await Promise.all([
+				child.exited,
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+			]);
+			expect(exitCode).not.toBe(0);
+			expect(stderr).toContain(`port ${mcpPort} is already in use`);
+			expect(stderr).toContain(`lsof -nP -iTCP:${mcpPort} -sTCP:LISTEN`);
+			expect(stdout).not.toContain("Installing exact dependencies");
+			expect(readdirSync(cwd)).toEqual([]);
+		} finally {
+			clearTimeout(timeout);
+			child.kill();
+			if (mcpServer.listening) await close(mcpServer);
+		}
+	});
 	test("bounds startup readiness even when a server never sends a response body", async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = ((_: unknown, init: RequestInit) => {
