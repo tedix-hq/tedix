@@ -72,9 +72,18 @@ export function BillingCreditBudget({
 						value={value}
 						disabled={mutation.isPending}
 						aria-invalid={cap === undefined}
+						aria-describedby="monthly-credit-budget-description"
+						aria-errormessage={
+							cap === undefined
+								? "monthly-credit-budget-description"
+								: undefined
+						}
 						onChange={(event) => setValue(event.target.value)}
 					/>
-					<Text tone={cap === undefined ? "error" : "secondary"}>
+					<Text
+						id="monthly-credit-budget-description"
+						tone={cap === undefined ? "error" : "secondary"}
+					>
 						{cap === undefined
 							? "Enter a positive amount with at most two decimal places, up to €1,000,000."
 							: cap === null

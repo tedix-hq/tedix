@@ -164,9 +164,16 @@ function OverageForm({
 							value={cap}
 							disabled={!enabled || mutation.isPending}
 							aria-invalid={capInvalid}
+							aria-describedby="overage-cap-description"
+							aria-errormessage={
+								capInvalid ? "overage-cap-description" : undefined
+							}
 							onChange={(event) => setCap(event.target.value)}
 						/>
-						<Text tone={capInvalid ? "error" : "secondary"}>
+						<Text
+							id="overage-cap-description"
+							tone={capInvalid ? "error" : "secondary"}
+						>
 							{capInvalid
 								? `Enter an amount above 0 and at most ${formatCount(MAX_CAP_UNITS)}.`
 								: "Hard stop: overage charges this month never exceed the cap."}
