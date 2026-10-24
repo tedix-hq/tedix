@@ -15,13 +15,11 @@
 }
 
 .outputs-library .output-card-footer > .output-card-actions {
-	display: flex;
-	grid-column: 2 / -1;
-	justify-self: end;
+	grid-column: 1 / -1;
 }
 
-.outputs-library .output-card-footer > .output-card-actions > .relative {
-	position: static;
+.outputs-library .output-card-actions > .relative {
+	z-index: 10;
 }
 
 @media (max-width: 639px) {
@@ -30,11 +28,12 @@
 	}
 
 	.outputs-library .output-list-row {
-		flex-wrap: wrap;
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
 		align-items: flex-start;
 	}
 
 	.outputs-library .output-list-row > .output-card-actions {
-		margin-left: auto;
+		grid-column: 1 / -1;
 	}
 }

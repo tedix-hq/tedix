@@ -630,30 +630,6 @@ a {
 	}
 }
 
-@media (max-width: 639px) {
-	/* Two-column phone cards match the reference gallery. Keep Tedix's governed
-	 * Share action as a touch-sized preview overlay while the overflow action
-	 * remains in the compact metadata footer. */
-	.output-grid-card .output-card-actions {
-		display: contents;
-	}
-
-	.output-grid-card .output-card-actions > .relative {
-		position: absolute;
-		top: 8px;
-		right: 8px;
-		z-index: 2;
-	}
-
-	.output-grid-card .output-card-actions > .relative > [data-slot="button"] {
-		inline-size: 44px;
-		padding-inline: 0;
-		background: color-mix(in srgb, var(--card) 88%, transparent);
-		box-shadow: var(--shadow-tedix-raised);
-		font-size: 0;
-	}
-}
-
 .eyebrow {
 	display: flex;
 	align-items: center;

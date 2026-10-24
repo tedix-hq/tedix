@@ -13,12 +13,55 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 	const open = card.getByRole("button", { name: /^Open / });
 	const share = card.getByRole("button", { name: "Share", exact: true });
 	const actions = card.getByRole("button", { name: /^Actions for/ });
-	assert.equal(
-		await open.evaluate((el) => getComputedStyle(el).backgroundColor),
-		"rgba(0, 0, 0, 0)",
-		"Open keeps the preview and metadata visible",
+	const cardBox = (await card.boundingBox())!;
+	const boxes = [];
+	for (const [control, label] of [
+		[open, "Open"],
+		[share, "Share"],
+		[actions, "Actions"],
+	] as const) {
+		assert.equal((await control.innerText()).trim(), label);
+		assert(
+			await control.evaluate((el) => getComputedStyle(el).fontSize !== "0px"),
+			`${label} has a visible label`,
+		);
+		const box = (await control.boundingBox())!;
+		assert(
+			box.x >= cardBox.x + 2 &&
+				box.x + box.width <= cardBox.x + cardBox.width - 2,
+			`${label} and its focus ring stay inside the card content`,
+		);
+		if (page.viewportSize()!.width < 640)
+			assert(
+				box.height >= 44 && box.width >= 44,
+				`${label} has a touch target`,
+			);
+		boxes.push(box);
+	}
+	assert(
+		boxes.every((box) => box.y === boxes[0]!.y),
+		"actions share one row",
+	);
+	assert(
+		boxes[0]!.x + boxes[0]!.width <= boxes[1]!.x &&
+			boxes[1]!.x + boxes[1]!.width <= boxes[2]!.x,
+		"actions do not overlap",
+	);
+	assert(
+		await card.evaluate((el) => el.scrollWidth <= el.clientWidth),
+		"card has no horizontal overflow",
 	);
 	const libraryUrl = page.url();
+	const titleBox = (await card.locator("strong").boundingBox())!;
+	await card.click({
+		position: {
+			x: titleBox.x + titleBox.width / 2 - cardBox.x,
+			y: titleBox.y + titleBox.height / 2 - cardBox.y,
+		},
+	});
+	await page.waitForURL((url) => url.href !== libraryUrl);
+	await page.goBack();
+	await open.waitFor();
 	for (const key of ["Enter", "Space"]) {
 		await open.focus();
 		await page.keyboard.press("Tab");
