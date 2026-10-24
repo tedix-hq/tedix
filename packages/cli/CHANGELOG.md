@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.2 — 2026-10-24
+
+### Patch Changes
+
+- `tedix lane serve --accept-proposed` lets a local dispatcher accept proposed Work in its pinned project when the Work is assigned to its executor and says what done looks like, so a scheduled shift can file fix and scout Work without a person accepting each item.
+- The session-start hook tells a session with no selected Work to claim one before editing, with the exact commands, and reminds it that every commit needs a `Work-Item:` line.
+- Lane names show in hook reports, which link to the launcher's session and Work item; a lane without a name uses its Work title.
+- Flow plans and generated skill manifests keep titles, descriptions and parameters exactly as written, including YAML punctuation, line breaks, a parameter named `__proto__` and very large integers.
+- `skill run` rejects a file and points you to `flow run --file`; invalid watch durations, Home event cursors, `learn import-sessions --limit` values, oversized neighbour windows and out-of-range Work expiry are rejected with a clear error instead of being silently changed.
+- Browser login stops waiting when its local callback is gone and tells you how to restart from the terminal, and rejects a callback that selects the same organization twice.
+- Dispatcher cooldowns stay valid when an executor reports an oversized retry delay.
+
 ## 0.17.1 — 2026-10-23
 
 ### Patch Changes
