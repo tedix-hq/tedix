@@ -1239,7 +1239,11 @@ describe("CanvasPage listing", () => {
 		expect(tabs[1]?.parentElement?.getAttribute("data-selected")).toBe("true");
 		expect(tabs[1]?.parentElement?.className).not.toContain("border");
 
-		click(container.querySelector('[aria-label="Close Report gadget"]')!);
+		click(
+			container.querySelector(
+				`[aria-label="Close Report gadget (App, ${GADGET_ID})"]`,
+			)!,
+		);
 		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
 		expect(
 			container.querySelector('[role="tab"]')?.getAttribute("aria-selected"),

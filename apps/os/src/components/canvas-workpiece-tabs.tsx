@@ -84,10 +84,17 @@ export function CanvasWorkpieceTabs({
 		>
 			{opened.map((doc) => {
 				const key = canvasDocKey(doc);
+				const output = outputs.find((candidate) => candidate.id === doc.id);
 				const title =
 					doc.type === "gadget"
 						? gadgets.find((candidate) => candidate.id === doc.id)?.name
-						: outputs.find((candidate) => candidate.id === doc.id)?.title;
+						: output?.title;
+				const kind = doc.type === "gadget" ? "gadget" : (output?.kind ?? null);
+				const kindLabel =
+					doc.type === "gadget"
+						? "App"
+						: outputWorkshopKindLabel(output?.kind as OsOutputKind | undefined);
+				const accessibleName = `${title ?? "Workpiece"} (${kindLabel}, ${doc.id})`;
 				const selected = key === selectedKey;
 				return (
 					<div
@@ -96,6 +103,7 @@ export function CanvasWorkpieceTabs({
 						key={key}
 					>
 						<Button
+							aria-label={accessibleName}
 							aria-selected={selected}
 							title={title ?? "Workpiece"}
 							className="min-w-0 flex-1 justify-start px-2 type-tedix-control"
@@ -104,24 +112,11 @@ export function CanvasWorkpieceTabs({
 							size="sm"
 							variant="ghost"
 						>
-							{/*
-							 * The kind icon is what distinguishes tabs when several
-							 * artifacts share a title -- three "Q3 Review" tabs are
-							 * unreadable as text alone. Same icon set as the Outputs
-							 * library cards.
-							 */}
-							<TabKindIcon
-								kind={
-									doc.type === "gadget"
-										? "gadget"
-										: (outputs.find((candidate) => candidate.id === doc.id)
-												?.kind ?? null)
-								}
-							/>
+							<TabKindIcon kind={kind} />
 							<span className="truncate">{title ?? "Workpiece"}</span>
 						</Button>
 						<Button
-							aria-label={`Close ${title ?? "workpiece"}`}
+							aria-label={`Close ${accessibleName}`}
 							className="shrink-0"
 							onClick={() => onClose(key)}
 							size="icon-sm"
