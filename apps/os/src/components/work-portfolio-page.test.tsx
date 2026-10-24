@@ -109,13 +109,18 @@ const PORTFOLIO = PROJECTS.map((project) =>
 		: portfolioRow(project),
 );
 
-function interaction(n: number, state: "open" | "resolved" = "open") {
+function interaction(
+	n: number,
+	state: "open" | "resolved" = "open",
+	projectId?: string,
+) {
 	return {
 		request: {
 			id: `55555555-5555-4555-8555-${String(n).padStart(12, "0")}`,
 			subject: `Question ${n}`,
 			metadata: {},
 			workItemId: null,
+			projectId,
 			requestedAt: `2026-09-10T00:00:${String(n).padStart(2, "0")}.000Z`,
 		},
 		effectiveState: state,
@@ -172,6 +177,7 @@ const FACTORIES = [
 ];
 
 function seededClient({
+	portfolio = PORTFOLIO,
 	interactions = [] as ReturnType<typeof interaction>[],
 	factories = FACTORIES,
 } = {}) {
@@ -179,7 +185,7 @@ function seededClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 	queryClient.setQueryData(projectPortfolioQueryOptions().queryKey, {
-		data: PORTFOLIO,
+		data: portfolio,
 	});
 	queryClient.setQueryData(factoryScoreboardQueryOptions().queryKey, {
 		data: factories,
@@ -293,6 +299,36 @@ describe("PortfolioApp", () => {
 		expect(html).toContain("No records yet; owner to define");
 		expect(html).toContain("in acme-demo");
 		expect(html).toContain("https://acme-demo.os.tedix.dev/work/portfolio");
+	});
+
+	it("wraps the complete project summary on a 390px phone", () => {
+		const project = PROJECTS[1]!;
+		const html = render(
+			seededClient({
+				portfolio: PORTFOLIO.map((row) =>
+					row.project.id === project.id
+						? {
+								...row,
+								total: 123456,
+								byDisposition: { proposed: 123456, accepted: 987654 },
+							}
+						: row,
+				),
+				interactions: Array.from({ length: 42 }, (_, index) =>
+					interaction(index + 1, "open", project.id),
+				),
+			}),
+		);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const summary = doc.querySelector(
+			`[data-portfolio-card="${project.id}"] p.tabular-nums`,
+		);
+
+		expect(summary?.textContent).toBe(
+			"123456 open · 987654 accepted · 42 need you",
+		);
+		expect(summary?.className).not.toContain("truncate");
+		expect(summary?.className).not.toContain("whitespace-nowrap");
 	});
 
 	it("keeps archived and unbucketed projects in a collapsed Other disclosure", async () => {
