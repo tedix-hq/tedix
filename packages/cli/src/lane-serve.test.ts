@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -121,8 +122,9 @@ function fixture({
 		available: () => true,
 		budgets: () => ({}),
 		devinAvailable: () => devinReady,
-		provision: () => {
+		provision: (_source, destination) => {
 			if (control.provisionError) throw control.provisionError;
+			return destination;
 		},
 		baseCommit: () => "a".repeat(40),
 		landedCommits: async () => {
@@ -906,6 +908,7 @@ it("requires the owner's version-specific note for money or personal messaging",
 		"not accepted",
 	);
 });
+
 it("validates concurrency and pins selectors without persisting inherited identity or credentials", () => {
 	const args = ["--executor", "codex", "--rules", projectId];
 	const env = { TEDIX_WORKSPACE: "acme", TEDIX_ORGANIZATION: "org_acme" };
@@ -1133,17 +1136,48 @@ it("preserves an orphan destination and provisions the retry path", () => {
 	);
 });
 
-it("refuses to replace a registered worktree and preserves dirty files", () => {
+it("keeps a dirty registered worktree for inspection and provisions the retry beside it", () => {
 	const { root, repo, git } = gitFixture();
 	const destination = join(root, "repo");
 	git(["worktree", "add", "--detach", destination]);
 	writeFileSync(join(destination, "retained.txt"), "unfinished work");
-	expect(() => provisionLaneWorktree(repo, destination)).toThrow(
-		"registered worktree",
-	);
+	const retry = provisionLaneWorktree(repo, destination);
+	expect(retry).toBe(`${destination}-2`);
+	expect(git(["rev-parse", "HEAD"], retry)).toBe(git(["rev-parse", "HEAD"]));
 	expect(readFileSync(join(destination, "retained.txt"), "utf8")).toBe(
 		"unfinished work",
 	);
+	// Every later retry gets its own path; no checkout is reused while dirty.
+	writeFileSync(join(retry, "second.txt"), "second attempt");
+	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-3`);
+	expect(readFileSync(join(retry, "second.txt"), "utf8")).toBe(
+		"second attempt",
+	);
+});
+
+it("keeps a registered worktree holding unlanded commits and provisions beside it", () => {
+	const { root, repo, git } = gitFixture();
+	const destination = join(root, "repo");
+	git(["worktree", "add", "--detach", destination]);
+	git(
+		["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "local"],
+		destination,
+	);
+	const local = git(["rev-parse", "HEAD"], destination);
+	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-2`);
+	expect(git(["rev-parse", "HEAD"], destination)).toBe(local);
+});
+
+it("reuses a clean registered worktree left by a failed admission at the current HEAD", () => {
+	const { root, repo, git } = gitFixture();
+	const destination = join(root, "repo");
+	git(["worktree", "add", "--detach", destination]);
+	git(["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "next"]);
+	expect(provisionLaneWorktree(repo, destination)).toBe(destination);
+	expect(git(["rev-parse", "HEAD"], destination)).toBe(
+		git(["rev-parse", "HEAD"]),
+	);
+	expect(existsSync(`${destination}-2`)).toBe(false);
 });
 
 it("extracts and deduplicates final-message and local commits, accepting only origin/main ancestors", async () => {

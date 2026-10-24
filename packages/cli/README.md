@@ -449,6 +449,9 @@ are reconciled against their exact canonical Attempt. Expired orphan process gro
 are stopped only when their saved OS start identity and native session still match;
 other live groups retain their slots. Cleanup removes only clean, merged worktrees using ordinary
 Git worktree removal; dirty and unverified work stays retained.
+A retry of a revision whose earlier dispatch failed before admission reuses
+that run's checkout when it is clean and holds no unlanded commit; otherwise
+the checkout stays for inspection and the retry gets a fresh sibling path.
 
 Use `--coordinated` without `--project` to execute ready coordinator selections
 across projects. This mode requires an explicit `metadata.laneDispatch.state`
