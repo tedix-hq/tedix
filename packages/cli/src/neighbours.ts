@@ -128,8 +128,13 @@ export function parseArgs(argv: string[]) {
 		const value = argv[index] ?? "";
 		if (value === "--json") args.json = true;
 		else if (value === "--fetch") args.fetch = true;
-		else if (value === "--hours") args.hours = Number(argv[++index]);
-		else if (value === "--session") args.session = String(argv[++index] ?? "");
+		else if (value === "--hours") {
+			const raw = String(argv[++index] ?? "").trim();
+			args.hours = /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw)
+				? Number(raw)
+				: Number.NaN;
+		} else if (value === "--session")
+			args.session = String(argv[++index] ?? "");
 		else if (value === "--paths")
 			args.paths = String(argv[++index] ?? "")
 				.split(",")
@@ -145,7 +150,12 @@ export function parseArgs(argv: string[]) {
 				"--paths",
 			]);
 	}
-	if (!Number.isFinite(args.hours) || args.hours <= 0) args.hours = 24;
+	if (
+		!Number.isFinite(args.hours) ||
+		args.hours <= 0 ||
+		args.hours > Number.MAX_SAFE_INTEGER
+	)
+		args.hours = 24;
 	return args;
 }
 
