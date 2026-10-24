@@ -137,9 +137,9 @@ function languageOf(path) {
 }
 
 /**
- * The file a specifier names, repo-relative, or null when it names a
- * dependency outside the repo (`node:fs`, `zod`, `cloudflare:workers`), or
- * throws when it should resolve and does not.
+ * Repo-relative dependencies of a specifier, including workspace manifests
+ * that control resolution. External packages have no repo dependencies;
+ * unresolved repo imports throw.
  *
  * @param {string} specifier
  * @param {string} importer repo-relative
@@ -150,12 +150,12 @@ function resolveSpecifier(specifier, importer, io) {
 		const target = posix.normalize(
 			posix.join(posix.dirname(importer), specifier),
 		);
-		return resolveFile(target, io, `${importer} imports ${specifier}`);
+		return [resolveFile(target, io, `${importer} imports ${specifier}`)];
 	}
 	if (specifier.startsWith("@tedix/")) {
 		return resolveWorkspaceImport(specifier, importer, io);
 	}
-	return null;
+	return [];
 }
 
 /**
@@ -180,11 +180,14 @@ function resolveWorkspaceImport(specifier, importer, io) {
 			`${importer} imports ${specifier}: ${packageName} does not export ${subpath}`,
 		);
 	}
-	return resolveFile(
-		posix.normalize(posix.join(packageDir, target)),
-		io,
-		`${importer} imports ${specifier}`,
-	);
+	return [
+		`${packageDir}/package.json`,
+		resolveFile(
+			posix.normalize(posix.join(packageDir, target)),
+			io,
+			`${importer} imports ${specifier}`,
+		),
+	];
 }
 
 /**
@@ -305,9 +308,9 @@ export function selectBunTestFiles({ workspaceDir, changedFiles, io }) {
 		if (isCodeFile(file)) {
 			const source = io.readSource(file);
 			if (source === null) throw new Error(`${file}: cannot read`);
-			resolved = importSpecifiers(file, source)
-				.map((specifier) => resolveSpecifier(specifier, file, io))
-				.filter((target) => target !== null);
+			resolved = importSpecifiers(file, source).flatMap((specifier) =>
+				resolveSpecifier(specifier, file, io),
+			);
 		}
 		dependencies.set(file, resolved);
 		return resolved;
