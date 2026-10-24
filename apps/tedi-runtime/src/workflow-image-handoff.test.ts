@@ -371,3 +371,19 @@ console.log(
 	assert.equal(lists, 1);
 	assert.equal(deletes, 0);
 }
+
+// A queued microtask mutating a caller-owned image during asynchronous
+// hashing cannot change the snapshotted payload; stored bytes match the refs.
+{
+	const mutable: TurnImagePart = { ...inline, fileName: "before.png" };
+	const persisted = persistWorkflowImages(bucket, "tedi", "mutate", [mutable]);
+	queueMicrotask(() => {
+		mutable.fileName = "after.png";
+	});
+	const mutatedRefs = await persisted;
+	assert.equal(mutatedRefs[0]!.fileName, "before.png");
+	assert.deepEqual(
+		await loadWorkflowImages(bucket, "tedi", "mutate", mutatedRefs),
+		[{ ...inline, fileName: "before.png" }],
+	);
+}

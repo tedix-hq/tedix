@@ -102,29 +102,38 @@ export function workflowImageUri(ref: WorkflowImageRef): string {
 	return `tedix-r2://workflow-image/${encodeURIComponent(ref.key)}?sha256=${ref.sha256}`;
 }
 
-/** Validate and describe every payload before any private storage mutation. */
-export async function describeWorkflowImages(
-	tediId: string,
-	runId: string,
-	images: readonly TurnImagePart[],
-): Promise<WorkflowImageRef[]> {
-	const owner = prefix(tediId, runId);
+/** Caller-owned images are copied to strings before any await; later mutation cannot reach stored bytes. */
+function snapshotBodies(images: readonly TurnImagePart[]): string[] {
 	if (images.length > MAX_IMAGES) invalid();
 	// Validate the entire request before starting any writes.
-	const bodies = images.map((image) => JSON.stringify(normalize(image)));
+	return images.map((image) => JSON.stringify(normalize(image)));
+}
+
+async function refsFromBodies(
+	owner: string,
+	bodies: readonly string[],
+): Promise<WorkflowImageRef[]> {
 	const refs: WorkflowImageRef[] = [];
 	for (const body of bodies) {
 		const sha256 = await hash(body);
-		const key = `${owner}${sha256}.json`;
 		const image = JSON.parse(body) as TurnImagePart;
 		refs.push({
-			key,
+			key: `${owner}${sha256}.json`,
 			sha256,
 			mediaType: image.mediaType,
 			fileName: image.fileName,
 		});
 	}
 	return refs;
+}
+
+/** Validate and describe every payload before any private storage mutation. */
+export async function describeWorkflowImages(
+	tediId: string,
+	runId: string,
+	images: readonly TurnImagePart[],
+): Promise<WorkflowImageRef[]> {
+	return refsFromBodies(prefix(tediId, runId), snapshotBodies(images));
 }
 
 /** A wire guard must complete synchronously before an external effect starts. */
@@ -142,8 +151,8 @@ export async function persistWorkflowImages(
 	assertReady: () => Promise<() => void>,
 ): Promise<WorkflowImageRef[]> {
 	const owner = prefix(tediId, runId);
-	const refs = await describeWorkflowImages(tediId, runId, images);
-	const bodies = images.map((image) => JSON.stringify(normalize(image)));
+	const bodies = snapshotBodies(images);
+	const refs = await refsFromBodies(owner, bodies);
 	const manifestKey = `${owner}manifest.json`;
 	const manifest = JSON.stringify(refs);
 	const validateManifest = async (object: R2ObjectBody | null) => {
