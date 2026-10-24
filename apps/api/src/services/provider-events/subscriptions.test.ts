@@ -128,6 +128,7 @@ beforeEach(() => {
 	mocks.channels.mockResolvedValue([]);
 	mocks.delivery.mockResolvedValue([{}]);
 	mocks.claim.mockResolvedValue(true);
+	mocks.settle.mockResolvedValue(true);
 	mocks.pending.mockResolvedValue([
 		{ id: "delivery", organizationId: "org-a", subscriptionId: id },
 	]);
@@ -247,9 +248,11 @@ describe("durable dispatch authority and retries", () => {
 			{},
 			"delivery",
 			"org-a",
+			expect.any(String),
 			"sent",
 			expect.any(String),
 		);
+		expect(mocks.settle.mock.calls[0][3]).toBe(mocks.claim.mock.calls[0][4]);
 	});
 	it("returns failed queue publication to pending with same idempotency identity", async () => {
 		mocks.emit.mockRejectedValueOnce(new Error("temporary"));
@@ -258,6 +261,7 @@ describe("durable dispatch authority and retries", () => {
 			{},
 			"delivery",
 			"org-a",
+			expect.any(String),
 			"pending",
 			expect.any(String),
 		);
@@ -309,6 +313,7 @@ describe("durable dispatch authority and retries", () => {
 			{},
 			"delivery",
 			"org-a",
+			expect.any(String),
 			"discarded",
 			expect.any(String),
 		);

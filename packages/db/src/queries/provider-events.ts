@@ -205,15 +205,30 @@ export async function settleProviderEventDelivery(
 	db: DbQueryClient,
 	id: string,
 	organizationId: string,
+	leaseUntil: string,
 	status: "sent" | "discarded" | "pending",
 	now: string,
 ) {
-	await db
-		.update(deliveries)
-		.set({ status, leaseUntil: null, sentAt: status === "sent" ? now : null })
-		.where(
-			and(eq(deliveries.id, id), eq(deliveries.organizationId, organizationId)),
-		);
+	return (
+		(
+			await db
+				.update(deliveries)
+				.set({
+					status,
+					leaseUntil: null,
+					sentAt: status === "sent" ? now : null,
+				})
+				.where(
+					and(
+						eq(deliveries.id, id),
+						eq(deliveries.organizationId, organizationId),
+						eq(deliveries.status, "pending"),
+						eq(deliveries.leaseUntil, leaseUntil),
+					),
+				)
+				.returning({ id: deliveries.id })
+		).length > 0
+	);
 }
 // Platform maintenance scans contain no caller-supplied organization selector.
 export async function dueProviderEventSubscriptions(

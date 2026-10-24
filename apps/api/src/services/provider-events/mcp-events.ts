@@ -285,6 +285,7 @@ export async function ingestMcpEvent(
 		return "rejected";
 	const now = new Date();
 	const nowIso = now.toISOString();
+	const deliveryLeaseUntil = new Date(now.getTime() + 60_000).toISOString();
 	const id = await callbackTokenHash(
 		`${row.organizationId}:${row.id}:mcp-event:${eventId}`,
 	);
@@ -293,7 +294,7 @@ export async function ingestMcpEvent(
 		organizationId: row.organizationId,
 		subscriptionId: row.id,
 		status: "pending",
-		leaseUntil: new Date(now.getTime() + 60_000).toISOString(),
+		leaseUntil: deliveryLeaseUntil,
 		createdAt: nowIso,
 		payload: wrapUntrustedMcpEvent(row, {
 			eventId,
@@ -319,6 +320,7 @@ export async function ingestMcpEvent(
 			context.db,
 			id,
 			row.organizationId,
+			deliveryLeaseUntil,
 			"discarded",
 			nowIso,
 		);
@@ -336,6 +338,7 @@ export async function ingestMcpEvent(
 		context.db,
 		id,
 		row.organizationId,
+		deliveryLeaseUntil,
 		"pending",
 		nowIso,
 	);
