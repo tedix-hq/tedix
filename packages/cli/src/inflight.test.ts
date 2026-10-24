@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { InFlightRegistry } from "./inflight";
 
 // ---------------------------------------------------------------------------
@@ -279,62 +279,89 @@ describe("InFlightRegistry: waitAll (/wait behavior)", () => {
 	});
 
 	test("waitAll waits until all runs are settled then resolves", async () => {
-		const reg = new InFlightRegistry();
-		reg.add({ homeRunId: "run-1", label: "q1", conversationId: "c1" });
-		reg.add({ homeRunId: "run-2", label: "q2", conversationId: "c1" });
+		jest.useFakeTimers();
+		try {
+			const reg = new InFlightRegistry();
+			reg.add({ homeRunId: "run-1", label: "q1", conversationId: "c1" });
+			reg.add({ homeRunId: "run-2", label: "q2", conversationId: "c1" });
 
-		let resolved = false;
-		const waiting = reg.waitAll({ pollIntervalMs: 5 }).then(() => {
-			resolved = true;
-		});
+			let resolved = false;
+			const waiting = reg.waitAll({ pollIntervalMs: 5 }).then(() => {
+				resolved = true;
+			});
 
-		// Not yet settled
-		expect(resolved).toBe(false);
+			// Poll cycles run while both runs are still in flight.
+			jest.advanceTimersByTime(10);
+			await Promise.resolve();
+			expect(resolved).toBe(false);
 
-		// Settle them asynchronously
-		await new Promise((r) => setTimeout(r, 10));
-		reg.settle("run-1");
-		reg.remove("run-1");
+			// Partial drain: run-1 settles while run-2 is still in flight.
+			reg.settle("run-1");
+			reg.remove("run-1");
+			jest.advanceTimersByTime(10);
+			await Promise.resolve();
+			expect(resolved).toBe(false);
 
-		await new Promise((r) => setTimeout(r, 10));
-		reg.settle("run-2");
-		reg.remove("run-2");
+			// Full drain: the next poll sees an empty registry.
+			reg.settle("run-2");
+			reg.remove("run-2");
+			jest.advanceTimersByTime(5);
 
-		await waiting;
-		expect(resolved).toBe(true);
+			await waiting;
+			expect(resolved).toBe(true);
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 
 	test("waitAll respects abort signal", async () => {
-		const reg = new InFlightRegistry();
-		reg.add({ homeRunId: "run-1", label: "q", conversationId: "c1" });
+		jest.useFakeTimers();
+		try {
+			const reg = new InFlightRegistry();
+			reg.add({ homeRunId: "run-1", label: "q", conversationId: "c1" });
 
-		const ac = new AbortController();
-		const waitPromise = reg.waitAll({ pollIntervalMs: 5, signal: ac.signal });
+			const ac = new AbortController();
+			const waitPromise = reg.waitAll({
+				pollIntervalMs: 5,
+				signal: ac.signal,
+			});
 
-		// Abort immediately
-		ac.abort();
+			// Abort while a poll is pending; the next tick sees the signal.
+			ac.abort();
+			jest.advanceTimersByTime(5);
 
-		await expect(waitPromise).rejects.toThrow("waitAll aborted");
+			await expect(waitPromise).rejects.toThrow("waitAll aborted");
+			expect(jest.getTimerCount()).toBe(0);
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 
 	test("waitAll resolves after single run settles", async () => {
-		const reg = new InFlightRegistry();
-		reg.add({ homeRunId: "run-1", label: "q", conversationId: "c1" });
+		jest.useFakeTimers();
+		try {
+			const reg = new InFlightRegistry();
+			reg.add({ homeRunId: "run-1", label: "q", conversationId: "c1" });
 
-		let done = false;
-		const waiting = reg.waitAll({ pollIntervalMs: 5 }).then(() => {
-			done = true;
-		});
+			let done = false;
+			const waiting = reg.waitAll({ pollIntervalMs: 5 }).then(() => {
+				done = true;
+			});
 
-		// Give the poller a cycle to see it's not empty
-		await new Promise((r) => setTimeout(r, 15));
-		expect(done).toBe(false);
+			// Poll cycles run while the run is still in flight.
+			jest.advanceTimersByTime(15);
+			await Promise.resolve();
+			expect(done).toBe(false);
 
-		// Settle and remove
-		reg.settle("run-1");
-		reg.remove("run-1");
+			// Settle and remove; the next poll drains the registry.
+			reg.settle("run-1");
+			reg.remove("run-1");
+			jest.advanceTimersByTime(5);
 
-		await waiting;
-		expect(done).toBe(true);
+			await waiting;
+			expect(done).toBe(true);
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 });
