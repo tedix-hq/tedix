@@ -1088,13 +1088,17 @@ try {
 		throw new Error("Session proposer overflowed the phone viewport");
 	await failed.getByRole("button", { name: "Approve", exact: true }).click();
 	await failed.getByRole("alert").waitFor();
-	await failed.waitForTimeout(300);
-	if (
-		(await failed
-			.locator(".fd-decision")
-			.evaluate((el) => getComputedStyle(el).opacity)) !== "1"
-	)
-		throw new Error("Failed save left the card invisible");
+	await failed
+		.waitForFunction(
+			() =>
+				getComputedStyle(document.querySelector(".fd-decision")!).opacity ===
+				"1",
+		)
+		.catch((error) => {
+			throw new Error("Failed save left the card invisible", {
+				cause: error,
+			});
+		});
 	await failed.close();
 	console.log(
 		"Feed and Deck: bounded context rail, responsive Sheets, retry recovery, drag/spring-back, accent, timeline and reduced motion passed.",
