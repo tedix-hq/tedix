@@ -10,6 +10,7 @@ import {
 	createApprovalRequestWithAudit,
 	getApprovalRequestById,
 	consumeOwnerToolApproval,
+	findPendingOwnerToolApproval,
 	getApprovalAnchor,
 } from "@tedix/db/queries/approvals";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
@@ -29,7 +30,10 @@ import {
 	readPinnedCapabilityManifest,
 } from "@tedix/api-contract/utils/skill-manifest";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
-import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
+import {
+	getSkillEntry,
+	getSkillEntryBySlug,
+} from "@tedix/db/queries/cognitive/skill-crud";
 import {
 	resolveSkillMcpNamespaceSlugs,
 	skillMcpProxyIncludesSource,
@@ -53,28 +57,73 @@ const mcpGovernanceOs = implement(
 ).$context<BaseContext>();
 const serviceOs = mcpGovernanceOs.use(withServiceAuth);
 const RESERVED_SKILL_NAMESPACES = new Set(["tedi", "home", "kernel", "os"]);
+const RUNNABLE_SKILL_STATES = new Set(["active", "proven", "crystallized"]);
+
+/** withServiceAuth leaves the organization to the gateway's X-Tedix-Org-Id. */
+async function assertGatewayOrganization(
+	context: BaseContext,
+	organizationId: string,
+): Promise<void> {
+	const gatewayOrganizationId =
+		context.organizationId ??
+		(await resolveServiceBindingOrganizationId(context));
+	if (gatewayOrganizationId !== organizationId)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Approval organization does not match the gateway context",
+		);
+}
+
+async function isActiveOwnerOrAdmin(
+	context: BaseContext,
+	organizationId: string,
+	userId: string,
+): Promise<boolean> {
+	const member = await getMemberByUserId(context.db, organizationId, userId);
+	return (
+		member?.status === "active" && ["owner", "admin"].includes(member.role)
+	);
+}
+
+/** The skill a gateway skill start names, read only inside the gateway organization. */
+async function skillForStart(
+	context: BaseContext,
+	organizationId: string,
+	args: Record<string, unknown>,
+) {
+	if (typeof args.skillId === "string" && args.skillId)
+		return getSkillEntry(context.db, args.skillId, organizationId);
+	if (typeof args.slug === "string" && args.slug)
+		return getSkillEntryBySlug(context.db, organizationId, args.slug);
+	return undefined;
+}
+
+function isSkillStart(target: Record<string, unknown>): boolean {
+	return target.transport === "rpc" && target.endpoint === "skills/runWorkflow";
+}
+
+/** Plain-language card title; the tool slug stays in the payload. */
+function ownerToolApprovalTitle(
+	toolId: string,
+	skillTitle: string | undefined,
+): string {
+	if (skillTitle) return `Run skill: ${skillTitle}`;
+	const action = (toolId.split("__").at(-1) ?? toolId)
+		.replace(/[_-]+/g, " ")
+		.trim();
+	return action ? action[0]!.toUpperCase() + action.slice(1) : toolId;
+}
 
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
 		async ({ input, context }) => {
-			// withServiceAuth does not resolve the organization; the gateway's
-			// governance client carries it in X-Tedix-Org-Id.
-			const gatewayOrganizationId =
-				context.organizationId ??
-				(await resolveServiceBindingOrganizationId(context));
-			if (gatewayOrganizationId !== input.organizationId)
-				throw createError(
-					ErrorCodes.FORBIDDEN,
-					"Approval organization does not match the gateway context",
-				);
-			const member = await getMemberByUserId(
-				context.db,
-				input.organizationId,
-				input.userId,
-			);
+			await assertGatewayOrganization(context, input.organizationId);
 			if (
-				member?.status !== "active" ||
-				!["owner", "admin"].includes(member.role)
+				!(await isActiveOwnerOrAdmin(
+					context,
+					input.organizationId,
+					input.userId,
+				))
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
@@ -142,6 +191,26 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					url: `${origin.replace(/\/+$/, "")}/work/approvals#${approval.id}`,
 				};
 			}
+			// A retry of the same refused call reuses its open request.
+			const pending = await findPendingOwnerToolApproval(context.db, {
+				organizationId: input.organizationId,
+				fingerprint,
+				now,
+			});
+			if (pending)
+				return {
+					approved: false,
+					approvalRequestId: pending.id,
+					status: "pending",
+					url: `${origin.replace(/\/+$/, "")}/work/approvals#${pending.id}`,
+				};
+			// Never park a skill start that the API would refuse after approval.
+			const skill = isSkillStart(input.target)
+				? await skillForStart(context, input.organizationId, input.args)
+				: undefined;
+			if (isSkillStart(input.target) && !skill)
+				throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+			const title = ownerToolApprovalTitle(input.toolId, skill?.title);
 			// The anchor supplies the existing approval queue's FK, never tedi authority.
 			const anchor = await getApprovalAnchor(context.db, input.organizationId);
 			if (!anchor)
@@ -157,7 +226,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					orgId: input.organizationId,
 					tediId: anchor.id,
 					actionType: "mcp.tool_call",
-					description: `Approve ${input.appSlug}:${input.toolId}. After deciding in Tedix OS, retry the identical call with approval ${id}. Nothing has been executed.`,
+					description: `${title}. Nothing has run yet; approving allows one identical retry of this call.`,
 					payload: {
 						kind: "mcp_tool_call",
 						initiatedByUserId: input.userId,
@@ -189,6 +258,33 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				approvalRequestId: id,
 				status: "pending",
 				url: `${origin.replace(/\/+$/, "")}/work/approvals#${id}`,
+			};
+		},
+	),
+	resolveOwnerSkillStart: serviceOs.resolveOwnerSkillStart.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			if (
+				!(await isActiveOwnerOrAdmin(
+					context,
+					input.organizationId,
+					input.userId,
+				))
+			)
+				return { approved: false };
+			const skill = await skillForStart(context, input.organizationId, input);
+			const files = (skill?.files ?? null) as Record<string, string> | null;
+			// Drafts keep the certification path; effects inside keep their gates.
+			if (
+				!skill ||
+				!RUNNABLE_SKILL_STATES.has(skill.lifecycleState ?? "") ||
+				!files?.["scripts/workflow.ts"]
+			)
+				return { approved: false };
+			return {
+				approved: true,
+				skillId: skill.id,
+				...(skill.revision ? { revision: skill.revision } : {}),
 			};
 		},
 	),

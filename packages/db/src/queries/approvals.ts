@@ -581,6 +581,28 @@ export async function admitKernelAutoWrite(
 	return runs.length > 0;
 }
 
+/** The open request for this exact gateway call, so a retry never parks twice. */
+export async function findPendingOwnerToolApproval(
+	db: DbClient,
+	input: { organizationId: string; fingerprint: string; now: string },
+): Promise<{ id: string } | undefined> {
+	const [row] = await db
+		.select({ id: tediApprovalRequests.id })
+		.from(tediApprovalRequests)
+		.where(
+			and(
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "pending"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				gt(tediApprovalRequests.expiresAt, input.now),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') = ${input.fingerprint}`,
+			),
+		)
+		.orderBy(desc(tediApprovalRequests.createdAt))
+		.limit(1);
+	return row;
+}
+
 /** A single approved gateway call can be claimed once, before dispatch. */
 export async function consumeOwnerToolApproval(
 	db: DbClient,

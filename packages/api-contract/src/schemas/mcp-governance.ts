@@ -162,3 +162,20 @@ export const RequestOwnerToolApprovalResponseSchema = z.object({
 	status: z.string(),
 	url: z.string().url(),
 });
+
+/** Gateway-attested owner start of an existing skill; never a public tool input. */
+export const ResolveOwnerSkillStartInputSchema = z
+	.object({
+		organizationId: z.string().min(1),
+		userId: z.string().min(1),
+		skillId: z.string().min(1).optional(),
+		slug: z.string().min(1).optional(),
+	})
+	.refine((input) => Boolean(input.skillId || input.slug), {
+		message: "skillId or slug is required",
+	});
+export const ResolveOwnerSkillStartResponseSchema = z.object({
+	approved: z.boolean(),
+	skillId: z.string().optional(),
+	revision: z.number().int().positive().optional(),
+});

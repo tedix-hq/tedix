@@ -14,6 +14,8 @@ import { baseErrors } from "../errors";
 import {
 	RequestOwnerToolApprovalInputSchema,
 	RequestOwnerToolApprovalResponseSchema,
+	ResolveOwnerSkillStartInputSchema,
+	ResolveOwnerSkillStartResponseSchema,
 	ResolveSkillManifestAuthorizationInputSchema,
 	ResolveSkillManifestAuthorizationResponseSchema,
 	ResolveAgentLifecycleAuthorizationInputSchema,
@@ -39,6 +41,17 @@ export const mcpGovernanceContract = oc
 			})
 			.input(RequestOwnerToolApprovalInputSchema)
 			.output(RequestOwnerToolApprovalResponseSchema),
+		resolveOwnerSkillStart: oc
+			.route({
+				method: "POST",
+				path: "/resolve-owner-skill-start",
+				summary: "Verify an owner's start of an active skill",
+				description:
+					"Internal service-binding check used by the MCP gateway. Approves only when the caller is an active owner or admin of the gateway organization and the skill is active there with an executable workflow. Effects inside the run keep their own gates.",
+				tags: ["internal"],
+			})
+			.input(ResolveOwnerSkillStartInputSchema)
+			.output(ResolveOwnerSkillStartResponseSchema),
 		resolveSkillManifestAuthorization: oc
 			.route({
 				method: "POST",
