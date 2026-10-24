@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { InFlightEntry } from "./inflight";
 import {
 	ACTIVITY_MAX,
@@ -855,24 +855,41 @@ describe("LiveActivityPanel TTY data source", () => {
 	});
 
 	test("slow projection reads never overlap subsequent poll ticks", async () => {
+		let tick!: () => void;
+		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+		) => {
+			tick = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		const { promise: pending, resolve: release } =
+			Promise.withResolvers<void>();
 		let calls = 0;
 		const slowRead = async () => {
 			calls++;
-			await new Promise((resolve) => setTimeout(resolve, 30));
+			await pending;
 			return {};
 		};
 		const panel = new LiveActivityPanel({
 			isTty: true,
-			pollIntervalMs: 2,
 			ops: {
 				readHomeRunSet: slowRead,
 				readChildRunTree: slowRead,
 			},
 		});
-		panel.add(makeEntry());
-		await new Promise((resolve) => setTimeout(resolve, 15));
-		panel.stop();
-		// One projection pair runs concurrently; later 2ms ticks are suppressed.
-		expect(calls).toBe(2);
+		try {
+			panel.add(makeEntry());
+			tick();
+			expect(calls).toBe(2);
+			// Keep the first pair pending while subsequent poll ticks arrive.
+			tick();
+			tick();
+			expect(calls).toBe(2);
+		} finally {
+			panel.stop();
+			release();
+			timer.mockRestore();
+			await pending;
+		}
 	});
 });
