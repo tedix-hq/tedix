@@ -1,6 +1,27 @@
-import { describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../rpc/orpc";
 import { resolveWorkspaceResourceAvailability } from "./os-workspace-resource-availability";
+
+const mocks = vi.hoisted(() => ({
+	account: {
+		tokenIds: ["token-1"],
+		tokenSub: "account-1",
+	},
+	token: {
+		id: "token-1",
+		tokenSub: "account-1",
+		scopes: ["repo:read"],
+		expiresAt: undefined as number | string | null | undefined,
+	},
+}));
+
+vi.mock("@tedix/db/queries/connection-instances", () => ({
+	getConnectionInstance: vi.fn(async () => mocks.account),
+}));
+
+vi.mock("../rpc/routers/connections/policy-resolution", () => ({
+	fetchNamedConnection: vi.fn(async () => mocks.token),
+}));
 
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 const context = {
@@ -20,6 +41,10 @@ const baseDependencies = {
 };
 
 describe("resolveWorkspaceResourceAvailability", () => {
+	beforeEach(() => {
+		mocks.token.expiresAt = undefined;
+	});
+
 	it("projects an available canonical connection without exposing its token", async () => {
 		const result = await resolveWorkspaceResourceAvailability(
 			context,
@@ -68,6 +93,57 @@ describe("resolveWorkspaceResourceAvailability", () => {
 		expect(expired.status).toBe("expired_connection");
 		expect(failed.status).toBe("check_failed");
 	});
+
+	it.each(["invalid", Number.NaN, Number.POSITIVE_INFINITY, -1])(
+		"fails closed for malformed tenant expiration %s",
+		async (expiresAt) => {
+			const result = await resolveWorkspaceResourceAvailability(
+				context,
+				resource,
+				{
+					...baseDependencies,
+					resolveToken: async () => ({ expiresAt }),
+				},
+			);
+
+			expect(result.status).toBe("expired_connection");
+		},
+	);
+
+	it.each(["invalid", Number.NaN, Number.POSITIVE_INFINITY, -1])(
+		"fails closed for malformed personal expiration %s",
+		async (expiresAt) => {
+			mocks.token.expiresAt = expiresAt;
+			const result = await resolveWorkspaceResourceAvailability(
+				{ ...context, authType: "user" } as BaseContext,
+				{
+					...resource,
+					connectionScope: "user",
+					personalOwnerUserId: "user-1",
+					connectionInstanceId: "connection-1",
+				},
+				{ now: () => NOW },
+			);
+
+			expect(result.status).toBe("expired_connection");
+		},
+	);
+
+	it.each([undefined, null, 0])(
+		"preserves non-expiring tenant expiration %s",
+		async (expiresAt) => {
+			const result = await resolveWorkspaceResourceAvailability(
+				context,
+				resource,
+				{
+					...baseDependencies,
+					resolveToken: async () => ({ expiresAt }),
+				},
+			);
+
+			expect(result.status).toBe("available");
+		},
+	);
 
 	it("never resolves a removed resource", async () => {
 		let checked = false;
