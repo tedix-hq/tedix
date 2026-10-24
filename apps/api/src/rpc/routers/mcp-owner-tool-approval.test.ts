@@ -88,6 +88,35 @@ describe("owner gateway approvals", () => {
 		);
 		expect(mocks.create).not.toHaveBeenCalled();
 	});
+	// Live 24 Oct 2026: withServiceAuth leaves context.organizationId unset, so
+	// every production request was refused as an organization mismatch.
+	function headerOnlyClient(orgHeader: string) {
+		return createRouterClient(mcpGovernanceContractRouter, {
+			context: {
+				authType: "service-binding",
+				db: {},
+				env: { ENVIRONMENT: "production" },
+				headers: new Headers({
+					"X-Service-Binding": "true",
+					"X-Tedix-Org-Id": orgHeader,
+				}),
+				url: new URL("https://api.test/rpc"),
+				rateLimiter: { limit: async () => ({ success: true }) },
+			} as BaseContext,
+		});
+	}
+	it("takes the gateway organization from the service-binding header", async () => {
+		await expect(
+			headerOnlyClient("org-1").requestOwnerToolApproval(input),
+		).resolves.toMatchObject({ approved: false, status: "pending" });
+		expect(mocks.create).toHaveBeenCalled();
+	});
+	it("refuses an approval for another organization than the header names", async () => {
+		await expect(
+			headerOnlyClient("org-2").requestOwnerToolApproval(input),
+		).rejects.toThrow(/does not match the gateway context/);
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
 	it("requires a trusted service binding", async () => {
 		await expect(
 			client("user").requestOwnerToolApproval(input),

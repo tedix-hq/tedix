@@ -406,7 +406,8 @@ export function isExternalAgentWorkloadExchangeCall(
 	);
 }
 
-async function resolveServiceBindingOrganizationId(
+/** The organization a trusted service-binding caller is scoped to. */
+export async function resolveServiceBindingOrganizationId(
 	context: BaseContext,
 ): Promise<string | undefined> {
 	const serviceOrgId = getServiceBindingOrganizationHeader(context.headers);
