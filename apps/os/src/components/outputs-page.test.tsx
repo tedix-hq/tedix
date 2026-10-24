@@ -165,6 +165,7 @@ describe("OutputsPage", () => {
 				'button[aria-label="Open Weekly report in Q3 planning"]',
 			);
 			expect(open).not.toBeNull();
+			expect(open?.textContent).toBe("Open");
 			expect(open?.getAttribute("tabindex")).toBe("0");
 			expect(open?.className).toContain("inset-px");
 			expect(open?.className).not.toContain("inset-0");
@@ -177,6 +178,7 @@ describe("OutputsPage", () => {
 			const actions = card.querySelector<HTMLButtonElement>(
 				'button[aria-label="Actions for Weekly report"]',
 			)!;
+			expect(actions.textContent).toContain("Actions");
 			for (const control of [share, actions]) {
 				expect(control.closest('button, [role="button"]')).toBe(control);
 				act(() => control.click());

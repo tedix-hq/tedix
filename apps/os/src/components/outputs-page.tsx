@@ -175,13 +175,25 @@ function OutputMenu(props: {
 	const opensInWorkspace = affordance.target.kind === "workspace";
 	const contentAvailable = props.item.preview.kind !== "unavailable";
 	return (
-		<div className="output-card-actions relative z-10 flex shrink-0 items-center gap-1">
+		<div className="output-card-actions flex shrink-0 items-center gap-1">
 			{contentAvailable ? (
-				<ShareControls
-					outputId={props.item.output.id}
-					currentRevisionId={props.item.output.currentRevisionId}
-					compact
-				/>
+				<>
+					<Button
+						type="button"
+						tabIndex={0}
+						variant="ghost"
+						size="sm"
+						aria-label={affordance.cardLabel}
+						onClick={props.onOpen}
+						className="output-card-open static after:absolute after:inset-px after:content-['']"
+					>
+						Open
+					</Button>
+					<ShareControls
+						outputId={props.item.output.id}
+						currentRevisionId={props.item.output.currentRevisionId}
+					/>
+				</>
 			) : null}
 			<DropdownMenu>
 				<DropdownMenuTrigger
@@ -189,12 +201,13 @@ function OutputMenu(props: {
 						<Button
 							aria-label={`Actions for ${props.item.output.title}`}
 							title={`Actions for ${props.item.output.title}`}
-							size="icon-sm"
+							size="sm"
 							variant="ghost"
+							className="relative z-10"
 						/>
 					}
 				>
-					<DotsThree size={16} weight="bold" />
+					<DotsThree size={16} weight="bold" /> Actions
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
 					{contentAvailable ? (
@@ -258,16 +271,6 @@ function OutputCard(props: OutputCardProps) {
 			onRename={props.onRename}
 		/>
 	);
-	const openControl = contentAvailable ? (
-		<Button
-			type="button"
-			tabIndex={0}
-			variant="ghost"
-			aria-label={cardLabel}
-			onClick={props.onOpen}
-			className="output-card-open absolute inset-px z-0 h-auto w-auto rounded-[inherit] bg-transparent p-0 hover:bg-transparent"
-		/>
-	) : null;
 	if (props.layout === "list") {
 		return (
 			<li
@@ -275,7 +278,6 @@ function OutputCard(props: OutputCardProps) {
 				aria-disabled={contentAvailable ? undefined : true}
 				className={`output-list-row group relative flex min-h-16 items-center gap-3 rounded-lg px-3 py-2.5 outline-none transition-colors motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:bg-kumo-tint" : "cursor-default"}`}
 			>
-				{openControl}
 				<IconFrame>
 					<Icon size={18} />
 				</IconFrame>
@@ -355,14 +357,13 @@ function OutputCard(props: OutputCardProps) {
 			className={`output-grid-card group relative overflow-visible outline-none transition-[border-color] motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:border-kumo-fill" : "cursor-default"}`}
 			render={<li />}
 		>
-			{openControl}
 			<div
 				data-slot="output-grid-preview"
 				className="aspect-video overflow-hidden rounded-t-xl border-kumo-line border-b"
 			>
 				<OutputPreview preview={item.preview} />
 			</div>
-			<div className="output-card-footer grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 p-4">
+			<div className="output-card-footer grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 p-4">
 				<IconFrame size="sm">
 					<Icon size={16} />
 				</IconFrame>
