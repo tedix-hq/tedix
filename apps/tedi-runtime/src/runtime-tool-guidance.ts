@@ -119,8 +119,20 @@ const REPOSITORY_INSTRUCTIONS_NOTE =
 	"Before editing or running setup, formatting or tests in a repository, use native read for its root AGENTS.md and applicable scoped AGENTS.md files when present. If truncated, continue with nextOffset as offset and nextByteOffset as byteOffset until complete. Use the repository's documented setup, formatter and test commands.";
 const CODE_SEARCH_NOTE =
 	" Use code_search for repository search instead of grep/rg/find through exec; omitted paths search the whole repository. Before fixing a defect, search sibling occurrences and reconcile what you found, changed and left unchanged.";
-const SUPERVISED_NOTE =
-	"Home supervises this run and owns the assigned Work Item lifecycle, including starting it, heartbeat, evidence, and settlement. Do the assigned execution work; do not call assigned-work lifecycle tools or select another Work Item for your own attempt. You may use assigned MCP apps to read Work projects and items when the operator's task names that workspace or project and your scopes allow it. Under an active critical-only autonomy policy, requested comments or specification updates on the target Work Item, Outputs, research notes, and code through normal push gates may proceed within your existing scopes and ownership. This grants no new scope: report an authorization gap instead of expanding access. You cannot approve, complete, cancel, reprioritize, change budgets, or grant access. Critical actions require a human; do not approve them yourself. Use tedix_mcp_code for assigned MCP apps, batching discovery and dependent calls; an enforced earned-delegation grant exposes only its exact-call transport.";
+const DELEGATED_REPLY_OPEN = "<final_answer>";
+const DELEGATED_REPLY_CLOSE = "</final_answer>";
+const SUPERVISED_NOTE = `Home supervises this run and owns the assigned Work Item lifecycle, including starting it, heartbeat, evidence, and settlement. Do the assigned execution work; do not call assigned-work lifecycle tools or select another Work Item for your own attempt. You may use assigned MCP apps to read Work projects and items when the operator's task names that workspace or project and your scopes allow it. Under an active critical-only autonomy policy, requested comments or specification updates on the target Work Item, Outputs, research notes, and code through normal push gates may proceed within your existing scopes and ownership. This grants no new scope: report an authorization gap instead of expanding access. You cannot approve, complete, cancel, reprioritize, change budgets, or grant access. Critical actions require a human; do not approve them yourself. Use tedix_mcp_code for assigned MCP apps, batching discovery and dependent calls; an enforced earned-delegation grant exposes only its exact-call transport. Put the complete user-facing reply between ${DELEGATED_REPLY_OPEN} and ${DELEGATED_REPLY_CLOSE}. Anything outside those markers is discarded. Do not include planning, working notes, or a sources list unless the request asks for one.`;
+
+/** Keep only an explicitly bounded final reply; preserve unmarked model output. */
+export function settledDelegatedReply(text: string): string {
+	const fallback = text.trim();
+	const start = text.lastIndexOf(DELEGATED_REPLY_OPEN);
+	if (start < 0) return fallback;
+	const contentStart = start + DELEGATED_REPLY_OPEN.length;
+	const end = text.indexOf(DELEGATED_REPLY_CLOSE, contentStart);
+	if (end < 0) return fallback;
+	return text.slice(contentStart, end).trim() || fallback;
+}
 
 export function workspaceToolGuidance(input: {
 	supervised?: boolean;

@@ -138,6 +138,7 @@ import {
 	type RepositoryMode,
 	PERSONAL_REQUEST_READ_GUIDANCE,
 	selectRepositoryToolSurface,
+	settledDelegatedReply,
 	workspaceToolGuidance,
 } from "./runtime-tool-guidance";
 import { facetToolCallOutcomes, type FacetTurnUsage } from "./step-telemetry";
@@ -1386,7 +1387,9 @@ export const runtimeFacetTurns = {
 			return {
 				assistantText: await this.actionReceiptJournal.finish(
 					input.runId,
-					result.assistantText,
+					input.delegated
+						? settledDelegatedReply(result.assistantText)
+						: result.assistantText,
 				),
 				turnError: null,
 				modelIdentity: result.modelIdentity,
