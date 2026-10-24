@@ -144,4 +144,13 @@ describe("draft editing", () => {
 			"audit-costs",
 		]);
 	});
+
+	it("preserves code examples when adding and removing a skill pill", () => {
+		const example = "Explain this:\n\n~~~text\n/skill deploy-runbook\n~~~";
+		const draft = insertSkillReference(`${example}\n/dep`, "deploy-runbook");
+		expect(draft).toBe(`/skill deploy-runbook\n\n${example}`);
+		expect(parseSkillReferences(example)).toEqual([]);
+		expect(parseSkillReferences(draft)).toEqual(["deploy-runbook"]);
+		expect(removeSkillReference(draft, "deploy-runbook")).toBe(example);
+	});
 });
