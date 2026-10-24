@@ -3,7 +3,11 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
-import { CanvasWorkpieceTabs } from "./canvas-workpiece-tabs";
+import {
+	CANVAS_WORKPIECE_PANEL_ID,
+	CanvasWorkpieceTabs,
+	canvasWorkpieceTabId,
+} from "./canvas-workpiece-tabs";
 
 const outputs = [
 	{ id: "doc-one", title: "Q3 Review", kind: "document" },
@@ -34,6 +38,15 @@ describe("workpiece tab accessible names", () => {
 	it("distinguishes same-titled tabs and close controls by kind and stable identity", () => {
 		const doc = renderTabs();
 		const tabs = [...doc.querySelectorAll('[role="tab"]')];
+		expect(tabs.map((tab) => tab.id)).toEqual([
+			"canvas-workpiece-tab-output%3Adoc-one",
+			"canvas-workpiece-tab-output%3Adoc-two",
+			"canvas-workpiece-tab-output%3Asheet-one",
+			"canvas-workpiece-tab-gadget%3Aapp-one",
+		]);
+		expect(tabs.map((tab) => tab.getAttribute("aria-controls"))).toEqual(
+			Array(4).fill(CANVAS_WORKPIECE_PANEL_ID),
+		);
 		const names = tabs.map((tab) => tab.getAttribute("aria-label"));
 		expect(names).toEqual([
 			"Q3 Review (Document, doc-one)",
@@ -53,6 +66,12 @@ describe("workpiece tab accessible names", () => {
 		expect(
 			remaining.querySelector('[role="tab"]')?.getAttribute("aria-label"),
 		).toBe(names[1]);
+	});
+
+	it("creates stable ids for the active panel relationship", () => {
+		expect(canvasWorkpieceTabId({ type: "output", id: "doc:one" })).toBe(
+			"canvas-workpiece-tab-output%3Adoc%3Aone",
+		);
 	});
 
 	it("labels unloaded workpieces without exposing undefined metadata", () => {

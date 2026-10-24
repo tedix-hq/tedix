@@ -39,6 +39,12 @@ export function canvasWorkpieceModeOptions(
 	] as const;
 }
 
+export const CANVAS_WORKPIECE_PANEL_ID = "canvas-workpiece-panel";
+
+export function canvasWorkpieceTabId(doc: CanvasDocSelection): string {
+	return `canvas-workpiece-tab-${encodeURIComponent(canvasDocKey(doc))}`;
+}
+
 export function CanvasWorkpieceTabs({
 	opened,
 	selectedKey,
@@ -126,6 +132,7 @@ export function CanvasWorkpieceTabs({
 		>
 			{opened.map((doc) => {
 				const key = canvasDocKey(doc);
+				const tabId = canvasWorkpieceTabId(doc);
 				const output = outputs.find((candidate) => candidate.id === doc.id);
 				const title =
 					doc.type === "gadget"
@@ -146,7 +153,9 @@ export function CanvasWorkpieceTabs({
 					>
 						<Button
 							aria-label={accessibleName}
+							aria-controls={CANVAS_WORKPIECE_PANEL_ID}
 							aria-selected={selected}
+							id={tabId}
 							tabIndex={key === focusableKey ? 0 : -1}
 							title={title ?? "Workpiece"}
 							className="min-w-0 flex-1 justify-start px-2 type-tedix-control"

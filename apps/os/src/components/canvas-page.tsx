@@ -27,8 +27,10 @@ import { CanvasStagePending } from "@/routes/-pending";
 import { CanvasProposals } from "@/components/canvas-proposals";
 import { CanvasResourceRail } from "@/components/canvas-resource-rail";
 import {
+	CANVAS_WORKPIECE_PANEL_ID,
 	CanvasWorkpieceTabs,
 	canvasWorkpieceModeOptions,
+	canvasWorkpieceTabId,
 } from "@/components/canvas-workpiece-tabs";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
@@ -1304,9 +1306,14 @@ export function CanvasPage({
 						</div>
 					) : null}
 					<div
+						aria-labelledby={
+							selectedDoc ? canvasWorkpieceTabId(selectedDoc) : undefined
+						}
 						className="canvas-stage-content"
 						data-has-workpiece={selectedDoc ? "" : undefined}
 						data-workpiece-mode={workpieceMode}
+						id={CANVAS_WORKPIECE_PANEL_ID}
+						role="tabpanel"
 					>
 						{workspaceId !== null && selectedDoc !== null ? (
 							<Suspense fallback={<CanvasStagePending />}>
