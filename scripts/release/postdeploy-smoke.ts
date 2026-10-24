@@ -294,6 +294,7 @@ export async function checkHealth(
 		urls.map((url) =>
 			timed(`health ${url}`, async () => {
 				const response = await fetchFn(url, {
+					redirect: "manual",
 					headers: { "cache-control": "no-store" },
 					signal: AbortSignal.timeout(15_000),
 				});

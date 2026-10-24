@@ -138,6 +138,60 @@ describe("health", () => {
 		);
 	});
 
+	test.each([undefined, "a".repeat(40)])(
+		"rejects redirects to a healthy surface with expected SHA %s",
+		async (expectedSha) => {
+			let destinationRequests = 0;
+			const destination = Bun.serve({
+				hostname: "127.0.0.1",
+				port: 0,
+				fetch() {
+					destinationRequests++;
+					return Response.json({ status: "ok", deployedSha: "a".repeat(40) });
+				},
+			});
+			const source = Bun.serve({
+				hostname: "127.0.0.1",
+				port: 0,
+				fetch(request) {
+					return new Response(null, {
+						status: Number(new URL(request.url).pathname.slice(1)),
+						headers: { location: new URL("/health", destination.url).href },
+					});
+				},
+			});
+			try {
+				const statuses = [301, 302, 303, 307, 308];
+				const urls = statuses.map(
+					(status) => new URL(`/${status}`, source.url).href,
+				);
+				const directUrl = new URL("/health", destination.url).href;
+				urls.push(directUrl);
+				const results = await checkHealth(
+					urls,
+					fetch,
+					expectedSha
+						? Object.fromEntries(urls.map((url) => [url, expectedSha]))
+						: {},
+				);
+				expect(
+					results.map((result) => [result.name, result.ok, result.detail]),
+				).toEqual([
+					...statuses.map((status, index) => [
+						`health ${urls[index]}`,
+						false,
+						`HTTP ${status}`,
+					]),
+					[`health ${directUrl}`, true, "ok"],
+				]);
+				expect(destinationRequests).toBe(1);
+			} finally {
+				source.stop(true);
+				destination.stop(true);
+			}
+		},
+	);
+
 	test("reports each URL separately", async () => {
 		const results = await checkHealth(
 			["https://up.example.test/health", "https://down.example.test/health"],
