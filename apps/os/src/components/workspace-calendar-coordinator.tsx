@@ -1050,7 +1050,7 @@ export function WorkspaceCalendarCoordinator({
 				<label>
 					Preview days
 					<Input
-						aria-label="Keep calendars aligned for the next (days)"
+						aria-label="Preview days"
 						type="number"
 						min={1}
 						max={90}

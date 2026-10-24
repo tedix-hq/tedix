@@ -263,6 +263,11 @@ describe("calendar setup authority and status", () => {
 		expect(html).not.toContain(WORKSPACE);
 		const container = document.createElement("div");
 		container.innerHTML = html;
+		const previewDays = container.querySelector('input[type="number"]');
+		expect(previewDays?.getAttribute("aria-label")).toBe("Preview days");
+		expect(previewDays?.closest("label")?.textContent?.trim()).toBe(
+			"Preview days",
+		);
 		const enable = [...container.querySelectorAll("button")].find(
 			(button) => button.textContent === "Enable blocker changes",
 		);
