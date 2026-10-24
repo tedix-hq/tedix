@@ -49,6 +49,7 @@ async function mount() {
 			await Promise.resolve();
 		});
 	return {
+		container,
 		input,
 		type,
 		key,
@@ -61,6 +62,46 @@ async function mount() {
 }
 
 describe("CanvasOutputTitle", () => {
+	it.each(["Enter", "blur"])(
+		"announces failed %s saves, restores the title, and clears the error after retry",
+		async (trigger) => {
+			outputsApi.rename.mockReset();
+			outputsApi.rename.mockRejectedValueOnce(new Error("Unavailable"));
+			const view = await mount();
+			try {
+				view.input.focus();
+				await view.type("Q4 report");
+				if (trigger === "Enter") await view.key("Enter");
+				else await act(async () => view.input.blur());
+				await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+				expect(view.input.value).toBe("Weekly report");
+				expect(view.input.getAttribute("aria-invalid")).toBe("true");
+				const alert = view.container.querySelector('[role="alert"]');
+				expect(alert?.textContent).toBe(
+					"The name could not be saved. Try again.",
+				);
+				expect(alert?.classList.contains("sr-only")).toBe(false);
+				expect(view.input.getAttribute("aria-describedby")).toBe(alert?.id);
+				expect(view.invalidate).not.toHaveBeenCalled();
+
+				outputsApi.rename.mockResolvedValueOnce({
+					output: { id: OUTPUT_ID, title: "Q4 report" },
+				});
+				view.input.focus();
+				await view.type("Q4 report");
+				await view.key("Enter");
+				await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+				expect(view.input.value).toBe("Q4 report");
+				expect(view.container.querySelector('[role="alert"]')).toBeNull();
+				expect(view.input.hasAttribute("aria-describedby")).toBe(false);
+				expect(view.input.hasAttribute("aria-invalid")).toBe(false);
+				expect(view.invalidate).toHaveBeenCalledOnce();
+			} finally {
+				view.unmount();
+			}
+		},
+	);
+
 	it("renames the open output on Enter and refreshes output reads", async () => {
 		outputsApi.rename.mockResolvedValue({
 			output: { id: OUTPUT_ID, title: "Q4 report" },
