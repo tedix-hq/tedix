@@ -186,6 +186,29 @@ function getDefaultByName(name: string): unknown | undefined {
 	return undefined;
 }
 
+function isCompatibleNameDefault(
+	value: unknown,
+	schema: JSONSchemaProperty,
+): boolean {
+	const type = schema.type ?? typeof value;
+	if (typeof value === "string" && type === "string") {
+		return (
+			!schema.format &&
+			!schema.pattern &&
+			value.length >= (schema.minLength ?? 0) &&
+			value.length <= (schema.maxLength ?? Number.POSITIVE_INFINITY)
+		);
+	}
+	if (typeof value === "number" && (type === "number" || type === "integer")) {
+		return (
+			(type !== "integer" || Number.isInteger(value)) &&
+			value >= (schema.minimum ?? Number.NEGATIVE_INFINITY) &&
+			value <= (schema.maximum ?? Number.POSITIVE_INFINITY)
+		);
+	}
+	return typeof value === "boolean" && type === "boolean";
+}
+
 /**
  * Generate a value for a JSON Schema property
  */
@@ -202,21 +225,24 @@ function generateValue(name: string, schema: JSONSchemaProperty): unknown {
 
 	// Try to get smart default by name
 	const nameDefault = getDefaultByName(name);
-	if (nameDefault !== undefined) {
+	if (
+		nameDefault !== undefined &&
+		isCompatibleNameDefault(nameDefault, schema)
+	) {
 		return nameDefault;
 	}
 
 	// Fall back to type-based defaults
 	switch (schema.type) {
 		case "string":
-			return generateStringValue(name, schema);
+			return generateStringValue(schema);
 		case "number":
 		case "integer":
 			return generateNumberValue(schema);
 		case "boolean":
 			return true;
 		case "array":
-			return generateArrayValue(name, schema);
+			return generateArrayValue(schema);
 		case "object":
 			return generateObjectValue(schema);
 		case "null":
@@ -230,7 +256,7 @@ function generateValue(name: string, schema: JSONSchemaProperty): unknown {
 /**
  * Generate a string value based on format or pattern
  */
-function generateStringValue(name: string, schema: JSONSchemaProperty): string {
+function generateStringValue(schema: JSONSchemaProperty): string {
 	// Handle known formats
 	switch (schema.format) {
 		case "email":
@@ -284,10 +310,7 @@ function generateNumberValue(schema: JSONSchemaProperty): number {
 /**
  * Generate an array value
  */
-function generateArrayValue(
-	name: string,
-	schema: JSONSchemaProperty,
-): unknown[] {
+function generateArrayValue(schema: JSONSchemaProperty): unknown[] {
 	if (schema.items) {
 		// Generate one item of the specified type
 		return [generateValue("item", schema.items)];
