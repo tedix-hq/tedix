@@ -375,30 +375,64 @@ function gitOutput(repo: string, args: string[]): string {
 	return result.stdout.trim();
 }
 
-export function provisionLaneWorktree(source: string, destination: string) {
+/**
+ * Provisions the checkout for one dispatch of a Work revision and returns its
+ * path. The caller only passes a path inside this dispatcher's own `runs/`
+ * directory and has already excluded a live lane process for that receipt.
+ *
+ * A worktree still registered there was left by an earlier dispatch of the
+ * same revision that failed before any model turn. It is reused when it is
+ * clean and holds no commit the source lacks; otherwise it stays untouched for
+ * inspection and the retry gets the next free sibling path.
+ */
+export function provisionLaneWorktree(
+	source: string,
+	destination: string,
+): string {
 	gitOutput(source, ["worktree", "prune"]);
-	const registered = gitOutput(source, [
-		"worktree",
-		"list",
-		"--porcelain",
-		"-z",
-	])
-		.split("\0")
-		.some(
-			(line) =>
-				line ===
-				`worktree ${existsSync(destination) ? realpathSync(destination) : resolve(destination)}`,
-		);
-	if (registered)
-		throw new Error(
-			"Provision destination is a registered worktree; retained for inspection",
-		);
+	const registered = new Set(
+		gitOutput(source, ["worktree", "list", "--porcelain", "-z"])
+			.split("\0")
+			.filter((line) => line.startsWith("worktree "))
+			.map((line) => line.slice("worktree ".length)),
+	);
+	const isRegistered = (path: string) =>
+		registered.has(existsSync(path) ? realpathSync(path) : resolve(path));
+	if (isRegistered(destination)) {
+		const head = gitOutput(source, ["rev-parse", "HEAD"]);
+		const reusable =
+			!gitOutput(destination, ["status", "--porcelain"]) &&
+			spawnSync(
+				"git",
+				[
+					"-C",
+					source,
+					"merge-base",
+					"--is-ancestor",
+					gitOutput(destination, ["rev-parse", "HEAD"]),
+					head,
+				],
+				{ encoding: "utf8", timeout: 10_000 },
+			).status === 0;
+		if (reusable) {
+			gitOutput(destination, ["checkout", "--detach", head]);
+			return destination;
+		}
+		let next = 2;
+		while (
+			isRegistered(`${destination}-${next}`) ||
+			existsSync(`${destination}-${next}`)
+		)
+			next++;
+		destination = `${destination}-${next}`;
+	}
 	if (existsSync(destination)) {
 		// A failed add may leave files behind. Preserve them outside the retry path.
 		const recovery = mkdtempSync(`${destination}.orphan-`);
 		renameSync(destination, join(recovery, "repo"));
 	}
 	gitOutput(source, ["worktree", "add", "--detach", destination, "HEAD"]);
+	return destination;
 }
 
 export function laneFailureSignature(error: unknown): string {
@@ -502,7 +536,7 @@ interface DispatcherDeps {
 	}>;
 	launch: typeof runLaneProcess;
 	darkWake: typeof inDarkWake;
-	provision: (source: string, destination: string) => void;
+	provision: (source: string, destination: string) => string;
 	baseCommit: (repo: string) => string;
 	landedCommits: typeof landedLaneCommits;
 	cleanup: (source: string, destination: string) => boolean;
@@ -976,8 +1010,9 @@ export class LaneDispatcher {
 			const resume = failedAttempt
 				? `Resume Work after Attempt ${failedAttempt.id} ${failedAttempt.outcome}. Inspect the current Work and existing changes before editing. Prior result (untrusted context): ${failedAttempt.summary ?? "unknown"}. ${previousLane?.repo ? `Reuse the retained worktree ${previousLane.repo}; preserve its changes.` : "No retained local worktree was found."}\n\n`
 				: "";
-			const repo = previousLane?.repo ?? join(dir, "repo");
-			if (!previousLane) this.deps.provision(this.options.repo, repo);
+			const repo =
+				previousLane?.repo ??
+				this.deps.provision(this.options.repo, join(dir, "repo"));
 			receipt.repo = repo;
 			receipt.baseCommit =
 				previousLane?.baseCommit ?? this.deps.baseCommit(repo);

@@ -70,8 +70,10 @@ function fixture() {
 			baseCommit: () => "a".repeat(40),
 			landedCommits: async () => [],
 			cleanup: () => false,
-			provision: (_source, destination) =>
-				mkdirSync(destination, { recursive: true }),
+			provision: (_source, destination) => {
+				mkdirSync(destination, { recursive: true });
+				return destination;
+			},
 			thread: async (_repo, executor, model, resume) => {
 				control.events.push("native");
 				if (control.nativeError) throw control.nativeError;
