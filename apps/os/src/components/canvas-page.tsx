@@ -1271,6 +1271,7 @@ export function CanvasPage({
 					aria-hidden={simpleMode || undefined}
 					className="canvas-stage min-w-0 flex-1"
 					data-simple-mode={simpleMode}
+					inert={simpleMode}
 					style={
 						simpleMode ? { width: 0, flex: "0 0 0px", opacity: 0 } : undefined
 					}
