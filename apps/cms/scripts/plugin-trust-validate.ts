@@ -224,6 +224,14 @@ export function extractPluginDescriptors(
 		if (node.type === "ObjectExpression") {
 			const id = stringLiteralValue(propertyInitializer(node, "id"));
 			if (id) {
+				if (
+					((node.properties ?? []) as unknown[]).some(
+						(property) =>
+							isAstNode(property) && property.type === "SpreadElement",
+					)
+				) {
+					throw new Error(`${path}: plugin descriptor ${id} contains a spread`);
+				}
 				descriptors.set(id, {
 					id,
 					format: stringLiteralValue(propertyInitializer(node, "format")),
