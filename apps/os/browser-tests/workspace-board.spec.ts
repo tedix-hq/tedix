@@ -12,7 +12,7 @@ await mkdir(directory, { recursive: true });
 const started = performance.now();
 try {
 	for (const theme of ["light", "dark"] as const) {
-		for (const width of [390, 1280]) {
+		for (const width of [375, 390, 1280]) {
 			const page = await browser.newPage({
 				viewport: { width, height: 900 },
 				colorScheme: theme,
@@ -36,7 +36,7 @@ try {
 			}));
 			assert(measurements.pageOverflow <= 1, JSON.stringify(measurements));
 			for (const [index, lane] of measurements.lanes.entries()) {
-				if (width === 390) {
+				if (width < 768) {
 					assert(
 						lane.x >= 0 && lane.x + lane.width <= width,
 						JSON.stringify(lane),
@@ -62,7 +62,7 @@ try {
 			}
 			await page.getByRole("button", { name: "Show empty groups" }).click();
 			assert((await lanes.count()) > 3);
-			if (width === 390)
+			if (width < 768)
 				assert(
 					await board.evaluate(
 						(element) => element.scrollWidth <= element.clientWidth + 1,
@@ -83,5 +83,5 @@ try {
 	await server.stop();
 }
 console.log(
-	`4 viewport/theme cases in ${((performance.now() - started) / 1000).toFixed(1)}s`,
+	`6 viewport/theme cases in ${((performance.now() - started) / 1000).toFixed(1)}s`,
 );
