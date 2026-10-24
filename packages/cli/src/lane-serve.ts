@@ -66,6 +66,11 @@ export type DispatchItem = Pick<
 	| "accountableOwnerId"
 > & { activeAttempt?: unknown; riskLevel?: WorkItem["riskLevel"] };
 
+const negatedClause =
+	/\b(?:never|do not|don't|don’t|must not|not)\b[^.;!?\n]*/gi;
+const userPresenceStep =
+	/\b(?:complete|approve|grant|give|pass|perform|finish|enter|type|accept)\s+(?:(?:the|an?|your|my|their|its)\s+)?(?:oauth\s+|login\s+|sign[- ]?in\s+)?(?:mfa|2fa|otp|consent|passkey|password|captcha)\b/i;
+
 export function dispatchSkip(
 	item: DispatchItem,
 	comments: Pick<WorkItemComment, "authorType" | "authorId" | "body">[] = [],
@@ -90,14 +95,21 @@ export function dispatchSkip(
 	if (item.startAt && Date.parse(item.startAt) > Date.now())
 		return `Work is scheduled for ${item.startAt}`;
 	if (item.activeAttempt) return "Work already has a live Attempt";
-	const reserved = humanReservedActionClasses(
-		`${item.title}\n${item.description ?? ""}`,
-	);
-	if (reserved.includes("credentials"))
-		return "Consent, authentication and user presence remain human-only";
+	const text = `${item.title}\n${item.description ?? ""}`;
+	const reserved = humanReservedActionClasses(text);
 	if (!reserved.length) return;
+	// Mentioning logins or credentials is ordinary work an owner may delegate;
+	// asking the executor to perform consent, MFA or a sign-in step is not.
+	if (
+		reserved.includes("credentials") &&
+		userPresenceStep.test(text.replace(negatedClause, " "))
+	)
+		return "Consent, MFA and user presence remain human-only";
+	const kind = reserved.includes("credentials")
+		? "Possible human-reserved action (consent or credentials)"
+		: "Possible human-reserved action";
 	if (item.accountableOwnerType !== "user" || !item.accountableOwnerId)
-		return "Possible human-reserved action; no accountable user owner can authorize a delegation comment. Set an accountable user owner, then have that owner add the version-specific Delegation comment.";
+		return `${kind}; no accountable user owner can authorize a delegation comment. Set an accountable user owner, then have that owner add the version-specific Delegation comment.`;
 	const delegated = comments.some(
 		(comment) =>
 			comment.authorType === "user" &&
@@ -108,7 +120,7 @@ export function dispatchSkip(
 			).test(comment.body),
 	);
 	if (!delegated)
-		return `Possible human-reserved action; needs an owner comment: Delegation: ${item.metadata?.executor} work-version=${item.version} <bounded delegation note>`;
+		return `${kind}; needs an owner comment: Delegation: ${item.metadata?.executor} work-version=${item.version} <bounded delegation note>`;
 }
 
 /**

@@ -909,6 +909,42 @@ it("requires the owner's version-specific note for money or personal messaging",
 	);
 });
 
+it("admits Work that only mentions logins or credentials once the owner delegates it", () => {
+	const note = {
+		authorType: "user" as const,
+		authorId: "fictional-owner",
+		body: "Delegation: codex work-version=2 UI and dispatcher code only; no sign-in.",
+	};
+	for (const description of [
+		"Redesign the connections pages: login status, credentials list and reconnect button.",
+		"The dispatcher refuses Work whose text mentions an owner login.",
+		"Interview through the already logged-in desktop app. Never run tedix login or complete OAuth consent yourself.",
+	]) {
+		const work = { ...item(), description };
+		const reason = dispatchSkip(work);
+		expect(reason).toContain("consent or credentials");
+		expect(reason).toContain(
+			"Delegation: codex work-version=2 <bounded delegation note>",
+		);
+		expect(dispatchSkip(work, [note])).toBeUndefined();
+		expect(
+			dispatchSkip(work, [{ ...note, authorId: "another-owner" }]),
+		).toContain("owner comment");
+		expect(dispatchSkip({ ...work, version: 3 }, [note])).toContain(
+			"owner comment",
+		);
+		expect(
+			dispatchSkip({ ...work, accountableOwnerId: null }, [note]),
+		).toContain("no accountable user owner");
+	}
+	for (const description of [
+		"Complete the OAuth consent for the new connector.",
+		"Enter the password and approve MFA on the owner's phone.",
+	])
+		expect(dispatchSkip({ ...item(), description }, [note])).toBe(
+			"Consent, MFA and user presence remain human-only",
+		);
+});
 it("validates concurrency and pins selectors without persisting inherited identity or credentials", () => {
 	const args = ["--executor", "codex", "--rules", projectId];
 	const env = { TEDIX_WORKSPACE: "acme", TEDIX_ORGANIZATION: "org_acme" };
