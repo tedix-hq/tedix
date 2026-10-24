@@ -37,7 +37,7 @@
 		"test:browser:feed-deck": "bun browser-tests/run-specs.ts browser-tests/feed-deck-polish.spec.ts browser-tests/feed-lean.spec.ts browser-tests/b7-feed-shortcuts.spec.ts browser-tests/widget-typing-shortcuts.spec.ts",
 		"test:browser:settings": "bun browser-tests/b9-settings-anchor.spec.ts && bun browser-tests/admin-destinations.spec.ts",
 		"test:browser:apps": "bun browser-tests/widget-apps.spec.ts",
-		"test:browser:viewport": "bun browser-tests/run-specs.ts browser-tests/deck-viewport.spec.ts browser-tests/deck-responsive.spec.ts browser-tests/viewport-band.spec.ts browser-tests/deck-iphone.spec.ts browser-tests/canvas-pending.spec.ts browser-tests/app-settings-mcp.spec.ts",
+		"test:browser:viewport": "bun browser-tests/run-specs.ts browser-tests/deck-viewport.spec.ts browser-tests/deck-responsive.spec.ts browser-tests/viewport-band.spec.ts browser-tests/deck-iphone.spec.ts browser-tests/canvas-pending.spec.ts browser-tests/app-settings-mcp.spec.ts browser-tests/cli-login.spec.ts",
 		"test:browser:deck": "bun browser-tests/run-specs.ts browser-tests/deck.spec.ts browser-tests/deck-progress.spec.ts browser-tests/deck-webmcp.spec.ts browser-tests/deck-why-chain.spec.ts browser-tests/card-text-dates.spec.ts browser-tests/deck-chat.spec.ts browser-tests/deck-confirm.spec.ts browser-tests/deck-source-filter.spec.ts browser-tests/deck-score-order.spec.ts browser-tests/card-revisions.spec.ts",
 		"test:browser:social-cards": "bun browser-tests/social-cards.spec.ts",
 		"test:browser:deck-speed": "bun browser-tests/deck-speed.spec.ts",
