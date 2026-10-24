@@ -290,9 +290,16 @@ export async function renewSubscription(
 		);
 		throw error;
 	}
-	// Disabled while provider registration was in flight: stop instead of reviving.
+	// Disabled while provider registration was in flight: retain remote
+	// coordinates until cleanup succeeds instead of reviving the subscription.
 	const current = await loadSubscription(context, row.organizationId, row.id);
 	if (current.status === "disabled") {
+		await updateProviderEventChannel(
+			context.db,
+			row.organizationId,
+			channelId,
+			{ ...result, status: "active" },
+		);
 		await adapterFor(context, row).stop(
 			token,
 			result.providerChannelId,
