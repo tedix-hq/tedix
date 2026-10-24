@@ -81,12 +81,12 @@ export function isWorkflowMcpCallContext(
 		typeof input.stepName === "string" &&
 		input.stepName.length > 0 &&
 		input.stepType === "do" &&
-		Number.isInteger(input.stepCount) &&
+		Number.isSafeInteger(input.stepCount) &&
 		(input.stepCount ?? 0) >= 1 &&
-		Number.isInteger(input.attempt) &&
+		Number.isSafeInteger(input.attempt) &&
 		(input.attempt ?? 0) >= 1 &&
 		(input.phase === "run" || input.phase === "rollback") &&
-		Number.isInteger(input.ordinal) &&
+		Number.isSafeInteger(input.ordinal) &&
 		(input.ordinal ?? 0) >= 1
 	);
 }

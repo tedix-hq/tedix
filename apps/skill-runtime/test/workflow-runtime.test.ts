@@ -1272,6 +1272,24 @@ assert.notEqual(first.stepId, restarted.stepId);
 assert.notEqual(first.idempotencyKey, restarted.idempotencyKey);
 assert.equal(isWorkflowMcpCallContext(baseContext), true);
 assert.equal(isWorkflowMcpCallContext({ ...baseContext, ordinal: 0 }), false);
+assert.equal(
+	isWorkflowMcpCallContext({
+		...baseContext,
+		stepCount: Number.MAX_SAFE_INTEGER,
+		attempt: Number.MAX_SAFE_INTEGER,
+		ordinal: Number.MAX_SAFE_INTEGER,
+	}),
+	true,
+);
+for (const coordinate of ["stepCount", "attempt", "ordinal"] as const) {
+	assert.equal(
+		isWorkflowMcpCallContext({
+			...baseContext,
+			[coordinate]: Number.MAX_SAFE_INTEGER + 1,
+		}),
+		false,
+	);
+}
 
 const deterministicRunId = await deriveIdempotentRunId({
 	orgId: "org-1",
