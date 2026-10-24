@@ -12,6 +12,9 @@ test("treats only fixture start failures and slow-runner timeouts as infrastruct
 		"error: Avatar fixture did not start",
 		"Error: Feed test server did not start",
 		"Shell fixture server did not serve the SPA entry within 20000ms",
+		"[run-specs] fixture server exited with code 1",
+		"[run-specs] NOT RUN (fixture server exited 1)  browser-tests/a.spec.ts",
+		"browser-tests/a.spec.ts  FAIL (fixture server exited 1; spec exit 2)",
 	]) {
 		expect(infrastructureFailure(fixture)).toBeString();
 		for (const output of [
