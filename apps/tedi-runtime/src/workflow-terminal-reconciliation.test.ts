@@ -117,6 +117,22 @@ console.log("PASS: workflow terminal reconciliation decisions");
 }
 
 {
+	const secret = "synthetic".repeat(8);
+	for (const error of [
+		`Provider failed: Bearer ${secret}`,
+		`Provider failed: password=${secret}`,
+		`Request failed: https://example.com/?access_token=${secret}`,
+		`Inference daily budget exhausted for tedi; Bearer ${secret}`,
+		`${"x".repeat(270)} Bearer ${secret}`,
+	]) {
+		const notice = turnFailureNoticeText(error);
+		assert.ok(!notice.includes(secret.slice(0, 16)));
+		assert.match(notice, /__TEDIX_REDACTED__/);
+		assert.ok(notice.length < 400);
+	}
+}
+
+{
 	// Budget exhaustion is expected, not a crash — say so, and say it recovers.
 	const notice = turnFailureNoticeText(
 		"daily inference budget exhausted for this tedi",

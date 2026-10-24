@@ -1,5 +1,7 @@
 /** Authoritative terminal reconciliation for tracked ChatTurnWorkflow runs. */
 
+import { scrubText } from "@tedix/context-core/trace-safety";
+
 export const WORKFLOW_TERMINAL_RECONCILE_DELAY_SECONDS = 30;
 export const WORKFLOW_TERMINAL_RECONCILE_MAX_POLLS = 20;
 
@@ -115,7 +117,7 @@ export function decideWorkflowTerminalReconciliation(
  * noise, not evidence; the full error stays on the ledger event.
  */
 export function turnFailureNoticeText(error: string): string {
-	const reason = error.replace(/\s+/g, " ").trim();
+	const reason = scrubText(error).replace(/\s+/g, " ").trim();
 	const clipped =
 		reason.length > 300 ? `${reason.slice(0, 297).trimEnd()}...` : reason;
 	const lower = reason.toLowerCase();
