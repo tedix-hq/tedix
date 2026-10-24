@@ -449,6 +449,12 @@ describe("workspaces", () => {
 		const all = await c.org1.workspaces.list({});
 		expect(all.items).toHaveLength(4);
 		expect(all.truncated).toBe(false);
+		const nextPage = await c.org1.workspaces.list({ limit: 2, offset: 2 });
+		expect(nextPage.items.map((row) => row.id)).toEqual(
+			all.items.slice(2).map((row) => row.id),
+		);
+		expect(nextPage.truncated).toBe(false);
+		expect([...page.items, ...nextPage.items]).toEqual(all.items);
 	});
 
 	it("records machine principals as service creators", async () => {

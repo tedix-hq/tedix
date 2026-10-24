@@ -8,7 +8,7 @@ import {
 	SquaresFour,
 	Stack,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { OS_COPY } from "@/shared/os-copy";
 import { useOsLocale } from "@/lib/use-os-locale";
@@ -35,7 +35,7 @@ import { primaryOutputNavigationTarget } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { WORK_VIEWS, type WorkView } from "@/lib/work-views";
 
-// The palette shows a bounded slice of each domain, not the surface page size.
+// Other resource groups remain bounded; workspace search loads every page.
 const PALETTE_LIST_LIMIT = 12;
 const PALETTE_RUNS_LIMIT = 8;
 
@@ -132,11 +132,18 @@ export function OsCommandPalette({
 			});
 		};
 	}, [open, returnFocus]);
-	const workspaces = useQuery({
+	const workspaces = useInfiniteQuery({
 		...commandPaletteWorkspacesQueryOptions(PALETTE_LIST_LIMIT),
 		enabled: open,
 		staleTime: 30_000,
 	});
+	const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } =
+		workspaces;
+	useEffect(() => {
+		if (open && hasNextPage && !isFetching && !isFetchNextPageError) {
+			void fetchNextPage();
+		}
+	}, [open, hasNextPage, isFetching, isFetchNextPageError, fetchNextPage]);
 	const outputs = useQuery({
 		...commandPaletteOutputLibraryQueryOptions(PALETTE_LIST_LIMIT),
 		enabled: open,
@@ -195,7 +202,7 @@ export function OsCommandPalette({
 		const pages = pageCommands((path) => void navigate({ to: path }), pathname);
 
 		const workspaceCommands: PaletteCommand[] = (
-			workspaces.data?.items ?? []
+			workspaces.data?.pages.flatMap((page) => page.items) ?? []
 		).map((workspace) => ({
 			id: `workspace-${workspace.id}`,
 			workspace,
