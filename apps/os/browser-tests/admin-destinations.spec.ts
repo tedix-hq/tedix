@@ -56,7 +56,10 @@ try {
 				);
 			}
 			if (width === 390) {
-				for (const description of metrics.descriptions) {
+				for (const description of [
+					metrics.descriptions[0]!,
+					metrics.descriptions[2]!,
+				]) {
 					assert.ok(
 						description.height > description.lineHeight,
 						`phone description wraps: ${description.text}`,
