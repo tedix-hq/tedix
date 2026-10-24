@@ -1153,7 +1153,7 @@ export function SitesPage() {
 								onChange={(event) => setSiteSearch(event.target.value)}
 								containerClassName="w-full lg:max-w-md"
 								trailing={
-									<span className="whitespace-nowrap text-kumo-subtle type-tedix-label">
+									<span className="whitespace-normal break-words text-right text-kumo-subtle type-tedix-label">
 										{filteredSites?.length ?? 0} results
 									</span>
 								}
