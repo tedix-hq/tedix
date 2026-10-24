@@ -64,3 +64,29 @@ describe("generateTestInput name defaults", () => {
 		).toEqual({ count: 4, name: "chosen" });
 	});
 });
+
+function generateQuantity(
+	schema: NonNullable<JSONSchema["properties"]>[string],
+): number {
+	return generateTestInput({
+		type: "object",
+		properties: { quantity: schema },
+		required: ["quantity"],
+	}).quantity as number;
+}
+
+describe("generateTestInput numeric bounds", () => {
+	it("respects one-sided number bounds", () => {
+		expect(
+			generateQuantity({ type: "number", minimum: 1000 }),
+		).toBeGreaterThanOrEqual(1000);
+		expect(
+			generateQuantity({ type: "number", maximum: -100 }),
+		).toBeLessThanOrEqual(-100);
+	});
+
+	it("rounds fractional integer bounds into the valid range", () => {
+		expect(generateQuantity({ type: "integer", minimum: 1000.25 })).toBe(1001);
+		expect(generateQuantity({ type: "integer", maximum: -100.25 })).toBe(-101);
+	});
+});
