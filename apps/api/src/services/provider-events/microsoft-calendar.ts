@@ -1,5 +1,15 @@
+import { z } from "zod";
 import type { ProviderAdapter, ProviderFetch } from "./types";
 import { requireProviderResponse } from "./types";
+const subscriptionResponse = z.object({
+	id: z.string().refine((value) => value.trim().length > 0),
+	resource: z
+		.string()
+		.refine((value) => value.trim().length > 0)
+		.optional(),
+	expirationDateTime: z.iso.datetime({ offset: true }),
+});
+
 // Graph watches the signed-in mailbox. Reconciliation remains calendar-selected.
 // Shared calendar notification restrictions require explicit polling instead.
 export function microsoftCalendarAdapter(
@@ -41,18 +51,13 @@ export function microsoftCalendarAdapter(
 					}),
 				}),
 			);
-			const result = (await response.json()) as {
-				id?: string;
-				resource?: string;
-				expirationDateTime?: string;
-			};
+			const parsed = subscriptionResponse.safeParse(await response.json());
 			if (
-				!result.id ||
-				!result.expirationDateTime ||
-				!Number.isFinite(Date.parse(result.expirationDateTime)) ||
-				Date.parse(result.expirationDateTime) <= Date.now()
+				!parsed.success ||
+				Date.parse(parsed.data.expirationDateTime) <= Date.now()
 			)
 				throw new Error("Invalid Graph subscription response");
+			const result = parsed.data;
 			return {
 				providerChannelId: result.id,
 				resourceId: result.resource ?? "me/events",

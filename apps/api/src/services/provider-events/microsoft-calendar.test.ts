@@ -2,6 +2,11 @@ import { describe, it, expect, vi } from "vite-plus/test";
 import { microsoftCalendarAdapter } from "./microsoft-calendar";
 import type { Subscription } from "./types";
 describe("Graph calendar adapter", () => {
+	const validResponse = {
+		id: "graph-sub",
+		resource: "me/events",
+		expirationDateTime: "2099-01-01T00:00:00Z",
+	};
 	it("subscribes to supported mailbox events rather than invented per-calendar resources", async () => {
 		const request = vi.fn().mockResolvedValue(
 			Response.json({
@@ -24,6 +29,67 @@ describe("Graph calendar adapter", () => {
 			lifecycleNotificationUrl: "https://api.test/hook",
 		});
 	});
+	it.each([
+		null,
+		[],
+		"subscription",
+		{},
+		...[null, "", "   ", 123, {}, []].map((id) => ({ ...validResponse, id })),
+		...[null, "", "   ", 123, {}, []].map((resource) => ({
+			...validResponse,
+			resource,
+		})),
+		...[
+			null,
+			123,
+			{},
+			["2099-01-01T00:00:00Z"],
+			"",
+			"not-a-date",
+			"2099-01-01",
+			"January 1, 2099",
+			"2099-02-30T00:00:00Z",
+			"2000-01-01T00:00:00Z",
+		].map((expirationDateTime) => ({ ...validResponse, expirationDateTime })),
+	])("rejects malformed subscription metadata: %j", async (invalid) => {
+		const adapter = microsoftCalendarAdapter(
+			vi.fn().mockResolvedValue(Response.json(invalid)),
+		);
+		await expect(
+			adapter.register(
+				"vault",
+				{} as Subscription,
+				"c",
+				"s",
+				"https://api.test",
+			),
+		).rejects.toThrow("Invalid Graph subscription response");
+	});
+	it.each(["2099-01-01T00:00:00Z", "2099-01-01T01:00:00.123+01:00"])(
+		"accepts future ISO expiry and defaults an omitted resource: %s",
+		async (expirationDateTime) => {
+			const adapter = microsoftCalendarAdapter(
+				vi
+					.fn()
+					.mockResolvedValue(
+						Response.json({ id: "graph-sub", expirationDateTime }),
+					),
+			);
+			await expect(
+				adapter.register(
+					"vault",
+					{} as Subscription,
+					"c",
+					"s",
+					"https://api.test",
+				),
+			).resolves.toEqual({
+				providerChannelId: "graph-sub",
+				resourceId: "me/events",
+				expiresAt: expirationDateTime,
+			});
+		},
+	);
 	it("does not silently turn denied push into successful polling", async () => {
 		const adapter = microsoftCalendarAdapter(
 			vi.fn().mockResolvedValue(new Response(null, { status: 403 })),
