@@ -15,13 +15,14 @@ const api = vi.hoisted(() => ({
 	workspaces: { list: vi.fn() },
 	workspacePreferences: { list: vi.fn() },
 }));
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({
 	osApi: { osWorkspaces: api },
 }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
-	useNavigate: () => vi.fn(),
+	useNavigate: () => navigate,
 }));
 
 import { SidebarProvider } from "./kumo/sidebar";
@@ -117,6 +118,37 @@ afterEach(() => {
 });
 
 describe("OsSidebarWorkspaces", () => {
+	it.each([false, true])(
+		"opens stars beyond the sixth in one click (collapsed: %s)",
+		async (collapsed) => {
+			api.workspaces.list.mockResolvedValue({
+				items: Array.from({ length: 8 }, (_, index) => ({
+					...workspace(),
+					id: `workspace-${index}`,
+					name: `Workspace ${index}`,
+				})),
+				truncated: false,
+			});
+			api.workspacePreferences.list.mockResolvedValue({
+				items: Array.from({ length: 8 }, (_, index) => ({
+					workspaceId: `workspace-${index}`,
+					favorite: true,
+					lastOpenedAt: null,
+				})),
+			});
+			const container = await renderSidebar({ collapsed });
+			const rows = container.querySelectorAll<HTMLButtonElement>(
+				'[data-sidebar="menu-button"]',
+			);
+			expect(rows).toHaveLength(8);
+			act(() => rows[7]!.click());
+			expect(navigate).toHaveBeenCalledWith({
+				to: "/workspace/$workspaceId",
+				params: { workspaceId: "workspace-7" },
+			});
+		},
+	);
+
 	it("shows pinned workspaces directly without duplicate history or empty counters", async () => {
 		const container = await renderSidebar();
 		const pinnedWorkspace = container.querySelector<HTMLElement>(

@@ -131,7 +131,7 @@ export function OsSidebarWorkspaces() {
 						(candidate) => candidate.workspace.id === entry.workspace.id,
 					) === index,
 			)
-			.slice(0, SIDEBAR_LIST_LIMIT);
+			.slice(0, Math.max(groups.favorites.length, SIDEBAR_LIST_LIMIT));
 		return (
 			<SidebarGroup>
 				<SidebarMenu aria-label="Workspaces">
@@ -167,7 +167,7 @@ export function OsSidebarWorkspaces() {
 				<>
 					<SidebarGroupLabel>Pinned workspaces</SidebarGroupLabel>
 					<SidebarMenu aria-label="Pinned workspaces">
-						{groups.favorites.slice(0, SIDEBAR_LIST_LIMIT).map((entry) => (
+						{groups.favorites.map((entry) => (
 							<SidebarMenuButton
 								key={entry.workspace.id}
 								icon={<WorkspaceMark workspace={entry.workspace} />}
