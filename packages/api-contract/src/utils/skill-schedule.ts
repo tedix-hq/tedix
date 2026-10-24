@@ -79,18 +79,19 @@ function parseCron(cron: string): ParsedCron {
 		dayOfMonth: parseField(fields[2]!, 1, 31),
 		month: parseField(fields[3]!, 1, 12),
 		dayOfWeek: parseField(fields[4]!, 0, 7, true),
-		dayOfMonthWildcard: fields[2] === "*",
-		dayOfWeekWildcard: fields[4] === "*",
+		dayOfMonthWildcard: fields[2]!.startsWith("*"),
+		dayOfWeekWildcard: fields[4]!.startsWith("*"),
 	};
 }
 
 function matchesCronDay(date: Date, parsed: ParsedCron): boolean {
 	const dayOfMonthMatches = parsed.dayOfMonth.has(date.getUTCDate());
 	const dayOfWeekMatches = parsed.dayOfWeek.has(date.getUTCDay());
-	const dayMatches = parsed.dayOfMonthWildcard
-		? dayOfWeekMatches
-		: parsed.dayOfWeekWildcard
-			? dayOfMonthMatches
+	// Wildcard steps still constrain their day field; only two restricted
+	// day fields use OR semantics.
+	const dayMatches =
+		parsed.dayOfMonthWildcard || parsed.dayOfWeekWildcard
+			? dayOfMonthMatches && dayOfWeekMatches
 			: dayOfMonthMatches || dayOfWeekMatches;
 	return dayMatches && parsed.month.has(date.getUTCMonth() + 1);
 }
