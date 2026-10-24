@@ -17,11 +17,12 @@ import type {
 	OsPresentationElement,
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorTextDialog } from "@/components/editor-text-dialog";
 import {
 	insertSlideAfter,
 	SlideList,
+	slideLabel,
 	templateSlide,
 } from "@/components/output-editor-slide-list";
 import { Button } from "@/components/kumo/button";
@@ -103,6 +104,12 @@ export function SlidesEditor({
 }: SlidesEditorProps) {
 	const normalized = normalizePresentationContent(value);
 	const deck = normalized.deck!;
+	const [emptyAnnouncement, setEmptyAnnouncement] = useState("");
+	const addSlideRef = useRef<HTMLButtonElement>(null);
+	useEffect(() => {
+		if (emptyAnnouncement && deck.slides.length === 0)
+			addSlideRef.current?.focus();
+	}, [emptyAnnouncement, deck.slides.length]);
 	// Which slide is on the stage is this viewer's state, not the document's.
 	// Writing `activeSlideId` on every click made browsing a deck an edit: the
 	// draft no longer matched its saved version, so the next saved version was
@@ -216,21 +223,27 @@ export function SlidesEditor({
 
 	if (!activeSlide) {
 		return (
-			<Surface
-				tier="panel"
-				className="grid justify-items-start gap-3 border-dashed p-8"
-			>
-				<p className="m-0 text-kumo-subtle">
-					This presentation has no slides yet.
-				</p>
-				<Button
-					size="sm"
-					disabled={disabled}
-					onClick={() => addTemplate("title-content")}
+			<div>
+				<Surface
+					tier="panel"
+					className="grid justify-items-start gap-3 border-dashed p-8"
 				>
-					<Plus size={14} /> Add slide
-				</Button>
-			</Surface>
+					<p className="m-0 text-kumo-subtle">
+						This presentation has no slides yet.
+					</p>
+					<Button
+						ref={addSlideRef}
+						size="sm"
+						disabled={disabled}
+						onClick={() => addTemplate("title-content")}
+					>
+						<Plus size={14} /> Add slide
+					</Button>
+				</Surface>
+				<p key="slide-deletion-status" aria-live="polite" className="sr-only">
+					{emptyAnnouncement}
+				</p>
+			</div>
 		);
 	}
 
@@ -473,6 +486,11 @@ export function SlidesEditor({
 							setSelectedElementId(null);
 						}}
 						onCommit={(next) => {
+							setEmptyAnnouncement(
+								next.slides.length === 0
+									? `Deleted ${slideLabel(activeSlide)}. No slides remaining.`
+									: "",
+							);
 							commitDeck(next);
 							setSelectedElementId(null);
 						}}
@@ -549,7 +567,10 @@ export function SlidesEditor({
 							const backgroundImage = await readImageFile(file);
 							if (backgroundImage)
 								commitDeck(
-									replaceActiveSlide(deck, { ...activeSlide, backgroundImage }),
+									replaceActiveSlide(deck, {
+										...activeSlide,
+										backgroundImage,
+									}),
 								);
 						}}
 					/>
@@ -585,6 +606,9 @@ export function SlidesEditor({
 					if (assetElementType) insertElement(assetElementType, src);
 				}}
 			/>
+			<p key="slide-deletion-status" aria-live="polite" className="sr-only">
+				{emptyAnnouncement}
+			</p>
 		</div>
 	);
 }

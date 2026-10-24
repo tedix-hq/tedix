@@ -284,7 +284,8 @@ export function SlideList({
 		null,
 	);
 	const [announcement, setAnnouncement] = useState("");
-	const focusAfterMove = useRef<string | null>(null);
+	const focusAfterChange = useRef<string | null>(null);
+	const searchRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLOListElement>(null);
 	const filtering = search.trim().length > 0;
 	const canReorder = !disabled && !filtering;
@@ -293,19 +294,25 @@ export function SlideList({
 		.filter(({ slide }) => slideMatches(slide, search));
 
 	useEffect(() => {
-		const id = focusAfterMove.current;
-		if (!id) return;
-		focusAfterMove.current = null;
-		listRef.current
-			?.querySelector<HTMLElement>(`[data-slide-row="${id}"] [data-slide-open]`)
-			?.focus();
+		const id = focusAfterChange.current;
+		if (id === null) return;
+		focusAfterChange.current = null;
+		const target = id
+			? Array.from(
+					listRef.current?.querySelectorAll<HTMLElement>("[data-slide-row]") ??
+						[],
+				)
+					.find((row) => row.dataset.slideRow === id)
+					?.querySelector<HTMLElement>("[data-slide-open]")
+			: searchRef.current;
+		target?.focus();
 	});
 
 	const move = (from: number, to: number) => {
 		const slide = deck.slides[from];
 		const next = moveSlide(deck, from, to);
 		if (!slide || next === deck) return;
-		focusAfterMove.current = slide.id;
+		focusAfterChange.current = slide.id;
 		onCommit(next);
 		setAnnouncement(
 			`Moved ${slideLabel(slide)} to position ${to + 1} of ${deck.slides.length}`,
@@ -320,6 +327,7 @@ export function SlideList({
 	return (
 		<>
 			<SearchInput
+				ref={searchRef}
 				aria-label="Search slides"
 				placeholder="Search slides"
 				value={search}
@@ -454,9 +462,26 @@ export function SlideList({
 									aria-label="Delete slide"
 									className="coarse:size-11"
 									disabled={disabled}
-									onClick={() =>
-										onCommit(deleteSlide(deck, slide.id, activeSlideId))
-									}
+									onClick={() => {
+										const next = deleteSlide(deck, slide.id, activeSlideId);
+										const visibleIndex = visible.findIndex(
+											(entry) => entry.slide.id === slide.id,
+										);
+										const remaining = visible.filter(
+											(entry) => entry.slide.id !== slide.id,
+										);
+										const target =
+											remaining[Math.min(visibleIndex, remaining.length - 1)]
+												?.slide;
+										focusAfterChange.current = target?.id ?? "";
+										onCommit(next);
+										setAnnouncement(
+											`Deleted ${label}. ` +
+												(target
+													? `${slideLabel(target)} is at position ${next.slides.findIndex((entry) => entry.id === target.id) + 1} of ${next.slides.length}.`
+													: `${next.slides.length} slides remaining. No slides match.`),
+										);
+									}}
 								>
 									<Trash size={13} />
 								</Button>

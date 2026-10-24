@@ -240,6 +240,81 @@ describe("SlideList", () => {
 		mounted.cleanup();
 	});
 
+	it.each([
+		[0, "Alpha", "Slide 1: Beta", "position 1 of 2"],
+		[1, "Beta", "Slide 2: Gamma", "position 2 of 2"],
+		[2, "Gamma", "Slide 2: Beta", "position 2 of 2"],
+	] as const)(
+		"restores focus and announces deletion at index %i",
+		(index, label, focused, position) => {
+			const mounted = mountEditor();
+			try {
+				const button = mounted.container.querySelectorAll<HTMLButtonElement>(
+					'[aria-label="Delete slide"]',
+				)[index]!;
+				button.focus();
+				act(() => button.click());
+				expect(document.activeElement?.getAttribute("aria-label")).toBe(
+					focused,
+				);
+				expect(
+					mounted.container.querySelector('[aria-live="polite"]')?.textContent,
+				).toBe(
+					`Deleted ${label}. ${focused.split(": ")[1]} is at ${position}.`,
+				);
+				mounted.undo();
+				expect(mounted.order()).toEqual(["Alpha", "Beta", "Gamma"]);
+			} finally {
+				mounted.cleanup();
+			}
+		},
+	);
+
+	it("returns focus to search when deleting the only matching slide", () => {
+		const mounted = mountEditor();
+		try {
+			const search = mounted.search("hiring");
+			const button = mounted.container.querySelector<HTMLButtonElement>(
+				'[aria-label="Delete slide"]',
+			)!;
+			button.focus();
+			act(() => button.click());
+			expect(document.activeElement).toBe(search);
+			expect(
+				mounted.container.querySelector('[aria-live="polite"]')?.textContent,
+			).toBe("Deleted Beta. 2 slides remaining. No slides match.");
+		} finally {
+			mounted.cleanup();
+		}
+	});
+
+	it("focuses Add slide and announces deletion of the sole slide", () => {
+		const mounted = mountEditor({
+			kind: "presentation",
+			slides: [threeSlides().slides[0]!],
+		});
+		try {
+			const status = mounted.container.querySelectorAll(
+				'[aria-live="polite"]',
+			)[1]!;
+			const button = mounted.container.querySelector<HTMLButtonElement>(
+				'[aria-label="Delete slide"]',
+			)!;
+			button.focus();
+			act(() => button.click());
+			expect(document.activeElement?.tagName).toBe("BUTTON");
+			expect(document.activeElement?.textContent?.trim()).toBe("Add slide");
+			expect(mounted.container.querySelector('[aria-live="polite"]')).toBe(
+				status,
+			);
+			expect(
+				mounted.container.querySelector('[aria-live="polite"]')?.textContent,
+			).toBe("Deleted Alpha. No slides remaining.");
+		} finally {
+			mounted.cleanup();
+		}
+	});
+
 	it("disables row actions and reordering when read-only", () => {
 		const mounted = mountEditor(threeSlides(), true);
 		const row =
