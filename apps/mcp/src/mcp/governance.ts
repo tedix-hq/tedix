@@ -708,7 +708,20 @@ async function ownerToolApproval(
 			),
 			_meta: { "com.tedix/approval": approval },
 		};
-	} catch {
+	} catch (error) {
+		// Log the failure class and typed code only, never the message or args.
+		console.warn("[governance] owner_tool_approval_unavailable", {
+			errorClass:
+				error instanceof Error ? error.constructor.name : typeof error,
+			code:
+				error && typeof error === "object" && "code" in error
+					? String((error as { code: unknown }).code)
+					: undefined,
+			organizationId: agent.app.organizationId,
+			callerOrganizationId: agent.callerIdentity.organizationId,
+			appSlug: agent.appSlug,
+			toolId: tool.toolId,
+		});
 		return approvalFailure(
 			"Owner tool approval is unavailable or does not match this call. No side effect was executed.",
 		);
