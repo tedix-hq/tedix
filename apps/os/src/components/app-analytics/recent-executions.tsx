@@ -242,6 +242,7 @@ function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
 						role="label"
 						tone="mono"
 						className="min-w-0 flex-1 truncate"
+						title={data.execution.toolName}
 					>
 						{data.execution.toolName}
 					</Text>

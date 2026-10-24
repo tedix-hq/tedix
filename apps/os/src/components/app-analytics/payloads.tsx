@@ -66,6 +66,7 @@ export function ToolCallPayloadRow({
 					role="control"
 					tone="mono"
 					className="min-w-0 flex-1 truncate"
+					title={toolName}
 				>
 					{toolName}
 				</Text>
