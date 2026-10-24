@@ -53,7 +53,7 @@
 		"lint:deps": "sherif && bun scripts/ci/check-deps.mjs",
 		"lint:exports": "bun scripts/check-package-exports.ts",
 		"lint:fix": "vp check --fix",
-		"lint:knip": "TEDIX_BUILD_LOCAL_DEMO_ENABLED=true knip",
+		"lint:knip": "TEDIX_BUILD_LOCAL_DEMO_ENABLED=true bun run --bun knip",
 		"lint:knip:diff": "bun scripts/lint-knip-diff.ts",
 		"lint:knip:baseline": "bun scripts/lint-knip-diff.ts --baseline",
 		"lint:kumo": "bun scripts/lint-kumo.ts",

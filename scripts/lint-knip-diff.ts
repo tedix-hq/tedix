@@ -127,11 +127,6 @@ async function main(): Promise<number> {
 		],
 		{
 			cwd: root,
-			env: {
-				...process.env,
-				NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=6144`,
-				KNIP_DISABLE_RAW_TRANSFER: "1",
-			},
 			stdout: "pipe",
 			stderr: "inherit",
 		},
