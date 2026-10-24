@@ -64,6 +64,13 @@ export function CardRevisionPanel({
 	const [optimistic, setOptimistic] = useState(false);
 	const panel = useRef<HTMLElement>(null);
 	const input = useRef<HTMLInputElement>(null);
+	const [focusRequest, setFocusRequest] = useState(0);
+	useEffect(() => {
+		if (!focusRequest) return;
+		// Native key handlers can reach a frame before React mounts the input.
+		const frame = requestAnimationFrame(() => input.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	}, [focusRequest]);
 	const [anchors, setAnchors] = useState<CardFeedbackAnchor[]>([]);
 	const [chips, setChips] = useState<string[]>([]);
 	const [selection, setSelection] = useState<{
@@ -76,13 +83,15 @@ export function CardRevisionPanel({
 	const selectionReturnFocus = useRef<HTMLElement | null>(null);
 	const field = contentKind === "plan" ? "plan" : "draft";
 	const options = OS_COPY.cardRevisionChips[contentKind];
+	const selectionOpen = selection !== null;
 	useEffect(() => {
+		if (selectionOpen)
+			selectionReturnFocus.current =
+				document.activeElement instanceof HTMLElement
+					? document.activeElement
+					: null;
 		const frame = requestAnimationFrame(() => {
-			if (selection) {
-				selectionReturnFocus.current =
-					document.activeElement instanceof HTMLElement
-						? document.activeElement
-						: null;
+			if (selectionOpen) {
 				selectionDialog.current?.focus();
 				return;
 			}
@@ -90,7 +99,7 @@ export function CardRevisionPanel({
 			selectionReturnFocus.current = null;
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [selection]);
+	}, [selectionOpen]);
 	const addComment = (chip?: string) => {
 		if (!selection || (!chip && !comment.trim()) || anchors.length >= 20)
 			return;
@@ -171,7 +180,7 @@ export function CardRevisionPanel({
 			event.preventDefault();
 			setOpen(true);
 			onOpen?.();
-			requestAnimationFrame(() => input.current?.focus());
+			setFocusRequest((request) => request + 1);
 		};
 		card.addEventListener("mouseup", select);
 		card.addEventListener("keyup", select);
