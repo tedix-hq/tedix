@@ -37,7 +37,7 @@ export function createTelemetryWriter(
 }
 
 interface TelemetrySpan {
-	setAttribute(key: string, value: string): unknown;
+	setAttribute(key: string, value: string | number | boolean): unknown;
 }
 
 const writeSpan = createTelemetryWriter("worker.tracing");

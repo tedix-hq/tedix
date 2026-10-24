@@ -5,6 +5,7 @@ import {
 	type NativeRootProof,
 } from "./runtime-inference-origin";
 import { logTediPiReport, logTediRuntimeFailure } from "./runtime-failure-log";
+import { createPiTelemetry } from "./pi-telemetry";
 import type { ConfiguredConversationTurn } from "./conversation-facet";
 import { workflowImageUri } from "./workflow-image-handoff";
 import { finalReportInstruction } from "./facet-turn-stop";
@@ -109,6 +110,9 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 	protected piSettings(): HarnessSettings {
 		return {};
 	}
+	protected piTelemetry() {
+		return createPiTelemetry();
+	}
 
 	readonly piHarness = new AdmittedPiHarness(
 		{
@@ -124,6 +128,7 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 						settings: () => this.piSettings(),
 						onWake,
 						onReport: logTediPiReport,
+						telemetry: this.piTelemetry(),
 					},
 					context,
 				);
