@@ -228,7 +228,17 @@ async function open(page: Page) {
 
 		throw error;
 	}
-	await page.waitForTimeout(350);
+	await page.waitForFunction(() => {
+		const card = document.querySelector<HTMLElement>(
+			'.fd-decision[aria-label="Speed card 1"]',
+		);
+
+		return (
+			card &&
+			Number(getComputedStyle(card).opacity) > 0.9 &&
+			card.getBoundingClientRect().height > 0
+		);
+	});
 }
 async function measure(page: Page) {
 	return page.evaluate(
