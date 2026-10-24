@@ -32,6 +32,26 @@ async function waitForApproval(agent: Awaited<ReturnType<typeof fixture>>) {
 	throw new Error("durable approval never paused");
 }
 describe("Production ConversationFacet on native Pi", () => {
+	it("records native phase and request spans without changing governed settlement", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.turn("private-trace-input");
+		const spans = await agent.nativeTraceSpans();
+		expect(spans.some((span) => span.name === "pi.durable.submit")).toBe(true);
+		expect(
+			spans.some(
+				(span) =>
+					span.name === "pi.durable.phase" &&
+					span.attributes["task.name"] === "pi.generation",
+			),
+		).toBe(true);
+		expect(spans.some((span) => span.name === "pi.ai.request")).toBe(true);
+		expect(JSON.stringify(spans)).not.toContain("private-trace-input");
+		expect((await inspect(agent)).stats).toMatchObject({
+			requests: 1,
+			reservations: 1,
+			receipts: 1,
+		});
+	});
 	it("refreshes native compaction thresholds between admitted warm-facet turns", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		const largeModel = "azure-openai/gpt-6.1-sol";

@@ -1,4 +1,6 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { tracing } from "cloudflare:workers";
+import { createPiTelemetry } from "../../src/pi-telemetry";
 import {
 	readPrivateInferenceOrigin,
 	requestInferenceOriginGuard,
@@ -322,6 +324,30 @@ const SettingsProbeTask = defineTask<
 	},
 });
 export class PiConversationFixture extends ProductionConversationFacet {
+	private readonly traceSpans: Array<{
+		name: string;
+		attributes: Record<string, string | number | boolean>;
+	}> = [];
+	protected override piTelemetry() {
+		return createPiTelemetry((name, run) =>
+			tracing.enterSpan(name, async (span) => {
+				const row = {
+					name,
+					attributes: {} as Record<string, string | number | boolean>,
+				};
+				if (this.traceSpans.length < 256) this.traceSpans.push(row);
+				return run({
+					setAttribute(key, value) {
+						row.attributes[key] = value;
+						return span.setAttribute(key, value);
+					},
+				});
+			}),
+		);
+	}
+	async nativeTraceSpans() {
+		return this.traceSpans;
+	}
 	protected override async piExtension() {
 		const extension = await super.piExtension();
 		return {
