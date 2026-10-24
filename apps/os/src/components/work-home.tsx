@@ -5,7 +5,7 @@ import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decisio
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
-import { Page } from "@/components/kumo/page";
+import { Page, PageTitle } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { useDeckCount } from "@/lib/use-deck-count";
@@ -51,9 +51,13 @@ export function WorkHome({
 		},
 	});
 	const copy = OS_COPY.workHome;
-	useDocumentTitle(
-		`${selected?.role === "feed" ? copy.feed : selected?.role === "deck" ? copy.deck : (selected?.gadget.name ?? copy.feed)} · Work`,
-	);
+	const title =
+		selected?.role === "feed"
+			? copy.feed
+			: selected?.role === "deck"
+				? copy.deck
+				: (selected?.gadget.name ?? copy.feed);
+	useDocumentTitle(`${title} · Work`);
 	const decide = (
 		<Button
 			variant="ghost"
@@ -91,6 +95,9 @@ export function WorkHome({
 	);
 	return (
 		<Page width="full" className="fd-work-home">
+			{(!selected || selected.role) && (
+				<PageTitle className="sr-only">{title}</PageTitle>
+			)}
 			{selected ? (
 				<WorkspaceAppRenderer
 					key={selected.gadget.id}
