@@ -12,12 +12,12 @@
  */
 export function getDomain(url: string): string {
 	try {
-		const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+		const parsed = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
 		return parsed.hostname.replace(/^www\./, "");
 	} catch {
 		// Fallback: clean up string directly if URL parsing fails
 		return url
-			.replace(/^(https?:\/\/)?(www\.)?/, "")
+			.replace(/^(https?:\/\/)?(www\.)?/i, "")
 			.replace(/\/.*$/, "")
 			.toLowerCase();
 	}
