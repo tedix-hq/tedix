@@ -52,6 +52,27 @@ describe("skill-native schedule", () => {
 		).toBe("2026-07-20T08:15:00.000Z");
 	});
 
+	it.each([
+		["0 0 */2 * 1", "2026-10-24T00:00:00Z", "2026-11-09T00:00:00.000Z"],
+		["0 0 27 * */2", "2026-10-24T00:00:00Z", "2026-10-27T00:00:00.000Z"],
+		["0 0 27 * */2", "2026-10-27T00:00:00Z", "2026-12-27T00:00:00.000Z"],
+		["0 0 */2 * */2", "2026-10-25T00:00:00Z", "2026-10-27T00:00:00.000Z"],
+		["0 0 */2 * *", "2026-10-25T00:00:00Z", "2026-10-27T00:00:00.000Z"],
+		["0 0 * * */2", "2026-10-25T00:00:00Z", "2026-10-27T00:00:00.000Z"],
+	])(
+		"intersects wildcard day constraints for %s after %s",
+		(cron, after, next) => {
+			expect(nextSkillScheduleFireAt(cron, after)).toBe(next);
+		},
+	);
+
+	it.each([
+		["0 0 13 * 1", "2026-10-26T00:00:00.000Z"],
+		["0 0 25 * 1", "2026-10-25T00:00:00.000Z"],
+	])("matches either restricted day field for %s", (cron, next) => {
+		expect(nextSkillScheduleFireAt(cron, "2026-10-24T00:00:00Z")).toBe(next);
+	});
+
 	it("supports leap-day schedules without a minute-by-minute multi-year scan", () => {
 		expect(nextSkillScheduleFireAt("0 0 29 2 *", "2025-03-01T00:00:00Z")).toBe(
 			"2028-02-29T00:00:00.000Z",
