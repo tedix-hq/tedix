@@ -79,7 +79,7 @@ try {
 			const box = await name.boundingBox();
 			assert(box, `${label}: server name not rendered`);
 			assert(
-				box.left >= -1 && box.right <= geometry.clientWidth + 1,
+				box.x >= -1 && box.x + box.width <= geometry.clientWidth + 1,
 				`${label}: server name stays inside the viewport ${JSON.stringify(box)}`,
 			);
 			await page.close();
