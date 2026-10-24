@@ -317,7 +317,7 @@ function MemberRoleControl({
 	);
 }
 
-function MemberIdentityCell({
+export function MemberIdentityCell({
 	member,
 	self,
 	compact,
@@ -329,21 +329,21 @@ function MemberIdentityCell({
 	return (
 		<div className="min-w-0">
 			<div className="flex items-center gap-2">
-				<Text
-					as={compact ? "h3" : "span"}
-					role="body"
-					weight="medium"
-					className="truncate"
-				>
+				<Text as={compact ? "h3" : "span"} role="body" weight="medium" truncate>
 					{memberIdentityLabel(member)}
 				</Text>
-				{self ? <Badge variant="outline">You</Badge> : null}
+				{self ? (
+					<Badge className="shrink-0" variant="outline">
+						You
+					</Badge>
+				) : null}
 			</div>
 			{member.name ? (
 				<Text
 					role="label"
 					tone="secondary"
-					className={compact ? "mt-0.5 truncate" : "truncate"}
+					className={compact ? "mt-0.5" : undefined}
+					truncate
 				>
 					{member.email}
 				</Text>
