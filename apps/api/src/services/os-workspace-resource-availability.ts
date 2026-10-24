@@ -50,6 +50,21 @@ function unavailable(
 	return { status, reason, checkedAt };
 }
 
+function expirationIsExpiredOrInvalid(
+	expiresAt: number | string | null | undefined,
+	nowSeconds: number,
+): boolean {
+	if (expiresAt === undefined || expiresAt === null || expiresAt === 0)
+		return false;
+	if (typeof expiresAt === "string" && expiresAt.trim() === "") return true;
+	const expiration = Number(expiresAt);
+	return (
+		!Number.isFinite(expiration) ||
+		expiration < 0 ||
+		(expiration > 0 && expiration <= nowSeconds)
+	);
+}
+
 export async function resolveWorkspaceResourceAvailability(
 	context: BaseContext,
 	resource: ResourceConnectionReference,
@@ -108,7 +123,7 @@ export async function resolveWorkspaceResourceAvailability(
 					"The exact personal account or required scopes changed.",
 					checkedAt,
 				);
-			if (token.expiresAt && Number(token.expiresAt) <= now.getTime() / 1000)
+			if (expirationIsExpiredOrInvalid(token.expiresAt, now.getTime() / 1000))
 				return unavailable(
 					"expired_connection",
 					"The selected personal account has expired.",
@@ -152,8 +167,12 @@ export async function resolveWorkspaceResourceAvailability(
 				checkedAt,
 			);
 		}
-		const expiresAt = Number(token.expiresAt ?? 0);
-		if (expiresAt > 0 && expiresAt <= Math.floor(now.getTime() / 1000)) {
+		if (
+			expirationIsExpiredOrInvalid(
+				token.expiresAt,
+				Math.floor(now.getTime() / 1000),
+			)
+		) {
 			return unavailable(
 				"expired_connection",
 				"The backing connection has expired and must be reconnected.",
