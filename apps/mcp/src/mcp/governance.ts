@@ -807,6 +807,16 @@ export async function requireDestructiveToolApproval(
 		humanReservedActionClasses(
 			`${tool.config?.endpoint ?? ""} ${tool.config?.mcpToolName ?? ""}`,
 		).length > 0;
+	// A tenant skill reaches platform tools (os.*, tedix.*) on the public tedix
+	// app, which another organization owns. The run, skill, tedi and policy
+	// belong to the caller's organization, so authorize there; the API checks
+	// that the run and declared namespace exist in that organization.
+	const manifestOrganizationId =
+		workflowCaller?.organizationId &&
+		(workflowCaller.organizationId === agent.app?.organizationId ||
+			agent.app?.visibility === "public")
+			? workflowCaller.organizationId
+			: undefined;
 	if (
 		!humanBoundary &&
 		!manifestProtectedEffect &&
@@ -817,7 +827,7 @@ export async function requireDestructiveToolApproval(
 		workflowCaller.skillRunId &&
 		workflowCaller.skillId &&
 		workflowCaller.tediId &&
-		workflowCaller.organizationId === agent.app?.organizationId &&
+		manifestOrganizationId &&
 		workflowCaller.workflowExecutionEpoch !== undefined &&
 		agent.app?.organizationId &&
 		agent.apiClient?.mcpGovernance?.resolveSkillManifestAuthorization
@@ -826,7 +836,7 @@ export async function requireDestructiveToolApproval(
 		try {
 			const transportPolicy =
 				await agent.apiClient.mcpGovernance.resolveAgentTransportPolicy?.({
-					organizationId: agent.app.organizationId,
+					organizationId: manifestOrganizationId,
 					tediId: workflowCaller.tediId,
 				});
 			const askForClasses = transportPolicy?.autonomy?.askForClasses;
@@ -842,7 +852,7 @@ export async function requireDestructiveToolApproval(
 			stage = "manifest_authorization";
 			const resolution =
 				await agent.apiClient.mcpGovernance.resolveSkillManifestAuthorization({
-					organizationId: agent.app.organizationId,
+					organizationId: manifestOrganizationId,
 					runId: workflowCaller.skillRunId,
 					skillId: workflowCaller.skillId,
 					tediId: workflowCaller.tediId,
@@ -888,7 +898,7 @@ export async function requireDestructiveToolApproval(
 				stage,
 				errorClass:
 					error instanceof Error ? error.constructor.name : typeof error,
-				organizationId: agent.app.organizationId,
+				organizationId: manifestOrganizationId,
 				skillRunId: workflowCaller.skillRunId,
 				skillId: workflowCaller.skillId,
 				executionEpoch: workflowCaller.workflowExecutionEpoch,

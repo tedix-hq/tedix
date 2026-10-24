@@ -1974,6 +1974,78 @@ describe("active skill manifest approval", () => {
 			});
 		},
 	);
+
+	// Live 24 Oct 2026: a tenant's scheduled watcher called tedix.scrape_elements
+	// on the public tedix app (owned by the platform organization) and was told
+	// to use an elicitation-capable client, because the organization check
+	// compared the run's organization with the app owner's.
+	it("authorizes a tenant run's declared call on the public platform app in the run's organization", async () => {
+		const { agent, resolve } = context({ organizationId: "org-tenant" });
+		Object.assign(agent, {
+			app: { organizationId: "org-platform", visibility: "public" },
+			appSlug: "tedix",
+		});
+		const transportPolicy = vi.fn(async () => ({
+			requireExplicitApprovalPolicy: false,
+		}));
+		agent.apiClient!.mcpGovernance.resolveAgentTransportPolicy =
+			transportPolicy as never;
+		await expect(
+			requireDestructiveToolApproval(
+				agent,
+				{
+					toolId: "scrape_elements",
+					title: "Scrape Elements",
+					config: { transport: "rpc", endpoint: "browser/scrapeElements" },
+					meta: {
+						"com.tedix/policy": {
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+					},
+				} as never,
+				{ readOnlyHint: false, destructiveHint: false },
+			),
+		).resolves.toBeNull();
+		expect(transportPolicy).toHaveBeenCalledWith({
+			organizationId: "org-tenant",
+			tediId: "tedi-1",
+		});
+		expect(resolve).toHaveBeenCalledWith(
+			expect.objectContaining({
+				organizationId: "org-tenant",
+				runId: "run-1",
+				method: "scrape_elements",
+				namespace: "tedix",
+				sourceAppSlug: "tedix",
+			}),
+		);
+	});
+
+	it("does not consult a run's manifest for a private app another organization owns", async () => {
+		const { agent, resolve } = context({ organizationId: "org-tenant" });
+		Object.assign(agent, {
+			app: { organizationId: "org-other", visibility: "private" },
+			appSlug: "other-app",
+		});
+		expect(
+			await requireDestructiveToolApproval(
+				agent,
+				{
+					toolId: "create_report",
+					title: "Create report",
+					meta: {
+						"com.tedix/policy": {
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+					},
+				} as never,
+				{ readOnlyHint: false, destructiveHint: false },
+			),
+		).toMatchObject({ isError: true });
+		expect(resolve).not.toHaveBeenCalled();
+	});
 });
 
 it("audits the authorizing skill revision for every manifest-approved call", async () => {
