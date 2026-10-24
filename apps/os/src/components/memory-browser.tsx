@@ -404,7 +404,7 @@ export function MemoryBrowser({
 					? "Questions with missing evidence. Only memories you can access are listed."
 					: factView
 						? "Observations and evidence you can access."
-						: `Search and sort the latest ${MEMORY_RECENT_LIMIT} records. Open a row for full text and evidence.`;
+						: `Search and sort the latest ${MEMORY_RECENT_LIMIT} records. Open a memory for full text and evidence.`;
 	return (
 		<section className="grid min-w-0 gap-4" aria-label="Memory browser">
 			<Tabs
@@ -572,33 +572,31 @@ export function MemoryBrowser({
 							</TableHeader>
 							<TableBody>
 								{pageRows.map((row) => (
-									<TableRow
-										key={row.id}
-										className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus"
-										tabIndex={0}
-										aria-label={`Details: ${memoryText(row.title, row.body).line}`}
-										onClick={() => onSearch({ detail: row.id })}
-										onKeyDown={(event) => {
-											if (event.key === "Enter" || event.key === " ") {
-												event.preventDefault();
-												onSearch({ detail: row.id });
-											}
-										}}
-									>
+									<TableRow key={row.id}>
 										<TableCell className="!whitespace-normal">
-											<span className="my-2 line-clamp-2 wrap-anywhere">
-												{memoryText(row.title, row.body).line}
-											</span>
-											<span className="block pb-2 wrap-anywhere text-kumo-subtle type-tedix-caption sm:hidden">
-												{row.source.replaceAll("_", " ")} ·{" "}
-												{row.updated
-													? relativeTime(row.updated)
-													: "Date unknown"}{" "}
-												·{" "}
-												{row.confidence === null
-													? "Confidence not recorded"
-													: `${Math.round(row.confidence * 100)}%`}
-											</span>
+											<Button
+												variant="ghost"
+												multiline
+												aria-label={`Open details: ${memoryText(row.title, row.body).line}`}
+												className="w-full min-w-0 justify-start !p-0 text-left"
+												onClick={() => onSearch({ detail: row.id })}
+											>
+												<span className="min-w-0">
+													<span className="my-2 block line-clamp-2 wrap-anywhere">
+														{memoryText(row.title, row.body).line}
+													</span>
+													<span className="block pb-2 wrap-anywhere text-kumo-subtle type-tedix-caption sm:hidden">
+														{row.source.replaceAll("_", " ")} ·{" "}
+														{row.updated
+															? relativeTime(row.updated)
+															: "Date unknown"}{" "}
+														·{" "}
+														{row.confidence === null
+															? "Confidence not recorded"
+															: `${Math.round(row.confidence * 100)}%`}
+													</span>
+												</span>
+											</Button>
 										</TableCell>
 										<TableCell className="hidden !whitespace-normal text-kumo-subtle wrap-anywhere sm:table-cell">
 											{row.source.replaceAll("_", " ")}
