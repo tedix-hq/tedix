@@ -152,6 +152,25 @@ afterEach(() => {
 });
 
 describe("OS shell chrome", () => {
+	it("mounts starred workspace shortcuts outside the workspace library", async () => {
+		api.workspaces.list.mockResolvedValue({
+			items: [{ id: "starred-workspace", name: "Shared planning" }],
+			truncated: false,
+		});
+		api.workspacePreferences.list.mockResolvedValue({
+			items: [{ workspaceId: "starred-workspace", favorite: true }],
+		});
+		const container = renderShell();
+		await act(async () => {
+			for (let tick = 0; tick < 5; tick += 1)
+				await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(
+			rail(container).querySelector('[aria-label="Pinned workspaces"]')
+				?.textContent,
+		).toContain("Shared planning");
+	});
+
 	it("lets keyboard users bypass the shell navigation", () => {
 		const container = renderShell();
 		const skipLink = container.querySelector<HTMLAnchorElement>(

@@ -55,6 +55,7 @@ import { ApprovalNotifications } from "@/components/approval-notifications";
 import { OsQuickChat } from "@/components/os-quick-chat";
 import { OsOrganizationIdentity } from "@/components/os-organization-identity";
 import { OsWorkspaceSwitcher } from "@/components/os-workspace-switcher";
+import { OsSidebarWorkspaces } from "@/components/os-sidebar-workspaces";
 import { TransportStatus } from "@/components/transport-status";
 import { WorkNeedsYouCount } from "@/components/work-needs-you-count";
 import { SupportGetHelp } from "@/components/support-get-help";
@@ -207,6 +208,7 @@ function OsSidebar({
 						</SidebarGroup>
 					</SidebarGroup>
 				))}
+				<OsSidebarWorkspaces />
 			</SidebarContent>
 
 			<SidebarFooter className="h-auto flex-col gap-1 py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
