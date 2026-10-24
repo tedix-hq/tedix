@@ -1320,6 +1320,69 @@ describe("@tedix/cli home client helpers", () => {
 		expect(page.upToDate).toBe(true);
 	});
 
+	test("parseHomeRunEventsPage falls back safely for malformed cursors", () => {
+		for (const value of [
+			"20junk",
+			"3.5",
+			"-1",
+			"-0",
+			"",
+			" ",
+			" 3",
+			"3\n",
+			"+3",
+			"1e3",
+			"0x10",
+			"NaN",
+			"Infinity",
+			"9007199254740992",
+			-1,
+			3.5,
+			NaN,
+			Infinity,
+			Number.MAX_SAFE_INTEGER + 1,
+			true,
+			{},
+			[],
+			null,
+			undefined,
+		]) {
+			for (const field of ["offset", "nextOffset"]) {
+				const page = parseHomeRunEventsPage(
+					{
+						events: [{ id: "event-7", kind: "step" }],
+						stream: { [field]: value },
+					},
+					"7",
+				);
+				expect(page.events[0]?.offset).toBe("7");
+				expect(page.nextOffset).toBe("8");
+			}
+			if (typeof value === "string") {
+				expect(parseHomeRunEventsPage({ events: [] }, value).nextOffset).toBe(
+					"0",
+				);
+			}
+		}
+	});
+
+	test("parseHomeRunEventsPage preserves valid numeric and decimal cursors", () => {
+		for (const value of [
+			0,
+			3,
+			"0",
+			"0003",
+			Number.MAX_SAFE_INTEGER,
+			String(Number.MAX_SAFE_INTEGER),
+		]) {
+			const page = parseHomeRunEventsPage({
+				events: [],
+				stream: { offset: value, nextOffset: value },
+			});
+			expect(page.nextOffset).toBe(String(Number(value)));
+		}
+	});
+
 	test("parseHomeRunEventsPage reads the page through the Code Mode envelope", () => {
 		const page = parseHomeRunEventsPage(
 			normalizeCodeResult({
