@@ -25,7 +25,14 @@ const PROJECT = "22222222-2222-4222-8222-222222222222";
 const RECEIVER = "44444444-4444-4444-8444-444444444444";
 const SESSION = "codex:33333333-3333-4333-8333-333333333333";
 const roots: string[] = [];
+const originalGitEnv = {
+	GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+	GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
+};
 afterEach(() => {
+	for (const [key, value] of Object.entries(originalGitEnv))
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });
@@ -34,6 +41,9 @@ function git(cwd: string, ...args: string[]): string {
 	const env = { ...process.env };
 	for (const key of Object.keys(env))
 		if (key.startsWith("GIT_")) delete env[key];
+	// Fixture repos must not read the developer's global or system Git config.
+	env.GIT_CONFIG_NOSYSTEM = "1";
+	env.GIT_CONFIG_GLOBAL = "/dev/null";
 	return execFileSync("git", args, {
 		cwd,
 		env,
@@ -43,6 +53,9 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function fixture() {
+	// The production Git calls under test keep these and skip host config.
+	process.env.GIT_CONFIG_NOSYSTEM = "1";
+	process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 	const root = mkdtempSync(join(tmpdir(), "tedix-commit-handoff-"));
 	roots.push(root);
 	const origin = join(root, "origin.git");
