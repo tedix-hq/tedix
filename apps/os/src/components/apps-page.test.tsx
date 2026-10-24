@@ -503,7 +503,8 @@ describe("Installed Apps layout", () => {
 		const page = await mountAppsPage({ apps: [baseApp] });
 		const current = page.host.querySelectorAll('[aria-current="page"]');
 		expect([...current].map((element) => element.textContent)).toEqual([
-			"Installed apps",
+			"Apps",
+			"In use",
 		]);
 		expect(page.host.querySelector('[data-slot="page-actions"]')).toBeNull();
 		const browse = [...page.host.querySelectorAll("a")].filter(
@@ -511,6 +512,23 @@ describe("Installed Apps layout", () => {
 		);
 		expect(browse.length).toBeLessThanOrEqual(1);
 		expect(browse[0]?.closest('[data-slot="page-header"]') ?? null).toBeNull();
+	});
+
+	it("names the gateway in one quiet line instead of listing it as an app", async () => {
+		const gateway = {
+			id: "11111111-1111-4111-8111-111111111111",
+			name: "Example gateway",
+		};
+		const page = await mountAppsPage({ apps: [baseApp], gateway });
+		const line = page.host.querySelector("[data-gateway-line]");
+		expect(line?.textContent).toContain(
+			"Tedix reaches these apps through one gateway, Example gateway.",
+		);
+		expect(line?.querySelector("a")?.getAttribute("href")).toBe(
+			`/apps/${gateway.id}`,
+		);
+		const none = await mountAppsPage({ apps: [baseApp] });
+		expect(none.host.querySelector("[data-gateway-line]")).toBeNull();
 	});
 
 	it("retains the explicit MCP service probe action", async () => {
@@ -635,9 +653,11 @@ async function mountInRouter(
 async function mountAppsPage({
 	apps,
 	hasMore = false,
+	gateway = null,
 }: {
 	apps: AppListItem[];
 	hasMore?: boolean;
+	gateway?: { id: string; name: string } | null;
 }) {
 	const searches: string[] = [];
 	function Harness() {
@@ -659,7 +679,7 @@ async function mountAppsPage({
 		} as never);
 		client.setQueryData(installedAppEligibilityQueryOptions().queryKey, []);
 		client.setQueryData(appGatewayMembershipsQueryOptions().queryKey, {
-			gateway: null,
+			gateway,
 			memberships: [],
 		} as never);
 		for (const scope of ["organization", "personal"] as const)

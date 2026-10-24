@@ -5,16 +5,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 
+/**
+ * The connections area has three tabs. Apps covers the apps in use and the
+ * catalog to add more; Accounts covers every account those apps use, the
+ * organization's and your own. The gateway is how all apps are reached, so it
+ * is a line on Apps, not a tab.
+ */
 export const CAPABILITY_NAV_ITEMS = [
-	{
-		id: "gateway",
-		get label() {
-			return getOsSurface("gateways").label;
-		},
-		to: "/gateways",
-	},
-	{ id: "installed", label: "Installed apps", to: "/apps" },
-	{ id: "browse", label: "Browse apps", to: "/explore/apps" },
+	{ id: "apps", label: "Apps", to: "/apps" },
+	{ id: "accounts", label: "Accounts", to: "/admin/connections" },
 	{
 		id: "skills",
 		get label() {
@@ -22,13 +21,34 @@ export const CAPABILITY_NAV_ITEMS = [
 		},
 		to: "/skills",
 	},
-	{
-		id: "organization",
-		label: "Connected accounts",
-		to: "/admin/connections",
-	},
-	{ id: "personal", label: "My accounts", to: "/account/connections" },
 ] as const;
+
+/** Views inside a tab: each keeps its existing route. */
+export const CAPABILITY_SUB_NAV_ITEMS = {
+	apps: [
+		{ id: "installed", label: "In use", to: "/apps" },
+		{ id: "browse", label: "Browse and add", to: "/explore/apps" },
+	],
+	accounts: [
+		{ id: "organization", label: "Organization", to: "/admin/connections" },
+		{ id: "personal", label: "Only you", to: "/account/connections" },
+	],
+} as const;
+
+export type CapabilityView =
+	| "installed"
+	| "browse"
+	| "skills"
+	| "organization"
+	| "personal";
+
+export function capabilityTab(
+	view: CapabilityView,
+): (typeof CAPABILITY_NAV_ITEMS)[number]["id"] {
+	if (view === "installed" || view === "browse") return "apps";
+	if (view === "organization" || view === "personal") return "accounts";
+	return "skills";
+}
 
 export const CAPABILITY_NAV_CLASSNAME =
 	"flex min-w-0 max-w-full items-start gap-1 border-kumo-line border-b";
@@ -55,17 +75,9 @@ export function getCapabilityNavOverflowState({
 }
 
 /** Navigation between distinct inventories; installation never implies a credential. */
-export function CapabilityNavigation({
-	active,
-}: {
-	active:
-		| "gateway"
-		| "installed"
-		| "browse"
-		| "skills"
-		| "organization"
-		| "personal";
-}) {
+export function CapabilityNavigation({ active }: { active: CapabilityView }) {
+	const tab = capabilityTab(active);
+	const views = tab === "skills" ? [] : CAPABILITY_SUB_NAV_ITEMS[tab];
 	useOsLocale();
 	const activeItemRef = useRef<HTMLSpanElement>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -104,7 +116,7 @@ export function CapabilityNavigation({
 		const frame = requestAnimationFrame(updateOverflowState);
 		return () => cancelAnimationFrame(frame);
 	}, [
-		active,
+		tab,
 		overflowState.canScrollBack,
 		overflowState.canScrollForward,
 		updateOverflowState,
@@ -138,59 +150,79 @@ export function CapabilityNavigation({
 	};
 
 	return (
-		<nav
-			aria-label="Gateway, apps, skills and accounts"
-			data-capability-nav=""
-			className={CAPABILITY_NAV_CLASSNAME}
-		>
-			{overflowState.canScrollBack ? (
-				<Button
-					aria-label="Scroll capability navigation left"
-					className="shrink-0 bg-kumo-base"
-					size="icon-sm"
-					variant="outline"
-					onClick={() => scrollRail(-1)}
-				>
-					<CaretLeft aria-hidden size={14} />
-				</Button>
-			) : null}
-			<div
-				ref={viewportRef}
-				data-focus-ring="inset"
-				className={CAPABILITY_NAV_VIEWPORT_CLASSNAME}
+		<div className="grid min-w-0 gap-3">
+			<nav
+				aria-label="Apps, accounts and skills"
+				data-capability-nav=""
+				className={CAPABILITY_NAV_CLASSNAME}
 			>
-				<div className={CAPABILITY_NAV_TRACK_CLASSNAME}>
-					{CAPABILITY_NAV_ITEMS.map((item) => {
-						const isActive = active === item.id;
-						return (
-							<span
-								key={item.id}
-								ref={isActive ? activeItemRef : undefined}
-								className="shrink-0"
-							>
-								<Link
-									variant="navigation"
-									href={item.to}
-									aria-current={isActive ? "page" : undefined}
-								>
-									{item.label}
-								</Link>
-							</span>
-						);
-					})}
-				</div>
-			</div>
-			{overflowState.canScrollForward ? (
-				<Button
-					aria-label="Scroll capability navigation right"
-					className="shrink-0 bg-kumo-base"
-					size="icon-sm"
-					variant="outline"
-					onClick={() => scrollRail(1)}
+				{overflowState.canScrollBack ? (
+					<Button
+						aria-label="Scroll capability navigation left"
+						className="shrink-0 bg-kumo-base"
+						size="icon-sm"
+						variant="outline"
+						onClick={() => scrollRail(-1)}
+					>
+						<CaretLeft aria-hidden size={14} />
+					</Button>
+				) : null}
+				<div
+					ref={viewportRef}
+					data-focus-ring="inset"
+					className={CAPABILITY_NAV_VIEWPORT_CLASSNAME}
 				>
-					<CaretRight aria-hidden size={14} />
-				</Button>
+					<div className={CAPABILITY_NAV_TRACK_CLASSNAME}>
+						{CAPABILITY_NAV_ITEMS.map((item) => {
+							const isActive = tab === item.id;
+							return (
+								<span
+									key={item.id}
+									ref={isActive ? activeItemRef : undefined}
+									className="shrink-0"
+								>
+									<Link
+										variant="navigation"
+										href={item.to}
+										aria-current={isActive ? "page" : undefined}
+									>
+										{item.label}
+									</Link>
+								</span>
+							);
+						})}
+					</div>
+				</div>
+				{overflowState.canScrollForward ? (
+					<Button
+						aria-label="Scroll capability navigation right"
+						className="shrink-0 bg-kumo-base"
+						size="icon-sm"
+						variant="outline"
+						onClick={() => scrollRail(1)}
+					>
+						<CaretRight aria-hidden size={14} />
+					</Button>
+				) : null}
+			</nav>
+			{views.length > 0 ? (
+				<nav
+					aria-label={tab === "apps" ? "Apps views" : "Account owners"}
+					data-capability-subnav=""
+					className="flex min-w-0 flex-wrap items-center gap-1"
+				>
+					{views.map((view) => (
+						<Link
+							key={view.id}
+							variant="navigation"
+							href={view.to}
+							aria-current={active === view.id ? "page" : undefined}
+						>
+							{view.label}
+						</Link>
+					))}
+				</nav>
 			) : null}
-		</nav>
+		</div>
 	);
 }

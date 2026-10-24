@@ -90,7 +90,6 @@ const SEEDS = [
 	"/account/organizations",
 	"/account/authorizations",
 	"/compute",
-	"/gateways",
 	"/sites",
 	"/install",
 ];

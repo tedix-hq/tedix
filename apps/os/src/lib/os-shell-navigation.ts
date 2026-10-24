@@ -41,7 +41,11 @@ export function isOsShellNavigationItemActive(
 		return true;
 	// The gateway and the apps it is filled from are one surface, so /apps and
 	// every app detail route keep this item selected.
-	if (item.id === "gateways" && pathname.startsWith("/apps")) return true;
+	if (
+		item.id === "gateways" &&
+		(pathname.startsWith("/apps") || pathname.startsWith("/explore/apps"))
+	)
+		return true;
 	if (item.id === "work") {
 		return pathname === "/work" || pathname.startsWith("/work/");
 	}

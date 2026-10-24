@@ -583,15 +583,11 @@ export function AdminConnectionsPage({
 			<div className="grid min-w-0 gap-4">
 				<PageHeader>
 					<PageHeading>
-						<PageTitle>
-							{scope === "organization"
-								? "Organization connections"
-								: "My accounts"}
-						</PageTitle>
+						<PageTitle>Accounts</PageTitle>
 						<PageDescription>
 							{scope === "organization"
-								? "Accounts shared with this organization."
-								: "Accounts only you can use, across workspaces."}
+								? "Accounts this organization's apps share."
+								: "Accounts only you can use, in every workspace."}
 						</PageDescription>
 					</PageHeading>
 				</PageHeader>
