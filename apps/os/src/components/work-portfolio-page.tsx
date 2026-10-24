@@ -508,11 +508,7 @@ function PortfolioCard({
 						No records yet
 					</Text>
 				) : (
-					<Text
-						as="p"
-						role="label"
-						className="truncate whitespace-nowrap tabular-nums"
-					>
+					<Text as="p" role="label" className="tabular-nums">
 						{row.byDisposition.proposed ?? 0} open ·{" "}
 						{row.byDisposition.accepted ?? 0} accepted
 						{needsYou ? ` · ${needsYou} need you` : ""}
