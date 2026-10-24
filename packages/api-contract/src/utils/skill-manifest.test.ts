@@ -197,6 +197,42 @@ capabilities:
 		).toEqual([expect.objectContaining({ code: "SKILL_RELIABILITY_INVALID" })]);
 	});
 
+	test("round-trips authored prototype-named reliability selectors as own data", () => {
+		const expectedTerminalStatuses = JSON.parse(
+			'{"__proto__":"failed","constructor":"canceled","toString":"completed"}',
+		);
+		const result = validateWorkflowReliabilityPolicy({
+			parameter: "mode",
+			expectedTerminalStatuses,
+		});
+		expect(result.issues).toEqual([]);
+		expect(JSON.parse(JSON.stringify(result.policy))).toEqual({
+			parameter: "mode",
+			expectedTerminalStatuses,
+		});
+		for (const selector of Object.keys(expectedTerminalStatuses)) {
+			expect(
+				Object.hasOwn(result.policy!.expectedTerminalStatuses, selector),
+			).toBe(true);
+		}
+		const manifest = parseCapabilityManifest(`---
+capabilities:
+  reliability:
+    parameter: mode
+    expectedTerminalStatuses:
+      __proto__: failed
+      constructor: canceled
+      toString: completed
+---
+# Expected outcomes
+`);
+		expect(manifest.reliability).toEqual(result.policy);
+		expect(
+			readPinnedCapabilityManifest(JSON.parse(JSON.stringify(manifest)))
+				?.reliability,
+		).toEqual(result.policy);
+	});
+
 	test("parses the grounding policy", () => {
 		const manifest = parseCapabilityManifest(`---
 capabilities:

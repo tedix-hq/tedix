@@ -327,6 +327,72 @@ describe("skill workflow inspection", () => {
 	});
 
 	it.each([
+		{ selector: "__proto__", authored: true, status: "failed" as const },
+		{ selector: "constructor", authored: true, status: "canceled" as const },
+		{ selector: "toString", authored: true, status: "failed" as const },
+		...[
+			"__proto__",
+			"constructor",
+			"toString",
+			"valueOf",
+			"hasOwnProperty",
+		].map((selector) => ({
+			selector,
+			authored: false,
+			status: "completed" as const,
+		})),
+	])(
+		"evaluates selector $selector with authored=$authored",
+		({ selector, authored, status }) => {
+			const result = aggregateSkillWorkflowReliability({
+				runs: [
+					{
+						id: "run-selector",
+						organizationId: "org-1",
+						skillId: "skill-1",
+						tediId: "tedi-1",
+						workflowInstanceId: "wf-selector",
+						executionEpoch: 0,
+						status,
+						params: { mode: selector },
+						capabilityManifest: {
+							mcp: {},
+							network: false,
+							rationale: { mode: "important" },
+							expectedAnnotations: {},
+							reliability: {
+								parameter: "mode",
+								expectedTerminalStatuses: authored
+									? { [selector]: status }
+									: { timeout: "failed" },
+							},
+						},
+						skillSlug: "skill",
+						skillRevision: 1,
+						startedAt: null,
+						completedAt: null,
+						pausedAt: null,
+						createdBy: null,
+						hasResult: status === "completed",
+						hasError: status === "failed",
+					},
+				],
+				steps: [],
+			});
+			expect(result.successRate).toBe(1);
+			expect(result.expectedOutcomes).toEqual({
+				evaluatedCount: 1,
+				matchedCount: 1,
+				unexpectedCount: 0,
+				expectedCompletedCount: status === "completed" ? 1 : 0,
+				expectedFailedCount: status === "failed" ? 1 : 0,
+				expectedCanceledCount: status === "canceled" ? 1 : 0,
+				unexpectedRuns: [],
+			});
+		},
+	);
+
+	it.each([
 		{ durationMs: -5, expected: null },
 		{ durationMs: 0, expected: 0 },
 		{ durationMs: 2.5, expected: 2.5 },
