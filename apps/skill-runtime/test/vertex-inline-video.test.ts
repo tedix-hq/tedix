@@ -54,6 +54,48 @@ const oversized = vertexInlineVideoStream(chunked(payload, 10), 3);
 await assert.rejects(new Response(oversized.readable).arrayBuffer());
 await assert.rejects(oversized.completed);
 
+for (const cancelThrows of [false, true]) {
+	let pulls = 0;
+	let canceled = false;
+	const unclosed = new ReadableStream<Uint8Array>(
+		{
+			pull(controller) {
+				pulls++;
+				if (pulls > 3) throw new Error("read past video size limit");
+				controller.enqueue(
+					encoder.encode(pulls === 1 ? '{"bytesBase64Encoded":"' : "AAAA"),
+				);
+			},
+			cancel() {
+				canceled = true;
+				if (cancelThrows) throw new Error("cancel failed");
+			},
+		},
+		{ highWaterMark: 0 },
+	);
+	await assert.rejects(
+		vertexInlineVideoByteLength(unclosed, 3),
+		/Vertex video exceeds 3 byte limit/,
+	);
+	assert.equal(pulls, 3, "reject without waiting for the closing quote");
+	assert.equal(canceled, true);
+	assert.equal(unclosed.locked, false);
+}
+
+for (let size = 1; size <= 8; size++) {
+	const exact = JSON.stringify({ bytesBase64Encoded: btoa("x".repeat(size)) });
+	for (let split = 1; split < exact.length; split++) {
+		assert.equal(
+			await vertexInlineVideoByteLength(chunked(exact, split), size),
+			size,
+		);
+	}
+	await assert.rejects(
+		vertexInlineVideoByteLength(chunked(exact, 24), size - 1),
+		/Vertex video exceeds/,
+	);
+}
+
 assert.equal(
 	await vertexOperationDone(
 		chunked('{"name":"op","done":true,"response":{"videos":["', 19),
