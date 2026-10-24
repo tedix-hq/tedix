@@ -570,6 +570,7 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 				leaseUntil,
 				"pending",
 				now,
+				new Date(Date.now() + RECONCILE_INTERVAL_MS).toISOString(),
 			);
 			await recordSubscriptionFailure(context, row, error);
 		}

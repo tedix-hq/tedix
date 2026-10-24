@@ -222,6 +222,7 @@ export async function settleProviderEventDelivery(
 	leaseUntil: string,
 	status: "sent" | "discarded" | "pending",
 	now: string,
+	retryLeaseUntil?: string,
 ) {
 	return (
 		(
@@ -229,7 +230,7 @@ export async function settleProviderEventDelivery(
 				.update(deliveries)
 				.set({
 					status,
-					leaseUntil: null,
+					leaseUntil: retryLeaseUntil ?? null,
 					sentAt: status === "sent" ? now : null,
 				})
 				.where(

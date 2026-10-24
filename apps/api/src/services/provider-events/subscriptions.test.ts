@@ -326,17 +326,24 @@ describe("durable dispatch authority and retries", () => {
 		);
 		expect(mocks.settle.mock.calls[0][3]).toBe(mocks.claim.mock.calls[0][4]);
 	});
-	it("returns failed queue publication to pending with same idempotency identity", async () => {
-		mocks.emit.mockRejectedValueOnce(new Error("temporary"));
-		expect(await dispatchProviderEventDeliveries(context)).toBe(0);
-		expect(mocks.settle).toHaveBeenCalledWith(
-			{},
-			"delivery",
-			"org-a",
-			expect.any(String),
-			"pending",
-			expect.any(String),
-		);
+	it("keeps failed queue publication leased until its retry delay", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+		try {
+			mocks.emit.mockRejectedValueOnce(new Error("temporary"));
+			expect(await dispatchProviderEventDeliveries(context)).toBe(0);
+			expect(mocks.settle).toHaveBeenCalledWith(
+				{},
+				"delivery",
+				"org-a",
+				"2026-01-01T00:01:00.000Z",
+				"pending",
+				"2026-01-01T00:00:00.000Z",
+				"2026-01-01T00:05:00.000Z",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 		mocks.emit.mockResolvedValue({ queued: true });
 		expect(await dispatchProviderEventDeliveries(context)).toBe(1);
 		expect(mocks.emit.mock.calls[0][0].event.idempotencyKey).toBe(

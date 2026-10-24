@@ -218,10 +218,25 @@ describe("provider event D1 authority and outbox", () => {
 			"event",
 			"org-a",
 			"2026-01-05",
-			"sent",
+			"pending",
 			"2026-01-04",
+			"2026-01-06",
 		);
-		expect(await listPendingProviderEventDeliveries(db, "2026-01-06")).toEqual(
+		expect(await listPendingProviderEventDeliveries(db, "2026-01-05")).toEqual(
+			[],
+		);
+		expect(await listPendingProviderEventDeliveries(db, "2026-01-07")).toEqual([
+			expect.objectContaining({ id: "event" }),
+		]);
+		await settleProviderEventDelivery(
+			db,
+			"event",
+			"org-a",
+			"2026-01-06",
+			"sent",
+			"2026-01-07",
+		);
+		expect(await listPendingProviderEventDeliveries(db, "2026-01-08")).toEqual(
 			[],
 		);
 	});
