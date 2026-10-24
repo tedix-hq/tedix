@@ -375,6 +375,23 @@ function AppDetailsForm({ app, canManage }: { app: App; canManage: boolean }) {
 // MCP CONFIG DISPLAY
 // =============================================================================
 
+function McpConfigRow({
+	label,
+	children,
+}: {
+	label: string;
+	children: ReactNode;
+}) {
+	return (
+		<div className="flex min-w-0 justify-between gap-3">
+			<Text as="span" role="body" tone="secondary" className="shrink-0">
+				{label}
+			</Text>
+			{children}
+		</div>
+	);
+}
+
 function McpConfigDisplay({ app }: { app: App }) {
 	const mcpConfig = app.metadata?.mcpConfig;
 	const endpoint = mcpEndpointUrl(app);
@@ -382,36 +399,24 @@ function McpConfigDisplay({ app }: { app: App }) {
 	return (
 		<AppTabSection title="Connection">
 			<div className="grid gap-3 text-sm">
-				<div className="flex min-w-0 justify-between gap-3">
-					<Text as="span" role="body" tone="secondary" className="shrink-0">
-						Endpoint
-					</Text>
+				<McpConfigRow label="Endpoint">
 					<ClipboardText text={endpoint} className="min-w-0 max-w-full" />
-				</div>
-				<div className="flex min-w-0 justify-between gap-3">
-					<Text as="span" role="body" tone="secondary" className="shrink-0">
-						Server name
-					</Text>
+				</McpConfigRow>
+				<McpConfigRow label="Server name">
 					<span className="min-w-0 wrap-anywhere text-right">
 						{mcpConfig?.serverName ?? "Tedix MCP"}
 					</span>
-				</div>
-				<div className="flex min-w-0 justify-between gap-3">
-					<Text as="span" role="body" tone="secondary" className="shrink-0">
-						Access mode
-					</Text>
+				</McpConfigRow>
+				<McpConfigRow label="Access mode">
 					<Badge variant="outline" className="shrink-0">
 						{mcpConfig?.authMode ?? "public"}
 					</Badge>
-				</div>
-				<div className="flex min-w-0 justify-between gap-3">
-					<Text as="span" role="body" tone="secondary" className="shrink-0">
-						Tool timeout
-					</Text>
+				</McpConfigRow>
+				<McpConfigRow label="Tool timeout">
 					<span className="min-w-0 wrap-anywhere text-right">
 						{mcpConfig?.toolTimeout ?? 30000}ms
 					</span>
-				</div>
+				</McpConfigRow>
 			</div>
 		</AppTabSection>
 	);
