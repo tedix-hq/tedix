@@ -13,6 +13,8 @@
  * nothing on the server.
  */
 
+import { fromMarkdown } from "mdast-util-from-markdown";
+
 /**
  * Reserved verb. `OPERATOR_SLASH_COMMANDS` in the kernel parser must never
  * claim it: a skill reference is a REFERENCE the operator deliberately put in
@@ -43,14 +45,41 @@ export function skillReferenceOnLine(line: string): string | undefined {
 	return SKILL_REFERENCE_LINE.exec(line.trim())?.[1];
 }
 
+type MarkdownNode = {
+	type: string;
+	children?: MarkdownNode[];
+	position?: { start: { line: number }; end: { line: number } };
+};
+
+/** Zero-based reference lines outside Markdown code, also used by draft editing. */
+export function parseSkillReferenceLines(content: string): Map<number, string> {
+	const references = new Map<number, string>();
+	for (const [index, line] of content.split(/\r\n|\r|\n/).entries()) {
+		const slug = skillReferenceOnLine(line);
+		if (slug !== undefined) references.set(index, slug);
+	}
+	if (references.size === 0) return references;
+	// Use the Markdown grammar for nested, indented and unclosed code fences.
+	const pending: MarkdownNode[] = [fromMarkdown(content)];
+	while (pending.length > 0) {
+		const node = pending.pop()!;
+		if ((node.type === "code" || node.type === "inlineCode") && node.position) {
+			for (
+				let line = node.position.start.line;
+				line <= node.position.end.line;
+				line++
+			) {
+				references.delete(line - 1);
+			}
+		}
+		for (const child of node.children ?? []) pending.push(child);
+	}
+	return references;
+}
+
 /** Every referenced slug, in first-seen order, deduplicated. */
 export function parseSkillReferences(content: string): string[] {
-	const slugs: string[] = [];
-	for (const line of content.split("\n")) {
-		const slug = skillReferenceOnLine(line);
-		if (slug !== undefined && !slugs.includes(slug)) slugs.push(slug);
-	}
-	return slugs;
+	return [...new Set(parseSkillReferenceLines(content).values())];
 }
 
 /**

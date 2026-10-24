@@ -4,8 +4,7 @@ import type {
 } from "@tedix/api-contract/schemas/cognitive";
 import {
 	formatSkillReference,
-	parseSkillReferences,
-	skillReferenceOnLine,
+	parseSkillReferenceLines,
 } from "@tedix/api-contract/utils/skill-reference";
 
 /**
@@ -139,10 +138,11 @@ export function filterComposerSkills(
 export function insertSkillReference(draft: string, slug: string): string {
 	const lines = draft.split("\n");
 	if (skillPickerTrigger(lines[lines.length - 1] ?? "") !== null) lines.pop();
-	const slugs = parseSkillReferences(draft);
+	const references = parseSkillReferenceLines(lines.join("\n"));
+	const slugs = [...new Set(references.values())];
 	if (!slugs.includes(slug)) slugs.push(slug);
 	const body = lines
-		.filter((line) => skillReferenceOnLine(line) === undefined)
+		.filter((_, index) => !references.has(index))
 		.join("\n")
 		.trim();
 	const head = slugs.map(formatSkillReference).join("\n");
@@ -151,9 +151,10 @@ export function insertSkillReference(draft: string, slug: string): string {
 
 /** Remove one pill's reference, collapsing the blank block it leaves behind. */
 export function removeSkillReference(draft: string, slug: string): string {
+	const references = parseSkillReferenceLines(draft);
 	return draft
 		.split("\n")
-		.filter((line) => skillReferenceOnLine(line) !== slug)
+		.filter((_, index) => references.get(index) !== slug)
 		.join("\n")
 		.replace(/^\n+/, "");
 }
