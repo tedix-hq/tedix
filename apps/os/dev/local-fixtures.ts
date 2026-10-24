@@ -5629,6 +5629,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 			),
 			input,
 		),
+	// No saved auto-approval rules: the Activity panel shows its empty state.
+	"osApprovalRules/list": () => ({ items: [] }),
 	"tediApprovals/getById": (input: { id: string }) => {
 		const approval = state.approvals.find((row) => row.id === input.id);
 		if (!approval)

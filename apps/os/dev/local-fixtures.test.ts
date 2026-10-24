@@ -314,6 +314,7 @@ const CALLS: Record<string, unknown> = {
 	},
 	"organizationPurpose/getOwnerBrief": { outcomeWindowDays: 7 },
 	"tediApprovals/list": { status: "pending", limit: 50 },
+	"osApprovalRules/list": {},
 	"tediApprovals/getById": { id: IDS.approvalPending },
 	"tediApprovals/resolve": { id: IDS.approvalPending, status: "approved" },
 	"userSettings/getPreferences": {},

@@ -10,6 +10,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { useContext, useState } from "react";
 import { createPortal } from "react-dom";
+import { ActivityAutoApproval } from "@/components/activity-auto-approval";
+import { ActivityHistory } from "@/components/activity-history";
 import {
 	type ApprovalCardData,
 	approvalsFromRunSet,
@@ -39,9 +41,16 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/kumo/popover";
+import {
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
 import { OsTopbarMenuContext } from "@/components/os-topbar-actions-context";
 import { osApi, osChatMutationApi } from "@/lib/api";
+import { appLabel, plainApprovalTitle } from "@/lib/approval-titles";
 import {
 	homeRunSetQueryOptions,
 	operationalContextQueryOptions,
@@ -83,6 +92,8 @@ export type ApprovalListItem = {
 	title: string;
 	kind: string;
 	tedi: { id: string; name: string } | null;
+	/** The app the action would touch, when the request names one. */
+	where: string | null;
 	requestedAt: string | null;
 	expiresAt: string | null;
 	chip: { label: string; tone: ChipTone };
@@ -105,7 +116,10 @@ const RESERVED_CLASS_LABELS: Record<string, string> = {
 	credentials: "Credentials",
 	legal: "Legal",
 	deletion: "Deletes data",
+	delete_data: "Deletes data",
 	access_change: "Access change",
+	access_control: "Access change",
+	production_settings: "Production settings",
 };
 
 /** The hold reason as a short chip: what kind of risk made Home stop. */
@@ -146,11 +160,12 @@ function homeItem(approval: ApprovalCardData): ApprovalListItem {
 	const name = approval.tediName ?? null;
 	return {
 		key: approval.approvalId,
-		title: approval.requestPreview ?? approval.summary,
+		title: plainApprovalTitle(approval.requestPreview ?? approval.summary),
 		kind: approval.approvalId.startsWith("home-delegation:")
 			? "Delegation"
 			: "Home request",
 		tedi: name ? { id: approval.tediId ?? name, name } : null,
+		where: null,
 		requestedAt: approval.requestedAt ?? null,
 		expiresAt: approval.expiresAt ?? null,
 		chip: delegationHoldChip(approval.detail),
@@ -172,15 +187,25 @@ function runtimeItem(
 	const name = tediNames[approval.tediId] ?? null;
 	return {
 		key: approval.id,
-		title: approval.review.summary || approval.description,
+		title: plainApprovalTitle(
+			approval.review.summary || approval.description,
+			approval.payload,
+		),
 		kind: "Action",
 		tedi: name ? { id: approval.tediId, name } : null,
+		where:
+			typeof approval.payload.appSlug === "string"
+				? appLabel(approval.payload.appSlug)
+				: null,
 		requestedAt: approval.createdAt,
 		expiresAt: approval.expiresAt,
-		chip: RUNTIME_INTENT_CHIPS[approval.review.intent] ?? {
-			label: "Needs review",
-			tone: "secondary",
-		},
+		chip:
+			approval.payload.riskTier === "high"
+				? { label: "High risk", tone: "error" }
+				: (RUNTIME_INTENT_CHIPS[approval.review.intent] ?? {
+						label: "Needs review",
+						tone: "secondary",
+					}),
 		what: decision.what,
 		ifApproved: decision.ifApproved,
 		ifRejected: decision.ifRejected,
@@ -216,6 +241,31 @@ export function groupApprovalItems(
 				b.items.length - a.items.length || a.label.localeCompare(b.label),
 		);
 }
+
+/**
+ * Identical requests (same action, asked by the same tedi, for the same
+ * reason) collapse into one row that is decided together. Old rows and rows
+ * from both decision planes are covered, because this runs on what the OS
+ * shows rather than on how the request was created.
+ */
+export function collapseIdenticalItems(
+	items: readonly ApprovalListItem[],
+): ApprovalListItem[][] {
+	const rows = new Map<string, ApprovalListItem[]>();
+	for (const item of items) {
+		const key = [
+			item.tedi?.id ?? "",
+			item.kind,
+			item.chip.label,
+			item.where ?? "",
+			item.title,
+		].join("\u0000");
+		rows.set(key, [...(rows.get(key) ?? []), item]);
+	}
+	return [...rows.values()];
+}
+
+export type ActivityTab = "review" | "auto" | "history";
 
 export const approvalGroupHeadingClassName =
 	"m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
@@ -335,30 +385,41 @@ export function ApprovalNotifications({
 		},
 	});
 	const error = respondHome.error ?? resolveRuntime.error;
-	const pendingKey = respondHome.isPending
-		? respondHome.variables?.runId
-		: resolveRuntime.isPending
-			? resolveRuntime.variables?.id
-			: undefined;
+	const busy = respondHome.isPending || resolveRuntime.isPending;
+	const [tab, setTab] = useState<ActivityTab>("review");
 
-	function decide(
+	function decideOne(
 		item: ApprovalListItem,
 		choice: "approved" | "rejected" | "recommended",
 	) {
 		const status = choice === "recommended" ? item.recommendation : choice;
 		const delegateRecommendation = choice === "recommended" || undefined;
-		if (item.target.plane === "home") {
-			respondHome.mutate({
-				runId: item.target.runId,
-				decision: status === "approved" ? "approve" : "reject",
-				delegateRecommendation,
-			});
-		} else {
-			resolveRuntime.mutate({
-				id: item.target.approvalId,
-				status,
-				delegateRecommendation,
-			});
+		return item.target.plane === "home"
+			? respondHome.mutateAsync({
+					runId: item.target.runId,
+					decision: status === "approved" ? "approve" : "reject",
+					delegateRecommendation,
+				})
+			: resolveRuntime.mutateAsync({
+					id: item.target.approvalId,
+					status,
+					delegateRecommendation,
+				});
+	}
+
+	/** One decision for every identical request in the row, in order. */
+	async function decide(
+		row: readonly ApprovalListItem[],
+		choice: "approved" | "rejected" | "recommended",
+	) {
+		for (const item of row) {
+			try {
+				await decideOne(item, choice);
+			} catch {
+				// The mutation's error is rendered below the list; stop here so
+				// the remaining requests stay waiting rather than half-decided.
+				return;
+			}
 		}
 	}
 
@@ -389,7 +450,7 @@ export function ApprovalNotifications({
 							}
 							className="relative"
 							size="icon-sm"
-							title="Action approvals"
+							title="Activity"
 							variant={count > 0 ? "secondary" : "ghost"}
 						>
 							<Pulse size={16} weight={count > 0 ? "bold" : "regular"} />
@@ -406,67 +467,105 @@ export function ApprovalNotifications({
 				anchor={menu?.anchor}
 				finalFocus={menu?.anchor}
 				align="end"
-				className="w-[min(26rem,calc(100vw-2rem))] max-h-[min(36rem,var(--available-height))] gap-0 p-0"
+				className="w-[min(28rem,calc(100vw-2rem))] max-h-[min(40rem,var(--available-height))] gap-0 p-0"
 				data-approvals-popover=""
 				side="bottom"
 			>
-				<header className="sticky top-0 z-10 flex items-baseline justify-between gap-3 border-b border-kumo-hairline bg-kumo-base px-4 py-3">
-					<div className="grid min-w-0 gap-0.5">
-						<PopoverTitle className="m-0 font-semibold text-kumo-default type-tedix-body">
-							Approvals
-						</PopoverTitle>
-						<PopoverDescription className="m-0 text-kumo-subtle type-tedix-label">
-							{count === 0
-								? "Nothing is waiting for you."
-								: `${count} waiting for your decision`}
-						</PopoverDescription>
-					</div>
-				</header>
+				<Tabs
+					className="gap-0"
+					onValueChange={(value) => setTab(value as ActivityTab)}
+					value={tab}
+				>
+					<header className="sticky top-0 z-10 grid gap-2 border-b border-kumo-hairline bg-kumo-base px-4 pt-3">
+						<div className="grid min-w-0 gap-0.5">
+							<PopoverTitle className="m-0 font-semibold text-kumo-default type-tedix-body">
+								Activity
+							</PopoverTitle>
+							<PopoverDescription className="m-0 text-kumo-subtle type-tedix-label">
+								{count === 0
+									? "Nothing is waiting for you."
+									: `${count} waiting for your decision`}
+							</PopoverDescription>
+						</div>
+						<TabsList
+							aria-label="Activity sections"
+							className="-mx-1 !h-9 border-b-0"
+							variant="line"
+						>
+							<TabsTrigger className="px-2!" value="review">
+								Needs review
+								{count > 0 ? (
+									<Badge className="ml-1.5 tabular-nums" variant="secondary">
+										{count > 99 ? "99+" : count}
+									</Badge>
+								) : null}
+							</TabsTrigger>
+							<TabsTrigger className="px-2!" value="auto">
+								Auto-approval
+							</TabsTrigger>
+							<TabsTrigger className="px-2!" value="history">
+								History
+							</TabsTrigger>
+						</TabsList>
+					</header>
 
-				{loading ? (
-					<Text className="m-0 px-4 py-6" role="label" tone="secondary">
-						Checking for pending decisions…
-					</Text>
-				) : items.length === 0 ? (
-					<Empty
-						appearance="inline"
-						className="px-4! py-6!"
-						icon={
-							<CheckCircle aria-hidden className="text-kumo-subtle" size={24} />
-						}
-						title="No approvals waiting"
-						description="Requests that need your decision appear here."
-					/>
-				) : (
-					<div className="grid">
-						{groupApprovalItems(items).map((group) => (
-							<section
-								aria-label={`${group.label}: ${group.items.length} waiting`}
-								className="border-b border-kumo-hairline last:border-b-0"
-								key={group.label}
-							>
-								<h3 className={approvalGroupHeadingClassName}>
-									{sanitizeUntrustedText(group.label)}
-									<span className="tabular-nums font-normal">
-										{group.items.length}
-									</span>
-								</h3>
-								<ul className="m-0 grid list-none p-0 pb-1">
-									{group.items.map((item) => (
-										<ApprovalRow
-											busy={pendingKey !== undefined}
-											item={item}
-											key={item.key}
-											onDecide={(choice) => decide(item, choice)}
-										/>
-									))}
-								</ul>
-							</section>
-						))}
-					</div>
-				)}
+					<TabsContent value={tab}>
+						{tab === "auto" ? (
+							<ActivityAutoApproval
+								canChange={hasOsApprovalAuthority(authority)}
+							/>
+						) : tab === "history" ? (
+							<ActivityHistory tediNames={tediNames} />
+						) : loading ? (
+							<Text className="m-0 px-4 py-6" role="label" tone="secondary">
+								Checking for pending decisions…
+							</Text>
+						) : items.length === 0 ? (
+							<Empty
+								appearance="inline"
+								className="px-4! py-6!"
+								icon={
+									<CheckCircle
+										aria-hidden
+										className="text-kumo-subtle"
+										size={24}
+									/>
+								}
+								title="No approvals waiting"
+								description="When an agent needs your OK to change, send or pay for something, it waits here."
+							/>
+						) : (
+							<div className="grid">
+								{groupApprovalItems(items).map((group) => (
+									<section
+										aria-label={`${group.label}: ${group.items.length} waiting`}
+										className="border-b border-kumo-hairline last:border-b-0"
+										key={group.label}
+									>
+										<h3 className={approvalGroupHeadingClassName}>
+											{sanitizeUntrustedText(group.label)}
+											<span className="tabular-nums font-normal">
+												{group.items.length}
+											</span>
+										</h3>
+										<ul className="m-0 grid list-none p-0 pb-1">
+											{collapseIdenticalItems(group.items).map((row) => (
+												<ApprovalRow
+													busy={busy}
+													items={row}
+													key={row[0]?.key}
+													onDecide={(choice) => void decide(row, choice)}
+												/>
+											))}
+										</ul>
+									</section>
+								))}
+							</div>
+						)}
+					</TabsContent>
+				</Tabs>
 
-				{error ? (
+				{tab === "review" && error ? (
 					<Text className="m-0 px-4 py-2" role="label" tone="error">
 						The decision could not be recorded:{" "}
 						{error instanceof Error ? error.message : "Unknown error"}
@@ -477,7 +576,7 @@ export function ApprovalNotifications({
 						className="flex min-h-9 items-center justify-between rounded-md px-2 text-kumo-default no-underline type-tedix-control hover:bg-kumo-tint max-sm:min-h-11"
 						href="/work/approvals"
 					>
-						View all approvals
+						Open the approvals page
 						<CaretRight aria-hidden size={14} />
 					</Link>
 				</footer>
@@ -487,15 +586,24 @@ export function ApprovalNotifications({
 }
 
 function ApprovalRow({
-	item,
+	items,
 	busy,
 	onDecide,
 }: {
-	item: ApprovalListItem;
+	/** One request, or several identical ones decided together. */
+	items: readonly ApprovalListItem[];
 	busy: boolean;
 	onDecide: (choice: "approved" | "rejected" | "recommended") => void;
 }) {
 	const [expanded, setExpanded] = useState(false);
+	const item = items[0]!;
+	const repeats = items.length;
+	// The soonest window is the one that matters: after it, a request expires.
+	const expiresAt =
+		items
+			.map((entry) => entry.expiresAt)
+			.filter((value): value is string => value !== null)
+			.sort()[0] ?? null;
 	const title = sanitizeUntrustedText(item.title);
 	const recommended = item.recommendation === "approved" ? "Approve" : "Reject";
 	return (
@@ -533,7 +641,13 @@ function ApprovalRow({
 						</CollapsibleTrigger>
 						<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-kumo-subtle type-tedix-label">
 							<Badge variant={item.chip.tone}>{item.chip.label}</Badge>
-							<span>{item.kind}</span>
+							{repeats > 1 ? (
+								<Badge variant="outline">{repeats} identical</Badge>
+							) : null}
+							<span>
+								{item.kind}
+								{item.where ? ` in ${sanitizeUntrustedText(item.where)}` : ""}
+							</span>
 							{item.requestedAt ? (
 								<time
 									dateTime={item.requestedAt}
@@ -542,12 +656,12 @@ function ApprovalRow({
 									{relativeTime(item.requestedAt)}
 								</time>
 							) : null}
-							{item.expiresAt ? (
+							{expiresAt ? (
 								<time
-									dateTime={item.expiresAt}
-									title={`Expires ${absoluteTime(item.expiresAt)}`}
+									dateTime={expiresAt}
+									title={`Expires ${absoluteTime(expiresAt)}`}
 								>
-									expires {relativeTime(item.expiresAt)}
+									expires {relativeTime(expiresAt)}
 								</time>
 							) : null}
 						</div>
@@ -588,7 +702,7 @@ function ApprovalRow({
 					onClick={() => onDecide("approved")}
 					size="sm"
 				>
-					Approve
+					{repeats > 1 ? `Approve all ${repeats}` : "Approve"}
 				</Button>
 				<Button
 					disabled={busy}
@@ -597,7 +711,7 @@ function ApprovalRow({
 					size="sm"
 					variant="secondary"
 				>
-					Reject
+					{repeats > 1 ? `Reject all ${repeats}` : "Reject"}
 				</Button>
 				<DropdownMenu>
 					<DropdownMenuTrigger

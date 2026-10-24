@@ -19,8 +19,21 @@ async function capture(page: Page, name: string) {
 	await page.screenshot({ path: `${evidenceDir}/${name}.png` });
 }
 
-// The topbar approvals popover against the app's real CSS: WebKit at 390 and
-// 1280 px, light and dark, with three held delegations and with none.
+async function fits(page: Page, width: number) {
+	const panel = page.locator("[data-approvals-popover]");
+	await settle(page);
+	const box = await panel.boundingBox();
+	assert(box && box.x >= 0 && box.x + box.width <= width, "Panel fits");
+	assert.equal(
+		await panel.evaluate((node) => node.scrollWidth <= node.clientWidth),
+		true,
+		"No horizontal overflow",
+	);
+}
+
+// The topbar Activity panel against the app's real CSS: WebKit at 375 and
+// 1280 px, light and dark, with three held delegations, with mixed action
+// requests and history, and with nothing.
 const fixturePath = "/browser-tests/approvals-popover.html";
 const server = await startFixtureServer(fixturePath);
 const evidenceDir = process.env.APPROVALS_POPOVER_EVIDENCE_DIR;
@@ -29,7 +42,7 @@ const browser = await webkit.launch();
 try {
 	for (const theme of ["light", "dark"] as const)
 		for (const [width, height] of [
-			[390, 844],
+			[375, 812],
 			[1280, 900],
 		] as const) {
 			const page = await browser.newPage({
@@ -127,10 +140,83 @@ try {
 				.click();
 			await page.getByText("No approvals waiting", { exact: true }).waitFor();
 			await capture(page, `approvals-empty-${width}-${theme}`);
+			const emptyPanel = page.locator("[data-approvals-popover]");
+			await emptyPanel.getByRole("tab", { name: "Auto-approval" }).click();
+			await emptyPanel.getByText("No saved rules", { exact: true }).waitFor();
+			await emptyPanel.getByText("Reading data", { exact: true }).waitFor();
+			await fits(page, width);
+			await capture(page, `activity-auto-empty-${width}-${theme}`);
+			await emptyPanel.getByRole("tab", { name: "History" }).click();
+			await emptyPanel.getByText("No activity yet", { exact: true }).waitFor();
+			await capture(page, `activity-history-empty-${width}-${theme}`);
+
+			// Needs review: raw tool slugs read as plain titles, and identical
+			// requests from one tedi are one row decided together.
+			await page.goto(`${server.origin}${fixturePath}?theme=${theme}&activity`);
+			await page
+				.getByRole("button", {
+					name: "Action approvals: 6 waiting",
+					exact: true,
+				})
+				.click();
+			const activity = page.locator("[data-approvals-popover]");
+			await activity
+				.getByText("Run skill: Weekly sales report in Example", { exact: true })
+				.waitFor();
+			assert.equal(
+				await activity
+					.getByRole("button", { name: "Approve all 2", exact: true })
+					.count(),
+				1,
+			);
+			await activity
+				.getByText("Create draft in Google Gmail", { exact: true })
+				.waitFor();
+			await activity
+				.getByRole("region", { name: "Ops: 3 waiting" })
+				.getByText("High risk", { exact: true })
+				.waitFor();
+			assert.equal(
+				await activity.getByText(/tedi_146194|google_gmail/).count(),
+				0,
+				"No raw tool slug is shown",
+			);
+			await fits(page, width);
+			await capture(page, `activity-review-${width}-${theme}`);
+
+			// Auto-approval: the policy in plain words, what it covered, saved rules.
+			await activity.getByRole("tab", { name: "Auto-approval" }).click();
+			await activity.getByText("Reading data", { exact: true }).waitFor();
+			await activity.getByText("Deleting data", { exact: true }).waitFor();
+			await activity.getByText("Create work items", { exact: true }).waitFor();
+			await activity
+				.getByText("Always approve: Add note in Example Crm", { exact: true })
+				.waitFor();
+			await fits(page, width);
+			await capture(page, `activity-auto-${width}-${theme}`);
+
+			// History: decisions and tool calls, newest first, with filters.
+			await activity.getByRole("tab", { name: "History" }).click();
+			const history = activity.getByRole("list", { name: "Activity history" });
+			await history.waitFor();
+			assert.equal(await history.locator(":scope > li").count(), 4);
+			for (const label of ["Auto-approved", "Rejected", "Expired", "Failed"])
+				await history.getByText(label, { exact: true }).waitFor();
+			await fits(page, width);
+			await capture(page, `activity-history-${width}-${theme}`);
+			await activity
+				.getByRole("button", { name: "Automatic", exact: true })
+				.click();
+			await activity.getByText("1 shown", { exact: true }).waitFor();
+			assert.equal(await history.locator(":scope > li").count(), 1);
+			await activity
+				.getByRole("button", { name: "Actions", exact: true })
+				.click();
+			await history.getByText("Add note", { exact: true }).waitFor();
 			await page.close();
 		}
 	console.log(
-		"PASS: approvals popover groups, expiry, details, overflow, focus return and empty state; 390/1280 × light/dark",
+		"PASS: Activity panel review groups, plain titles, identical-request rows, auto-approval policy, history filters, overflow, focus return and empty states; 375/1280 × light/dark",
 	);
 } finally {
 	await browser.close();
