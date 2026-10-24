@@ -121,9 +121,61 @@ describe("provider event D1 authority and outbox", () => {
 			db,
 			"event",
 			"org-a",
+			"2026-01-05",
 			"sent",
 			"2026-01-04",
 		);
+		expect(await listPendingProviderEventDeliveries(db, "2026-01-06")).toEqual(
+			[],
+		);
+	});
+	it("rejects a stale claimant's settlement after the delivery lease is reclaimed", async () => {
+		const db = fixture();
+		await addProviderEventDelivery(db, {
+			id: "event",
+			organizationId: "org-a",
+			subscriptionId: "sub",
+			status: "pending",
+			createdAt: "2026-01-01",
+		});
+		expect(
+			await claimProviderEventDelivery(
+				db,
+				"event",
+				"org-a",
+				"2026-01-02",
+				"2026-01-03",
+			),
+		).toBe(true);
+		expect(
+			await claimProviderEventDelivery(
+				db,
+				"event",
+				"org-a",
+				"2026-01-04",
+				"2026-01-05",
+			),
+		).toBe(true);
+		expect(
+			await settleProviderEventDelivery(
+				db,
+				"event",
+				"org-a",
+				"2026-01-03",
+				"pending",
+				"2026-01-04",
+			),
+		).toBe(false);
+		expect(
+			await settleProviderEventDelivery(
+				db,
+				"event",
+				"org-a",
+				"2026-01-05",
+				"sent",
+				"2026-01-04",
+			),
+		).toBe(true);
 		expect(await listPendingProviderEventDeliveries(db, "2026-01-06")).toEqual(
 			[],
 		);

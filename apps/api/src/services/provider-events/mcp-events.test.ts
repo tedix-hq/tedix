@@ -56,11 +56,14 @@ vi.mock("@tedix/db/queries/provider-events", () => ({
 		_db: unknown,
 		id: string,
 		org: string,
+		leaseUntil: string,
 		status: Delivery["status"],
 	) => {
 		const row = state.deliveries.get(id);
-		if (row && row.organizationId === org)
-			state.deliveries.set(id, { ...row, status, leaseUntil: null });
+		if (!row || row.organizationId !== org || row.leaseUntil !== leaseUntil)
+			return false;
+		state.deliveries.set(id, { ...row, status, leaseUntil: null });
+		return true;
 	},
 	updateProviderEventSubscription: async (
 		_db: unknown,
@@ -86,7 +89,19 @@ vi.mock("@tedix/db/queries/provider-events", () => ({
 		[...state.deliveries.values()].filter(
 			(row) => row.status === "pending" && !row.leaseUntil,
 		),
-	claimProviderEventDelivery: async () => true,
+	claimProviderEventDelivery: async (
+		_db: unknown,
+		id: string,
+		org: string,
+		_now: string,
+		leaseUntil: string,
+	) => {
+		const row = state.deliveries.get(id);
+		if (!row || row.organizationId !== org || row.status !== "pending")
+			return false;
+		state.deliveries.set(id, { ...row, leaseUntil });
+		return true;
+	},
 	createProviderEventSubscription: vi.fn(),
 	addProviderEventChannel: vi.fn(),
 	listProviderEventChannels: vi.fn(),

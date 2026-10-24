@@ -431,13 +431,14 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 		context.db,
 		now,
 	)) {
+		const leaseUntil = new Date(Date.now() + 60_000).toISOString();
 		if (
 			!(await claimProviderEventDelivery(
 				context.db,
 				delivery.id,
 				delivery.organizationId,
 				now,
-				new Date(Date.now() + 60_000).toISOString(),
+				leaseUntil,
 			))
 		)
 			continue;
@@ -451,6 +452,7 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 				context.db,
 				delivery.id,
 				delivery.organizationId,
+				leaseUntil,
 				"discarded",
 				now,
 			);
@@ -471,6 +473,7 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 				context.db,
 				delivery.id,
 				delivery.organizationId,
+				leaseUntil,
 				"discarded",
 				now,
 			);
@@ -492,6 +495,7 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 					context.db,
 					delivery.id,
 					delivery.organizationId,
+					leaseUntil,
 					"discarded",
 					now,
 				);
@@ -529,25 +533,30 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 					event: reconciliationEvent(row, delivery.id, delivery.payload),
 				});
 			}
-			await settleProviderEventDelivery(
-				context.db,
-				delivery.id,
-				delivery.organizationId,
-				"sent",
-				now,
-			);
-			await updateProviderEventSubscription(
-				context.db,
-				row.organizationId,
-				row.id,
-				{ lastDispatchAt: now },
-			);
-			sent++;
+			if (
+				await settleProviderEventDelivery(
+					context.db,
+					delivery.id,
+					delivery.organizationId,
+					leaseUntil,
+					"sent",
+					now,
+				)
+			) {
+				await updateProviderEventSubscription(
+					context.db,
+					row.organizationId,
+					row.id,
+					{ lastDispatchAt: now },
+				);
+				sent++;
+			}
 		} catch (error) {
 			await settleProviderEventDelivery(
 				context.db,
 				delivery.id,
 				delivery.organizationId,
+				leaseUntil,
 				"pending",
 				now,
 			);
