@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	COMPUTED_IMPORT,
 	bunfigPreloads,
 	importSpecifiers,
 	isBunSuiteInfrastructure,
@@ -401,6 +402,30 @@ describe("selectBunTestFiles", () => {
 		});
 	});
 
+	test("a computed dynamic import selects every test reaching it", () => {
+		const io = makeIo({
+			...FILES,
+			"packages/tool/src/b.ts": "const name = getName(); await import(name);",
+		});
+		expect(select(["packages/tool/src/a.ts"], io)).toEqual({
+			mode: "files",
+			files: ["src/a.test.ts", "src/b.test.ts", "src/guard.test.ts"],
+			total: 5,
+		});
+	});
+
+	test("a const-bound dynamic import is an edge", () => {
+		const io = makeIo({
+			...FILES,
+			"packages/tool/src/b.test.ts":
+				'const path = "./a"; await import(/* @vite-ignore */ path);',
+		});
+		expect(select(["packages/tool/src/a.ts"], io)).toMatchObject({
+			mode: "files",
+			files: ["src/a.test.ts", "src/b.test.ts", "src/guard.test.ts"],
+		});
+	});
+
 	test.each(["~/a", "@/a", "#a"])(
 		"unconfigured alias %s fails closed",
 		(specifier) => {
@@ -560,7 +585,8 @@ describe("importSpecifiers", () => {
 			'export * from "./b.js";',
 			'export { x } from "../c";',
 			'const d = await import("./d.json");',
-			"const e = await import(`./${name}`);",
+			"const e = await import(`./e`);",
+			"const fs = await import(`node:${name}`);",
 			'const f = require("./f");',
 			'import "./side";',
 		].join("\n");
@@ -571,8 +597,29 @@ describe("importSpecifiers", () => {
 			"./b.js",
 			"../c",
 			"./d.json",
+			"./e",
 			"./f",
 		]);
+	});
+
+	test.each([
+		"await import(`./${name}`);",
+		'let p = "./a"; await import(p);',
+		'await import("./" + name);',
+		'const p = "./a"; function f(p) { return import(p); }',
+	])("marks the computed dynamic import %s", (source) => {
+		expect(importSpecifiers("x.ts", source)).toEqual([COMPUTED_IMPORT]);
+	});
+
+	test("resolves const-bound dynamic imports and skips builtins", () => {
+		const source = [
+			'const bunTestModule = "bun:test";',
+			"await import(bunTestModule);",
+			"const target = `./t`;",
+			"await import(/* @vite-ignore */ target);",
+			"await import(`node:${name}`);",
+		].join("\n");
+		expect(importSpecifiers("x.ts", source)).toEqual(["bun:test", "./t"]);
 	});
 
 	test("throws on malformed source", () => {

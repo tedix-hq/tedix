@@ -21,11 +21,13 @@
  * - more than SELECTION_FILE_LIMIT changed code files — a refactor of that
  *   size wants the whole suite, and the graph adds nothing at that point.
  *
- * Two deliberate over-selections keep it honest. A test that reads the repo
+ * Three deliberate over-selections keep it honest. A test that reads the repo
  * through the filesystem (`import.meta.dirname`, `__dirname`) pins behavior
  * of files it never imports — do-canonical-transcript.guard.test.ts reads
- * do.ts as text — so it always runs. And the bunfig `preload` modules run
- * before every test, so they are an import of every test file.
+ * do.ts as text — so it always runs. A test whose closure holds a dynamic
+ * import of a computed path could load any file, so it always runs too. And
+ * the bunfig `preload` modules run before every test, so they are an import
+ * of every test file.
  *
  * Pure: every filesystem read goes through `io`, so the test exercises the
  * graph on an in-memory repo. `fsBunSelectionIo` is the real one.
@@ -183,9 +185,12 @@ function tomlStringArray(source) {
 /**
  * Module specifiers one source file imports, statically or dynamically, in
  * source order. Type-only imports count: a type change can still break a
- * test that asserts on the shape. A dynamic import whose argument is not a
- * string literal names nothing the graph can follow and is dropped. A computed
- * require cannot be represented by an edge, so it fails the selection closed.
+ * test that asserts on the shape. A dynamic import of a string, a template
+ * without substitutions, or a name bound only by `const` string declarations
+ * is an edge; a `node:` or `bun:` template is a builtin with no repo edge. Any
+ * other dynamic import yields COMPUTED_IMPORT: the file can reach anything, so
+ * every test reaching it is selected. A computed require fails the selection
+ * closed.
  *
  * @param {string} path for the parser's language choice and error messages
  * @param {string} source
@@ -204,16 +209,77 @@ export function importSpecifiers(path, source) {
 			if (entry.moduleRequest) specifiers.push(entry.moduleRequest.value);
 		}
 	}
-	for (const entry of parsed.module.dynamicImports) {
-		const text = source.slice(
-			entry.moduleRequest.start,
-			entry.moduleRequest.end,
-		);
-		const literal = /^(["'])([^"'\n]*)\1$/.exec(text.trim());
-		if (literal) specifiers.push(literal[2]);
+	for (const specifier of dynamicImportSpecifiers(parsed.program)) {
+		specifiers.push(specifier);
 	}
 	for (const specifier of requireSpecifiers(parsed.program, path)) {
 		specifiers.push(specifier);
+	}
+	return specifiers;
+}
+
+/** Marks a dynamic import the graph cannot follow; never a repo path. */
+export const COMPUTED_IMPORT = "\0computed-dynamic-import";
+
+function walk(node, onNode) {
+	if (!node || typeof node !== "object") return;
+	if (Array.isArray(node)) {
+		for (const entry of node) walk(entry, onNode);
+		return;
+	}
+	if (typeof node.type === "string") onNode(node);
+	for (const child of Object.values(node)) walk(child, onNode);
+}
+
+/** A string literal or a template literal without substitutions. */
+function staticString(node) {
+	if (node?.type === "Literal" && typeof node.value === "string")
+		return node.value;
+	if (node?.type === "TemplateLiteral" && node.expressions.length === 0)
+		return node.quasis[0]?.value.cooked ?? null;
+	return null;
+}
+
+function dynamicImportSpecifiers(program) {
+	// Names bound only by `const name = "<string>"`; any other binding of the
+	// same name (let/var, a parameter, a non-string const) makes it unknown.
+	const constStrings = new Map();
+	const otherBindings = new Set();
+	const sources = [];
+	walk(program, (node) => {
+		if (node.type === "ImportExpression") sources.push(node.source);
+		else if (node.type === "VariableDeclaration") {
+			for (const declarator of node.declarations) {
+				if (declarator.id.type !== "Identifier") continue;
+				const value = staticString(declarator.init);
+				const name = declarator.id.name;
+				if (node.kind === "const" && value !== null) {
+					constStrings.set(name, [...(constStrings.get(name) ?? []), value]);
+				} else otherBindings.add(name);
+			}
+		} else if (Array.isArray(node.params)) {
+			for (const param of node.params) {
+				if (param.type === "Identifier") otherBindings.add(param.name);
+			}
+		}
+	});
+	const specifiers = [];
+	for (const source of sources) {
+		const value = staticString(source);
+		if (value !== null) {
+			specifiers.push(value);
+		} else if (
+			source.type === "Identifier" &&
+			constStrings.has(source.name) &&
+			!otherBindings.has(source.name)
+		) {
+			specifiers.push(...constStrings.get(source.name));
+		} else if (
+			source.type !== "TemplateLiteral" ||
+			!/^(?:node|bun):/.test(source.quasis[0]?.value.cooked ?? "")
+		) {
+			specifiers.push(COMPUTED_IMPORT);
+		}
 	}
 	return specifiers;
 }
@@ -507,14 +573,19 @@ export function selectBunTestFiles({ workspaceDir, changedFiles, io }) {
 			const source = io.readSource(file);
 			if (source === null) throw new Error(`${file}: cannot read`);
 			resolved = importSpecifiers(file, source).flatMap((specifier) =>
-				resolveSpecifier(specifier, file, io),
+				specifier === COMPUTED_IMPORT
+					? [COMPUTED_IMPORT]
+					: resolveSpecifier(specifier, file, io),
 			);
 		}
 		dependencies.set(file, resolved);
 		return resolved;
 	};
 
-	/** Does any changed file sit in `root`'s import closure (itself included)? */
+	/**
+	 * Does any changed file, or a dynamic import the graph cannot follow, sit
+	 * in `root`'s import closure (itself included)?
+	 */
 	const reachesChange = (root) => {
 		const seen = new Set();
 		const stack = [root];
@@ -522,7 +593,7 @@ export function selectBunTestFiles({ workspaceDir, changedFiles, io }) {
 			const file = stack.pop();
 			if (seen.has(file)) continue;
 			seen.add(file);
-			if (changed.has(file)) return true;
+			if (changed.has(file) || file === COMPUTED_IMPORT) return true;
 			for (const dep of directImports(file)) stack.push(dep);
 		}
 		return false;
