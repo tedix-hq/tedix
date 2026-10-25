@@ -146,7 +146,7 @@ export const OsWorkspaceResourceSchema = z
 			.max(120)
 			.nullable()
 			.describe(
-				"Named Blueprint slot; null for a resource attached manually outside Blueprint installation",
+				"Named resource slot, unique within the Workspace; null when unassigned",
 			),
 		providerId: z.string().trim().min(1).max(160),
 		connectionScope: z.enum(["tenant", "user"]),

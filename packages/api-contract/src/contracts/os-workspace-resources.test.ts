@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
+import { procedureInputSchema } from "../utils/procedure-schemas";
+import { zodToToolInputJsonSchema } from "../utils/tool-json-schema";
+import { osWorkspacesContract } from "./os-workspaces";
 import {
 	OsWorkspaceResourceSchema,
 	OsWorkspaceResourceSelectionSchema,
@@ -15,6 +18,49 @@ const selection = {
 };
 
 describe("Workspace resource contracts", () => {
+	it("accepts optional create slots and explicit slot-only edits in the tool schema", () => {
+		const workspaceId = "00000000-0000-4000-8000-000000000002";
+		const create = procedureInputSchema(osWorkspacesContract.resources.create);
+		const update = procedureInputSchema(osWorkspacesContract.resources.rename);
+		const input = {
+			workspaceId,
+			resourceId: workspaceId,
+			expectedUpdatedAt: "observed",
+		};
+		expect(
+			create.parse({ workspaceId, selection, slot: "opportunities" }),
+		).toMatchObject({ slot: "opportunities" });
+		expect(create.safeParse({ workspaceId, selection }).success).toBe(true);
+		expect(update.parse({ ...input, slot: null })).toMatchObject({
+			slot: null,
+		});
+		expect(update.parse({ ...input, slot: "opportunities" })).toMatchObject({
+			slot: "opportunities",
+		});
+		expect(update.safeParse(input).success).toBe(false);
+		for (const slot of [
+			"",
+			"Opportunities",
+			"my-slot",
+			"1slot",
+			"a".repeat(121),
+		]) {
+			expect(create.safeParse({ workspaceId, selection, slot }).success).toBe(
+				false,
+			);
+			expect(update.safeParse({ ...input, slot }).success).toBe(false);
+		}
+		for (const procedure of [
+			osWorkspacesContract.resources.create,
+			osWorkspacesContract.resources.rename,
+		]) {
+			const projected = zodToToolInputJsonSchema(
+				procedureInputSchema(procedure),
+			);
+			expect(projected.properties).toHaveProperty("slot");
+		}
+	});
+
 	it("represents one concrete provider object without credential material", () => {
 		expect(OsWorkspaceResourceSelectionSchema.parse(selection)).toEqual(
 			selection,

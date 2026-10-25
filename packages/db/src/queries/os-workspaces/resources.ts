@@ -263,14 +263,19 @@ export async function updateOsWorkspaceResourceMetadata(
 export async function renameOsWorkspaceResource(
 	db: DbQueryClient,
 	params: OsWorkspaceResourceIdentity & {
-		name: string;
+		name?: string;
+		slot?: string | null;
 		expectedUpdatedAt: string;
 		now: string;
 	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
 	const [row] = await db
 		.update(osWorkspaceResources)
-		.set({ name: params.name, updatedAt: params.now })
+		.set({
+			...(params.name === undefined ? {} : { name: params.name }),
+			...(params.slot === undefined ? {} : { slot: params.slot }),
+			updatedAt: params.now,
+		})
 		.where(
 			and(
 				eq(osWorkspaceResources.organizationId, params.organizationId),

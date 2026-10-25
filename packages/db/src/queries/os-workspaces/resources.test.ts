@@ -62,6 +62,80 @@ async function seed() {
 }
 
 describe("OS Workspace resources", () => {
+	it("enforces unique slots on create and update, preserves omitted slots and clears explicit null", async () => {
+		const { db, resource } = await seed();
+		const slotted = await createOsWorkspaceResource(db, {
+			...resource,
+			id: "slotted",
+			providerResourceId: "other/repo",
+			slot: "opportunities",
+		});
+		await expect(
+			createOsWorkspaceResource(db, {
+				...slotted,
+				id: "duplicate",
+				providerResourceId: "third/repo",
+			}),
+		).rejects.toThrow();
+		const params = {
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			resourceId: resource.id,
+			expectedUpdatedAt: resource.updatedAt,
+			now: "2026-10-25T20:00:00.000Z",
+			slot: "opportunities",
+		};
+		await expect(renameOsWorkspaceResource(db, params)).rejects.toThrow();
+		expect(
+			await renameOsWorkspaceResource(db, {
+				...params,
+				organizationId: "org-2",
+			}),
+		).toBeUndefined();
+		expect(
+			await renameOsWorkspaceResource(db, { ...params, workspaceId: "other" }),
+		).toBeUndefined();
+		expect(
+			await renameOsWorkspaceResource(db, {
+				...params,
+				expectedUpdatedAt: "stale",
+			}),
+		).toBeUndefined();
+		const cleared = await renameOsWorkspaceResource(db, {
+			...params,
+			resourceId: slotted.id,
+			slot: null,
+		});
+		expect(cleared?.slot).toBeNull();
+		const assigned = await renameOsWorkspaceResource(db, params);
+		expect(assigned).toMatchObject({
+			slot: "opportunities",
+			name: resource.name,
+		});
+		const renamed = await renameOsWorkspaceResource(db, {
+			...params,
+			slot: undefined,
+			name: "New name",
+			expectedUpdatedAt: assigned!.updatedAt,
+			now: "2026-10-25T21:00:00.000Z",
+		});
+		expect(renamed).toMatchObject({ slot: "opportunities", name: "New name" });
+		await db.insert(osWorkspaces).values({
+			id: "ws-2",
+			organizationId: "org-1",
+			name: "Other",
+			createdByKind: "user",
+			createdById: "u-1",
+		});
+		expect(
+			await createOsWorkspaceResource(db, {
+				...slotted,
+				id: "other-workspace",
+				workspaceId: "ws-2",
+			}),
+		).toMatchObject({ slot: "opportunities" });
+	});
+
 	it("updates metadata only within the tenant and Workspace at the observed revision", async () => {
 		const { db, resource } = await seed();
 		const params = {
