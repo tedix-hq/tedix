@@ -455,12 +455,9 @@ export function createOsAppRuntimeRouter() {
 				}),
 			);
 		}
-		// Connection slots need the provider-specific approval adapter. Refuse
-		// before resolving a credential; app grants never imply provider consent.
-		throw createError(
-			ErrorCodes.FORBIDDEN,
-			"Connection slot requires a governed approval adapter",
-		);
+		const { callWorkspaceAppConnection } =
+			await import("../../services/os-app-connection");
+		return callWorkspaceAppConnection(acting, session, resource, input.args);
 	});
 	const recordTail = internal.recordTail.handler(async ({ context, input }) => {
 		const existing = await getOsGadgetExecution(queryDb(context), {

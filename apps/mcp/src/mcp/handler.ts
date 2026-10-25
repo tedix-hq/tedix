@@ -1,4 +1,5 @@
 import { isPlainRecord } from "./handler-log-redaction";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	ExternalRequestInputError,
 	expandExternalBodyTemplate,
@@ -653,6 +654,16 @@ export class ToolHandler {
 		ctx: ToolExecutionContext<ToolConfig>,
 	): Promise<RpcToolResult> {
 		const config = ctx.config;
+		const expectedConfig = ctx.requestMeta?.["tedix/expectedToolConfig"];
+		if (
+			expectedConfig !== undefined &&
+			expectedConfig !== (await sha256Hex(JSON.stringify(config)))
+		) {
+			return {
+				status: 409,
+				data: { error: "Reviewed tool configuration changed" },
+			};
+		}
 		const expectedRaw = ctx.requestMeta?.["tedix/expectedConnection"];
 		if (expectedRaw !== undefined) {
 			const expected = readConnectionRecovery(expectedRaw);

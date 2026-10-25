@@ -14,8 +14,23 @@ export default defineConfig({
 				serviceBindings: {
 					API_SERVICE: async (request) => {
 						const body = (await request.json()) as {
-							json?: { events?: Array<{ outcome?: string }> };
+							json?: {
+								events?: Array<{ outcome?: string }>;
+								operation?: string;
+								args?: { decision?: string };
+							};
 						};
+						if (body.json?.operation === "connections.call") {
+							const status = body.json.args?.decision ?? "pending";
+							if (status === "revoked")
+								return new Response("Revoked", { status: 403 });
+							return Response.json({
+								json:
+									status === "approved"
+										? { events: ["fixture-event"] }
+										: { approval: { approved: false, status } },
+							});
+						}
 						if (
 							body.json?.events?.some(
 								(event) => event.outcome === "fixture_unavailable",

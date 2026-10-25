@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { ToolHandler, type ToolExecutionContext } from "./handler";
 import { buildCredentialErrorData } from "./handler-connection-credentials";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 const selection = {
 	providerId: "fictional-mail",
@@ -11,6 +12,22 @@ const selection = {
 };
 
 describe("unconfigured MCP capabilities", () => {
+	it("refuses stale reviewed tool configuration before credential resolution", async () => {
+		const handler = new ToolHandler();
+		const credentials = vi.spyOn(
+			handler as unknown as { fetchConnectionToken: () => Promise<unknown> },
+			"fetchConnectionToken",
+		);
+		const result = await handler.execute({}, {
+			config: { transport: "mcp" },
+			requestMeta: { "tedix/expectedToolConfig": "stale-review" },
+		} as unknown as ToolExecutionContext<ToolConfig>);
+		expect(result).toEqual({
+			status: 409,
+			data: { error: "Reviewed tool configuration changed" },
+		});
+		expect(credentials).not.toHaveBeenCalled();
+	});
 	it.each(["external", "mcp"])(
 		"includes a Set up link before %s provider execution",
 		async (transport) => {
@@ -50,6 +67,9 @@ describe("unconfigured MCP capabilities", () => {
 					},
 				} as ToolConfig,
 			} as unknown as ToolExecutionContext<ToolConfig>;
+			ctx.requestMeta = {
+				"tedix/expectedToolConfig": await sha256Hex(JSON.stringify(ctx.config)),
+			};
 			const result = await handler.execute({}, ctx);
 			expect(result.status).toBe(401);
 			expect(result.data).toMatchObject({

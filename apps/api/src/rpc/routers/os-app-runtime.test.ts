@@ -399,6 +399,56 @@ describe("workspace app runtime API admission", () => {
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
+	it("rechecks connection slots and current grants before the provider adapter", async () => {
+		const { client, db, router, env } = await fixture();
+		const manifest = {
+			entry: "tedix:runtime/v1",
+			capabilities: [],
+			resourceGrants: [{ slot: "calendar", operations: ["connections.call"] }],
+		};
+		await db
+			.update(osGadgetRevisions)
+			.set({ manifest: JSON.stringify(manifest) })
+			.where(eq(osGadgetRevisions.id, revisionId));
+		const { session } = await client.open(scope);
+		const internal = createRouterClient(router, {
+			context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+		});
+		const request = {
+			session,
+			operation: "connections.call" as const,
+			slot: "calendar",
+			args: null,
+		};
+		await expect(internal.capability(request)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		await expect(
+			internal.capability({ ...request, slot: "another-slot" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await db
+			.update(osGadgetRevisions)
+			.set({ manifest: JSON.stringify({ ...manifest, resourceGrants: [] }) })
+			.where(eq(osGadgetRevisions.id, revisionId));
+		await expect(internal.capability(request)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+	it("refuses expired runtime sessions before dispatch", async () => {
+		const { client, fetch } = await fixture();
+		let session: string;
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(Date.now() - 301_000);
+			session = (await client.open(scope)).session;
+		} finally {
+			vi.useRealTimers();
+		}
+		await expect(
+			client.call({ ...scope, session, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(fetch).not.toHaveBeenCalled();
+	});
 	it("records app trace failures in the existing gadget ledger", async () => {
 		const { db, router, env } = await fixture();
 		const internal = createRouterClient(router, {
