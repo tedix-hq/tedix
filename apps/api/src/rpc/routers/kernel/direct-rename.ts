@@ -28,6 +28,9 @@ import {
 const UNDO_RENAME_RE =
 	/\b(?:undo|revert|reverse|roll ?back)\s+(?:(?:that|the|this|your|my|last|previous)\s+)*(?:change|rename|renaming|edit)\b|\b(?:undo|revert|reverse)\s+(?:it|that|this)\b|^undo\b/i;
 
+const QUESTION_RE =
+	/^(?:how|can|could|should|would|why|what|when|where|is|are|do|does)\b/i;
+
 export interface DirectRename {
 	intent: WorkpieceRenameIntent;
 	/** Provider app the rename runs on, when known from an earlier rename. */
@@ -191,9 +194,11 @@ export async function resolveDirectRename(
 		workspaceContext?: SelectedWorkpieceContext | null;
 	},
 ): Promise<DirectRename | null> {
+	const text = stripContextMarkers(input.content);
+	// "How do I rename the app to X?" asks for help, not for the change.
+	if (/\?\s*$/.test(text) || QUESTION_RE.test(text)) return null;
 	const request = parseRenameRequest(input.content);
 	if (!request) {
-		const text = stripContextMarkers(input.content);
 		return text.length <= 300 && UNDO_RENAME_RE.test(text)
 			? undoLastRename(db, input)
 			: null;

@@ -1201,10 +1201,11 @@ describe("runKernelTurnWork progress seam", () => {
 		});
 	});
 
-	it("plans the selected app's rename when the router produced no decision", async () => {
+	it("plans the selected app's rename directly, without the model router", async () => {
 		const planned: Array<Record<string, unknown>> = [];
+		const kernel = vi.fn(async () => null);
 		const deps = stubDeps({
-			kernel: async () => null,
+			kernel,
 			writeProposalPlanner: async (args) => {
 				planned.push(args as unknown as Record<string, unknown>);
 				return null;
@@ -1222,6 +1223,7 @@ describe("runKernelTurnWork progress seam", () => {
 				},
 			},
 		});
+		expect(kernel).not.toHaveBeenCalled();
 		expect(planned).toHaveLength(1);
 		expect(planned[0]).toMatchObject({
 			route: {

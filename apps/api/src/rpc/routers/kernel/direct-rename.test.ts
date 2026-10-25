@@ -171,6 +171,19 @@ describe("reverse that change", () => {
 		expect(mocks.getAuditEventsByResource).not.toHaveBeenCalled();
 	});
 
+	it("leaves a question about renaming to the router", async () => {
+		expect(
+			await resolveDirectRename(db, {
+				...base,
+				content: "how do I rename the app to Harvest Review?",
+				workspaceContext: {
+					workspaceId,
+					workpiece: { kind: "gadget", id: appId },
+				},
+			}),
+		).toBeNull();
+	});
+
 	it("ignores ordinary requests", async () => {
 		expect(
 			await resolveDirectRename(db, {
