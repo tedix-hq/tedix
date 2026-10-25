@@ -330,6 +330,7 @@ export function CanvasWorkspaceControls({
 						<WorkspaceShareDialog
 							workspaceId={workspace.id}
 							workspaceName={workspace.name}
+							visibility={workspace.visibility}
 							open
 							onOpenChange={setShareOpen}
 						/>
