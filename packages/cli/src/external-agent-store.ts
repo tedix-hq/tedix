@@ -293,6 +293,37 @@ function assertProfileIdentity(
 		);
 }
 
+/** Harness family a principal key or harness names: `codex-gtm-1` and `codex-desktop` are both codex. */
+export function harnessFamily(name: string): string | undefined {
+	return /^(codex|claude|devin|opencode|cursor)(?:[-_:]|$)/i
+		.exec(name)?.[1]
+		?.toLowerCase();
+}
+
+/**
+ * Store slot holding the principal a harness session acts as on a workspace.
+ *
+ * A machine principal (`local-<user>-<host>`) serves every harness. A legacy
+ * principal named for one harness (`codex-gtm-…`) serves only that family, so
+ * another harness gets its own principal in a `<workspace>#<family>` slot
+ * instead of borrowing it. A session already stored in the shared slot stays
+ * there: the server binds its key to that principal.
+ */
+export function externalAgentProfileSlot(
+	workspace: string,
+	sessionKey?: string,
+	options?: ExternalAgentStoreOptions,
+): string {
+	const family = sessionKey?.includes(":")
+		? harnessFamily(sessionKey)
+		: undefined;
+	if (!family) return workspace;
+	const shared = readStore(options).workspaces[workspace];
+	if (!shared || sessionKey! in shared.sessions) return workspace;
+	const owner = harnessFamily(shared.key);
+	return !owner || owner === family ? workspace : `${workspace}#${family}`;
+}
+
 export function readExternalAgentProfile(
 	workspace: string,
 	options?: ExternalAgentStoreOptions,
@@ -367,7 +398,9 @@ export function externalAgentSessionWorkspaces(
 				Object.values(profile.sessions).some(
 					(session) => session.externalSessionKey.split(":").at(-1) === key,
 				));
-		if (match) found.push(workspace);
+		// A harness slot (`connect#claude`) belongs to its workspace.
+		const name = workspace.split("#")[0]!;
+		if (match && !found.includes(name)) found.push(name);
 	}
 	return found;
 }

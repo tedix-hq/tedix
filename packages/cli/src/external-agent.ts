@@ -13,6 +13,8 @@ import { type AvailableWorkspace, listAvailableWorkspaces } from "./account";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
 import type { WorkspaceCredential } from "./credential-store";
 import {
+	externalAgentProfileSlot,
+	harnessFamily,
 	readExternalAgentProfile,
 	readExternalAgentCredential,
 	writeExternalAgentCredential,
@@ -106,10 +108,13 @@ interface StartExternalAgentOptions {
  * A profile's principal is shared by every harness session on this machine, so
  * it is named for the machine and user. Naming it after the first agent that
  * bootstrapped it made every later Claude or Codex session look borrowed.
+ * Only a harness whose workspace still holds such a legacy principal gets its
+ * own, named for that harness (see `externalAgentProfileSlot`).
  */
 export function defaultLocalPrincipal(
 	user: string = safeUsername(),
 	host: string = hostname(),
+	harness?: string,
 ): { key: string; displayName: string } {
 	const part = (value: string) =>
 		value
@@ -117,14 +122,14 @@ export function defaultLocalPrincipal(
 			.replace(/\.local$/, "")
 			.replace(/[^a-z0-9_-]+/g, "-")
 			.replace(/^-+|-+$/g, "");
-	const key = ["local", part(user), part(host)]
+	const key = [harness && part(harness), "local", part(user), part(host)]
 		.filter(Boolean)
 		.join("-")
 		.slice(0, 120)
 		.replace(/-+$/, "");
 	return {
 		key,
-		displayName: `Local coding agents (${user || "user"}@${host || "machine"})`,
+		displayName: `Local ${harness ? `${harness} agents` : "coding agents"} (${user || "user"}@${host || "machine"})`,
 	};
 }
 
@@ -419,7 +424,7 @@ export function externalAgentNamesOrganization(
 	workspace: string,
 	organization: string,
 ): boolean {
-	const profile = readExternalAgentProfile(workspace);
+	const { profile } = sessionProfile(workspace, resolveAgentSession()?.session);
 	return Boolean(profile && profileNamesOrganization(profile, organization));
 }
 
@@ -674,8 +679,19 @@ async function startExternalAgentSessionLocked(
 	profile: StoredExternalAgentProfile;
 	session: StoredExternalAgentSession;
 }> {
-	let profile = readExternalAgentProfile(options.workspace);
+	const slot = externalAgentProfileSlot(
+		options.workspace,
+		tuple.externalSessionKey,
+	);
+	let profile = readExternalAgentProfile(slot);
 	const existingProfile = Boolean(profile);
+	const owner = profile && harnessFamily(profile.key);
+	const family = harnessFamily(tuple.harness);
+	if (profile && owner && family && owner !== family) {
+		(options.notice ?? ((message) => console.error(message)))(
+			`Notice: Agent-Session "${tuple.externalSessionKey}" already belongs to principal "${profile.key}". Start a fresh session (TEDIX_AGENT_SESSION=${tuple.harness}:<new-uuid>) to act as a ${tuple.harness} principal of its own.`,
+		);
+	}
 	if (!profile && process.env.TEDIX_AGENT_KEY?.trim()) {
 		const organizationId = process.env.TEDIX_ORGANIZATION?.trim();
 		const principalId = process.env.TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID?.trim();
@@ -710,7 +726,7 @@ async function startExternalAgentSessionLocked(
 			displayNameConfirmedAt: new Date().toISOString(),
 			sessions: {},
 		};
-		writeExternalAgentProfile(options.workspace, profile);
+		writeExternalAgentProfile(slot, profile);
 	}
 	if (profile && isMultiOrganizationMcpUrl(options.mcpUrl)) {
 		const target = options.oauthBearer
@@ -755,7 +771,7 @@ async function startExternalAgentSessionLocked(
 				// Remember the slug so later worker calls with the same
 				// TEDIX_ORGANIZATION resolve without an owner login.
 				profile = { ...profile, organizationAliases: organization.aliases };
-				writeExternalAgentProfile(options.workspace, profile);
+				writeExternalAgentProfile(slot, profile);
 			} finally {
 				await ownerClient.close();
 			}
@@ -786,7 +802,11 @@ async function startExternalAgentSessionLocked(
 		}
 	}
 	if (!profile) {
-		const local = defaultLocalPrincipal();
+		const local = defaultLocalPrincipal(
+			undefined,
+			undefined,
+			slot === options.workspace ? undefined : tuple.harness,
+		);
 		const agentKey = options.agentKey?.trim() || local.key;
 		const displayName = options.displayName?.trim() || local.displayName;
 		if (!/^[a-z0-9][a-z0-9_-]{0,119}$/i.test(agentKey)) {
@@ -909,7 +929,7 @@ async function startExternalAgentSessionLocked(
 				displayNameConfirmedAt: new Date().toISOString(),
 				sessions: {},
 			};
-			writeExternalAgentProfile(options.workspace, profile);
+			writeExternalAgentProfile(slot, profile);
 		} finally {
 			await ownerClient.close();
 		}
@@ -930,7 +950,7 @@ async function startExternalAgentSessionLocked(
 			const hadStoredSession = Boolean(
 				profile.sessions[tuple.externalSessionKey],
 			);
-			removeExternalAgentSession(options.workspace, tuple.externalSessionKey);
+			removeExternalAgentSession(slot, tuple.externalSessionKey);
 			throw new Error(
 				endedSessionRecoveryMessage(
 					{
@@ -945,7 +965,7 @@ async function startExternalAgentSessionLocked(
 		throw error;
 	}
 	const session = storedSession(exchange);
-	profile = writeExternalAgentSession(options.workspace, profile, session);
+	profile = writeExternalAgentSession(slot, profile, session);
 	// Keep the just-issued credential ACTIVE — do not revoke it here. It stays
 	// live so the session's first real operation reuses this exact Descope MCP
 	// client (server-side reuse) instead of minting a fresh one. Session
@@ -957,12 +977,11 @@ async function startExternalAgentSessionLocked(
 export function externalAgentStatus(
 	workspace: string,
 ): Record<string, unknown> {
-	const profile = readExternalAgentProfile(workspace);
+	const { profile, session } = sessionProfile(
+		workspace,
+		resolveAgentSession()?.session,
+	);
 	if (!profile) return { configured: false, workspace };
-	const current = resolveAgentSession();
-	const session = current
-		? findStoredSession(profile, current.session)
-		: undefined;
 	return {
 		configured: true,
 		workspace,
@@ -997,18 +1016,41 @@ function findStoredSession(
 	return matches[0];
 }
 
+/**
+ * The profile slot holding this session, else the slot its harness would use.
+ * A bare TEDIX_AGENT_SESSION id resolves under the detected harness, so it may
+ * name a session stored in the shared slot rather than its harness slot.
+ */
+function sessionProfile(
+	workspace: string,
+	sessionKey: string | undefined,
+): {
+	slot: string;
+	profile: StoredExternalAgentProfile | null;
+	session?: StoredExternalAgentSession;
+} {
+	const slot = externalAgentProfileSlot(workspace, sessionKey);
+	if (sessionKey)
+		for (const candidate of new Set([slot, workspace])) {
+			const profile = readExternalAgentProfile(candidate);
+			const session = profile && findStoredSession(profile, sessionKey);
+			if (session) return { slot: candidate, profile, session };
+		}
+	return { slot, profile: readExternalAgentProfile(slot) };
+}
+
 function currentSessionContext(workspace: string): {
+	slot: string;
 	profile: StoredExternalAgentProfile;
 	session: StoredExternalAgentSession;
 } {
-	const profile = readExternalAgentProfile(workspace);
-	if (!profile) throw new Error("No external-agent profile is configured.");
 	const current = resolveExplicitAgentSession();
-	const session = findStoredSession(profile, current.session);
+	const { slot, profile, session } = sessionProfile(workspace, current.session);
+	if (!profile) throw new Error("No external-agent profile is configured.");
 	if (!session) {
 		throw new Error(`Agent-Session "${current.session}" has not been started.`);
 	}
-	return { profile, session };
+	return { slot, profile, session };
 }
 
 export async function resolveExternalAgentAuth(options: {
@@ -1038,7 +1080,11 @@ export async function resolveExternalAgentAuth(options: {
 async function resolveExternalAgentCredential(
 	options: Parameters<typeof resolveExternalAgentAuth>[0],
 ): Promise<Record<string, string>> {
-	const { profile, session: stored } = currentSessionContext(options.workspace);
+	const {
+		slot,
+		profile,
+		session: stored,
+	} = currentSessionContext(options.workspace);
 	if (
 		options.organization &&
 		!profileNamesOrganization(profile, options.organization)
@@ -1053,19 +1099,10 @@ async function resolveExternalAgentCredential(
 			`TEDIX_EXTERNAL_AGENT selects "${selector}", but this workspace is bound to "${profile.key}".`,
 		);
 	}
-	const cached = readExternalAgentCredential(
-		options.workspace,
-		profile,
-		stored,
-	);
+	const cached = readExternalAgentCredential(slot, profile, stored);
 	if (cached) return { Authorization: `Bearer ${cached}` };
 	const exchangeStartedAt = Date.now();
-	const exchange = await exchangeStoredSession(
-		options.workspace,
-		profile,
-		stored,
-		options,
-	);
+	const exchange = await exchangeStoredSession(slot, profile, stored, options);
 	const session = storedSession(exchange);
 	// Cache conservatively from request start, never from delayed response receipt.
 	// The gateway still checks live principal/session authority on every call.
@@ -1074,7 +1111,7 @@ async function resolveExternalAgentCredential(
 		exchange.credential.mcpServerUrl === profile.mcpUrl
 	) {
 		writeExternalAgentCredential(
-			options.workspace,
+			slot,
 			profile,
 			stored,
 			exchange.credential.accessToken,
@@ -1270,7 +1307,10 @@ export async function finishExternalAgentSession(options: {
 		},
 	);
 	if (ended)
-		removeExternalAgentSession(options.workspace, session.externalSessionKey);
+		removeExternalAgentSession(
+			externalAgentProfileSlot(options.workspace, session.externalSessionKey),
+			session.externalSessionKey,
+		);
 	return session;
 }
 
@@ -1287,10 +1327,14 @@ export async function renameExternalAgentPrincipal(options: {
 	displayName?: string;
 	createClient?: GatewayClientFactory;
 }): Promise<{ key: string; displayName: string; previous: string }> {
-	const profile = readExternalAgentProfile(options.workspace);
+	// The current harness's principal, else the workspace's shared one.
+	const own = sessionProfile(options.workspace, resolveAgentSession()?.session);
+	const slot = own.profile ? own.slot : options.workspace;
+	const profile = own.profile ?? readExternalAgentProfile(slot);
 	if (!profile) throw new Error("No external-agent profile is configured.");
 	const displayName =
-		options.displayName?.trim() || defaultLocalPrincipal().displayName;
+		options.displayName?.trim() ||
+		defaultLocalPrincipal(undefined, undefined, slot.split("#")[1]).displayName;
 	const url = options.mcpUrl ?? profile.mcpUrl;
 	const target = isMultiOrganizationMcpUrl(url)
 		? resolveOrganizationTarget({
@@ -1327,7 +1371,7 @@ export async function renameExternalAgentPrincipal(options: {
 			"display name",
 			"rename_external_agent_principal",
 		);
-		writeExternalAgentProfile(options.workspace, {
+		writeExternalAgentProfile(slot, {
 			...profile,
 			displayName: stored,
 			displayNameConfirmedAt: new Date().toISOString(),

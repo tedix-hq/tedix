@@ -14,6 +14,7 @@ import {
 	startExternalAgentSession,
 } from "./external-agent";
 import {
+	externalAgentSessionWorkspaces,
 	readExternalAgentProfile,
 	writeExternalAgentProfile,
 } from "./external-agent-store";
@@ -1434,7 +1435,7 @@ describe("one profile shared by parallel harness sessions", () => {
 		).toContain(`"key":"${expected.key}"`);
 	});
 
-	test("two parallel sessions on one profile get distinct Agent-Sessions under one principal", async () => {
+	test("parallel harness sessions on a machine principal share it with distinct Agent-Sessions", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
@@ -1446,8 +1447,6 @@ describe("one profile shared by parallel harness sessions", () => {
 		const codex = await startExternalAgentSession({
 			...owner,
 			harness: "codex",
-			agentKey: "codex-gtm-01a0f212",
-			displayName: "Codex GTM",
 			fetch: echoExchange,
 			createClient: bootstrapClient(code),
 		});
@@ -1463,13 +1462,8 @@ describe("one profile shared by parallel harness sessions", () => {
 			notice: (message) => notices.push(message),
 		});
 
+		expect(claude.profile.key).toBe(defaultLocalPrincipal().key);
 		expect(claude.profile.principalId).toBe(codex.profile.principalId);
-		expect(codex.session.externalSessionKey).toBe(
-			"codex:01a0eee2-147e-7493-9c14-e11a4d6d598d",
-		);
-		expect(claude.session.externalSessionKey).toBe(
-			"claude-code:3a7952ab-c045-4521-830c-be30b0b69c03",
-		);
 		expect(claude.session.id).not.toBe(codex.session.id);
 		expect(Object.keys(claude.profile.sessions).sort()).toEqual([
 			"claude-code:3a7952ab-c045-4521-830c-be30b0b69c03",
@@ -1486,6 +1480,101 @@ describe("one profile shared by parallel harness sessions", () => {
 		).toHaveLength(1);
 	});
 
+	test("a principal named for another harness is never handed to Claude Code", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		const code: string[] = [];
+
+		process.env.TEDIX_AGENT_SESSION =
+			"codex:01a0eee2-147e-7493-9c14-e11a4d6d598d";
+		const codex = await startExternalAgentSession({
+			...owner,
+			harness: "codex",
+			agentKey: "codex-gtm-01a0f212",
+			displayName: "Codex GTM",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+		});
+
+		const lead = "claude-code:3a7952ab-c045-4521-830c-be30b0b69c03";
+		const subagent = "claude-code:4b8a63bc-d156-4f9a-9d3b-f41e2c0d1a77";
+		process.env.TEDIX_AGENT_SESSION = lead;
+		const claude = await startExternalAgentSession({
+			...owner,
+			harness: "claude-code",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+		});
+		process.env.TEDIX_AGENT_SESSION = subagent;
+		const child = await startExternalAgentSession({
+			...owner,
+			harness: "claude-code",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+		});
+
+		const own = defaultLocalPrincipal(undefined, undefined, "claude-code");
+		expect(own.key).toStartWith("claude-code-local");
+		expect(claude.profile.key).toBe(own.key);
+		expect(child.profile.key).toBe(own.key);
+		expect(Object.keys(child.profile.sessions).sort()).toEqual([
+			lead,
+			subagent,
+		]);
+		expect(
+			code
+				.filter((source) =>
+					source.includes("external.create_external_agent_principal"),
+				)
+				.map((source) => /"key":"([^"]+)"/.exec(source)?.[1]),
+		).toEqual(["codex-gtm-01a0f212", own.key]);
+		// The Codex principal and its sessions are untouched.
+		expect(readExternalAgentProfile("connect")?.key).toBe(codex.profile.key);
+		expect(Object.keys(readExternalAgentProfile("connect")!.sessions)).toEqual([
+			"codex:01a0eee2-147e-7493-9c14-e11a4d6d598d",
+		]);
+		// Status and the workspace binding guard resolve the Claude session's own slot.
+		expect(externalAgentStatus("connect").key).toBe(own.key);
+		expect(externalAgentSessionWorkspaces(subagent)).toEqual(["connect"]);
+	});
+
+	test("a session already started on a borrowed principal keeps it and says how to get its own", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		const code: string[] = [];
+		const notices: string[] = [];
+		const session = "claude-code:3a7952ab-c045-4521-830c-be30b0b69c03";
+		process.env.TEDIX_AGENT_SESSION = "codex:01a0eee2";
+		const codex = await startExternalAgentSession({
+			...owner,
+			harness: "codex",
+			agentKey: "codex-gtm-01a0f212",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+		});
+		// An older CLI stored this Claude session under the Codex principal.
+		writeExternalAgentProfile("connect", {
+			...codex.profile,
+			sessions: {
+				[session]: { ...codex.session, externalSessionKey: session },
+			},
+		});
+		process.env.TEDIX_AGENT_SESSION = session;
+		const started = await startExternalAgentSession({
+			...owner,
+			harness: "claude-code",
+			fetch: echoExchange,
+			createClient: bootstrapClient(code),
+			notice: (message) => notices.push(message),
+		});
+		expect(started.profile.key).toBe("codex-gtm-01a0f212");
+		expect(notices).toEqual([
+			expect.stringContaining("Start a fresh session (TEDIX_AGENT_SESSION="),
+		]);
+	});
+
 	test("sanitizes machine and user into a valid principal key", () => {
 		expect(defaultLocalPrincipal("Ada L", "Adas-MacBook-Pro.local")).toEqual({
 			key: "local-ada-l-adas-macbook-pro",
@@ -1495,6 +1584,10 @@ describe("one profile shared by parallel harness sessions", () => {
 			key: "local",
 			displayName: "Local coding agents (user@machine)",
 		});
+		expect(defaultLocalPrincipal("ada", "box", "claude-code")).toEqual({
+			key: "claude-code-local-ada-box",
+			displayName: "Local claude-code agents (ada@box)",
+		});
 	});
 });
 
@@ -1502,6 +1595,8 @@ test("renames an existing profile's principal to the machine and user, keeping i
 	const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 	dirs.push(configDir);
 	process.env.TEDIX_CONFIG_DIR = configDir;
+	// Status resolves the principal of the current harness session.
+	process.env.TEDIX_AGENT_SESSION = "codex:rename-check";
 	writeExternalAgentProfile("connect", {
 		organizationId: ORG,
 		principalId: PRINCIPAL,

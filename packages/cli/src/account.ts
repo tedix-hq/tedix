@@ -35,7 +35,7 @@ export async function listAvailableWorkspaces(opts: {
 }): Promise<AvailableWorkspace[]> {
 	const discovery = normalizeCodeResult(
 		await opts.client.runCode(
-			'async () => await discover.search({ query: "list_all_mine", limit: 3, includeParameters: true })',
+			'async () => await discover.search({ query: "list_all_mine", limit: 3, includeMetadata: true })',
 		),
 	).value;
 	const tool = Array.isArray(discovery)
