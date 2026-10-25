@@ -51,13 +51,14 @@ function SheetPreview({
 			<div
 				className="grid min-w-0 rounded-md border border-kumo-line bg-kumo-base text-[9px]"
 				style={{
-					gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+					gridTemplateColumns: `repeat(${columnCount}, minmax(4rem, 1fr))`,
 				}}
 			>
 				{(preview.columns.length > 0 ? preview.columns : ["Sheet"]).map(
 					(column, index) => (
 						<div
 							key={`${index}-${column}`}
+							title={column}
 							className="truncate border-kumo-line border-r border-b bg-kumo-tint px-1.5 py-1 font-semibold text-kumo-subtle last:border-r-0"
 						>
 							{column}
