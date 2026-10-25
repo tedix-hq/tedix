@@ -35,6 +35,7 @@ import {
 	advanceCommitmentWakeCheckpoint,
 	advanceCommitmentWakeCursor,
 	getCommitmentWakeCursor,
+	retainCommitmentWakePage,
 	listCommitmentWakeRetryPages,
 	listCommitmentChanges,
 	lastCommitmentWakeCheckpoint,
@@ -864,6 +865,173 @@ it("verifies an external lane success even when lane done already completed Work
 	expect(await listCommitmentChanges(db, after, through, "production")).toEqual(
 		[],
 	);
+});
+
+describe("commitment wake coalescing", () => {
+	const now = Date.parse(through) + 30_000;
+	beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(now));
+	afterEach(() => vi.restoreAllMocks());
+
+	async function setup(total = 1) {
+		const f = fixture();
+		await advanceCommitmentWakeCheckpoint(f.db, after);
+		const insert = f.sqlite.prepare(
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES (?,'org-1','work-1','work.accepted','user','owner',?)",
+		);
+		for (let i = 0; i < total; i++) insert.run(`change-${i}`, changedAt);
+		const started = {
+			id: "active-start",
+			organizationId: "org-1",
+			tediId: "worker-1",
+			conversationId: "orion:commitments:worker-1",
+			kind: "run.started" as const,
+			runId: "previous-wake",
+			runtimeBackend: "cloudflare-agents",
+			createdAt: changedAt,
+		};
+		const fetch = vi.fn(async () =>
+			Response.json({ accepted: true, run_id: "accepted" }),
+		);
+		const env = {
+			DB: f.binding,
+			ENVIRONMENT: "test",
+			TEDI_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		return { ...f, started, fetch, env };
+	}
+
+	it.each([1, MAX_COMMITMENT_CHANGES_PER_RUN])(
+		"retains the checkpoint and page cursor for %i unwaked changes",
+		async (total) => {
+			const f = await setup(total);
+			await f.db.insert(tediRuntimeEvents).values(f.started);
+			expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+				deferred: 1,
+				dispatched: 0,
+				failed: 0,
+			});
+			expect(f.fetch).not.toHaveBeenCalled();
+			expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(after);
+			expect(await getCommitmentWakeCursor(f.db, after)).toBeNull();
+			await f.db
+				.insert(tediRuntimeEvents)
+				.values({ ...f.started, id: "active-end", kind: "run.completed" });
+			expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+				deferred: 0,
+				dispatched: 1,
+				observed: total,
+			});
+			expect(f.fetch).toHaveBeenCalledOnce();
+			await dispatchCommitmentWakes(f.env, now);
+			expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(through);
+		},
+	);
+
+	it.each(["run.completed", "run.failed", "run.canceled"] as const)(
+		"allows another wake after %s",
+		async (kind) => {
+			const f = await setup();
+			await f.db
+				.insert(tediRuntimeEvents)
+				.values([f.started, { ...f.started, id: "end", kind }]);
+			expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+				deferred: 0,
+				dispatched: 1,
+			});
+		},
+	);
+
+	it.each([
+		{ organizationId: "org-2" },
+		{ tediId: "worker-2" },
+		{ conversationId: "orion:another-session" },
+		{ runId: null },
+		{ createdAt: new Date(now - 5 * 60_000).toISOString() },
+	])("does not defer for unrelated or stale activity %j", async (override) => {
+		const f = await setup();
+		await f.db.insert(tediRuntimeEvents).values({ ...f.started, ...override });
+		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+			deferred: 0,
+			dispatched: 1,
+		});
+		expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(through);
+	});
+
+	it.each([
+		{ organizationId: "org-2" },
+		{ tediId: "worker-2" },
+		{ runId: "another-run" },
+	])("ignores unrelated terminal evidence %j", async (override) => {
+		const f = await setup();
+		await f.db
+			.insert(tediRuntimeEvents)
+			.values([
+				f.started,
+				{
+					...f.started,
+					id: "unrelated-end",
+					kind: "run.completed",
+					...override,
+				},
+			]);
+		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+			deferred: 1,
+			dispatched: 0,
+		});
+		expect(f.fetch).not.toHaveBeenCalled();
+		expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(after);
+	});
+
+	it("advances an already acknowledged page even while its own run is active", async () => {
+		const f = await setup();
+		await f.db.insert(tediRuntimeEvents).values({
+			...f.started,
+			runId: buildRuntimeRunId({
+				tediId: "worker-1",
+				surface: "mcp",
+				turnKey: `commitments:org-1:worker-1:${through}`,
+			}),
+		});
+		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+			deferred: 0,
+			deduplicated: 1,
+		});
+		expect(f.fetch).not.toHaveBeenCalled();
+		expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(through);
+	});
+
+	it("retains deferred retry pages until the session finishes", async () => {
+		const f = await setup();
+		await retainCommitmentWakePage(f.db, through, null);
+		await advanceCommitmentWakeCheckpoint(f.db, through);
+		await f.db.insert(tediRuntimeEvents).values(f.started);
+		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+			deferred: 1,
+			dispatched: 0,
+		});
+		expect(await listCommitmentWakeRetryPages(f.db)).toHaveLength(1);
+		await f.db
+			.insert(tediRuntimeEvents)
+			.values({ ...f.started, id: "end", kind: "run.completed" });
+		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+			dispatched: 1,
+		});
+		expect(await listCommitmentWakeRetryPages(f.db)).toHaveLength(0);
+	});
+
+	it("delivers to another recipient while retaining a busy recipient's page", async () => {
+		const f = await setup();
+		f.sqlite
+			.exec(`INSERT INTO work_items(id,org_id,title,created_at,disposition,accountable_owner_type,accountable_owner_id) VALUES ('work-2','org-2','Other','${after}','accepted','tedi','worker-2');
+		INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('other','org-2','work-2','work.accepted','user','owner','${changedAt}');`);
+		await f.db.insert(tediRuntimeEvents).values(f.started);
+		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+			deferred: 1,
+			dispatched: 1,
+		});
+		expect(f.fetch).toHaveBeenCalledOnce();
+		expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(after);
+	});
 });
 
 describe("bounded commitment pages", () => {
