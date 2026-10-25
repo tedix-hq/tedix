@@ -1,5 +1,6 @@
 import "./canvas-page.css";
 import {
+	CHAT_CREATE_OPTIONS,
 	CHAT_FORMATS,
 	CHAT_SLASH_COMMANDS,
 } from "@/components/chat-composer-options";
@@ -17,6 +18,7 @@ import {
 	Microphone,
 	Plus,
 	Paperclip,
+	Sparkle,
 	Square,
 	X,
 } from "@phosphor-icons/react";
@@ -134,6 +136,9 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuGroup,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -2293,49 +2298,95 @@ export function ChatThread({
 										/>
 									}
 								/>
-								<DropdownMenuContent>
-									{reachableSkills.length > 0 ? (
+								<DropdownMenuContent
+									align="start"
+									className="w-[360px] max-w-[calc(100vw-16px)]"
+								>
+									<DropdownMenuGroup>
+										<DropdownMenuLabel>Add</DropdownMenuLabel>
 										<DropdownMenuItem
-											onClick={() => {
-												setSkillPickerDismissed(false);
-												setSkillActiveIndex(-1);
-												setSkillSearch("");
-											}}
+											onClick={() => attachmentInputRef.current?.click()}
 										>
-											Use a skill…
+											<Paperclip size={18} aria-hidden="true" />
+											<span className="min-w-0 text-left">
+												<span className="block">Attach files</span>
+												<span className="block whitespace-nowrap text-xs text-kumo-subtle">
+													Add files to your message.
+												</span>
+											</span>
 										</DropdownMenuItem>
-									) : null}
-									<DropdownMenuItem onClick={() => setDirectReadOpen(true)}>
-										<MagnifyingGlass size={14} />
-										Read from connected app
-									</DropdownMenuItem>
-									<DropdownMenuItem
-										onClick={() => attachmentInputRef.current?.click()}
-									>
-										Attach files
-									</DropdownMenuItem>
-									{CHAT_SLASH_COMMANDS.map((item) => (
-										<DropdownMenuItem
-											key={item.command}
-											onClick={() =>
-												updateDraft(`${item.instruction}\n\n${draft}`.trim())
-											}
-										>
-											{item.command}
+										<DropdownMenuItem onClick={() => setDirectReadOpen(true)}>
+											<MagnifyingGlass size={18} aria-hidden="true" />
+											<span className="min-w-0 text-left">
+												<span className="block">Read from connected app</span>
+												<span className="block whitespace-nowrap text-xs text-kumo-subtle">
+													Choose an app and read its data.
+												</span>
+											</span>
 										</DropdownMenuItem>
-									))}
-									{CHAT_FORMATS.map((format) => (
-										<DropdownMenuItem
-											key={format}
-											onClick={() =>
-												updateDraft(
-													`${draft}${draft ? "\n\n" : ""}Create a ${format} output for this request.`,
-												)
-											}
-										>
-											Create {format}
-										</DropdownMenuItem>
-									))}
+									</DropdownMenuGroup>
+									<DropdownMenuSeparator />
+									<DropdownMenuGroup>
+										<DropdownMenuLabel>Commands</DropdownMenuLabel>
+										{reachableSkills.length > 0 ? (
+											<DropdownMenuItem
+												onClick={() => {
+													setSkillPickerDismissed(false);
+													setSkillActiveIndex(-1);
+													setSkillSearch("");
+												}}
+											>
+												<Sparkle size={18} aria-hidden="true" />
+												<span className="min-w-0 text-left">
+													<span className="block">Use a skill…</span>
+													<span className="block whitespace-nowrap text-xs text-kumo-subtle">
+														Find and use an available skill.
+													</span>
+												</span>
+											</DropdownMenuItem>
+										) : null}
+										{CHAT_SLASH_COMMANDS.map((item) => (
+											<DropdownMenuItem
+												key={item.command}
+												onClick={() =>
+													updateDraft(`${item.instruction}\n\n${draft}`.trim())
+												}
+											>
+												<item.icon size={18} aria-hidden="true" />
+												<span className="min-w-0 text-left">
+													<span className="block">{item.command}</span>
+													<span className="block whitespace-nowrap text-xs text-kumo-subtle">
+														{item.description}
+													</span>
+												</span>
+											</DropdownMenuItem>
+										))}
+									</DropdownMenuGroup>
+									<DropdownMenuSeparator />
+									<DropdownMenuGroup>
+										<DropdownMenuLabel>Create</DropdownMenuLabel>
+										{CHAT_FORMATS.map((format) => {
+											const option = CHAT_CREATE_OPTIONS[format];
+											return (
+												<DropdownMenuItem
+													key={format}
+													onClick={() =>
+														updateDraft(
+															`${draft}${draft ? "\n\n" : ""}Create a ${format} output for this request.`,
+														)
+													}
+												>
+													<option.icon size={18} aria-hidden="true" />
+													<span className="min-w-0 text-left">
+														<span className="block">Create {format}</span>
+														<span className="block whitespace-nowrap text-xs text-kumo-subtle">
+															{option.description}
+														</span>
+													</span>
+												</DropdownMenuItem>
+											);
+										})}
+									</DropdownMenuGroup>
 								</DropdownMenuContent>
 							</DropdownMenu>
 							{context ? (
