@@ -2,9 +2,19 @@ import { describe, expect, test } from "bun:test";
 import {
 	extractJudgeJson,
 	isOrganizationOwnedJudgeVideoKey,
+	MAX_REFERENCE_IMAGE_BYTES,
 	validateReferenceImages,
 	videoJudgePrompt,
 } from "../src/vertex-video-judge";
+
+function base64WithDecodedBytes(bytes: number): string {
+	const completeGroups = Math.floor(bytes / 3);
+	const remainder = bytes % 3;
+	return (
+		"AAAA".repeat(completeGroups) +
+		(remainder === 1 ? "AA==" : remainder === 2 ? "AAA=" : "")
+	);
+}
 
 describe("Vertex video judge", () => {
 	test("admits organization-owned render outputs and approved source footage", () => {
@@ -52,6 +62,33 @@ describe("Vertex video judge", () => {
 		expect(() =>
 			validateReferenceImages([{ mimeType: "image/svg+xml", data: "YQ==" }]),
 		).toThrow("unsupported mime type");
+	});
+
+	test("rejects malformed base64", () => {
+		for (const data of ["A==", "AAA", "=AAA", "AA=A", "A==="]) {
+			expect(() =>
+				validateReferenceImages([{ mimeType: "image/png", data }]),
+			).toThrow("not valid base64");
+		}
+	});
+
+	test("counts base64 padding in the decoded byte limit", () => {
+		expect(
+			validateReferenceImages([
+				{
+					mimeType: "image/webp",
+					data: base64WithDecodedBytes(MAX_REFERENCE_IMAGE_BYTES),
+				},
+			]),
+		).toHaveLength(1);
+		expect(() =>
+			validateReferenceImages([
+				{
+					mimeType: "image/webp",
+					data: base64WithDecodedBytes(MAX_REFERENCE_IMAGE_BYTES + 1),
+				},
+			]),
+		).toThrow(`must be 1-${MAX_REFERENCE_IMAGE_BYTES} bytes`);
 	});
 
 	test("extracts the structured JSON verdict", () => {
