@@ -182,7 +182,14 @@ function classifyCapabilities(
 	const requestedContent = content
 		.replace(NEGATED_CAPABILITY_CLAUSE, " ")
 		.replace(/https?:\/\/\S+/gi, " ");
+	const noRepositoryResearch =
+		/\b(?:no\s+(?:repo(?:sitory)?|codebase|source code)\s+(?:research|lookup|inspection)(?:\s+(?:is\s+)?(?:needed|required)\b|(?=[.!?;]|$))|(?:repo(?:sitory)?|codebase|source code)\s+(?:research|lookup|inspection)\s+(?:is\s+)?not\s+(?:needed|required)\b|(?:do not|don't|never)\s+(?:research|inspect|read)\s+(?:the\s+)?(?:repo(?:sitory)?|codebase|source code)\b)/i.test(
+			content,
+		);
 	for (const signal of CAPABILITY_SIGNALS) {
+		// Supplied source excerpts do not require a checkout when lookup is excluded.
+		if (signal.capability === "repository_read" && noRepositoryResearch)
+			continue;
 		if (signal.pattern.test(requestedContent))
 			capabilities.add(signal.capability);
 	}
