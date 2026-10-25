@@ -60,6 +60,9 @@ vi.mock("./platform-tick", () => ({
 vi.mock("./dispatcher-health-alarm", () => ({
 	runDispatcherHealthAlarm: vi.fn().mockResolvedValue({}),
 }));
+vi.mock("./approval-expiry", () => ({
+	expireOverdueApprovals: vi.fn().mockResolvedValue({ expired: 0 }),
+}));
 vi.mock("./work-attempt-lease-sweeper", () => ({
 	runWorkAttemptLeaseSweeperTick: vi.fn(),
 }));

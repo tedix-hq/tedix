@@ -43,6 +43,7 @@ import {
 	createApprovalRequestWithAudit,
 	createProvisionalOutcome,
 	ensureProvisionalPromotionApprovalRequest,
+	expireStaleApprovals,
 	getApprovalRequestById,
 	getProvisionalOutcomeById,
 	listApprovalRequests,
@@ -1539,6 +1540,30 @@ const cancelProcedure = tediOs.cancel.handler(async ({ input, context }) => {
 	return normalizeApprovalRequest(cancelled);
 });
 
+/** An expired request was never approved; this only takes it off the list. */
+const clearExpiredProcedure = authedOs.clearExpired
+	.use(AUTHZ.osApprove)
+	.handler(async ({ context }) => {
+		const orgId = requireOrgId(context, "clearing expired approvals");
+		const actorId = context.user?.sub ?? context.authType ?? "unknown";
+		const cleared = await expireStaleApprovals(context.db, {
+			organizationId: orgId,
+			resolvedBy: actorId,
+		});
+		if (cleared > 0) {
+			await insertAuditEvent(context.db, {
+				organizationId: orgId,
+				actorId,
+				actorType: "user",
+				action: runtimeApprovalAuditAction({ status: "expired" }),
+				resourceType: "approval_request",
+				resourceId: orgId,
+				metadata: toJsonRecord({ cleared, source: "clear_expired" }),
+			});
+		}
+		return { cleared };
+	});
+
 // =============================================================================
 // CONTRACT ROUTER
 // =============================================================================
@@ -1587,4 +1612,5 @@ export const tediApprovalsContractRouter = approvalsOs.router({
 	resolveReviewManifest: resolveReviewManifestProcedure,
 	resolve: resolveProcedure,
 	cancel: cancelProcedure,
+	clearExpired: clearExpiredProcedure,
 });

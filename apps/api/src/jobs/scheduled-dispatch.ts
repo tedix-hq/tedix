@@ -138,6 +138,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		}
 
 		if (cron === "*/2 * * * *") {
+			const { expireOverdueApprovals } = await import("./approval-expiry");
+			await trackPlatformCronPath(env, event, "approval-expiry", () =>
+				expireOverdueApprovals(env),
+			);
+		}
+
+		if (cron === "*/2 * * * *") {
 			const { runWorkAttemptLeaseSweeperTick } =
 				await import("./work-attempt-lease-sweeper");
 			await trackPlatformCronPath(env, event, "work-attempt-lease-sweep", () =>

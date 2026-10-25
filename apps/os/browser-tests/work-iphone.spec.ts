@@ -40,7 +40,7 @@ const PAGES: Array<[string, string]> = [
 	["/work/cases", "[data-mobile-case-row]"],
 	["/work/capacity", "[data-slot=card] strong"],
 	["/work/capacity?view=budgets", "[data-slot=card] strong"],
-	["/work/approvals", "summary"],
+	["/work/approvals", "[role=tablist][aria-label=Approvals]"],
 	["/work/interactions", "[aria-labelledby=interaction-urgent-title]"],
 	[PROJECT, "[data-contributor-state]"],
 	[ITEM, "textarea"],
@@ -530,10 +530,11 @@ try {
 						`${PROJECT}: contributor Work item link is ${Math.round(width * 100)}% of its row`,
 					);
 
-			await check("/work/approvals", "summary");
+			await check("/work/approvals", "[role=tablist][aria-label=Approvals]");
+			await page.getByRole("tab", { name: "History" }).click();
 			await targets(
 				"/work/approvals",
-				page.locator("summary", { hasText: "Past approval decisions" }),
+				page.locator("summary", { hasText: "Receipts for past decisions" }),
 				"past decisions",
 			);
 

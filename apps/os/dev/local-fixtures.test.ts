@@ -337,6 +337,7 @@ const CALLS: Record<string, unknown> = {
 	"osApprovalRules/list": {},
 	"tediApprovals/getById": { id: IDS.approvalPending },
 	"tediApprovals/resolve": { id: IDS.approvalPending, status: "approved" },
+	"tediApprovals/clearExpired": {},
 	"userSettings/getPreferences": {},
 	"userSettings/updatePreferences": {
 		preferences: {

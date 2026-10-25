@@ -557,6 +557,21 @@ export const tediApprovalsContract = oc
 			.output(ApprovalRequestSchema),
 
 		/**
+		 * Close every request in the caller's organization whose window has passed
+		 * POST /tedi-approvals/clear-expired
+		 */
+		clearExpired: oc
+			.route({
+				method: "POST",
+				path: "/clear-expired",
+				summary: "Clear expired approval requests",
+				description:
+					"Marks pending approval requests in the caller's organization whose expiry has passed as expired. An expired request was never approved, so nothing runs; this only removes it from the waiting list. Requests still inside their window are untouched.",
+			})
+			.input(z.strictObject({}).optional())
+			.output(z.object({ cleared: z.number().int().nonnegative() })),
+
+		/**
 		 * Cancel a pending approval request (tedi withdraws its own request)
 		 * POST /tedi-approvals/{id}/cancel
 		 */

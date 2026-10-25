@@ -469,7 +469,7 @@ export const computePostureQueryOptions = (
 
 export const pendingApprovalsQueryOptions = () =>
 	osQuery.tediApprovals.list.queryOptions({
-		input: { status: "pending", decidableOnly: true },
+		input: { status: "pending", decidableOnly: true, limit: 100 },
 	});
 
 /** The latest approval requests in every state, for Activity history. */

@@ -511,21 +511,33 @@ export async function resolveApprovalRequest(
 }
 
 /**
- * Mark all expired pending requests as "expired".
+ * Mark expired pending requests as "expired", optionally for one organization.
  * An approval is expired when its expiresAt timestamp is in the past.
  */
-export async function expireStaleApprovals(db: DbClient): Promise<number> {
+export async function expireStaleApprovals(
+	db: DbClient,
+	options: { organizationId?: string; resolvedBy?: string } = {},
+): Promise<number> {
 	const now = new Date().toISOString();
 	const result = await db
 		.update(tediApprovalRequests)
 		.set({
 			status: "expired",
 			resolvedAt: now,
+			...(options.resolvedBy
+				? {
+						resolvedBy: options.resolvedBy,
+						resolution: "Expired: no one answered in time, so it did not run.",
+					}
+				: {}),
 		})
 		.where(
 			and(
 				eq(tediApprovalRequests.status, "pending"),
 				lt(tediApprovalRequests.expiresAt, now),
+				options.organizationId
+					? eq(tediApprovalRequests.orgId, options.organizationId)
+					: undefined,
 			),
 		);
 	return getAffectedRows(result);

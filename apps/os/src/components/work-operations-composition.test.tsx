@@ -313,22 +313,32 @@ describe("Work streams", () => {
 
 const runtimeApproval = (id: string) => ({
 	id,
-	description: `Deploy ${id}`,
-	expiresAt: "2026-10-01T00:00:00.000Z",
+	tediId: "example-tedi",
+	actionType: "deploy",
+	description: `Deploy ${id.replace("approval-", "#")}`,
+	createdAt: "2026-10-01T00:00:00.000Z",
+	expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
 	payload: {},
 	review: {
 		operatorQuestion: "Ship it?",
 		intent: "deploy",
-		summary: "One Worker deploy",
+		summary: `Deploy Worker ${id.replace("approval-", "#")}`,
 		evidenceRefs: [],
-		timeout: null,
+		timeout: { expired: false },
 		decisionMode: "approve_or_reject",
 	},
 });
+/** The approvals inbox lists only what this account may decide. */
+const asApprover = () => {
+	api.reads["userSettings.getContext"] = {
+		authority: { role: "owner", permissions: ["os:approve"] },
+	};
+};
 
 describe("Work approvals", () => {
-	it("keeps waiting actions separate from approvals to start work", async () => {
+	it("lists every waiting request as a card with one-tap decisions", async () => {
 		viewport(false);
+		asApprover();
 		api.reads["tediApprovals.list"] = {
 			data: Array.from({ length: 26 }, (_, index) =>
 				runtimeApproval(`approval-${index}`),
@@ -356,69 +366,51 @@ describe("Work approvals", () => {
 		};
 		const page = await mount(<WorkApprovalsPage />);
 		const text = page.host.textContent ?? "";
-		expect(text).not.toContain("Approve exact request");
+		for (const jargon of [
+			"Add to ordered review",
+			"Review exact request",
+			"Decide for me",
+			"of 25 selected",
+		])
+			expect(text).not.toContain(jargon);
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
-			pageClass("xl"),
+			pageClass("lg"),
 		);
-
-		// An ordered review holds at most 25 exact requests.
-		const add = () =>
-			[...page.host.querySelectorAll<HTMLButtonElement>("button")].filter(
-				(button) => button.textContent?.trim() === "Add to ordered review",
-			);
-		for (let index = 0; index < 25; index += 1)
-			await act(async () => add()[0]!.click());
-		expect(add()).toHaveLength(1);
-		expect(add()[0]!.disabled).toBe(true);
-		const reviews = [
+		expect(page.host.querySelectorAll("[data-approval-card]")).toHaveLength(27);
+		expect(text).toContain("27 waiting");
+		// The request form lives under History, not between the decisions.
+		expect(page.host.querySelectorAll("form")).toHaveLength(0);
+		const approve = [
 			...page.host.querySelectorAll<HTMLButtonElement>("button"),
-		].filter((button) => button.textContent?.trim() === "Review exact request");
-		expect(reviews.length).toBeGreaterThan(0);
-
-		// Decisions come before the one, separate request form.
-		const decisions = page.host.querySelector(
-			'[aria-label="Pending decisions"]',
-		)!;
-		const forms = page.host.querySelectorAll("form");
-		expect(forms).toHaveLength(1);
-		expect(
-			decisions.compareDocumentPosition(forms[0]!) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		const runtime = page.host.querySelector(
-			'[aria-labelledby="runtime-approvals-title"]',
-		)!;
-		const admission = page.host.querySelector(
-			'[aria-labelledby="work-admission-title"]',
-		)!;
-		expect(
-			runtime.compareDocumentPosition(admission) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
+		].find((button) => button.textContent?.trim() === "Approve")!;
+		await act(async () => approve.click());
+		await settle();
+		expect(mutations("tediApprovals.resolve")).toEqual([
+			expect.objectContaining({ id: "approval-0", status: "approved" }),
+		]);
 	});
 
-	it("opens the exact-request review from a single runtime decision", async () => {
+	it("keeps the exact request and linked-request review behind Details", async () => {
 		viewport(false);
+		asApprover();
 		api.reads["tediApprovals.list"] = { data: [runtimeApproval("approval-1")] };
 		api.reads["tediApprovals.getReviewManifest"] = {
 			manifestHash: "hash-1",
 			actions: [],
 		};
 		const page = await mount(<WorkApprovalsPage />);
-		// The card names the request in words; its id stays in the diagnostics.
-		const card = page.host.querySelector(
-			'[aria-labelledby="runtime-approvals-title"] li',
-		)!;
-		const diagnostics = card.querySelector(
-			"[data-slot='collapsible-content'], pre",
-		);
-		expect(
-			(card.textContent ?? "").replace(diagnostics?.textContent ?? "", ""),
-		).not.toContain("approval-1");
-		const review = [
+		// The card names the request in words; its id stays in the details.
+		const card = page.host.querySelector("[data-approval-card]")!;
+		expect(card.textContent ?? "").not.toContain("approval-1");
+		const details = [
+			...card.querySelectorAll<HTMLButtonElement>("button"),
+		].find((button) => button.textContent?.trim() === "Details")!;
+		await act(async () => details.click());
+		await settle();
+		const linked = [
 			...page.host.querySelectorAll<HTMLButtonElement>("button"),
-		].find((button) => button.textContent?.trim() === "Review exact request")!;
-		await act(async () => review.click());
+		].find((button) => button.textContent?.trim() === "Check linked requests")!;
+		await act(async () => linked.click());
 		await settle();
 		expect(
 			page.host.querySelector('[aria-label="Review selected exact requests"]'),

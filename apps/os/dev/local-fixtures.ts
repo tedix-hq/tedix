@@ -6137,6 +6137,23 @@ const handlers: Record<string, (input: never) => unknown> = {
 			),
 			input,
 		),
+	"tediApprovals/clearExpired": () => {
+		let cleared = 0;
+		for (const approval of state.approvals) {
+			if (
+				approval.status !== "pending" ||
+				Date.parse(approval.expiresAt) > Date.now()
+			)
+				continue;
+			approval.status = "expired";
+			approval.resolvedAt = now();
+			approval.resolvedBy = "dev-operator";
+			approval.resolution =
+				"Expired: no one answered in time, so it did not run.";
+			cleared += 1;
+		}
+		return { cleared };
+	},
 	// No saved auto-approval rules: the Activity panel shows its empty state.
 	"osApprovalRules/list": () => ({ items: [] }),
 	"tediApprovals/getById": (input: { id: string }) => {

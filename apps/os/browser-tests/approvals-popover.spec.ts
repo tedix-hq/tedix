@@ -141,7 +141,7 @@ try {
 				await page.keyboard.press("Enter");
 				await page
 					.getByRole("menuitem", {
-						name: "Decide for me (reject)",
+						name: "Follow the suggestion (reject)",
 						exact: true,
 					})
 					.waitFor();

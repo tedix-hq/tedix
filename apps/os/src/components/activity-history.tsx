@@ -183,10 +183,14 @@ const EMPTY_COPY: Record<HistoryFilter, { title: string; body: string }> = {
 
 export function ActivityHistory({
 	tediNames,
+	only,
 }: {
 	tediNames: Record<string, string>;
+	/** Show one kind of entry and no filter control. */
+	only?: Exclude<HistoryFilter, "all">;
 }) {
-	const [filter, setFilter] = useState<HistoryFilter>("all");
+	const [chosen, setFilter] = useState<HistoryFilter>("all");
+	const filter = only ?? chosen;
 	const approvals = useQuery(approvalHistoryQueryOptions());
 	// Tool activity needs analytics access; without it History still shows
 	// every decision.
@@ -207,15 +211,17 @@ export function ActivityHistory({
 	return (
 		<div className="grid min-w-0">
 			<div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-3">
-				<SegmentedControl
-					ariaLabel="Show in history"
-					className="sm:w-fit"
-					compact
-					fill
-					onValueChange={setFilter}
-					options={HISTORY_FILTERS}
-					value={filter}
-				/>
+				{only ? null : (
+					<SegmentedControl
+						ariaLabel="Show in history"
+						className="sm:w-fit"
+						compact
+						fill
+						onValueChange={setFilter}
+						options={HISTORY_FILTERS}
+						value={filter}
+					/>
+				)}
 				<Text
 					as="span"
 					className="shrink-0 tabular-nums"
