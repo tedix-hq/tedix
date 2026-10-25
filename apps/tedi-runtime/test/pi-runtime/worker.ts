@@ -16,6 +16,7 @@ import { recordToolRead, refuseStaleWrite } from "../../src/read-evidence";
 export { ComputerTurnFixture } from "./computer-turn-fixture";
 export { KernelWakeFixture } from "./kernel-wake-fixture";
 export { WorkflowCallbackFixture } from "./workflow-callback-fixture";
+export { RegistryRestoreFixture } from "./registry-restore-fixture";
 export { PiPlatformFixture } from "./platform-fixtures";
 import { PiStorageFixture as ActualPiStorageFixture } from "./storage-fixture";
 export class PiStorageFixture extends ActualPiStorageFixture {

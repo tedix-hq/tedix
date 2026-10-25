@@ -36,6 +36,10 @@ export default defineConfig({
 						useSQLite: true,
 					},
 					PI_PLATFORM: { className: "PiPlatformFixture", useSQLite: true },
+					REGISTRY_RESTORE: {
+						className: "RegistryRestoreFixture",
+						useSQLite: true,
+					},
 					PI_STORAGE: { className: "PiStorageFixture", useSQLite: true },
 					PI_FACET_MEDIA: { className: "PiFacetMediaFixture", useSQLite: true },
 					PI_ADMISSION_PARENT: {

@@ -156,6 +156,10 @@ import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
 import { delegatedWorkTools } from "./delegated-work-tools";
 import {
+	RuntimeAdmissionDO,
+	readStoredRuntimeAdmission,
+} from "./runtime-admission-do";
+import {
 	type WorkflowImageRef,
 	workflowImageUri,
 } from "./workflow-image-handoff";
@@ -705,14 +709,25 @@ export const runtimeFacetTurns = {
 				`runtime-admission-workflow:${runId}`,
 			);
 			const params = dispatch?.params;
-			if (
-				!params ||
-				params.runId !== runId ||
-				!params.workItemId ||
-				!params.homeRunId
-			)
-				return;
+			if (!params || params.runId !== runId) return;
 			await this.ensureIdentity();
+			if (!this.state.tediId || !this.state.orgId)
+				throw new Error("Runtime admission requires stored tenant identity");
+			if (!readStoredRuntimeAdmission(this.ctx.storage, this.ctx.id.toString()))
+				throw new Error(
+					"Tool registry restoration requires existing runtime admission",
+				);
+			const admission = new RuntimeAdmissionDO(this.ctx.storage, {
+				objectId: this.ctx.id.toString(),
+				tediId: this.state.tediId,
+				orgId: this.state.orgId,
+			});
+			const accepted = await admission.assertAcceptedTurn({
+				runId,
+				sessionKey: params.sessionKey,
+				principalId: this.state.tediId,
+			});
+			const originalParams = JSON.stringify(params);
 			await withDelegatedWorkLease(
 				params,
 				{
@@ -733,6 +748,18 @@ export const runtimeFacetTurns = {
 						toolsOnly: true,
 					});
 					await this.assertChatTurnActive(runId);
+					const current = this.ctx.storage.kv.get<{ params: ChatTurnParams }>(
+						`runtime-admission-workflow:${runId}`,
+					);
+					if (
+						JSON.stringify(current?.params) !== originalParams ||
+						accepted.owner.tediId !== this.state.tediId ||
+						accepted.owner.orgId !== this.state.orgId
+					)
+						throw new Error(
+							"Original tool registry dispatch changed during restoration",
+						);
+					admission.assertAcceptedTurnSync({ runId, expected: accepted });
 					this.activeFacetTurnTools.set(
 						runId,
 						configuredRuntimeTools(
@@ -742,7 +769,7 @@ export const runtimeFacetTurns = {
 					);
 					this.activeFacetTurnConversations.set(runId, params.conversationId);
 					const authority = delegatedTurnAuthority({
-						delegated: true,
+						delegated: Boolean(params.workItemId && params.homeRunId),
 						envelope: params.authorityEnvelope,
 						mode: params.authorityMode,
 					});

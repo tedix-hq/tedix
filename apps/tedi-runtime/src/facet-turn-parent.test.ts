@@ -6,6 +6,9 @@
  * and the ledger mirror.
  */
 import assert from "node:assert/strict";
+import { Database } from "bun:sqlite";
+import { RuntimeAdmissionDO } from "./runtime-admission-do";
+import type { ChatTurnParams } from "./chat-turn-input";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
 import { FacetDispatchJournal } from "./facet-dispatch-journal";
@@ -22,6 +25,47 @@ import * as runtimeWorker from "./index";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 const IMAGE = { type: "image", mediaType: "image/png", data: "aGk=" };
+
+async function registryStorage(tediId: string, orgId: string) {
+	const db = new Database(":memory:");
+	const objectId = "registry-root";
+	const storage = {
+		...memoryStorage(),
+		sql: {
+			exec(query: string, ...args: (string | number | null)[]) {
+				const rows = db.query(query).all(...args);
+				return {
+					toArray: () => rows,
+					[Symbol.iterator]: () => rows[Symbol.iterator](),
+				};
+			},
+		},
+		transactionSync: <T>(run: () => T): T => db.transaction(run)(),
+	} as unknown as DurableObjectStorage & ReturnType<typeof memoryStorage>;
+	storage.sql.exec(
+		"CREATE TABLE cf_agents_state (id TEXT PRIMARY KEY,state TEXT)",
+	);
+	storage.sql.exec(
+		"INSERT INTO cf_agents_state VALUES ('cf_state_row_id',?)",
+		JSON.stringify({ tediId, orgId }),
+	);
+	const admission = new RuntimeAdmissionDO(storage, {
+		tediId,
+		orgId,
+		objectId,
+	});
+	admission.gate.initialize({
+		operationId: "registry-fixture-init",
+		state: "active",
+		evidence: await admission.prepareEvidence("initialize"),
+	});
+	return {
+		storage,
+		admission,
+		id: { toString: () => objectId },
+		[Symbol.dispose]: () => db.close(),
+	};
+}
 
 // ── the facet runner: registry lifecycle, fresh vs hydrated history ──────────
 const facetInput = {
@@ -527,7 +571,8 @@ for (const stream of [false, true]) {
 // A parent reset rebuilds only the immutable admitted Home turn; retained call
 // receipts still prevent re-executing a write whose return was interrupted.
 {
-	const storage = memoryStorage();
+	using native = await registryStorage("tedi-restore", "org-restore");
+	const { storage } = native;
 	const runId = "run-restore";
 	const params = {
 		runId,
@@ -552,8 +597,9 @@ for (const stream of [false, true]) {
 	let alwaysAsk = false;
 	const approvals: Array<Record<string, unknown>> = [];
 	const agent = tediDo({
-		ctx: { storage },
+		ctx: { storage, id: native.id },
 		state: { tediId: "tedi-restore", orgId: "org-restore" },
+		runtimeAdmission: () => native.admission,
 		env: {
 			API_SERVICE: {
 				fetch: async () =>
@@ -688,6 +734,281 @@ for (const stream of [false, true]) {
 		[preparations, executions],
 		[2, 1],
 		"expired Work authority never rebuilds or executes tools",
+	);
+}
+
+async function ordinaryRegistry(principalId = "ordinary-tedi") {
+	const native = await registryStorage("ordinary-tedi", "ordinary-org");
+	const params: ChatTurnParams = {
+		runId: "ordinary-run",
+		sessionKey: "agent:main:ordinary",
+		userText: "Observe the source",
+		userTs: 1,
+		conversationId: "ordinary:agent:main:ordinary",
+		clientRequestId: "ordinary",
+		personalRequest: true,
+		noFunds: true,
+		callerTrust: "foreign",
+		capabilityPlan: {
+			version: "delegation-capabilities.v1",
+			allowedToolIds: ["probe"],
+			requiredCapabilities: [],
+			missingCapabilities: [],
+			urls: [],
+			outputIds: [],
+		},
+	};
+	let preparations = 0,
+		executions = 0;
+	let prepared: Record<string, unknown> | undefined;
+	let duringPreparation = async () => {};
+	const agent = tediDo({
+		ctx: { storage: native.storage, id: native.id },
+		state: { tediId: "ordinary-tedi", orgId: "ordinary-org" },
+		setState(next: unknown) {
+			agent.state = next;
+		},
+		runtimeAdmission: () => native.admission,
+		ensureIdentity: async () => {},
+		getPlatformClient: async () => {
+			throw new Error("Ordinary recovery must not acquire a Work lease");
+		},
+		prepareMcpFacetTurn: async (input: Record<string, unknown>) => {
+			preparations++;
+			prepared = input;
+			await duringPreparation();
+			return {
+				tools: {
+					probe: {
+						execute: async () => {
+							executions++;
+							return { ok: true };
+						},
+					},
+				},
+				system: "",
+				turnBinding: null,
+			};
+		},
+		facetDispatchJournal: new FacetDispatchJournal(native.storage),
+		nativeToolLedger: {
+			observe: (_context: unknown, _call: unknown, execute: () => unknown) =>
+				execute(),
+		},
+	});
+	await native.admission.beginAcceptedTurn({
+		runId: params.runId,
+		sessionKey: params.sessionKey,
+		principalId,
+		input: { kind: "original-ingress", text: params.userText },
+		expectedGeneration: 1,
+	});
+	await native.storage.put(`runtime-admission-workflow:${params.runId}`, {
+		params,
+		stage: "dispatched",
+		id: "ordinary",
+	});
+	await agent.facetDispatchJournal.enroll(params.runId);
+	const call = {
+		runId: params.runId,
+		toolCallId: "ordinary-call",
+		tool: "probe",
+		args: {},
+	};
+	return {
+		...native,
+		agent,
+		params,
+		call,
+		stats: () => ({ preparations, executions, prepared }),
+		duringPreparation: (action: () => Promise<void>) => {
+			duringPreparation = action;
+		},
+	};
+}
+
+{
+	using f = await ordinaryRegistry();
+	assert.deepEqual(await f.agent.executeFacetTool(f.call), { ok: true });
+	assert.equal(f.stats().preparations, 1);
+	assert.equal(f.stats().executions, 1);
+	assert.deepEqual(f.stats().prepared, {
+		...f.params,
+		userMessage: f.params.userText,
+		trust: "untrusted",
+		toolsOnly: true,
+	});
+	assert.equal(f.agent.activeFacetTurnAuthorities.size, 0);
+	f.agent.activeFacetTurnTools.clear();
+	assert.equal(
+		(await f.agent.executeFacetTool(f.call)).code,
+		"facet_tool_unavailable",
+	);
+	assert.equal(
+		f.stats().executions,
+		1,
+		"cold restoration never clears the effect claim",
+	);
+}
+
+for (const kind of [
+	"missing-dispatch",
+	"wrong-run",
+	"wrong-session",
+	"wrong-principal",
+	"missing-admission",
+	"held",
+	"quarantined",
+	"retired",
+	"completed",
+	"foreign-owner",
+	"unresolved-identity",
+	"canceled",
+	"policy-removed",
+] as const) {
+	using f = await ordinaryRegistry(
+		kind === "wrong-principal" ? "other-tedi" : "ordinary-tedi",
+	);
+	if (kind === "missing-dispatch")
+		await f.storage.delete(`runtime-admission-workflow:${f.params.runId}`);
+	if (kind === "wrong-run" || kind === "wrong-session")
+		await f.storage.put(`runtime-admission-workflow:${f.params.runId}`, {
+			params: {
+				...f.params,
+				...(kind === "wrong-run"
+					? { runId: "different" }
+					: { sessionKey: "different" }),
+			},
+		});
+	if (kind === "missing-admission")
+		f.storage.sql.exec("DROP TABLE runtime_admission");
+	if (["held", "quarantined", "retired"].includes(kind))
+		f.storage.sql.exec(
+			"UPDATE runtime_admission SET record=json_set(record,'$.state',?)",
+			kind,
+		);
+	if (kind === "completed")
+		f.storage.sql.exec(
+			"UPDATE runtime_admission_turns SET record=json_set(record,'$.status','completed')",
+		);
+	if (kind === "foreign-owner")
+		f.agent.state = { ...f.agent.state, tediId: "other-tedi" };
+	if (kind === "unresolved-identity")
+		f.agent.state = { ...f.agent.state, orgId: "" };
+	if (kind === "canceled")
+		await f.storage.put(`wfcancel:${f.params.runId}`, true);
+	if (kind === "policy-removed")
+		f.agent.state.toolPolicy = { runtimeTools: [] };
+	if (["missing-dispatch", "wrong-run", "policy-removed"].includes(kind))
+		assert.equal(
+			(await f.agent.executeFacetTool(f.call)).code,
+			"facet_tool_unavailable",
+			kind,
+		);
+	else await assert.rejects(f.agent.executeFacetTool(f.call), kind);
+	assert.equal(f.stats().executions, 0, kind);
+	if (kind !== "policy-removed") assert.equal(f.stats().preparations, 0, kind);
+	assert.equal(
+		f.agent.activeFacetTurnTools.get(f.params.runId)?.probe,
+		undefined,
+		kind,
+	);
+}
+
+for (const kind of [
+	"dispatch",
+	"session",
+	"owner",
+	"generation",
+	"identity",
+	"cancellation",
+	"claim-completed",
+	"admission-held",
+] as const) {
+	using f = await ordinaryRegistry();
+	f.duringPreparation(async () => {
+		if (kind === "dispatch" || kind === "session")
+			await f.storage.put(`runtime-admission-workflow:${f.params.runId}`, {
+				params: {
+					...f.params,
+					...(kind === "dispatch"
+						? { userText: "changed" }
+						: { sessionKey: "changed" }),
+				},
+			});
+		if (kind === "owner")
+			f.agent.state = { ...f.agent.state, orgId: "other-org" };
+		if (kind === "generation")
+			f.storage.sql.exec(
+				"UPDATE runtime_admission SET record=json_set(record,'$.generation',2)",
+			);
+		if (kind === "identity")
+			f.storage.sql.exec(
+				"UPDATE runtime_admission_identities SET record=json_set(record,'$.requestHash','changed')",
+			);
+		if (kind === "cancellation")
+			await f.storage.put(`wfcancel:${f.params.runId}`, true);
+		if (kind === "claim-completed")
+			f.storage.sql.exec(
+				"UPDATE runtime_admission_turns SET record=json_set(record,'$.status','completed')",
+			);
+		if (kind === "admission-held")
+			f.storage.sql.exec(
+				"UPDATE runtime_admission SET record=json_set(record,'$.state','held')",
+			);
+	});
+	await assert.rejects(f.agent.executeFacetTool(f.call), kind);
+	assert.equal(f.stats().executions, 0, kind);
+	assert.equal(f.agent.activeFacetTurnTools.has(f.params.runId), false, kind);
+	assert.equal(
+		f.agent.activeFacetTurnConversations.has(f.params.runId),
+		false,
+		kind,
+	);
+}
+
+{
+	using f = await ordinaryRegistry();
+	await f.storage.put(`runtime-admission-workflow:${f.params.runId}`, {
+		params: { ...f.params, workItemId: "incomplete-work" },
+	});
+	delete f.agent.prepareMcpFacetTurn;
+	await assert.rejects(
+		f.agent.executeFacetTool(f.call),
+		/Incomplete Home-supervised MCP authority context/,
+	);
+	assert.equal(f.agent.activeFacetTurnTools.size, 0);
+}
+
+{
+	using f = await ordinaryRegistry();
+	const result = await f.agent.executeFacetTool({
+		...f.call,
+		deadlineAt: Date.now() - 1,
+	});
+	assert.match(result.error, /deadline/i);
+	assert.equal(
+		f.stats().executions,
+		0,
+		"expired budget cannot dispatch a restored tool",
+	);
+}
+
+for (const enrolled of [true, false]) {
+	using f = await ordinaryRegistry();
+	if (enrolled) await f.agent.facetDispatchJournal.claim(f.call, true);
+	else
+		await f.storage.delete(
+			`facet-dispatch-run:${JSON.stringify(f.params.runId)}`,
+		);
+	assert.equal(
+		(await f.agent.executeFacetTool(f.call)).code,
+		"facet_tool_unavailable",
+	);
+	assert.equal(
+		f.stats().executions,
+		0,
+		"registry recovery neither replays an ambiguous effect nor enrolls a call",
 	);
 }
 
