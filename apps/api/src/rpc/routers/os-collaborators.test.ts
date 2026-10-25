@@ -17,6 +17,7 @@ import {
 import { osShareLinks } from "@tedix/db/schema/os-shares";
 import {
 	osGadgetRevisions,
+	osCollaborationProposals,
 	osGadgets,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
@@ -43,6 +44,7 @@ function createEnv() {
 		schemaDdl(
 			tedis,
 			osWorkspaces,
+			osCollaborationProposals,
 			osGadgets,
 			osGadgetRevisions,
 			osShareLinks,
@@ -178,6 +180,92 @@ describe("workspace collaborators", () => {
 				role: "use",
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("gives an unrelated user a generic FORBIDDEN with no workspace metadata", async () => {
+		const { env, workspaceId } = await seed();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		await as(env, ROBIN).createLink({ workspaceId, role: "use" });
+		const error = await as(env, STRANGER)
+			.open({ workspaceId })
+			.then(
+				() => null,
+				(caught: unknown) => caught,
+			);
+		expect(error).toMatchObject(DENIED);
+		const serialized = JSON.stringify({
+			...(error as object),
+			message: (error as Error).message,
+			data: (error as { data?: unknown }).data ?? null,
+		});
+		for (const leak of [
+			"Reddit research",
+			"Robin",
+			"robin@example.test",
+			"Kai",
+			ROBIN,
+			KAI,
+		])
+			expect(serialized).not.toContain(leak);
+		// A wrong share key changes nothing.
+		await expect(
+			as(env, STRANGER).open({
+				workspaceId,
+				shareKey: "AAAAAAAAAAAAAAAAAAAAAA",
+			}),
+		).rejects.toMatchObject(DENIED);
+	});
+
+	it("deletes collaborators, edges, links and keys with the workspace", async () => {
+		const { env, sqlite, workspaceId } = await seed();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		const { key } = await as(env, ROBIN).createLink({
+			workspaceId,
+			role: "use",
+		});
+		await as(env, ZOE).open({ workspaceId, shareKey: key });
+		const { workspace: other } = await workspacesAs(
+			env,
+			ROBIN,
+		).workspaces.create({ name: "Kept", visibility: "private" });
+		await as(env, ROBIN).add({
+			workspaceId: other.id,
+			email: "kai@example.test",
+			role: "use",
+		});
+		const count = (table: string) =>
+			(
+				sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {
+					n: number;
+				}
+			).n;
+		const tables = [
+			"os_workspace_collaborators",
+			"os_workspace_access_edges",
+			"os_workspace_share_links",
+			"os_workspace_share_keys",
+		];
+		expect(tables.map(count)).toEqual([3, 3, 1, 1]);
+
+		const robin = workspacesAs(env, ROBIN);
+		await robin.workspaces.archive({ workspaceId });
+		await robin.workspaces.delete({ workspaceId });
+		// Only the other workspace's grant to Kai remains.
+		expect(tables.map(count)).toEqual([1, 1, 0, 0]);
+		await expect(as(env, KAI).open({ workspaceId })).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		expect((await as(env, KAI).open({ workspaceId: other.id })).role).toBe(
+			"use",
+		);
 	});
 
 	it("redeems a hashed share key in the open call and revokes by flag", async () => {

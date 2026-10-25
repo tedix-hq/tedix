@@ -1,4 +1,10 @@
 import * as calendarAccounts from "../../services/calendar-coordinator/credentials";
+import {
+	osWorkspaceCollaborators,
+	osWorkspaceAccessEdges,
+	osWorkspaceShareLinks,
+	osWorkspaceShareKeys,
+} from "@tedix/db/schema/os-collaborators";
 import * as namedVault from "./connections/policy-resolution";
 import { connectionInstances } from "@tedix/db/schema";
 import {
@@ -142,6 +148,10 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			connectionInstances,
+			osWorkspaceCollaborators,
+			osWorkspaceAccessEdges,
+			osWorkspaceShareLinks,
+			osWorkspaceShareKeys,
 			kernelRuntimeRuns,
 			kernelConversations,
 			kernelConversationGrants,

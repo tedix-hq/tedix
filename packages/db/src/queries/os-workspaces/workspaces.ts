@@ -9,6 +9,7 @@ import {
 	or,
 	type SQL,
 } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
 import {
 	kernelConversations,
@@ -21,6 +22,12 @@ import {
 	osOutputs,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
+import {
+	osWorkspaceAccessEdges,
+	osWorkspaceCollaborators,
+	osWorkspaceShareKeys,
+	osWorkspaceShareLinks,
+} from "../../schema/os-collaborators";
 import { userConfigs } from "../../schema/user-configs";
 
 export interface OsWorkspaceScopeParams {
@@ -317,20 +324,54 @@ export async function deleteOsWorkspace(
 			),
 		)
 		.returning({ id: osWorkspaces.id });
-	if (!params.preferenceNamespace) {
-		return (await deleteWorkspace).length > 0;
-	}
-	const [result] = await db.batch([
+	// Collaborators, their access edges, share links and keys go with the
+	// workspace; nothing else references them.
+	const scopedLinks = and(
+		eq(osWorkspaceShareLinks.organizationId, params.organizationId),
+		eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
+	);
+	const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
 		deleteWorkspace,
+		db.delete(osWorkspaceShareKeys).where(
+			// bound-params: a subquery, not a bound list (two parameters).
+			inArray(
+				osWorkspaceShareKeys.linkId,
+				db
+					.select({ id: osWorkspaceShareLinks.id })
+					.from(osWorkspaceShareLinks)
+					.where(scopedLinks),
+			),
+		),
+		db.delete(osWorkspaceShareLinks).where(scopedLinks),
 		db
-			.delete(userConfigs)
+			.delete(osWorkspaceAccessEdges)
 			.where(
 				and(
-					eq(userConfigs.namespace, params.preferenceNamespace),
-					eq(userConfigs.key, params.workspaceId),
+					eq(osWorkspaceAccessEdges.organizationId, params.organizationId),
+					eq(osWorkspaceAccessEdges.workspaceId, params.workspaceId),
 				),
 			),
-	]);
+		db
+			.delete(osWorkspaceCollaborators)
+			.where(
+				and(
+					eq(osWorkspaceCollaborators.organizationId, params.organizationId),
+					eq(osWorkspaceCollaborators.workspaceId, params.workspaceId),
+				),
+			),
+	];
+	if (params.preferenceNamespace)
+		statements.push(
+			db
+				.delete(userConfigs)
+				.where(
+					and(
+						eq(userConfigs.namespace, params.preferenceNamespace),
+						eq(userConfigs.key, params.workspaceId),
+					),
+				),
+		);
+	const [result] = (await db.batch(statements)) as [{ id: string }[]];
 	return result.length > 0;
 }
 

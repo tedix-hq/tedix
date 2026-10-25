@@ -8,6 +8,12 @@
  * red test rather than a silent zero.
  */
 
+import {
+	osWorkspaceCollaborators,
+	osWorkspaceAccessEdges,
+	osWorkspaceShareLinks,
+	osWorkspaceShareKeys,
+} from "@tedix/db/schema/os-collaborators";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient, implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
@@ -44,6 +50,10 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			osWorkspaces,
+			osWorkspaceCollaborators,
+			osWorkspaceAccessEdges,
+			osWorkspaceShareLinks,
+			osWorkspaceShareKeys,
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetExecutions,
