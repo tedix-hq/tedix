@@ -796,138 +796,165 @@ export async function runKernelTurnWork(
 	const routeAttempts: KernelRouteAttempt[] = [];
 	let billingDenialCode: BillingPolicyDenialCode | null = null;
 	let residencyDenialMessage: string | null = null;
-	let kernelResult = await deps
-		.kernel({
-			holdDecisionWork: deps.holdAfterSettle,
-			onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
-			onRouteAttempts: (attempts) => routeAttempts.push(...attempts),
-			attachments: input.attachments,
-			...(deps.relevanceCandidates
-				? { relevanceCandidates: deps.relevanceCandidates }
-				: {}),
-			...(deps.previousRelevanceRecall
-				? { previousRelevanceRecall: deps.previousRelevanceRecall }
-				: {}),
-			...(deps.previousHistoryCheckpoint
-				? { previousHistoryCheckpoint: deps.previousHistoryCheckpoint }
-				: {}),
-			...(deps.onHistoryCheckpoint
-				? { onHistoryCheckpoint: deps.onHistoryCheckpoint }
-				: {}),
-			...(deps.previousInventorySnapshot
-				? { previousInventorySnapshot: deps.previousInventorySnapshot }
-				: {}),
-			...(deps.onInventorySnapshot
-				? { onInventorySnapshot: deps.onInventorySnapshot }
-				: {}),
-			...(typeof input.runRowMetadata.promptTokenBudget === "number"
-				? { promptTokenBudget: input.runRowMetadata.promptTokenBudget }
-				: {}),
-			...(typeof input.runRowMetadata.rankingBudgetMs === "number"
-				? { rankingBudgetMs: input.runRowMetadata.rankingBudgetMs }
-				: {}),
-			...(deps.contextCache ? { contextCache: deps.contextCache } : {}),
-			db: deps.db,
-			env: deps.env as unknown as Parameters<typeof runKernel>[0]["env"],
-			organizationId,
-			// Advisory mid-turn progress is re-wrapped through emitProgress so
-			// planner emissions inherit the same fail-soft guarantee as milestones.
-			// Stage marks piggyback on the same seam: the first planner emission
-			// (in practice the post-context-assembly "thinking" milestone) splits
-			// context assembly from the LLM call, and the first answerDelta is the
-			// turn's first streamed token. mark() is first-occurrence-only.
-			onProgress: (progress) => {
-				stageTimings.mark("plannerFirstProgress");
-				if (progress.answerDelta) stageTimings.mark("firstAnswerDelta");
-				emitProgressEvent(
-					deps,
-					observeOnly && progress.answerDelta
-						? { ...progress, answerDelta: undefined }
-						: progress,
-				);
-			},
-			// Acting user used for org context and authority assembly.
-			descopeUserId: input.descopeUserId,
-			content,
-			modelRef,
-			runId,
-			workItemId:
-				typeof runtimeMetadata.workItemId === "string"
-					? runtimeMetadata.workItemId
-					: undefined,
-			inferenceSource:
-				typeof runtimeMetadata.source === "string"
-					? `kernel:${runtimeMetadata.source}`
-					: "kernel:route",
-			// Kernel conversational memory: the conversation id scopes the
-			// bounded history read; the user message id excludes this turn's
-			// already-persisted `message.received` row (persist-first ordering
-			// above) so it is not duplicated alongside `content`.
-			conversationId,
-			currentUserMessageId: userMessageId,
-			// Per-turn operator abort (docs/engineering/cognition/kernel-execution-model.md
-			// "Operator cancel"): absent on the inline turn-work path. When
-			// present (KernelDO), combined by planKernelRoute with its own
-			// internal timeout/idle signals so a cancel actually stops the
-			// in-flight LLM call.
-			abortSignal: deps.plannerAbortSignal,
-			// The page's own tools, relayed through the KernelDO. Never on an
-			// observe-only turn, and never without a DO holding the wait.
-			...(input.pageTools?.length &&
-			deps.pageToolRelay &&
-			input.executionPolicy !== "observe_only"
-				? {
-						pageTools: {
-							descriptors: input.pageTools,
-							relay: deps.pageToolRelay,
+	// A rename of a Workspace app or output (or the undo of the last one) is
+	// one exact call with no model in it: it skips the router (a one-line
+	// rename spent 60–80 s there) and goes straight to the same write approval.
+	const directRename = observeOnly
+		? null
+		: await resolveDirectRename(deps.db, {
+				organizationId,
+				conversationId,
+				runId,
+				content,
+				workspaceContext,
+			}).catch((error: unknown) => {
+				console.warn({
+					component: "kernel.turn_work",
+					event: "direct_rename_resolve_failed",
+					error: safeExceptionTopology(error),
+				});
+				return null;
+			});
+	const directRenameApp = directRename
+		? (directRename.appSlug ??
+			(await organizationGatewayApp(deps.db, organizationId).catch(() => null)))
+		: null;
+	let kernelResult =
+		directRename && directRenameApp
+			? directRenameKernelResult(directRename, directRenameApp)
+			: await deps
+					.kernel({
+						holdDecisionWork: deps.holdAfterSettle,
+						onExecutionAttempts: (attempts) =>
+							executionAttempts.push(...attempts),
+						onRouteAttempts: (attempts) => routeAttempts.push(...attempts),
+						attachments: input.attachments,
+						...(deps.relevanceCandidates
+							? { relevanceCandidates: deps.relevanceCandidates }
+							: {}),
+						...(deps.previousRelevanceRecall
+							? { previousRelevanceRecall: deps.previousRelevanceRecall }
+							: {}),
+						...(deps.previousHistoryCheckpoint
+							? { previousHistoryCheckpoint: deps.previousHistoryCheckpoint }
+							: {}),
+						...(deps.onHistoryCheckpoint
+							? { onHistoryCheckpoint: deps.onHistoryCheckpoint }
+							: {}),
+						...(deps.previousInventorySnapshot
+							? { previousInventorySnapshot: deps.previousInventorySnapshot }
+							: {}),
+						...(deps.onInventorySnapshot
+							? { onInventorySnapshot: deps.onInventorySnapshot }
+							: {}),
+						...(typeof input.runRowMetadata.promptTokenBudget === "number"
+							? { promptTokenBudget: input.runRowMetadata.promptTokenBudget }
+							: {}),
+						...(typeof input.runRowMetadata.rankingBudgetMs === "number"
+							? { rankingBudgetMs: input.runRowMetadata.rankingBudgetMs }
+							: {}),
+						...(deps.contextCache ? { contextCache: deps.contextCache } : {}),
+						db: deps.db,
+						env: deps.env as unknown as Parameters<typeof runKernel>[0]["env"],
+						organizationId,
+						// Advisory mid-turn progress is re-wrapped through emitProgress so
+						// planner emissions inherit the same fail-soft guarantee as milestones.
+						// Stage marks piggyback on the same seam: the first planner emission
+						// (in practice the post-context-assembly "thinking" milestone) splits
+						// context assembly from the LLM call, and the first answerDelta is the
+						// turn's first streamed token. mark() is first-occurrence-only.
+						onProgress: (progress) => {
+							stageTimings.mark("plannerFirstProgress");
+							if (progress.answerDelta) stageTimings.mark("firstAnswerDelta");
+							emitProgressEvent(
+								deps,
+								observeOnly && progress.answerDelta
+									? { ...progress, answerDelta: undefined }
+									: progress,
+							);
 						},
-					}
-				: {}),
-			// Read side: surface this run's chain depth (stamped on the run
-			// metadata by kernelDelegateRunner as parent+1) so the kernel's own
-			// delegate decision enforces MAX_DELEGATION_DEPTH end-to-end. Read from
-			// runRowMetadata first, then runtimeMetadata; absent ⇒ 0 (top-level).
-			delegationDepth: currentDelegationDepth,
-			parentTediId: readParentTediId(runRowMetadata, runtimeMetadata),
-			requesterTediId: deps.requesterTediId ?? null,
-			workspaceContext,
-			selectedWorkspaceDocument: input.selectedWorkspaceDocument,
-		})
-		.catch((e) => {
-			billingDenialCode = billingPolicyDenialCode(e);
-			if (
-				billingDenialCode?.startsWith("eu_") ||
-				billingDenialCode === "residency_policy_unavailable"
-			) {
-				const message = e instanceof Error ? e.message : String(e);
-				residencyDenialMessage =
-					message
-						.split(" — ")
-						.slice(1)
-						.join(" — ")
-						.replace(
-							/^(?:EU_PROVIDER_[A-Z_]+|RESIDENCY_POLICY_UNAVAILABLE): /,
-							"",
-						) ||
-					"An administrator must configure a verified EU model provider and its credential for this organization.";
-			}
-			if (billingDenialCode) {
-				console.warn({
-					component: "kernel.turn_work",
-					event: "billing_policy_denied",
-					code: billingDenialCode,
-				});
-			} else {
-				console.warn({
-					component: "kernel.turn_work",
-					event: "kernel_planner_failed",
-					organizationId,
-					runId,
-					error: safeExceptionTopology(e),
-				});
-			}
-			return null;
-		});
+						// Acting user used for org context and authority assembly.
+						descopeUserId: input.descopeUserId,
+						content,
+						modelRef,
+						runId,
+						workItemId:
+							typeof runtimeMetadata.workItemId === "string"
+								? runtimeMetadata.workItemId
+								: undefined,
+						inferenceSource:
+							typeof runtimeMetadata.source === "string"
+								? `kernel:${runtimeMetadata.source}`
+								: "kernel:route",
+						// Kernel conversational memory: the conversation id scopes the
+						// bounded history read; the user message id excludes this turn's
+						// already-persisted `message.received` row (persist-first ordering
+						// above) so it is not duplicated alongside `content`.
+						conversationId,
+						currentUserMessageId: userMessageId,
+						// Per-turn operator abort (docs/engineering/cognition/kernel-execution-model.md
+						// "Operator cancel"): absent on the inline turn-work path. When
+						// present (KernelDO), combined by planKernelRoute with its own
+						// internal timeout/idle signals so a cancel actually stops the
+						// in-flight LLM call.
+						abortSignal: deps.plannerAbortSignal,
+						// The page's own tools, relayed through the KernelDO. Never on an
+						// observe-only turn, and never without a DO holding the wait.
+						...(input.pageTools?.length &&
+						deps.pageToolRelay &&
+						input.executionPolicy !== "observe_only"
+							? {
+									pageTools: {
+										descriptors: input.pageTools,
+										relay: deps.pageToolRelay,
+									},
+								}
+							: {}),
+						// Read side: surface this run's chain depth (stamped on the run
+						// metadata by kernelDelegateRunner as parent+1) so the kernel's own
+						// delegate decision enforces MAX_DELEGATION_DEPTH end-to-end. Read from
+						// runRowMetadata first, then runtimeMetadata; absent ⇒ 0 (top-level).
+						delegationDepth: currentDelegationDepth,
+						parentTediId: readParentTediId(runRowMetadata, runtimeMetadata),
+						requesterTediId: deps.requesterTediId ?? null,
+						workspaceContext,
+						selectedWorkspaceDocument: input.selectedWorkspaceDocument,
+					})
+					.catch((e) => {
+						billingDenialCode = billingPolicyDenialCode(e);
+						if (
+							billingDenialCode?.startsWith("eu_") ||
+							billingDenialCode === "residency_policy_unavailable"
+						) {
+							const message = e instanceof Error ? e.message : String(e);
+							residencyDenialMessage =
+								message
+									.split(" — ")
+									.slice(1)
+									.join(" — ")
+									.replace(
+										/^(?:EU_PROVIDER_[A-Z_]+|RESIDENCY_POLICY_UNAVAILABLE): /,
+										"",
+									) ||
+								"An administrator must configure a verified EU model provider and its credential for this organization.";
+						}
+						if (billingDenialCode) {
+							console.warn({
+								component: "kernel.turn_work",
+								event: "billing_policy_denied",
+								code: billingDenialCode,
+							});
+						} else {
+							console.warn({
+								component: "kernel.turn_work",
+								event: "kernel_planner_failed",
+								organizationId,
+								runId,
+								error: safeExceptionTopology(e),
+							});
+						}
+						return null;
+					});
 	// A follow-up must not bypass or multiply an unresolved decision. Keep the
 	// original payload immutable; changing it requires rejecting that card first.
 	const pendingDelegation =
@@ -952,45 +979,8 @@ export async function runKernelTurnWork(
 			assistantContent: `A delegation to ${label} is already waiting for a decision on the existing card. No additional request was dispatched. To change the request, reject that card first, then describe the updated task.`,
 		};
 	}
-	// A rename of a Workspace app or output (or the undo of the last one) is
-	// one exact call. It keeps its capability on the persisted route whatever
-	// the router guessed, and survives a router that produced no decision.
-	const directRename =
-		observeOnly || billingDenialCode || residencyDenialMessage
-			? null
-			: await resolveDirectRename(deps.db, {
-					organizationId,
-					conversationId,
-					runId,
-					content,
-					workspaceContext,
-				}).catch((error: unknown) => {
-					console.warn({
-						component: "kernel.turn_work",
-						event: "direct_rename_resolve_failed",
-						error: safeExceptionTopology(error),
-					});
-					return null;
-				});
-	if (directRename && !kernelResult) {
-		const appSlug =
-			directRename.appSlug ??
-			(await organizationGatewayApp(deps.db, organizationId).catch(() => null));
-		if (appSlug) kernelResult = directRenameKernelResult(directRename, appSlug);
-	} else if (
-		directRename?.reason === "undo" &&
-		kernelResult &&
-		["answer_in_home", "ask_human"].includes(kernelResult.route.routeKind)
-	) {
-		const appSlug =
-			directRename.appSlug ??
-			(await organizationGatewayApp(deps.db, organizationId).catch(() => null));
-		if (appSlug)
-			kernelResult = {
-				...kernelResult,
-				route: directRenameKernelResult(directRename, appSlug).route,
-			};
-	}
+	// Whatever capability the router guessed, a rename request keeps the
+	// capability of the kind it names on the persisted route.
 	if (kernelResult?.route) {
 		const correctedRoute = correctWriteRoute(
 			kernelResult.route,
