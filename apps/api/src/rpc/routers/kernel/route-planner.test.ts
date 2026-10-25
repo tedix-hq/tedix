@@ -2157,6 +2157,33 @@ describe("configured route fallback", () => {
 			]);
 		},
 	);
+	it("keeps the successful fallback model for an empty route's answer pass", async () => {
+		const route = objectModel({ ...FALLBACK_DECISION, answer: null });
+		const fallback = new MockLanguageModelV3({
+			modelId: "configured-fallback",
+			doGenerate: (options) => route.doGenerate(options),
+			doStream: async () => ({ stream: fallbackAnswerStream() }),
+		});
+		const primary = new MockLanguageModelV3({
+			doGenerate: async () => {
+				throw Object.assign(new Error("unavailable"), { statusCode: 503 });
+			},
+		});
+		const result = await runPlanKernelRoute({
+			model: {
+				...selected(primary),
+				forOperation: () => ({
+					...selected(primary),
+					retryModel: async () => selected(fallback),
+				}),
+			},
+			context: EMPTY_CONTEXT,
+			content: "Status",
+		});
+		expect(result?.answer).toBeTruthy();
+		expect(fallback.doStreamCalls).toHaveLength(1);
+		expect(primary.doStreamCalls).toHaveLength(0);
+	});
 	it("does not select a fallback on a billing denial", async () => {
 		const model = new MockLanguageModelV3({
 			doGenerate: async () => {
