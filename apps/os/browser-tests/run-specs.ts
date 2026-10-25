@@ -3,9 +3,10 @@ import { runSharedFixtureSpecs } from "./shared-fixture-specs";
 import { shardSpecs } from "./spec-shards";
 
 /**
- * Runs browser specs one after another against one fixture server, so a job
- * pays one cold Vite start instead of one per spec. Every spec runs even after
- * an earlier one fails; the exit code is non-zero if any failed.
+ * Runs up to three browser specs at once against one fixture server, so a job
+ * pays one cold Vite start and independent specs do not block each other.
+ * Every spec runs even after an earlier one fails; the exit code is non-zero if
+ * any failed.
  * `--shard i/n` runs only every n-th spec, as assigned by the CI matrix.
  *
  *   bun browser-tests/run-specs.ts browser-tests/deck.spec.ts ...
