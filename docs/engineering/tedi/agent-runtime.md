@@ -97,8 +97,11 @@ gateway, because state, approval, and replay must belong to one tedi identity
   tombstone; every provider dispatch rechecks cancellation.
 - A delegated facet fails only when its heartbeat is rejected **and** a fresh
   read confirms the Attempt is terminal.
-- A missing parent tool registry returns `facet_tool_unavailable` rather than
-  answering without tools.
+- After a parent reset, a facet tool call waits up to 90 seconds (and never
+  past the delegation deadline) for the workflow re-drive to reinstall the
+  run's tool registry (`src/facet-registry-rebuild.ts`). If no registry
+  arrives, it returns `facet_tool_unavailable` rather than answering without
+  tools.
 
 Facet accounting journals each provider attempt before dispatch and its usage
 receipt before reconciling the budget, keyed by run and attempt so retries do

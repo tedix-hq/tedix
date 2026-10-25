@@ -102,6 +102,10 @@ import {
 import { ActionReceiptJournal } from "./action-receipts";
 import type { BridgeTurnInput, RecentTurn } from "./bridge-turn-input";
 import { FacetDispatchJournal } from "./facet-dispatch-journal";
+import {
+	awaitRebuiltFacetRegistry,
+	FACET_REGISTRY_REBUILD_WAIT_MS,
+} from "./facet-registry-rebuild";
 import { type FacetHistoryInput } from "./facet-history-context";
 import { InertRuntimeDO, requiresInertReceiver } from "./inert-runtime-do";
 import { type LearningTelemetry } from "./learning-telemetry";
@@ -759,6 +763,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		return {
 			get env() {
 				return parent.env;
+			},
+			get facetRegistryRebuildWaitMs() {
+				return parent.facetRegistryRebuildWaitMs;
 			},
 			get state() {
 				return parent.state;
@@ -3548,6 +3555,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	/** Per-run live proxy registries; eviction fails into the run's dedup retry. */
 	private activeFacetTurnTools = new Map<string, ToolSet>();
+	/** How long a facet tool call waits for a reset parent to reinstall its registry. */
+	private facetRegistryRebuildWaitMs?: number;
 	/** Per-run conversation ids so native tool ledger rows land on the turn's conversation. */
 	private activeFacetTurnConversations = new Map<string, string>();
 	private activeFacetTurnAuthorities = new Map<
@@ -3596,11 +3605,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			this.facetTurnsHost(),
 			input.runId,
 		);
+		const tools = await awaitRebuiltFacetRegistry(
+			() => this.activeFacetTurnTools.get(input.runId),
+			{
+				waitMs:
+					this.facetRegistryRebuildWaitMs ?? FACET_REGISTRY_REBUILD_WAIT_MS,
+			},
+		);
 		const conversationId = this.activeFacetTurnConversations.get(input.runId);
-		if (
-			!conversationId ||
-			!this.activeFacetTurnTools.get(input.runId)?.[input.tool]?.execute
-		)
+		if (!conversationId || !tools?.[input.tool]?.execute)
 			return { autoApprove: false, critical: true };
 		try {
 			const decision = await nativeToolAutonomy({

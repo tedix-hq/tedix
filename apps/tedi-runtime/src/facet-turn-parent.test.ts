@@ -20,6 +20,7 @@ import {
 	mcpFacetTurnProbe,
 	memoryStorage,
 	tediDo,
+	type TediDoProbe,
 } from "../test/tedi-do";
 import * as runtimeWorker from "./index";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
@@ -498,6 +499,8 @@ for (const stream of [false, true]) {
 {
 	const agent = tediDo({
 		state: { tediId: "tedi-1", orgId: "org-1" },
+		// No rebuild is coming for run-gone; do not wait for one.
+		facetRegistryRebuildWaitMs: 0,
 		setState(next: unknown) {
 			agent.state = next;
 		},
@@ -769,6 +772,8 @@ async function ordinaryRegistry(principalId = "ordinary-tedi") {
 			agent.state = next;
 		},
 		runtimeAdmission: () => native.admission,
+		// Restoration is the only rebuild here; no re-drive installs a registry.
+		facetRegistryRebuildWaitMs: 0,
 		ensureIdentity: async () => {},
 		getPlatformClient: async () => {
 			throw new Error("Ordinary recovery must not acquire a Work lease");
@@ -1010,6 +1015,129 @@ for (const enrolled of [true, false]) {
 		0,
 		"registry recovery neither replays an ambiguous effect nor enrolls a call",
 	);
+}
+
+// A memory-limit reset during a delegated clone_repo drops the parent's
+// in-memory registry. The facet resumes its Pi loop on its own and calls the
+// next tool before the workflow re-drive reinstalls the registry. That call
+// waits for the rebuild instead of failing the turn with
+// FACET_TOOL_REGISTRY_UNAVAILABLE.
+async function resetDelegatedTurn(waitMs: number) {
+	const storage = memoryStorage();
+	const runId = "run-delegated";
+	const sessionKey = "delegation-home-1";
+	const executed: unknown[] = [];
+	let resumedCall: Promise<unknown> | undefined;
+	let agentRef: TediDoProbe | undefined;
+	const probe = facetRunnerProbe({
+		fields: {
+			ctx: { storage },
+			state: {
+				tediId: "tedi-1",
+				orgId: "org-1",
+				slug: "acme",
+				systemPrompt: "SYSTEM",
+			},
+			setState(next: unknown) {
+				agentRef!.state = next;
+			},
+			facetRegistryRebuildWaitMs: waitMs,
+			facetDispatchJournal: new FacetDispatchJournal(
+				storage as unknown as ConstructorParameters<
+					typeof FacetDispatchJournal
+				>[0],
+			),
+			nativeToolLedger: {
+				observe: (_context: unknown, _call: unknown, run: () => unknown) =>
+					run(),
+			},
+			async subAgent() {
+				return {
+					completedTurnCount: () => 1,
+					// The rebuilt turn re-enters the facet, which settles once the
+					// resumed loop's tool call returns.
+					async runConfiguredConversationTurn() {
+						const output = await resumedCall;
+						return {
+							priorTurnCount: 1,
+							result: {
+								assistantText: JSON.stringify(output),
+								turnCount: 2,
+								turnMs: 1,
+								requestId: "r",
+							},
+						};
+					},
+				};
+			},
+		},
+	});
+	const agent = probe.agent;
+	agentRef = agent;
+	await agent.runtimeAdmission().beginAcceptedTurn({
+		runId,
+		sessionKey,
+		principalId: "tedi-1",
+		input: { kind: "delegated-turn", text: "research" },
+		expectedGeneration: 1,
+	});
+	await agent.facetDispatchJournal.enroll(runId);
+	const tools = {
+		ls: {
+			execute: async (args: unknown) => {
+				executed.push(args);
+				return { entries: ["apps", "packages"] };
+			},
+		},
+	};
+	const call = {
+		runId,
+		toolCallId: "functions.ls:1",
+		tool: "ls",
+		args: { path: "." },
+	};
+	const rebuild = () =>
+		agent.runConversationFacetTurn({
+			...facetInput,
+			sessionKey,
+			runId,
+			tools,
+			delegated: true,
+			workItemId: "work-1",
+		});
+	return {
+		agent,
+		call,
+		executed,
+		rebuild,
+		setResumed: (p: Promise<unknown>) => (resumedCall = p),
+	};
+}
+
+{
+	const turn = await resetDelegatedTurn(5_000);
+	assert.equal(turn.agent.activeFacetTurnTools.size, 0, "the reset lost it");
+	const resumed = turn.agent.executeFacetTool(turn.call);
+	turn.setResumed(resumed);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	const rebuilt = await turn.rebuild();
+	assert.equal(rebuilt.turnError, null);
+	assert.deepEqual(await resumed, { entries: ["apps", "packages"] });
+	assert.deepEqual(turn.executed, [{ path: "." }], "executed exactly once");
+	assert.equal(turn.agent.activeFacetTurnTools.size, 0, "released after");
+}
+
+{
+	// No rebuild arrives: the wait is bounded and fails closed as before, and
+	// the rejected call is never replayed by a later registry.
+	const turn = await resetDelegatedTurn(50);
+	const startedAt = Date.now();
+	const rejected = await turn.agent.executeFacetTool(turn.call);
+	assert.equal((rejected as { code?: string }).code, "facet_tool_unavailable");
+	assert.ok(Date.now() - startedAt < 2_000, "bounded wait");
+	turn.setResumed(turn.agent.executeFacetTool(turn.call));
+	await turn.rebuild();
+	assert.deepEqual(turn.executed, [], "a rejected call never executes");
 }
 
 // ── the shared MCP facet setup ───────────────────────────────────────────────

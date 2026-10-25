@@ -109,6 +109,10 @@ import {
 } from "./facet-stream-frames";
 import { describeFacetTools } from "./facet-tool-descriptors";
 import {
+	awaitRebuiltFacetRegistry,
+	FACET_REGISTRY_REBUILD_WAIT_MS,
+} from "./facet-registry-rebuild";
+import {
 	facetTurnBudgetClass,
 	inferenceBudgetAdmissionClass,
 	inferenceSource,
@@ -354,6 +358,8 @@ export interface RuntimeFacetTurnsHost {
 	toolExecutionEvidenceForRun: AgentTediDO["toolExecutionEvidenceForRun"];
 	onLedgerMirror: AgentTediDO["onLedgerMirror"];
 	runtimeAdmission: AgentTediDO["runtimeAdmission"];
+	/** Tests shorten the wait for a rebuilt registry; production uses the default. */
+	facetRegistryRebuildWaitMs?: number;
 }
 
 export const runtimeFacetTurns = {
@@ -799,7 +805,14 @@ export const runtimeFacetTurns = {
 		// Retain failed and evicted calls for post-turn rationale.
 		const stepNumber = this.bufferFacetToolCall(input.runId, input.tool);
 		await runtimeFacetTurns.restoreFacetTurnTools.call(this, input.runId);
-		const tools = this.activeFacetTurnTools.get(input.runId);
+		const tools = await awaitRebuiltFacetRegistry(
+			() => this.activeFacetTurnTools.get(input.runId),
+			{
+				waitMs:
+					this.facetRegistryRebuildWaitMs ?? FACET_REGISTRY_REBUILD_WAIT_MS,
+				deadlineAt: input.deadlineAt,
+			},
+		);
 		const definition = tools?.[input.tool];
 		let result: unknown;
 		let finishReason = "facet-tool-proxy";
