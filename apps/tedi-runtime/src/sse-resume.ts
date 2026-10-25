@@ -158,14 +158,17 @@ export class SseRunBuffer {
 
 	/**
 	 * Resolve a reconnect. `fresh` means the client must restart the stream
-	 * (wrong run, no buffer, or the client is so far behind that head frames were
-	 * dropped — delivering a gap would violate the no-loss contract). `replay`
+	 * (wrong run, no buffer, cursor ahead of the tail, or dropped head frames —
+	 * delivering a gap would violate the no-loss contract). `replay`
 	 * returns the frames strictly after the client's last-seen seq, in order.
 	 */
 	resolve(lastEventId: LastEventId | null): ResumeResolution {
 		if (!lastEventId) return { mode: "fresh", reason: "no-header" };
 		if (lastEventId.runId !== this.runId) {
 			return { mode: "fresh", reason: "runid-mismatch" };
+		}
+		if (lastEventId.seq >= this.nextSeq) {
+			return { mode: "fresh", reason: "no-buffer" };
 		}
 		// The client is behind the retained head → a replay would skip frames
 		// between (lastSeq, earliestSeq]. Force fresh rather than lose deltas.

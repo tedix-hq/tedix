@@ -70,6 +70,29 @@ const RUN = "tedi-1:chat:req-abc";
 	assert.equal(res.frames.length, 0);
 }
 
+// A cursor must refer to an emitted frame, even before the first append.
+{
+	const buf = new SseRunBuffer(RUN);
+	const fresh = { mode: "fresh", reason: "no-buffer" };
+	assert.deepEqual(buf.resolve(parseLastEventId(`${RUN}:0`)), fresh);
+	buf.append({ kind: "delta", text: "a" });
+	for (const seq of [1, 10, Number.MAX_SAFE_INTEGER]) {
+		assert.deepEqual(buf.resolve(parseLastEventId(`${RUN}:${seq}`)), fresh);
+	}
+	assert.deepEqual(buf.resolve(parseLastEventId(`${RUN}:0`)), {
+		mode: "replay",
+		frames: [],
+		terminated: false,
+	});
+	buf.append({ kind: "done", text: "a" });
+	assert.deepEqual(buf.resolve(parseLastEventId(`${RUN}:2`)), fresh);
+	assert.deepEqual(buf.resolve(parseLastEventId(`${RUN}:1`)), {
+		mode: "replay",
+		frames: [],
+		terminated: true,
+	});
+}
+
 // Late reconnect after `done` replays the tail INCLUDING the terminal frame.
 {
 	const buf = new SseRunBuffer(RUN);
@@ -110,7 +133,23 @@ const RUN = "tedi-1:chat:req-abc";
 	assert.equal(buf.earliestSeq, 2);
 	// Client at seq 4 is caught up → clean replay (nothing).
 	const caughtUp = buf.resolve(parseLastEventId(`${RUN}:4`));
-	assert.equal(caughtUp.mode, "replay");
+	assert.deepEqual(caughtUp, { mode: "replay", frames: [], terminated: false });
+	for (const seq of [1, 2, 3]) {
+		assert.deepEqual(buf.resolve(parseLastEventId(`${RUN}:${seq}`)), {
+			mode: "replay",
+			frames: ["c", "d", "e"]
+				.map((text, index) => ({
+					seq: index + 2,
+					frame: { kind: "delta", text },
+				}))
+				.filter((frame) => frame.seq > seq),
+			terminated: false,
+		});
+	}
+	assert.deepEqual(buf.resolve(parseLastEventId(`${RUN}:5`)), {
+		mode: "fresh",
+		reason: "no-buffer",
+	});
 	// Client at seq 0 is behind the retained head → fresh (a replay would skip 1).
 	const behind = buf.resolve(parseLastEventId(`${RUN}:0`));
 	assert.equal(behind.mode, "fresh");
