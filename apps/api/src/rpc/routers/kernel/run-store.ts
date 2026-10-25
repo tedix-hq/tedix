@@ -251,6 +251,26 @@ function buildKernelRuntimeEventRow(
 	};
 }
 
+async function notifyPersistedPush(
+	context: BaseContext,
+	row: KernelRuntimeEventRow,
+) {
+	if (row.kind !== "approval.requested" && row.kind !== "run.completed") return;
+	if (
+		!context.env?.VAPID_PUBLIC_KEY ||
+		!context.env.VAPID_PRIVATE_KEY ||
+		!context.env.VAPID_SUBJECT
+	)
+		return;
+	const work = import("../../../services/web-push")
+		.then(({ deliverWebPush }) => deliverWebPush(context, row))
+		.catch(() => {
+			console.warn("web_push_unavailable");
+		});
+	if (context.waitUntil) context.waitUntil(work);
+	else await work;
+}
+
 /**
  * Finish a persisted event: write-through to the durable Home conversation
  * index only on a REAL insert (an idempotent replay returns the existing row
@@ -261,8 +281,10 @@ async function finishPersistedKernelRuntimeEvent(
 	context: BaseContext,
 	persisted: { row: KernelRuntimeEventRow; inserted: boolean },
 ): Promise<{ event: KernelRuntimeEvent; inserted: boolean }> {
-	if (persisted.inserted)
+	if (persisted.inserted) {
 		await applyKernelConversationEvent(context.db, persisted.row);
+		await notifyPersistedPush(context, persisted.row);
+	}
 	return {
 		event: normalizeHomeEvent(persisted.row),
 		inserted: persisted.inserted,
@@ -346,7 +368,10 @@ export async function persistKernelTurnSettlement(
 	const projection = Promise.all(
 		[assistant, terminal]
 			.filter((event) => event.inserted)
-			.map((event) => applyKernelConversationEvent(context.db, event.row)),
+			.map(async (event) => {
+				await applyKernelConversationEvent(context.db, event.row);
+				await notifyPersistedPush(context, event.row);
+			}),
 	).then(() => undefined);
 	if (input.holdAfterSettle) input.holdAfterSettle(projection);
 	else await projection;
@@ -506,7 +531,22 @@ export async function persistKernelTurnStart(
 		causeEventId:
 			input.priorCause === undefined ? received.id : input.priorCause,
 	});
-	const run = buildKernelRuntimeRunRow(input.run);
+	const personStarted =
+		context.authType === "user" &&
+		!!context.userId &&
+		resolveKernelConversationOrigin(context) === "human";
+	const run = buildKernelRuntimeRunRow({
+		...input.run,
+		metadata: {
+			...input.run.metadata,
+			pushRecipient: personStarted
+				? {
+						descopeUserId: context.descopeUserId ?? context.user?.sub ?? null,
+						personStarted: true,
+					}
+				: null,
+		},
+	});
 	// The projection reads only the fields the insert value shares with the
 	// stored row.
 	const conversation =

@@ -1,3 +1,4 @@
+import { WebPushSettings } from "@/components/web-push-settings";
 import type {
 	OsUserPreferences,
 	OsUserPreferencesState,
@@ -683,6 +684,7 @@ export function SettingsPage({
 				</div>
 			</PageSection>
 
+			{!localEvaluation && <WebPushSettings />}
 			{!localEvaluation && <PersonalAgentValue />}
 			<OperationalContextSection
 				localEvaluation={localEvaluation}

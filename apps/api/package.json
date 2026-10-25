@@ -32,6 +32,7 @@
 	},
 	"dependencies": {
 		"@ai-sdk/azure": "catalog:",
+		"@block65/webcrypto-web-push": "2",
 		"@cloudflare/ai-chat": "catalog:",
 		"@cloudflare/puppeteer": "catalog:",
 		"@cloudflare/voice": "catalog:",

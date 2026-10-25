@@ -265,6 +265,7 @@ type LocalState = {
 	homeRuns: HomeRun[];
 	approvals: ApprovalRow[];
 	skillRuns: SkillRunRow[];
+	pushMutedProjectIds: string[];
 	/** null until the operator saves; mirrors "no `user_configs` row". */
 	userPreferences: {
 		value: OsUserPreferences;
@@ -1193,6 +1194,7 @@ const seedState = (): LocalState => ({
 			createdBy: "dev-operator",
 		},
 	],
+	pushMutedProjectIds: [],
 	userPreferences: null,
 	gadgetCode: {},
 });
@@ -6186,6 +6188,19 @@ const handlers: Record<string, (input: never) => unknown> = {
 	},
 
 	// --- launcher / apps ---
+	// Fixture mode never provisions a real browser subscription.
+	"webPush/getStatus": () => ({
+		enabled: false,
+		publicKey: null,
+		preferences: { mutedProjectIds: state.pushMutedProjectIds },
+	}),
+	"webPush/subscribe": () => ({ enabled: false }),
+	"webPush/unsubscribe": () => ({ ok: true }),
+	"webPush/setVisibility": () => ({ ok: true }),
+	"webPush/setPreferences": (input: { mutedProjectIds: string[] }) => {
+		state.pushMutedProjectIds = input.mutedProjectIds;
+		return { mutedProjectIds: state.pushMutedProjectIds };
+	},
 	// --- per-user OS settings ---
 	// Unset reads report the platform defaults at revision 0 so the surface can
 	// tell "never saved" from "saved with default values"; the write is a real

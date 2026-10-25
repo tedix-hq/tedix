@@ -1,4 +1,5 @@
 import "./canvas-page.css";
+import { usePushConversation } from "@/lib/use-push-conversation";
 import {
 	CHAT_CREATE_OPTIONS,
 	CHAT_FORMATS,
@@ -310,6 +311,9 @@ export function ChatThread({
 	/** Conversation-level actions that share the "Chat details" row. */
 	detailsActions?: ReactNode;
 }) {
+	const pushVisibilityRef = usePushConversation(
+		composerOnly ? null : conversationId,
+	);
 	const queryClient = useQueryClient();
 	const tediNames = useTediNames();
 	const activeTedis = useActiveTedis();
@@ -1738,6 +1742,7 @@ export function ChatThread({
 
 	return (
 		<div
+			ref={pushVisibilityRef}
 			className={
 				composerOnly
 					? "flex min-h-0 flex-col gap-4"
