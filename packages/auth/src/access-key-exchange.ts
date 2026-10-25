@@ -33,6 +33,22 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 const REFRESH_MARGIN = 0.8;
 
+/**
+ * Exchange failure with the provider's HTTP status attached when one was
+ * received. `status` is undefined when the failure carries no response status
+ * (e.g. a malformed success payload); thrown network/abort errors propagate
+ * unwrapped instead of through this class.
+ */
+export class AccessKeyExchangeError extends Error {
+	constructor(
+		message: string,
+		public readonly status?: number,
+	) {
+		super(message);
+		this.name = "AccessKeyExchangeError";
+	}
+}
+
 export class DescopeAccessKeyExchange {
 	private cached: CachedToken | null = null;
 	private exchangePromise: Promise<string> | null = null;
@@ -88,8 +104,9 @@ export class DescopeAccessKeyExchange {
 
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");
-			throw new Error(
+			throw new AccessKeyExchangeError(
 				`Descope access key exchange failed (${response.status}): ${text.slice(0, 500)}`,
+				response.status,
 			);
 		}
 
@@ -99,7 +116,9 @@ export class DescopeAccessKeyExchange {
 		};
 
 		if (!data.sessionJwt) {
-			throw new Error("Descope exchange response missing sessionJwt");
+			throw new AccessKeyExchangeError(
+				"Descope exchange response missing sessionJwt",
+			);
 		}
 
 		const exp = parseJwtExp(data.sessionJwt);

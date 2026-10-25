@@ -13,7 +13,10 @@
  */
 
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
-import { DescopeAccessKeyExchange } from "@tedix/auth/access-key-exchange";
+import {
+	AccessKeyExchangeError,
+	DescopeAccessKeyExchange,
+} from "@tedix/auth/access-key-exchange";
 import { decodeTokenUnsafe } from "@tedix/auth/jwt";
 import {
 	extractTediRuntimeApiScopes,
@@ -115,15 +118,32 @@ export function findMissingRuntimeApiScopes(
 	return TEDI_RUNTIME_API_SCOPES.filter((scopeName) => !scopes.has(scopeName));
 }
 
+/**
+ * Whether a failed access-key exchange probe is safe to retry later with the
+ * same key. Only a definitive credential rejection (400/401/403) proves the
+ * key stale; rate limits, provider 5xx, timeouts, network errors and malformed
+ * responses are provider-side or transport conditions that say nothing about
+ * key validity, and must never trigger a rotation that revokes a valid key.
+ */
+function isRetryableExchangeFailure(err: unknown): boolean {
+	if (!(err instanceof AccessKeyExchangeError)) return true;
+	if (err.status === undefined) return true;
+	return !(err.status === 400 || err.status === 401 || err.status === 403);
+}
+
 async function exchangeAccessKey(
 	env: Cloudflare.Env,
 	descopeAccessKey: string,
 ): Promise<
 	| { ok: true; missingScopes: string[]; rotateAt: number }
-	| { ok: false; error: string }
+	| { ok: false; error: string; retryable: boolean }
 > {
 	if (!env.DESCOPE_PROJECT_ID) {
-		return { ok: false, error: "DESCOPE_PROJECT_ID missing from Worker env" };
+		return {
+			ok: false,
+			error: "DESCOPE_PROJECT_ID missing from Worker env",
+			retryable: false,
+		};
 	}
 	const baseUrl = env.DESCOPE_BASE_URL || "https://auth.tedix.dev";
 	try {
@@ -143,6 +163,7 @@ async function exchangeAccessKey(
 		return {
 			ok: false,
 			error: err instanceof Error ? err.message : String(err),
+			retryable: isRetryableExchangeFailure(err),
 		};
 	}
 }
@@ -202,6 +223,13 @@ async function ensureScopedAccessKey(
 				probe.rotateAt,
 			),
 		});
+		return { descopeAccessKey, encryptedValue };
+	}
+
+	if (!probe.ok && probe.retryable) {
+		console.warn(
+			`[isolate-access-key-guard] ${tediId}: access-key exchange probe failed (${probe.error}); transient failure, keeping the current key`,
+		);
 		return { descopeAccessKey, encryptedValue };
 	}
 

@@ -370,3 +370,138 @@ await assert.rejects(
 		console.log = originalLog;
 	}
 }
+
+{
+	// The exchange probe must never revoke a valid key on transient failure:
+	// 429/5xx, timeouts and network errors say nothing about key validity.
+	// Only a definitive credential rejection or a scope-short JWT rotates.
+	const masterKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+	const originalFetch = globalThis.fetch;
+	const originalWarn = console.warn;
+	const originalLog = console.log;
+	const warnings: unknown[][] = [];
+	console.warn = (...args) => warnings.push(args);
+	console.log = () => {};
+
+	const envFor = async (tediId: string, rotations: Request[]) => {
+		const encrypted = await encryptTediSecret(masterKey, tediId, "ak-live");
+		return {
+			SECRETS_MASTER_KEY: masterKey,
+			DESCOPE_PROJECT_ID: "P-test",
+			DB: {
+				prepare: (sql: string) => ({
+					bind: () => ({
+						first: async () =>
+							sql.includes("FROM tedis")
+								? { id: tediId, orgId: "org-acme" }
+								: { encrypted_value: encrypted },
+					}),
+				}),
+			},
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					rotations.push(request);
+					return Response.json({ ok: true });
+				},
+			},
+		} as unknown as Cloudflare.Env;
+	};
+
+	try {
+		{
+			const rotations: Request[] = [];
+			globalThis.fetch = async () =>
+				new Response("unavailable", { status: 503 });
+			const secrets = await loadTediSecrets(
+				await envFor("tedi-probe-503", rotations),
+				"tedi-probe-503",
+			);
+			assert.equal(secrets.descopeAccessKey, "ak-live");
+			assert.equal(
+				rotations.length,
+				0,
+				"a Descope 503 must not rotate a valid access key",
+			);
+		}
+		{
+			const rotations: Request[] = [];
+			globalThis.fetch = async () =>
+				new Response("rate limited", { status: 429 });
+			await loadTediSecrets(
+				await envFor("tedi-probe-429", rotations),
+				"tedi-probe-429",
+			);
+			assert.equal(
+				rotations.length,
+				0,
+				"a Descope 429 must not rotate a valid access key",
+			);
+		}
+		{
+			const rotations: Request[] = [];
+			globalThis.fetch = async () => {
+				throw new TypeError("fetch failed");
+			};
+			await loadTediSecrets(
+				await envFor("tedi-probe-network", rotations),
+				"tedi-probe-network",
+			);
+			assert.equal(
+				rotations.length,
+				0,
+				"a network failure must not rotate a valid access key",
+			);
+		}
+		assert.equal(
+			warnings.filter((args) =>
+				String(args[0]).includes("keeping the current key"),
+			).length,
+			3,
+			"each transient probe failure logs that the key was kept",
+		);
+		{
+			const rotations: Request[] = [];
+			globalThis.fetch = async () =>
+				new Response("unauthorized", { status: 401 });
+			await loadTediSecrets(
+				await envFor("tedi-probe-401", rotations),
+				"tedi-probe-401",
+			);
+			assert.equal(
+				rotations.length,
+				1,
+				"a definitive credential rejection still rotates the key",
+			);
+			assert.match(
+				new URL(rotations[0]!.url).pathname,
+				/tedis\/rotateAccessKey/,
+			);
+		}
+		{
+			const rotations: Request[] = [];
+			const payload = btoa(
+				JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 900 }),
+			)
+				.replace(/\+/g, "-")
+				.replace(/\//g, "_")
+				.replace(/=+$/g, "");
+			globalThis.fetch = async () =>
+				Response.json({
+					sessionJwt: `eyJhbGciOiJub25lIn0.${payload}.sig`,
+				});
+			await loadTediSecrets(
+				await envFor("tedi-probe-scopes", rotations),
+				"tedi-probe-scopes",
+			);
+			assert.equal(
+				rotations.length,
+				1,
+				"a scope-short exchange JWT still rotates the key",
+			);
+		}
+	} finally {
+		globalThis.fetch = originalFetch;
+		console.warn = originalWarn;
+		console.log = originalLog;
+	}
+}

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { DescopeAccessKeyExchange, parseJwtExp } from "./access-key-exchange";
+import {
+	AccessKeyExchangeError,
+	DescopeAccessKeyExchange,
+	parseJwtExp,
+} from "./access-key-exchange";
 
 function fakeJwt(exp: number): string {
 	return [
@@ -86,6 +90,42 @@ describe("DescopeAccessKeyExchange", () => {
 
 		await expect(auth.getToken()).rejects.toThrow("(503)");
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("tags non-ok responses with the provider status", async () => {
+		const fetchMock = vi.fn(
+			async () => new Response("denied", { status: 403 }),
+		);
+		const auth = new DescopeAccessKeyExchange({
+			descopeAccessKey: "ak_test",
+			descopeProjectId: "P123",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		const err = await auth.getToken().then(
+			() => null,
+			(e: unknown) => e,
+		);
+		expect(err).toBeInstanceOf(AccessKeyExchangeError);
+		expect((err as AccessKeyExchangeError).status).toBe(403);
+	});
+
+	it("lets network errors propagate without an exchange status", async () => {
+		const fetchMock = vi.fn(async () => {
+			throw new TypeError("fetch failed");
+		});
+		const auth = new DescopeAccessKeyExchange({
+			descopeAccessKey: "ak_test",
+			descopeProjectId: "P123",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		const err = await auth.getToken().then(
+			() => null,
+			(e: unknown) => e,
+		);
+		expect(err).toBeInstanceOf(TypeError);
+		expect(err).not.toBeInstanceOf(AccessKeyExchangeError);
 	});
 
 	it("parses JWT exp defensively", () => {
