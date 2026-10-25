@@ -819,6 +819,9 @@ describe("approval builders", () => {
 					summary: "Create document “Orion plan”",
 					detailDisclosure: true,
 					detail: '{"title":"Orion plan","kind":"document"}',
+					args: { title: "Orion plan", kind: "document" },
+					toolName: "os.create_os_output",
+					appSlug: "tedix",
 					status: "pending",
 					requestedAt: "2026-08-13T10:00:00.000Z",
 					sessionScopeKey: "write:tedix:os.create_os_output",
@@ -836,9 +839,14 @@ describe("approval builders", () => {
 		const container = document.createElement("div");
 		container.innerHTML = html;
 		const trigger = container.querySelector("button[aria-expanded]");
-		expect(trigger?.textContent).toBe("Details");
+		expect(trigger?.textContent).toBe("Details· 2 fields");
 		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-		expect(container.querySelector("pre")?.textContent).toContain("Orion plan");
+		expect(
+			container.querySelector('[data-slot="chat-json-code"]')?.textContent,
+		).toContain('"title": "Orion plan"');
+		expect(container.textContent).toContain(
+			"os.create_os_output · tedix · Request appr-write",
+		);
 		expect(
 			approvalsFromRunSet({
 				runs: [{ ...write, status: "completed" }],

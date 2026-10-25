@@ -2430,7 +2430,7 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.respondApproval.mockResolvedValue({});
 		const { container } = mountThread();
 		await flush();
-		expect(container.textContent).toContain("Run os.update_os_workspace");
+		expect(container.textContent).toContain("Update workspace “Renamed”");
 		const approve = [...container.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Approve",
 		);
@@ -2483,7 +2483,7 @@ describe("<ChatThread> attachment dropzone", () => {
 			}));
 			const { container } = mountThread();
 			await flush();
-			expect(container.textContent).toContain("Run os.update_os_workspace");
+			expect(container.textContent).toContain("Update workspace “Renamed”");
 			expect(
 				container.querySelector('[data-slot="chat-approval-gate"]'),
 			).not.toBeNull();
