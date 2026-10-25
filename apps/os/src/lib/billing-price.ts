@@ -32,3 +32,16 @@ export function formatCurrencyAmount(
 export function formatBillingAmount(micros: number, currency = "usd") {
 	return formatCurrencyAmount(micros / 1_000_000, currency);
 }
+
+/**
+ * A settled EUR charge for one run. Small delegated runs cost well under a
+ * cent, so sub-cent amounts keep four decimals instead of rounding to "€0".
+ */
+export function formatSettledEurMicros(micros: number) {
+	const amount = micros / 1_000_000;
+	return formatCurrencyAmount(
+		amount,
+		"eur",
+		amount > 0 && amount < 0.01 ? 4 : 2,
+	);
+}

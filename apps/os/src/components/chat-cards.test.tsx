@@ -1443,7 +1443,38 @@ describe("live delegation card", () => {
 		expect(html).not.toContain("Delegated work running");
 	});
 
-	it("folds a finished delegation to one summary line with duration and cost", () => {
+	it("folds a finished delegation to one summary line with duration and its settled cost", () => {
+		const work = delegationFromRun({
+			...run,
+			status: "completed",
+			completedAt: at(483),
+			usage: {
+				pricing: null,
+				inputTokens: 10,
+				outputTokens: 5,
+				reasoningTokens: null,
+				totalTokens: 15,
+				costUsd: 0.0042,
+			},
+			settledCharge: { currency: "eur", chargedMicros: 40_000, chargeCount: 3 },
+		});
+		if (!work) throw new Error("expected delegation work");
+		const html = renderToStaticMarkup(
+			<DelegationSummaryRow
+				work={work}
+				tediName="Reddit Operator"
+				LinkComponent={StubLink}
+			/>,
+		);
+		expect(html).toContain('data-slot="delegation-summary"');
+		expect(html).toContain("Reddit Operator finished in 8m 03s · €0.04");
+		expect(html).not.toContain("$0.0042");
+		expect(html).toContain(
+			`href="/work/executions/${RUN_ID}?branch=${CHILD_RUN_ID}"`,
+		);
+	});
+
+	it("shows no cost on the summary line until the delegated run's charge settles", () => {
 		const work = delegationFromRun({
 			...run,
 			status: "completed",
@@ -1459,16 +1490,23 @@ describe("live delegation card", () => {
 		});
 		if (!work) throw new Error("expected delegation work");
 		const html = renderToStaticMarkup(
-			<DelegationSummaryRow
-				work={work}
-				tediName="Reddit Operator"
-				LinkComponent={StubLink}
-			/>,
+			<DelegationSummaryRow work={work} LinkComponent={StubLink} />,
 		);
-		expect(html).toContain('data-slot="delegation-summary"');
-		expect(html).toContain("Reddit Operator finished in 8m 03s · $0.0042");
-		expect(html).toContain(
-			`href="/work/executions/${RUN_ID}?branch=${CHILD_RUN_ID}"`,
+		expect(html).toContain("A digital worker finished in 8m 03s<");
+		expect(html).not.toContain("$0.0042");
+	});
+
+	it("keeps sub-cent settled charges readable", () => {
+		const work = delegationFromRun({
+			...run,
+			status: "completed",
+			completedAt: at(483),
+			settledCharge: { currency: "eur", chargedMicros: 3_200, chargeCount: 1 },
+		});
+		if (!work) throw new Error("expected delegation work");
+		const html = renderToStaticMarkup(
+			<DelegationSummaryRow work={work} LinkComponent={StubLink} />,
 		);
+		expect(html).toContain("finished in 8m 03s · €0.0032");
 	});
 });

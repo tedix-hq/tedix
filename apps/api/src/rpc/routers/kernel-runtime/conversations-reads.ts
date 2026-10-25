@@ -1,4 +1,4 @@
-import { AUTHZ, ErrorCodes, createError } from "../../orpc";
+import { AUTHZ, type BaseContext, ErrorCodes, createError } from "../../orpc";
 import {
 	type ChildRunEvidenceRows,
 	readChildRunEvidenceRows,
@@ -10,7 +10,10 @@ import {
 import { summarizeChildRuntimeEvents } from "../kernel/child-run-events";
 import { HOME_MAIN_CONVERSATION_ID } from "../kernel/conversation-index";
 import { homeRuntimeEventId } from "@tedix/api-contract/utils/runtime-events";
-import type { HomeChildRunEvidence } from "@tedix/api-contract/schemas/kernel-runtime";
+import type {
+	HomeChildRunEvidence,
+	HomeRun,
+} from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	type KernelRuntimeEvent,
 	listKernelRuntimeEvents,
@@ -46,7 +49,10 @@ import { reconcileHomeRunRowsFromChildStatus } from "../kernel/run-store-reconci
 import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import { getOrganizationTedi } from "@tedix/db/queries/kernel-runtime-support";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
-import { sumRunInferenceCharges } from "@tedix/db/queries/billing/spending";
+import {
+	sumRunInferenceCharges,
+	sumRunInferenceChargesByRun,
+} from "@tedix/db/queries/billing/spending";
 import { listActiveKernelApprovalMirrors } from "@tedix/db/queries/kernel-approval-mirrors";
 import {
 	observedLearningEventId,
@@ -933,8 +939,12 @@ export const readRunSetRoute = authed.readRunSet
 				...reconciliation,
 			});
 		}
-		const fullRuns = reconciledRows.map((row) =>
-			normalizeHomeRunRecord(row, childRunStatuses),
+		const fullRuns = await withDelegatedRunSettledCharges(
+			context,
+			organizationId,
+			reconciledRows.map((row) =>
+				normalizeHomeRunRecord(row, childRunStatuses),
+			),
 		);
 		// Summary mode: shed the per-run `metadata` bags and
 		// the approval-mirror rendering projection — both optional in the schema
@@ -966,6 +976,41 @@ export const readRunSetRoute = authed.readRunSet
 			},
 		};
 	});
+
+/**
+ * Attach each delegated run's own settled EUR charges. Delegated work reserves
+ * credits under the child run, so that id is the charge key. Fail-soft: a
+ * charge read failure leaves `settledCharge` absent instead of failing the set.
+ */
+async function withDelegatedRunSettledCharges(
+	context: BaseContext,
+	organizationId: string,
+	runs: HomeRun[],
+): Promise<HomeRun[]> {
+	const childRunIds = runs.flatMap((run) =>
+		run.childRunId ? [run.childRunId] : [],
+	);
+	if (!childRunIds.length) return runs;
+	let byRun: Awaited<ReturnType<typeof sumRunInferenceChargesByRun>>;
+	try {
+		byRun = await sumRunInferenceChargesByRun(context.db, {
+			organizationId,
+			runIds: childRunIds,
+		});
+	} catch (error) {
+		console.warn("[kernelRuntime] delegated run charge read failed", {
+			organizationId,
+			error: errorMessage(error),
+		});
+		return runs;
+	}
+	return runs.map((run) => {
+		const charge = run.childRunId ? byRun.get(run.childRunId) : undefined;
+		return charge && charge.chargeCount > 0
+			? { ...run, settledCharge: { currency: "eur" as const, ...charge } }
+			: run;
+	});
+}
 
 /** Bounds the run scan for one conversation's charge total. */
 const CONVERSATION_CHARGE_RUN_PAGE = 100;

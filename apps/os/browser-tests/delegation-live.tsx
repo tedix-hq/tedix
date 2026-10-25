@@ -97,6 +97,11 @@ const finished = {
 		totalTokens: 1500,
 		costUsd: 0.0042,
 	},
+	settledCharge: {
+		currency: "eur" as const,
+		chargedMicros: 40_000,
+		chargeCount: 3,
+	},
 };
 
 function Card({ run, slot }: { run: typeof working; slot: string }) {

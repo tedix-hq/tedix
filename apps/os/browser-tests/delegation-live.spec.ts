@@ -96,7 +96,7 @@ try {
 			// Finished: one line, duration and cost.
 			await page
 				.locator('[data-fixture="finished"]')
-				.getByText("Community Operator finished in 8m 03s · $0.0042")
+				.getByText("Community Operator finished in 8m 03s · €0.04")
 				.waitFor();
 
 			await noOverflow(page, width);

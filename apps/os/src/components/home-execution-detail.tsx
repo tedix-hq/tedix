@@ -69,6 +69,7 @@ import { ArtifactReleaseReview } from "@/components/artifact-release-review";
 import { useTediNames } from "@/lib/use-tedi-names";
 import { useNow } from "@/lib/use-now";
 import { delegationLiveState, shortAge } from "@/lib/delegation-activity";
+import { formatSettledEurMicros } from "@/lib/billing-price";
 import {
 	Progress,
 	ProgressIndicator,
@@ -561,6 +562,14 @@ export function HomeExecutionDetailView({
 										Finished <strong>{absoluteTime(run.completedAt)}</strong>
 									</li>
 								) : null}
+								{run.settledCharge ? (
+									<li>
+										Delegated run cost{" "}
+										<strong>
+											{formatSettledEurMicros(run.settledCharge.chargedMicros)}
+										</strong>
+									</li>
+								) : null}
 								{run.usage?.costUsd != null ? (
 									<li>
 										Kernel cost <strong>${run.usage.costUsd.toFixed(4)}</strong>
@@ -602,11 +611,13 @@ export function HomeExecutionDetailView({
 					<dd>{runTime(run, trace, now)}</dd>
 					<dt className="text-kumo-subtle">Cost</dt>
 					<dd>
-						{run.usage?.costUsd != null
-							? `$${run.usage.costUsd.toFixed(4)} (Home only)`
-							: isActiveRunStatus(run.status)
-								? "Counted when it finishes"
-								: "Not recorded"}
+						{run.settledCharge
+							? `${formatSettledEurMicros(run.settledCharge.chargedMicros)} settled for the delegated run`
+							: run.usage?.costUsd != null
+								? `$${run.usage.costUsd.toFixed(4)} (Home only)`
+								: isActiveRunStatus(run.status)
+									? "Counted when it finishes"
+									: "Not recorded"}
 					</dd>
 				</dl>
 			</PageSection>

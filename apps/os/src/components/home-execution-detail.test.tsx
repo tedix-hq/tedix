@@ -231,6 +231,66 @@ it("shows actual personal account reads once on the run", async () => {
 	expect(host.textContent?.match(/Read your Gmail/g)).toHaveLength(1);
 });
 
+it("shows the delegated run's settled cost instead of the kernel's routing cost", async () => {
+	const props: Parameters<typeof HomeExecutionDetailView>[0] = {
+		embedded: true,
+		run: {
+			id: RUN_ID,
+			organizationId: "org",
+			createdAt: "2026-10-23T12:00:00Z",
+			status: "completed",
+			conversationId: "conversation",
+			delegatedTediId: "cfo",
+			childRunId: "cfo:mcp:child",
+			usage: {
+				pricing: null,
+				inputTokens: 10,
+				outputTokens: 5,
+				reasoningTokens: null,
+				totalTokens: 15,
+				costUsd: 0.0042,
+			},
+			settledCharge: { currency: "eur", chargedMicros: 40_000, chargeCount: 3 },
+			metadata: {},
+		},
+		trace: {
+			version: "home-run-trace.v1",
+			organizationId: "org",
+			conversationId: "conversation",
+			homeRunId: RUN_ID,
+			traceBundleId: null,
+			harnessVersionId: null,
+			status: "completed",
+			branches: [],
+			wakeReceipts: [],
+			synthesis: [],
+			eventIds: { kernel: [], tedi: [], audit: [] },
+			artifactIds: [],
+			assembledAt: "2026-10-23T12:00:00Z",
+			sources: [],
+			health: {
+				status: "healthy",
+				findings: [],
+				counts: { errors: 0, warnings: 0 },
+			},
+			latency: {
+				parentElapsedMs: 100,
+				maxWakeQueueMs: null,
+				finalWakeToSynthesisMs: null,
+			},
+			complete: true,
+			gaps: [],
+			parentEventIds: [],
+		},
+		events: [],
+	};
+	act(() => root.render(<HomeExecutionDetailView {...props} />));
+	await flush();
+	const summary = host.querySelector('[aria-label="Response summary"]');
+	expect(summary?.textContent).toContain("€0.04 settled for the delegated run");
+	expect(summary?.textContent).not.toContain("Home only");
+});
+
 const CHILD_RUN = `e142d015-799c-465b-a564-d3795e8e9f75:mcp:cfo-memory-check-home-${RUN_ID}`;
 const runningRun = {
 	id: `cfo-memory-check-home-${RUN_ID}`,

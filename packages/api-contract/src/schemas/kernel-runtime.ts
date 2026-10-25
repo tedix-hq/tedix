@@ -413,6 +413,18 @@ export const HomeRunUsageSchema = z.object({
 });
 export type HomeRunUsage = z.infer<typeof HomeRunUsageSchema>;
 
+/**
+ * Settled EUR credit charges recorded for one delegated run's own model calls.
+ * Omitted until settlement has recorded a charge for the child run; absent is
+ * never a known zero.
+ */
+export const HomeRunSettledChargeSchema = z.object({
+	currency: z.literal("eur"),
+	chargedMicros: z.number().int().nonnegative().safe(),
+	chargeCount: z.number().int().positive(),
+});
+export type HomeRunSettledCharge = z.infer<typeof HomeRunSettledChargeSchema>;
+
 export const HomeRunSchema = z.object({
 	id: z.string(),
 	organizationId: z.string(),
@@ -442,6 +454,8 @@ export const HomeRunSchema = z.object({
 	 * (delegated/queued runs, fail-soft turns, or pre-migration run rows).
 	 */
 	usage: HomeRunUsageSchema.optional(),
+	/** The delegated child run's own settled EUR charges, once any have settled. */
+	settledCharge: HomeRunSettledChargeSchema.optional(),
 	metadata: RuntimeMetadataSchema.optional(),
 });
 export type HomeRun = z.infer<typeof HomeRunSchema>;

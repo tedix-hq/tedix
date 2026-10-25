@@ -57,6 +57,7 @@ import {
 	type DelegationLiveState,
 	type DelegationStep,
 } from "@/lib/delegation-activity";
+import { formatSettledEurMicros } from "@/lib/billing-price";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
@@ -519,7 +520,10 @@ export type DelegationWork = {
 	 * assistant body no longer carries proof notes.
 	 */
 	proof?: DelegationProof | null;
-	/** Timing and usage of the parent run, for live progress and the summary. */
+	/**
+	 * Timing and usage of the parent run plus the delegated run's own settled
+	 * charge, for live progress and the summary.
+	 */
 	timing?: Pick<
 		HomeRun,
 		| "progress"
@@ -528,6 +532,7 @@ export type DelegationWork = {
 		| "completedAt"
 		| "updatedAt"
 		| "usage"
+		| "settledCharge"
 	>;
 };
 
@@ -599,6 +604,7 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 			completedAt: run.completedAt,
 			updatedAt: run.updatedAt,
 			usage: run.usage,
+			settledCharge: run.settledCharge,
 		},
 	};
 }
@@ -924,10 +930,12 @@ export function DelegationSummaryRow({
 				: work.status === "canceled"
 					? "was stopped"
 					: sentenceCase(work.status).toLowerCase();
+	// Only the delegated run's own settled charge is its cost; the parent run's
+	// `usage.costUsd` is the kernel's routing call and would misstate it.
 	const parts = [
 		`${who} ${verb}${duration ? ` in ${duration}` : ""}`,
-		timing?.usage?.costUsd != null
-			? `$${timing.usage.costUsd.toFixed(timing.usage.costUsd < 0.01 ? 4 : 2)}`
+		timing?.settledCharge
+			? formatSettledEurMicros(timing.settledCharge.chargedMicros)
 			: null,
 	].filter(Boolean);
 	return (
