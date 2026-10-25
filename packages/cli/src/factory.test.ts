@@ -317,6 +317,18 @@ describe("factory commands", () => {
 		expect(() =>
 			createFactoryInput({ goal: "x", owner: "y", maxProposals: "50" }),
 		).toThrow(/--max-proposals/);
+		for (const maxProposals of ["", " ", "1e1", "0x5", "-1", "2.5"])
+			expect(() => createFactoryInput({ goal: "x", maxProposals })).toThrow(
+				/--max-proposals/,
+			);
+		expect(createFactoryInput({ goal: "x", maxProposals: "0" })).toEqual({
+			goal: "x",
+			maxProposals: 0,
+		});
+		expect(createFactoryInput({ goal: "x", maxProposals: " 10 " })).toEqual({
+			goal: "x",
+			maxProposals: 10,
+		});
 	});
 
 	it("maps hourly cadence and trimmed output flags", () => {

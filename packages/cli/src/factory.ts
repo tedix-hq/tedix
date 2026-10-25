@@ -120,8 +120,10 @@ export function createFactoryInput(
 	if (options.project) input.projectKey = options.project;
 	if (options.dryRun) input.dryRun = true;
 	if (options.maxProposals !== undefined) {
-		const value = Number(options.maxProposals);
-		if (!Number.isInteger(value) || value < 0 || value > 10) {
+		const raw = options.maxProposals.trim();
+		const value = Number(raw);
+		// Number("") and Number(" ") are 0; only plain digits count.
+		if (!/^\d+$/.test(raw) || value > 10) {
 			throw new Error("--max-proposals must be a whole number from 0 to 10");
 		}
 		input.maxProposals = value;
