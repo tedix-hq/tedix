@@ -85,7 +85,7 @@ function renderHomeStablePreamble(ctx: KernelContext): string {
 				ctx.workspace.workpiece
 					? `, selected-${ctx.workspace.workpiece.kind}=id:${truncate(ctx.workspace.workpiece.id)}, name:${truncate(ctx.workspace.workpiece.name)}`
 					: ""
-			}\nA skill made for this workspace is recorded with this workspaceId (record_skills), which links it here; link an existing skill with link_os_workspace_skill.`,
+			}\nA skill recorded or scheduled in this conversation is linked to this workspace automatically, with its tedi and connections; link an existing skill with link_os_workspace_skill.`,
 		);
 		if (ctx.workspace.resources?.length) {
 			const lines = ctx.workspace.resources.map(

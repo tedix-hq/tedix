@@ -61,6 +61,7 @@ import {
 	scheduleRunTimes,
 } from "../../services/workspace-schedules";
 import {
+	ensureWorkspaceSkillDependencyLinks,
 	ensureWorkspaceSkillLink,
 	requireWorkspace,
 	resolveCreator,
@@ -713,12 +714,16 @@ const link = authorOs.schedules.link.handler(async ({ input, context }) => {
 			ErrorCodes.NOT_FOUND,
 			"No skill with that id in this organization",
 		);
-	const { created, resourceId } = await ensureWorkspaceSkillLink(context, {
+	const scope = {
 		organizationId: workspace.organizationId,
 		workspaceId: workspace.id,
+	};
+	const { created, resourceId } = await ensureWorkspaceSkillLink(context, {
+		...scope,
 		skillId: skill.id,
 		name: skill.title,
 	});
+	await ensureWorkspaceSkillDependencyLinks(context, { ...scope, skill });
 	return { resourceId, created };
 });
 
@@ -790,12 +795,35 @@ const linkFactorySkills = authorOs.schedules.linkFactorySkills.handler(
 				skillId: candidate.skillId,
 				name: candidate.title,
 			});
+			linked.add(candidate.skillId);
 			items.push({
 				...base,
 				status: created ? ("linked" as const) : ("already_linked" as const),
 			});
 		}
-		return { dryRun: input.dryRun, items };
+		// Every linked skill's tedi and connections become links of their own.
+		const dependencies = { tedis: 0, connections: 0 };
+		if (!input.dryRun)
+			for (const skillId of [...linked].slice(0, MAX_SCHEDULES)) {
+				const skill = await getSkillEntry(
+					context.db,
+					skillId,
+					workspace.organizationId,
+				);
+				if (!skill) continue;
+				const added = await ensureWorkspaceSkillDependencyLinks(context, {
+					...scope,
+					skill,
+				});
+				dependencies.tedis += added.tedis;
+				dependencies.connections += added.connections;
+			}
+		return {
+			dryRun: input.dryRun,
+			items,
+			linkedTedis: dependencies.tedis,
+			linkedConnections: dependencies.connections,
+		};
 	},
 );
 

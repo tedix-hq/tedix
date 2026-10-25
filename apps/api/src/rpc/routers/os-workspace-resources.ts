@@ -14,7 +14,10 @@ import {
 	type OsWorkspaceResourceSelection,
 	OsWorkspaceResourceSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import {
+	isWorkspaceLinkResource,
+	isWorkspaceSkillResource,
+} from "@tedix/api-contract/schemas/os-workspace-schedules";
 import {
 	createOsWorkspaceResource,
 	getOsWorkspaceResource,
@@ -79,9 +82,9 @@ async function projectWorkspaceResource(
 	row: OsWorkspaceResourceRow,
 ): Promise<OsWorkspaceResource> {
 	const resource = mapWorkspaceResource(row);
-	// A scheduled-skill link has no connection behind it to check.
+	// A skill, tedi or connection link has no provider object behind it to check.
 	const availability =
-		(isWorkspaceSkillResource(resource) ||
+		(isWorkspaceLinkResource(resource) ||
 			(resource.providerId === "tedix" && resource.resourceType === "file")) &&
 		resource.status === "active"
 			? {
@@ -291,6 +294,14 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
 			"Use requestFileUpload and confirmFileUpload to attach a workspace file",
+		);
+	if (
+		isWorkspaceLinkResource(input.selection) &&
+		!isWorkspaceSkillResource(input.selection)
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Tedis and connections are linked with the skills that use them: link the skill (schedules link), or run link_os_workspace_factory_skills",
 		);
 	if (
 		isWorkspaceSkillResource(input.selection) &&

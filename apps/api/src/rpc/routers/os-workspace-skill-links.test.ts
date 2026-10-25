@@ -10,6 +10,10 @@ import { createDbClient } from "@tedix/db/client";
 import { apps, appTools } from "@tedix/db/schema";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import {
+	kernelConversations,
+	kernelRuntimeRuns,
+} from "@tedix/db/schema/cognitive-runtime";
+import {
 	skillEntries,
 	skillRuns,
 	skillSchedules,
@@ -68,6 +72,8 @@ function createEnv() {
 			organizationMembers,
 			skillRuns,
 			skillSchedules,
+			kernelRuntimeRuns,
+			kernelConversations,
 		),
 	);
 	sqlite.exec(`
@@ -77,6 +83,9 @@ function createEnv() {
 		VALUES ('m-robin','org-1','member-robin','robin@example.test','member','active');
 		INSERT INTO tedis (id, organization_id, name, slug, display_name)
 		VALUES ('${TEDI}', 'org-1', 'research', 'research', 'Research Tedi');
+		INSERT INTO apps (id, organization_id, name, slug)
+		VALUES ('app-reddit', 'org-1', 'Reddit', 'reddit'),
+		       ('app-tedix', 'org-1', 'Tedix', 'tedix');
 		INSERT INTO skill_entries (id, organization_id, title, content)
 		VALUES ('${RESEARCH}', 'org-1', 'Daily research', '# r'),
 		       ('${WRITER}', 'org-1', 'Card writer', '# w');
@@ -87,6 +96,27 @@ function createEnv() {
 		DB: createD1Facade(sqlite),
 	} as CloudflareEnv;
 	return { env, sqlite };
+}
+
+function memberContext(env: CloudflareEnv, headers = new Headers()) {
+	return {
+		authType: "user",
+		db: createDbClient(env.DB) as BaseContext["db"],
+		env,
+		headers,
+		organizationId: "org-1",
+		url: new URL("https://api.tedix.test/rpc/os-workspaces"),
+		user: {
+			aud: "test",
+			dct: "tenant-1",
+			exp: 2,
+			iat: 1,
+			iss: "https://auth.tedix.test",
+			permissions: ["os:read", "os:author", "os:admin"],
+			roles: [],
+			sub: "member-robin",
+		},
+	} as BaseContext;
 }
 
 function member(env: CloudflareEnv) {
@@ -120,7 +150,7 @@ function skill(id: string, title: string, workflow: boolean) {
 		title,
 		tediId: TEDI,
 		revision: 1,
-		content: `---\nname: ${id}\n---\n# ${title}\n`,
+		content: `---\nname: ${id}\ncapabilities:\n  mcp:\n    reddit: [search_posts]\n    tedix: [list_os_outputs]\n---\n# ${title}\n`,
 		files: workflow
 			? { "scripts/workflow.ts": "export default { async run() {} };" }
 			: null,
@@ -137,7 +167,7 @@ async function seed() {
 		name: "Research factory",
 		visibility: "private",
 	});
-	return { client, sqlite, workspaceId: workspace.id };
+	return { client, env, sqlite, workspaceId: workspace.id };
 }
 
 describe("Workspace skill links", () => {
@@ -211,6 +241,8 @@ describe("Workspace skill links", () => {
 		const dry = await client.schedules.linkFactorySkills({ workspaceId });
 		expect(dry).toEqual({
 			dryRun: true,
+			linkedTedis: 0,
+			linkedConnections: 0,
 			items: [
 				{
 					skillId: RESEARCH,
@@ -236,6 +268,8 @@ describe("Workspace skill links", () => {
 			"linked",
 			"linked",
 		]);
+		// Both skills run on one tedi and use one non-platform app.
+		expect(applied).toMatchObject({ linkedTedis: 1, linkedConnections: 1 });
 		const again = await client.schedules.linkFactorySkills({
 			workspaceId,
 			dryRun: false,
@@ -244,6 +278,7 @@ describe("Workspace skill links", () => {
 			"already_linked",
 			"already_linked",
 		]);
+		expect(again).toMatchObject({ linkedTedis: 0, linkedConnections: 0 });
 		const listed = (await client.schedules.list({ workspaceId })).items;
 		expect(listed.map((item) => [item.skillId, item.hasWorkflow])).toEqual(
 			expect.arrayContaining([
@@ -251,5 +286,66 @@ describe("Workspace skill links", () => {
 				[WRITER, false],
 			]),
 		);
+	});
+
+	it("links the skill's tedi and connections as their own resources", async () => {
+		const { client, workspaceId } = await seed();
+		await client.schedules.link({ workspaceId, skillId: RESEARCH });
+		const { items } = await client.resources.list({
+			workspaceId,
+			status: "active",
+			limit: 50,
+		});
+		expect(
+			items
+				.map((row) => [row.resourceType, row.providerResourceId, row.name])
+				.sort(),
+		).toEqual([
+			["connection", "reddit", "Reddit"],
+			["skill", RESEARCH, "Daily research"],
+			["tedi", TEDI, "Research Tedi"],
+		]);
+		expect(items.every((row) => row.availability?.status === "available")).toBe(
+			true,
+		);
+		await expect(
+			client.resources.create({
+				workspaceId,
+				selection: {
+					providerId: "tedix",
+					connectionScope: "tenant",
+					requiredScopes: [],
+					resourceType: "tedi",
+					providerResourceId: TEDI,
+					name: "Research Tedi",
+					metadata: {},
+				},
+			}),
+		).rejects.toThrow(/linked with the skills that use them/);
+	});
+
+	it("finds the Workspace of a Home turn only on the trusted hop", async () => {
+		const { env, sqlite, workspaceId } = await seed();
+		const { callerTurnWorkspace } = await import("./os-workspaces-shared");
+		const runId = "20000000-0000-4000-8000-000000000001";
+		sqlite.exec(`
+			INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at, created_at, updated_at)
+			VALUES ('org-1:home:ws', 'org-1', 'home:ws', '${workspaceId}', '2026-10-25', '2026-10-25', '2026-10-25');
+			INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, created_at, updated_at)
+			VALUES ('${runId}', 'org-1', 'home:ws', '2026-10-25', '2026-10-25');
+		`);
+		const trusted = new Headers({
+			"X-Service-Binding": "true",
+			"X-Tedix-Kernel-Run-Id": runId,
+		});
+		expect((await callerTurnWorkspace(memberContext(env, trusted)))?.id).toBe(
+			workspaceId,
+		);
+		expect(
+			await callerTurnWorkspace(
+				memberContext(env, new Headers({ "X-Tedix-Kernel-Run-Id": runId })),
+			),
+		).toBeNull();
+		expect(await callerTurnWorkspace(memberContext(env))).toBeNull();
 	});
 });

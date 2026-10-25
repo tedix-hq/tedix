@@ -412,6 +412,50 @@ const seedState = (): LocalState => ({
 			updatedAt: T4,
 			removedAt: null,
 		},
+		{
+			id: fid("35", 201),
+			personalOwnerUserId: null,
+			connectionInstanceId: null,
+			providerAccess: null,
+			organizationId: ORG_ID,
+			workspaceId: WORKSPACE_REVENUE,
+			slot: null,
+			providerId: "tedix",
+			connectionScope: "tenant",
+			requiredScopes: [],
+			resourceType: "tedi",
+			providerResourceId: TEDI_MILES,
+			name: "Finance Tedi",
+			metadata: {},
+			status: "active",
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T4,
+			updatedAt: T4,
+			removedAt: null,
+		},
+		{
+			id: fid("35", 202),
+			personalOwnerUserId: null,
+			connectionInstanceId: null,
+			providerAccess: null,
+			organizationId: ORG_ID,
+			workspaceId: WORKSPACE_REVENUE,
+			slot: null,
+			providerId: "tedix",
+			connectionScope: "tenant",
+			requiredScopes: [],
+			resourceType: "connection",
+			providerResourceId: "storefront",
+			name: "Storefront",
+			metadata: {},
+			status: "active",
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T4,
+			updatedAt: T4,
+			removedAt: null,
+		},
 	],
 	// fid("76", 1|2) are the OPS and GROWTH project() rows declared below.
 	workspaceProjects: [
@@ -7356,11 +7400,14 @@ const handlers: Record<string, (input: never) => unknown> = {
 		const dryRun = input.dryRun ?? true;
 		// The fixture's suggestion: the first catalog skill this workspace does not run.
 		const skill = SKILLS.find((row) => !FIXTURE_SCHEDULED_SKILLS.has(row.id));
-		if (!skill) return { dryRun, items: [] };
+		if (!skill)
+			return { dryRun, items: [], linkedTedis: 0, linkedConnections: 0 };
 		const already = links.added.has(skill.id);
 		if (!dryRun) links.added.add(skill.id);
 		return {
 			dryRun,
+			linkedTedis: 0,
+			linkedConnections: 0,
 			items: [
 				{
 					skillId: skill.id,

@@ -32,11 +32,19 @@ import {
 	restoreOsWorkspaceResource,
 	updateOsWorkspaceResourceMetadata,
 } from "@tedix/db/queries/os-workspaces/resources";
-import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
+	findOsWorkspaceIdForKernelRun,
+	getOsWorkspace,
+} from "@tedix/db/queries/os-workspaces/workspaces";
+import {
+	WORKSPACE_CONNECTION_RESOURCE,
 	WORKSPACE_SKILL_RESOURCE,
+	WORKSPACE_TEDI_RESOURCE,
 	type WorkspaceSkillRunsAt,
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
+import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import type {
@@ -538,16 +546,18 @@ export async function ensureWorkspaceProjectLink(
 }
 
 /**
- * Link a skill to a Workspace (a `tedix`/`skill` resource), so the Workspace
- * lists it among the skills that run it. Reuses an active link and restores a
- * removed one; created is false when it was active.
+ * Link one reference (a `tedix` skill, tedi or connection) to a Workspace.
+ * Reuses an active link and restores a removed one; created is false when it
+ * was active. With runsAt, a link that has none gains it.
  */
-export async function ensureWorkspaceSkillLink(
+async function ensureWorkspaceTenantLink(
 	context: BaseContext,
 	params: {
 		organizationId: string;
 		workspaceId: string;
-		skillId: string;
+		providerId: string;
+		resourceType: string;
+		providerResourceId: string;
 		name: string;
 		runsAt?: WorkspaceSkillRunsAt;
 	},
@@ -557,11 +567,13 @@ export async function ensureWorkspaceSkillLink(
 		organizationId: params.organizationId,
 		workspaceId: params.workspaceId,
 	};
-	const existing = await findOsWorkspaceTenantResource(db, {
+	const identity = {
 		...scope,
-		...WORKSPACE_SKILL_RESOURCE,
-		providerResourceId: params.skillId,
-	});
+		providerId: params.providerId,
+		resourceType: params.resourceType,
+		providerResourceId: params.providerResourceId,
+	};
+	const existing = await findOsWorkspaceTenantResource(db, identity);
 	const now = new Date().toISOString();
 	let metadataUpdated = false;
 	if (existing && params.runsAt) {
@@ -605,14 +617,15 @@ export async function ensureWorkspaceSkillLink(
 			id: resourceId,
 			...scope,
 			slot: null,
-			...WORKSPACE_SKILL_RESOURCE,
+			providerId: params.providerId,
+			resourceType: params.resourceType,
 			connectionScope: "tenant",
 			personalOwnerUserId: null,
 			connectionInstanceId: null,
 			providerAccess: null,
 			requiredScopes: "[]",
-			providerResourceId: params.skillId,
-			name: params.name,
+			providerResourceId: params.providerResourceId,
+			name: params.name.slice(0, 200),
 			metadata: JSON.stringify(params.runsAt ? { runsAt: params.runsAt } : {}),
 			status: "active",
 			createdByKind: creator.kind,
@@ -625,12 +638,135 @@ export async function ensureWorkspaceSkillLink(
 	} catch (error) {
 		if (!isUniqueConstraintError(error)) throw error;
 		// A concurrent link won the race; report the row it wrote.
-		const winner = await findOsWorkspaceTenantResource(db, {
-			...scope,
-			...WORKSPACE_SKILL_RESOURCE,
-			providerResourceId: params.skillId,
-		});
+		const winner = await findOsWorkspaceTenantResource(db, identity);
 		if (!winner) throw error;
 		return { created: false, resourceId: winner.id };
 	}
+}
+
+/**
+ * Link a skill to a Workspace (a `tedix`/`skill` resource), so the Workspace
+ * lists it among the skills that run it. Reuses an active link and restores a
+ * removed one; created is false when it was active.
+ */
+export async function ensureWorkspaceSkillLink(
+	context: BaseContext,
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		skillId: string;
+		name: string;
+		runsAt?: WorkspaceSkillRunsAt;
+	},
+): Promise<{ created: boolean; updated?: boolean; resourceId: string }> {
+	const { skillId, ...rest } = params;
+	return ensureWorkspaceTenantLink(context, {
+		...rest,
+		...WORKSPACE_SKILL_RESOURCE,
+		providerResourceId: skillId,
+	});
+}
+
+/** App namespaces every skill reaches through the platform, never a connection. */
+const PLATFORM_APP_SLUGS = new Set(["tedix", "tedix-unified"]);
+
+/**
+ * Link what a linked skill uses: the tedi that runs it (`tedix`/`tedi`) and
+ * each organization app its manifest declares tools for (`tedix`/`connection`,
+ * by app slug). Idempotent; returns the links this call created.
+ */
+export async function ensureWorkspaceSkillDependencyLinks(
+	context: BaseContext,
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		skill: {
+			tediId: string | null;
+			content: string | null;
+			files: unknown;
+		};
+	},
+): Promise<{ tedis: number; connections: number }> {
+	const scope = {
+		organizationId: params.organizationId,
+		workspaceId: params.workspaceId,
+	};
+	let tedis = 0;
+	let connections = 0;
+	if (params.skill.tediId) {
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			params.skill.tediId,
+			params.organizationId,
+		);
+		if (tedi) {
+			const link = await ensureWorkspaceTenantLink(context, {
+				...scope,
+				...WORKSPACE_TEDI_RESOURCE,
+				providerResourceId: tedi.id,
+				name: tedi.displayName ?? tedi.name,
+			});
+			if (link.created) tedis += 1;
+		}
+	}
+	const files = params.skill.files as Record<string, string> | null;
+	const manifest = parseCapabilityManifest(
+		files?.["SKILL.md"] ?? params.skill.content ?? "",
+	);
+	const slugs = new Set(
+		Object.keys(manifest.mcp).map((namespace) => namespace.replace(/_/g, "-")),
+	);
+	for (const slug of slugs) {
+		if (PLATFORM_APP_SLUGS.has(slug)) continue;
+		const app = await getAppBySlugForOrg(
+			context.db,
+			slug,
+			params.organizationId,
+		);
+		if (!app) continue;
+		const link = await ensureWorkspaceTenantLink(context, {
+			...scope,
+			...WORKSPACE_CONNECTION_RESOURCE,
+			providerResourceId: app.slug,
+			name: app.name,
+		});
+		if (link.created) connections += 1;
+	}
+	return { tedis, connections };
+}
+
+/**
+ * The Workspace of the Home turn making this call. The MCP edge forwards the
+ * turn's kernel run id only on its trusted Worker-to-Worker hop; the run's
+ * conversation (or the run that delegated it) names the Workspace. Null for a
+ * direct call, a turn outside a Workspace, or a Workspace the caller cannot
+ * see.
+ */
+export async function callerTurnWorkspace(
+	context: BaseContext,
+): Promise<OsWorkspaceRow | null> {
+	const runId = context.headers?.get("X-Tedix-Kernel-Run-Id");
+	if (
+		!runId ||
+		!isServiceBinding(context.headers) ||
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+			runId,
+		)
+	)
+		return null;
+	const organizationId = requireOrgId(context);
+	const db = queryDb(context);
+	const workspaceId = await findOsWorkspaceIdForKernelRun(db, {
+		organizationId,
+		runId,
+	});
+	if (!workspaceId) return null;
+	const workspace = await getOsWorkspace(db, { organizationId, workspaceId });
+	if (!workspace || workspace.status !== "active") return null;
+	try {
+		await assertOsWorkspaceVisible(context, workspace);
+	} catch {
+		return null;
+	}
+	return workspace;
 }

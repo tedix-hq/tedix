@@ -210,7 +210,8 @@
 }
 
 .canvas-resource-apps,
-.canvas-resource-schedules {
+.canvas-resource-schedules,
+.canvas-resource-runners {
 	grid-column: 1 / -1;
 }
 
