@@ -12,9 +12,9 @@ permissions:
   actions: read
 
 concurrency:
-  # Keep only the newest certification of main across push and scheduled runs.
+  # Finish active certification; coalesce waiting push and scheduled runs.
   group: main-certification
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   CI: "true"
