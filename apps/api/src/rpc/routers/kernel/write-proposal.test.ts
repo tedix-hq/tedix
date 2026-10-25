@@ -2213,7 +2213,7 @@ describe("planKernelWriteProposal — onDecline reporting (fail-soft is not fail
 		});
 		expect(declines.at(-1)?.stage).toBe("planner_declined");
 		expect(declines.at(-1)?.detail).toBe(
-			"Argument planner declined the selected tool",
+			"Argument planner declined the selected tool: other",
 		);
 
 		await planKernelWriteProposal({

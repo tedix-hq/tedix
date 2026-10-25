@@ -240,6 +240,27 @@ describe("renderWriteDeclined — each stage maps to an honest one-liner", () =>
 		expect(msg).not.toContain(OPTIMISTIC_PROMISE);
 	});
 
+	it("planner_declined on a Work create: names the reason from the planner's code", () => {
+		const route = {
+			toolIntent: { appSlug: "tedix-unified", capability: "work_items.create" },
+		};
+		expect(
+			renderWriteDeclined(
+				{
+					stage: "planner_declined",
+					detail:
+						"Argument planner declined the selected tool: multiple_writes: Zwei Work items angefragt",
+				},
+				route,
+			),
+		).toBe(
+			"This asks for more than one Work item, and one message creates one. Send each Work item as its own message; the workspace's project is used when you name none. Nothing was created.",
+		);
+		expect(renderWriteDeclined({ stage: "planner_declined" }, route)).toContain(
+			"Check its required fields and destination",
+		);
+	});
+
 	it("no_provider: same delegation message as disabled", () => {
 		const msg = renderWriteDeclined(
 			{ stage: "no_provider" } satisfies KernelWriteProposalDeclined,

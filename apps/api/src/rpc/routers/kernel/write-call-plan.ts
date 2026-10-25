@@ -21,6 +21,32 @@ import {
 	type WriteWorkspaceContext,
 } from "./write-edit-target";
 
+/** Prefix of a planner decline detail; a {@link PlannerDeclineCode} follows. */
+export const PLANNER_DECLINED_PREFIX =
+	"Argument planner declined the selected tool: ";
+
+const PLANNER_DECLINE_CODES = [
+	"multiple_writes",
+	"missing_destination",
+	"missing_content",
+	"other",
+] as const;
+/** Why the planner returned NONE, as a closed code the operator message maps. */
+export type PlannerDeclineCode = (typeof PLANNER_DECLINE_CODES)[number];
+
+function plannerDeclineCode(value: unknown): PlannerDeclineCode {
+	return PLANNER_DECLINE_CODES.find((code) => code === value) ?? "other";
+}
+
+/** The decline code at the start of a planner decline detail. */
+export function plannerDeclineCodeFrom(
+	detail: string | undefined,
+): PlannerDeclineCode | null {
+	if (!detail?.startsWith(PLANNER_DECLINED_PREFIX)) return null;
+	const code = detail.slice(PLANNER_DECLINED_PREFIX.length).split(":")[0];
+	return PLANNER_DECLINE_CODES.find((entry) => entry === code) ?? null;
+}
+
 /** Sentinel the model uses when no listed tool fits the request. */
 const NO_WRITE_TOOL = "NONE";
 
@@ -41,6 +67,13 @@ const WriteCallPlanSchema = z.object({
 		.nullable()
 		.default(null)
 		.describe("One short sentence: why this tool and these arguments."),
+	declineReason: z
+		.enum(PLANNER_DECLINE_CODES)
+		.nullable()
+		.default(null)
+		.describe(
+			`Only when toolName is "${NO_WRITE_TOOL}": multiple_writes when the request asks for two or more separate writes; missing_destination when no valid project, objective or parent is known; missing_content when a required value such as the title is missing; otherwise other.`,
+		),
 });
 
 const SYSTEM_PROMPT = `You are the Kernel's write-proposal planner. The operator asked for a CHANGE in a provider app; the route already chose the provider. Your job: pick exactly ONE write-capable tool from the catalog below and produce its arguments. The call will NOT run now — a human operator reviews and approves it first, so the proposal must be precise and self-explanatory.
@@ -335,8 +368,8 @@ The previous plan failed the exact tool input schema at these field paths: ${JSO
 		if (!plan.toolName || plan.toolName === NO_WRITE_TOOL) {
 			args.onFailure?.(
 				plan.reasoning?.trim()
-					? `Argument planner declined the selected tool: ${plan.reasoning.trim().slice(0, 160)}`
-					: "Argument planner declined the selected tool",
+					? `${PLANNER_DECLINED_PREFIX}${plannerDeclineCode(plan.declineReason)}: ${plan.reasoning.trim().slice(0, 160)}`
+					: `${PLANNER_DECLINED_PREFIX}${plannerDeclineCode(plan.declineReason)}`,
 			);
 			return null;
 		}

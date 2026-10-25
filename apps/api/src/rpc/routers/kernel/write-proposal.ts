@@ -59,7 +59,11 @@ import {
 	normalizeOsSheetCellAddress,
 	type WriteWorkspaceContext,
 } from "./write-edit-target";
-import { planWriteCall, validateProposedCall } from "./write-call-plan";
+import {
+	plannerDeclineCodeFrom,
+	planWriteCall,
+	validateProposedCall,
+} from "./write-call-plan";
 import {
 	outputDraftSaveTarget,
 	renderOutputDraftSaveRequest,
@@ -87,6 +91,7 @@ import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
 	readWorkCreateProjects,
+	workCreateProjectName,
 	workspaceDefaultProjectId,
 } from "./work-create-projects";
 import {
@@ -160,6 +165,8 @@ export interface KernelWriteProposal {
 	args: Record<string, unknown>;
 	/** Canonical title, only when the validated call edits the read output. */
 	outputTitle?: string;
+	/** The destination project's name, for a Work-item create card. */
+	destinationTitle?: string;
 	/** One-sentence model rationale for the operator-facing card (untrusted). */
 	reasoning: string | null;
 	/**
@@ -420,8 +427,16 @@ export function renderWriteDeclined(
 		case "no_write_tools":
 			return `I can't update ${app} from this chat yet. Ask me to delegate this to a tedi with access.`;
 		case "planner_declined":
-			if (route.toolIntent?.capability === "work_items.create")
+			if (route.toolIntent?.capability === "work_items.create") {
+				// Name the real reason from the planner's closed code; its free-text
+				// reasoning is model output and never reaches the operator.
+				const code = plannerDeclineCodeFrom(declined.detail);
+				if (code === "multiple_writes")
+					return "This asks for more than one Work item, and one message creates one. Send each Work item as its own message; the workspace's project is used when you name none. Nothing was created.";
+				if (code === "missing_content")
+					return "I couldn't prepare this Work item: give it a title (and a description if you want one) in this message. Nothing was created.";
 				return "I couldn't prepare this Work item. Check its required fields and destination: use the existing project's current name or link, an objective, or a parent Work item. A workspace name or prose purpose alone may not identify that destination. Nothing was created.";
+			}
 			return `I couldn't prepare that change in ${app}; nothing was created or sent. Tell me what should be added or changed, and where.`;
 		case "validation_failed":
 		case "missing_inputs":
@@ -1031,6 +1046,10 @@ export async function planKernelWriteProposal(args: {
 		const target = editTarget
 			? (JSON.parse(editTarget) as { outputId: string; title: string })
 			: null;
+		const destinationTitle = workCreateProjectName(
+			workProjects,
+			validated.args.projectId,
+		);
 		return {
 			appSlug: provider.slug,
 			toolName: validated.tool.name,
@@ -1039,6 +1058,7 @@ export async function planKernelWriteProposal(args: {
 			typeof target?.title === "string"
 				? { outputTitle: target.title }
 				: {}),
+			...(destinationTitle ? { destinationTitle } : {}),
 			reasoning: planned.reasoning,
 			riskTier: /^projects\.(?:create|pause|resume|archive)_factory$/.test(
 				validated.tool.name,
