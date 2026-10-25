@@ -690,6 +690,9 @@ const CALLS: Record<string, unknown> = {
 		limit: 60,
 	},
 	"kernelRuntime/readRunSet": { conversationId: IDS.conversationHome },
+	"kernelRuntime/readConversationCharges": {
+		conversationId: IDS.conversationHome,
+	},
 	"kernelRuntime/listPendingHomeDelegations": {},
 	"kernelRuntime/readRun": { runId: IDS.homeRunDone },
 	"kernelRuntime/readRunTrace": { runId: IDS.homeRunDelegating },

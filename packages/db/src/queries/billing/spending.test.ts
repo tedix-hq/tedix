@@ -7,7 +7,10 @@ import {
 } from "../../schema/billing";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { listMonetaryInferenceSpending } from "./spending";
+import {
+	listMonetaryInferenceSpending,
+	sumRunInferenceCharges,
+} from "./spending";
 
 const from = "2026-10-01T00:00:00.000Z";
 const to = "2026-11-01T00:00:00.000Z";
@@ -92,6 +95,46 @@ describe("settled monetary spending", () => {
 				runId: null,
 				traceId: null,
 			});
+		} finally {
+			f.sqlite.close();
+		}
+	});
+	it("sums a conversation's settled EUR charges by run, scoped to the organization", async () => {
+		const f = fixture();
+		try {
+			f.charge("monetary");
+			f.charge("second");
+			f.charge("legacy", "own", "hold", {});
+			f.charge("foreign", "other", "foreign-hold");
+			f.charge("orphan", "own", null);
+			expect(
+				await sumRunInferenceCharges(f.db, {
+					organizationId: "own",
+					runIds: ["own-run", "other-run", "own-run"],
+				}),
+			).toEqual({ chargedMicros: 100, chargeCount: 2 });
+			expect(
+				await sumRunInferenceCharges(f.db, {
+					organizationId: "own",
+					runIds: ["no-such-run"],
+				}),
+			).toEqual({ chargedMicros: 0, chargeCount: 0 });
+			expect(
+				await sumRunInferenceCharges(f.db, {
+					organizationId: "own",
+					runIds: [],
+				}),
+			).toEqual({ chargedMicros: 0, chargeCount: 0 });
+			// More run ids than one statement may bind still sums once.
+			expect(
+				await sumRunInferenceCharges(f.db, {
+					organizationId: "own",
+					runIds: [
+						...Array.from({ length: 150 }, (_, index) => `run-${index}`),
+						"own-run",
+					],
+				}),
+			).toEqual({ chargedMicros: 100, chargeCount: 2 });
 		} finally {
 			f.sqlite.close();
 		}

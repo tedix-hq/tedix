@@ -306,6 +306,12 @@ export const HOME_MESSAGES_PAGE_LIMIT = 50;
 export const homeRunSetQueryOptions = (conversationId: string) =>
 	osQuery.kernelRuntime.readRunSet.queryOptions({ input: { conversationId } });
 
+/** Settled EUR credit charges for one Home conversation's runs. */
+export const homeConversationChargesQueryOptions = (conversationId: string) =>
+	osQuery.kernelRuntime.readConversationCharges.queryOptions({
+		input: { conversationId },
+	});
+
 export const pendingHomeDelegationsQueryOptions = () =>
 	osQuery.kernelRuntime.listPendingHomeDelegations.queryOptions({ input: {} });
 

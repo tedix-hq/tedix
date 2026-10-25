@@ -152,6 +152,7 @@ import {
 import { ContextUsedInspector } from "@/components/chat-context-used";
 import { ChatModelPicker } from "@/components/chat-model-picker";
 import { DirectReadPanel } from "@/components/chat-direct-read-composer";
+import { ConversationUsageLine } from "@/components/chat-usage-line";
 import {
 	type DirectReadCommand,
 	type DirectReadRequest,
@@ -2510,6 +2511,14 @@ export function ChatThread({
 					</div>
 				) : null}
 			</form>
+			{conversationId && !composerOnly ? (
+				<ConversationUsageLine
+					conversationId={conversationId}
+					settledRunCount={
+						(runSet?.runs.length ?? 0) - (runSet?.activeRunIds.length ?? 0)
+					}
+				/>
+			) : null}
 		</div>
 	);
 }

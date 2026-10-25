@@ -33,6 +33,8 @@ import {
 	ReadHomeRunEventsInputSchema,
 	ReadHomeRunInputSchema,
 	ReadHomeRunSetInputSchema,
+	ReadHomeConversationChargesInputSchema,
+	HomeConversationChargesSchema,
 	ListPendingHomeDelegationsInputSchema,
 	ReadKernelToolResultInputSchema,
 	ReadKernelToolResultOutputSchema,
@@ -333,6 +335,17 @@ export const kernelRuntimeContract = oc
 			})
 			.input(ReadHomeRunSetInputSchema)
 			.output(z.object({ runSet: HomeRunSetSchema })),
+
+		readConversationCharges: oc
+			.route({
+				method: "GET",
+				path: "/conversations/{conversationId}/charges",
+				summary: "Read a Tedix Home conversation's settled credit charges",
+				description:
+					"Sums the settled EUR credit charges recorded for the conversation's runs and their delegated child runs. Unsettled usage and token-plan usage are not included.",
+			})
+			.input(ReadHomeConversationChargesInputSchema)
+			.output(HomeConversationChargesSchema),
 
 		readConversationEvents: oc
 			.route({

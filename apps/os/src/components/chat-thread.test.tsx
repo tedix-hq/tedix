@@ -44,6 +44,12 @@ const kernelRuntimeApi = vi.hoisted(() => ({
 	listConversationCapabilities: vi.fn(),
 	readMessages: vi.fn(),
 	readRunSet: vi.fn(),
+	readConversationCharges: vi.fn(async () => ({
+		currency: "eur",
+		chargedMicros: 0,
+		chargeCount: 0,
+		runCount: 0,
+	})),
 	retryRun: vi.fn(),
 }));
 const capabilitiesApi = vi.hoisted(() => ({ list: vi.fn() }));
