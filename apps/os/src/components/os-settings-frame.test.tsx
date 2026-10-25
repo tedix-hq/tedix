@@ -117,6 +117,17 @@ describe("Settings navigation", () => {
 	it("keeps the Settings rail off ordinary pages", () => {
 		expect(render("/team").querySelector("nav")).toBeNull();
 	});
+	it("wraps destinations onto rows below md instead of hiding them in horizontal scroll", () => {
+		state.viewer.role = "owner";
+		state.viewer.permissions = ["billing:manage"];
+		const doc = render("/admin/connections");
+		const classes =
+			doc
+				.querySelector('[aria-label="Settings sections"]')
+				?.getAttribute("class") ?? "";
+		expect(classes).toContain("flex-wrap");
+		expect(classes).toContain("md:flex-nowrap");
+	});
 	it("reveals the active link again when authority items arrive", () => {
 		state.pending = true;
 		const { page, navigate, scrollIntoView } = mount("/audit");
