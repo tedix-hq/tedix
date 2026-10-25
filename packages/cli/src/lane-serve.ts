@@ -436,13 +436,28 @@ function gitOutput(repo: string, args: string[]): string {
  *
  * A worktree still registered there was left by an earlier dispatch of the
  * same revision that failed before any model turn. It is reused when it is
- * clean and holds no commit the source lacks; otherwise it stays untouched for
+ * clean and holds no commit origin/main lacks; otherwise it stays untouched for
  * inspection and the retry gets the next free sibling path.
  */
 export function provisionLaneWorktree(
 	source: string,
 	destination: string,
 ): string {
+	gitOutput(source, [
+		"fetch",
+		"origin",
+		"refs/heads/main:refs/remotes/origin/main",
+	]);
+	const head = gitOutput(source, ["rev-parse", "refs/remotes/origin/main"]);
+	if (
+		!gitOutput(source, ["status", "--porcelain"]) &&
+		spawnSync(
+			"git",
+			["-C", source, "merge-base", "--is-ancestor", "HEAD", head],
+			{ encoding: "utf8", timeout: 10_000 },
+		).status === 0
+	)
+		gitOutput(source, ["merge", "--ff-only", head]);
 	gitOutput(source, ["worktree", "prune"]);
 	const registered = new Set(
 		gitOutput(source, ["worktree", "list", "--porcelain", "-z"])
@@ -453,7 +468,6 @@ export function provisionLaneWorktree(
 	const isRegistered = (path: string) =>
 		registered.has(existsSync(path) ? realpathSync(path) : resolve(path));
 	if (isRegistered(destination)) {
-		const head = gitOutput(source, ["rev-parse", "HEAD"]);
 		const reusable =
 			!gitOutput(destination, ["status", "--porcelain"]) &&
 			spawnSync(
@@ -485,7 +499,7 @@ export function provisionLaneWorktree(
 		const recovery = mkdtempSync(`${destination}.orphan-`);
 		renameSync(destination, join(recovery, "repo"));
 	}
-	gitOutput(source, ["worktree", "add", "--detach", destination, "HEAD"]);
+	gitOutput(source, ["worktree", "add", "--detach", destination, head]);
 	return destination;
 }
 
