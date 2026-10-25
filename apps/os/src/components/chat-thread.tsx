@@ -1834,6 +1834,10 @@ export function ChatThread({
 												showExecutionLink={executionLinks.has(message.id)}
 												context={context}
 												workspaceId={workspaceId}
+												runActive={
+													!!message.runId &&
+													activeRunIds.includes(message.runId)
+												}
 											/>
 											<ChatMessageWidgets
 												message={message}

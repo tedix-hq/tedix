@@ -837,6 +837,19 @@ describe("ChatMessageBubble", () => {
 		expect(html).not.toContain("(no text)");
 	});
 
+	it("does not call a turn finished while its run is still active", () => {
+		const html = renderToStaticMarkup(
+			<ChatMessageBubble
+				message={message({ content: "", runId: RUN_ID })}
+				runActive
+			/>,
+		);
+		expect(html).toContain("Response is still being prepared");
+		expect(html).not.toContain(
+			"Execution completed without a written response",
+		);
+	});
+
 	it("names non-prose durable payloads from typed metadata", () => {
 		const structured = renderToStaticMarkup(
 			<ChatMessageBubble

@@ -114,19 +114,22 @@ export function ChatMessageBubble({
 	latest = false,
 	context,
 	workspaceId,
+	runActive = false,
 }: {
 	message: HomeMessage;
 	showExecutionLink?: boolean;
 	latest?: boolean;
 	context?: ChatContext;
 	workspaceId?: string;
+	/** The message's run (or a run it delegated to) is still active. */
+	runActive?: boolean;
 }) {
 	useOsFormattingPreferences();
 	const isUser = message.role === "user";
 	const decoded = decodeChatContext(message.content);
 	const structuredResult = directReadResult(message);
 	const readFailure = directReadError(message);
-	const emptyLabel = emptyMessageLabel(message);
+	const emptyLabel = emptyMessageLabel(message, runActive);
 	return (
 		<li
 			data-role={message.role}
@@ -242,7 +245,7 @@ export function ChatMessageBubble({
  * row remains visible because its timestamp and execution link are canonical;
  * only the implementation-residue `(no text)` label is replaced.
  */
-function emptyMessageLabel(message: HomeMessage): string {
+function emptyMessageLabel(message: HomeMessage, runActive: boolean): string {
 	const attachmentCount = message.attachments?.length ?? 0;
 	if (attachmentCount > 0) {
 		return `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`;
@@ -263,7 +266,13 @@ function emptyMessageLabel(message: HomeMessage): string {
 	if (message.status === "canceled") {
 		return "Response canceled before text was produced";
 	}
-	if (message.status === "pending" || message.status === "streaming") {
+	// A row can read completed while its run, or a run it delegated to, still
+	// works: only a terminal run has finished without a written response.
+	if (
+		message.status === "pending" ||
+		message.status === "streaming" ||
+		runActive
+	) {
 		return "Response is still being prepared";
 	}
 	return message.runId
