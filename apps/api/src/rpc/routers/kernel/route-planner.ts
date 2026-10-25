@@ -10,7 +10,7 @@ import {
 import type { SelectedKernelModel } from "./llm";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 /** Bounded model-backed Home route planning. The selected model is authoritative;
- * provider failures propagate without switching providers. Deterministic runtime
+ * availability failures get one configured fallback within the route deadline. Deterministic runtime
  * gates still own tool execution, delegation, approvals and cancellation. */
 
 import { objectSpanTelemetry, tracedAi } from "../../../lib/traced-ai";
@@ -67,6 +67,33 @@ import {
 
 // Modest bounds — the planner emits a small typed object plus a short message.
 const MAX_OUTPUT_TOKENS = 3000;
+
+export interface KernelRouteAttempt {
+	model: string;
+	outcome: "succeeded" | "invalid" | "timeout" | "unavailable" | "denied";
+	ms: number;
+}
+
+function routeRetryable(error: unknown): boolean {
+	if (billingPolicyDenialCode(error)) return false;
+	if (NoObjectGeneratedError.isInstance(error)) return true;
+	if (!error || typeof error !== "object") return false;
+	const e = error as {
+		name?: string;
+		message?: string;
+		statusCode?: number;
+		status?: number;
+		cause?: unknown;
+	};
+	const status = e.statusCode ?? e.status;
+	return (
+		status === 429 ||
+		(typeof status === "number" && status >= 500 && status < 600) ||
+		e.name === "TimeoutError" ||
+		/timeout|timed out|stalled/i.test(e.message ?? "") ||
+		(Boolean(e.cause) && routeRetryable(e.cause))
+	);
+}
 
 /**
  * Exported as a router-version hash input (`./router-version.ts`) — any edit
@@ -493,6 +520,7 @@ export type PlanKernelRouteArgs = {
 	/** Jev fit over already visible, capable delegation targets. Advisory only. */
 	delegationCandidateRanker?: ContextCandidateRanker;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
+	onRouteAttempts?: (attempts: readonly KernelRouteAttempt[]) => void;
 	model: SelectedKernelModel | null;
 	/** Worker configuration for caller attribution. */
 	env?: KernelEnv | null;
@@ -622,7 +650,8 @@ async function planKernelRouteWithRecovery(
 				onAnswerDelta: input.onAnswerDelta ? () => {} : undefined,
 			}
 		: input;
-	const model = args.model?.forOperation() ?? null;
+	const model =
+		args.model?.forRouteOperation?.() ?? args.model?.forOperation() ?? null;
 	const attempts = model?.attempts ?? [];
 	const operatorContent = args.operatorContent ?? args.content;
 	const responseOnly =
@@ -643,11 +672,41 @@ async function planKernelRouteWithRecovery(
 					args.onAnswerDelta?.(delta);
 				};
 	const startedAt = Date.now();
+	const deadlineMs = args.generationTimeoutMs ?? KERNEL_LLM_FLAT_TIMEOUT_MS;
+	const routeAttempts: KernelRouteAttempt[] = [];
+	const record = (
+		selected: SelectedKernelModel,
+		start: number,
+		error?: unknown,
+	) => {
+		routeAttempts.push({
+			model:
+				typeof selected.model === "string"
+					? selected.model
+					: selected.model.modelId,
+			outcome: !error
+				? "succeeded"
+				: billingPolicyDenialCode(error)
+					? "denied"
+					: NoObjectGeneratedError.isInstance(error)
+						? "invalid"
+						: /timeout|timed out|stalled/i.test(String(error))
+							? "timeout"
+							: "unavailable",
+			ms: Math.max(0, Date.now() - start),
+		});
+	};
 	let retried = false;
 	try {
 		const planned = await planKernelRouteUnguarded({
 			...args,
 			onAnswerDelta,
+			env: { ...args.env, KERNEL_ROUTE_HEDGE_AFTER_MS: "0" },
+			generationTimeoutMs: Math.max(1, Math.floor(deadlineMs / 2)),
+			abortSignal: flatAbortSignal(
+				Math.max(1, Math.floor(deadlineMs / 2)),
+				args.abortSignal,
+			),
 			onRationaleDelta: responseOnly ? undefined : args.onRationaleDelta,
 			model,
 			gatewayContext: {
@@ -656,160 +715,181 @@ async function planKernelRouteWithRecovery(
 					args.gatewayContext?.organizationId ?? args.organizationId,
 				executionAttempts: attempts,
 			},
-		}).catch(async (error) => {
-			if (
-				!model ||
-				args.abortSignal?.aborted ||
-				!NoObjectGeneratedError.isInstance(error)
-			)
-				throw error;
-			retried = true;
-			const remainingMs = () =>
-				(args.generationTimeoutMs ?? KERNEL_LLM_FLAT_TIMEOUT_MS) -
-				(Date.now() - startedAt);
-			const retryModel = model.forOperation();
-			// Reasoning models can take longer than 10s to produce a valid route.
-			// Spend the remaining deadline on the re-ask, reserving a quarter
-			// for the tool-free answer rather than clipping every retry at 10s.
-			const timeoutMs = Math.max(0, Math.floor(remainingMs() * 0.75));
-			// Record field paths and error codes, never provider text or input values.
-			let validationCause: unknown = error.cause;
-			for (
-				let depth = 0;
-				depth < 5 &&
-				validationCause instanceof Error &&
-				!(validationCause instanceof ZodError);
-				depth++
-			) {
-				validationCause = validationCause.cause;
-			}
-			const validationIssues =
-				validationCause instanceof ZodError
-					? validationCause.issues.slice(0, 12).map((issue) => ({
-							code: issue.code,
-							path: issue.path.map(String).join(".").slice(0, 160),
-						}))
-					: [];
-			const retryLog = {
-				component: "kernel.route_planner",
-				finishReason: error.finishReason ?? null,
-				outputCharacters: error.text?.length ?? null,
-				outputShape: routeOutputShape(error.text),
-				validationIssues,
-				event: "route_decision_retry",
-				error: safeExceptionTopology(error),
-				model:
-					typeof model.model === "string" ? model.model : model.model.modelId,
-				runId: args.gatewayContext?.runId ?? null,
-				timeoutMs,
-			};
-			let recovered: PlanKernelRouteResult | null = null;
-			if (timeoutMs > 0) {
-				console.warn({ ...retryLog, outcome: "started" });
-				try {
-					recovered = await planKernelRouteUnguarded(
-						{
-							...args,
-							model: retryModel,
-							// Auto's buffered json_schema path can outlast the recovery
-							// deadline; retain the streamed forced-tool transport.
-							onAnswerDelta: autoRouter ? () => {} : undefined,
-							onRationaleDelta: undefined,
-							generationTimeoutMs: timeoutMs,
-							abortSignal: flatAbortSignal(timeoutMs, args.abortSignal),
-						},
-						true,
-					);
-				} catch (retryError) {
-					// Only malformed output can recover; provider failures retain their cause.
-					if (!NoObjectGeneratedError.isInstance(retryError)) throw retryError;
-				} finally {
-					console.warn({
-						...retryLog,
-						outcome: recovered ? "succeeded" : "failed",
-					});
-					attempts.push(...retryModel.attempts);
+		})
+			.then((result) => {
+				if (!result && !args.abortSignal?.aborted && model)
+					throw new DOMException("Route attempt timed out", "TimeoutError");
+				if (model && result) record(model, startedAt);
+				return result;
+			})
+			.catch(async (error) => {
+				if (model) record(model, startedAt, error);
+				if (!model || args.abortSignal?.aborted || !routeRetryable(error))
+					throw error;
+				retried = true;
+				const remainingMs = () =>
+					(args.generationTimeoutMs ?? KERNEL_LLM_FLAT_TIMEOUT_MS) -
+					(Date.now() - startedAt);
+				const retryModel = model.retryModel
+					? await model.retryModel()
+					: model.forOperation();
+				// Reasoning models can take longer than 10s to produce a valid route.
+				// Spend the remaining deadline on the re-ask, reserving a quarter
+				// for the tool-free answer rather than clipping every retry at 10s.
+				const timeoutMs = Math.max(0, Math.floor(remainingMs() * 0.75));
+				// Record field paths and error codes, never provider text or input values.
+				let validationCause: unknown = error.cause;
+				for (
+					let depth = 0;
+					depth < 5 &&
+					validationCause instanceof Error &&
+					!(validationCause instanceof ZodError);
+					depth++
+				) {
+					validationCause = validationCause.cause;
 				}
-			}
-			if (recovered) return recovered;
-			if (args.abortSignal?.aborted || remainingMs() <= 0) return null;
-			console.warn({
-				...retryLog,
-				event: "route_decision_fallback",
-				routeKind: "answer_in_home",
-				reason: "invalid_route_decision",
-			});
-			const fallback: PlanKernelRouteResult = {
-				routeKind: "answer_in_home",
-				answer: null,
-				rationale:
-					"Invalid route decision after bounded retry; tool-free answer only.",
-				risk: "low",
-				confidence: 0,
-				effortClass: "single_read",
-				targetTediId: null,
-				targetTediLabel: null,
-				targetActivityId: null,
-				plannedToolIds: [],
-				toolIntent: null,
-				workflowHint: null,
-				clarifyingQuestion: null,
-				evidenceExpectation: null,
-				routerVersion: await getRouterVersion(
-					args.routeChoice
-						? `${SYSTEM_PROMPT}\n${ROUTE_DETAILS_PROMPT_VERSION}`
-						: SYSTEM_PROMPT,
-				),
-				usage: shapeRouteUsage(undefined, model),
-				traceInput: azureTraceInput(
-					model,
-					homeModelPrompt(
-						buildUserPrompt(args.content, args.context, ANSWER_INSTRUCTION),
-						args.images,
-						args.context.history,
+				const validationIssues =
+					validationCause instanceof ZodError
+						? validationCause.issues.slice(0, 12).map((issue) => ({
+								code: issue.code,
+								path: issue.path.map(String).join(".").slice(0, 160),
+							}))
+						: [];
+				const retryLog = {
+					component: "kernel.route_planner",
+					finishReason: NoObjectGeneratedError.isInstance(error)
+						? error.finishReason
+						: null,
+					outputCharacters: NoObjectGeneratedError.isInstance(error)
+						? (error.text?.length ?? null)
+						: null,
+					outputShape: routeOutputShape(
+						NoObjectGeneratedError.isInstance(error) ? error.text : undefined,
 					),
-				),
-				hedge: null,
-				recovery: "invalid_route_decision",
-			};
-			const answerModel = model.forOperation();
-			try {
-				if (
-					!args.routeChoice ||
-					args.routeChoice.routeKind === "answer_in_home"
-				)
-					await streamHomeAnswer(
-						{
-							...args,
-							// The final message includes the notice once, after the answer settles.
-							onAnswerDelta: undefined,
-							abortSignal: flatAbortSignal(
-								Math.max(1, Math.min(20_000, remainingMs())),
-								args.abortSignal,
-							),
-						},
-						answerModel,
-						fallback,
-					);
-			} finally {
-				attempts.push(...answerModel.attempts);
-			}
-			if (args.routeChoice) {
-				fallback.confidence = args.routeChoice.confidence;
-				fallback.recovery = "invalid_route_details";
-				if (args.routeChoice.routeKind !== "answer_in_home") {
-					fallback.routeKind = "ask_human";
-					fallback.answer = null;
-					fallback.clarifyingQuestion =
-						"I found where this belongs, but couldn't prepare the request. Please try again.";
-					fallback.rationale =
-						"The selected route needs valid details before it can run.";
+					validationIssues,
+					event: "route_decision_retry",
+					error: safeExceptionTopology(error),
+					model:
+						typeof model.model === "string" ? model.model : model.model.modelId,
+					runId: args.gatewayContext?.runId ?? null,
+					timeoutMs,
+				};
+				let recovered: PlanKernelRouteResult | null = null;
+				if (timeoutMs > 0 && retryModel) {
+					const retryStarted = Date.now();
+					console.warn({ ...retryLog, outcome: "started" });
+					try {
+						recovered = await planKernelRouteUnguarded(
+							{
+								...args,
+								model: retryModel,
+								// Auto's buffered json_schema path can outlast the recovery
+								// deadline; retain the streamed forced-tool transport.
+								onAnswerDelta: autoRouter ? () => {} : undefined,
+								onRationaleDelta: undefined,
+								generationTimeoutMs: timeoutMs,
+								abortSignal: flatAbortSignal(timeoutMs, args.abortSignal),
+							},
+							true,
+						);
+						record(
+							retryModel,
+							retryStarted,
+							recovered
+								? undefined
+								: new DOMException("Route timed out", "TimeoutError"),
+						);
+					} catch (retryError) {
+						record(retryModel, retryStarted, retryError);
+						if (!routeRetryable(retryError)) throw retryError;
+					} finally {
+						console.warn({
+							...retryLog,
+							outcome: recovered ? "succeeded" : "failed",
+						});
+						attempts.push(...retryModel.attempts);
+					}
 				}
-			} else {
-				fallback.answer = `Routing had trouble; answering directly.\n\n${fallback.answer}`;
-			}
-			return fallback;
-		});
+				if (recovered) return recovered;
+				if (!NoObjectGeneratedError.isInstance(error)) return null;
+				if (args.abortSignal?.aborted || remainingMs() <= 0) return null;
+				console.warn({
+					...retryLog,
+					event: "route_decision_fallback",
+					routeKind: "answer_in_home",
+					reason: "invalid_route_decision",
+				});
+				const fallback: PlanKernelRouteResult = {
+					routeKind: "answer_in_home",
+					answer: null,
+					rationale:
+						"Invalid route decision after bounded retry; tool-free answer only.",
+					risk: "low",
+					confidence: 0,
+					effortClass: "single_read",
+					targetTediId: null,
+					targetTediLabel: null,
+					targetActivityId: null,
+					plannedToolIds: [],
+					toolIntent: null,
+					workflowHint: null,
+					clarifyingQuestion: null,
+					evidenceExpectation: null,
+					routerVersion: await getRouterVersion(
+						args.routeChoice
+							? `${SYSTEM_PROMPT}\n${ROUTE_DETAILS_PROMPT_VERSION}`
+							: SYSTEM_PROMPT,
+					),
+					usage: shapeRouteUsage(undefined, model),
+					traceInput: azureTraceInput(
+						model,
+						homeModelPrompt(
+							buildUserPrompt(args.content, args.context, ANSWER_INSTRUCTION),
+							args.images,
+							args.context.history,
+						),
+					),
+					hedge: null,
+					recovery: "invalid_route_decision",
+				};
+				const answerModel = model.forOperation();
+				try {
+					if (
+						!args.routeChoice ||
+						args.routeChoice.routeKind === "answer_in_home"
+					)
+						await streamHomeAnswer(
+							{
+								...args,
+								// The final message includes the notice once, after the answer settles.
+								onAnswerDelta: undefined,
+								abortSignal: flatAbortSignal(
+									Math.max(1, Math.min(20_000, remainingMs())),
+									args.abortSignal,
+								),
+							},
+							answerModel,
+							fallback,
+						);
+				} finally {
+					attempts.push(...answerModel.attempts);
+				}
+				if (args.routeChoice) {
+					fallback.confidence = args.routeChoice.confidence;
+					fallback.recovery = "invalid_route_details";
+					if (args.routeChoice.routeKind !== "answer_in_home") {
+						fallback.routeKind = "ask_human";
+						fallback.answer = null;
+						fallback.clarifyingQuestion =
+							"I found where this belongs, but couldn't prepare the request. Please try again.";
+						fallback.rationale =
+							"The selected route needs valid details before it can run.";
+					}
+				} else {
+					fallback.answer = `Routing had trouble; answering directly.\n\n${fallback.answer}`;
+				}
+				return fallback;
+			});
 		if (!planned) return null;
 		planned.usage.attempts = attempts;
 		planned.usage.attemptCount = attempts.length;
@@ -866,6 +946,7 @@ async function planKernelRouteWithRecovery(
 		throw error;
 	} finally {
 		args.onExecutionAttempts?.(attempts);
+		args.onRouteAttempts?.(routeAttempts);
 	}
 }
 
@@ -963,9 +1044,8 @@ async function planKernelRouteUnguarded(
 			// Combined with the operator abort signal so a mid-turn cancel actually
 			// stops this call instead of running to completion unattended.
 			abortSignal: flatAbortSignal(generationTimeoutMs, abortSignal),
-			// AI SDK v7 defaults to 2 retries (3 attempts); with no per-attempt
-			// timeout that stacks retryable 429/5xx with backoff. Pin to 1.
-			maxRetries: retry ? 0 : 1,
+			// The planner owns the single fallback and shared deadline.
+			maxRetries: 0,
 			// GPT-5 reasoning models do not support temperature (ignored
 			// with a warning), so we omit it.
 		});
@@ -1316,7 +1396,7 @@ async function streamRoutePlan(args: {
 		...modelPrompt,
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
 		abortSignal: signal ?? idle.signal,
-		maxRetries: args.retry ? 0 : 1,
+		maxRetries: 0,
 		// The SDK default logs every stream error; a request aborted because it
 		// lost the hedge race is an expected outcome, not one.
 		onError: ({ error }) => {

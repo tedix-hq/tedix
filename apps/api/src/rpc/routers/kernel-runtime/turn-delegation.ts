@@ -122,6 +122,16 @@ export function buildKernelTurnWorkDeps(
 	return {
 		db: context.db,
 		env: context.env,
+		...(context.env.KERNEL
+			? {
+					scheduleRouteRedrive: async (input: KernelTurnWorkInput) => {
+						const stub = context.env.KERNEL.get(
+							context.env.KERNEL.idFromName(input.organizationId),
+						);
+						await stub.scheduleRouteRedrive(input);
+					},
+				}
+			: {}),
 		kernel: async (args) =>
 			activeKernel({
 				...args,

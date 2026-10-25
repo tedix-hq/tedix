@@ -746,6 +746,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 					...(await loadKernelTurnDelegation()).buildKernelTurnWorkDeps(
 						context,
 					),
+					scheduleRouteRedrive: (saved) => this.scheduleRouteRedrive(saved),
 					onProgress: progress.onProgress,
 					flushStreamedProgress: progress.flush,
 					holdAfterSettle: progress.holdAfterSettle,
@@ -859,6 +860,73 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				this.turnAbortControllers.delete(input.runId);
 			}
 		}
+	}
+
+	/** A durable, once-only retry of the original saved turn, with no new ingress. */
+	async scheduleRouteRedrive(input: KernelTurnWorkInput): Promise<void> {
+		await this.schedule(20, "redriveRoute", input);
+	}
+
+	async redriveRoute(input: KernelTurnWorkInput): Promise<void> {
+		const context = await this.turnContext();
+		const { getKernelRuntimeRun, transitionKernelRuntimeRunStatus } =
+			await import("@tedix/db/queries/kernel-runtime-runs");
+		const run = await getKernelRuntimeRun(context.db, {
+			id: input.runId,
+			organizationId: input.organizationId,
+		});
+		const metadata = run?.metadata as Record<string, unknown> | undefined;
+		if (
+			!run ||
+			run.status !== "queued" ||
+			!metadata?.routeRetryAt ||
+			(typeof metadata.routeRetryCount === "number" &&
+				metadata.routeRetryCount >= 1) ||
+			run.childRunId ||
+			run.delegatedTediId ||
+			metadata.abortRequestedAt
+		)
+			return;
+		const saved = metadata.redriveInput as KernelTurnWorkInput | undefined;
+		if (
+			!saved ||
+			saved.runId !== run.id ||
+			saved.organizationId !== run.organizationId ||
+			saved.conversationId !== run.conversationId
+		)
+			return;
+		const retryAt = Date.parse(String(metadata.routeRetryAt));
+		if (!Number.isFinite(retryAt)) return;
+		if (Date.now() < retryAt) {
+			await this.schedule(new Date(retryAt), "redriveRoute", input);
+			return;
+		}
+		const nextMetadata = {
+			...metadata,
+			routeRetryCount: 1,
+			routeRetryAt: null,
+			redriveCount:
+				(typeof metadata.redriveCount === "number"
+					? metadata.redriveCount
+					: 0) + 1,
+		};
+		const claimed = await transitionKernelRuntimeRunStatus(context.db, {
+			id: input.runId,
+			organizationId: input.organizationId,
+			fromStatus: "queued",
+			patch: {
+				status: "running",
+				completedAt: null,
+				updatedAt: new Date().toISOString(),
+				metadata: nextMetadata,
+			},
+		});
+		if (!claimed) return;
+		await this.runPlannerStep({
+			...saved,
+			runRowMetadata: nextMetadata,
+			assistantMessageId: `${saved.assistantMessageId}:route-redrive`,
+		});
 	}
 
 	/**

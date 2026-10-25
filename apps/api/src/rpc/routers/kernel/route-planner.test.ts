@@ -1881,8 +1881,8 @@ describe("planKernelRoute — stall guards (intermittent-wedge fix)", () => {
 			800,
 			"stalled generateObject",
 		);
-		// Fail-soft: the wedge becomes a settled null → heuristic responder.
-		expect(result).toBeInstanceOf(Error);
+		// Both bounded attempts exhausted; the turn owner schedules redrive.
+		expect(result).toBeNull();
 	});
 
 	it("streaming: a stalled streamObject idle-aborts to null (not a hang)", async () => {
@@ -1902,7 +1902,7 @@ describe("planKernelRoute — stall guards (intermittent-wedge fix)", () => {
 		expect(deltas).toEqual([]);
 	});
 
-	it("FALLTHROUGH SKIP: an idle-aborted streamObject does NOT fall through to generateObject", async () => {
+	it("an idle-aborted stream gets exactly one bounded buffered route attempt", async () => {
 		const model = stallStreamCountGenerateModel();
 		const result = await settlesWithin(
 			planKernelRoute({
@@ -1911,16 +1911,15 @@ describe("planKernelRoute — stall guards (intermittent-wedge fix)", () => {
 				model,
 				onAnswerDelta: () => {},
 				streamIdleMs: 60,
-				// Set generously: if the fallthrough were (wrongly) taken, the stall
-				// generate would itself only abort at this bound and stack latency.
+				// The fallback shares this deadline.
 				generationTimeoutMs: 5_000,
 			}).catch((error: unknown) => error),
 			800,
 			"idle-abort fallthrough",
 		);
-		expect(result).toBeInstanceOf(Error);
-		// The decisive assertion: generateObject was never invoked on idle-abort.
-		expect(model.doGenerateCalls.length).toBe(0);
+		expect(result).toMatchObject({ routeKind: "answer_in_home" });
+		expect(model.doGenerateCalls).toHaveLength(1);
+		expect(model.doStreamCalls).toHaveLength(1);
 	});
 
 	it("SLOW-BUT-PROGRESSING stream: the idle reset does NOT abort a legit slow stream", async () => {
@@ -2101,6 +2100,83 @@ describe("planKernelRoute — operator abort classification (per-turn cancel)", 
 		// The decisive assertion: generateObject was never invoked — an operator
 		// abort must not fall through to a second (also-doomed-to-abort) pass.
 		expect(model.doGenerateCalls.length).toBe(0);
+	});
+});
+
+describe("configured route fallback", () => {
+	it.each(["invalid", "timeout", "5xx", "rate limit"])(
+		"uses the configured different model once after %s",
+		async (failure) => {
+			const answerModel = objectModel({
+				...FALLBACK_DECISION,
+				answer: "Recovered.",
+			});
+			const good = new MockLanguageModelV3({
+				modelId: "configured-fallback",
+				doGenerate: (options) => answerModel.doGenerate(options),
+			});
+			const invalid = objectModel({ routeKind: "invalid" });
+			const primary = new MockLanguageModelV3({
+				doGenerate: async (options) => {
+					if (failure === "invalid") return invalid.doGenerate(options);
+					if (failure === "timeout")
+						throw new DOMException("Timed out", "TimeoutError");
+					throw Object.assign(new Error("temporarily unavailable"), {
+						statusCode: failure === "5xx" ? 503 : 429,
+					});
+				},
+			});
+			const retryModel = vi.fn(async () => selected(good));
+			const attempts = vi.fn();
+			const result = await runPlanKernelRoute({
+				model: {
+					...selected(primary),
+					forOperation: () => ({ ...selected(primary), retryModel }),
+				},
+				context: EMPTY_CONTEXT,
+				content: "Status",
+				onRouteAttempts: attempts,
+			});
+			expect(result?.answer).toBe("Recovered.");
+			expect(retryModel).toHaveBeenCalledOnce();
+			expect(primary.doGenerateCalls).toHaveLength(1);
+			expect(good.doGenerateCalls).toHaveLength(1);
+			expect(attempts).toHaveBeenCalledWith([
+				expect.objectContaining({
+					outcome:
+						failure === "invalid"
+							? "invalid"
+							: failure === "timeout"
+								? "timeout"
+								: "unavailable",
+				}),
+				expect.objectContaining({
+					model: "configured-fallback",
+					outcome: "succeeded",
+				}),
+			]);
+		},
+	);
+	it("does not select a fallback on a billing denial", async () => {
+		const model = new MockLanguageModelV3({
+			doGenerate: async () => {
+				throw new Error(
+					"Inference blocked by billing policy: entitlement_inactive",
+				);
+			},
+		});
+		const retryModel = vi.fn();
+		await expect(
+			runPlanKernelRoute({
+				model: {
+					...selected(model),
+					forOperation: () => ({ ...selected(model), retryModel }),
+				},
+				context: EMPTY_CONTEXT,
+				content: "Status",
+			}),
+		).rejects.toThrow("entitlement_inactive");
+		expect(retryModel).not.toHaveBeenCalled();
 	});
 });
 
@@ -2736,7 +2812,7 @@ describe("operator intent before delegation fit", () => {
 });
 
 // ── Route-pass hedge (single second request against TTFT variance) ──────────
-describe("planKernelRoute — route-pass hedge", () => {
+describe("planKernelRoute — bounded attempts replace route hedging", () => {
 	const DECISION: KernelRouteDecision = {
 		...FALLBACK_DECISION,
 		answer: "Rain is water falling from clouds.",
@@ -2837,8 +2913,11 @@ describe("planKernelRoute — route-pass hedge", () => {
 				if (!lane) throw new Error("unexpected third dispatch");
 				return { stream: laneStream(lane, abortSignal) as any };
 			},
-			doGenerate: async () => {
-				throw new Error("buffered pass must not run");
+			doGenerate: async (options) => {
+				const lane = lanes[call++];
+				if (lane?.kind !== "stream")
+					throw new Error("unexpected buffered dispatch");
+				return objectModel(lane.decision).doGenerate(options);
 			},
 		});
 		let admitted = 0;
@@ -2847,7 +2926,7 @@ describe("planKernelRoute — route-pass hedge", () => {
 			return {
 				model: new Proxy(mock, {
 					get(target, key, receiver) {
-						if (key !== "doStream") {
+						if (key !== "doStream" && key !== "doGenerate") {
 							const value = Reflect.get(target, key, receiver);
 							return typeof value === "function" ? value.bind(target) : value;
 						}
@@ -2867,7 +2946,11 @@ describe("planKernelRoute — route-pass hedge", () => {
 								occurredAt: new Date().toISOString(),
 								executionId: `exec-${++admitted}`,
 							});
-							return Reflect.apply(target.doStream, target, args);
+							return Reflect.apply(
+								key === "doStream" ? target.doStream : target.doGenerate,
+								target,
+								args,
+							);
 						};
 					},
 				}) as LanguageModel,
@@ -2889,7 +2972,7 @@ describe("planKernelRoute — route-pass hedge", () => {
 			model,
 			env: { KERNEL_ROUTE_HEDGE_AFTER_MS: afterMs },
 			onAnswerDelta: (d) => deltas.push(d),
-			streamIdleMs: 2_000,
+			streamIdleMs: 80,
 		});
 	}
 
@@ -2904,7 +2987,7 @@ describe("planKernelRoute — route-pass hedge", () => {
 		expect(mock.doStreamCalls).toHaveLength(1);
 		expect(result?.hedge).toMatchObject({
 			fired: false,
-			afterMs: 500,
+			afterMs: 0,
 			winner: "primary",
 			loserTokens: null,
 			loserExecutionId: null,
@@ -2914,90 +2997,54 @@ describe("planKernelRoute — route-pass hedge", () => {
 		expect(result?.usage.executionId).toBe("exec-1");
 	});
 
-	it("fires after the deadline and the hedge wins: primary aborted, only hedge deltas emitted", async () => {
-		const info = vi.spyOn(console, "info").mockImplementation(() => {});
-		try {
-			const { mock, selected } = hedgeModel([
-				{ kind: "stall" },
-				{ kind: "stream", decision: HEDGE_DECISION },
-			]);
-			const deltas: string[] = [];
-			const result = await settlesWithin(
-				run(selected, "40", deltas),
-				3_000,
-				"hedge wins",
-			);
-			expect(result?.answer).toBe(HEDGE_DECISION.answer);
-			expect(deltas.join("")).toBe(HEDGE_DECISION.answer);
-			expect(mock.doStreamCalls).toHaveLength(2);
-			// The primary was aborted the moment the hedge produced a partial.
-			expect(mock.doStreamCalls[0]!.abortSignal?.aborted).toBe(true);
-			expect(result?.hedge).toMatchObject({
-				fired: true,
-				afterMs: 40,
-				winner: "hedge",
-				loserTokens: null,
-				loserExecutionId: "exec-1",
-				primaryFirstPartialMs: null,
-			});
-			expect(result?.hedge?.hedgeFirstPartialMs).toBeTypeOf("number");
-			// Accounting: the winner's admission is the turn's; the loser's is not.
-			expect(result?.usage.executionId).toBe("exec-2");
-			expect(result?.usage.attempts.map((a) => a.executionId)).toEqual([
-				"exec-2",
-			]);
-			expect(result?.usage).toMatchObject({
-				inputTokens: 10,
-				outputTokens: 20,
-			});
-			expect(info).toHaveBeenCalledWith(
-				"[kernel.route.hedge]",
-				expect.objectContaining({ fired: true, winner: "hedge" }),
-			);
-		} finally {
-			info.mockRestore();
-		}
+	it("retries a stalled primary once without a concurrent hedge", async () => {
+		const { mock, selected } = hedgeModel([
+			{ kind: "stall" },
+			{ kind: "stream", decision: HEDGE_DECISION },
+		]);
+		const deltas: string[] = [];
+		const result = await settlesWithin(
+			run(selected, "40", deltas),
+			3_000,
+			"fallback wins",
+		);
+		expect(result?.answer).toBe(HEDGE_DECISION.answer);
+		expect(deltas.join("")).toBe(HEDGE_DECISION.answer);
+		expect(mock.doStreamCalls).toHaveLength(1);
+		expect(mock.doGenerateCalls).toHaveLength(1);
+		expect(mock.doStreamCalls[0]!.abortSignal?.aborted).toBe(true);
+		expect(
+			result?.usage.attempts.map((attempt) => attempt.executionId),
+		).toEqual(["exec-1", "exec-2"]);
 	});
 
-	it("fires and the primary wins: hedge aborted, only primary deltas emitted", async () => {
-		const info = vi.spyOn(console, "info").mockImplementation(() => {});
-		try {
-			const { mock, selected } = hedgeModel([
-				{ kind: "stream", decision: DECISION, delayMs: 120 },
-				{ kind: "stall" },
-			]);
-			const deltas: string[] = [];
-			const result = await settlesWithin(
-				run(selected, "40", deltas),
-				3_000,
-				"primary wins",
-			);
-			expect(result?.answer).toBe(DECISION.answer);
-			expect(deltas.join("")).toBe(DECISION.answer);
-			expect(mock.doStreamCalls).toHaveLength(2);
-			expect(mock.doStreamCalls[1]!.abortSignal?.aborted).toBe(true);
-			expect(result?.hedge).toMatchObject({
-				fired: true,
-				winner: "primary",
-				loserExecutionId: "exec-2",
-				loserTokens: null,
-				hedgeFirstPartialMs: null,
-			});
-			expect(result?.hedge?.primaryFirstPartialMs).toBeGreaterThanOrEqual(40);
-			expect(result?.usage.attempts.map((a) => a.executionId)).toEqual([
-				"exec-1",
-			]);
-			expect(info).toHaveBeenCalledTimes(1);
-		} finally {
-			info.mockRestore();
-		}
+	it("lets a healthy primary finish without starting a duplicate request", async () => {
+		const { mock, selected } = hedgeModel([
+			{ kind: "stream", decision: DECISION, delayMs: 60 },
+			{ kind: "stall" },
+		]);
+		const deltas: string[] = [];
+		const result = await settlesWithin(
+			run(selected, "40", deltas),
+			3_000,
+			"primary finishes",
+		);
+		expect(result?.answer).toBe(DECISION.answer);
+		expect(deltas.join("")).toBe(DECISION.answer);
+		expect(mock.doStreamCalls).toHaveLength(1);
+		expect(mock.doGenerateCalls).toHaveLength(0);
+		expect(result?.hedge).toMatchObject({
+			fired: false,
+			afterMs: 0,
+			winner: "primary",
+		});
 	});
 
-	it("surfaces the primary's error when both requests fail", async () => {
+	it("does not replay an unclassified primary error", async () => {
 		const info = vi.spyOn(console, "info").mockImplementation(() => {});
 		try {
 			const { mock, selected } = hedgeModel([
-				{ kind: "error", message: "primary boom", delayMs: 120 },
+				{ kind: "error", message: "primary boom", delayMs: 40 },
 				{ kind: "error", message: "hedge boom" },
 			]);
 			const error = await settlesWithin(
@@ -3012,7 +3059,7 @@ describe("planKernelRoute — route-pass hedge", () => {
 			}`;
 			expect(text).toContain("primary boom");
 			expect(text).not.toContain("hedge boom");
-			expect(mock.doStreamCalls).toHaveLength(2);
+			expect(mock.doStreamCalls).toHaveLength(1);
 			expect(mock.doGenerateCalls).toHaveLength(0);
 		} finally {
 			info.mockRestore();
@@ -3030,7 +3077,7 @@ describe("planKernelRoute — route-pass hedge", () => {
 
 	it("KERNEL_ROUTE_HEDGE_AFTER_MS=0 disables the hedge", async () => {
 		const { mock, selected } = hedgeModel([
-			{ kind: "stream", decision: DECISION, delayMs: 80 },
+			{ kind: "stream", decision: DECISION, delayMs: 40 },
 			{ kind: "stream", decision: HEDGE_DECISION },
 		]);
 		const deltas: string[] = [];

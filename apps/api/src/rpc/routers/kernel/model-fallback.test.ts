@@ -86,3 +86,67 @@ describe("kernel fallback ledger boundary", () => {
 		}
 	});
 });
+
+it("selects the organization's next configured route model and records it before inference", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec(
+			schemaDdl(organizations, tedis, kernelRuntimeRuns, kernelRuntimeEvents),
+		);
+		const binding = createD1Facade(sqlite);
+		const db = createDbClient(binding);
+		await db.insert(organizations).values({
+			id: "fictional-org",
+			name: "Fictional",
+			slug: "fictional",
+			descopeTenantId: "fictional",
+			metadata: {
+				modelFallback: {
+					version: 1,
+					maxTransitions: 1,
+					ladder: { "cloudflare/auto": ["azure-openai/gpt-6.1-sol"] },
+				},
+			},
+		});
+		await db.insert(kernelRuntimeRuns).values({
+			id: "fictional-run",
+			organizationId: "fictional-org",
+			conversationId: "fictional-conversation",
+			status: "running",
+		});
+		const { kernelModel } = await import("./llm");
+		const selected = kernelModel(
+			{
+				DB: binding,
+				AZURE_OPENAI_RESOURCE: "fictional-resource",
+				AZURE_CHAT_DEPLOYMENT: "gpt-6-luna",
+				AI_GATEWAY_ACCOUNT_ID: "fictional-account",
+				AI_GATEWAY_LLM_ID: "fictional-gateway",
+				CF_AI_GATEWAY_TOKEN: "fictional-token",
+			},
+			null,
+			{ organizationId: "fictional-org", runId: "fictional-run" },
+		);
+		const route = selected?.forRouteOperation?.();
+		const next = await route?.retryModel?.();
+		expect(typeof route?.model === "object" && route.model.modelId).toBe(
+			"cloudflare/auto",
+		);
+		expect(typeof next?.model === "object" && next.model.modelId).toBe(
+			"gpt-6.1-sol",
+		);
+		expect(next?.retryModel).toBeUndefined();
+		expect(await db.select().from(kernelRuntimeEvents)).toEqual([
+			expect.objectContaining({
+				kind: "step.retry",
+				payload: expect.objectContaining({
+					from: "cloudflare/auto",
+					to: "azure-openai/gpt-6.1-sol",
+					ordinal: 1,
+				}),
+			}),
+		]);
+	} finally {
+		sqlite.close();
+	}
+});

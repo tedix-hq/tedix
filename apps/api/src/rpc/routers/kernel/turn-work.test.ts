@@ -1124,29 +1124,81 @@ describe("runKernelTurnWork progress seam", () => {
 		expect(capturedRawTraceInputs).toEqual([{ runId: "run-1" }]);
 	});
 
-	it("a route-less turn (kernel null) settles failed (model unavailable) with no routerVersion — no heuristic answer", async () => {
+	it("a route-less turn (kernel null) queues one saved-input retry with no routerVersion — no heuristic answer", async () => {
 		const capturedRunMetadata: Array<Record<string, unknown>> = [];
 		const capturedEventRuntimeMetadata: Array<
 			Record<string, unknown> | undefined
 		> = [];
 		const deps = stubDeps({
 			kernel: async () => null,
+			scheduleRouteRedrive: vi.fn(async () => {}),
 			db: capturingDbProxy(capturedRunMetadata),
 			insertKernelRuntimeEvent: capturingEventInsert(
 				capturedEventRuntimeMetadata,
 			),
 		});
 		const result = await runKernelTurnWork(deps, turnInput());
-		// LLM-only kernel: no model decision → hard failure, not a fabricated answer.
-		expect(result.status).toBe("failed");
-		expect(result.run.status).toBe("failed");
+		// Saved input stays non-terminal while its durable retry is pending.
+		expect(result.status).toBe("queued");
+		expect(result.run.status).toBe("queued");
 		expect(result.assistantMessage.content).toContain(
 			"configured model did not produce a valid route decision",
 		);
+		expect(deps.scheduleRouteRedrive).toHaveBeenCalledExactlyOnceWith(
+			turnInput(),
+		);
+		expect(result.run.completedAt).toBeNull();
+		expect(result.run.metadata).toMatchObject({
+			routeRetryAt: "2026-06-11T00:00:32.500Z",
+		});
 		expect(capturedRunMetadata[0]).not.toHaveProperty("routerVersion");
 		for (const meta of capturedEventRuntimeMetadata) {
 			expect(meta).not.toHaveProperty("routerVersion");
 		}
+	});
+
+	it("fails after the single automatic redrive, without scheduling again", async () => {
+		const scheduleRouteRedrive = vi.fn(async () => {});
+		const result = await runKernelTurnWork(
+			stubDeps({ kernel: async () => null, scheduleRouteRedrive }),
+			{
+				...turnInput(),
+				runRowMetadata: {
+					routeRetryCount: 1,
+					routeAttempts: [{ model: "first", outcome: "invalid", ms: 5 }],
+				},
+			},
+		);
+		expect(result.run.status).toBe("failed");
+		expect(result.assistantMessage.content).toContain(
+			"retried it automatically once",
+		);
+		expect(result.run.metadata).toMatchObject({
+			routeFailure: { retryable: false },
+			routeAttempts: [{ model: "first", outcome: "invalid", ms: 5 }],
+		});
+		expect(scheduleRouteRedrive).not.toHaveBeenCalled();
+	});
+
+	it("records route attempts even when the planner returns no route", async () => {
+		const attempts = [
+			{ model: "primary", outcome: "timeout" as const, ms: 35 },
+			{ model: "fallback", outcome: "unavailable" as const, ms: 10 },
+		];
+		const result = await runKernelTurnWork(
+			stubDeps({
+				kernel: async (args) => {
+					args.onRouteAttempts?.(attempts);
+					return null;
+				},
+				scheduleRouteRedrive: async () => {},
+			}),
+			turnInput(),
+		);
+		expect(result.run.metadata).toMatchObject({
+			routeAttempts: attempts,
+			kernelTurnTimings: { routeAttempts: attempts },
+		});
 	});
 
 	it("plans the selected app's rename when the router produced no decision", async () => {
@@ -1196,7 +1248,9 @@ describe("runKernelTurnWork progress seam", () => {
 			kind: string;
 			payload: Record<string, unknown> | undefined;
 		}> = [];
+		const scheduleRouteRedrive = vi.fn(async () => {});
 		const deps = stubDeps({
+			scheduleRouteRedrive,
 			kernel: async () => {
 				// The canonical deterministic-denial marker reserveKernelBilling
 				// throws (rethrown by the route planner instead of folded into null).
@@ -1210,6 +1264,7 @@ describe("runKernelTurnWork progress seam", () => {
 			const result = await runKernelTurnWork(deps, turnInput());
 			// The turn still settles failed — but as a policy denial, not an outage.
 			expect(result.status).toBe("failed");
+			expect(scheduleRouteRedrive).not.toHaveBeenCalled();
 			expect(result.run.status).toBe("failed");
 			expect(result.assistantMessage.content).toContain(
 				"billing/entitlement state (entitlement_inactive)",

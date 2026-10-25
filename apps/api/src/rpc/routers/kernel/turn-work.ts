@@ -5,6 +5,7 @@ import {
 	runWorkflowConfirmIntercept,
 	recordOrNull,
 } from "./turn-work-intercepts";
+import type { KernelRouteAttempt } from "./route-planner";
 import { runInboxWakeIntercept } from "./turn-work-inbox";
 import {
 	KERNEL_RUNTIME_BACKEND,
@@ -131,14 +132,9 @@ function readParentTediId(...sources: Array<unknown>): string | null {
 	return null;
 }
 
-/**
- * Operator-facing notice when the kernel route decision could not be produced
- * because the configured routing model did not produce a valid decision. There is no heuristic fallback: a turn the
- * LLM never routed settles `failed` with this clear message, so a provider/gateway
- * outage is legible instead of masked by a fabricated answer.
- */
+/** Shown only after the saved turn has spent its automatic retry. */
 const KERNEL_MODEL_UNAVAILABLE_MESSAGE =
-	"I couldn't finish routing this turn because the configured model did not produce a valid route decision. Your message is saved; please retry shortly.";
+	"I couldn't finish routing this turn because the configured model did not produce a valid route decision. Your message is saved. I retried it automatically once, but the models are still unavailable.";
 
 /**
  * Operator-facing notice when the kernel turn was denied by the workspace's
@@ -797,12 +793,14 @@ export async function runKernelTurnWork(
 	// here so the settle below renders the honest billing notice; every other
 	// throw stays the fail-soft null → model-unavailable path.
 	const executionAttempts: KernelExecutionAttempt[] = [];
+	const routeAttempts: KernelRouteAttempt[] = [];
 	let billingDenialCode: BillingPolicyDenialCode | null = null;
 	let residencyDenialMessage: string | null = null;
 	let kernelResult = await deps
 		.kernel({
 			holdDecisionWork: deps.holdAfterSettle,
 			onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
+			onRouteAttempts: (attempts) => routeAttempts.push(...attempts),
 			attachments: input.attachments,
 			...(deps.relevanceCandidates
 				? { relevanceCandidates: deps.relevanceCandidates }
@@ -1421,14 +1419,23 @@ export async function runKernelTurnWork(
 	// operator that a human click is still required; its terminal execution
 	// receipt follows through the same audited approval latch. Otherwise, fall
 	// back to the honest declined line or the kernel answer.
-	// The kernel is LLM-only: a null `kernelResult` means the selected model was
-	// unavailable or failed to produce a valid decision. There is no heuristic responder — the turn
-	// settles `failed` with a clear model-unavailable notice so the outage is
-	// legible rather than masked behind a fabricated answer. The one exception:
-	// a billing-policy admission denial (billingDenialCode set) also yields a
-	// null kernelResult but renders the honest billing-blocked notice — a policy
-	// denial must never impersonate a provider outage.
+	// No route means no action was selected. Retry the saved turn once;
+	// billing denials remain terminal and keep their policy explanation.
 	const modelUnavailable = !kernelResult;
+	const routeRetryCount =
+		typeof runRowMetadata.routeRetryCount === "number"
+			? runRowMetadata.routeRetryCount
+			: 0;
+	const routeRetryScheduled =
+		modelUnavailable &&
+		!billingDenialCode &&
+		!observeOnly &&
+		!deps.plannerAbortSignal?.aborted &&
+		routeRetryCount === 0 &&
+		Boolean(deps.scheduleRouteRedrive);
+	const routeRetryAt = routeRetryScheduled
+		? new Date(Date.parse(deps.nowIso()) + 20_000).toISOString()
+		: null;
 	const routedAssistantContent = autoDispatchFailed
 		? "The delegated request failed during dispatch. No completed result was received. Open the run details for the error, and check any changes before retrying."
 		: kernelResult?.assistantContent;
@@ -1438,7 +1445,11 @@ export async function runKernelTurnWork(
 			? billingDenialCode
 				? (residencyDenialMessage ??
 					renderKernelBillingBlockedMessage(billingDenialCode))
-				: KERNEL_MODEL_UNAVAILABLE_MESSAGE
+				: routeRetryScheduled
+					? "The configured model did not produce a valid route decision. Your message is saved; I’ll retry it automatically in 20 seconds."
+					: routeRetryCount > 0
+						? KERNEL_MODEL_UNAVAILABLE_MESSAGE
+						: "The configured model did not produce a valid route decision. Your message is saved, but automatic retry is unavailable for this run."
 			: writeProposalActive && writeProposal && writeApprovalRequestId
 				? writeWillAutoResolve
 					? `${writeApprovalDecision?.source === "session" ? "Authorized for this conversation" : "Authorized by tenant policy"}: executing \`${writeProposal.toolName}\` on ${writeProposal.appSlug}.`
@@ -1457,7 +1468,9 @@ export async function runKernelTurnWork(
 							)
 						: (routedAssistantContent ?? KERNEL_MODEL_UNAVAILABLE_MESSAGE);
 	const dispatchAwareStatus: TediRunStatus = modelUnavailable
-		? "failed"
+		? routeRetryScheduled
+			? "queued"
+			: "failed"
 		: writeProposalActive || delegationApprovalActive
 			? "requires_approval"
 			: autoDispatchSucceeded || delegationDeferred
@@ -1486,7 +1499,9 @@ export async function runKernelTurnWork(
 	// suggestion, a human question) keeps the needs_delegation sentinel.
 	const answeredInHome = kernelResult?.route?.routeKind === "answer_in_home";
 	const terminalPayloadStatus = modelUnavailable
-		? "failed"
+		? routeRetryScheduled
+			? "queued"
+			: "failed"
 		: observeOnly
 			? "completed"
 			: writeProposalActive || delegationApprovalActive
@@ -1548,7 +1563,9 @@ export async function runKernelTurnWork(
 		id: `${runId}:body-execution-result`,
 		bodyKind: "kernel",
 		status: modelUnavailable
-			? "failed"
+			? routeRetryScheduled
+				? "blocked"
+				: "failed"
 			: writeProposalActive
 				? "blocked"
 				: autoDispatchFailed
@@ -1610,11 +1627,22 @@ export async function runKernelTurnWork(
 	});
 	const routeFailure =
 		modelUnavailable && !billingDenialCode
-			? { code: "HOME_ROUTE_UNAVAILABLE", retryable: true, retryRunId: runId }
+			? {
+					code: "HOME_ROUTE_UNAVAILABLE",
+					retryable: routeRetryScheduled,
+					retryRunId: runId,
+				}
 			: null;
 	const turnRunMetadata = {
 		...runRowMetadata,
-		...(routeFailure ? { routeFailure } : {}),
+		routeFailure,
+		routeAttempts: [
+			...(Array.isArray(runRowMetadata.routeAttempts)
+				? runRowMetadata.routeAttempts
+				: []),
+			...routeAttempts,
+		],
+		routeRetryAt,
 		...(writeProposalActive && writeProposal
 			? {
 					approvalRequestId: writeApprovalRequestId,
@@ -1740,11 +1768,14 @@ export async function runKernelTurnWork(
 		// for each stage boundary the turn passed. Rides this existing terminal
 		// metadata write — never a separate persist — and reaches the operator
 		// via readRun → Tedix OS loadHomeRun like every other metadata key.
-		kernelTurnTimings: stageTimings.snapshot({
-			enqueuedAt: createdAt,
-			settledAt,
-			turnType,
-		}),
+		kernelTurnTimings: {
+			...stageTimings.snapshot({
+				enqueuedAt: createdAt,
+				settledAt,
+				turnType,
+			}),
+			routeAttempts,
+		},
 		// Route-pass hedge record (route-planner.ts `KernelRouteHedge`): whether
 		// a second identical request fired, which one won, and what the loser
 		// consumed. Present on every streamed route pass, fired or not, so the
@@ -1779,6 +1810,11 @@ export async function runKernelTurnWork(
 		autoDispatch,
 	});
 	if (preMaterializeCanceled) return preMaterializeCanceled;
+	if (routeRetryScheduled) {
+		// Persist the SDK alarm before advertising a queued retry. Its callback
+		// claims only this queued run, so cancellation always wins.
+		await deps.scheduleRouteRedrive!(input);
+	}
 	const mergedTurnRunMetadata = currentRunMetadata
 		? { ...currentRunMetadata, ...turnRunMetadata }
 		: turnRunMetadata;
@@ -1792,6 +1828,7 @@ export async function runKernelTurnWork(
 		fromStatus: "running" as const,
 		patch: {
 			status: dispatchAwareStatus,
+			outputMessageId: assistantMessageId,
 			progressValue: dispatchAwareProgress.current,
 			progressLabel: dispatchAwareProgress.label,
 			progressDetail: dispatchAwareProgress.detail,
@@ -1887,11 +1924,11 @@ export async function runKernelTurnWork(
 	};
 	const terminalEventInput: HomeTurnRuntimeEventInput = {
 		organizationId,
-		// A model-unavailable turn (no route) emits run.failed; any parked decision
-		// emits approval.requested instead of a terminal run event — the run is
-		// waiting on the human card; otherwise the turn completed.
+		// A scheduled retry stays non-terminal; billing and exhausted retries fail.
 		kind: modelUnavailable
-			? "run.failed"
+			? routeRetryScheduled
+				? "step.retry"
+				: "run.failed"
 			: writeProposalActive || delegationApprovalActive
 				? "approval.requested"
 				: "run.completed",
@@ -2265,7 +2302,9 @@ export async function runKernelTurnWork(
 			autoResolvedStatus === "completed" || autoResolvedStatus === "failed"
 				? autoResolvedStatus
 				: modelUnavailable
-					? ("failed" as const)
+					? routeRetryScheduled
+						? ("queued" as const)
+						: ("failed" as const)
 					: writeProposalActive || delegationApprovalActive
 						? ("requires_approval" as const)
 						: autoDispatchSucceeded || delegationDeferred
