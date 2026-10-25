@@ -46,7 +46,8 @@ export function fullyRefusedWorkflowStep(receipts: unknown[]): string | null {
 		if (
 			receipt.status === "failed" &&
 			(receipt.refused === true ||
-				new RegExp(WORKFLOW_TOOL_REFUSAL_PATTERN, "i").test(message))
+				(receipt.refused === undefined &&
+					new RegExp(WORKFLOW_TOOL_REFUSAL_PATTERN, "i").test(message)))
 		)
 			counts.refused++;
 		else counts.other++;

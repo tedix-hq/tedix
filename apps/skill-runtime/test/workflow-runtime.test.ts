@@ -3897,6 +3897,40 @@ assert.equal(
 	"judge",
 );
 
+for (const message of [
+	"getaddrinfo ENOTFOUND unauthorized.example",
+	"Upstream lookup failed for forbidden.example",
+	"HTTP 429",
+]) {
+	for (const refused of [false, true, undefined]) {
+		assert.equal(
+			fullyRefusedWorkflowStep([
+				{
+					...callReceipt("fetch", "failed", 1, message),
+					...(refused === undefined ? {} : { refused }),
+				},
+			]),
+			refused === true || (refused === undefined && message !== "HTTP 429")
+				? "fetch"
+				: null,
+			`refused=${refused}, message=${message}`,
+		);
+	}
+}
+assert.equal(
+	fullyRefusedWorkflowStep([
+		{ ...callReceipt("fetch", "failed"), refused: true },
+		{ ...callReceipt("fetch", "failed"), refused: false },
+	]),
+	null,
+);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		{ ...callReceipt("fetch", "succeeded"), refused: true },
+	]),
+	null,
+);
+
 const receiptSqlite = new Database(":memory:");
 receiptSqlite.exec(
 	"CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT)",
