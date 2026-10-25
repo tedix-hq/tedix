@@ -454,10 +454,11 @@ async function aggregateAndPrefixToolsUncached(
 					"connectionInstanceId" in sub
 						? sub.connectionInstanceId
 						: undefined;
-				const appAccount =
-					appConnectionProviderId === providerId
-						? appConnectionInstanceId
-						: undefined;
+				const appProviderMatches =
+					!!appConnectionProviderId && appConnectionProviderId === providerId;
+				const appAccount = appProviderMatches
+					? appConnectionInstanceId
+					: undefined;
 				return {
 					slug: sub.slug,
 					...(typeof sub.appId === "string" && sub.appId
@@ -483,7 +484,7 @@ async function aggregateAndPrefixToolsUncached(
 					connectionLabel:
 						entry.connectionLabel ??
 						sub.connectionLabel ??
-						appConnectionLabel ??
+						(appProviderMatches ? appConnectionLabel : undefined) ??
 						undefined,
 					connectionProviderId:
 						entry.connectionProviderId ??
@@ -500,12 +501,14 @@ async function aggregateAndPrefixToolsUncached(
 								? (appConnectionScope ?? undefined)
 								: (entry.connectionScope ??
 									sub.connectionScope ??
-									(appConnectionInstanceId ? undefined : appConnectionScope) ??
+									(appProviderMatches && !appConnectionInstanceId
+										? appConnectionScope
+										: undefined) ??
 									undefined),
 					connectionScopes:
 						entry.connectionScopes ??
 						sub.connectionScopes ??
-						appConnectionScopes ??
+						(appProviderMatches ? appConnectionScopes : undefined) ??
 						undefined,
 					forwardedQueryParams:
 						entry.forwardedQueryParams ??
