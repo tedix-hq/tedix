@@ -439,6 +439,51 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		buildMcpServer.mockResolvedValue({} as unknown);
 	});
 
+	it("keeps an unkeyed nested gateway's defaults out of a provider-bound child", async () => {
+		installFixtures([
+			{
+				slug: "scope-host",
+				mcpConfig: {
+					authMode: "public",
+					aggregateApps: [{ slug: "scope-gateway" }],
+				},
+			},
+			{
+				slug: "scope-gateway",
+				mcpConfig: {
+					connectionScope: "tenant",
+					connectionLabel: "unrelated-account",
+					connectionScopes: ["unrelated:read"],
+					aggregateApps: [{ slug: "scope-proxy" }],
+				},
+			},
+			{
+				slug: "scope-proxy",
+				mcpConfig: {
+					connectionProviderId: "sheet-provider",
+					connectionScope: "user",
+					connectionScopes: ["sheets:read"],
+					aggregateApps: [{ slug: "scope-base" }],
+				},
+			},
+			{
+				slug: "scope-base",
+				tools: [connectionTool("read_sheet", "sheet-provider")],
+			},
+		]);
+		const mounted = await serveAndCaptureTools("scope-host");
+		const config = mounted.find(
+			(tool) => tool.toolId === "scope-gateway__read_sheet",
+		)?.config;
+		expect(config?.auth).toMatchObject({
+			connectionId: "sheet-provider",
+			scope: "user",
+			credentialScope: "user",
+			scopes: ["sheets:read"],
+		});
+		expect(config?._aggregateConnectionLabel).toBeUndefined();
+	});
+
 	it("retains nested filters, readOnly and organization context", async () => {
 		installFixtures([
 			{
