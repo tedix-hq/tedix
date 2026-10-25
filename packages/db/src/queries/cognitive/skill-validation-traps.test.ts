@@ -207,6 +207,31 @@ export default {
 		).toEqual([]);
 	});
 
+	it("accepts generic parameter types whose arguments contain commas", () => {
+		expect(
+			codes(
+				`export default { async run(event: Record<string, unknown>, step: Step) { return 1; } };`,
+			),
+		).toEqual([]);
+		expect(
+			codes(
+				`export default { async run(event: Record<string, Map<string, number[]>>, step: Step, env: Readonly<Record<string, string>>) { return 1; } };`,
+			),
+		).toEqual([]);
+	});
+
+	it.each([
+		"event: Record<string, unknown>",
+		"event: Record<string, unknown>, step: Step, env: Env, extra: Map<string, number>",
+	])(
+		"still rejects a wrong argument count with generic types: (%s)",
+		(params) => {
+			expect(
+				codes(`export default { async run(${params}) { return 1; } };`),
+			).toContain("WORKFLOW_RUN_SIGNATURE_INVALID");
+		},
+	);
+
 	it.each([
 		['import("node:fs")', "WORKFLOW_DYNAMIC_IMPORT"],
 		['require("node:fs")', "WORKFLOW_RUNTIME_IMPORT_NOT_ALLOWED"],
