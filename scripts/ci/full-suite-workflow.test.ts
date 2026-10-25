@@ -29,14 +29,15 @@ test("repository checks run in parallel and every matrix member gates Main CI", 
 	expect(aggregate).toContain("for lane in WORKSPACE REPOSITORY; do");
 });
 
-test("every main push is certified and scheduled runs cannot supersede its lane", () => {
+test("scheduled and push runs coalesce around the latest main commit", () => {
 	const triggers = workflow.split("\npermissions:")[0]!;
+	const concurrency = workflow
+		.split("\nconcurrency:\n")[1]!
+		.split("\nenv:\n")[0]!;
 	expect(triggers).toMatch(/push:\n\s+branches: \[main\]/);
 	expect(triggers).not.toMatch(/paths(?:-ignore)?:/);
-	expect(workflow).toContain(
-		"group: main-certification-${{ github.event_name }}-${{ github.sha }}-${{ github.run_id }}",
-	);
-	expect(workflow).toContain("cancel-in-progress: false");
+	expect(concurrency).toMatch(/^\s*group: main-certification$/m);
+	expect(concurrency).toMatch(/^\s*cancel-in-progress: true$/m);
 	expect(aggregate).toContain("if: ${{ always() }}");
 });
 
