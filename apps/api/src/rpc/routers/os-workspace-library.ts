@@ -148,7 +148,11 @@ function rethrowNameConflict(error: unknown): never {
 	throw error;
 }
 
-async function requireWorkspace(context: BaseContext, workspaceId: string) {
+async function requireWorkspace(
+	context: BaseContext,
+	workspaceId: string,
+	options: { ownerOnly?: boolean } = {},
+) {
 	const organizationId = requireOrgId(context);
 	const workspace = await getOsWorkspace(queryDb(context), {
 		organizationId,
@@ -157,7 +161,12 @@ async function requireWorkspace(context: BaseContext, workspaceId: string) {
 	if (!workspace) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
 	}
-	await assertOsWorkspaceVisible(context, workspace);
+	await assertOsWorkspaceVisible(
+		context,
+		workspace,
+		"OS workspace not found",
+		options,
+	);
 	return workspace;
 }
 
@@ -395,7 +404,11 @@ const get = readOs.workspaces.get.handler(async ({ input, context }) => ({
 
 const update = authorOs.workspaces.update.handler(
 	async ({ input, context }) => {
-		const workspace = await requireWorkspace(context, input.workspaceId);
+		const workspace = await requireWorkspace(context, input.workspaceId, {
+			// Only the owner changes who can see or owns a private workspace.
+			ownerOnly:
+				input.visibility !== undefined || input.ownerUserId !== undefined,
+		});
 		const visibility = await visibilityPatch(
 			context,
 			workspace,
@@ -429,7 +442,7 @@ const update = authorOs.workspaces.update.handler(
 
 const archive = authorOs.workspaces.archive.handler(
 	async ({ input, context }) => {
-		await requireWorkspace(context, input.workspaceId);
+		await requireWorkspace(context, input.workspaceId, { ownerOnly: true });
 		const row = await updateOsWorkspace(
 			queryDb(context),
 			{
@@ -447,7 +460,7 @@ const archive = authorOs.workspaces.archive.handler(
 
 const restore = authorOs.workspaces.restore.handler(
 	async ({ input, context }) => {
-		await requireWorkspace(context, input.workspaceId);
+		await requireWorkspace(context, input.workspaceId, { ownerOnly: true });
 		const row = await updateOsWorkspace(
 			queryDb(context),
 			{
@@ -465,7 +478,9 @@ const restore = authorOs.workspaces.restore.handler(
 
 const deleteWorkspace = adminOs.workspaces.delete.handler(
 	async ({ input, context }) => {
-		const workspace = await requireWorkspace(context, input.workspaceId);
+		const workspace = await requireWorkspace(context, input.workspaceId, {
+			ownerOnly: true,
+		});
 		if (workspace.status !== "archived") {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
