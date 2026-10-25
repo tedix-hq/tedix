@@ -335,6 +335,15 @@ export function buildCallerAuditMetadata(
 			metadata.ownerHostHarness = caller.ownerHostHarness;
 		if (caller.ownerHostModel) metadata.ownerHostModel = caller.ownerHostModel;
 	}
+	// Verified delegation provenance from the signed token claims (trusted
+	// x-tedix-auth-* headers only), so a row traces to its run and Work Item.
+	if (caller.requestRunId) metadata.requestRunId = caller.requestRunId;
+	if (caller.requestRootRunId) {
+		metadata.requestRootRunId = caller.requestRootRunId;
+	}
+	if (caller.requestWorkItemId) {
+		metadata.requestWorkItemId = caller.requestWorkItemId;
+	}
 	if (normalized.skillRunId) metadata.skillRunId = normalized.skillRunId;
 	if (normalized.skillId) metadata.skillId = normalized.skillId;
 	if (normalized.workflowStepId) {
