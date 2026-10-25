@@ -738,7 +738,7 @@ export function AdminConnectionsPage({
 							value={q}
 							onChange={(e) => onSearchChange({ q: e.target.value })}
 							trailing={
-								<span className="whitespace-normal text-kumo-subtle type-tedix-label sm:whitespace-nowrap">
+								<span className="hidden whitespace-nowrap text-kumo-subtle type-tedix-label sm:inline">
 									{connectionInventoryCountLabel(
 										totalFiltered,
 										inventory.length,
