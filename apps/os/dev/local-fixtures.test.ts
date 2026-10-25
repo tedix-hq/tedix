@@ -430,6 +430,7 @@ const CALLS: Record<string, unknown> = {
 		]),
 	),
 	"analytics/getRecentActivity": { appId: IDS.appStorefront },
+	"analytics/getHumanActivityReview": { appId: IDS.appStorefront, limit: 20 },
 	"appGating/installedEligibility": undefined,
 	"osWorkspaces/workspaces/list": { status: "active", limit: 50 },
 	"osWorkspaces/workspaces/create": { name: "Test Workspace" },

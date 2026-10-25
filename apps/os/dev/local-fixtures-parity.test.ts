@@ -68,9 +68,8 @@ function sourceFiles(directory: string): string[] {
 // ledgers yet. Groups name the owning UI fallback; none grant fixture coverage.
 // Add normal-page handlers rather than extending this list for new calls.
 const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
-	"AppAnalyticsPage: AnalyticsQueryState error; drilldown error panel": [
+	"AppAnalyticsPage: drilldown error panel": [
 		"analytics/getExecutionDrilldown",
-		"analytics/getHumanActivityReview",
 		"analytics/getToolCallPayloads",
 		"analytics/getTraceActivity",
 	],
