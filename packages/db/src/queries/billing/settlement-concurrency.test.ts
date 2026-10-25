@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { createServer } from "node:http";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import {
@@ -14,6 +15,7 @@ import { organizations } from "../../schema/organizations";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { settleBillingUsage } from "./settlement";
+import { releaseBillingReservation } from "./reservations";
 
 const now = "2026-10-22T12:00:00.000Z";
 const periodStart = "2026-10-01T00:00:00.000Z";
@@ -85,6 +87,142 @@ function usage(i: number, settler: number) {
 }
 
 describe("billing settlement concurrency", () => {
+	it("cannot replay a rolled-back settlement after cleanup releases its reservation", async () => {
+		const { sqlite, db } = setup();
+		try {
+			sqlite.exec(`CREATE TRIGGER fail_charge BEFORE INSERT ON billing_usage_charges
+				BEGIN SELECT RAISE(ABORT, 'settlement unavailable'); END;`);
+			await expect(settleBillingUsage(db, usage(0, 0))).rejects.toThrow(
+				"settlement unavailable",
+			);
+			const released = await releaseBillingReservation(db, {
+				reservationId: "reservation:0",
+				organizationId: "org",
+				reason: "replay_cleanup",
+				now,
+			});
+			expect(released?.status).toBe("released");
+			sqlite.exec("DROP TRIGGER fail_charge");
+			await expect(settleBillingUsage(db, usage(0, 1))).rejects.toThrow(
+				"cannot settle from released",
+			);
+			expect(
+				sqlite.prepare("SELECT COUNT(*) AS n FROM billing_usage_charges").get(),
+			).toEqual({ n: 0 });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT settlement_version AS version FROM billing_usage_periods",
+					)
+					.get(),
+			).toEqual({ version: 0 });
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it.each([false, true])(
+		"reconciles a loopback reset with committed=%s using the same reservation and receipt",
+		async (committed) => {
+			const { sqlite, db } = setup();
+			const first = usage(0, 0);
+			let serverError: unknown;
+			let reset = false;
+			const server = createServer(async (request) => {
+				try {
+					if (committed) await settleBillingUsage(db, first);
+				} catch (error) {
+					serverError = error;
+				} finally {
+					// Drop the TCP response, including when the database already committed.
+					reset = true;
+					request.socket.resetAndDestroy();
+				}
+			});
+			try {
+				await new Promise<void>((resolve) =>
+					server.listen(0, "127.0.0.1", resolve),
+				);
+				const address = server.address();
+				if (!address || typeof address === "string")
+					throw new Error("missing loopback address");
+				await expect(
+					fetch(`http://127.0.0.1:${address.port}`, {
+						method: "POST",
+						body: JSON.stringify(first),
+						signal: AbortSignal.timeout(5000),
+					}),
+				).rejects.toMatchObject({
+					cause: {
+						code: expect.stringMatching(/^(ECONNRESET|UND_ERR_SOCKET)$/),
+					},
+				});
+				expect(reset).toBe(true);
+				expect(serverError).toBeUndefined();
+				expect(
+					sqlite
+						.prepare(
+							"SELECT id, reservation_id AS reservation, gateway_log_id AS receipt FROM billing_usage_charges",
+						)
+						.all(),
+				).toEqual(
+					committed
+						? [
+								{
+									id: first.id,
+									reservation: first.reservationId,
+									receipt: first.gatewayLogId,
+								},
+							]
+						: [],
+				);
+				expect(
+					sqlite
+						.prepare(
+							"SELECT status FROM billing_usage_reservations WHERE id='reservation:0'",
+						)
+						.get(),
+				).toEqual({ status: committed ? "settled" : "reserved" });
+				// A transport error alone cannot decide whether to release the hold.
+				const replayed = await settleBillingUsage(db, usage(0, 1));
+				expect(replayed.id).toBe(committed ? first.id : usage(0, 1).id);
+				const before = sqlite
+					.prepare("SELECT * FROM billing_usage_periods")
+					.all();
+				expect(await settleBillingUsage(db, usage(0, 2))).toEqual(replayed);
+				expect(
+					await releaseBillingReservation(db, {
+						reservationId: first.reservationId,
+						organizationId: first.organizationId,
+						reason: "replay_cleanup",
+						now,
+					}),
+				).toBeNull();
+				expect(
+					sqlite.prepare("SELECT * FROM billing_usage_periods").all(),
+				).toEqual(before);
+				expect(
+					sqlite
+						.prepare(
+							"SELECT COUNT(*) AS n, SUM(input_tokens + output_tokens) AS tokens FROM billing_usage_charges",
+						)
+						.get(),
+				).toEqual({ n: 1, tokens: 1100 });
+				expect(
+					sqlite
+						.prepare(
+							"SELECT settlement_version AS version FROM billing_usage_periods",
+						)
+						.get(),
+				).toEqual({ version: 1 });
+			} finally {
+				server.closeAllConnections();
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+				sqlite.close();
+			}
+		},
+	);
+
 	it("rolls back the claim and totals if a later batch statement fails, then retries safely", async () => {
 		const { sqlite, db } = setup();
 		try {
