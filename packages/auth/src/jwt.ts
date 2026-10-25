@@ -7,11 +7,7 @@
  */
 
 import type DescopeSdkFactory from "@descope/node-sdk";
-import {
-	type AudienceAuditEvent,
-	type JWTPayload,
-	type ValidateOptions,
-} from "@tedix/auth/types";
+import type { JWTPayload, ValidateOptions } from "@tedix/auth/types";
 import * as jose from "jose";
 import { trimTrailingSlashes } from "./utils.ts";
 
@@ -157,39 +153,6 @@ function audienceClaim(raw: unknown): string | string[] | undefined {
 // AUDIENCE AUDIT (measurement for the enforcement rollout)
 // =============================================================================
 
-/** Normalize an `aud` claim, which is a string or an array per RFC 7519. */
-function audienceList(raw: unknown): string[] {
-	if (typeof raw === "string") return [raw];
-	if (Array.isArray(raw)) return raw.filter((a) => typeof a === "string");
-	return [];
-}
-
-/**
- * Pure: what would audience enforcement have done for this token?
- *
- * A token with no `aud` at all is NOT counted as a rejection — Tedix's own
- * session JWTs are not guaranteed to carry one (that is project-level JWT
- * template config), so treating absence as failure would swamp the signal with
- * traffic that enforcement would have to special-case anyway. It is reported
- * separately via `missingAudienceClaim` so the decision stays visible.
- */
-export function computeAudienceAudit(
-	audit: NonNullable<ValidateOptions["auditAudience"]>,
-	rawAud: unknown,
-	projectId: string,
-): AudienceAuditEvent {
-	const actual = audienceList(rawAud);
-	const satisfiesExpected = actual.some((a) => audit.expected.includes(a));
-	return {
-		surface: audit.surface,
-		expected: audit.expected,
-		actual,
-		wouldReject: actual.length > 0 && !satisfiesExpected,
-		passedOnlyViaProjectId: !satisfiesExpected && actual.includes(projectId),
-		missingAudienceClaim: actual.length === 0,
-	};
-}
-
 // =============================================================================
 // TOKEN VALIDATION
 // =============================================================================
@@ -239,24 +202,6 @@ export async function validateToken(
 				"Tedi JWTs are not accepted on user auth paths",
 				"TEDI_JWT_REJECTED",
 			);
-		}
-
-		if (options.auditAudience) {
-			// Measurement must never be able to reject traffic: this sits after the
-			// token is fully accepted, and a throwing reporter is swallowed rather
-			// than falling into mapTokenError, which would turn a logging bug into
-			// an auth failure.
-			try {
-				options.auditAudience.report(
-					computeAudienceAudit(
-						options.auditAudience,
-						(authInfo.token as Record<string, unknown>).aud,
-						projectId,
-					),
-				);
-			} catch {
-				// An audit reporter is diagnostics only — never fail validation for it.
-			}
 		}
 
 		return result;

@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-	computeAudienceAudit,
 	isM2MToken,
 	isOAuthClientToken,
 	isUserToken,
 	normalizeDescopeBaseUrl,
 } from "./jwt";
-import type { AudienceAuditEvent, JWTPayload } from "./types";
+import type { JWTPayload } from "./types";
 
 const basePayload = {
 	iat: 1,
@@ -133,84 +132,5 @@ describe("OAuth client token detection", () => {
 				}),
 			).toBe(false);
 		}
-	});
-});
-
-describe("audience audit (measurement for the enforcement rollout)", () => {
-	const audit = {
-		surface: "api:rpc",
-		expected: ["https://api.tedix.dev"],
-		report: () => {},
-	};
-	const PROJECT = "P2example000000000000000000";
-
-	it("accepts a token whose aud matches the surface", () => {
-		const event = computeAudienceAudit(audit, "https://api.tedix.dev", PROJECT);
-		expect(event.wouldReject).toBe(false);
-		expect(event.passedOnlyViaProjectId).toBe(false);
-	});
-
-	it("handles aud as an array, per RFC 7519", () => {
-		const event = computeAudienceAudit(
-			audit,
-			["https://other.tedix.dev", "https://api.tedix.dev"],
-			PROJECT,
-		);
-		expect(event.wouldReject).toBe(false);
-		expect(event.actual).toHaveLength(2);
-	});
-
-	// The headline finding: a token minted for the MCP edge is accepted
-	// everywhere else today, because no other surface checks aud at all.
-	it("flags a token minted for a different surface", () => {
-		const event = computeAudienceAudit(
-			audit,
-			"https://tedix-unified.mcp.tedix.dev/mcp",
-			PROJECT,
-		);
-		expect(event.wouldReject).toBe(true);
-		expect(event.passedOnlyViaProjectId).toBe(false);
-	});
-
-	// The subtle one this audit exists to measure: validateToken prepends the
-	// bare project ID whenever a caller passes allowedAudiences without an
-	// explicit audience, so `aud: <projectId>` satisfies the CURRENT check while
-	// failing a strict one. Flipping enforcement on breaks exactly these.
-	it("separates tokens that pass only via the bare project ID", () => {
-		const event = computeAudienceAudit(audit, PROJECT, PROJECT);
-		expect(event.wouldReject).toBe(true);
-		expect(event.passedOnlyViaProjectId).toBe(true);
-	});
-
-	// Tedix session JWTs are not guaranteed to carry aud at all, so absence must
-	// not read as a rejection or it drowns the signal.
-	it("reports a missing aud claim without counting it as a rejection", () => {
-		const event = computeAudienceAudit(audit, undefined, PROJECT);
-		expect(event.missingAudienceClaim).toBe(true);
-		expect(event.wouldReject).toBe(false);
-	});
-
-	// computeAudienceAudit is pure and must never throw on malformed input — a
-	// crash here would surface as a token rejection at the call site.
-	it("tolerates a malformed aud claim without throwing", () => {
-		for (const bad of [null, 42, {}, [1, 2], [null], true]) {
-			const event = computeAudienceAudit(audit, bad, PROJECT);
-			expect(event.actual).toEqual([]);
-			expect(event.wouldReject).toBe(false);
-			expect(event.missingAudienceClaim).toBe(true);
-		}
-	});
-
-	// The report callback is per call, so auditing cannot leak across surfaces
-	// and cannot fire when a caller did not ask for it.
-	it("routes the observation to the caller's own report callback", () => {
-		const seen: AudienceAuditEvent[] = [];
-		const event = computeAudienceAudit(
-			{ ...audit, report: (e) => seen.push(e) },
-			"https://api.tedix.dev",
-			PROJECT,
-		);
-		expect(event.surface).toBe("api:rpc");
-		expect(seen).toEqual([]);
 	});
 });
