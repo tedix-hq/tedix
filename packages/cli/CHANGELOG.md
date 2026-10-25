@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.4 — 2026-10-25
+
+### Patch Changes
+
+- A local dispatcher no longer gets stuck on Work whose earlier start failed: it tries again in a fresh folder and keeps the old one for you to inspect.
+- A local dispatcher can now run Work that only mentions sign-ins or credentials once its owner posts the delegation comment for that version. Consent, MFA and password steps still stay with a person.
+
 ## 0.17.3 — 2026-10-24
 
 ### Patch Changes
