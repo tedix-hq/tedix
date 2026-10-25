@@ -305,6 +305,7 @@ try {
 				return json({ event: { id: crypto.randomUUID() } });
 			if (path.endsWith("/learningFeedback/recordExposure"))
 				return json({ id: crypto.randomUUID() });
+			if (path.endsWith("/learningFeedback/correct")) return json({});
 			if (
 				[
 					"/workApprovals/listInbox",
@@ -336,6 +337,17 @@ try {
 			await fixture(page);
 			const screenshots = process.env.SOCIAL_CARDS_SCREENSHOTS;
 			if (screenshots) await mkdir(screenshots, { recursive: true });
+			// Earlier passes decide and reopen a card, which adds revisions.
+			const revisions = await Promise.all(
+				sheets.map(
+					async (sheet) =>
+						(
+							await rpc("osWorkspaces/outputs/get", {
+								outputId: sheet.output.id,
+							})
+						).currentRevision.revision,
+				),
+			);
 			const decisionWrites: string[] = [];
 			page.on("request", (request) => {
 				if (
@@ -448,16 +460,44 @@ try {
 				0,
 				"surveying and opening a card records no decision, skip, action or sheet write",
 			);
-			for (const sheet of sheets) {
+			for (const [index, sheet] of sheets.entries()) {
 				const unchanged = await rpc("osWorkspaces/outputs/get", {
 					outputId: sheet.output.id,
 				});
 				assert.equal(
 					unchanged.currentRevision.revision,
-					1,
+					revisions[index],
 					"browsing preserves source revision",
 				);
 			}
+			// Filter to Social, decide its only card, then reopen it from the
+			// caught-up history so the later steps still find it open.
+			await review.getByRole("button", { name: "Social", exact: true }).click();
+			await review.getByRole("button", { name: "Useful", exact: true }).click();
+			const decided = review.locator("[data-card-review-decided]");
+			await decided.waitFor();
+			assert.match(
+				(await review.locator("[data-card-review-filtered]").textContent()) ??
+					"",
+				/Showing only Social cards\. 1 more open card is filtered out\./,
+			);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				"caught-up history fits phone and desktop",
+			);
+			if (screenshots)
+				await page.screenshot({
+					path: `${screenshots}/card-review-caught-up-${width}-${theme}.png`,
+					fullPage: true,
+				});
+			const reopened = page.waitForResponse((response) =>
+				response.url().includes("/osWorkspaces/outputs/setSheetRange"),
+			);
+			await decided.getByRole("button", { name: /^Reopen:/ }).click();
+			await reopened;
+			await review.locator("[data-card-review-card]").waitFor();
 			await page.goto(`${origin}/work?view=feed`);
 			await page
 				.getByRole("link", {
