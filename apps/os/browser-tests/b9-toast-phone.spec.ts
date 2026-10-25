@@ -10,8 +10,18 @@ const server = await startFixtureServer(fixturePath);
 const toastSelector = "[data-os-toast-outlet] [role=dialog]";
 
 async function settle(page: Page) {
-	await page.waitForFunction(() =>
-		document.getAnimations().every((a) => a.playState !== "running"),
+	// Base UI mounts the toast off-screen before its entrance transition starts.
+	// Let that style commit before treating an empty animation list as settled.
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+	await page.waitForFunction(
+		() =>
+			!document.querySelector("[data-os-toast-outlet] [data-starting-style]") &&
+			document
+				.getAnimations()
+				.every((a) => !a.pending && a.playState !== "running"),
 	);
 }
 
