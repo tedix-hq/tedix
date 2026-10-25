@@ -10,6 +10,12 @@
  * after this MCP gate.
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
+	// OS person-only settings; the API still rejects machine principals.
+	"webPush/getStatus": "mcp:apps.read",
+	"webPush/subscribe": "mcp:apps.write",
+	"webPush/unsubscribe": "mcp:apps.admin",
+	"webPush/setPreferences": "mcp:apps.write",
+	"webPush/setVisibility": "mcp:apps.write",
 	"personalAgentInbound/enroll": "mcp:apps.write",
 	"personalAgentInbound/configureDelivery": "mcp:apps.write",
 	"personalAgentInbound/value": "mcp:apps.write",
