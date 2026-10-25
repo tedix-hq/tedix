@@ -237,16 +237,29 @@ describe("effect-based gateway approval", () => {
 				ctx.apiClient.mcpGovernance.resolveOwnerSkillStart,
 			).not.toHaveBeenCalled();
 		});
-		it.each([
-			["a tedi", { authType: "tedi", userId: "owner-1", tediId: "tedi-1" }],
-			[
-				"an external agent",
-				{
+		it("keeps an external agent's run start gated under the platform default", async () => {
+			const ctx = ownerStartContext(true);
+			Object.assign(ctx, {
+				callerIdentity: {
 					authType: "oauth",
 					userId: "owner-1",
 					externalAgentPrincipalId: "agent-1",
 				},
-			],
+			});
+			vi.mocked(
+				ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+			).mockResolvedValue({ requireExplicitApprovalPolicy: false });
+			expect(
+				(
+					await requireDestructiveToolApproval(ctx, skill, skill.annotations, {
+						args,
+						extra,
+					})
+				)?.isError,
+			).toBe(true);
+		});
+		it.each([
+			["a tedi", { authType: "tedi", userId: "owner-1", tediId: "tedi-1" }],
 		])(
 			"lets %s start a run under the platform default",
 			async (_label, callerIdentity) => {
@@ -255,6 +268,10 @@ describe("effect-based gateway approval", () => {
 				vi.mocked(
 					ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
 				).mockResolvedValue({ requireExplicitApprovalPolicy: false });
+				const record = vi.fn(async () => ({ approvalRequestId: null }));
+				Object.assign(ctx.apiClient.mcpGovernance, {
+					recordPolicyToolApproval: record,
+				});
 				expect(
 					await requireDestructiveToolApproval(ctx, skill, skill.annotations, {
 						args,
@@ -264,6 +281,15 @@ describe("effect-based gateway approval", () => {
 				expect(
 					ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
 				).not.toHaveBeenCalled();
+				// Recorded as an approved policy row so Activity lists it.
+				expect(record).toHaveBeenCalledWith(
+					expect.objectContaining({
+						organizationId: "org-1",
+						toolId: skill.toolId,
+						operationId: "runs",
+						reason: "Starting runs run without approval (platform default)",
+					}),
+				);
 			},
 		);
 		it("keeps a configured approval policy", async () => {

@@ -1135,7 +1135,19 @@ export async function requireDestructiveToolApproval(
 	// a skill run's own calls were decided by its manifest above, and a person
 	// starting a skill by the owner check above, and an agent's own Work
 	// lifecycle writes by the Attempt check above.
+	// Only the organization's own people and tedis inherit the default. External
+	// agents, owner-host coding sessions, service and anonymous callers keep
+	// their gates unless the organization grants explicit autonomy.
+	const identity = agent.callerIdentity;
+	const inOrganizationCaller =
+		!!identity &&
+		!identity.externalAgentPrincipalId &&
+		!identity.ownerHostSessionId &&
+		!identity.kernel &&
+		((identity.authType === "tedi" && !!identity.tediId) ||
+			(callerIsUserPrincipalPath(agent) && !!identity.userId));
 	const platformOperation =
+		inOrganizationCaller &&
 		!isOwnedChannelBoundary &&
 		!(
 			callerIsUserPrincipalPath(agent) &&
@@ -1174,13 +1186,39 @@ export async function requireDestructiveToolApproval(
 				!askForClasses?.includes("*") &&
 				!askForClasses?.includes(`tool:${agent.appSlug ?? ""}:${tool.toolId}`)
 			) {
-				emitGovernanceAuditEvent(
-					agent,
-					tool,
-					"destructive_approved",
-					`${platformOperation.label} run without approval (platform default)`,
-					{ resolvedBy: "policy", platformOperation: platformOperation.id },
-				);
+				const reason = `${platformOperation.label} run without approval (platform default)`;
+				emitGovernanceAuditEvent(agent, tool, "destructive_approved", reason, {
+					resolvedBy: "policy",
+					platformOperation: platformOperation.id,
+				});
+				// Activity lists automatic approvals from approval rows. The row is a
+				// record, not a gate: failing to write it never blocks the call.
+				await agent.apiClient?.mcpGovernance
+					?.recordPolicyToolApproval?.({
+						organizationId: agent.app.organizationId,
+						appSlug: agent.appSlug ?? "",
+						toolId: tool.toolId,
+						reason,
+						operationId: platformOperation.id,
+						...(agent.callerIdentity?.userId
+							? { userId: agent.callerIdentity.userId }
+							: {}),
+						...(agent.callerIdentity?.tediId
+							? { tediId: agent.callerIdentity.tediId }
+							: {}),
+						...(agent.callerIdentity?.externalAgentPrincipalId
+							? {
+									externalAgentPrincipalId:
+										agent.callerIdentity.externalAgentPrincipalId,
+								}
+							: {}),
+					})
+					.catch(() => {
+						console.warn("[governance] policy_approval_record_failed", {
+							organizationId: agent.app?.organizationId,
+							toolId: tool.toolId,
+						});
+					});
 				return null;
 			}
 		} catch {

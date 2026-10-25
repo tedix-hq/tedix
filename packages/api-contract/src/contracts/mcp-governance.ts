@@ -16,6 +16,8 @@ import {
 	ResolveHomeToolApprovalResponseSchema,
 	RequestOwnerToolApprovalInputSchema,
 	RequestOwnerToolApprovalResponseSchema,
+	RecordPolicyToolApprovalInputSchema,
+	RecordPolicyToolApprovalResponseSchema,
 	ResolveOwnerSkillStartInputSchema,
 	ResolveOwnerSkillStartResponseSchema,
 	ResolveSkillManifestAuthorizationInputSchema,
@@ -52,6 +54,15 @@ export const mcpGovernanceContract = oc
 			})
 			.input(RequestOwnerToolApprovalInputSchema)
 			.output(RequestOwnerToolApprovalResponseSchema),
+		recordPolicyToolApproval: oc
+			.route({
+				method: "POST",
+				path: "/record-policy-tool-approval",
+				summary: "Record a gateway call approved by the platform default",
+				tags: ["internal"],
+			})
+			.input(RecordPolicyToolApprovalInputSchema)
+			.output(RecordPolicyToolApprovalResponseSchema),
 		resolveOwnerSkillStart: oc
 			.route({
 				method: "POST",

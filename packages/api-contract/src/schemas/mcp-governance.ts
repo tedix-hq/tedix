@@ -179,6 +179,25 @@ export const RequestOwnerToolApprovalResponseSchema = z.object({
 	url: z.string().url(),
 });
 
+/**
+ * A gateway call the platform-default autonomy approved, recorded as an
+ * approved approval row (resolvedBy "policy") so Activity lists it with every
+ * other automatic approval.
+ */
+export const RecordPolicyToolApprovalInputSchema = z.object({
+	organizationId: z.string().min(1),
+	appSlug: z.string().min(1),
+	toolId: z.string().min(1),
+	reason: z.string().min(1).max(300),
+	operationId: z.string().min(1).max(80),
+	userId: z.string().min(1).optional(),
+	tediId: z.string().min(1).optional(),
+	externalAgentPrincipalId: z.string().min(1).optional(),
+});
+export const RecordPolicyToolApprovalResponseSchema = z.object({
+	approvalRequestId: z.uuid().nullable(),
+});
+
 /** Gateway-attested owner start of an existing skill; never a public tool input. */
 export const ResolveOwnerSkillStartInputSchema = z
 	.object({

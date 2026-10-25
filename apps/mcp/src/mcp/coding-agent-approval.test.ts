@@ -127,7 +127,7 @@ describe.each(["oauth", "external_agent"] as const)(
 					// The platform default never lifts a configured approval policy;
 					// a destructive annotation stays gated once the org opts out.
 					const ctx = context(authType);
-					if (destructive) optOut(ctx);
+					if (destructive && authType === "oauth") optOut(ctx);
 					expect(
 						await requireDestructiveToolApproval(
 							ctx,
@@ -146,7 +146,6 @@ it.each([undefined, tasks])(
 	"uses verified external-agent identity independently of client capabilities (%s)",
 	async (extra) => {
 		const ctx = context("external_agent", "low");
-		optOut(ctx, { version: 1, maxRisk: "low" });
 		const binding = tool("add_comment", "workItems/addComment");
 		expect(
 			await requireDestructiveToolApproval(
@@ -253,7 +252,7 @@ it.each([undefined, { version: 1, maxRisk: "medium" }] as const)(
 	},
 );
 
-it("lets an agent comment on Work under the platform default, and not after an opt-out", async () => {
+it("never extends the platform default to an external agent", async () => {
 	for (const optedOut of [false, true]) {
 		const ctx = context("external_agent");
 		vi.mocked(
@@ -272,13 +271,15 @@ it("lets an agent comment on Work under the platform default, and not after an o
 			resolveToolAnnotations(binding),
 			{ args: { id: "other-work" }, allowSyncMrtr: false },
 		);
-		expect(result === null).toBe(!optedOut);
+		expect(result).not.toBeNull();
 	}
 });
 
 it("keeps unowned writes and explicit or human-reserved gates closed without autonomy", async () => {
 	const ctx = context("external_agent");
-	optOut(ctx);
+	vi.mocked(
+		ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+	).mockResolvedValue({ requireExplicitApprovalPolicy: false });
 	const resolve = vi.fn(async () => ({ approved: false }));
 	Object.assign(ctx.apiClient.mcpGovernance, {
 		resolveAgentLifecycleAuthorization: resolve,

@@ -783,6 +783,8 @@ describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
 		["work.update_work_item", "work_items"],
 		["work.work_item_comment", "work_items"],
 		["work.complete_work_item", "work_items"],
+		["work.cancel_work_item", "work_items"],
+		["work.reopen_work_item", "work_items"],
 		["os.rename_os_gadget", "workspace_management"],
 		["os.unlink_os_workspace_skill", "workspace_management"],
 		["os.remove_os_workspace_resource", "workspace_management"],

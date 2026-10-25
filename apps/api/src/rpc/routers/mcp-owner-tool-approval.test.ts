@@ -279,6 +279,43 @@ describe("owner gateway approvals", () => {
 		});
 		expect(mocks.consume).not.toHaveBeenCalled();
 	});
+	it("records a platform-default gateway approval as an approved policy row", async () => {
+		const result = await client().recordPolicyToolApproval({
+			organizationId: "org-1",
+			appSlug: "example-unified",
+			toolId: "tedi_1__run_skill_workflow",
+			reason: "Starting runs run without approval (platform default)",
+			operationId: "runs",
+			tediId: "tedi-1",
+		});
+		expect(result.approvalRequestId).toEqual(expect.any(String));
+		const [, row, audit] = mocks.create.mock.calls[0]!;
+		expect(row).toMatchObject({
+			orgId: "org-1",
+			tediId: "anchor",
+			actionType: "mcp.tool_call",
+			automaticApproval: {
+				tediId: "policy",
+				reason: "Starting runs run without approval (platform default)",
+			},
+			payload: { platformOperation: "runs", initiatedByTediId: "tedi-1" },
+		});
+		expect(audit).toMatchObject({
+			action: "approval.approved",
+			actorType: "tedi",
+			metadata: { resolvedBy: "policy" },
+		});
+		await expect(
+			client().recordPolicyToolApproval({
+				organizationId: "org-2",
+				appSlug: "example-unified",
+				toolId: "add_comment",
+				reason: "Work items run without approval (platform default)",
+				operationId: "work_items",
+			}),
+		).rejects.toThrow(/does not match the gateway context/);
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+	});
 	it("accepts the OS user-prefixed approver identity", async () => {
 		const retry = await seed();
 		const approval = mocks.create.mock.calls[0]![1];

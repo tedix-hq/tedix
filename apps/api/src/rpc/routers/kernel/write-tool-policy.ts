@@ -186,9 +186,14 @@ export function classifyWriteRisk(
 	if (humanReservedActionClasses(tool.name).length) return "high";
 	const risk = classifyToolWriteRisk(tool, args);
 	// Platform-default operations (organization-autonomy.v1.json) are reversible
-	// in-organization changes: an "archive"/"remove" verb or a destructive
-	// annotation does not make them high risk. Permanent deletes are not in it.
-	return risk === "high" && platformAutonomousOperation(tool.name)
+	// in-organization changes: an "archive"/"cancel" verb or a destructive
+	// annotation does not make a Tedix-classified one high risk. An
+	// unclassified tool stays high whatever its name. Permanent deletes are not
+	// platform operations.
+	const declared = parseToolPolicyMetadata(tool._meta)?.riskTier;
+	return risk === "high" &&
+		(declared === "bounded_write" || declared === "high_impact_write") &&
+		platformAutonomousOperation(tool.name)
 		? "medium"
 		: risk;
 }
