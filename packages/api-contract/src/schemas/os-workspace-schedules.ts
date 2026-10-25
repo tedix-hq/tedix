@@ -23,6 +23,41 @@ export function isWorkspaceSkillResource(resource: {
 }
 
 /**
+ * A Workspace resource saying "this tedi works for this Workspace":
+ * `providerResourceId` is the tedi id. Linked with the skills it runs.
+ */
+export const WORKSPACE_TEDI_RESOURCE = {
+	providerId: "tedix",
+	resourceType: "tedi",
+} as const;
+
+/**
+ * A Workspace resource saying "this Workspace's skills use this connection":
+ * `providerResourceId` is the app slug whose tools a linked skill declares.
+ * It is a reference, never a credential; the connection stays canonical.
+ */
+export const WORKSPACE_CONNECTION_RESOURCE = {
+	providerId: "tedix",
+	resourceType: "connection",
+} as const;
+
+/**
+ * A tedix link row (skill, tedi or connection): a reference with no provider
+ * object behind it, so it is never a connected source and needs no check.
+ */
+export function isWorkspaceLinkResource(resource: {
+	providerId: string;
+	resourceType: string;
+}): boolean {
+	return (
+		resource.providerId === "tedix" &&
+		(resource.resourceType === WORKSPACE_SKILL_RESOURCE.resourceType ||
+			resource.resourceType === WORKSPACE_TEDI_RESOURCE.resourceType ||
+			resource.resourceType === WORKSPACE_CONNECTION_RESOURCE.resourceType)
+	);
+}
+
+/**
  * Optional `runsAt` metadata on a skill resource: the local times the skill's
  * workflow keeps. A UTC cron that must follow daylight saving fires at both
  * the summer and the winter hour, and the workflow skips the fire whose local
@@ -213,6 +248,20 @@ export const LinkWorkspaceFactorySkillsInputSchema = z
 export const LinkWorkspaceFactorySkillsResultSchema = z
 	.object({
 		dryRun: z.boolean(),
+		linkedTedis: z
+			.number()
+			.int()
+			.nonnegative()
+			.describe(
+				"Tedis this call newly linked because a linked skill runs on them; 0 in a dry run",
+			),
+		linkedConnections: z
+			.number()
+			.int()
+			.nonnegative()
+			.describe(
+				"Connections (apps) this call newly linked because a linked skill declares their tools; 0 in a dry run",
+			),
 		items: z.array(
 			z
 				.object({

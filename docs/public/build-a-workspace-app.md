@@ -146,20 +146,27 @@ Links are made in four ways, all idempotent:
   step, then any organization skill by search.
 - `link_os_workspace_skill` (`workspaceId`, `skillId`) and
   `unlink_os_workspace_skill`, for example from a workspace conversation.
-- `record_skills` with `workspaceId` links the new skill; `create_factory`
-  with a Workspace links its lane skill.
+- `record_skills` with `workspaceId` links the new skill. Without one, a
+  skill recorded, or given a schedule, in a workspace conversation is
+  linked to that workspace by the platform. `create_factory` with a
+  Workspace links its lane skill.
 - `link_os_workspace_factory_skills` (`workspaceId`, `dryRun`, default
   `true`) finds the lane skill of every factory project bound to the
   workspace (`metadata.factory.workspaceId`) or linked to it as a Work
   project, and every skill whose runs wrote the workspace's Outputs, and
-  links the ones not linked yet. Repeating it reports `already_linked`. Its `name` is the row title.
-  Optional metadata: `purpose` (one line) and `runsAt`
-  (`{"timeZone": "Europe/Berlin", "times": ["08:17"]}`) for a skill whose UTC
-  cron fires at both daylight-saving hours and skips the one that is not its
-  local time. Runs whose result `status` is `off_slot` are not shown; a
-  result's `cards` count or one-line `summary` becomes the last-run text. The
-  section is hidden when a workspace has no scheduled skill, and these links
-  are not listed under **Connected sources**.
+  links the ones not linked yet. Repeating it reports `already_linked`.
+
+Linking a skill also links the tedi that runs it (`tedix`/`tedi`) and each
+app whose tools it declares (`tedix`/`connection`, by app slug).
+**Tedis and connections** lists them below the skills, each with
+**Unlink**; unlinking removes only the reference. Its `name` is the row title.
+Optional metadata: `purpose` (one line) and `runsAt`
+(`{"timeZone": "Europe/Berlin", "times": ["08:17"]}`) for a skill whose UTC
+cron fires at both daylight-saving hours and skips the one that is not its
+local time. Runs whose result `status` is `off_slot` are not shown; a
+result's `cards` count or one-line `summary` becomes the last-run text. The
+section is hidden when a workspace has no scheduled skill, and these links
+are not listed under **Connected sources**.
 
 When a scheduled skill reads its owner's own account, the row also shows,
 to the workspace's owner only, **Let this read my Gmail (read-only)**. One

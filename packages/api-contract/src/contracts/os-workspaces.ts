@@ -758,7 +758,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/schedules/link",
 					summary: "Link a skill to a Workspace, so it shows what runs it",
 					description:
-						"Adds the Workspace's tedix/skill resource for the skill, or restores a removed one; linking an already linked skill changes nothing. The skill's schedule, tedi and runs are unchanged: the link only says this skill runs for this Workspace, so its Resources list the skill with its schedule, next run and last run.",
+						"Adds the Workspace's tedix/skill resource for the skill, or restores a removed one; linking an already linked skill changes nothing. The tedi that runs it and the apps whose tools it declares are linked too (tedix/tedi, tedix/connection). The skill's schedule, tedi and runs are unchanged: the link only says this skill runs for this Workspace, so its Resources list the skill with its schedule, next run and last run.",
 				})
 				.input(LinkWorkspaceSkillInputSchema)
 				.output(LinkWorkspaceSkillResultSchema),
@@ -778,7 +778,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/schedules/link-factory-skills",
 					summary: "Link the skills a Workspace's own data says run it",
 					description:
-						"Finds the lane skill of every factory project bound to the Workspace (project metadata factory.workspaceId) or linked to it as a Work project, and every skill whose runs wrote revisions of the Workspace's Outputs, then links each one that is not linked yet. Safe to repeat: an existing link is reported already_linked and kept. dryRun (the default) only reports what it would link.",
+						"Finds the lane skill of every factory project bound to the Workspace (project metadata factory.workspaceId) or linked to it as a Work project, and every skill whose runs wrote revisions of the Workspace's Outputs, then links each one that is not linked yet. It also links, as their own resources, the tedi that runs each linked skill (tedix/tedi) and each app whose tools a linked skill declares (tedix/connection). Safe to repeat: an existing link is reported already_linked and kept. dryRun (the default) only reports what it would link.",
 				})
 				.input(LinkWorkspaceFactorySkillsInputSchema)
 				.output(LinkWorkspaceFactorySkillsResultSchema),

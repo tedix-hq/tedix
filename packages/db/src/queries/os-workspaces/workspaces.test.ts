@@ -21,6 +21,7 @@ import {
 	getPersonalOsWorkspace,
 	isOsWorkspaceVisibleTo,
 	listOsWorkspaces,
+	findOsWorkspaceIdForKernelRun,
 	saveConversationAsOsWorkspace,
 	updateOsWorkspace,
 } from "./workspaces";
@@ -399,5 +400,49 @@ describe("save a conversation as a workspace", () => {
 		expect(saved.linked).toBe(false);
 		const [conversation] = await db.select().from(kernelConversations);
 		expect(conversation?.workspaceId).toBe("ws-other");
+	});
+
+	it("finds the Workspace a turn or its delegated child run belongs to", async () => {
+		const db = conversationFixture();
+		await createOsWorkspace(db, { ...workspace, id: "ws-chat", name: "Chat" });
+		const at = "2026-10-25T00:00:00.000Z";
+		await db.insert(kernelConversations).values([
+			{
+				id: "org-1:home:ws",
+				organizationId: "org-1",
+				conversationId: "home:ws",
+				workspaceId: "ws-chat",
+				lastMessageAt: at,
+				createdAt: at,
+				updatedAt: at,
+			},
+			{
+				id: "org-1:home:global",
+				organizationId: "org-1",
+				conversationId: "home:global",
+				lastMessageAt: at,
+				createdAt: at,
+				updatedAt: at,
+			},
+		]);
+		await db.insert(kernelRuntimeRuns).values([
+			{
+				id: "run-ws",
+				organizationId: "org-1",
+				conversationId: "home:ws",
+				childRunId: "child-run",
+			},
+			{
+				id: "run-global",
+				organizationId: "org-1",
+				conversationId: "home:global",
+			},
+		]);
+		const find = (organizationId: string, runId: string) =>
+			findOsWorkspaceIdForKernelRun(db, { organizationId, runId });
+		expect(await find("org-1", "run-ws")).toBe("ws-chat");
+		expect(await find("org-1", "child-run")).toBe("ws-chat");
+		expect(await find("org-1", "run-global")).toBeNull();
+		expect(await find("org-2", "run-ws")).toBeNull();
 	});
 });

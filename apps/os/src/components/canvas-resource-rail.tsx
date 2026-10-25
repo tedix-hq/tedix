@@ -3,7 +3,7 @@ import type {
 	OsGadget,
 	OsOutputLibraryItem,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import { isWorkspaceLinkResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { type ReactNode, useState } from "react";
 import { OutputPreview } from "@/components/output-preview";
 import { CreateDocumentButton } from "@/components/create-document-dialog";
@@ -33,6 +33,7 @@ import type { CanvasDocSelection } from "@/lib/canvas-search";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { cn } from "@/lib/utils";
 import { WorkspaceAppCards } from "@/components/workspace-app-cards";
+import { WorkspaceRunners } from "@/components/workspace-runners";
 import { WorkspaceSchedules } from "@/components/workspace-schedules";
 import { WorkspaceFileUpload } from "./workspace-file-upload";
 
@@ -164,7 +165,7 @@ export function CanvasResourceRail({
 	const shownResources =
 		resources.data?.items.filter(
 			(item) =>
-				!isWorkspaceSkillResource(item) &&
+				!isWorkspaceLinkResource(item) &&
 				matches(`${item.name} ${item.providerId} ${item.resourceType}`),
 		) ?? [];
 	const shownGadgets =
@@ -281,6 +282,7 @@ export function CanvasResourceRail({
 							</section>
 						)}
 						<WorkspaceSchedules workspaceId={workspaceId} />
+						<WorkspaceRunners workspaceId={workspaceId} />
 						<section className="canvas-resource-section canvas-resource-outputs">
 							<SectionEyebrow
 								title="Files"

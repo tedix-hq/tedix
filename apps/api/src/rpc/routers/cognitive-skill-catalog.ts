@@ -44,6 +44,7 @@ import { toJsonRecord } from "@tedix/db/utils/json";
 import { assertSkillPromotionPremortem } from "../../services/decision-hygiene";
 import {
 	AUTHZ,
+	type BaseContext,
 	createError,
 	createScopeMiddleware,
 	ErrorCodes,
@@ -77,6 +78,8 @@ import {
 	validatedSkillSchedule,
 } from "./cognitive-skill-shared";
 import {
+	callerTurnWorkspace,
+	ensureWorkspaceSkillDependencyLinks,
 	ensureWorkspaceSkillLink,
 	requireWorkspace,
 } from "./os-workspaces-shared";
@@ -94,23 +97,42 @@ export const skillsRecord = authedSkills.record
 		const orgId = requireOrgId(context);
 		const { workspaceId, ...skillInput } = input;
 		// Check the Workspace before the skill exists, so a bad id creates nothing.
+		// Without one, a skill made in a Workspace chat belongs to that Workspace.
 		const workspace = workspaceId
 			? await requireWorkspace(context, workspaceId)
-			: null;
+			: await callerTurnWorkspace(context);
 		const { entry, warnings } = await createSkillFromInput(
 			context,
 			orgId,
 			skillInput,
 		);
-		if (workspace)
-			await ensureWorkspaceSkillLink(context, {
-				organizationId: workspace.organizationId,
-				workspaceId: workspace.id,
-				skillId: entry.id,
-				name: entry.title,
-			});
+		if (workspace) await linkSkillToWorkspace(context, workspace, entry);
 		return { entry, ...(warnings.length ? { warnings } : {}) };
 	});
+
+/** Link a skill, its tedi and the connections it uses to a Workspace. */
+async function linkSkillToWorkspace(
+	context: BaseContext,
+	workspace: { organizationId: string; id: string },
+	skill: {
+		id: string;
+		title: string;
+		tediId: string | null;
+		content: string | null;
+		files: unknown;
+	},
+) {
+	const scope = {
+		organizationId: workspace.organizationId,
+		workspaceId: workspace.id,
+	};
+	await ensureWorkspaceSkillLink(context, {
+		...scope,
+		skillId: skill.id,
+		name: skill.title,
+	});
+	await ensureWorkspaceSkillDependencyLinks(context, { ...scope, skill });
+}
 
 export const skillsImprove = authedSkills.improve
 	.use(AUTHZ.tedisWrite)
@@ -224,6 +246,10 @@ export const skillsImprove = authedSkills.improve
 		const schedule = validatedSkillSchedule(
 			effectiveContent,
 			input.tediId ?? existing.tediId,
+		);
+		const priorSchedule = await getSkillSchedule(context.db, existing.id);
+		const scheduledBefore = Boolean(
+			priorSchedule?.organizationId === orgId && priorSchedule.enabled,
 		);
 		const { allToolSlugs, metadataToolSlugs } =
 			mergeToolSlugsFromInputAndMetadata({
@@ -377,6 +403,11 @@ export const skillsImprove = authedSkills.improve
 
 		if (updated) {
 			await syncSkillScheduleProjection(context, updated, schedule);
+			// A schedule set from a Workspace chat makes the skill run that Workspace.
+			if (schedule && !scheduledBefore) {
+				const workspace = await callerTurnWorkspace(context);
+				if (workspace) await linkSkillToWorkspace(context, workspace, updated);
+			}
 		}
 
 		return {

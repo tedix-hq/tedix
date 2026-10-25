@@ -3,6 +3,7 @@ import {
 	asc,
 	eq,
 	inArray,
+	isNotNull,
 	isNull,
 	notInArray,
 	or,
@@ -331,4 +332,44 @@ export async function deleteOsWorkspace(
 			),
 	]);
 	return result.length > 0;
+}
+
+/**
+ * The Workspace a Home turn runs in: the Workspace of the conversation that
+ * holds the kernel run, or of the run that delegated it as a child run. Null
+ * when the turn is not in a Workspace conversation.
+ */
+export async function findOsWorkspaceIdForKernelRun(
+	db: DbQueryClient,
+	params: { organizationId: string; runId: string },
+): Promise<string | null> {
+	const [row] = await db
+		.select({ workspaceId: kernelConversations.workspaceId })
+		.from(kernelRuntimeRuns)
+		.innerJoin(
+			kernelConversations,
+			and(
+				eq(
+					kernelConversations.organizationId,
+					kernelRuntimeRuns.organizationId,
+				),
+				eq(
+					kernelConversations.conversationId,
+					kernelRuntimeRuns.conversationId,
+				),
+			),
+		)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, params.organizationId),
+				or(
+					eq(kernelRuntimeRuns.id, params.runId),
+					eq(kernelRuntimeRuns.childRunId, params.runId),
+				),
+				isNotNull(kernelConversations.workspaceId),
+				isNull(kernelConversations.deletedAt),
+			),
+		)
+		.limit(1);
+	return row?.workspaceId ?? null;
 }

@@ -13,7 +13,10 @@ import { WorkspacePersonalAccess } from "./workspace-personal-access";
 import { WorkspaceSkillDraftPanel } from "./workspace-skill-drafts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
-import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import {
+	isWorkspaceLinkResource,
+	isWorkspaceSkillResource,
+} from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
@@ -185,7 +188,7 @@ export function WorkspaceResourcesPanel({
 	const [task, setTask] = useState("");
 	const [outcome, setOutcome] = useState("");
 	const resources = (query.data?.items ?? []).filter(
-		(resource) => !isWorkspaceSkillResource(resource),
+		(resource) => !isWorkspaceLinkResource(resource),
 	);
 	const connections = (connectionsQuery.data?.data ?? [])
 		.filter((connection) => connection.status === "connected")
