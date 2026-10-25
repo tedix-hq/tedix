@@ -241,6 +241,83 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 		machine.close();
 	});
 
+	it("delivers updates and terminal events for overlapping runs independently", async () => {
+		let finishRunOne: (() => void) | undefined;
+		const runOneTerminal = new Promise<unknown>((resolve) => {
+			finishRunOne = () =>
+				resolve(
+					eventsPage(
+						[{ ...streamEvent("e-2", "run-1"), kind: "run.completed" }],
+						1,
+						true,
+					),
+				);
+		});
+		const { root } = await openRealSession((path, input) => {
+			if (path === "kernelRuntime/readRunSet")
+				return runSet(["run-2", "run-1"]);
+			if (path === "kernelRuntime/readRunEvents") {
+				const { runId, offset, waitMs } = input as {
+					runId: string;
+					offset: number;
+					waitMs?: number;
+				};
+				if (waitMs === undefined) return eventsPage([], offset);
+				if (offset === 0) return eventsPage([streamEvent("e-1", runId)], 0);
+				if (runId === "run-1") return runOneTerminal;
+				return eventsPage(
+					[{ ...streamEvent("e-2", runId), kind: "run.completed" }],
+					1,
+					true,
+				);
+			}
+			throw new Error(`unexpected path ${path}`);
+		});
+		const frames: ConversationStreamFrame[] = [];
+		const machine = createCapnChatMachine({
+			conversationId: CONVERSATION_ID,
+			connect: async () => root,
+			onFrame: (frame) => frames.push(frame),
+		});
+		try {
+			await until(
+				() => frames.length >= 3,
+				"both updates and run-2 completion while run-1 stays open",
+			);
+			expect(
+				frames
+					.filter((frame) => frame.event.runId === "run-1")
+					.map((frame) => frame.event.kind),
+			).toEqual(["message.delta"]);
+			expect(
+				frames
+					.filter((frame) => frame.event.runId === "run-2")
+					.map((frame) => frame.event.kind),
+			).toEqual(["message.delta", "run.completed"]);
+			finishRunOne?.();
+			await until(() => frames.length >= 4, "run-1 completion");
+			for (const runId of ["run-1", "run-2"]) {
+				expect(
+					frames
+						.filter((frame) => frame.event.runId === runId)
+						.map((frame) => [frame.offset, frame.event.kind]),
+				).toEqual([
+					[0, "message.delta"],
+					[1, "run.completed"],
+				]);
+			}
+			expect(machine.getCursor()?.runs).toEqual(
+				expect.arrayContaining([
+					{ runId: "run-1", offset: 2 },
+					{ runId: "run-2", offset: 2 },
+				]),
+			);
+		} finally {
+			finishRunOne?.();
+			machine.close();
+		}
+	});
+
 	it("pipelines snapshot onto an un-awaited openConversation", async () => {
 		const { root } = await openRealSession((path, input) => {
 			if (path === "kernelRuntime/readRunSet") return runSet(["run-1"]);
