@@ -13,11 +13,17 @@ import {
 	RepoNotFoundError,
 	RepoRateLimitError,
 	RepoSecondaryRateLimitError,
+	RepoSelectionTooLargeError,
 	RepoTreeTruncatedError,
 	RepoUnsafeRefError,
 	readRepoBlob,
+	repoPathSelected,
 	utf8ToBase64,
 } from "./repo-api";
+import {
+	BROAD_MONOREPO_PATHS,
+	monorepoTree,
+} from "../test/monorepo-tree-fixture";
 
 // ── Minimal fetch mock helpers ─────────────────────────────────────────────────
 
@@ -1134,6 +1140,156 @@ const BRANCH = "feat/test-branch";
 	}
 	console.log(
 		"✓ test 16: commitRepoChanges rejects traversal paths → RepoUnsafeRefError, no fetch",
+	);
+}
+
+// ── 17. path selectors match whole segments, not string prefixes ───────────
+
+{
+	assert.equal(repoPathSelected("apps/api/x.ts", "apps"), true);
+	assert.equal(repoPathSelected("apps/api/x.ts", "apps/"), true);
+	assert.equal(repoPathSelected("apps", "apps"), true);
+	assert.equal(repoPathSelected("apps-archive/x.ts", "apps"), false);
+	assert.equal(repoPathSelected("src/index.tsx", "src/index.ts"), false);
+	console.log("✓ test 17: repoPathSelected matches whole path segments");
+}
+
+// ── 18. a broad monorepo selection is refused before any blob download ────
+
+{
+	const tree = monorepoTree();
+	let blobReads = 0;
+	globalThis.fetch = async (input: RequestInfo | URL) => {
+		const url = typeof input === "string" ? input : input.toString();
+		if (url.includes("/git/trees/"))
+			return jsonResponse({ truncated: false, tree });
+		if (url.includes("/git/blobs/")) blobReads++;
+		return jsonResponse({ content: "", encoding: "base64" });
+	};
+	await assert.rejects(
+		loadRepoFilesResult({
+			owner: OWNER,
+			repo: REPO,
+			ref: REF,
+			token: TOKEN,
+			paths: BROAD_MONOREPO_PATHS,
+			maxFiles: 200,
+			maxBytes: 5_000_000,
+		}),
+		(err: unknown) => {
+			assert.ok(err instanceof RepoSelectionTooLargeError);
+			assert.equal(err.reason, "file_count");
+			// `apps-archive` is not part of the `apps` selection.
+			assert.equal(err.selection.fileCount, 5_423 + 2_813 + 57 + 190);
+			assert.ok(err.selection.totalBytes > 500_000_000);
+			assert.deepEqual(
+				err.selection.paths.map((entry) => entry.path),
+				["packages", "apps", "scripts", "docs", "memory"],
+			);
+			assert.equal(err.selection.paths.at(-1)?.fileCount, 0);
+			return true;
+		},
+	);
+	assert.equal(blobReads, 0, "no blob is downloaded for a refused selection");
+
+	await assert.rejects(
+		loadRepoFilesResult({
+			owner: OWNER,
+			repo: REPO,
+			ref: REF,
+			token: TOKEN,
+			paths: ["docs"],
+			maxBytes: 500_000,
+		}),
+		(err: unknown) =>
+			err instanceof RepoSelectionTooLargeError && err.reason === "bytes",
+	);
+	assert.equal(blobReads, 0, "a byte-budget refusal downloads nothing");
+	console.log(
+		"✓ test 18: broad monorepo selection → RepoSelectionTooLargeError, 0 blob reads",
+	);
+}
+
+// ── 19. streamed loads hand off each file and retain no contents ──────────
+
+{
+	const fileCount = 30;
+	const content = "y".repeat(10_000);
+	let inFlight = 0;
+	let peakInFlight = 0;
+	globalThis.fetch = async (input: RequestInfo | URL) => {
+		const url = typeof input === "string" ? input : input.toString();
+		if (url.includes("/git/trees/")) {
+			return jsonResponse({
+				truncated: false,
+				tree: Array.from({ length: fileCount }, (_, i) => ({
+					type: "blob",
+					path: `src/f${i}.ts`,
+					sha: `sha-${i}`,
+					size: content.length,
+				})),
+			});
+		}
+		inFlight++;
+		peakInFlight = Math.max(peakInFlight, inFlight);
+		await new Promise((resolve) => setTimeout(resolve, 1));
+		inFlight--;
+		return jsonResponse({ content: utf8ToBase64(content), encoding: "base64" });
+	};
+	const delivered: string[] = [];
+	const result = await loadRepoFilesResult({
+		owner: OWNER,
+		repo: REPO,
+		ref: REF,
+		token: TOKEN,
+		paths: ["src"],
+		maxFiles: 200,
+		maxBytes: 5_000_000,
+		onFile: async (file) => {
+			assert.equal(file.content.length, content.length);
+			delivered.push(file.path);
+		},
+	});
+	assert.equal(result.files.length, 0, "streamed contents are not retained");
+	assert.equal(result.loaded.length, fileCount);
+	assert.equal(delivered.length, fileCount);
+	assert.ok(peakInFlight <= 6, `at most 6 blobs in flight (${peakInFlight})`);
+
+	// Declared sizes that understate real bytes are caught as bytes arrive.
+	globalThis.fetch = async (input: RequestInfo | URL) => {
+		const url = typeof input === "string" ? input : input.toString();
+		if (url.includes("/git/trees/")) {
+			return jsonResponse({
+				truncated: false,
+				tree: Array.from({ length: fileCount }, (_, i) => ({
+					type: "blob",
+					path: `src/f${i}.ts`,
+					sha: `sha-${i}`,
+					size: 1,
+				})),
+			});
+		}
+		return jsonResponse({ content: utf8ToBase64(content), encoding: "base64" });
+	};
+	let handedOff = 0;
+	await assert.rejects(
+		loadRepoFilesResult({
+			owner: OWNER,
+			repo: REPO,
+			ref: REF,
+			token: TOKEN,
+			paths: ["src"],
+			maxBytes: 50_000,
+			onFile: async () => {
+				handedOff++;
+			},
+		}),
+		(err: unknown) =>
+			err instanceof RepoSelectionTooLargeError && err.reason === "bytes",
+	);
+	assert.ok(handedOff <= 5, `stopped at the byte budget (${handedOff})`);
+	console.log(
+		"✓ test 19: onFile streaming retains no contents, ≤6 in flight, real bytes capped",
 	);
 }
 
