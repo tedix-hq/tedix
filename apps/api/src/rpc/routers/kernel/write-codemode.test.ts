@@ -4,7 +4,10 @@ import {
 	codeModeDescribeParams,
 	codeModeDiscoveryParams,
 	codeModeExecutionParams,
+	codeModeResultHandle,
 	parseCodeModeCatalog,
+	parseCodeModeCatalogValue,
+	readCodeModeResultPages,
 	writeDiscoveryQuery,
 } from "./write-codemode";
 
@@ -175,3 +178,52 @@ it.each([
 		).toEqual(metadata);
 	},
 );
+
+describe("schemas kept behind a Code Mode result handle", () => {
+	const wrap = (result: unknown) => ({
+		structuredContent: { executionId: "exec-1", result },
+	});
+	const entry = {
+		callable: "apps.update_app",
+		annotations: { readOnlyHint: false },
+		parameters: {
+			type: "object",
+			properties: { appId: { type: "string" } },
+			required: ["appId"],
+		},
+	};
+
+	it("pages a kept describe result back into the full schema", async () => {
+		const kept = wrap({
+			__tedix_result_handle: true,
+			handle: "exec-1",
+			preview: "[{",
+			total: 30415,
+		});
+		expect(parseCodeModeCatalog(kept)).toEqual([]);
+		expect(codeModeResultHandle(kept)).toBe("exec-1");
+		const text = JSON.stringify([entry]);
+		const pages = [
+			{ text: text.slice(0, 40), nextOffset: 40 },
+			{ text: text.slice(40) },
+		];
+		const offsets: unknown[] = [];
+		const value = await readCodeModeResultPages("exec-1", async (params) => {
+			const code = (params.arguments as { code: string }).code;
+			offsets.push(JSON.parse(code.match(/read_result\((.*)\)/)![1]!).offset);
+			return wrap(pages.shift());
+		});
+		expect(offsets).toEqual([0, 40]);
+		expect(parseCodeModeCatalogValue(value)).toMatchObject([
+			{ name: "apps.update_app", inputSchema: { required: ["appId"] } },
+		]);
+	});
+
+	it("rejects a handle that is not a plain identifier", () => {
+		expect(
+			codeModeResultHandle(
+				wrap({ __tedix_result_handle: true, handle: '"); evil("' }),
+			),
+		).toBeNull();
+	});
+});

@@ -3555,3 +3555,62 @@ describe("Work creation in a workspace linked to one project", () => {
 		expect(proposal?.args).not.toHaveProperty("projectId");
 	});
 });
+
+describe("a mistyped selected Workspace id", () => {
+	it("is replaced by the selected Workspace when the organization has no such Workspace", async () => {
+		const workspaceId = "0c2464ac-201c-4e56-bb40-e1499d4673fe";
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
+			slug === "orchard-unified" ? { slug } : null,
+		);
+		const service = mcpService(() => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					structuredContent: {
+						executionId: "catalog",
+						result: [
+							{
+								callable: "os.create_os_output",
+								authorized: true,
+								annotations: { readOnlyHint: false },
+								parameters: {
+									properties: {
+										kind: { type: "string" },
+										title: { type: "string" },
+										workspaceId: { type: "string" },
+									},
+									required: ["kind", "title"],
+								},
+							},
+						],
+					},
+				},
+			},
+		}));
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-orchard",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "orchard-unified",
+					capability: "sheets.create",
+					connectionStatus: "connected",
+				},
+			}),
+			actingUserId: "member-1",
+			workspaceContext: { workspaceId, workspaceName: "Harvest" },
+			content: 'Create a new sheet titled "Check" in this workspace',
+			model: objectModel({
+				toolName: "os.create_os_output",
+				args: {
+					kind: "sheet",
+					title: "Check",
+					workspaceId: "0c2464ac-201c-4e56-bbb4-e1499d4673fe",
+				},
+			}),
+		});
+		expect(proposal?.args).toMatchObject({ workspaceId });
+	});
+});

@@ -156,6 +156,71 @@ export function codeModeCanonicalDescribeParams(
 	};
 }
 
+/** Code Mode keeps an over-budget result and returns a handle to page it. */
+export function codeModeResultHandle(result: unknown): string | null {
+	let parsed: unknown;
+	try {
+		parsed = parseJson(
+			stripCodeModeExecutionEnvelope(
+				unwrapCallToolResult(result, CODE_MODE_TOOL_NAME),
+			),
+		);
+	} catch {
+		return null;
+	}
+	const record = recordFrom(parsed);
+	return record?.__tedix_result_handle === true &&
+		typeof record.handle === "string" &&
+		/^[\w-]{1,128}$/.test(record.handle)
+		? record.handle
+		: null;
+}
+
+/** Characters per page: one page stays under the model-facing result budget. */
+const RESULT_PAGE_CHARS = 16_000;
+
+/** Read one page of a kept result (see {@link codeModeResultHandle}). */
+export function codeModeReadResultParams(
+	handle: string,
+	offset: number,
+): Record<string, unknown> {
+	return {
+		name: CODE_MODE_TOOL_NAME,
+		arguments: {
+			code: `async () => await discover.read_result(${JSON.stringify({ handle, offset, limit: RESULT_PAGE_CHARS })})`,
+		},
+	};
+}
+
+/**
+ * Reassemble a kept result from its pages: `{ value, complete }` when it fits
+ * one page, else `{ text, nextOffset }` slices of its compact JSON.
+ */
+export async function readCodeModeResultPages(
+	handle: string,
+	readPage: (params: Record<string, unknown>) => Promise<unknown>,
+	maxPages = 8,
+): Promise<unknown> {
+	let text = "";
+	let offset = 0;
+	for (let page = 0; page < maxPages; page++) {
+		const data = recordFrom(
+			codeModeResultData(
+				(await readPage(
+					codeModeReadResultParams(handle, offset),
+				)) as ToolCallResult,
+			),
+		);
+		if (!data) return null;
+		if (data.complete === true && "value" in data) return data.value;
+		if (typeof data.text !== "string") return null;
+		text += data.text;
+		if (typeof data.nextOffset !== "number") return parseJson(text);
+		offset = data.nextOffset;
+	}
+	return null;
+}
+
 /** Parse the outer `code` tool result into the same shape as raw tools/list. */
 export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 	let parsed: unknown;
@@ -168,6 +233,13 @@ export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 	} catch {
 		return [];
 	}
+	return parseCodeModeCatalogValue(parsed);
+}
+
+/** Catalog entries from an already-parsed Code Mode value. */
+export function parseCodeModeCatalogValue(
+	parsed: unknown,
+): CodeModeCatalogTool[] {
 	const entries = Array.isArray(parsed)
 		? parsed
 		: Array.isArray(recordFrom(parsed)?.results)
