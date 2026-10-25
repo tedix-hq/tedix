@@ -56,6 +56,7 @@ export const OutboundPolicySchema = z.strictObject({
 		.default([]),
 	/** A provider identifier is configuration; it is never a credential or tenant fallback. */
 	gmailProviderId: text.max(200).optional(),
+	reviewTimeoutMinutes: z.number().int().min(1).max(1440).optional(),
 });
 export type OutboundPolicy = z.infer<typeof OutboundPolicySchema>;
 
@@ -78,6 +79,8 @@ export const OutboundStateSchema = z.strictObject({
 	ownerUserId: text,
 	reviewerTediId: z.uuid(),
 	interactionId: z.uuid(),
+	reviewRequestedAt: z.iso.datetime().optional(),
+	reviewTimedOutAt: z.iso.datetime().optional(),
 	status: z.enum([
 		"reviewing",
 		"waiting_on_you",

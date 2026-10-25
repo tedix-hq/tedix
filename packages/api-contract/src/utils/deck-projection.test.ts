@@ -78,6 +78,18 @@ const decision = {
 };
 
 describe("canonical Deck projection", () => {
+	it("returns both overdue message cards to the Deck once the review sweep surfaces them", () => {
+		const cards = (outboundStatus: string) =>
+			["customer-reply", "partner-email"].map((id) =>
+				row(id, { schema: "tedix.outbound.v1", outboundStatus }),
+			);
+		expect(project(cards("reviewing"))).toEqual([]);
+		expect(
+			project(cards("waiting_on_you"))
+				.map((card) => card.id)
+				.sort(),
+		).toEqual(["customer-reply", "partner-email"]);
+	});
 	it("keeps valuable and critical decisions while hiding filing and status noise", () => {
 		expect(
 			project([

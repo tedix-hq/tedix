@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
+import { cancelWorkInteraction } from "./interactions";
 import {
 	type OutboundState,
 	OutboundStateSchema,
@@ -13,6 +14,7 @@ import {
 	saveOutbound,
 	outboundApprovalHistory,
 	outboundInteractionOverlays,
+	sweepStuckOutboundReviews,
 } from "./outbound";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
@@ -42,7 +44,10 @@ const state: OutboundState = {
 	review: null,
 };
 
-function fixture(kind: "question" | "input" = "question") {
+function fixture(
+	kind: "question" | "input" = "question",
+	expiresAt: string | null = null,
+) {
 	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Harbor','harbor'),('foreign','Other','other');
@@ -50,12 +55,199 @@ function fixture(kind: "question" | "input" = "question") {
 		INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status,role) VALUES('membership','org','rosa','rosa','rosa@example.test','active','owner');
 		INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('${REVIEWER}','org','Partnership reviewer','partnership-reviewer','active');
 		INSERT INTO work_items(id,org_id,title,work_class,purpose_exception_expires_at,admission_spec_revision,created_at,metadata) VALUES('${WORK}','org','Reply to Lina','hygiene','2027-01-01T00:00:00.000Z','fictional-revision','${NOW}','{"keep":"original"}');
-		INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES('${QUESTION}','org','${WORK}','${kind}','Review reply','Draft','user','rosa','user','rosa','${NOW}');
+		INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,expires_at) VALUES('${QUESTION}','org','${WORK}','${kind}','Review reply','Draft','user','rosa','user','rosa','${NOW}',${expiresAt ? `'${expiresAt}'` : "NULL"});
 	`);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 
 describe("outbound work on migrated D1", () => {
+	it("does not overwrite a verdict that arrives between candidate selection and the timeout CAS", async () => {
+		const { sqlite, db } = fixture();
+		await saveOutbound(db, {
+			orgId: "org",
+			workItemId: WORK,
+			expectedVersion: 1,
+			state,
+			actor: { type: "user", id: "rosa" },
+			action: "submitted",
+			now: NOW,
+		});
+		const batch = db.batch.bind(db);
+		vi.spyOn(db, "batch").mockImplementationOnce(async (statements) => {
+			sqlite
+				.prepare(
+					"UPDATE work_items SET version=version+1,metadata=json_set(metadata,'$.outbound.status','waiting_on_you') WHERE id=?",
+				)
+				.run(WORK);
+			return batch(statements);
+		});
+		expect(
+			await sweepStuckOutboundReviews(db, {
+				now: "2026-10-18T10:30:00.000Z",
+				limit: 1,
+			}),
+		).toEqual({ outboundReviewCandidates: 1, outboundReviewsTimedOut: 0 });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_events WHERE json_extract(payload,'$.action')='review_timed_out'",
+				)
+				.get()?.n,
+		).toBe(0);
+	});
+	it("times out legacy reviews exactly once, preserving the draft and open owner card", async () => {
+		const { sqlite, db } = fixture();
+		await saveOutbound(db, {
+			orgId: "org",
+			workItemId: WORK,
+			expectedVersion: 1,
+			state,
+			actor: { type: "user", id: "rosa" },
+			action: "submitted",
+			now: NOW,
+		});
+		expect(
+			(
+				await sweepStuckOutboundReviews(db, {
+					now: "2026-10-17T10:29:59.000Z",
+					limit: 10,
+				})
+			).outboundReviewsTimedOut,
+		).toBe(0);
+		expect(
+			(
+				await sweepStuckOutboundReviews(db, {
+					now: "2026-10-17T10:30:00.000Z",
+					limit: 10,
+				})
+			).outboundReviewsTimedOut,
+		).toBe(1);
+		const [overlay] = await outboundInteractionOverlays(db, "org", [QUESTION]);
+		expect(overlay.record.outbound).toEqual({
+			...state,
+			status: "waiting_on_you",
+			reviewTimedOutAt: "2026-10-17T10:30:00.000Z",
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT status, target_id, prompt FROM work_interactions WHERE id=?",
+				)
+				.get(QUESTION),
+		).toMatchObject({ status: "open", target_id: "rosa", prompt: "Draft" });
+		expect(await outboundApprovalHistory(db, "org", "rosa")).toEqual([]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT actor_type, actor_id FROM work_events WHERE json_extract(payload,'$.action')='review_timed_out'",
+				)
+				.get(),
+		).toMatchObject({
+			actor_type: "system",
+			actor_id: "outbound-review-timeout",
+		});
+		expect(
+			(
+				await sweepStuckOutboundReviews(db, {
+					now: "2026-10-18T10:30:00.000Z",
+					limit: 10,
+				})
+			).outboundReviewsTimedOut,
+		).toBe(0);
+	});
+	it("uses the review clock and tenant timeout instead of unrelated Work updates", async () => {
+		const { db, sqlite } = fixture();
+		await putOutboundPolicy(db, "org", {
+			routes: [],
+			reviewTimeoutMinutes: 60,
+		});
+		await saveOutbound(db, {
+			orgId: "org",
+			workItemId: WORK,
+			expectedVersion: 1,
+			state: { ...state, status: "feedback", reviewRequestedAt: NOW },
+			actor: { type: "user", id: "rosa" },
+			action: "feedback",
+			now: NOW,
+		});
+		sqlite
+			.prepare(
+				"UPDATE work_items SET updated_at='2026-10-17T10:59:59.000Z' WHERE id=?",
+			)
+			.run(WORK);
+		expect(
+			(
+				await sweepStuckOutboundReviews(db, {
+					now: "2026-10-17T10:59:59.000Z",
+					limit: 10,
+				})
+			).outboundReviewsTimedOut,
+		).toBe(0);
+		expect(
+			(
+				await sweepStuckOutboundReviews(db, {
+					now: "2026-10-17T11:00:00.000Z",
+					limit: 10,
+				})
+			).outboundReviewsTimedOut,
+		).toBe(1);
+	});
+	it.each([
+		"resolved",
+		"cancelled",
+		"expired",
+		"foreign-owner",
+		"terminal-work",
+	])("leaves %s cards untouched", async (reason) => {
+		const { db, sqlite } = fixture(
+			"question",
+			reason === "expired" ? "2026-10-17T10:01:00.000Z" : null,
+		);
+		await saveOutbound(db, {
+			orgId: "org",
+			workItemId: WORK,
+			expectedVersion: 1,
+			state,
+			actor: { type: "user", id: "rosa" },
+			action: "submitted",
+			now: NOW,
+			...(reason === "resolved"
+				? {
+						response: {
+							body: state.draft.body,
+							before: state.draft.body,
+							resolves: true,
+						},
+					}
+				: {}),
+		});
+		if (reason === "foreign-owner")
+			sqlite
+				.prepare(
+					"UPDATE work_items SET metadata=json_set(metadata,'$.outbound.ownerUserId','another-owner') WHERE id=?",
+				)
+				.run(WORK);
+		if (reason === "terminal-work")
+			sqlite
+				.prepare("UPDATE work_items SET disposition='completed' WHERE id=?")
+				.run(WORK);
+		if (reason === "cancelled")
+			await cancelWorkInteraction(db, {
+				orgId: "org",
+				interactionId: QUESTION,
+				expectedVersion: 1,
+				actor: { type: "user", id: "rosa" },
+				now: NOW,
+			});
+		expect(
+			(
+				await sweepStuckOutboundReviews(db, {
+					now: "2026-10-18T10:30:00.000Z",
+					limit: 1,
+				})
+			).outboundReviewsTimedOut,
+		).toBe(0);
+	});
 	it("creates one card atomically and exposes its overlay without rewriting the request", async () => {
 		const { sqlite, db } = fixture();
 		const interactionId = "44444444-4444-4444-8444-444444444444";
