@@ -95,12 +95,10 @@ export function failureClass(
 		(isRecord(error) ? (error.status ?? error.statusCode) : undefined) ??
 			text.match(/\b(?:HTTP|status(?: code)?)\s*[:=]?\s*([45]\d{2})\b/i)?.[1],
 	);
-	if (
-		[401, 403, 429].includes(status) ||
-		/unauthorized|forbidden|too many requests/i.test(text)
-	)
-		return "infra";
+	if ([401, 403, 429].includes(status)) return "infra";
+	// An explicit 5xx outranks auth or transport words in its message.
 	if (status >= 500 && status < 600) return "product";
+	if (/unauthorized|forbidden|too many requests/i.test(text)) return "infra";
 	if (
 		/timeout|timed out|abort|fetch failed|failed to fetch|unable to connect|connection|network|DNS|TLS|certificate|ENOTFOUND|EAI_AGAIN|ECONN|ETIMEDOUT|EHOST|ENET|EPIPE|CERT_|socket/i.test(
 			text,

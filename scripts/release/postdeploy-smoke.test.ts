@@ -559,6 +559,15 @@ describe("failure classification", () => {
 		expect(failureClass(new Error("Request failed with status code 429"))).toBe(
 			"infra",
 		);
+		expect(
+			failureClass(
+				Object.assign(new Error("upstream forbidden"), { status: 503 }),
+			),
+		).toBe("product");
+		expect(failureClass(new Error("HTTP 502: unauthorized upstream"))).toBe(
+			"product",
+		);
+		expect(failureClass(new Error("forbidden"))).toBe("infra");
 	});
 	test("health SHA mismatch is a product fault and successful checks have no failure class", async () => {
 		const url = "https://example.test/health";
