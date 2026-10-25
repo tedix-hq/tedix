@@ -60,4 +60,22 @@ describe("groupToolCollisions", () => {
 			},
 		]);
 	});
+
+	it("counts events with invalid timestamps without aborting the report", () => {
+		expect(
+			groupToolCollisions([
+				{ ownerKey: "k", owners: ["a"], timestamp: 1e100 },
+				{ ownerKey: "k", owners: ["a"], timestamp: Number.NaN },
+				{ ownerKey: "k", owners: ["a"], timestamp: Date.UTC(2026, 9, 3) },
+				{ ownerKey: "k", owners: ["a"], timestamp: 8.64e15 },
+			]),
+		).toEqual([
+			{
+				ownerKey: "k",
+				owners: ["a"],
+				events: 4,
+				lastSeen: "+275760-09-13T00:00:00.000Z",
+			},
+		]);
+	});
 });
