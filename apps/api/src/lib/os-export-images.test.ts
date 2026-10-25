@@ -262,6 +262,61 @@ describe("inline export image validation", () => {
 		);
 	});
 
+	it.each([
+		String.raw`<svg><style>rect { fill: u\72l(https://example.org/a.svg); }</style><rect/></svg>`,
+		String.raw`<svg><rect style="fill: \75\000072 l(https://example.org/a.svg)"/></svg>`,
+		String.raw`<svg><rect fill="U\52L('https://example.org/a.svg')"/></svg>`,
+		String.raw`<svg><style>@\69mport 'https://example.org/a.css';</style></svg>`,
+		'<svg><rect style="fill: u&#92;72l(https://example.org/a.svg)"/></svg>',
+		'<svg><rect style="fill: u&#x5c;72l(https://example.org/a.svg)"/></svg>',
+		'<svg><rect style="fill: &#117;rl(https://example.org/a.svg)"/></svg>',
+	])(
+		"rejects obfuscated CSS references in inline and fetched SVG: %s",
+		async (svg) => {
+			const fetcher = vi
+				.fn()
+				.mockImplementation(
+					async () =>
+						new Response(svg, { headers: { "content-type": "image/svg+xml" } }),
+				);
+			vi.stubGlobal("fetch", fetcher);
+			for (const source of [
+				`data:image/svg+xml;base64,${btoa(svg)}`,
+				`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+				"https://example.org/logo.svg",
+			]) {
+				await expect(inlineOsExportImages(document(source))).rejects.toThrow(
+					"self-contained",
+				);
+			}
+			expect(fetcher).toHaveBeenCalledTimes(1);
+		},
+	);
+
+	it.each([
+		'<svg><defs><linearGradient id="paint"/></defs><rect fill="url(#paint)"/></svg>',
+		`<svg><style>rect { fill: url( '#paint' ); }</style><defs><linearGradient id="paint"/></defs><rect style="filter: url(&quot;#blur&quot;)"/><filter id="blur"/></svg>`,
+		'<svg><path id="shape"/><use href="#shape"/><text>&#71;r&#xfc;&#223;e &amp; hello</text></svg>',
+	])("preserves self-contained inline and fetched SVG: %s", async (svg) => {
+		const fetcher = vi
+			.fn()
+			.mockImplementation(
+				async () =>
+					new Response(svg, { headers: { "content-type": "image/svg+xml" } }),
+			);
+		vi.stubGlobal("fetch", fetcher);
+		const data = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+		for (const source of [
+			data,
+			`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+		]) {
+			const content = document(source);
+			expect(await inlineOsExportImages(content)).toEqual(content);
+		}
+		expect(fetcher).not.toHaveBeenCalled();
+		expect(await fetchOsExportImage("https://example.org/logo.svg")).toBe(data);
+	});
+
 	it("keeps valid percent-encoded SVG and binary image bytes without fetching", async () => {
 		const fetcher = vi.fn();
 		vi.stubGlobal("fetch", fetcher);
