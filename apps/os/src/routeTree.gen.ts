@@ -73,6 +73,7 @@ import { Route as SessionTenantWorkNeedsYouRouteImport } from './routes/_session
 import { Route as SessionTenantWorkPortfolioRouteImport } from './routes/_session/_tenant/work.portfolio'
 import { Route as SessionTenantWorkQueueRouteImport } from './routes/_session/_tenant/work.queue'
 import { Route as SessionTenantWorkRecoveryRouteImport } from './routes/_session/_tenant/work.recovery'
+import { Route as SessionChromeFreeSharedWorkspaceWorkspaceIdRouteImport } from './routes/_session/_chrome-free/shared_.workspace.$workspaceId'
 import { Route as SessionTenantAppsAppIdIndexRouteImport } from './routes/_session/_tenant/apps_.$appId.index'
 import { Route as SessionTenantAppsAppIdAnalyticsRouteImport } from './routes/_session/_tenant/apps_.$appId.analytics'
 import { Route as SessionTenantAppsAppIdContentRouteImport } from './routes/_session/_tenant/apps_.$appId.content'
@@ -439,6 +440,12 @@ const SessionTenantWorkRecoveryRoute =
     path: '/recovery',
     getParentRoute: () => SessionTenantWorkRoute,
   } as any)
+const SessionChromeFreeSharedWorkspaceWorkspaceIdRoute =
+  SessionChromeFreeSharedWorkspaceWorkspaceIdRouteImport.update({
+    id: '/shared_/workspace/$workspaceId',
+    path: '/shared/workspace/$workspaceId',
+    getParentRoute: () => SessionChromeFreeRoute,
+  } as any)
 const SessionTenantAppsAppIdIndexRoute =
   SessionTenantAppsAppIdIndexRouteImport.update({
     id: '/',
@@ -638,6 +645,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof SessionTenantAdminIndexRoute
   '/skills/': typeof SessionTenantSkillsIndexRoute
   '/work/': typeof SessionTenantWorkIndexRoute
+  '/shared/workspace/$workspaceId': typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRoute
   '/apps/$appId/analytics': typeof SessionTenantAppsAppIdAnalyticsRoute
   '/apps/$appId/content': typeof SessionTenantAppsAppIdContentRoute
   '/apps/$appId/settings': typeof SessionTenantAppsAppIdSettingsRoute
@@ -716,6 +724,7 @@ export interface FileRoutesByTo {
   '/admin': typeof SessionTenantAdminIndexRoute
   '/skills': typeof SessionTenantSkillsIndexRoute
   '/work': typeof SessionTenantWorkIndexRoute
+  '/shared/workspace/$workspaceId': typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRoute
   '/apps/$appId/analytics': typeof SessionTenantAppsAppIdAnalyticsRoute
   '/apps/$appId/content': typeof SessionTenantAppsAppIdContentRoute
   '/apps/$appId/settings': typeof SessionTenantAppsAppIdSettingsRoute
@@ -806,6 +815,7 @@ export interface FileRoutesById {
   '/_session/_tenant/admin/': typeof SessionTenantAdminIndexRoute
   '/_session/_tenant/skills/': typeof SessionTenantSkillsIndexRoute
   '/_session/_tenant/work/': typeof SessionTenantWorkIndexRoute
+  '/_session/_chrome-free/shared_/workspace/$workspaceId': typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRoute
   '/_session/_tenant/apps_/$appId/analytics': typeof SessionTenantAppsAppIdAnalyticsRoute
   '/_session/_tenant/apps_/$appId/content': typeof SessionTenantAppsAppIdContentRoute
   '/_session/_tenant/apps_/$appId/settings': typeof SessionTenantAppsAppIdSettingsRoute
@@ -892,6 +902,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/skills/'
     | '/work/'
+    | '/shared/workspace/$workspaceId'
     | '/apps/$appId/analytics'
     | '/apps/$appId/content'
     | '/apps/$appId/settings'
@@ -970,6 +981,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/skills'
     | '/work'
+    | '/shared/workspace/$workspaceId'
     | '/apps/$appId/analytics'
     | '/apps/$appId/content'
     | '/apps/$appId/settings'
@@ -1059,6 +1071,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/admin/'
     | '/_session/_tenant/skills/'
     | '/_session/_tenant/work/'
+    | '/_session/_chrome-free/shared_/workspace/$workspaceId'
     | '/_session/_tenant/apps_/$appId/analytics'
     | '/_session/_tenant/apps_/$appId/content'
     | '/_session/_tenant/apps_/$appId/settings'
@@ -1540,6 +1553,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkRecoveryRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
+    '/_session/_chrome-free/shared_/workspace/$workspaceId': {
+      id: '/_session/_chrome-free/shared_/workspace/$workspaceId'
+      path: '/shared/workspace/$workspaceId'
+      fullPath: '/shared/workspace/$workspaceId'
+      preLoaderRoute: typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRouteImport
+      parentRoute: typeof SessionChromeFreeRoute
+    }
     '/_session/_tenant/apps_/$appId/': {
       id: '/_session/_tenant/apps_/$appId/'
       path: '/'
@@ -1734,6 +1754,7 @@ interface SessionChromeFreeRouteChildren {
   SessionChromeFreeSharedRoute: typeof SessionChromeFreeSharedRoute
   SessionChromeFreeOauthCallbackRoute: typeof SessionChromeFreeOauthCallbackRoute
   SessionChromeFreeWorkspaceWorkspaceIdRoute: typeof SessionChromeFreeWorkspaceWorkspaceIdRoute
+  SessionChromeFreeSharedWorkspaceWorkspaceIdRoute: typeof SessionChromeFreeSharedWorkspaceWorkspaceIdRoute
 }
 
 const SessionChromeFreeRouteChildren: SessionChromeFreeRouteChildren = {
@@ -1741,6 +1762,8 @@ const SessionChromeFreeRouteChildren: SessionChromeFreeRouteChildren = {
   SessionChromeFreeOauthCallbackRoute: SessionChromeFreeOauthCallbackRoute,
   SessionChromeFreeWorkspaceWorkspaceIdRoute:
     SessionChromeFreeWorkspaceWorkspaceIdRoute,
+  SessionChromeFreeSharedWorkspaceWorkspaceIdRoute:
+    SessionChromeFreeSharedWorkspaceWorkspaceIdRoute,
 }
 
 const SessionChromeFreeRouteWithChildren =

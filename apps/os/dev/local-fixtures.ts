@@ -1174,6 +1174,8 @@ export function resetLocalFixtures(): void {
 	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
+	localCollaborators.clear();
+	localCollaboratorLinks.clear();
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
 	else installWorkViewFixtures();
 }
@@ -4514,6 +4516,53 @@ const LOCAL_LESSONS = [
 	},
 ] as const;
 
+// Workspace collaborators on this local copy: you own every workspace.
+type LocalCollaborator = {
+	userId: string;
+	email: string;
+	name: string | null;
+	role: "use" | "build";
+	addedBy: string[];
+	canRemove: boolean;
+	lastOpenedAt: string | null;
+};
+type LocalCollaboratorLink = {
+	id: string;
+	role: "use" | "build";
+	label: string | null;
+	createdBy: { userId: string; email: string | null; name: string | null };
+	createdAt: string;
+	canRevoke: boolean;
+};
+const localCollaborators = new Map<string, LocalCollaborator[]>();
+const localCollaboratorLinks = new Map<string, LocalCollaboratorLink[]>();
+
+function localShareKey(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(16));
+	return btoa(String.fromCharCode(...bytes))
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/=+$/, "");
+}
+
+/** Local people have one direct grant each, so only the target is affected. */
+function localRemovalImpact(input: {
+	workspaceId: string;
+	target: { kind: "user"; userId: string } | { kind: "link"; linkId: string };
+}) {
+	const { target } = input;
+	if (target.kind === "link") return [];
+	return (localCollaborators.get(input.workspaceId) ?? [])
+		.filter((person) => person.userId === target.userId)
+		.map((person) => ({
+			userId: person.userId,
+			email: person.email,
+			name: person.name,
+			oldRole: person.role,
+			newRole: null,
+		}));
+}
+
 // ---------------------------------------------------------------------------
 // Per-procedure handlers
 // ---------------------------------------------------------------------------
@@ -6655,6 +6704,103 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"osWorkspaces/workspaces/get": (input: { workspaceId: string }) => ({
 		workspace: findWorkspace(input.workspaceId),
 	}),
+	"osCollaborators/list": (input: { workspaceId: string }) => {
+		findWorkspace(input.workspaceId);
+		return {
+			role: "build",
+			isOwner: true,
+			ownerName: "You",
+			collaborators: localCollaborators.get(input.workspaceId) ?? [],
+			links: localCollaboratorLinks.get(input.workspaceId) ?? [],
+		};
+	},
+	"osCollaborators/add": (input: {
+		workspaceId: string;
+		email: string;
+		role: "use" | "build";
+	}) => {
+		findWorkspace(input.workspaceId);
+		const collaborator = {
+			userId: `local-${input.email.toLowerCase()}`,
+			email: input.email.toLowerCase(),
+			name: null,
+			role: input.role,
+			addedBy: ["You"],
+			canRemove: true,
+			lastOpenedAt: null,
+		};
+		const people = (localCollaborators.get(input.workspaceId) ?? []).filter(
+			(person) => person.userId !== collaborator.userId,
+		);
+		localCollaborators.set(input.workspaceId, [...people, collaborator]);
+		return { collaborator };
+	},
+	"osCollaborators/createLink": (input: {
+		workspaceId: string;
+		role: "use" | "build";
+		label?: string;
+	}) => {
+		findWorkspace(input.workspaceId);
+		const link = {
+			id: crypto.randomUUID(),
+			role: input.role,
+			label: input.label ?? null,
+			createdBy: { userId: "local-you", email: null, name: "You" },
+			createdAt: now(),
+			canRevoke: true,
+		};
+		localCollaboratorLinks.set(input.workspaceId, [
+			link,
+			...(localCollaboratorLinks.get(input.workspaceId) ?? []),
+		]);
+		return { link, key: localShareKey() };
+	},
+	"osCollaborators/copyLink": () => ({ key: localShareKey() }),
+	"osCollaborators/previewRemove": (input: {
+		workspaceId: string;
+		target: { kind: "user"; userId: string } | { kind: "link"; linkId: string };
+	}) => ({ affected: localRemovalImpact(input) }),
+	"osCollaborators/remove": (input: {
+		workspaceId: string;
+		target: { kind: "user"; userId: string } | { kind: "link"; linkId: string };
+	}) => {
+		const affected = localRemovalImpact(input);
+		const { target } = input;
+		if (target.kind === "user")
+			localCollaborators.set(
+				input.workspaceId,
+				(localCollaborators.get(input.workspaceId) ?? []).filter(
+					(person) => person.userId !== target.userId,
+				),
+			);
+		else
+			localCollaboratorLinks.set(
+				input.workspaceId,
+				(localCollaboratorLinks.get(input.workspaceId) ?? []).filter(
+					(link) => link.id !== target.linkId,
+				),
+			);
+		return { affected };
+	},
+	"osCollaborators/open": (input: { workspaceId: string; appId?: string }) => {
+		const workspace = findWorkspace(input.workspaceId);
+		return {
+			workspace: { id: workspace.id, title: workspace.name, ownerName: "You" },
+			role: "build",
+			isOwner: true,
+			capability: {
+				workspaceId: workspace.id,
+				appId: input.appId ?? null,
+				role: "build",
+				operations: [],
+				actingUserId: "local-you",
+				openedAt: now(),
+			},
+			apps: [],
+		};
+	},
+	"osCollaborators/listShared": () => ({ items: [] }),
+	"osCollaborators/dismissShared": () => ({ dismissed: true }),
 	"osWorkspaces/workspaces/update": (input: {
 		workspaceId: string;
 		name?: string;

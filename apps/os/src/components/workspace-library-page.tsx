@@ -29,6 +29,7 @@ import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
+import { SharedWorkspacesList } from "@/components/shared-workspaces-list";
 import {
 	activeWorkspacesQueryOptions,
 	archivedWorkspacesQueryOptions,
@@ -188,6 +189,7 @@ export function WorkspaceLibraryPage() {
 				) : null}
 			</div>
 
+			{view === "active" ? <SharedWorkspacesList /> : null}
 			{view === "archived" ? (
 				<ArchivedWorkspaces
 					restoredAt={restoredAt}

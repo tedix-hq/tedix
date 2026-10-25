@@ -28,6 +28,9 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
 	useNavigate: () => navigate,
 }));
+vi.mock("@/components/shared-workspaces-list", () => ({
+	SharedWorkspacesList: () => null,
+}));
 vi.mock("@/components/canvas-workspace-controls", () => ({
 	CanvasWorkspaceControls: ({
 		onSelected,

@@ -458,6 +458,11 @@ export const OS_PAGES: readonly OsPage[] = [
 		},
 	},
 	{ id: "shared", path: "/shared", label: "Shared" },
+	{
+		id: "shared-workspace",
+		path: "/shared/workspace/$workspaceId",
+		label: "Shared workspace",
+	},
 	{ id: "login", path: "/login", label: "Sign in" },
 	{ id: "invite", path: "/invite", label: "Invitation" },
 	{ id: "cli-login", path: "/cli/login", label: "CLI sign in" },
