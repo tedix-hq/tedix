@@ -114,6 +114,53 @@ try {
 			await page.close();
 		}
 	}
+
+	// Every organization row shows its complete name: long names wrap inside
+	// the row instead of being cut off, in both the multi-select picker and the
+	// single-organization picker shown when the requested one is unavailable.
+	const longNames = [
+		"Northwind Regional Logistics Cooperative of the Upper Valley — Field Operations",
+		"ContosoInternationalHoldingsEuropeanOperationsDivisionShared",
+	];
+	for (const width of [320, 375, 1280]) {
+		for (const query of ["", "&organization=unknown-org"]) {
+			const page = await browser.newPage({ viewport: { width, height: 900 } });
+			await page.goto(
+				`${server.origin}/browser-tests/cli-login.html?port=42123&state=fixture${query}`,
+			);
+			if (!query)
+				await page
+					.getByRole("button", { name: "Choose organizations", exact: true })
+					.click();
+			for (const name of longNames) {
+				const label = page.getByText(name, { exact: true });
+				await label.waitFor();
+				const fits = await label.evaluate((node) => {
+					const rect = node.getBoundingClientRect();
+					return (
+						node.scrollWidth <= node.clientWidth + 1 &&
+						getComputedStyle(node).textOverflow !== "ellipsis" &&
+						rect.left >= 0 &&
+						rect.right <= innerWidth
+					);
+				});
+				assert(
+					fits,
+					`${name} is shown in full at ${width}px (${query || "multi"})`,
+				);
+			}
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				`no horizontal scroll at ${width}px`,
+			);
+			console.log(
+				`PASS CLI full organization names ${width}px ${query ? "single" : "multi"}`,
+			);
+			await page.close();
+		}
+	}
 } finally {
 	await browser.close();
 	await server.stop();
