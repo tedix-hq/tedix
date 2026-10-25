@@ -1,6 +1,9 @@
 import type { DbClient } from "@tedix/db/client";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
-import { readWorkCreateProjects } from "./work-create-projects";
+import {
+	readWorkCreateProjects,
+	workspaceDefaultProjectId,
+} from "./work-create-projects";
 
 const mocks = vi.hoisted(() => ({
 	listProjects: vi.fn(),
@@ -56,8 +59,28 @@ it("reads only the current organization's active projects and workspace links, w
 			},
 		],
 		truncated: false,
+		workspaceDefaultProjectId: "project-a",
 	});
 	expect(JSON.stringify(context)).not.toContain("private brief");
+});
+
+it("names no default destination when the workspace links several projects", async () => {
+	mocks.listProjects.mockResolvedValue({
+		data: [
+			{ id: "a", name: "Accounts", key: "A" },
+			{ id: "b", name: "Billing", key: "B" },
+		],
+		total: 2,
+	});
+	mocks.listOsWorkspaceProjects.mockResolvedValue([
+		{ projectId: "a" },
+		{ projectId: "b" },
+	]);
+	const context = await readWorkCreateProjects(db, {
+		organizationId: "orchard",
+		workspaceId: "accounts-space",
+	});
+	expect(workspaceDefaultProjectId(context)).toBeNull();
 });
 
 it("keeps ambiguous names distinct and reports a truncated org list without inventing a workspace destination", async () => {

@@ -868,6 +868,23 @@ describe("gadgets", () => {
 		});
 		expect(fetched.currentRevision?.revision).toBe(3);
 
+		const renamed = await c.org1.gadgets.rename({
+			workspaceId,
+			gadgetId: gadget.id,
+			name: "Revenue overview",
+		});
+		expect(renamed.gadget).toMatchObject({
+			name: "Revenue overview",
+			currentRevisionId: fetched.gadget.currentRevisionId,
+		});
+		await expect(
+			c.org2.gadgets.rename({
+				workspaceId,
+				gadgetId: gadget.id,
+				name: "Nope",
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+
 		const archived = await c.org1.gadgets.archive({
 			workspaceId,
 			gadgetId: gadget.id,

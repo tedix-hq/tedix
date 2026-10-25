@@ -298,6 +298,25 @@ const gadgetsArchive = authorOs.gadgets.archive.handler(
 	},
 );
 
+const gadgetsRename = authorOs.gadgets.rename.handler(
+	async ({ input, context }) => {
+		const gadget = await requireGadget(
+			context,
+			input.workspaceId,
+			input.gadgetId,
+		);
+		const row = await updateOsGadget(
+			queryDb(context),
+			{ organizationId: gadget.organizationId, gadgetId: gadget.id },
+			{ name: input.name },
+		);
+		if (!row) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
+		}
+		return { gadget: mapGadget(row) };
+	},
+);
+
 // =============================================================================
 // GOVERNED GADGET EXECUTION — dispatch through skill-runtime
 // =============================================================================
@@ -2181,6 +2200,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		get: gadgetsGet,
 		revise: gadgetsRevise,
 		archive: gadgetsArchive,
+		rename: gadgetsRename,
 		run: gadgetsRun,
 		...resourceLifecycle.osGadgetLifecycleProcedures,
 	},

@@ -154,6 +154,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "rename_os_gadget",
+		endpoint: "osWorkspaces/gadgets/rename",
+		kind: "write",
+	},
+	{
 		toolId: "run_os_gadget",
 		endpoint: "osWorkspaces/gadgets/run",
 		kind: "destructive",

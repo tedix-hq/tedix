@@ -1,7 +1,9 @@
 import {
 	canonicalWriteToolName,
+	correctWriteRoute,
 	preferredToolForCapability,
 	renameThisConversationArgs,
+	workpieceRenameIntent,
 } from "./write-tool-intent";
 import {
 	classifyWriteRisk,
@@ -47,7 +49,8 @@ const mocks = vi.hoisted(() => ({
 	readOpenWorkRequests: vi.fn(async () => [] as unknown[]),
 	readWorkCreateProjects: vi.fn(async (): Promise<string | null> => null),
 }));
-vi.mock("./work-create-projects", () => ({
+vi.mock("./work-create-projects", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./work-create-projects")>()),
 	readWorkCreateProjects: mocks.readWorkCreateProjects,
 }));
 vi.mock("./open-work-requests", async (importOriginal) => ({
@@ -3349,5 +3352,206 @@ describe("member canonical Work discovery", () => {
 		expect(
 			renderWriteDeclined(canonicalLookup("unavailable") as never, route),
 		).toContain("No Work item was created");
+	});
+});
+
+describe("selected workspace app rename", () => {
+	const workspaceId = "22222222-2222-4222-8222-222222222222";
+	const gadgetId = "33333333-3333-4333-8333-333333333333";
+	const unusedModel = () =>
+		new MockLanguageModelV3({
+			doGenerate: async () => {
+				throw new Error("a plain rename needs no model");
+			},
+		});
+
+	it("renames the selected app with the direct tool when the router guessed Work creation", async () => {
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
+			slug === "orchard-unified" ? { slug } : null,
+		);
+		const service = mcpService(() => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					structuredContent: {
+						executionId: "catalog",
+						result: [
+							{
+								callable: "os.rename_os_gadget",
+								authorized: true,
+								annotations: { readOnlyHint: false },
+								parameters: {
+									properties: {
+										workspaceId: { type: "string" },
+										gadgetId: { type: "string" },
+										name: { type: "string" },
+									},
+									required: ["workspaceId", "gadgetId", "name"],
+								},
+							},
+						],
+					},
+				},
+			},
+		}));
+		const declined = vi.fn();
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-orchard",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "orchard-unified",
+					capability: "work_items.create",
+					connectionStatus: "connected",
+				},
+			}),
+			actingUserId: "member-1",
+			workWriteGateway: "orchard-unified",
+			workspaceContext: {
+				workspaceId,
+				workspaceName: "Harvest",
+				workpiece: { kind: "gadget", id: gadgetId, name: "Daily review" },
+			},
+			content: `[[tedix-context:gadget:${gadgetId}:App%20resource]]\n\nrename the app gadget in this workspace to "Harvest Review App"`,
+			model: unusedModel(),
+			onDecline: declined,
+		});
+		expect(declined).not.toHaveBeenCalled();
+		expect(proposal).toMatchObject({
+			appSlug: "orchard-unified",
+			toolName: "os.rename_os_gadget",
+			args: { workspaceId, gadgetId, name: "Harvest Review App" },
+		});
+		expect(mocks.readWorkCreateProjects).not.toHaveBeenCalled();
+		const sent = JSON.stringify(service.calls.map((call) => call.params));
+		expect(sent).toContain("os.rename_os_gadget");
+		expect(sent).not.toContain("create_work_items");
+	});
+
+	it("keeps the rename capability on the route and leaves other targets alone", () => {
+		const context = {
+			workspaceId,
+			workpiece: { kind: "gadget" as const, id: gadgetId },
+		};
+		const route = writeRoute({
+			toolIntent: {
+				appSlug: "orchard-unified",
+				capability: "work_items.create",
+				connectionStatus: "connected",
+			},
+		});
+		expect(
+			correctWriteRoute(route, "Rename the app to Harvest Review", context)
+				.toolIntent?.capability,
+		).toBe("gadgets.rename");
+		for (const content of [
+			"Rename this conversation to Harvest",
+			"Rename the work item to Harvest",
+			"Rename the workspace to Harvest",
+			"Rename the Google sheet to Harvest",
+			"Create a Work item to rename the app later",
+		])
+			expect(correctWriteRoute(route, content, context)).toBe(route);
+		expect(
+			workpieceRenameIntent("Rename the sheet to Q3", {
+				workspaceId,
+				workpiece: { kind: "output", id: "output-1" },
+			}),
+		).toEqual({
+			capability: "outputs.rename",
+			toolName: "os.rename_os_output",
+			args: { outputId: "output-1", title: "Q3" },
+		});
+		expect(workpieceRenameIntent("Rename the sheet to Q3", context)).toBeNull();
+		expect(workpieceRenameIntent("Rename the app to Q3", undefined)).toBeNull();
+	});
+});
+
+describe("Work creation in a workspace linked to one project", () => {
+	const workspaceId = "22222222-2222-4222-8222-222222222222";
+	const projectId = "11111111-1111-4111-8111-111111111111";
+	const plan = (args: Record<string, unknown>) => {
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
+			slug === "member-gateway" ? { slug } : null,
+		);
+		mocks.readWorkCreateProjects.mockResolvedValue(
+			JSON.stringify({
+				projects: [
+					{
+						projectId,
+						name: "Orchard Accounts",
+						key: "ACCOUNTS",
+						linkedToSelectedWorkspace: true,
+					},
+				],
+				truncated: false,
+				workspaceDefaultProjectId: projectId,
+			}),
+		);
+		const service = mcpService(() => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					structuredContent: {
+						executionId: "catalog",
+						result: [
+							{
+								callable: "work.create_work_items",
+								authorized: true,
+								annotations: { readOnlyHint: false },
+								parameters: {
+									properties: {
+										title: { type: "string" },
+										projectId: { type: "string" },
+										objectiveId: { type: "string" },
+										workspaceId: { type: "string" },
+									},
+									required: ["title"],
+								},
+							},
+						],
+					},
+				},
+			},
+		}));
+		return planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-member",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "member-gateway",
+					capability: "work_items.create",
+					connectionStatus: "connected",
+				},
+			}),
+			actingUserId: "member-1",
+			workWriteGateway: "member-gateway",
+			workspaceContext: { workspaceId, workspaceName: "Accounts" },
+			content: "Create a Work item to reconcile the March invoices",
+			model: objectModel({ toolName: "work.create_work_items", args }),
+		});
+	};
+
+	it("defaults the destination to the workspace's project", async () => {
+		const proposal = await plan({ title: "Reconcile March invoices" });
+		expect(proposal?.args).toMatchObject({
+			title: "Reconcile March invoices",
+			projectId,
+			workspaceId,
+		});
+	});
+
+	it("keeps a destination the operator gave", async () => {
+		const objectiveId = "44444444-4444-4444-8444-444444444444";
+		const proposal = await plan({
+			title: "Reconcile March invoices",
+			objectiveId,
+		});
+		expect(proposal?.args).toMatchObject({ objectiveId });
+		expect(proposal?.args).not.toHaveProperty("projectId");
 	});
 });

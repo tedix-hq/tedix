@@ -526,6 +526,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/executions/get": "mcp:apps.read",
 	"osWorkspaces/executions/list": "mcp:apps.read",
 	"osWorkspaces/gadgets/archive": "mcp:apps.write",
+	"osWorkspaces/gadgets/rename": "mcp:apps.write",
 	"osWorkspaces/gadgets/create": "mcp:apps.write",
 	"osWorkspaces/gadgets/delete": "mcp:apps.admin",
 	"osWorkspaces/gadgets/get": "mcp:apps.read",

@@ -7087,6 +7087,16 @@ const handlers: Record<string, (input: never) => unknown> = {
 		gadget.updatedAt = now();
 		return { gadget };
 	},
+	"osWorkspaces/gadgets/rename": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		name: string;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		gadget.name = input.name;
+		gadget.updatedAt = now();
+		return { gadget };
+	},
 	"osWorkspaces/gadgets/run": (input: {
 		workspaceId: string;
 		gadgetId: string;

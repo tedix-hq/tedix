@@ -153,6 +153,7 @@ describe("Tedix OS audit coverage", () => {
 			"gadgets.create",
 			"gadgets.revise",
 			"gadgets.archive",
+			"gadgets.rename",
 			"gadgets.delete",
 			"outputs.create",
 			"outputs.revise",

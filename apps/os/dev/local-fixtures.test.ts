@@ -493,6 +493,11 @@ const CALLS: Record<string, unknown> = {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,
 	},
+	"osWorkspaces/gadgets/rename": {
+		workspaceId: IDS.workspaceRevenue,
+		gadgetId: IDS.gadgetDashboard,
+		name: "Revenue overview",
+	},
 	"osWorkspaces/gadgets/run": {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,
