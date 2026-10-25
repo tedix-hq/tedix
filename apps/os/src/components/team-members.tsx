@@ -352,7 +352,7 @@ export function MemberIdentityCell({
 	);
 }
 
-function MemberActivityCell({
+export function MemberActivityCell({
 	member,
 	compact = false,
 }: {
@@ -360,14 +360,17 @@ function MemberActivityCell({
 	compact?: boolean;
 }) {
 	useOsFormattingPreferences();
+	const activity = memberActivityLabel(member);
 	return (
 		<Text
 			as="span"
 			role={compact ? "label" : "body"}
 			tone="secondary"
-			className={compact ? "truncate" : undefined}
+			className={compact ? "min-w-0 truncate" : undefined}
+			aria-label={compact ? activity : undefined}
+			title={compact ? activity : undefined}
 		>
-			{memberActivityLabel(member)}
+			{activity}
 		</Text>
 	);
 }
