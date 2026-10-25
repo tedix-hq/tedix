@@ -215,13 +215,18 @@ export async function verifyStandardWebhook(input: {
 	if (Math.abs(now - Number(input.timestamp)) > MCP_EVENTS_WEBHOOK_TOLERANCE_S)
 		return false;
 	if (!input.secret.startsWith("whsec_")) return false;
-	const key = await crypto.subtle.importKey(
-		"raw",
-		Uint8Array.from(atob(input.secret.slice(6)), (c) => c.charCodeAt(0)),
-		{ name: "HMAC", hash: "SHA-256" },
-		false,
-		["sign"],
-	);
+	let key: CryptoKey;
+	try {
+		key = await crypto.subtle.importKey(
+			"raw",
+			Uint8Array.from(atob(input.secret.slice(6)), (c) => c.charCodeAt(0)),
+			{ name: "HMAC", hash: "SHA-256" },
+			false,
+			["sign"],
+		);
+	} catch {
+		return false;
+	}
 	const mac = new Uint8Array(
 		await crypto.subtle.sign(
 			"HMAC",
