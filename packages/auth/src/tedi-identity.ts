@@ -99,16 +99,22 @@ export const TEDI_DEFAULT_ROLE = "tedi";
  * Descope `accessKey.create(expireTime)` takes an ABSOLUTE Unix epoch (seconds),
  * where `0` means non-expiring. Tedi access keys carry write scopes
  * (`TEDI_RUNTIME_API_SCOPES`), so minting them non-expiring by default is a
- * standing least-privilege risk. Bound them instead: the runtime access-key
- * guard (`ensureScopedAccessKey` in apps/tedi-runtime) already re-mints any key
- * whose exchange fails, so a bounded lifetime self-heals via rotation without
- * operator intervention.
- *
- * TODO(rotation-SLA): add a PROACTIVE rotation cadence well inside this window
- * (e.g. re-mint at ~60d) rather than relying solely on expiry-triggered repair,
- * so a key never reaches its hard expiry in a live path. Owner: platform-auth.
+ * standing least-privilege risk. The runtime access-key guard checks the
+ * key's rotation deadline on exchange, before its hard expiry.
  */
 export const TEDI_ACCESS_KEY_DEFAULT_TTL_SECONDS = 90 * 24 * 60 * 60;
+export const TEDI_ACCESS_KEY_ROTATION_SECONDS = 60 * 24 * 60 * 60;
+export const TEDI_ACCESS_KEY_ROTATE_AT_CLAIM = "tedixAccessKeyRotateAt";
+
+/** Missing or malformed deadlines migrate legacy keys on their next use. */
+export function tediAccessKeyRotateAt(
+	payload: Record<string, unknown> | null,
+): number {
+	const value = payload?.[TEDI_ACCESS_KEY_ROTATE_AT_CLAIM];
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: 0;
+}
 
 /**
  * Absolute Descope `expireTime` (epoch seconds) a bounded TTL out from `now`.
@@ -184,8 +190,22 @@ export function extractTediRuntimeApiScopes(
 export function buildTediAccessKeyClaims(params: {
 	tediId: string;
 	descopeUserId: string;
+	now?: Date;
+	expireTime?: number;
 }): Record<string, unknown> {
+	const now = Math.floor((params.now ?? new Date()).getTime() / 1000);
+	const expireTime =
+		params.expireTime ?? now + TEDI_ACCESS_KEY_DEFAULT_TTL_SECONDS;
+	// Short-lived overrides rotate at two thirds of their lifetime as well.
+	const cadence =
+		expireTime === 0
+			? TEDI_ACCESS_KEY_ROTATION_SECONDS
+			: Math.min(
+					TEDI_ACCESS_KEY_ROTATION_SECONDS,
+					Math.floor(((expireTime - now) * 2) / 3),
+				);
 	return {
+		[TEDI_ACCESS_KEY_ROTATE_AT_CLAIM]: now + cadence,
 		[ATTR_TEDI_ID]: params.tediId,
 		[ATTR_ENTITY_TYPE]: ENTITY_TYPE_TEDI,
 		descopeUserId: params.descopeUserId,
@@ -375,15 +395,17 @@ export async function createTediIdentity(
 	}
 
 	// 2. Create access key bound to the user
+	const expireTime = params.expireTime ?? defaultTediAccessKeyExpireTime();
 	const tediAttrs = buildTediAccessKeyClaims({
 		tediId: params.tediId,
 		descopeUserId,
+		expireTime,
 	});
 	const keyResp = await client.management.accessKey.create(
 		`tedi:${params.slug}`,
 		// Bounded absolute expiry (epoch seconds) instead of 0 (non-expiring):
 		// tedi keys carry write scopes and self-heal via runtime rotation.
-		params.expireTime ?? defaultTediAccessKeyExpireTime(),
+		expireTime,
 		roles,
 		undefined,
 		descopeUserId,
@@ -792,16 +814,18 @@ export async function rotateTediAccessKey(
 	const roles = params.roles ?? [TEDI_DEFAULT_ROLE];
 
 	// Create new key first
+	const expireTime = params.expireTime ?? defaultTediAccessKeyExpireTime();
 	const tediAttrs = buildTediAccessKeyClaims({
 		tediId: params.tediId,
 		descopeUserId: params.descopeUserId,
+		expireTime,
 	});
 	const keyResp = await client.management.accessKey.create(
 		`tedi:${params.slug}`,
 		// Bounded absolute expiry (epoch seconds) — rotation must not re-mint a
 		// non-expiring key, or the first expiry-triggered rotation would defeat
 		// the bounded-lifetime default from createTediIdentity.
-		params.expireTime ?? defaultTediAccessKeyExpireTime(),
+		expireTime,
 		roles,
 		undefined,
 		params.descopeUserId,

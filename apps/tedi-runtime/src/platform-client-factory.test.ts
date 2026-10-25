@@ -258,3 +258,115 @@ await assert.rejects(
 		"an unchanged rotated key is not cached as validated",
 	);
 }
+
+{
+	const epoch = Date.parse("2026-06-16T10:00:00Z");
+	const deadline = epoch + 60 * 24 * 60 * 60 * 1000;
+	const hardExpiry = epoch + 90 * 24 * 60 * 60 * 1000;
+	const originalFetch = globalThis.fetch;
+	const originalNow = Date.now;
+	const originalWarn = console.warn;
+	const originalLog = console.log;
+	try {
+		console.warn = () => {};
+		console.log = () => {};
+		for (const [label, at, rotateAt, fails] of [
+			["cadence", deadline - 1, deadline / 1000, false],
+			["hard-expiry", hardExpiry, deadline / 1000, false],
+			["legacy", epoch, undefined, false],
+			["retry", deadline, deadline / 1000, true],
+		] as const) {
+			let clock = at;
+			Date.now = () => clock;
+			const tediId = `tedi-rotation-${label}`;
+			const masterKey = btoa(
+				String.fromCharCode(...new Uint8Array(32).fill(7)),
+			);
+			const oldEncrypted = await encryptTediSecret(
+				masterKey,
+				tediId,
+				"old-key",
+			);
+			const newEncrypted = await encryptTediSecret(
+				masterKey,
+				tediId,
+				"new-key",
+			);
+			let stored = oldEncrypted;
+			let rotations = 0;
+			globalThis.fetch = (async (_input, init) => {
+				const fresh = new Headers(init?.headers)
+					.get("Authorization")
+					?.endsWith(":new-key");
+				const payload = {
+					[TEDI_RUNTIME_API_SCOPES_CLAIM]: [...TEDI_RUNTIME_API_SCOPES],
+					tedixAccessKeyRotateAt: fresh
+						? at / 1000 + 60 * 24 * 60 * 60
+						: rotateAt,
+				};
+				return Response.json({
+					sessionJwt: `e30.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.test`,
+				});
+			}) as typeof fetch;
+			const env = {
+				DESCOPE_PROJECT_ID: "project-test",
+				SECRETS_MASTER_KEY: masterKey,
+				DB: {
+					prepare: (sql: string) => ({
+						bind: () => ({
+							first: async () =>
+								sql.includes("FROM tedis")
+									? { id: tediId, orgId: "org-acme" }
+									: { encrypted_value: stored },
+						}),
+					}),
+				},
+				API_SERVICE: {
+					fetch: async () => {
+						rotations++;
+						if (fails)
+							return Response.json({ message: "unavailable" }, { status: 503 });
+						stored = newEncrypted;
+						return Response.json({ ok: true });
+					},
+				},
+			} as unknown as Cloudflare.Env;
+			const first = await loadTediSecrets(env, tediId);
+			if (label === "cadence") {
+				assert.equal(
+					rotations,
+					0,
+					"retain valid key one millisecond before cadence",
+				);
+				clock = deadline;
+				assert.equal(
+					(await loadTediSecrets(env, tediId)).descopeAccessKey,
+					"new-key",
+				);
+				assert.equal(
+					rotations,
+					1,
+					"cache must expire exactly at rotation deadline",
+				);
+			} else {
+				assert.equal(rotations, 1, label);
+				assert.equal(
+					first.descopeAccessKey,
+					fails ? "old-key" : "new-key",
+					label,
+				);
+			}
+			await loadTediSecrets(env, tediId);
+			assert.equal(
+				rotations,
+				fails ? 2 : 1,
+				"successful replacement is cached; failed rotation is retried",
+			);
+		}
+	} finally {
+		globalThis.fetch = originalFetch;
+		Date.now = originalNow;
+		console.warn = originalWarn;
+		console.log = originalLog;
+	}
+}

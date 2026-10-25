@@ -162,5 +162,6 @@ parsers.
 
 - Tedix stores both `DESCOPE_ACCESS_KEY` and `DESCOPE_ACCESS_KEY_ID` as encrypted tedi secrets.
 - Rotation issues a fresh user-bound Descope access key with explicit tedi custom claims.
+- Keys carry a fixed rotation deadline: 60 days for the default 90-day lifetime, or two thirds of a shorter lifetime. The runtime guard rotates on the next secret load at or after that deadline; its validation cache cannot extend it. Legacy keys without a deadline rotate on their next load. Inactive tedis are checked when they resume.
 - When the previous key id is available, Tedix deactivates the old Descope access key as part of rotation.
 - Consumers should use `extractTediJwtClaims()` rather than inferring tedi identity from `sub`.
