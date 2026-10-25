@@ -131,6 +131,25 @@ describe("lane launcher", () => {
 		).rejects.toThrow("unavailable");
 		expect(existsSync(out)).toBe(false);
 	});
+	it("launches an admitted Attempt's child when its first observation times out", async () => {
+		const { args, out } = fixture();
+		const reports: Record<string, unknown>[] = [];
+		let calls = 0;
+		expect(
+			await runLaneProcess(args, {
+				admitted: true,
+				heartbeatMs: 10,
+				report: async (input) => {
+					if (++calls === 1)
+						throw new Error("Work native command deadline exceeded");
+					reports.push(input);
+					return {};
+				},
+			}),
+		).toBe(0);
+		expect(existsSync(out)).toBe(true);
+		expect(reports.at(-1)!.state).toBe("done");
+	});
 	it("retains a complete idempotent observation when settlement fails, then replays that same lane", async () => {
 		const { args, out } = fixture();
 		let calls = 0;

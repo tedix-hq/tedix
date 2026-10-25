@@ -1342,6 +1342,7 @@ export class LaneDispatcher {
 							]!,
 					},
 					detachedChild: true,
+					admitted: true,
 					report: (input, scope) =>
 						this.queue(() => reportLaneObservation(input, scope)).catch(
 							(error) => {

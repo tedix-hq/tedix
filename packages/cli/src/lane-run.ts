@@ -91,6 +91,8 @@ async function runLaneProcessWithReporter(
 		cwd?: string;
 		childScope?: { workspace: string; organization: string };
 		detachedChild?: boolean;
+		/** The caller already holds an admitted Attempt for this Work. */
+		admitted?: boolean;
 		onSpawn?: (pid: number) => void;
 		onTelemetry?: (value: LaneObservation) => void;
 	} = {},
@@ -283,7 +285,17 @@ async function runLaneProcessWithReporter(
 	if ((!command.length && !devin && !opencode) || !options.has("--brief"))
 		throw new Error(laneRunUsage);
 	LaneTelemetryInputSchema.parse(telemetry);
-	await report(sessionKey, telemetry);
+	try {
+		await report(sessionKey, telemetry);
+	} catch (error) {
+		// Observation grants no authority. Once a dispatcher holds the Attempt, a
+		// slow gateway must not fail it before the child starts; every heartbeat
+		// resends the full observation.
+		if (!deps.admitted) throw error;
+		process.stderr.write(
+			`Lane registration deferred to the next heartbeat: ${String(error)}\n`,
+		);
+	}
 	const dir = mkdtempSync(join(tmpdir(), "tedix-lane-"));
 	const receipt = join(dir, "telemetry.json");
 	const sandboxTemp = join(
