@@ -303,6 +303,19 @@ export function applyDemoPack(
 			workspaceId: workspaces[i]!.id,
 		})),
 	);
+	// Each sample project's Work view is linked into its use-case workspace.
+	state.workspaceProjects = workspaces.map((workspace, i) => ({
+		id: uid(67, i + 1),
+		organizationId: orgId,
+		workspaceId: workspace.id,
+		projectId: ctx.projects[i]!.id,
+		status: "active",
+		createdByKind: "user",
+		createdById: "dev-operator",
+		createdAt: at(2),
+		updatedAt: at(2),
+		removedAt: null,
+	}));
 
 	const skillTemplate = ctx.skills[0]!;
 	ctx.skills.splice(

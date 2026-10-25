@@ -271,6 +271,11 @@ const CALLS: Record<string, unknown> = {
 	"workItems/listAttempts": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listEvidence": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listEvents": { id: "00000070-0000-4000-8000-000000000001" },
+	"workItems/listAttemptProjection": {
+		projectId: "00000076-0000-4000-8000-000000000001",
+		runtimeStates: ["queued", "running", "waiting", "retrying"],
+		limit: 100,
+	},
 	"workAgentSessions/list": {},
 	"workAgentSessions/listRequests": { limit: 200 },
 	"workAgentSessions/attention": {},
@@ -302,6 +307,7 @@ const CALLS: Record<string, unknown> = {
 	"projects/getPortfolio": {},
 	"projects/getFactoryScoreboard": {},
 	"projects/listMilestones": { id: "00000076-0000-4000-8000-000000000001" },
+	"projects/listSprints": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/listHealthJudgments": {
 		id: "00000076-0000-4000-8000-000000000001",
 	},
@@ -650,6 +656,20 @@ const CALLS: Record<string, unknown> = {
 		blueprintId: IDS.blueprintPublished,
 		workspaceName: "Instantiated Gallery Workspace",
 	},
+	"osWorkspaces/work/listProjects": {
+		workspaceId: IDS.workspaceRevenue,
+		status: "active",
+		limit: 100,
+	},
+	"osWorkspaces/work/attachProject": {
+		workspaceId: IDS.workspaceRevenue,
+		projectId: "00000076-0000-4000-8000-000000000004",
+	},
+	"osWorkspaces/work/removeProject": {
+		workspaceId: IDS.workspaceRevenue,
+		projectId: "00000076-0000-4000-8000-000000000002",
+		expectedUpdatedAt: "2026-08-11T06:00:00.000Z",
+	},
 	"kernelRuntime/listConversations": { limit: 30 },
 	"kernelRuntime/renameConversation": {
 		conversationId: IDS.conversationHome,
@@ -975,6 +995,126 @@ describe("work graph fixture coherence", () => {
 		]) {
 			expect(ids.has(item.id)).toBe(true);
 		}
+	});
+});
+
+describe("workspace work fixture coherence", () => {
+	beforeEach(() => {
+		resetLocalFixtures();
+	});
+
+	const OPS = "00000076-0000-4000-8000-000000000001";
+	const linksFor = (workspaceId: string) =>
+		(
+			callLocalOk("osWorkspaces/work/listProjects", {
+				workspaceId,
+				status: "active",
+				limit: 100,
+			}) as { items: { projectId: string; updatedAt: string }[] }
+		).items;
+
+	it("workspace project links resolve to real projects that carry work", () => {
+		const links = linksFor(IDS.workspaceRevenue);
+		expect(links.length).toBeGreaterThan(0);
+		const projects = (
+			callLocalOk("projects/list", { limit: 100 }) as {
+				data: { id: string }[];
+			}
+		).data;
+		for (const link of links) {
+			expect(projects.some((project) => project.id === link.projectId)).toBe(
+				true,
+			);
+			const items = (
+				callLocalOk("workItems/list", {
+					projectId: link.projectId,
+					limit: 100,
+				}) as { data: { id: string }[] }
+			).data;
+			expect(items.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("links, relinks and removes a project through the attach/remove handlers", () => {
+		const pilot = "00000076-0000-4000-8000-000000000004";
+		const attached = callLocalOk("osWorkspaces/work/attachProject", {
+			workspaceId: IDS.workspaceRevenue,
+			projectId: pilot,
+		}) as { link: { status: string; updatedAt: string } };
+		expect(attached.link.status).toBe("active");
+		expect(
+			linksFor(IDS.workspaceRevenue).some((link) => link.projectId === pilot),
+		).toBe(true);
+
+		const removed = callLocalOk("osWorkspaces/work/removeProject", {
+			workspaceId: IDS.workspaceRevenue,
+			projectId: pilot,
+			expectedUpdatedAt: attached.link.updatedAt,
+		}) as { link: { status: string } };
+		expect(removed.link.status).toBe("removed");
+		expect(
+			linksFor(IDS.workspaceRevenue).some((link) => link.projectId === pilot),
+		).toBe(false);
+	});
+
+	it("linked projects expose sprints and milestones over real work", () => {
+		const sprints = callLocalOk("projects/listSprints", { id: OPS }) as {
+			data: { sprint: { projectId: string }; workItemIds: string[] }[];
+		};
+		expect(sprints.data.length).toBeGreaterThan(0);
+		const ids = new Set(
+			(
+				callLocalOk("workItems/list", {
+					projectId: OPS,
+					limit: 100,
+				}) as { data: { id: string }[] }
+			).data.map((row) => row.id),
+		);
+		for (const entry of sprints.data) {
+			expect(entry.sprint.projectId).toBe(OPS);
+			for (const id of entry.workItemIds) expect(ids.has(id)).toBe(true);
+		}
+		const milestones = callLocalOk("projects/listMilestones", {
+			id: OPS,
+		}) as {
+			data: {
+				milestone: { projectId: string };
+				workItems: { id: string }[];
+			}[];
+		};
+		expect(milestones.data.length).toBeGreaterThan(0);
+		for (const entry of milestones.data) {
+			expect(entry.milestone.projectId).toBe(OPS);
+			for (const item of entry.workItems) expect(ids.has(item.id)).toBe(true);
+		}
+	});
+
+	it("attempt projections scope to the project and name its real work", () => {
+		const projection = callLocalOk("workItems/listAttemptProjection", {
+			projectId: OPS,
+			runtimeStates: ["queued", "running", "waiting", "retrying"],
+			limit: 100,
+		}) as {
+			data: {
+				attempt: { workItemId: string; runtimeState: string };
+				workItem: { id: string; projectId: string | null };
+			}[];
+			hasMore: boolean;
+		};
+		expect(projection.data.length).toBeGreaterThan(0);
+		for (const entry of projection.data) {
+			expect(entry.workItem.id).toBe(entry.attempt.workItemId);
+			expect(entry.workItem.projectId).toBe(OPS);
+		}
+		expect(
+			projection.data.map((entry) => entry.attempt.runtimeState),
+		).toContain("running");
+
+		const other = callLocalOk("workItems/listAttemptProjection", {
+			projectId: "00000076-0000-4000-8000-000000000006",
+			limit: 100,
+		}) as { data: unknown[] };
+		expect(other.data.length).toBe(0);
 	});
 });
 
