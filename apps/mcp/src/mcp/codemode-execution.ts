@@ -1,3 +1,4 @@
+import type { OwnerHostSession } from "./owner-host-session";
 import {
 	type CatalogToolAnnotations,
 	codeModeCollisionOwners,
@@ -152,7 +153,7 @@ export interface CodeModeExecutionRefs {
 	readObservations: OwnedReadObservation[];
 	collectionReads: OwnedConnectedCollectionRead[];
 	/** Verified owner-host Agent-Session for the current execution only. */
-	ownerHostSessionId: string | undefined;
+	ownerHostSession: OwnerHostSession | undefined;
 }
 
 function skillWorkflowRunId(value: unknown): string | null {
@@ -435,7 +436,7 @@ export function buildNamespaceGroups(
 						adapterScope,
 						resultStrategy,
 						executionId: executionRefs.executionId,
-						ownerHostSessionId: executionRefs.ownerHostSessionId,
+						ownerHostSession: executionRefs.ownerHostSession,
 					});
 					if (result.isError) {
 						rpcSuccess = false;

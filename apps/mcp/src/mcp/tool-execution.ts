@@ -1,3 +1,4 @@
+import type { OwnerHostSession } from "./owner-host-session";
 import {
 	hasNoFundsRestriction,
 	isToolDeniedForConnection,
@@ -200,7 +201,7 @@ export async function executeTool(
 		executionId?: string;
 		clientSupportsTasks?: boolean;
 		/** Verified owner-host Agent-Session for this Code Mode execution. */
-		ownerHostSessionId?: string;
+		ownerHostSession?: OwnerHostSession;
 	},
 ): Promise<{
 	content: Array<{ type: "text"; text: string }>;
@@ -209,12 +210,16 @@ export async function executeTool(
 	/** MCP convention — set on handler-thrown errors and upstream status >= 400. */
 	isError?: boolean;
 }> {
-	if (options.ownerHostSessionId && agent.callerIdentity) {
+	if (options.ownerHostSession && agent.callerIdentity) {
+		const session = options.ownerHostSession;
 		agent = {
 			...agent,
 			callerIdentity: {
 				...agent.callerIdentity,
-				ownerHostSessionId: options.ownerHostSessionId,
+				ownerHostSessionId: session.sessionId,
+				ownerHostPrincipalId: session.principalId,
+				ownerHostHarness: session.harness,
+				ownerHostModel: session.model,
 			},
 		};
 	}
