@@ -33,11 +33,24 @@ function discoveryRows(value: unknown, depth = 0): unknown[] | null {
 	return keys.map((key) => record[key]);
 }
 
+const NATIVE_SOURCE_TOOLS = new Set(["clone_repo", "repo_load"]);
+
+/**
+ * Native source research runs on one of two filesystems: a prepared computer
+ * checkout, or the scratch workspace that the plan's clone_repo/repo_load fill
+ * with selected paths. Scratch tools only work while no computer is selected,
+ * so an unselected computer is not a missing checkout when the plan grants them.
+ */
 export function assertNativeResearchCheckout(
 	plan: DelegationCapabilityPlan | undefined,
 	environment: { ready: boolean; preparation: string } | undefined,
 ): void {
 	if (!plan?.requiredCapabilities.includes("repository.read")) return;
+	if (
+		!environment &&
+		plan.allowedToolIds.some((id) => NATIVE_SOURCE_TOOLS.has(id))
+	)
+		return;
 	if (!environment?.ready || environment.preparation !== "repository")
 		throw new Error(
 			"Delegation preflight failed: empty or unready native repository checkout. Source research cannot run here; return to Home for a prepared checkout or bounded source selection (large repositories may be too_large_for_native). No clone or workstation setup was attempted",
