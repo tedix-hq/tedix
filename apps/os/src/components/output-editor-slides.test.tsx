@@ -1099,6 +1099,44 @@ describe("slide resize boundaries", () => {
 			height: (original.height / 100) * PRESENTATION_HEIGHT + 10,
 		});
 		expect(document.activeElement).toBe(handle);
+		const live = title.querySelector('[aria-live="polite"]');
+		expect(live?.textContent).toBe(
+			`title element ${resized.width} by ${resized.height}`,
+		);
+
+		// At the minimum size a key announces but commits nothing new.
+		const commits = mounted.emitted.length;
+		for (let step = 0; step < 200; step++)
+			act(() =>
+				handle.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						bubbles: true,
+						key: "ArrowLeft",
+						shiftKey: true,
+					}),
+				),
+			);
+		const atMinimum = mounted.emitted.length;
+		expect(atMinimum).toBeGreaterThan(commits);
+		act(() =>
+			handle.dispatchEvent(
+				new KeyboardEvent("keydown", {
+					bubbles: true,
+					key: "ArrowLeft",
+					shiftKey: true,
+				}),
+			),
+		);
+		expect(mounted.emitted).toHaveLength(atMinimum);
+		expect(live?.textContent).toMatch(/^title element 24 by /);
+
+		// Escape hands focus back to the element.
+		act(() =>
+			handle.dispatchEvent(
+				new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+			),
+		);
+		expect(document.activeElement).toBe(title);
 		mounted.cleanup();
 	});
 
@@ -1135,7 +1173,8 @@ describe("slide resize boundaries", () => {
 		pointer("pointermove", 10, 10);
 		expect(mounted.emitted).toEqual([]);
 		pointer("pointerup", 10, 10);
-		expect(mounted.emitted).toHaveLength(2);
+		// One release, one commit: the release bubbles from the handle to the element.
+		expect(mounted.emitted).toHaveLength(1);
 		const resized = mounted.emitted.at(-1)!.deck!.slides[0]!.elements[0]!;
 		expect((resized.width / 1200) * 100).toBeCloseTo(
 			original.width + (20 / 1200) * 100,
