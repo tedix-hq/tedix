@@ -150,6 +150,7 @@ import {
 	readComposerAttachment,
 } from "@/components/chat-attachments";
 import { ContextUsedInspector } from "@/components/chat-context-used";
+import { ChatModelPicker } from "@/components/chat-model-picker";
 import { DirectReadPanel } from "@/components/chat-direct-read-composer";
 import {
 	type DirectReadCommand,
@@ -2463,39 +2464,17 @@ export function ChatThread({
 									Auto
 								</Text>
 							) : (
-								<DropdownMenu>
-									<DropdownMenuTrigger
-										render={
-											<Button
-												type="button"
-												size="sm"
-												variant="ghost"
-												className="min-w-0 max-w-32"
-											>
-												<span className="truncate">
-													{resolvableModels.find(
-														(model) => model.ref === selectedModelRef,
-													)?.label ?? "Model"}
-												</span>
-											</Button>
-										}
-									/>
-									<DropdownMenuContent>
-										{selectableModels.map((model) => (
-											<DropdownMenuItem
-												key={model.ref}
-												onClick={() => {
-													setSelectedModelRef(model.ref);
-													// The refusal is re-derived from the new selection;
-													// the stale one must not outlive it.
-													setAttachmentError(null);
-												}}
-											>
-												{model.label}
-											</DropdownMenuItem>
-										))}
-									</DropdownMenuContent>
-								</DropdownMenu>
+								<ChatModelPicker
+									models={resolvableModels}
+									choices={selectableModels}
+									selectedRef={selectedModelRef}
+									onSelect={(ref) => {
+										setSelectedModelRef(ref);
+										// The refusal is re-derived from the new selection;
+										// the stale one must not outlive it.
+										setAttachmentError(null);
+									}}
+								/>
 							)}
 							<Button
 								type="submit"
