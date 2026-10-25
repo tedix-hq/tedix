@@ -353,6 +353,29 @@ describe("planImport", () => {
 		});
 	});
 
+	it("stops reading transcripts once the pair limit is collected", () => {
+		const reads: string[] = [];
+		const plan = planImport({
+			files: [files[1]!, files[2]!, files[0]!],
+			read: (path) => {
+				reads.push(path);
+				return path === "claude"
+					? claudeRows.map((row) => ({ ...row, cwd: "/" }))
+					: read(path);
+			},
+			limit: 1,
+			targets: new Map([["github.com/acme-co/acme", target]]),
+			// A later session would route here; it must not even get a bucket.
+			defaultTarget: { ...target, workspace: "other", org: "org_other" },
+			originOf: () => null,
+		});
+		expect(reads).toEqual(["codex"]);
+		expect(plan.pairs).toBe(1);
+		expect([...plan.byTarget.values()]).toEqual([
+			expect.objectContaining({ target, decisions: [expect.anything()] }),
+		]);
+	});
+
 	it("counts sessions in unbound repositories instead of routing them", () => {
 		const plan = planImport({
 			files: [files[1]!],
