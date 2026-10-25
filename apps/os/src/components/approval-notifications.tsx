@@ -12,6 +12,7 @@ import { useContext, useState } from "react";
 import { createPortal } from "react-dom";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
+import { ApprovalDecisionResult } from "@/components/approval-decision-copy";
 import {
 	type ApprovalCardData,
 	approvalsFromRunSet,
@@ -565,6 +566,11 @@ export function ApprovalNotifications({
 					</TabsContent>
 				</Tabs>
 
+				{tab === "review" && resolveRuntime.data ? (
+					<div className="px-4 py-2">
+						<ApprovalDecisionResult approval={resolveRuntime.data} />
+					</div>
+				) : null}
 				{tab === "review" && error ? (
 					<Text className="m-0 px-4 py-2" role="label" tone="error">
 						The decision could not be recorded:{" "}
