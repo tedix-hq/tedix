@@ -3,6 +3,19 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.7 — 2026-10-26
+
+### Patch Changes
+
+- Local dispatchers for Claude Code, Devin and OpenCode take work again. A new agent's first sign-in waits for the owner's approval and continues once it is given, instead of asking for a new approval on every try.
+- `tedix agent start` says when it is waiting for your approval and names the request.
+- `tedix work start` explains which part of the agent's identity is missing and prints the one command that fixes it.
+- `tedix work complete` explains when an agent may complete its own Work (its own successful attempt with a commit; not credentials, payments or messaging).
+- `tedix work heartbeat --watch` recovers when a credential is withdrawn early instead of stopping.
+- Lane folders start from the latest main, and clean source checkouts fast-forward without touching local work.
+- The session-start hook tells the agent its session id, so audit records name the agent.
+- `tedix decide` works without extra setup; `tedix factory --max-proposals` rejects a blank value; `tedix learn import-sessions --limit` stops reading once it has enough.
+
 ## 0.17.6 — 2026-10-25
 
 ### Patch Changes
