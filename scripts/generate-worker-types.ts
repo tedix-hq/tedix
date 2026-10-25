@@ -442,12 +442,31 @@ export function parseConcurrency(argv: readonly string[]): number {
 	return value;
 }
 
+export function parseWorkerTypesArgs(argv: readonly string[]): {
+	readonly checkOnly: boolean;
+	readonly concurrency: number;
+	readonly requested: readonly string[];
+} {
+	const unknown = argv.find(
+		(arg) =>
+			arg.startsWith("-") &&
+			arg !== "--check" &&
+			!arg.startsWith("--concurrency="),
+	);
+	if (unknown) throw new Error(`${unknown}: unknown option`);
+
+	return {
+		checkOnly: argv.includes("--check"),
+		concurrency: parseConcurrency(argv),
+		requested: argv.filter((arg) => !arg.startsWith("-")),
+	};
+}
+
 async function main(): Promise<number> {
 	const repoRoot = resolve(import.meta.dir, "..");
-	const argv = process.argv.slice(2);
-	const checkOnly = argv.includes("--check");
-	const concurrency = parseConcurrency(argv);
-	const requested = argv.filter((arg) => !arg.startsWith("-"));
+	const { checkOnly, concurrency, requested } = parseWorkerTypesArgs(
+		process.argv.slice(2),
+	);
 
 	const workspaces = selectWorkspaces(
 		scanWorkspacesWithWranglerConfig(repoRoot),
