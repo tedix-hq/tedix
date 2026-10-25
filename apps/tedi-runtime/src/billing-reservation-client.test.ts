@@ -485,7 +485,7 @@ console.log(
 );
 
 // A lost admission reply must reuse the signed request, not reserve another inference.
-{
+for (const status of [500, 503]) {
 	const requests: Record<string, unknown>[] = [];
 	const authorized = await authorizeInferenceEntitlement(
 		{
@@ -502,11 +502,14 @@ console.log(
 								{
 									json: {
 										defined: false,
-										code: "SERVICE_UNAVAILABLE",
+										code:
+											status === 500
+												? "INTERNAL_SERVER_ERROR"
+												: "SERVICE_UNAVAILABLE",
 										message: "Database temporarily unavailable",
 									},
 								},
-								{ status: 503 },
+								{ status },
 							)
 						: Response.json({
 								json: {
@@ -533,8 +536,11 @@ console.log(
 	assert.equal(authorized.receipt.reservationId, "fictional-reservation");
 }
 for (const [status, code, expectedCalls, cancel] of [
+	[500, "INTERNAL_SERVER_ERROR", 2, false],
 	[503, "SERVICE_UNAVAILABLE", 2, false],
+	[401, "UNAUTHORIZED", 1, false],
 	[403, "FORBIDDEN", 1, false],
+	[500, "INTERNAL_SERVER_ERROR", 1, true],
 	[503, "SERVICE_UNAVAILABLE", 1, true],
 ] as const) {
 	let calls = 0;
@@ -566,6 +572,37 @@ for (const [status, code, expectedCalls, cancel] of [
 		BillingAdmissionError,
 	);
 	assert.equal(calls, expectedCalls);
+}
+for (const code of [
+	"payment_required",
+	"residency_policy_unavailable",
+] as const) {
+	let calls = 0;
+	await assert.rejects(
+		authorizeInferenceEntitlement(
+			{
+				SECRETS_MASTER_KEY: "fixture-signing-secret",
+				TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+				API_SERVICE: {
+					fetch: async () => {
+						calls++;
+						return Response.json({
+							json: { allowed: false, code, entitlement: null },
+						});
+					},
+				} as unknown as Fetcher,
+			},
+			{
+				metadata: { orgId: "fictional-org", tediId: "fixture-tedi" },
+				beforeDispatch: fixtureOriginGuard("fictional-org"),
+				execution,
+				body: "{}",
+			},
+		),
+		(error: unknown) =>
+			billingPolicyDeniedWorkflowResult(error)?.billingCode === code,
+	);
+	assert.equal(calls, 1);
 }
 console.log(
 	"PASS: transient admission retry preserves its signed idempotency key, bounds failures and honors cancellation/denial",

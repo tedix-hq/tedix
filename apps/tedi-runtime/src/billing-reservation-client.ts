@@ -381,7 +381,7 @@ export async function authorizeInferenceEntitlement(
 				fetch: serviceBindingFetch(env.API_SERVICE),
 				// Reuse the signed idempotency key if an admission reply is lost.
 				retry: 1,
-				retryStatusCodes: [503],
+				retryStatusCodes: [500, 503],
 				signal: input.signal ?? undefined,
 				headers: {
 					"X-Service-Binding": "true",
