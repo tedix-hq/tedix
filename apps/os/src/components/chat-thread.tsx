@@ -3,6 +3,7 @@ import {
 	CHAT_CREATE_OPTIONS,
 	CHAT_FORMATS,
 	CHAT_SLASH_COMMANDS,
+	chatComposerPlaceholder,
 } from "@/components/chat-composer-options";
 import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
 import {
@@ -2196,7 +2197,7 @@ export function ChatThread({
 								? `${skillListboxId}-option-${skillActiveIndex}`
 								: undefined
 						}
-						placeholder="Message your Tedix OS…"
+						placeholder={chatComposerPlaceholder(hasContent)}
 						value={draft}
 						onValueChange={updateDraft}
 						onKeyDown={(event) => {

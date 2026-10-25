@@ -295,6 +295,10 @@ const ENGLISH_COPY = {
 		["Merriweather", "Merriweather, serif"],
 		["JetBrains Mono", "JetBrains Mono, monospace"],
 	],
+	chatComposerPlaceholder: {
+		newConversation: "Ask a question or hand off a task…",
+		followUp: "Ask a follow-up…",
+	},
 	chatStarterPrompts: [
 		"Create a doc titled Weekly update with three short sections.",
 		"Make a sheet that tracks open tasks, owners and due dates.",
