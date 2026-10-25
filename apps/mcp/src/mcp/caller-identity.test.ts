@@ -297,6 +297,30 @@ describe("caller identity normalization", () => {
 		});
 	});
 
+	it("includes verified delegation run and Work Item ids in audit metadata", () => {
+		const caller = {
+			authType: "tedi" as const,
+			tediId: "tedi-1",
+			scopes: [],
+			requestRunId: "run-child",
+			requestRootRunId: "run-root",
+			requestWorkItemId: "work-1",
+		};
+		expect(buildCallerAuditMetadata(caller)).toMatchObject({
+			requestRunId: "run-child",
+			requestRootRunId: "run-root",
+			requestWorkItemId: "work-1",
+		});
+		const metadata = buildCallerAuditMetadata({
+			authType: "tedi",
+			tediId: "tedi-1",
+			scopes: [],
+		});
+		expect(metadata).not.toHaveProperty("requestRunId");
+		expect(metadata).not.toHaveProperty("requestRootRunId");
+		expect(metadata).not.toHaveProperty("requestWorkItemId");
+	});
+
 	it("routes programmatic MCP callers to the expected Code Mode shape", () => {
 		expect(
 			shouldBypassCodeModeForCaller({
