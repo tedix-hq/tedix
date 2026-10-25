@@ -67,6 +67,7 @@ export async function upsertMcpEventSubscription(
 		status: "active" as const,
 		consecutiveFailures: 0,
 		nextAttemptAt: params.now,
+		claimToken: null,
 		expiresAt: params.expiresAt,
 		updatedAt: params.now,
 	};
@@ -99,6 +100,7 @@ export async function upsertMcpEventSubscription(
 					nextAttemptAt: sql<string>`${renewed.nextAttemptAt}`.as(
 						"next_attempt_at",
 					),
+					claimToken: sql<string | null>`null`.as("claim_token"),
 					rateWindowStartedAt: sql<string | null>`null`.as(
 						"rate_window_started_at",
 					),
@@ -171,7 +173,7 @@ export async function claimDueMcpEventSubscriptions(
 	);
 	return db
 		.update(mcpEventSubscriptions)
-		.set({ nextAttemptAt: params.leaseUntil })
+		.set({ nextAttemptAt: params.leaseUntil, claimToken: crypto.randomUUID() })
 		.where(
 			and(
 				due,
@@ -192,6 +194,7 @@ export async function claimDueMcpEventSubscriptions(
 
 export interface RecordMcpEventDeliveryParams {
 	id: string;
+	claimToken: string;
 	organizationId: string;
 	cursor: string;
 	status: McpEventSubscriptionRow["status"];
@@ -204,7 +207,7 @@ export interface RecordMcpEventDeliveryParams {
 	now: string;
 }
 
-/** Store one delivery pass's outcome; the row stays bound to its organization. */
+/** Store and consume only the current claim; renewal or reclaim fences late results. */
 export async function recordMcpEventDelivery(
 	db: DbQueryClient,
 	params: RecordMcpEventDeliveryParams,
@@ -220,12 +223,14 @@ export async function recordMcpEventDelivery(
 			rateWindowCount: params.rateWindowCount,
 			lastDeliveredAt: params.lastDeliveredAt,
 			lastStatus: params.lastStatus,
+			claimToken: null,
 			updatedAt: params.now,
 		})
 		.where(
 			and(
 				eq(mcpEventSubscriptions.id, params.id),
 				eq(mcpEventSubscriptions.organizationId, params.organizationId),
+				eq(mcpEventSubscriptions.claimToken, params.claimToken),
 			),
 		)
 		.returning({ id: mcpEventSubscriptions.id });

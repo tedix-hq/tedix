@@ -53,6 +53,13 @@ describe("MCP event webhook subscriptions", () => {
 		const db = fixture();
 		await upsertMcpEventSubscription(db, params("sub-1"));
 		await recordMcpEventDelivery(db, {
+			claimToken: (
+				await claimDueMcpEventSubscriptions(db, {
+					now: T0,
+					leaseUntil: T1,
+					limit: 10,
+				})
+			)[0]!.claimToken!,
 			id: "sub-1",
 			organizationId: "org-a",
 			cursor: "wsc1.12",
@@ -75,6 +82,110 @@ describe("MCP event webhook subscriptions", () => {
 			cursor: "wsc1.20",
 			nextAttemptAt: T1,
 			createdAt: T0,
+		});
+	});
+
+	it.each(["active", "unhealthy"] as const)(
+		"rejects a pre-renewal %s result even when renewal uses the same timestamp",
+		async (status) => {
+			const db = fixture();
+			await upsertMcpEventSubscription(db, params("sub-1"));
+			const [old] = await claimDueMcpEventSubscriptions(db, {
+				now: T0,
+				leaseUntil: T1,
+				limit: 10,
+			});
+			const renewed = await upsertMcpEventSubscription(
+				db,
+				params("sub-1", "org-a", {
+					cursor: "wsc1.20",
+					callbackUrl: "https://hooks.example/renewed",
+				}),
+			);
+			const result = {
+				id: "sub-1",
+				organizationId: "org-a",
+				claimToken: old!.claimToken!,
+				cursor: "wsc1.12",
+				status,
+				consecutiveFailures: 6,
+				nextAttemptAt: LATER,
+				rateWindowStartedAt: T0,
+				rateWindowCount: 9,
+				lastDeliveredAt: T0,
+				lastStatus: 500,
+				now: T1,
+			};
+			expect(await recordMcpEventDelivery(db, result)).toBe(false);
+			expect(await getMcpEventSubscription(db, params("sub-1"))).toEqual(
+				renewed,
+			);
+			const [current] = await claimDueMcpEventSubscriptions(db, {
+				now: T0,
+				leaseUntil: T1,
+				limit: 10,
+			});
+			expect(current!.claimToken).not.toBe(old!.claimToken);
+			expect(await recordMcpEventDelivery(db, result)).toBe(false);
+			expect(
+				await recordMcpEventDelivery(db, {
+					...result,
+					claimToken: current!.claimToken!,
+					cursor: "wsc1.21",
+					status: "active",
+					consecutiveFailures: 0,
+					lastStatus: 200,
+				}),
+			).toBe(true);
+			expect(await getMcpEventSubscription(db, params("sub-1"))).toMatchObject({
+				cursor: "wsc1.21",
+				status: "active",
+				consecutiveFailures: 0,
+				lastStatus: 200,
+				claimToken: null,
+				callbackUrl: "https://hooks.example/renewed",
+			});
+		},
+	);
+
+	it("rejects expired claims and consumes the current claim exactly once", async () => {
+		const db = fixture();
+		await upsertMcpEventSubscription(db, params("sub-1"));
+		const [old] = await claimDueMcpEventSubscriptions(db, {
+			now: T0,
+			leaseUntil: T1,
+			limit: 10,
+		});
+		const [current] = await claimDueMcpEventSubscriptions(db, {
+			now: T1,
+			leaseUntil: LATER,
+			limit: 10,
+		});
+		const result = {
+			id: "sub-1",
+			organizationId: "org-a",
+			claimToken: old!.claimToken!,
+			cursor: "wsc1.12",
+			status: "active" as const,
+			consecutiveFailures: 0,
+			nextAttemptAt: LATER,
+			rateWindowStartedAt: T0,
+			rateWindowCount: 1,
+			lastDeliveredAt: T1,
+			lastStatus: 200,
+			now: T1,
+		};
+		expect(await recordMcpEventDelivery(db, result)).toBe(false);
+		expect(await getMcpEventSubscription(db, params("sub-1"))).toEqual(current);
+		result.claimToken = current!.claimToken!;
+		expect(await recordMcpEventDelivery(db, result)).toBe(true);
+		expect(
+			await recordMcpEventDelivery(db, { ...result, cursor: "wsc1.99" }),
+		).toBe(false);
+		expect(await getMcpEventSubscription(db, params("sub-1"))).toMatchObject({
+			cursor: "wsc1.12",
+			claimToken: null,
+			lastStatus: 200,
 		});
 	});
 
@@ -228,6 +339,13 @@ describe("MCP event webhook subscriptions", () => {
 		const db = fixture();
 		await upsertMcpEventSubscription(db, params("sick"));
 		await recordMcpEventDelivery(db, {
+			claimToken: (
+				await claimDueMcpEventSubscriptions(db, {
+					now: T0,
+					leaseUntil: T1,
+					limit: 10,
+				})
+			)[0]!.claimToken!,
 			id: "sick",
 			organizationId: "org-a",
 			cursor: "wsc1.10",
@@ -268,6 +386,13 @@ describe("MCP event webhook subscriptions", () => {
 		).toBe(false);
 		expect(
 			await recordMcpEventDelivery(db, {
+				claimToken: (
+					await claimDueMcpEventSubscriptions(db, {
+						now: T0,
+						leaseUntil: T1,
+						limit: 10,
+					})
+				)[0]!.claimToken!,
 				id: "sub-a",
 				organizationId: "org-b",
 				cursor: "wsc1.99",

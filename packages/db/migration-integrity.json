@@ -1144,6 +1144,10 @@
 		{
 			"name": "20261023142421_release-lock-github-jobs/migration.sql",
 			"sha256": "e7917286644d240dbc68fb92c27a4e9801fccd8b3a474003f171e8e633f13615"
+		},
+		{
+			"name": "20261025144345_mcp-event-claim-token/migration.sql",
+			"sha256": "5be8e3225c17ff75376ea8e7795f6803ab6ae59e004326f5cc2728fb7bc6ffd6"
 		}
 	]
 }

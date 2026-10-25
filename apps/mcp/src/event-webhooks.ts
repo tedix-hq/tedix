@@ -393,8 +393,9 @@ async function deliverSubscription(
 			lastStatus?: number | null;
 		},
 	): Promise<DeliveryOutcome> => {
-		await service.recordWebhookDelivery({
+		const { recorded } = await service.recordWebhookDelivery({
 			id: sub.id,
+			claimToken: sub.claimToken,
 			organizationId: sub.organizationId,
 			cursor: fields.cursor ?? sub.cursor,
 			status: outcome === "unhealthy" ? "unhealthy" : "active",
@@ -405,7 +406,7 @@ async function deliverSubscription(
 			lastDeliveredAt: fields.delivered ? iso(now) : null,
 			lastStatus: fields.lastStatus ?? null,
 		});
-		return outcome;
+		return recorded ? outcome : "skipped";
 	};
 	const fail = (status: number | null, permanent = false) => {
 		const failures = sub.consecutiveFailures + 1;

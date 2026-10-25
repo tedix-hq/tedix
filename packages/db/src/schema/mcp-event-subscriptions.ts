@@ -30,6 +30,8 @@ export const mcpEventSubscriptions = sqliteTable(
 		consecutiveFailures: integer("consecutive_failures").notNull().default(0),
 		/** Next delivery attempt; a claim moves it forward as a short lease. */
 		nextAttemptAt: text("next_attempt_at").notNull(),
+		/** Single-use delivery claim; renewal invalidates any in-flight result. */
+		claimToken: text("claim_token"),
 		rateWindowStartedAt: text("rate_window_started_at"),
 		rateWindowCount: integer("rate_window_count").notNull().default(0),
 		lastDeliveredAt: text("last_delivered_at"),

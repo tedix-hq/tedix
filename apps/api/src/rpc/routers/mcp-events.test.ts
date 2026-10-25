@@ -1,6 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import { mcpEventSubscriptions } from "@tedix/db/schema/mcp-event-subscriptions";
+import { upsertMcpEventSubscription } from "@tedix/db/queries/mcp-event-subscriptions";
+import { RecordMcpEventWebhookDeliveryInputSchema } from "@tedix/api-contract/schemas/mcp-events";
 import { workEvents } from "@tedix/db/schema/work-items";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
@@ -165,4 +168,90 @@ it("publishes server stale and expiry notices without requiring a human identity
 		["attempt_expired", "expired"],
 	]);
 	expect(JSON.stringify(r)).not.toContain("Private fictional notes");
+});
+
+describe("MCP webhook result fencing over RPC", () => {
+	it("returns the claim token and rejects results superseded by renewal", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		onTestFinished(() => sqlite.close());
+		sqlite.exec(schemaDdl(mcpEventSubscriptions));
+		const db = createDbClient(createD1Facade(sqlite));
+		const client = createRouterClient(mcpEventsContractRouter, {
+			context: {
+				db,
+				env: { ENVIRONMENT: "test" },
+				headers: new Headers({ "X-Service-Binding": "true" }),
+			} as unknown as BaseContext,
+		});
+		const now = new Date().toISOString();
+		const subscription = {
+			id: `evsub_${"a".repeat(64)}`,
+			organizationId: "org-maple",
+			ownerSubject: "member-robin",
+			mcpUrl: "https://mcp.example/mcp",
+			eventName: "work.item.state_changed",
+			arguments: { organization_id: "org-maple" },
+			callbackUrl: "https://hooks.example/old",
+			sealedCredential: "sealed",
+			cursor: "wsc1.10",
+			expiresAt: new Date(Date.now() + 3600000).toISOString(),
+			now,
+		};
+		await upsertMcpEventSubscription(db, subscription);
+		const first = await client.claimDueWebhookSubscriptions({ limit: 1 });
+		const old = first.subscriptions[0]!;
+		expect(old.claimToken).toEqual(expect.any(String));
+		const renewed = await upsertMcpEventSubscription(db, {
+			...subscription,
+			cursor: "wsc1.20",
+			callbackUrl: "https://hooks.example/new",
+		});
+		const result = {
+			id: old.id,
+			organizationId: old.organizationId,
+			claimToken: old.claimToken,
+			cursor: "wsc1.11",
+			status: "unhealthy" as const,
+			consecutiveFailures: 6,
+			nextAttemptAt: now,
+			rateWindowStartedAt: now,
+			rateWindowCount: 1,
+			lastDeliveredAt: null,
+			lastStatus: 500,
+		};
+		expect(await client.recordWebhookDelivery(result)).toEqual({
+			recorded: false,
+		});
+		expect(await db.select().from(mcpEventSubscriptions)).toEqual([renewed]);
+		const { claimToken: _token, ...unfenced } = result;
+		expect(
+			RecordMcpEventWebhookDeliveryInputSchema.safeParse(unfenced).success,
+		).toBe(false);
+		expect(
+			RecordMcpEventWebhookDeliveryInputSchema.safeParse({
+				...result,
+				claimToken: null,
+			}).success,
+		).toBe(false);
+		const current = await client.claimDueWebhookSubscriptions({ limit: 1 });
+		expect(current.subscriptions[0]!.claimToken).not.toBe(old.claimToken);
+		expect(
+			await client.recordWebhookDelivery({
+				...result,
+				claimToken: current.subscriptions[0]!.claimToken,
+				cursor: "wsc1.21",
+				status: "active",
+				consecutiveFailures: 0,
+				lastStatus: 200,
+			}),
+		).toEqual({ recorded: true });
+		expect(await db.select().from(mcpEventSubscriptions)).toMatchObject([
+			{
+				cursor: "wsc1.21",
+				status: "active",
+				claimToken: null,
+				callbackUrl: "https://hooks.example/new",
+			},
+		]);
+	});
 });
