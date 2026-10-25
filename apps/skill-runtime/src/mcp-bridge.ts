@@ -521,7 +521,22 @@ async function executeMcpTool(
 					targetUrl,
 					taskId.startsWith("tedi:") ? taskId : undefined,
 				);
-				return unwrapJsonRpcResult(text, contentType);
+				try {
+					return unwrapJsonRpcResult(text, contentType);
+				} catch (error) {
+					// A read deadline does not cancel the already accepted durable turn.
+					if (
+						method === "tasks/get" &&
+						taskId.startsWith("tedi:") &&
+						error instanceof Error &&
+						/^MCP error -32603: cognitive runtime request timed out after \d+ms$/.test(
+							error.message,
+						)
+					) {
+						return { taskId, status: "working" };
+					}
+					throw error;
+				}
 			},
 			timeoutMs: MCP_BRIDGE_TIMEOUT_MS,
 			// Each poll is a service-binding subrequest out of the workflow step's
@@ -555,6 +570,15 @@ async function executeMcpTool(
 		// The bridge has no human in the loop: fail closed on pending input.
 		if (outcome.status === "input_required") {
 			throw new McpInputRequiredError(name);
+		}
+		if (taskId.startsWith("tedi:")) {
+			return {
+				ok: true,
+				accepted: true,
+				pending: true,
+				assistant: null,
+				task: { id: taskId, pollWith: "tasks/get" },
+			};
 		}
 		const lastStatus =
 			typeof outcome.state?.status === "string"
