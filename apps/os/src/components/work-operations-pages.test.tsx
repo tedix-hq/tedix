@@ -1252,7 +1252,7 @@ describe("Read-only operations entry", () => {
 });
 
 describe("Request and case identity presentation", () => {
-	it("resolves typed owners from the shared actor directory and keeps a diagnostic ID", () => {
+	it("names typed owners from the shared actor directory and never prints a raw id", () => {
 		const html = renderToStaticMarkup(
 			<WorkActorDirectoryContext.Provider
 				value={new Map([["user:sample-owner", { name: "Sample Owner" }]])}
@@ -1261,10 +1261,12 @@ describe("Request and case identity presentation", () => {
 			</WorkActorDirectoryContext.Provider>,
 		);
 		expect(html).toContain("Sample Owner");
-		expect(html).toContain('title="user: sample-owner"');
-		expect(
-			renderToStaticMarkup(<OperationActor type="user" id="unknown" />),
-		).toContain("Name unavailable");
+		expect(html).not.toContain("sample-owner");
+		const unknown = renderToStaticMarkup(
+			<OperationActor type="user" id="U39z24M4F456C31EdxA3a39gsuLH" />,
+		);
+		expect(unknown).toContain("Unknown person");
+		expect(unknown).not.toContain("U39z24M4");
 	});
 	it("suppresses identical subtitles and uses linked Work as the canonical origin on mobile", () => {
 		const client = new QueryClient({
@@ -1355,7 +1357,7 @@ describe("Case route navigation", () => {
 		await act(async () => {
 			await router.navigate({ to: "/work/cases" });
 		});
-		expect(container.textContent).toContain("Cases");
+		expect(container.textContent).toContain("Work streams");
 		expect(container.textContent).not.toContain("Case detail");
 	});
 });

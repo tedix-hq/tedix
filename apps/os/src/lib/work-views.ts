@@ -45,7 +45,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	{
 		id: "projects",
 		label: "Projects",
-		description: "Every project, its owner and what comes next.",
+		description: "Every project, its owner and how far along it is.",
 		group: "planning",
 		to: "/work",
 		search: { app: "portfolio" },
@@ -59,8 +59,8 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	},
 	{
 		id: "cases",
-		label: "Cases",
-		description: "Longer-running cases and the work filed under them.",
+		label: "Work streams",
+		description: "Bigger pieces of work inside a project, like a sprint.",
 		group: "planning",
 		to: "/work/cases",
 	},

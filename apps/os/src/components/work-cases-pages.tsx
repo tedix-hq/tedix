@@ -5,8 +5,10 @@ import {
 	WorkEmpty,
 } from "@/components/work-surface-primitives";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
+import { WorkActorOwnerContext } from "@/components/work-actor-avatar";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { Badge } from "@/components/kumo/badge";
@@ -46,6 +48,8 @@ import { osApi } from "@/lib/api";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import { absoluteDate, absoluteTime } from "@/lib/time";
 import {
+	membersListQueryOptions,
+	projectPortfolioQueryOptions,
 	workCaseDetailQueryOptions,
 	workCaseListQueryOptions,
 	workFleetQueryOptions,
@@ -53,6 +57,7 @@ import {
 } from "@/lib/os-query-options";
 import {
 	OperationActor,
+	OperationPicker,
 	MutationError,
 	useCursorPaging,
 	PageControls,
@@ -66,11 +71,61 @@ const CASE_STAGES = [
 	"closed",
 ] as const;
 
+/** Plain names for a work stream's stage; the stored values stay as they are. */
+export const WORK_STREAM_STAGE_LABELS = {
+	investigating: "Looking into it",
+	planning: "Planning",
+	executing: "In progress",
+	monitoring: "Watching",
+	closed: "Closed",
+} as const satisfies Record<(typeof CASE_STAGES)[number], string>;
+
+function stageVariant(stage: (typeof CASE_STAGES)[number]) {
+	if (stage === "closed") return "outline" as const;
+	if (stage === "executing") return "success" as const;
+	return "secondary" as const;
+}
+
+function StageBadge({
+	stage,
+	className,
+}: {
+	stage: (typeof CASE_STAGES)[number];
+	className?: string;
+}) {
+	return (
+		<Badge variant={stageVariant(stage)} className={className}>
+			{WORK_STREAM_STAGE_LABELS[stage]}
+		</Badge>
+	);
+}
+
+function DueDate({ at }: { at: string }) {
+	return (
+		<time dateTime={at} title={absoluteTime(at)}>
+			Due {absoluteDate(at)}
+		</time>
+	);
+}
+
 const caseFormSchema = z.object({
-	title: z.string().trim().min(1, "Enter a case title."),
-	ownerId: z.string().trim().min(1, "Enter an accountable owner id."),
-	projectId: z.string().trim(),
+	title: z.string().trim().min(1, "Give the work stream a name."),
 });
+
+/** Project names by id, from the shared Projects read. */
+function useProjectNames() {
+	const portfolio = useQuery(projectPortfolioQueryOptions());
+	return useMemo(
+		() =>
+			new Map(
+				(portfolio.data?.data ?? []).map((row) => [
+					row.project.id,
+					row.project.name,
+				]),
+			),
+		[portfolio.data],
+	);
+}
 
 export function WorkCasesRoute() {
 	const pathname = useRouterState({
@@ -83,6 +138,97 @@ export function WorkCasesRoute() {
 	);
 }
 
+function NewWorkStreamForm({
+	projects,
+	onCreated,
+}: {
+	projects: ReadonlyMap<string, string>;
+	onCreated: () => Promise<void>;
+}) {
+	const currentUserId = useContext(WorkActorOwnerContext);
+	const context = useOsOperationalContext();
+	const organizationId = context.data?.organization?.id ?? "";
+	const members = useQuery({
+		...membersListQueryOptions({ organizationId, limit: 100, offset: 0 }),
+		enabled: Boolean(organizationId),
+	});
+	const [ownerId, setOwnerId] = useState(currentUserId ?? "");
+	const [projectId, setProjectId] = useState("");
+	const create = useMutation({
+		mutationFn: (value: z.output<typeof caseFormSchema>) =>
+			osApi.workItems.createCase({
+				title: value.title,
+				kind: "other",
+				accountableOwnerType: "user",
+				accountableOwnerId: ownerId || currentUserId || "",
+				...(projectId ? { projectId } : {}),
+			}),
+		onSuccess: async () => {
+			form.reset();
+			setProjectId("");
+			await onCreated();
+		},
+	});
+	const form = useZodForm({
+		schema: caseFormSchema,
+		defaultValues: { title: "" },
+		validateOn: "submit",
+		onSubmit: ({ value }) => create.mutate(value),
+	});
+	const ownerOptions = (members.data?.data ?? []).map((member) => ({
+		value: member.descopeUserId,
+		label: member.name || member.email,
+	}));
+	const projectOptions = [...projects]
+		.map(([value, label]) => ({ value, label }))
+		.sort((a, b) => a.label.localeCompare(b.label));
+	return (
+		<Surface className="p-4">
+			<form
+				className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"
+				onSubmit={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					void form.handleSubmit();
+				}}
+			>
+				<FormField form={form} name="title" label="Name">
+					{(field, meta) => <FormInput field={field} {...meta} />}
+				</FormField>
+				<div className="grid min-w-0 gap-1">
+					<Text as="span" role="label" tone="secondary">
+						Owner
+					</Text>
+					<OperationPicker
+						label="Choose owner"
+						options={ownerOptions}
+						value={ownerId}
+						onSelect={setOwnerId}
+					/>
+				</div>
+				<div className="grid min-w-0 gap-1">
+					<Text as="span" role="label" tone="secondary">
+						Project (optional)
+					</Text>
+					<OperationPicker
+						label="Choose project"
+						options={projectOptions}
+						value={projectId}
+						onSelect={setProjectId}
+					/>
+				</div>
+				<Button
+					type="submit"
+					disabled={create.isPending || !(ownerId || currentUserId)}
+				>
+					{create.isPending ? "Creating…" : "Create"}
+				</Button>
+			</form>
+			<MutationError error={create.error} />
+		</Surface>
+	);
+}
+
 export function WorkCasesPage() {
 	useOsFormattingPreferences();
 	const client = useQueryClient();
@@ -92,39 +238,22 @@ export function WorkCasesPage() {
 		...(paging.cursor ? { cursor: paging.cursor } : {}),
 	});
 	const query = useQuery(caseListOptions);
+	const projects = useProjectNames();
 	const [caseFormOpen, setCaseFormOpen] = useState(false);
-	const create = useMutation({
-		mutationFn: (value: z.output<typeof caseFormSchema>) =>
-			osApi.workItems.createCase({
-				title: value.title,
-				kind: "other",
-				accountableOwnerType: "user",
-				accountableOwnerId: value.ownerId,
-				...(value.projectId ? { projectId: value.projectId } : {}),
-			}),
-		onSuccess: async () => {
-			form.reset();
-			setCaseFormOpen(false);
-			paging.reset();
-			await Promise.all([
-				client.invalidateQueries({ queryKey: osQueryKeys.workCases() }),
-				client.invalidateQueries({
-					queryKey: workFleetQueryOptions().queryKey,
-				}),
-			]);
-		},
-	});
-	const form = useZodForm({
-		schema: caseFormSchema,
-		defaultValues: { title: "", ownerId: "", projectId: "" },
-		validateOn: "submit",
-		onSubmit: ({ value }) => create.mutate(value),
-	});
+	const records = query.data?.data ?? [];
+	const anyDue = records.some((record) => record.targetResolutionAt);
+	const context = (record: (typeof records)[number]) =>
+		[
+			record.projectId ? projects.get(record.projectId) : null,
+			record.kind === "other" ? null : sentenceCase(record.kind),
+		]
+			.filter(Boolean)
+			.join(" · ");
 	return (
 		<Page width="xl">
 			<WorkPageHeader
-				title="Cases"
-				description="Investigations, incidents and other work that spans multiple tasks. Each task is checked before it starts."
+				title="Work streams"
+				description="Bigger pieces of work inside a project, such as a sprint, an incident or an investigation. Each one groups several tasks and has one owner."
 				action={
 					<Button
 						variant={caseFormOpen ? "outline" : "default"}
@@ -132,81 +261,48 @@ export function WorkCasesPage() {
 						aria-expanded={caseFormOpen}
 						aria-controls="open-case-form"
 					>
-						{caseFormOpen ? "Close form" : "Open case"}
+						{caseFormOpen ? "Cancel" : "New work stream"}
 					</Button>
 				}
 			/>
 			{caseFormOpen ? (
-				<PageSection id="open-case-form" aria-labelledby="open-case-title">
-					<SectionHeader>
-						<SectionHeading>
-							<SectionTitle id="open-case-title">Open a case</SectionTitle>
-							<SectionDescription>
-								The accountable owner is explicit; project linkage is optional.
-							</SectionDescription>
-						</SectionHeading>
-					</SectionHeader>
-					<Surface className="p-4">
-						<form
-							className="grid gap-3 md:grid-cols-3"
-							onSubmit={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								void form.handleSubmit();
-							}}
-						>
-							<FormField form={form} name="title" label="Case title">
-								{(field, meta) => <FormInput field={field} {...meta} />}
-							</FormField>
-							<FormField
-								form={form}
-								name="ownerId"
-								label="Accountable owner id"
-							>
-								{(field, meta) => <FormInput field={field} {...meta} />}
-							</FormField>
-							<FormField
-								form={form}
-								name="projectId"
-								label="Project id"
-								optional
-							>
-								{(field, meta) => <FormInput field={field} {...meta} />}
-							</FormField>
-							<Button type="submit" disabled={create.isPending}>
-								{create.isPending ? "Opening…" : "Open case"}
-							</Button>
-						</form>
-						<MutationError error={create.error} />
-					</Surface>
+				<PageSection id="open-case-form" aria-label="New work stream">
+					<NewWorkStreamForm
+						projects={projects}
+						onCreated={async () => {
+							setCaseFormOpen(false);
+							paging.reset();
+							await Promise.all([
+								client.invalidateQueries({ queryKey: osQueryKeys.workCases() }),
+								client.invalidateQueries({
+									queryKey: workFleetQueryOptions().queryKey,
+								}),
+							]);
+						}}
+					/>
 				</PageSection>
 			) : null}
-			<PageSection aria-labelledby="case-register-title">
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle id="case-register-title">Case register</SectionTitle>
-						<SectionDescription>
-							Track ongoing investigations and the work attached to them.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
+			<PageSection aria-label="Work streams">
 				{query.isPending ? (
 					<WorkListSkeleton />
 				) : query.isError ? (
-					<WorkReadFailure title="Cases unavailable" error={query.error} />
-				) : query.data.data.length === 0 ? (
+					<WorkReadFailure
+						title="Work streams unavailable"
+						error={query.error}
+					/>
+				) : records.length === 0 ? (
 					<WorkEmpty
-						title="No cases"
-						description="Open a case when the next Work Items will emerge as facts arrive."
+						title="No work streams yet"
+						description="Start one when a piece of work will need several tasks, and more will turn up as you go."
 					/>
 				) : (
 					<>
 						<Collection
 							appearance="inline"
-							aria-label="Cases"
+							aria-label="Work streams"
 							className="border-kumo-line border-y sm:hidden"
 						>
-							{query.data.data.map((record) => (
+							{records.map((record) => (
 								<li
 									key={record.id}
 									className="min-w-0 space-y-1 px-3 py-2"
@@ -219,100 +315,74 @@ export function WorkCasesPage() {
 											className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center py-1 font-medium leading-snug"
 										>
 											<span className="line-clamp-2">{record.title}</span>
-											<Text as="span" role="label" tone="mono-secondary">
-												{sentenceCase(record.kind)} · {record.id.slice(0, 8)}
-											</Text>
+											{context(record) ? (
+												<Text as="span" role="label" tone="secondary">
+													{context(record)}
+												</Text>
+											) : null}
 										</Link>
-										<Badge
-											variant={
-												record.stage === "closed" ? "outline" : "secondary"
-											}
+										<StageBadge
+											stage={record.stage}
 											className="mt-1 shrink-0"
-										>
-											{sentenceCase(record.stage)}
-										</Badge>
+										/>
 									</div>
-									<dl className="m-0 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-kumo-subtle type-tedix-label">
-										<div className="min-w-0 max-w-full">
-											<dt className="sr-only">Accountable owner</dt>
-											<dd
-												className="m-0 truncate"
-												title={record.accountableOwnerId}
-												data-mobile-case-owner
-											>
-												<OperationActor
-													type={record.accountableOwnerType}
-													id={record.accountableOwnerId}
-												/>
-											</dd>
-										</div>
-										<span aria-hidden="true">·</span>
-										<div className="min-w-0">
-											<dt className="sr-only">Horizon</dt>
-											<dd className="m-0 tabular-nums" data-mobile-case-horizon>
-												{record.targetResolutionAt ? (
-													<time
-														dateTime={record.targetResolutionAt}
-														title={absoluteTime(record.targetResolutionAt)}
-													>
-														{absoluteDate(record.targetResolutionAt)}
-													</time>
-												) : (
-													"Not committed"
-												)}
-											</dd>
-										</div>
-									</dl>
+									<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-kumo-subtle type-tedix-label">
+										<span className="min-w-0 max-w-full" data-mobile-case-owner>
+											<OperationActor
+												type={record.accountableOwnerType}
+												id={record.accountableOwnerId}
+											/>
+										</span>
+										{record.targetResolutionAt ? (
+											<span className="tabular-nums" data-mobile-case-due>
+												<DueDate at={record.targetResolutionAt} />
+											</span>
+										) : null}
+									</div>
 								</li>
 							))}
 						</Collection>
-						<Table scrollLabel="Cases" containerClassName="hidden sm:block">
+						<Table
+							scrollLabel="Work streams"
+							containerClassName="hidden sm:block"
+						>
 							<TableHeader>
 								<TableRow>
-									<TableHead>Case</TableHead>
+									<TableHead>Work stream</TableHead>
 									<TableHead>Stage</TableHead>
 									<TableHead>Owner</TableHead>
-									<TableHead>Horizon</TableHead>
+									{anyDue ? <TableHead>Due</TableHead> : null}
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{query.data.data.map((record) => (
+								{records.map((record) => (
 									<TableRow key={record.id}>
 										<TableCell className="whitespace-normal">
 											<Link variant="record" href={`/work/cases/${record.id}`}>
 												{record.title}
 											</Link>
-											<Text as="p" role="label" tone="secondary">
-												{sentenceCase(record.kind)} · {record.id.slice(0, 8)}
-											</Text>
+											{context(record) ? (
+												<Text as="p" role="label" tone="secondary">
+													{context(record)}
+												</Text>
+											) : null}
 										</TableCell>
 										<TableCell>
-											<Badge
-												variant={
-													record.stage === "closed" ? "outline" : "secondary"
-												}
-											>
-												{sentenceCase(record.stage)}
-											</Badge>
+											<StageBadge stage={record.stage} />
 										</TableCell>
-										<TableCell title={record.accountableOwnerId}>
+										<TableCell>
 											<OperationActor
 												type={record.accountableOwnerType}
 												id={record.accountableOwnerId}
 											/>
 										</TableCell>
-										<TableCell>
-											{record.targetResolutionAt ? (
-												<time
-													dateTime={record.targetResolutionAt}
-													title={absoluteTime(record.targetResolutionAt)}
-												>
-													{absoluteDate(record.targetResolutionAt)}
-												</time>
-											) : (
-												"Not committed"
-											)}
-										</TableCell>
+										{anyDue ? (
+											<TableCell className="tabular-nums">
+												{record.targetResolutionAt ? (
+													<DueDate at={record.targetResolutionAt} />
+												) : null}
+											</TableCell>
+										) : null}
 									</TableRow>
 								))}
 							</TableBody>
@@ -343,6 +413,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 		dependencyPaging.cursor,
 	);
 	const query = useQuery(detailOptions);
+	const projects = useProjectNames();
 	const refresh = () =>
 		Promise.all([
 			client.invalidateQueries({
@@ -356,7 +427,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 		]);
 	const update = useMutation({
 		mutationFn: (stage: (typeof CASE_STAGES)[number]) => {
-			if (!query.data) throw new Error("Case is not loaded");
+			if (!query.data) throw new Error("Work stream is not loaded");
 			return osApi.workItems.updateCase({
 				caseId,
 				expectedVersion: query.data.workCase.version,
@@ -405,31 +476,41 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 	if (query.isPending)
 		return (
 			<Page width="lg">
-				<PageBack render={<Link href="/work/cases" />}>All cases</PageBack>
+				<PageBack render={<Link href="/work/cases" />}>
+					All work streams
+				</PageBack>
 				<WorkListSkeleton />
 			</Page>
 		);
 	if (query.isError || !query.data)
 		return (
 			<Page width="lg">
-				<PageBack render={<Link href="/work/cases" />}>All cases</PageBack>
-				<WorkReadFailure title="Case unavailable" error={query.error} />
+				<PageBack render={<Link href="/work/cases" />}>
+					All work streams
+				</PageBack>
+				<WorkReadFailure title="Work stream unavailable" error={query.error} />
 			</Page>
 		);
 	const record = query.data.workCase;
 	return (
 		<Page width="lg">
-			<PageBack render={<Link href="/work/cases" />}>All cases</PageBack>
+			<PageBack render={<Link href="/work/cases" />}>All work streams</PageBack>
 			<WorkPageHeader
 				title={record.title}
-				description={`${sentenceCase(record.kind)} case · version ${record.version}`}
+				description={[
+					record.projectId ? projects.get(record.projectId) : null,
+					record.kind === "other" ? null : sentenceCase(record.kind),
+					WORK_STREAM_STAGE_LABELS[record.stage],
+				]
+					.filter(Boolean)
+					.join(" · ")}
 			/>
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>
-						<SectionTitle>Business stage</SectionTitle>
+						<SectionTitle>Stage</SectionTitle>
 						<SectionDescription>
-							Closing a case does not complete its attached Work.
+							Closing a work stream does not finish its tasks.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -449,8 +530,8 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 							onClick={() => update.mutate(stage)}
 						>
 							{update.isPending && update.variables === stage
-								? `Moving to ${sentenceCase(stage)}…`
-								: sentenceCase(stage)}
+								? `Moving to ${WORK_STREAM_STAGE_LABELS[stage]}…`
+								: WORK_STREAM_STAGE_LABELS[stage]}
 						</Button>
 					))}
 				</div>
@@ -507,7 +588,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 					<CardHeader>
 						<CardTitle>Add dependency</CardTitle>
 						<CardDescription>
-							This case must resolve before the dependent case.
+							This work stream must finish before the one that depends on it.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -521,13 +602,13 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 							<FormField
 								form={dependencyForm}
 								name="dependentCaseId"
-								label="Dependent case id"
+								label="Dependent work stream id"
 							>
 								{(field, meta) => (
 									<FormInput
 										field={field}
 										{...meta}
-										placeholder="Dependent case UUID"
+										placeholder="Work stream id"
 									/>
 								)}
 							</FormField>
@@ -540,9 +621,9 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 				</Card>
 			</div>
 			<SectionCollection
-				title={`Attached Work Items (${query.data.items.data.length})`}
-				description="Work admitted into this case with its discovery rationale."
-				empty="No Work Items attached."
+				title={`Tasks (${query.data.items.data.length})`}
+				description="Tasks in this work stream and why each belongs here."
+				empty="No tasks yet."
 				footer={
 					<PageControls
 						hasPrevious={itemPaging.hasPrevious}
@@ -569,8 +650,8 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			</SectionCollection>
 			<SectionCollection
 				title={`Dependencies (${query.data.dependencies.data.length})`}
-				description="Case ordering that constrains when dependent work may proceed."
-				empty="No case dependencies."
+				description="Work streams that must finish before others can go ahead."
+				empty="No dependencies."
 				footer={
 					<PageControls
 						hasPrevious={dependencyPaging.hasPrevious}
@@ -608,5 +689,5 @@ const caseAttachmentSchema = z.object({
 });
 
 const caseDependencySchema = z.object({
-	dependentCaseId: z.string().trim().uuid("Enter a canonical case UUID."),
+	dependentCaseId: z.string().trim().uuid("Enter a work stream id."),
 });

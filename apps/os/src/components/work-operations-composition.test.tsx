@@ -63,6 +63,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 }));
 
 const { WorkCasesPage } = await import("./work-cases-pages");
+const { WorkActorOwnerContext } = await import("./work-actor-avatar");
 const { WorkCasePage } = await import("./work-cases-pages");
 const { WorkApprovalsPage } = await import("./work-approvals-page");
 const { WorkInteractionsPage, WorkInteractionPage } =
@@ -182,8 +183,14 @@ const pageClass = (width: "lg" | "xl") =>
 const mutations = (path: string) =>
 	api.calls.filter((call) => call.path === path).map((call) => call.input);
 
-describe("Work cases", () => {
-	it("shows the register first and reveals case creation on demand", async () => {
+describe("Work streams", () => {
+	const asOwner = (element: ReactNode) => (
+		<WorkActorOwnerContext.Provider value={OWNER}>
+			{element}
+		</WorkActorOwnerContext.Provider>
+	);
+
+	it("lists work streams first and reveals creation on demand", async () => {
 		viewport(false);
 		api.reads["workItems.listCases"] = {
 			data: [
@@ -191,7 +198,7 @@ describe("Work cases", () => {
 					id: "case-1",
 					title: "Refund backlog",
 					kind: "operations",
-					stage: "open",
+					stage: "executing",
 					accountableOwnerType: "user",
 					accountableOwnerId: OWNER,
 					targetResolutionAt: null,
@@ -199,26 +206,25 @@ describe("Work cases", () => {
 			],
 			nextCursor: null,
 		};
-		const page = await mount(<WorkCasesPage />);
+		const page = await mount(asOwner(<WorkCasesPage />));
 		const root = page.host.querySelector('[data-slot="page"]')!;
 		expect(root.className).toBe(pageClass("xl"));
-		const register = page.host.querySelector(
-			'[aria-labelledby="case-register-title"]',
+		expect(page.host.querySelector("h1")?.textContent).toBe("Work streams");
+		const list = page.host.querySelector('section[aria-label="Work streams"]')!;
+		const create = [...page.host.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "New work stream",
 		)!;
-		const open = [...page.host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Open case",
-		)!;
-		expect(open.closest('[data-slot="page-actions"]')).not.toBeNull();
-		expect(open.getAttribute("aria-expanded")).toBe("false");
+		expect(create.closest('[data-slot="page-actions"]')).not.toBeNull();
+		expect(create.getAttribute("aria-expanded")).toBe("false");
 		expect(page.host.querySelector("#open-case-form")).toBeNull();
-		await act(async () => open.click());
+		await act(async () => create.click());
 		const form = page.host.querySelector("#open-case-form")!;
-		expect(open.getAttribute("aria-expanded")).toBe("true");
+		expect(create.getAttribute("aria-expanded")).toBe("true");
 		expect(
-			form.compareDocumentPosition(register) & Node.DOCUMENT_POSITION_FOLLOWING,
+			form.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
-		// A tappable mobile register beside the uncompressed desktop table.
-		const mobile = page.host.querySelector('[aria-label="Cases"]')!;
+		// A tappable mobile list beside the uncompressed desktop table.
+		const mobile = page.host.querySelector('ul[aria-label="Work streams"]')!;
 		expect(mobile.classList.contains("sm:hidden")).toBe(true);
 		expect(mobile.querySelector("[data-mobile-case-row]")).not.toBeNull();
 		expect(mobile.querySelector("[data-mobile-case-owner]")).not.toBeNull();
@@ -228,39 +234,43 @@ describe("Work cases", () => {
 				?.closest(".hidden")
 				?.classList.contains("sm:block"),
 		).toBe(true);
-		// Canonical owners stay available as titles; the visible label is quiet.
-		const owner = [...page.host.querySelectorAll(`[title="${OWNER}"]`)];
-		expect(owner.length).toBeGreaterThan(0);
-		for (const element of owner) expect(element.textContent).not.toBe(OWNER);
+		// Plain stage names, no raw owner ids and no empty due-date column.
+		expect(page.host.textContent).toContain("In progress");
+		expect(page.host.innerHTML).not.toContain(OWNER);
+		expect(page.host.innerHTML).not.toContain(OWNER.slice(0, 8));
+		expect(page.host.textContent).not.toContain("Horizon");
+		expect(page.host.textContent).not.toContain("Not committed");
+		expect(
+			[...page.host.querySelectorAll("th")].map((th) => th.textContent),
+		).toEqual(["Work stream", "Stage", "Owner"]);
 
-		await page.submit("Open case");
+		await page.submit("Create");
 		expect(mutations("workItems.createCase")).toEqual([]);
-		expect(page.host.textContent).toContain("Enter a case title.");
-		await page.type("Case title", "  Refund backlog  ");
-		await page.type("Accountable owner id", OWNER);
-		await page.submit("Open case");
+		expect(page.host.textContent).toContain("Give the work stream a name.");
+		await page.type("Name", "  Refund backlog  ");
+		await page.submit("Create");
 		expect(mutations("workItems.createCase")[0]).toMatchObject({
 			title: "Refund backlog",
+			accountableOwnerType: "user",
 			accountableOwnerId: OWNER,
 		});
 	});
 
-	it("opens the case form on phones and returns them to the register", async () => {
+	it("opens the form on phones and returns them to the list", async () => {
 		viewport(true);
-		const page = await mount(<WorkCasesPage />);
-		const open = [...page.host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Open case",
+		const page = await mount(asOwner(<WorkCasesPage />));
+		const create = [...page.host.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "New work stream",
 		)!;
 		expect(page.host.querySelector("#open-case-form")).toBeNull();
-		await act(async () => open.click());
+		await act(async () => create.click());
 		expect(page.host.querySelector("#open-case-form")).not.toBeNull();
-		await page.type("Case title", "Refund backlog");
-		await page.type("Accountable owner id", OWNER);
-		await page.submit("Open case");
+		await page.type("Name", "Refund backlog");
+		await page.submit("Create");
 		expect(page.host.querySelector("#open-case-form")).toBeNull();
 	});
 
-	it("keeps the case horizon fully visible on a 390px phone", async () => {
+	it("shows a due date only when one is set, fully visible on a 390px phone", async () => {
 		viewport(true);
 		api.reads["workItems.listCases"] = {
 			data: [
@@ -268,25 +278,36 @@ describe("Work cases", () => {
 					id: "case-1",
 					title: "Refund backlog",
 					kind: "operations",
-					stage: "open",
+					stage: "planning",
 					accountableOwnerType: "user",
 					accountableOwnerId: OWNER,
 					targetResolutionAt: "2031-12-30",
+				},
+				{
+					id: "case-2",
+					title: "Supplier audit",
+					kind: "other",
+					stage: "closed",
+					accountableOwnerType: "user",
+					accountableOwnerId: OWNER,
+					targetResolutionAt: null,
 				},
 			],
 			nextCursor: null,
 		};
 		const page = await mount(<WorkCasesPage />);
-		const horizon = page.host.querySelector("[data-mobile-case-horizon]")!;
-		expect(horizon.textContent).toBe("Dec 30, 2031");
-		expect(horizon.className).not.toContain("whitespace-nowrap");
-		expect(horizon.className).not.toContain("truncate");
-		expect(horizon.className).toContain("tabular-nums");
-		// The desktop register keeps its uncompressed table cell.
+		const due = page.host.querySelectorAll("[data-mobile-case-due]");
+		expect(due).toHaveLength(1);
+		expect(due[0]!.textContent).toBe("Due Dec 30, 2031");
+		expect(due[0]!.className).not.toContain("whitespace-nowrap");
+		expect(due[0]!.className).not.toContain("truncate");
+		expect(due[0]!.className).toContain("tabular-nums");
+		// The desktop table keeps an uncompressed Due column once any row has one.
 		const cell = [...page.host.querySelectorAll("table td")].find((element) =>
 			element.textContent?.includes("Dec 30, 2031"),
 		);
 		expect(cell).toBeDefined();
+		expect(page.host.textContent).not.toContain("Not committed");
 	});
 });
 
@@ -731,9 +752,9 @@ describe("Work case detail and clusters", () => {
 		expect(page.host.textContent).toContain(
 			"Enter a canonical Work Item UUID.",
 		);
-		await page.type("Dependent case id", "not-a-uuid");
+		await page.type("Dependent work stream id", "not-a-uuid");
 		await page.submit("Add dependency");
-		expect(page.host.textContent).toContain("Enter a canonical case UUID.");
+		expect(page.host.textContent).toContain("Enter a work stream id.");
 		expect(
 			api.calls.filter((call) =>
 				[
@@ -777,7 +798,7 @@ describe("Work case detail and clusters", () => {
 		);
 		expect(attachment?.disabled).toBe(true);
 
-		await page.type("Dependent case id", OWNER);
+		await page.type("Dependent work stream id", OWNER);
 		await page.submit("Add dependency");
 		const dependency = [...page.host.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Adding…",

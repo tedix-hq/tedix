@@ -30,7 +30,7 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const PAGES: Array<[string, string]> = [
 	["/work?view=feed", ".fd-feed"],
 	["/work?view=feed&filter=history", ".fd-feed"],
-	["/work?app=portfolio", "[data-portfolio-card]"],
+	["/work?app=portfolio", "[data-project-row]"],
 	["/work?app=agents", "[data-agent-state]"],
 	["/work?app=office", "#office-for-you-title"],
 	[
@@ -486,14 +486,16 @@ try {
 			}
 			await check("/work/cases", "[data-mobile-case-row]");
 			await page
-				.getByRole("button", { name: "Open case", exact: true })
+				.getByRole("button", { name: "New work stream", exact: true })
 				.click();
 			for (const failure of await layoutFailures(page))
 				failures.push(`/work/cases form: ${failure}`);
 			await targets(
 				"/work/cases form",
-				page.locator("#open-case-form input"),
-				"case field",
+				page.locator(
+					"#open-case-form input:visible:not([aria-hidden=true]):not([tabindex='-1']), #open-case-form button:visible",
+				),
+				"work stream field",
 			);
 
 			await check("/work?view=feed", ".focus-today");
@@ -503,11 +505,11 @@ try {
 				"Today link",
 			);
 
-			await check("/work?app=portfolio", "[data-portfolio-card]");
+			await check("/work?app=portfolio", "[data-project-row]");
 			await targets(
 				"Projects",
-				page.locator("[data-portfolio-card] a[data-link-role=record]"),
-				"project card link",
+				page.locator("[data-project-row] a[data-link-role=record]"),
+				"project row link",
 			);
 
 			// The Work item link once shrank to 2px beside the session name.
