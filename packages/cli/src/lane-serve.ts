@@ -35,6 +35,7 @@ import {
 	type RoutingPolicy,
 } from "./lane-routing";
 import { createCodexLaneThread } from "./codex-lane-thread";
+import { BOOTSTRAP_AWAITING_APPROVAL } from "./external-agent";
 import { createClaudeLaneThread } from "./claude-lane-thread";
 import { createDevinLaneThread, devinAvailable } from "./devin-lane-thread";
 import { laneChildEnv } from "./lane-child-env";
@@ -511,6 +512,13 @@ export function provisionLaneWorktree(
  */
 export function laneCommitTrailers(itemId: string, session: string): string {
 	return `End every commit message with one trailer paragraph, with no blank line inside it and exactly one Work-Item:\nWork-Item: ${itemId}\nAgent-Session: ${session}\nCo-Authored-By lines may follow in the same paragraph. Do not pass one -m per trailer (that separates them); write the message to a file and use git commit -F, or use git commit --trailer.\n`;
+}
+
+/** The executor's `tedix agent start` is waiting for an owner approval. */
+export function awaitsOwnerApproval(error: unknown): boolean {
+	return (error instanceof Error ? error.message : String(error)).includes(
+		BOOTSTRAP_AWAITING_APPROVAL,
+	);
 }
 
 export function laneFailureSignature(error: unknown): string {
@@ -1426,7 +1434,10 @@ export class LaneDispatcher {
 						: 1;
 				receipt.admissionFailureSignature = signature;
 				receipt.admissionFailure = receipt.note;
-				receipt.held = receipt.identicalFailures >= 3;
+				// A bootstrap parked on an owner decision changes outcome without a
+				// new Work revision, so it defers instead of holding.
+				receipt.held =
+					receipt.identicalFailures >= 3 && !awaitsOwnerApproval(error);
 			}
 			this.log("skipped-or-failed", candidate.id, receipt.note);
 			if (!admitted && receipt.held && !receipt.failureCommented) {

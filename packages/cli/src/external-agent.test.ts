@@ -15,6 +15,7 @@ import {
 } from "./external-agent";
 import {
 	externalAgentSessionWorkspaces,
+	readBootstrapApproval,
 	readExternalAgentProfile,
 	writeExternalAgentProfile,
 } from "./external-agent-store";
@@ -397,6 +398,160 @@ describe("external-agent CLI session", () => {
 			expect(new Set(bodies).size).toBe(1);
 		},
 	);
+
+	test("parks a first bootstrap on the owner's credential approval and resumes it with the decided request", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		process.env.TEDIX_AGENT_SESSION = "claude-code:session-9";
+		const approvalId = "45fe93d1-eba1-4f72-bf95-36842a9693b7";
+		const code: string[] = [];
+		let approved = false;
+		const createClient = () => ({
+			runCode: async (source: string) => {
+				code.push(source);
+				if (source.includes("organizations.create_api_key")) {
+					if (!approved || !source.includes(approvalId))
+						throw new Error(
+							`Human approval required. Request ${approvalId} (pending): https://os.example/work/approvals#${approvalId}. Decide in Tedix OS, then retry the identical call with _meta {"com.tedix/approvalRequestId":"${approvalId}"}. No side effect was executed.`,
+						);
+					return {
+						result: {
+							rawKey: "sk_external_secret",
+							apiKey: { id: "22222222-2222-4222-8222-222222222222" },
+						},
+					};
+				}
+				if (source.includes("external.create_external_agent_principal"))
+					return { result: { id: PRINCIPAL } };
+				return { result: { success: true } };
+			},
+			close: async () => {},
+		});
+		const fetcher = async (): Promise<Response> => exchangeResponse();
+		const start = () =>
+			startExternalAgentSession({
+				workspace: "tedix",
+				workspaceCredential: {
+					loginId: "owner",
+					oauthTokens: {
+						token_type: "Bearer",
+						access_token: "oauth",
+						refresh_token: "refresh",
+					},
+					accessTokenExpiresAtSeconds: 1,
+					org: "org_tedix",
+				},
+				mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+				oauthBearer: "oauth",
+				harness: "claude-code",
+				harnessVersion: "2.0.0",
+				modelProvider: "anthropic",
+				modelId: "claude-fable-5-1",
+				modelVersion: "2026-10-01",
+				fetch: fetcher,
+				createClient,
+				listWorkspaces: async () => [
+					{
+						org: ORG,
+						slug: "tedix",
+						name: "Tedix",
+						gatewayUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+						descopeTenantId: "org_tedix",
+					},
+				],
+			});
+
+		await expect(start()).rejects.toThrow(
+			`External-agent bootstrap is waiting for owner approval ${approvalId}`,
+		);
+		expect(readBootstrapApproval("tedix")?.approvalRequestId).toBe(approvalId);
+		expect(
+			code.some((source) =>
+				source.includes("external.create_external_agent_principal"),
+			),
+		).toBe(false);
+
+		// Still pending: the same request is named, no second one is opened.
+		await expect(start()).rejects.toThrow("waiting for owner approval");
+		const retries = code.filter((source) =>
+			source.includes("organizations.create_api_key"),
+		);
+		expect(retries).toHaveLength(2);
+		expect(retries[0]).not.toContain("com.tedix/approvalRequestId");
+		expect(retries[1]).toContain(
+			`{"_meta":{"com.tedix/approvalRequestId":"${approvalId}"}}`,
+		);
+
+		approved = true;
+		await start();
+		expect(readBootstrapApproval("tedix")).toBeNull();
+		expect(readExternalAgentProfile("tedix")?.apiKeyId).toBe(
+			"22222222-2222-4222-8222-222222222222",
+		);
+		expect(
+			code.filter((source) => source.includes("organizations.create_api_key")),
+		).toHaveLength(3);
+	});
+
+	test("drops a parked bootstrap approval the owner rejected", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		process.env.TEDIX_AGENT_SESSION = "claude-code:session-10";
+		const approvalId = "55fe93d1-eba1-4f72-bf95-36842a9693b7";
+		let status = "pending";
+		const createClient = () => ({
+			runCode: async (source: string) => {
+				if (source.includes("organizations.create_api_key"))
+					throw new Error(
+						`Human approval required. Request ${approvalId} (${status}): https://os.example/work/approvals#${approvalId}. Decide in Tedix OS, then retry the identical call with _meta {"com.tedix/approvalRequestId":"${approvalId}"}. No side effect was executed.`,
+					);
+				return { result: { success: true } };
+			},
+			close: async () => {},
+		});
+		const start = () =>
+			startExternalAgentSession({
+				workspace: "tedix",
+				workspaceCredential: {
+					loginId: "owner",
+					oauthTokens: {
+						token_type: "Bearer",
+						access_token: "oauth",
+						refresh_token: "refresh",
+					},
+					accessTokenExpiresAtSeconds: 1,
+					org: "org_tedix",
+				},
+				mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+				oauthBearer: "oauth",
+				harness: "claude-code",
+				harnessVersion: "2.0.0",
+				modelProvider: "anthropic",
+				modelId: "claude-fable-5-1",
+				modelVersion: "2026-10-01",
+				fetch: async () => exchangeResponse(),
+				createClient,
+				listWorkspaces: async () => [
+					{
+						org: ORG,
+						slug: "tedix",
+						name: "Tedix",
+						gatewayUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+						descopeTenantId: "org_tedix",
+					},
+				],
+			});
+		await expect(start()).rejects.toThrow("waiting for owner approval");
+		expect(readBootstrapApproval("tedix")?.approvalRequestId).toBe(approvalId);
+		status = "rejected";
+		await expect(start()).rejects.toThrow(
+			`Owner approval ${approvalId} for the "local-`,
+		);
+		await expect(start()).rejects.toThrow("credential is rejected");
+		expect(readBootstrapApproval("tedix")).toBeNull();
+	});
 
 	test("bootstraps through Code Mode, exchanges only an X-API-Key, and reuses the profile without owner OAuth", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
