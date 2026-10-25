@@ -83,14 +83,17 @@ export const SKILL_RETRIEVAL_MAX_BLOCK_TOKENS = 800;
  * Lifecycle states eligible for act-time injection, by rank. Anything absent
  * (draft, stale, archived, unknown/null) is NEVER retrieved: only states that
  * passed the execute-to-promote gate carry enough evidence to steer a turn.
+ * A frozen null-prototype map keeps inherited property names out of the allowlist.
  */
 export const SKILL_RETRIEVAL_LIFECYCLE_PRIORITY: Readonly<
 	Record<string, number>
-> = {
-	crystallized: 3,
-	proven: 2,
-	active: 1,
-};
+> = Object.freeze(
+	Object.assign(Object.create(null) as Record<string, number>, {
+		crystallized: 3,
+		proven: 2,
+		active: 1,
+	}),
+);
 
 export interface RetrievedSkillMatch {
 	skill: RetrievableSkill;
