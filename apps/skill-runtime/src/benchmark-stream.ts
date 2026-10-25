@@ -16,10 +16,32 @@ export async function readBenchmarkTurnStream(
 	let runId: string | null = null;
 	let errMsg: string | null = null;
 	let finished = false;
+	const handleLine = (line: string) => {
+		if (!line.startsWith("data:")) return;
+		try {
+			const frame = JSON.parse(line.slice(5).trim());
+			if (frame.kind === "done") {
+				assistant = typeof frame.text === "string" ? frame.text : assistant;
+				runId = frame.runId ?? frame.sessionKey ?? runId;
+				finished = true;
+			} else if (frame.kind === "error") {
+				errMsg = frame.message ?? "error";
+				finished = true;
+			}
+		} catch {
+			/* skip non-JSON data lines */
+		}
+	};
 	try {
 		while (!finished) {
 			const { value, done: streamDone } = await reader.read();
-			if (streamDone) break;
+			if (streamDone) {
+				// A last frame may lack its newline; anything else is a disconnect.
+				handleLine((buf + decoder.decode()).trim());
+				if (!finished)
+					errMsg = "Benchmark stream closed before a done or error frame";
+				break;
+			}
 			let offset = 0;
 			while (offset < value.byteLength) {
 				const nl = value.indexOf(10, offset);
@@ -38,20 +60,8 @@ export async function readBenchmarkTurnStream(
 				const line = buf.trim();
 				buf = "";
 				lineBytes = 0;
-				if (!line.startsWith("data:")) continue;
-				try {
-					const frame = JSON.parse(line.slice(5).trim());
-					if (frame.kind === "done") {
-						assistant = typeof frame.text === "string" ? frame.text : assistant;
-						runId = frame.runId ?? frame.sessionKey ?? runId;
-						finished = true;
-					} else if (frame.kind === "error") {
-						errMsg = frame.message ?? "error";
-						finished = true;
-					}
-				} catch {
-					/* skip non-JSON data lines */
-				}
+				handleLine(line);
+				if (finished) break;
 			}
 		}
 	} finally {
