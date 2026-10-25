@@ -1,4 +1,5 @@
 import criticalActions from "../assets/critical-actions.v1.json";
+import organizationAutonomy from "../assets/organization-autonomy.v1.json";
 
 /** Exact provider bindings, never display names or text inside arguments. */
 export function reviewedConnectedEffect(input: {
@@ -399,6 +400,11 @@ export interface KernelGovernancePolicy {
 	maxDelegationsPerTurn?: number;
 	writeTier?: KernelWriteTierPolicy;
 	/**
+	 * `false` when the organization opted out of the platform default
+	 * (`governancePolicy.autonomy: false`); absent means the default applies.
+	 */
+	platformAutonomy?: false;
+	/**
 	 * Rollout switch for the MCP gateway's autonomous third-party write gate.
 	 * Absent/false preserves the legacy scoped agent auto-confirm posture;
 	 * true requires each destructive external/non-managed-MCP tool to declare
@@ -519,6 +525,7 @@ export function parseKernelGovernancePolicy(
 	}
 	const autonomy = parseDelegationAutonomyPolicy(record.autonomy);
 	if (autonomy) out.autonomy = autonomy;
+	if (platformAutonomyOptedOut(raw)) out.platformAutonomy = false;
 	if (record.writeTier !== undefined) {
 		const writeTier = parseWriteTierPolicy(record.writeTier);
 		if (writeTier) out.writeTier = writeTier;
@@ -620,6 +627,29 @@ export function decideKernelWriteApproval(input: {
 	proposal: KernelWriteApprovalProposal;
 }): KernelWriteApprovalDecision {
 	const { appSlug, toolName, riskTier } = input.proposal;
+	// 0. Platform-default operations (organization-autonomy.v1.json): Work items,
+	//    workspace and app management, skills and schedules, run starts. Unless
+	//    the organization opted out, they run at low/medium risk under its
+	//    autonomy policy or the platform default; a tool whose name names a
+	//    critical action is never one.
+	const platformOperation =
+		input.policy?.platformAutonomy === false
+			? null
+			: platformAutonomousOperation(toolName);
+	if (
+		platformOperation &&
+		input.policy?.writeTier?.autoApproveLowRisk !== false &&
+		decideAutonomousAction({
+			policy: input.policy?.autonomy ?? PLATFORM_DEFAULT_AUTONOMY,
+			risk: riskTier,
+			content: `${appSlug}:${toolName}`,
+		}).autoApprove
+	)
+		return {
+			autoResolve: true,
+			source: "policy",
+			reason: `${platformOperation.label} run without approval (platform default)`,
+		};
 	if (input.policy?.autonomy) {
 		const trusted = writeToolMatchesAllowlist(
 			appSlug,
@@ -684,6 +714,52 @@ export function decideKernelWriteApproval(input: {
 			? "write tool is not in the trusted-tool allowlist — human gate"
 			: "no write-tier policy configured — human gate (fail-closed default)",
 	};
+}
+
+const platformOperations = organizationAutonomy.operations.map((operation) => ({
+	id: operation.id,
+	label: operation.label,
+	pattern: new RegExp(operation.pattern, "i"),
+}));
+
+/**
+ * The platform-default operation class a tool belongs to, or null. Classifies
+ * the tool itself (its final name segment), never the request text: a Work
+ * item whose description mentions money is still a Work item create. A tool
+ * whose own name names a critical action is never a platform operation.
+ */
+export function platformAutonomousOperation(
+	toolName: string,
+): { id: string; label: string } | null {
+	const name =
+		toolName.trim().split(/[.:]/).at(-1)?.split("__").at(-1)?.toLowerCase() ??
+		"";
+	if (!name || humanReservedActionClasses(name).length) return null;
+	const operation = platformOperations.find((entry) =>
+		entry.pattern.test(name),
+	);
+	return operation ? { id: operation.id, label: operation.label } : null;
+}
+
+/**
+ * The platform default every organization runs under unless its active
+ * policy pack sets `governancePolicy.autonomy: false`: low and medium risk
+ * in-organization operations need no human approval, critical actions do.
+ */
+export const PLATFORM_DEFAULT_AUTONOMY: DelegationAutonomyPolicy =
+	parseDelegationAutonomyPolicy(organizationAutonomy.defaultAutonomy) ?? {
+		version: 1,
+		maxRisk: "medium",
+	};
+
+/** Whether a raw governancePolicy bag opts the organization out of the platform default. */
+export function platformAutonomyOptedOut(raw: unknown): boolean {
+	return (
+		!!raw &&
+		typeof raw === "object" &&
+		!Array.isArray(raw) &&
+		(raw as Record<string, unknown>).autonomy === false
+	);
 }
 
 /**

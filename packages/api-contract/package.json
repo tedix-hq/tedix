@@ -17,6 +17,7 @@
 		"./utils/card-context": "./src/utils/card-context.ts",
 		"./assets/card-context.v1.json": "./src/assets/card-context.v1.json",
 		"./assets/critical-actions.v1.json": "./src/assets/critical-actions.v1.json",
+		"./assets/organization-autonomy.v1.json": "./src/assets/organization-autonomy.v1.json",
 		"./schemas/deck-curator": "./src/schemas/deck-curator.ts",
 		"./schemas/deck-curation": "./src/schemas/deck-curation.ts",
 		"./schemas/deck-pipeline": "./src/schemas/deck-pipeline.ts",

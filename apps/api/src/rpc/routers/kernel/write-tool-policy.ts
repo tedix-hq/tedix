@@ -3,6 +3,7 @@ import {
 	humanReservedActionClasses,
 	builtinToolPolicyMetadata,
 	isSafeNotionPageUpdateCall,
+	platformAutonomousOperation,
 	type KernelWriteRiskTier,
 } from "@tedix/api-contract/utils/approval-policy";
 
@@ -183,6 +184,19 @@ export function classifyWriteRisk(
 	args?: unknown,
 ): KernelWriteRiskTier {
 	if (humanReservedActionClasses(tool.name).length) return "high";
+	const risk = classifyToolWriteRisk(tool, args);
+	// Platform-default operations (organization-autonomy.v1.json) are reversible
+	// in-organization changes: an "archive"/"remove" verb or a destructive
+	// annotation does not make them high risk. Permanent deletes are not in it.
+	return risk === "high" && platformAutonomousOperation(tool.name)
+		? "medium"
+		: risk;
+}
+
+function classifyToolWriteRisk(
+	tool: McpTool,
+	args?: unknown,
+): KernelWriteRiskTier {
 	const policy = parseToolPolicyMetadata(tool._meta);
 	const connected = tool._meta?.["com.tedix/connectedTool"] as
 		| { providerId?: unknown; toolName?: unknown }

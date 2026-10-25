@@ -9486,13 +9486,15 @@ describe("home approved-write layer (v1)", () => {
 		"patch_os_document",
 		"patch_os_slides",
 		"set_os_sheet_range",
+		// Reversible workspace management under the platform default
+		// (organization-autonomy.v1.json); permanent deletes stay gated below.
+		"archive_os_workspace",
+		"archive_os_output",
 	].map((name) => `os.${name}`);
 	const v4TrustedTools = ["tedix", "tedix-unified"].flatMap((slug) =>
 		v4SafeTools.map((tool) => `${slug}:${tool}`),
 	);
 	const v4GatedTools = [
-		"os.archive_os_workspace",
-		"os.archive_os_output",
 		"os.delete_os_output",
 		"os.delete_os_workspace_resource",
 		"os.create_os_share_link",
@@ -9540,6 +9542,37 @@ describe("home approved-write layer (v1)", () => {
 					approvedWorkResponderUserId: undefined,
 				});
 			}
+		},
+	);
+
+	it.each([
+		{ policyPackRows: [], allowed: true },
+		{
+			policyPackRows: [
+				{ definition: { governancePolicy: { autonomy: false } } },
+			],
+			allowed: false,
+		},
+	])(
+		"a Work-item create with no trusted list runs under the platform default (opt-out: $allowed)",
+		async ({ policyPackRows, allowed }) => {
+			const db = createKernelRuntimeDb({ policyPackRows });
+			const executor = vi.fn(async () => ({ ok: true as const, data: {} }));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			const { result } = await enqueueWriteProposalTurn(db, "platform-work", {
+				...PROPOSAL,
+				appSlug: "tedix-unified",
+				toolName: "work.create_work_items",
+				args: { title: "Follow up", projectId: "project-1" } as never,
+			});
+			// The approval row is the audit record either way.
+			expect(db.approvals).toHaveLength(1);
+			expect(db.approvals[0]).toMatchObject({
+				status: allowed ? "approved" : "pending",
+				resolvedBy: allowed ? "policy" : null,
+			});
+			expect(executor).toHaveBeenCalledTimes(allowed ? 1 : 0);
+			expect(result.status).toBe(allowed ? "completed" : "requires_approval");
 		},
 	);
 

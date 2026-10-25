@@ -1843,7 +1843,7 @@ describe("planKernelWriteProposal — positive path", () => {
 			toolName: "work.create_work_items",
 			args: { title: "Release proof", description, projectId },
 			reasoning: "create the requested work item",
-			riskTier: "high",
+			riskTier: "medium", // a Work-item create is a platform-default operation
 			transport: "codemode",
 			editableFields: [
 				{

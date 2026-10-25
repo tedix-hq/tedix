@@ -58,7 +58,14 @@ copied to the tedi.
 An organization can opt into low- and medium-risk delegation and tool actions
 with an immutable policy-pack revision containing
 `governancePolicy.autonomy: { "version": 1, "maxRisk": "medium" }`.
-Organizations without this setting keep their existing approval policy.
+
+Every organization also runs under a platform default, even without that
+setting. Low- and medium-risk work inside the organization runs without an
+approval card. That covers Work items, workspace and app changes, skill and
+schedule operations, starting runs, and handing work to the organization's
+own tedis. Each one is still recorded as a policy approval in Activity.
+The default never covers permanent deletion or the critical actions listed
+below. To turn it off, set `governancePolicy.autonomy: false`.
 
 For tool writes, enable `governancePolicy.writeTier.autoApproveLowRisk` and
 set `governancePolicy.writeTier.trustedTools` to the permitted tool patterns.

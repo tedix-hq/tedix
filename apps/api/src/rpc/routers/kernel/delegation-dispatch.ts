@@ -30,6 +30,7 @@
 import {
 	decideAutonomousAction,
 	humanReservedActionClasses,
+	PLATFORM_DEFAULT_AUTONOMY,
 } from "@tedix/api-contract/utils/approval-policy";
 import type {
 	ExecutionCapability,
@@ -1541,6 +1542,21 @@ function computeDispatchVerdict(input: {
 		content: actionContent,
 		classId: `delegation:${route.effortClass}`,
 	});
+	// Without an explicit organization autonomy policy the platform default
+	// (organization-autonomy.v1.json) still lets low/medium-risk handoffs to the
+	// org's own tedis through the soft holds below (a cold or inactive target, a
+	// tedi that gates its own actions). It never overrides a deny, a critical
+	// action, a capability gap or a speaker without authority.
+	const handoffApproved =
+		autonomy.autoApprove ||
+		(!input.gating?.org?.autonomy &&
+			input.gating?.org?.platformAutonomy !== false &&
+			decideAutonomousAction({
+				policy: PLATFORM_DEFAULT_AUTONOMY,
+				risk: input.workOrderContent ? route.risk : "unknown",
+				content: actionContent,
+				classId: `delegation:${route.effortClass}`,
+			}).autoApprove);
 	if (actionContent && humanReservedActionClasses(actionContent).length) {
 		return {
 			canAutoDispatch: false,
@@ -1549,7 +1565,7 @@ function computeDispatchVerdict(input: {
 			reason: autonomy.reason,
 		};
 	}
-	if (input.gating?.org?.autonomy && !autonomy.autoApprove) {
+	if (input.gating?.org?.autonomy && !handoffApproved) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",
@@ -1634,7 +1650,7 @@ function computeDispatchVerdict(input: {
 					"target body is cold; isolate is not running and no warm workstation lease exists; refusing dispatch instead of enqueuing a child that fails its first turn",
 			};
 		}
-		if (!autonomy.autoApprove)
+		if (!handoffApproved)
 			return {
 				canAutoDispatch: false,
 				mode: "needs_approval",
@@ -1657,7 +1673,7 @@ function computeDispatchVerdict(input: {
 	//     a control-plane preflight (CMA "prove the tier is ready before delegate")
 	//     rather than something the tedi discovers mid-task.
 	if (
-		!autonomy.autoApprove &&
+		!handoffApproved &&
 		card.embodied === true &&
 		needsWorkstation &&
 		card.hasRepository === true &&
@@ -1678,7 +1694,7 @@ function computeDispatchVerdict(input: {
 	//    its scope, speaker authority, and route-risk checks still run below. The
 	//    embodied cold-body refusal above remains non-promotable.
 	if (
-		!autonomy.autoApprove &&
+		!handoffApproved &&
 		!AVAILABLE_STATES.has(card.availability) &&
 		card.requiresApproval
 	) {
@@ -1706,7 +1722,7 @@ function computeDispatchVerdict(input: {
 
 	// Organization autonomy authorizes the handoff; the runtime still gates
 	// critical tool effects when they are attempted.
-	if (card.requiresApproval === true && !autonomy.autoApprove) {
+	if (card.requiresApproval === true && !handoffApproved) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",

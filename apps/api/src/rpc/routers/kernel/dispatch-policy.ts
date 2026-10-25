@@ -204,6 +204,11 @@ export interface DispatchPolicyLayer {
 	 * invalid designation falls back to the operator card.
 	 */
 	delegationApprover?: DelegationApproverDesignation;
+	/**
+	 * Org layer only: `false` when the organization opted out of the platform
+	 * default autonomy (`governancePolicy.autonomy: false`).
+	 */
+	platformAutonomy?: false;
 }
 
 export interface DelegationApproverDesignation {
