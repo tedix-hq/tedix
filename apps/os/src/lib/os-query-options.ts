@@ -1351,6 +1351,8 @@ export const osQueryKeys = {
 		osQuery.organizations.listAllMine.key({ type: "query" }),
 	projectMilestones: () =>
 		osQuery.projects.listMilestones.key({ type: "query" }),
+	/** Every project read: detail, list, rollup and the Projects view. */
+	projects: () => osQuery.projects.key({ type: "query" }),
 	/** Active charter, revision history, and deterministic Owner brief. */
 	organizationPurpose: () => osQuery.organizationPurpose.key({ type: "query" }),
 	/** Org name/slug also render from the credential-resolved context. */

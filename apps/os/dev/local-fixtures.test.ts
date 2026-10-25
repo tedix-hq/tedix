@@ -303,6 +303,11 @@ const CALLS: Record<string, unknown> = {
 	"support/mine": { limit: 50 },
 	"projects/list": { limit: 100 },
 	"projects/get": { id: "00000076-0000-4000-8000-000000000001" },
+	// Writes the target date the fixture already holds, so state is unchanged.
+	"projects/update": {
+		id: "00000076-0000-4000-8000-000000000001",
+		targetDate: "2026-11-30",
+	},
 	"projects/getRollup": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/getPortfolio": {},
 	"projects/getFactoryScoreboard": {},

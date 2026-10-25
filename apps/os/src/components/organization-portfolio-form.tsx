@@ -72,11 +72,11 @@ export function OrganizationPortfolioForm({
 		<SettingsSection>
 			<SectionHeader>
 				<SectionHeading>
-					<SectionTitle>Portfolio sections</SectionTitle>
+					<SectionTitle>Project sections</SectionTitle>
 					<SectionDescription>
-						Choose your project board sections. Renaming keeps their projects.
-						Removing a section puts its projects in Unsorted until you move
-						them.
+						Sections group projects on the Projects page. Renaming keeps their
+						projects. Removing a section keeps its projects in the list without
+						a section tag.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -108,7 +108,7 @@ export function OrganizationPortfolioForm({
 						/>
 						<p className="type-tedix-caption text-kumo-subtle">
 							Keep this key when renaming. Projects refer to it; changing it
-							moves them to Unsorted.
+							takes the section tag off them.
 						</p>
 						<Label htmlFor={`${id}-${index}-description`}>
 							<span id={`${id}-${index}-description-label`}>

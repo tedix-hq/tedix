@@ -2814,6 +2814,7 @@ const project = (
 	extra: {
 		metadata?: Record<string, string>;
 		leadTediId?: string;
+		targetDate?: string;
 	} = {},
 ) => ({
 	id: fid("76", n),
@@ -2825,10 +2826,10 @@ const project = (
 	leadTediId: extra.leadTediId ?? null,
 	ownerUserId: null,
 	objectiveId: null,
-	targetDate: null,
+	targetDate: (extra.targetDate ?? null) as string | null,
 	metadata: extra.metadata ?? null,
 	createdAt: T0,
-	updatedAt: T4,
+	updatedAt: T4 as string,
 	archivedAt,
 });
 
@@ -2847,6 +2848,7 @@ const PROJECTS = [
 				portfolioTitle: "Reporting platform",
 			},
 			leadTediId: TEDI_MILES,
+			targetDate: "2026-11-30",
 		},
 	),
 	project(2, "GROWTH", "Growth experiments", "active", null, null, {
@@ -5901,6 +5903,12 @@ const handlers: Record<string, (input: never) => unknown> = {
 		...localProject(input.id),
 		objective: null,
 	}),
+	"projects/update": (input: { id: string; targetDate?: string | null }) => {
+		const row = localProject(input.id);
+		if (input.targetDate !== undefined) row.targetDate = input.targetDate;
+		row.updatedAt = new Date().toISOString();
+		return row;
+	},
 	"projects/getRollup": (input: { id: string }) => {
 		const items = workItemsInScope(localProject(input.id).id);
 		const done = items.filter((row) => row.disposition === "completed").length;

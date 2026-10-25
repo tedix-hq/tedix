@@ -14,14 +14,25 @@ import {
 	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
 import { Route as WorkIndexRoute } from "@/routes/_session/_tenant/work.index";
+import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import {
 	PortfolioApp,
+	type ProjectListFilter,
 	crossOrgPortfolioUrl,
+	filterProjects,
 	groupFactories,
-	groupPortfolio,
+	groupProjectsByStatus,
 	isPlaceholderBrief,
 	projectBriefLine,
+	projectListEntries,
+	usedSections,
 } from "./work-portfolio-page";
+import {
+	isProjectOverdue,
+	projectTargetDay,
+	projectTargetLabel,
+	projectTargetValue,
+} from "@/lib/project-target-date";
 
 const BUCKETS = ["Projects", "Active", "Leads", "Side", "Empty"].map(
 	(label) => ({ key: label.toLowerCase(), label }),
@@ -208,27 +219,103 @@ function render(queryClient: QueryClient) {
 	);
 }
 
-describe("Portfolio grouping", () => {
-	it("orders buckets canonically, matches names loosely, and sorts by title", () => {
-		const { buckets, other } = groupPortfolio(PORTFOLIO, BUCKETS);
-		expect(buckets.map((bucket) => bucket.name)).toEqual([
-			"Projects",
-			"Leads",
-			"Side",
-		]);
-		expect(buckets[0]!.entries.map((entry) => entry.title)).toEqual([
-			"Alpha",
+describe("Projects list model", () => {
+	const entries = projectListEntries(PORTFOLIO, BUCKETS);
+
+	it("keeps every project, whatever its section or status", () => {
+		expect(entries.map((entry) => entry.title)).toEqual([
+			"Zeta",
 			"Harbor tours",
-		]);
-		expect(buckets[2]!.entries.map((entry) => entry.title)).toEqual(["Zeta"]);
-		expect(buckets[1]!.entries[0]!.org).toBe("acme-demo");
-		expect(other.map((entry) => entry.title)).toEqual([
+			"Alpha",
 			"Loose notes",
 			"Old shop",
+			"Placeholder",
+		]);
+		expect(entries.map((entry) => entry.section?.label ?? null)).toEqual([
+			"Side",
+			"Projects",
+			"Projects",
+			null,
+			"Active",
+			"Leads",
 		]);
 	});
 
-	it("links cross-org entries to that organization's Portfolio", () => {
+	it("counts open and done work and drops placeholder briefs", () => {
+		const harbor = entries[1]!;
+		expect(harbor.brief).toBe("Run weekend harbor tours");
+		expect([harbor.open, harbor.done]).toEqual([3, 0]);
+		expect(entries[5]!.brief).toBeNull();
+		expect(entries[5]!.org).toBe("acme-demo");
+	});
+
+	it("groups by status in a fixed order and folds finished groups", () => {
+		const groups = groupProjectsByStatus(entries);
+		expect(groups.map((group) => [group.label, group.entries.length])).toEqual([
+			["Active", 5],
+			["Archived", 1],
+		]);
+		expect(groups.map((group) => group.collapsed)).toEqual([false, true]);
+	});
+
+	it("filters by words, section, and who it concerns", () => {
+		const titles = (filter: Partial<ProjectListFilter>, me?: string) =>
+			filterProjects(
+				entries,
+				{ query: "", who: "all", section: null, ...filter },
+				me,
+			).map((entry) => entry.title);
+		expect(titles({ query: "harbor TOURS" })).toEqual(["Harbor tours"]);
+		expect(titles({ query: "side" })).toEqual(["Zeta"]);
+		expect(titles({ section: "projects" })).toEqual(["Harbor tours", "Alpha"]);
+		expect(titles({ who: "mine" }, "owner-1")).toHaveLength(6);
+		expect(titles({ who: "mine" })).toEqual([]);
+		const withQuestion = projectListEntries(PORTFOLIO, BUCKETS, [
+			interaction(1, "open", PROJECTS[2]!.id),
+		]);
+		expect(
+			filterProjects(withQuestion, {
+				query: "",
+				who: "needs_you",
+				section: null,
+			}).map((entry) => entry.title),
+		).toEqual(["Alpha"]);
+	});
+
+	it("lists only sections that hold a project", () => {
+		expect(usedSections(entries, BUCKETS).map((bucket) => bucket.key)).toEqual([
+			"projects",
+			"active",
+			"leads",
+			"side",
+		]);
+	});
+
+	it("shows a target date only when one is set, and flags a missed one", () => {
+		expect(projectTargetLabel(null)).toBeNull();
+		expect(projectTargetLabel("  ")).toBeNull();
+		expect(projectTargetLabel("2026-10-23")).toMatch(/2026/);
+		expect(projectTargetLabel("End of Q4")).toBe("End of Q4");
+		const picked = projectTargetDay("2026-10-23")!;
+		expect(projectTargetValue(picked)).toBe("2026-10-23");
+		expect(projectTargetDay("End of Q4")).toBeUndefined();
+		const now = new Date("2026-10-25T12:00:00.000Z");
+		const project = PROJECTS[0]!;
+		expect(
+			isProjectOverdue({ ...project, targetDate: "2026-10-24" }, now),
+		).toBe(true);
+		expect(
+			isProjectOverdue({ ...project, targetDate: "2026-10-25" }, now),
+		).toBe(false);
+		expect(
+			isProjectOverdue(
+				{ ...project, status: "done", targetDate: "2026-10-01" },
+				now,
+			),
+		).toBe(false);
+	});
+
+	it("links cross-org entries to that organization's Projects", () => {
 		expect(crossOrgPortfolioUrl("acme-demo")).toBe(
 			"https://acme-demo.os.tedix.dev/work/portfolio",
 		);
@@ -256,65 +343,72 @@ describe("PortfolioApp", () => {
 		expect(link.querySelector('[aria-hidden="true"]')).toBeNull();
 	});
 
-	it("leads with Projects and keeps every project group ahead of factories", () => {
+	it("lists every active project by status, ahead of factories", () => {
 		const doc = new DOMParser().parseFromString(
 			render(seededClient()),
 			"text/html",
 		);
 		expect(doc.querySelector("h1")?.textContent).toBe("Projects");
+		expect(doc.body.textContent).toContain(
+			"All 6 projects in this organization, 5 active.",
+		);
 		const factories = doc.querySelector(
 			'[aria-labelledby="portfolio-factories-title"]',
-		);
-		expect(factories).not.toBeNull();
-		for (const section of doc.querySelectorAll("[data-portfolio-bucket]")) {
-			expect(section.compareDocumentPosition(factories!) & 4).toBe(4);
-		}
-		const unsorted = [...doc.querySelectorAll("button")].find((button) =>
-			button.textContent?.includes("Unsorted (2)"),
-		);
-		expect(unsorted).toBeDefined();
-		expect(unsorted!.compareDocumentPosition(factories!) & 4).toBe(4);
+		)!;
+		const active = doc.querySelector('[data-project-group="active"]')!;
+		expect(active.querySelectorAll("[data-project-row]")).toHaveLength(5);
+		expect(active.compareDocumentPosition(factories) & 4).toBe(4);
+		const archived = doc.querySelector('[data-project-group="archived"]')!;
+		expect(archived.textContent).toContain("Archived");
+		expect(archived.compareDocumentPosition(factories) & 4).toBe(4);
 		expect(doc.querySelectorAll("[data-factory]")).toHaveLength(
 			FACTORIES.length,
 		);
+		expect(doc.body.textContent).not.toContain("Unsorted");
 	});
 
-	it("renders only populated configured sections", () => {
+	it("shows section, health, brief, progress and cross-org link on a row", () => {
 		const doc = new DOMParser().parseFromString(
 			render(seededClient()),
 			"text/html",
 		);
-		const sections = [
-			...doc.querySelectorAll<HTMLElement>("[data-portfolio-bucket]"),
-		];
-		expect(sections.map((section) => section.dataset.portfolioBucket)).toEqual([
-			"projects",
-			"leads",
-			"side",
-		]);
-		expect(
-			sections.some((section) => section.dataset.portfolioBucket === "Active"),
-		).toBe(false);
-		const projects = sections[0]!;
-		const titles = [...projects.querySelectorAll("[data-portfolio-card] a")]
-			.map((link) => link.textContent)
-			.filter((text) => text === "Alpha" || text === "Harbor tours");
-		expect(titles).toEqual(["Alpha", "Harbor tours"]);
+		const harbor = doc.querySelector(
+			`[data-project-row="${PROJECTS[1]!.id}"]`,
+		)!;
+		expect(harbor.textContent).toContain("Run weekend harbor tours");
+		expect(harbor.textContent).toContain("Projects");
+		expect(harbor.textContent).toContain("At risk");
+		expect(harbor.textContent).toContain("3 open · 0 done");
+		expect(harbor.querySelector("[data-project-progress]")).not.toBeNull();
+		const placeholder = doc.querySelector(
+			`[data-project-row="${PROJECTS[5]!.id}"]`,
+		)!;
+		expect(placeholder.textContent).not.toContain("No records yet");
+		expect(placeholder.textContent).toContain("No tasks yet");
+		expect(placeholder.textContent).toContain("in acme-demo");
+		expect(doc.body.innerHTML).toContain(
+			"https://acme-demo.os.tedix.dev/work/portfolio",
+		);
 	});
 
-	it("shows brief, lead, counts and the next accepted item on a card", () => {
-		const html = render(seededClient());
-		expect(html).toContain("Run weekend harbor tours");
-		expect(html).toContain("Coordinator: Nova");
-		expect(html).toContain("2 open · 1 accepted");
-		expect(html).toContain("At risk");
-		expect(html).toContain('href="/work/items/item-accepted"');
-		expect(html).toContain("No records yet; owner to define");
-		expect(html).toContain("in acme-demo");
-		expect(html).toContain("https://acme-demo.os.tedix.dev/work/portfolio");
+	it("names the owner and never prints a raw id", () => {
+		const client = seededClient();
+		const named = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<WorkActorDirectoryContext.Provider
+					value={new Map([["user:owner-1", { name: "Sample Owner" }]])}
+				>
+					<PortfolioApp buckets={BUCKETS} />
+				</WorkActorDirectoryContext.Provider>
+			</QueryClientProvider>,
+		);
+		expect(named).toContain('data-project-owner="Sample Owner"');
+		const unnamed = render(client);
+		expect(unnamed).not.toContain("owner-1");
+		expect(unnamed).not.toContain("Name unavailable");
 	});
 
-	it("wraps the complete project summary on a 390px phone", () => {
+	it("shows the target date and the question count only when set", () => {
 		const project = PROJECTS[1]!;
 		const html = render(
 			seededClient({
@@ -322,34 +416,26 @@ describe("PortfolioApp", () => {
 					row.project.id === project.id
 						? {
 								...row,
-								total: 123456,
-								byDisposition: { proposed: 123456, accepted: 987654 },
+								project: { ...project, targetDate: "2099-01-31" },
 							}
 						: row,
 				),
-				interactions: Array.from({ length: 42 }, (_, index) =>
+				interactions: Array.from({ length: 2 }, (_, index) =>
 					interaction(index + 1, "open", project.id),
 				),
 			}),
 		);
 		const doc = new DOMParser().parseFromString(html, "text/html");
-		const summary = doc.querySelector(
-			`[data-portfolio-card="${project.id}"] p.tabular-nums`,
-		);
-
-		expect(summary?.textContent).toBe(
-			"123456 open · 987654 accepted · 42 need you",
-		);
-		expect(summary?.className).not.toContain("truncate");
-		expect(summary?.className).not.toContain("whitespace-nowrap");
+		const row = doc.querySelector(`[data-project-row="${project.id}"]`)!;
+		expect(row.textContent).toContain("Due ");
+		expect(row.textContent).toContain("2 questions for you");
+		expect(html).not.toContain("Horizon");
+		expect(html).not.toContain("Not recorded");
+		expect(html.match(/Due /g)).toHaveLength(1);
 	});
 
-	it("keeps archived and unbucketed projects in a collapsed Other disclosure", async () => {
+	it("opens the folded Archived group on click", async () => {
 		const queryClient = seededClient();
-		const html = render(queryClient);
-		expect(html).toContain("Unsorted (2)");
-		expect(html).not.toContain(`data-portfolio-card="${PROJECTS[3]!.id}"`);
-		expect(html).not.toContain(`data-portfolio-card="${PROJECTS[4]!.id}"`);
 		const host = document.createElement("div");
 		document.body.append(host);
 		const root = createRoot(host);
@@ -362,14 +448,12 @@ describe("PortfolioApp", () => {
 				),
 			);
 			const trigger = [...host.querySelectorAll("button")].find((button) =>
-				button.textContent?.includes("Unsorted (2)"),
+				button.textContent?.startsWith("Archived"),
 			);
-			if (!trigger) throw new Error("Other disclosure missing");
+			if (!trigger) throw new Error("Archived disclosure missing");
 			await act(async () => trigger.click());
-			const other = host.querySelector('[aria-label="Unsorted projects"]');
-			expect(other?.textContent).toContain("Loose notes");
-			expect(other?.textContent).toContain("Old shop");
-			expect(other?.textContent).toContain("Archived");
+			const archived = host.querySelector('[aria-label="Archived projects"]');
+			expect(archived?.textContent).toContain("Old shop");
 		} finally {
 			await act(async () => root.unmount());
 			host.remove();
@@ -377,7 +461,7 @@ describe("PortfolioApp", () => {
 		}
 	});
 
-	it("gives project, next-task, factory and cross-org links a 44px phone target", () => {
+	it("gives project, factory and cross-org links a 44px phone target", () => {
 		const runId = "11111111-1111-4111-8111-111111111111";
 		const doc = new DOMParser().parseFromString(
 			render(
@@ -393,8 +477,7 @@ describe("PortfolioApp", () => {
 			"text/html",
 		);
 		const targets = [
-			'[data-portfolio-card] a[href^="/work/projects/"]',
-			'a[href="/work/items/item-accepted"]',
+			'[data-project-row] a[href^="/work/projects/"]',
 			'[data-factory] a[href^="/work/"]',
 			`[data-factory] a[href="/work/runs/${runId}"]`,
 			'a[href^="https://acme-demo.os.tedix.dev"]',
@@ -597,20 +680,4 @@ describe("isPlaceholderBrief", () => {
 			false,
 		);
 	});
-});
-
-it("uses configured keys after renaming and isolates unknown values in Unsorted", () => {
-	const rows = PORTFOLIO.slice(0, 3);
-	const grouped = groupPortfolio(rows, [
-		{ key: "side", label: "Experiments" },
-		{ key: "unused", label: "Unused" },
-	]);
-	expect(grouped.buckets.map((bucket) => bucket.name)).toEqual(["Experiments"]);
-	expect(grouped.buckets[0]?.entries[0]?.title).toBe("Zeta");
-	expect(grouped.other.map((entry) => entry.title)).toEqual([
-		"Alpha",
-		"Harbor tours",
-	]);
-	expect([...grouped.unknown]).toEqual([["projects", 2]]);
-	expect(groupPortfolio(rows, []).buckets).toEqual([]);
 });

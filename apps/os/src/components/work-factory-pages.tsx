@@ -76,6 +76,11 @@ import {
 } from "@/components/kumo/table";
 import { useWorkItemWebMcpTools } from "@/components/work-item-webmcp-tools";
 import { WorkProjectContributors } from "@/components/work-project-contributors";
+import { ProjectTargetDate } from "@/components/project-target-date";
+import {
+	isProjectOverdue,
+	projectTargetLabel,
+} from "@/lib/project-target-date";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
@@ -931,20 +936,29 @@ export function projectProgressCopy(progress: ProjectProgress | undefined): {
 	};
 }
 
+/**
+ * Status, progress and target date. With a `projectId` the target date is
+ * editable and always offered; without one it shows only when set.
+ */
 export function ProjectSummary({
 	status,
 	progress,
 	targetDate,
+	projectId,
 }: {
 	status: Project["status"];
 	progress?: ProjectProgress;
 	targetDate: string | null;
+	projectId?: string;
 }) {
 	useOsFormattingPreferences();
 	const { value, description } = projectProgressCopy(progress);
+	const target = projectTargetLabel(targetDate);
+	const overdue = isProjectOverdue({ status, targetDate });
+	const showTarget = Boolean(projectId || target);
 	return (
 		<MetricGrid
-			columns={targetDate ? 3 : 2}
+			columns={showTarget ? 3 : 2}
 			appearance="inline"
 			aria-label="Project summary"
 		>
@@ -955,7 +969,22 @@ export function ProjectSummary({
 				description={description}
 				valueClassName="tabular-nums"
 			/>
-			{targetDate ? <MetricItem label="Horizon" value={targetDate} /> : null}
+			{showTarget ? (
+				<MetricItem
+					label="Target date"
+					value={
+						projectId ? (
+							<ProjectTargetDate
+								projectId={projectId}
+								targetDate={targetDate}
+							/>
+						) : (
+							target
+						)
+					}
+					description={overdue ? "This date has passed" : undefined}
+				/>
+			) : null}
 		</MetricGrid>
 	);
 }
@@ -1225,6 +1254,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				status={project.data.status}
 				progress={rollup.data}
 				targetDate={project.data.targetDate}
+				projectId={projectId}
 			/>
 			<WorkProjectContributors projectId={projectId} />
 			<div className="grid gap-3 lg:grid-cols-2">
