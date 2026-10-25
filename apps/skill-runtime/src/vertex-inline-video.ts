@@ -10,6 +10,71 @@ function base64ToBytes(value: string): Uint8Array {
 	return bytes;
 }
 
+const JSON_SIMPLE_ESCAPES: Record<string, string> = {
+	'"': '"',
+	"\\": "\\",
+	"/": "/",
+	b: "\b",
+	f: "\f",
+	n: "\n",
+	r: "\r",
+	t: "\t",
+};
+const JSON_STRING_SPECIAL = /["\\]/g;
+// Whitespace that base64 decoding (atob) skips.
+const BASE64_WHITESPACE = /[\t\n\f\r ]/g;
+
+/**
+ * Read a JSON string value chunk by chunk, resolving escapes such as `\/` even
+ * when one straddles a chunk boundary. Returns the base64 text of each chunk
+ * with the whitespace atob ignores removed, up to the closing quote.
+ */
+class JsonBase64StringReader {
+	#pending = "";
+	closed = false;
+
+	read(chunk: string): string {
+		const input = this.#pending + chunk;
+		this.#pending = "";
+		let out = "";
+		let from = 0;
+		while (from < input.length) {
+			JSON_STRING_SPECIAL.lastIndex = from;
+			const at = JSON_STRING_SPECIAL.exec(input)?.index;
+			if (at === undefined) {
+				out += input.slice(from);
+				break;
+			}
+			out += input.slice(from, at);
+			if (input[at] === '"') {
+				this.closed = true;
+				break;
+			}
+			const kind = input[at + 1];
+			if (kind === undefined || (kind === "u" && input.length < at + 6)) {
+				this.#pending = input.slice(at);
+				break;
+			}
+			if (kind === "u") {
+				const hex = input.slice(at + 2, at + 6);
+				if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+					throw new Error("Vertex video string has an invalid escape");
+				}
+				out += String.fromCharCode(Number.parseInt(hex, 16));
+				from = at + 6;
+				continue;
+			}
+			const simple = JSON_SIMPLE_ESCAPES[kind];
+			if (simple === undefined) {
+				throw new Error("Vertex video string has an invalid escape");
+			}
+			out += simple;
+			from = at + 2;
+		}
+		return out.replace(BASE64_WHITESPACE, "");
+	}
+}
+
 /**
  * Decode Vertex's inline base64 video field without materializing the complete
  * JSON response or MP4 in Worker memory. The field is base64 ASCII, so it can
@@ -26,8 +91,8 @@ export function vertexInlineVideoStream(
 	const decoder = new TextDecoder();
 	let searchTail = "";
 	let base64Tail = "";
+	const field = new JsonBase64StringReader();
 	let found = false;
-	let finished = false;
 	let sizeBytes = 0;
 
 	// Canceling the readable side errors the writable; propagate that into
@@ -72,15 +137,14 @@ export function vertexInlineVideoStream(
 					found = true;
 					text = combined.slice(field.index + field[0].length);
 				}
-				const end = text.indexOf('"');
-				if (end >= 0) {
-					await writeBase64(text.slice(0, end), true);
-					finished = true;
+				const encoded = field.read(text);
+				if (field.closed) {
+					await writeBase64(encoded, true);
 					break;
 				}
-				await writeBase64(text);
+				await writeBase64(encoded);
 			}
-			if (!found || !finished || base64Tail.length > 0) {
+			if (!found || !field.closed || base64Tail.length > 0) {
 				throw new Error(
 					"Vertex operation did not contain a complete inline video",
 				);
@@ -116,8 +180,8 @@ export async function vertexInlineVideoByteLength(
 	let searchTail = "";
 	let base64Length = 0;
 	let base64Suffix = "";
+	const field = new JsonBase64StringReader();
 	let found = false;
-	let finished = false;
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
@@ -133,8 +197,7 @@ export async function vertexInlineVideoByteLength(
 				found = true;
 				text = combined.slice(field.index + field[0].length);
 			}
-			const end = text.indexOf('"');
-			const encoded = end < 0 ? text : text.slice(0, end);
+			const encoded = field.read(text);
 			base64Length += encoded.length;
 			base64Suffix = (base64Suffix + encoded).slice(-2);
 			// Allow the final group's padding, but never wait for an oversized
@@ -142,10 +205,7 @@ export async function vertexInlineVideoByteLength(
 			if (base64Length > Math.ceil(maxBytes / 3) * 4) {
 				throw new Error("Vertex video exceeds " + maxBytes + " byte limit");
 			}
-			if (end >= 0) {
-				finished = true;
-				break;
-			}
+			if (field.closed) break;
 		}
 	} finally {
 		try {
@@ -155,7 +215,7 @@ export async function vertexInlineVideoByteLength(
 		}
 		reader.releaseLock();
 	}
-	if (!found || !finished || base64Length % 4 !== 0) {
+	if (!found || !field.closed || base64Length % 4 !== 0) {
 		throw new Error("Vertex operation did not contain a complete inline video");
 	}
 	const padding = base64Suffix.endsWith("==")
