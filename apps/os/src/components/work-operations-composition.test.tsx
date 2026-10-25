@@ -259,6 +259,35 @@ describe("Work cases", () => {
 		await page.submit("Open case");
 		expect(page.host.querySelector("#open-case-form")).toBeNull();
 	});
+
+	it("keeps the case horizon fully visible on a 390px phone", async () => {
+		viewport(true);
+		api.reads["workItems.listCases"] = {
+			data: [
+				{
+					id: "case-1",
+					title: "Refund backlog",
+					kind: "operations",
+					stage: "open",
+					accountableOwnerType: "user",
+					accountableOwnerId: OWNER,
+					targetResolutionAt: "2031-12-30",
+				},
+			],
+			nextCursor: null,
+		};
+		const page = await mount(<WorkCasesPage />);
+		const horizon = page.host.querySelector("[data-mobile-case-horizon]")!;
+		expect(horizon.textContent).toBe("Dec 30, 2031");
+		expect(horizon.className).not.toContain("whitespace-nowrap");
+		expect(horizon.className).not.toContain("truncate");
+		expect(horizon.className).toContain("tabular-nums");
+		// The desktop register keeps its uncompressed table cell.
+		const cell = [...page.host.querySelectorAll("table td")].find((element) =>
+			element.textContent?.includes("Dec 30, 2031"),
+		);
+		expect(cell).toBeDefined();
+	});
 });
 
 const runtimeApproval = (id: string) => ({

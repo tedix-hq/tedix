@@ -249,7 +249,7 @@ export function WorkCasesPage() {
 										<span aria-hidden="true">·</span>
 										<div className="min-w-0">
 											<dt className="sr-only">Horizon</dt>
-											<dd className="m-0 whitespace-nowrap tabular-nums">
+											<dd className="m-0 tabular-nums" data-mobile-case-horizon>
 												{record.targetResolutionAt ? (
 													<time
 														dateTime={record.targetResolutionAt}
