@@ -12,9 +12,9 @@ permissions:
   actions: read
 
 concurrency:
-  # Sustained pushes must not starve certification of earlier main commits.
-  group: main-certification-${{ github.event_name }}-${{ github.sha }}-${{ github.run_id }}
-  cancel-in-progress: false
+  # Keep only the newest certification of main across push and scheduled runs.
+  group: main-certification
+  cancel-in-progress: true
 
 env:
   CI: "true"

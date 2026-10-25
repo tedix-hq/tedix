@@ -7,8 +7,8 @@ code only after proving it contains freshly fetched main; rebase before using it
 Normal pushes always load the fetched main version.
 
 `full-suite-hourly.yml` runs on every main push, hourly, and manual dispatch.
-Each run has its own concurrency group, including its SHA and run ID. New pushes,
-scheduled runs and manual dispatches cannot cancel unfinished certification.
+All triggers share one concurrency group, so a newer run cancels older unfinished
+certification and the surviving run checks the newest main commit.
 The required aggregate is `Main CI`. Pushes run every test/type-check shard of
 workspaces affected since the latest green main ancestor, including transitive
 package consumers. This includes earlier changes whose CI is red or pending;
