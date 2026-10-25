@@ -4,7 +4,7 @@ import {
 	listAppReferenceMetadataByOrganization,
 	listAppReferenceMetadataBySlugs,
 } from "./apps";
-import { listToolConnectionReferencesByAppIds } from "./tools";
+import { listConnectionToolPoliciesByAppIds } from "./tools";
 
 function makeReadDb() {
 	const selections: string[][] = [];
@@ -55,15 +55,15 @@ describe("connection reference bulk queries", () => {
 
 	it("chunks narrow tool config projections below the D1 parameter cap", async () => {
 		const mock = makeReadDb();
-		await listToolConnectionReferencesByAppIds(
+		await listConnectionToolPoliciesByAppIds(
 			mock.db,
 			Array.from({ length: 51 }, (_, index) => `app-${index}`),
 		);
 
 		expect(mock.queryCount()).toBe(2);
 		expect(mock.selections).toEqual([
-			["appId", "connectionId"],
-			["appId", "connectionId"],
+			["appId", "toolId", "title", "meta", "authType", "connectionId"],
+			["appId", "toolId", "title", "meta", "authType", "connectionId"],
 		]);
 	});
 });

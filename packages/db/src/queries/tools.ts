@@ -6,7 +6,10 @@
  * Used by the unified MCP engine to dynamically register tools per app.
  */
 
-import type { ToolInvocationStatus } from "@tedix/api-contract/schemas/tools";
+import type {
+	ToolInvocationStatus,
+	ToolMeta,
+} from "@tedix/api-contract/schemas/tools";
 import {
 	EMPTY_TOOL_INPUT_SCHEMA,
 	withDerivedToolOperationalRiskPolicy,
@@ -238,17 +241,21 @@ export async function listToolInvocationLabelsForOrganization(
 		.orderBy(asc(appTools.toolId));
 }
 
-export interface ToolConnectionReferenceRow {
+export interface ConnectionToolPolicyRow {
 	appId: string;
+	toolId: string;
+	title: string;
+	meta: ToolMeta | null;
+	authType: string | null;
 	connectionId: string | null;
 }
 
-/** Narrow bulk projection for connection-provider reference discovery. */
-export async function listToolConnectionReferencesByAppIds(
+/** Narrow bulk projection for connection-provider references and capability copy. */
+export async function listConnectionToolPoliciesByAppIds(
 	db: DbClient,
 	appIds: string[],
-): Promise<ToolConnectionReferenceRow[]> {
-	const rows: ToolConnectionReferenceRow[] = [];
+): Promise<ConnectionToolPolicyRow[]> {
+	const rows: ConnectionToolPolicyRow[] = [];
 	for (const chunk of chunkForBoundParams(
 		[...new Set(appIds.filter(Boolean))],
 		D1_IN_LIST_CHUNK,
@@ -257,6 +264,12 @@ export async function listToolConnectionReferencesByAppIds(
 			...(await db
 				.select({
 					appId: appTools.appId,
+					toolId: appTools.toolId,
+					title: appTools.title,
+					meta: appTools.meta,
+					authType: sql<
+						string | null
+					>`json_extract(${appTools.config}, '$.auth.type')`.as("auth_type"),
 					connectionId: sql<
 						string | null
 					>`json_extract(${appTools.config}, '$.auth.connectionId')`.as(
@@ -265,10 +278,7 @@ export async function listToolConnectionReferencesByAppIds(
 				})
 				.from(appTools)
 				.where(
-					and(
-						inArray(appTools.appId, chunk),
-						sql`json_extract(${appTools.config}, '$.auth.type') = 'connection'`,
-					),
+					and(inArray(appTools.appId, chunk), eq(appTools.enabled, true)),
 				)),
 		);
 	}

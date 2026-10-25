@@ -119,7 +119,10 @@ export async function readConnectionsOverview(
 				(!providerIds || providerIds.has(p.appId)) &&
 				p.supportedScopes.includes(scope),
 		);
-	const rows: Omit<ConnectionInventoryRow, "capabilities">[] = [];
+	const rows: Omit<
+		ConnectionInventoryRow,
+		"capabilities" | "toolCapabilities" | "toolCapabilitiesComplete"
+	>[] = [];
 	let instancesTruncated = false;
 	// Bound concurrency without serializing every provider request. Each request has a deadline.
 	let cursor = 0;
@@ -313,6 +316,11 @@ export async function readConnectionsOverview(
 		.map((row) => ({
 			...row,
 			capabilities: projectConnectionCapabilities(row),
+			toolCapabilities:
+				references.toolCapabilities.get(row.provider.appId) ?? [],
+			toolCapabilitiesComplete:
+				references.complete &&
+				(references.toolCapabilitiesComplete.get(row.provider.appId) ?? true),
 		}))
 		.filter(
 			(row) =>

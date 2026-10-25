@@ -228,6 +228,20 @@ describe("account list rows", () => {
 	it("shows one status, no Access label, and keeps identifiers behind Technical details", async () => {
 		const access = {
 			...base,
+			toolCapabilities: [
+				{ id: "read", label: "Read events", riskTier: "read" as const },
+				{
+					id: "write",
+					label: "Create events",
+					riskTier: "bounded_write" as const,
+				},
+				{
+					id: "invite",
+					label: "Send invitations",
+					riskTier: "external_side_effect" as const,
+				},
+			],
+			toolCapabilitiesComplete: true,
 			capabilities: [
 				{
 					id: "access",
@@ -245,6 +259,15 @@ describe("account list rows", () => {
 		expect(row.textContent).toContain("Used by Microsoft graph calendar");
 		expect(row.textContent).toContain("Multiple accounts");
 		await expand();
+		expect(host.textContent).toContain("What Tedix can do with it");
+		expect(host.textContent).toContain("Read: Read events. Automatic.");
+		expect(host.textContent).toContain(
+			"Create and edit: Create events. Automatic, logged.",
+		);
+		expect(host.textContent).toContain(
+			"Protected effects: Send invitations. Asks a person first.",
+		);
+		expect(host.textContent?.match(/Tedix keeps your/g)).toHaveLength(1);
 		expect(host.textContent).toContain("Only you.");
 		expect(host.textContent).toContain(
 			"You can sign in with more than one account",

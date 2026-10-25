@@ -34,6 +34,7 @@ import { Link } from "@/components/kumo/link";
 import { Collection, PageSection } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { normalizeConsentPermissions } from "@/shared/consent-permissions";
+import { ConnectionToolSummary } from "@/components/connection-tool-summary";
 
 type Reference = ConnectionInventoryRow["references"][number];
 export type AccountOwner = "organization" | "personal";
@@ -64,6 +65,7 @@ export function friendlyProviderName(
 		return "Outlook Calendar";
 	if (/^Microsoft Graph Mail(?: OAuth)?$/i.test(provider.name))
 		return "Outlook Mail";
+	if (/^Google Gmail(?: OAuth)?$/i.test(provider.name)) return "Gmail";
 	return provider.name.replace(/ OAuth$/i, "");
 }
 
@@ -652,6 +654,12 @@ function AccountDetails({
 	const isApiKey = provider.connectionType === "api_key";
 	const names = appNames(accounts.flatMap((row) => row.references));
 	const capabilities = multiple ? [] : (single.capabilities ?? []);
+	const toolCapabilities = accounts.flatMap(
+		(row) => row.toolCapabilities ?? [],
+	);
+	const toolCapabilitiesComplete = accounts.every(
+		(row) => row.toolCapabilitiesComplete,
+	);
 	const showPermissions =
 		capabilities.length > 1 ||
 		(capabilities.length === 1 && capabilities[0]!.id !== "access");
@@ -669,6 +677,11 @@ function AccountDetails({
 				multiple && "border-kumo-hairline border-t pt-3",
 			)}
 		>
+			<ConnectionToolSummary
+				providerName={name}
+				capabilities={toolCapabilities}
+				complete={toolCapabilitiesComplete}
+			/>
 			<dl className="m-0 grid gap-3">
 				<DetailRow term="What it connects">
 					{props.owner === "organization"

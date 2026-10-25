@@ -179,6 +179,7 @@ describe("connection credential scope resolution", () => {
 			[
 				{
 					appId: "host-app",
+					authType: "connection",
 					connectionId: "tool-provider",
 				},
 			],
@@ -186,6 +187,7 @@ describe("connection credential scope resolution", () => {
 			[
 				{
 					appId: "base-app",
+					authType: "connection",
 					connectionId: "nested-tool",
 				},
 			],
@@ -210,6 +212,68 @@ describe("connection credential scope resolution", () => {
 		expect(referenced.credentialProfiles.get("gmail")?.defaultScopes).toEqual([
 			"gmail.default",
 		]);
+	});
+
+	it("projects connection capabilities from tool policy risk tiers", async () => {
+		const app = {
+			id: "gmail-app",
+			slug: "gmail",
+			name: "Gmail",
+			metadata: { mcpConfig: { connectionProviderId: "google-gmail" } },
+		};
+		const policy = (riskTier: string, blastRadius: string) => ({
+			"com.tedix/policy": { riskTier, blastRadius },
+		});
+		const db = makeSequentialReadDb([
+			[app],
+			[
+				{
+					appId: app.id,
+					toolId: "search_messages",
+					title: "Search messages",
+					meta: policy("read", "none"),
+					authType: null,
+					connectionId: null,
+				},
+				{
+					appId: app.id,
+					toolId: "create_draft",
+					title: "Create drafts",
+					meta: policy("bounded_write", "single_resource"),
+					authType: null,
+					connectionId: null,
+				},
+				{
+					appId: app.id,
+					toolId: "send_message",
+					title: "Send messages",
+					meta: policy("external_side_effect", "external_system"),
+					authType: null,
+					connectionId: null,
+				},
+			],
+		]);
+
+		const referenced = await collectReferencedProviders(db, "org-1");
+
+		expect(referenced.toolCapabilities.get("google-gmail")).toEqual([
+			{
+				id: "gmail-app:search_messages",
+				label: "Search messages",
+				riskTier: "read",
+			},
+			{
+				id: "gmail-app:create_draft",
+				label: "Create drafts",
+				riskTier: "bounded_write",
+			},
+			{
+				id: "gmail-app:send_message",
+				label: "Send messages",
+				riskTier: "external_side_effect",
+			},
+		]);
+		expect(referenced.toolCapabilitiesComplete.get("google-gmail")).toBe(true);
 	});
 
 	it("skips tool queries when resolving consent metadata", async () => {
