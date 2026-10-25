@@ -143,7 +143,7 @@ function ContributorRow({
 	return (
 		<li
 			data-contributor-state={contributor.state}
-			className="flex min-w-0 items-center gap-x-3 gap-y-1 px-3 py-2 max-sm:flex-wrap"
+			className="flex min-w-0 items-center gap-x-3 gap-y-1 px-3 py-2 max-sm:flex-wrap max-sm:py-3 pointer-coarse:py-3"
 		>
 			<div className="grid min-w-0 flex-1 gap-0.5">
 				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
