@@ -400,6 +400,73 @@ test("a mapped app without the tool names the app, not just the namespace", asyn
 	]);
 });
 
+test("a mapped wrapper without the skill's namespace falls through to the organization gateway", async () => {
+	// `github-tedix` is a Code Mode wrapper serving `github.*`; the org gateway
+	// mounts the wrapper itself as `github_tedix`. A skill declaring
+	// `github_tedix` must reach the gateway, not stop at the wrapper's miss.
+	const calls: string[] = [];
+	const wrapperEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const request = new Request(input, init);
+				const body = (await request.json()) as {
+					id: string;
+					method: string;
+					params?: { name?: string };
+				};
+				const host = new URL(request.url).hostname;
+				calls.push(`${host} ${body.method} ${body.params?.name ?? ""}`);
+				if (body.method === "tools/list")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { tools: [{ name: "code" }] },
+					});
+				if (body.params?.name !== "code")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						error: { code: -32601, message: "Method not found" },
+					});
+				const text = host.startsWith("github-tedix.")
+					? "Execution error: github_tedix is not defined"
+					: '{"commits":1}';
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					result: {
+						isError: host.startsWith("github-tedix."),
+						content: [{ type: "text", text }],
+					},
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+
+	const result = await callMcpTool(
+		wrapperEnv,
+		{
+			...props,
+			manifest: { ...manifest, mcp: { github_tedix: ["list_commits"] } },
+			namespaceToSlug: { github_tedix: "github-tedix" },
+		},
+		{
+			namespace: "github_tedix",
+			method: "list_commits",
+			args: {},
+			workflow,
+		},
+	);
+
+	assert.deepEqual(result, { __tedixMcpResult: true, value: { commits: 1 } });
+	assert.deepEqual(calls, [
+		"github-tedix.mcp.tedix.dev tools/call list_commits",
+		"github-tedix.mcp.tedix.dev tools/list ",
+		"github-tedix.mcp.tedix.dev tools/call code",
+		"tedix-unified.mcp.tedix.dev tools/call code",
+	]);
+});
+
 test("an unrelated Code Mode failure keeps its original error", async () => {
 	await assert.rejects(
 		callMcpTool(

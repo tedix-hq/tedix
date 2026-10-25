@@ -200,9 +200,16 @@ export async function listSkillSchedulesPage(
 		query?: string;
 		skillId?: string;
 		tediId?: string;
+		/** Leave out schedules whose params mention this id (a private project). */
+		excludeParamsReferenceId?: string;
 	},
 ): Promise<{ schedules: SkillSchedule[]; total: number }> {
 	const conditions = [eq(skillSchedules.organizationId, organizationId)];
+	if (options.excludeParamsReferenceId) {
+		conditions.push(
+			sql`instr(coalesce(${skillSchedules.params}, ''), ${options.excludeParamsReferenceId}) = 0`,
+		);
+	}
 	if (options.enabled !== undefined) {
 		conditions.push(eq(skillSchedules.enabled, options.enabled));
 	}
