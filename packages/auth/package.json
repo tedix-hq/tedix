@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./workspace-app-session": "./src/workspace-app-session.ts",
 		"./tedi-console-session": "./src/tedi-console-session.ts",
 		"./client": "./src/client.ts",
 		"./access-key-exchange": "./src/access-key-exchange.ts",
@@ -69,7 +70,8 @@
 		"@tedix/ssrf-guard": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
-		"jose": "^6.2.13"
+		"jose": "^6.2.13",
+		"zod": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",

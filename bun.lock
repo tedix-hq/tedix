@@ -615,6 +615,7 @@
         "@tedix/tenant-directory": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
         "jose": "^6.2.13",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "catalog:",

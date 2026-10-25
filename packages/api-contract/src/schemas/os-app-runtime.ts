@@ -93,3 +93,35 @@ export const AppRuntimeCodeSchema = z.object({
 	createdAt: z.string(),
 });
 export type AppRuntimeCode = z.infer<typeof AppRuntimeCodeSchema>;
+
+export const AppRuntimeScopeSchema = z.object({
+	workspaceId: z.uuid(),
+	gadgetId: z.uuid(),
+});
+export const AppRuntimeMethodSchema = z
+	.string()
+	.regex(/^[a-zA-Z][a-zA-Z0-9]{0,79}$/)
+	.refine(
+		(name) =>
+			![
+				"constructor",
+				"alarm",
+				"webSocketMessage",
+				"webSocketClose",
+				"webSocketError",
+			].includes(name),
+		"App lifecycle methods are private",
+	);
+export const AppRuntimeArgumentsSchema = z
+	.array(JsonValueSchema)
+	.max(50)
+	.refine(
+		(args) => new TextEncoder().encode(JSON.stringify(args)).length <= 65536,
+		"App arguments exceed 64 KiB",
+	);
+export const AppRuntimeSessionResultSchema = z.object({
+	session: z.string(),
+	expiresAt: z.number().int(),
+	role: AppRuntimeRoleSchema,
+	revisionId: z.uuid(),
+});
