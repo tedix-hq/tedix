@@ -25,6 +25,7 @@ import {
 } from "@/components/os-route-boundaries";
 import { Empty } from "@/components/kumo/empty";
 import { installOsErrorReporting } from "@/lib/error-reporting/install";
+import { getOsSurface } from "@/lib/os-navigation";
 import type { OsClientErrorReportV1 } from "@/lib/error-reporting/report";
 
 async function flush() {
@@ -210,7 +211,12 @@ describe("OS route boundaries", () => {
 		const html = renderToStaticMarkup(<RouterProvider router={router} />);
 
 		expect(html).toContain("Page not found");
-		expect(html).toContain("Go to Activity");
+		// The destination must be a real sidebar entry, not a retired label.
+		const work = getOsSurface("work");
+		expect(work.label).toBe("Work");
+		expect(html).toContain(`href="${work.path}"`);
+		expect(html).toContain(`Go to ${work.label}`);
+		expect(work.path).toBe("/work");
 	});
 
 	it("reports a caught render failure as a react capture", async () => {

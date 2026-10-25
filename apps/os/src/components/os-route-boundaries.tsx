@@ -15,6 +15,7 @@ import { Loader } from "@/components/kumo/loader";
 import { Page } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { reportOsIssue } from "@/lib/error-reporting/install";
+import { getOsSurface } from "@/lib/os-navigation";
 import { hasUnsavedOsInput } from "@/lib/reload-safety";
 import { OS_COPY } from "@/shared/os-copy";
 
@@ -252,6 +253,7 @@ export function OsRouteError({ error, reset }: ErrorComponentProps) {
 }
 
 export function OsRouteNotFound() {
+	const work = getOsSurface("work");
 	return (
 		<Page className="min-h-dvh items-center justify-center">
 			<Empty className="min-h-64">
@@ -260,8 +262,8 @@ export function OsRouteNotFound() {
 					<EmptyDescription>We couldn't find that page.</EmptyDescription>
 				</EmptyHeader>
 				<EmptyContent>
-					<Button render={<a href="/" />} variant="outline">
-						Go to Activity
+					<Button render={<a href={work.path} />} variant="outline">
+						Go to {work.label}
 					</Button>
 				</EmptyContent>
 			</Empty>
