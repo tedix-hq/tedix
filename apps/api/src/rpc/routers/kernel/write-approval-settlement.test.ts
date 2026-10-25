@@ -24,6 +24,22 @@ describe("Home write approval summary", () => {
 		).toBe(`${kernelWriteSummary(proposal)}.`);
 	});
 
+	it("says how many Work items, where, and their title", () => {
+		const args = { title: "No cost estimate before approving runs" };
+		expect(
+			kernelWriteSummary({
+				toolName: "work.create_work_items",
+				args,
+				destinationTitle: "Research prototype",
+			}),
+		).toBe(
+			"Create 1 Work item in Research prototype: “No cost estimate before approving runs”",
+		);
+		expect(
+			kernelWriteSummary({ toolName: "work__create_work_items", args }),
+		).toBe("Create 1 Work item: “No cost estimate before approving runs”");
+	});
+
 	it.each(["os.set_os_sheet_range", "os__set_os_sheet_range"])(
 		"names the cell rectangle and sheet for %s",
 		(toolName) => {

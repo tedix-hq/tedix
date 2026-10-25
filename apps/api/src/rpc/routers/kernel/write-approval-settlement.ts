@@ -373,9 +373,12 @@ export async function resolveKernelFallbackTediId(
 }
 
 export function kernelWriteSummary(
-	proposal: Pick<KernelWriteProposal, "args" | "toolName" | "outputTitle">,
+	proposal: Pick<
+		KernelWriteProposal,
+		"args" | "toolName" | "outputTitle" | "destinationTitle"
+	>,
 ): string {
-	const { args, toolName, outputTitle } = proposal;
+	const { args, toolName, outputTitle, destinationTitle } = proposal;
 	const tool = /^os(?:\.|__)(.+)$/.exec(toolName)?.[1];
 	const name = outputTitle
 		? `“${plainReceiptTitle(outputTitle)}”`
@@ -411,6 +414,16 @@ export function kernelWriteSummary(
 			args.startColumn + width - 1,
 		);
 		summary = `Update cells ${start === end ? start : `${start}:${end}`} in ${outputTitle ? name : "your sheet"}`;
+	} else if (
+		(toolName.split(/\.|__/).at(-1) ?? toolName) === "create_work_items" &&
+		typeof args.title === "string"
+	) {
+		// Say what is created and where, never the tool's name: a Work item
+		// titled after an approval problem read as an unrelated policy card.
+		const where = destinationTitle
+			? ` in ${plainReceiptTitle(destinationTitle)}`
+			: "";
+		summary = `Create 1 Work item${where}: “${plainReceiptTitle(args.title)}”`;
 	} else if (tool === "rename_os_gadget" && typeof args.name === "string") {
 		summary = `Rename the app to “${plainReceiptTitle(args.name)}”`;
 	} else if (tool && OUTPUT_EDIT_RECEIPT_VERBS.has(tool)) {
@@ -440,7 +453,7 @@ export function kernelWriteCardContent(input: {
 	approvalRequestId: string;
 	proposal: Pick<
 		KernelWriteProposal,
-		"appSlug" | "args" | "toolName" | "outputTitle"
+		"appSlug" | "args" | "toolName" | "outputTitle" | "destinationTitle"
 	> & { reasoning?: string | null };
 }): string {
 	const { args, toolName } = input.proposal;

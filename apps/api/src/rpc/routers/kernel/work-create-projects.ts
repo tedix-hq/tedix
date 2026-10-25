@@ -43,6 +43,26 @@ export async function readWorkCreateProjects(
 	});
 }
 
+/** A project's name from {@link readWorkCreateProjects}, by its id. */
+export function workCreateProjectName(
+	workProjects: string | null,
+	projectId: unknown,
+): string | null {
+	if (!workProjects || typeof projectId !== "string") return null;
+	try {
+		const project = (
+			JSON.parse(workProjects) as {
+				projects?: Array<{ projectId?: unknown; name?: unknown }>;
+			}
+		).projects?.find((entry) => entry.projectId === projectId);
+		return typeof project?.name === "string" && project.name.trim()
+			? project.name.trim()
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 /** The selected workspace's one linked project, from {@link readWorkCreateProjects}. */
 export function workspaceDefaultProjectId(
 	workProjects: string | null,
