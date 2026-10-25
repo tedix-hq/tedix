@@ -460,7 +460,10 @@ it("names read-only checklist items from their visible task text across outputs"
 	);
 	expect(checkboxes).toHaveLength(4);
 	const labelIds = checkboxes.map((checkbox) => {
+		// A native checkbox has no readonly state: it must be disabled so it
+		// leaves the tab order and is not presented as operable.
 		expect(checkbox.readOnly).toBe(true);
+		expect(checkbox.disabled).toBe(true);
 		expect(checkbox.hasAttribute("aria-label")).toBe(false);
 		const labelId = checkbox.getAttribute("aria-labelledby");
 		expect(labelId).toBeTruthy();

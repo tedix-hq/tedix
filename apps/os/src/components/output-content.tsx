@@ -278,6 +278,7 @@ function RichNode({
 							type="checkbox"
 							checked={node.attrs?.checked === true}
 							readOnly
+							disabled
 							aria-labelledby={taskLabelId}
 						/>
 					</label>
