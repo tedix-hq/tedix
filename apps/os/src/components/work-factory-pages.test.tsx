@@ -228,6 +228,10 @@ describe("Work factory queue", () => {
 
 		expect(ownerCell).not.toBeNull();
 		expect(ownerCell?.className).toContain("break-words");
+		expect(ownerCell?.getAttribute("title")).toBe(`Owner: ${owner}`);
+		const ownerWrapper = ownerCell?.parentElement;
+		expect(ownerWrapper?.className).toContain("min-w-0");
+		expect(ownerWrapper?.className).toContain("max-w-full");
 	});
 
 	it("wraps kind and updated metadata inside phone queue rows", () => {

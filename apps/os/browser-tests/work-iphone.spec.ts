@@ -404,6 +404,42 @@ try {
 					failures.push(
 						`${PROJECT}: Work queue phone metadata scrolls sideways`,
 					);
+				// Fixture owner names are short; force a pathological identity to
+				// prove the label cannot widen its row and the title keeps the
+				// complete value discoverable.
+				const owners = page.locator(
+					'[aria-label="Work queue"] dd[title^="Owner:"]',
+				);
+				assert(
+					(await owners.count()) > 0,
+					`${label} ${PROJECT}: no phone owner metadata`,
+				);
+				const longOwner =
+					"SolsticeLongitudinalOperationsCoordinatorWithoutAnyBreaks";
+				const ownerCell = await owners.first().evaluate((cell, name) => {
+					const row = cell.closest("li")!;
+					cell.textContent = name;
+					cell.setAttribute("title", `Owner: ${name}`);
+					return {
+						page: document.documentElement.scrollWidth,
+						viewport: document.documentElement.clientWidth,
+						cellRight: cell.getBoundingClientRect().right,
+						rowRight: row.getBoundingClientRect().right,
+						cellScroll: cell.scrollWidth,
+						cellClient: cell.clientWidth,
+						title: cell.getAttribute("title"),
+					};
+				}, longOwner);
+				if (ownerCell.page > ownerCell.viewport + 1)
+					failures.push(
+						`${PROJECT}: a long owner widened the page to ${ownerCell.page}px`,
+					);
+				if (ownerCell.cellRight > ownerCell.rowRight + 1)
+					failures.push(`${PROJECT}: owner label runs past its row`);
+				if (ownerCell.cellScroll > ownerCell.cellClient + 1)
+					failures.push(`${PROJECT}: owner label scrolls sideways`);
+				if (ownerCell.title !== `Owner: ${longOwner}`)
+					failures.push(`${PROJECT}: owner title lost the complete value`);
 			}
 			if (viewport.width === 390) {
 				await check("/work/capacity", "[data-slot=card] strong");
