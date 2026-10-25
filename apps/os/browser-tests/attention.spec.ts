@@ -52,10 +52,14 @@ try {
 		await page.locator("[data-attention-live]").innerText(),
 		/\b(laptop|offline|asleep|Lead|Aaron)\b/i,
 	);
-	const before = await moving.locator("time").first().innerText();
-	await page.waitForTimeout(1100);
+	const elapsed = moving.locator("time").first();
+	const before = await elapsed.innerText();
+	await page.waitForFunction(
+		({ element, initial }) => element.innerText !== initial,
+		{ element: await elapsed.elementHandle(), initial: before },
+	);
 	assert.notEqual(
-		await moving.locator("time").first().innerText(),
+		await elapsed.innerText(),
 		before,
 		"elapsed timer did not tick",
 	);
