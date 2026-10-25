@@ -33,6 +33,10 @@ export interface CallerIdentity {
 	 * request header. apps/api re-validates it on every forwarded call.
 	 */
 	ownerHostSessionId?: string;
+	/** The verified owner-host session's principal, harness and model. */
+	ownerHostPrincipalId?: string;
+	ownerHostHarness?: string;
+	ownerHostModel?: string;
 	credentialMode?: string;
 	scopes?: string[];
 	/** Exact endpoint ceiling derived from live tedi policy, never client input. */
@@ -321,6 +325,16 @@ export function buildCallerAuditMetadata(
 		metadata.oauthClientId = normalized.oauthClientId;
 	}
 	if (caller.credentialMode) metadata.credentialMode = caller.credentialMode;
+	// The grant is the human's (actorType stays user); the session names the
+	// agent host acting under it.
+	if (caller.ownerHostSessionId) {
+		metadata.ownerHostSessionId = caller.ownerHostSessionId;
+		if (caller.ownerHostPrincipalId)
+			metadata.ownerHostPrincipalId = caller.ownerHostPrincipalId;
+		if (caller.ownerHostHarness)
+			metadata.ownerHostHarness = caller.ownerHostHarness;
+		if (caller.ownerHostModel) metadata.ownerHostModel = caller.ownerHostModel;
+	}
 	if (normalized.skillRunId) metadata.skillRunId = normalized.skillRunId;
 	if (normalized.skillId) metadata.skillId = normalized.skillId;
 	if (normalized.workflowStepId) {

@@ -16,6 +16,13 @@ const HUMAN: CallerIdentity = {
 	scopes: ["mcp:work.write"],
 };
 
+const OWNER_HOST = {
+	sessionId: SESSION,
+	principalId: "p",
+	harness: "claude-code",
+	model: "anthropic/claude-example",
+};
+
 function rpcResponse(status: number, body: unknown): Response {
 	return Response.json(body, { status });
 }
@@ -23,7 +30,14 @@ function rpcResponse(status: number, body: unknown): Response {
 function sessionBody(organizationId = ORG) {
 	return {
 		json: {
-			session: { id: SESSION, organizationId, status: "active" },
+			session: {
+				id: SESSION,
+				organizationId,
+				status: "active",
+				harness: "claude-code",
+				modelProvider: "anthropic",
+				modelId: "claude-example",
+			},
 			principal: { id: "p", key: "owner-host-abc", displayName: "Hosts" },
 		},
 	};
@@ -105,7 +119,7 @@ describe("Code Mode agentSessionId", () => {
 				env: api.env,
 				appOrganizationId: ORG,
 			}),
-		).resolves.toBe(SESSION);
+		).resolves.toEqual(OWNER_HOST);
 		const request = api.requests[0]!;
 		expect(new URL(request.url).pathname).toBe(
 			"/rpc/externalAgentIdentity/resolveOwnerHostSession",
@@ -192,7 +206,7 @@ describe("Code Mode agentSessionId", () => {
 				env: api.env,
 				appOrganizationId: undefined,
 			}),
-		).resolves.toBe(SESSION);
+		).resolves.toEqual(OWNER_HOST);
 		expect(api.requests).toHaveLength(2);
 	});
 });

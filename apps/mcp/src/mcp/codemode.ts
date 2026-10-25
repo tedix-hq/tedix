@@ -97,6 +97,7 @@ import {
 	codeModeCollectionReadMeta,
 } from "./codemode-results";
 import {
+	ownerHostAuditMetadata,
 	resolveCodeModeOwnerHostSession,
 	OwnerHostSessionError,
 } from "./owner-host-session";
@@ -214,7 +215,7 @@ export async function registerCodeModeTools(
 		skillWorkflowRunIds: new Set(),
 		readObservations: [],
 		collectionReads: [],
-		ownerHostSessionId: undefined,
+		ownerHostSession: undefined,
 	};
 
 	const collisionOwners = codeModeCollisionOwners(
@@ -522,6 +523,7 @@ export async function registerCodeModeTools(
 					...(errorMsg && { errorMessage: errorMsg.slice(0, 500) }),
 					metadata: {
 						...buildCallerAuditMetadata(serverCtx.callerIdentity),
+						...ownerHostAuditMetadata(executionRefs.ownerHostSession),
 						...callerOrganizationMetadata(serverCtx),
 						toolCount: exposedToolCount,
 						namespaceCount,
@@ -581,9 +583,9 @@ export async function registerCodeModeTools(
 			};
 
 			try {
-				executionRefs.ownerHostSessionId = undefined;
+				executionRefs.ownerHostSession = undefined;
 				try {
-					executionRefs.ownerHostSessionId =
+					executionRefs.ownerHostSession =
 						await resolveCodeModeOwnerHostSession({
 							agentSessionId,
 							caller: serverCtx.callerIdentity,
@@ -847,7 +849,7 @@ export async function registerCodeModeTools(
 					executionRefs.collectionReads,
 				);
 			} finally {
-				executionRefs.ownerHostSessionId = undefined;
+				executionRefs.ownerHostSession = undefined;
 				executionRefs.approvalResult = undefined;
 				executionRefs.approvalExtra = undefined;
 				executionRefs.approvalSource = undefined;

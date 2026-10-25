@@ -137,6 +137,28 @@ describe("caller identity normalization", () => {
 		});
 	});
 
+	it("names the owner-host Agent-Session on a human OAuth caller's audit rows", () => {
+		const caller = {
+			authType: "oauth" as const,
+			userId: "human-1",
+			scopes: [],
+			ownerHostSessionId: "session-9",
+			ownerHostPrincipalId: "principal-9",
+			ownerHostHarness: "claude-code",
+			ownerHostModel: "anthropic/claude-example",
+		};
+		expect(normalizeCallerIdentity(caller).actorType).toBe("user");
+		expect(buildCallerAuditMetadata(caller)).toMatchObject({
+			ownerHostSessionId: "session-9",
+			ownerHostPrincipalId: "principal-9",
+			ownerHostHarness: "claude-code",
+			ownerHostModel: "anthropic/claude-example",
+		});
+		expect(
+			buildCallerAuditMetadata({ ...caller, ownerHostSessionId: undefined }),
+		).not.toHaveProperty("ownerHostPrincipalId");
+	});
+
 	it("marks oauth callers with a resolved tedi as human-to-tedi delegation", () => {
 		expect(
 			buildCallerAuditMetadata({

@@ -59,13 +59,36 @@ function candidateOrganizations(
  * API re-validates it on every forwarded call; this check makes an invalid id
  * fail the whole Code Mode call before any inner tool runs.
  */
+/** The verified owner-host Agent-Session one Code Mode execution acts in. */
+export interface OwnerHostSession {
+	sessionId: string;
+	principalId?: string;
+	harness?: string;
+	model?: string;
+}
+
+/** Audit fields naming the owner-host Agent-Session; actorType stays user. */
+export function ownerHostAuditMetadata(
+	session: OwnerHostSession | undefined,
+): Record<string, string> {
+	if (!session) return {};
+	return {
+		ownerHostSessionId: session.sessionId,
+		...(session.principalId
+			? { ownerHostPrincipalId: session.principalId }
+			: {}),
+		...(session.harness ? { ownerHostHarness: session.harness } : {}),
+		...(session.model ? { ownerHostModel: session.model } : {}),
+	};
+}
+
 export async function verifyOwnerHostSession(input: {
 	env: Pick<CloudflareEnv, "API_SERVICE">;
 	caller: CallerIdentity;
 	bearerToken: string;
 	appOrganizationId: string | undefined;
 	sessionId: string;
-}): Promise<{ sessionId: string; organizationId: string }> {
+}): Promise<OwnerHostSession & { organizationId: string }> {
 	if (!input.env.API_SERVICE) {
 		throw new OwnerHostSessionError(
 			"agentSessionId cannot be verified: the API service binding is unavailable",
@@ -97,7 +120,16 @@ export async function verifyOwnerHostSession(input: {
 				resolved.session.organizationId === organizationId &&
 				resolved.session.status === "active"
 			) {
-				return { sessionId: resolved.session.id, organizationId };
+				return {
+					sessionId: resolved.session.id,
+					principalId: resolved.principal?.id,
+					harness: resolved.session.harness,
+					model:
+						resolved.session.modelProvider && resolved.session.modelId
+							? `${resolved.session.modelProvider}/${resolved.session.modelId}`
+							: undefined,
+					organizationId,
+				};
 			}
 		} catch (error) {
 			const code =
@@ -133,7 +165,7 @@ export async function resolveCodeModeOwnerHostSession(input: {
 	bearerToken: string | undefined;
 	env: Pick<CloudflareEnv, "API_SERVICE">;
 	appOrganizationId: string | undefined;
-}): Promise<string | undefined> {
+}): Promise<OwnerHostSession | undefined> {
 	if (
 		!input.agentSessionId ||
 		!input.caller ||
@@ -149,5 +181,6 @@ export async function resolveCodeModeOwnerHostSession(input: {
 		appOrganizationId: input.appOrganizationId,
 		sessionId: input.agentSessionId,
 	});
-	return verified.sessionId;
+	const { organizationId: _organizationId, ...session } = verified;
+	return session;
 }
