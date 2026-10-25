@@ -42,6 +42,22 @@ describe("scheduleWhen", () => {
 		).toBe("Paused");
 		expect(
 			scheduleWhen({
+				enabled: false,
+				cron: "0 8 * * *",
+				dailyTimes: [],
+				nextRunAt: null,
+			}),
+		).toBe("Paused");
+		expect(
+			scheduleWhen({
+				enabled: false,
+				cron: null,
+				dailyTimes: [],
+				nextRunAt: null,
+			}),
+		).toBe("Runs when asked");
+		expect(
+			scheduleWhen({
 				enabled: true,
 				dailyTimes: [],
 				nextRunAt: "2026-07-06T09:00:00.000Z",

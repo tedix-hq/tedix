@@ -56,7 +56,7 @@ export interface FactoryStore {
 		workspaceId: string;
 		projectId: string;
 	}): Promise<{ created: boolean }>;
-	/** List the lane skill in the Workspace's "Runs on a schedule"; created is false when already listed. */
+	/** List the lane skill in the Workspace's "Skills and schedules"; created is false when already listed. */
 	linkWorkspaceSkill(params: {
 		workspaceId: string;
 		skillId: string;
@@ -679,7 +679,7 @@ export async function buildFactory(
 
 	if (outputStep) steps.push(outputStep);
 
-	// Scheduled-skill link — the lane shows under "Runs on a schedule".
+	// Scheduled-skill link — the lane shows under "Skills and schedules".
 	if (linkedWorkspaceId && skillId && !dryRun) {
 		const link = await store.linkWorkspaceSkill({
 			workspaceId: linkedWorkspaceId,
@@ -694,7 +694,7 @@ export async function buildFactory(
 			resource: "workspace",
 			action: link.created || link.updated ? "linked" : "reused",
 			id: linkedWorkspaceId,
-			note: "lane skill listed under Runs on a schedule",
+			note: "lane skill listed under Skills and schedules",
 		});
 	}
 

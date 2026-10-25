@@ -120,6 +120,12 @@ export const workspaceSchedulesQueryOptions = (workspaceId: string) =>
 		input: { workspaceId },
 	});
 
+/** The dry-run backfill: skills this workspace's own data says run it. */
+export const workspaceSkillSuggestionsQueryOptions = (workspaceId: string) =>
+	osQuery.osWorkspaces.schedules.linkFactorySkills.queryOptions({
+		input: { workspaceId, dryRun: true },
+	});
+
 export const workspaceWorkProjectsQueryOptions = (workspaceId: string) =>
 	osQuery.osWorkspaces.work.listProjects.queryOptions({
 		input: { workspaceId, status: "active", limit: 100 },

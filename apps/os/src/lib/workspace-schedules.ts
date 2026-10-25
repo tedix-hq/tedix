@@ -49,12 +49,19 @@ function joinWithAnd(items: readonly string[]): string {
 	return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
-/** "Every day at 8:17, 13:17 and 18:17", "Paused" or "On a custom schedule". */
+/**
+ * "Every day at 8:17, 13:17 and 18:17", "Paused", "Runs when asked" (no
+ * schedule at all) or "On a custom schedule".
+ */
 export function scheduleWhen(
-	schedule: Pick<OsWorkspaceSchedule, "enabled" | "dailyTimes" | "nextRunAt">,
+	schedule: Pick<
+		OsWorkspaceSchedule,
+		"enabled" | "dailyTimes" | "nextRunAt"
+	> & { cron?: string | null },
 	options: ClockOptions = {},
 ): string {
-	if (!schedule.enabled) return "Paused";
+	if (!schedule.enabled)
+		return schedule.cron === null ? "Runs when asked" : "Paused";
 	if (schedule.dailyTimes.length > 0) {
 		const times = [...schedule.dailyTimes]
 			.sort((a, b) => minuteOfDay(a, options) - minuteOfDay(b, options))

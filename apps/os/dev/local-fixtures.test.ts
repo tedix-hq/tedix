@@ -495,6 +495,18 @@ const CALLS: Record<string, unknown> = {
 		workspaceId: IDS.workspaceRevenue,
 		resourceId: "00000034-0000-4000-8000-000000000002",
 	},
+	"osWorkspaces/schedules/link": {
+		workspaceId: IDS.workspaceRevenue,
+		skillId: "00000020-0000-4000-8000-000000000002",
+	},
+	"osWorkspaces/schedules/unlink": {
+		workspaceId: IDS.workspaceRevenue,
+		skillId: "00000020-0000-4000-8000-000000000002",
+	},
+	"osWorkspaces/schedules/linkFactorySkills": {
+		workspaceId: IDS.workspaceRevenue,
+		dryRun: true,
+	},
 	"osWorkspaces/gadgets/installWorkDefaults": {},
 	"osWorkspaces/gadgets/workApps": { limit: 100 },
 	"osWorkspaces/gadgets/list": { workspaceId: IDS.workspaceRevenue, limit: 50 },

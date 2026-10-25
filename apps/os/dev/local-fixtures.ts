@@ -1609,6 +1609,24 @@ const SKILLS = [
 	),
 ];
 
+/** The skills the revenue workspace's fixture schedule list starts with. */
+const FIXTURE_SCHEDULED_SKILLS = new Set([SKILL_REVENUE, SKILL_CHURN]);
+
+/** Per-workspace skill links people add or remove in the fixture session. */
+const fixtureSkillLinkState = new Map<
+	string,
+	{ added: Set<string>; removed: Set<string> }
+>();
+
+function fixtureSkillLinks(workspaceId: string) {
+	let links = fixtureSkillLinkState.get(workspaceId);
+	if (!links) {
+		links = { added: new Set(), removed: new Set() };
+		fixtureSkillLinkState.set(workspaceId, links);
+	}
+	return links;
+}
+
 const skillRunSummary = (run: SkillRunRow) => ({
 	id: run.id,
 	organizationId: ORG_ID,
@@ -6970,59 +6988,149 @@ const handlers: Record<string, (input: never) => unknown> = {
 	},
 	"osWorkspaces/schedules/list": (input: { workspaceId: string }) => {
 		findWorkspace(input.workspaceId);
-		if (input.workspaceId !== WORKSPACE_REVENUE) return { items: [] };
+		const links = fixtureSkillLinks(input.workspaceId);
+		const linkedOnly = [...links.added].flatMap((skillId) => {
+			const skill = SKILLS.find((row) => row.id === skillId);
+			return skill
+				? [
+						{
+							resourceId: fid("35", SKILLS.indexOf(skill) + 1),
+							skillId,
+							name: skill.title,
+							purpose: skill.description ?? null,
+							enabled: false,
+							cron: null,
+							dailyTimes: [],
+							nextRunAt: null,
+							lastRun: null,
+							personalRead: null,
+							tediName: "Operations Tedi",
+							hasWorkflow: false,
+						},
+					]
+				: [];
+		});
+		if (input.workspaceId !== WORKSPACE_REVENUE) return { items: linkedOnly };
 		// The next 07:30 UTC, so the daily time reads in the viewer's clock.
 		const next = new Date();
 		next.setUTCHours(7, 30, 0, 0);
 		if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1);
 		return {
 			items: [
+				...[
+					{
+						resourceId: fid("34", 1),
+						skillId: SKILL_REVENUE,
+						name: "Weekly revenue report",
+						purpose: "Sums last week's invoices into the revenue sheet.",
+						enabled: true,
+						cron: "30 7 * * *",
+						dailyTimes: [next.toISOString()],
+						nextRunAt: next.toISOString(),
+						lastRun: {
+							runId: RUN_REVENUE_OK,
+							status: "completed" as const,
+							startedAt: T1,
+							completedAt: T2,
+							cards: null,
+							summary: "Added 12 invoices",
+							error: null,
+						},
+						personalRead: null,
+						tediName: "Finance Tedi",
+						hasWorkflow: true,
+					},
+					{
+						resourceId: fid("34", 2),
+						skillId: SKILL_CHURN,
+						name: "Churn watch",
+						purpose: "Flags accounts that stopped logging in.",
+						enabled: true,
+						cron: "0 9 * * 1",
+						dailyTimes: [],
+						nextRunAt: next.toISOString(),
+						lastRun: {
+							runId: RUN_CHURN_FAILED,
+							status: "failed" as const,
+							startedAt: T2,
+							completedAt: T3,
+							cards: null,
+							summary: null,
+							error: "MCP call crm.list_accounts timed out after 15s",
+						},
+						personalRead: {
+							providerId: "google-gmail",
+							providerName: "Gmail",
+							toolIds: ["search_threads"],
+							grantId: null,
+							level: "none",
+							canAllow: true,
+						},
+						tediName: "Customer Tedi",
+						hasWorkflow: false,
+					},
+				].filter((item) => !links.removed.has(item.skillId)),
+				...linkedOnly,
+			],
+		};
+	},
+	"osWorkspaces/schedules/link": (input: {
+		workspaceId: string;
+		skillId: string;
+	}) => {
+		findWorkspace(input.workspaceId);
+		if (!SKILLS.some((skill) => skill.id === input.skillId))
+			throw new RpcError(
+				"NOT_FOUND",
+				"No skill with that id in this organization",
+			);
+		const links = fixtureSkillLinks(input.workspaceId);
+		const created =
+			links.removed.delete(input.skillId) ||
+			(!FIXTURE_SCHEDULED_SKILLS.has(input.skillId) &&
+				!links.added.has(input.skillId));
+		if (!FIXTURE_SCHEDULED_SKILLS.has(input.skillId))
+			links.added.add(input.skillId);
+		return { resourceId: fid("35", 99), created };
+	},
+	"osWorkspaces/schedules/unlink": (input: {
+		workspaceId: string;
+		skillId: string;
+	}) => {
+		findWorkspace(input.workspaceId);
+		const links = fixtureSkillLinks(input.workspaceId);
+		const removed =
+			links.added.delete(input.skillId) ||
+			(FIXTURE_SCHEDULED_SKILLS.has(input.skillId) &&
+				input.workspaceId === WORKSPACE_REVENUE &&
+				!links.removed.has(input.skillId) &&
+				Boolean(links.removed.add(input.skillId)));
+		return { removed };
+	},
+	"osWorkspaces/schedules/linkFactorySkills": (input: {
+		workspaceId: string;
+		dryRun?: boolean;
+	}) => {
+		findWorkspace(input.workspaceId);
+		const links = fixtureSkillLinks(input.workspaceId);
+		const dryRun = input.dryRun ?? true;
+		// The fixture's suggestion: the first catalog skill this workspace does not run.
+		const skill = SKILLS.find((row) => !FIXTURE_SCHEDULED_SKILLS.has(row.id));
+		if (!skill) return { dryRun, items: [] };
+		const already = links.added.has(skill.id);
+		if (!dryRun) links.added.add(skill.id);
+		return {
+			dryRun,
+			items: [
 				{
-					resourceId: fid("34", 1),
-					skillId: SKILL_REVENUE,
-					name: "Weekly revenue report",
-					purpose: "Sums last week's invoices into the revenue sheet.",
-					enabled: true,
-					cron: "30 7 * * *",
-					dailyTimes: [next.toISOString()],
-					nextRunAt: next.toISOString(),
-					lastRun: {
-						runId: RUN_REVENUE_OK,
-						status: "completed" as const,
-						startedAt: T1,
-						completedAt: T2,
-						cards: null,
-						summary: "Added 12 invoices",
-						error: null,
-					},
-					personalRead: null,
-				},
-				{
-					resourceId: fid("34", 2),
-					skillId: SKILL_CHURN,
-					name: "Churn watch",
-					purpose: "Flags accounts that stopped logging in.",
-					enabled: true,
-					cron: "0 9 * * 1",
-					dailyTimes: [],
-					nextRunAt: next.toISOString(),
-					lastRun: {
-						runId: RUN_CHURN_FAILED,
-						status: "failed" as const,
-						startedAt: T2,
-						completedAt: T3,
-						cards: null,
-						summary: null,
-						error: "MCP call crm.list_accounts timed out after 15s",
-					},
-					personalRead: {
-						providerId: "google-gmail",
-						providerName: "Gmail",
-						toolIds: ["search_threads"],
-						grantId: null,
-						level: "none",
-						canAllow: true,
-					},
+					skillId: skill.id,
+					name: skill.title,
+					reason: "wrote_outputs" as const,
+					status: already
+						? ("already_linked" as const)
+						: dryRun
+							? ("would_link" as const)
+							: ("linked" as const),
 				},
 			],
 		};

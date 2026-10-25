@@ -130,7 +130,12 @@ export const OsWorkspaceScheduleSchema = z
 		enabled: z
 			.boolean()
 			.describe("False when the skill has no schedule or it is paused"),
-		cron: z.string().nullable().describe("The UTC cron the schedule fires on"),
+		cron: z
+			.string()
+			.nullable()
+			.describe(
+				"The UTC cron the schedule fires on, also while paused; null when the skill has no schedule and runs only when asked",
+			),
 		dailyTimes: z
 			.array(z.string())
 			.describe(
@@ -146,9 +151,87 @@ export const OsWorkspaceScheduleSchema = z
 		personalRead: OsWorkspaceSchedulePersonalReadSchema.nullable().describe(
 			"Set when the skill reads its owner's personal account; null otherwise",
 		),
+		tediName: z
+			.string()
+			.nullable()
+			.describe("The tedi that runs the skill; null when it has no owner"),
+		hasWorkflow: z
+			.boolean()
+			.describe(
+				"True when the skill runs a workflow (scripts/workflow.ts); false when a tedi follows its instructions",
+			),
 	})
 	.strict();
 export type OsWorkspaceSchedule = z.infer<typeof OsWorkspaceScheduleSchema>;
+
+export const LinkWorkspaceSkillInputSchema = z
+	.object({
+		workspaceId: z.string().uuid(),
+		skillId: z
+			.string()
+			.min(1)
+			.max(200)
+			.describe("A skill in this organization"),
+	})
+	.strict();
+
+export const LinkWorkspaceSkillResultSchema = z
+	.object({
+		resourceId: z.string().uuid(),
+		created: z
+			.boolean()
+			.describe("False when the skill was already linked to the Workspace"),
+	})
+	.strict();
+
+export const UnlinkWorkspaceSkillResultSchema = z
+	.object({
+		removed: z
+			.boolean()
+			.describe(
+				"False when the skill was not linked; the skill and its schedule are unchanged either way",
+			),
+	})
+	.strict();
+
+export const WorkspaceSkillLinkReasonSchema = z
+	.enum(["factory_project", "wrote_outputs"])
+	.describe(
+		"factory_project: the lane skill of a factory project bound or linked to the Workspace. wrote_outputs: its runs wrote the Workspace's Outputs",
+	);
+
+export const LinkWorkspaceFactorySkillsInputSchema = z
+	.object({
+		workspaceId: z.string().uuid(),
+		dryRun: z
+			.boolean()
+			.default(true)
+			.describe("True (the default) only reports what would be linked"),
+	})
+	.strict();
+
+export const LinkWorkspaceFactorySkillsResultSchema = z
+	.object({
+		dryRun: z.boolean(),
+		items: z.array(
+			z
+				.object({
+					skillId: z.string(),
+					name: z.string(),
+					reason: WorkspaceSkillLinkReasonSchema,
+					status: z
+						.enum(["linked", "already_linked", "would_link"])
+						.describe(
+							"linked: this call linked it. already_linked: an active link existed. would_link: a dry run found it unlinked",
+						),
+				})
+				.strict(),
+		),
+	})
+	.strict();
+export type LinkWorkspaceFactorySkillsResult = z.infer<
+	typeof LinkWorkspaceFactorySkillsResultSchema
+>;
 
 export const SetWorkspacePersonalAccessResultSchema = z
 	.object({
@@ -178,7 +261,7 @@ export const RunWorkspaceSkillNowInputSchema = z
 			.string()
 			.min(1)
 			.max(200)
-			.describe("A skill this Workspace links under Runs on a schedule"),
+			.describe("A skill this Workspace links under Skills and schedules"),
 		params: z
 			.record(z.string(), JsonValueSchema)
 			.refine(

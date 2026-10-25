@@ -7,14 +7,25 @@ const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
 	allow: vi.fn(),
 	revoke: vi.fn(),
+	link: vi.fn(),
+	unlink: vi.fn(),
+	linkFactorySkills: vi.fn(),
+	skills: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: {
 			resources: { list: vi.fn() },
-			schedules: { list: mocks.list, allowPersonalRead: mocks.allow },
+			schedules: {
+				list: mocks.list,
+				allowPersonalRead: mocks.allow,
+				link: mocks.link,
+				unlink: mocks.unlink,
+				linkFactorySkills: mocks.linkFactorySkills,
+			},
 		},
 		personalResourceDelegations: { list: vi.fn(), revoke: mocks.revoke },
+		skills: { listByOrg: mocks.skills },
 	},
 }));
 import { WorkspaceSchedules } from "./workspace-schedules";
@@ -37,6 +48,8 @@ function schedule(
 		nextRunAt: null,
 		lastRun: null,
 		personalRead,
+		tediName: "Inbox Tedi",
+		hasWorkflow: true,
 	};
 }
 const gmail = {
@@ -49,9 +62,7 @@ const gmail = {
 };
 
 beforeEach(() => {
-	mocks.list.mockReset();
-	mocks.allow.mockReset();
-	mocks.revoke.mockReset();
+	for (const mock of Object.values(mocks)) mock.mockReset();
 });
 
 async function settle() {
@@ -237,4 +248,92 @@ it("leaves the session grant absent until the owner presses the named tedi butto
 	} finally {
 		await view.close();
 	}
+});
+
+describe("linking skills to the workspace", () => {
+	it("shows who runs each linked skill and unlinks it", async () => {
+		mocks.list
+			.mockResolvedValueOnce({ items: [schedule(null)] })
+			.mockResolvedValue({ items: [] });
+		mocks.unlink.mockResolvedValue({ removed: true });
+		const view = await mount();
+		try {
+			expect(
+				view.node.querySelector("[data-schedule-runs-by]")?.textContent,
+			).toBe("Run by Inbox Tedi · Workflow");
+			const unlink = view.node.querySelector<HTMLButtonElement>(
+				'button[aria-label="Unlink Inbox cards from this workspace"]',
+			);
+			await act(async () => unlink!.click());
+			await settle();
+			expect(mocks.unlink).toHaveBeenCalledWith({
+				workspaceId: WORKSPACE_ID,
+				skillId: "skill-inbox",
+			});
+			expect(view.node.textContent).toContain(
+				"No skills run this workspace yet",
+			);
+		} finally {
+			await view.close();
+		}
+	});
+
+	it("links the suggested skills in one step, and any other skill by search", async () => {
+		mocks.list.mockResolvedValue({ items: [] });
+		mocks.linkFactorySkills.mockImplementation(
+			async ({ dryRun }: { dryRun: boolean }) => ({
+				dryRun,
+				items: [
+					{
+						skillId: "skill-research",
+						name: "Daily research",
+						reason: "factory_project",
+						status: dryRun ? "would_link" : "linked",
+					},
+				],
+			}),
+		);
+		mocks.skills.mockResolvedValue({
+			entries: [
+				{ id: "skill-digest", title: "Weekly digest", description: "Sums up" },
+			],
+			total: 1,
+		});
+		mocks.link.mockResolvedValue({
+			resourceId: RESOURCE_ID,
+			created: true,
+		});
+		const view = await mount();
+		try {
+			await act(async () => view.button("Link skill")!.click());
+			await settle();
+			const dialog = document.body.querySelector(
+				"[data-workspace-skill-link-dialog]",
+			);
+			expect(dialog?.textContent).toContain("Daily research");
+			expect(dialog?.textContent).toContain(
+				"Its factory belongs to this workspace",
+			);
+			const linkIt = [...dialog!.querySelectorAll("button")].find(
+				(button) => button.textContent === "Link it",
+			);
+			await act(async () => linkIt!.click());
+			await settle();
+			expect(mocks.linkFactorySkills).toHaveBeenCalledWith({
+				workspaceId: WORKSPACE_ID,
+				dryRun: false,
+			});
+			const linkDigest = dialog!.querySelector<HTMLButtonElement>(
+				'button[aria-label="Link Weekly digest"]',
+			);
+			await act(async () => linkDigest!.click());
+			await settle();
+			expect(mocks.link).toHaveBeenCalledWith({
+				workspaceId: WORKSPACE_ID,
+				skillId: "skill-digest",
+			});
+		} finally {
+			await view.close();
+		}
+	});
 });

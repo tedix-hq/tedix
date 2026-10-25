@@ -560,6 +560,10 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/schedules/allowPersonalRead": "mcp:apps.write",
 	"osWorkspaces/schedules/setPersonalAccess": "mcp:apps.write",
 	"osWorkspaces/schedules/runNow": "mcp:apps.write",
+	"osWorkspaces/schedules/link": "mcp:apps.write",
+	"osWorkspaces/schedules/linkFactorySkills": "mcp:apps.write",
+	// Same tier as removing any Workspace resource reference.
+	"osWorkspaces/schedules/unlink": "mcp:apps.admin",
 	"osWorkspaces/resources/readPdf": "mcp:apps.read",
 	"osWorkspaces/resources/rebind": "mcp:apps.write",
 	"osWorkspaces/resources/remove": "mcp:apps.admin",

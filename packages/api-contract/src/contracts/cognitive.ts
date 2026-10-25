@@ -131,6 +131,13 @@ const SkillRecordInputSchema = z.object({
 		.describe(
 			"Bypass the near-duplicate gate. Creation is refused when an existing skill has an equivalent title — prefer improve_skills. Set force only for a genuinely distinct procedure.",
 		),
+	workspaceId: z
+		.string()
+		.uuid()
+		.optional()
+		.describe(
+			"The Workspace this skill runs for, such as the Workspace of the current conversation. The new skill is linked to it, so the Workspace's Resources list the skill with its schedule and runs",
+		),
 });
 
 /**

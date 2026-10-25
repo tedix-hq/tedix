@@ -285,6 +285,40 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			status: text(output.status) ?? null,
 		}),
 	},
+	"schedules.link": {
+		action: "os.workspace_skill.linked",
+		resourceType: "os_workspace_resource",
+		resourceId: ({ output }) => text(output.resourceId),
+		metadata: ({ input, output }) => ({
+			workspaceId: input.workspaceId,
+			skillId: text(input.skillId) ?? null,
+			created: output.created === true,
+		}),
+	},
+	"schedules.unlink": {
+		action: "os.workspace_skill.unlinked",
+		resourceType: "os_workspace",
+		resourceId: ({ input }) => text(input.workspaceId),
+		metadata: ({ input, output }) => ({
+			skillId: text(input.skillId) ?? null,
+			removed: output.removed === true,
+		}),
+	},
+	"schedules.linkFactorySkills": {
+		action: "os.workspace_skill.backfilled",
+		resourceType: "os_workspace",
+		resourceId: ({ input }) => text(input.workspaceId),
+		metadata: ({ output }) => ({
+			dryRun: output.dryRun === true,
+			linkedSkillIds: Array.isArray(output.items)
+				? output.items
+						.map(fields)
+						.filter((item) => item.status === "linked")
+						.map((item) => text(item.skillId))
+						.filter(Boolean)
+				: [],
+		}),
+	},
 	"resources.rename": {
 		action: "os.workspace_resource.renamed",
 		resourceType: "os_workspace_resource",

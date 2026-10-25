@@ -129,6 +129,21 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "read",
 	},
 	{
+		toolId: "link_os_workspace_skill",
+		endpoint: "osWorkspaces/schedules/link",
+		kind: "write",
+	},
+	{
+		toolId: "unlink_os_workspace_skill",
+		endpoint: "osWorkspaces/schedules/unlink",
+		kind: "write",
+	},
+	{
+		toolId: "link_os_workspace_factory_skills",
+		endpoint: "osWorkspaces/schedules/linkFactorySkills",
+		kind: "write",
+	},
+	{
 		toolId: "list_os_gadgets",
 		endpoint: "osWorkspaces/gadgets/list",
 		kind: "read",
