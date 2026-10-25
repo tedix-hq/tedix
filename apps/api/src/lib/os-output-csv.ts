@@ -10,7 +10,16 @@ function csv(rows: OsSheetCell[][]): Uint8Array {
 			.map((row) =>
 				row
 					.map((value) => {
-						const text = value === null ? "" : String(value);
+						let text = value === null ? "" : String(value);
+						// CSV quoting alone does not stop spreadsheet formula evaluation.
+						// Prefix text (including headers) with an apostrophe for = + - @
+						// and fullwidth equivalents, even after whitespace/control characters,
+						// or for a leading tab/CR/LF. Preserve the original text and typed numbers.
+						if (
+							typeof value === "string" &&
+							/^[\s\p{Cc}]*[=+\-@＝＋－＠]|^[\t\r\n]/u.test(value)
+						)
+							text = `'${value}`;
 						return /[",\r\n]/.test(text)
 							? `"${text.replaceAll('"', '""')}"`
 							: text;
