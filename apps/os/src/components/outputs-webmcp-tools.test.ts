@@ -262,6 +262,7 @@ describe("buildOutputsWebMcpTools", () => {
 		expect(result.structuredContent).toEqual({
 			outputId: OUTPUT_ID,
 			revision: 4,
+			cacheReconciled: true,
 			deepLink: `/outputs/${OUTPUT_ID}`,
 		});
 
@@ -293,6 +294,85 @@ describe("buildOutputsWebMcpTools", () => {
 		expect(result.content[0]?.text.toLowerCase()).toContain("re-read");
 		expect(invalidateQueries).not.toHaveBeenCalled();
 	});
+
+	it.each([
+		{
+			name: "revise_output",
+			method: "revise",
+			args: { content: "New body", expectedRevision: 3 },
+			result: { revision: { id: "rev-4", revision: 4 } },
+		},
+		{
+			name: "patch_document",
+			method: "patchDocument",
+			args: {
+				ops: [{ op: "delete", index: 0 }],
+				expectedRevision: 3,
+			},
+			result: {
+				revision: {
+					id: "rev-4",
+					revision: 4,
+					content: { kind: "document", blocks: [] },
+				},
+			},
+		},
+		{
+			name: "patch_slides",
+			method: "patchSlides",
+			args: {
+				ops: [{ op: "delete", index: 0 }],
+				expectedRevision: 3,
+			},
+			result: {
+				revision: {
+					id: "rev-4",
+					revision: 4,
+					content: { kind: "presentation", slides: [] },
+				},
+			},
+		},
+		{
+			name: "set_sheet_range",
+			method: "setSheetRange",
+			args: {
+				startRow: 0,
+				startColumn: 0,
+				cells: [["x"]],
+				expectedRevision: 3,
+			},
+			result: {
+				revision: {
+					id: "rev-4",
+					revision: 4,
+					content: { kind: "sheet", columns: ["A"], rows: [["x"]] },
+				},
+			},
+		},
+	] as const)(
+		"keeps the confirmed revision when refresh fails for $name",
+		async ({ name, method, args, result }) => {
+			outputsApi[method].mockResolvedValue({ output: outputRow, ...result });
+			const { byName, invalidateQueries } = tools();
+			invalidateQueries.mockRejectedValue(new Error("Refresh failed"));
+
+			const response = await byName.get(name)!.execute({
+				outputId: OUTPUT_ID,
+				...args,
+			});
+
+			expect(response.isError).toBeUndefined();
+			expect(response.structuredContent).toMatchObject({
+				outputId: OUTPUT_ID,
+				revision: 4,
+				cacheReconciled: false,
+			});
+			expect(response.structuredContent).toHaveProperty(
+				"note",
+				expect.stringContaining("Do not retry"),
+			);
+		},
+	);
 
 	it("surfaces an osApi rejection as an isError result, not a throw", async () => {
 		outputsApi.revise.mockRejectedValue(
@@ -345,6 +425,7 @@ describe("buildOutputsWebMcpTools", () => {
 		expect(result.structuredContent).toEqual({
 			outputId: OUTPUT_ID,
 			revision: 5,
+			cacheReconciled: true,
 			opsApplied: 2,
 			slideCount: 2,
 			deepLink: `/outputs/${OUTPUT_ID}`,
@@ -521,6 +602,7 @@ describe("buildOutputsWebMcpTools", () => {
 		expect(result.structuredContent).toEqual({
 			outputId: OUTPUT_ID,
 			revision: 7,
+			cacheReconciled: true,
 			rowsWritten: 3,
 			rowCount: 2,
 			deepLink: `/outputs/${OUTPUT_ID}`,
