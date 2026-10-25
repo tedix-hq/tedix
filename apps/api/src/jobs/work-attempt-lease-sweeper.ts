@@ -8,6 +8,7 @@ import {
 } from "@tedix/db/queries/work-items/lane-lifecycle";
 import { sweepStaleFailedDelegationWorkItems } from "@tedix/db/queries/work-items/stale-delegation-sweep";
 import { dispatchInteractionReviews } from "./interaction-follow-through";
+import { sweepStuckOutboundReviews } from "@tedix/db/queries/work-items/outbound";
 
 /**
  * Bounded per tick. The steady state is zero candidates — one index probe on
@@ -118,6 +119,10 @@ export async function runWorkAttemptLeaseSweeperTick(
 	);
 	return {
 		...result,
+		...(await sweepStuckOutboundReviews(createDbQueryClient(env.DB), {
+			now: new Date(scheduledTime).toISOString(),
+			limit: MAX_INTERACTION_WRITES_PER_TICK,
+		})),
 		requestsRecovered,
 		requestRecoveryFailures,
 		lanesStale,

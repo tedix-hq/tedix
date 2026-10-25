@@ -168,6 +168,59 @@ beforeEach(() => {
 });
 
 describe("outbound authorization and delivery", () => {
+	it("keeps timed-out drafts unapproved and accepts a fresh verdict from the configured reviewer", async () => {
+		const { client } = fixture({
+			review: null,
+			reviewTimedOutAt: "2026-10-18T10:00:00.000Z",
+		});
+		await expect(
+			client().act({
+				workItemId: WORK,
+				expectedVersion: 1,
+				action: "approve_manual",
+			}),
+		).rejects.toThrow(/exact draft/);
+		await expect(
+			client().act({
+				workItemId: WORK,
+				expectedVersion: 1,
+				action: "approve_send",
+				connectionInstanceId: ACCOUNT,
+			}),
+		).rejects.toThrow(/exact draft/);
+		expect(gmail.send).not.toHaveBeenCalled();
+		const reviewed = await client(REVIEWER, ORG, true).review({
+			workItemId: WORK,
+			expectedVersion: 1,
+			review: {
+				draftRevision: 1,
+				verdict: "ready",
+				notes: "Ready",
+				voice: "Checked",
+				grounding: "Sources checked",
+				risks: "No new promises",
+			},
+		});
+		expect(reviewed.outbound.review?.verdict).toBe("ready");
+		expect(reviewed.outbound.status).toBe("waiting_on_you");
+		expect(reviewed.outbound.reviewTimedOutAt).toBeUndefined();
+	});
+	it("starts a fresh review clock when retrying a timed-out review", async () => {
+		const { client } = fixture({
+			review: null,
+			reviewTimedOutAt: "2026-10-18T10:00:00.000Z",
+			reviewRequestedAt: "2026-10-17T10:00:00.000Z",
+		});
+		const retry = await client().requestReview({
+			workItemId: WORK,
+			expectedVersion: 1,
+		});
+		expect(retry.outbound.status).toBe("reviewing");
+		expect(retry.outbound.reviewTimedOutAt).toBeUndefined();
+		expect(Date.parse(retry.outbound.reviewRequestedAt!)).toBeGreaterThan(
+			Date.parse("2026-10-18T10:00:00.000Z"),
+		);
+	});
 	it("carries bounded, attributed new source observations into a fresh review", async () => {
 		const { sqlite, client, queue } = fixture();
 		const insert = sqlite.prepare(
@@ -236,6 +289,7 @@ describe("outbound authorization and delivery", () => {
 			...state,
 			status: "reviewing",
 			review: null,
+			reviewRequestedAt: expect.any(String),
 		});
 		await expect(
 			client().requestReview({ workItemId: WORK, expectedVersion: 1 }),
@@ -245,7 +299,10 @@ describe("outbound authorization and delivery", () => {
 			expectedVersion: first.version,
 		});
 		expect(second.version).toBe(3);
-		expect(second.outbound).toEqual(first.outbound);
+		expect(second.outbound).toEqual({
+			...first.outbound,
+			reviewRequestedAt: expect.any(String),
+		});
 		expect(queue.mock.calls.map(([event]) => event.idempotencyKey)).toEqual([
 			`outbound:${WORK}:2`,
 			`outbound:${WORK}:3`,
@@ -254,6 +311,12 @@ describe("outbound authorization and delivery", () => {
 			`outbound:${WORK}:2`,
 			`outbound:${WORK}:3`,
 		]);
+		expect(queue.mock.calls[0]?.[0].content).toContain(
+			"Before submitting, reload get_outbound_draft",
+		);
+		expect(queue.mock.calls[0]?.[0].content).toContain(
+			"On a version conflict, reload and recheck the current draft once",
+		);
 		expect(gmail.send).not.toHaveBeenCalled();
 	});
 	it.each(["ready", "changes_required"] as const)(
@@ -274,6 +337,7 @@ describe("outbound authorization and delivery", () => {
 				...state,
 				review,
 				status: "reviewing",
+				reviewRequestedAt: expect.any(String),
 			});
 			expect(queue.mock.calls[0]?.[0]).toMatchObject({
 				idempotencyKey: `outbound:${WORK}:2`,

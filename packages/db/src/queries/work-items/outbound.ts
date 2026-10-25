@@ -103,7 +103,7 @@ export async function saveOutbound(
 		expectedVersion: number;
 		state: OutboundState;
 		actor: {
-			type: "user" | "tedi" | "external_agent";
+			type: "user" | "tedi" | "external_agent" | "system";
 			id: string;
 			sessionId?: string;
 			externalSessionKey?: string;
@@ -444,4 +444,59 @@ export async function outboundInteractionOverlays(
 		}
 	}
 	return overlays;
+}
+
+/** Surface overdue drafts without manufacturing a reviewer verdict or human approval. */
+export async function sweepStuckOutboundReviews(
+	db: DbQueryClient,
+	p: { now: string; limit: number },
+) {
+	const requestedAt = sql`coalesce(json_extract(${workItems.metadata}, '$.outbound.reviewRequestedAt'), (SELECT max(occurred_at) FROM work_events e WHERE e.org_id=${workItems.orgId} AND e.work_item_id=${workItems.id} AND e.event_type='outbound.action'), ${workItems.updatedAt}, ${workItems.createdAt})`;
+	const timeoutMinutes = sql`coalesce(json_extract(${organizations.metadata}, '$.outboundReview.reviewTimeoutMinutes'), 30)`;
+	const rows = await db
+		.select({
+			orgId: workItems.orgId,
+			id: workItems.id,
+			version: workItems.version,
+			metadata: workItems.metadata,
+		})
+		.from(workItems)
+		.innerJoin(organizations, eq(organizations.id, workItems.orgId))
+		.where(
+			and(
+				eq(workItems.workKind, "outbound"),
+				sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
+				sql`json_extract(${workItems.metadata}, '$.outbound.status') IN ('reviewing','feedback')`,
+				sql`julianday(${requestedAt}) + ${timeoutMinutes} / 1440.0 <= julianday(${p.now})`,
+				sql`EXISTS (SELECT 1 FROM work_interactions q WHERE q.org_id=${workItems.orgId} AND q.work_item_id=${workItems.id} AND q.id=json_extract(${workItems.metadata}, '$.outbound.interactionId') AND q.target_type='user' AND q.target_id=json_extract(${workItems.metadata}, '$.outbound.ownerUserId') AND q.kind IN ('question','input') AND q.status='open' AND (q.expires_at IS NULL OR q.expires_at>${p.now}))`,
+			),
+		)
+		.orderBy(requestedAt, workItems.id)
+		.limit(p.limit);
+	let timedOut = 0;
+	for (const row of rows) {
+		const parsed = OutboundStateSchema.safeParse(row.metadata?.outbound);
+		if (!parsed.success) continue;
+		if (
+			await saveOutbound(db, {
+				orgId: row.orgId,
+				workItemId: row.id,
+				expectedVersion: row.version,
+				state: {
+					...parsed.data,
+					status: "waiting_on_you",
+					review: null,
+					reviewTimedOutAt: p.now,
+				},
+				actor: { type: "system", id: "outbound-review-timeout" },
+				action: "review_timed_out",
+				now: p.now,
+			})
+		)
+			timedOut++;
+	}
+	return {
+		outboundReviewCandidates: rows.length,
+		outboundReviewsTimedOut: timedOut,
+	};
 }
