@@ -20,10 +20,17 @@ import {
 import {
 	mapRepoError,
 	parseRepoUrl,
+	REPO_CLONE_MAX_CHECKOUT_KB,
 	REPO_LOAD_MAX_FILES,
 	REPO_LOAD_WORKSPACE_PREFIX,
+	runRepoClone,
 	runRepoLoad,
 } from "./repo-load";
+import {
+	BROAD_MONOREPO_PATHS,
+	monorepoTree,
+	monorepoTreeBytes,
+} from "../test/monorepo-tree-fixture";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -1544,6 +1551,140 @@ console.log(
 	console.log(
 		"✓ NON-VACUOUS token-in-logs: PAT in scope at writeFile throw, absent from all logs + result",
 	);
+}
+
+// ── clone_repo of broad monorepo paths: refused before any download ───────────
+// Regression for the CTO tedi's isolate resets on 25 Oct: a broad selection
+// (apps, packages, docs, scripts, memory) failed the native clone ceiling and
+// fell back to repo_load, which downloaded every selected blob (~8,500 files,
+// ~513 MB) into the Durable Object before checking its caps.
+
+{
+	const encPat = await encryptTediSecret(
+		TEST_MASTER_KEY,
+		TEST_TEDI_ID,
+		TEST_PAT,
+	);
+	const tree = monorepoTree();
+	let treeReads = 0;
+	let blobReads = 0;
+	const treeFetch = async (input: RequestInfo | URL) => {
+		const url = typeof input === "string" ? input : input.toString();
+		if (url.includes("/git/trees/")) {
+			treeReads++;
+			return jsonResponse({ truncated: false, tree });
+		}
+		if (url.includes("/git/blobs/")) blobReads++;
+		return jsonResponse({ content: btoa("x"), encoding: "base64" });
+	};
+	globalThis.fetch = treeFetch as typeof fetch;
+	const written = new Map<string, string>();
+	const deps = await happyDeps(written, encPat);
+	let cloned = false;
+	let resets = 0;
+	const result = await runRepoClone(
+		{
+			db: deps.db,
+			masterKey: deps.masterKey,
+			fetchImpl: treeFetch as typeof fetch,
+			clone: async () => {
+				cloned = true;
+			},
+			removeCloneDir: async () => {
+				resets++;
+			},
+			loadFilesFallback: ({ ref, paths }) =>
+				runRepoLoad(deps, { tediId: TEST_TEDI_ID, paths, ref }),
+			replaceFallbackSnapshot: async () => {
+				throw new Error("a refused selection must not replace repo/");
+			},
+		},
+		{ tediId: TEST_TEDI_ID, paths: BROAD_MONOREPO_PATHS },
+	);
+
+	assert.equal(
+		monorepoTreeBytes(tree) > REPO_CLONE_MAX_CHECKOUT_KB * 1024,
+		true,
+	);
+	assert.equal(result.ok, false);
+	assert.equal(result.error, "too_large_for_native");
+	assert.equal(result.escalate, "workstation");
+	assert.equal(cloned, false, "no in-DO Git clone");
+	assert.equal(blobReads, 0, "no blob content downloaded");
+	assert.equal(written.size, 0, "nothing written to repo/");
+	assert.equal(treeReads, 2, "only tree metadata: size probe + selection");
+	assert.ok(resets >= 1, "repo/ is reset, never left half-replaced");
+	const selection = result.selection as {
+		fileCount: number;
+		totalBytes: number;
+		paths: Array<{ path: string; fileCount: number; bytes: number }>;
+	};
+	assert.equal(selection.fileCount, 8_483);
+	assert.equal(selection.paths[0]?.path, "packages");
+	assert.match(String(result.hint), /exact files/);
+	const fallback = (result.fallback as { result: Record<string, unknown> })
+		.result;
+	assert.equal(fallback.error, "too_many_files");
+	assert.equal(fallback.limit, REPO_LOAD_MAX_FILES);
+	assert.ok(
+		JSON.stringify(result).length < 4_000,
+		"the refusal itself stays small",
+	);
+	assert.ok(!JSON.stringify(result).includes(TEST_PAT));
+	console.log(
+		"✓ runRepoClone: broad monorepo paths → too_large_for_native + selection sizes, 0 blob reads, 0 writes",
+	);
+}
+
+// ── repo_load writes files as they arrive, not after buffering all ────────────
+
+{
+	const encPat = await encryptTediSecret(
+		TEST_MASTER_KEY,
+		TEST_TEDI_ID,
+		TEST_PAT,
+	);
+	const fileCount = 40;
+	let blobReads = 0;
+	let firstWriteAfterReads: number | null = null;
+	globalThis.fetch = async (input: RequestInfo | URL) => {
+		const url = typeof input === "string" ? input : input.toString();
+		if (url.includes("/git/trees/")) {
+			return jsonResponse({
+				truncated: false,
+				tree: Array.from({ length: fileCount }, (_, i) => ({
+					type: "blob",
+					path: `src/f${i}.ts`,
+					sha: `sha-${i}`,
+					size: 3,
+				})),
+			});
+		}
+		blobReads++;
+		await new Promise((resolve) => setTimeout(resolve, 1));
+		return jsonResponse({ content: btoa("abc"), encoding: "base64" });
+	};
+	const written = new Map<string, string>();
+	const deps = await happyDeps(written, encPat);
+	const result = (await runRepoLoad(
+		{
+			...deps,
+			writeFile: async (path, content) => {
+				firstWriteAfterReads ??= blobReads;
+				written.set(path, content);
+			},
+		},
+		{ tediId: TEST_TEDI_ID, paths: ["src"] },
+	)) as Record<string, unknown>;
+	assert.equal(result.ok, true);
+	assert.equal(result.fileCount, fileCount);
+	assert.equal(result.totalBytes, fileCount * 3);
+	assert.equal(written.size, fileCount);
+	assert.ok(
+		firstWriteAfterReads !== null && firstWriteAfterReads < fileCount,
+		`first write happens before all blobs are read (${firstWriteAfterReads})`,
+	);
+	console.log("✓ runRepoLoad: streams writes as blobs arrive");
 }
 
 console.log("\n✅ All repo-load tests passed");

@@ -20,6 +20,7 @@ import {
 	RepoNotFoundError,
 	RepoRateLimitError,
 	RepoSecondaryRateLimitError,
+	RepoSelectionTooLargeError,
 	RepoTreeTruncatedError,
 	RepoUnsafeRefError,
 } from "./repo-api";
@@ -92,6 +93,44 @@ export function mapRepoError(err: unknown): Record<string, unknown> {
 		};
 	}
 	return { ok: false, error: "repo_load_failed" };
+}
+
+class WorkspaceWriteError extends Error {
+	readonly name = "WorkspaceWriteError";
+}
+
+const SELECTION_TOO_LARGE_HINT =
+	"The selection exceeds the repo_load limits. Narrow it to the exact files you need (selection.paths lists the largest selectors), or use open_computer({ repository: true }) for a full checkout with native file tools.";
+
+/**
+ * Map a refused selection to repo_load's stable error codes, adding the
+ * per-path sizes so the caller can narrow the request.
+ */
+function selectionTooLargeResult(
+	err: RepoSelectionTooLargeError,
+	maxFiles: number,
+	written: number,
+): Record<string, unknown> {
+	const common = {
+		ok: false,
+		selection: err.selection,
+		hint: SELECTION_TOO_LARGE_HINT,
+		...(written > 0 ? { written } : {}),
+	};
+	if (err.reason === "file_count") {
+		return {
+			...common,
+			error: "too_many_files",
+			count: err.selection.fileCount,
+			limit: maxFiles,
+		};
+	}
+	return {
+		...common,
+		error: "batch_too_large",
+		totalBytes: err.selection.totalBytes,
+		limit: REPO_LOAD_MAX_TOTAL_BYTES,
+	};
 }
 
 /** Minimal dependencies required by runRepoLoad. */
@@ -238,9 +277,13 @@ export async function runRepoLoad(
 			? Math.min(Math.floor(inputMaxFiles), REPO_LOAD_MAX_FILES)
 			: REPO_LOAD_MAX_FILES;
 
-	// 7. Fetch files
-	let files: Array<{ path: string; content: string }>;
+	// 7. Measure the selection from tree metadata, refuse it before any blob is
+	// downloaded when it exceeds the caps, then stream each file straight to the
+	// workspace. Buffering a broad selection here (e.g. `apps` + `packages` of a
+	// large monorepo, hundreds of MB) exhausted the tedi DO's isolate memory.
+	let written: Array<{ path: string; bytes: number }> = [];
 	let skippedDirectories: string[] = [];
+	let writes = 0;
 	try {
 		const result = await loadRepoFilesResult({
 			owner,
@@ -248,52 +291,32 @@ export async function runRepoLoad(
 			ref,
 			token,
 			paths: validPaths,
+			maxFiles,
+			maxBytes: REPO_LOAD_MAX_TOTAL_BYTES,
+			onFile: async (file) => {
+				try {
+					await deps.writeFile(
+						`${REPO_LOAD_WORKSPACE_PREFIX}${file.path}`,
+						file.content,
+					);
+					writes++;
+				} catch {
+					throw new WorkspaceWriteError();
+				}
+			},
 		});
-		files = result.files;
+		written = result.loaded;
 		skippedDirectories = result.skippedDirectories;
 	} catch (err) {
+		if (err instanceof WorkspaceWriteError) {
+			return { ok: false, error: "workspace_write_failed", written: writes };
+		}
+		if (err instanceof RepoSelectionTooLargeError) {
+			return selectionTooLargeResult(err, maxFiles, writes);
+		}
 		return mapRepoError(err);
 	}
-
-	// 8. Enforce caps BEFORE any write
-	if (files.length > maxFiles) {
-		return {
-			ok: false,
-			error: "too_many_files",
-			count: files.length,
-			limit: maxFiles,
-		};
-	}
-
-	const enc = new TextEncoder();
-	let totalBytes = 0;
-	for (const f of files) {
-		totalBytes += enc.encode(f.content).byteLength;
-	}
-	if (totalBytes > REPO_LOAD_MAX_TOTAL_BYTES) {
-		return {
-			ok: false,
-			error: "batch_too_large",
-			totalBytes,
-			limit: REPO_LOAD_MAX_TOTAL_BYTES,
-		};
-	}
-
-	// 9. Write to workspace
-	const written: Array<{ path: string; bytes: number }> = [];
-	try {
-		for (const f of files) {
-			const wsPath = `${REPO_LOAD_WORKSPACE_PREFIX}${f.path}`;
-			await deps.writeFile(wsPath, f.content);
-			written.push({ path: f.path, bytes: enc.encode(f.content).byteLength });
-		}
-	} catch {
-		return {
-			ok: false,
-			error: "workspace_write_failed",
-			written: written.length,
-		};
-	}
+	const totalBytes = written.reduce((sum, file) => sum + file.bytes, 0);
 
 	const successResult: Record<string, unknown> = {
 		ok: true,
@@ -378,9 +401,12 @@ export const REPO_CLONE_VFS_DIR = "/workspace/repo";
  * a depth-1 working tree several-fold. The ceiling exists because the clone lands in the
  * Durable Object's ~128MB memory envelope and the container-side
  * filesystem is held in memory, so the quantity that matters is
- * materialised bytes, not history. Tunable.
+ * materialised bytes, not history. isomorphic-git holds the downloaded pack,
+ * its index and the inflated objects at once, and the isolate already carries
+ * the Worker bundle and every concurrent turn, so the ceiling stays at a
+ * quarter of the envelope rather than near it.
  */
-export const REPO_CLONE_MAX_CHECKOUT_KB = 100_000; // ~100 MB materialised
+export const REPO_CLONE_MAX_CHECKOUT_KB = 32_000; // ~32 MB materialised
 
 /** Why a repository was judged too large for the in-DO clone path. */
 export type RepoCheckoutOversizeReason = "tree_bytes" | "tree_truncated";
@@ -717,6 +743,11 @@ export async function runRepoClone(
 				await resetCloneDir();
 				return {
 					...oversizedClone,
+					// A refused selection carries per-path sizes; surface them so the
+					// caller narrows the paths instead of retrying the same request.
+					...(fallback.selection
+						? { selection: fallback.selection, hint: fallback.hint }
+						: {}),
 					fallback: { attempted: true, result: fallback },
 				};
 			} catch (err) {

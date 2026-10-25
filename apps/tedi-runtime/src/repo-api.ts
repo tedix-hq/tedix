@@ -81,6 +81,41 @@ export class RepoUnsafeRefError extends Error {
 	}
 }
 
+/** Size of one requested path selector, measured from tree metadata. */
+export interface RepoSelectionPathSize {
+	path: string;
+	fileCount: number;
+	bytes: number;
+}
+
+/** What a path selection would load, measured before any blob is fetched. */
+export interface RepoSelectionSummary {
+	fileCount: number;
+	totalBytes: number;
+	/** Largest selectors first, at most {@link REPO_SELECTION_BREAKDOWN_LIMIT}. */
+	paths: RepoSelectionPathSize[];
+}
+
+export const REPO_SELECTION_BREAKDOWN_LIMIT = 20;
+
+/**
+ * A path selection exceeds the caller's file or byte budget. Thrown from
+ * tree metadata before any blob is downloaded, or as soon as downloaded bytes
+ * pass the budget, so an over-broad selection never accumulates in memory.
+ */
+export class RepoSelectionTooLargeError extends Error {
+	readonly name = "RepoSelectionTooLargeError";
+	constructor(
+		readonly reason: "file_count" | "bytes",
+		readonly selection: RepoSelectionSummary,
+		readonly limits: { maxFiles?: number; maxBytes?: number },
+	) {
+		super(
+			`Repository path selection is too large (${selection.fileCount} files, ${selection.totalBytes} bytes)`,
+		);
+	}
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface RepoBlobRef {
@@ -110,6 +145,58 @@ interface LoadRepoFilesOptions {
 	ref: string;
 	token: string;
 	paths: string[];
+	/** Refuse, before any blob fetch, a selection with more files. */
+	maxFiles?: number;
+	/** Refuse a selection whose blob bytes exceed this budget. */
+	maxBytes?: number;
+	/**
+	 * Receive each file as it is downloaded. When set, file contents are not
+	 * retained in the result, so at most the in-flight blobs are held in memory.
+	 */
+	onFile?: (file: { path: string; content: string }) => Promise<void>;
+}
+
+/** Normalize a caller path selector: no leading `./` or trailing slashes. */
+function normalizeSelector(selector: string): string {
+	return selector.trim().replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+/**
+ * True when `filePath` is the selected file or lies under the selected
+ * directory. Matching is per path segment, so `apps` never selects `apps-old/`.
+ */
+export function repoPathSelected(filePath: string, selector: string): boolean {
+	const normalized = normalizeSelector(selector);
+	if (!normalized) return true;
+	return filePath === normalized || filePath.startsWith(`${normalized}/`);
+}
+
+/** Measure a selection from blob metadata (no contents). */
+export function summarizeRepoSelection(
+	blobs: RepoBlobRef[],
+	paths: string[],
+): RepoSelectionSummary {
+	const perPath = paths.map((path) => ({
+		path: normalizeSelector(path),
+		fileCount: 0,
+		bytes: 0,
+	}));
+	let totalBytes = 0;
+	for (const blob of blobs) {
+		totalBytes += blob.size;
+		for (const entry of perPath) {
+			if (!repoPathSelected(blob.path, entry.path)) continue;
+			entry.fileCount++;
+			entry.bytes += blob.size;
+		}
+	}
+	return {
+		fileCount: blobs.length,
+		totalBytes,
+		paths: perPath
+			.sort((a, b) => b.bytes - a.bytes || b.fileCount - a.fileCount)
+			.slice(0, REPO_SELECTION_BREAKDOWN_LIMIT),
+	};
 }
 
 // ── URL-safety helpers ────────────────────────────────────────────────────────
@@ -291,7 +378,10 @@ export async function readRepoBlob({
 
 /** Result from `loadRepoFilesResult`. */
 export interface LoadRepoFilesResult {
+	/** Loaded contents; empty when the caller streamed them through `onFile`. */
 	files: Array<{ path: string; content: string }>;
+	/** Every delivered file with its decoded UTF-8 byte length. */
+	loaded: Array<{ path: string; bytes: number }>;
 	/** Directory paths that were skipped (truncated-tree Contents API fallback). */
 	skippedDirectories: string[];
 }
@@ -299,6 +389,13 @@ export interface LoadRepoFilesResult {
 /**
  * Convenience: load the tree for `paths`, then fetch all matching blobs with
  * bounded concurrency (~6 in-flight at a time).
+ *
+ * The selection is measured from tree metadata first: with `maxFiles` or
+ * `maxBytes`, an over-broad selection is refused before any blob is fetched,
+ * and downloaded bytes are re-checked as they arrive. With `onFile`, contents
+ * are handed off one by one instead of accumulated. Both matter in a Durable
+ * Object: a broad selector such as `packages` on a large monorepo selects
+ * hundreds of megabytes, which exhausts the isolate if buffered.
  *
  * Returns both the loaded files and any directory paths that were skipped
  * (only possible when the tree is truncated and a path resolves to a directory).
@@ -313,6 +410,9 @@ export async function loadRepoFilesResult({
 	ref,
 	token,
 	paths,
+	maxFiles,
+	maxBytes,
+	onFile,
 }: LoadRepoFilesOptions): Promise<LoadRepoFilesResult> {
 	// For truncated trees we need skippedDirectories; go through the lower-level
 	// resolvePathsViaContents directly. For non-truncated trees, skippedDirectories
@@ -329,68 +429,114 @@ export async function loadRepoFilesResult({
 		}>;
 	}
 
-	let data: TreeResponse;
-	try {
-		data = await ghFetch<TreeResponse>(url, token);
-	} catch (err) {
-		if (err instanceof RepoNotFoundError) {
-			throw new RepoNotFoundError(owner, repo);
-		}
-		throw err;
-	}
-
 	let blobs: RepoBlobRef[];
 	let skippedDirectories: string[] = [];
+	{
+		// Scoped so the parsed tree (megabytes on a large monorepo) is released
+		// before blob downloads start.
+		let data: TreeResponse;
+		try {
+			data = await ghFetch<TreeResponse>(url, token);
+		} catch (err) {
+			if (err instanceof RepoNotFoundError) {
+				throw new RepoNotFoundError(owner, repo);
+			}
+			throw err;
+		}
 
-	if (data.truncated) {
-		if (!paths || paths.length === 0) {
-			throw new RepoTreeTruncatedError(owner, repo, ref);
-		}
-		const resolved = await resolvePathsViaContents({
-			owner,
-			repo,
-			ref,
-			token,
-			paths,
-		});
-		blobs = resolved.blobs;
-		skippedDirectories = resolved.skippedDirectories;
-	} else {
-		const allBlobs = data.tree.filter(
-			(e): e is typeof e & { path: string } =>
-				e.type === "blob" && typeof e.path === "string",
-		);
-		if (!paths || paths.length === 0) {
-			blobs = allBlobs.map((e) => ({
-				path: e.path,
-				sha: e.sha,
-				size: e.size ?? 0,
-			}));
+		if (data.truncated) {
+			if (!paths || paths.length === 0) {
+				throw new RepoTreeTruncatedError(owner, repo, ref);
+			}
+			const resolved = await resolvePathsViaContents({
+				owner,
+				repo,
+				ref,
+				token,
+				paths,
+			});
+			blobs = resolved.blobs;
+			skippedDirectories = resolved.skippedDirectories;
 		} else {
-			blobs = allBlobs
-				.filter((e) => paths.some((prefix) => e.path.startsWith(prefix)))
-				.map((e) => ({ path: e.path, sha: e.sha, size: e.size ?? 0 }));
+			blobs = [];
+			for (const e of data.tree) {
+				if (e.type !== "blob" || typeof e.path !== "string") continue;
+				if (
+					paths &&
+					paths.length > 0 &&
+					!paths.some((selector) => repoPathSelected(e.path!, selector))
+				)
+					continue;
+				blobs.push({ path: e.path, sha: e.sha, size: e.size ?? 0 });
+			}
 		}
+	}
+
+	const limits = { maxFiles, maxBytes };
+	const declaredBytes = blobs.reduce((sum, blob) => sum + blob.size, 0);
+	if (maxFiles !== undefined && blobs.length > maxFiles) {
+		throw new RepoSelectionTooLargeError(
+			"file_count",
+			summarizeRepoSelection(blobs, paths ?? []),
+			limits,
+		);
+	}
+	if (maxBytes !== undefined && declaredBytes > maxBytes) {
+		throw new RepoSelectionTooLargeError(
+			"bytes",
+			summarizeRepoSelection(blobs, paths ?? []),
+			limits,
+		);
 	}
 
 	const CONCURRENCY = 6;
+	const encoder = new TextEncoder();
 	const files: Array<{ path: string; content: string }> = [];
+	const loaded: Array<{ path: string; bytes: number }> = [];
 	const queue = [...blobs];
+	let loadedBytes = 0;
+	let failure: unknown = null;
 
 	async function worker() {
-		while (queue.length > 0) {
+		while (queue.length > 0 && failure === null) {
 			const blob = queue.shift();
 			if (!blob) break;
-			const content = await readRepoBlob({ owner, repo, sha: blob.sha, token });
-			files.push({ path: blob.path, content });
+			try {
+				const content = await readRepoBlob({
+					owner,
+					repo,
+					sha: blob.sha,
+					token,
+				});
+				if (failure !== null) return;
+				const bytes = encoder.encode(content).byteLength;
+				loadedBytes += bytes;
+				// Declared sizes come from GitHub metadata; never trust them past
+				// the budget once real bytes arrive.
+				if (maxBytes !== undefined && loadedBytes > maxBytes) {
+					const summary = summarizeRepoSelection(blobs, paths ?? []);
+					throw new RepoSelectionTooLargeError(
+						"bytes",
+						{ ...summary, totalBytes: Math.max(loadedBytes, declaredBytes) },
+						limits,
+					);
+				}
+				if (onFile) await onFile({ path: blob.path, content });
+				else files.push({ path: blob.path, content });
+				loaded.push({ path: blob.path, bytes });
+			} catch (err) {
+				failure ??= err;
+				return;
+			}
 		}
 	}
 
 	await Promise.all(
 		Array.from({ length: Math.min(CONCURRENCY, blobs.length || 1) }, worker),
 	);
+	if (failure !== null) throw failure;
 
-	return { files, skippedDirectories };
+	return { files, loaded, skippedDirectories };
 }
 
 // ── Phase 2: write API ─────────────────────────────────────────────────────────
