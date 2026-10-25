@@ -3115,7 +3115,10 @@ describe("<ChatThread> skill picker", () => {
 	function skillMenuItem() {
 		return [
 			...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-		].find((item) => item.textContent === "Use a skill…");
+		].find(
+			(item) =>
+				item.querySelector("span.block")?.textContent === "Use a skill…",
+		);
 	}
 
 	it("opens the existing picker from the menu with focused search and inserts the slash reference", async () => {
