@@ -135,7 +135,7 @@ export async function readChildRunEvidenceRows(
 	let eventReadAvailable = true;
 	const readEventRows = (async () => {
 		try {
-			return await withTransientD1Retry(() =>
+			const rows = await withTransientD1Retry(() =>
 				listTediRuntimeEvents(context.db, {
 					organizationId: input.organizationId,
 					tediId: input.tediId,
@@ -144,6 +144,32 @@ export async function readChildRunEvidenceRows(
 					limit: input.eventLimit,
 				}),
 			);
+			// Late tool events can push a terminal receipt out of the activity page.
+			const terminalKinds = [
+				"run.completed",
+				"run.failed",
+				"run.canceled",
+			] as const;
+			if (
+				input.eventLimit > 0 &&
+				rows.length >= input.eventLimit &&
+				!rows.some((row) => terminalKinds.some((kind) => kind === row.kind))
+			) {
+				const terminalRows = await withTransientD1Retry(() =>
+					listTediRuntimeEvents(context.db, {
+						organizationId: input.organizationId,
+						tediId: input.tediId,
+						runIds: observedRunIds,
+						kinds: terminalKinds,
+						order: "desc",
+						limit: 1,
+					}),
+				);
+				return [...rows, ...terminalRows].sort((a, b) =>
+					b.createdAt.localeCompare(a.createdAt),
+				);
+			}
+			return rows;
 		} catch (error) {
 			if (!shouldFailSoftChildEvidenceRead(error)) throw error;
 			eventReadAvailable = false;

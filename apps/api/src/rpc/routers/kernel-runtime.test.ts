@@ -1366,4 +1366,49 @@ describe("kernel runtime router: core", () => {
 			"home-retry-1:assistant",
 		]);
 	});
+	it("readRun settles a child failure hidden behind a full page of later activity", async () => {
+		const db = createKernelRuntimeDb();
+		const context = createContext(db);
+		const client = createKernelRuntimeClient(context);
+		kernelRuntimeTestHooks.setDelegateRunnerForTest(async (input) => ({
+			childConversationId: "agent:main:main",
+			childRunId: input.childRunId,
+			status: "queued",
+		}));
+		const result = await client.enqueueMessage({
+			conversationId: "home:test",
+			content: "Ask CPO",
+			delegateToTediId: "tedi-cpo",
+			idempotencyKey: "home-hidden-failure",
+		});
+		await Promise.all(context.waitUntilPromises);
+		const childRunId = db.runs.find(
+			(run) => run.id === result.run.id,
+		)?.childRunId;
+		if (!childRunId) throw new Error("Delegation did not bind a child run");
+		db.runtimeEvents.push(
+			childRuntimeEvent({
+				id: "hidden-failure",
+				createdAt: "2026-06-06T08:01:00.000Z",
+				kind: "run.failed",
+				payload: { error: "The worker stopped." },
+				runId: childRunId,
+				tediId: "tedi-cpo",
+			}),
+			...Array.from({ length: 30 }, (_, index) =>
+				childRuntimeEvent({
+					id: `late-tool-${index}`,
+					createdAt: "2026-06-06T08:02:00.000Z",
+					kind: "tool.completed",
+					payload: { name: "read" },
+					runId: childRunId,
+					tediId: "tedi-cpo",
+				}),
+			),
+		);
+		const { run } = await client.readRun({ runId: result.run.id });
+		expect(run.status).toBe("failed");
+		expect(run.metadata?.childRunStatus).toBe("failed");
+		expect(run.progress?.label).toBe("Failed");
+	});
 });
