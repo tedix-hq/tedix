@@ -21,6 +21,7 @@ import {
 	isMethodAllowed,
 } from "@tedix/api-contract/utils/skill-manifest";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { collectBoundedMcpList } from "@tedix/mcp-shared/bounded-list";
 import { buildMcpParamHeaders } from "@tedix/mcp-shared/mcp-param-headers";
 import { pollMcpTask } from "@tedix/mcp-shared/task-polling";
 import { extractMcpTaskId } from "@tedix/mcp-shared/tasks";
@@ -65,6 +66,7 @@ import {
 // step; this only catches a genuinely hung outbound call. Kept just under the
 // dispatch-shim BRIDGE_CALL_TIMEOUT_MS (240s) so the inner abort fires first.
 const MCP_BRIDGE_TIMEOUT_MS = 180_000;
+const MCP_BRIDGE_TOOL_LIST_MAX_PAGES = 5;
 
 /** Props attached to a tenant-specific {@link McpBridge} stub. */
 export interface McpBridgeProps {
@@ -605,9 +607,29 @@ async function executeMcpTool(
 	};
 
 	const toolArgs = isRecord(params.arguments) ? params.arguments : {};
+	const loadToolsList = async () => {
+		const listed = await collectBoundedMcpList<unknown>(
+			async (cursor) => {
+				const { text, contentType } = await postJsonRpc({
+					jsonrpc: "2.0" as const,
+					id: crypto.randomUUID(),
+					method: "tools/list",
+					params: cursor === undefined ? {} : { cursor },
+				});
+				const result = unwrapJsonRpcResult(text, contentType);
+				const record = isRecord(result) ? result : {};
+				return {
+					items: Array.isArray(record.tools) ? record.tools : [],
+					nextCursor: record.nextCursor,
+				};
+			},
+			{ maxPages: MCP_BRIDGE_TOOL_LIST_MAX_PAGES },
+		);
+		return listed.truncated ? null : listed.items;
+	};
 	const loadParamSchema = async (name: string) => {
 		let cursor: unknown;
-		for (let page = 0; page < 5; page++) {
+		for (let page = 0; page < MCP_BRIDGE_TOOL_LIST_MAX_PAGES; page++) {
 			const { text, contentType } = await postJsonRpc({
 				jsonrpc: "2.0" as const,
 				id: crypto.randomUUID(),
@@ -841,15 +863,10 @@ async function executeMcpTool(
 		if (isToolNotFoundError(error, toolName) || mappedAppMissingMethod) {
 			let resolvedToolName: string | null = null;
 			try {
-				const { text, contentType } = await postJsonRpc({
-					jsonrpc: "2.0" as const,
-					id: crypto.randomUUID(),
-					method: "tools/list",
-				});
-				resolvedToolName = selectMcpToolNameFromList(
-					toolName,
-					unwrapJsonRpcResult(text, contentType),
-				);
+				const tools = await loadToolsList();
+				if (tools) {
+					resolvedToolName = selectMcpToolNameFromList(toolName, { tools });
+				}
 			} catch (listError) {
 				logSkillRuntimeWarning("mcp_bridge.tool_list_fallback_failed", {
 					caught: listError,

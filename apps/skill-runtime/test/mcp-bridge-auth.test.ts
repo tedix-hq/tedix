@@ -133,8 +133,9 @@ test("typed credential miss crosses RPC and continuation pins the selected accou
 	assert.deepEqual(normal, { __tedixMcpResult: true, value: { ok: true } });
 });
 
-test("a bare method on a single-app wrapper resolves to its prefixed wire name", async () => {
+test("a bare method on a single-app wrapper resolves a page-two prefixed wire name", async () => {
 	const calls: Array<{ host: string; method: string; name?: string }> = [];
+	const listCursors: Array<string | undefined> = [];
 	const wrapperEnv = {
 		MCP_SERVICE: {
 			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -142,7 +143,7 @@ test("a bare method on a single-app wrapper resolves to its prefixed wire name",
 				const body = (await request.json()) as {
 					id: string;
 					method: string;
-					params?: { name?: string };
+					params?: { name?: string; cursor?: string };
 				};
 				calls.push({
 					host: new URL(request.url).hostname,
@@ -153,15 +154,22 @@ test("a bare method on a single-app wrapper resolves to its prefixed wire name",
 				// programmatic bare call materializes no tool, so the SDK server has
 				// no tools/call handler at all and answers -32601.
 				if (body.method === "tools/list") {
+					listCursors.push(body.params?.cursor);
 					return Response.json({
 						jsonrpc: "2.0",
 						id: body.id,
-						result: {
-							tools: [
-								{ name: "planetscale__planetscale_execute_read_query" },
-								{ name: "planetscale__planetscale_list_databases" },
-							],
-						},
+						result: body.params?.cursor
+							? {
+									tools: [
+										{
+											name: "planetscale__planetscale_execute_read_query",
+										},
+									],
+								}
+							: {
+									tools: [{ name: "planetscale__planetscale_list_databases" }],
+									nextCursor: "page-2",
+								},
 					});
 				}
 				if (
@@ -201,6 +209,7 @@ test("a bare method on a single-app wrapper resolves to its prefixed wire name",
 	);
 
 	assert.deepEqual(result, { __tedixMcpResult: true, value: { rows: [] } });
+	assert.deepEqual(listCursors, [undefined, "page-2"]);
 	assert.deepEqual(calls, [
 		{
 			host: "planetscale-acme.mcp.tedix.dev",
@@ -214,9 +223,97 @@ test("a bare method on a single-app wrapper resolves to its prefixed wire name",
 		},
 		{
 			host: "planetscale-acme.mcp.tedix.dev",
+			method: "tools/list",
+			name: undefined,
+		},
+		{
+			host: "planetscale-acme.mcp.tedix.dev",
 			method: "tools/call",
 			name: "planetscale__planetscale_execute_read_query",
 		},
+	]);
+});
+
+test("prefixed recovery rejects matches that are ambiguous across pages", async () => {
+	const calls: string[] = [];
+	const wrapperEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const request = new Request(input, init);
+				const body = (await request.json()) as {
+					id: string;
+					method: string;
+					params?: { name?: string; cursor?: string };
+				};
+				calls.push(
+					body.method === "tools/list"
+						? `list:${body.params?.cursor ?? "first"}`
+						: `call:${body.params?.name ?? ""}`,
+				);
+				if (body.method === "tools/list") {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: body.params?.cursor
+							? {
+									tools: [{ name: "second__planetscale_execute_read_query" }],
+								}
+							: {
+									tools: [{ name: "first__planetscale_execute_read_query" }],
+									nextCursor: "page-2",
+								},
+					});
+				}
+				if (body.params?.name === "code") {
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: {
+							content: [
+								{
+									type: "text",
+									text: '{"executionId":"e1","result":{"via":"code"}}',
+								},
+							],
+						},
+					});
+				}
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					error: { code: -32601, message: "Method not found" },
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+
+	const result = await callMcpTool(
+		wrapperEnv,
+		{
+			...props,
+			manifest: {
+				...manifest,
+				mcp: { planetscale_acme: ["planetscale_execute_read_query"] },
+			},
+			namespaceToSlug: { planetscale_acme: "planetscale-acme" },
+		},
+		{
+			namespace: "planetscale_acme",
+			method: "planetscale_execute_read_query",
+			args: { query: "select 1" },
+			workflow,
+		},
+	);
+
+	assert.deepEqual(result, {
+		__tedixMcpResult: true,
+		value: { via: "code" },
+	});
+	assert.deepEqual(calls, [
+		"call:planetscale_execute_read_query",
+		"list:first",
+		"list:page-2",
+		"call:code",
 	]);
 });
 
