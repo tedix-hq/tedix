@@ -53,6 +53,130 @@ export function renameThisConversationArgs(
 	return title && title.length <= 200 ? { conversationId, title } : null;
 }
 
+/** "Rename the app to X": the noun phrase before "to" names the target. */
+const RENAME_TARGET_RE =
+	/\b(?:re-?name|re-?title)\b\s*(.{0,120}?)\s+(?:to|as)\s+([^\n]+)/i;
+/** Targets with their own rename tools, never a workspace app or output. */
+const OTHER_RENAME_TARGET_RE =
+	/\b(?:conversation|chat|thread|work ?items?|tasks?|tickets?|issues?|projects?|objectives?|tedis?|factory|factories|skills?|workflows?|agents?|resources?|connections?|files?)\b/i;
+/** "Rename the workspace" renames the workspace, not its selected app. */
+const WORKSPACE_TARGET_RE = /^workspace\b/i;
+const GADGET_TARGET_RE = /\b(?:apps?|gadgets?|widgets?)\b/i;
+const OUTPUT_TARGET_RE =
+	/\b(?:outputs?|docs?|documents?|sheets?|spreadsheets?|decks?|slides?|presentations?)\b/i;
+const SELECTED_TARGET_RE = /^(?:it|this|this one|that|that one)?$/i;
+/** Capabilities a router emits for renaming a workspace app or output. */
+const GADGET_RENAME_CAPABILITY_RE =
+	/^(?:os_)?(?:gadgets?|apps?|widgets?|workspace_apps?|workspace_gadgets?)\.(?:rename|update)$/;
+const OUTPUT_RENAME_CAPABILITY_RE =
+	/^(?:os_)?(?:outputs?|workspace_outputs?)\.(?:rename|update)$/;
+
+export const RENAME_GADGET_TOOL = "os.rename_os_gadget";
+export const RENAME_OUTPUT_TOOL = "os.rename_os_output";
+
+/** The Workspace selection a write turn carries (ids already tenant-validated). */
+export interface SelectedWorkpieceContext {
+	workspaceId: string;
+	workpiece?: { kind: "gadget" | "output"; id: string; name?: string };
+}
+
+export type WorkpieceRenameIntent =
+	| {
+			capability: "gadgets.rename";
+			toolName: typeof RENAME_GADGET_TOOL;
+			args: { workspaceId: string; gadgetId: string; name: string };
+	  }
+	| {
+			capability: "outputs.rename";
+			toolName: typeof RENAME_OUTPUT_TOOL;
+			args: { outputId: string; title: string };
+	  };
+
+/**
+ * "Rename the app to X" in a Workspace chat whose selected workpiece is that
+ * app (or output) is one direct rename: the target is the selection and the
+ * name is the request's own words. Null for any other target, an external
+ * provider, or a selection of the other kind.
+ */
+export function workpieceRenameIntent(
+	content: string,
+	workspaceContext: SelectedWorkpieceContext | null | undefined,
+): WorkpieceRenameIntent | null {
+	const workpiece = workspaceContext?.workpiece;
+	if (!workspaceContext?.workspaceId || !workpiece?.id) return null;
+	// The title ends at the line end; host context markers lead the request.
+	const request = content
+		.replace(/^(?:\s*\[\[tedix-context:[^\]\r\n]*\]\])+\s*/, "")
+		.trim();
+	const match = RENAME_TARGET_RE.exec(request);
+	if (!match) return null;
+	const target = (match[1] ?? "")
+		.replace(/^(?:the|this|our|my|current|selected)\s+/i, "")
+		.trim();
+	if (
+		OTHER_RENAME_TARGET_RE.test(target) ||
+		WORKSPACE_TARGET_RE.test(target) ||
+		EXTERNAL_OFFICE_PROVIDER_RE.test(target)
+	)
+		return null;
+	const kind = GADGET_TARGET_RE.test(target)
+		? "gadget"
+		: OUTPUT_TARGET_RE.test(target)
+			? "output"
+			: SELECTED_TARGET_RE.test(target)
+				? workpiece.kind
+				: null;
+	if (kind !== workpiece.kind) return null;
+	const name = match[2]
+		?.trim()
+		.replace(/\.$/, "")
+		.replace(/^["“'‘](.*)["”'’]$/, "$1")
+		.trim();
+	if (!name || name.length > 120) return null;
+	return kind === "gadget"
+		? {
+				capability: "gadgets.rename",
+				toolName: RENAME_GADGET_TOOL,
+				args: {
+					workspaceId: workspaceContext.workspaceId,
+					gadgetId: workpiece.id,
+					name,
+				},
+			}
+		: {
+				capability: "outputs.rename",
+				toolName: RENAME_OUTPUT_TOOL,
+				args: { outputId: workpiece.id, title: name },
+			};
+}
+
+/**
+ * The router's capability is a free-text guess: live it labelled "rename the
+ * app gadget" as `work_items.create`, which forced the Work-creation tool and
+ * failed. A request that is exactly a rename of the selected workpiece takes
+ * that rename capability whatever the router wrote.
+ */
+export function correctWriteRoute<
+	T extends {
+		routeKind: string;
+		toolIntent?: { capability?: string | null } | null;
+	},
+>(
+	route: T,
+	content: string,
+	workspaceContext: SelectedWorkpieceContext | null | undefined,
+): T {
+	if (route.routeKind !== "propose_tool_write" || !route.toolIntent)
+		return route;
+	const rename = workpieceRenameIntent(content, workspaceContext);
+	if (!rename || route.toolIntent.capability === rename.capability)
+		return route;
+	return {
+		...route,
+		toolIntent: { ...route.toolIntent, capability: rename.capability },
+	};
+}
+
 /**
  * The one canonical write primitive for a routed capability, when there is
  * one. A name without a namespace matches any callable ending in `.<name>`.
@@ -85,6 +209,14 @@ export function canonicalWriteToolName(
 		if (capability === "documents.patch") return "os.patch_os_document";
 		if (capability === "sheets.set_range") return "os.set_os_sheet_range";
 		if (capability === "presentations.patch") return "os.patch_os_slides";
+	}
+	if (
+		capability &&
+		RENAME_REQUEST_RE.test(content) &&
+		!EXTERNAL_OFFICE_PROVIDER_RE.test(content)
+	) {
+		if (GADGET_RENAME_CAPABILITY_RE.test(capability)) return RENAME_GADGET_TOOL;
+		if (OUTPUT_RENAME_CAPABILITY_RE.test(capability)) return RENAME_OUTPUT_TOOL;
 	}
 	if (capability === "factories.create") return "projects.create_factory";
 	if (capability === "factories.pause") return "projects.pause_factory";

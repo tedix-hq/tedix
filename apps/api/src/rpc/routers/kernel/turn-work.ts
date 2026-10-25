@@ -110,6 +110,7 @@ import {
 	renderWriteDeclined,
 	type WriteProposalEnv,
 } from "./write-proposal";
+import { correctWriteRoute } from "./write-tool-intent";
 
 /** Explicit or run-stamped parent tedi of a nested delegation. */
 function readParentTediId(...sources: Array<unknown>): string | null {
@@ -942,6 +943,17 @@ export async function runKernelTurnWork(
 			delegation: null,
 			assistantContent: `A delegation to ${label} is already waiting for a decision on the existing card. No additional request was dispatched. To change the request, reject that card first, then describe the updated task.`,
 		};
+	}
+	// A plain rename of the selected app or output keeps its rename capability
+	// on the persisted route, whatever capability the router guessed.
+	if (kernelResult?.route) {
+		const correctedRoute = correctWriteRoute(
+			kernelResult.route,
+			content,
+			workspaceContext,
+		);
+		if (correctedRoute !== kernelResult.route)
+			kernelResult = { ...kernelResult, route: correctedRoute };
 	}
 	stageTimings.mark("routePlanEnded");
 	// The streamed pass is over: persist the trailing answer/rationale partial

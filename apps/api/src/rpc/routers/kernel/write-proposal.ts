@@ -41,6 +41,8 @@ import {
 	OUTPUT_EDIT_CAPABILITY_RE,
 	preferredToolForCapability,
 	renameThisConversationArgs,
+	correctWriteRoute,
+	workpieceRenameIntent,
 } from "./write-tool-intent";
 import {
 	isWriteCapable,
@@ -81,7 +83,10 @@ import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { CreateFactoryResultSchema } from "@tedix/api-contract/schemas/factories";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
-import { readWorkCreateProjects } from "./work-create-projects";
+import {
+	readWorkCreateProjects,
+	workspaceDefaultProjectId,
+} from "./work-create-projects";
 import {
 	readOpenWorkRequests,
 	renderOpenWorkRequests,
@@ -102,6 +107,14 @@ import {
 	writeDiscoveryQuery,
 } from "./write-codemode";
 import { planDocumentCreate } from "./document-create-plan";
+
+/** Any of these places new Work; without one, creation has no purpose context. */
+const WORK_DESTINATION_KEYS = [
+	"projectId",
+	"objectiveId",
+	"parentWorkItemId",
+	"workClass",
+] as const;
 
 export interface WriteProposalEnv extends JevActionEnv {
 	MCP_SERVICE?: {
@@ -439,7 +452,6 @@ export async function planKernelWriteProposal(args: {
 		db,
 		env,
 		organizationId,
-		route,
 		actingUserId,
 		content,
 		model,
@@ -449,7 +461,15 @@ export async function planKernelWriteProposal(args: {
 		args.onDecline?.(declined);
 		return null;
 	};
-	if (route.routeKind !== "propose_tool_write") return null;
+	if (args.route.routeKind !== "propose_tool_write") return null;
+	const route = correctWriteRoute(
+		args.route,
+		content ?? "",
+		args.workspaceContext,
+	);
+	const workpieceRename = content
+		? workpieceRenameIntent(content, args.workspaceContext)
+		: null;
 	const draftSaveTarget = content
 		? outputDraftSaveTarget(content, args.workspaceContext)
 		: null;
@@ -785,6 +805,16 @@ export async function planKernelWriteProposal(args: {
 					workspaceId: args.workspaceContext?.workspaceId,
 				}).catch(() => null)
 			: null;
+		// Work created from a workspace linked to one project lands in that
+		// project when the operator gave no other destination.
+		const defaultProjectId = workspaceDefaultProjectId(workProjects);
+		const fillWorkDestination =
+			defaultProjectId && exactTool.inputSchema.properties?.projectId
+				? (planned: Record<string, unknown>) =>
+						WORK_DESTINATION_KEYS.some((key) => planned[key])
+							? planned
+							: { ...planned, projectId: defaultProjectId }
+				: undefined;
 		// A plain "rename this conversation to X" needs no model: the target is
 		// the current conversation and the title is the request's own words.
 		const renameArgs =
@@ -792,7 +822,16 @@ export async function planKernelWriteProposal(args: {
 			exactTool.inputSchema.properties?.conversationId &&
 			exactTool.inputSchema.properties?.title
 				? renameThisConversationArgs(content, args.gatewayContext?.sessionKey)
-				: null;
+				: workpieceRename &&
+					  matchesCanonicalWriteTool(
+							exactTool.name,
+							workpieceRename.toolName,
+					  ) &&
+					  Object.keys(workpieceRename.args).every(
+							(key) => exactTool?.inputSchema?.properties?.[key],
+					  )
+					? workpieceRename.args
+					: null;
 		// A card verdict names its row and columns exactly; compute them from
 		// the sheet instead of asking a model for coordinates.
 		const cardArgs =
@@ -809,7 +848,10 @@ export async function planKernelWriteProposal(args: {
 			? {
 					toolName: exactTool.name,
 					args: renameArgs,
-					reasoning: "Rename the current conversation as asked.",
+					reasoning:
+						renameArgs === workpieceRename?.args
+							? "Rename the selected workspace item as asked."
+							: "Rename the current conversation as asked.",
 				}
 			: cardArgs
 				? {
@@ -844,6 +886,7 @@ export async function planKernelWriteProposal(args: {
 							organizationId,
 							source: "write_proposal",
 						}),
+						fillMissing: fillWorkDestination,
 						onFailure: (reason) => {
 							argumentFailure = reason;
 						},

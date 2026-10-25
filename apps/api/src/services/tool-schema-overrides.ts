@@ -182,6 +182,7 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/gadgets/get": "get_os_gadget",
 	"osWorkspaces/gadgets/revise": "revise_os_gadget",
 	"osWorkspaces/gadgets/archive": "archive_os_gadget",
+	"osWorkspaces/gadgets/rename": "rename_os_gadget",
 	"osWorkspaces/gadgets/run": "run_os_gadget",
 	"osWorkspaces/gadgets/delete": "delete_os_gadget",
 	"osWorkspaces/executions/list": "list_os_gadget_executions",
@@ -290,6 +291,7 @@ export const OS_KIND_OVERRIDES: Record<
 	"osWorkspaces/gadgets/get": "read",
 	"osWorkspaces/gadgets/revise": "write",
 	"osWorkspaces/gadgets/archive": "write",
+	"osWorkspaces/gadgets/rename": "write",
 	// A Gadget run dispatches a governed skill that may exercise granted tools.
 	// The MCP annotation must communicate that effect even though admission can
 	// still return a denied receipt without executing.

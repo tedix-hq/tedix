@@ -905,6 +905,16 @@ export const osWorkspacesContract = oc
 				})
 				.input(gadgetIdInput)
 				.output(z.object({ gadget: OsGadgetSchema })),
+			rename: oc
+				.route({
+					method: "PATCH",
+					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}",
+					summary: "Rename a Tedix OS app",
+					description:
+						"Updates only the app's display name; revisions, manifest, and status remain unchanged.",
+				})
+				.input(gadgetIdInput.extend({ name: nameSchema }))
+				.output(z.object({ gadget: OsGadgetSchema })),
 			run: oc
 				.route({
 					method: "POST",
