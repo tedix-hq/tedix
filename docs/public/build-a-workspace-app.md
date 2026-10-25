@@ -20,11 +20,12 @@ A workspace app (called a gadget in code and in API names) is a versioned
 record in one Workspace. Its manifest says what the app is; its revisions are
 append-only. There are three kinds of app, chosen by the manifest `entry`:
 
-| `entry`                         | What renders                                             |
-| ------------------------------- | -------------------------------------------------------- |
-| `tedix:app/<id>`                | A built-in OS app, rendered first-party with no iframe   |
-| `ui://widgets/mcp-app/<slug>/…` | An MCP App widget, rendered in the sandboxed widget host |
-| a skill slug (or `skillSlug`)   | A governed skill run from the app's **Runs** view        |
+| `entry`                         | What renders                                                    |
+| ------------------------------- | --------------------------------------------------------------- |
+| `tedix:app/<id>`                | A built-in OS app, rendered first-party with no iframe          |
+| `tedix:runtime/v1`              | An app with its own code: `client.js` in the sandbox, see below |
+| `ui://widgets/mcp-app/<slug>/…` | An MCP App widget, rendered in the sandboxed widget host        |
+| a skill slug (or `skillSlug`)   | A governed skill run from the app's **Runs** view               |
 
 A built-in app keeps every tenant choice in the manifest `config`, never in
 code. The OS validates `config` against the app's schema when a revision is
@@ -600,6 +601,49 @@ protected action. The stored reply receipt names the supporting signals.
 leaves the measured edit intact. Outbound review, reply drafting and Home
 writing read learned preferences before generating text. The Outbound style
 profile includes the learned writing preferences.
+
+## An app with its own code
+
+An app whose `entry` is `tedix:runtime/v1` is a program, not a setting. Its
+files travel with the revision: `revise_os_gadget` takes `files`
+(`server.js`, `client.js`, optional `.js`, `.json` or `.txt` files, under
+512,000 characters together) beside the manifest, and `get_os_gadget_code`
+reads them back for the current or a named revision. The manifest keeps what
+the app may touch, never the code:
+
+```json
+{
+	"entry": "tedix:runtime/v1",
+	"resourceGrants": [
+		{ "slot": "opportunities", "operations": ["outputs.read"] }
+	],
+	"config": {
+		"version": 1,
+		"settings": { "slot": "opportunities", "reviewer": "Maya" }
+	}
+}
+```
+
+A slot names a workspace resource with `providerId` `tedix` and
+`resourceType` `output`; its `providerResourceId` is the Output the app may
+read. Settings are the tenant's data (which sheet, which columns, who
+reviews). The same files run in every workspace that binds the slot.
+
+`client.js` runs in the OS sandbox with no network and no origin of its
+own. Its only door is `tedix.call(method, args)`:
+
+- `context` returns `{ workspaceId, gadget, role, settings, grants }`.
+- `outputs.read` with `{ slot }` returns the bound Output's content.
+- `app.call` reaches the app's own `server.js` instance once the app host
+  is running in the workspace; until then it answers `host_unavailable`.
+
+The role comes from opening the workspace as the signed-in person: the
+owner and `build` collaborators may read and write what the manifest
+grants; `use` may run the app and read; anyone else gets nothing. Every
+call is checked against one role x operation table
+(`@tedix/api-contract/utils/app-runtime`), so a missing grant or a weaker
+role is refused before anything is read. The **Code** view lists the files
+next to `manifest.json` and `README.md`.
 
 ## Add another built-in app
 

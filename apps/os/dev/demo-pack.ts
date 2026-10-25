@@ -22,6 +22,7 @@ import presentationData from "./demo-pack/presentations.json";
 import skillData from "./demo-pack/skills.json";
 import tediData from "./demo-pack/tedis.json";
 import workspaceData from "./demo-pack/workspaces.json";
+import opportunityCardsApp from "./demo-pack/opportunity-cards-app.json";
 
 type Row = Record<string, unknown>;
 
@@ -885,6 +886,102 @@ export function applyDemoPack(
 			config: { version: 1 },
 		},
 	});
+	// The first app with its own code: Opportunity cards reads the Reddit
+	// workspace's Opportunities sheet through a granted slot. The sheet, the
+	// slot and the reviewer are data; the code is the same for every tenant.
+	const opportunitiesOutputId = uid(64, 20);
+	const opportunitiesRevisionId = uid(65, 20);
+	list(state, "outputs").push({
+		...outputTemplate,
+		id: opportunitiesOutputId,
+		workspaceId: workspaces[0]!.id,
+		kind: "sheet",
+		title: "Opportunities",
+		currentRevisionId: opportunitiesRevisionId,
+		createdAt: at(1),
+		updatedAt: stamp(),
+	});
+	list(state, "outputRevisions").push({
+		...revisionTemplate,
+		id: opportunitiesRevisionId,
+		outputId: opportunitiesOutputId,
+		content: {
+			kind: "sheet",
+			columns: ["#", "Source (link)", "Who", "Why (rule)", "Draft", "Useful?"],
+			rows: cardsData
+				.filter((card) => card.category === "Reddit")
+				.slice(0, 8)
+				.map((card, index) => [
+					index + 1,
+					`https://reddit.example/r/BuyItForLife/fable-${String(index + 1).padStart(2, "0")}`,
+					card.agent,
+					card.title,
+					card.story,
+					card.status === "decided" ? "yes" : "",
+				]),
+		},
+		createdAt: at(0),
+	});
+	list(state, "workspaceResources").push({
+		id: uid(70, 1),
+		organizationId: orgId,
+		workspaceId: workspaces[0]!.id,
+		slot: "opportunities",
+		providerId: "tedix",
+		connectionScope: "tenant",
+		personalOwnerUserId: null,
+		connectionInstanceId: null,
+		providerAccess: { canRead: true, canWrite: false },
+		requiredScopes: [],
+		resourceType: "output",
+		providerResourceId: opportunitiesOutputId,
+		name: "Opportunities sheet",
+		metadata: {},
+		status: "active",
+		createdByKind: "user",
+		createdById: "dev-operator",
+		createdAt: at(1),
+		updatedAt: at(1),
+		removedAt: null,
+	});
+	list(state, "gadgets").push({
+		...gadgetTemplate,
+		id: uid(49, 14),
+		name: "Opportunity cards",
+		description: "Review today's Reddit opportunities one card at a time.",
+		workspaceId: workspaces[0]!.id,
+		currentRevisionId: uid(50, 14),
+	});
+	list(state, "gadgetRevisions").push({
+		...gadgetRevisionTemplate,
+		id: uid(50, 14),
+		gadgetId: uid(49, 14),
+		manifest: {
+			entry: "tedix:runtime/v1",
+			capabilities: [],
+			resourceGrants: [{ slot: "opportunities", operations: ["outputs.read"] }],
+			description: "Review today's Reddit opportunities one card at a time.",
+			config: {
+				version: 1,
+				settings: {
+					slot: "opportunities",
+					reviewer: "Maya",
+					columns: {
+						number: "#",
+						source: "Source",
+						who: "Who",
+						why: "Why",
+						draft: "Draft",
+						useful: "Useful?",
+					},
+				},
+			},
+		},
+	});
+	(state.gadgetCode as Record<string, unknown>) = {
+		...((state.gadgetCode as Record<string, unknown>) ?? {}),
+		[uid(50, 14)]: opportunityCardsApp,
+	};
 	// The read-only System map, reachable from the workspace like any app.
 	list(state, "gadgets").push({
 		...gadgetTemplate,

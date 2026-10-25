@@ -515,6 +515,10 @@ const CALLS: Record<string, unknown> = {
 		},
 		expectedRevision: 1,
 	},
+	"osWorkspaces/gadgets/getCode": {
+		workspaceId: IDS.workspaceRevenue,
+		gadgetId: IDS.gadgetDashboard,
+	},
 	"osWorkspaces/gadgets/archive": {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,

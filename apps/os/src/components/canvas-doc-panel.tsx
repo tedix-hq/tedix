@@ -49,6 +49,9 @@ import {
 import { ShareControls } from "@/components/share-controls";
 import { WorkspaceGadgetReview } from "@/components/shared-review-batch";
 import { WidgetFrame } from "@/components/widget-frame";
+import { AppRuntimePreview } from "@/components/app-runtime-panel";
+import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { diffFiles } from "@/collab/ot/code-change";
 import { COLLAB_DOC_PATH } from "@/collab/protocol";
 import { osApi } from "@/lib/api";
@@ -63,6 +66,7 @@ import { sameDraftText } from "@/collab/ot/draft-equivalence";
 import { sentenceCase } from "@/lib/format";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
 import {
+	appRuntimeCodeQueryOptions,
 	workAppsQueryOptions,
 	canvasGadgetDetailQueryOptions,
 	canvasGadgetsQueryOptions,
@@ -241,6 +245,7 @@ export function CanvasDocPanel({
 		enabled: !isGadget,
 	});
 	const detail = isGadget ? gadgetDetail : outputDetail;
+	const builtinManifestEarly = gadgetDetail.data?.currentRevision?.manifest;
 	const title = isGadget
 		? gadgetDetail.data?.gadget.name
 		: outputDetail.data?.output.title;
@@ -381,8 +386,26 @@ export function CanvasDocPanel({
 		"preview",
 	);
 	const effectiveGadgetView = gadgetViewOverride ?? gadgetView;
-	const [codeFile, setCodeFile] =
-		useState<(typeof APP_CODE_FILES)[number]["path"]>("manifest.json");
+	const [codeFile, setCodeFile] = useState<string>("manifest.json");
+	const isRuntimeApp = isGadget && isAppRuntimeManifest(builtinManifestEarly);
+	// A runtime app fills the stage beside the chat; on a phone the panel
+	// scrolls, so the app takes its own content height instead.
+	const runtimeAppFills = useMediaQuery("(min-width: 960px)") && isRuntimeApp;
+	const runtimeCode = useQuery({
+		...appRuntimeCodeQueryOptions(workspaceId, doc.id),
+		enabled: isRuntimeApp,
+	});
+	/** The Code view lists the generated README, the manifest, then the app's own files. */
+	const codeFiles = useMemo(
+		() => [
+			...APP_CODE_FILES,
+			...Object.keys(runtimeCode.data?.code?.files ?? {}).map((path) => ({
+				path,
+				hint: "App code, versioned with this revision. Change it through the API or by asking in chat; the next revision carries the new files.",
+			})),
+		],
+		[runtimeCode.data],
+	);
 	const appReadme = useMemo(
 		() =>
 			gadgetDetail.data
@@ -636,7 +659,9 @@ export function CanvasDocPanel({
 		<div
 			className="canvas-document-shell grid min-w-0 content-start gap-0"
 			style={
-				isGadget && gadgetWidgetTarget && effectiveGadgetView === "preview"
+				isGadget &&
+				(gadgetWidgetTarget || runtimeAppFills) &&
+				effectiveGadgetView === "preview"
 					? {
 							display: "flex",
 							flexDirection: "column",
@@ -901,7 +926,8 @@ export function CanvasDocPanel({
 				<div
 					className="grid min-w-0 gap-3"
 					style={
-						gadgetWidgetTarget && effectiveGadgetView === "preview"
+						(gadgetWidgetTarget || runtimeAppFills) &&
+						effectiveGadgetView === "preview"
 							? {
 									display: "flex",
 									flexDirection: "column",
@@ -912,6 +938,7 @@ export function CanvasDocPanel({
 					}
 				>
 					{(gadgetWidgetTarget ||
+						isRuntimeApp ||
 						builtinManifest?.entry.trim().startsWith("tedix:app/")) &&
 						gadgetViewOverride === undefined && (
 							<SegmentedControl
@@ -922,7 +949,35 @@ export function CanvasDocPanel({
 								value={gadgetView}
 							/>
 						)}
-					{gadgetWidgetTarget && effectiveGadgetView === "preview" ? (
+					{isRuntimeApp &&
+					effectiveGadgetView === "preview" &&
+					gadgetDetail.data?.currentRevision ? (
+						<Card
+							data-canvas-gadget-preview
+							data-canvas-runtime-app
+							size="sm"
+							tone="raised"
+							className={
+								runtimeAppFills ? "flex min-h-0 flex-1 flex-col" : undefined
+							}
+						>
+							<CardContent
+								className={
+									runtimeAppFills
+										? "flex min-h-0 flex-1 flex-col gap-3"
+										: "grid gap-3"
+								}
+							>
+								<AppRuntimePreview
+									key={gadgetDetail.data.currentRevision.id}
+									workspaceId={workspaceId}
+									gadget={gadgetDetail.data.gadget}
+									revision={gadgetDetail.data.currentRevision}
+									layout={runtimeAppFills ? "fill" : "content"}
+								/>
+							</CardContent>
+						</Card>
+					) : gadgetWidgetTarget && effectiveGadgetView === "preview" ? (
 						<Card
 							data-canvas-gadget-preview
 							size="sm"
@@ -993,7 +1048,7 @@ export function CanvasDocPanel({
 								>
 									Files
 								</Text>
-								{APP_CODE_FILES.map((file) => (
+								{codeFiles.map((file) => (
 									<Button
 										key={file.path}
 										variant={codeFile === file.path ? "secondary" : "ghost"}
@@ -1010,7 +1065,7 @@ export function CanvasDocPanel({
 									tone="secondary"
 									className="px-3 leading-relaxed"
 								>
-									{APP_CODE_FILES.find((file) => file.path === codeFile)?.hint}
+									{codeFiles.find((file) => file.path === codeFile)?.hint}
 								</Text>
 							</aside>
 							{codeFile === "README.md" ? (
@@ -1024,6 +1079,22 @@ export function CanvasDocPanel({
 									<div className="overflow-y-auto px-4 py-3">
 										<ChatMarkdown content={appReadme} />
 									</div>
+								</div>
+							) : codeFile !== "manifest.json" ? (
+								<div className="canvas-code-file" data-canvas-app-code-file>
+									<div className="canvas-code-file-header">
+										<Text as="span" role="label" tone="secondary">
+											Viewing <code>{codeFile}</code>
+										</Text>
+										<Badge variant="secondary">
+											Revision{" "}
+											{runtimeCode.data?.code?.revision ??
+												gadgetDetail.data?.currentRevision?.revision}
+										</Badge>
+									</div>
+									<pre className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed">
+										{runtimeCode.data?.code?.files[codeFile] ?? ""}
+									</pre>
 								</div>
 							) : (
 								<div className="canvas-code-file">
