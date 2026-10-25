@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	deleteFactsByRunId: vi.fn(),
 	deleteRunArtifacts: vi.fn(),
 	getOrganizationById: vi.fn(),
+	getSkillEntry: vi.fn(),
 	getSkillRun: vi.fn(),
 	listWorkItems: vi.fn(),
 	listSkillRunsForOrg: vi.fn(),
@@ -80,6 +81,13 @@ vi.mock("@tedix/db/queries/work-items/crud", async (importOriginal) => ({
 	createWorkItem: mocks.createWorkItem,
 	listWorkItems: mocks.listWorkItems,
 	updateWorkItem: mocks.updateWorkItem,
+}));
+
+vi.mock("@tedix/db/queries/cognitive/skill-crud", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("@tedix/db/queries/cognitive/skill-crud")
+	>()),
+	getSkillEntry: mocks.getSkillEntry,
 }));
 
 vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
@@ -231,6 +239,66 @@ function createContext(
 			: {}),
 	};
 }
+
+describe("workflow improvement activation", () => {
+	const proposal = {
+		id: "proposal-1",
+		organizationId: "org-1",
+		tediId: "tedi-1",
+		tags: ["workflow-improvement"],
+		sourceSkillId: "skill-1",
+		sourceRevision: 1,
+	};
+	const baseline = { id: "skill-1", organizationId: "org-1", revision: 1 };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getSkillEntry.mockImplementation(async (_db, id: string) =>
+			id === proposal.id ? proposal : id === baseline.id ? baseline : null,
+		);
+		mocks.listRunArtifacts.mockResolvedValue([]);
+	});
+
+	it("lets a non-human caller reach the certification check instead of a human-only refusal", async () => {
+		mocks.getSkillRun.mockResolvedValue({
+			...RUN,
+			skillId: proposal.id,
+			status: "completed",
+			result: { status: "completed" },
+		});
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+
+		await expect(
+			client.activateWorkflowImprovement({
+				id: proposal.id,
+				certificationRunId: RUN.id,
+				reason: "agent activation",
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("certification.passed=true"),
+		});
+	});
+
+	it("still refuses when the baseline moved after the proposal", async () => {
+		mocks.getSkillEntry.mockImplementation(async (_db, id: string) =>
+			id === proposal.id ? proposal : { ...baseline, revision: 2 },
+		);
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+
+		await expect(
+			client.activateWorkflowImprovement({
+				id: proposal.id,
+				certificationRunId: RUN.id,
+				reason: "agent activation",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+	});
+});
 
 describe("skill workflow control epoch fencing", () => {
 	beforeEach(() => {

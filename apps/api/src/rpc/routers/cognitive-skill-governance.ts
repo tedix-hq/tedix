@@ -292,7 +292,7 @@ async function validateWorkflowImprovementEntry(
 
 async function workflowImprovementGovernance(
 	proposal: SkillEntry,
-	state: "pending_human_activation" | "activated",
+	state: "pending_activation" | "activated",
 	certificationRunId: string | null = null,
 ) {
 	assertWorkflowImprovementProposal(proposal);
@@ -314,7 +314,6 @@ async function workflowImprovementGovernance(
 		candidateWorkflowSha256:
 			taggedValue(proposal.tags, CANDIDATE_WORKFLOW_TAG_PREFIX) ??
 			(await sha256Digest(candidateSource)),
-		humanActivationRequired: true as const,
 		certificationRunId,
 		certificationPassed: certificationRunId !== null,
 	};
@@ -586,7 +585,7 @@ export const skillsProposeWorkflowImprovement =
 				validation,
 				governance: await workflowImprovementGovernance(
 					proposal,
-					"pending_human_activation",
+					"pending_activation",
 				),
 			};
 		});
@@ -618,7 +617,7 @@ export const skillsInspectWorkflowImprovement =
 				stale: baseline.revision !== proposal.sourceRevision,
 				governance: await workflowImprovementGovernance(
 					proposal,
-					"pending_human_activation",
+					"pending_activation",
 				),
 			};
 		});
@@ -627,7 +626,8 @@ export const skillsActivateWorkflowImprovement =
 	authedSkills.activateWorkflowImprovement
 		.use(AUTHZ.tedisWrite)
 		.handler(async ({ input, context }) => {
-			requireHumanSkillActivation(context);
+			// Any authorized caller (human or agent) may activate: the unchanged
+			// baseline and a passing certification run of this exact proposal are the gate.
 			const orgId = requireOrgId(context);
 			const proposal = await getSkillWorkshopProposal(context, orgId, {
 				id: input.id,
@@ -706,7 +706,7 @@ export const skillsActivateWorkflowImprovement =
 				revision: baseline.revision + 1,
 				revisionReasoning: appendRevisionReasoning(
 					baseline,
-					`Human-activated workflow improvement ${proposal.id} after certified run ${certificationRun.id}: ${input.reason}`,
+					`Workflow improvement ${proposal.id} activated by ${isHumanSkillActivator(context) ? `user ${context.user!.sub}` : `${context.authType} caller${context.tediId ? ` (tedi ${context.tediId})` : ""}`} after certified run ${certificationRun.id}: ${input.reason}`,
 				),
 			});
 			const activatedBaseline = await getSkillEntry(

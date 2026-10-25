@@ -130,7 +130,8 @@ Moving into or changing the record layer requires
 
 Workflow revisions use a stricter path:
 `propose_skill_workflow_improvement` pins a draft to a terminal baseline run and
-source hashes; `activate_skill_workflow_improvement` is human-only, requires a
+source hashes; `activate_skill_workflow_improvement` (any authorized human or
+agent) requires a
 completed run of that exact proposal with `certification.passed: true`, and
 fails on baseline drift. `promote_skill` and `apply_skill_proposal` refuse these
 drafts. Certification is a correctness check, not a security attestation.

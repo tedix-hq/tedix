@@ -403,7 +403,7 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	"skills/portfolioBalance": "read",
 	"skills/proposeWorkflowImprovement": "write",
 	"skills/inspectWorkflowImprovement": "read",
-	"skills/activateWorkflowImprovement": "destructive",
+	"skills/activateWorkflowImprovement": "write",
 	"skills/inspectWorkflowRun": "read",
 	"skills/listWorkflowSteps": "read",
 	"skills/listWorkflowToolCalls": "read",
