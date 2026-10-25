@@ -47,11 +47,17 @@ export function FocusDecisionRow({
 		enabled: item.needsAction && !!decisionCardId && !item.presentation,
 		staleTime: 60000,
 		retry: false,
-		// A writer is still working on a fresh request; pick up its story without a reload.
-		refetchInterval: (query) =>
-			!item.presentation && !query.state.data?.presentation && fresh && !slow
-				? 10_000
-				: false,
+		// A writer is still working on a fresh request; pick up its story without
+		// a reload. Freshness is read at each poll, not at the last render.
+		refetchInterval: (query) => {
+			const left = FEED_FACE_FRESH_MS - (Date.now() - Date.parse(item.at));
+			return !item.presentation &&
+				!query.state.data?.presentation &&
+				left > 0 &&
+				!slow
+				? Math.min(10_000, left)
+				: false;
+		},
 	});
 	const presentation = item.presentation ?? face.data?.presentation ?? null;
 	const unavailable =
