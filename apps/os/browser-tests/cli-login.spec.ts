@@ -9,7 +9,9 @@ try {
 	for (const width of [320, 390, 1280]) {
 		for (const theme of ["light", "dark"] as const) {
 			const page = await browser.newPage({
-				viewport: { width, height: 3000 },
+				// A 900px-tall window cannot fit the default permissions form; the
+				// page must scroll so every control stays reachable.
+				viewport: { width, height: 900 },
 				colorScheme: theme,
 			});
 			await page.addInitScript((mode) => {
@@ -20,10 +22,31 @@ try {
 			await page.goto(
 				`${server.origin}/browser-tests/cli-login.html?port=42123&state=fixture`,
 			);
-			await page
-				.getByRole("button", { name: "Choose organizations", exact: true })
-				.click();
-			await page.setViewportSize({ width, height: 900 });
+			const choose = page.getByRole("button", {
+				name: "Choose organizations",
+				exact: true,
+			});
+			assert(
+				await page.evaluate(() => {
+					const main = document.querySelector("main.cli-authorize")!;
+					return main.scrollHeight > main.clientHeight;
+				}),
+				`${width}px permissions form overflows a 900px window`,
+			);
+			await choose.scrollIntoViewIfNeeded();
+			const chooseBox = await choose.boundingBox();
+			assert(
+				chooseBox && chooseBox.y >= 0 && chooseBox.y + chooseBox.height <= 900,
+				"Choose organizations scrolls into view",
+			);
+			await page.evaluate(() =>
+				document.querySelector("main.cli-authorize")!.scrollTo(0, 0),
+			);
+			assert(
+				(await page.getByRole("heading", { level: 1 }).boundingBox())!.y >= 0,
+				"tall content starts inside the window instead of above it",
+			);
+			await choose.click();
 			const edit = page.getByRole("button", {
 				name: "Edit permissions",
 				exact: true,
@@ -77,10 +100,7 @@ try {
 				);
 			}
 			await edit.click();
-			await page.setViewportSize({ width, height: 3000 });
-			await page
-				.getByRole("button", { name: "Choose organizations", exact: true })
-				.click();
+			await choose.click();
 			assert.equal(
 				await review.textContent(),
 				"Review access for 2 organizations",
