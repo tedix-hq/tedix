@@ -51,6 +51,69 @@ async function cancelBody(
 	}
 }
 
+function isEventStream(contentType: string | null): boolean {
+	return (
+		contentType?.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream"
+	);
+}
+
+/**
+ * Incrementally frames SSE lines so a reader can stop once the JSON-RPC
+ * response event is complete. Streamable HTTP servers may keep the stream
+ * open after the response, so waiting for EOF can hang until a timeout.
+ */
+class SseResponseDetector {
+	private readonly decoder = new TextDecoder();
+	private pending = "";
+	private scanFrom = 0;
+	private data: string[] = [];
+
+	/** Returns true once a complete non-request event has been seen. */
+	feed(chunk: Uint8Array): boolean {
+		this.pending += this.decoder.decode(chunk, { stream: true });
+		while (true) {
+			const lineEnd = this.pending.slice(this.scanFrom).search(/[\r\n]/);
+			if (lineEnd === -1) {
+				this.scanFrom = this.pending.length;
+				return false;
+			}
+			const index = this.scanFrom + lineEnd;
+			let next = index + 1;
+			if (this.pending[index] === "\r") {
+				// A trailing CR may be the first half of CRLF; wait for more.
+				if (next === this.pending.length) {
+					this.scanFrom = index;
+					return false;
+				}
+				if (this.pending[next] === "\n") next += 1;
+			}
+			const line = this.pending.slice(0, index);
+			this.pending = this.pending.slice(next);
+			this.scanFrom = 0;
+			if (this.completesResponse(line)) return true;
+		}
+	}
+
+	private completesResponse(line: string): boolean {
+		if (line === "") {
+			if (this.data.length === 0) return false;
+			const body = this.data.join("\n");
+			this.data = [];
+			try {
+				const message = JSON.parse(body) as Record<string, unknown> | null;
+				return !(message && typeof message.method === "string");
+			} catch {
+				// Malformed data cannot become valid later; let unwrapping report
+				// it instead of waiting for EOF.
+				return true;
+			}
+		}
+		const field = readSseField(line, "data");
+		if (field !== null) this.data.push(field);
+		return false;
+	}
+}
+
 /**
  * Materialize an MCP response without trusting Content-Length. An honest
  * oversized declaration is rejected before reading; absent or dishonest
@@ -79,6 +142,9 @@ export async function readBoundedMcpResponseText(
 	if (!response.body) return "";
 
 	const reader = response.body.getReader();
+	const sse = isEventStream(response.headers.get("content-type"))
+		? new SseResponseDetector()
+		: null;
 	const chunks: Uint8Array[] = [];
 	let totalBytes = 0;
 	try {
@@ -103,6 +169,14 @@ export async function readBoundedMcpResponseText(
 				});
 			}
 			chunks.push(chunk);
+			if (sse?.feed(chunk)) {
+				try {
+					await reader.cancel("MCP SSE response received");
+				} catch {
+					// The response is complete; a cancellation failure is irrelevant.
+				}
+				break;
+			}
 		}
 	} catch (error) {
 		if (!(error instanceof McpUpstreamResponseTooLargeError)) {
@@ -143,11 +217,7 @@ export function unwrapMcpResponseBody(
 	text: string,
 	contentType: string | null,
 ): string {
-	if (
-		contentType?.split(";", 1)[0]?.trim().toLowerCase() !== "text/event-stream"
-	) {
-		return text;
-	}
+	if (!isEventStream(contentType)) return text;
 	const data: string[] = [];
 	let skippedRequest = false;
 	for (const line of [...text.split(/\r\n|\r|\n/), ""]) {
