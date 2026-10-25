@@ -915,6 +915,34 @@ describe("runKernelTurnWork progress seam", () => {
 		expect(JSON.stringify(result.run.metadata)).not.toContain("Authorization");
 	});
 
+	it("plans a write with no named app on the organization's gateway", async () => {
+		const planned: Array<Record<string, unknown>> = [];
+		await runKernelTurnWork(
+			stubDeps({
+				kernel: async () => ({
+					route: route({
+						routeKind: "propose_tool_write",
+						toolIntent: {
+							appSlug: null,
+							capability: null,
+							connectionStatus: "unknown",
+						},
+					}),
+					assistantContent: "Archive it.",
+					evidence: null,
+				}),
+				writeProposalPlanner: async (args) => {
+					planned.push(args as unknown as Record<string, unknown>);
+					return null;
+				},
+			}),
+			{ ...turnInput(), content: "Archive the sheet output output-1" },
+		);
+		expect(planned[0]).toMatchObject({
+			route: { toolIntent: { appSlug: "org-1-unified", capability: null } },
+		});
+	});
+
 	it("a throwing write planner records the decline and never parks an approval", async () => {
 		const anchor = vi.fn(async () => "anchor");
 		const recorder = progressRecorder();

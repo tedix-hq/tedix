@@ -991,6 +991,32 @@ export async function runKernelTurnWork(
 		if (correctedRoute !== kernelResult.route)
 			kernelResult = { ...kernelResult, route: correctedRoute };
 	}
+	// The router sees summarized app capabilities: live it routed "archive this
+	// sheet" as a write with no app ("no listed app exposes an archive
+	// capability"). Tedix's own Workspace tools sit on the organization's
+	// gateway, so a write with no named app is planned there; the planner
+	// still discovers the exact tool and the approval still applies.
+	if (
+		kernelResult?.route.routeKind === "propose_tool_write" &&
+		!kernelResult.route.toolIntent?.appSlug?.trim()
+	) {
+		const gateway = await organizationGatewayApp(deps.db, organizationId).catch(
+			() => null,
+		);
+		if (gateway)
+			kernelResult = {
+				...kernelResult,
+				route: {
+					...kernelResult.route,
+					toolIntent: {
+						capability: kernelResult.route.toolIntent?.capability ?? null,
+						connectionStatus:
+							kernelResult.route.toolIntent?.connectionStatus ?? "unknown",
+						appSlug: gateway,
+					},
+				},
+			};
+	}
 	stageTimings.mark("routePlanEnded");
 	// The streamed pass is over: persist the trailing answer/rationale partial
 	// now, before `settledAt` is read below, so the last delta row sorts ahead
