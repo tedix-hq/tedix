@@ -62,10 +62,16 @@ export function groupToolCollisions(events: CollisionEvent[]): ToolCollision[] {
 				}
 			}
 		}
-		if (typeof event.timestamp === "number") {
-			const seen = new Date(event.timestamp).toISOString();
-			if (!entry.lastSeen || seen > entry.lastSeen) entry.lastSeen = seen;
-		}
+		// An out-of-range timestamp is unusable telemetry, not a reason to
+		// abort the whole report; the event still counts.
+		const seen =
+			typeof event.timestamp === "number" ? new Date(event.timestamp) : null;
+		if (
+			seen &&
+			!Number.isNaN(seen.getTime()) &&
+			(!entry.lastSeen || seen.getTime() > Date.parse(entry.lastSeen))
+		)
+			entry.lastSeen = seen.toISOString();
 		byKey.set(event.ownerKey, entry);
 	}
 	return [...byKey.values()]
