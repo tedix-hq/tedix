@@ -88,7 +88,12 @@ export function DeckAttentionMetrics() {
 		<section aria-label={copy.title} className="grid gap-3">
 			<Text weight="semibold">{copy.title}</Text>
 			<Text tone="secondary">{copy.loaded}</Text>
-			<MetricGrid columns={3}>
+			{/* The grid sits in a narrow side panel at every viewport width, so it
+			    keeps the phone's two columns instead of widening to three. */}
+			<MetricGrid
+				className="sm:grid-cols-2 sm:[&>[data-slot=metric-item]:last-child]:col-span-2"
+				columns={3}
+			>
 				{tiles.map((tile) => (
 					<MetricTile key={tile.label} tile={tile} />
 				))}
