@@ -92,4 +92,31 @@ describe("benchmark turn stream", () => {
 		});
 		expect(input.cancelled()).toBe(true);
 	});
+
+	for (const [label, body, expected] of [
+		[
+			"fails a stream that closes before a terminal frame",
+			'data: {"kind":"progress"}\n',
+			{
+				assistant: "",
+				runId: null,
+				errMsg: "Benchmark stream closed before a done or error frame",
+			},
+		],
+		[
+			"accepts a done frame without a trailing newline at close",
+			'data: {"kind":"done","text":"reply","runId":"run-1"}',
+			{ assistant: "reply", runId: "run-1", errMsg: null },
+		],
+	] as const) {
+		it(label, async () => {
+			const stream = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode(body));
+					controller.close();
+				},
+			});
+			expect(await readBenchmarkTurnStream(stream)).toEqual(expected);
+		});
+	}
 });
