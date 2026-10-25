@@ -250,6 +250,9 @@ describe("hybrid credentials in a tedi run without personal consent", () => {
 	};
 	beforeEach(() => {
 		run.resourceAccessEnvelope = { version: 1, sources: [] };
+		vi.spyOn(organizations, "getConnectionConsumerGrants").mockResolvedValue({
+			mode: "all",
+		});
 		vi.mocked(tedis.getTediByIdForOrganization).mockResolvedValue({
 			id,
 			ownerUserId: "alice",
@@ -281,6 +284,24 @@ describe("hybrid credentials in a tedi run without personal consent", () => {
 		expect(connectionAuth.fetchConnectionToken).not.toHaveBeenCalled();
 		expect(connectionAuth.fetchConnectionTokenByScopes).not.toHaveBeenCalled();
 	});
+	it("refuses an ungranted organization credential without personal fallback", async () => {
+		vi.mocked(organizations.getConnectionConsumerGrants).mockResolvedValue({
+			mode: "selected",
+			tediIds: [],
+			skills: [],
+		});
+		const tenant = vi.spyOn(connectionAuth, "fetchTenantConnectionToken");
+		await expect(
+			hybridClient().fetchTediToken(hybridInput),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("Not granted for this connection"),
+		});
+		expect(tenant).not.toHaveBeenCalled();
+		expect(connectionAuth.fetchConnectionToken).not.toHaveBeenCalled();
+		expect(connectionAuth.fetchConnectionTokenByScopes).not.toHaveBeenCalled();
+	});
+
 	it("names the missing organization connection instead of falling back to the owner", async () => {
 		vi.spyOn(connectionAuth, "fetchTenantConnectionToken").mockResolvedValue(
 			null as never,

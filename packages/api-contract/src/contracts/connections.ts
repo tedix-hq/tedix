@@ -14,6 +14,7 @@ import { baseErrors } from "../errors";
 import {
 	ConnectionAccessCheckSchema,
 	ConnectionAllowedResourcesSchema,
+	ConnectionConsumerGrantsSchema,
 	ConnectionInventoryInputSchema,
 	ConnectionInventorySchema,
 	AuditConnectionProviderSettingsInputSchema,
@@ -39,6 +40,33 @@ export const connectionsContract = oc
 	.route({ tags: ["connections"], prefix: "/connections" })
 	.errors(baseErrors)
 	.router({
+		getConsumerGrants: oc
+			.route({
+				method: "GET",
+				path: "/consumer-grants",
+				summary: "Read organization connection consumers",
+			})
+			.input(
+				z.object({
+					providerId: z.string().min(1).max(200),
+					connectionInstanceId: z.uuid().optional(),
+				}),
+			)
+			.output(ConnectionConsumerGrantsSchema),
+		setConsumerGrants: oc
+			.route({
+				method: "PUT",
+				path: "/consumer-grants",
+				summary: "Choose organization connection consumers",
+			})
+			.input(
+				z.object({
+					providerId: z.string().min(1).max(200),
+					connectionInstanceId: z.uuid().optional(),
+					policy: ConnectionConsumerGrantsSchema,
+				}),
+			)
+			.output(z.object({ success: z.literal(true) })),
 		createConnectionInstance: oc
 			.route({
 				method: "POST",

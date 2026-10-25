@@ -7,6 +7,7 @@
  * own the provider-neutral authentication join.
  */
 
+import type { ConnectionConsumerGrants } from "@tedix/api-contract/schemas/connections";
 import { sql } from "drizzle-orm";
 import type { DecisionLearningConfig } from "@tedix/api-contract/schemas/decision-learning";
 import type { OutboundPolicy } from "@tedix/api-contract/schemas/outbound";
@@ -112,6 +113,7 @@ export interface OrganizationMetadata {
 	modelFallback?: OrganizationContractMetadata["modelFallback"];
 	workStewardship?: OrganizationContractMetadata["workStewardship"];
 	decisionLearning?: DecisionLearningConfig;
+	connectionConsumerGrants?: Record<string, ConnectionConsumerGrants>;
 	portfolioBuckets?: OrganizationContractMetadata["portfolioBuckets"];
 	identityProvider?: import("@tedix/api-contract/schemas/oidc-identity").OidcIdentityConfig;
 	providerCustomerKey?: string;

@@ -18,6 +18,74 @@ const { userContext, apiKeyContext } = bindTestContexts({
 });
 
 describe("connections authorization-plane composition", () => {
+	it.each([
+		() => userContext({ permissions: ["apps:read"] }),
+		() => apiKeyContext({ scopes: ["apps:write", "connections.execute"] }),
+	])(
+		"prevents a connection consumer from changing its own grants",
+		async (makeContext) => {
+			const client = createRouterClient(connectionsContractRouter, {
+				context: makeContext(),
+			});
+			await expect(
+				client.setConsumerGrants({
+					providerId: "example",
+					policy: { mode: "all" },
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+	it.each([
+		() => userContext({ permissions: ["integrations:manage"] }),
+		() => apiKeyContext({ scopes: ["connections.admin"] }),
+	])("allows connection administrators to set grants", async (makeContext) => {
+		const write = vi
+			.spyOn(organizations, "setConnectionConsumerGrants")
+			.mockResolvedValue({ id: "org-1" });
+		try {
+			const client = createRouterClient(connectionsContractRouter, {
+				context: makeContext(),
+			});
+			await expect(
+				client.setConsumerGrants({
+					providerId: "example",
+					policy: { mode: "all" },
+				}),
+			).resolves.toEqual({ success: true });
+			expect(write).toHaveBeenCalledWith(
+				expect.anything(),
+				"org-1",
+				"example",
+				{ mode: "all" },
+				undefined,
+			);
+		} finally {
+			write.mockRestore();
+		}
+	});
+	it("rejects a foreign named connection before writing consumer grants", async () => {
+		const lookup = vi
+			.spyOn(instanceQueries, "getConnectionInstance")
+			.mockResolvedValue(undefined);
+		const write = vi.spyOn(organizations, "setConnectionConsumerGrants");
+		try {
+			const client = createRouterClient(connectionsContractRouter, {
+				context: userContext({ permissions: ["integrations:manage"] }),
+			});
+			await expect(
+				client.setConsumerGrants({
+					providerId: "example",
+					connectionInstanceId: TEDI_ID,
+					policy: { mode: "all" },
+				}),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			expect(write).not.toHaveBeenCalled();
+		} finally {
+			lookup.mockRestore();
+			write.mockRestore();
+		}
+	});
+
 	it("requires a human owner for named personal account lifecycle", async () => {
 		const client = createRouterClient(connectionsContractRouter, {
 			context: apiKeyContext({ scopes: ["apps:read"] }),
