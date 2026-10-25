@@ -676,6 +676,9 @@ test("OpenCode 2 sends session-start and prompt context as system text on model 
 				cwd: directory,
 				hook_event_name: "SessionStart",
 				source: "startup",
+				model: "gpt-example",
+				model_provider: "azure",
+				harness_version: "2.1.2",
 			},
 		},
 	]);

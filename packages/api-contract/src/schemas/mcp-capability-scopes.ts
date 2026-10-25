@@ -380,6 +380,9 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	create_external_agent_principal: "mcp:work",
 	rename_external_agent_principal: "mcp:work",
 	// A plugin host starting its owner's own Agent-Session is Work lifecycle.
+	// The edge resolver (packages/mcp tool-scopes) grants mcp:work.write only to
+	// the canonical openOwnerHostSession RPC binding; the bare name elsewhere
+	// stays mcp:settings so another transport cannot borrow Work authority.
 	start_external_agent_session_for_host: "mcp:work",
 	// Removing an org-scoped tedi-to-app grant is ordinary worker capability
 	// management. The API revalidates ownership of both records before revoking

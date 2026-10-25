@@ -26,7 +26,7 @@ export function codeModeInputSchema(appSlug: string) {
 			.uuid()
 			.optional()
 			.describe(
-				"Optional verified owner-host Agent-Session id for Work admission. Ignored for machine credentials.",
+				"session.id returned by start_external_agent_session_for_host in this conversation; pass it on every call so audit names the agent. Never invent one. Ignored for machine credentials.",
 			),
 	});
 }

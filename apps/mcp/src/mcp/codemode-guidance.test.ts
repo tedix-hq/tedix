@@ -114,6 +114,8 @@ describe("server instructions budget", () => {
 			"flow.run({ source, capabilities })",
 			"flow.status",
 			"tedix flow run --file plan.ts --watch",
+			"start_external_agent_session_for_host",
+			"agentSessionId on every code call",
 			"ui.get_catalog()",
 			"ui.validate_layout()",
 			"ui.create_view(",

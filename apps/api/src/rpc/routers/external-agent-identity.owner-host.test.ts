@@ -171,6 +171,14 @@ describe("openOwnerHostSession", () => {
 			externalSessionKey: key,
 		});
 		expect(replay.session.id).toBe(opened.session.id);
+		const native = await client(userContext(OWNER)).openOwnerHostSession({
+			...TUPLE,
+			harness: "opencode",
+			externalSessionKey: "opencode:ses_examplethread",
+		});
+		expect(native.session.externalSessionKey).toBe(
+			"opencode:ses_examplethread",
+		);
 		await expect(
 			owner.openOwnerHostSession({
 				...TUPLE,

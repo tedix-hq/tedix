@@ -355,7 +355,7 @@ function resolveSessionTuple(input: {
  * give: the model id as served by this exact harness release. It changes when
  * the harness does, so a session never claims a pinned snapshot.
  */
-function unpinnedModelVersion(
+export function unpinnedModelVersion(
 	harness: string,
 	harnessVersion: string,
 	modelId: string,

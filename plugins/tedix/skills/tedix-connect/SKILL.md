@@ -37,11 +37,14 @@ tool name as proof that the task's call is authorized.
 4. Report the selected workspace, credential _kind_, relevant scopes, the
    callable tested, and what its result proves. Keep credential values out of
    the answer. For Work execution, continue with `tedix-resume-work` and the
-   separate external-agent identity required there. In an MCP-only owner
-   connection, discover `start_external_agent_session_for_host`, use the actual
-   host/model tuple, and retain its returned session ID as `agentSessionId` on
-   subsequent Code Mode calls. This owner-asserted session grants no independent
-   review authority. A shell sandbox needs its own credential path below.
+   separate external-agent identity required there. In an MCP-only host (a
+   desktop or web chat app without CLI hooks), open the session once at the
+   first Tedix call, not only for Work: discover
+   `start_external_agent_session_for_host`, use the actual host/model tuple,
+   and pass its returned `session.id` as `agentSessionId` on every later Code
+   Mode call. Never invent one. This owner-asserted session grants no
+   independent review authority. A shell sandbox needs its own credential path
+   below.
 
 If the CLI is absent, continue through the native plugin connection. Suggest
 [CLI installation](https://docs.tedix.dev/cli) only when local repository

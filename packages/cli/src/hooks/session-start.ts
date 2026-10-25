@@ -1,4 +1,17 @@
 /** Read-only, opt-in Tedix preflight for local Codex and Claude sessions. */
+import {
+	closeSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	readSync,
+	statSync,
+} from "node:fs";
+import { basename, isAbsolute, join } from "node:path";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
+import { claudeConfigDirectory } from "../claude-lane-thread";
+import { unpinnedModelVersion } from "../external-agent";
+import { harnessOf } from "./agent-status";
 import { clearDelivery } from "./context-delivery";
 import { repositoryName } from "./decision-capture";
 import { gatewayCode, openRequestLines } from "./prompt-context";
@@ -76,9 +89,11 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 
 	let sourceEvent: string;
 	let session: string | undefined;
+	let event: JsonObject;
 	try {
 		const parsed = hostEvent(deps.stdin, env, EVENT_LIMIT);
 		session = parsed.session;
+		event = parsed.event;
 		const source = parsed.event.source;
 		sourceEvent =
 			typeof source === "string" && SOURCES.has(source) ? source : "unknown";
@@ -399,6 +414,17 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 			/* Omit unavailable context. */
 		}
 	}
+	if (session && source === "stored-login") {
+		const agentSession = await openOwnerHostSession(
+			deps,
+			command,
+			hostTuple(event, env, session, deps.cwd),
+		);
+		if (agentSession)
+			lines.push(
+				`Tedix Agent-Session ${agentSession}: pass agentSessionId on every Tedix code call.`,
+			);
+	}
 	const needs = bound
 		? await needsYou(deps, binding, auth, command, session)
 		: undefined;
@@ -413,4 +439,203 @@ function leaseState(expiry: string, now: Date): string {
 	const time = Date.parse(expiry);
 	if (Number.isNaN(time)) return "unknown";
 	return time <= now.getTime() ? "expired" : "unexpired";
+}
+
+const OWNER_HOST_TOOL = "start_external_agent_session_for_host";
+const OWNER_HOST_HARNESSES = new Set(["claude-code", "codex", "opencode"]);
+const TUPLE_TOKEN = /^[A-Za-z0-9][\w.:/@+[\]-]*$/;
+const SESSION_RECORD_LIMIT = 65_536;
+const SESSION_RECORDS = 512;
+
+export interface OwnerHostTuple {
+	harness: string;
+	externalSessionKey: string;
+	harnessVersion: string;
+	modelProvider: string;
+	modelId: string;
+	modelVersion: string;
+}
+
+function token(value: unknown, max: number): string | undefined {
+	return typeof value === "string" &&
+		value.length <= max &&
+		TUPLE_TOKEN.test(value)
+		? value
+		: undefined;
+}
+
+/**
+ * This chat's native host/model tuple, read only from the host itself: the
+ * event's model, and the harness version and provider the host recorded.
+ * Undefined when any part is unknown, so no session is opened on a guess.
+ */
+export function hostTuple(
+	event: JsonObject,
+	env: NodeJS.ProcessEnv,
+	session: string,
+	cwd: string,
+): OwnerHostTuple | undefined {
+	const harness = harnessOf(event, env);
+	const modelId = token(event.model, 200);
+	if (!OWNER_HOST_HARNESSES.has(harness) || !modelId) return undefined;
+	let harnessVersion: string | undefined;
+	let modelProvider: string | undefined;
+	if (harness === "opencode") {
+		harnessVersion = token(event.harness_version, 120);
+		modelProvider = token(event.model_provider, 120);
+	} else if (harness === "codex") {
+		const meta = codexSessionMeta(event, session);
+		harnessVersion = token(env.CODEX_VERSION, 120) ?? meta.cliVersion;
+		modelProvider = meta.modelProvider;
+	} else {
+		harnessVersion = claudeSessionVersion(env, cwd, session);
+		// The provider every native Claude Code model is served by (as lanes record).
+		modelProvider = "anthropic";
+	}
+	if (!harnessVersion || !modelProvider) return undefined;
+	return {
+		harness,
+		externalSessionKey: `${harness}:${session}`,
+		harnessVersion,
+		modelProvider,
+		modelId,
+		modelVersion: unpinnedModelVersion(harness, harnessVersion, modelId),
+	};
+}
+
+/** The CLI version and model provider Codex wrote at the top of this chat's rollout. */
+function codexSessionMeta(
+	event: JsonObject,
+	session: string,
+): { cliVersion?: string; modelProvider?: string } {
+	const transcript = event.transcript_path;
+	if (
+		typeof transcript !== "string" ||
+		!isAbsolute(transcript) ||
+		!basename(transcript).startsWith("rollout-") ||
+		!basename(transcript).toLowerCase().includes(session)
+	)
+		return {};
+	let head = "";
+	try {
+		const fd = openSync(transcript, "r");
+		try {
+			const buffer = Buffer.alloc(16_384);
+			head = buffer
+				.subarray(0, readSync(fd, buffer, 0, buffer.length, 0))
+				.toString("utf8");
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		return {};
+	}
+	const first = head.split("\n", 1)[0] ?? "";
+	if (!first.includes('"type":"session_meta"')) return {};
+	// Only the fixed fields before the instructions text; never prompt content.
+	const cut = first.indexOf('"base_instructions"');
+	const meta = cut >= 0 ? first.slice(0, cut) : first;
+	const field = (name: string) =>
+		token(new RegExp(`"${name}":"([^"\\\\]{1,120})"`).exec(meta)?.[1], 120);
+	return {
+		cliVersion: field("cli_version"),
+		modelProvider: field("model_provider"),
+	};
+}
+
+/** The version Claude Code recorded for this session in its own session registry. */
+function claudeSessionVersion(
+	env: NodeJS.ProcessEnv,
+	cwd: string,
+	session: string,
+): string | undefined {
+	const directory = join(claudeConfigDirectory(env, cwd), "sessions");
+	const versions = new Set<string>();
+	try {
+		const files = readdirSync(directory)
+			.filter((name) => name.endsWith(".json"))
+			.slice(0, SESSION_RECORDS);
+		for (const name of files) {
+			try {
+				const path = join(directory, name);
+				if (statSync(path).size > SESSION_RECORD_LIMIT) continue;
+				const record: unknown = JSON.parse(readFileSync(path, "utf8"));
+				if (
+					isObject(record) &&
+					typeof record.sessionId === "string" &&
+					record.sessionId.toLowerCase() === session
+				) {
+					const version = token(record.version, 120);
+					if (version) versions.add(version);
+				}
+			} catch {
+				/* Skip an unreadable record. */
+			}
+		}
+	} catch {
+		return undefined;
+	}
+	// Two live processes disagreeing on this chat's version name no version.
+	return versions.size === 1 ? [...versions][0] : undefined;
+}
+
+/**
+ * Open (or reuse; opening is idempotent per organization, harness and key)
+ * this chat's owner-host Agent-Session through the signed-in user's Code Mode.
+ * Returns its id only when the server echoes exactly this tuple; a changed
+ * model (immutable_session_conflict) or any failure returns nothing.
+ */
+async function openOwnerHostSession(
+	deps: HookDeps,
+	command: string[],
+	tuple: OwnerHostTuple | undefined,
+): Promise<string | undefined> {
+	if (!tuple) return undefined;
+	try {
+		const found = await deps.read(
+			[
+				...command,
+				"code",
+				`async () => { const r = await discover.search({query:${codeModeLiteral(OWNER_HOST_TOOL)},limit:5}); return {rows: Array.isArray(r) ? r : r?.results ?? []}; }`,
+			],
+			5000,
+		);
+		const callables = new Set(
+			(Array.isArray(found.rows) ? found.rows : [])
+				.filter(
+					(row: unknown) =>
+						isObject(row) &&
+						row.authorized === true &&
+						typeof row.callable === "string" &&
+						new RegExp(`^[A-Za-z_$][\\w$]*\\.${OWNER_HOST_TOOL}$`).test(
+							row.callable,
+						),
+				)
+				.map((row: JsonObject) => row.callable as string),
+		);
+		// More than one organization namespace fits: do not choose one here.
+		if (callables.size !== 1) return undefined;
+		const [callable] = callables;
+		const opened = await deps.read(
+			[
+				...command,
+				"code",
+				`async () => { const r = await ${callable}(${codeModeLiteral(tuple)}); return {session: r?.session ?? null}; }`,
+			],
+			8000,
+		);
+		const session = opened.session;
+		if (
+			!isObject(session) ||
+			!UUID.test(String(session.id ?? "")) ||
+			session.status !== "active" ||
+			(Object.keys(tuple) as (keyof OwnerHostTuple)[]).some(
+				(key) => session[key] !== tuple[key],
+			)
+		)
+			return undefined;
+		return String(session.id).toLowerCase();
+	} catch {
+		return undefined;
+	}
 }
