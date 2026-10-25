@@ -86,6 +86,11 @@ export const ResolveAgentTransportPolicyResponseSchema = z.object({
 				.optional(),
 		})
 		.optional(),
+	/**
+	 * `false` when the organization opted out of the platform-default autonomy
+	 * (organization-autonomy.v1.json) or the caller's tedi is unknown.
+	 */
+	platformAutonomy: z.literal(false).optional(),
 });
 
 /**

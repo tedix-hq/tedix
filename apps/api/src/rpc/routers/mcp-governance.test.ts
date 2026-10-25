@@ -23,7 +23,7 @@ const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const TEDI_ID = "00000000-0000-4000-8000-000000000002";
 
 function createContext(input?: {
-	organizationAutonomy?: boolean;
+	organizationAutonomy?: boolean | "opt-out";
 	tedi?: { id: string; organizationId: string; policyPackId: string | null };
 	policyPack?: {
 		id: string;
@@ -47,7 +47,10 @@ function createContext(input?: {
 												version: 1,
 												definition: {
 													governancePolicy: {
-														autonomy: { version: 1, maxRisk: "medium" },
+														autonomy:
+															input.organizationAutonomy === "opt-out"
+																? false
+																: { version: 1, maxRisk: "medium" },
 													},
 												},
 											},
@@ -96,6 +99,27 @@ describe("MCP governance router — agent transport policy", () => {
 				organizationId: ORG_ID,
 				tediId: TEDI_ID,
 			}),
+			// An unknown tedi gets no platform-default autonomy.
+		).resolves.toEqual({
+			requireExplicitApprovalPolicy: false,
+			platformAutonomy: false,
+		});
+	});
+	it("reports an organization's platform-default opt-out", async () => {
+		const client = createRouterClient(mcpGovernanceContractRouter, {
+			context: createContext({ organizationAutonomy: "opt-out" }),
+		});
+		await expect(
+			client.resolveAgentTransportPolicy({ organizationId: ORG_ID }),
+		).resolves.toEqual({
+			requireExplicitApprovalPolicy: false,
+			platformAutonomy: false,
+		});
+		const defaults = createRouterClient(mcpGovernanceContractRouter, {
+			context: createContext({}),
+		});
+		await expect(
+			defaults.resolveAgentTransportPolicy({ organizationId: ORG_ID }),
 		).resolves.toEqual({ requireExplicitApprovalPolicy: false });
 	});
 	it("resolves an enabled rollout switch from the tedi's active policy pack", async () => {
@@ -170,7 +194,10 @@ describe("MCP governance router — agent transport policy", () => {
 					organizationId: ORG_ID,
 					tediId: TEDI_ID,
 				}),
-			).resolves.toEqual({ requireExplicitApprovalPolicy: false });
+			).resolves.toEqual({
+				requireExplicitApprovalPolicy: false,
+				...(tedi ? {} : { platformAutonomy: false }),
+			});
 		},
 	);
 });

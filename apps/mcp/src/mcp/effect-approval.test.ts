@@ -218,6 +218,13 @@ describe("effect-based gateway approval", () => {
 		])("never applies to %s", async (_label, callerIdentity) => {
 			const ctx = ownerStartContext(true);
 			Object.assign(ctx, { callerIdentity });
+			// An organization that opted out of the platform default.
+			vi.mocked(
+				ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+			).mockResolvedValue({
+				requireExplicitApprovalPolicy: false,
+				platformAutonomy: false,
+			});
 			expect(
 				(
 					await requireDestructiveToolApproval(ctx, skill, skill.annotations, {
@@ -230,6 +237,35 @@ describe("effect-based gateway approval", () => {
 				ctx.apiClient.mcpGovernance.resolveOwnerSkillStart,
 			).not.toHaveBeenCalled();
 		});
+		it.each([
+			["a tedi", { authType: "tedi", userId: "owner-1", tediId: "tedi-1" }],
+			[
+				"an external agent",
+				{
+					authType: "oauth",
+					userId: "owner-1",
+					externalAgentPrincipalId: "agent-1",
+				},
+			],
+		])(
+			"lets %s start a run under the platform default",
+			async (_label, callerIdentity) => {
+				const ctx = ownerStartContext(true);
+				Object.assign(ctx, { callerIdentity });
+				vi.mocked(
+					ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+				).mockResolvedValue({ requireExplicitApprovalPolicy: false });
+				expect(
+					await requireDestructiveToolApproval(ctx, skill, skill.annotations, {
+						args,
+						extra,
+					}),
+				).toBeNull();
+				expect(
+					ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+				).not.toHaveBeenCalled();
+			},
+		);
 		it("keeps a configured approval policy", async () => {
 			const ctx = ownerStartContext(true);
 			const target = {
