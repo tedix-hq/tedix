@@ -25,6 +25,12 @@ describe("email header parsing", () => {
 		).toBe("[tedix-email-e2e-1779136650949] CTO to CEO");
 	});
 
+	it("ignores linear whitespace between adjacent RFC 2047 encoded words", () => {
+		expect(
+			decodeMimeHeader("Prefix =?UTF-8?Q?hel?= \t\r\n =?UTF-8?Q?lo?= suffix"),
+		).toBe("Prefix hello suffix");
+	});
+
 	it("falls back to raw MIME headers when the Worker header map is incomplete", () => {
 		const rawBody = [
 			"From: CTO <cto@tedix.tech>",

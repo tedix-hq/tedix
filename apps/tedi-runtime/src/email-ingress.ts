@@ -71,7 +71,11 @@ function parseReferences(value: string | null): string[] {
 }
 
 export function decodeMimeHeader(value: string): string {
-	return value.replace(
+	const joinedEncodedWords = value.replace(
+		/(=\?[^?]+\?[bqBQ]\?[^?]+\?=)(?:[ \t]*\r?\n)?[ \t]+(?==\?[^?]+\?[bqBQ]\?[^?]+\?=)/g,
+		"$1",
+	);
+	return joinedEncodedWords.replace(
 		/=\?([^?]+)\?([bqBQ])\?([^?]+)\?=/g,
 		(_match, charsetRaw: string, encodingRaw: string, data: string) => {
 			const charset = charsetRaw.toLowerCase();
