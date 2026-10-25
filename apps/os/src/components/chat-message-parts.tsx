@@ -1,5 +1,5 @@
 /** Presentational chat pieces: message bubble, widgets, banners, indicators and starter prompts. */
-import { OS_COPY } from "@/shared/os-copy";
+import { CHAT_STARTERS } from "@/components/chat-composer-options";
 import { isLocalWorkersAi } from "@/lib/local-inference";
 import {
 	ArrowCounterClockwise,
@@ -347,17 +347,23 @@ export function ChatStarterPrompts({
 			data-focus-ring="inset"
 			className="chat-starter-prompts mt-6 grid w-full !max-w-none gap-2 text-wrap"
 		>
-			{OS_COPY.chatStarterPrompts.map((prompt) => (
+			{CHAT_STARTERS.map((starter) => (
 				<Button
-					key={prompt}
+					key={starter.title}
 					type="button"
 					size="sm"
 					variant="outline"
 					multiline
-					className="w-full justify-start whitespace-normal px-3 py-2 text-left font-normal!"
-					onClick={() => onChoose(prompt)}
+					className="h-auto w-full justify-start gap-3 px-3 py-2 text-left font-normal!"
+					onClick={() => onChoose(starter.prompt)}
 				>
-					{prompt}
+					<starter.icon size={18} aria-hidden="true" className="shrink-0" />
+					<span className="min-w-0">
+						<span className="block truncate font-medium">{starter.title}</span>
+						<span className="block truncate text-xs text-kumo-subtle">
+							{starter.detail}
+						</span>
+					</span>
 				</Button>
 			))}
 		</div>

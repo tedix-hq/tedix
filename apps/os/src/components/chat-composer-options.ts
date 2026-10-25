@@ -1,9 +1,11 @@
 import {
+	ClockCounterClockwise,
 	Detective,
 	FileText,
 	ListBullets,
 	MagnifyingGlass,
 	PresentationChart,
+	Sparkle,
 	Table,
 	Users,
 } from "@phosphor-icons/react";
@@ -54,6 +56,14 @@ export const CHAT_CREATE_OPTIONS = {
 		description: "Turn this request into slides.",
 	},
 } as const;
+
+const STARTER_ICONS = [FileText, Table, ClockCounterClockwise] as const;
+
+/** Empty-chat starters: an icon, a short title and one line of context. */
+export const CHAT_STARTERS = OS_COPY.chatStarterPrompts.map((starter, i) => ({
+	...starter,
+	icon: STARTER_ICONS[i] ?? Sparkle,
+}));
 
 /** A new conversation invites a question or a hand-off; an open thread, a follow-up. */
 export function chatComposerPlaceholder(hasMessages: boolean): string {
