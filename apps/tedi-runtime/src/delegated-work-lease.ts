@@ -19,6 +19,8 @@ export interface FacetWorkflowTurnResult {
 	toolCalls: Array<{ name: string; ok: boolean }>;
 	modelIdentity?: TediSessionModelIdentity;
 	pendingComputerExecutions?: string[];
+	/** Overload is nonterminal; ChatTurnWorkflow sleeps outside the turn step. */
+	retryAfterSeconds?: number;
 }
 
 type Binding = { workItemId: string; attemptId: string };

@@ -330,6 +330,7 @@ export interface RuntimeFacetTurnsHost {
 	queue: AgentTediDO["queue"];
 	enqueueCompaction: AgentTediDO["enqueueCompaction"];
 	facetWorkflowTurns: AgentTediDO["facetWorkflowTurns"];
+	facetTurnAdmission: AgentTediDO["facetTurnAdmission"];
 	keepAliveWhile: AgentTediDO["keepAliveWhile"];
 	armDelegatedWorkLeaseRenewal: AgentTediDO["armDelegatedWorkLeaseRenewal"];
 	facetComputerReadDeps: AgentTediDO["facetComputerReadDeps"];
@@ -2122,7 +2123,7 @@ export const runtimeFacetTurns = {
 					input.workItemId && input.homeRunId
 						? new ComputerWorkflowContinuation(this.ctx.storage)
 						: null;
-				return withDelegatedWorkLease(
+				return withDelegatedWorkLease<FacetWorkflowTurnResult>(
 					input,
 					{
 						storage: this.ctx.storage,
@@ -2134,20 +2135,24 @@ export const runtimeFacetTurns = {
 						requireActiveAttempt:
 							(input.computerContinuation ?? 0) > 0 ||
 							Boolean(computer && (await computer.hasExecutions(input))),
-						keepRenewal: hasPendingComputerExecutions,
+						keepRenewal: (result) =>
+							hasPendingComputerExecutions(result) ||
+							(result as FacetWorkflowTurnResult).stopReason ===
+								"turn_deferred",
 					},
-					async () => {
-						const prepared = await computer?.prepare(
-							input,
-							this.facetComputerReadDeps(input),
-						);
-						if (prepared?.cached)
-							return this.commitFacetWorkflowSegment(input, prepared.cached);
-						return this.runFacetWorkflowTurnImpl(
-							input,
-							prepared?.completionText,
-						);
-					},
+					() =>
+						this.facetTurnAdmission.run(input.runId, async () => {
+							const prepared = await computer?.prepare(
+								input,
+								this.facetComputerReadDeps(input),
+							);
+							if (prepared?.cached)
+								return this.commitFacetWorkflowSegment(input, prepared.cached);
+							return this.runFacetWorkflowTurnImpl(
+								input,
+								prepared?.completionText,
+							);
+						}),
 				);
 			}),
 		);

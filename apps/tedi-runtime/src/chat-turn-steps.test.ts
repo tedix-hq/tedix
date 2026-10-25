@@ -440,4 +440,53 @@ for (const pending of [
 		);
 }
 
+// Deferral is a memoized, nonterminal checkpoint, followed by a fresh attempt.
+{
+	const memo = new Map<string, unknown>();
+	const names: string[] = [];
+	const sleeps: string[] = [];
+	let calls = 0;
+	let completions = 0;
+	const step: ChatTurnStepRunner = {
+		async do(name, _config, run) {
+			names.push(name);
+			if (!memo.has(name)) memo.set(name, await run());
+			return memo.get(name) as Awaited<ReturnType<typeof run>>;
+		},
+		async sleep(name, delay) {
+			sleeps.push(`${name}:${delay}`);
+		},
+		async reportComplete() {
+			completions++;
+		},
+	};
+	const ops = {
+		markStarted: async () => {},
+		runFacetTurn: async () =>
+			JSON.stringify(
+				++calls < 3
+					? { stopReason: "turn_deferred", retryAfterSeconds: 17 }
+					: { text: "after pressure", stopReason: "stop" },
+			),
+	};
+	assert.equal((await driveChatTurnSteps(step, ops)).text, "after pressure");
+	assert.equal(completions, 1);
+	assert.deepEqual(names, [
+		"mark-workflow-started",
+		"facet-turn",
+		"facet-turn-admission-1",
+		"facet-turn-admission-2",
+	]);
+	assert.deepEqual(sleeps, [
+		"facet-turn-wait:17 seconds",
+		"facet-turn-admission-1-wait:17 seconds",
+	]);
+	await driveChatTurnSteps(step, ops);
+	assert.equal(
+		calls,
+		3,
+		"replay reuses checkpoints instead of replaying inference",
+	);
+}
+
 console.log("chat-turn-steps.test.ts: all assertions passed");

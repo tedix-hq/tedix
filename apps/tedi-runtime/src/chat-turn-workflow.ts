@@ -165,6 +165,7 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 			}
 		}
 		return driveChatTurnSteps(step, {
+			retryKey: params.runId,
 			supervised: Boolean(params.workItemId && params.homeRunId),
 			// First durable callback: proves the Workflow instance progressed beyond
 			// admission/queueing and reached user code. The Agent-side watchdog

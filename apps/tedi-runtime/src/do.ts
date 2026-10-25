@@ -259,6 +259,7 @@ import {
 } from "./computer-workspace-scope";
 import { type DurableCodePause } from "./durable-codemode-lifecycle";
 import { KeyedFacetTurnGate } from "./facet-turn-gate";
+import { FacetTurnAdmission } from "./facet-turn-admission";
 import { DoInferenceBudgetStore } from "./inference-budget-store-do";
 import {
 	type PiStepReceipt,
@@ -865,6 +866,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			enqueueCompaction: (...args) => parent.enqueueCompaction(...args),
 			get facetWorkflowTurns() {
 				return parent.facetWorkflowTurns;
+			},
+			get facetTurnAdmission() {
+				return parent.facetTurnAdmission;
 			},
 			keepAliveWhile: (...args) => parent.keepAliveWhile(...args),
 			armDelegatedWorkLeaseRenewal: (...args) =>
@@ -3870,6 +3874,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	// Workflow step timeout can leave its original RPC alive while a retry arrives.
 	private readonly facetWorkflowTurns = new KeyedFacetTurnGate();
+	private readonly facetTurnAdmission = new FacetTurnAdmission();
 	async runFacetWorkflowTurn(
 		input: FacetWorkflowTurnInput,
 	): Promise<FacetWorkflowTurnResult> {
