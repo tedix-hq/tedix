@@ -367,8 +367,10 @@ export async function workList(ctx: WorkContext, _id: string): Promise<number> {
 	const offset = ctx.work.offset?.trim();
 	if (offset) {
 		const parsed = Number(offset);
-		if (!Number.isInteger(parsed) || parsed < 0) {
-			throw new Error("work list --offset requires a non-negative integer");
+		if (!Number.isSafeInteger(parsed) || parsed < 0) {
+			throw new Error(
+				"work list --offset requires a non-negative safe integer",
+			);
 		}
 		base.offset = parsed;
 	}
