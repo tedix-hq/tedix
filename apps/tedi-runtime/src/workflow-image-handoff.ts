@@ -247,6 +247,9 @@ export async function cleanupWorkflowImages(
 ): Promise<void> {
 	const owner = prefix(tediId, runId);
 	let cursor = control.cursor ?? undefined;
+	// A repeated or cyclic cursor replays an already-issued key; the page is
+	// rejected before its delete rather than deleted twice.
+	const issuedKeys = new Set<string>();
 	do {
 		assertImageWireReady(await control.assertReady());
 		const page = await bucket.list({ prefix: owner, cursor });
@@ -254,11 +257,15 @@ export async function cleanupWorkflowImages(
 		if (
 			new Set(keys).size !== keys.length ||
 			keys.some(
-				(key) => !key.startsWith(owner) || !control.allowedKeys.includes(key),
+				(key) =>
+					!key.startsWith(owner) ||
+					!control.allowedKeys.includes(key) ||
+					issuedKeys.has(key),
 			)
 		)
 			invalid();
 		if (page.truncated && (!page.cursor || !keys.length)) invalid();
+		for (const key of keys) issuedKeys.add(key);
 		const descriptor = {
 			keys,
 			cursor: cursor ?? null,

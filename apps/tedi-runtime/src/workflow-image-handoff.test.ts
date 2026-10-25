@@ -387,3 +387,85 @@ console.log(
 		[{ ...inline, fileName: "before.png" }],
 	);
 }
+
+// A bucket replaying the same truncated page under the same or a cyclic
+// cursor reports no progress; the loop stops before a duplicate delete.
+{
+	let lists = 0,
+		deletes = 0;
+	const owner = "__runtime/workflow-images/tedi/repeated-page/";
+	const key = `${owner}manifest.json`;
+	await assert.rejects(
+		cleanupImages(
+			{
+				list: async () => {
+					if (++lists > 3) throw new Error("unbounded_cleanup");
+					return {
+						objects: [{ key }],
+						truncated: true,
+						cursor: "same",
+					};
+				},
+				delete: async () => {
+					deletes++;
+				},
+			} as unknown as WorkflowImageBucket,
+			"tedi",
+			"repeated-page",
+			{
+				cursor: null,
+				allowedKeys: [key],
+				assertReady: async () => () => {},
+				issued: async () => {},
+				acknowledged: async () => {},
+			},
+		),
+		/workflow_image_invalid/,
+	);
+	assert.equal(lists, 2);
+	assert.equal(deletes, 1);
+}
+{
+	let lists = 0,
+		deletes = 0;
+	const owner = "__runtime/workflow-images/tedi/cyclic-cursor/";
+	const cycle = [
+		{
+			objects: [{ key: `${owner}one.json` }],
+			truncated: true,
+			cursor: "b",
+		},
+		{
+			objects: [{ key: `${owner}two.json` }],
+			truncated: true,
+			cursor: "a",
+		},
+		{
+			objects: [{ key: `${owner}one.json` }],
+			truncated: true,
+			cursor: "b",
+		},
+	];
+	await assert.rejects(
+		cleanupImages(
+			{
+				list: async () => cycle[lists++],
+				delete: async () => {
+					deletes++;
+				},
+			} as unknown as WorkflowImageBucket,
+			"tedi",
+			"cyclic-cursor",
+			{
+				cursor: null,
+				allowedKeys: [`${owner}one.json`, `${owner}two.json`],
+				assertReady: async () => () => {},
+				issued: async () => {},
+				acknowledged: async () => {},
+			},
+		),
+		/workflow_image_invalid/,
+	);
+	assert.equal(lists, 3);
+	assert.equal(deletes, 2);
+}
