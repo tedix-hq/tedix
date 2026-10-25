@@ -139,6 +139,70 @@ describe("selectBunTestFiles", () => {
 		});
 	});
 
+	test.each([
+		{ bun: "./src/a.ts" },
+		{ bun: "./src/a.ts", import: "./src/other.ts", default: "./src/other.ts" },
+		{ bun: { import: "./src/a.ts" } },
+		{ import: "./src/a.ts", default: "./src/other.ts" },
+		{ default: "./src/a.ts" },
+		{ ".": { bun: "./src/a.ts" } },
+	])("root conditional exports %j select only the affected test", (exports) => {
+		const io = makeIo({
+			"packages/shared/package.json": JSON.stringify({ exports }),
+			"packages/shared/src/a.ts": "export const a = 1;",
+			"packages/shared/src/other.ts": "export const other = 1;",
+			"packages/tool/src/a.test.ts": 'import "@tedix/shared";',
+			"packages/tool/src/unrelated.test.ts": "export {};",
+		});
+		for (const changed of ["src/a.ts", "package.json"]) {
+			expect(select([`packages/shared/${changed}`], io)).toEqual({
+				mode: "files",
+				files: ["src/a.test.ts"],
+				total: 2,
+			});
+		}
+		expect(select(["packages/shared/src/other.ts"], io)).toEqual({
+			mode: "files",
+			files: [],
+			total: 2,
+		});
+	});
+
+	test.each([
+		null,
+		{ bun: ["./src/a.ts"] },
+		{ browser: "./src/a.ts" },
+		{ types: "./src/a.ts" },
+		{ bun: { browser: "./src/a.ts" } },
+		{ bun: null, default: "./src/a.ts" },
+		{ bun: "./src/missing.ts" },
+	])("unsupported root exports %j fail closed", (exports) => {
+		const io = makeIo({
+			"packages/shared/package.json": JSON.stringify({ exports }),
+			"packages/shared/src/a.ts": "export const a = 1;",
+			"packages/tool/src/a.test.ts": 'import "@tedix/shared";',
+			"packages/tool/src/unrelated.test.ts": "export {};",
+		});
+		expect(select(["packages/shared/src/a.ts"], io)).toEqual({
+			mode: "all",
+			reason: expect.stringContaining("import graph incomplete:"),
+		});
+	});
+
+	test("root conditions do not export package subpaths", () => {
+		const io = makeIo({
+			...FILES,
+			"packages/shared/package.json": JSON.stringify({
+				exports: { bun: "./src/util.ts" },
+			}),
+		});
+		expect(select(["packages/shared/src/deep.ts"], io)).toEqual({
+			mode: "all",
+			reason:
+				"import graph incomplete: packages/tool/src/a.ts imports @tedix/shared/util: @tedix/shared does not export ./util",
+		});
+	});
+
 	test("a wildcard export and a type-only import still form an edge", () => {
 		const selection = select(["packages/shared/src/schema/work.ts"]);
 		expect(selection.mode).toBe("files");

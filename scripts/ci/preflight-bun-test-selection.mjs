@@ -332,6 +332,11 @@ function exportTarget(manifest, subpath) {
 		return manifest.module ?? manifest.main ?? null;
 	}
 	if (typeof exports === "string") return subpath === "." ? exports : null;
+	if (!exports || typeof exports !== "object" || Array.isArray(exports))
+		return null;
+	if (!Object.keys(exports).some((key) => key.startsWith("."))) {
+		return subpath === "." ? conditionTarget(exports) : null;
+	}
 	if (subpath in exports) return conditionTarget(exports[subpath]);
 	// Package patterns rank by longest literal prefix, then longest key.
 	const patterns = Object.entries(exports)
@@ -361,13 +366,9 @@ function exportTarget(manifest, subpath) {
 
 function conditionTarget(value) {
 	if (typeof value === "string") return value;
-	if (!value || typeof value !== "object") return null;
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 	for (const condition of ["bun", "import", "default", "require"]) {
 		if (condition in value) return conditionTarget(value[condition]);
-	}
-	for (const nested of Object.values(value)) {
-		const target = conditionTarget(nested);
-		if (target) return target;
 	}
 	return null;
 }
