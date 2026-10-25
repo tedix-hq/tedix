@@ -89,7 +89,55 @@ describe("delegationSteps", () => {
 	});
 });
 
+describe("delegationSteps on delegated runtime events", () => {
+	it("pairs start and end by the call in the event id and uses the runtime latency", () => {
+		const steps = delegationSteps([
+			{
+				id: "run-1:functions.clone_repo:0.completed",
+				kind: "tool.completed",
+				payload: { name: "clone_repo", latencyMs: 1_651 },
+				createdAt: at(2),
+			},
+			{
+				id: "run-1:functions.clone_repo:0.started",
+				kind: "tool.started",
+				payload: { name: "clone_repo" },
+				createdAt: at(0),
+			},
+		]);
+		expect(steps).toHaveLength(1);
+		expect(steps[0]).toMatchObject({
+			label: "Clone repo",
+			status: "completed",
+			durationMs: 1_651,
+		});
+	});
+
+	it("never invents a zero duration for an end without a start", () => {
+		const [step] = delegationSteps([
+			{
+				id: "run-1:call.completed",
+				kind: "tool.completed",
+				payload: { name: "clone_repo" },
+				createdAt: at(2),
+			},
+		]);
+		expect(step?.durationMs).toBeNull();
+	});
+});
+
 describe("delegationLiveState", () => {
+	it("reads a 'calling <tool>' progress detail as plain words", () => {
+		const live = delegationLiveState({
+			run: {
+				...run,
+				progress: { ...run.progress, detail: "calling clone_repo" },
+			},
+			now: T0 + 410_000,
+		});
+		expect(live.currentStep).toBe("Using Clone repo");
+	});
+
 	it("reports the current step, progress and last activity of a working run", () => {
 		const live = delegationLiveState({ run, now: T0 + 412_000 });
 		expect(live.phase).toBe("working");
