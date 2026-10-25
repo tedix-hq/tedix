@@ -121,6 +121,10 @@ export interface OsRouterEnv extends OsSessionBrokerEnv {
 }
 
 const DESCOPE_OUTBOUND_BRIDGE_PATH = "/auth/descope/v1/outbound/oauth/connect";
+/** The share-link guest's document and the API calls it makes without an account. */
+const GUEST_DOCUMENT_PATH = "/guest";
+const GUEST_SHARE_API_PATH =
+	/^\/api\/os-shared\/(?:redeem|session|app\/(?:open|call|read))$/;
 const OUTBOUND_APP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 /**
@@ -1068,6 +1072,25 @@ export async function handleOsRequest(
 	) {
 		const cliApi =
 			url.pathname === "/cli/api" || url.pathname.startsWith("/cli/api/");
+		// A share-link guest has no account: these exact redemption and app
+		// calls carry their own capability in the body, so they pass without a
+		// session, and without any browser credential that happens to be set.
+		// authz: public — apps/api binds every call to one share session and the `use` role.
+		if (
+			!cliApi &&
+			request.method === "POST" &&
+			GUEST_SHARE_API_PATH.test(url.pathname)
+		) {
+			const headers = new Headers(request.headers);
+			headers.delete("Cookie");
+			headers.delete("Authorization");
+			return proxyApiRequest(
+				new Request(request, { headers }),
+				env,
+				url,
+				hostTenantId,
+			);
+		}
 		if (cliApi && tenant.kind !== "launcher") {
 			return refuseApi(
 				url,
@@ -1295,6 +1318,9 @@ export async function handleOsRequest(
 		tenant.kind === "tenant" &&
 		hostTenantId &&
 		isDocumentNavigation(request) &&
+		// The guest document is the one page a signed-out person may open; it
+		// holds nothing itself and every call it makes carries the share session.
+		url.pathname !== GUEST_DOCUMENT_PATH &&
 		!(await (
 			await import("./auth/oidc")
 		).oidcSessionMatchesTenant(request, env.API_SERVICE, hostTenantId)) &&

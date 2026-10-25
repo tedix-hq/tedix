@@ -976,7 +976,12 @@ export function applyDemoPack(
 		manifest: {
 			entry: "tedix:runtime/v1",
 			capabilities: [],
-			resourceGrants: [{ slot: "opportunities", operations: ["outputs.read"] }],
+			resourceGrants: [
+				{
+					slot: "opportunities",
+					operations: ["outputs.read", "outputs.write"],
+				},
+			],
 			description: "Review today's Reddit opportunities one card at a time.",
 			config: {
 				version: 1,

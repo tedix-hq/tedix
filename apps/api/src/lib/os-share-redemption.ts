@@ -5,7 +5,9 @@ import type { OsShareRole } from "@tedix/api-contract/contracts/os-shares";
 import {
 	type OsDerivedAccessEnvelope,
 	OsDerivedAccessEnvelopeSchema,
+	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import {
 	createOsShareSession,
 	getOsShareLinkById,
@@ -47,7 +49,7 @@ export async function hashOsShareToken(token: string): Promise<string> {
 		.join("");
 }
 
-const TOKEN_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
+export const TOKEN_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const ROLE_RANK: Record<OsShareRole, number> = { viewer: 0, use: 1, build: 2 };
 
@@ -68,13 +70,13 @@ function noStoreJson(body: unknown): Response {
 	});
 }
 
-function isActive(link: OsShareLinkRow, now: string): boolean {
+export function isActive(link: OsShareLinkRow, now: string): boolean {
 	return (
 		link.revokedAt === null && (link.expiresAt === null || link.expiresAt > now)
 	);
 }
 
-function effectiveRole(link: OsShareLinkRow): OsShareRole {
+export function effectiveRole(link: OsShareLinkRow): OsShareRole {
 	if (!link.policyMaxRole) return link.role;
 	return ROLE_RANK[link.policyMaxRole] < ROLE_RANK[link.role]
 		? link.policyMaxRole
@@ -107,6 +109,51 @@ async function linkWorkspaceId(
 	return gadget?.workspaceId ?? null;
 }
 
+/** The revision a link opens: the pinned one, else the app's current one. */
+export function guestAppRevisionId(
+	link: OsShareLinkRow,
+	gadget: { currentRevisionId: string | null },
+): string | null {
+	return link.revisionMode === "pinned"
+		? link.pinnedRevisionId
+		: gadget.currentRevisionId;
+}
+
+/**
+ * True when a link admits a guest without an account: a `use` link to an
+ * app that runs its own code, whose client runs in the OS sandbox and whose
+ * server calls go through the guest routes with the `use` role only. Viewer
+ * links show nothing, build links keep their authenticated recipient check,
+ * and apps that render through a connected account keep theirs too.
+ */
+export async function linkAdmitsGuest(
+	db: DbQueryClient,
+	link: OsShareLinkRow,
+): Promise<boolean> {
+	if (link.resourceType !== "gadget" || effectiveRole(link) !== "use")
+		return false;
+	const gadget = await getOsGadget(db, {
+		organizationId: link.organizationId,
+		gadgetId: link.resourceId,
+	});
+	if (!gadget || gadget.status !== "active") return false;
+	const revisionId = guestAppRevisionId(link, gadget);
+	const revision = revisionId
+		? await getOsGadgetRevision(db, {
+				organizationId: link.organizationId,
+				revisionId,
+			})
+		: null;
+	if (!revision || revision.gadgetId !== gadget.id) return false;
+	try {
+		return isAppRuntimeManifest(
+			OsGadgetManifestSchema.parse(JSON.parse(revision.manifest)),
+		);
+	} catch {
+		return false;
+	}
+}
+
 async function recipientMayOpen(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
@@ -121,6 +168,7 @@ async function recipientMayOpen(
 		});
 		if (workspace?.visibility === "private") return false;
 	}
+	if (await linkAdmitsGuest(db, link)) return true;
 	if (link.resourceType === "output") {
 		const output = await getOsOutput(db, {
 			organizationId: link.organizationId,

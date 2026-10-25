@@ -2,10 +2,7 @@ import { implement, call as callProcedure } from "@orpc/server";
 import { z } from "zod";
 import { RunWorkspaceSkillNowInputSchema } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { osAppRuntimeContract } from "@tedix/api-contract/contracts/os-app-runtime";
-import {
-	OsGadgetManifestSchema,
-	OsOutputContentSchema,
-} from "@tedix/api-contract/schemas/os-workspaces";
+import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import {
 	mintWorkspaceAppSession,
@@ -15,16 +12,8 @@ import {
 import {
 	getOsGadgetRevision,
 	getOsGadget,
-	getOsGadgetCode,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import {
-	AppRuntimeFilesSchema,
-	AppRuntimeConfigSchema,
-} from "@tedix/api-contract/schemas/os-app-runtime";
-import {
-	appRuntimeCodeDigest,
-	appRuntimePermission,
-} from "@tedix/api-contract/utils/app-runtime";
+import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import {
 	getOsOutput,
@@ -33,7 +22,6 @@ import {
 } from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	createOsGadgetExecution,
-	settleOsAppCallExecution,
 	getOsGadgetExecution,
 } from "@tedix/db/queries/os-workspaces/executions";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
@@ -45,7 +33,19 @@ import {
 	openWorkspaceAsCollaborator,
 	requireWorkspaceCollaboratorAccess,
 } from "../../services/os-workspace-collaborators";
-import { serviceBindingFetch } from "@tedix/api-client/internal";
+import {
+	loadAppRuntimeRevision,
+	runAppRuntimeCall,
+} from "../../services/os-app-runtime-code";
+import {
+	getLiveOsShareSession,
+	getOsShareLinkById,
+} from "@tedix/db/queries/os-shares";
+import { isActive, linkAdmitsGuest } from "../../lib/os-share-redemption";
+import {
+	readGuestAppSlot,
+	SHARE_SESSION_PRINCIPAL_KIND,
+} from "../../lib/os-share-app-runtime";
 import {
 	withServiceAuth,
 	type BaseContext,
@@ -124,40 +124,12 @@ export function createOsAppRuntimeRouter() {
 		};
 	}
 
-	async function load(
+	function load(
 		context: BaseContext,
 		scope: Awaited<ReturnType<typeof resolve>>,
 		revisionId = scope.revisionId,
 	) {
-		const revision = await getOsGadgetRevision(queryDb(context), {
-			organizationId: scope.organizationId,
-			revisionId,
-		});
-		if (!revision || revision.gadgetId !== scope.gadgetId)
-			throw createError(ErrorCodes.NOT_FOUND, "App revision unavailable");
-		const manifest = OsGadgetManifestSchema.parse(
-			JSON.parse(revision.manifest),
-		);
-		if (manifest.entry !== "tedix:runtime/v1")
-			throw createError(ErrorCodes.BAD_REQUEST, "App has no server runtime");
-		const row = await getOsGadgetCode(queryDb(context), {
-			organizationId: scope.organizationId,
-			revisionId,
-		});
-		if (!row || row.gadgetId !== scope.gadgetId)
-			throw createError(ErrorCodes.NOT_FOUND, "App code unavailable");
-		const files = AppRuntimeFilesSchema.parse(JSON.parse(row.files));
-		const code = { files, digest: await appRuntimeCodeDigest(files) };
-		const config = AppRuntimeConfigSchema.parse(
-			manifest.config ?? { version: 1 },
-		);
-		return {
-			...code,
-			grants: manifest.resourceGrants ?? [],
-			revision: revision.revision,
-			config,
-			compatibilityDate: config.compatibilityDate,
-		};
+		return loadAppRuntimeRevision(queryDb(context), scope, revisionId);
 	}
 
 	const open = read.open.handler(async ({ context, input }) => {
@@ -244,70 +216,73 @@ export function createOsAppRuntimeRouter() {
 		const code = await load(context, scope, session.revisionId);
 		if (code.digest !== session.codeDigest)
 			throw createError(ErrorCodes.CONFLICT, "App code changed");
-		const executionId = crypto.randomUUID();
-		const receiptScope = { organizationId: scope.organizationId, executionId };
-		await createOsGadgetExecution(queryDb(context), {
-			id: executionId,
+		const result = await runAppRuntimeCall(context.env, queryDb(context), {
 			organizationId: scope.organizationId,
 			workspaceId: scope.workspaceId,
 			gadgetId: scope.gadgetId,
 			revisionId: session.revisionId,
-			revision: code.revision,
-			status: "running",
-			input: JSON.stringify({ method: input.method, args: input.args }),
-			grantedCapabilities: JSON.stringify(["app.call"]),
-			policyDecision: JSON.stringify({
-				allowed: true,
-				reasons: ["app.call"],
-				role: scope.role,
-				resourceGrants: code.grants,
-			}),
-			createdByKind: scope.principal.kind,
-			createdById: scope.principal.id,
-			runtimeEnvironment: context.env.ENVIRONMENT,
-		});
-		let result;
-		try {
-			const response = await serviceBindingFetch(context.env.TEDI_SERVICE)(
-				"https://tedi-runtime/__internal/workspace-app/call",
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"X-Service-Binding": "true",
-					},
-					body: JSON.stringify({
-						session: input.session,
-						files: code.files,
-						method: input.method,
-						args: input.args,
-					}),
-				},
-			);
-			if (!response.ok)
-				throw createError(ErrorCodes.BAD_GATEWAY, "Workspace app call failed");
-			result = JsonValueSchema.parse(await response.json());
-		} catch (error) {
-			await settleOsAppCallExecution(queryDb(context), {
-				...receiptScope,
-				status: "failed",
-				error: "Workspace app call failed",
-			});
-			throw error;
-		}
-		await settleOsAppCallExecution(queryDb(context), {
-			...receiptScope,
-			status: "completed",
-			output: JSON.stringify(result),
+			code,
+			role: scope.role,
+			session: input.session,
+			method: input.method,
+			args: input.args,
+			createdBy: scope.principal,
 		});
 		return { result };
 	});
+	/**
+	 * A share-link guest's app asked for a resource. The guest holds no
+	 * connected accounts and no membership, so the only capability is reading
+	 * a granted Output whose access envelope names no sources; the share
+	 * session and its link must still be live, and the link must be the one
+	 * the app session was minted for.
+	 */
+	async function guestCapability(
+		context: BaseContext,
+		session: Awaited<ReturnType<typeof verifyWorkspaceAppSession>>,
+		input: { operation: string; slot: string },
+	) {
+		const db = queryDb(context);
+		const now = new Date().toISOString();
+		const shareSession =
+			session.shareLinkId && !session.actorUserId && !session.previewId
+				? await getLiveOsShareSession(db, session.principal.id, now)
+				: undefined;
+		const link = shareSession
+			? await getOsShareLinkById(db, shareSession.shareLinkId)
+			: undefined;
+		if (
+			!shareSession ||
+			!link ||
+			link.id !== session.shareLinkId ||
+			link.organizationId !== session.organizationId ||
+			link.resourceId !== session.gadgetId ||
+			!isActive(link, now) ||
+			!(await linkAdmitsGuest(db, link))
+		)
+			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+		if (input.operation !== "outputs.read")
+			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+		const code = await loadAppRuntimeRevision(
+			db,
+			{ organizationId: session.organizationId, gadgetId: session.gadgetId },
+			session.revisionId,
+		);
+		if (code.digest !== session.codeDigest)
+			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+		const read = await readGuestAppSlot(db, session, code.grants, input.slot);
+		if (!read) throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+		return JsonValueSchema.parse(read);
+	}
+
 	const internal = os.use(withServiceAuth);
 	const capability = internal.capability.handler(async ({ context, input }) => {
 		const session = await verifyWorkspaceAppSession(
 			context.env.SECRETS_MASTER_KEY,
 			input.session,
 		);
+		if (session.principal.kind === SHARE_SESSION_PRINCIPAL_KIND)
+			return guestCapability(context, session, input);
 		if (!session.actorUserId)
 			throw createError(
 				ErrorCodes.FORBIDDEN,

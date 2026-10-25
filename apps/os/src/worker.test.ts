@@ -892,6 +892,78 @@ describe("Tedix OS origin router", () => {
 		await expect(response.text()).resolves.toBe("recovery-shell");
 	});
 
+	it("serves the guest document and the guest share calls to a signed-out visitor", async () => {
+		const crossSiteNavigation = {
+			Accept: "text/html",
+			"Sec-Fetch-Dest": "document",
+			"Sec-Fetch-Mode": "navigate",
+			"Sec-Fetch-Site": "cross-site",
+		};
+		const seen: Request[] = [];
+		const env = {
+			...withApiService(assetsReturning("shell")),
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					seen.push(request);
+					return Response.json({ ok: true });
+				},
+			},
+			OS_SESSION_BROKER: SESSION_BROKER,
+		};
+		const document = await handleOsRequest(
+			new Request("https://acme.os.tedix.dev/guest", {
+				headers: crossSiteNavigation,
+			}),
+			env,
+			provisionedWithTenant,
+		);
+		expect(document.status).toBe(200);
+		expect(await document.text()).toContain("shell");
+		for (const path of [
+			"/api/os-shared/redeem",
+			"/api/os-shared/session",
+			"/api/os-shared/app/open",
+			"/api/os-shared/app/call",
+			"/api/os-shared/app/read",
+		]) {
+			const response = await handleOsRequest(
+				new Request(`https://acme.os.tedix.dev${path}`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer attacker-selected",
+						Cookie: `${OS_BROKER_SESSION_COOKIE}=broker-jwt`,
+					},
+					body: JSON.stringify({ token: "x" }),
+				}),
+				env,
+				provisionedWithTenant,
+			);
+			expect(response.status, path).toBe(200);
+			const forwarded = seen.at(-1)!;
+			expect(new URL(forwarded.url).pathname).toBe(path.replace("/api", ""));
+			expect(forwarded.headers.get("Authorization")).toBeNull();
+			expect(forwarded.headers.get("Cookie")).toBeNull();
+		}
+		// Any other share path, verb or API still needs a session.
+		for (const [path, method] of [
+			["/api/os-shared/app/open", "GET"],
+			["/api/os-shared/anything", "POST"],
+			["/api/rpc/osWorkspaces/list", "POST"],
+		] as const) {
+			const response = await handleOsRequest(
+				new Request(`https://acme.os.tedix.dev${path}`, {
+					method,
+					headers: { "Content-Type": "application/json" },
+					body: method === "POST" ? "{}" : undefined,
+				}),
+				env,
+				provisionedWithTenant,
+			);
+			expect(response.status, `${method} ${path}`).toBe(401);
+		}
+	});
+
 	it("signs in a visitor who follows a cross-site link to a tenant document", async () => {
 		createIntent.mockClear();
 		// The exact headers a browser sends when a signed-out human follows a
