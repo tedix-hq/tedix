@@ -25,12 +25,20 @@ export default defineConfig({
 				d1Databases: ["DB"],
 				// test:workers runs this suite separately: recovery fixtures abort local Workflow state.
 				workflows: {
+					TURN_ADMISSION_WORKFLOW: {
+						name: "turn-admission-fixture",
+						className: "TurnAdmissionWorkflowFixture",
+					},
 					WORKFLOW_CALLBACK: {
 						name: "callback-fixture",
 						className: "WorkflowCallbackFixture",
 					},
 				},
 				durableObjects: {
+					TURN_ADMISSION: {
+						className: "TurnAdmissionFixture",
+						useSQLite: true,
+					},
 					DURABLE_CODE_RECOVERY: {
 						className: "DurableCodeRecoveryFixture",
 						useSQLite: true,

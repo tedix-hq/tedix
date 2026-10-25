@@ -17,6 +17,7 @@
  */
 
 import type { WorkflowStepConfig } from "cloudflare:workers";
+import { turnRetryDelaySeconds } from "./facet-turn-admission";
 
 /**
  * Retry budget for the IDEMPOTENT workflow steps. Each `step.do()` body RPCs
@@ -57,6 +58,8 @@ export interface ChatTurnStepRunner {
 
 /** Agent-side operations the steps drive (bound to the DO stub by the class). */
 export interface ChatTurnStepOps {
+	/** Stable spread for native transient-reset retries across independent runs. */
+	retryKey?: string;
 	/** Derived from the persisted Home/Work tuple, never model metadata. */
 	supervised?: boolean;
 	/** `markChatWorkflowStarted` — the admission watchdog's first checkpoint. */
@@ -118,9 +121,38 @@ export async function driveChatTurnSteps(
 	const facetConfig = ops.supervised
 		? DELEGATED_FACET_STEP_RETRY
 		: IDEMPOTENT_STEP_RETRY;
-	let resultRaw = await step.do("facet-turn", facetConfig, () =>
-		ops.runFacetTurn(),
-	);
+	const retryConfig = ops.retryKey
+		? {
+				...facetConfig,
+				retries: {
+					...facetConfig.retries,
+					delay: `${turnRetryDelaySeconds(ops.retryKey)} seconds` as const,
+				},
+			}
+		: facetConfig;
+	const runSegment = async (name: string, continuation?: number) => {
+		for (let attempt = 0; ; attempt++) {
+			const checkpoint = attempt === 0 ? name : `${name}-admission-${attempt}`;
+			const raw = await step.do(checkpoint, retryConfig, () =>
+				ops.runFacetTurn(continuation),
+			);
+			const result = JSON.parse(raw);
+			if (result.stopReason !== "turn_deferred") return raw;
+			if (
+				!Number.isSafeInteger(result.retryAfterSeconds) ||
+				result.retryAfterSeconds < 1 ||
+				result.retryAfterSeconds > 120
+			)
+				throw new Error("Invalid turn admission delay");
+			// A new checkpoint must follow the memoized denial; retrying the same
+			// step name would replay the denial forever. No turn slot is held here.
+			await step.sleep(
+				`${checkpoint}-wait`,
+				`${result.retryAfterSeconds} seconds`,
+			);
+		}
+	};
+	let resultRaw = await runSegment("facet-turn");
 	let computerContinuation = 0;
 	// Pending native work is still the SAME run. Durable sleeps release the
 	// invocation while the Agent's independent renewal alarm keeps its exact
@@ -165,10 +197,9 @@ export async function driveChatTurnSteps(
 			);
 		}
 		computerContinuation++;
-		resultRaw = await step.do(
+		resultRaw = await runSegment(
 			`facet-turn-continuation-${computerContinuation}`,
-			facetConfig,
-			() => ops.runFacetTurn(computerContinuation),
+			computerContinuation,
 		);
 	}
 	const result = JSON.parse(resultRaw) as {

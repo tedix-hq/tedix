@@ -12,6 +12,7 @@ import type { ChatTurnParams } from "./chat-turn-input";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
 import { FacetDispatchJournal } from "./facet-dispatch-journal";
+import { FacetTurnAdmission } from "./facet-turn-admission";
 import {
 	chatTurnProbe,
 	facetRunnerProbe,
@@ -1503,4 +1504,68 @@ console.log("facet-turn-parent OK");
 		false,
 		"harness rows remain text-only",
 	);
+}
+
+// A delegated turn waiting for capacity retains the exact Attempt's renewal.
+{
+	const admission = new FacetTurnAdmission(1);
+	let release!: () => void;
+	const held = admission.run(
+		"active",
+		() =>
+			new Promise<void>((resolve) => {
+				release = resolve;
+			}),
+	);
+	const storage = memoryStorage({
+		"worklease:queued": {
+			workItemId: "work-queued",
+			attemptId: "attempt-queued",
+		},
+	});
+	let heartbeats = 0;
+	let armed = 0;
+	const agent = tediDo({
+		state: { tediId: "tedi-1" },
+		ctx: { storage },
+		facetTurnAdmission: admission,
+		keepAliveWhile: (run: () => Promise<unknown>) => run(),
+		ensureIdentity: async () => {},
+		acceptRuntimeTurn: async () => {},
+		assertChatTurnActive: async () => {},
+		sessionRepo: { findTurnByIdempotencyKey: () => null },
+		getPlatformClient: async () => ({
+			heartbeatWorkAttempt: async () => {
+				heartbeats++;
+			},
+		}),
+		armDelegatedWorkLeaseRenewal: async () => {
+			armed++;
+		},
+		runFacetWorkflowTurnImpl: async () => {
+			throw new Error("Denied turn cannot allocate context");
+		},
+	});
+	try {
+		const result = await agent.runFacetWorkflowTurn({
+			runId: "queued",
+			sessionKey: "delegated:queued",
+			userText: "work",
+			userTs: 1,
+			conversationId: "fixture:queued",
+			workItemId: "work-queued",
+			homeRunId: "home-queued",
+		});
+		assert.equal(result.stopReason, "turn_deferred");
+		assert.equal(heartbeats, 1);
+		assert.equal(armed, 1);
+		assert.equal(
+			(storage.data.get("workleaserenew:queued") as { attemptId: string })
+				.attemptId,
+			"attempt-queued",
+		);
+	} finally {
+		release();
+		await held;
+	}
 }
