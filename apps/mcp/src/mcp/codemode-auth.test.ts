@@ -358,6 +358,11 @@ describe("code-built tools/call authorization", () => {
 			required_scopes: ["mcp:apps.read"],
 			missing_scopes: ["mcp:apps.read"],
 		});
+		expect(result?._meta?.["com.tedix/security"]).toEqual({
+			gate: "tool_scope",
+			gateDecision: "deny",
+			gateReason: "insufficient_scope",
+		});
 	});
 
 	it("allows an exact granular grant and trusted service binding", () => {

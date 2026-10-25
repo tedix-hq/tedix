@@ -1,3 +1,4 @@
+import { gateDecisionMetadata } from "./gate-decision";
 import {
 	extractMcpTraceMeta,
 	resolveInboundTraceId,
@@ -102,6 +103,7 @@ export async function recordMcpAccessDenial(input: {
 		traceId,
 		...callerFields,
 		metadata: mergeMcpMetadata(callerFields.metadata, {
+			...gateDecisionMetadata("edge_access", "deny", reason),
 			denialReason: reason,
 			httpStatus,
 			...(operation.method ? { mcpMethod: operation.method } : {}),

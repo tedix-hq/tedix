@@ -84,6 +84,9 @@ describe("MCP pre-dispatch security decisions", () => {
 				errorCode: reason,
 				success: false,
 				metadata: {
+					gate: "edge_access",
+					gateDecision: "deny",
+					gateReason: reason,
 					denialReason: reason,
 					httpStatus: 403,
 					mcpMethod: "tools/call",

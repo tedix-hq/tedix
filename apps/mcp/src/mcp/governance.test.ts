@@ -2086,6 +2086,9 @@ it("audits the authorizing skill revision for every manifest-approved call", asy
 			expect.anything(),
 			expect.objectContaining({
 				metadata: expect.objectContaining({
+					gate: "destructive_approval",
+					gateDecision: "allow",
+					gateReason: "destructive_approved",
 					reason: "approved by manifest of skill skill-1 rev 40",
 					resolvedBy: "skill_manifest",
 					skillRevision: 40,
