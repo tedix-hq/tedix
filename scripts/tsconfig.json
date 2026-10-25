@@ -35,6 +35,7 @@
 		"skills/render-planning-board-sync.ts",
 		"../apps/skill-runtime/examples/calendar-coordinator/scripts/workflow.ts",
 		"dev-local.ts",
+		"generate-worker-types.test.ts",
 		"generate-worker-types.ts",
 		"lint-contracts.ts",
 		"descope/**/*.ts",
