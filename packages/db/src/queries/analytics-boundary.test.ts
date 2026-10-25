@@ -189,6 +189,50 @@ describe("analytics query boundary", () => {
 		]);
 	});
 
+	it("returns each current reference's latest review even when the other has many newer reviews", async () => {
+		const { db, sqlite } = fixture();
+		const busy = "attn_0123456789abcdef0123456789abcdef";
+		const quiet = "attn_fedcba9876543210fedcba9876543210";
+		const actor =
+			'{"installationId":"installation-1","tediId":"tedi-1","hostOrganizationId":"1","hostUserId":"6190","origin":"https://www.acme.example"}';
+		const insert = sqlite.prepare(
+			`INSERT INTO widget_events (id, organization_id, app_id, session_id, event_type, widget_key, metadata, created_at) VALUES (?, ?, 'app-1', 's', 'attention_review', ?, ?, ?)`,
+		);
+		insert.run(
+			"quiet-review",
+			"org-1",
+			quiet,
+			actor,
+			"2026-08-31T03:00:00.000Z",
+		);
+		for (let n = 0; n < 21; n++)
+			insert.run(
+				`busy-${n}`,
+				"org-1",
+				busy,
+				actor,
+				`2026-08-31T04:${String(n).padStart(2, "0")}:00.000Z`,
+			);
+		// A newer review of the quiet reference in another tenant stays fenced out.
+		insert.run("other-org", "org-2", quiet, actor, "2026-08-31T05:00:00.000Z");
+
+		await expect(
+			listEmbeddedAttentionReviews(db, {
+				organizationId: "org-1",
+				appId: "app-1",
+				installationId: "installation-1",
+				tediId: "tedi-1",
+				hostOrganizationId: "1",
+				hostUserId: "6190",
+				origin: "https://www.acme.example",
+				attentionRefs: [busy, quiet],
+			}),
+		).resolves.toEqual([
+			{ attentionRef: busy, reviewedAt: "2026-08-31T04:20:00.000Z" },
+			{ attentionRef: quiet, reviewedAt: "2026-08-31T03:00:00.000Z" },
+		]);
+	});
+
 	it("keeps audit freshness, activity, trace, and drilldown reads tenant-scoped", async () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(`

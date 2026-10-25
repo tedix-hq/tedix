@@ -12,7 +12,7 @@
  * - Retention cleanup (deleteOldWidgetEvents)
  */
 
-import { and, desc, eq, getColumns, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, inArray, lt, max, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { type NewWidgetEvent, widgetEvents } from "../schema/analytics";
 import { apps } from "../schema/apps";
@@ -247,10 +247,12 @@ export async function listEmbeddedAttentionReviews(
 ): Promise<EmbeddedAttentionReview[]> {
 	if (input.attentionRefs.length === 0) return [];
 	const attentionRefs = [...new Set(input.attentionRefs)].slice(0, 2);
+	// One row per reference: a global row cap before deduplication let one
+	// often-reviewed reference crowd out the other's latest review.
 	const rows = await db
 		.select({
 			attentionRef: widgetEvents.widgetKey,
-			reviewedAt: widgetEvents.createdAt,
+			reviewedAt: max(widgetEvents.createdAt),
 		})
 		.from(widgetEvents)
 		.where(
@@ -267,19 +269,18 @@ export async function listEmbeddedAttentionReviews(
 				sql`json_extract(${widgetEvents.metadata}, '$.origin') = ${input.origin}`,
 			),
 		)
-		.orderBy(desc(widgetEvents.createdAt))
-		.limit(attentionRefs.length * 10);
+		.groupBy(widgetEvents.widgetKey);
 
-	const latest = new Map<string, string>();
-	for (const row of rows) {
-		if (row.attentionRef && row.reviewedAt && !latest.has(row.attentionRef)) {
-			latest.set(row.attentionRef, row.reviewedAt);
-		}
-	}
-	return Array.from(latest, ([attentionRef, reviewedAt]) => ({
-		attentionRef,
-		reviewedAt,
-	}));
+	return rows
+		.filter(
+			(row): row is EmbeddedAttentionReview =>
+				Boolean(row.attentionRef) && Boolean(row.reviewedAt),
+		)
+		.sort(
+			(left, right) =>
+				right.reviewedAt.localeCompare(left.reviewedAt) ||
+				left.attentionRef.localeCompare(right.attentionRef),
+		);
 }
 
 // =============================================================================
