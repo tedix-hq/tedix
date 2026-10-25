@@ -6,6 +6,7 @@ import {
 	type AppRuntimeRole,
 } from "../schemas/os-app-runtime";
 import type { OsGadgetManifest } from "../schemas/os-workspaces";
+import type { JsonValue } from "../schemas/common";
 
 /** True when a manifest describes an app that runs its own code. */
 export function isAppRuntimeManifest(
@@ -35,30 +36,74 @@ export function appRuntimeCodeId(parts: AppRuntimeCodeIdParts): string {
 
 export const APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE = "2026-10-01";
 
+const INVOCATION_MODULE_NAME = "__tedix_invocation.js";
+const INVOCATION_MODULE = `
+import { DurableObject } from 'cloudflare:workers';
+import { App } from './server.js';
+export class AppInvocation extends DurableObject {
+  async invoke(method, args, capability) {
+    const descriptor = Object.getOwnPropertyDescriptor(App.prototype, method);
+    if (!descriptor || typeof descriptor.value !== 'function' || method === 'constructor')
+      throw new Error('Unknown app method');
+    const app = new App(this.ctx, { CONFIG: this.env.CONFIG, TEDIX: capability });
+    return await descriptor.value.apply(app, args);
+  }
+}`;
+
+interface AppRuntimeLoaderOptions<TTail> {
+	compatibilityDate?: string;
+	invocation?: { config: Record<string, JsonValue>; tails: TTail[] };
+}
+
 /**
  * What the host hands to the Worker Loader for one revision. Only `.js` files
  * become modules the program can import; `.json` and `.txt` ride along as text
  * modules the code reads by name. Network access is never inherited.
  */
-export function appRuntimeLoaderManifest(
+export function appRuntimeLoaderManifest<TTail = never>(
 	files: AppRuntimeFiles,
-	options: { compatibilityDate?: string } = {},
+	options: AppRuntimeLoaderOptions<TTail> = {},
 ) {
 	return {
 		compatibilityDate:
 			options.compatibilityDate ?? APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE,
 		// Agent-written code must never reach bindings ambiently.
-		compatibilityFlags: ["disallow_importable_env"] as readonly string[],
-		mainModule: APP_RUNTIME_SERVER_MODULE,
-		modules: { ...files } as Record<string, string>,
+		compatibilityFlags: ["disallow_importable_env"],
+		mainModule: options.invocation
+			? INVOCATION_MODULE_NAME
+			: APP_RUNTIME_SERVER_MODULE,
+		modules: (options.invocation
+			? { ...files, [INVOCATION_MODULE_NAME]: INVOCATION_MODULE }
+			: { ...files }) as Record<string, string>,
+		env: { CONFIG: options.invocation?.config ?? {} },
+		tails: options.invocation?.tails ?? [],
 		// Always null: an app reaches the outside world only through capabilities.
 		globalOutbound: null,
 	};
 }
 
-export type AppRuntimeLoaderManifest = ReturnType<
-	typeof appRuntimeLoaderManifest
+export type AppRuntimeLoaderManifest<TTail = never> = ReturnType<
+	typeof appRuntimeLoaderManifest<TTail>
 >;
+
+/** Keep Loader calls at the same approved site as their sandbox policy. */
+export function loadAppRuntimeWorker<TWorker, TTail>(
+	LOADER: {
+		get(
+			id: string,
+			code: () => Promise<AppRuntimeLoaderManifest<TTail>>,
+		): TWorker;
+	},
+	id: string,
+	files: AppRuntimeFiles,
+	options: AppRuntimeLoaderOptions<TTail>,
+): TWorker {
+	return LOADER.get(id, async () => ({
+		...appRuntimeLoaderManifest(files, options),
+		compatibilityFlags: ["disallow_importable_env"],
+		globalOutbound: null,
+	}));
+}
 
 /**
  * The one table that says what a role may ask the host for. A grant on the
