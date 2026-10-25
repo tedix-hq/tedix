@@ -78,9 +78,22 @@ function validateExportImage(bytes: Buffer, type: string): void {
 	if (bytes.length > MAX_IMAGE_BYTES)
 		throw new Error("Export image exceeds 10 MB");
 	if (type === "image/svg+xml") {
-		const svg = bytes.toString("utf8");
+		// Inspect XML character references too: they can hide CSS tokens or escapes.
+		// This is an inspection copy; successful exports preserve the original bytes.
+		const svg = bytes
+			.toString("utf8")
+			.replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (entity, code: string) => {
+				const value = /^x/i.test(code)
+					? Number.parseInt(code.slice(1), 16)
+					: Number.parseInt(code, 10);
+				return value <= 0x10ffff ? String.fromCodePoint(value) : entity;
+			})
+			.replace(/&quot;/g, '"')
+			.replace(/&apos;/g, "'");
 		if (
 			!/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(svg) ||
+			// CSS escapes are outside the export subset, even for local references.
+			svg.includes("\\") ||
 			/<!DOCTYPE|<!ENTITY|<(?:script|foreignObject|iframe|object|embed)\b|\son\w+\s*=|javascript:|@import/i.test(
 				svg,
 			) ||
