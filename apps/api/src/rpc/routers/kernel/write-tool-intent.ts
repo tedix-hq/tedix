@@ -92,6 +92,23 @@ export type WorkpieceRenameIntent =
 			args: { outputId: string; title: string };
 	  };
 
+export const MOVE_SKILL_TO_TEDI_TOOL = "skills.move_skill_to_tedi";
+
+/** "Move skill X to tedi Y", resolved to exact ids. */
+export interface SkillMoveIntent {
+	capability: "skills.move_to_tedi";
+	toolName: typeof MOVE_SKILL_TO_TEDI_TOOL;
+	args: {
+		skillId: string;
+		targetTediId: string;
+		dryRun: false;
+		mode: "transfer";
+	};
+}
+
+/** An exact write a Home turn resolved without the model. */
+export type DirectWriteIntent = WorkpieceRenameIntent | SkillMoveIntent;
+
 /** What a "rename X to Y" request names: an app, an output, or "it". */
 export interface RenameRequest {
 	kind: "gadget" | "output" | "selected";
@@ -209,7 +226,7 @@ export function correctWriteRoute<
 	route: T,
 	content: string,
 	workspaceContext: SelectedWorkpieceContext | null | undefined,
-	resolved?: WorkpieceRenameIntent | null,
+	resolved?: DirectWriteIntent | null,
 ): T {
 	if (route.routeKind !== "propose_tool_write" || !route.toolIntent)
 		return route;
@@ -272,6 +289,7 @@ export function canonicalWriteToolName(
 		if (GADGET_RENAME_CAPABILITY_RE.test(capability)) return RENAME_GADGET_TOOL;
 		if (OUTPUT_RENAME_CAPABILITY_RE.test(capability)) return RENAME_OUTPUT_TOOL;
 	}
+	if (capability === "skills.move_to_tedi") return MOVE_SKILL_TO_TEDI_TOOL;
 	if (capability === "factories.create") return "projects.create_factory";
 	if (capability === "factories.pause") return "projects.pause_factory";
 	if (capability === "factories.resume") return "projects.resume_factory";

@@ -42,8 +42,8 @@ import {
 	preferredToolForCapability,
 	renameThisConversationArgs,
 	correctWriteRoute,
+	type DirectWriteIntent,
 	workpieceRenameIntent,
-	type WorkpieceRenameIntent,
 } from "./write-tool-intent";
 import {
 	isWriteCapable,
@@ -509,8 +509,11 @@ export async function planKernelWriteProposal(args: {
 	content?: string;
 	/** Server-validated selection from the owning Home turn. */
 	workspaceContext?: WriteWorkspaceContext;
-	/** An exact rename resolved by the turn (target app/output, or an undo). */
-	directRename?: WorkpieceRenameIntent | null;
+	/**
+	 * An exact write resolved by the turn: a rename (target app/output, or an
+	 * undo) or a skill move to a named tedi.
+	 */
+	directRename?: DirectWriteIntent | null;
 	/** Kernel LLM. Required for writes — there is no heuristic fallback. */
 	model?: LanguageModel | null;
 	/** Decline reporter — receives the fail-soft reason for run metadata. */
@@ -535,7 +538,7 @@ export async function planKernelWriteProposal(args: {
 		return null;
 	};
 	if (args.route.routeKind !== "propose_tool_write") return null;
-	const workpieceRename =
+	const workpieceRename: DirectWriteIntent | null =
 		args.directRename ??
 		(content ? workpieceRenameIntent(content, args.workspaceContext) : null);
 	const route = correctWriteRoute(
@@ -931,9 +934,11 @@ export async function planKernelWriteProposal(args: {
 					toolName: exactTool.name,
 					args: renameArgs,
 					reasoning:
-						renameArgs === workpieceRename?.args
-							? "Rename the selected workspace item as asked."
-							: "Rename the current conversation as asked.",
+						renameArgs !== workpieceRename?.args
+							? "Rename the current conversation as asked."
+							: workpieceRename.capability === "skills.move_to_tedi"
+								? "Move the skill and its schedule to the tedi the request names."
+								: "Rename the selected workspace item as asked.",
 				}
 			: cardArgs
 				? {
