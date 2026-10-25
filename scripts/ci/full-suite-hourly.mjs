@@ -182,9 +182,14 @@ export function workspaceMatrix(root = ".") {
 				}
 				continue;
 			}
+			const test = !!scripts[testScript];
+			const browsers = test
+				? scriptBrowsers(join(root, workspace), scripts, testScript).join(" ")
+				: "";
 			include.push({
 				workspace,
-				test: !!(scripts["test:ci"] || scripts["test:run"]),
+				test,
+				...(browsers ? { browsers } : {}),
 				types: !!scripts["type-check"],
 			});
 		}
