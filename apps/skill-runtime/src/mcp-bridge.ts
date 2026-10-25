@@ -173,6 +173,16 @@ export class McpNamespaceUnavailableError extends Error {
 }
 
 /**
+ * The Code Mode sandbox has no `<namespace>` binding: the generated one-call
+ * snippet (`await <namespace>.<method>(...)`) failed before calling anything.
+ */
+function isCodeModeNamespaceMiss(error: unknown, codeModeNamespace: string) {
+	if (!(error instanceof Error)) return false;
+	const at = error.message.indexOf(`${codeModeNamespace} is not defined`);
+	return at === 0 || (at > 0 && !/[\w$]/.test(error.message[at - 1]!));
+}
+
+/**
  * Rewrite a Code Mode `<namespace> is not defined` recovery failure into the
  * cause the bridge already knows; any other error passes through unchanged.
  */
@@ -188,7 +198,7 @@ export function explainCodeModeNamespaceMiss(
 	},
 ): unknown {
 	if (!(error instanceof Error)) return error;
-	if (!error.message.includes(`${input.codeModeNamespace} is not defined`)) {
+	if (!isCodeModeNamespaceMiss(error, input.codeModeNamespace)) {
 		return error;
 	}
 	const call = `env.MCP.${input.namespace}.${input.method}`;
@@ -745,6 +755,8 @@ async function executeMcpTool(
 	const recoverViaCodeMode = async (
 		directFailure: "method_not_found" | "connection_missing",
 	) => {
+		const codeModeNamespace =
+			namespace === "tedi" ? (props.tediNamespace ?? namespace) : namespace;
 		try {
 			// A mapped app may itself be a Code Mode wrapper whose inner app keeps
 			// the skill's namespace (`github-tedix` serves `github.get_commit`
@@ -753,16 +765,23 @@ async function executeMcpTool(
 				try {
 					return await invokeViaCodeMode(resolvedSlug);
 				} catch (error) {
-					// Only an absent code method proves no tenant code executed.
-					if (!(error instanceof McpCodeModeMethodNotFoundError)) throw error;
+					// Only an absent code method, or a wrapper that has no such
+					// namespace (the one-call snippet fails on its first identifier),
+					// proves no tenant code executed. `github-tedix` serves
+					// `github.*`, so a skill declaring `github_tedix` reaches it only
+					// through the organization gateway.
+					if (
+						!(error instanceof McpCodeModeMethodNotFoundError) &&
+						!isCodeModeNamespaceMiss(error, codeModeNamespace)
+					)
+						throw error;
 				}
 			}
 			return await invokeViaCodeMode();
 		} catch (recoveryError) {
 			throw explainCodeModeNamespaceMiss(recoveryError, {
 				namespace,
-				codeModeNamespace:
-					namespace === "tedi" ? (props.tediNamespace ?? namespace) : namespace,
+				codeModeNamespace,
 				method,
 				mappedSlug: props.namespaceToSlug[namespace],
 				aggregateMcpSlug: props.aggregateMcpSlug,

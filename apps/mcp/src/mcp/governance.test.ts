@@ -2099,6 +2099,89 @@ it("audits the authorizing skill revision for every manifest-approved call", asy
 	}
 });
 
+describe("platform tools declared under their Code Mode namespace", () => {
+	function agentWith(resolve: ReturnType<typeof vi.fn>) {
+		return {
+			...approvalContext(vi.fn()),
+			app: { organizationId: "org-example" },
+			appSlug: "example-unified",
+			callerIdentity: {
+				authType: "service",
+				organizationId: "org-example",
+				tediId: "tedi-1",
+				skillRunId: "run-1",
+				skillId: "skill-1",
+				workflowExecutionEpoch: 0,
+			},
+			apiClient: {
+				mcpGovernance: { resolveSkillManifestAuthorization: resolve },
+			},
+		} as unknown as ServerContext;
+	}
+	// A scheduled skill declares `rationale: [create_rationale_records]` and
+	// `work: [list_agent_session_activity]`; the gateway serves both from the
+	// platform app as `tedix__<method>`.
+	it.each([
+		["rationale", "create_rationale_records", "rationaleRecords/create"],
+		["work", "list_agent_session_activity", "workAgentSessions/listActivity"],
+	])(
+		"approves %s.%s when the manifest declares that namespace",
+		async (declared, method, endpoint) => {
+			const resolve = vi.fn(async (input: { namespace?: string }) =>
+				input.namespace === declared
+					? { approved: true, skillId: "skill-1", revision: 39 }
+					: { approved: false },
+			);
+			await expect(
+				requireDestructiveToolApproval(agentWith(resolve), {
+					toolId: `tedix__${method}`,
+					title: method,
+					config: { transport: "rpc", endpoint, _sourceAppSlug: "tedix" },
+				} as never),
+			).resolves.toBeNull();
+			expect(resolve.mock.calls.map(([input]) => input.namespace)).toEqual([
+				"tedix",
+				declared,
+			]);
+			expect(resolve).toHaveBeenLastCalledWith(
+				expect.objectContaining({ method, sourceAppSlug: "tedix" }),
+			);
+		},
+	);
+
+	it("still refuses when neither namespace is declared", async () => {
+		const resolve = vi.fn(async () => ({ approved: false }));
+		await expect(
+			requireDestructiveToolApproval(agentWith(resolve), {
+				toolId: "tedix__create_rationale_records",
+				title: "Create rationale",
+				config: {
+					transport: "rpc",
+					endpoint: "rationaleRecords/create",
+					_sourceAppSlug: "tedix",
+				},
+			} as never),
+		).resolves.toMatchObject({ isError: true });
+		expect(resolve).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps protected platform effects gated without consulting the manifest", async () => {
+		const resolve = vi.fn(async () => ({
+			approved: true,
+			skillId: "skill-1",
+			revision: 39,
+		}));
+		await expect(
+			requireDestructiveToolApproval(agentWith(resolve), {
+				toolId: "tedix__pay_invoice",
+				title: "Pay invoice",
+				config: { transport: "rpc", endpoint: "billing/payInvoice" },
+			} as never),
+		).resolves.not.toBeNull();
+		expect(resolve).not.toHaveBeenCalled();
+	});
+});
+
 it.each(["*", "tool:example-unified:create_report"])(
 	"preserves configured organization approval correction %s",
 	async (correction) => {

@@ -21,7 +21,10 @@ import {
 } from "@tedix/mcp-shared/protocol";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
 import { preDispatchUnavailableToolResult } from "@tedix/mcp-shared/tool-result";
-import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
+import {
+	connectedProviderId,
+	resolveMcpToolNamespace,
+} from "@tedix/mcp-shared/auth/tool-scopes";
 import { normalizeCallerIdentity } from "./caller-identity";
 import {
 	buildApprovalInputRequest,
@@ -49,6 +52,7 @@ type ApprovalContext = Pick<ServerContext, "server"> &
 			| "appId"
 			| "appSlug"
 			| "app"
+			| "appMetadata"
 			| "callerIdentity"
 			| "connectionLabel"
 			| "traceId"
@@ -863,19 +867,36 @@ export async function requireDestructiveToolApproval(
 					`Action "${tool.toolId}" requires approval under its configured policy. No side effect was executed.`,
 				);
 			stage = "manifest_authorization";
-			const resolution =
-				await agent.apiClient.mcpGovernance.resolveSkillManifestAuthorization({
-					organizationId: manifestOrganizationId,
-					runId: workflowCaller.skillRunId,
-					skillId: workflowCaller.skillId,
-					tediId: workflowCaller.tediId,
-					executionEpoch: workflowCaller.workflowExecutionEpoch,
-					method: tool.toolId.split("__").at(-1)!,
-					namespace:
-						typeof tool.config?._aggregateNamespace === "string"
-							? tool.config._aggregateNamespace
-							: tool.toolId.split("__").slice(0, -1).join("__") ||
-								agent.appSlug,
+			const gatewayNamespace =
+				typeof tool.config?._aggregateNamespace === "string"
+					? tool.config._aggregateNamespace
+					: tool.toolId.split("__").slice(0, -1).join("__") || agent.appSlug;
+			// Platform RPC tools sit under their endpoint's Code Mode namespace
+			// (`rationaleRecords/create` is `rationale.create_rationale_records`),
+			// which is what a skill declares and calls; the gateway prefix is the
+			// app (`tedix__create_rationale_records`). Either names this tool.
+			const codeModeNamespace =
+				typeof tool.config?.endpoint === "string"
+					? resolveMcpToolNamespace(
+							tool,
+							agent.appMetadata?.mcpConfig?.codeModeNamespaces as
+								| Record<string, string>
+								| undefined,
+						)
+					: undefined;
+			const governance = agent.apiClient.mcpGovernance;
+			const manifestInput = {
+				organizationId: manifestOrganizationId,
+				runId: workflowCaller.skillRunId,
+				skillId: workflowCaller.skillId,
+				tediId: workflowCaller.tediId,
+				executionEpoch: workflowCaller.workflowExecutionEpoch,
+				method: tool.toolId.split("__").at(-1)!,
+			};
+			const resolveManifest = (namespace: string | undefined) =>
+				governance.resolveSkillManifestAuthorization!({
+					...manifestInput,
+					namespace,
 					sourceAppSlug:
 						typeof tool.config?._sourceAppSlug === "string"
 							? tool.config._sourceAppSlug
@@ -885,6 +906,13 @@ export async function requireDestructiveToolApproval(
 							? tool.config._aggregateTediId
 							: undefined,
 				});
+			let resolution = await resolveManifest(gatewayNamespace);
+			if (
+				!resolution.approved &&
+				codeModeNamespace &&
+				codeModeNamespace !== gatewayNamespace
+			)
+				resolution = await resolveManifest(codeModeNamespace);
 			if (resolution.approved && resolution.skillId && resolution.revision) {
 				stage = "manifest_audit";
 				emitGovernanceAuditEvent(

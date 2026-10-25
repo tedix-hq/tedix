@@ -113,6 +113,33 @@ describe("skill schedule budget state", () => {
 		]);
 	});
 
+	it("leaves out schedules whose params name an excluded id", async () => {
+		sqlite.exec(`
+			INSERT INTO skill_schedules (
+				id, organization_id, skill_id, tedi_id, cron, params, enabled,
+				next_fire_at
+			) VALUES (
+				'schedule-private', 'org-1', 'skill-1', 'tedi-1', '0 9 * * *',
+				'{"projectIds":["project-public","project-private"]}', 1,
+				'2026-07-28T09:00:00.000Z'
+			);
+		`);
+
+		const result = await listSkillSchedulesPage(db, "org-1", {
+			excludeParamsReferenceId: "project-private",
+		});
+
+		expect(result.schedules.map((schedule) => schedule.id)).not.toContain(
+			"schedule-private",
+		);
+		expect(result.total).toBe(result.schedules.length);
+		expect(
+			(await listSkillSchedulesPage(db, "org-1", {})).schedules.map(
+				(schedule) => schedule.id,
+			),
+		).toContain("schedule-private");
+	});
+
 	it("matches a query longer than D1's 50-byte LIKE pattern cap", async () => {
 		// The LIKE this replaced turned any 48+ character search into a D1_ERROR.
 		const description =

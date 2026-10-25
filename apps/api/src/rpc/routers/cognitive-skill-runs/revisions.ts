@@ -4,6 +4,7 @@ import {
 	listSkillRunsForTedi,
 } from "@tedix/db/queries/skill-runs";
 import { listSkillSchedulesPage } from "@tedix/db/queries/skill-schedules";
+import { excludedAgentReviewProjectId } from "../../../services/agent-review-access";
 import {
 	aggregateSkillWorkflowReliability,
 	parseSkillWorkflowRecordsByRun,
@@ -363,6 +364,12 @@ export const skillsListWorkflowSchedules = authedSkills.listWorkflowSchedules
 		const skillId = input.slug
 			? await resolveWorkflowSkillId(context, orgId, input)
 			: input.skillId;
+		// A schedule naming the private review project would make the review
+		// guard refuse the whole list; leave it out for callers without access.
+		const excludeParamsReferenceId = await excludedAgentReviewProjectId(
+			context,
+			orgId,
+		);
 		const page = await listSkillSchedulesPage(context.db, orgId, {
 			skillId,
 			tediId: input.tediId,
@@ -370,6 +377,7 @@ export const skillsListWorkflowSchedules = authedSkills.listWorkflowSchedules
 			limit: input.limit,
 			offset: input.offset,
 			query: input.query,
+			...(excludeParamsReferenceId ? { excludeParamsReferenceId } : {}),
 		});
 		const nextOffset = input.offset + page.schedules.length;
 		return {
