@@ -4814,6 +4814,52 @@ function localRemovalImpact(input: {
 // Per-procedure handlers
 // ---------------------------------------------------------------------------
 
+/** Fictional work streams (cases) on the first project. */
+function localCases() {
+	return [
+		{
+			n: 1,
+			title: "Maple Books delivery investigation",
+			stage: "investigating",
+		},
+		{ n: 2, title: "Willow Studio workshop preparation", stage: "planning" },
+	].map(({ n, title, stage }) => ({
+		id: fid("b1", n),
+		orgId: ORG_ID,
+		projectId: fid("76", 1),
+		objectiveId: null,
+		kind: "other",
+		title,
+		description: "A fictional customer matter for local review.",
+		stage,
+		accountableOwnerType: "user",
+		accountableOwnerId: "dev-operator",
+		openedAt: T0,
+		targetResolutionAt: null,
+		closedAt: null,
+		createdAt: T0,
+		updatedAt: null,
+		version: 1,
+	}));
+}
+
+/** Tasks attached to, and dependencies between, the local work streams. */
+const LOCAL_CASE_ITEMS: Array<{
+	id: string;
+	orgId: string;
+	caseId: string;
+	workItemId: string;
+	rationale: string | null;
+	discoveredAt: string;
+}> = [];
+const LOCAL_CASE_EDGES: Array<{
+	id: string;
+	orgId: string;
+	fromCaseId: string;
+	toCaseId: string;
+	createdAt: string;
+}> = [];
+
 const handlers: Record<string, (input: never) => unknown> = {
 	"decisionGraph/getContext": (input: { cardId: string }) =>
 		decisionGraphFixture(input.cardId),
@@ -4827,39 +4873,61 @@ const handlers: Record<string, (input: never) => unknown> = {
 		stages?: string[];
 		projectId?: string;
 	}) => ({
-		data: [
-			{
-				n: 1,
-				title: "Maple Books delivery investigation",
-				stage: "investigating",
-			},
-			{ n: 2, title: "Willow Studio workshop preparation", stage: "planning" },
-		]
-			.map(({ n, title, stage }) => ({
-				id: fid("b1", n),
-				orgId: ORG_ID,
-				projectId: fid("76", 1),
-				objectiveId: null,
-				kind: "other",
-				title,
-				description: "A fictional customer matter for local review.",
-				stage,
-				accountableOwnerType: "user",
-				accountableOwnerId: "dev-operator",
-				openedAt: T0,
-				targetResolutionAt: null,
-				closedAt: null,
-				createdAt: T0,
-				updatedAt: null,
-				version: 1,
-			}))
-			.filter(
-				(row) =>
-					(!input?.stages || input.stages.includes(row.stage)) &&
-					(!input?.projectId || input.projectId === row.projectId),
-			),
+		data: localCases().filter(
+			(row) =>
+				(!input?.stages || input.stages.includes(row.stage)) &&
+				(!input?.projectId || input.projectId === row.projectId),
+		),
 		nextCursor: null,
 	}),
+	"workItems/getCase": (input: { caseId: string }) => {
+		const workCase = localCases().find((row) => row.id === input.caseId);
+		if (!workCase) throw new RpcError("NOT_FOUND", "Case not found");
+		return {
+			workCase,
+			items: {
+				data: LOCAL_CASE_ITEMS.filter((row) => row.caseId === input.caseId),
+				nextCursor: null,
+			},
+			dependencies: {
+				data: LOCAL_CASE_EDGES.filter(
+					(row) =>
+						row.fromCaseId === input.caseId || row.toCaseId === input.caseId,
+				),
+				nextCursor: null,
+			},
+		};
+	},
+	"workItems/attachCaseWorkItem": (input: {
+		caseId: string;
+		workItemId: string;
+		rationale?: string;
+	}) => {
+		const row = {
+			id: fid("b3", LOCAL_CASE_ITEMS.length + 1),
+			orgId: ORG_ID,
+			caseId: input.caseId,
+			workItemId: input.workItemId,
+			rationale: input.rationale ?? null,
+			discoveredAt: new Date().toISOString(),
+		};
+		LOCAL_CASE_ITEMS.push(row);
+		return row;
+	},
+	"workItems/addCaseDependency": (input: {
+		fromCaseId: string;
+		toCaseId: string;
+	}) => {
+		const row = {
+			id: fid("b4", LOCAL_CASE_EDGES.length + 1),
+			orgId: ORG_ID,
+			fromCaseId: input.fromCaseId,
+			toCaseId: input.toCaseId,
+			createdAt: new Date().toISOString(),
+		};
+		LOCAL_CASE_EDGES.push(row);
+		return row;
+	},
 	"workItems/listResourcePools": (input: {
 		resourceKey?: string;
 		saturatedOnly?: boolean;
@@ -5810,6 +5878,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 					disposition?: string;
 					workKind?: string;
 					projectId?: string;
+					titleContains?: string;
 					limit?: number;
 					offset?: number;
 			  }
@@ -5821,7 +5890,12 @@ const handlers: Record<string, (input: never) => unknown> = {
 					(input?.disposition === undefined ||
 						row.disposition === input.disposition) &&
 					(input?.workKind === undefined || row.workKind === input.workKind) &&
-					(input?.projectId === undefined || row.projectId === input.projectId),
+					(input?.projectId === undefined ||
+						row.projectId === input.projectId) &&
+					(input?.titleContains === undefined ||
+						row.title
+							.toLowerCase()
+							.includes(input.titleContains.toLowerCase())),
 			),
 			input,
 		),

@@ -308,6 +308,15 @@ const CALLS: Record<string, unknown> = {
 		id: "00000076-0000-4000-8000-000000000001",
 		targetDate: "2026-11-30",
 	},
+	"workItems/getCase": { caseId: "000000b1-0000-4000-8000-000000000001" },
+	"workItems/attachCaseWorkItem": {
+		caseId: "000000b1-0000-4000-8000-000000000001",
+		workItemId: "00000070-0000-4000-8000-000000000001",
+	},
+	"workItems/addCaseDependency": {
+		fromCaseId: "000000b1-0000-4000-8000-000000000001",
+		toCaseId: "000000b1-0000-4000-8000-000000000002",
+	},
 	"projects/getRollup": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/getPortfolio": {},
 	"projects/getFactoryScoreboard": {},

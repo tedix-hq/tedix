@@ -4,7 +4,12 @@ import {
 	WorkReadFailure,
 	WorkEmpty,
 } from "@/components/work-surface-primitives";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useContext, useMemo, useState } from "react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { WorkActorOwnerContext } from "@/components/work-actor-avatar";
@@ -21,6 +26,7 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { FormField } from "@/components/kumo/forms/form-field";
+import { Input } from "@/components/kumo/input";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { Link } from "@/components/kumo/link";
 import {
@@ -53,6 +59,8 @@ import {
 	workCaseDetailQueryOptions,
 	workCaseListQueryOptions,
 	workFleetQueryOptions,
+	workItemDetailQueryOptions,
+	workItemListQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
 import {
@@ -403,6 +411,41 @@ export function WorkCasesPage() {
 	);
 }
 
+/** Typed text shorter than this lists the project's tasks instead of searching. */
+const TASK_SEARCH_MIN = 2;
+
+/** Tasks to offer for attaching: the project's own, or a title search across the organization. */
+function useTaskOptions(
+	projectId: string | null,
+	search: string,
+	attached: ReadonlySet<string>,
+) {
+	const text = search.trim();
+	const searching = text.length >= TASK_SEARCH_MIN;
+	const tasks = useQuery(
+		workItemListQueryOptions({
+			limit: 20,
+			...(searching ? { titleContains: text } : {}),
+			...(!searching && projectId ? { projectId } : {}),
+		}),
+	);
+	return (tasks.data?.data ?? [])
+		.filter((item) => !attached.has(item.id))
+		.map((item) => ({ value: item.id, label: item.title }));
+}
+
+/** Titles of the attached tasks on this page, read one by one (the page is bounded). */
+function useTaskTitles(ids: readonly string[]) {
+	const reads = useQueries({
+		queries: ids.map((id) => workItemDetailQueryOptions(id)),
+	});
+	return new Map(
+		ids.map(
+			(id, index) => [id, reads[index]?.data?.workItem?.title ?? null] as const,
+		),
+	);
+}
+
 export function WorkCasePage({ caseId }: { caseId: string }) {
 	const client = useQueryClient();
 	const itemPaging = useCursorPaging<string>();
@@ -414,6 +457,24 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 	);
 	const query = useQuery(detailOptions);
 	const projects = useProjectNames();
+	const streams = useQuery(workCaseListQueryOptions());
+	const streamTitles = new Map(
+		(streams.data?.data ?? []).map((row) => [row.id, row.title]),
+	);
+	const attachedIds = (query.data?.items.data ?? []).map(
+		(item) => item.workItemId,
+	);
+	const taskTitles = useTaskTitles(attachedIds);
+	const [taskSearch, setTaskSearch] = useState("");
+	const [taskId, setTaskId] = useState("");
+	const [taskLabel, setTaskLabel] = useState("");
+	const [rationale, setRationale] = useState("");
+	const [dependentId, setDependentId] = useState("");
+	const taskOptions = useTaskOptions(
+		query.data?.workCase.projectId ?? null,
+		taskSearch,
+		new Set(attachedIds),
+	);
 	const refresh = () =>
 		Promise.all([
 			client.invalidateQueries({
@@ -437,41 +498,31 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 		onSuccess: refresh,
 	});
 	const attach = useMutation({
-		mutationFn: (value: z.output<typeof caseAttachmentSchema>) =>
+		mutationFn: () =>
 			osApi.workItems.attachCaseWorkItem({
 				caseId,
-				workItemId: value.workItemId,
-				...(value.rationale ? { rationale: value.rationale } : {}),
+				workItemId: taskId,
+				...(rationale.trim() ? { rationale: rationale.trim() } : {}),
 			}),
 		onSuccess: async () => {
-			attachmentForm.reset();
+			setTaskId("");
+			setTaskLabel("");
+			setRationale("");
 			itemPaging.reset();
 			await refresh();
 		},
 	});
-	const attachmentForm = useZodForm({
-		schema: caseAttachmentSchema,
-		defaultValues: { workItemId: "", rationale: "" },
-		validateOn: "submit",
-		onSubmit: ({ value }) => attach.mutate(value),
-	});
 	const dependency = useMutation({
-		mutationFn: (value: z.output<typeof caseDependencySchema>) =>
+		mutationFn: () =>
 			osApi.workItems.addCaseDependency({
 				fromCaseId: caseId,
-				toCaseId: value.dependentCaseId,
+				toCaseId: dependentId,
 			}),
 		onSuccess: async () => {
-			dependencyForm.reset();
+			setDependentId("");
 			dependencyPaging.reset();
 			await refresh();
 		},
-	});
-	const dependencyForm = useZodForm({
-		schema: caseDependencySchema,
-		defaultValues: { dependentCaseId: "" },
-		validateOn: "submit",
-		onSubmit: ({ value }) => dependency.mutate(value),
 	});
 	if (query.isPending)
 		return (
@@ -492,6 +543,11 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			</Page>
 		);
 	const record = query.data.workCase;
+	const streamOptions = (streams.data?.data ?? [])
+		.filter((row) => row.id !== caseId)
+		.map((row) => ({ value: row.id, label: row.title }));
+	const streamName = (id: string) =>
+		streamTitles.get(id) ?? "Another work stream";
 	return (
 		<Page width="lg">
 			<PageBack render={<Link href="/work/cases" />}>All work streams</PageBack>
@@ -540,45 +596,43 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			<div className="grid gap-3 lg:grid-cols-2">
 				<Card>
 					<CardHeader>
-						<CardTitle>Attach discovered work</CardTitle>
+						<CardTitle>Add a task</CardTitle>
+						<CardDescription>
+							Search by title. Without a search you see this project&apos;s
+							tasks.
+						</CardDescription>
 					</CardHeader>
 					<CardContent>
 						<form
 							className="grid gap-3"
+							data-attach-task-form
 							onSubmit={(event) => {
 								event.preventDefault();
-								void attachmentForm.handleSubmit();
+								if (taskId && !attach.isPending) attach.mutate();
 							}}
 						>
-							<FormField
-								form={attachmentForm}
-								name="workItemId"
-								label="Work Item id"
-							>
-								{(field, meta) => (
-									<FormInput
-										field={field}
-										{...meta}
-										placeholder="Work Item UUID"
-									/>
-								)}
-							</FormField>
-							<FormField
-								form={attachmentForm}
-								name="rationale"
-								label="Rationale"
-								optional
-							>
-								{(field, meta) => (
-									<FormInput
-										field={field}
-										{...meta}
-										placeholder="Why this work belongs here"
-									/>
-								)}
-							</FormField>
-							<Button type="submit" disabled={attach.isPending}>
-								{attach.isPending ? "Attaching…" : "Attach Work Item"}
+							<OperationPicker
+								label="Choose a task"
+								options={taskOptions}
+								value={taskId}
+								selectedLabel={taskLabel}
+								onSearch={setTaskSearch}
+								onSelect={(id) => {
+									setTaskId(id);
+									setTaskLabel(
+										taskOptions.find((option) => option.value === id)?.label ??
+											"",
+									);
+								}}
+							/>
+							<Input
+								aria-label="Why it belongs here (optional)"
+								placeholder="Why it belongs here (optional)"
+								value={rationale}
+								onChange={(event) => setRationale(event.target.value)}
+							/>
+							<Button type="submit" disabled={!taskId || attach.isPending}>
+								{attach.isPending ? "Adding…" : "Add task"}
 							</Button>
 							<MutationError error={attach.error} />
 						</form>
@@ -586,33 +640,30 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 				</Card>
 				<Card>
 					<CardHeader>
-						<CardTitle>Add dependency</CardTitle>
+						<CardTitle>Add a dependency</CardTitle>
 						<CardDescription>
-							This work stream must finish before the one that depends on it.
+							Pick the work stream that has to wait until this one is done.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
 						<form
 							className="grid gap-3"
+							data-add-dependency-form
 							onSubmit={(event) => {
 								event.preventDefault();
-								void dependencyForm.handleSubmit();
+								if (dependentId && !dependency.isPending) dependency.mutate();
 							}}
 						>
-							<FormField
-								form={dependencyForm}
-								name="dependentCaseId"
-								label="Dependent work stream id"
+							<OperationPicker
+								label="Choose a work stream"
+								options={streamOptions}
+								value={dependentId}
+								onSelect={setDependentId}
+							/>
+							<Button
+								type="submit"
+								disabled={!dependentId || dependency.isPending}
 							>
-								{(field, meta) => (
-									<FormInput
-										field={field}
-										{...meta}
-										placeholder="Work stream id"
-									/>
-								)}
-							</FormField>
-							<Button type="submit" disabled={dependency.isPending}>
 								{dependency.isPending ? "Adding…" : "Add dependency"}
 							</Button>
 							<MutationError error={dependency.error} />
@@ -639,9 +690,9 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			>
 				{query.data.items.data.length
 					? query.data.items.data.map((item) => (
-							<Text as="li" role="body" key={item.id}>
+							<Text as="li" role="body" key={item.id} data-case-task>
 								<Link href={`/work/items/${item.workItemId}`}>
-									{item.workItemId}
+									{taskTitles.get(item.workItemId) ?? "Task"}
 								</Link>
 								{item.rationale ? ` — ${item.rationale}` : ""}
 							</Text>
@@ -666,28 +717,24 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 				}
 			>
 				{query.data.dependencies.data.length
-					? query.data.dependencies.data.map((edge) => (
-							<Text
-								as="li"
-								role="label"
-								tone="mono"
-								key={edge.id}
-								className="tabular-nums"
-							>
-								{edge.fromCaseId} → {edge.toCaseId}
-							</Text>
-						))
+					? query.data.dependencies.data.map((edge) => {
+							const waiting = edge.fromCaseId === caseId;
+							const other = waiting ? edge.toCaseId : edge.fromCaseId;
+							const link = (
+								<Link href={`/work/cases/${other}`}>{streamName(other)}</Link>
+							);
+							return (
+								<Text as="li" role="body" key={edge.id} data-case-dependency>
+									{waiting ? (
+										<>{link} waits for this one</>
+									) : (
+										<>This one waits for {link}</>
+									)}
+								</Text>
+							);
+						})
 					: undefined}
 			</SectionCollection>
 		</Page>
 	);
 }
-
-const caseAttachmentSchema = z.object({
-	workItemId: z.string().trim().uuid("Enter a canonical Work Item UUID."),
-	rationale: z.string().trim(),
-});
-
-const caseDependencySchema = z.object({
-	dependentCaseId: z.string().trim().uuid("Enter a work stream id."),
-});

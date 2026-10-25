@@ -108,13 +108,21 @@ export function OperationPicker({
 	options,
 	value,
 	onSelect,
+	onSearch,
+	selectedLabel,
 }: {
 	label: string;
 	options: { value: string; label: string }[];
 	value: string;
 	onSelect: (id: string) => void;
+	/** Server-side search: the caller refetches `options` for the typed text. */
+	onSearch?: (text: string) => void;
+	/** Label of the chosen value when it is not among the current `options`. */
+	selectedLabel?: string;
 }) {
-	const selected = options.find((option) => option.value === value);
+	const selected =
+		options.find((option) => option.value === value) ??
+		(value && selectedLabel ? { value, label: selectedLabel } : undefined);
 	return (
 		<Combobox
 			items={options}
@@ -123,6 +131,12 @@ export function OperationPicker({
 			onValueChange={(option) => {
 				if (option) onSelect(option.value);
 			}}
+			{...(onSearch
+				? {
+						filter: null,
+						onInputValueChange: (text: string) => onSearch(text),
+					}
+				: {})}
 		>
 			<Combobox.Trigger
 				render={
