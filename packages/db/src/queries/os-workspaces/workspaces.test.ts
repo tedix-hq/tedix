@@ -1,4 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
+import {
+	osWorkspaceCollaborators,
+	osWorkspaceAccessEdges,
+	osWorkspaceShareLinks,
+	osWorkspaceShareKeys,
+} from "../../schema/os-collaborators";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import {
@@ -37,7 +43,16 @@ function fixture() {
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL);
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 	`);
-	sqlite.exec(schemaDdl(osWorkspaces, userConfigs));
+	sqlite.exec(
+		schemaDdl(
+			osWorkspaces,
+			userConfigs,
+			osWorkspaceCollaborators,
+			osWorkspaceAccessEdges,
+			osWorkspaceShareLinks,
+			osWorkspaceShareKeys,
+		),
+	);
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
