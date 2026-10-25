@@ -1,6 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
-import { describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -167,7 +174,23 @@ async function setup() {
 	return { sqlite, db, env, send, client, e, url, headers, finding, decide };
 }
 
+/**
+ * The value summary reads a half-open window ending at `new Date()`. Only
+ * `Date` is faked, so each test controls when that end moves past the last
+ * recorded event instead of sleeping and hoping the wall clock ticked.
+ */
+function moveWindowEndPastRecordedEvents() {
+	vi.setSystemTime(Date.now() + 1);
+}
+
 describe("personal-agent outbound", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it("does not treat automated acknowledgments in the person's name as their decision", async () => {
 		const h = await setup();
 		try {
@@ -200,7 +223,7 @@ describe("personal-agent outbound", () => {
 					enrollmentId: h.e.enrollment.id,
 				}),
 			).toEqual([]);
-			await new Promise((resolve) => setTimeout(resolve, 1));
+			moveWindowEndPastRecordedEvents();
 			expect((await h.client.value({}))[0]).toMatchObject({
 				findings: 2,
 				decisionCards: 2,
@@ -240,7 +263,7 @@ describe("personal-agent outbound", () => {
 				observerId: "fictional-observer",
 				evidenceUri: observation.evidenceRef,
 			});
-			await new Promise((resolve) => setTimeout(resolve, 1));
+			moveWindowEndPastRecordedEvents();
 			expect((await h.client.value({}))[0]).toMatchObject({
 				corroboratedOutcomes: 1,
 				verifiedOutcomes: 0,
@@ -367,8 +390,7 @@ describe("personal-agent outbound", () => {
 					expect(ack.status).toBe(200);
 				}
 			}
-			// Move past the last event's millisecond before reading a half-open window.
-			await new Promise((resolve) => setTimeout(resolve, 1));
+			moveWindowEndPastRecordedEvents();
 			const summary = (await h.client.value({}))[0];
 			expect(summary).toMatchObject({
 				findings: 10,
@@ -457,7 +479,7 @@ describe("personal-agent outbound", () => {
 			h.sqlite
 				.prepare("DELETE FROM work_interactions WHERE id=?")
 				.run(missingCard.workItemId);
-			await new Promise((resolve) => setTimeout(resolve, 1));
+			moveWindowEndPastRecordedEvents();
 			const counts = (await h.client.value({}))[0];
 			expect(counts).toMatchObject({
 				findings: 4,
@@ -558,6 +580,7 @@ describe("personal-agent outbound", () => {
 					)
 					.get(),
 			).toEqual({ status: "sending_or_unknown" });
+			moveWindowEndPastRecordedEvents();
 			expect((await h.client.value({}))[0]).toMatchObject({
 				outcomes: 1,
 				emailsSent: 0,
