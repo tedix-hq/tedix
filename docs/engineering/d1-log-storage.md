@@ -78,7 +78,7 @@ backlog estimate runs after the moves. Each report carries `timings`
 step shows up in `last_report`.
 
 A policy row whose `keep_days` sits below the table's floor (the shipped
-`audit_events` seed says 14 days against a 30-day floor) runs at the floor
+`audit_events` seed says 14 days against a 90-day floor) runs at the floor
 and reports both values (`keepDays`, `keepDaysRow`) instead of being
 refused. The nightly `retention-cleanup` cron no longer deletes
 `audit_events`, `tedi_runtime_events` or `kernel_runtime_events`: these

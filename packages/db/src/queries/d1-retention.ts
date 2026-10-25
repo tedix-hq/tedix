@@ -93,7 +93,8 @@ export const D1_RETENTION_TABLES: Readonly<
 		auditEvents,
 		auditEvents.timestamp,
 		"epoch_seconds",
-		30,
+		// 90 days in D1 covers incident review (decision 5c5512a5).
+		90,
 		true,
 	),
 	tedi_runtime_events: spec(
@@ -182,7 +183,7 @@ export function isD1RetentionExpired(
 /**
  * The keep window a run uses: the row's `keep_days`, raised to the table's
  * floor. A row below the floor (the shipped audit seed says 14 days against
- * a 30-day floor) runs with the floor and reports both values, instead of
+ * a 90-day floor) runs with the floor and reports both values, instead of
  * being refused on every tick and never even dry-running.
  */
 export function d1RetentionEffectiveKeepDays(

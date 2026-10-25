@@ -89,8 +89,8 @@ describe("d1 retention policy validation", () => {
 				keepDays: 7,
 			}),
 		).toBeNull();
-		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 7 })).toBe(30);
-		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 90 })).toBe(90);
+		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 7 })).toBe(90);
+		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 120 })).toBe(120);
 		expect(
 			d1RetentionPolicyProblem({
 				tableName: "audit_events",
