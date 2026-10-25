@@ -1,3 +1,4 @@
+import { readOperatorRecordsRoute } from "./kernel-runtime/operator-records";
 /**
  * kernel-runtime router composition.
  * Capability handlers and shared policy live in ./kernel-runtime/.
@@ -52,6 +53,7 @@ import { readToolResultRoute } from "./kernel-runtime/tool-results";
 import { sweepDelegationAutonomyRoute } from "./kernel-runtime/delegation-autonomy-sweep";
 
 export const kernelRuntimeContractRouter = kernelRuntimeOs.router({
+	readOperatorRecords: readOperatorRecordsRoute,
 	sweepDelegationAutonomy: sweepDelegationAutonomyRoute,
 	listConversationCapabilities: listConversationCapabilitiesRoute,
 	attachConversationCapability: attachConversationCapabilityRoute,

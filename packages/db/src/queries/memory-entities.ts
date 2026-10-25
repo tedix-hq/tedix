@@ -1,5 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, exists, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, exists, gte, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type MemoryEntity,
@@ -1136,4 +1136,40 @@ export async function listMemoryEntityResolutionDecisions(
 		)
 		.orderBy(sql`${memoryEntityResolutionDecisions.proposedAt} ASC`)
 		.limit(Math.max(1, Math.min(200, Math.trunc(input.limit ?? 100))));
+}
+
+/** Bounded recent-fact pool first, then indexed people-mention lookups. */
+export async function listRecentPeopleFacts(
+	db: DbClient,
+	input: { organizationId: string; since: string },
+) {
+	const candidates = await db
+		.select()
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, input.organizationId),
+				gte(memoryFacts.updatedAt, input.since),
+			),
+		)
+		.orderBy(desc(memoryFacts.updatedAt))
+		.limit(50);
+	if (!candidates.length) return [];
+	const mentions = await db
+		.select({ factId: memoryEntityMentions.sourceFactId })
+		.from(memoryEntityMentions)
+		.where(
+			and(
+				eq(memoryEntityMentions.organizationId, input.organizationId),
+				eq(memoryEntityMentions.proposedType, "person"),
+				// bound-params: candidates comes from the indexed LIMIT 50 above.
+				inArray(
+					memoryEntityMentions.sourceFactId,
+					candidates.map((fact) => fact.id),
+				),
+			),
+		)
+		.limit(200);
+	const ids = new Set(mentions.map((mention) => mention.factId));
+	return candidates.filter((fact) => ids.has(fact.id));
 }

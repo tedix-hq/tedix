@@ -72,6 +72,9 @@ const KERNEL_AVAILABLE_PROVIDERS: ReadonlySet<ModelProviderId> = new Set([
 export const KERNEL_ROUTE_MODEL_REF_DEFAULT = "azure-openai/gpt-6-luna";
 
 export interface KernelEnv {
+	MCP_SERVICE?: CloudflareEnv["MCP_SERVICE"];
+	MCP_URL?: string;
+	PLATFORM_SERVICE_TOKEN?: string;
 	DB?: D1Database;
 	AGENT_MEMORY?: AgentMemoryNamespace;
 	AZURE_OPENAI_RESOURCE?: string;

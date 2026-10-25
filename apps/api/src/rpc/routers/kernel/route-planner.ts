@@ -1,3 +1,4 @@
+import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
 import { ZodError } from "zod";
 import { jsonSchema, NoObjectGeneratedError, stepCountIs, tool } from "ai";
 import { pageToolModelOutput } from "@tedix/chat-transport/page-tools";
@@ -65,6 +66,56 @@ import {
 	ROUTE_DETAILS_PROMPT_VERSION,
 } from "./route-decision-writer";
 
+/** A model or fit rerank cannot send a private recall to another member's tedi. */
+export function guardPersonalRecallRoute<T extends KernelRouteDecision>(
+	context: KernelContext,
+	decision: T,
+): T {
+	if (
+		!context.personalRecall ||
+		!["delegate_tedi", "suggest_handoff"].includes(decision.routeKind)
+	)
+		return decision;
+	const eligible = context.tedis.filter(
+		(tedi) =>
+			tedi.status !== "archived" &&
+			(tedi.scope !== "personal" ||
+				Boolean(
+					context.operatorUserId && tedi.ownerUserId === context.operatorUserId,
+				)),
+	);
+	const own = eligible.find(
+		(tedi) =>
+			tedi.scope === "personal" && tedi.ownerUserId === context.operatorUserId,
+	);
+	const selected = eligible.find((tedi) => tedi.id === decision.targetTediId);
+	const target = own ?? selected;
+	if (!target)
+		return {
+			...decision,
+			routeKind: "answer_in_home",
+			answer:
+				"I could not find an authorized assistant to read the missing personal records.",
+			targetTediId: null,
+			targetTediLabel: null,
+			targetActivityId: null,
+			plannedToolIds: [],
+		};
+	const sameTarget = target.id === decision.targetTediId;
+	return {
+		...decision,
+		targetTediId: target.id,
+		targetTediLabel: target.name,
+		targetActivityId: sameTarget ? decision.targetActivityId : null,
+		plannedToolIds:
+			decision.risk === "low"
+				? [...OPERATOR_RECORD_TOOLS]
+				: sameTarget
+					? decision.plannedToolIds
+					: [],
+	};
+}
+
 // Modest bounds — the planner emits a small typed object plus a short message.
 const MAX_OUTPUT_TOKENS = 3000;
 
@@ -128,6 +179,7 @@ Examples:
 - "save it in our workspace for <client>", workspace unlisted → delegate_tedi to find it; a described destination is a lookup, not ambiguity.
 
 Conversation and evidence:
+- For personalRecall, answer first-person commitments, people, follow-ups, priorities and schedule from the assembled records when sufficient. If records are missing, delegate a bounded read to the caller's own personal tedi when available. Never select another member's personal tedi. Use dated sources; public web cannot establish a person's private commitments or meetings.
 - Resolve pronouns and references from history; ask_human remains correct. History is not current policy: route retries using current availability; dispatch enforces approval. Preserve explicit holds.
 - A prior access error or denial in history is evidence of that moment, not a standing refusal. On a renewed request for the same read, route a fresh authorized read-only attempt when a capable tedi exists; never answer by repeating the historical denial. Consent, ownership, read-scope and critical-effect gates stay authoritative at dispatch.
 - Never assert completion from history alone. For external state, delegate a verification read or explicitly say it is unverified. For Tedix-internal state, verify against assembled context and answer_in_home.
@@ -179,6 +231,11 @@ export function buildUserPrompt(
 	// turns fold into a leading checkpoint message rather than being dropped
 	// (context-compaction.ts). There is no turn or per-message char cap.
 	return [
+		...(context.personalRecall
+			? [
+					"Personal recall: answer from the caller\'s authorized records; if insufficient, prefer their own personal tedi for a bounded read.",
+				]
+			: []),
 		"ASSEMBLED CONTEXT:",
 		renderHomeStableContext(context),
 		"",
@@ -895,7 +952,7 @@ async function planKernelRouteWithRecovery(
 		if (!planned) return null;
 		planned.usage.attempts = attempts;
 		planned.usage.attemptCount = attempts.length;
-		const guarded = await refineDelegationFit({
+		const fitted = await refineDelegationFit({
 			content: args.content,
 			context: args.context,
 			decision: guardKernelRouteDecision(
@@ -905,6 +962,7 @@ async function planKernelRouteWithRecovery(
 			ranker: args.delegationCandidateRanker,
 			signal: args.abortSignal,
 		});
+		const guarded = guardPersonalRecallRoute(args.context, fitted);
 		if (pageTools && guarded.routeKind === "answer_in_home" && routeModel) {
 			const answerModel = routeModel.forOperation();
 			try {

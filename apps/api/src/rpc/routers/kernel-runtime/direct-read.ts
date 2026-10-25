@@ -342,12 +342,17 @@ function mcpHost(mcpUrl: string, appSlug: string): string {
 }
 
 export async function callDirectReadMcp(input: {
-	context: { env: CloudflareEnv };
+	context: {
+		env: Partial<
+			Pick<CloudflareEnv, "MCP_SERVICE" | "MCP_URL" | "PLATFORM_SERVICE_TOKEN">
+		>;
+	};
 	organizationId: string;
 	appSlug: string;
 	actingUserId: string | undefined;
 	method: string;
 	params: Record<string, unknown>;
+	timeoutMs?: number;
 }): Promise<unknown> {
 	const { MCP_SERVICE, MCP_URL, PLATFORM_SERVICE_TOKEN } = input.context.env;
 	if (!MCP_SERVICE || !MCP_URL) {
@@ -363,6 +368,7 @@ export async function callDirectReadMcp(input: {
 				url: `${MCP_URL}/mcp`,
 				fetch: (url, init) => MCP_SERVICE.fetch(url, init),
 				clientName: "tedix-home-direct-read",
+				timeoutMs: input.timeoutMs,
 				headers: {
 					"X-Service-Binding": "true",
 					"X-Tedix-Org-Id": input.organizationId,

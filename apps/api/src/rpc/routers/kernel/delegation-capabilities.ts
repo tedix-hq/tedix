@@ -1,3 +1,4 @@
+import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
 import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution-evidence";
 import { withoutQuotedCommitSubjects } from "@tedix/api-contract/utils/approval-policy";
 import { delegatedCloseoutProjects } from "@tedix/api-contract/utils/delegated-work-closeout";
@@ -38,6 +39,20 @@ export function deriveDelegationCapabilityPlan(input: {
 	const content = withoutQuotedCommitSubjects(
 		delegationRequestContent(input.content),
 	);
+	if (
+		route.risk === "low" &&
+		requirement.surface === "native" &&
+		route.plannedToolIds.includes("read_operator_records")
+	) {
+		return {
+			version: "delegation-capabilities.v1",
+			requiredCapabilities: ["operator.records.read"],
+			allowedToolIds: [...OPERATOR_RECORD_TOOLS],
+			missingCapabilities: [],
+			urls: [],
+			outputIds: [],
+		};
+	}
 	// An explicitly read-only request never derives a Work write capability.
 	const readOnly = /\bread-only\b/i.test(content);
 	const scopedCloseout = Boolean(
