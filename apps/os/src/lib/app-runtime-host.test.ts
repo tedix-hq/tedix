@@ -160,16 +160,19 @@ describe("app runtime host", () => {
 		expect(callServer).not.toHaveBeenCalled();
 	});
 
-	it("inlines client.js after the tedix bridge and keeps the script tag closed", () => {
-		const html = buildAppRuntimeDocument({
-			"server.js": "",
-			"client.js": "document.title='</script><b>x'",
-		});
-		expect(html).toContain("window.tedix=");
-		expect(html.indexOf("window.tedix=")).toBeLessThan(
-			html.indexOf("document.title"),
-		);
-		expect(html).not.toContain("'</script><b>");
-		expect(html).toContain("<\\/script><b>");
-	});
+	it.each(["</script", "</SCRIPT", "</ScRiPt"])(
+		"escapes %s while keeping client.js after the bridge",
+		(close) => {
+			const html = buildAppRuntimeDocument({
+				"server.js": "",
+				"client.js": `document.title='${close}><b>x'`,
+			});
+			expect(html).toContain("window.tedix=");
+			expect(html.indexOf("window.tedix=")).toBeLessThan(
+				html.indexOf("document.title"),
+			);
+			expect(html).not.toContain("'</script><b>");
+			expect(html).toContain("<\\/script><b>");
+		},
+	);
 });

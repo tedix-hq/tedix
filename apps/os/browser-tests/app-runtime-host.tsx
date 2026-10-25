@@ -1,3 +1,4 @@
+import escapeClient from "./app-runtime-escape-client.js?raw";
 import { createRoot } from "react-dom/client";
 import { AppRuntimeFrame } from "../src/components/app-runtime-frame";
 import {
@@ -17,7 +18,9 @@ const callServer = createAppRuntimeServerCall(
 );
 const html = buildAppRuntimeDocument({
 	"server.js": "",
-	"client.js": `
+	"client.js": new URLSearchParams(location.search).has("escape")
+		? `const destination = ${JSON.stringify(new URLSearchParams(location.search).get("destination"))};\n${escapeClient}`
+		: `
 const root = document.getElementById('app');
 const status = document.createElement('p');
 status.setAttribute('role', 'status');
