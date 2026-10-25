@@ -20,6 +20,23 @@ type Output = SpawnOptions.OptionsObject<
 	SpawnOptions.Readable
 >["stdout"];
 
+/**
+ * The port an owned fixture server listens on: `TEDIX_BROWSER_TEST_PORT` when
+ * set, else a free one, so parallel jobs never collide on a fixed port.
+ */
+export function fixturePort(): string {
+	const pinned = process.env.TEDIX_BROWSER_TEST_PORT;
+	if (pinned) return pinned;
+	const probe = Bun.serve({
+		port: 0,
+		hostname: "127.0.0.1",
+		fetch: () => new Response(),
+	});
+	const port = String(probe.port!);
+	probe.stop();
+	return port;
+}
+
 export async function startFixtureServer(
 	readyPath = "/",
 	{
@@ -39,16 +56,7 @@ export async function startFixtureServer(
 		await waitForFixtureServer(`${origin}${readyPath}`);
 		return { origin, exitCode: () => null, stop: async () => {} };
 	}
-	let port = process.env.TEDIX_BROWSER_TEST_PORT;
-	if (!port) {
-		const probe = Bun.serve({
-			port: 0,
-			hostname: "127.0.0.1",
-			fetch: () => new Response(),
-		});
-		port = String(probe.port!);
-		probe.stop();
-	}
+	const port = fixturePort();
 	const origin = `http://127.0.0.1:${port}`;
 	const server = Bun.spawn(
 		[

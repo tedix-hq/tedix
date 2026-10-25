@@ -1,8 +1,9 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import { fixturePort } from "./fixture-server";
 
 const cwd = new URL("../", import.meta.url).pathname;
-const port = process.env.TEDIX_BROWSER_TEST_PORT || "3010";
+const port = fixturePort();
 const origin = `http://127.0.0.1:${port}`;
 
 async function expectEvent(page: Page, event: string) {
