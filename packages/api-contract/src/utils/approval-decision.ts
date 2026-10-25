@@ -11,7 +11,22 @@ export interface ApprovalDecision {
 export function approvalDecision(input: {
 	actionType: string;
 	review: { intent: string };
+	/** The classified risk of a parked Home write; absent for other requests. */
+	riskTier?: string | null;
 }): ApprovalDecision {
+	if (input.review.intent === "home_write") {
+		const low = input.riskTier === "low";
+		return {
+			what: "Let Home make the change shown above.",
+			whyNow: "Home is paused until this change is decided or expires.",
+			ifApproved: "The change runs once with the exact details shown.",
+			ifRejected: "Nothing changes.",
+			recommendation: low ? "approved" : "rejected",
+			reason: low
+				? "Low-risk change inside Tedix; check the target and new value, then approve."
+				: "Confirm the target and change in the details before allowing it.",
+		};
+	}
 	const catalog: Record<string, Omit<ApprovalDecision, "whyNow">> = {
 		home_request: {
 			what: "Decide whether Home should continue its saved request.",

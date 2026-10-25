@@ -681,6 +681,8 @@ export type ApprovalCardData = {
 	/** The proposed tool and app, shown quietly under the details. */
 	toolName?: string | null;
 	appSlug?: string | null;
+	/** The proposed write's classified risk ("low", "medium", "high"). */
+	riskTier?: string | null;
 	/** The raw policy code behind `detail`, shown only in a tooltip. */
 	reasonCode?: string | null;
 	tediName?: string | null;
@@ -932,6 +934,9 @@ export function approvalsFromRunSet(
 				...(proposal?.args === undefined ? {} : { args: proposal.args }),
 				toolName,
 				appSlug,
+				...(asString(proposal?.riskTier)
+					? { riskTier: asString(proposal?.riskTier) }
+					: {}),
 				status: "pending",
 				requestedAt: run.createdAt,
 				sessionScopeKey: `write:${appSlug ?? "?"}:${toolName}`,
@@ -1088,7 +1093,10 @@ export function ApprovalCard({
 						<ApprovalDecisionCopy
 							approval={{
 								actionType: "home_request",
-								review: { intent: "home_request" },
+								review: {
+									intent: approval.toolName ? "home_write" : "home_request",
+								},
+								riskTier: approval.riskTier,
 							}}
 						/>
 					) : null}
