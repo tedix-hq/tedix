@@ -473,6 +473,27 @@ describe("ApprovalCard", () => {
 		expect(html).not.toContain('disabled=""');
 	});
 
+	it("recommends approving a low-risk write and keeps review for riskier ones", () => {
+		const low = renderToStaticMarkup(
+			<ApprovalCard
+				approval={approval({
+					toolName: "os.rename_os_gadget",
+					riskTier: "low",
+				})}
+			/>,
+		);
+		expect(low).toContain("Recommended:</strong> Approve");
+		const high = renderToStaticMarkup(
+			<ApprovalCard
+				approval={approval({
+					toolName: "os.delete_os_output",
+					riskTier: "high",
+				})}
+			/>,
+		);
+		expect(high).toContain("Recommended:</strong> Reject");
+	});
+
 	it("disables both buttons while a resolution is in flight", () => {
 		const html = renderToStaticMarkup(
 			<ApprovalCard approval={approval()} resolving />,

@@ -4,7 +4,11 @@ import { Text } from "@/components/kumo/text";
 export function ApprovalDecisionCopy({
 	approval,
 }: {
-	approval: { actionType: string; review: { intent: string } };
+	approval: {
+		actionType: string;
+		review: { intent: string };
+		riskTier?: string | null;
+	};
 }) {
 	const decision = approvalDecision(approval);
 	return (
