@@ -16,6 +16,8 @@ interface JSONSchemaProperty {
 	default?: unknown;
 	minimum?: number;
 	maximum?: number;
+	exclusiveMinimum?: number;
+	exclusiveMaximum?: number;
 	minLength?: number;
 	maxLength?: number;
 	minItems?: number;
@@ -205,7 +207,10 @@ function isCompatibleNameDefault(
 		return (
 			(type !== "integer" || Number.isInteger(value)) &&
 			value >= (schema.minimum ?? Number.NEGATIVE_INFINITY) &&
-			value <= (schema.maximum ?? Number.POSITIVE_INFINITY)
+			value <= (schema.maximum ?? Number.POSITIVE_INFINITY) &&
+			(schema.exclusiveMinimum === undefined ||
+				value > schema.exclusiveMinimum) &&
+			(schema.exclusiveMaximum === undefined || value < schema.exclusiveMaximum)
 		);
 	}
 	return typeof value === "boolean" && type === "boolean";
@@ -295,29 +300,53 @@ function generateStringValue(schema: JSONSchemaProperty): string {
 	return base.padEnd(targetLen, "_");
 }
 
+/** Return the adjacent IEEE-754 value so even narrow exclusive ranges work. */
+function adjacentNumber(value: number, direction: 1 | -1): number {
+	if (value === 0) return direction * Number.MIN_VALUE;
+	const view = new DataView(new ArrayBuffer(8));
+	view.setFloat64(0, value);
+	const bits = view.getBigUint64(0);
+	const step = BigInt(direction) * (value > 0 ? 1n : -1n);
+	view.setBigUint64(0, bits + step);
+	return view.getFloat64(0);
+}
+
 /**
- * Generate a number value respecting min/max constraints
+ * Generate a number value respecting inclusive and exclusive bounds
  */
 function generateNumberValue(schema: JSONSchemaProperty): number {
+	let minimum = schema.minimum;
+	let maximum = schema.maximum;
+	if (schema.exclusiveMinimum !== undefined) {
+		minimum = Math.max(
+			minimum ?? Number.NEGATIVE_INFINITY,
+			adjacentNumber(schema.exclusiveMinimum, 1),
+		);
+	}
+	if (schema.exclusiveMaximum !== undefined) {
+		maximum = Math.min(
+			maximum ?? Number.POSITIVE_INFINITY,
+			adjacentNumber(schema.exclusiveMaximum, -1),
+		);
+	}
 	if (schema.type === "integer") {
-		if (schema.minimum !== undefined && schema.maximum !== undefined) {
-			return Math.min(
-				Math.max(
-					Math.floor((schema.minimum + schema.maximum) / 2),
-					Math.ceil(schema.minimum),
-				),
-				Math.floor(schema.maximum),
-			);
-		}
-		if (schema.minimum !== undefined) return Math.ceil(schema.minimum);
-		if (schema.maximum !== undefined) return Math.floor(schema.maximum);
-		return 50;
+		if (minimum !== undefined) minimum = Math.ceil(minimum);
+		if (maximum !== undefined) maximum = Math.floor(maximum);
 	}
-
-	if (schema.minimum !== undefined && schema.maximum !== undefined) {
-		return (schema.minimum + schema.maximum) / 2;
+	if (minimum !== undefined && maximum !== undefined) {
+		const range = maximum - minimum;
+		const midpoint = Number.isFinite(range)
+			? minimum + range / 2
+			: minimum / 2 + maximum / 2;
+		return Math.min(
+			Math.max(
+				schema.type === "integer" ? Math.floor(midpoint) : midpoint,
+				minimum,
+			),
+			maximum,
+		);
 	}
-	return schema.minimum ?? schema.maximum ?? 50;
+	return minimum ?? maximum ?? 50;
 }
 
 /**

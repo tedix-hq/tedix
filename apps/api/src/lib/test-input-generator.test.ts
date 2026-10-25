@@ -90,3 +90,80 @@ describe("generateTestInput numeric bounds", () => {
 		expect(generateQuantity({ type: "integer", maximum: -100.25 })).toBe(-101);
 	});
 });
+
+describe("generateTestInput exclusive numeric bounds", () => {
+	const bounds = [
+		{ exclusiveMinimum: 50 },
+		{ exclusiveMaximum: -50 },
+		{ exclusiveMinimum: 0 },
+		{ exclusiveMaximum: 0 },
+		{ exclusiveMinimum: -10 },
+		{ exclusiveMaximum: 10 },
+		{ exclusiveMinimum: 10.25 },
+		{ exclusiveMaximum: -10.25 },
+		{ exclusiveMinimum: -10.75, exclusiveMaximum: -9.25 },
+		{ exclusiveMinimum: 10, exclusiveMaximum: 12 },
+		{ minimum: 10, exclusiveMinimum: 20, maximum: 30 },
+		{ minimum: 20, exclusiveMinimum: 10, maximum: 30 },
+		{ minimum: -30, maximum: -10, exclusiveMaximum: -20 },
+		{ minimum: -30, maximum: -20, exclusiveMaximum: -10 },
+		{ exclusiveMinimum: 1e20 },
+		{ exclusiveMaximum: -1e20 },
+	];
+
+	for (const type of ["number", "integer"]) {
+		it.each(bounds)(`respects ${type} bounds %j`, (constraints) => {
+			const value = generateQuantity({ type, ...constraints });
+			expect(Number.isFinite(value)).toBe(true);
+			if (type === "integer") expect(Number.isInteger(value)).toBe(true);
+			if (constraints.exclusiveMinimum !== undefined) {
+				expect(value).toBeGreaterThan(constraints.exclusiveMinimum);
+			}
+			if (constraints.exclusiveMaximum !== undefined) {
+				expect(value).toBeLessThan(constraints.exclusiveMaximum);
+			}
+			if (constraints.minimum !== undefined) {
+				expect(value).toBeGreaterThanOrEqual(constraints.minimum);
+			}
+			if (constraints.maximum !== undefined) {
+				expect(value).toBeLessThanOrEqual(constraints.maximum);
+			}
+		});
+	}
+
+	it.each([
+		{ exclusiveMinimum: 1, exclusiveMaximum: 1 + Number.EPSILON * 2 },
+		{ exclusiveMinimum: 0, exclusiveMaximum: Number.MIN_VALUE * 2 },
+		{ minimum: 1 + Number.EPSILON, exclusiveMaximum: 1 + Number.EPSILON * 2 },
+	])("handles narrow number intervals %j", (constraints) => {
+		const value = generateQuantity({ type: "number", ...constraints });
+		if (constraints.exclusiveMinimum !== undefined) {
+			expect(value).toBeGreaterThan(constraints.exclusiveMinimum);
+		}
+		expect(value).toBeLessThan(constraints.exclusiveMaximum);
+		if (constraints.minimum !== undefined) {
+			expect(value).toBeGreaterThanOrEqual(constraints.minimum);
+		}
+	});
+
+	it.each(["number", "integer"])(
+		"checks optional named %s defaults against exclusive bounds",
+		(type) => {
+			const result = generateTestInput({
+				properties: {
+					limit: { type, exclusiveMinimum: 10 },
+					offset: { type, exclusiveMaximum: 0 },
+					count: { type, exclusiveMinimum: 9, exclusiveMaximum: 11 },
+				},
+			});
+			expect(result.limit).toBeGreaterThan(10);
+			expect(result.offset).toBeLessThan(0);
+			expect(result.count).toBe(10);
+			if (type === "integer") {
+				for (const value of Object.values(result)) {
+					expect(Number.isInteger(value)).toBe(true);
+				}
+			}
+		},
+	);
+});
