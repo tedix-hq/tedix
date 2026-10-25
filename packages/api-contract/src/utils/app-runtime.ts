@@ -22,16 +22,20 @@ export interface AppRuntimeCodeIdParts {
 	revision: number;
 	/** Present for a chat draft; the draft runs under its own id and storage. */
 	draftId?: string;
+	/** Digest of the signed files, so a cached isolate never outlives its code. */
+	codeDigest?: string;
 }
 
 /**
  * The identity a loaded program is cached under. The host asks the Worker
  * Loader for this id and the loader keeps one isolate per id, so the id has to
- * change whenever the code can: a new revision or a different draft.
+ * change whenever the code can: a new revision, a different draft or
+ * different files.
  */
 export function appRuntimeCodeId(parts: AppRuntimeCodeIdParts): string {
 	const base = `${parts.organizationId}:${parts.workspaceId}:${parts.gadgetId}:r${parts.revision}`;
-	return parts.draftId ? `${base}:draft:${parts.draftId}` : base;
+	const id = parts.draftId ? `${base}:draft:${parts.draftId}` : base;
+	return parts.codeDigest ? `${id}:${parts.codeDigest}` : id;
 }
 
 export const APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE = "2026-10-01";
@@ -158,7 +162,7 @@ export type AppRuntimePermission =
 export function appRuntimePermission(
 	input: AppRuntimePermissionInput,
 ): AppRuntimePermission {
-	if (!ROLE_OPERATIONS[input.role].includes(input.operation))
+	if (!appRuntimeOperationsForRole(input.role).includes(input.operation))
 		return { allowed: false, reason: "role" };
 	if (!GRANT_GATED.has(input.operation)) return { allowed: true };
 	if (!input.slot) return { allowed: false, reason: "slot_required" };
@@ -173,7 +177,8 @@ export function appRuntimePermission(
 export function appRuntimeOperationsForRole(
 	role: AppRuntimeRole,
 ): readonly AppRuntimeOperation[] {
-	return ROLE_OPERATIONS[role];
+	// Default deny: a name outside the matrix (including Object.prototype keys) has no operations.
+	return Object.hasOwn(ROLE_OPERATIONS, role) ? ROLE_OPERATIONS[role] : [];
 }
 
 /** Total length of all files; the stored `code_length`. */
