@@ -298,18 +298,25 @@ export function executorIdentityHint(
 	error: BoardError,
 ): string {
 	if (!/verified external-agent session/i.test(error.message)) return "";
-	let key: string | undefined;
+	const session = resolveAgentSession(ctx.work.session)?.session;
+	let profile: ReturnType<typeof readExternalAgentProfile> = null;
 	try {
-		key = readExternalAgentProfile(
-			externalAgentProfileSlot(
-				ctx.workspace,
-				resolveAgentSession(ctx.work.session)?.session,
-			),
-		)?.key;
+		profile = readExternalAgentProfile(
+			externalAgentProfileSlot(ctx.workspace, session),
+		);
 	} catch {
-		// The hint degrades to a placeholder when the local store is unreadable.
+		// The hint degrades to the bootstrap step when the local store is unreadable.
 	}
-	return `\nThis call ran with the owner login. Start a verified session if this harness has none (\`tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> [--model-version <snapshot>]\`), then rerun as it: \`TEDIX_EXTERNAL_AGENT=${key ?? "<principal-key>"} tedix work start ${id}\`.`;
+	const rerun = `\`TEDIX_EXTERNAL_AGENT=${profile?.key ?? "<principal-key>"} tedix work start ${id}\``;
+	const start =
+		"`tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> [--model-version <snapshot>]`";
+	if (!session)
+		return `\nThis call ran with the owner login and no Agent-Session. Set TEDIX_AGENT_SESSION (or run inside a Codex, Claude or Cursor session), run ${start}, then rerun as it: ${rerun}.`;
+	if (profile && session in profile.sessions)
+		return `\nAgent-Session ${session} is already started as principal ${profile.key}, but this call ran with the owner login. Rerun as it: ${rerun}.`;
+	if (profile)
+		return `\nAgent-Session ${session} is not started for principal ${profile.key}. Run ${start}, then rerun as it: ${rerun}.`;
+	return `\nNo agent identity is set up on workspace "${ctx.workspace}" for Agent-Session ${session}. Run ${start}, then rerun as it: ${rerun}.`;
 }
 
 /** Merge session provenance into a board-write arg object under `metadata`. */

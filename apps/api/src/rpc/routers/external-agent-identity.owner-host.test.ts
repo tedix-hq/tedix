@@ -320,6 +320,17 @@ describe("owner-host Work identity", () => {
 		});
 	});
 
+	it("names the missing pieces of an incomplete gateway identity and the bootstrap command", async () => {
+		const partial = userContext(OWNER);
+		partial.externalAgentPrincipalId = "principal-example";
+		await expect(verifiedExternalAgent(partial, ORG)).rejects.toMatchObject({
+			code: "UNAUTHORIZED",
+			message: expect.stringContaining(
+				"no session or MCP credential. Run `tedix agent start`",
+			),
+		});
+	});
+
 	it("is unchanged without an owner-host session and never earns corroboration credit", async () => {
 		expect(await verifiedExternalAgent(userContext(OWNER), ORG)).toBeNull();
 		const opened = await client(userContext(OWNER)).openOwnerHostSession(TUPLE);
