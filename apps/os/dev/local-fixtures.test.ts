@@ -552,6 +552,10 @@ const CALLS: Record<string, unknown> = {
 		},
 		expectedRevision: 1,
 	},
+	"osAppRuntime/open": {
+		workspaceId: IDS.workspaceRevenue,
+		gadgetId: IDS.gadgetDashboard,
+	},
 	"osWorkspaces/gadgets/getCode": {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,
