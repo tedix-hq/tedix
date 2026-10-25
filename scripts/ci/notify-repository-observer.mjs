@@ -83,8 +83,24 @@ export async function notifyObserver(
 		body: JSON.stringify(payload),
 		redirect: "error",
 	});
-	if (!response.ok)
-		throw new Error(`Observer rejected event (${response.status})`);
+	if (!response.ok) {
+		const traceId = response.headers.get("X-Tedix-Trace-Id") ?? "";
+		const cfRay = response.headers.get("CF-Ray") ?? "";
+		// Match worker-kit correlation semantics without logging arbitrary header text.
+		const references = [
+			/^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(
+				traceId,
+			)
+				? `traceId=${traceId}`
+				: "",
+			/^[a-f0-9]{16}(?:-[a-z]{3})?$/i.test(cfRay) ? `cfRay=${cfRay}` : "",
+		]
+			.filter(Boolean)
+			.join(", ");
+		throw new Error(
+			`Observer rejected event (${response.status})${references ? ` [${references}]` : ""}`,
+		);
+	}
 	return response.json();
 }
 if (
