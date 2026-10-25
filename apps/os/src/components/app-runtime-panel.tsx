@@ -4,7 +4,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import { osApi } from "@/lib/api";
+import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -57,11 +57,14 @@ export function AppRuntimePreview({
 	);
 	const callServer = useMemo(
 		() =>
-			createAppRuntimeServerCall(osApi.osAppRuntime, {
-				workspaceId,
-				gadgetId: gadget.id,
-				revisionId: revision.id,
-			}),
+			createAppRuntimeServerCall(
+				{ open: osApi.osAppRuntime.open, call: osAppRuntimeCall },
+				{
+					workspaceId,
+					gadgetId: gadget.id,
+					revisionId: revision.id,
+				},
+			),
 		[workspaceId, gadget.id, revision.id],
 	);
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
