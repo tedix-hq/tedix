@@ -142,6 +142,7 @@ describe("read-only runtime approval history", () => {
 			limit: 10,
 		});
 		expect(api.getProvenance).not.toHaveBeenCalled();
+		expect(host.textContent).not.toContain(id);
 		expect(host.textContent).not.toContain("Choose approval");
 		expect(host.textContent).not.toContain("Choose veto");
 		await act(async () => {
