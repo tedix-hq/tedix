@@ -91,9 +91,6 @@ function ApprovalHistoryRequests() {
 								{approval.description}
 							</Text>
 							<Badge variant="outline">{approval.status}</Badge>
-							<Text as="span" role="label" tone="mono-secondary">
-								{approval.id}
-							</Text>
 							<ApprovalProvenanceDisclosure approvalRequestId={approval.id} />
 						</Surface>
 					))}

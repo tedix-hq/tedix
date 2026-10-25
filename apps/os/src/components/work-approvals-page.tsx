@@ -291,9 +291,6 @@ export function WorkApprovalsPage() {
 											{absoluteTime(approval.expiresAt)}
 										</time>
 									</Text>
-									<Text as="span" role="label" tone="mono-secondary">
-										{approval.id}
-									</Text>
 								</div>
 								<Collapsible>
 									<CollapsibleTrigger>
@@ -304,6 +301,7 @@ export function WorkApprovalsPage() {
 											className="mt-2 max-h-64 overflow-auto"
 											code={JSON.stringify(
 												{
+													approvalRequestId: approval.id,
 													description: approval.description,
 													payload: approval.payload,
 													evidenceRefs: approval.review.evidenceRefs,

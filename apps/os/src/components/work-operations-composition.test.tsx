@@ -384,6 +384,16 @@ describe("Work approvals", () => {
 			actions: [],
 		};
 		const page = await mount(<WorkApprovalsPage />);
+		// The card names the request in words; its id stays in the diagnostics.
+		const card = page.host.querySelector(
+			'[aria-labelledby="runtime-approvals-title"] li',
+		)!;
+		const diagnostics = card.querySelector(
+			"[data-slot='collapsible-content'], pre",
+		);
+		expect(
+			(card.textContent ?? "").replace(diagnostics?.textContent ?? "", ""),
+		).not.toContain("approval-1");
 		const review = [
 			...page.host.querySelectorAll<HTMLButtonElement>("button"),
 		].find((button) => button.textContent?.trim() === "Review exact request")!;
