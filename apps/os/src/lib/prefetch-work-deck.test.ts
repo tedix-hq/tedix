@@ -162,8 +162,7 @@ describe("prefetchWorkDeck", () => {
 			expect(read).toHaveBeenCalledTimes(1);
 	});
 
-	// Default unscoped config refetches already-warmed stale queries after inventory resolves.
-	it.fails("fetches each default unscoped Deck query only once", async () => {
+	it("fetches each default unscoped Deck query only once", async () => {
 		reads.apps.mockResolvedValue({ items: [deck({ version: 1 })] });
 		prefetchWorkDeck(client);
 		await settled();

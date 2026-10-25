@@ -44,26 +44,34 @@ export function prefetchWorkDeck(client: QueryClient) {
 			);
 			if (!parsed.success) return;
 			const config = parsed.data;
-			void client.prefetchQuery(
-				osQuery.workApprovals.listInbox.queryOptions({
-					input: {
-						projectId: config.projectId,
-						limit: config.limit,
-						statuses: ["pending"],
-					},
-				}),
-			);
+			// The default unscoped Deck reads the same keys warmed above; reuse
+			// them instead of refetching (prefetchQuery refetches stale data).
+			void client
+				.ensureQueryData(
+					osQuery.workApprovals.listInbox.queryOptions({
+						input: {
+							projectId: config.projectId,
+							limit: config.limit,
+							statuses: ["pending"],
+						},
+					}),
+				)
+				.catch(() => {});
 			if (!config.projectId)
-				void client.prefetchQuery(pendingApprovalsQueryOptions());
-			await client.prefetchQuery(
-				osQuery.workInteractions.listInbox.queryOptions({
-					input: {
-						projectId: config.projectId,
-						limit: config.limit,
-						states: ["open"],
-					},
-				}),
-			);
+				void client
+					.ensureQueryData(pendingApprovalsQueryOptions())
+					.catch(() => {});
+			await client
+				.ensureQueryData(
+					osQuery.workInteractions.listInbox.queryOptions({
+						input: {
+							projectId: config.projectId,
+							limit: config.limit,
+							states: ["open"],
+						},
+					}),
+				)
+				.catch(() => {});
 		})
 		.catch(() => {});
 }
