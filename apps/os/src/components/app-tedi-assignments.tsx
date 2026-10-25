@@ -12,7 +12,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import type { TediAppAssignmentRole } from "@tedix/api-contract/schemas/tedi-app-assignments";
-import { Plus, Robot, Trash } from "@phosphor-icons/react";
+import { Plus, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 import * as z from "zod";
 import { FormSelect } from "@/components/forms/form-select";
@@ -32,13 +32,8 @@ import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+import { AppTabHeader } from "@/components/app-detail-tab-shared";
+import { PageSection } from "@/components/kumo/page";
 import {
 	Dialog,
 	DialogContent,
@@ -200,107 +195,104 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 
 	const tediNameMap = new Map(allTedis.map((tedi) => [tedi.id, tedi.name]));
 
-	return (
-		<Card>
-			<CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-				<div>
-					<CardTitle className="flex items-center gap-2">
-						<Robot size={18} aria-hidden />
-						Assigned tedis
-					</CardTitle>
-					<CardDescription>
-						Tedis operating or observing this app
-					</CardDescription>
-				</div>
-				<Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-					<DialogTrigger
-						render={
-							<Button
-								size="sm"
-								disabled={
-									assignmentsUnavailable ||
-									tedisLoading ||
-									Boolean(tedisError) ||
-									availableTedis.length === 0
-								}
-								icon={<Plus size={14} />}
-							/>
+	const assignDialog = (
+		<Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+			<DialogTrigger
+				render={
+					<Button
+						size="sm"
+						disabled={
+							assignmentsUnavailable ||
+							tedisLoading ||
+							Boolean(tedisError) ||
+							availableTedis.length === 0
 						}
-					>
-						Assign tedi
-					</DialogTrigger>
-					<DialogContent>
-						<DialogHeader>
-							<DialogTitle>Assign tedi to app</DialogTitle>
-							<DialogDescription>
-								Select a tedi and role to assign to this app.
-							</DialogDescription>
-						</DialogHeader>
-						<form
-							className="space-y-4 py-4"
-							onSubmit={(event) => {
-								event.preventDefault();
-								void assignmentForm.handleSubmit();
-							}}
+						icon={<Plus size={14} />}
+					/>
+				}
+			>
+				Assign tedi
+			</DialogTrigger>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Assign tedi to app</DialogTitle>
+					<DialogDescription>
+						Select a tedi and role to assign to this app.
+					</DialogDescription>
+				</DialogHeader>
+				<form
+					className="space-y-4 py-4"
+					onSubmit={(event) => {
+						event.preventDefault();
+						void assignmentForm.handleSubmit();
+					}}
+				>
+					<FormField form={assignmentForm} name="tediId" label="Tedi">
+						{(field, meta) => (
+							<FormSelect
+								field={field}
+								{...meta}
+								placeholder="Select a tedi..."
+							>
+								{tedisLoading ? (
+									<div className="p-2">
+										<Skeleton className="h-4 w-32" />
+									</div>
+								) : availableTedis.length === 0 ? (
+									<div className="p-2 text-kumo-subtle text-sm">
+										No available tedis
+									</div>
+								) : (
+									availableTedis.map((tedi) => (
+										<SelectItem key={tedi.id} value={tedi.id}>
+											{tedi.name}
+										</SelectItem>
+									))
+								)}
+							</FormSelect>
+						)}
+					</FormField>
+					<FormField form={assignmentForm} name="role" label="Role">
+						{(field, meta) => (
+							<FormSelect field={field} {...meta}>
+								<SelectItem value="operator">Operator</SelectItem>
+								<SelectItem value="observer">Observer</SelectItem>
+							</FormSelect>
+						)}
+					</FormField>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setAssignDialogOpen(false)}
 						>
-							<FormField form={assignmentForm} name="tediId" label="Tedi">
-								{(field, meta) => (
-									<FormSelect
-										field={field}
-										{...meta}
-										placeholder="Select a tedi..."
-									>
-										{tedisLoading ? (
-											<div className="p-2">
-												<Skeleton className="h-4 w-32" />
-											</div>
-										) : availableTedis.length === 0 ? (
-											<div className="p-2 text-kumo-subtle text-sm">
-												No available tedis
-											</div>
-										) : (
-											availableTedis.map((tedi) => (
-												<SelectItem key={tedi.id} value={tedi.id}>
-													{tedi.name}
-												</SelectItem>
-											))
-										)}
-									</FormSelect>
-								)}
-							</FormField>
-							<FormField form={assignmentForm} name="role" label="Role">
-								{(field, meta) => (
-									<FormSelect field={field} {...meta}>
-										<SelectItem value="operator">Operator</SelectItem>
-										<SelectItem value="observer">Observer</SelectItem>
-									</FormSelect>
-								)}
-							</FormField>
-							<DialogFooter>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => setAssignDialogOpen(false)}
-								>
-									Cancel
-								</Button>
-								<Button
-									type="submit"
-									disabled={
-										assignmentsUnavailable ||
-										tedisLoading ||
-										Boolean(tedisError) ||
-										createAssignment.isPending
-									}
-								>
-									{createAssignment.isPending ? "Assigning..." : "Assign"}
-								</Button>
-							</DialogFooter>
-						</form>
-					</DialogContent>
-				</Dialog>
-			</CardHeader>
-			<CardContent>
+							Cancel
+						</Button>
+						<Button
+							type="submit"
+							disabled={
+								assignmentsUnavailable ||
+								tedisLoading ||
+								Boolean(tedisError) ||
+								createAssignment.isPending
+							}
+						>
+							{createAssignment.isPending ? "Assigning..." : "Assign"}
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+
+	return (
+		<PageSection>
+			<AppTabHeader
+				title="Assigned tedis"
+				description="Tedis operating or observing this app"
+				actions={assignDialog}
+			/>
+			<div>
 				{assignmentsLoading || assignmentsStale ? (
 					<div className="space-y-3">
 						{[1, 2].map((row) => (
@@ -453,7 +445,7 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 						</Table>
 					</div>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</PageSection>
 	);
 }
