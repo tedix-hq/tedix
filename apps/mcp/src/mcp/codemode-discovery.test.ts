@@ -197,6 +197,38 @@ describe("Code Mode discovery helpers", () => {
 		expect(moreTerms.score).toBeGreaterThan(fewerTerms.score);
 	});
 
+	it("indexes schemas once per entry across catalog-scale ranking and suggestions", () => {
+		const tools: Record<string, CatalogToolEntry> = {};
+		const serializations = new Uint8Array(13_000);
+		for (let i = 0; i < serializations.length; i++) {
+			const name = `assign_work_executor_${i}`;
+			tools[name] = entry("work", name, {
+				description: "Assign work executor. ".repeat(300),
+				parameters: {
+					toJSON() {
+						serializations[i] = serializations[i]! + 1;
+						return { type: "object", description: "schema ".repeat(400) };
+					},
+				},
+			});
+		}
+		// Ranking and nearest-namespace hints traverse the same request catalog.
+		// Count schema walks instead of timing a machine-dependent CPU budget.
+		for (const query of ["assign work executor", "work executor"]) {
+			const terms = normalizeSearchTerms(query);
+			for (const [name, meta] of Object.entries(tools)) {
+				expect(scoreCatalogSearch(terms, "work", name, meta)).not.toBeNull();
+			}
+			expect(nearestCatalogNamespaces(query, { work: tools })[0]).toMatchObject(
+				{
+					namespace: "work",
+					tools: serializations.length,
+				},
+			);
+		}
+		expect([...serializations].every((count) => count === 1)).toBe(true);
+	});
+
 	it("finds nearest namespaces and useful query suggestions", () => {
 		const catalog = {
 			skills: {
