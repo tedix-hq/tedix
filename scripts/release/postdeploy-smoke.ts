@@ -367,17 +367,18 @@ export async function checkGateway(
 				}),
 			);
 	}
+	// Independent probes: overlap them, but keep results in a stable order.
 	results.push(
-		await timed("work list", async () =>
-			checkWorkList(await client.listWork()),
-		),
-		await timed("code mode discover.search", async () =>
-			checkDiscover(
-				await client.runCode(
-					'async () => (await discover.search({ query: "list work items", limit: 5 })).results',
+		...(await Promise.all([
+			timed("work list", async () => checkWorkList(await client.listWork())),
+			timed("code mode discover.search", async () =>
+				checkDiscover(
+					await client.runCode(
+						'async () => (await discover.search({ query: "list work items", limit: 5 })).results',
+					),
 				),
 			),
-		),
+		])),
 	);
 	return results;
 }

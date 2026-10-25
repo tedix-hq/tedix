@@ -388,6 +388,38 @@ describe("checkGateway", () => {
 			detail: "discover.search returned no tools",
 		});
 	});
+
+	test("starts the independent Work and discovery probes concurrently", async () => {
+		const workStarted = Promise.withResolvers<void>();
+		const workBlocked = Promise.withResolvers<void>();
+		let discoveryStarted = false;
+		const smoke = checkGateway(
+			healthyClient({
+				async listWork() {
+					workStarted.resolve();
+					await workBlocked.promise;
+					return {
+						view: "board",
+						data: [{ id: "x" }],
+						pagination: { limit: 1, offset: 0, total: 1, hasMore: false },
+					};
+				},
+				async runCode() {
+					discoveryStarted = true;
+					return [{ callable: WORK_LIST_CALLABLE }];
+				},
+			}),
+			ORG,
+		);
+
+		await workStarted.promise;
+		try {
+			expect(discoveryStarted).toBe(true);
+		} finally {
+			workBlocked.resolve();
+			await smoke;
+		}
+	});
 });
 
 describe("workload credential", () => {
