@@ -454,6 +454,23 @@ describe("mcp_events untrusted content", () => {
 		expect(state.deliveries.size).toBe(0);
 	});
 
+	it.each(["whsec_!not-base64!", "whsec_a", "whsec_", "whsec_ \t\n"])(
+		"returns false without throwing for invalid signing secret %j",
+		async (secret) => {
+			const body = JSON.stringify(event("evt"));
+			await expect(
+				verifyStandardWebhook({
+					secret,
+					id: "msg_1",
+					timestamp: "1000",
+					body,
+					signature: await sign("msg_1", "1000", body),
+					nowSeconds: 1100,
+				}),
+			).resolves.toBe(false);
+		},
+	);
+
 	it("verifies Standard Webhooks signatures inside the timestamp window only", async () => {
 		const body = JSON.stringify(event("evt"));
 		const signature = await sign("msg_1", "1000", body);
