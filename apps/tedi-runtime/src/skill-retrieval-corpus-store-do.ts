@@ -28,6 +28,7 @@ import {
 	SKILL_RETRIEVAL_MAX_TOP_K,
 } from "@tedix/context-core/skill-retrieval";
 import type { DoSqlRunner } from "./brain-bridge-do";
+import { z } from "zod";
 
 interface CorpusRow {
 	corpus_json: string;
@@ -35,6 +36,26 @@ interface CorpusRow {
 }
 
 const CORPUS_ROW_ID = "current";
+
+const cachedCorpusSchema = z.array(
+	z.object({
+		id: z.string(),
+		title: z.string(),
+		slug: z.string().nullish(),
+		summary: z.string().nullish(),
+		description: z.string().nullish(),
+		tags: z.array(z.string()).nullish(),
+		toolIds: z.array(z.string()).nullish(),
+		lifecycleState: z.string().nullish(),
+		successCount: z.number().nullish(),
+		failureCount: z.number().nullish(),
+		lastUsedAt: z.string().nullish(),
+		content: z.string().nullish(),
+		preconditions: z
+			.object({ notWhen: z.array(z.string()).optional() })
+			.nullish(),
+	}),
+);
 
 /** Max skills persisted in the corpus (matches the platform fetch cap). */
 export const SKILL_RETRIEVAL_CORPUS_MAX_SKILLS = 50;
@@ -149,7 +170,7 @@ export class DoSkillRetrievalCorpusStore {
 		this.schemaReady = true;
 	}
 
-	/** Load the cached corpus, or null if none has been written / JSON is bad. */
+	/** Load the cached corpus, or null if absent or any entry is malformed. */
 	load(): SkillRetrievalCorpusEntry | null {
 		this.ensureSchema();
 		const rows = this.runner.sql<CorpusRow>`
@@ -158,9 +179,9 @@ export class DoSkillRetrievalCorpusStore {
 		const row = rows[0];
 		if (!row) return null;
 		try {
-			const skills = JSON.parse(row.corpus_json) as RetrievableSkill[];
-			if (!Array.isArray(skills)) return null;
-			return { skills, updatedAt: row.updated_at };
+			const parsed = cachedCorpusSchema.safeParse(JSON.parse(row.corpus_json));
+			if (!parsed.success) return null;
+			return { skills: parsed.data, updatedAt: row.updated_at };
 		} catch {
 			return null;
 		}

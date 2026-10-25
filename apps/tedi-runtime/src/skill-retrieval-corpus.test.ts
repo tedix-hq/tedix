@@ -17,6 +17,8 @@ import {
 	SKILL_RETRIEVAL_DEFAULT_MIN_OVERLAP,
 	SKILL_RETRIEVAL_DEFAULT_TOP_K,
 	SKILL_RETRIEVAL_MAX_TOP_K,
+	selectRetrievedSkills,
+	serializeRetrievedSkills,
 } from "@tedix/context-core/skill-retrieval";
 import {
 	buildRetrievalCorpus,
@@ -180,6 +182,78 @@ function makeSqlRunner() {
 		"overwrite replaces the corpus (empty corpus is a valid no-skills state)",
 	);
 	console.log("PASS: corpus store round-trip");
+}
+
+{
+	const runner = makeSqlRunner();
+	const store = new DoSkillRetrievalCorpusStore(runner);
+	const valid = buildRetrievalCorpus([entry({})])[0]!;
+	store.save([]);
+	const malformed = [
+		null,
+		true,
+		42,
+		"skill",
+		[],
+		{},
+		{ ...valid, id: 7 },
+		{ ...valid, title: null },
+		...(
+			[
+				"slug",
+				"summary",
+				"description",
+				"lifecycleState",
+				"lastUsedAt",
+				"content",
+			] as const
+		).map((field) => ({ ...valid, [field]: {} })),
+		...(["tags", "toolIds"] as const).flatMap((field) => [
+			{ ...valid, [field]: {} },
+			{ ...valid, [field]: [null] },
+		]),
+		{ ...valid, successCount: "1" },
+		{ ...valid, failureCount: {} },
+		{ ...valid, preconditions: [] },
+		{ ...valid, preconditions: { notWhen: "busy" } },
+		{ ...valid, preconditions: { notWhen: [null] } },
+	];
+	for (const bad of malformed) {
+		for (const skills of [[bad], [valid, bad]]) {
+			const json = JSON.stringify(skills);
+			runner.sql`INSERT INTO skill_retrieval_corpus VALUES (${"current"}, ${json}, ${123})`;
+			const loaded = store.load();
+			assert.equal(
+				serializeRetrievedSkills(
+					selectRetrievedSkills(
+						loaded?.skills ?? [],
+						"Compile the weekly report",
+					),
+				),
+				"",
+			);
+			assert.equal(loaded, null, `malformed cache is a miss: ${json}`);
+		}
+	}
+	for (const json of ["{", "null", "{}", "42"]) {
+		runner.sql`INSERT INTO skill_retrieval_corpus VALUES (${"current"}, ${json}, ${123})`;
+		assert.equal(store.load(), null, `invalid corpus is a miss: ${json}`);
+	}
+	for (const skill of [
+		valid,
+		{ id: "minimal", title: "Weekly report", lifecycleState: "active" },
+	]) {
+		store.save([skill]);
+		const loaded = store.load();
+		assert.deepEqual(loaded?.skills, [skill]);
+		assert.match(
+			serializeRetrievedSkills(
+				selectRetrievedSkills(loaded!.skills, "Compile the weekly report"),
+			),
+			/Weekly report/,
+		);
+	}
+	console.log("PASS: malformed cached entries fail soft before retrieval");
 }
 
 // ── 3. Knob parsing (Worker vars surface)
