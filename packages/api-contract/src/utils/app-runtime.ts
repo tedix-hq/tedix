@@ -135,3 +135,20 @@ export function appRuntimeOperationsForRole(
 export function appRuntimeCodeLength(files: AppRuntimeFiles): number {
 	return Object.values(files).reduce((sum, text) => sum + text.length, 0);
 }
+
+export async function appRuntimeCodeDigest(
+	files: AppRuntimeFiles,
+): Promise<string> {
+	const canonical = JSON.stringify(
+		Object.keys(files)
+			.sort()
+			.map((key) => [key, files[key]]),
+	);
+	const bytes = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(canonical),
+	);
+	return Array.from(new Uint8Array(bytes), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+}
