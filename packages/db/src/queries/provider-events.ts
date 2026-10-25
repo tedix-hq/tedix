@@ -258,7 +258,10 @@ export async function dueProviderEventSubscriptions(
 				ne(subscriptions.status, "disabled"),
 				or(
 					lt(subscriptions.nextReconcileAt, now),
-					lt(subscriptions.expiresAt, now),
+					and(
+						ne(subscriptions.status, "error"),
+						lt(subscriptions.expiresAt, now),
+					),
 				),
 				or(isNull(subscriptions.leaseUntil), lt(subscriptions.leaseUntil, now)),
 			),
