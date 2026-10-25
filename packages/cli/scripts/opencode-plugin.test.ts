@@ -940,16 +940,22 @@ test("OpenCode 2 keeps reporting a session after its context fetch fails", async
 	await fake.emit("session.idle", { sessionID: SESSION });
 	await until(
 		() =>
-			callsSafeCount() > 0 &&
-			calls().some((call) => call.args?.includes("capture-stop")),
+			callsSafeCount() >= 3 &&
+			calls().some((call) => call.args?.includes("capture-stop")) &&
+			calls().some(
+				(call) =>
+					call.args?.split(" ")[1] === "status" &&
+					call.event.hook_event_name === "Stop",
+			),
 	);
 	expect(
 		calls()
 			.filter((call) => !call.args?.includes("await-reply"))
-			.map((call) => [call.args?.split(" ")[1], call.event.hook_event_name]),
+			.map((call) => [call.args?.split(" ")[1], call.event.hook_event_name])
+			.sort(),
 	).toEqual([
-		["status", "PermissionRequest"],
 		["capture-stop", "Stop"],
+		["status", "PermissionRequest"],
 		["status", "Stop"],
 	]);
 	cleanup?.();
