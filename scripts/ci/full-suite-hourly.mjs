@@ -101,8 +101,11 @@ export function sourceBrowsers(file, seen = new Set()) {
 	for (const [, names] of source.matchAll(
 		/import\s*\{([^}]*)\}\s*from\s*["'](?:playwright|playwright-core|@playwright\/test)["']/g,
 	))
-		for (const name of names.split(","))
-			if (playwrightBrowsers.includes(name.trim())) browsers.add(name.trim());
+		for (const name of names.split(",")) {
+			// `chromium as browser` still launches Chromium.
+			const imported = name.trim().split(/\s+as\s+/)[0];
+			if (playwrightBrowsers.includes(imported)) browsers.add(imported);
+		}
 	for (const [, specifier] of source.matchAll(
 		// `from`, dynamic `import(...)` and side-effect `import "./setup"`.
 		/(?:from\s*|import\s*(?:\(\s*)?)["'](\.{1,2}\/[^"']+)["']/g,
