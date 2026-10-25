@@ -3,6 +3,18 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.6 — 2026-10-25
+
+### Patch Changes
+
+- Each coding agent (Claude Code, Codex, Devin, OpenCode, Cursor) now gets its own agent identity on your machine, so its work is credited to the right agent. Sessions already started keep their identity. First-time setup finds your organizations again.
+- A local dispatcher no longer gives up on a lane when Tedix is slow to confirm the start; the lane launches and reports on its next check-in.
+- `tedix work create` and `tedix work accept` now honour `--executor`, so delegated Work reaches the right dispatcher. Unknown executor names are rejected up front.
+- Lanes keep their Work's name in status reports, and expired lanes stop cleanly.
+- `tedix flow run --param` keeps values like `Infinity` or `1e999` as text instead of turning them into empty values.
+- A broken skill no longer hides your other OpenCode skills.
+- `neighbours` rejects a missing `--hours`, `--paths` or `--session` value, and `work list` rejects an unsafe offset.
+
 ## 0.17.5 — 2026-10-25
 
 ### Patch Changes
