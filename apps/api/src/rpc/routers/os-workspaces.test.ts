@@ -469,6 +469,94 @@ describe("workspaces", () => {
 });
 
 describe("Workspace resources", () => {
+	it("creates and edits unique resource slots with tenant and stale-edit fences", async () => {
+		const c = clients();
+		const { workspace } = await c.org1.workspaces.create({ name: "Resources" });
+		const selection = {
+			providerId: "github",
+			connectionScope: "tenant" as const,
+			requiredScopes: ["contents:read"],
+			resourceType: "repository",
+			providerResourceId: "example/repository",
+			name: "Repository",
+			metadata: {},
+		};
+		const { resource } = await c.org1.resources.create({
+			workspaceId: workspace.id,
+			selection,
+			slot: "opportunities",
+		});
+		expect(resource.slot).toBe("opportunities");
+		await expect(
+			c.org1.resources.create({
+				workspaceId: workspace.id,
+				selection: { ...selection, providerResourceId: "example/another" },
+				slot: "opportunities",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		const { resource: manual } = await c.org1.resources.create({
+			workspaceId: workspace.id,
+			selection: { ...selection, providerResourceId: "example/manual" },
+		});
+		expect(manual.slot).toBeNull();
+		const input = {
+			workspaceId: workspace.id,
+			resourceId: manual.id,
+			expectedUpdatedAt: manual.updatedAt,
+			slot: "opportunities",
+		};
+		await expect(c.org1.resources.rename(input)).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
+		await expect(c.org2.resources.rename(input)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		await expect(
+			c.org1.resources.rename({
+				...input,
+				expectedUpdatedAt: "stale",
+				slot: "other",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		const cleared = await c.org1.resources.rename({
+			...input,
+			resourceId: resource.id,
+			expectedUpdatedAt: resource.updatedAt,
+			slot: null,
+		});
+		expect(cleared.resource).toMatchObject({
+			slot: null,
+			name: selection.name,
+		});
+		const assigned = await c.org1.resources.rename(input);
+		expect(assigned.resource).toMatchObject({
+			slot: "opportunities",
+			name: selection.name,
+		});
+		const renamed = await c.org1.resources.rename({
+			workspaceId: workspace.id,
+			resourceId: manual.id,
+			expectedUpdatedAt: assigned.resource.updatedAt,
+			name: "Renamed",
+		});
+		expect(renamed.resource).toMatchObject({
+			slot: "opportunities",
+			name: "Renamed",
+		});
+		const removed = await c.org1.resources.remove({
+			workspaceId: workspace.id,
+			resourceId: manual.id,
+			expectedUpdatedAt: renamed.resource.updatedAt,
+		});
+		await expect(
+			c.org1.resources.rename({
+				...input,
+				expectedUpdatedAt: removed.resource.updatedAt,
+				slot: null,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
 	it("verifies exact calendar existence, ACL and scopes instead of accepting caller metadata", async () => {
 		const c = clients();
 		const { workspace } = await c.org1.workspaces.create({

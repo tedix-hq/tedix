@@ -56,6 +56,7 @@ import {
 	OsWorkspaceProjectStatusSchema,
 	OsWorkspaceResourceSchema,
 	OsWorkspaceResourceSelectionSchema,
+	OsWorkspaceResourceSlotSchema,
 	OsWorkspaceResourceStatusSchema,
 	OsWorkspaceStatusSchema,
 	OsWorkspaceVisibilitySchema,
@@ -543,6 +544,9 @@ export const osWorkspacesContract = oc
 				.input(
 					workspaceIdInput.extend({
 						selection: OsWorkspaceResourceSelectionSchema,
+						slot: OsWorkspaceResourceSlotSchema.optional().describe(
+							"Named resource slot, unique within the Workspace; omit for an unassigned resource",
+						),
 					}),
 				)
 				.output(z.object({ resource: OsWorkspaceResourceSchema })),
@@ -652,14 +656,24 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "PATCH",
 					path: "/workspaces/{workspaceId}/resources/{resourceId}",
-					summary: "Rename a Workspace resource reference",
+					summary: "Update a Workspace resource name or slot",
+					description:
+						"Changes the name, slot, or both at the observed revision. Omit slot to preserve it; null clears it. Slots use lower snake_case and are unique within the Workspace, including removed references.",
 				})
 				.input(
-					workspaceIdInput.extend({
-						resourceId: z.string().uuid(),
-						name: nameSchema,
-						expectedUpdatedAt: z.string(),
-					}),
+					workspaceIdInput
+						.extend({
+							resourceId: z.string().uuid(),
+							name: nameSchema.optional(),
+							slot: OsWorkspaceResourceSlotSchema.nullable().optional(),
+							expectedUpdatedAt: z.string(),
+						})
+						.refine(
+							(value) => value.name !== undefined || value.slot !== undefined,
+							{
+								message: "Provide a name or slot to update",
+							},
+						),
 				)
 				.output(z.object({ resource: OsWorkspaceResourceSchema })),
 			remove: oc

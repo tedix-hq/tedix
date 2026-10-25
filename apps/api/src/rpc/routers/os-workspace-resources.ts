@@ -329,7 +329,7 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 			id: crypto.randomUUID(),
 			organizationId: workspace.organizationId,
 			workspaceId: workspace.id,
-			slot: null,
+			slot: input.slot ?? null,
 			providerId: input.selection.providerId,
 			connectionScope: input.selection.connectionScope,
 			...binding,
@@ -351,7 +351,7 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 		if (isUniqueConstraintError(error)) {
 			throw createError(
 				ErrorCodes.CONFLICT,
-				"This provider resource is already attached to the Workspace",
+				"This provider resource or slot is already attached to the Workspace",
 			);
 		}
 		throw error;
@@ -425,21 +425,33 @@ const rename = authorOs.resources.rename.handler(async ({ input, context }) => {
 	if (current.status !== "active") {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			"Removed resources cannot be renamed",
+			"Removed resources cannot be updated",
 		);
 	}
-	const row = await renameOsWorkspaceResource(queryDb(context), {
-		organizationId: current.organizationId,
-		workspaceId: current.workspaceId,
-		resourceId: current.id,
-		name: input.name,
-		expectedUpdatedAt: input.expectedUpdatedAt,
-		now: new Date().toISOString(),
-	});
+	let row: OsWorkspaceResourceRow | undefined;
+	try {
+		row = await renameOsWorkspaceResource(queryDb(context), {
+			organizationId: current.organizationId,
+			workspaceId: current.workspaceId,
+			resourceId: current.id,
+			name: input.name,
+			slot: input.slot,
+			expectedUpdatedAt: input.expectedUpdatedAt,
+			now: new Date().toISOString(),
+		});
+	} catch (error) {
+		if (isUniqueConstraintError(error)) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"This slot is already attached to the Workspace",
+			);
+		}
+		throw error;
+	}
 	if (!row) {
 		throw createError(
 			ErrorCodes.CONFLICT,
-			"Workspace resource changed; reload before renaming",
+			"Workspace resource changed; reload before updating",
 		);
 	}
 	return { resource: await projectWorkspaceResource(context, row) };
