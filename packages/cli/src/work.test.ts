@@ -2748,6 +2748,70 @@ describe("selected chat Work checkpoint", () => {
 	});
 });
 
+describe("heartbeat watch credential revocation", () => {
+	const inactive = () => {
+		throw new Error(
+			'MCP error 403: {"error":"external_agent_inactive","message":"External-agent credential is no longer active."}',
+		);
+	};
+	function watchContext(respond: (call: number) => unknown) {
+		let now = 0,
+			calls = 0;
+		const { ctx, sources } = makeContext({ watch: 100 }, ATTEMPT, () =>
+			respond(++calls),
+		);
+		ctx.heartbeatClock = {
+			now: () => now,
+			wait: async (ms) => {
+				now += ms;
+			},
+		};
+		const discarded: number[] = [];
+		ctx.discardCredential = () => discarded.push(calls);
+		return { ctx, sources, discarded };
+	}
+	const renewed = () => ({ expiresAt: new Date(300_000).toISOString() });
+
+	test("drops a revoked credential once and keeps renewing the same Attempt", async () => {
+		const { ctx, sources, discarded } = watchContext((call) =>
+			call === 2 || call === 4 ? inactive() : renewed(),
+		);
+		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
+		// Each rejection, even non-consecutive ones, renews once after a success.
+		expect(discarded).toEqual([2, 4]);
+		for (const source of sources) {
+			expect(source).toContain(ATTEMPT);
+			expect(source).not.toContain("start_work_item_attempt");
+		}
+	});
+
+	test("stops on a second consecutive inactive rejection instead of retrying it", async () => {
+		const { ctx, sources, discarded } = watchContext((call) =>
+			call === 1 ? renewed() : inactive(),
+		);
+		const out = await capture(`heartbeat ${ITEM}`, ctx);
+		expect(out.code).toBe(WORK_EXIT_FAIL);
+		expect(discarded).toEqual([2]);
+		expect(sources).toHaveLength(3);
+	});
+
+	test("does not renew a one-shot heartbeat or a login without a credential cache", async () => {
+		const oneShot = watchContext(inactive);
+		oneShot.ctx.work.watch = undefined;
+		expect((await capture(`heartbeat ${ITEM}`, oneShot.ctx)).code).toBe(
+			WORK_EXIT_FAIL,
+		);
+		expect(oneShot.discarded).toEqual([]);
+
+		const login = watchContext((call) => (call === 1 ? renewed() : inactive()));
+		login.ctx.discardCredential = undefined;
+		expect((await capture(`heartbeat ${ITEM}`, login.ctx)).code).toBe(
+			WORK_EXIT_FAIL,
+		);
+		expect(login.sources).toHaveLength(2);
+	});
+});
+
 describe("heartbeat watch rate-pressure recovery", () => {
 	function rate(status = 429, retryAfter?: number) {
 		return {

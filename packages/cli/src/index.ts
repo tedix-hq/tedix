@@ -1427,6 +1427,7 @@ async function main() {
 				json: options.json,
 				workspace: workspaceName,
 				authSource: auth.source,
+				discardCredential: auth.discardCredential,
 				mcpUrl: options.url,
 				bootstrapCache: fileNativeBootstrapCache(),
 				nativeCacheScope: JSON.stringify([
