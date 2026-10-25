@@ -148,6 +148,20 @@ describe("hourly full suite", () => {
 			rmSync(root, { recursive: true });
 		}
 	});
+	test("selects the original browser of an aliased import", () => {
+		const root = fixtureTree({
+			"spec.ts":
+				'import { chromium as browser, firefox as\n\tother } from "playwright";',
+		});
+		try {
+			expect(sourceBrowsers(join(root, "spec.ts"))).toEqual([
+				"chromium",
+				"firefox",
+			]);
+		} finally {
+			rmSync(root, { recursive: true });
+		}
+	});
 	test("derives each browser script's Playwright browsers from the specs it runs", () => {
 		const scripts = {
 			"test:unit": "vp test run",
