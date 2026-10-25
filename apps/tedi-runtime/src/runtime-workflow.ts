@@ -31,6 +31,7 @@ import type { AgentTediDO } from "./do";
 import type { State } from "./runtime-state";
 import { type RecoverableCodemodeRuntimeHandle } from "./durable-codemode-recovery";
 import { isTransientWorkflowRedriveError } from "./durable-object-recovery";
+import { turnRetryDelaySeconds } from "./facet-turn-admission";
 import { DoInferenceBudgetStore } from "./inference-budget-store-do";
 import {
 	buildRunId,
@@ -514,11 +515,6 @@ export const runtimeWorkflow = {
 		error: string,
 	): Promise<void> {
 		const nextRedriveCount = (context.redriveCount ?? 0) + 1;
-		await this.ctx.storage.put<WorkflowDispatchContext>(key, {
-			...context,
-			redriveCount: nextRedriveCount,
-			latestAttemptError: error,
-		});
 		try {
 			await this.assertChatTurnActive(context.runId);
 			if (
@@ -528,6 +524,30 @@ export const runtimeWorkflow = {
 				))
 			)
 				throw new Error("Original workflow accounting remains unresolved");
+			const now = Date.now();
+			const notBefore =
+				context.redriveNotBefore ??
+				now + turnRetryDelaySeconds(context.runId) * 1000;
+			if (notBefore > now) {
+				await this.ctx.storage.put<WorkflowDispatchContext>(key, {
+					...context,
+					redriveNotBefore: notBefore,
+					latestAttemptError: error,
+				});
+				await this.schedule(
+					Math.ceil((notBefore - now) / 1000),
+					"reconcileChatWorkflowTerminal",
+					{ workflowInstanceId, attempt: 0 },
+					{ idempotent: true, retry: { maxAttempts: 3 } },
+				);
+				return;
+			}
+			await this.ctx.storage.put<WorkflowDispatchContext>(key, {
+				...context,
+				redriveCount: nextRedriveCount,
+				redriveNotBefore: undefined,
+				latestAttemptError: error,
+			});
 			await this.recordWorkflowRetryOwnership(
 				context,
 				workflowRetryOwnershipPayload({
