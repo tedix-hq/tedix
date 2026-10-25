@@ -60,6 +60,10 @@ import {
 	skillsRevokeSkillRun,
 } from "./cognitive-skill-runs/lifecycle";
 import {
+	skillsPauseSchedule,
+	skillsResumeSchedule,
+} from "./cognitive-skill-schedule";
+import {
 	skillsCompareWorkflowRevisions,
 	skillsGetWorkflowReliability,
 	skillsGetWorkflowRevision,
@@ -163,6 +167,8 @@ export const skillsContractRouter = skillsOs.router({
 	listWorkflowSchedules: skillsListWorkflowSchedules,
 	pauseWorkflow: skillsPauseWorkflow,
 	resumeWorkflow: skillsResumeWorkflow,
+	pauseSchedule: skillsPauseSchedule,
+	resumeSchedule: skillsResumeSchedule,
 	restartWorkflow: skillsRestartWorkflow,
 	approveWorkflow: skillsApproveWorkflow,
 	rejectWorkflow: skillsRejectWorkflow,

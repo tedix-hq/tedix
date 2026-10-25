@@ -122,11 +122,24 @@ export interface SkillCertificationIntent {
 	};
 }
 
+export const PAUSE_SKILL_SCHEDULE_TOOL = "skills.pause_skill_schedule";
+export const RESUME_SKILL_SCHEDULE_TOOL = "skills.resume_skill_schedule";
+
+/** "Pause/resume the schedule of skill X", resolved to the skill id. */
+export interface SkillScheduleIntent {
+	capability: "skills.pause_schedule" | "skills.resume_schedule";
+	toolName:
+		| typeof PAUSE_SKILL_SCHEDULE_TOOL
+		| typeof RESUME_SKILL_SCHEDULE_TOOL;
+	args: { id: string };
+}
+
 /** An exact write a Home turn resolved without the model. */
 export type DirectWriteIntent =
 	| WorkpieceRenameIntent
 	| SkillMoveIntent
-	| SkillCertificationIntent;
+	| SkillCertificationIntent
+	| SkillScheduleIntent;
 
 /** What a "rename X to Y" request names: an app, an output, or "it". */
 export interface RenameRequest {
@@ -310,6 +323,9 @@ export function canonicalWriteToolName(
 	}
 	if (capability === "skills.move_to_tedi") return MOVE_SKILL_TO_TEDI_TOOL;
 	if (capability === "skills.certify") return RUN_SKILL_WORKFLOW_TOOL;
+	if (capability === "skills.pause_schedule") return PAUSE_SKILL_SCHEDULE_TOOL;
+	if (capability === "skills.resume_schedule")
+		return RESUME_SKILL_SCHEDULE_TOOL;
 	if (capability === "factories.create") return "projects.create_factory";
 	if (capability === "factories.pause") return "projects.pause_factory";
 	if (capability === "factories.resume") return "projects.resume_factory";

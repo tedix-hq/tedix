@@ -253,6 +253,26 @@ const SkillWorkflowLifecycleOutputSchema = z.object({
 	deduplicated: z.boolean().optional(),
 });
 
+const SkillScheduleControlInputSchema = z
+	.object({
+		organizationId: z.uuid().optional(),
+		id: z
+			.string()
+			.min(1)
+			.describe("The skill whose manifest-owned schedule to pause or resume"),
+	})
+	.strict();
+
+const SkillScheduleControlResultSchema = z.object({
+	skillId: z.string(),
+	slug: z.string().nullable(),
+	action: z.enum(["paused", "resumed"]),
+	/** False when the schedule already was in the requested state. */
+	changed: z.boolean(),
+	scheduleEnabled: z.boolean(),
+	nextFireAt: z.string().nullable(),
+});
+
 const SkillWorkflowRestartFromSchema = z.object({
 	name: z.string().min(1),
 	count: z.number().int().min(1).optional(),
@@ -1966,6 +1986,30 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 		})
 		.input(z.object({ runId: z.string(), tediId: z.string().optional() }))
 		.output(SkillWorkflowLifecycleOutputSchema),
+
+	pauseSchedule: oc
+		.route({
+			method: "POST",
+			path: "/skills/pause-schedule",
+			tags: ["cognitive"],
+			summary: "Pause a skill's schedule",
+			description:
+				"Turn off future scheduled runs of one skill (capabilities.schedule.enabled: false) and nothing else: cron, params, workflow and body stay as they are, so resume_skill_schedule restores the same cadence. Use for 'pause the schedule of skill <id>'. Idempotent: an already paused schedule records no revision. Does not cancel an in-flight run; a factory lane is paused with pause_factory.",
+		})
+		.input(SkillScheduleControlInputSchema)
+		.output(SkillScheduleControlResultSchema),
+
+	resumeSchedule: oc
+		.route({
+			method: "POST",
+			path: "/skills/resume-schedule",
+			tags: ["cognitive"],
+			summary: "Resume a skill's schedule",
+			description:
+				"Turn a paused skill schedule back on (capabilities.schedule.enabled: true) with its existing cron and params; does not run it immediately. Idempotent. The skill must be active to fire.",
+		})
+		.input(SkillScheduleControlInputSchema)
+		.output(SkillScheduleControlResultSchema),
 
 	restartWorkflow: oc
 		.route({
