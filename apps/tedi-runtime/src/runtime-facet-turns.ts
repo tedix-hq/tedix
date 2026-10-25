@@ -1,3 +1,5 @@
+import { operatorRecordTools } from "./operator-record-tools";
+import { hasOperatorRecordPlan } from "@tedix/api-contract/schemas/operator-records";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 import { type ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
 import { configuredRuntimeTools } from "./configured-tool-surface";
@@ -1098,6 +1100,28 @@ export const runtimeFacetTurns = {
 			...(mcpRuntime ? tedixMcpAITools(mcpRuntime, turnBinding) : {}),
 			...workAiTools(() => this.getPlatformClient()),
 			...(supervised &&
+			this.state.tediId &&
+			this.state.orgId &&
+			hasOperatorRecordPlan(input.capabilityPlan)
+				? operatorRecordTools({
+						env: this.env,
+						tediId: this.state.tediId,
+						organizationId: this.state.orgId,
+						runId: input.runId,
+						homeRunId: input.homeRunId!,
+						workItemId: input.workItemId!,
+						executeMcp: async (name, args) => {
+							if (!mcpRuntime)
+								throw new Error(
+									"No connected calendar or mail reader is available for this delegation",
+								);
+							return mcpRuntime.executeTool(name, args, {
+								binding: turnBinding,
+							});
+						},
+					})
+				: {}),
+			...(supervised &&
 			input.homeRunId &&
 			input.workItemId &&
 			input.capabilityPlan?.allowedToolIds.includes("close_completed_work_item")
@@ -1130,6 +1154,7 @@ export const runtimeFacetTurns = {
 			selectRepositoryToolSurface(unrestrictedTools, input.repositoryMode),
 			supervised,
 			input.authorityMode === "enforce" || Boolean(input.capabilityPlan),
+			hasOperatorRecordPlan(input.capabilityPlan),
 		);
 		const capabilityTools = capabilityToolSet({
 			tools: input.capabilityPlan

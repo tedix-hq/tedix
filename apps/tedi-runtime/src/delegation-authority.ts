@@ -1,3 +1,4 @@
+import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
 import type { ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
 import {
 	type DelegationAuthorityEnvelope,
@@ -268,12 +269,17 @@ export function supervisedDelegationToolSet(
 	tools: ToolSet,
 	supervised: boolean,
 	allowExactMcpCall = false,
+	allowOperatorRecords = false,
 ): ToolSet {
 	if (!supervised) return tools;
 	return Object.fromEntries(
 		Object.entries(tools).filter(
 			([name]) =>
 				(allowExactMcpCall && name === MCP_CALL_TOOL) ||
+				(allowOperatorRecords &&
+					OPERATOR_RECORD_TOOLS.includes(
+						name as (typeof OPERATOR_RECORD_TOOLS)[number],
+					)) ||
 				SUPERVISED_DELEGATION_EXACT_TOOLS.has(name) ||
 				name.startsWith("browser_") ||
 				name.startsWith("artifact_"),
