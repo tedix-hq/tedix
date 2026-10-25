@@ -259,15 +259,20 @@ function exportTarget(manifest, subpath) {
 	}
 	if (typeof exports === "string") return subpath === "." ? exports : null;
 	if (subpath in exports) return conditionTarget(exports[subpath]);
-	for (const [pattern, value] of Object.entries(exports)) {
+	// Package patterns rank by longest literal prefix, then longest key.
+	const patterns = Object.entries(exports)
+		.filter(
+			([key]) => key.includes("*") && key.indexOf("*") === key.lastIndexOf("*"),
+		)
+		.sort(([a], [b]) => b.indexOf("*") - a.indexOf("*") || b.length - a.length);
+	for (const [pattern, value] of patterns) {
 		const star = pattern.indexOf("*");
-		if (star === -1) continue;
 		const prefix = pattern.slice(0, star);
 		const suffix = pattern.slice(star + 1);
 		if (
 			subpath.startsWith(prefix) &&
 			subpath.endsWith(suffix) &&
-			subpath.length >= prefix.length + suffix.length
+			subpath.length > prefix.length + suffix.length
 		) {
 			const captured = subpath.slice(
 				prefix.length,

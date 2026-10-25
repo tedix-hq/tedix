@@ -155,6 +155,46 @@ describe("selectBunTestFiles", () => {
 		}
 	});
 
+	test.each([false, true])(
+		"export patterns prefer specificity regardless of insertion order (reversed: %s)",
+		(reversed) => {
+			for (const narrow of ["./feature/*", "./feature/*.ts"]) {
+				const entries = [
+					["./*", "./src/*.ts"],
+					["./feature/*", "./feature/*.ts"],
+					[narrow, "./special/*.ts"],
+				];
+				const exports = Object.fromEntries(entries);
+				const io = makeIo({
+					...FILES,
+					"packages/shared/package.json": JSON.stringify({
+						name: "@tedix/shared",
+						exports: reversed
+							? Object.fromEntries(Object.entries(exports).reverse())
+							: exports,
+					}),
+					"packages/shared/src/feature/x.ts.ts": "export const x = 1;",
+					"packages/shared/feature/x.ts.ts": "export const x = 2;",
+					"packages/shared/special/x.ts": "export const x = 3;",
+					"packages/shared/special/x.ts.ts": "export const x = 4;",
+					"packages/tool/src/a.ts": 'import "@tedix/shared/feature/x.ts";',
+					"packages/tool/src/b.ts": "export const b = 1;",
+				});
+				const target = narrow.endsWith(".ts") ? "x.ts" : "x.ts.ts";
+				expect(select([`packages/shared/special/${target}`], io)).toEqual({
+					mode: "files",
+					files: ["src/a.test.ts", "src/guard.test.ts"],
+					total: 5,
+				});
+				expect(select(["packages/shared/src/feature/x.ts.ts"], io)).toEqual({
+					mode: "files",
+					files: ["src/guard.test.ts"],
+					total: 5,
+				});
+			}
+		},
+	);
+
 	test("a changed test file selects itself", () => {
 		const selection = select(["packages/tool/src/d.test.ts"]);
 		expect(selection.mode).toBe("files");
