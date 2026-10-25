@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.5 — 2026-10-25
+
+### Patch Changes
+
+- When Tedix is busy and asks your sign-in to slow down, a local dispatcher now waits and carries on instead of failing every check. A local cache that kept growing now cleans itself up.
+- Work handed to a local coding agent now tells it exactly how to sign its commits, so its finished fixes are no longer refused when it pushes them.
+
 ## 0.17.4 — 2026-10-25
 
 ### Patch Changes
