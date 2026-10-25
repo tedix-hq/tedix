@@ -2733,9 +2733,30 @@ describe("transport — skills/list cache-hint decoration (SEP-2640)", () => {
 	});
 });
 
+// The dispatched call should win this race almost immediately; the watchdog
+// only turns a regression into a readable failure instead of a vitest
+// timeout. Its real timer must be cancelled once the race settles so a
+// passing test leaves no watchdog handle behind.
+async function raceAgainstHang<T>(
+	promise: Promise<T>,
+	ms: number,
+): Promise<T | "HUNG"> {
+	let watchdog: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<"HUNG">((resolve) => {
+				watchdog = setTimeout(() => resolve("HUNG"), ms);
+			}),
+		]);
+	} finally {
+		clearTimeout(watchdog);
+	}
+}
+
 describe("transport — genuinely unknown method (regression probe)", () => {
 	it("answers -32601 instead of hanging", async () => {
-		const res = await Promise.race([
+		const res = await raceAgainstHang(
 			call(
 				postRpc({
 					jsonrpc: "2.0",
@@ -2744,8 +2765,8 @@ describe("transport — genuinely unknown method (regression probe)", () => {
 					params: {},
 				}),
 			),
-			new Promise<"HUNG">((r) => setTimeout(() => r("HUNG"), 4000)),
-		]);
+			4000,
+		);
 		expect(res).not.toBe("HUNG");
 		const body = (await (res as Response).json()) as {
 			error?: { code: number };
@@ -2754,7 +2775,7 @@ describe("transport — genuinely unknown method (regression probe)", () => {
 	});
 
 	it("answers server/discover without hanging (the CLI negotiation probe)", async () => {
-		const res = await Promise.race([
+		const res = await raceAgainstHang(
 			call(
 				postRpc({
 					jsonrpc: "2.0",
@@ -2763,8 +2784,8 @@ describe("transport — genuinely unknown method (regression probe)", () => {
 					params: {},
 				}),
 			),
-			new Promise<"HUNG">((r) => setTimeout(() => r("HUNG"), 4000)),
-		]);
+			4000,
+		);
 		expect(res).not.toBe("HUNG");
 	});
 });
@@ -2849,12 +2870,12 @@ describe("transport — a dispatched request always terminates", () => {
 	it("answers -32601 when no server is connected instead of hanging", async () => {
 		const transport = new StatelessMcpTransport({});
 		// deliberately no `onmessage`: nothing can ever resolve this request
-		const res = await Promise.race([
+		const res = await raceAgainstHang(
 			transport.handleRequest(
 				postRpc({ jsonrpc: "2.0", id: 77, method: "ping", params: {} }),
 			),
-			new Promise<"HUNG">((r) => setTimeout(() => r("HUNG"), 3000)),
-		]);
+			3000,
+		);
 		expect(res).not.toBe("HUNG");
 		const body = (await (res as Response).json()) as {
 			error?: { code: number; message: string };
