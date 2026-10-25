@@ -916,3 +916,41 @@ test("OpenCode 2 permission, failure and deletion events report status", async (
 	});
 	cleanup?.();
 });
+
+test("OpenCode 2 keeps reporting a session after its context fetch fails", async () => {
+	fakeCli();
+	const fake = context2({}, [
+		{ type: "user", id: "msg_user", text: "Check it" },
+		{
+			type: "assistant",
+			id: "msg_reply",
+			content: [{ type: "text", text: "Checked the example." }],
+		},
+	]);
+	const fetch = fake.ctx.session.context;
+	let failures = 1;
+	fake.ctx.session.context = async () => {
+		if (failures-- > 0) throw new Error("context unavailable");
+		return fetch();
+	};
+	const cleanup = await module.default.setup(fake.ctx as never);
+	await fake.emit("session.idle", { sessionID: SESSION });
+	await Bun.sleep(30);
+	await fake.emit("permission.asked", { sessionID: SESSION, action: "shell" });
+	await fake.emit("session.idle", { sessionID: SESSION });
+	await until(
+		() =>
+			callsSafeCount() > 0 &&
+			calls().some((call) => call.args?.includes("capture-stop")),
+	);
+	expect(
+		calls()
+			.filter((call) => !call.args?.includes("await-reply"))
+			.map((call) => [call.args?.split(" ")[1], call.event.hook_event_name]),
+	).toEqual([
+		["status", "PermissionRequest"],
+		["capture-stop", "Stop"],
+		["status", "Stop"],
+	]);
+	cleanup?.();
+});
