@@ -275,6 +275,23 @@ describe("AuditEventDetails", () => {
 		expect(html).not.toContain("<script>");
 	});
 
+	it("puts identifiers in copyable fields and leaves prose as text", () => {
+		const doc = new DOMParser().parseFromString(
+			renderToStaticMarkup(
+				<AuditEventDetails event={event({ resourceId: null })} />,
+			),
+			"text/html",
+		);
+		const value = (label: string) =>
+			[...doc.querySelectorAll("dt")].find((dt) => dt.textContent === label)
+				?.nextElementSibling;
+		for (const label of ["Actor ID", "Event ID", "Organization ID"])
+			expect(value(label)?.querySelector("button")).not.toBeNull();
+		expect(value("Resource ID")?.textContent).toBe("Not recorded");
+		expect(value("Resource ID")?.querySelector("button")).toBeNull();
+		expect(value("Action")?.querySelector("button")).toBeNull();
+	});
+
 	it("handles absent or unrenderable metadata", () => {
 		expect(formatAuditMetadata(null)).toBe("No metadata recorded");
 		const cyclic: Record<string, unknown> = {};
@@ -393,6 +410,56 @@ describe("AuditPage", () => {
 		expect(group?.textContent).toContain("All");
 		expect(group?.textContent).toContain("App");
 		expect(group?.textContent).toContain("Skill");
+	});
+
+	const renderState = (state: "error" | "pending") => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { enabled: false, retry: false } },
+		});
+		if (state === "error")
+			client
+				.getQueryCache()
+				.build(client, auditSearchQueryOptions({ limit: AUDIT_PAGE_SIZE }))
+				.setState({
+					status: "error",
+					error: new Error("Audit service unavailable"),
+					fetchStatus: "idle",
+				} as never);
+		return new DOMParser().parseFromString(
+			renderToStaticMarkup(
+				<QueryClientProvider client={client}>
+					<AuditPage
+						search={{ resourceType: AUDIT_ALL_RESOURCES, action: "", page: 1 }}
+						onSearchChange={() => {}}
+					/>
+				</QueryClientProvider>,
+			),
+			"text/html",
+		);
+	};
+
+	it("explains an unavailable trail with a retry instead of an empty list", () => {
+		const doc = renderState("error");
+		const alert = doc.querySelector('[role="alert"]');
+		expect(alert?.textContent).toContain("The audit trail is unavailable");
+		expect(alert?.textContent).toContain("Audit service unavailable");
+		expect(
+			[...(alert?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
+		).toContain("Retry");
+		expect(doc.body.textContent).not.toContain("No audit events");
+		expect(doc.querySelector('table[aria-label="Audit events"]')).toBeNull();
+	});
+
+	it("shows only the loading skeleton while the first page loads", () => {
+		const doc = renderState("pending");
+		expect(doc.querySelector('[role="alert"]')).toBeNull();
+		expect(doc.body.textContent).not.toContain("No audit events");
+		expect(doc.querySelector('table[aria-label="Audit events"]')).toBeNull();
+		expect(
+			doc
+				.querySelector('[role="status"][aria-busy="true"]')
+				?.getAttribute("aria-label"),
+		).toBe("Loading audit events");
 	});
 });
 

@@ -12,6 +12,7 @@ import { Text } from "@/components/kumo/text";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { ClipboardText } from "@/components/kumo/clipboard-text";
 import {
 	Dialog,
 	DialogContent,
@@ -410,27 +411,33 @@ export function AuditEventDetails({
 }) {
 	const directory = useContext(WorkActorDirectoryContext);
 	const actor = actorLabel(event, tediNames, directory);
-	const fields = [
+	// Identifiers truncate in a copyable field instead of wrapping across the
+	// phone dialog; prose values stay as text.
+	const fields: [label: string, value: string, copyable?: boolean][] = [
 		["Actor", actor ?? actorTypeLabel(event.actorType)],
 		["Actor type", actorTypeLabel(event.actorType)],
-		["Actor ID", event.actorId],
+		["Actor ID", event.actorId, true],
 		["Action", event.action],
 		["Resource type", event.resourceType],
-		["Resource ID", event.resourceId ?? "Not recorded"],
+		["Resource ID", event.resourceId ?? "Not recorded", !!event.resourceId],
 		["Source IP", event.ipAddress ?? "Not recorded"],
 		["User agent", event.userAgent ?? "Not recorded"],
-		["Event ID", event.id],
-		["Organization ID", event.organizationId],
-	] as const;
+		["Event ID", event.id, true],
+		["Organization ID", event.organizationId, true],
+	];
 
 	return (
 		<div className="grid min-w-0 gap-4">
 			<dl className="grid min-w-0 gap-x-4 gap-y-3 sm:grid-cols-2">
-				{fields.map(([label, value]) => (
+				{fields.map(([label, value, copyable]) => (
 					<div key={label} className="min-w-0">
 						<dt className="text-kumo-subtle type-tedix-label">{label}</dt>
-						<dd className="break-all text-kumo-default type-tedix-body">
-							{value}
+						<dd className="min-w-0 break-all text-kumo-default type-tedix-body">
+							{copyable ? (
+								<ClipboardText text={value} className="min-w-0 max-w-full" />
+							) : (
+								value
+							)}
 						</dd>
 					</div>
 				))}
@@ -744,7 +751,11 @@ export function AuditPage({
 						})
 					}
 				/>
-				{activeQuery.isPending && <ListSkeleton />}
+				{activeQuery.isPending && (
+					<div role="status" aria-busy="true" aria-label="Loading audit events">
+						<ListSkeleton />
+					</div>
+				)}
 				{activeQuery.isError && (
 					<Alert variant="destructive">
 						<AlertTitle>The audit trail is unavailable</AlertTitle>
