@@ -59,6 +59,26 @@ export function firstSendConfirmPollMs(
 		: FIRST_SEND_CONFIRM_POLL_MS;
 }
 
+/** Bounded re-reads after a transient transcript failure (about 2.5 min). */
+export const TRANSCRIPT_TRANSIENT_RETRIES = 6;
+
+/**
+ * Delay before re-reading a transcript whose read failed transiently (503,
+ * e.g. organization identity briefly unavailable while D1 is overloaded), or
+ * false. Without this the alert stays until a manual reload.
+ */
+export function transientTranscriptRetryMs(
+	error: unknown,
+	failures: number,
+): number | false {
+	const failure = error as { status?: unknown; code?: unknown } | null;
+	const transient =
+		!!failure &&
+		(failure.status === 503 || failure.code === "SERVICE_UNAVAILABLE");
+	if (!transient || failures > TRANSCRIPT_TRANSIENT_RETRIES) return false;
+	return Math.min(30_000, 2_000 * 2 ** Math.max(0, failures - 1));
+}
+
 export function shouldPollTranscript(input: {
 	isActive: boolean;
 	pendingRun: boolean;
