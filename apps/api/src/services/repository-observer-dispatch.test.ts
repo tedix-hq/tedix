@@ -34,6 +34,9 @@ vi.mock("@tedix/db/queries/repository-observer", () => ({
 	createRepositoryObservation: deps.create,
 	getRepositoryObservation: deps.get,
 	settleRecoveredRepositoryCiObservations: deps.settleCi,
+	// Wake-slot accounting is covered in repository-observer-wake.test.ts.
+	claimRepositoryObserverWake: async () => true,
+	deferRepositoryObserverWake: async () => {},
 }));
 vi.mock("@tedix/db/queries/skill-schedules", () => ({
 	getSkillSchedule: deps.schedule,

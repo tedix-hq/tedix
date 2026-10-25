@@ -8,6 +8,7 @@ import { safeErrorMetadata } from "../lib/safe-log-metadata";
 import {
 	observerConfig,
 	escalateObserver,
+	wakeDeferredRepositoryObservations,
 } from "../services/repository-observer";
 
 /** The bounded platform tick exposes missed diagnoses even when the owner turn failed. */
@@ -103,9 +104,20 @@ export async function maintainRepositoryObservers(env: CloudflareEnv) {
 
 		overdue++;
 	}
+	// Push watches deferred for lack of a wake slot get the time left after red
+	// incidents; a failure here is retried by the next tick.
+	let woken = 0;
+	try {
+		woken = await wakeDeferredRepositoryObservations(context, deadline);
+	} catch (error) {
+		console.warn(
+			"[repository-observer] deferred wake failed",
+			await safeErrorMetadata(error),
+		);
+	}
 	if (failed)
 		throw new Error(
 			`${failed} repository observer escalations failed; other incidents were processed`,
 		);
-	return { overdue, settled: settled.length };
+	return { overdue, settled: settled.length, woken };
 }

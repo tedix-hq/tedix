@@ -3,6 +3,7 @@ import {
 	RepositoryObserverConfigSchema,
 	RepositoryEventSchema,
 	type RepositoryEvent,
+	type RepositoryObserverConfig,
 } from "@tedix/api-contract/schemas/repository-observer";
 import { AGENT_LESSON_TOPIC_PREFIX } from "@tedix/api-contract/schemas/agent-session-lessons";
 import {
@@ -242,22 +243,111 @@ export async function observeRepositoryEvent(
 		},
 	});
 	if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-	if (!row.metadata?.report || event.kind === "ship_red")
-		await wakeObserver(
-			context,
-			config.ownerTediId,
+	let deferred = false;
+	if (!row.metadata?.report || event.kind === "ship_red") {
+		// Red incidents always wake. Advisory push watches share a bounded number
+		// of slots: every wake is a turn on the same owner tedi, whose Durable
+		// Object reset repeatedly under one concurrent turn per push (25 Oct).
+		const now = new Date().toISOString();
+		const woken = await observations.claimRepositoryObserverWake(context.db, {
+			orgId,
+			projectId: project.id,
 			id,
-			event.kind === "push" || event.kind === "ci_red"
-				? id
-				: await observerId(`${id}:${JSON.stringify(event)}`),
-			config.instructions,
-			{ observationId: id, event, lessons: row.metadata?.lessons },
-		);
+			now,
+			limit: event.kind === "push" ? config.maxActivePushWakes : null,
+		});
+		if (woken)
+			await wakeObserver(
+				context,
+				config.ownerTediId,
+				id,
+				event.kind === "push" || event.kind === "ci_red"
+					? id
+					: await observerId(`${id}:${JSON.stringify(event)}`),
+				config.instructions,
+				{ observationId: id, event, lessons: row.metadata?.lessons },
+			);
+		else {
+			await observations.deferRepositoryObserverWake(context.db, {
+				orgId,
+				id,
+				now,
+			});
+			deferred = true;
+		}
+	}
 	return {
 		observationId: id,
 		workItemId: String(row.metadata?.targetWorkItemId ?? id),
-		status: row.metadata?.report ? "reported" : "queued",
+		status: row.metadata?.report
+			? "reported"
+			: deferred
+				? "deferred"
+				: "queued",
 	};
+}
+
+/**
+ * Wake deferred push observations into free slots, newest first. Called from
+ * the 2-minute maintenance tick; returns how many were woken.
+ */
+export async function wakeDeferredRepositoryObservations(
+	context: BaseContext,
+	deadline: number,
+): Promise<number> {
+	const configs = new Map<string, RepositoryObserverConfig | null>();
+	let woken = 0;
+	for (const row of await observations.deferredRepositoryPushObservations(
+		context.db,
+	)) {
+		if (Date.now() >= deadline || !row.projectId) break;
+		const key = `${row.orgId}:${row.projectId}`;
+		if (!configs.has(key)) {
+			const loaded = await observerConfig(
+				context,
+				row.orgId,
+				row.projectId,
+			).catch(() => null);
+			configs.set(key, loaded?.config ?? null);
+		}
+		const config = configs.get(key);
+		if (!config) continue;
+		const claimed = await observations.claimRepositoryObserverWake(context.db, {
+			orgId: row.orgId,
+			projectId: row.projectId,
+			id: row.id,
+			now: new Date().toISOString(),
+			limit: config.maxActivePushWakes,
+		});
+		// Slots are per project; a full project skips its older rows too.
+		if (!claimed) {
+			configs.set(key, null);
+			continue;
+		}
+		try {
+			await wakeObserver(
+				context,
+				config.ownerTediId,
+				row.id,
+				row.id,
+				config.instructions,
+				{
+					observationId: row.id,
+					event: row.metadata?.event,
+					lessons: row.metadata?.lessons,
+				},
+			);
+			woken++;
+		} catch (error) {
+			await observations.releaseRepositoryObserverWake(context.db, {
+				orgId: row.orgId,
+				id: row.id,
+				now: new Date().toISOString(),
+			});
+			throw error;
+		}
+	}
+	return woken;
 }
 async function wakeObserver(
 	context: BaseContext,

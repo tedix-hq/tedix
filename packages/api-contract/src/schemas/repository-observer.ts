@@ -23,6 +23,15 @@ export const RepositoryObserverConfigSchema = z.strictObject({
 		.regex(/^\.github\/workflows\/[\w.-]+\.ya?ml$/)
 		.default(".github/workflows/tedix-observer.yml"),
 	ownerTediId: z.uuid(),
+	maxActivePushWakes: z
+		.number()
+		.int()
+		.min(1)
+		.max(10)
+		.describe(
+			"Push observations the owner tedi works on at once; later pushes wait for a free slot, newest first",
+		)
+		.default(2),
 	escalationUserId: z.string().min(1),
 	instructions: z.string().min(20).max(12000),
 	diagnosticLessonIds: z.array(z.uuid()).max(50).default([]),

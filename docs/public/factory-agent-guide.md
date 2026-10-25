@@ -508,6 +508,12 @@ branch and pushed SHA. No stored API key is needed. A private release repository
 can be separately configured to report Ship outcomes from its own workflow.
 Events wake the owner through the existing tedi dispatcher; repeated delivery
 reuses the observation and comment.
+Each wake is a turn on the owner tedi. Push watches share
+`maxActivePushWakes` slots (default 2) per project. A push that arrives while
+the slots are taken waits. The 2-minute platform tick wakes waiting pushes,
+newest first, as reports free the slots. A slot whose turn has not reported
+frees itself after 30 minutes. Red incidents always wake, and they also hold a
+slot until reported.
 By default, pausing the linked factory schedule rejects new observer events;
 a missing schedule also rejects them. A human administrator can explicitly set
 `pauseWithFactorySchedule: false` through `configure_repository_observer` when
