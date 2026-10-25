@@ -1,5 +1,8 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
-import { RepositoryEventSchema } from "@tedix/api-contract/schemas/repository-observer";
+import {
+	RepositoryEventSchema,
+	RepositoryObserverConfigSchema,
+} from "@tedix/api-contract/schemas/repository-observer";
 import type { BaseContext } from "../rpc/orpc";
 const deps = vi.hoisted(() => ({
 	project: vi.fn(),
@@ -10,6 +13,7 @@ const deps = vi.hoisted(() => ({
 	createAlert: vi.fn(),
 	refreshAlerts: vi.fn(),
 	settleCi: vi.fn(),
+	schedule: vi.fn(),
 }));
 vi.mock("@orpc/server", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@orpc/server")>()),
@@ -32,7 +36,7 @@ vi.mock("@tedix/db/queries/repository-observer", () => ({
 	settleRecoveredRepositoryCiObservations: deps.settleCi,
 }));
 vi.mock("@tedix/db/queries/skill-schedules", () => ({
-	getSkillSchedule: vi.fn().mockResolvedValue({ enabled: false }),
+	getSkillSchedule: deps.schedule,
 }));
 vi.mock("./situational-recall", () => ({
 	triggersOf: () => ({ keywords: ["ship_red"] }),
@@ -55,6 +59,7 @@ const event = RepositoryEventSchema.parse({
 });
 beforeEach(() => {
 	vi.clearAllMocks();
+	deps.schedule.mockResolvedValue({ enabled: false });
 	deps.refreshAlerts.mockResolvedValue([]);
 	deps.project.mockResolvedValue({
 		id: event.projectId,
@@ -113,15 +118,139 @@ it("does not let an external caller report as the configured tedi", async () => 
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
-it("pausing the factory stops future event dispatch", async () => {
+async function configurePolicy(pauseWithFactorySchedule?: boolean) {
 	const project = await deps.project();
-	deps.project.mockResolvedValue({
+	const configured = {
 		...project,
-		metadata: { ...project.metadata, factory: { skillId: "factory-skill" } },
-	});
+		metadata: {
+			...project.metadata,
+			factory: { skillId: "factory-skill" },
+			repositoryObserver: {
+				...project.metadata.repositoryObserver,
+				...(pauseWithFactorySchedule === undefined
+					? {}
+					: { pauseWithFactorySchedule }),
+			},
+		},
+	};
+	deps.project.mockResolvedValue(configured);
+	return configured;
+}
+
+it.each([undefined, true])(
+	"policy %s preserves paused and missing schedule rejection",
+	async (policy) => {
+		await configurePolicy(policy);
+		for (const schedule of [{ enabled: false }, undefined]) {
+			deps.schedule.mockResolvedValue(schedule);
+			await expect(
+				observeRepositoryEvent(context, "org-example", event),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+		expect(deps.schedule).toHaveBeenCalledWith(
+			context.db,
+			"factory-skill",
+			"org-example",
+		);
+		expect(deps.create).not.toHaveBeenCalled();
+		expect(deps.lessons).not.toHaveBeenCalled();
+		expect(deps.enqueue).not.toHaveBeenCalled();
+	},
+);
+
+it("defaults legacy config to following the factory schedule", async () => {
+	const config = (await deps.project()).metadata.repositoryObserver;
+	expect(
+		RepositoryObserverConfigSchema.parse(config).pauseWithFactorySchedule,
+	).toBe(true);
+	expect(
+		RepositoryObserverConfigSchema.parse({
+			...config,
+			pauseWithFactorySchedule: false,
+		}).pauseWithFactorySchedule,
+	).toBe(false);
+	expect(
+		RepositoryObserverConfigSchema.safeParse({
+			...config,
+			pauseWithFactorySchedule: "false",
+		}).success,
+	).toBe(false);
+});
+
+it("accepts events with the default policy when the factory schedule is enabled", async () => {
+	await configurePolicy();
+	deps.schedule.mockResolvedValue({ enabled: true });
+	await observeRepositoryEvent(context, "org-example", event);
+	expect(deps.create).toHaveBeenCalledTimes(1);
+	expect(deps.enqueue).toHaveBeenCalledTimes(1);
+});
+
+it.each([{ enabled: false }, undefined])(
+	"explicit independent policy dispatches without touching schedule %s",
+	async (schedule) => {
+		const project = await configurePolicy(false);
+		deps.schedule.mockResolvedValue(schedule);
+		const push = { ...event, kind: "push" as const };
+		const first = await observeRepositoryEvent(context, "org-example", push);
+		expect(deps.create).toHaveBeenCalledTimes(1);
+		expect(deps.enqueue).toHaveBeenCalledTimes(1);
+		expect(deps.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tediId: project.metadata.repositoryObserver.ownerTediId,
+				idempotencyKey: first.observationId,
+			}),
+		);
+		const second = await observeRepositoryEvent(context, "org-example", push);
+		expect(second.observationId).toBe(first.observationId);
+		expect(deps.enqueue.mock.calls[1]?.[0]?.idempotencyKey).toBe(
+			first.observationId,
+		);
+		expect(deps.schedule).not.toHaveBeenCalled();
+		expect(project.metadata.factory).toEqual({ skillId: "factory-skill" });
+	},
+);
+
+it.each([{ repository: "attacker/fork" }, { branch: "other" }])(
+	"independent policy still rejects mismatched events %s",
+	async (mismatch) => {
+		await configurePolicy(false);
+		await expect(
+			observeRepositoryEvent(context, "org-example", { ...event, ...mismatch }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(deps.create).not.toHaveBeenCalled();
+		expect(deps.enqueue).not.toHaveBeenCalled();
+	},
+);
+
+it.each(["archived", "paused"])(
+	"independent policy still rejects a %s project",
+	async (status) => {
+		const project = await configurePolicy(false);
+		deps.project.mockResolvedValue({ ...project, status });
+		await expect(
+			observeRepositoryEvent(context, "org-example", event),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(deps.create).not.toHaveBeenCalled();
+		expect(deps.enqueue).not.toHaveBeenCalled();
+	},
+);
+
+it("independent policy retains organization-scoped lookup and configured reporting owner", async () => {
+	await configurePolicy(false);
+	deps.get.mockResolvedValue({ id: "observation", projectId: event.projectId });
 	await expect(
-		observeRepositoryEvent(context, "org-example", event),
+		ownedObservation(context, "org-example", "observation"),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	deps.project.mockResolvedValue(undefined);
+	await expect(
+		observeRepositoryEvent(context, "other-org", event),
+	).rejects.toMatchObject({ code: "NOT_FOUND" });
+	expect(deps.project).toHaveBeenLastCalledWith(
+		context.db,
+		"other-org",
+		event.projectId,
+	);
+	expect(deps.create).not.toHaveBeenCalled();
 	expect(deps.enqueue).not.toHaveBeenCalled();
 });
 

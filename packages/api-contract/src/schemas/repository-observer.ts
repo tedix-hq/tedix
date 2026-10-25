@@ -4,6 +4,12 @@ const sha = z.string().regex(/^[a-f0-9]{40}$/);
 export const RepositoryObserverConfigSchema = z.strictObject({
 	repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
 	branch: z.string().min(1).max(200).default("main"),
+	pauseWithFactorySchedule: z
+		.boolean()
+		.describe(
+			"Reject events while the linked factory schedule is paused or missing",
+		)
+		.default(true),
 	pushWorkflow: z
 		.string()
 		.regex(/^\.github\/workflows\/[\w.-]+\.ya?ml$/)
