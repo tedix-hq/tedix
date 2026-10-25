@@ -12,16 +12,9 @@ import {
 	osWorkspaceShareLinks,
 } from "../schema/os-collaborators";
 import { type OsWorkspaceRow, osWorkspaces } from "../schema/os-workspaces";
+import { chunkForBoundParams } from "../utils/batch";
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
-
-/** Distinct ids in chunks of 50 (D1 binds at most 100 parameters). */
-function chunks(ids: readonly string[]): string[][] {
-	const unique = [...new Set(ids)];
-	const out: string[][] = [];
-	for (let i = 0; i < unique.length; i += 50) out.push(unique.slice(i, i + 50));
-	return out;
-}
 
 export type OsCollaboratorRole = "use" | "build";
 
@@ -126,7 +119,7 @@ export async function listTedixPeople(
 	userIds: readonly string[],
 ): Promise<TedixPersonResult[]> {
 	const rows: TedixPersonResult[] = [];
-	for (const ids of chunks(userIds)) {
+	for (const ids of chunkForBoundParams([...new Set(userIds)], 50)) {
 		rows.push(
 			...(await db
 				.select({
@@ -154,7 +147,7 @@ export async function listOsWorkspaceOrganizationMemberRoles(
 	params: { organizationId: string; userIds: readonly string[] },
 ): Promise<OrganizationMemberRoleResult[]> {
 	const rows: OrganizationMemberRoleResult[] = [];
-	for (const ids of chunks(params.userIds)) {
+	for (const ids of chunkForBoundParams([...new Set(params.userIds)], 50)) {
 		rows.push(
 			...(await db
 				.select({
@@ -358,13 +351,11 @@ export async function createOsWorkspaceShareLink(
 				createdAt: params.now,
 			})
 			.returning(),
-		db
-			.insert(osWorkspaceShareKeys)
-			.values({
-				keyHash: params.keyHash,
-				linkId: params.id,
-				createdAt: params.now,
-			}),
+		db.insert(osWorkspaceShareKeys).values({
+			keyHash: params.keyHash,
+			linkId: params.id,
+			createdAt: params.now,
+		}),
 	]);
 	const link = links[0];
 	if (!link) throw new Error("Share link insert returned no row");
