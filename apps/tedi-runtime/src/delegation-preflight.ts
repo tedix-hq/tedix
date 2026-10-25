@@ -2,7 +2,7 @@ import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kerne
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 
 /** MCP transports may wrap or objectify a Code Mode array. Never accept a clipped result. */
-function discoveryRows(value: unknown, depth = 0): unknown[] | null {
+export function discoveryRows(value: unknown, depth = 0): unknown[] | null {
 	if (Array.isArray(value)) return value;
 	if (depth > 3) return null;
 	if (typeof value === "string") {

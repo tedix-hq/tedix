@@ -501,3 +501,33 @@ assert.deepEqual(
 	"enforce mode exposes no descriptors at all if the envelope is lost",
 );
 console.log("All native Computer delegation capability tests passed.");
+
+// Operator records are a separate, read-only request ceiling; ordinary children
+// must not inherit the readers merely because their parent can read records.
+const recordTools = {
+	read_operator_records: definition,
+	read_home_messages: definition,
+	memory_search: definition,
+	memory_learn: definition,
+	send_email: definition,
+} as unknown as ToolSet;
+assert.deepEqual(
+	Object.keys(supervisedDelegationToolSet(recordTools, true)),
+	[],
+);
+assert.deepEqual(
+	Object.keys(
+		supervisedDelegationToolSet(recordTools, true, false, true),
+	).sort(),
+	["memory_search", "read_home_messages", "read_operator_records"],
+);
+assert.deepEqual(
+	Object.keys(
+		restrictDelegatedToolSet(
+			supervisedDelegationToolSet(recordTools, true, false, true),
+			envelope,
+			"enforce",
+		),
+	),
+	[],
+);
