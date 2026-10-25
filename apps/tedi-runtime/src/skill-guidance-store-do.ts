@@ -99,15 +99,15 @@ export function selectGuidanceSkills<
  * Effect-free and injected, so the whole policy is testable without a DO.
  */
 export class SkillGuidanceTurnGate {
-	private readonly build: () => Promise<string>;
+	private readonly build: () => Promise<string | null>;
 	private readonly background: (task: Promise<unknown>) => void;
 	private readonly now: () => number;
 	private emptyUntilMs = 0;
-	private inFlight: Promise<string> | null = null;
+	private inFlight: Promise<string | null> | null = null;
 
 	constructor(options: {
-		/** Rebuild the block from the platform and persist it. Must not throw. */
-		build: () => Promise<string>;
+		/** Rebuild and persist. Empty means no skills; null means unavailable. */
+		build: () => Promise<string | null>;
 		/** Keep a non-blocking refresh alive past the response (`ctx.waitUntil`). */
 		background: (task: Promise<unknown>) => void;
 		now?: () => number;
@@ -128,8 +128,9 @@ export class SkillGuidanceTurnGate {
 		}
 		if (this.now() < this.emptyUntilMs) return "";
 		const text = await this.refresh();
-		if (!text) this.emptyUntilMs = this.now() + SKILL_GUIDANCE_EMPTY_TTL_MS;
-		return text;
+		if (text === "")
+			this.emptyUntilMs = this.now() + SKILL_GUIDANCE_EMPTY_TTL_MS;
+		return text ?? "";
 	}
 
 	/** Drop the negative cache — the next turn pays for a real lookup again. */
@@ -137,9 +138,9 @@ export class SkillGuidanceTurnGate {
 		this.emptyUntilMs = 0;
 	}
 
-	private refresh(): Promise<string> {
+	private refresh(): Promise<string | null> {
 		this.inFlight ??= this.build()
-			.catch(() => "")
+			.catch(() => null)
 			.finally(() => {
 				this.inFlight = null;
 			});

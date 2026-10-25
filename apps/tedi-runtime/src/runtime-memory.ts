@@ -93,7 +93,7 @@ export interface RuntimeMemoryHost {
 	skillGuidanceText: string | null;
 	ensureSkillGuidanceLoaded(): void;
 	skillGuidanceGate: SkillGuidanceTurnGate | null;
-	buildAndCacheSkillGuidance(admittedRunId?: string): Promise<string>;
+	buildAndCacheSkillGuidance(admittedRunId?: string): Promise<string | null>;
 	ctx: DurableObjectState<{}>;
 	retrievalCorpusStore: DoSkillRetrievalCorpusStore | null;
 	retrievalCorpusLoaded: boolean;

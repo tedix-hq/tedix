@@ -553,30 +553,35 @@ for (const warmFirst of [false, true]) {
 	);
 }
 
-for (const fails of [false, true]) {
+for (const outcome of ["empty", "rejected", "unavailable"] as const) {
 	let builds = 0;
 	let finish!: () => void;
 	const gate = new SkillGuidanceTurnGate({
 		build: () => {
 			builds++;
-			return new Promise<string>((resolve, reject) => {
-				finish = () =>
-					fails ? reject(new Error("platform down")) : resolve("");
+			return new Promise<string | null>((resolve, reject) => {
+				finish = () => {
+					if (builds > 1) resolve("recovered guidance");
+					else if (outcome === "rejected") reject(new Error("platform down"));
+					else resolve(outcome === "empty" ? "" : null);
+				};
 			});
 		},
 		background: () => assert.fail("cold reads must await their refresh"),
 	});
 	const turns = [gate.textForTurn(""), gate.textForTurn("")];
-	assert.equal(builds, 1, "empty and failed cold reads share one build");
+	assert.equal(builds, 1, "overlapping cold reads share one build");
 	finish();
 	assert.deepEqual(await Promise.all(turns), ["", ""]);
-	assert.equal(await gate.textForTurn(""), "");
-	assert.equal(builds, 1, "empty and failed results retain the negative cache");
-	gate.invalidateEmpty();
+	if (outcome === "empty") {
+		assert.equal(await gate.textForTurn(""), "");
+		assert.equal(builds, 1, "successful empty results retain their TTL");
+		gate.invalidateEmpty();
+	}
 	const next = gate.textForTurn("");
-	assert.equal(builds, 2, "invalidation releases an empty or failed refresh");
+	assert.equal(builds, 2, "failures retry next turn without invalidation");
 	finish();
-	assert.equal(await next, "");
+	assert.equal(await next, "recovered guidance");
 }
 
 assert.equal(

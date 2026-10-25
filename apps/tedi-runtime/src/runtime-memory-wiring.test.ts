@@ -156,4 +156,79 @@ for (const emptyCatalog of [
 	assert.equal(reloaded.skillGuidanceLoaded, true);
 }
 
+// Exercise the real builder through the turn gate, including client lookup failures.
+for (const failure of [
+	"client-missing",
+	"client-rejected",
+	"read-rejected",
+	"empty",
+] as const) {
+	let clients = 0;
+	let reads = 0;
+	const writes: string[] = [];
+	const agent = tediDo({
+		state: { tediId: "tedi-owner" },
+		skillGuidanceLoaded: true,
+		skillGuidanceText: null,
+		skillGuidanceGate: null,
+		async getPlatformClient() {
+			clients++;
+			if (clients === 1 && failure === "client-missing") return null;
+			if (clients === 1 && failure === "client-rejected")
+				throw new Error("client down");
+			return {
+				async listSkillsForTedi() {
+					reads++;
+					if (reads === 1 && failure === "read-rejected")
+						throw new Error("catalog down");
+					return {
+						entries:
+							failure === "empty"
+								? []
+								: [
+										{
+											id: "recovered-skill",
+											slug: "recovered",
+											tediId: "tedi-owner",
+											summary: "Recovered catalog",
+											lifecycleState: "active",
+										},
+									],
+					};
+				},
+			};
+		},
+		cacheRetrievalCorpus() {},
+		getSkillGuidanceStore: () => ({
+			load: () => null,
+			save: (text: string) => writes.push(text),
+		}),
+	});
+	if (failure !== "empty") {
+		assert.equal(await agent.skillGuidanceAddendum(), "");
+		assert.deepEqual(
+			writes,
+			[],
+			"a failed read must not persist empty guidance",
+		);
+	}
+	const text = await agent.skillGuidanceAddendum();
+	if (failure === "empty") {
+		assert.equal(text, "");
+		assert.equal(await agent.skillGuidanceAddendum(), "");
+		assert.equal(
+			clients,
+			1,
+			"successful empty catalogs keep the negative cache",
+		);
+		assert.equal(reads, 1);
+		assert.deepEqual(writes, [""], "a successful empty catalog persists");
+	} else {
+		assert.match(text, /skill recovered:/, failure);
+		assert.equal(clients, 2, "the next turn retries the client and catalog");
+		assert.equal(reads, failure === "read-rejected" ? 2 : 1);
+		assert.deepEqual(writes, [text]);
+	}
+}
+
 console.log("runtime memory wiring characterization passed");
