@@ -33,6 +33,38 @@ describe("verified action receipts", () => {
 		});
 		expect(renderActionReceipt(receipt)).toContain("archived, revision 2");
 	});
+	it("verifies an app rename only when the app reads back with that name", async () => {
+		const rename = {
+			...input,
+			operation: "os.rename_os_gadget",
+			args: { workspaceId: "space-1", gadgetId: "app-1", name: "Harvest App" },
+			result: { gadget: { id: "app-1", workspaceId: "space-1" } },
+		};
+		const receipt = await verifyAction({
+			...rename,
+			read: async (tool, args, endpoint) => {
+				expect(tool).toBe("get_os_gadget");
+				expect(endpoint).toBe("osWorkspaces/gadgets/get");
+				expect(args).toEqual({ workspaceId: "space-1", gadgetId: "app-1" });
+				return {
+					gadget: { id: "app-1", status: "active", name: "Harvest App" },
+					currentRevision: { revision: 3 },
+				};
+			},
+		});
+		expect(receipt).toMatchObject({
+			verified: true,
+			state: "active, named “Harvest App”, revision 3",
+			url: "https://os.example.test/workspace/space-1?workpiece=gadget:app-1",
+		});
+		const stale = await verifyAction({
+			...rename,
+			read: async () => ({
+				gadget: { id: "app-1", status: "active", name: "Old name" },
+			}),
+		});
+		expect(stale.verified).toBe(false);
+	});
 	it("requires the exact Work comment to be present in read-back", async () => {
 		const comment = {
 			...input,

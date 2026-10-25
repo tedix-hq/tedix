@@ -82,6 +82,25 @@ export function actionReadbackPlan(
 				kind: "output" as const,
 			};
 	}
+	if (/^(create|revise|rename|archive)_os_gadget$/.test(name)) {
+		const gadget = asRecord(data?.gadget);
+		const id = gadget?.id ?? args.gadgetId;
+		const workspaceId = gadget?.workspaceId ?? args.workspaceId;
+		if (typeof id === "string" && typeof workspaceId === "string")
+			return {
+				tool: "get_os_gadget",
+				readEndpoint: "osWorkspaces/gadgets/get",
+				args: { workspaceId, gadgetId: id },
+				id,
+				kind: "gadget" as const,
+				workspaceId,
+				// A rename is verified only when the app reads back with that name.
+				expectedName:
+					name === "rename_os_gadget" && typeof args.name === "string"
+						? args.name
+						: null,
+			};
+	}
 	if (/^(create|rename|archive|restore|update)_os_workspace$/.test(name)) {
 		const id = asRecord(data?.workspace)?.id ?? data?.id ?? args.workspaceId;
 		if (typeof id === "string")
@@ -209,18 +228,22 @@ export async function verifyAction(input: {
 			return receipt;
 		const state = object.status ?? object.disposition;
 		if (typeof state !== "string") return receipt;
+		const expectedName = "expectedName" in plan ? plan.expectedName : null;
+		if (expectedName && object.name !== expectedName) return receipt;
 		const path =
 			plan.kind === "work"
 				? `/work/items/${plan.id}`
 				: plan.kind === "output"
 					? `/outputs/${plan.id}`
-					: `/workspaces/${plan.id}`;
+					: plan.kind === "gadget"
+						? `/workspace/${plan.workspaceId}?workpiece=gadget:${plan.id}`
+						: `/workspaces/${plan.id}`;
 		receipt.url = new URL(path, input.origin).href;
 		if (plan.kind === "output" && typeof input.args.startRow === "number")
 			receipt.url += `?row=${input.args.startRow + 1}`;
 		if (commentId) receipt.url += `#comment-${commentId}`;
 		receipt.verified = true;
-		receipt.state = state;
+		receipt.state = expectedName ? `${state}, named “${expectedName}”` : state;
 		const revision = asRecord(read?.currentRevision);
 		if (typeof revision?.revision === "number")
 			receipt.state += `, revision ${revision.revision}`;
