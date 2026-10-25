@@ -49,6 +49,8 @@ export type CanvasProposalsProps = {
 	documentId: string;
 	mergeBlockedReason?: string;
 	showHeading?: boolean;
+	/** Proposals another view owns, such as a runtime app's drafts. */
+	exclude?: (proposal: OsCollaborationProposal) => boolean;
 	onMerged: (revision: number, revisionId: string) => void;
 };
 
@@ -160,7 +162,7 @@ type ProposalDiffProps = {
  * document, not what the proposal contains. Both sides are canonicalised JSON
  * (see `canonicalJsonText`), so a reordered object is not reported as an edit.
  */
-function ProposalDiff({
+export function ProposalDiff({
 	baseText,
 	previewTextValue,
 	baseMoved,
@@ -242,6 +244,7 @@ export function CanvasProposals({
 	documentId,
 	mergeBlockedReason,
 	showHeading = true,
+	exclude,
 	onMerged,
 }: CanvasProposalsProps) {
 	const queryClient = useQueryClient();
@@ -344,7 +347,10 @@ export function CanvasProposals({
 			</Alert>
 		);
 	}
-	if (!proposals.data || proposals.data.items.length === 0) {
+	const items = exclude
+		? (proposals.data?.items.filter((proposal) => !exclude(proposal)) ?? [])
+		: (proposals.data?.items ?? []);
+	if (items.length === 0) {
 		if (showHeading) return null;
 		return (
 			<Text as="p" role="body" tone="secondary" className="m-0">
@@ -367,7 +373,7 @@ export function CanvasProposals({
 					{mergeBlockedReason}
 				</Text>
 			)}
-			{proposals.data.items.map((proposal, index) => (
+			{items.map((proposal, index) => (
 				<Card key={proposal.id}>
 					<CardHeader className="flex-row items-center justify-between gap-2">
 						<CardTitle>Suggested change {index + 1}</CardTitle>

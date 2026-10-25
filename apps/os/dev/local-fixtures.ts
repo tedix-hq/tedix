@@ -8361,12 +8361,23 @@ const handlers: Record<string, (input: never) => unknown> = {
 						if (gadget.currentRevisionId !== proposal.baseRevisionId) {
 							throw revisionConflict(proposal.baseRevision, revisionNumber);
 						}
+						// A runtime app draft carries its manifest and files together.
+						const draft = proposal.content as {
+							manifest?: OsGadgetRevision["manifest"];
+							files?: AppRuntimeFiles;
+						};
+						const isAppDraft =
+							typeof draft.manifest === "object" &&
+							typeof draft.files === "object";
+						if (isAppDraft) state.gadgetCode[revisionId] = draft.files!;
 						const next: OsGadgetRevision = {
 							id: revisionId,
 							organizationId: ORG_ID,
 							gadgetId: gadget.id,
 							revision: revisionNumber,
-							manifest: proposal.content as OsGadgetRevision["manifest"],
+							manifest: isAppDraft
+								? draft.manifest!
+								: (proposal.content as OsGadgetRevision["manifest"]),
 							sourceArtifactRef: null,
 							createdByKind: "user",
 							createdById: "dev-operator",

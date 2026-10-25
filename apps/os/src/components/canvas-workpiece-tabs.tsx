@@ -8,6 +8,7 @@ import {
 	X,
 } from "@phosphor-icons/react";
 import type { OsOutputKind } from "@tedix/api-contract/schemas/os-workspaces";
+import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
@@ -21,6 +22,8 @@ import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
 export function canvasWorkpieceModeOptions(
 	doc: CanvasDocSelection,
 	outputKind?: OsOutputKind | null,
+	/** Open drafts of a runtime app; the Drafts view exists only while there is one. */
+	draftCount = 0,
 ) {
 	return [
 		{
@@ -31,12 +34,25 @@ export function canvasWorkpieceModeOptions(
 		...(doc.type === "gadget"
 			? [
 					{ value: "source" as const, label: "Code" },
+					...(draftCount > 0
+						? [
+								{
+									value: "drafts" as const,
+									label: (
+										<span className="inline-flex items-center gap-1.5">
+											Drafts
+											<Badge variant="info">{draftCount}</Badge>
+										</span>
+									),
+								},
+							]
+						: []),
 					{ value: "runs" as const, label: "Runs" },
 				]
 			: []),
 		{ value: "connections" as const, label: "Connections" },
 		{ value: "activity" as const, label: "Review" },
-	] as const;
+	];
 }
 
 export const CANVAS_WORKPIECE_PANEL_ID = "canvas-workpiece-panel";

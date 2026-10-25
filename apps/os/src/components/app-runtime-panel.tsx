@@ -1,7 +1,9 @@
 import type {
 	OsGadget,
+	OsGadgetManifest,
 	OsGadgetRevision,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
@@ -20,7 +22,10 @@ import {
 	workspaceOpenQueryOptions,
 	workspaceResourcesQueryOptions,
 } from "@/lib/os-query-options";
-import type { AppRuntimeRole } from "@tedix/api-contract/schemas/os-app-runtime";
+import type {
+	AppRuntimeFiles,
+	AppRuntimeRole,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 
 /**
  * A runtime app in the workspace panel: loads the current revision's files
@@ -51,7 +56,6 @@ export function AppRuntimePreview({
 	revision: OsGadgetRevision;
 	layout?: "content" | "fill";
 }) {
-	const queryClient = useQueryClient();
 	const code = useQuery(
 		appRuntimeCodeQueryOptions(workspaceId, gadget.id, revision.id),
 	);
@@ -67,21 +71,69 @@ export function AppRuntimePreview({
 			),
 		[workspaceId, gadget.id, revision.id],
 	);
+	if (code.isPending)
+		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
+	if (!code.data?.code)
+		return (
+			<Alert variant="warning">
+				<AlertTitle>{gadget.name} has no code yet</AlertTitle>
+				<AlertDescription>
+					Revision {revision.revision} carries no files. Record a revision with
+					server.js and client.js to run this app.
+				</AlertDescription>
+			</Alert>
+		);
+	return (
+		<AppRuntimeSandbox
+			key={revision.id}
+			workspaceId={workspaceId}
+			gadget={gadget}
+			manifest={revision.manifest}
+			revision={revision.revision}
+			files={code.data.code.files}
+			callServer={callServer}
+			layout={layout}
+		/>
+	);
+}
+
+/**
+ * Runs one set of app files in the sandbox. The live app passes a server call
+ * pinned to its revision; a draft passes none, so `app.call` answers
+ * `host_unavailable` and the draft can never reach the live app's storage.
+ * Reads still go through the role matrix with the signed-in person's role.
+ */
+export function AppRuntimeSandbox({
+	workspaceId,
+	gadget,
+	manifest,
+	revision,
+	files,
+	callServer,
+	title = gadget.name,
+	layout = "fill",
+}: {
+	workspaceId: string;
+	gadget: Pick<OsGadget, "id" | "name">;
+	manifest: OsGadgetManifest;
+	revision: number;
+	files: AppRuntimeFiles;
+	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
+	title?: string;
+	layout?: "content" | "fill";
+}) {
+	const queryClient = useQueryClient();
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
 	const opened = useQuery(workspaceOpenQueryOptions(workspaceId, gadget.id));
 	const role = roleFromOpen(opened.data, opened.isError);
 	const context = useMemo(
 		() =>
-			appRuntimeContextFromManifest(revision.manifest, {
+			appRuntimeContextFromManifest(manifest, {
 				workspaceId,
-				gadget: {
-					id: gadget.id,
-					name: gadget.name,
-					revision: revision.revision,
-				},
+				gadget: { id: gadget.id, name: gadget.name, revision },
 				role: role ?? "viewer",
 			}),
-		[gadget.id, gadget.name, revision, role, workspaceId],
+		[gadget.id, gadget.name, manifest, revision, role, workspaceId],
 	);
 	const resourceRows = resources.data?.items;
 	const onCall = useCallback(
@@ -100,28 +152,13 @@ export function AppRuntimePreview({
 			),
 		[context, callServer, queryClient, resourceRows],
 	);
-	const html = useMemo(
-		() =>
-			code.data?.code ? buildAppRuntimeDocument(code.data.code.files) : null,
-		[code.data],
-	);
-	if (code.isPending || resources.isPending || role === null)
+	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);
+	if (resources.isPending || role === null)
 		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
-	if (!html)
-		return (
-			<Alert variant="warning">
-				<AlertTitle>{gadget.name} has no code yet</AlertTitle>
-				<AlertDescription>
-					Revision {revision.revision} carries no files. Record a revision with
-					server.js and client.js to run this app.
-				</AlertDescription>
-			</Alert>
-		);
 	return (
 		<AppRuntimeFrame
-			key={revision.id}
 			html={html}
-			title={gadget.name}
+			title={title}
 			onCall={onCall}
 			layout={layout}
 		/>

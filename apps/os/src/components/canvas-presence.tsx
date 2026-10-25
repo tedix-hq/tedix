@@ -28,11 +28,14 @@ export function collabParticipantColor(key: string): string {
 function locationLabel(participant: CollabParticipant): string {
 	const location = participant.location;
 	if (!location) return "Canvas";
-	return location.artifactLabel
+	const artifact = location.artifactLabel
 		? `Canvas · ${location.artifactLabel}`
 		: location.artifactKind
 			? `Canvas · ${sentenceCase(location.artifactKind)}`
 			: "Canvas";
+	return location.selectionLabel
+		? `${artifact} · ${location.selectionLabel}`
+		: artifact;
 }
 
 function avatar(participant: CollabParticipant, size: "large" | "small") {

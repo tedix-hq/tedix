@@ -10,6 +10,7 @@ export type CanvasMobilePane = "resources" | "work" | "chat" | "workpiece";
 export type CanvasWorkpieceMode =
 	| "workpiece"
 	| "source"
+	| "drafts"
 	| "runs"
 	| "connections"
 	| "activity";
@@ -36,6 +37,7 @@ const CANVAS_MOBILE_PANES = new Set<CanvasMobilePane>([
 const CANVAS_WORKPIECE_MODES = new Set<CanvasWorkpieceMode>([
 	"workpiece",
 	"source",
+	"drafts",
 	"runs",
 	"connections",
 	"activity",
@@ -182,5 +184,8 @@ export function canvasModeIsValidForDoc(
 	mode: CanvasWorkpieceMode,
 	doc: CanvasDocSelection,
 ): boolean {
-	return (mode !== "source" && mode !== "runs") || doc.type === "gadget";
+	return (
+		(mode !== "source" && mode !== "runs" && mode !== "drafts") ||
+		doc.type === "gadget"
+	);
 }

@@ -49,6 +49,12 @@ import {
 import { ShareControls } from "@/components/share-controls";
 import { WidgetFrame } from "@/components/widget-frame";
 import { AppRuntimePreview } from "@/components/app-runtime-panel";
+import {
+	AppRuntimeDrafts,
+	useAppDrafts,
+} from "@/components/app-runtime-drafts";
+import { isAppDraftProposal } from "@/lib/app-runtime-drafts";
+import { mergeAppPresence, useAppPresence } from "@/lib/app-runtime-presence";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { diffFiles } from "@/collab/ot/code-change";
@@ -171,11 +177,22 @@ const APP_CODE_FILES = [
 	},
 ] as const;
 
-const GADGET_VIEW_OPTIONS = [
+const GADGET_VIEW_OPTIONS: readonly {
+	value: "preview" | "source" | "drafts" | "runs";
+	label: ReactNode;
+}[] = [
 	{ value: "preview", label: "App" },
 	{ value: "source", label: "Code" },
 	{ value: "runs", label: "Runs" },
-] as const;
+];
+
+/** What others see next to a person's name in a runtime app's presence. */
+const GADGET_VIEW_LABELS = {
+	preview: "App",
+	source: "Code",
+	drafts: "Drafts",
+	runs: "Runs",
+} as const;
 
 export type CollabConnectionStatus =
 	| "connecting"
@@ -220,7 +237,7 @@ export function CanvasDocPanel({
 }: {
 	workspaceId: string;
 	doc: CanvasDocSelection;
-	gadgetViewOverride?: "preview" | "source" | "runs";
+	gadgetViewOverride?: "preview" | "source" | "drafts" | "runs";
 	focusMode: boolean;
 	viewControls?: ReactNode;
 	onFocusModeChange: (focused: boolean) => void;
@@ -381,12 +398,45 @@ export function CanvasDocPanel({
 	const [committedRevision, setCommittedRevision] = useState<number | null>(
 		null,
 	);
-	const [gadgetView, setGadgetView] = useState<"preview" | "source" | "runs">(
-		"preview",
-	);
-	const effectiveGadgetView = gadgetViewOverride ?? gadgetView;
+	const [gadgetView, setGadgetView] = useState<
+		"preview" | "source" | "drafts" | "runs"
+	>("preview");
 	const [codeFile, setCodeFile] = useState<string>("manifest.json");
 	const isRuntimeApp = isGadget && isAppRuntimeManifest(builtinManifestEarly);
+	// Drafts of a runtime app: the tab exists only while there is one to review.
+	const appDrafts = useAppDrafts(workspaceId, doc.id, isRuntimeApp);
+	const effectiveGadgetView =
+		gadgetViewOverride ??
+		(gadgetView === "drafts" && appDrafts.length === 0
+			? "preview"
+			: gadgetView);
+	const gadgetViewOptions = useMemo(
+		() =>
+			isRuntimeApp && appDrafts.length > 0
+				? [
+						...GADGET_VIEW_OPTIONS.slice(0, 2),
+						{
+							value: "drafts" as const,
+							label: (
+								<span className="inline-flex items-center gap-1.5">
+									Drafts
+									<Badge variant="info">{appDrafts.length}</Badge>
+								</span>
+							),
+						},
+						...GADGET_VIEW_OPTIONS.slice(2),
+					]
+				: GADGET_VIEW_OPTIONS,
+		[appDrafts.length, isRuntimeApp],
+	);
+	const appParticipants = useAppPresence({
+		workspaceId,
+		gadgetId: doc.id,
+		revision: gadgetDetail.data?.currentRevision,
+		appName: gadgetDetail.data?.gadget.name,
+		view: GADGET_VIEW_LABELS[effectiveGadgetView],
+		enabled: isRuntimeApp,
+	});
 	// A runtime app fills the stage beside the chat; on a phone the panel
 	// scrolls, so the app takes its own content height instead.
 	const runtimeAppFills = useMediaQuery("(min-width: 960px)") && isRuntimeApp;
@@ -562,6 +612,26 @@ export function CanvasDocPanel({
 				: !draftMatchesSaved
 					? "Save your draft as a version before applying a proposal."
 					: undefined;
+	// A runtime app draft replaces the manifest and the files together, so only
+	// unsaved manifest.json edits in this room hold it back.
+	const appDraftMergeBlockedReason =
+		unsynced || unacknowledged || committing
+			? "Wait for your changes to finish syncing and saving."
+			: live && (recoveryRequired || !draftMatchesSaved)
+				? "Save or discard your manifest.json changes before accepting a draft."
+				: undefined;
+	const onProposalMerged = (revision: number) => {
+		setCommittedRevision(revision);
+		if (isGadget) {
+			void queryClient.invalidateQueries({
+				queryKey: canvasGadgetDetailQueryOptions(workspaceId, doc.id).queryKey,
+			});
+		} else {
+			void queryClient.invalidateQueries({
+				queryKey: outputDetailQueryOptions(doc.id).queryKey,
+			});
+		}
+	};
 	const documentSaveStatus = detail.isError
 		? "Unavailable"
 		: !live
@@ -709,7 +779,13 @@ export function CanvasDocPanel({
 							{status !== "connected" && (
 								<ConnectionChip status={status} peers={peers} />
 							)}
-							<CanvasPresence participants={participants ?? []} />
+							<CanvasPresence
+								participants={
+									isRuntimeApp
+										? mergeAppPresence(appParticipants, participants ?? [])
+										: (participants ?? [])
+								}
+							/>
 						</>
 					)}
 					<span className="sr-only" data-canvas-revision-status>
@@ -921,7 +997,10 @@ export function CanvasDocPanel({
 						workspaceId={workspaceId}
 					/>
 				</div>
-			) : session && isGadget ? (
+			) : (session || isRuntimeApp) && isGadget ? (
+				// A runtime app's live view, files and drafts come from its revision,
+				// so they render before (or without) the editing room; only the
+				// manifest editor needs the room.
 				<div
 					className="grid min-w-0 gap-3"
 					style={
@@ -944,8 +1023,8 @@ export function CanvasDocPanel({
 								ariaLabel="App view"
 								compact
 								onValueChange={setGadgetView}
-								options={GADGET_VIEW_OPTIONS}
-								value={gadgetView}
+								options={gadgetViewOptions}
+								value={effectiveGadgetView}
 							/>
 						)}
 					{isRuntimeApp &&
@@ -976,6 +1055,20 @@ export function CanvasDocPanel({
 								/>
 							</CardContent>
 						</Card>
+					) : isRuntimeApp &&
+					  effectiveGadgetView === "drafts" &&
+					  gadgetDetail.data?.currentRevision ? (
+						<AppRuntimeDrafts
+							workspaceId={workspaceId}
+							gadget={gadgetDetail.data.gadget}
+							revision={gadgetDetail.data.currentRevision}
+							drafts={appDrafts}
+							mergeBlockedReason={appDraftMergeBlockedReason}
+							onMerged={(revision) => {
+								onProposalMerged(revision);
+								setGadgetView("preview");
+							}}
+						/>
 					) : gadgetWidgetTarget && effectiveGadgetView === "preview" ? (
 						<Card
 							data-canvas-gadget-preview
@@ -1093,11 +1186,24 @@ export function CanvasDocPanel({
 										</Text>
 										<Badge variant="secondary">JSON</Badge>
 									</div>
-									<CanvasCodeEditor
-										session={session}
-										path={COLLAB_DOC_PATH}
-										readOnly={!live}
-									/>
+									{session ? (
+										<CanvasCodeEditor
+											session={session}
+											path={COLLAB_DOC_PATH}
+											readOnly={!live}
+										/>
+									) : (
+										<pre
+											className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed"
+											data-canvas-app-manifest-readonly
+										>
+											{gadgetDetail.data?.currentRevision
+												? canonicalJsonText(
+														gadgetDetail.data.currentRevision.manifest,
+													)
+												: ""}
+										</pre>
+									)}
 								</div>
 							)}
 						</Surface>
@@ -1288,19 +1394,8 @@ export function CanvasDocPanel({
 				workspaceId={workspaceId}
 				documentType={doc.type}
 				documentId={doc.id}
-				onMerged={(revision) => {
-					setCommittedRevision(revision);
-					if (isGadget) {
-						void queryClient.invalidateQueries({
-							queryKey: canvasGadgetDetailQueryOptions(workspaceId, doc.id)
-								.queryKey,
-						});
-					} else {
-						void queryClient.invalidateQueries({
-							queryKey: outputDetailQueryOptions(doc.id).queryKey,
-						});
-					}
-				}}
+				exclude={isRuntimeApp ? isAppDraftProposal : undefined}
+				onMerged={onProposalMerged}
 			/>
 		</div>
 	);

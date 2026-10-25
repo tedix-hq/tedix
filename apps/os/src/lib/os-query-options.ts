@@ -1378,6 +1378,9 @@ export const osQueryKeys = {
 	/** Org name/slug also render from the credential-resolved context. */
 	operationalContext: () =>
 		osQuery.userSettings.getContext.key({ type: "query" }),
+	/** Every collaboration proposal list, whatever its filters. */
+	collaborationProposals: () =>
+		osQuery.osWorkspaces.collaboration.list.key({ type: "query" }),
 	gadgets: () => osQuery.osWorkspaces.gadgets.key({ type: "query" }),
 	homeMessages: () => osQuery.kernelRuntime.readMessages.key({ type: "query" }),
 	homeRunSet: () => osQuery.kernelRuntime.readRunSet.key({ type: "query" }),

@@ -33,6 +33,8 @@ import {
 	canvasWorkpieceTabId,
 } from "@/components/canvas-workpiece-tabs";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
+import { useAppDrafts } from "@/components/app-runtime-drafts";
+import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import { ApprovalNotifications } from "@/components/approval-notifications";
 import { ChatOutputLinkContext } from "@/components/chat-markdown";
@@ -645,6 +647,31 @@ export function CanvasPage({
 	useEffect(() => {
 		if (documentsLoaded) setTransitionEnabled(true);
 	}, [documentsLoaded]);
+	// A runtime app's open drafts add a Drafts view to the switcher.
+	const selectedGadgetDetail = useQuery({
+		...canvasGadgetDetailQueryOptions(workspaceId ?? "", selectedAppId ?? ""),
+		enabled: workspaceId !== null && selectedDoc?.type === "gadget",
+	});
+	const selectedIsRuntimeApp =
+		selectedDoc?.type === "gadget" &&
+		isAppRuntimeManifest(
+			selectedGadgetDetail.data?.currentRevision?.manifest ?? null,
+		);
+	const selectedAppDrafts = useAppDrafts(
+		workspaceId ?? "",
+		selectedAppId ?? "",
+		workspaceId !== null && selectedIsRuntimeApp,
+	);
+	const selectedDraftCount = selectedIsRuntimeApp
+		? selectedAppDrafts.length
+		: 0;
+	// Accepting or rejecting the last draft closes the Drafts view.
+	useEffect(() => {
+		if (workpieceMode === "drafts" && selectedDraftCount === 0) {
+			setWorkpieceMode("workpiece");
+			writeCanvasSearch({ ...canvasSearch, view: undefined }, true);
+		}
+	}, [canvasSearch, selectedDraftCount, workpieceMode, writeCanvasSearch]);
 	const selectedOutputKind =
 		selectedDoc?.type === "output"
 			? (outputs.data?.items.find((output) => output.id === selectedDoc.id)
@@ -1051,7 +1078,11 @@ export function CanvasPage({
 					view: mode === "workpiece" ? undefined : mode,
 				});
 			}}
-			options={canvasWorkpieceModeOptions(selectedDoc, selectedOutputKind)}
+			options={canvasWorkpieceModeOptions(
+				selectedDoc,
+				selectedOutputKind,
+				selectedDraftCount,
+			)}
 			value={workpieceMode}
 		/>
 	) : null;
@@ -1483,7 +1514,9 @@ export function CanvasPage({
 										doc={selectedDoc}
 										gadgetViewOverride={
 											selectedDoc.type === "gadget"
-												? workpieceMode === "source" || workpieceMode === "runs"
+												? workpieceMode === "source" ||
+													workpieceMode === "runs" ||
+													workpieceMode === "drafts"
 													? workpieceMode
 													: "preview"
 												: undefined

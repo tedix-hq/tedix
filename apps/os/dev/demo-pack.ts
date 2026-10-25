@@ -999,6 +999,50 @@ export function applyDemoPack(
 		...((state.gadgetCode as Record<string, unknown>) ?? {}),
 		[uid(50, 14)]: opportunityCardsApp,
 	};
+	// A draft from chat waits in the app's Drafts view: its heading counts the
+	// reviewed cards. Accepting it records the files as the next revision.
+	const opportunityCardsRevision = list(state, "gadgetRevisions").find(
+		(row) => row.id === uid(50, 14),
+	)!;
+	list(state, "collaborationProposals").push({
+		id: uid(51, 14),
+		organizationId: orgId,
+		workspaceId: workspaces[0]!.id,
+		documentType: "gadget",
+		documentId: uid(49, 14),
+		baseRevisionId: uid(50, 14),
+		baseRevision: opportunityCardsRevision.revision,
+		status: "open",
+		sourceKind: "chat",
+		sourceId: "demo-chat-opportunity-cards",
+		content: {
+			manifest: opportunityCardsRevision.manifest,
+			files: {
+				...opportunityCardsApp,
+				"client.js": opportunityCardsApp["client.js"].replace(
+					"${cards.length} opportunities for ${reviewer}",
+					"${cards.filter((item) => state.verdicts.has(item.number)).length} of ${cards.length} reviewed · ${reviewer}",
+				),
+			},
+		},
+		sequence: 1,
+		createdByKind: "tedi",
+		createdById: "demo-tedi",
+		createdAt: at(0, 30),
+		updatedAt: at(0, 30),
+		decisionRationale: null,
+		decisionEvidenceRefs: [],
+		decidedByKind: null,
+		decidedById: null,
+		decidedAt: null,
+		mergeRationale: null,
+		mergeEvidenceRefs: [],
+		mergedByKind: null,
+		mergedById: null,
+		mergedAt: null,
+		resultRevisionId: null,
+		resultRevision: null,
+	});
 	// The read-only System map, reachable from the workspace like any app.
 	list(state, "gadgets").push({
 		...gadgetTemplate,
