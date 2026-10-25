@@ -1255,17 +1255,7 @@ export async function requireDestructiveToolApproval(
 		!isOwnedChannelBoundary &&
 		!configuredApproval &&
 		!autonomy &&
-		(!callerIsAgent(agent, options?.extra) ||
-			// Task support does not turn a signed-in reviewer's bounded edit into
-			// delegated agent work. Explicit policies and protected effects stay gated.
-			(callerIsUserPrincipalPath(agent) &&
-				!!agent.callerIdentity?.userId &&
-				!agent.callerIdentity.tediId &&
-				!agent.callerIdentity.externalAgentPrincipalId &&
-				!agent.callerIdentity.kernel &&
-				!agent.callerIdentity.ownerHostSessionId &&
-				risk === "bounded_write" &&
-				policy?.blastRadius === "single_resource"))
+		!callerIsAgent(agent, options?.extra)
 	)
 		return null;
 	// Arguments cannot certify a preview: downstream schemas may discard dryRun.

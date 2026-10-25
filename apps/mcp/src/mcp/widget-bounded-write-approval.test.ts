@@ -29,7 +29,7 @@ const extra = {
 	},
 };
 
-function context(authType = "oauth") {
+function context(authType = "oauth", platformAutonomy?: false) {
 	return {
 		server: { server: { elicitInput: vi.fn() } },
 		callerIdentity: { authType, userId: "fictional-reviewer" },
@@ -39,6 +39,7 @@ function context(authType = "oauth") {
 			mcpGovernance: {
 				resolveAgentTransportPolicy: vi.fn(async () => ({
 					requireExplicitApprovalPolicy: false,
+					platformAutonomy,
 				})),
 				resolveToolApprovalGrant: vi.fn(async () => ({ approved: false })),
 			},
@@ -60,12 +61,12 @@ describe("widget bounded writes", () => {
 		expect(ctx.server.server.elicitInput).not.toHaveBeenCalled();
 	});
 
-	it.each(["external_agent", "tedi", "service", "anonymous"])(
-		"keeps %s writes gated without autonomy",
+	it.each(["oauth", "external_agent", "tedi", "service"])(
+		"keeps %s writes gated when the organization opts out",
 		async (authType) => {
 			expect(
 				await requireDestructiveToolApproval(
-					context(authType),
+					context(authType, false),
 					revision,
 					{ destructiveHint: false },
 					{ extra },
@@ -124,12 +125,24 @@ describe("widget bounded writes", () => {
 	);
 
 	it("preserves destructive and unclassified write gates", async () => {
-		for (const binding of [revision, { ...revision, meta: null }]) {
+		for (const binding of [
+			{
+				...revision,
+				toolId: "delete_os_output",
+				config: { transport: "rpc", endpoint: "osWorkspaces/outputs/delete" },
+			},
+			{
+				...revision,
+				toolId: "unclassified_write",
+				meta: null,
+				config: { transport: "rpc", endpoint: "fictional/write" },
+			},
+		]) {
 			expect(
 				await requireDestructiveToolApproval(
 					context(),
 					binding,
-					{ destructiveHint: binding === revision },
+					{ destructiveHint: binding.toolId === "delete_os_output" },
 					{ extra },
 				),
 			).not.toBeNull();
