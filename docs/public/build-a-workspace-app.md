@@ -656,8 +656,13 @@ own. Its only door is `tedix.call(method, args)`:
 
 - `context` returns `{ workspaceId, gadget, role, settings, grants }`.
 - `outputs.read` with `{ slot }` returns the bound Output's content.
-- `app.call` reaches the app's own `server.js` instance once the app host
-  is running in the workspace; until then it answers `host_unavailable`.
+- `app.call` with `{ method: "rate", args: [card] }` calls a public method
+  on the app's exported `App` class in `server.js`. The API admits the
+  signed-in caller against the displayed revision before Worker Loader runs
+  it, and records the actor, method, pinned revision and outcome in Runs.
+  The app gets isolated storage and the manifest's full config as
+  `env.CONFIG` (for example, `env.CONFIG.settings.tags`). Calls fail if
+  the current revision or caller access no longer matches the session.
 
 The role comes from opening the workspace as the signed-in person: the
 owner and `build` collaborators may read and write what the manifest

@@ -1,5 +1,7 @@
 import {
 	APP_RUNTIME_CLIENT_MODULE,
+	AppRuntimeMethodSchema,
+	AppRuntimeArgumentsSchema,
 	type AppRuntimeFiles,
 	type AppRuntimeRole,
 } from "@tedix/api-contract/schemas/os-app-runtime";
@@ -19,8 +21,7 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
  * app never sees a cookie, a token or another app's data.
  *
  * Server-side calls (`app.call`) belong to the app's own isolated instance,
- * which the host Durable Object serves; until it is deployed they answer with
- * `host_unavailable` so an app can degrade honestly instead of guessing.
+ * served by the runtime through a signed session pinned to the displayed revision.
  */
 
 /** A resource slot that names an Output the app may read: `providerId` tedix, `resourceType` output. */
@@ -56,6 +57,7 @@ export interface AppRuntimeHostDeps {
 	context: AppRuntimeContext;
 	resources: readonly OsWorkspaceResource[];
 	readOutput: (outputId: string) => Promise<OsOutputContent>;
+	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,10 +112,15 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
+			if (!isRecord(args)) return { ok: false, error: "bad_arguments" };
+			const name = AppRuntimeMethodSchema.safeParse(args.method);
+			const parameters = AppRuntimeArgumentsSchema.safeParse(args.args ?? []);
+			if (!name.success || !parameters.success)
+				return { ok: false, error: "bad_arguments" };
+			if (!deps.callServer) return { ok: false, error: "host_unavailable" };
 			return {
-				ok: false,
-				error: "host_unavailable",
-				detail: "The app's server is not running in this workspace yet.",
+				ok: true,
+				value: await deps.callServer(name.data, parameters.data),
 			};
 		}
 		default:

@@ -12,6 +12,7 @@ import {
 	recordOsGadgetDispatch,
 	settleAwaitingApprovalOsGadgetExecution,
 	settleOsGadgetExecutionFromRun,
+	settleOsAppCallExecution,
 } from "./executions";
 
 function fixture() {
@@ -78,6 +79,49 @@ function executionParams(
 }
 
 describe("os gadget executions", () => {
+	it("settles direct app calls once without crossing tenants or skill runs", async () => {
+		const { db } = fixture();
+		await createOsGadgetExecution(db, executionParams("app"));
+		await createOsGadgetExecution(
+			db,
+			executionParams("skill", { runId: "run-1" }),
+		);
+		expect(
+			await settleOsAppCallExecution(db, {
+				organizationId: "org-2",
+				executionId: "app",
+				status: "completed",
+			}),
+		).toBeUndefined();
+		expect(
+			await settleOsAppCallExecution(db, {
+				organizationId: "org-1",
+				executionId: "skill",
+				status: "completed",
+			}),
+		).toBeUndefined();
+		expect(
+			await settleOsAppCallExecution(db, {
+				organizationId: "org-1",
+				executionId: "app",
+				status: "completed",
+				output: '{"saved":true}',
+			}),
+		).toMatchObject({
+			status: "completed",
+			output: '{"saved":true}',
+			completedAt: expect.any(String),
+		});
+		expect(
+			await settleOsAppCallExecution(db, {
+				organizationId: "org-1",
+				executionId: "app",
+				status: "failed",
+				error: "late",
+			}),
+		).toBeUndefined();
+	});
+
 	it("resolves immutable derived-access context by tenant-scoped run id", async () => {
 		const { db } = fixture();
 		const envelope = JSON.stringify({ version: 1, sources: [] });

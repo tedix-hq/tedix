@@ -75,6 +75,35 @@ export async function createOsGadgetExecution(
 	return row;
 }
 
+/** Settle only a direct runtime call; skill-run receipts have their own lifecycle. */
+export async function settleOsAppCallExecution(
+	db: DbQueryClient,
+	params: OsGadgetExecutionScopeParams & {
+		status: "completed" | "failed";
+		output?: string;
+		error?: string;
+	},
+): Promise<OsGadgetExecutionRow | undefined> {
+	const [row] = await db
+		.update(osGadgetExecutions)
+		.set({
+			status: params.status,
+			output: params.output ?? null,
+			error: params.error ?? null,
+			completedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(osGadgetExecutions.organizationId, params.organizationId),
+				eq(osGadgetExecutions.id, params.executionId),
+				eq(osGadgetExecutions.status, "running"),
+				isNull(osGadgetExecutions.runId),
+			),
+		)
+		.returning();
+	return row;
+}
+
 export async function getOsGadgetExecution(
 	db: DbQueryClient,
 	params: OsGadgetExecutionScopeParams,

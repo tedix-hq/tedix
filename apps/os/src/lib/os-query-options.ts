@@ -253,13 +253,14 @@ export const canvasGadgetDetailQueryOptions = (
 export const workspaceOpenQueryOptions = (workspaceId: string, appId: string) =>
 	osQuery.osCollaborators.open.queryOptions({ input: { workspaceId, appId } });
 
-/** The source files of a runtime app's current revision. */
+/** The source files of a runtime app's current or named revision. */
 export const appRuntimeCodeQueryOptions = (
 	workspaceId: string,
 	gadgetId: string,
+	revisionId?: string,
 ) =>
 	osQuery.osWorkspaces.gadgets.getCode.queryOptions({
-		input: { workspaceId, gadgetId },
+		input: { workspaceId, gadgetId, revisionId },
 	});
 
 export const gadgetExecutionsQueryOptions = (

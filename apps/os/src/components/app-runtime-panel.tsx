@@ -4,6 +4,8 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
+import { osApi } from "@/lib/api";
+import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -50,7 +52,18 @@ export function AppRuntimePreview({
 	layout?: "content" | "fill";
 }) {
 	const queryClient = useQueryClient();
-	const code = useQuery(appRuntimeCodeQueryOptions(workspaceId, gadget.id));
+	const code = useQuery(
+		appRuntimeCodeQueryOptions(workspaceId, gadget.id, revision.id),
+	);
+	const callServer = useMemo(
+		() =>
+			createAppRuntimeServerCall(osApi.osAppRuntime, {
+				workspaceId,
+				gadgetId: gadget.id,
+				revisionId: revision.id,
+			}),
+		[workspaceId, gadget.id, revision.id],
+	);
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
 	const opened = useQuery(workspaceOpenQueryOptions(workspaceId, gadget.id));
 	const role = roleFromOpen(opened.data, opened.isError);
@@ -73,6 +86,7 @@ export function AppRuntimePreview({
 			handleAppRuntimeCall(
 				{
 					context,
+					callServer,
 					resources: resourceRows ?? [],
 					readOutput: async (outputId) =>
 						(await queryClient.fetchQuery(outputDetailQueryOptions(outputId)))
@@ -81,7 +95,7 @@ export function AppRuntimePreview({
 				method,
 				args,
 			),
-		[context, queryClient, resourceRows],
+		[context, callServer, queryClient, resourceRows],
 	);
 	const html = useMemo(
 		() =>
@@ -102,6 +116,7 @@ export function AppRuntimePreview({
 		);
 	return (
 		<AppRuntimeFrame
+			key={revision.id}
 			html={html}
 			title={gadget.name}
 			onCall={onCall}

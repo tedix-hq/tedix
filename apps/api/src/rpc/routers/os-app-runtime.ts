@@ -33,6 +33,7 @@ import {
 } from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	createOsGadgetExecution,
+	settleOsAppCallExecution,
 	getOsGadgetExecution,
 } from "@tedix/db/queries/os-workspaces/executions";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
@@ -154,7 +155,7 @@ export function createOsAppRuntimeRouter() {
 			...code,
 			grants: manifest.resourceGrants ?? [],
 			revision: revision.revision,
-			config: config.settings ?? {},
+			config,
 			compatibilityDate: config.compatibilityDate,
 		};
 	}
@@ -243,25 +244,63 @@ export function createOsAppRuntimeRouter() {
 		const code = await load(context, scope, session.revisionId);
 		if (code.digest !== session.codeDigest)
 			throw createError(ErrorCodes.CONFLICT, "App code changed");
-		const response = await serviceBindingFetch(context.env.TEDI_SERVICE)(
-			"https://tedi-runtime/__internal/workspace-app/call",
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Service-Binding": "true",
+		const executionId = crypto.randomUUID();
+		const receiptScope = { organizationId: scope.organizationId, executionId };
+		await createOsGadgetExecution(queryDb(context), {
+			id: executionId,
+			organizationId: scope.organizationId,
+			workspaceId: scope.workspaceId,
+			gadgetId: scope.gadgetId,
+			revisionId: session.revisionId,
+			revision: code.revision,
+			status: "running",
+			input: JSON.stringify({ method: input.method, args: input.args }),
+			grantedCapabilities: JSON.stringify(["app.call"]),
+			policyDecision: JSON.stringify({
+				allowed: true,
+				reasons: ["app.call"],
+				role: scope.role,
+				resourceGrants: code.grants,
+			}),
+			createdByKind: scope.principal.kind,
+			createdById: scope.principal.id,
+			runtimeEnvironment: context.env.ENVIRONMENT,
+		});
+		let result;
+		try {
+			const response = await serviceBindingFetch(context.env.TEDI_SERVICE)(
+				"https://tedi-runtime/__internal/workspace-app/call",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Service-Binding": "true",
+					},
+					body: JSON.stringify({
+						session: input.session,
+						files: code.files,
+						method: input.method,
+						args: input.args,
+					}),
 				},
-				body: JSON.stringify({
-					session: input.session,
-					files: code.files,
-					method: input.method,
-					args: input.args,
-				}),
-			},
-		);
-		if (!response.ok)
-			throw createError(ErrorCodes.BAD_GATEWAY, "Workspace app call failed");
-		return { result: JsonValueSchema.parse(await response.json()) };
+			);
+			if (!response.ok)
+				throw createError(ErrorCodes.BAD_GATEWAY, "Workspace app call failed");
+			result = JsonValueSchema.parse(await response.json());
+		} catch (error) {
+			await settleOsAppCallExecution(queryDb(context), {
+				...receiptScope,
+				status: "failed",
+				error: "Workspace app call failed",
+			});
+			throw error;
+		}
+		await settleOsAppCallExecution(queryDb(context), {
+			...receiptScope,
+			status: "completed",
+			output: JSON.stringify(result),
+		});
+		return { result };
 	});
 	const internal = os.use(withServiceAuth);
 	const capability = internal.capability.handler(async ({ context, input }) => {
