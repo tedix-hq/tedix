@@ -68,6 +68,37 @@ Own-account deployment requires an installation manifest and operator-owned
 resources; see [installation manifests](../../docs/public/installation-manifests.md)
 and the [self-hosted boundary](../../docs/public/self-hosted-boundary.md).
 
+## Runtime connection approvals
+
+`TEDIX.connectionsCall(slot, { appId, toolId, arguments, approvalRequestId? })`
+resolves the live Workspace slot under both the signed and current manifest
+grants and build/owner role. Preview, guest, external-agent and use sessions
+cannot execute connection calls. Personal accounts require their exact owner.
+
+The adapter supports installed `mcp` and `external` tools declared
+`connectionReadOnly`, with read-only annotations and a reviewed
+`personalResourceBinding` path mapping for that resource type. Every mapped
+argument must identify the slot's exact provider resource. The installed app
+must pin the same provider, account and connection scope; required OAuth scopes
+must match the tool's scopes. Account-wide tools and effectful calls are refused.
+This adapter does not provide approval for sends, consent or user presence.
+
+Each call first enters the existing OS `mcp.tool_call` approval queue. Existing
+policy requires an active organization owner/admin to request approval and an
+active owner/admin approver at retry. Build access alone is insufficient.
+Standing OS rules use the existing rule sweep and canonical resolution path.
+Pending, rejected, cancelled, expired and consumed requests never dispatch.
+An approved request permits one identical retry before its 24-hour expiry.
+The approval fingerprint includes the app revision, slot, live resource,
+account grant, tool configuration and provider arguments; changing any of these
+requires a new approval.
+
+Approved reads use the canonical MCP gateway with `connections.read`. The
+gateway checks the expected tool configuration, selected account and scopes
+before resolving current credentials and applying its own policy. Provider
+tokens stay inside that path. Human-required results are returned unchanged;
+the adapter never satisfies them or starts a consent flow.
+
 ## References
 
 - [Cloudflare architecture](../../docs/public/cloudflare-architecture.md)
