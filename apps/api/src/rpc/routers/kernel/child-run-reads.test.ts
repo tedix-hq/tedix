@@ -1198,6 +1198,7 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 		eventReadError?: Error;
 		artifactReadError?: Error;
 		finalEventRows?: EventRow[];
+		terminalEventRows?: EventRow[];
 	}) {
 		let eventReadCalls = 0;
 		let artifactReadCalls = 0;
@@ -1205,7 +1206,11 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 		const fixture = createApiSqliteFixture();
 		fixture.seed(
 			tediRuntimeEventsTable,
-			[...opts.eventRows, ...(opts.finalEventRows ?? [])].map((row, index) => ({
+			[
+				...opts.eventRows,
+				...(opts.finalEventRows ?? []),
+				...(opts.terminalEventRows ?? []),
+			].map((row, index) => ({
 				...row,
 				runtimeBackend: "custom",
 				tediId: TEDI_ID,
@@ -1389,8 +1394,8 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 			runId: AUTO_CHILD_RUN_ID,
 			organizationId: "org-1",
 		});
-		expect(stub.eventReadCalls()).toBe(2);
-		expect(stub.eventQueryParams[1]).toEqual(
+		expect(stub.eventReadCalls()).toBe(3);
+		expect(stub.eventQueryParams[2]).toEqual(
 			expect.arrayContaining([
 				"org-1",
 				TEDI_ID,
@@ -1420,6 +1425,52 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 			declaredOutcome: null,
 		});
 	});
+
+	it.each(["run.failed", "run.completed", "run.canceled"])(
+		"recovers %s evicted from a full activity window",
+		async (kind) => {
+			const terminal = delegatedEvent(kind, "2026-07-11T17:20:10.000Z");
+			const stub = evidenceDbStub({
+				eventRows: [
+					delegatedEvent("tool.completed", "2026-07-11T17:20:11.000Z"),
+					{
+						...delegatedEvent("message.completed", "2026-07-11T17:20:10.500Z"),
+						payload: {
+							role: "assistant",
+							content: "The requested answer is ready.",
+						},
+					},
+				],
+				terminalEventRows: [terminal],
+			});
+			const result = await readChildRunEvidenceRows(stub.context, {
+				artifactLimit: 0,
+				eventLimit: 2,
+				runId: AUTO_CHILD_RUN_ID,
+				tediId: TEDI_ID,
+				organizationId: "org-1",
+			});
+			expect(result.eventRows).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: terminal.id, kind: terminal.kind }),
+				]),
+			);
+			expect(
+				summarizeChildRuntimeEvents(result.eventRows)?.childRunStatus,
+			).toBe(kind.slice(4));
+			expect(stub.eventReadCalls()).toBe(2);
+			expect(stub.eventQueryParams[1]).toEqual(
+				expect.arrayContaining([
+					"org-1",
+					TEDI_ID,
+					AUTO_CHILD_RUN_ID,
+					"run.failed",
+					"run.completed",
+					"run.canceled",
+				]),
+			);
+		},
+	);
 
 	it("returns evidence rows keyed by the exact stored auto-dispatch childRunId", async () => {
 		const stub = evidenceDbStub({

@@ -590,12 +590,29 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 	const childRunId = run.childRunId ?? null;
 	const delegatedTediId = run.delegatedTediId ?? null;
 	if (!childRunId && !delegatedTediId) return null;
+	const metadata = asRecord(run.metadata);
+	const childStatus = metadata?.childRunStatus;
+	const status =
+		!TERMINAL_RUN_STATUSES.has(run.status) &&
+		(childStatus === "failed" ||
+			childStatus === "completed" ||
+			childStatus === "canceled")
+			? childStatus
+			: run.status;
+	const failure = asRecord(metadata?.delegationFailure);
 	return {
 		runId: run.id,
 		childRunId,
 		delegatedTediId,
-		status: run.status,
-		activityLabel: run.progress?.label ?? run.progress?.detail ?? null,
+		status,
+		activityLabel:
+			status === "failed"
+				? typeof failure?.error === "string"
+					? failure.error
+					: typeof metadata?.childRunPreview === "string"
+						? metadata.childRunPreview
+						: (run.progress?.detail ?? null)
+				: (run.progress?.label ?? run.progress?.detail ?? null),
 		proof: delegationProofFromRun(run),
 		timing: {
 			progress: run.progress,

@@ -349,6 +349,36 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 		).toBeNull();
 	});
 
+	it("shows a durable child failure rather than the stale running label", () => {
+		const work = delegationFromRun({
+			...run,
+			metadata: {
+				childRunStatus: "failed",
+				delegationFailure: { error: "The worker stopped before finishing." },
+			},
+		});
+		if (!work) throw new Error("expected delegation work");
+		const html = renderToStaticMarkup(
+			<DelegationWorkCard work={work} LinkComponent={StubLink} />,
+		);
+		expect(html).toContain('data-run-status="failed"');
+		expect(html).toContain("The worker stopped before finishing.");
+		expect(html).not.toContain("synthesizing");
+	});
+
+	it.each(["completed", "failed", "canceled"] as const)(
+		"preserves the terminal parent status %s",
+		(status) => {
+			expect(
+				delegationFromRun({
+					...run,
+					status,
+					metadata: { childRunStatus: "completed" },
+				})?.status,
+			).toBe(status);
+		},
+	);
+
 	it("renders the tedi name, status chip, and child-run link", () => {
 		const work = delegationFromRun(run);
 		if (!work) throw new Error("expected delegation work");

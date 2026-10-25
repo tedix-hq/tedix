@@ -881,6 +881,29 @@ export function HomeExecutionDetailPage({
 		return (
 			<Page width="lg">
 				{identity}
+				{runQuery.data ? (
+					<section aria-label="Saved execution">
+						<Text as="h2" weight="medium">
+							{executionTitle(branchId)}
+						</Text>
+						<RunStatusChip status={runQuery.data.run.status} />
+						<ChatMarkdown
+							content={
+								safeText(
+									asRecord(runQuery.data.run.metadata)?.childRunPreview,
+								) ??
+								runQuery.data.run.progress?.detail ??
+								"The saved run is available. Its execution trace could not be loaded."
+							}
+						/>
+						<Link
+							to="/chat"
+							search={{ conversation: runQuery.data.run.conversationId }}
+						>
+							Back to conversation
+						</Link>
+					</section>
+				) : null}
 				{runQuery.isError ? (
 					<div className="grid gap-2">
 						<DetailUnavailable

@@ -92,6 +92,24 @@ afterEach(() => {
 });
 
 describe("Home execution read states", () => {
+	it("keeps the durable failed run and navigation visible when its trace fails", async () => {
+		reads.run.mockResolvedValue({
+			run: {
+				id: RUN_ID,
+				conversationId: "conversation",
+				status: "failed",
+				metadata: { childRunPreview: "The worker stopped before finishing." },
+			},
+		});
+		reads.trace.mockRejectedValue(new Error("Trace evidence unavailable"));
+		await mount();
+		expect(host.querySelector('[aria-label="Saved execution"]')).not.toBeNull();
+		expect(host.textContent).toContain("The worker stopped before finishing.");
+		expect(host.textContent).toContain("Trace evidence unavailable");
+		expect(host.textContent).toContain("Retry execution trace");
+		expect(host.textContent).toContain("Back to conversation");
+	});
+
 	it("shows the supplied copyable Home run identity while both reads are pending", async () => {
 		await mount();
 		expect(host.textContent).toContain(RUN_ID);
@@ -331,6 +349,25 @@ describe("Response details copy", () => {
 	});
 	afterEach(() => {
 		vi.useRealTimers();
+	});
+
+	it("keeps the delegation details visible when the evidence read fails", () => {
+		act(() =>
+			root.render(
+				<HomeExecutionDetailView
+					run={runningRun}
+					trace={runningTrace}
+					branchId={CHILD_RUN}
+					embedded
+					evidenceError={new Error("Delegation evidence unavailable")}
+				/>,
+			),
+		);
+		expect(host.textContent).toContain("In progress");
+		expect(host.textContent).toContain("Delegation evidence unavailable");
+		expect(
+			host.querySelector('[aria-label="Loading delegation evidence"]'),
+		).toBeNull();
 	});
 
 	it("shows plain-language trace notes and no raw codes for a running delegation", () => {
