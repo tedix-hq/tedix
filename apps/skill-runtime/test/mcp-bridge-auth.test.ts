@@ -334,6 +334,43 @@ function namespaceMissEnv(calls: string[], missing: string) {
 	} as unknown as Parameters<typeof callMcpTool>[0];
 }
 
+test("inherited and non-string mappings use aggregate recovery and unmapped diagnostics", async () => {
+	for (const namespace of ["constructor", "toString", "__proto__"]) {
+		for (const namespaceToSlug of [
+			{},
+			Object.create({ [namespace]: "inherited-app" }),
+			{ [namespace]: { slug: "invalid-app" } } as unknown as Record<
+				string,
+				string
+			>,
+		]) {
+			const calls: string[] = [];
+			await assert.rejects(
+				callMcpTool(
+					namespaceMissEnv(calls, namespace),
+					{
+						...props,
+						manifest: { ...manifest, mcp: { [namespace]: ["inspect"] } },
+						namespaceToSlug,
+					},
+					{ namespace, method: "inspect", args: {}, workflow },
+				),
+				(error: unknown) => {
+					assert.ok(error instanceof McpNamespaceUnavailableError);
+					assert.ok(
+						error.message.includes(`${namespace}.inspect names no app`),
+					);
+					return true;
+				},
+			);
+			assert.deepEqual(calls, [
+				`tedix-unified.mcp.tedix.dev tools/call ${namespace}__inspect`,
+				"tedix-unified.mcp.tedix.dev tools/call code",
+			]);
+		}
+	}
+});
+
 test("a namespace that names no app explains the miss instead of 'is not defined'", async () => {
 	const calls: string[] = [];
 	await assert.rejects(

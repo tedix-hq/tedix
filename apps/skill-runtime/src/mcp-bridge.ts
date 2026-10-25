@@ -38,6 +38,7 @@ import {
 	buildCodeModeCallSource,
 	buildModernMcpBridgeRequest,
 	extractPendingTediTaskId,
+	getMappedMcpSlug,
 	injectWorkflowWorkItemMeta,
 	injectWorkflowToolIdentity,
 	needsAggregateCredentialRecovery,
@@ -801,7 +802,7 @@ async function executeMcpTool(
 				namespace,
 				codeModeNamespace,
 				method,
-				mappedSlug: props.namespaceToSlug[namespace],
+				mappedSlug: getMappedMcpSlug(props.namespaceToSlug, namespace),
 				aggregateMcpSlug: props.aggregateMcpSlug,
 				directFailure,
 			});
@@ -836,7 +837,7 @@ async function executeMcpTool(
 		const mappedAppMissingMethod =
 			isMethodNotFoundError(error) &&
 			!AGGREGATE_NAMESPACES.has(namespace) &&
-			Boolean(props.namespaceToSlug[namespace]);
+			Boolean(getMappedMcpSlug(props.namespaceToSlug, namespace));
 		if (isToolNotFoundError(error, toolName) || mappedAppMissingMethod) {
 			let resolvedToolName: string | null = null;
 			try {
