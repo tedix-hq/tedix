@@ -262,7 +262,7 @@ export function delegationLiveState(input: {
 		: (text(progress?.detail) ??
 			(runningTool ? `Using ${runningTool.label}` : null) ??
 			text(progress?.label) ??
-			(steps.length ? steps[steps.length - 1]!.label : null));
+			(steps.length ? `Last step: ${steps[steps.length - 1]!.label}` : null));
 
 	return {
 		phase,
