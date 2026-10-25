@@ -4,6 +4,8 @@ import { platformCronExecutions } from "../schema/platform-cron-executions";
 import { getAffectedRows } from "../utils/d1-result";
 
 export const PLATFORM_CRON_RECEIPT_RETENTION_DAYS = 90;
+// Leave a generous margin for slow cron jobs before treating a lost finish as abandoned.
+export const PLATFORM_CRON_RUNNING_ABANDONED_HOURS = 6;
 export const PLATFORM_CRON_MAX_AFFECTED_ROW_KEYS = 32;
 
 export interface PlatformCronExecutionStart {
@@ -137,6 +139,39 @@ export async function recordPlatformCronExecutionFinish(
 			},
 			setWhere: eq(platformCronExecutions.status, "running"),
 		});
+}
+
+/** Recover lost finish writes before retention; elapsed wall time is not job duration. */
+export async function terminalizeAbandonedPlatformCronExecutions(
+	db: DbClient,
+	now: string,
+	batchSize = 5_000,
+	maxBatches = 10,
+): Promise<number> {
+	const startedBefore = new Date(
+		Date.parse(now) - PLATFORM_CRON_RUNNING_ABANDONED_HOURS * 3_600_000,
+	).toISOString();
+	let terminalized = 0;
+	for (let i = 0; i < maxBatches; i++) {
+		const result = await db.update(platformCronExecutions).set({
+			status: "failure",
+			finishedAt: now,
+			durationMs: null,
+			error: "Cron receipt abandoned: no finish recorded within six hours",
+		}).where(sql`${platformCronExecutions.status} = 'running'
+				and ${platformCronExecutions.id} in (
+					select ${platformCronExecutions.id}
+					from ${platformCronExecutions}
+					where ${platformCronExecutions.status} = 'running'
+						and ${platformCronExecutions.startedAt} < ${startedBefore}
+					order by ${platformCronExecutions.startedAt}, ${platformCronExecutions.id}
+					limit ${batchSize}
+				)`);
+		const rows = getAffectedRows(result);
+		terminalized += rows;
+		if (rows < batchSize) break;
+	}
+	return terminalized;
 }
 
 export async function prunePlatformCronExecutions(
