@@ -74,7 +74,13 @@ const routing = vi.hoisted(() => ({
 	search: {} as {
 		conversation?: string;
 		workpiece?: string;
-		view?: "workpiece" | "source" | "runs" | "connections" | "activity";
+		view?:
+			| "workpiece"
+			| "source"
+			| "drafts"
+			| "runs"
+			| "connections"
+			| "activity";
 		pane?: "resources" | "work" | "chat" | "workpiece";
 		focus?: true;
 	},

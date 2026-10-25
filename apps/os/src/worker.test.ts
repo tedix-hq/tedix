@@ -2109,6 +2109,35 @@ describe("collaboration socket routing", () => {
 		expect(env.roomRequests).toHaveLength(0);
 	});
 
+	it("admits a runtime app room through the app's own read", async () => {
+		const gadgetId = "44444444-4444-4444-8444-444444444444";
+		const base = collabEnv({ authorized: true });
+		const env = {
+			...base,
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					base.apiRequests.push(request);
+					return Response.json({
+						json: { gadget: { id: gadgetId, workspaceId: "ws-1" } },
+					});
+				},
+			},
+		};
+		const response = await handleOsRequest(
+			new Request(
+				`https://tedix.os.tedix.dev/collab/ws-1/${encodeURIComponent(`app:${gadgetId}`)}`,
+				{ headers: { ...upgradeHeaders, "X-API-Key": "sk_external" } },
+			),
+			env,
+			provisioned,
+		);
+		await expect(response.text()).resolves.toBe("room-upgrade");
+		expect(new URL(env.apiRequests[0]!.url).pathname).toMatch(
+			/osWorkspaces\/gadgets\/get$/,
+		);
+		expect(env.roomNames).toEqual([`tedix:ws-1:app:${gadgetId}`]);
+	});
+
 	it("refuses when apps/api denies the workspace read", async () => {
 		const env = collabEnv({ authorized: false });
 		const response = await handleOsRequest(

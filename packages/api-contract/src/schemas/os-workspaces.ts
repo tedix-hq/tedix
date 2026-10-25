@@ -1673,6 +1673,7 @@ export const OsCollaborationProposalSchema = z.object({
 			"Appended immutable revision number; null until a merge succeeds",
 		),
 });
+
 // =============================================================================
 // FORK LINEAGE — origin identity that survives an unreachable source org
 // =============================================================================

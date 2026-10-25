@@ -1443,7 +1443,9 @@ async function handleCollabUpgrade(
 		const kind = separator > 0 ? docKey.slice(0, separator) : "";
 		const documentId = separator > 0 ? docKey.slice(separator + 1) : "";
 		if (!documentId) throw new Error("Malformed collaboration document key");
-		if (kind === "gadget") {
+		// `app:<gadgetId>` is a runtime app's own room (who is using it, and its
+		// live updates); it is admitted by the same read as the app's manifest.
+		if (kind === "gadget" || kind === "app") {
 			const detail = await callRpc<CollabGadgetDetail>(
 				"osWorkspaces/gadgets/get",
 				{ workspaceId, gadgetId: documentId },
