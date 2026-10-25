@@ -23,7 +23,11 @@ import {
 } from "./work-identity";
 import { boardCall } from "./work-native";
 import { fail, ok } from "./work-render";
-import { resolveWorkItemId, parseObjectArgument } from "./work-queries";
+import {
+	resolveWorkItemId,
+	parseObjectArgument,
+	workExecutorArg,
+} from "./work-queries";
 import type { WorkContext } from "./work";
 
 function workMetadataInput(ctx: WorkContext): Record<string, unknown> {
@@ -354,8 +358,26 @@ export async function workAccept(
 ): Promise<number> {
 	if (!id) throw new Error("work accept requires a work item id");
 	mutationCallable(ctx.work.as?.trim(), "work.accept_work_item");
-	id = await resolveWorkItemId(ctx, id);
+	const executor = workExecutorArg(ctx.work.executor);
 	const acceptanceContract = buildAcceptanceContract(ctx.work.doneWhen);
+	id = await resolveWorkItemId(ctx, id);
+	// Acceptance has no assignment field; persist it through the specification API.
+	if (executor) {
+		const assignment = await boardCall(
+			ctx,
+			"work.update_work_item_specification",
+			{
+				id,
+				executor,
+			},
+		);
+		if (assignment.error)
+			return fail(
+				ctx,
+				assignment.error,
+				`Could not assign ${id} to ${executor}; acceptance was not attempted: ${assignment.error.message}${ownerActionHint(ctx, assignment.error)}`,
+			);
+	}
 	const call = await boardCall(ctx, "work.accept_work_item", {
 		id,
 		acceptanceContract,
@@ -364,7 +386,7 @@ export async function workAccept(
 		return fail(
 			ctx,
 			call.error,
-			`Could not accept ${id}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
+			`Could not accept ${id}${executor ? ` (executor is assigned to ${executor})` : ""}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
 		);
 	return ok(ctx, call.value, () =>
 		console.log(`${green("Accepted", ctx.color)} ${id}.`),

@@ -306,6 +306,16 @@ export async function workFind(
 
 // ─── Verbs ─────────────────────────────────────────────────────────────────
 
+export function workExecutorArg(value: string | undefined) {
+	if (value === undefined) return undefined;
+	const parsed = WorkExecutorSchema.safeParse(value.trim());
+	if (!parsed.success)
+		throw new Error(
+			`--executor must be one of ${WorkExecutorSchema.options.join("|")}, got "${value}"`,
+		);
+	return parsed.data;
+}
+
 /** One `work list` enum filter; a typo must error, not silently widen the page. */
 function listEnumArg(
 	flag: string,
@@ -467,6 +477,7 @@ export async function workCreate(
 	const t = title.trim();
 	if (!t) throw new Error('work create requires a "<title>"');
 	const { as, desc, kind, priority, objective, workClass, expires } = ctx.work;
+	const executor = workExecutorArg(ctx.work.executor);
 
 	// The purpose gate, enforced client-side first.
 	if (!objective && !workClass && !ctx.work.project) {
@@ -511,6 +522,7 @@ export async function workCreate(
 
 	const args: Record<string, unknown> = {
 		title: t,
+		...(executor ? { executor } : {}),
 		...(desc?.trim() ? { description: desc.trim() } : {}),
 		...(kind ? { workKind: kind } : {}),
 		...(priority ? { priority } : {}),
