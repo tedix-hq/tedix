@@ -328,6 +328,60 @@ describe("operation-scoped attempt observations", () => {
 		if (!model) throw new Error("Expected model");
 		return { model, env };
 	}
+	it("parses the last Azure final answer without losing earlier messages or usage", async () => {
+		const { env, bindingFetch } = bindingEnv();
+		const output = [
+			{ phase: "commentary", text: '{"draft":"checking the request"}' },
+			{ phase: "final_answer", text: '{"ok":false}' },
+			{ phase: "final_answer", text: '{"ok":true}' },
+		].map(({ phase, text }, index) => ({
+			type: "message",
+			id: `msg_${index}`,
+			role: "assistant",
+			phase,
+			content: [{ type: "output_text", text, annotations: [] }],
+		}));
+		bindingFetch.mockImplementation(async () =>
+			Response.json({
+				id: "resp_multiple_answers",
+				object: "response",
+				created_at: 1,
+				model: "gpt-6-luna",
+				status: "completed",
+				output,
+				usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
+			}),
+		);
+		const selected = kernelModel(
+			{
+				...env,
+				AZURE_OPENAI_RESOURCE: "resource",
+				AZURE_CHAT_DEPLOYMENT: "deployment",
+			} as KernelEnv,
+			{ modelRef: "azure-openai/gpt-5.6-luna" },
+			{ organizationId: "org" },
+		);
+		if (!selected) throw new Error("Expected model");
+		const operation = selected.forOperation();
+		const result = await generateObject({
+			model: operation.model,
+			schema: z.object({ ok: z.boolean() }),
+			prompt: "Check the request and give the final result.",
+			maxRetries: 0,
+		});
+		expect(result.object).toEqual({ ok: true });
+		expect(result.response.body).toMatchObject({ output });
+		expect(result.usage.inputTokens).toBe(3);
+		expect(result.usage.outputTokens).toBe(4);
+		expect(operation.attempts).toHaveLength(1);
+		expect(operation.attempts[0]?.usage).toEqual({
+			inputTokens: 3,
+			outputTokens: 4,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		});
+		expect(bindingFetch).toHaveBeenCalledTimes(1);
+	});
 	it("isolates sequential and concurrent operations sharing one selection", async () => {
 		const { model } = selected(['{"ok":true}', '{"ok":true}', '{"ok":true}']);
 		const first = model.forOperation();
