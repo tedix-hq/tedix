@@ -228,6 +228,31 @@ describe("hourly full suite", () => {
 			rmSync(root, { recursive: true });
 		}
 	});
+
+	test("an unsplit workspace job carries the browsers its test script launches", () => {
+		const root = fixtureTree({
+			"apps/web/package.json": JSON.stringify({
+				scripts: { "test:run": "bun spec.ts", "type-check": "tsc" },
+			}),
+			"apps/web/spec.ts": 'import { chromium } from "playwright";',
+			"packages/types-only/package.json": JSON.stringify({
+				scripts: { "type-check": "tsc" },
+			}),
+		});
+		try {
+			expect(workspaceMatrix(root).include).toEqual([
+				{
+					workspace: "apps/web",
+					test: true,
+					browsers: "chromium",
+					types: true,
+				},
+				{ workspace: "packages/types-only", test: false, types: true },
+			]);
+		} finally {
+			rmSync(root, { recursive: true });
+		}
+	});
 });
 
 describe("advisory review planning", () => {
