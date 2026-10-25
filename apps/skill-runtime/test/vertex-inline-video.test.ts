@@ -43,6 +43,27 @@ assert.equal(
 	"motion-video".length,
 );
 
+// JSON may escape a base64 slash (`\/` or `\u002F`); an escape can straddle
+// a chunk boundary, and both readers must agree with JSON.parse.
+for (const escaped of ["\\/w==", "\\u002Fw==", "\\/\\/\\/\\/"]) {
+	const body = `{"response":{"videos":[{"bytesBase64Encoded":"${escaped}"}]}}`;
+	const value = JSON.parse(body).response.videos[0].bytesBase64Encoded;
+	const expected = Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+	const fieldStart = body.indexOf(escaped);
+	for (let at = fieldStart; at <= fieldStart + escaped.length; at += 1) {
+		const stream = vertexInlineVideoStream(chunked(body, at), 100);
+		assert.deepEqual(
+			new Uint8Array(await new Response(stream.readable).arrayBuffer()),
+			expected,
+		);
+		await stream.completed;
+		assert.equal(
+			await vertexInlineVideoByteLength(chunked(body, at), 100),
+			expected.byteLength,
+		);
+	}
+}
+
 const missing = vertexInlineVideoStream(
 	chunked(JSON.stringify({ response: { videos: [] } }), 12),
 	100,
