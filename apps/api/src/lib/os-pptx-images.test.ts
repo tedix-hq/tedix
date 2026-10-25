@@ -79,6 +79,27 @@ describe("PPTX WebP conversion", () => {
 		).toHaveLength(1);
 		expect(strFromU8(file["ppt/slides/slide1.xml"]!)).toContain("<p:pic>");
 	});
+	it("converts WebP data URLs whatever the MIME type's case", async () => {
+		const upper = structuredClone(content);
+		if (upper.kind === "presentation") {
+			const slide = upper.deck!.slides[0]!;
+			slide.backgroundImage = webp.replace("image/webp", "IMAGE/WebP");
+			for (const e of slide.elements) e.src = webp.replace("webp", "WEBP");
+		}
+		const quickAction = vi
+			.fn()
+			.mockImplementation(
+				async () =>
+					new Response(png, { headers: { "content-type": "image/png" } }),
+			);
+		const converted = await prepareOsPptxImages(upper, { quickAction });
+		expect(quickAction).toHaveBeenCalledTimes(2);
+		const slide =
+			converted.kind === "presentation" ? converted.deck?.slides[0] : undefined;
+		expect(slide?.backgroundImage).toMatch(/^data:image\/png;base64,/);
+		for (const e of slide?.elements ?? [])
+			expect(e.type === "image" && e.src).toMatch(/^data:image\/png;base64,/);
+	});
 	it("does not require Browser Rendering for already compatible images", async () => {
 		const ready = structuredClone(content);
 		if (ready.kind === "presentation") {
