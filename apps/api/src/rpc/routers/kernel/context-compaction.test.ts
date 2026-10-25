@@ -362,7 +362,7 @@ describe("assembleHomeContext — history compaction", () => {
 			//
 			// Was 900. The assertions are unchanged; only this calibration moved,
 			// because the guard now measures the SYSTEM_PROMPT reserve
-			// (SYSTEM_PROMPT_RESERVE_CHARS = 8 000 chars = 2 000 tokens) as part of
+			// (SYSTEM_PROMPT_RESERVE_CHARS = 8 600 chars = 2 150 tokens) as part of
 			// the prompt. A 900-token budget can no longer hold a Home prompt at
 			// all, so it would degrade to dropping history and stop exercising
 			// compaction — which is what this test exists to cover.
@@ -395,8 +395,8 @@ describe("assembleHomeContext — history compaction", () => {
 
 		const ctx = await assembleHomeContext(db, ORG_ID, {
 			conversationId: "home:long",
-			// Recalibrated with the test above; see the note there.
-			maxPromptTokens: 3_000,
+			// Leave room for one checkpoint alongside the fixed system prompt.
+			maxPromptTokens: 3_200,
 			summarizeHistory: summarize,
 		});
 		warn.mockRestore();
