@@ -121,19 +121,22 @@ export class CapabilityNotDeclaredError extends Error {
 class McpCodeModeMethodNotFoundError extends Error {}
 
 /**
- * Tool input schemas learned from a HeaderMismatch rejection, per server URL and
- * tool, so later calls in this isolate send their `Mcp-Param-*` headers first.
+ * Tool input schemas learned from a HeaderMismatch rejection, scoped to the
+ * server, tool and trusted caller context used for tools/list.
  */
 const mcpParamSchemas = new Map<string, Record<string, unknown>>();
 const MCP_PARAM_SCHEMA_LIMIT = 500;
 
 /** A 2026-07-28 server rejected the call for missing or wrong `Mcp-Param-*` headers. */
 function isHeaderMismatch(error: unknown): boolean {
-	return (
-		error instanceof McpUpstreamError &&
-		error.status === 400 &&
-		/-32020/.test(error.bodyText)
-	);
+	if (!(error instanceof McpUpstreamError) || error.status !== 400)
+		return false;
+	try {
+		const body: unknown = JSON.parse(error.bodyText);
+		return isRecord(body) && isRecord(body.error) && body.error.code === -32020;
+	} catch {
+		return false;
+	}
 }
 
 export class McpUpstreamError extends Error {
@@ -624,13 +627,28 @@ async function executeMcpTool(
 		return undefined;
 	};
 	const callWithParamHeaders = async (name: string) => {
-		const key = `${url}#${name}`;
+		const key = JSON.stringify([
+			url,
+			name,
+			props.orgId,
+			props.tediId,
+			props.startedBy ?? null,
+			props.runId,
+			props.skillId,
+			props.workItemId ?? null,
+			props.executionEpoch,
+			props.serviceToken,
+		]);
 		const known = mcpParamSchemas.get(key);
 		paramHeaders = known ? buildMcpParamHeaders(known, toolArgs) : {};
 		try {
 			return await postJsonRpc(buildCallBody(name));
 		} catch (error) {
-			if (known || !isHeaderMismatch(error)) throw error;
+			if (!isHeaderMismatch(error)) throw error;
+			mcpParamSchemas.delete(key);
+			// HeaderMismatch rejects before dispatch. Refresh once, without stale
+			// parameter headers on tools/list, and never replay other failures.
+			paramHeaders = {};
 			const schema = await loadParamSchema(name);
 			if (!schema) throw error;
 			if (mcpParamSchemas.size >= MCP_PARAM_SCHEMA_LIMIT)
