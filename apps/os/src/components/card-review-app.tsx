@@ -95,6 +95,7 @@ import {
 	workspaceSchedulesQueryOptions,
 	userProfileQueryOptions,
 } from "@/lib/os-query-options";
+import { dayAndTime } from "@/lib/workspace-schedules";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import { decisionText } from "@/shared/os-copy";
 import { relativeTime } from "@/lib/time";
@@ -156,16 +157,22 @@ function sheetState(
 	};
 }
 
+/** A verdict written into a card row, with the cells it replaced. */
+type VerdictWrite = {
+	kind: "write";
+	label: string;
+	outputId: string;
+	rowIndex: number;
+	previous: Record<string, Cell>;
+	counted: keyof Tally | null;
+	learningEventId?: string;
+};
+
+/** A card decided in this session, kept so it can be reopened. */
+type DecidedEntry = VerdictWrite & { cardKey: string; title: string };
+
 type UndoEntry =
-	| {
-			kind: "write";
-			label: string;
-			outputId: string;
-			rowIndex: number;
-			previous: Record<string, Cell>;
-			counted: keyof Tally | null;
-			learningEventId?: string;
-	  }
+	| VerdictWrite
 	| { kind: "snooze"; label: string; key: string }
 	| { kind: "skip"; label: string; key: string };
 
@@ -434,6 +441,31 @@ export function CardReviewApp({
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
 	const decidedCount = inChannel.filter((card) => !isOpen(card)).length;
+	const scheduleLists = useQueries({
+		queries: [...new Set(sources.map((s) => s.workspaceId))].map((id) =>
+			workspaceSchedulesQueryOptions(id),
+		),
+	});
+	// The soonest enabled run across the source workspaces brings the next cards;
+	// undefined until every source workspace's schedules have loaded.
+	const nextRunAt = scheduleLists.some((list) => !list.isSuccess)
+		? undefined
+		: (scheduleLists
+				.flatMap((list) => list.data?.items ?? [])
+				.filter((schedule) => schedule.enabled && schedule.nextRunAt)
+				.map((schedule) => schedule.nextRunAt!)
+				.sort()[0] ?? null);
+	// Open cards this view leaves out: other channels, or routed away from the Deck.
+	const hiddenOpen = cards.filter(
+		(card) =>
+			isOpen(card) &&
+			!delivery.quiet(card) &&
+			!(snoozes[card.key] && snoozes[card.key]! > now.toISOString()) &&
+			!queue.some((row) => row.key === card.key),
+	).length;
+	const cardSheets = [
+		...new Map(cards.map((card) => [card.outputId, card.sheetTitle])),
+	];
 	const progressLabel = `${queue.length} ${decisionText("waiting")} · ${decidedCount} ${decisionText("decided")} · ${inChannel.length} ${decisionText("total")}`;
 	const [departingCard, setDepartingCard] = useState<ReviewCard | null>(null);
 	// The Waiting list browses without a skip: browseKey pins the card on
@@ -456,6 +488,7 @@ export function CardReviewApp({
 	const [busy, setBusy] = useState(false);
 	const [revisionPending, setRevisionPending] = useState(false);
 	const [undo, setUndo] = useState<UndoEntry | null>(null);
+	const [decided, setDecided] = useState<DecidedEntry[]>([]);
 	const [running, setRunning] = useState<string | null>(null);
 	const [needsAccess, setNeedsAccess] = useState<NeedsAccess | null>(null);
 	const [lastResult, setLastResult] = useState<{
@@ -688,7 +721,7 @@ export function CardReviewApp({
 							: "doIt";
 				const eventId = await recordChoice(card, source, verdict, reason);
 				setTally((t) => ({ ...t, [counted]: t[counted] + 1 }));
-				setUndo({
+				const written: VerdictWrite = {
 					kind: "write",
 					label:
 						verdict === "useful"
@@ -703,7 +736,16 @@ export function CardReviewApp({
 					previous,
 					counted,
 					learningEventId: eventId,
-				});
+				};
+				setUndo(written);
+				setDecided((entries) => [
+					...entries.filter((entry) => entry.cardKey !== card.key),
+					{
+						...written,
+						cardKey: card.key,
+						title: card.action || plainWhy(card.why) || card.sourceText,
+					},
+				]);
 				setSkipped((keys) => keys.filter((key) => key !== card.key));
 				return { ok: true };
 			} catch (error) {
@@ -757,6 +799,48 @@ export function CardReviewApp({
 		return { ok: true };
 	}, [card, queue.length, source, recordChoice]);
 
+	/** Put back the cells a verdict replaced and correct its learning event. */
+	const revertVerdict = useCallback(
+		async (
+			entry: VerdictWrite,
+			note: string,
+		): Promise<{ ok: true } | { ok: false; error: string }> => {
+			setBusy(true);
+			try {
+				await writeRow(entry.outputId, entry.rowIndex, entry.previous, note);
+				if (entry.learningEventId) {
+					await osApi.learningFeedback.correct({
+						eventId: entry.learningEventId,
+						clientEventId: crypto.randomUUID(),
+					});
+					void queryClient.invalidateQueries({
+						queryKey: osQuery.learningFeedback.key(),
+					});
+				}
+				const counted = entry.counted;
+				if (counted)
+					setTally((t) => ({ ...t, [counted]: Math.max(0, t[counted] - 1) }));
+				setDecided((entries) =>
+					entries.filter(
+						(item) =>
+							item.outputId !== entry.outputId ||
+							item.rowIndex !== entry.rowIndex,
+					),
+				);
+				return { ok: true };
+			} catch (error) {
+				return {
+					ok: false,
+					error:
+						error instanceof Error ? error.message : "Try again in a moment.",
+				};
+			} finally {
+				setBusy(false);
+			}
+		},
+		[writeRow, queryClient],
+	);
+
 	const undoLast = useCallback(async (): Promise<CardReviewActionResult> => {
 		if (!undo) return { ok: false, error: "There is nothing to undo" };
 		if (busy) return { ok: false, error: "The last action is still saving" };
@@ -768,38 +852,41 @@ export function CardReviewApp({
 		} else if (undo.kind === "skip") {
 			setSkipped((keys) => keys.filter((key) => key !== undo.key));
 		} else {
-			setBusy(true);
-			try {
-				await writeRow(
-					undo.outputId,
-					undo.rowIndex,
-					undo.previous,
-					"Card review: verdict undone",
-				);
-				const counted = undo.counted;
-				if (undo.learningEventId) {
-					await osApi.learningFeedback.correct({
-						eventId: undo.learningEventId,
-						clientEventId: crypto.randomUUID(),
-					});
-					void queryClient.invalidateQueries({
-						queryKey: osQuery.learningFeedback.key(),
-					});
-				}
-				if (counted)
-					setTally((t) => ({ ...t, [counted]: Math.max(0, t[counted] - 1) }));
-			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : "Try again in a moment.";
-				toast.error("Undo failed", { description: message });
-				return { ok: false, error: `Undo failed: ${message}` };
-			} finally {
-				setBusy(false);
+			const reverted = await revertVerdict(undo, "Card review: verdict undone");
+			if (!reverted.ok) {
+				toast.error("Undo failed", { description: reverted.error });
+				return { ok: false, error: `Undo failed: ${reverted.error}` };
 			}
 		}
 		setUndo(null);
 		return { ok: true };
-	}, [busy, snoozes, snoozeKey, undo, writeRow, queryClient]);
+	}, [busy, snoozes, snoozeKey, undo, revertVerdict]);
+
+	/** Reopen a card decided in this session: clear its verdict and show it again. */
+	const reopen = useCallback(
+		async (entry: DecidedEntry) => {
+			if (busy) return;
+			const reverted = await revertVerdict(
+				entry,
+				"Card review: verdict reopened",
+			);
+			if (!reverted.ok) {
+				toast.error("The card was not reopened", {
+					description: reverted.error,
+				});
+				return;
+			}
+			setUndo((current) =>
+				current?.kind === "write" &&
+				current.outputId === entry.outputId &&
+				current.rowIndex === entry.rowIndex
+					? null
+					: current,
+			);
+			setBrowseKey(entry.cardKey);
+		},
+		[busy, revertVerdict],
+	);
 
 	const decideRule = useCallback(
 		async (
@@ -1339,6 +1426,15 @@ export function CardReviewApp({
 					undo={undo}
 					busy={busy}
 					onUndo={undoLast}
+					decided={decided}
+					onReopen={(entry) => void reopen(entry)}
+					nextRun={
+						nextRunAt ? dayAndTime(nextRunAt, now, { timeZone }) : nextRunAt
+					}
+					hiddenOpen={hiddenOpen}
+					channel={activeChannel}
+					onShowAll={() => setChannel(null)}
+					sheets={cardSheets}
 				/>
 			)}
 		</div>
@@ -1926,6 +2022,13 @@ function CaughtUp({
 	undo,
 	busy,
 	onUndo,
+	decided,
+	onReopen,
+	nextRun,
+	hiddenOpen,
+	channel,
+	onShowAll,
+	sheets,
 }: {
 	reviewed: number;
 	toDo: number;
@@ -1934,6 +2037,15 @@ function CaughtUp({
 	undo: UndoEntry | null;
 	busy: boolean;
 	onUndo: () => void;
+	decided: readonly DecidedEntry[];
+	onReopen: (entry: DecidedEntry) => void;
+	/** The next factory run, formatted; null when none is due, undefined while unknown. */
+	nextRun: string | null | undefined;
+	/** Open cards this view filtered out. */
+	hiddenOpen: number;
+	channel: string | null;
+	onShowAll: () => void;
+	sheets: readonly (readonly [outputId: string, title: string])[];
 }) {
 	const summary = [
 		reviewed > 0 ? `${reviewed} reviewed` : null,
@@ -1963,7 +2075,82 @@ function CaughtUp({
 						? decisionText("Every card here has a verdict.")
 						: decisionText("New cards appear here after the next factory run.")}
 			</Text>
+			{nextRun !== undefined && (
+				<Text
+					as="p"
+					role="caption"
+					tone="secondary"
+					className="m-0"
+					data-card-review-next-run
+				>
+					{nextRun
+						? `New cards arrive with the next factory run, ${nextRun}.`
+						: "No factory run is scheduled; new cards arrive when one runs."}
+				</Text>
+			)}
 			<UndoButton undo={undo} busy={busy} onUndo={onUndo} />
+			{hiddenOpen > 0 && (
+				<div data-card-review-filtered className="flex flex-col gap-1">
+					<Text as="p" role="body" className="m-0">
+						{channel
+							? `Showing only ${channel} cards. ${hiddenOpen} more open ${hiddenOpen === 1 ? "card is" : "cards are"} filtered out.`
+							: `${hiddenOpen} more open ${hiddenOpen === 1 ? "card is" : "cards are"} not shown here.`}
+					</Text>
+					<div className="flex flex-wrap justify-center gap-1">
+						{channel && (
+							<Button size="sm" variant="ghost" onClick={onShowAll}>
+								Show all cards
+							</Button>
+						)}
+						{sheets.map(([outputId, title]) => (
+							<a
+								key={outputId}
+								href={`/outputs/${outputId}`}
+								className="inline-flex items-center gap-1 text-sm text-kumo-link"
+							>
+								{`Open ${title}`}
+								<ArrowSquareOut aria-hidden className="size-3.5" />
+							</a>
+						))}
+					</div>
+				</div>
+			)}
+			{decided.length > 0 && (
+				<section
+					aria-label="Decided just now"
+					data-card-review-decided
+					className="flex w-full flex-col gap-1 pt-2 text-left"
+				>
+					<Text as="h4" role="label" tone="secondary" className="m-0">
+						Decided just now
+					</Text>
+					{decided.map((entry) => (
+						<div
+							key={entry.cardKey}
+							className="flex min-w-0 items-center justify-between gap-2 border-t border-kumo-line pt-1"
+						>
+							<span className="flex min-w-0 flex-col">
+								<Text as="span" className="truncate">
+									{entry.title}
+								</Text>
+								<Text as="span" role="caption" tone="secondary">
+									{entry.label}
+								</Text>
+							</span>
+							<Button
+								size="sm"
+								variant="ghost"
+								className="shrink-0"
+								disabled={busy}
+								aria-label={`Reopen: ${entry.title}`}
+								onClick={() => onReopen(entry)}
+							>
+								Reopen
+							</Button>
+						</div>
+					))}
+				</section>
+			)}
 		</div>
 	);
 }

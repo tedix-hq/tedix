@@ -27,6 +27,7 @@ vi.mock("@/lib/api", () => ({
 				setSheetRange: vi.fn(),
 				history: vi.fn(),
 			},
+			schedules: { list: vi.fn() },
 		},
 		learningFeedback: {
 			model: vi.fn(),
@@ -638,6 +639,75 @@ describe("CardReviewApp decision interactions", () => {
 		expect(heading(0)).not.toBeNull();
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
+	});
+
+	it("lists the cards just decided after the last verdict and reopens one", async () => {
+		vi.mocked(osApi.osWorkspaces.schedules.list).mockResolvedValue({
+			items: [
+				{ enabled: true, nextRunAt: "2099-01-02T08:17:00.000Z" },
+				{ enabled: false, nextRunAt: "2098-01-01T08:17:00.000Z" },
+			],
+		} as never);
+		await mount(false);
+		await click("Useful");
+		await click("Useful");
+		await click("Not useful");
+		const done = host.querySelector("[data-card-review-done]")!;
+		expect(done.textContent).toContain("All caught up");
+		expect(
+			host.querySelector("[data-card-review-next-run]")?.textContent,
+		).toMatch(/^New cards arrive with the next factory run, Jan 2, .+\.$/);
+		const decided = host.querySelector("[data-card-review-decided]")!;
+		expect(decided.textContent).toContain("Marked useful");
+		expect(decided.textContent).toContain("Marked not useful");
+		const reopen = [...decided.querySelectorAll("button")];
+		expect(reopen).toHaveLength(3);
+		const writes = vi.mocked(osApi.osWorkspaces.outputs.setSheetRange).mock
+			.calls.length;
+		await act(async () => reopen[0]!.click());
+		await flush();
+		expect(osApi.osWorkspaces.outputs.setSheetRange).toHaveBeenCalledTimes(
+			writes + 1,
+		);
+		expect(osApi.learningFeedback.correct).toHaveBeenCalledTimes(1);
+		expect(host.textContent).toContain("Practice cards today · #1");
+		expect(sheet.rows[0]![6]).toBe("");
+		expect(host.querySelector("[data-card-review-done]")).toBeNull();
+		await click("Not useful");
+		const rows = host.querySelectorAll("[data-card-review-decided] > div");
+		expect(rows).toHaveLength(3);
+		expect(rows[2]!.textContent).toContain(examples[0]!.proposal);
+		expect(rows[2]!.textContent).toContain("Marked not useful");
+	});
+
+	it("explains a filtered batch and links to the full sheet", async () => {
+		vi.mocked(osApi.osWorkspaces.schedules.list).mockResolvedValue({
+			items: [],
+		} as never);
+		await mount(false, false, {
+			...config,
+			sources: [
+				{
+					...config.sources[0]!,
+					channels: [{ label: "LinkedIn", match: ["linkedin"] }],
+				},
+			],
+		});
+		await click("LinkedIn");
+		await click("Useful");
+		expect(host.querySelector("[data-card-review-done]")).not.toBeNull();
+		expect(host.querySelector("[data-card-review-next-run]")?.textContent).toBe(
+			"No factory run is scheduled; new cards arrive when one runs.",
+		);
+		const filtered = host.querySelector("[data-card-review-filtered]")!;
+		expect(filtered.textContent).toContain(
+			"Showing only LinkedIn cards. 2 more open cards are filtered out.",
+		);
+		expect(filtered.querySelector("a")?.getAttribute("href")).toBe(
+			`/outputs/${outputId}`,
+		);
+		await click("Show all cards");
+		expect(host.textContent).toContain("Practice cards today · #2");
 	});
 });
 
