@@ -43,6 +43,7 @@ import { osCollaboratorsContract } from "./os-collaborators";
 import { osSharesContract } from "./os-shares";
 import { osWorkspacesContract } from "./os-workspaces";
 import { osGadgetStateContract } from "./os-gadget-state";
+import { osAppRuntimeContract } from "./os-app-runtime";
 import { providerEventsContract } from "./provider-events";
 import { personalResourceDelegationsContract } from "./personal-resource-delegations";
 import { calendarCoordinatorContract } from "./calendar-coordinator";
@@ -265,6 +266,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	// Tedix OS workspace domain (workspaces, gadgets, blueprints)
 	osWorkspaces: osWorkspacesContract,
 	osGadgetState: osGadgetStateContract,
+	osAppRuntime: osAppRuntimeContract,
 	providerEvents: providerEventsContract,
 	personalResourceDelegations: personalResourceDelegationsContract,
 	calendarCoordinator: calendarCoordinatorContract,
