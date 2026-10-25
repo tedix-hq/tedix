@@ -5,6 +5,7 @@ import { createD1Facade } from "../test/d1-facade";
 import {
 	createPersonalResourceDelegation,
 	getPersonalResourceDelegation,
+	listActiveSkillPersonalResourceDelegations,
 	listPersonalResourceDelegations,
 	revokePersonalResourceDelegation,
 } from "./personal-resource-delegations";
@@ -38,6 +39,63 @@ const row = {
 	revokedAt: null,
 };
 describe("personal resource consent on D1", () => {
+	it("selects the newest active grant per resource before the scheduled resource cap", async () => {
+		const db = fixture();
+		await createPersonalResourceDelegation(db, { ...row, id: "z-older" });
+		await createPersonalResourceDelegation(db, {
+			...row,
+			id: "older-other",
+			resourceId: "other",
+		});
+		for (let revision = 1; revision <= 20; revision++) {
+			await createPersonalResourceDelegation(db, {
+				...row,
+				id: `regrant-${String(revision).padStart(2, "0")}`,
+				skillRevision: revision,
+				createdAt: "2026-10-02T00:00:00.000Z",
+			});
+		}
+		for (const override of [
+			{ id: "foreign-org", organizationId: "other" },
+			{ id: "foreign-worker", tediId: "other" },
+			{ id: "foreign-skill", skillId: "other" },
+			{ id: "revoked", revokedAt: "2026-10-03T00:00:00.000Z" },
+			{ id: "expired", expiresAt: "2026-10-04T00:00:00.000Z" },
+		]) {
+			await createPersonalResourceDelegation(db, {
+				...row,
+				createdAt: "2026-10-03T00:00:00.000Z",
+				...override,
+			});
+		}
+		const input = {
+			organizationId: row.organizationId,
+			tediId: row.tediId,
+			skillId: row.skillId,
+			now: "2026-10-04T00:00:00.000Z",
+		};
+		expect(
+			(await listActiveSkillPersonalResourceDelegations(db, input)).map(
+				(grant) => grant.id,
+			),
+		).toEqual(["regrant-20", "older-other"]);
+
+		for (let resource = 0; resource < 21; resource++) {
+			await createPersonalResourceDelegation(db, {
+				...row,
+				id: `resource-${String(resource).padStart(2, "0")}`,
+				resourceId: `resource-${resource}`,
+				createdAt: "2026-10-03T00:00:00.000Z",
+			});
+		}
+		const capped = await listActiveSkillPersonalResourceDelegations(db, input);
+		expect(capped.map((grant) => grant.id)).toEqual(
+			Array.from(
+				{ length: 20 },
+				(_, index) => `resource-${String(20 - index).padStart(2, "0")}`,
+			),
+		);
+	});
 	it("scopes records to the organization and owner", async () => {
 		const db = fixture();
 		await createPersonalResourceDelegation(db, row);
