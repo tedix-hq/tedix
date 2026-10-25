@@ -163,7 +163,7 @@ it("uses factual labels and the viewer's last visit without device explanations"
 				/>,
 			);
 		const html = render("2026-10-17T11:40:00Z");
-		expect(html).toContain("Local session (Codex)");
+		expect(html).toContain("Local · Codex");
 		expect(html).toContain("Inactive · last seen 12 min ago");
 		expect(html).toContain("While you were away");
 		expect(html).not.toMatch(/\b(laptop|offline|asleep|Lead|Aaron)\b/i);
