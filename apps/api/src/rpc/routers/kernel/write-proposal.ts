@@ -84,6 +84,7 @@ import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { CreateFactoryResultSchema } from "@tedix/api-contract/schemas/factories";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
 	readWorkCreateProjects,
 	workspaceDefaultProjectId,
@@ -105,9 +106,25 @@ import {
 	isCodeModeCatalog,
 	type KernelWriteTransport,
 	parseCodeModeCatalog,
+	parseCodeModeCatalogValue,
+	codeModeResultHandle,
+	readCodeModeResultPages,
 	writeDiscoveryQuery,
 } from "./write-codemode";
 import { planDocumentCreate } from "./document-create-plan";
+
+/** Describe results, reassembling a schema Code Mode kept behind a handle. */
+async function parseDescribedCatalog(
+	result: unknown,
+	readPage: (params: Record<string, unknown>) => Promise<unknown>,
+): Promise<McpTool[]> {
+	const tools = parseCodeModeCatalog(result);
+	if (tools.length > 0) return tools;
+	const handle = codeModeResultHandle(result);
+	return handle
+		? parseCodeModeCatalogValue(await readCodeModeResultPages(handle, readPage))
+		: tools;
+}
 
 /** Any of these places new Work; without one, creation has no purpose context. */
 const WORK_DESTINATION_KEYS = [
@@ -532,8 +549,12 @@ export async function planKernelWriteProposal(args: {
 		// proves this transport works; it need not wait for a separate tools/list.
 		// Other capabilities can fall through to the full catalog path.
 		let lookupOutcome: CanonicalLookupOutcome = "not_found";
+		// A large schema (apps.update_app's is ~30k chars) comes back as a kept
+		// result handle; page it instead of reading "no schema".
+		const readPage = (params: Record<string, unknown>) =>
+			mcpCall(env, host, organizationId, "tools/call", params, actingUserId);
 		const describeCanonical = async () =>
-			parseCodeModeCatalog(
+			parseDescribedCatalog(
 				await mcpCall(
 					env,
 					host,
@@ -546,6 +567,7 @@ export async function planKernelWriteProposal(args: {
 					},
 					isWorkCreate ? Math.min(timeoutMs, 30_000) : undefined,
 				),
+				readPage,
 			);
 		// Revalidate Work under this member on every turn; cached catalogs are not authority.
 		const canonicalPromise = canonical
@@ -680,7 +702,7 @@ export async function planKernelWriteProposal(args: {
 					pending = cachedWriteCatalog(
 						`${cacheKey}|describe|${name}`,
 						async () =>
-							parseCodeModeCatalog(
+							parseDescribedCatalog(
 								await mcpCall(
 									env,
 									host,
@@ -689,6 +711,7 @@ export async function planKernelWriteProposal(args: {
 									codeModeDescribeParams(name),
 									actingUserId,
 								),
+								readPage,
 							),
 					).catch(() => [] as McpTool[]);
 					describes.set(name, pending);
@@ -915,6 +938,22 @@ export async function planKernelWriteProposal(args: {
 				cycleKey,
 			};
 		}
+		// A model can mistype the selected Workspace id (live: …-bb40-… became
+		// …-bbb4-… in a sheet create). An id this organization does not have is
+		// a transcription error, not a destination: use the selected Workspace.
+		const plannedWorkspaceId = planned.args.workspaceId;
+		const selectedWorkspaceId = args.workspaceContext?.workspaceId;
+		if (
+			selectedWorkspaceId &&
+			typeof plannedWorkspaceId === "string" &&
+			plannedWorkspaceId !== selectedWorkspaceId &&
+			/^os[._]/.test(exactTool.name) &&
+			!(await getOsWorkspace(db, {
+				organizationId,
+				workspaceId: plannedWorkspaceId,
+			}).catch(() => undefined))
+		)
+			planned.args.workspaceId = selectedWorkspaceId;
 		const validated = validateProposedCall(
 			{
 				...planned,
