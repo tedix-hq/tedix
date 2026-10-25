@@ -113,13 +113,19 @@ export function delegationSteps(
 	const tools = new Map<string, DelegationStep & { endedAt: string | null }>();
 	const steps: (DelegationStep & { endedAt?: string | null })[] = [];
 	const seen = new Set<string>();
+	const started = new Set<string>();
+	const latency = new Map<string, number>();
 	for (const event of sorted) {
 		if (seen.has(event.id)) continue;
 		seen.add(event.id);
 		const payload = event.payload ?? {};
 		if (event.kind.startsWith("tool.")) {
 			const callId =
-				event.toolCallId ?? text(payload.toolCallId) ?? `event:${event.id}`;
+				event.toolCallId ??
+				text(payload.toolCallId) ??
+				// Delegated tool events carry the call only in their id:
+				// `<run>:<call>.started` / `.completed` / `.failed`.
+				event.id.replace(/\.(started|completed|failed)$/, "");
 			let step = tools.get(callId);
 			if (!step) {
 				step = {
@@ -141,17 +147,22 @@ export function delegationSteps(
 			}
 			if (event.kind === "tool.started") {
 				step.startedAt = event.createdAt;
+				started.add(callId);
 			} else if (
 				event.kind === "tool.completed" ||
 				event.kind === "tool.failed"
 			) {
 				step.status = event.kind === "tool.completed" ? "completed" : "failed";
 				step.endedAt = event.createdAt;
+				// The runtime's own measure beats our clock difference.
+				if (typeof payload.latencyMs === "number" && payload.latencyMs >= 0)
+					latency.set(callId, payload.latencyMs);
 			}
-			const start = parse(step.startedAt);
+			const start = started.has(callId) ? parse(step.startedAt) : null;
 			const end = parse(step.endedAt);
 			step.durationMs =
-				start != null && end != null && end >= start ? end - start : null;
+				latency.get(callId) ??
+				(start != null && end != null && end >= start ? end - start : null);
 			continue;
 		}
 		if (event.kind === "artifact.created") {
@@ -178,6 +189,12 @@ export function delegationSteps(
 		});
 	}
 	return steps.map(({ endedAt: _endedAt, ...step }) => step);
+}
+
+/** The runtime reports "calling <tool_id>"; say which tool in plain words. */
+function plainProgress(detail: string | null): string | null {
+	const call = detail?.match(/^calling ([\w.:-]+)$/i);
+	return call ? `Using ${plainToolName(call[1]!)}` : detail;
 }
 
 function latest(...values: (string | null | undefined)[]): string | null {
@@ -259,7 +276,7 @@ export function delegationLiveState(input: {
 		.find((step) => step.status === "running");
 	const currentStep = terminal
 		? null
-		: (text(progress?.detail) ??
+		: (plainProgress(text(progress?.detail)) ??
 			(runningTool ? `Using ${runningTool.label}` : null) ??
 			text(progress?.label) ??
 			(steps.length ? `Last step: ${steps[steps.length - 1]!.label}` : null));
