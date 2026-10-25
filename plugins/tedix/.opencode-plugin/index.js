@@ -563,6 +563,16 @@ async function setup(ctx) {
 	const handle = async (event) => {
 		const data = event.data ?? {};
 		const id = data.sessionID;
+		// Cancellation can skip both shell creation and execute.after.
+		if (
+			id &&
+			(event.type === "session.idle" ||
+				(event.type === "session.status" && data.status?.type === "idle") ||
+				event.type === "session.execution.failed" ||
+				event.type === "session.deleted")
+		)
+			for (const [callID, shell] of shells)
+				if (shell.sessionID === id) forgetShell(callID);
 		if (event.type === "session.created" && id) {
 			tedix.sessions.set(id, { parentID: data.parentID, created: true });
 			return;
@@ -620,6 +630,8 @@ async function setup(ctx) {
 	})();
 	return () => {
 		controller.abort();
+		shells.clear();
+		shellCalls.clear();
 		tedix.close();
 	};
 }

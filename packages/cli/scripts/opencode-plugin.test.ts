@@ -717,6 +717,62 @@ test("OpenCode 2 keeps concurrent identical shell commands tied to their session
 	cleanup?.();
 });
 
+for (const hooks of [false, true])
+	for (const ending of [
+		"session.idle",
+		"session.status",
+		"session.execution.failed",
+		"session.deleted",
+	])
+		test(`OpenCode 2 releases cancelled shells on ${ending} with hooks=${hooks}`, async () => {
+			fakeCli();
+			const fake = context2({ hooks });
+			const cleanup = await module.default.setup(fake.ctx as never);
+			try {
+				const command = "printf identical";
+				for (const [sessionID, id] of [
+					[SESSION, "cancelled"],
+					[OTHER_SESSION, "active"],
+				])
+					await fake.hooks["tool.execute.before"]!({
+						tool: "shell",
+						sessionID,
+						id,
+						input: { command },
+					});
+				await fake.emit(ending, {
+					sessionID: SESSION,
+					status: { type: "idle" },
+				});
+				const active = { command, env: {} as Record<string, string> };
+				await fake.hooks["shell.create.before"]!(active);
+				expect(active.env.TEDIX_AGENT_SESSION).toBe(
+					`opencode:${OTHER_SESSION}`,
+				);
+				const unrelated = { command, env: {} as Record<string, string> };
+				await fake.hooks["shell.create.before"]!(unrelated);
+				expect(unrelated.env).toEqual({});
+			} finally {
+				cleanup?.();
+			}
+		});
+
+test("OpenCode 2 unload releases pending shells", async () => {
+	const fake = context2({ hooks: false });
+	const cleanup = await module.default.setup(fake.ctx as never);
+	const command = "printf cancelled";
+	await fake.hooks["tool.execute.before"]!({
+		tool: "shell",
+		sessionID: SESSION,
+		id: "cancelled",
+		input: { command },
+	});
+	cleanup?.();
+	const shell = { command, env: {} as Record<string, string> };
+	await fake.hooks["shell.create.before"]!(shell);
+	expect(shell.env).toEqual({});
+});
+
 test("OpenCode 2 edits get advisory recall appended to their result content", async () => {
 	fakeCli();
 	const fake = context2();
