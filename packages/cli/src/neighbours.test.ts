@@ -342,6 +342,47 @@ describe("neighbours", () => {
 		expect(parseArgs(["--hours", "0"]).hours).toBe(24);
 	});
 
+	for (const option of ["--hours", "--paths", "--session"]) {
+		for (const suffix of [
+			[],
+			[""],
+			[" \t"],
+			["--json"],
+			["--fetch"],
+			["--hours", "48"],
+			["--paths", "a.ts"],
+			["--session", BOB],
+		]) {
+			test(`rejects missing value for ${option} before ${JSON.stringify(suffix)}`, () => {
+				expect(() => parseArgs([option, ...suffix])).toThrow(
+					`${option} requires a value`,
+				);
+			});
+		}
+	}
+
+	test("preserves values and following flags", () => {
+		expect(
+			parseArgs([
+				"--hours",
+				".5",
+				"--paths",
+				" a.ts, b/ ",
+				"--session",
+				BOB,
+				"--json",
+				"--fetch",
+				"c.ts",
+			]),
+		).toEqual({
+			hours: 0.5,
+			paths: ["a.ts", "b/", "c.ts"],
+			session: BOB,
+			json: true,
+			fetch: true,
+		});
+	});
+
 	test("keeps unsupported hour windows out of git arguments", () => {
 		for (const value of ["1e100", "Infinity", "0x10", "9007199254740992"]) {
 			const calls: string[][] = [];

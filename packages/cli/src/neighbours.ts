@@ -126,6 +126,11 @@ export function parseArgs(argv: string[]) {
 	};
 	for (let index = 0; index < argv.length; index += 1) {
 		const value = argv[index] ?? "";
+		if (["--hours", "--session", "--paths"].includes(value)) {
+			const next = argv[index + 1];
+			if (!next?.trim() || next.startsWith("--"))
+				throw new Error(`${value} requires a value`);
+		}
 		if (value === "--json") args.json = true;
 		else if (value === "--fetch") args.fetch = true;
 		else if (value === "--hours") {
