@@ -91,7 +91,9 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
   existing siblings: `userTediCache` (`src/index.ts`, 200),
   `aihM2mClientScopeCache` (`src/auth-helpers.ts`, 100), `credentialTokenCache` (`src/mcp/handler-connection-credentials.ts`, 500), the x402
   facilitator cache `serverCache` (`src/mcp/x402-facilitator.ts`, 16). TTL-only maps are
-  acceptable only when the key space is app/org-bounded.
+  acceptable only when the key space is app/org-bounded. Vault credentials are
+  fetched through the API on every tool call; only client-credentials bearers
+  may be cached, bound to the current vault credential fingerprint.
 - Tool-schema projection explicitly rolls the aggregate activation epoch and
   purges durable snapshots. Isolates refresh that global marker within five
   seconds; ordinary D1 writes still have no automatic invalidation. Do not
