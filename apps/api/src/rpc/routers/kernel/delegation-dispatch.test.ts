@@ -2450,6 +2450,59 @@ describe("decideDelegationDispatch approvalRoute", () => {
 	});
 });
 
+describe("platform-default delegation autonomy (no organization policy)", () => {
+	// Replay: a Home review handoff to an operator tedi that is not active and
+	// gates its own actions held for an owner/admin with "target not active".
+	const held = () => ({
+		route: makeRoute({
+			risk: "medium",
+			effortClass: "multi_hop_read",
+			plannedToolIds: ["browser_markdown", "browser_read_result"],
+		}),
+		card: makeCard({ availability: "stopped", requiresApproval: true }),
+		speaker: { approvalAuthority: true },
+		workOrderContent:
+			"Independent review: score the five candidate threads against the scorecard and reply here.",
+	});
+
+	it("dispatches a low/medium-risk handoff to the organization's own tedi", () => {
+		expect(decideDelegationDispatch(held())).toMatchObject({
+			mode: "auto",
+			canAutoDispatch: true,
+		});
+	});
+
+	it("keeps the hold when the organization opted out", () => {
+		expect(
+			decideDelegationDispatch({
+				...held(),
+				gating: { org: { platformAutonomy: false } },
+			}),
+		).toMatchObject({
+			mode: "needs_approval",
+			approvalRoute: "human",
+			reason: "target not active",
+		});
+	});
+
+	it.each([
+		[
+			"a critical action",
+			{ workOrderContent: "Send the summary by email to the customer." },
+		],
+		["a high-risk route", { route: makeRoute({ risk: "high" }) }],
+		["a speaker without authority", { speaker: { approvalAuthority: false } }],
+		[
+			"a policy deny",
+			{ gating: { org: { effect: "deny" as const, reason: "freeze" } } },
+		],
+	])("still asks a person for %s", (_label, overrides) => {
+		expect(
+			decideDelegationDispatch({ ...held(), ...overrides }).canAutoDispatch,
+		).toBe(false);
+	});
+});
+
 describe("organization critical-only delegation autonomy", () => {
 	const autonomy = { version: 1 as const, maxRisk: "medium" as const };
 	const base = () => ({

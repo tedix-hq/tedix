@@ -3,6 +3,7 @@ import {
 	decideKernelWriteApproval,
 	parseKernelGovernancePolicy,
 	parseRuntimeApprovalTimestamp,
+	platformAutonomousOperation,
 	resolveApprovalTtlHours,
 	resolveKernelFanOutCap,
 	resolveRuntimeApprovalAuthority,
@@ -762,5 +763,88 @@ describe("repo_commit approval policy", () => {
 			proposal: highCommit,
 		});
 		expect(decision).toMatchObject({ autoResolve: true, source: "session" });
+	});
+});
+
+describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
+	const decide = (
+		toolName: string,
+		riskTier: "low" | "medium" | "high",
+		policy: unknown = null,
+		appSlug = "tedix-unified",
+	) =>
+		decideKernelWriteApproval({
+			policy: policy === null ? null : parseKernelGovernancePolicy(policy),
+			proposal: { appSlug, toolName, riskTier },
+		});
+
+	it.each([
+		["work.create_work_items", "work_items"],
+		["work.update_work_item", "work_items"],
+		["work.work_item_comment", "work_items"],
+		["work.complete_work_item", "work_items"],
+		["os.rename_os_gadget", "workspace_management"],
+		["os.unlink_os_workspace_skill", "workspace_management"],
+		["os.remove_os_workspace_resource", "workspace_management"],
+		["os.archive_os_output", "workspace_management"],
+		["os.set_os_sheet_range", "workspace_management"],
+		["skills.pause_skill_workflow", "skills_and_schedules"],
+		["skills.run_skill_workflow", "runs"],
+		["os.run_os_gadget", "runs"],
+	])("classifies %s as %s by the tool, not the request", (tool, id) => {
+		expect(platformAutonomousOperation(tool)?.id).toBe(id);
+	});
+
+	it.each([
+		"os.delete_os_output",
+		"os.delete_os_workspace",
+		"gmail.send_message",
+		"billing.configure_credit_billing",
+		"accounting.create_invoice",
+		"members.update_member_role",
+		"connections.rotate_secret",
+	])("never treats the critical action %s as a platform operation", (tool) => {
+		expect(platformAutonomousOperation(tool)).toBeNull();
+	});
+
+	it("auto-approves an in-organization operation with no policy pack and says why", () => {
+		expect(decide("work.create_work_items", "low")).toEqual({
+			autoResolve: true,
+			source: "policy",
+			reason: "Work items run without approval (platform default)",
+		});
+		expect(decide("skills.run_skill_workflow", "medium")).toMatchObject({
+			autoResolve: true,
+			source: "policy",
+		});
+	});
+
+	it("keeps a person on critical, high-risk and unlisted writes", () => {
+		expect(decide("gmail.send_message", "low").autoResolve).toBe(false);
+		expect(decide("os.delete_os_output", "high").autoResolve).toBe(false);
+		expect(decide("work.create_work_items", "high").autoResolve).toBe(false);
+		expect(decide("notion.notion_update_page", "low").autoResolve).toBe(false);
+	});
+
+	it("applies under an explicit autonomy policy without a trusted-tool list", () => {
+		expect(
+			decide("os.rename_os_output", "low", {
+				autonomy: { version: 1, maxRisk: "medium" },
+			}).autoResolve,
+		).toBe(true);
+	});
+
+	it("is switched off by autonomy:false or a disabled write tier", () => {
+		expect(parseKernelGovernancePolicy({ autonomy: false })).toEqual({
+			platformAutonomy: false,
+		});
+		expect(
+			decide("work.create_work_items", "low", { autonomy: false }).autoResolve,
+		).toBe(false);
+		expect(
+			decide("work.create_work_items", "low", {
+				writeTier: { trustedTools: ["x:y"], autoApproveLowRisk: false },
+			}).autoResolve,
+		).toBe(false);
 	});
 });

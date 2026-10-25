@@ -45,7 +45,10 @@ import type {
 	KernelContextCache,
 } from "../../../kernel/context-cache";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
-import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
+import {
+	parseKernelGovernancePolicy,
+	platformAutonomyOptedOut,
+} from "@tedix/api-contract/utils/approval-policy";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
@@ -691,7 +694,10 @@ export async function readOrgDispatchPolicyLayer(
 		const definition = await (cache
 			? cache.cache.read(organizationId, "orgPolicyPack", read, cache.trace)
 			: read());
-		const layer = parseDispatchPolicyLayer(definition?.gatingPolicy);
+		const parsedLayer = parseDispatchPolicyLayer(definition?.gatingPolicy);
+		const layer = platformAutonomyOptedOut(definition?.governancePolicy)
+			? { ...parsedLayer, platformAutonomy: false as const }
+			: parsedLayer;
 		const autonomy = parseKernelGovernancePolicy(
 			definition?.governancePolicy,
 		).autonomy;
