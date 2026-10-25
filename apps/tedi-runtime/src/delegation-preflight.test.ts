@@ -111,6 +111,36 @@ assert.throws(
 	() => assertNativeResearchCheckout(repo, undefined),
 	/empty or unready.*too_large_for_native/,
 );
+// Replay: Home's native repository.read plan grants scratch clone_repo/repo_load.
+// With no computer selected the child must reach them instead of failing at start.
+const nativeSource = {
+	...repo,
+	allowedToolIds: [
+		"read",
+		"ls",
+		"find",
+		"grep",
+		"code_search",
+		"clone_repo",
+		"repo_load",
+	],
+};
+assert.doesNotThrow(() =>
+	assertNativeResearchCheckout(nativeSource, undefined),
+);
+// A selected computer refuses scratch tools, so it must still be a ready checkout.
+for (const environment of [
+	{ ready: false, preparation: "repository" },
+	{ ready: true, preparation: "shell" },
+])
+	assert.throws(
+		() => assertNativeResearchCheckout(nativeSource, environment),
+		/empty or unready/,
+	);
+assertNativeResearchCheckout(nativeSource, {
+	ready: true,
+	preparation: "repository",
+});
 assert.throws(
 	() =>
 		assertNativeResearchCheckout(repo, { ready: true, preparation: "shell" }),

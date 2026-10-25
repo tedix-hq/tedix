@@ -133,8 +133,9 @@ from the generated dispatch Work that owns execution. Ambiguous references
 return candidates rather than a guessed id.
 
 The child preflights required MCP callables with its own credential and receives
-their exact schemas before inference. Missing tools, scopes, or a prepared
-checkout for native source research fail closed. Preflight grants no permission;
+their exact schemas before inference. Missing tools or scopes fail closed. Native
+source research needs a ready computer checkout, or, with no computer selected,
+the plan's scratch `clone_repo`/`repo_load` tools. Preflight grants no permission;
 Work comments still require existing Work write authority. Native research
 without repository capabilities exposes no repository or workstation setup tools.
 
