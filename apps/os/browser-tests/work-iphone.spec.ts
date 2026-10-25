@@ -418,7 +418,8 @@ try {
 					"SolsticeLongitudinalOperationsCoordinatorWithoutAnyBreaks";
 				const ownerCell = await owners.first().evaluate((cell, name) => {
 					const row = cell.closest("li")!;
-					cell.textContent = name;
+					// Keep the app's wrapping span and metadata separator intact.
+					cell.querySelector("span:last-child")!.textContent = name;
 					cell.setAttribute("title", `Owner: ${name}`);
 					return {
 						page: document.documentElement.scrollWidth,

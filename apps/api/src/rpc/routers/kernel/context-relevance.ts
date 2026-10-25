@@ -96,11 +96,11 @@ export function rankByQueryRelevance<T>(
 /**
  * Chars reserved for the route-planner SYSTEM_PROMPT, which `assembleHomeContext`
  * cannot import without a cycle (`route-planner.ts` imports the renderer from
- * this module). Measured at 8 140 chars; pinned from the planner side by a
+ * this module). Measured at 8 540 chars; pinned from the planner side by a
  * test, so growing the system prompt past it fails loudly instead of silently
  * eating the margin.
  */
-export const SYSTEM_PROMPT_RESERVE_CHARS = 8_200;
+export const SYSTEM_PROMPT_RESERVE_CHARS = 8_600;
 
 /**
  * Tokens held back from the window for the planner's completion. The route
