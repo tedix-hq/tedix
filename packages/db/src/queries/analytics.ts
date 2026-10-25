@@ -12,7 +12,7 @@
  * - Retention cleanup (deleteOldWidgetEvents)
  */
 
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, inArray, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { type NewWidgetEvent, widgetEvents } from "../schema/analytics";
 import { apps } from "../schema/apps";
@@ -99,15 +99,28 @@ export async function trackWidgetEvent(
 }
 
 /**
+ * Rows per widget_events VALUES statement. A fully populated row binds one
+ * parameter per column, so this keeps every statement within D1's 100
+ * bound-parameter ceiling.
+ */
+const WIDGET_EVENT_INSERT_CHUNK_SIZE = Math.floor(
+	100 / Object.keys(getColumns(widgetEvents)).length,
+);
+
+/**
  * Track widget events (bulk insert)
- * Records multiple widget events in a single transaction
+ * Records multiple widget events atomically in one D1 batch, chunked so each
+ * statement stays below the bound-parameter limit.
  */
 export async function trackWidgetEvents(
 	db: DbClient,
 	events: NewWidgetEvent[],
 ): Promise<void> {
-	if (events.length === 0) return;
-	await db.insert(widgetEvents).values(events);
+	const [first, ...rest] = chunkForBoundParams(
+		events,
+		WIDGET_EVENT_INSERT_CHUNK_SIZE,
+	).map((chunk) => db.insert(widgetEvents).values(chunk));
+	if (first) await db.batch([first, ...rest]);
 }
 
 /** Idempotent, privacy-minimized event written by the embedded Tedi runtime. */
@@ -124,10 +137,15 @@ export async function trackEmbeddedAttentionOutcomes(
 	db: DbClient,
 	events: NewWidgetEvent[],
 ): Promise<void> {
-	if (events.length === 0) return;
-	await db.insert(widgetEvents).values(events).onConflictDoNothing({
-		target: widgetEvents.id,
-	});
+	const [first, ...rest] = chunkForBoundParams(
+		events,
+		WIDGET_EVENT_INSERT_CHUNK_SIZE,
+	).map((chunk) =>
+		db.insert(widgetEvents).values(chunk).onConflictDoNothing({
+			target: widgetEvents.id,
+		}),
+	);
+	if (first) await db.batch([first, ...rest]);
 }
 
 export type EmbeddedProviderActivityRow = {
