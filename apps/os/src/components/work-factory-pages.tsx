@@ -641,7 +641,7 @@ function WorkItemMobileList({
 							href={`/work/items/${item.id}`}
 							className="flex min-h-11 min-w-0 flex-col items-start justify-center py-1 text-left font-medium leading-snug coarse:min-h-11"
 						>
-							<span className="line-clamp-2">{item.title}</span>
+							<span className="wrap-anywhere">{item.title}</span>
 						</Link>
 						<div className="flex min-h-7 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pb-1">
 							{showDisposition ? (
