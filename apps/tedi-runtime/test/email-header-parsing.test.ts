@@ -211,4 +211,26 @@ describe("email header parsing", () => {
 			},
 		]);
 	});
+
+	it("preserves semicolons and escaped quotes in quoted MIME parameters", () => {
+		const parsed = parseInboundEmail(
+			[
+				'Content-Type: multipart/mixed; boundary="outer;final"',
+				"",
+				"--outer;final",
+				"Content-Type: text/plain",
+				"",
+				"See attachment.",
+				"--outer;final",
+				"Content-Type: application/pdf",
+				'Content-Disposition: attachment; filename="report;\\"final\\".pdf"',
+				"",
+				"PDF",
+				"--outer;final--",
+			].join("\r\n"),
+		);
+
+		expect(parsed.text).toBe("See attachment.");
+		expect(parsed.attachments[0]?.filename).toBe('report;"final".pdf');
+	});
 });

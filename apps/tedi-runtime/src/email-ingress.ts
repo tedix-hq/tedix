@@ -288,7 +288,7 @@ function stripQuotes(value: string): string {
 		(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
 		(trimmed.startsWith("'") && trimmed.endsWith("'"))
 	) {
-		return trimmed.slice(1, -1);
+		return trimmed.slice(1, -1).replace(/\\(.)/g, "$1");
 	}
 	return trimmed;
 }
@@ -311,7 +311,25 @@ function parseStructuredHeader(value: string | null): {
 	params: Record<string, string>;
 } {
 	if (!value) return { value: "", params: {} };
-	const parts = value.split(";").map((part) => part.trim());
+	const parts: string[] = [];
+	let current = "";
+	let quote: string | undefined;
+	let escaped = false;
+	for (const char of value) {
+		if (escaped) {
+			escaped = false;
+		} else if (quote && char === "\\") {
+			escaped = true;
+		} else if (char === '"' || char === "'") {
+			quote = quote === char ? undefined : (quote ?? char);
+		} else if (char === ";" && !quote) {
+			parts.push(current.trim());
+			current = "";
+			continue;
+		}
+		current += char;
+	}
+	parts.push(current.trim());
 	const params: Record<string, string> = {};
 	for (const part of parts.slice(1)) {
 		const separator = part.indexOf("=");
