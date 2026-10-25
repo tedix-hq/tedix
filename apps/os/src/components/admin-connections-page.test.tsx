@@ -422,8 +422,11 @@ describe("Connection inventory coverage", () => {
 		expect(connectionInventoryCountLabel(12, 12, false)).toBe("12 of 12 shown");
 	});
 
-	it("wraps inventory status metadata at phone width", async () => {
-		state.rows = [row()];
+	it("hides long inventory status metadata at phone width", async () => {
+		state.rows = Array.from({ length: 100 }, (_, index) => ({
+			...row(`Account ${index + 1}`),
+			connectionInstanceId: `slot-${index + 1}`,
+		}));
 		host = document.createElement("div");
 		document.body.append(host);
 		root = createRoot(host);
@@ -437,10 +440,10 @@ describe("Connection inventory coverage", () => {
 			),
 		);
 		const metadata = [...host.querySelectorAll("span")].find((element) =>
-			element.textContent?.includes("1 of 1 shown"),
+			element.textContent?.includes("100 of 100 shown"),
 		);
-		expect(metadata?.className).toContain("whitespace-normal");
-		expect(metadata?.className).toContain("sm:whitespace-nowrap");
+		expect(metadata?.className).toContain("hidden");
+		expect(metadata?.className).toContain("sm:inline");
 	});
 
 	it("shows an unverifiable account on its own row instead of a page banner", async () => {
