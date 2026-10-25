@@ -51,6 +51,11 @@ vi.mock(
 	}),
 );
 
+vi.mock("./direct-rename", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./direct-rename")>()),
+	organizationGatewayApp: vi.fn(async () => "org-1-unified"),
+}));
+
 import { readDelegationDepth, runKernelTurnWork } from "./turn-work";
 import {
 	chatApprovalReplyContent,
@@ -1142,6 +1147,47 @@ describe("runKernelTurnWork progress seam", () => {
 		for (const meta of capturedEventRuntimeMetadata) {
 			expect(meta).not.toHaveProperty("routerVersion");
 		}
+	});
+
+	it("plans the selected app's rename when the router produced no decision", async () => {
+		const planned: Array<Record<string, unknown>> = [];
+		const deps = stubDeps({
+			kernel: async () => null,
+			writeProposalPlanner: async (args) => {
+				planned.push(args as unknown as Record<string, unknown>);
+				return null;
+			},
+		});
+		await runKernelTurnWork(deps, {
+			...turnInput(),
+			content:
+				'[[tedix-context:gadget:gadget-1:App%20resource]]\n\nrename the app to "Harvest Review App"',
+			runtimeMetadata: {
+				workspaceContext: {
+					workspaceId: "workspace-1",
+					workspaceName: "Harvest",
+					workpiece: { kind: "gadget", id: "gadget-1", name: "Daily review" },
+				},
+			},
+		});
+		expect(planned).toHaveLength(1);
+		expect(planned[0]).toMatchObject({
+			route: {
+				routeKind: "propose_tool_write",
+				toolIntent: {
+					appSlug: "org-1-unified",
+					capability: "gadgets.rename",
+				},
+			},
+			directRename: {
+				toolName: "os.rename_os_gadget",
+				args: {
+					workspaceId: "workspace-1",
+					gadgetId: "gadget-1",
+					name: "Harvest Review App",
+				},
+			},
+		});
 	});
 
 	it("a billing-policy denial settles failed with the honest billing notice — never the provider-outage message", async () => {

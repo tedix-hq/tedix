@@ -92,23 +92,29 @@ export type WorkpieceRenameIntent =
 			args: { outputId: string; title: string };
 	  };
 
-/**
- * "Rename the app to X" in a Workspace chat whose selected workpiece is that
- * app (or output) is one direct rename: the target is the selection and the
- * name is the request's own words. Null for any other target, an external
- * provider, or a selection of the other kind.
- */
-export function workpieceRenameIntent(
-	content: string,
-	workspaceContext: SelectedWorkpieceContext | null | undefined,
-): WorkpieceRenameIntent | null {
-	const workpiece = workspaceContext?.workpiece;
-	if (!workspaceContext?.workspaceId || !workpiece?.id) return null;
-	// The title ends at the line end; host context markers lead the request.
-	const request = content
+/** What a "rename X to Y" request names: an app, an output, or "it". */
+export interface RenameRequest {
+	kind: "gadget" | "output" | "selected";
+	/** The noun phrase before "to", without a leading article. */
+	target: string;
+	name: string;
+}
+
+/** Strip the host's leading context markers ("[[tedix-context:…]]"). */
+export function stripContextMarkers(content: string): string {
+	return content
 		.replace(/^(?:\s*\[\[tedix-context:[^\]\r\n]*\]\])+\s*/, "")
 		.trim();
-	const match = RENAME_TARGET_RE.exec(request);
+}
+
+/**
+ * Parse "rename the app to X" / "rename the sheet to X" / "rename it to X".
+ * Null for any other target (a conversation, Work item, workspace, external
+ * provider file) or a name longer than an app or output name may be.
+ */
+export function parseRenameRequest(content: string): RenameRequest | null {
+	// The name ends at the line end; host context markers lead the request.
+	const match = RENAME_TARGET_RE.exec(stripContextMarkers(content));
 	if (!match) return null;
 	const target = (match[1] ?? "")
 		.replace(/^(?:the|this|our|my|current|selected)\s+/i, "")
@@ -119,42 +125,80 @@ export function workpieceRenameIntent(
 		EXTERNAL_OFFICE_PROVIDER_RE.test(target)
 	)
 		return null;
-	const kind = GADGET_TARGET_RE.test(target)
-		? "gadget"
-		: OUTPUT_TARGET_RE.test(target)
-			? "output"
+	// "the app gadget" and "the sheet gadget" both say gadget; the app noun
+	// wins only when no output noun is present.
+	const kind = OUTPUT_TARGET_RE.test(target)
+		? "output"
+		: GADGET_TARGET_RE.test(target)
+			? "gadget"
 			: SELECTED_TARGET_RE.test(target)
-				? workpiece.kind
+				? "selected"
 				: null;
-	if (kind !== workpiece.kind) return null;
+	if (!kind) return null;
 	const name = match[2]
 		?.trim()
 		.replace(/\.$/, "")
 		.replace(/^["“'‘](.*)["”'’]$/, "$1")
 		.trim();
 	if (!name || name.length > 120) return null;
-	return kind === "gadget"
+	return { kind, target, name };
+}
+
+/** The direct rename call for one resolved app or output. */
+export function renameIntentFor(
+	target:
+		| { kind: "gadget"; workspaceId: string; id: string }
+		| { kind: "output"; id: string },
+	name: string,
+): WorkpieceRenameIntent {
+	return target.kind === "gadget"
 		? {
 				capability: "gadgets.rename",
 				toolName: RENAME_GADGET_TOOL,
-				args: {
-					workspaceId: workspaceContext.workspaceId,
-					gadgetId: workpiece.id,
-					name,
-				},
+				args: { workspaceId: target.workspaceId, gadgetId: target.id, name },
 			}
 		: {
 				capability: "outputs.rename",
 				toolName: RENAME_OUTPUT_TOOL,
-				args: { outputId: workpiece.id, title: name },
+				args: { outputId: target.id, title: name },
 			};
 }
 
 /**
+ * "Rename the app to X" in a Workspace chat whose selected workpiece is that
+ * app (or output) is one direct rename: the target is the selection and the
+ * name is the request's own words. Null for any other target, an external
+ * provider, or a selection of the other kind: an attached output is context,
+ * not the target of a request that names an app.
+ */
+export function workpieceRenameIntent(
+	content: string,
+	workspaceContext: SelectedWorkpieceContext | null | undefined,
+): WorkpieceRenameIntent | null {
+	const workpiece = workspaceContext?.workpiece;
+	if (!workspaceContext?.workspaceId || !workpiece?.id) return null;
+	const request = parseRenameRequest(content);
+	if (!request) return null;
+	const kind = request.kind === "selected" ? workpiece.kind : request.kind;
+	if (kind !== workpiece.kind) return null;
+	return renameIntentFor(
+		kind === "gadget"
+			? {
+					kind,
+					workspaceId: workspaceContext.workspaceId,
+					id: workpiece.id,
+				}
+			: { kind, id: workpiece.id },
+		request.name,
+	);
+}
+
+/**
  * The router's capability is a free-text guess: live it labelled "rename the
- * app gadget" as `work_items.create`, which forced the Work-creation tool and
- * failed. A request that is exactly a rename of the selected workpiece takes
- * that rename capability whatever the router wrote.
+ * app gadget" as `work_items.create` (forcing the Work-creation tool) and, with
+ * a sheet attached, as `outputs.update` (renaming the sheet). A rename request
+ * takes the capability of the kind it names, so an app request can never reach
+ * the output rename tool. A resolved target, when known, decides outright.
  */
 export function correctWriteRoute<
 	T extends {
@@ -165,15 +209,25 @@ export function correctWriteRoute<
 	route: T,
 	content: string,
 	workspaceContext: SelectedWorkpieceContext | null | undefined,
+	resolved?: WorkpieceRenameIntent | null,
 ): T {
 	if (route.routeKind !== "propose_tool_write" || !route.toolIntent)
 		return route;
-	const rename = workpieceRenameIntent(content, workspaceContext);
-	if (!rename || route.toolIntent.capability === rename.capability)
-		return route;
+	const request = parseRenameRequest(content);
+	const selectedKind = workspaceContext?.workpiece?.kind;
+	const kind =
+		request?.kind === "selected" ? (selectedKind ?? null) : request?.kind;
+	const capability =
+		resolved?.capability ??
+		(kind === "gadget"
+			? "gadgets.rename"
+			: kind === "output"
+				? "outputs.rename"
+				: null);
+	if (!capability || route.toolIntent.capability === capability) return route;
 	return {
 		...route,
-		toolIntent: { ...route.toolIntent, capability: rename.capability },
+		toolIntent: { ...route.toolIntent, capability },
 	};
 }
 
