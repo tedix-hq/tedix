@@ -963,17 +963,15 @@ describe("commitment wake coalescing", () => {
 		{ runId: "another-run" },
 	])("ignores unrelated terminal evidence %j", async (override) => {
 		const f = await setup();
-		await f.db
-			.insert(tediRuntimeEvents)
-			.values([
-				f.started,
-				{
-					...f.started,
-					id: "unrelated-end",
-					kind: "run.completed",
-					...override,
-				},
-			]);
+		await f.db.insert(tediRuntimeEvents).values([
+			f.started,
+			{
+				...f.started,
+				id: "unrelated-end",
+				kind: "run.completed",
+				...override,
+			},
+		]);
 		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
 			deferred: 1,
 			dispatched: 0,
