@@ -2036,7 +2036,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 	private async buildAndCacheSkillGuidance(
 		admittedRunId?: string,
-	): Promise<string> {
+	): Promise<string | null> {
 		return runtimeMemory.buildAndCacheSkillGuidance.call(
 			this.memoryHost(),
 			admittedRunId,

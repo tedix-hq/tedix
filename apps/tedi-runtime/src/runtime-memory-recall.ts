@@ -292,20 +292,20 @@ export async function recordSkillRetrieval(
  * scheduled `onRefreshSkillGuidance` task is now only a 4-hour warmer for an
  * otherwise idle DO.
  *
- * Returns the built text (or "" on failure / no skills) so callers can
- * inject it immediately without waiting for the cache to warm.
+ * Returns text, "" for a successful empty catalog, or null when unavailable.
+ * Only a successful empty catalog may establish the turn gate's negative cache.
  */
 export async function buildAndCacheSkillGuidance(
 	this: RuntimeMemoryHost,
 	admittedRunId?: string,
-): Promise<string> {
-	const platform = await this.getPlatformClient();
-	if (!platform) {
-		if (admittedRunId)
-			throw new Error("Maintenance skill catalog is unavailable");
-		return "";
-	}
+): Promise<string | null> {
 	try {
+		const platform = await this.getPlatformClient();
+		if (!platform) {
+			if (admittedRunId)
+				throw new Error("Maintenance skill catalog is unavailable");
+			return null;
+		}
 		const result = await platform.listSkillsForTedi({ limit: 50 });
 		const allEntries = result.entries ?? [];
 		// Act-time retrieval corpus rides the SAME read: the full org-readable
@@ -360,7 +360,7 @@ export async function buildAndCacheSkillGuidance(
 	} catch (err) {
 		if (admittedRunId) throw err;
 		logTediSourceFailure("skill_guidance", "build", err);
-		return "";
+		return null;
 	}
 }
 
