@@ -184,6 +184,32 @@ assert.equal(
 	true,
 );
 
+// Only the root object's boolean `done` member decides the state.
+const rootDone = (done: boolean) =>
+	`{"name":"op","metadata":{"done":${!done}},"note":"\\"done\\":${!done}","done":${done},"response":{}}`;
+for (const done of [true, false]) {
+	const json = rootDone(done);
+	for (let at = 1; at < json.length; at += 1) {
+		assert.equal(
+			await vertexOperationDone(chunked(json, at)),
+			done,
+			`root done:${done} split at ${at}`,
+		);
+	}
+}
+assert.equal(
+	await vertexOperationDone(chunked('{"done":"true","x":[{"done":true}]}', 9)),
+	false,
+);
+assert.equal(
+	await vertexOperationDone(chunked('{"metadata":{"done":true}}', 15)),
+	false,
+);
+assert.equal(
+	await vertexOperationDone(chunked('{"undone":true,"done" :\n true}', 20)),
+	true,
+);
+
 for (const state of [true, false]) {
 	let cancels = 0;
 	const open = new ReadableStream<Uint8Array>({

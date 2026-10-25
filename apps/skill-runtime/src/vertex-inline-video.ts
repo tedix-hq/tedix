@@ -180,18 +180,61 @@ export async function vertexOperationDone(
 ): Promise<boolean> {
 	const reader = body.getReader();
 	const decoder = new TextDecoder();
-	let tail = "";
+	// Scan the JSON incrementally so only the root object's `done` member counts:
+	// nested `metadata.done` or a string containing `"done":true` must not end
+	// polling early, and any token may straddle a chunk boundary.
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+	let expectKey = false;
+	let key = "";
+	let lastKey = "";
+	let readingDone = false;
+	let literal = "";
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
 			if (done) return false;
-			const text = tail + decoder.decode(value, { stream: true });
-			const state = /"done"\s*:\s*(true|false)/.exec(text)?.[1];
-			if (state === "true") return true;
-			if (state === "false") return false;
-			// Google APIs commonly pretty-print JSON, and the field can straddle
-			// arbitrary chunks. Retain enough context for whitespace around done.
-			tail = text.slice(-32);
+			for (const char of decoder.decode(value, { stream: true })) {
+				if (inString) {
+					if (escaped) escaped = false;
+					else if (char === "\\") escaped = true;
+					else if (char === '"') {
+						inString = false;
+						if (depth === 1 && expectKey) {
+							lastKey = key;
+							expectKey = false;
+						}
+					} else if (depth === 1 && expectKey && key.length <= 4) key += char;
+					continue;
+				}
+				if (readingDone) {
+					if (char >= "a" && char <= "z") {
+						literal += char;
+						continue;
+					}
+					if (literal === "true") return true;
+					if (literal === "false") return false;
+					// Whitespace before the value; any other token is not a boolean.
+					if (literal !== "" || !/\s/.test(char)) readingDone = false;
+					if (readingDone) continue;
+				}
+				if (char === '"') {
+					inString = true;
+					key = "";
+				} else if (char === "{" || char === "[") {
+					depth += 1;
+					expectKey = depth === 1 && char === "{";
+				} else if (char === "}" || char === "]") {
+					depth -= 1;
+				} else if (depth === 1 && char === ",") {
+					expectKey = true;
+					lastKey = "";
+				} else if (depth === 1 && char === ":" && lastKey === "done") {
+					readingDone = true;
+					literal = "";
+				}
+			}
 		}
 	} finally {
 		try {
