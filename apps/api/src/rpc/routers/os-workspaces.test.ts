@@ -27,6 +27,7 @@ import {
 	osBlueprintRevisions,
 	osBlueprints,
 	osCollaborationProposals,
+	osGadgetCode,
 	osGadgetExecutions,
 	osGadgetRevisions,
 	osGadgets,
@@ -147,6 +148,7 @@ function createEnv(): CloudflareEnv {
 			osWorkspaces,
 			osGadgets,
 			osGadgetRevisions,
+			osGadgetCode,
 			osGadgetExecutions,
 			osBlueprints,
 			osBlueprintRevisions,
@@ -890,6 +892,76 @@ describe("gadgets", () => {
 			gadgetId: gadget.id,
 		});
 		expect(archived.gadget.status).toBe("archived");
+	});
+
+	it("records a runtime app's files with its revision and reads them back by revision", async () => {
+		const { gadget } = await c.org1.gadgets.create({
+			workspaceId,
+			name: "Opportunity cards",
+		});
+		const manifest = {
+			entry: "tedix:runtime/v1",
+			capabilities: [],
+			config: { version: 1, settings: { sheetTitle: "Opportunities" } },
+		};
+		// Code without the runtime entry, and the runtime entry without code,
+		// are both refused before anything is written.
+		await expect(
+			c.org1.gadgets.revise({
+				workspaceId,
+				gadgetId: gadget.id,
+				manifest: { entry: "main.ts" },
+				files: { "server.js": "export {}", "client.js": "" },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			c.org1.gadgets.revise({ workspaceId, gadgetId: gadget.id, manifest }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(
+			await c.org1.gadgets.getCode({ workspaceId, gadgetId: gadget.id }),
+		).toEqual({ code: null });
+
+		const first = await c.org1.gadgets.revise({
+			workspaceId,
+			gadgetId: gadget.id,
+			manifest,
+			files: { "server.js": "export class App {}", "client.js": "render()" },
+			expectedRevision: 0,
+		});
+		const code = await c.org1.gadgets.getCode({
+			workspaceId,
+			gadgetId: gadget.id,
+		});
+		expect(code.code).toMatchObject({
+			revisionId: first.revision.id,
+			revision: 1,
+			files: { "server.js": "export class App {}", "client.js": "render()" },
+			codeLength: 27,
+		});
+		const second = await c.org1.gadgets.revise({
+			workspaceId,
+			gadgetId: gadget.id,
+			manifest,
+			files: { "server.js": "export class App2 {}", "client.js": "render()" },
+			expectedRevision: 1,
+		});
+		expect(
+			(await c.org1.gadgets.getCode({ workspaceId, gadgetId: gadget.id })).code
+				?.revision,
+		).toBe(2);
+		expect(
+			(
+				await c.org1.gadgets.getCode({
+					workspaceId,
+					gadgetId: gadget.id,
+					revisionId: first.revision.id,
+				})
+			).code?.files["server.js"],
+		).toBe("export class App {}");
+		expect(second.revision.revision).toBe(2);
+		await expect(
+			c.org2.gadgets.getCode({ workspaceId, gadgetId: gadget.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 });
 

@@ -58,12 +58,18 @@ import {
 	createOsGadget,
 	createOsGadgetRevision,
 	getOsGadget,
+	getOsGadgetCode,
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 	listOsGadgets,
 	listOsWorkApps,
 	updateOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
+import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import {
+	appRuntimeCodeLength,
+	isAppRuntimeManifest,
+} from "@tedix/api-contract/utils/app-runtime";
 import { instantiateOsBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import type {
@@ -243,6 +249,19 @@ const gadgetsRevise = authorOs.gadgets.revise.handler(
 		const creator = resolveCreator(context);
 		const db = queryDb(context);
 		const revisionId = crypto.randomUUID();
+		// A runtime app is its code: the files and the manifest land together or
+		// not at all, and no other kind of app may smuggle code in.
+		const runtimeApp = isAppRuntimeManifest(input.manifest);
+		if (runtimeApp && !input.files)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"A runtime app revision needs its files (server.js and client.js)",
+			);
+		if (!runtimeApp && input.files)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Only a tedix:runtime/v1 app carries source files",
+			);
 		const result = await createOsGadgetRevision(db, {
 			id: revisionId,
 			organizationId: gadget.organizationId,
@@ -252,6 +271,12 @@ const gadgetsRevise = authorOs.gadgets.revise.handler(
 			createdByKind: creator.kind,
 			createdById: creator.id,
 			expectedRevision: input.expectedRevision,
+			code: input.files
+				? {
+						files: JSON.stringify(input.files),
+						codeLength: appRuntimeCodeLength(input.files),
+					}
+				: undefined,
 		});
 		if (!result.ok) {
 			if (result.reason === "gadget_not_found") {
@@ -275,6 +300,39 @@ const gadgetsRevise = authorOs.gadgets.revise.handler(
 		return {
 			gadget: mapGadget(advanced ?? gadget),
 			revision: mapGadgetRevision(result.revision),
+		};
+	},
+);
+
+const gadgetsGetCode = readOs.gadgets.getCode.handler(
+	async ({ input, context }) => {
+		const gadget = await requireGadget(
+			context,
+			input.workspaceId,
+			input.gadgetId,
+		);
+		const db = queryDb(context);
+		const revisionId = input.revisionId ?? gadget.currentRevisionId;
+		if (!revisionId) return { code: null };
+		const revision = await getOsGadgetRevision(db, {
+			organizationId: gadget.organizationId,
+			revisionId,
+		});
+		if (!revision || revision.gadgetId !== gadget.id)
+			throw createError(ErrorCodes.NOT_FOUND, "OS app revision not found");
+		const row = await getOsGadgetCode(db, {
+			organizationId: gadget.organizationId,
+			revisionId: revision.id,
+		});
+		if (!row) return { code: null };
+		return {
+			code: {
+				revisionId: revision.id,
+				revision: revision.revision,
+				files: AppRuntimeFilesSchema.parse(JSON.parse(row.files)),
+				codeLength: row.codeLength,
+				createdAt: row.createdAt,
+			},
 		};
 	},
 );
@@ -2199,6 +2257,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		create: gadgetsCreate,
 		get: gadgetsGet,
 		revise: gadgetsRevise,
+		getCode: gadgetsGetCode,
 		archive: gadgetsArchive,
 		rename: gadgetsRename,
 		run: gadgetsRun,
