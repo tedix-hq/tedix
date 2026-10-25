@@ -680,6 +680,38 @@ try {
 			])
 				if (await page.getByRole("heading", { name, exact: true }).isVisible())
 					throw new Error(`Unexpected context section: ${name}`);
+			// The side panel is narrow at every width: its metric tiles keep two
+			// columns and never break a word across lines.
+			const attention = await page
+				.getByRole("region", { name: "Decision attention", exact: true })
+				.evaluate((section) => {
+					const broken: string[] = [];
+					const walker = document.createTreeWalker(
+						section,
+						NodeFilter.SHOW_TEXT,
+					);
+					for (let node = walker.nextNode(); node; node = walker.nextNode())
+						for (const word of (node.textContent ?? "").matchAll(/\S+/g)) {
+							const range = document.createRange();
+							range.setStart(node, word.index);
+							range.setEnd(node, word.index + word[0].length);
+							const lines = new Set(
+								[...range.getClientRects()].map((rect) => Math.round(rect.top)),
+							);
+							if (lines.size > 1) broken.push(word[0]);
+						}
+					const grid = section.querySelector("dl");
+					return {
+						broken,
+						columns: grid
+							? getComputedStyle(grid).gridTemplateColumns.split(" ").length
+							: 0,
+					};
+				});
+			if (attention.broken.length > 0 || attention.columns !== 2)
+				throw new Error(
+					`Decision attention ${width}/${theme}: ${JSON.stringify(attention)}`,
+				);
 			await page.keyboard.press("Escape");
 			await page.getByRole("button", { name: "Details", exact: true }).click();
 			await page

@@ -62,6 +62,8 @@ export function MetricTile({ tile, ...props }: MetricTileProps) {
 			<MetricItem
 				label={data.label}
 				value={data.emptyReason}
+				// A reason is prose: break between words, never inside one.
+				valueClassName="wrap-break-word"
 				valueTone="secondary"
 				description={
 					data.setupHref ? (
