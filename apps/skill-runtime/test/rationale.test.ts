@@ -70,6 +70,32 @@ assert.deepEqual(rationale.evidence, {
 	],
 });
 
+for (const [stepName, message] of [
+	["a".repeat(200), "long step failed"],
+	["🧪".repeat(20), "Unicode step failed"],
+] as const) {
+	const failure = RationaleEventSchema.parse({
+		gate: "step_do_failure",
+		stepName,
+		error: { name: "Error", message },
+	});
+	const failureRationale = buildWorkflowRationalePayload({
+		runId: "run-1",
+		skillId: "skill-1",
+		skillSlug: "weekly-report",
+		tediId: "tedi-1",
+		orgId: "org-1",
+		...failure,
+	});
+
+	assert.equal(failureRationale.outcome, message);
+	assert.deepEqual(failureRationale.evidence.error, {
+		name: "Error",
+		message,
+	});
+	assert.equal(failureRationale.evidence.errorArtifactUri, null);
+}
+
 const pauseGate = {
 	runId: "run-1",
 	executionEpoch: 2,

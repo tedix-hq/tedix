@@ -112,10 +112,14 @@ export function buildWorkflowRationalePayload(
 				},
 			};
 		case "step_do_failure": {
-			const errorArtifactUri =
-				parsed.stepName && parsed.skillSlug
-					? `skill://${parsed.skillSlug}/runs/${parsed.runId}/outputs/${encodeWorkflowArtifactPathSegment(parsed.stepName)}.error.json`
-					: null;
+			let errorArtifactUri: string | null = null;
+			if (parsed.stepName && parsed.skillSlug) {
+				try {
+					errorArtifactUri = `skill://${parsed.skillSlug}/runs/${parsed.runId}/outputs/${encodeWorkflowArtifactPathSegment(parsed.stepName)}.error.json`;
+				} catch {
+					// The artifact link is supplemental and must not hide the failure itself.
+				}
+			}
 			return {
 				action: `Skill workflow step failed: ${parsed.stepName ?? "?"}`,
 				rationale: `step.do("${parsed.stepName ?? "?"}") in workflow ${slug} run ${parsed.runId} failed after retries. Error attributed to the skill body or its declared dependencies.`,
