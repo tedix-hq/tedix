@@ -1717,6 +1717,7 @@ export const runtimeParentTurns = {
 				createdAt: new Date().toISOString(),
 			});
 			markStepCompleted({
+				heapProxy: payload.heapProxy,
 				tediId,
 				runId,
 				stepNumber: payload.stepNumber,

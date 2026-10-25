@@ -52,6 +52,7 @@ export function markFacetToolDispatch(input: {
 
 /** One line per recorded model step (`step.completed`). */
 export function markStepCompleted(input: {
+	heapProxy?: import("./step-telemetry").StepTelemetryPayload["heapProxy"];
 	tediId: string;
 	runId: string;
 	stepNumber: number;
@@ -63,6 +64,7 @@ export function markStepCompleted(input: {
 }): void {
 	emit(() => ({
 		_tr: "step",
+		...(input.heapProxy ? { heapProxy: input.heapProxy } : {}),
 		tediId: input.tediId,
 		runId: input.runId,
 		stepNumber: input.stepNumber,
