@@ -10,6 +10,7 @@ import type {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/kumo/button";
+import { OS_FRAME_RELOAD_SAFE_ATTRIBUTE } from "@/lib/reload-safety";
 
 export interface WidgetAppFrameProps {
 	html: string;
@@ -76,6 +77,9 @@ export function WidgetAppFrame(props: WidgetAppFrameProps) {
 		iframeRef.current = iframe;
 		iframe.title = "Interactive widget";
 		iframe.setAttribute("sandbox", sandbox.permissions);
+		// A widget renders a tool result; it blocks a recovery reload only when
+		// it reports unsaved state (data-os-dirty="true").
+		iframe.setAttribute(OS_FRAME_RELOAD_SAFE_ATTRIBUTE, "");
 		iframe.style.cssText =
 			"width:100%;min-height:0;border:0;background:transparent";
 		resizeFrame();

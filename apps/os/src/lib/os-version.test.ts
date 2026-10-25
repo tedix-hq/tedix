@@ -75,4 +75,30 @@ describe("reload input safety", () => {
 		textarea.remove();
 		expect(hasUnsavedOsInput(document)).toBe(true);
 	});
+
+	it("treats a composer emptied by a send as clean", () => {
+		dispose.push(trackOsInput(document));
+		const composer = document.createElement("textarea");
+		document.body.append(composer);
+		composer.value = "Summarise the week";
+		composer.dispatchEvent(new Event("input", { bubbles: true }));
+		expect(hasUnsavedOsInput(document)).toBe(true);
+		// The send clears the still-mounted composer.
+		composer.value = "";
+		expect(hasUnsavedOsInput(document)).toBe(false);
+	});
+
+	it("ignores reload-safe widget frames unless they report dirty", () => {
+		dispose.push(trackOsInput(document));
+		const widget = document.createElement("iframe");
+		widget.setAttribute("data-os-reload-safe", "");
+		document.body.append(widget);
+		expect(hasUnsavedOsInput(document)).toBe(false);
+		widget.setAttribute("data-os-dirty", "true");
+		expect(hasUnsavedOsInput(document)).toBe(true);
+		widget.remove();
+		// Any other embedded frame may hold its own state and still counts.
+		document.body.append(document.createElement("iframe"));
+		expect(hasUnsavedOsInput(document)).toBe(true);
+	});
 });
