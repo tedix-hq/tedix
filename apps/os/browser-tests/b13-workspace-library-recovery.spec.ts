@@ -224,6 +224,8 @@ try {
 							},
 						],
 					};
+				} else if (endpoint.endsWith("/osCollaborators/listShared")) {
+					json = { items: [] };
 				} else if (endpoint.endsWith("/workspaces/list")) {
 					const archived = input.status === "archived";
 					reads[archived ? "archived" : "active"]++;

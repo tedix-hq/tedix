@@ -1,4 +1,10 @@
-import { Archive, DotsThree, PencilSimple, Plus } from "@phosphor-icons/react";
+import {
+	Archive,
+	DotsThree,
+	PencilSimple,
+	Plus,
+	UsersThree,
+} from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect, useState } from "react";
@@ -29,7 +35,7 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { osApi } from "@/lib/api";
 import { osQueryKeys } from "@/lib/os-query-options";
-import { ShareControls } from "@/components/share-controls";
+import { WorkspaceShareDialog } from "@/components/workspace-share-dialog";
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error
@@ -193,6 +199,7 @@ export function CanvasWorkspaceControls({
 	const [createOpen, setCreateOpen] = useState(false);
 	const [editOpen, setEditOpen] = useState(false);
 	const [archiveOpen, setArchiveOpen] = useState(false);
+	const [shareOpen, setShareOpen] = useState(false);
 
 	const archive = useMutation({
 		mutationFn: () =>
@@ -220,12 +227,25 @@ export function CanvasWorkspaceControls({
 				) : null}
 				{workspace && (
 					<>
-						<ShareControls
-							resourceType="workspace"
-							resourceId={workspace.id}
-							workspaceId={workspace.id}
-							compact={compactActions}
-						/>
+						{compactActions ? (
+							<Button
+								aria-label="Share"
+								size="icon-sm"
+								title="Share workspace"
+								variant="ghost"
+								onClick={() => setShareOpen(true)}
+							>
+								<UsersThree size={14} />
+							</Button>
+						) : (
+							<Button
+								size="sm"
+								variant="secondary"
+								onClick={() => setShareOpen(true)}
+							>
+								<UsersThree size={14} /> Share
+							</Button>
+						)}
 						<span className="hidden items-center gap-2 sm:flex">
 							{compactActions ? (
 								<>
@@ -306,6 +326,14 @@ export function CanvasWorkspaceControls({
 			) : null}
 			{workspace && (
 				<>
+					{shareOpen ? (
+						<WorkspaceShareDialog
+							workspaceId={workspace.id}
+							workspaceName={workspace.name}
+							open
+							onOpenChange={setShareOpen}
+						/>
+					) : null}
 					<WorkspaceFormDialog
 						mode="edit"
 						open={editOpen}

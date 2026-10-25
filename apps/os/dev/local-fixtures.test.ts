@@ -418,6 +418,32 @@ const CALLS: Record<string, unknown> = {
 		name: "Orion planning",
 	},
 	"osWorkspaces/workspaces/get": { workspaceId: IDS.workspaceRevenue },
+	"osCollaborators/list": { workspaceId: IDS.workspaceRevenue },
+	"osCollaborators/add": {
+		workspaceId: IDS.workspaceRevenue,
+		email: "kai@example.test",
+		role: "use",
+	},
+	"osCollaborators/createLink": {
+		workspaceId: IDS.workspaceRevenue,
+		role: "use",
+	},
+	"osCollaborators/copyLink": {
+		workspaceId: IDS.workspaceRevenue,
+		linkId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+	},
+	"osCollaborators/previewRemove": {
+		workspaceId: IDS.workspaceRevenue,
+		target: { kind: "user", userId: "local-kai@example.test" },
+	},
+	"osCollaborators/remove": {
+		workspaceId: IDS.workspaceRevenue,
+		target: { kind: "user", userId: "local-kai@example.test" },
+		keepUserIds: [],
+	},
+	"osCollaborators/open": { workspaceId: IDS.workspaceRevenue },
+	"osCollaborators/listShared": {},
+	"osCollaborators/dismissShared": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspaces/update": {
 		workspaceId: IDS.workspaceRevenue,
 		name: "Revenue Operations",

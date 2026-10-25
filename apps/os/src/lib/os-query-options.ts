@@ -172,6 +172,14 @@ export const userConnectionsQueryOptions = () =>
 	osQuery.connections.getUserConnections.queryOptions({ input: {} });
 
 /** Governed share links for one exact resource. */
+/** Who has access to a workspace, and its active share links. */
+export const workspaceCollaboratorsQueryOptions = (workspaceId: string) =>
+	osQuery.osCollaborators.list.queryOptions({ input: { workspaceId } });
+
+/** Workspaces other people shared with the caller, once opened. */
+export const sharedWorkspacesQueryOptions = () =>
+	osQuery.osCollaborators.listShared.queryOptions({ input: {} });
+
 export const osSharesQueryOptions = (
 	input: ClientInput<typeof osApi.osShares.shares.list>,
 ) => osQuery.osShares.shares.list.queryOptions({ input });
@@ -1359,6 +1367,8 @@ export const osQueryKeys = {
 	workResourcePools: () =>
 		osQuery.workItems.listResourcePools.key({ type: "query" }),
 	workspaces: () => osQuery.osWorkspaces.workspaces.key({ type: "query" }),
+	/** Collaborators, share links and the caller's shared-workspace list. */
+	collaborators: () => osQuery.osCollaborators.key({ type: "query" }),
 } as const;
 
 export const appGatewayMembershipQueryOptions = (appId: string) =>
