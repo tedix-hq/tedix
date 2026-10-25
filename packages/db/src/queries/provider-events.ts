@@ -176,6 +176,60 @@ export async function addProviderEventDelivery(
 ) {
 	return db.insert(deliveries).values(row).onConflictDoNothing().returning();
 }
+/**
+ * Retake an `admitting` delivery whose admission lease expired without a
+ * decision (admission threw or the process stopped), so a redelivered event
+ * can be admitted instead of being lost as a duplicate.
+ */
+export async function reclaimProviderEventAdmission(
+	db: DbQueryClient,
+	id: string,
+	organizationId: string,
+	now: string,
+	until: string,
+) {
+	return (
+		(
+			await db
+				.update(deliveries)
+				.set({ leaseUntil: until })
+				.where(
+					and(
+						eq(deliveries.id, id),
+						eq(deliveries.organizationId, organizationId),
+						eq(deliveries.status, "admitting"),
+						lt(deliveries.leaseUntil, now),
+					),
+				)
+				.returning({ id: deliveries.id })
+		).length > 0
+	);
+}
+/** Record the wake-budget decision for a delivery still held under its admission lease. */
+export async function settleProviderEventAdmission(
+	db: DbQueryClient,
+	id: string,
+	organizationId: string,
+	leaseUntil: string,
+	status: "pending" | "discarded",
+) {
+	return (
+		(
+			await db
+				.update(deliveries)
+				.set({ status, leaseUntil: null })
+				.where(
+					and(
+						eq(deliveries.id, id),
+						eq(deliveries.organizationId, organizationId),
+						eq(deliveries.status, "admitting"),
+						eq(deliveries.leaseUntil, leaseUntil),
+					),
+				)
+				.returning({ id: deliveries.id })
+		).length > 0
+	);
+}
 export async function listPendingProviderEventDeliveries(
 	db: DbQueryClient,
 	now: string,

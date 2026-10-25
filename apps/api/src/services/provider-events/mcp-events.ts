@@ -17,7 +17,8 @@ import type { ProviderEventChannelRow } from "@tedix/db/schema/provider-events";
 import {
 	addProviderEventDelivery,
 	claimProviderEventWake,
-	settleProviderEventDelivery,
+	reclaimProviderEventAdmission,
+	settleProviderEventAdmission,
 	updateProviderEventSubscription,
 } from "@tedix/db/queries/provider-events";
 import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
@@ -271,9 +272,11 @@ export function wrapUntrustedMcpEvent(
 
 /**
  * Dedupe, wrap, rate-limit and queue one upstream event. The delivery row is
- * inserted first so a duplicate never spends wake budget, and it is held under
- * a short lease until admission settles it, so the dispatcher cannot run an
- * event that is about to be discarded.
+ * inserted first so a duplicate never spends wake budget. It starts as
+ * `admitting`, which the dispatcher never reads, and becomes `pending` only
+ * after the wake budget admits it. If admission fails or the process stops,
+ * the row stays undispatchable; a redelivery may retake it once its short
+ * admission lease expires.
  */
 export async function ingestMcpEvent(
 	context: BaseContext,
@@ -300,7 +303,7 @@ export async function ingestMcpEvent(
 		id,
 		organizationId: row.organizationId,
 		subscriptionId: row.id,
-		status: "pending",
+		status: "admitting",
 		leaseUntil: deliveryLeaseUntil,
 		createdAt: nowIso,
 		payload: wrapUntrustedMcpEvent(row, {
@@ -312,7 +315,18 @@ export async function ingestMcpEvent(
 			data: occurrence.data,
 		}),
 	});
-	if (!inserted.length) return "duplicate";
+	if (
+		!inserted.length &&
+		!(await reclaimProviderEventAdmission(
+			context.db,
+			id,
+			row.organizationId,
+			nowIso,
+			deliveryLeaseUntil,
+		))
+	) {
+		return "duplicate";
+	}
 	const maxWakes = row.maxWakesPerHour ?? MCP_EVENTS_DEFAULT_MAX_WAKES_PER_HOUR;
 	const admitted = await claimProviderEventWake(
 		context.db,
@@ -323,13 +337,12 @@ export async function ingestMcpEvent(
 		maxWakes,
 	);
 	if (!admitted) {
-		await settleProviderEventDelivery(
+		await settleProviderEventAdmission(
 			context.db,
 			id,
 			row.organizationId,
 			deliveryLeaseUntil,
 			"discarded",
-			nowIso,
 		);
 		await updateProviderEventSubscription(
 			context.db,
@@ -342,13 +355,12 @@ export async function ingestMcpEvent(
 		);
 		return "rate_limited";
 	}
-	await settleProviderEventDelivery(
+	await settleProviderEventAdmission(
 		context.db,
 		id,
 		row.organizationId,
 		deliveryLeaseUntil,
 		"pending",
-		nowIso,
 	);
 	return "queued";
 }
