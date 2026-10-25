@@ -84,8 +84,10 @@ export const providerEventDeliveries = sqliteTable(
 		id: text("id").primaryKey(),
 		organizationId: text("organization_id").notNull(),
 		subscriptionId: text("subscription_id").notNull(),
+		// mcp_events rows start as `admitting` until the wake budget admits
+		// them; the dispatcher only ever reads `pending`.
 		status: text("status", {
-			enum: ["pending", "sent", "discarded"],
+			enum: ["admitting", "pending", "sent", "discarded"],
 		}).notNull(),
 		attempts: integer("attempts").notNull().default(0),
 		// mcp_events: the received event, already wrapped as untrusted content.

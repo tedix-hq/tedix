@@ -10,6 +10,8 @@ import {
 	claimProviderEventDelivery,
 	listPendingProviderEventDeliveries,
 	settleProviderEventDelivery,
+	reclaimProviderEventAdmission,
+	settleProviderEventAdmission,
 	claimProviderEventSubscription,
 	dueProviderEventSubscriptions,
 	pruneProviderEvents,
@@ -344,6 +346,88 @@ describe("provider event D1 authority and outbox", () => {
 		expect(await listPendingProviderEventDeliveries(db, "2026-01-08")).toEqual(
 			[],
 		);
+	});
+	it("keeps admitting deliveries undispatchable until admission settles them", async () => {
+		const db = fixture();
+		await addProviderEventDelivery(db, {
+			id: "event",
+			organizationId: "org-a",
+			subscriptionId: "sub",
+			status: "admitting",
+			leaseUntil: "2026-01-02",
+			createdAt: "2026-01-01",
+		});
+		expect(await listPendingProviderEventDeliveries(db, "2026-01-09")).toEqual(
+			[],
+		);
+		expect(
+			await claimProviderEventDelivery(
+				db,
+				"event",
+				"org-a",
+				"2026-01-09",
+				"2026-01-10",
+			),
+		).toBe(false);
+		// Only an expired admission lease can be retaken, and only by its organization.
+		expect(
+			await reclaimProviderEventAdmission(
+				db,
+				"event",
+				"org-a",
+				"2026-01-01",
+				"2026-01-03",
+			),
+		).toBe(false);
+		expect(
+			await reclaimProviderEventAdmission(
+				db,
+				"event",
+				"org-b",
+				"2026-01-04",
+				"2026-01-05",
+			),
+		).toBe(false);
+		expect(
+			await reclaimProviderEventAdmission(
+				db,
+				"event",
+				"org-a",
+				"2026-01-04",
+				"2026-01-05",
+			),
+		).toBe(true);
+		// The superseded admission cannot settle; the current one can.
+		expect(
+			await settleProviderEventAdmission(
+				db,
+				"event",
+				"org-a",
+				"2026-01-02",
+				"pending",
+			),
+		).toBe(false);
+		expect(
+			await settleProviderEventAdmission(
+				db,
+				"event",
+				"org-a",
+				"2026-01-05",
+				"pending",
+			),
+		).toBe(true);
+		expect(await listPendingProviderEventDeliveries(db, "2026-01-06")).toEqual([
+			expect.objectContaining({ id: "event", leaseUntil: null }),
+		]);
+		expect(
+			await reclaimProviderEventAdmission(
+				db,
+				"event",
+				"org-a",
+				"2026-01-09",
+				"2026-01-10",
+			),
+		).toBe(false);
 	});
 	it("rejects a stale claimant's settlement after the delivery lease is reclaimed", async () => {
 		const db = fixture();

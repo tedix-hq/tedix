@@ -6,7 +6,7 @@ type Delivery = {
 	id: string;
 	organizationId: string;
 	subscriptionId: string;
-	status: "pending" | "sent" | "discarded";
+	status: "admitting" | "pending" | "sent" | "discarded";
 	attempts: number;
 	leaseUntil: string | null;
 	payload: Record<string, unknown> | null;
@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	emit: vi.fn(),
 	updateSubscription: vi.fn(),
 	credential: vi.fn(),
+	wakeFault: vi.fn(),
 }));
 // A faithful in-memory stand-in for the D1 outbox: the real statements are
 // proven against SQLite in packages/db/src/queries/provider-events.test.ts.
@@ -38,6 +39,43 @@ vi.mock("@tedix/db/queries/provider-events", () => ({
 		state.deliveries.set(row.id, stored);
 		return [stored];
 	},
+	reclaimProviderEventAdmission: async (
+		_db: unknown,
+		id: string,
+		org: string,
+		now: string,
+		until: string,
+	) => {
+		const row = state.deliveries.get(id);
+		if (
+			!row ||
+			row.organizationId !== org ||
+			row.status !== "admitting" ||
+			!row.leaseUntil ||
+			row.leaseUntil >= now
+		)
+			return false;
+		state.deliveries.set(id, { ...row, leaseUntil: until });
+		return true;
+	},
+	settleProviderEventAdmission: async (
+		_db: unknown,
+		id: string,
+		org: string,
+		leaseUntil: string,
+		status: "pending" | "discarded",
+	) => {
+		const row = state.deliveries.get(id);
+		if (
+			!row ||
+			row.organizationId !== org ||
+			row.status !== "admitting" ||
+			row.leaseUntil !== leaseUntil
+		)
+			return false;
+		state.deliveries.set(id, { ...row, status, leaseUntil: null });
+		return true;
+	},
 	claimProviderEventWake: async (
 		_db: unknown,
 		org: string,
@@ -46,6 +84,7 @@ vi.mock("@tedix/db/queries/provider-events", () => ({
 		_windowStart: string,
 		max: number,
 	) => {
+		mocks.wakeFault();
 		const sub = state.subscriptions.get(id);
 		if (!sub || sub.organizationId !== org) return false;
 		const used = state.wakes.get(id) ?? 0;
@@ -88,9 +127,10 @@ vi.mock("@tedix/db/queries/provider-events", () => ({
 		const sub = state.subscriptions.get(id);
 		return sub?.organizationId === org ? sub : undefined;
 	},
-	listPendingProviderEventDeliveries: async () =>
+	listPendingProviderEventDeliveries: async (_db: unknown, now: string) =>
 		[...state.deliveries.values()].filter(
-			(row) => row.status === "pending" && !row.leaseUntil,
+			(row) =>
+				row.status === "pending" && (!row.leaseUntil || row.leaseUntil < now),
 		),
 	claimProviderEventDelivery: async (
 		_db: unknown,
@@ -403,6 +443,48 @@ describe("mcp_events poll → wake", () => {
 			/Wake budget of 2 per hour/,
 		);
 		expect(await dispatchProviderEventDeliveries(context)).toBe(2);
+	});
+
+	it("never dispatches a delivery whose wake admission failed, even after its lease expires", async () => {
+		mocks.wakeFault.mockImplementationOnce(() => {
+			throw new Error("D1 unavailable");
+		});
+		await expect(
+			ingestMcpEvent(context, row, event("evt-fault")),
+		).rejects.toThrow("D1 unavailable");
+		const [stranded] = [...state.deliveries.values()];
+		expect(stranded).toMatchObject({ status: "admitting" });
+		expect(await dispatchProviderEventDeliveries(context)).toBe(0);
+
+		// A restart after the lease expires still finds nothing dispatchable.
+		state.deliveries.set(stranded!.id, {
+			...stranded!,
+			leaseUntil: "2000-01-01T00:00:00.000Z",
+		});
+		expect(await dispatchProviderEventDeliveries(context)).toBe(0);
+		expect(state.wakes.get(SUB)).toBeUndefined();
+
+		// The upstream's redelivery retakes the expired admission and is admitted once.
+		expect(await ingestMcpEvent(context, row, event("evt-fault"))).toBe(
+			"queued",
+		);
+		expect(state.wakes.get(SUB)).toBe(1);
+		expect(await dispatchProviderEventDeliveries(context)).toBe(1);
+	});
+
+	it("treats a redelivery during a live admission lease as a duplicate", async () => {
+		state.wakes.set(SUB, 0);
+		mocks.wakeFault.mockImplementationOnce(() => {
+			throw new Error("process stopped after insert");
+		});
+		await expect(
+			ingestMcpEvent(context, row, event("evt-live")),
+		).rejects.toThrow("process stopped");
+		expect(await ingestMcpEvent(context, row, event("evt-live"))).toBe(
+			"duplicate",
+		);
+		expect(state.wakes.get(SUB)).toBe(0);
+		expect(await dispatchProviderEventDeliveries(context)).toBe(0);
 	});
 });
 
