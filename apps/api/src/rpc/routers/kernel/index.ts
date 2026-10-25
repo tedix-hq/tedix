@@ -27,9 +27,8 @@ import type { KernelExecutionAttempt } from "./gateway-attribution";
  *
  * LLM-only: when every routing model fails (Azure + Workers AI fallback both
  * unavailable), `planKernelRoute` returns `null` and `runKernel` returns `null`.
- * The caller then settles the turn `failed` with a clear "model unavailable"
- * notice — there is no heuristic responder, so a provider/gateway outage is
- * legible instead of masked. The Home Kernel is deliberately not a deploy gate
+ * The caller schedules one durable retry before settling an unavailable turn
+ * `failed`. No heuristic responder masks a provider outage. The Home Kernel is deliberately not a deploy gate
  * (authenticated AI Gateway BYOK is required for Azure routing).
  *
  * Scope: produces a typed route decision + rationale, prepares write proposals
@@ -106,6 +105,7 @@ import type { KernelEnv } from "./llm";
 import { kernelModel } from "./llm";
 import type {
 	KernelRouteHedge,
+	PlanKernelRouteArgs,
 	KernelRouteTraceInput,
 	KernelRouteUsage,
 } from "./route-planner";
@@ -441,8 +441,7 @@ export function renderRouteResponse(
  *
  * db / env / organizationId / descopeUserId come from the oRPC BaseContext
  * (`apps/api/src/rpc/orpc.ts`). Returns `null` only when no routing model is
- * available (Azure + Workers AI both failed); the caller then settles the turn
- * `failed` (model unavailable) — there is no heuristic responder.
+ * available; the caller schedules one saved-input retry before failing the turn.
  */
 /**
  * Default budget for the DEFERRED history fold on the Azure lane. Measured
@@ -458,6 +457,7 @@ export async function runKernel(args: {
 	/** Tools the person's page offers for this turn; Home asks, the page runs. */
 	pageTools?: HomePageTools;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
+	onRouteAttempts?: PlanKernelRouteArgs["onRouteAttempts"];
 	/** The conversation's persisted compaction checkpoint (KernelDO storage). */
 	previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
 	/** Receives a NEW compaction checkpoint so the caller can persist it. */
@@ -964,6 +964,7 @@ export async function runKernel(args: {
 	// Compaction retry reuses the same immutable judgment, never another paid call.
 	let routeJudgment: ReturnType<typeof decideHomeRoute> | undefined;
 	const planArgs = {
+		onRouteAttempts: args.onRouteAttempts,
 		...(args.pageTools ? { pageTools: args.pageTools } : {}),
 		...(homeRoutePolicy && homeRoutePolicy.mode !== "off"
 			? {

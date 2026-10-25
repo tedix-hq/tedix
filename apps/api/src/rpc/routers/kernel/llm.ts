@@ -306,6 +306,9 @@ export interface SelectedKernelModel {
 	pricingIdentity: ProviderExecutionIdentity | null;
 	attempts: NonNullable<KernelGatewayContext["executionAttempts"]>;
 	forOperation: () => SelectedKernelModel;
+	/** Route planning owns its single fallback and deadline. */
+	forRouteOperation?: () => SelectedKernelModel;
+	retryModel?: () => Promise<SelectedKernelModel | null>;
 }
 
 /** Each operation owns a fresh transport closure, including when callers run concurrently. */
@@ -385,6 +388,33 @@ export function kernelModel(
 		typeof override?.modelRef === "string"
 			? override.modelRef
 			: env.KERNEL_MODEL_REF?.trim() || CLOUDFLARE_AUTO_MODEL_REF;
+	const hooks = kernelFallbackHooks(env.DB, {
+		organizationId: gatewayContext.organizationId,
+		runId: gatewayContext.runId,
+	});
+	selected.forRouteOperation = () => {
+		const route = selectKernelModel(env, override, gatewayContext);
+		if (!route) throw new Error("Kernel model became unavailable");
+		route.retryModel = async () => {
+			const policy = await hooks.load();
+			if (policy.maxTransitions < 1) return null;
+			for (const ref of policy.ladder[primaryRef] ?? []) {
+				if (ref === primaryRef) continue;
+				const next = selectKernelModel(env, { modelRef: ref }, gatewayContext);
+				if (!next) continue;
+				await hooks.record({
+					from: primaryRef,
+					to: ref,
+					reason: "provider_unavailable",
+					ordinal: 1,
+					policyVersion: policy.version,
+				});
+				return next;
+			}
+			return null;
+		};
+		return route;
+	};
 	selected.model = withModelFallback(
 		wrapLanguageModel({ model: selected.model, middleware: [] }),
 		{

@@ -3246,7 +3246,7 @@ describe("kernel runtime router", () => {
 		);
 	});
 
-	it("settles the turn failed (model unavailable) when the Kernel returns null — no heuristic answer", async () => {
+	it("queues a route failure for automatic redrive, and preserves manual retry access checks after exhaustion", async () => {
 		const db = createKernelRuntimeDb();
 		const context = {
 			...createContext(db, { userSub: "member-1" }),
@@ -3254,6 +3254,15 @@ describe("kernel runtime router", () => {
 			apiKey: undefined,
 			userRole: "member" as const,
 		};
+		const scheduled: unknown[] = [];
+		context.env.KERNEL = {
+			idFromName: (id: string) => id,
+			get: () => ({
+				scheduleRouteRedrive: async (input: unknown) => {
+					scheduled.push(input);
+				},
+			}),
+		} as unknown as CloudflareEnv["KERNEL"];
 		const client = createKernelRuntimeClient(context);
 		const kernel = vi.fn(async (_input: unknown) => null);
 		kernelRuntimeTestHooks.setKernelForTest(kernel);
@@ -3278,10 +3287,10 @@ describe("kernel runtime router", () => {
 		});
 
 		expect(kernel).toHaveBeenCalledTimes(1);
-		// LLM-only kernel: no route decision is a hard failure, not a fabricated
-		// answer. The operator sees a clear model-unavailable notice.
-		expect(result.status).toBe("failed");
-		expect(result.run.status).toBe("failed");
+		// The durable retry is queued before reporting it to the caller.
+		expect(result.status).toBe("queued");
+		expect(result.run.status).toBe("queued");
+		expect(scheduled).toHaveLength(1);
 		expect(result.run.metadata).toMatchObject({
 			redriveInput: { allowWorkflowConfirmation: false },
 		});
@@ -3302,6 +3311,35 @@ describe("kernel runtime router", () => {
 				retryRunId: result.run.id,
 			},
 		});
+		const { transitionKernelRuntimeRunStatus } =
+			await import("@tedix/db/queries/kernel-runtime-runs");
+		await transitionKernelRuntimeRunStatus(context.db, {
+			id: result.run.id,
+			organizationId: result.run.organizationId,
+			fromStatus: "queued",
+			patch: { status: "running" },
+		});
+		const { runKernelTurnWork } = await import("./kernel/turn-work");
+		const { buildKernelTurnWorkDeps } =
+			await import("./kernel-runtime/turn-delegation");
+		const saved =
+			scheduled[0] as import("./kernel/turn-work-context").KernelTurnWorkInput;
+		const exhausted = await runKernelTurnWork(
+			buildKernelTurnWorkDeps(context),
+			{
+				...saved,
+				assistantMessageId: `${saved.assistantMessageId}:route-redrive`,
+				runRowMetadata: { ...saved.runRowMetadata, routeRetryCount: 1 },
+			},
+		);
+		expect(exhausted.run.status).toBe("failed");
+		expect(
+			(await client.readRun({ runId: result.run.id })).run.outputMessageId,
+		).toBe(exhausted.assistantMessage.id);
+		expect(scheduled).toHaveLength(1);
+		expect(exhausted.assistantMessage.content).toContain(
+			"retried it automatically once",
+		);
 		const otherMember = createKernelRuntimeClient({
 			...context,
 			user: { sub: "member-2" } as BaseContext["user"],
@@ -3328,7 +3366,7 @@ describe("kernel runtime router", () => {
 		expect(repeated.newRunId).toBe(retried.newRunId);
 		expect(retried.newRunId).not.toBe(result.run.id);
 		expect(duplicate.newRunId).toBe(retried.newRunId);
-		expect(kernel).toHaveBeenCalledTimes(2);
+		expect(kernel).toHaveBeenCalledTimes(3);
 		expect(kernel.mock.calls[1]?.[0]).toMatchObject({
 			content: "Capture this idea for the quarterly planning review",
 			conversationId: "home:test",

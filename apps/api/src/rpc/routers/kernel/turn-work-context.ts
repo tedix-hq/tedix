@@ -105,6 +105,7 @@ export interface HomeTurnRuntimeEventInput {
 		| "message.completed"
 		| "run.completed"
 		| "run.failed"
+		| "step.retry"
 		| "approval.requested";
 	conversationId: string;
 	runId?: string;
@@ -123,6 +124,7 @@ export interface HomeTurnRuntimeEventInput {
  * existing `kernelRuntimeTestHooks` stubbing keeps working.
  */
 export interface KernelTurnWorkDeps {
+	scheduleRouteRedrive?: (input: KernelTurnWorkInput) => Promise<void>;
 	/**
 	 * Asks the person's page to run one page tool and waits for its result
 	 * (`home-page-tools.ts`). Set only by the KernelDO, which holds the wait.
