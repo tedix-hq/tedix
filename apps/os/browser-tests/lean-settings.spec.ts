@@ -37,6 +37,7 @@ try {
 		await Bun.sleep(500);
 	}
 	for (const viewport of [
+		{ width: 320, height: 568 },
 		{ width: 375, height: 667 },
 		{ width: 390, height: 844 },
 		{ width: 1280, height: 900 },
