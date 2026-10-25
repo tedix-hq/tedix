@@ -267,6 +267,12 @@ function SlideElementView({
 				data-editable={canEdit || undefined}
 				className={`${SLIDE_ELEMENT_CLASS} outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
 				style={slideElementStyle(current, "canvas", organization)}
+				onFocus={(event) => {
+					// Tabbing to an element selects it, as a click does, so the arrow
+					// keys move it straight away instead of changing slides.
+					if (event.target === event.currentTarget && !selected && !disabled)
+						onSelect();
+				}}
 				onClick={(event) => {
 					event.stopPropagation();
 					onSelect();

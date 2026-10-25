@@ -134,6 +134,57 @@ try {
 			);
 			await fitsViewport(page, `${label} edit`);
 
+			// A keyboard user reaches an element and moves it with the arrows,
+			// instead of the arrows changing slides.
+			const element = page
+				.locator(".slides-editor-stage [data-slide-element]")
+				.first();
+			await element.focus();
+			// Measure once the stage has stopped resizing at this width.
+			let startBox = (await element.boundingBox())!;
+			for (let settled = 0; settled < 3;) {
+				await page.waitForTimeout(50);
+				const box = (await element.boundingBox())!;
+				settled =
+					box.x === startBox.x && box.width === startBox.width
+						? settled + 1
+						: 0;
+				startBox = box;
+			}
+			assert.equal(
+				await element.getAttribute("data-selected"),
+				"true",
+				`${label}: keyboard focus selects the element`,
+			);
+			const handle = await element.elementHandle();
+			const settlesAt = (compare: "right" | "start") =>
+				page.waitForFunction(
+					([node, x, mode]) => {
+						const left = (node as HTMLElement).getBoundingClientRect().x;
+						return mode === "right" ? left > x + 0.5 : Math.abs(left - x) < 0.5;
+					},
+					[handle, startBox.x, compare] as const,
+					{ timeout: 5_000 },
+				);
+			await page.keyboard.press("Shift+ArrowRight");
+			await settlesAt("right");
+			assert.equal(
+				(await element.boundingBox())!.y,
+				startBox.y,
+				`${label}: Shift+Right moves the focused element only sideways`,
+			);
+			await page.keyboard.press("Shift+ArrowLeft");
+			await settlesAt("start");
+			assert.equal(
+				await rail
+					.locator('[aria-current="true"] .slide-list-number')
+					.first()
+					.innerText(),
+				"01",
+				`${label}: arrows did not change slides`,
+			);
+			await page.keyboard.press("Escape");
+
 			// Add slide offers every layout with a description.
 			await rail.getByRole("button", { name: "New slide template" }).click();
 			const layouts = page.locator("[data-slide-layout]");

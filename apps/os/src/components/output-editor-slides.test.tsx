@@ -973,6 +973,42 @@ describe("SlidesEditor", () => {
 		mounted.cleanup();
 	});
 
+	it("moves an element reached with Tab using the arrow keys", () => {
+		const mounted = mountEditor();
+		const stageText = () =>
+			mounted.container.querySelector(".slides-editor-stage")?.textContent;
+		const element = mounted.container.querySelector<HTMLElement>(
+			".slides-editor-stage [data-slide-element]",
+		)!;
+		const before = mounted.emitted.length;
+		act(() => element.focus());
+		expect(element.dataset.selected).toBe("true");
+		for (const [key, shiftKey] of [
+			["ArrowRight", false],
+			["ArrowDown", true],
+		] as const)
+			act(() => {
+				element.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						key,
+						shiftKey,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			});
+		// The arrows moved the element; they did not change slides.
+		expect(stageText()).toContain("Q3");
+		expect(mounted.emitted.length).toBe(before + 2);
+		const right = mounted.emitted[before]?.deck?.slides[0]?.elements[0];
+		const down = mounted.emitted[before + 1]?.deck?.slides[0]?.elements[0];
+		expect(right?.x).toBe(73);
+		// Shift moves by ten.
+		expect(down?.x).toBe(right?.x);
+		expect(down?.y).toBe((right?.y ?? 0) + 10);
+		mounted.cleanup();
+	});
+
 	it("presents with F, jumps to a slide, shows notes, and unwinds Escape in order", () => {
 		const mounted = mountEditor();
 		const root =
