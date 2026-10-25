@@ -240,6 +240,22 @@ export const canvasGadgetDetailQueryOptions = (
 		input: { workspaceId, gadgetId },
 	});
 
+/**
+ * Open a workspace as the signed-in person for one app: the collaborator
+ * graph recomputes the role and returns the capability the runtime consumes.
+ */
+export const workspaceOpenQueryOptions = (workspaceId: string, appId: string) =>
+	osQuery.osCollaborators.open.queryOptions({ input: { workspaceId, appId } });
+
+/** The source files of a runtime app's current revision. */
+export const appRuntimeCodeQueryOptions = (
+	workspaceId: string,
+	gadgetId: string,
+) =>
+	osQuery.osWorkspaces.gadgets.getCode.queryOptions({
+		input: { workspaceId, gadgetId },
+	});
+
 export const gadgetExecutionsQueryOptions = (
 	workspaceId: string,
 	gadgetId: string,

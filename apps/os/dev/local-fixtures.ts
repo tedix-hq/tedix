@@ -52,6 +52,10 @@ import type {
 	HomeRun,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
+import type { AppRuntimeFiles } from "@tedix/api-contract/schemas/os-app-runtime";
+
+/** Mirrors `APP_RUNTIME_ENTRY` in `@tedix/api-contract/schemas/os-app-runtime` (type-only imports here). */
+const APP_RUNTIME_ENTRY = "tedix:runtime/v1";
 import type { Organization } from "@tedix/api-contract/schemas/organization";
 import type { OsUserPreferences } from "@tedix/api-contract/schemas/user-settings";
 import type { OsBlueprintWithVisibility as OsBlueprint } from "@tedix/api-contract/contracts/os-workspaces";
@@ -245,6 +249,8 @@ type LocalState = {
 	workspaceResources: OsWorkspaceResource[];
 	gadgets: OsGadget[];
 	gadgetRevisions: OsGadgetRevision[];
+	/** Runtime app files by revision id (`os_gadget_code`). */
+	gadgetCode: Record<string, AppRuntimeFiles>;
 	executions: OsGadgetExecution[];
 	outputs: OsOutput[];
 	outputRevisions: OsOutputRevision[];
@@ -1119,6 +1125,7 @@ const seedState = (): LocalState => ({
 		},
 	],
 	userPreferences: null,
+	gadgetCode: {},
 });
 
 let state = seedState();
@@ -7191,6 +7198,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 		workspaceId: string;
 		gadgetId: string;
 		manifest: OsGadgetRevision["manifest"];
+		files?: AppRuntimeFiles;
 		sourceArtifactRef?: string;
 		expectedRevision?: number;
 	}) => {
@@ -7205,6 +7213,17 @@ const handlers: Record<string, (input: never) => unknown> = {
 		) {
 			throw revisionConflict(input.expectedRevision, current?.revision ?? null);
 		}
+		const runtimeApp = input.manifest.entry.trim() === APP_RUNTIME_ENTRY;
+		if (runtimeApp && !input.files)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"A runtime app revision needs its files (server.js and client.js)",
+			);
+		if (!runtimeApp && input.files)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"Only a tedix:runtime/v1 app carries source files",
+			);
 		const revision: OsGadgetRevision = {
 			id: nextId(),
 			organizationId: ORG_ID,
@@ -7220,9 +7239,37 @@ const handlers: Record<string, (input: never) => unknown> = {
 			createdAt: now(),
 		};
 		state.gadgetRevisions.push(revision);
+		if (input.files) state.gadgetCode[revision.id] = input.files;
 		gadget.currentRevisionId = revision.id;
 		gadget.updatedAt = revision.createdAt;
 		return { gadget, revision };
+	},
+	"osWorkspaces/gadgets/getCode": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		revisionId?: string;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		const revisionId = input.revisionId ?? gadget.currentRevisionId;
+		if (!revisionId) return { code: null };
+		const revision = state.gadgetRevisions.find(
+			(row) => row.id === revisionId && row.gadgetId === gadget.id,
+		);
+		if (!revision) throw new RpcError("NOT_FOUND", "OS app revision not found");
+		const files = state.gadgetCode[revision.id];
+		if (!files) return { code: null };
+		return {
+			code: {
+				revisionId: revision.id,
+				revision: revision.revision,
+				files,
+				codeLength: Object.values(files).reduce(
+					(sum, text) => sum + text.length,
+					0,
+				),
+				createdAt: revision.createdAt,
+			},
+		};
 	},
 	"osWorkspaces/gadgets/archive": (input: {
 		workspaceId: string;
