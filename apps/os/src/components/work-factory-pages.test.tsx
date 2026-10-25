@@ -191,8 +191,8 @@ describe("Work factory queue", () => {
 			/>,
 		);
 		const doc = new DOMParser().parseFromString(html, "text/html");
-		const ownerCell = [...doc.querySelectorAll("dd")].find(
-			(cell) => cell.textContent === owner,
+		const ownerCell = [...doc.querySelectorAll("dd")].find((cell) =>
+			cell.textContent?.includes(owner),
 		);
 
 		expect(ownerCell).not.toBeNull();
@@ -211,6 +211,26 @@ describe("Work factory queue", () => {
 
 		expect(kindCell?.className).toContain("break-words");
 		expect(updatedCell?.className).toContain("break-words");
+	});
+
+	it("keeps phone metadata separators with the values they introduce", () => {
+		const html = renderToStaticMarkup(<WorkItemsTable items={[item]} />);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const metadata = doc.querySelector("dl");
+		const wrappingGroups = [...(metadata?.children ?? [])];
+
+		expect(wrappingGroups).toHaveLength(3);
+		expect(wrappingGroups.map((group) => group.tagName)).toEqual([
+			"DIV",
+			"DIV",
+			"DIV",
+		]);
+		for (const group of wrappingGroups.slice(1)) {
+			expect(group.className).toContain("flex");
+			const value = group.querySelector("dd");
+			expect(value?.firstElementChild?.textContent?.trim()).toBe("·");
+			expect(value?.children.length).toBe(2);
+		}
 	});
 
 	it("names the owner without exposing the underlying identifier", () => {
