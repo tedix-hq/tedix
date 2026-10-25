@@ -732,29 +732,82 @@ describe("Work admission and capacity", () => {
 });
 
 describe("Work case detail and clusters", () => {
-	it("uses schema-backed forms for case attachments and dependencies", async () => {
+	const TASK = "11111111-1111-4111-8111-111111111111";
+	const OTHER_STREAM = "22222222-2222-4222-8222-222222222222";
+	const workStream = (stage: string) => ({
+		workCase: {
+			id: "case-1",
+			title: "Refund backlog",
+			kind: "operations",
+			stage,
+			version: 2,
+			projectId: null,
+			accountableOwnerId: OWNER,
+		},
+		items: {
+			data: [
+				{
+					id: "attachment-1",
+					workItemId: TASK,
+					rationale: "Customers wait on it",
+				},
+			],
+			nextCursor: null,
+		},
+		dependencies: {
+			data: [
+				{ id: "edge-1", fromCaseId: "case-1", toCaseId: OTHER_STREAM },
+				{ id: "edge-2", fromCaseId: OTHER_STREAM, toCaseId: "case-1" },
+			],
+			nextCursor: null,
+		},
+	});
+
+	it("picks tasks and work streams by title and never shows raw ids", async () => {
 		viewport(false);
-		api.reads["workItems.getCase"] = {
-			workCase: {
-				id: "case-1",
-				title: "Refund backlog",
-				kind: "operations",
-				stage: "open",
-				version: 2,
-				accountableOwnerId: OWNER,
-			},
-			items: { data: [], nextCursor: null },
-			dependencies: { data: [], nextCursor: null },
+		api.reads["workItems.getCase"] = workStream("planning");
+		api.reads["workItems.getById"] = {
+			workItem: { id: TASK, title: "Refund the March orders" },
+		};
+		api.reads["workItems.listCases"] = {
+			data: [
+				{ id: "case-1", title: "Refund backlog" },
+				{ id: OTHER_STREAM, title: "Supplier audit" },
+			],
+			nextCursor: null,
 		};
 		const page = await mount(<WorkCasePage caseId="case-1" />);
-		await page.type("Work Item id", "not-a-uuid");
-		await page.submit("Attach Work Item");
-		expect(page.host.textContent).toContain(
-			"Enter a canonical Work Item UUID.",
+		// No typed-id fields remain; both actions start disabled until a pick.
+		expect(page.host.querySelector('input[placeholder*="UUID"]')).toBeNull();
+		expect(page.host.textContent).not.toContain("Work Item id");
+		for (const label of ["Add task", "Add dependency"]) {
+			const button = [...page.host.querySelectorAll("button")].find(
+				(candidate) => candidate.textContent?.trim() === label,
+			);
+			expect(button?.disabled, label).toBe(true);
+		}
+		expect(
+			page.host.querySelector('[aria-label="Choose a task"]'),
+		).not.toBeNull();
+		expect(
+			page.host.querySelector('[aria-label="Choose a work stream"]'),
+		).not.toBeNull();
+		// Lists name tasks and work streams by title.
+		const task = page.host.querySelector("[data-case-task]")!;
+		expect(task.textContent).toBe(
+			"Refund the March orders — Customers wait on it",
 		);
-		await page.type("Dependent work stream id", "not-a-uuid");
+		const edges = [...page.host.querySelectorAll("[data-case-dependency]")].map(
+			(edge) => edge.textContent,
+		);
+		expect(edges).toEqual([
+			"Supplier audit waits for this one",
+			"This one waits for Supplier audit",
+		]);
+		expect(page.host.textContent).not.toContain(TASK);
+		expect(page.host.textContent).not.toContain(OTHER_STREAM);
+		await page.submit("Add task");
 		await page.submit("Add dependency");
-		expect(page.host.textContent).toContain("Enter a work stream id.");
 		expect(
 			api.calls.filter((call) =>
 				[
@@ -765,45 +818,16 @@ describe("Work case detail and clusters", () => {
 		).toEqual([]);
 	});
 
-	it("labels case mutations while preventing duplicate input", async () => {
+	it("labels a stage change while it is pending", async () => {
 		viewport(false);
-		api.reads["workItems.getCase"] = {
-			workCase: {
-				id: "case-1",
-				title: "Refund backlog",
-				kind: "operations",
-				stage: "investigating",
-				version: 2,
-				accountableOwnerId: OWNER,
-			},
-			items: { data: [], nextCursor: null },
-			dependencies: { data: [], nextCursor: null },
-		};
-		const pending = new Promise(() => undefined);
-		api.reads["workItems.updateCase"] = pending;
-		api.reads["workItems.attachCaseWorkItem"] = pending;
-		api.reads["workItems.addCaseDependency"] = pending;
+		api.reads["workItems.getCase"] = workStream("investigating");
+		api.reads["workItems.updateCase"] = new Promise(() => undefined);
 		const page = await mount(<WorkCasePage caseId="case-1" />);
-
 		await page.submit("Planning");
 		const stage = [...page.host.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Moving to Planning…",
 		);
 		expect(stage?.disabled).toBe(true);
-
-		await page.type("Work Item id", OWNER);
-		await page.submit("Attach Work Item");
-		const attachment = [...page.host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Attaching…",
-		);
-		expect(attachment?.disabled).toBe(true);
-
-		await page.type("Dependent work stream id", OWNER);
-		await page.submit("Add dependency");
-		const dependency = [...page.host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Adding…",
-		);
-		expect(dependency?.disabled).toBe(true);
 	});
 
 	it("uses a schema-backed form for execution cluster lookup", async () => {

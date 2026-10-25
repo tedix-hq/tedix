@@ -400,13 +400,10 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	],
 	"Work pages WorkReadFailure/MutationError; comment draft error alert": [
 		"workItems/accept",
-		"workItems/addCaseDependency",
 		"workItems/addComment",
-		"workItems/attachCaseWorkItem",
 		"workItems/create",
 		"workItems/createCase",
 		"workItems/getAdmissionSpecification",
-		"workItems/getCase",
 		"workItems/inspectAttemptRepository",
 		"workItems/listReadinessProjection",
 		"workItems/listRecoveryProjection",
