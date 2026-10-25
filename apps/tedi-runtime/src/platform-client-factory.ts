@@ -17,6 +17,7 @@ import { DescopeAccessKeyExchange } from "@tedix/auth/access-key-exchange";
 import { decodeTokenUnsafe } from "@tedix/auth/jwt";
 import {
 	extractTediRuntimeApiScopes,
+	tediAccessKeyRotateAt,
 	TEDI_RUNTIME_API_SCOPES,
 } from "@tedix/auth/tedi-identity";
 import { HttpPlatformClient } from "./brain/platform-client";
@@ -118,7 +119,8 @@ async function exchangeAccessKey(
 	env: Cloudflare.Env,
 	descopeAccessKey: string,
 ): Promise<
-	{ ok: true; missingScopes: string[] } | { ok: false; error: string }
+	| { ok: true; missingScopes: string[]; rotateAt: number }
+	| { ok: false; error: string }
 > {
 	if (!env.DESCOPE_PROJECT_ID) {
 		return { ok: false, error: "DESCOPE_PROJECT_ID missing from Worker env" };
@@ -131,9 +133,11 @@ async function exchangeAccessKey(
 			descopeBaseUrl: baseUrl,
 			timeoutMs: 10_000,
 		}).getToken();
+		const payload = decodeTokenUnsafe(sessionJwt);
 		return {
 			ok: true,
-			missingScopes: findMissingRuntimeApiScopes(decodeTokenUnsafe(sessionJwt)),
+			rotateAt: tediAccessKeyRotateAt(payload) * 1000,
+			missingScopes: findMissingRuntimeApiScopes(payload),
 		};
 	} catch (err) {
 		return {
@@ -186,16 +190,25 @@ async function ensureScopedAccessKey(
 	}
 
 	const probe = await exchangeAccessKey(env, descopeAccessKey);
-	if (probe.ok && probe.missingScopes.length === 0) {
+	if (
+		probe.ok &&
+		probe.missingScopes.length === 0 &&
+		probe.rotateAt > Date.now()
+	) {
 		validatedAccessKeyCache.set(tediId, {
 			encryptedValue,
-			expiresAt: Date.now() + ACCESS_KEY_VALIDATION_TTL_MS,
+			expiresAt: Math.min(
+				Date.now() + ACCESS_KEY_VALIDATION_TTL_MS,
+				probe.rotateAt,
+			),
 		});
 		return { descopeAccessKey, encryptedValue };
 	}
 
 	const reason = probe.ok
-		? `missing runtime API scopes: ${probe.missingScopes.join(", ")}`
+		? probe.missingScopes.length > 0
+			? `missing runtime API scopes: ${probe.missingScopes.join(", ")}`
+			: "proactive rotation deadline reached"
 		: probe.error;
 
 	if (!env.API_SERVICE) {
@@ -255,17 +268,26 @@ async function ensureScopedAccessKey(
 
 	const nextAccessKey = await decryptAccessKey(env, tediId, nextEncryptedValue);
 	const nextProbe = await exchangeAccessKey(env, nextAccessKey);
-	if (nextProbe.ok && nextProbe.missingScopes.length === 0) {
+	if (
+		nextProbe.ok &&
+		nextProbe.missingScopes.length === 0 &&
+		nextProbe.rotateAt > Date.now()
+	) {
 		validatedAccessKeyCache.set(tediId, {
 			encryptedValue: nextEncryptedValue,
-			expiresAt: Date.now() + ACCESS_KEY_VALIDATION_TTL_MS,
+			expiresAt: Math.min(
+				Date.now() + ACCESS_KEY_VALIDATION_TTL_MS,
+				nextProbe.rotateAt,
+			),
 		});
 		console.log(
 			`[isolate-access-key-guard] ${tediId}: rotated and reloaded Descope access key`,
 		);
 	} else {
 		const nextReason = nextProbe.ok
-			? `missing runtime API scopes: ${nextProbe.missingScopes.join(", ")}`
+			? nextProbe.missingScopes.length > 0
+				? `missing runtime API scopes: ${nextProbe.missingScopes.join(", ")}`
+				: "proactive rotation deadline reached"
 			: nextProbe.error;
 		console.warn(
 			`[isolate-access-key-guard] ${tediId}: rotated key failed revalidation (${nextReason}); leaving it unvalidated`,

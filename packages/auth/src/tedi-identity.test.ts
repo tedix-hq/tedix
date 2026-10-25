@@ -8,6 +8,9 @@ import {
 	hashTediBodyGenerationToken,
 	rotateTediAccessKey,
 	TEDI_ACCESS_KEY_DEFAULT_TTL_SECONDS,
+	TEDI_ACCESS_KEY_ROTATION_SECONDS,
+	TEDI_ACCESS_KEY_ROTATE_AT_CLAIM,
+	tediAccessKeyRotateAt,
 	TEDI_RUNTIME_API_SCOPES,
 	TEDI_RUNTIME_API_SCOPES_CLAIM,
 	verifyTediBodyGenerationToken,
@@ -411,5 +414,68 @@ describe("tedi identity tenant-assignment rollback", () => {
 
 		expect(deleteUser).not.toHaveBeenCalled();
 		expect(accessKeyCreate).toHaveBeenCalledOnce();
+	});
+});
+
+describe("tedi access key rotation cadence", () => {
+	const now = new Date("2026-06-16T10:00:00.000Z");
+	const epoch = now.getTime() / 1000;
+
+	it.each([
+		[undefined, TEDI_ACCESS_KEY_ROTATION_SECONDS],
+		[epoch + 90, 60],
+		[epoch, 0],
+		[epoch - 90, -60],
+		[0, TEDI_ACCESS_KEY_ROTATION_SECONDS],
+	])("schedules expiry %s after %s seconds", (expireTime, cadence) => {
+		const claims = buildTediAccessKeyClaims({
+			tediId: "tedi-1",
+			descopeUserId: "user-1",
+			now,
+			expireTime,
+		});
+		expect(tediAccessKeyRotateAt(claims)).toBe(epoch + cadence);
+		if (expireTime === undefined) {
+			expect(
+				defaultTediAccessKeyExpireTime(now) - tediAccessKeyRotateAt(claims),
+			).toBe(30 * 24 * 60 * 60);
+		}
+	});
+
+	it.each([undefined, null, "123", NaN, Infinity, -1, 0])(
+		"treats legacy or invalid deadline %s as due",
+		(value) => {
+			expect(
+				tediAccessKeyRotateAt({ [TEDI_ACCESS_KEY_ROTATE_AT_CLAIM]: value }),
+			).toBe(0);
+		},
+	);
+
+	it("rotation renews the deadline and bounded hard expiry", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(now);
+		const create = vi.fn().mockResolvedValue({
+			ok: true,
+			data: { key: { id: "key-2" }, cleartext: "ak_2" },
+		});
+		try {
+			await rotateTediAccessKey(
+				{ management: { accessKey: { create } } } as never,
+				{
+					tediId: "tedi-1",
+					descopeUserId: "user-1",
+					slug: "operator",
+				},
+			);
+			expect(create.mock.calls[0]?.[1]).toBe(
+				epoch + TEDI_ACCESS_KEY_DEFAULT_TTL_SECONDS,
+			);
+			expect(create.mock.calls[0]?.[5]).toMatchObject({
+				[TEDI_ACCESS_KEY_ROTATE_AT_CLAIM]:
+					epoch + TEDI_ACCESS_KEY_ROTATION_SECONDS,
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
