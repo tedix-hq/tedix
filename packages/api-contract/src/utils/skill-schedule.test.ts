@@ -123,4 +123,30 @@ capabilities:
 			"capabilities.schedule.params",
 		]);
 	});
+
+	it.each([
+		"0/1/2 * * * *",
+		"0,,1 * * * *",
+		"0, * * * *",
+		"0-1-2 * * * *",
+		"-1 * * * *",
+		"0- * * * *",
+		"*/ * * * *",
+		"1e1 * * * *",
+		"0x1 * * * *",
+		"*-5 * * * *",
+	])("rejects the malformed cron token in %s at write time", (cron) => {
+		expect(() =>
+			nextSkillScheduleFireAt(cron, "2026-10-25T00:00:00Z"),
+		).toThrow();
+		const result = validateSkillSchedulePolicy(`---
+capabilities:
+  schedule:
+    cron: "${cron}"
+---`);
+		expect(result.schedule).toBeNull();
+		expect(result.issues.map(({ path }) => path)).toEqual([
+			"capabilities.schedule.cron",
+		]);
+	});
 });

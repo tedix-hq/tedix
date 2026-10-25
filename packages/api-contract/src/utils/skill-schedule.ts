@@ -27,6 +27,8 @@ type ParsedCron = {
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const GREGORIAN_CALENDAR_CYCLE_DAYS = 400 * 365 + 97;
+// One list member: `*`, `n` or `n-m`, optionally followed by `/step`.
+const CRON_PART_RE = /^(?:\*|\d+(?:-\d+)?)(?:\/\d+)?$/;
 
 function parseField(
 	source: string,
@@ -36,6 +38,7 @@ function parseField(
 ): CronField {
 	const values = new Set<number>();
 	for (const part of source.split(",")) {
+		if (!CRON_PART_RE.test(part)) throw new Error(`invalid cron token ${part}`);
 		const [rangeSource, stepSource] = part.split("/");
 		const step = stepSource === undefined ? 1 : Number(stepSource);
 		if (!Number.isInteger(step) || step < 1) throw new Error("invalid step");
