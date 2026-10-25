@@ -137,11 +137,7 @@ function azureChatSuccess(decision: KernelRouteDecision): Response {
 	);
 }
 
-/**
- * A fresh retryable Azure 500. `retry-after: 0` pins the SDK's single allowed
- * retry (maxRetries: 1) to a 0ms delay — deterministic and instant instead of
- * the 2s exponential-backoff default.
- */
+/** A retryable Azure 500 with zero backoff when a caller enables SDK retries. */
 function azure500(): Response {
 	return new Response(
 		JSON.stringify({
@@ -268,7 +264,7 @@ describe("planKernelRoute — selected provider faults", () => {
 		for (const call of fetchSpy.mock.calls)
 			expect(String(call[0])).toContain(AZURE_GATEWAY_URL_MARKER);
 	});
-	it("retryable 500 permits one retry and never switches providers", async () => {
+	it("exhausted 500 attempts return no route so the turn owner can schedule redrive", async () => {
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockImplementation(async () => azure500());
@@ -281,7 +277,7 @@ describe("planKernelRoute — selected provider faults", () => {
 				model: select(env),
 				env,
 			}),
-		).rejects.toThrow();
+		).resolves.toBeNull();
 		expect(fetchSpy).toHaveBeenCalledTimes(2);
 		expect(run).not.toHaveBeenCalled();
 	});
