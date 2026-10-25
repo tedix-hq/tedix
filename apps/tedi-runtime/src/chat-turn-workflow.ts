@@ -56,6 +56,7 @@ import {
 	AgentWorkflow,
 	type AgentWorkflowEvent,
 	type AgentWorkflowStep,
+	type WorkflowCallback,
 } from "agents/workflows";
 import { billingPolicyDeniedWorkflowResult } from "./billing-reservation-client";
 import { type ChatTurnStepResult, driveChatTurnSteps } from "./chat-turn-steps";
@@ -101,8 +102,20 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 	ChatTurnParams,
 	ChatTurnProgress
 > {
+	private callbackAgentName?: string;
+
+	protected override async notifyAgent(
+		callback: WorkflowCallback,
+	): Promise<void> {
+		if (!this.callbackAgentName) return super.notifyAgent(callback);
+		await this.withRecoverableFreshAgent(
+			{ agentName: this.callbackAgentName },
+			(agent) => agent._workflow_handleCallback(callback),
+		);
+	}
+
 	private async withFreshAgent<T>(
-		params: ChatTurnParams,
+		params: Pick<ChatTurnParams, "agentName">,
 		operation: (agent: DurableObjectStub<AgentTediDO>) => Promise<T>,
 	): Promise<T> {
 		const agentName = params.agentName?.trim();
@@ -119,7 +132,7 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 	}
 
 	private async withRecoverableFreshAgent<T>(
-		params: ChatTurnParams,
+		params: Pick<ChatTurnParams, "agentName">,
 		operation: (agent: DurableObjectStub<AgentTediDO>) => Promise<T>,
 	): Promise<T> {
 		return recoverDurableObjectDeploymentReset(() =>
@@ -139,6 +152,18 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 		step: AgentWorkflowStep,
 	): Promise<ChatTurnStepResult> {
 		const params = { ...event.payload, workflowInstanceId: event.instanceId };
+		const agentName = params.agentName?.trim();
+		const originId = this.agent.id;
+		// SDK facet origins are RPC-only proxies; never redirect them to a root.
+		this.callbackAgentName = undefined;
+		if (agentName) {
+			const expectedId = this.env.TEDI_AGENT.idFromName(agentName);
+			try {
+				if (expectedId.equals(originId)) this.callbackAgentName = agentName;
+			} catch (error) {
+				if (!(error instanceof TypeError)) throw error;
+			}
+		}
 		return driveChatTurnSteps(step, {
 			supervised: Boolean(params.workItemId && params.homeRunId),
 			// First durable callback: proves the Workflow instance progressed beyond
