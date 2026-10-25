@@ -4,7 +4,8 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { createZip } from "./ooxml/zip";
 
-function csv(rows: OsSheetCell[][]): Uint8Array {
+/** Formula-injection-safe CSV (CRLF rows), shared by every CSV export. */
+export function encodeCsv(rows: OsSheetCell[][]): Uint8Array {
 	return new TextEncoder().encode(
 		rows
 			.map((row) =>
@@ -48,7 +49,7 @@ export async function buildOsSheetCsv(
 	})) ?? [{ name: "Sheet1", rows: [content.columns, ...content.rows] }];
 	if (sheets.length === 1)
 		return {
-			bytes: csv(sheets[0]!.rows),
+			bytes: encodeCsv(sheets[0]!.rows),
 			extension: "csv",
 			contentType: "text/csv; charset=utf-8",
 		};
@@ -56,7 +57,7 @@ export async function buildOsSheetCsv(
 	const bytes = await createZip(
 		sheets.map((sheet, index) => ({
 			name: `${index + 1}-${sheet.name.replace(/[^\p{L}\p{N} _-]/gu, "_").slice(0, 100) || "Sheet"}.csv`,
-			data: csv(sheet.rows),
+			data: encodeCsv(sheet.rows),
 		})),
 	);
 	return { bytes, extension: "zip", contentType: "application/zip" };

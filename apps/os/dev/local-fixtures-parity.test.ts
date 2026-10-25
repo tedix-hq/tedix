@@ -92,6 +92,8 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"apps/delete",
 		"apps/setGatewayMembership",
 	],
+	// The fixture lane answers JSON envelopes only; the export is a file body.
+	"AuditExportButton: export failure alert": ["audit/export"],
 	"DecisionDeckApp unavailable card; deck curation/not-useful alert": [
 		"attention/decideDeckCard",
 		"attention/getDeckCard",

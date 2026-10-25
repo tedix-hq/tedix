@@ -117,6 +117,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"apps/setGatewayMembership": "mcp:apps.write",
 	"apps/updateByIdOrSlug": "mcp:apps.write",
 	"audit/createEvent": "platform:admin",
+	"audit/export": "mcp:observe.read",
 	"audit/getByResource": "mcp:observe.read",
 	"audit/search": "mcp:observe.read",
 	"billing/correctBillingPeriod": "platform:admin",

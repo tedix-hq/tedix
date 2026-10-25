@@ -92,6 +92,7 @@ export const PUBLIC_REST_OPERATION_LIST = [
 	"GET /tedis/{tediId}/usage",
 	"GET /tedis/{tediId}/call-costs",
 	"GET /audit",
+	"GET /audit/export",
 	"GET /audit/resource/{resourceType}/{resourceId}",
 ] as const;
 

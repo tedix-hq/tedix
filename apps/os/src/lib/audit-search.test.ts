@@ -3,6 +3,7 @@ import {
 	AUDIT_ALL_RESOURCES,
 	AUDIT_DEFAULT_SEARCH,
 	AUDIT_PAGE_SIZE,
+	auditExportFilters,
 	auditSearchInput,
 	isDefaultAuditSearch,
 	validateAuditSearch,
@@ -98,5 +99,21 @@ describe("auditSearchInput", () => {
 			resourceType: "skill",
 			action: "record_skill",
 		});
+	});
+});
+
+describe("auditExportFilters", () => {
+	it("exports the applied filters without the page window", () => {
+		expect(
+			auditExportFilters({
+				resourceType: " skill ",
+				action: "record_skill",
+				page: 3,
+			}),
+		).toEqual({ resourceType: "skill", action: "record_skill" });
+	});
+
+	it("sends no filters for the unfiltered trail", () => {
+		expect(auditExportFilters(AUDIT_DEFAULT_SEARCH)).toEqual({});
 	});
 });

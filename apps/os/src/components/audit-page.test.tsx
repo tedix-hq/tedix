@@ -412,6 +412,15 @@ describe("AuditPage", () => {
 		expect(group?.textContent).toContain("Skill");
 	});
 
+	it("offers one Export action beside Refresh", () => {
+		const doc = renderAuditPage();
+		const exportButton = [...doc.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Export",
+		);
+		expect(exportButton).not.toBeUndefined();
+		expect(exportButton?.getAttribute("aria-haspopup")).toBe("menu");
+	});
+
 	const renderState = (state: "error" | "pending") => {
 		const client = new QueryClient({
 			defaultOptions: { queries: { enabled: false, retry: false } },

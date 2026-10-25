@@ -2,17 +2,25 @@ import {
 	ArrowClockwise,
 	CaretDown,
 	ClockCounterClockwise,
+	DownloadSimple,
 } from "@phosphor-icons/react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { getOsSurface } from "@/lib/os-navigation";
 import { useMemo, useState, useContext } from "react";
 import * as z from "zod";
+import { AUDIT_EXPORT_TRUNCATED_FILENAME } from "@tedix/api-contract/schemas/audit";
 import { FormInput } from "@/components/forms/form-input";
 import { Text } from "@/components/kumo/text";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
 import {
 	Dialog,
 	DialogContent,
@@ -62,6 +70,7 @@ import {
 	AUDIT_ALL_RESOURCES,
 	AUDIT_PAGE_SIZE,
 	type AuditSearch,
+	auditExportFilters,
 	auditSearchInput,
 	isDefaultAuditSearch,
 } from "@/lib/audit-search";
@@ -637,6 +646,84 @@ function AuditFilterForm({
 }
 
 // ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+type AuditExportFormat = "csv" | "jsonl";
+
+const AUDIT_EXPORT_LABELS: Record<AuditExportFormat, string> = {
+	csv: "Spreadsheet (.csv)",
+	jsonl: "JSON Lines (.jsonl)",
+};
+
+function saveFile(file: File) {
+	const url = URL.createObjectURL(file);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = file.name;
+	anchor.click();
+	URL.revokeObjectURL(url);
+}
+
+/** Downloads the events matching the applied filters, CSV first. */
+export function AuditExportButton({ search }: { search: AuditSearch }) {
+	const exportEvents = useMutation({
+		mutationFn: (format: AuditExportFormat) =>
+			osApi.audit.export({ ...auditExportFilters(search), format }),
+		onSuccess: saveFile,
+	});
+	const truncatedAt = exportEvents.data?.name.match(
+		AUDIT_EXPORT_TRUNCATED_FILENAME,
+	)?.[1];
+	return (
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							variant="outline"
+							disabled={exportEvents.isPending}
+							aria-busy={exportEvents.isPending || undefined}
+						/>
+					}
+				>
+					<DownloadSimple size={14} />
+					{exportEvents.isPending ? "Exporting…" : "Export"}
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					{(["csv", "jsonl"] as const).map((format) => (
+						<DropdownMenuItem
+							key={format}
+							disabled={exportEvents.isPending}
+							onClick={() => exportEvents.mutate(format)}
+						>
+							{AUDIT_EXPORT_LABELS[format]}
+						</DropdownMenuItem>
+					))}
+				</DropdownMenuContent>
+			</DropdownMenu>
+			{truncatedAt ? (
+				<span
+					className="min-w-0 max-w-full text-sm text-kumo-subtle [overflow-wrap:anywhere]"
+					role="status"
+				>
+					Exported the newest {Number(truncatedAt).toLocaleString()} events;
+					narrow the filters to export the rest.
+				</span>
+			) : null}
+			{exportEvents.isError ? (
+				<span
+					className="min-w-0 max-w-full text-sm text-kumo-danger [overflow-wrap:anywhere]"
+					role="alert"
+				>
+					Export failed: {exportEvents.error.message}
+				</span>
+			) : null}
+		</>
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -704,6 +791,7 @@ export function AuditPage({
 						/>
 						Refresh
 					</Button>
+					<AuditExportButton search={search} />
 				</PageActions>
 			</PageHeader>
 
