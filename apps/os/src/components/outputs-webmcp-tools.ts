@@ -143,19 +143,33 @@ function nonNegativeInt(value: unknown): number | null {
 		: null;
 }
 
-/** Invalidate the two generated keys every successful output write refreshes. */
+type OutputRefreshStatus =
+	| { cacheReconciled: true }
+	| { cacheReconciled: false; note: string };
+
+/** Invalidate generated keys without turning a confirmed write into a failure. */
 async function invalidateOutputQueries(
 	runtime: OutputsWebMcpRuntime,
 	deps: OutputsWebMcpDeps,
 	outputId: string,
-): Promise<void> {
+): Promise<OutputRefreshStatus> {
 	const queryClient = deps.queryClient ?? runtime.osQueryClient;
-	await Promise.all([
-		queryClient.invalidateQueries({
-			queryKey: runtime.outputDetailQueryOptions(outputId).queryKey,
-		}),
-		queryClient.invalidateQueries({ queryKey: runtime.osQueryKeys.outputs() }),
-	]);
+	try {
+		await Promise.all([
+			queryClient.invalidateQueries({
+				queryKey: runtime.outputDetailQueryOptions(outputId).queryKey,
+			}),
+			queryClient.invalidateQueries({
+				queryKey: runtime.osQueryKeys.outputs(),
+			}),
+		]);
+		return { cacheReconciled: true };
+	} catch (error) {
+		return {
+			cacheReconciled: false,
+			note: `The output revision is confirmed; refreshing the local view failed (${errorMessage(error)}). Do not retry the write; read the output again or reload to see it.`,
+		};
+	}
 }
 
 /** Project the stable document block vocabulary to editable markdown. */
@@ -894,9 +908,13 @@ export function buildOutputsWebMcpTools(
 					},
 					...clientOptions(executeOptions),
 				);
-				await invalidateOutputQueries(runtime, deps, outputId);
+				const refreshStatus = await invalidateOutputQueries(
+					runtime,
+					deps,
+					outputId,
+				);
 				return webMcpResult(
-					{ outputId, revision: result.revision.revision },
+					{ outputId, revision: result.revision.revision, ...refreshStatus },
 					outputDeepLink(outputId),
 				);
 			} catch (error) {
@@ -935,12 +953,17 @@ export function buildOutputsWebMcpTools(
 					},
 					...clientOptions(executeOptions),
 				);
-				await invalidateOutputQueries(runtime, deps, outputId);
+				const refreshStatus = await invalidateOutputQueries(
+					runtime,
+					deps,
+					outputId,
+				);
 				const content = result.revision.content;
 				return webMcpResult(
 					{
 						outputId,
 						revision: result.revision.revision,
+						...refreshStatus,
 						opsApplied: ops.length,
 						...(content.kind === "document"
 							? { blockCount: content.blocks.length }
@@ -996,12 +1019,17 @@ export function buildOutputsWebMcpTools(
 					},
 					...clientOptions(executeOptions),
 				);
-				await invalidateOutputQueries(runtime, deps, outputId);
+				const refreshStatus = await invalidateOutputQueries(
+					runtime,
+					deps,
+					outputId,
+				);
 				const content = result.revision.content;
 				return webMcpResult(
 					{
 						outputId,
 						revision: result.revision.revision,
+						...refreshStatus,
 						opsApplied: rawOps.length,
 						...(content.kind === "presentation"
 							? { slideCount: content.slides.length }
@@ -1055,12 +1083,17 @@ export function buildOutputsWebMcpTools(
 					},
 					...clientOptions(executeOptions),
 				);
-				await invalidateOutputQueries(runtime, deps, outputId);
+				const refreshStatus = await invalidateOutputQueries(
+					runtime,
+					deps,
+					outputId,
+				);
 				const content = result.revision.content;
 				return webMcpResult(
 					{
 						outputId,
 						revision: result.revision.revision,
+						...refreshStatus,
 						rowsWritten: cells.length,
 						...(content.kind === "sheet"
 							? { rowCount: content.rows.length }
