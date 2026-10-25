@@ -39,6 +39,7 @@ type Row = {
 	arguments: Record<string, string>;
 	callbackUrl: string;
 	sealedCredential: string;
+	claimToken: string | null;
 	cursor: string;
 	status: "active" | "unhealthy";
 	consecutiveFailures: number;
@@ -172,6 +173,7 @@ function installation() {
 						organizationId,
 						ownerSubject: owner,
 						cursor,
+						claimToken: null,
 						status: "active",
 						consecutiveFailures: 0,
 						nextAttemptAt: now,
@@ -215,7 +217,10 @@ function installation() {
 			const due = [...rows.values()]
 				.filter((row) => row.status === "active" && row.nextAttemptAt <= now)
 				.slice(0, input.limit);
-			for (const row of due) row.nextAttemptAt = now + 110_000;
+			for (const row of due) {
+				row.nextAttemptAt = now + 110_000;
+				row.claimToken = crypto.randomUUID();
+			}
 			return {
 				subscriptions: due.map(({ status: _s, nextAttemptAt: _n, ...row }) => ({
 					...row,
@@ -225,6 +230,7 @@ function installation() {
 		recordWebhookDelivery: vi.fn(
 			async (input: {
 				id: string;
+				claimToken: string;
 				organizationId: string;
 				cursor: string;
 				status: "active" | "unhealthy";
@@ -234,9 +240,14 @@ function installation() {
 				rateWindowCount: number;
 			}) => {
 				const row = rows.get(input.id);
-				if (!row || row.organizationId !== input.organizationId)
+				if (
+					!row ||
+					row.organizationId !== input.organizationId ||
+					row.claimToken !== input.claimToken
+				)
 					return { recorded: false };
 				Object.assign(row, {
+					claimToken: null,
 					cursor: input.cursor,
 					status: input.status,
 					consecutiveFailures: input.consecutiveFailures,
@@ -380,6 +391,38 @@ describe("events/subscribe webhook delivery", () => {
 		const row = [...f.rows.values()][0]!;
 		expect(row.sealedCredential).not.toContain("alice");
 		expect(row.sealedCredential).not.toContain(SECRET);
+	});
+
+	it("passes the claim token and reports a superseded result as skipped", async () => {
+		await subscribeEventWebhook(env, alice, subscribeParams(), f.dependencies);
+		f.change(ORG_A);
+		const persist = f.service.recordWebhookDelivery.getMockImplementation()!;
+		f.service.recordWebhookDelivery.mockImplementationOnce(async (input) => {
+			const claim = f.service.claimDueWebhookSubscriptions.mock.results[0]!;
+			const { subscriptions } = await claim.value;
+			expect(input.claimToken).toBe(subscriptions[0]!.claimToken);
+			expect(input.claimToken).toEqual(expect.any(String));
+			await subscribeEventWebhook(
+				env,
+				alice,
+				subscribeParams(ORG_A, {
+					cursor: "wsc1.200",
+				}),
+				f.dependencies,
+			);
+			return persist(input);
+		});
+		expect(await f.deliver()).toMatchObject({
+			claimed: 1,
+			skipped: 1,
+			delivered: 0,
+		});
+		expect([...f.rows.values()][0]).toMatchObject({
+			cursor: "wsc1.200",
+			claimToken: null,
+		});
+		f.change(ORG_A);
+		expect(await f.deliver()).toMatchObject({ idle: 1 });
 	});
 
 	it("signs the exact body with the subscriber's secret", async () => {

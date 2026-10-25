@@ -239,6 +239,7 @@ export const ClaimDueMcpEventWebhooksInputSchema = z.object({
 
 export const McpEventWebhookSubscriptionSchema = z.object({
 	id: SubscriptionIdSchema,
+	claimToken: z.string().uuid(),
 	organizationId: z.string(),
 	ownerSubject: z.string(),
 	mcpUrl: z.string(),
@@ -259,6 +260,7 @@ export const ClaimDueMcpEventWebhooksResultSchema = z.object({
 
 export const RecordMcpEventWebhookDeliveryInputSchema = z.object({
 	id: SubscriptionIdSchema,
+	claimToken: z.string().uuid(),
 	organizationId: z.string().min(1).max(128),
 	cursor: EventCursorSchema,
 	status: z.enum(["active", "unhealthy"]),

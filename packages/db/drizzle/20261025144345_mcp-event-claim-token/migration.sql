@@ -1,0 +1,1 @@
+ALTER TABLE `mcp_event_subscriptions` ADD `claim_token` text;

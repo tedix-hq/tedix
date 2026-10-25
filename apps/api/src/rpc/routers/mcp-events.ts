@@ -450,10 +450,11 @@ const claimDueWebhookSubscriptionsProcedure =
 			return {
 				subscriptions: rows.flatMap((row) => {
 					const eventName = McpWebhookEventNameSchema.safeParse(row.eventName);
-					if (!eventName.success) return [];
+					if (!eventName.success || !row.claimToken) return [];
 					return [
 						{
 							id: row.id,
+							claimToken: row.claimToken,
 							organizationId: row.organizationId,
 							ownerSubject: row.ownerSubject,
 							mcpUrl: row.mcpUrl,
