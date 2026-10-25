@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	purgeMcpAggregateCache,
 	publishMcpCatalogInventoryEvents,
@@ -417,5 +417,76 @@ describe("publishMcpCatalogInventoryEvents", () => {
 		});
 
 		expect(published).toHaveLength(0);
+	});
+});
+
+describe("MCP service call deadlines", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	/** A binding that never answers (or never finishes its body) and records aborts. */
+	function stalled(stage: "fetch" | "body") {
+		const signals: AbortSignal[] = [];
+		const env = makeEnv((request) => {
+			signals.push(request.signal);
+			return stage === "fetch"
+				? new Promise<Response>(() => {})
+				: Promise.resolve({
+						ok: true,
+						status: 200,
+						json: () => new Promise(() => {}),
+					} as unknown as Response);
+		});
+		return { env, signals };
+	}
+
+	async function settlesAfterDeadline(promise: Promise<unknown>) {
+		let settled = false;
+		void promise.finally(() => {
+			settled = true;
+		});
+		await vi.advanceTimersByTimeAsync(1_999);
+		expect(settled).toBe(false);
+		await vi.advanceTimersByTimeAsync(1);
+		await expect(promise).resolves.toBeUndefined();
+	}
+
+	it("bounds and aborts a stalled subscription publish", async () => {
+		vi.useFakeTimers();
+		const { env, signals } = stalled("fetch");
+		await settlesAfterDeadline(
+			publishMcpSubscriptionEvent(env, {
+				appId: "app-1",
+				method: "notifications/tools/list_changed",
+			}),
+		);
+		expect(signals).toHaveLength(1);
+		expect(signals[0]?.aborted).toBe(true);
+	});
+
+	it("bounds an aggregate purge whose response body stalls", async () => {
+		vi.useFakeTimers();
+		const { env, signals } = stalled("body");
+		await settlesAfterDeadline(
+			purgeMcpAggregateCache(env, "aggregate-updated"),
+		);
+		expect(signals[0]?.aborted).toBe(true);
+	});
+
+	it("skips notifications when an inventory purge stalls", async () => {
+		vi.useFakeTimers();
+		for (const stage of ["fetch", "body"] as const) {
+			const { env, signals } = stalled(stage);
+			await settlesAfterDeadline(
+				publishMcpListChangedEvents(
+					env,
+					{ appId: "app-1", appResolutionKeys: ["mcp-subdomain:alpha"] },
+					["notifications/tools/list_changed"],
+				),
+			);
+			expect(signals).toHaveLength(1);
+			expect(signals[0]?.aborted).toBe(true);
+		}
 	});
 });
