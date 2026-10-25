@@ -120,12 +120,10 @@ export function turnFailureNoticeText(error: string): string {
 	const reason = scrubText(error).replace(/\s+/g, " ").trim();
 	const clipped =
 		reason.length > 300 ? `${reason.slice(0, 297).trimEnd()}...` : reason;
-	const lower = reason.toLowerCase();
-	const daily = lower.indexOf("daily");
 	if (
-		lower.includes("inference budget") ||
-		lower.includes("budget exhausted") ||
-		(daily !== -1 && lower.includes("budget", daily + 5))
+		/\b(?:inference daily budget|inference (?:token )?budget) (?:is )?exhausted\b/i.test(
+			reason,
+		)
 	) {
 		return `This turn stopped before replying: the daily inference budget is exhausted. It will run again once the budget window resets. (${clipped})`;
 	}
