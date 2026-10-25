@@ -702,6 +702,48 @@ describe("public secret scan", () => {
 		).toEqual([]);
 	});
 
+	// The Agent-Session forms the lane dispatchers (`tedix lane serve`) recorded
+	// on 25 October 2026, one per executor, with the attribution lines their
+	// harnesses append to the same paragraph.
+	test.each([
+		[
+			"claude-code:0539ea05-58cd-4541-960d-ba751ab81a6a",
+			"Claude-Session: https://claude.ai/code/session_01KoArfG7oSx5z4nv8z1rY31",
+		],
+		[
+			"codex:01a14bc4-7821-7901-a536-a0f943552b55",
+			"Co-Authored-By: Codex <noreply@openai.com>",
+		],
+		["devin:impossible-lemur", "Co-Authored-By: Devin <noreply@devin.ai>"],
+		[
+			"opencode:ses_e8d08be63ffe0Ah8Q3A7aCIZgi",
+			"Co-Authored-By: OpenCode <noreply@example.invalid>",
+		],
+		[
+			"opencode:28e3f3d3-3b5e-4ee5-9b72-d7a51b7406d8",
+			"Co-Authored-By: OpenCode <noreply@example.invalid>",
+		],
+	])("accepts the lane dispatcher session form %s", (session, attribution) => {
+		expect(
+			trailerFindings(
+				`fix: a\n\nBody.\n\nWork-Item: 11111111-1111-4111-8111-111111111111\nAgent-Session: ${session}\nCo-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>\n${attribution}\n`,
+			),
+		).toEqual([]);
+	});
+
+	test("renders how to repair a commit-trailer finding", () => {
+		const rendered = renderSecretScan([
+			{
+				kind: "commit",
+				path: "commit 35f7edafd0cf",
+				rule: "commit-trailer",
+				line: 5,
+			},
+		]);
+		expect(rendered).toContain("last paragraph");
+		expect(rendered).toContain("do not remove the trailers");
+	});
+
 	test.each([
 		"opencode:ses_012345abcdef0123456789AbCd",
 		"opencode:ses_ffffffffffffAbCdEfGhIjKlMn",
