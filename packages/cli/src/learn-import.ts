@@ -491,7 +491,9 @@ export function planImport(input: {
 	const seen = new Set<string>();
 	const locateSession = sessionLocator(input.originOf);
 	const read = input.read ?? parseLines;
+	const full = () => input.limit !== undefined && plan.pairs >= input.limit;
 	for (const file of input.files) {
+		if (full()) break;
 		let rows: Json[];
 		try {
 			rows = read(file.path);
@@ -516,14 +518,17 @@ export function planImport(input: {
 		const target = routedTarget(location, input, plan.unrouted, pairs.length);
 		if (!target) continue;
 		const key = targetKey(target);
-		const bucket = plan.byTarget.get(key) ?? { target, decisions: [] };
-		plan.byTarget.set(key, bucket);
 		for (const p of pairs) {
 			// Forks and resumed sessions replay turns: one pair per reply moment.
 			const identity = `${session.harness}\n${p.occurredAt}\n${sha(p.reply)}`;
 			if (seen.has(identity)) continue;
 			seen.add(identity);
-			if (input.limit !== undefined && plan.pairs >= input.limit) break;
+			if (full()) break;
+			let bucket = plan.byTarget.get(key);
+			if (!bucket) {
+				bucket = { target, decisions: [] };
+				plan.byTarget.set(key, bucket);
+			}
 			bucket.decisions.push({
 				harness: session.harness,
 				sessionId: session.sessionId,
