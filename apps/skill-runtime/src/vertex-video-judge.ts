@@ -36,10 +36,19 @@ export function validateReferenceImages(
 		if (!/^image\/(jpeg|png|webp)$/.test(image.mimeType)) {
 			throw new Error(`reference image ${index + 1} has unsupported mime type`);
 		}
-		if (!/^[A-Za-z0-9+/]*={0,2}$/.test(image.data)) {
+		if (
+			!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+				image.data,
+			)
+		) {
 			throw new Error(`reference image ${index + 1} is not valid base64`);
 		}
-		const decodedBytes = Math.floor((image.data.length * 3) / 4);
+		const padding = image.data.endsWith("==")
+			? 2
+			: image.data.endsWith("=")
+				? 1
+				: 0;
+		const decodedBytes = (image.data.length / 4) * 3 - padding;
 		if (decodedBytes < 1 || decodedBytes > MAX_REFERENCE_IMAGE_BYTES) {
 			throw new Error(
 				`reference image ${index + 1} must be 1-${MAX_REFERENCE_IMAGE_BYTES} bytes`,

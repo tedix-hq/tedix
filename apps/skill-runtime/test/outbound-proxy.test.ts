@@ -11,6 +11,7 @@ type Props = {
 	geminiApiKey?: string | null;
 	googleServiceAccountKey?: string | null;
 	organizationId?: string | null;
+	vertexVideoEndpoint?: string | null;
 };
 
 const SECRET = "platform-secret-fixture";
@@ -190,6 +191,29 @@ describe("OutboundProxy.fetch", () => {
 			}),
 		);
 		expect(response.status).toBe(400);
+	});
+
+	it("rejects malformed reference-image base64 before provider fetch", async () => {
+		const response = await proxy({
+			googleServiceAccountKey: "configured",
+			organizationId: "org_a",
+			vertexVideoEndpoint: "https://us-central1-aiplatform.googleapis.com/v1",
+		}).fetch(
+			new Request("https://video-assets.tedix.internal/judge-video-render", {
+				method: "POST",
+				body: JSON.stringify({
+					r2Key: "video-renders/org_a/render-1/output.mp4",
+					productContext: "product",
+					referenceImages: [{ mimeType: "image/png", data: "A==" }],
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error: "reference image 1 is not valid base64",
+		});
+		expect(calls).toHaveLength(0);
 	});
 
 	describe("secrets in thrown errors", () => {
