@@ -15,6 +15,10 @@ import {
 import { JsonValueSchema } from "../schemas/common";
 import { ExecutionRequirementSchema } from "../schemas/execution-evidence";
 import {
+	AppRuntimeCodeSchema,
+	AppRuntimeFilesSchema,
+} from "../schemas/os-app-runtime";
+import {
 	OsBlueprintDefinitionSchema,
 	OsBlueprintResourceBindingSchema,
 	OsBlueprintPreflightSchema,
@@ -873,6 +877,9 @@ export const osWorkspacesContract = oc
 				.input(
 					gadgetIdInput.extend({
 						manifest: OsGadgetManifestWriteSchema,
+						files: AppRuntimeFilesSchema.optional().describe(
+							"Source files of a runtime app (entry tedix:runtime/v1); required for that entry, refused for every other",
+						),
 						sourceArtifactRef: z
 							.string()
 							.min(1)
@@ -897,6 +904,24 @@ export const osWorkspacesContract = oc
 						revision: OsGadgetRevisionSchema,
 					}),
 				),
+			getCode: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/gadgets/{gadgetId}/code",
+					summary: "Read the source files of a runtime app revision",
+					description:
+						"Returns the files recorded with the current revision (or the named one) of an app whose entry is tedix:runtime/v1; null when that revision carries no code.",
+				})
+				.input(
+					gadgetIdInput.extend({
+						revisionId: z
+							.string()
+							.uuid()
+							.optional()
+							.describe("A past revision; omitted reads the current one"),
+					}),
+				)
+				.output(z.object({ code: AppRuntimeCodeSchema.nullable() })),
 			archive: oc
 				.route({
 					method: "POST",

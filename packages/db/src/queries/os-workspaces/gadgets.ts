@@ -2,8 +2,10 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsGadgetRow,
+	type OsGadgetCodeRow,
 	type OsGadgetRevisionRow,
 	type OsGadgetRow,
+	osGadgetCode,
 	osGadgetRevisions,
 	osGadgets,
 	osWorkspaces,
@@ -47,6 +49,11 @@ export interface CreateOsGadgetRevisionParams {
 	 * gadget's highest revision still equals this value.
 	 */
 	expectedRevision?: number;
+	/**
+	 * Source files of a runtime app, recorded in the same batch as the
+	 * revision; omitted for apps that carry no code.
+	 */
+	code?: { files: string; codeLength: number };
 }
 
 export type CreateOsGadgetRevisionResult =
@@ -151,6 +158,24 @@ export async function getOsGadgetRevision(
 	return row;
 }
 
+/** The source files recorded with one revision; undefined when it carries no code. */
+export async function getOsGadgetCode(
+	db: DbQueryClient,
+	params: { organizationId: string; revisionId: string },
+): Promise<OsGadgetCodeRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osGadgetCode)
+		.where(
+			and(
+				eq(osGadgetCode.organizationId, params.organizationId),
+				eq(osGadgetCode.revisionId, params.revisionId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
 export async function listOsGadgetRevisions(
 	db: DbQueryClient,
 	params: OsGadgetScopeParams,
@@ -233,7 +258,28 @@ export async function createOsGadgetRevision(
 				sql`changes() = 1`,
 			),
 		);
-	const [revisionRows] = await db.batch([insertRevision, advancePointer]);
+	// The code row selects from the revision just written, so it lands only
+	// when the guarded revision insert did: one batch, no half-recorded app.
+	const insertCode = params.code
+		? db.insert(osGadgetCode).select(
+				db
+					.select({
+						revisionId: osGadgetRevisions.id,
+						organizationId: osGadgetRevisions.organizationId,
+						gadgetId: osGadgetRevisions.gadgetId,
+						files: sql<string>`${params.code.files}`.as("files"),
+						codeLength: sql<number>`${params.code.codeLength}`.as(
+							"code_length",
+						),
+						createdAt: sql<string>`${now}`.as("created_at"),
+					})
+					.from(osGadgetRevisions)
+					.where(eq(osGadgetRevisions.id, params.id)),
+			)
+		: null;
+	const [revisionRows] = insertCode
+		? await db.batch([insertRevision, advancePointer, insertCode])
+		: await db.batch([insertRevision, advancePointer]);
 	const revision = revisionRows[0];
 	if (revision) {
 		return { ok: true, revision };

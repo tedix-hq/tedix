@@ -94,6 +94,12 @@ const ALLOWLIST_ENTRIES: readonly AllowlistEntry[] = [
 		runsModelAuthoredCode: true,
 	},
 	{
+		file: "packages/api-contract/src/utils/app-runtime.ts",
+		reason:
+			"The workspace app runtime builds one manifest shape for every app revision (isolated, env not importable) so the host that loads it cannot forget a field; the host DO only calls LOADER with this result.",
+		runsModelAuthoredCode: true,
+	},
+	{
 		file: "apps/cms-runtime/src/tenant-plugin-executor.ts",
 		reason:
 			"The CMS parent loads one tenant plugin into an isolated Worker with a tenant-scoped DO bridge and explicit capability grants; it cannot share the Astro bundle Loader manifest.",

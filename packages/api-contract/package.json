@@ -82,6 +82,8 @@
 		"./schemas/os-decision-deck": "./src/schemas/os-decision-deck.ts",
 		"./schemas/decision-card-presentation": "./src/schemas/decision-card-presentation.ts",
 		"./schemas/os-card-review": "./src/schemas/os-card-review.ts",
+		"./schemas/os-app-runtime": "./src/schemas/os-app-runtime.ts",
+		"./utils/app-runtime": "./src/utils/app-runtime.ts",
 		"./schemas/os-activity-feed": "./src/schemas/os-activity-feed.ts",
 		"./schemas/os-work-actor": "./src/schemas/os-work-actor.ts",
 		"./schemas/os-outbound-review": "./src/schemas/os-outbound-review.ts",

@@ -6,6 +6,7 @@ import {
 	createOsGadget,
 	createOsGadgetRevision,
 	getOsGadget,
+	getOsGadgetCode,
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 	listOsGadgets,
@@ -56,6 +57,14 @@ function fixture(options: D1FacadeOptions = {}) {
 		);
 		CREATE UNIQUE INDEX os_gadget_revisions_gadget_revision_unique
 			ON os_gadget_revisions (gadget_id, revision);
+		CREATE TABLE os_gadget_code (
+			revision_id TEXT PRIMARY KEY NOT NULL REFERENCES os_gadget_revisions(id) ON DELETE CASCADE,
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			gadget_id TEXT NOT NULL REFERENCES os_gadgets(id) ON DELETE CASCADE,
+			files TEXT NOT NULL,
+			code_length INTEGER NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 		INSERT INTO os_workspaces (id, organization_id, name, created_by_kind, created_by_id)
 			VALUES ('ws-1', 'org-1', 'Operations', 'user', 'u-1');
@@ -119,6 +128,40 @@ describe("os gadgets", () => {
 				revisionId: "rev-1",
 			}),
 		).toMatchObject({ revision: 1 });
+	});
+
+	it("records runtime app code with its revision and drops it with a lost CAS", async () => {
+		const { db } = fixture();
+		await createOsGadget(db, gadget);
+		const files = JSON.stringify({ "server.js": "export {}", "client.js": "" });
+		const first = await createOsGadgetRevision(db, {
+			...revisionParams("rev-1", 0),
+			code: { files, codeLength: 9 },
+		});
+		expect(first.ok).toBe(true);
+		expect(
+			await getOsGadgetCode(db, {
+				organizationId: "org-1",
+				revisionId: "rev-1",
+			}),
+		).toMatchObject({ gadgetId: "gd-1", files, codeLength: 9 });
+		expect(
+			await getOsGadgetCode(db, {
+				organizationId: "org-2",
+				revisionId: "rev-1",
+			}),
+		).toBeUndefined();
+		const stale = await createOsGadgetRevision(db, {
+			...revisionParams("rev-2", 0),
+			code: { files, codeLength: 9 },
+		});
+		expect(stale).toEqual({ ok: false, reason: "revision_conflict" });
+		expect(
+			await getOsGadgetCode(db, {
+				organizationId: "org-1",
+				revisionId: "rev-2",
+			}),
+		).toBeUndefined();
 	});
 
 	it("returns a typed CAS failure on a stale expectedRevision without side effects", async () => {

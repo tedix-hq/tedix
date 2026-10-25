@@ -292,6 +292,39 @@ export const osGadgetRevisions = sqliteTable(
 	],
 );
 
+/**
+ * Source files of a runtime app (manifest entry `tedix:runtime/v1`), one row
+ * per gadget revision. Kept beside the manifest, not inside it: a manifest is
+ * settings, a program is code, and the code can be far larger. The row is
+ * written in the same D1 batch as its revision and shares its id.
+ */
+export const osGadgetCode = sqliteTable(
+	"os_gadget_code",
+	{
+		/** Equals `os_gadget_revisions.id`; a revision has at most one code row. */
+		revisionId: text("revision_id")
+			.primaryKey()
+			.references(() => osGadgetRevisions.id, { onDelete: "cascade" }),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		gadgetId: text("gadget_id")
+			.notNull()
+			.references(() => osGadgets.id, { onDelete: "cascade" }),
+		/** JSON object: file name -> source text. */
+		files: text("files").notNull(),
+		/** Total length of all files; bounds reads before parsing. */
+		codeLength: integer("code_length").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(datetime('now'))`),
+	},
+	(table) => [
+		index("os_gadget_code_gadget_idx").on(table.gadgetId, table.createdAt),
+		index("os_gadget_code_org_idx").on(table.organizationId),
+	],
+);
+
 export const osBlueprints = sqliteTable(
 	"os_blueprints",
 	{
@@ -722,6 +755,7 @@ export type OsGadgetRow = typeof osGadgets.$inferSelect;
 export type NewOsGadgetRow = typeof osGadgets.$inferInsert;
 export type OsGadgetRevisionRow = typeof osGadgetRevisions.$inferSelect;
 export type NewOsGadgetRevisionRow = typeof osGadgetRevisions.$inferInsert;
+export type OsGadgetCodeRow = typeof osGadgetCode.$inferSelect;
 export type OsBlueprintRow = typeof osBlueprints.$inferSelect;
 export type NewOsBlueprintRow = typeof osBlueprints.$inferInsert;
 export type OsBlueprintRevisionRow = typeof osBlueprintRevisions.$inferSelect;

@@ -1148,6 +1148,10 @@
 		{
 			"name": "20261025144345_mcp-event-claim-token/migration.sql",
 			"sha256": "5be8e3225c17ff75376ea8e7795f6803ab6ae59e004326f5cc2728fb7bc6ffd6"
+		},
+		{
+			"name": "20261025174747_os-gadget-code/migration.sql",
+			"sha256": "87f6617aa1b89fab31b55c9abff07419a3d1027493d66757c65f1926773bdbc8"
 		}
 	]
 }

@@ -20,6 +20,7 @@ import { OsLocaleSchema } from "./user-settings";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
 import { CARD_REVIEW_ENTRY, CardReviewConfigSchema } from "./os-card-review";
+import { APP_RUNTIME_ENTRY, AppRuntimeConfigSchema } from "./os-app-runtime";
 import {
 	DECISION_DECK_ENTRY,
 	DecisionDeckConfigSchema,
@@ -583,7 +584,9 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 										? ActivityFeedConfigSchema
 										: value.entry.trim() === WORK_DISPATCH_ENTRY
 											? WorkDispatchConfigSchema
-											: null;
+											: value.entry.trim() === APP_RUNTIME_ENTRY
+												? AppRuntimeConfigSchema
+												: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;
