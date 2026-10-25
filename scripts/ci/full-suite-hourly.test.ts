@@ -136,6 +136,18 @@ describe("hourly full suite", () => {
 			rmSync(root, { recursive: true });
 		}
 	});
+	test("follows side-effect setup imports, including cycles", () => {
+		const root = fixtureTree({
+			"spec.ts": 'import "./setup";\nawait run();',
+			"setup.ts":
+				'import "./spec";\nimport { webkit } from "playwright";\nawait webkit.launch();',
+		});
+		try {
+			expect(sourceBrowsers(join(root, "spec.ts"))).toEqual(["webkit"]);
+		} finally {
+			rmSync(root, { recursive: true });
+		}
+	});
 	test("derives each browser script's Playwright browsers from the specs it runs", () => {
 		const scripts = {
 			"test:unit": "vp test run",
