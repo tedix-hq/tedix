@@ -697,6 +697,7 @@ async function planKernelRouteWithRecovery(
 		});
 	};
 	let retried = false;
+	let routeModel = model;
 	try {
 		const planned = await planKernelRouteUnguarded({
 			...args,
@@ -776,6 +777,7 @@ async function planKernelRouteWithRecovery(
 				};
 				let recovered: PlanKernelRouteResult | null = null;
 				if (timeoutMs > 0 && retryModel) {
+					routeModel = retryModel;
 					const retryStarted = Date.now();
 					console.warn({ ...retryLog, outcome: "started" });
 					try {
@@ -852,7 +854,7 @@ async function planKernelRouteWithRecovery(
 					hedge: null,
 					recovery: "invalid_route_decision",
 				};
-				const answerModel = model.forOperation();
+				const answerModel = (routeModel ?? model).forOperation();
 				try {
 					if (
 						!args.routeChoice ||
@@ -903,8 +905,8 @@ async function planKernelRouteWithRecovery(
 			ranker: args.delegationCandidateRanker,
 			signal: args.abortSignal,
 		});
-		if (pageTools && guarded.routeKind === "answer_in_home" && model) {
-			const answerModel = model.forOperation();
+		if (pageTools && guarded.routeKind === "answer_in_home" && routeModel) {
+			const answerModel = routeModel.forOperation();
 			try {
 				await streamHomePageAnswer(
 					{ ...input, content: args.content },
@@ -918,7 +920,7 @@ async function planKernelRouteWithRecovery(
 		} else if (
 			(autoRouter || retried || args.routeChoice) &&
 			guarded.routeKind === "answer_in_home" &&
-			model
+			routeModel
 		) {
 			// One pass: the route pass already wrote the final answer, streamed as
 			// it grew. A second, tool-free pass is needed only when the guard
@@ -937,7 +939,12 @@ async function planKernelRouteWithRecovery(
 					}
 				}
 			} else {
-				await streamHomeAnswer(args, model, guarded);
+				const answerModel = routeModel.forOperation();
+				try {
+					await streamHomeAnswer(args, answerModel, guarded);
+				} finally {
+					attempts.push(...answerModel.attempts);
+				}
 			}
 		}
 		return guarded;
