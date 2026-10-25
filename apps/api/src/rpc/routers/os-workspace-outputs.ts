@@ -281,6 +281,13 @@ const outputsCreate = authorOs.outputs.create.handler(
 		}
 		if (input.workspaceId) {
 			await requireWorkspace(context, input.workspaceId);
+		} else if (context.externalAgentPrincipalId) {
+			// Coding agents left Outputs in no workspace and had to recreate them
+			// to regroup; they must say where an Output belongs.
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"workspaceId is required when an agent creates an output",
+			);
 		}
 		const creator = resolveCreator(context);
 		const accessEnvelope = await resolveAccessEnvelope(context);
@@ -411,6 +418,26 @@ const outputsRename = authorOs.outputs.rename.handler(
 		);
 		if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
 		return { output: mapOsOutputRow(row) };
+	},
+);
+
+const outputsMove = authorOs.outputs.move.handler(
+	async ({ input, context }) => {
+		const output = await requireOutput(context, input.outputId);
+		const target = await requireWorkspace(context, input.workspaceId);
+		if (output.workspaceId === target.id)
+			return { output: mapOsOutputRow(output), previousWorkspaceId: target.id };
+		// Revisions reference the output id, so moving the row keeps all of them.
+		const row = await updateOsOutput(
+			queryDb(context),
+			{ organizationId: output.organizationId, outputId: output.id },
+			{ workspaceId: target.id },
+		);
+		if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		return {
+			output: mapOsOutputRow(row),
+			previousWorkspaceId: output.workspaceId,
+		};
 	},
 );
 
@@ -1069,6 +1096,7 @@ export const osOutputProcedures = {
 	create: outputsCreate,
 	get: outputsGet,
 	rename: outputsRename,
+	move: outputsMove,
 	revise: outputsRevise,
 	patchDocument: outputsPatchDocument,
 	patchSlides: outputsPatchSlides,

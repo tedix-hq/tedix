@@ -7587,6 +7587,19 @@ const handlers: Record<string, (input: never) => unknown> = {
 		output.updatedAt = now();
 		return { output };
 	},
+	"osWorkspaces/outputs/move": (input: {
+		outputId: string;
+		workspaceId: string;
+	}) => {
+		const output = findOutput(input.outputId);
+		findWorkspace(input.workspaceId);
+		const previousWorkspaceId = output.workspaceId;
+		if (previousWorkspaceId !== input.workspaceId) {
+			output.workspaceId = input.workspaceId;
+			output.updatedAt = now();
+		}
+		return { output, previousWorkspaceId };
+	},
 	"osWorkspaces/outputs/revise": (input: {
 		outputId: string;
 		content: OsOutputContent;
