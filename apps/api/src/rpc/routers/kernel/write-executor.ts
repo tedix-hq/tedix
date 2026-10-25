@@ -283,6 +283,20 @@ function isCredentialMissing(result: ToolCallResult | null): boolean {
 	);
 }
 
+/** The text of an MCP content array, so chat shows words, not wire JSON. */
+function mcpContentText(content: unknown): string | null {
+	if (!Array.isArray(content)) return null;
+	const texts = content.flatMap((part) =>
+		part &&
+		typeof part === "object" &&
+		(part as { type?: unknown }).type === "text" &&
+		typeof (part as { text?: unknown }).text === "string"
+			? [(part as { text: string }).text]
+			: [],
+	);
+	return texts.length > 0 ? texts.join("\n") : null;
+}
+
 /** Bounded upstream-error text for the run/transcript record. */
 function boundedError(value: unknown): string {
 	try {
@@ -469,7 +483,9 @@ export async function executeApprovedKernelWrite(args: {
 		if (result.isError) {
 			return {
 				ok: false,
-				error: boundedError(result.content ?? result),
+				error: boundedError(
+					mcpContentText(result.content) ?? result.content ?? result,
+				),
 			};
 		}
 		const data =

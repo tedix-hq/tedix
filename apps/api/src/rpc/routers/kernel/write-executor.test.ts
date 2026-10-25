@@ -1017,6 +1017,30 @@ describe("factory approval receipt forwarding", () => {
 	});
 });
 
+describe("approved write failure text", () => {
+	it("records the gateway's words, not its MCP content array", async () => {
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result:
+					body.method === "tools/list"
+						? { tools: [{ name: "globex__create_invoice" }] }
+						: {
+								isError: true,
+								content: [{ type: "text", text: "Invoice is locked." }],
+							},
+			},
+		}));
+		await expect(
+			executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload({ initiatedByUserId: null }),
+			}),
+		).resolves.toEqual({ ok: false, error: "Invoice is locked." });
+	});
+});
+
 describe("edited write live validation", () => {
 	const approverEdits = {
 		editedBy: "approver",
