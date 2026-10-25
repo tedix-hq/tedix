@@ -1,5 +1,5 @@
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	appRuntimeContextFromManifest,
 	buildAppRuntimeDocument,
@@ -102,12 +102,62 @@ describe("app runtime host", () => {
 			}),
 		).toEqual({ ok: false, error: "slot_unbound" });
 		expect(
-			await handleAppRuntimeCall(deps("use"), "app.call", { name: "x" }),
+			await handleAppRuntimeCall(deps("use"), "app.call", {
+				method: "ratings",
+				args: [],
+			}),
 		).toMatchObject({ ok: false, error: "host_unavailable" });
 		expect(await handleAppRuntimeCall(deps("use"), "fs.read", {})).toEqual({
 			ok: false,
 			error: "unknown_method",
 		});
+	});
+
+	it.each(["owner", "build", "use", "viewer"] as const)(
+		"applies the %s role before calling the server",
+		async (role) => {
+			const callServer = vi.fn(async () => ({ decision: "Hilfreich" }));
+			const result = await handleAppRuntimeCall(
+				{ ...deps(role), callServer },
+				"app.call",
+				{
+					method: "rate",
+					args: [{ cardId: "card-1", decision: "Hilfreich" }],
+				},
+			);
+			if (role === "viewer") {
+				expect(result).toEqual({
+					ok: false,
+					error: "not_permitted",
+					detail: "role",
+				});
+				expect(callServer).not.toHaveBeenCalled();
+			} else {
+				expect(result).toEqual({ ok: true, value: { decision: "Hilfreich" } });
+				expect(callServer).toHaveBeenCalledWith("rate", [
+					{ cardId: "card-1", decision: "Hilfreich" },
+				]);
+			}
+		},
+	);
+
+	it.each([
+		null,
+		{},
+		{ method: "constructor" },
+		{ method: "alarm" },
+		{ method: "ratings", args: {} },
+		{ method: "ratings", args: Array(51).fill(null) },
+	])("refuses malformed server calls before dispatch: %j", async (args) => {
+		const callServer = vi.fn();
+		expect(
+			await handleAppRuntimeCall(
+				{ ...deps("use"), callServer },
+				"app.call",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "bad_arguments" });
+		expect(callServer).not.toHaveBeenCalled();
 	});
 
 	it("inlines client.js after the tedix bridge and keeps the script tag closed", () => {

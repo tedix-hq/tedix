@@ -105,6 +105,7 @@ async function fixture() {
 		manifest: JSON.stringify({
 			entry: "tedix:runtime/v1",
 			capabilities: [],
+			config: { version: 1, settings: { tags: ["Relevant"] } },
 			resourceGrants: [{ slot: "sheet", operations: ["outputs.read"] }],
 		}),
 		createdByKind: "user",
@@ -145,15 +146,32 @@ describe("workspace app runtime API admission", () => {
 			...scope,
 			revisionId,
 			principal: { kind: "user", id: "user-1" },
+			config: { version: 1, settings: { tags: ["Relevant"] } },
 			grants: [{ slot: "sheet", operations: ["outputs.read"] }],
 		});
 	});
 	it("forwards only stored code and the validated invocation over the runtime binding", async () => {
-		const { client, fetch } = await fixture();
+		const { router, env, fetch, db } = await fixture();
+		const client = createRouterClient(router, {
+			context: userContext({ env, sub: "user-2" }),
+		});
 		const { session } = await client.open(scope);
 		expect(
 			await client.call({ ...scope, session, method: "count", args: [] }),
 		).toEqual({ result: { count: 1 } });
+		const receipts = await db.select().from(osGadgetExecutions);
+		expect(receipts).toMatchObject([
+			{
+				gadgetId,
+				revisionId,
+				status: "completed",
+				createdByKind: "user",
+				createdById: "user-2",
+				grantedCapabilities: JSON.stringify(["app.call"]),
+				input: JSON.stringify({ method: "count", args: [] }),
+				output: JSON.stringify({ count: 1 }),
+			},
+		]);
 		const request = fetch.mock.calls[0]![0] as Request;
 		expect(new URL(request.url).pathname).toBe(
 			"/__internal/workspace-app/call",
@@ -163,6 +181,41 @@ describe("workspace app runtime API admission", () => {
 			files: { "server.js": "export class App {}" },
 			method: "count",
 		});
+	});
+	it("records a failed use-role call without claiming a successful write", async () => {
+		const { router, env, db, fetch } = await fixture();
+		const reader = createRouterClient(router, {
+			context: userContext({ env, sub: "user-2" }),
+		});
+		const { session } = await reader.open(scope);
+		fetch.mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
+		await expect(
+			reader.call({ ...scope, session, method: "rate", args: [] }),
+		).rejects.toMatchObject({ code: "BAD_GATEWAY" });
+		const [receipt] = await db.select().from(osGadgetExecutions);
+		expect(receipt).toMatchObject({
+			status: "failed",
+			revisionId,
+			createdById: "user-2",
+			output: null,
+		});
+		expect(JSON.parse(receipt!.policyDecision)).toMatchObject({
+			allowed: true,
+			role: "use",
+		});
+	});
+	it("rejects a stale pinned revision before dispatch or creating a receipt", async () => {
+		const { client, db, fetch } = await fixture();
+		const { session } = await client.open(scope);
+		await db
+			.update(osGadgets)
+			.set({ currentRevisionId: previewId })
+			.where(eq(osGadgets.id, gadgetId));
+		await expect(
+			client.call({ ...scope, session, method: "rate", args: [] }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(fetch).not.toHaveBeenCalled();
+		expect(await db.select().from(osGadgetExecutions)).toEqual([]);
 	});
 	it("rejects another tenant, workspace, caller and a tampered session before dispatch", async () => {
 		const { client, router, env, fetch } = await fixture();
