@@ -11,6 +11,7 @@ import { startFixtureServer } from "./fixture-server";
 const path = "/browser-tests/workspace-sharing.html";
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const KEY = "AbCdEfGhIjKlMnOpQrStUv";
+const PUBLIC_TOKEN = "PublicTokenPublicTokenPublicToken12";
 const server = await startFixtureServer(path);
 const browser = await chromium.launch({ headless: true });
 const directory =
@@ -40,9 +41,13 @@ type Calls = Record<string, unknown[]>;
 
 async function mockApi(page: Page, options: { denied?: boolean } = {}) {
 	const calls: Calls = {};
+	const publicLinks: unknown[] = [];
 	await page.route("**/api/**", async (route) => {
 		const request = route.request();
-		const endpoint = new URL(request.url()).pathname.split("/").pop() ?? "";
+		const pathname = new URL(request.url()).pathname;
+		const publicShares = pathname.includes("/osShares/");
+		const endpoint =
+			(publicShares ? "public:" : "") + (pathname.split("/").pop() ?? "");
 		const raw =
 			request.method() === "GET"
 				? JSON.parse(new URL(request.url()).searchParams.get("data") ?? "{}")
@@ -50,7 +55,29 @@ async function mockApi(page: Page, options: { denied?: boolean } = {}) {
 		const input = raw?.json ?? raw;
 		(calls[endpoint] ??= []).push(input);
 		let json: unknown;
-		if (endpoint === "list")
+		if (endpoint === "public:list") json = { items: publicLinks };
+		else if (endpoint === "public:create") {
+			const share = {
+				id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+				organizationId: "org-fictional",
+				resourceType: "workspace",
+				resourceId: WORKSPACE_ID,
+				role: input.role,
+				revisionMode: "living",
+				pinnedRevisionId: null,
+				note: null,
+				policyMaxRole: null,
+				policyReason: null,
+				policyRestrictedAt: null,
+				createdByKind: "user",
+				createdById: "member-robin",
+				createdAt: "2026-10-25T11:00:00.000Z",
+				expiresAt: null,
+				revokedAt: null,
+			};
+			publicLinks.push(share);
+			json = { share, token: PUBLIC_TOKEN };
+		} else if (endpoint === "list")
 			json = {
 				role: "build",
 				isOwner: true,
@@ -188,8 +215,10 @@ try {
 
 				await dialog.getByLabel("Email address").fill("lee@example.test");
 				await dialog.getByRole("button", { name: "Invite" }).click();
-				await page.waitForFunction(() =>
-					[...document.querySelectorAll("input")].every((i) => i.value === ""),
+				await page.waitForFunction(
+					() =>
+						(document.querySelector("input[type=email]") as HTMLInputElement)
+							.value === "",
 				);
 				assert.deepEqual(calls.add?.[0], {
 					workspaceId: WORKSPACE_ID,
@@ -216,6 +245,26 @@ try {
 					workspaceId: WORKSPACE_ID,
 					target: { kind: "user", userId: "member-kai" },
 					keepUserIds: ["member-zoe"],
+				});
+
+				// The no-sign-in link is a separate option, off by default.
+				const publicSwitch = dialog.getByRole("switch", {
+					name: "Anyone with the link can view",
+				});
+				assert.equal(await publicSwitch.getAttribute("aria-checked"), "false");
+				await publicSwitch.click();
+				const publicUrl = dialog.locator("[data-public-url]");
+				await publicUrl.waitFor();
+				assert(
+					(await publicUrl.textContent())?.includes(
+						`/shared#token=${PUBLIC_TOKEN}`,
+					),
+				);
+				assert.deepEqual(calls["public:create"]?.[0], {
+					resourceType: "workspace",
+					resourceId: WORKSPACE_ID,
+					role: "use",
+					revisionMode: "living",
 				});
 
 				await dialog.getByRole("button", { name: "Create link" }).click();

@@ -1,4 +1,4 @@
-import { LinkSimple, User, UserPlus } from "@phosphor-icons/react";
+import { Globe, LinkSimple, User, UserPlus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	OsAffectedCollaborator,
@@ -20,10 +20,17 @@ import {
 } from "@/components/kumo/dialog";
 import { Input } from "@/components/kumo/input";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
+import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
+import {
+	formatShareLink,
+	shareLinkBase,
+	shareStatus,
+} from "@/components/share-controls";
 import { osApi } from "@/lib/api";
 import {
 	osQueryKeys,
+	osSharesQueryOptions,
 	workspaceCollaboratorsQueryOptions,
 } from "@/lib/os-query-options";
 
@@ -77,6 +84,8 @@ type PendingRemoval = {
 export function WorkspaceShareDialog(props: {
 	workspaceId: string;
 	workspaceName: string;
+	/** Private workspaces cannot have a no-sign-in link. */
+	visibility?: "org" | "private";
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -414,6 +423,11 @@ export function WorkspaceShareDialog(props: {
 						</Text>
 					) : null}
 				</section>
+				<PublicLinkSection
+					workspaceId={workspaceId}
+					isPrivate={props.visibility === "private"}
+					canManage={data?.role === "build"}
+				/>
 			</DialogContent>
 		</Dialog>
 	);
@@ -493,5 +507,113 @@ function RemovalConfirm(props: {
 				</div>
 			</AlertDescription>
 		</Alert>
+	);
+}
+
+/**
+ * The no-sign-in link, kept apart from collaborator links: anyone holding it
+ * can view the workspace's apps without a Tedix account. Off until turned on;
+ * turning it off revokes every active public link.
+ */
+function PublicLinkSection(props: {
+	workspaceId: string;
+	isPrivate: boolean;
+	canManage: boolean;
+}) {
+	const queryClient = useQueryClient();
+	const sharesQuery = osSharesQueryOptions({
+		resourceType: "workspace",
+		resourceId: props.workspaceId,
+	});
+	const shares = useQuery(sharesQuery);
+	const [token, setToken] = useState<string | null>(null);
+	const active = (shares.data?.items ?? []).filter(
+		(share) => shareStatus(share) === "active",
+	);
+	const refresh = () =>
+		queryClient.invalidateQueries({ queryKey: sharesQuery.queryKey });
+	const toggle = useMutation({
+		mutationFn: async (on: boolean) => {
+			if (on) {
+				const created = await osApi.osShares.shares.create({
+					resourceType: "workspace",
+					resourceId: props.workspaceId,
+					role: "use",
+					revisionMode: "living",
+				});
+				return created.token;
+			}
+			for (const share of active)
+				await osApi.osShares.shares.revoke({ shareId: share.id });
+			return null;
+		},
+		onSuccess: (next) => {
+			setToken(next);
+			void refresh();
+		},
+	});
+	const enabled = active.length > 0;
+	const origin = typeof window === "undefined" ? "" : window.location.origin;
+	const url = token
+		? formatShareLink(
+				token,
+				shareLinkBase({
+					resourceType: "workspace",
+					origin,
+					localEvaluation: false,
+				}),
+			)
+		: null;
+	return (
+		<section
+			className="grid gap-2 border-kumo-line border-t pt-4"
+			aria-label="Public link"
+			data-public-link
+		>
+			<div className="flex min-h-11 items-center gap-3">
+				<Globe size={16} className="shrink-0 text-kumo-subtle" />
+				<span className="grid min-w-0 flex-1">
+					<Text as="span" role="body">
+						Anyone with the link can view
+					</Text>
+					<Text as="span" role="label" tone="secondary">
+						No sign-in. They see the apps, never how they are built.
+					</Text>
+				</span>
+				<Switch
+					aria-label="Anyone with the link can view"
+					checked={enabled}
+					disabled={
+						props.isPrivate ||
+						!props.canManage ||
+						shares.isPending ||
+						toggle.isPending
+					}
+					onCheckedChange={(checked) => toggle.mutate(checked)}
+				/>
+			</div>
+			{props.isPrivate ? (
+				<Text role="label" tone="secondary" className="m-0">
+					Private workspaces can't have a public link. Invite people instead.
+				</Text>
+			) : null}
+			{url ? (
+				<div className="grid gap-1" data-public-url>
+					<ClipboardText text={url} className="max-w-full" />
+					<Text role="label" tone="secondary" className="m-0">
+						Copy it now; it can't be shown again. Turning this off stops it.
+					</Text>
+				</div>
+			) : enabled ? (
+				<Text role="label" tone="secondary" className="m-0">
+					A public link is on. Turn it off and on again for a new link.
+				</Text>
+			) : null}
+			{toggle.isError ? (
+				<Text role="label" tone="error" className="m-0">
+					{errorText(toggle.error, "Couldn't change the public link.")}
+				</Text>
+			) : null}
+		</section>
 	);
 }
