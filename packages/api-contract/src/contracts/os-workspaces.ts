@@ -1122,7 +1122,9 @@ export const osWorkspacesContract = oc
 							.string()
 							.uuid()
 							.optional()
-							.describe("Optional workspace to group the output under"),
+							.describe(
+								"Workspace to group the output under. Required for external coding agents (BAD_REQUEST otherwise); people may omit it.",
+							),
 						content: z
 							.union([
 								OsOutputContentSchema,
@@ -1198,6 +1200,33 @@ export const osWorkspacesContract = oc
 				})
 				.input(outputIdInput.extend({ title: nameSchema }))
 				.output(z.object({ output: OsOutputSchema })),
+			move: oc
+				.route({
+					method: "POST",
+					path: "/outputs/{outputId}/move",
+					summary: "Move a Tedix OS output to another workspace",
+					description:
+						"Regroups an existing output under another workspace in the same organization. The output keeps its id, every revision and its creator; only its workspace changes. The caller must be able to see the target workspace (NOT_FOUND otherwise). Moving to the workspace it is already in changes nothing.",
+				})
+				.input(
+					outputIdInput.extend({
+						workspaceId: z
+							.string()
+							.uuid()
+							.describe("Workspace to move the output into"),
+					}),
+				)
+				.output(
+					z.object({
+						output: OsOutputSchema,
+						previousWorkspaceId: z
+							.string()
+							.nullable()
+							.describe(
+								"Workspace the output was grouped under before the move",
+							),
+					}),
+				),
 			revise: oc
 				.errors(revisionConflictErrors)
 				.route({

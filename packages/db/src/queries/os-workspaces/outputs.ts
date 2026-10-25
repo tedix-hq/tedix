@@ -33,6 +33,7 @@ export interface ListOsOutputsOptions {
 export interface UpdateOsOutputPatch {
 	title?: string;
 	status?: OsOutputRow["status"];
+	workspaceId?: string;
 }
 
 export interface OsOutputLibraryRow {

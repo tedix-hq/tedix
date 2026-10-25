@@ -1531,6 +1531,85 @@ describe("outputs", () => {
 			c.org2.outputs.rename({ outputId: document.output.id, title: "Nope" }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
+	it("moves an output between workspaces keeping its id, revisions and creator", async () => {
+		const { workspace: from } = await c.org1.workspaces.create({
+			name: "Drafts",
+		});
+		const { workspace: to } = await c.org1.workspaces.create({
+			name: "Launch",
+		});
+		const created = await c.machine.outputs.create({
+			workspaceId: from.id,
+			kind: "document",
+			title: "Launch brief",
+			content: "First draft",
+		});
+		const revised = await c.org1.outputs.revise({
+			outputId: created.output.id,
+			content: "Second draft",
+			expectedRevisionId: created.revision.id,
+		});
+		const moved = await c.org1.outputs.move({
+			outputId: created.output.id,
+			workspaceId: to.id,
+		});
+		expect(moved).toMatchObject({
+			previousWorkspaceId: from.id,
+			output: {
+				id: created.output.id,
+				workspaceId: to.id,
+				createdByKind: created.output.createdByKind,
+				createdById: created.output.createdById,
+				currentRevisionId: revised.revision.id,
+			},
+		});
+		const history = await c.org1.outputs.history({
+			outputId: created.output.id,
+		});
+		expect(history.revisions.map((item) => item.revision)).toEqual([2, 1]);
+		const audit = await createDbClient(c.env.DB)
+			.select()
+			.from(auditEvents)
+			.where(eq(auditEvents.action, "os.output.moved"));
+		expect(audit).toHaveLength(1);
+		expect(audit[0]?.resourceId).toBe(created.output.id);
+		// Same workspace is a no-op; another org's workspace and output stay hidden.
+		expect(
+			(
+				await c.org1.outputs.move({
+					outputId: created.output.id,
+					workspaceId: to.id,
+				})
+			).output.updatedAt,
+		).toBe(moved.output.updatedAt);
+		const { workspace: foreign } = await c.org2.workspaces.create({
+			name: "Elsewhere",
+		});
+		await expect(
+			c.org1.outputs.move({
+				outputId: created.output.id,
+				workspaceId: foreign.id,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			c.org2.outputs.move({
+				outputId: created.output.id,
+				workspaceId: foreign.id,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+	it("requires external agents to name the output's workspace", async () => {
+		await expect(
+			c.machineAgent.outputs.create({ kind: "document", title: "Loose" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const { workspace } = await c.org1.workspaces.create({ name: "Agents" });
+		const created = await c.machineAgent.outputs.create({
+			kind: "document",
+			title: "Grouped",
+			workspaceId: workspace.id,
+		});
+		expect(created.output.workspaceId).toBe(workspace.id);
+	});
 	it("patches visual slide props and backgrounds while preserving CAS and semantic projection", async () => {
 		const created = await c.org1.outputs.create({
 			kind: "presentation",

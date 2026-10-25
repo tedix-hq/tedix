@@ -564,6 +564,10 @@ const CALLS: Record<string, unknown> = {
 		outputId: IDS.outputDocument,
 		title: "Renamed fixture document",
 	},
+	"osWorkspaces/outputs/move": {
+		outputId: IDS.outputDocument,
+		workspaceId: IDS.workspaceRevenue,
+	},
 	"osWorkspaces/outputs/revise": {
 		outputId: IDS.outputDocument,
 		content: IDS.documentContent,
