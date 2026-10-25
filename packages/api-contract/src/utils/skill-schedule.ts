@@ -26,6 +26,7 @@ type ParsedCron = {
 };
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+const GREGORIAN_CALENDAR_CYCLE_DAYS = 400 * 365 + 97;
 
 function parseField(
 	source: string,
@@ -108,7 +109,7 @@ export function nextSkillScheduleFireAt(
 	const day = new Date(
 		Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
 	);
-	for (let offset = 0; offset < 5 * 366; offset++) {
+	for (let offset = 0; offset <= GREGORIAN_CALENDAR_CYCLE_DAYS; offset++) {
 		if (matchesCronDay(day, parsed)) {
 			for (const hour of hours) {
 				for (const minute of minutes) {
@@ -129,7 +130,7 @@ export function nextSkillScheduleFireAt(
 		}
 		day.setUTCDate(day.getUTCDate() + 1);
 	}
-	throw new Error("cron has no fire time within the next five years");
+	throw new Error("cron has no fire time within the next 400 years");
 }
 
 export function readSkillSchedulePolicy(

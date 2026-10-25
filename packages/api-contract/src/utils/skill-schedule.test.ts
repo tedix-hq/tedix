@@ -98,6 +98,18 @@ describe("skill-native schedule", () => {
 		);
 	});
 
+	it("finds leap-day schedules across a non-leap century", () => {
+		expect(nextSkillScheduleFireAt("0 0 29 2 *", "2096-03-01T00:00:00Z")).toBe(
+			"2104-02-29T00:00:00.000Z",
+		);
+	});
+
+	it("rejects impossible calendar dates after a bounded search", () => {
+		expect(() =>
+			nextSkillScheduleFireAt("0 0 30 2 *", "2096-03-01T00:00:00Z"),
+		).toThrow("cron has no fire time within the next 400 years");
+	});
+
 	it("rejects malformed schedules at write time", () => {
 		const result = validateSkillSchedulePolicy(`---
 capabilities:
