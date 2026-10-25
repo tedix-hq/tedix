@@ -227,6 +227,15 @@ const activate = authedOs.activate
 			throw createError(ErrorCodes.NOT_FOUND, "Installation not found");
 		}
 
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			input.tediId,
+			orgId,
+		);
+		if (!tedi) {
+			throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
+		}
+
 		const now = new Date().toISOString();
 		const updated = await updatePluginInstall(context.db, input.installId, {
 			tediId: input.tediId,
