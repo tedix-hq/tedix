@@ -33,6 +33,31 @@ function skill(overrides: Partial<RetrievableSkill>): RetrievableSkill {
 const QUERY = "compile the weekly pricing report and email it to sales";
 
 describe("selectRetrievedSkills — lifecycle gating", () => {
+	it.each(Object.getOwnPropertyNames(Object.prototype))(
+		"rejects inherited lifecycle name %s in candidates, matches and references",
+		(lifecycleState) => {
+			const invalid = skill({ slug: "invalid", lifecycleState });
+			const active = skill({ slug: "valid" });
+			const corpus = [invalid, active];
+			expect(
+				selectRetrievedSkillCandidates(corpus, QUERY, { now: NOW }).map(
+					(match) => match.skill.slug,
+				),
+			).toEqual(["valid"]);
+			expect(
+				selectRetrievedSkills(corpus, QUERY, { now: NOW }).map(
+					(match) => match.skill.slug,
+				),
+			).toEqual(["valid"]);
+			const out = selectSkillsForTurn(corpus, QUERY, {
+				referencedSlugs: ["invalid"],
+				now: NOW,
+			});
+			expect(out.matches.map((match) => match.skill.slug)).toEqual(["valid"]);
+			expect(out.unresolvedReferences).toEqual(["invalid"]);
+		},
+	);
+
 	it("never returns drafts, stale, archived, or unknown lifecycle states", () => {
 		const corpus = [
 			skill({ lifecycleState: "draft" }),

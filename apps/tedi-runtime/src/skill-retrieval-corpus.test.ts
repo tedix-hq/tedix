@@ -48,6 +48,9 @@ function entry(overrides: Partial<SkillSearchEntry>): SkillSearchEntry {
 		entry({ lifecycleState: "stale", slug: "e-stale" }),
 		entry({ lifecycleState: "archived", slug: "f-archived" }),
 		entry({ lifecycleState: null, slug: "g-null" }),
+		...Object.getOwnPropertyNames(Object.prototype).map((lifecycleState) =>
+			entry({ lifecycleState, slug: lifecycleState }),
+		),
 	]);
 	assert.deepEqual(
 		corpus.map((s) => s.slug).sort(),

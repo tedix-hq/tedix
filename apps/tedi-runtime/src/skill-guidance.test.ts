@@ -286,6 +286,21 @@ const OWNER = "tedi-owner";
 const other = { tediId: "tedi-other", lifecycleState: "active" };
 
 {
+	const valid = ["active", "proven", "crystallized"].map((lifecycleState) => ({
+		tediId: OWNER,
+		lifecycleState,
+	}));
+	const invalid = Object.getOwnPropertyNames(Object.prototype).map(
+		(lifecycleState) => ({ tediId: OWNER, lifecycleState }),
+	);
+	assert.deepEqual(
+		selectGuidanceSkills([...invalid, ...valid], OWNER),
+		valid,
+		"inherited property names must not be advertised or consume the cap",
+	);
+}
+
+{
 	// The regression this exists for: `skills/listByOrg` with a tediId defaults
 	// to `ne(lifecycleState, "draft")`, which lets ARCHIVED and STALE through.
 	// A production tedi's only advertised skill was an archived one, while its
