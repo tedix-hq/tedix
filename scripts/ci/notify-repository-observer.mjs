@@ -103,13 +103,37 @@ export async function notifyObserver(
 	}
 	return response.json();
 }
-if (
-	process.argv[1] &&
-	import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-	const env = process.env;
-	const url = env.TEDIX_OBSERVER_URL;
-	if (!url) throw new Error("TEDIX_OBSERVER_URL required");
+/**
+ * The observer URL carries the webhook and project ids, and this repository's
+ * Actions logs are public. Returns every value the runner must mask.
+ * @param {string} url
+ */
+export function observerSecrets(url) {
+	const values = new Set([url.trim()]);
+	try {
+		const target = new URL(url.trim());
+		values.add(target.href);
+		values.add(target.pathname);
+		for (const segment of target.pathname.split("/"))
+			if (segment.length >= 16) values.add(segment);
+	} catch {
+		// An unparsable value is masked whole; its parts are unknown.
+	}
+	return [...values].filter(Boolean);
+}
+/** @param {unknown} error
+ * @param {string[]} secrets
+ */
+export function redactedFailure(error, secrets) {
+	let text = error instanceof Error ? error.message : String(error);
+	for (const value of [...secrets].sort((a, b) => b.length - a.length))
+		text = text.replaceAll(value, "***");
+	return text;
+}
+/** @param {NodeJS.ProcessEnv} env
+ * @param {string} url
+ */
+async function main(env, url) {
 	const projectId = new URL(url).pathname.split("/").at(-1);
 	const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
 	let payload;
@@ -120,7 +144,7 @@ if (
 		);
 		if (tip.sha !== run.head_sha) {
 			console.log("Superseded red tip; no new incident");
-			process.exit(0);
+			return;
 		}
 		const jobs = [];
 		for (let page = 1; ; page++) {
@@ -156,4 +180,26 @@ if (
 	}
 	const receipt = await notifyObserver(url, payload);
 	console.log(JSON.stringify(receipt));
+}
+if (
+	process.argv[1] &&
+	import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+	const url = (process.env.TEDIX_OBSERVER_URL ?? "").trim();
+	const secrets = observerSecrets(url);
+	// Mask before any other output so no later line can print the coordinates.
+	for (const value of secrets) console.log(`::add-mask::${value}`);
+	if (!url) {
+		console.log(
+			"::notice::TEDIX_OBSERVER_URL secret is not configured; nothing reported",
+		);
+	} else {
+		try {
+			await main(process.env, url);
+		} catch (error) {
+			// Never print a stack or a URL error's `input`: only a redacted message.
+			console.log(`::error::${redactedFailure(error, secrets)}`);
+			process.exitCode = 1;
+		}
+	}
 }

@@ -501,8 +501,10 @@ verdict, evidence and proposed fix through `report_repository_observation`.
 A claimed lesson application remains unverified until its evidence is checked.
 
 The optional `.github/workflows/tedix-observer.yml` reports main pushes when the
-repository variable `TEDIX_OBSERVER_URL` names the installation's
-`/webhooks/repository-observer/<organization>/<project>` endpoint. GitHub's
+repository secret `TEDIX_OBSERVER_URL` names the installation's
+`/webhooks/repository-observer/<organization>/<project>` endpoint. Use a secret,
+not a variable: Actions logs print variables, and public repository logs are
+readable by anyone. GitHub's
 short-lived OIDC identity must match the configured repository, workflow,
 branch and pushed SHA. No stored API key is needed. A private release repository
 can be separately configured to report Ship outcomes from its own workflow.

@@ -23,9 +23,11 @@ concurrency:
 
 jobs:
   notify:
+    # GitHub starts a run for every completed Full suite run; this job-level
+    # check only keeps cancelled and skipped completions from using a runner.
     if: >-
-      vars.TEDIX_OBSERVER_URL != '' &&
-      (github.event_name == 'push' || contains(fromJSON('["failure","success"]'), github.event.workflow_run.conclusion))
+      github.event_name == 'push' ||
+      contains(fromJSON('["failure","success"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -38,7 +40,9 @@ jobs:
           node-version: "24.22.1"
           package-manager-cache: false
       - name: Wake the configured observer
+        # A secret, never a variable: public logs print step env, and only
+        # secrets are masked. The script also masks the URL and its ids.
         env:
-          TEDIX_OBSERVER_URL: ${{ vars.TEDIX_OBSERVER_URL }}
+          TEDIX_OBSERVER_URL: ${{ secrets.TEDIX_OBSERVER_URL }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/ci/notify-repository-observer.mjs
