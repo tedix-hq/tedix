@@ -434,7 +434,11 @@ interface Seeds {
 	codemode?: CodemodeSummary;
 	humanReview?: HumanActivityReview;
 	recentActivity?: RecentActivity;
+	/** Reads left unseeded so they go through the stubbed fetch. */
+	unseeded?: Array<"toolBreakdown" | "timeSeries">;
 }
+
+let renderedClient: QueryClient | undefined;
 
 async function renderAnalytics(seeds: Seeds = {}) {
 	vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -483,14 +487,17 @@ async function renderAnalytics(seeds: Seeds = {}) {
 		appAnalyticsSummaryQueryOptions(APP_ID, range).queryKey,
 		seeds.summary ?? summary,
 	);
-	client.setQueryData(
-		appToolBreakdownQueryOptions(APP_ID, range).queryKey,
-		toolBreakdown,
-	);
-	client.setQueryData(
-		appTimeSeriesQueryOptions(APP_ID, range).queryKey,
-		timeSeries,
-	);
+	renderedClient = client;
+	if (!seeds.unseeded?.includes("toolBreakdown"))
+		client.setQueryData(
+			appToolBreakdownQueryOptions(APP_ID, range).queryKey,
+			toolBreakdown,
+		);
+	if (!seeds.unseeded?.includes("timeSeries"))
+		client.setQueryData(
+			appTimeSeriesQueryOptions(APP_ID, range).queryKey,
+			timeSeries,
+		);
 	client.setQueryData(
 		appRecentExecutionsQueryOptions(APP_ID, range).queryKey,
 		recentExecutions,
@@ -533,7 +540,58 @@ async function renderAnalytics(seeds: Seeds = {}) {
 afterEach(() => {
 	while (cleanups.length > 0) cleanups.pop()?.();
 	vi.useRealTimers();
+	vi.unstubAllGlobals();
+	renderedClient = undefined;
 });
+
+/**
+ * Answers analytics reads by procedure: `fail` reads error until `recover`
+ * is called, `hold` reads never settle. Records every requested path.
+ */
+function stubAnalyticsFetch(options: { fail?: string; hold?: string }) {
+	const paths: string[] = [];
+	let failing = true;
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input instanceof Request ? input.url : input);
+			const path = new URL(url, "http://local.test").pathname;
+			paths.push(path);
+			if (options.hold && path.endsWith(options.hold))
+				return new Promise<Response>(() => {});
+			if (options.fail && path.endsWith(options.fail) && failing)
+				return Response.json(
+					{
+						json: {
+							defined: false,
+							code: "INTERNAL_SERVER_ERROR",
+							status: 500,
+							message: "Analytics read failed",
+						},
+					},
+					{ status: 500 },
+				);
+			if (path.endsWith("getAppToolBreakdown"))
+				return Response.json({ json: toolBreakdown });
+			throw new Error(`Unexpected analytics request: ${path}`);
+		}),
+	);
+	return {
+		paths,
+		recover: () => {
+			failing = false;
+		},
+	};
+}
+
+function buttonIn(container: HTMLElement, sectionText: string, label: string) {
+	const card = [
+		...container.querySelectorAll<HTMLElement>('[data-slot="card"]'),
+	].find((node) => node.textContent?.includes(sectionText));
+	return [...(card?.querySelectorAll("button") ?? [])].find(
+		(button) => button.textContent?.trim() === label,
+	);
+}
 
 function headings(container: HTMLElement): string[] {
 	return [
@@ -656,13 +714,92 @@ describe("AppAnalyticsPage", () => {
 		expect(text).toContain("No recent activity in this period.");
 	});
 
-	it("shows the no-activity empty state when the summary has no events", async () => {
+	it("keeps audit-backed activity visible when the sampled summary has no events", async () => {
 		const container = await renderAnalytics({ summary: emptySummary });
 		const text = container.textContent ?? "";
 
 		expect(container.querySelector("h2")?.textContent).toBe("Analytics");
-		expect(text).toContain("No activity yet");
+		expect(text).toContain("No tool events in this period");
 		expect(text).toContain("Connect a client to generate your first session.");
-		expect(headings(container)).toEqual([]);
+		expect(text).toContain("Audit trail");
+		// The sampled sections are omitted, the audit lanes are not.
+		const titles = headings(container);
+		expect(titles).not.toEqual(
+			expect.arrayContaining([expect.stringContaining("Tool breakdown")]),
+		);
+		expect(titles).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("Activity Review"),
+				expect.stringContaining("Recent Activity"),
+				expect.stringContaining("Recent Code Executions"),
+			]),
+		);
+	});
+
+	it("shows deferred and failed sections beside successful ones, then retries only the failed read", async () => {
+		const network = stubAnalyticsFetch({
+			fail: "getAppToolBreakdown",
+			hold: "getAppTimeSeries",
+		});
+		const container = await renderAnalytics({
+			unseeded: ["toolBreakdown", "timeSeries"],
+		});
+		await vi.waitFor(() =>
+			expect(container.textContent).toContain(
+				"Tool breakdown could not be loaded.",
+			),
+		);
+		const text = container.textContent ?? "";
+		expect(text).toContain("Loading event volume...");
+		// A failure is not presented as an empty period.
+		expect(text).not.toContain("No tool breakdown in this period.");
+		// Successful siblings stay available.
+		expect(headings(container)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("Code Mode"),
+				expect.stringContaining("Recent Activity"),
+			]),
+		);
+		expect(text).toContain("Total sessions");
+
+		network.recover();
+		const before = network.paths.length;
+		await act(async () => {
+			buttonIn(
+				container,
+				"Tool breakdown could not be loaded.",
+				"Try again",
+			)!.click();
+		});
+		await vi.waitFor(() =>
+			expect(headings(container)).toEqual(
+				expect.arrayContaining([expect.stringContaining("Tool breakdown")]),
+			),
+		);
+		// The retry re-read the failed endpoint alone, and wrote nothing.
+		expect(network.paths.slice(before)).toEqual([
+			expect.stringMatching(/getAppToolBreakdown$/),
+		]);
+		expect(network.paths.every((path) => /\/get[A-Z]/.test(path))).toBe(true);
+	});
+
+	it("keeps earlier data and says so when a section refresh fails", async () => {
+		stubAnalyticsFetch({ fail: "getAppToolBreakdown" });
+		const container = await renderAnalytics();
+		await act(async () => {
+			await renderedClient!.refetchQueries({
+				queryKey: appToolBreakdownQueryOptions(APP_ID, appAnalyticsRange())
+					.queryKey,
+			});
+		});
+		await vi.waitFor(() =>
+			expect(container.textContent).toContain(
+				"Tool breakdown could not be refreshed. Showing earlier data.",
+			),
+		);
+		expect(container.textContent).toContain("list_invoices");
+		expect(
+			buttonIn(container, "could not be refreshed", "Try again"),
+		).toBeDefined();
 	});
 });

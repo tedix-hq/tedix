@@ -19,6 +19,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
+import { AppTabReadRetry } from "@/components/app-detail-tab-shared";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
@@ -39,15 +40,23 @@ import {
 	getCallerTypeDisplay,
 } from "./format";
 
+type ReadQuery = { isFetching: boolean; refetch: () => Promise<unknown> };
 type AppTimeSeries = z.infer<typeof AppTimeSeriesSchema>;
 type AppActivityFreshness = z.infer<typeof AppActivityFreshnessSchema>;
 
+/**
+ * One analytics section's non-data state. `error` means the section has no
+ * data; `stale` means a refresh failed and the data shown is from an earlier
+ * read. Both offer a read-only retry of that section's query alone.
+ */
 export function AnalyticsQueryState({
 	label,
 	state,
+	query,
 }: {
 	label: string;
-	state: "loading" | "error" | "empty";
+	state: "loading" | "error" | "empty" | "stale";
+	query?: ReadQuery;
 }) {
 	return (
 		<Card>
@@ -56,9 +65,16 @@ export function AnalyticsQueryState({
 					<p role="status" className="m-0 text-kumo-subtle type-tedix-body">
 						{`Loading ${label.toLowerCase()}...`}
 					</p>
-				) : state === "error" ? (
-					<Alert variant="destructive">
-						<AlertDescription>{`${label} could not be loaded.`}</AlertDescription>
+				) : state === "error" || state === "stale" ? (
+					<Alert variant={state === "error" ? "destructive" : "default"}>
+						<AlertDescription>
+							<span>
+								{state === "error"
+									? `${label} could not be loaded.`
+									: `${label} could not be refreshed. Showing earlier data.`}
+							</span>
+							{query && <AppTabReadRetry query={query} />}
+						</AlertDescription>
 					</Alert>
 				) : (
 					<Empty appearance="inline" role="status">
