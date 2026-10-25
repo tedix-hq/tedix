@@ -872,9 +872,18 @@ a {
 	position: fixed;
 	inset: 0;
 	display: grid;
-	place-items: center;
+	justify-items: center;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	padding: 24px;
 	background: var(--background);
+}
+
+/* Auto margins center the card while it fits and collapse to zero once it is
+   taller than the window, so tall permissions scroll from their top instead of
+   overflowing above the viewport where nothing can reach them. */
+.cli-authorize > * {
+	margin-block: auto;
 }
 
 @media (pointer: coarse) {
