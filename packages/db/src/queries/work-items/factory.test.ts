@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import { createD1Facade } from "../../test/d1-facade";
+import { createD1Facade, type D1FacadeOptions } from "../../test/d1-facade";
 import {
 	heartbeatWorkItemAttempt,
 	settleWorkItemAttempt,
@@ -77,14 +77,79 @@ CREATE TABLE work_events (
 );
 `;
 
-function fixture() {
+function fixture(options?: D1FacadeOptions) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
 	sqlite.exec(
 		"CREATE TABLE work_item_comments (id TEXT PRIMARY KEY,work_item_id TEXT NOT NULL,org_id TEXT NOT NULL,author_type TEXT NOT NULL,author_id TEXT,body TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)",
 	);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite, options)) };
 }
+
+describe("atomic hygiene cancellation", () => {
+	for (const activity of [
+		"recent-human",
+		"unknown-human",
+		"old-human",
+		"machine",
+		"other-org",
+		"attempt",
+	]) {
+		it(`fences concurrent ${activity} in the mutation statement`, async () => {
+			let inserted = false;
+			const { sqlite, db } = fixture({
+				onPrepare(query, connection) {
+					if (inserted || !/^update "work_items"/i.test(query)) return;
+					inserted = true;
+					if (activity === "attempt") {
+						connection.exec(
+							`INSERT INTO work_attempts (id,org_id,work_item_id,executor_type,executor_id,runtime_state,outcome,attempt_number,started_at,heartbeat_at) VALUES ('past','org','work','tedi','nova','failed','failed',1,'${NOW}','${NOW}')`,
+						);
+					} else {
+						connection
+							.prepare(
+								"INSERT INTO work_item_comments (id,org_id,work_item_id,author_type,created_at,body) VALUES ('comment',?,'work',?,?,'Concurrent activity')",
+							)
+							.run(
+								activity === "other-org" ? "other" : "org",
+								activity === "machine" ? "tedi" : "user",
+								activity === "old-human"
+									? "2026-08-17T00:00:00Z"
+									: activity === "unknown-human"
+										? "unknown"
+										: NOW,
+							);
+					}
+				},
+			});
+			seed(sqlite, "work");
+			const operation = cancelWorkItem(db, {
+				orgId: "org",
+				workItemId: "work",
+				actor: { type: "tedi", id: "nova" },
+				expectedWorkItemVersion: 1,
+				cancelledAt: NOW,
+				hygiene: { humanQuietHours: 48, noAttempts: true },
+			});
+			const protectedItem = [
+				"recent-human",
+				"unknown-human",
+				"attempt",
+			].includes(activity);
+			if (protectedItem) {
+				await expect(operation).rejects.toMatchObject({ code: "NOT_READY" });
+				expect(
+					sqlite.prepare("SELECT count(*) AS n FROM work_events").get(),
+				).toEqual({ n: 0 });
+			} else
+				await expect(operation).resolves.toMatchObject({
+					disposition: "cancelled",
+				});
+			expect(inserted).toBe(true);
+			sqlite.close();
+		});
+	}
+});
 
 function seed(sqlite: DatabaseSync, id: string, disposition = "accepted") {
 	sqlite

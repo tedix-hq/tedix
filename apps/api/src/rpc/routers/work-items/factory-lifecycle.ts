@@ -1025,7 +1025,9 @@ export const cancelFactoryWorkItemProcedure = factoryOs.cancel.handler(
 				workItemId: workItem.id,
 				actor,
 				reason: input.reason,
-				expectedWorkItemVersion: workItem.version,
+				expectedWorkItemVersion:
+					input.hygiene?.expectedWorkItemVersion ?? workItem.version,
+				hygiene: input.hygiene,
 				cancelledAt: new Date().toISOString(),
 			});
 		} catch (error) {

@@ -45,6 +45,21 @@ describe("Work Item factory contract", () => {
 		expect(schema.parse({ id, dueDate: null })).toEqual({ id, dueDate: null });
 		expect(schema.safeParse({ id, dueDate: "next week" }).success).toBe(false);
 	});
+	it("carries atomic hygiene guards and rejects shortened human protection", () => {
+		const schema = inputSchema("cancel");
+		const id = "11111111-1111-4111-8111-111111111111";
+		const hygiene = {
+			expectedWorkItemVersion: 3,
+			humanQuietHours: 48,
+			noAttempts: true,
+		};
+		expect(schema.parse({ id, hygiene })).toEqual({ id, hygiene });
+		expect(schema.parse({ id })).toEqual({ id });
+		expect(
+			schema.safeParse({ id, hygiene: { ...hygiene, humanQuietHours: 47 } })
+				.success,
+		).toBe(false);
+	});
 
 	it("accepts an optional exact resource key without changing ordinary paging", () => {
 		const schema = inputSchema("listResourcePools");

@@ -961,6 +961,17 @@ export const workItemsContract = oc
 				z.object({
 					id: z.uuid(),
 					reason: z.string().max(2000).optional(),
+					hygiene: z
+						.object({
+							expectedWorkItemVersion: z.number().int().positive(),
+							humanQuietHours: z.number().min(48),
+							noAttempts: z.boolean(),
+						})
+						.strict()
+						.optional()
+						.describe(
+							"Atomically preserve recent human comments and, for idle cleanup, any Attempt history.",
+						),
 				}),
 			)
 			.output(WorkItemSchema),
