@@ -190,23 +190,18 @@ export async function ingestInboundTediEmail(
 			senderTrust: input.senderTrust,
 		});
 	} else {
-		await db
+		const updated = await db
 			.update(tediEmailThreads)
 			.set({
 				participants: mergeParticipants(thread.participants, participants),
-				lastMessageAt: receivedAt,
+				lastMessageAt: sql`CASE WHEN ${tediEmailThreads.lastMessageAt} < ${receivedAt} THEN ${receivedAt} ELSE ${tediEmailThreads.lastMessageAt} END`,
 				status: "open",
 				unreadCount: sql`${tediEmailThreads.unreadCount} + 1`,
 				updatedAt: sql`(CURRENT_TIMESTAMP)`,
 			})
-			.where(eq(tediEmailThreads.id, thread.id));
-		thread = {
-			...thread,
-			participants: mergeParticipants(thread.participants, participants),
-			lastMessageAt: receivedAt,
-			status: "open",
-			unreadCount: (thread.unreadCount ?? 0) + 1,
-		};
+			.where(eq(tediEmailThreads.id, thread.id))
+			.returning();
+		thread = updated[0]!;
 	}
 
 	const rows = await db
