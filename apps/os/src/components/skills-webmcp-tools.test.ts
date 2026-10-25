@@ -337,6 +337,44 @@ describe("run_skill_workflow", () => {
 		expect(invalidateQueries).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		[
+			"synchronously",
+			() => {
+				throw new Error("history unavailable");
+			},
+		],
+		["asynchronously", () => Promise.reject(new Error("history unavailable"))],
+	])(
+		"keeps the dispatched run when the history refresh fails %s",
+		async (_mode, failure) => {
+			listTedis.mockResolvedValue(TEDIS);
+			runWorkflow.mockResolvedValue(runWorkflowOutput());
+			invalidateQueries.mockImplementation(failure);
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await tool("run_skill_workflow", BOUND_SKILL_ID).execute({
+				tediSlug: "cto",
+				reason: "x",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			expect(result.isError).toBeUndefined();
+			expect(result.structuredContent).toEqual({
+				runId: "run-1",
+				status: "queued",
+				deduplicated: false,
+				deepLink: "/work/runs/run-1",
+			});
+			expect(runWorkflow).toHaveBeenCalledTimes(1);
+			expect(warn).toHaveBeenCalledWith(
+				"[skills-webmcp] skill run history refresh failed",
+				expect.any(Error),
+			);
+			warn.mockRestore();
+		},
+	);
+
 	it("maps a dispatch rejection to isError without invalidating", async () => {
 		listTedis.mockResolvedValue(TEDIS);
 		runWorkflow.mockRejectedValue(new Error("budget exhausted"));
