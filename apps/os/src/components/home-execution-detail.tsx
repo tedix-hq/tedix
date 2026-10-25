@@ -882,7 +882,7 @@ export function HomeExecutionDetailPage({
 			<Page width="lg">
 				{identity}
 				{runQuery.data ? (
-					<section aria-label="Saved execution">
+					<PageSection aria-label="Saved execution">
 						<Text as="h2" weight="medium">
 							{executionTitle(branchId)}
 						</Text>
@@ -902,7 +902,7 @@ export function HomeExecutionDetailPage({
 						>
 							Back to conversation
 						</Link>
-					</section>
+					</PageSection>
 				) : null}
 				{runQuery.isError ? (
 					<div className="grid gap-2">

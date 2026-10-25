@@ -512,7 +512,7 @@ export type DelegationWork = {
 	childRunId: string | null;
 	delegatedTediId: string | null;
 	status: TediRunStatus;
-	/** Child-run activity label (from readRunEvents/child evidence), if any. */
+	/** Activity or failure reason from the durable parent run. */
 	activityLabel?: string | null;
 	/**
 	 * `metadata.delegationProof` on the parent run: the kernel's verdict on the
@@ -600,6 +600,12 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 			? childStatus
 			: run.status;
 	const failure = asRecord(metadata?.delegationFailure);
+	const failureReason =
+		typeof failure?.error === "string"
+			? failure.error
+			: typeof metadata?.childRunPreview === "string"
+				? metadata.childRunPreview
+				: (run.progress?.detail ?? null);
 	return {
 		runId: run.id,
 		childRunId,
@@ -607,11 +613,7 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 		status,
 		activityLabel:
 			status === "failed"
-				? typeof failure?.error === "string"
-					? failure.error
-					: typeof metadata?.childRunPreview === "string"
-						? metadata.childRunPreview
-						: (run.progress?.detail ?? null)
+				? failureReason
 				: (run.progress?.label ?? run.progress?.detail ?? null),
 		proof: delegationProofFromRun(run),
 		timing: {
