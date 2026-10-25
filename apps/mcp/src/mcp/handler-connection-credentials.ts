@@ -208,24 +208,13 @@ function credentialDelegationHeaders<TConfig>(
 }
 
 interface CachedCredential {
+	credentialFingerprint: string;
 	accessToken: string;
 	expiresAt: number;
 }
 
-/** Module-level cache: `{tediId|orgId}::{connectionId}::{scope}::{scopes}` → token */
+/** Only exchanged client-credentials bearers are cached, never vault credentials. */
 const credentialTokenCache = new Map<string, CachedCredential>();
-
-function getCredentialCacheKey(
-	tediOrOrgId: string,
-	connectionId: string,
-	scope: string,
-	authScopes: string[],
-	label?: string,
-	userId?: string,
-	connectionInstanceId?: string,
-): string {
-	return `${tediOrOrgId}::${connectionId}::${scope}::${userId ?? ""}::${[...authScopes].sort().join(",")}::${label ?? ""}::${connectionInstanceId ?? ""}`;
-}
 
 export function selectedConnectionInstanceId(
 	ctx: ToolExecutionContext<ToolConfig>,
@@ -242,10 +231,13 @@ export function selectedConnectionInstanceId(
 	return id;
 }
 
-function getCachedCredential(key: string): string | null {
+function getCachedCredential(key: string, fingerprint: string): string | null {
 	const entry = credentialTokenCache.get(key);
 	if (!entry) return null;
-	if (entry.expiresAt <= Date.now()) {
+	if (
+		entry.expiresAt <= Date.now() ||
+		entry.credentialFingerprint !== fingerprint
+	) {
 		credentialTokenCache.delete(key);
 		return null;
 	}
@@ -255,6 +247,7 @@ function getCachedCredential(key: string): string | null {
 function setCachedCredential(
 	key: string,
 	accessToken: string,
+	credentialFingerprint: string,
 	ttlMs?: number,
 ): void {
 	// Evict oldest entries if at capacity
@@ -263,6 +256,7 @@ function setCachedCredential(
 		if (oldest) credentialTokenCache.delete(oldest);
 	}
 	credentialTokenCache.set(key, {
+		credentialFingerprint,
 		accessToken,
 		expiresAt: Date.now() + (ttlMs ?? CREDENTIAL_CACHE_TTL_MS),
 	});
@@ -276,7 +270,7 @@ function setCachedCredential(
 
 const CLIENT_CREDENTIALS_SAFETY_MARGIN_MS = 60_000; // expire 60s early
 
-/** Cache key for client-credentials bearer tokens (separate namespace from raw creds) */
+/** Cache key for exchanged client-credentials bearer tokens. */
 export function getClientCredentialsCacheKey(
 	tediOrOrgId: string,
 	connectionId: string,
@@ -294,7 +288,18 @@ export async function resolveClientCredentialsToken(
 	cacheKey: string,
 	isDev: boolean,
 ): Promise<{ token: string | null; error?: string }> {
-	const cached = getCachedCredential(cacheKey);
+	// The caller has just read the vault. A replacement must not reuse a bearer
+	// minted from the previous secret, even while its provider TTL is valid.
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(
+			JSON.stringify([rawCredential, tokenUrl, grantType]),
+		),
+	);
+	const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+	const cached = getCachedCredential(cacheKey, fingerprint);
 	if (cached) return { token: cached };
 
 	const result = await exchangeClientCredentials(rawCredential, tokenUrl, {
@@ -312,6 +317,7 @@ export async function resolveClientCredentialsToken(
 	setCachedCredential(
 		cacheKey,
 		result.token.accessToken,
+		fingerprint,
 		Math.max(ttlMs, 30_000),
 	);
 
@@ -455,7 +461,7 @@ export async function fetchTediConnectionToken(
 	connectionId: string,
 	scope: CredentialResolutionScope,
 	authScopes?: string[],
-	label?: string,
+	_label?: string,
 	preference?: CredentialPreference,
 	providerArguments?: Record<string, unknown>,
 ): Promise<CredentialFetchResult> {
@@ -463,29 +469,13 @@ export async function fetchTediConnectionToken(
 	const resolvedScope = scope;
 	const resolvedScopes = authScopes ?? [];
 	const callerUserId = credentialActingUserId(ctx);
-	const cacheKey = getCredentialCacheKey(
-		tediId,
-		connectionId,
-		resolvedScope,
-		resolvedScopes,
-		label,
-		callerUserId,
-		connectionInstanceId,
-	);
-	// Recheck named slots and personal run authority on every use; a cached
-	// token must not survive cancellation, expiry, or account disconnection.
+	// Read the authoritative vault on every call so revocation and rotation
+	// take effect in every isolate without waiting for a local cache TTL.
 	const backgroundRun = Boolean(ctx.callerIdentity?.skillRunId);
 	const requestRun = Boolean(
 		ctx.callerIdentity?.requestRunId ||
 		(ctx.callerIdentity?.tediId && ctx.requestMeta?.["io.tedix/kernelRunId"]),
 	);
-	const personalTedi =
-		Boolean(ctx.callerIdentity?.tediId) && resolvedScope !== "tenant";
-	const cached =
-		connectionInstanceId || backgroundRun || requestRun || personalTedi
-			? null
-			: getCachedCredential(cacheKey);
-	if (cached) return { token: cached };
 
 	const useServiceBinding = !!ctx.env.API_SERVICE;
 	try {
@@ -565,14 +555,6 @@ export async function fetchTediConnectionToken(
 			isRecord(data) && typeof data.accessToken === "string"
 				? data.accessToken
 				: null;
-		if (
-			accessToken &&
-			!connectionInstanceId &&
-			!backgroundRun &&
-			!requestRun &&
-			!personalTedi
-		)
-			setCachedCredential(cacheKey, accessToken);
 		return { token: accessToken };
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
@@ -591,7 +573,7 @@ export async function fetchTediConnectionToken(
 
 /**
  * Fetch a connection token using org identity (no tediId required).
- * Finds any tedi in the org and uses it to fetch the connection token.
+ * Resolves the current vault credential directly through connections.fetchOrgToken.
  */
 export async function fetchOrgConnectionToken(
 	ctx: ToolExecutionContext<ToolConfig>,
@@ -604,19 +586,7 @@ export async function fetchOrgConnectionToken(
 ): Promise<CredentialFetchResult> {
 	const connectionInstanceId = selectedConnectionInstanceId(ctx);
 	const resolvedScope = scope ?? "tenant";
-	const resolvedScopes = authScopes ?? [];
 	const callerUserId = credentialActingUserId(ctx);
-	const cacheKey = getCredentialCacheKey(
-		organizationId,
-		connectionId,
-		resolvedScope,
-		resolvedScopes,
-		label,
-		callerUserId,
-		connectionInstanceId,
-	);
-	const cached = connectionInstanceId ? null : getCachedCredential(cacheKey);
-	if (cached) return { token: cached };
 
 	const useServiceBinding = !!ctx.env.API_SERVICE;
 	try {
@@ -639,8 +609,7 @@ export async function fetchOrgConnectionToken(
 			rpcInput.userId = callerUserId;
 		}
 		// Connection label (X-Tedix-Connection-Label / mcpConfig.connectionLabel /
-		// _aggregateConnectionLabel) — already part of the credential cache key
-		// above; forward it so apps/api prefers the label-scoped credential
+		// _aggregateConnectionLabel): apps/api prefers the label-scoped credential
 		// (e.g. promptwatch-tedix) over the org's default provider key.
 		if (label) {
 			rpcInput.label = label;
@@ -685,8 +654,6 @@ export async function fetchOrgConnectionToken(
 			isRecord(data) && typeof data.accessToken === "string"
 				? data.accessToken
 				: null;
-		if (accessToken && !connectionInstanceId)
-			setCachedCredential(cacheKey, accessToken);
 		return { token: accessToken };
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
