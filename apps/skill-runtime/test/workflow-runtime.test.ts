@@ -3886,6 +3886,36 @@ assert.equal(
 	null,
 );
 assert.equal(fullyRefusedWorkflowStep([]), null);
+for (const message of [
+	"Inference daily budget exhausted for 2026-10-25 (100/100 tokens used)",
+	"Monthly budget exceeded",
+	"Monthly budget limit exceeded",
+	"BUDGET_EXHAUSTED: no remaining capacity",
+	"budget_denied",
+]) {
+	const denied = {
+		...callReceipt("judge", "failed", 1, message),
+		namespace: "judge",
+		method: "run_tedi_turn",
+	};
+	assert.equal(
+		fullyRefusedWorkflowStep([
+			callReceipt("research", "succeeded"),
+			denied,
+			denied,
+		]),
+		"judge",
+		message,
+	);
+	assert.equal(fullyRefusedWorkflowStep([{ ...denied, refused: false }]), null);
+	assert.equal(
+		fullyRefusedWorkflowStep([
+			denied,
+			{ ...denied, attempt: 2, status: "succeeded" },
+		]),
+		null,
+	);
+}
 assert.equal(
 	fullyRefusedWorkflowStep([
 		{
