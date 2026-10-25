@@ -375,12 +375,30 @@ export interface SerializeRetrievedSkillsOptions {
 	unresolvedReferences?: readonly string[];
 }
 
+function unresolvedNotice(slugs: readonly string[], maxTokens: number): string {
+	if (slugs.length === 0) return "";
+	const prefix = "## Unresolved Skill References\n\n";
+	const instruction =
+		" did not load: unavailable, ineligible, or over budget. Tell the operator plainly which references did not resolve and continue with the request.";
+	const omitted = " … (reference list truncated)";
+	const names = slugs.map((slug) => `\`${slug}\``).join(", ");
+	if (countTokens(prefix + names + instruction) <= maxTokens) {
+		return prefix + names + instruction;
+	}
+	const available = maxTokens - countTokens(prefix + omitted + instruction);
+	if (available >= 0) {
+		return prefix + capExcerpt(names, available).text + omitted + instruction;
+	}
+	const compact =
+		"Unresolved skill references did not load. Tell the operator plainly.";
+	return countTokens(compact) <= maxTokens ? compact : "";
+}
+
 /**
  * Serialize selected matches into the compact "Retrieved Skills" system-prompt
  * block: title + when-to-use + a token-capped procedure excerpt per skill,
- * bounded by a whole-block budget (the first match is always included — its
- * per-skill cap keeps it bounded). Returns "" when nothing matched, so the
- * prompt is unchanged.
+ * bounded by a whole-block budget including metadata, separators and notices.
+ * Returns "" when nothing matched or the budget cannot fit the framing.
  */
 export function serializeRetrievedSkills(
 	matches: readonly RetrievedSkillMatch[],
@@ -388,10 +406,21 @@ export function serializeRetrievedSkills(
 ): string {
 	const unresolved = options?.unresolvedReferences ?? [];
 	if (matches.length === 0 && unresolved.length === 0) return "";
-	const maxSkillTokens =
-		options?.maxSkillTokens ?? SKILL_RETRIEVAL_MAX_SKILL_TOKENS;
-	const maxBlockTokens =
-		options?.maxBlockTokens ?? SKILL_RETRIEVAL_MAX_BLOCK_TOKENS;
+	const maxSkillTokens = Math.max(
+		0,
+		finiteFloorOrDefault(
+			options?.maxSkillTokens,
+			SKILL_RETRIEVAL_MAX_SKILL_TOKENS,
+		),
+	);
+	const maxBlockTokens = Math.max(
+		0,
+		finiteFloorOrDefault(
+			options?.maxBlockTokens,
+			SKILL_RETRIEVAL_MAX_BLOCK_TOKENS,
+		),
+	);
+	if (matches.length === 0) return unresolvedNotice(unresolved, maxBlockTokens);
 
 	const referencedCount = matches.filter((match) => match.referenced).length;
 	const header =
@@ -407,7 +436,16 @@ export function serializeRetrievedSkills(
 	// A reference the block budget pushed out is still a reference that did not
 	// reach the turn, so it joins the unresolved notice rather than vanishing.
 	const dropped: string[] = [];
-	let budget = maxBlockTokens - countTokens(header);
+	// Reserve a bounded notice before adding skills: dropped operator references
+	// must remain visible even when a skill consumes the rest of the block.
+	const noticeTokens =
+		unresolved.length > 0 || referencedCount > 0
+			? Math.min(200, Math.floor(maxBlockTokens / 3))
+			: 0;
+	const sectionBudget =
+		maxBlockTokens - noticeTokens - (noticeTokens > 0 ? 1 : 0);
+	const truncation =
+		"\n… (truncated — call `read_skill` for the full procedure)";
 	for (const match of matches) {
 		const { skill } = match;
 		const slug = skill.slug ?? skill.id;
@@ -432,16 +470,20 @@ export function serializeRetrievedSkills(
 				);
 			}
 		}
-		const section = lines.join("\n");
-		const cost = countTokens(section);
-		// Whole-block budget: always keep the FIRST match (its per-skill cap
-		// bounds it); drop trailing matches that would blow the block budget.
-		if (sections.length > 0 && cost > budget) {
-			if (match.referenced) dropped.push(slug);
-			continue;
+		let section = lines.join("\n");
+		const before = [header, ...sections].join("\n\n") + "\n\n";
+		const remaining = sectionBudget - countTokens(before);
+		if (countTokens(before + section) > sectionBudget) {
+			if (sections.length === 0 && remaining > countTokens(truncation)) {
+				section =
+					capExcerpt(section, remaining - countTokens(truncation)).text +
+					truncation;
+			} else {
+				if (match.referenced) dropped.push(slug);
+				continue;
+			}
 		}
 		sections.push(section);
-		budget -= cost;
 	}
 
 	// Legible degradation. The operator named a skill and it did not load; an
@@ -449,14 +491,10 @@ export function serializeRetrievedSkills(
 	// outright. This is the one case that overrides the system prompt's
 	// "never mention unseen slugs" rule, because the operator typed the slug.
 	const unloaded = [...unresolved, ...dropped];
-	const notice =
-		unloaded.length > 0
-			? `## Unresolved Skill References\n\nThe operator referenced ${unloaded
-					.map((slug) => `\`${slug}\``)
-					.join(
-						", ",
-					)}, which did not load: no such skill is readable here, it is not in an injectable lifecycle state (draft, stale, or archived), or it did not fit this turn's budget. Tell the operator plainly that this reference did not resolve, name it, and continue with the rest of the request.`
-			: "";
+	const notice = unresolvedNotice(
+		unloaded,
+		sections.length === 0 ? maxBlockTokens : noticeTokens,
+	);
 
 	if (sections.length === 0) return notice;
 	return [header, ...sections, ...(notice ? [notice] : [])].join("\n\n");

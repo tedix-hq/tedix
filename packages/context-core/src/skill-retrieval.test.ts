@@ -282,11 +282,57 @@ describe("serializeRetrievedSkills — shape and token caps", () => {
 		expect(matches).toHaveLength(3);
 		const block = serializeRetrievedSkills(matches);
 		expect(countTokens(block)).toBeLessThanOrEqual(
-			SKILL_RETRIEVAL_MAX_BLOCK_TOKENS + 60,
+			SKILL_RETRIEVAL_MAX_BLOCK_TOKENS,
 		);
 		// First match always survives.
 		expect(block).toContain("a-long");
 	});
+
+	it.each([
+		{ summary: "x".repeat(20000) },
+		{ summary: null, description: "x".repeat(20000) },
+		{ title: "Weekly pricing report " + "x".repeat(20000) },
+		{ slug: "x".repeat(20000) },
+		{ preconditions: { notWhen: ["x".repeat(20000)] } },
+	])("caps oversized metadata with the first skill: %j", (metadata) => {
+		const matches = selectRetrievedSkills([skill(metadata)], QUERY, {
+			now: NOW,
+		});
+		expect(matches).toHaveLength(1);
+		const block = serializeRetrievedSkills(matches, { maxBlockTokens: 800 });
+		expect(block).toContain("## Retrieved Skills");
+		expect(block).toContain("truncated");
+		expect(countTokens(block)).toBeLessThanOrEqual(800);
+	});
+
+	it("bounds headers, separators, excerpts and notices at every small budget", () => {
+		const selection = selectSkillsForTurn(
+			[
+				skill({ slug: "first", content: "step ".repeat(4000) }),
+				skill({ slug: "second", content: "step ".repeat(4000) }),
+			],
+			QUERY,
+			{ referencedSlugs: ["first", "second", "ghost"], now: NOW },
+		);
+		for (let maxBlockTokens = 0; maxBlockTokens <= 850; maxBlockTokens++) {
+			const block = serializeRetrievedSkills(selection.matches, {
+				maxBlockTokens,
+				unresolvedReferences: selection.unresolvedReferences,
+			});
+			expect(
+				countTokens(block),
+				`budget ${maxBlockTokens}`,
+			).toBeLessThanOrEqual(maxBlockTokens);
+		}
+	});
+
+	it.each([-1, 0, 1, 1.9])(
+		"honors a tiny block budget %s",
+		(maxBlockTokens) => {
+			const matches = selectRetrievedSkills([skill({})], QUERY, { now: NOW });
+			expect(serializeRetrievedSkills(matches, { maxBlockTokens })).toBe("");
+		},
+	);
 
 	it("is deterministic for a fixed now", () => {
 		const corpus = [
@@ -475,7 +521,35 @@ describe("serializeRetrievedSkills — references and legible degradation", () =
 		expect(block).not.toContain("skill second");
 		expect(block).toContain("Unresolved Skill References");
 		expect(block).toContain("`second`");
+		expect(countTokens(block)).toBeLessThanOrEqual(400);
 	});
+
+	it.each([false, true])(
+		"caps oversized unresolved references, with matches: %s",
+		(withMatches) => {
+			const matches = withMatches
+				? selectRetrievedSkills(
+						[skill({ content: "step ".repeat(4000) })],
+						QUERY,
+						{ now: NOW },
+					)
+				: [];
+			const block = serializeRetrievedSkills(matches, {
+				maxBlockTokens: 800,
+				unresolvedReferences: [
+					"ghost",
+					"x".repeat(20000),
+					...Array.from({ length: 1000 }, (_, i) => `missing-${i}`),
+				],
+			});
+			expect(countTokens(block)).toBeLessThanOrEqual(800);
+			expect(block).toContain("Unresolved Skill References");
+			expect(block).toContain("`ghost`");
+			expect(block).toContain("reference list truncated");
+			expect(block).toContain("Tell the operator plainly");
+			expect(block).toContain("continue with the request.");
+		},
+	);
 });
 
 it("expands eligible candidates without raising the original prompt top-K ceiling", () => {
