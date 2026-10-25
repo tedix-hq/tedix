@@ -7,6 +7,28 @@ const NOTICE_ID = "os-version-reload";
 
 export function installOsVersionNotice(): () => void {
 	const stopTracking = trackOsInput(document);
+	// Reload confirmation stays in the toast: a native confirm() blocks the
+	// page, and automation driving the browser cannot see or answer it.
+	const confirmReload = (chunkFailure: boolean) => {
+		osToastManager.close(NOTICE_ID);
+		osToastManager.add({
+			id: NOTICE_ID,
+			title: "Reload Tedix OS anyway?",
+			description: "Drafts and unsaved changes on this page may be lost.",
+			variant: "info",
+			timeout: 0,
+			actions: [
+				{
+					children: "Reload anyway",
+					onClick: () => window.location.reload(),
+				},
+				{
+					children: "Cancel",
+					onClick: () => notify(chunkFailure),
+				},
+			],
+		});
+	};
 	const notify = (chunkFailure = false) => {
 		osToastManager.close(NOTICE_ID);
 		osToastManager.add({
@@ -21,14 +43,8 @@ export function installOsVersionNotice(): () => void {
 				{
 					children: "Reload",
 					onClick: () => {
-						if (
-							hasUnsavedOsInput(document) &&
-							!window.confirm(
-								"Reload Tedix OS? Drafts and unsaved changes may be lost.",
-							)
-						)
-							return;
-						window.location.reload();
+						if (hasUnsavedOsInput(document)) confirmReload(chunkFailure);
+						else window.location.reload();
 					},
 				},
 			],
