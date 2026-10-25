@@ -12,7 +12,6 @@ async function installTransportFixtures(src: string) {
 	const endpoints: Record<string, string> = {
 		"attention.list_deck_cards": "attention/listDeckCards",
 		"attention.list_feed_for_you": "attention/listFeedForYou",
-		"decision.list_agent_decisions": "decisionGraph/listAgentDecisions",
 		"work.list_work_item_cli_rows": "workItems/listCliProjection",
 		"work.report_work_agent_session_status": "workAgentSessions/report",
 		"catalog.search": "catalog/search",
@@ -100,7 +99,11 @@ async function installTransportFixtures(src: string) {
 				(key) => descriptor(key).name === name,
 			);
 			if (callable) return values[callable];
-			if (name === "code") return { fixture: true };
+			if (name === "code") {
+				if (String(input.code).includes("decision.list_agent_decisions("))
+					return { result: values["decision.list_agent_decisions"] };
+				return { fixture: true };
+			}
 			throw new Error(`Unscripted tool: ${name}`);
 		},
 	);

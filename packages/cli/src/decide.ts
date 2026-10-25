@@ -6,11 +6,12 @@ import {
 	RecordAgentDecisionOutcomeResultSchema,
 	RecordAgentDecisionResultSchema,
 } from "@tedix/api-contract/schemas/agent-decisions";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
 import { errorText } from "./format";
 import type { NativeToolContext } from "./work";
 import { resolveAgentSession } from "./work-identity";
-import { callConfiguredNativeTool } from "./work-native";
+import { boardErrorFromValue } from "./work-native";
 
 export function decideUsage(): string {
 	return `tedix decide '<decision-json>' [--json]
@@ -75,10 +76,17 @@ export async function runDecideCommand(
 			tool = "record_agent_decision";
 			schema = RecordAgentDecisionResultSchema;
 		}
-		const raw = await callConfiguredNativeTool(ctx, `decision.${tool}`, input);
+		// Decision tools are callable in Code Mode even without native schema provenance.
+		const raw = await ctx.client.callTool(
+			"code",
+			{ code: `async () => await decision.${tool}(${codeModeLiteral(input)})` },
+			{ retryable: false, ...(ctx.signal ? { signal: ctx.signal } : {}) },
+		);
 		const normalized = normalizeCodeResult(raw);
 		if (normalized.truncated)
 			throw new Error(truncationErrorMessage(normalized));
+		const error = boardErrorFromValue(normalized.value);
+		if (error) throw new Error(error.message);
 		const value = schema.parse(normalized.value);
 		if (ctx.json) console.log(JSON.stringify(value, null, 2));
 		else if ("summary" in value) {

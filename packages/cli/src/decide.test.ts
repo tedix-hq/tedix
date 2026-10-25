@@ -2,68 +2,26 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { runDecideCommand } from "./decide";
 import type { NativeToolContext } from "./work";
 
-const ENDPOINTS: Record<string, string> = {
-	"decision.record_agent_decision": "decisionGraph/recordAgentDecision",
-	"decision.record_agent_decision_outcome":
-		"decisionGraph/recordAgentDecisionOutcome",
-	"decision.list_agent_decisions": "decisionGraph/listAgentDecisions",
-};
 const DECISION_ID = "11111111-1111-4111-8111-111111111111";
 
 function fixture(callable: string, result: unknown) {
 	const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
-	const descriptor = (name: string, endpoint: string) => ({
-		name,
-		endpoint,
-		toolRowId: `row-${name}`,
-		eligible: true,
-		authorized: true,
-		schemaFreshness: {
-			source: "orpc",
-			sourceRef: endpoint,
-			sourceHash: "fixture-hash",
-			syncedAt: "2026-10-22T07:00:00.000Z",
-		},
-	});
-	const native = descriptor("tedix__journal", ENDPOINTS[callable]!);
 	const client = {
-		getTimeoutMs: () => 10000,
-		callToolWithDestructiveApproval: async () => {
-			throw new Error("Unexpected approval");
-		},
 		callTool: async (name: string, input: Record<string, unknown>) => {
-			calls.push({ name, input });
-			if (name === "get_info")
-				return {
-					nativeContext: {
-						version: 1,
-						surface: "mcp-gateway",
-						appId: "app",
-						appSlug: "tedix",
-						organizationId: "fictional-orchard",
-						actor: { authType: "user" },
-						nativeTransportAvailable: true,
-					},
-					nativeCatalog: {
-						status: "usable",
-						search: descriptor("configured_search", "catalog/search"),
-						describe: descriptor("configured_describe", "catalog/describe"),
-					},
-				};
-			if (name === "configured_search")
-				return {
-					results: [{ callable, authorized: true, native, outputSchema: {} }],
-				};
-			if (name === "configured_describe")
-				return {
-					callable,
-					authorized: true,
-					native,
-					schemaFreshness: native.schemaFreshness,
-					parameters: { type: "object" },
-				};
-			if (name === native.name) return result;
-			throw new Error(`Unexpected tool ${name}`);
+			if (name !== "code") throw new Error(`Unexpected native call ${name}`);
+			const source = String(input.code);
+			const tool = callable.split(".")[1]!;
+			const decision = {
+				[tool]: async (args: Record<string, unknown>) => {
+					calls.push({ name: callable, input: args });
+					return result;
+				},
+			};
+			return {
+				result: await new Function("decision", `return (${source})()`)(
+					decision,
+				),
+			};
 		},
 	} as NativeToolContext["client"];
 	return {
@@ -86,7 +44,7 @@ afterEach(() => {
 });
 
 describe("tedix decide", () => {
-	test("records a decision under this session by default", async () => {
+	test("records through Code Mode without native provenance under this session by default", async () => {
 		process.env.TEDIX_AGENT_SESSION = "codex:fixture-session";
 		const { ctx, calls } = fixture("decision.record_agent_decision", {
 			decisionId: DECISION_ID,
@@ -108,13 +66,15 @@ describe("tedix decide", () => {
 						{ id: "keep", label: "Keep" },
 					],
 					chosen: "pause",
-					reason: "Idle for an hour.",
+					reason:
+						'Quotes " and backticks ` remain data; "); throw new Error("injected") //',
 					reversibility: "two_way",
 				}),
 			]),
 		);
 		expect(code).toBe(0);
-		expect(calls[1]?.input.namespace).toBe("decision");
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.name).toBe("decision.record_agent_decision");
 		expect(calls.at(-1)?.input).toMatchObject({
 			agentSession: "codex:fixture-session",
 			decisionClass: "lane.pause",
@@ -139,6 +99,30 @@ describe("tedix decide", () => {
 			outcome: "reverted",
 			by: "person",
 		});
+	});
+
+	test("lists decisions through Code Mode with the requested limit", async () => {
+		const { ctx, calls } = fixture("decision.list_agent_decisions", {
+			decisions: [],
+			classes: [],
+			summary: "No decisions.",
+		});
+		expect(await runDecideCommand({ ...ctx(["list"]), limit: 3 })).toBe(0);
+		expect(calls).toEqual([
+			{ name: "decision.list_agent_decisions", input: { limit: 3 } },
+		]);
+	});
+
+	test("refuses gateway rejection, malformed and truncated results", async () => {
+		for (const result of [
+			{ ok: false, error: "FORBIDDEN" },
+			{},
+			{ __tedix_truncated: true, preview: "{}" },
+		]) {
+			const { ctx, calls } = fixture("decision.list_agent_decisions", result);
+			expect(await runDecideCommand(ctx(["list"]))).toBe(2);
+			expect(calls).toHaveLength(1);
+		}
 	});
 
 	test("refuses malformed input before any call", async () => {
