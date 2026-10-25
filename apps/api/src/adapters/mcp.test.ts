@@ -55,6 +55,49 @@ describe("McpAdapter search prices", () => {
 	});
 });
 
+describe("McpAdapter field mappings", () => {
+	it("maps overlapping fields through a null intermediate without failing the search", async () => {
+		vi.mocked(callMcpTool).mockResolvedValueOnce({
+			success: true,
+			rawResult: {
+				structuredContent: {
+					items: [
+						{
+							id: "product-1",
+							title: "Example",
+							pricing: { amount: null, currency: "EUR" },
+							value: 12,
+						},
+					],
+				},
+			},
+		});
+		const adapter = new McpAdapter({
+			id: "adapter-1",
+			appId: "app-1",
+			name: "example",
+			displayName: null,
+			adapterType: "mcp",
+			config: {
+				serverUrl: "https://example.com/mcp",
+				toolMap: { search: "search_products" },
+			},
+			fieldMappings: { price: "pricing", "price.amount.value": "value" },
+			verticals: null,
+			enabled: true,
+			priority: 0,
+			createdAt: null,
+			updatedAt: null,
+		});
+
+		const result = await adapter.search("example", {}, { env: {} });
+
+		expect(result.success).toBe(true);
+		expect(result.items).toHaveLength(1);
+		expect(result.items[0]?.id).toBe("product-1");
+	});
+});
+
 describe("normalizeMcpAdapterResult", () => {
 	it("uses the shared structured-content semantics, including falsey values", () => {
 		expect(normalizeMcpAdapterResult({ structuredContent: 0 })).toBe(0);

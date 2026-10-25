@@ -60,7 +60,11 @@ function setByPath(
 	for (let i = 0; i < segments.length - 1; i++) {
 		const segment = segments[i];
 		if (!segment) continue;
-		if (!(segment in current) || typeof current[segment] !== "object") {
+		if (
+			!(segment in current) ||
+			current[segment] === null ||
+			typeof current[segment] !== "object"
+		) {
 			current[segment] = {};
 		}
 		current = current[segment] as Record<string, unknown>;
