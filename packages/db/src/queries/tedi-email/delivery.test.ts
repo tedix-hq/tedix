@@ -10,6 +10,7 @@ import {
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { ingestInboundTediEmail } from "./delivery";
+import { getTediEmailThread } from "./threads";
 
 const SCOPE = { tediId: "tedi-1", organizationId: "org-1" };
 const ROOT = "<root@acme.example>";
@@ -115,4 +116,82 @@ describe("inbound thread selection by sender trust", () => {
 
 		expect(reply.thread.id).toBe(original.thread.id);
 	});
+});
+
+describe("inbound thread timestamps", () => {
+	it.each([
+		["2026-10-22T12:00:00.000Z", "2026-10-23T12:00:00.000Z"],
+		["2026-10-23T12:00:00.000Z", "2026-10-22T12:00:00.000Z"],
+		["2026-10-23T12:00:00.000Z", "2026-10-23T12:00:00.000Z"],
+	])(
+		"preserves the latest timestamp for %s followed by %s",
+		async (first, second) => {
+			const db = fixture();
+			const root = await ingestInboundTediEmail(db, {
+				...mail("trusted", "ana@acme.example"),
+				messageIdHeader: ROOT,
+				receivedAt: first,
+			});
+			const reply = await ingestInboundTediEmail(db, {
+				...mail("trusted", "ana@acme.example"),
+				messageIdHeader: "<delayed@acme.example>",
+				receivedAt: second,
+			});
+			expect(reply.thread.id).toBe(root.thread.id);
+			expect(reply.thread.lastMessageAt).toBe([first, second].sort().at(-1));
+			expect(reply.thread.unreadCount).toBe(2);
+			expect(reply.message.receivedAt).toBe(second);
+			const stored = await getTediEmailThread(db, {
+				...SCOPE,
+				threadId: root.thread.id,
+			});
+			expect(stored?.thread.lastMessageAt).toBe(reply.thread.lastMessageAt);
+			expect(stored?.thread.unreadCount).toBe(2);
+			expect(
+				stored?.messages.map((message) => message.receivedAt).sort(),
+			).toEqual([first, second].sort());
+		},
+	);
+
+	it.each([false, true])(
+		"keeps concurrent arrivals monotonic (reverse=%s)",
+		async (reverse) => {
+			const db = fixture();
+			const root = await ingestInboundTediEmail(db, {
+				...mail("trusted", "ana@acme.example"),
+				messageIdHeader: ROOT,
+				receivedAt: "2026-10-21T12:00:00.000Z",
+			});
+			const timestamps = [
+				"2026-10-23T12:00:00.000Z",
+				"2026-10-22T12:00:00.000Z",
+			];
+			if (reverse) timestamps.reverse();
+			const replies = await Promise.all(
+				timestamps.map((receivedAt, index) =>
+					ingestInboundTediEmail(db, {
+						...mail("trusted", "ana@acme.example"),
+						messageIdHeader: `<concurrent-${index}@acme.example>`,
+						receivedAt,
+					}),
+				),
+			);
+			expect(replies.every((reply) => reply.thread.id === root.thread.id)).toBe(
+				true,
+			);
+			const stored = await getTediEmailThread(db, {
+				...SCOPE,
+				threadId: root.thread.id,
+			});
+			expect(stored?.thread.lastMessageAt).toBe("2026-10-23T12:00:00.000Z");
+			expect(stored?.thread.unreadCount).toBe(3);
+			expect(stored?.messages).toHaveLength(3);
+			expect(
+				stored?.messages.filter((message) => message.readAt === null),
+			).toHaveLength(3);
+			expect(
+				stored?.messages.map((message) => message.receivedAt).sort(),
+			).toEqual([root.message.receivedAt, ...timestamps].sort());
+		},
+	);
 });
