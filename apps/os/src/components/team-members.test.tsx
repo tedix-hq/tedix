@@ -30,6 +30,7 @@ import {
 	InviteMemberDialog,
 	inviteRecipientsSequentially,
 	memberActivityLabel,
+	MemberActivityCell,
 	MemberAvatar,
 	MemberIdentityCell,
 	MemberStatusBadge,
@@ -243,6 +244,25 @@ describe("members pure helpers", () => {
 				lastActiveAt: null,
 			}),
 		).toBe("No recent activity");
+	});
+
+	it("keeps compact activity narrow while exposing its full value", () => {
+		const activeMember = member({
+			email: "active-member@fictional.example",
+			lastActiveAt: new Date(Date.now() - 90_000).toISOString(),
+		});
+		const activity = memberActivityLabel(activeMember);
+		const host = document.createElement("div");
+		host.innerHTML = renderToStaticMarkup(
+			<MemberActivityCell member={activeMember} compact />,
+		);
+
+		const text = host.querySelector<HTMLElement>('[data-slot="text"]');
+		expect(text?.textContent).toBe(activity);
+		expect(text?.getAttribute("title")).toBe(activity);
+		expect(text?.getAttribute("aria-label")).toBe(activity);
+		expect(text?.className).toContain("min-w-0");
+		expect(text?.className).toContain("truncate");
 	});
 
 	it("truncates a long identity instead of letting it push out the self badge", () => {
