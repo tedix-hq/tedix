@@ -54,3 +54,10 @@ export const CHAT_CREATE_OPTIONS = {
 		description: "Turn this request into slides.",
 	},
 } as const;
+
+/** A new conversation invites a question or a hand-off; an open thread, a follow-up. */
+export function chatComposerPlaceholder(hasMessages: boolean): string {
+	return hasMessages
+		? OS_COPY.chatComposerPlaceholder.followUp
+		: OS_COPY.chatComposerPlaceholder.newConversation;
+}
