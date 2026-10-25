@@ -26,15 +26,28 @@ exports a literal `os` namespace. Keep every read and write in that target.
    verify it by ID; ask only when the destination remains ambiguous. A
    similarly named project is not a Workspace, and a truncated response is
    not evidence that no suitable Workspace exists.
-2. Read the exact destination with `os.get_os_workspace`. For an update, read
-   `os.get_os_output` and its current revision. Discover the current schema
+2. Read the exact destination with `os.get_os_workspace`. Before any write,
+   compare its name and description with the content and verify its
+   organization, linked project and visibility. Stop on a clear mismatch:
+   a finance Workspace cannot receive non-finance content. If purpose or
+   visibility remains unclear, ask before writing. Use a client organization
+   only for content the client should see. Internal notes about a client go
+   in the Tedix organization client Workspace linked to that client project.
+   Competitor comparisons go in a private Workspace; verify that privacy
+   rather than inferring placement from "same project as Output X".
+   For an update, read `os.get_os_output` and its current revision and check
+   its actual Workspace too. Discover the current schema
    with compact `discover.search` in the selected organization namespace,
    then `discover.describe(callable)` for that one operation. Use the returned
    callable and parameter schema; do not invent fields or treat discovery as
    write authorization. If `scopeMappingMissing` is true, report a gateway
    mapping defect; reauthorizing cannot repair it. If `missingScopes` is
    populated, name the missing capability and use the access-management flow.
-3. For a new Output, use `os.create_os_output` with its kind, title,
+3. Never call `os.create_os_output` without an explicit, non-empty
+   `workspaceId`, even if the tool schema makes it optional. If it is missing,
+   stop the create: resolve and verify the destination through steps 1–2 or
+   ask which Workspace to use. Do not rely on an organization default.
+   For a new Output, use `os.create_os_output` with its kind, title, verified
    `workspaceId`, and the user-authorized content. For an assistant edit to an
    existing collaborative document, prefer
    `os.create_os_collaboration_proposal` and its review/merge flow; a proposal
@@ -47,6 +60,12 @@ exports a literal `os` namespace. Keep every read and write in that target.
    Workspace ID, kind, observed revision, and what changed. If only a
    proposal was created, report its proposal state and the remaining merge
    step instead of claiming the Output changed.
+
+If the correct Workspace is blocked by an approval or scope, stop and report
+the exact error, including codes such as `MCP_INPUT_REQUIRED` and any missing
+capability or required approval. Never fall back to a different Workspace,
+even if a brief explicitly says to use one as a fallback. A blocked client
+Workspace does not authorize saving its content in a finance Workspace.
 
 If authentication or an `os` scope is missing, stop before a write and name
 the missing access. With read-only access, offer the requested content as a

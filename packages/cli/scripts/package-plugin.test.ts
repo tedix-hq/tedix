@@ -134,6 +134,28 @@ function withDirectory(run: (directory: string) => void): void {
 }
 
 describe("plugin packager", () => {
+	test("every host ships Workspace Output placement refusal rules", () => {
+		for (const host of ["openai", "claude"])
+			for (const local of [false, true]) {
+				const files = packageFiles({ host, local });
+				const skill = new TextDecoder()
+					.decode(files.get("skills/tedix-workspace-output/SKILL.md"))
+					.replace(/\s+/g, " ");
+				for (const rule of [
+					"Never call `os.create_os_output` without an explicit, non-empty `workspaceId`",
+					"If it is missing, stop the create",
+					"compare its name and description with the content",
+					"Stop on a clear mismatch: a finance Workspace cannot receive non-finance content",
+					"Use a client organization only for content the client should see",
+					"Internal notes about a client go in the Tedix organization client Workspace linked to that client project",
+					"Competitor comparisons go in a private Workspace",
+					"blocked by an approval or scope, stop and report the exact error",
+					"Never fall back to a different Workspace, even if a brief explicitly says to use one as a fallback",
+				])
+					expect(skill).toContain(rule);
+			}
+	});
+
 	test("every host artifact includes nested skill references", () =>
 		withDirectory((directory) => {
 			cpSync(ROOT, directory, { recursive: true });
