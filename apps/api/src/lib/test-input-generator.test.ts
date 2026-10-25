@@ -167,3 +167,60 @@ describe("generateTestInput exclusive numeric bounds", () => {
 		},
 	);
 });
+
+describe("generateTestInput example prompts", () => {
+	const prompts = (cleanPrompt: string) => ({
+		examplePrompts: [{ raw: cleanPrompt, cleanPrompt, appMention: "@Example" }],
+	});
+
+	it("uses prompt values that satisfy the schema", () => {
+		expect(
+			generateTestInput(
+				{
+					properties: {
+						limit: { type: "integer", minimum: 1, maximum: 20 },
+						query: { type: "string" },
+					},
+					required: ["limit", "query"],
+				},
+				prompts("Find the top 5 results for hiking boots"),
+			),
+		).toEqual({ limit: 5, query: "Find the top 5 results for hiking boots" });
+	});
+
+	it("falls back to schema generation for out-of-bounds, enum and type mismatches", () => {
+		expect(
+			generateTestInput(
+				{
+					properties: {
+						limit: { type: "integer", maximum: 5 },
+						count: { type: "integer", exclusiveMaximum: 100 },
+						top: { type: "string", enum: ["a", "b"] },
+						location: { type: "integer", minimum: 3, maximum: 3 },
+						query: { type: "string", maxLength: 10 },
+					},
+					required: ["limit", "count", "top", "location", "query"],
+				},
+				prompts("Show the top 100 results for coffee in Berlin"),
+			),
+		).toEqual({
+			limit: 5,
+			count: 10,
+			top: "a",
+			location: 3,
+			query: "test_value",
+		});
+	});
+
+	it("keeps an enum query instead of substituting the prompt", () => {
+		expect(
+			generateTestInput(
+				{
+					properties: { q: { type: "string", enum: ["news", "images"] } },
+					required: ["q"],
+				},
+				prompts("Look up the latest headlines"),
+			),
+		).toEqual({ q: "news" });
+	});
+});
