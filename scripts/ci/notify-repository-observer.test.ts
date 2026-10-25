@@ -1,8 +1,71 @@
 import { describe, expect, it, mock, spyOn } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import {
 	pushObservation,
 	notifyObserver,
+	observerSecrets,
+	redactedFailure,
 } from "./notify-repository-observer.mjs";
+const webhookId = "11111111-2222-4333-8444-555555555555";
+const projectId = "66666666-7777-4888-8999-000000000000";
+const observerUrl = `https://api.example/webhooks/repository-observer/${webhookId}/${projectId}`;
+const script = resolve(import.meta.dirname, "notify-repository-observer.mjs");
+function runScript(url: string) {
+	const result = spawnSync(process.execPath, [script], {
+		encoding: "utf8",
+		env: {
+			PATH: process.env.PATH,
+			TEDIX_OBSERVER_URL: url,
+			GITHUB_EVENT_NAME: "push",
+			GITHUB_EVENT_PATH: "/nonexistent/event.json",
+		},
+	});
+	const unmasked = `${result.stdout}\n${result.stderr}`
+		.split("\n")
+		.filter((line) => !line.startsWith("::add-mask::"))
+		.join("\n");
+	return { ...result, unmasked };
+}
+describe("observer URL in public logs", () => {
+	it("masks the URL and both ids before any other output", () => {
+		expect(observerSecrets(` ${observerUrl}\n`)).toEqual(
+			expect.arrayContaining([observerUrl, webhookId, projectId]),
+		);
+		const { stdout, status, unmasked } = runScript(observerUrl);
+		expect(status).toBe(1);
+		const lines = stdout.split("\n");
+		const firstOther = lines.findIndex(
+			(line) => line && !line.startsWith("::add-mask::"),
+		);
+		for (const value of [observerUrl, webhookId, projectId])
+			expect(lines.slice(0, firstOther)).toContain(`::add-mask::${value}`);
+		for (const value of [webhookId, projectId, "repository-observer/"])
+			expect(unmasked).not.toContain(value);
+		expect(unmasked).toContain("::error::");
+	});
+	it("never prints an unparsable URL through the error path", () => {
+		const invalid = `https://api.example:bad/${webhookId}`;
+		const { status, unmasked } = runScript(invalid);
+		expect(status).toBe(1);
+		expect(unmasked).not.toContain(webhookId);
+		expect(unmasked).not.toContain("at ");
+	});
+	it("redacts the URL and its ids from an error message", () => {
+		const secrets = observerSecrets(observerUrl);
+		expect(
+			redactedFailure(
+				new Error(`fetch ${observerUrl} failed for ${projectId}`),
+				secrets,
+			),
+		).toBe("fetch *** failed for ***");
+	});
+	it("reports nothing without failing when the secret is absent", () => {
+		const { status, stdout } = runScript("");
+		expect(status).toBe(0);
+		expect(stdout).toContain("not configured");
+	});
+});
 describe("repository event notifier", () => {
 	it("uses the full push range and carries a Work trailer as data", () => {
 		const git = mock((...args: string[]) =>
