@@ -84,6 +84,88 @@ function workbookSheet(
 }
 
 describe("CSV round trips", () => {
+	it.each(["flat", "rich", "zip"] as const)(
+		"neutralizes formula-like headers and text without changing numbers in %s exports",
+		async (kind) => {
+			const unsafe = [
+				"=1+1",
+				"+SUM(1,2)",
+				"-1+2",
+				"@SUM(A1:A2)",
+				' =HYPERLINK("https://example.test", "open")',
+				"\t=1+1",
+				"\r=1+1",
+				"\n=1+1",
+				"\tplain text",
+				"\rplain text",
+				"\nplain text",
+				" \t\r\n+1",
+				"\u0000=1+1",
+				"\u007f-1",
+				"\u00a0@SUM(A1:A2)",
+				"\ufeff=1+1",
+				"＝1+1",
+				"＋1",
+				"－1",
+				"＠SUM(A1:A2)",
+				'=1+1",=2+2\r\n=3+3',
+			];
+			const safe = ["plain", "a=b", "1+1", "'already text", "  plain", "文字"];
+			const labels = [...unsafe, ...safe];
+			const rows: OsSheetCell[][] = [
+				labels,
+				[
+					-42,
+					0,
+					1.25,
+					-1e-7,
+					1e21,
+					true,
+					false,
+					null,
+					...Array<string>(labels.length - 8).fill(""),
+				],
+			];
+			const content: Sheet = { kind: "sheet", columns: labels, rows };
+			if (kind !== "flat") {
+				const sheets = [workbookSheet("one", "One", labels, rows)];
+				if (kind === "zip")
+					sheets.push(workbookSheet("two", "Two", labels, rows));
+				content.workbook = { activeSheetId: "one", sheets };
+			}
+			const result = await exportSheet(content);
+			assert.equal(result.extension, kind === "zip" ? "zip" : "csv");
+			const files =
+				kind === "zip"
+					? Object.values(unzipSync(result.bytes))
+					: [result.bytes];
+			assert.equal(files.length, kind === "zip" ? 2 : 1);
+			const escaped = [...unsafe.map((value) => `'${value}`), ...safe];
+			for (const bytes of files) {
+				const decoded = decodeCsv(bytes);
+				assert.deepEqual(decoded, [
+					escaped,
+					escaped,
+					[
+						"-42",
+						"0",
+						"1.25",
+						"-1e-7",
+						"1e+21",
+						"true",
+						"false",
+						"",
+						...Array<string>(labels.length - 8).fill(""),
+					],
+				]);
+				assert.deepEqual(
+					decoded[2]!.slice(0, 5).map(Number),
+					[-42, 0, 1.25, -1e-7, 1e21],
+				);
+			}
+		},
+	);
+
 	const labels = [
 		"Zero",
 		"False",
@@ -131,7 +213,7 @@ describe("CSV round trips", () => {
 			"🧪 𠮷 𝄞",
 			"",
 		],
-		["", "true", "0", "false", ",", '"', "\r", "\n", "\r\n", "ß", "🚀", ""],
+		["", "true", "0", "false", ",", '"', "'\r", "'\n", "'\r\n", "ß", "🚀", ""],
 	];
 
 	it.each(["flat", "rich"] as const)(
