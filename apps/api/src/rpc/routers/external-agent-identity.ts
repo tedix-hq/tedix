@@ -20,6 +20,7 @@ import { decodeTokenUnsafe } from "@tedix/auth/jwt";
 import { extractMcpApprovedScopeNames } from "../../services/descope-mcp-server-reconcile";
 import {
 	forgetMcpServerClients,
+	mcpServerClientsMark,
 	loadMcpServerRegistration,
 	rememberedMcpServerClients,
 	rememberMcpServerClients,
@@ -1590,6 +1591,7 @@ async function issueMcpCredentialForOrganization(
 			identityTags,
 		);
 		if (!reusable && activeCredentials.length) {
+			const mark = mcpServerClientsMark();
 			registeredClients = await searchDescopeMcpServerClients(aihEnv, {
 				mcpServerId,
 			});
@@ -1598,6 +1600,7 @@ async function issueMcpCredentialForOrganization(
 					mcpServerId,
 					registeredClients,
 					activeClientIds,
+					mark,
 				);
 			reusable = selectReusableExternalAgentMcpCredential(
 				activeCredentials,
