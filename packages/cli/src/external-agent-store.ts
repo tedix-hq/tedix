@@ -55,10 +55,23 @@ interface CachedAgentCredential {
 	expiresAt: number;
 }
 
+/**
+ * A first-time bootstrap whose credential issuance parked on an owner approval.
+ * The next start of the same slot retries the identical call with this id
+ * instead of opening another request.
+ */
+export interface PendingBootstrapApproval {
+	approvalRequestId: string;
+	/** The exact `create_api_key` arguments the approval is bound to. */
+	input: Record<string, unknown>;
+	requestedAt: string;
+}
+
 interface ExternalAgentStore {
 	version: 1;
 	credentials?: Record<string, CachedAgentCredential>;
 	workspaces: Record<string, StoredExternalAgentProfile>;
+	bootstrapApprovals?: Record<string, PendingBootstrapApproval>;
 }
 
 function resolveStoreDir(options?: ExternalAgentStoreOptions): string {
@@ -193,7 +206,24 @@ function readStore(options?: ExternalAgentStoreOptions): ExternalAgentStore {
 					};
 				}
 			}
-		return { version: 1, workspaces, credentials };
+		const bootstrapApprovals: Record<string, PendingBootstrapApproval> = {};
+		if (isRecord(parsed.bootstrapApprovals))
+			for (const [slot, value] of Object.entries(parsed.bootstrapApprovals)) {
+				if (
+					!workspaces[slot] &&
+					isRecord(value) &&
+					typeof value.approvalRequestId === "string" &&
+					value.approvalRequestId.length > 0 &&
+					isRecord(value.input) &&
+					typeof value.requestedAt === "string"
+				)
+					bootstrapApprovals[slot] = {
+						approvalRequestId: value.approvalRequestId,
+						input: value.input,
+						requestedAt: value.requestedAt,
+					};
+			}
+		return { version: 1, workspaces, credentials, bootstrapApprovals };
 	} catch {
 		throw new Error(
 			"[tedix] external-agents.json is corrupt or unreadable; repair or remove it before using external-agent auth.",
@@ -322,6 +352,36 @@ export function externalAgentProfileSlot(
 	if (!shared || sessionKey! in shared.sessions) return workspace;
 	const owner = harnessFamily(shared.key);
 	return !owner || owner === family ? workspace : `${workspace}#${family}`;
+}
+
+export function readBootstrapApproval(
+	slot: string,
+	options?: ExternalAgentStoreOptions,
+): PendingBootstrapApproval | null {
+	return readStore(options).bootstrapApprovals?.[slot] ?? null;
+}
+
+export function writeBootstrapApproval(
+	slot: string,
+	approval: PendingBootstrapApproval,
+	options?: ExternalAgentStoreOptions,
+): void {
+	mutateStore(options, (store) => {
+		store.bootstrapApprovals = {
+			...store.bootstrapApprovals,
+			[slot]: approval,
+		};
+	});
+}
+
+export function clearBootstrapApproval(
+	slot: string,
+	options?: ExternalAgentStoreOptions,
+): void {
+	mutateStore(options, (store) => {
+		if (!store.bootstrapApprovals?.[slot]) return;
+		delete store.bootstrapApprovals[slot];
+	});
 }
 
 export function readExternalAgentProfile(

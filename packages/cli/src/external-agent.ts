@@ -13,9 +13,12 @@ import { type AvailableWorkspace, listAvailableWorkspaces } from "./account";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
 import type { WorkspaceCredential } from "./credential-store";
 import {
+	clearBootstrapApproval,
 	externalAgentProfileSlot,
 	harnessFamily,
+	readBootstrapApproval,
 	readExternalAgentProfile,
+	writeBootstrapApproval,
 	discardExternalAgentCredential,
 	readExternalAgentCredential,
 	writeExternalAgentCredential,
@@ -216,8 +219,39 @@ function createGatewayClient(
 	return factory?.(options) ?? new TedixHomeClient(options);
 }
 
-function gatewayCode(namespace: string, tool: string, input: unknown): string {
-	return `async () => await ${namespace}.${tool}(${JSON.stringify(input)})`;
+function gatewayCode(
+	namespace: string,
+	tool: string,
+	input: unknown,
+	approvalRequestId?: string,
+): string {
+	// An owner approval permits one exact retry: the gateway binds it to the
+	// call's arguments, and the inline `_meta` names the decided request.
+	const resume = approvalRequestId
+		? `, ${JSON.stringify({ _meta: { "com.tedix/approvalRequestId": approvalRequestId } })}`
+		: "";
+	return `async () => await ${namespace}.${tool}(${JSON.stringify(input)}${resume})`;
+}
+
+/** Error prefix for a bootstrap that waits on an owner decision; callers may defer on it. */
+export const BOOTSTRAP_AWAITING_APPROVAL =
+	"External-agent bootstrap is waiting for owner approval";
+
+/** The owner approval a gateway refusal parked a call on, if that is what it was. */
+export function parseOwnerApprovalRequirement(
+	error: unknown,
+): { approvalRequestId: string; status: string; url?: string } | null {
+	const message = error instanceof Error ? error.message : String(error);
+	const match =
+		/Human approval required\. Request ([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}) \(([a-z_]+)\)(?::\s*(\S+?))?(?:\.\s|\.$|$)/i.exec(
+			message,
+		);
+	if (!match) return null;
+	return {
+		approvalRequestId: match[1]!,
+		status: match[2]!.toLowerCase(),
+		...(match[3] ? { url: match[3] } : {}),
+	};
 }
 
 async function callGatewayTool<T>(
@@ -226,6 +260,7 @@ async function callGatewayTool<T>(
 	tool: string,
 	input: unknown,
 	destructiveReason?: string,
+	approvalRequestId?: string,
 ): Promise<T> {
 	const approvedInput =
 		destructiveReason && isRecord(input)
@@ -235,7 +270,7 @@ async function callGatewayTool<T>(
 					reason: destructiveReason,
 				}
 			: input;
-	const source = gatewayCode(namespace, tool, approvedInput);
+	const source = gatewayCode(namespace, tool, approvedInput, approvalRequestId);
 	const normalized = normalizeCodeResult(
 		destructiveReason && client.runCodeWithDestructiveApproval
 			? await client.runCodeWithDestructiveApproval(source, destructiveReason)
@@ -859,19 +894,52 @@ async function startExternalAgentSessionLocked(
 					? requested.aihScopes
 					: [...CAPABILITY_SCOPES, "connections.execute"];
 			const apiKeyScopes = requested.apiKeyScopes;
-			const createdKey = await callGatewayTool<Record<string, unknown>>(
-				ownerClient,
-				"organizations",
-				"create_api_key",
-				{
-					organizationId: organization.id,
-					name: `External agent ${agentKey}`,
-					description:
-						"Dedicated credential binding for gateway-verified external-agent sessions",
-					scopes: [...new Set(apiKeyScopes)],
-					environment: "live",
-				},
-			);
+			const createKeyInput = {
+				organizationId: organization.id,
+				name: `External agent ${agentKey}`,
+				description:
+					"Dedicated credential binding for gateway-verified external-agent sessions",
+				scopes: [...new Set(apiKeyScopes)],
+				environment: "live",
+			};
+			// Issuing a credential is human-reserved, so a first bootstrap may park
+			// here. Resume the request the owner already decided rather than
+			// opening another one for the same key.
+			const parked = readBootstrapApproval(slot);
+			const resumeId =
+				parked &&
+				JSON.stringify(parked.input) === JSON.stringify(createKeyInput)
+					? parked.approvalRequestId
+					: undefined;
+			let createdKey: Record<string, unknown>;
+			try {
+				createdKey = await callGatewayTool<Record<string, unknown>>(
+					ownerClient,
+					"organizations",
+					"create_api_key",
+					createKeyInput,
+					undefined,
+					resumeId,
+				);
+			} catch (error) {
+				const approval = parseOwnerApprovalRequirement(error);
+				if (!approval) throw error;
+				if (approval.status === "pending") {
+					writeBootstrapApproval(slot, {
+						approvalRequestId: approval.approvalRequestId,
+						input: createKeyInput,
+						requestedAt: new Date().toISOString(),
+					});
+					throw new Error(
+						`${BOOTSTRAP_AWAITING_APPROVAL} ${approval.approvalRequestId} for principal "${agentKey}": issuing its credential is human-reserved.${approval.url ? ` Decide at ${approval.url}.` : ""} The next \`tedix agent start\` for this harness resumes that request; no credential was issued.`,
+					);
+				}
+				clearBootstrapApproval(slot);
+				throw new Error(
+					`Owner approval ${approval.approvalRequestId} for the "${agentKey}" credential is ${approval.status}; no credential was issued. Run \`tedix agent start\` again to request a fresh decision.`,
+				);
+			}
+			clearBootstrapApproval(slot);
 			const rawApiKey = requiredString(
 				createdKey.rawKey,
 				"raw API key",

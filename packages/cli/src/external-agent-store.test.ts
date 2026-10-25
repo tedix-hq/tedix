@@ -3,8 +3,11 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	clearBootstrapApproval,
 	externalAgentSessionWorkspaces,
+	readBootstrapApproval,
 	readExternalAgentProfile,
+	writeBootstrapApproval,
 	readExternalAgentCredential,
 	writeExternalAgentCredential,
 	removeExternalAgentSession,
@@ -172,6 +175,43 @@ describe("externalAgentSessionWorkspaces", () => {
 		return configDir;
 	}
 
+	test("keeps a parked bootstrap approval until its slot has a profile", () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		const options = { configDir };
+		const approval = {
+			approvalRequestId: "33333333-3333-4333-8333-333333333333",
+			input: { organizationId: "org-id", name: "External agent claude-code-x" },
+			requestedAt: "2026-10-25T22:00:00.000Z",
+		};
+		writeBootstrapApproval("tedix#claude-code", approval, options);
+		expect(readBootstrapApproval("tedix#claude-code", options)).toEqual(
+			approval,
+		);
+		expect(readBootstrapApproval("tedix", options)).toBeNull();
+		clearBootstrapApproval("tedix#claude-code", options);
+		expect(readBootstrapApproval("tedix#claude-code", options)).toBeNull();
+
+		writeBootstrapApproval("tedix#claude-code", approval, options);
+		writeExternalAgentProfile(
+			"tedix#claude-code",
+			{
+				organizationId: "org-id",
+				principalId: "principal-id",
+				key: "claude-code-x",
+				displayName: "Claude",
+				apiKeyId: "api-key-id",
+				rawApiKey: "sk_secret_never_render",
+				scopes: ["platform:admin"],
+				mcpUrl: "https://tedix-unified.mcp.tedix.dev/mcp",
+				createdAt: "2026-10-25T22:01:00.000Z",
+				sessions: {},
+			},
+			options,
+		);
+		// A bootstrapped slot never resumes a stale request.
+		expect(readBootstrapApproval("tedix#claude-code", options)).toBeNull();
+	});
 	test("reports only the workspace that records the session", () => {
 		const configDir = seed();
 		expect(externalAgentSessionWorkspaces("codex:one", { configDir })).toEqual([

@@ -701,6 +701,26 @@ describe("dispatcher admission", () => {
 		expect(JSON.parse(readFileSync(path, "utf8")).held).toBe(true);
 		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
 	});
+	it("defers without holding while the executor bootstrap waits for an owner approval", async () => {
+		const { dispatcher, dir, items, events, control } = fixture();
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		for (let n = 1; n <= 4; n++) {
+			control.startError = new CliReadError(
+				'Tedix CLI read failed (exit 1): Error: External-agent bootstrap is waiting for owner approval 45fe93d1-eba1-4f72-bf95-36842a9693b7 for principal "claude-code-local-host": issuing its credential is human-reserved.',
+			);
+			await dispatcher.tick();
+			await dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.identicalFailures).toBe(n);
+			expect(saved.held).toBe(false);
+			expect(saved.phase).toBe("deferred");
+			saved.retryAt = 0;
+			saved.retryDeadlineAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+		}
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
+	});
 	it.each(["recovered", "offline", "expired", "foreign", "settled"])(
 		"retains offline proof until %s without relaunching",
 		async (state) => {
