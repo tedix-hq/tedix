@@ -8,9 +8,10 @@ import {
 	X,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -72,15 +73,23 @@ function OutputDetail({ outputId }: { outputId: string }) {
 			? workspace.data.workspace
 			: null;
 	const { save, saving, outcome, clearOutcome } = useReviseOutput(outputId);
+	const navigate = useNavigate();
 	const [draft, setDraft] = useState<OsOutputContent | null>(null);
+	const [draftBaseline, setDraftBaseline] = useState("");
 	const [note, setNote] = useState("");
+	const [confirmLeave, setConfirmLeave] = useState(false);
 
 	const startEditing = () => {
 		if (!detail.data) return;
 		clearOutcome();
 		setNote("");
-		setDraft(normalizeOutputContent(detail.data.currentRevision.content));
+		const content = normalizeOutputContent(detail.data.currentRevision.content);
+		setDraftBaseline(JSON.stringify(content));
+		setDraft(content);
 	};
+	const dirty =
+		draft !== null &&
+		(note.trim() !== "" || JSON.stringify(draft) !== draftBaseline);
 
 	const submit = async () => {
 		if (!draft || !detail.data) return;
@@ -136,6 +145,12 @@ function OutputDetail({ outputId }: { outputId: string }) {
 							size="icon-sm"
 							aria-label="All outputs"
 							title="All outputs"
+							onClick={(event) => {
+								// Leaving the workshop drops the draft; ask first.
+								if (!dirty) return;
+								event.preventDefault();
+								setConfirmLeave(true);
+							}}
 						>
 							<ArrowLeft size={14} />
 						</Button>
@@ -195,6 +210,23 @@ function OutputDetail({ outputId }: { outputId: string }) {
 						<X size={14} /> Cancel
 					</Button>
 				</OutputWorkshopFooter>
+				<ConfirmDialog
+					open={confirmLeave}
+					onOpenChange={setConfirmLeave}
+					title="Discard your changes?"
+					description="Your edits to this output are not saved. Leaving now discards them."
+					confirmLabel="Discard changes"
+					pendingLabel="Discarding…"
+					cancelLabel="Keep editing"
+					destructive
+					isPending={false}
+					onConfirm={() => {
+						setConfirmLeave(false);
+						setDraft(null);
+						clearOutcome();
+						void navigate({ to: "/outputs" });
+					}}
+				/>
 			</Page>
 		);
 	}
