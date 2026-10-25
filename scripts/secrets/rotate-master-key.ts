@@ -355,8 +355,11 @@ export function parseCli(argv: readonly string[]): CliArgs {
 			return value;
 		};
 		if (arg === "--apply") apply = true;
-		else if (arg === "--remote" || arg === "--local") target = arg;
-		else if (arg === "--limit") {
+		else if (arg === "--remote" || arg === "--local") {
+			if (target !== null && target !== arg)
+				throw new Error("Pass only one of --remote or --local");
+			target = arg;
+		} else if (arg === "--limit") {
 			const value = next();
 			limit = Number(value);
 			if (!/^\d+$/.test(value) || !Number.isSafeInteger(limit) || limit <= 0)
