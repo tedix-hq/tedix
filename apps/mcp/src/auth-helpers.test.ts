@@ -22,6 +22,7 @@ vi.mock("@tedix/auth/jwt", async (importOriginal) => {
 
 import {
 	classifyM2mTokenAudience,
+	decideM2mAudiencePolicy,
 	intersectScopes,
 	extractRequiredScopes,
 	humanMcpGrantFailureResponse,
@@ -1103,6 +1104,110 @@ describe("recordM2mTokenAudience", () => {
 			issuerShape: "current",
 			credentialMode: "unresolved",
 		});
+	});
+
+	it("names the policy decision the token ran under", () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+		recordM2mTokenAudience(
+			{ ANALYTICS: { writeDataPoint: vi.fn() } } as unknown as CloudflareEnv,
+			{
+				audit: { outcome: "mismatch", issuerShape: "current" },
+				payload: { azp: "client-id" },
+				clientResolved: true,
+				policy: { mode: "enforce", reject: true, revision: 4 },
+			},
+		);
+		expect(JSON.parse(String(log.mock.calls[0]?.[0])).metadata).toMatchObject({
+			policyMode: "enforce",
+			policyRejected: true,
+			policyRevision: 4,
+		});
+	});
+});
+
+describe("decideM2mAudiencePolicy", () => {
+	const now = new Date("2026-11-01T00:00:00Z");
+	const policy = {
+		revision: 3,
+		enforce: [
+			{ clientId: "proven-client", verifiedAt: "2026-10-26T00:00:00Z" },
+		],
+		auditRetiresAt: "2026-12-01T00:00:00Z",
+	};
+
+	it("rejects an enforced client whose token does not name this server", () => {
+		for (const outcome of ["mismatch", "missing"] as const)
+			expect(
+				decideM2mAudiencePolicy({
+					policy,
+					outcome,
+					resolvedClientId: "proven-client",
+					now,
+				}),
+			).toEqual({ mode: "enforce", reject: true, revision: 3 });
+		expect(
+			decideM2mAudiencePolicy({
+				policy,
+				outcome: "match",
+				resolvedClientId: "proven-client",
+				now,
+			}),
+		).toEqual({ mode: "enforce", reject: false, revision: 3 });
+	});
+
+	// The exemption follows the server-resolved client, never the token: an
+	// unresolved client is audited even when its token claims a listed id.
+	it("audits unlisted and unresolved clients", () => {
+		expect(
+			decideM2mAudiencePolicy({
+				policy,
+				outcome: "mismatch",
+				resolvedClientId: "other-client",
+				now,
+			}),
+		).toEqual({ mode: "audit", reject: false, revision: 3 });
+		expect(
+			decideM2mAudiencePolicy({
+				policy,
+				outcome: "mismatch",
+				resolvedClientId: undefined,
+				now,
+			}),
+		).toEqual({ mode: "audit", reject: false, revision: 3 });
+	});
+
+	it("flags audit-only acceptance past its retirement date", () => {
+		expect(
+			decideM2mAudiencePolicy({
+				policy,
+				outcome: "missing",
+				resolvedClientId: "other-client",
+				now: new Date("2026-12-02T00:00:00Z"),
+			}),
+		).toEqual({
+			mode: "audit",
+			reject: false,
+			revision: 3,
+			auditRetired: true,
+		});
+	});
+
+	it("never rejects on a missing or malformed policy", () => {
+		for (const bad of [
+			undefined,
+			null,
+			{},
+			{ revision: 1, enforce: [{ clientId: "proven-client" }] },
+			{ revision: 1, enforce: "proven-client" },
+		])
+			expect(
+				decideM2mAudiencePolicy({
+					policy: bad,
+					outcome: "mismatch",
+					resolvedClientId: "proven-client",
+					now,
+				}),
+			).toEqual({ mode: "audit", reject: false });
 	});
 });
 

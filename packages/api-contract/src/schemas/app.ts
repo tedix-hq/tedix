@@ -300,6 +300,38 @@ export const SidebarAppSchema = z
 		},
 	);
 
+/**
+ * Per-server audience enforcement for AIH client-credentials (M2M) tokens.
+ *
+ * These tokens are validated without the RFC 8707 URL audience that human
+ * tokens must carry; the edge measures each one (`auth_audience` events).
+ * A registered client listed in `enforce` — matched by its client id after
+ * the signed token has resolved to this server's registration, never by the
+ * token's own shape — must present this server's resource URL as `aud` or is
+ * rejected. Every other client stays audited; `auditRetiresAt` records when
+ * audit-only acceptance is meant to end so the events can flag it.
+ */
+export const M2mAudiencePolicySchema = z
+	.object({
+		/** Bumped on every change, so events name the policy they ran under. */
+		revision: z.number().int().min(1),
+		enforce: z
+			.array(
+				z
+					.object({
+						clientId: z.string().min(1).max(200),
+						/** When telemetry showed this client sending the URL audience. */
+						verifiedAt: z.iso.datetime(),
+					})
+					.strict(),
+			)
+			.max(500)
+			.default([]),
+		auditRetiresAt: z.iso.datetime().optional(),
+	})
+	.strict();
+export type M2mAudiencePolicy = z.infer<typeof M2mAudiencePolicySchema>;
+
 export const McpConfigSchema = z
 	.object({
 		embeddedHostDelegation: z
@@ -335,6 +367,7 @@ export const McpConfigSchema = z
 		capabilities: z.array(z.string()).default([]),
 		descopeResourceId: z.string().optional(),
 		expectedAudience: z.string().optional(),
+		m2mAudiencePolicy: M2mAudiencePolicySchema.optional(),
 		protectedResourceMetadata: z.record(z.string(), JsonValueSchema).optional(),
 		toolScopes: z.record(z.string(), z.array(z.string())).optional(),
 		chatgptToolAllowlist: z.array(z.string()).optional(),

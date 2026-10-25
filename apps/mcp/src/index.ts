@@ -1,4 +1,5 @@
 import { createMcpServer } from "@tedix/mcp-shared/server";
+import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
 import {
 	clientSupportsMcpApps,
 	LEGACY_APPS_SESSION_PREFIX,
@@ -99,6 +100,7 @@ import {
 	humanMcpGrantFailureResponse,
 	invalidateAihM2mClientScopeCache,
 	isTrustedBrowserBridge,
+	decideM2mAudiencePolicy,
 	recordM2mTokenAudience,
 	resolveAihM2mClientScopeContext,
 	resolveAihM2mTediOrganizationId,
@@ -1917,7 +1919,13 @@ const worker = {
 								},
 							)
 						: null;
-					if (authResult.m2mAudience)
+					if (authResult.m2mAudience) {
+						const policy = decideM2mAudiencePolicy({
+							policy: earlyResolvedApp?.metadata?.mcpConfig?.m2mAudiencePolicy,
+							outcome: authResult.m2mAudience.outcome,
+							resolvedClientId: aihM2mClient?.clientId,
+							now: new Date(),
+						});
 						recordM2mTokenAudience(env, {
 							audit: authResult.m2mAudience,
 							payload: jwtPayload,
@@ -1925,7 +1933,37 @@ const worker = {
 							mcpServerId,
 							appId: earlyResolvedApp?.app.id,
 							appSlug: earlyResolvedApp?.app.slug,
+							policy,
 						});
+						if (policy.reject) {
+							if (earlyResolvedApp)
+								await recordMcpAccessDenial({
+									request,
+									resolvedApp: earlyResolvedApp,
+									env,
+									ctx,
+									reason: "authentication_failed",
+									httpStatus: 401,
+								});
+							return new Response(
+								JSON.stringify({
+									error: "invalid_token",
+									message: "Token audience does not name this MCP server.",
+								}),
+								{
+									status: 401,
+									headers: {
+										"Content-Type": "application/json",
+										"WWW-Authenticate": buildWwwAuthenticate(
+											hostname,
+											"invalid_token",
+											"audience",
+										),
+									},
+								},
+							);
+						}
+					}
 					markAuth("client");
 					const { claims: tediClaims, error: tediClaimError } =
 						extractTediJwtClaims(authResult.payload);

@@ -10,6 +10,7 @@
  * to CloudflareEnv and WWW-Authenticate formatting.
  */
 
+import { M2mAudiencePolicySchema } from "@tedix/api-contract/schemas/app";
 import { externalAgentScopeCeiling } from "@tedix/api-contract/schemas/external-agent-identity";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import {
@@ -339,6 +340,50 @@ export function classifyM2mTokenAudience(
 	return present ? "mismatch" : "missing";
 }
 
+/** What the server's M2M audience policy does with one resolved token. */
+export interface M2mAudiencePolicyDecision {
+	mode: "audit" | "enforce";
+	reject: boolean;
+	revision?: number;
+	/** Audit-only acceptance is past the policy's retirement date. */
+	auditRetired?: boolean;
+}
+
+/**
+ * Apply `mcpConfig.m2mAudiencePolicy` to a measured M2M token. Only a client
+ * resolved against this server's registrations can be enforced; an
+ * unresolved client, a missing or malformed policy, or an unlisted client is
+ * audited. A malformed policy never rejects traffic.
+ */
+export function decideM2mAudiencePolicy(input: {
+	policy: unknown;
+	outcome: M2mAudienceOutcome;
+	resolvedClientId: string | undefined;
+	now: Date;
+}): M2mAudiencePolicyDecision {
+	const parsed = M2mAudiencePolicySchema.safeParse(input.policy);
+	if (!parsed.success) return { mode: "audit", reject: false };
+	const policy = parsed.data;
+	const enforced =
+		input.resolvedClientId !== undefined &&
+		policy.enforce.some((entry) => entry.clientId === input.resolvedClientId);
+	if (enforced)
+		return {
+			mode: "enforce",
+			reject: input.outcome !== "match",
+			revision: policy.revision,
+		};
+	return {
+		mode: "audit",
+		reject: false,
+		revision: policy.revision,
+		...(policy.auditRetiresAt &&
+		Date.parse(policy.auditRetiresAt) <= input.now.getTime()
+			? { auditRetired: true }
+			: {}),
+	};
+}
+
 /**
  * Emit one bounded event per AIH M2M validation once the signed client has
  * been resolved against this server. `credentialMode` is `aih-m2m` when the
@@ -354,6 +399,7 @@ export function recordM2mTokenAudience(
 		mcpServerId?: string;
 		appId?: string;
 		appSlug?: string;
+		policy?: M2mAudiencePolicyDecision;
 	},
 ): void {
 	const { outcome, issuerShape } = input.audit;
@@ -375,6 +421,16 @@ export function recordM2mTokenAudience(
 			issuerShape,
 			credentialMode,
 			...(input.mcpServerId ? { mcpServerId: input.mcpServerId } : {}),
+			...(input.policy
+				? {
+						policyMode: input.policy.mode,
+						policyRejected: input.policy.reject,
+						...(input.policy.revision !== undefined
+							? { policyRevision: input.policy.revision }
+							: {}),
+						...(input.policy.auditRetired ? { auditRetired: true } : {}),
+					}
+				: {}),
 		},
 	});
 }
