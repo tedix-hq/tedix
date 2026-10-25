@@ -57,6 +57,7 @@ function SlideElementView({
 }) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const [editing, setEditing] = useState(false);
+	const [resizeAnnouncement, setResizeAnnouncement] = useState("");
 	// A pointer-led edit carries the pressed point so the caret lands there.
 	const editPointRef = useRef<{ x: number; y: number } | null>(null);
 	const organization = usePresentationAppearance();
@@ -208,6 +209,17 @@ function SlideElementView({
 		} else if (gesture.wasSelected) beginEditing(event.clientX, event.clientY);
 	};
 	const resizeWithKeyboard = (event: React.KeyboardEvent) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			event.stopPropagation();
+			// Hand focus back to the element; its own keys take over from there.
+			(
+				event.currentTarget.closest(
+					"[data-slide-element]",
+				) as HTMLElement | null
+			)?.focus({ preventScroll: true });
+			return;
+		}
 		const direction: Record<string, [number, number]> = {
 			ArrowLeft: [-1, 0],
 			ArrowRight: [1, 0],
@@ -219,7 +231,7 @@ function SlideElementView({
 		event.preventDefault();
 		event.stopPropagation();
 		const amount = event.shiftKey ? 10 : 1;
-		onGeometryCommit({
+		const next = {
 			...element,
 			width: Math.max(
 				24,
@@ -235,7 +247,13 @@ function SlideElementView({
 					element.height + delta[1] * amount,
 				),
 			),
-		});
+		};
+		// A key at the size limit announces the unchanged size but commits nothing.
+		if (next.width !== element.width || next.height !== element.height)
+			onGeometryCommit(next);
+		setResizeAnnouncement(
+			`${element.type} element ${Math.round(next.width)} by ${Math.round(next.height)}`,
+		);
 	};
 	return (
 		<>
@@ -316,11 +334,16 @@ function SlideElementView({
 						className="absolute right-0 bottom-0 size-5 min-h-5 min-w-5 cursor-se-resize rounded-sm bg-kumo-focus p-0 sm:size-5"
 						size="icon-xs"
 						variant="ghost"
+						// Move and release bubble to the element's own handlers; wiring
+						// them here too committed every pointer resize twice.
 						onPointerDown={(event) => startGesture("resize", event)}
-						onPointerMove={moveGesture}
-						onPointerUp={endGesture}
 						onKeyDown={resizeWithKeyboard}
 					/>
+				)}
+				{selected && !disabled && (
+					<span className="sr-only" aria-live="polite">
+						{resizeAnnouncement}
+					</span>
 				)}
 			</div>
 			{moved?.guidesV.map((x) => (
