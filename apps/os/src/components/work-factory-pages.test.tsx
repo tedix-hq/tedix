@@ -519,13 +519,38 @@ describe("Work project summary", () => {
 		expect(html).not.toContain('data-slot="card"');
 	});
 
-	it("shows the horizon only when one is set", () => {
+	it("shows the target date as a date only when one is set", () => {
 		const html = renderToStaticMarkup(
-			<ProjectSummary status="active" targetDate="2026-11-30" />,
+			<ProjectSummary status="active" targetDate="2099-11-30" />,
 		);
 		expect(html.match(/data-slot="metric-item"/g)).toHaveLength(3);
-		expect(html).toContain("Horizon");
+		expect(html).toContain("Target date");
+		expect(html).toMatch(/Nov[^<]*30[^<]*2099/);
+		expect(html).not.toContain("Horizon");
+		expect(html).not.toContain("This date has passed");
 		expect(html).toContain("Unavailable");
+	});
+
+	it("flags a target date that has passed on an active project", () => {
+		const html = renderToStaticMarkup(
+			<ProjectSummary status="active" targetDate="2020-01-31" />,
+		);
+		expect(html).toContain("This date has passed");
+	});
+
+	it("offers to set a target date on an editable project with none", () => {
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={new QueryClient()}>
+				<ProjectSummary
+					status="active"
+					targetDate={null}
+					projectId="33333333-3333-4333-8333-000000000001"
+				/>
+			</QueryClientProvider>,
+		);
+		expect(html.match(/data-slot="metric-item"/g)).toHaveLength(3);
+		expect(html).toContain("Set target date");
+		expect(html).not.toContain("Not recorded");
 	});
 
 	it.each([

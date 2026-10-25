@@ -299,6 +299,10 @@ export function applyDemoPack(
 			...projectTemplate,
 			id: uid(118, i + 1),
 			name: space.name,
+			description: space.description,
+			// The template's title and date would make every demo project look alike.
+			metadata: { portfolioBucket: "Projects" },
+			targetDate: i === 0 ? projectTemplate.targetDate : null,
 			leadTediId: leadTedi(i as Group).id,
 			workspaceId: workspaces[i]!.id,
 		})),

@@ -88,7 +88,7 @@ const ORGANIZATION_SECTION_ITEMS = [
 
 const ORGANIZATION_OWNER_SECTION_ITEMS = [
 	...ORGANIZATION_SECTION_ITEMS,
-	["Portfolio sections", "organization-portfolio"],
+	["Project sections", "organization-portfolio"],
 	["Danger", "organization-danger"],
 ] as const;
 

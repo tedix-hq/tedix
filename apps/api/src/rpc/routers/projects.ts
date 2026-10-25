@@ -299,8 +299,11 @@ const getRollupProcedure = authOs.getRollup
 		};
 	});
 
-/** Projects one Portfolio read returns; an owner keeps a few dozen. */
-export const PROJECT_PORTFOLIO_LIMIT = 100;
+/**
+ * A safety ceiling, not a page size: the Projects view promises every project.
+ * At 100 it silently dropped every project past the hundredth key.
+ */
+export const PROJECT_PORTFOLIO_LIMIT = 1_000;
 
 const getPortfolioProcedure = authOs.getPortfolio
 	.use(AUTHZ.objectiveRead)

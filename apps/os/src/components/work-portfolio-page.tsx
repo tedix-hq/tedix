@@ -1,8 +1,4 @@
-import {
-	LedgerRow,
-	LedgerRowMeta,
-	RelativeTime,
-} from "@/components/work-ledger-row";
+import { LedgerRow, RelativeTime } from "@/components/work-ledger-row";
 import type { PortfolioBucket } from "@tedix/api-contract/schemas/organization";
 import { factoryHref } from "@/lib/work-display";
 import type {
@@ -11,10 +7,9 @@ import type {
 	ProjectPortfolioEntry,
 } from "@tedix/api-contract/contracts/projects";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useContext, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
-import { Card, CardContent, CardHeader } from "@/components/kumo/card";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -24,6 +19,7 @@ import { Link } from "@/components/kumo/link";
 import {
 	Collection,
 	Page,
+	PageActions,
 	PageDescription,
 	PageHeader,
 	PageHeading,
@@ -35,8 +31,28 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
+import {
+	Progress,
+	ProgressIndicator,
+	ProgressTrack,
+} from "@/components/kumo/progress";
+import { SearchInput } from "@/components/kumo/search-input";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
+import {
+	WorkActorAvatar,
+	WorkActorDirectoryContext,
+	WorkActorOwnerContext,
+} from "@/components/work-actor-avatar";
+import { WorkEmpty } from "@/components/work-surface-primitives";
 import { sentenceCase } from "@/lib/format";
 import { OS_COPY } from "@/shared/os-copy";
 import { plainWorkText } from "@/lib/work-detail";
@@ -46,17 +62,14 @@ import {
 	projectPortfolioQueryOptions,
 	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
+import {
+	isProjectOverdue,
+	projectTargetLabel,
+} from "@/lib/project-target-date";
 import { normalizeD1Timestamp } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
-
-export type PortfolioEntry = {
-	row: ProjectPortfolioEntry;
-	project: Project;
-	title: string;
-	org: string | null;
-};
 
 function metadataString(project: Project, key: string): string | null {
 	const value = project.metadata?.[key];
@@ -71,51 +84,130 @@ export function portfolioBucketOf(
 	return buckets.find((bucket) => bucket.key === raw)?.key ?? null;
 }
 
-function portfolioEntry(row: ProjectPortfolioEntry): PortfolioEntry {
-	const { project } = row;
-	return {
-		row,
-		project,
-		title: metadataString(project, "portfolioTitle") ?? project.name,
-		org: metadataString(project, "portfolioOrg"),
-	};
+/** One project as the Projects list shows it. */
+export type ProjectListEntry = {
+	row: ProjectPortfolioEntry;
+	project: Project;
+	title: string;
+	org: string | null;
+	section: PortfolioBucket | null;
+	brief: string | null;
+	/** Work Items still to do: proposed plus accepted. */
+	open: number;
+	done: number;
+	needsYou: number;
+	lastActivity: string | null;
+};
+
+export const PROJECT_STATUS_GROUPS = [
+	{ status: "active", label: "Active", collapsed: false },
+	{ status: "paused", label: "Paused", collapsed: false },
+	{ status: "done", label: "Done", collapsed: true },
+	{ status: "archived", label: "Archived", collapsed: true },
+] as const satisfies readonly {
+	status: Project["status"];
+	label: string;
+	collapsed: boolean;
+}[];
+
+export type ProjectWhoFilter = "all" | "needs_you" | "mine";
+
+export type ProjectListFilter = {
+	query: string;
+	who: ProjectWhoFilter;
+	/** A section key, or null for every section. */
+	section: string | null;
+};
+
+/** Every portfolio row as a list entry; nothing is dropped or folded away. */
+export function projectListEntries(
+	rows: readonly ProjectPortfolioEntry[],
+	buckets: readonly PortfolioBucket[],
+	openInteractions: readonly InboxRow[] = [],
+): ProjectListEntry[] {
+	return rows.map((row) => {
+		const { project } = row;
+		const sectionKey = portfolioBucketOf(project, buckets);
+		const brief = projectBriefLine(project.description);
+		return {
+			row,
+			project,
+			title: metadataString(project, "portfolioTitle") ?? project.name,
+			org: metadataString(project, "portfolioOrg"),
+			section: buckets.find((bucket) => bucket.key === sectionKey) ?? null,
+			brief: brief && !isPlaceholderBrief(brief) ? brief : null,
+			open:
+				(row.byDisposition.proposed ?? 0) + (row.byDisposition.accepted ?? 0),
+			done: row.byDisposition.completed ?? 0,
+			needsYou: openInteractions.filter(
+				(interaction) =>
+					interaction.request.projectId === project.id ||
+					interaction.workItem?.projectId === project.id,
+			).length,
+			lastActivity: latestActivity([
+				project.updatedAt,
+				project.createdAt,
+				row.lastActivityAt,
+			]),
+		};
+	});
 }
 
-const byTitle = (a: PortfolioEntry, b: PortfolioEntry) =>
+export function filterProjects(
+	entries: readonly ProjectListEntry[],
+	filter: ProjectListFilter,
+	currentUserId?: string,
+): ProjectListEntry[] {
+	const words = filter.query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+	return entries.filter((entry) => {
+		if (filter.section && entry.section?.key !== filter.section) return false;
+		if (filter.who === "needs_you" && entry.needsYou === 0) return false;
+		if (
+			filter.who === "mine" &&
+			(!currentUserId || entry.project.ownerUserId !== currentUserId)
+		)
+			return false;
+		if (!words.length) return true;
+		const haystack = [
+			entry.title,
+			entry.project.name,
+			entry.project.key,
+			entry.brief,
+			entry.section?.label,
+		]
+			.filter(Boolean)
+			.join(" ")
+			.toLowerCase();
+		return words.every((word) => haystack.includes(word));
+	});
+}
+
+const byRecentActivity = (a: ProjectListEntry, b: ProjectListEntry) =>
+	(b.lastActivity ?? "").localeCompare(a.lastActivity ?? "") ||
 	a.title.localeCompare(b.title);
 
-export function groupPortfolio(
-	rows: readonly ProjectPortfolioEntry[],
-	config: readonly PortfolioBucket[] = OS_COPY.portfolio.defaults,
+/** Status groups in a fixed order, newest activity first; empty groups are left out. */
+export function groupProjectsByStatus(entries: readonly ProjectListEntry[]) {
+	return PROJECT_STATUS_GROUPS.map((group) => ({
+		...group,
+		entries: entries
+			.filter((entry) => entry.project.status === group.status)
+			.sort(byRecentActivity),
+	})).filter((group) => group.entries.length > 0);
+}
+
+/** Sections that hold at least one project, in the owner's configured order. */
+export function usedSections(
+	entries: readonly ProjectListEntry[],
+	buckets: readonly PortfolioBucket[],
 ) {
-	const grouped = new Map(
-		config.map((bucket) => [bucket.key, [] as PortfolioEntry[]]),
-	);
-	const other: PortfolioEntry[] = [];
-	const unknown = new Map<string, number>();
-	for (const row of rows) {
-		const key = portfolioBucketOf(row.project, config);
-		const raw = metadataString(row.project, "portfolioBucket")?.toLowerCase();
-		if (!key && raw) unknown.set(raw, (unknown.get(raw) ?? 0) + 1);
-		if (
-			!key ||
-			row.project.status === "archived" ||
-			row.project.status === "done"
-		)
-			other.push(portfolioEntry(row));
-		else grouped.get(key)?.push(portfolioEntry(row));
-	}
-	return {
-		buckets: config
-			.map((bucket) => ({
-				...bucket,
-				name: bucket.label,
-				entries: (grouped.get(bucket.key) ?? []).sort(byTitle),
-			}))
-			.filter((bucket) => bucket.entries.length > 0),
-		other: other.sort(byTitle),
-		unknown,
-	};
+	return buckets
+		.map((bucket) => ({
+			...bucket,
+			count: entries.filter((entry) => entry.section?.key === bucket.key)
+				.length,
+		}))
+		.filter((bucket) => bucket.count > 0);
 }
 
 /** The first line of a description that carries words, without list/heading marks. */
@@ -145,13 +237,6 @@ export function latestActivity(
 			latest = { at: iso, ms };
 	}
 	return latest?.at ?? null;
-}
-
-export function projectStatusVariant(status: Project["status"]) {
-	if (status === "active") return "success" as const;
-	if (status === "paused") return "warning" as const;
-	if (status === "done") return "secondary" as const;
-	return "outline" as const;
 }
 
 const HEALTH_VARIANT = {
@@ -452,151 +537,193 @@ function CrossOrgLink({ slug }: { slug: string }) {
 	);
 }
 
-function PortfolioCard({
-	entry,
-	openInteractions,
+function ProjectOwner({
+	project,
+	leadTediName,
 }: {
-	entry: PortfolioEntry;
-	openInteractions: readonly InboxRow[];
+	project: Project;
+	leadTediName: string | null;
 }) {
-	const { row, project, title, org } = entry;
-	const brief = projectBriefLine(project.description);
-	const lastActivity = latestActivity([
-		project.updatedAt,
-		project.createdAt,
-		row.lastActivityAt,
-	]);
-	const needsYou = openInteractions.filter(
-		(interaction) =>
-			interaction.request.projectId === project.id ||
-			interaction.workItem?.projectId === project.id,
-	).length;
+	const directory = useContext(WorkActorDirectoryContext);
+	const actor = project.ownerUserId
+		? { type: "user", id: project.ownerUserId }
+		: project.leadTediId
+			? { type: "tedi", id: project.leadTediId }
+			: null;
+	if (!actor) return <span data-project-owner="" />;
+	const name =
+		directory.get(`${actor.type}:${actor.id}`)?.name ??
+		(actor.type === "tedi" ? leadTediName : null);
+	// A raw id is never a name: an owner we cannot name is left out.
+	if (!name) return <span data-project-owner="" />;
 	return (
-		<Card size="sm" data-portfolio-card={project.id}>
-			<CardHeader className="grid gap-1">
-				<div className="flex min-w-0 items-start justify-between gap-2">
-					<Link
-						variant="record"
-						href={`/work/projects/${project.id}`}
-						className="tap-target-y min-w-0 font-medium focus-visible:ring-inset"
-					>
-						<span className="line-clamp-2">{title}</span>
-					</Link>
-					<div className="flex shrink-0 flex-wrap justify-end gap-1">
-						{row.health ? (
-							<Badge variant={HEALTH_VARIANT[row.health]}>
-								{sentenceCase(row.health)}
-							</Badge>
-						) : null}
-						<Badge variant={projectStatusVariant(project.status)}>
-							{sentenceCase(project.status)}
-						</Badge>
-					</div>
-				</div>
-				{brief ? (
-					<Text
-						as="p"
-						role="label"
-						tone={isPlaceholderBrief(brief) ? "secondary" : "default"}
-						className="line-clamp-2"
-					>
-						{brief}
-					</Text>
-				) : null}
-			</CardHeader>
-			<CardContent className="grid gap-1.5">
-				{row.total === 0 ? (
-					<Text as="p" role="label" tone="secondary">
-						No records yet
-					</Text>
-				) : (
-					<Text as="p" role="label" className="tabular-nums">
-						{row.byDisposition.proposed ?? 0} open ·{" "}
-						{row.byDisposition.accepted ?? 0} accepted
-						{needsYou ? ` · ${needsYou} need you` : ""}
-					</Text>
-				)}
-				{row.next ? (
-					<Text
-						as="p"
-						role="label"
-						className="flex min-w-0 items-baseline gap-1"
-					>
-						<span className="shrink-0">Next:</span>
-						<Link
-							variant="record"
-							href={`/work/items/${row.next.id}`}
-							className="tap-target-y min-w-0 truncate"
-						>
-							{row.next.title}
-						</Link>
-					</Text>
-				) : null}
-				<LedgerRowMeta
-					items={[
-						...(row.leadTediName
-							? [
-									{
-										term: "Coordinator",
-										value: `Coordinator: ${row.leadTediName}`,
-									},
-								]
-							: []),
-						...(lastActivity
-							? [
-									{
-										term: "Activity",
-										value: (
-											<>
-												Active <RelativeTime at={lastActivity} />
-											</>
-										),
-									},
-								]
-							: []),
-						...(org
-							? [{ term: "Organization", value: <CrossOrgLink slug={org} /> }]
-							: []),
-					]}
-				/>
-			</CardContent>
-		</Card>
+		<span
+			className="inline-flex min-w-0 items-center gap-2"
+			data-project-owner={name}
+		>
+			<WorkActorAvatar actor={actor} name={name} className="shrink-0" />
+			<Text as="span" role="label" className="truncate">
+				{name}
+			</Text>
+		</span>
 	);
 }
 
-function OtherProjects({ entries }: { entries: PortfolioEntry[] }) {
-	if (!entries.length) return null;
+function ProjectProgress({ open, done }: { open: number; done: number }) {
+	const total = open + done;
+	if (total === 0)
+		return (
+			<Text as="span" role="label" tone="secondary" data-project-progress="">
+				No tasks yet
+			</Text>
+		);
+	const percent = Math.round((done / total) * 100);
 	return (
-		<Collapsible>
-			<CollapsibleTrigger>
-				{OS_COPY.portfolio.unsorted} ({entries.length})
-			</CollapsibleTrigger>
-			<CollapsibleContent>
-				<Collection aria-label="Unsorted projects" className="mt-2">
-					{entries.map(({ project, title }) => (
-						<LedgerRow
-							key={project.id}
-							title={
-								<Link
-									variant="record"
-									href={`/work/projects/${project.id}`}
-									className="tap-target-y min-w-0 truncate"
-								>
-									{title}
-								</Link>
-							}
-							actions={
-								<Badge variant={projectStatusVariant(project.status)}>
-									{sentenceCase(project.status)}
-								</Badge>
-							}
-						/>
-					))}
-				</Collection>
-			</CollapsibleContent>
-		</Collapsible>
+		<span className="grid min-w-0 gap-1" data-project-progress={percent}>
+			<Text as="span" role="label" className="tabular-nums">
+				{open} open · {done} done
+			</Text>
+			<Progress
+				value={percent}
+				aria-label={`${percent}% of tasks done`}
+				className="w-full max-w-40"
+			>
+				<ProgressTrack className="h-1">
+					<ProgressIndicator />
+				</ProgressTrack>
+			</Progress>
+		</span>
 	);
 }
+
+function ProjectRow({ entry }: { entry: ProjectListEntry }) {
+	const { row, project, title, org, section, brief, needsYou, lastActivity } =
+		entry;
+	const target = projectTargetLabel(project.targetDate);
+	const overdue = isProjectOverdue(project);
+	return (
+		<li
+			data-project-row={project.id}
+			className="flex flex-col gap-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_11rem_10rem_6.5rem] sm:items-center sm:gap-4"
+		>
+			<div className="grid min-w-0 gap-1">
+				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+					<Link
+						variant="record"
+						href={`/work/projects/${project.id}`}
+						className="tap-target-y min-w-0 font-medium"
+					>
+						<span className="line-clamp-2 wrap-anywhere">{title}</span>
+					</Link>
+					{section ? <Badge variant="outline">{section.label}</Badge> : null}
+					{row.health ? (
+						<Badge variant={HEALTH_VARIANT[row.health]}>
+							{sentenceCase(row.health)}
+						</Badge>
+					) : null}
+					{needsYou ? (
+						<Badge variant="warning">
+							{needsYou === 1
+								? "1 question for you"
+								: `${needsYou} questions for you`}
+						</Badge>
+					) : null}
+					{target ? (
+						<Badge variant={overdue ? "error" : "secondary"}>
+							{overdue ? `Was due ${target}` : `Due ${target}`}
+						</Badge>
+					) : null}
+				</div>
+				{brief || org ? (
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						className="m-0 flex min-w-0 items-baseline gap-1"
+					>
+						{brief ? <span className="min-w-0 truncate">{brief}</span> : null}
+						{org ? (
+							<span className="shrink-0">
+								{brief ? "· " : null}
+								<CrossOrgLink slug={org} />
+							</span>
+						) : null}
+					</Text>
+				) : null}
+			</div>
+			<div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 sm:contents">
+				<ProjectOwner project={project} leadTediName={row.leadTediName} />
+				<ProjectProgress open={entry.open} done={entry.done} />
+				<Text
+					as="span"
+					role="label"
+					tone="secondary"
+					className="tabular-nums sm:text-right"
+				>
+					{lastActivity ? <RelativeTime at={lastActivity} /> : null}
+				</Text>
+			</div>
+		</li>
+	);
+}
+
+function ProjectStatusGroup({
+	label,
+	collapsed,
+	entries,
+	forceOpen,
+}: {
+	label: string;
+	collapsed: boolean;
+	entries: readonly ProjectListEntry[];
+	forceOpen: boolean;
+}) {
+	const id = `projects-${label.toLowerCase()}`;
+	const list = (
+		<Collection aria-label={`${label} projects`}>
+			{entries.map((entry) => (
+				<ProjectRow key={entry.project.id} entry={entry} />
+			))}
+		</Collection>
+	);
+	const heading = (
+		<>
+			{label}{" "}
+			<Text as="span" role="label" tone="secondary" className="tabular-nums">
+				{entries.length}
+			</Text>
+		</>
+	);
+	if (collapsed && !forceOpen)
+		return (
+			<Collapsible data-project-group={label.toLowerCase()}>
+				<CollapsibleTrigger className="-ml-2">{heading}</CollapsibleTrigger>
+				<CollapsibleContent>
+					<div className="pt-2">{list}</div>
+				</CollapsibleContent>
+			</Collapsible>
+		);
+	return (
+		<section
+			aria-labelledby={id}
+			className="grid gap-2"
+			data-project-group={label.toLowerCase()}
+		>
+			<Text as="h2" id={id} role="label" weight="medium" className="m-0">
+				{heading}
+			</Text>
+			{list}
+		</section>
+	);
+}
+
+const WHO_OPTIONS = [
+	{ value: "all", label: "All" },
+	{ value: "needs_you", label: "Needs you" },
+	{ value: "mine", label: "Mine" },
+] as const satisfies readonly { value: ProjectWhoFilter; label: string }[];
+
+const ALL_SECTIONS = "all";
 
 export function PortfolioApp({
 	buckets = OS_COPY.portfolio.defaults,
@@ -606,35 +733,64 @@ export function PortfolioApp({
 	isOwner?: boolean;
 }) {
 	useDocumentTitle("Projects · Work");
+	const currentUserId = useContext(WorkActorOwnerContext);
 	const portfolio = useQuery(projectPortfolioQueryOptions());
 	const inbox = useQuery({
 		...workOfficeKnocksQueryOptions(),
 		refetchOnWindowFocus: false,
 	});
-	const grouped = useMemo(
-		() => groupPortfolio(portfolio.data?.data ?? [], buckets),
-		[portfolio.data, buckets],
-	);
-	const openInteractions = useMemo(
+	const [query, setQuery] = useState("");
+	const [who, setWho] = useState<ProjectWhoFilter>("all");
+	const [section, setSection] = useState<string>(ALL_SECTIONS);
+	const entries = useMemo(
 		() =>
-			(inbox.data?.data ?? []).filter((row) => row.effectiveState === "open"),
-		[inbox.data],
+			projectListEntries(
+				portfolio.data?.data ?? [],
+				buckets,
+				(inbox.data?.data ?? []).filter((row) => row.effectiveState === "open"),
+			),
+		[portfolio.data, inbox.data, buckets],
 	);
+	const sections = useMemo(
+		() => usedSections(entries, buckets),
+		[entries, buckets],
+	);
+	const filter: ProjectListFilter = {
+		query,
+		who,
+		section: section === ALL_SECTIONS ? null : section,
+	};
+	const visible = filterProjects(entries, filter, currentUserId);
+	const groups = groupProjectsByStatus(visible);
+	const filtering = Boolean(query.trim()) || who !== "all" || filter.section;
+	const active = entries.filter((entry) => entry.project.status === "active");
 	return (
 		<Page width="full" className="gap-8">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>Projects</PageTitle>
 					<PageDescription>
-						Your main projects, their factories, and what is open.
+						{portfolio.data
+							? `All ${counted(entries.length, "project")} in this organization, ${active.length} active. Open one to see its tasks.`
+							: "Every project in this organization. Open one to see its tasks."}
 					</PageDescription>
 				</PageHeading>
+				{isOwner ? (
+					<PageActions>
+						<Link
+							variant="section"
+							href="/admin/organization#organization-portfolio"
+							className={PHONE_INLINE_LINK}
+						>
+							Edit sections
+						</Link>
+					</PageActions>
+				) : null}
 			</PageHeader>
 			{portfolio.isPending ? (
-				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-					<Skeleton className="h-36" />
-					<Skeleton className="h-36" />
-					<Skeleton className="h-36" />
+				<div className="grid gap-2">
+					<Skeleton className="h-9 w-full max-w-md" />
+					<Skeleton className="h-64 w-full" />
 				</div>
 			) : portfolio.isError ? (
 				<Alert variant="destructive">
@@ -643,53 +799,74 @@ export function PortfolioApp({
 						{errorMessage(portfolio.error, "Projects could not be loaded.")}
 					</AlertDescription>
 				</Alert>
+			) : entries.length === 0 ? (
+				<WorkEmpty
+					title="No projects yet"
+					description="A project groups related tasks. Ask a tedi to start one."
+				/>
 			) : (
-				<>
-					{isOwner && grouped.unknown.size > 0 && (
-						<Alert variant="warning">
-							<AlertTitle>Check your portfolio sections</AlertTitle>
-							<AlertDescription>
-								{[...grouped.unknown].map(([key, count]) => (
-									<p key={key}>{OS_COPY.portfolio.unknown(count, key)}</p>
-								))}
-								<Link
-									href="/admin/organization#organization-portfolio"
-									className={PHONE_INLINE_LINK}
-								>
-									Edit portfolio sections
-								</Link>
-							</AlertDescription>
-						</Alert>
+				<div className="grid gap-6">
+					<div
+						role="search"
+						aria-label="Filter projects"
+						className="flex min-w-0 flex-wrap items-center gap-2"
+					>
+						<SearchInput
+							aria-label="Search projects"
+							placeholder="Search projects"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							containerClassName="w-full sm:w-72"
+						/>
+						<SegmentedControl
+							ariaLabel="Show"
+							value={who}
+							onValueChange={setWho}
+							options={WHO_OPTIONS}
+						/>
+						{sections.length ? (
+							<Select
+								value={section}
+								onValueChange={(value) => setSection(String(value))}
+							>
+								<SelectTrigger aria-label="Section" className="min-w-36">
+									<SelectValue>
+										{(value: string) =>
+											value === ALL_SECTIONS
+												? "All sections"
+												: (sections.find((item) => item.key === value)?.label ??
+													"All sections")
+										}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value={ALL_SECTIONS}>All sections</SelectItem>
+									{sections.map((item) => (
+										<SelectItem key={item.key} value={item.key}>
+											{item.label} ({item.count})
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						) : null}
+					</div>
+					{groups.length ? (
+						groups.map((group) => (
+							<ProjectStatusGroup
+								key={group.status}
+								label={group.label}
+								collapsed={group.collapsed}
+								entries={group.entries}
+								forceOpen={Boolean(filtering)}
+							/>
+						))
+					) : (
+						<WorkEmpty
+							title="No projects match"
+							description="Try another search, or show all projects."
+						/>
 					)}
-					{grouped.buckets.map(({ key, name, description, entries }) => (
-						<PageSection
-							key={key}
-							aria-labelledby={`portfolio-bucket-${key}`}
-							data-portfolio-bucket={key}
-						>
-							<SectionHeader>
-								<SectionHeading>
-									<SectionTitle id={`portfolio-bucket-${key}`}>
-										{name}
-									</SectionTitle>
-									{description && (
-										<SectionDescription>{description}</SectionDescription>
-									)}
-								</SectionHeading>
-							</SectionHeader>
-							<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-								{entries.map((entry) => (
-									<PortfolioCard
-										key={entry.project.id}
-										entry={entry}
-										openInteractions={openInteractions}
-									/>
-								))}
-							</div>
-						</PageSection>
-					))}
-					<OtherProjects entries={grouped.other} />
-				</>
+				</div>
 			)}
 			<FactoryScoreboard />
 		</Page>

@@ -346,9 +346,6 @@ const ENGLISH_COPY = {
 			{ key: "communities", label: "Communities" },
 			{ key: "other", label: "Other" },
 		],
-		unsorted: "Unsorted",
-		unknown: (count: number, key: string) =>
-			`${count} project${count === 1 ? " uses" : "s use"} section '${key}' which is not in your settings — add it or move them.`,
 	},
 	workspace: {
 		allWorkspaces: "All workspaces",

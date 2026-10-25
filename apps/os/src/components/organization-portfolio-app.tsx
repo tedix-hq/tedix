@@ -18,7 +18,7 @@ function OrganizationPortfolio({ settings = false }: { settings?: boolean }) {
 	if (context.isError || detail.isError)
 		return (
 			<Alert variant="destructive">
-				<AlertTitle>Portfolio settings unavailable</AlertTitle>
+				<AlertTitle>Project sections unavailable</AlertTitle>
 				<AlertDescription>
 					{errorMessage(
 						context.error ?? detail.error,
@@ -40,7 +40,7 @@ function OrganizationPortfolio({ settings = false }: { settings?: boolean }) {
 				initialBuckets={buckets}
 			/>
 		) : (
-			<p>Only the organization owner can edit portfolio sections.</p>
+			<p>Only the organization owner can edit project sections.</p>
 		);
 	return <PortfolioApp buckets={buckets} isOwner={isOwner} />;
 }
