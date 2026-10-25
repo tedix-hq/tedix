@@ -90,6 +90,22 @@ const AppTediAssignments = lazy(() =>
 	})),
 );
 
+const AppAggregatedTedis = lazy(() =>
+	import("@/components/app-aggregated-tedis").then((mod) => ({
+		default: mod.AppAggregatedTedis,
+	})),
+);
+
+/** A Code Mode gateway (or an app already exposing tedis) can expose tedis. */
+function isGatewayApp(app: App): boolean {
+	const mcpConfig = app.metadata?.mcpConfig as
+		| { codeMode?: unknown; aggregateTedis?: unknown }
+		| undefined;
+	return (
+		mcpConfig?.codeMode === true || Array.isArray(mcpConfig?.aggregateTedis)
+	);
+}
+
 const APP_SETTINGS_SECTION_ITEMS = [
 	["Gateway", "app-settings-gateway"],
 	["Details", "app-settings-details"],
@@ -170,10 +186,15 @@ export function AppSettingsPage() {
 					/>
 				</Suspense>
 			</div>
-			<div id="app-settings-tedis" className="scroll-mt-24">
+			<div id="app-settings-tedis" className="scroll-mt-24 space-y-6">
 				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<AppTediAssignments appId={appId} />
 				</Suspense>
+				{isGatewayApp(app) ? (
+					<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+						<AppAggregatedTedis app={app} canManage={canManage} />
+					</Suspense>
+				) : null}
 			</div>
 			<div id="app-settings-secrets" className="scroll-mt-24">
 				<SecretsSection appId={appId} />
