@@ -56,6 +56,20 @@ vi.mock("./direct-rename", async (importOriginal) => ({
 	organizationGatewayApp: vi.fn(async () => "org-1-unified"),
 }));
 
+const directSkillMoveMocks = vi.hoisted(() => ({
+	resolveDirectSkillMove: vi.fn(),
+}));
+vi.mock("./direct-skill-move", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./direct-skill-move")>();
+	directSkillMoveMocks.resolveDirectSkillMove.mockImplementation(
+		actual.resolveDirectSkillMove,
+	);
+	return {
+		...actual,
+		resolveDirectSkillMove: directSkillMoveMocks.resolveDirectSkillMove,
+	};
+});
+
 import { readDelegationDepth, runKernelTurnWork } from "./turn-work";
 import {
 	chatApprovalReplyContent,
@@ -1268,6 +1282,58 @@ describe("runKernelTurnWork progress seam", () => {
 					gadgetId: "gadget-1",
 					name: "Harvest Review App",
 				},
+			},
+		});
+	});
+
+	it("plans a skill move as the move tool, never a delegation to the target tedi", async () => {
+		const planned: Array<Record<string, unknown>> = [];
+		const kernel = vi.fn(async () => null);
+		const deps = stubDeps({
+			kernel,
+			writeProposalPlanner: async (args) => {
+				planned.push(args as unknown as Record<string, unknown>);
+				return null;
+			},
+		});
+		directSkillMoveMocks.resolveDirectSkillMove.mockResolvedValueOnce({
+			intent: {
+				capability: "skills.move_to_tedi",
+				toolName: "skills.move_skill_to_tedi",
+				args: {
+					skillId: "skill-1",
+					targetTediId: "tedi-ops",
+					dryRun: false,
+					mode: "transfer",
+				},
+			},
+			skillTitle: "Account watcher",
+			tediName: "Ops",
+		});
+		await runKernelTurnWork(deps, {
+			...turnInput(),
+			content: "Copy the account watcher skill to Ops",
+		});
+		expect(directSkillMoveMocks.resolveDirectSkillMove).toHaveBeenCalledWith(
+			deps.db,
+			expect.objectContaining({
+				content: "Copy the account watcher skill to Ops",
+			}),
+		);
+		expect(kernel).not.toHaveBeenCalled();
+		expect(planned).toHaveLength(1);
+		expect(planned[0]).toMatchObject({
+			route: {
+				routeKind: "propose_tool_write",
+				targetTediId: null,
+				toolIntent: {
+					appSlug: "org-1-unified",
+					capability: "skills.move_to_tedi",
+				},
+			},
+			directRename: {
+				toolName: "skills.move_skill_to_tedi",
+				args: { skillId: "skill-1", targetTediId: "tedi-ops", dryRun: false },
 			},
 		});
 	});
