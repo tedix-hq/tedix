@@ -152,6 +152,26 @@ const cases = [
 	["osGadgetState/get", "get_os_gadget_state", "read", "mcp:apps.read"],
 	["osGadgetState/list", "list_os_gadget_state", "read", "mcp:apps.read"],
 	["osGadgetState/put", "put_os_gadget_state", "write", "mcp:apps.write"],
+	["webPush/getStatus", "get_web_push_status", "read", "mcp:apps.read"],
+	[
+		"webPush/setPreferences",
+		"set_web_push_preferences",
+		"write",
+		"mcp:apps.write",
+	],
+	[
+		"webPush/setVisibility",
+		"set_web_push_visibility",
+		"write",
+		"mcp:apps.write",
+	],
+	["webPush/subscribe", "subscribe_web_push", "write", "mcp:apps.write"],
+	[
+		"webPush/unsubscribe",
+		"unsubscribe_web_push",
+		"destructive",
+		"mcp:apps.admin",
+	],
 	[
 		"osGadgetState/delete",
 		"delete_os_gadget_state",
