@@ -2026,6 +2026,76 @@ describe("collaboration proposals", () => {
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 
+	it("merges a runtime app draft into the manifest and a separate code row", async () => {
+		const { workspace } = await c.org1.workspaces.create({ name: "Apps" });
+		const { gadget } = await c.org1.gadgets.create({
+			workspaceId: workspace.id,
+			name: "Opportunity cards",
+		});
+		const manifest = {
+			entry: "tedix:runtime/v1",
+			capabilities: [],
+			config: { version: 1, settings: { sheetTitle: "Opportunities" } },
+		};
+		await c.org1.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+			manifest,
+			files: { "server.js": "export class App {}", "client.js": "render()" },
+		});
+		const base = {
+			workspaceId: workspace.id,
+			documentType: "gadget" as const,
+			documentId: gadget.id,
+			sourceKind: "agent_session" as const,
+			sourceId: "codex:session-1",
+		};
+		// A runtime manifest without files, and files on a non-runtime manifest,
+		// are both refused before a proposal exists.
+		await expect(
+			c.machineAgent.collaboration.create({ ...base, content: manifest }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			c.machineAgent.collaboration.create({
+				...base,
+				content: {
+					manifest: { entry: "main.tsx", capabilities: [] },
+					files: { "server.js": "", "client.js": "" },
+				},
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const files = {
+			"server.js": "export class App { async list() { return []; } }",
+			"client.js": "render(2)",
+		};
+		const { proposal } = await c.machineAgent.collaboration.create({
+			...base,
+			content: { manifest, files },
+		});
+		expect(proposal.content).toEqual({ manifest, files });
+		await c.org1.collaboration.accept({
+			proposalId: proposal.id,
+			expectedSequence: 0,
+			rationale: "Draft reviewed in the app panel",
+		});
+		const merged = await c.org1.collaboration.merge({
+			proposalId: proposal.id,
+			expectedSequence: 0,
+			rationale: "Ship the draft",
+		});
+		expect(merged.revision).toMatchObject({ revision: 2, manifest });
+		expect(merged.revision.manifest).not.toHaveProperty("files");
+		const code = await c.org1.gadgets.getCode({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+		});
+		expect(code.code).toMatchObject({
+			revisionId: merged.revision.id,
+			revision: 2,
+			files,
+		});
+	});
+
 	it("rejects a merge if a human advanced the immutable base after acceptance", async () => {
 		const { workspace, output } = await outputFixture();
 		const { proposal } = await c.machineAgent.collaboration.create({

@@ -2,9 +2,11 @@ import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
+	OsAppDraftContentSchema,
 	OsGadgetManifestSchema,
 	OsOutputContentSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import {
 	createOsCollaborationProposal,
 	decideOsCollaborationProposal,
@@ -84,7 +86,26 @@ async function validateProposalContent(
 ): Promise<unknown> {
 	if (proposal.documentType === "gadget") {
 		await requireGadget(context, proposal.workspaceId, proposal.documentId);
-		return OsGadgetManifestSchema.parse(content);
+		// A runtime app's draft carries its files beside the manifest; every
+		// other app proposes a bare manifest. The two shapes never mix.
+		const isDraft =
+			typeof content === "object" &&
+			content !== null &&
+			!Array.isArray(content) &&
+			"manifest" in content &&
+			"files" in content;
+		const draft = isDraft
+			? OsAppDraftContentSchema.parse(content)
+			: { manifest: OsGadgetManifestSchema.parse(content), files: undefined };
+		if (isAppRuntimeManifest(draft.manifest) !== Boolean(draft.files)) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				draft.files
+					? "Only a runtime app (entry tedix:runtime/v1) proposes files"
+					: "A runtime app proposal carries its files beside the manifest",
+			);
+		}
+		return draft.files ? draft : draft.manifest;
 	}
 	const output = await requireOutput(context, proposal.documentId);
 	if (output.workspaceId !== proposal.workspaceId) {

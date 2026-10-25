@@ -6,6 +6,7 @@ import {
 	type OsGadgetRevisionRow,
 	type OsOutputRevisionRow,
 	osCollaborationProposals,
+	osGadgetCode,
 	osGadgetRevisions,
 	osGadgetExecutions,
 	osGadgets,
@@ -180,6 +181,53 @@ export type MergeOsCollaborationProposalResult =
  * statement's `changes()`, so no accepted preview can silently become only
  * partially canonical.
  */
+/**
+ * A gadget proposal is either a bare manifest or, for a runtime app, an object
+ * with the manifest and its source files. The merge records the manifest on
+ * the revision and the files in `os_gadget_code`; the files never land in the
+ * manifest column.
+ */
+export function splitGadgetProposalContent(content: string): {
+	manifest: string;
+	code: { files: string; codeLength: number } | null;
+} {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		return { manifest: content, code: null };
+	}
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		Array.isArray(parsed) ||
+		!("manifest" in parsed) ||
+		!("files" in parsed)
+	) {
+		return { manifest: content, code: null };
+	}
+	const { manifest, files } = parsed as { manifest: unknown; files: unknown };
+	if (
+		typeof manifest !== "object" ||
+		manifest === null ||
+		typeof files !== "object" ||
+		files === null ||
+		Array.isArray(files)
+	) {
+		return { manifest: content, code: null };
+	}
+	const codeLength = Object.values(
+		files as Record<string, unknown>,
+	).reduce<number>(
+		(sum, text) => sum + (typeof text === "string" ? text.length : 0),
+		0,
+	);
+	return {
+		manifest: JSON.stringify(manifest),
+		code: { files: JSON.stringify(files), codeLength },
+	};
+}
+
 export async function mergeOsCollaborationProposal(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
@@ -209,6 +257,7 @@ export async function mergeOsCollaborationProposal(
 	);
 
 	if (proposal.documentType === "gadget") {
+		const { manifest, code } = splitGadgetProposalContent(proposal.content);
 		const insertRevision = db
 			.insert(osGadgetRevisions)
 			.select(
@@ -221,7 +270,7 @@ export async function mergeOsCollaborationProposal(
 							sql<number>`${osCollaborationProposals.baseRevision} + 1`.as(
 								"revision",
 							),
-						manifest: osCollaborationProposals.content,
+						manifest: sql<string>`${manifest}`.as("manifest"),
 						sourceArtifactRef: sql<string | null>`null`.as(
 							"source_artifact_ref",
 						),
@@ -276,11 +325,26 @@ export async function mergeOsCollaborationProposal(
 			})
 			.where(and(proposalFence, sql`changes() = 1`))
 			.returning();
-		const [revisionRows, , proposalRows] = await db.batch([
-			insertRevision,
-			advancePointer,
-			settle,
-		]);
+		// The code row selects from the revision just written, so it lands only
+		// when the fenced revision insert did: one batch, no half-recorded app.
+		const insertCode = code
+			? db.insert(osGadgetCode).select(
+					db
+						.select({
+							revisionId: osGadgetRevisions.id,
+							organizationId: osGadgetRevisions.organizationId,
+							gadgetId: osGadgetRevisions.gadgetId,
+							files: sql<string>`${code.files}`.as("files"),
+							codeLength: sql<number>`${code.codeLength}`.as("code_length"),
+							createdAt: sql<string>`${now}`.as("created_at"),
+						})
+						.from(osGadgetRevisions)
+						.where(eq(osGadgetRevisions.id, params.revisionId)),
+				)
+			: null;
+		const [revisionRows, , proposalRows] = insertCode
+			? await db.batch([insertRevision, advancePointer, settle, insertCode])
+			: await db.batch([insertRevision, advancePointer, settle]);
 		const revision = revisionRows[0];
 		const mergedProposal = proposalRows[0];
 		return revision && mergedProposal
