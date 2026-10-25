@@ -153,11 +153,18 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 							healthyAppsOnly,
 						});
 
-				// Fetch app info for each tool to get endpoints
+				const appsById = new Map<
+					string,
+					Awaited<ReturnType<typeof getCatalogAppById>>
+				>();
 				const toolsWithEndpoints: ToolTestInfo[] = [];
 
 				for (const tool of tools) {
-					const app = await getCatalogAppById(db, tool.catalogAppId);
+					let app = appsById.get(tool.catalogAppId);
+					if (app === undefined) {
+						app = await getCatalogAppById(db, tool.catalogAppId);
+						appsById.set(tool.catalogAppId, app);
+					}
 					if (app?.mcpEndpointNormalized) {
 						toolsWithEndpoints.push({
 							id: tool.id,

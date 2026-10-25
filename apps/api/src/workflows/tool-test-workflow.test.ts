@@ -66,6 +66,94 @@ vi.mock("../lib/tool-evaluator", () => ({
 import { McpToolTestWorkflow } from "./tool-test-workflow";
 import type { KernelExecutionAttempt } from "../rpc/routers/kernel/gateway-attribution";
 
+const catalogMocks = vi.hoisted(() => ({
+	getApp: vi.fn(),
+	getTools: vi.fn(),
+	getAppTools: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/catalog/get-app", () => ({
+	getCatalogAppById: catalogMocks.getApp,
+}));
+vi.mock("@tedix/db/queries/catalog/mcp-tools", () => ({
+	getCatalogMcpTools: catalogMocks.getAppTools,
+}));
+vi.mock("@tedix/db/queries/catalog/tool-tests", () => ({
+	getToolsNeedingTest: catalogMocks.getTools,
+}));
+
+it.each([false, true])(
+	"resolves each app once per fetch, preserving tool order and filtering (explicit=%s)",
+	async (explicit) => {
+		const appIds = [
+			"app-a",
+			"missing",
+			"app-b",
+			"no-endpoint",
+			"empty-endpoint",
+		];
+		const tools = Array.from({ length: 50 }, (_, index) => ({
+			id: `tool-${index}`,
+			catalogAppId: appIds[index % appIds.length]!,
+			toolName: `get_item_${index}`,
+			description: `Tool ${index}`,
+			inputSchema: { type: "object" },
+		}));
+		catalogMocks.getTools.mockResolvedValue(tools);
+		catalogMocks.getAppTools.mockImplementation(async (_db, id) =>
+			tools.filter((tool) => tool.catalogAppId === id),
+		);
+		const workflow = Object.create(McpToolTestWorkflow.prototype);
+		workflow.env = { DB: {} };
+		workflow.processBatch = vi.fn().mockResolvedValue({
+			tested: 0,
+			successful: 0,
+			failed: 0,
+			errors: [],
+		});
+		for (const revision of [1, 2]) {
+			catalogMocks.getApp.mockReset().mockImplementation(async (_db, id) => {
+				if (id === "missing") return null;
+				return {
+					name: id,
+					mcpEndpointNormalized:
+						id === "no-endpoint"
+							? null
+							: id === "empty-endpoint"
+								? ""
+								: `https://${id}.example.test/mcp/${revision}`,
+				};
+			});
+			const step = {
+				do: vi.fn(async (_name, _options, callback) => callback()),
+			};
+			await workflow.run(
+				{
+					instanceId: "workflow-id",
+					payload: explicit ? { tools } : {},
+				},
+				step,
+			);
+			expect(catalogMocks.getApp.mock.calls.map((call) => call[1])).toEqual(
+				appIds,
+			);
+			const orderedTools = explicit
+				? appIds.flatMap((id) =>
+						tools.filter((tool) => tool.catalogAppId === id),
+					)
+				: tools;
+			expect(JSON.parse(await step.do.mock.results[0]!.value)).toEqual(
+				orderedTools
+					.filter((tool) => ["app-a", "app-b"].includes(tool.catalogAppId))
+					.map((tool) => ({
+						...tool,
+						appName: tool.catalogAppId,
+						mcpEndpoint: `https://${tool.catalogAppId}.example.test/mcp/${revision}`,
+					})),
+			);
+		}
+	},
+);
+
 it("uses Jev by default for ai_eval and retains actual usage on rejected judgment", async () => {
 	evaluationMocks.generate.mockResolvedValue({
 		input: { id: "o1" },
