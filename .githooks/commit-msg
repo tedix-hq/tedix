@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Keep provenance trailers (Work-Item, Agent-Session, Co-Authored-By, ...) in
+# one final paragraph, where Git and the pre-push secret scan read them. See
+# scripts/dev/commit-trailers.ts. Without bun the hook does nothing: it must
+# never make the repository uncommittable.
+command -v bun >/dev/null 2>&1 || exit 0
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -f "$root/scripts/dev/commit-trailers.ts" ] || exit 0
+bun "$root/scripts/dev/commit-trailers.ts" "$1" || true

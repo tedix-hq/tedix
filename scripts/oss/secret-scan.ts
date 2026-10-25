@@ -700,6 +700,11 @@ export function renderSecretScan(
 			(finding) =>
 				`- ${finding.path}${finding.line ? `:${finding.line}` : ""} [${finding.rule}]`,
 		),
+		...(findings.some((finding) => finding.rule === "commit-trailer")
+			? [
+					"commit-trailer: keep exactly one `Work-Item: <uuid>` and one `Agent-Session: <harness>:<native session id>` together in the message's last paragraph, with no blank line between trailers. Reword the unpushed commit; do not remove the trailers.",
+				]
+			: []),
 		"Matched values are intentionally redacted.",
 	].join("\n");
 }

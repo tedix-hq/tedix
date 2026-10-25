@@ -233,6 +233,14 @@ function fixture({
 			expect(brief).toContain("revision 7");
 			expect(brief).toContain("Keep all evidence in OS.");
 			expect(brief).toContain("already holds Attempt");
+			// One trailer paragraph with this lane's exact ids, so the pre-push
+			// secret scan accepts the lane's commits.
+			expect(brief).toMatch(
+				new RegExp(
+					`\\nWork-Item: [0-9a-f-]{36}\\nAgent-Session: ${nativeExecutor}:\\S+\\n`,
+				),
+			);
+			expect(brief).toContain("Do not pass one -m per trailer");
 			if (control.spawnPid) deps?.onSpawn?.(control.spawnPid);
 			await new Promise<void>((done) => releases.push(done));
 			deps?.onTelemetry?.({
