@@ -453,11 +453,27 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 			))
 		)
 			continue;
-		const row = await getProviderEventSubscription(
-			context.db,
-			delivery.organizationId,
-			delivery.subscriptionId,
-		);
+		let row: Awaited<ReturnType<typeof getProviderEventSubscription>>;
+		try {
+			row = await getProviderEventSubscription(
+				context.db,
+				delivery.organizationId,
+				delivery.subscriptionId,
+			);
+		} catch {
+			// A transient lookup failure retries this delivery later and must not
+			// stop the rest of the batch; an expired lease also recovers it.
+			await settleProviderEventDelivery(
+				context.db,
+				delivery.id,
+				delivery.organizationId,
+				leaseUntil,
+				"pending",
+				now,
+				new Date(Date.now() + RECONCILE_INTERVAL_MS).toISOString(),
+			).catch(() => undefined);
+			continue;
+		}
 		if (delivery.attempts >= 10 && row) {
 			await settleProviderEventDelivery(
 				context.db,

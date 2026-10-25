@@ -350,6 +350,32 @@ describe("durable dispatch authority and retries", () => {
 			mocks.emit.mock.calls[1][0].event.idempotencyKey,
 		);
 	});
+	it("retries a delivery whose subscription lookup fails without stopping the batch", async () => {
+		mocks.pending.mockResolvedValue([
+			{ id: "first", organizationId: "org-a", subscriptionId: id },
+			{ id: "second", organizationId: "org-a", subscriptionId: id },
+			{ id: "third", organizationId: "org-a", subscriptionId: id },
+		]);
+		mocks.get
+			.mockRejectedValueOnce(new Error("D1 unavailable"))
+			.mockImplementation(async () => row);
+		mocks.settle
+			.mockRejectedValueOnce(new Error("D1 still unavailable"))
+			.mockResolvedValue(true);
+		expect(await dispatchProviderEventDeliveries(context)).toBe(2);
+		expect(mocks.settle.mock.calls.map((call) => [call[1], call[4]])).toEqual([
+			["first", "pending"],
+			["second", "sent"],
+			["third", "sent"],
+		]);
+		expect(mocks.settle.mock.calls[0][6]).toEqual(expect.any(String));
+		expect(mocks.emit).toHaveBeenCalledTimes(2);
+
+		mocks.pending.mockResolvedValue([
+			{ id: "first", organizationId: "org-a", subscriptionId: id },
+		]);
+		expect(await dispatchProviderEventDeliveries(context)).toBe(1);
+	});
 	it("discards revoked subscriptions and never emits revoked/missing credentials", async () => {
 		row.status = "disabled";
 		expect(await dispatchProviderEventDeliveries(context)).toBe(0);
