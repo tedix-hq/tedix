@@ -66,6 +66,17 @@ describe("email header parsing", () => {
 		]);
 	});
 
+	it("keeps an encoded comma inside one recipient's display name", () => {
+		expect(
+			extractEmailRecipients(
+				"=?UTF-8?Q?Doe=2C_John?= <john@example.test>, audit@example.test",
+			),
+		).toEqual([
+			{ email: "john@example.test", name: "Doe, John" },
+			{ email: "audit@example.test" },
+		]);
+	});
+
 	it("strips raw message headers from plain text bodies", () => {
 		expect(
 			parseInboundEmail(
