@@ -47,6 +47,7 @@ import {
 	defineExtension,
 	defineTask,
 	defineTool,
+	type TaskId,
 } from "@earendil-works/pi-durable";
 import {
 	createModels,
@@ -324,6 +325,113 @@ const SettingsProbeTask = defineTask<
 	},
 });
 export class PiConversationFixture extends ProductionConversationFacet {
+	private wakeProbeGate: Promise<void> = Promise.resolve();
+	private releaseWakeProbeGate?: () => void;
+	private wakeProbeIds?: { active: TaskId<null>; sleeping: TaskId<null> };
+	private readonly wakeProbeTask = defineTask<
+		{ mode: "active" | "sleep"; until: number },
+		{ phase: "start" | "resume" },
+		null
+	>({
+		name: "fixture.concurrent-wake",
+		version: 1,
+		initial: () => ({ phase: "start" }),
+		phases: {
+			start: async (task, runtime, context) => {
+				if (task.input.mode === "sleep") {
+					await runtime.sleepUntil(
+						task.input.until,
+						{ phase: "resume" },
+						context,
+					);
+					return;
+				}
+				await this.wakeProbeGate;
+				await runtime.commit(
+					() => ({
+						status: "terminal",
+						outcome: { status: "completed", result: null },
+					}),
+					context,
+				);
+			},
+			resume: async (_task, runtime, context) => {
+				await this.ctx.storage.put(
+					"fixture:wake-resumptions",
+					((await this.ctx.storage.get<number>("fixture:wake-resumptions")) ??
+						0) + 1,
+				);
+				await runtime.commit(
+					() => ({
+						status: "terminal",
+						outcome: { status: "completed", result: null },
+					}),
+					context,
+				);
+			},
+		},
+		abort: async (_task, runtime, context) => {
+			await runtime.commit(
+				() => ({ status: "terminal", outcome: { status: "aborted" } }),
+				context,
+			);
+		},
+	});
+	async beginConcurrentWakeProbe(until: number) {
+		this.wakeProbeGate = new Promise((resolve) => {
+			this.releaseWakeProbeGate = resolve;
+		});
+		const pi = await this.piHarness.pi();
+		const conversation = await this.nativeConversation();
+		this.wakeProbeIds = await pi.commit(
+			async (tx) => ({
+				active: await tx.createTask(
+					this.wakeProbeTask,
+					{ mode: "active" as const, until },
+					{
+						conversationId: conversation.id,
+						ownership: { kind: "conversation" },
+					},
+				),
+				sleeping: await tx.createTask(
+					this.wakeProbeTask,
+					{ mode: "sleep" as const, until },
+					{
+						conversationId: conversation.id,
+						ownership: { kind: "conversation" },
+					},
+				),
+			}),
+			BACKGROUND_CONTEXT,
+		);
+	}
+	async concurrentWakeSnapshot() {
+		if (!this.wakeProbeIds) throw new Error("Wake probe not started");
+		const storage = await this.piHarness.storage();
+		const active = await storage.task(
+			this.wakeProbeIds.active,
+			BACKGROUND_CONTEXT,
+		);
+		const sleeping = await storage.task(
+			this.wakeProbeIds.sleeping,
+			BACKGROUND_CONTEXT,
+		);
+		return {
+			active: active?.state.status,
+			sleeping: sleeping?.state.status,
+			resumptions:
+				(await this.ctx.storage.get<number>("fixture:wake-resumptions")) ?? 0,
+		};
+	}
+	async finishConcurrentWakeProbe() {
+		this.releaseWakeProbeGate?.();
+		if (!this.wakeProbeIds) return;
+		const pi = await this.piHarness.pi();
+		await Promise.all([
+			pi.waitForTask(this.wakeProbeIds.active, BACKGROUND_CONTEXT),
+			pi.waitForTask(this.wakeProbeIds.sleeping, BACKGROUND_CONTEXT),
+		]);
+	}
 	private readonly traceSpans: Array<{
 		name: string;
 		attributes: Record<string, string | number | boolean>;
@@ -352,7 +460,11 @@ export class PiConversationFixture extends ProductionConversationFacet {
 		const extension = await super.piExtension();
 		return {
 			...extension,
-			tasks: [...(extension.tasks ?? []), SettingsProbeTask],
+			tasks: [
+				...(extension.tasks ?? []),
+				SettingsProbeTask,
+				this.wakeProbeTask,
+			],
 		};
 	}
 	async nativeCompactionSettings() {

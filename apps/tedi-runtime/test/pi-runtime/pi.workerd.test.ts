@@ -32,6 +32,40 @@ async function waitForApproval(agent: Awaited<ReturnType<typeof fixture>>) {
 	throw new Error("durable approval never paused");
 }
 describe("Production ConversationFacet on native Pi", () => {
+	it("resumes a due native sleeper while another task is still running", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.turn("concurrent-wake-bootstrap");
+		const until = Date.now() + 3_000;
+		await agent.beginConcurrentWakeProbe(until);
+		let alarm: Promise<boolean> | undefined;
+		try {
+			await expect
+				.poll(() => agent.concurrentWakeSnapshot())
+				.toEqual({ active: "running", sleeping: "sleeping", resumptions: 0 });
+			expect(Date.now()).toBeLessThan(until);
+			alarm = runDurableObjectAlarm(agent);
+			await expect
+				.poll(() => agent.concurrentWakeSnapshot(), { timeout: 8_000 })
+				.toEqual({ active: "running", sleeping: "terminal", resumptions: 1 });
+			expect(Date.now()).toBeGreaterThanOrEqual(until);
+			expect((await inspect(agent)).stats).toMatchObject({
+				requests: 1,
+				reservations: 1,
+				receipts: 1,
+				effects: 0,
+			});
+		} finally {
+			alarm ??= runDurableObjectAlarm(agent);
+			await agent.finishConcurrentWakeProbe();
+			await alarm;
+		}
+		expect(await alarm).toBe(true);
+		expect(await agent.concurrentWakeSnapshot()).toEqual({
+			active: "terminal",
+			sleeping: "terminal",
+			resumptions: 1,
+		});
+	});
 	it("records native phase and request spans without changing governed settlement", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.turn("private-trace-input");
