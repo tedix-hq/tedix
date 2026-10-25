@@ -1,4 +1,7 @@
 import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { COMMON_ERROR_STATUS_MAP, ORPCError } from "@orpc/server";
 import { verifyGithubActionsWorkloadToken } from "@tedix/auth/workload-identity";
 import { decodeTokenUnsafe } from "@tedix/auth/jwt";
 import {
@@ -100,22 +103,43 @@ export async function handleRepositoryObserverWebhook(
 			return c.text("Invalid event identity", 403);
 		}
 		const context = buildInternalServiceBindingContext(base, orgId);
-		const receipt = await observeRepositoryEvent(context, orgId, event);
-		const retry =
-			event.kind === "ship_red"
-				? await claimRepositoryRetryDelivery(
-						context.db,
-						orgId,
-						receipt.observationId,
-					)
-				: null;
-		return c.json(
-			{
-				...receipt,
-				...(retry ? { operation: { kind: "retry", evidenceUrl: retry } } : {}),
-			},
-			202,
-		);
+		try {
+			const receipt = await observeRepositoryEvent(context, orgId, event);
+			const retry =
+				event.kind === "ship_red"
+					? await claimRepositoryRetryDelivery(
+							context.db,
+							orgId,
+							receipt.observationId,
+						)
+					: null;
+			return c.json(
+				{
+					...receipt,
+					...(retry
+						? { operation: { kind: "retry", evidenceUrl: retry } }
+						: {}),
+				},
+				202,
+			);
+		} catch (error) {
+			if (
+				error instanceof ORPCError &&
+				Object.hasOwn(COMMON_ERROR_STATUS_MAP, error.code)
+			) {
+				const status =
+					COMMON_ERROR_STATUS_MAP[
+						error.code as keyof typeof COMMON_ERROR_STATUS_MAP
+					];
+				if (status >= 400 && status < 500) {
+					throw new HTTPException(status as ContentfulStatusCode, {
+						message: error.code,
+						cause: error,
+					});
+				}
+			}
+			throw error;
+		}
 	};
 	await bodyLimit({ maxSize: 128_000 })(c, async () => {
 		c.res = await receive();

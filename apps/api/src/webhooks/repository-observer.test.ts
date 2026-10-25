@@ -1,5 +1,31 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import { Hono } from "hono";
+import { ORPCError } from "@orpc/server";
+import { verifyGithubActionsWorkloadToken } from "@tedix/auth/workload-identity";
+import { registerCorsAndLimits } from "../http/cors-and-limits";
+import {
+	observerConfig,
+	observeRepositoryEvent,
+} from "../services/repository-observer";
+vi.mock("@tedix/auth/workload-identity", () => ({
+	verifyGithubActionsWorkloadToken: vi.fn(),
+}));
+vi.mock("../rpc/orpc", () => ({
+	createContext: () => ({ db: {} }),
+}));
+vi.mock("../rpc/routers/kernel/runtime-shared", () => ({
+	buildInternalServiceBindingContext: (
+		base: object,
+		organizationId: string,
+	) => ({ ...base, organizationId }),
+}));
 vi.mock("../services/repository-observer", () => ({
 	observerConfig: vi.fn(),
 	observeRepositoryEvent: vi.fn(),
@@ -142,4 +168,163 @@ it("rejects oversized notifications before tenant reads or dispatch", async () =
 		{} as CloudflareEnv,
 	);
 	expect(response.status).toBe(413);
+	expect(observerConfig).not.toHaveBeenCalled();
+	expect(observeRepositoryEvent).not.toHaveBeenCalled();
+});
+
+describe("authenticated observer HTTP error boundary", () => {
+	const traceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	const token = [
+		btoa(JSON.stringify({ alg: "RS256" })),
+		btoa(
+			JSON.stringify({
+				...claims,
+				sub: "repo:example/product:ref:refs/heads/main",
+			}),
+		),
+		"fixture-signature",
+	].join(".");
+	const receipt = {
+		observationId: "33333333-3333-4333-8333-333333333333",
+		workItemId: "44444444-4444-4444-8444-444444444444",
+		status: "queued",
+	};
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(observerConfig).mockResolvedValue({ config } as Awaited<
+			ReturnType<typeof observerConfig>
+		>);
+		vi.mocked(observeRepositoryEvent).mockResolvedValue(receipt);
+		vi.mocked(verifyGithubActionsWorkloadToken).mockImplementation(
+			async () =>
+				({}) as Awaited<ReturnType<typeof verifyGithubActionsWorkloadToken>>,
+		);
+		vi.spyOn(console, "log").mockImplementation(() => {});
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+	});
+	afterEach(() => vi.restoreAllMocks());
+	async function notify(body: unknown = event) {
+		const app = new Hono<{ Bindings: CloudflareEnv }>();
+		registerCorsAndLimits(app);
+		app.post(
+			"/webhooks/repository-observer/:orgId/:projectId",
+			handleRepositoryObserverWebhook,
+		);
+		return app.request(
+			`https://api.example/webhooks/repository-observer/org-example/${event.projectId}`,
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+					"X-Tedix-Trace-Id": traceId,
+				},
+				body: JSON.stringify(body),
+			},
+			{ API_URL: "https://api.example" } as CloudflareEnv,
+		);
+	}
+	it("returns the accepted receipt only after exact workload identity verification", async () => {
+		const response = await notify();
+		expect(response.status).toBe(202);
+		expect(await response.json()).toEqual(receipt);
+		expect(response.headers.get("X-Tedix-Trace-Id")).toBe(traceId);
+		expect(verifyGithubActionsWorkloadToken).toHaveBeenCalledWith(token, {
+			expectedAudience: "tedix:repository-observer",
+			expectedSubject: "repo:example/product:ref:refs/heads/main",
+		});
+		expect(observeRepositoryEvent).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ organizationId: "org-example" }),
+			"org-example",
+			event,
+		);
+	});
+	it.each([
+		["FORBIDDEN", 403, "PRIVATE policy refusal"],
+		[
+			"BAD_REQUEST",
+			400,
+			"Event does not match the configured repository and branch",
+		],
+		["NOT_FOUND", 404, "Commit Work item unavailable"],
+	] as const)(
+		"preserves %s refusal with correlation and a redacted original cause",
+		async (code, status, message) => {
+			vi.mocked(observeRepositoryEvent).mockRejectedValue(
+				new ORPCError(code, { message }),
+			);
+			const response = await notify();
+			expect(response.status).toBe(status);
+			expect(await response.json()).toEqual({ error: code, status });
+			expect(response.headers.get("X-Tedix-Trace-Id")).toBe(traceId);
+			expect(console.error).toHaveBeenCalledWith(
+				"[API Error]",
+				expect.objectContaining({
+					cause: expect.objectContaining({
+						name: "ORPCError",
+						code,
+						valueRedacted: true,
+					}),
+				}),
+			);
+			expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(
+				message,
+			);
+		},
+	);
+	it.each([
+		new Error("PRIVATE upstream payload credential"),
+		new ORPCError("INTERNAL_SERVER_ERROR", {
+			message: "PRIVATE dispatch failure",
+		}),
+		new ORPCError("CUSTOM_DOMAIN_FAILURE", {
+			message: "PRIVATE custom failure",
+		}),
+	])(
+		"keeps unexpected failures at 500 without exposing private text: %j",
+		async (error) => {
+			vi.mocked(observeRepositoryEvent).mockRejectedValue(error);
+			const response = await notify();
+			expect(response.status).toBe(500);
+			expect(await response.json()).toEqual({
+				error: "Internal Server Error",
+			});
+			expect(response.headers.get("X-Tedix-Trace-Id")).toBe(traceId);
+			expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(
+				"PRIVATE",
+			);
+		},
+	);
+	it("does not dispatch after failed signature verification", async () => {
+		vi.mocked(verifyGithubActionsWorkloadToken).mockRejectedValue(
+			new Error("PRIVATE invalid signature"),
+		);
+		const response = await notify();
+		expect(response.status).toBe(403);
+		expect(await response.text()).toBe("Invalid event identity");
+		expect(observeRepositoryEvent).not.toHaveBeenCalled();
+	});
+	it("does not authenticate or dispatch a malformed event", async () => {
+		const response = await notify({ ...event, sha: "invalid" });
+		expect(response.status).toBe(400);
+		expect(verifyGithubActionsWorkloadToken).not.toHaveBeenCalled();
+		expect(observeRepositoryEvent).not.toHaveBeenCalled();
+	});
+	it("rejects a valid event whose SHA differs from its workload claims", async () => {
+		const response = await notify({ ...event, sha: "b".repeat(40) });
+		expect(response.status).toBe(403);
+		expect(verifyGithubActionsWorkloadToken).not.toHaveBeenCalled();
+		expect(observeRepositoryEvent).not.toHaveBeenCalled();
+	});
+	it("keeps unavailable observer configuration private and stops before authentication", async () => {
+		vi.mocked(observerConfig).mockRejectedValue(
+			new Error("PRIVATE config detail"),
+		);
+		const response = await notify();
+		expect(response.status).toBe(404);
+		expect(await response.text()).toBe("Observer unavailable");
+		expect(verifyGithubActionsWorkloadToken).not.toHaveBeenCalled();
+		expect(observeRepositoryEvent).not.toHaveBeenCalled();
+	});
 });
