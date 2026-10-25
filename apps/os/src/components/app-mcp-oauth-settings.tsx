@@ -36,13 +36,8 @@ import { isImeComposing } from "@/lib/keyboard";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+import { AppTabHeader } from "@/components/app-detail-tab-shared";
+import { PageSection } from "@/components/kumo/page";
 import { Input } from "@/components/kumo/input";
 import { KumoSelect } from "@/components/kumo/select";
 import { Separator } from "@/components/kumo/separator";
@@ -380,19 +375,12 @@ export function McpOAuthSettings({
 
 	return (
 		<div className="space-y-6">
-			{/* Auth Mode Card */}
-			<Card>
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2">
-						<ShieldCheck size={16} aria-hidden />
-						MCP Authentication Mode
-					</CardTitle>
-					<CardDescription>
-						Control whether your MCP server requires OAuth authentication for
-						tool access.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-4">
+			<PageSection>
+				<AppTabHeader
+					title="MCP authentication mode"
+					description="Control whether your MCP server requires OAuth authentication for tool access."
+				/>
+				<div className="space-y-4">
 					<KumoSelect<AuthMode>
 						label="Authentication mode"
 						description={authModeDescription}
@@ -422,21 +410,15 @@ export function McpOAuthSettings({
 										: "Public"}
 						</Badge>
 					</div>
-				</CardContent>
-			</Card>
+				</div>
+			</PageSection>
 
-			<Card>
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2">
-						<ShieldCheck size={16} aria-hidden />
-						Tedi Assignment Policy
-					</CardTitle>
-					<CardDescription>
-						Control whether Tedix assigns this MCP app manually or materializes
-						it automatically for matching tedi capability profiles and tags.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-4">
+			<PageSection>
+				<AppTabHeader
+					title="Tedi assignment policy"
+					description="Control whether Tedix assigns this MCP app manually or materializes it automatically for matching tedi capability profiles and tags."
+				/>
+				<div className="space-y-4">
 					<div className="grid gap-4 md:grid-cols-2">
 						<KumoSelect<AssignmentMode>
 							label="Assignment mode"
@@ -542,22 +524,16 @@ export function McpOAuthSettings({
 							disabled={!canManage || !isManagedAssignment}
 						/>
 					</div>
-				</CardContent>
-			</Card>
+				</div>
+			</PageSection>
 
-			{/* Registration Status Card */}
 			{usesOAuth && (
-				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2">
-							<CheckCircle size={16} aria-hidden />
-							Descope Registration
-						</CardTitle>
-						<CardDescription>
-							Registration status with Descope as an OAuth 2.0 resource server.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="space-y-4">
+				<PageSection>
+					<AppTabHeader
+						title="OAuth registration"
+						description="Registration status as an OAuth 2.0 resource server."
+					/>
+					<div className="space-y-4">
 						<div className="flex items-center justify-between">
 							<div className="space-y-1">
 								<Text as="p" role="body" weight="medium" className="m-0">
@@ -615,25 +591,17 @@ export function McpOAuthSettings({
 								</Text>
 							</div>
 						)}
-					</CardContent>
-				</Card>
+					</div>
+				</PageSection>
 			)}
 
-			{/* Tool Auth Requirements Card */}
 			{usesOAuth && enabledTools.length > 0 && (
-				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2">
-							<LockSimple size={16} aria-hidden />
-							Per-Tool Auth Requirements
-						</CardTitle>
-						<CardDescription>
-							Configure which tools require authentication and their scope
-							requirements. Tools not listed here will follow the server-level
-							auth mode.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
+				<PageSection>
+					<AppTabHeader
+						title="Per-tool authentication"
+						description="Configure which tools require authentication and their scope requirements. Tools not listed here will follow the server-level auth mode."
+					/>
+					<div>
 						<Table scrollLabel="Per-tool auth requirements">
 							<TableHeader>
 								<TableRow>
@@ -739,24 +707,17 @@ export function McpOAuthSettings({
 								})}
 							</TableBody>
 						</Table>
-					</CardContent>
-				</Card>
+					</div>
+				</PageSection>
 			)}
 
-			{/* Scope Descriptions Card */}
 			{usesOAuth && (
-				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2">
-							<ShieldCheck size={16} aria-hidden />
-							Scope Descriptions
-						</CardTitle>
-						<CardDescription>
-							Human-readable descriptions for each scope, shown in the OAuth
-							consent screen when users authorize access.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="space-y-4">
+				<PageSection>
+					<AppTabHeader
+						title="Scope descriptions"
+						description="Human-readable descriptions for each scope, shown in the OAuth consent screen when users authorize access."
+					/>
+					<div className="space-y-4">
 						{Object.entries(scopeDescriptions).length > 0 && (
 							<div className="space-y-2">
 								{Object.entries(scopeDescriptions).map(([key, desc]) => (
@@ -853,8 +814,8 @@ export function McpOAuthSettings({
 									</AlertDescription>
 								</Alert>
 							)}
-					</CardContent>
-				</Card>
+					</div>
+				</PageSection>
 			)}
 
 			{/* Save Button */}

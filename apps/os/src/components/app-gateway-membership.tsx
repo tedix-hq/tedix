@@ -1,12 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import {
-	Card,
-	CardHeader,
-	CardTitle,
-	CardDescription,
-	CardContent,
-} from "@/components/kumo/card";
+import { AppTabHeader } from "@/components/app-detail-tab-shared";
+import { PageSection } from "@/components/kumo/page";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Switch } from "@/components/kumo/switch";
@@ -38,16 +33,16 @@ export function AppGatewayMembership({
 	const state = membership.data;
 	const isGateway = state?.gateway?.id === appId;
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Unified gateway</CardTitle>
-				<CardDescription>
-					{isGateway
+		<PageSection>
+			<AppTabHeader
+				title="Unified gateway"
+				description={
+					isGateway
 						? "This app is the unified gateway for your organization."
-						: "Choose whether connected AI clients can discover this app through your organization’s gateway."}
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-3">
+						: "Choose whether connected AI clients can discover this app through your organization’s gateway."
+				}
+			/>
+			<div className="space-y-3">
 				{membership.isPending ? (
 					<Skeleton className="h-10 w-full" />
 				) : membership.isError ? (
@@ -121,7 +116,7 @@ export function AppGatewayMembership({
 					credentials or grant new permissions. Clients may need to refresh
 					their tools.
 				</Text>
-			</CardContent>
-		</Card>
+			</div>
+		</PageSection>
 	);
 }
