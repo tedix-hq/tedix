@@ -196,8 +196,10 @@ export function extractEmailRecipients(
 		.filter((recipient) => recipient.email.length > 0);
 }
 
+// Split before decoding: an encoded display name such as
+// =?UTF-8?Q?Doe=2C_John?= must stay one address once decoded.
 function splitAddressHeader(value: string): string[] {
-	const decoded = decodeMimeHeader(value).trim();
+	const decoded = value.trim();
 	if (!decoded) return [];
 	const parts: string[] = [];
 	let current = "";
