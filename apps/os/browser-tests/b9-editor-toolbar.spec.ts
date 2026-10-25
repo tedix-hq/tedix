@@ -195,8 +195,17 @@ try {
 				.waitFor();
 			await page.keyboard.press("Escape");
 			await page
+				.getByRole("option", { name: "Heading", exact: true })
+				.waitFor({ state: "hidden" });
+			await page
 				.getByRole("button", { name: "Format 16", exact: true })
 				.focus();
+			// WebKit completes focus scrolling after the focus call returns.
+			await page.waitForFunction(
+				() =>
+					document.querySelector<HTMLElement>(".output-editor-toolbar")!
+						.scrollLeft > 0,
+			);
 			const scroll = await page
 				.locator(".output-editor-toolbar")
 				.evaluate((element) => ({
