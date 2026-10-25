@@ -83,32 +83,22 @@ export function useWorkPrincipalNames(organizationId?: string) {
 	}, [tedis.data, members.data, external.data]);
 }
 
+/** A person, tedi or agent by name and avatar; a raw id is never shown. */
 export function OperationActor({ type, id }: { type: string; id: string }) {
 	const directory = useContext(WorkActorDirectoryContext);
 	const actor = { type, id };
-	const resolved = resolveWorkActor(actor, "Name unavailable", directory);
+	const fallback = `Unknown ${type === "tedi" ? "tedi" : type === "user" ? "person" : "agent"}`;
+	const resolved = resolveWorkActor(actor, fallback, directory);
 	return (
 		<span className="inline-flex min-w-0 max-w-full items-center gap-2">
 			<WorkActorAvatar
 				actor={actor}
-				name="Name unavailable"
-				detail={`${type}: ${id}`}
+				name={fallback}
 				className="max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11"
 			/>
-			<span className="min-w-0">
-				<Text as="span" role="label" className="block truncate">
-					{resolved.label}
-				</Text>
-				<Text
-					as="span"
-					role="label"
-					tone="secondary"
-					className="block truncate"
-					title={`${type}: ${id}`}
-				>
-					{sentenceCase(type)} · {id.slice(0, 8)}
-				</Text>
-			</span>
+			<Text as="span" role="label" className="block min-w-0 truncate">
+				{resolved.label}
+			</Text>
 		</span>
 	);
 }
