@@ -636,13 +636,25 @@ function WorkItemMobileList({
 				const updatedAt = item.updatedAt ?? item.createdAt;
 				return (
 					<li className="group min-w-0 py-1" key={item.id}>
-						<Link
-							variant="record"
-							href={`/work/items/${item.id}`}
-							className="flex min-h-11 min-w-0 flex-col items-start justify-center py-1 text-left font-medium leading-snug coarse:min-h-11"
-						>
-							<span className="wrap-anywhere">{item.title}</span>
-						</Link>
+						<Collapsible className="min-w-0">
+							<div className="flex min-w-0 items-start gap-1">
+								<Link
+									variant="record"
+									href={`/work/items/${item.id}`}
+									className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center py-1 text-left font-medium leading-snug coarse:min-h-11"
+								>
+									<span className="line-clamp-2 wrap-anywhere">
+										{item.title}
+									</span>
+								</Link>
+								<CollapsibleTrigger className="shrink-0 px-1 type-tedix-label">
+									Full title
+								</CollapsibleTrigger>
+							</div>
+							<CollapsibleContent className="wrap-anywhere pb-1 text-kumo-subtle type-tedix-label">
+								{item.title}
+							</CollapsibleContent>
+						</Collapsible>
 						<div className="flex min-h-7 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pb-1">
 							{showDisposition ? (
 								<Badge variant={dispositionVariant(item.disposition)}>

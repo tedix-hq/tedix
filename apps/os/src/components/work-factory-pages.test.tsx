@@ -168,10 +168,11 @@ describe("Work factory queue", () => {
 		expect(html).toContain("Updated");
 		expect(html).toContain("min-w-[44rem] table-fixed xl:min-w-[54rem]");
 		expect(html).toContain(
-			'<span class="wrap-anywhere">Verify the customer export</span>',
+			'<span class="line-clamp-2 wrap-anywhere">Verify the customer export</span>',
 		);
-		expect(html).toContain("min-h-11 min-w-0 flex-col items-start");
+		expect(html).toContain("min-h-11 min-w-0 flex-1 flex-col items-start");
 		expect(html).toContain("text-left");
+		expect(html).toContain("Full title");
 		expect(html).toContain("basis-full flex-wrap");
 		expect(html).toContain("type-tedix-label");
 		expect(html).not.toContain(
@@ -182,21 +183,34 @@ describe("Work factory queue", () => {
 		expect(html).toContain("hidden truncate py-2! xl:table-cell");
 	});
 
-	it("shows complete long titles inside phone queue rows", () => {
+	it("reveals complete long titles without opening phone queue items", async () => {
 		const title =
 			"InvestigateTheUnbrokenCustomerExportIdentifierAndDocumentEveryRequiredFollowUp";
-		const html = renderToStaticMarkup(
-			<WorkItemsTable items={[{ ...item, title }]} />,
+		const host = document.createElement("div");
+		const root = createRoot(host);
+		await act(async () =>
+			root.render(<WorkItemsTable items={[{ ...item, title }]} />),
 		);
-		const doc = new DOMParser().parseFromString(html, "text/html");
-		const mobileQueue = doc.querySelector('[aria-label="Work queue"]');
+		const mobileQueue = host.querySelector('[aria-label="Work queue"]');
 		const mobileTitle = mobileQueue?.querySelector(
 			`a[href="/work/items/${ITEM_ID}"] span`,
 		);
+		const disclosure = [
+			...(mobileQueue?.querySelectorAll("button") ?? []),
+		].find((button) => button.textContent === "Full title");
 
 		expect(mobileTitle?.textContent).toBe(title);
 		expect(mobileTitle?.className).toContain("wrap-anywhere");
-		expect(mobileTitle?.className).not.toContain("line-clamp");
+		expect(mobileTitle?.className).toContain("line-clamp-2");
+		expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+
+		await act(async () => disclosure?.click());
+
+		expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+		expect(disclosure?.parentElement?.nextElementSibling?.textContent).toBe(
+			title,
+		);
+		await act(async () => root.unmount());
 	});
 
 	it("wraps long unbroken owner names inside phone queue rows", () => {
