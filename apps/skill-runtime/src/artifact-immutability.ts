@@ -106,18 +106,35 @@ export async function recordArtifactOnceForRun(
 			},
 		});
 	}
-	const inserted = await insertSkillRunArtifactOnce(db, {
-		id,
-		runId,
-		path: input.path,
-		mimeType: effectiveMime,
-		sizeBytes,
-		contentInline,
-		contentR2Key,
-		sha256,
-		attempt: input.attempt ?? 1,
-		outcome: input.outcome ?? "success",
-	});
+	let inserted: boolean;
+	try {
+		inserted = await insertSkillRunArtifactOnce(db, {
+			id,
+			runId,
+			path: input.path,
+			mimeType: effectiveMime,
+			sizeBytes,
+			contentInline,
+			contentR2Key,
+			sha256,
+			attempt: input.attempt ?? 1,
+			outcome: input.outcome ?? "success",
+		});
+	} catch (error) {
+		if (contentR2Key && bucket) {
+			try {
+				// Only a different sealed winner rules out our insert committing.
+				// No row or a failed readback leaves the commit outcome ambiguous.
+				const existing = await selectExisting();
+				if (existing && existing.content_r2_key !== contentR2Key) {
+					await bucket.delete(contentR2Key);
+				}
+			} catch {
+				// Readback or cleanup failure must not replace the insert error.
+			}
+		}
+		throw error;
+	}
 	if (inserted) {
 		return {
 			ok: true,

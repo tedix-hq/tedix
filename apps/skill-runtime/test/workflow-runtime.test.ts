@@ -1770,6 +1770,153 @@ assert.equal(
 	JSON.stringify("x".repeat(17_000)),
 );
 
+// Inject failures around the real SQLite insert, including a lost commit reply.
+for (const scenario of [
+	"rollback",
+	"delete-fails",
+	"commit-then-throw",
+	"delayed-commit",
+	"readback-fails",
+	"commit-readback-fails",
+	"concurrent-winner",
+	"concurrent-inline-winner",
+	"ignored-insert",
+	"inline-failure",
+] as const) {
+	const path = `fault-${scenario}.json`;
+	const objects = new Map<string, string>([["unrelated", "keep"]]);
+	const deleted: string[] = [];
+	const insertError = new Error(`insert-${scenario}`);
+	let uploadedKey: string | undefined;
+	let reads = 0;
+	let finishCommit: (() => Promise<unknown>) | undefined;
+	const faultDb = {
+		prepare: (query: string) => {
+			const statement = immutableArtifactDb.prepare(query);
+			return {
+				bind: (...values: unknown[]) => {
+					const bound = statement.bind(...values);
+					return {
+						first: async () => {
+							reads++;
+							if (
+								reads > 1 &&
+								(scenario === "readback-fails" ||
+									scenario === "commit-readback-fails")
+							)
+								throw new Error("readback unavailable");
+							return bound.first();
+						},
+						run: async () => {
+							if (scenario === "delayed-commit")
+								finishCommit = () => bound.run();
+							if (
+								scenario === "commit-then-throw" ||
+								scenario === "commit-readback-fails"
+							) {
+								await bound.run();
+							}
+							if (
+								scenario === "concurrent-winner" ||
+								scenario === "concurrent-inline-winner" ||
+								scenario === "ignored-insert" ||
+								scenario === "delete-fails"
+							) {
+								const winnerKey =
+									scenario === "concurrent-inline-winner"
+										? null
+										: `winner-${scenario}`;
+								if (winnerKey) objects.set(winnerKey, '"winner"');
+								immutableArtifactSqlite
+									.prepare(`INSERT INTO skill_run_artifacts
+									(id, run_id, path, content_inline, content_r2_key, size_bytes)
+									VALUES (?, 'run-1', ?, ?, ?, 8)`)
+									.run(
+										`winner-${scenario}`,
+										path,
+										winnerKey ? null : '"winner"',
+										winnerKey,
+									);
+								if (scenario === "ignored-insert") return bound.run();
+							}
+							throw insertError;
+						},
+					};
+				},
+			};
+		},
+	} as unknown as D1Database;
+	const bucket = {
+		put: async (key: string, value: string) => {
+			uploadedKey = key;
+			objects.set(key, value);
+		},
+		delete: async (key: string) => {
+			deleted.push(key);
+			if (scenario === "delete-fails") throw new Error("delete unavailable");
+			objects.delete(key);
+		},
+	} as unknown as R2Bucket;
+	const write = recordArtifactOnceForRun(
+		faultDb,
+		"run-1",
+		{ path, value: "incoming" },
+		scenario === "inline-failure" ? undefined : bucket,
+	);
+	if (scenario === "ignored-insert") {
+		assert.equal((await write).id, "winner-ignored-insert");
+	} else {
+		await assert.rejects(write, (error) => error === insertError);
+	}
+	const preserve =
+		scenario === "rollback" ||
+		scenario === "delayed-commit" ||
+		scenario === "commit-then-throw" ||
+		scenario === "readback-fails" ||
+		scenario === "commit-readback-fails";
+	assert.deepEqual(
+		deleted,
+		preserve || scenario === "inline-failure" ? [] : [uploadedKey],
+		scenario,
+	);
+	assert.equal(objects.get("unrelated"), "keep");
+	if (uploadedKey) {
+		assert.equal(
+			objects.has(uploadedKey),
+			preserve || scenario === "delete-fails",
+			scenario,
+		);
+	}
+	if (scenario === "delayed-commit") {
+		assert.equal(reads, 2);
+		assert.ok(finishCommit);
+		await finishCommit();
+	}
+	const row = await immutableArtifactDb
+		.prepare(
+			"SELECT id, content_inline, content_r2_key FROM skill_run_artifacts WHERE run_id = ? AND path = ?",
+		)
+		.bind("run-1", path)
+		.first<{
+			id: string;
+			content_inline: string | null;
+			content_r2_key: string | null;
+		}>();
+	if (row?.content_r2_key) {
+		assert.ok(objects.has(row.content_r2_key), scenario);
+	}
+	if (scenario === "concurrent-inline-winner") {
+		assert.equal(row?.content_inline, '"winner"');
+	}
+	if (
+		scenario === "commit-then-throw" ||
+		scenario === "delayed-commit" ||
+		scenario === "commit-readback-fails"
+	) {
+		assert.equal(row?.content_r2_key, uploadedKey);
+	}
+}
+
 const runtimePin = {
 	executionEpoch: 0,
 	provenance: {
