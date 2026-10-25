@@ -9,7 +9,7 @@ Cloudflare Agent Durable Object (DO) with native Pi cognition holding a tedi's c
 loop: chat turns, MCP tool serving, email, scheduling, voice, and durable
 workflows. `apps/tedi` (the public edge/control Worker) resolves a tedi from
 D1 and forwards its traffic here via the `TEDI_RUNTIME_SERVICE` binding; this
-Worker can also resolve `{slug}.tedi.{tedix.dev|tedi.club|tedix.tech}`
+Worker can also resolve `{slug}.tedi.{tedix.dev|tedix.tech}`
 hostnames directly (`resolveSlugFromHost` in `src/slug-routing.ts`) and independently
 authenticates every request at its own edge before it reaches the DO. The public
 [worker model](../../docs/public/workers-and-governance.md) describes the
