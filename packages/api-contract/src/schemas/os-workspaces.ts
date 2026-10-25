@@ -20,7 +20,11 @@ import { OsLocaleSchema } from "./user-settings";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
 import { CARD_REVIEW_ENTRY, CardReviewConfigSchema } from "./os-card-review";
-import { APP_RUNTIME_ENTRY, AppRuntimeConfigSchema } from "./os-app-runtime";
+import {
+	APP_RUNTIME_ENTRY,
+	AppRuntimeConfigSchema,
+	AppRuntimeFilesSchema,
+} from "./os-app-runtime";
 import {
 	DECISION_DECK_ENTRY,
 	DecisionDeckConfigSchema,
@@ -2515,6 +2519,18 @@ export type OsBlueprintStatus = z.infer<typeof OsBlueprintStatusSchema>;
 export type OsWorkspace = z.infer<typeof OsWorkspaceSchema>;
 export type OsGadget = z.infer<typeof OsGadgetSchema>;
 export type OsGadgetManifest = z.infer<typeof OsGadgetManifestSchema>;
+
+/**
+ * A proposed edit to a runtime app (`tedix:runtime/v1`): the next manifest and
+ * the complete set of source files. Merging writes the manifest to the gadget
+ * revision and the files to `os_gadget_code`, never the files into the
+ * manifest. A proposal for any other app is the bare manifest.
+ */
+export const OsAppDraftContentSchema = z.strictObject({
+	manifest: OsGadgetManifestSchema,
+	files: AppRuntimeFilesSchema,
+});
+export type OsAppDraftContent = z.infer<typeof OsAppDraftContentSchema>;
 export type OsGadgetExportDescriptor = z.infer<
 	typeof OsGadgetExportDescriptorSchema
 >;

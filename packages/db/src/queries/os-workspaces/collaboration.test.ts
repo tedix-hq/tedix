@@ -8,6 +8,7 @@ import {
 	getOsCollaborationProposal,
 	listOsCollaborationProposals,
 	mergeOsCollaborationProposal,
+	splitGadgetProposalContent,
 	updateOsCollaborationProposalPreview,
 } from "./collaboration";
 
@@ -53,6 +54,14 @@ function fixture() {
 			created_by_id TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			UNIQUE (gadget_id, revision)
+		);
+		CREATE TABLE os_gadget_code (
+			revision_id TEXT PRIMARY KEY NOT NULL REFERENCES os_gadget_revisions(id) ON DELETE CASCADE,
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			gadget_id TEXT NOT NULL REFERENCES os_gadgets(id) ON DELETE CASCADE,
+			files TEXT NOT NULL,
+			code_length INTEGER NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
 		CREATE TABLE os_outputs (
 			id TEXT PRIMARY KEY NOT NULL,
@@ -613,5 +622,88 @@ describe("OS collaboration proposals", () => {
 				.prepare("SELECT current_revision_id FROM os_gadgets WHERE id = ?")
 				.get("gadget-1"),
 		).toEqual({ current_revision_id: "gadget-rev-2" });
+		expect(
+			sqlite
+				.prepare("SELECT manifest FROM os_gadget_revisions WHERE id = ?")
+				.get("gadget-rev-2"),
+		).toEqual({ manifest: '{"entry":"proposal.tsx","capabilities":[]}' });
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM os_gadget_code").get(),
+		).toEqual({ n: 0 });
+	});
+
+	it("merges a runtime app draft into a revision and a separate code row", async () => {
+		const { db, sqlite } = fixture();
+		const manifest = { entry: "tedix:runtime/v1", capabilities: [] };
+		const files = {
+			"server.js": "export class App {}",
+			"client.js": "render()",
+		};
+		await seedProposal(db, {
+			documentType: "gadget",
+			documentId: "gadget-1",
+			baseRevisionId: "gadget-rev-1",
+			content: JSON.stringify({ manifest, files }),
+		});
+		await decideOsCollaborationProposal(db, {
+			...decision,
+			expectedSequence: 0,
+			decision: "accepted",
+		});
+		const merged = await mergeOsCollaborationProposal(db, {
+			organizationId: "org-1",
+			proposalId: "proposal-1",
+			expectedSequence: 0,
+			revisionId: "gadget-rev-2",
+			rationale: "Draft reviewed",
+			evidenceRefs: "[]",
+			mergedByKind: "user",
+			mergedById: "u-1",
+		});
+		expect(merged).toMatchObject({
+			ok: true,
+			revision: { id: "gadget-rev-2", revision: 2 },
+		});
+		expect(
+			sqlite
+				.prepare("SELECT manifest FROM os_gadget_revisions WHERE id = ?")
+				.get("gadget-rev-2"),
+		).toEqual({ manifest: JSON.stringify(manifest) });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT gadget_id, files, code_length FROM os_gadget_code WHERE revision_id = ?",
+				)
+				.get("gadget-rev-2"),
+		).toEqual({
+			gadget_id: "gadget-1",
+			files: JSON.stringify(files),
+			code_length: 27,
+		});
+	});
+
+	it("splits a draft from a bare manifest without trusting either", () => {
+		expect(splitGadgetProposalContent('{"entry":"main.tsx"}')).toEqual({
+			manifest: '{"entry":"main.tsx"}',
+			code: null,
+		});
+		expect(splitGadgetProposalContent("not json")).toEqual({
+			manifest: "not json",
+			code: null,
+		});
+		expect(
+			splitGadgetProposalContent('{"manifest":{"entry":"x"},"files":"nope"}'),
+		).toEqual({
+			manifest: '{"manifest":{"entry":"x"},"files":"nope"}',
+			code: null,
+		});
+		expect(
+			splitGadgetProposalContent(
+				'{"manifest":{"entry":"x"},"files":{"server.js":"ab","client.js":"c"}}',
+			),
+		).toEqual({
+			manifest: '{"entry":"x"}',
+			code: { files: '{"server.js":"ab","client.js":"c"}', codeLength: 3 },
+		});
 	});
 });
