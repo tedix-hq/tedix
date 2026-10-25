@@ -152,6 +152,20 @@ describe("Account-first personal integration", () => {
 					verified: true,
 				},
 			];
+			target.toolCapabilities = [
+				{ id: "read", label: "Read events", riskTier: "read" },
+				{
+					id: "write",
+					label: "Create events",
+					riskTier: "bounded_write",
+				},
+				{
+					id: "invite",
+					label: "Send invitations",
+					riskTier: "external_side_effect",
+				},
+			];
+			target.toolCapabilitiesComplete = true;
 			state.rows = [row(), target];
 			state.connect.mockResolvedValue(undefined);
 			host = document.createElement("div");
@@ -176,8 +190,21 @@ describe("Account-first personal integration", () => {
 			expect(state.connect).not.toHaveBeenCalled();
 			const review = document.querySelector('[role="dialog"]');
 			expect(review?.textContent).toContain("Connect Outlook Calendar");
+			expect(review?.textContent).toContain("What Tedix can do with it");
+			expect(review?.textContent).toContain("Read: Read events. Automatic.");
 			expect(review?.textContent).toContain(
-				"Requested permissions: calendar.read, calendar.write",
+				"Create and edit: Create events. Automatic, logged.",
+			);
+			expect(review?.textContent).toContain(
+				"Protected effects: Send invitations. Asks a person first.",
+			);
+			expect(review?.textContent).not.toContain("calendar.write");
+			const details = [...(review?.querySelectorAll("button") ?? [])].find(
+				(button) => button.textContent === "Details",
+			)!;
+			await act(async () => details.click());
+			expect(review?.textContent).toContain(
+				"OAuth scopes: calendar.read, calendar.write",
 			);
 			expect(review?.textContent).not.toContain("untrusted.scope");
 			const proceed = [...(review?.querySelectorAll("button") ?? [])].find(
@@ -294,6 +321,13 @@ describe("Account-first personal integration", () => {
 			(button) => button.textContent === "Connect",
 		)!;
 		await act(async () => connect.click());
+		expect(state.connect).not.toHaveBeenCalled();
+		const review = document.querySelector('[role="dialog"]')!;
+		expect(review.textContent).toContain("What Tedix can do with it");
+		const proceed = [...review.querySelectorAll("button")].find(
+			(button) => button.textContent === "Continue",
+		)!;
+		await act(async () => proceed.click());
 		expect(state.connect).toHaveBeenCalledWith({
 			appId: "microsoft-graph-ca-tedix-oauth",
 			effectiveScope: "user",
@@ -668,10 +702,11 @@ describe("Disconnected account recovery matrix", () => {
 				action.disabled || action.getAttribute("aria-disabled") === "true",
 			).toBe(!allowed);
 			await act(async () => action.click());
-			// Reconnect replaces a credential, so it confirms the consequence first.
-			if (allowed && status !== "missing") {
+			if (allowed) {
 				const review = document.querySelector('[role="dialog"]')!;
-				expect(review.textContent).toContain("replaces the current");
+				expect(review.textContent).toContain("What Tedix can do with it");
+				if (status !== "missing")
+					expect(review.textContent).toContain("replaces the current");
 				expect(state.connect).not.toHaveBeenCalled();
 				await act(async () => recoveryButton(review, "Continue").click());
 			}

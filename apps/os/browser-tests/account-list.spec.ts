@@ -22,7 +22,7 @@ try {
 		["/admin/connections", "organization"],
 		["/account/connections", "personal"],
 	] as const)
-		for (const width of [375, 1280])
+		for (const width of [375, 390, 1280])
 			for (const theme of ["light", "dark"] as const) {
 				const label = `${owner}/${width}/${theme}`;
 				const page = await browser.newPage({
@@ -110,6 +110,45 @@ try {
 					!opened.includes("pricewise-official-f9ab445d"),
 					`${label}: slug hidden until Technical details`,
 				);
+				if (owner === "personal") {
+					for (const app of ["Notion", "GitHub"]) {
+						await page.getByRole("button", { name: `${app} details` }).click();
+						const details = await page
+							.locator("main, body")
+							.first()
+							.innerText();
+						for (const copy of [
+							"What Tedix can do with it",
+							"Read:",
+							"Create and edit:",
+							"Protected effects:",
+							`Tedix keeps your ${app} key`,
+						])
+							assert.ok(
+								details.includes(copy),
+								`${label}: ${app} shows ${copy}`,
+							);
+						await page.getByRole("button", { name: `${app} details` }).click();
+					}
+					await page
+						.getByRole("button", { name: /Available to connect/ })
+						.click();
+					const gmail = page.locator('[data-account-group="google-gmail"]');
+					await gmail.getByRole("button", { name: "Connect" }).click();
+					const dialog = page.getByRole("dialog");
+					for (const copy of [
+						"What Tedix can do with it",
+						"Read:",
+						"Create and edit:",
+						"Protected effects:",
+						"Tedix keeps your Gmail key",
+					])
+						assert.ok(
+							(await dialog.innerText()).includes(copy),
+							`${label}: Gmail dialog shows ${copy}`,
+						);
+					await dialog.getByRole("button", { name: "Cancel" }).click();
+				}
 				// One account: actions sit in the details. Several accounts: each
 				// account carries its own Reconnect/Disconnect menu.
 				if (owner === "personal")
@@ -151,7 +190,7 @@ try {
 				await page.close();
 			}
 	for (const owner of ["organization", "personal"])
-		for (const width of [375, 1280])
+		for (const width of [375, 390, 1280])
 			assert.notEqual(
 				backgrounds.get(`${owner}/${width}/light`),
 				backgrounds.get(`${owner}/${width}/dark`),

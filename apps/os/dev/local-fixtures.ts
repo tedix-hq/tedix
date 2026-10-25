@@ -3356,6 +3356,51 @@ function inventoryAppId(slug: string): string {
 	return id;
 }
 
+const INVENTORY_TOOL_CAPABILITIES: Record<
+	string,
+	NonNullable<ConnectionInventoryRow["toolCapabilities"]>
+> = {
+	"google-gmail": [
+		{ id: "gmail:search", label: "Search messages", riskTier: "read" },
+		{
+			id: "gmail:draft",
+			label: "Create drafts",
+			riskTier: "bounded_write",
+		},
+		{
+			id: "gmail:send",
+			label: "Send messages",
+			riskTier: "external_side_effect",
+		},
+	],
+	github: [
+		{ id: "github:read", label: "Read repositories", riskTier: "read" },
+		{
+			id: "github:edit",
+			label: "Create and edit issues",
+			riskTier: "bounded_write",
+		},
+		{
+			id: "github:merge",
+			label: "Merge pull requests",
+			riskTier: "high_impact_write",
+		},
+	],
+	notion: [
+		{ id: "notion:read", label: "Read pages", riskTier: "read" },
+		{
+			id: "notion:edit",
+			label: "Create and edit pages",
+			riskTier: "bounded_write",
+		},
+		{
+			id: "notion:share",
+			label: "Share pages",
+			riskTier: "external_side_effect",
+		},
+	],
+};
+
 function inventoryRow(
 	provider: ConnectionProvider,
 	scope: "tenant" | "user",
@@ -3393,6 +3438,8 @@ function inventoryRow(
 			source: "app" as const,
 		})),
 		referencesComplete: true,
+		toolCapabilities: INVENTORY_TOOL_CAPABILITIES[provider.appId] ?? [],
+		toolCapabilitiesComplete: provider.appId in INVENTORY_TOOL_CAPABILITIES,
 		access: "not_evaluated" as const,
 		health: "not_checked" as const,
 		...rest,
@@ -3404,6 +3451,7 @@ const INVENTORY_PROVIDERS = {
 	pricewise: inventoryProvider("pricewise-official", "Pricewise", "api_key"),
 	alegra: inventoryProvider("alegra-api-key", "Alegra", "api_key"),
 	gmail: inventoryProvider("google-gmail", "Google Gmail", "oauth"),
+	github: inventoryProvider("github", "GitHub", "oauth"),
 	stripe: inventoryProvider("stripe", "Stripe", "oauth"),
 	calendar: inventoryProvider("google-calendar", "Google Calendar", "oauth"),
 	sheets: inventoryProvider(
@@ -3461,6 +3509,9 @@ const PERSONAL_INVENTORY: ConnectionInventoryRow[] = [
 	),
 	inventoryRow(INVENTORY_PROVIDERS.notion, "user", "present", [
 		["notion", "Notion"],
+	]),
+	inventoryRow(INVENTORY_PROVIDERS.github, "user", "present", [
+		["github", "GitHub"],
 	]),
 	inventoryRow(INVENTORY_PROVIDERS.stripe, "user", "restricted", [
 		["stripe", "Stripe payments"],

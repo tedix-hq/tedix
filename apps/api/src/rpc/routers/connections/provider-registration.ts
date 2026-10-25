@@ -5,13 +5,15 @@ import {
 	type ConnectionProviderTemplate,
 } from "@tedix/api-contract/schemas/connection-provider-templates";
 import { ConnectionCredentialProfileSchema } from "@tedix/api-contract/schemas/connections";
+import type { ConnectionToolCapability } from "@tedix/api-contract/schemas/connections";
+import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { DESCOPE_DEFAULT_BASE_URL } from "@tedix/auth/types";
 import {
 	listAppReferenceMetadataByOrganization,
 	listAppReferenceMetadataByIds,
 	listAppReferenceMetadataBySlugs,
 } from "@tedix/db/queries/apps";
-import { listToolConnectionReferencesByAppIds } from "@tedix/db/queries/tools";
+import { listConnectionToolPoliciesByAppIds } from "@tedix/db/queries/tools";
 import { normalizeRequestedScopes } from "./url-and-scopes";
 
 export const PROVIDER_DESCRIPTION_MAX_LENGTH = 254;
@@ -363,6 +365,8 @@ type ReferencedProviders = {
 	ids: Set<string>;
 	credentialProfiles: Map<string, ConnectionCredentialProfile>;
 	connectionScopes: Map<string, string[]>;
+	toolCapabilities: Map<string, ConnectionToolCapability[]>;
+	toolCapabilitiesComplete: Map<string, boolean>;
 };
 
 export function readCredentialProfile(
@@ -412,6 +416,8 @@ export async function collectReferencedProviders(
 		ids: new Set<string>(),
 		credentialProfiles: new Map<string, ConnectionCredentialProfile>(),
 		connectionScopes: new Map<string, string[]>(),
+		toolCapabilities: new Map<string, ConnectionToolCapability[]>(),
+		toolCapabilitiesComplete: new Map<string, boolean>(),
 	};
 	const visited = new Set<string>();
 	try {
@@ -488,15 +494,30 @@ export async function collectReferencedProviders(
 			}
 
 			if (options.includeToolReferences !== false) {
-				const tools = await listToolConnectionReferencesByAppIds(
+				const tools = await listConnectionToolPoliciesByAppIds(
 					db,
 					currentApps.map((app) => app.id),
 				);
 				for (const tool of tools) {
-					if (tool.connectionId) {
-						const app = currentApps.find((a) => a.id === tool.appId);
-						if (app) {
-							const refs = referenced.references.get(tool.connectionId) ?? [];
+					const app = currentApps.find(
+						(candidate) => candidate.id === tool.appId,
+					);
+					if (!app) continue;
+					const mcpConfig = (app.metadata as Record<string, unknown> | null)
+						?.mcpConfig as Record<string, unknown> | undefined;
+					const openApiSync = mcpConfig?.openApiSync as
+						| Record<string, unknown>
+						| undefined;
+					const providerId =
+						tool.authType === "connection"
+							? tool.connectionId
+							: tool.authType
+								? undefined
+								: (mcpConfig?.connectionProviderId ??
+									openApiSync?.connectionProviderId);
+					if (typeof providerId === "string" && providerId) {
+						if (tool.authType === "connection") {
+							const refs = referenced.references.get(providerId) ?? [];
 							if (!refs.some((r) => r.appId === app.id && r.source === "tool"))
 								refs.push({
 									appId: app.id,
@@ -504,9 +525,29 @@ export async function collectReferencedProviders(
 									appName: app.name,
 									source: "tool",
 								});
-							referenced.references.set(tool.connectionId, refs);
+							referenced.references.set(providerId, refs);
 						}
-						rememberReferencedProvider(referenced, tool.connectionId);
+						rememberReferencedProvider(referenced, providerId);
+						const policy = parseToolPolicyMetadata(tool.meta);
+						if (!policy?.riskTier) {
+							referenced.toolCapabilitiesComplete.set(providerId, false);
+							continue;
+						}
+						const capabilities =
+							referenced.toolCapabilities.get(providerId) ?? [];
+						if (
+							!capabilities.some(
+								(capability) => capability.id === `${app.id}:${tool.toolId}`,
+							)
+						)
+							capabilities.push({
+								id: `${app.id}:${tool.toolId}`,
+								label: tool.title,
+								riskTier: policy.riskTier,
+							});
+						referenced.toolCapabilities.set(providerId, capabilities);
+						if (!referenced.toolCapabilitiesComplete.has(providerId))
+							referenced.toolCapabilitiesComplete.set(providerId, true);
 					}
 				}
 			}

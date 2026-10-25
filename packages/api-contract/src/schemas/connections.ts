@@ -5,6 +5,7 @@
 
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
+import { TOOL_OPERATIONAL_RISK_TIER_VALUES } from "./tools";
 
 const UrlParamSchema = z.object({
 	key: z.string(),
@@ -48,6 +49,15 @@ export const ConnectionCapabilitySchema = z.object({
 	verified: z.boolean(),
 });
 export type ConnectionCapability = z.infer<typeof ConnectionCapabilitySchema>;
+
+export const ConnectionToolCapabilitySchema = z.object({
+	id: z.string().min(1),
+	label: z.string().min(1),
+	riskTier: z.enum(TOOL_OPERATIONAL_RISK_TIER_VALUES),
+});
+export type ConnectionToolCapability = z.infer<
+	typeof ConnectionToolCapabilitySchema
+>;
 
 export const ConnectionCredentialProfileSchema = z.object({
 	/**
@@ -449,6 +459,9 @@ export const ConnectionInventoryRowSchema = z.object({
 	/** Direct, same-provider apps that can bind this slot; not proof of a binding. */
 	bindingTargets: z.array(ConnectionReferenceSchema).optional(),
 	capabilities: z.array(ConnectionCapabilitySchema).default([]),
+	toolCapabilities: z.array(ConnectionToolCapabilitySchema).optional(),
+	/** False when any referenced tool lacked valid policy metadata or traversal was partial. */
+	toolCapabilitiesComplete: z.boolean().optional(),
 	referencesComplete: z.boolean(),
 	access: z.literal("not_evaluated"),
 	health: z.literal("not_checked"),

@@ -35,6 +35,11 @@ import {
 } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import {
 	Empty,
 	EmptyDescription,
 	EmptyHeader,
@@ -99,6 +104,7 @@ import {
 import { errorMessage } from "@/lib/orpc-error";
 import { useWebMcpTools } from "@/lib/webmcp/use-webmcp-tools";
 import { buildConnectionsWebMcpTools } from "@/components/connections-webmcp-tools";
+import { ConnectionToolSummary } from "@/components/connection-tool-summary";
 
 export function connectionInventoryCountLabel(
 	shown: number,
@@ -767,14 +773,11 @@ export function AdminConnectionsPage({
 							isDisconnecting={disconnectMutation.isPending}
 							isBinding={bindMutation.isPending}
 							availableOpen={Boolean(q.trim()) || statusFilter !== "all"}
-							onConnect={(row) =>
-								handleConnect(
-									row.provider.appId,
-									row.provider.connectionType,
-									row.scope,
-									row.connectionInstanceId,
-								)
-							}
+							onConnect={(row) => {
+								if (!canManageRow(row)) return;
+								setReviewedProvider(row.provider);
+								setPendingConnect(row);
+							}}
 							onReconnect={(row) => {
 								if (!canManageRow(row)) return;
 								setReviewedProvider(row.provider);
@@ -850,10 +853,22 @@ export function AdminConnectionsPage({
 								: "Nothing changes until you finish with the provider."}
 						</DialogDescription>
 					</DialogHeader>
+					{pendingConnect && (
+						<ConnectionToolSummary
+							providerName={friendlyProviderName(pendingConnect.provider)}
+							capabilities={pendingConnect.toolCapabilities}
+							complete={pendingConnect.toolCapabilitiesComplete}
+						/>
+					)}
 					{pendingConnect?.requestedScopes?.length ? (
-						<Text role="body">
-							Requested permissions: {pendingConnect.requestedScopes.join(", ")}
-						</Text>
+						<Collapsible>
+							<CollapsibleTrigger className="w-fit">Details</CollapsibleTrigger>
+							<CollapsibleContent>
+								<Text role="label" tone="secondary" className="pt-2">
+									OAuth scopes: {pendingConnect.requestedScopes.join(", ")}
+								</Text>
+							</CollapsibleContent>
+						</Collapsible>
 					) : null}
 					{!canConfirmConnect && (
 						<Alert>
