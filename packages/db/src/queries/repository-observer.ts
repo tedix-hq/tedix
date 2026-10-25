@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
@@ -266,6 +266,115 @@ export async function claimRepositoryRetryDelivery(
 				),
 		});
 	return rows[0]?.evidenceUrl ?? null;
+}
+
+/** How long a woken, unreported observation holds one of its owner's wake slots. */
+export const REPOSITORY_OBSERVER_WAKE_WINDOW_MINUTES = 30;
+
+/**
+ * Atomically take a wake slot for an observation. Each wake is a full turn on
+ * the owner tedi, and one tedi's Durable Object shares one isolate's memory, so
+ * a busy branch must not start a turn per push. The slot is taken only while
+ * fewer than `limit` other observations of the project were woken within the
+ * wake window and are still unreported; `limit: null` always takes it (red
+ * incidents). A redelivery of an already-woken observation keeps its slot.
+ * One UPDATE decides, so concurrent deliveries cannot both pass the count.
+ */
+export async function claimRepositoryObserverWake(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		projectId: string;
+		id: string;
+		now: string;
+		limit: number | null;
+	},
+): Promise<boolean> {
+	const since = new Date(
+		Date.parse(p.now) - REPOSITORY_OBSERVER_WAKE_WINDOW_MINUTES * 60_000,
+	).toISOString();
+	const capacity =
+		p.limit === null
+			? sql`1 = 1`
+			: sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND json_extract(active.metadata, '$.repositoryObserver') = 1 AND json_extract(active.metadata, '$.observerWokenAt') >= ${since} AND json_extract(active.metadata, '$.report') IS NULL AND active.disposition IN ('proposed','accepted')) < ${p.limit}`;
+	const rows = await db
+		.update(workItems)
+		.set({
+			metadata: sql`json_set(${workItems.metadata}, '$.observerWokenAt', ${p.now})`,
+		})
+		.where(
+			and(
+				eq(workItems.orgId, p.orgId),
+				eq(workItems.id, p.id),
+				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+				sql`(json_extract(${workItems.metadata}, '$.observerWokenAt') >= ${since} OR ${capacity})`,
+			),
+		)
+		.returning({ id: workItems.id });
+	return rows.length === 1;
+}
+
+/** Give back a slot whose wake never reached the owner, keeping it deferred. */
+export async function releaseRepositoryObserverWake(
+	db: DbQueryClient,
+	p: { orgId: string; id: string; now: string },
+) {
+	await db
+		.update(workItems)
+		.set({
+			metadata: sql`json_set(json_remove(${workItems.metadata}, '$.observerWokenAt'), '$.observerWakeDeferredAt', ${p.now})`,
+		})
+		.where(and(eq(workItems.orgId, p.orgId), eq(workItems.id, p.id)));
+}
+
+/** Record that a push observation is waiting for a free wake slot. */
+export async function deferRepositoryObserverWake(
+	db: DbQueryClient,
+	p: { orgId: string; id: string; now: string },
+) {
+	await db
+		.update(workItems)
+		.set({
+			metadata: sql`json_set(${workItems.metadata}, '$.observerWakeDeferredAt', ${p.now})`,
+		})
+		.where(
+			and(
+				eq(workItems.orgId, p.orgId),
+				eq(workItems.id, p.id),
+				sql`json_extract(${workItems.metadata}, '$.observerWokenAt') IS NULL`,
+			),
+		);
+}
+
+/**
+ * Deferred push observations still worth a turn, newest first: on a
+ * fast-forward branch the newest push carries the freshest state, and pushes
+ * that never get a slot age out through the normal 24-hour settlement.
+ */
+export async function deferredRepositoryPushObservations(
+	db: DbQueryClient,
+	limit = 20,
+) {
+	return db
+		.select({
+			id: workItems.id,
+			orgId: workItems.orgId,
+			projectId: workItems.projectId,
+			metadata: workItems.metadata,
+		})
+		.from(workItems)
+		.where(
+			and(
+				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
+				sql`json_extract(${workItems.metadata}, '$.observerWakeDeferredAt') IS NOT NULL`,
+				sql`json_extract(${workItems.metadata}, '$.observerWokenAt') IS NULL`,
+				sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
+				sql`${workItems.disposition} IN ('proposed','accepted')`,
+			),
+		)
+		.orderBy(desc(workItems.createdAt), desc(workItems.id))
+		.limit(limit);
 }
 
 /** Dedicated human-authorized route; generic project metadata edits preserve this key atomically. */

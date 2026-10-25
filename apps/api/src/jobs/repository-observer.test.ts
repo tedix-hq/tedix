@@ -4,6 +4,7 @@ const deps = vi.hoisted(() => ({
 	config: vi.fn(),
 	escalate: vi.fn(),
 	settle: vi.fn().mockResolvedValue([]),
+	wake: vi.fn().mockResolvedValue(0),
 }));
 vi.mock("../rpc/orpc", () => ({ createContext: () => ({ db: {} }) }));
 vi.mock("@tedix/db/queries/repository-observer", () => ({
@@ -22,6 +23,7 @@ vi.mock("@tedix/db/queries/repository-observer", () => ({
 vi.mock("../services/repository-observer", () => ({
 	observerConfig: deps.config,
 	escalateObserver: deps.escalate,
+	wakeDeferredRepositoryObservations: deps.wake,
 }));
 import { maintainRepositoryObservers } from "./repository-observer";
 it("continues other tenants after a broken observer and records a failed maintenance result", async () => {
@@ -42,8 +44,25 @@ it("sweeps aged pushes on each tick without changing overdue escalation", async 
 	expect(await maintainRepositoryObservers({} as CloudflareEnv)).toEqual({
 		overdue: 2,
 		settled: 1,
+		woken: 0,
 	});
 	expect(deps.settle).toHaveBeenCalledWith({}, expect.any(String));
+});
+
+it("wakes deferred pushes after red incidents and survives a wake failure", async () => {
+	deps.config.mockResolvedValue({ config: {} });
+	deps.escalate.mockResolvedValue(undefined);
+	deps.wake.mockResolvedValueOnce(2);
+	expect(await maintainRepositoryObservers({} as CloudflareEnv)).toMatchObject({
+		woken: 2,
+	});
+	expect(deps.escalate.mock.invocationCallOrder.at(-1)).toBeLessThan(
+		deps.wake.mock.invocationCallOrder[0]!,
+	);
+	deps.wake.mockRejectedValueOnce(new Error("runtime down"));
+	expect(await maintainRepositoryObservers({} as CloudflareEnv)).toMatchObject({
+		woken: 0,
+	});
 });
 
 afterEach(() => {
