@@ -13341,6 +13341,50 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 		expect(originalRun?.status).toBe("failed");
 	});
 
+	it("retryRun restarts a stopped delegation and still refuses a live one", async () => {
+		const db = createKernelRuntimeDb();
+		const context = createContext(db);
+		const client = createKernelRuntimeClient(context);
+		const delegatedTediId = "tedi-cpo";
+		const seed = (id: string, status: "canceled" | "running") =>
+			db.runs.push(
+				normalizeKernelRuntimeRunInsert({
+					id,
+					organizationId: ORG_ID,
+					conversationId: "home:retry-stopped",
+					status,
+					delegatedTediId,
+					childRunId: `child-${id}`,
+					childConversationId: "agent:main:main",
+					metadata: {
+						delegatedTediId,
+						delegationWorkOrder: {
+							objective: "Summarize the weekly threads",
+							sourceContent: "Summarize the weekly threads.",
+						},
+					},
+					createdAt: "2026-06-20T08:00:00.000Z",
+					updatedAt: "2026-06-20T08:01:00.000Z",
+				}),
+			);
+		seed("retry-stopped-1", "canceled");
+		seed("retry-live-1", "running");
+		kernelRuntimeTestHooks.setDelegateRunnerForTest(
+			vi.fn(async (input: { childRunId: string }) => ({
+				childConversationId: "agent:main:main",
+				childRunId: input.childRunId,
+				status: "queued" as const,
+			})),
+		);
+
+		const result = await client.retryRun({ runId: "retry-stopped-1" });
+		expect(result.newRunId).not.toBe("retry-stopped-1");
+		expect(result.run.status).toBe("queued");
+		await expect(client.retryRun({ runId: "retry-live-1" })).rejects.toThrow(
+			/only failed or stopped runs can be retried/,
+		);
+	});
+
 	it("retryRun preserves canonical Work Item correlation in the child dispatch", async () => {
 		const db = createKernelRuntimeDb();
 		const context = createContext(db);

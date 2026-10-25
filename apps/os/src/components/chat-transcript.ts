@@ -7,6 +7,7 @@ import type {
 import type { QueryClient } from "@tanstack/react-query";
 import {
 	type ApprovalCardData,
+	type DelegationWork,
 	dedupeDelegations,
 } from "@/components/chat-cards";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
@@ -79,6 +80,38 @@ export function activeDelegations(runs: readonly HomeRun[]) {
 	return dedupeDelegations(runs).filter((work) =>
 		ACTIVE_RUN_STATUSES.has(work.status),
 	);
+}
+
+/**
+ * Finished delegations keyed by the assistant message they fold under: the
+ * last assistant row of the delegating run. A run with no such row yet gets
+ * no summary (its live card already left; the answer brings the summary).
+ */
+export function finishedDelegationsByMessage(
+	runs: readonly HomeRun[],
+	messages: readonly Pick<
+		HomeMessage,
+		"id" | "role" | "runId" | "childRunId"
+	>[],
+): Map<string, DelegationWork> {
+	const lastAssistant = new Map<string, string>();
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		if (message.runId) lastAssistant.set(message.runId, message.id);
+		if (message.childRunId)
+			lastAssistant.set(`child:${message.childRunId}`, message.id);
+	}
+	const byMessage = new Map<string, DelegationWork>();
+	for (const work of dedupeDelegations(runs)) {
+		if (ACTIVE_RUN_STATUSES.has(work.status)) continue;
+		const messageId =
+			lastAssistant.get(work.runId) ??
+			(work.childRunId
+				? lastAssistant.get(`child:${work.childRunId}`)
+				: undefined);
+		if (messageId && !byMessage.has(messageId)) byMessage.set(messageId, work);
+	}
+	return byMessage;
 }
 
 /** The enqueue status union retains a legacy `needs_delegation` sentinel for

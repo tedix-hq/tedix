@@ -160,6 +160,19 @@ export const homeChildRunEvidenceQueryOptions = (
 	});
 
 /**
+ * The newest slice of a delegated branch's events, polled by the live
+ * delegation card. Smaller than the drawer's read so a running card stays
+ * cheap; the drawer keeps the full evidence under its own key.
+ */
+export const homeChildRunActivityQueryOptions = (
+	delegatedTediId: string,
+	childRunId: string,
+) =>
+	osQuery.kernelRuntime.readChildRunEvidence.queryOptions({
+		input: { delegatedTediId, childRunId, limit: 80, artifactLimit: 1 },
+	});
+
+/**
  * The caller's own connections. Two surfaces read this — the Apps page panel
  * and Workspace context in Settings — and they previously cached the identical
  * request under two hand-written keys (`os-connections`, `os-user-connections`),
