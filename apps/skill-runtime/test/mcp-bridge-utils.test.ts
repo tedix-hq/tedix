@@ -631,6 +631,97 @@ await assert.rejects(
 );
 assert.equal(lyingContentLength.wasCancelled(), true);
 
+// A Streamable HTTP server may keep an SSE stream open after the response.
+function makeOpenSseResponse(chunks: Uint8Array[]): {
+	response: Response;
+	wasCancelled: () => boolean;
+} {
+	let cancelled = false;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const chunk of chunks) controller.enqueue(chunk);
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	return {
+		response: new Response(body, {
+			headers: { "content-type": "text/event-stream" },
+		}),
+		wasCancelled: () => cancelled,
+	};
+}
+
+function withinOneSecond<T>(promise: Promise<T>): Promise<T> {
+	return Promise.race([
+		promise,
+		new Promise<T>((_resolve, reject) =>
+			setTimeout(() => reject(new Error("SSE read waited for EOF")), 1_000),
+		),
+	]);
+}
+
+{
+	const encoder = new TextEncoder();
+	const result = JSON.stringify({
+		jsonrpc: "2.0",
+		id: 7,
+		result: { content: [{ type: "text", text: "café ✓" }] },
+	});
+	const frame = encoder.encode(
+		`event: message\r\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\r\n\r\n` +
+			`event: message\r\ndata: ${result}\r\n\r\n`,
+	);
+	// Split inside the multi-byte "✓" and between each CR and LF.
+	const splits = [
+		frame.indexOf(0xe2) + 1,
+		...frame.reduce<number[]>(
+			(at, byte, index) => (byte === 0x0d ? [...at, index + 1] : at),
+			[],
+		),
+	].sort((left, right) => left - right);
+	const chunks: Uint8Array[] = [];
+	let start = 0;
+	for (const end of splits) {
+		chunks.push(frame.slice(start, end));
+		start = end;
+	}
+	chunks.push(frame.slice(start));
+	const open = makeOpenSseResponse(chunks);
+	const text = await withinOneSecond(readBoundedMcpResponseText(open.response));
+	assert.equal(unwrapMcpResponseBody(text, "text/event-stream"), result);
+	assert.equal(open.wasCancelled(), true);
+}
+
+{
+	const error = JSON.stringify({
+		jsonrpc: "2.0",
+		id: 8,
+		error: { code: -32000, message: "denied" },
+	});
+	const open = makeOpenSseResponse([
+		new TextEncoder().encode(`data: ${error}\n\n`),
+	]);
+	const text = await withinOneSecond(readBoundedMcpResponseText(open.response));
+	assert.equal(unwrapMcpResponseBody(text, "text/event-stream"), error);
+	assert.equal(open.wasCancelled(), true);
+}
+
+{
+	const open = makeOpenSseResponse([
+		new TextEncoder().encode(`data: {"jsonrpc":"2.0",`),
+		new TextEncoder().encode(`"id":9,"result":{}}\n\n`),
+	]);
+	await assert.rejects(
+		() => withinOneSecond(readBoundedMcpResponseText(open.response, 30)),
+		(error: unknown) =>
+			error instanceof McpUpstreamResponseTooLargeError &&
+			error.receivedBytes === 44,
+	);
+	assert.equal(open.wasCancelled(), true);
+}
+
 // A live Home acknowledgement was corrupted at metadata: inside echoed source.
 // Exercise the actual framing helper and shared normalizer, not a copied parser.
 const homeId = "home-run-1";
