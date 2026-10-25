@@ -396,6 +396,7 @@ async function reconcileProbe(
 	if (options.exhausted) limits.dailyTokenLimit = 0;
 	const agent = tediDo({
 		ctx: { storage },
+		workflowTerminalReconciliations: new Map<string, Promise<boolean>>(),
 		getInferenceBudgetStore: () => budget,
 		inferenceBudgetLimits: () => limits,
 		async getWorkflowStatus() {
@@ -495,6 +496,72 @@ for (const options of [{ exhausted: true }, { admitted: false }]) {
 		1,
 	);
 }
+// Redispatch must preserve the deadline and budget across successive resets.
+{
+	const context = {
+		runId: "bounded-run",
+		sessionKey: "main",
+		userText: "Continue",
+		userTs: Date.now(),
+	};
+	const probe = await reconcileProbe(context, {
+		status: "errored",
+		error: { message: "Durable Object reset because its code was updated" },
+	});
+	for (let count = 0; count < WORKFLOW_TERMINAL_MAX_REDRIVES; count++) {
+		probe.calls.length = 0;
+		const before = Date.now();
+		await probe.agent.reconcileChatWorkflowTerminal({
+			workflowInstanceId: "wf-1",
+			attempt: 0,
+		});
+		const deferred = probe.storage.data.get("wfctx:wf-1") as Record<
+			string,
+			unknown
+		>;
+		assert.ok(Number(deferred.redriveNotBefore) >= before + 15_000);
+		assert.ok(Number(deferred.redriveNotBefore) <= Date.now() + 30_000);
+		await probe.agent.recordWorkflowDispatch("wf-1", context);
+		assert.equal(
+			(probe.storage.data.get("wfctx:wf-1") as Record<string, unknown>)
+				.redriveNotBefore,
+			deferred.redriveNotBefore,
+		);
+		assert.equal(
+			(probe.storage.data.get("wfctx:wf-1") as Record<string, unknown>)
+				.redriveCount ?? 0,
+			count,
+		);
+		probe.storage.data.set("wfctx:wf-1", { ...deferred, redriveNotBefore: 1 });
+		probe.calls.length = 0;
+		await Promise.all(
+			Array.from({ length: 3 }, () =>
+				probe.agent.reconcileChatWorkflowTerminal({
+					workflowInstanceId: "wf-1",
+					attempt: 0,
+				}),
+			),
+		);
+		assert.equal(
+			probe.calls.filter((call) => call.startsWith("restart:")).length,
+			1,
+		);
+		assert.equal(
+			(probe.storage.data.get("wfctx:wf-1") as Record<string, unknown>)
+				.redriveCount,
+			count + 1,
+		);
+		await probe.agent.recordWorkflowDispatch("wf-1", context);
+	}
+	probe.calls.length = 0;
+	await probe.agent.reconcileChatWorkflowTerminal({
+		workflowInstanceId: "wf-1",
+		attempt: 0,
+	});
+	assert.equal(probe.calls.length, 1);
+	assert.match(probe.calls[0]!, /^fail:wf-1:/);
+}
+
 // A delegated child lost to an isolate memory reset claims its run before the
 // re-drive, so the platform orphan sweep does not fail it in the silent gap.
 {

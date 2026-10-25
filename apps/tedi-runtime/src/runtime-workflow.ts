@@ -613,6 +613,8 @@ export const runtimeWorkflow = {
 				admittedAt: existing?.admittedAt ?? Date.now(),
 				startedAt: existing?.startedAt,
 				restartCount: existing?.restartCount ?? 0,
+				redriveCount: existing?.redriveCount,
+				redriveNotBefore: existing?.redriveNotBefore,
 				latestAttemptError: existing?.latestAttemptError,
 				errorCallbackCount: existing?.errorCallbackCount,
 			});
