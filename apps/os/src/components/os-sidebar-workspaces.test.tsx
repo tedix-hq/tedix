@@ -149,6 +149,48 @@ describe("OsSidebarWorkspaces", () => {
 		},
 	);
 
+	it.each([false, true])(
+		"names omitted recent workspaces and opens the full library (collapsed: %s)",
+		async (collapsed) => {
+			api.workspaces.list.mockResolvedValue({
+				items: Array.from({ length: 9 }, (_, index) => ({
+					...workspace(),
+					id: `workspace-${index}`,
+					name: `Workspace ${index}`,
+				})),
+				truncated: false,
+			});
+			api.workspacePreferences.list.mockResolvedValue({
+				items: Array.from({ length: 9 }, (_, index) => ({
+					workspaceId: `workspace-${index}`,
+					favorite: false,
+					lastOpenedAt: `2026-08-1${index}T12:00:00.000Z`,
+				})),
+			});
+			const container = await renderSidebar({ collapsed });
+			if (!collapsed) {
+				const recent = [...container.querySelectorAll("button")].find(
+					(button) => button.textContent?.includes("Recent workspaces"),
+				);
+				act(() => recent?.click());
+				await flush();
+			}
+			const overflow = collapsed
+				? container.querySelector<HTMLElement>(
+						'[aria-label="Show all workspaces, 3 more"]',
+					)
+				: [
+						...container.querySelectorAll<HTMLElement>(
+							'[data-sidebar="menu-sub-button"]',
+						),
+					].find((row) => row.textContent?.includes("Show all workspaces"));
+			expect(overflow).toBeTruthy();
+			if (!collapsed) expect(overflow?.textContent).toContain("3 more");
+			act(() => overflow!.click());
+			expect(navigate).toHaveBeenCalledWith({ to: "/workspaces" });
+		},
+	);
+
 	it("shows pinned workspaces directly without duplicate history or empty counters", async () => {
 		const container = await renderSidebar();
 		const pinnedWorkspace = container.querySelector<HTMLElement>(

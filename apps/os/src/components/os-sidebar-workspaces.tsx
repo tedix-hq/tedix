@@ -1,4 +1,8 @@
-import { ClockCounterClockwise, Star } from "@phosphor-icons/react";
+import {
+	ClockCounterClockwise,
+	SquaresFour,
+	Star,
+} from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { EntityAvatar } from "@/components/entity-avatar";
@@ -63,6 +67,21 @@ function SidebarWorkspaceRow({ entry }: { entry: WorkspaceLibraryEntry }) {
 	);
 }
 
+/** Names the shortcuts a group leaves out and opens the full library. */
+function SidebarWorkspaceOverflow({ remaining }: { remaining: number }) {
+	const navigate = useNavigate();
+	return (
+		<SidebarMenuSubButton onClick={() => void navigate({ to: "/workspaces" })}>
+			<span className="min-w-0 flex-1 truncate text-tedix-control">
+				Show all workspaces
+			</span>
+			<span className="shrink-0 text-kumo-subtle text-tedix-label">
+				{remaining} more
+			</span>
+		</SidebarMenuSubButton>
+	);
+}
+
 function SidebarWorkspaceSection({
 	entries,
 	icon: Icon,
@@ -88,6 +107,11 @@ function SidebarWorkspaceSection({
 						{entries.slice(0, SIDEBAR_LIST_LIMIT).map((entry) => (
 							<SidebarWorkspaceRow key={entry.workspace.id} entry={entry} />
 						))}
+						{entries.length > SIDEBAR_LIST_LIMIT ? (
+							<SidebarWorkspaceOverflow
+								remaining={entries.length - SIDEBAR_LIST_LIMIT}
+							/>
+						) : null}
 					</SidebarMenuSub>
 				</SidebarCollapsibleContent>
 			</SidebarCollapsible>
@@ -124,14 +148,17 @@ export function OsSidebarWorkspaces() {
 	if (!groups.favorites.length && !groups.recent.length) return null;
 
 	if (collapsed) {
-		const compact = [...groups.favorites, ...groups.recent]
-			.filter(
-				(entry, index, entries) =>
-					entries.findIndex(
-						(candidate) => candidate.workspace.id === entry.workspace.id,
-					) === index,
-			)
-			.slice(0, Math.max(groups.favorites.length, SIDEBAR_LIST_LIMIT));
+		const shortcuts = [...groups.favorites, ...groups.recent].filter(
+			(entry, index, entries) =>
+				entries.findIndex(
+					(candidate) => candidate.workspace.id === entry.workspace.id,
+				) === index,
+		);
+		const compact = shortcuts.slice(
+			0,
+			Math.max(groups.favorites.length, SIDEBAR_LIST_LIMIT),
+		);
+		const remaining = shortcuts.length - compact.length;
 		return (
 			<SidebarGroup>
 				<SidebarMenu aria-label="Workspaces">
@@ -155,6 +182,14 @@ export function OsSidebarWorkspaces() {
 							tooltip={entry.workspace.name}
 						/>
 					))}
+					{remaining > 0 ? (
+						<SidebarMenuButton
+							aria-label={`Show all workspaces, ${remaining} more`}
+							icon={SquaresFour}
+							onClick={() => void navigate({ to: "/workspaces" })}
+							tooltip={`Show all workspaces (${remaining} more)`}
+						/>
+					) : null}
 				</SidebarMenu>
 			</SidebarGroup>
 		);
