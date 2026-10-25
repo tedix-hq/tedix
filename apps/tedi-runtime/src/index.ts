@@ -113,7 +113,9 @@ import { VoiceCallDO } from "./voice-call-do";
 import { VoiceInputDO } from "./voice-input-do";
 import {
 	handleWorkspaceAppCall,
+	handleWorkspaceAppRevoke,
 	WORKSPACE_APP_CALL_PATH,
+	WORKSPACE_APP_REVOKE_PATH,
 } from "./workspace-app-route";
 
 // @cloudflare/codemode resolves this exported class through the Agent DO's
@@ -1596,6 +1598,11 @@ export default {
 			if (!isServiceBinding(request.headers))
 				return new Response("Forbidden", { status: 403 });
 			return handleWorkspaceAppCall(request, env);
+		}
+		if (url.pathname === WORKSPACE_APP_REVOKE_PATH) {
+			if (!isServiceBinding(request.headers))
+				return new Response("Forbidden", { status: 403 });
+			return handleWorkspaceAppRevoke(request, env);
 		}
 
 		// authz: public — liveness + deployed-sha probe; serves no tenant data.
