@@ -154,6 +154,25 @@ test("browser jobs install only their planned browsers, restoring the cache firs
 		expect(action).toMatch(/@[0-9a-f]{40}$/);
 });
 
+test("install jobs reuse a lockfile-keyed dependency cache before validating it", () => {
+	const workspace = workflow
+		.split("\n  workspace:\n")[1]!
+		.split("\n  repository:\n")[0]!;
+	const repository = workflow
+		.split("\n  repository:\n")[1]!
+		.split("\n  aggregate:\n")[0]!;
+	for (const job of [workspace, repository]) {
+		const cache = job.indexOf("uses: actions/cache@");
+		const install = job.indexOf("bun install --frozen-lockfile");
+		expect(cache).toBeGreaterThan(-1);
+		expect(cache).toBeLessThan(install);
+		expect(job).toContain("path: ~/.bun/install/cache");
+		expect(job).toContain("hashFiles('bun.lock')");
+		expect(job).toContain("restore-keys: bun-install-");
+		expect(job).toContain("bun-version: ${{ env.BUN_VERSION }}");
+	}
+});
+
 test("only browser suites run under the recorded infrastructure rerun", () => {
 	const step = workflow
 		.split("- name: Full test suite\n")[1]!
