@@ -221,6 +221,15 @@ export function needsAggregateCredentialRecovery(result: unknown): boolean {
 	return /connection credential not found/i.test(error);
 }
 
+export function getMappedMcpSlug(
+	namespaceToSlug: Record<string, string>,
+	namespace: string,
+): string | undefined {
+	if (!Object.hasOwn(namespaceToSlug, namespace)) return undefined;
+	const mapped = namespaceToSlug[namespace];
+	return typeof mapped === "string" && mapped.length > 0 ? mapped : undefined;
+}
+
 /**
  * Resolve the upstream MCP server slug + the wire tool name for a namespaced
  * skill call (`env.MCP.<namespace>.<method>`).
@@ -265,7 +274,7 @@ export function resolveMcpTarget(
 		}
 		return { slug: aggregateMcpSlug, toolName: `${namespace}__${method}` };
 	}
-	const mapped = namespaceToSlug[namespace];
+	const mapped = getMappedMcpSlug(namespaceToSlug, namespace);
 	if (mapped) {
 		return { slug: mapped, toolName: method };
 	}

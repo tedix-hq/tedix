@@ -224,6 +224,39 @@ assert.deepEqual(
 	{ slug: "cms-tedix", toolName: "content_list" },
 );
 
+for (const namespace of ["constructor", "toString", "__proto__"]) {
+	for (const namespaceToSlug of [
+		{},
+		Object.create({ [namespace]: "inherited-app" }),
+	]) {
+		assert.deepEqual(
+			resolveMcpTarget(namespace, "inspect", namespaceToSlug, "acme-unified"),
+			{ slug: "acme-unified", toolName: `${namespace}__inspect` },
+		);
+	}
+	for (const namespaceToSlug of [
+		{ [namespace]: "explicit-app" },
+		Object.assign(Object.create(null), { [namespace]: "explicit-app" }),
+	]) {
+		assert.deepEqual(
+			resolveMcpTarget(namespace, "inspect", namespaceToSlug, "acme-unified"),
+			{ slug: "explicit-app", toolName: "inspect" },
+		);
+	}
+}
+
+for (const value of [null, undefined, false, true, 42, {}, [], () => {}, ""]) {
+	assert.deepEqual(
+		resolveMcpTarget(
+			"example",
+			"inspect",
+			{ example: value } as unknown as Record<string, string>,
+			"acme-unified",
+		),
+		{ slug: "acme-unified", toolName: "example__inspect" },
+	);
+}
+
 // SECURITY: a reserved aggregate namespace can never be shadowed by a mapped app
 // slug — `home`/`kernel` always route to the aggregate even if an app slugged
 // `home` exists in the org (otherwise that app would hijack every home/kernel
