@@ -237,6 +237,9 @@ describe("work identity primitives", () => {
 			ownerActionHint(ownerCtx, { code: "FORBIDDEN", message: "FORBIDDEN" }),
 		).toContain("env -u TEDIX_EXTERNAL_AGENT");
 		expect(
+			ownerActionHint(ownerCtx, { code: "FORBIDDEN", message: "FORBIDDEN" }),
+		).toContain("settled succeeded with --commit");
+		expect(
 			ownerActionHint(ownerCtx, { code: "NOT_FOUND", message: "missing" }),
 		).toBe("");
 
