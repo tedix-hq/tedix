@@ -57,7 +57,10 @@ function makeIo(files: Record<string, string> = FILES) {
 		},
 		listTestFiles: (dir: string) =>
 			Object.keys(files)
-				.filter((f) => f.startsWith(`${dir}/`) && f.endsWith(".test.ts"))
+				.filter(
+					(f) =>
+						f.startsWith(`${dir}/`) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(f),
+				)
 				.sort(),
 	};
 }
@@ -497,6 +500,45 @@ describe("selectBunTestFiles", () => {
 				"src/guard.test.ts",
 			],
 			total: 5,
+		});
+	});
+
+	/*
+	 * `.cts` is TypeScript too: a `.test.cts` matched TEST_FILE but isCodeFile
+	 * excluded it, so its imports were never traversed and it selected
+	 * nothing. The module hop also exercises the `.cjs` -> `.cts` stand-in.
+	 */
+	test(".cts tests and modules join the import graph", () => {
+		const io = makeIo({
+			...FILES,
+			"packages/shared/package.json": JSON.stringify({
+				name: "@tedix/shared",
+				exports: {
+					"./util": "./src/util.ts",
+					"./schema/*": { import: "./src/schema/*.ts" },
+					"./value": "./src/value.ts",
+				},
+			}),
+			"packages/shared/src/value.ts": "export const value = 1;",
+			"packages/tool/src/e.cts":
+				'module.exports = require("@tedix/shared/value");',
+			"packages/tool/src/e.test.cts": 'require("./e.cjs");',
+			"packages/tool/src/f.test.cts": 'require("@tedix/shared/util");',
+		});
+		expect(select(["packages/shared/src/value.ts"], io)).toEqual({
+			mode: "files",
+			files: ["src/e.test.cts", "src/guard.test.ts"],
+			total: 7,
+		});
+		expect(select(["packages/shared/src/deep.ts"], io)).toEqual({
+			mode: "files",
+			files: ["src/a.test.ts", "src/f.test.cts", "src/guard.test.ts"],
+			total: 7,
+		});
+		expect(select(["packages/tool/src/e.cts"], io)).toEqual({
+			mode: "files",
+			files: ["src/e.test.cts", "src/guard.test.ts"],
+			total: 7,
 		});
 	});
 

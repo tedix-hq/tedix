@@ -39,13 +39,27 @@ import { parseSync } from "oxc-parser";
 /** Above this many changed code files the whole suite runs. */
 export const SELECTION_FILE_LIMIT = 50;
 
-const CODE_EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".mjs", ".cjs", ".jsx"];
+const CODE_EXTENSIONS = [
+	".ts",
+	".tsx",
+	".mts",
+	".cts",
+	".js",
+	".mjs",
+	".cjs",
+	".jsx",
+];
 const RESOLVE_EXTENSIONS = [...CODE_EXTENSIONS, ".json"];
 /** A test file the workspace's runner could pick up. */
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const ROOT_TSCONFIG = /^tsconfig[^/]*\.json$/;
 /** `.js` in a TypeScript import names the `.ts` next to it. */
-const JS_TO_TS = { ".js": [".ts", ".tsx"], ".mjs": [".mts"], ".jsx": [".tsx"] };
+const JS_TO_TS = {
+	".js": [".ts", ".tsx"],
+	".mjs": [".mts"],
+	".cjs": [".cts"],
+	".jsx": [".tsx"],
+};
 /** A test that reads the checkout as data rather than importing it. */
 const READS_REPO = /import\.meta\.dir(name)?\b|__dirname\b/;
 
