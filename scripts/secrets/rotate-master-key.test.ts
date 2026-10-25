@@ -250,4 +250,13 @@ describe("rotate-master-key", () => {
 		});
 		expect(() => parseCli(["--remote", "--limit", "0"])).toThrow();
 	});
+
+	test.each([
+		["--local", "--remote"],
+		["--remote", "--local"],
+	])("parseCli rejects conflicting targets %s %s", (first, second) => {
+		expect(() => parseCli([first, second])).toThrow(
+			"only one of --remote or --local",
+		);
+	});
 });
