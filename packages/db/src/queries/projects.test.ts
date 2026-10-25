@@ -1,12 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
-import { createD1Facade } from "../test/d1-facade";
+import { createD1Facade, type D1FacadeOptions } from "../test/d1-facade";
 import { workItems } from "../schema/work-items";
 import {
 	archiveProject,
 	createProject,
 	getProjectById,
+	getProjectByIdForOrganization,
 	getProjectByKey,
 	getProjectRollup,
 	listProjectPortfolio,
@@ -64,10 +65,13 @@ const EXPIRY = new Date(
 	Date.parse(NOW) + 7 * 24 * 60 * 60 * 1000,
 ).toISOString();
 
-function fixture(): { db: DbClient; sqlite: DatabaseSync } {
+function fixture(options?: D1FacadeOptions): {
+	db: DbClient;
+	sqlite: DatabaseSync;
+} {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
-	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
+	return { db: createDbClient(createD1Facade(sqlite, options)), sqlite };
 }
 
 let counter = 0;
@@ -75,6 +79,77 @@ function nextId(prefix: string): string {
 	counter += 1;
 	return `${prefix}-${counter}`;
 }
+
+describe("organization-scoped project read recovery", () => {
+	function readFixture(failures: Error[]) {
+		let reads = 0;
+		const { db, sqlite } = fixture({
+			onPrepare(query) {
+				expect(query).toMatch(/^select /i);
+				reads++;
+				const error = failures.shift();
+				if (error) throw error;
+			},
+		});
+		sqlite
+			.prepare(
+				"INSERT INTO projects (id, org_id, key, name, created_at) VALUES (?, ?, ?, ?, ?)",
+			)
+			.run("read-project", ORG, "READ", "Scoped project", NOW);
+		return { db, sqlite, reads: () => reads };
+	}
+
+	it("recovers one completed D1 network failure without changing the tenant filter", async () => {
+		const { db, sqlite, reads } = readFixture([
+			new Error("query failed", {
+				cause: new Error("D1_ERROR: Network connection lost"),
+			}),
+		]);
+		expect(
+			await getProjectByIdForOrganization(db, ORG, "read-project"),
+		).toMatchObject({
+			id: "read-project",
+			orgId: ORG,
+		});
+		expect(reads()).toBe(2);
+		expect(
+			sqlite.prepare("SELECT COUNT(*) AS count FROM projects").get(),
+		).toEqual({ count: 1 });
+		expect(
+			await getProjectByIdForOrganization(db, "other-org", "read-project"),
+		).toBeUndefined();
+		expect(reads()).toBe(3);
+	});
+
+	it("stops after two completed transient failures", async () => {
+		const error = new Error("D1_ERROR: Network connection lost");
+		const { db, reads } = readFixture([error, error, error]);
+		await expect(
+			getProjectByIdForOrganization(db, ORG, "read-project"),
+		).rejects.toMatchObject({ cause: error });
+		expect(reads()).toBe(2);
+	});
+
+	it("does not retry a permanent D1 error", async () => {
+		const error = new Error("D1_ERROR: SQLITE_CONSTRAINT");
+		const { db, reads } = readFixture([error]);
+		await expect(
+			getProjectByIdForOrganization(db, ORG, "read-project"),
+		).rejects.toMatchObject({ cause: error });
+		expect(reads()).toBe(1);
+	});
+
+	it("does not retry missing or foreign-organization projects", async () => {
+		const { db, reads } = readFixture([]);
+		expect(
+			await getProjectByIdForOrganization(db, ORG, "missing"),
+		).toBeUndefined();
+		expect(
+			await getProjectByIdForOrganization(db, "other-org", "read-project"),
+		).toBeUndefined();
+		expect(reads()).toBe(2);
+	});
+});
 
 describe("projects CRUD", () => {
 	it("creates, reads by id and key", async () => {

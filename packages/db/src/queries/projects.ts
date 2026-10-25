@@ -31,6 +31,7 @@ import {
 	projects,
 } from "../schema/projects";
 import { tedis } from "../schema/tedis";
+import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import {
 	type WorkItemDisposition,
 	type WorkItemKind,
@@ -545,11 +546,15 @@ export async function getProjectByIdForOrganization(
 	orgId: string,
 	id: string,
 ): Promise<Project | undefined> {
-	return (
-		await db
-			.select()
-			.from(projects)
-			.where(and(eq(projects.id, id), eq(projects.orgId, orgId)))
-			.limit(1)
-	)[0];
+	return withTransientD1ReadRetry(
+		"projects.getProjectByIdForOrganization",
+		async () =>
+			(
+				await db
+					.select()
+					.from(projects)
+					.where(and(eq(projects.id, id), eq(projects.orgId, orgId)))
+					.limit(1)
+			)[0],
+	);
 }
