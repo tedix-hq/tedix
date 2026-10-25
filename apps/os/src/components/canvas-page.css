@@ -625,8 +625,10 @@
 	margin: 4px 8px;
 }
 
+/* Segments share spare width but never shrink below their label; when a
+   phone row is too narrow the switcher scrolls instead of overlapping. */
 .canvas-workpiece-mode-switcher > * {
-	flex: 1 1 0;
+	flex: 1 0 auto;
 	justify-content: center;
 }
 
