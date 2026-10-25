@@ -168,6 +168,26 @@ test.each(["bootstrap-secret", "proxy-injected"])(
 	},
 );
 
+test("discarding a revoked credential makes the next request exchange a fresh one", async () => {
+	setup("bootstrap-secret");
+	let exchanges = 0;
+	const exchangeFetch = async () => exchange(`bearer-${++exchanges}`);
+	await startExternalAgentSession({ ...startOptions, fetch: exchangeFetch });
+	const auth = await resolveExternalAgentAuth({
+		workspace: "cloud",
+		selector: "cloud-test",
+		fetch: exchangeFetch,
+	});
+	const cached = await auth.credentialProvider!();
+	expect(await auth.credentialProvider!()).toEqual(cached);
+	const before = exchanges;
+	auth.discardCredential!();
+	expect(await auth.credentialProvider!()).toEqual({
+		Authorization: `Bearer bearer-${before + 1}`,
+	});
+	expect(exchanges).toBe(before + 1);
+});
+
 test.each([
 	["principal_inactive", "inactive"],
 	["enrollment_expired", "expired"],

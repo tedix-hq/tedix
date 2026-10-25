@@ -16,6 +16,7 @@ import {
 	externalAgentProfileSlot,
 	harnessFamily,
 	readExternalAgentProfile,
+	discardExternalAgentCredential,
 	readExternalAgentCredential,
 	writeExternalAgentCredential,
 	removeExternalAgentSession,
@@ -1068,10 +1069,11 @@ export async function resolveExternalAgentAuth(options: {
 			pending = undefined;
 		}));
 	const credential = await resolveExternalAgentCredential(options);
-	const { profile, session } = currentSessionContext(options.workspace);
+	const { slot, profile, session } = currentSessionContext(options.workspace);
 	return {
 		headers: credential,
 		credentialProvider,
+		discardCredential: () => discardExternalAgentCredential(slot),
 		mcpUrl: profile.mcpUrl,
 		source: `external-agent:${profile.key}:${session.id}`,
 	};

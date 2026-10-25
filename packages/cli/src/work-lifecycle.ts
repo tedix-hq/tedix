@@ -30,6 +30,21 @@ import {
 } from "./work-queries";
 import type { WorkContext } from "./work";
 
+/**
+ * The MCP edge's answer when the presented external-agent credential, its
+ * session or its principal binding is no longer active. It reaches the CLI
+ * embedded in gateway error text rather than as a typed code.
+ */
+function isExternalAgentInactive(error: {
+	code?: string;
+	message: string;
+}): boolean {
+	return (
+		error.code === "external_agent_inactive" ||
+		error.message.includes("external_agent_inactive")
+	);
+}
+
 function workMetadataInput(ctx: WorkContext): Record<string, unknown> {
 	if (!ctx.work.input) return {};
 	const input = parseObjectArgument(ctx.work.input, "--input");
@@ -207,6 +222,7 @@ export async function workHeartbeat(
 	);
 	let confirmedLeaseExpiry: number | undefined;
 	let rateRetries = 0;
+	let credentialRenewed = false;
 	for (;;) {
 		// Pin the original fence. Another process may settle or replace its cache.
 		if (ctx.attemptStore.get(key) !== attemptId) {
@@ -236,6 +252,25 @@ export async function workHeartbeat(
 		const touch = await boardCall(ctx, callable, { id, attemptId });
 		if (touch.error) {
 			const { status, code } = touch.error;
+			// The gateway can revoke a credential before its cached expiry. Drop it
+			// once so the next call exchanges a fresh one for the same session and
+			// Attempt; a second consecutive rejection still stops the watch.
+			if (
+				ctx.work.watch !== undefined &&
+				isExternalAgentInactive(touch.error)
+			) {
+				if (ctx.discardCredential && !credentialRenewed) {
+					credentialRenewed = true;
+					ctx.discardCredential();
+					console.error(
+						"Heartbeat credential was rejected as inactive; retrying the same Attempt with a fresh credential.",
+					);
+					continue;
+				}
+				const message =
+					"Heartbeat credential was rejected as inactive again after renewal; watch stopped.";
+				return fail(ctx, { ...touch.error, message }, message);
+			}
 			const rateLimited =
 				status === 429 ||
 				(status === undefined && isRateLimitError(touch.error.message));
@@ -287,6 +322,7 @@ export async function workHeartbeat(
 				`Could not heartbeat ${id}: ${touch.error.message}`,
 			);
 		}
+		credentialRenewed = false;
 		const expiresAt =
 			isRecord(touch.value) && typeof touch.value.expiresAt === "string"
 				? touch.value.expiresAt

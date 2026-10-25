@@ -418,6 +418,19 @@ export function removeExternalAgentSession(
 	});
 }
 
+/**
+ * Forget the cached MCP credential for a workspace after the gateway rejected
+ * it, so the next request runs a fresh exchange for the same session.
+ */
+export function discardExternalAgentCredential(
+	workspace: string,
+	options?: ExternalAgentStoreOptions,
+): void {
+	mutateStore(options, (store) => {
+		if (store.credentials) delete store.credentials[workspace];
+	});
+}
+
 // Credential secrets stay outside profile/session objects exposed by status commands.
 function credentialBinding(
 	profile: StoredExternalAgentProfile,

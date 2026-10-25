@@ -188,6 +188,8 @@ export interface WorkContext {
 	workspace: string;
 	/** Resolved credential source (`stored-login:*`, `external-agent:*`, ...). */
 	authSource?: string;
+	/** Drops a cached external-agent credential the gateway rejected as inactive. */
+	discardCredential?: () => void;
 	attemptStore: WorkAttemptStore;
 	cleanupWorktrees?: typeof cleanupAttemptWorktrees;
 	provisionWorktree?: (request: WorktreeRequest) => {

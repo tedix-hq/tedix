@@ -42,6 +42,8 @@ export function selfCommand(): [string, string[]] {
 export interface AuthResolution {
 	cleanup?: () => Promise<void>;
 	credentialProvider?: () => Promise<Record<string, string>>;
+	/** Drop a cached credential the gateway rejected; the provider then re-exchanges. */
+	discardCredential?: () => void;
 	headers: Record<string, string>;
 	mcpUrl?: string;
 	oauthProvider?: OAuthClientProvider;
