@@ -940,7 +940,11 @@ export async function planKernelWriteProposal(args: {
 								? "Move the skill and its schedule to the tedi the request names."
 								: workpieceRename.capability === "skills.certify"
 									? "Start a certification run of the draft the request names."
-									: "Rename the selected workspace item as asked.",
+									: workpieceRename.capability === "skills.pause_schedule"
+										? "Pause the schedule of the skill the request names; nothing else changes."
+										: workpieceRename.capability === "skills.resume_schedule"
+											? "Resume the schedule of the skill the request names with its existing cadence."
+											: "Rename the selected workspace item as asked.",
 				}
 			: cardArgs
 				? {

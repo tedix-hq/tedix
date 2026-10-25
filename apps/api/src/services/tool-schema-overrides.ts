@@ -380,6 +380,8 @@ export const SKILL_WORKFLOW_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"skills/activateWorkflowImprovement": "activate_skill_workflow_improvement",
 	"skills/pauseWorkflow": "pause_skill_workflow",
 	"skills/resumeWorkflow": "resume_skill_workflow",
+	"skills/pauseSchedule": "pause_skill_schedule",
+	"skills/resumeSchedule": "resume_skill_schedule",
 	"skills/restartWorkflow": "restart_skill_workflow",
 	"skills/approveWorkflow": "approve_skill_workflow",
 	"skills/rejectWorkflow": "reject_skill_workflow",
@@ -422,6 +424,9 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	// Defaults to a dry run; a real move is reversed by moving the skill back.
 	"skills/moveToTedi": "write",
 	"skills/resumeWorkflow": "write",
+	// Only capabilities.schedule.enabled changes; resume undoes pause.
+	"skills/pauseSchedule": "write",
+	"skills/resumeSchedule": "write",
 	"skills/restartWorkflow": "destructive",
 	"skills/approveWorkflow": "destructive",
 	"skills/rejectWorkflow": "destructive",
