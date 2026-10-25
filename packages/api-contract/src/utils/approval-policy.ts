@@ -721,6 +721,7 @@ const platformOperations = organizationAutonomy.operations.map((operation) => ({
 	label: operation.label,
 	pattern: new RegExp(operation.pattern, "i"),
 	endpointPattern: new RegExp(operation.endpointPattern),
+	callablePattern: new RegExp(operation.callablePattern),
 }));
 
 /**
@@ -740,9 +741,11 @@ export function platformAutonomousOperation(
 	if (!name || humanReservedActionClasses(name).length) return null;
 	const endpoint = rpcEndpoint?.trim() ?? "";
 	if (endpoint && humanReservedActionClasses(endpoint).length) return null;
+	const callable = toolName.trim();
 	const operation = platformOperations.find(
 		(entry) =>
 			entry.pattern.test(name) ||
+			(callable !== "" && entry.callablePattern.test(callable)) ||
 			(endpoint !== "" && entry.endpointPattern.test(endpoint)),
 	);
 	return operation ? { id: operation.id, label: operation.label } : null;

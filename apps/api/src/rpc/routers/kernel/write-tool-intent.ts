@@ -106,8 +106,27 @@ export interface SkillMoveIntent {
 	};
 }
 
+export const RUN_SKILL_WORKFLOW_TOOL = "skills.run_workflow";
+
+/** "Run the certification for draft X", resolved to the draft and its tedi. */
+export interface SkillCertificationIntent {
+	capability: "skills.certify";
+	toolName: typeof RUN_SKILL_WORKFLOW_TOOL;
+	args: {
+		skillId: string;
+		tediId: string;
+		certification: true;
+		confirmDestructive: true;
+		reason: string;
+		params?: Record<string, unknown>;
+	};
+}
+
 /** An exact write a Home turn resolved without the model. */
-export type DirectWriteIntent = WorkpieceRenameIntent | SkillMoveIntent;
+export type DirectWriteIntent =
+	| WorkpieceRenameIntent
+	| SkillMoveIntent
+	| SkillCertificationIntent;
 
 /** What a "rename X to Y" request names: an app, an output, or "it". */
 export interface RenameRequest {
@@ -290,6 +309,7 @@ export function canonicalWriteToolName(
 		if (OUTPUT_RENAME_CAPABILITY_RE.test(capability)) return RENAME_OUTPUT_TOOL;
 	}
 	if (capability === "skills.move_to_tedi") return MOVE_SKILL_TO_TEDI_TOOL;
+	if (capability === "skills.certify") return RUN_SKILL_WORKFLOW_TOOL;
 	if (capability === "factories.create") return "projects.create_factory";
 	if (capability === "factories.pause") return "projects.pause_factory";
 	if (capability === "factories.resume") return "projects.resume_factory";

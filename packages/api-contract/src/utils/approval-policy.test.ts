@@ -831,6 +831,8 @@ describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
 
 	it("matches a provider-generic tool name only through Tedix's own route", () => {
 		expect(platformAutonomousOperation("work.add_comment")).toBeNull();
+		expect(platformAutonomousOperation("skills.run_workflow")?.id).toBe("runs");
+		expect(platformAutonomousOperation("n8n.run_workflow")).toBeNull();
 		expect(
 			platformAutonomousOperation("add_comment", "workItems/addComment")?.id,
 		).toBe("work_items");

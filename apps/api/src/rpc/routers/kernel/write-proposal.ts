@@ -938,7 +938,9 @@ export async function planKernelWriteProposal(args: {
 							? "Rename the current conversation as asked."
 							: workpieceRename.capability === "skills.move_to_tedi"
 								? "Move the skill and its schedule to the tedi the request names."
-								: "Rename the selected workspace item as asked.",
+								: workpieceRename.capability === "skills.certify"
+									? "Start a certification run of the draft the request names."
+									: "Rename the selected workspace item as asked.",
 				}
 			: cardArgs
 				? {
