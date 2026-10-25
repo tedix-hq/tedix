@@ -171,7 +171,7 @@ describe("runD1Retention", () => {
 			const { db, seed, sqlite } = fixture(
 				`('audit_events','${mode}',30,2,'2026-10-21')`,
 			);
-			seed([90, 1, 90, 90]);
+			seed([120, 1, 120, 120]);
 			const logs = logsFixture();
 			const bucket = new MemoryBucket();
 			const tick = () =>
@@ -253,7 +253,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 1000 }, () => 1), 90]);
+		seed([...Array.from({ length: 1000 }, () => 1), 120]);
 		const bucket = new MemoryBucket();
 		let clock = 0;
 		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock++);
@@ -330,7 +330,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','dry_run',30,2000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 120 }, () => 90), 1, 1]);
+		seed([...Array.from({ length: 120 }, () => 120), 1, 1]);
 		const bucket = new MemoryBucket();
 		const result = await runD1Retention({
 			db,
@@ -356,7 +356,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 620 }, () => 90), 5, 2]);
+		seed([...Array.from({ length: 620 }, () => 120), 5, 2]);
 		const bucket = new MemoryBucket();
 		const result = await runD1Retention({
 			db,
@@ -388,7 +388,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count } = fixture(
 			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
 		);
-		seed(Array.from({ length: 60 }, () => 90));
+		seed(Array.from({ length: 60 }, () => 120));
 		const bucket = new MemoryBucket();
 		bucket.failPuts = true;
 		const failed = await runD1Retention({
@@ -415,7 +415,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count } = fixture(
 			"('audit_events','archive_then_delete',30,120,'2026-10-21')",
 		);
-		seed(Array.from({ length: 300 }, () => 90));
+		seed(Array.from({ length: 300 }, () => 120));
 		const result = await runD1Retention({
 			db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
@@ -432,7 +432,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 620 }, () => 90), 5, 2]);
+		seed([...Array.from({ length: 620 }, () => 120), 5, 2]);
 		const logs = logsFixture();
 		const bucket = new MemoryBucket();
 		const result = await runD1Retention({
@@ -460,7 +460,7 @@ describe("runD1Retention", () => {
 			id: "audit-7",
 			organization_id: "fictional-lighthouse",
 			metadata: JSON.stringify({ n: 7 }),
-			timestamp: Math.floor(NOW.getTime() / 1000) - 90 * DAY,
+			timestamp: Math.floor(NOW.getTime() / 1000) - 120 * DAY,
 		});
 		expect(bucket.objects.size).toBe(2);
 		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
@@ -500,7 +500,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count } = fixture(
 			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
 		);
-		seed(Array.from({ length: 40 }, () => 90));
+		seed(Array.from({ length: 40 }, () => 120));
 		const logs = logsFixture();
 		// A logs database that silently loses every tenth row.
 		logs.sqlite.exec(
@@ -527,7 +527,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count } = fixture(
 			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
 		);
-		seed(Array.from({ length: 60 }, () => 90));
+		seed(Array.from({ length: 60 }, () => 120));
 		const logs = logsFixture();
 		const bucket = new MemoryBucket();
 		bucket.failPuts = true;
@@ -560,7 +560,7 @@ describe("runD1Retention", () => {
 		const { db, d1, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 1200 }, () => 90), 1]);
+		seed([...Array.from({ length: 1200 }, () => 120), 1]);
 		const logs = logsFixture();
 		const bucket = new MemoryBucket();
 		const main = countCalls(d1);
@@ -597,7 +597,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count } = fixture(
 			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
 		);
-		seed(Array.from({ length: 30 }, () => 90));
+		seed(Array.from({ length: 30 }, () => 120));
 		const logs = logsFixture();
 		const bucket = new MemoryBucket();
 		bucket.shortPuts = true;
@@ -620,7 +620,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
 		);
-		seed(Array.from({ length: 700 }, () => 90));
+		seed(Array.from({ length: 700 }, () => 120));
 		const logs = logsFixture();
 		// The second page's copy loses a row, so it never verifies.
 		logs.sqlite.exec(
@@ -648,7 +648,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,2000,'2026-10-21'), ('tedi_call_costs','move_to_logs_db',400,2000,'2026-10-21')",
 		);
-		seed(Array.from({ length: 10 }, () => 90));
+		seed(Array.from({ length: 10 }, () => 120));
 		const result = await runD1Retention({
 			db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
@@ -668,7 +668,7 @@ describe("runD1Retention", () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','dry_run',14,10000,'2026-10-21')",
 		);
-		seed([...Array.from({ length: 30 }, () => 45), 20, 20, 20]);
+		seed([...Array.from({ length: 30 }, () => 100), 50, 50, 50]);
 		const result = await runD1Retention({
 			db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
@@ -681,7 +681,7 @@ describe("runD1Retention", () => {
 		});
 		expect(count()).toBe(33);
 		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
-			keepDays: 30,
+			keepDays: 90,
 			keepDaysRow: 14,
 			eligibleRows: 30,
 		});
