@@ -54,6 +54,14 @@ try {
 			"Ask a question or hand off a task…",
 			`new conversation placeholder at ${width}px`,
 		);
+		// The fixture catalog has no selectable models: the organization picks.
+		const model = page.getByRole("button", {
+			name: "Model: Auto",
+			exact: true,
+		});
+		assert.equal(await model.innerText(), "Auto");
+		assert.equal(await model.isDisabled(), true);
+		assert.equal(await page.getByRole("menu").count(), 0);
 
 		await page.goto(`${origin}${thread}`);
 		await page.getByText("Two of the four flagged", { exact: false }).waitFor();
