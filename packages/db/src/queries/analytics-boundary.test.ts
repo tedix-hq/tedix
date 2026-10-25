@@ -41,6 +41,9 @@ import {
 import {
 	listEmbeddedAttentionReviews,
 	listEmbeddedProviderActivity,
+	type NewWidgetEvent,
+	trackEmbeddedAttentionOutcomes,
+	trackWidgetEvents,
 } from "./analytics";
 
 function fixture(): { db: DbClient; sqlite: DatabaseSync } {
@@ -350,5 +353,37 @@ describe("analytics query boundary", () => {
 				decisionIds,
 			}),
 		).resolves.toMatchObject([{ id: "decision-1" }, { id: "decision-2" }]);
+	});
+
+	it("bulk-inserts widget events above D1's bound-parameter limit", async () => {
+		const { db, sqlite } = fixture();
+		const events = (prefix: string): NewWidgetEvent[] =>
+			Array.from({ length: 25 }, (_, index) => ({
+				id: `${prefix}-${index}`,
+				organizationId: "org-1",
+				appId: "app-1",
+				sessionId: "session-1",
+				eventType: "attention_impression",
+				itemId: null,
+				itemPosition: index,
+				widgetKey: "deck",
+				displayMode: "inline",
+				metadata: { index },
+				createdAt: "2026-09-01T12:00:00.000Z",
+			}));
+		const count = (prefix: string) =>
+			sqlite
+				.prepare("SELECT COUNT(*) AS n FROM widget_events WHERE id LIKE ?")
+				.get(`${prefix}-%`)?.n;
+
+		await trackWidgetEvents(db, events("bulk"));
+		expect(count("bulk")).toBe(25);
+
+		await trackEmbeddedAttentionOutcomes(db, events("outcome"));
+		await trackEmbeddedAttentionOutcomes(db, events("outcome"));
+		expect(count("outcome")).toBe(25);
+
+		await trackWidgetEvents(db, []);
+		await trackEmbeddedAttentionOutcomes(db, []);
 	});
 });
