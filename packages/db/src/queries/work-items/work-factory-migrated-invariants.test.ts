@@ -1,27 +1,13 @@
-import {
-	copyFileSync,
-	mkdtempSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { readFileSync, readdirSync } from "node:fs";
+import type { DatabaseSync } from "node:sqlite";
 import {
 	WorkBudgetEnvelopeSchema,
 	WorkResourcePoolSchema,
 } from "@tedix/api-contract/schemas/work-items";
-import {
-	afterAll,
-	describe,
-	expect,
-	it,
-	onTestFinished,
-	vi,
-} from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	evaluateAndRecordWorkAdmission,
 	replaceWorkAdmissionSpecification,
@@ -72,45 +58,37 @@ const migrations = readdirSync(migrationRoot)
 		name,
 		sql: readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
 	}));
-const factoryStart = migrations.findIndex((row) =>
-	row.name.startsWith("20260821015311_"),
-);
 
-// Replay each migration boundary once, then give each test its own database.
-// Copies retain production triggers and indexes without repeating the whole
-// migration chain for every invariant under parallel CPU load.
-const fixtureDirectory = mkdtempSync(
-	join(tmpdir(), "tedix-factory-invariants-"),
-);
-const templates = new Map<number, string>();
-let fixtureNumber = 0;
-afterAll(() => rmSync(fixtureDirectory, { recursive: true, force: true }));
 function migrated(stop = migrations.length) {
-	let template = templates.get(stop);
-	if (!template) {
-		template = join(fixtureDirectory, `boundary-${stop}.sqlite`);
-		const db = new DatabaseSync(":memory:");
-		try {
-			db.exec("PRAGMA foreign_keys=ON");
-			for (const row of migrations.slice(0, stop)) db.exec(row.sql);
-			db.prepare("VACUUM INTO ?").run(template);
-		} finally {
-			db.close();
-		}
-		templates.set(stop, template);
-	}
-	const path = join(fixtureDirectory, `fixture-${fixtureNumber++}.sqlite`);
-	copyFileSync(template, path);
-	const db = new DatabaseSync(path);
-	// Fixtures test SQL constraints, not crash recovery or disk durability.
-	db.exec(
-		"PRAGMA foreign_keys=ON; PRAGMA journal_mode=MEMORY; PRAGMA synchronous=OFF",
-	);
-	onTestFinished(() => {
-		db.close();
-		rmSync(path);
+	return createMigratedSqlite({
+		beforeMigration: migrations[stop]?.name,
 	});
-	return db;
+}
+
+// Seed historical rows at their original boundaries, then cache the complete
+// upgrade once. Each assertion still gets an independent full-ledger database.
+function migratedLegacy() {
+	return createMigratedSqlite({
+		transformMigration(sql, name) {
+			if (name === "20260821015311_work_factory_control_plane")
+				return `
+					INSERT INTO organizations(id,name,slug) VALUES('org','Org','org'),('11111111-1111-4111-8111-111111111111','UUID Org','uuid-org');
+					INSERT INTO work_items(id,org_id,title,disposition,resource_scopes,budget_limit_micros,created_at) VALUES
+						('work','org','Work','accepted','["browser","browser","gpu"]',9000,'2026-08-20T00:00:00.000Z'),
+						('cutover-work','org','Cutover','accepted','[]',NULL,'2026-08-20T00:00:00.000Z'),
+						('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','Work','accepted','["browser"]',9000,'2026-08-20T00:00:00.000Z');
+					${sql}`;
+			if (name === "20260821020828_work_factory_external_session_fences")
+				return `
+					INSERT INTO tedis(id,organization_id,name,slug) VALUES('tedi','org','Tedi','tedi');
+					INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,decided_at,expires_at,created_at)
+						SELECT 'admission','org',id,version,admission_spec_revision,'tedi','tedi','admitted','2026-08-20T00:00:00.000Z','2026-08-20T02:00:00.000Z','2026-08-20T00:00:00.000Z' FROM work_items WHERE id='cutover-work';
+					INSERT INTO work_attempts(id,admission_id,work_item_id,org_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at,expires_at)
+						VALUES('attempt','admission','cutover-work','org','tedi','tedi','running',1,'2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z',NULL);
+					${sql}`;
+			return sql;
+		},
+	});
 }
 function expectAbort(run: () => unknown, pattern: RegExp) {
 	expect(run).toThrow(pattern);
@@ -254,11 +232,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 	});
 
 	it("backfills legacy resource and budget specifications before dropping their columns", () => {
-		const db = migrated(factoryStart);
-		db.exec(
-			`INSERT INTO organizations(id,name,slug) VALUES('org','Org','org'); INSERT INTO work_items(id,org_id,title,disposition,resource_scopes,budget_limit_micros,created_at) VALUES('work','org','Work','accepted','["browser","browser","gpu"]',9000,'2026-08-20T00:00:00.000Z')`,
-		);
-		for (const row of migrations.slice(factoryStart)) db.exec(row.sql);
+		const db = migratedLegacy();
 		expect(
 			db
 				.prepare(
@@ -303,16 +277,7 @@ describe("migrated Work factory raw-D1 invariants", () => {
 	});
 
 	it("expires active cutover attempts with a nullable admission or expiry", () => {
-		const db = migrated(factoryStart);
-		db.exec(
-			`INSERT INTO organizations(id,name,slug) VALUES('org','Org','org'); INSERT INTO work_items(id,org_id,title,disposition,created_at) VALUES('work','org','Work','accepted','2026-08-20T00:00:00.000Z')`,
-		);
-		for (const row of migrations.slice(factoryStart, factoryStart + 2))
-			db.exec(row.sql);
-		db.exec(
-			`INSERT INTO tedis(id,organization_id,name,slug) VALUES('tedi','org','Tedi','tedi'); INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,decided_at,expires_at,created_at) SELECT 'admission','org',id,version,admission_spec_revision,'tedi','tedi','admitted','2026-08-20T00:00:00.000Z','2026-08-20T02:00:00.000Z','2026-08-20T00:00:00.000Z' FROM work_items WHERE id='work'; INSERT INTO work_attempts(id,admission_id,work_item_id,org_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at,expires_at) VALUES('attempt','admission','work','org','tedi','tedi','running',1,'2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z',NULL)`,
-		);
-		for (const row of migrations.slice(factoryStart + 2)) db.exec(row.sql);
+		const db = migratedLegacy();
 		const attempt = db
 			.prepare(
 				"SELECT runtime_state,outcome,finished_at FROM work_attempts WHERE id='attempt' OR json_extract(metadata,'$.migratedCompositeAttemptId')='attempt'",
@@ -328,16 +293,8 @@ describe("migrated Work factory raw-D1 invariants", () => {
 	});
 
 	it("backfills legacy resource and budget rows that parse against public timestamp and UUID schemas", () => {
-		const db = migrated(factoryStart),
-			orgId = "11111111-1111-4111-8111-111111111111",
-			workItemId = "22222222-2222-4222-8222-222222222222";
-		db.prepare(
-			"INSERT INTO organizations(id,name,slug) VALUES(?,'Org','org')",
-		).run(orgId);
-		db.prepare(
-			"INSERT INTO work_items(id,org_id,title,disposition,resource_scopes,budget_limit_micros,created_at) VALUES(?,?,'Work','accepted','[\"browser\"]',9000,'2026-08-20T00:00:00.000Z')",
-		).run(workItemId, orgId);
-		for (const row of migrations.slice(factoryStart)) db.exec(row.sql);
+		const db = migratedLegacy(),
+			orgId = "11111111-1111-4111-8111-111111111111";
 		const pool = db
 				.prepare(
 					"SELECT id,org_id,resource_key,allocation_mode,capacity,owner_ref,created_at,updated_at,version FROM work_resource_pools WHERE org_id=?",
