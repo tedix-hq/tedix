@@ -1293,7 +1293,7 @@ it("any-local requests delegation for the assigned native executor", () => {
 	).toContain("needs an owner comment");
 });
 
-function gitFixture() {
+function gitFixture(withOrigin = false) {
 	const root = mkdtempSync(join(tmpdir(), "lane-git-test-"));
 	dirs.push(root);
 	const repo = join(root, "source");
@@ -1307,11 +1307,96 @@ function gitFixture() {
 	git(["config", "user.name", "Test"]);
 	git(["config", "user.email", "test@example.com"]);
 	git(["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base"]);
+	if (withOrigin) {
+		const remote = join(root, "origin.git");
+		git(["init", "--bare", remote]);
+		git(["remote", "add", "origin", remote]);
+		git(["push", "origin", "main"]);
+	}
 	return { root, repo, git };
 }
 
+it.each([false, true])(
+	"refreshes a stale source before cutting a run (retry=%s)",
+	(retry) => {
+		const { root, repo, git } = gitFixture(true);
+		const destination = join(root, "repo");
+		if (retry) git(["worktree", "add", "--detach", destination]);
+		const stale = git(["rev-parse", "HEAD"]);
+		const publisher = join(root, "publisher");
+		git(["clone", "--branch", "main", join(root, "origin.git"), publisher]);
+		writeFileSync(join(publisher, "fresh.txt"), "latest main");
+		git(["add", "fresh.txt"], publisher);
+		git(
+			[
+				"-c",
+				"user.name=Test",
+				"-c",
+				"user.email=test@example.com",
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"-m",
+				"advance main",
+			],
+			publisher,
+		);
+		git(["push", "origin", "main"], publisher);
+		const current = git(["rev-parse", "HEAD"], publisher);
+		expect(git(["rev-parse", "origin/main"])).toBe(stale);
+		expect(provisionLaneWorktree(repo, destination)).toBe(destination);
+		expect(git(["rev-parse", "HEAD"], destination)).toBe(current);
+		expect(git(["rev-parse", "HEAD"])).toBe(current);
+		expect(readFileSync(join(destination, "fresh.txt"), "utf8")).toBe(
+			"latest main",
+		);
+	},
+	30_000,
+);
+
+it.each(["dirty", "unlanded"])(
+	"bases runs on origin/main while preserving a %s source",
+	(state) => {
+		const { root, repo, git } = gitFixture(true);
+		const stale = git(["rev-parse", "HEAD"]);
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			"advance main",
+		]);
+		git(["push", "origin", "main"]);
+		const current = git(["rev-parse", "origin/main"]);
+		git(["checkout", "--detach", stale]);
+		writeFileSync(join(repo, "retained.txt"), "source work");
+		if (state === "unlanded") {
+			git(["add", "retained.txt"]);
+			git(["-c", "commit.gpgsign=false", "commit", "-m", "unlanded"]);
+		}
+		const sourceHead = git(["rev-parse", "HEAD"]);
+		const destination = provisionLaneWorktree(repo, join(root, "repo"));
+		expect(git(["rev-parse", "HEAD"], destination)).toBe(current);
+		expect(git(["rev-parse", "HEAD"])).toBe(sourceHead);
+		expect(readFileSync(join(repo, "retained.txt"), "utf8")).toBe(
+			"source work",
+		);
+		expect(existsSync(join(destination, "retained.txt"))).toBe(false);
+	},
+	30_000,
+);
+
+it("does not cut a stale run when origin cannot be fetched", () => {
+	const { root, repo, git } = gitFixture(true);
+	git(["remote", "set-url", "origin", join(root, "missing.git")]);
+	const destination = join(root, "repo");
+	expect(() => provisionLaneWorktree(repo, destination)).toThrow();
+	expect(existsSync(destination)).toBe(false);
+}, 30_000);
+
 it("preserves an orphan destination and provisions the retry path", () => {
-	const { root, repo, git } = gitFixture();
+	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	mkdirSync(destination);
 	writeFileSync(join(destination, "retained.txt"), "unfinished work");
@@ -1325,10 +1410,10 @@ it("preserves an orphan destination and provisions the retry path", () => {
 	expect(readFileSync(join(root, orphan, "repo", "retained.txt"), "utf8")).toBe(
 		"unfinished work",
 	);
-});
+}, 30_000);
 
 it("keeps a dirty registered worktree for inspection and provisions the retry beside it", () => {
-	const { root, repo, git } = gitFixture();
+	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	git(["worktree", "add", "--detach", destination]);
 	writeFileSync(join(destination, "retained.txt"), "unfinished work");
@@ -1344,10 +1429,10 @@ it("keeps a dirty registered worktree for inspection and provisions the retry be
 	expect(readFileSync(join(retry, "second.txt"), "utf8")).toBe(
 		"second attempt",
 	);
-});
+}, 30_000);
 
 it("keeps a registered worktree holding unlanded commits and provisions beside it", () => {
-	const { root, repo, git } = gitFixture();
+	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	git(["worktree", "add", "--detach", destination]);
 	git(
@@ -1357,19 +1442,20 @@ it("keeps a registered worktree holding unlanded commits and provisions beside i
 	const local = git(["rev-parse", "HEAD"], destination);
 	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-2`);
 	expect(git(["rev-parse", "HEAD"], destination)).toBe(local);
-});
+}, 30_000);
 
-it("reuses a clean registered worktree left by a failed admission at the current HEAD", () => {
-	const { root, repo, git } = gitFixture();
+it("reuses a clean registered worktree left by a failed admission at fresh origin/main", () => {
+	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	git(["worktree", "add", "--detach", destination]);
 	git(["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "next"]);
+	git(["push", "origin", "main"]);
 	expect(provisionLaneWorktree(repo, destination)).toBe(destination);
 	expect(git(["rev-parse", "HEAD"], destination)).toBe(
 		git(["rev-parse", "HEAD"]),
 	);
 	expect(existsSync(`${destination}-2`)).toBe(false);
-});
+}, 30_000);
 
 it("extracts and deduplicates final-message and local commits, accepting only origin/main ancestors", async () => {
 	const { root, repo, git } = gitFixture();
