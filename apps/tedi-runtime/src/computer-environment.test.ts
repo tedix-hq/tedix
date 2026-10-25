@@ -2002,6 +2002,113 @@ for (const operation of ["file", "exec"] as const) {
 	assert.equal(provisions, 1);
 }
 
+// Live 25 Oct: after a bounded repo sync, one native refresh failed (D1 was
+// overloaded during its /wake). The failed refresh id stayed on the selection,
+// so every later read/ls/exec observed that same terminal fiber and returned
+// "Workstation provisioning reconciliation failed" for the rest of the turn.
+// A failed refresh is evidence for that refresh only: the next call must ask
+// the body again under a fresh id, and readiness still needs that new receipt.
+{
+	const scope = "failed-refresh-is-not-sticky";
+	const refreshes = new Map<string, "failed" | "ready">();
+	let failNextRefresh = false;
+	let provisions = 0;
+	const controller = new ComputerEnvironmentController(
+		store,
+		scope,
+		{
+			...actions,
+			open: async () => ({ ok: true, leaseId: `bounded-${++provisions}` }),
+			status: async (environment, _timeout, refreshNative) => {
+				const receipt = {
+					ok: true,
+					ready: true,
+					status: "ready",
+					workstationLease: { id: environment.leaseId, status: "active" },
+					readiness: { toolsReady: true, repoReady: true },
+					repoSync: {
+						status: "cloned",
+						executionState: "terminal",
+						workdir: "/home/tedi/workstation/repos/org/repo",
+					},
+				};
+				if (!refreshNative) return receipt;
+				const refreshId = environment.revalidationId!;
+				assert.equal(typeof refreshId, "string");
+				// A refresh fiber is keyed by its id: once terminal, the same id
+				// always reads back the same outcome.
+				if (!refreshes.has(refreshId)) {
+					refreshes.set(refreshId, failNextRefresh ? "failed" : "ready");
+					failNextRefresh = false;
+				}
+				return refreshes.get(refreshId) === "failed"
+					? {
+							ok: false,
+							ready: false,
+							error:
+								"Workstation provisioning reconciliation failed: D1_ERROR: D1 DB is overloaded.",
+						}
+					: receipt;
+			},
+		},
+		undefined,
+		undefined,
+		undefined,
+		deterministicDeadline(20_000),
+	);
+	const opened = (await controller.open("repository")) as Record<
+		string,
+		unknown
+	>;
+	assert.equal(opened.ready, true);
+	await controller.file("write", {
+		path: "packages/db/src/queries/skill-schedules.ts",
+		content: "export const schedules = [];",
+	});
+	const age = async () =>
+		values.set(scope, {
+			...(await controller.selected()),
+			checkedAt: Date.now() - 60_000,
+		});
+
+	await age();
+	failNextRefresh = true;
+	const failed = (await controller.file("ls", {
+		path: "packages/db/src/queries",
+	})) as Record<string, unknown>;
+	assert.equal(failed.ok, false);
+	assert.equal(failed.executed, false);
+	assert.match(String(failed.error), /D1 DB is overloaded/);
+	assert.equal((await controller.selected())!.revalidationId, undefined);
+	assert.equal((await controller.selected())!.ready, false);
+
+	const read = (await controller.file("read", {
+		path: "packages/db/src/queries/skill-schedules.ts",
+	})) as Record<string, unknown>;
+	assert.equal(read.ok, true);
+	assert.equal(read.content, "export const schedules = [];");
+	assert.equal(refreshes.size, 2);
+	await age();
+	const listed = (await controller.file("ls", {
+		path: "packages/db/src/queries",
+	})) as Record<string, unknown>;
+	assert.equal(listed.ok, true);
+	await age();
+	const executed = (await controller.exec({
+		command: "grep -n schedules packages/db/src/queries/skill-schedules.ts",
+	})) as Record<string, unknown>;
+	assert.notEqual(executed.ok, false);
+	assert.deepEqual(
+		[...refreshes.values()],
+		["failed", "ready", "ready", "ready"],
+	);
+	assert.equal(provisions, 1);
+	assert.equal(
+		(await controller.selected())!.cwd,
+		"/home/tedi/workstation/repos/org/repo",
+	);
+}
+
 // A resolved native receipt is fresher readiness evidence than the status read
 // a stale selection would re-run. A command whose own wait consumed the cache
 // window does not send the very next call back through a native refresh —

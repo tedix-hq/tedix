@@ -52,4 +52,32 @@ const recovered = workstationProvisioningRecoveryInput({
 } as FiberRecoveryContext);
 assert.equal(recovered?.refreshId, input.refreshId);
 assert.deepEqual(recovered?.refreshReceipt, result.refreshReceipt);
+
+// `/wake` reports a body that refused to start in `setupError`, with no
+// `error`. The fiber's error is all a failed refresh retains, so it must carry
+// that reason rather than a bare "reconciliation failed".
+await assert.rejects(
+	reconcileWorkstationUntilSettled(
+		{
+			identity: { tediId: "tedi-1", orgId: "org-1", slug: "cto" },
+			env: {
+				TEDI_SERVICE: {
+					fetch: async () =>
+						Response.json({
+							ok: false,
+							ready: false,
+							setupError: "clean-tree preflight failed: D1 DB is overloaded",
+							workstationPersistence: { status: "persisted" },
+						}),
+				} as unknown as Fetcher,
+			},
+		},
+		{ ...input, startedAt: Date.now() },
+		{ checkpoint: () => {} },
+	),
+	{
+		message:
+			"Workstation provisioning reconciliation failed: clean-tree preflight failed: D1 DB is overloaded",
+	},
+);
 console.log("Durable native refresh receipt and recovery pass");

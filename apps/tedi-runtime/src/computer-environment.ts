@@ -633,6 +633,30 @@ export class ComputerEnvironmentController {
 		});
 	}
 
+	/**
+	 * A native refresh that ended without readiness is evidence for that refresh
+	 * only. Keeping its id would make every later call observe the same terminal
+	 * fiber and repeat its error without asking the body again. Drop the id so
+	 * the next call mints a fresh refresh; readiness still comes only from a new
+	 * native receipt, and the persisted grace window is kept.
+	 */
+	private async forgetFailedRevalidation(
+		environment: ComputerEnvironment,
+	): Promise<void> {
+		const failedId = environment.revalidationId;
+		if (!failedId) return;
+		await withAcquisitionLock(this.store, this.key, async () => {
+			const current = await this.store.get<ComputerEnvironment>(this.key);
+			if (
+				current?.leaseId !== environment.leaseId ||
+				current.revalidationId !== failedId
+			)
+				return;
+			const { revalidationId: _failed, ...rest } = current;
+			await this.store.put(this.key, rest);
+		});
+	}
+
 	private async assertOpenScope(context: OpenContext) {
 		context.deadline.check();
 		const [owner, generation] = await Promise.all([
@@ -1026,7 +1050,10 @@ export class ComputerEnvironmentController {
 						},
 					});
 				}
-				if (status.ok === false) return status;
+				if (status.ok === false) {
+					await this.forgetFailedRevalidation(environment);
+					return status;
+				}
 				repoSync = record(status.repoSync);
 			}
 			const readiness = record(status.readiness ?? status.bootstrap);
