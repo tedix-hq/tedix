@@ -21,6 +21,8 @@ export interface WorkflowDispatchContext {
 	 * not consume the start-stall budget, and vice versa.
 	 */
 	redriveCount?: number;
+	/** Durable spread after a shared isolate reset; cleared when restart is issued. */
+	redriveNotBefore?: number;
 	/** Latest attempt-scoped Agents SDK error callback, retained until native settlement. */
 	latestAttemptError?: string;
 	/** Number of attempt-scoped error callbacks observed for this native instance. */

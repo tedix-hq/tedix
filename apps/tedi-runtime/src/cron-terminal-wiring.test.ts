@@ -455,6 +455,36 @@ for (const options of [{ exhausted: true }, { admitted: false }]) {
 		workflowInstanceId: "wf-1",
 		attempt: 0,
 	});
+	assert.deepEqual(probe.calls, ["schedule:reconcileChatWorkflowTerminal"]);
+	const deferred = probe.storage.data.get("wfctx:wf-1") as Record<
+		string,
+		unknown
+	>;
+	assert.ok(Number(deferred.redriveNotBefore) > Date.now());
+	assert.equal(
+		deferred.redriveCount,
+		undefined,
+		"waiting consumes no redrive budget",
+	);
+	await probe.agent.reconcileChatWorkflowTerminalInner({
+		workflowInstanceId: "wf-1",
+		attempt: 0,
+	});
+	assert.equal(
+		(probe.storage.data.get("wfctx:wf-1") as Record<string, unknown>)
+			.redriveNotBefore,
+		deferred.redriveNotBefore,
+		"duplicate callbacks retain the original deadline",
+	);
+	probe.storage.data.set("wfctx:wf-1", {
+		...deferred,
+		redriveNotBefore: Date.now() - 1,
+	});
+	probe.calls.length = 0;
+	await probe.agent.reconcileChatWorkflowTerminalInner({
+		workflowInstanceId: "wf-1",
+		attempt: 0,
+	});
 	assert.deepEqual(probe.calls, [
 		'restart:wf-1:{"resetTracking":false}',
 		"schedule:reconcileChatWorkflowTerminal",
@@ -469,7 +499,11 @@ for (const options of [{ exhausted: true }, { admitted: false }]) {
 // re-drive, so the platform orphan sweep does not fail it in the silent gap.
 {
 	const probe = await reconcileProbe(
-		{ runId: "child-run-1", sessionKey: "delegated:home-1" },
+		{
+			runId: "child-run-1",
+			sessionKey: "delegated:home-1",
+			redriveNotBefore: 1,
+		},
 		{
 			status: "errored",
 			error: {
