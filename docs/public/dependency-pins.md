@@ -37,6 +37,15 @@ read those fields for the complete package list and current versions.
 
 ## Overrides
 
+Security overrides pin `dompurify` to 3.4.17, `body-parser` to 2.4.0 and
+`fast-uri` to 3.1.9. Undici uses version-scoped overrides: 7.x consumers stay
+on 7.30.1 and 8.x consumers stay on 8.12.3. This includes Miniflare's exact
+7.x dependency without moving it to a different major. Bun 1.4.2 writes these
+scoped rules in lockfile format 3; keep the manifest and lockfile together.
+The independently installed CMS starters carry the same security overrides
+in their manifests and lockfiles, and in the generated template snapshot.
+Review these pins against upstream security releases when upgrading callers.
+
 | Override         | Why                                                                                                                                                                                                                                           | Upstream                                            |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `zod`            | Forces one zod copy. The AI SDK and `@orpc/zod` check schemas by identity, and several transitive packages still request zod 3; without the override the lockfile resolves several zod versions and schemas fail at runtime.                  | [colinhacks/zod](https://github.com/colinhacks/zod) |

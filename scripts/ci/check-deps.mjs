@@ -50,6 +50,7 @@
 import { globSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { parse as parseJsonc } from "jsonc-parser";
 
 /** The dependency maps Bun copies verbatim into each lockfile workspace entry. */
@@ -213,6 +214,15 @@ function compareMaps(workspace, field, declared = {}, recorded = {}) {
 		const left = declared?.[name];
 		const right = recorded?.[name];
 		if (left === right) continue;
+		// Bun records version-scoped string overrides as { ".": version }.
+		if (
+			field === "overrides" &&
+			isDeepStrictEqual(
+				typeof left === "string" ? { ".": left } : left,
+				typeof right === "string" ? { ".": right } : right,
+			)
+		)
+			continue;
 		findings.push({
 			workspace,
 			what: `${field} · ${name}`,

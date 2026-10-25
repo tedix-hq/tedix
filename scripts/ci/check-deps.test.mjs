@@ -202,6 +202,40 @@ test("catches every drift shape the manifests can carry", () => {
 	assert.match(formatFailure(findings), /^ {2}<root> · catalog · typescript$/m);
 });
 
+test("Bun v3 scoped overrides compare structurally and retain drift checks", () => {
+	const overrides = {
+		"undici@^7": "7.30.1",
+		"undici@^8": "8.12.3",
+	};
+	const manifests = new Map([["", { name: "fixture", overrides }]]);
+	const lock = {
+		lockfileVersion: 3,
+		workspaces: { "": { name: "fixture" } },
+		overrides: {
+			"undici@^8": { ".": "8.12.3" },
+			"undici@^7": { ".": "7.30.1" },
+		},
+	};
+	assert.deepEqual(findLockfileDrift({ manifests, lock }), []);
+	for (const recorded of [
+		{ ".": "7.29.1" },
+		{ ".": "7.30.1", other: "1.0.0" },
+		undefined,
+	]) {
+		const findings = findLockfileDrift({
+			manifests,
+			lock: {
+				...lock,
+				overrides: { ...lock.overrides, "undici@^7": recorded },
+			},
+		});
+		assert.deepEqual(
+			findings.map((finding) => finding.what),
+			["overrides · undici@^7"],
+		);
+	}
+});
+
 test("a workspace member whose deps are untouched reports nothing", () => {
 	assert.deepEqual(
 		findLockfileDrift({
