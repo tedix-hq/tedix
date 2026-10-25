@@ -211,57 +211,6 @@ export interface ValidateOptions {
 	 * Set true for tedi-auth endpoints (withTediAuth middleware).
 	 */
 	allowTediJwt?: boolean;
-	/**
-	 * Report — but do not enforce — what audience checking WOULD do here.
-	 *
-	 * Audience is the only claim that can confine a token to one surface: every
-	 * Tedix app shares one Descope project, so issuer and signature are
-	 * identical across surfaces and prove nothing about where a token was meant
-	 * to be used. Today only the MCP edge passes an audience at all, so a token
-	 * minted for one surface is accepted by the rest.
-	 *
-	 * Turning enforcement on blind would reject live traffic, so this option
-	 * exists to measure first: set it to the surface name, the audience that
-	 * surface expects, and a `report` callback. Every validation then emits an
-	 * observation saying whether the token would still have been accepted.
-	 * Validation behaviour is unchanged while auditing.
-	 */
-	auditAudience?: {
-		/** Stable name for the calling surface, e.g. "api:rpc" or "hub:session". */
-		surface: string;
-		/** Audience(s) this surface would require once enforcement is on. */
-		expected: string[];
-		/**
-		 * Where to send the observation. Passed per call rather than registered
-		 * globally: a module-level sink is an import-time side effect on shared
-		 * state, so the last importer would silently win and a version skew in
-		 * `@tedix/auth` would crash at module load instead of at the call.
-		 */
-		report: (event: AudienceAuditEvent) => void;
-	};
-}
-
-/**
- * One observation of what audience enforcement would have done.
- *
- * `wouldReject` is the headline: if it is false across a full traffic window for
- * a surface, that surface can be flipped to enforcing. `passedOnlyViaProjectId`
- * is the subtler one — see the `primaryAudience` note in `validateToken`.
- */
-export interface AudienceAuditEvent {
-	surface: string;
-	expected: string[];
-	/** The token's own `aud` claim, normalized to an array. */
-	actual: string[];
-	/** True when no expected audience appears in the token's `aud`. */
-	wouldReject: boolean;
-	/**
-	 * True when the token satisfied the CURRENT check only because the bare
-	 * project ID is implicitly accepted, and would fail a strict check.
-	 */
-	passedOnlyViaProjectId: boolean;
-	/** Present when the token carries no `aud` claim at all. */
-	missingAudienceClaim: boolean;
 }
 
 // =============================================================================
