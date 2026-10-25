@@ -11,10 +11,10 @@
  * per-trace drilldowns, and recent code executions with payload drilldowns.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { ChartBar, Clock, Wrench } from "@phosphor-icons/react";
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, type ReactNode, Suspense, useMemo } from "react";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -64,6 +64,43 @@ const EventVolumeChart = lazy(() =>
 
 // =============================================================================
 
+/**
+ * One independently read analytics section. A section that is still loading,
+ * failed, or empty says so instead of disappearing, so a failed read never
+ * looks like zero activity. A failed refresh keeps the earlier data on screen
+ * and says it is earlier data; retry refetches this section's read alone.
+ */
+function AnalyticsSection<T>({
+	label,
+	query,
+	isEmpty,
+	children,
+}: {
+	label: string;
+	query: UseQueryResult<T>;
+	isEmpty?: (data: T) => boolean;
+	children: (data: T) => ReactNode;
+}) {
+	if (query.data === undefined) {
+		return query.isError ? (
+			<AnalyticsQueryState label={label} state="error" query={query} />
+		) : (
+			<AnalyticsQueryState label={label} state="loading" />
+		);
+	}
+	const stale = query.isError ? (
+		<AnalyticsQueryState label={label} state="stale" query={query} />
+	) : null;
+	if (isEmpty?.(query.data))
+		return stale ?? <AnalyticsQueryState label={label} state="empty" />;
+	return (
+		<>
+			{stale}
+			{children(query.data)}
+		</>
+	);
+}
+
 export function AppAnalyticsPage() {
 	const params = useParams({ from: "/_session/_tenant/apps_/$appId" });
 	const appId = params.appId ?? "";
@@ -108,14 +145,12 @@ export function AppAnalyticsPage() {
 		enabled,
 		refetchInterval: 30_000,
 	});
-	const recentActivity = recentActivityQuery.data;
 
 	const humanReviewQuery = useQuery({
 		...appHumanActivityReviewQueryOptions(appId),
 		enabled,
 		refetchInterval: 30_000,
 	});
-	const humanReview = humanReviewQuery.data;
 
 	// Code Mode execution analytics (Analytics Engine, can be slow). The
 	// procedure never throws: an unconfigured AE returns a well-formed empty
@@ -125,7 +160,6 @@ export function AppAnalyticsPage() {
 		enabled,
 		refetchInterval: 60_000,
 	});
-	const codemode = codemodeQuery.data;
 
 	const header = (
 		<AppTabHeader
@@ -142,7 +176,9 @@ export function AppAnalyticsPage() {
 			</div>
 		);
 	}
-	if (metricsQuery.isError || summaryQuery.isError) {
+	const metrics = metricsQuery.data;
+	const summary = summaryQuery.data;
+	if (metrics === undefined || summary === undefined) {
 		const query = metricsQuery.isError ? metricsQuery : summaryQuery;
 		return (
 			<div className="space-y-6">
@@ -153,25 +189,65 @@ export function AppAnalyticsPage() {
 			</div>
 		);
 	}
+	// A failed refresh keeps the earlier metrics and says so.
+	const staleMetricsQuery = metricsQuery.isError
+		? metricsQuery
+		: summaryQuery.isError
+			? summaryQuery
+			: null;
 
-	const metrics = metricsQuery.data;
-	const summary = summaryQuery.data;
-	const toolBreakdown = toolBreakdownQuery.data;
-	const timeSeries = timeSeriesQuery.data;
-	const recentExecutions = recentExecutionsQuery.data;
-	const freshness = freshnessQuery.data;
+	// Audit-backed lanes are read independently of the sampled Analytics
+	// Engine summary, so a zero there must not hide them.
+	const auditSections = (
+		<>
+			<AnalyticsSection
+				label="Human activity review"
+				query={humanReviewQuery}
+				isEmpty={(review) => review.groups.length === 0}
+			>
+				{(review) => <HumanActivityReviewSection review={review} />}
+			</AnalyticsSection>
+			<AnalyticsSection
+				label="Recent activity"
+				query={recentActivityQuery}
+				isEmpty={(activity) => activity.items.length === 0}
+			>
+				{(activity) => <RecentActivitySection items={activity.items} />}
+			</AnalyticsSection>
+			<AnalyticsSection
+				label="Recent code executions"
+				query={recentExecutionsQuery}
+				isEmpty={(recent) => recent.executions.length === 0}
+			>
+				{(recent) => <RecentExecutionsSection executions={recent.executions} />}
+			</AnalyticsSection>
+		</>
+	);
+	const freshnessSection = (
+		<AnalyticsSection label="Activity freshness" query={freshnessQuery}>
+			{(freshness) => <ActivityFreshnessStrip freshness={freshness} />}
+		</AnalyticsSection>
+	);
+	const staleMetrics = staleMetricsQuery ? (
+		<AnalyticsQueryState
+			label="Usage metrics"
+			state="stale"
+			query={staleMetricsQuery}
+		/>
+	) : null;
 
-	const hasActivity = (summary?.totalEvents ?? 0) > 0;
-
-	if (!hasActivity) {
+	if (summary.totalEvents === 0) {
 		return (
 			<div className="space-y-6">
 				{header}
+				{freshnessSection}
+				{staleMetrics}
 				<AppTabEmpty
 					icon={<ChartBar size={20} />}
-					title="No activity yet"
-					description="Analytics will appear once users start interacting with your tools. Connect a client to generate your first session."
+					title="No tool events in this period"
+					description="Usage metrics appear once a connected client calls your tools. Connect a client to generate your first session."
 				/>
+				{auditSections}
 			</div>
 		);
 	}
@@ -179,7 +255,8 @@ export function AppAnalyticsPage() {
 	return (
 		<div className="space-y-6">
 			{header}
-			{freshness && <ActivityFreshnessStrip freshness={freshness} />}
+			{freshnessSection}
+			{staleMetrics}
 
 			<MetricGrid aria-label="Session summary" columns={3} appearance="bounded">
 				<MetricItem
@@ -218,128 +295,106 @@ export function AppAnalyticsPage() {
 			</MetricGrid>
 
 			{/* Event Type Breakdown */}
-			{summary && summary.totalEvents > 0 && (
-				<MetricGrid aria-label="Event summary" columns={5}>
-					<MetricItem
-						emphasis="metric"
-						label="Total events"
-						value={summary.totalEvents.toLocaleString()}
-					/>
-					<MetricItem
-						emphasis="metric"
-						label="Tool calls"
-						value={summary.toolCalls.toLocaleString()}
-					/>
-					<MetricItem
-						emphasis="metric"
-						label="Prompt calls"
-						value={summary.promptCalls.toLocaleString()}
-					/>
-					<MetricItem
-						emphasis="metric"
-						label="Code executions"
-						value={summary.codeExecs.toLocaleString()}
-					/>
-					<MetricItem
-						emphasis="metric"
-						label="Unique users"
-						value={summary.uniqueUsers.toLocaleString()}
-					/>
-				</MetricGrid>
-			)}
+			<MetricGrid aria-label="Event summary" columns={5}>
+				<MetricItem
+					emphasis="metric"
+					label="Total events"
+					value={summary.totalEvents.toLocaleString()}
+				/>
+				<MetricItem
+					emphasis="metric"
+					label="Tool calls"
+					value={summary.toolCalls.toLocaleString()}
+				/>
+				<MetricItem
+					emphasis="metric"
+					label="Prompt calls"
+					value={summary.promptCalls.toLocaleString()}
+				/>
+				<MetricItem
+					emphasis="metric"
+					label="Code executions"
+					value={summary.codeExecs.toLocaleString()}
+				/>
+				<MetricItem
+					emphasis="metric"
+					label="Unique users"
+					value={summary.uniqueUsers.toLocaleString()}
+				/>
+			</MetricGrid>
 
 			{/* The chart is route-lazy; the table remains the exact-value view. */}
-			{timeSeries && timeSeries.buckets.length > 0 && (
-				<>
-					<Suspense fallback={<Skeleton className="h-60" />}>
-						<EventVolumeChart buckets={timeSeries.buckets} />
-					</Suspense>
-					<EventVolumeTable buckets={timeSeries.buckets} />
-				</>
-			)}
+			<AnalyticsSection
+				label="Event volume"
+				query={timeSeriesQuery}
+				isEmpty={(series) => series.buckets.length === 0}
+			>
+				{(series) => (
+					<>
+						<Suspense fallback={<Skeleton className="h-60" />}>
+							<EventVolumeChart buckets={series.buckets} />
+						</Suspense>
+						<EventVolumeTable buckets={series.buckets} />
+					</>
+				)}
+			</AnalyticsSection>
 
 			{/* Avg Latency + Caller Types */}
-			{summary && summary.totalEvents > 0 && (
-				<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-					<Card>
-						<CardContent className="flex items-center gap-4">
-							<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-kumo-fill">
-								<Clock size={20} aria-hidden className="text-kumo-subtle" />
-							</div>
-							<div>
-								<Text as="p" role="metric" weight="semibold" className="m-0">
-									{summary.avgDurationMs}ms
-								</Text>
-								<Text as="p" role="label" tone="secondary" className="m-0">
-									Average latency across all event types
-								</Text>
-							</div>
-						</CardContent>
-					</Card>
-					<CallerTypesCard callerTypes={summary.uniqueCallerTypes} />
-				</div>
-			)}
-
-			{toolBreakdown && toolBreakdown.tools.length > 0 && (
+			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2">
-							<Wrench size={16} aria-hidden />
-							Tool breakdown
-							<Badge variant="outline" className="ml-1 font-normal">
-								{toolBreakdown.tools.length} tools
-							</Badge>
-						</CardTitle>
-					</CardHeader>
-					<CardContent className="px-0">
-						<ToolBreakdownTable tools={toolBreakdown.tools} />
+					<CardContent className="flex items-center gap-4">
+						<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-kumo-fill">
+							<Clock size={20} aria-hidden className="text-kumo-subtle" />
+						</div>
+						<div>
+							<Text as="p" role="metric" weight="semibold" className="m-0">
+								{summary.avgDurationMs}ms
+							</Text>
+							<Text as="p" role="label" tone="secondary" className="m-0">
+								Average latency across all event types
+							</Text>
+						</div>
 					</CardContent>
 				</Card>
-			)}
+				<CallerTypesCard callerTypes={summary.uniqueCallerTypes} />
+			</div>
+
+			<AnalyticsSection
+				label="Tool breakdown"
+				query={toolBreakdownQuery}
+				isEmpty={(breakdown) => breakdown.tools.length === 0}
+			>
+				{(breakdown) => (
+					<Card>
+						<CardHeader>
+							<CardTitle className="flex items-center gap-2">
+								<Wrench size={16} aria-hidden />
+								Tool breakdown
+								<Badge variant="outline" className="ml-1 font-normal">
+									{breakdown.tools.length} tools
+								</Badge>
+							</CardTitle>
+						</CardHeader>
+						<CardContent className="px-0">
+							<ToolBreakdownTable tools={breakdown.tools} />
+						</CardContent>
+					</Card>
+				)}
+			</AnalyticsSection>
 
 			{/* Code Mode execution analytics (Analytics Engine, sampled) */}
-			{codemode &&
-				(codemode.execSummary.totalExecs > 0 ||
-					codemode.byNamespace.length > 0) && (
-					<CodeModeAnalyticsSection summary={codemode} />
-				)}
-			{codemodeQuery.isPending ? (
-				<AnalyticsQueryState label="Code Mode analytics" state="loading" />
-			) : codemodeQuery.isError ? (
-				<AnalyticsQueryState label="Code Mode analytics" state="error" />
-			) : codemode &&
-			  codemode.execSummary.totalExecs === 0 &&
-			  codemode.byNamespace.length === 0 ? (
-				<AnalyticsQueryState label="Code Mode analytics" state="empty" />
-			) : null}
+			<AnalyticsSection
+				label="Code Mode analytics"
+				query={codemodeQuery}
+				isEmpty={(codemode) =>
+					codemode.execSummary.totalExecs === 0 &&
+					codemode.byNamespace.length === 0
+				}
+			>
+				{(codemode) => <CodeModeAnalyticsSection summary={codemode} />}
+			</AnalyticsSection>
 
-			{/* Recent Activity (who — audit-backed) */}
-			{humanReview && humanReview.groups.length > 0 && (
-				<HumanActivityReviewSection review={humanReview} />
-			)}
-			{humanReviewQuery.isPending ? (
-				<AnalyticsQueryState label="Human activity review" state="loading" />
-			) : humanReviewQuery.isError ? (
-				<AnalyticsQueryState label="Human activity review" state="error" />
-			) : humanReview?.groups.length === 0 ? (
-				<AnalyticsQueryState label="Human activity review" state="empty" />
-			) : null}
-
-			{recentActivity && recentActivity.items.length > 0 && (
-				<RecentActivitySection items={recentActivity.items} />
-			)}
-			{recentActivityQuery.isPending ? (
-				<AnalyticsQueryState label="Recent activity" state="loading" />
-			) : recentActivityQuery.isError ? (
-				<AnalyticsQueryState label="Recent activity" state="error" />
-			) : recentActivity?.items.length === 0 ? (
-				<AnalyticsQueryState label="Recent activity" state="empty" />
-			) : null}
-
-			{/* Recent Code Executions */}
-			{recentExecutions && recentExecutions.executions.length > 0 && (
-				<RecentExecutionsSection executions={recentExecutions.executions} />
-			)}
+			{auditSections}
 		</div>
 	);
 }
