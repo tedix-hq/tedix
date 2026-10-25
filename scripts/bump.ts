@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyEdits, modify } from "jsonc-parser";
+import { CMS_TEMPLATE_SLUGS } from "../packages/api-contract/src/schemas/cms-template";
 import { detachedGitEnv } from "./oss/git-env";
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -46,7 +47,9 @@ const rootResult = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 });
 if (rootResult.status !== 0) throw new Error("Run bump inside a Git checkout.");
 const root = rootResult.stdout.trim();
-const templates = ["apps/cms/templates/tedix", "apps/cms/templates/marketing"];
+const templates = CMS_TEMPLATE_SLUGS.map(
+	(slug) => `apps/cms/templates/${slug}`,
+);
 const logDir = mkdtempSync(join(tmpdir(), "tedix-bump-"));
 const reportPath = join(logDir, "result.json");
 const report: {

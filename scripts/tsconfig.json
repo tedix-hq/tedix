@@ -10,6 +10,8 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"bump.ts",
+		"bump.test.ts",
 		"ci/browser-evidence.test.ts",
 		"ci/upload-artifact.mjs",
 		"ci/upload-artifact.test.ts",
