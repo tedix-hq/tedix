@@ -180,7 +180,8 @@ try {
 		await page.getByRole("alertdialog").waitFor();
 		await page.evaluate(async () => {
 			const { toast } = await import("/src/components/kumo/toast.tsx");
-			toast.message("Layer check");
+			// Keep the layering probe alive across separate browser calls on busy runners.
+			toast.message("Layer check", { duration: 0 });
 		});
 		await settleToast(page, "Layer check");
 		const above = await page.evaluate(() => {
