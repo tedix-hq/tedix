@@ -23,6 +23,12 @@ import {
  * `null` so the payload is clean and stable in the ledger.
  */
 export type StepTelemetryPayload = {
+	/** Payload-size proxies, not a measurement of the isolate heap. */
+	heapProxy?: {
+		promptChars: number;
+		inFlightToolResultBytes: number;
+		peakInFlightToolResultBytes: number;
+	};
 	generation?: {
 		requested: ReturnType<typeof resolveFacetGeneration>["requested"];
 		resolved: ReturnType<typeof resolveFacetGeneration>["resolved"];
@@ -97,6 +103,7 @@ function numOrNull(value: number | undefined | null): number | null {
  * Local structural view of the native Pi receipt projection this shaper reads.
  */
 interface StepTelemetryInput {
+	heapProxy?: StepTelemetryPayload["heapProxy"];
 	model?: { provider?: string; modelId?: string };
 	providerMetadata?: unknown;
 	usage?: {
@@ -133,6 +140,7 @@ export function shapeStepTelemetry(
 	const autoRouter = cloudflareAutoRouterReceipt(ctx.providerMetadata);
 	return {
 		source: "pi-provider-receipt",
+		...(ctx.heapProxy ? { heapProxy: ctx.heapProxy } : {}),
 		stepNumber: typeof ctx.stepNumber === "number" ? ctx.stepNumber : 0,
 		finishReason: ctx.finishReason ?? "unknown",
 		provider: ctx.model?.provider ?? null,

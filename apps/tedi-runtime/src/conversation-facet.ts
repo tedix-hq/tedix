@@ -71,6 +71,7 @@ import {
 	type SelectedConversationModelIdentity,
 } from "./turn-model-attribution";
 import { FacetTurnGate } from "./facet-turn-gate";
+import { payloadSize, TurnHeapProxy } from "./turn-heap-proxy";
 import { assertFacetToolRegistryAvailable } from "./facet-turn-guard";
 import { type AigMetadata, type AzureChatEnv } from "./llm";
 import { type FacetTurnUsage, shapeStepTelemetry } from "./step-telemetry";
@@ -269,6 +270,7 @@ export class ConversationFacet extends PiAgent<
 		return "ConversationFacet";
 	}
 	private readonly configuredTurnGate = new FacetTurnGate();
+	private heapProxy = new TurnHeapProxy();
 	private selected?: ReturnType<ConversationFacet["selectModelForTurn"]>;
 	private readonly accounting = new PiTurnAccounting(this.ctx.storage, {
 		reconcileEffect: async (runId, toolCallId) =>
@@ -546,6 +548,7 @@ export class ConversationFacet extends PiAgent<
 						(this.state.imageRefs ?? []).map(workflowImageUri),
 					);
 					const prompt = [...translated.prompt];
+					this.heapProxy.promptChars = payloadSize(prompt).chars;
 					const ordinal = await this.accounting.prepareStep(
 						{
 							messages: prompt,
@@ -700,6 +703,7 @@ export class ConversationFacet extends PiAgent<
 							runId: receipt.runId,
 							sessionKey: receipt.sessionKey ?? "",
 							payload: shapeStepTelemetry({
+								heapProxy: this.heapProxy.snapshot(),
 								// Pi only sees the stable `tedix/selected` catalog entry; the
 								// turn's actual choice is the resolved selection.
 								model: this.selected
@@ -797,30 +801,35 @@ export class ConversationFacet extends PiAgent<
 							toolCallId: api.callId,
 							deadlineAt: this.state.delegationBudget?.deadlineAt,
 						});
+						const releaseResult = this.heapProxy.holdToolResult(result);
 						try {
-							assertFacetToolRegistryAvailable(result);
-						} catch (error) {
-							this.setState({
-								...this.state,
-								toolRegistryUnavailableRunId: this.state.runId,
-							});
-							throw error;
+							try {
+								assertFacetToolRegistryAvailable(result);
+							} catch (error) {
+								this.setState({
+									...this.state,
+									toolRegistryUnavailableRunId: this.state.runId,
+								});
+								throw error;
+							}
+							let projected: unknown = result;
+							if (descriptor.codeModeOutput)
+								projected = codeModeToolModelOutput({ output: result });
+							else if (descriptor.computerExecutionOutput)
+								projected = computerExecutionModelOutput({ output: result });
+							else if (descriptor.computerReadOutput)
+								projected = await computerReadToolModelOutput({
+									toolCallId: api.callId,
+									input: args,
+									output: result,
+								});
+							const output = nativeToolOutput(projected);
+							if (await this.checkNativeToolBudget())
+								return { ...output, control: { terminate: true } };
+							return output;
+						} finally {
+							releaseResult();
 						}
-						let projected: unknown = result;
-						if (descriptor.codeModeOutput)
-							projected = codeModeToolModelOutput({ output: result });
-						else if (descriptor.computerExecutionOutput)
-							projected = computerExecutionModelOutput({ output: result });
-						else if (descriptor.computerReadOutput)
-							projected = await computerReadToolModelOutput({
-								toolCallId: api.callId,
-								input: args,
-								output: result,
-							});
-						const output = nativeToolOutput(projected);
-						if (await this.checkNativeToolBudget())
-							return { ...output, control: { terminate: true } };
-						return output;
 					},
 				};
 			},
@@ -1388,6 +1397,7 @@ export class ConversationFacet extends PiAgent<
 			await this.forkForRegeneration(input.regenerationOf);
 		else if (input.freshHistory) await this.session.clearMessages();
 		const prior = await this.configureConversationTurn(input.configuration);
+		this.heapProxy = new TurnHeapProxy();
 		const text =
 			prior === 0 && !input.freshHistory
 				? (input.firstTurnText ?? input.text)

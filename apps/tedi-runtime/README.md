@@ -147,6 +147,26 @@ already accepted. Exhaustion settles through the normal ledger mirror with
 `delegation_budget`, a partial-result notice, and no extra final-report inference.
 Other organization and model budgets continue to apply independently.
 
+## Durable turn admission
+
+Each `AgentTediDO` admits at most two durable root turns at once, before
+context assembly, tool construction and inference. Excess turns return
+`turn_deferred`; `ChatTurnWorkflow` checkpoints the denial, sleeps durably for
+15–30 seconds, and retries under a fresh step name. Deferral preserves delegated
+Work lease renewal and never reports terminal completion. The in-memory slots
+vanish with the isolate; durable workflow checkpoints own the waiting work.
+
+Internal facet calls run within their root's slot and never reacquire admission.
+Independent child enqueues return immediately and run through their own durable
+admission. Interactive SSE and voice turns retain their existing admission path.
+Native step retries and terminal reset redrives use a stable per-run spread to
+avoid restarting the entire burst together.
+
+Conversation `step.completed` rows and `_tr:step` logs include `heapProxy`:
+prompt string characters and current/peak string or binary bytes held while tool
+results are projected into Pi. These are payload-size proxies, not actual heap
+measurements; they exclude object overhead and results already retained by Pi.
+
 ## Facet metrics (Analytics Engine)
 
 Facet turn observability writes to the `RUNTIME_ANALYTICS` binding
