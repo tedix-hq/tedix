@@ -167,3 +167,26 @@ it("falls back at once when the writer reported the summary unavailable", async 
 	expect(host.querySelector("[data-face-fallback]")).not.toBeNull();
 	expect(host.textContent).not.toContain("Summary unavailable.");
 });
+
+it("stops polling for a summary once the request leaves the freshness window", async () => {
+	vi.useFakeTimers();
+	const unavailable = card(
+		null,
+		"Summary unavailable. Open Details to review the source.",
+	);
+	vi.mocked(osApi.attention.getDeckCard).mockResolvedValue(
+		unavailable as never,
+	);
+	const render = await mount(new Date(Date.now() - 150_000).toISOString());
+	client.setQueryData<unknown>(key, unavailable);
+	await render();
+	vi.mocked(osApi.attention.getDeckCard).mockClear();
+	for (let tick = 0; tick < 60; tick++)
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000);
+		});
+	// Polls only during the 30 s left in the three-minute window.
+	expect(
+		vi.mocked(osApi.attention.getDeckCard).mock.calls.length,
+	).toBeLessThanOrEqual(3);
+});
