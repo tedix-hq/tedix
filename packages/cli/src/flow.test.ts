@@ -257,6 +257,19 @@ describe("collectParams", () => {
 		});
 	});
 
+	it("keeps non-finite numeric-looking values as strings", () => {
+		const params = collectParams({
+			param: ["inf=Infinity", "neg=-Infinity", "huge=1e999", "small=1e3"],
+		});
+		expect(params).toEqual({
+			inf: "Infinity",
+			neg: "-Infinity",
+			huge: "1e999",
+			small: 1000,
+		});
+		expect(JSON.parse(JSON.stringify(params))).toEqual(params);
+	});
+
 	it("rejects malformed input rather than guessing", () => {
 		expect(() => collectParams({ param: ["novalue"] })).toThrow(/k=v/);
 		expect(() => collectParams({ params: "{" })).toThrow(/valid JSON/);

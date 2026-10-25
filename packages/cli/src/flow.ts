@@ -400,13 +400,14 @@ export function collectParams(options: FlowOptions): Record<string, unknown> {
 		const unsafeInteger =
 			/^[+-]?\d+$/.test(raw.trim()) && !Number.isSafeInteger(numeric);
 		// Let obvious scalars through as typed values; everything else stays a
-		// string. Unsafe integers stay strings because numbers cannot preserve them.
+		// string. Unsafe integers and non-finite values stay strings because
+		// numbers cannot preserve them (JSON serializes Infinity as null).
 		params[key] =
 			raw === "true"
 				? true
 				: raw === "false"
 					? false
-					: raw !== "" && !Number.isNaN(numeric) && !unsafeInteger
+					: raw !== "" && Number.isFinite(numeric) && !unsafeInteger
 						? numeric
 						: raw;
 	}
