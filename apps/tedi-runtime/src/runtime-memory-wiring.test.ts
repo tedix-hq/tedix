@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { Database } from "bun:sqlite";
 import { tediDo } from "../test/tedi-do";
+import { DoSkillGuidanceStore } from "./skill-guidance-store-do";
 
 // A failed cold load is cached, so unavailable storage is not retried per turn.
 {
@@ -79,6 +81,79 @@ import { tediDo } from "../test/tedi-do";
 	assert.deepEqual(writes, [text]);
 	assert.equal(agent.skillGuidanceText, text);
 	assert.equal(agent.skillGuidanceLoaded, true);
+}
+
+// Successful refreshes retire removed and archived skills on warm turns and reload.
+for (const emptyCatalog of [
+	[],
+	[
+		{
+			id: "removed-skill",
+			slug: "removed-skill",
+			tediId: "tedi-guidance",
+			lifecycleState: "archived",
+		},
+	],
+]) {
+	const db = new Database(":memory:");
+	const runner = {
+		sql<T>(
+			strings: TemplateStringsArray,
+			...values: (string | number | boolean | null)[]
+		): T[] {
+			return db.query(strings.join("?")).all(...values) as T[];
+		},
+	};
+	const store = new DoSkillGuidanceStore(runner);
+	let entries = [
+		{
+			id: "removed-skill",
+			slug: "removed-skill",
+			tediId: "tedi-guidance",
+			lifecycleState: "active",
+		},
+	];
+	let unavailable = false;
+	const background: Promise<unknown>[] = [];
+	const agent = tediDo({
+		state: { tediId: "tedi-guidance" },
+		ctx: { waitUntil: (task: Promise<unknown>) => background.push(task) },
+		async getPlatformClient() {
+			return {
+				async listSkillsForTedi() {
+					if (unavailable) throw new Error("catalog unavailable");
+					return { entries };
+				},
+			};
+		},
+		cacheRetrievalCorpus() {},
+		getSkillGuidanceStore: () => store,
+	});
+	const original = await agent.skillGuidanceAddendum();
+	assert.match(original, /skill removed-skill:/);
+	assert.equal(store.load()?.text, original);
+
+	unavailable = true;
+	assert.equal(await agent.skillGuidanceAddendum(), original);
+	await Promise.all(background.splice(0));
+	assert.equal(agent.skillGuidanceText, original);
+	assert.equal(store.load()?.text, original);
+
+	unavailable = false;
+	entries = emptyCatalog;
+	assert.equal(await agent.skillGuidanceAddendum(), original);
+	await Promise.all(background.splice(0));
+	assert.equal(agent.skillGuidanceText, "");
+	assert.equal(agent.skillGuidanceLoaded, true);
+	assert.equal(store.load()?.text, "");
+	assert.equal(await agent.skillGuidanceAddendum(), "");
+
+	const reloaded = tediDo({
+		getSkillGuidanceStore: () => new DoSkillGuidanceStore(runner),
+	});
+	reloaded.ensureSkillGuidanceLoaded();
+	assert.equal(reloaded.skillGuidanceText, "");
+	assert.equal(reloaded.skillGuidanceLoaded, true);
 }
 
 console.log("runtime memory wiring characterization passed");

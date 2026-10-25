@@ -326,11 +326,12 @@ export async function buildAndCacheSkillGuidance(
 		// auto-advertised (progressive disclosure: compact, relevant
 		// discovery — not an always-on catalog).
 		const entries = selectGuidanceSkills(allEntries, this.state.tediId);
-		if (entries.length === 0) return "";
 
-		const lines: string[] = [
-			`You have ${entries.length} platform skill(s) available. Use \`read_skill\` to load the full procedure for any skill listed below before following it.`,
-		];
+		const lines: string[] = entries.length
+			? [
+					`You have ${entries.length} platform skill(s) available. Use \`read_skill\` to load the full procedure for any skill listed below before following it.`,
+				]
+			: [];
 		for (const entry of entries) {
 			const slug = entry.slug ?? entry.id;
 			const summary = entry.summary ?? entry.description ?? "(no summary)";
