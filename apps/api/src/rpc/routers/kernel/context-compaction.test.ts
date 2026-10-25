@@ -396,7 +396,7 @@ describe("assembleHomeContext — history compaction", () => {
 		const ctx = await assembleHomeContext(db, ORG_ID, {
 			conversationId: "home:long",
 			// Leave room for one checkpoint alongside the fixed system prompt.
-			maxPromptTokens: 3_200,
+			maxPromptTokens: 4_000,
 			summarizeHistory: summarize,
 		});
 		warn.mockRestore();
