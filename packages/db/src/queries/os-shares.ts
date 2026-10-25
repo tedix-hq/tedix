@@ -285,6 +285,29 @@ export async function touchOsShareSession(
 	return row;
 }
 
+/**
+ * A live session by id, for a runtime that already holds a signed reference
+ * to it (a guest's app session). Read-only: it does not advance last-seen.
+ */
+export async function getLiveOsShareSession(
+	db: DbQueryClient,
+	sessionId: string,
+	now: string,
+): Promise<OsShareSessionRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osShareSessions)
+		.where(
+			and(
+				eq(osShareSessions.id, sessionId),
+				isNull(osShareSessions.revokedAt),
+				gt(osShareSessions.expiresAt, now),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
 /** Count live sessions for revocation-impact preview. */
 export async function countActiveOsShareSessions(
 	db: DbQueryClient,

@@ -28,6 +28,8 @@ export const WorkspaceAppSessionSchema = z
 		),
 		previewId: z.uuid().optional(),
 		codeDigest: z.string().optional(),
+		/** Set for a guest who opened the app through a share link; revoking the link cuts the session. */
+		shareLinkId: z.uuid().optional(),
 	})
 	.strict();
 export type WorkspaceAppSession = z.infer<typeof WorkspaceAppSessionSchema>;

@@ -96,6 +96,42 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 	});
 
+	// A share-link guest using a runtime app: open its client, call its server,
+	// read a granted Output. Each call re-resolves the share session; every
+	// refusal is the same 404 as an unknown link.
+	// authz: public — the share session token is the only credential; apps/api binds it to one link, role use.
+	app.post("/os-shared/app/open", async (c) => {
+		const [{ handleGuestAppOpen }, { createDbQueryClient }] = await Promise.all(
+			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
+		);
+		return handleGuestAppOpen(
+			c.env,
+			createDbQueryClient(c.env.DB),
+			await c.req.json().catch(() => null),
+		);
+	});
+	// authz: public — same share session token; the signed app session must match it and the link.
+	app.post("/os-shared/app/call", async (c) => {
+		const [{ handleGuestAppCall }, { createDbQueryClient }] = await Promise.all(
+			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
+		);
+		return handleGuestAppCall(
+			c.env,
+			createDbQueryClient(c.env.DB),
+			await c.req.json().catch(() => null),
+		);
+	});
+	// authz: public — same share session token; reads only granted, sourceless Outputs.
+	app.post("/os-shared/app/read", async (c) => {
+		const [{ handleGuestAppRead }, { createDbQueryClient }] = await Promise.all(
+			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
+		);
+		return handleGuestAppRead(
+			createDbQueryClient(c.env.DB),
+			await c.req.json().catch(() => null),
+		);
+	});
+
 	// Unknown, revoked, and expired tokens are indistinguishable 404s.
 	app.get("/os-shared/:token", async (c) => {
 		const [

@@ -116,7 +116,11 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	}
 	#cutOff(session: VerifiedSession): boolean {
 		const issuedAt = session.expiresAt - APP_SESSION_TTL_SECONDS;
-		return [session.principal.id, session.actorUserId].some((id) => {
+		return [
+			session.principal.id,
+			session.actorUserId,
+			session.shareLinkId,
+		].some((id) => {
 			if (!id) return false;
 			const cut = this.ctx.storage.kv.get<number>(`cut:${id}`);
 			return cut !== undefined && issuedAt <= cut;

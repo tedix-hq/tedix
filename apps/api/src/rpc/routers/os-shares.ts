@@ -20,6 +20,7 @@ import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsOutputRevision } from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";
+import { cutWorkspaceAppSessions } from "../../services/os-app-session-revocation";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsShareLinkRow } from "@tedix/db/schema/os-shares";
@@ -400,6 +401,7 @@ const sharesRevoke = authorOs.shares.revoke.handler(
 		if (!row) {
 			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
 		}
+		await cutShareLinkAppSessions(context, db, row);
 		return { share: mapShareLink(row), revokedSessionCount };
 	},
 );
@@ -440,12 +442,36 @@ const sharesRestrict = authorOs.shares.restrict.handler(
 				"Policy restriction cannot clear or widen the current ceiling",
 			);
 		}
+		await cutShareLinkAppSessions(context, db, result.share);
 		return {
 			share: mapShareLink(result.share),
 			revokedSessionCount: result.revokedSessionCount,
 		};
 	},
 );
+
+/**
+ * A guest who opened a runtime app through this link may still hold a signed
+ * app session or be inside a call; the workspace's app host refuses sessions
+ * minted for the link up to now and restarts its apps.
+ */
+async function cutShareLinkAppSessions(
+	context: BaseContext,
+	db: ReturnType<typeof queryDb>,
+	link: OsShareLinkRow,
+) {
+	if (link.resourceType !== "gadget") return;
+	const gadget = await getOsGadget(db, {
+		organizationId: link.organizationId,
+		gadgetId: link.resourceId,
+	});
+	if (!gadget) return;
+	await cutWorkspaceAppSessions(context.env, {
+		organizationId: link.organizationId,
+		workspaceId: gadget.workspaceId,
+		principalIds: [link.id],
+	});
+}
 
 const sharesDelete = adminOs.shares.delete.handler(
 	async ({ input, context }) => {
