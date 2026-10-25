@@ -1,86 +1,91 @@
-import { DatabaseSync } from "node:sqlite";
-import { ORPCError } from "@orpc/server";
-import { createDbClient } from "@tedix/db/client";
-import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { workEvents } from "@tedix/db/schema/work-items";
-import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
-import { createWorkItem } from "@tedix/db/queries/work-items/crud";
-import { describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { WorkItem } from "@tedix/db/schema/work-items";
 import type { BaseContext } from "../../orpc";
-import { assertWorkItemAccess } from "./policy-helpers";
 
-const itemId = "11111111-1111-4111-8111-111111111111";
-const ownerOrg = "org_owner_private";
-const ownerTitle = "Confidential roadmap";
+const attempts = vi.hoisted(() => ({ list: vi.fn() }));
+vi.mock("@tedix/db/queries/work-items/attempts", () => ({
+	listWorkItemAttempts: attempts.list,
+}));
 
-async function fixture() {
-	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec("PRAGMA foreign_keys=OFF");
-	sqlite.exec(canonicalWorkFactoryDdl() + schemaDdl(workEvents));
-	sqlite.exec(
-		`INSERT INTO organizations(id,name,slug) VALUES('${ownerOrg}','Owner','owner'),('org_caller','Caller','caller');`,
-	);
-	const db = createDbClient(createD1Facade(sqlite));
-	await createWorkItem(db, {
-		id: itemId,
-		orgId: ownerOrg,
-		title: ownerTitle,
-		createdBy: { type: "user", id: "member" },
-		createdAt: "2026-10-19T00:00:00Z",
-	});
-	const contextFor = (organizationId: string) =>
-		({
-			db,
-			organizationId,
-			authType: "user",
-			headers: new Headers(),
-		}) as BaseContext;
-	return { contextFor };
+import { canCompleteOwnSucceededAttempt } from "./policy-helpers";
+
+const AGENT = "11111111-1111-4111-8111-111111111111";
+const SESSION = "22222222-2222-4222-8222-222222222222";
+const SHA = "a".repeat(40);
+const context = { db: {} } as unknown as BaseContext;
+
+function item(overrides: Partial<WorkItem> = {}): WorkItem {
+	return {
+		id: "33333333-3333-4333-8333-333333333333",
+		orgId: "44444444-4444-4444-8444-444444444444",
+		disposition: "accepted",
+		title: "Fence the provider registration cache",
+		description: "Keep stale loads from refilling scopes.",
+		...overrides,
+	} as WorkItem;
 }
 
-async function rejection(
-	promise: Promise<unknown>,
-): Promise<ORPCError<string, unknown>> {
-	try {
-		await promise;
-	} catch (error) {
-		if (error instanceof ORPCError) return error;
-		throw error;
-	}
-	throw new Error("expected a rejection");
+function attempt(overrides: Record<string, unknown> = {}) {
+	return {
+		executorType: "external_agent",
+		executorId: AGENT,
+		executorSessionId: SESSION,
+		outcome: "succeeded",
+		metadata: { settlement: { mode: "commit", commitSha: SHA } },
+		...overrides,
+	};
 }
 
-describe("assertWorkItemAccess", () => {
-	it("returns the item for its own organization", async () => {
-		const { contextFor } = await fixture();
-		const item = await assertWorkItemAccess(contextFor(ownerOrg), itemId);
-		expect(item.id).toBe(itemId);
+describe("canCompleteOwnSucceededAttempt", () => {
+	beforeEach(() => {
+		attempts.list.mockReset();
+		attempts.list.mockResolvedValue({ data: [attempt()], nextCursor: null });
 	});
 
-	it("keeps NOT_FOUND for an unknown id", async () => {
-		const { contextFor } = await fixture();
-		const error = await rejection(
-			assertWorkItemAccess(
-				contextFor("org_caller"),
-				"22222222-2222-4222-8222-222222222222",
-			),
-		);
-		expect(error.code).toBe("NOT_FOUND");
-		expect(error.message).toBe("Work Item not found");
+	const allowed = (work = item(), sessionId: string | null = SESSION) =>
+		canCompleteOwnSucceededAttempt(context, work, { id: AGENT, sessionId });
+
+	it("lets the agent complete an accepted item its own succeeded settle proved with a commit", async () => {
+		await expect(allowed()).resolves.toBe(true);
+		expect(attempts.list).toHaveBeenCalledWith(context.db, {
+			orgId: item().orgId,
+			workItemId: item().id,
+			limit: 1,
+		});
 	});
 
-	it("names only the caller's organization on a cross-organization denial", async () => {
-		const { contextFor } = await fixture();
-		const error = await rejection(
-			assertWorkItemAccess(contextFor("org_caller"), itemId),
+	it.each([
+		["another agent's attempt", { executorId: "other-agent" }],
+		["another session of the same agent", { executorSessionId: "other" }],
+		["a failed settle", { outcome: "failed" }],
+		["a settle without a commit", { metadata: {} }],
+		[
+			"a malformed commit",
+			{ metadata: { settlement: { mode: "commit", commitSha: "abc" } } },
+		],
+		["a tedi attempt", { executorType: "tedi" }],
+	])("refuses %s", async (_label, overrides) => {
+		attempts.list.mockResolvedValue({
+			data: [attempt(overrides)],
+			nextCursor: null,
+		});
+		await expect(allowed()).resolves.toBe(false);
+	});
+
+	it("refuses an item that is not accepted, or a caller without a session", async () => {
+		await expect(allowed(item({ disposition: "proposed" }))).resolves.toBe(
+			false,
 		);
-		expect(error.code).toBe("FORBIDDEN");
-		expect(error.message).toBe(
-			"Access denied to this Work Item: it is not in organization org_caller; select the owning organization (tedix --organization <org>) or check the id",
-		);
-		// The owning tenant's data must not leak through the denial.
-		expect(error.message).not.toContain(ownerOrg);
-		expect(error.message).not.toContain(ownerTitle);
-		expect(error.data).toBeUndefined();
+		await expect(allowed(item(), null)).resolves.toBe(false);
+		attempts.list.mockResolvedValue({ data: [], nextCursor: null });
+		await expect(allowed()).resolves.toBe(false);
+	});
+
+	it.each([
+		"Rotate the provider API key and paste the new credentials",
+		"Pay the supplier invoice by bank transfer",
+		"Send the weekly summary email to every customer",
+	])("keeps owner completion for reserved work: %s", async (title) => {
+		await expect(allowed(item({ title }))).resolves.toBe(false);
 	});
 });

@@ -6,6 +6,8 @@ import {
 	getProjectByIdForOrganization,
 } from "@tedix/db/queries/projects";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
+import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
+import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { requireOrgId } from "../../org-scope";
 import {
 	type BaseContext,
@@ -58,6 +60,52 @@ export async function requireOwnerAdminWorkItemAuthor(
 	return membership.userId;
 }
 
+/** Human-reserved classes whose Work only the owner may complete. */
+const OWNER_COMPLETION_CLASSES = new Set([
+	"credentials",
+	"money",
+	"external_message",
+]);
+
+/**
+ * Whether an external agent may complete this Work Item itself: it is
+ * accepted, its latest Attempt is this agent's own (same principal and
+ * verified session) and settled succeeded with a commit as evidence, and it is
+ * not credentials, payment or external-messaging work. Owner completion stays
+ * available either way.
+ */
+export async function canCompleteOwnSucceededAttempt(
+	context: BaseContext,
+	item: WorkItem,
+	actor: { id: string; sessionId?: string | null },
+): Promise<boolean> {
+	if (item.disposition !== "accepted" || !actor.sessionId) return false;
+	const reserved = humanReservedActionClasses(
+		`${item.title}\n${item.description ?? ""}`,
+	);
+	if (reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id))) return false;
+	const { data } = await listWorkItemAttempts(context.db, {
+		orgId: item.orgId,
+		workItemId: item.id,
+		limit: 1,
+	});
+	const latest = data[0];
+	const settlement = latest?.metadata?.settlement;
+	const commitSha =
+		settlement && typeof settlement === "object" && !Array.isArray(settlement)
+			? settlement.commitSha
+			: undefined;
+	return Boolean(
+		latest &&
+		latest.executorType === "external_agent" &&
+		latest.executorId === actor.id &&
+		latest.executorSessionId === actor.sessionId &&
+		latest.outcome === "succeeded" &&
+		typeof commitSha === "string" &&
+		/^[a-f\d]{40}$/i.test(commitSha),
+	);
+}
+
 export async function workItemStewardActor(
 	context: BaseContext,
 	item: WorkItem,
@@ -73,6 +121,12 @@ export async function workItemStewardActor(
 			id: await requireOwnerAdminWorkItemAuthor(context, item.orgId),
 		};
 	}
+	if (
+		actor.type === "external_agent" &&
+		action === "completion" &&
+		(await canCompleteOwnSucceededAttempt(context, item, actor))
+	)
+		return actor;
 	if (actor.type === "tedi") {
 		if (action === "cancellation") {
 			const project = item.projectId
@@ -107,7 +161,9 @@ export async function workItemStewardActor(
 	}
 	throw createError(
 		ErrorCodes.FORBIDDEN,
-		`Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
+		action === "completion" && actor.type === "external_agent"
+			? "Work Item completion requires its owner or steward; an agent may complete only an accepted item whose latest Attempt is its own, settled succeeded with a commit, and not credentials, payment or messaging work"
+			: `Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
 	);
 }
 
