@@ -212,6 +212,44 @@ describe("email header parsing", () => {
 		]);
 	});
 
+	it("decodes encoded text bodies with their declared charset", () => {
+		const parsed = parseInboundEmail(
+			[
+				'Content-Type: multipart/alternative; boundary="alt"',
+				"",
+				"--alt",
+				'Content-Type: text/plain; charset="ISO-8859-1"',
+				"Content-Transfer-Encoding: base64",
+				"",
+				"Y2Fm6Q==",
+				"--alt",
+				"Content-Type: text/html; charset=windows-1252",
+				"Content-Transfer-Encoding: quoted-printable",
+				"",
+				"<p>=80 5 caf=E9</p>",
+				"--alt--",
+			].join("\r\n"),
+		);
+
+		expect(parsed.text).toBe("café");
+		expect(parsed.html).toBe("<p>€ 5 café</p>");
+	});
+
+	it("falls back to UTF-8 when the declared charset is unknown or absent", () => {
+		const body = (charset: string) =>
+			parseInboundEmail(
+				[
+					`Content-Type: text/plain${charset}`,
+					"Content-Transfer-Encoding: base64",
+					"",
+					"Y2Fmw6k=",
+				].join("\r\n"),
+			).text;
+
+		expect(body("; charset=x-not-a-charset")).toBe("café");
+		expect(body("")).toBe("café");
+	});
+
 	it("preserves semicolons and escaped quotes in quoted MIME parameters", () => {
 		const parsed = parseInboundEmail(
 			[

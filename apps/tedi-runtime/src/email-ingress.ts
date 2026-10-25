@@ -119,7 +119,7 @@ function decodeQuotedPrintableHeader(value: string): Uint8Array {
 	return new Uint8Array(bytes);
 }
 
-function decodeQuotedPrintableText(value: string): string {
+function decodeQuotedPrintableText(value: string, charset?: string): string {
 	const withoutSoftBreaks = value.replace(/=\r?\n/g, "");
 	const encoder = new TextEncoder();
 	const bytes: number[] = [];
@@ -135,7 +135,16 @@ function decodeQuotedPrintableText(value: string): string {
 		}
 		bytes.push(...encoder.encode(char ?? ""));
 	}
-	return new TextDecoder("utf-8").decode(new Uint8Array(bytes));
+	return decodeCharset(new Uint8Array(bytes), charset);
+}
+
+/** Decode with the declared MIME charset, falling back to UTF-8 for unknown labels. */
+function decodeCharset(bytes: Uint8Array, charset?: string): string {
+	try {
+		return new TextDecoder(charset?.trim() || "utf-8").decode(bytes);
+	} catch {
+		return new TextDecoder("utf-8").decode(bytes);
+	}
 }
 
 function decodeQuotedPrintableBytes(value: string): Uint8Array {
@@ -369,11 +378,17 @@ function decodeBase64Bytes(value: string): Uint8Array {
 	}
 }
 
-function decodePartText(body: string, transferEncoding: string | null): string {
+function decodePartText(
+	body: string,
+	transferEncoding: string | null,
+	charset: string | undefined,
+): string {
 	const encoding = (transferEncoding ?? "").trim().toLowerCase();
-	if (encoding === "quoted-printable") return decodeQuotedPrintableText(body);
+	if (encoding === "quoted-printable") {
+		return decodeQuotedPrintableText(body, charset);
+	}
 	if (encoding === "base64") {
-		return new TextDecoder("utf-8").decode(decodeBase64Bytes(body));
+		return decodeCharset(decodeBase64Bytes(body), charset);
 	}
 	return body;
 }
@@ -462,12 +477,20 @@ function parseMimePart(
 			!mediaType.startsWith("text/"));
 
 	if (!isAttachment && mediaType.startsWith("text/plain") && !result.text) {
-		result.text = decodePartText(body, transferEncoding).trim();
+		result.text = decodePartText(
+			body,
+			transferEncoding,
+			contentType.params.charset,
+		).trim();
 		return;
 	}
 
 	if (!isAttachment && mediaType.startsWith("text/html") && !result.html) {
-		result.html = decodePartText(body, transferEncoding).trim();
+		result.html = decodePartText(
+			body,
+			transferEncoding,
+			contentType.params.charset,
+		).trim();
 		return;
 	}
 
