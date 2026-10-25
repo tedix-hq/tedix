@@ -2925,19 +2925,31 @@ describe("grounding a commit", () => {
 		};
 
 		const container = await openDoc("Weekly report");
-		session.remote(
-			JSON.stringify({
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "edited" }],
-			}),
+		// Deliver the peer edit inside act and let it render: unflushed, Save
+		// version can still be disabled when commit() clicks it, which is what
+		// made this test pass only after other tests had warmed the page.
+		act(() =>
+			session.remote(
+				JSON.stringify({
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "edited" }],
+				}),
+			),
 		);
+		await flush();
 		await commit(container);
 
-		expect(collabCommit.groundCommit).toHaveBeenCalledWith(
-			collabCommit.basis,
-			3,
-			saved.id,
+		// The revise mutation settles, then grounds the room. Under a loaded
+		// test shard that chain can outlast commit()'s fixed flush, so wait for
+		// the grounding itself rather than a number of event-loop ticks.
+		await vi.waitFor(() =>
+			expect(collabCommit.groundCommit).toHaveBeenCalledWith(
+				collabCommit.basis,
+				3,
+				saved.id,
+			),
 		);
+		expect(collabCommit.groundCommit).toHaveBeenCalledTimes(1);
 	});
 
 	it("never commits without a basis: Commit waits while the room is still saving", async () => {
