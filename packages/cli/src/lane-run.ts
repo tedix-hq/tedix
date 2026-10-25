@@ -84,6 +84,7 @@ async function runLaneProcessWithReporter(
 		report?: typeof reportLaneObservation;
 		heartbeatMs?: number;
 		sessionKey?: string;
+		label?: string;
 		cwd?: string;
 		childScope?: { workspace: string; organization: string };
 		detachedChild?: boolean;
@@ -225,6 +226,15 @@ async function runLaneProcessWithReporter(
 			? { rateScope: options.get("--rate-scope")! }
 			: {}),
 	};
+	const label = (
+		deps.label?.trim() ||
+		(options.has("--work-item")
+			? ""
+			: /^#{1,6}\s+(.+?)\s*#*\s*$/m.exec(telemetry.brief)?.[1] ||
+				telemetry.brief)
+	)
+		.replace(/\s+/g, " ")
+		.slice(0, 120);
 	const observationInput = (key: string, observed: LaneObservation) => ({
 		harness: executor,
 		sessionKey: key,
@@ -238,7 +248,7 @@ async function runLaneProcessWithReporter(
 				: observed.finishedAt
 					? "done"
 					: "working",
-		label: observed.brief.replace(/\s+/g, " ").slice(0, 120),
+		label,
 		summary: observed.finalMessage.replace(/\s+/g, " ").slice(0, 200),
 		telemetry: LaneTelemetryInputSchema.parse(observed),
 	});
@@ -339,6 +349,7 @@ async function runLaneProcessWithReporter(
 			options.get("--organization") ??
 			process.env.TEDIX_ORGANIZATION,
 		TEDIX_LANE_ID: sessionKey,
+		TEDIX_LANE_LABEL: label,
 		...(opencode ? { OPENCODE_DISABLE_AUTOUPDATE: "true" } : {}),
 		TEDIX_LANE_TELEMETRY_PATH: receipt,
 		TEDIX_LANE_RATE_SCOPE: telemetry.rateScope ?? "",
