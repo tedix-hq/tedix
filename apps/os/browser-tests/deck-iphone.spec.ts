@@ -98,6 +98,13 @@ function measure(page: Page) {
  * whose consequence was clipped mid-sentence. The first sample card is
  * rewritten into that shape on the wire.
  */
+/*
+ * WebKit lays the card out on fractional pixels, so the same card can measure
+ * just over one pixel apart before and after the keyboard. Allow that rounding
+ * and nothing more: a keyboard-driven resize changes it by far more than that.
+ */
+const KEYBOARD_LAYOUT_TOLERANCE = 1.5;
+
 const LIVE_CARD = "000000a7-0000-4000-8000-000000000001";
 const now = Date.now();
 const presentation = {
@@ -386,11 +393,13 @@ try {
 				`${label}: card layout with keyboard`,
 			);
 			assert(
-				Math.abs(keyboard.cardHeight - reference.cardHeight) <= 1,
+				Math.abs(keyboard.cardHeight - reference.cardHeight) <
+					KEYBOARD_LAYOUT_TOLERANCE,
 				`${label}: keyboard resized the card ${reference.cardHeight} -> ${keyboard.cardHeight}`,
 			);
 			assert(
-				Math.abs(keyboard.navBottom - keyboard.layoutHeight) <= 1,
+				Math.abs(keyboard.navBottom - keyboard.layoutHeight) <
+					KEYBOARD_LAYOUT_TOLERANCE,
 				`${label}: keyboard lifted the Feed/Deck bar to ${keyboard.navBottom}`,
 			);
 			if (shots)
