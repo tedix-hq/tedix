@@ -45,6 +45,15 @@ export interface ReadOptions {
 	cwd?: string;
 	env?: NodeJS.ProcessEnv;
 	includeErrorMessage?: boolean;
+	/**
+	 * Asked when the deadline elapses: milliseconds the child may still need
+	 * because it is provably queued behind something outside its own request,
+	 * such as the machine-wide gateway rate-limit cooldown. A positive answer
+	 * re-arms the deadline once more; zero or less ends the read.
+	 */
+	deadlineGraceMs?: () => number;
+	/** Hard ceiling on the whole read, grace included (default: no grace). */
+	maxTimeoutMs?: number;
 }
 
 /** Bytes of the child's stderr a read failure message carries. */
@@ -352,10 +361,22 @@ export function readJsonChild(
 			setTimeout(() => kill("SIGKILL"), 100);
 			reject(error);
 		};
-		const timer = setTimeout(
-			() => fail(new Error("Tedix CLI read deadline elapsed")),
-			timeoutMs,
-		);
+		// Monotonic, so a wall-clock jump cannot stretch the ceiling.
+		const hardDeadlineAt =
+			performance.now() +
+			Math.max(timeoutMs, options.maxTimeoutMs ?? timeoutMs);
+		const expire = () => {
+			const grace = Math.min(
+				options.deadlineGraceMs?.() ?? 0,
+				hardDeadlineAt - performance.now(),
+			);
+			if (grace > 0 && Number.isFinite(grace)) {
+				timer = setTimeout(expire, grace);
+				return;
+			}
+			fail(new Error("Tedix CLI read deadline elapsed"));
+		};
+		let timer = setTimeout(expire, timeoutMs);
 		if (input !== undefined) {
 			child.stdin?.on("error", () => {});
 			child.stdin?.end(input);

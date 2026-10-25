@@ -24,6 +24,7 @@ import {
 	parseServeOptions,
 	proposedAcceptance,
 	serialCalls,
+	cooldownGraceMs,
 	type DispatchItem,
 	type ServeOptions,
 } from "./lane-serve";
@@ -110,6 +111,8 @@ function fixture({
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
 			: (undefined as Error | undefined),
 		readiness: { ready: true, reasons: [] as Array<{ detail: string }> },
+		cooldownUntil: 0,
+		cooldownWorkspaces: [] as Array<string | undefined>,
 		history: {
 			data: [] as Record<string, unknown>[],
 			nextCursor: null as string | null,
@@ -119,6 +122,10 @@ function fixture({
 	const config = { ...options, executor, coordinated, acceptProposed };
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		darkWake: () => dark,
+		gatewayCooldownUntil: (workspace) => {
+			control.cooldownWorkspaces.push(workspace);
+			return control.cooldownUntil;
+		},
 		available: () => true,
 		budgets: () => ({}),
 		devinAvailable: () => devinReady,
@@ -854,6 +861,64 @@ describe("dispatcher admission", () => {
 		const { dispatcher, events } = fixture({ dark: true });
 		await dispatcher.tick();
 		expect(events).toHaveLength(0);
+	});
+	it("waits out the login's shared gateway cooldown instead of queuing reads into it", async () => {
+		let now = 1_800_000_000_000;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const { dispatcher, events, control, releases, dir } = fixture();
+		try {
+			control.cooldownUntil = now + 59_000;
+			await dispatcher.tick();
+			expect(events).toHaveLength(0);
+			expect(control.cooldownWorkspaces).toContain("acme");
+			expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+				"Gateway rate limit for this login until",
+			);
+			// The loop wakes when the cooldown ends, not on a blind 30 s timer.
+			expect(dispatcher.nextTickDelayMs()).toBeGreaterThanOrEqual(59_000);
+			expect(dispatcher.nextTickDelayMs()).toBeLessThanOrEqual(64_000);
+			now += 59_001;
+			expect(dispatcher.nextTickDelayMs()).toBe(30_000);
+			await dispatcher.tick();
+			expect(events.some((event) => event.verb === "dispatch-list")).toBe(true);
+			await until(() => releases.length === 2);
+		} finally {
+			for (const release of releases) release();
+			await dispatcher.drain();
+			clock.mockRestore();
+		}
+	});
+	it("gives a read queued behind the cooldown the rest of it plus a request budget", () => {
+		expect(cooldownGraceMs(0, 1_000)).toBe(0);
+		expect(cooldownGraceMs(1_000, 1_000)).toBe(0);
+		expect(cooldownGraceMs(46_000, 1_000)).toBe(75_000);
+	});
+	it("sweeps proposals at most every five minutes", async () => {
+		let now = 1_800_000_000_000;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const { dispatcher, events, releases, items } = fixture({
+			acceptProposed: true,
+		});
+		items.splice(0);
+		const sweeps = () =>
+			events.filter(
+				(event) =>
+					event.verb === "dispatch-list" &&
+					event.input?.disposition === "proposed",
+			).length;
+		try {
+			await dispatcher.tick();
+			now += 30_000;
+			await dispatcher.tick();
+			expect(sweeps()).toBe(1);
+			now += 5 * 60_000;
+			await dispatcher.tick();
+			expect(sweeps()).toBe(2);
+		} finally {
+			for (const release of releases) release();
+			await dispatcher.drain();
+			clock.mockRestore();
+		}
 	});
 	it("retains the exact fence, outcome and retry deadline when settlement fails", async () => {
 		const { dispatcher, releases, dir } = fixture({ failSettle: true });

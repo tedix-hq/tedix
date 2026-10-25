@@ -135,6 +135,35 @@ describe("owning raw hook child collector", () => {
 		).rejects.toThrow("deadline");
 		expect(performance.now() - t).toBeLessThan(600);
 	});
+	test("a read queued behind a shared wait gets grace up to its ceiling", async () => {
+		// Answers after 250 ms, past its 60 ms deadline, while grace holds.
+		const slow = `setTimeout(()=>process.stdout.write('{"ok":true}'),250);`;
+		let asked = 0;
+		expect(
+			await readJsonChild(process.execPath, ["-e", slow], 60, undefined, {
+				deadlineGraceMs: () => (++asked, 100),
+				maxTimeoutMs: 2000,
+			}),
+		).toEqual({ ok: true });
+		expect(asked).toBeGreaterThan(0);
+		const t = performance.now();
+		await expect(
+			readJsonChild(
+				process.execPath,
+				["-e", "setInterval(()=>{},1000);"],
+				60,
+				undefined,
+				{ deadlineGraceMs: () => 10_000, maxTimeoutMs: 300 },
+			),
+		).rejects.toThrow("deadline");
+		expect(performance.now() - t).toBeLessThan(1500);
+		await expect(
+			readJsonChild(process.execPath, ["-e", slow], 60, undefined, {
+				deadlineGraceMs: () => 0,
+				maxTimeoutMs: 2000,
+			}),
+		).rejects.toThrow("deadline");
+	});
 	test("dispatcher reads retain structured exit-2 diagnostics without accepting error output as success", async () => {
 		const source = `process.stdout.write(JSON.stringify({error:{code:'BAD_REQUEST',message:'No verified executor session'}}));process.exitCode=2;`;
 		await expect(
