@@ -660,31 +660,37 @@ function WorkItemMobileList({
 											OS_COPY.work.kinds.other}
 									</dd>
 								</div>
-								<span aria-hidden="true">·</span>
-								<div className="min-w-0">
+								<div className="flex min-w-0 max-w-full items-baseline">
 									<dt className="sr-only">Updated</dt>
-									<dd className="m-0 break-words">
+									<dd className="m-0 flex min-w-0 items-baseline gap-x-1 break-words">
+										<span className="shrink-0" aria-hidden="true">
+											·
+										</span>
 										<time dateTime={updatedAt} title={absoluteTime(updatedAt)}>
 											{absoluteDate(updatedAt)}
 										</time>
 									</dd>
 								</div>
-								<span aria-hidden="true">·</span>
-								<div className="min-w-0 max-w-full">
+								<div className="flex min-w-0 max-w-full items-baseline">
 									<dt className="sr-only">{OS_COPY.work.owner}</dt>
 									<dd
-										className="m-0 break-words"
+										className="m-0 flex min-w-0 items-baseline gap-x-1 break-words"
 										title={workOwnerTitle(
 											item.accountableOwnerType,
 											item.accountableOwnerId,
 											principalNames,
 										)}
 									>
-										{workOwnerName(
-											item.accountableOwnerType,
-											item.accountableOwnerId,
-											principalNames,
-										)}
+										<span className="shrink-0" aria-hidden="true">
+											·
+										</span>
+										<span className="min-w-0 break-words">
+											{workOwnerName(
+												item.accountableOwnerType,
+												item.accountableOwnerId,
+												principalNames,
+											)}
+										</span>
 									</dd>
 								</div>
 							</dl>
