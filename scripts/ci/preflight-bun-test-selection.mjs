@@ -106,17 +106,64 @@ export function selectBunTestWorkspaces(
 }
 
 /**
- * The `preload = [...]` entries of a bunfig.toml, workspace-relative as
- * written. A regex is enough: the file is three lines and the key is a plain
- * string array.
+ * The effective test `preload = [...]` entries of a bunfig.toml,
+ * workspace-relative as written. `[test].preload` overrides the root runtime
+ * setting; keys in other tables do not apply to the test runner.
  *
  * @param {string | null} source
  * @returns {string[]}
  */
 export function bunfigPreloads(source) {
-	const match = /^\s*preload\s*=\s*\[([^\]]*)\]/m.exec(source ?? "");
-	if (!match) return [];
-	return [...match[1].matchAll(/["']([^"']+)["']/g)].map((m) => m[1]);
+	let table = "";
+	let rootPreloads;
+	let testPreloads;
+	const lines = (source ?? "").split("\n");
+	for (let index = 0; index < lines.length; index++) {
+		const tableMatch = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(lines[index]);
+		if (tableMatch) {
+			table = tableMatch[1].trim();
+			continue;
+		}
+		const preloadMatch = /^\s*preload\s*=/.exec(lines[index]);
+		if (!preloadMatch || (table !== "" && table !== "test")) continue;
+		const value = lines.slice(index).join("\n").slice(preloadMatch[0].length);
+		if (table === "test") testPreloads = tomlStringArray(value);
+		else rootPreloads = tomlStringArray(value);
+	}
+	return testPreloads ?? rootPreloads ?? [];
+}
+
+function tomlStringArray(source) {
+	const values = [];
+	let inArray = false;
+	let quote = null;
+	let value = "";
+	for (let index = 0; index < source.length; index++) {
+		const character = source[index];
+		if (quote) {
+			if (quote === '"' && character === "\\" && index + 1 < source.length) {
+				value += character + source[++index];
+			} else if (character === quote) {
+				values.push(quote === '"' ? JSON.parse(`"${value}"`) : value);
+				quote = null;
+				value = "";
+			} else {
+				value += character;
+			}
+			continue;
+		}
+		if (character === "#") {
+			index = source.indexOf("\n", index);
+			if (index === -1) break;
+		} else if (character === "[") {
+			inArray = true;
+		} else if (character === "]" && inArray) {
+			break;
+		} else if (inArray && (character === '"' || character === "'")) {
+			quote = character;
+		}
+	}
+	return values;
 }
 
 /**

@@ -282,6 +282,27 @@ describe("selectBunTestFiles", () => {
 		});
 	});
 
+	test("a changed [test] preload wins over an unrelated table", () => {
+		const io = makeIo({
+			...FILES,
+			"packages/tool/bunfig.toml": [
+				"[run]",
+				'preload = ["./src/wrong.ts"]',
+				"[test]",
+				"preload = [",
+				'  # "./src/commented.ts",',
+				'  "./src/right.ts", # effective test preload',
+				"]",
+			].join("\n"),
+			"packages/tool/src/wrong.ts": "export {};",
+			"packages/tool/src/right.ts": "export {};",
+		});
+		expect(select(["packages/tool/src/right.ts"], io)).toEqual({
+			mode: "all",
+			reason: "every test file reaches a changed file",
+		});
+	});
+
 	test("suite infrastructure resets to the whole suite", () => {
 		expect(select(["packages/tool/bunfig.toml"])).toEqual({
 			mode: "all",
@@ -560,5 +581,21 @@ describe("bunfigPreloads", () => {
 		).toEqual(["./a.ts", "./b.ts"]);
 		expect(bunfigPreloads(null)).toEqual([]);
 		expect(bunfigPreloads("[install]\nexact = true\n")).toEqual([]);
+	});
+
+	test("uses [test] before root and ignores unrelated tables", () => {
+		expect(
+			bunfigPreloads(
+				'preload = ["./root.ts"]\n[run]\npreload = ["./wrong.ts"]\n[test]\npreload = ["./test.ts"]\n',
+			),
+		).toEqual(["./test.ts"]);
+	});
+
+	test("reads multiline lists without copying commented entries", () => {
+		expect(
+			bunfigPreloads(
+				"[test]\npreload = [\n  # './ignored.ts',\n  \"./a.ts\", # first\n  './b.ts',\n]\n",
+			),
+		).toEqual(["./a.ts", "./b.ts"]);
 	});
 });
