@@ -279,48 +279,42 @@ describe("workspace app runtime API admission", () => {
 		});
 		const outputId = "55555555-5555-4555-8555-555555555555";
 		const outputRevisionId = "66666666-6666-4666-8666-666666666666";
-		await db
-			.insert(osOutputs)
-			.values({
-				id: outputId,
-				organizationId: "org-1",
-				workspaceId,
+		await db.insert(osOutputs).values({
+			id: outputId,
+			organizationId: "org-1",
+			workspaceId,
+			kind: "document",
+			title: "Granted document",
+			currentRevisionId: outputRevisionId,
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await db.insert(osOutputRevisions).values({
+			id: outputRevisionId,
+			organizationId: "org-1",
+			outputId,
+			revision: 1,
+			content: JSON.stringify({
 				kind: "document",
-				title: "Granted document",
-				currentRevisionId: outputRevisionId,
-				createdByKind: "user",
-				createdById: "user-1",
-			});
-		await db
-			.insert(osOutputRevisions)
-			.values({
-				id: outputRevisionId,
-				organizationId: "org-1",
-				outputId,
-				revision: 1,
-				content: JSON.stringify({
-					kind: "document",
-					blocks: [{ type: "paragraph", text: "Granted content" }],
-				}),
-				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-				createdByKind: "user",
-				createdById: "user-1",
-			});
-		await db
-			.insert(osWorkspaceResources)
-			.values({
-				id: crypto.randomUUID(),
-				organizationId: "org-1",
-				workspaceId,
-				slot: "sheet",
-				providerId: "tedix",
-				connectionScope: "tenant",
-				resourceType: "output",
-				providerResourceId: outputId,
-				name: "Document",
-				createdByKind: "user",
-				createdById: "user-1",
-			});
+				blocks: [{ type: "paragraph", text: "Granted content" }],
+			}),
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await db.insert(osWorkspaceResources).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			slot: "sheet",
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "output",
+			providerResourceId: outputId,
+			name: "Document",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
 		expect(
 			await internal.capability({
 				session,

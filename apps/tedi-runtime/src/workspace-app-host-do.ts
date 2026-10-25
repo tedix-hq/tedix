@@ -287,18 +287,14 @@ export class WorkspaceAppTail extends WorkerEntrypoint<
 			events: events.map((event) => ({
 				outcome: event.outcome,
 				timestamp: event.eventTimestamp,
-				logs: event.logs
-					.slice(0, 20)
-					.map((log) => ({
-						level: log.level,
-						message: JSON.stringify(log.message).slice(0, 2000),
-					})),
-				exceptions: event.exceptions
-					.slice(0, 5)
-					.map((exception) => ({
-						name: exception.name,
-						message: exception.message.slice(0, 2000),
-					})),
+				logs: event.logs.slice(0, 20).map((log) => ({
+					level: log.level,
+					message: JSON.stringify(log.message).slice(0, 2000),
+				})),
+				exceptions: event.exceptions.slice(0, 5).map((exception) => ({
+					name: exception.name,
+					message: exception.message.slice(0, 2000),
+				})),
 			})),
 		});
 	}
