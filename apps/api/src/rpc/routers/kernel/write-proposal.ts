@@ -117,6 +117,7 @@ import {
 	writeDiscoveryQuery,
 } from "./write-codemode";
 import { planDocumentCreate } from "./document-create-plan";
+import { fetchConversationHistory } from "./context-history";
 
 /** Describe results, reassembling a schema Code Mode kept behind a handle. */
 async function parseDescribedCatalog(
@@ -152,6 +153,38 @@ export interface WriteProposalEnv extends JevActionEnv {
 	KERNEL_EXECUTE?: string;
 }
 
+/**
+ * The operator's previous messages in this Home conversation, oldest first,
+ * for a Work create that refers back to them ("create both as described").
+ * Bounded and fail-soft: no history means the request stands alone.
+ */
+async function readEarlierRequests(
+	db: DbClient,
+	organizationId: string,
+	conversationId: string | undefined,
+	content: string,
+): Promise<string[]> {
+	if (!conversationId) return [];
+	try {
+		const { messages } = await fetchConversationHistory(
+			db,
+			organizationId,
+			conversationId,
+		);
+		const strip = (text: string) =>
+			text.replace(/\[\[tedix-context:[^\]]*\]\]/g, "").trim();
+		const current = strip(content);
+		return messages
+			.filter((message) => message.role === "user")
+			.map((message) => strip(message.content))
+			.filter((text) => text.length > 0 && text !== current)
+			.slice(-3)
+			.map((text) => (text.length > 4000 ? `${text.slice(0, 4000)}…` : text));
+	} catch {
+		return [];
+	}
+}
+
 /** Whether write-proposal planning is enabled. */
 export function kernelWriteEnabled(env: WriteProposalEnv): boolean {
 	return env.KERNEL_EXECUTE === "true";
@@ -167,6 +200,11 @@ export interface KernelWriteProposal {
 	outputTitle?: string;
 	/** The destination project's name, for a Work-item create card. */
 	destinationTitle?: string;
+	/**
+	 * Further Work items created by the same approved call, in order. Only
+	 * the Work-creation tool batches; every entry passed the same validation.
+	 */
+	additionalArgs?: Record<string, unknown>[];
 	/** One-sentence model rationale for the operator-facing card (untrusted). */
 	reasoning: string | null;
 	/**
@@ -432,7 +470,7 @@ export function renderWriteDeclined(
 				// reasoning is model output and never reaches the operator.
 				const code = plannerDeclineCodeFrom(declined.detail);
 				if (code === "multiple_writes")
-					return "This asks for more than one Work item, and one message creates one. Send each Work item as its own message; the workspace's project is used when you name none. Nothing was created.";
+					return "This asks for Work items together with a different change. Send the other change as its own message; Work items alone can be created together. Nothing was created.";
 				if (code === "missing_content")
 					return "I couldn't prepare this Work item: give it a title (and a description if you want one) in this message. Nothing was created.";
 				return "I couldn't prepare this Work item. Check its required fields and destination: use the existing project's current name or link, an objective, or a parent Work item. A workspace name or prose purpose alone may not identify that destination. Nothing was created.";
@@ -886,6 +924,7 @@ export async function planKernelWriteProposal(args: {
 		const planned: {
 			toolName: string;
 			args: Record<string, unknown>;
+			additionalArgs?: Record<string, unknown>[];
 			reasoning: string | null;
 		} | null = renameArgs
 			? {
@@ -917,6 +956,14 @@ export async function planKernelWriteProposal(args: {
 								: null,
 						openWorkRequests,
 						workProjects,
+						earlierRequests: isWorkCreate
+							? await readEarlierRequests(
+									db,
+									organizationId,
+									args.gatewayContext?.sessionKey,
+									content,
+								)
+							: undefined,
 						content: capability?.startsWith("factories.")
 							? `${content}\n${route.rationale}`
 							: content,
@@ -991,6 +1038,20 @@ export async function planKernelWriteProposal(args: {
 				detail: `${provider.slug} planned=${planned.toolName}`,
 			});
 		}
+		const additionalArgs: Record<string, unknown>[] = [];
+		for (const extra of planned.additionalArgs ?? []) {
+			const checked = validateProposedCall(
+				{ toolName: planned.toolName, args: extra },
+				[exactTool],
+				paramDefaults,
+			);
+			if (!checked)
+				return decline({
+					stage: "validation_failed",
+					detail: `${provider.slug} planned=${planned.toolName} item=${additionalArgs.length + 2}`,
+				});
+			additionalArgs.push(checked.args);
+		}
 		args.onStage?.("writeArgumentsReady");
 		if (canonical === "projects.create_factory") {
 			const preview = await mcpCall(
@@ -1054,6 +1115,7 @@ export async function planKernelWriteProposal(args: {
 			appSlug: provider.slug,
 			toolName: validated.tool.name,
 			args: validated.args,
+			...(additionalArgs.length ? { additionalArgs } : {}),
 			...(target?.outputId === validated.args.outputId &&
 			typeof target?.title === "string"
 				? { outputTitle: target.title }

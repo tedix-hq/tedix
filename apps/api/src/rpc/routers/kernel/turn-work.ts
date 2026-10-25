@@ -563,6 +563,9 @@ async function planAndParkKernelWriteProposal(
 					...(writeProposal.editableFields?.length
 						? { editableFields: writeProposal.editableFields }
 						: {}),
+					...(writeProposal.additionalArgs?.length
+						? { additionalArgs: writeProposal.additionalArgs }
+						: {}),
 				};
 				const writeApprovalTtlHours = resolveApprovalTtlHours(
 					input.governancePolicy,
