@@ -1,6 +1,8 @@
 import { withBearerToken } from "@tedix/api-client/adapters";
 import {
 	getApiClient,
+	createLink,
+	createORPCClient,
 	type RouterContractClient,
 } from "@tedix/api-client/client";
 import type { ApiContract } from "@tedix/api-contract/contracts/api";
@@ -74,6 +76,20 @@ export const osApi: RouterContractClient<ApiContract> =
 		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
 		getHeaders: osProductHeaders,
 	});
+
+// oRPC unwraps Function.prototype.call on recursive clients. Pin this leaf
+// explicitly so the app call targets the procedure, not its parent namespace.
+export const osAppRuntimeCall = createORPCClient<
+	RouterContractClient<ApiContract>["osAppRuntime"]["call"]
+>(
+	createLink({
+		url: `${OS_API_URL}/rpc`,
+		credentials: "include",
+		timeoutMs: OS_API_REQUEST_TIMEOUT_MS,
+		getHeaders: osProductHeaders,
+	}),
+	{ path: ["osAppRuntime", "call"] },
+);
 
 export const osDirectReadApi: RouterContractClient<ApiContract> =
 	getApiClient<ApiContract>(OS_API_URL, {
