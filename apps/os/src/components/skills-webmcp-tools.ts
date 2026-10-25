@@ -78,8 +78,11 @@ export interface SkillsWebMcpDeps {
 	listTedis: (
 		options?: WebMcpToolExecuteOptions,
 	) => Promise<{ data: TediType[] }>;
-	/** Called after a successful dispatch so the runs history refetches. */
-	invalidateSkillRuns: () => void;
+	/**
+	 * Called after a successful dispatch so the runs history refetches. A
+	 * failed refresh never changes the dispatch result.
+	 */
+	invalidateSkillRuns: () => void | Promise<unknown>;
 	randomUuid: () => string;
 }
 
@@ -107,14 +110,28 @@ function loadDefaultDeps(): Promise<SkillsWebMcpDeps> {
 		runWorkflowStatus: (input, options) =>
 			api.osApi.skills.runWorkflowStatus(input, ...executeArgs(options)),
 		listTedis: (options) => api.osApi.tedis.list({}, ...executeArgs(options)),
-		invalidateSkillRuns: () => {
-			void router.osQueryClient.invalidateQueries({
+		invalidateSkillRuns: () =>
+			router.osQueryClient.invalidateQueries({
 				queryKey: queryOptions.osQueryKeys.skillRuns(),
-			});
-		},
+			}),
 		randomUuid: () => crypto.randomUUID(),
 	}));
 	return defaultDepsPromise;
+}
+
+/**
+ * Refresh the runs history after a confirmed dispatch. Its failure, sync or
+ * async, is reported on its own and never turns the dispatched run into an
+ * error, which could invite a duplicate dispatch.
+ */
+function refreshSkillRuns(deps: SkillsWebMcpDeps): void {
+	const report = (error: unknown) =>
+		console.warn("[skills-webmcp] skill run history refresh failed", error);
+	try {
+		void Promise.resolve(deps.invalidateSkillRuns()).catch(report);
+	} catch (error) {
+		report(error);
+	}
 }
 
 const WORKFLOW_FILE = "scripts/workflow.ts";
@@ -378,7 +395,7 @@ export function buildSkillsWebMcpTools(
 						},
 						...executeArgs(executeOptions),
 					);
-					deps.invalidateSkillRuns();
+					refreshSkillRuns(deps);
 					return webMcpResult(
 						{
 							runId: output.runId,
