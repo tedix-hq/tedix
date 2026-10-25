@@ -177,6 +177,7 @@ import {
 	firstSendConfirmPollMs,
 	shouldPollTranscript,
 	shouldShowRunningIndicator,
+	transientTranscriptRetryMs,
 	useIsRunActive,
 } from "@/components/chat-polling";
 import {
@@ -839,20 +840,28 @@ export function ChatThread({
 		...(conversationId === null ? { retry: false } : {}),
 		// While a run is live, refresh the newest slice so streaming/completed
 		// assistant rows land; the id-keyed merge makes re-delivery a no-op.
-		refetchInterval:
-			conversationId === null
-				? (query) =>
-						firstSendConfirmPollMs(
-							firstSendInFlight,
-							query.state.data?.messages,
-						)
-				: shouldPollTranscript({
-							isActive,
-							pendingRun: pendingRunId !== null,
-							realtimeDegraded,
-					  })
-					? RUN_POLL_INTERVAL_MS
-					: false,
+		refetchInterval: (query) => {
+			if (conversationId === null)
+				return firstSendConfirmPollMs(
+					firstSendInFlight,
+					query.state.data?.messages,
+				);
+			if (
+				shouldPollTranscript({
+					isActive,
+					pendingRun: pendingRunId !== null,
+					realtimeDegraded,
+				})
+			)
+				return RUN_POLL_INTERVAL_MS;
+			// A transient read failure clears itself without a manual reload.
+			return query.state.status === "error"
+				? transientTranscriptRetryMs(
+						query.state.error,
+						query.state.errorUpdateCount,
+					)
+				: false;
+		},
 	});
 
 	// Merge each newest-page fetch into the cache. Only the first page of a
