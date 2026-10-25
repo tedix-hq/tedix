@@ -113,6 +113,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	submit_work_item_evidence: "workItems/submitEvidence",
 	update_project_milestone: "projects/updateMilestone",
 	update_work_case: "workItems/updateCase",
+	update_work_item_specification: "workItems/updateSpecification",
 };
 function nativeDescriptorFixture(callable: string) {
 	const tool = callable.slice(callable.indexOf(".") + 1);
@@ -1697,6 +1698,104 @@ describe("canonical ID and title resolution", () => {
 		expect(sources).toHaveLength(2);
 		expect(sources[0]).toContain('"idPrefix":"deadbe11"');
 		expect(sources[1]).toContain('"titleContains":"deadbe11"');
+	});
+});
+
+describe("Work executor assignment", () => {
+	test.each([
+		"codex",
+		"claude-code",
+		"opencode",
+		"devin",
+		"any-local",
+		"human",
+		"tedi",
+	])("forwards %s on create and assigns it before accept", async (executor) => {
+		const created = makeContext({ project: ITEM, executor: ` ${executor} ` });
+		expect((await capture("create Executor smoke", created.ctx)).code).toBe(0);
+		expect(created.sources).toHaveLength(1);
+		expect(created.sources[0]).toContain(`"executor":"${executor}"`);
+		const accepted = makeContext({ executor, doneWhen: "Assignment persists" });
+		expect((await capture(`accept ${ITEM}`, accepted.ctx)).code).toBe(0);
+		expect(accepted.sources).toEqual([
+			`work.update_work_item_specification(${JSON.stringify({ id: ITEM, executor })})`,
+			`work.accept_work_item(${JSON.stringify({ id: ITEM, acceptanceContract: { version: 1, doneLooksLike: "Assignment persists" } })})`,
+		]);
+	});
+
+	test.each(["bogus", "", "   "])(
+		"rejects executor %j before requests",
+		async (executor) => {
+			for (const command of ["create Invalid executor", `accept ${ITEM}`]) {
+				const fixture = makeContext({
+					project: ITEM,
+					executor,
+					doneWhen: "Done",
+				});
+				await expect(runWork(command, fixture.ctx)).rejects.toThrow(
+					"--executor must be one of",
+				);
+				expect(fixture.sources).toHaveLength(0);
+			}
+		},
+	);
+
+	test("omitting executor sends no assignment", async () => {
+		const created = makeContext({ project: ITEM });
+		expect((await capture("create Unassigned", created.ctx)).code).toBe(0);
+		expect(created.sources[0]).not.toContain('"executor"');
+		const accepted = makeContext({ doneWhen: "Done" });
+		expect((await capture(`accept ${ITEM}`, accepted.ctx)).code).toBe(0);
+		expect(accepted.sources).toHaveLength(1);
+		expect(accepted.sources[0]).toStartWith("work.accept_work_item(");
+	});
+
+	test("missing acceptance outcome does not assign an executor", async () => {
+		const fixture = makeContext({ executor: "codex" });
+		await expect(runWork(`accept ${ITEM}`, fixture.ctx)).rejects.toThrow(
+			"--done-when",
+		);
+		expect(fixture.sources).toHaveLength(0);
+	});
+
+	test("assignment refusal prevents acceptance", async () => {
+		const fixture = makeContext(
+			{ executor: "codex", doneWhen: "Done" },
+			undefined,
+			() => ({
+				defined: true,
+				code: "FORBIDDEN",
+				status: 403,
+				message: "Assignment denied",
+			}),
+		);
+		const result = await capture(`accept ${ITEM}`, fixture.ctx);
+		expect(result.code).toBe(WORK_EXIT_FAIL);
+		expect(fixture.sources).toHaveLength(1);
+		expect(fixture.sources[0]).toStartWith(
+			"work.update_work_item_specification(",
+		);
+	});
+
+	test("acceptance refusal reports retained assignment", async () => {
+		const fixture = makeContext(
+			{ executor: "codex", doneWhen: "Done" },
+			undefined,
+			(source) =>
+				source.includes("accept_work_item")
+					? {
+							defined: true,
+							code: "CONFLICT",
+							status: 409,
+							message: "Already accepted",
+						}
+					: { id: ITEM },
+			{ json: false },
+		);
+		const result = await capture(`accept ${ITEM}`, fixture.ctx);
+		expect(result.code).toBe(WORK_EXIT_FAIL);
+		expect(fixture.sources).toHaveLength(2);
+		expect(result.err.join("\n")).toContain("executor is assigned to codex");
 	});
 });
 

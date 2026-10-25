@@ -100,7 +100,7 @@ export interface WorkOptions {
 	workClass?: string;
 	/** `create`: --expires <duration|iso> paired with --class (72h, 7d, ISO). */
 	expires?: string;
-	/** `list`: server-side filter on the item's declared Work executor. */
+	/** `create`/`accept`: assign executor; `list`: server-side executor filter. */
 	executor?: string;
 	/** `list`: zero-based page start; raw string validated by the verb. */
 	offset?: string;
@@ -228,8 +228,8 @@ Usage: tedix work <verb> [args] [options]
 
 Lifecycle:
   create "<title>" --kind <kind> (--project <id> | --objective <id> | --class <class> --expires <duration>)
-              [--project <id>] [--desc <text>]
-  accept <id> --done-when "<what done looks like>"
+              [--project <id>] [--desc <text>] [--executor <exec>]
+  accept <id> --done-when "<what done looks like>" [--executor <exec>]
   readiness <id>
   start <id> [--lane] [--worktree [--worktree-root <path>]]
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
