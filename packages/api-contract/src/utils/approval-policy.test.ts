@@ -826,6 +826,25 @@ describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
 		expect(decide("notion.notion_update_page", "low").autoResolve).toBe(false);
 	});
 
+	it("matches a provider-generic tool name only through Tedix's own route", () => {
+		expect(platformAutonomousOperation("work.add_comment")).toBeNull();
+		expect(
+			platformAutonomousOperation("add_comment", "workItems/addComment")?.id,
+		).toBe("work_items");
+		expect(
+			platformAutonomousOperation(
+				"tedi_1__run_skill_workflow",
+				"skills/runWorkflow",
+			)?.id,
+		).toBe("runs");
+		expect(
+			platformAutonomousOperation(
+				"delete_os_output",
+				"osWorkspaces/outputs/delete",
+			),
+		).toBeNull();
+	});
+
 	it("applies under an explicit autonomy policy without a trusted-tool list", () => {
 		expect(
 			decide("os.rename_os_output", "low", {

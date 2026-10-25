@@ -6,6 +6,7 @@ import {
 	decideAutonomousAction,
 	humanReservedActionClasses,
 	isSafeNotionPageUpdateCall,
+	platformAutonomousOperation,
 	type DelegationAutonomyPolicy,
 } from "@tedix/api-contract/utils/approval-policy";
 import { AgentLifecycleEndpointSchema } from "@tedix/api-contract/schemas/mcp-governance";
@@ -1123,6 +1124,67 @@ export async function requireDestructiveToolApproval(
 				"Attempt authorization is unavailable; no side effect was executed.",
 				5,
 			);
+		}
+	}
+	// Platform default (organization-autonomy.v1.json): Tedix's own
+	// in-organization operations (Work items, workspace and app management,
+	// skill and schedule operations, run starts) need no card unless the
+	// organization opted out. The tool and its API route decide, never request
+	// text. Critical actions, external effects, configured approval policies,
+	// manifest-protected effects and the owned publish boundary keep their gates;
+	// a skill run's own calls were decided by its manifest above, and a person
+	// starting a skill by the owner check above, and an agent's own Work
+	// lifecycle writes by the Attempt check above.
+	const platformOperation =
+		!isOwnedChannelBoundary &&
+		!(
+			callerIsUserPrincipalPath(agent) &&
+			tool.config?.endpoint === "skills/runWorkflow"
+		) &&
+		!configuredApproval &&
+		!manifestProtectedEffect &&
+		tool.config?.transport === "rpc" &&
+		risk !== "external_side_effect" &&
+		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
+			.length === 0
+			? platformAutonomousOperation(
+					tool.toolId,
+					typeof tool.config.endpoint === "string"
+						? tool.config.endpoint
+						: null,
+				)
+			: null;
+	const resolveTransportPolicy =
+		agent.apiClient?.mcpGovernance?.resolveAgentTransportPolicy;
+	if (
+		platformOperation &&
+		agent.app?.organizationId &&
+		resolveTransportPolicy
+	) {
+		try {
+			const policy = await resolveTransportPolicy({
+				organizationId: agent.app.organizationId,
+				...(agent.callerIdentity?.tediId
+					? { tediId: agent.callerIdentity.tediId }
+					: {}),
+			});
+			const askForClasses = policy.autonomy?.askForClasses;
+			if (
+				policy.platformAutonomy !== false &&
+				!askForClasses?.includes("*") &&
+				!askForClasses?.includes(`tool:${agent.appSlug ?? ""}:${tool.toolId}`)
+			) {
+				emitGovernanceAuditEvent(
+					agent,
+					tool,
+					"destructive_approved",
+					`${platformOperation.label} run without approval (platform default)`,
+					{ resolvedBy: "policy", platformOperation: platformOperation.id },
+				);
+				return null;
+			}
+		} catch {
+			// Without the policy the normal gates below decide; nothing has run.
 		}
 	}
 	let autonomy: DelegationAutonomyPolicy | undefined;

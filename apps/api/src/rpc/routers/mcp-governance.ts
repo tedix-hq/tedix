@@ -465,14 +465,22 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					)
 				: null;
 			if (input.tediId && !tedi)
-				return { requireExplicitApprovalPolicy: false };
+				return {
+					requireExplicitApprovalPolicy: false,
+					platformAutonomy: false as const,
+				};
 			const organizationPolicy = await getActivePolicyPackDefinition(
 				context.db,
 				input.organizationId,
 			);
-			const autonomy = parseKernelGovernancePolicy(
+			const organizationGovernance = parseKernelGovernancePolicy(
 				organizationPolicy?.governancePolicy,
-			).autonomy;
+			);
+			const autonomy = organizationGovernance.autonomy;
+			const optOut =
+				organizationGovernance.platformAutonomy === false
+					? { platformAutonomy: false as const }
+					: {};
 			if (autonomy)
 				autonomy.askForClasses = [
 					...(autonomy.askForClasses ?? []),
@@ -485,6 +493,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				return {
 					requireExplicitApprovalPolicy: false,
 					...(autonomy ? { autonomy } : {}),
+					...optOut,
 				};
 			}
 			const policyPack = await getPolicyPackById(context.db, tedi.policyPackId);
@@ -497,6 +506,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				return {
 					requireExplicitApprovalPolicy: false,
 					...(autonomy ? { autonomy } : {}),
+					...optOut,
 				};
 			}
 			const governance = parseKernelGovernancePolicy(
@@ -504,6 +514,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			);
 			return {
 				...(autonomy ? { autonomy } : {}),
+				...optOut,
 				requireExplicitApprovalPolicy:
 					governance.requireExplicitThirdPartyApprovalPolicy === true,
 			};

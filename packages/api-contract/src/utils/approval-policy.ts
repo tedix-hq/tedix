@@ -720,6 +720,7 @@ const platformOperations = organizationAutonomy.operations.map((operation) => ({
 	id: operation.id,
 	label: operation.label,
 	pattern: new RegExp(operation.pattern, "i"),
+	endpointPattern: new RegExp(operation.endpointPattern),
 }));
 
 /**
@@ -730,13 +731,19 @@ const platformOperations = organizationAutonomy.operations.map((operation) => ({
  */
 export function platformAutonomousOperation(
 	toolName: string,
+	/** Tedix API route (`router/procedure`) when the tool is Tedix's own RPC. */
+	rpcEndpoint?: string | null,
 ): { id: string; label: string } | null {
 	const name =
 		toolName.trim().split(/[.:]/).at(-1)?.split("__").at(-1)?.toLowerCase() ??
 		"";
 	if (!name || humanReservedActionClasses(name).length) return null;
-	const operation = platformOperations.find((entry) =>
-		entry.pattern.test(name),
+	const endpoint = rpcEndpoint?.trim() ?? "";
+	if (endpoint && humanReservedActionClasses(endpoint).length) return null;
+	const operation = platformOperations.find(
+		(entry) =>
+			entry.pattern.test(name) ||
+			(endpoint !== "" && entry.endpointPattern.test(endpoint)),
 	);
 	return operation ? { id: operation.id, label: operation.label } : null;
 }
