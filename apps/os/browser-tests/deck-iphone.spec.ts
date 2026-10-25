@@ -299,6 +299,11 @@ try {
 				},
 			);
 			await page.goto(`${origin}/work?view=deck`);
+			// Vite can render the lazy Deck before the global stylesheet has applied.
+			await page.waitForFunction(
+				() =>
+					getComputedStyle(document.documentElement).letterSpacing !== "normal",
+			);
 			await page.locator(".fd-deck-current .fd-card").waitFor();
 			await page.locator('[data-slot="card-footer"]').first().waitFor();
 			await page.waitForFunction(
@@ -326,13 +331,10 @@ try {
 					path: `${shots}/deck-${size}-${colorScheme}.png`,
 				});
 			// CI can sample an entrance animation after the old fixed delay.
-			await page.locator(".fd-deck-current .fd-card").evaluate(async (card) => {
-				await card.animate(
-					[{ transform: "scale(0.98)" }, { transform: "none" }],
-					{
-						duration: 1_000,
-					},
-				).finished;
+			await page.locator(".fd-deck-current .fd-card").evaluate((card) => {
+				card.animate([{ transform: "scale(0.98)" }, { transform: "none" }], {
+					duration: 1_000,
+				});
 			});
 			await settleAnimations(page, ".fd-deck");
 			const animated = await measure(page);
