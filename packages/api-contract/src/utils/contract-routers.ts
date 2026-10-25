@@ -11,6 +11,7 @@ import { attentionContract } from "../contracts/attention";
 import { getOpenAPIMeta } from "@orpc/openapi";
 import { repositoryObserverContract } from "../contracts/repository-observer";
 import { supportContract } from "../contracts/support";
+import { webPushContract } from "../contracts/web-push";
 import { tediConsoleContract } from "../contracts/tedi-console";
 import { adapterBindingsContract } from "../contracts/adapter-bindings";
 import { aeoContract } from "../contracts/aeo";
@@ -180,6 +181,7 @@ export const ROUTERS: Record<string, unknown> = {
 	osWorkspaces: osWorkspacesContract,
 	osGadgetState: osGadgetStateContract,
 	osAppRuntime: osAppRuntimeContract,
+	webPush: webPushContract,
 	tediConsole: tediConsoleContract,
 	providerEvents: providerEventsContract,
 	personalResourceDelegations: personalResourceDelegationsContract,

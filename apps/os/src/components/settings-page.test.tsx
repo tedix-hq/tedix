@@ -29,6 +29,14 @@ vi.mock("@/lib/api", () => ({
 		runtimeEntitlements: runtimeEntitlementsApi,
 		connections: connectionsApi,
 		personalAgentInbound: { value: vi.fn(async () => []) },
+		webPush: {
+			getStatus: vi.fn(async () => ({
+				enabled: false,
+				publicKey: null,
+				preferences: { mutedProjectIds: [] },
+			})),
+		},
+		projects: { list: vi.fn(async () => ({ data: [] })) },
 	},
 }));
 

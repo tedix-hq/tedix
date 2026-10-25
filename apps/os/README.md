@@ -199,3 +199,26 @@ The fixture browser check is `bun browser-tests/card-revisions.spec.ts` with
 `CARD_REVISIONS_TEST_ORIGIN` pointing to the fixture server. It exercises the
 selection batch, partial keep, comparison, restore, personal rule controls,
 secret-card boundary and pending approval hold at 1280/390 in light/dark.
+
+## Web Push
+
+When the API installation supplies all three optional `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` credentials, Settings offers a device
+opt-in. The browser permission prompt opens only after the person clicks
+**Enable notifications**. On iPhone, use the installed Home Screen app.
+Without those credentials the API reports push disabled and runs continue.
+Credential provisioning and managed release remain private ops work.
+
+Push uses fixed approval, input-needed and person-started completion text;
+conversation content never becomes notification text. Tapping opens the Deck
+on the subscribing origin. Muting a project suppresses run updates in its
+linked Workspaces while retaining approvals. Any linked muted project quiets
+a shared Workspace. Visible chats suppress push using a 60-second visibility
+lease and a final service-worker check. The worker caches no application data.
+
+Subscriptions, visibility and mute settings use the existing `user_configs`
+store, scoped to the person and organization. Delivery rechecks membership,
+conversation access and private Workspace visibility, and removes expired
+subscriptions after a provider 404 or 410. Delivery is best effort after a
+newly persisted event; it is not an exactly-once delivery guarantee. The unit
+and fixture checks do not establish real provider or installed-device delivery.

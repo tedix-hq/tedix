@@ -338,6 +338,17 @@ const CALLS: Record<string, unknown> = {
 	"tediApprovals/getById": { id: IDS.approvalPending },
 	"tediApprovals/resolve": { id: IDS.approvalPending, status: "approved" },
 	"tediApprovals/clearExpired": {},
+	"webPush/getStatus": {},
+	"webPush/subscribe": {
+		endpoint: "https://web.push.apple.com/fixture",
+		keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) },
+	},
+	"webPush/unsubscribe": { endpoint: "https://web.push.apple.com/fixture" },
+	"webPush/setVisibility": {
+		clientId: "00000000-0000-4000-8000-000000000001",
+		conversationId: "fixture-chat",
+	},
+	"webPush/setPreferences": { mutedProjectIds: [] },
 	"userSettings/getPreferences": {},
 	"userSettings/updatePreferences": {
 		preferences: {

@@ -35,7 +35,7 @@
 		"test:browser:chat-list": "bun browser-tests/chat-list.spec.ts",
 		"test:browser:chat-actions": "bun browser-tests/chat-actions.spec.ts && bun browser-tests/chat-structured.spec.ts && bun browser-tests/chat-composer.spec.ts && bun browser-tests/delegation-live.spec.ts",
 		"test:browser:feed-deck": "bun browser-tests/run-specs.ts browser-tests/feed-deck-polish.spec.ts browser-tests/feed-lean.spec.ts browser-tests/b7-feed-shortcuts.spec.ts browser-tests/widget-typing-shortcuts.spec.ts",
-		"test:browser:settings": "bun browser-tests/b9-settings-anchor.spec.ts && bun browser-tests/admin-destinations.spec.ts && bun browser-tests/account-list.spec.ts && bun browser-tests/connections-area.spec.ts && bun browser-tests/settings-strip.spec.ts",
+		"test:browser:settings": "bun browser-tests/b9-settings-anchor.spec.ts && bun browser-tests/admin-destinations.spec.ts && bun browser-tests/account-list.spec.ts && bun browser-tests/connections-area.spec.ts && bun browser-tests/settings-strip.spec.ts && bun browser-tests/web-push.spec.ts",
 		"test:browser:palette": "bun browser-tests/command-palette.spec.ts",
 		"test:browser:runtime-escape": "bun browser-tests/app-runtime-escape.spec.ts",
 		"test:browser:apps": "bun browser-tests/widget-apps.spec.ts && bun browser-tests/app-runtime.spec.ts && bun browser-tests/app-runtime-panel.spec.ts",
