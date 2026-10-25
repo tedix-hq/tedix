@@ -459,12 +459,17 @@ export function CliLoginPage() {
 													)
 												}
 												label={
-													<span className="flex items-center gap-3">
+													<span className="flex min-w-0 items-center gap-3">
 														<OrganizationMark
 															name={org.name}
 															logoUrl={org.logoUrl}
 														/>
-														<Text as="span" role="body" weight="medium">
+														<Text
+															as="span"
+															role="body"
+															weight="medium"
+															className="min-w-0 wrap-anywhere"
+														>
 															{org.name}
 														</Text>
 													</span>
@@ -483,12 +488,13 @@ export function CliLoginPage() {
 											variant="ghost"
 										>
 											<OrganizationMark name={org.name} logoUrl={org.logoUrl} />
+											{/* Wrap rather than truncate: similar organization names
+											    differ at the end, and touch screens have no hover. */}
 											<Text
 												as="span"
 												role="body"
 												weight="medium"
-												truncate
-												className="flex-1 text-left"
+												className="min-w-0 flex-1 text-left wrap-anywhere"
 											>
 												{org.name}
 											</Text>
