@@ -114,27 +114,31 @@ function recallInput(args) {
 function readSkills() {
 	try {
 		return readdirSync(SKILLS, { withFileTypes: true }).flatMap((entry) => {
-			const path = join(SKILLS, entry.name, "SKILL.md");
-			if (!entry.isDirectory() || !existsSync(path)) return [];
-			const [, head = "", body] =
-				readFileSync(path, "utf8").match(
-					/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/,
-				) ?? [];
-			if (body === undefined) return [];
-			const field = (key) => {
-				const value = head.match(new RegExp(`^${key}:\\s*(.+)$`, "m"))?.[1];
-				return value?.startsWith('"') ? JSON.parse(value) : value;
-			};
-			const name = field("name") ?? entry.name;
-			return [
-				{
-					id: name,
-					name,
-					description: field("description"),
-					path,
-					content: body,
-				},
-			];
+			try {
+				const path = join(SKILLS, entry.name, "SKILL.md");
+				if (!entry.isDirectory() || !existsSync(path)) return [];
+				const [, head = "", body] =
+					readFileSync(path, "utf8").match(
+						/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/,
+					) ?? [];
+				if (body === undefined) return [];
+				const field = (key) => {
+					const value = head.match(new RegExp(`^${key}:\\s*(.+)$`, "m"))?.[1];
+					return value?.startsWith('"') ? JSON.parse(value) : value;
+				};
+				const name = field("name") ?? entry.name;
+				return [
+					{
+						id: name,
+						name,
+						description: field("description"),
+						path,
+						content: body,
+					},
+				];
+			} catch {
+				return [];
+			}
 		});
 	} catch {
 		return [];

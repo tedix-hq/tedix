@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
 	TEDIX_OPENCODE_OAUTH_CLIENT_ID,
 	TEDIX_OPENCODE_OAUTH_REDIRECT_URI,
@@ -592,6 +593,38 @@ test("OpenCode 2 adds the Tedix MCP server with its CIMD client and the shared s
 	(await module.default.setup(own.ctx as never))?.();
 	expect(own.mcp.size).toBe(0);
 	expect(own.skills.size).toBe(names.length);
+});
+
+test("OpenCode 2 skips a skill with malformed metadata without hiding valid skills", async () => {
+	const root = join(directory, "isolated-plugin");
+	const pluginDirectory = join(root, ".opencode-plugin");
+	const skillsDirectory = join(root, "skills");
+	mkdirSync(pluginDirectory, { recursive: true });
+	mkdirSync(join(skillsDirectory, "broken"), { recursive: true });
+	mkdirSync(join(skillsDirectory, "valid"), { recursive: true });
+	const pluginPath = join(pluginDirectory, "index.mjs");
+	writeFileSync(
+		pluginPath,
+		readFileSync(join(ROOT, ".opencode-plugin", "index.js"), "utf8"),
+	);
+	writeFileSync(
+		join(skillsDirectory, "broken", "SKILL.md"),
+		'---\nname: broken\ndescription: "unterminated\n---\n# Broken\n',
+	);
+	writeFileSync(
+		join(skillsDirectory, "valid", "SKILL.md"),
+		'---\nname: valid\ndescription: "Valid skill"\n---\n# Valid\n',
+	);
+	const isolated = await import(pathToFileURL(pluginPath).href);
+	const fake = context2();
+	const cleanup = await isolated.default.setup(fake.ctx);
+	expect([...fake.skills.keys()]).toEqual(["valid"]);
+	expect(fake.skills.get("valid")).toMatchObject({
+		name: "valid",
+		description: "Valid skill",
+		content: "# Valid\n",
+	});
+	cleanup?.();
 });
 
 test("OpenCode 2 sends session-start and prompt context as system text on model requests", async () => {
