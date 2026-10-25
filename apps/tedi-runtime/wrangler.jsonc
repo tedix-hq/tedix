@@ -97,6 +97,10 @@
 				"name": "TEDI_COMPUTER_WORKSPACE",
 			},
 			{
+				"class_name": "WorkspaceAppHostDO",
+				"name": "WORKSPACE_APP_HOST",
+			},
+			{
 				"class_name": "VoiceCallDO",
 				"name": "VOICE_CALL",
 			},
@@ -138,6 +142,10 @@
 		{
 			"tag": "v6-computer-workspaces",
 			"new_sqlite_classes": ["TediComputerWorkspaceDO"],
+		},
+		{
+			"tag": "v7-workspace-app-host",
+			"new_sqlite_classes": ["WorkspaceAppHostDO"],
 		},
 	],
 	"r2_buckets": [
@@ -253,6 +261,10 @@
 						"name": "TEDI_COMPUTER_WORKSPACE",
 					},
 					{
+						"class_name": "WorkspaceAppHostDO",
+						"name": "WORKSPACE_APP_HOST",
+					},
+					{
 						"class_name": "VoiceCallDO",
 						"name": "VOICE_CALL",
 					},
@@ -294,6 +306,10 @@
 				{
 					"tag": "v6-computer-workspaces",
 					"new_sqlite_classes": ["TediComputerWorkspaceDO"],
+				},
+				{
+					"tag": "v7-workspace-app-host",
+					"new_sqlite_classes": ["WorkspaceAppHostDO"],
 				},
 			],
 			"r2_buckets": [
@@ -416,6 +432,10 @@
 						"name": "TEDI_COMPUTER_WORKSPACE",
 					},
 					{
+						"class_name": "WorkspaceAppHostDO",
+						"name": "WORKSPACE_APP_HOST",
+					},
+					{
 						"class_name": "VoiceCallDO",
 						"name": "VOICE_CALL",
 					},
@@ -465,6 +485,10 @@
 				{
 					"tag": "v6-computer-workspaces",
 					"new_sqlite_classes": ["TediComputerWorkspaceDO"],
+				},
+				{
+					"tag": "v7-workspace-app-host",
+					"new_sqlite_classes": ["WorkspaceAppHostDO"],
 				},
 			],
 			"r2_buckets": [
