@@ -42,6 +42,12 @@ An ordinary remote connector cannot wake an idle chat.
    Keep a user-supplied organization or Work target. When multiple organization
    namespaces fit, ask the user to choose; never use a global profile as consent
    for another organization. If access fails, use `tedix-connect`.
+   In an MCP-only host (a desktop or web chat app without CLI hooks), at the
+   first Tedix call of the chat, open one owner-host Agent-Session with
+   `start_external_agent_session_for_host` and the actual host/model tuple,
+   then pass its `session.id` as `agentSessionId` on every `code` call so the
+   audit names this agent. Never invent one. CLI hosts get the id from the
+   session-start brief.
    Local context recovery is optional: on a CLI-required coding path, when no
    fresh hook brief or target is present, run `tedix setup agents context show
    --json`. A bound result supplies the profile/project and optional Work ID.

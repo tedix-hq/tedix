@@ -76,7 +76,8 @@ export const OpenOwnerHostSessionInputSchema = z
 			.min(3)
 			.max(300)
 			.regex(
-				/^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9._:-]+$/,
+				// Native ids may carry an underscore (an OpenCode `ses_` id).
+				/^[A-Za-z0-9][A-Za-z0-9._-]*:[\w.:-]+$/,
 				"externalSessionKey must be <harness>:<id>",
 			)
 			.optional()

@@ -118,7 +118,10 @@ and durable answer settlement.
   An unavailable, ephemeral or archived target creates no automatic request;
   the original message remains in its chat.
   SessionStart (`startup`, `clear`, `compact`) also reads the compact Open
-  requests list when decision capture is enabled. The reflector can turn an
+  requests list when decision capture is enabled. With a stored login and a
+  host-reported harness and model, it also opens the
+  chat's owner-host Agent-Session and tells the agent to pass its id as
+  `agentSessionId`; a model change or any failure adds nothing. The reflector can turn an
   evidenced tool failure and later fix into a private lesson proposal. It checks
   approved lessons and memory for semantic duplicates; each candidate stays
   proposed until reviewed through the existing learning pipeline.

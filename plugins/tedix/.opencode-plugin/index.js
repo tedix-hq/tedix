@@ -212,10 +212,20 @@ function createTedix(directory, options, version) {
 			let start = "";
 			if (!started.has(id)) {
 				started.add(id);
+				const model = models.get(id);
+				const harness = sessions.get(id)?.version ?? version;
 				start = await runHook(
 					"session-start",
 					hostEvent(id, "SessionStart", {
 						source: sessions.get(id)?.created ? "startup" : "resume",
+						// Lets the hook open this chat's owner-host Agent-Session.
+						...(model?.providerID && model?.modelID && harness
+							? {
+									model: model.modelID,
+									model_provider: model.providerID,
+									harness_version: harness,
+								}
+							: {}),
 					}),
 					30_000,
 				);
