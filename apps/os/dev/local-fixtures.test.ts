@@ -397,6 +397,10 @@ const CALLS: Record<string, unknown> = {
 	"catalog/getCategories": {},
 	"catalog/getBySlug": { slug: "local-documents" },
 	"apps/list": { limit: 50 },
+	"apps/update": {
+		appId: "00000080-0000-4000-8000-000000000004",
+		metadata: { mcpConfig: { aggregateTedis: [{ slug: "nova" }] } },
+	},
 	"apps/getByIdWithTools": { appId: IDS.appStorefront },
 	"apps/getGatewayMembership": { appId: IDS.appStorefront },
 	"apps/listGatewayMemberships": undefined,

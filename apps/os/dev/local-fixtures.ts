@@ -143,6 +143,7 @@ const DELEGATION_WORK_ITEM = fid("64", 1);
 const APP_STOREFRONT = fid("80", 1);
 const APP_SUPPORT = fid("80", 2);
 const APP_FINANCE = fid("80", 3);
+const APP_GATEWAY = fid("80", 4);
 
 const T0 = "2026-08-10T09:00:00.000Z";
 const T1 = "2026-08-10T13:00:00.000Z";
@@ -3348,7 +3349,23 @@ const APPS = [
 		"finance-ledger",
 		"Invoices, credits, and payout history",
 	),
+	appListItem(
+		APP_GATEWAY,
+		"Solstice Unified MCP",
+		"solstice-unified",
+		"Unified MCP gateway for Solstice",
+	),
 ];
+
+/** App metadata the fixture keeps per app; only the gateway carries any. */
+const APP_METADATA: Record<string, { mcpConfig: Record<string, unknown> }> = {
+	[APP_GATEWAY]: {
+		mcpConfig: {
+			codeMode: true,
+			aggregateTedis: [{ slug: "nova", surface: "full" }],
+		},
+	},
+};
 
 const appTool = (
 	appId: string,
@@ -3467,7 +3484,7 @@ const fullApp = (item: (typeof APPS)[number]) => ({
 	appStoreStatus: null,
 	activeConfigVersionId: null,
 	latestConfigVersion: 1,
-	metadata: null,
+	metadata: APP_METADATA[item.id] ?? null,
 	extractedAt: null,
 	aiSearchSyncedAt: null,
 	createdAt: item.createdAt,
@@ -6924,6 +6941,21 @@ const handlers: Record<string, (input: never) => unknown> = {
 			tools: APP_TOOLS[item.id] ?? [],
 			catalogMcp: null,
 		};
+	},
+	"apps/update": (input: {
+		appId: string;
+		metadata?: { mcpConfig?: Record<string, unknown> };
+	}) => {
+		const item = APPS.find((row) => row.id === input.appId);
+		if (!item) throw new RpcError("NOT_FOUND", "App not found");
+		if (input.metadata?.mcpConfig) {
+			const current = APP_METADATA[item.id] ?? { mcpConfig: {} };
+			APP_METADATA[item.id] = {
+				...current,
+				mcpConfig: { ...current.mcpConfig, ...input.metadata.mcpConfig },
+			};
+		}
+		return fullApp(item);
 	},
 	"apps/getGatewayMembership": () => ({
 		gateway: null,
