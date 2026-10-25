@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { introspectWorkflowInstance } from "cloudflare:test";
 import { expect, it } from "vite-plus/test";
 import type { CallbackFixtureOptions } from "./pi-runtime/workflow-callback-fixture";
 
@@ -22,16 +23,11 @@ async function probe(params: CallbackFixtureOptions = {}) {
 	const binding = (
 		env as unknown as { WORKFLOW_CALLBACK: Workflow<CallbackFixtureOptions> }
 	).WORKFLOW_CALLBACK;
-	const instance = await binding.create({ id: crypto.randomUUID(), params });
-	for (let attempt = 0; attempt < 100; attempt++) {
-		const status = await instance.status();
-		if (status.status === "complete") return status.output as Proof;
-		if (status.status === "errored")
-			throw new Error(JSON.stringify(status.error));
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	await instance.terminate();
-	throw new Error("Callback fixture did not complete");
+	const id = crypto.randomUUID();
+	await using instance = await introspectWorkflowInstance(binding, id);
+	await binding.create({ id, params });
+	await instance.waitForStatus("complete");
+	return (await instance.getOutput()) as Proof;
 }
 
 it("reproduces the SDK cached callback rejection after a completed facet turn", async () => {
