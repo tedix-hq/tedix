@@ -194,11 +194,6 @@ vi.mock("@/components/approval-notifications", () => ({
 	ApprovalNotifications: () => null,
 }));
 
-// Review loading and saving are covered by shared-review-batch.test.tsx.
-vi.mock("@/components/shared-review-batch", () => ({
-	WorkspaceGadgetReview: ({ gadget }: { gadget: React.ReactNode }) => gadget,
-}));
-
 vi.mock("@/components/widget-frame", () => ({
 	WidgetFrame: ({
 		appSlug,
@@ -2160,6 +2155,7 @@ describe("CanvasPage listing", () => {
 
 		expect(widget?.getAttribute("data-app-slug")).toBe("acme");
 		expect(widget?.getAttribute("data-resource-uri")).toBe(resourceUri);
+		expect(container.textContent).not.toContain("Full app");
 		expect(container.querySelector("[data-collab-editor]")).toBeNull();
 		expect(
 			container

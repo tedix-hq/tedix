@@ -228,9 +228,7 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	"ShareControls error alert; SharedReviewBatch error text": [
 		"osShares/reviews/create",
 		"osShares/reviews/get",
-		"osShares/reviews/getForGadget",
 		"osShares/reviews/saveFeedback",
-		"osShares/reviews/saveGadgetFeedback",
 		"osShares/shares/create",
 		"osShares/shares/list",
 		"osShares/shares/previewRevoke",
