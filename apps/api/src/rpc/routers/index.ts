@@ -297,6 +297,9 @@ export const apiRouter = {
 	osWorkspaces: lazyRouter(() =>
 		import("./os-workspaces").then((m) => m.osWorkspacesContractRouter),
 	),
+	osAppRuntime: lazyRouter(() =>
+		import("./os-app-runtime").then((m) => m.osAppRuntimeContractRouter),
+	),
 	modelCatalog: lazyRouter(() =>
 		import("./model-catalog").then((m) => m.modelCatalogContractRouter),
 	),

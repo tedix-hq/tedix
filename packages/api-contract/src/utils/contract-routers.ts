@@ -73,6 +73,7 @@ import { osCollaboratorsContract } from "../contracts/os-collaborators";
 import { osSharesContract } from "../contracts/os-shares";
 import { osWorkspacesContract } from "../contracts/os-workspaces";
 import { osGadgetStateContract } from "../contracts/os-gadget-state";
+import { osAppRuntimeContract } from "../contracts/os-app-runtime";
 import { providerEventsContract } from "../contracts/provider-events";
 import { personalResourceDelegationsContract } from "../contracts/personal-resource-delegations";
 import { calendarCoordinatorContract } from "../contracts/calendar-coordinator";
@@ -178,6 +179,7 @@ export const ROUTERS: Record<string, unknown> = {
 	osCollaborators: osCollaboratorsContract,
 	osWorkspaces: osWorkspacesContract,
 	osGadgetState: osGadgetStateContract,
+	osAppRuntime: osAppRuntimeContract,
 	tediConsole: tediConsoleContract,
 	providerEvents: providerEventsContract,
 	personalResourceDelegations: personalResourceDelegationsContract,
