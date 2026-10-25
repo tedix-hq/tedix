@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { type CSSProperties, useState } from "react";
 import { Alert } from "@/components/kumo/alert";
+import { ConfirmDialog } from "./confirm-dialog";
 import { Empty } from "@/components/kumo/empty";
 import { WorkspaceListRow } from "./workspace-list-row";
 import { Badge } from "@/components/kumo/badge";
@@ -289,6 +290,9 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 	const [hideEmpty, setHideEmpty] = useState(true);
 	const [manage, setManage] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
+	const [removing, setRemoving] = useState<{ id: string; name: string } | null>(
+		null,
+	);
 	const [scheduledItem, setScheduledItem] = useState<WorkItem | null>(null);
 	const linked = links.data?.items ?? [];
 	const effectiveProjectId = linked.some((link) => link.projectId === projectId)
@@ -373,8 +377,14 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 				expectedUpdatedAt: link.updatedAt,
 			});
 		},
-		onSuccess: refreshLinks,
+		onSuccess: async () => {
+			setRemoving(null);
+			await refreshLinks();
+		},
 	});
+	const removingTotal = removing
+		? itemQueries[visibleIds.indexOf(removing.id)]?.data?.pagination.total
+		: undefined;
 	const groups = STATUSES.map((disposition) => ({
 		disposition,
 		items: work.filter((item) => workProgress(item, attempts) === disposition),
@@ -777,10 +787,8 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 					{projects.isError ? (
 						<Text tone="error">Projects could not be loaded.</Text>
 					) : null}
-					{attach.isError || remove.isError ? (
-						<Text tone="error">
-							{attach.error?.message ?? remove.error?.message}
-						</Text>
+					{attach.isError ? (
+						<Text tone="error">{attach.error?.message}</Text>
 					) : null}
 					{projects.isPending ? (
 						<Text tone="secondary">Loading projects…</Text>
@@ -811,11 +819,11 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 										variant={isLinked ? "ghost" : "secondary"}
 										disabled={attach.isPending || remove.isPending}
 										aria-label={`${isLinked ? "Remove" : "Link"} ${project.name}`}
-										onClick={() =>
-											isLinked
-												? remove.mutate(project.id)
-												: attach.mutate(project.id)
-										}
+										onClick={() => {
+											if (!isLinked) return attach.mutate(project.id);
+											remove.reset();
+											setRemoving({ id: project.id, name: project.name });
+										}}
 									>
 										{isLinked ? "Remove" : "Link"}
 									</Button>
@@ -825,6 +833,24 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 					</Collection>
 				</DialogContent>
 			</Dialog>
+			<ConfirmDialog
+				open={removing !== null}
+				onOpenChange={(open) => !open && setRemoving(null)}
+				title={`Remove ${removing?.name ?? "this project"} from this workspace?`}
+				description={
+					removingTotal === undefined
+						? "Its Work items will stop showing in this workspace. The project and its Work items are not changed, and you can link it again."
+						: `${removingTotal} Work ${removingTotal === 1 ? "item" : "items"} will stop showing in this workspace. The project and its Work items are not changed, and you can link it again.`
+				}
+				confirmLabel="Remove from workspace"
+				pendingLabel="Removing…"
+				retryLabel="Try again"
+				cancelLabel="Keep linked"
+				destructive
+				isPending={remove.isPending}
+				error={remove.error}
+				onConfirm={() => removing && remove.mutate(removing.id)}
+			/>
 			{scheduledItem ? (
 				<ScheduleDialog
 					key={scheduledItem.id}

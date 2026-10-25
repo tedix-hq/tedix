@@ -183,6 +183,29 @@ describe("Workspace work", () => {
 		).not.toBeNull();
 	});
 
+	it("asks before removing a linked project and says what it hides", async () => {
+		await renderPanel();
+		await act(async () => button("Manage projects").click());
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>('[aria-label="Remove Finance"]')!
+				.click(),
+		);
+		const dialog = document.querySelector('[role="alertdialog"]');
+		expect(dialog?.textContent).toContain(
+			"Remove Finance from this workspace?",
+		);
+		expect(dialog?.textContent).toContain(
+			"1 Work item will stop showing in this workspace",
+		);
+		expect(dialog?.textContent).toContain("Remove from workspace");
+		await act(async () => button("Keep linked").click());
+		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+		expect(
+			document.querySelector('[aria-label="Remove Finance"]'),
+		).not.toBeNull();
+	});
+
 	it("switches between board and timeline without hiding unscheduled work", async () => {
 		const host = await renderPanel();
 		await act(async () => button("Board").click());
