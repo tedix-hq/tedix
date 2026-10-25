@@ -27,8 +27,8 @@ describe("Attention copy", () => {
 		expect(inactiveSessionLabel(null, now)).toBe("Heartbeat not reported");
 	});
 	it("labels registered source kinds without inferring from names", () => {
-		expect(attentionSourceLabel("local_codex")).toBe("Local session (Codex)");
-		expect(attentionSourceLabel("local_claude")).toBe("Local session (Claude)");
+		expect(attentionSourceLabel("local_codex")).toBe("Local · Codex");
+		expect(attentionSourceLabel("local_claude")).toBe("Local · Claude");
 		expect(attentionSourceLabel("cloud_tedi", "CTO")).toBe("Tedi (CTO)");
 		expect(attentionSourceLabel("factory", "Inbox opportunities")).toBe(
 			"Factory (Inbox opportunities)",

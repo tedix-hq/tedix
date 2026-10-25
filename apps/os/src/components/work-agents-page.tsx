@@ -99,8 +99,8 @@ export const AGENT_BOARD_SECTIONS: readonly {
 export const AGENT_HARNESS_LABEL: Record<string, string> = {
 	"claude-code": ATTENTION_COPY.local_claude,
 	codex: ATTENTION_COPY.local_codex,
-	opencode: "Local session (OpenCode)",
-	devin: "Local session (Devin)",
+	opencode: "Local · OpenCode",
+	devin: ATTENTION_COPY.local_devin,
 	tedi: "Tedi",
 	skill: "Skill",
 };

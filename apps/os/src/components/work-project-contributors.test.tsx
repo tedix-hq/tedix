@@ -15,7 +15,10 @@ vi.mock("@/lib/os-query-options", () => ({
 	}),
 }));
 
-import { WorkProjectContributors } from "./work-project-contributors";
+import {
+	contributorSessionName,
+	WorkProjectContributors,
+} from "./work-project-contributors";
 
 const PROJECT_ID = "00000076-0000-4000-8000-000000000001";
 const OTHER_PROJECT_ID = "00000076-0000-4000-8000-000000000002";
@@ -110,7 +113,7 @@ async function mount() {
 }
 
 describe("Project contributors", () => {
-	it("renders one row per session with state, Work item link and attempts", () => {
+	it("groups sessions and shows each Work item title once", () => {
 		const doc = render([
 			session("claude-code:session-1", {
 				name: "billing · invoices",
@@ -125,24 +128,106 @@ describe("Project contributors", () => {
 				summary: "Session closed.",
 				lastActivityAt: ago(60 * 3),
 			}),
+			session("codex:session-3", {
+				harness: "codex",
+				name: "Rebuild the invoice export",
+				state: "idle",
+				workItemId: WORK_ITEM_ID,
+				workItemTitle: "Rebuild the invoice export",
+				attempts: 1,
+				lastActivityAt: ago(60),
+			}),
+		]);
+		const groups = [...doc.querySelectorAll("[data-contributor-groups] h3")];
+		expect(groups.map((heading) => heading.textContent)).toEqual([
+			"Active · 1",
+			"Finished · 1",
+			"Inactive · 1",
 		]);
 		const rows = [...doc.querySelectorAll("li[data-contributor-state]")];
 		expect(
 			rows.map((row) => row.getAttribute("data-contributor-state")),
-		).toEqual(["working", "ended"]);
-		expect(rows[0]?.textContent).toContain("Local session (Claude)");
-		expect(rows[0]?.textContent).toContain("Running");
-		expect(rows[0]?.textContent).toContain("2 attempts");
+		).toEqual(["working", "ended", "idle"]);
+		expect(rows[0]?.textContent).toContain("Local · Claude");
+		expect(rows[0]?.textContent).toContain("2 runs");
 		expect(rows[0]?.textContent).toContain("5m ago");
+		expect(rows[0]?.textContent).toContain("billing · invoices");
+		// The group says Active; the row does not repeat "Running".
+		expect(rows[0]?.textContent).not.toContain("Running");
 		expect(
 			rows[0]?.querySelector(`a[href="/work/items/${WORK_ITEM_ID}"]`)
 				?.textContent,
 		).toBe("Rebuild the invoice export");
-		expect(rows[1]?.textContent).toContain("Codex");
-		expect(rows[1]?.textContent).toContain("Ended");
-		expect(rows[1]?.textContent).not.toContain("attempt");
+		expect(rows[1]?.textContent).toContain("Local · Codex");
+		expect(rows[1]?.textContent).toContain("docs · refresh");
+		expect(rows[1]?.textContent).not.toContain("run");
 		expect(rows[1]?.querySelector("a")).toBeNull();
-		expect(doc.body.textContent).toContain("Contributors (2)");
+		// A session named after its Work item shows the title once.
+		expect(
+			rows[2]?.textContent?.split("Rebuild the invoice export").length,
+		).toBe(2);
+		expect(rows[2]?.textContent).not.toContain("1 run");
+		expect(doc.body.textContent).not.toContain("Local session");
+		expect(doc.body.textContent).toContain("Contributors (3)");
+	});
+
+	it("never shows a raw session key and says when no Work item is known", () => {
+		const doc = render([
+			session("codex:d3df0646-fbc0-4c1e-9a77-3a0d7c1f2b11", {
+				harness: "codex",
+				name: "codex:d3df0646-fbc0-4c1e-9a77-3a0d7c1f2b11",
+				state: "done",
+				summary: "",
+			}),
+		]);
+		const row = doc.querySelector("li[data-contributor-state]");
+		expect(row?.textContent).not.toContain("d3df0646");
+		expect(row?.textContent).toContain("No Work item");
+	});
+
+	it("keeps blocked and waiting sessions on top with their badge", () => {
+		const doc = render([
+			session("a:1", { lastActivityAt: ago(1) }),
+			session("b:2", {
+				state: "needs_you",
+				name: "Lead",
+				lastActivityAt: ago(9),
+			}),
+		]);
+		const rows = [...doc.querySelectorAll("li[data-contributor-state]")];
+		expect(rows[0]?.getAttribute("data-contributor-state")).toBe("needs_you");
+		expect(rows[0]?.textContent).toContain("Waiting on you");
+		expect(rows[0]?.textContent).toContain("Lead");
+	});
+
+	it("shows ten older sessions and reveals the rest on request", async () => {
+		reads.fn.mockReset().mockResolvedValue({
+			contributors: Array.from({ length: 25 }, (_, index) =>
+				session(`codex:old-${index}`, {
+					harness: "codex",
+					name: `Lane ${index}`,
+					state: "idle",
+					lastActivityAt: ago(60 + index),
+				}),
+			),
+		});
+		const view = await mount();
+		try {
+			expect(
+				view.host.querySelectorAll("li[data-contributor-state]"),
+			).toHaveLength(10);
+			const more = [...view.host.querySelectorAll("button")].find(
+				(button) => button.textContent === "Show all 25",
+			);
+			expect(more?.getAttribute("aria-expanded")).toBe("false");
+			await act(async () => more?.click());
+			expect(
+				view.host.querySelectorAll("li[data-contributor-state]"),
+			).toHaveLength(25);
+			expect(view.host.textContent).toContain("Show fewer");
+		} finally {
+			await view.cleanup();
+		}
 	});
 
 	it("explains when no session has worked on the project", () => {
@@ -151,6 +236,26 @@ describe("Project contributors", () => {
 			"No sessions have worked on this project yet.",
 		);
 		expect(doc.querySelector("li")).toBeNull();
+	});
+});
+
+describe("contributorSessionName", () => {
+	const base = {
+		sessionKey: "codex:abc",
+		harness: "codex",
+		workItemTitle: "Bound concurrent turns per tedi Durable Object",
+	};
+	it.each([
+		["codex:abc", null],
+		["codex:d3df0646-fbc0-…", null],
+		["d3df0646-fbc0-4c1e-9a77-3a0d7c1f2b11", null],
+		["Bound concurrent turns per tedi Durable Object", null],
+		["bound concurrent turns", null],
+		["  ", null],
+		["Lead", "Lead"],
+		["REDDIT", "REDDIT"],
+	])("%s → %s", (name, expected) => {
+		expect(contributorSessionName({ ...base, name })).toBe(expected);
 	});
 });
 

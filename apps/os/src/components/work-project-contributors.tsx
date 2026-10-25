@@ -5,10 +5,10 @@ import {
 } from "@/components/work-surface-primitives";
 import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import type { ListWorkProjectContributorsResultSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type * as z from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import {
@@ -53,6 +53,77 @@ type Contributor = z.output<
 	typeof ListWorkProjectContributorsResultSchema
 >["contributors"][number];
 
+const UUID_PREFIX = /^[0-9a-f]{8}-[0-9a-f]{4}/i;
+
+/**
+ * The session name, only when it tells a person something the row does not
+ * already say: never a raw session key, never a repeat of the Work item title.
+ */
+export function contributorSessionName(
+	contributor: Pick<
+		Contributor,
+		"name" | "sessionKey" | "harness" | "workItemTitle"
+	>,
+): string | null {
+	const name = contributor.name.trim();
+	if (
+		!name ||
+		name === contributor.sessionKey ||
+		name.startsWith(`${contributor.harness}:`) ||
+		UUID_PREFIX.test(name)
+	)
+		return null;
+	const title = contributor.workItemTitle?.trim().toLowerCase();
+	const lower = name.toLowerCase();
+	if (title && (title.startsWith(lower) || lower.startsWith(title)))
+		return null;
+	return name;
+}
+
+type ContributorGroupKey = "active" | "finished" | "inactive";
+
+const CONTRIBUTOR_GROUP: Record<Contributor["state"], ContributorGroupKey> = {
+	needs_you: "active",
+	error: "active",
+	working: "active",
+	unknown: "active",
+	done: "finished",
+	ended: "finished",
+	idle: "inactive",
+};
+
+const CONTRIBUTOR_GROUPS: ReadonlyArray<{
+	key: ContributorGroupKey;
+	title: string;
+	/** Rows shown before "Show all"; active sessions are never hidden. */
+	preview: number;
+}> = [
+	{ key: "active", title: "Active", preview: Number.POSITIVE_INFINITY },
+	{ key: "finished", title: "Finished", preview: 10 },
+	{ key: "inactive", title: ATTENTION_COPY.inactive, preview: 10 },
+];
+
+const URGENCY: Partial<Record<Contributor["state"], number>> = {
+	needs_you: 0,
+	error: 1,
+	working: 2,
+};
+
+/** Waiting and blocked sessions first, then the most recent activity. */
+function byUrgencyThenRecent(a: Contributor, b: Contributor) {
+	return (
+		(URGENCY[a.state] ?? 3) - (URGENCY[b.state] ?? 3) ||
+		b.lastActivityAt.localeCompare(a.lastActivityAt)
+	);
+}
+
+/** The group header already says Active, Finished or Inactive. */
+const STATE_NEEDS_BADGE = new Set<Contributor["state"]>([
+	"needs_you",
+	"error",
+	"unknown",
+]);
+
 function ContributorRow({
 	contributor,
 	now,
@@ -61,58 +132,67 @@ function ContributorRow({
 	now: Date;
 }) {
 	useOsFormattingPreferences();
+	const sessionName = contributorSessionName(contributor);
+	const hasItem = Boolean(contributor.workItemId && contributor.workItemTitle);
+	const active = CONTRIBUTOR_GROUP[contributor.state] === "active";
+	const detail = hasItem
+		? sessionName
+		: active && contributor.state !== "error"
+			? contributor.summary.trim() || null
+			: null;
 	return (
 		<li
 			data-contributor-state={contributor.state}
-			className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"
+			className="flex min-w-0 items-center gap-x-3 gap-y-1 px-3 py-2 max-sm:flex-wrap"
 		>
-			<Badge variant="outline" className="shrink-0">
-				{AGENT_HARNESS_LABEL[contributor.harness] ??
-					ATTENTION_COPY.unknownSource}
-			</Badge>
-			<AgentStateBadge
-				state={contributor.state}
-				lastSeenAt={contributor.lastActivityAt}
-				reason={contributor.summary}
-				now={now}
-			/>
+			<div className="grid min-w-0 flex-1 gap-0.5">
+				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+					{hasItem ? (
+						<Link
+							variant="record"
+							href={`/work/items/${contributor.workItemId}`}
+							className="tap-target-y min-w-0 max-w-full truncate"
+							title={contributor.workItemTitle ?? undefined}
+						>
+							{contributor.workItemTitle}
+						</Link>
+					) : (
+						<Text
+							as="span"
+							role="body"
+							tone={sessionName ? "strong" : "secondary"}
+							className="max-w-full"
+							truncate
+							title={sessionName ?? undefined}
+						>
+							{sessionName ?? "No Work item"}
+						</Text>
+					)}
+					{STATE_NEEDS_BADGE.has(contributor.state) ? (
+						<AgentStateBadge
+							state={contributor.state}
+							lastSeenAt={contributor.lastActivityAt}
+							reason={contributor.summary}
+							now={now}
+						/>
+					) : null}
+				</div>
+				{detail ? (
+					<Text as="span" role="label" tone="secondary" truncate title={detail}>
+						{detail}
+					</Text>
+				) : null}
+			</div>
 			<Text
 				as="span"
-				role="body"
-				tone="strong"
-				className="min-w-0 max-w-[40%] truncate"
-				title={contributor.name}
+				role="label"
+				tone="secondary"
+				className="shrink-0 tabular-nums max-sm:basis-full"
 			>
-				{contributor.name}
-			</Text>
-			{contributor.workItemId && contributor.workItemTitle ? (
-				<Link
-					variant="record"
-					href={`/work/items/${contributor.workItemId}`}
-					className="tap-target-y min-w-0 flex-1 truncate max-sm:basis-full"
-					title={contributor.workItemTitle}
-				>
-					{contributor.workItemTitle}
-				</Link>
-			) : (
-				<Text
-					as="span"
-					role="body"
-					tone="secondary"
-					className="min-w-0 flex-1 truncate max-sm:basis-full"
-					title={contributor.summary}
-				>
-					{contributor.summary}
-				</Text>
-			)}
-			{contributor.attempts > 0 ? (
-				<Text as="span" role="label" tone="secondary" className="shrink-0">
-					{contributor.attempts === 1
-						? "1 attempt"
-						: `${contributor.attempts} attempts`}
-				</Text>
-			) : null}
-			<Text as="span" role="label" tone="secondary" className="shrink-0">
+				{AGENT_HARNESS_LABEL[contributor.harness] ??
+					ATTENTION_COPY.unknownSource}
+				{contributor.attempts > 1 ? ` · ${contributor.attempts} runs` : ""}
+				{" · "}
 				<time
 					dateTime={contributor.lastActivityAt}
 					title={absoluteTime(contributor.lastActivityAt)}
@@ -124,7 +204,51 @@ function ContributorRow({
 	);
 }
 
-/** Every Claude Code and Codex session that worked on a project, active first. */
+function ContributorGroup({
+	title,
+	preview,
+	contributors,
+	now,
+}: {
+	title: string;
+	preview: number;
+	contributors: readonly Contributor[];
+	now: Date;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const shown = expanded ? contributors : contributors.slice(0, preview);
+	const hidden = contributors.length - shown.length;
+	return (
+		<section aria-label={title} className="grid gap-2">
+			<Text as="h3" role="label" tone="secondary" weight="medium">
+				{title} · {contributors.length}
+			</Text>
+			<Collection aria-label={`${title} contributors`}>
+				{shown.map((contributor) => (
+					<ContributorRow
+						key={contributor.sessionKey}
+						contributor={contributor}
+						now={now}
+					/>
+				))}
+			</Collection>
+			{hidden > 0 || expanded ? (
+				<div>
+					<Button
+						size="sm"
+						variant="ghost"
+						aria-expanded={expanded}
+						onClick={() => setExpanded((value) => !value)}
+					>
+						{expanded ? "Show fewer" : `Show all ${contributors.length}`}
+					</Button>
+				</div>
+			) : null}
+		</section>
+	);
+}
+
+/** Every local session that worked on a project, grouped by whether it is still active. */
 export function WorkProjectContributors({
 	projectId,
 	now = new Date(),
@@ -174,15 +298,25 @@ export function WorkProjectContributors({
 			) : null}
 			{contributors ? (
 				contributors.length ? (
-					<Collection aria-label="Project contributors">
-						{contributors.map((contributor) => (
-							<ContributorRow
-								key={contributor.sessionKey}
-								contributor={contributor}
-								now={now}
-							/>
-						))}
-					</Collection>
+					<div className="grid gap-4" data-contributor-groups="">
+						{CONTRIBUTOR_GROUPS.map((group) => {
+							const rows = contributors
+								.filter(
+									(contributor) =>
+										CONTRIBUTOR_GROUP[contributor.state] === group.key,
+								)
+								.sort(byUrgencyThenRecent);
+							return rows.length ? (
+								<ContributorGroup
+									key={group.key}
+									title={group.title}
+									preview={group.preview}
+									contributors={rows}
+									now={now}
+								/>
+							) : null;
+						})}
+					</div>
 				) : stale ? null : (
 					<WorkEmpty
 						title="No contributors"

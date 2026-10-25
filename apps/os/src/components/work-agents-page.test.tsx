@@ -146,7 +146,7 @@ describe("Agents board", () => {
 		);
 		expect(html).toContain('href="/work/items/fictional-work"');
 		expect(html).toContain("Fix fictional widget");
-		expect(html).toContain("Local session (OpenCode)");
+		expect(html).toContain("Local · OpenCode");
 		expect(html).toContain("test-model");
 		expect(html).toContain("Make the widget readable");
 		expect(html).toContain("Last activity");
@@ -238,7 +238,7 @@ describe("Agents board", () => {
 			"No project",
 		]);
 		expect(doc.body.textContent).not.toContain("Closed");
-		expect(doc.body.textContent).toContain("Local session (Claude)");
+		expect(doc.body.textContent).toContain("Local · Claude");
 		expect(doc.body.textContent).toContain("Codex");
 		const strip = doc.querySelector('[aria-label="Agent session counts"]');
 		expect(strip?.textContent).toContain("Waiting on you2");
