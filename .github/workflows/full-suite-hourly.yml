@@ -18,6 +18,7 @@ concurrency:
 
 env:
   CI: "true"
+  BUN_VERSION: "1.4.4"
 
 jobs:
   plan:
@@ -106,7 +107,18 @@ jobs:
           package-manager-cache: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
+          bun-version: ${{ env.BUN_VERSION }}
+      # Every shard resolves the same dependency set, so the lockfile-keyed
+      # global cache lets a shard reuse another shard's download. The prefix
+      # key restores an older lockfile's cache on a miss; entries are per
+      # version and `bun install` verifies each one against the lockfile, so
+      # only compatible packages are reused.
+      - name: Share the frozen dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
       # The duration identifies a slow runner for the infrastructure rerun.
       - name: Frozen install
         run: |
@@ -167,7 +179,13 @@ jobs:
           package-manager-cache: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Share the frozen dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Provide the Vite+ package manager
         uses: ./.github/actions/vite-plus-package-manager
