@@ -4,15 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 const api = vi.hoisted(() => ({
 	get: vi.fn(),
 	saveFeedback: vi.fn(),
-	getForGadget: vi.fn(),
-	saveGadgetFeedback: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({ osApi: { osShares: { reviews: api } } }));
-import {
-	SharedReviewBatch,
-	splitRecommendation,
-	WorkspaceGadgetReview,
-} from "./shared-review-batch";
+import { SharedReviewBatch, splitRecommendation } from "./shared-review-batch";
 const card = {
 	id: "card",
 	title: "Price question",
@@ -364,69 +358,5 @@ describe("focused review app", () => {
 			(container.querySelector("textarea") as HTMLTextAreaElement).value,
 		).toBe("Fresh draft");
 		expect(button("Not sure yet")?.getAttribute("aria-pressed")).toBe("true");
-	});
-});
-
-describe("workspace entry point", () => {
-	async function renderWorkspace() {
-		const container = document.createElement("div");
-		document.body.append(container);
-		const root = createRoot(container);
-		cleanups.push(() => {
-			root.unmount();
-			container.remove();
-		});
-		await act(async () => {
-			root.render(
-				<WorkspaceGadgetReview
-					workspaceId="workspace"
-					gadgetId="gadget"
-					gadget={<p>Original gadget app</p>}
-				/>,
-			);
-			await tick();
-		});
-		const button = (text: string) =>
-			Array.from(container.querySelectorAll("button")).find(
-				(b) => b.textContent?.trim() === text,
-			);
-		return { container, button };
-	}
-
-	it("opens the bound batch in the same review app and saves through the workspace path", async () => {
-		api.getForGadget.mockResolvedValue({ batch, feedback: [] });
-		api.saveGadgetFeedback.mockResolvedValue({ feedback: { revision: 1 } });
-		const { container, button } = await renderWorkspace();
-		expect(container.textContent).toContain("0 of 2 reviewed");
-		expect(container.textContent).not.toContain("Original gadget app");
-		await act(async () => {
-			button("Save feedback")!.click();
-			await tick();
-		});
-		expect(api.saveGadgetFeedback).toHaveBeenCalledWith(
-			expect.objectContaining({
-				workspaceId: "workspace",
-				gadgetId: "gadget",
-				batchId: "batch",
-				cardId: "card",
-				expectedRevision: 0,
-			}),
-		);
-		expect(api.saveFeedback).not.toHaveBeenCalled();
-		await act(async () => {
-			button("Full app")!.click();
-			await tick();
-		});
-		expect(container.textContent).toContain("Original gadget app");
-	});
-
-	it("renders the gadget unchanged when no review is bound or the review cannot load", async () => {
-		api.getForGadget.mockResolvedValueOnce({ batch: null, feedback: [] });
-		const first = await renderWorkspace();
-		expect(first.container.textContent).toContain("Original gadget app");
-		expect(first.button("Full app")).toBeUndefined();
-		api.getForGadget.mockRejectedValueOnce(new Error("Forbidden"));
-		const second = await renderWorkspace();
-		expect(second.container.textContent).toContain("Original gadget app");
 	});
 });
