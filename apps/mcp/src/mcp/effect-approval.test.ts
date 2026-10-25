@@ -132,6 +132,40 @@ describe("effect-based gateway approval", () => {
 			),
 		).toBeNull();
 	});
+	// Live 25 Oct: an owner's certification run of a draft and the activation
+	// of the certified improvement parked behind MCP_INPUT_REQUIRED in an
+	// organization without explicit autonomy.
+	it.each([
+		[skill, { certification: true, skillId: "draft-1", tediId: "tedi-1" }],
+		[
+			{
+				...tool({
+					transport: "rpc",
+					endpoint: "skills/activateWorkflowImprovement",
+				}),
+				toolId: "activate_skill_workflow_improvement",
+				annotations: { destructiveHint: false },
+			},
+			{ id: "draft-1", certificationRunId: "run-1", reason: "certified" },
+		],
+	])(
+		"lets the owner's skill operation %# run under the platform default",
+		async (target, args) => {
+			const ctx = context();
+			vi.mocked(
+				ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+			).mockResolvedValue({ requireExplicitApprovalPolicy: false });
+			expect(
+				await requireDestructiveToolApproval(ctx, target, target.annotations, {
+					args,
+					extra,
+				}),
+			).toBeNull();
+			expect(
+				ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+			).not.toHaveBeenCalled();
+		},
+	);
 	it.each([
 		[skill, { certification: false }],
 		[descope, { operation: "CreateAccessKey" }],

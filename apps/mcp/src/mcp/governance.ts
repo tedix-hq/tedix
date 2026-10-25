@@ -1149,9 +1149,13 @@ export async function requireDestructiveToolApproval(
 	const platformOperation =
 		inOrganizationCaller &&
 		!isOwnedChannelBoundary &&
+		// A person's ordinary skill start is the owner check's decision above;
+		// a certification run is not (the API checks owner/admin, draft and
+		// revision), so it takes the default like any other run start.
 		!(
 			callerIsUserPrincipalPath(agent) &&
-			tool.config?.endpoint === "skills/runWorkflow"
+			tool.config?.endpoint === "skills/runWorkflow" &&
+			!certificationStart
 		) &&
 		!configuredApproval &&
 		!manifestProtectedEffect &&
