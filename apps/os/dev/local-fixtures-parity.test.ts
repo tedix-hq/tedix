@@ -250,9 +250,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"osWorkspaces/resources/startRepositoryWork",
 		"osWorkspaces/schedules/runNow",
 		"osWorkspaces/schedules/setPersonalAccess",
-		"osWorkspaces/work/attachProject",
-		"osWorkspaces/work/listProjects",
-		"osWorkspaces/work/removeProject",
 	],
 	"PersonalAgentValue error text": ["personalAgentInbound/value"],
 	"PersonalReadConsentApp disabled allow; workspace access error text": [
@@ -265,7 +262,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"projects/assignSprintWorkItem",
 		"projects/attachMilestoneWorkItem",
 		"projects/createMilestone",
-		"projects/listSprints",
 		"projects/recordHealthJudgment",
 		"projects/updateMilestone",
 	],
@@ -422,10 +418,7 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"workItems/updateCase",
 		"workItems/updateSpecification",
 	],
-	"ActivityFeedSources failed-source state": [
-		"workItems/listActivity",
-		"workItems/listAttemptProjection",
-	],
+	"ActivityFeedSources failed-source state": ["workItems/listActivity"],
 	"FocusFeed catches feedback failure without removing the item": [
 		"workItems/recordDelegationAutonomyFeedback",
 	],

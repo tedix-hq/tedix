@@ -73,6 +73,7 @@ import type {
 	OsOutputRevision,
 	OsWorkspace,
 	OsWorkspacePreference,
+	OsWorkspaceProject,
 	OsWorkspaceResource,
 } from "@tedix/api-contract/schemas/os-workspaces";
 
@@ -247,6 +248,7 @@ type LocalState = {
 	workspaces: OsWorkspace[];
 	workspacePreferences: OsWorkspacePreference[];
 	workspaceResources: OsWorkspaceResource[];
+	workspaceProjects: OsWorkspaceProject[];
 	gadgets: OsGadget[];
 	gadgetRevisions: OsGadgetRevision[];
 	/** Runtime app files by revision id (`os_gadget_code`). */
@@ -310,6 +312,23 @@ const workspaceRow = (
 	updatedAt: T0,
 	visibility: "org",
 	ownerUserId: null,
+});
+
+const workspaceProjectLink = (
+	n: number,
+	workspaceId: string,
+	projectId: string,
+): OsWorkspaceProject => ({
+	id: fid("43", n),
+	organizationId: ORG_ID,
+	workspaceId,
+	projectId,
+	status: "active",
+	createdByKind: "user",
+	createdById: "dev-operator",
+	createdAt: T2,
+	updatedAt: T2,
+	removedAt: null,
 });
 
 const seedState = (): LocalState => ({
@@ -393,6 +412,11 @@ const seedState = (): LocalState => ({
 			updatedAt: T4,
 			removedAt: null,
 		},
+	],
+	// fid("76", 1|2) are the OPS and GROWTH project() rows declared below.
+	workspaceProjects: [
+		workspaceProjectLink(1, WORKSPACE_REVENUE, fid("76", 1)),
+		workspaceProjectLink(2, WORKSPACE_REVENUE, fid("76", 2)),
 	],
 	gadgets: [
 		{
@@ -2854,6 +2878,158 @@ const workItemsInScope = (projectId?: string) =>
 	WORK_ITEMS.filter(
 		(row) => projectId === undefined || row.projectId === projectId,
 	);
+
+// Sprints, milestones and live attempts — the planning reads a linked
+// project's Work view makes beside the item list itself.
+const sprint = (
+	n: number,
+	projectN: number,
+	name: string,
+	goal: string | null,
+	status: "planned" | "active" | "completed" | "cancelled",
+	startAt: string,
+	endAt: string,
+	workItemNs: number[],
+) => ({
+	sprint: {
+		id: fid("45", n),
+		orgId: ORG_ID,
+		projectId: fid("76", projectN),
+		name,
+		goal,
+		status,
+		startAt,
+		endAt,
+		createdAt: T1,
+		updatedAt: null,
+		version: 1,
+	},
+	workItemIds: workItemNs.map(workItemId),
+});
+
+const PROJECT_SPRINTS = [
+	sprint(
+		1,
+		1,
+		"Week 33 reporting pass",
+		"Cohort query and revenue summary land before the Monday owner sync",
+		"active",
+		T3,
+		"2026-08-16T17:00:00.000Z",
+		[1, 6],
+	),
+	sprint(
+		2,
+		1,
+		"Week 34 reporting pass",
+		null,
+		"planned",
+		"2026-08-17T09:00:00.000Z",
+		"2026-08-21T17:00:00.000Z",
+		[],
+	),
+];
+
+const milestone = (
+	n: number,
+	projectN: number,
+	title: string,
+	lifecycle: "proposed" | "planned" | "active" | "done" | "cancelled",
+	targetAt: string | null,
+	sortOrder: number,
+	workItemNs: number[],
+) => ({
+	milestone: {
+		id: fid("46", n),
+		orgId: ORG_ID,
+		projectId: fid("76", projectN),
+		title,
+		description: null,
+		lifecycle,
+		accountableOwnerType: "tedi" as const,
+		accountableOwnerId: TEDI_MILES,
+		targetAt,
+		proofRef: null,
+		completedAt: lifecycle === "done" ? T4 : null,
+		cancelledAt: null,
+		sortOrder,
+		createdAt: T1,
+		updatedAt: null,
+		version: 1,
+	},
+	workItemNs,
+});
+
+const PROJECT_MILESTONES = [
+	milestone(
+		1,
+		1,
+		"Owner sync refreshes itself",
+		"active",
+		"2026-08-17T09:00:00.000Z",
+		1,
+		[1, 4],
+	),
+	milestone(
+		2,
+		1,
+		"Churn cohort trusted end to end",
+		"planned",
+		"2026-08-31T17:00:00.000Z",
+		2,
+		[6],
+	),
+];
+
+const workItemSummary = (row: (typeof WORK_ITEMS)[number]) => ({
+	id: row.id,
+	title: row.title,
+	disposition: row.disposition,
+	workKind: row.workKind,
+	riskLevel: row.riskLevel,
+	priority: row.priority,
+	projectId: row.projectId,
+	accountableOwnerType: row.accountableOwnerType,
+	accountableOwnerId: row.accountableOwnerId,
+});
+
+/**
+ * Live attempts. The workspace Work list and the activity views read these for
+ * progress, so the lease expiry rides on the dev server's own clock — a fixed
+ * T-time would read as expired the moment the fixture loads.
+ */
+const workAttempt = (
+	n: number,
+	workItemN: number,
+	executorId: string,
+	runtimeState: "queued" | "running" | "waiting" | "retrying",
+	summary: string | null,
+) => ({
+	id: fid("47", n),
+	orgId: ORG_ID,
+	workItemId: workItemId(workItemN),
+	executorType: "tedi" as const,
+	executorId,
+	executorSessionId: null,
+	externalSessionKey: null,
+	runtimeState,
+	outcome: null,
+	runId: `local-attempt-run-${n}`,
+	admissionId: fid("47", 0x40 + n),
+	attemptNumber: 1,
+	startedAt: T5,
+	heartbeatAt: T5,
+	expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+	finishedAt: null,
+	summary,
+	metadata: {},
+});
+
+const WORK_ATTEMPTS = [
+	workAttempt(1, 1, TEDI_MILES, "running", "Paging the cohort query"),
+	workAttempt(2, 2, TEDI_JUNO, "waiting", null),
+	workAttempt(3, 5, TEDI_JUNO, "queued", null),
+];
 
 const orgGraphHealthFor = (projectId: string | undefined, limit: number) => {
 	const scoped = workItemsInScope(projectId);
@@ -5634,6 +5810,48 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"workItems/listAttempts": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvidence": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvents": () => ({ events: [], nextSequence: null }),
+	"workItems/listAttemptProjection": (
+		input:
+			| {
+					projectId?: string;
+					workItemId?: string;
+					runtimeStates?: string[];
+					outcomes?: string[];
+					executorType?: string;
+					limit?: number;
+			  }
+			| undefined,
+	) => {
+		const rows = WORK_ATTEMPTS.filter((attempt) => {
+			const item = WORK_ITEMS.find((row) => row.id === attempt.workItemId);
+			return (
+				item !== undefined &&
+				(input?.projectId === undefined ||
+					item.projectId === input.projectId) &&
+				(input?.workItemId === undefined ||
+					attempt.workItemId === input.workItemId) &&
+				(input?.runtimeStates === undefined ||
+					input.runtimeStates.includes(attempt.runtimeState)) &&
+				(input?.outcomes === undefined ||
+					(attempt.outcome !== null &&
+						input.outcomes.includes(attempt.outcome))) &&
+				(input?.executorType === undefined ||
+					attempt.executorType === input.executorType)
+			);
+		});
+		const limit = input?.limit ?? 50;
+		return {
+			data: rows.slice(0, limit).map((attempt) => ({
+				attempt,
+				workItem: workItemSummary(
+					WORK_ITEMS.find((row) => row.id === attempt.workItemId)!,
+				),
+				laneState: null,
+			})),
+			nextCursor: null,
+			hasMore: rows.length > limit,
+		};
+	},
 	"projects/list": (input: Pagination | undefined) => paginate(PROJECTS, input),
 	"projects/get": (input: { id: string }) => ({
 		...localProject(input.id),
@@ -5711,7 +5929,29 @@ const handlers: Record<string, (input: never) => unknown> = {
 	}),
 	"projects/listMilestones": (input: { id: string }) => {
 		localProject(input.id);
-		return { data: [], nextCursor: null };
+		return {
+			data: PROJECT_MILESTONES.filter(
+				(entry) => entry.milestone.projectId === input.id,
+			).map((entry) => ({
+				milestone: entry.milestone,
+				workItems: entry.workItemNs
+					.map((n) => WORK_ITEMS.find((row) => row.id === workItemId(n)))
+					.filter((row) => row !== undefined)
+					.map(({ id, title, disposition }) => ({ id, title, disposition })),
+				dependencies: [],
+				workItemsTruncated: false,
+				dependenciesTruncated: false,
+			})),
+			nextCursor: null,
+		};
+	},
+	"projects/listSprints": (input: { id: string }) => {
+		localProject(input.id);
+		return {
+			data: PROJECT_SPRINTS.filter(
+				(entry) => entry.sprint.projectId === input.id,
+			),
+		};
 	},
 	"projects/listHealthJudgments": (input: { id: string }) => {
 		localProject(input.id);
@@ -8333,6 +8573,74 @@ const handlers: Record<string, (input: never) => unknown> = {
 			blueprintId,
 			workspaceName: input.workspaceName,
 		} as never);
+	},
+
+	// --- Workspace Work project links ---
+	"osWorkspaces/work/listProjects": (input: {
+		workspaceId: string;
+		status?: OsWorkspaceProject["status"];
+		limit?: number;
+	}) => ({
+		items: state.workspaceProjects
+			.filter(
+				(row) =>
+					row.workspaceId === input.workspaceId &&
+					(input.status === undefined || row.status === input.status),
+			)
+			.slice(0, input.limit ?? 100),
+		truncated: false,
+	}),
+	"osWorkspaces/work/attachProject": (input: {
+		workspaceId: string;
+		projectId: string;
+	}) => {
+		findWorkspace(input.workspaceId);
+		localProject(input.projectId);
+		const existing = state.workspaceProjects.find(
+			(row) =>
+				row.workspaceId === input.workspaceId &&
+				row.projectId === input.projectId,
+		);
+		if (existing) {
+			existing.status = "active";
+			existing.removedAt = null;
+			existing.updatedAt = now();
+			return { link: existing };
+		}
+		const link: OsWorkspaceProject = {
+			id: nextId(),
+			organizationId: ORG_ID,
+			workspaceId: input.workspaceId,
+			projectId: input.projectId,
+			status: "active",
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: now(),
+			updatedAt: now(),
+			removedAt: null,
+		};
+		state.workspaceProjects.push(link);
+		return { link };
+	},
+	"osWorkspaces/work/removeProject": (input: {
+		workspaceId: string;
+		projectId: string;
+		expectedUpdatedAt: string;
+	}) => {
+		const link = state.workspaceProjects.find(
+			(row) =>
+				row.workspaceId === input.workspaceId &&
+				row.projectId === input.projectId &&
+				row.status === "active",
+		);
+		if (!link)
+			throw new RpcError("NOT_FOUND", "Workspace project link not found");
+		if (link.updatedAt !== input.expectedUpdatedAt)
+			throw new RpcError("CONFLICT", "Workspace project link changed");
+		link.status = "removed";
+		link.removedAt = now();
+		link.updatedAt = now();
+		return { link };
 	},
 
 	// --- Home / kernel runtime ---
