@@ -34,8 +34,8 @@ import {
 	type WorkItemRiskLevel,
 	workAttempts,
 	workEvents,
-	workItemProjections,
 	workItemComments,
+	workItemProjections,
 	workItems,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
@@ -918,11 +918,18 @@ export async function cancelWorkItem(
 		actor: WorkActor;
 		reason?: string;
 		expectedWorkItemVersion?: number;
+		hygiene?: { humanQuietHours: number; noAttempts: boolean };
 		cancelledAt?: string;
 	},
 ): Promise<WorkItem> {
 	const cancelledAt = params.cancelledAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const humanCutoff = params.hygiene
+		? new Date(
+				Date.parse(cancelledAt) -
+					Math.max(48, params.hygiene.humanQuietHours) * 3600000,
+			).toISOString()
+		: null;
 	const cancelMutation = db
 		.update(workItems)
 		.set({
@@ -938,6 +945,12 @@ export async function cancelWorkItem(
 				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
 				inArray(workItems.disposition, ["proposed", "accepted"]),
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${cancelledAt}))`,
+				params.hygiene
+					? sql`NOT EXISTS (SELECT 1 FROM ${workItemComments} human_comment WHERE human_comment.org_id = ${params.orgId} AND human_comment.work_item_id = ${params.workItemId} AND human_comment.author_type = 'user' AND (julianday(human_comment.created_at) IS NULL OR julianday(human_comment.created_at) >= julianday(${humanCutoff})))`
+					: undefined,
+				params.hygiene?.noAttempts
+					? sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} prior_attempt WHERE prior_attempt.org_id = ${params.orgId} AND prior_attempt.work_item_id = ${params.workItemId})`
+					: undefined,
 			),
 		)
 		.returning();
