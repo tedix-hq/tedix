@@ -183,6 +183,63 @@ describe("docs sites query leaves", () => {
 		expect(complete?.manifestKey).toBe("sites/site-1/manifest.json");
 	});
 
+	it("fences a complete build against stale progress and duplicate completion", async () => {
+		const site = await createSite(context.db);
+		const build = await createDocsBuild(context.db, {
+			siteId: site.id,
+			sourceBranch: "main",
+			requestedBy: ACTOR,
+		});
+		// A failed build stays open for a workflow retry.
+		await updateDocsBuildProgress(context.db, {
+			buildId: build.id,
+			status: "failed",
+			phase: "rendering",
+			error: "renderer crashed",
+		});
+		await updateDocsBuildProgress(context.db, {
+			buildId: build.id,
+			status: "running",
+			phase: "rendering",
+		});
+		expect((await getDocsBuild(context.db, build.id))?.status).toBe("running");
+
+		await completeDocsBuild(context.db, {
+			buildId: build.id,
+			siteId: site.id,
+			sourceRevision: "rev-1",
+			manifestKey: "first.json",
+		});
+		context.sqlite
+			.prepare("UPDATE docs_builds SET finished_at = ? WHERE id = ?")
+			.run("2026-10-01 00:00:00", build.id);
+		const completed = await getDocsBuild(context.db, build.id);
+
+		for (const status of ["running", "failed"] as const) {
+			await updateDocsBuildProgress(context.db, {
+				buildId: build.id,
+				status,
+				phase: "stale",
+				error: "late notification",
+				sourceRevision: "rev-stale",
+			});
+		}
+		await completeDocsBuild(context.db, {
+			buildId: build.id,
+			siteId: site.id,
+			sourceRevision: "rev-2",
+			manifestKey: "duplicate.json",
+		});
+		expect(await getDocsBuild(context.db, build.id)).toEqual(completed);
+		expect(completed).toMatchObject({
+			status: "complete",
+			phase: "ready",
+			error: null,
+			sourceRevision: "rev-1",
+			manifestKey: "first.json",
+		});
+	});
+
 	it("keeps change lifecycle predicates in the persistence owner", async () => {
 		const site = await createSite(context.db);
 		const build = await createDocsBuild(context.db, {

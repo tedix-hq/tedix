@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { type DocsBuild, docsBuilds, docsSites } from "../../schema/docs-sites";
 
@@ -88,6 +88,14 @@ export async function createDocsBuild(
 	return build;
 }
 
+/**
+ * A complete build is terminal. Progress and completion writes carry this
+ * predicate in the same statement, so a stale running/failed notification or
+ * a duplicate completion can never reopen or rewrite it; a failed build stays
+ * open for workflow retries.
+ */
+const notComplete = ne(docsBuilds.status, "complete");
+
 export async function updateDocsBuildProgress(
 	db: DbQueryClient,
 	params: UpdateDocsBuildProgressParams,
@@ -105,7 +113,7 @@ export async function updateDocsBuildProgress(
 					? sql`(datetime('now'))`
 					: docsBuilds.finishedAt,
 		})
-		.where(eq(docsBuilds.id, params.buildId));
+		.where(and(eq(docsBuilds.id, params.buildId), notComplete));
 }
 
 export async function completeDocsBuild(
@@ -126,6 +134,7 @@ export async function completeDocsBuild(
 			and(
 				eq(docsBuilds.id, params.buildId),
 				eq(docsBuilds.siteId, params.siteId),
+				notComplete,
 			),
 		);
 }
