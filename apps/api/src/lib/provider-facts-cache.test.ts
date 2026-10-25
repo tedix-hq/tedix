@@ -24,8 +24,12 @@ vi.mock("@tedix/auth/aih-client", () => ({
 
 import {
 	deleteMcpServerRegistration,
+	forgetMcpServerClients,
 	forgetMcpServerRegistrations,
 	loadMcpServerRegistration,
+	mcpServerClientsMark,
+	rememberedMcpServerClients,
+	rememberMcpServerClients,
 	updateMcpServerRegistration,
 } from "./provider-facts-cache";
 
@@ -119,4 +123,32 @@ describe("MCP server registration cache", () => {
 			expect(provider.load).toHaveBeenCalledTimes(2);
 		},
 	);
+});
+
+describe("MCP server client cache", () => {
+	type Client = Parameters<typeof rememberMcpServerClients>[1][number];
+	const client = {
+		id: "client-1",
+		mcpServerId: "srv-1",
+		status: "verified",
+	} as Client;
+
+	beforeEach(() => forgetMcpServerClients());
+
+	it("remembers verified clients from a search that no forget overtook", () => {
+		rememberMcpServerClients(
+			"srv-1",
+			[client],
+			["client-1"],
+			mcpServerClientsMark(),
+		);
+		expect(rememberedMcpServerClients("srv-1", ["client-1"])).toEqual([client]);
+	});
+
+	it("drops a search result that a revoke overtook", () => {
+		const mark = mcpServerClientsMark();
+		forgetMcpServerClients("srv-1", "client-1");
+		rememberMcpServerClients("srv-1", [client], ["client-1"], mark);
+		expect(rememberedMcpServerClients("srv-1", ["client-1"])).toEqual([]);
+	});
 });

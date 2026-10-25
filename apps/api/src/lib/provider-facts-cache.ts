@@ -119,6 +119,7 @@ type McpServerClient = Awaited<
 >[number];
 
 const serverClients = new ProviderFactsCache<McpServerClient>();
+let serverClientGeneration = 0;
 
 function serverClientKey(mcpServerId: string, clientRecordId: string) {
 	return JSON.stringify([mcpServerId, clientRecordId]);
@@ -136,14 +137,27 @@ export function rememberedMcpServerClients(
 }
 
 /**
+ * Mark taken before a provider search; pass it to
+ * {@link rememberMcpServerClients} so a search that a forget overtook is not
+ * kept.
+ */
+export function mcpServerClientsMark(): number {
+	return serverClientGeneration;
+}
+
+/**
  * Keep the verified registrations among `clients` whose ids are listed. A
  * client in any other state is not kept, so it is looked up again next time.
+ * Nothing is kept when any client was forgotten since `mark`: the search may
+ * predate a revoke.
  */
 export function rememberMcpServerClients(
 	mcpServerId: string,
 	clients: readonly McpServerClient[],
 	clientRecordIds: readonly string[],
+	mark: number,
 ): void {
+	if (mark !== serverClientGeneration) return;
 	for (const client of clients) {
 		if (
 			client.status === "verified" &&
@@ -159,6 +173,8 @@ export function forgetMcpServerClients(
 	mcpServerId?: string,
 	clientRecordId?: string,
 ): void {
+	// Invalidate pending searches too, before they can restore a revoked client.
+	serverClientGeneration++;
 	serverClients.forget(
 		mcpServerId === undefined
 			? undefined
