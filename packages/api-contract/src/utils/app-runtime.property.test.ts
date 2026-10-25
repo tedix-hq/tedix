@@ -83,9 +83,12 @@ describe("app runtime permission matrix, exhaustively", () => {
 	it("allows only what both the role and the manifest grant name", () => {
 		for (const input of everyCase()) {
 			const decision = appRuntimePermission(input);
-			const roleAllows = appRuntimeOperationsForRole(input.role).includes(
-				input.operation,
-			);
+			const roleAllows =
+				input.role === "owner" ||
+				input.role === "build" ||
+				(input.role === "use" &&
+					(input.operation === "app.call" ||
+						input.operation === "outputs.read"));
 			const granted =
 				input.slot === "sheet" &&
 				input.grants[0]!.operations.includes(input.operation);

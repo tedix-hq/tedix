@@ -35,7 +35,11 @@ const api = vi.hoisted(() => ({
 		setSheetRange: vi.fn(),
 		history: vi.fn(),
 	},
-	schedules: { runNow: vi.fn(), setPersonalAccess: vi.fn() },
+	schedules: {
+		list: vi.fn().mockResolvedValue({ items: [] }),
+		runNow: vi.fn(),
+		setPersonalAccess: vi.fn(),
+	},
 	decideDeckCard: vi.fn(),
 }));
 

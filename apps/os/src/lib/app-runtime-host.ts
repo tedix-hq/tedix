@@ -148,7 +148,7 @@ export function appRuntimeContextFromManifest(
 }
 
 const escapeScript = (source: string) =>
-	source.replaceAll("</script", "<\\/script");
+	source.replace(/<\/script/gi, "<\\/script");
 
 /**
  * The document the sandbox runs: a small `tedix` object that turns
