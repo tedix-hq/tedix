@@ -309,6 +309,69 @@ describe("Response details copy", () => {
 		expect(text).not.toContain(":mcp:");
 	});
 
+	it("shows a running delegation's progress and its own events, even before the trace lists it", () => {
+		const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+		act(() =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<HomeExecutionDetailView
+						run={
+							{
+								...(runningRun as object),
+								delegatedTediId: "cfo",
+								childRunId: CHILD_RUN,
+								updatedAt: ago(20_000),
+								progress: {
+									current: 48,
+									total: 100,
+									label: "Working",
+									detail: "Writing the weekly summary",
+								},
+							} as never
+						}
+						trace={{ ...(runningTrace as object), branches: [] } as never}
+						branchId={CHILD_RUN}
+						tediNames={{ cfo: "CFO" }}
+						evidence={
+							{
+								status: "running",
+								preview: null,
+								events: [
+									{
+										id: "c2",
+										kind: "tool.completed",
+										toolCallId: "t1",
+										payload: { name: "ledger__read" },
+										createdAt: ago(30_000),
+									},
+									{
+										id: "c1",
+										kind: "tool.started",
+										toolCallId: "t1",
+										payload: { name: "ledger__read" },
+										createdAt: ago(40_000),
+									},
+								],
+								artifacts: [],
+								delegatedTediId: "cfo",
+							} as never
+						}
+						embedded
+						events={[]}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		const text = host.textContent ?? "";
+		expect(text).not.toContain("Delegation not found");
+		expect(text).toContain("Writing the weekly summary");
+		expect(text).toContain("48 of 100");
+		expect(text).toMatch(/last activity 20s ago/);
+		expect(text).toContain("CFO's events");
+		const events = host.querySelector('[aria-label="Delegated events"]');
+		expect(events?.textContent).toMatch(/Tool started.*Tool completed/);
+	});
+
 	it("renders a completed child's answer as formatted text", () => {
 		act(() =>
 			root.render(

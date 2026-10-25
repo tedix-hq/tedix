@@ -72,7 +72,7 @@ import {
 	ApprovalCard,
 	approvalsFromRunSet,
 	approvalsForAuthority,
-	DelegationWorkCard,
+	DelegationSummaryRow,
 	mergeToolEvents,
 	pruneDepartedRunFrames,
 	RunControls,
@@ -105,6 +105,7 @@ import {
 	useChatTransport,
 } from "@/lib/use-capn-chat";
 import { WorkspaceFileUpload } from "./workspace-file-upload";
+import { LiveDelegationCard } from "@/components/delegation-live-card";
 import { useActiveTedis, useTediNames } from "@/lib/use-tedi-names";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import { useRealtimeStatus, useRealtimeSurface } from "@/lib/use-realtime";
@@ -187,6 +188,7 @@ import {
 	HYDRATE_RUN_EVENTS_TAIL,
 	activeDelegations,
 	appendHydrateEvents,
+	finishedDelegationsByMessage,
 	applyDelegatedRunPreviews,
 	chatDraftKey,
 	conversationIdForSend,
@@ -811,6 +813,25 @@ export function ChatThread({
 		onSuccess: () => {
 			queryClient.invalidateQueries({
 				queryKey: homeRunSetQueryKey(conversationId),
+			});
+		},
+	});
+	// A stalled delegation is stopped first: only a stopped or failed run
+	// can be started again.
+	const restartDelegation = useMutation({
+		mutationFn: async (input: { runId: string }) => {
+			await transportActions.cancelRun(input);
+			return osApi.kernelRuntime.retryRun(input);
+		},
+		onSuccess: (result) => {
+			setPendingRunId(result.newRunId);
+		},
+		onSettled: () => {
+			queryClient.invalidateQueries({
+				queryKey: homeRunSetQueryKey(conversationId),
+			});
+			queryClient.invalidateQueries({
+				queryKey: homeMessagesQueryKey(conversationId),
 			});
 		},
 	});
@@ -1707,6 +1728,10 @@ export function ChatThread({
 	};
 	const hasContent =
 		displayMessages.length > 0 || provisionalSends.length > 0 || showRunning;
+	const finishedDelegations = finishedDelegationsByMessage(
+		runSet?.runs ?? [],
+		displayMessages,
+	);
 	const latestAssistantMessageId = displayMessages.findLast(
 		(message) => message.role === "assistant",
 	)?.id;
@@ -1844,6 +1869,19 @@ export function ChatThread({
 												message={message}
 												onFollowUp={startSend}
 											/>
+											{(() => {
+												const work = finishedDelegations.get(message.id);
+												return work ? (
+													<DelegationSummaryRow
+														work={work}
+														tediName={
+															work.delegatedTediId
+																? tediNames[work.delegatedTediId]
+																: null
+														}
+													/>
+												) : null;
+											})()}
 										</Fragment>
 									))}
 									{/* Provisional user turns render after every durable row and
@@ -1905,7 +1943,7 @@ export function ChatThread({
 										) : null;
 									})()}
 									{activeDelegations(runSet?.runs ?? []).map((work) => (
-										<DelegationWorkCard
+										<LiveDelegationCard
 											key={work.childRunId ?? work.runId}
 											work={work}
 											tediName={
@@ -1913,8 +1951,25 @@ export function ChatThread({
 													? tediNames[work.delegatedTediId]
 													: null
 											}
+											pending={
+												cancelRun.isPending || restartDelegation.isPending
+											}
+											onStop={() => cancelRun.mutate({ runId: work.runId })}
+											onRetry={() =>
+												restartDelegation.mutate({ runId: work.runId })
+											}
 										/>
 									))}
+									{restartDelegation.error ? (
+										<li>
+											<Text role="label" tone="error" className="m-0">
+												{errorMessage(
+													restartDelegation.error,
+													"The delegation could not be restarted. Please try again.",
+												)}
+											</Text>
+										</li>
+									) : null}
 									{approvalCards.map((card) => (
 										<ApprovalCard
 											key={card.approvalId}

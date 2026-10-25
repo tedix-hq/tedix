@@ -12,6 +12,7 @@ import {
 	compactPreview,
 	dedupeDelegations,
 	DelegationProofChip,
+	DelegationSummaryRow,
 	DelegationWorkCard,
 	delegationFromRun,
 	delegationHoldReason,
@@ -27,6 +28,7 @@ import {
 	type ToolCallState,
 	ToolCallCard,
 } from "./chat-cards";
+import { delegationLiveState } from "@/lib/delegation-activity";
 
 const RUN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CHILD_RUN_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -1365,5 +1367,108 @@ describe("delegationProof (metadata.delegationProof)", () => {
 		expect(chip("verified")).toContain('data-verdict="verified"');
 		expect(chip("failed")).toContain("Proof: Failed");
 		expect(chip("bespoke")).toContain("Proof: Bespoke");
+	});
+});
+
+describe("live delegation card", () => {
+	const T0 = Date.parse("2026-10-25T20:00:00.000Z");
+	const at = (seconds: number) => new Date(T0 + seconds * 1_000).toISOString();
+	const run = {
+		id: RUN_ID,
+		organizationId: ORG_ID,
+		conversationId: "home:main",
+		status: "running",
+		delegatedTediId: TEDI_ID,
+		childRunId: CHILD_RUN_ID,
+		createdAt: at(0),
+		startedAt: at(0),
+		updatedAt: at(400),
+		progress: {
+			current: 48,
+			total: 100,
+			label: "Working",
+			detail: "Writing the weekly summary",
+		},
+	} as const;
+	const events = [
+		{
+			id: "e1",
+			kind: "tool.started",
+			toolCallId: "call-1",
+			payload: { name: "reddit__search_posts" },
+			createdAt: at(10),
+		},
+		{
+			id: "e2",
+			kind: "tool.completed",
+			toolCallId: "call-1",
+			payload: { name: "reddit__search_posts" },
+			createdAt: at(13),
+		},
+	];
+	const render = (now: number) => {
+		const work = delegationFromRun(run);
+		if (!work) throw new Error("expected delegation work");
+		return renderToStaticMarkup(
+			<DelegationWorkCard
+				work={work}
+				tediName="Reddit Operator"
+				LinkComponent={StubLink}
+				live={delegationLiveState({ run, events, now })}
+				onStop={() => {}}
+				onRetry={() => {}}
+			/>,
+		);
+	};
+
+	it("shows the current step, a progress bar, elapsed time and last activity", () => {
+		const html = render(T0 + 412_000);
+		expect(html).toContain('data-phase="working"');
+		expect(html).toContain("Writing the weekly summary");
+		expect(html).toContain('data-slot="progress"');
+		expect(html).toContain("48 of 100");
+		expect(html).toContain("Running 6m 52s · last activity 12s ago");
+		expect(html).toContain("1 step");
+		expect(html).not.toContain("May be stuck");
+		expect(html).not.toContain(">Stop<");
+	});
+
+	it("says plainly when nothing has happened for minutes, with Stop and retry", () => {
+		const html = render(T0 + 400_000 + 7 * 60_000);
+		expect(html).toContain('data-phase="stalled"');
+		expect(html).toContain("May be stuck");
+		expect(html).toContain("No activity for 7 min. It may be stuck.");
+		expect(html).toContain(">Stop<");
+		expect(html).toContain(">Stop and retry<");
+		expect(html).not.toContain("Delegated work running");
+	});
+
+	it("folds a finished delegation to one summary line with duration and cost", () => {
+		const work = delegationFromRun({
+			...run,
+			status: "completed",
+			completedAt: at(483),
+			usage: {
+				pricing: null,
+				inputTokens: 10,
+				outputTokens: 5,
+				reasoningTokens: null,
+				totalTokens: 15,
+				costUsd: 0.0042,
+			},
+		});
+		if (!work) throw new Error("expected delegation work");
+		const html = renderToStaticMarkup(
+			<DelegationSummaryRow
+				work={work}
+				tediName="Reddit Operator"
+				LinkComponent={StubLink}
+			/>,
+		);
+		expect(html).toContain('data-slot="delegation-summary"');
+		expect(html).toContain("Reddit Operator finished in 8m 03s · $0.0042");
+		expect(html).toContain(
+			`href="/work/executions/${RUN_ID}?branch=${CHILD_RUN_ID}"`,
+		);
 	});
 });

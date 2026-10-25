@@ -9,6 +9,7 @@ import {
 	ShieldWarning,
 	StopCircle,
 	TreeStructure,
+	Warning,
 	Wrench,
 	X,
 } from "@phosphor-icons/react";
@@ -33,6 +34,11 @@ import {
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
+import {
+	Progress,
+	ProgressIndicator,
+	ProgressTrack,
+} from "@/components/kumo/progress";
 import { Text } from "@/components/kumo/text";
 import {
 	Tooltip,
@@ -40,7 +46,17 @@ import {
 	TooltipTrigger,
 } from "@/components/kumo/tooltip";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
-import { absoluteTime, formatDurationMs, relativeTime } from "@/lib/time";
+import {
+	absoluteTime,
+	formatDurationBetween,
+	formatDurationMs,
+	relativeTime,
+} from "@/lib/time";
+import {
+	shortAge,
+	type DelegationLiveState,
+	type DelegationStep,
+} from "@/lib/delegation-activity";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
@@ -489,7 +505,7 @@ export function WorkTraceCard({ tools }: { tools: readonly ToolCallState[] }) {
 // <DelegationWorkCard/>
 // ---------------------------------------------------------------------------
 
-type DelegationWork = {
+export type DelegationWork = {
 	/** Parent Home run id — the cancel/steer/retry target. */
 	runId: string;
 	childRunId: string | null;
@@ -503,6 +519,16 @@ type DelegationWork = {
 	 * assistant body no longer carries proof notes.
 	 */
 	proof?: DelegationProof | null;
+	/** Timing and usage of the parent run, for live progress and the summary. */
+	timing?: Pick<
+		HomeRun,
+		| "progress"
+		| "createdAt"
+		| "startedAt"
+		| "completedAt"
+		| "updatedAt"
+		| "usage"
+	>;
 };
 
 type DelegationProof = { verdict: string; note: string | null };
@@ -566,6 +592,14 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 		status: run.status,
 		activityLabel: run.progress?.label ?? run.progress?.detail ?? null,
 		proof: delegationProofFromRun(run),
+		timing: {
+			progress: run.progress,
+			createdAt: run.createdAt,
+			startedAt: run.startedAt,
+			completedAt: run.completedAt,
+			updatedAt: run.updatedAt,
+			usage: run.usage,
+		},
 	};
 }
 
@@ -599,23 +633,53 @@ export function dedupeDelegations(runs: readonly HomeRun[]): DelegationWork[] {
 	return [...byKey.values()].map((entry) => entry.work);
 }
 
+/** The inline activity list shows only this many of the newest steps. */
+const DELEGATION_ACTIVITY_LIMIT = 12;
+
 export function DelegationWorkCard({
 	work,
 	tediName,
 	LinkComponent,
+	live,
+	onStop,
+	onRetry,
+	pending = false,
 }: {
 	work: DelegationWork;
 	/** Display name for the delegated tedi; never present an opaque id as a name. */
 	tediName?: string | null;
 	LinkComponent?: ComponentType<CardRunLinkProps>;
+	/** Live progress, timing and child activity; absent renders the plain row. */
+	live?: DelegationLiveState | null;
+	/** Cancels the delegation (the parent Home run). */
+	onStop?: () => void;
+	/** Cancels a stalled delegation and starts it again. */
+	onRetry?: () => void;
+	/** A stop/retry is in flight: both controls stay busy until it lands. */
+	pending?: boolean;
 }) {
 	const active = work.status === "queued" || work.status === "running";
 	const who =
 		sanitizeUntrustedText(tediName ?? "").trim() || "a digital worker";
+	const stalled = live?.phase === "stalled";
+	const step = live ? live.currentStep : work.activityLabel;
+	const meta = live
+		? [
+				live.phase === "queued"
+					? "Waiting to start"
+					: live.elapsedMs != null
+						? `${active ? "Running" : "Took"} ${formatDurationMs(Math.floor(live.elapsedMs / 1_000) * 1_000)}`
+						: null,
+				live.idleMs != null && !stalled
+					? `last activity ${shortAge(live.idleMs)} ago`
+					: null,
+			].filter(Boolean)
+		: [];
 	return (
 		<li
 			data-slot="delegation-work-card"
 			data-run-status={work.status}
+			data-phase={live?.phase}
 			className="flex w-full justify-start"
 		>
 			<div className="flex min-w-0 max-w-full flex-1 flex-col gap-1 rounded-xl px-1.5 py-1 text-kumo-subtle">
@@ -625,7 +689,9 @@ export function DelegationWorkCard({
 						aria-hidden="true"
 						className="flex size-5 shrink-0 items-center justify-center"
 					>
-						{active ? (
+						{stalled ? (
+							<Warning size={15} className="text-kumo-warning" />
+						) : active ? (
 							<Loader aria-label="Delegated work running" size={15} />
 						) : (
 							<TreeStructure size={15} />
@@ -637,27 +703,267 @@ export function DelegationWorkCard({
 							{who}
 						</Text>
 					</Text>
-					<RunStatusChip status={work.status} />
+					{stalled ? (
+						<Badge variant="warning" data-status="stalled">
+							May be stuck
+						</Badge>
+					) : !live || live.phase === "waiting" ? (
+						// A live card says "Running" in its timing line; the chip
+						// stays for states that line does not name.
+						<RunStatusChip status={work.status} />
+					) : null}
 					{work.proof ? <DelegationProofChip proof={work.proof} /> : null}
 					<ExecutionLinkChip
 						runId={work.runId}
 						branch={work.childRunId ?? undefined}
-						label="View delegation"
+						label={live ? "Details" : "View delegation"}
 						LinkComponent={LinkComponent}
 					/>
 				</span>
-				{work.activityLabel ? (
+				{step && !stalled ? (
 					<Text
 						as="span"
 						role="label"
 						tone="secondary"
 						truncate
 						className="pl-7"
+						data-slot="delegation-step"
+						title={sanitizeUntrustedText(step)}
 					>
-						{sanitizeUntrustedText(work.activityLabel)}
+						{sanitizeUntrustedText(step)}
 					</Text>
 				) : null}
+				{live?.progress ? (
+					<span className="flex min-w-0 items-center gap-2 pl-7">
+						<Progress
+							value={live.progress.percent}
+							aria-label={`${who}: ${live.progress.current} of ${live.progress.total}`}
+							className="min-w-0 flex-1"
+						>
+							<ProgressTrack className="h-1">
+								<ProgressIndicator />
+							</ProgressTrack>
+						</Progress>
+						<Text
+							as="span"
+							role="caption"
+							tone="secondary"
+							className="shrink-0 tabular-nums"
+						>
+							{live.progress.current} of {live.progress.total}
+						</Text>
+					</span>
+				) : null}
+				{meta.length ? (
+					<Text
+						as="span"
+						role="caption"
+						tone="secondary"
+						className="pl-7 tabular-nums"
+						data-slot="delegation-timing"
+					>
+						{meta.join(" · ")}
+					</Text>
+				) : null}
+				{stalled && live?.idleMs != null ? (
+					<span
+						role="status"
+						data-slot="delegation-stalled"
+						className="flex min-w-0 flex-col items-start gap-2 pl-7"
+					>
+						<Text as="span" role="label" tone="warning">
+							No activity for {shortAge(live.idleMs)}. It may be stuck.
+						</Text>
+						<span
+							className="flex items-center gap-2"
+							aria-busy={pending || undefined}
+						>
+							{onStop ? (
+								<Button
+									size="sm"
+									variant="outline"
+									icon={<StopCircle size={14} />}
+									disabled={pending}
+									onClick={() => onStop()}
+								>
+									Stop
+								</Button>
+							) : null}
+							{onRetry ? (
+								<Button
+									size="sm"
+									variant="outline"
+									icon={<ArrowCounterClockwise size={14} />}
+									disabled={pending}
+									onClick={() => onRetry()}
+								>
+									Stop and retry
+								</Button>
+							) : null}
+						</span>
+					</span>
+				) : null}
+				{live?.steps.length ? (
+					<DelegationActivityList steps={live.steps} />
+				) : null}
 			</div>
+		</li>
+	);
+}
+
+const STEP_ICONS: Record<DelegationStep["status"], ReactNode> = {
+	running: <Loader size={12} aria-hidden />,
+	completed: <Check size={12} aria-hidden className="text-kumo-success" />,
+	failed: <X size={12} aria-hidden className="text-kumo-danger" />,
+};
+
+/** The child run's steps, newest last, behind one quiet disclosure. */
+export function DelegationActivityList({
+	steps,
+	defaultOpen = false,
+}: {
+	steps: readonly DelegationStep[];
+	defaultOpen?: boolean;
+}) {
+	const [open, setOpen] = useState(defaultOpen);
+	const failed = steps.filter((step) => step.status === "failed").length;
+	// Long runs keep only the newest steps on screen; the drawer has them all.
+	const shown = steps.slice(-DELEGATION_ACTIVITY_LIMIT);
+	return (
+		<Collapsible open={open} onOpenChange={setOpen} className="pl-7">
+			<CollapsibleTrigger
+				data-slot="delegation-activity-toggle"
+				className="min-h-6 px-0 py-0 hover:bg-transparent"
+			>
+				<Text as="span" role="caption" tone="secondary">
+					{steps.length} step{steps.length === 1 ? "" : "s"}
+					{failed ? ` · ${failed} failed` : ""}
+				</Text>
+				<CaretRight
+					size={11}
+					aria-hidden
+					className={cn("transition-transform", open && "rotate-90")}
+				/>
+			</CollapsibleTrigger>
+			<CollapsibleContent>
+				<ol
+					data-slot="delegation-activity"
+					aria-label="Delegated activity"
+					className="m-0 mt-1 grid list-none gap-0.5 border-kumo-hairline border-l p-0 pl-3"
+				>
+					{steps.length > shown.length ? (
+						<Text as="li" role="caption" tone="secondary">
+							{steps.length - shown.length} earlier steps in View delegation
+						</Text>
+					) : null}
+					{shown.map((step) => (
+						<li
+							key={step.id}
+							data-step-status={step.status}
+							className="flex min-w-0 items-center gap-2"
+						>
+							<span className="flex size-4 shrink-0 items-center justify-center">
+								{STEP_ICONS[step.status]}
+							</span>
+							<Text
+								as="span"
+								role="caption"
+								truncate
+								className="flex-1"
+								title={step.detail ?? undefined}
+							>
+								{step.label}
+							</Text>
+							<Text
+								as="span"
+								role="caption"
+								tone="secondary"
+								className="shrink-0 tabular-nums"
+							>
+								{step.status === "running"
+									? "Running"
+									: step.status === "failed"
+										? "Failed"
+										: (formatDurationMs(step.durationMs) ?? "Done")}
+							</Text>
+						</li>
+					))}
+				</ol>
+			</CollapsibleContent>
+		</Collapsible>
+	);
+}
+
+/**
+ * A finished delegation, folded to one line under its answer: who did it, how
+ * it ended, how long it took and what it cost when that is recorded.
+ */
+export function DelegationSummaryRow({
+	work,
+	tediName,
+	LinkComponent,
+}: {
+	work: DelegationWork;
+	tediName?: string | null;
+	LinkComponent?: ComponentType<CardRunLinkProps>;
+}) {
+	const who =
+		sanitizeUntrustedText(tediName ?? "").trim() || "A digital worker";
+	const timing = work.timing;
+	const duration = timing
+		? formatDurationBetween(
+				timing.startedAt ?? timing.createdAt,
+				timing.completedAt ?? timing.updatedAt,
+			)
+		: null;
+	const verb =
+		work.status === "completed"
+			? "finished"
+			: work.status === "failed"
+				? "stopped with an error"
+				: work.status === "canceled"
+					? "was stopped"
+					: sentenceCase(work.status).toLowerCase();
+	const parts = [
+		`${who} ${verb}${duration ? ` in ${duration}` : ""}`,
+		timing?.usage?.costUsd != null
+			? `$${timing.usage.costUsd.toFixed(timing.usage.costUsd < 0.01 ? 4 : 2)}`
+			: null,
+	].filter(Boolean);
+	return (
+		<li
+			data-slot="delegation-summary"
+			data-run-status={work.status}
+			className="flex w-full min-w-0 items-center gap-2 px-1.5 text-kumo-subtle"
+		>
+			<span
+				aria-hidden="true"
+				className="flex size-5 shrink-0 items-center justify-center"
+			>
+				{work.status === "completed" ? (
+					<Check size={14} className="text-kumo-success" />
+				) : work.status === "failed" ? (
+					<X size={14} className="text-kumo-danger" />
+				) : (
+					<TreeStructure size={14} />
+				)}
+			</span>
+			<Text
+				as="span"
+				role="label"
+				tone="secondary"
+				className="min-w-0 flex-1 tabular-nums [overflow-wrap:anywhere]"
+			>
+				{parts.join(" · ")}
+			</Text>
+			{work.proof ? <DelegationProofChip proof={work.proof} /> : null}
+			<ExecutionLinkChip
+				runId={work.runId}
+				branch={work.childRunId ?? undefined}
+				label="Details"
+				appearance="inline"
+				LinkComponent={LinkComponent}
+			/>
 		</li>
 	);
 }

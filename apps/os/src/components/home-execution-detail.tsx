@@ -67,6 +67,13 @@ import {
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { ArtifactReleaseReview } from "@/components/artifact-release-review";
 import { useTediNames } from "@/lib/use-tedi-names";
+import { useNow } from "@/lib/use-now";
+import { delegationLiveState, shortAge } from "@/lib/delegation-activity";
+import {
+	Progress,
+	ProgressIndicator,
+	ProgressTrack,
+} from "@/components/kumo/progress";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 const DIGITAL_WORKER = "Digital worker";
@@ -93,17 +100,6 @@ function statusVariant(status: string) {
 
 export function executionTitle(branchId?: string): string {
 	return branchId ? "Delegated execution" : "Home execution";
-}
-
-/** Re-render once a second while `active`, so elapsed time keeps counting. */
-function useNow(active: boolean): number {
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		if (!active) return;
-		const timer = setInterval(() => setNow(Date.now()), 1_000);
-		return () => clearInterval(timer);
-	}, [active]);
-	return active ? now : Date.now();
 }
 
 function runTime(run: HomeRun, trace: HomeRunTrace, now: number): string {
@@ -253,18 +249,80 @@ export function DelegatedResultView({
 }
 
 function DelegationEvidence({
+	run,
+	now,
 	evidence,
 	tediName,
 }: {
+	run: HomeRun;
+	now: number;
 	evidence: HomeChildRunEvidence;
 	tediName: string;
 }) {
 	useOsFormattingPreferences();
-	const toolEvents = evidence.events.filter((event) =>
-		event.kind.startsWith("tool."),
+	// The read returns newest first; people read activity oldest first.
+	const events = [...evidence.events].sort(
+		(a, b) => (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0),
 	);
+	const toolEvents = events.filter((event) => event.kind.startsWith("tool."));
+	const live = delegationLiveState({
+		run,
+		events,
+		latestEventAt: evidence.latestEventAt,
+		now,
+	});
+	const active = isActiveRunStatus(run.status);
 	return (
 		<>
+			{active ? (
+				<PageSection aria-label={`${tediName}'s progress`}>
+					<SectionHeader>
+						<SectionHeading>
+							<SectionTitle>Progress</SectionTitle>
+							<SectionDescription>
+								What {tediName} is doing right now.
+							</SectionDescription>
+						</SectionHeading>
+					</SectionHeader>
+					<div className="grid min-w-0 gap-2" data-slot="delegation-progress">
+						<Text role="body" className="[overflow-wrap:anywhere]">
+							{live.currentStep ?? "Starting…"}
+						</Text>
+						{live.progress ? (
+							<Progress
+								value={live.progress.percent}
+								aria-label={`${live.progress.current} of ${live.progress.total}`}
+							>
+								<ProgressTrack className="h-1">
+									<ProgressIndicator />
+								</ProgressTrack>
+							</Progress>
+						) : null}
+						<Text
+							role="label"
+							tone={live.phase === "stalled" ? "warning" : "secondary"}
+							className="tabular-nums"
+						>
+							{[
+								live.progress
+									? `${live.progress.current} of ${live.progress.total}`
+									: null,
+								live.elapsedMs != null
+									? `running ${formatDurationMs(Math.floor(live.elapsedMs / 1_000) * 1_000)}`
+									: null,
+								live.idleMs != null
+									? live.phase === "stalled"
+										? `no activity for ${shortAge(live.idleMs)}, it may be stuck`
+										: `last activity ${shortAge(live.idleMs)} ago`
+									: null,
+							]
+								.filter(Boolean)
+								.join(" · ")}
+						</Text>
+					</div>
+				</PageSection>
+			) : null}
+
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>
@@ -314,6 +372,34 @@ function DelegationEvidence({
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>
+						<SectionTitle>{tediName}'s events</SectionTitle>
+						<SectionDescription>
+							Everything {tediName} recorded, oldest first.
+						</SectionDescription>
+					</SectionHeading>
+					<Badge variant="secondary">{events.length}</Badge>
+				</SectionHeader>
+				{events.length ? (
+					<Collection aria-label="Delegated events">
+						{events.map((event) => (
+							<EvidenceRow
+								key={event.id}
+								title={sentenceCase(event.kind.replaceAll(".", " "))}
+								detail={absoluteTime(event.createdAt)}
+								tone={event.kind.endsWith(".failed") ? "warning" : "complete"}
+							/>
+						))}
+					</Collection>
+				) : (
+					<Text role="body" tone="secondary">
+						Nothing recorded yet.
+					</Text>
+				)}
+			</PageSection>
+
+			<PageSection>
+				<SectionHeader>
+					<SectionHeading>
 						<SectionTitle>Artifacts</SectionTitle>
 						<SectionDescription>
 							Files and outputs {tediName} saved.
@@ -350,6 +436,20 @@ function DelegationEvidence({
 	);
 }
 
+/**
+ * A running delegation can be missing from the trace until its first durable
+ * event lands; the run row itself still names the branch, so the drawer can
+ * show its live activity instead of "not found".
+ */
+function runBranch(
+	run: HomeRun,
+	branchId: string,
+): { childRunId: string; delegatedTediId: string } | undefined {
+	return run.childRunId === branchId && run.delegatedTediId
+		? { childRunId: branchId, delegatedTediId: run.delegatedTediId }
+		: undefined;
+}
+
 export function HomeExecutionDetailView({
 	run,
 	trace,
@@ -377,7 +477,8 @@ export function HomeExecutionDetailView({
 	useOsFormattingPreferences();
 	const now = useNow(isActiveRunStatus(run.status));
 	const selectedBranch = branchId
-		? trace.branches.find((branch) => branch.childRunId === branchId)
+		? (trace.branches.find((branch) => branch.childRunId === branchId) ??
+			runBranch(run, branchId))
 		: undefined;
 	const metadata = asRecord(run.metadata);
 	const route = asRecord(metadata?.kernelRoute);
@@ -652,6 +753,8 @@ export function HomeExecutionDetailView({
 
 					{selectedBranch && evidence ? (
 						<DelegationEvidence
+							run={run}
+							now={now}
 							evidence={evidence}
 							tediName={selectedTedi ?? DIGITAL_WORKER}
 						/>
@@ -740,10 +843,14 @@ export function HomeExecutionDetailPage({
 				: false,
 	});
 	const names = useTediNames();
-	const branch = selectedBranchId
-		? traceQuery.data?.trace.branches.find(
-				(candidate) => candidate.childRunId === selectedBranchId,
-			)
+	// A run that delegated opens on its delegation: that is where the work is.
+	const shownBranchId =
+		selectedBranchId ?? runQuery.data?.run.childRunId ?? undefined;
+	const branch = shownBranchId
+		? (traceQuery.data?.trace.branches.find(
+				(candidate) => candidate.childRunId === shownBranchId,
+			) ??
+			(runQuery.data ? runBranch(runQuery.data.run, shownBranchId) : undefined))
 		: undefined;
 	const evidenceQuery = useQuery({
 		...homeChildRunEvidenceQueryOptions(
@@ -814,7 +921,7 @@ export function HomeExecutionDetailPage({
 		<HomeExecutionDetailView
 			run={runQuery.data.run}
 			trace={traceQuery.data.trace}
-			branchId={selectedBranchId}
+			branchId={shownBranchId}
 			onSelectBranch={setSelectedBranchId}
 			evidence={evidenceQuery.data?.evidence}
 			evidenceError={evidenceQuery.error}

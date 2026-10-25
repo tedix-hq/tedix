@@ -1103,11 +1103,12 @@ async function retryKernelRunCore(
 	const { organizationId } = input;
 	const existingRun = input.run;
 
-	// Guard 1: only terminal failed runs can be retried.
-	if (existingRun.status !== "failed") {
+	// Guard 1: only terminal failed or stopped runs can be retried. A stopped
+	// delegation is how a person restarts one that stalled.
+	if (existingRun.status !== "failed" && existingRun.status !== "canceled") {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			`Home run ${existingRun.id} is "${existingRun.status}" — only failed runs can be retried`,
+			`Home run ${existingRun.id} is "${existingRun.status}" — only failed or stopped runs can be retried`,
 		);
 	}
 

@@ -50,6 +50,19 @@ const kernelRuntimeApi = vi.hoisted(() => ({
 		chargeCount: 0,
 		runCount: 0,
 	})),
+	// The live delegation card's activity read; an empty branch so far.
+	readChildRunEvidence: vi.fn(async () => ({
+		evidence: {
+			organizationId: "org",
+			delegatedTediId: "tedi",
+			childRunId: "child-run",
+			status: "running",
+			stopReason: null,
+			events: [],
+			artifacts: [],
+			control: { canStop: true, reason: "running", state: "stoppable" },
+		},
+	})),
 	retryRun: vi.fn(),
 }));
 const capabilitiesApi = vi.hoisted(() => ({ list: vi.fn() }));
@@ -144,6 +157,7 @@ import {
 	HYDRATE_RUN_EVENTS_TAIL,
 	executionLinkMessageIds,
 	encodeChatContext,
+	finishedDelegationsByMessage,
 	invalidateOnFocus,
 	mergeHomeMessages,
 	newHomeConversationId,
@@ -2880,6 +2894,39 @@ describe("<ChatThread> created outputs", () => {
 		await act(() => client.invalidateQueries());
 		await flush();
 		expect(onOutputCreated).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("finishedDelegationsByMessage", () => {
+	it("folds a finished delegation under its run's last answer only", () => {
+		const runs = [
+			{
+				id: "run-done",
+				organizationId: ORG_ID,
+				conversationId: CONVERSATION_ID,
+				status: "completed" as const,
+				delegatedTediId: "tedi-a",
+				childRunId: "child-done",
+				createdAt: "2026-10-25T10:00:00Z",
+			},
+			{
+				id: "run-live",
+				organizationId: ORG_ID,
+				conversationId: CONVERSATION_ID,
+				status: "running" as const,
+				delegatedTediId: "tedi-a",
+				childRunId: "child-live",
+				createdAt: "2026-10-25T10:05:00Z",
+			},
+		];
+		const byMessage = finishedDelegationsByMessage(runs, [
+			{ id: "m1", role: "assistant", runId: "run-done" },
+			{ id: "m2", role: "assistant", runId: "run-done" },
+			{ id: "m3", role: "assistant", runId: "run-live" },
+			{ id: "m4", role: "user", runId: "run-done" },
+		]);
+		expect([...byMessage.keys()]).toEqual(["m2"]);
+		expect(byMessage.get("m2")?.childRunId).toBe("child-done");
 	});
 });
 
