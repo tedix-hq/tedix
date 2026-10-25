@@ -72,7 +72,7 @@ function browserImportSource(source) {
 			const text = match[0];
 			const moduleSpecifier =
 				(text[0] === '"' || text[0] === "'") &&
-				/\b(?:from|import\s*\()\s*$/.test(output);
+				/\b(?:from|import\s*\(?)\s*$/.test(output);
 			output += moduleSpecifier ? text : text.replace(/[^\r\n]/g, " ");
 			index += text.length - 1;
 		} else if (char === "`") {
@@ -104,7 +104,8 @@ export function sourceBrowsers(file, seen = new Set()) {
 		for (const name of names.split(","))
 			if (playwrightBrowsers.includes(name.trim())) browsers.add(name.trim());
 	for (const [, specifier] of source.matchAll(
-		/(?:from\s*|import\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g,
+		// `from`, dynamic `import(...)` and side-effect `import "./setup"`.
+		/(?:from\s*|import\s*(?:\(\s*)?)["'](\.{1,2}\/[^"']+)["']/g,
 	)) {
 		const imported = resolveSource(file, specifier);
 		if (imported)
