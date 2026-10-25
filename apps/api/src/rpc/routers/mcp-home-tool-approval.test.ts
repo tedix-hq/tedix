@@ -1,0 +1,158 @@
+import { createRouterClient } from "@orpc/server";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { BaseContext } from "../orpc";
+
+const mocks = vi.hoisted(() => ({
+	approval: vi.fn(),
+	member: vi.fn(),
+	run: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/approvals", async (load) => ({
+	...(await load<object>()),
+	getApprovalRequestById: mocks.approval,
+}));
+vi.mock("@tedix/db/queries/organization-members", async (load) => ({
+	...(await load<object>()),
+	getMemberByUserId: mocks.member,
+}));
+vi.mock("@tedix/db/queries/kernel-runtime-runs", async (load) => ({
+	...(await load<object>()),
+	getKernelRuntimeRun: mocks.run,
+}));
+import { mcpGovernanceContractRouter } from "./mcp-governance";
+
+const input = {
+	organizationId: "org-1",
+	userId: "user-1",
+	appSlug: "example-unified",
+	toolName: "os.create_os_output",
+	approvalRequestId: "11111111-1111-4111-8111-111111111111",
+	args: {
+		kind: "sheet",
+		title: "Opportunities",
+		workspaceId: "workspace-1",
+		content: { kind: "sheet", columns: ["Topic"], rows: [["Pricing"]] },
+	},
+};
+const payload = {
+	kind: "home_tool_write",
+	organizationId: input.organizationId,
+	initiatedByUserId: input.userId,
+	appSlug: input.appSlug,
+	toolName: input.toolName,
+	args: input.args,
+	homeRunId: "run-1",
+	conversationId: "chat-1",
+	transport: "codemode",
+};
+const approval = {
+	orgId: "org-1",
+	actionType: "home.tool_write",
+	status: "approved",
+	resolvedBy: "user:owner-1",
+	payload,
+};
+const run = {
+	status: "running",
+	conversationId: "chat-1",
+	metadata: {
+		approvalStatus: "approved",
+		kernelWriteExecutedAt: "2026-10-25T12:00:00.000Z",
+	},
+};
+function client(authType = "service-binding") {
+	return createRouterClient(mcpGovernanceContractRouter, {
+		context: {
+			authType,
+			organizationId: "org-1",
+			db: {},
+			env: {},
+			headers: new Headers(
+				authType === "service-binding" ? { "X-Service-Binding": "true" } : {},
+			),
+			url: new URL("https://api.test/rpc"),
+			rateLimiter: { limit: async () => ({ success: true }) },
+		} as BaseContext,
+	});
+}
+beforeEach(() => {
+	vi.clearAllMocks();
+	mocks.approval.mockResolvedValue(approval);
+	mocks.member.mockResolvedValue({ status: "active", role: "owner" });
+	mocks.run.mockResolvedValue(run);
+});
+describe("Home approval dispatch receipt", () => {
+	it.each(["user:owner-1", "policy"])(
+		"accepts the exact claimed write resolved by %s",
+		async (resolvedBy) => {
+			mocks.approval.mockResolvedValue({ ...approval, resolvedBy });
+			expect(await client().resolveHomeToolApproval(input)).toEqual({
+				approved: true,
+			});
+			expect(mocks.run).toHaveBeenCalledWith(expect.anything(), {
+				id: "run-1",
+				organizationId: "org-1",
+			});
+		},
+	);
+	it.each([
+		{ userId: "other-user" },
+		{ appSlug: "other-app" },
+		{ toolName: "other.create_os_output" },
+		{ args: { ...input.args, title: "Changed" } },
+		{ args: { ...input.args, workspaceId: "other-workspace" } },
+		{
+			args: {
+				...input.args,
+				content: { ...input.args.content, rows: [["Changed"]] },
+			},
+		},
+	])(
+		"rejects a changed caller, target or nested argument: %j",
+		async (patch) => {
+			expect(
+				await client().resolveHomeToolApproval({ ...input, ...patch }),
+			).toEqual({ approved: false });
+		},
+	);
+	it.each([
+		undefined,
+		{ ...approval, orgId: "other-org" },
+		{ ...approval, status: "pending" },
+		{ ...approval, payload: { ...payload, kind: "mcp_owner_tool" } },
+	])("rejects an unavailable or different approval: %j", async (row) => {
+		mocks.approval.mockResolvedValue(row);
+		expect(await client().resolveHomeToolApproval(input)).toEqual({
+			approved: false,
+		});
+	});
+	it.each([
+		undefined,
+		{ ...run, status: "completed" },
+		{ ...run, status: "requires_approval" },
+		{ ...run, conversationId: "other-chat" },
+		{ ...run, metadata: {} },
+	])("rejects an unclaimed or terminal run: %j", async (row) => {
+		mocks.run.mockResolvedValue(row);
+		expect(await client().resolveHomeToolApproval(input)).toEqual({
+			approved: false,
+		});
+	});
+	it("rejects a suspended initiator", async () => {
+		mocks.member.mockResolvedValue({ status: "suspended", role: "owner" });
+		expect(await client().resolveHomeToolApproval(input)).toEqual({
+			approved: false,
+		});
+	});
+	it("rejects public callers and another gateway organization", async () => {
+		await expect(
+			client("user").resolveHomeToolApproval(input),
+		).rejects.toThrow();
+		await expect(
+			client().resolveHomeToolApproval({
+				...input,
+				organizationId: "other-org",
+			}),
+		).rejects.toThrow(/does not match/);
+	});
+});

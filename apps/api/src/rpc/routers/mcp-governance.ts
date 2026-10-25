@@ -15,6 +15,8 @@ import {
 } from "@tedix/db/queries/approvals";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
+import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import { parseHomeToolWritePayload } from "./kernel/write-executor";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import {
 	buildSurfaceUrl,
@@ -115,6 +117,61 @@ function ownerToolApprovalTitle(
 }
 
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
+	resolveHomeToolApproval: serviceOs.resolveHomeToolApproval.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			const approval = await getApprovalRequestById(
+				context.db,
+				input.approvalRequestId,
+			);
+			const payload = parseHomeToolWritePayload(approval?.payload);
+			if (
+				approval?.orgId !== input.organizationId ||
+				approval.actionType !== "home.tool_write" ||
+				approval.status !== "approved" ||
+				!payload ||
+				payload.organizationId !== input.organizationId ||
+				payload.initiatedByUserId !== input.userId ||
+				payload.appSlug !== input.appSlug ||
+				payload.toolName !== input.toolName ||
+				(await canonicalDigest(payload.args)) !==
+					(await canonicalDigest(input.args))
+			)
+				return { approved: false };
+			const initiator = await getMemberByUserId(
+				context.db,
+				input.organizationId,
+				input.userId,
+			);
+			if (initiator?.status !== "active") return { approved: false };
+			// The canonical resolve path already checked os:approve, including
+			// explicit member grants. Recheck membership without narrowing it to roles.
+			if (approval.resolvedBy !== "policy") {
+				const approver = approval.resolvedBy
+					? await getMemberByUserId(
+							context.db,
+							input.organizationId,
+							approval.resolvedBy.replace(/^user:/, ""),
+						)
+					: undefined;
+				if (approver?.status !== "active") return { approved: false };
+			}
+			const run = await getKernelRuntimeRun(context.db, {
+				id: payload.homeRunId,
+				organizationId: input.organizationId,
+			});
+			// Settlement owns the one-shot run claim. A parked or terminal run is
+			// never authority to replay the same approved call.
+			return {
+				approved: Boolean(
+					run?.status === "running" &&
+					run.conversationId === payload.conversationId &&
+					run.metadata?.approvalStatus === "approved" &&
+					run.metadata.kernelWriteExecutedAt,
+				),
+			};
+		},
+	),
 	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);

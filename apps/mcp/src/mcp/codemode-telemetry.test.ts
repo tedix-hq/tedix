@@ -49,6 +49,16 @@ vi.mock("@cloudflare/codemode", async () => {
 						code,
 						providers as unknown as import("@cloudflare/codemode").ResolvedProvider[],
 					);
+				if (code.includes("home_approved_sheet")) {
+					const provider = providers.find((entry) => entry.name === "os")!;
+					return {
+						result: await provider.fns.create_os_output!({
+							kind: "sheet",
+							title: "Opportunities",
+						}),
+						logs: [],
+					};
+				}
 				if (code.includes("destructive_mrtr")) {
 					const provider = providers.find((entry) => entry.name === "test")!;
 					if (code.includes("prior_dispatch")) await provider.fns.allowed!({});
@@ -402,6 +412,69 @@ describe("Code Mode tail telemetry", () => {
 		logSpy.mockRestore();
 		executeToolMock.mockReset();
 	});
+
+	it.each([true, false])(
+		"forwards a Home receipt through the real Code Mode approval bridge (approved=%s)",
+		async (approved) => {
+			const create = tool({
+				toolId: "tedix__create_os_output",
+				annotations: { destructiveHint: true },
+				config: {
+					transport: "rpc",
+					endpoint: "osWorkspaces/outputs/create",
+					_aggregateNamespace: "os",
+				},
+			});
+			const ctx = makeServerCtx(new Map([[create.toolId, create]]));
+			const resolveHomeToolApproval = vi.fn().mockResolvedValue({ approved });
+			Object.assign(ctx, {
+				callerIdentity: {
+					authType: "service",
+					kernel: true,
+					userId: "user-uuid",
+					organizationId: "org-uuid",
+				},
+				apiClient: { mcpGovernance: { resolveHomeToolApproval } },
+			});
+			executeToolMock.mockResolvedValue({
+				content: [],
+				structuredContent: { output: { id: "new-sheet" } },
+				_meta: {},
+			});
+			const registerTool = vi.fn();
+			await registerCodeModeTools({ registerTool } as never, ctx);
+			const handler = registerTool.mock.calls.find(
+				([name]) => name === "code",
+			)![2];
+			const result = await handler(
+				{ code: "async () => home_approved_sheet" },
+				{
+					mcpReq: {
+						_meta: {
+							"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+							"io.modelcontextprotocol/clientCapabilities": {},
+							"com.tedix/homeApprovalRequestId": "sample-approval",
+						},
+					},
+				},
+			);
+			expect(resolveHomeToolApproval).toHaveBeenCalledWith({
+				organizationId: "org-uuid",
+				userId: "user-uuid",
+				appSlug: "test-app",
+				toolName: "os.create_os_output",
+				args: { kind: "sheet", title: "Opportunities" },
+				approvalRequestId: "sample-approval",
+			});
+			if (approved) {
+				expect(executeToolMock).toHaveBeenCalledTimes(1);
+				expect(result.isError).not.toBe(true);
+			} else {
+				expect(executeToolMock).not.toHaveBeenCalled();
+				expect(result.isError).toBe(true);
+			}
+		},
+	);
 
 	it.each(["2026-07-28", "2025-11-25"])(
 		"confirms a Code Mode destructive tool on %s",

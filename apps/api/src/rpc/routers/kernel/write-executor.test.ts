@@ -365,6 +365,7 @@ describe("executeApprovedKernelWrite", () => {
 
 	it.each([
 		"native",
+		"approved",
 		"denied",
 		"ineligible",
 		"malformed",
@@ -430,6 +431,9 @@ describe("executeApprovedKernelWrite", () => {
 			});
 			const result = await executeApprovedKernelWrite({
 				env: env(service),
+				...(scenario === "approved"
+					? { approvalRequestId: "sample-approval" }
+					: {}),
 				payload: payload({
 					toolName: "work.create_work_items",
 					args: { title: "Stored arguments" },
@@ -449,11 +453,25 @@ describe("executeApprovedKernelWrite", () => {
 			const writes = service.calls.filter(
 				(call) => call.params.name === "create_work_items",
 			);
-			const fallback = ["denied", "ineligible", "malformed"].includes(scenario);
+			const fallback = [
+				"denied",
+				"ineligible",
+				"malformed",
+				"approved",
+			].includes(scenario);
 			if (["read-only", "missing"].includes(scenario))
 				expect(service.calls).toHaveLength(1);
 			else if (fallback) {
 				expect(writes).toHaveLength(0);
+				if (scenario === "approved") {
+					expect(service.calls[0]?.params._meta).not.toHaveProperty(
+						"com.tedix/homeApprovalRequestId",
+					);
+					expect(service.calls[1]?.params._meta).toHaveProperty(
+						"com.tedix/homeApprovalRequestId",
+						"sample-approval",
+					);
+				}
 				expect(service.calls[1]?.params).toMatchObject({
 					name: "code",
 					arguments: {
@@ -990,6 +1008,12 @@ describe("factory approval receipt forwarding", () => {
 		expect(
 			service.calls[1]?.headers.get("X-Tedix-Approved-Factory-Request"),
 		).toBe(toolName.startsWith("projects.") ? "sample-approval" : null);
+		expect(service.calls[0]?.params._meta).not.toHaveProperty(
+			"com.tedix/homeApprovalRequestId",
+		);
+		expect(service.calls[1]?.params._meta).toMatchObject({
+			"com.tedix/homeApprovalRequestId": "sample-approval",
+		});
 	});
 });
 

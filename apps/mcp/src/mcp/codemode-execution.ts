@@ -379,6 +379,7 @@ export function buildNamespaceGroups(
 					tool,
 					declaredAnnotations,
 					{
+						toolName: `${ns}.${safeName}`,
 						// Replaying a partially executed program could repeat writes.
 						allowSyncMrtr:
 							isModernMcpRequest(executionRefs.approvalExtra?._meta) &&

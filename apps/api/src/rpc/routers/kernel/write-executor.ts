@@ -420,12 +420,20 @@ export async function executeApprovedKernelWrite(args: {
 
 		// One tools/call with the STORED args — user-first credential, tenant
 		// fallback when the personal connection is missing.
-		const nativeName = described?.native?.name;
+		// A Code Mode receipt is bound to the projected callable, which its
+		// approval gate supplies independently of the native wire name.
+		const nativeName = args.approvalRequestId
+			? undefined
+			: described?.native?.name;
 		const params = nativeName
 			? { name: nativeName, arguments: payload.args }
 			: transport === "codemode"
 				? codeModeExecutionParams(payload.toolName, payload.args)
 				: { name: payload.toolName, arguments: payload.args };
+		if (args.approvalRequestId)
+			params._meta = {
+				"com.tedix/homeApprovalRequestId": args.approvalRequestId,
+			};
 		let result = (await mcpCall(
 			env,
 			host,
