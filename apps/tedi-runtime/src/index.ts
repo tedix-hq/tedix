@@ -111,12 +111,21 @@ import { resolveSlugFromHost } from "./slug-routing";
 import { buildRunId } from "./ledger-mirror";
 import { VoiceCallDO } from "./voice-call-do";
 import { VoiceInputDO } from "./voice-input-do";
+import {
+	handleWorkspaceAppCall,
+	WORKSPACE_APP_CALL_PATH,
+} from "./workspace-app-route";
 
 // @cloudflare/codemode resolves this exported class through the Agent DO's
 // facets API. The facet owns an isolated SQLite database per tedi/runtime name.
 export { TedixCodemodeRuntime as CodemodeRuntime } from "./durable-codemode-runtime";
 export { WorkspaceServiceProxy } from "@cloudflare/computer";
 export { TediComputerWorkspaceDO } from "./computer-workspace-do";
+export {
+	WorkspaceAppHostDO,
+	WorkspaceAppCapability,
+	WorkspaceAppTail,
+} from "./workspace-app-host-do";
 // Native Pi conversation and review facets used by this Agent runtime.
 // Resolved through `ctx.exports` by class name, like CodemodeRuntime above;
 // facet-only classes need no dedicated wrangler DO binding.
@@ -1582,6 +1591,12 @@ export default {
 			? inbound
 			: stripServiceBindingMarker(inbound);
 		const url = new URL(request.url);
+
+		if (url.pathname === WORKSPACE_APP_CALL_PATH) {
+			if (!isServiceBinding(request.headers))
+				return new Response("Forbidden", { status: 403 });
+			return handleWorkspaceAppCall(request, env);
+		}
 
 		// authz: public — liveness + deployed-sha probe; serves no tenant data.
 		if (url.pathname === "/" || url.pathname === "/health") {

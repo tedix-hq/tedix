@@ -12,6 +12,7 @@
 	"include": [
 		"test/**/*.ts",
 		"vitest.workers.config.ts",
+		"vitest.app-runtime.config.ts",
 		"worker-configuration.d.ts"
 	],
 	// Plain-bun harnesses: typechecked through the src tests that import them.
