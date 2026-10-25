@@ -202,6 +202,24 @@ describe("hourly full suite", () => {
 				"webkit",
 			]);
 			expect(() => scriptBrowsers(workspace, scripts, "missing")).toThrow();
+			// CLI flags and their values do not hide the browsers a script imports.
+			const withFlags = {
+				"flags:after": "bun specs/b.spec.ts --mode ci",
+				"flags:between": "bun specs/run.ts --retries 2 specs/a.spec.ts -v",
+				"flags:only-values": "bun specs/c.spec.ts --project webkit",
+				"not:a-script": "bun test specs/b.spec.ts",
+			};
+			expect(scriptBrowsers(workspace, withFlags, "flags:after")).toEqual([
+				"chromium",
+			]);
+			expect(scriptBrowsers(workspace, withFlags, "flags:between")).toEqual([
+				"chromium",
+				"webkit",
+			]);
+			expect(scriptBrowsers(workspace, withFlags, "flags:only-values")).toEqual(
+				[],
+			);
+			expect(scriptBrowsers(workspace, withFlags, "not:a-script")).toEqual([]);
 			mkdirSync(join(root, "packages"));
 			expect(workspaceMatrix(root).include).toEqual([
 				{

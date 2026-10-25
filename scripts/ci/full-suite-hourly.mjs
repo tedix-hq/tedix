@@ -127,9 +127,15 @@ export function scriptBrowsers(workspaceRoot, scripts, name, ancestors = []) {
 	const browsers = new Set();
 	for (const command of scripts[name].split("&&").map((part) => part.trim())) {
 		const reference = /^bun run ([\w:.-]+)$/.exec(command)?.[1];
-		const files = /^bun (?:[\w./-]+\.(?:[mc]?[jt]sx?)(?: |$))+$/.test(command)
-			? command.split(" ").slice(1)
-			: [];
+		// `bun <script> [args]`: CLI flags such as `--mode ci` must not hide the
+		// browsers the script and any spec files it is given import.
+		const args = command.split(/\s+/).slice(1);
+		const isSource = (arg) =>
+			!arg.startsWith("-") && /^[\w./-]+\.[mc]?[jt]sx?$/.test(arg);
+		const files =
+			command.startsWith("bun ") && isSource(args[0] ?? "")
+				? args.filter(isSource)
+				: [];
 		const found = reference
 			? scriptBrowsers(workspaceRoot, scripts, reference, [...ancestors, name])
 			: files.flatMap((file) => sourceBrowsers(join(workspaceRoot, file)));
