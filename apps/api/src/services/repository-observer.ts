@@ -84,6 +84,7 @@ export async function observeRepositoryEvent(
 	);
 	const factory = project.metadata?.factory as { skillId?: string } | undefined;
 	if (
+		config.pauseWithFactorySchedule &&
 		factory?.skillId &&
 		!(await getSkillSchedule(context.db, factory.skillId, orgId))?.enabled
 	)

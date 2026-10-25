@@ -508,8 +508,12 @@ branch and pushed SHA. No stored API key is needed. A private release repository
 can be separately configured to report Ship outcomes from its own workflow.
 Events wake the owner through the existing tedi dispatcher; repeated delivery
 reuses the observation and comment.
-Pausing the factory rejects new observer events. Resume it before testing a
-real push through the signed webhook.
+By default, pausing the linked factory schedule rejects new observer events;
+a missing schedule also rejects them. A human administrator can explicitly set
+`pauseWithFactorySchedule: false` through `configure_repository_observer` when
+event-driven observation must continue independently of the hourly factory.
+This leaves the timer and skill lifecycle unchanged. The active project,
+signed webhook identity, configured owner and standing repair limits still apply.
 
 Red Ships have a 30-minute diagnosis deadline on Attention. The platform tick
 escalates an overdue unresolved incident to the configured human, including a
