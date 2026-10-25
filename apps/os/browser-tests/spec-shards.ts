@@ -6,7 +6,13 @@ export function parseSpecShard(value: string) {
 	const match = /^(\d+)\/(\d+)$/.exec(value);
 	const shard = Number(match?.[1]);
 	const count = Number(match?.[2]);
-	if (!match || shard < 1 || shard > count)
+	if (
+		!match ||
+		!Number.isSafeInteger(shard) ||
+		!Number.isSafeInteger(count) ||
+		shard < 1 ||
+		shard > count
+	)
 		throw new Error(`Invalid spec shard ${value}`);
 	return { shard, count };
 }

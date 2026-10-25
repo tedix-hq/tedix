@@ -22,7 +22,19 @@ test("spec shards cover a suite exactly once and in every count", () => {
 });
 
 test("malformed shard values fail rather than silently miss specs", () => {
-	for (const value of ["", "0/2", "3/2", "1/no", "1/0", "1.5/2", "1/"])
+	const overflow = "9".repeat(309);
+	for (const value of [
+		"",
+		"0/2",
+		"3/2",
+		"1/no",
+		"1/0",
+		"1.5/2",
+		"1/",
+		"9007199254740992/9007199254740992",
+		"1/9007199254740992",
+		`${overflow}/${overflow}`,
+	])
 		expect(() => parseSpecShard(value)).toThrow("Invalid spec shard");
 });
 
