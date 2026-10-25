@@ -366,13 +366,12 @@ const SkillWorkshopReviewSchema = z.object({
 });
 
 const SkillWorkflowImprovementGovernanceSchema = z.object({
-	state: z.enum(["pending_human_activation", "activated"]),
+	state: z.enum(["pending_activation", "activated"]),
 	baselineRunId: z.string(),
 	baselineSkillId: z.string(),
 	baselineRevision: z.number().int().min(0),
 	baselineWorkflowSha256: z.string(),
 	candidateWorkflowSha256: z.string(),
-	humanActivationRequired: z.literal(true),
 	certificationRunId: z.string().nullable().optional(),
 	certificationPassed: z.boolean(),
 });
@@ -630,13 +629,12 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 			method: "POST",
 			path: "/skills/workflow-improvements/activate",
 			tags: ["cognitive"],
-			summary: "Human-activate a certified workflow improvement",
+			summary: "Activate a certified workflow improvement",
 			description:
-				"Updates the canonical baseline in place only when a human user activates it, the baseline revision is unchanged, and a candidate run reports passing correctness certification. Stateless clients must explicitly confirm this destructive activation.",
+				"Updates the canonical baseline in place only when the baseline revision is unchanged and a completed run of this proposal reports passing correctness certification. Any authorized caller, human or agent, may activate; the activation is recorded in the revision reasoning.",
 		})
 		.input(
 			z.object({
-				...StatelessDestructiveConfirmationShape,
 				id: z.string().min(1),
 				certificationRunId: z.string().min(1),
 				reason: z.string().min(1).max(4000),

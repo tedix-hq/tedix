@@ -612,9 +612,9 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "activate_skill_workflow_improvement",
 		remoteName: "activate_skill_workflow_improvement",
 		description:
-			"Human-only activation of a workflow revision after a completed candidate run reports passing correctness certification.",
+			"Activate a workflow revision after a completed candidate run of this proposal reports passing correctness certification and the baseline is unchanged.",
 		inputSchema: ACTIVATE_SKILL_WORKFLOW_IMPROVEMENT_SCHEMA,
-		annotations: DESTRUCTIVE,
+		annotations: MUTATING,
 		rpcEndpoint: "skills/activateWorkflowImprovement",
 	},
 	{
