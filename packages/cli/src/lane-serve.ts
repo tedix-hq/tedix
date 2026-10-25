@@ -1329,6 +1329,7 @@ export class LaneDispatcher {
 				],
 				{
 					sessionKey: thread.thread.id,
+					label: item.title,
 					cwd: repo,
 					childScope: {
 						workspace:

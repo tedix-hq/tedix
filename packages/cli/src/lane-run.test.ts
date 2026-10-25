@@ -27,7 +27,7 @@ function fixture() {
 	const script = join(dir, "child.js");
 	writeFileSync(
 		script,
-		`const fs=require('node:fs');let text='';process.stdin.on('data',c=>text+=c);process.stdin.on('end',()=>{fs.writeFileSync(${codeModeLiteral(out)},JSON.stringify({text,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION,thread:process.env.CODEX_THREAD_ID,session:process.env.CODEX_SESSION_ID,parent:process.env.TEDIX_AGENT_SESSION,lane:process.env.TEDIX_LANE_ID,receipt:process.env.TEDIX_LANE_TELEMETRY_PATH}));setTimeout(()=>process.exit(Number(process.argv[2]||0)),60);});`,
+		`const fs=require('node:fs');let text='';process.stdin.on('data',c=>text+=c);process.stdin.on('end',()=>{fs.writeFileSync(${codeModeLiteral(out)},JSON.stringify({text,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION,thread:process.env.CODEX_THREAD_ID,session:process.env.CODEX_SESSION_ID,parent:process.env.TEDIX_AGENT_SESSION,lane:process.env.TEDIX_LANE_ID,label:process.env.TEDIX_LANE_LABEL,receipt:process.env.TEDIX_LANE_TELEMETRY_PATH}));setTimeout(()=>process.exit(Number(process.argv[2]||0)),60);});`,
 	);
 	const args = [
 		"run",
@@ -44,6 +44,56 @@ function fixture() {
 	return { args, out };
 }
 describe("lane launcher", () => {
+	it("keeps the Work title in every report and child hook despite wrapper preambles", async () => {
+		const { args, out } = fixture();
+		writeFileSync(
+			args[args.indexOf("--brief") + 1]!,
+			"Your exclusive source worktree is /fictional/repo.\n\n# Lane rules",
+		);
+		for (const label of ["Repair widget identity", undefined]) {
+			const reports: Record<string, unknown>[] = [];
+			const separator = args.indexOf("--");
+			expect(
+				await runLaneProcess(
+					[
+						...args.slice(0, separator),
+						"--work-item",
+						"00000000-0000-4000-8000-000000000002",
+						...args.slice(separator),
+					],
+					{
+						label,
+						heartbeatMs: 10,
+						report: async (input) => {
+							reports.push(input);
+							return {};
+						},
+					},
+				),
+			).toBe(0);
+			expect(reports.length).toBeGreaterThan(2);
+			expect(reports.every((report) => report.label === (label ?? ""))).toBe(
+				true,
+			);
+			expect(JSON.parse(readFileSync(out, "utf8")).label).toBe(label ?? "");
+		}
+	});
+	it("uses the first brief heading for a standalone lane", async () => {
+		const { args, out } = fixture();
+		writeFileSync(
+			args[args.indexOf("--brief") + 1]!,
+			"Read the guide first.\n# Repair widget identity\n\n## Tests",
+		);
+		await runLaneProcess(args, {
+			report: async (input) => {
+				expect(input.label).toBe("Repair widget identity");
+				return {};
+			},
+		});
+		expect(JSON.parse(readFileSync(out, "utf8")).label).toBe(
+			"Repair widget identity",
+		);
+	});
 	it("registers before launch, heartbeats, isolates identity and preserves a nonzero exit", async () => {
 		const { args, out } = fixture();
 		const reports: Record<string, unknown>[] = [];

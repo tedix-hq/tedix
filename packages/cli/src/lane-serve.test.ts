@@ -202,6 +202,10 @@ function fixture({
 						? "claude-code"
 						: "codex";
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
+			expect(deps?.label).toBe(
+				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!
+					.title,
+			);
 			expect(deps?.cwd).toBe(
 				join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
 			);
