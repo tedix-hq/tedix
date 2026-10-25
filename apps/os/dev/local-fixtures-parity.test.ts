@@ -91,7 +91,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	"AppSettingsPage failure toast; AppGatewayMembership mutation error": [
 		"apps/delete",
 		"apps/setGatewayMembership",
-		"apps/update",
 	],
 	"DecisionDeckApp unavailable card; deck curation/not-useful alert": [
 		"attention/decideDeckCard",

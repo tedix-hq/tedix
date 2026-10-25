@@ -7803,6 +7803,18 @@ const handlers: Record<string, (input: never) => unknown> = {
 		gadget.updatedAt = revision.createdAt;
 		return { gadget, revision };
 	},
+	"osAppRuntime/open": (input: { workspaceId: string; gadgetId: string }) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		if (!gadget.currentRevisionId)
+			throw new RpcError("NOT_FOUND", "OS app revision not found");
+		// UI-only metadata, never a runtime credential or server execution.
+		return {
+			session: `fixture-only:${gadget.id}:${gadget.currentRevisionId}`,
+			expiresAt: Math.floor(Date.now() / 1000) + 300,
+			role: "build",
+			revisionId: gadget.currentRevisionId,
+		};
+	},
 	"osWorkspaces/gadgets/getCode": (input: {
 		workspaceId: string;
 		gadgetId: string;
