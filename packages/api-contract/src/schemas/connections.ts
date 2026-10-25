@@ -19,6 +19,21 @@ export type ConnectionAllowedResources = z.infer<
 	typeof ConnectionAllowedResourcesSchema
 >;
 
+export const ConnectionConsumerGrantsSchema = z.discriminatedUnion("mode", [
+	z.object({ mode: z.literal("all") }),
+	z.object({
+		mode: z.literal("selected"),
+		tediIds: z.array(z.uuid()).max(100),
+		skills: z
+			.array(z.object({ id: z.uuid(), revision: z.number().int().positive() }))
+			.max(100),
+	}),
+]);
+
+export type ConnectionConsumerGrants = z.infer<
+	typeof ConnectionConsumerGrantsSchema
+>;
+
 const UrlParamSchema = z.object({
 	key: z.string(),
 	value: z.string(),

@@ -1,4 +1,5 @@
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
+import { enforceConnectionConsumerGrants } from "./consumer-grant-resolution";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { DESCOPE_SESSION_COOKIE, readCookieHeader } from "@tedix/auth/web";
 import {
@@ -647,6 +648,8 @@ export async function resolveCredentialChain(
 							organizationId: args.organizationId,
 							tenantId: args.descopeTenantId,
 						};
+			if (target.kind === "tenant")
+				await enforceConnectionConsumerGrants(context, args);
 			const selected = await fetchNamedConnection(
 				context,
 				owner,
@@ -678,6 +681,14 @@ export async function resolveCredentialChain(
 	): Promise<Awaited<ReturnType<typeof fetchConnectionToken>> | null> => {
 		let token: Awaited<ReturnType<typeof fetchConnectionToken>> | null = null;
 		for (const target of targets) {
+			if (target.kind === "tenant") {
+				await enforceConnectionConsumerGrants(context, args);
+				if (providerId !== args.providerId)
+					await enforceConnectionConsumerGrants(context, {
+						...args,
+						providerId,
+					});
+			}
 			try {
 				if (target.kind === "user") {
 					token = args.scopes?.length

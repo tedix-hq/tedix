@@ -1,3 +1,7 @@
+import {
+	getConsumerGrants,
+	setConsumerGrants,
+} from "./connections/consumer-grants";
 import { getConnectionsOverview } from "./connections/inventory";
 /**
  * connections router composition.
@@ -45,6 +49,8 @@ import { connectionsOs } from "./connections/policy-resolution";
 // =============================================================================
 
 export const connectionsContractRouter = connectionsOs.router({
+	getConsumerGrants,
+	setConsumerGrants,
 	createConnectionInstance,
 	renameConnectionInstance,
 	setConnectionAccessCheck,

@@ -131,7 +131,21 @@ function makeTestDb(
 		orderBy: () => Promise.resolve(rows),
 		limit: () => Promise.resolve(rows),
 	};
-	return { select: () => node } as unknown as DbClient;
+	return {
+		select: (fields?: { policy?: unknown }) =>
+			fields?.policy
+				? {
+						...node,
+						from() {
+							return this;
+						},
+						where() {
+							return this;
+						},
+						limit: () => Promise.resolve([{ policy: null }]),
+					}
+				: node,
+	} as unknown as DbClient;
 }
 
 function makeSequentialReadDb(responses: unknown[][]): DbClient {

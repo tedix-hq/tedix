@@ -1,3 +1,7 @@
+import {
+	ConnectionConsumerGrantsSchema,
+	type ConnectionConsumerGrants,
+} from "@tedix/api-contract/schemas/connections";
 /**
  * Organization Query Helpers
  * Database queries for organization management
@@ -951,6 +955,52 @@ export async function setProviderOnboardingConfiguration(
 		.update(organizations)
 		.set({
 			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), '$.providerOnboarding', json(${JSON.stringify(config)}))`,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(eq(organizations.id, organizationId))
+		.returning({ id: organizations.id });
+	return row ?? null;
+}
+
+function connectionConsumerGrantsPath(providerId: string, instanceId?: string) {
+	const key = `${encodeURIComponent(providerId)}:${encodeURIComponent(instanceId ?? "")}`;
+	return `$.connectionConsumerGrants."${key}"`;
+}
+
+export async function getConnectionConsumerGrants(
+	db: DbQueryClient,
+	organizationId: string,
+	providerId: string,
+	instanceId?: string,
+): Promise<ConnectionConsumerGrants> {
+	const [row] = await db
+		.select({
+			policy: sql<
+				string | null
+			>`json_extract(${organizations.metadata}, ${connectionConsumerGrantsPath(providerId, instanceId)})`,
+		})
+		.from(organizations)
+		.where(eq(organizations.id, organizationId))
+		.limit(1);
+	if (!row)
+		throw new Error("Organization not found while resolving connection grants");
+	return row.policy === null
+		? { mode: "all" }
+		: ConnectionConsumerGrantsSchema.parse(JSON.parse(row.policy));
+}
+
+export async function setConnectionConsumerGrants(
+	db: DbQueryClient,
+	organizationId: string,
+	providerId: string,
+	policy: ConnectionConsumerGrants,
+	instanceId?: string,
+) {
+	const validated = ConnectionConsumerGrantsSchema.parse(policy);
+	const [row] = await db
+		.update(organizations)
+		.set({
+			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), ${connectionConsumerGrantsPath(providerId, instanceId)}, json(${JSON.stringify(validated)}))`,
 			updatedAt: new Date().toISOString(),
 		})
 		.where(eq(organizations.id, organizationId))
