@@ -257,6 +257,18 @@ export function checkWorkList(value: unknown) {
 export function checkDiscover(value: unknown) {
 	if (!Array.isArray(value) || value.length === 0)
 		throw new Error("discover.search returned no tools");
+	for (const [index, row] of value.entries()) {
+		if (
+			!isRecord(row) ||
+			typeof row.callable !== "string" ||
+			!/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/.test(row.callable) ||
+			"error" in row ||
+			row.authorized === false
+		)
+			throw new Error(
+				`discover.search returned an invalid tool at row ${index + 1}`,
+			);
+	}
 	return `${value.length} tool(s)`;
 }
 
@@ -364,7 +376,7 @@ export async function checkGateway(
 		await timed("code mode discover.search", async () =>
 			checkDiscover(
 				await client.runCode(
-					'async () => await discover.search({ query: "list work items", limit: 5 })',
+					'async () => (await discover.search({ query: "list work items", limit: 5 })).results',
 				),
 			),
 		),

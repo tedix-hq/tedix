@@ -87,8 +87,11 @@ function healthyClient(overrides: Partial<SmokeClient> = {}): SmokeClient {
 				};
 			throw new Error(`unexpected tool ${name}`);
 		},
-		async runCode() {
-			return [{ callable: WORK_LIST_CALLABLE }];
+		async runCode(source) {
+			const discover = {
+				search: async () => ({ results: [{ callable: WORK_LIST_CALLABLE }] }),
+			};
+			return new Function("discover", `return (${source})()`)(discover);
 		},
 		async listWork() {
 			return {
@@ -339,6 +342,41 @@ describe("checkGateway", () => {
 			false,
 		);
 	});
+
+	test.each([
+		{ label: "null", row: null },
+		{ label: "empty object", row: {} },
+		{ label: "error", row: { error: "catalog unavailable" } },
+		{ label: "array", row: [] },
+		{ label: "string", row: WORK_LIST_CALLABLE },
+		{ label: "numeric callable", row: { callable: 42 } },
+		{ label: "blank callable", row: { callable: " " } },
+		{ label: "unqualified callable", row: { callable: "list_work_items" } },
+		{ label: "invalid callable", row: { callable: "work.list items" } },
+		{
+			label: "error with callable",
+			row: { callable: WORK_LIST_CALLABLE, error: "catalog unavailable" },
+		},
+		{
+			label: "unauthorized",
+			row: { callable: WORK_LIST_CALLABLE, authorized: false },
+		},
+	])(
+		"rejects a $label discovery row, alone or mixed with a tool",
+		async ({ row }) => {
+			for (const rows of [[row], [{ callable: WORK_LIST_CALLABLE }, row]]) {
+				const results = await checkGateway(
+					healthyClient({ runCode: async () => rows }),
+					ORG,
+				);
+				expect(results.at(-1)).toMatchObject({
+					name: "code mode discover.search",
+					ok: false,
+					failureClass: "product",
+				});
+			}
+		},
+	);
 
 	test("an empty discover.search fails", async () => {
 		const results = await checkGateway(
