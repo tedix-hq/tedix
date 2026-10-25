@@ -34,7 +34,7 @@ const osWorkspacesApi = vi.hoisted(() => ({
 		setFavorite: vi.fn(),
 		touch: vi.fn(),
 	},
-	gadgets: { list: vi.fn(), get: vi.fn(), revise: vi.fn() },
+	gadgets: { list: vi.fn(), get: vi.fn(), revise: vi.fn(), getCode: vi.fn() },
 	outputs: {
 		list: vi.fn(),
 		library: vi.fn(),
@@ -680,6 +680,7 @@ function mockLists() {
 		items: [gadgetFixture()],
 		truncated: false,
 	});
+	osWorkspacesApi.gadgets.getCode.mockResolvedValue({ code: null });
 	osWorkspacesApi.outputs.list.mockResolvedValue({
 		items: [outputFixture()],
 		truncated: false,
