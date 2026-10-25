@@ -23,6 +23,7 @@ import {
 	milestoneLifecycleUpdateInput,
 	ProjectBrief,
 	ProjectSummary,
+	projectProgressCopy,
 	WorkItemStatusSummary,
 	WorkItemPage,
 	WorkRecordedOutcome,
@@ -494,19 +495,59 @@ describe("Work project summary", () => {
 		const html = renderToStaticMarkup(
 			<ProjectSummary
 				status="active"
-				percentDone={0.86}
-				aggregateDisposition="accepted"
+				progress={{
+					total: 12,
+					byDisposition: {
+						completed: 10,
+						proposed: 1,
+						cancelled: 1,
+					},
+					truncated: false,
+				}}
 				targetDate={null}
 			/>,
 		);
 
 		expect(html).toContain('aria-label="Project summary"');
 		expect(html).toContain('data-slot="metric-grid"');
-		expect(html.match(/data-slot="metric-item"/g)).toHaveLength(3);
+		expect(html.match(/data-slot="metric-item"/g)).toHaveLength(2);
 		expect(html).toContain("<dl");
-		expect(html).toContain("86%");
-		expect(html).toContain("Not recorded");
+		expect(html).toContain("10 of 11 Work items done");
+		expect(html).toContain("1 not yet accepted");
+		expect(html).not.toContain("Horizon");
+		expect(html).not.toContain("Not recorded");
 		expect(html).not.toContain('data-slot="card"');
+	});
+
+	it("shows the horizon only when one is set", () => {
+		const html = renderToStaticMarkup(
+			<ProjectSummary status="active" targetDate="2026-11-30" />,
+		);
+		expect(html.match(/data-slot="metric-item"/g)).toHaveLength(3);
+		expect(html).toContain("Horizon");
+		expect(html).toContain("Unavailable");
+	});
+
+	it.each([
+		[undefined, "Unavailable", undefined],
+		[
+			{ total: 0, byDisposition: {}, truncated: false },
+			"No Work items yet",
+			undefined,
+		],
+		[
+			{
+				total: 5,
+				byDisposition: { completed: 3, accepted: 2 },
+				truncated: true,
+			},
+			"At least 3 of 5 Work items done",
+			"2 open",
+		],
+	])("describes progress in plain words", (progress, value, description) => {
+		expect(projectProgressCopy(progress)).toEqual(
+			description ? { value, description } : { value },
+		);
 	});
 });
 

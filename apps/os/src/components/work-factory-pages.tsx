@@ -77,11 +77,7 @@ import {
 import { useWorkItemWebMcpTools } from "@/components/work-item-webmcp-tools";
 import { WorkProjectContributors } from "@/components/work-project-contributors";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
-import {
-	useOsFormattingPreferences,
-	formatRatioPercent,
-	sentenceCase,
-} from "@/lib/format";
+import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
 	osQuery,
 	userProfileQueryOptions,
@@ -907,31 +903,59 @@ export function ProjectBrief({ description }: { description: string | null }) {
 	);
 }
 
+type ProjectProgress = {
+	total: number;
+	byDisposition: Record<string, number>;
+	truncated: boolean;
+};
+
+/** "10 of 11 Work items done", counting neither cancelled items nor drafts twice. */
+export function projectProgressCopy(progress: ProjectProgress | undefined): {
+	value: string;
+	description?: string;
+} {
+	if (!progress) return { value: "Unavailable" };
+	const count = (key: string) => progress.byDisposition[key] ?? 0;
+	const planned = progress.total - count("cancelled");
+	if (planned <= 0) return { value: "No Work items yet" };
+	const prefix = progress.truncated ? "At least " : "";
+	const open = count("accepted");
+	const proposed = count("proposed");
+	const rest = [
+		open ? `${open} open` : null,
+		proposed ? `${proposed} not yet accepted` : null,
+	].filter(Boolean);
+	return {
+		value: `${prefix}${count("completed")} of ${planned} Work items done`,
+		...(rest.length ? { description: rest.join(" · ") } : {}),
+	};
+}
+
 export function ProjectSummary({
 	status,
-	percentDone,
-	aggregateDisposition,
+	progress,
 	targetDate,
 }: {
 	status: Project["status"];
-	percentDone?: number;
-	aggregateDisposition?: string;
+	progress?: ProjectProgress;
 	targetDate: string | null;
 }) {
 	useOsFormattingPreferences();
+	const { value, description } = projectProgressCopy(progress);
 	return (
-		<MetricGrid columns={3} appearance="inline" aria-label="Project summary">
-			<MetricItem label="Lifecycle" value={sentenceCase(status)} />
+		<MetricGrid
+			columns={targetDate ? 3 : 2}
+			appearance="inline"
+			aria-label="Project summary"
+		>
+			<MetricItem label="Status" value={sentenceCase(status)} />
 			<MetricItem
-				label="Outcome progress"
-				value={
-					percentDone !== undefined && aggregateDisposition
-						? `${formatRatioPercent(percentDone)} · ${sentenceCase(aggregateDisposition)}`
-						: "Unavailable"
-				}
+				label="Progress"
+				value={value}
+				description={description}
 				valueClassName="tabular-nums"
 			/>
-			<MetricItem label="Horizon" value={targetDate ?? "Not recorded"} />
+			{targetDate ? <MetricItem label="Horizon" value={targetDate} /> : null}
 		</MetricGrid>
 	);
 }
@@ -1199,8 +1223,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 			<ProjectBrief description={project.data.description} />
 			<ProjectSummary
 				status={project.data.status}
-				percentDone={rollup.data?.percentDone}
-				aggregateDisposition={rollup.data?.aggregateDisposition}
+				progress={rollup.data}
 				targetDate={project.data.targetDate}
 			/>
 			<WorkProjectContributors projectId={projectId} />

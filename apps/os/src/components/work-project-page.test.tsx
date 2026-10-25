@@ -76,6 +76,9 @@ async function mountProject() {
 		data: [],
 	} as never);
 	client.setQueryData(q.projectRollupQueryOptions(PROJECT_ID).queryKey, {
+		total: 1,
+		byDisposition: { accepted: 1 },
+		truncated: false,
 		percentDone: 0,
 		aggregateDisposition: "accepted",
 	} as never);
