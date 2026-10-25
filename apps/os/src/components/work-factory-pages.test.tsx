@@ -168,7 +168,7 @@ describe("Work factory queue", () => {
 		expect(html).toContain("Updated");
 		expect(html).toContain("min-w-[44rem] table-fixed xl:min-w-[54rem]");
 		expect(html).toContain(
-			'<span class="line-clamp-2">Verify the customer export</span>',
+			'<span class="wrap-anywhere">Verify the customer export</span>',
 		);
 		expect(html).toContain("min-h-11 min-w-0 flex-col items-start");
 		expect(html).toContain("text-left");
@@ -180,6 +180,23 @@ describe("Work factory queue", () => {
 		expect(html).toContain("py-2! whitespace-normal");
 		expect(html).toContain('title="Owner: Owner name unavailable"');
 		expect(html).toContain("hidden truncate py-2! xl:table-cell");
+	});
+
+	it("shows complete long titles inside phone queue rows", () => {
+		const title =
+			"InvestigateTheUnbrokenCustomerExportIdentifierAndDocumentEveryRequiredFollowUp";
+		const html = renderToStaticMarkup(
+			<WorkItemsTable items={[{ ...item, title }]} />,
+		);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const mobileQueue = doc.querySelector('[aria-label="Work queue"]');
+		const mobileTitle = mobileQueue?.querySelector(
+			`a[href="/work/items/${ITEM_ID}"] span`,
+		);
+
+		expect(mobileTitle?.textContent).toBe(title);
+		expect(mobileTitle?.className).toContain("wrap-anywhere");
+		expect(mobileTitle?.className).not.toContain("line-clamp");
 	});
 
 	it("wraps long unbroken owner names inside phone queue rows", () => {
