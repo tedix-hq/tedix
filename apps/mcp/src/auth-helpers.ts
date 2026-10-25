@@ -39,6 +39,7 @@ import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { getApiClient } from "./lib/api-client";
 import { createMcpLogger } from "./log";
 import { withStepBudget } from "./lib/step-budget";
+import { trackMcpEvent } from "./mcp/utils/analytics";
 import type { AppTool } from "./mcp/server-context";
 import {
 	resolveMcpToolRequiredScopes,
@@ -65,6 +66,13 @@ export interface OAuthUserContext {
 	clientId?: string;
 	scopes?: string[];
 	payload: JWTPayload;
+	/** Set only for AIH client-credentials tokens validated without `aud`. */
+	m2mAudience?: M2mAudienceAudit;
+}
+
+export interface M2mAudienceAudit {
+	outcome: M2mAudienceOutcome;
+	issuerShape: AihM2mIssuerShape;
 }
 
 export interface ServiceBindingContext {
@@ -265,18 +273,35 @@ export function resolveMcpExpectedAudience(options: {
  * and the MCP edge subsequently resolves the signed client against this same
  * server id before granting any tedi or external-agent authority.
  */
-export function resolveMcpTokenValidationAudience(options: {
+export function resolveMcpTokenValidationAudience(
+	options: AihClientCredentialsShapeOptions,
+): string | undefined {
+	return detectAihClientCredentialsIssuer(options)
+		? undefined
+		: options.expectedAudience;
+}
+
+type AihClientCredentialsShapeOptions = {
 	token: string;
 	projectId: string;
 	expectedAudience?: string;
 	mcpServerId?: string;
-}): string | undefined {
-	if (!options.expectedAudience || !options.mcpServerId) {
-		return options.expectedAudience;
-	}
+};
+
+/** Which signed issuer form an AIH client-credentials token carries. */
+export type AihM2mIssuerShape = "legacy" | "current";
+
+/**
+ * The untrusted shape test behind {@link resolveMcpTokenValidationAudience}:
+ * the issuer form of an AIH client-credentials token for this server, or null
+ * for every other token (human, federated, another server's).
+ */
+function detectAihClientCredentialsIssuer(
+	options: AihClientCredentialsShapeOptions,
+): AihM2mIssuerShape | null {
+	if (!options.expectedAudience || !options.mcpServerId) return null;
 	const payload = decodeTokenUnsafe(options.token);
-	if (payload?.tedixWorkloadFederation === true)
-		return options.expectedAudience;
+	if (payload?.tedixWorkloadFederation === true) return null;
 	const legacyIssuerPrefix = `${DESCOPE_MANAGEMENT_BASE_URL}/v1/apps/agentic/${options.projectId}/`;
 	const legacyIssuer =
 		typeof payload?.iss === "string" &&
@@ -289,7 +314,69 @@ export function resolveMcpTokenValidationAudience(options: {
 		typeof payload.sub === "string" &&
 		/^TPA[A-Za-z0-9_-]+$/.test(payload.sub) &&
 		(!legacyIssuer || legacyIssuerMatchesServer);
-	return isAihClientCredentials ? undefined : options.expectedAudience;
+	if (!isAihClientCredentials) return null;
+	return legacyIssuer ? "legacy" : "current";
+}
+
+/** How an M2M token's `aud` compares with the resource it was presented to. */
+export type M2mAudienceOutcome = "match" | "mismatch" | "missing";
+
+/**
+ * Classify a signature-verified M2M token against the MCP resource URL with
+ * the same rule human tokens are held to ({@link hasResourceAudience}).
+ * Measurement only: no caller is accepted or rejected on this value.
+ */
+export function classifyM2mTokenAudience(
+	claims: { aud?: unknown; azp?: unknown; iss?: unknown },
+	resource: string,
+): M2mAudienceOutcome {
+	if (hasResourceAudience(claims, resource)) return "match";
+	const aud = claims.aud;
+	const present =
+		(typeof aud === "string" && aud.length > 0) ||
+		(Array.isArray(aud) &&
+			aud.some((value) => typeof value === "string" && value.length > 0));
+	return present ? "mismatch" : "missing";
+}
+
+/**
+ * Emit one bounded event per AIH M2M validation once the signed client has
+ * been resolved against this server. `credentialMode` is `aih-m2m` when the
+ * registered client was found and `unresolved` otherwise. Never carries the
+ * token or its audience values.
+ */
+export function recordM2mTokenAudience(
+	env: CloudflareEnv,
+	input: {
+		audit: M2mAudienceAudit;
+		payload: Record<string, unknown>;
+		clientResolved: boolean;
+		mcpServerId?: string;
+		appId?: string;
+		appSlug?: string;
+	},
+): void {
+	const { outcome, issuerShape } = input.audit;
+	const credentialMode = input.clientResolved ? "aih-m2m" : "unresolved";
+	trackMcpEvent(env, {
+		timestamp: new Date().toISOString(),
+		eventType: "auth_audience",
+		appId: input.appId,
+		appSlug: input.appSlug,
+		authType: "m2m",
+		clientId:
+			getPayloadString(input.payload, "azp") ??
+			getPayloadString(input.payload, "client_id") ??
+			undefined,
+		success: outcome === "match",
+		errorCode: outcome === "match" ? undefined : outcome,
+		metadata: {
+			audienceOutcome: outcome,
+			issuerShape,
+			credentialMode,
+			...(input.mcpServerId ? { mcpServerId: input.mcpServerId } : {}),
+		},
+	});
 }
 
 export interface AihM2mClientScopeContext {
@@ -1041,7 +1128,7 @@ export async function validateAuth(
 		);
 
 		try {
-			const validationAudience = resolveMcpTokenValidationAudience({
+			const m2mIssuerShape = detectAihClientCredentialsIssuer({
 				token,
 				projectId: env.DESCOPE_PROJECT_ID,
 				expectedAudience: options?.expectedAudience,
@@ -1050,30 +1137,24 @@ export async function validateAuth(
 			const payload = await validateToken(token, {
 				projectId: env.DESCOPE_PROJECT_ID,
 				baseUrl: env.DESCOPE_BASE_URL,
-				audience: validationAudience,
+				// Unset only for AIH client-credentials tokens (see
+				// resolveMcpTokenValidationAudience); every other token is held to
+				// the exact resource here.
+				audience: m2mIssuerShape ? undefined : options?.expectedAudience,
 				allowTediJwt: true, // Tedi JWTs are valid callers on MCP endpoints
-				// When `validationAudience` is set, `validateToken` already enforces
-				// it exactly. It is unset only for AIH client-credentials tokens (see
-				// resolveMcpTokenValidationAudience), so measure whether those
-				// tokens carry this resource before that exception is removed.
-				...(options?.expectedAudience && !validationAudience
-					? {
-							auditAudience: {
-								surface: "mcp:edge",
-								expected: [options.expectedAudience],
-								// Log only what would CHANGE under enforcement: a token
-								// already carrying the right `aud` is the overwhelming
-								// majority and would drown the signal.
-								report: (event) => {
-									if (!event.wouldReject && !event.missingAudienceClaim) {
-										return;
-									}
-									console.warn("[MCP audience-audit]", JSON.stringify(event));
-								},
-							},
-						}
-					: {}),
 			});
+			// Measure, before enforcing, whether those M2M tokens already carry
+			// this resource. The edge records it once the signed client resolves.
+			const m2mAudience: M2mAudienceAudit | undefined =
+				m2mIssuerShape && options?.expectedAudience
+					? {
+							outcome: classifyM2mTokenAudience(
+								payload,
+								options.expectedAudience,
+							),
+							issuerShape: m2mIssuerShape,
+						}
+					: undefined;
 
 			let scopes = extractJwtScopes(payload);
 			if (
@@ -1110,6 +1191,7 @@ export async function validateAuth(
 				clientId: payload.client_id,
 				scopes: scopes.length > 0 ? scopes : undefined,
 				payload,
+				...(m2mAudience ? { m2mAudience } : {}),
 			};
 		} catch (error) {
 			const message =

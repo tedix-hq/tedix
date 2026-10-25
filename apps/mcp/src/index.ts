@@ -99,6 +99,7 @@ import {
 	humanMcpGrantFailureResponse,
 	invalidateAihM2mClientScopeCache,
 	isTrustedBrowserBridge,
+	recordM2mTokenAudience,
 	resolveAihM2mClientScopeContext,
 	resolveAihM2mTediOrganizationId,
 	resolveExternalAgentSessionAuth,
@@ -1916,6 +1917,15 @@ const worker = {
 								},
 							)
 						: null;
+					if (authResult.m2mAudience)
+						recordM2mTokenAudience(env, {
+							audit: authResult.m2mAudience,
+							payload: jwtPayload,
+							clientResolved: aihM2mClient !== null,
+							mcpServerId,
+							appId: earlyResolvedApp?.app.id,
+							appSlug: earlyResolvedApp?.app.slug,
+						});
 					markAuth("client");
 					const { claims: tediClaims, error: tediClaimError } =
 						extractTediJwtClaims(authResult.payload);

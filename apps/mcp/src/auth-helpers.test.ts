@@ -21,11 +21,13 @@ vi.mock("@tedix/auth/jwt", async (importOriginal) => {
 });
 
 import {
+	classifyM2mTokenAudience,
 	intersectScopes,
 	extractRequiredScopes,
 	humanMcpGrantFailureResponse,
 	invalidateAihM2mClientScopeCache,
 	isTrustedBrowserBridge,
+	recordM2mTokenAudience,
 	resolveAihM2mClientScopeContext,
 	resolveAihM2mTediOrganizationId,
 	resolveExternalAgentSessionAuth,
@@ -935,6 +937,172 @@ describe("validateAuth audience enforcement", () => {
 			token,
 			expect.objectContaining({ audience: undefined }),
 		);
+	});
+
+	it.each([
+		{
+			outcome: "match",
+			issuerShape: "current",
+			iss: "https://api.descope.com/project-id",
+			aud: [expectedAudience, "client-id"],
+		},
+		{
+			outcome: "mismatch",
+			issuerShape: "legacy",
+			iss: "https://api.descope.com/v1/apps/agentic/project-id/server-id",
+			aud: ["client-id", "project-id"],
+		},
+		{
+			outcome: "missing",
+			issuerShape: "current",
+			iss: "https://api.descope.com/project-id",
+			aud: undefined,
+		},
+	] as const)(
+		"accepts an M2M token unchanged and measures its audience: $outcome",
+		async ({ outcome, issuerShape, iss, aud }) => {
+			const payload = {
+				iss,
+				sub: "TPAclientRecord",
+				azp: "client-id",
+				...(aud ? { aud } : {}),
+				iat: 1,
+				exp: 2,
+			};
+			const token = `eyJ.${encodePayload(payload)}.sig`;
+			validateTokenMock.mockResolvedValue(payload);
+
+			const result = await validateAuth(
+				new Request("https://reference.mcp.tedix.dev/mcp", {
+					headers: { Authorization: `Bearer ${token}` },
+				}),
+				env,
+				{ expectedAudience, mcpServerId: "server-id" },
+			);
+
+			expect(result).toMatchObject({
+				type: "oauth",
+				userId: "TPAclientRecord",
+				clientId: undefined,
+				m2mAudience: { outcome, issuerShape },
+			});
+			expect(validateTokenMock).toHaveBeenCalledWith(
+				token,
+				expect.objectContaining({ audience: undefined }),
+			);
+		},
+	);
+
+	it("does not measure human tokens, which stay URL-audience-bound", async () => {
+		validateTokenMock.mockResolvedValue({
+			sub: "user-1",
+			iss: "https://api.descope.com/project-id",
+			aud: expectedAudience,
+			iat: 1,
+			exp: 2,
+		});
+
+		const result = await validateAuth(request, env, {
+			expectedAudience,
+			mcpServerId: "server-id",
+		});
+		expect(result).toMatchObject({ type: "oauth", userId: "user-1" });
+		expect(result).not.toHaveProperty("m2mAudience");
+		expect(validateTokenMock).toHaveBeenCalledWith(
+			"eyJ.test.token",
+			expect.objectContaining({ audience: expectedAudience }),
+		);
+	});
+});
+
+describe("classifyM2mTokenAudience", () => {
+	const resource = "https://acme.mcp.tedix.dev/mcp";
+
+	it.each([
+		{ aud: resource, outcome: "match" },
+		{ aud: [resource, "client-id", "Pproject"], outcome: "match" },
+		{ aud: ["client-id", "Pproject"], outcome: "mismatch" },
+		{ aud: [resource, "https://other.mcp.tedix.dev/mcp"], outcome: "mismatch" },
+		{ aud: "https://other.mcp.tedix.dev/mcp", outcome: "mismatch" },
+		{ aud: undefined, outcome: "missing" },
+		{ aud: "", outcome: "missing" },
+		{ aud: [], outcome: "missing" },
+	])("classifies $aud as $outcome", ({ aud, outcome }) => {
+		expect(
+			classifyM2mTokenAudience(
+				{ aud, azp: "client-id", iss: "Pproject" },
+				resource,
+			),
+		).toBe(outcome);
+	});
+});
+
+describe("recordM2mTokenAudience", () => {
+	it("writes one bounded event without the token or audience values", () => {
+		const writeDataPoint = vi.fn();
+		const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+		const env = {
+			ENVIRONMENT: "production",
+			ANALYTICS: { writeDataPoint },
+		} as unknown as CloudflareEnv;
+
+		recordM2mTokenAudience(env, {
+			audit: { outcome: "mismatch", issuerShape: "legacy" },
+			payload: {
+				azp: "client-id",
+				sub: "TPAclientRecord",
+				aud: ["client-id", "project-id"],
+			},
+			clientResolved: true,
+			mcpServerId: "server-id",
+			appId: "app-1",
+			appSlug: "acme",
+		});
+
+		expect(writeDataPoint).toHaveBeenCalledTimes(1);
+		const point = writeDataPoint.mock.calls[0]?.[0];
+		expect(point.blobs[0]).toBe("auth_audience");
+		expect(point.blobs[2]).toBe("acme");
+		expect(point.blobs[5]).toBe("mismatch");
+		expect(point.blobs[9]).toBe("m2m");
+		expect(point.doubles[0]).toBe(0);
+		expect(log).toHaveBeenCalledTimes(1);
+		const entry = JSON.parse(String(log.mock.calls[0]?.[0]));
+		expect(entry).toMatchObject({
+			eventType: "auth_audience",
+			appSlug: "acme",
+			clientId: "client-id",
+			authType: "m2m",
+			metadata: {
+				audienceOutcome: "mismatch",
+				issuerShape: "legacy",
+				credentialMode: "aih-m2m",
+				mcpServerId: "server-id",
+			},
+		});
+		expect(JSON.stringify(entry)).not.toContain("project-id");
+		expect(JSON.stringify(entry)).not.toContain("TPAclientRecord");
+	});
+
+	it("marks an unresolved client and a match as passing", () => {
+		const writeDataPoint = vi.fn();
+		const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+		recordM2mTokenAudience(
+			{ ANALYTICS: { writeDataPoint } } as unknown as CloudflareEnv,
+			{
+				audit: { outcome: "match", issuerShape: "current" },
+				payload: { azp: "client-id" },
+				clientResolved: false,
+			},
+		);
+		const point = writeDataPoint.mock.calls[0]?.[0];
+		expect(point.blobs[5]).toBe("");
+		expect(point.doubles[0]).toBe(1);
+		expect(JSON.parse(String(log.mock.calls[0]?.[0])).metadata).toEqual({
+			audienceOutcome: "match",
+			issuerShape: "current",
+			credentialMode: "unresolved",
+		});
 	});
 });
 

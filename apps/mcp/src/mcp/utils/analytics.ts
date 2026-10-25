@@ -35,6 +35,7 @@ export type McpEventType =
 	| "code_exec" // Code Mode execution (wraps multiple tool calls)
 	| "resource_read" // Resource accessed (widget load)
 	| "auth_validation" // External-agent authority validation availability/latency
+	| "auth_audience" // M2M token audience versus the MCP resource (measurement only)
 	| "access_denied"; // Pre-dispatch security decision
 
 /**
