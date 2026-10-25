@@ -1504,6 +1504,33 @@ describe("canonical list pagination and output", () => {
 		expect(sources[0]).toContain('"offset":40');
 	});
 
+	test("retains non-negative safe integer offsets", async () => {
+		for (const offset of ["0", "1", "40", "9007199254740991"]) {
+			const { ctx, sources } = makeContext({ offset });
+			expect((await capture("list", ctx)).code).toBe(0);
+			expect(sources).toHaveLength(1);
+			expect(sources[0]).toContain(`"offset":${offset}`);
+		}
+	});
+
+	test("rejects unsafe offsets before any gateway call", async () => {
+		for (const offset of [
+			"9007199254740992",
+			"9007199254740993",
+			"1e20",
+			"Infinity",
+			"1.5",
+			"-9007199254740992",
+		]) {
+			const { ctx, sources, nativeCalls } = makeContext({ offset });
+			await expect(runWork("list", ctx)).rejects.toThrow(
+				"work list --offset requires a non-negative safe integer",
+			);
+			expect(sources).toEqual([]);
+			expect(nativeCalls).toEqual([]);
+		}
+	});
+
 	test("rejects unknown filter values before the gateway call", async () => {
 		for (const [work, message] of [
 			[{ kind: "bogus" }, "work list --kind must be one of"],
