@@ -54,7 +54,7 @@ function Fixture() {
 								surface === "workspace" ? "canvas-document-status" : undefined
 							}
 						>
-							<span>Live draft · Commit to save</span>
+							<span>Draft · Save changes</span>
 						</OutputWorkshopStatus>
 						<OutputWorkshopActions
 							className={
