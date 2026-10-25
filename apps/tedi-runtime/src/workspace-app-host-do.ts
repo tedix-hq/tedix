@@ -9,7 +9,7 @@ import {
 import {
 	appRuntimeCodeDigest,
 	appRuntimeCodeId,
-	appRuntimeLoaderManifest,
+	loadAppRuntimeWorker,
 	appRuntimePermission,
 } from "@tedix/api-contract/utils/app-runtime";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
@@ -31,21 +31,6 @@ interface PendingAppTrace {
 	revisionId: string;
 	events: JsonValue[];
 }
-
-// Code is cached by revision; caller authority must never be cached with it.
-// A fresh instance receives a per-invocation env while using the facet's SQLite.
-const invocationModule = `
-import { DurableObject } from 'cloudflare:workers';
-import { App } from './server.js';
-export class AppInvocation extends DurableObject {
-  async invoke(method, args, capability) {
-    const descriptor = Object.getOwnPropertyDescriptor(App.prototype, method);
-    if (!descriptor || typeof descriptor.value !== 'function' || method === 'constructor')
-      throw new Error('Unknown app method');
-    const app = new App(this.ctx, { CONFIG: this.env.CONFIG, TEDIX: capability });
-    return await descriptor.value.apply(app, args);
-  }
-}`;
 
 export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	#calls = new Map<string, Promise<unknown>>();
@@ -147,26 +132,27 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			this.ctx.facets.abort(name, new Error("App revision changed"));
 		this.ctx.storage.kv.put(`code:${name}`, codeId);
 		const facet = this.ctx.facets.get(name, () => {
-			const worker = this.env.LOADER.get(codeId, async () => ({
-				...appRuntimeLoaderManifest(input.files, {
+			const worker = loadAppRuntimeWorker(
+				this.env.LOADER,
+				codeId,
+				input.files,
+				{
 					compatibilityDate: session.compatibilityDate,
-				}),
-				compatibilityFlags: ["disallow_importable_env"],
-				mainModule: "__tedix_invocation.js",
-				modules: { ...input.files, "__tedix_invocation.js": invocationModule },
-				env: { CONFIG: session.config ?? {} },
-				globalOutbound: null,
-				tails: [
-					this.ctx.exports.WorkspaceAppTail({
-						props: {
-							organizationId: session.organizationId,
-							workspaceId: session.workspaceId,
-							gadgetId: session.gadgetId,
-							revisionId: session.revisionId,
-						},
-					}),
-				],
-			}));
+					invocation: {
+						config: session.config ?? {},
+						tails: [
+							this.ctx.exports.WorkspaceAppTail({
+								props: {
+									organizationId: session.organizationId,
+									workspaceId: session.workspaceId,
+									gadgetId: session.gadgetId,
+									revisionId: session.revisionId,
+								},
+							}),
+						],
+					},
+				},
+			);
 			return { class: worker.getDurableObjectClass("AppInvocation") };
 		});
 		const capability = this.ctx.exports.WorkspaceAppCapability({

@@ -11,6 +11,7 @@ import {
 	appRuntimeLoaderManifest,
 	appRuntimePermission,
 	isAppRuntimeManifest,
+	loadAppRuntimeWorker,
 } from "./app-runtime";
 
 const files = {
@@ -65,6 +66,39 @@ describe("app runtime files", () => {
 });
 
 describe("loader manifest", () => {
+	it("loads the shared invocation manifest without caller-side customization", async () => {
+		const options = {
+			invocation: {
+				config: { sheet: "fictional-sheet" },
+				tails: [{ name: "ledger" }],
+			},
+		};
+		const expected = appRuntimeLoaderManifest(files, options);
+		let loaded: Promise<typeof expected> | undefined;
+		const stub = { id: "loaded-worker" };
+		const worker = loadAppRuntimeWorker(
+			{
+				get(id: string, code: () => Promise<typeof expected>) {
+					expect(id).toBe("fictional-code-id");
+					loaded = code();
+					return stub;
+				},
+			},
+			"fictional-code-id",
+			files,
+			options,
+		);
+		expect(worker).toBe(stub);
+		expect(await loaded).toEqual(expected);
+		expect(expected.mainModule).toBe("__tedix_invocation.js");
+		expect(expected.modules[expected.mainModule]).toContain(
+			"{ CONFIG: this.env.CONFIG, TEDIX: capability }",
+		);
+		expect(expected.env).toEqual({ CONFIG: options.invocation.config });
+		expect(expected.tails).toEqual(options.invocation.tails);
+		expect(expected.globalOutbound).toBeNull();
+		expect(expected.compatibilityFlags).toContain("disallow_importable_env");
+	});
 	it("never inherits network access and changes id with the code", () => {
 		const manifest = appRuntimeLoaderManifest(files);
 		expect(manifest.globalOutbound).toBeNull();
