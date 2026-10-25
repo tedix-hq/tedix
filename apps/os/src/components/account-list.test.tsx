@@ -283,6 +283,55 @@ describe("account list rows", () => {
 		expect(host.textContent).toContain("MCP service not checked");
 	});
 
+	it("separates and wraps long app references and service health", async () => {
+		const longSlug = `calendar-${"x".repeat(96)}`;
+		await render(
+			[
+				{
+					...base,
+					references: [
+						{ appId: "long-app", appSlug: longSlug, source: "app" },
+						{ appId: "short-app", appSlug: "calendar", source: "app" },
+					],
+				},
+			],
+			{
+				serviceHealth: {
+					[provider.appId]: {
+						status: "healthy",
+						appSlug: longSlug,
+						toolCount: 12,
+						detail: `${longSlug}'s MCP protocol service passed every check.`,
+					},
+				},
+			},
+		);
+		await expand();
+		await act(async () => button("Technical details")!.click());
+
+		const references = host.querySelector<HTMLElement>(
+			"[data-connection-app-identifiers]",
+		)!;
+		const health = host.querySelector<HTMLElement>(
+			"[data-connection-service-health]",
+		)!;
+		expect(references.textContent).toContain(longSlug);
+		expect(references.className).toContain("[overflow-wrap:anywhere]");
+		expect(health.textContent).toContain("MCP healthy");
+		expect(health.textContent).toContain(longSlug);
+		expect(health.className).toContain("[overflow-wrap:anywhere]");
+		const referencesRow = references.closest("dd")?.parentElement;
+		const healthRow = health.closest("dd")?.parentElement;
+		expect(referencesRow).not.toBe(healthRow);
+		expect(referencesRow?.querySelector("dt")?.textContent).toBe(
+			"App identifiers",
+		);
+		expect(healthRow?.querySelector("dt")?.textContent).toBe("App service");
+		const checkButton = button(`Check ${longSlug}`)!;
+		expect(checkButton.className).toContain("whitespace-normal");
+		expect(checkButton.className).toContain("[overflow-wrap:anywhere]");
+	});
+
 	it("lists every account of a multi-account provider under one row", async () => {
 		const mail = {
 			...named,

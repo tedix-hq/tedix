@@ -909,11 +909,21 @@ function TechnicalDetails({
 						</DetailRow>
 					)}
 					{slugs.length > 0 && (
-						<DetailRow term="App identifiers">{slugs.join(", ")}</DetailRow>
+						<DetailRow term="App identifiers">
+							<span
+								data-connection-app-identifiers
+								className="block min-w-0 [overflow-wrap:anywhere]"
+							>
+								{slugs.join(", ")}
+							</span>
+						</DetailRow>
 					)}
 					{slugs.length > 0 && (
 						<DetailRow term="App service">
-							<div className="grid gap-2">
+							<div
+								data-connection-service-health
+								className="grid min-w-0 gap-2 [overflow-wrap:anywhere]"
+							>
 								<span>{connectionServiceSummary(health)}</span>
 								<div className="flex flex-wrap gap-2">
 									{slugs.map((slug) => (
@@ -921,7 +931,7 @@ function TechnicalDetails({
 											key={slug}
 											size="sm"
 											variant="outline"
-											className="max-sm:min-h-11"
+											className="max-w-full whitespace-normal [overflow-wrap:anywhere] max-sm:min-h-11"
 											loading={
 												health?.status === "checking" && health.appSlug === slug
 											}
