@@ -22,7 +22,10 @@ import {
 	osWorkspaceShareKeys,
 } from "@tedix/db/schema/os-collaborators";
 import { eq } from "drizzle-orm";
-import { verifyWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
+import {
+	mintWorkspaceAppSession,
+	verifyWorkspaceAppSession,
+} from "@tedix/auth/workspace-app-session";
 import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { userContext, apiKeyContext } from "../test-context";
 import { createOsAppRuntimeRouter } from "./os-app-runtime";
@@ -414,5 +417,269 @@ describe("workspace app runtime API admission", () => {
 		expect(rows).toMatchObject([
 			{ gadgetId, revisionId, status: "failed", createdByKind: "service" },
 		]);
+	});
+});
+
+describe("workspace app runtime API under attack", () => {
+	const outputId = "77777777-7777-4777-8777-777777777777";
+	const outputRevisionId = "88888888-8888-4888-8888-888888888888";
+	const otherGadgetId = "99999999-9999-4999-8999-999999999999";
+	const document = {
+		kind: "document",
+		blocks: [{ type: "paragraph", text: "Granted content" }],
+	};
+	type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+	async function grantAll(db: Fixture["db"]) {
+		await db
+			.update(osGadgetRevisions)
+			.set({
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					config: { version: 1 },
+					resourceGrants: [
+						{ slot: "sheet", operations: ["outputs.read", "outputs.write"] },
+					],
+				}),
+			})
+			.where(eq(osGadgetRevisions.id, revisionId));
+	}
+
+	async function seedOutput(
+		db: Fixture["db"],
+		outputWorkspaceId = workspaceId,
+	) {
+		await db.insert(osOutputs).values({
+			id: outputId,
+			organizationId: "org-1",
+			workspaceId: outputWorkspaceId,
+			kind: "document",
+			title: "Granted document",
+			currentRevisionId: outputRevisionId,
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await db.insert(osOutputRevisions).values({
+			id: outputRevisionId,
+			organizationId: "org-1",
+			outputId,
+			revision: 1,
+			content: JSON.stringify(document),
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await db.insert(osWorkspaceResources).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			slot: "sheet",
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "output",
+			providerResourceId: outputId,
+			name: "Document",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+	}
+
+	function internalClient(f: Fixture) {
+		return createRouterClient(f.router, {
+			context: userContext({
+				env: f.env,
+				headers: { "X-Service-Binding": "true" },
+			}),
+		});
+	}
+
+	const write = (session: string, expectedRevision = 1) => ({
+		session,
+		operation: "outputs.write" as const,
+		slot: "sheet",
+		args: {
+			content: {
+				kind: "document",
+				blocks: [{ type: "paragraph", text: `Edit ${expectedRevision}` }],
+			},
+			expectedRevision,
+		},
+	});
+	const read = (session: string) => ({
+		session,
+		operation: "outputs.read" as const,
+		slot: "sheet",
+		args: null,
+	});
+
+	it("recomputes access on every call and capability after a member leaves", async () => {
+		const f = await fixture();
+		await seedOutput(f.db);
+		const reader = createRouterClient(f.router, {
+			context: userContext({ env: f.env, sub: "user-2" }),
+		});
+		const { session } = await reader.open(scope);
+		const internal = internalClient(f);
+		expect(await internal.capability(read(session))).toMatchObject({
+			output: { id: outputId },
+		});
+		await f.db
+			.update(organizationMembers)
+			.set({ status: "deactivated" })
+			.where(eq(organizationMembers.id, "member-2"));
+		await expect(
+			reader.call({ ...scope, session, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(internal.capability(read(session))).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		expect(f.fetch).not.toHaveBeenCalled();
+	});
+
+	it("drops writes from a build session the moment its holder is downgraded", async () => {
+		const f = await fixture();
+		await grantAll(f.db);
+		await seedOutput(f.db);
+		const { session } = await f.client.open(scope);
+		const internal = internalClient(f);
+		expect(await internal.capability(write(session))).toMatchObject({
+			ok: true,
+		});
+		await f.db
+			.update(organizationMembers)
+			.set({ role: "viewer" })
+			.where(eq(organizationMembers.id, "member-1"));
+		await expect(internal.capability(write(session, 2))).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		const revisions = await f.db
+			.select()
+			.from(osOutputRevisions)
+			.where(eq(osOutputRevisions.outputId, outputId));
+		expect(revisions).toHaveLength(2);
+	});
+
+	it("never grants a use session a write, a skill run or a connection call", async () => {
+		const f = await fixture();
+		await grantAll(f.db);
+		await seedOutput(f.db);
+		const reader = createRouterClient(f.router, {
+			context: userContext({ env: f.env, sub: "user-2" }),
+		});
+		const { session, role } = await reader.open(scope);
+		expect(role).toBe("use");
+		const internal = internalClient(f);
+		await expect(internal.capability(write(session))).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		for (const operation of ["skills.run", "connections.call"] as const)
+			await expect(
+				internal.capability({ ...read(session), operation }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("keeps preview sessions read-only even for a builder with a write grant", async () => {
+		const f = await fixture();
+		await grantAll(f.db);
+		await seedOutput(f.db);
+		const { session } = await f.client.preview({
+			...scope,
+			revisionId,
+			previewId,
+		});
+		const internal = internalClient(f);
+		expect(await internal.capability(read(session))).toMatchObject({
+			output: { id: outputId },
+		});
+		await expect(internal.capability(write(session))).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+
+	it("does not let one app's session call another app in the same workspace", async () => {
+		const f = await fixture();
+		await f.db.insert(osGadgets).values({
+			id: otherGadgetId,
+			organizationId: "org-1",
+			workspaceId,
+			name: "Other",
+			currentRevisionId: revisionId,
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		const { session } = await f.client.open(scope);
+		await expect(
+			f.client.call({
+				workspaceId,
+				gadgetId: otherGadgetId,
+				session,
+				method: "count",
+				args: [],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(f.fetch).not.toHaveBeenCalled();
+	});
+
+	it("refuses sessions it did not sign, at the call and at the capability", async () => {
+		const f = await fixture();
+		await seedOutput(f.db);
+		const { session } = await f.client.open(scope);
+		const {
+			expiresAt: _expiresAt,
+			sessionId: _sessionId,
+			...claims
+		} = await verifyWorkspaceAppSession(key, session);
+		const forged = (
+			await mintWorkspaceAppSession("fictional-forged-key", {
+				...claims,
+				role: "owner",
+			})
+		).token;
+		await expect(
+			f.client.call({ ...scope, session: forged, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(internalClient(f).capability(read(forged))).rejects.toThrow();
+		expect(f.fetch).not.toHaveBeenCalled();
+	});
+
+	it("gives machine sessions no resource capability", async () => {
+		const f = await fixture();
+		await seedOutput(f.db);
+		const machine = createRouterClient(f.router, {
+			context: apiKeyContext({ env: f.env, scopes: ["apps:read"] }),
+		});
+		const { session } = await machine.open(scope);
+		await expect(
+			internalClient(f).capability(read(session)),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("refuses a trace that names another tenant or workspace for an app", async () => {
+		const f = await fixture();
+		const internal = internalClient(f);
+		const trace = {
+			...scope,
+			organizationId: "org-1",
+			tailId: crypto.randomUUID(),
+			revisionId,
+			events: [],
+		};
+		await expect(
+			internal.recordTail({ ...trace, organizationId: "org-2" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			internal.recordTail({ ...trace, workspaceId: previewId }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(await f.db.select().from(osGadgetExecutions)).toEqual([]);
+	});
+
+	it("refuses a slot bound to an Output of another workspace", async () => {
+		const f = await fixture();
+		await seedOutput(f.db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+		const { session } = await f.client.open(scope);
+		await expect(
+			internalClient(f).capability(read(session)),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 });
