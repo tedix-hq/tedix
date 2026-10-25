@@ -142,6 +142,7 @@ export function WorkHome({
 						<Button
 							onClick={() => install.mutate()}
 							disabled={install.isPending}
+							loading={install.isPending}
 						>
 							{install.isPending ? copy.installing : copy.installDefaults}
 						</Button>

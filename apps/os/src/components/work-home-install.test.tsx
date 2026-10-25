@@ -67,6 +67,11 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 	});
 	expect(mocks.install).toHaveBeenCalledExactlyOnceWith({});
 	expect(button.disabled).toBe(true);
+	// The shared loading affordance announces the pending install.
+	expect(
+		button.querySelector('[role="status"]')?.getAttribute("aria-label"),
+	).toBe("Loading");
+	expect(button.textContent).toBe("Setting up Feed and Deck…");
 	await act(async () => {
 		finish({ workspaceId: "11111111-1111-4111-8111-111111111111" });
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -74,6 +79,7 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 	expect(invalidate).toHaveBeenCalledWith({
 		queryKey: osQuery.osWorkspaces.key(),
 	});
+	expect(button.querySelector('[role="status"]')).toBeNull();
 	await act(async () => root.unmount());
 });
 
