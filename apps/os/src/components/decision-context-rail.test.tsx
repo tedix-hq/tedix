@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
 	DecisionContextRail,
 	DecisionContextSection,
+	DecisionContextToolbar,
 } from "./decision-context-rail";
 
 (
@@ -136,6 +137,57 @@ describe("decision context rail sections", () => {
 			expect(trigger("Why this").getAttribute("aria-expanded")).toBe("false");
 		} finally {
 			HTMLElement.prototype.getBoundingClientRect = original;
+		}
+	});
+});
+
+describe("mobile Decision Deck filters", () => {
+	it("exposes the Filters disclosure state and its popup on open and close", async () => {
+		const original = window.matchMedia;
+		window.matchMedia = ((query: string) => ({
+			matches: query.includes("max-width: 639px"),
+			media: query,
+			onchange: null,
+			addListener() {},
+			removeListener() {},
+			dispatchEvent: () => true,
+			addEventListener() {},
+			removeEventListener() {},
+		})) as typeof window.matchMedia;
+		try {
+			host = document.createElement("div");
+			document.body.append(host);
+			root = createRoot(host);
+			const client = new QueryClient({
+				defaultOptions: { queries: { enabled: false } },
+			});
+			await act(async () =>
+				root.render(
+					<QueryClientProvider client={client}>
+						<DecisionContextRail>
+							<DecisionContextToolbar
+								filters={<button type="button">Only urgent</button>}
+							/>
+						</DecisionContextRail>
+					</QueryClientProvider>,
+				),
+			);
+			const filters = host.querySelector<HTMLButtonElement>(
+				'button[aria-label="Filters"]',
+			)!;
+			expect(filters).not.toBeNull();
+			expect(filters.getAttribute("aria-expanded")).toBe("false");
+			expect(filters.getAttribute("aria-haspopup")).toBe("dialog");
+			await act(async () => filters.click());
+			expect(filters.getAttribute("aria-expanded")).toBe("true");
+			const controls = filters.getAttribute("aria-controls");
+			expect(controls).toBeTruthy();
+			const popup = document.getElementById(controls!);
+			expect(popup?.textContent).toContain("Only urgent");
+			await act(async () => filters.click());
+			expect(filters.getAttribute("aria-expanded")).toBe("false");
+		} finally {
+			window.matchMedia = original;
 		}
 	});
 });
