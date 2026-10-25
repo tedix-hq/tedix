@@ -1,4 +1,7 @@
-import { readExternalAgentProfile } from "./external-agent-store";
+import {
+	externalAgentProfileSlot,
+	readExternalAgentProfile,
+} from "./external-agent-store";
 import { nearestHostHarness } from "./host-ancestry";
 import type { WorkAttemptKey } from "./work-attempt-store";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -297,7 +300,12 @@ export function executorIdentityHint(
 	if (!/verified external-agent session/i.test(error.message)) return "";
 	let key: string | undefined;
 	try {
-		key = readExternalAgentProfile(ctx.workspace)?.key;
+		key = readExternalAgentProfile(
+			externalAgentProfileSlot(
+				ctx.workspace,
+				resolveAgentSession(ctx.work.session)?.session,
+			),
+		)?.key;
 	} catch {
 		// The hint degrades to a placeholder when the local store is unreadable.
 	}

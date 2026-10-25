@@ -22,7 +22,10 @@ import {
 	assertDevinProjectHooks,
 	writeDevinGitIdentity,
 } from "./devin-lane-security";
-import { readExternalAgentProfile } from "./external-agent-store";
+import {
+	externalAgentProfileSlot,
+	readExternalAgentProfile,
+} from "./external-agent-store";
 import { laneChildEnv } from "./lane-child-env";
 import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
 import { parseLaneTranscript, type LaneObservation } from "./lane-telemetry";
@@ -301,7 +304,9 @@ async function runLaneProcessWithReporter(
 		writeDevinLaneConfig(config, deps.cwd ?? process.cwd(), {
 			id: sessionKey,
 			principalKey: workspace
-				? readExternalAgentProfile(workspace)?.key
+				? readExternalAgentProfile(
+						externalAgentProfileSlot(workspace, `devin:${sessionKey}`),
+					)?.key
 				: undefined,
 		});
 		command.splice(
