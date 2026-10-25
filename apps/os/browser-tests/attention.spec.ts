@@ -108,7 +108,13 @@ try {
 		await phone.goto(`${origin}/work/attention`);
 		await phone.locator("[data-attention-live]").waitFor();
 		await phone.keyboard.press("Escape");
-		await phone.waitForTimeout(300);
+		await phone.evaluate(() => document.fonts.ready);
+		await phone.evaluate(
+			() =>
+				new Promise<void>((resolve) =>
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+				),
+		);
 		assert.equal(
 			await phone.evaluate(
 				() => document.documentElement.scrollWidth > innerWidth,
