@@ -1,3 +1,5 @@
+import { asRecord } from "./is-record";
+
 export interface ApprovalDecision {
 	what: string;
 	whyNow: string;
@@ -11,9 +13,37 @@ export interface ApprovalDecision {
 export function approvalDecision(input: {
 	actionType: string;
 	review: { intent: string };
+	description?: string;
+	payload?: Record<string, unknown>;
 	/** The classified risk of a parked Home write; absent for other requests. */
 	riskTier?: string | null;
 }): ApprovalDecision {
+	const target = asRecord(input.payload?.target);
+	const args = asRecord(input.payload?.args);
+	if (
+		input.actionType === "mcp.tool_call" &&
+		input.payload?.kind === "mcp_tool_call" &&
+		target?.transport === "rpc" &&
+		target.endpoint === "skills/runWorkflow"
+	) {
+		const title = input.description?.match(
+			/^Run skill: (.+?)\. Nothing has run yet;/,
+		)?.[1];
+		const name = title?.replace(/ improvement [a-f0-9]+$/i, "");
+		const probe = asRecord(args?.params)?.probe === true;
+		return {
+			what: probe
+				? `Run a test of ${name ? `the ${name}` : "the saved"} skill proposal.`
+				: `Run ${name ? `the ${name}` : "the saved"} skill.`,
+			whyNow: "The skill run is waiting for permission.",
+			ifApproved:
+				"The caller can retry this exact skill run once. Approval alone does not start it or activate the proposal.",
+			ifRejected: "This request grants no permission to run the skill.",
+			recommendation: "rejected",
+			reason:
+				"Review the skill and its saved parameters before allowing the run.",
+		};
+	}
 	if (input.review.intent === "home_write") {
 		const low = input.riskTier === "low";
 		return {

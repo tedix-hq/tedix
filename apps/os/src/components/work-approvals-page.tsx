@@ -5,7 +5,10 @@ import {
 	WorkEmpty,
 } from "@/components/work-surface-primitives";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
-import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
+import {
+	ApprovalDecisionCopy,
+	ApprovalDecisionResult,
+} from "@/components/approval-decision-copy";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -259,6 +262,9 @@ export function WorkApprovalsPage() {
 							setSelectedRuntimeIds([]);
 						}}
 					/>
+				) : null}
+				{delegate.data ? (
+					<ApprovalDecisionResult approval={delegate.data} />
 				) : null}
 				{runtimeApprovals.isPending ? (
 					<WorkListSkeleton />

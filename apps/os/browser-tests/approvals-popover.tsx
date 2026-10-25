@@ -17,8 +17,9 @@ import "../src/styles.css";
 // rules, decided requests and tool calls for the three Activity tabs.
 const params = new URLSearchParams(location.search);
 const dark = params.get("theme") === "dark";
-const empty = params.has("empty");
-const activity = params.has("activity");
+const probe = params.has("probe");
+const empty = params.has("empty") || probe;
+const activity = params.has("activity") || probe;
 document.documentElement.classList.toggle("dark", dark);
 document.documentElement.style.colorScheme = dark ? "dark" : "light";
 
@@ -115,33 +116,53 @@ client.setQueryData(tediNamesQueryOptions().queryKey, {
 	data: [{ id: fictionalTedi, name: "ops", displayName: "Ops" }],
 } as never);
 client.setQueryData(pendingApprovalsQueryOptions().queryKey, {
-	data: activity
+	data: probe
 		? [
-				request({
-					id: "00000000-0000-4000-8000-0000000000b1",
-					title: "example-unified:tedi_146194__run_skill_workflow",
-					appSlug: "example-unified",
-					toolName: "tedi_146194__run_skill_workflow",
-					hoursAgo: 2,
-				}),
-				request({
-					id: "00000000-0000-4000-8000-0000000000b2",
-					title: "example-unified:tedi_146194__run_skill_workflow",
-					appSlug: "example-unified",
-					toolName: "tedi_146194__run_skill_workflow",
-					hoursAgo: 1,
-				}),
-				request({
-					id: "00000000-0000-4000-8000-0000000000b3",
-					title:
-						"Approve Kernel write: google_gmail.create_draft on google-gmail-tedix",
-					appSlug: "google-gmail-tedix",
-					toolName: "google_gmail.create_draft",
-					riskTier: "high",
-					hoursAgo: 4,
-				}),
+				{
+					...request({
+						id: "00000000-0000-4000-8000-0000000000b1",
+						title:
+							"Run skill: nightly-check improvement abc12345. Nothing has run yet; approving allows one identical retry of this call.",
+						appSlug: "tedix-unified",
+						toolName: "cto__run_skill_workflow",
+						hoursAgo: 1,
+					}),
+					actionType: "mcp.tool_call",
+					payload: {
+						kind: "mcp_tool_call",
+						appSlug: "tedix-unified",
+						target: { transport: "rpc", endpoint: "skills/runWorkflow" },
+						args: { params: { probe: true } },
+					},
+				},
 			]
-		: [],
+		: activity
+			? [
+					request({
+						id: "00000000-0000-4000-8000-0000000000b1",
+						title: "example-unified:tedi_146194__run_skill_workflow",
+						appSlug: "example-unified",
+						toolName: "tedi_146194__run_skill_workflow",
+						hoursAgo: 2,
+					}),
+					request({
+						id: "00000000-0000-4000-8000-0000000000b2",
+						title: "example-unified:tedi_146194__run_skill_workflow",
+						appSlug: "example-unified",
+						toolName: "tedi_146194__run_skill_workflow",
+						hoursAgo: 1,
+					}),
+					request({
+						id: "00000000-0000-4000-8000-0000000000b3",
+						title:
+							"Approve Kernel write: google_gmail.create_draft on google-gmail-tedix",
+						appSlug: "google-gmail-tedix",
+						toolName: "google_gmail.create_draft",
+						riskTier: "high",
+						hoursAgo: 4,
+					}),
+				]
+			: [],
 } as never);
 client.setQueryData(approvalHistoryQueryOptions().queryKey, {
 	data: activity
