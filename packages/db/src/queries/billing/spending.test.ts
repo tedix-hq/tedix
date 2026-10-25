@@ -10,6 +10,7 @@ import { schemaDdl } from "../../test/schema-ddl";
 import {
 	listMonetaryInferenceSpending,
 	sumRunInferenceCharges,
+	sumRunInferenceChargesByRun,
 } from "./spending";
 
 const from = "2026-10-01T00:00:00.000Z";
@@ -95,6 +96,32 @@ describe("settled monetary spending", () => {
 				runId: null,
 				traceId: null,
 			});
+		} finally {
+			f.sqlite.close();
+		}
+	});
+	it("groups settled EUR charges per run and leaves uncharged runs out", async () => {
+		const f = fixture();
+		try {
+			f.charge("monetary");
+			f.charge("second");
+			f.charge("legacy", "own", "hold", {});
+			f.charge("foreign", "other", "foreign-hold");
+			const byRun = await sumRunInferenceChargesByRun(f.db, {
+				organizationId: "own",
+				runIds: ["own-run", "other-run", "no-such-run"],
+			});
+			expect([...byRun]).toEqual([
+				["own-run", { chargedMicros: 100, chargeCount: 2 }],
+			]);
+			expect(
+				(
+					await sumRunInferenceChargesByRun(f.db, {
+						organizationId: "own",
+						runIds: [],
+					})
+				).size,
+			).toBe(0);
 		} finally {
 			f.sqlite.close();
 		}
