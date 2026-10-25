@@ -208,10 +208,14 @@ export async function reconcileWorkstationUntilSettled(
 				options.checkpoint(settled);
 				return settled;
 			}
+			// `/wake` reports a body that refused to start in `setupError`, not
+			// `error`; this message is all a failed refresh fiber retains.
 			throw new Error(
 				typeof record.error === "string"
 					? record.error
-					: "Workstation provisioning reconciliation failed",
+					: typeof record.setupError === "string" && record.setupError
+						? `Workstation provisioning reconciliation failed: ${record.setupError}`
+						: "Workstation provisioning reconciliation failed",
 			);
 		}
 		const persistence = unknownRecord(record?.workstationPersistence);
