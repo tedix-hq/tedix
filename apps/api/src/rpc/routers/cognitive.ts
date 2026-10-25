@@ -83,6 +83,7 @@ import {
 	skillsRunWorkflowStatus,
 } from "./cognitive-skill-runs/run-reads";
 import { skillsRunWorkflow } from "./cognitive-skill-runs/run-start";
+import { skillsMoveToTedi } from "./cognitive-skill-ownership";
 import { knowledgeOs, muscleOs, skillsOs } from "./cognitive-shared";
 import {
 	skillsGetWorkspaceDraftGrant,
@@ -127,6 +128,7 @@ export const skillsContractRouter = skillsOs.router({
 	delete: skillsDelete,
 	get: skipOutputValidation(skillsGet),
 	move: skillsMove,
+	moveToTedi: skillsMoveToTedi,
 	listByOrg: skipOutputValidation(skillsListByOrg),
 	find: skipOutputValidation(skillsFind),
 	listByApp: skipOutputValidation(skillsListByApp),

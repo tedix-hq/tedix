@@ -21,8 +21,8 @@
 		{
 			"id": "skills_and_schedules",
 			"label": "Skill and schedule operations",
-			"pattern": "^(?:(?:record|test|propose|activate|pause|resume|restart)_skill(?:_workflow)?(?:_improvement|_schedule)?|(?:create|update|pause|resume|activate)_(?:skill_)?(?:workflow_)?schedules?)$",
-			"endpointPattern": "^skills/(?:pauseWorkflow|resumeWorkflow|restartWorkflow|proposeWorkflowImprovement|activateWorkflowImprovement)$"
+			"pattern": "^(?:(?:record|test|propose|activate|pause|resume|restart)_skill(?:_workflow)?(?:_improvement|_schedule)?|(?:create|update|pause|resume|activate)_(?:skill_)?(?:workflow_)?schedules?|move_skill_to_tedi)$",
+			"endpointPattern": "^skills/(?:pauseWorkflow|resumeWorkflow|restartWorkflow|proposeWorkflowImprovement|activateWorkflowImprovement|moveToTedi)$"
 		},
 		{
 			"id": "runs",

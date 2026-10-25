@@ -30,6 +30,8 @@ import {
 	SkillRunStatusSchema,
 	SkillRunSummarySchema,
 	SkillWorkflowRetryCandidateSchema,
+	SkillMoveToTediInputSchema,
+	SkillMoveToTediResultSchema,
 	SkillScheduleSchema,
 	SkillSummarySchema,
 	SkillWorkflowArtifactSummarySchema,
@@ -789,6 +791,18 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 			}),
 		)
 		.output(z.object({ entry: SkillEntrySchema })),
+
+	moveToTedi: oc
+		.route({
+			method: "POST",
+			path: "/skills/move-to-tedi",
+			tags: ["cognitive"],
+			summary: "Move a skill and its schedule to another tedi",
+			description:
+				"Transfers ownership of a skill to another active tedi in the same organization and moves its schedule with it (cron, enabled state, next run, revision and app bindings stay). Defaults to a dry run that reports every check: target active, no run in flight, the target's gateway access and the `tedi` namespace the skill's manifest declares, and owner consent that would not carry over. A real move is refused while any check fails. It writes one audit event naming the previous owner; moving the skill back with the returned rollback call reverses it.",
+		})
+		.input(SkillMoveToTediInputSchema)
+		.output(SkillMoveToTediResultSchema),
 
 	listByOrg: oc
 		.route({ method: "GET", path: "/skills/list-by-org", tags: ["cognitive"] })

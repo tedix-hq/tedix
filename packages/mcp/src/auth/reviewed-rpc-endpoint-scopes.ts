@@ -655,6 +655,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"skills/getRunUsefulness": "mcp:skills.read",
 	"skills/listRunArtifacts": "mcp:skills.read",
 	"skills/listSummariesByApps": "mcp:skills.read",
+	// Changes which tedi runs a skill unattended: reconfiguration, like repair.
+	"skills/moveToTedi": "mcp:skills.admin",
 	"skills/recordRunEffectObservation": "mcp:skills.write",
 	"skills/runWorkflow": "mcp:skills.write",
 	"skills/runWorkflowCancel": "mcp:skills.admin",
