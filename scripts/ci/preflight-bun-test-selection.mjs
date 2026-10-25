@@ -33,6 +33,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
+import { parse as parseJsonc } from "jsonc-parser";
 import { parseSync } from "oxc-parser";
 
 /** Above this many changed code files the whole suite runs. */
@@ -209,10 +210,83 @@ function resolveSpecifier(specifier, importer, io) {
 		);
 		return [resolveFile(target, io, `${importer} imports ${specifier}`)];
 	}
-	if (specifier.startsWith("@tedix/")) {
-		return resolveWorkspaceImport(specifier, importer, io);
+	const configs = aliasConfigDependencies(specifier, importer, io);
+	if (/^(~\/|@\/|#)/.test(specifier)) {
+		throw new Error(
+			`${importer} imports ${specifier}: unresolved local alias requires full suite`,
+		);
 	}
-	return [];
+	if (specifier.startsWith("@tedix/")) {
+		return [...configs, ...resolveWorkspaceImport(specifier, importer, io)];
+	}
+	return configs;
+}
+
+/** Aliases need Bun's resolver; never prune a suite on an ignored alias. */
+function aliasConfigDependencies(specifier, importer, io) {
+	if (/^(node|bun):/.test(specifier)) return [];
+	let dir = posix.dirname(importer);
+	while (!io.isFile(posix.join(dir, "tsconfig.json"))) {
+		if (dir === ".") return [];
+		dir = posix.dirname(dir);
+	}
+	const configs = new Set();
+	const visit = (file, ancestors = new Set()) => {
+		if (ancestors.has(file))
+			throw new Error(`${file}: circular tsconfig extends`);
+		if (configs.has(file)) return;
+		configs.add(file);
+		const errors = [];
+		const source = io.readSource(file);
+		const config =
+			source === null
+				? null
+				: parseJsonc(source, errors, { allowTrailingComma: true });
+		if (!config || errors.length)
+			throw new Error(`${file}: cannot read tsconfig`);
+		const options = config.compilerOptions ?? {};
+		for (const pattern of Object.keys(options.paths ?? {})) {
+			const star = pattern.indexOf("*");
+			if (
+				pattern === specifier ||
+				(star !== -1 &&
+					specifier.startsWith(pattern.slice(0, star)) &&
+					specifier.endsWith(pattern.slice(star + 1)))
+			) {
+				throw new Error(
+					`${importer} imports ${specifier}: local alias ${pattern} in ${file} requires full suite`,
+				);
+			}
+		}
+		if (options.baseUrl !== undefined) {
+			throw new Error(
+				`${importer} imports ${specifier}: baseUrl in ${file} requires full suite`,
+			);
+		}
+		const parents =
+			config.extends === undefined
+				? []
+				: Array.isArray(config.extends)
+					? config.extends
+					: [config.extends];
+		for (const parent of parents) {
+			let target;
+			if (parent.startsWith(".")) {
+				target = posix.join(posix.dirname(file), parent);
+			} else {
+				const parts = parent.split("/");
+				const name = parts.splice(0, parent.startsWith("@") ? 2 : 1).join("/");
+				const packageDir = io.packageDir(name);
+				if (!packageDir || !parts.length)
+					throw new Error(`${file}: unresolved tsconfig extends ${parent}`);
+				target = posix.join(packageDir, ...parts);
+			}
+			if (!io.isFile(target)) target += ".json";
+			visit(target, new Set([...ancestors, file]));
+		}
+	};
+	visit(posix.join(dir, "tsconfig.json"));
+	return [...configs];
 }
 
 /**

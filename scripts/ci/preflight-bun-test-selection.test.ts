@@ -313,6 +313,108 @@ describe("selectBunTestFiles", () => {
 		});
 	});
 
+	test.each(["~/a", "@/a", "#a"])(
+		"unconfigured alias %s fails closed",
+		(specifier) => {
+			const io = makeIo({
+				...FILES,
+				"packages/tool/src/used.test.ts": `import "${specifier}";`,
+			});
+			expect(select(["packages/tool/src/a.ts"], io)).toEqual({
+				mode: "all",
+				reason: `import graph incomplete: packages/tool/src/used.test.ts imports ${specifier}: unresolved local alias requires full suite`,
+			});
+		},
+	);
+
+	test.each(["~/a", "@local/a", "local-a", "@tedix/alias/a"])(
+		"configured alias %s triggers a named full-suite fallback",
+		(specifier) => {
+			const pattern = specifier.includes("/")
+				? `${specifier.slice(0, specifier.lastIndexOf("/"))}/*`
+				: specifier;
+			const io = makeIo({
+				...FILES,
+				"packages/tool/tsconfig.json": JSON.stringify({
+					compilerOptions: { paths: { [pattern]: ["./src/*"] } },
+				}),
+				"packages/tool/src/used.test.ts": `import "${specifier}";`,
+			});
+			expect(select(["packages/tool/src/a.ts"], io)).toEqual({
+				mode: "all",
+				reason: `import graph incomplete: packages/tool/src/used.test.ts imports ${specifier}: local alias ${pattern} in packages/tool/tsconfig.json requires full suite`,
+			});
+		},
+	);
+
+	test.each(["./aliases", "@tedix/shared/aliases.json"])(
+		"inherits aliases through %s, including JSONC",
+		(parent) => {
+			const configFile = parent.startsWith(".")
+				? "packages/tool/aliases.json"
+				: "packages/shared/aliases.json";
+			const io = makeIo({
+				...FILES,
+				"packages/tool/tsconfig.json": JSON.stringify({ extends: parent }),
+				[configFile]:
+					'{ // shared aliases\n "compilerOptions": { "paths": { "~/*": ["./src/*"], }, }, }',
+				"packages/tool/src/used.test.ts": 'import "~/a";',
+			});
+			expect(select(["packages/tool/src/a.ts"], io)).toEqual({
+				mode: "all",
+				reason: `import graph incomplete: packages/tool/src/used.test.ts imports ~/a: local alias ~/* in ${configFile} requires full suite`,
+			});
+		},
+	);
+
+	test("unmatched third-party imports remain supported with configured aliases", () => {
+		const io = makeIo({
+			...FILES,
+			"tsconfig.json": JSON.stringify({
+				compilerOptions: { paths: { "~/*": ["./src/*"] } },
+			}),
+			"packages/tool/src/d.test.ts":
+				'import "node:fs"; import "zod"; import "@vendor/pkg";',
+		});
+		expect(select(["packages/tool/src/b.ts"], io)).toEqual({
+			mode: "files",
+			files: ["src/b.test.ts", "src/guard.test.ts"],
+			total: 5,
+		});
+	});
+
+	test.each([
+		'{"extends":"./missing.json"}',
+		'{"extends":"./tsconfig.json"}',
+		'{"extends":"unknown/config.json"}',
+		'{"compilerOptions":{"baseUrl":"."}}',
+		"{ invalid",
+	])("uncertain alias configuration fails closed: %s", (config) => {
+		const io = makeIo({ ...FILES, "packages/tool/tsconfig.json": config });
+		const result = select(["packages/tool/src/b.ts"], io);
+		expect(result.mode).toBe("all");
+		if (result.mode === "all")
+			expect(result.reason).toContain("import graph incomplete:");
+	});
+
+	test("a changed inherited config selects its consumers", () => {
+		const io = makeIo({
+			...FILES,
+			"packages/tool/tsconfig.json": '{"extends":"./base.json"}',
+			"packages/tool/base.json": "{}",
+		});
+		expect(select(["packages/tool/base.json"], io)).toEqual({
+			mode: "files",
+			files: [
+				"src/a.test.ts",
+				"src/b.test.ts",
+				"src/d.test.ts",
+				"src/guard.test.ts",
+			],
+			total: 5,
+		});
+	});
+
 	test("a dependency outside the repo is not an edge", () => {
 		// d.test.ts imports node:fs and zod; neither resolves, neither throws.
 		expect(select(["packages/tool/src/b.ts"])).toEqual({
