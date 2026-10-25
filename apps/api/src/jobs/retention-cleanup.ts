@@ -63,11 +63,18 @@ export async function runRetentionCleanupCron(
 		);
 	}
 	let deletedPlatformCronExecutions = 0;
+	let abandonedPlatformCronExecutions = 0;
 	try {
 		const {
 			PLATFORM_CRON_RECEIPT_RETENTION_DAYS,
 			prunePlatformCronExecutions,
+			terminalizeAbandonedPlatformCronExecutions,
 		} = await import("@tedix/db/queries/platform-cron-executions");
+		abandonedPlatformCronExecutions =
+			await terminalizeAbandonedPlatformCronExecutions(
+				db,
+				new Date(event.scheduledTime).toISOString(),
+			);
 		const cutoff = new Date(
 			event.scheduledTime - PLATFORM_CRON_RECEIPT_RETENTION_DAYS * 86_400_000,
 		)
@@ -538,6 +545,7 @@ export async function runRetentionCleanupCron(
 		workflowRunsDeleted: deletedWorkflowRuns,
 		cronExecutionsDeleted: deletedCronExecutions,
 		platformCronExecutionsDeleted: deletedPlatformCronExecutions,
+		platformCronExecutionsAbandoned: abandonedPlatformCronExecutions,
 		skillUsageDeleted: deletedSkillUsage,
 		runtimeSubmissionsDeleted: deletedRuntimeSubmissions,
 		learningEventsDeleted: deletedLearningEvents,

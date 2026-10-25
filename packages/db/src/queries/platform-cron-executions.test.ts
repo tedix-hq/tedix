@@ -7,6 +7,7 @@ import {
 	prunePlatformCronExecutions,
 	recordPlatformCronExecutionFinish,
 	recordPlatformCronExecutionStart,
+	terminalizeAbandonedPlatformCronExecutions,
 } from "./platform-cron-executions";
 
 function fixture() {
@@ -119,6 +120,89 @@ describe("platform cron execution receipts", () => {
 			affected_row_counts: '{"expired":3}',
 			error: null,
 		});
+	});
+
+	it("recovers abandoned receipts in bounded batches, preserving recent and terminal rows", async () => {
+		const { db, sqlite } = fixture();
+		try {
+			const insert = sqlite.prepare(`
+				INSERT INTO platform_cron_executions (
+					id, schedule_id, cron, scheduled_at, started_at, status, created_at
+				) VALUES (?, 'retention', '0 3 * * *', ?, ?, ?, ?)
+			`);
+			for (const [id, startedAt, status] of [
+				["orphan-1", "2026-01-01T00:00:00.000Z", "running"],
+				["orphan-2", "2026-01-02T00:00:00.000Z", "running"],
+				["orphan-3", "2026-08-09T05:59:59.999Z", "running"],
+				["boundary", "2026-08-09T06:00:00.000Z", "running"],
+				["recent", "2026-08-09T11:59:00.000Z", "running"],
+				["success", "2026-01-03T00:00:00.000Z", "success"],
+				["failure", "2026-01-04T00:00:00.000Z", "failure"],
+			]) {
+				insert.run(
+					id,
+					startedAt,
+					startedAt,
+					status,
+					startedAt.replace("T", " "),
+				);
+			}
+			const read = () =>
+				sqlite
+					.prepare("SELECT * FROM platform_cron_executions ORDER BY id")
+					.all();
+			const before = read();
+			const now = "2026-08-09T12:00:00.000Z";
+			await expect(
+				terminalizeAbandonedPlatformCronExecutions(db, now, 1, 2),
+			).resolves.toBe(2);
+			const recovered = sqlite
+				.prepare("SELECT * FROM platform_cron_executions WHERE id = 'orphan-1'")
+				.get();
+			expect(recovered).toMatchObject({
+				status: "failure",
+				finished_at: now,
+				duration_ms: null,
+				error: "Cron receipt abandoned: no finish recorded within six hours",
+			});
+			// A delayed delivery must not replace the recovered terminal outcome.
+			await recordPlatformCronExecutionFinish(db, {
+				...start,
+				id: "orphan-1",
+				scheduleId: "retention",
+				scheduledAt: "2026-01-01T00:00:00.000Z",
+				finishedAt: now,
+				status: "success",
+				durationMs: 1_000,
+				affectedRowCounts: {},
+			});
+			expect(
+				sqlite
+					.prepare(
+						"SELECT * FROM platform_cron_executions WHERE id = 'orphan-1'",
+					)
+					.get(),
+			).toEqual(recovered);
+			await expect(
+				terminalizeAbandonedPlatformCronExecutions(db, now, 1, 2),
+			).resolves.toBe(1);
+			await expect(
+				terminalizeAbandonedPlatformCronExecutions(db, now, 1, 2),
+			).resolves.toBe(0);
+			expect(
+				read().filter((row) => !String(row.id).startsWith("orphan-")),
+			).toEqual(before.filter((row) => !String(row.id).startsWith("orphan-")));
+			await expect(
+				prunePlatformCronExecutions(db, "2026-07-01 00:00:00", 1, 10),
+			).resolves.toBe(4);
+			expect(
+				sqlite
+					.prepare("SELECT id FROM platform_cron_executions ORDER BY id")
+					.all(),
+			).toEqual([{ id: "boundary" }, { id: "orphan-3" }, { id: "recent" }]);
+		} finally {
+			sqlite.close();
+		}
 	});
 
 	it("prunes old terminal receipts in bounded batches but keeps running rows", async () => {

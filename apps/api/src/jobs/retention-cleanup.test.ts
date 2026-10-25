@@ -3,6 +3,10 @@ import { tediCallCosts } from "@tedix/db/schema/tedis";
 import { appCatalogHealthHistory } from "@tedix/db/schema/catalog";
 import { kernelToolResults } from "@tedix/db/schema/cognitive-runtime";
 import { organizations } from "@tedix/db/schema/organizations";
+import {
+	prunePlatformCronExecutions,
+	terminalizeAbandonedPlatformCronExecutions,
+} from "@tedix/db/queries/platform-cron-executions";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -57,6 +61,7 @@ vi.mock("@tedix/db/queries/tedis", () => ({
 vi.mock("@tedix/db/queries/platform-cron-executions", () => ({
 	PLATFORM_CRON_RECEIPT_RETENTION_DAYS: 90,
 	prunePlatformCronExecutions: vi.fn().mockResolvedValue(0),
+	terminalizeAbandonedPlatformCronExecutions: vi.fn().mockResolvedValue(2),
 }));
 vi.mock("@tedix/db/queries/catalog/create-base-app", () => ({
 	backfillCatalogBaseAppAutoSync: vi.fn().mockResolvedValue(0),
@@ -185,6 +190,18 @@ describe("scheduled usage evidence retention", () => {
 					.all(),
 			).toEqual([{ id: "recent" }]);
 			expect(result.healthHistoryDeleted).toBe(1);
+			expect(result.platformCronExecutionsAbandoned).toBe(2);
+			expect(terminalizeAbandonedPlatformCronExecutions).toHaveBeenCalledWith(
+				expect.anything(),
+				"2026-09-21T03:00:00.000Z",
+			);
+			expect(prunePlatformCronExecutions).toHaveBeenCalledWith(
+				expect.anything(),
+				"2026-06-23 03:00:00",
+			);
+			expect(terminalizeAbandonedPlatformCronExecutions).toHaveBeenCalledBefore(
+				prunePlatformCronExecutions,
+			);
 			expect(warn).not.toHaveBeenCalled();
 			expect(error).not.toHaveBeenCalled();
 			expect(
