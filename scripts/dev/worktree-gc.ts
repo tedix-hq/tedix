@@ -413,24 +413,34 @@ export function collectSiblingClones(
 }
 
 export function parseArgs(argv: string[]) {
-	const value = (flag: string) => {
-		const index = argv.indexOf(flag);
-		return index >= 0 ? argv[index + 1] : undefined;
-	};
-	const minIdleValue = value("--min-idle");
-	if (
-		argv.includes("--min-idle") &&
-		(!minIdleValue || minIdleValue.startsWith("--"))
-	)
-		throw new Error("--min-idle needs a non-negative number of hours");
+	let apply = false;
+	let base = "origin/main";
+	let minIdleValue: string | undefined;
+	for (let index = 0; index < argv.length; index += 1) {
+		const flag = argv[index];
+		if (flag === "--apply") {
+			apply = true;
+			continue;
+		}
+		if (flag === "--base" || flag === "--min-idle") {
+			const value = argv[index + 1];
+			if (value === undefined || value.startsWith("--"))
+				throw new Error(`${flag} needs a value`);
+			index += 1;
+			if (flag === "--base") base = value;
+			else minIdleValue = value;
+			continue;
+		}
+		throw new Error(
+			flag?.startsWith("-")
+				? `Unknown option: ${flag}`
+				: `Unexpected argument: ${flag}`,
+		);
+	}
 	const minIdleHours = Number(minIdleValue ?? 2);
 	if (!Number.isFinite(minIdleHours) || minIdleHours < 0)
 		throw new Error("--min-idle must be a finite non-negative number of hours");
-	return {
-		apply: argv.includes("--apply"),
-		base: value("--base") ?? "origin/main",
-		minIdleHours,
-	};
+	return { apply, base, minIdleHours };
 }
 
 /** Ignored paths that are only build output, caches or per-checkout settings. */
