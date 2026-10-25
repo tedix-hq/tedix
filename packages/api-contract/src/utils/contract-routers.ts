@@ -69,6 +69,7 @@ import { organizationsContract } from "../contracts/organizations";
 import { osTenantContract } from "../contracts/os-tenant";
 import { osApprovalRulesContract } from "../contracts/os-approval-rules";
 import { osComputeContract } from "../contracts/os-compute";
+import { osCollaboratorsContract } from "../contracts/os-collaborators";
 import { osSharesContract } from "../contracts/os-shares";
 import { osWorkspacesContract } from "../contracts/os-workspaces";
 import { osGadgetStateContract } from "../contracts/os-gadget-state";
@@ -174,6 +175,7 @@ export const ROUTERS: Record<string, unknown> = {
 	osApprovalRules: osApprovalRulesContract,
 	osCompute: osComputeContract,
 	osShares: osSharesContract,
+	osCollaborators: osCollaboratorsContract,
 	osWorkspaces: osWorkspacesContract,
 	osGadgetState: osGadgetStateContract,
 	tediConsole: tediConsoleContract,

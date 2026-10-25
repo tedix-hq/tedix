@@ -1152,6 +1152,10 @@
 		{
 			"name": "20261025174747_os-gadget-code/migration.sql",
 			"sha256": "87f6617aa1b89fab31b55c9abff07419a3d1027493d66757c65f1926773bdbc8"
+		},
+		{
+			"name": "20261025180038_os-workspace-collaborators/migration.sql",
+			"sha256": "eaf6f24fa6ad1cb2151cd66c8fc6a75268c4adc6e82447af2de8cc6557d49c69"
 		}
 	]
 }

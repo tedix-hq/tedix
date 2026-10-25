@@ -39,6 +39,7 @@ import { docsContract } from "./docs";
 import { osComputeContract } from "./os-compute";
 import { osTenantContract } from "./os-tenant";
 import { osApprovalRulesContract } from "./os-approval-rules";
+import { osCollaboratorsContract } from "./os-collaborators";
 import { osSharesContract } from "./os-shares";
 import { osWorkspacesContract } from "./os-workspaces";
 import { osGadgetStateContract } from "./os-gadget-state";
@@ -270,6 +271,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 
 	// Tedix OS: share links, approval rules, and runtime entitlement
 	osShares: osSharesContract,
+	osCollaborators: osCollaboratorsContract,
 	osApprovalRules: osApprovalRulesContract,
 	// Tedix OS: compute-and-models posture (provenance-labeled spend visibility;
 	// invoices and destructive reconciliation stay in the administrative billing plane)

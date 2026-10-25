@@ -275,6 +275,9 @@ export const apiRouter = {
 	osShares: lazyRouter(() =>
 		import("./os-shares").then((m) => m.osSharesContractRouter),
 	),
+	osCollaborators: lazyRouter(() =>
+		import("./os-collaborators").then((m) => m.osCollaboratorsContractRouter),
+	),
 	osGadgetState: lazyRouter(() =>
 		import("./os-gadget-state").then((m) => m.osGadgetStateContractRouter),
 	),

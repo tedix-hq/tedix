@@ -8,6 +8,7 @@ import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
+import { isOsWorkspaceBuildCollaborator } from "./os-workspace-collaborators";
 
 /**
  * Private workspaces belong to one member. The member sees them as:
@@ -110,17 +111,36 @@ export async function resolveOsWorkspaceOwnerCandidate(
 	return userIds.length === 1 ? (userIds[0] ?? null) : null;
 }
 
-/** Throw NOT_FOUND (never FORBIDDEN: existence is private too). */
+/**
+ * Throw NOT_FOUND (never FORBIDDEN: existence is private too). A `build`
+ * collaborator of a private workspace sees it like its owner, except for
+ * `ownerOnly` actions (archive, delete, changing who owns it).
+ */
 export async function assertOsWorkspaceVisible(
 	context: BaseContext,
-	workspace: Pick<OsWorkspaceRow, "id" | "visibility" | "ownerUserId">,
+	workspace: Pick<OsWorkspaceRow, "id" | "visibility" | "ownerUserId"> &
+		Partial<OsWorkspaceRow>,
 	message = "OS workspace not found",
+	options: { ownerOnly?: boolean } = {},
 ): Promise<void> {
 	if (workspace.visibility !== "private") return;
 	if (
-		!isOsWorkspaceVisibleTo(workspace, await resolveOsWorkspaceViewer(context))
+		isOsWorkspaceVisibleTo(workspace, await resolveOsWorkspaceViewer(context))
 	)
-		throw createError(ErrorCodes.NOT_FOUND, message);
+		return;
+	const callerId = context.authType === "user" ? context.user?.sub : undefined;
+	if (
+		!options.ownerOnly &&
+		callerId &&
+		workspace.organizationId &&
+		(await isOsWorkspaceBuildCollaborator(
+			context,
+			workspace as OsWorkspaceRow,
+			callerId,
+		))
+	)
+		return;
+	throw createError(ErrorCodes.NOT_FOUND, message);
 }
 
 /** Visibility of a workspace child (output, gadget) by its workspace id. */

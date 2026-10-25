@@ -27,6 +27,7 @@ import * as graphRetrievalBenchmarks from "../schema/graph-retrieval-benchmarks"
 import * as schema from "../schema/index";
 import * as memoryEntities from "../schema/memory-entities";
 import * as gadgetState from "../schema/os-gadget-state";
+import * as osCollaborators from "../schema/os-collaborators";
 import * as providerEvents from "../schema/provider-events";
 import * as personalDelegations from "../schema/personal-resource-delegations";
 import * as calendarCoordinator from "../schema/calendar-coordinator";
@@ -43,6 +44,7 @@ function realColumnsByTable(): Map<string, Set<string>> {
 		...Object.values(memoryEntities),
 		...Object.values(graphRetrievalBenchmarks),
 		...Object.values(gadgetState),
+		...Object.values(osCollaborators),
 		...Object.values(providerEvents),
 		...Object.values(personalDelegations),
 		...Object.values(calendarCoordinator),
