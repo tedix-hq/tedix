@@ -9,6 +9,7 @@ import { chromium, type Page } from "playwright";
  * projects; in the default sample-data pack each workspace's linked project
  * fills it. Either way the sprint filter appears and nothing renders the
  * unsupported-procedure error — at phone and desktop width, light and dark.
+ * Removing a linked project opens a confirmation that names its effect.
  */
 const cwd = new URL("../", import.meta.url).pathname;
 const shots =
@@ -79,7 +80,7 @@ for (const lane of lanes) {
 	});
 	try {
 		await waitForFixtureServer(`${origin}/work`, { server });
-		for (const width of [1280, 390])
+		for (const width of [1280, 375])
 			for (const theme of ["light", "dark"] as const) {
 				const page = await browser.newPage({
 					viewport: { width, height: 900 },
@@ -120,6 +121,30 @@ for (const lane of lanes) {
 					path: `${shots}/workspace-work-${lane.name}-${width}-${theme}.png`,
 					fullPage: true,
 				});
+				// Removing a linked project asks first and names what it hides.
+				await page.getByRole("button", { name: "Manage projects" }).click();
+				await page
+					.getByRole("button", { name: /^Remove / })
+					.first()
+					.click();
+				const confirm = page.getByRole("alertdialog");
+				await confirm.waitFor();
+				assert.match(
+					(await confirm.textContent()) ?? "",
+					/from this workspace\?.*not changed/s,
+					`${lane.name} ${width}/${theme}: remove confirmation explains the effect`,
+				);
+				assert(
+					await page.evaluate(
+						() => document.documentElement.scrollWidth <= innerWidth + 1,
+					),
+					`${lane.name} ${width}/${theme}: confirmation fits`,
+				);
+				await page.screenshot({
+					path: `${shots}/workspace-work-remove-${lane.name}-${width}-${theme}.png`,
+				});
+				await confirm.getByRole("button", { name: "Keep linked" }).click();
+				await confirm.waitFor({ state: "hidden" });
 				await page.close();
 				console.log(`PASS workspace work pane ${lane.name} ${width}/${theme}`);
 			}
