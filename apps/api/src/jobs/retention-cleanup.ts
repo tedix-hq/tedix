@@ -534,6 +534,36 @@ export async function runRetentionCleanupCron(
 			);
 		}
 	}
+	// Last, so a long export never delays the cleanups above. Audit events
+	// stay 90 days in D1; each finished day is copied to the organization's
+	// R2 storage and kept 13 months (decision 5c5512a5).
+	let auditExportObjectsWritten = 0;
+	let auditExportObjectsDeleted = 0;
+	try {
+		const { configureLogStore } = await import("@tedix/db/client");
+		const { runAuditDailyExport } =
+			await import("../services/audit-daily-export");
+		// Tool events live in the logs store; read both like the audit API does.
+		const exportDb = createDbClient(env.DB);
+		configureLogStore(exportDb, env);
+		const auditExport = await runAuditDailyExport({
+			db: exportDb,
+			bucket: env.R2_BUCKET,
+			now: new Date(event.scheduledTime),
+			budgetMs: 5 * 60_000,
+		});
+		auditExportObjectsWritten = auditExport.objectsWritten;
+		auditExportObjectsDeleted = auditExport.objectsDeleted;
+		console.log(
+			JSON.stringify({ event: "audit.daily_export.run", ...auditExport }),
+		);
+	} catch (auditExportError) {
+		console.warn(
+			"[Scheduled] Audit daily export failed (non-fatal):",
+			safeExceptionTopology(auditExportError),
+		);
+	}
+
 	return {
 		healthHistoryDeleted: deletedHealth,
 		catalogChangesDeleted: deletedCatalogChanges,
@@ -551,5 +581,7 @@ export async function runRetentionCleanupCron(
 		learningEventsDeleted: deletedLearningEvents,
 		projectionEventsDeleted: prunedProjectionEvents,
 		kernelToolResultsDeleted: deletedKernelToolResults,
+		auditExportObjectsWritten,
+		auditExportObjectsDeleted,
 	};
 }

@@ -85,6 +85,13 @@ refused. The nightly `retention-cleanup` cron no longer deletes
 rows leave the main database only through this engine, after a verified
 copy exists.
 
+Separately, each organization keeps its own copy of its audit trail: the
+nightly `retention-cleanup` tick writes every finished UTC day to
+`R2_BUCKET` as gzip JSON Lines, one object per hour
+(`audit-exports/v1/<org>/<YYYY-MM-DD>/<HH>.jsonl.gz`, the `audit.export`
+event shape), retries the last seven days, and deletes objects older than
+13 months (`apps/api/src/services/audit-daily-export.ts`).
+
 A run that stops anywhere leaves the main rows in place; the next tick repeats
 steps 1 to 4 for the same rows (the copy is a no-op for rows already there,
 the archive key is deterministic). Without the `LOGS_DB` binding the policy
