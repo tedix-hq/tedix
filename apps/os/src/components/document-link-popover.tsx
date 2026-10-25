@@ -55,7 +55,13 @@ export function DocumentLinkPopover({
 				className="max-w-[min(24rem,calc(100vw-2rem))] gap-2 p-2"
 				aria-label="Document link"
 			>
-				<span className="truncate text-xs text-kumo-subtle">{href}</span>
+				{/* The whole destination stays readable before anyone opens it. */}
+				<span
+					data-link-destination
+					className="max-h-24 overflow-y-auto text-xs break-all text-kumo-subtle"
+				>
+					{href}
+				</span>
 				<div className="flex items-center gap-1">
 					{navigable && (
 						<Button

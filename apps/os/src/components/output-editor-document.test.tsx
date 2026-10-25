@@ -469,6 +469,10 @@ describe("DocumentEditor", () => {
 		expect(open?.href).toBe("https://example.com/evidence");
 		expect(open?.rel).toContain("noopener");
 		expect(open?.target).toBe("_blank");
+		const destination = document.querySelector("[data-link-destination]");
+		expect(destination?.textContent).toBe("https://example.com/evidence");
+		expect(destination?.className).not.toContain("truncate");
+		expect(destination?.className).toContain("break-all");
 		const remove = Array.from(document.querySelectorAll("button")).find(
 			(b) => b.textContent === "Remove link",
 		)!;
