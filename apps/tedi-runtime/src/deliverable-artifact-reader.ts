@@ -57,7 +57,7 @@ function artifactObjectKey(artifact: TediArtifact): string | null {
 
 async function listDeliverables(
 	deps: DeliverableArtifactReaderDependencies,
-	input: { prefix?: string; limit?: number },
+	input: { prefix?: string; limit?: number; cursor?: string },
 ): Promise<Record<string, unknown>> {
 	await deps.ensureIdentity();
 	const tediId = deps.getTediId();
@@ -68,7 +68,11 @@ async function listDeliverables(
 	}
 	const limit = Math.min(500, Math.max(1, Math.floor(input.limit ?? 100)));
 	const root = `${tediId}/${DELIVERABLE_STORE_PREFIX}`;
-	const result = await deps.bucket.list({ prefix: `${root}${prefix}`, limit });
+	const result = await deps.bucket.list({
+		prefix: `${root}${prefix}`,
+		limit,
+		...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
+	});
 	return {
 		ok: true,
 		prefix,
@@ -78,6 +82,8 @@ async function listDeliverables(
 			size: object.size,
 			uploaded: object.uploaded?.toISOString?.() ?? null,
 		})),
+		truncated: result.truncated,
+		cursor: result.truncated ? result.cursor : null,
 	};
 }
 
@@ -242,6 +248,13 @@ export function createDeliverableArtifactTools(
 			inputSchema: z.object({
 				prefix: z.string().optional(),
 				limit: z.number().int().positive().max(500).optional(),
+				cursor: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Opaque cursor from a truncated listing; reuse the same prefix.",
+					),
 			}),
 			execute: async (input) => listDeliverables(deps, input),
 		}),

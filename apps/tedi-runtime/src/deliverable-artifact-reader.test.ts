@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type * as z from "zod";
 import { createHash } from "node:crypto";
 import type {
 	RecordArtifactInput,
@@ -8,6 +9,7 @@ import type { HttpPlatformClient } from "./brain/platform-client";
 import { recordDeliverableArtifact } from "./artifact-recorder";
 import { TEDIX_ARTIFACTS_R2_BUCKET_NAME } from "./artifacts-contract";
 import {
+	createDeliverableArtifactTools,
 	readDeliverableArtifact,
 	readRecordedArtifact,
 	type DeliverableArtifactReaderDependencies,
@@ -346,5 +348,65 @@ assert.equal(
 	null,
 );
 assert.deepEqual(fallbackCalls, ["list", stdoutArtifact.id, "list"]);
+
+// A truncated deliverable listing resumes from its opaque cursor.
+{
+	const root = `${tediId}/artifacts/`;
+	const keys = ["deliverable/a.md", "deliverable/b.md", "deliverable/c.md"];
+	const listCalls: R2ListOptions[] = [];
+	const listBucket = {
+		list: async (options: R2ListOptions) => {
+			listCalls.push(options);
+			assert.equal(options.prefix, `${root}deliverable/`);
+			const start = options.cursor ? Number(options.cursor.slice(5)) : 0;
+			const page = keys.slice(start, start + (options.limit ?? 100));
+			const next = start + page.length;
+			return {
+				objects: page.map((key) => ({ key: `${root}${key}`, size: 1 })),
+				delimitedPrefixes: [],
+				...(next < keys.length
+					? { truncated: true, cursor: `page-${next}` }
+					: { truncated: false }),
+			};
+		},
+	} as unknown as R2Bucket;
+	const listTool = createDeliverableArtifactTools({
+		...dependencies(),
+		bucket: listBucket,
+	}).deliverable_list as unknown as {
+		inputSchema: z.ZodType;
+		execute: (
+			input: unknown,
+			options: { toolCallId: string; messages: [] },
+		) => Promise<Record<string, unknown>>;
+	};
+	const schema = listTool.inputSchema;
+	assert.equal(schema.safeParse({ cursor: "" }).success, false);
+	const run = (input: Record<string, unknown>) =>
+		listTool.execute(schema.parse(input), {
+			toolCallId: "list",
+			messages: [],
+		});
+	const first = await run({ prefix: "deliverable/", limit: 2 });
+	assert.deepEqual(
+		(first.objects as { path: string }[]).map((object) => object.path),
+		["deliverable/a.md", "deliverable/b.md"],
+	);
+	assert.equal(first.truncated, true);
+	assert.equal(first.cursor, "page-2");
+	const second = await run({
+		prefix: "deliverable/",
+		limit: 2,
+		cursor: first.cursor,
+	});
+	assert.deepEqual(
+		(second.objects as { path: string }[]).map((object) => object.path),
+		["deliverable/c.md"],
+	);
+	assert.equal(second.truncated, false);
+	assert.equal(second.cursor, null);
+	assert.equal(listCalls[0]?.cursor, undefined);
+	assert.equal(listCalls[1]?.cursor, "page-2");
+}
 
 console.log("All deliverable artifact reader tests passed.");
