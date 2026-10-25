@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"description": "Platform default for every organization: in-organization operations run without a human approval and are recorded as policy approvals. An organization opts out with governancePolicy.autonomy = false in its active policy pack. Critical actions (critical-actions.v1.json classes) always keep a human card. pattern matches a tool's final name segment anywhere; endpointPattern matches only Tedix's own API routes (rpc transport), for tools whose names are provider-generic such as add_comment.",
+	"description": "Platform default for every organization: in-organization operations run without a human approval and are recorded as policy approvals. An organization opts out with governancePolicy.autonomy = false in its active policy pack. Critical actions (critical-actions.v1.json classes) always keep a human card. pattern matches a tool's final name segment anywhere; endpointPattern matches only Tedix's own API routes (rpc transport), for tools whose names are provider-generic such as add_comment. callablePattern matches a whole Tedix Code Mode callable (namespace.tool) whose bare name is provider-generic, such as skills.run_workflow.",
 	"defaultAutonomy": {
 		"version": 1,
 		"maxRisk": "medium"
@@ -10,25 +10,29 @@
 			"id": "workspace_management",
 			"label": "Workspace and app management",
 			"pattern": "^(?:(?:create|update|rename|restore|archive|revise|move|link|unlink|attach|remove|patch|set|install)_os_(?:workspace|workspace_resource|workspace_skill|workspace_project|gadget|output|document|slides|sheet_range)s?|install_work_defaults|(?:create|update|rename)_project(?:_milestone)?)$",
-			"endpointPattern": "^osWorkspaces/(?:workspaces/(?:create|update|archive|restore)|resources/(?:create|rename|remove)|schedules/(?:link|unlink)|work/(?:attachProject|removeProject)|gadgets/(?:create|revise|archive|rename|installWorkDefaults)|outputs/(?:create|rename|move|revise|patchDocument|patchSlides|setSheetRange|archive))$"
+			"endpointPattern": "^osWorkspaces/(?:workspaces/(?:create|update|archive|restore)|resources/(?:create|rename|remove)|schedules/(?:link|unlink)|work/(?:attachProject|removeProject)|gadgets/(?:create|revise|archive|rename|installWorkDefaults)|outputs/(?:create|rename|move|revise|patchDocument|patchSlides|setSheetRange|archive))$",
+			"callablePattern": "^$"
 		},
 		{
 			"id": "work_items",
 			"label": "Work items",
 			"pattern": "^(?:create_work_items?|cancel_work_items?|reopen_work_items?|update_work_items?|update_work_item_specification|accept_work_item|work_item_comment|(?:add|create)_work_item_comments?|complete_work_items?|close_completed_work_item|submit_work_item_evidence|(?:create|update)_work_case|attach_work_case_item|add_work_case_dependency|attach_project_milestone_work_item)$",
-			"endpointPattern": "^workItems/(?:create|cancel|reopen|update|updateSpecification|accept|addComment|complete|submitEvidence|createCase|updateCase|attachCaseWorkItem|addCaseDependency)$"
+			"endpointPattern": "^workItems/(?:create|cancel|reopen|update|updateSpecification|accept|addComment|complete|submitEvidence|createCase|updateCase|attachCaseWorkItem|addCaseDependency)$",
+			"callablePattern": "^$"
 		},
 		{
 			"id": "skills_and_schedules",
 			"label": "Skill and schedule operations",
 			"pattern": "^(?:(?:record|test|propose|activate|pause|resume|restart)_skill(?:_workflow)?(?:_improvement|_schedule)?|(?:create|update|pause|resume|activate)_(?:skill_)?(?:workflow_)?schedules?|move_skill_to_tedi)$",
-			"endpointPattern": "^skills/(?:pauseWorkflow|resumeWorkflow|restartWorkflow|proposeWorkflowImprovement|activateWorkflowImprovement|moveToTedi)$"
+			"endpointPattern": "^skills/(?:pauseWorkflow|resumeWorkflow|restartWorkflow|proposeWorkflowImprovement|activateWorkflowImprovement|moveToTedi)$",
+			"callablePattern": "^skills\\.(?:pause|resume|restart)_workflow$|^skills\\.(?:propose|activate)_workflow_improvement$"
 		},
 		{
 			"id": "runs",
 			"label": "Starting runs",
 			"pattern": "^(?:run_skill_workflow|run_os_gadget|start_work_item_attempt)$",
-			"endpointPattern": "^(?:skills/runWorkflow|osWorkspaces/gadgets/run|workItems/startAttempt)$"
+			"endpointPattern": "^(?:skills/runWorkflow|osWorkspaces/gadgets/run|workItems/startAttempt)$",
+			"callablePattern": "^skills\\.run_workflow$"
 		}
 	]
 }
