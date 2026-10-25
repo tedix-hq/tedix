@@ -28,3 +28,27 @@ describe("OutputPreview sheet previews", () => {
 		}
 	});
 });
+
+describe("OutputPreview accessibility", () => {
+	it.each<OsOutputLibraryPreview>([
+		{ kind: "document", lines: ["Quarterly plan", "Goals"], blockCount: 2 },
+		sheetPreview,
+		{
+			kind: "presentation",
+			title: "Launch",
+			bullets: ["Scope"],
+			slideCount: 1,
+		},
+		{
+			kind: "video",
+			mimeType: "video/mp4",
+			caption: "Product walkthrough for a fictional store",
+		},
+	])(
+		"hides decorative $kind preview imagery from assistive technology",
+		(preview) => {
+			const html = renderToStaticMarkup(<OutputPreview preview={preview} />);
+			expect(html).toMatch(/^<div[^>]*aria-hidden="true"/);
+		},
+	);
+});

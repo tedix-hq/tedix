@@ -127,7 +127,10 @@ export function OutputPreview({
 	if (preview.kind === "sheet") return <SheetPreview preview={preview} />;
 	if (preview.kind === "video") {
 		return (
-			<div className="flex h-full items-center justify-center bg-black text-white">
+			<div
+				className="flex h-full items-center justify-center bg-black text-white"
+				aria-hidden="true"
+			>
 				<div className="grid justify-items-center gap-2 px-4 text-center">
 					<VideoCamera size={32} weight="duotone" />
 					<Text as="span" role="label" className="line-clamp-2">
