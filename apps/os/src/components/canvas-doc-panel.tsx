@@ -147,7 +147,7 @@ import { useDocumentCollab } from "@/lib/use-document-collab";
  * warning below to say the opposite. Name the condition instead, so the two surfaces agree.
  */
 const UNACKNOWLEDGED_COMMIT_MESSAGE =
-	"Saving your latest edits… Commit is available again once the room acknowledges them. If the connection drops first, they are discarded.";
+	"Sending your latest edits… Save will be available when they arrive. If the connection drops first, they are discarded.";
 
 /** A gadget with no revision yet seeds the smallest committable manifest. */
 const DEFAULT_GADGET_MANIFEST: OsGadgetManifest = {
@@ -167,7 +167,7 @@ const APP_CODE_FILES = [
 	},
 	{
 		path: "manifest.json",
-		hint: "The app's settings, connections and notes. Commit to save a new revision.",
+		hint: "The app's settings, connections and notes. Save to create a new version.",
 	},
 ] as const;
 
@@ -740,8 +740,8 @@ export function CanvasDocPanel({
 						>
 							{isGadget
 								? unsynced
-									? "Live draft · Syncing…"
-									: "Live draft · Commit to save"
+									? "Draft · Syncing…"
+									: "Draft · Save changes"
 								: documentSaveStatus}
 						</Badge>
 					)}
@@ -985,9 +985,9 @@ export function CanvasDocPanel({
 						>
 							<CardContent className="flex min-h-0 flex-1 flex-col gap-3">
 								<div className="flex flex-wrap items-center gap-2">
-									<Badge variant="secondary">Committed preview</Badge>
+									<Badge variant="secondary">Saved app</Badge>
 									<Text as="span" role="label" tone="secondary">
-										Commit source changes to refresh this runnable view.
+										Save your changes to update the app.
 									</Text>
 								</div>
 								<WidgetFrame
@@ -1206,7 +1206,7 @@ export function CanvasDocPanel({
 						{keepingChanges && canonicalDoc
 							? `Save as v${canonicalDoc.revision + 1}`
 							: isGadget
-								? "Commit"
+								? "Save"
 								: "Save version"}
 					</Button>
 				) : (
@@ -1232,7 +1232,7 @@ export function CanvasDocPanel({
 								: keepingChanges && canonicalDoc
 									? `Save as v${canonicalDoc.revision + 1} now`
 									: isGadget
-										? "Commit revision"
+										? "Save now"
 										: "Save version now"}
 						</Button>
 						<Button
@@ -1250,8 +1250,7 @@ export function CanvasDocPanel({
 				)}
 				{committedRevision !== null && (
 					<Text as="span" role="label" tone="secondary">
-						{isGadget ? "Committed revision" : "Saved version"}{" "}
-						{committedRevision}.
+						Saved version {committedRevision}.
 					</Text>
 				)}
 			</OutputWorkshopFooter>

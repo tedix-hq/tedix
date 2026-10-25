@@ -2306,9 +2306,9 @@ describe("CanvasPage listing", () => {
 
 		expect(container.querySelector("[data-collab-editor]")).not.toBeNull();
 		expect(container.querySelector("[data-widget-frame]")).toBeNull();
-		expect(container.textContent).not.toContain("Committed preview");
+		expect(container.textContent).not.toContain("Saved app");
 		expect(
-			findButton(container, "Commit").closest(
+			findButton(container, "Save").closest(
 				'[data-slot="output-workshop-footer"]',
 			),
 		).not.toBeNull();
@@ -2677,10 +2677,8 @@ async function commit(container: HTMLElement) {
 	const isOutput = [...container.querySelectorAll("button")].some(
 		(b) => b.textContent?.trim() === "Save version",
 	);
-	click(findButton(container, isOutput ? "Save version" : "Commit"));
-	click(
-		findButton(container, isOutput ? "Save version now" : "Commit revision"),
-	);
+	click(findButton(container, isOutput ? "Save version" : "Save"));
+	click(findButton(container, isOutput ? "Save version now" : "Save now"));
 	await flush();
 }
 
@@ -2713,7 +2711,7 @@ describe("gadget commit", () => {
 			manifest: edited,
 			expectedRevision: 3,
 		});
-		expect(container.textContent).toContain("Committed revision 4.");
+		expect(container.textContent).toContain("Saved version 4.");
 	});
 
 	it("guards an unrevised gadget with expectedRevision 0", async () => {
@@ -2974,9 +2972,9 @@ describe("grounding a commit", () => {
 
 		const container = await openDoc("Report gadget");
 
-		expect(findButton(container, "Commit").disabled).toBe(true);
+		expect(findButton(container, "Save").disabled).toBe(true);
 		// Transient and self-clearing, and it READS that way: not a refusal, not a dead button.
-		expect(container.textContent).toContain("Saving your latest edits…");
+		expect(container.textContent).toContain("Sending your latest edits…");
 		expect(
 			container.querySelector("[data-canvas-commit-waiting]"),
 		).not.toBeNull();
@@ -3006,14 +3004,14 @@ describe("grounding a commit", () => {
 		collabCommit.basis = null;
 
 		const container = await openDoc("Report gadget");
-		expect(findButton(container, "Commit").disabled).toBe(false);
+		expect(findButton(container, "Save").disabled).toBe(false);
 		await commit(container);
 
 		// The read and this decision sit in ONE await-free span, so the commit cannot slip past on
 		// a value that was true a moment ago. Nothing is written, and the answer is "in a moment".
 		expect(osWorkspacesApi.gadgets.revise).not.toHaveBeenCalled();
 		expect(collabCommit.groundCommit).not.toHaveBeenCalled();
-		expect(container.textContent).toContain("Saving your latest edits…");
+		expect(container.textContent).toContain("Sending your latest edits…");
 	});
 
 	it("commits with a basis the moment the room acknowledges, so typing cannot livelock Commit", async () => {
@@ -3031,7 +3029,7 @@ describe("grounding a commit", () => {
 			unacknowledged: true,
 		});
 		const container = await openDoc("Report gadget");
-		expect(findButton(container, "Commit").disabled).toBe(true);
+		expect(findButton(container, "Save").disabled).toBe(true);
 
 		// THE ACK LANDS. It is one round trip, not a queue: submissions COMPOSE, so everything
 		// typed since the last acknowledgement rides a single submission however fast the user
@@ -3047,8 +3045,8 @@ describe("grounding a commit", () => {
 			session.remote(docJson(typed));
 		});
 
-		expect(container.textContent).not.toContain("Saving your latest edits…");
-		expect(findButton(container, "Commit").disabled).toBe(false);
+		expect(container.textContent).not.toContain("Sending your latest edits…");
+		expect(findButton(container, "Save").disabled).toBe(false);
 		await commit(container);
 
 		// And the commit that follows carries the basis, so the room is re-grounded on the
@@ -3059,7 +3057,7 @@ describe("grounding a commit", () => {
 			4,
 			gadgetRevisionFixture({ revision: 4 }).id,
 		);
-		expect(container.textContent).toContain("Committed revision 4.");
+		expect(container.textContent).toContain("Saved version 4.");
 	});
 });
 
@@ -3137,8 +3135,8 @@ describe("live-draft status the panel renders", () => {
 
 		const container = await openDoc("Report gadget");
 
-		expect(container.textContent).toContain("Live draft · Syncing…");
-		expect(container.textContent).not.toContain("Live draft · Commit to save");
+		expect(container.textContent).toContain("Draft · Syncing…");
+		expect(container.textContent).not.toContain("Draft · Save changes");
 	});
 
 	it("says the draft is saved-on-commit when nothing is stuck", async () => {
@@ -3151,7 +3149,7 @@ describe("live-draft status the panel renders", () => {
 
 		const container = await openDoc("Report gadget");
 
-		expect(container.textContent).toContain("Live draft · Commit to save");
+		expect(container.textContent).toContain("Draft · Save changes");
 	});
 
 	it("warns, once, that unsent edits were discarded and the draft rebuilt", async () => {
@@ -3196,7 +3194,7 @@ describe("live-draft status the panel renders", () => {
 
 		expect(container.textContent).toContain("Editing is paused");
 		expect(container.textContent).toContain(CAPACITY_MESSAGE);
-		expect(container.textContent).toContain("Saving your latest edits…");
+		expect(container.textContent).toContain("Sending your latest edits…");
 		// Neither promises an outcome the transport does not guarantee, and BOTH name the one
 		// condition that loses the edits -- in the same words, because it is the same condition.
 		expect(CAPACITY_MESSAGE).not.toMatch(/will be sent/i);
@@ -3352,7 +3350,7 @@ describe("adopting a newer canonical revision", () => {
 
 		expect(container.querySelector("[data-canonical-recovery]")).toBeNull();
 		expect(container.textContent).not.toContain("is behind revision");
-		expect(findButton(container, "Commit").disabled).toBe(false);
+		expect(findButton(container, "Save").disabled).toBe(false);
 	});
 
 	it("never silently replaces an edited room: it blocks Commit and requires two steps", async () => {
@@ -3373,7 +3371,7 @@ describe("adopting a newer canonical revision", () => {
 			"A newer version (v6) was saved while you were editing",
 		);
 		// The room's text is preserved and NOT committable on top of revision 6.
-		expect(findButton(container, "Commit").disabled).toBe(true);
+		expect(findButton(container, "Save").disabled).toBe(true);
 
 		// Two steps, and the destructive one is never the first thing on screen.
 		expect(() =>
@@ -3460,7 +3458,7 @@ describe("adopting a newer canonical revision", () => {
 		const editor = container.querySelector("[data-collab-editor]");
 		expect(editor?.textContent).toBe(docJson(gadgetRevisionFixture().manifest));
 		expect(editor?.getAttribute("data-read-only")).toBe("true");
-		expect(findButton(container, "Commit").disabled).toBe(true);
+		expect(findButton(container, "Save").disabled).toBe(true);
 	});
 });
 
