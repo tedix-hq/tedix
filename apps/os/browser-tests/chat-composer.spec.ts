@@ -31,6 +31,7 @@ const server = Bun.spawn(
 		env: { ...process.env, TEDIX_OS_FIXTURE_PACK: "classic" },
 	},
 );
+const shots = process.env.CHAT_COMPOSER_SHOTS;
 const thread = "/chat?conversation=00000060-0000-4000-8000-000000000001";
 
 function composer(page: Page) {
@@ -62,6 +63,32 @@ try {
 		assert.equal(await model.innerText(), "Auto");
 		assert.equal(await model.isDisabled(), true);
 		assert.equal(await page.getByRole("menu").count(), 0);
+
+		// Starters: icon, a title that fits on one line, one line of context.
+		const starters = page.locator(".chat-starter-prompts button");
+		assert.equal(await starters.count(), 3);
+		for (const starter of await starters.all()) {
+			assert.equal(await starter.locator("svg").count(), 1);
+			const lines = starter.locator("span.block");
+			assert.equal(await lines.count(), 2);
+			for (const line of await lines.all()) {
+				assert(
+					await line.evaluate(
+						(el) =>
+							el.scrollWidth <= el.clientWidth &&
+							el.getClientRects().length === 1,
+					),
+					`${await line.innerText()} fits on one line at ${width}px`,
+				);
+			}
+		}
+		if (shots)
+			await page.screenshot({ path: `${shots}/new-chat-${width}.png` });
+		await starters.nth(0).click();
+		assert.equal(
+			await composer(page).inputValue(),
+			"Create a doc titled Weekly update with three short sections.",
+		);
 
 		await page.goto(`${origin}${thread}`);
 		await page.getByText("Two of the four flagged", { exact: false }).waitFor();

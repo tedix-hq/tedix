@@ -157,6 +157,7 @@ import {
 import {
 	JumpToLatestControl,
 	ApprovalInputGate,
+	ChatStarterPrompts,
 	ChatMessageBubble,
 	ConversationCostChip,
 	ProvisionalUserBubble,
@@ -377,6 +378,33 @@ describe("JumpToLatestControl", () => {
 				<JumpToLatestControl visible={false} onJump={() => undefined} />,
 			),
 		).toBe("");
+	});
+});
+
+describe("ChatStarterPrompts", () => {
+	it("shows an icon, a short title and one line of context, and sends the full prompt", async () => {
+		const onChoose = vi.fn();
+		const host = document.createElement("div");
+		document.body.append(host);
+		const root = createRoot(host);
+		await act(async () =>
+			root.render(<ChatStarterPrompts onChoose={onChoose} />),
+		);
+		const starters = [...host.querySelectorAll<HTMLButtonElement>("button")];
+		expect(starters.map((starter) => starter.textContent)).toEqual([
+			"Write a docA weekly update with three short sections.",
+			"Track tasks in a sheetOpen tasks with owners and due dates.",
+			"What changed this weekA recap and what to decide next.",
+		]);
+		for (const starter of starters) {
+			expect(starter.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+		}
+		await act(async () => starters[1]!.click());
+		expect(onChoose).toHaveBeenCalledExactlyOnceWith(
+			"Make a sheet that tracks open tasks, owners and due dates.",
+		);
+		await act(async () => root.unmount());
+		host.remove();
 	});
 });
 

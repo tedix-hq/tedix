@@ -300,9 +300,21 @@ const ENGLISH_COPY = {
 		followUp: "Ask a follow-up…",
 	},
 	chatStarterPrompts: [
-		"Create a doc titled Weekly update with three short sections.",
-		"Make a sheet that tracks open tasks, owners and due dates.",
-		"Summarize what changed this week and what I should decide next.",
+		{
+			title: "Write a doc",
+			detail: "A weekly update with three short sections.",
+			prompt: "Create a doc titled Weekly update with three short sections.",
+		},
+		{
+			title: "Track tasks in a sheet",
+			detail: "Open tasks with owners and due dates.",
+			prompt: "Make a sheet that tracks open tasks, owners and due dates.",
+		},
+		{
+			title: "What changed this week",
+			detail: "A recap and what to decide next.",
+			prompt: "Summarize what changed this week and what I should decide next.",
+		},
 	],
 	tediCostHeaders: [
 		"Tedi",
