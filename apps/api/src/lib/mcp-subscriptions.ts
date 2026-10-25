@@ -67,6 +67,34 @@ export async function publishMcpInteractionResponse(
 	return "unavailable";
 }
 
+/** Deadline for best-effort MCP service notifications and cache purges. */
+const MCP_SERVICE_TIMEOUT_MS = 2_000;
+
+/**
+ * Run one MCP service call, including response parsing, within a deadline.
+ * Aborts the request on timeout and rejects even if the binding ignores abort,
+ * so a stalled MCP Worker never holds a mutation or its waitUntil open.
+ */
+async function withMcpServiceDeadline<T>(
+	call: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+	const controller = new AbortController();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			call(controller.signal),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => {
+					controller.abort();
+					reject(new Error("MCP service call timed out"));
+				}, MCP_SERVICE_TIMEOUT_MS);
+			}),
+		]);
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+}
+
 type McpSubscriptionPublishInput = {
 	appId?: string;
 	appIds?: string[];
@@ -90,15 +118,18 @@ export async function publishMcpSubscriptionEvent(
 	const service = env.MCP_SERVICE;
 	if (!service) return;
 	try {
-		const response = await service.fetch(
-			new Request("https://mcp/__internal/subscriptions/publish", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Service-Binding": "true",
-				},
-				body: JSON.stringify(input),
-			}),
+		const response = await withMcpServiceDeadline((signal) =>
+			service.fetch(
+				new Request("https://mcp/__internal/subscriptions/publish", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Service-Binding": "true",
+					},
+					body: JSON.stringify(input),
+					signal,
+				}),
+			),
 		);
 		if (!response.ok) {
 			console.warn("[MCP subscriptions] publish failed", {
@@ -147,7 +178,8 @@ async function invalidateMcpInventory(
 	// keys. They retain the legacy notification-only behavior until their
 	// mutation seam can supply the exact slug/domain identities.
 	if (target.appResolutionKeys === undefined) return true;
-	if (!env.MCP_SERVICE) return false;
+	const service = env.MCP_SERVICE;
+	if (!service) return false;
 	const requests = [
 		...(target.appId
 			? [
@@ -175,11 +207,14 @@ async function invalidateMcpInventory(
 	];
 	try {
 		for (const request of requests) {
-			const response = await env.MCP_SERVICE.fetch(request);
-			const result = (await response.json().catch(() => null)) as {
-				ok?: boolean;
-			} | null;
-			if (!response.ok || result?.ok !== true) return false;
+			const accepted = await withMcpServiceDeadline(async (signal) => {
+				const response = await service.fetch(new Request(request, { signal }));
+				const result = (await response.json().catch(() => null)) as {
+					ok?: boolean;
+				} | null;
+				return response.ok && result?.ok === true;
+			});
+			if (!accepted) return false;
 		}
 		return true;
 	} catch (error) {
@@ -200,21 +235,28 @@ export async function purgeMcpAggregateCache(
 	env: CloudflareEnv,
 	reason: string,
 ): Promise<void> {
-	if (!env.MCP_SERVICE) return;
+	const service = env.MCP_SERVICE;
+	if (!service) return;
 	try {
-		const response = await env.MCP_SERVICE.fetch(
-			new Request("https://mcp/__internal/purge-aggregate-cache", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Service-Binding": "true",
-				},
-				body: JSON.stringify({ reason }),
-			}),
+		const { response, result } = await withMcpServiceDeadline(
+			async (signal) => {
+				const response = await service.fetch(
+					new Request("https://mcp/__internal/purge-aggregate-cache", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"X-Service-Binding": "true",
+						},
+						body: JSON.stringify({ reason }),
+						signal,
+					}),
+				);
+				const result = (await response.json().catch(() => null)) as {
+					ok?: boolean;
+				} | null;
+				return { response, result };
+			},
 		);
-		const result = (await response.json().catch(() => null)) as {
-			ok?: boolean;
-		} | null;
 		if (!response.ok || result?.ok === false) {
 			console.warn("[MCP aggregate cache] purge failed", {
 				status: response.status,
