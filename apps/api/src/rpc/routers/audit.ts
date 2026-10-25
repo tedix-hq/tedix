@@ -10,7 +10,6 @@ import { auditContract } from "@tedix/api-contract/contracts/audit";
 import {
 	AUDIT_EXPORT_ATTRIBUTION_KEYS,
 	AUDIT_EXPORT_TRUNCATED_MARKER,
-	type AuditActorType,
 	type AuditExportFormat,
 } from "@tedix/api-contract/schemas/audit";
 import {
@@ -20,6 +19,10 @@ import {
 } from "@tedix/db/queries/audit";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { spillAuditMetadata } from "../../lib/audit-metadata-spill";
+import {
+	type AuditEventOutput,
+	toAuditEventOutput,
+} from "../../lib/audit-event-output";
 import { requireOrgId } from "../org-scope";
 import {
 	withAuthorization,
@@ -36,31 +39,6 @@ export const AUDIT_READ_SCOPE = "analytics:read";
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-type AuditEventRow = Awaited<
-	ReturnType<typeof searchAuditEventsQuery>
->["data"][number];
-
-function toAuditEventOutput(e: AuditEventRow) {
-	return {
-		id: e.id,
-		organizationId: e.organizationId,
-		actorId: e.actorId,
-		// `external_agent` is in the contract's output enum and rows now carry
-		// it — every OS write through the MCP gateway is one. The cast must name
-		// every value this reader actually returns.
-		actorType: e.actorType as AuditActorType,
-		action: e.action,
-		resourceType: e.resourceType,
-		resourceId: e.resourceId,
-		metadata: e.metadata,
-		ipAddress: e.ipAddress,
-		userAgent: e.userAgent,
-		timestamp: e.timestamp.toISOString(),
-	};
-}
-
-type AuditEventOutput = ReturnType<typeof toAuditEventOutput>;
 
 /** Rows per search page while collecting an export. */
 export const AUDIT_EXPORT_PAGE_SIZE = 500;
