@@ -1017,6 +1017,7 @@ export class LaneDispatcher {
 		let heartbeating: Promise<unknown> | undefined;
 		let timer: ReturnType<typeof setInterval> | undefined;
 		let leaseTimer: ReturnType<typeof setInterval> | undefined;
+		let killTimer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			const detail = await this.call<{
 				workItem: DispatchItem;
@@ -1208,6 +1209,7 @@ export class LaneDispatcher {
 				throw new Error("Admission returned no live lease");
 			let lastLeaseCheck = Date.now();
 			leaseTimer = setInterval(() => {
+				if (receipt.interrupted) return;
 				if (Date.now() - lastLeaseCheck > 30_000)
 					this.log(
 						"lease-check-delayed",
@@ -1217,6 +1219,10 @@ export class LaneDispatcher {
 				lastLeaseCheck = Date.now();
 				if (Date.now() < leaseExpiry || !receipt.pid) return;
 				receipt.interrupted = true;
+				receipt.outcome = "expired";
+				this.save(path, receipt);
+				if (leaseTimer) clearInterval(leaseTimer);
+				if (timer) clearInterval(timer);
 				this.log(
 					"lease-expired",
 					item.id,
@@ -1225,9 +1231,15 @@ export class LaneDispatcher {
 				try {
 					process.kill(-receipt.pid, "SIGTERM");
 				} catch {}
+				const pid = receipt.pid;
+				killTimer = setTimeout(() => {
+					try {
+						process.kill(-pid, "SIGKILL");
+					} catch {}
+				}, 5000);
 			}, 1000);
 			timer = setInterval(() => {
-				if (heartbeating) return;
+				if (receipt.interrupted || heartbeating) return;
 				heartbeating = this.call<{ expiresAt: string }>(
 					["work", "heartbeat", item.id],
 					receipt.session,
@@ -1373,7 +1385,7 @@ export class LaneDispatcher {
 			if (receipt.outcome !== "expired")
 				receipt.pendingCommitProof = finalMessage;
 		} catch (error) {
-			receipt.outcome = "failed";
+			receipt.outcome = receipt.interrupted ? "expired" : "failed";
 			if (
 				!admitted &&
 				admissionSent &&
@@ -1423,6 +1435,7 @@ export class LaneDispatcher {
 		} finally {
 			if (timer) clearInterval(timer);
 			if (leaseTimer) clearInterval(leaseTimer);
+			if (killTimer) clearTimeout(killTimer);
 			await heartbeating;
 			if (admitted) {
 				receipt.phase = "settling";

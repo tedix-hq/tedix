@@ -306,9 +306,14 @@ describe("dispatcher admission", () => {
 					now += scenario === "late timer" ? 31_001 : 1000;
 					leaseCheck();
 				}
-				if (scenario === "lease expiry")
+				if (scenario === "lease expiry") {
+					leaseCheck();
+					leaseCheck();
 					expect(kill).toHaveBeenCalledWith(-control.spawnPid, "SIGTERM");
-				else
+					expect(
+						kill.mock.calls.filter((call) => call[1] === "SIGTERM"),
+					).toHaveLength(1);
+				} else
 					expect(kill).not.toHaveBeenCalledWith(-control.spawnPid, "SIGTERM");
 				releases[0]!();
 				await dispatcher.drain();
@@ -336,6 +341,79 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+	it("kills a child that ignores SIGTERM after the lease grace period", async () => {
+		const child = spawn(
+			process.execPath,
+			[
+				"-e",
+				'process.on("SIGTERM", () => console.log("ignored")); console.log("ready"); setInterval(() => {}, 1000)',
+			],
+			{ detached: true, stdio: ["ignore", "pipe", "pipe"] },
+		);
+		const exited = once(child, "exit");
+		let now = 1_800_000_000_000;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		let leaseCheck!: () => void;
+		let heartbeat!: () => void;
+		const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+			ms: number,
+		) => {
+			if (ms === 1000) leaseCheck = callback;
+			else heartbeat = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		const { dispatcher, items, control, releases, events, dir } = fixture();
+		items.splice(1);
+		control.spawnPid = child.pid;
+		try {
+			await once(child.stdout!, "data");
+			await dispatcher.tick();
+			await until(() => releases.length === 1);
+			const ignored = once(child.stdout!, "data");
+			now += 300_001;
+			const stoppingAt = performance.now();
+			leaseCheck();
+			expect(String((await ignored)[0])).toContain("ignored");
+			const receiptPath = join(dir, `${item().id}-2.json`);
+			expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({
+				interrupted: true,
+				outcome: "expired",
+				phase: "running",
+			});
+			for (let tick = 0; tick < 10; tick++) {
+				leaseCheck();
+				heartbeat();
+			}
+			expect(events.some((event) => event.verb === "heartbeat")).toBe(false);
+			expect(child.signalCode).toBeNull();
+			const [code, signal] = await exited;
+			expect(code).toBeNull();
+			expect(signal).toBe("SIGKILL");
+			expect(performance.now() - stoppingAt).toBeGreaterThanOrEqual(4900);
+			releases[0]!();
+			await dispatcher.drain();
+			expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({
+				interrupted: true,
+				outcome: "expired",
+			});
+			const log = readFileSync(join(dir, "dispatcher.log"), "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			expect(log.filter((row) => row.event === "lease-expired")).toHaveLength(
+				1,
+			);
+		} finally {
+			if (child.exitCode === null && child.signalCode === null)
+				process.kill(-child.pid!, "SIGKILL");
+			await exited;
+			for (const release of releases) release();
+			await dispatcher.drain();
+			timer.mockRestore();
+			clock.mockRestore();
+		}
+	}, 15_000);
 	it("bounds failures with exponential backoff and opens a new retry window after its deadline", async () => {
 		let now = 1_800_000_000_000;
 		const clock = spyOn(Date, "now").mockImplementation(() => now);
