@@ -177,6 +177,59 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			};
 		},
 	),
+	recordPolicyToolApproval: serviceOs.recordPolicyToolApproval.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			// The anchor supplies the approval queue's FK, never tedi authority.
+			const anchor = await getApprovalAnchor(context.db, input.organizationId);
+			if (!anchor) return { approvalRequestId: null };
+			const id = crypto.randomUUID();
+			const now = new Date().toISOString();
+			const actor = input.userId ?? input.tediId ?? "mcp.gateway";
+			await createApprovalRequestWithAudit(
+				context.db,
+				{
+					id,
+					orgId: input.organizationId,
+					tediId: anchor.id,
+					actionType: "mcp.tool_call",
+					description: ownerToolApprovalTitle(input.toolId, undefined),
+					payload: {
+						kind: "mcp_tool_call",
+						appSlug: input.appSlug,
+						toolId: input.toolId,
+						platformOperation: input.operationId,
+						...(input.userId ? { initiatedByUserId: input.userId } : {}),
+						...(input.tediId ? { initiatedByTediId: input.tediId } : {}),
+						...(input.externalAgentPrincipalId
+							? { externalAgentPrincipalId: input.externalAgentPrincipalId }
+							: {}),
+					},
+					createdAt: now,
+					expiresAt: now,
+					// Settled at creation by policy: Activity reads resolvedBy "policy"
+					// as an automatic approval. Nothing waits on this row.
+					automaticApproval: { tediId: "policy", reason: input.reason },
+				},
+				{
+					organizationId: input.organizationId,
+					actorId: actor,
+					actorType: input.userId ? "user" : input.tediId ? "tedi" : "service",
+					action: "approval.approved",
+					resourceType: "approval_request",
+					resourceId: id,
+					metadata: {
+						source: "mcp.gateway",
+						resolvedBy: "policy",
+						appSlug: input.appSlug,
+						toolId: input.toolId,
+						platformOperation: input.operationId,
+					},
+				},
+			);
+			return { approvalRequestId: id };
+		},
+	),
 	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);

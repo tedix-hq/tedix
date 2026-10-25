@@ -61,6 +61,21 @@ describe("widget bounded writes", () => {
 		expect(ctx.server.server.elicitInput).not.toHaveBeenCalled();
 	});
 
+	// The platform default covers the organization's own people and tedis only.
+	it.each(["external_agent", "service", "anonymous"])(
+		"keeps %s writes gated without autonomy",
+		async (authType) => {
+			expect(
+				await requireDestructiveToolApproval(
+					context(authType),
+					revision,
+					{ destructiveHint: false },
+					{ extra },
+				),
+			).not.toBeNull();
+		},
+	);
+
 	it.each(["oauth", "external_agent", "tedi", "service"])(
 		"keeps %s writes gated when the organization opts out",
 		async (authType) => {

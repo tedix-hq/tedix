@@ -15,8 +15,8 @@
 		{
 			"id": "work_items",
 			"label": "Work items",
-			"pattern": "^(?:create_work_items?|update_work_items?|update_work_item_specification|accept_work_item|work_item_comment|(?:add|create)_work_item_comments?|complete_work_items?|close_completed_work_item|submit_work_item_evidence|(?:create|update)_work_case|attach_work_case_item|add_work_case_dependency|attach_project_milestone_work_item)$",
-			"endpointPattern": "^workItems/(?:create|update|updateSpecification|accept|addComment|complete|submitEvidence|createCase|updateCase|attachCaseWorkItem|addCaseDependency)$"
+			"pattern": "^(?:create_work_items?|cancel_work_items?|reopen_work_items?|update_work_items?|update_work_item_specification|accept_work_item|work_item_comment|(?:add|create)_work_item_comments?|complete_work_items?|close_completed_work_item|submit_work_item_evidence|(?:create|update)_work_case|attach_work_case_item|add_work_case_dependency|attach_project_milestone_work_item)$",
+			"endpointPattern": "^workItems/(?:create|cancel|reopen|update|updateSpecification|accept|addComment|complete|submitEvidence|createCase|updateCase|attachCaseWorkItem|addCaseDependency)$"
 		},
 		{
 			"id": "skills_and_schedules",
