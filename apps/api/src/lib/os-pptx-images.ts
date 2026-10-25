@@ -21,7 +21,7 @@ export async function prepareOsPptxImages(
 		height: number,
 		fit: "contain" | "cover",
 	) => {
-		if (!source.startsWith("data:image/webp;")) return source;
+		if (!/^data:image\/webp;/i.test(source)) return source;
 		width = Math.ceil(width);
 		height = Math.ceil(height);
 		const key = `${width}:${height}:${fit}:${source}`;
