@@ -303,7 +303,7 @@ type CommandResult = {
  * Everything is spawned through `bunx` per root AGENTS.md ("Avoid
  * Bun.spawn(["wrangler", ...]); use bunx wrangler").
  */
-function runCommand(
+export function runCommand(
 	args: readonly string[],
 	cwd: string,
 	extraEnv: Readonly<Record<string, string>> = {},
@@ -316,15 +316,18 @@ function runCommand(
 		});
 		let stdout = "";
 		let stderr = "";
+		let settled = false;
 		child.stdout.on("data", (chunk: Buffer) => {
 			stdout += chunk.toString();
 		});
 		child.stderr.on("data", (chunk: Buffer) => {
 			stderr += chunk.toString();
 		});
-		// A spawn failure never emits "close", so surface it as the real cause
-		// instead of letting the caller report an empty wrangler failure.
+		// Failed spawns can also emit close; preserve the original cause.
 		child.on("error", (error) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(deadline);
 			rejectPromise(
 				new Error(`could not run \`${args.join(" ")}\`: ${error.message}`),
 			);
@@ -332,6 +335,9 @@ function runCommand(
 		// Wrangler can finish generating types before its update check exits.
 		// Accept its completion banner if the process exceeds the deadline.
 		const deadline = setTimeout(() => {
+			if (settled) return;
+			// kill() may trigger close before the deadline result is resolved.
+			settled = true;
 			const finished = /Remember to rerun 'wrangler types'/.test(
 				`${stdout}${stderr}`,
 			);
@@ -345,6 +351,8 @@ function runCommand(
 			});
 		}, WRANGLER_EXIT_DEADLINE_MS);
 		child.on("close", (code) => {
+			if (settled) return;
+			settled = true;
 			clearTimeout(deadline);
 			resolvePromise({ code, stdout, stderr });
 		});
