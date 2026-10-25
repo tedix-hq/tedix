@@ -46,6 +46,7 @@ import { reconcileHomeRunRowsFromChildStatus } from "../kernel/run-store-reconci
 import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import { getOrganizationTedi } from "@tedix/db/queries/kernel-runtime-support";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
+import { sumRunInferenceCharges } from "@tedix/db/queries/billing/spending";
 import { listActiveKernelApprovalMirrors } from "@tedix/db/queries/kernel-approval-mirrors";
 import {
 	observedLearningEventId,
@@ -964,6 +965,44 @@ export const readRunSetRoute = authed.readRunSet
 				},
 			},
 		};
+	});
+
+/** Bounds the run scan for one conversation's charge total. */
+const CONVERSATION_CHARGE_RUN_PAGE = 100;
+const CONVERSATION_CHARGE_RUN_PAGES = 20;
+
+export const readConversationChargesRoute = authed.readConversationCharges
+	.use(AUTHZ.tedisRead)
+	.handler(async ({ context, input }) => {
+		const organizationId = resolveOrganizationId(context, input.organizationId);
+		await ensureHomeConversationAccess(context, {
+			conversationId: input.conversationId,
+			organizationId,
+			required: "read",
+		});
+		const runIds: string[] = [];
+		let runCount = 0;
+		for (let page = 0; page < CONVERSATION_CHARGE_RUN_PAGES; page++) {
+			const rows = await listKernelRuntimeRuns(context.db, {
+				organizationId,
+				conversationId: input.conversationId,
+				orderBy: "created",
+				limit: CONVERSATION_CHARGE_RUN_PAGE,
+				offset: page * CONVERSATION_CHARGE_RUN_PAGE,
+			});
+			runCount += rows.length;
+			for (const row of rows) {
+				runIds.push(row.id);
+				// Delegated work reserves credits under the child run.
+				if (row.childRunId) runIds.push(row.childRunId);
+			}
+			if (rows.length < CONVERSATION_CHARGE_RUN_PAGE) break;
+		}
+		const charges = await sumRunInferenceCharges(context.db, {
+			organizationId,
+			runIds,
+		});
+		return { currency: "eur" as const, runCount, ...charges };
 	});
 
 /** Show every held delegation's review window, stamped or derived from the org TTL. */

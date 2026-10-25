@@ -8897,6 +8897,21 @@ const handlers: Record<string, (input: never) => unknown> = {
 			},
 		};
 	},
+	"kernelRuntime/readConversationCharges": (input: {
+		conversationId: string;
+	}) => {
+		const runs = state.homeRuns.filter(
+			(row) => row.conversationId === input.conversationId,
+		);
+		// Sample data: each completed run settled a fictional EUR 0.0042.
+		const settled = runs.filter((row) => row.status === "completed").length;
+		return {
+			currency: "eur" as const,
+			chargedMicros: settled * 4_200,
+			chargeCount: settled,
+			runCount: runs.length,
+		};
+	},
 	"kernelRuntime/listPendingHomeDelegations": () => ({
 		runSet: {
 			organizationId: ORG_ID,

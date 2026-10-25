@@ -553,6 +553,27 @@ export const ReadHomeRunSetInputSchema = z.object({
 });
 export type ReadHomeRunSetInput = z.infer<typeof ReadHomeRunSetInputSchema>;
 
+export const ReadHomeConversationChargesInputSchema = z.object({
+	organizationId: z.string().optional(),
+	conversationId: z.string(),
+});
+
+/**
+ * Settled EUR credit charges for a conversation's runs (and their delegated
+ * child runs). Credits are EUR-native, so this is what the conversation cost
+ * the organization, not a provider USD estimate. Unsettled or token-plan
+ * usage is not counted; `chargeCount` 0 means nothing has settled yet.
+ */
+export const HomeConversationChargesSchema = z.object({
+	currency: z.literal("eur"),
+	chargedMicros: z.number().int().nonnegative().safe(),
+	chargeCount: z.number().int().nonnegative(),
+	runCount: z.number().int().nonnegative(),
+});
+export type HomeConversationCharges = z.infer<
+	typeof HomeConversationChargesSchema
+>;
+
 export const ListPendingHomeDelegationsInputSchema = z
 	.object({
 		organizationId: z.string().optional(),
