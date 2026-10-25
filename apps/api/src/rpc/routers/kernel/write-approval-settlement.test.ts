@@ -38,6 +38,16 @@ describe("Home write approval summary", () => {
 		expect(
 			kernelWriteSummary({ toolName: "work__create_work_items", args }),
 		).toBe("Create 1 Work item: “No cost estimate before approving runs”");
+		expect(
+			kernelWriteSummary({
+				toolName: "work.create_work_items",
+				args,
+				additionalArgs: [{ title: "Review delegations lack access" }],
+				destinationTitle: "Research prototype",
+			}),
+		).toBe(
+			"Create 2 Work items in Research prototype: “No cost estimate before approving runs”, “Review delegations lack access”",
+		);
 	});
 
 	it.each(["os.set_os_sheet_range", "os__set_os_sheet_range"])(

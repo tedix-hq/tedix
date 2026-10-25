@@ -254,7 +254,7 @@ describe("renderWriteDeclined — each stage maps to an honest one-liner", () =>
 				route,
 			),
 		).toBe(
-			"This asks for more than one Work item, and one message creates one. Send each Work item as its own message; the workspace's project is used when you name none. Nothing was created.",
+			"This asks for Work items together with a different change. Send the other change as its own message; Work items alone can be created together. Nothing was created.",
 		);
 		expect(renderWriteDeclined({ stage: "planner_declined" }, route)).toContain(
 			"Check its required fields and destination",

@@ -213,6 +213,28 @@ describe("parseHomeToolWritePayload", () => {
 		).toEqual(payload({ initiatedByUserId: null }));
 	});
 
+	it("keeps a Work-item batch and refuses one on any other tool", () => {
+		const base = {
+			kind: "home_tool_write",
+			appSlug: "tedix-unified",
+			organizationId: "org",
+			homeRunId: "run",
+			conversationId: "home:c",
+			initiatedByUserId: "user",
+			args: { title: "A" },
+			additionalArgs: [{ title: "B" }],
+		};
+		expect(
+			parseHomeToolWritePayload({
+				...base,
+				toolName: "work.create_work_items",
+			})?.additionalArgs,
+		).toEqual([{ title: "B" }]);
+		expect(
+			parseHomeToolWritePayload({ ...base, toolName: "os.rename_os_output" }),
+		).toBeNull();
+	});
+
 	it("rejects other kinds, missing fields, and non-object args", () => {
 		expect(parseHomeToolWritePayload(null)).toBeNull();
 		expect(
@@ -572,6 +594,69 @@ describe("executeApprovedKernelWrite", () => {
 			arguments: {
 				code: 'async () => await work.create_work_items({"title":"Release proof"})',
 			},
+		});
+	});
+
+	it("creates each Work item of an approved batch as its own call", async () => {
+		const created: string[] = [];
+		const service = mcpService((body) => {
+			const code = String(
+				(body.params as { arguments?: { code?: string } })?.arguments?.code ??
+					"",
+			);
+			if (code.includes("discover.describe"))
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: {
+							structuredContent: {
+								executionId: "exec-discovery",
+								result: JSON.stringify([
+									{
+										callable: "work.create_work_items",
+										annotations: { readOnlyHint: false },
+										parameters: {
+											properties: { title: { type: "string" } },
+											required: ["title"],
+										},
+									},
+								]),
+							},
+						},
+					},
+				};
+			if (code.includes("create_work_items")) created.push(code);
+			return {
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						structuredContent: {
+							executionId: `exec-${created.length}`,
+							result: { id: `WI-${created.length}` },
+						},
+					},
+				},
+			};
+		});
+		const result = await executeApprovedKernelWrite({
+			env: env(service),
+			payload: payload({
+				appSlug: "tedix-unified",
+				toolName: "work.create_work_items",
+				args: { title: "First" },
+				additionalArgs: [{ title: "Second" }],
+				transport: "codemode",
+			}),
+		});
+		expect(created).toEqual([
+			'async () => await work.create_work_items({"title":"First"})',
+			'async () => await work.create_work_items({"title":"Second"})',
+		]);
+		expect(result).toMatchObject({
+			ok: true,
+			data: { id: "WI-1", batch: [{ id: "WI-2" }] },
 		});
 	});
 

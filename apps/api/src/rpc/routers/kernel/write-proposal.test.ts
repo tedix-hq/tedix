@@ -1250,6 +1250,57 @@ describe("canonical Work creation purpose", () => {
 		expect(result?.args).not.toHaveProperty("workClass");
 	});
 
+	it("plans several Work items from one request into the workspace project", async () => {
+		const projectId = "11111111-1111-4111-8111-111111111111";
+		const model = objectModel({
+			toolName: tool.name,
+			args: { title: "Review delegations lack evidence access" },
+			additionalArgs: [{ title: "No cost estimate before approving runs" }],
+			reasoning: "two items",
+		});
+		const result = await planWriteCall({
+			content: "Create both Work items as described above.",
+			earlierRequests: [
+				"Item 1: Review delegations lack evidence access. Item 2: No cost estimate before approving runs.",
+			],
+			capability: "work_items.create",
+			tools: [tool],
+			model,
+			paramDefaults: null,
+			timeoutMs: 10000,
+			fillMissing: (planned) =>
+				planned.projectId ? planned : { ...planned, projectId },
+		});
+		expect(result).toMatchObject({
+			args: { title: "Review delegations lack evidence access", projectId },
+			additionalArgs: [
+				{ title: "No cost estimate before approving runs", projectId },
+			],
+		});
+		const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+		expect(prompt).toContain("<earlier_requests>");
+		expect(prompt).toContain("Item 2: No cost estimate");
+	});
+
+	it("never batches a tool other than Work creation", async () => {
+		const other = { ...tool, name: "os.rename_os_output" };
+		const model = objectModel({
+			toolName: other.name,
+			args: { title: "A" },
+			additionalArgs: [{ title: "B" }],
+		});
+		const result = await planWriteCall({
+			content: "Rename it to A",
+			capability: "outputs.update",
+			tools: [other],
+			model,
+			paramDefaults: null,
+			timeoutMs: 10000,
+		});
+		expect(result?.args).toEqual({ title: "A" });
+		expect(result).not.toHaveProperty("additionalArgs");
+	});
+
 	it("keeps an unresolved project as a clarification and never exposes the planner's raw reason", async () => {
 		const onFailure = vi.fn();
 		const model = objectModel({

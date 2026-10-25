@@ -375,7 +375,7 @@ export async function resolveKernelFallbackTediId(
 export function kernelWriteSummary(
 	proposal: Pick<
 		KernelWriteProposal,
-		"args" | "toolName" | "outputTitle" | "destinationTitle"
+		"args" | "toolName" | "outputTitle" | "destinationTitle" | "additionalArgs"
 	>,
 ): string {
 	const { args, toolName, outputTitle, destinationTitle } = proposal;
@@ -423,7 +423,12 @@ export function kernelWriteSummary(
 		const where = destinationTitle
 			? ` in ${plainReceiptTitle(destinationTitle)}`
 			: "";
-		summary = `Create 1 Work item${where}: “${plainReceiptTitle(args.title)}”`;
+		const titles = [args, ...(proposal.additionalArgs ?? [])].map((item) =>
+			typeof item.title === "string"
+				? `“${plainReceiptTitle(item.title)}”`
+				: "an untitled item",
+		);
+		summary = `Create ${titles.length} Work ${titles.length === 1 ? "item" : "items"}${where}: ${titles.join(", ")}`;
 	} else if (tool === "rename_os_gadget" && typeof args.name === "string") {
 		summary = `Rename the app to “${plainReceiptTitle(args.name)}”`;
 	} else if (tool && OUTPUT_EDIT_RECEIPT_VERBS.has(tool)) {
@@ -453,7 +458,12 @@ export function kernelWriteCardContent(input: {
 	approvalRequestId: string;
 	proposal: Pick<
 		KernelWriteProposal,
-		"appSlug" | "args" | "toolName" | "outputTitle" | "destinationTitle"
+		| "appSlug"
+		| "args"
+		| "toolName"
+		| "outputTitle"
+		| "destinationTitle"
+		| "additionalArgs"
 	> & { reasoning?: string | null };
 }): string {
 	const { args, toolName } = input.proposal;

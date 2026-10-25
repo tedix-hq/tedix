@@ -37,6 +37,7 @@ import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
  * left to consult, so do not "reunify" these against a module that is gone.
  */
 
+import { isWorkCreateTool, MAX_ADDITIONAL_WORK_ITEMS } from "./write-call-plan";
 import {
 	FirstPartyMcpError,
 	requestFirstPartyMcp,
@@ -98,6 +99,11 @@ export interface HomeToolWritePayload {
 	 */
 	editableFields?: ApprovalEditableField[];
 	approverEdits?: ApproverEditsRecord;
+	/**
+	 * Further Work items the same approval creates, each as its own call after
+	 * `args`. Only the Work-creation tool carries them.
+	 */
+	additionalArgs?: Record<string, unknown>[];
 }
 
 /** Structural guard for an approval payload of kind "home_tool_write". */
@@ -143,8 +149,22 @@ export function parseHomeToolWritePayload(
 	}
 	const edits = ApproverEditsRecordSchema.safeParse(payload.approverEdits);
 	if (payload.approverEdits !== undefined && !edits.success) return null;
+	const extras = payload.additionalArgs;
+	if (
+		extras !== undefined &&
+		(!Array.isArray(extras) ||
+			extras.length > MAX_ADDITIONAL_WORK_ITEMS ||
+			!isWorkCreateTool(toolName) ||
+			extras.some(
+				(extra) => !extra || typeof extra !== "object" || Array.isArray(extra),
+			))
+	)
+		return null;
 	return {
 		...(edits.success ? { approverEdits: edits.data } : {}),
+		...(extras?.length
+			? { additionalArgs: extras as Record<string, unknown>[] }
+			: {}),
 		kind: HOME_TOOL_WRITE_KIND,
 		appSlug,
 		toolName,
@@ -436,106 +456,131 @@ export async function executeApprovedKernelWrite(args: {
 		// fallback when the personal connection is missing.
 		// A Code Mode receipt is bound to the projected callable, which its
 		// approval gate supplies independently of the native wire name.
-		const nativeName = args.approvalRequestId
-			? undefined
-			: described?.native?.name;
-		const params = nativeName
-			? { name: nativeName, arguments: payload.args }
-			: transport === "codemode"
-				? codeModeExecutionParams(payload.toolName, payload.args)
-				: { name: payload.toolName, arguments: payload.args };
-		if (args.approvalRequestId)
-			params._meta = {
-				"com.tedix/homeApprovalRequestId": args.approvalRequestId,
-			};
-		let result = (await mcpCall(
-			env,
-			host,
-			payload.organizationId,
-			"tools/call",
-			params,
-			payload.initiatedByUserId ?? undefined,
-			/(?:^|\.|__)respond_work_interaction$/.test(payload.toolName)
-				? args.approvedWorkResponderUserId
-				: undefined,
-			/^projects\.(?:create|pause|resume|archive)_factory$/.test(
-				payload.toolName,
-			)
-				? args.approvalRequestId
-				: undefined,
-		)) as ToolCallResult | null;
-		if (payload.initiatedByUserId && isCredentialMissing(result)) {
-			console.warn(
-				"[kernel.writeExec] personal cred missing — tenant fallback",
-				{ appSlug: payload.appSlug, tool: payload.toolName },
-			);
-			result = (await mcpCall(
+		const callStored = async (
+			callArgs: Record<string, unknown>,
+		): Promise<KernelWriteExecutionResult> => {
+			const nativeName = args.approvalRequestId
+				? undefined
+				: described?.native?.name;
+			const params = nativeName
+				? { name: nativeName, arguments: callArgs }
+				: transport === "codemode"
+					? codeModeExecutionParams(payload.toolName, callArgs)
+					: { name: payload.toolName, arguments: callArgs };
+			if (args.approvalRequestId)
+				params._meta = {
+					"com.tedix/homeApprovalRequestId": args.approvalRequestId,
+				};
+			let result = (await mcpCall(
 				env,
 				host,
 				payload.organizationId,
 				"tools/call",
 				params,
-			)) as ToolCallResult | null;
-		}
-		if (!result) {
-			return { ok: false, error: "Provider tool call failed (transport)" };
-		}
-		if (result.isError) {
-			return {
-				ok: false,
-				error: boundedError(
-					mcpContentText(result.content) ?? result.content ?? result,
-				),
-			};
-		}
-		const data =
-			transport === "codemode" && !nativeName
-				? codeModeResultData(result)
-				: unwrapCallToolResult(result, nativeName ?? payload.toolName);
-		const failure = reportedWriteFailure(data);
-		if (failure !== null) return { ok: false, error: boundedError(failure) };
-		const actionReceipt = await verifyAction({
-			operation: payload.toolName,
-			args: payload.args,
-			result: data,
-			actor: payload.initiatedByUserId
-				? `kernel on behalf of user:${payload.initiatedByUserId}`
-				: "kernel",
-			origin: env.OS_URL ?? "",
-			read: async (name, input) => {
-				const readName =
-					transport === "codemode"
-						? `${payload.toolName.split(/\.|__/)[0]}.${name}`
-						: `${payload.toolName.split(/\.|__/)[0]}__${name}`;
-				if (
-					transport === "direct" &&
-					listed.items.find((candidate) => candidate.name === readName)
-						?.annotations?.readOnlyHint !== true
+				payload.initiatedByUserId ?? undefined,
+				/(?:^|\.|__)respond_work_interaction$/.test(payload.toolName)
+					? args.approvedWorkResponderUserId
+					: undefined,
+				/^projects\.(?:create|pause|resume|archive)_factory$/.test(
+					payload.toolName,
 				)
-					throw new Error("Read-back tool is not verified read-only");
-				const readResult = (await mcpCall(
+					? args.approvalRequestId
+					: undefined,
+			)) as ToolCallResult | null;
+			if (payload.initiatedByUserId && isCredentialMissing(result)) {
+				console.warn(
+					"[kernel.writeExec] personal cred missing — tenant fallback",
+					{ appSlug: payload.appSlug, tool: payload.toolName },
+				);
+				result = (await mcpCall(
 					env,
 					host,
 					payload.organizationId,
 					"tools/call",
-					transport === "codemode"
-						? codeModeExecutionParams(readName, input)
-						: { name: readName, arguments: input },
-					payload.initiatedByUserId ?? undefined,
+					params,
 				)) as ToolCallResult | null;
-				if (!readResult || readResult.isError)
-					throw new Error("Read-back unavailable");
-				return transport === "codemode"
-					? codeModeResultData(readResult)
-					: unwrapCallToolResult(readResult, readName);
-			},
-		});
+			}
+			if (!result) {
+				return { ok: false, error: "Provider tool call failed (transport)" };
+			}
+			if (result.isError) {
+				return {
+					ok: false,
+					error: boundedError(
+						mcpContentText(result.content) ?? result.content ?? result,
+					),
+				};
+			}
+			const data =
+				transport === "codemode" && !nativeName
+					? codeModeResultData(result)
+					: unwrapCallToolResult(result, nativeName ?? payload.toolName);
+			const failure = reportedWriteFailure(data);
+			if (failure !== null) return { ok: false, error: boundedError(failure) };
+			const actionReceipt = await verifyAction({
+				operation: payload.toolName,
+				args: callArgs,
+				result: data,
+				actor: payload.initiatedByUserId
+					? `kernel on behalf of user:${payload.initiatedByUserId}`
+					: "kernel",
+				origin: env.OS_URL ?? "",
+				read: async (name, input) => {
+					const readName =
+						transport === "codemode"
+							? `${payload.toolName.split(/\.|__/)[0]}.${name}`
+							: `${payload.toolName.split(/\.|__/)[0]}__${name}`;
+					if (
+						transport === "direct" &&
+						listed.items.find((candidate) => candidate.name === readName)
+							?.annotations?.readOnlyHint !== true
+					)
+						throw new Error("Read-back tool is not verified read-only");
+					const readResult = (await mcpCall(
+						env,
+						host,
+						payload.organizationId,
+						"tools/call",
+						transport === "codemode"
+							? codeModeExecutionParams(readName, input)
+							: { name: readName, arguments: input },
+						payload.initiatedByUserId ?? undefined,
+					)) as ToolCallResult | null;
+					if (!readResult || readResult.isError)
+						throw new Error("Read-back unavailable");
+					return transport === "codemode"
+						? codeModeResultData(readResult)
+						: unwrapCallToolResult(readResult, readName);
+				},
+			});
+			return {
+				ok: true,
+				data:
+					data && typeof data === "object" && !Array.isArray(data)
+						? { ...data, actionReceipt }
+						: { result: data, actionReceipt },
+			};
+		};
+		const first = await callStored(payload.args);
+		const extras = payload.additionalArgs ?? [];
+		if (!first.ok || extras.length === 0) return first;
+		// A batch of Work items: each further item is its own call with its own
+		// receipt. A later failure says exactly what was already created.
+		const created: unknown[] = [];
+		for (const [index, extra] of extras.entries()) {
+			const next = await callStored(extra);
+			if (!next.ok)
+				return {
+					ok: false,
+					error: boundedError(
+						`Created ${index + 1} of ${extras.length + 1} Work items; item ${index + 2} failed: ${next.error}`,
+					),
+				};
+			created.push(next.data);
+		}
 		return {
 			ok: true,
-			data:
-				data && typeof data === "object" && !Array.isArray(data)
-					? { ...data, actionReceipt }
-					: { result: data, actionReceipt },
+			data: { ...(first.data as Record<string, unknown>), batch: created },
 		};
 	} catch (error) {
 		return { ok: false, error: boundedError(errorMessage(error)) };

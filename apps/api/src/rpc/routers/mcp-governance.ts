@@ -134,8 +134,13 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				payload.initiatedByUserId !== input.userId ||
 				payload.appSlug !== input.appSlug ||
 				payload.toolName !== input.toolName ||
-				(await canonicalDigest(payload.args)) !==
-					(await canonicalDigest(input.args))
+				!(
+					await Promise.all(
+						[payload.args, ...(payload.additionalArgs ?? [])].map(
+							canonicalDigest,
+						),
+					)
+				).includes(await canonicalDigest(input.args))
 			)
 				return { approved: false };
 			const initiator = await getMemberByUserId(
