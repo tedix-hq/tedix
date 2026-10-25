@@ -198,8 +198,8 @@ function decodedStepName(value: string): string | null {
 
 function parsePathCounter(value: string, minimum: number): number | null {
 	if (!/^\d+$/.test(value)) return null;
-	const parsed = Number.parseInt(value, 10);
-	return Number.isInteger(parsed) && parsed >= minimum ? parsed : null;
+	const parsed = Number(value);
+	return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : null;
 }
 
 function parseJson(content: string | null): unknown {
@@ -449,8 +449,9 @@ export function parseSkillWorkflowRecords(
 		if (family === "calls") {
 			const match = /^(\d+)-attempt-(\d+)\.json$/i.exec(leaf);
 			if (!match) continue;
-			const ordinal = Number.parseInt(match[1]!, 10);
-			const attempt = Number.parseInt(match[2]!, 10);
+			const ordinal = parsePathCounter(match[1]!, 1);
+			const attempt = parsePathCounter(match[2]!, 1);
+			if (ordinal == null || attempt == null) continue;
 			const idempotency = recordUnknown(parsedData, ["idempotency"]);
 			const toolCall: SkillWorkflowToolCall = {
 				...base,

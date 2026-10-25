@@ -186,6 +186,50 @@ describe("skill workflow inspection", () => {
 		}
 	});
 
+	it("rejects unsafe workflow artifact path counters", () => {
+		const unsafe = String(Number.MAX_SAFE_INTEGER + 1);
+		const paths = [
+			`epochs/${unsafe}/steps/x:test/1/attempts/1.json`,
+			`epochs/0/steps/x:test/${unsafe}/attempts/1.json`,
+			`epochs/0/steps/x:test/1/attempts/${unsafe}.json`,
+			`epochs/0/steps/x:test/1/attempts/${unsafe}/calls/run/1.json`,
+			`epochs/0/steps/x:test/1/attempts/1/calls/run/${unsafe}.json`,
+			`epochs/0/steps/x:test/1/calls/${unsafe}-attempt-1.json`,
+			`epochs/0/steps/x:test/1/calls/1-attempt-${unsafe}.json`,
+		];
+
+		for (const path of paths) {
+			expect(parseSkillWorkflowRecords([artifact(path, {})])).toEqual({
+				steps: [],
+				toolCalls: [],
+			});
+		}
+	});
+
+	it("retains maximum safe workflow artifact path counters", () => {
+		const maximum = String(Number.MAX_SAFE_INTEGER);
+		const parsed = parseSkillWorkflowRecords([
+			artifact(
+				`epochs/${maximum}/steps/x:nested/${maximum}/attempts/${maximum}/calls/run/${maximum}.json`,
+				{},
+			),
+			artifact(
+				`epochs/${maximum}/steps/x:flat/${maximum}/calls/${maximum}-attempt-${maximum}.json`,
+				{},
+			),
+		]);
+
+		expect(parsed.toolCalls).toHaveLength(2);
+		for (const call of parsed.toolCalls) {
+			expect(call).toMatchObject({
+				executionEpoch: Number.MAX_SAFE_INTEGER,
+				count: Number.MAX_SAFE_INTEGER,
+				attempt: Number.MAX_SAFE_INTEGER,
+				ordinal: Number.MAX_SAFE_INTEGER,
+			});
+		}
+	});
+
 	it("ignores timeline events and returns only structured step artifacts", () => {
 		const parsed = parseSkillWorkflowRecords([
 			artifact("epochs/0/steps/x:interpret/1/attempts/1.json", {
