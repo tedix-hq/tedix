@@ -190,10 +190,9 @@ function getDefaultByName(name: string): unknown | undefined {
 	return undefined;
 }
 
-function isCompatibleNameDefault(
-	value: unknown,
-	schema: JSONSchemaProperty,
-): boolean {
+/** Whether a guessed value satisfies the schema's type, enum and bounds. */
+function fitsSchema(value: unknown, schema: JSONSchemaProperty): boolean {
+	if (schema.enum && !schema.enum.includes(value)) return false;
 	const type = schema.type ?? typeof value;
 	if (typeof value === "string" && type === "string") {
 		return (
@@ -232,10 +231,7 @@ function generateValue(name: string, schema: JSONSchemaProperty): unknown {
 
 	// Try to get smart default by name
 	const nameDefault = getDefaultByName(name);
-	if (
-		nameDefault !== undefined &&
-		isCompatibleNameDefault(nameDefault, schema)
-	) {
+	if (nameDefault !== undefined && fitsSchema(nameDefault, schema)) {
 		return nameDefault;
 	}
 
@@ -582,8 +578,13 @@ export function generateTestInput(
 				value = extractValuesFromPrompts(examplePrompts, key, toolName);
 			}
 
-			// Fall back to schema-based generation
-			if (value === null || value === undefined) {
+			// Fall back to schema-based generation when the prompt has no
+			// value, or only one the schema would reject.
+			if (
+				value === null ||
+				value === undefined ||
+				!fitsSchema(value, propSchema)
+			) {
 				value = generateValue(key, propSchema);
 			}
 
@@ -603,9 +604,16 @@ export function generateTestInput(
 			"input",
 		];
 		for (const field of queryFields) {
-			if (field in result && typeof result[field] === "string") {
+			const prompt = relevantPrompt.cleanPrompt || relevantPrompt.raw;
+			const fieldSchema = schema.properties[field];
+			if (
+				field in result &&
+				typeof result[field] === "string" &&
+				fieldSchema &&
+				fitsSchema(prompt, fieldSchema)
+			) {
 				// Use the clean prompt as the query value
-				result[field] = relevantPrompt.cleanPrompt || relevantPrompt.raw;
+				result[field] = prompt;
 				break;
 			}
 		}
