@@ -7,7 +7,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@tedix/widget-ui/table";
-import { useState } from "react";
+import { createElement, type ReactNode, useState } from "react";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 export type DataTableColumn = string | DataTableColumnConfig;
@@ -134,11 +134,51 @@ function renderBadge(value: unknown): React.ReactNode {
 
 function renderTextCell(value: unknown): React.ReactNode {
 	const text = formatTextValue(value);
+	const { content, label } = renderInlineFormatting(text);
 	return (
-		<span className="block max-w-[24rem] truncate" title={text}>
-			{text}
+		<span className="block max-w-[24rem] truncate" title={label}>
+			{content}
 		</span>
 	);
+}
+
+function renderInlineFormatting(text: string) {
+	// Recognize only attribute-free formatting tokens; all other input stays React text.
+	const tokens = text.split(
+		/(<\/?(?:strong|b|em|i|u|s|del|code)>|<br\s*\/?>)/gi,
+	);
+	const root: { tag: string; content: ReactNode[] } = { tag: "", content: [] };
+	const stack = [root];
+	let label = "";
+	for (const [index, token] of tokens.entries()) {
+		const current = stack[stack.length - 1]!;
+		if (/^<br\s*\/?>$/i.test(token)) {
+			current.content.push(<br key={index} />);
+			label += "\n";
+		} else if (/^<(?:strong|b|em|i|u|s|del|code)>$/i.test(token)) {
+			const frame = {
+				tag: token.slice(1, -1).toLowerCase(),
+				content: [] as ReactNode[],
+			};
+			current.content.push(frame.content);
+			stack.push(frame);
+		} else if (
+			token.toLowerCase() === `</${current.tag}>` &&
+			stack.length > 1
+		) {
+			stack.pop();
+			const parent = stack[stack.length - 1]!;
+			parent.content[parent.content.length - 1] = createElement(
+				current.tag,
+				{ key: index },
+				...current.content,
+			);
+		} else {
+			current.content.push(token);
+			label += token;
+		}
+	}
+	return { content: root.content, label };
 }
 
 function formatTextValue(value: unknown): string {
