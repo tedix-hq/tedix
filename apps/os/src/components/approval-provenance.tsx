@@ -22,7 +22,7 @@ export function ApprovalProvenanceHistory() {
 	return (
 		<details onToggle={(event) => setOpen(event.currentTarget.open)}>
 			<summary className="tap-target-y cursor-pointer">
-				Past approval decisions
+				Receipts for past decisions
 			</summary>
 			{open ? <ApprovalHistoryRequests /> : null}
 		</details>

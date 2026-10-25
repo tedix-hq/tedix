@@ -1,75 +1,80 @@
-import {
-	WorkPageHeader,
-	WorkListSkeleton,
-	WorkReadFailure,
-	WorkEmpty,
-} from "@/components/work-surface-primitives";
-import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
-import {
-	ApprovalDecisionCopy,
-	ApprovalDecisionResult,
-} from "@/components/approval-decision-copy";
-import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
+import { CaretRight, ChatCircle, Check, Pulse, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import * as z from "zod";
+import { ActivityAutoApproval } from "@/components/activity-auto-approval";
+import { ActivityHistory } from "@/components/activity-history";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
-import { BrowserTakeoverLiveView } from "@/components/browser-takeover-live-view";
 import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
+import {
+	type ApprovalListItem,
+	collapseIdenticalItems,
+	useApprovalInbox,
+} from "@/components/approval-inbox";
+import { BrowserTakeoverLiveView } from "@/components/browser-takeover-live-view";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { CodeBlock } from "@/components/kumo/code";
 import { DateTimePicker } from "@/components/kumo/date-picker";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { Link } from "@/components/kumo/link";
-import { ResponsiveFormSurface } from "@/components/kumo/responsive-form-surface";
 import {
 	Page,
 	PageSection,
-	SectionCollection,
 	SectionDescription,
 	SectionHeader,
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
-import { Surface } from "@/components/kumo/surface";
+import { ResponsiveFormSurface } from "@/components/kumo/responsive-form-surface";
 import { SelectItem } from "@/components/kumo/select";
-import { Text } from "@/components/kumo/text";
-import { Textarea } from "@/components/kumo/textarea";
-import { osApi } from "@/lib/api";
-import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
-import { absoluteTime } from "@/lib/time";
+import { Surface } from "@/components/kumo/surface";
 import {
-	pendingApprovalsQueryOptions,
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@/components/kumo/tabs";
+import { Text } from "@/components/kumo/text";
+import { toast } from "@/components/kumo/toast";
+import {
+	WorkEmpty,
+	WorkListSkeleton,
+	WorkPageHeader,
+	WorkReadFailure,
+} from "@/components/work-surface-primitives";
+import { osApi } from "@/lib/api";
+import { useOsFormattingPreferences } from "@/lib/format";
+import {
+	osQueryKeys,
 	workApprovalsQueryOptions,
-	workPendingApprovalsQueryOptions,
 	workFleetQueryOptions,
 	workItemReadinessQueryOptions,
-	osQueryKeys,
+	workPendingApprovalsQueryOptions,
 	workSchedulerQueryOptions,
 } from "@/lib/os-query-options";
+import { absoluteTime, relativeTime } from "@/lib/time";
+import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import {
-	MutationError,
 	ApprovalRequestError,
-	useCursorPaging,
+	MutationError,
 	PageControls,
+	useCursorPaging,
 } from "./work-operations-shared";
+
+type ApprovalsTab = "needs-you" | "auto" | "history";
+
+const SOON_MS = 3 * 3_600_000;
 
 const approvalProposalSchema = z.object({
 	workItemId: z.string().trim().min(1, "Enter a Work Item id."),
@@ -96,27 +101,618 @@ const approvalProposalSchema = z.object({
 	expiresAt: z.date().nullable().refine(Boolean, "Choose an expiry."),
 });
 
+/** "expires in 20h", or "expired 3h ago" once the window has passed. */
+export function expiryLabel(expiresAt: string, now = new Date()): string {
+	return Date.parse(expiresAt) <= now.getTime()
+		? `expired ${relativeTime(expiresAt, now)}`
+		: `expires ${relativeTime(expiresAt, now)}`;
+}
+
 export function WorkApprovalsPage() {
 	useOsFormattingPreferences();
+	const inbox = useApprovalInbox();
+	const workStart = useQuery(workPendingApprovalsQueryOptions());
+	const workStartPending = (workStart.data?.data ?? []).filter(
+		({ effectiveStatus, canDecide }) =>
+			effectiveStatus === "pending" && canDecide,
+	);
+	const waiting = inbox.count + workStartPending.length;
+	const [tab, setTab] = useState<ApprovalsTab>("needs-you");
+	return (
+		<Page width="lg">
+			<WorkPageHeader
+				title="Approvals"
+				description="What tedis and agents want to do that needs your OK."
+			/>
+			<Tabs
+				className="gap-0"
+				onValueChange={(value) => setTab(value as ApprovalsTab)}
+				value={tab}
+			>
+				<TabsList aria-label="Approvals" className="-mx-1" variant="line">
+					<TabsTrigger className="px-2!" value="needs-you">
+						Needs you
+						{waiting > 0 ? (
+							<Badge className="ml-1.5 tabular-nums" variant="secondary">
+								{waiting}
+							</Badge>
+						) : null}
+					</TabsTrigger>
+					<TabsTrigger className="px-2!" value="auto">
+						Auto-approved
+					</TabsTrigger>
+					<TabsTrigger className="px-2!" value="history">
+						History
+					</TabsTrigger>
+				</TabsList>
+				<TabsContent className="pt-4" value="needs-you">
+					<NeedsYou inbox={inbox} workStartPending={workStartPending} />
+				</TabsContent>
+				<TabsContent className="pt-2" value="auto">
+					<Text as="p" className="m-0 pb-1" role="body" tone="secondary">
+						Low-risk actions inside your organization run without asking. They
+						are listed here so you can check them.
+					</Text>
+					<ActivityHistory only="automatic" tediNames={inbox.tediNames} />
+					<ActivityAutoApproval canChange={inbox.canDecide} />
+				</TabsContent>
+				<TabsContent className="pt-2" value="history">
+					<ActivityHistory tediNames={inbox.tediNames} />
+					<div className="px-4 py-3">
+						<ApprovalProvenanceHistory />
+					</div>
+					<WorkStartHistory />
+				</TabsContent>
+			</Tabs>
+		</Page>
+	);
+}
+
+type Inbox = ReturnType<typeof useApprovalInbox>;
+type WorkStartRow = Awaited<
+	ReturnType<typeof osApi.workApprovals.listInbox>
+>["data"][number];
+
+function NeedsYou({
+	inbox,
+	workStartPending,
+}: {
+	inbox: Inbox;
+	workStartPending: readonly WorkStartRow[];
+}) {
+	const rows = collapseIdenticalItems(inbox.items);
+	const lowRisk = inbox.items.filter(
+		(item) => item.recommendation === "approved",
+	);
+	const [confirmBulk, setConfirmBulk] = useState(false);
+	const total = inbox.count + workStartPending.length;
+	// The card leaves the list once decided, so the result is a toast that
+	// shows wherever the person has scrolled to.
+	async function decide(
+		row: readonly ApprovalListItem[],
+		choice: "approved" | "rejected",
+	) {
+		const result = await inbox.decide(row, choice);
+		if (!result) {
+			toast.error("The decision could not be saved", {
+				description: "The request is still waiting. Try again.",
+			});
+			return;
+		}
+		if (result.status === "approved") toast.success(result.message);
+		else toast.message(result.message);
+	}
+	return (
+		<div className="grid gap-4 pb-24 md:pb-8">
+			{inbox.error ? (
+				<Text as="p" className="m-0" role="body" tone="error">
+					The decision could not be saved:{" "}
+					{inbox.error instanceof Error ? inbox.error.message : "unknown error"}
+					. The request is still waiting.
+				</Text>
+			) : null}
+			{inbox.loading ? (
+				<WorkListSkeleton />
+			) : inbox.readError ? (
+				<WorkReadFailure
+					title="Approvals could not be loaded"
+					error={inbox.readError}
+				/>
+			) : total === 0 ? (
+				<WorkEmpty
+					title="Nothing needs you"
+					description="When a tedi or agent needs your OK to change, send or pay for something, it waits here."
+				/>
+			) : (
+				<>
+					<div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
+						<Text
+							as="p"
+							className="m-0 tabular-nums"
+							role="label"
+							tone="secondary"
+						>
+							{total} waiting · soonest to expire first
+						</Text>
+						{lowRisk.length > 1 ? (
+							confirmBulk ? (
+								<div className="flex flex-wrap items-center gap-2">
+									<Button
+										disabled={inbox.busy}
+										icon={<Check size={14} />}
+										onClick={async () => {
+											setConfirmBulk(false);
+											await decide(lowRisk, "approved");
+										}}
+										size="sm"
+									>
+										Approve these {lowRisk.length}
+									</Button>
+									<Button
+										onClick={() => setConfirmBulk(false)}
+										size="sm"
+										variant="ghost"
+									>
+										Cancel
+									</Button>
+								</div>
+							) : (
+								<Button
+									disabled={inbox.busy}
+									onClick={() => setConfirmBulk(true)}
+									size="sm"
+									variant="secondary"
+								>
+									Approve {lowRisk.length} low-risk
+								</Button>
+							)
+						) : null}
+					</div>
+					{confirmBulk ? (
+						<Text as="p" className="m-0" role="label" tone="secondary">
+							Tedix rates these as low risk:{" "}
+							{lowRisk
+								.map((item) => sanitizeUntrustedText(item.title))
+								.join("; ")}
+							.
+						</Text>
+					) : null}
+					{rows.length > 0 ? (
+						<ul
+							aria-label="Waiting for you"
+							className="m-0 grid list-none gap-3 p-0"
+						>
+							{rows.map((row) => (
+								<ApprovalCard
+									busy={row.some((item) => inbox.isPending(item.key))}
+									key={row[0]!.key}
+									onDecide={(choice) => void decide(row, choice)}
+									row={row}
+								/>
+							))}
+						</ul>
+					) : null}
+					{inbox.hidden > 0 ? (
+						<Text as="p" className="m-0" role="label" tone="secondary">
+							{inbox.hidden} more are waiting. Decide some of these to see them.
+						</Text>
+					) : null}
+					{workStartPending.length > 0 ? (
+						<WorkStartCards rows={workStartPending} />
+					) : null}
+				</>
+			)}
+			{inbox.expired.length > 0 ? <ExpiredRequests inbox={inbox} /> : null}
+		</div>
+	);
+}
+
+function ApprovalCard({
+	row,
+	busy,
+	onDecide,
+}: {
+	row: readonly ApprovalListItem[];
+	busy: boolean;
+	onDecide: (choice: "approved" | "rejected") => void;
+}) {
+	const item = row[0]!;
+	const repeats = row.length;
+	const [detailsOpen, setDetailsOpen] = useState(false);
+	const [linkedOpen, setLinkedOpen] = useState(false);
+	const title = sanitizeUntrustedText(item.title);
+	const expiresAt = item.expiresAt;
+	const soon =
+		expiresAt !== null && Date.parse(expiresAt) - Date.now() < SOON_MS;
+	const who = item.tedi ? sanitizeUntrustedText(item.tedi.name) : "an agent";
+	return (
+		<Surface
+			aria-label={title}
+			className="grid min-w-0 gap-3 p-4"
+			data-approval-card=""
+			render={<li />}
+		>
+			<div className="flex min-w-0 items-start gap-3">
+				{item.tedi ? (
+					<EntityAvatar
+						className="mt-0.5 size-8 shrink-0"
+						id={item.tedi.id}
+						kind="tedi"
+						name={item.tedi.name}
+					/>
+				) : (
+					<span
+						aria-hidden
+						className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-kumo-subtle"
+					>
+						<Pulse size={16} />
+					</span>
+				)}
+				<div className="grid min-w-0 flex-1 gap-1">
+					<Text as="h3" className="m-0 break-words" role="body" tone="strong">
+						{title}
+					</Text>
+					{item.details.length > 0 ? (
+						<Text as="p" className="m-0 break-words" role="label">
+							{sanitizeUntrustedText(item.details.join(" · "))}
+						</Text>
+					) : null}
+					<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-kumo-subtle type-tedix-label">
+						<span className="min-w-0 break-words">
+							Asked by {who}
+							{item.where ? ` in ${sanitizeUntrustedText(item.where)}` : ""}
+						</span>
+						{item.requestedAt ? (
+							<time
+								dateTime={item.requestedAt}
+								title={absoluteTime(item.requestedAt)}
+							>
+								{relativeTime(item.requestedAt)}
+							</time>
+						) : null}
+						{repeats > 1 ? (
+							<Badge variant="outline">{repeats} identical</Badge>
+						) : null}
+						{item.chip.tone === "error" ? (
+							<Badge variant="error">{item.chip.label}</Badge>
+						) : null}
+					</div>
+				</div>
+				{expiresAt ? (
+					<Badge
+						className="shrink-0"
+						title={`Expires ${absoluteTime(expiresAt)}`}
+						variant={soon ? "warning" : "outline"}
+					>
+						<time dateTime={expiresAt}>{expiryLabel(expiresAt)}</time>
+					</Badge>
+				) : null}
+			</div>
+			<Text as="p" className="m-0" role="body">
+				<span className="text-kumo-subtle">If you approve: </span>
+				{item.ifApproved}
+			</Text>
+			<Text as="p" className="m-0" role="label" tone="secondary">
+				Tedix suggests:{" "}
+				<strong className="font-medium text-kumo-default">
+					{item.recommendation === "approved" ? "approve" : "reject"}
+				</strong>
+				. {item.recommendationReason}
+			</Text>
+			{item.actionType === "browser.live_view_takeover" &&
+			item.target.plane === "runtime" ? (
+				<BrowserTakeoverLiveView approvalId={item.target.approvalId} />
+			) : null}
+			<div className="flex min-w-0 flex-wrap items-center gap-2">
+				<Button
+					disabled={busy}
+					icon={<Check size={14} />}
+					loading={busy}
+					onClick={() => onDecide("approved")}
+				>
+					{repeats > 1 ? `Approve all ${repeats}` : "Approve"}
+				</Button>
+				<Button
+					disabled={busy}
+					icon={<X size={14} />}
+					onClick={() => onDecide("rejected")}
+					variant="secondary"
+				>
+					{repeats > 1 ? `Reject all ${repeats}` : "Reject"}
+				</Button>
+				{item.conversationId ? (
+					<Link
+						className="inline-flex min-h-9 items-center gap-1.5 px-2 type-tedix-control"
+						href={`/chat?conversation=${encodeURIComponent(item.conversationId)}`}
+					>
+						<ChatCircle aria-hidden size={14} />
+						Ask the tedi
+					</Link>
+				) : null}
+			</div>
+			<Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+				<CollapsibleTrigger className="group/disclosure -mx-2 w-fit px-2 text-kumo-subtle">
+					<CaretRight
+						aria-hidden
+						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+						size={12}
+					/>
+					Details
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<dl className="m-0 mt-2 grid gap-2 type-tedix-label">
+						{[
+							["What it does", item.what],
+							["If you reject", item.ifRejected],
+							["Why it is waiting", item.technical ?? item.chip.label],
+						].map(([label, text]) => (
+							<div className="grid gap-0.5" key={label}>
+								<dt className="text-kumo-subtle">{label}</dt>
+								<dd className="m-0 break-words text-kumo-default">
+									{sanitizeUntrustedText(text ?? "")}
+								</dd>
+							</div>
+						))}
+					</dl>
+					{item.raw ? (
+						<CodeBlock
+							className="mt-2 max-h-64 overflow-auto"
+							code={JSON.stringify(item.raw, null, 2)}
+							lang="json"
+							showCopyButton
+						/>
+					) : null}
+					{item.target.plane === "runtime" ? (
+						<div className="mt-2 grid gap-2">
+							{linkedOpen ? (
+								<ApprovalManifestReview
+									approvalRequestIds={[item.target.approvalId]}
+									onClose={() => setLinkedOpen(false)}
+								/>
+							) : (
+								<Button
+									className="w-fit"
+									onClick={() => setLinkedOpen(true)}
+									size="sm"
+									variant="ghost"
+								>
+									Check linked requests
+								</Button>
+							)}
+						</div>
+					) : null}
+				</CollapsibleContent>
+			</Collapsible>
+		</Surface>
+	);
+}
+
+function ExpiredRequests({ inbox }: { inbox: Inbox }) {
+	return (
+		<section aria-labelledby="expired-approvals-title" className="grid gap-2">
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<div className="grid gap-0.5">
+					<Text
+						as="h2"
+						className="m-0"
+						id="expired-approvals-title"
+						role="label"
+						tone="strong"
+					>
+						Expired · {inbox.expired.length}
+					</Text>
+					<Text as="p" className="m-0" role="label" tone="secondary">
+						No one answered in time, so these did not run.
+					</Text>
+				</div>
+				<Button
+					disabled={inbox.clearExpired.isPending}
+					onClick={() => inbox.clearExpired.mutate()}
+					size="sm"
+					variant="secondary"
+				>
+					Clear expired
+				</Button>
+			</div>
+			<ul className="m-0 grid list-none divide-y divide-kumo-hairline rounded-lg border border-kumo-hairline p-0">
+				{inbox.expired.map((item) => (
+					<li
+						className="flex min-w-0 items-center justify-between gap-3 px-3 py-2"
+						key={item.key}
+					>
+						<Text as="span" className="min-w-0 truncate" role="label">
+							{sanitizeUntrustedText(item.title)}
+						</Text>
+						{item.expiresAt ? (
+							<Text
+								as="span"
+								className="shrink-0"
+								role="label"
+								tone="secondary"
+							>
+								{expiryLabel(item.expiresAt)}
+							</Text>
+						) : null}
+					</li>
+				))}
+			</ul>
+			<MutationError error={inbox.clearExpired.error} />
+		</section>
+	);
+}
+
+function useWorkStartDecision() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: ({
+			proposalId,
+			version,
+			decision,
+		}: {
+			proposalId: string;
+			version: number;
+			decision: "approved" | "rejected";
+			workItemId: string;
+		}) =>
+			osApi.workApprovals.decide({
+				proposalId,
+				expectedProposalVersion: version,
+				decision,
+				rationale:
+					decision === "approved"
+						? "Approved on the Approvals page."
+						: "Rejected on the Approvals page.",
+			}),
+		onSuccess: async (_value, variables) => {
+			await Promise.all([
+				client.invalidateQueries({ queryKey: osQueryKeys.workApprovals() }),
+				client.invalidateQueries({
+					queryKey: workItemReadinessQueryOptions(variables.workItemId)
+						.queryKey,
+				}),
+				client.invalidateQueries({
+					queryKey: workSchedulerQueryOptions().queryKey,
+				}),
+				client.invalidateQueries({
+					queryKey: workFleetQueryOptions().queryKey,
+				}),
+			]);
+		},
+	});
+}
+
+function WorkStartCards({ rows }: { rows: readonly WorkStartRow[] }) {
+	const decide = useWorkStartDecision();
+	return (
+		<section aria-labelledby="work-start-title" className="grid gap-2">
+			<Text
+				as="h2"
+				className="m-0"
+				id="work-start-title"
+				role="label"
+				tone="strong"
+			>
+				Work waiting to start
+			</Text>
+			<ul className="m-0 grid list-none gap-3 p-0">
+				{rows.map(({ proposal, workItem }) => (
+					<Surface
+						className="grid min-w-0 gap-3 p-4"
+						data-approval-card=""
+						key={proposal.id}
+						render={<li />}
+					>
+						<div className="flex min-w-0 items-start justify-between gap-3">
+							<div className="grid min-w-0 gap-1">
+								<Text
+									as="h3"
+									className="m-0 break-words"
+									role="body"
+									tone="strong"
+								>
+									Start{" "}
+									{workItem ? (
+										<Link variant="record" href={`/work/items/${workItem.id}`}>
+											{workItem.title}
+										</Link>
+									) : (
+										"a Work item"
+									)}
+								</Text>
+								<Text
+									as="p"
+									className="m-0 break-words"
+									role="label"
+									tone="secondary"
+								>
+									{sanitizeUntrustedText(proposal.requestRationale)}
+								</Text>
+							</div>
+							<Badge
+								className="shrink-0"
+								title={`Expires ${absoluteTime(proposal.expiresAt)}`}
+								variant="outline"
+							>
+								{expiryLabel(proposal.expiresAt)}
+							</Badge>
+						</div>
+						<Text as="p" className="m-0" role="body">
+							<span className="text-kumo-subtle">If you approve: </span>
+							the Work item may start with the scope it asked for.
+						</Text>
+						<div className="flex flex-wrap gap-2">
+							<Button
+								disabled={decide.isPending}
+								icon={<Check size={14} />}
+								onClick={() =>
+									decide.mutate({
+										proposalId: proposal.id,
+										version: proposal.version,
+										decision: "approved",
+										workItemId: proposal.workItemId,
+									})
+								}
+							>
+								Approve
+							</Button>
+							<Button
+								disabled={decide.isPending}
+								icon={<X size={14} />}
+								onClick={() =>
+									decide.mutate({
+										proposalId: proposal.id,
+										version: proposal.version,
+										decision: "rejected",
+										workItemId: proposal.workItemId,
+									})
+								}
+								variant="secondary"
+							>
+								Reject
+							</Button>
+						</div>
+						<Collapsible>
+							<CollapsibleTrigger className="-mx-2 w-fit px-2 text-kumo-subtle">
+								Details
+							</CollapsibleTrigger>
+							<CollapsibleContent>
+								<CodeBlock
+									className="mt-2 max-h-64 overflow-auto"
+									code={JSON.stringify(
+										{
+											action: proposal.action,
+											authority: proposal.authorityKey,
+											proposal: proposal.proposal,
+										},
+										null,
+										2,
+									)}
+									lang="json"
+									showCopyButton
+								/>
+							</CollapsibleContent>
+						</Collapsible>
+					</Surface>
+				))}
+			</ul>
+			{decide.isSuccess ? (
+				<div role="status">
+					<Text as="p" className="m-0" role="body">
+						{decide.variables?.decision === "approved"
+							? "Approved. The Work item can start."
+							: "Rejected. The Work item stays waiting."}
+					</Text>
+				</div>
+			) : null}
+			<MutationError error={decide.error} />
+		</section>
+	);
+}
+
+function WorkStartHistory() {
 	const client = useQueryClient();
 	const paging = useCursorPaging<{ at: string; id: string }>();
-	const approvalOptions = workApprovalsQueryOptions(paging.cursor);
-	const query = useQuery(approvalOptions);
-	const pendingApprovals = useQuery(workPendingApprovalsQueryOptions());
-	const runtimeApprovals = useQuery(pendingApprovalsQueryOptions());
-	const delegate = useMutation({
-		mutationFn: (approval: ApprovalRequest) =>
-			osApi.tediApprovals.resolve({
-				id: approval.id,
-				status: approvalDecision(approval).recommendation,
-				delegateRecommendation: true,
-			}),
-		onSuccess: () =>
-			client.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
-	});
-	const [selectedRuntimeIds, setSelectedRuntimeIds] = useState<string[]>([]);
-	const [reviewRuntimeIds, setReviewRuntimeIds] = useState<string[]>([]);
-	const [rationales, setRationales] = useState<Record<string, string>>({});
+	const query = useQuery(workApprovalsQueryOptions(paging.cursor));
 	const [mobileProposalOpen, setMobileProposalOpen] = useState(false);
 	const propose = useMutation({
 		mutationFn: (value: z.output<typeof approvalProposalSchema>) =>
@@ -163,512 +759,169 @@ export function WorkApprovalsPage() {
 		validateOn: "submit",
 		onSubmit: ({ value }) => propose.mutate(value),
 	});
-	const decide = useMutation({
-		mutationFn: ({
-			proposalId,
-			version,
-			decision,
-		}: {
-			proposalId: string;
-			version: number;
-			decision: "approved" | "rejected";
-			workItemId: string;
-		}) =>
-			osApi.workApprovals.decide({
-				proposalId,
-				expectedProposalVersion: version,
-				decision,
-				rationale: rationales[proposalId]?.trim() ?? "",
-			}),
-		onSuccess: async (_value, variables) => {
-			paging.reset();
-			await Promise.all([
-				client.invalidateQueries({ queryKey: osQueryKeys.workApprovals() }),
-				client.invalidateQueries({
-					queryKey: workItemReadinessQueryOptions(variables.workItemId)
-						.queryKey,
-				}),
-				client.invalidateQueries({
-					queryKey: workSchedulerQueryOptions().queryKey,
-				}),
-				client.invalidateQueries({
-					queryKey: workFleetQueryOptions().queryKey,
-				}),
-			]);
-		},
-	});
-	useEffect(() => {
-		const currentIds = new Set(
-			(runtimeApprovals.data?.data ?? []).map((approval) => approval.id),
-		);
-		setSelectedRuntimeIds((ids) => {
-			const next = ids.filter((id) => currentIds.has(id));
-			return next.length === ids.length ? ids : next;
-		});
-	}, [runtimeApprovals.data]);
-	const approvalRows = query.data?.data ?? [];
-	const pendingDecisions = (pendingApprovals.data?.data ?? []).filter(
-		({ effectiveStatus, canDecide }) =>
-			effectiveStatus === "pending" && canDecide,
-	);
-	const proposalHistory = approvalRows.filter(
+	const rows = (query.data?.data ?? []).filter(
 		({ effectiveStatus, canDecide }) =>
 			effectiveStatus !== "pending" || !canDecide,
 	);
 	return (
-		<Page width="xl">
-			<WorkPageHeader
-				title="Approvals"
-				description="Decisions waiting for you, and approvals that let work start."
-			/>
-			<PageSection aria-labelledby="runtime-approvals-title">
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle id="runtime-approvals-title">
-							Actions waiting for approval
-						</SectionTitle>
-						<SectionDescription>
-							Actions a tedi or automation paused until someone approves them.
-							Check what each one will do before you approve it.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-				{selectedRuntimeIds.length > 0 ? (
-					<div className="flex flex-wrap items-center gap-2">
-						<Text as="span" role="label">
-							{selectedRuntimeIds.length} of 25 selected
-						</Text>
-						<Button
-							disabled={reviewRuntimeIds.length > 0}
-							onClick={() => setReviewRuntimeIds([...selectedRuntimeIds])}
-						>
-							Review selected requests
-						</Button>
-						<Button
-							variant="outline"
-							disabled={reviewRuntimeIds.length > 0}
-							onClick={() => setSelectedRuntimeIds([])}
-						>
-							Clear selection
-						</Button>
-					</div>
-				) : null}
-				{reviewRuntimeIds.length > 0 ? (
-					<ApprovalManifestReview
-						key={reviewRuntimeIds.join(":")}
-						approvalRequestIds={reviewRuntimeIds}
-						onClose={() => {
-							setReviewRuntimeIds([]);
-							setSelectedRuntimeIds([]);
-						}}
-					/>
-				) : null}
-				{delegate.data ? (
-					<ApprovalDecisionResult approval={delegate.data} />
-				) : null}
-				{runtimeApprovals.isPending ? (
-					<WorkListSkeleton />
-				) : runtimeApprovals.isError ? (
-					<WorkReadFailure
-						title="Waiting actions unavailable"
-						error={runtimeApprovals.error}
-					/>
-				) : runtimeApprovals.data.data.length === 0 ? (
-					<WorkEmpty
-						title="No runtime decisions need attention"
-						description="When a tedi or automation pauses for your approval, it appears here."
-					/>
-				) : (
-					<ul className="m-0 grid list-none gap-2 p-0">
-						{runtimeApprovals.data.data.map((approval) => (
-							<Surface
-								key={approval.id}
-								className="grid gap-3 px-3 py-3"
-								render={<li />}
-							>
-								<ApprovalDecisionCopy approval={approval} />
-								<div className="flex flex-wrap gap-x-4 gap-y-1">
-									<Text as="span" role="label" tone="secondary">
-										Expires{" "}
-										<time
-											dateTime={approval.expiresAt}
-											title={absoluteTime(approval.expiresAt)}
-										>
-											{absoluteTime(approval.expiresAt)}
-										</time>
-									</Text>
-								</div>
-								<Collapsible>
-									<CollapsibleTrigger>
-										Exact payload and evidence
-									</CollapsibleTrigger>
-									<CollapsibleContent>
-										<CodeBlock
-											className="mt-2 max-h-64 overflow-auto"
-											code={JSON.stringify(
-												{
-													approvalRequestId: approval.id,
-													description: approval.description,
-													payload: approval.payload,
-													evidenceRefs: approval.review.evidenceRefs,
-													timeout: approval.review.timeout,
-												},
-												null,
-												2,
-											)}
-											lang="json"
-											showCopyButton
-										/>
-									</CollapsibleContent>
-								</Collapsible>
-								{approval.actionType === "browser.live_view_takeover" ? (
-									<BrowserTakeoverLiveView approvalId={approval.id} />
-								) : null}
-								{approval.review.decisionMode === "approve_or_reject" ? (
-									<div className="flex flex-wrap gap-2">
-										<Button
-											disabled={delegate.isPending}
-											onClick={() => delegate.mutate(approval)}
-										>
-											Decide for me
-										</Button>
-										<MutationError error={delegate.error} />
-										<Button
-											variant="outline"
-											aria-pressed={selectedRuntimeIds.includes(approval.id)}
-											disabled={
-												reviewRuntimeIds.length > 0 ||
-												(!selectedRuntimeIds.includes(approval.id) &&
-													selectedRuntimeIds.length >= 25)
-											}
-											onClick={() =>
-												setSelectedRuntimeIds((ids) =>
-													ids.includes(approval.id)
-														? ids.filter((id) => id !== approval.id)
-														: [...ids, approval.id],
-												)
-											}
-										>
-											{selectedRuntimeIds.includes(approval.id)
-												? "Remove from review"
-												: "Add to ordered review"}
-										</Button>
-										<Button
-											disabled={
-												reviewRuntimeIds.length > 0 ||
-												selectedRuntimeIds.length > 0
-											}
-											onClick={() => {
-												setSelectedRuntimeIds([approval.id]);
-												setReviewRuntimeIds([approval.id]);
-											}}
-										>
-											Review exact request
-										</Button>
-									</div>
-								) : null}
-							</Surface>
-						))}
-					</ul>
-				)}
-			</PageSection>
-			<PageSection aria-label="Past approval decisions">
-				<ApprovalProvenanceHistory />
-			</PageSection>
-			<PageSection aria-labelledby="work-admission-title">
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle id="work-admission-title">
-							Approvals to start work
-						</SectionTitle>
-						<SectionDescription>
-							Approvals a Work item needs before it can start.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-				{pendingApprovals.isPending ? (
-					<WorkListSkeleton />
-				) : pendingApprovals.isError ? (
-					<WorkReadFailure
-						title="Approvals unavailable"
-						error={pendingApprovals.error}
-					/>
-				) : pendingDecisions.length === 0 &&
-				  approvalRows.length === 0 &&
-				  !query.isPending &&
-				  !query.isError ? (
-					<WorkEmpty
-						title="No approval proposals"
-						description="There are no Work-scoped proposals in this bounded inbox."
-					/>
-				) : (
-					<>
-						{pendingDecisions.length ? (
-							<div className="grid gap-3" aria-label="Pending decisions">
-								{pendingDecisions.map(
-									({ proposal, effectiveStatus, canDecide, workItem }) => (
-										<Card key={proposal.id}>
-											<CardHeader>
-												<CardTitle>
-													{workItem ? (
-														<Link
-															variant="record"
-															href={`/work/items/${workItem.id}`}
-														>
-															{workItem.title}
-														</Link>
-													) : (
-														`Work Item ${proposal.workItemId}`
-													)}
-												</CardTitle>
-												<CardDescription>
-													{proposal.action} ·{" "}
-													{JSON.stringify(proposal.proposal)}
-												</CardDescription>
-											</CardHeader>
-											<CardContent className="grid gap-2">
-												<div className="flex flex-wrap gap-2">
-													<Badge
-														variant={
-															effectiveStatus === "approved"
-																? "success"
-																: effectiveStatus === "rejected"
-																	? "error"
-																	: "warning"
-														}
-													>
-														{sentenceCase(effectiveStatus)}
-													</Badge>
-													<Badge variant="outline">
-														{proposal.authorityKey}
-													</Badge>
-													<Text as="span" role="body" tone="secondary">
-														Version {proposal.version} · expires{" "}
-														<time
-															dateTime={proposal.expiresAt}
-															title={absoluteTime(proposal.expiresAt)}
-														>
-															{absoluteTime(proposal.expiresAt)}
-														</time>
-													</Text>
-												</div>
-												<Text as="p" role="body" className="m-0">
-													{proposal.requestRationale}
-												</Text>
-												{effectiveStatus === "pending" && canDecide ? (
-													<>
-														<Textarea
-															aria-label={`Rationale for ${proposal.id}`}
-															placeholder="Decision rationale"
-															value={rationales[proposal.id] ?? ""}
-															onChange={(event) =>
-																setRationales((current) => ({
-																	...current,
-																	[proposal.id]: event.target.value,
-																}))
-															}
-														/>
-														<div className="flex gap-2">
-															<Button
-																disabled={
-																	!rationales[proposal.id]?.trim() ||
-																	decide.isPending
-																}
-																onClick={() =>
-																	decide.mutate({
-																		proposalId: proposal.id,
-																		version: proposal.version,
-																		decision: "approved",
-																		workItemId: proposal.workItemId,
-																	})
-																}
-															>
-																Approve exact proposal
-															</Button>
-															<Button
-																variant="destructive"
-																disabled={
-																	!rationales[proposal.id]?.trim() ||
-																	decide.isPending
-																}
-																onClick={() =>
-																	decide.mutate({
-																		proposalId: proposal.id,
-																		version: proposal.version,
-																		decision: "rejected",
-																		workItemId: proposal.workItemId,
-																	})
-																}
-															>
-																Reject
-															</Button>
-														</div>
-													</>
-												) : null}
-											</CardContent>
-										</Card>
-									),
-								)}
-							</div>
-						) : null}
-						<Collapsible>
-							<CollapsibleTrigger>
-								Other decisions and history ({proposalHistory.length})
-							</CollapsibleTrigger>
-							<CollapsibleContent>
-								{query.isPending ? (
-									<WorkListSkeleton />
-								) : query.isError ? (
-									<WorkReadFailure
-										title="Approval history unavailable"
-										error={query.error}
-									/>
-								) : null}
-								<SectionCollection
-									title="Other decisions and history"
-									description="Past decisions and pending decisions assigned to other approvers."
-									empty="No observational approval records."
-								>
-									{proposalHistory.length
-										? proposalHistory.map(
-												({ proposal, effectiveStatus, workItem }) => (
-													<li
-														key={proposal.id}
-														className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
-													>
-														<div className="grid min-w-0 gap-1">
-															<Text
-																as="strong"
-																role="body"
-																tone="strong"
-																className="truncate"
-															>
-																{workItem ? (
-																	<Link
-																		variant="record"
-																		href={`/work/items/${workItem.id}`}
-																	>
-																		{workItem.title}
-																	</Link>
-																) : (
-																	`Work Item ${proposal.workItemId}`
-																)}
-															</Text>
-															<Text as="span" role="label" tone="secondary">
-																{proposal.action} · {proposal.requestRationale}
-															</Text>
-														</div>
-														<div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
-															<Badge
-																variant={
-																	effectiveStatus === "approved"
-																		? "success"
-																		: effectiveStatus === "rejected"
-																			? "error"
-																			: "warning"
-																}
-															>
-																{sentenceCase(effectiveStatus)}
-															</Badge>
-															<Badge variant="outline">
-																{proposal.authorityKey}
-															</Badge>
-														</div>
-													</li>
-												),
-											)
-										: undefined}
-								</SectionCollection>
-							</CollapsibleContent>
-						</Collapsible>
-					</>
-				)}
-				<MutationError error={decide.error} />
-				<PageControls
-					hasPrevious={paging.hasPrevious}
-					hasNext={Boolean(query.data?.hasMore && query.data.nextCursor)}
-					onPrevious={paging.reset}
-					onBack={paging.previous}
-					onNext={() => {
-						if (query.data?.nextCursor) paging.next(query.data.nextCursor);
-					}}
+		<PageSection
+			aria-labelledby="work-start-history-title"
+			className="pb-24 md:pb-8"
+		>
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="work-start-history-title">
+						Work start approvals
+					</SectionTitle>
+					<SectionDescription>
+						Decisions that let a Work item start, and requests waiting on
+						someone else.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
+			{query.isPending ? (
+				<WorkListSkeleton />
+			) : query.isError ? (
+				<WorkReadFailure
+					title="Work start approvals unavailable"
+					error={query.error}
 				/>
-				<ResponsiveFormSurface
-					collapse="always"
-					title="Request approval"
-					description="Create a new request for a different approver. To approve an existing request, use its decision card in the inbox above."
-					mobileDescription="Request approval from someone else. Existing requests are decided in the inbox."
-					mobileOpen={mobileProposalOpen}
-					onMobileOpenChange={setMobileProposalOpen}
+			) : rows.length === 0 ? (
+				<WorkEmpty
+					title="No Work start approvals"
+					description="Approvals a Work item needed before it could start appear here."
+				/>
+			) : (
+				<ul className="m-0 grid list-none divide-y divide-kumo-hairline p-0">
+					{rows.map(({ proposal, effectiveStatus, workItem }) => (
+						<li
+							className="grid min-w-0 gap-1 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-3"
+							key={proposal.id}
+						>
+							<div className="grid min-w-0 gap-0.5">
+								<Text as="span" className="truncate" role="body" tone="strong">
+									{workItem ? (
+										<Link variant="record" href={`/work/items/${workItem.id}`}>
+											{workItem.title}
+										</Link>
+									) : (
+										"Work item"
+									)}
+								</Text>
+								<Text
+									as="span"
+									className="line-clamp-2"
+									role="label"
+									tone="secondary"
+								>
+									{sanitizeUntrustedText(proposal.requestRationale)}
+								</Text>
+							</div>
+							<Badge
+								className="w-fit"
+								variant={
+									effectiveStatus === "approved"
+										? "success"
+										: effectiveStatus === "rejected"
+											? "error"
+											: effectiveStatus === "pending"
+												? "outline"
+												: "warning"
+								}
+							>
+								{effectiveStatus === "pending"
+									? "Waiting on someone else"
+									: effectiveStatus.charAt(0).toUpperCase() +
+										effectiveStatus.slice(1)}
+							</Badge>
+						</li>
+					))}
+				</ul>
+			)}
+			<PageControls
+				hasPrevious={paging.hasPrevious}
+				hasNext={Boolean(query.data?.hasMore && query.data.nextCursor)}
+				onPrevious={paging.reset}
+				onBack={paging.previous}
+				onNext={() => {
+					if (query.data?.nextCursor) paging.next(query.data.nextCursor);
+				}}
+			/>
+			<ResponsiveFormSurface
+				collapse="always"
+				title="Ask someone to approve a Work item"
+				description="Send a new approval request to another person or tedi."
+				mobileDescription="Send a new approval request to another person or tedi."
+				mobileOpen={mobileProposalOpen}
+				onMobileOpenChange={setMobileProposalOpen}
+			>
+				<form
+					className="grid gap-3 md:grid-cols-2"
+					onSubmit={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						void form.handleSubmit();
+					}}
 				>
-					<form
-						className="grid gap-3 md:grid-cols-2"
-						onSubmit={(event) => {
-							event.preventDefault();
-							event.stopPropagation();
-							void form.handleSubmit();
-						}}
+					{(
+						[
+							["workItemId", "Work Item id"],
+							["workItemVersion", "Work Item version"],
+							["authorityKey", "Authority key"],
+							["approverId", "Approver id"],
+						] as const
+					).map(([name, label]) => (
+						<FormField key={name} form={form} name={name} label={label}>
+							{(field, meta) => <FormInput field={field} {...meta} />}
+						</FormField>
+					))}
+					<FormField form={form} name="approverType" label="Approver type">
+						{(field, meta) => (
+							<FormSelect field={field} {...meta}>
+								<SelectItem value="user">Person</SelectItem>
+								<SelectItem value="tedi">Tedi</SelectItem>
+							</FormSelect>
+						)}
+					</FormField>
+					<FormField form={form} name="expiresAt" label="Expiry">
+						{(field, meta) => (
+							<DateTimePicker
+								id={meta.id}
+								aria-label="Approval expiry"
+								aria-describedby={meta.errorId ?? meta.descriptionId}
+								aria-invalid={meta.invalid}
+								min={new Date()}
+								onChange={field.handleChange}
+								value={field.state.value}
+							/>
+						)}
+					</FormField>
+					<FormField
+						form={form}
+						name="requestRationale"
+						label="Why it is needed"
 					>
-						{(
-							[
-								["workItemId", "Work Item id"],
-								["workItemVersion", "Work Item version"],
-								["authorityKey", "Authority key"],
-								["approverId", "Approver id"],
-							] as const
-						).map(([name, label]) => (
-							<FormField key={name} form={form} name={name} label={label}>
-								{(field, meta) => <FormInput field={field} {...meta} />}
-							</FormField>
-						))}
-						<FormField form={form} name="approverType" label="Approver type">
-							{(field, meta) => (
-								<FormSelect field={field} {...meta}>
-									<SelectItem value="user">User</SelectItem>
-									<SelectItem value="tedi">Tedi</SelectItem>
-								</FormSelect>
-							)}
-						</FormField>
-						<FormField form={form} name="expiresAt" label="Expiry">
-							{(field, meta) => (
-								<DateTimePicker
-									id={meta.id}
-									aria-label="Approval expiry"
-									aria-describedby={meta.errorId ?? meta.descriptionId}
-									aria-invalid={meta.invalid}
-									min={new Date()}
-									onChange={field.handleChange}
-									value={field.state.value}
-								/>
-							)}
-						</FormField>
-						<FormField
-							form={form}
-							name="requestRationale"
-							label="Request rationale"
-						>
-							{(field, meta) => <FormTextarea field={field} {...meta} />}
-						</FormField>
-						<FormField form={form} name="proposalJson" label="Proposal JSON">
-							{(field, meta) => (
-								<FormTextarea
-									field={field}
-									{...meta}
-									className="min-h-32 font-mono"
-								/>
-							)}
-						</FormField>
-						<Button
-							className="md:col-span-2"
-							disabled={propose.isPending}
-							type="submit"
-						>
-							Send approval request
-						</Button>
-						<ApprovalRequestError error={propose.error} />
-					</form>
-				</ResponsiveFormSurface>
-			</PageSection>
-		</Page>
+						{(field, meta) => <FormTextarea field={field} {...meta} />}
+					</FormField>
+					<FormField form={form} name="proposalJson" label="Proposal JSON">
+						{(field, meta) => (
+							<FormTextarea
+								field={field}
+								{...meta}
+								className="min-h-32 font-mono"
+							/>
+						)}
+					</FormField>
+					<Button
+						className="md:col-span-2"
+						disabled={propose.isPending}
+						type="submit"
+					>
+						Send request
+					</Button>
+					<ApprovalRequestError error={propose.error} />
+				</form>
+			</ResponsiveFormSurface>
+		</PageSection>
 	);
 }

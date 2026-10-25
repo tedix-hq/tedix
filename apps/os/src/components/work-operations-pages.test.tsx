@@ -725,7 +725,7 @@ describe("Session question grouping", () => {
 });
 
 describe("Work approval request errors", () => {
-	it("shows pending decisions absent from the first 50 history rows, with history below", async () => {
+	it("shows pending decisions absent from the first 50 history rows, with history in its tab", async () => {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 		});
@@ -774,14 +774,11 @@ describe("Work approval request errors", () => {
 		expect(container.textContent).not.toContain(
 			"Decision for another approver",
 		);
-		const trigger = Array.from(container.querySelectorAll("button")).find(
-			(button) => button.textContent?.includes("Other decisions and history"),
-		);
-		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-		await act(async () => trigger?.click());
-		expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+		const history = Array.from(container.querySelectorAll("[role=tab]")).find(
+			(tab) => tab.textContent?.trim() === "History",
+		) as HTMLElement | undefined;
+		await act(async () => history?.click());
 		expect(container.textContent).toContain("Decision for another approver");
-		expect(container.textContent).toContain("Decision I can make");
 	});
 
 	it("explains self-request rejection while preserving other errors", () => {

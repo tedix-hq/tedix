@@ -471,7 +471,7 @@ describe("ApprovalCard", () => {
 		expect(html).toContain("Reject");
 		expect(html).toContain("Decide for me");
 		expect(html).toContain("If you approve:");
-		expect(html).toContain("Recommended:");
+		expect(html).toContain("Tedix suggests:");
 		expect(html).not.toContain('disabled=""');
 	});
 
@@ -484,7 +484,7 @@ describe("ApprovalCard", () => {
 				})}
 			/>,
 		);
-		expect(low).toContain("Recommended:</strong> Approve");
+		expect(low).toContain("Tedix suggests:</strong> Approve");
 		const high = renderToStaticMarkup(
 			<ApprovalCard
 				approval={approval({
@@ -493,7 +493,7 @@ describe("ApprovalCard", () => {
 				})}
 			/>,
 		);
-		expect(high).toContain("Recommended:</strong> Reject");
+		expect(high).toContain("Tedix suggests:</strong> Reject");
 	});
 
 	it("disables both buttons while a resolution is in flight", () => {

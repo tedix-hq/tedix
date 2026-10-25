@@ -19,6 +19,7 @@ export const PLATFORM_CRON_IDS = [
 	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
+	"approval-expiry",
 	"work-approval-redrive",
 	"commitment-wakes",
 	"stall-recovery",
@@ -71,6 +72,7 @@ const everyTwoMinuteIds = [
 	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
+	"approval-expiry",
 	"work-attempt-lease-sweep",
 	"dispatcher-health-alarm",
 ] as const;

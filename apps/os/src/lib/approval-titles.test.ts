@@ -17,6 +17,17 @@ describe("plainApprovalTitle", () => {
 			null,
 			"Run a skill in Example",
 		],
+		// The gateway's retry note never reaches the title, in either wording.
+		[
+			"Approve example-unified:tedi_146194__run_skill_workflow. After deciding in Tedix OS, retry the identical call with approvalRequestId.",
+			null,
+			"Run a skill in Example",
+		],
+		[
+			"Create api key. Nothing has run yet; approving allows one identical retry of this call.",
+			null,
+			"Create api key",
+		],
 		[
 			"Approve Kernel write: google_gmail.create_draft on google-gmail-tedix",
 			null,

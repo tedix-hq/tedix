@@ -13,13 +13,15 @@ import { approvalsFromRunSet } from "./chat-cards";
 import {
 	type ApprovalListItem,
 	approvalAttentionCount,
-	ApprovalNotifications,
-	approvalGroupHeadingClassName,
 	collapseIdenticalItems,
 	delegationHoldChip,
 	groupApprovalItems,
 	isActionableHomeApproval,
 	isActionableRuntimeApproval,
+} from "./approval-inbox";
+import {
+	ApprovalNotifications,
+	approvalGroupHeadingClassName,
 } from "./approval-notifications";
 
 describe("approval popover authority", () => {
@@ -336,8 +338,9 @@ describe("collapseIdenticalItems", () => {
 				kind: "Action",
 				where: null,
 				chip: { label: "Change", tone: "warning" },
+				details: [],
 				tedi: { id: tedi, name: tedi },
-			}) as ApprovalListItem;
+			}) as unknown as ApprovalListItem;
 		expect(
 			collapseIdenticalItems([
 				item("a", "Create factory"),

@@ -63,7 +63,7 @@ try {
 					exact: true,
 				})
 				.waitFor();
-			assert.equal(await panel.getByText(/no verified description/).count(), 0);
+			assert.equal(await panel.getByText(/can.t describe/).count(), 0);
 			assert.equal(await panel.getByRole("status").count(), 0);
 			await panel
 				.getByRole("button", {
@@ -84,7 +84,11 @@ try {
 			} else {
 				await panel
 					.getByRole("status")
-					.getByText(outcome === "approved" ? /Permission saved/ : /Rejected/)
+					.getByText(
+						outcome === "approved"
+							? /^Approved: .*The caller can now run it once\./
+							: /^Rejected: .*Nothing ran\./,
+					)
 					.waitFor();
 			}
 			assert.equal(

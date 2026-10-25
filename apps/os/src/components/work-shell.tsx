@@ -16,6 +16,10 @@ import { OS_COPY } from "@/shared/os-copy";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { todayShortcut } from "@/lib/today-digest";
 import { WorkMoreViewsMenu } from "@/components/work-more-views-menu";
+// The shell's own bar (.fd-work-bar, .fd-work-navigation) is styled here. A
+// Work page that loads no Feed or Deck component (Approvals, opened directly)
+// otherwise rendered the bar unstyled: three stacked links over the content.
+import "./feed-deck.css";
 
 const WorkWebMcpTools = lazy(() =>
 	import("@/components/work-webmcp-tools").then((module) => ({

@@ -678,6 +678,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tediAppAssignments/validateMcpAccess": "mcp:tedis.read",
 	"tediAppAssignments/validateMcpAccessBatch": "mcp:tedis.read",
 	"tediApprovals/cancel": "platform:admin",
+	"tediApprovals/clearExpired": "mcp:tedis.write",
 	"tediApprovals/create": "platform:admin",
 	"tediApprovals/createProvisionalOutcome": "platform:admin",
 	"tediApprovals/getById": "mcp:tedis.read",
