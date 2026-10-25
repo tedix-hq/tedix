@@ -411,6 +411,8 @@ export function kernelWriteSummary(
 			args.startColumn + width - 1,
 		);
 		summary = `Update cells ${start === end ? start : `${start}:${end}`} in ${outputTitle ? name : "your sheet"}`;
+	} else if (tool === "rename_os_gadget" && typeof args.name === "string") {
+		summary = `Rename the app to “${plainReceiptTitle(args.name)}”`;
 	} else if (tool && OUTPUT_EDIT_RECEIPT_VERBS.has(tool)) {
 		summary =
 			tool === "rename_os_output" && typeof args.title === "string"

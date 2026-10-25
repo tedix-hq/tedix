@@ -110,7 +110,15 @@ import {
 	renderWriteDeclined,
 	type WriteProposalEnv,
 } from "./write-proposal";
-import { correctWriteRoute } from "./write-tool-intent";
+import {
+	correctWriteRoute,
+	type WorkpieceRenameIntent,
+} from "./write-tool-intent";
+import {
+	directRenameKernelResult,
+	organizationGatewayApp,
+	resolveDirectRename,
+} from "./direct-rename";
 
 /** Explicit or run-stamped parent tedi of a nested delegation. */
 function readParentTediId(...sources: Array<unknown>): string | null {
@@ -454,6 +462,7 @@ async function planAndParkKernelWriteProposal(
 	>[0]["workspaceContext"],
 	executionAttempts: KernelExecutionAttempt[],
 	onStage?: (stage: KernelWriteProposalStage) => void,
+	directRename?: WorkpieceRenameIntent | null,
 ): Promise<{
 	writeProposal: KernelWriteProposal | null;
 	writeProposalDeclined: KernelWriteProposalDeclined | null;
@@ -510,6 +519,7 @@ async function planAndParkKernelWriteProposal(
 				actingUserId: input.descopeUserId,
 				content,
 				workspaceContext,
+				directRename,
 				gatewayContext: { organizationId, runId, sessionKey: conversationId },
 				onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
 				model: writeModel?.model ?? null,
@@ -944,13 +954,51 @@ export async function runKernelTurnWork(
 			assistantContent: `A delegation to ${label} is already waiting for a decision on the existing card. No additional request was dispatched. To change the request, reject that card first, then describe the updated task.`,
 		};
 	}
-	// A plain rename of the selected app or output keeps its rename capability
-	// on the persisted route, whatever capability the router guessed.
+	// A rename of a Workspace app or output (or the undo of the last one) is
+	// one exact call. It keeps its capability on the persisted route whatever
+	// the router guessed, and survives a router that produced no decision.
+	const directRename =
+		observeOnly || billingDenialCode || residencyDenialMessage
+			? null
+			: await resolveDirectRename(deps.db, {
+					organizationId,
+					conversationId,
+					runId,
+					content,
+					workspaceContext,
+				}).catch((error: unknown) => {
+					console.warn({
+						component: "kernel.turn_work",
+						event: "direct_rename_resolve_failed",
+						error: safeExceptionTopology(error),
+					});
+					return null;
+				});
+	if (directRename && !kernelResult) {
+		const appSlug =
+			directRename.appSlug ??
+			(await organizationGatewayApp(deps.db, organizationId).catch(() => null));
+		if (appSlug) kernelResult = directRenameKernelResult(directRename, appSlug);
+	} else if (
+		directRename?.reason === "undo" &&
+		kernelResult &&
+		["answer_in_home", "ask_human"].includes(kernelResult.route.routeKind)
+	) {
+		const appSlug =
+			directRename.appSlug ??
+			(await organizationGatewayApp(deps.db, organizationId).catch(() => null));
+		if (appSlug)
+			kernelResult = {
+				...kernelResult,
+				route: directRenameKernelResult(directRename, appSlug).route,
+			};
+	}
 	if (kernelResult?.route) {
 		const correctedRoute = correctWriteRoute(
 			kernelResult.route,
 			content,
 			workspaceContext,
+			directRename?.intent,
 		);
 		if (correctedRoute !== kernelResult.route)
 			kernelResult = { ...kernelResult, route: correctedRoute };
@@ -1026,6 +1074,7 @@ export async function runKernelTurnWork(
 				workspaceContext,
 				executionAttempts,
 				(stage) => stageTimings.mark(stage),
+				directRename?.intent,
 			);
 	stageTimings.mark("writeProposalPlanEnded");
 	const writeProposalActive = Boolean(writeProposal && writeApprovalRequestId);

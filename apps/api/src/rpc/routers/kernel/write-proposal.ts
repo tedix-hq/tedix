@@ -43,6 +43,7 @@ import {
 	renameThisConversationArgs,
 	correctWriteRoute,
 	workpieceRenameIntent,
+	type WorkpieceRenameIntent,
 } from "./write-tool-intent";
 import {
 	isWriteCapable,
@@ -438,6 +439,8 @@ export async function planKernelWriteProposal(args: {
 	content?: string;
 	/** Server-validated selection from the owning Home turn. */
 	workspaceContext?: WriteWorkspaceContext;
+	/** An exact rename resolved by the turn (target app/output, or an undo). */
+	directRename?: WorkpieceRenameIntent | null;
 	/** Kernel LLM. Required for writes — there is no heuristic fallback. */
 	model?: LanguageModel | null;
 	/** Decline reporter — receives the fail-soft reason for run metadata. */
@@ -462,14 +465,15 @@ export async function planKernelWriteProposal(args: {
 		return null;
 	};
 	if (args.route.routeKind !== "propose_tool_write") return null;
+	const workpieceRename =
+		args.directRename ??
+		(content ? workpieceRenameIntent(content, args.workspaceContext) : null);
 	const route = correctWriteRoute(
 		args.route,
 		content ?? "",
 		args.workspaceContext,
+		workpieceRename,
 	);
-	const workpieceRename = content
-		? workpieceRenameIntent(content, args.workspaceContext)
-		: null;
 	const draftSaveTarget = content
 		? outputDraftSaveTarget(content, args.workspaceContext)
 		: null;
@@ -521,7 +525,8 @@ export async function planKernelWriteProposal(args: {
 			texts: [content, route.rationale],
 		}).catch(() => null);
 		const capability = route.toolIntent?.capability ?? null;
-		const canonical = canonicalWriteToolName(capability, content);
+		const canonical =
+			workpieceRename?.toolName ?? canonicalWriteToolName(capability, content);
 		// A known primitive needs no catalog search and no selection pass: one
 		// Code Mode call resolves and describes it. A successful authorized call
 		// proves this transport works; it need not wait for a separate tools/list.
