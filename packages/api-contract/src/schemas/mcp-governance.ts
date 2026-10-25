@@ -1,21 +1,32 @@
 /**
  * MCP tool-approval grant resolution — I/O schemas.
  *
- * Backs a single internal, service-binding-only endpoint that `apps/mcp`
- * calls to resolve (and, for a "once" grant, atomically consume) a durable
- * pre-authorization for a destructive `tools/call`. `apps/mcp` has no general
+ * Internal, service-binding-only endpoints that `apps/mcp` calls to verify
+ * authorization at the tool dispatch boundary. `apps/mcp` has no general
  * `@tedix/db` access (see root `AGENTS.md`/`CLAUDE.md` MCP Platform
  * invariants), so this is the compliant path instead of a direct D1 query
  * from the MCP edge — mirrors `tedis.listRuntimeMetaBySlugs`.
  *
- * This is a NEW, ISOLATED grant layer for the raw `tools/call` trust boundary
- * — NOT the kernel write-proposal approval system
- * (`decideKernelWriteApproval` in `packages/api-contract/src/utils/
- * approval-policy.ts`). Do not converge the two.
+ * Durable tool grants remain separate from Home's write-proposal approvals.
+ * The Home receipt verifier checks an already admitted exact call; it does
+ * not create a tool grant or make a new policy decision.
  */
 
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
+
+/** Exact Home write receipt, checked again at the MCP dispatch boundary. */
+export const ResolveHomeToolApprovalInputSchema = z.object({
+	organizationId: z.string().min(1),
+	userId: z.string().min(1),
+	appSlug: z.string().min(1),
+	toolName: z.string().min(1),
+	args: z.record(z.string(), JsonValueSchema),
+	approvalRequestId: z.uuid(),
+});
+export const ResolveHomeToolApprovalResponseSchema = z.object({
+	approved: z.boolean(),
+});
 
 export const ResolveSkillManifestAuthorizationInputSchema = z.object({
 	organizationId: z.string().min(1),

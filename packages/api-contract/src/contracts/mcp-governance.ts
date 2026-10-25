@@ -12,6 +12,8 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import {
+	ResolveHomeToolApprovalInputSchema,
+	ResolveHomeToolApprovalResponseSchema,
 	RequestOwnerToolApprovalInputSchema,
 	RequestOwnerToolApprovalResponseSchema,
 	ResolveOwnerSkillStartInputSchema,
@@ -32,6 +34,15 @@ export const mcpGovernanceContract = oc
 	.route({ tags: ["mcp-governance"], prefix: "/mcpGovernance" })
 	.errors(baseErrors)
 	.router({
+		resolveHomeToolApproval: oc
+			.route({
+				method: "POST",
+				path: "/resolve-home-tool-approval",
+				summary: "Verify an executing Home write's exact approval",
+				tags: ["internal"],
+			})
+			.input(ResolveHomeToolApprovalInputSchema)
+			.output(ResolveHomeToolApprovalResponseSchema),
 		requestOwnerToolApproval: oc
 			.route({
 				method: "POST",

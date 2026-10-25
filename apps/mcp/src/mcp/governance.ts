@@ -646,6 +646,8 @@ async function buildInputRequiredResult(
 }
 
 export interface DestructiveApprovalOptions {
+	/** Server-projected callable, rather than an aggregate tool's wire id. */
+	toolName?: string;
 	/** Bind a Code Mode retry to its source and inner arguments. */
 	requestBinding?: string;
 	/** Retry metadata. Canonical params are adapted by the stateless transport. */
@@ -738,6 +740,42 @@ export async function requireDestructiveToolApproval(
 	annotations?: ToolAnnotations | null,
 	options?: DestructiveApprovalOptions,
 ): Promise<CallToolResult | null> {
+	const homeApprovalId =
+		options?.extra?._meta?.["com.tedix/homeApprovalRequestId"];
+	if (
+		typeof homeApprovalId === "string" &&
+		agent.callerIdentity?.kernel === true &&
+		agent.callerIdentity.authType === "service" &&
+		agent.callerIdentity.userId &&
+		agent.app?.organizationId
+	) {
+		try {
+			const approval =
+				await agent.apiClient?.mcpGovernance.resolveHomeToolApproval({
+					organizationId: agent.app.organizationId,
+					userId: agent.callerIdentity.userId,
+					appSlug: agent.appSlug ?? "",
+					toolName: options?.toolName ?? tool.toolId,
+					args: JSON.parse(JSON.stringify(options?.args ?? {})),
+					approvalRequestId: homeApprovalId,
+				});
+			if (approval?.approved) {
+				emitGovernanceAuditEvent(
+					agent,
+					tool,
+					"destructive_approved",
+					"home_tool_approval",
+					{ approvalRequestId: homeApprovalId },
+				);
+				return null;
+			}
+		} catch {
+			// Receipt lookup failures cannot fall back to another approval path.
+		}
+		return approvalFailure(
+			"Home approval is unavailable or does not match this call. No side effect was executed.",
+		);
+	}
 	const isOwnedChannelBoundary = isTedixOwnedChannelPublishBoundary(
 		agent,
 		tool,
