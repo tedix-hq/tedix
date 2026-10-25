@@ -23,6 +23,13 @@ export default defineConfig({
 				bindings: { SECRETS_MASTER_KEY: "pi-native-fixture-token" },
 				r2Buckets: ["TEDI_STORAGE"],
 				d1Databases: ["DB"],
+				// test:workers runs this suite separately: recovery fixtures abort local Workflow state.
+				workflows: {
+					WORKFLOW_CALLBACK: {
+						name: "callback-fixture",
+						className: "WorkflowCallbackFixture",
+					},
+				},
 				durableObjects: {
 					DURABLE_CODE_RECOVERY: {
 						className: "DurableCodeRecoveryFixture",
