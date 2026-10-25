@@ -12,6 +12,12 @@ import {
 	PaginationSchema,
 	SuccessResponseSchema,
 } from "../schemas/common";
+import {
+	AuditActorTypeSchema,
+	AuditExportInputSchema,
+	AuditExportOutputSchema,
+	AuditSearchFiltersSchema,
+} from "../schemas/audit";
 
 // =============================================================================
 // SCHEMAS
@@ -21,19 +27,7 @@ const AuditEventSchema = z.object({
 	id: z.string(),
 	organizationId: z.string(),
 	actorId: z.string(),
-	// "kernel" = tenant control-plane actor (kernel direct tool
-	// calls) — distinguishes "Home used a tool for this turn" from generic
-	// internal service callers (audit contract).
-	actorType: z.enum([
-		"user",
-		"service",
-		"tedi",
-		"m2m",
-		"api_key",
-		"anonymous",
-		"external_agent",
-		"kernel",
-	]),
+	actorType: AuditActorTypeSchema,
 	action: z.string(),
 	resourceType: z.string(),
 	resourceId: z.string().nullable(),
@@ -41,15 +35,6 @@ const AuditEventSchema = z.object({
 	ipAddress: z.string().nullable(),
 	userAgent: z.string().nullable(),
 	timestamp: z.string().datetime(),
-});
-
-const AuditSearchFiltersSchema = z.object({
-	actorId: z.string().optional(),
-	action: z.string().optional(),
-	resourceType: z.string().optional(),
-	resourceId: z.string().optional(),
-	startDate: z.string().datetime().optional(),
-	endDate: z.string().datetime().optional(),
 });
 
 // =============================================================================
@@ -85,6 +70,25 @@ export const auditContract = oc
 					pagination: PaginationMetaSchema,
 				}),
 			),
+
+		/**
+		 * Export audit events matching the search filters as a file
+		 * GET /audit/export
+		 *
+		 * Newest first, capped at `limit` rows. Spilled metadata exports its
+		 * stored pointer; bodies are not hydrated.
+		 */
+		export: oc
+			.route({
+				tags: ["REST"],
+				method: "GET",
+				path: "/export",
+				summary: "Export audit events",
+				description:
+					"Download audit events for the current organization as CSV or JSON Lines, using the same filters as audit search. Returns at most `limit` events (default 5000, maximum 10000), newest first. When matching events were left out, the filename ends `-truncated-<rows>` and JSON Lines end with an `_export` marker line.",
+			})
+			.input(AuditExportInputSchema)
+			.output(AuditExportOutputSchema),
 
 		/**
 		 * Get audit events for a specific resource
@@ -130,16 +134,7 @@ export const auditContract = oc
 				z.object({
 					organizationId: z.uuid(),
 					actorId: z.string(),
-					actorType: z.enum([
-						"user",
-						"service",
-						"tedi",
-						"m2m",
-						"api_key",
-						"anonymous",
-						"external_agent",
-						"kernel",
-					]),
+					actorType: AuditActorTypeSchema,
 					action: z.string(),
 					resourceType: z.string(),
 					resourceId: z.string().optional(),

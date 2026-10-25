@@ -196,6 +196,7 @@
 		"./schemas/agent-turn-triage": "./src/schemas/agent-turn-triage.ts",
 		"./schemas/ai-gateway-attribution": "./src/schemas/ai-gateway-attribution.ts",
 		"./schemas/analytics": "./src/schemas/analytics.ts",
+		"./schemas/audit": "./src/schemas/audit.ts",
 		"./schemas/app": "./src/schemas/app.ts",
 		"./schemas/app-reference-maintenance": "./src/schemas/app-reference-maintenance.ts",
 		"./schemas/app-gating": "./src/schemas/app-gating.ts",

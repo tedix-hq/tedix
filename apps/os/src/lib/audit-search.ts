@@ -107,3 +107,19 @@ export function auditSearchInput(search: AuditSearch): {
 		...(action ? { action } : {}),
 	};
 }
+
+/**
+ * The `audit.export` filters for the current view: the same filters the trail
+ * applies, without its paging, so the file holds what the person narrowed to.
+ */
+export function auditExportFilters(search: AuditSearch): {
+	resourceType?: string;
+	action?: string;
+} {
+	const {
+		limit: _limit,
+		offset: _offset,
+		...filters
+	} = auditSearchInput(search);
+	return filters;
+}

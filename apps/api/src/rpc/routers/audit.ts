@@ -8,6 +8,12 @@
 import { implement } from "@orpc/server";
 import { auditContract } from "@tedix/api-contract/contracts/audit";
 import {
+	AUDIT_EXPORT_ATTRIBUTION_KEYS,
+	AUDIT_EXPORT_TRUNCATED_MARKER,
+	type AuditActorType,
+	type AuditExportFormat,
+} from "@tedix/api-contract/schemas/audit";
+import {
 	getAuditEventsByResource as getAuditEventsByResourceQuery,
 	insertAuditEvent,
 	searchAuditEvents as searchAuditEventsQuery,
@@ -30,6 +36,96 @@ export const AUDIT_READ_SCOPE = "analytics:read";
 // =============================================================================
 // HELPERS
 // =============================================================================
+
+type AuditEventRow = Awaited<
+	ReturnType<typeof searchAuditEventsQuery>
+>["data"][number];
+
+function toAuditEventOutput(e: AuditEventRow) {
+	return {
+		id: e.id,
+		organizationId: e.organizationId,
+		actorId: e.actorId,
+		// `external_agent` is in the contract's output enum and rows now carry
+		// it — every OS write through the MCP gateway is one. The cast must name
+		// every value this reader actually returns.
+		actorType: e.actorType as AuditActorType,
+		action: e.action,
+		resourceType: e.resourceType,
+		resourceId: e.resourceId,
+		metadata: e.metadata,
+		ipAddress: e.ipAddress,
+		userAgent: e.userAgent,
+		timestamp: e.timestamp.toISOString(),
+	};
+}
+
+type AuditEventOutput = ReturnType<typeof toAuditEventOutput>;
+
+/** Rows per search page while collecting an export. */
+export const AUDIT_EXPORT_PAGE_SIZE = 500;
+
+const AUDIT_EXPORT_BASE_COLUMNS = [
+	"timestamp",
+	"id",
+	"actorType",
+	"actorId",
+	"action",
+	"resourceType",
+	"resourceId",
+] as const;
+
+function csvCell(value: unknown): string | null {
+	if (value === undefined || value === null) return null;
+	return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function metadataRecord(
+	metadata: AuditEventOutput["metadata"],
+): Record<string, unknown> | null {
+	return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+		? (metadata as Record<string, unknown>)
+		: null;
+}
+
+/**
+ * One row per event: the fixed columns, the attribution keys present on any
+ * exported event (lifted from `metadata`), then the whole `metadata` as JSON.
+ * A spilled body stays the pointer it was stored as.
+ */
+function auditEventsCsvRows(events: AuditEventOutput[]): (string | null)[][] {
+	const attribution = AUDIT_EXPORT_ATTRIBUTION_KEYS.filter((key) =>
+		events.some((event) => metadataRecord(event.metadata)?.[key] != null),
+	);
+	return [
+		[...AUDIT_EXPORT_BASE_COLUMNS, ...attribution, "metadata"],
+		...events.map((event) => {
+			const metadata = metadataRecord(event.metadata);
+			return [
+				...AUDIT_EXPORT_BASE_COLUMNS.map((column) => csvCell(event[column])),
+				...attribution.map((key) => csvCell(metadata?.[key])),
+				csvCell(event.metadata),
+			];
+		}),
+	];
+}
+
+/**
+ * `audit-events-<stamp>.<format>`; a capped export that left matching events
+ * out says so in its name: `audit-events-<stamp>-truncated-<rows>.<format>`.
+ */
+function exportFilename(
+	format: AuditExportFormat,
+	exportedAt: Date,
+	truncatedAt?: number,
+): string {
+	const stamp = exportedAt
+		.toISOString()
+		.replace(/\.\d{3}Z$/, "Z")
+		.replaceAll(":", "-");
+	const suffix = truncatedAt === undefined ? "" : `-truncated-${truncatedAt}`;
+	return `audit-events-${stamp}${suffix}.${format}`;
+}
 
 // =============================================================================
 // PROCEDURES
@@ -56,32 +152,7 @@ export const searchAuditEvents = authedOs.search
 		});
 
 		return {
-			data: data.map((e) => ({
-				id: e.id,
-				organizationId: e.organizationId,
-				actorId: e.actorId,
-				// `external_agent` is in the contract's output enum and rows now
-				// carry it — every OS write through the MCP gateway is one.
-				// Omitting it here made the cast lie about the values this reader
-				// actually returns, so a caller switching on the returned type had
-				// no arm for a principal that genuinely appears.
-				actorType: e.actorType as
-					| "user"
-					| "service"
-					| "tedi"
-					| "m2m"
-					| "api_key"
-					| "external_agent"
-					| "anonymous"
-					| "kernel",
-				action: e.action,
-				resourceType: e.resourceType,
-				resourceId: e.resourceId,
-				metadata: e.metadata,
-				ipAddress: e.ipAddress,
-				userAgent: e.userAgent,
-				timestamp: e.timestamp.toISOString(),
-			})),
+			data: data.map(toAuditEventOutput),
 			pagination: {
 				limit,
 				offset,
@@ -89,6 +160,81 @@ export const searchAuditEvents = authedOs.search
 				hasMore: offset + limit < total,
 			},
 		};
+	});
+
+export const exportAuditEvents = authedOs.export
+	.use(withAuthorization(AUDIT_READ_PERMISSION, AUDIT_READ_SCOPE))
+	.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const exportedAt = new Date();
+		// Pin the window to the export's start so events written while paging
+		// cannot shift the offsets; ids are deduplicated for the same reason.
+		const endDate =
+			input.endDate && new Date(input.endDate) < exportedAt
+				? input.endDate
+				: exportedAt.toISOString();
+
+		const filters = {
+			organizationId: orgId,
+			actorId: input.actorId,
+			action: input.action,
+			resourceType: input.resourceType,
+			resourceId: input.resourceId,
+			startDate: input.startDate,
+			endDate,
+		};
+		const seen = new Set<string>();
+		const events: AuditEventOutput[] = [];
+		// Page through the same search query the trail reads, so events kept in
+		// the logs store are exported alongside the main database's.
+		let offset = 0;
+		while (offset < input.limit) {
+			const pageLimit = Math.min(AUDIT_EXPORT_PAGE_SIZE, input.limit - offset);
+			const { data } = await searchAuditEventsQuery(context.db, {
+				...filters,
+				limit: pageLimit,
+				offset,
+			});
+			for (const row of data) {
+				if (seen.has(row.id)) continue;
+				seen.add(row.id);
+				events.push(toAuditEventOutput(row));
+			}
+			offset += data.length;
+			if (data.length < pageLimit) break;
+		}
+		// The cap was reached: one probe past it says whether events were left out.
+		const truncated =
+			offset >= input.limit &&
+			(
+				await searchAuditEventsQuery(context.db, {
+					...filters,
+					limit: 1,
+					offset,
+				})
+			).data.length > 0;
+
+		const filename = exportFilename(
+			input.format,
+			exportedAt,
+			truncated ? events.length : undefined,
+		);
+		if (input.format === "jsonl") {
+			const body =
+				events.map((event) => `${JSON.stringify(event)}\n`).join("") +
+				(truncated
+					? `${JSON.stringify({ [AUDIT_EXPORT_TRUNCATED_MARKER]: { truncated: true, events: events.length, limit: input.limit } })}\n`
+					: "");
+			return new File([body], filename, {
+				type: "application/x-ndjson; charset=utf-8",
+			});
+		}
+		// Deferred like the output exports: the writer stays off this router's
+		// import graph until a CSV is asked for.
+		const { encodeCsv } = await import("../../lib/os-output-csv");
+		return new File([encodeCsv(auditEventsCsvRows(events))], filename, {
+			type: "text/csv; charset=utf-8",
+		});
 	});
 
 export const getAuditEventsByResource = authedOs.getByResource
@@ -104,32 +250,7 @@ export const getAuditEventsByResource = authedOs.getByResource
 		);
 
 		return {
-			data: events.map((e) => ({
-				id: e.id,
-				organizationId: e.organizationId,
-				actorId: e.actorId,
-				// `external_agent` is in the contract's output enum and rows now
-				// carry it — every OS write through the MCP gateway is one.
-				// Omitting it here made the cast lie about the values this reader
-				// actually returns, so a caller switching on the returned type had
-				// no arm for a principal that genuinely appears.
-				actorType: e.actorType as
-					| "user"
-					| "service"
-					| "tedi"
-					| "m2m"
-					| "api_key"
-					| "external_agent"
-					| "anonymous"
-					| "kernel",
-				action: e.action,
-				resourceType: e.resourceType,
-				resourceId: e.resourceId,
-				metadata: e.metadata,
-				ipAddress: e.ipAddress,
-				userAgent: e.userAgent,
-				timestamp: e.timestamp.toISOString(),
-			})),
+			data: events.map(toAuditEventOutput),
 		};
 	});
 
@@ -169,6 +290,7 @@ export const createAuditEvent = auditOs.createEvent
 
 export const auditContractRouter = auditOs.router({
 	search: searchAuditEvents,
+	export: exportAuditEvents,
 	getByResource: getAuditEventsByResource,
 	createEvent: createAuditEvent,
 });
