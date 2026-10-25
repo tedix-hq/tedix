@@ -175,6 +175,10 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/resources/rename": "rename_os_workspace_resource",
 	"osWorkspaces/resources/remove": "remove_os_workspace_resource",
 	"osWorkspaces/schedules/list": "list_os_workspace_schedules",
+	"osWorkspaces/schedules/link": "link_os_workspace_skill",
+	"osWorkspaces/schedules/unlink": "unlink_os_workspace_skill",
+	"osWorkspaces/schedules/linkFactorySkills":
+		"link_os_workspace_factory_skills",
 	"osWorkspaces/gadgets/list": "list_os_gadgets",
 	"osWorkspaces/gadgets/workApps": "list_work_apps",
 	"osWorkspaces/gadgets/installWorkDefaults": "install_work_defaults",

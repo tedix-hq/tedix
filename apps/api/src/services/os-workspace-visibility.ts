@@ -22,7 +22,7 @@ import { isOsWorkspaceBuildCollaborator } from "./os-workspace-collaborators";
  * - one of their own personal tedis.
  * A skill run sees one more thing: while a tedi's skill run is running, that
  * run (on the trusted service binding) sees the private workspaces whose
- * "Runs on a schedule" resource links its skill, and nothing else of the
+ * "Skills and schedules" resource links its skill, and nothing else of the
  * owner's.
  * No organization role, API key or service principal sees them; this follows
  * the owner-only policy of personal resource delegations.

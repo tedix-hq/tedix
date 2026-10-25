@@ -1414,7 +1414,7 @@ describe("CanvasPage listing", () => {
 			apps?.compareDocumentPosition(schedules!) ??
 				Node.DOCUMENT_POSITION_PRECEDING,
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-		expect(schedules?.textContent).toContain("Runs on a schedule");
+		expect(schedules?.textContent).toContain("Skills and schedules");
 		expect(schedules?.textContent).toContain("Morning digest");
 		expect(schedules?.textContent).toContain("Every day at");
 		expect(schedules?.textContent).toContain(

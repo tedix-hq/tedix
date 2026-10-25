@@ -62,11 +62,16 @@ import {
 } from "../schemas/os-workspaces";
 import {
 	AllowWorkspaceSchedulePersonalReadResultSchema,
+	LinkWorkspaceFactorySkillsInputSchema,
+	LinkWorkspaceFactorySkillsResultSchema,
+	LinkWorkspaceSkillInputSchema,
+	LinkWorkspaceSkillResultSchema,
 	OsWorkspaceScheduleSchema,
 	PersonalAccessLevelSchema,
 	RunWorkspaceSkillNowInputSchema,
 	RunWorkspaceSkillNowResultSchema,
 	SetWorkspacePersonalAccessResultSchema,
+	UnlinkWorkspaceSkillResultSchema,
 } from "../schemas/os-workspace-schedules";
 
 /**
@@ -723,7 +728,7 @@ export const osWorkspacesContract = oc
 					summary:
 						"Choose what the Workspace's skills may do with the owner's attached account",
 					description:
-						"Called by the account's owner while signed in, for a personal account attached to the Workspace (a resource with connectionScope user). For every skill the Workspace links under Runs on a schedule that declares tools for that account, replaces the owner's grant with one for the chosen level: none revokes it; read covers the declared reviewed read tools; organise adds the declared reviewed organising tools (Gmail: label_thread, unlabel_thread, create_label, create_draft). No level reaches a send, trash, spam or delete tool, and adding the Trash or Spam label is refused on every call. A grant lasts a year unless the level changes or it is revoked.",
+						"Called by the account's owner while signed in, for a personal account attached to the Workspace (a resource with connectionScope user). For every skill the Workspace links under Skills and schedules that declares tools for that account, replaces the owner's grant with one for the chosen level: none revokes it; read covers the declared reviewed read tools; organise adds the declared reviewed organising tools (Gmail: label_thread, unlabel_thread, create_label, create_draft). No level reaches a send, trash, spam or delete tool, and adding the Trash or Spam label is refused on every call. A grant lasts a year unless the level changes or it is revoked.",
 				})
 				.input(
 					workspaceIdInput
@@ -743,10 +748,40 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/schedules/run-now",
 					summary: "Run one of the Workspace's skills now",
 					description:
-						"Starts a run of a skill the Workspace links under Runs on a schedule, outside its schedule, with the given params, for example a Card review Do it ({cardSheetId, row, kind, action, columns}); the server adds workspaceId and the skill's tediId. The run carries the caller's own active grants for that skill and Workspace. With needs, the run starts only when those grants reach that level; otherwise the result is needs_access and nothing runs.",
+						"Starts a run of a skill the Workspace links under Skills and schedules, outside its schedule, with the given params, for example a Card review Do it ({cardSheetId, row, kind, action, columns}); the server adds workspaceId and the skill's tediId. The run carries the caller's own active grants for that skill and Workspace. With needs, the run starts only when those grants reach that level; otherwise the result is needs_access and nothing runs.",
 				})
 				.input(RunWorkspaceSkillNowInputSchema)
 				.output(RunWorkspaceSkillNowResultSchema),
+			link: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/schedules/link",
+					summary: "Link a skill to a Workspace, so it shows what runs it",
+					description:
+						"Adds the Workspace's tedix/skill resource for the skill, or restores a removed one; linking an already linked skill changes nothing. The skill's schedule, tedi and runs are unchanged: the link only says this skill runs for this Workspace, so its Resources list the skill with its schedule, next run and last run.",
+				})
+				.input(LinkWorkspaceSkillInputSchema)
+				.output(LinkWorkspaceSkillResultSchema),
+			unlink: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/schedules/unlink",
+					summary: "Unlink a skill from a Workspace",
+					description:
+						"Marks the Workspace's link to the skill removed. The skill, its schedule and its runs are unchanged, and linking it again restores the same link.",
+				})
+				.input(LinkWorkspaceSkillInputSchema)
+				.output(UnlinkWorkspaceSkillResultSchema),
+			linkFactorySkills: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/schedules/link-factory-skills",
+					summary: "Link the skills a Workspace's own data says run it",
+					description:
+						"Finds the lane skill of every factory project bound to the Workspace (project metadata factory.workspaceId) or linked to it as a Work project, and every skill whose runs wrote revisions of the Workspace's Outputs, then links each one that is not linked yet. Safe to repeat: an existing link is reported already_linked and kept. dryRun (the default) only reports what it would link.",
+				})
+				.input(LinkWorkspaceFactorySkillsInputSchema)
+				.output(LinkWorkspaceFactorySkillsResultSchema),
 		}),
 		work: oc.router({
 			listProjects: oc

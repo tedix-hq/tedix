@@ -1,5 +1,5 @@
 /**
- * "Runs on a schedule" for a Workspace: the skills linked to it by a
+ * "Skills and schedules" for a Workspace: the skills linked to it by a
  * `tedix`/`skill` Workspace resource, with their run times, next run and last
  * finished run. Everything here is read-only and derived from D1 rows.
  */

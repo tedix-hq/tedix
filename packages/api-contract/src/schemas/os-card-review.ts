@@ -48,7 +48,7 @@ export const CardReviewRunSchema = z
 			.min(1)
 			.max(200)
 			.describe(
-				"Skill linked to the source workspace under Runs on a schedule; it runs with params {cardSheetId, row, kind, action, reason, columns, actions, workProjectId}",
+				"Skill linked to the source workspace under Skills and schedules; it runs with params {cardSheetId, row, kind, action, reason, columns, actions, workProjectId}",
 			),
 		workProjectId: z
 			.string()

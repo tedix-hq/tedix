@@ -1,15 +1,17 @@
-import { Clock } from "@phosphor-icons/react";
+import { Clock, LinkBreak, Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	OsWorkspaceSchedule,
 	OsWorkspaceSchedulePersonalRead,
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
+import { WorkspaceSkillLinkDialog } from "@/components/workspace-skill-link-dialog";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { osApi } from "@/lib/api";
 import {
@@ -24,25 +26,43 @@ import {
 } from "@/lib/workspace-schedules";
 
 /**
- * "Runs on a schedule" in a workspace's Resources: the skills that run for
- * this workspace by themselves, when they run, how the last run went and when
- * the next one is. Hidden when the workspace has none.
+ * "Skills and schedules" in a workspace's Resources: every skill linked to
+ * this workspace, the tedi that runs it, when it runs, how the last run went
+ * and when the next one is. People link and unlink skills here; a link never
+ * changes the skill or its schedule.
  */
 export function WorkspaceSchedules({ workspaceId }: { workspaceId: string }) {
 	const query = useQuery(workspaceSchedulesQueryOptions(workspaceId));
+	const [linking, setLinking] = useState(false);
 	const items = query.data?.items ?? [];
-	if (query.isError || (query.data && items.length === 0)) return null;
+	if (query.isError) return null;
 	return (
 		<section
-			aria-label="Runs on a schedule"
+			aria-label="Skills and schedules"
 			className="canvas-resource-section canvas-resource-schedules"
 		>
 			<SectionEyebrow
-				title="Runs on a schedule"
+				title="Skills and schedules"
 				count={query.data ? items.length : undefined}
 				variant="console"
+				actions={
+					<Button
+						size="sm"
+						variant="secondary"
+						icon={<Plus aria-hidden size={14} />}
+						onClick={() => setLinking(true)}
+					>
+						Link skill
+					</Button>
+				}
 			/>
 			{query.isPending && <ListSkeleton rows={1} rowClassName="h-20" />}
+			{query.data && items.length === 0 && (
+				<Text as="p" role="label" tone="secondary" className="m-0">
+					No skills run this workspace yet. Link the skills that fill it, and
+					they show here with their schedule and last run.
+				</Text>
+			)}
 			{items.length > 0 && (
 				<ul className="m-0 grid list-none gap-3 p-0">
 					{items.map((schedule) => (
@@ -55,8 +75,24 @@ export function WorkspaceSchedules({ workspaceId }: { workspaceId: string }) {
 					))}
 				</ul>
 			)}
+			{linking && (
+				<WorkspaceSkillLinkDialog
+					open
+					onOpenChange={setLinking}
+					workspaceId={workspaceId}
+					linkedSkillIds={items.map((item) => item.skillId)}
+				/>
+			)}
 		</section>
 	);
+}
+
+/** "Run by Research Tedi · Workflow": who runs the skill and how. */
+function runsByLine(schedule: OsWorkspaceSchedule): string {
+	return [
+		schedule.tediName ? `Run by ${schedule.tediName}` : "No tedi runs it yet",
+		schedule.hasWorkflow ? "Workflow" : "Instructions",
+	].join(" · ");
 }
 
 function WorkspaceScheduleRow({
@@ -104,6 +140,15 @@ function WorkspaceScheduleRow({
 				<Text
 					as="p"
 					role="label"
+					tone="secondary"
+					className="m-0"
+					data-schedule-runs-by
+				>
+					{runsByLine(schedule)}
+				</Text>
+				<Text
+					as="p"
+					role="label"
 					tone={schedule.lastRun?.status === "failed" ? "error" : "secondary"}
 					className="m-0"
 					data-schedule-last-run
@@ -129,14 +174,66 @@ function WorkspaceScheduleRow({
 					/>
 				)}
 			</div>
-			<Link
-				className="col-start-2 w-fit shrink-0"
-				variant="navigation"
-				href={`/skills/${encodeURIComponent(schedule.skillId)}/runs`}
-			>
-				See runs
-			</Link>
+			<div className="col-start-2 flex shrink-0 flex-wrap items-center gap-3 sm:flex-col sm:items-end">
+				<Link
+					className="w-fit"
+					variant="navigation"
+					href={`/skills/${encodeURIComponent(schedule.skillId)}/runs`}
+				>
+					See runs
+				</Link>
+				<UnlinkSkillButton
+					skillId={schedule.skillId}
+					name={schedule.name}
+					workspaceId={workspaceId}
+				/>
+			</div>
 		</Surface>
+	);
+}
+
+/** Unlink one skill from the workspace; the skill and its schedule stay. */
+function UnlinkSkillButton({
+	skillId,
+	name,
+	workspaceId,
+}: {
+	skillId: string;
+	name: string;
+	workspaceId: string;
+}) {
+	const queryClient = useQueryClient();
+	const unlink = useMutation({
+		mutationFn: () =>
+			osApi.osWorkspaces.schedules.unlink({ workspaceId, skillId }),
+		onSuccess: () =>
+			Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: workspaceSchedulesQueryOptions(workspaceId).queryKey,
+				}),
+				queryClient.invalidateQueries({
+					queryKey: workspaceResourcesQueryOptions(workspaceId).queryKey,
+				}),
+			]),
+	});
+	return (
+		<>
+			<Button
+				size="xs"
+				variant="ghost"
+				icon={<LinkBreak aria-hidden size={14} />}
+				aria-label={`Unlink ${name} from this workspace`}
+				disabled={unlink.isPending}
+				onClick={() => unlink.mutate()}
+			>
+				Unlink
+			</Button>
+			{unlink.isError && (
+				<Text as="p" role="label" tone="error" className="m-0">
+					{unlink.error.message}
+				</Text>
+			)}
+		</>
 	);
 }
 

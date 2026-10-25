@@ -99,7 +99,7 @@ send; the existing API checks and version fences still apply.
 Apps are what people open a workspace for, so the OS puts them first:
 
 - **Resources** lists apps at the top under **Apps**, one card per app,
-  side by side when there are several. **Runs on a schedule** follows, then
+  side by side when there are several. **Skills and schedules** follows, then
   sheets and documents under **Files**. Nothing in a workspace is labelled
   "Automations".
 - Each card shows a small preview of the app, its name, its purpose and a
@@ -130,21 +130,36 @@ not set it. Card review counts the open cards across its sources ("29
 cards waiting"), without subtracting a viewer's snoozes. Other apps show
 their kind: "Built-in app", "Interactive app" or "Runs a skill".
 
-**Runs on a schedule** lists the scheduled skills that fill the workspace,
-such as the factory that writes an app's cards. Each row shows the skill's
-name and purpose, when it runs in the viewer's own clock ("Every day at
-8:17, 13:17 and 18:17"), the last run ("Last run 13:17: made 4 cards" or
-"Last run failed: <reason>"), the next run and a **See runs** link. A skill
-is listed when the workspace has a resource with `providerId` `tedix`,
-`resourceType` `skill` and the skill ID as `providerResourceId`;
-`create_factory` with a Workspace adds it. Its `name` is the row title.
-Optional metadata: `purpose` (one line) and `runsAt`
-(`{"timeZone": "Europe/Berlin", "times": ["08:17"]}`) for a skill whose UTC
-cron fires at both daylight-saving hours and skips the one that is not its
-local time. Runs whose result `status` is `off_slot` are not shown; a
-result's `cards` count or one-line `summary` becomes the last-run text. The
-section is hidden when a workspace has no scheduled skill, and these links
-are not listed under **Connected sources**.
+**Skills and schedules** lists the skills that run the workspace, such as
+the factory that writes an app's cards. Each row shows the skill's name and
+purpose, when it runs in the viewer's own clock ("Every day at 8:17, 13:17
+and 18:17", "Paused", or "Runs when asked" for a skill with no schedule),
+the tedi that runs it and whether it runs a workflow, the last run ("Last
+run 13:17: made 4 cards" or "Last run failed: <reason>"), the next run, a
+**See runs** link and **Unlink**. A skill is listed when the workspace has
+a resource with `providerId` `tedix`, `resourceType` `skill` and the skill
+ID as `providerResourceId`. A link never changes the skill or its schedule.
+
+Links are made in four ways, all idempotent:
+
+- **Link skill** in the section: suggested skills first, linked in one
+  step, then any organization skill by search.
+- `link_os_workspace_skill` (`workspaceId`, `skillId`) and
+  `unlink_os_workspace_skill`, for example from a workspace conversation.
+- `record_skills` with `workspaceId` links the new skill; `create_factory`
+  with a Workspace links its lane skill.
+- `link_os_workspace_factory_skills` (`workspaceId`, `dryRun`, default
+  `true`) finds the lane skill of every factory project bound to the
+  workspace (`metadata.factory.workspaceId`) or linked to it as a Work
+  project, and every skill whose runs wrote the workspace's Outputs, and
+  links the ones not linked yet. Repeating it reports `already_linked`. Its `name` is the row title.
+  Optional metadata: `purpose` (one line) and `runsAt`
+  (`{"timeZone": "Europe/Berlin", "times": ["08:17"]}`) for a skill whose UTC
+  cron fires at both daylight-saving hours and skips the one that is not its
+  local time. Runs whose result `status` is `off_slot` are not shown; a
+  result's `cards` count or one-line `summary` becomes the last-run text. The
+  section is hidden when a workspace has no scheduled skill, and these links
+  are not listed under **Connected sources**.
 
 When a scheduled skill reads its owner's own account, the row also shows,
 to the workspace's owner only, **Let this read my Gmail (read-only)**. One
@@ -212,7 +227,7 @@ reason. The run writes the outcome into the result column (default
 `Result`, added to a sheet that lacks it) and, when it worked, `yes` into
 the useful and done columns, so the card leaves the queue. A failed card
 stays with "Last try: Failed: …". The skill must be linked to the source
-workspace under **Runs on a schedule**.
+workspace under **Skills and schedules**.
 
 `run.actions` maps a card to a kind; the first entry whose `match` text is in
 the card's type cell, then its action cell, wins, and anything else is

@@ -369,7 +369,7 @@ it. The linked skill's runs still read and write that Workspace's Documents,
 and nothing else of the member's. Declare the mailbox read in the skill's
 manifest (`google_gmail: [search_threads]`). The owner then opens the
 Workspace and clicks **Let this read my Gmail (read-only)** on the skill's
-**Runs on a schedule** row; no CLI step or Gmail resource setup is needed,
+**Skills and schedules** row; no CLI step or Gmail resource setup is needed,
 and **Stop** revokes it.
 
 For a factory that analyses uploaded local sessions, declare

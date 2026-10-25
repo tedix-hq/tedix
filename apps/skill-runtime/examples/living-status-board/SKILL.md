@@ -37,7 +37,7 @@ scheduled snapshot complements the live Attention page; no schedule is enabled
 by installing the plugin or opting into decision capture.
 
 Link the skill in its private Workspace. The owner must grant the skill read
-access to session activity in Resources → Runs on a schedule. The delegated
+access to session activity in Resources → Skills and schedules. The delegated
 reader's optional `requests` projection reads the same owner's derived ledger;
 it never accepts an owner identity. Without that grant, return
 `waiting_for_grant` and retain the existing board. Consent stays with the owner.

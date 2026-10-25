@@ -77,6 +77,10 @@ import {
 	validatedSkillSchedule,
 } from "./cognitive-skill-shared";
 import {
+	ensureWorkspaceSkillLink,
+	requireWorkspace,
+} from "./os-workspaces-shared";
+import {
 	assertScheduleEditAuthority,
 	authedSkills,
 	isLifecycleOverrideAuthority,
@@ -88,11 +92,23 @@ export const skillsRecord = authedSkills.record
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
+		const { workspaceId, ...skillInput } = input;
+		// Check the Workspace before the skill exists, so a bad id creates nothing.
+		const workspace = workspaceId
+			? await requireWorkspace(context, workspaceId)
+			: null;
 		const { entry, warnings } = await createSkillFromInput(
 			context,
 			orgId,
-			input,
+			skillInput,
 		);
+		if (workspace)
+			await ensureWorkspaceSkillLink(context, {
+				organizationId: workspace.organizationId,
+				workspaceId: workspace.id,
+				skillId: entry.id,
+				name: entry.title,
+			});
 		return { entry, ...(warnings.length ? { warnings } : {}) };
 	});
 

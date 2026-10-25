@@ -287,7 +287,7 @@ describe("buildFactory", () => {
 			resource: "workspace",
 			action: "linked",
 			id: WORKSPACE,
-			note: "lane skill listed under Runs on a schedule",
+			note: "lane skill listed under Skills and schedules",
 		});
 		expect([...workspaceLinks]).toEqual([`${WORKSPACE}:${first.projectId}`]);
 		expect([...skillLinks]).toEqual([
@@ -305,7 +305,7 @@ describe("buildFactory", () => {
 			resource: "workspace",
 			action: "reused",
 			id: WORKSPACE,
-			note: "lane skill listed under Runs on a schedule",
+			note: "lane skill listed under Skills and schedules",
 		});
 	});
 

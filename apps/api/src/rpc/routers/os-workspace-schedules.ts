@@ -4,6 +4,7 @@ import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspace
 import {
 	isWorkspaceSkillResource,
 	type OsWorkspaceSchedule,
+	WORKSPACE_SKILL_RESOURCE,
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import {
 	PERSONAL_ORGANISE_OPERATION,
@@ -21,8 +22,11 @@ import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { listConnectionInstances } from "@tedix/db/queries/connection-instances";
 import {
 	createOsWorkspaceResource,
+	findOsWorkspaceTenantResource,
 	getOsWorkspaceResource,
 	listOsWorkspaceResources,
+	listOsWorkspaceSkillLinkCandidates,
+	removeOsWorkspaceResource,
 } from "@tedix/db/queries/os-workspaces/resources";
 import {
 	createPersonalResourceDelegation,
@@ -56,7 +60,11 @@ import {
 	schedulePurpose,
 	scheduleRunTimes,
 } from "../../services/workspace-schedules";
-import { requireWorkspace, resolveCreator } from "./os-workspaces-shared";
+import {
+	ensureWorkspaceSkillLink,
+	requireWorkspace,
+	resolveCreator,
+} from "./os-workspaces-shared";
 
 const os = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
@@ -282,10 +290,8 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 			]);
 			if (!skill) return null;
 			const metadata = parseMetadata(resource.metadata);
-			const active =
-				schedule?.organizationId === organizationId && schedule.enabled
-					? schedule
-					: null;
+			const own = schedule?.organizationId === organizationId ? schedule : null;
+			const active = own?.enabled ? own : null;
 			const times = active
 				? scheduleRunTimes(
 						active.cron,
@@ -293,16 +299,12 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 						now,
 					)
 				: { dailyTimes: [], nextRunAt: null };
-			const need = await personalAccessNeed(context, organizationId, skill);
-			const worker =
-				need?.providerId === SESSION_ACTIVITY_RESOURCE.providerId &&
+			const [need, worker] = await Promise.all([
+				personalAccessNeed(context, organizationId, skill),
 				skill.tediId
-					? await getTediByIdForOrganization(
-							context.db,
-							skill.tediId,
-							organizationId,
-						)
-					: undefined;
+					? getTediByIdForOrganization(context.db, skill.tediId, organizationId)
+					: undefined,
+			]);
 			const grant =
 				need && owner
 					? (
@@ -321,20 +323,30 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 				name: resource.name,
 				purpose: schedulePurpose(metadata, skill),
 				enabled: active !== null,
-				cron: active?.cron ?? null,
+				// A paused schedule keeps its cron; null means no schedule at all.
+				cron: own?.cron ?? null,
 				...times,
 				lastRun: reportedLastRun(run),
 				personalRead: need
 					? {
 							providerId: need.providerId,
 							providerName: need.providerName,
-							workerName: worker?.displayName ?? worker?.name,
+							workerName:
+								need.providerId === SESSION_ACTIVITY_RESOURCE.providerId
+									? (worker?.displayName ?? worker?.name)
+									: undefined,
 							toolIds: need.tools.map((tool) => tool.toolId),
 							grantId: grant?.id ?? null,
 							level: grant ? personalAccessLevel(grant.operations) : "none",
 							canAllow: owner !== null,
 						}
 					: null,
+				tediName: worker ? (worker.displayName ?? worker.name) : null,
+				hasWorkflow: Boolean(
+					(skill.files as Record<string, string> | null)?.[
+						"scripts/workflow.ts"
+					],
+				),
 			};
 		}),
 	);
@@ -688,9 +700,111 @@ const runNow = authorOs.schedules.runNow.handler(async ({ input, context }) => {
 	return { status: "started" as const, runId: dispatched.runId };
 });
 
+/** Link one skill to the Workspace; repeating it changes nothing. */
+const link = authorOs.schedules.link.handler(async ({ input, context }) => {
+	const workspace = await requireWorkspace(context, input.workspaceId);
+	const skill = await getSkillEntry(
+		context.db,
+		input.skillId,
+		workspace.organizationId,
+	);
+	if (!skill)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"No skill with that id in this organization",
+		);
+	const { created, resourceId } = await ensureWorkspaceSkillLink(context, {
+		organizationId: workspace.organizationId,
+		workspaceId: workspace.id,
+		skillId: skill.id,
+		name: skill.title,
+	});
+	return { resourceId, created };
+});
+
+/** Remove the Workspace's link to a skill; the skill itself is untouched. */
+const unlink = authorOs.schedules.unlink.handler(async ({ input, context }) => {
+	const workspace = await requireWorkspace(context, input.workspaceId);
+	const db = createDbQueryClient(context.env.DB);
+	const current = await findOsWorkspaceTenantResource(db, {
+		organizationId: workspace.organizationId,
+		workspaceId: workspace.id,
+		...WORKSPACE_SKILL_RESOURCE,
+		providerResourceId: input.skillId,
+	});
+	if (current?.status !== "active") return { removed: false };
+	const row = await removeOsWorkspaceResource(db, {
+		organizationId: workspace.organizationId,
+		workspaceId: workspace.id,
+		resourceId: current.id,
+		expectedUpdatedAt: current.updatedAt,
+		now: new Date().toISOString(),
+	});
+	if (!row)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"The skill link changed; reload and try again",
+		);
+	return { removed: true };
+});
+
+/**
+ * Link every skill the Workspace's own data says runs it: factory lanes bound
+ * or linked to it, and skills whose runs wrote its Outputs. A dry run (the
+ * default) only reports; a real run is idempotent.
+ */
+const linkFactorySkills = authorOs.schedules.linkFactorySkills.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const scope = {
+			organizationId: workspace.organizationId,
+			workspaceId: workspace.id,
+		};
+		const db = createDbQueryClient(context.env.DB);
+		const [candidates, resources] = await Promise.all([
+			listOsWorkspaceSkillLinkCandidates(db, scope),
+			listOsWorkspaceResources(db, { ...scope, status: "active", limit: 500 }),
+		]);
+		const linked = new Set(
+			resources
+				.filter(isWorkspaceSkillResource)
+				.map((row) => row.providerResourceId),
+		);
+		const items = [];
+		for (const candidate of candidates.slice(0, MAX_SCHEDULES)) {
+			const base = {
+				skillId: candidate.skillId,
+				name: candidate.title,
+				reason: candidate.reason,
+			};
+			if (linked.has(candidate.skillId)) {
+				items.push({ ...base, status: "already_linked" as const });
+				continue;
+			}
+			if (input.dryRun) {
+				items.push({ ...base, status: "would_link" as const });
+				continue;
+			}
+			const { created } = await ensureWorkspaceSkillLink(context, {
+				...scope,
+				skillId: candidate.skillId,
+				name: candidate.title,
+			});
+			items.push({
+				...base,
+				status: created ? ("linked" as const) : ("already_linked" as const),
+			});
+		}
+		return { dryRun: input.dryRun, items };
+	},
+);
+
 export const osWorkspaceScheduleProcedures = {
 	list,
 	allowPersonalRead,
 	setPersonalAccess,
 	runNow,
+	link,
+	unlink,
+	linkFactorySkills,
 };

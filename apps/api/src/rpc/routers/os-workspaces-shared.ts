@@ -538,9 +538,9 @@ export async function ensureWorkspaceProjectLink(
 }
 
 /**
- * Link a skill to a Workspace as a scheduled skill (a `tedix`/`skill`
- * resource), so the Workspace lists it under "Runs on a schedule". Reuses an
- * active link and restores a removed one; created is false when it was active.
+ * Link a skill to a Workspace (a `tedix`/`skill` resource), so the Workspace
+ * lists it among the skills that run it. Reuses an active link and restores a
+ * removed one; created is false when it was active.
  */
 export async function ensureWorkspaceSkillLink(
 	context: BaseContext,
@@ -551,7 +551,7 @@ export async function ensureWorkspaceSkillLink(
 		name: string;
 		runsAt?: WorkspaceSkillRunsAt;
 	},
-): Promise<{ created: boolean; updated?: boolean }> {
+): Promise<{ created: boolean; updated?: boolean; resourceId: string }> {
 	const db = createDbQueryClient(context.env.DB);
 	const scope = {
 		organizationId: params.organizationId,
@@ -585,19 +585,24 @@ export async function ensureWorkspaceSkillLink(
 		}
 	}
 	if (existing?.status === "active")
-		return { created: false, updated: metadataUpdated };
+		return {
+			created: false,
+			updated: metadataUpdated,
+			resourceId: existing.id,
+		};
 	if (existing) {
 		const restored = await restoreOsWorkspaceResource(db, {
 			...scope,
 			resourceId: existing.id,
 			now,
 		});
-		return { created: Boolean(restored) };
+		return { created: Boolean(restored), resourceId: existing.id };
 	}
 	const creator = resolveCreator(context);
+	const resourceId = crypto.randomUUID();
 	try {
 		await createOsWorkspaceResource(db, {
-			id: crypto.randomUUID(),
+			id: resourceId,
 			...scope,
 			slot: null,
 			...WORKSPACE_SKILL_RESOURCE,
@@ -616,9 +621,16 @@ export async function ensureWorkspaceSkillLink(
 			updatedAt: now,
 			removedAt: null,
 		});
-		return { created: true };
+		return { created: true, resourceId };
 	} catch (error) {
-		if (isUniqueConstraintError(error)) return { created: false };
-		throw error;
+		if (!isUniqueConstraintError(error)) throw error;
+		// A concurrent link won the race; report the row it wrote.
+		const winner = await findOsWorkspaceTenantResource(db, {
+			...scope,
+			...WORKSPACE_SKILL_RESOURCE,
+			providerResourceId: params.skillId,
+		});
+		if (!winner) throw error;
+		return { created: false, resourceId: winner.id };
 	}
 }

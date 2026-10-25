@@ -205,7 +205,7 @@ it("backfills local slots on an existing skill resource without replacing it", a
 	const runsAt = { timeZone: "Europe/Berlin", times: ["08:30"] };
 	expect(
 		await ensureWorkspaceSkillLink(context, { ...params, runsAt }),
-	).toEqual({ created: false, updated: true });
+	).toEqual({ created: false, updated: true, resourceId: original!.id });
 	const rows = await listOsWorkspaceResources(db, params);
 	expect(rows).toHaveLength(1);
 	expect(rows[0]!.id).toBe(original!.id);
@@ -215,5 +215,5 @@ it("backfills local slots on an existing skill resource without replacing it", a
 	});
 	expect(
 		await ensureWorkspaceSkillLink(context, { ...params, runsAt }),
-	).toEqual({ created: false, updated: false });
+	).toEqual({ created: false, updated: false, resourceId: original!.id });
 });
