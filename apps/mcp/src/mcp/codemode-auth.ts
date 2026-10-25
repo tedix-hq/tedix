@@ -1,3 +1,4 @@
+import { gateDecisionMetadata } from "./gate-decision";
 import { reviewedConnectedEffect } from "@tedix/api-contract/utils/approval-policy";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
@@ -182,6 +183,13 @@ export function enforceMcpToolScopeAuthorization(
 				error: "scope_mapping_missing",
 				toolId: tool.toolId,
 			},
+			_meta: {
+				"com.tedix/security": gateDecisionMetadata(
+					"tool_scope",
+					"deny",
+					"scope_mapping_missing",
+				),
+			},
 		};
 	}
 	const declaredScopes = requiredScopes;
@@ -210,6 +218,11 @@ export function enforceMcpToolScopeAuthorization(
 		},
 		_meta: {
 			"com.tedix/error": "insufficient_scope",
+			"com.tedix/security": gateDecisionMetadata(
+				"tool_scope",
+				"deny",
+				"insufficient_scope",
+			),
 			// SEP-2350: a Code Mode / aggregate scope denial was previously
 			// machine-unreadable — only the vendor `com.tedix/error` marker and prose
 			// text. Emit the standard challenge so a client can parse the RFC 6750

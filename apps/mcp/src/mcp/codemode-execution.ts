@@ -1,3 +1,4 @@
+import { gateDecisionMetadata } from "./gate-decision";
 import type { OwnerHostSession } from "./owner-host-session";
 import {
 	type CatalogToolAnnotations,
@@ -261,6 +262,7 @@ function emitCodeModeAuthorizationDenied(
 		metadata: {
 			...buildCallerAuditMetadata(serverCtx.callerIdentity),
 			...toolRiskAuditMetadata(tool),
+			...gateDecisionMetadata("tool_scope", "deny", "insufficient_scope"),
 			namespace,
 			requiredScopes: error.requiredScopes.join(","),
 			missingScopes: error.missingScopes.join(","),

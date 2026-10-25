@@ -1,3 +1,4 @@
+import { gateDecisionMetadata } from "./gate-decision";
 import { reviewedConnectedEffect } from "@tedix/api-contract/utils/approval-policy";
 import {
 	parseToolPolicyMetadata,
@@ -144,6 +145,7 @@ export async function enforceToolRiskRateLimit(
 		isError: true,
 		_meta: {
 			"com.tedix/security": {
+				...gateDecisionMetadata("risk_rate_limit", "deny", "tool_rate_limited"),
 				denialReason: "tool_rate_limited",
 				...policy,
 			},

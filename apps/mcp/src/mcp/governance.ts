@@ -1,3 +1,4 @@
+import { gateDecisionMetadata } from "./gate-decision";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
@@ -181,6 +182,11 @@ export function enforceExpectedAnnotations(
 			success: false,
 			errorCode: "ANNOTATION_VIOLATION",
 			metadata: {
+				...gateDecisionMetadata(
+					"annotation_assertion",
+					"deny",
+					"annotation_violation",
+				),
 				governance: "annotation_violation",
 				reason,
 				expected: JSON.stringify(expected),
@@ -258,6 +264,11 @@ function emitGovernanceAuditEvent(
 			errorCode: "DESTRUCTIVE_GATE_DENIED",
 		}),
 		metadata: {
+			...gateDecisionMetadata(
+				"destructive_approval",
+				outcome === "destructive_denied" ? "deny" : "allow",
+				outcome,
+			),
 			governance: outcome,
 			reason,
 			...toolRiskAuditMetadata({ meta: tool.meta ?? null }),

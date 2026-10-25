@@ -57,6 +57,9 @@ describe("tool risk policy", () => {
 			isError: true,
 			_meta: {
 				"com.tedix/security": {
+					gate: "risk_rate_limit",
+					gateDecision: "deny",
+					gateReason: "tool_rate_limited",
 					denialReason: "tool_rate_limited",
 					riskTier: "bounded_write",
 					blastRadius: "single_resource",

@@ -1,3 +1,4 @@
+import { gateDecisionMetadata } from "./gate-decision";
 import { reviewedConnectedEffect } from "@tedix/api-contract/utils/approval-policy";
 import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import type { CallToolResult } from "@modelcontextprotocol/server";
@@ -198,6 +199,13 @@ export function enforceNativeToolScopeGate(
 			structuredContent: {
 				error: "scope_mapping_missing",
 				toolId: tool.toolId,
+			},
+			_meta: {
+				"com.tedix/security": gateDecisionMetadata(
+					"tool_scope",
+					"deny",
+					"scope_mapping_missing",
+				),
 			},
 		};
 	}

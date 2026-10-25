@@ -165,6 +165,13 @@ provider credential.
   (`approverEdits`) and in the `approval.approved` audit event.
 - `destructiveHint: true` also triggers server-side elicitation where the
   client supports it.
+- **Gate decisions in audit.** Every gate audit row carries the same three
+  metadata fields (`apps/mcp/src/mcp/gate-decision.ts`): `gate`
+  (`edge_access`, `tool_scope`, `risk_rate_limit`, `annotation_assertion`,
+  `destructive_approval`), `gateDecision` (`allow`/`deny`) and a machine
+  `gateReason`, next to the gate's own detail fields. A Code Mode inner call
+  stopped by the rate limit surfaces in the execution's row, not a row of its
+  own.
 
 ## Aggregate Resolution
 
