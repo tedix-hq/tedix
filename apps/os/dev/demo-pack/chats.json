@@ -18,5 +18,15 @@
 		"Alex · Critical errors",
 		"What does the on-call team need?",
 		"Morrowcart: 132 orders await a controlled payment replay; MC-42 rollback and health checks are simulated. Alex reviews evidence before any next move."
+	],
+	[
+		"Sam · Opportunities sheet",
+		"Turn the opportunities list into a sheet in the final format.",
+		"Create sheet “Opportunities - final format”.\n\nNothing has been executed. Reply “approve” or “yes” to proceed, or “reject” to cancel.\n\n### Details\n\nTool: `os.create_os_output` on pricepilot\n\nRequest: 6d1f3b2a-8c4e-4f7a-9b20-3e5c7a1d9f04\n\nArguments: {\"kind\":\"sheet\",\"title\":\"Opportunities - final format\",\"workspaceId\":\"pricepilot-growth\",\"content\":{\"kind\":\"sheet\",\"version\":1,\"tabs\":[{\"name\":\"Opportunities\",\"rows\":[[\"Company\",\"Stage\",\"Value (EUR)\",\"Next step\",\"Notes\"],[\"Northwind Tiles\",\"Qualified\",18000,\"Send pricing\",\"Asked for a volume discount on the annual plan and a short call with the product lead before the end of the month.\"],[\"Fernhil…"
+	],
+	[
+		"Sam · Sheet not created",
+		"approve",
+		"Approved write os.create_os_output on pricepilot failed: [{\"type\":\"text\",\"text\":\"Action \\\"tedix__create_os_output\\\" requires approval. Ask an operator to approve it in Tedix, then try again. No side effect was executed.\"}]"
 	]
 ]

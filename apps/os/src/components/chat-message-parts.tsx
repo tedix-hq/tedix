@@ -24,6 +24,7 @@ import { Text } from "@/components/kumo/text";
 import { Badge } from "@/components/kumo/badge";
 import { ChatMessageActions } from "@/components/chat-message-actions";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { StructuredChatContent } from "@/components/chat-structured-content";
 import { Surface } from "@/components/kumo/surface";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { CostChip } from "@/components/cost-chip";
@@ -155,7 +156,11 @@ export function ChatMessageBubble({
 					</Badge>
 				) : null}
 				{decoded.content ? (
-					<ChatMarkdown content={decoded.content} preserveLineBreaks={isUser} />
+					isUser ? (
+						<ChatMarkdown content={decoded.content} preserveLineBreaks />
+					) : (
+						<StructuredChatContent content={decoded.content} />
+					)
 				) : (
 					<Text role="label" tone="secondary" className="m-0">
 						{emptyLabel}

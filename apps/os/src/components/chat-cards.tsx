@@ -1,4 +1,6 @@
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
+import { JsonDetails } from "@/components/chat-structured-content";
+import { describeToolCall } from "@/lib/chat-structured-content";
 import {
 	ArrowCounterClockwise,
 	CaretRight,
@@ -674,6 +676,11 @@ export type ApprovalCardData = {
 	detail?: string | null;
 	/** Tool arguments stay behind the details disclosure. */
 	detailDisclosure?: boolean;
+	/** The proposed call's full arguments, shown as formatted JSON. */
+	args?: unknown;
+	/** The proposed tool and app, shown quietly under the details. */
+	toolName?: string | null;
+	appSlug?: string | null;
 	/** The raw policy code behind `detail`, shown only in a tooltip. */
 	reasonCode?: string | null;
 	tediName?: string | null;
@@ -917,9 +924,14 @@ export function approvalsFromRunSet(
 			{
 				approvalId,
 				runId: run.id,
-				summary: asString(proposal?.summary) ?? `Run ${toolName}`,
+				summary:
+					asString(proposal?.summary) ??
+					describeToolCall(toolName, asRecord(proposal?.args)),
 				detailDisclosure: true,
 				detail: args && args.length > 240 ? `${args.slice(0, 239)}…` : args,
+				...(proposal?.args === undefined ? {} : { args: proposal.args }),
+				toolName,
+				appSlug,
 				status: "pending",
 				requestedAt: run.createdAt,
 				sessionScopeKey: `write:${appSlug ?? "?"}:${toolName}`,
@@ -1108,7 +1120,28 @@ export function ApprovalCard({
 							</>
 						) : null}
 					</Text>
-					{approval.detail ? (
+					{approval.args !== undefined ? (
+						<JsonDetails
+							label="Details"
+							payload={{
+								complete: true,
+								value: approval.args,
+								raw: approval.detail ?? "",
+							}}
+						/>
+					) : null}
+					{approval.toolName && approval.args !== undefined ? (
+						<Text as="span" role="label" tone="secondary" className="break-all">
+							<span className="font-mono">
+								{sanitizeUntrustedText(approval.toolName)}
+							</span>
+							{approval.appSlug
+								? ` · ${sanitizeUntrustedText(approval.appSlug)}`
+								: ""}
+							{` · Request ${sanitizeUntrustedText(approval.approvalId)}`}
+						</Text>
+					) : null}
+					{approval.detail && approval.args === undefined ? (
 						approval.detailDisclosure ? (
 							<Collapsible>
 								<CollapsibleTrigger className="group/disclosure">
