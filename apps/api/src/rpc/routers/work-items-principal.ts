@@ -131,9 +131,12 @@ export async function verifiedExternalAgent(
 		);
 	}
 	if (supplied.some((value) => !value)) {
+		const missing = ["principal", "session", "MCP credential"].filter(
+			(_, index) => !supplied[index],
+		);
 		throw createError(
 			ErrorCodes.UNAUTHORIZED,
-			"Incomplete external-agent gateway identity",
+			`Incomplete external-agent gateway identity: no ${missing.join(" or ")}. Run \`tedix agent start\` to issue a complete credential, then retry`,
 		);
 	}
 	const principalId = context.externalAgentPrincipalId!;
@@ -149,7 +152,7 @@ export async function verifiedExternalAgent(
 	if (!resolved) {
 		throw createError(
 			ErrorCodes.UNAUTHORIZED,
-			"External-agent principal, session, or MCP credential is no longer active",
+			"External-agent principal, session, or MCP credential is no longer active. Run `tedix agent start` to open a new session, then retry",
 		);
 	}
 	return {

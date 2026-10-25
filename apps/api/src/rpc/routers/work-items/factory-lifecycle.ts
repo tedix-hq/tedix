@@ -214,7 +214,7 @@ async function resolveAttemptIdentity(
 	if (!context.tediId) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			"Attempt execution requires a tedi identity or verified external-agent session",
+			"Attempt execution requires a tedi identity or verified external-agent session. This call carried neither an external-agent credential nor an owner-host Agent-Session: run `tedix agent start`, then retry with TEDIX_EXTERNAL_AGENT set to its principal key",
 		);
 	}
 	await assertTediAccess(context, context.tediId, orgId);

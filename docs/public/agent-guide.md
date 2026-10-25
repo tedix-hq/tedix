@@ -155,7 +155,10 @@ principal. A profile whose principal is named for one harness (for example
 `<harness>-local-<user>-<machine>` principal on the same workspace. On the first bootstrap, pass `--agent-scopes` with only the MCP
 capabilities the task needs; omitting it requests the default broad capability
 set. Set `TEDIX_EXTERNAL_AGENT` to the principal key for subsequent CLI calls
-and check `tedix agent status` before acting.
+and check `tedix agent status` before acting. `tedix work start` requires this
+bootstrap: run without it, the refusal names the missing piece (no Agent-Session,
+no identity on the workspace, a session not started, or a started session the
+call did not use) and the command that fixes it.
 
 For a first tedi run, do not bootstrap an external-agent identity. Use the
 bounded [first-task tutorial](./learning-paths/first-worker.md), which targets

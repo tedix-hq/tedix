@@ -881,22 +881,89 @@ describe("canonical work lifecycle", () => {
 		expect(line).toContain(`tedix work readiness ${ITEM}`);
 	});
 
-	test("start without an executor identity names `tedix agent start`", async () => {
-		const fixture = makeContext(
-			{},
-			undefined,
-			() => ({
-				defined: true,
-				code: "BAD_REQUEST",
-				status: 400,
-				message:
-					"Attempt execution requires a tedi identity or verified external-agent session",
-			}),
-			{ json: false },
-		);
-		const { code, err } = await capture(`start ${ITEM}`, fixture.ctx);
-		expect(code).toBe(WORK_EXIT_FAIL);
-		expect(err.join("\n")).toContain("tedix agent start");
+	test("start without an executor identity names the missing piece and the next command", async () => {
+		const session = "codex:33333333-3333-4333-8333-333333333333";
+		const dir = mkdtempSync(join(tmpdir(), "tedix-work-identity-"));
+		const previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = dir;
+		const store = (sessions: string[]) =>
+			writeFileSync(
+				join(dir, "external-agents.json"),
+				JSON.stringify({
+					version: 1,
+					workspaces: {
+						test: {
+							organizationId: "org-example",
+							principalId: "principal-example",
+							key: "local-example",
+							displayName: "Example lane",
+							apiKeyId: "key-example",
+							credentialSource: "env",
+							scopes: [],
+							mcpUrl: "https://mcp.example.test/mcp",
+							createdAt: "2026-10-25T00:00:00.000Z",
+							sessions: Object.fromEntries(
+								sessions.map((key) => [
+									key,
+									{
+										id: "session-example",
+										externalSessionKey: key,
+										harness: "codex",
+										harnessVersion: "1.0.0",
+										modelProvider: "example",
+										modelId: "example-model",
+										modelVersion: "unpinned",
+										startedAt: "2026-10-25T00:00:00.000Z",
+									},
+								]),
+							),
+						},
+					},
+				}),
+			);
+		const start = async () => {
+			const fixture = makeContext(
+				{},
+				undefined,
+				() => ({
+					defined: true,
+					code: "BAD_REQUEST",
+					status: 400,
+					message:
+						"Attempt execution requires a tedi identity or verified external-agent session",
+				}),
+				{ json: false },
+			);
+			const { code, err } = await capture(`start ${ITEM}`, fixture.ctx);
+			expect(code).toBe(WORK_EXIT_FAIL);
+			return err.join("\n");
+		};
+		try {
+			const none = await start();
+			expect(none).toContain(
+				`No agent identity is set up on workspace "test" for Agent-Session ${session}`,
+			);
+			expect(none).toContain("tedix agent start --agent-harness-version");
+			store([]);
+			const unstarted = await start();
+			expect(unstarted).toContain(
+				`Agent-Session ${session} is not started for principal local-example`,
+			);
+			expect(unstarted).toContain("tedix agent start --agent-harness-version");
+			store([session]);
+			const unused = await start();
+			expect(unused).toContain(
+				`Agent-Session ${session} is already started as principal local-example`,
+			);
+			expect(unused).toContain(
+				`TEDIX_EXTERNAL_AGENT=local-example tedix work start ${ITEM}`,
+			);
+			expect(unused).not.toContain("tedix agent start --agent-harness-version");
+		} finally {
+			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+			else process.env.TEDIX_CONFIG_DIR = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("an owner action refused for the external agent names the owner login", async () => {
