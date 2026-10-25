@@ -36,6 +36,7 @@ import { health } from "./routes/health";
 import { workstationReaper } from "./routes/workstation-reaper";
 import { githubCredentialAuthority } from "./routes/github-credential-authority";
 import { masterKeyFingerprint } from "./routes/master-key-fingerprint";
+import { workspaceAppRuntime } from "./routes/workspace-app-runtime";
 import {
 	attachBodyGenerationHeaders,
 	CloudflareAgentBodyLauncher,
@@ -243,6 +244,7 @@ app.route("/", health);
 app.route("/", workstationReaper);
 app.route("/", githubCredentialAuthority);
 app.route("/", masterKeyFingerprint);
+app.route("/", workspaceAppRuntime);
 
 // =============================================================================
 // MIDDLEWARE: Resolve tedi from subdomain + initialize sandbox

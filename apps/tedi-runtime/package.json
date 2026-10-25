@@ -19,7 +19,8 @@
 		"test:email": "vp test run test/email-ingress.test.ts test/email-header-parsing.test.ts test/email-sender-policy.test.ts",
 		"test:ci": "bun run test:run",
 		"test:provider": "vp test run --config vitest.workers.config.ts test/pi-runtime/submissions.workerd.test.ts",
-		"test:workers": "vp test run --config vitest.workers.config.ts --exclude test/chat-turn-callback.workerd.test.ts --exclude test/pi-runtime/registry-restore.workerd.test.ts --exclude test/pi-runtime/turn-admission.workerd.test.ts && vp test run --config vitest.workers.config.ts test/chat-turn-callback.workerd.test.ts && vp test run --config vitest.workers.config.ts test/pi-runtime/registry-restore.workerd.test.ts && vp test run --config vitest.workers.config.ts test/pi-runtime/turn-admission.workerd.test.ts",
+		"test:workers": "vp test run --config vitest.workers.config.ts --exclude test/chat-turn-callback.workerd.test.ts --exclude test/pi-runtime/registry-restore.workerd.test.ts --exclude test/pi-runtime/turn-admission.workerd.test.ts && vp test run --config vitest.workers.config.ts test/chat-turn-callback.workerd.test.ts && vp test run --config vitest.workers.config.ts test/pi-runtime/registry-restore.workerd.test.ts && vp test run --config vitest.workers.config.ts test/pi-runtime/turn-admission.workerd.test.ts && vp test run --config vitest.app-runtime.config.ts",
+		"test:app-runtime": "vp test run --config vitest.app-runtime.config.ts",
 		"type-check:workers": "tsc --noEmit -p tsconfig.workers-test.json"
 	},
 	"dependencies": {

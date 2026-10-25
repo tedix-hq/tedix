@@ -64,6 +64,12 @@ interface AllowlistEntry {
  */
 const ALLOWLIST_ENTRIES: readonly AllowlistEntry[] = [
 	{
+		file: "apps/tedi-runtime/src/workspace-app-host-do.ts",
+		reason:
+			"Workspace apps load immutable revision modules as SQLite facets under a workspace supervisor; per-invocation caller capabilities cannot share the Code Mode executor's lifecycle.",
+		runsModelAuthoredCode: true,
+	},
+	{
 		file: "packages/tedi-codemode-core/src/register-codemode-tools.ts",
 		reason:
 			"Shared Code Mode registration builds the DynamicWorkerExecutor that every tedi surface reuses, so its sandbox policy is the default the other Code Mode sites inherit.",
