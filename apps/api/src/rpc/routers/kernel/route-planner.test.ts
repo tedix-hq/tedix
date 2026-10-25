@@ -9,6 +9,7 @@ import {
 	resolveRouteHedgeAfterMs,
 	shapeRouteUsage as actualShapeRouteUsage,
 	SYSTEM_PROMPT,
+	guardPersonalRecallRoute,
 } from "./route-planner";
 import {
 	type KernelRouteDecision,
@@ -3290,5 +3291,74 @@ describe("planKernelRoute — page tools on a Home turn", () => {
 			},
 		});
 		expect(relay).not.toHaveBeenCalled();
+	});
+});
+
+describe("personal recall routing", () => {
+	const decision = normalizeRouteDecisionCandidate({
+		routeKind: "delegate_tedi",
+		targetTediId: "other",
+		targetTediLabel: "Other",
+		targetActivityId: "other-activity",
+		plannedToolIds: ["web_search"],
+		risk: "low",
+		confidence: 0.9,
+		rationale: "Read missing commitments",
+		effortClass: "multi_hop_read",
+	}) as KernelRouteDecision;
+	const other = {
+		id: "other",
+		slug: "other",
+		name: "Other",
+		scope: "personal" as const,
+		ownerUserId: "user-2",
+	};
+	const own = {
+		id: "own",
+		slug: "own",
+		name: "Own",
+		scope: "personal" as const,
+		ownerUserId: "user-1",
+	};
+	it("rejects another member's personal tedi, including after a fit rerank", () => {
+		const result = guardPersonalRecallRoute(
+			{
+				...EMPTY_CONTEXT,
+				personalRecall: true,
+				operatorUserId: "user-1",
+				tedis: [other],
+			},
+			decision,
+		);
+		expect(result.routeKind).toBe("answer_in_home");
+		expect(result.targetTediId).toBeNull();
+	});
+	it("prefers the member's own tedi and drops another target's grant", () => {
+		const result = guardPersonalRecallRoute(
+			{
+				...EMPTY_CONTEXT,
+				personalRecall: true,
+				operatorUserId: "user-1",
+				tedis: [other, own],
+			},
+			decision,
+		);
+		expect(result.targetTediId).toBe("own");
+		expect(result.targetActivityId).toBeNull();
+		expect(result.plannedToolIds).toEqual([
+			"read_operator_records",
+			"read_home_messages",
+			"memory_search",
+			"read_operator_calendar",
+			"read_operator_mail",
+		]);
+	});
+	it("keeps non-personal routing unchanged", () => {
+		expect(
+			guardPersonalRecallRoute(
+				{ ...EMPTY_CONTEXT, tedis: [other, own] },
+				decision,
+			),
+		).toBe(decision);
 	});
 });

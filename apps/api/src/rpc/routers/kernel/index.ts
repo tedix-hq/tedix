@@ -696,6 +696,25 @@ export async function runKernel(args: {
 			conversationId,
 			excludeMessageId: currentUserMessageId,
 			operatorMessage: content,
+			...(descopeUserId && runId && conversationId
+				? {
+						readPersonalCalendar: async (
+							apps: import("@tedix/db/schema/apps").App[],
+						) => {
+							const { readPersonalCalendar } =
+								await import("./personal-calendar");
+							return readPersonalCalendar({
+								db,
+								env,
+								organizationId,
+								userId: descopeUserId,
+								runId,
+								conversationId,
+								apps,
+							});
+						},
+					}
+				: {}),
 			candidateRanker,
 			agentMemory: env.AGENT_MEMORY,
 			// Reusing the ingress recall avoids a second multi-second model-backed

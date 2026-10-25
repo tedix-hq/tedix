@@ -227,6 +227,7 @@
 		"./schemas/harness-version": "./src/schemas/harness-version.ts",
 		"./schemas/jev": "./src/schemas/jev.ts",
 		"./schemas/kernel-runtime": "./src/schemas/kernel-runtime.ts",
+		"./schemas/operator-records": "./src/schemas/operator-records.ts",
 		"./schemas/layout": "./src/schemas/layout.ts",
 		"./schemas/learning-feedback": "./src/schemas/learning-feedback.ts",
 		"./schemas/mcp-analytics": "./src/schemas/mcp-analytics.ts",

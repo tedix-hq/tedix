@@ -1,3 +1,7 @@
+import {
+	ReadOperatorRecordsInputSchema,
+	ReadOperatorRecordsOutputSchema,
+} from "../schemas/operator-records";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
@@ -54,6 +58,14 @@ export const kernelRuntimeContract = oc
 	.route({ tags: ["kernel-runtime"], prefix: "/kernel/runtime" })
 	.errors(baseErrors)
 	.router({
+		readOperatorRecords: oc
+			.route({
+				method: "POST",
+				path: "/operator-records/read",
+				tags: ["internal"],
+			})
+			.input(ReadOperatorRecordsInputSchema)
+			.output(ReadOperatorRecordsOutputSchema),
 		sweepDelegationAutonomy: oc
 			.route({
 				method: "POST",

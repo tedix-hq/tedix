@@ -1,3 +1,8 @@
+import * as todayQueries from "./today-context";
+import * as openRequestQueries from "./open-work-requests";
+import * as conversationIndexQueries from "./conversation-index";
+import * as conversationAccessQueries from "../../../kernel/conversation-access";
+import * as entityQueries from "@tedix/db/queries/memory-entities";
 /**
  * Context-assembly tests — focused on the conversation-history section
  * (kernel conversational memory). The history is read back from the canonical
@@ -47,6 +52,7 @@ import {
 } from "./context-history";
 import {
 	asksAboutConversations,
+	asksPersonalRecall,
 	conversationListWorkspaceId,
 	assembleHomeContext,
 	deriveAppCapabilities,
@@ -3284,5 +3290,142 @@ describe("open Work requests in Home context", () => {
 		expect(rendered).toContain(
 			'- [handoff] "Onboarding proposal: Q3 plan" (requestId=req-1 version=2)',
 		);
+	});
+});
+
+describe("member personal recall context", () => {
+	it("includes Today, open requests and only recent authorized conversation titles", async () => {
+		vi.spyOn(memberQueries, "getMemberByUserId").mockResolvedValue({
+			status: "active",
+			name: "Alex",
+			role: "member",
+			userId: "alex",
+		} as never);
+		vi.spyOn(tediQueries, "getTedisByOrganization").mockResolvedValue([
+			{
+				id: "foreign",
+				slug: "foreign",
+				name: "Foreign",
+				scope: "personal",
+				ownerUserId: "other",
+				organizationId: ORG_ID,
+			},
+			{
+				id: "organization",
+				slug: "team",
+				name: "Team",
+				scope: "organization",
+				organizationId: ORG_ID,
+			},
+			{
+				id: "own",
+				slug: "own",
+				name: "Own",
+				scope: "personal",
+				ownerUserId: "alex",
+				organizationId: ORG_ID,
+			},
+		] as never);
+		const today = vi
+			.spyOn(todayQueries, "readSavedToday")
+			.mockResolvedValue("Saved: send the draft on Friday");
+		const requests = vi
+			.spyOn(openRequestQueries, "readOpenWorkRequests")
+			.mockResolvedValue([
+				{
+					requestId: "request",
+					version: 1,
+					kind: "question",
+					subject: "Draft follow-up",
+					workItemTitle: "Review",
+				},
+			]);
+		vi.spyOn(entityQueries, "listRecentPeopleFacts").mockResolvedValue([]);
+		const now = Date.parse("2026-10-25T12:00:00Z");
+		vi.spyOn(
+			conversationIndexQueries,
+			"selectKernelConversationIndexPage",
+		).mockResolvedValue([
+			{
+				conversationId: "allowed",
+				title: "Alex met Ada",
+				lastMessageAt: "2026-10-24T12:00:00Z",
+			},
+			{
+				conversationId: "private-other",
+				title: "Other member's meeting",
+				lastMessageAt: "2026-10-24T12:00:00Z",
+			},
+			{
+				conversationId: "old",
+				title: "Old meeting",
+				lastMessageAt: "2026-10-01T12:00:00Z",
+			},
+		] as never);
+		const acl = vi
+			.spyOn(conversationAccessQueries, "resolveKernelConversationAccess")
+			.mockImplementation(async (_db, input) => ({
+				allowed: input.conversationId === "allowed",
+				access: "read",
+				policy: "grant",
+			}));
+		try {
+			const result = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+				descopeUserId: "alex",
+				operatorMessage: "What did I commit to this week?",
+				now: () => now,
+				rankingBudgetMs: 0,
+				readPersonalCalendar: async () => "2026-10-24: met Ada",
+			});
+			expect(result.personalRecall).toBe(true);
+			expect(result.tedis.map((tedi) => tedi.id)).toEqual([
+				"own",
+				"organization",
+			]);
+			expect(renderHomeTurnContext(result)).toContain("2026-10-24: met Ada");
+			expect(result.savedToday).toContain("Friday");
+			expect(result.openWorkRequests?.[0]?.requestId).toBe("request");
+			expect(result.recentConversations?.map((row) => row.id)).toEqual([
+				"allowed",
+			]);
+			expect(today).toHaveBeenCalledWith(expect.anything(), ORG_ID, "alex");
+			expect(requests).toHaveBeenCalledWith(expect.anything(), {
+				organizationId: ORG_ID,
+				descopeUserId: "alex",
+			});
+			expect(acl).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+	it("does not load personal recall sources for an ordinary question", async () => {
+		vi.spyOn(memberQueries, "getMemberByUserId").mockResolvedValue({
+			status: "active",
+			name: "Alex",
+		} as never);
+		const today = vi.spyOn(todayQueries, "readSavedToday");
+		const requests = vi.spyOn(openRequestQueries, "readOpenWorkRequests");
+		const recent = vi.spyOn(
+			conversationIndexQueries,
+			"selectKernelConversationIndexPage",
+		);
+		try {
+			const result = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+				descopeUserId: "alex",
+				operatorMessage: "Explain D1 batches",
+			});
+			expect(result.personalRecall).toBe(false);
+			expect(today).not.toHaveBeenCalled();
+			expect(requests).not.toHaveBeenCalled();
+			expect(recent).not.toHaveBeenCalled();
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+	it("recognizes member-named recall without hardcoding a person", () => {
+		expect(
+			asksPersonalRecall("Who did Alex meet in the last two days?", "Alex"),
+		).toBe(true);
+		expect(asksPersonalRecall("Who did Morgan meet?", "Alex")).toBe(false);
 	});
 });

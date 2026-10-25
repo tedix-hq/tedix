@@ -6,11 +6,12 @@
  * planner, plus a bounded recent transcript of the active Home conversation
  * (read back from the canonical D1 ledger through the extracted
  * `@tedix/tedi-session` harness discipline — see `fetchConversationHistory`).
- * Every read is a cheap single-indexed D1 query and is wrapped so that any
- * single failure degrades to an empty slice rather than throwing — the kernel
- * as a whole stays fail-soft.
+ * D1 reads and the optional personal-calendar read degrade independently.
+ * Provider access remains bound to the admitted human request.
  */
 
+import { listRecentPeopleFacts } from "@tedix/db/queries/memory-entities";
+import { resolveKernelConversationAccess } from "../../../kernel/conversation-access";
 import { readDraftPreferences } from "../../../services/decision-learning";
 import { type ContextCandidateRanker } from "./jev-context-ranking";
 import type { DbClient } from "@tedix/db/client";
@@ -97,12 +98,36 @@ import {
 // Public types
 // ============================================================================
 
+export function asksPersonalRecall(
+	message: string | undefined,
+	memberName?: string | null,
+): boolean {
+	if (
+		!message ||
+		!/\b(commit(?:ments?|ted|s)?|promis(?:e|ed|es)|meet(?:ings?)?|met|people|follow[ -]?ups?|priorities|schedule|calendar|week|days?)\b/i.test(
+			message,
+		)
+	)
+		return false;
+	return (
+		/\b(I|my|me|mine)\b/i.test(message) ||
+		Boolean(
+			memberName &&
+			memberName.trim().length >= 2 &&
+			message.toLowerCase().includes(memberName.trim().toLowerCase()),
+		)
+	);
+}
+
 export interface KernelContext {
+	personalRecall?: boolean;
+	operatorUserId?: string;
 	/** Installation capability, independent of a worker's standby/running state. */
 	delegationAvailable?: boolean;
 	/** Server-authorized bounded snapshot of the explicitly selected document. */
 	selectedWorkspaceDocument?: string | null;
 	savedToday?: string | null;
+	personalCalendar?: string | null;
 	/** Server-validated Workspace selection for this turn. Context only; never authority. */
 	workspace?: {
 		id: string;
@@ -121,6 +146,8 @@ export interface KernelContext {
 		id: string;
 		slug: string;
 		name: string;
+		scope?: "personal" | "organization" | null;
+		ownerUserId?: string | null;
 		role?: string;
 		status?: string;
 		/**
@@ -343,7 +370,8 @@ type ContextReadSource =
 	| "conversationArtifactPins"
 	| "workspaceResources"
 	| "recentConversations"
-	| "openWorkRequests";
+	| "openWorkRequests"
+	| "personalCalendar";
 
 /**
  * Run a read defensively: any failure degrades to the provided fallback
@@ -676,6 +704,7 @@ export async function assembleHomeContext(
 			workpiece?: { kind: "gadget" | "output"; id: string; name: string };
 		};
 		selectedWorkspaceDocument?: string | null;
+		readPersonalCalendar?: (apps: App[]) => Promise<string>;
 		/**
 		 * Per-org TTL cache for the slow-changing inputs (roster, apps, workflow
 		 * catalogue, priors, member row, workspace resources, capability-card
@@ -688,15 +717,44 @@ export async function assembleHomeContext(
 	},
 ): Promise<KernelContext> {
 	const descopeUserId = opts?.descopeUserId;
-	const savedToday =
+	const memberPromise = descopeUserId
+		? safeRead(
+				() => getMemberByUserId(db, organizationId, descopeUserId),
+				undefined,
+				"speaker",
+			)
+		: Promise.resolve(undefined);
+	const personalRecallPromise = memberPromise.then(
+		(member) =>
+			member?.status === "active" &&
+			asksPersonalRecall(opts?.operatorMessage, member.name),
+	);
+	const savedToday = personalRecallPromise.then((personalRecall) =>
 		descopeUserId &&
-		/\b(today|progress|purpose|goals?)\b/i.test(opts?.operatorMessage ?? "")
+		(personalRecall ||
+			/\b(today|progress|purpose|goals?)\b/i.test(opts?.operatorMessage ?? ""))
 			? import("./today-context")
 					.then(({ readSavedToday }) =>
 						readSavedToday(db, organizationId, descopeUserId),
 					)
 					.catch(() => null)
-			: Promise.resolve(null);
+			: null,
+	);
+	const peopleFactsPromise = personalRecallPromise.then((personalRecall) =>
+		personalRecall
+			? safeRead(
+					() =>
+						listRecentPeopleFacts(db, {
+							organizationId,
+							since: new Date(
+								(opts?.now?.() ?? Date.now()) - 7 * 24 * 60 * 60 * 1000,
+							).toISOString(),
+						}),
+					[],
+					"facts",
+				)
+			: [],
+	);
 	const contextCache = opts?.contextCache;
 	const cacheTrace = contextCache ? createCacheTrace() : undefined;
 	// Cached entries resolve immediately inside the same parallel wave; a miss
@@ -736,9 +794,31 @@ export async function assembleHomeContext(
 		[],
 		"apps",
 	);
-	const visibleTediRowsPromise = tediRowsPromise.then((rows) =>
-		rows.filter(isKernelVisibleTedi),
+	const personalCalendarPromise = Promise.all([
+		personalRecallPromise,
+		appRowsPromise,
+	]).then(([personalRecall, apps]) =>
+		personalRecall && opts?.readPersonalCalendar
+			? safeRead(
+					() => opts.readPersonalCalendar!(apps),
+					"Calendar read unavailable",
+					"personalCalendar",
+				)
+			: null,
 	);
+	const visibleTediRowsPromise = Promise.all([
+		tediRowsPromise,
+		personalRecallPromise,
+	]).then(([rows, personalRecall]) =>
+		rows.filter(
+			(tedi) =>
+				isKernelVisibleTedi(tedi) &&
+				(!personalRecall ||
+					tedi.scope !== "personal" ||
+					Boolean(descopeUserId && tedi.ownerUserId === descopeUserId)),
+		),
+	);
+
 	// Tedis + apps are read once and reused here, so capability enrichment adds
 	// only its own skills + policy-pack reads — no duplicate roster queries.
 	const capabilityCardsPromise = Promise.all([
@@ -855,30 +935,53 @@ export async function assembleHomeContext(
 		operatorMessage,
 		selectedWorkspaceId,
 	);
-	const recentConversationsPromise = asksAboutConversations(operatorMessage)
-		? safeRead(
+	const recentConversationsPromise = personalRecallPromise.then(
+		async (personalRecall) => {
+			if (!personalRecall && !asksAboutConversations(operatorMessage))
+				return null;
+			const rows = await safeRead(
 				() =>
 					selectKernelConversationIndexPage(db, {
 						organizationId,
 						cursor: null,
-						limit: RECENT_CONVERSATIONS_LIMIT,
-						...(conversationListWorkspace
+						limit: personalRecall ? 12 : RECENT_CONVERSATIONS_LIMIT,
+						...(!personalRecall && conversationListWorkspace
 							? { workspaceId: conversationListWorkspace }
 							: {}),
 					}),
 				[],
 				"recentConversations",
-			)
-		: Promise.resolve(null);
-
-	const openWorkRequestsPromise =
-		descopeUserId && mentionsWorkRequests(operatorMessage)
-			? safeRead(
-					() => readOpenWorkRequests(db, { organizationId, descopeUserId }),
-					[],
-					"openWorkRequests",
-				)
-			: Promise.resolve(null);
+			);
+			const cutoff = (opts?.now?.() ?? Date.now()) - 7 * 24 * 60 * 60 * 1000;
+			const eligible = personalRecall
+				? rows.filter(
+						(row) =>
+							row.lastMessageAt && Date.parse(row.lastMessageAt) >= cutoff,
+					)
+				: rows;
+			const access = await Promise.all(
+				eligible.map((row) =>
+					resolveKernelConversationAccess(db, {
+						organizationId,
+						conversationId: row.conversationId,
+						descopeUserId,
+						required: "read",
+					}),
+				),
+			);
+			return eligible.filter((_, index) => access[index]?.allowed);
+		},
+	);
+	const openWorkRequestsPromise = personalRecallPromise.then(
+		(personalRecall) =>
+			descopeUserId && (personalRecall || mentionsWorkRequests(operatorMessage))
+				? safeRead(
+						() => readOpenWorkRequests(db, { organizationId, descopeUserId }),
+						[],
+						"openWorkRequests",
+					)
+				: null,
+	);
 
 	const readsStartedAtMs = Date.now();
 	const [
@@ -933,14 +1036,7 @@ export async function assembleHomeContext(
 			[] as { slug: string; title: string }[],
 			"workflows",
 		),
-		descopeUserId
-			? safeRead(
-					// This role grants delegation approval; never reuse cached authority.
-					() => getMemberByUserId(db, organizationId, descopeUserId),
-					undefined,
-					"speaker",
-				)
-			: Promise.resolve(undefined),
+		memberPromise,
 		conversationId
 			? safeRead(
 					() =>
@@ -1085,6 +1181,8 @@ export async function assembleHomeContext(
 			id: tedi.id,
 			slug: tedi.slug,
 			name: tedi.displayName || tedi.name || tedi.slug,
+			scope: tedi.scope,
+			ownerUserId: tedi.ownerUserId,
 			...(tedi.runtimeKind ? { role: tedi.runtimeKind } : {}),
 			...(tedi.status ? { status: tedi.status } : {}),
 			...(capability ? { capability } : {}),
@@ -1143,7 +1241,17 @@ export async function assembleHomeContext(
 	// Blend: relevance facts first, then static facts, deduped by id.
 	const seenFactIds = new Set<string>();
 	const blendedFacts: FlatFact[] = [];
-	for (const f of [...relevanceFacts, ...staticFacts]) {
+	const peopleFacts: FlatFact[] = (await peopleFactsPromise)
+		.filter((fact) =>
+			isMemorySearchFactEligible(fact, { orgId: organizationId }),
+		)
+		.slice(0, 8)
+		.map((fact) => ({
+			id: fact.id,
+			text: `[${fact.updatedAt ?? fact.createdAt}] ${fact.content}`,
+			confidence: fact.confidence,
+		}));
+	for (const f of [...peopleFacts, ...relevanceFacts, ...staticFacts]) {
 		if (!seenFactIds.has(f.id)) {
 			seenFactIds.add(f.id);
 			blendedFacts.push(f);
@@ -1211,12 +1319,23 @@ export async function assembleHomeContext(
 			)
 		: null;
 	const draftCtx: KernelContext = {
+		personalRecall: await personalRecallPromise,
+		...(member?.status === "active" && descopeUserId
+			? { operatorUserId: descopeUserId }
+			: {}),
 		selectedWorkspaceDocument: opts?.selectedWorkspaceDocument ?? null,
 		savedToday: await savedToday,
+		personalCalendar: await personalCalendarPromise,
 		delegationAvailable: opts?.delegationAvailable,
 		...(cacheTrace ? { cache: cacheTrace } : {}),
 		workspace,
-		tedis: rankedTedis,
+		tedis: (await personalRecallPromise)
+			? [...rankedTedis].sort(
+					(a, b) =>
+						Number(b.scope === "personal" && b.ownerUserId === descopeUserId) -
+						Number(a.scope === "personal" && a.ownerUserId === descopeUserId),
+				)
+			: rankedTedis,
 		apps,
 		workflows: rankedWorkflows,
 		conversationCapabilities,
