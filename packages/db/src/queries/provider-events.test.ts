@@ -11,6 +11,7 @@ import {
 	listPendingProviderEventDeliveries,
 	settleProviderEventDelivery,
 	claimProviderEventSubscription,
+	dueProviderEventSubscriptions,
 	pruneProviderEvents,
 	addProviderEventChannel,
 	claimProviderEventWake,
@@ -40,6 +41,110 @@ const row = {
 	updatedAt: "2026-01-01",
 };
 describe("provider event D1 authority and outbox", () => {
+	it("backs off expired error subscriptions and permits recovery after the retry time", async () => {
+		const db = fixture();
+		await createProviderEventSubscription(db, {
+			...row,
+			expiresAt: "2026-01-02T00:00:00.000Z",
+		});
+		await updateProviderEventSubscription(db, "org-a", "sub", {
+			status: "error",
+			lastError: "Provider request failed (503)",
+			nextReconcileAt: "2026-01-02T00:05:00.000Z",
+			leaseUntil: null,
+		});
+		for (const now of [
+			"2026-01-02T00:00:01.000Z",
+			"2026-01-02T00:01:00.000Z",
+			"2026-01-02T00:04:59.999Z",
+			"2026-01-02T00:05:00.000Z",
+		]) {
+			expect(await dueProviderEventSubscriptions(db, now)).toEqual([]);
+		}
+		const now = "2026-01-02T00:05:00.001Z";
+		expect(await dueProviderEventSubscriptions(db, now)).toMatchObject([
+			{ id: "sub", status: "error" },
+		]);
+		const leaseUntil = "2026-01-02T00:06:00.000Z";
+		expect(
+			await claimProviderEventSubscription(db, "org-a", "sub", now, leaseUntil),
+		).toBe(true);
+		expect(await dueProviderEventSubscriptions(db, now)).toEqual([]);
+		expect(
+			await updateProviderEventSubscription(
+				db,
+				"org-a",
+				"sub",
+				{
+					status: "active",
+					lastError: null,
+					expiresAt: "2026-01-03T00:00:00.000Z",
+					nextReconcileAt: "2026-01-02T00:10:00.000Z",
+					leaseUntil: null,
+				},
+				leaseUntil,
+			),
+		).toMatchObject([{ id: "sub", status: "active", lastError: null }]);
+		expect(await dueProviderEventSubscriptions(db, now)).toEqual([]);
+		expect(
+			await dueProviderEventSubscriptions(db, "2026-01-02T00:10:00.001Z"),
+		).toMatchObject([{ id: "sub", status: "active" }]);
+	});
+
+	it.each([
+		{
+			status: "active",
+			expiresAt: "2026-01-01",
+			nextReconcileAt: "2026-01-03",
+			leaseUntil: null,
+			due: true,
+		},
+		{
+			status: "active",
+			expiresAt: null,
+			nextReconcileAt: "2026-01-01",
+			leaseUntil: null,
+			due: true,
+		},
+		{
+			status: "error",
+			expiresAt: null,
+			nextReconcileAt: "2026-01-01",
+			leaseUntil: null,
+			due: true,
+		},
+		{
+			status: "error",
+			expiresAt: "2026-01-01",
+			nextReconcileAt: "2026-01-01",
+			leaseUntil: "2026-01-03",
+			due: false,
+		},
+		{
+			status: "error",
+			expiresAt: "2026-01-01",
+			nextReconcileAt: "2026-01-01",
+			leaseUntil: "2026-01-01",
+			due: true,
+		},
+		{
+			status: "disabled",
+			expiresAt: "2026-01-01",
+			nextReconcileAt: "2026-01-01",
+			leaseUntil: null,
+			due: false,
+		},
+	] as const)(
+		"selects due subscriptions with $status, expiry $expiresAt and lease $leaseUntil",
+		async ({ due, ...subscription }) => {
+			const db = fixture();
+			await createProviderEventSubscription(db, { ...row, ...subscription });
+			expect(
+				await dueProviderEventSubscriptions(db, "2026-01-02"),
+			).toHaveLength(due ? 1 : 0);
+		},
+	);
+
 	it("fences maintenance writes after another worker replaces the claimed lease", async () => {
 		const db = fixture();
 		await createProviderEventSubscription(db, row);
