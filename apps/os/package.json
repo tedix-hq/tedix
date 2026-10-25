@@ -55,7 +55,7 @@
 		"@codemirror/search": "^6.7.2",
 		"@codemirror/state": "^6.7.6",
 		"@codemirror/view": "^6.43.15",
-		"@descope/react-sdk": "^3.4.4",
+		"@descope/react-sdk": "^3.4.5",
 		"@fontsource-variable/comfortaa": "^5.3.0",
 		"@lezer/highlight": "^1.2.5",
 		"@modelcontextprotocol/client": "catalog:",
