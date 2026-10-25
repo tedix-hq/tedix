@@ -117,7 +117,20 @@ describe("App Store migration", () => {
 		expect(card?.getAttribute("data-size")).toBe("sm");
 		const byline = card?.querySelector('[data-slot="card-description"]');
 		expect(byline?.textContent).toBe("by Acme Labs");
-		expect(byline?.classList.contains("truncate")).toBe(true);
+		// Below `sm` the provider byline wraps instead of silently truncating.
+		expect(byline?.classList.contains("truncate")).toBe(false);
+		expect(byline?.classList.contains("sm:truncate")).toBe(true);
+		expect(byline?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
+		const description = card?.querySelector(
+			'[data-slot="card-content"] [data-slot="text"]',
+		);
+		expect(description?.textContent).toBe("Accounts and invoices");
+		// Phones render the full text; the two-line clamp returns at `sm`, where
+		// the card link to the app detail page is the full-text path.
+		expect(description?.classList.contains("max-sm:line-clamp-none")).toBe(
+			true,
+		);
+		expect(description?.classList.contains("line-clamp-2")).toBe(true);
 		for (const header of host.querySelectorAll('[data-slot="card-header"]'))
 			expect(header.classList.contains("pb-3")).toBe(false);
 		for (const content of host.querySelectorAll('[data-slot="card-content"]'))

@@ -177,7 +177,7 @@ function AppCard({ app }: { app: CatalogApp }) {
 							) : null}
 						</div>
 						{app.developer ? (
-							<CardDescription className="truncate">
+							<CardDescription className="[overflow-wrap:anywhere] sm:truncate">
 								by {app.developer}
 							</CardDescription>
 						) : null}
@@ -185,7 +185,12 @@ function AppCard({ app }: { app: CatalogApp }) {
 				</CardHeader>
 				<CardContent className="space-y-3">
 					{app.description ? (
-						<Text as="p" role="body" tone="secondary" className="line-clamp-2">
+						<Text
+							as="p"
+							role="body"
+							tone="secondary"
+							className="line-clamp-2 [overflow-wrap:anywhere] max-sm:line-clamp-none"
+						>
 							{app.description}
 						</Text>
 					) : null}
