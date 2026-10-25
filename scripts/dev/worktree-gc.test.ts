@@ -84,6 +84,24 @@ describe("parseArgs", () => {
 	])("rejects a %s idle threshold", (_name, argv) => {
 		expect(() => parseArgs(argv)).toThrow("--min-idle");
 	});
+
+	test.each([
+		["a misspelled flag", ["--min-idel", "24"]],
+		["a misspelled flag next to --apply", ["--apply", "--min-idel", "24"]],
+		["an unknown flag", ["--force"]],
+		["a missing --base value", ["--base"]],
+		["a flag in place of the --base value", ["--base", "--apply"]],
+	])("rejects %s", (_name, argv) => {
+		expect(() => parseArgs(argv)).toThrow();
+	});
+
+	test.each([
+		["a lone path", ["scratch"]],
+		["extra values after the flags", ["--apply", "leftover"]],
+		["a value after --min-idle's own", ["--min-idle", "4", "also"]],
+	])("rejects %s", (_name, argv) => {
+		expect(() => parseArgs(argv)).toThrow("Unexpected argument");
+	});
 });
 
 describe("parseWorktreePorcelain", () => {
