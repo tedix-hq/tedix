@@ -42,6 +42,8 @@ describe("shared browser fixture failures", () => {
 			},
 			() => {},
 			(message) => errors.push(message),
+			5_000,
+			1,
 		);
 		exit(7);
 		await server.exited;
@@ -105,6 +107,54 @@ describe("shared browser fixture failures", () => {
 		exit(0);
 		await server.exited;
 		expect(errors).toEqual([]);
+	});
+
+	it("bounds concurrency and returns results in spec order", async () => {
+		const { server } = fixture();
+		const children = new Map<string, PromiseWithResolvers<number>>();
+		const launched: string[] = [];
+		let active = 0;
+		let maxActive = 0;
+		const running = runSharedFixtureSpecs(
+			["first.ts", "second.ts", "third.ts"],
+			server,
+			(spec) => {
+				launched.push(spec);
+				active++;
+				maxActive = Math.max(maxActive, active);
+				const child = Promise.withResolvers<number>();
+				children.set(spec, child);
+				return {
+					exitCode: null,
+					exited: child.promise.finally(() => active--),
+					kill() {},
+				};
+			},
+			() => {},
+			() => {},
+			5_000,
+			2,
+		);
+
+		expect(launched).toEqual(["first.ts", "second.ts"]);
+		children.get("second.ts")?.resolve(0);
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(launched).toEqual(["first.ts", "second.ts", "third.ts"]);
+		children.get("third.ts")?.resolve(0);
+		children.get("first.ts")?.resolve(1);
+
+		const results = await running;
+		expect(maxActive).toBe(2);
+		expect(results.map(({ spec }) => spec)).toEqual([
+			"first.ts",
+			"second.ts",
+			"third.ts",
+		]);
+		expect(results.map(({ outcome }) => outcome.split(" ")[0])).toEqual([
+			"FAIL",
+			"PASS",
+			"PASS",
+		]);
 	});
 
 	it("force-kills a spec that ignores fixture-exit termination", async () => {

@@ -41,8 +41,9 @@ export async function runSharedFixtureSpecs(
 	log: (message: string) => void,
 	report: (message: string) => void,
 	terminateGraceMs = 5_000,
+	concurrency = 3,
 ) {
-	const results: { spec: string; outcome: string }[] = [];
+	const results = new Array<{ spec: string; outcome: string }>(specs.length);
 	let next = 0;
 	let active = true;
 	let fixtureExit: number | null = null;
@@ -55,34 +56,40 @@ export async function runSharedFixtureSpecs(
 	}
 	void server.exited?.then(reportExit);
 	try {
-		for (const spec of specs) {
-			const exitCode = server.exitCode();
-			if (exitCode !== null) reportExit(exitCode);
-			if (fixtureExit !== null) {
-				results.push({
+		async function runNext() {
+			while (next < specs.length) {
+				const exitCode = server.exitCode();
+				if (exitCode !== null) reportExit(exitCode);
+				const index = next++;
+				const spec = specs[index]!;
+				if (fixtureExit !== null) {
+					results[index] = {
+						spec,
+						outcome: specOutcome(null, fixtureExit),
+					};
+					continue;
+				}
+				const begin = performance.now();
+				log(`[run-specs] ${spec}`);
+				const child = runSpec(spec);
+				const code = await waitForSpec(
+					child,
+					server.exited,
+					reportExit,
+					terminateGraceMs,
+				);
+				const exited = server.exitCode();
+				if (exited !== null) reportExit(exited);
+				const failure = specOutcome(code, fixtureExit, child.signalCode);
+				results[index] = {
 					spec,
-					outcome: specOutcome(null, fixtureExit),
-				});
-				continue;
+					outcome: `${failure} ${((performance.now() - begin) / 1000).toFixed(1)}s`,
+				};
 			}
-			next++;
-			const begin = performance.now();
-			log(`[run-specs] ${spec}`);
-			const child = runSpec(spec);
-			const code = await waitForSpec(
-				child,
-				server.exited,
-				reportExit,
-				terminateGraceMs,
-			);
-			const exited = server.exitCode();
-			if (exited !== null) reportExit(exited);
-			const failure = specOutcome(code, fixtureExit, child.signalCode);
-			results.push({
-				spec,
-				outcome: `${failure} ${((performance.now() - begin) / 1000).toFixed(1)}s`,
-			});
 		}
+		await Promise.all(
+			Array.from({ length: Math.min(concurrency, specs.length) }, runNext),
+		);
 		return results;
 	} finally {
 		// The caller stops its owned fixture after the suite; that exit is expected.
