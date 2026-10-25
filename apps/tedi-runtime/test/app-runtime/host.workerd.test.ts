@@ -43,26 +43,35 @@ async function call(
 		method?: string;
 		role?: "build" | "use";
 		previewId?: string;
+		principal?: string;
+		token?: string;
 	} = {},
 ) {
 	const code = files(options.version ?? "v1");
-	const { token } = await mintWorkspaceAppSession("fictional-app-test-key", {
+	const token = options.token ?? (await mint(stub, code, options)).token;
+	return stub.call({
+		session: token,
+		files: code,
+		method: options.method ?? "count",
+		args: [],
+	});
+}
+async function mint(
+	stub: DurableObjectStub<WorkspaceAppHostDO>,
+	code: Record<string, string>,
+	options: Parameters<typeof call>[1] = {},
+) {
+	return mintWorkspaceAppSession("fictional-app-test-key", {
 		organizationId: "fictional-org",
 		workspaceId: hostWorkspaces.get(stub)!,
 		gadgetId: options.gadget ?? gadgetId,
 		revisionId: options.revision ?? revisionId,
 		revision: options.revision ? 2 : 1,
 		role: options.role ?? "use",
-		principal: { kind: "user", id: "fictional-member" },
+		principal: { kind: "user", id: options.principal ?? "fictional-member" },
 		grants: [{ slot: "sheet", operations: ["outputs.read", "outputs.write"] }],
 		previewId: options.previewId,
 		codeDigest: await appRuntimeCodeDigest(code),
-	});
-	return stub.call({
-		session: token,
-		files: code,
-		method: options.method ?? "count",
-		args: [],
 	});
 }
 describe("workspace app supervisor in workerd", () => {
@@ -116,6 +125,35 @@ describe("workspace app supervisor in workerd", () => {
 		await expect(call(stub, { method: "reuse", role: "use" })).rejects.toThrow(
 			"App capability expired",
 		);
+	});
+	it("cuts a removed principal's live session and restarts apps without losing storage", async () => {
+		const stub = createHost();
+		expect(await call(stub)).toEqual({ n: 1, version: "v1" });
+		const live = await mint(stub, files("v1"));
+		const issuedAt = live.expiresAt - 300;
+		expect(
+			await stub.revokeSessions({
+				organizationId: "fictional-org",
+				workspaceId: hostWorkspaces.get(stub)!,
+				principalIds: ["fictional-member"],
+				at: issuedAt,
+			}),
+		).toEqual({ restarted: 1 });
+		await expect(call(stub, { token: live.token })).rejects.toThrow(
+			"App access changed",
+		);
+		expect(await call(stub, { principal: "fictional-other" })).toEqual({
+			n: 2,
+			version: "v1",
+		});
+		await expect(
+			stub.revokeSessions({
+				organizationId: "another-org",
+				workspaceId: hostWorkspaces.get(stub)!,
+				principalIds: [],
+				at: issuedAt,
+			}),
+		).rejects.toThrow("Workspace host scope mismatch");
 	});
 	it("durably queues failed trace writes and redrives them through an alarm", async () => {
 		const stub = createHost();

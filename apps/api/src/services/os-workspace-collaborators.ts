@@ -44,6 +44,7 @@ import {
 } from "@tedix/db/query-client";
 import type { OsWorkspaceRow } from "@tedix/db/schema/os-workspaces";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
+import { cutWorkspaceAppSessions } from "./os-app-session-revocation";
 import {
 	computeEffectiveRoles,
 	diffRoles,
@@ -754,5 +755,13 @@ export async function removeWorkspaceAccess(
 		});
 	}
 	const after = await loadAccess(database, access.workspace, access.callerId);
-	return affectedView(context, access, diffRoles(access.roles, after.roles));
+	const fell = diffRoles(access.roles, after.roles);
+	// Anyone whose role fell may still hold a signed app session or be inside
+	// an app call; the workspace's app host cuts them and restarts its apps.
+	await cutWorkspaceAppSessions(context.env, {
+		organizationId: access.workspace.organizationId,
+		workspaceId: access.workspace.id,
+		principalIds: fell.map((change) => change.userId),
+	});
+	return affectedView(context, access, fell);
 }

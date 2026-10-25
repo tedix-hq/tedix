@@ -1,5 +1,8 @@
 import { DurableObject, WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
-import { verifyWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
+import {
+	APP_SESSION_TTL_SECONDS,
+	verifyWorkspaceAppSession,
+} from "@tedix/auth/workspace-app-session";
 import {
 	AppRuntimeArgumentsSchema,
 	AppRuntimeMethodSchema,
@@ -77,6 +80,48 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		if (pending.size === 50)
 			await this.ctx.storage.setAlarm(Date.now() + 60000);
 	}
+	/**
+	 * Cut live sessions after access fell: sessions issued to these principals
+	 * at or before `at` (epoch seconds) are refused from now on, and every
+	 * running app restarts so no in-flight call keeps the old authority. App
+	 * storage survives; only memory and open calls are dropped.
+	 */
+	async revokeSessions(input: {
+		organizationId: string;
+		workspaceId: string;
+		principalIds: string[];
+		at: number;
+	}) {
+		const scope = `${input.organizationId}:${input.workspaceId}`;
+		const currentScope = this.ctx.storage.kv.get<string>("scope");
+		if (currentScope && currentScope !== scope)
+			throw new Error("Workspace host scope mismatch");
+		// A cut older than one session lifetime can no longer match a live session.
+		for (const [key, cut] of this.ctx.storage.kv.list<number>({
+			prefix: "cut:",
+		}))
+			if (cut < input.at - APP_SESSION_TTL_SECONDS)
+				this.ctx.storage.kv.delete(key);
+		for (const id of input.principalIds) {
+			const previous = this.ctx.storage.kv.get<number>(`cut:${id}`) ?? 0;
+			this.ctx.storage.kv.put(`cut:${id}`, Math.max(previous, input.at));
+		}
+		let restarted = 0;
+		for (const [key] of this.ctx.storage.kv.list({ prefix: "code:" })) {
+			this.ctx.facets.abort(key.slice(5), new Error("App access changed"));
+			this.ctx.storage.kv.delete(key);
+			restarted += 1;
+		}
+		return { restarted };
+	}
+	#cutOff(session: VerifiedSession): boolean {
+		const issuedAt = session.expiresAt - APP_SESSION_TTL_SECONDS;
+		return [session.principal.id, session.actorUserId].some((id) => {
+			if (!id) return false;
+			const cut = this.ctx.storage.kv.get<number>(`cut:${id}`);
+			return cut !== undefined && issuedAt <= cut;
+		});
+	}
 	async call(input: {
 		session: string;
 		files: Record<string, string>;
@@ -111,6 +156,7 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		);
 		if (!appRuntimePermission({ ...session, operation: "app.call" }).allowed)
 			throw new Error("App interaction requires use access");
+		if (this.#cutOff(session)) throw new Error("App access changed");
 		const method = AppRuntimeMethodSchema.parse(input.method);
 		const args = AppRuntimeArgumentsSchema.parse(input.args);
 		if (

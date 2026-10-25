@@ -394,6 +394,72 @@ describe("workspace collaborators", () => {
 		expect((await as(env, KAI).open({ workspaceId })).role).toBe("build");
 	});
 
+	it("cuts live app sessions for everyone whose role fell, and only then", async () => {
+		const { env, workspaceId } = await seed();
+		const cuts: unknown[] = [];
+		env.TEDI_SERVICE = {
+			fetch: async (request: Request) => {
+				expect(new URL(request.url).pathname).toBe(
+					"/__internal/workspace-app/revoke",
+				);
+				expect(request.headers.get("X-Service-Binding")).toBe("true");
+				cuts.push(await request.json());
+				return Response.json({ restarted: 1 });
+			},
+		} as unknown as CloudflareEnv["TEDI_SERVICE"];
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		await as(env, KAI).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "build",
+		});
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+
+		// Removing Kai drops Kai and downgrades Zoe from build to use.
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "user", userId: KAI },
+		});
+		expect(cuts).toEqual([
+			expect.objectContaining({
+				organizationId: "org-1",
+				workspaceId,
+				principalIds: [KAI, ZOE],
+			}),
+		]);
+		expect((await as(env, ZOE).open({ workspaceId })).role).toBe("use");
+
+		// Removing a grant that changes nobody's role cuts nothing.
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "lee@example.test",
+			role: "use",
+		});
+		await as(env, KAI).add({
+			workspaceId,
+			email: "lee@example.test",
+			role: "use",
+		});
+		await as(env, KAI).remove({
+			workspaceId,
+			target: { kind: "user", userId: LEE },
+		});
+		expect(cuts).toHaveLength(1);
+	});
+
 	it("lets non-owners remove only their own grant", async () => {
 		const { env, workspaceId } = await seed();
 		await as(env, ROBIN).add({

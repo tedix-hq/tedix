@@ -37,4 +37,16 @@ describe("workspace app runtime relay", () => {
 		expect((await request({ "X-Service-Binding": "TRUE" })).status).toBe(403);
 		expect((await request({ "X-Service-Binding": "true" })).status).toBe(503);
 	});
+	it("forwards trusted revocations and denies untrusted ones", async () => {
+		const fetch = vi.fn(async () => Response.json({ restarted: 1 }));
+		const request = (headers: Record<string, string>) =>
+			workspaceAppRuntime.request(
+				"/__internal/workspace-app/revoke",
+				{ method: "POST", headers, body: "{}" },
+				{ TEDI_RUNTIME_SERVICE: { fetch } },
+			);
+		expect((await request({})).status).toBe(403);
+		expect((await request({ "X-Service-Binding": "true" })).status).toBe(200);
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
 });
