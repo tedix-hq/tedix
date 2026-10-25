@@ -474,6 +474,52 @@ describe("request-derived capability plans", () => {
 	});
 });
 
+describe("bounded-source CTO consultation", () => {
+	const consultation =
+		"Consult the CTO about supported skill ownership routes using only these supplied findings. The repository contract says ownership is attach-only; the implementation rejects ownership transfer via improve. Give configuration advice only.";
+	it.each([
+		"No repository research is needed.",
+		"No repo research is required.",
+		"Repository research is not needed.",
+		"Do not inspect the repository.",
+	])("does not request a checkout: %s", (constraint) => {
+		const result = buildDelegationWorkOrder({
+			userContent: `${constraint} ${consultation}`,
+			card: { ...readerCard, hasRepository: true, environmentReady: false },
+			route,
+		});
+		expect(result.executionRequirement?.requiredCapabilities).not.toContain(
+			"repository_read",
+		);
+		expect(result.capabilityPlan?.requiredCapabilities ?? []).not.toContain(
+			"repository.read",
+		);
+		expect(result.capabilityPlan?.allowedToolIds ?? []).not.toContain(
+			"repo_load",
+		);
+	});
+	it.each([
+		"Inspect the repository implementation of skill ownership.",
+		"No repository research has been done yet. Inspect the repository implementation of skill ownership.",
+	])("still requires a checkout for repository research: %s", (content) => {
+		const result = order(content);
+		expect(result.capabilityPlan?.requiredCapabilities).toContain(
+			"repository.read",
+		);
+	});
+	it("keeps an explicit repository edit requirement", () => {
+		const result = order(
+			"No repository research is needed. Fix the repository README.",
+		);
+		expect(result.executionRequirement?.requiredCapabilities).toContain(
+			"repository_edit",
+		);
+		expect(result.capabilityPlan?.requiredCapabilities).toContain(
+			"repository.edit",
+		);
+	});
+});
+
 describe("web search delegation", () => {
 	it.each([
 		"Search the web for the latest widget pricing",

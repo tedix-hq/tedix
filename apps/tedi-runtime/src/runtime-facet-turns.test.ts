@@ -34,6 +34,26 @@ const input = {
 	toolsOnly: true,
 };
 const prepared = await agent.prepareMcpFacetTurn(input);
+const consultation = mcpFacetTurnProbe({
+	fields: {
+		computerEnvironment() {
+			throw new Error("consultation must not inspect a repository checkout");
+		},
+	},
+});
+await consultation.prepareMcpFacetTurn({
+	...input,
+	userMessage:
+		"Consult on supported skill ownership routes using supplied excerpts only. No repository research is needed.",
+	capabilityPlan: {
+		version: "delegation-capabilities.v1",
+		requiredCapabilities: [],
+		allowedToolIds: [],
+		missingCapabilities: [],
+		urls: [],
+		outputIds: [],
+	},
+});
 assert.deepEqual(
 	Object.keys(prepared.tools),
 	Object.keys(

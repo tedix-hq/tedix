@@ -88,7 +88,25 @@ await assert.rejects(
 	),
 	/missing capabilities/,
 );
+for (const environment of [
+	undefined,
+	{ ready: false, preparation: "repository" },
+	{ ready: true, preparation: "shell" },
+]) {
+	assert.doesNotThrow(() => assertNativeResearchCheckout(plan, environment));
+	assert.doesNotThrow(() =>
+		assertNativeResearchCheckout(undefined, environment),
+	);
+}
 const repo = { ...plan, requiredCapabilities: ["repository.read"] };
+assert.throws(
+	() =>
+		assertNativeResearchCheckout(repo, {
+			ready: false,
+			preparation: "repository",
+		}),
+	/empty or unready/,
+);
 assert.throws(
 	() => assertNativeResearchCheckout(repo, undefined),
 	/empty or unready.*too_large_for_native/,
