@@ -384,7 +384,7 @@ function maintenance() {
 	const storage = new Storage(),
 		gate = admission();
 	let runs = 0,
-		fail = false,
+		fail: boolean | string = false,
 		revokeAfterRun = false,
 		outcome: "acknowledged" | "void" | "uncertain" | "foreign" = "acknowledged",
 		failComplete = false;
@@ -405,7 +405,8 @@ function maintenance() {
 		run: async (taskId: string, operation: ParentServiceOperation) => {
 			runs++;
 			if (revokeAfterRun) gate.revoke();
-			if (fail) throw new Error("lost task acknowledgment");
+			if (fail === true || fail === operation.operationId)
+				throw new Error("lost task acknowledgment");
 			if (outcome === "void") return undefined;
 			if (outcome === "uncertain")
 				return {
@@ -458,7 +459,7 @@ function maintenance() {
 		get runs() {
 			return runs;
 		},
-		set fail(value: boolean) {
+		set fail(value: boolean | string) {
 			fail = value;
 		},
 		set outcome(value: typeof outcome) {
@@ -657,6 +658,34 @@ assert.throws(() => inspectMaintenanceRecords(passiveStorage), /task identity/);
 		"a later native fire reconciles its old fire first",
 	);
 	assert.equal(f.gate.admits, 2, "old original admission is reused");
+}
+{
+	const f = maintenance();
+	const firePrefix = "tedix:pi:maintenance:fire:";
+	const originalId = `maintenance:${schedule.id}:${schedule.time}`;
+	const second = { ...schedule, time: schedule.time + 300 };
+	f.fail = true;
+	await assert.rejects(f.service.run(payload, schedule), /lost task/);
+	await assert.rejects(f.service.run(payload, second), /lost task/);
+	assert.equal(f.gate.admits, 2, "an old failure does not block a new fire");
+	f.fail = originalId;
+	await f.service.run(payload, { ...schedule, time: schedule.time + 600 });
+	assert.equal(
+		(await f.storage.get<{ stage: string }>(`${firePrefix}${originalId}`))
+			?.stage,
+		"uncertain",
+		"a failed old effect is never falsely completed",
+	);
+	assert.equal(
+		(
+			await f.storage.get<{ stage: string }>(
+				`${firePrefix}maintenance:${second.id}:${second.time}`,
+			)
+		)?.stage,
+		"completed",
+		"the cursor advances past the poison fire even on a short page",
+	);
+	assert.equal(f.gate.completes, 2);
 }
 {
 	const { recordMaintenanceScheduleError } =

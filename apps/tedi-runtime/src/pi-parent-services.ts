@@ -314,6 +314,7 @@ export class ParentMaintenanceServices {
 			...(startAfter ? { startAfter } : {}),
 		});
 		let cursor = "";
+		let stoppedForRecovery = false;
 		for (const [key, fire] of page) {
 			cursor = key;
 			const op = fire.operation;
@@ -343,12 +344,24 @@ export class ParentMaintenanceServices {
 					this.inFlight.delete(oldKey),
 				);
 				this.inFlight.set(oldKey, recovery);
-				await recovery;
+				try {
+					await recovery;
+				} catch (error) {
+					console.warn("[tedi.maintenance.recovery_pending]", {
+						operationId: op.operationId,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
 			}
+			stoppedForRecovery = true;
 			break;
 		}
-		if (page.size >= 100 || startAfter)
-			await this.host.storage.put(cursorKey, page.size < 100 ? "" : cursor);
+		// A pending old effect must not starve later recovery or today's fire.
+		if (stoppedForRecovery || page.size >= 100 || startAfter)
+			await this.host.storage.put(
+				cursorKey,
+				stoppedForRecovery || page.size >= 100 ? cursor : "",
+			);
 		await this.runFire(payload, schedule);
 	}
 	private async runFire(
