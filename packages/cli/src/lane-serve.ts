@@ -44,7 +44,11 @@ import { inDarkWake } from "./oauth-provider";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
 import type { LaneObservation } from "./lane-telemetry";
 import { selfCommand } from "./shared";
-import { getCurrentWorkspace } from "./credential-store";
+import {
+	getCurrentWorkspace,
+	readWorkspaceCredentials,
+} from "./credential-store";
+import { fileGatewayCooldown } from "./gateway-cooldown";
 import { installLaneService } from "./lane-service";
 import { CliReadError, readJsonChild } from "./hooks/hook-io";
 
@@ -273,19 +277,57 @@ export function serialCalls() {
 	};
 }
 
+/** Time one dispatcher read gets for its own gateway requests. */
+const READ_BUDGET_MS = 60_000;
+/**
+ * Ceiling for a read that waits out the shared gateway cooldown: the CLI
+ * honours a Retry-After of up to 120 s plus up to 15 s of jitter, and a busy
+ * login can be refused again right after one cooldown ends.
+ */
+const READ_CEILING_MS = 5 * 60_000;
+/** How often an `--accept-proposed` dispatcher sweeps proposals. */
+const PROPOSAL_SWEEP_INTERVAL_MS = 5 * 60_000;
+/** Spreads dispatchers that wake on the same cooldown end. */
+const COOLDOWN_WAKE_JITTER_MS = 5_000;
+
+/**
+ * Every CLI process on this machine waits out a gateway 429 for the same
+ * login before it sends (see gateway-retry). A read still inside that shared
+ * cooldown when its own deadline elapses has not sent its request yet, so it
+ * gets the rest of the cooldown plus half a request budget instead of being
+ * killed while it queues.
+ */
+export function cooldownGraceMs(cooldownUntil: number, now = Date.now()) {
+	const remaining = cooldownUntil - now;
+	return remaining > 0 ? remaining + READ_BUDGET_MS / 2 : 0;
+}
+
 async function cli<T>(
 	args: string[],
 	env: NodeJS.ProcessEnv,
 	cwd = homedir(),
+	cooldownUntil: () => number = () => 0,
 ): Promise<T> {
 	const [executable, prefix] = selfCommand();
 	return (await readJsonChild(
 		executable,
 		[...prefix, ...args, "--json"],
-		60_000,
+		READ_BUDGET_MS,
 		undefined,
-		{ cwd, env, includeErrorMessage: true },
+		{
+			cwd,
+			env,
+			includeErrorMessage: true,
+			deadlineGraceMs: () => cooldownGraceMs(cooldownUntil()),
+			maxTimeoutMs: READ_CEILING_MS,
+		},
 	)) as T;
+}
+
+/** When the shared cooldown for this workspace's gateway ends (0: none). */
+function gatewayCooldownUntil(workspace: string | undefined): number {
+	const url = workspace ? readWorkspaceCredentials(workspace)?.mcpUrl : null;
+	return url ? fileGatewayCooldown().read(url) : 0;
 }
 
 interface RulesAsset {
@@ -552,9 +594,11 @@ interface DispatcherDeps {
 	baseCommit: (repo: string) => string;
 	landedCommits: typeof landedLaneCommits;
 	cleanup: (source: string, destination: string) => boolean;
+	gatewayCooldownUntil: typeof gatewayCooldownUntil;
 }
 const defaultDeps: DispatcherDeps = {
 	cli,
+	gatewayCooldownUntil,
 	devinAvailable,
 	available: (executor) =>
 		spawnSync(executor === "claude-code" ? "claude" : executor, ["--version"], {
@@ -609,6 +653,7 @@ export class LaneDispatcher {
 	private running = new Map<string, Promise<void>>();
 	private queue = serialCalls();
 	private stopping = false;
+	private proposalsSweptAt = 0;
 	private ownerEnv = laneChildEnv();
 	private deps: DispatcherDeps;
 	private policy: RoutingPolicy;
@@ -678,12 +723,37 @@ export class LaneDispatcher {
 			...(executorKey ? { TEDIX_EXTERNAL_AGENT: executorKey } : {}),
 		};
 		return this.queue(() =>
-			this.deps.cli<T>([...this.options.scope, ...args], env),
+			this.deps.cli<T>([...this.options.scope, ...args], env, undefined, () =>
+				this.cooldownUntil(),
+			),
 		);
+	}
+	private cooldownUntil() {
+		const scope = this.options.scope;
+		const at = scope.indexOf("--workspace");
+		return this.deps.gatewayCooldownUntil(at < 0 ? undefined : scope[at + 1]);
+	}
+	/** How long the serve loop waits before its next tick. */
+	nextTickDelayMs(now = Date.now()) {
+		const remaining = this.cooldownUntil() - now;
+		return remaining > 30_000
+			? remaining + Math.round(Math.random() * COOLDOWN_WAKE_JITTER_MS)
+			: 30_000;
 	}
 	async tick() {
 		if (this.stopping || this.deps.darkWake()) {
 			this.log("deferred", undefined, "Stopping or macOS dark wake");
+			return;
+		}
+		// A read started now only queues behind the machine-wide gateway
+		// cooldown, and each queued read joins the burst that renews it.
+		const cooldownUntil = this.cooldownUntil();
+		if (cooldownUntil > Date.now()) {
+			this.log(
+				"deferred",
+				undefined,
+				`Gateway rate limit for this login until ${new Date(cooldownUntil).toISOString()}`,
+			);
 			return;
 		}
 		const observed = this.deps.budgets(this.policy);
@@ -787,8 +857,14 @@ export class LaneDispatcher {
 		const orphaned = retained.filter(
 			(row) => row.pid && alive(row.pid) && !this.running.has(row.itemId),
 		).length;
-		if (this.options.acceptProposed && this.options.project)
+		if (
+			this.options.acceptProposed &&
+			this.options.project &&
+			Date.now() - this.proposalsSweptAt >= PROPOSAL_SWEEP_INTERVAL_MS
+		) {
+			this.proposalsSweptAt = Date.now();
 			await this.acceptProposedWork();
+		}
 		while (!this.stopping && this.running.size + orphaned < this.options.max) {
 			const page = await this.call<{
 				data: DispatchItem[];
@@ -1627,7 +1703,9 @@ export async function runLaneServe(args: string[]): Promise<number> {
 				process.stderr.write(`Dispatcher deferred: ${String(error)}\n`);
 			}
 			if (options.once || stopping) break;
-			await new Promise<void>((done) => setTimeout(done, 30_000));
+			await new Promise<void>((done) =>
+				setTimeout(done, dispatcher.nextTickDelayMs()),
+			);
 		} while (!stopping);
 		await dispatcher.drain();
 		return 0;

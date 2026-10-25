@@ -59,11 +59,36 @@ export function fileNativeBootstrapCache(
 			return {};
 		}
 	};
+	const fresh = (at: unknown, ttl: number) =>
+		typeof at === "number" && at <= now() && now() - at <= ttl;
+	/**
+	 * Keys include each external-agent session, so entries a read would reject
+	 * as expired must also leave the file; otherwise every CLI process parses
+	 * and rewrites every session the machine ever ran (100 MB observed).
+	 */
+	const prune = (entries: Entries): Entries =>
+		Object.fromEntries(
+			Object.entries(entries).flatMap(([key, entry]) => {
+				if (!entry || !fresh(entry.at, NATIVE_BOOTSTRAP_CACHE_TTL_MS))
+					return [];
+				const resolutions =
+					entry.resolutions && typeof entry.resolutions === "object"
+						? Object.fromEntries(
+								Object.entries(entry.resolutions).filter(([, resolution]) =>
+									fresh(resolution?.at, NATIVE_DESCRIPTOR_CACHE_TTL_MS),
+								),
+							)
+						: undefined;
+				return [[key, { ...entry, resolutions }]];
+			}),
+		);
 	const save = (entries: Entries) => {
 		try {
 			mkdirSync(credentialDirectory(opts), { recursive: true, mode: 0o700 });
 			const temporary = `${path()}.${process.pid}.tmp`;
-			writeFileSync(temporary, JSON.stringify(entries), { mode: 0o600 });
+			writeFileSync(temporary, JSON.stringify(prune(entries)), {
+				mode: 0o600,
+			});
 			renameSync(temporary, path());
 		} catch {
 			// Caching is best effort.
@@ -97,10 +122,11 @@ export function fileNativeBootstrapCache(
 		write(key, entry) {
 			const entries = load();
 			const previous = entries[key];
-			// Recording another tool name keeps the bootstrap's original age.
+			// Recording another tool name keeps the bootstrap's original age; a
+			// fresh answer that replaces an expired entry starts a new one.
 			const at =
 				previous &&
-				typeof previous.at === "number" &&
+				fresh(previous.at, NATIVE_BOOTSTRAP_CACHE_TTL_MS) &&
 				JSON.stringify(previous.bootstrap) === JSON.stringify(entry.bootstrap)
 					? previous.at
 					: now();
