@@ -132,13 +132,31 @@ console.log("PASS: workflow terminal reconciliation decisions");
 	}
 }
 
-{
-	// Budget exhaustion is expected, not a crash — say so, and say it recovers.
-	const notice = turnFailureNoticeText(
-		"daily inference budget exhausted for this tedi",
-	);
+for (const error of [
+	"Inference daily budget exhausted for 2026-07-22 (900000/1000000 tokens)",
+	"daily inference budget exhausted for this tedi",
+	"daily inference token budget exhausted mid-turn (1000000/1000000 tokens)",
+	"background inference budget exhausted for 2026-07-22",
+	"Error: DAILY INFERENCE BUDGET IS EXHAUSTED",
+]) {
+	const notice = turnFailureNoticeText(error);
 	assert.match(notice, /daily inference budget is exhausted/);
 	assert.match(notice, /budget window resets/);
+}
+
+for (const error of [
+	"daily budget service unavailable",
+	"inference budget service unavailable",
+	"Inference daily budget check failed: transport timeout",
+	"daily inference token budget lookup failed",
+	"retry budget exhausted",
+	"Browser daily budget exhausted for 2026-07-22",
+	"daily inference budget is not exhausted; service unavailable",
+]) {
+	assert.equal(
+		turnFailureNoticeText(error),
+		`This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: ${error}`,
+	);
 }
 
 {
