@@ -3,6 +3,12 @@ import {
 	deliverTediContextWake,
 } from "./tedi-context-wake";
 import { createDbClient } from "@tedix/db/client";
+import {
+	buildRuntimeRunId,
+	buildTediConversationId,
+} from "@tedix/api-contract/utils/runtime-identity";
+import { listTediRuntimeEventsForRouter } from "@tedix/db/queries/cognitive-runtime";
+import { listTediRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { ensureCommitmentFollowup } from "../services/tedi-context-wake";
 import { PlatformCronPathError } from "./platform-cron-receipts";
 import {
@@ -22,6 +28,7 @@ const WINDOW_MS = 120_000;
 const DEBOUNCE_MS = 30_000;
 const MAX_REPLAY_WINDOWS = 10;
 const MAX_WAKE_AGE_MS = 15 * 60_000;
+const COALESCE_ACTIVE_RUN_MS = 5 * 60_000;
 export const MAX_COMMITMENT_CHANGES_PER_RUN = 25;
 const RUN_BUDGET_MS = 40_000;
 const DELIVERY_TIMEOUT_MS = 15_000;
@@ -96,6 +103,7 @@ export async function dispatchCommitmentWakes(
 	let observed = 0;
 	let dispatched = 0;
 	let deduplicated = 0;
+	let deferred = 0;
 	let retried = 0;
 	let failed = 0;
 	let windowsSkippedMaxAge = 0;
@@ -106,6 +114,7 @@ export async function dispatchCommitmentWakes(
 		observed,
 		dispatched,
 		deduplicated,
+		deferred,
 		retried,
 		failed,
 		windowsSkippedMaxAge,
@@ -182,6 +191,7 @@ export async function dispatchCommitmentWakes(
 		}
 		const failuresBeforePage = failures.length;
 		let pageDelivered = true;
+		let pageDeferred = false;
 		const deliverBatch = async (batch: CommitmentChange[]) => {
 			if (Date.now() >= deliveryDeadline) {
 				pageDelivered = false;
@@ -195,6 +205,46 @@ export async function dispatchCommitmentWakes(
 					? `${window.through}:${JSON.stringify([changes[0]!.key, changes.at(-1)!.key, changes.at(-1)!.tediId])}`
 					: window.through;
 			try {
+				const [started] = await bounded(() =>
+					listTediRuntimeEventsForRouter(db, {
+						tediId: first.tediId,
+						conversationId: buildTediConversationId({
+							tediRef: first.slug,
+							sessionKey: `commitments:${first.tediId}`,
+						}),
+						kind: "run.started",
+						order: "desc",
+						limit: 1,
+					}),
+				);
+				const activeRunId = started?.runId;
+				if (
+					started?.organizationId === first.orgId &&
+					activeRunId &&
+					Date.parse(started.createdAt) >
+						Math.max(scheduledTime, Date.now()) - COALESCE_ACTIVE_RUN_MS &&
+					activeRunId !==
+						buildRuntimeRunId({
+							tediId: first.tediId,
+							surface: "mcp",
+							turnKey: `commitments:${first.orgId}:${first.tediId}:${deliveryBoundary}`,
+						})
+				) {
+					const terminal = await bounded(() =>
+						listTediRuntimeEvents(db, {
+							organizationId: first.orgId,
+							tediId: first.tediId,
+							runId: activeRunId,
+							kinds: ["run.completed", "run.failed", "run.canceled"],
+							limit: 1,
+						}),
+					);
+					if (!terminal.length) {
+						deferred++;
+						pageDeferred = true;
+						return;
+					}
+				}
 				for (const change of batch)
 					await bounded(() =>
 						ensureCommitmentFollowup(
@@ -241,6 +291,11 @@ export async function dispatchCommitmentWakes(
 				for (const batch of pendingBatches) await deliverBatch(batch);
 			}),
 		);
+		// A busy session has not seen these changes: retain both page and cursor.
+		if (pageDeferred) {
+			if (window.retryId) continue;
+			break;
+		}
 		if (failures.length > failuresBeforePage || !pageDelivered)
 			await bounded(() => retainCommitmentWakePage(db, window.through, cursor));
 		if (window.retryId) {
