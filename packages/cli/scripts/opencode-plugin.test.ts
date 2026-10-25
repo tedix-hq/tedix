@@ -595,12 +595,13 @@ test("OpenCode 2 adds the Tedix MCP server with its CIMD client and the shared s
 	expect(own.skills.size).toBe(names.length);
 });
 
-test("OpenCode 2 skips a skill with malformed metadata without hiding valid skills", async () => {
+test("OpenCode 2 preserves unquoted colons and isolates malformed skill metadata", async () => {
 	const root = join(directory, "isolated-plugin");
 	const pluginDirectory = join(root, ".opencode-plugin");
 	const skillsDirectory = join(root, "skills");
 	mkdirSync(pluginDirectory, { recursive: true });
 	mkdirSync(join(skillsDirectory, "broken"), { recursive: true });
+	mkdirSync(join(skillsDirectory, "colons"), { recursive: true });
 	mkdirSync(join(skillsDirectory, "valid"), { recursive: true });
 	const pluginPath = join(pluginDirectory, "index.mjs");
 	writeFileSync(
@@ -612,13 +613,22 @@ test("OpenCode 2 skips a skill with malformed metadata without hiding valid skil
 		'---\nname: broken\ndescription: "unterminated\n---\n# Broken\n',
 	);
 	writeFileSync(
+		join(skillsDirectory, "colons", "SKILL.md"),
+		"---\nname: colons\ndescription: Use this skill: keep details: https://example.test:8443/path\n---\n# Colons\n",
+	);
+	writeFileSync(
 		join(skillsDirectory, "valid", "SKILL.md"),
 		'---\nname: valid\ndescription: "Valid skill"\n---\n# Valid\n',
 	);
 	const isolated = await import(pathToFileURL(pluginPath).href);
 	const fake = context2();
 	const cleanup = await isolated.default.setup(fake.ctx);
-	expect([...fake.skills.keys()]).toEqual(["valid"]);
+	expect([...fake.skills.keys()].sort()).toEqual(["colons", "valid"]);
+	expect(fake.skills.get("colons")).toMatchObject({
+		name: "colons",
+		description: "Use this skill: keep details: https://example.test:8443/path",
+		content: "# Colons\n",
+	});
 	expect(fake.skills.get("valid")).toMatchObject({
 		name: "valid",
 		description: "Valid skill",
