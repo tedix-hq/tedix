@@ -141,6 +141,7 @@
 		"./queries/fact-lifecycle": "./src/queries/fact-lifecycle.ts",
 		"./queries/skill-portfolio": "./src/queries/skill-portfolio.ts",
 		"./queries/governance-overview": "./src/queries/governance-overview.ts",
+		"./queries/skill-ownership": "./src/queries/skill-ownership.ts",
 		"./queries/skill-schedules": "./src/queries/skill-schedules.ts",
 		"./queries/skill-run-artifacts": "./src/queries/skill-run-artifacts.ts",
 		"./queries/plugins": "./src/queries/plugins.ts",

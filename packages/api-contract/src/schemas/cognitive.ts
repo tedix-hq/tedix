@@ -370,6 +370,92 @@ export const SkillScheduleSchema = z.object({
 });
 export type SkillSchedule = z.infer<typeof SkillScheduleSchema>;
 
+export const SkillMoveToTediInputSchema = z.object({
+	skillId: z.string().min(1),
+	targetTediId: z
+		.string()
+		.min(1)
+		.describe("The tedi that will own the skill and run its schedule"),
+	dryRun: z
+		.boolean()
+		.optional()
+		.default(true)
+		.describe(
+			"Check the move and report what would change without writing. Defaults to true.",
+		),
+	mode: z
+		.enum(["transfer"])
+		.optional()
+		.default("transfer")
+		.describe(
+			"transfer: the target becomes the owner and the schedule runs under it; the source keeps no copy",
+		),
+	reason: z
+		.string()
+		.trim()
+		.max(500)
+		.optional()
+		.describe("Why the skill moves; kept on the audit event"),
+});
+export type SkillMoveToTediInput = z.infer<typeof SkillMoveToTediInputSchema>;
+
+export const SkillMoveCheckSchema = z.object({
+	id: z.enum([
+		"target_tedi",
+		"runs_in_flight",
+		"tedi_namespace",
+		"gateway_access",
+		"app_access",
+		"personal_resources",
+		"source_references",
+		"schedule",
+	]),
+	status: z.enum(["pass", "fail", "warn"]),
+	detail: z.string(),
+});
+export type SkillMoveCheck = z.infer<typeof SkillMoveCheckSchema>;
+
+export const SkillMoveToTediResultSchema = z.object({
+	status: z
+		.enum(["ready", "blocked", "moved"])
+		.describe(
+			"ready: a dry run found no blocker; blocked: a check failed and nothing changed; moved: the skill and its schedule now belong to the target",
+		),
+	dryRun: z.boolean(),
+	mode: z.literal("transfer"),
+	skill: z.object({
+		id: z.string(),
+		slug: z.string().nullable(),
+		title: z.string(),
+		revision: z.number().int(),
+		lifecycleState: z.string().nullable(),
+	}),
+	from: z.object({
+		tediId: z.string().nullable(),
+		name: z.string().nullable(),
+	}),
+	to: z.object({ tediId: z.string(), name: z.string(), slug: z.string() }),
+	schedule: z.object({
+		before: SkillScheduleSchema.nullable(),
+		after: SkillScheduleSchema.nullable(),
+	}),
+	checks: z.array(SkillMoveCheckSchema),
+	blockers: z.array(z.string()),
+	auditEventId: z.string().nullable(),
+	rollback: z
+		.object({
+			skillId: z.string(),
+			targetTediId: z.string(),
+			dryRun: z.literal(false),
+			mode: z.literal("transfer"),
+		})
+		.nullable()
+		.describe(
+			"The move_skill_to_tedi call that reverses this move; null when the skill had no previous owner",
+		),
+});
+export type SkillMoveToTediResult = z.infer<typeof SkillMoveToTediResultSchema>;
+
 /** Agent-readable projection of one durable Cloudflare Workflow step record. */
 export const SkillWorkflowConnectionRecoverySchema = z
 	.object({

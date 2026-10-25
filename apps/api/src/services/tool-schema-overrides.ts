@@ -386,6 +386,7 @@ export const SKILL_WORKFLOW_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"skills/getRunArtifact": "get_skill_run_artifact",
 	"skills/listRunArtifacts": "list_skill_run_artifacts",
 	"skills/revokeSkillRun": "revoke_skill_run",
+	"skills/moveToTedi": "move_skill_to_tedi",
 };
 
 export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
@@ -418,6 +419,8 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	"skills/compareWorkflowRevisions": "read",
 	"skills/getWorkflowReliability": "read",
 	"skills/pauseWorkflow": "write",
+	// Defaults to a dry run; a real move is reversed by moving the skill back.
+	"skills/moveToTedi": "write",
 	"skills/resumeWorkflow": "write",
 	"skills/restartWorkflow": "destructive",
 	"skills/approveWorkflow": "destructive",
