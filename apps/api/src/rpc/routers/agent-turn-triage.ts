@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { organizationModelEnv } from "../../services/unrouted-model-egress";
 /**
@@ -791,7 +792,7 @@ async function acknowledgeFyiQuestion(
 	} catch (error) {
 		console.warn("triage-fyi acknowledge skipped", {
 			requestId: request.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return false;
 	}
@@ -826,7 +827,7 @@ async function drafterTurnModel(
 	} catch (error) {
 		console.warn("reply-draft drafter model unavailable", {
 			tediId: drafter.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return null;
 	}
@@ -999,7 +1000,7 @@ async function replyDraftBoard(
 	} catch (error) {
 		console.warn("reply-draft board unavailable", {
 			requestId: request.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return "";
 	}
@@ -1021,7 +1022,7 @@ async function replyDraftSkill(
 	} catch (error) {
 		console.warn("reply-draft skill unavailable", {
 			slug: params.slug,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return null;
 	}
@@ -1117,7 +1118,7 @@ async function tedisDeniedReplyDraftWrite(
 	} catch (error) {
 		console.warn("reply-draft owner scope check unavailable", {
 			orgId,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return new Set();
 	}
@@ -1188,7 +1189,7 @@ async function owningDraftTediId(
 	} catch (error) {
 		console.warn("reply-draft routing unavailable", {
 			requestId: params.request.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return { tediId: null, probability: null, choiceTediId: null };
 	}
@@ -1228,14 +1229,13 @@ async function dispatchReplyDraftTurn(
 			console.warn("reply-draft direct dispatch failed; queueing", {
 				idempotencyKey:
 					event?.kind === "tedi_turn" ? event.idempotencyKey : undefined,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 			try {
 				await queue.send(event ?? (await build()));
 			} catch (sendError) {
 				console.error("reply-draft queue fallback failed", {
-					error:
-						sendError instanceof Error ? sendError.message : String(sendError),
+					exception: safeExceptionTopology(sendError),
 				});
 			}
 		}),
@@ -1258,7 +1258,7 @@ async function replyDraftExamples(
 	} catch (error) {
 		console.warn("reply-draft examples unavailable", {
 			requestId: params.request.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return "";
 	}
@@ -1788,10 +1788,9 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 					params: { organizationId, scope: "lessons" as const },
 				});
 			} catch (error) {
-				console.error(
-					"[learning-feed] lesson distillation start failed:",
-					error,
-				);
+				console.error("[learning-feed] lesson distillation start failed", {
+					exception: safeExceptionTopology(error),
+				});
 			}
 		const { mineLearningFeed, clefLessonRouter } =
 			await import("../../services/learning-feed-miner");

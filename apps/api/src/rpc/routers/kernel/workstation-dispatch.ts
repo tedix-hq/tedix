@@ -19,6 +19,7 @@
  * runtime, and the DB writes go through the caller's drizzle handle.
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import { createError, ErrorCodes } from "../../orpc";
 import { predictAgentRunId } from "./runtime-shared";
@@ -295,9 +296,7 @@ export async function dispatchWorkstationWorkOrder(
 		} catch (recordError) {
 			console.warn(
 				"[kernelRuntime.workstationDispatch] failed-run record failed",
-				recordError instanceof Error
-					? recordError.message
-					: String(recordError),
+				{ exception: safeExceptionTopology(recordError) },
 			);
 		}
 		return { childRunId, error: errorText, status: "failed" };
@@ -363,7 +362,7 @@ export async function dispatchWorkstationWorkOrder(
 		// pre-dispatch row (no childRunId) and stale detection will surface it.
 		console.warn(
 			"[kernelRuntime.workstationDispatch] dispatched-row update failed",
-			error instanceof Error ? error.message : String(error),
+			{ exception: safeExceptionTopology(error) },
 		);
 	}
 

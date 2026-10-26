@@ -335,8 +335,8 @@ export const graphSimilarDecisions = authed.graph.similarDecisions
 				};
 			} catch (e) {
 				console.warn(
-					"[GraphDB] findDecisionsWithSharedEvidence handler failed:",
-					e,
+					"[GraphDB] findDecisionsWithSharedEvidence handler failed",
+					{ exception: safeExceptionTopology(e) },
 				);
 				return {
 					decisions: [],

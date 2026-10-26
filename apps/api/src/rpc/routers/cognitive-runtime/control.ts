@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
@@ -208,7 +209,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		} catch (error) {
 			console.warn(
 				"[cognitiveRuntime.enqueueMessage] failed to write idempotency row",
-				error instanceof Error ? error.message : error,
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 
@@ -348,7 +349,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				} catch (error) {
 					console.warn(
 						"[cognitiveRuntime.enqueueMessage] failed to map isolate run id",
-						error instanceof Error ? error.message : error,
+						{ exception: safeExceptionTopology(error) },
 					);
 				}
 				await insertRuntimeEvent(context, {
@@ -430,7 +431,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				} catch (mappingError) {
 					console.warn(
 						"[cognitiveRuntime.enqueueMessage] failed to map outcome-unknown run id",
-						mappingError instanceof Error ? mappingError.message : mappingError,
+						{ exception: safeExceptionTopology(mappingError) },
 					);
 				}
 				return {

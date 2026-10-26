@@ -71,7 +71,7 @@ function reconcileFactProjection(
 	}).catch((error) => {
 		console.error("[memory.lifecycle] Agent Memory reconcile failed", {
 			factId: fact.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 	});
 	if (context.waitUntil) {
@@ -96,7 +96,7 @@ function deleteFactProjection(
 	).catch((error) => {
 		console.error("[memory.lifecycle] Agent Memory delete failed", {
 			factId: fact.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 	});
 	if (context.waitUntil) {
@@ -907,10 +907,9 @@ export const graphVisualization = authed.graph.visualization
 						meta,
 					};
 				} catch (e) {
-					console.warn(
-						"[GraphDB] graphVisualization decision_trace failed:",
-						e,
-					);
+					console.warn("[GraphDB] graphVisualization decision_trace failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return {
 						nodes: [],
 						edges: [],
@@ -947,10 +946,9 @@ export const graphVisualization = authed.graph.visualization
 						meta,
 					};
 				} catch (e) {
-					console.warn(
-						"[GraphDB] graphVisualization expertise_radar failed:",
-						e,
-					);
+					console.warn("[GraphDB] graphVisualization expertise_radar failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return {
 						nodes: [],
 						edges: [],

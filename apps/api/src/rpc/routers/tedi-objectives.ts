@@ -15,6 +15,7 @@
  * GET    /tedi-objectives/tasks/active/{tediId}  - Get active tasks (authenticated + org scoped)
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import {
 	DEFAULT_STANDING_OBJECTIVE_GATE_CONFIG,
@@ -281,10 +282,9 @@ const updateProcedure = authOs.update
 			try {
 				await cascadeCompleteChildTasks(context.db, input.id, input.status);
 			} catch (err) {
-				console.error(
-					`[Objectives] cascade failed for ${input.id}:`,
-					err instanceof Error ? err.message : err,
-				);
+				console.error(`[Objectives] cascade failed for ${input.id}`, {
+					exception: safeExceptionTopology(err),
+				});
 			}
 		}
 

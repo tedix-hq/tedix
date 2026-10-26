@@ -295,10 +295,9 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 					});
 				}
 			} catch (err) {
-				console.warn(
-					"[skillsRunWorkflow] dispatch rationale emit failed",
-					err instanceof Error ? err.message : err,
-				);
+				console.warn("[skillsRunWorkflow] dispatch rationale emit failed", {
+					exception: safeExceptionTopology(err),
+				});
 			}
 		}
 
@@ -375,10 +374,9 @@ async function captureSkillRunCostSummary(
 		);
 		return (refreshed ?? run) as SkillRun;
 	} catch (error) {
-		console.warn(
-			`[skills.costSummary] capture failed for ${run.id}:`,
-			error instanceof Error ? error.message : error,
-		);
+		console.warn(`[skills.costSummary] capture failed for ${run.id}`, {
+			exception: safeExceptionTopology(error),
+		});
 		return run;
 	}
 }
@@ -587,8 +585,8 @@ export async function reconcileSkillRunWithEngine(
 				});
 			} catch (error) {
 				console.warn(
-					`[${logPrefix}] active submission reconciliation failed for ${run.id}:`,
-					error,
+					`[${logPrefix}] active submission reconciliation failed for ${run.id}`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}
@@ -633,7 +631,9 @@ export async function reconcileSkillRunWithEngine(
 						},
 						createdAt: remote.completedAt ?? new Date().toISOString(),
 					}).catch((err) =>
-						console.warn("[CognitiveBridge] skill.used emit failed:", err),
+						console.warn("[CognitiveBridge] skill.used emit failed", {
+							exception: safeExceptionTopology(err),
+						}),
 					),
 				);
 			}
@@ -667,7 +667,9 @@ export async function reconcileSkillRunWithEngine(
 						},
 						createdAt: observedAt,
 					}).catch((err) =>
-						console.warn("[CognitiveBridge] skill.failed emit failed:", err),
+						console.warn("[CognitiveBridge] skill.failed emit failed", {
+							exception: safeExceptionTopology(err),
+						}),
 					),
 				);
 			}
@@ -694,10 +696,9 @@ export async function reconcileSkillRunWithEngine(
 				errorPreview: errorText ? errorText.slice(0, 500) : null,
 				observedAt: remote.completedAt ?? new Date().toISOString(),
 			}).catch((err) =>
-				console.warn(
-					"[CognitiveBridge] skill.failed work-item alert failed:",
-					err,
-				),
+				console.warn("[CognitiveBridge] skill.failed work-item alert failed", {
+					exception: safeExceptionTopology(err),
+				}),
 			);
 			if (context.waitUntil) context.waitUntil(alert);
 			else await alert;

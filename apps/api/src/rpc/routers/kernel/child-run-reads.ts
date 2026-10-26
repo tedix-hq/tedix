@@ -3,6 +3,7 @@
  * This module must NOT import kernel-runtime.ts: the router imports this module.
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	getChatDispatchMappingByIdempotencyKey,
 	listTediArtifacts,
@@ -276,7 +277,7 @@ export async function readSingleChildRunSummary(
 		return summarizeChildRuntimeEvents(eventRows);
 	} catch (error) {
 		console.warn("[kernelRuntime] readSingleChildRunSummary failed", {
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 			runId: ref.runId,
 			tediId: ref.tediId,
 		});

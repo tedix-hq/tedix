@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	guardKernelRouteDecision,
 	hasExplicitDelegationIntent,
@@ -1186,7 +1187,7 @@ export async function runKernel(args: {
 		} catch (error) {
 			console.warn(
 				"[kernel] delegated load read failed; keeping the planned target",
-				error instanceof Error ? error.message : String(error),
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 	}

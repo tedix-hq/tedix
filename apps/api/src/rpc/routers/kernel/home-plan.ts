@@ -6,6 +6,7 @@
  * value import back would create a cycle).
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type {
 	HomeChildRunEvidence,
@@ -217,7 +218,7 @@ export async function readChildRunStatusesForRunRows(
 				}
 			} catch (error) {
 				console.warn("[kernelRuntime] child run-set status read failed", {
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 					runId: ref.runId,
 					tediId: ref.tediId,
 				});

@@ -35,6 +35,7 @@
  * true) rather than failing the whole assembly.
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	computeManagedAssignmentsForTedi,
 	resolveTediScopes,
@@ -635,7 +636,7 @@ function buildCard(
 	} catch (error) {
 		console.warn(
 			`[tediCapabilities] enrichment failed for tedi ${tedi.id}; degrading to thin card`,
-			error instanceof Error ? error.message : String(error),
+			{ exception: safeExceptionTopology(error) },
 		);
 	}
 
@@ -732,10 +733,9 @@ async function safeBatch<T>(read: () => Promise<T>, fallback: T): Promise<T> {
 	try {
 		return await read();
 	} catch (error) {
-		console.warn(
-			"[tediCapabilities] batch read failed; degrading",
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[tediCapabilities] batch read failed; degrading", {
+			exception: safeExceptionTopology(error),
+		});
 		return fallback;
 	}
 }
