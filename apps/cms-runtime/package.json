@@ -12,7 +12,8 @@
 		"build": "vp build",
 		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"test": "bun run test:run",
-		"test:run": "bun install --frozen-lockfile --cwd ../cms/templates/tedix && vp test run && bun scripts/check-agent-discovery.ts && bun scripts/check-cache-key.ts && bun scripts/check-tenant-emdash-encryption.ts && bun scripts/check-edge-cache-headers.ts && bun scripts/check-tenant-ai-search.ts && bun scripts/check-tenant-egress.ts && bun scripts/check-tenant-internal-auth.ts && bun scripts/check-webmcp.ts",
+		"test:run": "bun install --frozen-lockfile --cwd ../cms/templates/tedix && vp test run && bun scripts/check-agent-discovery.ts && bun scripts/check-cache-key.ts && bun scripts/check-tenant-emdash-encryption.ts && bun scripts/check-edge-cache-headers.ts && bun scripts/check-tenant-ai-search.ts && bun scripts/check-tenant-egress.ts && bun scripts/check-tenant-internal-auth.ts && bun scripts/check-webmcp.ts && bun run test:webmcp-evals",
+		"test:webmcp-evals": "bun scripts/check-webmcp-evals.ts",
 		"types": "cf workers types --mode production",
 		"type-check": "bun install --frozen-lockfile --cwd ../cms/templates/tedix && bun run types && tsc --noEmit"
 	},
@@ -39,6 +40,7 @@
 		"typescript": "catalog:",
 		"vite": "catalog:",
 		"vite-plus": "catalog:",
-		"vitest": "catalog:"
+		"vitest": "catalog:",
+		"webmcp-evals": "0.0.4"
 	}
 }
