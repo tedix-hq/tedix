@@ -25,8 +25,20 @@ import {join} from 'node:path';
 const server=Bun.serve({port:0,fetch:()=>new Response('ok')});
 const dir=tmpdir();
 const emit=(kind)=>appendFileSync(${JSON.stringify(events)},JSON.stringify({kind,id:${id},dir,port:server.port})+'\\n');
+const overlapping=()=>{
+ const log=readFileSync(${JSON.stringify(events)},'utf8').trim().split('\\n').map((line)=>JSON.parse(line));
+ const starts=log.filter((e)=>e.kind==='start');
+ const ended=new Set(log.filter((e)=>e.kind==='end').map((e)=>e.id));
+ return starts.length===5||starts.some((e)=>e.id!==${id}&&!ended.has(e.id));
+};
 try {
  emit('start');
+ // Wait for a live peer (or the last file) so overlap never depends on spawn speed.
+ const deadline=Date.now()+10_000;
+ while(!overlapping()){
+  if(Date.now()>deadline) throw new Error('no concurrent peer started');
+  await Bun.sleep(10);
+ }
  const file=join(dir,'shared-name');
  writeFileSync(file,'${id}');
  await Bun.sleep(150);
