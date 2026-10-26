@@ -199,6 +199,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "read",
 	},
 	{
+		toolId: "save_workspace_as_blueprint",
+		endpoint: "osWorkspaces/blueprints/saveWorkspace",
+		kind: "write",
+	},
+	{
 		toolId: "create_os_blueprint",
 		endpoint: "osWorkspaces/blueprints/create",
 		kind: "write",

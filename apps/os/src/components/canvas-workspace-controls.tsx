@@ -1,5 +1,6 @@
 import {
 	Archive,
+	Copy,
 	DotsThree,
 	PencilSimple,
 	Plus,
@@ -35,6 +36,7 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { osApi } from "@/lib/api";
 import { osQueryKeys } from "@/lib/os-query-options";
+import { WorkspaceBlueprintDialog } from "@/components/workspace-blueprint-dialog";
 import { WorkspaceShareDialog } from "@/components/workspace-share-dialog";
 
 function errorMessage(error: unknown): string {
@@ -200,6 +202,7 @@ export function CanvasWorkspaceControls({
 	const [editOpen, setEditOpen] = useState(false);
 	const [archiveOpen, setArchiveOpen] = useState(false);
 	const [shareOpen, setShareOpen] = useState(false);
+	const [blueprintOpen, setBlueprintOpen] = useState(false);
 
 	const archive = useMutation({
 		mutationFn: () =>
@@ -292,7 +295,6 @@ export function CanvasWorkspaceControls({
 								render={
 									<Button
 										aria-label="Workspace actions"
-										className="sm:hidden"
 										size="icon-sm"
 										variant="outline"
 									/>
@@ -301,6 +303,9 @@ export function CanvasWorkspaceControls({
 								<DotsThree size={16} weight="bold" />
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
+								<DropdownMenuItem onClick={() => setBlueprintOpen(true)}>
+									<Copy size={14} /> Save as blueprint
+								</DropdownMenuItem>
 								<DropdownMenuItem onClick={() => setEditOpen(true)}>
 									<PencilSimple size={14} /> Edit workspace
 								</DropdownMenuItem>
@@ -326,6 +331,12 @@ export function CanvasWorkspaceControls({
 			) : null}
 			{workspace && (
 				<>
+					{blueprintOpen ? (
+						<WorkspaceBlueprintDialog
+							workspace={workspace}
+							onOpenChange={setBlueprintOpen}
+						/>
+					) : null}
 					{shareOpen ? (
 						<WorkspaceShareDialog
 							workspaceId={workspace.id}

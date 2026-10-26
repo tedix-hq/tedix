@@ -5948,3 +5948,273 @@ describe("Work app entry", () => {
 		).toEqual([shared.gadget.id]);
 	});
 });
+
+describe("save workspace as blueprint", () => {
+	it("freezes committed runtime files and installs independent apps without workspace data", async () => {
+		mocks.resolveConnectionAvailability.mockResolvedValue({
+			connected: false,
+			cause: "no_token",
+			missingScopes: [],
+		});
+		const c = clients();
+		const { workspace } = await c.org1.workspaces.create({ name: "Research" });
+		await c.org1.outputs.create({
+			workspaceId: workspace.id,
+			kind: "document",
+			title: "Private document",
+			content: {
+				kind: "document",
+				blocks: [
+					{ type: "paragraph", text: "Fictional private document body" },
+				],
+			},
+		});
+		const { gadget } = await c.org1.gadgets.create({
+			workspaceId: workspace.id,
+			name: "Counter",
+		});
+		const manifest = {
+			entry: "tedix:runtime/v1",
+			config: { version: 1 },
+			capabilities: [],
+			resourceGrants: [{ slot: "source", operations: ["outputs.read"] }],
+		};
+		const files = {
+			"server.js":
+				"import { DurableObject } from 'cloudflare:workers'; export class App extends DurableObject { count() { const n = (this.ctx.storage.kv.get('n') ?? 0) + 1; this.ctx.storage.kv.put('n', n); return n; } }",
+			"client.js": "document.body.textContent = 'Counter';",
+			"help.txt": "Counter help",
+		};
+		const { revision: current } = await c.org1.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+			manifest,
+			files,
+		});
+		const db = createDbQueryClient(c.env.DB);
+		await db.insert(osWorkspaceResources).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId: workspace.id,
+			slot: "source",
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "output",
+			providerResourceId: "private-output-id",
+			name: "Private source title",
+			requiredScopes: '["outputs:read"]',
+			metadata: '{"private":"data"}',
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		const saved = await c.org1.blueprints.saveWorkspace({
+			workspaceId: workspace.id,
+			name: "Counter kit",
+		});
+		expect(saved.blueprint).toMatchObject({
+			status: "draft",
+			visibility: "org",
+			currentRevisionId: saved.revision.id,
+		});
+		expect(saved.revision.definition.gadgets).toEqual([
+			{ name: "Counter", manifest, files },
+		]);
+		expect(saved.revision.definition.requirements?.resources).toEqual([
+			{
+				slot: "source",
+				providerId: "tedix",
+				tokenScope: "tenant",
+				scopes: ["outputs:read"],
+				resourceType: "output",
+				label: "source",
+			},
+		]);
+		const serialized = JSON.stringify(saved.revision.definition);
+		for (const excluded of [
+			"private-output-id",
+			"Fictional private document body",
+			"Private source title",
+			"private",
+			workspace.id,
+			gadget.id,
+			current.id,
+		])
+			expect(serialized).not.toContain(excluded);
+		await c.org1.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+			manifest,
+			files: { ...files, "client.js": "changed after snapshot" },
+		});
+		await c.org1.blueprints.publish({ blueprintId: saved.blueprint.id });
+		await expect(
+			c.org1.blueprints.instantiate({
+				blueprintId: saved.blueprint.id,
+				workspaceName: "Unbound copy",
+			}),
+		).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
+		const bindings = (providerResourceId: string) => [
+			{
+				slot: "source",
+				selection: {
+					providerId: "tedix",
+					connectionScope: "tenant" as const,
+					resourceType: "output",
+					providerResourceId,
+					name: "Selected source",
+					requiredScopes: ["outputs:read"],
+				},
+			},
+		];
+		const first = await c.org1.blueprints.instantiate({
+			blueprintId: saved.blueprint.id,
+			workspaceName: "First copy",
+			resourceBindings: bindings("first-selected-output"),
+		});
+		const second = await c.org1.blueprints.instantiate({
+			blueprintId: saved.blueprint.id,
+			workspaceName: "Second copy",
+			resourceBindings: bindings("second-selected-output"),
+		});
+		const ids = [
+			gadget.id,
+			first.gadgets[0].gadget.id,
+			second.gadgets[0].gadget.id,
+		];
+		expect(new Set(ids).size).toBe(3);
+		for (const copy of [first, second]) {
+			const app = copy.gadgets[0].gadget;
+			const code = await c.org1.gadgets.getCode({
+				workspaceId: copy.workspace.id,
+				gadgetId: app.id,
+			});
+			expect(code.code?.files).toEqual(files);
+			expect(code.code?.revisionId).toBe(app.currentRevisionId);
+			expect(copy.resources).toHaveLength(1);
+			expect(copy.resources[0].providerResourceId).toBe(
+				copy === first ? "first-selected-output" : "second-selected-output",
+			);
+			expect(
+				(await c.org1.outputs.list({ workspaceId: copy.workspace.id })).items,
+			).toEqual([]);
+		}
+		await c.org1.gadgets.revise({
+			workspaceId: first.workspace.id,
+			gadgetId: first.gadgets[0].gadget.id,
+			manifest,
+			files: { ...files, "client.js": "first copy only" },
+		});
+		expect(
+			(
+				await c.org1.gadgets.getCode({
+					workspaceId: second.workspace.id,
+					gadgetId: second.gadgets[0].gadget.id,
+				})
+			).code?.files,
+		).toEqual(files);
+		await expect(
+			c.org1.blueprints.saveWorkspace({
+				workspaceId: workspace.id,
+				name: "Counter kit",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect((await c.org1.blueprints.list({})).items).toHaveLength(1);
+		await expect(
+			c.org2.blueprints.saveWorkspace({
+				workspaceId: workspace.id,
+				name: "Stolen",
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("refuses missing committed runtime code without leaving a blueprint", async () => {
+		const c = clients();
+		const { workspace } = await c.org1.workspaces.create({
+			name: "Broken source",
+		});
+		const { gadget } = await c.org1.gadgets.create({
+			workspaceId: workspace.id,
+			name: "Uncommitted",
+		});
+		await expect(
+			c.org1.blueprints.saveWorkspace({
+				workspaceId: workspace.id,
+				name: "Missing",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const { revision } = await c.org1.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+			manifest: { entry: "tedix:runtime/v1", config: { version: 1 } },
+			files: { "server.js": "export class App {}", "client.js": "" },
+		});
+		await createDbQueryClient(c.env.DB)
+			.delete(osGadgetCode)
+			.where(eq(osGadgetCode.revisionId, revision.id));
+		await expect(
+			c.org1.blueprints.saveWorkspace({
+				workspaceId: workspace.id,
+				name: "Missing",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect((await c.org1.blueprints.list({})).items).toEqual([]);
+	});
+});
+
+describe("workspace blueprint requirements", () => {
+	it("retains pinned requirements and unbound shapes from the workspace's source revision", async () => {
+		const c = clients();
+		const { blueprint } = await c.org1.blueprints.create({
+			name: "Pinned source",
+		});
+		const { revision } = await c.org1.blueprints.revise({
+			blueprintId: blueprint.id,
+			definition: {
+				gadgets: [],
+				requirements: {
+					version: 1,
+					connections: [
+						{
+							providerId: "fictional-provider",
+							tokenScope: "tenant",
+							scopes: ["read"],
+						},
+					],
+					resources: [
+						{
+							slot: "sheet",
+							providerId: "fictional-provider",
+							resourceType: "sheet",
+							tokenScope: "tenant",
+							scopes: ["read"],
+							label: "Source sheet",
+						},
+					],
+					skills: [],
+					policies: [],
+					runtime: null,
+					layout: null,
+					outputs: [],
+				},
+			},
+		});
+		const { workspace } = await c.org1.workspaces.create({
+			name: "Unbound workspace",
+		});
+		await createDbQueryClient(c.env.DB)
+			.update(osWorkspaces)
+			.set({
+				sourceBlueprintId: blueprint.id,
+				sourceBlueprintRevisionId: revision.id,
+				sourceBlueprintRevisionNumber: 1,
+			})
+			.where(eq(osWorkspaces.id, workspace.id));
+		const saved = await c.org1.blueprints.saveWorkspace({
+			workspaceId: workspace.id,
+			name: "Saved pins",
+		});
+		expect(saved.revision.definition.requirements).toEqual(
+			revision.definition.requirements,
+		);
+	});
+});

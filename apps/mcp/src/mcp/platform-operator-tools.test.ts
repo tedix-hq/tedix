@@ -57,6 +57,7 @@ describe("platform operator tool definitions", () => {
 		expect(ids).toContain("get_os_blueprint");
 		expect(ids).toContain("instantiate_os_blueprint");
 		expect(ids).toContain("create_os_blueprint");
+		expect(ids).toContain("save_workspace_as_blueprint");
 		expect(ids).toContain("list_os_outputs");
 		expect(ids).toContain("get_catalog_stats");
 		expect(ids).toContain("run_openapi_import");

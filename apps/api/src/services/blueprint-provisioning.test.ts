@@ -630,4 +630,34 @@ describe("buildBlueprintApplyRows", () => {
 		// step, not here — the plan cannot know which org skill will bind.
 		expect(params.provisioning?.schedules).toEqual([]);
 	});
+	it("materializes runtime files under the new app and revision identities", async () => {
+		const input = planInput();
+		const files = {
+			"server.js": "export class App {}",
+			"client.js": "render()",
+		};
+		input.definition.gadgets = [
+			{
+				name: "Counter",
+				manifest: {
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					config: { version: 1 },
+				},
+				files,
+			},
+		];
+		const plan = await planBlueprintApply(input);
+		const rows = await buildBlueprintApplyRows(plan, BASE);
+		expect(rows.code).toEqual([
+			{
+				organizationId: ORGANIZATION_ID,
+				gadgetId: rows.gadgets[0].id,
+				revisionId: rows.revisions[0].id,
+				files: JSON.stringify(files),
+				codeLength: 27,
+				createdAt: NOW,
+			},
+		]);
+	});
 });

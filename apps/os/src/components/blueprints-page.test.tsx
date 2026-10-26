@@ -356,6 +356,36 @@ describe("parseListInput", () => {
 });
 
 describe("definition draft mapping", () => {
+	it("preserves runtime files, settings and grants while editing a saved template", () => {
+		const definition = {
+			gadgets: [
+				{
+					name: "Counter",
+					manifest: {
+						entry: "tedix:runtime/v1",
+						capabilities: [],
+						config: { version: 1, settings: { label: "Counter" } },
+						resourceGrants: [{ slot: "sheet", operations: ["outputs.read"] }],
+						notes: "Remove me",
+					},
+					files: {
+						"server.js": "export class App {}",
+						"client.js": "render()",
+					},
+				},
+			],
+			requirements: null,
+		};
+		const draft = definitionToDraft(definition);
+		draft.gadgets[0]!.name = "Renamed counter";
+		draft.gadgets[0]!.notes = "";
+		const saved = draftToDefinition(draft);
+		expect(saved.gadgets[0]).toEqual({
+			...definition.gadgets[0],
+			name: "Renamed counter",
+			manifest: { ...definition.gadgets[0]!.manifest, notes: undefined },
+		});
+	});
 	it("round-trips a definition through the draft shape", () => {
 		const draft = definitionToDraft(baseDefinition);
 		expect(draft.gadgets).toHaveLength(1);
