@@ -18,6 +18,8 @@ import {
 } from "./local-fixtures";
 import { localWidgetResource } from "./local-api-plugin";
 import { uid } from "./demo-pack";
+import opportunityCardsApp from "./demo-pack/opportunity-cards-app.json";
+import opportunityCardsManifest from "./demo-pack/opportunity-cards-manifest.json";
 
 // ---------------------------------------------------------------------------
 // Contract access (drift-proof core): every handler's success payload must
@@ -406,10 +408,14 @@ const CALLS = {
 	"connections/getUserConnections": {},
 	"connections/getConnectionsOverview": { scope: "organization" },
 	"connections/listProviders": {},
+	"connections/stageConnectTicket": { appId: "github", scope: "user" },
+	// Redeems the ticket the stage call above issues after a reset.
+	"connections/redeemConnectTicket": { ticket: "fixture-connect-ticket-1" },
 	"catalog/list": { limit: 30, offset: 0 },
 	"catalog/getCategories": {},
 	"catalog/getBySlug": { slug: "local-documents" },
 	"apps/list": { limit: 50 },
+	"apps/listComposerCommands": {},
 	"apps/update": {
 		appId: "00000080-0000-4000-8000-000000000004",
 		metadata: { mcpConfig: { aggregateTedis: [{ slug: "nova" }] } },
@@ -596,6 +602,30 @@ const CALLS = {
 				after: "${cards.length} opportunities · ${reviewer}",
 			},
 		],
+	},
+	// Saves Code edits onto the open chat draft of the seeded app.
+	"osAppRuntime/saveDraft": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+		expectedRevisionId: uid(50, 14),
+		proposalId: uid(51, 14),
+		expectedSequence: 1,
+		content: {
+			manifest: opportunityCardsManifest,
+			files: {
+				...opportunityCardsApp,
+				"client.js": opportunityCardsApp["client.js"].replace(
+					"${cards.length} opportunities for ${reviewer}",
+					"${cards.length} opportunities · ${reviewer}",
+				),
+			},
+		},
+	},
+	"osAppRuntime/mergeDraft": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+		proposalId: uid(51, 14),
+		expectedSequence: 1,
 	},
 	"osWorkspaces/gadgets/getCode": {
 		workspaceId: IDS.workspaceRevenue,
@@ -798,6 +828,8 @@ const DEMO_PACK_CALLS = new Set([
 	"osAppRuntime/readOutput",
 	"osAppRuntime/draft",
 	"osAppRuntime/proposeEdit",
+	"osAppRuntime/saveDraft",
+	"osAppRuntime/mergeDraft",
 ]);
 
 describe("local fixtures parse through the contract output schemas", () => {
@@ -826,10 +858,34 @@ describe("local fixtures parse through the contract output schemas", () => {
 				);
 				return;
 			}
+			if (key === "connections/redeemConnectTicket")
+				callLocalOk(
+					"connections/stageConnectTicket",
+					CALLS["connections/stageConnectTicket"],
+				);
 			const output = callLocalOk(key, input);
 			await expectParsesAgainstContract(key, output);
 		});
 	}
+});
+
+it("redeems a staged connect ticket once and refuses unknown tickets", () => {
+	resetLocalFixtures();
+	const { ticket } = callLocalOk("connections/stageConnectTicket", {
+		appId: "github",
+	}) as { ticket: string };
+	expect(callLocalOk("connections/redeemConnectTicket", { ticket })).toEqual({
+		appId: "github",
+		scope: "user",
+		connectionInstanceId: null,
+		recorded: false,
+	});
+	expect(callLocal("connections/redeemConnectTicket", { ticket }).status).toBe(
+		409,
+	);
+	expect(
+		callLocal("connections/redeemConnectTicket", { ticket: "unknown" }).status,
+	).toBe(404);
 });
 
 it("serves the runtime client and only its current session's granted Output slots", async () => {
