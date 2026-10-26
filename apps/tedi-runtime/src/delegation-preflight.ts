@@ -1,5 +1,6 @@
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
+import { isCodeModeResultHandle } from "@tedix/tedi-codemode-core/bounded-result";
 
 /** MCP transports may wrap or objectify a Code Mode array. Never accept a clipped result. */
 export function discoveryRows(value: unknown, depth = 0): unknown[] | null {
@@ -31,6 +32,85 @@ export function discoveryRows(value: unknown, depth = 0): unknown[] | null {
 	)
 		return null;
 	return keys.map((key) => record[key]);
+}
+
+/** Find the record a Code Mode transport wrapped (JSON text or `result`/`data`). */
+function codeModeRecord(
+	value: unknown,
+	match: (record: Record<string, unknown>) => boolean,
+	depth = 0,
+): Record<string, unknown> | null {
+	if (depth > 3) return null;
+	if (typeof value === "string") {
+		if (value.length > 300_000) return null;
+		try {
+			return codeModeRecord(JSON.parse(value), match, depth + 1);
+		} catch {
+			return null;
+		}
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const record = value as Record<string, unknown>;
+	if (match(record)) return record;
+	for (const key of ["result", "data"]) {
+		if (!Object.hasOwn(record, key)) continue;
+		const found = codeModeRecord(record[key], match, depth + 1);
+		if (found) return found;
+	}
+	return null;
+}
+
+/** JSON-escaped page text must stay under the gateway's own result budget. */
+const RESULT_PAGE_CHARS = 10_000;
+/** 16 callables at the 16k schema cap still fit. */
+const MAX_RESULT_PAGES = 32;
+
+/**
+ * The gateway keeps an over-budget `code` result behind a
+ * `__tedix_result_handle` envelope. Page it back in full through
+ * `discover.read_result` with the same credential; the reassembled value is
+ * then verified like an inline one. Returns `result` unchanged when it is not
+ * a handle, and `null` when a page is unusable, so authority is never read
+ * from a preview.
+ */
+async function resolveCodeModeResultHandle(
+	result: unknown,
+	execute: (code: string) => Promise<unknown>,
+	pageChars = RESULT_PAGE_CHARS,
+): Promise<unknown> {
+	const envelope = codeModeRecord(result, isCodeModeResultHandle);
+	if (!envelope) return result;
+	const handle = envelope.handle;
+	if (typeof handle !== "string" || !/^[\w-]{1,128}$/.test(handle)) return null;
+	const parts: string[] = [];
+	let offset = 0;
+	for (let page = 0; page < MAX_RESULT_PAGES; page++) {
+		const data = codeModeRecord(
+			await execute(
+				`async () => await discover.read_result(${codeModeLiteral({ handle, offset, limit: pageChars })})`,
+			),
+			(record) =>
+				record.handle === handle &&
+				record.__tedix_result_handle !== true &&
+				(record.complete === true || typeof record.text === "string"),
+		);
+		if (!data) return null;
+		if (data.complete === true && "value" in data && !parts.length)
+			return data.value;
+		if (typeof data.text !== "string") return null;
+		parts.push(data.text);
+		if (data.nextOffset === undefined) {
+			try {
+				return JSON.parse(parts.join(""));
+			} catch {
+				return null;
+			}
+		}
+		if (typeof data.nextOffset !== "number" || data.nextOffset <= offset)
+			return null;
+		offset = data.nextOffset;
+	}
+	return null;
 }
 
 const NATIVE_SOURCE_TOOLS = new Set(["clone_repo", "repo_load"]);
@@ -106,7 +186,15 @@ export async function preflightDelegationTools(
 		);
 	const code = `async () => await Promise.all(${codeModeLiteral(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`;
 	const result = await executeWithCatalogRetry(execute, code, retryDelaysMs);
-	const rows = discoveryRows(result);
+	let resolved: unknown;
+	try {
+		resolved = await resolveCodeModeResultHandle(result, execute);
+	} catch (error) {
+		throw new Error(
+			`Delegation preflight failed: tool authority result could not be read (${(error instanceof Error ? error.message : String(error)).slice(0, 200)}); return to Home`,
+		);
+	}
+	const rows = discoveryRows(resolved);
 	if (!rows)
 		throw new Error(
 			`Delegation preflight failed: tool authority could not be verified (${typeof result}${result && typeof result === "object" ? ` keys=${Object.keys(result).slice(0, 6).join(",").slice(0, 200)}` : ""}); return to Home`,
