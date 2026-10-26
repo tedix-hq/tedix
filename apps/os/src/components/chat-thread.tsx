@@ -1,4 +1,6 @@
 import "./canvas-page.css";
+import { buildAppEditTools } from "@/components/app-edit-webmcp-tools";
+import { WorkspaceChatPageTools } from "@/lib/workspace-chat-page-tools";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import {
 	CHAT_CREATE_OPTIONS,
@@ -317,6 +319,7 @@ export function ChatThread({
 		composerOnly ? null : conversationId,
 	);
 	const queryClient = useQueryClient();
+	const [pageTools] = useState(() => new WorkspaceChatPageTools());
 	const tediNames = useTediNames();
 	const activeTedis = useActiveTedis();
 	// Null sends to Home, which routes the message itself. A picked tedi is
@@ -762,6 +765,9 @@ export function ChatThread({
 		// and fold into the same id-keyed tool-card map — re-delivery across
 		// sources is a plain overwrite, never a duplicate card.
 		onFrame: (event) => {
+			void pageTools.handle(event, (input) =>
+				transportActions.resolvePageTool(input),
+			);
 			if (!TOOL_EVENT_KINDS.has(event.kind)) return;
 			toolFramesRef.current.set(event.id, event);
 			setToolFrameCount(toolFramesRef.current.size);
@@ -1220,7 +1226,29 @@ export function ChatThread({
 		) => {
 			const { enqueueMessage, draftContent, ...request } = input;
 			void draftContent;
-			const result = enqueueMessage(request);
+			const tools =
+				request.workspaceContext?.workpiece?.kind === "gadget" &&
+				!request.delegateToTediId
+					? buildAppEditTools(
+							request.workspaceContext.workspaceId,
+							request.conversationId,
+							() =>
+								queryClient.invalidateQueries({
+									queryKey: osQueryKeys.collaborationProposals(),
+								}),
+						)
+					: [];
+			const descriptors = pageTools.offer(request.idempotencyKey, tools);
+			const result = enqueueMessage({
+				...request,
+				...(descriptors.length ? { pageTools: descriptors } : {}),
+			}).then((output) => {
+				if (descriptors.length && output.status !== "failed")
+					pageTools.bind(request.idempotencyKey, output.run.id, (input) =>
+						transportActions.resolvePageTool(input),
+					);
+				return output;
+			});
 			// Only bootstrap has no bound conversation capability yet. A timeout
 			// means unknown outcome; the same-key retry never creates a second run.
 			if (conversationId !== null) return result;

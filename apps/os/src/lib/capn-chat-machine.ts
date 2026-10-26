@@ -210,6 +210,7 @@ export type CapnChatActions = {
 	): Promise<EnqueueHomeMessageOutput>;
 	steer: CapnConversationStub["steer"];
 	withdrawSteering: CapnConversationStub["withdrawSteering"];
+	resolvePageTool: CapnConversationStub["resolvePageTool"];
 	cancel(runId: string): Promise<unknown>;
 	respondApproval(params: CapnRespondApprovalParams): Promise<unknown>;
 };
@@ -832,6 +833,7 @@ export function createCapnChatMachine(
 				}
 			},
 			steer: (input) => requireConversation().steer(input),
+			resolvePageTool: (input) => requireConversation().resolvePageTool(input),
 			withdrawSteering: (runId) =>
 				requireConversation().withdrawSteering(runId),
 			async cancel(runId) {

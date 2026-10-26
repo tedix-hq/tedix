@@ -310,9 +310,11 @@ export type ChatTransportActions = {
 			| "modelRef"
 			| "workspaceContext"
 			| "delegateToTediId"
+			| "pageTools"
 		> & { idempotencyKey: string },
 	): Promise<EnqueueHomeMessageOutput>;
 	steerRun: CapnChatActions["steer"];
+	resolvePageTool: CapnChatActions["resolvePageTool"];
 	withdrawSteering: CapnChatActions["withdrawSteering"];
 	cancelRun(input: { runId: string }): Promise<unknown>;
 	respondApproval(input: CapnRespondApprovalParams): Promise<unknown>;
@@ -365,6 +367,7 @@ const NEW_CONVERSATION_ACTIONS: ChatTransportActions = {
 	enqueueMessage: (input) =>
 		osChatMutationApi.kernelRuntime.enqueueMessage(input),
 	steerRun: (input) => osApi.kernelRuntime.steerRun(input),
+	resolvePageTool: (input) => osApi.kernelRuntime.resolvePageTool(input),
 	withdrawSteering: (runId) =>
 		osApi.kernelRuntime.controlRunSteering({ runId, action: "withdraw" }),
 	cancelRun: (input) => osApi.kernelRuntime.cancelRun(input),
@@ -412,6 +415,7 @@ function enqueueThroughCapability(
 			// conversation's Workspace, not which document is open beside it.
 			workspaceContext: input.workspaceContext,
 			delegateToTediId: input.delegateToTediId,
+			pageTools: input.pageTools,
 		},
 		input.idempotencyKey,
 	);
@@ -645,6 +649,7 @@ export function useChatTransport(
 								}
 							},
 							steerRun: (input) => capnActions.steer(input),
+							resolvePageTool: (input) => capnActions.resolvePageTool(input),
 							withdrawSteering: (runId) => capnActions.withdrawSteering(runId),
 							cancelRun: (input) => capnActions.cancel(input.runId),
 							// Approval is a durable control-plane mutation, not a realtime
@@ -659,6 +664,9 @@ export function useChatTransport(
 									input,
 								),
 							steerRun: async () => {
+								throw new CapnNotConnectedError();
+							},
+							resolvePageTool: async () => {
 								throw new CapnNotConnectedError();
 							},
 							withdrawSteering: async () => {
