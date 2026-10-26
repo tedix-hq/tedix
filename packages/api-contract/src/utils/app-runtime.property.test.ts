@@ -252,6 +252,7 @@ describe("loader manifest invariants", () => {
 		for (let i = 0; i < 200; i += 1) {
 			const files = randomFiles(next);
 			const hostile = {
+				validation: next() > 0.5,
 				compatibilityDate: next() > 0.5 ? "2026-10-01" : undefined,
 				invocation:
 					next() > 0.3
@@ -290,6 +291,7 @@ describe("loader manifest invariants", () => {
 				expect(manifest.globalOutbound).toBeNull();
 				expect(manifest.compatibilityFlags).toEqual([
 					"disallow_importable_env",
+					"nodejs_als",
 				]);
 				expect(Object.keys(manifest.env)).toEqual(["CONFIG"]);
 				expect(manifest.env.CONFIG).toEqual(hostile.invocation?.config ?? {});
@@ -303,7 +305,9 @@ describe("loader manifest invariants", () => {
 					"tails",
 				]);
 				expect(manifest.modules[manifest.mainModule]).toBeTypeOf("string");
-				if (hostile.invocation)
+				if (hostile.validation)
+					expect(manifest.mainModule).toBe("__tedix_validate.js");
+				else if (hostile.invocation)
 					expect(manifest.mainModule).toBe("__tedix_invocation.js");
 				else expect(manifest.mainModule).toBe("server.js");
 			}
