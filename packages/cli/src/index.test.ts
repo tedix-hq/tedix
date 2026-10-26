@@ -569,6 +569,30 @@ describe("parseOptions", () => {
 		expect(options.flowWatch).toBe(120);
 	});
 
+	test("skill edit keeps every --file and work create reads --description and --owner", () => {
+		const edit = parseOptions([
+			"skill",
+			"edit",
+			"id",
+			"--file",
+			"SKILL.md",
+			"--file=scripts/workflow.ts",
+		]).options;
+		expect(edit.flowFiles).toEqual(["SKILL.md", "scripts/workflow.ts"]);
+		expect(edit.flowFile).toBe("scripts/workflow.ts");
+		const create = parseOptions([
+			"work",
+			"create",
+			"Title",
+			"--description",
+			"Body",
+			"--owner",
+			"tedi:fictional",
+		]).options;
+		expect(create.workDesc).toBe("Body");
+		expect(create.workOwner).toBe("tedi:fictional");
+	});
+
 	test("flow watch rejects invalid explicit durations", () => {
 		expect(parseOptions(["flow", "run", "--watch"]).options.flowWatch).toBe(
 			900,

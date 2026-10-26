@@ -143,6 +143,8 @@ export interface CliOptions {
 	workNoDeliver?: boolean;
 	// `tedix work create` guided-creation flags.
 	workDesc?: string;
+	/** `work create --owner <type>:<id>` (parsed as the shared `--owner`). */
+	workOwner?: string;
 	workKind?: string;
 	workPriority?: string;
 	workObjective?: string;
@@ -168,6 +170,8 @@ export interface CliOptions {
 	// `tedix flow` verb-group flags (parsed in flow-options.ts, consumed by runFlowCommand).
 	/** `flow run --file <plan.ts>`: source + `/* tedix *\/` manifest in one file. */
 	flowFile?: string;
+	/** Every `--file` in order (`skill edit --file SKILL.md --file scripts/x.ts`). */
+	flowFiles?: string[];
 	/** `flow run|status --watch[=seconds]`: poll to terminal instead of returning. */
 	flowWatch?: number;
 	/** Repeatable `flow run --param k=v`. */

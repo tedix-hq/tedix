@@ -1367,6 +1367,7 @@ async function main() {
 				...(options.limit ? { limit: options.limit } : {}),
 				flow: {
 					...(options.flowFile !== undefined ? { file: options.flowFile } : {}),
+					...(options.flowFiles ? { files: options.flowFiles } : {}),
 					...(options.flowWatch ? { watch: options.flowWatch } : {}),
 					...(options.workAs ? { as: options.workAs } : {}),
 					...(options.flowParam ? { param: options.flowParam } : {}),
@@ -1498,6 +1499,7 @@ async function main() {
 						? { idempotencyKey: options.idempotencyKey }
 						: {}),
 					...(options.workDesc ? { desc: options.workDesc } : {}),
+					...(options.workOwner ? { owner: options.workOwner } : {}),
 					...(options.workKind ? { kind: options.workKind } : {}),
 					...(options.workPriority ? { priority: options.workPriority } : {}),
 					...(options.workObjective

@@ -89,8 +89,10 @@ export interface WorkOptions {
 	contentIds?: string;
 	validUntil?: string;
 	limit?: number;
-	/** `create`: --desc description body. */
+	/** `create`: --desc / --description body. */
 	desc?: string;
+	/** `create`: --owner <user|tedi|team|system>:<id>, the accountable owner. */
+	owner?: string;
 	/** `create`: adapter-neutral work kind. */
 	kind?: string;
 	/** `create`: --priority critical|high|medium|low. */
@@ -231,7 +233,7 @@ Usage: tedix work <verb> [args] [options]
 
 Lifecycle:
   create "<title>" --kind <kind> (--project <id> | --objective <id> | --class <class> --expires <duration>)
-              [--project <id>] [--desc <text>] [--executor <exec>]
+              [--project <id>] [--desc|--description <text>] [--owner tedi:<id>] [--executor <exec>]
   accept <id> --done-when "<what done looks like>" [--executor <exec>]
   readiness <id>
   start <id> [--lane] [--worktree [--worktree-root <path>]]

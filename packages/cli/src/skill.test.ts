@@ -168,3 +168,115 @@ it("fetches standing rules by canonical slug without creating or running a skill
 		'skills.get_skills_for_mcp({"slug":"lane-rules"})',
 	);
 });
+
+describe("finding, scheduling, inspecting and editing skills", () => {
+	it("finds by name with a projected, paged list", async () => {
+		const { calls, ctx } = harness({ entries: [] });
+		ctx.limit = 120;
+		expect(await runSkillCommand("find ship health", ctx)).toBe(0);
+		expect(calls[0]).toContain('"query":"ship health"');
+		expect(calls[0]).toContain('"summary":true');
+		// Only the listed fields leave the sandbox.
+		expect(calls[0]).toContain('["id","slug","title","lifecycleState"]');
+		expect(calls).toHaveLength(1);
+	});
+
+	it("reads a long list page by page", async () => {
+		const pages = [50, 50, 7];
+		const calls: string[] = [];
+		const { ctx } = harness({});
+		ctx.client.runCode = async (source: string) => {
+			calls.push(source);
+			const size = pages[calls.length - 1] ?? 0;
+			return {
+				entries: Array.from({ length: size }, (_, i) => ({
+					id: `${calls.length}-${i}`,
+				})),
+			};
+		};
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		ctx.limit = 200;
+		expect(await runSkillCommand("list", ctx)).toBe(0);
+		expect(calls.map((c) => /"offset":(\d+)/.exec(c)?.[1])).toEqual([
+			"0",
+			"50",
+			"100",
+		]);
+		expect(JSON.parse(String(stdout.mock.calls[0]?.[0])).entries).toHaveLength(
+			107,
+		);
+		stdout.mockRestore();
+	});
+
+	it("shows a skill's schedule by slug", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		const { calls, ctx } = harness({
+			schedules: [
+				{
+					cron: "*/10 * * * *",
+					enabled: true,
+					nextFireAt: "2026-10-26T12:10:00.000Z",
+				},
+			],
+		});
+		ctx.json = false;
+		expect(await runSkillCommand("schedule ship-health", ctx)).toBe(0);
+		expect(calls[0]).toContain("skills.list_skill_workflow_schedules");
+		expect(calls[0]).toContain('"slug":"ship-health"');
+		expect(String(stdout.mock.calls[0]?.[0])).toContain(
+			"next 2026-10-26T12:10:00.000Z",
+		);
+		stdout.mockRestore();
+	});
+
+	it("inspects a run without step output, failed steps first", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		const { calls, ctx } = harness({
+			steps: [
+				{ name: "read", status: "succeeded" },
+				{ name: "write", status: "failed", error: "denied" },
+			],
+		});
+		expect(await runSkillCommand("inspect run-1", ctx)).toBe(0);
+		expect(calls[0]).toContain("skills.list_skill_workflow_steps");
+		expect(calls[0]).toContain('"includeContent":false');
+		const printed = JSON.parse(String(stdout.mock.calls[0]?.[0]));
+		expect(printed.steps.map((s: { name: string }) => s.name)).toEqual([
+			"write",
+			"read",
+		]);
+		stdout.mockRestore();
+	});
+
+	it("edits SKILL.md and a script, merging files inside the sandbox", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { join } = await import("node:path");
+		const { tmpdir } = await import("node:os");
+		const dir = mkdtempSync(join(tmpdir(), "tedix-skill-edit-"));
+		mkdirSync(join(dir, "scripts"));
+		writeFileSync(join(dir, "SKILL.md"), "# Ship health\n");
+		writeFileSync(join(dir, "scripts", "workflow.ts"), "export {};\n");
+		const { calls, ctx } = harness({ id: SKILL_ID, slug: "ship-health" });
+		ctx.flow.files = [
+			join(dir, "SKILL.md"),
+			join(dir, "scripts", "workflow.ts"),
+		];
+		expect(await runSkillCommand(`edit ${SKILL_ID}`, ctx)).toBe(0);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain("skills.get_skills");
+		expect(calls[0]).toContain("skills.improve_skills");
+		expect(calls[0]).toContain(JSON.stringify("# Ship health\n"));
+		expect(calls[0]).toContain('"scripts/workflow.ts":"export {};\\n"');
+		expect(calls[0]).toContain("...(entry?.files ?? {})");
+	});
+
+	it("refuses an edit without files or with a file outside the skill", async () => {
+		const stderr = spyOn(console, "error").mockImplementation(() => {});
+		const { calls, ctx } = harness({});
+		expect(await runSkillCommand(`edit ${SKILL_ID}`, ctx)).toBe(2);
+		ctx.flow.files = ["/tmp/x/SKILL.md", "/tmp/other.ts"];
+		expect(await runSkillCommand(`edit ${SKILL_ID}`, ctx)).toBe(2);
+		expect(calls).toHaveLength(0);
+		stderr.mockRestore();
+	});
+});

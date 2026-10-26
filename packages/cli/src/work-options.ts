@@ -24,6 +24,7 @@ const valueOptions = {
 	"--evidence-label": "workEvidenceLabel",
 	"--evidence-metadata": "workEvidenceMetadata",
 	"--desc": "workDesc",
+	"--description": "workDesc",
 	"--kind": "workKind",
 	"--priority": "workPriority",
 	"--objective": "workObjective",

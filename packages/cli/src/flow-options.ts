@@ -19,6 +19,7 @@ export function parseFlowOption(
 	if (arg && Object.hasOwn(valueOptions, arg)) {
 		const field = valueOptions[arg as keyof typeof valueOptions];
 		options[field] = requireValue(arg, args[index + 1]);
+		if (arg === "--file") (options.flowFiles ??= []).push(options.flowFile!);
 		return index + 1;
 	}
 	switch (arg) {

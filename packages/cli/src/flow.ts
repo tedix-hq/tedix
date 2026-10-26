@@ -101,6 +101,8 @@ export interface FlowOptions {
 	title?: string;
 	/** Audit reason recorded with the destructive run authorization. */
 	reason?: string;
+	/** Every `--file` in order; `skill edit` takes several. */
+	files?: string[];
 	/** `list`: page size. */
 	limit?: number;
 }
