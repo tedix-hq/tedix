@@ -166,7 +166,7 @@ export const connectionsContract = oc
 				path: "/overview",
 				summary: "Get connections overview",
 				description:
-					"Inspect organization or personal accounts, app references, missing credentials and verification failures. Installation, credential presence, assignment and health are separate facts. Never returns secrets.",
+					"Inspect organization or personal accounts and app references. Filter attention for confirmed missing or expired credentials; filter unchecked for restricted or unknown accounts (status not checked). Unchecked accounts are excluded from attention. Installation, credential presence, assignment and health are separate facts. Never returns secrets.",
 			})
 			.input(ConnectionInventoryInputSchema)
 			.output(ConnectionInventorySchema),
