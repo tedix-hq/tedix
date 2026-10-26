@@ -43,9 +43,9 @@ describe("live chat eval accounting", () => {
 			create_os_workspace: async (input: unknown) => input,
 		});
 		expect(result).toEqual({
-			name: `Blue Harbor Latency ${label} 123`,
-			description: "Fictional scratch eval; archived after measurements.",
-			visibility: "private",
+			name: "Latency Lab",
+			description: `Fictional scratch eval ${label} 123; archived after measurements.`,
+			visibility: "org",
 		});
 	});
 	test("question samples are counted once per group", () => {
@@ -305,8 +305,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 const file = process.env.EVAL_TEST_STATE;
 const state = JSON.parse(readFileSync(file, "utf8"));
 const save = () => writeFileSync(file, JSON.stringify(state));
-const args = process.argv.slice(2);
-if (args[2] === "chat") {
+const args = process.argv.slice(6);
+if (args[0] === "chat") {
   state.chats.push({ id: args[args.indexOf("-c") + 1], status: "active" });
   save();
   writeFileSync(process.env.EVAL_TEST_READY, "ready");
@@ -328,7 +328,7 @@ const home = {
   archive_conversation: async ({ conversationId }) => { state.chats.find(c => c.id === conversationId).status = "archived"; save(); return null; },
   list_conversations: async () => ({ conversations: state.chats }),
 };
-const result = await new Function("os", "home", "return (" + args[3] + ")()") (os, home);
+const result = await new Function("os", "home", "codemode", "return (" + args[1] + ")()") (os, home, { __runtime: async () => ({ actor: { authType: "external_agent", externalAgentSessionId: "fixture-session" } }) });
 console.log(JSON.stringify(result));
 `,
 		);
@@ -355,14 +355,15 @@ console.log(JSON.stringify(result));
 			},
 		);
 		try {
-			for (let i = 0; !(await Bun.file(ready).exists()); i++) {
-				if (i >= 200) throw new Error("Fake chat did not start");
+			while (!(await Bun.file(ready).exists())) {
+				if (proc.exitCode !== null)
+					throw new Error(await new Response(proc.stderr).text());
 				await Bun.sleep(10);
 			}
 			proc.kill(signal);
 			expect(await proc.exited).toBe(signal === "SIGINT" ? 130 : 143);
 			const state = JSON.parse(await readFile(stateFile, "utf8"));
-			expect(state.workspace.visibility).toBe("private");
+			expect(state.workspace.visibility).toBe("org");
 			expect(state.workspace.status).toBe("archived");
 			expect(state.chats).toHaveLength(1);
 			expect(state.chats[0].status).toBe("archived");
@@ -381,3 +382,44 @@ console.log(JSON.stringify(result));
 		}
 	}, 10000);
 }
+
+test("refuses an owner credential before creating scratch data or approval cards", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "chat-latency-owner-"));
+	try {
+		const fakeCli = join(directory, "tedix");
+		await writeFile(
+			fakeCli,
+			`#!/usr/bin/env bun
+const args = process.argv.slice(6);
+if (args[0] !== "code" || !args[1].includes("codemode.__runtime")) throw Error("unexpected mutation");
+console.log(JSON.stringify({ actor: { authType: "user" } }));
+`,
+		);
+		await chmod(fakeCli, 0o755);
+		const proc = Bun.spawn(
+			[
+				process.execPath,
+				join(import.meta.dir, "chat-latency.mjs"),
+				"--out",
+				join(directory, "evidence"),
+			],
+			{
+				env: {
+					...process.env,
+					PATH: `${directory}:${process.env.PATH}`,
+					TEDIX_ORGANIZATION: "fictional-org",
+				},
+				stdout: "ignore",
+				stderr: "pipe",
+			},
+		);
+		const stderr = await new Response(proc.stderr).text();
+		expect(await proc.exited).toBe(1);
+		expect(stderr).toContain("requires a verified external-agent session");
+		expect(
+			await Bun.file(join(directory, "evidence", "workspace.json")).exists(),
+		).toBe(false);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});

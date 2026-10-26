@@ -1,3 +1,4 @@
+import { DynamicWorkerExecutor } from "@cloudflare/codemode";
 import {
 	CatalogueSearchInputJsonSchema,
 	CatalogueDescribeInputJsonSchema,
@@ -1431,4 +1432,60 @@ describe("native request-private bootstrap", () => {
 			},
 		});
 	});
+});
+
+describe("execution-only server construction", () => {
+	it.each(["code", "find_tools"])(
+		"does not load skill resources or instructions for %s",
+		async (requestedToolName) => {
+			vi.spyOn(DynamicWorkerExecutor.prototype, "execute").mockImplementation(
+				async (code, providers) => {
+					if (!Array.isArray(providers)) throw new Error("expected providers");
+					return {
+						result: await new Function(
+							...providers.map((provider) => provider.name),
+							`return (${code})()`,
+						)(...providers.map((provider) => provider.fns)),
+						logs: [],
+					};
+				},
+			);
+			listByApp.mockReset();
+			listByApp.mockRejectedValue(new Error("discovery-only I/O forbidden"));
+			const cached = createCachedData();
+			cached.tools = [catalogRow()];
+			cached.metadata = {
+				mcpConfig: {
+					codeMode: true,
+					enforcePolicies: false,
+					toolScopes: { find_tools: ["mcp:catalog.read"] },
+				},
+			} as unknown as CachedAppData["metadata"];
+			const server = await buildMcpServer(
+				cached,
+				{ authType: "service", scopes: ["mcp:catalog.read"] },
+				{ ...createEnv(), LOADER: {} } as CloudflareEnv,
+				createExecutionContext(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				requestedToolName,
+			);
+			expect(listByApp).not.toHaveBeenCalled();
+			const client = await connectLegacyClient(server);
+			const result = await client.request("tools/call", {
+				name: requestedToolName,
+				arguments:
+					requestedToolName === "code"
+						? { code: "async () => await discover.list_namespaces()" }
+						: { query: "" },
+			});
+			expect(result.error).toBeUndefined();
+			expect((result.result as { isError?: boolean }).isError).not.toBe(true);
+			expect(listByApp).not.toHaveBeenCalled();
+			await server.close();
+		},
+	);
 });

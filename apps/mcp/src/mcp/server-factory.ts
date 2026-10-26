@@ -935,13 +935,23 @@ export async function buildMcpServer(
 	const serverVersion =
 		cachedData.metadata?.mcpConfig?.serverVersion ?? "1.0.0";
 
-	const instructions = await buildServerInstructions(
-		cachedData,
-		orgApiClient,
+	const skipCodeMode = shouldBypassCodeModeForCaller(
 		callerIdentity,
-		upstreamAppId,
-		connectionAppSlug ?? cachedData.app.slug,
+		requestedToolName,
+		cachedData.tools,
 	);
+	// A named execution cannot read initialize instructions or skill resources.
+	// Keep its fresh server/context, but leave discovery-only I/O to discovery.
+	const executionOnly = requestedToolName === "code" || skipCodeMode;
+	const instructions = executionOnly
+		? undefined
+		: await buildServerInstructions(
+				cachedData,
+				orgApiClient,
+				callerIdentity,
+				upstreamAppId,
+				connectionAppSlug ?? cachedData.app.slug,
+			);
 
 	const server = createMcpServer(
 		{ name: serverName, version: serverVersion },
@@ -992,11 +1002,6 @@ export async function buildMcpServer(
 	// Programmatic direct tool calls should not materialize giant aggregate
 	// surfaces. They already identify the exact D1 tool they want; Code Mode
 	// outer tools and session discovery stay on the compact Code Mode surface.
-	const skipCodeMode = shouldBypassCodeModeForCaller(
-		callerIdentity,
-		requestedToolName,
-		cachedData.tools,
-	);
 	const directCatalog =
 		skipCodeMode &&
 		cachedData.tools.some(
@@ -1043,7 +1048,7 @@ export async function buildMcpServer(
 
 	// Enrich aggregated tools with skills from their source apps (before Code Mode
 	// catalog build, which snapshots descriptions statically)
-	await enrichToolsWithSkills(serverCtx);
+	if (!skipCodeMode || directCatalog) await enrichToolsWithSkills(serverCtx);
 
 	// Register tools — Code Mode or standard
 	// Programmatic callers get compact Code Mode for discovery and outer Code
@@ -1063,10 +1068,12 @@ export async function buildMcpServer(
 		// Code Mode is the compact agent surface: `code` for discovery/execution and
 		// `ask` for durable Home delegation. Resources and prompts remain protocol
 		// capabilities; implementation helpers do not become top-level tools.
-		registerBootstrapResources(serverCtx);
-		registerResourceTemplates(serverCtx);
-		await registerAppSkills(serverCtx);
-		await registerAppPrompts(serverCtx);
+		if (!executionOnly) {
+			registerBootstrapResources(serverCtx);
+			registerResourceTemplates(serverCtx);
+			await registerAppSkills(serverCtx);
+			await registerAppPrompts(serverCtx);
+		}
 		const registeredResourceUris = new Set<string>();
 		for (const tool of serverCtx.loadedTools.values()) {
 			if (
@@ -1121,7 +1128,7 @@ export async function buildMcpServer(
 		// app_tools row on the tedix admin app. For service callers we
 		// already have those D1 rows registered above and don't need the
 		// chat-client discovery tools, so skip.
-		if (!skipCodeMode) {
+		if (!executionOnly) {
 			await registerAppSkills(serverCtx);
 			await registerAppPrompts(serverCtx);
 		}
