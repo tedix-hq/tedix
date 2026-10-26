@@ -3,10 +3,10 @@
  * and My accounts (/account/connections). Both pages render the same row
  * anatomy and status words; only the owner differs.
  *
- * A row is one app's accounts. It answers, in order: is it working (one
- * status), what needs doing (one action), and — when opened — what it
- * connects, who can use it, which apps use it, and when it was last checked.
- * Identifiers and protocol detail stay behind "Technical details".
+ * A row is one app's accounts. Closed, it shows the app and one status.
+ * Opened, it says who can use it and lists each account with Reconnect and
+ * Disconnect. Which apps use it, when it was last checked, permissions and
+ * identifiers stay behind one "Details" disclosure.
  */
 
 import type {
@@ -14,7 +14,7 @@ import type {
 	ConnectionProvider,
 } from "@tedix/api-contract/schemas/connections";
 import { connectionAccountMode } from "@tedix/api-contract/utils/connection-account-mode";
-import { CaretDown, DotsThree, Key, Plugs, Plus } from "@phosphor-icons/react";
+import { CaretDown, Key, Plugs, Plus } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/kumo/button";
 import { cn } from "@/components/kumo/cn";
@@ -23,13 +23,6 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "@/components/kumo/dropdown-menu";
 import { Link } from "@/components/kumo/link";
 import { Collection, PageSection } from "@/components/kumo/page";
 import {
@@ -465,9 +458,7 @@ function AccountGroupRow({
 	const [open, setOpen] = useState(false);
 	const { provider, accounts, status } = group;
 	const name = friendlyProviderName(provider);
-	const mode = connectionAccountMode(provider);
-	const multiple = accounts.length > 1;
-	const single = accounts[0]!;
+	const single = accounts.length === 1 ? accounts[0]! : null;
 	return (
 		<li data-account-group={provider.appId}>
 			<Collapsible open={open} onOpenChange={setOpen}>
@@ -481,18 +472,6 @@ function AccountGroupRow({
 							<Text as="span" weight="medium" className="break-words">
 								{name}
 							</Text>
-							<Text
-								as="span"
-								role="label"
-								tone="secondary"
-								className="break-words"
-							>
-								{!multiple && single.connectionInstanceId
-									? `${accountLabel(single)} · `
-									: null}
-								{usedByLine(group)} ·{" "}
-								{mode.mode === "single" ? "One account" : "Multiple accounts"}
-							</Text>
 							<StatusLine status={status} />
 						</span>
 						<CaretDown
@@ -503,57 +482,15 @@ function AccountGroupRow({
 							)}
 						/>
 					</CollapsibleTrigger>
-					{!multiple && (
+					{single && !open && (
 						<PrimaryAction row={single} status={status} props={props} />
 					)}
 				</div>
-				{multiple && (
-					<ul
-						aria-label={`${name} accounts`}
-						className="m-0 grid list-none gap-0 border-kumo-hairline border-t py-1 ps-15 pe-4"
-					>
-						{accounts.map((row) => (
-							<AccountLine
-								key={row.connectionInstanceId ?? "default"}
-								row={row}
-								name={name}
-								props={props}
-							/>
-						))}
-						{props.canAdd(provider) && (
-							<li>
-								<AddAccountButton provider={provider} props={props} />
-							</li>
-						)}
-					</ul>
-				)}
 				<CollapsibleContent>
 					<AccountDetails group={group} props={props} />
 				</CollapsibleContent>
 			</Collapsible>
 		</li>
-	);
-}
-
-function AddAccountButton({
-	provider,
-	props,
-}: {
-	provider: ConnectionProvider;
-	props: AccountListProps;
-}) {
-	return (
-		<Button
-			variant="ghost"
-			size="sm"
-			// Pull the ghost padding back so the icon sits on the text edge.
-			className="-ms-2 max-sm:min-h-11"
-			disabled={props.isConnecting}
-			onClick={() => props.onAdd(provider)}
-		>
-			<Plus aria-hidden className="size-4" />
-			Connect another account
-		</Button>
 	);
 }
 
@@ -569,69 +506,58 @@ function AccountLine({
 	const status = accountStatus(row);
 	const label = accountLabel(row);
 	const allowed = props.canManage(row);
+	const reconnect =
+		status.kind === "connected" ||
+		(status.kind === "attention" && status.action === "reconnect");
+	const connectedBy =
+		props.owner === "organization" ? row.connection?.connectedByEmail : null;
 	return (
 		<li
 			data-account-row={row.connectionInstanceId ?? "default"}
-			className="flex items-center gap-2 py-1.5"
+			className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2"
 		>
-			<div className="min-w-0 flex-1">
+			<div className="min-w-0 flex-1 basis-40">
 				<Text weight="medium" className="break-words">
 					{label}
 				</Text>
-				{/* The provider row already says Connected; only exceptions repeat here. */}
-				{status.kind !== "connected" && <StatusLine status={status} />}
+				{status.kind !== "connected" ? (
+					<StatusLine status={status} />
+				) : connectedBy ? (
+					<Text role="label" tone="secondary" className="break-words">
+						Connected by {connectedBy}
+					</Text>
+				) : null}
 			</div>
-			<PrimaryAction row={row} status={status} props={props} />
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							className="max-sm:min-h-11 max-sm:min-w-11"
-							aria-label={`Manage ${name} ${label}`}
-						/>
+			<div className="flex shrink-0 items-center gap-2">
+				<Button
+					size="sm"
+					variant={status.kind === "connected" ? "outline" : "default"}
+					className="max-sm:min-h-11"
+					aria-label={`${reconnect ? "Reconnect" : "Connect"} ${name} ${label}`}
+					disabled={!allowed || props.isConnecting}
+					title={allowed ? undefined : props.deniedReason(row)}
+					onClick={() =>
+						reconnect ? props.onReconnect(row) : props.onConnect(row)
 					}
 				>
-					<DotsThree aria-hidden className="size-5" />
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end">
-					{row.connectionInstanceId && (
-						<DropdownMenuItem
-							disabled={!allowed}
-							onClick={() => props.onRename(row)}
-						>
-							Rename
-						</DropdownMenuItem>
-					)}
-					<DropdownMenuItem
-						disabled={!allowed || props.isConnecting}
-						onClick={() =>
-							status.kind === "connected" ||
-							(status.kind === "attention" && status.action === "reconnect")
-								? props.onReconnect(row)
-								: props.onConnect(row)
-						}
-					>
-						{status.kind === "connected" ||
-						(status.kind === "attention" && status.action === "reconnect")
-							? "Reconnect"
-							: "Connect"}
-					</DropdownMenuItem>
-					<DropdownMenuSeparator />
-					<DropdownMenuItem
-						variant="destructive"
-						disabled={
-							!allowed ||
-							props.isDisconnecting ||
-							!(row.connection || row.connectionInstanceId)
-						}
-						onClick={() => props.onDisconnect(row)}
-					>
-						Disconnect
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
+					{reconnect ? "Reconnect" : "Connect"}
+				</Button>
+				<Button
+					size="sm"
+					variant="ghost"
+					className="text-kumo-danger max-sm:min-h-11"
+					aria-label={`Disconnect ${name} ${label}`}
+					disabled={
+						!allowed ||
+						props.isDisconnecting ||
+						!(row.connection || row.connectionInstanceId)
+					}
+					title={allowed ? undefined : props.deniedReason(row)}
+					onClick={() => props.onDisconnect(row)}
+				>
+					Disconnect
+				</Button>
+			</div>
 		</li>
 	);
 }
@@ -657,6 +583,10 @@ function permissionState(
 	return "Not granted";
 }
 
+/**
+ * The opened row: who can use it, each account with Reconnect and Disconnect,
+ * and Add account. Everything else waits behind one "Details" disclosure.
+ */
 function AccountDetails({
 	group,
 	props,
@@ -664,20 +594,104 @@ function AccountDetails({
 	group: AccountGroup;
 	props: AccountListProps;
 }) {
+	const { provider, accounts } = group;
+	const name = friendlyProviderName(provider);
+	const mode = connectionAccountMode(provider);
+	return (
+		<div className="grid gap-2 px-4 pb-4 sm:ps-15">
+			<Text role="label" tone="secondary">
+				{props.owner === "organization"
+					? "Everyone in this organization can use it through its apps."
+					: "Only you can use it."}
+			</Text>
+			<ul aria-label={`${name} accounts`} className="m-0 grid list-none p-0">
+				{accounts.map((row) => (
+					<AccountLine
+						key={row.connectionInstanceId ?? "default"}
+						row={row}
+						name={name}
+						props={props}
+					/>
+				))}
+			</ul>
+			{mode.mode === "multiple" && props.canAdd(provider) && (
+				<Button
+					variant="ghost"
+					size="sm"
+					// Pull the ghost padding back so the icon sits on the text edge.
+					className="-ms-2 w-fit max-sm:min-h-11"
+					disabled={props.isConnecting}
+					onClick={() => props.onAdd(provider)}
+				>
+					<Plus aria-hidden className="size-4" />
+					Add account
+				</Button>
+			)}
+			{hasMissingPermissions(accounts) && (
+				<dl className="m-0 grid">
+					<DetailRow term="Permissions">
+						<PermissionList capabilities={accounts[0]!.capabilities ?? []} />
+					</DetailRow>
+				</dl>
+			)}
+			<MoreDetails group={group} props={props} />
+		</div>
+	);
+}
+
+/** Missing permissions are the row's fix, so they stay out of Details. */
+function hasMissingPermissions(accounts: readonly ConnectionInventoryRow[]) {
+	return accounts.length === 1 && missingPermissions(accounts[0]!).length > 0;
+}
+
+function PermissionList({
+	capabilities,
+}: {
+	capabilities: ConnectionInventoryRow["capabilities"];
+}) {
+	return (
+		<ul className="m-0 grid list-none gap-1 p-0">
+			{capabilities.map((capability) => (
+				<li
+					key={capability.id}
+					data-connection-capability={capability.id}
+					className="flex flex-wrap items-center gap-x-2"
+				>
+					<span>{capability.label}</span>
+					<span className="text-kumo-subtle">
+						{permissionState(capability)}
+					</span>
+					{(capability.state === "not_configured" ||
+						capability.state === "needs_reauth") && (
+						<Link
+							href={capability.setupUrl}
+							aria-label={`Set up ${capability.label}`}
+							className="inline-flex min-h-8 items-center max-sm:min-h-11"
+						>
+							Grant access
+						</Link>
+					)}
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function MoreDetails({
+	group,
+	props,
+}: {
+	group: AccountGroup;
+	props: AccountListProps;
+}) {
+	const [open, setOpen] = useState(false);
 	const { provider, accounts, status } = group;
 	const name = friendlyProviderName(provider);
 	const mode = connectionAccountMode(provider);
 	const multiple = accounts.length > 1;
 	const single = accounts[0]!;
-	const isApiKey = provider.connectionType === "api_key";
 	const names = appNames(accounts.flatMap((row) => row.references));
 	const capabilities = multiple ? [] : (single.capabilities ?? []);
-	const toolCapabilities = accounts.flatMap(
-		(row) => row.toolCapabilities ?? [],
-	);
-	const toolCapabilitiesComplete = accounts.every(
-		(row) => row.toolCapabilitiesComplete,
-	);
 	const showPermissions =
 		capabilities.length > 1 ||
 		(capabilities.length === 1 && capabilities[0]!.id !== "access");
@@ -688,291 +702,14 @@ function AccountDetails({
 				(row) => row.connectionInstanceId && row.bindingTargets?.length,
 			)
 		: [];
+	const renamable = accounts.filter((row) => row.connectionInstanceId);
 	const accessChecked = accounts.filter((row) => row.accessCheck);
-	return (
-		<div
-			className={cn(
-				"grid gap-4 px-4 pb-4 sm:ps-15",
-				multiple && "border-kumo-hairline border-t pt-3",
-			)}
-		>
-			<ConnectionToolSummary
-				providerName={name}
-				capabilities={toolCapabilities}
-				complete={toolCapabilitiesComplete}
-			/>
-			<dl className="m-0 grid gap-3">
-				<DetailRow term="What it connects">
-					{props.owner === "organization"
-						? `Lets this organization's apps work in ${name} through ${mode.mode === "multiple" ? "shared sign-ins" : isApiKey ? "one shared API key" : "one shared sign-in"}.`
-						: `Lets apps act in ${name} as you.`}
-				</DetailRow>
-				<DetailRow term="Who can use it">
-					{props.owner === "organization"
-						? "Everyone in this organization, through its apps."
-						: "Only you. Others in this organization can't use it."}
-				</DetailRow>
-				<DetailRow term="Used by">
-					{names.length ? names.join(", ") : usedByLine(group)}
-				</DetailRow>
-				<DetailRow term="Accounts">
-					{props.owner === "organization" &&
-					props.onAccountModeChange &&
-					provider.availableAccountModes.length > 1 ? (
-						<div className="grid gap-1.5">
-							<Select
-								disabled={!allowed || props.isAccountModePending}
-								value={mode.mode}
-								onValueChange={(value) => {
-									if (!value || value === mode.mode) return;
-									props.onAccountModeChange?.(
-										provider,
-										value as "single" | "multiple",
-									);
-								}}
-							>
-								<SelectTrigger aria-label={`Accounts allowed for ${name}`}>
-									<SelectValue>
-										{mode.mode === "single"
-											? "One account"
-											: "Several accounts"}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="single">One account</SelectItem>
-									<SelectItem value="multiple">Several accounts</SelectItem>
-								</SelectContent>
-							</Select>
-							<span>{mode.reason}</span>
-						</div>
-					) : (
-						<>
-							{mode.mode === "single" ? "One account. " : "Multiple accounts. "}
-							{mode.reason}
-						</>
-					)}
-				</DetailRow>
-				<DetailRow term="Last checked">
-					{checked
-						? `${checked} · ${status.kind === "attention" ? status.label : "Connected"}`
-						: "Not checked yet"}
-				</DetailRow>
-				{showPermissions && (
-					<DetailRow term="Permissions">
-						<ul className="m-0 grid list-none gap-1 p-0">
-							{capabilities.map((capability) => (
-								<li
-									key={capability.id}
-									data-connection-capability={capability.id}
-									className="flex flex-wrap items-center gap-x-2"
-								>
-									<span>{capability.label}</span>
-									<span className="text-kumo-subtle">
-										{permissionState(capability)}
-									</span>
-									{(capability.state === "not_configured" ||
-										capability.state === "needs_reauth") && (
-										<Link
-											href={capability.setupUrl}
-											aria-label={`Set up ${capability.label}`}
-											className="inline-flex min-h-8 items-center max-sm:min-h-11"
-										>
-											Grant access
-										</Link>
-									)}
-								</li>
-							))}
-						</ul>
-					</DetailRow>
-				)}
-				{accessChecked.length > 0 && (
-					<DetailRow term="Check each person's access">
-						<div className="grid gap-2">
-							<span className="text-kumo-subtle">
-								When on, an app shows something read through this account only
-								if the reader's own {name} account can open it too.
-							</span>
-							{accessChecked.map((row) => {
-								const check = row.accessCheck!;
-								const manageable = props.canManage(row);
-								return (
-									<div
-										key={row.connectionInstanceId}
-										className="flex flex-wrap items-center gap-2"
-										data-access-check={
-											check.checkEachPersonsAccess ? "on" : "off"
-										}
-									>
-										<span>
-											{multiple ? `${accountLabel(row)}: ` : ""}
-											{check.checkEachPersonsAccess ? "On" : "Off"}
-											<span className="text-kumo-subtle">
-												{check.source === "admin"
-													? " · set by an admin"
-													: ` · default for ${name}`}
-											</span>
-										</span>
-										<Button
-											size="sm"
-											variant="outline"
-											className="max-sm:min-h-11"
-											disabled={!manageable || props.isSettingAccessCheck}
-											title={manageable ? undefined : props.deniedReason(row)}
-											onClick={() =>
-												props.onSetAccessCheck?.(
-													row,
-													!check.checkEachPersonsAccess,
-												)
-											}
-										>
-											{check.checkEachPersonsAccess ? "Turn off" : "Turn on"}
-										</Button>
-										{check.source === "admin" && (
-											<Button
-												size="sm"
-												variant="ghost"
-												className="max-sm:min-h-11"
-												disabled={!manageable || props.isSettingAccessCheck}
-												onClick={() => props.onSetAccessCheck?.(row, null)}
-											>
-												Use default
-											</Button>
-										)}
-									</div>
-								);
-							})}
-						</div>
-					</DetailRow>
-				)}
-				{bindable.length > 0 && (
-					<DetailRow term="Which account apps use">
-						<div className="grid gap-2">
-							{bindable.map((row) => (
-								<div
-									key={row.connectionInstanceId}
-									className="flex flex-wrap items-center gap-2"
-								>
-									<span>{accountLabel(row)}:</span>
-									{(row.bindingTargets ?? []).map((reference) => {
-										const selected = row.references.some(
-											(bound) => bound.appId === reference.appId,
-										);
-										const appName = appNames([reference])[0];
-										return (
-											<Button
-												key={reference.appId}
-												size="sm"
-												variant="outline"
-												className="max-sm:min-h-11"
-												disabled={
-													props.isBinding ||
-													row.accountState !== "present" ||
-													selected
-												}
-												onClick={() => props.onBind(row, reference)}
-											>
-												{selected ? "Used for" : "Use for"} {appName}
-											</Button>
-										);
-									})}
-								</div>
-							))}
-						</div>
-					</DetailRow>
-				)}
-			</dl>
-			<div
-				role="group"
-				aria-label={`Actions for ${name}`}
-				className="flex flex-wrap items-center gap-2"
-			>
-				<Button
-					size="sm"
-					variant="outline"
-					className="max-sm:min-h-11"
-					loading={props.isChecking}
-					disabled={props.isChecking}
-					onClick={props.onCheck}
-				>
-					Check connection
-				</Button>
-				{!multiple && (
-					<>
-						<Button
-							size="sm"
-							variant="outline"
-							className="max-sm:min-h-11"
-							disabled={!allowed || props.isConnecting}
-							title={allowed ? undefined : props.deniedReason(single)}
-							onClick={() =>
-								status.kind === "attention" && status.action === "connect"
-									? props.onConnect(single)
-									: props.onReconnect(single)
-							}
-						>
-							{status.kind === "attention" && status.action === "connect"
-								? "Connect"
-								: "Reconnect"}
-						</Button>
-						{single.connectionInstanceId && (
-							<Button
-								size="sm"
-								variant="ghost"
-								className="max-sm:min-h-11"
-								disabled={!allowed}
-								onClick={() => props.onRename(single)}
-							>
-								Rename
-							</Button>
-						)}
-						<Button
-							size="sm"
-							variant="ghost"
-							className="text-kumo-danger max-sm:min-h-11"
-							disabled={
-								!allowed ||
-								props.isDisconnecting ||
-								!(single.connection || single.connectionInstanceId)
-							}
-							title={allowed ? undefined : props.deniedReason(single)}
-							onClick={() => props.onDisconnect(single)}
-						>
-							Disconnect
-						</Button>
-						{mode.mode === "multiple" && props.canAdd(provider) && (
-							<AddAccountButton provider={provider} props={props} />
-						)}
-					</>
-				)}
-			</div>
-			<TechnicalDetails group={group} props={props} />
-		</div>
-	);
-}
-
-function TechnicalDetails({
-	group,
-	props,
-}: {
-	group: AccountGroup;
-	props: AccountListProps;
-}) {
-	const { provider, accounts } = group;
 	const health = props.serviceHealth[provider.appId];
 	const slugs = [
 		...new Set(
 			accounts.flatMap((row) => row.references.map((ref) => ref.appSlug)),
 		),
 	].sort();
-	const emails = [
-		...new Set(
-			accounts.flatMap((row) =>
-				row.connection?.connectedByEmail
-					? [row.connection.connectedByEmail]
-					: [],
-			),
-		),
-	];
 	const permissions = [
 		...new Set(
 			accounts.flatMap((row) =>
@@ -984,85 +721,281 @@ function TechnicalDetails({
 		),
 	];
 	return (
-		<Collapsible>
+		<Collapsible open={open} onOpenChange={setOpen}>
 			<CollapsibleTrigger className="-ms-2 w-fit">
-				Technical details
+				<CaretDown
+					aria-hidden
+					className={cn(
+						"size-3.5 transition-transform motion-reduce:transition-none",
+						!open && "-rotate-90",
+					)}
+				/>
+				Details
 			</CollapsibleTrigger>
 			<CollapsibleContent>
-				<dl className="m-0 grid gap-2 pt-2">
-					<DetailRow term="Provider ID">
-						<code className="type-tedix-label">{provider.appId}</code>
-					</DetailRow>
-					<DetailRow term="Sign-in method">
-						{provider.connectionType === "api_key"
-							? "API key"
-							: `OAuth${provider.registrationMode ? ` (${provider.registrationMode})` : ""}`}
-					</DetailRow>
-					{provider.description && (
-						<DetailRow term="Provider note">{provider.description}</DetailRow>
-					)}
-					{accounts.some((row) => row.connectionInstanceId) && (
-						<DetailRow term="Account IDs">
-							{accounts
-								.filter((row) => row.connectionInstanceId)
-								.map(
-									(row) => `${accountLabel(row)}: ${row.connectionInstanceId}`,
-								)
-								.join(", ")}
+				<div className="grid gap-4 pt-2">
+					<ConnectionToolSummary
+						providerName={name}
+						capabilities={accounts.flatMap((row) => row.toolCapabilities ?? [])}
+					/>
+					<dl className="m-0 grid gap-3">
+						<DetailRow term="Last checked">
+							<div className="flex flex-wrap items-center gap-2">
+								<span>
+									{checked
+										? `${checked} · ${status.kind === "attention" ? status.reason : "Working"}`
+										: "Not checked yet"}
+								</span>
+								<Button
+									size="sm"
+									variant="outline"
+									className="max-sm:min-h-11"
+									loading={props.isChecking}
+									disabled={props.isChecking}
+									onClick={props.onCheck}
+								>
+									Check now
+								</Button>
+							</div>
 						</DetailRow>
-					)}
-					{emails.length > 0 && (
-						<DetailRow term="Connected by">{emails.join(", ")}</DetailRow>
-					)}
-					{permissions.length > 0 && (
-						<DetailRow term="Granted scopes">
-							{permissions.join(", ")}
+						<DetailRow term="Used by">
+							{names.length ? names.join(", ") : usedByLine(group)}
 						</DetailRow>
-					)}
-					{slugs.length > 0 && (
-						<DetailRow term="App identifiers">
-							<span
-								data-connection-app-identifiers
-								className="block min-w-0 [overflow-wrap:anywhere]"
-							>
-								{slugs.join(", ")}
-							</span>
+						<DetailRow term="Accounts">
+							{props.owner === "organization" &&
+							props.onAccountModeChange &&
+							provider.availableAccountModes.length > 1 ? (
+								<div className="grid gap-1.5">
+									<Select
+										disabled={!allowed || props.isAccountModePending}
+										value={mode.mode}
+										onValueChange={(value) => {
+											if (!value || value === mode.mode) return;
+											props.onAccountModeChange?.(
+												provider,
+												value as "single" | "multiple",
+											);
+										}}
+									>
+										<SelectTrigger aria-label={`Accounts allowed for ${name}`}>
+											<SelectValue>
+												{mode.mode === "single"
+													? "One account"
+													: "Several accounts"}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="single">One account</SelectItem>
+											<SelectItem value="multiple">Several accounts</SelectItem>
+										</SelectContent>
+									</Select>
+									<span>{mode.reason}</span>
+								</div>
+							) : (
+								<>
+									{mode.mode === "single"
+										? "One account. "
+										: "Multiple accounts. "}
+									{mode.reason}
+								</>
+							)}
 						</DetailRow>
-					)}
-					{slugs.length > 0 && (
-						<DetailRow term="App service">
-							<div
-								data-connection-service-health
-								className="grid min-w-0 gap-2 [overflow-wrap:anywhere]"
-							>
-								<span>{connectionServiceSummary(health)}</span>
+						{renamable.length > 0 && (
+							<DetailRow term="Account names">
 								<div className="flex flex-wrap gap-2">
-									{slugs.map((slug) => (
+									{renamable.map((row) => (
 										<Button
-											key={slug}
+											key={row.connectionInstanceId}
 											size="sm"
 											variant="outline"
-											className="max-w-full whitespace-normal [overflow-wrap:anywhere] max-sm:min-h-11"
-											loading={
-												health?.status === "checking" && health.appSlug === slug
-											}
-											disabled={health?.status === "checking"}
-											onClick={() => props.onCheckService(provider.appId, slug)}
+											className="max-sm:min-h-11"
+											disabled={!props.canManage(row)}
+											onClick={() => props.onRename(row)}
 										>
-											{slugs.length === 1
-												? "Check app service"
-												: `Check ${slug}`}
+											Rename {accountLabel(row)}
 										</Button>
 									))}
 								</div>
-								<span className="text-kumo-subtle type-tedix-label">
-									{health?.detail ??
-										"Checks the app's MCP service. It does not test the account or the provider's API."}
-								</span>
-							</div>
+							</DetailRow>
+						)}
+						{showPermissions && !hasMissingPermissions(accounts) && (
+							<DetailRow term="Permissions">
+								<PermissionList capabilities={capabilities} />
+							</DetailRow>
+						)}
+						{accessChecked.length > 0 && (
+							<DetailRow term="Check each person's access">
+								<div className="grid gap-2">
+									<span className="text-kumo-subtle">
+										When on, an app shows something read through this account
+										only if the reader's own {name} account can open it too.
+									</span>
+									{accessChecked.map((row) => {
+										const check = row.accessCheck!;
+										const manageable = props.canManage(row);
+										return (
+											<div
+												key={row.connectionInstanceId}
+												className="flex flex-wrap items-center gap-2"
+												data-access-check={
+													check.checkEachPersonsAccess ? "on" : "off"
+												}
+											>
+												<span>
+													{multiple ? `${accountLabel(row)}: ` : ""}
+													{check.checkEachPersonsAccess ? "On" : "Off"}
+													<span className="text-kumo-subtle">
+														{check.source === "admin"
+															? " · set by an admin"
+															: ` · default for ${name}`}
+													</span>
+												</span>
+												<Button
+													size="sm"
+													variant="outline"
+													className="max-sm:min-h-11"
+													disabled={!manageable || props.isSettingAccessCheck}
+													title={
+														manageable ? undefined : props.deniedReason(row)
+													}
+													onClick={() =>
+														props.onSetAccessCheck?.(
+															row,
+															!check.checkEachPersonsAccess,
+														)
+													}
+												>
+													{check.checkEachPersonsAccess
+														? "Turn off"
+														: "Turn on"}
+												</Button>
+												{check.source === "admin" && (
+													<Button
+														size="sm"
+														variant="ghost"
+														className="max-sm:min-h-11"
+														disabled={!manageable || props.isSettingAccessCheck}
+														onClick={() => props.onSetAccessCheck?.(row, null)}
+													>
+														Use default
+													</Button>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							</DetailRow>
+						)}
+						{bindable.length > 0 && (
+							<DetailRow term="Which account apps use">
+								<div className="grid gap-2">
+									{bindable.map((row) => (
+										<div
+											key={row.connectionInstanceId}
+											className="flex flex-wrap items-center gap-2"
+										>
+											<span>{accountLabel(row)}:</span>
+											{(row.bindingTargets ?? []).map((reference) => {
+												const selected = row.references.some(
+													(bound) => bound.appId === reference.appId,
+												);
+												const appName = appNames([reference])[0];
+												return (
+													<Button
+														key={reference.appId}
+														size="sm"
+														variant="outline"
+														className="max-sm:min-h-11"
+														disabled={
+															props.isBinding ||
+															row.accountState !== "present" ||
+															selected
+														}
+														onClick={() => props.onBind(row, reference)}
+													>
+														{selected ? "Used for" : "Use for"} {appName}
+													</Button>
+												);
+											})}
+										</div>
+									))}
+								</div>
+							</DetailRow>
+						)}
+						<DetailRow term="Sign-in method">
+							{provider.connectionType === "api_key"
+								? "API key"
+								: `OAuth${provider.registrationMode ? ` (${provider.registrationMode})` : ""}`}
 						</DetailRow>
-					)}
-				</dl>
+						{provider.description && (
+							<DetailRow term="Provider note">{provider.description}</DetailRow>
+						)}
+						{permissions.length > 0 && (
+							<DetailRow term="Granted scopes">
+								{permissions.join(", ")}
+							</DetailRow>
+						)}
+						<DetailRow term="Provider ID">
+							<code className="type-tedix-label">{provider.appId}</code>
+						</DetailRow>
+						{renamable.length > 0 && (
+							<DetailRow term="Account IDs">
+								{renamable
+									.map(
+										(row) =>
+											`${accountLabel(row)}: ${row.connectionInstanceId}`,
+									)
+									.join(", ")}
+							</DetailRow>
+						)}
+						{slugs.length > 0 && (
+							<DetailRow term="App identifiers">
+								<span
+									data-connection-app-identifiers
+									className="block min-w-0 [overflow-wrap:anywhere]"
+								>
+									{slugs.join(", ")}
+								</span>
+							</DetailRow>
+						)}
+						{slugs.length > 0 && (
+							<DetailRow term="App service">
+								<div
+									data-connection-service-health
+									className="grid min-w-0 gap-2 [overflow-wrap:anywhere]"
+								>
+									<span>{connectionServiceSummary(health)}</span>
+									<div className="flex flex-wrap gap-2">
+										{slugs.map((slug) => (
+											<Button
+												key={slug}
+												size="sm"
+												variant="outline"
+												className="max-w-full whitespace-normal [overflow-wrap:anywhere] max-sm:min-h-11"
+												loading={
+													health?.status === "checking" &&
+													health.appSlug === slug
+												}
+												disabled={health?.status === "checking"}
+												onClick={() =>
+													props.onCheckService(provider.appId, slug)
+												}
+											>
+												{slugs.length === 1
+													? "Check app service"
+													: `Check ${slug}`}
+											</Button>
+										))}
+									</div>
+									<span className="text-kumo-subtle type-tedix-label">
+										{health?.detail ??
+											"Checks the app's MCP service. It does not test the account or the provider's API."}
+									</span>
+								</div>
+							</DetailRow>
+						)}
+					</dl>
+				</div>
 			</CollapsibleContent>
 		</Collapsible>
 	);

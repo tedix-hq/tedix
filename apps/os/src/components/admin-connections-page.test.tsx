@@ -238,7 +238,7 @@ describe("Account-first personal integration", () => {
 				/>,
 			),
 		);
-		expect(host.textContent).not.toContain("Connect another account");
+		expect(host.textContent).not.toContain("Add account");
 		const connect = [...host.querySelectorAll("button")].find(
 			(button) => button.textContent === "Connect",
 		)!;
@@ -269,7 +269,6 @@ describe("Account-first personal integration", () => {
 					/>,
 				),
 			);
-			expect(host.textContent).toContain("Shared");
 			expect(host.textContent).toContain(
 				"Needs attention: Sign-in not finished",
 			);
@@ -280,9 +279,10 @@ describe("Account-first personal integration", () => {
 					)!
 					.click(),
 			);
+			expect(host.textContent).toContain("Shared");
 			expect(host.textContent).toContain("Everyone in this organization");
 			const add = [...host.querySelectorAll("button")].find((b) =>
-				b.textContent?.includes("Connect another account"),
+				b.textContent?.includes("Add account"),
 			);
 			if (canManage) {
 				expect(add).toBeDefined();
@@ -316,16 +316,21 @@ describe("Account-first personal integration", () => {
 				/>,
 			),
 		);
-		const named = [...host.querySelectorAll("li")].find((item) =>
-			item.textContent?.includes("Work account"),
-		)!;
+		await act(async () =>
+			host!
+				.querySelector<HTMLButtonElement>(
+					'button[aria-label="Outlook Calendar details"]',
+				)!
+				.click(),
+		);
+		const named = host.querySelector('[data-account-row="slot-work"]')!;
 		const connect = [...named.querySelectorAll("button")].find(
 			(button) => button.textContent === "Connect",
 		)!;
 		await act(async () => connect.click());
 		expect(state.connect).not.toHaveBeenCalled();
 		const review = document.querySelector('[role="dialog"]')!;
-		expect(review.textContent).toContain("What Tedix can do with it");
+		expect(review.textContent).toContain("Tedix keeps your");
 		const proceed = [...review.querySelectorAll("button")].find(
 			(button) => button.textContent === "Continue",
 		)!;
@@ -400,7 +405,7 @@ describe("Account-first personal integration", () => {
 				.click(),
 		);
 		const add = [...host.querySelectorAll("button")].find((button) =>
-			button.textContent?.includes("Connect another account"),
+			button.textContent?.includes("Add account"),
 		)!;
 		await act(async () => add.click());
 		expect(state.add).toHaveBeenCalledWith({
@@ -568,6 +573,7 @@ async function openDetails(page: ParentNode, name: string) {
 	);
 	expect(trigger, `${name} details`).not.toBeNull();
 	await act(async () => trigger!.click());
+	await act(async () => recoveryButton(page, "Details").click());
 }
 
 function recoveryButton(parent: ParentNode, label: string) {
@@ -709,7 +715,7 @@ describe("Disconnected account recovery matrix", () => {
 			await act(async () => action.click());
 			if (allowed) {
 				const review = document.querySelector('[role="dialog"]')!;
-				expect(review.textContent).toContain("What Tedix can do with it");
+				expect(review.textContent).toContain("Tedix keeps your");
 				if (status !== "missing")
 					expect(review.textContent).toContain("replaces the current");
 				expect(state.connect).not.toHaveBeenCalled();
@@ -743,7 +749,6 @@ describe("Disconnected account recovery matrix", () => {
 		const page = await mountRecoveryPage("tenant");
 		expect(page.textContent).not.toContain("MCP");
 		await openDetails(page, "Acme Projects");
-		await act(async () => recoveryButton(page, "Technical details").click());
 		expect(page.textContent).toContain("MCP service not checked");
 		expect(page.textContent).not.toContain("MCP healthy");
 		await act(async () => recoveryButton(page, "Check app service").click());

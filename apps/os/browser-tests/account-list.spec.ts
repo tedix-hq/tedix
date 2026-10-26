@@ -7,7 +7,8 @@ import { startFixtureServer } from "./fixture-server";
  * Organization connections and My accounts share one account list. Both pages
  * at phone and desktop width, light and dark: one status per row, the
  * needs-attention reason on the affected row (no page banner), unconnected
- * apps collapsed, identifiers only behind Technical details, no overflow.
+ * apps collapsed, an opened row lean (who can use it, each account with
+ * Reconnect and Disconnect), everything else behind Details, no overflow.
  */
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ??
@@ -89,43 +90,79 @@ try {
 
 				const target =
 					owner === "organization" ? "Pricewise" : "Google Calendar";
+				const targetRow = page.locator("li[data-account-group]", {
+					has: page.getByRole("button", { name: `${target} details` }),
+				});
 				await page.getByRole("button", { name: `${target} details` }).click();
-				const opened = await page.locator("main, body").first().innerText();
-				assert.ok(
-					opened.includes("Who can use it") &&
-						opened.includes(
-							owner === "organization"
-								? "Everyone in this organization"
-								: "Only you",
-						),
-					`${label}: details name the owner`,
-				);
+				const opened = await targetRow.innerText();
 				assert.ok(
 					opened.includes(
-						owner === "organization" ? "One account" : "Multiple accounts",
+						owner === "organization"
+							? "Everyone in this organization can use it"
+							: "Only you can use it",
 					),
-					`${label}: account mode stated`,
+					`${label}: opened row names who can use it`,
 				);
+				for (const hidden of [
+					"Who can use it",
+					"Last checked",
+					"Used by",
+					"Tedix keeps your",
+					"Provider ID",
+					"pricewise-official-f9ab445d",
+				])
+					assert.ok(
+						!opened.includes(hidden),
+						`${label}: "${hidden}" waits behind Details`,
+					);
+				// Each account carries its own Reconnect and Disconnect.
+				for (const action of ["Disconnect"])
+					assert.ok(
+						await targetRow
+							.getByRole("button", { name: new RegExp(`^${action} ${target}`) })
+							.first()
+							.isVisible(),
+						`${label}: ${action} on the account`,
+					);
+				if (owner === "personal")
+					assert.ok(
+						await targetRow
+							.getByRole("button", { name: "Add account", exact: true })
+							.isVisible(),
+						`${label}: Add account available`,
+					);
+				await targetRow
+					.getByRole("button", { name: "Details", exact: true })
+					.click();
+				const details = await targetRow.innerText();
 				assert.ok(
-					!opened.includes("pricewise-official-f9ab445d"),
-					`${label}: slug hidden until Technical details`,
+					details.includes(
+						owner === "organization" ? "One account" : "Multiple accounts",
+					) && details.includes("Last checked"),
+					`${label}: Details hold account mode and last check`,
 				);
 				if (owner === "personal") {
 					for (const app of ["Notion", "GitHub"]) {
+						const appRow = page.locator("li[data-account-group]", {
+							has: page.getByRole("button", { name: `${app} details` }),
+						});
 						await page.getByRole("button", { name: `${app} details` }).click();
-						const details = await page
-							.locator("main, body")
-							.first()
-							.innerText();
+						assert.ok(
+							!(await appRow.innerText()).includes("What Tedix can do"),
+							`${label}: ${app} actions wait behind Details`,
+						);
+						await appRow
+							.getByRole("button", { name: "Details", exact: true })
+							.click();
+						const appDetails = await appRow.innerText();
 						for (const copy of [
 							"What Tedix can do with it",
 							"Read:",
 							"Create and edit:",
 							"Protected effects:",
-							`Tedix keeps your ${app} key`,
 						])
 							assert.ok(
-								details.includes(copy),
+								appDetails.includes(copy),
 								`${label}: ${app} shows ${copy}`,
 							);
 						await page.getByRole("button", { name: `${app} details` }).click();
@@ -149,28 +186,6 @@ try {
 						);
 					await dialog.getByRole("button", { name: "Cancel" }).click();
 				}
-				// One account: actions sit in the details. Several accounts: each
-				// account carries its own Reconnect/Disconnect menu.
-				if (owner === "personal")
-					for (const name of [
-						"Manage Google Calendar Default account",
-						"Manage Google Calendar Work",
-						"Connect another account",
-					])
-						assert.ok(
-							await page.getByRole("button", { name, exact: true }).isVisible(),
-							`${label}: ${name} available`,
-						);
-				for (const action of owner === "organization"
-					? ["Check connection", "Reconnect", "Disconnect"]
-					: ["Check connection"])
-					assert.ok(
-						await page
-							.getByRole("group", { name: `Actions for ${target}` })
-							.getByRole("button", { name: action, exact: true })
-							.isVisible(),
-						`${label}: ${action} available`,
-					);
 
 				const overflow = await page.evaluate(
 					() => document.documentElement.scrollWidth - innerWidth,
