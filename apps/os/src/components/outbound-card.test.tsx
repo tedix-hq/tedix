@@ -59,7 +59,7 @@ describe("outbound human review card", () => {
 		const doc = card();
 		expect(doc.body.textContent).toContain("Hi Lina");
 		expect(doc.body.textContent).toContain("Ready for your review");
-		expect(doc.body.textContent).toContain("Why this?");
+		expect(doc.body.textContent).toContain("Why am I seeing this?");
 		expect(doc.querySelector("input, textarea, [role=combobox]")).toBeNull();
 		expect(button(doc, "Send")?.disabled).toBe(false);
 		expect(button(doc, "Approve, I'll send")?.disabled).toBe(false);
@@ -251,7 +251,7 @@ describe("outbound decisions through the shared card", () => {
 	});
 	it("captures a reason chip without approving or sending", async () => {
 		await mountOutbound();
-		await pressButton("No / Not needed");
+		await pressButton("Decline");
 		expect(actOutbound).not.toHaveBeenCalled();
 		await pressButton("wrong tone");
 		expect(actOutbound).toHaveBeenCalledWith({

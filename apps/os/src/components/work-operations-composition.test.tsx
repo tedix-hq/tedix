@@ -556,7 +556,7 @@ describe("Work interactions", () => {
 		expect(
 			page.host.querySelector('[data-kumo-component="CollapsibleTrigger"]')
 				?.textContent,
-		).toBe("Why this?");
+		).toBe("Why am I seeing this?");
 		await page.submit("Answer");
 		expect(mutations("workInteractions.respond")).toEqual([]);
 		await page.type("Your answer", "  Keep access passwordless.  ");

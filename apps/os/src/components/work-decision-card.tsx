@@ -11,8 +11,13 @@ import {
 	DeckFooterContext,
 	DeckNoticeContext,
 	CardFaceContext,
-	FACE_WAIT_MS,
 } from "@/components/deck-presentation-context";
+import type { DecisionCardContextItem } from "@tedix/api-contract/schemas/user-settings";
+import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
+import {
+	decideForMeMode,
+	decisionCardContextItems,
+} from "@tedix/api-contract/utils/decision-card-preferences";
 import {
 	DecisionLearningContext,
 	DecisionLearningWhy,
@@ -47,7 +52,6 @@ import {
 	Fragment,
 	useContext,
 	useEffect,
-	useLayoutEffect,
 	useRef,
 	useState,
 	type CSSProperties,
@@ -70,8 +74,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { DotsThree } from "@phosphor-icons/react";
-import { Loader } from "@/components/kumo/loader";
-import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	CardContent,
 	CardFooter,
@@ -87,12 +89,13 @@ import {
 	osTimeZone,
 	useOsFormattingPreferences,
 } from "@/lib/format";
-import { relativeTime, absoluteTime } from "@/lib/time";
+import { relativeTime, absoluteTime, shortDeadline } from "@/lib/time";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import {
 	decisionCardActionLabel,
 	renderDecisionCardDates,
 	renderCardDateText,
+	withoutListPrefix,
 } from "@tedix/api-contract/utils/decision-card-copy";
 import {
 	DecisionProposalBody,
@@ -195,6 +198,36 @@ function yesNoAnswerLabel(
 	return PREPOSITION.test(words.at(-2)!)
 		? decisionText("Yes")
 		: `${words[0]} ${words.at(-1)}`;
+}
+
+/** Strip order per card kind; preferences and learned use filter it to three. */
+const CONTEXT_ORDER: Partial<
+	Record<DecisionCardKind, readonly DecisionCardContextItem[]>
+> = {
+	outbound: ["source", "due", "asker", "stakes"],
+	approval: ["stakes", "asker", "due", "source"],
+};
+const DEFAULT_CONTEXT_ORDER: readonly DecisionCardContextItem[] = [
+	"source",
+	"due",
+	"asker",
+	"stakes",
+];
+/** "Decide for me" may pick on its own only when the writer is at least this sure. */
+const AUTO_DECIDE_CONFIDENCE = 0.8;
+const AUTO_DECIDE_SECONDS = 5;
+
+const TECHNICAL_TEXT = new RegExp(copySpec.technicalTextPattern);
+const RAW_IDENTIFIER = new RegExp(copySpec.rawIdentifierPattern, "i");
+
+/** Two lines of the original ask; technical sources stay behind Details. */
+function sourcePreview(text: string) {
+	if (TECHNICAL_TEXT.test(text) || RAW_IDENTIFIER.test(text)) return "";
+	return text
+		.replace(/[#>*_`[\]]+/g, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, 220);
 }
 
 /** Row controls the phone overflow menu presses on the person's behalf. */
@@ -329,26 +362,38 @@ export function WorkDecisionCard({
 				),
 			)
 		: null;
-	const [sourceRead, setSourceRead] = useState(false);
 	// The headline is always real text: the short summary's ask when it exists,
-	// otherwise the original request title. Never a status word.
+	// otherwise the original request title. Never a status word or list number.
 	const heading = decisionProposalTitle(
-		face?.title ?? (renderCardDateText(title) || "Review this request?"),
+		withoutListPrefix(face?.title ?? renderCardDateText(title)) ||
+			"Review this request?",
 	);
-	const faceWaiting = !!faceState && !face && !faceState.unavailable;
-	const [faceSlow, setFaceSlow] = useState(false);
-	const [faceRetries, setFaceRetries] = useState(0);
-	// The wait restarts per card (title) and per retry.
-	useEffect(() => {
-		if (!faceWaiting) return;
-		setFaceSlow(false);
-		const timer = setTimeout(() => setFaceSlow(true), FACE_WAIT_MS);
-		return () => clearTimeout(timer);
-	}, [faceWaiting, faceRetries, title]);
-	// Only the summary is loading; everything else on the card is real now.
-	const faceFallback =
-		!!faceState && !face && (!!faceState.unavailable || faceSlow);
-	const faceSkeleton = faceWaiting && !faceSlow;
+	const cardType = faceState?.cardType ?? kind;
+	const cardPreferences = faceState?.preferences;
+	const compact = cardPreferences?.density === "compact";
+	const decideMode = decideForMeMode(cardPreferences, cardType);
+	const dueAt = faceState?.dueInHeader ? undefined : faceState?.dates?.[0];
+	const stakes = face && "stakes" in face ? face.stakes : undefined;
+	const strip = faceState
+		? decisionCardContextItems(
+				cardPreferences,
+				cardType,
+				(CONTEXT_ORDER[kind] ?? DEFAULT_CONTEXT_ORDER).filter((item) =>
+					item === "source"
+						? Boolean(face && (body || title))
+						: item === "due"
+							? Boolean(dueAt)
+							: item === "asker"
+								? Boolean(askedBy)
+								: Boolean(stakes),
+				),
+			)
+		: [];
+	const shownStrip = compact ? [] : strip;
+	const openedItems = useRef(new Set<DecisionCardContextItem>());
+	const [expandedItem, setExpandedItem] =
+		useState<DecisionCardContextItem | null>(null);
+	const [detailsOpen, setDetailsOpen] = useState(false);
 	const queryClient = useContext(QueryClientContext);
 	const revision = revisionTarget;
 	const secureConnection =
@@ -382,8 +427,7 @@ export function WorkDecisionCard({
 	const exposureSent = useRef(false);
 	const detailsOpened = useRef(false);
 	useEffect(() => {
-		if (!attention || exposureSent.current || (faceSkeleton && !sourceRead))
-			return;
+		if (!attention || exposureSent.current) return;
 		const report = () => {
 			const node = section.current;
 			if (
@@ -415,7 +459,7 @@ export function WorkDecisionCard({
 			observer?.disconnect();
 			document.removeEventListener("visibilitychange", report);
 		};
-	}, [attention, faceSkeleton, sourceRead]);
+	}, [attention]);
 	const motion = useDecisionMotion();
 	const section = motion.surface;
 	const [editing, setEditing] = useState(false);
@@ -430,27 +474,6 @@ export function WorkDecisionCard({
 	const [answer, setAnswer] = useState(initialAnswer);
 	// A yes/no question can still take a typed answer; the overflow opens it.
 	const [writing, setWriting] = useState(false);
-	const summary = useRef<HTMLSpanElement>(null);
-	const [summaryClamped, setSummaryClamped] = useState(false);
-	const [summaryOpen, setSummaryOpen] = useState(false);
-	useLayoutEffect(() => {
-		const node = summary.current;
-		if (!node) return;
-		const update = () =>
-			setSummaryClamped(node.scrollHeight > node.clientHeight + 1);
-		// Measured a frame later: showing "More" resizes the card it observes.
-		let frame = 0;
-		const observer = new ResizeObserver(() => {
-			cancelAnimationFrame(frame);
-			frame = requestAnimationFrame(update);
-		});
-		observer.observe(node);
-		update();
-		return () => {
-			cancelAnimationFrame(frame);
-			observer.disconnect();
-		};
-	}, [face?.body, summaryOpen]);
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
 	const [feedback, setFeedback] = useState("");
 	const [reasonsOpen, setReasonsOpen] = useState(false);
@@ -476,12 +499,62 @@ export function WorkDecisionCard({
 			? yesNoAnswerLabel(face, answerAction)
 			: null;
 	const yesNo = Boolean(yesNoLabel) && !writing;
-	// On phones the Deck row keeps the primary and the secondary; these move to "⋯".
-	const overflowActions = actions.filter(
-		(action) =>
-			action.intent === "later" ||
-			(action.intent === "delegate" && !action.disabled && !rail),
+	// With a face the row names outcomes: do it, Change…, Not now, Decide for
+	// me. Several real alternatives stay as they are; each one is an outcome.
+	const outcomeRow =
+		!!faceState &&
+		actions.filter(
+			(action) =>
+				!["reject", "later", "delegate"].includes(action.intent ?? ""),
+		).length <= 1;
+	const delegateAction = actions.find(
+		(action) => action.intent === "delegate" && !action.disabled,
 	);
+	const recommendedIntent =
+		face && "recommendedIntent" in face ? face.recommendedIntent : undefined;
+	const recommended = recommendedIntent
+		? actions.find(
+				(action) => action.intent === recommendedIntent && !action.disabled,
+			)
+		: undefined;
+	const decideAction = delegateAction ?? recommended;
+	const suggested = decideMode === "suggest" ? recommended : undefined;
+	// A decline keeps its outcome name; the old "No / Not needed" reads as "Decline".
+	const actionLabel = (action: DecisionCardAction) =>
+		decisionCardActionLabel(
+			face,
+			action.id,
+			action.intent,
+			action.intent === "reject" && action.label === "No / Not needed"
+				? decisionText("Decline")
+				: action.intent === "later" && outcomeRow
+					? decisionText("Not now")
+					: action.intent === "delegate" && outcomeRow
+						? decisionText("Decide for me")
+						: action.label,
+		);
+	// On phones the Deck row keeps the primary and the secondary; these move to "⋯".
+	// In an outcome row a decline always lives in "⋯"; swipe left and ← still decline.
+	const overflowActions = outcomeRow
+		? actions.filter(
+				(action) => action.intent === "reject" && action !== suggested,
+			)
+		: actions.filter(
+				(action) =>
+					action.intent === "later" ||
+					(action.intent === "delegate" && !action.disabled && !rail),
+			);
+	const [autoStopped, setAutoStopped] = useState(false);
+	const autoAction =
+		decideMode === "auto" &&
+		!autoStopped &&
+		recommended &&
+		!recommended.confirm &&
+		kind !== "outbound" &&
+		(faceState?.confidence ?? 0) >= AUTO_DECIDE_CONFIDENCE
+			? recommended
+			: undefined;
+	const [autoSeconds, setAutoSeconds] = useState(AUTO_DECIDE_SECONDS);
 	const [quiet, setQuiet] = useState({
 		later: false,
 		notUseful: false,
@@ -617,6 +690,8 @@ export function WorkDecisionCard({
 				decidedAt,
 				detailsOpened: readDetails,
 			});
+			if (shownStrip.length)
+				faceState?.onContextUse?.(shownStrip, [...openedItems.current]);
 			setConfirmation(null);
 			toast.success(decisionText("Decision saved"));
 			await departure;
@@ -651,6 +726,26 @@ export function WorkDecisionCard({
 		if (reasons.length > 0 && action.intent === "reject") setReasonsOpen(true);
 		else void submit(action);
 	};
+	// "Auto when confident": a visible countdown the person can stop, never a silent pick.
+	const autoId = autoAction && !busy && !editing ? autoAction.id : null;
+	useEffect(() => {
+		if (!autoId) return;
+		setAutoSeconds(AUTO_DECIDE_SECONDS);
+		const timer = setInterval(
+			() => setAutoSeconds((seconds) => Math.max(0, seconds - 1)),
+			1000,
+		);
+		return () => clearInterval(timer);
+	}, [autoId]);
+	const chooseRef = useRef(choose);
+	chooseRef.current = choose;
+	useEffect(() => {
+		if (autoId && autoSeconds === 0) {
+			setAutoStopped(true);
+			chooseRef.current(actions.find((action) => action.id === autoId));
+		}
+		// Fires once when the countdown reaches zero.
+	}, [autoSeconds]);
 	const [stagedOptionId, setStagedOptionId] = useState<string | null>(null);
 	const staged = actions.find((action) => action.id === stagedOptionId);
 	const agentField =
@@ -751,7 +846,6 @@ export function WorkDecisionCard({
 					)
 				) {
 					detailsOpened.current = true;
-					setSourceRead(true);
 					attention?.({
 						action: "details",
 						signal: "opened_details",
@@ -794,11 +888,10 @@ export function WorkDecisionCard({
 				}
 				if (["d", "l"].includes(event.key.toLowerCase())) {
 					event.preventDefault();
-					const action = actions.find(
-						(action) =>
-							action.intent ===
-							(event.key.toLowerCase() === "d" ? "delegate" : "later"),
-					);
+					const action =
+						event.key.toLowerCase() === "d"
+							? decideAction
+							: actions.find((action) => action.intent === "later");
 					if (action) choose(action);
 					else if (event.key.toLowerCase() === "l" && !busy) onNext?.();
 				}
@@ -918,97 +1011,125 @@ export function WorkDecisionCard({
 									/>
 								</div>
 							) : faceState ? (
-								<div className="grid gap-3">
+								<div className="fd-face grid gap-3">
 									{face ? (
-										<div className="fd-face-enter grid gap-3">
-											{"context" in face && <Text>{face.context}</Text>}
-											<Text
-												ref={summary}
-												className="fd-card-summary"
-												data-expanded={summaryOpen}
-											>
-												<strong>If yes:</strong> {withoutIfYes(face.body)}
-											</Text>
-											{summaryClamped && !summaryOpen && (
-												<Button
-													variant="ghost"
-													size="xs"
-													className="fd-summary-more"
-													onClick={() => setSummaryOpen(true)}
-												>
-													{decisionText("More")}
-												</Button>
-											)}
-											<Text className="fd-recommendation">
-												{face.recommendation}
-												{faceState.confidence !== null &&
-													` · ${Math.round(faceState.confidence * 100)}% sure`}
-											</Text>
-											{"stakes" in face && face.stakes && (
-												<Text className="fd-stakes">{face.stakes}</Text>
-											)}
-										</div>
-									) : faceFallback ? (
-										<div className="fd-face-enter fd-face-fallback grid gap-2">
-											{content ?? <DecisionProposalBody body={body || title} />}
-											<div
-												role="status"
-												className="fd-face-note"
-												data-face-fallback
-											>
-												<span>
-													{decisionText(
-														"Summary unavailable — showing the original request",
-													)}
-												</span>
-												{faceState.retry && (
-													<Button
-														variant="ghost"
-														size="sm"
-														className="fd-face-retry"
-														disabled={faceState.retrying}
-														onClick={() => {
-															setFaceRetries((count) => count + 1);
-															faceState.retry?.();
-														}}
-													>
-														{faceState.retrying ? (
-															<>
-																<Loader aria-hidden="true" size="sm" />
-																{decisionText("Retrying…")}
-															</>
-														) : (
-															decisionText("Retry")
-														)}
-													</Button>
+										!compact && (
+											<>
+												{"context" in face && face.context && (
+													<Text className="fd-story">{face.context}</Text>
 												)}
-											</div>
-										</div>
+												<Text className="fd-recommendation">
+													<strong>{decisionText("Tedix recommends:")}</strong>{" "}
+													{face.recommendation}
+													{faceState.confidence !== null &&
+														` · ${Math.round(faceState.confidence * 100)}% sure`}
+												</Text>
+											</>
+										)
 									) : (
-										<div
-											role="status"
-											aria-busy="true"
-											className="fd-face-skeleton"
-											data-face-pending
-										>
-											<Skeleton aria-hidden="true" className="w-full" />
-											<Skeleton aria-hidden="true" className="w-11/12" />
-											<Skeleton aria-hidden="true" className="w-3/5" />
-											<span className="fd-face-writing">
-												<Loader aria-hidden="true" size="sm" />
-												{decisionText("Writing a short summary…")}
-											</span>
+										// No summary yet: the original ask, as written, right away.
+										<div className="fd-face-original grid gap-2">
+											{content ?? <DecisionProposalBody body={body || title} />}
 										</div>
 									)}
-									{!faceFallback && (
-										<FeedDeckDisclosure
-											title={rail ? "Original request" : OS_COPY.feed.details}
+									{shownStrip.length > 0 && (
+										<ul
+											className="fd-context-strip"
+											aria-label={decisionText("Context")}
 										>
-											<Text weight="semibold">{title}</Text>
-											{content ??
-												(body ? <DecisionProposalBody body={body} /> : null)}
-										</FeedDeckDisclosure>
+											{shownStrip.map((item) => {
+												const open = () => {
+													openedItems.current.add(item);
+													if (item === "source") {
+														detailsOpened.current = true;
+														if (rail) rail.openSection("details");
+														else setDetailsOpen(true);
+													} else
+														setExpandedItem((value) =>
+															value === item ? null : item,
+														);
+												};
+												const label =
+													item === "source"
+														? sourcePreview(body || title)
+														: item === "due"
+															? `${decisionText("Due")} ${shortDeadline(dueAt!)}`
+															: item === "asker"
+																? `${decisionText("Asked by")} ${askedBy}`
+																: stakes!;
+												return (
+													<li key={item} data-context-item={item}>
+														<button
+															type="button"
+															className="fd-context-item"
+															aria-expanded={
+																item === "source"
+																	? detailsOpen
+																	: expandedItem === item
+															}
+															data-expanded={expandedItem === item}
+															onClick={open}
+														>
+															{item === "source" && (
+																<span className="fd-context-label">
+																	{decisionText("Open the original")}
+																</span>
+															)}
+															{label && (
+																<span className="fd-context-text">{label}</span>
+															)}
+															{item === "due" && expandedItem === item && (
+																<span className="fd-context-text">
+																	{absoluteTime(dueAt!)}
+																</span>
+															)}
+														</button>
+													</li>
+												);
+											})}
+										</ul>
 									)}
+									{autoAction && autoId && (
+										<p role="status" className="fd-auto-decide">
+											<span>
+												{decisionText("Tedix picks")} “{actionLabel(autoAction)}
+												” {decisionText("in")} {autoSeconds}s
+											</span>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={() => setAutoStopped(true)}
+											>
+												{decisionText("Stop")}
+											</Button>
+										</p>
+									)}
+									<FeedDeckDisclosure
+										title={rail ? "Original request" : OS_COPY.feed.details}
+										open={detailsOpen}
+										onOpenChange={setDetailsOpen}
+									>
+										{face && (
+											<Text className="fd-card-summary">
+												<strong>{decisionText("If yes:")}</strong>{" "}
+												{withoutIfYes(face.body)}
+											</Text>
+										)}
+										{compact && face && "context" in face && face.context && (
+											<Text>{face.context}</Text>
+										)}
+										{compact && face && (
+											<Text>
+												<strong>{decisionText("Tedix recommends:")}</strong>{" "}
+												{face.recommendation}
+											</Text>
+										)}
+										{stakes && <Text className="fd-stakes">{stakes}</Text>}
+										<Text weight="semibold">{title}</Text>
+										{face &&
+											(content ??
+												(body ? <DecisionProposalBody body={body} /> : null))}
+									</FeedDeckDisclosure>
 								</div>
 							) : (
 								(content ??
@@ -1221,6 +1342,7 @@ export function WorkDecisionCard({
 						{" "}
 						<div
 							data-decision-actions
+							data-outcome-row={outcomeRow || undefined}
 							className={
 								kind === "decision" ||
 								kind === "adr" ||
@@ -1239,12 +1361,7 @@ export function WorkDecisionCard({
 									const label =
 										yesNo && yesNoLabel && action === answerAction
 											? yesNoLabel
-											: decisionCardActionLabel(
-													face,
-													action.id,
-													action.intent,
-													action.label,
-												);
+											: actionLabel(action);
 									const shortcut = ACTION_SHORTCUTS[action.intent ?? ""];
 									const inactive =
 										busy ||
@@ -1275,8 +1392,10 @@ export function WorkDecisionCard({
 													? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
 													: "min-h-11 grow sm:grow-0"
 											}
+											data-suggested={action === suggested || undefined}
 											variant={
-												action === approve || action.id === stagedOptionId
+												action === (suggested ?? approve) ||
+												action.id === stagedOptionId
 													? "default"
 													: action.intent === "reject"
 														? "outline"
@@ -1345,15 +1464,60 @@ export function WorkDecisionCard({
 							(kind === "outbound" || editAction) &&
 							!disabled ? (
 								<DecisionContextSection title="Edit proposal">
-									<Button
-										variant="outline"
-										className="min-h-11"
-										disabled={busy}
-										onClick={() => setEditing(!editing)}
+									<ShortcutTooltip
+										label={decisionText("Change…")}
+										shortcut="E"
+										keyshortcuts="E"
 									>
-										{editing ? decisionText("Preview") : decisionText("Change")}
-									</Button>
+										<Button
+											variant="outline"
+											className="min-h-11"
+											disabled={busy}
+											onClick={() => setEditing(!editing)}
+										>
+											{editing
+												? decisionText("Preview")
+												: outcomeRow
+													? decisionText("Change…")
+													: decisionText("Change")}
+										</Button>
+									</ShortcutTooltip>
 								</DecisionContextSection>
+							) : outcomeRow &&
+							  !disabled &&
+							  ((revision && !secureConnection) || feedbackAction) ? (
+								// No editable draft: Change… asks for changes in a note.
+								<Button
+									variant="outline"
+									className="min-h-11"
+									data-card-change
+									disabled={busy}
+									onClick={() => {
+										if (revision && !secureConnection) {
+											if (rail) rail.openSection("details");
+											else setRevisionsOpen(true);
+										} else setFeedbackOpen(true);
+									}}
+								>
+									{decisionText("Change…")}
+								</Button>
+							) : null}
+							{outcomeRow && !delegateAction && recommended ? (
+								<ShortcutTooltip
+									label={decisionText("Decide for me")}
+									shortcut="D"
+									keyshortcuts="D"
+								>
+									<Button
+										variant="ghost"
+										className="min-h-11"
+										data-decide-for-me
+										disabled={busy}
+										onClick={() => choose(recommended)}
+									>
+										{decisionText("Decide for me")}
+									</Button>
+								</ShortcutTooltip>
 							) : null}
 							{yesNoLabel && !writing && !busy ? (
 								<Button
@@ -1372,7 +1536,7 @@ export function WorkDecisionCard({
 									rail ? (
 										<DecisionContextSection
 											sectionId="why"
-											title={decisionText("Why this")}
+											title={decisionText("Why am I seeing this")}
 											trigger
 											defaultOpen
 										>
@@ -1388,7 +1552,7 @@ export function WorkDecisionCard({
 											onOpenChange={setWhyOpen}
 										>
 											<CollapsibleTrigger>
-												{decisionText("Why this?")}
+												{decisionText("Why am I seeing this?")}
 											</CollapsibleTrigger>
 											{whyTarget &&
 												createPortal(
@@ -1409,7 +1573,8 @@ export function WorkDecisionCard({
 								deckFooter ||
 								deckCuration ||
 								why ||
-								learnedWhy) && (
+								learnedWhy ||
+								faceState?.onOpenSettings) && (
 								<DropdownMenu
 									onOpenChange={(open) => {
 										if (open)
@@ -1440,12 +1605,7 @@ export function WorkDecisionCard({
 												disabled={action.disabled}
 												onClick={() => choose(action)}
 											>
-												{decisionCardActionLabel(
-													face,
-													action.id,
-													action.intent,
-													action.label,
-												)}
+												{actionLabel(action)}
 											</DropdownMenuItem>
 										))}
 										{yesNoLabel && !writing && (
@@ -1453,25 +1613,35 @@ export function WorkDecisionCard({
 												{decisionText("Write an answer")}
 											</DropdownMenuItem>
 										)}
-										{quiet.later && (
+										{quiet.later && !outcomeRow && (
 											<DropdownMenuItem
 												onClick={() => quietControl("later")?.click()}
 											>
 												{decisionText("Later")}
 											</DropdownMenuItem>
 										)}
-										{quiet.notUseful && (
-											<DropdownMenuItem
-												onClick={() => quietControl("notUseful")?.click()}
-											>
-												{OS_COPY.decisionDeck.notUseful.button}
-											</DropdownMenuItem>
-										)}
+										{quiet.notUseful &&
+											!overflowActions.some(
+												(action) =>
+													actionLabel(action) ===
+													OS_COPY.decisionDeck.notUseful.button,
+											) && (
+												<DropdownMenuItem
+													onClick={() => quietControl("notUseful")?.click()}
+												>
+													{OS_COPY.decisionDeck.notUseful.button}
+												</DropdownMenuItem>
+											)}
 										{quiet.why && (
 											<DropdownMenuItem
 												onClick={() => quietControl("why")?.click()}
 											>
-												{decisionText("Why this")}
+												{decisionText("Why am I seeing this")}
+											</DropdownMenuItem>
+										)}
+										{faceState?.onOpenSettings && (
+											<DropdownMenuItem onClick={faceState.onOpenSettings}>
+												{decisionText("Card settings")}
 											</DropdownMenuItem>
 										)}
 									</DropdownMenuContent>

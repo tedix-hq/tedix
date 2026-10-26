@@ -520,7 +520,7 @@ it.each([false, true])(
 		const no = host.querySelector<HTMLButtonElement>(
 			"[data-decision-intent=reject]",
 		);
-		expect(no?.textContent).toBe("No / Not needed");
+		expect(no?.textContent).toBe("Decline");
 		expect(no?.disabled).toBe(false);
 		await act(async () => no!.click());
 		expect(respond).toHaveBeenCalledWith(

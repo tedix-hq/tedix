@@ -107,7 +107,7 @@ vi.mock("./work-interaction-decision-card", () => ({
 		return (
 			<>
 				<p>Live request {requestId}</p>
-				<button onClick={face?.retry}>Retry summary</button>
+				<p data-face-title>{face?.presentation?.title}</p>
 				<p>{proposer.project}</p>
 				<button onClick={onNext}>Skip linked preview</button>
 				<textarea
@@ -319,7 +319,7 @@ it("browses all six practice kinds, explains the choice and never submits a real
 		expect(host.textContent).toContain(example.proposal);
 		expect(host.textContent).not.toContain("unchanged approvals");
 		expect(host.textContent).not.toContain("Target:");
-		await click("Why this");
+		await click("Why am I seeing this");
 		expect(
 			document.querySelector("[data-decision-context]")?.textContent,
 		).toContain("Prefer a bounded next step with evidence");
@@ -367,7 +367,7 @@ it("starts collapsed, opens Why in context, and remembers closure for this perso
 	);
 	await click("Try examples");
 	expect(toggle().getAttribute("aria-expanded")).toBe("false");
-	await click("Why this");
+	await click("Why am I seeing this");
 	expect(toggle().getAttribute("aria-expanded")).toBe("true");
 	expect(
 		document.querySelector(
@@ -521,7 +521,7 @@ const linkedRow = (id: string, subject: string, canRespond = true) =>
 		responseCount: 0,
 	});
 
-it("keeps the exact outbound draft in Details when the short face summarizes it", async () => {
+it("previews the outbound draft in the context strip and keeps it whole in Details", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("No live requests in the fixture"),
 	);
@@ -548,8 +548,10 @@ it("keeps the exact outbound draft in Details when the short face summarizes it"
 		},
 	};
 	await mount({ rows: [row] });
-	expect(host.textContent).toContain("A short generated summary.");
-	expect(host.textContent).not.toContain("Hello Morgan,");
+	expect(host.textContent).toContain("Send the revised date?");
+	expect(
+		host.querySelector('[data-context-item="source"]')?.textContent,
+	).toContain("Hello Morgan, The revised date is Friday.");
 	await act(async () =>
 		(
 			Array.from(host.querySelectorAll("button")).find(
@@ -557,7 +559,7 @@ it("keeps the exact outbound draft in Details when the short face summarizes it"
 			) as HTMLButtonElement
 		).click(),
 	);
-	expect(document.body.textContent).toContain("Hello Morgan,");
+	expect(document.body.textContent).toContain("A short generated summary.");
 	expect(document.body.textContent).toContain(
 		"The revised date is Friday. No discount has been promised.",
 	);
@@ -793,27 +795,31 @@ it("keeps an owner question on the Deck and counts it once in the badge and Feed
 	).toHaveLength(1);
 });
 
-it("explicitly retries summary generation rather than only re-reading the failed face", async () => {
+it("renders the stored summary from list data before the card read returns", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("No live requests in the fixture"),
 	);
 	const row = linkedRow(
 		"11111111-1111-4111-8111-111111111111",
-		"Review supplier reply",
+		"Review 07 — supplier reply",
 	);
-	writes.getCard.mockResolvedValue({
-		id: row.request.id,
-		interaction: row,
-		presentation: null,
-	});
+	row.request.metadata = {
+		...row.request.metadata,
+		cardPresentation: {
+			version: 2,
+			title: "Send the supplier the signed quote?",
+			context: "The supplier asked for it before Friday.",
+			body: "Sends the quote to the supplier.",
+			recommendation: "Yes — the price matches the order.",
+		},
+	};
+	writes.getCard.mockReturnValue(new Promise(() => {}));
 	await mount({ rows: [row] });
-	await act(async () => {
-		Array.from(host.querySelectorAll("button"))
-			.find((button) => button.textContent === "Retry summary")!
-			.click();
-	});
-	expect(writes.getCard).toHaveBeenCalledWith(
-		expect.objectContaining({ cardId: row.request.id, retrySummary: true }),
+	expect(host.querySelector("[data-face-title]")?.textContent).toBe(
+		"Send the supplier the signed quote?",
+	);
+	expect(writes.getCard).not.toHaveBeenCalledWith(
+		expect.objectContaining({ retrySummary: true }),
 	);
 });
 

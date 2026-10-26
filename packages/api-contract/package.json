@@ -337,6 +337,7 @@
 		"./schemas/card-revisions": "./src/schemas/card-revisions.ts",
 		"./utils/deck-action-boundary": "./src/utils/deck-action-boundary.ts",
 		"./utils/attention-app-view": "./src/utils/attention-app-view.ts",
+		"./utils/decision-card-preferences": "./src/utils/decision-card-preferences.ts",
 		"./assets/attention-app-views.v1.json": "./src/assets/attention-app-views.v1.json",
 		"./assets/attention-app-views.v2.json": "./src/assets/attention-app-views.v2.json"
 	},

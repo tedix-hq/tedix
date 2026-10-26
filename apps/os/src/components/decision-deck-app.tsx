@@ -12,7 +12,11 @@ import { DeckAskStrip } from "@/components/deck-ask-strip";
 import { DeckCurationFooter } from "@/components/deck-curation-footer";
 import { DeckNotUseful } from "@/components/deck-not-useful";
 import { useCardSchedule } from "@/lib/use-card-schedule";
-import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
+import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
+import type { DecisionCardContextItem } from "@tedix/api-contract/schemas/user-settings";
+import { recordDecisionCardContextUse } from "@tedix/api-contract/utils/decision-card-preferences";
+import { useOsPreferences } from "@/lib/use-os-preferences";
+import { DecisionCardSettings } from "@/components/decision-card-settings";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import {
@@ -67,7 +71,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	DEFAULT_DECK_ROUTING,
 	type DecisionDeckConfig,
@@ -377,16 +381,8 @@ function DecisionDeckContent({
 		staleTime: 60000,
 		refetchInterval: 30000,
 	});
-	const retrySummary = useMutation({
-		mutationFn: () =>
-			osApi.attention.getDeckCard({
-				cardId: selected!.id,
-				projectId: config.projectId,
-				limit: 100,
-				retrySummary: true,
-			}),
-		onSuccess: () => preparedCard.refetch(),
-	});
+	const cardPreferences = useOsPreferences();
+	const [cardSettingsOpen, setCardSettingsOpen] = useState(false);
 	const selectedSourceVersion =
 		selected?.row?.request.version ??
 		preparedCard.data?.factory?.revision ??
@@ -671,12 +667,19 @@ function DecisionDeckContent({
 		(!selected?.row ||
 			preparedCard.data?.interaction?.request.version ===
 				selected.row.request.version);
+	// The list already carries the stored summary, so the card renders from it at once.
+	const listPresentation =
+		DecisionCardPresentationSchema.safeParse(
+			selected?.row?.request.metadata.cardPresentation,
+		).data ?? null;
+	const storedPreferences = cardPreferences.query.data?.preferences;
+	const cardType = classId ?? "decision";
 	const faceState =
 		mode === "decide"
 			? {
-					presentation: preparedSourceMatches
-						? (preparedCard.data?.presentation ?? null)
-						: null,
+					presentation:
+						(preparedSourceMatches ? preparedCard.data?.presentation : null) ??
+						listPresentation,
 					confidence: selected?.decision?.confidence ?? null,
 					now,
 					timeZone,
@@ -684,12 +687,28 @@ function DecisionDeckContent({
 						selected?.row?.request.dueAt,
 						selected?.decision?.expiresAt,
 					].filter((date): date is string => Boolean(date)),
-					unavailable:
-						preparedCard.isError ||
-						(preparedSourceMatches &&
-							preparedCard.data?.faceText === copySpec.unavailableFace),
-					retry: () => retrySummary.mutate(),
-					retrying: retrySummary.isPending || preparedCard.isFetching,
+					// The "2 of 21" header line already carries the due date.
+					dueInHeader: true,
+					cardType,
+					preferences: storedPreferences?.decisionCards,
+					onContextUse: practiceMode
+						? undefined
+						: (
+								shown: readonly DecisionCardContextItem[],
+								opened: readonly DecisionCardContextItem[],
+							) => {
+								if (storedPreferences)
+									cardPreferences.save.mutate({
+										...storedPreferences,
+										decisionCards: recordDecisionCardContextUse(
+											storedPreferences.decisionCards,
+											cardType,
+											shown,
+											opened,
+										),
+									});
+							},
+					onOpenSettings: () => setCardSettingsOpen(true),
 				}
 			: null;
 	const content = createElement(
@@ -1008,7 +1027,9 @@ function DecisionDeckContent({
 													(option) => option.intent === "later",
 												) && (
 													<ShortcutTooltip
-														label={decisionText("Later")}
+														label={decisionText(
+															"Not now · back next time you open Decisions",
+														)}
 														shortcut="L"
 													>
 														<Button
@@ -1016,7 +1037,7 @@ function DecisionDeckContent({
 															data-deck-later
 															onClick={() => later?.()}
 														>
-															{decisionText("Later")}
+															{decisionText("Not now")}
 														</Button>
 													</ShortcutTooltip>
 												)}
@@ -1251,6 +1272,11 @@ function DecisionDeckContent({
 						/>
 					))
 				)}
+				<DecisionCardSettings
+					open={cardSettingsOpen}
+					onOpenChange={setCardSettingsOpen}
+					cardType={cardType}
+				/>
 				<DecisionContextSection sectionId="style" title="Results and learning">
 					{!practiceMode && <DeckCurationFooter />}
 					<DeckAttentionMetrics />

@@ -155,6 +155,15 @@ export function renderDecisionCardDates<T extends CardCopy>(
 }
 
 const rawIdentifier = new RegExp(copySpec.rawIdentifierPattern, "i");
+const listPrefix = new RegExp(copySpec.listPrefixPattern, "i");
+
+/** "Review 07 — Send the draft?" reads as "Send the draft?": list numbers are not part of the ask. */
+export function withoutListPrefix(text: string): string {
+	const rest = text.replace(listPrefix, "");
+	return rest && rest !== text
+		? rest.charAt(0).toUpperCase() + rest.slice(1)
+		: text;
+}
 const banned = new RegExp(`\\b(?:${copySpec.bannedWords.join("|")})\\b`, "i");
 const stopWords = new Set(copySpec.stopWords);
 
@@ -188,6 +197,7 @@ export function checkDecisionCardCopy(copy: CardCopy) {
 			issues.push(field);
 	}
 	if (!copy.title.endsWith("?")) issues.push("ask_question");
+	if (listPrefix.test(copy.title)) issues.push("list_prefix");
 	const text = [
 		copy.title,
 		copy.body,
@@ -264,7 +274,6 @@ export function decisionCardActionLabel(
 			// A decline never reads as agreement, even if generated copy says so.
 			if (
 				intent === "reject" &&
-				fallback === "No / Not needed" &&
 				/^(?:yes|ok|okay|approve|accept|confirm)\b/i.test(labels[key]!)
 			)
 				return fallback;
@@ -280,7 +289,7 @@ export function decisionCardFallbackTitle(
 	label: string | null | undefined,
 	limit: number = copySpec.fields.title.maxLength,
 ): string {
-	const plain = (label ?? "").replace(/\s+/g, " ").trim();
+	const plain = withoutListPrefix((label ?? "").replace(/\s+/g, " ").trim());
 	if (
 		!plain ||
 		plain === copySpec.pendingTitle ||

@@ -201,10 +201,12 @@ try {
 			await check("expanded");
 			if (width! < 640) {
 				await page.getByRole("button", { name: "More actions" }).click();
-				await page.getByRole("menuitem", { name: "Why this" }).click();
+				await page
+					.getByRole("menuitem", { name: "Why am I seeing this" })
+					.click();
 			} else
 				await page
-					.getByRole("button", { name: "Why this?", exact: true })
+					.getByRole("button", { name: "Why am I seeing this?", exact: true })
 					.click();
 			await check("why expanded");
 			if (process.env.TEDIX_SCREENSHOT_DIR)

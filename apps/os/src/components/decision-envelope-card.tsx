@@ -123,10 +123,7 @@ export function DecisionEnvelopeCard({
 			}
 			actions={decision.options.map((option) => ({
 				id: option.id,
-				label:
-					option.intent === "reject" && !option.effect
-						? "No / Not needed"
-						: option.label,
+				label: option.label,
 				intent: option.intent,
 				primary: preferDelegation
 					? option.intent === "delegate"

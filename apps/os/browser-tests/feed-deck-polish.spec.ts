@@ -17,13 +17,16 @@ async function settleAnimations(page: Page) {
 
 /** Phones keep Why this in the Deck action row's "⋯" menu. */
 async function openWhy(page: Page) {
-	const why = page.getByRole("button", { name: "Why this", exact: true });
+	const why = page.getByRole("button", {
+		name: "Why am I seeing this",
+		exact: true,
+	});
 	if (await why.isVisible()) return why.click();
 	await page
 		.locator(".fd-deck-current")
 		.getByRole("button", { name: "More actions" })
 		.click();
-	await page.getByRole("menuitem", { name: "Why this" }).click();
+	await page.getByRole("menuitem", { name: "Why am I seeing this" }).click();
 }
 
 const server = await startFixtureServer("/browser-tests/feed-deck-polish.html");
@@ -272,7 +275,7 @@ try {
 						throw new Error("Typing i opened context");
 					await openWhy(page);
 					await dialog
-						.getByRole("heading", { name: "Why this", exact: true })
+						.getByRole("heading", { name: "Why am I seeing this", exact: true })
 						.waitFor();
 					await page.keyboard.press("Escape");
 					await dialog.waitFor({ state: "hidden" });
@@ -809,7 +812,11 @@ try {
 			await page.goto(
 				`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,
 			);
-			await page.locator("[data-deck-not-useful]").first().waitFor();
+			// Not useful lives in the card's "⋯" menu; its control stays mounted in the row.
+			await page
+				.locator("[data-deck-not-useful]")
+				.first()
+				.waitFor({ state: "attached" });
 			await page.getByRole("textbox", { name: "Your answer" }).focus();
 			await settleAnimations(page);
 			const deck = await page.evaluate(() => {
@@ -829,10 +836,12 @@ try {
 					...row.querySelectorAll<HTMLElement>(
 						":scope > button:not([data-decision-intent], .fd-action-more), [data-deck-not-useful] button, .fd-card-why button",
 					),
-				].map((b) => ({
-					height: b.getBoundingClientRect().height,
-					size: getComputedStyle(b).fontSize,
-				}));
+				]
+					.filter((b) => b.getClientRects().length)
+					.map((b) => ({
+						height: b.getBoundingClientRect().height,
+						size: getComputedStyle(b).fontSize,
+					}));
 				const primary = row.querySelector<HTMLElement>(
 					'[data-decision-intent="approve"]',
 				)!;

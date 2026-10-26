@@ -154,9 +154,9 @@ const ENGLISH_COPY = {
 		decisionHistory: "See what you decided",
 		shortcutList: [
 			["→", "Approve"],
-			["←", "Not this"],
-			["E", "Change"],
-			["L", "Later"],
+			["←", "Decline"],
+			["E", "Change…"],
+			["L", "Not now"],
 			["D", "Decide for me"],
 			["J", "Next card"],
 			["K", "Previous card"],
@@ -200,7 +200,7 @@ const ENGLISH_COPY = {
 		title: "One decision at a time",
 		intro: "Make a few choices, then get back to your day.",
 		shortcuts:
-			"← Not this · → Approve · E Change · L Later · D Decide for me · ? Why this",
+			"← Decline · → Approve · E Change… · L Not now · D Decide for me · ? Why am I seeing this",
 		left: (count: number) => `${count} left`,
 		position: (current: number, total: number) => `${current} of ${total}`,
 		today: (done: number, goal: number) => `${done}/${goal} today`,

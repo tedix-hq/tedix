@@ -1,7 +1,10 @@
 import { expect, it } from "vite-plus/test";
 import {
+	checkDecisionCardCopy,
+	decisionCardFallbackTitle,
 	decisionCardFaceText,
 	decisionCardActionLabel,
+	withoutListPrefix,
 	renderCardDateText,
 	renderDecisionCardDates,
 } from "./decision-card-copy";
@@ -80,6 +83,50 @@ it("keeps the explicit decline even when generated button copy suggests yes", ()
 			"No / Not needed",
 		),
 	).toBe("No / Not needed");
+});
+
+it.each([
+	[
+		"Review 07 — LOI draft and paid-maintainer offer for Ines?",
+		"LOI draft and paid-maintainer offer for Ines?",
+	],
+	["Item 3: send the signed quote?", "Send the signed quote?"],
+	["#4 Merge the fix?", "Merge the fix?"],
+	["2) Approve the refund?", "Approve the refund?"],
+	["Review 3 invoices before Friday?", "Review 3 invoices before Friday?"],
+	["1.5 GB limit is fine?", "1.5 GB limit is fine?"],
+	["acme-app is waiting?", "acme-app is waiting?"],
+])("drops list numbers from the ask: %s", (title, expected) => {
+	expect(withoutListPrefix(title)).toBe(expected);
+	expect(decisionCardFallbackTitle(title, 160)).toBe(expected);
+});
+
+it("rejects generated copy that opens with a list number", () => {
+	const face = {
+		...copy,
+		context: "Ines meets you Tue 11:30; this is the offer you would bring.",
+		recommendation: "Yes — no price named, nothing sent until you say so.",
+	};
+	expect(
+		checkDecisionCardCopy({
+			...face,
+			title: "Review 07 — Send Ines the LOI draft?",
+		}),
+	).toContain("list_prefix");
+	expect(
+		checkDecisionCardCopy({ ...face, title: "Send Ines the LOI draft?" }),
+	).not.toContain("list_prefix");
+});
+
+it("never lets a decline read as agreement, whatever its fallback label", () => {
+	expect(
+		decisionCardActionLabel(
+			{ ...copy, actionLabels: { reject: "Approve anyway" } },
+			"no",
+			"reject",
+			"Decline",
+		),
+	).toBe("Decline");
 });
 
 it("uses the supplied short no label for a decline", () => {

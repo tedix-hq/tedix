@@ -42,7 +42,7 @@ try {
 					"A closed Why this panel makes no graph request",
 				);
 				await page
-					.getByRole("button", { name: "Why this", exact: true })
+					.getByRole("button", { name: "Why am I seeing this", exact: true })
 					.click();
 				const summary = page.getByRole("button", {
 					name: GITHUB_DECISION_CONTEXT.explanation,

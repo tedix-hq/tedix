@@ -489,29 +489,9 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 						}),
 					),
 			);
-		if (context.waitUntil && created.targetType === "user" && created.targetId)
-			context.waitUntil(
-				(async () => {
-					const { generateDecisionCard } =
-						await import("../../services/decision-card-generator");
-					const { saveDecisionCardPresentation } =
-						await import("@tedix/db/queries/work-items/card-presentation");
-					const presentation = await generateDecisionCard(context, created);
-					if (presentation)
-						await saveDecisionCardPresentation(context.db, {
-							orgId,
-							requestId: created.id,
-							personId: created.targetId!,
-							expectedVersion: created.version,
-							presentation,
-						});
-				})().catch((error) =>
-					console.warn("decision card generation failed", {
-						requestId: created.id,
-						exception: safeExceptionTopology(error),
-					}),
-				),
-			);
+		const { queueCardFaceWrite } =
+			await import("../../services/card-face-writer");
+		queueCardFaceWrite(context, created);
 		const { queueDeckCuration } =
 			await import("../../services/deck-curation-trigger");
 		if (

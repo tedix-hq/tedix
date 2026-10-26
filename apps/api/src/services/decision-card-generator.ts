@@ -5,8 +5,15 @@ import {
 	formatIsoCardDates,
 	hasRelativeCardDates,
 	unsupportedCopyFacts,
+	withoutListPrefix,
 } from "@tedix/api-contract/utils/decision-card-copy";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
+import {
+	OS_PREFERENCES_NAMESPACE,
+	OsUserPreferencesSchema,
+} from "@tedix/api-contract/schemas/user-settings";
+import { resolveCardReaderUserId } from "@tedix/db/queries/work-items/card-style-rules";
+import { getUserConfig } from "@tedix/db/queries/user-configs";
 import type { BaseContext } from "../rpc/orpc";
 import { readDraftPreferences } from "./decision-learning";
 import { runDecisionCardCopyModel } from "./decision-card-copy-model";
@@ -151,6 +158,30 @@ function copyRepairFeedback(
 	});
 }
 
+/** The reader's chosen card language; null keeps English. Display only. */
+async function cardReaderLanguage(
+	db: BaseContext["db"],
+	orgId: string,
+	targetId: string | null,
+) {
+	if (!targetId) return null;
+	try {
+		const userId = await resolveCardReaderUserId(db, orgId, targetId);
+		if (!userId) return null;
+		const row = await getUserConfig(db, {
+			userId,
+			namespace: OS_PREFERENCES_NAMESPACE,
+			key: orgId,
+		});
+		return (
+			OsUserPreferencesSchema.safeParse(row?.value).data?.decisionCards
+				?.language ?? null
+		);
+	} catch {
+		return null;
+	}
+}
+
 export async function generateDecisionCard(
 	context: Pick<BaseContext, "db" | "env">,
 	request: {
@@ -241,8 +272,14 @@ export async function generateDecisionCard(
 				]
 			: []),
 	];
+	const readerLanguage = await cardReaderLanguage(
+		context.db,
+		request.orgId,
+		request.targetId,
+	);
 	const source = JSON.stringify({
 		preferences: writingContext(preferences),
+		...(readerLanguage ? { readerLanguage } : {}),
 		...(subject
 			? {
 					affectedSubject: {
@@ -319,9 +356,22 @@ export async function generateDecisionCard(
 				return null;
 			}
 			if (draft && typeof draft === "object" && !Array.isArray(draft)) {
-				for (const field of ["stakes", "actionLabels", "effectStatus"]) {
+				for (const field of [
+					"stakes",
+					"actionLabels",
+					"effectStatus",
+					"recommendedIntent",
+				]) {
 					if (draft[field] === null) delete draft[field];
 				}
+				if (
+					draft.recommendedIntent !== undefined &&
+					!["approve", "reject"].includes(draft.recommendedIntent)
+				)
+					delete draft.recommendedIntent;
+				// A list number is never part of the ask: "Review 07 — Send it?" -> "Send it?".
+				if (typeof draft.title === "string")
+					draft.title = withoutListPrefix(draft.title.trim());
 				if (
 					!DecisionCardPresentationSchema.options[1].shape.actionLabels.safeParse(
 						draft.actionLabels,

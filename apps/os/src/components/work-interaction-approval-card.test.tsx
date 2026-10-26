@@ -89,7 +89,7 @@ it("renders an actionable approval, keeps raw arguments collapsed and never dele
 	expect(buttons.find((b) => b.textContent === "Approve")?.disabled).toBe(
 		false,
 	);
-	expect(buttons.some((b) => b.textContent === "No / Not needed")).toBe(true);
+	expect(buttons.some((b) => b.textContent === "Decline")).toBe(true);
 	expect(buttons.some((b) => b.textContent === "Later")).toBe(true);
 	expect(buttons.some((b) => b.textContent === "Decide for me")).toBe(false);
 	expect(host.textContent).toContain("made-up test user");
@@ -122,7 +122,7 @@ it("declines consent without approving the stored operation", async () => {
 	await mount();
 	await act(async () =>
 		[...host.querySelectorAll("button")]
-			.find((button) => button.textContent === "No / Not needed")!
+			.find((button) => button.textContent === "Decline")!
 			.click(),
 	);
 	expect(osApi.workInteractions.respond).toHaveBeenCalledWith(
