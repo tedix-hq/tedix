@@ -9,7 +9,8 @@ import {
 	readAggregateActivationEpoch,
 	writeAggregateActivationEpoch,
 } from "./aggregate-activation-epoch";
-import worker, { handleMcpRequest } from "./index";
+import worker from "./index";
+import { handleMcpRequest } from "./mcp-request";
 import { validateAuth } from "./auth-helpers";
 
 const { resolveGateway } = vi.hoisted(() => ({ resolveGateway: vi.fn() }));
