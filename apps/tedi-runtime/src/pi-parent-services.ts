@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { z } from "zod";
 import type { Schedule } from "agents";
 
@@ -974,11 +975,11 @@ export class PiTelegram {
 			liveThread ?? ThreadImpl.fromJSON(record.thread, this.adapter);
 		if (record.stage === "accepted") {
 			await this.assertRecord(record);
-			await thread
-				.startTyping()
-				.catch((error) =>
-					console.warn("[tedi.pi.telegram.typing_failed]", error),
-				);
+			await thread.startTyping().catch((error) =>
+				console.warn("[tedi.pi.telegram.typing_failed]", {
+					exception: exceptionTopology(error),
+				}),
+			);
 			await this.assertRecord(record);
 			const answer = await this.host.runTurn(record.turn);
 			await this.assertRecord(record);

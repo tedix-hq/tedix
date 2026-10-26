@@ -14,6 +14,7 @@
  * injected LlmClient, no hardcoded Azure URL.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { LlmClient } from "./llm-client.js";
 import type { PlatformClient } from "./platform-client.js";
 
@@ -338,7 +339,9 @@ async function llmDigest(
 		if (!content || content.length < 50) return null;
 		return content;
 	} catch (err) {
-		console.error("[brain-bridge] Brain digest LLM error:", err);
+		console.error("[brain-bridge] Brain digest LLM error", {
+			exception: exceptionTopology(err),
+		});
 		return null;
 	} finally {
 		if (timeout) clearTimeout(timeout);

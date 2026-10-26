@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { TediRuntimeEvent } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type {
 	BrowserHostnamePolicy,
@@ -265,7 +266,9 @@ export function createTediBrowserSession(
 		try {
 			await options.onLifecycle?.(event);
 		} catch (error) {
-			console.warn("[browser-session] lifecycle record failed", error);
+			console.warn("[browser-session] lifecycle record failed", {
+				exception: exceptionTopology(error),
+			});
 		}
 	};
 	const close = async (reason: BrowserSessionCloseReason) => {
