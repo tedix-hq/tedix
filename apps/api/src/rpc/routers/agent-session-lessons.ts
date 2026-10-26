@@ -20,6 +20,7 @@
  */
 
 import { isHoldoutSession } from "@tedix/api-contract/utils/lesson-holdout";
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import {
 	AGENT_LESSON_TOPIC_PREFIX,
 	LessonEvidenceSchema,
@@ -487,6 +488,8 @@ async function recordLessonDelivery(
 			metadata: lessonDeliveryMetadata(input),
 		});
 	} catch (error) {
-		console.warn("[lesson-delivery] record failed:", error);
+		console.warn("[lesson-delivery] record failed", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 }

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { fetchRenderedContent } from "./client";
 
 export interface BrandingResult {
@@ -182,7 +183,9 @@ export async function scrapeBrandingFromUrl(
 			metadata,
 		};
 	} catch (error) {
-		console.error("[BrowserRun] Branding scrape error:", error);
+		console.error("[BrowserRun] Branding scrape error", {
+			exception: safeExceptionTopology(error),
+		});
 		return {
 			success: false,
 			error: error instanceof Error ? error.message : "Unknown error",

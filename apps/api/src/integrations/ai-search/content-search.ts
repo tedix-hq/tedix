@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { contentSearchInstanceId } from "./content-index";
 
 export interface AiSearchEnv {
@@ -159,7 +160,9 @@ export async function searchContent(
 			total: sources.length,
 		};
 	} catch (error) {
-		console.error("[Content AI Search] Search error:", error);
+		console.error("[Content AI Search] Search error", {
+			exception: safeExceptionTopology(error),
+		});
 		const message = error instanceof Error ? error.message : String(error);
 		if (message.includes("ai_search_not_found")) {
 			return { success: true, sources: [], query, total: 0 };
