@@ -9,10 +9,24 @@ import {
 import {
 	membersListQueryOptions,
 	operationalContextQueryOptions,
+	osQuery,
 	tediRosterQueryOptions,
 	userProfileQueryOptions,
 	workExternalPrincipalsQueryOptions,
 } from "@/lib/os-query-options";
+
+vi.mock("@/lib/api", async (importOriginal) => {
+	const original = await importOriginal<typeof import("@/lib/api")>();
+	return {
+		...original,
+		osApi: new Proxy(original.osApi, {
+			get: (target, key, receiver) =>
+				key === "osCollaborators"
+					? { access: async () => ({ role: "build" }) }
+					: Reflect.get(target, key, receiver),
+		}),
+	};
+});
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -47,6 +61,12 @@ it("resolves people and tedis in workspace apps outside the main shell", async (
 	});
 	const seed = (key: readonly unknown[], data: unknown) =>
 		client.setQueryData(key, data);
+	seed(
+		osQuery.osCollaborators.access.queryOptions({
+			input: { workspaceId: "pine-workspace" },
+		}).queryKey,
+		{ role: "build" },
+	);
 	seed(operationalContextQueryOptions().queryKey, {
 		organization: { id: organizationId },
 	});
