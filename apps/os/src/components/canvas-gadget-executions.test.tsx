@@ -1,4 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	focusManager,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
+import { AppCallLogs } from "./app-call-logs";
 import type { OsGadgetExecution } from "@tedix/api-contract/schemas/os-workspaces";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -235,6 +240,7 @@ describe("CanvasGadgetExecutions", () => {
 				workspaceId: WORKSPACE_ID,
 				gadgetId: GADGET_ID,
 				limit: 20,
+				includeTraces: false,
 			},
 			// The contract-derived option forwards TanStack Query's AbortSignal, so
 			// unmounting the panel cancels the in-flight read. The hand-written
@@ -401,5 +407,162 @@ describe("connection read receipts", () => {
 		expect(text).toContain(
 			"They have no linked account (audit week: would be refused)",
 		);
+	});
+});
+
+describe("app call console logs", () => {
+	function trace(
+		id: string,
+		callId: string,
+		message: string,
+	): OsGadgetExecution {
+		return executionFixture({
+			id,
+			grantedCapabilities: [],
+			policyDecision: { allowed: true, reasons: ["runtime_trace"] },
+			output: {
+				callId,
+				events: [
+					{
+						timestamp: 1_000,
+						logs: [
+							{ level: "info", message },
+							{ level: "warn", message: "careful" },
+						],
+						exceptions: [{ name: "Error", message: "failed call" }],
+					},
+				],
+			},
+		});
+	}
+	function renderLogs(callId = EXECUTION_ID) {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		act(() =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<AppCallLogs
+						key={callId}
+						workspaceId={WORKSPACE_ID}
+						gadgetId={GADGET_ID}
+						callId={callId}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		return client;
+	}
+	it("selects the app call instead of a later trace and renders only its lines", async () => {
+		const receipt = executionFixture({ grantedCapabilities: ["app.call"] });
+		const logs = trace("trace-1", EXECUTION_ID, "hello");
+		api.osWorkspaces.executions.list.mockImplementation(async (input) => ({
+			items: input.callId
+				? [trace("foreign", "other-call", "private"), logs]
+				: [logs, receipt],
+			truncated: false,
+		}));
+		renderPanel();
+		await flush();
+		expect(api.osWorkspaces.executions.list).toHaveBeenCalledWith(
+			{
+				workspaceId: WORKSPACE_ID,
+				gadgetId: GADGET_ID,
+				limit: 200,
+				callId: EXECUTION_ID,
+			},
+			expect.anything(),
+		);
+		const pane = container.querySelector('[role="log"]')!;
+		expect(pane.textContent).toContain("hello");
+		expect(pane.textContent).toContain("Error: failed call");
+		expect(pane.textContent).not.toContain("private");
+		act(() => button("warn").click());
+		expect(pane.textContent).toContain("careful");
+		expect(pane.textContent).not.toContain("hello");
+		expect(pane.textContent).not.toContain("failed call");
+		act(() => button("error").click());
+		expect(pane.textContent).toContain("Error: failed call");
+	});
+	it("uses the final tail without duplicating the live console lines", async () => {
+		const live = trace("live", EXECUTION_ID, "hello");
+		live.output = {
+			callId: EXECUTION_ID,
+			events: [
+				{
+					live: true,
+					timestamp: 1000,
+					sequence: 1,
+					logs: [{ level: "info", message: "hello" }],
+				},
+			],
+		};
+		api.osWorkspaces.executions.list.mockResolvedValue({
+			items: [live, trace("final", EXECUTION_ID, "hello")],
+			truncated: false,
+		});
+		renderLogs();
+		await flush();
+		expect(
+			container.querySelector('[role="log"]')?.textContent?.match(/hello/g),
+		).toHaveLength(1);
+	});
+	it("polls for late traces after completion and pauses and resumes polling", async () => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		focusManager.setFocused(true);
+		try {
+			api.osWorkspaces.executions.list.mockResolvedValue({
+				items: [],
+				truncated: false,
+			});
+			renderLogs();
+			await flush();
+			expect(container.textContent).toContain("Waiting for console lines");
+			api.osWorkspaces.executions.list.mockResolvedValue({
+				items: [trace("trace-1", EXECUTION_ID, "late line")],
+				truncated: false,
+			});
+			await act(async () => vi.advanceTimersByTimeAsync(2_500));
+			await flush();
+			expect(container.querySelector('[role="log"]')?.textContent).toContain(
+				"late line",
+			);
+			act(() => button("Pause live logs").click());
+			const calls = api.osWorkspaces.executions.list.mock.calls.length;
+			await act(async () => vi.advanceTimersByTimeAsync(5_000));
+			expect(api.osWorkspaces.executions.list).toHaveBeenCalledTimes(calls);
+			act(() => button("Resume live logs").click());
+			await act(async () => vi.advanceTimersByTimeAsync(2_500));
+			expect(
+				api.osWorkspaces.executions.list.mock.calls.length,
+			).toBeGreaterThan(calls);
+		} finally {
+			vi.useRealTimers();
+			focusManager.setFocused(undefined);
+		}
+	});
+	it("switches calls without carrying old console lines into the next run", async () => {
+		api.osWorkspaces.executions.list.mockImplementation(async (input) => ({
+			items: [
+				trace(
+					input.callId,
+					input.callId,
+					input.callId === EXECUTION_ID ? "first call" : "second call",
+				),
+			],
+			truncated: true,
+		}));
+		renderLogs();
+		await flush();
+		expect(container.textContent).toContain("first call");
+		renderLogs("ffffffff-ffff-4fff-8fff-ffffffffffff");
+		await flush();
+		expect(container.querySelector('[role="log"]')?.textContent).toContain(
+			"second call",
+		);
+		expect(container.querySelector('[role="log"]')?.textContent).not.toContain(
+			"first call",
+		);
+		expect(container.textContent).toContain("latest 200 trace receipts");
 	});
 });
