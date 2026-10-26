@@ -29,6 +29,7 @@ import { logSkillRuntimeWarning } from "./control-log";
 import {
 	McpInputRequiredError,
 	McpConnectionRequiredError,
+	McpToolError,
 	type ConnectionRecovery,
 	readConnectionRecovery,
 	stripCodeModeExecutionEnvelope,
@@ -360,7 +361,16 @@ async function executeMcpTool(
 	const authoritativeArgs = injectWorkflowToolIdentity(
 		namespace,
 		method,
-		args,
+		method === "run_tedi_turn" && isRecord(args)
+			? {
+					...args,
+					client_request_id:
+						typeof args.client_request_id === "string" &&
+						args.client_request_id.trim()
+							? args.client_request_id
+							: identity.idempotencyKey,
+				}
+			: args,
 		props.tediId,
 	);
 
@@ -708,7 +718,30 @@ async function executeMcpTool(
 		}
 	};
 
-	const invokeTool = async (name: string) => {
+	const retryUnknownAcknowledgement = async (
+		invoke: () => Promise<unknown>,
+	) => {
+		try {
+			return await invoke();
+		} catch (error) {
+			if (
+				method !== "run_tedi_turn" ||
+				!(
+					error instanceof McpToolError ||
+					(error instanceof McpUpstreamError && error.status === 500)
+				) ||
+				!/Tedi run \S+ was dispatched but acknowledgement is unknown\. Read its status or retry with the same client_request_id\./.test(
+					error instanceof McpUpstreamError ? error.bodyText : error.message,
+				)
+			)
+				throw error;
+			// Both transports carry the same client_request_id: redelivery repairs
+			// the queued receipt without creating another model turn.
+			return await invoke();
+		}
+	};
+
+	const invokeToolOnce = async (name: string) => {
 		const { text, contentType } = await callWithParamHeaders(name);
 		const body = unwrapMcpResponseBody(text, contentType);
 		const result = parseToolResult(body);
@@ -728,13 +761,15 @@ async function executeMcpTool(
 		if (pendingId) return await awaitTaskToTerminal(pendingId, name);
 		return unwrapped;
 	};
+	const invokeTool = (name: string) =>
+		retryUnknownAcknowledgement(() => invokeToolOnce(name));
 
 	// Code Mode recovery: a code-mode app (e.g. firecrawl, firecrawl-tedix)
 	// exposes only a `code` tool, so a bare `tools/call <method>` 404s. Re-run
 	// the call through Code Mode on the aggregate, where the inner tools appear
 	// under their gateway namespace (firecrawl_tedix.firecrawl_search). The
 	// (namespace, method) capability gate above already authorised it.
-	const invokeViaCodeMode = async (gatewaySlug = props.aggregateMcpSlug) => {
+	const invokeViaCodeModeOnce = async (gatewaySlug: string) => {
 		const aggUrl = `https://${gatewaySlug}.${props.mcpBaseHost}/mcp`;
 		// The aggregate `code` tool evaluates an async ARROW FUNCTION source
 		// string (`async () => ...`) — a bare top-level `return` is a syntax
@@ -814,6 +849,8 @@ async function executeMcpTool(
 		}
 		return codeModeResult;
 	};
+	const invokeViaCodeMode = (gatewaySlug = props.aggregateMcpSlug) =>
+		retryUnknownAcknowledgement(() => invokeViaCodeModeOnce(gatewaySlug));
 
 	// Code Mode as a recovery for a failed direct call: keep the direct
 	// failure's cause when the aggregate has no binding for the namespace.
