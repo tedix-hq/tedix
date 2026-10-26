@@ -1,0 +1,40 @@
+{
+	"openapi": "3.0.3",
+	"info": {
+		"title": "sevdesk document supplement",
+		"version": "1.0.0",
+		"description": "Legacy sevdesk document download endpoint omitted from the current public specification."
+	},
+	"paths": {
+		"/Document/{documentId}/download": {
+			"get": {
+				"operationId": "downloadVoucherDocument",
+				"summary": "Download a voucher document",
+				"description": "Download the document referenced by a voucher. Call get_voucher_by_id first and pass voucher.document.id. The result contains base64 PDF bytes and pageCount when the PDF can be inspected.",
+				"parameters": [
+					{
+						"name": "documentId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "integer"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Voucher document PDF",
+						"content": {
+							"application/pdf": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

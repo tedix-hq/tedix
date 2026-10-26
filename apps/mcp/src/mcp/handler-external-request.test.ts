@@ -8,6 +8,8 @@ import {
 	parseDataUrl,
 	parseExternalResponse,
 } from "./handler-external-request";
+import { PDFDocument } from "pdf-lib";
+import { sevdeskVoucherDocumentFixture } from "./fixtures/sevdesk-voucher-document";
 
 const config = (
 	responseMode: ToolConfig["responseMode"] = "auto",
@@ -15,7 +17,7 @@ const config = (
 
 describe("external request helpers", () => {
 	it("builds multipart files and repeated scalar fields while omitting nulls", async () => {
-		const form = buildMultipartBody(
+		const form = await buildMultipartBody(
 			{
 				upload: {
 					content: "data:text/plain;base64,aGVsbG8=",
@@ -58,16 +60,41 @@ describe("external request helpers", () => {
 		for (const value of ["text", "data:text/plain", "data:text/plain,hi"])
 			expect(parseDataUrl(value)).toBeNull();
 		expect(
-			await fileParamToBlob("file", {
-				base64: "a G k=",
-				name: "hi.txt",
-				type: "text/plain",
-			}).blob.text(),
+			await (
+				await fileParamToBlob("file", {
+					base64: "a G k=",
+					name: "hi.txt",
+					type: "text/plain",
+				})
+			).blob.text(),
 		).toBe("hi");
 		for (const value of [null, "", "%%%", {}])
-			expect(() => fileParamToBlob("file", value)).toThrow(
+			await expect(fileParamToBlob("file", value)).rejects.toThrow(
 				ExternalRequestInputError,
 			);
+	});
+
+	it("merges recorded sevdesk voucher document fixtures before upload", async () => {
+		const body = await buildMultipartBody(
+			{
+				file: {
+					filename: "voucher-with-bewirtungsbeleg.pdf",
+					parts: [
+						{ base64: sevdeskVoucherDocumentFixture.download.base64 },
+						{
+							base64: sevdeskVoucherDocumentFixture.additionalPage.base64,
+						},
+					],
+				},
+			},
+			["file"],
+		);
+		const file = body.get("file");
+		expect(file).toBeInstanceOf(Blob);
+		const merged = await PDFDocument.load(await (file as Blob).arrayBuffer());
+		expect(merged.getPageCount()).toBe(
+			sevdeskVoucherDocumentFixture.uploadResponse.objects.pages,
+		);
 	});
 
 	it("parses JSON and text automatically and honors explicit modes", async () => {
@@ -135,6 +162,29 @@ describe("external request helpers", () => {
 			mimeType: "application/octet-stream",
 			base64encoded: true,
 			content: "AQID",
+		});
+	});
+
+	it("reports the page count for recorded PDF download fixtures", async () => {
+		const fixture = sevdeskVoucherDocumentFixture.download;
+		const result = await parseExternalResponse(
+			new Response(
+				Uint8Array.from(atob(fixture.base64), (c) => c.charCodeAt(0)),
+				{
+					status: fixture.status,
+					headers: {
+						"content-type": fixture.contentType,
+						"content-disposition": fixture.contentDisposition,
+					},
+				},
+			),
+			config(),
+		);
+		expect(result).toMatchObject({
+			filename: "voucher-receipt.pdf",
+			mimeType: "application/pdf",
+			base64encoded: true,
+			pageCount: 1,
 		});
 	});
 });

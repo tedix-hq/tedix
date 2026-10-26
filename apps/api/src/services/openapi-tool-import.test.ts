@@ -797,6 +797,7 @@ describe("OpenAPI tool import", () => {
 		expect(inputSchema.required).toEqual(["file"]);
 		expect(Array.isArray(file.anyOf)).toBe(true);
 		expect(JSON.stringify(file)).toContain("base64");
+		expect(JSON.stringify(file)).toContain("parts");
 	});
 
 	it("does not treat JSON request fields with binary format as upload params", () => {
@@ -838,6 +839,15 @@ describe("OpenAPI tool import", () => {
 		expect(filename.type).toBe("string");
 		expect(filename.format).toBeUndefined();
 		expect(filename.anyOf).toBeUndefined();
+	});
+
+	it("describes binary downloads with optional PDF page counts", () => {
+		const output = openApiToolImportTestInternals.binaryResponseOutputSchema();
+		expect(output.properties).toMatchObject({
+			content: { type: "string" },
+			pageCount: { type: "integer", minimum: 1 },
+		});
+		expect(output.required).not.toContain("pageCount");
 	});
 
 	it("preserves text markdown request bodies for generated external tools", () => {
