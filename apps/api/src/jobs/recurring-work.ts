@@ -18,7 +18,10 @@ import {
 	createWorkItem,
 	getWorkItemBySourceIntentId,
 } from "@tedix/db/queries/work-items/crud";
-import { resolveWorkItemPurpose } from "@tedix/db/queries/work-items/purpose";
+import {
+	resolveWorkItemPurpose,
+	WORK_ITEM_PURPOSE_EXCEPTION_MAX_MS,
+} from "@tedix/db/queries/work-items/purpose";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
 const MONTHS = [
@@ -59,12 +62,17 @@ export function recurringWorkIntentId(
 	return `recurring:${projectId}:${templateKey}:${periodKey}`;
 }
 
-function itemDescription(template: RecurringWorkTemplate): string | undefined {
+function itemDescription(
+	template: RecurringWorkTemplate,
+	label: string,
+): string | undefined {
 	const parts = [
 		template.description?.trim(),
 		template.doneWhen?.trim() ? `Done when: ${template.doneWhen.trim()}` : "",
 	].filter(Boolean);
-	return parts.length > 0 ? parts.join("\n\n") : undefined;
+	return parts.length > 0
+		? parts.join("\n\n").replaceAll("{month}", label)
+		: undefined;
 }
 
 export async function fileRecurringWork(
@@ -85,6 +93,28 @@ export async function fileRecurringWork(
 			if (!template.enabled) continue;
 			const period = recurringWorkPeriod(now, template.dayOfMonth);
 			if (!period) continue;
+			if (template.firstPeriod && period.key < template.firstPeriod) continue;
+			const hasStartOffset =
+				template.startMonthOffset !== undefined ||
+				template.startDayOffset !== undefined;
+			const startMonth = now.getUTCMonth() + (template.startMonthOffset ?? 0);
+			const startAt = hasStartOffset
+				? new Date(
+						Date.UTC(
+							now.getUTCFullYear(),
+							startMonth,
+							1 + (template.startDayOffset ?? 0),
+						),
+					).toISOString()
+				: undefined;
+			const expiresAt = new Date(
+				Math.min(
+					hasStartOffset
+						? Date.UTC(now.getUTCFullYear(), startMonth + 1, 1)
+						: Date.parse(period.endsAt),
+					now.getTime() + WORK_ITEM_PURPOSE_EXCEPTION_MAX_MS,
+				),
+			).toISOString();
 			const sourceIntentId = recurringWorkIntentId(
 				project.id,
 				template.key,
@@ -100,13 +130,16 @@ export async function fileRecurringWork(
 					counts.existing += 1;
 					continue;
 				}
-				// A project objective wins; otherwise the item is maintenance that
-				// expires with its month.
+				if (!project.objectiveId && startAt && startAt >= expiresAt) {
+					throw new Error(
+						"Deferred recurring work needs a project objective when its start exceeds the maintenance window",
+					);
+				}
 				const purpose = await resolveWorkItemPurpose(db, {
 					orgId: project.orgId,
 					now: now.toISOString(),
 					workClass: "maintenance",
-					purposeExceptionExpiresAt: period.endsAt,
+					purposeExceptionExpiresAt: expiresAt,
 					project: { key: project.key, objectiveId: project.objectiveId },
 				});
 				await createWorkItem(db, {
@@ -114,7 +147,8 @@ export async function fileRecurringWork(
 					orgId: project.orgId,
 					createdBy: { type: "system", id: "recurring-work" },
 					title: template.title.replaceAll("{month}", period.label),
-					description: itemDescription(template),
+					description: itemDescription(template, period.label),
+					startAt,
 					...(template.workKind ? { workKind: template.workKind } : {}),
 					...(template.priority ? { priority: template.priority } : {}),
 					...(template.owner
