@@ -155,6 +155,11 @@ it.each([
 	["Edit a.b*c/d", "a.b*c"],
 	["Edit *.a./example", "example"],
 	["Edit a..b.ts", "b.ts"],
+	[
+		`Edit ${"a".repeat(25_000)}!apps/example/worker.jsonc`,
+		"apps/example/worker.jsonc",
+	],
+	["Edit aaaa*bbbb.ts", "aaaa*bbbb.ts"],
 ])("extracts paths from %s", (text, path) => {
 	expect(lessonMatches({ pathGlobs: [path] }, { text })).toBe(true);
 });
