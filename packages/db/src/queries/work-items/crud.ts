@@ -19,7 +19,10 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
-import { workMilestoneItems } from "../../schema/work-factory";
+import {
+	workApprovalProposals,
+	workMilestoneItems,
+} from "../../schema/work-factory";
 import { kernelRequests } from "../../schema/kernel-requests";
 import {
 	type WorkItem,
@@ -975,6 +978,51 @@ export async function cancelWorkItem(
 	return normalizeWorkItemRow(item);
 }
 
+/** Specification fields an approval was given for; any change invalidates it. */
+const APPROVED_SPECIFICATION_FIELDS = [
+	"projectId",
+	"title",
+	"description",
+	"workKind",
+	"objectiveId",
+	"workClass",
+	"purposeExceptionExpiresAt",
+	"riskLevel",
+	"priority",
+	"accountableOwnerType",
+	"accountableOwnerId",
+	"stewardType",
+	"stewardId",
+	"requiredCapabilities",
+	"requiredAuthorities",
+	"dueDate",
+	"deadline",
+	"startAt",
+	"durationDays",
+] as const;
+
+/**
+ * Lane planning (a laneDispatch state with no other change, or a repeat of
+ * the current executor) is bookkeeping, not a new specification.
+ */
+function isPlanningOnlyUpdate(
+	prior: WorkItem,
+	params: Partial<
+		Record<(typeof APPROVED_SPECIFICATION_FIELDS)[number], unknown>
+	> & { executor?: string; laneDispatch?: LaneDispatchPlan },
+): boolean {
+	return (
+		params.laneDispatch !== undefined &&
+		(params.executor === undefined ||
+			params.executor === prior.metadata?.executor) &&
+		APPROVED_SPECIFICATION_FIELDS.every(
+			(field) =>
+				params[field] === undefined ||
+				JSON.stringify(params[field]) === JSON.stringify(prior[field]),
+		)
+	);
+}
+
 export async function updateWorkItemSpecification(
 	db: DbQueryClient,
 	params: {
@@ -1022,6 +1070,7 @@ export async function updateWorkItemSpecification(
 			? { from: prior.projectId, to: params.projectId }
 			: null;
 	const receiptId = crypto.randomUUID();
+	const planningOnly = isPlanningOnlyUpdate(prior, params);
 	const updateMutation = db
 		.update(workItems)
 		.set({
@@ -1057,7 +1106,9 @@ export async function updateWorkItemSpecification(
 			deadline: params.deadline,
 			startAt: params.startAt,
 			durationDays: params.durationDays,
-			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			admissionSpecRevision: planningOnly
+				? undefined
+				: sql`lower(hex(randomblob(16)))`,
 			updatedAt,
 			version: sql`${workItems.version} + 1`,
 		})
@@ -1098,9 +1149,29 @@ export async function updateWorkItemSpecification(
 		occurredAt: updatedAt,
 		...(projectMove ? { payload: { projectMove } } : {}),
 	});
+	// Planning keeps the approved scope, so approvals bound to the prior
+	// version follow it, only when this batch's own update applied: same
+	// disposition and spec revision, the next version, and this timestamp.
+	const carryApprovals = planningOnly
+		? [
+				db
+					.update(workApprovalProposals)
+					.set({ workItemVersion: prior.version + 1 })
+					.where(
+						and(
+							eq(workApprovalProposals.orgId, params.orgId),
+							eq(workApprovalProposals.workItemId, params.workItemId),
+							eq(workApprovalProposals.workItemVersion, prior.version),
+							inArray(workApprovalProposals.status, ["pending", "approved"]),
+							sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${params.orgId} AND ${workItems.id}=${params.workItemId} AND ${workItems.version}=${prior.version + 1} AND ${workItems.admissionSpecRevision}=${prior.admissionSpecRevision} AND ${workItems.disposition}=${prior.disposition} AND ${workItems.updatedAt}=${updatedAt})`,
+						),
+					),
+			]
+		: [];
 	const [updatedRows] = await db.batch([
 		updateMutation,
 		updateEvent,
+		...carryApprovals,
 		...(dispatch
 			? [
 					dispatchReceiptInsert(
