@@ -247,6 +247,7 @@ describe("buildFactory", () => {
 			objectiveId: first.objectiveId,
 		});
 
+		binding.resourceIds = { docsSite: "site" };
 		writes.length = 0;
 		const second = await buildFactory(store, input({ name: "Docs accuracy" }));
 		expect(writes).toEqual([]);

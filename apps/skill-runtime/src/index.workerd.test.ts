@@ -118,6 +118,7 @@ function skillInput(network: boolean): LoadSkillRuntimeInput {
 			ownerTediId: "owner",
 			healthWorkItemId: null,
 			output: { id: "output", title: "Report", kind: "document" },
+			resourceIds: { docsSite: "site" },
 		},
 		skillId: "isolation-skill",
 		tediId: "isolation-tedi",
@@ -127,7 +128,7 @@ function skillInput(network: boolean): LoadSkillRuntimeInput {
 		executionEpoch: 0,
 		admittedAt: new Date().toISOString(),
 		loaderConfigHash: hash,
-		code: `export default { async run(_event, _step, env) { let denied = false; try { await fetch("https://example.com/ambient-forbidden"); } catch { denied = true; } return { keys: Object.keys(env).sort(), denied, secret: env.PLATFORM_SERVICE_TOKEN ?? null, apiKey: env.GEMINI_API_KEY ?? null, factory: env.__RUN_CONTEXT__.factory, factoryFrozen: Object.isFrozen(env.__RUN_CONTEXT__.factory) && Object.isFrozen(env.__RUN_CONTEXT__.factory.output) }; } };`,
+		code: `export default { async run(_event, _step, env) { let denied = false; try { await fetch("https://example.com/ambient-forbidden"); } catch { denied = true; } return { keys: Object.keys(env).sort(), denied, secret: env.PLATFORM_SERVICE_TOKEN ?? null, apiKey: env.GEMINI_API_KEY ?? null, factory: env.__RUN_CONTEXT__.factory, factoryFrozen: Object.isFrozen(env.__RUN_CONTEXT__.factory) && Object.isFrozen(env.__RUN_CONTEXT__.factory.output) && Object.isFrozen(env.__RUN_CONTEXT__.factory.resourceIds) }; } };`,
 		manifest: parseCapabilityManifest(
 			`---\ncapabilities:\n  network: ${network}\n---`,
 		),

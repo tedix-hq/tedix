@@ -1260,7 +1260,11 @@ export function warnFactoryIdLiterals(
 	factory: FactoryRunContext,
 ): SkillValidationIssue[] {
 	const ids = new Set(
-		[...Object.values(factory), factory.output?.id]
+		[
+			...Object.values(factory),
+			factory.output?.id,
+			...Object.values(factory.resourceIds ?? {}),
+		]
 			.filter((value): value is string => typeof value === "string")
 			.map((value) => value.toLowerCase()),
 	);

@@ -404,3 +404,19 @@ describe("factory UUID warning", () => {
 		).toEqual([]);
 	});
 });
+
+it("warns on configured related resource IDs", () => {
+	const id = "22222222-2222-4222-8222-222222222222";
+	expect(
+		warnFactoryIdLiterals(`const site = "${id}"; export default { run() {} }`, {
+			projectId: "project",
+			workspaceId: null,
+			objectiveId: null,
+			blueprintRevisionId: null,
+			ownerTediId: null,
+			healthWorkItemId: null,
+			output: null,
+			resourceIds: { docsSite: id },
+		}),
+	).toHaveLength(1);
+});

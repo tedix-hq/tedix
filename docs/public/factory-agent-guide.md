@@ -474,6 +474,9 @@ Record the lane's skill, Workspace and objective once in the project's
 `metadata.factory` binding. Each automation receives
 `env.__RUN_CONTEXT__.factory` with `workspaceId`, `projectId`, `objectiveId`,
 `blueprintRevisionId` and `ownerTediId`, plus its health Work Item and Output.
+Use the binding's optional `resourceIds` map for named related resources, such
+as a Docs site or another check skill. The runtime freezes those IDs with the
+other inputs; they grant no additional access or tool capabilities.
 Unbound skills receive `null`; a factory without a Blueprint has a null revision.
 The runtime resolves the Workspace's current pin on the first load of a run
 and saves those inputs for its later resumes. Applying a Workspace Blueprint
