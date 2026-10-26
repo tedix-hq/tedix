@@ -460,10 +460,12 @@ export function CanvasDocPanel({
 	const codeFiles = useMemo(
 		() => [
 			...APP_CODE_FILES,
-			...Object.keys(runtimeCode.data?.code?.files ?? {}).map((path) => ({
-				path,
-				hint: "Edit app code and save as a draft for review and preview.",
-			})),
+			...Object.keys(runtimeCode.data?.code?.files ?? {})
+				.filter((path) => path !== "README.md")
+				.map((path) => ({
+					path,
+					hint: "Edit app code and save as a draft for review and preview.",
+				})),
 		],
 		[runtimeCode.data],
 	);
@@ -1298,7 +1300,11 @@ export function CanvasDocPanel({
 									</Button>
 								))}
 							</aside>
-							{codeFile === "README.md" ? (
+							{codeFile === "README.md" &&
+							!Object.hasOwn(
+								runtimeCode.data?.code?.files ?? {},
+								"README.md",
+							) ? (
 								<div className="canvas-code-file" data-canvas-app-readme>
 									<div className="canvas-code-file-header">
 										<code className="canvas-code-file-name">README.md</code>

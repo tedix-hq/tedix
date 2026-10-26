@@ -60,7 +60,8 @@ In the OS, the same settings are editable under the app's **Code** view
 (`manifest.json`). The Code view also lists `README.md`, generated from the
 current manifest: what the app shows, how people use it, its connections,
 where its code lives (built in, a widget view, or a skill) and the manifest
-`notes`. Write `description` and `notes` so that README reads well.
+`notes`. Runtime apps may instead carry their own `README.md` in the revision's
+files. Write `description` and `notes` so that the generated README reads well.
 
 The app's **Connections** tab starts with **Used by this app**: one row per
 `resourceGrants` slot, with the attached resource's name, "Referenced in code
@@ -651,51 +652,156 @@ profile includes the learned writing preferences.
 
 ## An app with its own code
 
-An app whose `entry` is `tedix:runtime/v1` is a program, not a setting. Its
-files travel with the revision: `revise_os_gadget` takes `files`
-(`server.js`, `client.js`, optional `.js`, `.json` or `.txt` files, under
-512,000 characters together) beside the manifest, and `get_os_gadget_code`
-reads them back for the current or a named revision. The manifest keeps what
-the app may touch, never the code:
+Use the plugin's `tedix-build-app` skill for an app rendered by the generic
+runtime renderer. Copy its sheet-backed review starter from
+`plugins/tedix/skills/tedix-build-app/assets/sheet-review/` in the source
+repository. It includes tabs, ratings, reload, reset and a README for the next
+editor. It reads the source sheet and stores shared ratings in app-local KV;
+it does not write verdicts back to the sheet or execute card instructions.
+
+### Files and manifest
+
+Set `entry: "tedix:runtime/v1"`. `revise_os_gadget` takes `files` separately
+from `manifest`; `get_os_gadget_code` reads them back for the current or a named
+revision. `server.js` and `client.js` are required. Up to 24 files may contain
+512,000 UTF-16 code units in total. Other names are lowercase, single-segment
+`.js`, `.json` or `.txt`, plus the exact optional `README.md`. The README travels
+with the revision and is editable in Code view; it counts toward limits and
+the code digest but is excluded from Worker Loader modules. Without an authored
+README, Code view shows the existing manifest-generated guide.
 
 ```json
 {
 	"entry": "tedix:runtime/v1",
-	"resourceGrants": [
-		{ "slot": "opportunities", "operations": ["outputs.read"] }
-	],
-	"config": {
-		"version": 1,
-		"settings": { "slot": "opportunities", "reviewer": "Sam" }
+	"capabilities": [],
+	"resourceGrants": [{ "slot": "cards", "operations": ["outputs.read"] }],
+	"config": { "version": 1, "settings": { "slot": "cards" } }
+}
+```
+
+Bind the slot to an active resource in the same workspace with `providerId`
+`tedix`, `resourceType` `output` and the verified Output ID as
+`providerResourceId`. Keep sheet selection, column names and other tenant
+choices in resource bindings or `config.settings`, never in source code.
+
+### Browser and server contract
+
+`client.js` renders into `#app` in an isolated sandbox without network, host
+DOM, credentials or inherited theme tokens. It is an inline browser module;
+extra files do not become browser imports. Its bridge has three methods:
+
+```js
+const { workspaceId, gadget, role, settings, grants } =
+	await tedix.call("context");
+const content = await tedix.call("outputs.read", { slot: settings.slot });
+const result = await tedix.call("app.call", {
+	method: "rate",
+	args: ["card-1", "useful"],
+});
+```
+
+`gadget` contains `{id, name, revision}`. `outputs.read` returns the Output
+content body directly. Calls resolve values and reject errors with `code` and
+`detail`; there is no `{ok, value}` wrapper to unwrap in app code.
+
+Export `class App` from `server.js`. An invocation creates a new instance with
+`(ctx, env)` and calls an own public method on `App.prototype`. Use synchronous
+`ctx.storage.kv.get/put/delete/list` for durable state, rather than instance
+fields or module globals. Storage belongs to the app and is shared by callers;
+preview storage is separate. `env.CONFIG` is the full manifest config.
+`env.TEDIX` is a capability scoped to the caller, revision and current call:
+
+```js
+export class App {
+	constructor(ctx, env) {
+		this.ctx = ctx;
+		this.env = env;
+	}
+	async source() {
+		const { revision } = await this.env.TEDIX.outputsRead(
+			this.env.CONFIG.settings.slot,
+			{},
+		);
+		return revision.content;
+	}
+	rate(id, verdict) {
+		if (typeof id !== "string" || !["useful", "not_useful"].includes(verdict))
+			throw new Error("Ungültige Bewertung.");
+		this.ctx.storage.kv.put(`review:${id}`, verdict);
+		return { id, verdict };
 	}
 }
 ```
 
-A slot names a workspace resource with `providerId` `tedix` and
-`resourceType` `output`; its `providerResourceId` is the Output the app may
-read. Settings are the tenant's data (which sheet, which columns, who
-reviews). The same files run in every workspace that binds the slot.
+Unlike the browser read, `env.TEDIX.outputsRead(slot, {})` returns
+`{output, revision}` with content under `revision.content`. Build callers also
+have `outputsWrite(slot, {content, expectedRevision})`, `connectionsCall` and
+`skillsRun` where authorized. Discover their current argument schemas before
+adding effects. Connection calls support reviewed resource-bound reads;
+provider permission and approval rules still apply. No network or ambient
+Cloudflare bindings are inherited. Do not retain a capability after its call.
 
-`client.js` runs in the OS sandbox with no network and no origin of its
-own. Its only door is `tedix.call(method, args)`:
+### Roles, errors and limits
 
-- `context` returns `{ workspaceId, gadget, role, settings, grants }`.
-- `outputs.read` with `{ slot }` returns the bound Output's content.
-- `app.call` with `{ method: "rate", args: [card] }` calls a public method
-  on the app's exported `App` class in `server.js`. The API admits the
-  signed-in caller against the displayed revision before Worker Loader runs
-  it, and records the actor, method, pinned revision and outcome in Runs.
-  The app gets isolated storage and the manifest's full config as
-  `env.CONFIG` (for example, `env.CONFIG.settings.tags`). Calls fail if
-  the current revision or caller access no longer matches the session.
+| Role             | Allowed runtime operations                                                    |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `owner`, `build` | `app.call`, `outputs.read`, `outputs.write`, `connections.call`, `skills.run` |
+| `use`            | `app.call`, `outputs.read`                                                    |
+| `viewer`         | None                                                                          |
 
-The role comes from opening the workspace as the signed-in person: the
-owner and `build` collaborators may read and write what the manifest
-grants; `use` may run the app and read; anyone else gets nothing. Every
-call is checked against one role x operation table
-(`@tedix/api-contract/utils/app-runtime`), so a missing grant or a weaker
-role is refused before anything is read. The **Code** view lists the files
-next to `manifest.json` and `README.md`.
+`context` exposes presentation context. Every resource operation also requires
+a matching slot and operation in `resourceGrants`, plus current source access.
+A `use` reviewer may save app-local KV through `app.call`; this does not grant
+Output writes. Validate method arguments on the server. All callers with app
+interaction access can invoke public methods; hiding a button is not access
+control. Do not put protected decisions behind an unrestricted app method.
+
+Calls accept at most 50 JSON arguments and 65,536 encoded bytes. Method names
+start with a letter, contain only letters and digits, and have at most 80
+characters; constructor and lifecycle methods are private. Sessions pin access,
+revision and code digest. Reopen after a revision or access change.
+
+| Bridge error code  | What to check                                                  |
+| ------------------ | -------------------------------------------------------------- |
+| `not_permitted`    | Caller role and slot operation grant                           |
+| `slot_unbound`     | Active workspace resource binding                              |
+| `bad_arguments`    | Method name, slot and JSON argument limits                     |
+| `unknown_method`   | Only `context`, `outputs.read`, `app.call` are browser methods |
+| `host_unavailable` | Server call bridge is unavailable                              |
+| `host_error`       | Server, capability or transport failure; inspect Runs          |
+
+Direct API calls may return `BAD_REQUEST`, `FORBIDDEN`, `NOT_FOUND` or
+`CONFLICT`. Re-read on conflict; never replay a stale write blindly. Show
+failed loads and writes visibly, retain user input and offer a manual retry.
+A failed load must not look like a successfully empty sheet.
+
+### Draft and review flow
+
+For a requested new installation, create the gadget record and its initial
+runtime revision with `expectedRevision: 0`. For an existing app, read the
+current revision and files first. Discover the equivalents of
+`osAppRuntime.saveDraft` with `expectedRevisionId` and content `{manifest, files}`,
+then `osAppRuntime.draft` with the returned `proposalId` to open an isolated
+preview. Code edits save proposals, not committed revisions. `mergeDraft`
+compares a proposal with its base and the latest app revision; resolve conflicts
+against current files and preserve concurrent edits. Leave the draft for the
+person to apply in the OS. Do not apply, publish or create share links in the
+authoring workflow. Preview capabilities allow resource reads only; preview
+ratings are separate from the committed app's storage and are not migrated.
+
+Before handing off, check:
+
+- Own light-theme colour tokens on `:root`, including background, surface,
+  foreground, muted, border, accent and on-accent, and `color-scheme: light`.
+  The host frame supplies no app theme tokens.
+- Use plain German copy, visible keyboard focus, labelled controls and touch
+  targets of at least 44 × 44 CSS pixels.
+- Test at 375px phone width and desktop, with long text, loading, empty and
+  error states. Exercise tabs, rating, reload and reset confirmation.
+- Include the app's README with bindings, column mapping, shared or personal
+  storage semantics and checks. Read back the draft and record its OS link
+  and evidence on Work. Distinguish simulated checks from live runtime proof.
+- Never publish from this workflow.
 
 ## Add another built-in app
 

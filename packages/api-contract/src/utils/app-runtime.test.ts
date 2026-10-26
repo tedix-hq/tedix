@@ -33,6 +33,15 @@ describe("app runtime files", () => {
 		).toBe(false);
 	});
 
+	it("carries an authored README without loading it as executable code", () => {
+		const authored = { ...files, "README.md": "# Review app" };
+		expect(AppRuntimeFilesSchema.parse(authored)).toEqual(authored);
+		expect(appRuntimeLoaderManifest(authored).modules).toEqual(files);
+		expect(
+			AppRuntimeFilesSchema.safeParse({ ...files, "other.md": "" }).success,
+		).toBe(false);
+	});
+
 	it("caps the total code length", () => {
 		const big = "x".repeat(300_000);
 		expect(

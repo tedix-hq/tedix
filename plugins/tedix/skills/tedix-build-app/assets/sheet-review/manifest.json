@@ -1,0 +1,18 @@
+{
+	"entry": "tedix:runtime/v1",
+	"capabilities": [],
+	"description": "Karten aus einer Tabelle gemeinsam prüfen.",
+	"resourceGrants": [{ "slot": "cards", "operations": ["outputs.read"] }],
+	"config": {
+		"version": 1,
+		"settings": {
+			"slot": "cards",
+			"columns": {
+				"id": "ID",
+				"title": "Titel",
+				"body": "Text",
+				"category": "Thema"
+			}
+		}
+	}
+}
