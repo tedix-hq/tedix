@@ -1,10 +1,14 @@
 import { base64UrlEncode } from "@tedix/auth/utils";
+import { fetchPersonalConnectionToken } from "@tedix/auth/connections";
 import {
 	getConnectionConnectTicketByHash,
 	redeemConnectionConnectTicket,
 	stageConnectionConnectTicket,
 } from "@tedix/db/queries/connection-connect-tickets";
-import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
+import {
+	getConnectionInstance,
+	recordConnectionGrant,
+} from "@tedix/db/queries/connection-instances";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
@@ -116,27 +120,52 @@ export const redeemConnectTicket = authedOs.redeemConnectTicket
 				"This connection was already completed",
 			);
 		let recorded = false;
-		if (redeemed.connectionInstanceId) {
-			// Record the fresh grant on the named slot now, under this person's
-			// own session, instead of leaving it to a later resolution.
-			const owner =
-				redeemed.scope === "user"
-					? { userId }
-					: await (async () => {
-							const organization = await getOrganizationById(
-								context.db,
-								organizationId,
-							);
-							if (!organization?.descopeTenantId)
-								throw createError(
-									ErrorCodes.NOT_FOUND,
-									"Organization connection target unavailable",
-								);
-							return {
-								organizationId,
-								tenantId: organization.descopeTenantId,
-							};
-						})();
+		if (redeemed.connectionInstanceId && redeemed.scope === "user") {
+			const owner = { userId };
+			const instance = await getConnectionInstance(
+				context.db,
+				owner,
+				redeemed.connectionInstanceId,
+				redeemed.providerId,
+			);
+			if (!instance)
+				throw createError(ErrorCodes.NOT_FOUND, "Account not found");
+			const token = await fetchPersonalConnectionToken(context.env, {
+				appId: redeemed.providerId,
+				userId,
+				externalIdentifier: `tedix_${instance.id}`,
+			});
+			if (token?.id) {
+				if (instance.tokenSub && token.tokenSub !== instance.tokenSub)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Account identity changed during verification",
+					);
+				const grants = await recordConnectionGrant(context.db, {
+					owner,
+					providerId: redeemed.providerId,
+					id: instance.id,
+					tokenId: token.id,
+					tokenSub: token.tokenSub,
+				});
+				if (!grants.length)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Account identity changed during verification",
+					);
+				recorded = true;
+			}
+		} else if (redeemed.connectionInstanceId) {
+			const organization = await getOrganizationById(
+				context.db,
+				organizationId,
+			);
+			if (!organization?.descopeTenantId)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Organization connection target unavailable",
+				);
+			const owner = { organizationId, tenantId: organization.descopeTenantId };
 			recorded = Boolean(
 				await fetchNamedConnection(
 					context,

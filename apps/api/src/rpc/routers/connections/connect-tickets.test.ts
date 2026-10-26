@@ -9,7 +9,12 @@ const mocks = vi.hoisted(() => ({
 	redeem: vi.fn(),
 	instance: vi.fn(),
 	organization: vi.fn(),
-	named: vi.fn(),
+	personal: vi.fn(),
+	record: vi.fn(),
+}));
+vi.mock("@tedix/auth/connections", async (load) => ({
+	...(await load<object>()),
+	fetchPersonalConnectionToken: mocks.personal,
 }));
 vi.mock("@tedix/db/queries/connection-connect-tickets", () => ({
 	stageConnectionConnectTicket: mocks.stage,
@@ -19,15 +24,13 @@ vi.mock("@tedix/db/queries/connection-connect-tickets", () => ({
 vi.mock("@tedix/db/queries/connection-instances", async (load) => ({
 	...(await load<object>()),
 	getConnectionInstance: mocks.instance,
+	recordConnectionGrant: mocks.record,
 }));
 vi.mock("@tedix/db/queries/organizations", async (load) => ({
 	...(await load<object>()),
 	getOrganizationById: mocks.organization,
 }));
-vi.mock("./policy-resolution", async (load) => ({
-	...(await load<object>()),
-	fetchNamedConnection: mocks.named,
-}));
+import { fetchNamedConnection } from "./policy-resolution";
 import { redeemConnectTicket, stageConnectTicket } from "./connect-tickets";
 
 const slot = "11111111-1111-4111-8111-111111111111";
@@ -56,8 +59,9 @@ beforeEach(() => {
 	mocks.redeem.mockImplementation(async (_db, params) =>
 		staged({ status: "redeemed", redeemedAt: params.now }),
 	);
-	mocks.instance.mockResolvedValue({ id: slot });
-	mocks.named.mockResolvedValue({ id: "token-1" });
+	mocks.instance.mockResolvedValue({ id: slot, tokenIds: [], tokenSub: null });
+	mocks.personal.mockResolvedValue({ id: "token-1", accessToken: "opaque" });
+	mocks.record.mockResolvedValue([{ id: slot }]);
 });
 
 describe("staged connect tickets", () => {
@@ -162,7 +166,8 @@ describe("staged connect tickets", () => {
 			),
 		).rejects.toThrow(/not started in this workspace/);
 		expect(mocks.redeem).not.toHaveBeenCalled();
-		expect(mocks.named).not.toHaveBeenCalled();
+		expect(mocks.personal).not.toHaveBeenCalled();
+		expect(mocks.record).not.toHaveBeenCalled();
 	});
 	it("loses a concurrent redeem race without recording anything", async () => {
 		mocks.byHash.mockResolvedValue(staged({ connectionInstanceId: slot }));
@@ -174,7 +179,8 @@ describe("staged connect tickets", () => {
 				{ context: context() },
 			),
 		).rejects.toThrow(/already completed/);
-		expect(mocks.named).not.toHaveBeenCalled();
+		expect(mocks.personal).not.toHaveBeenCalled();
+		expect(mocks.record).not.toHaveBeenCalled();
 	});
 	it("records a named personal slot's grant under the redeeming person's own session", async () => {
 		mocks.byHash.mockResolvedValue(staged({ connectionInstanceId: slot }));
@@ -186,15 +192,143 @@ describe("staged connect tickets", () => {
 			{ ticket: "raw-ticket" },
 			{ context: context() },
 		);
-		expect(mocks.named).toHaveBeenCalledWith(
-			expect.anything(),
-			{ userId: "user-1" },
-			"fictional-mail",
-			slot,
-		);
+		expect(mocks.personal).toHaveBeenCalledWith(expect.anything(), {
+			appId: "fictional-mail",
+			userId: "user-1",
+			externalIdentifier: `tedix_${slot}`,
+		});
+		expect(mocks.record).toHaveBeenCalledWith(expect.anything(), {
+			owner: { userId: "user-1" },
+			providerId: "fictional-mail",
+			id: slot,
+			tokenId: "token-1",
+			tokenSub: undefined,
+		});
 		expect(result).toMatchObject({
 			connectionInstanceId: slot,
 			recorded: true,
 		});
+	});
+	it.each([
+		{ tokenIds: [] as string[], tokenSub: null },
+		{ tokenIds: ["old-grant"], tokenSub: null },
+		{ tokenIds: ["old-grant"], tokenSub: "same-subject" },
+	])(
+		"keeps a fresh personal grant unusable until its owner redeems, with prior grants %j",
+		async ({ tokenIds, tokenSub }) => {
+			const instance = { id: slot, tokenIds, tokenSub };
+			mocks.personal.mockResolvedValue({
+				id: "token-1",
+				accessToken: "opaque",
+				tokenSub: tokenSub ?? undefined,
+			});
+			mocks.instance.mockResolvedValue(instance);
+			mocks.byHash.mockResolvedValue(staged({ connectionInstanceId: slot }));
+			mocks.redeem.mockResolvedValue(
+				staged({ connectionInstanceId: slot, status: "redeemed" }),
+			);
+			const resolve = () =>
+				fetchNamedConnection(
+					context(),
+					{ userId: "user-1" },
+					"fictional-mail",
+					slot,
+				);
+			expect(await resolve()).toBeNull();
+			await expect(
+				call(
+					redeemConnectTicket,
+					{ ticket: "raw-ticket" },
+					{ context: context("user-2") },
+				),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(await resolve()).toBeNull();
+			expect(mocks.record).not.toHaveBeenCalled();
+			mocks.record.mockImplementation(async (_db, grant) => {
+				instance.tokenIds.push(grant.tokenId);
+				return [instance];
+			});
+			await expect(
+				call(
+					redeemConnectTicket,
+					{ ticket: "raw-ticket" },
+					{ context: context() },
+				),
+			).resolves.toMatchObject({ recorded: true });
+			mocks.record.mockClear();
+			expect(await resolve()).toMatchObject({
+				id: "token-1",
+				accessToken: "opaque",
+			});
+			expect(mocks.record).not.toHaveBeenCalled();
+			mocks.personal.mockResolvedValue({
+				id: "unredeemed-reconnect",
+				accessToken: "opaque",
+			});
+			expect(await resolve()).toBeNull();
+			expect(mocks.record).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([null, { accessToken: "opaque" }])(
+		"does not activate a missing or unidentified vault grant %j",
+		async (token) => {
+			mocks.byHash.mockResolvedValue(staged({ connectionInstanceId: slot }));
+			mocks.redeem.mockResolvedValue(
+				staged({ connectionInstanceId: slot, status: "redeemed" }),
+			);
+			mocks.personal.mockResolvedValue(token);
+			await expect(
+				call(
+					redeemConnectTicket,
+					{ ticket: "raw-ticket" },
+					{ context: context() },
+				),
+			).resolves.toMatchObject({ recorded: false });
+			expect(mocks.record).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([undefined, "other-subject"])(
+		"preserves the slot identity pin when the redeemed grant subject is %s",
+		async (tokenSub) => {
+			mocks.byHash.mockResolvedValue(staged({ connectionInstanceId: slot }));
+			mocks.redeem.mockResolvedValue(
+				staged({ connectionInstanceId: slot, status: "redeemed" }),
+			);
+			mocks.instance.mockResolvedValue({
+				id: slot,
+				tokenIds: ["old-grant"],
+				tokenSub: "original-subject",
+			});
+			mocks.personal.mockResolvedValue({
+				id: "token-1",
+				accessToken: "opaque",
+				tokenSub,
+			});
+			await expect(
+				call(
+					redeemConnectTicket,
+					{ ticket: "raw-ticket" },
+					{ context: context() },
+				),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			expect(mocks.record).not.toHaveBeenCalled();
+		},
+	);
+
+	it("refuses activation if the grant write loses an identity race", async () => {
+		mocks.byHash.mockResolvedValue(staged({ connectionInstanceId: slot }));
+		mocks.redeem.mockResolvedValue(
+			staged({ connectionInstanceId: slot, status: "redeemed" }),
+		);
+		mocks.record.mockResolvedValue([]);
+		await expect(
+			call(
+				redeemConnectTicket,
+				{ ticket: "raw-ticket" },
+				{ context: context() },
+			),
+		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
 });

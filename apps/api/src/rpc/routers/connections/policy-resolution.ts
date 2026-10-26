@@ -456,6 +456,10 @@ export async function fetchNamedConnection(
 		return "userId" in owner
 			? fetchAdoptedDefaultConnection(context, owner.userId, instance, scopes)
 			: null;
+	// Vault presence is not activation: only ticket redemption may pin a new
+	// personal grant, including a reconnect with the same provider subject.
+	if ("userId" in owner && (!token.id || !instance.tokenIds.includes(token.id)))
+		return null;
 	if (instance.tokenSub && token.tokenSub !== instance.tokenSub)
 		throw createError(
 			ErrorCodes.CONFLICT,
