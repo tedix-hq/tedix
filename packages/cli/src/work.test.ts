@@ -241,6 +241,14 @@ describe("coding-host Work handoff", () => {
 			"only valid",
 		);
 	});
+
+	test("points the retired neighbours check at tedix who", async () => {
+		const { ctx } = makeContext();
+		for (const verb of ["neighbours", "who"])
+			await expect(runWork(verb, ctx)).rejects.toThrow(
+				"`tedix who --paths <files>`",
+			);
+	});
 });
 
 function makeContext(

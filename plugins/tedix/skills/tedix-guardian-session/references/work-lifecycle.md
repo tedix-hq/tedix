@@ -36,8 +36,9 @@ authentication, server admission and Attempt fences enforce access.
 4. A harness subagent operates inside its parent's admitted Attempt and does
    not mutate the Work board. Independently executing sessions need separate
    Work Items/Attempts and isolated worktrees. For repository edits, inspect
-   applicable `AGENTS.md`, exact affected files and neighbours; preserve peers'
-   reservations and unrelated changes.
+   applicable `AGENTS.md` and the exact affected files, run
+   `tedix who --paths <files>` to see which agent sessions recently touched
+   them, and preserve peers' reservations and unrelated changes.
 
 ## Accept and start
 
