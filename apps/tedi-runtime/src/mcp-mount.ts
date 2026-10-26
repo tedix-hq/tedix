@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { logTediMcpFailure } from "./mcp-failure-log";
 import {
 	isTediMcpToolReadOnly,
@@ -559,9 +560,8 @@ export async function handleMcp(
 			});
 		} catch (err) {
 			console.warn(
-				`[tedi-runtime-mcp] Code Mode setup failed (${
-					err instanceof Error ? err.message : String(err)
-				}), falling back to standard tools.`,
+				"[tedi-runtime-mcp] Code Mode setup failed, falling back to standard tools",
+				{ exception: exceptionTopology(err) },
 			);
 		}
 	}

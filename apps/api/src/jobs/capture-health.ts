@@ -10,6 +10,7 @@
  * user's machine by design, so this is where they become visible.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { createDbClient } from "@tedix/db/client";
 import {
 	CAPTURE_HEALTH_SCHEMA,
@@ -89,7 +90,7 @@ export async function runCaptureHealthHeartbeat(
 				JSON.stringify({
 					event: "capture_health.alert_failed",
 					orgId: row.orgId,
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				}),
 			);
 		}

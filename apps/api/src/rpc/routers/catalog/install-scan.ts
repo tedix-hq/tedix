@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import { syncDeclaredConnectionScopes } from "../../../services/connection-scope-sync";
 import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connections";
@@ -1222,7 +1223,8 @@ export async function resolveCatalogScanHeaders(
 			return JSON.parse(decrypted) as Record<string, string>;
 		} catch (error) {
 			console.warn(
-				`[Catalog] Failed to decrypt scan auth headers for ${catalogApp.slug ?? catalogApp.id}: ${error instanceof Error ? error.message : String(error)}`,
+				`[Catalog] Failed to decrypt scan auth headers for ${catalogApp.slug ?? catalogApp.id}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 	}

@@ -621,8 +621,10 @@ export const recordEventRoute = authed.recordEvent
 					} catch (error) {
 						console.warn(
 							"[cognitiveRuntime.recordEvent] inbox-wake parent lookup failed",
-							`attempt=${lookupAttempt + 1}`,
-							error instanceof Error ? error.message : error,
+							{
+								attempt: lookupAttempt + 1,
+								exception: safeExceptionTopology(error),
+							},
 						);
 					}
 				}

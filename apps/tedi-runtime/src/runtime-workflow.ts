@@ -1362,8 +1362,8 @@ export const runtimeWorkflow = {
 			await this.clearWorkflowDispatch(workflowInstanceId);
 			await this.ctx.storage.delete(`fanoutslot:${childRunId}`).catch(() => {});
 			console.warn(
-				"[isolate.fanout] workflow dispatch failed, falling back to serial:",
-				e instanceof Error ? e.message : e,
+				"[isolate.fanout] workflow dispatch failed, falling back to serial",
+				{ exception: exceptionTopology(e) },
 			);
 			return { dispatched: false };
 		}

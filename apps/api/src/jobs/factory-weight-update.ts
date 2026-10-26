@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type {
 	CardReviewSource,
 	FactoryWeightProposal,
@@ -449,7 +450,7 @@ export async function updateFactoryWeights(db: DbClient, now: Date) {
 				JSON.stringify({
 					event: "factory_weight_update_failed",
 					organizationId,
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				}),
 			);
 		}

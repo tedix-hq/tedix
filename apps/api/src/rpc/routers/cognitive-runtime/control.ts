@@ -255,7 +255,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		} catch (error) {
 			console.warn(
 				"[cognitiveRuntime.enqueueMessage] ledger pre-admit failed; dispatch continues, choke-point admit remains the fallback",
-				error instanceof Error ? error.message : error,
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 

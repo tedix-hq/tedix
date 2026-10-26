@@ -607,8 +607,8 @@ export const provisionAppProcedure = authedAppsOs.provision
 				descopeResourceId = server.id;
 			} catch (error) {
 				console.warn(
-					"[Apps] Failed to register Descope AIH MCP server (non-blocking, can backfill via update):",
-					error,
+					"[Apps] Failed to register Descope AIH MCP server (non-blocking, can backfill via update)",
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}

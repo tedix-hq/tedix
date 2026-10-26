@@ -1467,7 +1467,10 @@ async function streamRoutePlan(args: {
 		// The SDK default logs every stream error; a request aborted because it
 		// lost the hedge race is an expected outcome, not one.
 		onError: ({ error }) => {
-			if (!(error instanceof HedgeLostError)) console.error(error);
+			if (!(error instanceof HedgeLostError))
+				console.error("[kernel.route-planner] model stream error", {
+					exception: safeExceptionTopology(error),
+				});
 		},
 	});
 

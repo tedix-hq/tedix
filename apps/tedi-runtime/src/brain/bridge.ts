@@ -4,6 +4,7 @@
  * Callers supply platform I/O, persistent dedup state, and optional metrics.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { observationFreshness } from "@tedix/context-core/memory-freshness";
 import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
 import type {
@@ -140,7 +141,7 @@ export interface BridgeOptions {
 const defaultLogger = {
 	log: (msg: string) => console.log(msg),
 	error: (msg: string, err?: unknown) =>
-		console.error(msg, err instanceof Error ? err.message : (err ?? "")),
+		console.error(msg, { exception: exceptionTopology(err) }),
 };
 
 /**
