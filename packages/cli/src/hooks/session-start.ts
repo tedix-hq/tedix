@@ -8,7 +8,6 @@ import {
 	statSync,
 } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
-import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { claudeConfigDirectory } from "../claude-lane-thread";
 import { unpinnedModelVersion } from "../external-agent";
 import { harnessOf } from "./agent-status";
@@ -74,12 +73,14 @@ export async function runSessionStart(deps: HookDeps): Promise<void> {
 async function sessionStart(deps: HookDeps): Promise<void> {
 	const { env, read } = deps;
 	const now = deps.now ?? (() => new Date());
+	// Opened before the Work preflight, so its line survives any early return.
+	let agentLine: string | undefined;
 	const send = (message: string) =>
 		deps.write(
 			JSON.stringify({
 				hookSpecificOutput: {
 					hookEventName: "SessionStart",
-					additionalContext: message,
+					additionalContext: [agentLine, message].filter(Boolean).join("\n"),
 				},
 			}),
 		);
@@ -153,6 +154,12 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 	// An explicit Work ID requires explicit opt-in; a repo binding cannot
 	// silently enable a separately supplied ID in another organization.
 	if (workId && !bound && !optIn) return;
+	// The model opens the session through its own connector, so the session is
+	// verified against the login that makes the audited calls, and this hook
+	// makes no slow gateway call for it.
+	const tuple = session ? hostTuple(event, env, session, deps.cwd) : undefined;
+	if (tuple)
+		agentLine = `Tedix Agent-Session: before your first Tedix code call, call ${OWNER_HOST_TOOL} with ${JSON.stringify(tuple)}, then pass the returned session.id as agentSessionId on every Tedix code call; if it fails, continue without it.`;
 	const observedAt = isoSeconds(now());
 	const workspace = explicitWorkspace || binding.workspace || "tedix";
 	if (!PROFILE.test(workspace)) {
@@ -414,17 +421,6 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 			/* Omit unavailable context. */
 		}
 	}
-	if (session && source === "stored-login") {
-		const agentSession = await openOwnerHostSession(
-			deps,
-			command,
-			hostTuple(event, env, session, deps.cwd),
-		);
-		if (agentSession)
-			lines.push(
-				`Tedix Agent-Session ${agentSession}: pass agentSessionId on every Tedix code call.`,
-			);
-	}
 	const needs = bound
 		? await needsYou(deps, binding, auth, command, session)
 		: undefined;
@@ -495,7 +491,9 @@ export function hostTuple(
 	if (!harnessVersion || !modelProvider) return undefined;
 	return {
 		harness,
-		externalSessionKey: `${harness}:${session}`,
+		// Its own key: `<harness>:<chat id>` belongs to this chat's machine
+		// credential (`tedix agent start`), which a shared key would lock out.
+		externalSessionKey: `${harness}:${session}:owner-host`,
 		harnessVersion,
 		modelProvider,
 		modelId,
@@ -577,65 +575,4 @@ function claudeSessionVersion(
 	}
 	// Two live processes disagreeing on this chat's version name no version.
 	return versions.size === 1 ? [...versions][0] : undefined;
-}
-
-/**
- * Open (or reuse; opening is idempotent per organization, harness and key)
- * this chat's owner-host Agent-Session through the signed-in user's Code Mode.
- * Returns its id only when the server echoes exactly this tuple; a changed
- * model (immutable_session_conflict) or any failure returns nothing.
- */
-async function openOwnerHostSession(
-	deps: HookDeps,
-	command: string[],
-	tuple: OwnerHostTuple | undefined,
-): Promise<string | undefined> {
-	if (!tuple) return undefined;
-	try {
-		const found = await deps.read(
-			[
-				...command,
-				"code",
-				`async () => { const r = await discover.search({query:${codeModeLiteral(OWNER_HOST_TOOL)},limit:5}); return {rows: Array.isArray(r) ? r : r?.results ?? []}; }`,
-			],
-			5000,
-		);
-		const callables = new Set(
-			(Array.isArray(found.rows) ? found.rows : [])
-				.filter(
-					(row: unknown) =>
-						isObject(row) &&
-						row.authorized === true &&
-						typeof row.callable === "string" &&
-						new RegExp(`^[A-Za-z_$][\\w$]*\\.${OWNER_HOST_TOOL}$`).test(
-							row.callable,
-						),
-				)
-				.map((row: JsonObject) => row.callable as string),
-		);
-		// More than one organization namespace fits: do not choose one here.
-		if (callables.size !== 1) return undefined;
-		const [callable] = callables;
-		const opened = await deps.read(
-			[
-				...command,
-				"code",
-				`async () => { const r = await ${callable}(${codeModeLiteral(tuple)}); return {session: r?.session ?? null}; }`,
-			],
-			8000,
-		);
-		const session = opened.session;
-		if (
-			!isObject(session) ||
-			!UUID.test(String(session.id ?? "")) ||
-			session.status !== "active" ||
-			(Object.keys(tuple) as (keyof OwnerHostTuple)[]).some(
-				(key) => session[key] !== tuple[key],
-			)
-		)
-			return undefined;
-		return String(session.id).toLowerCase();
-	} catch {
-		return undefined;
-	}
 }
