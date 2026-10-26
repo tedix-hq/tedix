@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	cleanupWorkflowImages,
 	type WorkflowImageDeletePage,
@@ -473,7 +474,7 @@ export class WorkflowImageCleanup {
 		console.error({
 			event: "tedi.runtime.workflow_image_cleanup_failed",
 			runId,
-			error: error instanceof Error ? error.message : "image cleanup failed",
+			exception: exceptionTopology(error),
 		});
 	}
 }

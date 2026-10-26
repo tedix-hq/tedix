@@ -1,5 +1,6 @@
 /** Authoritative terminal reconciliation for tracked ChatTurnWorkflow runs. */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { scrubText } from "@tedix/context-core/trace-safety";
 
 export const WORKFLOW_TERMINAL_RECONCILE_DELAY_SECONDS = 30;
@@ -24,8 +25,8 @@ export async function armWorkflowTerminalReconciliation(
 		);
 	} catch (error) {
 		console.warn(
-			`[isolate.workflow] terminal reconciliation arm failed id=${workflowInstanceId}:`,
-			error,
+			`[isolate.workflow] terminal reconciliation arm failed id=${workflowInstanceId}`,
+			{ exception: exceptionTopology(error) },
 		);
 	}
 }
