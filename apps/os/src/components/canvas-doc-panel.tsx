@@ -849,6 +849,7 @@ export function CanvasDocPanel({
 							resourceId={gadgetDetail.data.gadget.id}
 							currentRevisionId={gadgetDetail.data.currentRevision?.id}
 							workspaceId={workspaceId}
+							guestEntry={isRuntimeApp}
 							compact
 						/>
 					)}

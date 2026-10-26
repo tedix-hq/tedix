@@ -57,6 +57,11 @@ export interface AppRuntimeHostDeps {
 	context: AppRuntimeContext;
 	resources: readonly OsWorkspaceResource[];
 	readOutput: (outputId: string) => Promise<OsOutputContent>;
+	/**
+	 * Read a granted slot where the host cannot see the workspace's resource
+	 * rows (a share-link guest): the server resolves the slot itself.
+	 */
+	readSlot?: (slot: string) => Promise<OsOutputContent>;
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 }
 
@@ -100,6 +105,8 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
+			if (deps.readSlot)
+				return { ok: true, value: await deps.readSlot(args.slot) };
 			const outputId = outputIdForSlot(deps.resources, args.slot);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
 			return { ok: true, value: await deps.readOutput(outputId) };

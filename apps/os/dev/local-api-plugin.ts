@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
 import {
 	enableDemoPack,
+	handleLocalGuestShare,
 	handleLocalRpc,
 	LOCAL_WIDGET_APP_SLUG,
 	LOCAL_WIDGET_RESOURCE_URI,
@@ -108,6 +109,26 @@ async function serveLocalApi(
 		res.write("retry: 60000\n\n");
 		res.end();
 		return;
+	}
+
+	if (url.startsWith("/api/os-shared/") && (req.method ?? "GET") === "POST") {
+		let body: unknown = null;
+		try {
+			const raw = await readBody(req);
+			body = raw ? JSON.parse(raw) : null;
+		} catch {
+			body = null;
+		}
+		const result = handleLocalGuestShare(url.split("?")[0] ?? url, body);
+		if (result) {
+			if (typeof result.body === "string") {
+				res.writeHead(result.status, {
+					"content-type": "text/plain; charset=utf-8",
+				});
+				res.end(result.body);
+			} else sendJson(res, result.status, result.body);
+			return;
+		}
 	}
 
 	if (url.startsWith("/api/rpc/")) {

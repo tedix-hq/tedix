@@ -9512,3 +9512,156 @@ export function handleLocalRpc(
 		throw error;
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Share-link guests on a runtime app (`/api/os-shared/*`). The fixture lane
+// has no share links of its own: any well-formed link token opens the first
+// runtime app of the sample company for a guest, and the guest's verdicts are
+// kept here the way the app host's storage would.
+// ---------------------------------------------------------------------------
+const GUEST_TOKEN_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
+const guestSessions = new Set<string>();
+const guestVerdicts: Record<string, { value: string; at: number }> = {};
+
+function localGuestApp() {
+	const gadget = state.gadgets.find((row) => {
+		const revision = state.gadgetRevisions.find(
+			(candidate) => candidate.id === row.currentRevisionId,
+		);
+		return revision?.manifest.entry === "tedix:runtime/v1";
+	});
+	const revision = gadget
+		? state.gadgetRevisions.find((row) => row.id === gadget.currentRevisionId)
+		: undefined;
+	const files = revision ? state.gadgetCode[revision.id] : undefined;
+	if (!gadget || !revision || !files) return null;
+	return { gadget, revision, files };
+}
+
+function guestSheet(slot: string) {
+	const app = localGuestApp();
+	const grant = app?.revision.manifest.resourceGrants?.find(
+		(row) => row.slot === slot && row.operations.includes("outputs.read"),
+	);
+	const resource = state.workspaceResources.find(
+		(row) =>
+			row.slot === slot &&
+			row.workspaceId === app?.gadget.workspaceId &&
+			row.resourceType === "output",
+	);
+	if (!app || !grant || !resource) return null;
+	const output = state.outputs.find(
+		(row) => row.id === resource.providerResourceId,
+	);
+	const revision = output
+		? latestRevision(
+				state.outputRevisions.filter((row) => row.outputId === output.id),
+			)
+		: null;
+	if (!output || !revision) return null;
+	return {
+		output: { id: output.id, title: output.title, kind: output.kind },
+		revision: {
+			id: revision.id,
+			revision: revision.revision,
+			content: revision.content,
+		},
+	};
+}
+
+/** Answer one guest share call; null for a path this lane does not serve. */
+export function handleLocalGuestShare(
+	path: string,
+	body: unknown,
+): { status: number; body: unknown } | null {
+	const refused = { status: 404, body: "Share link not found" };
+	const field = (name: string) =>
+		typeof body === "object" && body !== null && name in body
+			? (body as Record<string, unknown>)[name]
+			: undefined;
+	const sessionOf = () => {
+		const token = field("sessionToken");
+		return typeof token === "string" && guestSessions.has(token) ? token : null;
+	};
+	const app = localGuestApp();
+	const share = {
+		organization: { name: "PricePilot", logoUrl: null },
+		share: {
+			id: "00000039-0000-4000-8000-000000000001",
+			resourceType: "gadget",
+			role: "use",
+			effectiveRole: "use",
+			revisionMode: "living",
+			note: null,
+			expiresAt: null,
+			policyReason: null,
+		},
+	};
+	switch (path) {
+		case "/api/os-shared/redeem": {
+			const token = field("token");
+			if (!app || typeof token !== "string" || !GUEST_TOKEN_SHAPE.test(token))
+				return refused;
+			const sessionToken = `guest-${token.slice(0, 16)}-${guestSessions.size + 1}`;
+			guestSessions.add(sessionToken);
+			return { status: 200, body: { ...share, sessionToken } };
+		}
+		case "/api/os-shared/session":
+			return app && sessionOf() ? { status: 200, body: share } : refused;
+		case "/api/os-shared/app/open": {
+			if (!app || !sessionOf()) return refused;
+			const config = app.revision.manifest.config ?? {};
+			return {
+				status: 200,
+				body: {
+					session: `fixture-guest:${app.gadget.id}:${app.revision.id}`,
+					expiresAt: Math.floor(Date.now() / 1000) + 300,
+					role: "use",
+					revisionId: app.revision.id,
+					app: {
+						id: app.gadget.id,
+						name: app.gadget.name,
+						description: app.gadget.description,
+						workspaceId: app.gadget.workspaceId,
+						revision: app.revision.revision,
+						client: app.files["client.js"] ?? "",
+						settings:
+							"settings" in config && typeof config.settings === "object"
+								? config.settings
+								: {},
+						grants: app.revision.manifest.resourceGrants ?? [],
+					},
+				},
+			};
+		}
+		case "/api/os-shared/app/call": {
+			if (!app || !sessionOf()) return refused;
+			const method = field("method");
+			const args = Array.isArray(field("args"))
+				? (field("args") as unknown[])
+				: [];
+			if (method === "verdicts")
+				return { status: 200, body: { result: guestVerdicts } };
+			if (method === "recordVerdict") {
+				const number = String(args[0]);
+				const value = String(args[1]);
+				if (value !== "yes" && value !== "no") return refused;
+				guestVerdicts[number] = { value, at: Date.now() };
+				// A guest's role can only read the sheet: the verdict stays with the app.
+				return {
+					status: 200,
+					body: { result: { number, value, storedIn: "app" } },
+				};
+			}
+			return refused;
+		}
+		case "/api/os-shared/app/read": {
+			const slot = field("slot");
+			if (!app || !sessionOf() || typeof slot !== "string") return refused;
+			const read = guestSheet(slot);
+			return read ? { status: 200, body: read } : refused;
+		}
+		default:
+			return null;
+	}
+}
