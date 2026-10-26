@@ -10,6 +10,7 @@ import type { Plugin } from "vite";
 import {
 	enableDemoPack,
 	handleLocalGuestShare,
+	handleLocalPublicBlueprint,
 	handleLocalRpc,
 	LOCAL_WIDGET_APP_SLUG,
 	LOCAL_WIDGET_RESOURCE_URI,
@@ -108,6 +109,15 @@ async function serveLocalApi(
 		});
 		res.write("retry: 60000\n\n");
 		res.end();
+		return;
+	}
+
+	const publicBlueprint = /^\/api\/public\/blueprints\/([^/?]+)/.exec(url);
+	if (publicBlueprint && (req.method ?? "GET") === "GET") {
+		const result = handleLocalPublicBlueprint(
+			decodeURIComponent(publicBlueprint[1] ?? ""),
+		);
+		sendJson(res, result.status, result.body);
 		return;
 	}
 

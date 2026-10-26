@@ -125,6 +125,9 @@ const DESCOPE_OUTBOUND_BRIDGE_PATH = "/auth/descope/v1/outbound/oauth/connect";
 const GUEST_DOCUMENT_PATH = "/guest";
 const GUEST_SHARE_API_PATH =
 	/^\/api\/os-shared\/(?:redeem|session|app\/(?:open|call|read))$/;
+/** A gallery blueprint's shareable landing page and the one public read it makes. */
+const BLUEPRINT_DOCUMENT_PATH = /^\/blueprint\/[0-9a-f-]{36}$/i;
+const PUBLIC_BLUEPRINT_API_PATH = /^\/api\/public\/blueprints\/[0-9a-f-]{36}$/i;
 const OUTBOUND_APP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 /**
@@ -1097,6 +1100,25 @@ export async function handleOsRequest(
 				hostTenantId,
 			);
 		}
+		// The blueprint landing page's read: a published gallery summary with no
+		// tenant data, so it passes without a session and without any browser
+		// credential. apps/api rate-limits it per client IP.
+		// authz: public — apps/api serves only the strict public blueprint summary.
+		if (
+			!cliApi &&
+			request.method === "GET" &&
+			PUBLIC_BLUEPRINT_API_PATH.test(url.pathname)
+		) {
+			const headers = new Headers(request.headers);
+			headers.delete("Cookie");
+			headers.delete("Authorization");
+			return proxyApiRequest(
+				new Request(request, { headers }),
+				env,
+				url,
+				hostTenantId,
+			);
+		}
 		if (cliApi && tenant.kind !== "launcher") {
 			return refuseApi(
 				url,
@@ -1327,6 +1349,9 @@ export async function handleOsRequest(
 		// The guest document is the one page a signed-out person may open; it
 		// holds nothing itself and every call it makes carries the share session.
 		url.pathname !== GUEST_DOCUMENT_PATH &&
+		// A shared blueprint page holds no tenant data; its install action is
+		// what asks the visitor to sign in.
+		!BLUEPRINT_DOCUMENT_PATH.test(url.pathname) &&
 		!(await (
 			await import("./auth/oidc")
 		).oidcSessionMatchesTenant(request, env.API_SERVICE, hostTenantId)) &&

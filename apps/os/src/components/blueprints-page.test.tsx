@@ -93,6 +93,7 @@ import {
 	draftValidationError,
 	GalleryCard,
 	GalleryEmpty,
+	galleryView,
 	isConflictError,
 	newGadgetDraft,
 	parseListInput,
@@ -529,6 +530,37 @@ describe("BlueprintRow", () => {
 	});
 });
 
+describe("galleryView", () => {
+	const featured = galleryItemFixture({
+		id: "f",
+		name: "Featured Pod",
+		featured: true,
+	});
+	const plain = galleryItemFixture({ id: "p", name: "Plain Pod" });
+
+	it("lifts featured templates into their own strip while browsing", () => {
+		expect(galleryView([plain, featured], "", null)).toEqual({
+			featured: [featured],
+			visible: [plain, featured],
+		});
+	});
+
+	it("shows only matches while searching", () => {
+		expect(galleryView([plain, featured], "plain", null)).toEqual({
+			featured: [],
+			visible: [plain],
+		});
+	});
+
+	it("narrows to the shared template when arriving from its landing page", () => {
+		expect(galleryView([plain, featured], "plain", "f")).toEqual({
+			featured: [],
+			visible: [featured],
+		});
+		expect(galleryView([plain], "", "gone").visible).toEqual([]);
+	});
+});
+
 describe("GalleryCard", () => {
 	it("renders only boundary-safe fields: name, org, gadget count, description, time", () => {
 		const html = renderToStaticMarkup(
@@ -549,6 +581,9 @@ describe("GalleryCard", () => {
 		expect(html).toContain("2 apps");
 		expect(html).toContain("Shared sales pod");
 		expect(html).toContain('dateTime="2026-08-13T09:00:00.000Z"');
+		expect(html).toContain("Share link");
+		expect(html).toContain(`/blueprint/${OTHER_BLUEPRINT_ID}`);
+		expect(html).not.toContain("Featured");
 	});
 
 	it("omits the missing description and publish time without breaking", () => {

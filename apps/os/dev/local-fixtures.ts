@@ -10436,6 +10436,24 @@ const errorEnvelope = (error: RpcError): { status: number; body: unknown } => ({
  * undefined for body-less calls. Returns null for paths this lane does not
  * handle so the middleware can 404 loudly instead of hanging.
  */
+/**
+ * The signed-out blueprint landing read (`GET /api/public/blueprints/:id`):
+ * the gallery page minus the publisher's name, or the same 404 for anything
+ * outside the catalog.
+ */
+export function handleLocalPublicBlueprint(blueprintId: string): {
+	status: number;
+	body: unknown;
+} {
+	try {
+		const { organizationName: _publisher, ...blueprint } =
+			localGalleryPage(blueprintId);
+		return { status: 200, body: { blueprint } };
+	} catch {
+		return { status: 404, body: { error: "Not found" } };
+	}
+}
+
 export function handleLocalRpc(
 	path: string,
 	method: string,
