@@ -104,6 +104,7 @@ import { voiceContract } from "./voice";
 import { waitlistContract } from "./waitlist";
 import { workItemsContract } from "./work-items";
 import { webSearchContract } from "./web-search";
+import { tokenExchangeContract } from "./token-exchange";
 import { workApprovalsContract } from "./work-approvals";
 import { workAgentSessionsContract } from "./work-agent-sessions";
 import { workInteractionsContract } from "./work-interactions";
@@ -315,6 +316,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	support: supportContract,
 	workApprovals: workApprovalsContract,
 	webSearch: webSearchContract,
+	tokenExchange: tokenExchangeContract,
 	workAgentSessions: workAgentSessionsContract,
 	attention: attentionContract,
 	workInteractions: workInteractionsContract,

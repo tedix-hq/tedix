@@ -96,6 +96,8 @@ export const INTERNAL_TRUST_HEADERS: readonly string[] = [
 	"X-Tedix-Approved-Home-User",
 	"X-Tedix-Approved-Work-Responder",
 	"X-Tedix-Approved-Factory-Request",
+	// Internal exchanged token (token exchange pilot), MCP edge to API only.
+	"X-Tedix-Exchanged-Token",
 	// Connection / credential selection.
 	"X-Tedix-Connection-Label",
 	// Routing trust (only ever honored on the internal binding).

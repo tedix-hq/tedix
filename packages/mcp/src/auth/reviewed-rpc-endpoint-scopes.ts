@@ -24,6 +24,9 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"runtimeEntitlements/checkModelEgress": "platform:admin",
 	// Tedi-only: the native runtime tool calls it over the service binding.
 	"webSearch/search": "platform:admin",
+	// Internal token exchange pilot: MCP-edge service binding and admin revoke.
+	"tokenExchange/exchange": "platform:admin",
+	"tokenExchange/revoke": "platform:admin",
 	"decisionGraph/getContext": "mcp:messaging.read",
 	"decisionGraph/backfillPreview": "mcp:memory.admin",
 	"decisionGraph/recordAgentDecision": "mcp:messaging.write",

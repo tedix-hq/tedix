@@ -190,6 +190,8 @@ export * from "./harness-versions";
 // MCP tool-approval grants (isolated MCP-gateway grant layer — NOT the kernel
 // write-proposal approval system; see schema file header for the boundary).
 export * from "./mcp-consent";
+// Internal RFC 8693 token exchange lineage (pilot)
+export * from "./token-exchange";
 // SEP-3415 webhook subscriptions for ledger-backed MCP events
 export * from "./mcp-event-subscriptions";
 export type {

@@ -1180,6 +1180,10 @@
 		{
 			"name": "20261026202309_installed-attention-app-names/migration.sql",
 			"sha256": "35b85f7e56543c999fa3c3187cf0d0e7d45b4da19cdfebc330d23aa5bd58c9bb"
+		},
+		{
+			"name": "20261026205852_token_exchange_grants/migration.sql",
+			"sha256": "0f6ffd760d02706dc0b0891b5d7b4f1a3d429acd9dafe80fa9ce1b8b7635d290"
 		}
 	]
 }

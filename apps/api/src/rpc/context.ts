@@ -149,6 +149,16 @@ export interface BaseContext {
 	descopeUserId?: string;
 	/** Explicit scopes carried by a direct tedi JWT. */
 	tediScopes?: string[];
+	/**
+	 * A verified internal exchanged token (token exchange pilot). When set it
+	 * is the only scope authority for this service-binding call.
+	 */
+	exchangedToken?: {
+		jti: string;
+		subject: string;
+		actorChain: string[];
+		scopes: string[];
+	};
 	/** Delegated MCP-edge authorization for one concrete tool execution. */
 	serviceBindingAuthorization?: {
 		source: "mcp-tool";
