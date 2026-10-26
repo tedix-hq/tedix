@@ -407,7 +407,7 @@ describe("connections authorization-plane composition", () => {
 // Native Descope account selectors remain authoritative when identity metadata is absent.
 describe("named credential identity evidence", () => {
 	it.each(["user", "tenant"] as const)(
-		"records subjectless %s grants and pins late identity on the same grant",
+		"requires activation for personal grants and pins late identity on the same %s grant",
 		async (scope) => {
 			const instance = {
 				id: TEDI_ID,
@@ -444,24 +444,36 @@ describe("named credential identity evidence", () => {
 					: { organizationId: "org-1", tenantId: "org_descope_1" };
 			const context = userContext({ permissions: ["integrations:manage"] });
 			try {
-				expect(
-					await fetchNamedConnection(
-						context,
-						owner,
-						"google-calendar",
-						TEDI_ID,
-					),
-				).toMatchObject({ id: "native-grant" });
-				expect(record).toHaveBeenCalledWith(
-					context.db,
-					expect.objectContaining({
-						owner,
-						providerId: "google-calendar",
-						id: TEDI_ID,
-						tokenId: "native-grant",
-						tokenSub: undefined,
-					}),
-				);
+				if (scope === "user") {
+					expect(
+						await fetchNamedConnection(
+							context,
+							owner,
+							"google-calendar",
+							TEDI_ID,
+						),
+					).toBeNull();
+					expect(record).not.toHaveBeenCalled();
+				} else {
+					expect(
+						await fetchNamedConnection(
+							context,
+							owner,
+							"google-calendar",
+							TEDI_ID,
+						),
+					).toMatchObject({ id: "native-grant" });
+					expect(record).toHaveBeenCalledWith(
+						context.db,
+						expect.objectContaining({
+							owner,
+							providerId: "google-calendar",
+							id: TEDI_ID,
+							tokenId: "native-grant",
+							tokenSub: undefined,
+						}),
+					);
+				}
 				instance.tokenIds = ["native-grant"];
 				record.mockClear();
 				await fetchNamedConnection(context, owner, "google-calendar", TEDI_ID);
