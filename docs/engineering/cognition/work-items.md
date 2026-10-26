@@ -50,6 +50,19 @@ is independent of execution. Acceptance fixes one plain-language
 `evidenceKinds`, `requiresIndependentReview`, ...) so stored rows stay readable;
 no gate consults it, and new items must not use it. No `workKind` requires Git.
 
+### Recurring Work
+
+A project can file the same Work Item every month, such as `Meal receipts
+{month}`. Each template lives in the project's `metadata.recurringWork`
+(`RecurringWorkTemplateSchema` in `packages/api-contract/src/schemas/work-attention.ts`)
+and is set with `update_project`; metadata is replaced as a whole, so send the
+project's other keys back unchanged. The hourly `recurring-work` platform cron
+(`apps/api/src/jobs/recurring-work.ts`) files one proposed item per template
+and month from `dayOfMonth` (UTC) on, with `{month}` replaced by the period
+(`November 2026`) and the done-when appended to the description. The item's
+`sourceIntentId` is `recurring:<projectId>:<key>:<YYYY-MM>`, so a month is
+never filed twice. Accepting the item stays with its owner.
+
 ## Readiness and admission
 
 Readiness, scheduling, and admission share one eligibility evaluator, and hard

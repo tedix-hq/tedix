@@ -44,6 +44,7 @@ export const PLATFORM_CRON_IDS = [
 	"cost-anomaly-check",
 	"active-provider-scan-and-drift",
 	"external-agent-mcp-client-reaper",
+	"recurring-work",
 	"machine-scope-drift",
 	"tedi-access-key-rotation",
 	"site-reconciliation",
@@ -236,6 +237,11 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "external-agent-mcp-client-reaper",
+		cron: "0 * * * *",
+		intervalMinutes: 60,
+	},
+	{
+		id: "recurring-work",
 		cron: "0 * * * *",
 		intervalMinutes: 60,
 	},

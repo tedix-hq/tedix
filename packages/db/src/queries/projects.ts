@@ -142,6 +142,24 @@ export async function getProjectById(
 	return rows[0];
 }
 
+/** Projects, across organizations, that declare recurring Work in metadata. */
+export async function listProjectsWithRecurringWork(
+	db: DbQueryClient,
+	limit = 500,
+): Promise<Project[]> {
+	return db
+		.select()
+		.from(projects)
+		.where(
+			and(
+				isNull(projects.archivedAt),
+				sql`json_array_length(json_extract(${projects.metadata}, '$.recurringWork')) > 0`,
+			),
+		)
+		.orderBy(asc(projects.id))
+		.limit(limit);
+}
+
 export async function getProjectByKey(
 	db: DbClient,
 	orgId: string,
