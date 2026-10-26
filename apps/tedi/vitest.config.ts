@@ -17,7 +17,7 @@ export default defineConfig({
 	test: {
 		globals: true,
 		environment: "node",
-		include: ["src/**/*.test.ts", "test/**/*.test.ts"],
+		include: ["src/**/*.test.ts", "test/**/*.test.ts", "scripts/**/*.test.ts"],
 		exclude: ["e2e/**", "test/e2e/**", "src/**/*.workerd.test.ts"],
 		// `@cloudflare/containers` ships ESM with extensionless internal
 		// imports (`import './lib/container'`) that Node's strict resolver
