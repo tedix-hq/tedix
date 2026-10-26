@@ -112,6 +112,8 @@ import { buildRunId } from "./ledger-mirror";
 import { VoiceCallDO } from "./voice-call-do";
 import { VoiceInputDO } from "./voice-input-do";
 import {
+	handleWorkspaceAppValidate,
+	WORKSPACE_APP_VALIDATE_PATH,
 	handleWorkspaceAppCall,
 	handleWorkspaceAppCloseDraft,
 	WORKSPACE_APP_CLOSE_DRAFT_PATH,
@@ -1596,6 +1598,8 @@ export default {
 			: stripServiceBindingMarker(inbound);
 		const url = new URL(request.url);
 
+		if (url.pathname === WORKSPACE_APP_VALIDATE_PATH)
+			return handleWorkspaceAppValidate(request, env);
 		if (url.pathname === WORKSPACE_APP_CLOSE_DRAFT_PATH)
 			return handleWorkspaceAppCloseDraft(request, env);
 		if (url.pathname === WORKSPACE_APP_CALL_PATH) {

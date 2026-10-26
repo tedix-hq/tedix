@@ -1,3 +1,5 @@
+import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import { loadAppRuntimeWorker } from "@tedix/api-contract/utils/app-runtime";
 import { z } from "zod";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { verifyWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
@@ -96,4 +98,42 @@ export async function handleWorkspaceAppCloseDraft(
 		`${parsed.data.organizationId}:${parsed.data.workspaceId}`,
 	);
 	return Response.json(await host.closeDraft(parsed.data));
+}
+
+export const WORKSPACE_APP_VALIDATE_PATH = "/__internal/workspace-app/validate";
+/** Fresh, capability-free isolate: no app storage, API binding or outbound network. */
+export async function handleWorkspaceAppValidate(
+	request: Request,
+	env: { LOADER: WorkerLoader },
+) {
+	if (!isServiceBinding(request.headers))
+		return new Response("Forbidden", { status: 403 });
+	if (request.method !== "POST")
+		return new Response("Method not allowed", { status: 405 });
+	const parsed = z
+		.object({
+			files: AppRuntimeFilesSchema,
+			compatibilityDate: z
+				.string()
+				.regex(/^\d{4}-\d{2}-\d{2}$/)
+				.optional(),
+		})
+		.strict()
+		.safeParse(await request.json().catch(() => null));
+	if (!parsed.success)
+		return new Response("Invalid app source", { status: 400 });
+	try {
+		const worker = loadAppRuntimeWorker(
+			env.LOADER,
+			`validate:${crypto.randomUUID()}`,
+			parsed.data.files,
+			{ compatibilityDate: parsed.data.compatibilityDate, validation: true },
+		);
+		return await worker.getEntrypoint().fetch(new Request("https://validate/"));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return new Response(`server.js:1:1: App dry-load failed: ${message}`, {
+			status: 400,
+		});
+	}
 }
