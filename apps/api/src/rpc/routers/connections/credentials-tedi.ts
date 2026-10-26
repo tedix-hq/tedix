@@ -1,6 +1,11 @@
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { resolveRequestPersonalCredential } from "../../../services/personal-request-authority";
-import { createConnectionProviderOwnership } from "@tedix/db/queries/connection-providers";
+import {
+	createConnectionProviderOwnership,
+	recordConnectionProviderRegistration,
+} from "@tedix/db/queries/connection-providers";
+import { requireDcrException } from "./provider-registration";
+import type { ConnectionProviderDcrException } from "@tedix/api-contract/schemas/connections";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { ORPCError } from "@orpc/server";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
@@ -570,11 +575,20 @@ export const createProvider = authedOs.createProvider
 				prompt?: Array<"none" | "login" | "consent" | "select_account">;
 				useDcr?: boolean;
 				dcrUrl?: string;
+				dcrException?: ConnectionProviderDcrException;
 				credentialProfile?: ConnectionCredentialProfile;
 			};
 			context: BaseContext;
 		}) => {
 			requireOrgId(context);
+			const dcrException =
+				input.useDcr === true
+					? requireDcrException({
+							providerId: input.id ?? input.name,
+							exception: input.dcrException,
+							recordedBy: context.descopeUserId ?? context.user?.sub ?? null,
+						})
+					: null;
 			const config = {
 				name: input.name,
 				type: input.type,
@@ -616,6 +630,15 @@ export const createProvider = authedOs.createProvider
 				appId: result.id,
 				organizationId: requireOrgId(context),
 			});
+			if (dcrException)
+				await recordConnectionProviderRegistration(context.db, {
+					id: result.id,
+					provenance: "dcr_managed",
+					dcrException,
+					name: input.name,
+					description: input.description ?? null,
+					icon: input.logo ?? null,
+				});
 			console.log(
 				`[Connections] Created provider: appId=${result.id} name=${input.name}`,
 			);

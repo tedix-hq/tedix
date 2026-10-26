@@ -238,6 +238,57 @@ export async function pinConnectionProviderIssuer(
 		});
 }
 
+export interface RecordConnectionProviderRegistrationParams {
+	id: string;
+	provenance: NonNullable<ConnectionProviderRow["registrationProvenance"]>;
+	/** Required for a DCR provenance; cleared otherwise. */
+	dcrException: ConnectionProviderRow["dcrException"];
+	/** Display fields, used only when no template row exists yet. */
+	name: string;
+	description?: string | null;
+	icon?: string | null;
+}
+
+/**
+ * Record how the upstream OAuth client was obtained after a successful
+ * provision. Same minimal insert as {@link pinConnectionProviderIssuer} when no
+ * row exists; an existing row keeps its template metadata.
+ */
+export async function recordConnectionProviderRegistration(
+	db: DbQueryClient,
+	params: RecordConnectionProviderRegistrationParams,
+): Promise<void> {
+	const dcr =
+		params.provenance === "dcr_managed" || params.provenance === "dcr_direct";
+	if (dcr !== (params.dcrException !== null))
+		throw new Error(
+			"A DCR registration needs an exception record, and only a DCR registration may carry one",
+		);
+	await db
+		.insert(connectionProviders)
+		.values({
+			id: params.id,
+			name: params.name,
+			description: params.description ?? "",
+			icon: params.icon ?? "",
+			category: "infrastructure",
+			type: "oauth",
+			recommendedScope: "user",
+			supportedScopes: ["tenant", "user"],
+			requiredScopes: [],
+			registrationProvenance: params.provenance,
+			dcrException: params.dcrException,
+		})
+		.onConflictDoUpdate({
+			target: connectionProviders.id,
+			set: {
+				registrationProvenance: params.provenance,
+				dcrException: params.dcrException,
+				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			},
+		});
+}
+
 /**
  * Fill a credential template (e.g. Descope Token Vault opaque-value template
  * "{projectId}:{managementKey}") from collected field values. Pure string

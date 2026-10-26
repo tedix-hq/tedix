@@ -1164,6 +1164,10 @@
 		{
 			"name": "20261026112811_connection_provider_account_mode/migration.sql",
 			"sha256": "9795aed0be29557ead31680a293d11042c8c42842393a17ef29e1a781f128b7c"
+		},
+		{
+			"name": "20261026164659_connection_provider_registration/migration.sql",
+			"sha256": "7254de48b3401cd3dcc3b96a3260883d98bb210283283211175e4be0d1ce6cb3"
 		}
 	]
 }

@@ -10,6 +10,7 @@
  * Canonical provider registry for connection discovery and credential profiles.
  */
 
+import type { ConnectionProviderDcrExceptionRecord } from "@tedix/api-contract/schemas/connections";
 import type {
 	ConnectionCredentialProfile,
 	ConnectionProviderCategory,
@@ -80,6 +81,19 @@ export const connectionProviders = sqliteTable(
 			"authorization_response_iss_supported",
 			{ mode: "boolean" },
 		),
+
+		// How Tedix obtained the upstream OAuth client for this provider. NULL =
+		// legacy row, not recorded. A useDcr:false outbound app can still hold a
+		// dynamically registered client ("dcr_direct"), so this, not the Descope
+		// app shape, is the registration record.
+		registrationProvenance: text("registration_provenance", {
+			enum: ["cimd", "dcr_managed", "dcr_direct", "pre_registered"],
+		}),
+		// Why Dynamic Client Registration was allowed and when to review it.
+		// Required whenever registrationProvenance is a DCR value.
+		dcrException: text("dcr_exception", {
+			mode: "json",
+		}).$type<ConnectionProviderDcrExceptionRecord>(),
 
 		createdAt: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 		updatedAt: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
