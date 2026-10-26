@@ -1,5 +1,6 @@
 import {
 	externalAgentProfileSlot,
+	ownHarnessSessionKey,
 	readExternalAgentProfile,
 } from "./external-agent-store";
 import { nearestHostHarness } from "./host-ancestry";
@@ -141,10 +142,25 @@ function harnessFromSessionPrefix(session: string): string | undefined {
  *   3. harness-native session env  CLAUDE_CODE_SESSION_ID / CODEX_* / CURSOR_*
  *   4. best-effort shell fallback  harness=cli, id from PPID — flagged `derived`
  *      so a consumer never mistakes an auto-grouped shell id for a durable one.
+ * A key an older CLI bound to another harness's principal resolves to its
+ * successor key (`ownHarnessSessionKey`), so a session never acts as that
+ * principal.
  */
 export function resolveAgentSession(
 	explicit?: string,
 ): AgentSession | undefined {
+	const session = detectAgentSession(explicit);
+	if (!session || session.derived) return session;
+	let key = session.session;
+	try {
+		key = ownHarnessSessionKey(key);
+	} catch {
+		// Unreadable store: the external-agent paths that read it report it.
+	}
+	return key === session.session ? session : { ...session, session: key };
+}
+
+function detectAgentSession(explicit?: string): AgentSession | undefined {
 	const claudeSession = envTrim("CLAUDE_CODE_SESSION_ID");
 	const devinSession = envTrim("DEVIN_SESSION_ID");
 	const codexSession =

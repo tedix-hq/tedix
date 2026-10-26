@@ -152,7 +152,10 @@ The first bootstrap names the profile's principal for the machine and user
 Code or Codex session on that profile gets its own Agent-Session under the same
 principal. A profile whose principal is named for one harness (for example
 `codex-…`) serves only that harness; another harness bootstraps its own
-`<harness>-local-<user>-<machine>` principal on the same workspace. On the first bootstrap, pass `--agent-scopes` with only the MCP
+`<harness>-local-<user>-<machine>` principal on the same workspace. A session an
+older CLI started under such a principal for another harness acts under the
+stable successor key (the same harness and a UUID derived from the old key)
+with its own principal instead. On the first bootstrap, pass `--agent-scopes` with only the MCP
 capabilities the task needs; omitting it requests the default broad capability
 set. Set `TEDIX_EXTERNAL_AGENT` to the principal key for subsequent CLI calls
 and check `tedix agent status` before acting. `tedix work start` requires this

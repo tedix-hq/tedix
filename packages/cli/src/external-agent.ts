@@ -15,7 +15,7 @@ import type { WorkspaceCredential } from "./credential-store";
 import {
 	clearBootstrapApproval,
 	externalAgentProfileSlot,
-	harnessFamily,
+	principalServesSession,
 	readBootstrapApproval,
 	readExternalAgentProfile,
 	writeBootstrapApproval,
@@ -728,13 +728,10 @@ async function startExternalAgentSessionLocked(
 	);
 	let profile = readExternalAgentProfile(slot);
 	const existingProfile = Boolean(profile);
-	const owner = profile && harnessFamily(profile.key);
-	const family = harnessFamily(tuple.harness);
-	if (profile && owner && family && owner !== family) {
-		(options.notice ?? ((message) => console.error(message)))(
-			`Notice: Agent-Session "${tuple.externalSessionKey}" already belongs to principal "${profile.key}". Start a fresh session (TEDIX_AGENT_SESSION=${tuple.harness}:<new-uuid>) to act as a ${tuple.harness} principal of its own.`,
+	if (profile && !principalServesSession(profile.key, tuple.externalSessionKey))
+		throw new Error(
+			`Agent-Session "${tuple.externalSessionKey}" cannot act as principal "${profile.key}", which serves another harness.`,
 		);
-	}
 	if (!profile && process.env.TEDIX_AGENT_KEY?.trim()) {
 		const organizationId = process.env.TEDIX_ORGANIZATION?.trim();
 		const principalId = process.env.TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID?.trim();
@@ -1110,7 +1107,11 @@ function sessionProfile(
 		for (const candidate of new Set([slot, workspace])) {
 			const profile = readExternalAgentProfile(candidate);
 			const session = profile && findStoredSession(profile, sessionKey);
-			if (session) return { slot: candidate, profile, session };
+			if (
+				session &&
+				principalServesSession(profile.key, session.externalSessionKey)
+			)
+				return { slot: candidate, profile, session };
 		}
 	return { slot, profile: readExternalAgentProfile(slot) };
 }

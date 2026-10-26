@@ -330,14 +330,25 @@ export function harnessFamily(name: string): string | undefined {
 		?.toLowerCase();
 }
 
+/** Whether a principal key may act for a session key: never across harness families. */
+export function principalServesSession(
+	principalKey: string,
+	sessionKey: string | undefined,
+): boolean {
+	const family = sessionKey?.includes(":")
+		? harnessFamily(sessionKey)
+		: undefined;
+	const owner = harnessFamily(principalKey);
+	return !family || !owner || owner === family;
+}
+
 /**
  * Store slot holding the principal a harness session acts as on a workspace.
  *
  * A machine principal (`local-<user>-<host>`) serves every harness. A legacy
  * principal named for one harness (`codex-gtm-…`) serves only that family, so
  * another harness gets its own principal in a `<workspace>#<family>` slot
- * instead of borrowing it. A session already stored in the shared slot stays
- * there: the server binds its key to that principal.
+ * instead of borrowing it, even for a session an older CLI stored there.
  */
 export function externalAgentProfileSlot(
 	workspace: string,
@@ -349,9 +360,40 @@ export function externalAgentProfileSlot(
 		: undefined;
 	if (!family) return workspace;
 	const shared = readStore(options).workspaces[workspace];
-	if (!shared || sessionKey! in shared.sessions) return workspace;
-	const owner = harnessFamily(shared.key);
-	return !owner || owner === family ? workspace : `${workspace}#${family}`;
+	return !shared || principalServesSession(shared.key, sessionKey)
+		? workspace
+		: `${workspace}#${family}`;
+}
+
+/**
+ * The key a session acts under. An older CLI stored some sessions under a
+ * shared principal named for another harness, and the server binds a key to
+ * its principal for good, so such a session gets a successor key of its own
+ * for its own principal: the same harness and a UUID derived from the old key,
+ * so it stays stable and remains a valid `Agent-Session` trailer. Every other
+ * key is returned as is.
+ */
+export function ownHarnessSessionKey(
+	sessionKey: string,
+	options?: ExternalAgentStoreOptions,
+): string {
+	const family = sessionKey.includes(":")
+		? harnessFamily(sessionKey)
+		: undefined;
+	if (!family) return sessionKey;
+	const borrowed = Object.entries(readStore(options).workspaces).some(
+		([slot, profile]) =>
+			!slot.includes("#") &&
+			sessionKey in profile.sessions &&
+			!principalServesSession(profile.key, sessionKey),
+	);
+	if (!borrowed) return sessionKey;
+	const hex = createHash("sha256")
+		.update(`successor\0${sessionKey}`)
+		.digest("hex");
+	const variant = ((Number.parseInt(hex[16]!, 16) & 3) | 8).toString(16);
+	const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+	return `${sessionKey.slice(0, sessionKey.indexOf(":"))}:${uuid}`;
 }
 
 export function readBootstrapApproval(

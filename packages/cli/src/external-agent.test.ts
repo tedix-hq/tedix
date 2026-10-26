@@ -14,6 +14,7 @@ import {
 	startExternalAgentSession,
 } from "./external-agent";
 import {
+	externalAgentProfileSlot,
 	externalAgentSessionWorkspaces,
 	readBootstrapApproval,
 	readExternalAgentProfile,
@@ -21,6 +22,7 @@ import {
 } from "./external-agent-store";
 import { setProcessTableReader } from "./host-ancestry";
 import type { WorkAttemptStore } from "./work-attempt-store";
+import { resolveAgentSession } from "./work-identity";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const PRINCIPAL = "33333333-3333-4333-8333-333333333333";
@@ -1704,7 +1706,7 @@ describe("one profile shared by parallel harness sessions", () => {
 		expect(externalAgentSessionWorkspaces(subagent)).toEqual(["connect"]);
 	});
 
-	test("a session already started on a borrowed principal keeps it and says how to get its own", async () => {
+	test("a Claude session an older CLI stored under a Codex principal never acts as it", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
@@ -1734,10 +1736,27 @@ describe("one profile shared by parallel harness sessions", () => {
 			createClient: bootstrapClient(code),
 			notice: (message) => notices.push(message),
 		});
-		expect(started.profile.key).toBe("codex-gtm-01a0f212");
-		expect(notices).toEqual([
-			expect.stringContaining("Start a fresh session (TEDIX_AGENT_SESSION="),
-		]);
+		const own = defaultLocalPrincipal(undefined, undefined, "claude-code");
+		const successor = resolveAgentSession()!.session;
+		expect(successor).toMatch(
+			/^claude-code:[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+		expect(successor).not.toBe(session);
+		expect(started.profile.key).toBe(own.key);
+		expect(started.session.externalSessionKey).toBe(successor);
+		expect(notices).toEqual([]);
+		// Every later call resolves the successor key and the Claude principal.
+		expect(resolveAgentSession()?.session).toBe(successor);
+		expect(externalAgentProfileSlot("connect", session)).toBe("connect#claude");
+		expect(externalAgentStatus("connect").key).toBe(own.key);
+		// The Codex principal keeps its stored session; nothing resolves to it.
+		expect(
+			Object.keys(readExternalAgentProfile("connect")!.sessions),
+		).toContain(session);
+		delete process.env.TEDIX_AGENT_SESSION;
+		process.env.CLAUDE_CODE_SESSION_ID = session.slice("claude-code:".length);
+		expect(resolveAgentSession()?.session).toBe(successor);
+		expect(externalAgentStatus("connect").key).toBe(own.key);
 	});
 
 	test("sanitizes machine and user into a valid principal key", () => {
