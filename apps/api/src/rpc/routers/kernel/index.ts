@@ -97,6 +97,7 @@ import {
 	resolveEarnedDelegationEnforcement,
 } from "./dispatch-policy";
 import { readFactoryChatHealth } from "./factory-chat-tools";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { WriteProposalEnv } from "./write-proposal";
 import { factoryChatDecision } from "./factory-intent";
 import { groundedRosterDecision } from "./grounded-roster";
@@ -454,6 +455,7 @@ export function renderRouteResponse(
 const HOME_DEFERRED_FOLD_TOKEN_BUDGET = 10_000;
 
 export async function runKernel(args: {
+	readSteering?: () => Promise<string[]>;
 	/** Tools the person's page offers for this turn; Home asks, the page runs. */
 	pageTools?: HomePageTools;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
@@ -982,8 +984,16 @@ export async function runKernel(args: {
 	);
 	// Compaction retry reuses the same immutable judgment, never another paid call.
 	let routeJudgment: ReturnType<typeof decideHomeRoute> | undefined;
+	const roundSteering = (await args.readSteering?.()) ?? [];
+	const roundContent = [
+		content,
+		...roundSteering.map((text) =>
+			wrapUntrustedInput(text, "operator_steering"),
+		),
+	].join("\n\n");
 	const planArgs = {
 		onRouteAttempts: args.onRouteAttempts,
+		readSteering: args.readSteering,
 		...(args.pageTools ? { pageTools: args.pageTools } : {}),
 		...(homeRoutePolicy && homeRoutePolicy.mode !== "off"
 			? {
@@ -993,7 +1003,7 @@ export async function runKernel(args: {
 							db,
 							env,
 							gatewayContext,
-							content,
+							content: roundContent,
 							context,
 							policy: homeRoutePolicy,
 							signal: abortSignal,
@@ -1007,7 +1017,7 @@ export async function runKernel(args: {
 		onExecutionAttempts: args.onExecutionAttempts,
 		delegationCandidateRanker,
 		images,
-		content,
+		content: roundContent,
 		operatorContent: inputContent,
 		model,
 		env,

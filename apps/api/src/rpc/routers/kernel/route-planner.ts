@@ -1,4 +1,5 @@
 import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { ZodError } from "zod";
 import { jsonSchema, NoObjectGeneratedError, stepCountIs, tool } from "ai";
 import { pageToolModelOutput } from "@tedix/chat-transport/page-tools";
@@ -637,6 +638,7 @@ export type PlanKernelRouteArgs = {
 	 * person sees one answer.
 	 */
 	pageTools?: HomePageTools;
+	readSteering?: () => Promise<string[]>;
 };
 
 /**
@@ -1585,6 +1587,7 @@ async function streamHomePageAnswer(
 		args.streamIdleMs ?? KERNEL_STREAM_IDLE_TIMEOUT_MS,
 		"[kernel] Home page-action answer stream",
 	);
+	const steeringMessages: Array<{ role: "user"; content: string }> = [];
 	const signal = args.abortSignal
 		? AbortSignal.any([idle.signal, args.abortSignal])
 		: idle.signal;
@@ -1634,6 +1637,20 @@ async function streamHomePageAnswer(
 			),
 			tools,
 			stopWhen: stepCountIs(HOME_PAGE_TOOL_MAX_STEPS),
+			prepareStep: async ({ messages }) => {
+				const steering = (await args.readSteering?.()) ?? [];
+				steeringMessages.push(
+					...steering.map((content) => ({
+						role: "user" as const,
+						content: wrapUntrustedInput(content, "operator_steering"),
+					})),
+				);
+				return steeringMessages.length
+					? {
+							messages: [...messages, ...steeringMessages],
+						}
+					: {};
+			},
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			maxRetries: 0,
 			abortSignal: signal,

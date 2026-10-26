@@ -1,4 +1,5 @@
 import { AUTHZ, type BaseContext, ErrorCodes, createError } from "../../orpc";
+import { excludeWithdrawnSteering } from "../kernel/steering-history";
 import {
 	type ChildRunEvidenceRows,
 	readChildRunEvidenceRows,
@@ -808,6 +809,12 @@ export const readMessagesRoute = authed.readMessages
 			}
 			throw error;
 		}
+		rows = await excludeWithdrawnSteering(
+			context.db,
+			organizationId,
+			input.conversationId,
+			rows,
+		);
 		const orderedRows = [...rows].reverse();
 		const completedRuns = new Map<string, string>();
 		for (const row of orderedRows) {
