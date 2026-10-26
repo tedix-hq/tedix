@@ -11,6 +11,11 @@ import type {
  */
 export const CardFaceContext = createContext<{
 	presentation: DecisionCardPresentation | null;
+	lastRelatedDecision?: {
+		subject: string;
+		body: string;
+		decidedAt: string;
+	} | null;
 	confidence: number | null;
 	dates?: readonly string[];
 	now?: Date;

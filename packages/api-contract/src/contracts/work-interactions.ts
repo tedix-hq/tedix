@@ -37,6 +37,7 @@ import {
 	RecordReplyDraftDeliveryResultSchema,
 	RespondToWorkInteractionInputSchema,
 	ReviewWorkInteractionInputSchema,
+	SnoozeWorkInteractionInputSchema,
 	WorkInteractionRequestSchema,
 	WorkInteractionResponseSchema,
 } from "../schemas/work-interactions";
@@ -46,6 +47,13 @@ export const workInteractionsContract = oc
 	.errors(baseErrors)
 	.router({
 		outbound: outboundContract,
+		snooze: oc
+			.route({
+				summary:
+					"Hide an open card until the addressed person's chosen time without answering it",
+			})
+			.input(SnoozeWorkInteractionInputSchema)
+			.output(WorkInteractionRequestSchema),
 		rememberCardStyle: oc
 			.input(RememberCardStyleInputSchema)
 			.output(CardStyleRuleSchema),

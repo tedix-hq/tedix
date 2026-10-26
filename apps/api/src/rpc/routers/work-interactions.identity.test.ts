@@ -1084,3 +1084,34 @@ it.each<{
 		}
 	},
 );
+
+it("lets only the addressed person snooze an unchanged open card without answering it", async () => {
+	const { sqlite, owner, target, other } = fixture();
+	try {
+		const request = await createTargetedInteraction(owner);
+		const input = {
+			requestId: request.id,
+			expectedVersion: request.version,
+			until: "2099-01-01T09:00:00.000Z",
+		};
+		await expect(owner.snooze(input)).rejects.toThrow();
+		await expect(other.snooze(input)).rejects.toThrow();
+		await expect(
+			target.snooze({ ...input, expectedVersion: request.version + 1 }),
+		).rejects.toThrow();
+		const snoozed = await target.snooze(input);
+		expect(snoozed.state).toBe("open");
+		expect(snoozed.version).toBe(request.version);
+		expect(snoozed.metadata.followThrough).toMatchObject({
+			snoozedUntil: input.until,
+		});
+		expect((await target.listInbox({ states: ["open"] })).data).toEqual([]);
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_responses")
+				.get()?.n,
+		).toBe(0);
+	} finally {
+		sqlite.close();
+	}
+});

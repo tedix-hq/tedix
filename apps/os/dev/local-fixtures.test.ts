@@ -293,6 +293,11 @@ const CALLS = {
 		projectId: "00000076-0000-4000-8000-000000000001",
 	},
 	"workInteractions/listInbox": { limit: 100 },
+	"workInteractions/snooze": {
+		requestId: "000000a7-0000-4000-8000-000000000001",
+		expectedVersion: 1,
+		until: "2099-10-27T09:00:00.000Z",
+	},
 	"workInteractions/refreshDecisionSources": {},
 	"workInteractions/get": { requestId: "000000a7-0000-4000-8000-000000000001" },
 	"agentTurnTriage/getReplyDraftAcceptance": {
@@ -2069,5 +2074,42 @@ it("installs renderable Agents, Office and Outbound configs", () => {
 		expect(schema.safeParse(app!.currentRevision.manifest.config).success).toBe(
 			true,
 		);
+	}
+});
+
+it("keeps snoozed fixture cards out of the inbox until their wake time", () => {
+	resetLocalFixtures();
+	vi.useFakeTimers();
+	vi.setSystemTime(new Date("2026-10-26T12:00:00.000Z"));
+	try {
+		const page = callLocalOk("workInteractions/listInbox", {
+			states: ["open"],
+		}) as { data: { request: { id: string; version: number } }[] };
+		const request = page.data[0]!.request;
+		const until = "2026-10-27T09:00:00.000Z";
+		expect(
+			callLocal("workInteractions/snooze", {
+				requestId: request.id,
+				expectedVersion: request.version + 1,
+				until,
+			}).status,
+		).not.toBe(200);
+		callLocalOk("workInteractions/snooze", {
+			requestId: request.id,
+			expectedVersion: request.version,
+			until,
+		});
+		const ids = () =>
+			(
+				callLocalOk("workInteractions/listInbox", {
+					states: ["open"],
+				}) as typeof page
+			).data.map((row) => row.request.id);
+		expect(ids()).not.toContain(request.id);
+		vi.setSystemTime(new Date(until));
+		expect(ids()).toContain(request.id);
+	} finally {
+		vi.useRealTimers();
+		resetLocalFixtures();
 	}
 });

@@ -27,6 +27,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	// Internal token exchange pilot: MCP-edge service binding and admin revoke.
 	"tokenExchange/exchange": "platform:admin",
 	"tokenExchange/revoke": "platform:admin",
+	"workInteractions/snooze": "mcp:messaging.write",
 	"decisionGraph/getContext": "mcp:messaging.read",
 	"decisionGraph/backfillPreview": "mcp:memory.admin",
 	"decisionGraph/recordAgentDecision": "mcp:messaging.write",

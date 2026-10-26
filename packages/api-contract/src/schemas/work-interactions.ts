@@ -120,6 +120,23 @@ const metadataSchema = BoundedJsonObjectSchema.describe(
 	"Decision facts must include decisionSources (or decisionDeck.sources): 1-10 observed versions. Work: {kind:'work',id,version,commentCount}; email: {kind:'email_thread',id,tediId,updatedAt,lastMessageAt,messageCount}; output: {kind:'output',id,revisionId}. Read every cited source first. Changed, missing or unsupported sources withhold the card and block its answer. One-way decisions and decisions involving data, money or messages require sources. Refresh the facts and create a new card when a source changes.",
 );
 
+export const SnoozeWorkInteractionInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	expectedVersion: z.number().int().positive(),
+	until: z.iso
+		.datetime()
+		.describe(
+			"Wake time chosen by the addressed person; must be in the future.",
+		),
+});
+
+export const LastRelatedDecisionSchema = z.strictObject({
+	requestId: z.uuid(),
+	subject: z.string(),
+	body: z.string(),
+	decidedAt: z.iso.datetime(),
+});
+
 export const WorkInteractionRequestSchema = z.strictObject({
 	id: z.uuid(),
 	orgId: z.uuid(),
@@ -523,6 +540,7 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 		.describe(
 			"Null when the interaction is case- or project-scoped rather than Work Item-scoped.",
 		),
+	lastRelatedDecision: LastRelatedDecisionSchema.nullable().optional(),
 	responseCount: z.number().int().nonnegative(),
 	creatorHarness: z.string().nullable().optional(),
 	askedBy: z

@@ -23,12 +23,14 @@ import {
 import { Text } from "./kumo/text";
 
 const ITEMS: readonly DecisionCardContextItem[] = [
+	"last_decision",
 	"source",
 	"due",
 	"asker",
 	"stakes",
 ];
 const ITEM_LABELS: Record<DecisionCardContextItem, string> = {
+	last_decision: "Last related decision",
 	source: "The original request",
 	due: "Due date",
 	asker: "Who asked",

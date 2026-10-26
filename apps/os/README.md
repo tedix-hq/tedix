@@ -172,6 +172,17 @@ to the person who answered. The draft and source stay on that task; sending
 remains that person's next step. Source creation, a saved answer, task creation
 and an external send are separate outcomes.
 
+**Not now** skips a card for the current visit. **Snooze…** hides an open card
+on the server until tomorrow at 09:00 in the browser's time zone or a chosen
+future time. Its answer stays open; source expiry still applies. The context
+strip can show the latest resolved decision addressed to the same person on
+the same project, Work Item, or cited source.
+
+The maintenance tick fills missing stored summaries in batches of at most five
+cards. It retries failed generations on the next pass and preserves summaries
+written concurrently. Deployment and a completed live backfill need separate
+verification.
+
 ## Card feedback
 
 Select draft text to add quote-anchored comments, or press `C` for whole-card

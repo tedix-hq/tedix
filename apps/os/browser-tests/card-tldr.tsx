@@ -1,3 +1,4 @@
+import { CardSnooze } from "../src/components/card-snooze";
 import { createRoot } from "react-dom/client";
 import { CardFaceContext } from "../src/components/deck-presentation-context";
 import { WorkDecisionCard } from "../src/components/work-decision-card";
@@ -46,6 +47,13 @@ createRoot(document.getElementById("root")!).render(
 						: {
 								confidence: null,
 								presentation,
+								lastRelatedDecision: query.has("snooze")
+									? {
+											subject: "Keep the reminder personal",
+											body: "Save a reminder; the person sends any message.",
+											decidedAt: "2026-10-25T12:00:00.000Z",
+										}
+									: null,
 							}
 				}
 			>
@@ -69,6 +77,17 @@ createRoot(document.getElementById("root")!).render(
 						]}
 						onDecision={async () => {}}
 					/>
+					{query.has("snooze") && (
+						<CardSnooze
+							request={{
+								id: "11111111-1111-4111-8111-111111111111",
+								version: 3,
+							}}
+							onSnoozed={async () => {
+								document.documentElement.dataset.snoozed = "true";
+							}}
+						/>
+					)}
 				</div>
 			</CardFaceContext.Provider>
 		)}

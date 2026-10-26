@@ -132,6 +132,7 @@ export const OS_PREFERENCES_NAMESPACE = "os.preferences";
 
 /** Items a decision card may show in its context strip; at most three render. */
 export const DecisionCardContextItemSchema = z.enum([
+	"last_decision",
 	"source",
 	"due",
 	"asker",

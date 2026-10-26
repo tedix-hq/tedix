@@ -27,6 +27,7 @@ import { createD1Facade } from "../../test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
 import { settleRecoveredRepositoryCiObservations } from "../repository-observer";
 import {
+	snoozeWorkInteraction,
 	createWorkInteraction,
 	createRepositoryCiAlert,
 	refreshRepositoryCiAlerts,
@@ -1451,3 +1452,150 @@ it.each([false, true])(
 		sqlite.close();
 	},
 );
+
+it.each(["user", "system", "tedi", "external_agent"])(
+	"snoozes only the recipient's current open %s card and wakes at the exact time under deployed guards",
+	async (creatorType) => {
+		const { sqlite, db } = fixture();
+		sqlite.exec(
+			schemaDdl(organizationMembers, workInteractionCardRevisions, tedis),
+		);
+		sqlite.exec(
+			"INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status) VALUES ('m','org','human','human','human@example.test','active'),('o','org','other','other','other@example.test','active'); UPDATE work_interactions SET target_type='user',target_id='human',metadata='{}' WHERE id='mine'",
+		);
+		sqlite
+			.prepare("UPDATE work_interactions SET metadata=? WHERE id='mine'")
+			.run(
+				JSON.stringify({
+					followThrough: { reviewAt: "2026-08-25T00:00:00.000Z" },
+				}),
+			);
+		sqlite
+			.prepare("UPDATE work_interactions SET creator_type=? WHERE id='mine'")
+			.run(creatorType);
+		armInteractionGuards(sqlite);
+		const params = {
+			orgId: "org",
+			interactionId: "mine",
+			actor: { type: "user" as const, id: "human" },
+			expectedVersion: 1,
+			now: NOW,
+			until: "2026-08-22T09:00:00.000Z",
+		};
+		for (const change of [
+			{ actor: { type: "user" as const, id: "other" } },
+			{ expectedVersion: 2 },
+			{ until: NOW },
+			{ orgId: "foreign" },
+		]) {
+			await expect(
+				snoozeWorkInteraction(db, { ...params, ...change }),
+			).rejects.toThrow();
+		}
+		if (creatorType === "user" || creatorType === "system") {
+			expect(() =>
+				sqlite.exec(
+					"UPDATE work_interactions SET metadata=json_set(metadata,'$.followThrough.reviewAt','2030-01-01T00:00:00Z','$.followThrough.snoozedUntil','2030-01-01T00:00:00Z') WHERE id='mine'",
+				),
+			).toThrow();
+		}
+		expect(() =>
+			sqlite.exec(
+				"UPDATE work_interactions SET prompt='Changed ask',metadata=json_set(metadata,'$.followThrough.snoozedUntil','2030-01-01T00:00:00Z') WHERE id='mine'",
+			),
+		).toThrow();
+		const row = await snoozeWorkInteraction(db, params);
+		expect(row.status).toBe("open");
+		expect(row.version).toBe(1);
+		expect(row.metadata.followThrough).toEqual({
+			reviewAt: "2026-08-25T00:00:00.000Z",
+			snoozedUntil: params.until,
+		});
+		const inbox = (at: string) =>
+			listWorkInteractionInbox(db, {
+				orgId: "org",
+				targetType: "user",
+				targetId: "human",
+				observedAt: at,
+				states: ["open"],
+				limit: 1,
+			});
+		expect((await inbox(NOW)).data).toEqual([]);
+		expect((await inbox("2026-08-22T08:59:59.999Z")).data).toEqual([]);
+		expect((await inbox(params.until)).data.map((r) => r.request.id)).toEqual([
+			"mine",
+		]);
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_responses")
+				.get()?.n,
+		).toBe(0);
+		sqlite.close();
+	},
+);
+
+it("returns the latest resolved related answer only within the same tenant and recipient", async () => {
+	const { sqlite, db } = fixture();
+	sqlite.exec(schemaDdl(tedis));
+	sqlite.exec(`INSERT INTO work_interactions(id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at)
+ VALUES ('previous','org','work','question','resolved','Previous choice','?','system','tedix','tedi','cto','2026-08-20T00:00:00Z'),
+ ('private','org','work','question','resolved','Private choice','?','system','tedix','tedi','cfo','2026-08-20T00:00:00Z');
+ INSERT INTO work_interaction_responses(id,org_id,interaction_id,response_kind,body,responder_type,responder_id,resolves_request,responded_at,resolved_request_version,resolution_fence)
+ VALUES ('answer','org','previous','answer','Use the existing service','tedi','cto',1,'2026-08-21T10:00:00.000Z',1,'a'),
+ ('secret','org','private','answer','Private answer','tedi','cfo',1,'2026-08-21T11:00:00.000Z',1,'b');`);
+	const page = await listWorkInteractionInbox(db, {
+		orgId: "org",
+		targetType: "tedi",
+		targetId: "cto",
+		observedAt: NOW,
+		states: ["open"],
+	});
+	expect(JSON.parse(page.data[0]!.lastRelatedDecision!)).toEqual({
+		requestId: "previous",
+		subject: "Previous choice",
+		body: "Use the existing service",
+		decidedAt: "2026-08-21T10:00:00.000Z",
+	});
+
+	sqlite.exec(
+		"INSERT INTO work_items(id,org_id,title,created_at) VALUES ('another','org','Other work','2026-08-20T00:00:00Z'); UPDATE work_interactions SET work_item_id='another' WHERE id='previous'",
+	);
+	const read = () =>
+		listWorkInteractionInbox(db, {
+			orgId: "org",
+			targetType: "tedi",
+			targetId: "cto",
+			observedAt: NOW,
+			states: ["open"],
+		});
+	expect((await read()).data[0]?.lastRelatedDecision).toBeNull();
+	for (const id of ["mine", "previous"])
+		sqlite.prepare("UPDATE work_interactions SET metadata=? WHERE id=?").run(
+			JSON.stringify({
+				decisionSources: [
+					{ kind: "email_thread", id: "thread", tediId: "owner" },
+				],
+			}),
+			id,
+		);
+	expect(
+		JSON.parse((await read()).data[0]!.lastRelatedDecision!).requestId,
+	).toBe("previous");
+	sqlite
+		.prepare("UPDATE work_interactions SET metadata=? WHERE id='previous'")
+		.run(
+			JSON.stringify({
+				decisionSources: [
+					{ kind: "email_thread", id: "thread", tediId: "other-owner" },
+				],
+			}),
+		);
+	expect((await read()).data[0]?.lastRelatedDecision).toBeNull();
+	sqlite.exec(
+		"INSERT INTO projects(id,org_id,key,name,created_at) VALUES ('project','org','test','Example','2026-08-20T00:00:00Z'); UPDATE work_interactions SET project_id='project' WHERE id IN ('mine','previous')",
+	);
+	expect(
+		JSON.parse((await read()).data[0]!.lastRelatedDecision!).requestId,
+	).toBe("previous");
+	sqlite.close();
+});

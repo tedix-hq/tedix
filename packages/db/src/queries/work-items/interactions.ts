@@ -1701,6 +1701,57 @@ export async function listWorkInteractionResponses(
 		.orderBy(workInteractionResponses.respondedAt, workInteractionResponses.id)
 		.limit(Math.min(p.limit ?? 100, 500));
 }
+/** Snoozing changes only follow-through display state, never the answer or version. */
+export async function snoozeWorkInteraction(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		interactionId: string;
+		expectedVersion: number;
+		actor: InteractionActor;
+		until: string;
+		now: string;
+	},
+) {
+	await validateActor(db, p.orgId, p.actor);
+	if (p.actor.type !== "user")
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Only the addressed person can snooze a card",
+		);
+	if (
+		!Number.isFinite(Date.parse(p.until)) ||
+		Date.parse(p.until) <= Date.parse(p.now)
+	)
+		throw new WorkControlError("NOT_ELIGIBLE", "Choose a future wake time");
+	const [row] = await db
+		.update(workInteractions)
+		.set({
+			metadata: sql`json_set(${workInteractions.metadata}, '$.followThrough.snoozedUntil', ${new Date(p.until).toISOString()})`,
+		})
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.id, p.interactionId),
+				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetId, p.actor.id),
+				eq(workInteractions.version, p.expectedVersion),
+				eq(workInteractions.status, "open"),
+				or(
+					isNull(workInteractions.expiresAt),
+					sql`${workInteractions.expiresAt}>${p.now}`,
+				),
+			),
+		)
+		.returning();
+	if (!row)
+		throw new WorkControlError(
+			"CONFLICT",
+			"The card changed or is not addressed to you",
+		);
+	return row;
+}
+
 export type WorkInteractionUrgency = "now" | "later";
 export async function listWorkInteractionInbox(
 	db: DbQueryClient,
@@ -1753,6 +1804,25 @@ export async function listWorkInteractionInbox(
 					.mapWith(workItems.disposition)
 					.as("work_interaction_item_disposition"),
 			},
+			lastRelatedDecision: sql<
+				string | null
+			>`(SELECT json_object('requestId', prior.id, 'subject', prior.subject, 'body', answer.body, 'decidedAt', answer.responded_at)
+    FROM work_interactions prior
+    JOIN work_interaction_responses answer ON answer.org_id=prior.org_id AND answer.interaction_id=prior.id AND answer.resolves_request=1
+    LEFT JOIN work_items prior_work ON prior_work.org_id=prior.org_id AND prior_work.id=prior.work_item_id
+    WHERE prior.org_id=${workInteractions.orgId} AND prior.id<>${workInteractions.id}
+    AND prior.status='resolved' AND prior.target_type=${workInteractions.targetType} AND prior.target_id=${workInteractions.targetId}
+    AND (prior.work_item_id=${workInteractions.workItemId}
+      OR coalesce(prior.project_id,prior_work.project_id)=coalesce(${workInteractions.projectId},${workItems.projectId})
+      OR EXISTS (SELECT 1
+       FROM json_each(coalesce(json_extract(prior.metadata,'$.decisionSources'),json_extract(prior.metadata,'$.decisionDeck.sources'),'[]')) old_source
+       JOIN json_each(coalesce(json_extract(${workInteractions.metadata},'$.decisionSources'),json_extract(${workInteractions.metadata},'$.decisionDeck.sources'),'[]')) current_source
+       ON json_extract(old_source.value,'$.kind')=json_extract(current_source.value,'$.kind')
+       AND json_extract(old_source.value,'$.id')=json_extract(current_source.value,'$.id')
+       AND json_extract(old_source.value,'$.tediId') IS json_extract(current_source.value,'$.tediId')))
+    ORDER BY answer.responded_at DESC, answer.id DESC LIMIT 1)`.as(
+				"last_related_decision",
+			),
 			responseCount:
 				sql<number>`(SELECT COUNT(*) FROM work_interaction_responses response_count WHERE response_count.org_id=${workInteractions.orgId} AND response_count.interaction_id=${workInteractions.id})`.as(
 					"response_count",
@@ -1885,7 +1955,7 @@ export async function listWorkInteractionInbox(
 					? sql`coalesce(json_extract(${workInteractions.metadata},'$.notification.state'),'immediate') NOT IN ('deferred','bundled','suppressed')`
 					: undefined,
 				p.targetType === "user"
-					? sql`coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${p.observedAt}`
+					? sql`(${workInteractions.status}<>'open' OR coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${p.observedAt})`
 					: undefined,
 				p.urgency === "now"
 					? sql`${urgency}='now'`

@@ -8,6 +8,7 @@ import {
 	matchesCardSource,
 	type CardOrigin,
 } from "@/lib/card-source-filter";
+import { CardSnooze } from "@/components/card-snooze";
 import { DeckAskStrip } from "@/components/deck-ask-strip";
 import { DeckCurationFooter } from "@/components/deck-curation-footer";
 import { DeckNotUseful } from "@/components/deck-not-useful";
@@ -681,6 +682,7 @@ function DecisionDeckContent({
 						(preparedSourceMatches ? preparedCard.data?.presentation : null) ??
 						listPresentation,
 					confidence: selected?.decision?.confidence ?? null,
+					lastRelatedDecision: selected?.row?.lastRelatedDecision,
 					now,
 					timeZone,
 					dates: [
@@ -1022,6 +1024,18 @@ function DecisionDeckContent({
 								<DeckFooterContext.Provider
 									value={
 										<>
+											{mode === "decide" && selected?.row && (
+												<CardSnooze
+													request={selected.row.request}
+													onSnoozed={async () => {
+														clearFocusCard();
+														setIndex(0);
+														await client.invalidateQueries({
+															queryKey: osQuery.workInteractions.key(),
+														});
+													}}
+												/>
+											)}
 											{mode !== "history" &&
 												!current?.options.some(
 													(option) => option.intent === "later",

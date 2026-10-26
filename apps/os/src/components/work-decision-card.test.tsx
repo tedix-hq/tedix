@@ -1127,3 +1127,28 @@ it("opens a typed answer for a yes/no question on request", async () => {
 		host.querySelector("[data-decision-intent=approve]")?.textContent,
 	).toBe("Answer");
 });
+
+it("shows the last related decision in the context strip only when the list supplies one", async () => {
+	const state = {
+		presentation: FACE,
+		confidence: null,
+		lastRelatedDecision: {
+			subject: "Keep the existing service",
+			body: "Use the current provider for this project.",
+			decidedAt: "2026-10-25T12:00:00.000Z",
+		},
+	};
+	await mountFace(state);
+	const button = host.querySelector<HTMLButtonElement>(
+		'[data-context-item="last_decision"] button',
+	);
+	expect(button?.textContent).toContain(
+		"Last related decision: Keep the existing service",
+	);
+	await act(async () => button!.click());
+	expect(button?.textContent).toContain(
+		"Use the current provider for this project.",
+	);
+	await mountFace({ ...state, lastRelatedDecision: null });
+	expect(host.querySelector('[data-context-item="last_decision"]')).toBeNull();
+});

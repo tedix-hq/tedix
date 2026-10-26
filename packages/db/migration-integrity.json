@@ -1184,6 +1184,10 @@
 		{
 			"name": "20261026205852_token_exchange_grants/migration.sql",
 			"sha256": "0f6ffd760d02706dc0b0891b5d7b4f1a3d429acd9dafe80fa9ce1b8b7635d290"
+		},
+		{
+			"name": "20261026215629_decision_card_snooze/migration.sql",
+			"sha256": "e189be21eeb5996fb31b038c257e19086cb1fdad3ceae97517a54b50f7e93d6b"
 		}
 	]
 }
