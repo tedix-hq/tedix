@@ -72,6 +72,43 @@ export function mcpRateLimitBuckets(
 	return { request: `${appId}:ip:${clientIp}` };
 }
 
+/** Mirrors `MCP_RATE_LIMITER` and `MCP_PRINCIPAL_RATE_LIMITER` in cloudflare.config.ts. */
+export const MCP_REQUEST_LIMIT = { requestsPerMinute: 100, windowSeconds: 60 };
+export const MCP_PRINCIPAL_LIMIT = {
+	requestsPerMinute: 600,
+	windowSeconds: 60,
+};
+
+/** The budget that refused a request. */
+export type McpRateLimitScope =
+	| "agent_session"
+	| "agent_principal"
+	| "tedi"
+	| "user"
+	| "client_ip";
+
+export type McpRateLimitDenial = {
+	scope: McpRateLimitScope;
+	requestsPerMinute: number;
+	windowSeconds: number;
+};
+
+const SCOPE_LABELS: Record<McpRateLimitScope, string> = {
+	agent_session: "agent session",
+	agent_principal: "agent principal, across all its sessions",
+	tedi: "tedi",
+	user: "signed-in user, across every session on that login",
+	client_ip: "client address",
+};
+
+function bucketScope(key: string): McpRateLimitScope {
+	if (key.includes(":session:")) return "agent_session";
+	if (key.includes(":agent:")) return "agent_principal";
+	if (key.includes(":tedi:")) return "tedi";
+	if (key.includes(":user:")) return "user";
+	return "client_ip";
+}
+
 /**
  * Admit one gateway request against the per-request limiter and, for a
  * verified external-agent session, the principal ceiling.
@@ -79,6 +116,7 @@ export function mcpRateLimitBuckets(
  * The ceiling is `MCP_PRINCIPAL_RATE_LIMITER`, which allows more than one
  * session's budget. Until that binding is deployed, a session request is
  * charged to its principal key on `MCP_RATE_LIMITER`, exactly as before.
+ * A refusal names the budget that ran out.
  */
 export async function checkMcpRequestRateLimit(
 	env: {
@@ -88,15 +126,56 @@ export async function checkMcpRequestRateLimit(
 	appId: string,
 	headers: Headers,
 	clientIp: string,
-): Promise<{ allowed: boolean }> {
+): Promise<{ allowed: true } | ({ allowed: false } & McpRateLimitDenial)> {
 	const { request, ceiling } = mcpRateLimitBuckets(appId, headers, clientIp);
-	if (!ceiling) return checkRateLimit(env.MCP_RATE_LIMITER, request);
+	const charge = async (
+		limiter: RateLimiter | undefined,
+		key: string,
+		limit: typeof MCP_REQUEST_LIMIT,
+	) =>
+		(await checkRateLimit(limiter, key)).allowed
+			? ({ allowed: true } as const)
+			: ({ allowed: false, scope: bucketScope(key), ...limit } as const);
+	if (!ceiling) return charge(env.MCP_RATE_LIMITER, request, MCP_REQUEST_LIMIT);
 	if (!env.MCP_PRINCIPAL_RATE_LIMITER) {
-		return checkRateLimit(env.MCP_RATE_LIMITER, ceiling);
+		return charge(env.MCP_RATE_LIMITER, ceiling, MCP_REQUEST_LIMIT);
 	}
-	const session = await checkRateLimit(env.MCP_RATE_LIMITER, request);
+	const session = await charge(
+		env.MCP_RATE_LIMITER,
+		request,
+		MCP_REQUEST_LIMIT,
+	);
 	if (!session.allowed) return session;
-	return checkRateLimit(env.MCP_PRINCIPAL_RATE_LIMITER, ceiling);
+	return charge(env.MCP_PRINCIPAL_RATE_LIMITER, ceiling, MCP_PRINCIPAL_LIMIT);
+}
+
+/**
+ * The gateway's 429. It names the limit, its window and the budget that ran
+ * out, so a caller can pace itself. Each MCP request counts once: tool calls
+ * inside one Code Mode execution are not charged to this budget.
+ */
+export function mcpRateLimitResponse(denial: McpRateLimitDenial): Response {
+	const retryAfter = denial.windowSeconds;
+	return new Response(
+		JSON.stringify({
+			error: "Rate limit exceeded",
+			message: `Too many requests: the gateway allows ${denial.requestsPerMinute} requests per ${denial.windowSeconds} seconds per ${SCOPE_LABELS[denial.scope]}. Retry after ${retryAfter} seconds. Each MCP request counts once; tool calls inside one Code Mode execution are not counted separately, so batch them into one execution instead of sending many requests.`,
+			retryAfter,
+			requestsPerMinute: denial.requestsPerMinute,
+			windowSeconds: denial.windowSeconds,
+			scope: denial.scope,
+			codeModeInnerCallsCounted: false,
+		}),
+		{
+			status: 429,
+			headers: {
+				"Content-Type": "application/json",
+				"Retry-After": String(retryAfter),
+				"X-RateLimit-Limit": String(denial.requestsPerMinute),
+				"X-RateLimit-Remaining": "0",
+			},
+		},
+	);
 }
 
 /**
