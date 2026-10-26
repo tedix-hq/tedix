@@ -5,7 +5,12 @@
 	},
 	{
 		"name": "Finance ops",
-		"description": "Lindenquay Distribution: invoice and stock reconciliation for Alex."
+		"description": "Lindenquay Distribution: invoice and stock reconciliation for Alex.",
+		"blueprint": {
+			"id": "00000050-0000-4000-8000-000000000003",
+			"revisionId": "00000051-0000-4000-8000-000000000003",
+			"revision": 1
+		}
 	},
 	{
 		"name": "On-call",

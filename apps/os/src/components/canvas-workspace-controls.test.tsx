@@ -33,7 +33,7 @@ const webPushApi = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
-		osWorkspaces: { workspaces },
+		osWorkspaces: { workspaces, blueprints: { get: vi.fn() } },
 		osShares: osSharesApi,
 		webPush: webPushApi,
 	},

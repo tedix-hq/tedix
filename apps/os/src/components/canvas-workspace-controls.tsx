@@ -1,5 +1,6 @@
 import {
 	Archive,
+	ArrowCircleUp,
 	Bell,
 	BellSlash,
 	Copy,
@@ -39,6 +40,11 @@ import {
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 import { WorkspaceBlueprintDialog } from "@/components/workspace-blueprint-dialog";
+import {
+	BlueprintUpdateButton,
+	BlueprintUpdateDialog,
+	useBlueprintUpdate,
+} from "@/components/workspace-blueprint-update";
 import { WorkspaceShareDialog } from "@/components/workspace-share-dialog";
 
 function errorMessage(error: unknown): string {
@@ -205,6 +211,8 @@ export function CanvasWorkspaceControls({
 	const [archiveOpen, setArchiveOpen] = useState(false);
 	const [shareOpen, setShareOpen] = useState(false);
 	const [blueprintOpen, setBlueprintOpen] = useState(false);
+	const [updateOpen, setUpdateOpen] = useState(false);
+	const blueprintUpdate = useBlueprintUpdate(workspace);
 
 	const archive = useMutation({
 		mutationFn: () =>
@@ -268,6 +276,14 @@ export function CanvasWorkspaceControls({
 				) : null}
 				{workspace && (
 					<>
+						{blueprintUpdate ? (
+							<BlueprintUpdateButton
+								compact={compactActions}
+								revision={blueprintUpdate.candidate.revision}
+								blueprintName={blueprintUpdate.blueprintName}
+								onOpen={() => setUpdateOpen(true)}
+							/>
+						) : null}
 						{compactActions ? (
 							<Button
 								aria-label="Share"
@@ -362,6 +378,11 @@ export function CanvasWorkspaceControls({
 								<DotsThree size={16} weight="bold" />
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
+								{blueprintUpdate ? (
+									<DropdownMenuItem onClick={() => setUpdateOpen(true)}>
+										<ArrowCircleUp size={14} /> Update available
+									</DropdownMenuItem>
+								) : null}
 								<DropdownMenuItem onClick={() => setBlueprintOpen(true)}>
 									<Copy size={14} /> Save as blueprint
 								</DropdownMenuItem>
@@ -397,6 +418,14 @@ export function CanvasWorkspaceControls({
 			) : null}
 			{workspace && (
 				<>
+					{updateOpen && blueprintUpdate ? (
+						<BlueprintUpdateDialog
+							workspace={workspace}
+							blueprintName={blueprintUpdate.blueprintName}
+							candidate={blueprintUpdate.candidate}
+							onOpenChange={setUpdateOpen}
+						/>
+					) : null}
 					{blueprintOpen ? (
 						<WorkspaceBlueprintDialog
 							workspace={workspace}

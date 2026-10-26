@@ -747,6 +747,14 @@ const CALLS = {
 		rationale: "Merged locally",
 		evidenceRefs: ["local://test"],
 	},
+	"osWorkspaces/workspaces/previewBlueprintUpgrade": {
+		workspaceId: IDS.workspaceSupport,
+	},
+	"osWorkspaces/workspaces/decideBlueprintUpgrade": {
+		workspaceId: IDS.workspaceSupport,
+		decision: "stay_pinned",
+		candidateRevisionId: "00000051-0000-4000-8000-000000000004",
+	},
 	"osWorkspaces/blueprints/list": { limit: 50 },
 	"osWorkspaces/blueprints/gallery": { limit: 50 },
 	"osWorkspaces/blueprints/create": { name: "Test Blueprint" },
@@ -1556,6 +1564,39 @@ describe("optimistic-concurrency conflicts", () => {
 			gadgetId: IDS.gadgetDashboard,
 		}) as { items: OsGadgetExecution[] };
 		expect(history.items[0]?.id).toBe(result.execution.id);
+	});
+
+	it("blueprint upgrade previews the new app and applying it adds the app and re-pins", () => {
+		const input = { workspaceId: IDS.workspaceSupport };
+		const { report } = callLocalOk(
+			"osWorkspaces/workspaces/previewBlueprintUpgrade",
+			input,
+		) as { report: { candidateRevisionId: string; gadgetChanges: unknown } };
+		expect(report.gadgetChanges).toEqual([
+			{ name: "Ticket Triage Board", change: "unchanged" },
+			{ name: "Follow-up List", change: "added" },
+		]);
+		const { workspace } = callLocalOk(
+			"osWorkspaces/workspaces/decideBlueprintUpgrade",
+			{
+				...input,
+				decision: "apply",
+				candidateRevisionId: report.candidateRevisionId,
+			},
+		) as {
+			workspace: {
+				sourceBlueprintRevisionNumber: number;
+				rollbackReference: { revision: number } | null;
+				blueprintDecision: { decision: string } | null;
+			};
+		};
+		expect(workspace.sourceBlueprintRevisionNumber).toBe(2);
+		expect(workspace.rollbackReference?.revision).toBe(1);
+		expect(workspace.blueprintDecision?.decision).toBe("applied");
+		const { items } = callLocalOk("osWorkspaces/gadgets/list", input) as {
+			items: Array<{ name: string }>;
+		};
+		expect(items.map((row) => row.name)).toContain("Follow-up List");
 	});
 
 	it("blueprints.saveWorkspace persists a draft snapshot and rejects duplicate or missing sources", () => {

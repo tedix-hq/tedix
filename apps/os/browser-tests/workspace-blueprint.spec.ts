@@ -94,6 +94,92 @@ try {
 		await page.close();
 		console.log(`PASS workspace blueprint menu/save/error/retry at ${width}px`);
 	}
+
+	// A workspace made from version 1 sees version 2, previews it and applies it.
+	for (const width of [375, 1280]) {
+		const page = await browser.newPage({ viewport: { width, height: 900 } });
+		const decisions: unknown[] = [];
+		await page.route("**/api/**", async (route) => {
+			const pathname = new URL(route.request().url()).pathname;
+			if (pathname === "/api/rpc/webPush/getStatus") return route.fallback();
+			if (pathname === "/api/rpc/osWorkspaces/blueprints/get")
+				return route.fulfill({
+					json: {
+						json: {
+							blueprint: {
+								id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+								name: "Research starter",
+							},
+							currentRevision: {
+								id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+								revision: 2,
+								publishedAt: "2030-01-02",
+							},
+						},
+					},
+				});
+			if (
+				pathname === "/api/rpc/osWorkspaces/workspaces/previewBlueprintUpgrade"
+			)
+				return route.fulfill({
+					json: {
+						json: {
+							report: {
+								gadgetChanges: [
+									{ name: "Reading list", change: "added" },
+									{ name: "Notes", change: "unchanged" },
+								],
+								requirementChanges: [],
+								applyAllowed: true,
+								blockingReasons: [],
+								consentReasons: [],
+							},
+						},
+					},
+				});
+			if (
+				pathname === "/api/rpc/osWorkspaces/workspaces/decideBlueprintUpgrade"
+			) {
+				const raw = route.request().postDataJSON();
+				decisions.push(raw.json ?? raw);
+				return route.fulfill({ json: { json: {} } });
+			}
+			throw new Error(`Unexpected API request: ${route.request().url()}`);
+		});
+		await page.goto(`${server.origin}${path}?fromBlueprint`, {
+			waitUntil: "domcontentloaded",
+		});
+		await page.getByRole("button", { name: "Workspace actions" }).waitFor();
+		const marker = page.locator("[data-blueprint-update]");
+		await page.getByRole("button", { name: "Workspace actions" }).click();
+		await page.getByRole("menuitem", { name: "Update available" }).waitFor();
+		// Phone keeps the header to its icons; the menu carries the update.
+		assert.equal(await marker.isVisible(), width >= 640);
+		await page.getByRole("menuitem", { name: "Update available" }).click();
+		const dialog = page.getByRole("dialog");
+		await dialog.getByText("New app: Reading list").waitFor();
+		const text = await dialog.innerText();
+		assert.match(text, /Update to version 2\?/);
+		assert.match(text, /made from Research starter, version 1/);
+		assert.doesNotMatch(text, /Notes/);
+		const bounds = await dialog.boundingBox();
+		assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
+		await page.screenshot({
+			path: `${directory}/blueprint-update-${width}.png`,
+			fullPage: true,
+		});
+		await page.getByRole("button", { name: "Apply update" }).click();
+		await dialog.waitFor({ state: "detached" });
+		assert.deepEqual(decisions, [
+			{
+				workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+				decision: "apply",
+				candidateRevisionId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+			},
+		]);
+		await page.close();
+		console.log(`PASS blueprint update preview/apply at ${width}px`);
+	}
 } finally {
 	await browser.close();
 	await server.stop();
