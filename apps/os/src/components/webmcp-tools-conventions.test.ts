@@ -121,7 +121,6 @@ const deckFindings: Record<string, string[]> = {
 	card_review_set_verdict: [
 		"name: expected verb-first snake_case",
 		"annotations: write missing consequentialHint",
-		"input.verdict: missing description",
 	],
 	card_review_do_it: [
 		"name: expected verb-first snake_case",
@@ -144,14 +143,9 @@ const deckFindings: Record<string, string[]> = {
 	card_review_filter: [
 		"name: expected verb-first snake_case",
 		"annotations: write missing consequentialHint",
-		"input.channel: missing description",
 	],
 	card_review_pending_rules: ["name: expected verb-first snake_case"],
-	card_review_decide_rule: [
-		"name: expected verb-first snake_case",
-		"annotations: missing explicit readOnlyHint",
-		"input.decision: missing description",
-	],
+	card_review_decide_rule: ["name: expected verb-first snake_case"],
 };
 
 describe("WebMCP tool conventions", () => {
