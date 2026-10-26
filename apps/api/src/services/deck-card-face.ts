@@ -7,7 +7,10 @@ import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import type { BaseContext } from "../rpc/orpc";
 import { requireOrgId } from "../rpc/org-scope";
-import { generateDecisionCard } from "./decision-card-generator";
+import {
+	decisionCardProducerContext,
+	generateDecisionCard,
+} from "./decision-card-generator";
 import {
 	decisionCardSubject,
 	NEXT_STEP_BODY,
@@ -138,7 +141,7 @@ export function deckCardWritingSource(card: DeckCard) {
 					? copySpec.producerContext.workApproval
 					: card.runtimeApproval
 						? copySpec.producerContext.runtimeApproval
-						: undefined,
+						: decisionCardProducerContext(request?.metadata ?? {}),
 			decisionClass: card.decision?.classId ?? card.kind,
 			decisionDeck: card.decision
 				? {

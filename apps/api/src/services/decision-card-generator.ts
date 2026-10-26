@@ -27,6 +27,22 @@ import {
 const MAX_WRITING_CONTEXT_CHARS = 3000;
 const RAW_IDENTIFIER = new RegExp(copySpec.rawIdentifierPattern, "i");
 
+export function decisionCardProducerContext(
+	metadata: Record<string, unknown>,
+): string {
+	const supplied = Object.values(copySpec.producerContext).find(
+		(context) => context === metadata.producerContext,
+	);
+	if (supplied) return supplied;
+	const codexCapture =
+		metadata.schema === "tedix.decision-capture.v1" &&
+		metadata.source === "agent-turn-end" &&
+		(metadata.host === "codex" || metadata.agentHarness === "codex");
+	return codexCapture
+		? copySpec.producerContext.codex
+		: copySpec.producerContext.interaction;
+}
+
 function writingContext(value: string): string {
 	try {
 		const parsed = JSON.parse(value) as {
@@ -254,7 +270,7 @@ export async function generateDecisionCard(
 					prompt: request.prompt,
 					kind: request.kind,
 					decision,
-					producerContext: request.metadata.producerContext,
+					producerContext: decisionCardProducerContext(request.metadata),
 					sourceOptions: request.metadata.sourceOptions,
 					absoluteDates: request.metadata.absoluteDates,
 				}),

@@ -187,9 +187,11 @@
 	"faceFacts": "The face must be decidable without Details. Context says why this needs attention now. When the decision supplies costOfWaiting, restate what waiting costs in context. When the approve option states a cost other than none, restate that cost in body. Keep the source's numbers and dates. These facts are checked; a face without them is rejected.",
 	"unknownConsequence": "The source does not describe what yes changes.",
 	"producerContext": {
-		"factory": "The buttons record whether this suggested next step is useful. They do not execute the suggestion, send a message, change an invoice or grant permission. Describe that exact next consequence.",
-		"workApproval": "The buttons approve or reject the supplied permission request for this task. Approval records permission; it does not itself complete the task or change settings. Only describe scope established by the supplied rationale.",
-		"runtimeApproval": "The buttons approve or reject the saved action described by this request. Do not infer effects from an internal operation name. If its description does not establish the change or cost, state that it is unknown."
+		"interaction": "The card answers the supplied request. ASK names that decision, IF YES states the supplied consequence and what it touches, and WHY gives one different source-backed reason. The card records the answer only unless a supplied option explicitly establishes another effect.",
+		"codex": "This request came from Codex at the end of a conversation. ASK names the exact decision Codex needs, IF YES states the next consequence and what it touches, and WHY gives one different source-backed reason. Answering the card does not itself perform the requested step unless a supplied option explicitly establishes that effect.",
+		"factory": "ASK names the suggested next step being reviewed. IF YES says the buttons record whether it is useful; they do not execute it, send a message, change an invoice or grant permission. WHY gives one different source-backed reason.",
+		"workApproval": "ASK names the supplied permission request and task. IF YES says approval records that permission; it does not itself complete the task or change settings. WHY gives one different source-backed reason using only scope established by the supplied rationale.",
+		"runtimeApproval": "ASK names the saved action awaiting approval. IF YES states the described change, what it touches and its cost; never infer effects from an internal operation name, and say when they are unknown. WHY gives one different source-backed reason."
 	},
 	"pendingFace": "Summary pending. Open Details to review the source.",
 	"pendingTitle": "Summary pending",
