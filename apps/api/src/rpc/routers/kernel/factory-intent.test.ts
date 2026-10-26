@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { factoryIntent, factoryChatDecision } from "./factory-intent";
-import type { FactoryHealth } from "@tedix/api-contract/schemas/factories";
-const lane = {
+import type {
+	FactoryChatHealth,
+	FactoryChatReader,
+} from "./factory-chat-tools";
+const lane: FactoryChatHealth = {
 	slug: "sample-inbox",
 	name: "Sample inbox",
 	skillId: "skill-1",
@@ -11,7 +14,19 @@ const lane = {
 	scheduleEnabled: false,
 	nextFireAt: null,
 	runs: [],
-} as unknown as FactoryHealth;
+};
+function reader(
+	lanes = [lane],
+	health: FactoryChatReader["health"] = async () => lane,
+): FactoryChatReader {
+	return {
+		lanes: async () => ({
+			lanes: lanes.map(({ slug, name }) => ({ slug, name })),
+			total: lanes.length,
+		}),
+		health,
+	};
+}
 const ctx = {
 	apps: [{ slug: "sample-tools", codeMode: true as const }],
 	history: [{ role: "assistant" as const, content: "Created sample-inbox." }],
@@ -47,20 +62,21 @@ describe("factory chat routing", () => {
 		expect(factoryIntent(prompt)).toBeNull();
 	});
 	it("routes creation without loading unrelated factories", async () => {
-		const load = vi.fn();
-		const result = await factoryChatDecision(
-			"Create a daily factory",
-			ctx,
-			load,
-		);
+		const lanes = vi.fn();
+		const health = vi.fn();
+		const result = await factoryChatDecision("Create a daily factory", ctx, {
+			lanes,
+			health,
+		});
 		expect(result?.toolIntent?.capability).toBe("factories.create");
-		expect(load).not.toHaveBeenCalled();
+		expect(lanes).not.toHaveBeenCalled();
+		expect(health).not.toHaveBeenCalled();
 	});
 	it("resolves a pronoun to a known factory from history", async () => {
 		const result = await factoryChatDecision(
 			"Pause that factory",
 			ctx,
-			async () => [lane],
+			reader(),
 		);
 		expect(result?.rationale).toContain("sample-inbox");
 		expect(result?.toolIntent?.capability).toBe("factories.pause");
@@ -69,24 +85,73 @@ describe("factory chat routing", () => {
 		const result = await factoryChatDecision(
 			"How is sample-inbox factory doing?",
 			ctx,
-			async () => [lane],
+			reader(),
 		);
 		expect(result?.routeKind).toBe("answer_in_home");
 		expect(result?.answer).toContain("paused");
+	});
+	it("reads only the named factory's health after resolving it by name", async () => {
+		const health = vi.fn(async () => ({
+			...lane,
+			verdict: "healthy" as const,
+			reason: "Ran today",
+			runs: [{ runId: "run-1", status: "completed" }],
+		}));
+		const result = await factoryChatDecision(
+			"How is the Sample inbox factory doing?",
+			ctx,
+			reader(
+				[{ ...lane, slug: "other-lane", name: "Other lane" }, lane],
+				health,
+			),
+		);
+		expect(health).toHaveBeenCalledExactlyOnceWith("sample-inbox");
+		expect(result?.answer).toContain("Latest run: run-1 (completed)");
+	});
+	it("says it could not read health when the named factory's read fails", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const result = await factoryChatDecision(
+			"How is sample-inbox factory doing?",
+			ctx,
+			reader([lane], async () => {
+				throw new Error("Code Mode result kept behind a handle");
+			}),
+		);
+		expect(result?.answer).toContain("could not read current factory health");
+		expect(result?.toolIntent).toBeNull();
+		expect(warn).toHaveBeenCalledWith(
+			expect.objectContaining({ event: "health_read_failed" }),
+		);
+		warn.mockRestore();
+	});
+	it("names how many factories a capped list leaves out", async () => {
+		const result = await factoryChatDecision(
+			"How is that factory doing?",
+			{ ...ctx, history: [] },
+			{
+				lanes: async () => ({
+					lanes: [{ slug: "sample-inbox", name: "Sample inbox" }],
+					total: 151,
+				}),
+				health: async () => lane,
+			},
+		);
+		expect(result?.routeKind).toBe("ask_human");
+		expect(result?.answer).toBe(
+			"Available factories: sample-inbox and 150 more.",
+		);
 	});
 	it("asks on an unresolved or ambiguous target", async () => {
 		const result = await factoryChatDecision(
 			"Archive that factory",
 			{ ...ctx, history: [] },
-			async () => [lane],
+			reader(),
 		);
 		expect(result?.routeKind).toBe("ask_human");
 	});
 });
 
 it("grounds an immediate factory run in the lane skill and owning tedi", async () => {
-	const result = await factoryChatDecision("Run it now", ctx, async () => [
-		lane,
-	]);
+	const result = await factoryChatDecision("Run it now", ctx, reader());
 	expect(result?.rationale).toContain("owner tedi id: sample-owner");
 });
