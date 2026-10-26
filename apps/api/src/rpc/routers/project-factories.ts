@@ -7,7 +7,8 @@
  */
 
 import { factoryApprovalContext } from "../../services/factory-approval";
-import { createRouterClient, implement } from "@orpc/server";
+import { createRouterClient, implement, ORPCError } from "@orpc/server";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { skillsImprove } from "./cognitive-skill-catalog";
 import { setFactoryScheduleEnabled } from "../../services/factory-lifecycle";
 import { projectsContract } from "@tedix/api-contract/contracts/projects";
@@ -235,13 +236,29 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 				throw createError(ErrorCodes.NOT_FOUND, "Lane skill not found");
 			}
 			// canActivate proved a signed-in human or operator key, the same
-			// authority improve_skills requires for a forced activation.
-			await updateSkillEntryGated(
-				context,
-				skillId,
-				{ lifecycleState: "active", revision: existing.revision + 1 },
-				{ force: true, forceAuthority: { kind: "operator" } },
-			);
+			// authority improve_skills requires for a forced activation. The
+			// pace-layer eval gate still applies to a forced activation.
+			try {
+				await updateSkillEntryGated(
+					context,
+					skillId,
+					{ lifecycleState: "active", revision: existing.revision + 1 },
+					{ force: true, forceAuthority: { kind: "operator" } },
+				);
+			} catch (error) {
+				if (
+					error instanceof ORPCError &&
+					isRecord(error.cause) &&
+					error.cause.rule === "pace_layer_requires_eval"
+				) {
+					return {
+						lifecycleState: existing.lifecycleState,
+						nextFireAt: null,
+						refused: error.message,
+					};
+				}
+				throw error;
+			}
 			const updated = await getSkillEntry(db, skillId, orgId);
 			if (!updated) {
 				throw createError(ErrorCodes.NOT_FOUND, "Lane skill not found");

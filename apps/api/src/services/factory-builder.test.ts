@@ -325,6 +325,34 @@ describe("buildFactory", () => {
 		expect(result.nextActions[1]).toContain("improve_skills");
 	});
 
+	it("builds the factory as a draft when the eval gate refuses activation", async () => {
+		const { store, writes } = memoryStore(true);
+		store.activateLaneSkill = async () => {
+			writes.push("activate");
+			return {
+				lifecycleState: "draft",
+				nextFireAt: null,
+				refused:
+					"Promotion into differentiation requires a recorded passing certification eval for this skill revision",
+			};
+		};
+		const result = await buildFactory(store, input({ slug: "docs-lane" }));
+		expect(writes).toContain("activate");
+		expect(result).toMatchObject({
+			status: "created",
+			skillLifecycleState: "draft",
+			nextFireAt: null,
+		});
+		expect(result.skillId).toBeTruthy();
+		expect(result.steps.some((step) => step.action === "activated")).toBe(
+			false,
+		);
+		expect(result.warnings.join(" ")).toContain(
+			"stays a draft without a schedule",
+		);
+		expect(result.nextActions[0]).toContain("probe: true");
+	});
+
 	it("plans without writing on a dry run", async () => {
 		const { store, writes } = memoryStore(true);
 		const result = await buildFactory(store, input({ dryRun: true }));
