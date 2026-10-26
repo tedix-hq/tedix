@@ -320,23 +320,6 @@ function compactDiscoveryDescription(description: string): {
 	};
 }
 
-interface CatalogSearchField {
-	text: string;
-	weight: number;
-	/** Tokenized fields earn the full weight only on a whole-token match. */
-	tokens?: ReadonlySet<string>;
-	substringWeight?: number;
-}
-
-/**
- * Normalized search text per catalog entry, computed once per entry instead of
- * once per scoring pass. Normalizing every field (including the stringified
- * input schema) of a 13k-tool aggregate catalog on each pass is what drove
- * single broad `discover.search` calls past the Worker CPU limit: one search
- * scored the whole catalog for ranking and again for nearest namespaces.
- * Entries are immutable after `buildCatalogProvider`, so a WeakMap keyed by
- * the entry is exact and is released with the catalog.
- */
 /**
  * Indexed prefix of the two unbounded fields. Vendor tools ship multi-KB REST
  * doc dumps as descriptions and deep input schemas; ranking weights them at 4
@@ -346,53 +329,168 @@ const CATALOG_SEARCH_DESCRIPTION_CHARS = 4_000;
 
 const CATALOG_SEARCH_PARAMETERS_CHARS = 2_000;
 
-const catalogSearchFieldsCache = new WeakMap<
-	CatalogToolEntry,
-	CatalogSearchField[]
->();
+/**
+ * Scoring reads each entry's own fields; it never builds normalized copies.
+ * A query term is lowercase `[a-z0-9]+`, and normalization only lowercases and
+ * turns every other character into a space, so a case-insensitive substring
+ * test on the raw text answers the same as one on its normalized copy.
+ *
+ * The Connect catalog (16k tools across 111 namespaces) once cached a
+ * normalized copy of every description and stringified input schema for the
+ * whole request. On a cold isolate that pushed the Worker past its memory
+ * limit and failed `discover.search` with Cloudflare 1102 (26 Oct). Fields
+ * are now tested in descending weight order, stopping at the first that
+ * decides a term; the schema is walked, never serialized, and only for a term
+ * no other field matched. Each entry keeps one small match record per query so
+ * nearest-namespace hints reuse the ranking pass instead of scoring again.
+ */
+const termPatterns = new Map<string, RegExp>();
 
-function catalogSearchFields(
-	namespace: string,
+function termPattern(variant: string): RegExp {
+	let pattern = termPatterns.get(variant);
+	if (!pattern) {
+		if (termPatterns.size >= 256) termPatterns.clear();
+		pattern = new RegExp(variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+		termPatterns.set(variant, pattern);
+	}
+	return pattern;
+}
+
+const namespaceTokenCache = new Map<string, ReadonlySet<string>>();
+
+function namespaceTokens(namespace: string): ReadonlySet<string> {
+	let tokens = namespaceTokenCache.get(namespace);
+	if (!tokens) {
+		if (namespaceTokenCache.size >= 1_024) namespaceTokenCache.clear();
+		tokens = new Set(normalizeSearchText(namespace).split(" ").filter(Boolean));
+		namespaceTokenCache.set(namespace, tokens);
+	}
+	return tokens;
+}
+
+function textContains(
+	text: string | undefined,
+	patterns: readonly RegExp[],
+	maxChars?: number,
+): boolean {
+	if (!text) return false;
+	const bounded =
+		maxChars !== undefined && text.length > maxChars
+			? text.slice(0, maxChars)
+			: text;
+	return patterns.some((pattern) => pattern.test(bounded));
+}
+
+/**
+ * Walk the input schema's keys and scalar values in document order, charging
+ * each against the same prefix budget the serialized schema used to have.
+ */
+function schemaContains(schema: unknown, patterns: readonly RegExp[]): boolean {
+	let budget = CATALOG_SEARCH_PARAMETERS_CHARS;
+	// Containers are visited through cursors, so a wide schema is read only as
+	// far as the budget reaches. A record cursor yields each key, then its value.
+	const cursors: SchemaCursor[] = [{ items: [schema], keys: null, index: 0 }];
+	while (cursors.length > 0 && budget > 0) {
+		const cursor = cursors[cursors.length - 1]!;
+		let value: unknown;
+		if (cursor.keys) {
+			const slot = cursor.index++;
+			if (slot >= cursor.keys.length * 2) {
+				cursors.pop();
+				continue;
+			}
+			const key = cursor.keys[slot >> 1]!;
+			value =
+				slot % 2 === 0 ? key : (cursor.items as Record<string, unknown>)[key];
+		} else {
+			const items = cursor.items as unknown[];
+			if (cursor.index >= items.length) {
+				cursors.pop();
+				continue;
+			}
+			value = items[cursor.index++];
+		}
+		if (typeof value === "string") {
+			if (textContains(value, patterns, budget)) return true;
+			budget -= value.length + 3;
+		} else if (typeof value === "number" || typeof value === "boolean") {
+			const text = String(value);
+			if (textContains(text, patterns)) return true;
+			budget -= text.length + 1;
+		} else if (Array.isArray(value)) {
+			budget -= 2;
+			cursors.push({ items: value, keys: null, index: 0 });
+		} else if (isRecord(value)) {
+			budget -= 2;
+			cursors.push({ items: value, keys: Object.keys(value), index: 0 });
+		}
+	}
+	return false;
+}
+
+type SchemaCursor = {
+	items: unknown[] | Record<string, unknown>;
+	keys: string[] | null;
+	index: number;
+};
+
+type ScoringField = {
+	weight: number;
+	matches: (patterns: readonly RegExp[]) => boolean;
+};
+
+function scoringFields(
 	toolName: string,
 	meta: CatalogToolEntry,
-): CatalogSearchField[] {
-	const cached = catalogSearchFieldsCache.get(meta);
-	if (cached) return cached;
-	const namespaceText = normalizeSearchText(namespace);
-	const fields: CatalogSearchField[] = [
-		// Namespace is the highest-signal field, but a substring-only hit (e.g. the
-		// query "tedi" inside the tenant suffix "tedix" across ~40 external app
-		// namespaces) used to win at full weight and drown real results. So a
-		// full-TOKEN namespace match keeps 14, while a substring-only match is
-		// demoted below toolName (12) via `substringWeight`.
+): ScoringField[] {
+	return [
+		{ weight: 12, matches: (p) => textContains(toolName, p) },
+		{ weight: 10, matches: (p) => textContains(meta.callable, p) },
+		{ weight: 8, matches: (p) => textContains(meta.name, p) },
+		{ weight: 8, matches: (p) => textContains(meta.displayName, p) },
 		{
-			text: namespaceText,
-			weight: 14,
-			substringWeight: 6,
-			tokens: new Set(namespaceText.split(/[^a-z0-9]+/).filter(Boolean)),
-		},
-		{ text: normalizeSearchText(toolName), weight: 12 },
-		{ text: normalizeSearchText(meta.callable ?? ""), weight: 10 },
-		{ text: normalizeSearchText(meta.name ?? ""), weight: 8 },
-		{ text: normalizeSearchText(meta.displayName ?? ""), weight: 8 },
-		{
-			text: normalizeSearchText(
-				(meta.description ?? "").slice(0, CATALOG_SEARCH_DESCRIPTION_CHARS),
-			),
 			weight: 4,
+			matches: (p) =>
+				textContains(meta.description, p, CATALOG_SEARCH_DESCRIPTION_CHARS),
 		},
-		{
-			text: normalizeSearchText(
-				(JSON.stringify(meta.parameters) ?? "").slice(
-					0,
-					CATALOG_SEARCH_PARAMETERS_CHARS,
-				),
-			),
-			weight: 1,
-		},
+		{ weight: 1, matches: (p) => schemaContains(meta.parameters, p) },
 	];
-	catalogSearchFieldsCache.set(meta, fields);
-	return fields;
+}
+
+/**
+ * Namespace is the highest-signal field, but a substring-only hit (e.g. the
+ * query "tedi" inside the tenant suffix "tedix" across ~40 external app
+ * namespaces) used to win at full weight and drown real results. So a
+ * full-TOKEN namespace match keeps 14, while a substring-only match is demoted
+ * below toolName (12).
+ */
+function namespaceWeight(
+	namespace: string,
+	variants: readonly string[],
+	patterns: readonly RegExp[],
+): number {
+	if (!textContains(namespace, patterns)) return 0;
+	const tokens = namespaceTokens(namespace);
+	return variants.some((variant) => tokens.has(variant)) ? 14 : 6;
+}
+
+const lastCatalogMatch = new WeakMap<
+	CatalogToolEntry,
+	{
+		query: string;
+		namespace: string;
+		toolName: string;
+		match: CatalogSearchMatch | null;
+	}
+>();
+
+// One shared key string per query, so 16k match records add no strings.
+let lastQueryKey = "";
+
+function queryKey(terms: readonly string[]): string {
+	const key = terms.join(" ");
+	if (key !== lastQueryKey) lastQueryKey = key;
+	return lastQueryKey;
 }
 
 export function scoreCatalogSearch(
@@ -404,21 +502,39 @@ export function scoreCatalogSearch(
 	if (terms.length === 0) {
 		return { score: 1, matchedTerms: [], unmatchedTerms: [] };
 	}
-	const fields = catalogSearchFields(namespace, toolName, meta);
+	const query = queryKey(terms);
+	const cached = lastCatalogMatch.get(meta);
+	if (
+		cached?.query === query &&
+		cached.namespace === namespace &&
+		cached.toolName === toolName
+	) {
+		return cached.match;
+	}
+	const match = computeCatalogSearch(terms, namespace, toolName, meta);
+	lastCatalogMatch.set(meta, { query, namespace, toolName, match });
+	return match;
+}
+
+function computeCatalogSearch(
+	terms: string[],
+	namespace: string,
+	toolName: string,
+	meta: CatalogToolEntry,
+): CatalogSearchMatch | null {
+	let fields: ScoringField[] | undefined;
 	let score = 0;
 	const matchedTerms: string[] = [];
 	const unmatchedTerms: string[] = [];
 	for (const term of terms) {
 		const variants = searchTermVariants(term);
-		let best = 0;
-		for (const field of fields) {
-			for (const variant of variants) {
-				if (!field.text.includes(variant)) continue;
-				const fieldWeight =
-					field.tokens && !field.tokens.has(variant)
-						? (field.substringWeight ?? field.weight)
-						: field.weight;
-				if (fieldWeight > best) best = fieldWeight;
+		const patterns = variants.map(termPattern);
+		let best = namespaceWeight(namespace, variants, patterns);
+		for (const field of (fields ??= scoringFields(toolName, meta))) {
+			if (field.weight <= best) break;
+			if (field.matches(patterns)) {
+				best = field.weight;
+				break;
 			}
 		}
 		if (best > 0) {
