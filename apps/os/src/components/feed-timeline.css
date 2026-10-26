@@ -34,12 +34,17 @@
 	position: static;
 	gap: 0.5rem;
 }
+/* A preview is a small fixed-height card: thumbnail or mark, title, one line. */
 .fd-feed .fd-preview {
-	gap: 0.5rem;
-	align-items: flex-start;
-	background: transparent;
-	border-radius: var(--radius-md);
-	padding: 0.5rem 0;
+	gap: 0.625rem;
+	align-items: center;
+	height: 3.75rem;
+	margin-top: 0.25rem;
+	overflow: hidden;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	padding: 0.5rem 0.75rem;
 }
 .fd-feed .fd-preview-mark {
 	width: 1.5rem;
@@ -48,14 +53,21 @@
 	box-shadow: none;
 }
 .fd-feed .fd-preview-image {
-	width: 3rem;
-	height: 3rem;
+	width: 2.75rem;
+	height: 2.75rem;
 	flex-shrink: 0;
+	object-fit: cover;
+	border-radius: var(--radius-md);
+}
+.fd-feed .fd-preview-copy {
+	min-width: 0;
 }
 .fd-feed .fd-preview-title,
 .fd-feed .fd-preview-summary {
 	display: block;
-	overflow-wrap: anywhere;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 .ft-byline {
 	display: flex;
@@ -79,11 +91,12 @@
 	font-size: 0.8125rem;
 }
 .fd-feed .ft-sentence {
+	display: block;
 	font-size: 0.9375rem;
-	line-height: 1.55;
-	font-weight: 400;
-	color: var(--fd-muted);
-	letter-spacing: -0.015em;
+	line-height: 1.4;
+	font-weight: 600;
+	color: var(--foreground);
+	letter-spacing: -0.01em;
 	overflow-wrap: anywhere;
 }
 @media (max-width: 480px) {
@@ -139,11 +152,6 @@
 	outline: none;
 	box-shadow: inset 0 0 0 2px var(--color-kumo-focus);
 }
-.fd-feed .focus-handled-row .ft-sentence {
-	white-space: normal;
-	overflow: visible;
-	overflow-wrap: anywhere;
-}
 .fd-feed [aria-label="Source provenance"] {
 	display: flex;
 	flex-wrap: wrap;
@@ -154,6 +162,16 @@
 	line-height: var(--text-tedix-label--line-height) !important;
 }
 
-.fd-feed .focus-actions > :nth-child(n + 3) {
+.fd-feed .focus-actions > :nth-child(n + 4) {
 	display: none;
+}
+.fd-feed .fd-preview-title {
+	font-size: 0.875rem;
+	font-weight: 500;
+	line-height: 1.4;
+}
+.fd-feed .fd-preview-summary {
+	font-size: 0.8125rem;
+	line-height: 1.4;
+	color: var(--muted-foreground);
 }

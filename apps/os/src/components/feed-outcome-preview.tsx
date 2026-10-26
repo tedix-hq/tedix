@@ -9,8 +9,14 @@ import {
 	workEvidencePreviewQueryOptions,
 } from "@/lib/os-query-options";
 
-/** Only governed evidence is embedded; outside URLs remain source links. */
-export function FeedOutcomePreview({ item }: { item: ActivityFeedItem }) {
+/** Only governed evidence is embedded; outside URLs remain source links. A compact preview shows only a verified thumbnail or a failure. */
+export function FeedOutcomePreview({
+	item,
+	compact = false,
+}: {
+	item: ActivityFeedItem;
+	compact?: boolean;
+}) {
 	const enabled = Boolean(item.workItemId && item.kind === "result");
 	const evidence = useQuery({
 		...osQuery.workItems.listEvidence.queryOptions({
@@ -38,7 +44,7 @@ export function FeedOutcomePreview({ item }: { item: ActivityFeedItem }) {
 	);
 	const attachment = item.attachment;
 	const title = image?.label || document?.label || attachment?.title;
-	if (!enabled && !title) return null;
+	if (!title && (compact || !enabled)) return null;
 
 	const loading =
 		enabled &&
@@ -92,7 +98,7 @@ export function FeedOutcomePreview({ item }: { item: ActivityFeedItem }) {
 				}
 				imageAlt={image?.label || title || "Evidence preview"}
 			/>
-			{message && (
+			{message && (!compact || failed) && (
 				<div
 					className="flex flex-wrap items-center gap-2"
 					role="status"

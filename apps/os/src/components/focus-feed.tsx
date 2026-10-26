@@ -5,6 +5,7 @@ import { OS_COPY } from "@/shared/os-copy";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadNotice } from "@/components/work-read-region";
 import {
+	Fragment,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -33,7 +34,16 @@ import {
 import { Button } from "./kumo/button";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
-import { SegmentedControl } from "./kumo/segmented-control";
+import { ActivityGroupRow } from "./activity-group-row";
+import {
+	ACTIVITY_WHO,
+	ACTIVITY_WHO_LABEL,
+	activityDays,
+	collapseActivity,
+	matchesActivityWho,
+	type ActivityWho,
+} from "@/lib/feed-timeline";
+import { osLocale } from "@/lib/format";
 import { osApi } from "@/lib/api";
 import { osQuery, userPreferencesQueryOptions } from "@/lib/os-query-options";
 import {
@@ -74,12 +84,14 @@ export function FocusFeed({
 }) {
 	const cache = useQueryClient();
 	const names = useTediNames();
-	const [tab, setTab] = useState<"for_you" | "everything">(
-		navigation?.day ? "everything" : "for_you",
+	const [who, setWho] = useState<ActivityWho>("all");
+	const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(
+		() => new Set(),
 	);
 	const filter = navigation?.filter ?? "all";
 	const filtered = filter !== "all";
-	const timeline = filtered || tab === "everything";
+	// "All" is the ranked, budgeted view; any narrower choice is the full timeline.
+	const timeline = filtered || who !== "all" || !!navigation?.day;
 	const filterLabel =
 		filter === "history"
 			? "Finished work"
@@ -91,7 +103,7 @@ export function FocusFeed({
 			? "No finished work matches these filters."
 			: filter === "stalled"
 				? "No stalled work matches these filters."
-				: "No updates match these filters.";
+				: "No activity matches these filters.";
 	const [sources, setSources] = useState<Record<string, FeedSourceState>>({});
 	const [cardSource, setCardSource] = useCardSourceFilter();
 	const [request, setRequest] = useState(0);
@@ -231,15 +243,12 @@ export function FocusFeed({
 		),
 		config,
 	);
+	const timeZone =
+		config.today?.timeZone ?? model.data?.config.timezone ?? "UTC";
 	const chronological = all.filter((item) => {
-		if (
-			navigation?.day &&
-			focusDay(
-				item.at,
-				config.today?.timeZone ?? model.data?.config.timezone ?? "UTC",
-			) !== navigation.day
-		)
+		if (navigation?.day && focusDay(item.at, timeZone) !== navigation.day)
 			return false;
+		if (!matchesActivityWho(item, who)) return false;
 		switch (filter) {
 			case "history":
 				return item.done;
@@ -434,7 +443,7 @@ export function FocusFeed({
 					focusSignalInput(item, reaction, {
 						sessionId: session.id,
 						openedAt: session.openedAt,
-						feedView: timeline ? "everything" : tab,
+						feedView: timeline ? "everything" : "for_you",
 						...(filtered ? { feedFilter: filter } : {}),
 						...extra,
 					}),
@@ -455,7 +464,7 @@ export function FocusFeed({
 				return false;
 			}
 		},
-		[session, cache, tab, timeline, filtered, filter],
+		[session, cache, timeline, filtered, filter],
 	);
 	const candidates = held.map((i) => ({
 		id: i.id,
@@ -604,6 +613,57 @@ export function FocusFeed({
 			ignoredAfterMs={model.data?.config.ignoredAfterMs ?? 5000}
 		/>
 	);
+	const toggleGroup = (key: string) =>
+		setOpenGroups((open) => {
+			const next = new Set(open);
+			if (!next.delete(key)) next.add(key);
+			return next;
+		});
+	const days = (list: FocusItem[], budgeted = false) =>
+		activityDays(list, timeZone, now, osLocale()).map((day) => (
+			<section key={day.day} aria-label={day.label} className="ft-day">
+				<h3 className="ft-day-label">{day.label}</h3>
+				<div role="list" className="focus-list">
+					{collapseActivity(day.items).map((entry) =>
+						entry.kind === "item" ? (
+							render(entry.item, budgeted)
+						) : (
+							<Fragment key={entry.key}>
+								<ActivityGroupRow
+									id={entry.key}
+									items={entry.items}
+									actor={feedStoryActor(entry.items[0]!, names)}
+									open={openGroups.has(entry.key)}
+									onToggle={() => toggleGroup(entry.key)}
+								/>
+								{openGroups.has(entry.key) &&
+									entry.items.map((i) => render(i, budgeted))}
+							</Fragment>
+						),
+					)}
+				</div>
+			</section>
+		));
+	const chips = (
+		<div
+			role="group"
+			aria-label="Show activity from"
+			className="ft-chips flex flex-wrap items-center gap-1"
+		>
+			{ACTIVITY_WHO.map((value) => (
+				<Button
+					key={value}
+					size="sm"
+					variant={who === value ? "secondary" : "ghost"}
+					aria-pressed={who === value}
+					onClick={() => setWho(value)}
+				>
+					{ACTIVITY_WHO_LABEL[value]}
+				</Button>
+			))}
+			{sourceFilter}
+		</div>
+	);
 	return (
 		<div
 			ref={root}
@@ -648,34 +708,18 @@ export function FocusFeed({
 						<Button
 							variant="ghost"
 							onClick={() => {
-								setTab("for_you");
+								setWho("all");
 								navigation.onFilterChange?.("all");
 							}}
 						>
-							Show For you
+							Show all activity
 						</Button>
 					) : (
-						<Link href="/work?view=feed">Show For you</Link>
+						<Link href="/work?view=feed">Show all activity</Link>
 					)}
 				</div>
 			) : (
-				<div className="grid gap-2">
-					<div className="flex flex-wrap items-center gap-2">
-						<SegmentedControl
-							ariaLabel="Activity order"
-							value={tab}
-							onValueChange={setTab}
-							options={[
-								{ value: "for_you", label: "For you" },
-								{ value: "everything", label: "Everything" },
-							]}
-						/>
-						{sourceFilter}
-					</div>
-					<p className="focus-budget">
-						Worth your time today: {selection.selected.length}
-					</p>
-				</div>
+				chips
 			)}
 			{status && <p role="status">{status}</p>}
 			<WorkReadNotice
@@ -700,22 +744,12 @@ export function FocusFeed({
 					})
 				}
 			/>
-			{!timeline && needs.length > 0 && (
-				<section aria-label="Needs you" className="focus-needs">
-					<h2 className="focus-section-heading">
-						Needs you <span>{needs.length}</span>
-					</h2>
-					<div role="list" className="focus-list">
-						{needs.map((i) => render(i, true))}
-					</div>
-				</section>
-			)}
 			{config.today && (
-				<div hidden={filtered}>
+				<div hidden={timeline}>
 					<TodayPost
 						config={config.today}
 						onUpdate={onUpdate}
-						compact={tab === "for_you"}
+						compact
 						changesSinceLook={
 							new Map(
 								events
@@ -749,26 +783,21 @@ export function FocusFeed({
 				id="feed-receipts"
 				role="feed"
 				aria-label={
-					filtered ? filterLabel : timeline ? "Everything" : "Updates for you"
+					filtered
+						? filterLabel
+						: timeline
+							? `${ACTIVITY_WHO_LABEL[who]} activity`
+							: "Activity for you"
 				}
 				aria-busy={loading || revealing}
 			>
 				{timeline ? (
-					<div role="list" className="focus-list">
-						{visible.map((i) => render(i))}
-					</div>
+					days(visible)
 				) : (
 					<>
-						<h2 className="focus-section-heading">
-							Updates <span>{updates.length}</span>
-						</h2>
-						{updates.length > 0 && (
-							<div role="list" className="focus-list">
-								{updates.map((i) => render(i, true))}
-							</div>
-						)}
-						{!updates.length && !loading && (
-							<Text tone="secondary">Nothing else needs your attention.</Text>
+						{days([...needs, ...updates], true)}
+						{!needs.length && !updates.length && !loading && (
+							<Text tone="secondary">Nothing new needs your attention.</Text>
 						)}
 						{waiting.length > 0 && (
 							<>
@@ -782,11 +811,7 @@ export function FocusFeed({
 										? "Fewer updates"
 										: `${waiting.length} more updates`}
 								</Button>
-								{heldOpen && (
-									<div role="list" className="focus-list">
-										{waiting.map((i) => render(i))}
-									</div>
-								)}
+								{heldOpen && days(waiting)}
 							</>
 						)}
 						{handled.length > 0 && (
@@ -799,19 +824,7 @@ export function FocusFeed({
 								>
 									Handled without you: {handled.length}
 								</Button>
-								{handledOpen && (
-									<div role="list" className="focus-list">
-										{handled.map((i) => (
-											<div
-												key={i.id}
-												role="presentation"
-												className="focus-handled-row"
-											>
-												{render(i)}
-											</div>
-										))}
-									</div>
-								)}
+								{handledOpen && days(handled)}
 							</section>
 						)}
 					</>
@@ -820,7 +833,7 @@ export function FocusFeed({
 			{loading && <Text>Opening your activity…</Text>}
 			{!loading && !failed && !visible.length && timeline && (
 				<div role="status">
-					<Text>{filtered ? emptyMessage : "No updates yet."}</Text>
+					<Text>{filtered ? emptyMessage : "No activity yet."}</Text>
 				</div>
 			)}
 			{more && (
@@ -835,8 +848,8 @@ export function FocusFeed({
 			)}
 			<DecisionContextSection title="Activity preferences">
 				<Text>
-					j / k move · o open · p pin · h hide · n not important. Everything
-					keeps the full timeline.
+					j / k move · o open · p pin · h hide · n not important. People, Tedis,
+					Apps and Shipped show the full timeline.
 				</Text>
 				{navigation?.apps}
 			</DecisionContextSection>

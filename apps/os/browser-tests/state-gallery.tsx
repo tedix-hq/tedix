@@ -29,7 +29,7 @@ import {
 	TediRow,
 	type TediDetailLinkProps,
 } from "../src/components/team-page";
-import { FocusDecisionRow } from "../src/components/focus-decision-row";
+import { FeedCard } from "../src/components/focus-feed-card";
 import { WorkReadNotice } from "../src/components/work-read-region";
 import "../src/components/feed-timeline.css";
 import "../src/components/focus-feed.css";
@@ -76,8 +76,11 @@ const surfaces: {
 			/>
 		),
 		partial: (
-			<FocusDecisionRow
+			<FeedCard
 				actor="Mira"
+				busy={false}
+				onReact={async () => true}
+				onWork={async () => {}}
 				item={{
 					id: "sample-result",
 					actor: "Mira",
@@ -103,7 +106,7 @@ const surfaces: {
 				}}
 			/>
 		),
-		gap: "Feed list requires workspace context; shared Empty/ListSkeleton, FocusDecisionRow and WorkReadNotice branches are shown.",
+		gap: "Feed list requires workspace context; shared Empty/ListSkeleton, FeedCard and WorkReadNotice branches are shown.",
 	},
 	{
 		id: "deck",

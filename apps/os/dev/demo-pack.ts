@@ -826,22 +826,90 @@ export function applyDemoPack(
 
 	// Feed, with its dates shifted onto today.
 	const feed = shiftDemoDates(feedData, packMeta.anchor, nowMs);
-	h["workItems/listActivity"] = () => ({
-		events: feed.map((event, i) => ({
-			id: uid(171, i + 1),
-			workItemId: uid(172, i + 1),
-			workItemTitle: event.title,
-			workItemDisposition: "completed",
-			eventType: "work.completed",
+	const tediId = (name: string) =>
+		ctx.tedis.find((tedi) => tedi.name === name)?.id ?? null;
+	// A varied week: a person's note, a run of agent commits that collapses,
+	// a failure, and older days for the day headers.
+	const extraActivity: {
+		authorType: string;
+		authorId: unknown;
+		harness?: string;
+		eventType?: string;
+		disposition?: string;
+		title: string;
+		body: string;
+		createdAt: string;
+	}[] = [
+		{
+			authorType: "user",
+			authorId: "dev-operator",
+			title: "Supplier payments",
+			body: "Maya asked Reconciler to hold supplier payments until Friday. Two invoices still wait for signed receipts.",
+			createdAt: at(0, 25),
+		},
+		{
 			authorType: "tedi",
-			authorId: ctx.tedis.find((tedi) => tedi.name === event.agent)?.id,
-			agentHarness: null,
-			agentSession: null,
-			settlement: null,
-			body: event.body,
-			metadata: { sampleData: true },
-			createdAt: event.createdAt,
+			authorId: tediId("On-call"),
+			eventType: "attempt.failed",
+			disposition: "accepted",
+			title: "Payments status check",
+			body: "On-call could not reach the payments status page. It retries in 30 minutes.",
+			createdAt: at(0, 70),
+		},
+		...[
+			"Codex shipped the checkout retry fix.",
+			"Codex shipped clearer price-alert emails.",
+			"Codex shipped the kettle stock badge.",
+			"Codex shipped faster order history.",
+		].map((body, i) => ({
+			authorType: "external_agent",
+			authorId: null,
+			harness: "codex",
+			title: body.replace(/^Codex shipped /, ""),
+			body,
+			createdAt: at(1, 120 + i * 9),
 		})),
+		{
+			authorType: "tedi",
+			authorId: tediId("Reconciler"),
+			title: "September close",
+			body: "Reconciler closed the September books. 412 invoices matched; 3 went to Alex for a second look.",
+			createdAt: at(3, 200),
+		},
+	];
+	h["workItems/listActivity"] = () => ({
+		events: [
+			...feed.map((event, i) => ({
+				id: uid(171, i + 1),
+				workItemId: uid(172, i + 1),
+				workItemTitle: event.title,
+				workItemDisposition: "completed",
+				eventType: "work.completed",
+				authorType: "tedi",
+				authorId: ctx.tedis.find((tedi) => tedi.name === event.agent)?.id,
+				agentHarness: null,
+				agentSession: null,
+				settlement: null,
+				body: event.body,
+				metadata: { sampleData: true },
+				createdAt: event.createdAt,
+			})),
+			...extraActivity.map((event, i) => ({
+				id: uid(171, 100 + i),
+				workItemId: uid(172, 100 + i),
+				workItemTitle: event.title,
+				workItemDisposition: event.disposition ?? "completed",
+				eventType: event.eventType ?? "work.completed",
+				authorType: event.authorType,
+				authorId: event.authorId,
+				agentHarness: event.harness ?? null,
+				agentSession: null,
+				settlement: null,
+				body: event.body,
+				metadata: { sampleData: true },
+				createdAt: event.createdAt,
+			})),
+		].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
 		nextCursor: null,
 		truncated: false,
 	});

@@ -65,13 +65,19 @@ async function audit(page: Page) {
 				channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
 			);
 		};
+		// A fully transparent ancestor (hover-revealed row actions) paints nothing to measure.
+		const transparent = (el: Element) => {
+			for (let node: Element | null = el; node; node = node.parentElement)
+				if (Number(getComputedStyle(node).opacity) === 0) return true;
+			return false;
+		};
 		const visible = (el: Element) => {
 			const css = getComputedStyle(el);
 			const rect = el.getBoundingClientRect();
 			return (
 				css.visibility !== "hidden" &&
 				css.display !== "none" &&
-				Number(css.opacity) > 0 &&
+				!transparent(el) &&
 				rect.width > 1 &&
 				rect.height > 1 &&
 				!el.closest(".sr-only, [hidden]")

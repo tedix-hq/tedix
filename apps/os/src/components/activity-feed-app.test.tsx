@@ -197,7 +197,7 @@ it.each(["projects", "organization"] as const)(
 					(b) =>
 						b.getAttribute("aria-label") === label || b.textContent === label,
 				)!;
-			await act(async () => button("Receipt").click());
+			await act(async () => button("More").click());
 			expect(host.textContent).toContain(
 				"The attempt settled with its receipt.",
 			);
@@ -220,7 +220,7 @@ it.each(["projects", "organization"] as const)(
 				}),
 			);
 			expect(host.querySelector("article")).toBeNull();
-			await act(async () => button("Everything").click());
+			await act(async () => button("Shipped").click());
 			expect(host.querySelector("article")?.textContent).toContain(
 				row.sentence,
 			);
@@ -351,7 +351,7 @@ it("applies navigation filters before the attention budget, preserves scope, and
 			"No finished work matches these filters.",
 		);
 		const clear = [...host.querySelectorAll("button")].find(
-			(b) => b.textContent === "Show For you",
+			(b) => b.textContent === "Show all activity",
 		)!;
 		await act(async () => clear.click());
 		expect(change).toHaveBeenCalledWith("all");

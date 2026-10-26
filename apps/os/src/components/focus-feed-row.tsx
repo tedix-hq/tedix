@@ -7,8 +7,6 @@ import type {
 	FocusSignal,
 } from "@tedix/api-contract/utils/focus-feed";
 import { FeedCard } from "./focus-feed-card";
-import { FocusRowActions } from "./focus-row-actions";
-import { FocusDecisionRow } from "./focus-decision-row";
 
 export function FocusRow({
 	item,
@@ -125,8 +123,8 @@ export function FocusRow({
 	}
 	const rowActions = [
 		{ label: "Pin", reaction: "pin", Icon: PushPin },
-		{ label: "Hide", reaction: "hide", Icon: EyeSlash },
 		{ label: "Not important", reaction: "not_important", Icon: ThumbsDown },
+		{ label: "Hide", reaction: "hide", Icon: EyeSlash },
 		{ label: "Tell me earlier", reaction: "tell_me_earlier", Icon: Bell },
 	] as const;
 	function react(reaction: FocusSignal) {
@@ -150,21 +148,15 @@ export function FocusRow({
 				if (e.target instanceof Element && e.target.closest("a")) open();
 			}}
 		>
-			{item.needsAction ? (
-				<FocusDecisionRow item={item} actor={actor} project={project} />
-			) : (
-				<FeedCard
-					item={item}
-					actor={actor}
-					project={project}
-					busy={busy}
-					onReact={onReact}
-					onWork={onWork}
-					rowActions={actions}
-				/>
-			)}
-			{item.because && <p className="focus-because">{item.because}</p>}
-			{item.needsAction && <FocusRowActions actions={actions} />}
+			<FeedCard
+				item={item}
+				actor={actor}
+				project={project}
+				busy={busy}
+				onReact={onReact}
+				onWork={onWork}
+				rowActions={actions}
+			/>
 		</div>
 	);
 }
