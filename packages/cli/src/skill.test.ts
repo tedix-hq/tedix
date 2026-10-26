@@ -279,4 +279,45 @@ describe("finding, scheduling, inspecting and editing skills", () => {
 		expect(calls).toHaveLength(0);
 		stderr.mockRestore();
 	});
+
+	it("shows a bounded summary and reads one file in chunks", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		const big = "x".repeat(30_000);
+		const calls: string[] = [];
+		const { ctx } = harness({});
+		ctx.client.runCode = async (source: string) => {
+			calls.push(source);
+			const offset = Number(/text\.slice\((\d+)/.exec(source)?.[1] ?? 0);
+			return source.includes("chunk:")
+				? { total: big.length, chunk: big.slice(offset, offset + 12_000) }
+				: {
+						id: SKILL_ID,
+						files: [{ path: "scripts/workflow.ts", chars: 30_000 }],
+					};
+		};
+		expect(await runSkillCommand(`show ${SKILL_ID}`, ctx)).toBe(0);
+		expect(calls[0]).toContain("contentPreview");
+		expect(calls[0]).not.toContain("chunk:");
+
+		ctx.flow.file = "scripts/workflow.ts";
+		stdout.mockClear();
+		expect(await runSkillCommand(`show ${SKILL_ID}`, ctx)).toBe(0);
+		expect(calls.slice(1)).toHaveLength(3);
+		expect(JSON.parse(String(stdout.mock.calls[0]?.[0])).content).toBe(big);
+		stdout.mockRestore();
+	});
+
+	it("names the files when the requested one is missing", async () => {
+		const stderr = spyOn(console, "error").mockImplementation(() => {});
+		const { ctx } = harness({
+			missingFile: "nope.ts",
+			files: ["SKILL.md", "scripts/workflow.ts"],
+		});
+		ctx.flow.file = "nope.ts";
+		expect(await runSkillCommand("show ship-health", ctx)).toBe(2);
+		expect(String(stderr.mock.calls[0]?.[0])).toContain(
+			"no file nope.ts; files: SKILL.md, scripts/workflow.ts",
+		);
+		stderr.mockRestore();
+	});
 });
