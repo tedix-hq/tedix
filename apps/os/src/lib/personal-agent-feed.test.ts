@@ -8,6 +8,7 @@ it("shows an enrolled agent's fictional finding as one Feed post with provenance
 	const contribution = {
 		sourceAgentId: id,
 		sourceAgentName: "Cedar Scout",
+		imageUrl: "https://assets.example.test/cedar.svg",
 		representedUserId: "fictional-luz",
 		sourceChannel: "browser_form" as const,
 		capturedAt: "2026-10-19T12:00:00.000Z",
@@ -39,6 +40,7 @@ it("shows an enrolled agent's fictional finding as one Feed post with provenance
 			id,
 			displayName: "Cedar Scout",
 			representedUserId: "fictional-luz",
+			imageUrl: contribution.imageUrl,
 		},
 		source: {
 			channel: "browser_form",

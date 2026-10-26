@@ -1,10 +1,17 @@
 import * as z from "zod";
 
+/** A logo the represented person configured for their agent; never taken from a finding. */
+export const PersonalAgentImageUrlSchema = z
+	.url()
+	.max(2000)
+	.refine((url) => url.startsWith("https://"));
+
 export const PersonalAgentEnrollmentSchema = z.strictObject({
 	id: z.uuid(),
 	orgId: z.uuid(),
 	representedUserId: z.string().min(1).max(300),
 	sourceAgentName: z.string().trim().min(1).max(100),
+	imageUrl: PersonalAgentImageUrlSchema.optional(),
 	projectId: z.uuid(),
 	secretName: z.string().min(1),
 	active: z.boolean(),
@@ -38,6 +45,7 @@ export type PersonalAgentFinding = z.infer<typeof PersonalAgentFindingSchema>;
 export const PersonalAgentContributionSchema = z.strictObject({
 	sourceAgentId: z.uuid(),
 	sourceAgentName: z.string(),
+	imageUrl: PersonalAgentImageUrlSchema.optional(),
 	representedUserId: z.string(),
 	sourceChannel: z.enum(["browser_form", "webhook"]),
 	capturedAt: z.iso.datetime(),

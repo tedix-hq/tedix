@@ -34,6 +34,7 @@ import type {
 	WorkAttemptProjectionSchema,
 } from "../schemas/work-items";
 import type { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
+import type { PersonalAgentContribution } from "../schemas/personal-agent-inbound";
 import {
 	DeckCurationStateSchema,
 	type DeckRetirementReason,
@@ -148,6 +149,27 @@ function base(
 	};
 }
 
+/**
+ * The display identity of a server-stamped personal-agent contribution: the
+ * agent, its configured logo, whom it represents and where the finding came from.
+ */
+export function personalAgentActorFields(c: PersonalAgentContribution) {
+	return {
+		contributor: {
+			id: c.sourceAgentId,
+			displayName: c.sourceAgentName,
+			representedUserId: c.representedUserId,
+			...(c.imageUrl ? { imageUrl: c.imageUrl } : {}),
+		},
+		source: {
+			channel: c.sourceChannel,
+			capturedAt: c.capturedAt,
+			evidenceUrl: c.evidenceUrl,
+			externalFindingId: c.externalFindingId,
+		},
+	};
+}
+
 export function workFeedItems(
 	events: WorkActivityEvent[],
 	projectId: string | null,
@@ -187,21 +209,7 @@ export function workFeedItems(
 				id: e.authorId,
 				harness: e.agentHarness,
 				...(e.personalAgentContribution
-					? {
-							contributor: {
-								id: e.personalAgentContribution.sourceAgentId,
-								displayName: e.personalAgentContribution.sourceAgentName,
-								representedUserId:
-									e.personalAgentContribution.representedUserId,
-							},
-							source: {
-								channel: e.personalAgentContribution.sourceChannel,
-								capturedAt: e.personalAgentContribution.capturedAt,
-								evidenceUrl: e.personalAgentContribution.evidenceUrl,
-								externalFindingId:
-									e.personalAgentContribution.externalFindingId,
-							},
-						}
+					? personalAgentActorFields(e.personalAgentContribution)
 					: {}),
 			},
 			tediId:

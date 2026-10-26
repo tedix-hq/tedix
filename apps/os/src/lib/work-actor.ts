@@ -1,4 +1,6 @@
 import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
+import { PersonalAgentContributionSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
+import { personalAgentActorFields } from "@tedix/api-contract/utils/activity-feed";
 
 export interface ActorProfile {
 	name: string;
@@ -50,6 +52,37 @@ export function workActorReference(
 		),
 	};
 }
+/**
+ * Who raised a decision. Only the intake service stamps a personal agent's
+ * contribution, so a contribution in any other creator's metadata is ignored.
+ */
+export function interactionActorReference(
+	request: {
+		creatorType: string;
+		creatorId: string;
+		creatorSessionId?: string | null;
+		metadata?: unknown;
+	},
+	harness?: string | null,
+): WorkActorReference {
+	const base = workActorReference(
+		request.creatorType,
+		request.creatorId,
+		{ agentHarness: harness },
+		request.creatorSessionId,
+	);
+	const metadata = request.metadata as Record<string, unknown> | undefined;
+	const contribution =
+		request.creatorType === "system"
+			? PersonalAgentContributionSchema.safeParse(
+					metadata?.personalAgentContribution,
+				)
+			: undefined;
+	return contribution?.success
+		? { ...base, ...personalAgentActorFields(contribution.data) }
+		: base;
+}
+
 export function resolveWorkActor(
 	ref: WorkActorReference | undefined,
 	fallback: string,

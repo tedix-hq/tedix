@@ -36,8 +36,16 @@ on your behalf. A separate owner confirmation in that product remains yours.
    The post names Cedar Scout, links its proposed Work, and carries the source
    reference, represented user, channel and external finding ID. The receipt
    explanation says no action executed. FYI is a signal; Proposal remains
-   proposed Work until separately reviewed and admitted.
-5. Call `personalAgentInbound.list` with `{}` to read your enrollment metadata,
+   proposed Work until separately reviewed and admitted. Activity and the
+   Decisions card show it as "Cedar Scout for <your name>", with the intake
+   service as the account that actually submitted it.
+5. To show the agent's logo beside its findings, call
+   `personalAgentInbound.configureIdentity` with
+   `{"id":"<enrollment-id>","imageUrl":"https://<logo-url>"}`, or pass
+   `imageUrl` to `enroll`. Use an HTTPS image you are allowed to use. Findings
+   received afterwards carry it; send `"imageUrl":null` to remove it. A name
+   or logo written inside a finding is never used.
+6. Call `personalAgentInbound.list` with `{}` to read your enrollment metadata,
    or `personalAgentInbound.revoke` with `{"id":"<enrollment-id>"}` to disable it.
    Revocation checks the same owner and credential organization. It preserves
    existing receipts and prevents new submissions with the old token.

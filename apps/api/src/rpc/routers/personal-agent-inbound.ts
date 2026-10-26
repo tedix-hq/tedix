@@ -1,6 +1,9 @@
 import { implement } from "@orpc/server";
 import { personalAgentInboundContract } from "@tedix/api-contract/contracts/personal-agent-inbound";
-import { PersonalAgentEnrollmentSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
+import {
+	PersonalAgentEnrollmentSchema,
+	type PersonalAgentEnrollment,
+} from "@tedix/api-contract/schemas/personal-agent-inbound";
 import {
 	PERSONAL_AGENT_NAMESPACE,
 	personalAgentConfigKey,
@@ -45,26 +48,50 @@ const owner = implement(personalAgentInboundContract)
 		});
 	});
 
+type OwnerContext = BaseContext & { ownerUserId: string; orgId: string };
+
+async function activeEnrollment(context: OwnerContext, id: string) {
+	const key = personalAgentConfigKey(context.orgId, id);
+	const row = await getUserConfig(context.db, {
+		userId: context.ownerUserId,
+		namespace: PERSONAL_AGENT_NAMESPACE,
+		key,
+	});
+	const parsed = PersonalAgentEnrollmentSchema.safeParse(row?.value);
+	if (
+		!row ||
+		!parsed.success ||
+		!parsed.data.active ||
+		parsed.data.orgId !== context.orgId ||
+		parsed.data.representedUserId !== context.ownerUserId
+	)
+		throw createError(ErrorCodes.NOT_FOUND, "Active enrollment not found");
+	return { key, revision: row.revision, enrollment: parsed.data };
+}
+
+async function saveEnrollment(
+	context: OwnerContext,
+	current: { key: string; revision: number },
+	enrollment: PersonalAgentEnrollment,
+) {
+	const saved = await putUserConfig(context.db, {
+		userId: context.ownerUserId,
+		namespace: PERSONAL_AGENT_NAMESPACE,
+		key: current.key,
+		value: enrollment,
+		expectedRevision: current.revision,
+	});
+	if (!saved.ok)
+		throw createError(ErrorCodes.CONFLICT, "Enrollment changed; reload");
+	return enrollment;
+}
+
 export const personalAgentInboundContractRouter = {
 	configureDelivery: owner.configureDelivery.handler(
 		async ({ input, context }) => {
-			const key = personalAgentConfigKey(context.orgId, input.id);
-			const row = await getUserConfig(context.db, {
-				userId: context.ownerUserId,
-				namespace: PERSONAL_AGENT_NAMESPACE,
-				key,
-			});
-			const parsed = PersonalAgentEnrollmentSchema.safeParse(row?.value);
-			if (
-				!row ||
-				!parsed.success ||
-				!parsed.data.active ||
-				parsed.data.orgId !== context.orgId ||
-				parsed.data.representedUserId !== context.ownerUserId
-			)
-				throw createError(ErrorCodes.NOT_FOUND, "Active enrollment not found");
+			const current = await activeEnrollment(context, input.id);
 			const enrollment = {
-				...parsed.data,
+				...current.enrollment,
 				delivery: { workComment: true as const, email: input.email },
 			};
 			if (
@@ -75,16 +102,17 @@ export const personalAgentInboundContractRouter = {
 					ErrorCodes.BAD_REQUEST,
 					"Choose the enrolled agent's active member identity and an active organization sender address",
 				);
-			const saved = await putUserConfig(context.db, {
-				userId: context.ownerUserId,
-				namespace: PERSONAL_AGENT_NAMESPACE,
-				key,
-				value: enrollment,
-				expectedRevision: row.revision,
+			return saveEnrollment(context, current, enrollment);
+		},
+	),
+	configureIdentity: owner.configureIdentity.handler(
+		async ({ input, context }) => {
+			const current = await activeEnrollment(context, input.id);
+			const { imageUrl: _previous, ...rest } = current.enrollment;
+			return saveEnrollment(context, current, {
+				...rest,
+				...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
 			});
-			if (!saved.ok)
-				throw createError(ErrorCodes.CONFLICT, "Enrollment changed; reload");
-			return enrollment;
 		},
 	),
 	value: owner.value.handler(async ({ context }) => {
@@ -147,6 +175,7 @@ export const personalAgentInboundContractRouter = {
 			orgId: context.orgId,
 			representedUserId: context.ownerUserId,
 			sourceAgentName: input.sourceAgentName,
+			...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
 			projectId: project.id,
 			secretName: `personal-agent-${id}`,
 			active: true,

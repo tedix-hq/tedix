@@ -150,6 +150,67 @@ describe("personal-agent intake", () => {
 			h.sqlite.close();
 		}
 	});
+	it("stamps the owner-configured logo on later findings and their card, never one from the finding", async () => {
+		const h = setup();
+		try {
+			await h.db.insert(organizationMembers).values({
+				id: "member",
+				organizationId: org,
+				userId: user,
+				descopeUserId: `descope-${user}`,
+				email: "luz@example.test",
+				role: "owner",
+				status: "active",
+			});
+			const e = await h.enroll();
+			const logo = "https://assets.example.test/cedar.svg";
+			await expect(
+				h
+					.client("fictional-river")
+					.configureIdentity({ id: e.enrollment.id, imageUrl: logo }),
+			).rejects.toThrow(/Active enrollment not found/);
+			expect(
+				await h
+					.client()
+					.configureIdentity({ id: e.enrollment.id, imageUrl: logo }),
+			).toMatchObject({ id: e.enrollment.id, imageUrl: logo });
+			expect(
+				(
+					await h.send(e, {
+						...finding,
+						imageUrl: "https://spoof.example.test/x.svg",
+					} as typeof finding)
+				).status,
+			).toBe(400);
+			expect(
+				(
+					await h.send(e, {
+						...finding,
+						kind: "proposal" as const,
+						externalFindingId: "logo-1",
+					})
+				).status,
+			).toBe(201);
+			const feed = await listWorkActivity(h.db, {
+				orgId: org,
+				viewerUserId: user,
+			});
+			expect(feed.events[0]?.personalAgentContribution).toMatchObject({
+				sourceAgentName: "Cedar Scout",
+				imageUrl: logo,
+			});
+			const [card] = await h.db.select().from(workInteractions);
+			expect(card?.metadata).toMatchObject({
+				personalAgentContribution: { imageUrl: logo },
+			});
+			const cleared = await h
+				.client()
+				.configureIdentity({ id: e.enrollment.id, imageUrl: null });
+			expect(cleared).not.toHaveProperty("imageUrl");
+		} finally {
+			h.sqlite.close();
+		}
+	});
 	it("enrolls once, captures 10 fictional form/webhook findings once, projects only to the owner, and returns receipts", async () => {
 		const h = setup();
 		try {

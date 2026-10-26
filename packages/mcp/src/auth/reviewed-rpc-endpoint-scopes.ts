@@ -18,6 +18,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"webPush/setVisibility": "mcp:apps.write",
 	"personalAgentInbound/enroll": "mcp:apps.write",
 	"personalAgentInbound/configureDelivery": "mcp:apps.write",
+	"personalAgentInbound/configureIdentity": "mcp:apps.write",
 	"personalAgentInbound/value": "mcp:apps.write",
 	"personalAgentInbound/list": "mcp:apps.write",
 	"personalAgentInbound/revoke": "mcp:apps.write",
