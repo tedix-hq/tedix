@@ -85,7 +85,9 @@ function renderControls(
 				resourceId: string;
 				currentRevisionId?: string | null;
 		  }
-	) & { compact?: boolean } = { outputId: OUTPUT_ID },
+	) & { compact?: boolean; onOpenReview?: () => void } = {
+		outputId: OUTPUT_ID,
+	},
 ): HTMLElement {
 	const client = new QueryClient({
 		defaultOptions: {
@@ -721,21 +723,22 @@ describe("ShareControls review entry", () => {
 			role: "use",
 		});
 
-	it("offers a closed review entry to the organization owner", async () => {
+	it("links the organization owner to the app's Review tab", async () => {
 		sharesApi.list.mockResolvedValue({ items: [useLink()] });
 		getContext.mockResolvedValue({ authority: { role: "owner" } });
+		const onOpenReview = vi.fn();
 		const container = renderControls({
 			resourceType: "gadget",
 			resourceId: GADGET_ID,
+			onOpenReview,
 		});
 		click(findButton(container, "Share"));
 		await flush();
-		expect(container.textContent).toContain(
-			"Ask people to review specific items",
-		);
-		// Closed by default: none of the review form is on screen.
+		// One link, none of the review form.
 		expect(container.textContent).not.toContain("Items come from");
-		expect(container.textContent).not.toContain("No review batch");
+		click(findButton(container, "Ask people to review items"));
+		await flush();
+		expect(onOpenReview).toHaveBeenCalledTimes(1);
 	});
 
 	it("hides the review entry from everyone else", async () => {
@@ -744,6 +747,7 @@ describe("ShareControls review entry", () => {
 		const container = renderControls({
 			resourceType: "gadget",
 			resourceId: GADGET_ID,
+			onOpenReview: vi.fn(),
 		});
 		click(findButton(container, "Share"));
 		await flush();

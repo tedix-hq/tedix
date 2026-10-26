@@ -1,5 +1,3 @@
-import { ReviewFeedbackSummary } from "./review-feedback-summary";
-import { CreateReviewBatch } from "./create-review-batch";
 import {
 	CaretRight,
 	Copy,
@@ -22,11 +20,6 @@ import { type ReactNode, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
 import { DateTimePicker } from "@/components/kumo/date-picker";
 import { Input } from "@/components/kumo/input";
 import { Link } from "@/components/kumo/link";
@@ -566,40 +559,23 @@ function LinkForm(props: {
 	);
 }
 
-/**
- * Review rounds ride on an app's "use" link: the organization owner picks
- * cards from a document, and signed-in members who open the link mark each one.
- */
-function ReviewSection(props: { shareId: string; gadgetId: string }) {
+/** Review rounds live in the app's Review tab; Share only points there. */
+function ReviewEntry(props: { onOpen: () => void }) {
 	const context = useOsOperationalContext();
 	// The API lets only the organization owner send a round.
 	if (context.data?.authority.role !== "owner") return null;
 	return (
-		<Collapsible className="grid gap-2 border-kumo-line border-t pt-3">
-			<CollapsibleTrigger className="group -mx-2 justify-start text-kumo-default">
-				<CaretRight
-					size={12}
-					aria-hidden
-					className="transition-transform group-data-[panel-open]:rotate-90 motion-reduce:transition-none"
-				/>
-				Ask people to review specific items
-			</CollapsibleTrigger>
-			<CollapsibleContent>
-				<div className="grid gap-3 pt-1">
-					<Text role="label" tone="secondary" className="m-0">
-						Pick items from a document and send them to people in your
-						organization who have this app's link. They mark each one ready,
-						edit, skip or needs checking; their answers show here and never
-						change your document.
-					</Text>
-					<ReviewFeedbackSummary shareId={props.shareId} />
-					<CreateReviewBatch
-						shareId={props.shareId}
-						gadgetId={props.gadgetId}
-					/>
-				</div>
-			</CollapsibleContent>
-		</Collapsible>
+		<div className="border-kumo-line border-t pt-3">
+			<Button
+				variant="ghost"
+				className="-mx-2 justify-start"
+				onClick={props.onOpen}
+				data-share-review-entry
+			>
+				Ask people to review items
+				<CaretRight size={12} aria-hidden />
+			</Button>
+		</div>
 	);
 }
 
@@ -619,6 +595,8 @@ type ShareControlsProps = (
 	 * account-free guest page instead of the signed-in share page.
 	 */
 	guestEntry?: boolean;
+	/** Opens the app's Review tab, where review rounds are sent. */
+	onOpenReview?: () => void;
 };
 
 function normalizeResource(props: ShareControlsProps): {
@@ -739,10 +717,6 @@ export function ShareControls(props: ShareControlsProps) {
 		(shares.isSuccess && activeLinks.length === 0 && !created);
 	const editing = formMode.kind === "edit" ? formMode.share : null;
 	const defaultRole: OsShareRole = resourceType === "output" ? "viewer" : "use";
-	const reviewLink =
-		resourceType === "gadget"
-			? activeLinks.find((share) => share.role === "use")
-			: undefined;
 	const rowProps = (share: OsShareLink) => ({
 		share,
 		onEdit: (target: OsShareLink) => {
@@ -952,8 +926,13 @@ export function ShareControls(props: ShareControlsProps) {
 								: `Couldn't check this link. ${(previewRevoke.error as Error).message}`}
 					</p>
 				)}
-				{reviewLink && (
-					<ReviewSection shareId={reviewLink.id} gadgetId={resourceId} />
+				{resourceType === "gadget" && props.onOpenReview && (
+					<ReviewEntry
+						onOpen={() => {
+							setOpen(false);
+							props.onOpenReview?.();
+						}}
+					/>
 				)}
 			</PopoverContent>
 		</PopoverRoot>
