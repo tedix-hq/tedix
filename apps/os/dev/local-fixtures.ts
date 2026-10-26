@@ -1208,6 +1208,16 @@ const seedState = (): LocalState => ({
 
 let state = seedState();
 const runSteeringMessages = new Map<string, RunSteeringMessage[]>();
+// Staged OAuth connect tickets: each redeems once, like the API's ticket row.
+const localConnectTickets = new Map<
+	string,
+	{
+		appId: string;
+		scope: "tenant" | "user";
+		connectionInstanceId: string | null;
+		redeemed: boolean;
+	}
+>();
 installWorkViewFixtures();
 
 function installWorkViewFixtures(): void {
@@ -1258,6 +1268,7 @@ let demoPackBuiltAt: number | null = null;
 
 export function resetLocalFixtures(): void {
 	runSteeringMessages.clear();
+	localConnectTickets.clear();
 	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
@@ -6970,6 +6981,40 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"connections/getUserConnections": () => ({ data: CONNECTIONS }),
+	"connections/stageConnectTicket": (input: {
+		appId: string;
+		scope?: "tenant" | "user";
+		connectionInstanceId?: string;
+	}) => {
+		const ticket = `fixture-connect-ticket-${localConnectTickets.size + 1}`;
+		localConnectTickets.set(ticket, {
+			appId: input.appId,
+			scope: input.scope ?? "user",
+			connectionInstanceId: input.connectionInstanceId ?? null,
+			redeemed: false,
+		});
+		return {
+			ticket,
+			expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+		};
+	},
+	"connections/redeemConnectTicket": (input: { ticket: string }) => {
+		const staged = localConnectTickets.get(input.ticket);
+		if (!staged)
+			throw new RpcError(
+				"NOT_FOUND",
+				"This connection was not started in this workspace",
+			);
+		if (staged.redeemed)
+			throw new RpcError("CONFLICT", "This connection was already completed");
+		staged.redeemed = true;
+		return {
+			appId: staged.appId,
+			scope: staged.scope,
+			connectionInstanceId: staged.connectionInstanceId,
+			recorded: staged.connectionInstanceId !== null,
+		};
+	},
 	// Provider catalog behind /admin/connections. Mirrors the two seeded
 	// connections so the local page shows both an OAuth and an API-key row.
 	"connections/listProviders": () => ({ data: CONNECTION_PROVIDERS }),
