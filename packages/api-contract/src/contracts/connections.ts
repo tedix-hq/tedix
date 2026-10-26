@@ -13,6 +13,7 @@ import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
 	ConnectionAccessCheckSchema,
+	ConnectionAllowedResourcesSchema,
 	ConnectionInventoryInputSchema,
 	ConnectionInventorySchema,
 	AuditConnectionProviderSettingsInputSchema,
@@ -51,6 +52,7 @@ export const connectionsContract = oc
 					label: z.string().trim().min(1).max(100),
 					/** Pin the owner's current default login instead of adding a new one. */
 					adoptDefault: z.boolean().optional(),
+					allowedResources: ConnectionAllowedResourcesSchema.optional(),
 				}),
 			)
 			.output(z.object({ id: z.uuid(), appId: z.string(), label: z.string() })),
@@ -401,6 +403,10 @@ export const connectionsContract = oc
 					 * D1 UUID before resolution.
 					 */
 					organizationId: z.string().min(1),
+					delegatedToolUse: z
+						.object({ appId: z.uuid(), arguments: JsonValueSchema })
+						.strict()
+						.optional(),
 					connectionInstanceId: z.uuid().optional(),
 					/** Descope outbound app ID for the provider */
 					providerId: z.string().min(1),

@@ -147,11 +147,24 @@ function credentialActingUserId<TConfig>(
 	return undefined;
 }
 
-function credentialDelegationHeaders<TConfig>(
-	ctx: ToolExecutionContext<TConfig>,
+/** Named accounts verify the installed source tool, including calls through an aggregate. */
+function connectionToolIdentity(ctx: ToolExecutionContext<ToolConfig>) {
+	const sourceAppId = readToolConfigExtension(ctx.config, "_sourceAppId");
+	if (!selectedConnectionInstanceId(ctx) || typeof sourceAppId !== "string")
+		return { appId: ctx.appId, toolId: ctx.toolId };
+	return {
+		appId: sourceAppId,
+		toolId: ctx.toolId.includes("__")
+			? ctx.toolId.slice(ctx.toolId.indexOf("__") + 2)
+			: ctx.toolId,
+	};
+}
+
+function credentialDelegationHeaders(
+	ctx: ToolExecutionContext<ToolConfig>,
 ): Record<string, string> {
 	const headers: Record<string, string> = {
-		"X-Tedix-Mcp-Tool-Id": ctx.toolId,
+		"X-Tedix-Mcp-Tool-Id": connectionToolIdentity(ctx).toolId,
 	};
 	const caller = ctx.callerIdentity;
 	const nativeRunId = ctx.requestMeta?.["io.tedix/kernelRunId"];
@@ -428,6 +441,7 @@ export async function fetchConnectionToken(
 			authScopes,
 			label,
 			preference,
+			providerArguments,
 		);
 	}
 
@@ -440,6 +454,7 @@ export async function fetchConnectionToken(
 			authScopes,
 			label,
 			preference,
+			providerArguments,
 		);
 	}
 
@@ -484,10 +499,10 @@ export async function fetchTediConnectionToken(
 			providerId: connectionId,
 			scope: resolvedScope,
 			...(connectionInstanceId ? { connectionInstanceId } : {}),
-			...(backgroundRun || requestRun
+			...(backgroundRun || requestRun || connectionInstanceId
 				? {
 						delegatedToolUse: {
-							appId: ctx.appId,
+							appId: connectionToolIdentity(ctx).appId,
 							arguments: providerArguments ?? {},
 						},
 					}
@@ -583,6 +598,7 @@ export async function fetchOrgConnectionToken(
 	authScopes?: string[],
 	label?: string,
 	preference?: CredentialPreference,
+	providerArguments?: Record<string, unknown>,
 ): Promise<CredentialFetchResult> {
 	const connectionInstanceId = selectedConnectionInstanceId(ctx);
 	const resolvedScope = scope ?? "tenant";
@@ -597,7 +613,15 @@ export async function fetchOrgConnectionToken(
 			organizationId,
 			providerId: connectionId,
 			scope: resolvedScope,
-			...(connectionInstanceId ? { connectionInstanceId } : {}),
+			...(connectionInstanceId
+				? {
+						connectionInstanceId,
+						delegatedToolUse: {
+							appId: connectionToolIdentity(ctx).appId,
+							arguments: providerArguments ?? {},
+						},
+					}
+				: {}),
 		};
 		if (resolvedScope === "hybrid" && preference) {
 			rpcInput.preference = preference;

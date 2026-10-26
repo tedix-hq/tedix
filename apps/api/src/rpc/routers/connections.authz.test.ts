@@ -131,6 +131,7 @@ describe("connections authorization-plane composition", () => {
 				label: "Business",
 				tokenIds: ["own-old", "own-current"],
 				tokenSub: tokenSub ?? null,
+				allowedResources: null,
 				createdAt: "now",
 				updatedAt: "now",
 			};
@@ -417,6 +418,7 @@ describe("named credential identity evidence", () => {
 				label: "Account",
 				tokenIds: [] as string[],
 				tokenSub: null as string | null,
+				allowedResources: null,
 				createdAt: "now",
 				updatedAt: "now",
 			};
@@ -526,6 +528,7 @@ describe("adopted default personal account", () => {
 		label: "Default account",
 		tokenIds: ["default-grant"],
 		tokenSub: "identity-a" as string | null,
+		allowedResources: null,
 		createdAt: "now",
 		updatedAt: "now",
 	};

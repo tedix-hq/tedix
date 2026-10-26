@@ -7,6 +7,18 @@ import * as z from "zod";
 import { JsonValueSchema } from "./common";
 import { TOOL_OPERATIONAL_RISK_TIER_VALUES } from "./tools";
 
+/** Null means whole account; an empty list denies all resources. */
+export const ConnectionAllowedResourcesSchema = z
+	.array(
+		z
+			.object({ resourceType: z.literal("notion_page"), resourceId: z.uuid() })
+			.strict(),
+	)
+	.max(100);
+export type ConnectionAllowedResources = z.infer<
+	typeof ConnectionAllowedResourcesSchema
+>;
+
 const UrlParamSchema = z.object({
 	key: z.string(),
 	value: z.string(),
@@ -522,6 +534,7 @@ export const ConnectionInventoryRowSchema = z.object({
 	provider: ConnectionProviderSchema,
 	connectionInstanceId: z.uuid().optional(),
 	instanceLabel: z.string().optional(),
+	allowedResources: ConnectionAllowedResourcesSchema.nullable().optional(),
 	scope: z.enum(["tenant", "user"]),
 	accountState: ConnectionAccountStateSchema,
 	accountLabel: z

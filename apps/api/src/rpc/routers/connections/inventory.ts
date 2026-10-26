@@ -255,6 +255,8 @@ export async function readConnectionsOverview(
 								: { organizationId, tenantId: org?.descopeTenantId ?? "" },
 							provider.appId,
 							instance.id,
+							undefined,
+							"inventory",
 						);
 						credential = token
 							? summarizeCredential({
@@ -296,6 +298,7 @@ export async function readConnectionsOverview(
 						scope,
 						connectionInstanceId: instance.id,
 						instanceLabel: instance.label,
+						allowedResources: instance.allowedResources,
 						accountLabel: instance.label,
 						accountState: credential.state,
 						connection:

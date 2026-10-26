@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
+import { connectionInstances } from "../schema/connection-instances";
+import { schemaDdl } from "../test/schema-ddl";
 import {
 	clearConnectionGrants,
 	createConnectionInstance,
@@ -13,9 +15,7 @@ import {
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(
-		`CREATE TABLE connection_instances (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, organization_id TEXT, provider_id TEXT NOT NULL, label TEXT NOT NULL, token_ids TEXT NOT NULL, token_sub TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`,
-	);
+	sqlite.exec(schemaDdl(connectionInstances));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -157,4 +157,33 @@ describe("personal connection instances on D1", () => {
 				?.label,
 		).toBe("Work account");
 	});
+});
+
+it("persists opt-in page limits, including deny-all, while defaults remain whole-account", async () => {
+	const db = fixture();
+	const resources = [
+		{
+			resourceType: "notion_page" as const,
+			resourceId: "11111111-1111-4111-8111-111111111111",
+		},
+	];
+	for (const [id, allowedResources] of [
+		["default", undefined],
+		["scoped", resources],
+		["empty", []],
+	] as const) {
+		await createConnectionInstance(db, {
+			id,
+			ownerUserId: "alice",
+			organizationId: "org-a",
+			providerId: "notion",
+			label: id,
+			allowedResources:
+				allowedResources === undefined ? undefined : [...allowedResources],
+		});
+	}
+	const rows = await listConnectionInstances(db, { organizationId: "org-a" });
+	expect(
+		Object.fromEntries(rows.map((row) => [row.id, row.allowedResources])),
+	).toEqual({ default: null, scoped: resources, empty: [] });
 });
