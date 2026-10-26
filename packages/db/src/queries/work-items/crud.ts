@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
+import { workMilestoneItems } from "../../schema/work-factory";
 import { kernelRequests } from "../../schema/kernel-requests";
 import {
 	type WorkItem,
@@ -982,6 +983,8 @@ export async function updateWorkItemSpecification(
 		actor: WorkActor;
 		executor?: string;
 		laneDispatch?: LaneDispatchPlan;
+		/** Validated by the caller; refused while milestone links remain. */
+		projectId?: string;
 		title?: string;
 		description?: string | null;
 		workKind?: WorkItemKind;
@@ -1014,6 +1017,10 @@ export async function updateWorkItemSpecification(
 			: undefined);
 	const dispatch =
 		prior.disposition === "accepted" && laneDispatch?.state === "ready";
+	const projectMove =
+		params.projectId !== undefined && params.projectId !== prior.projectId
+			? { from: prior.projectId, to: params.projectId }
+			: null;
 	const receiptId = crypto.randomUUID();
 	const updateMutation = db
 		.update(workItems)
@@ -1031,6 +1038,7 @@ export async function updateWorkItemSpecification(
 								? {}
 								: { laneDispatch: laneDispatch }),
 						},
+			projectId: projectMove?.to,
 			title: params.title,
 			description: params.description,
 			workKind: params.workKind,
@@ -1067,6 +1075,14 @@ export async function updateWorkItemSpecification(
 					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
 					AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt} > ${updatedAt})
 				)`,
+				// Milestones must share their Work's project.
+				projectMove
+					? sql`NOT EXISTS (
+					SELECT 1 FROM ${workMilestoneItems}
+					WHERE ${workMilestoneItems.orgId} = ${params.orgId}
+					AND ${workMilestoneItems.workItemId} = ${params.workItemId}
+				)`
+					: undefined,
 				ne(workItems.disposition, "completed"),
 				ne(workItems.disposition, "cancelled"),
 			),
@@ -1080,6 +1096,7 @@ export async function updateWorkItemSpecification(
 		eventType: "work.specification_updated",
 		actor: params.actor,
 		occurredAt: updatedAt,
+		...(projectMove ? { payload: { projectMove } } : {}),
 	});
 	const [updatedRows] = await db.batch([
 		updateMutation,

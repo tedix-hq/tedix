@@ -53,6 +53,7 @@ import {
 	workComplete,
 	workTrailers,
 	workCancel,
+	workMove,
 } from "./work-lifecycle";
 import {
 	workComment,
@@ -240,6 +241,7 @@ Lifecycle:
               [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
   complete <id>
   cancel <id> [--reason <summary>]
+  move <id> --project <id>   (owner/admin; objective Work takes that project's objective)
 
 Delegation (a lead session's hand-offs; open ones appear in its prompt context):
   delegate "<title>" --done-when "<what done looks like>" --via subagent|session
@@ -338,6 +340,7 @@ const VERBS: Record<string, VerbHandler> = {
 	"submit-evidence": (ctx, id) => workSubmitEvidence(ctx, id),
 	complete: (ctx, id) => workComplete(ctx, id),
 	cancel: (ctx, id) => workCancel(ctx, id),
+	move: (ctx, id) => workMove(ctx, id),
 	delegate: (ctx, id, text) => workDelegate(ctx, text ? `${id} ${text}` : id),
 	context: (ctx, id) => workContext(ctx, id),
 	evidence: (ctx, id) => workEvidence(ctx, id),

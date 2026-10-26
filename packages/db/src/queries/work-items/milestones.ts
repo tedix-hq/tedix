@@ -227,6 +227,23 @@ export async function addWorkMilestoneDependency(
 			.returning()
 	)[0]!;
 }
+/** Whether any milestone links this Work Item (milestones pin its project). */
+export async function workItemHasMilestoneLinks(
+	db: DbQueryClient,
+	p: { orgId: string; workItemId: string },
+): Promise<boolean> {
+	const [row] = await db
+		.select({ milestoneId: workMilestoneItems.milestoneId })
+		.from(workMilestoneItems)
+		.where(
+			and(
+				eq(workMilestoneItems.orgId, p.orgId),
+				eq(workMilestoneItems.workItemId, p.workItemId),
+			),
+		)
+		.limit(1);
+	return Boolean(row);
+}
 export async function linkWorkItemToMilestone(
 	db: DbQueryClient,
 	p: { orgId: string; milestoneId: string; workItemId: string; now: string },
