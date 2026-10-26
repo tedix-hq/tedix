@@ -7089,6 +7089,29 @@ const handlers: Record<string, (input: never) => unknown> = {
 	// Provider catalog behind /admin/connections. Mirrors the two seeded
 	// connections so the local page shows both an OAuth and an API-key row.
 	"connections/listProviders": () => ({ data: CONNECTION_PROVIDERS }),
+	"connections/setProviderAccountMode": (input: {
+		appId: string;
+		accountMode: "single" | "multiple";
+	}) => {
+		const providers = [
+			...CONNECTION_PROVIDERS,
+			...ORGANIZATION_INVENTORY.map((row) => row.provider),
+			...PERSONAL_INVENTORY.map((row) => row.provider),
+		].filter((provider) => provider.appId === input.appId);
+		if (!providers.length)
+			throw new RpcError("NOT_FOUND", "Provider not found");
+		if (
+			!providers.some((provider) =>
+				provider.availableAccountModes.includes(input.accountMode),
+			)
+		)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"Provider sign-in supports only one account per owner",
+			);
+		for (const provider of providers) provider.accountMode = input.accountMode;
+		return input;
+	},
 	"apps/list": (input: Pagination | undefined) => paginate(APPS, input),
 	"apps/listComposerCommands": () => ({ commands: [] }),
 	"apps/getByIdWithTools": (input: { appId: string }) => {

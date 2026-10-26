@@ -221,6 +221,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"connections/redeemConnectTicket": "mcp:settings.write",
 	"connections/renameConnectionInstance": "mcp:settings.write",
 	"connections/setConnectionAccessCheck": "mcp:settings.write",
+	"connections/setProviderAccountMode": "mcp:settings.write",
 	"connections/stageConnectTicket": "mcp:settings.write",
 	"connections/storeTediApiKey": "mcp:settings.write",
 	"connections/updateProviderMetadata": "platform:admin",
