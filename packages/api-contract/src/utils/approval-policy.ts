@@ -104,6 +104,19 @@ const negatedVerbListPattern = new RegExp(
 	"gi",
 );
 
+// A negated list may mix reserved verbs with ordinary ones ("do not create,
+// edit, send or change anything"). It counts only as a list of at least two
+// that ends the negation ("anything", "it", or the end of the clause), so
+// "don't edit, send the report to the customer" stays an instruction to send.
+const negatedListMembers = [
+	...criticalActions.negatedVerbs,
+	...criticalActions.negatedListVerbs,
+].join("|");
+const negatedMixedListPattern = new RegExp(
+	`\\b(?:do not|don't|don’t|never)\\s+(?:(?:${negatedListMembers})\\s*(?:,|\\bor\\b|\\band\\b|\\bnor\\b)\\s*)+(?:${negatedListMembers})\\b(?=\\s+(?:anything|any\\s+\\w+|it|them)\\b|\\s*(?:[.;!?]|$))`,
+	"gi",
+);
+
 // A request that declares its effect is a draft creates or edits a record a
 // human still has to finalize; the classes that describe the finalized effect
 // (payment, external message, publication) do not apply to the draft itself.
@@ -316,6 +329,7 @@ export function humanReservedActionClasses(content: string): string[] {
 			/\b(?:do not|don't|don’t|never)\s+read\s+(?:`[^`\r\n]+`|"[^"\r\n]+"|'[^'\r\n]+'|[^\s;,!?]+)(?=\s*(?:$|[.!?;,]|\b(?:and|or|but|then|however|while|before|after|also|except)\b))/gi,
 			" ",
 		)
+		.replace(negatedMixedListPattern, " ")
 		.replace(negatedVerbListPattern, " ")
 		.replace(/\bno\s+(?:bulk\s+outreach\s+or\s+)?automatic\s+sends\b/gi, " ")
 		.replace(
