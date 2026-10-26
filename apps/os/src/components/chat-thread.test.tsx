@@ -3,6 +3,7 @@ import type {
 	EnqueueHomeMessageOutput,
 	HomeMessage,
 	HomeRun,
+	RunSteeringMessage,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -44,6 +45,14 @@ const kernelRuntimeApi = vi.hoisted(() => ({
 	listConversationCapabilities: vi.fn(),
 	readMessages: vi.fn(),
 	readRunSet: vi.fn(),
+	controlRunSteering:
+		vi.fn<
+			(input: {
+				runId: string;
+				action: "inspect" | "withdraw";
+			}) => Promise<{ messages: RunSteeringMessage[] }>
+		>(),
+	steerRun: vi.fn(),
 	readConversationCharges: vi.fn(async () => ({
 		currency: "eur",
 		chargedMicros: 0,
@@ -95,6 +104,9 @@ const transport = vi.hoisted(() => ({
 	overlays: [] as never[],
 	actions: {
 		enqueueMessage: vi.fn(),
+		steerRun: (...args: unknown[]) => kernelRuntimeApi.steerRun(...args),
+		withdrawSteering: (runId: string) =>
+			kernelRuntimeApi.controlRunSteering({ runId, action: "withdraw" }),
 		cancelRun: vi.fn(),
 		respondApproval: vi.fn(),
 	},
@@ -2761,6 +2773,9 @@ function imageFile(): File {
 }
 
 beforeEach(() => {
+	kernelRuntimeApi.controlRunSteering.mockReset();
+	kernelRuntimeApi.controlRunSteering.mockResolvedValue({ messages: [] });
+	kernelRuntimeApi.steerRun.mockReset();
 	capabilitiesApi.list.mockReset();
 	capabilitiesApi.list.mockResolvedValue({ data: [] });
 	skillsApi.listByOrg.mockReset();
@@ -2927,6 +2942,92 @@ describe("finishedDelegationsByMessage", () => {
 		]);
 		expect([...byMessage.keys()]).toEqual(["m2"]);
 		expect(byMessage.get("m2")?.childRunId).toBe("child-done");
+	});
+});
+
+describe("<ChatThread> active run steering", () => {
+	const running = () => ({
+		id: RUN_ID,
+		organizationId: ORG_ID,
+		conversationId: CONVERSATION_ID,
+		status: "running" as const,
+		createdAt: "2026-10-25T10:00:00Z",
+	});
+	it("queues text on the active run and Stop restores unread text ahead of the current draft", async () => {
+		kernelRuntimeApi.readRunSet.mockResolvedValue(
+			runSetPayload({ activeRunIds: [RUN_ID], runs: [running()] }),
+		);
+		let queued: RunSteeringMessage[] = [];
+		kernelRuntimeApi.controlRunSteering.mockImplementation(
+			async ({ action }) => ({
+				messages:
+					action === "withdraw"
+						? queued.splice(0).map((message) => ({
+								...message,
+								status: "withdrawn" as const,
+							}))
+						: [...queued],
+			}),
+		);
+		kernelRuntimeApi.steerRun.mockImplementation(
+			async ({ instruction, idempotencyKey }) => {
+				queued.push({
+					id: idempotencyKey,
+					content: instruction,
+					status: "queued",
+				});
+				return { run: running() };
+			},
+		);
+		transport.actions.cancelRun.mockResolvedValue({});
+		const { container } = mountThread();
+		await flush();
+		typeDraft(container, "Use the latest evidence");
+		const queueButton = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Queue steering message"]',
+		)!;
+		act(() => queueButton.click());
+		await flush();
+		expect(kernelRuntimeApi.steerRun).toHaveBeenCalledTimes(1);
+		expect(transport.actions.enqueueMessage).not.toHaveBeenCalled();
+		expect(container.textContent).toContain("Queued · unread");
+		expect(composerTextarea(container).value).toBe("");
+		typeDraft(container, "Keep this draft too");
+		const stop = [
+			...container.querySelectorAll<HTMLButtonElement>("button"),
+		].find((button) => button.textContent?.trim() === "Stop")!;
+		act(() => stop.click());
+		await flush();
+		expect(transport.actions.cancelRun).toHaveBeenCalledWith({ runId: RUN_ID });
+		expect(composerTextarea(container).value).toBe(
+			"Use the latest evidence\n\nKeep this draft too",
+		);
+		expect(window.localStorage.getItem(chatDraftKey(CONVERSATION_ID))).toBe(
+			"Use the latest evidence\n\nKeep this draft too",
+		);
+	});
+	it("keeps a failed steering draft and retries the same key", async () => {
+		kernelRuntimeApi.readRunSet.mockResolvedValue(
+			runSetPayload({ activeRunIds: [RUN_ID], runs: [running()] }),
+		);
+		kernelRuntimeApi.steerRun
+			.mockRejectedValueOnce(new Error("Network response lost"))
+			.mockResolvedValue({ run: running() });
+		const { container } = mountThread();
+		await flush();
+		typeDraft(container, "Please change the order");
+		const button = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Queue steering message"]',
+		)!;
+		act(() => button.click());
+		await flush();
+		expect(composerTextarea(container).value).toBe("Please change the order");
+		act(() => button.click());
+		await flush();
+		expect(kernelRuntimeApi.steerRun.mock.calls[1]?.[0]).toEqual(
+			kernelRuntimeApi.steerRun.mock.calls[0]?.[0],
+		);
+		expect(transport.actions.enqueueMessage).not.toHaveBeenCalled();
 	});
 });
 

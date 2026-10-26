@@ -212,6 +212,9 @@ function mockServer(log: CapnEventFrame[] = []) {
 			async (_input: { content: string }, idempotencyKey: string) =>
 				enqueueOutput(idempotencyKey),
 		),
+		steer: vi.fn() as unknown as CapnConversationStub["steer"],
+		withdrawSteering:
+			vi.fn() as unknown as CapnConversationStub["withdrawSteering"],
 		cancel: vi.fn(async (runId: string) => ({
 			run: { id: runId },
 		})) as unknown as CapnConversationStub["cancel"],

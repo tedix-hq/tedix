@@ -739,6 +739,15 @@ const CALLS: Record<string, unknown> = {
 		decision: "approve",
 	},
 	"kernelRuntime/cancelRun": { runId: IDS.homeRunDone },
+	"kernelRuntime/steerRun": {
+		runId: IDS.homeRunDelegating,
+		instruction: "Use the latest evidence",
+		idempotencyKey: "fixture-steer",
+	},
+	"kernelRuntime/controlRunSteering": {
+		runId: IDS.homeRunDelegating,
+		action: "inspect",
+	},
 	"kernelRuntime/retryRun": { runId: IDS.homeRunDone },
 	"kernelRuntime/uploadAttachment": {
 		type: "file",

@@ -19,6 +19,88 @@ const inspect = async (
 ): Promise<PiStorageSnapshot> => JSON.parse(await agent.inspectFixture(runId));
 
 describe("native Pi provider and durable storage", () => {
+	it("steers one owned run between tool rounds and replays the receipt after eviction", async () => {
+		const name = crypto.randomUUID();
+		const agent = await fixture(name);
+		await agent.beginHeldTurn("steering-run");
+		const input = {
+			action: "enqueue" as const,
+			runId: "steering-run",
+			sessionKey: "fixture",
+			id: "steer-1",
+			content: "Use the updated evidence.",
+		};
+		try {
+			expect(await agent.controlRunSteering(input)).toEqual([
+				{ id: "steer-1", content: input.content, status: "queued" },
+			]);
+			expect(await agent.controlRunSteering(input)).toHaveLength(1);
+			expect(
+				await agent.rejectedSteering({
+					...input,
+					runId: "another-run",
+					id: "foreign",
+				}),
+			).toMatch(/different run/);
+		} finally {
+			await agent.releaseTool();
+		}
+		await agent.finishHeldTurn();
+		const snapshot = await inspect(agent, "steering-run");
+		expect(snapshot.requests).toHaveLength(2);
+		expect(JSON.stringify(snapshot.requests[1])).toContain(input.content);
+		expect(snapshot.effects).toBe(1);
+		expect(
+			await agent.controlRunSteering({
+				action: "withdraw",
+				runId: input.runId,
+				sessionKey: "fixture",
+			}),
+		).toEqual([]);
+		await abortAllDurableObjects();
+		const reopened = await fixture(name);
+		expect(await reopened.controlRunSteering(input)).toEqual([
+			{ id: "steer-1", content: input.content, status: "read" },
+		]);
+		expect((await inspect(reopened, input.runId)).requests).toHaveLength(2);
+	});
+	it("withdraws queued steering without aborting or returning already consumed input", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.beginHeldTurn("withdraw-run");
+		const command = { runId: "withdraw-run", sessionKey: "fixture" };
+		try {
+			await Promise.all(
+				["first", "second"].map((id) =>
+					agent.controlRunSteering({
+						...command,
+						action: "enqueue",
+						id,
+						content: `Draft ${id}`,
+					}),
+				),
+			);
+			const withdrawn = await agent.controlRunSteering({
+				...command,
+				action: "withdraw",
+			});
+			expect(withdrawn.map((message) => message.content)).toEqual([
+				"Draft first",
+				"Draft second",
+			]);
+			expect(
+				await agent.controlRunSteering({ ...command, action: "withdraw" }),
+			).toEqual([]);
+		} finally {
+			await agent.releaseTool();
+		}
+		expect((await agent.finishHeldTurn()).result.assistantText).toBe(
+			"completed",
+		);
+		const snapshot = await inspect(agent, command.runId);
+		expect(snapshot.requests).toHaveLength(2);
+		expect(JSON.stringify(snapshot.requests)).not.toContain("Draft first");
+		expect(JSON.stringify(snapshot.requests)).not.toContain("Draft second");
+	});
 	it("ends the durable owned answer with trusted MCP receipts through both tool entry points", async () => {
 		for (const name of ["tedix_mcp_code", "tedix_mcp_call_tool"]) {
 			const fixtureName = crypto.randomUUID();

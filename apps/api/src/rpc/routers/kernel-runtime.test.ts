@@ -1,4 +1,5 @@
 import { SQL } from "drizzle-orm";
+import { HomeRunSteering } from "../../kernel/run-steering";
 import { createRouterClient } from "@orpc/server";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
 import { LOCAL_DEMO_PROJECT_ID } from "@tedix/auth/local-demo";
@@ -2546,6 +2547,113 @@ describe("kernel runtime router", () => {
 		});
 	});
 
+	it("requires conversation write access for steering inspection and withdrawal", async () => {
+		const db = createKernelRuntimeDb({
+			grantRows: [
+				grantRow({
+					access: "read",
+					conversationId: "home:steering-access",
+					userId: "operator-1",
+				}),
+			],
+		});
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "steering-access",
+				organizationId: ORG_ID,
+				conversationId: "home:steering-access",
+				status: "running",
+			}),
+		);
+		const values = new Map<string, unknown>();
+		const inbox = new HomeRunSteering({
+			get: <T>(key: string) => values.get(key) as T | undefined,
+			put: <T>(key: string, value: T) => {
+				values.set(key, value);
+			},
+		});
+		const control = vi.fn(
+			async (input: Parameters<HomeRunSteering["control"]>[0]) =>
+				inbox.control(input),
+		);
+		const context = createContext(db, {
+			userSub: "operator-1",
+			env: {
+				KERNEL: {
+					idFromName: (name: string) => name,
+					get: () => ({ controlRunSteering: control }),
+				},
+			},
+		});
+		const client = createKernelRuntimeClient(context);
+		await expect(
+			client.steerRun({
+				runId: "steering-access",
+				instruction: "Change direction",
+			}),
+		).rejects.toThrow(/Access denied/);
+		for (const action of ["inspect", "withdraw"] as const)
+			await expect(
+				client.controlRunSteering({ runId: "steering-access", action }),
+			).rejects.toThrow(/Access denied/);
+		expect(control).not.toHaveBeenCalled();
+		db.grantRows[0].access = "edit";
+		await client.steerRun({
+			runId: "steering-access",
+			instruction: "Change direction",
+			idempotencyKey: "steer-access",
+		});
+		expect(
+			(
+				await client.controlRunSteering({
+					runId: "steering-access",
+					action: "inspect",
+				})
+			).messages,
+		).toEqual([
+			{
+				id: "steering-access:steer:steer-access",
+				content: "Change direction",
+				status: "queued",
+			},
+		]);
+		db.runs[0].status = "completed";
+		await client.steerRun({
+			runId: "steering-access",
+			instruction: "Change direction",
+			idempotencyKey: "steer-access",
+		});
+		await expect(
+			client.steerRun({
+				runId: "steering-access",
+				instruction: "Different content",
+				idempotencyKey: "steer-access",
+			}),
+		).rejects.toThrow(/different content/);
+		await expect(
+			client.steerRun({
+				runId: "steering-access",
+				instruction: "New turn",
+				idempotencyKey: "new-key",
+			}),
+		).rejects.toThrow(/already ended/);
+		expect(
+			(
+				await client.controlRunSteering({
+					runId: "steering-access",
+					action: "withdraw",
+				})
+			).messages,
+		).toEqual([
+			{
+				id: "steering-access:steer:steer-access",
+				content: "Change direction",
+				status: "withdrawn",
+			},
+		]);
+		expect(db.runs).toHaveLength(1);
+	});
+
 	it("returns a read-only child-run tree for delegated Home runs", async () => {
 		const db = createKernelRuntimeDb();
 		db.runs.push(
@@ -3187,6 +3295,23 @@ describe("kernel runtime router", () => {
 		});
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
+		const values = new Map<string, unknown>();
+		const inbox = new HomeRunSteering({
+			get: <T>(key: string) => values.get(key) as T | undefined,
+			put: <T>(key: string, value: T) => {
+				values.set(key, value);
+			},
+		});
+		Object.assign(context.env, {
+			KERNEL: {
+				idFromName: (name: string) => name,
+				get: () => ({
+					controlRunSteering: async (
+						input: Parameters<HomeRunSteering["control"]>[0],
+					) => inbox.control(input),
+				}),
+			},
+		});
 		const steered = await client.steerRun({
 			runId: "home-steer-race-1",
 			instruction: "Focus on Acme evidence first.",
@@ -7478,7 +7603,27 @@ describe("kernel runtime router", () => {
 				typeof kernelRuntimeTestHooks.setChildSteerForwarderForTest
 			>[0],
 		);
-		const client = createKernelRuntimeClient(createContext(db));
+		const values = new Map<string, unknown>();
+		const inbox = new HomeRunSteering({
+			get: <T>(key: string) => values.get(key) as T | undefined,
+			put: <T>(key: string, value: T) => {
+				values.set(key, value);
+			},
+		});
+		const client = createKernelRuntimeClient(
+			createContext(db, {
+				env: {
+					KERNEL: {
+						idFromName: (name: string) => name,
+						get: () => ({
+							controlRunSteering: async (
+								input: Parameters<HomeRunSteering["control"]>[0],
+							) => inbox.control(input),
+						}),
+					},
+				},
+			}),
+		);
 
 		const steered = await client.steerRun({
 			runId: "home-steer-no-child-1",

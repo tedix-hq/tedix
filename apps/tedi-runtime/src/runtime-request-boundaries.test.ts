@@ -13,6 +13,25 @@ const internal = (path: string, method = "POST", body?: string) =>
 	});
 
 {
+	let touched = false;
+	const agent = tediDo({
+		async ensureIdentity() {
+			touched = true;
+		},
+	});
+	assert.equal(
+		(await agent.onRequest(request("/__internal/steer-run"))).status,
+		403,
+	);
+	assert.equal(
+		(await agent.onRequest(internal("/__internal/steer-run", "POST", "{}")))
+			.status,
+		400,
+	);
+	assert.equal(touched, false);
+}
+
+{
 	const calls: string[] = [];
 	const agent = tediDo({
 		state: { tediId: "tedi-example" },
