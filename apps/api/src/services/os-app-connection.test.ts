@@ -6,6 +6,7 @@ import { userContext } from "../rpc/test-context";
 const mocks = vi.hoisted(() => ({
 	surface: vi.fn(),
 	account: vi.fn(),
+	ownAccounts: vi.fn(),
 	member: vi.fn(),
 	organization: vi.fn(),
 	create: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("@tedix/db/queries/app-records", async (load) => ({
 vi.mock("@tedix/db/queries/connection-instances", async (load) => ({
 	...(await load<object>()),
 	getConnectionInstance: mocks.account,
+	listConnectionInstances: mocks.ownAccounts,
 }));
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
@@ -73,8 +75,9 @@ const input = {
 	toolId: "list_events",
 	arguments: { calendarId: "calendar-1" },
 };
-function context() {
+function context(sub = "user-1") {
 	return userContext({
+		sub,
 		env: {
 			ENVIRONMENT: "test",
 			MCP_URL: "https://mcp.example.test",
@@ -126,6 +129,7 @@ beforeEach(() => {
 		tokenIds: ["grant-1"],
 		tokenSub: "subject-1",
 	});
+	mocks.ownAccounts.mockResolvedValue([]);
 	mocks.member.mockResolvedValue({ status: "active", role: "owner" });
 	mocks.organization.mockResolvedValue({ slug: "fictional" });
 	mocks.anchor.mockResolvedValue({ id: "anchor-1" });
@@ -135,17 +139,39 @@ beforeEach(() => {
 		content: [{ type: "text", text: "events" }],
 	});
 });
-async function retry(status = "approved") {
-	const first = (await callWorkspaceAppConnection(
-		context(),
+async function retry(
+	status = "approved",
+	actor: {
+		context: ReturnType<typeof context>;
+		session: WorkspaceAppSession;
+	} = {
+		context: context(),
 		session,
+	},
+) {
+	const first = (await callWorkspaceAppConnection(
+		actor.context,
+		actor.session,
 		resource,
 		input,
 	)) as { approval: { approvalRequestId: string } };
 	const row = mocks.create.mock.calls[0]![1];
-	mocks.get.mockResolvedValue({ ...row, status, resolvedBy: "user-1" });
+	mocks.get.mockResolvedValue({
+		...row,
+		status,
+		resolvedBy: actor.context.user!.sub,
+	});
 	return { ...input, approvalRequestId: first.approval.approvalRequestId };
 }
+/** A build collaborator who is not the slot's personal owner. */
+const collaborator = {
+	context: context("user-2"),
+	session: {
+		...session,
+		actorUserId: "user-2",
+		principal: { kind: "user", id: "user-2" },
+	} as WorkspaceAppSession,
+};
 describe("runtime connection OS approval adapter", () => {
 	it("parks before gateway or credentials and binds the exact slot, account, config and arguments", async () => {
 		const result = await callWorkspaceAppConnection(
@@ -198,6 +224,89 @@ describe("runtime connection OS approval adapter", () => {
 		mocks.consume.mockResolvedValue(false);
 		await callWorkspaceAppConnection(context(), session, resource, approved);
 		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+	});
+	it("runs a collaborator's call on their own account, never the owner's personal account", async () => {
+		mocks.ownAccounts.mockResolvedValue([
+			{
+				id: "account-other-provider",
+				providerId: "other-provider",
+				tokenIds: ["grant-x"],
+				tokenSub: "subject-x",
+			},
+			{
+				id: "account-2",
+				providerId: resource.providerId,
+				tokenIds: ["grant-2"],
+				tokenSub: "subject-2",
+			},
+		]);
+		const approved = await retry("approved", collaborator);
+		expect(mocks.ownAccounts).toHaveBeenCalledWith(expect.anything(), {
+			userId: "user-2",
+		});
+		expect(mocks.account).not.toHaveBeenCalled();
+		expect(mocks.create.mock.calls[0]![1].payload).toMatchObject({
+			initiatedByUserId: "user-2",
+		});
+		expect(
+			await callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				resource,
+				approved,
+			),
+		).toEqual({ content: [{ type: "text", text: "events" }] });
+		expect(mocks.gateway).toHaveBeenCalledWith(
+			expect.objectContaining({
+				headers: expect.objectContaining({ "X-Tedix-Acting-User": "user-2" }),
+			}),
+			"tools/call",
+			expect.objectContaining({
+				_meta: expect.objectContaining({
+					"tedix/expectedConnection": expect.objectContaining({
+						connectionInstanceId: "account-2",
+						scope: "user",
+					}),
+				}),
+			}),
+		);
+		expect(mocks.account).not.toHaveBeenCalled();
+	});
+	it("refuses a collaborator without their own account before any approval", async () => {
+		await expect(
+			callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				resource,
+				input,
+			),
+		).rejects.toThrow(/Connect your own fictional-calendar account/);
+		expect(mocks.account).not.toHaveBeenCalled();
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+	it("keeps an organization slot on the organization account for a collaborator", async () => {
+		const shared = {
+			...resource,
+			connectionScope: "tenant",
+			personalOwnerUserId: null,
+		} as OsWorkspaceResourceRow;
+		const changed = surface();
+		changed.app.metadata.mcpConfig.connectionScope = "tenant";
+		mocks.surface.mockResolvedValue(changed);
+		await callWorkspaceAppConnection(
+			collaborator.context,
+			collaborator.session,
+			shared,
+			input,
+		);
+		expect(mocks.account).toHaveBeenCalledWith(
+			expect.anything(),
+			{ organizationId: "org-1" },
+			"account-1",
+			resource.providerId,
+		);
+		expect(mocks.ownAccounts).not.toHaveBeenCalled();
 	});
 	it.each(["pending", "rejected", "cancelled", "expired"])(
 		"refuses %s approvals before dispatch",
