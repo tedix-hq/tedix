@@ -14,3 +14,5 @@ const relay = async (c: Context<AppEnv>): Promise<Response> => {
 workspaceAppRuntime.post("/__internal/workspace-app/call", relay);
 // Cuts live app sessions after a collaborator or share link lost access.
 workspaceAppRuntime.post("/__internal/workspace-app/revoke", relay);
+
+workspaceAppRuntime.post("/__internal/workspace-app/close-draft", relay);

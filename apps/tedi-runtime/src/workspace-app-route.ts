@@ -66,3 +66,34 @@ export async function handleWorkspaceAppCall(
 	);
 	return Response.json(await host.call(input));
 }
+
+export const WORKSPACE_APP_CLOSE_DRAFT_PATH =
+	"/__internal/workspace-app/close-draft";
+export async function handleWorkspaceAppCloseDraft(
+	request: Request,
+	env: WorkspaceAppRouteEnv,
+) {
+	if (!isServiceBinding(request.headers))
+		return new Response("Forbidden", { status: 403 });
+	if (request.method !== "POST")
+		return new Response("Method not allowed", { status: 405 });
+	if (!env.WORKSPACE_APP_HOST)
+		return new Response("App runtime unavailable", { status: 503 });
+	const parsed = z
+		.object({
+			organizationId: z.string().min(1).max(200),
+			workspaceId: z.uuid(),
+			gadgetId: z.uuid(),
+			proposalId: z.uuid(),
+			baseRevisionId: z.uuid(),
+			merged: z.boolean(),
+		})
+		.strict()
+		.safeParse(await request.json().catch(() => null));
+	if (!parsed.success)
+		return new Response("Invalid draft closure", { status: 400 });
+	const host = env.WORKSPACE_APP_HOST.getByName(
+		`${parsed.data.organizationId}:${parsed.data.workspaceId}`,
+	);
+	return Response.json(await host.closeDraft(parsed.data));
+}

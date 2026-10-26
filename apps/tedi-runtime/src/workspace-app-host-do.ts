@@ -38,6 +38,36 @@ interface PendingAppTrace {
 export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	#calls = new Map<string, Promise<unknown>>();
 	#flushing: Promise<void> | undefined;
+	async closeDraft(input: {
+		organizationId: string;
+		workspaceId: string;
+		gadgetId: string;
+		proposalId: string;
+		baseRevisionId: string;
+		merged: boolean;
+	}) {
+		const scope = `${input.organizationId}:${input.workspaceId}`;
+		const current = this.ctx.storage.kv.get<string>("scope");
+		if (current && current !== scope)
+			throw new Error("Workspace host scope mismatch");
+		this.ctx.storage.kv.put("scope", scope);
+		const name = `app:${input.gadgetId}:draft:${input.proposalId}`;
+		// Fence queued calls and retained signed sessions before deleting storage.
+		this.ctx.storage.kv.put(`closed:${name}`, true);
+		this.ctx.facets.delete(name);
+		this.ctx.storage.kv.delete(`code:${name}`);
+		if (input.merged) {
+			this.ctx.storage.kv.put(
+				`retired:${input.gadgetId}:${input.baseRevisionId}`,
+				true,
+			);
+			this.ctx.facets.abort(
+				`app:${input.gadgetId}`,
+				new Error("App revision changed"),
+			);
+		}
+		return { closed: true };
+	}
 	async recordTail(trace: PendingAppTrace) {
 		if (
 			this.ctx.storage.kv.get("scope") !==
@@ -175,8 +205,17 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		if (currentScope && currentScope !== scope)
 			throw new Error("Workspace host scope mismatch");
 		this.ctx.storage.kv.put("scope", scope);
+		if (
+			!session.previewId &&
+			this.ctx.storage.kv.get(
+				`retired:${session.gadgetId}:${session.revisionId}`,
+			)
+		)
+			throw new Error("App revision changed");
 		const name = `app:${session.gadgetId}${session.previewId ? `:draft:${session.previewId}` : ""}`;
-		const codeId = appRuntimeCodeId({ ...session, draftId: session.previewId });
+		if (this.ctx.storage.kv.get(`closed:${name}`))
+			throw new Error("App draft closed");
+		const codeId = `${appRuntimeCodeId({ ...session, draftId: session.previewId })}${session.proposalId ? `:s${session.proposalSequence}` : ""}`;
 		const previous = this.ctx.storage.kv.get<string>(`code:${name}`);
 		if (previous && previous !== codeId)
 			this.ctx.facets.abort(name, new Error("App revision changed"));
