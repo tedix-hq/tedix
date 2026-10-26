@@ -17,7 +17,7 @@ visibility: public
 
 # Give an AI assistant a task and find its result
 
-This tutorial gives one named AI assistant, called a **tedi**, a small task.
+This tutorial gives an AI agent, called a **tedi**, a small task.
 It uses only the facts in the prompt, so it needs no connected app, private
 document, or permission to change an outside system.
 
