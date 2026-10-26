@@ -1,3 +1,4 @@
+import { GATEWAY_PLATFORM_MCP_NAMESPACES } from "@tedix/api-contract/utils/skill-manifest";
 import {
 	PLATFORM_OPERATOR_APP_SLUG,
 	PLATFORM_OPERATOR_TOOL_DEFINITIONS,
@@ -28,26 +29,6 @@ export const PLATFORM_OPERATOR_ADMIN_APP_SLUG = "tedix";
  * so a newly-added OS verb cannot silently disappear from restricted tenant
  * aggregates.
  */
-/**
- * Namespaces served by D1-synced platform-operator tools that are not present in
- * PLATFORM_OPERATOR_TOOL_DEFINITIONS. Discovery hydrates the full aggregate and
- * can see these, but targeted Code Mode hydration must also include the admin
- * app when code directly calls these namespaces.
- */
-const D1_PLATFORM_OPERATOR_CODE_MODE_NAMESPACES = [
-	"analytics",
-	"audit",
-	"cognitive",
-	"control",
-	"external",
-	"kernel",
-	"mcp",
-	"organizations",
-	"projects",
-	"skills",
-	"work",
-] as const;
-
 /**
  * Code Mode namespaces that the platform-operator admin app (`tedix`) resolves
  * to in the Code Mode surface.
@@ -87,7 +68,7 @@ function computePlatformOperatorCodeModeNamespaces(): ReadonlySet<string> {
 			namespaces.add(ns);
 		}
 	}
-	for (const namespace of D1_PLATFORM_OPERATOR_CODE_MODE_NAMESPACES) {
+	for (const namespace of GATEWAY_PLATFORM_MCP_NAMESPACES) {
 		namespaces.add(namespace);
 	}
 	return namespaces;

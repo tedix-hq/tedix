@@ -94,6 +94,22 @@ export const WORKFLOW_PLATFORM_MCP_METHODS = {
 	cognitive: ["record_artifact"],
 } as const;
 
+/** Namespaces supplied by the platform app mounted on organization gateways. */
+export const GATEWAY_PLATFORM_MCP_NAMESPACES = [
+	"analytics",
+	"audit",
+	"cognitive",
+	"control",
+	"external",
+	"kernel",
+	"mcp",
+	"organizations",
+	"os",
+	"projects",
+	"skills",
+	"work",
+] as const;
+
 /**
  * Ephemeral-reasoner policy for `env.REASON` (see
  * `apps/skill-runtime/src/reason.ts`).
