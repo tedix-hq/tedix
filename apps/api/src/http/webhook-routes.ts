@@ -29,6 +29,13 @@ export function registerWebhookRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 	});
 
+	// authz: public Workspace app trigger deliveries verify a per-trigger HMAC signature and timestamp, then the app, workspace and trigger in the lazy handler.
+	app.post("/webhooks/app-triggers/:orgId/:gadgetId/:triggerId", async (c) => {
+		const { handleAppTriggerWebhook } =
+			await import("../services/os-app-triggers");
+		return handleAppTriggerWebhook(c);
+	});
+
 	/**
 	 * Descope Audit webhook endpoint
 	 * Receives audit events from Descope Webhook Connector and writes to audit_events D1

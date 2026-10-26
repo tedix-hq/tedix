@@ -379,3 +379,45 @@ export async function listCardSourceApps(
 		.orderBy(asc(osGadgets.createdAt), asc(osGadgets.id))
 		.limit(Math.min(Math.max(params.limit, 1), 500));
 }
+
+/**
+ * Active runtime apps in active workspaces whose current revision declares
+ * triggers, across organizations, oldest first. The trigger tick reads this
+ * list and decides per trigger whether it is due.
+ */
+export async function listTriggeredRuntimeApps(
+	db: DbQueryClient,
+	params: { limit: number },
+) {
+	return db
+		.select({
+			gadget: prefixedColumns(osGadgets, "gadget"),
+			revision: prefixedColumns(osGadgetRevisions, "revision"),
+		})
+		.from(osGadgets)
+		.innerJoin(
+			osWorkspaces,
+			and(
+				eq(osWorkspaces.id, osGadgets.workspaceId),
+				eq(osWorkspaces.organizationId, osGadgets.organizationId),
+			),
+		)
+		.innerJoin(
+			osGadgetRevisions,
+			and(
+				eq(osGadgetRevisions.id, osGadgets.currentRevisionId),
+				eq(osGadgetRevisions.organizationId, osGadgets.organizationId),
+				eq(osGadgetRevisions.gadgetId, osGadgets.id),
+			),
+		)
+		.where(
+			and(
+				eq(osGadgets.status, "active"),
+				eq(osWorkspaces.status, "active"),
+				sql`json_extract(${osGadgetRevisions.manifest}, '$.entry') = 'tedix:runtime/v1'`,
+				sql`json_type(${osGadgetRevisions.manifest}, '$.config.triggers') = 'array'`,
+			),
+		)
+		.orderBy(asc(osGadgets.createdAt), asc(osGadgets.id))
+		.limit(Math.min(Math.max(params.limit, 1), 500));
+}

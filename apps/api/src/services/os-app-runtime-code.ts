@@ -95,9 +95,11 @@ export async function runAppRuntimeCall(
 			id: string;
 		};
 		policy?: Record<string, JsonValue>;
+		/** A caller-chosen receipt id; a trigger derives it from the event so a repeat is recognised. */
+		executionId?: string;
 	},
 ): Promise<JsonValue> {
-	const executionId = crypto.randomUUID();
+	const executionId = input.executionId ?? crypto.randomUUID();
 	const receiptScope = { organizationId: input.organizationId, executionId };
 	await createOsGadgetExecution(db, {
 		id: executionId,

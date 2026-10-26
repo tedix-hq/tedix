@@ -199,6 +199,19 @@ export async function dispatchDueSkillSchedulesTick(
 	}
 }
 
+/** Workspace app triggers: schedules due in the last two minutes and finished skill runs. */
+export async function dispatchDueAppTriggersTick(
+	env: CloudflareEnv,
+	event: ScheduledController,
+): Promise<Record<string, number>> {
+	const { dispatchDueAppTriggers } =
+		await import("../services/os-app-triggers");
+	const scan = await dispatchDueAppTriggers(env, event.scheduledTime);
+	if (scan.ran > 0 || scan.failed > 0)
+		console.log("[Scheduled] app triggers", JSON.stringify(scan));
+	return scan;
+}
+
 export async function runAlwaysOnKeepalive(
 	env: CloudflareEnv,
 	ctx: ExecutionContext,

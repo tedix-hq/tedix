@@ -111,6 +111,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				dispatchGraphProjectionDrains,
 				redriveGraphGdsMaintenance,
 				dispatchDueSkillSchedulesTick,
+				dispatchDueAppTriggersTick,
 			} = await import("./platform-tick");
 			await trackPlatformCronPath(env, event, "graph-projection-drain", () =>
 				dispatchGraphProjectionDrains(env, event),
@@ -120,6 +121,9 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 			await trackPlatformCronPath(env, event, "skill-schedule-dispatch", () =>
 				dispatchDueSkillSchedulesTick(env, event),
+			);
+			await trackPlatformCronPath(env, event, "app-trigger-dispatch", () =>
+				dispatchDueAppTriggersTick(env, event),
 			);
 		}
 

@@ -48,6 +48,7 @@ async function call(
 		role?: "build" | "use";
 		previewId?: string;
 		principal?: string;
+		principalKind?: string;
 		token?: string;
 	} = {},
 ) {
@@ -73,7 +74,10 @@ async function mint(
 		revisionId: options.revision ?? revisionId,
 		revision: options.revision ? 2 : 1,
 		role: options.role ?? "use",
-		principal: { kind: "user", id: options.principal ?? "fictional-member" },
+		principal: {
+			kind: options.principalKind ?? "user",
+			id: options.principal ?? "fictional-member",
+		},
 		grants: [{ slot: "sheet", operations: ["outputs.read", "outputs.write"] }],
 		previewId: options.previewId,
 		codeDigest: await appRuntimeCodeDigest(code),
@@ -210,6 +214,22 @@ describe("workspace app supervisor in workerd", () => {
 			await call(stub, { previewId: "66666666-6666-4666-8666-666666666666" }),
 		).toEqual({ n: 1, version: "v1" });
 		expect(await call(stub)).toEqual({ n: 2, version: "v1" });
+	});
+	it("runs a trigger's machine session like a caller with the same role", async () => {
+		const stub = createHost();
+		const trigger = {
+			principalKind: "app_trigger",
+			principal: `${gadgetId}:morning`,
+		};
+		expect(await call(stub, trigger)).toEqual({ n: 1, version: "v1" });
+		// A trigger whose author lost access runs as `use`: no write capability.
+		await expect(call(stub, { ...trigger, method: "build" })).rejects.toThrow(
+			/outputsWrite/,
+		);
+		expect(await call(stub, { ...trigger, method: "count" })).toEqual({
+			n: 2,
+			version: "v1",
+		});
 	});
 	it("blocks global fetch and refuses build operations for a use session", async () => {
 		const stub = createHost();

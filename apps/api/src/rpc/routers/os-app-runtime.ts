@@ -568,6 +568,36 @@ export function createOsAppRuntimeRouter() {
 			grants: code.grants,
 		};
 	});
+	const triggerWebhook = author.triggerWebhook.handler(
+		async ({ context, input }) => {
+			const scope = await requireBuilder(context, input);
+			const code = await load(context, scope);
+			if (
+				!code.config.triggers?.some(
+					(trigger) =>
+						trigger.kind === "webhook" && trigger.id === input.triggerId,
+				)
+			)
+				throw createError(ErrorCodes.NOT_FOUND, "Webhook trigger not found");
+			const { appTriggerWebhookPath, appTriggerWebhookSecret } =
+				await import("../../services/os-app-triggers");
+			const target = {
+				organizationId: scope.organizationId,
+				gadgetId: scope.gadgetId,
+				triggerId: input.triggerId,
+			};
+			return {
+				url: new URL(
+					appTriggerWebhookPath(target),
+					context.env.API_URL,
+				).toString(),
+				secret: await appTriggerWebhookSecret(
+					context.env.SECRETS_MASTER_KEY,
+					target,
+				),
+			};
+		},
+	);
 	const readOutput = read.readOutput.handler(async ({ context, input }) => {
 		const { scope, session, code } = await openedSession(context, input);
 		if (
@@ -863,7 +893,11 @@ export function createOsAppRuntimeRouter() {
 					session.principal.kind === "external_agent"
 						? "external_agent"
 						: "user",
-				createdById: session.principal.id,
+				// A trigger acts for the person who saved the app revision.
+				createdById:
+					session.principal.kind === "external_agent"
+						? session.principal.id
+						: (session.actorUserId ?? session.principal.id),
 				accessEnvelope: revision.accessEnvelope,
 			});
 			if (!result.ok)
@@ -960,6 +994,7 @@ export function createOsAppRuntimeRouter() {
 		readOutput,
 		call,
 		preview,
+		triggerWebhook,
 		draft,
 		proposeEdit,
 		acceptEdit,

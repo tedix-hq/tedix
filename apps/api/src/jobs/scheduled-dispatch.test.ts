@@ -54,6 +54,7 @@ vi.mock("./platform-tick", () => ({
 	dispatchGraphProjectionDrains: vi.fn(),
 	redriveGraphGdsMaintenance: vi.fn(),
 	dispatchDueSkillSchedulesTick: vi.fn(),
+	dispatchDueAppTriggersTick: vi.fn(),
 	sweepOrphanRunsTick: vi.fn(),
 	runAlwaysOnKeepalive: vi.fn(),
 }));
