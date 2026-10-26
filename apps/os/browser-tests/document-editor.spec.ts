@@ -123,6 +123,10 @@ try {
 					doc.child(0).nodeSize + doc.child(1).nodeSize - 1,
 				);
 			});
+			// Tiptap focuses on the next animation frame; keys must reach the editor.
+			await page.waitForFunction(
+				() => document.activeElement === document.querySelector(".tiptap"),
+			);
 			await page.keyboard.press("Enter");
 			await page.keyboard.type("/tab");
 			const menu = page.getByRole("listbox", { name: "Insert a block" });
