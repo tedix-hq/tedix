@@ -30,6 +30,7 @@
  * bare delegated-to line.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import {
 	hasActiveMemoryFactSource,
@@ -464,8 +465,8 @@ async function minePlanDecisions(
 			}
 		} catch (err) {
 			console.error(
-				`[home-reflection] Failed to write plan-decision fact for event ${event.id}:`,
-				err,
+				`[home-reflection] Failed to write plan-decision fact for event ${event.id}`,
+				{ exception: safeExceptionTopology(err) },
 			);
 			budget.factsSkipped++;
 		}
@@ -547,8 +548,8 @@ export async function mineHomeOperatorDecisions(
 			}
 		} catch (err) {
 			console.error(
-				`[home-reflection] Failed to write fact for event ${event.id}:`,
-				err,
+				`[home-reflection] Failed to write fact for event ${event.id}`,
+				{ exception: safeExceptionTopology(err) },
 			);
 			budget.factsSkipped++;
 		}

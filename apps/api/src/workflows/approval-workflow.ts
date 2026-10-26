@@ -10,6 +10,7 @@
  * Triggered by: tediApprovals.create oRPC procedure
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -121,7 +122,9 @@ export class ApprovalWorkflow extends WorkflowEntrypoint<
 				},
 			);
 		} catch (error) {
-			console.error("Gadget approval dispatch exhausted retries:", error);
+			console.error("Gadget approval dispatch exhausted retries", {
+				exception: safeExceptionTopology(error),
+			});
 			await step.do(
 				"fail-gadget-dispatch",
 				{ retries: { limit: 3, delay: "2 seconds" }, timeout: "30 seconds" },
@@ -201,7 +204,9 @@ export class ApprovalWorkflow extends WorkflowEntrypoint<
 					} catch (err) {
 						// Notification is best-effort
 						if (this.env.ENVIRONMENT === "development") {
-							console.error("Failed to notify tedi:", err);
+							console.error("Failed to notify tedi", {
+								exception: safeExceptionTopology(err),
+							});
 						}
 					}
 				}

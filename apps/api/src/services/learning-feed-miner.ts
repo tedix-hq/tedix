@@ -52,6 +52,7 @@
  * `metadata.learningFeed.scope = { repo, harness, topic }`.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { LessonEvidence } from "@tedix/api-contract/schemas/agent-session-lessons";
 import type { DbClient } from "@tedix/db/client";
 import type { Tedi } from "@tedix/db/schema/tedis";
@@ -940,12 +941,16 @@ export async function mineLearningFeed(
 		result.decisionEventsScanned = decisions.length;
 		await writeDecisionLessons(db, orgId, decisions, result, route, distill);
 	} catch (error) {
-		console.error("[learning-feed] decision lessons failed:", error);
+		console.error("[learning-feed] decision lessons failed", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 	try {
 		await archiveStaleLessons(db, orgId, now, result);
 	} catch (error) {
-		console.error("[learning-feed] stale lesson archive failed:", error);
+		console.error("[learning-feed] stale lesson archive failed", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 	try {
 		await recordWorkFixes(db, orgId, result);
@@ -957,7 +962,9 @@ export async function mineLearningFeed(
 		});
 		await proposeMistakeDirectives(db, orgId, fixes, result);
 	} catch (error) {
-		console.error("[learning-feed] agent-mistake proposals failed:", error);
+		console.error("[learning-feed] agent-mistake proposals failed", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 	return result;
 }

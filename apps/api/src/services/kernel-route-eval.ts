@@ -15,6 +15,7 @@
  * - No per-turn self-modification — this runs post-hoc, off the hot path.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	type JsonValue,
 	JsonValueSchema,
@@ -905,10 +906,9 @@ export async function gradeRecentKernelRoutes(
 				}
 			}
 		} catch (err) {
-			console.error(
-				`[KernelRouteEval] failed to grade/persist run ${run.id}:`,
-				err,
-			);
+			console.error(`[KernelRouteEval] failed to grade/persist run ${run.id}`, {
+				exception: safeExceptionTopology(err),
+			});
 			runsSkipped++;
 		}
 	}
@@ -1021,8 +1021,8 @@ async function fetchChildTurnEvidence(
 		}
 	} catch (err) {
 		console.warn(
-			"[KernelRouteEval] child-evidence fetch failed (claimVsEvidence gate skipped):",
-			err instanceof Error ? err.message : String(err),
+			"[KernelRouteEval] child-evidence fetch failed (claimVsEvidence gate skipped)",
+			{ exception: safeExceptionTopology(err) },
 		);
 	}
 	return evidence;

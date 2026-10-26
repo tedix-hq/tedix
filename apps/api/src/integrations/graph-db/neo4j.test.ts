@@ -1026,9 +1026,10 @@ describe("Neo4j persisted algorithm reads", () => {
 		await expect(client.getInfluenceScores("org-1")).resolves.toEqual([]);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(warn).toHaveBeenCalledWith(
-			"[GraphDB] persisted PageRank read failed:",
-			expect.any(Error),
+			"[GraphDB] persisted PageRank read failed",
+			{ exception: { type: "Error" } },
 		);
+		expect(JSON.stringify(warn.mock.calls)).not.toContain("unavailable");
 	});
 
 	it("persists PageRank and communities only in the controlled refresh pipeline", async () => {

@@ -6,6 +6,7 @@
  * named principals were issued up to now and restarts the workspace's apps.
  * App storage is kept.
  */
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { serviceBindingFetch } from "@tedix/api-client/internal";
 
 export async function cutWorkspaceAppSessions(
@@ -42,7 +43,7 @@ export async function cutWorkspaceAppSessions(
 		console.warn("os_app_session_cut_failed", {
 			workspaceId: input.workspaceId,
 			principals: input.principalIds.length,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return { cut: false };
 	}

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
@@ -106,9 +107,8 @@ export async function classifyDecisionEdit(
 			occurredAt: event.occurredAt,
 		});
 	} catch (error) {
-		console.warn(
-			"[decision-learning] edit classification unavailable",
-			error instanceof Error ? error.message : "unknown",
-		);
+		console.warn("[decision-learning] edit classification unavailable", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 }

@@ -1,5 +1,6 @@
 /// <reference path="../../worker-configuration.d.ts" />
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import {
 	type GraphProjectionBacklogStats,
@@ -177,7 +178,9 @@ export async function inspectGraphProjection(input: {
 			]);
 		} catch (error) {
 			projectionReadable = false;
-			console.warn("[GraphDB] Projection certification read failed:", error);
+			console.warn("[GraphDB] Projection certification read failed", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 	const facts = assessGraphProjectionCoverage({

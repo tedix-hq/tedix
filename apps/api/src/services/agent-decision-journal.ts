@@ -15,6 +15,7 @@
  * The daily review card is an ordinary Deck question addressed to the person.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	type AgentDecision,
 	type ListAgentDecisionsResult,
@@ -632,7 +633,9 @@ export async function runAgentDecisionMorningReview(
 		since,
 		limit: 25,
 	}).catch((error) => {
-		console.error("[agent-decision-review] recorders unavailable:", error);
+		console.error("[agent-decision-review] recorders unavailable", {
+			exception: safeExceptionTopology(error),
+		});
 		return [];
 	});
 	const configs = new Map<
@@ -761,7 +764,10 @@ export async function runAgentDecisionMorningReview(
 					throw error;
 			}
 		} catch (error) {
-			console.error("[agent-decision-review] failed:", organizationId, error);
+			console.error("[agent-decision-review] failed", {
+				organizationId,
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 	return { agentDecisionReviews: created };

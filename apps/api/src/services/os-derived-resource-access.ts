@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { authorizePersonalDerivedSource } from "./personal-resource-delegation-authority";
 import {
 	type OsDerivedAccessEnvelope,
@@ -81,7 +82,7 @@ export async function authorizeDerivedOutputSources(
 	} catch (error) {
 		console.error("[OS outputs] source access revalidation failed", {
 			organizationId: input.organizationId,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return false;
 	}

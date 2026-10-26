@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	listPersonalCardStyleRules,
 	resolveCardStyleOwner,
@@ -129,10 +130,9 @@ export async function readDraftPreferences(
 		];
 		return JSON.stringify(context);
 	} catch (error) {
-		console.warn(
-			"[decision-learning] writing context unavailable",
-			error instanceof Error ? error.message : "unknown",
-		);
+		console.warn("[decision-learning] writing context unavailable", {
+			exception: safeExceptionTopology(error),
+		});
 		return "";
 	}
 }

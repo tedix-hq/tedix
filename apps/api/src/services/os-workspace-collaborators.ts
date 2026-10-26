@@ -3,6 +3,7 @@
  * the sharing operations around it. Access is the permission graph in
  * `os-collaborator-graph.ts`, recomputed from stored edges on every call.
  */
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	collaboratorRoleAtLeast,
 	type OsAffectedCollaborator,
@@ -276,7 +277,7 @@ export async function isOsWorkspaceBuildCollaborator(
 		// Fail closed: this runs only on the path that would otherwise deny.
 		console.warn("os_collaborator_access_check_failed", {
 			workspaceId: workspace.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return false;
 	}

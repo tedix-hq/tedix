@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { assetsBaseUrl as resolveAssetsBaseUrl } from "./assets-base-url";
 import { CatalogSnapshotSchema } from "@tedix/api-contract/schemas/catalog-snapshot";
 /**
@@ -565,8 +566,8 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 				)
 				.catch((error: unknown) => {
 					console.warn(
-						"[App Catalog Sync] Shadowed-variant refresh failed (non-fatal):",
-						error instanceof Error ? error.message : String(error),
+						"[App Catalog Sync] Shadowed-variant refresh failed (non-fatal)",
+						{ exception: safeExceptionTopology(error) },
 					);
 				});
 
@@ -697,7 +698,9 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			}
 
 			// Ensure sync log is always finalized, even on unexpected errors
-			console.error(`[App Catalog Sync] Unexpected error:`, error);
+			console.error(`[App Catalog Sync] Unexpected error`, {
+				exception: safeExceptionTopology(error),
+			});
 			try {
 				await updateAppCatalogSyncLog(db, syncLogId, {
 					status: "failed",
@@ -755,7 +758,9 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			console.error("[App Catalog Sync] Vector index setup failed", error);
+			console.error("[App Catalog Sync] Vector index setup failed", {
+				exception: safeExceptionTopology(error),
+			});
 			vectorSkipped = true;
 			vectorErrors.push(message);
 		}
@@ -864,7 +869,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 						error instanceof Error ? error.message : String(error);
 					console.error(
 						`[App Catalog Sync] Vector page ${offset} failed after retries`,
-						error,
+						{ exception: safeExceptionTopology(error) },
 					);
 					vectorErrors.push(`offset ${offset}: ${message}`);
 					break;
@@ -1200,8 +1205,8 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 			};
 		} catch (error) {
 			console.warn(
-				`[App Catalog Sync] Failed to normalize catalog asset ${trimmed}:`,
-				error,
+				`[App Catalog Sync] Failed to normalize catalog asset ${trimmed}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 			return { url: null, normalized: false, status: "fetch_failed" };
 		}

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DecisionLearningConfig } from "@tedix/api-contract/schemas/decision-learning";
 import { deckPipelineStatus } from "@tedix/api-contract/utils/deck-pipeline";
 import { getDeckSweepReceipt } from "@tedix/db/queries/work-items/deck-sweep";
@@ -15,7 +16,7 @@ export async function loadDeckPipelineStatus(
 	} catch (error) {
 		// The Deck still renders; only its curation footer is missing.
 		console.warn("deck pipeline status unavailable", {
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return undefined;
 	}
