@@ -216,7 +216,10 @@ export function phases(metadata, completedAt) {
 				? hedge.afterMs + hedge.hedgeFirstPartialMs
 				: null
 			: hedge?.primaryFirstPartialMs;
+	const settle = metadata.kernelWriteSettleTimings ?? {};
+	const ms = (value) => (Number.isFinite(value) ? value : null);
 	return {
+		routeMs: diff(s.routePlanEnded, s.routePlanStarted),
 		contextMs: diff(s.plannerFirstProgress, s.routePlanStarted),
 		routeFirstTokenMs: Number.isFinite(first) ? first : null,
 		routeDecisionMs: diff(s.routePlanEnded, s.plannerFirstProgress),
@@ -231,6 +234,9 @@ export function phases(metadata, completedAt) {
 						Date.parse(metadata.kernelWriteExecutedAt),
 					)
 				: null,
+		revalidateMs: ms(settle.revalidateMs),
+		callMs: ms(settle.callMs),
+		verifyMs: ms(settle.verifyMs),
 		firstAnswerMs: Number.isFinite(s.firstAnswerDelta)
 			? s.firstAnswerDelta + (t.enqueueToWorkMs ?? 0)
 			: null,
@@ -258,11 +264,15 @@ export function summarize(rows) {
 				...Object.fromEntries(
 					[
 						"wallMs",
+						"routeMs",
 						"contextMs",
 						"routeFirstTokenMs",
 						"routeDecisionMs",
 						"writePlanMs",
 						"executeMs",
+						"revalidateMs",
+						"callMs",
+						"verifyMs",
 						"firstAnswerMs",
 						"serverMs",
 					].map((k) => [k, percentiles(rs.map((r) => r[k]))]),
@@ -379,6 +389,10 @@ export async function readScratchWithBackoff(read, sleep = Bun.sleep) {
 	}
 }
 
+export function isApprovalRequired(error) {
+	return /Human approval required/.test(String(error?.message ?? error));
+}
+
 export async function archiveWithReadback(
 	write,
 	read,
@@ -452,11 +466,16 @@ async function main() {
 		return (cleanup ??= measurementsFinished.then(async () => {
 			if (!workspace) return;
 			const failures = [];
+			// An archive parked for human approval files a card per call; stop at
+			// the first so cleanup never fills the approval queue.
+			let approvalRequired = false;
 			const archive = async (write, read, check) => {
+				if (approvalRequired) return;
 				try {
 					return await archiveWithReadback(write, read, check);
 				} catch (error) {
 					failures.push(error);
+					approvalRequired ||= isApprovalRequired(error);
 				}
 			};
 			for (const row of rows) {

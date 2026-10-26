@@ -495,6 +495,7 @@ describe("route-planner SYSTEM_PROMPT — owned-write delegation guidance", asyn
 vi.mock("./context-assembly", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./context-assembly")>()),
 	assembleHomeContext: vi.fn(),
+	readKernelContextApps: vi.fn(async () => []),
 }));
 vi.mock("./route-planner", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./route-planner")>()),
@@ -744,13 +745,15 @@ it.each([
 		"Change first slide title in deck 00000000-1111-4111-8111-000000000001",
 		"presentations.patch",
 	],
-])("routes %s without calling the route model", async (content, capability) => {
-	const { assembleHomeContext } = await import("./context-assembly");
-	const { planKernelRoute } = await import("./route-planner");
-	vi.mocked(planKernelRoute).mockClear();
-	vi.mocked(assembleHomeContext).mockResolvedValue({
-		tedis: [],
-		apps: [
+])(
+	"routes %s without context assembly or the route model",
+	async (content, capability) => {
+		const { assembleHomeContext, readKernelContextApps } =
+			await import("./context-assembly");
+		const { planKernelRoute } = await import("./route-planner");
+		vi.mocked(planKernelRoute).mockClear();
+		vi.mocked(assembleHomeContext).mockClear();
+		vi.mocked(readKernelContextApps).mockResolvedValueOnce([
 			{ slug: "globex-mail", name: "Globex Mail" },
 			{
 				slug: "acme-unified",
@@ -758,7 +761,53 @@ it.each([
 				capabilities: ["catalog.install"],
 				codeMode: true,
 			},
-		],
+		]);
+		vi.mocked(planKernelRoute).mockResolvedValue({
+			...blockedRoute,
+			routeKind: "answer_in_home",
+			answer: "Slide 1: Welcome. Slide 2: Menu. Slide 3: Hours.",
+			targetTediId: null,
+			targetTediLabel: null,
+			targetActivityId: null,
+			plannedToolIds: [],
+			usage: null,
+		} as never);
+		const onProgress = vi.fn();
+		const result = await runKernel({
+			db: {} as never,
+			env: {
+				AI: {},
+				KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+			} as never,
+			organizationId: "org",
+			content,
+			onProgress,
+		});
+		expect(planKernelRoute).not.toHaveBeenCalled();
+		expect(assembleHomeContext).not.toHaveBeenCalled();
+		expect(result?.routeUsage).toBeNull();
+		expect(result?.route).toMatchObject({
+			routeKind: "propose_tool_write",
+			answer: null,
+			toolIntent: {
+				appSlug: "acme-unified",
+				capability,
+			},
+		});
+		expect(result?.assistantContent).not.toContain("Slide 1");
+	},
+);
+
+it("assembles the full context for a create when the apps cannot be read", async () => {
+	const { assembleHomeContext, readKernelContextApps } =
+		await import("./context-assembly");
+	vi.mocked(readKernelContextApps).mockRejectedValueOnce(
+		new Error("D1 unavailable"),
+	);
+	vi.mocked(assembleHomeContext).mockClear();
+	vi.mocked(assembleHomeContext).mockResolvedValue({
+		tedis: [],
+		apps: [{ slug: "acme-unified", name: "Acme", codeMode: true }],
 		workflows: [],
 		workItems: [],
 		facts: [],
@@ -768,17 +817,6 @@ it.each([
 		promptCharsEstimate: 1000,
 		lastStepPromptTokens: 1,
 	} as never);
-	vi.mocked(planKernelRoute).mockResolvedValue({
-		...blockedRoute,
-		routeKind: "answer_in_home",
-		answer: "Slide 1: Welcome. Slide 2: Menu. Slide 3: Hours.",
-		targetTediId: null,
-		targetTediLabel: null,
-		targetActivityId: null,
-		plannedToolIds: [],
-		usage: null,
-	} as never);
-	const onProgress = vi.fn();
 	const result = await runKernel({
 		db: {} as never,
 		env: {
@@ -786,20 +824,13 @@ it.each([
 			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
 		} as never,
 		organizationId: "org",
-		content,
-		onProgress,
+		content: "Write a short document about Blue Harbor Bakery",
 	});
-	expect(planKernelRoute).not.toHaveBeenCalled();
-	expect(result?.routeUsage).toBeNull();
+	expect(assembleHomeContext).toHaveBeenCalledOnce();
 	expect(result?.route).toMatchObject({
 		routeKind: "propose_tool_write",
-		answer: null,
-		toolIntent: {
-			appSlug: "acme-unified",
-			capability,
-		},
+		toolIntent: { appSlug: "acme-unified", capability: "documents.create" },
 	});
-	expect(result?.assistantContent).not.toContain("Slide 1");
 });
 
 it("routes a card verdict follow-up to the card an earlier answer showed", async () => {

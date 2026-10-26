@@ -14,6 +14,11 @@ function requestedCount(content: string): number | null {
 	return Math.min(12, Math.max(1, Number.parseInt(match[1], 10)));
 }
 
+/** Whether {@link groundedRosterDecision} answers this request from the roster. */
+export function isGroundedRosterRequest(content: string): boolean {
+	return ROSTER_REQUEST.test(content) && !EXPLICIT_DELEGATION.test(content);
+}
+
 /**
  * Answer the one roster question Home already has authoritative context for.
  * This is deliberately not a general heuristic router: it performs no provider
@@ -23,8 +28,7 @@ export function groundedRosterDecision(
 	content: string,
 	context: Pick<KernelContext, "tedis">,
 ): KernelRouteDecision | null {
-	if (!ROSTER_REQUEST.test(content) || EXPLICIT_DELEGATION.test(content))
-		return null;
+	if (!isGroundedRosterRequest(content)) return null;
 
 	const active = context.tedis.filter((tedi) => {
 		const status = tedi.status?.trim().toLowerCase();

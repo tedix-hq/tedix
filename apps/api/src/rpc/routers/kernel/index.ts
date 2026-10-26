@@ -64,7 +64,11 @@ import type {
 	CacheTrace,
 	KernelContextCache,
 } from "../../../kernel/context-cache";
-import { assembleHomeContext, type KernelContext } from "./context-assembly";
+import {
+	assembleHomeContext,
+	readKernelContextApps,
+	type KernelContext,
+} from "./context-assembly";
 import {
 	DEFAULT_MAX_PROMPT_TOKENS,
 	maxPromptTokensForWindow,
@@ -100,8 +104,11 @@ import {
 import { factoryChatReader } from "./factory-chat-tools";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { WriteProposalEnv } from "./write-proposal";
-import { factoryChatDecision } from "./factory-intent";
-import { groundedRosterDecision } from "./grounded-roster";
+import { factoryChatDecision, factoryIntent } from "./factory-intent";
+import {
+	groundedRosterDecision,
+	isGroundedRosterRequest,
+} from "./grounded-roster";
 import { createKernelHistorySummarizer } from "./history-summarizer";
 import type { KernelEnv } from "./llm";
 import { kernelModel } from "./llm";
@@ -814,6 +821,61 @@ export async function runKernel(args: {
 		};
 	}
 
+	// Quoted output titles (e.g. "Kickoff") are data, not delegation commands.
+	// The full operator message still goes through the normal authority guard.
+	const delegates = hasExplicitDelegationIntent(
+		inputContent.replace(
+			/\b(?:titled|named|called)\s+(?:"[^"]*"|“[^”]*”)/gi,
+			"",
+		),
+	);
+	const outputCreateKind = delegates
+		? null
+		: explicitOutputCreateKind(inputContent);
+	const outputEditKind = delegates
+		? null
+		: explicitOutputEditKind(inputContent);
+	// An explicit output create or edit is routed without a model and needs only
+	// the gateway app, so it skips context assembly (~2 s live); the write
+	// planner reads its own inputs. Factory and roster requests, which full
+	// assembly decides first, and turns with images keep the full path.
+	if (
+		(outputCreateKind || outputEditKind) &&
+		!images.length &&
+		!factoryIntent(inputContent) &&
+		!isGroundedRosterRequest(inputContent)
+	) {
+		const apps = await readKernelContextApps(
+			db,
+			organizationId,
+			contextCache,
+		).catch(() => []);
+		const decision = explicitOutputWriteDecision(
+			outputCreateKind ?? outputEditKind,
+			outputWriteApp(apps),
+			outputCreateKind ? "create" : "edit",
+		);
+		if (decision) {
+			const route = guardKernelRouteDecision(inputContent, decision);
+			return {
+				route,
+				assistantContent: renderRouteResponse(route),
+				delegation: null,
+				routeUsage: null,
+				contextManifest: {
+					version: 1,
+					budgetTokens: maxPromptTokens,
+					sources: [{ name: "apps", count: apps.length }],
+					historyCompaction: null,
+					recall: "static",
+					recallAgeMs: null,
+					recallCandidates: 0,
+					recallWaitedMs: 0,
+				},
+			};
+		}
+	}
+
 	let pass = await assemblePass({ maxPromptTokens });
 	let context = pass.context;
 	let contextManifest = buildManifest(context, maxPromptTokens);
@@ -932,20 +994,6 @@ export async function runKernel(args: {
 	// non-answer route) reaches the delivery block below with nothing streamed.
 	let plannerStreamedAnswer = false;
 
-	// Quoted output titles (e.g. "Kickoff") are data, not delegation commands.
-	// The full operator message still goes through the normal authority guard.
-	const delegates = hasExplicitDelegationIntent(
-		inputContent.replace(
-			/\b(?:titled|named|called)\s+(?:"[^"]*"|“[^”]*”)/gi,
-			"",
-		),
-	);
-	const outputCreateKind = delegates
-		? null
-		: explicitOutputCreateKind(inputContent);
-	const outputEditKind = delegates
-		? null
-		: explicitOutputEditKind(inputContent);
 	const outputAppSlug =
 		outputCreateKind || outputEditKind ? outputWriteApp(context.apps) : null;
 

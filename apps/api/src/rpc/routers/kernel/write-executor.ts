@@ -181,6 +181,16 @@ export type KernelWriteExecutionResult =
 	| { ok: true; data: unknown }
 	| { ok: false; error: string };
 
+/** Where an approved write's execution time went, filled as each step ends. */
+export type KernelWriteExecutorTimings = {
+	/** Live tool revalidation (exact describe or catalog list). */
+	revalidateMs?: number;
+	/** The provider tool call(s), including a tenant-credential retry. */
+	callMs?: number;
+	/** Action-receipt read-back. */
+	verifyMs?: number;
+};
+
 interface McpTool {
 	name: string;
 	inputSchema?: { properties?: Record<string, unknown>; required?: string[] };
@@ -365,8 +375,11 @@ export async function executeApprovedKernelWrite(args: {
 	approvalRequestId?: string;
 	/** Human from the resolved approval, distinct from the initiating user. */
 	approvedWorkResponderUserId?: string;
+	timings?: KernelWriteExecutorTimings;
 }): Promise<KernelWriteExecutionResult> {
 	const { env, payload } = args;
+	const timings = args.timings ?? {};
+	const since = (startedAt: number) => Date.now() - startedAt;
 	if (!env.MCP_SERVICE || !env.MCP_URL) {
 		return { ok: false, error: "MCP service binding is not configured" };
 	}
@@ -377,6 +390,7 @@ export async function executeApprovedKernelWrite(args: {
 		// Re-validate the stored tool still exists upstream before calling — the
 		// provider catalog may have changed between proposal and approval.
 		const transport = payload.transport ?? "direct";
+		const revalidateStartedAt = Date.now();
 		// A successful exact describe verifies the Code Mode surface itself.
 		const listed =
 			transport === "direct"
@@ -403,6 +417,7 @@ export async function executeApprovedKernelWrite(args: {
 		const tool =
 			described ??
 			listed.items.find((candidate) => candidate.name === payload.toolName);
+		timings.revalidateMs = since(revalidateStartedAt);
 		if (!tool) {
 			return {
 				ok: false,
@@ -475,6 +490,7 @@ export async function executeApprovedKernelWrite(args: {
 				params._meta = {
 					"com.tedix/homeApprovalRequestId": args.approvalRequestId,
 				};
+			const callStartedAt = Date.now();
 			let result = (await mcpCall(
 				env,
 				host,
@@ -509,6 +525,7 @@ export async function executeApprovedKernelWrite(args: {
 					args.approvalRequestId ? payload.initiatedByUserId : undefined,
 				)) as ToolCallResult | null;
 			}
+			timings.callMs = (timings.callMs ?? 0) + since(callStartedAt);
 			if (!result) {
 				return { ok: false, error: "Provider tool call failed (transport)" };
 			}
@@ -526,6 +543,7 @@ export async function executeApprovedKernelWrite(args: {
 					: unwrapCallToolResult(result, nativeName ?? payload.toolName);
 			const failure = reportedWriteFailure(data);
 			if (failure !== null) return { ok: false, error: boundedError(failure) };
+			const verifyStartedAt = Date.now();
 			const actionReceipt = await verifyAction({
 				operation: payload.toolName,
 				args: callArgs,
@@ -562,6 +580,7 @@ export async function executeApprovedKernelWrite(args: {
 						: unwrapCallToolResult(readResult, readName);
 				},
 			});
+			timings.verifyMs = (timings.verifyMs ?? 0) + since(verifyStartedAt);
 			return {
 				ok: true,
 				data:
