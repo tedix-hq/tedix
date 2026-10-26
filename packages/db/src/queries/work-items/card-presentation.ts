@@ -1,4 +1,5 @@
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
 import type { DbQueryClient } from "../../query-client";
 import { chunkForBoundParams } from "../../utils/batch";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
@@ -22,6 +23,7 @@ export async function saveDecisionCardPresentation(
 		personId: string;
 		expectedVersion: number;
 		presentation: DecisionCardPresentation;
+		onlyMissing?: boolean;
 	},
 ) {
 	const updatedAt = new Date().toISOString();
@@ -63,6 +65,9 @@ export async function saveDecisionCardPresentation(
 				workInteractionCardPresentations.orgId,
 				workInteractionCardPresentations.interactionId,
 			],
+			setWhere: input.onlyMissing
+				? sql`${workInteractionCardPresentations.requestVersion}<>${input.expectedVersion}`
+				: undefined,
 			set: {
 				personId: input.personId,
 				requestVersion: input.expectedVersion,
@@ -120,4 +125,56 @@ export async function listDecisionCardPresentations(
 		);
 	}
 	return result;
+}
+
+const SUMMARY_BACKFILL = "decision-card-summary-backfill:v1";
+
+/** Platform maintenance scans at most five missing projections across tenants per tick. */
+export async function listMissingCardSummaries(db: DbQueryClient, now: string) {
+	const [checkpoint] = await db
+		.select()
+		.from(platformCronCheckpoints)
+		.where(eq(platformCronCheckpoints.scheduleId, SUMMARY_BACKFILL))
+		.limit(1);
+	const previous = checkpoint?.through ?? null;
+	const rows = await db
+		.select()
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.status, "open"),
+				eq(workInteractions.targetType, "user"),
+				or(
+					isNull(workInteractions.expiresAt),
+					gt(workInteractions.expiresAt, now),
+				),
+				sql`(${workInteractions.orgId} || ':' || ${workInteractions.id}) > ${previous ?? ""}`,
+				sql`json_type(${workInteractions.metadata},'$.cardPresentation') IS NOT 'object'`,
+				sql`NOT EXISTS (SELECT 1 FROM work_interaction_card_presentations face
+   WHERE face.org_id=${workInteractions.orgId} AND face.interaction_id=${workInteractions.id}
+   AND face.person_id=${workInteractions.targetId} AND face.request_version=${workInteractions.version})`,
+			),
+		)
+		.orderBy(workInteractions.orgId, workInteractions.id)
+		.limit(5);
+	return { rows, previous };
+}
+
+/** CAS cursor keeps overlapping maintenance ticks from rewinding progress. Empty pages restart a pass. */
+export async function advanceCardSummaryBackfill(
+	db: DbQueryClient,
+	previous: string | null,
+	next: string,
+) {
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId: SUMMARY_BACKFILL, through: next })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through: next },
+			setWhere:
+				previous === null
+					? sql`0`
+					: eq(platformCronCheckpoints.through, previous),
+		});
 }

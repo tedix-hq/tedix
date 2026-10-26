@@ -1,3 +1,4 @@
+import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
@@ -8,6 +9,8 @@ import {
 import { createD1Facade } from "../../test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
 import {
+	listMissingCardSummaries,
+	advanceCardSummaryBackfill,
 	saveDecisionCardPresentation,
 	listDecisionCardPresentations,
 } from "./card-presentation";
@@ -162,4 +165,45 @@ it("does not expose another recipient's history or stale-version copy", async ()
 	} finally {
 		sqlite.close();
 	}
+});
+
+it("backfills in bounded passes, retries gaps and never overwrites a concurrent summary", async () => {
+	const { sqlite, db } = fixture();
+	sqlite.exec(schemaDdl(platformCronCheckpoints));
+	sqlite.exec("UPDATE work_interactions SET metadata='{}'");
+	const insert =
+		sqlite.prepare(`INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at)
+ VALUES (?,'org','work','question','Ask','Original prompt','user','author','user','robin','2026-01-01T00:00:00.000Z')`);
+	for (let i = 0; i < 7; i++) insert.run(`missing-${i}`);
+	const first = await listMissingCardSummaries(db, "2026-10-26T00:00:00.000Z");
+	expect(first.rows).toHaveLength(5);
+	await saveDecisionCardPresentation(db, input);
+	expect(
+		await saveDecisionCardPresentation(db, {
+			...input,
+			onlyMissing: true,
+			presentation: { ...copy, title: "Overwrite?" },
+		}),
+	).toBeNull();
+	const stored = sqlite
+		.prepare("SELECT presentation FROM work_interaction_card_presentations")
+		.get();
+	expect(JSON.parse(String(stored?.presentation)).title).toBe(copy.title);
+	const last = first.rows.at(-1)!;
+	await advanceCardSummaryBackfill(
+		db,
+		first.previous,
+		`${last.orgId}:${last.id}`,
+	);
+	const second = await listMissingCardSummaries(db, "2026-10-26T00:00:00.000Z");
+	expect(second.rows).toHaveLength(3);
+	await advanceCardSummaryBackfill(db, second.previous, "org:zzzz");
+	expect(
+		(await listMissingCardSummaries(db, "2026-10-26T00:00:00.000Z")).rows,
+	).toEqual([]);
+	await advanceCardSummaryBackfill(db, "org:zzzz", "");
+	expect(
+		(await listMissingCardSummaries(db, "2026-10-26T00:00:00.000Z")).rows,
+	).toHaveLength(5);
+	sqlite.close();
 });

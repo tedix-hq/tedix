@@ -2,6 +2,7 @@ import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { PersonalAgentContributionSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import {
 	ListWorkInteractionCliInboxResultSchema,
+	LastRelatedDecisionSchema,
 	WORK_PROPOSAL_SCHEMA,
 	WorkProposalMetadataSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
@@ -39,6 +40,7 @@ import {
 } from "@tedix/api-contract/schemas/agent-turn-triage";
 import { workInteractionsContract } from "@tedix/api-contract/contracts/work-interactions";
 import {
+	snoozeWorkInteraction,
 	cancelWorkInteraction,
 	createWorkInteraction,
 	delegateWorkInteraction,
@@ -1195,6 +1197,11 @@ const listInboxProcedure = readOs.listInbox.handler(
 							}
 						: null,
 					workItem: row.workItem?.id ? row.workItem : null,
+					lastRelatedDecision: row.lastRelatedDecision
+						? LastRelatedDecisionSchema.parse(
+								JSON.parse(row.lastRelatedDecision),
+							)
+						: null,
 					responseCount: row.responseCount,
 					askedBy: askedBy(request, caller.id, tediNames, sessionHarnesses),
 					creatorHarness: creatorHarness(request, sessionHarnesses),
@@ -1714,6 +1721,23 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			return result.request;
 		},
 	),
+	snooze: writeOs.snooze.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		try {
+			const row = await snoozeWorkInteraction(context.db, {
+				orgId,
+				actor,
+				interactionId: input.requestId,
+				expectedVersion: input.expectedVersion,
+				until: input.until,
+				now: new Date().toISOString(),
+			});
+			return requestOutput(row);
+		} catch (error) {
+			return rethrowInteractionError(error);
+		}
+	}),
 	regenerateCard: writeOs.regenerateCard.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const actor = await verifiedActiveWorkActor(context, orgId);

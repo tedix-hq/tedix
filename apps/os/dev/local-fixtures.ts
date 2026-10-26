@@ -1345,6 +1345,7 @@ function installWorkViewFixtures(): void {
 let demoPackBuiltAt: number | null = null;
 
 export function resetLocalFixtures(): void {
+	localSnoozes.clear();
 	runSteeringMessages.clear();
 	localConnectTickets.clear();
 	resetAttentionFixtures();
@@ -4966,6 +4967,8 @@ function localKnockRequest(knock: (typeof LOCAL_KNOCKS)[number]) {
 	};
 }
 
+const localSnoozes = new Map<string, string>();
+
 function localKnockRow(knock: (typeof LOCAL_KNOCKS)[number]) {
 	return {
 		request: localKnockRequest(knock),
@@ -5291,11 +5294,36 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"workAgentSessions/listRequests": () => ({ data: [] }),
 	"workAgentSessions/contributors": (input: { projectId: string }) =>
 		localProjectContributors(input.projectId),
+	"workInteractions/snooze": (input: {
+		requestId: string;
+		expectedVersion: number;
+		until: string;
+	}) => {
+		const detail = localKnockDetail(input.requestId);
+		if (
+			!detail ||
+			detail.request.version !== input.expectedVersion ||
+			detail.request.state !== "open" ||
+			Date.parse(input.until) <= Date.now()
+		)
+			throw new RpcError("CONFLICT", "Card changed or invalid wake time");
+		localSnoozes.set(input.requestId, input.until);
+		return {
+			...detail.request,
+			metadata: {
+				...detail.request.metadata,
+				followThrough: { snoozedUntil: input.until },
+			},
+		};
+	},
 	"workInteractions/listInbox": (
 		input: { states?: string[]; urgency?: string } | undefined,
 	) => ({
 		data: LOCAL_KNOCKS.filter(
 			(knock) =>
+				(knock.state !== "open" ||
+					(localSnoozes.get(fid("a7", knock.n)) ?? "") <=
+						new Date().toISOString()) &&
 				(!input?.states || input.states.includes(knock.state)) &&
 				(!input?.urgency || input.urgency === knock.urgency),
 		).map(localKnockRow),

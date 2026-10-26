@@ -378,14 +378,21 @@ export function WorkDecisionCard({
 		? decisionCardContextItems(
 				cardPreferences,
 				cardType,
-				(CONTEXT_ORDER[kind] ?? DEFAULT_CONTEXT_ORDER).filter((item) =>
-					item === "source"
-						? Boolean(face && (body || title))
-						: item === "due"
-							? Boolean(dueAt)
-							: item === "asker"
-								? Boolean(askedBy)
-								: Boolean(stakes),
+				(
+					[
+						"last_decision",
+						...(CONTEXT_ORDER[kind] ?? DEFAULT_CONTEXT_ORDER),
+					] as const
+				).filter((item) =>
+					item === "last_decision"
+						? Boolean(faceState.lastRelatedDecision)
+						: item === "source"
+							? Boolean(face && (body || title))
+							: item === "due"
+								? Boolean(dueAt)
+								: item === "asker"
+									? Boolean(askedBy)
+									: Boolean(stakes),
 				),
 			)
 		: [];
@@ -1050,13 +1057,15 @@ export function WorkDecisionCard({
 														);
 												};
 												const label =
-													item === "source"
-														? sourcePreview(body || title)
-														: item === "due"
-															? `${decisionText("Due")} ${shortDeadline(dueAt!)}`
-															: item === "asker"
-																? `${decisionText("Asked by")} ${askedBy}`
-																: stakes!;
+													item === "last_decision"
+														? `Last related decision: ${faceState?.lastRelatedDecision?.subject}`
+														: item === "source"
+															? sourcePreview(body || title)
+															: item === "due"
+																? `${decisionText("Due")} ${shortDeadline(dueAt!)}`
+																: item === "asker"
+																	? `${decisionText("Asked by")} ${askedBy}`
+																	: stakes!;
 												return (
 													<li key={item} data-context-item={item}>
 														<button
@@ -1078,6 +1087,15 @@ export function WorkDecisionCard({
 															{label && (
 																<span className="fd-context-text">{label}</span>
 															)}
+															{item === "last_decision" &&
+																expandedItem === item && (
+																	<span className="fd-context-text">
+																		{faceState?.lastRelatedDecision?.body} ·{" "}
+																		{absoluteTime(
+																			faceState!.lastRelatedDecision!.decidedAt,
+																		)}
+																	</span>
+																)}
 															{item === "due" && expandedItem === item && (
 																<span className="fd-context-text">
 																	{absoluteTime(dueAt!)}

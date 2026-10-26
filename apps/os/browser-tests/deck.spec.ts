@@ -8,6 +8,48 @@ const { origin } = server;
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
+	for (const width of [390, 1280]) {
+		const page = await browser.newPage({ viewport: { width, height: 844 } });
+		try {
+			let submitted: unknown;
+			await page.route("**/api/rpc/workInteractions/snooze", async (route) => {
+				submitted = route.request().postDataJSON();
+				await route.fulfill({
+					status: 200,
+					contentType: "application/json",
+					body: JSON.stringify({ json: {} }),
+				});
+			});
+			await page.goto(`${origin}/browser-tests/card-tldr.html?snooze=1`);
+			await page
+				.getByRole("button", {
+					name: "Last related decision: Keep the reminder personal",
+				})
+				.click();
+			await page
+				.getByText("Save a reminder; the person sends any message.", {
+					exact: false,
+				})
+				.waitFor();
+			await page.getByRole("button", { name: "Snooze…", exact: true }).click();
+			await page
+				.getByRole("button", { name: "Until tomorrow", exact: true })
+				.click();
+			await page.waitForFunction(
+				() => document.documentElement.dataset.snoozed === "true",
+			);
+			assert(submitted, "snooze sends a server mutation before refreshing");
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				"snooze and context fit phone and desktop",
+			);
+		} finally {
+			await page.close();
+		}
+	}
+
 	for (const viewport of [
 		{ width: 1280, height: 800 },
 		{ width: 390, height: 844 },
