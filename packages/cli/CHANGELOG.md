@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.11 — 2026-10-26
+
+### Patch Changes
+
+- Local agent dispatchers take Work again. Since 0.17.10 they skipped every Work Item because they read the short `tedix skill show` preview of their standing rules; they now read the rules in full.
+
 ## 0.17.10 — 2026-10-26
 
 ### Patch Changes
