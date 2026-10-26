@@ -1086,6 +1086,7 @@ describe("MCP provider provisioning metadata", () => {
 				tokenUrl: "https://mcp.alpic.ai/oauth2/token",
 				revocationUrl: null,
 				dcrUrl: "https://mcp.alpic.ai/oauth2/register",
+				clientIdMetadataDocumentSupported: false,
 				scopesSupported: [],
 				authorizationServerScopesSupported: ["openid"],
 				codeChallengeMethodsSupported: ["S256"],
@@ -1125,6 +1126,56 @@ describe("MCP provider provisioning metadata", () => {
 		);
 	});
 
+	it("flags a registered or static client when upstream offers CIMD", () => {
+		const discovery = {
+			protectedResourceMetadataUrl:
+				"https://mcp.example.com/.well-known/oauth-protected-resource",
+			authorizationServerMetadataUrl:
+				"https://auth.example.com/.well-known/oauth-authorization-server",
+			resource: "https://mcp.example.com/",
+			authorizationServer: "https://auth.example.com/",
+			authorizationUrl: "https://auth.example.com/authorize",
+			tokenUrl: "https://auth.example.com/token",
+			revocationUrl: null,
+			dcrUrl: "https://auth.example.com/register",
+			clientIdMetadataDocumentSupported: true,
+			scopesSupported: [],
+			authorizationServerScopesSupported: [],
+			codeChallengeMethodsSupported: ["S256"],
+			tokenEndpointAuthMethodsSupported: ["none"],
+			error: null,
+		};
+		const app = {
+			name: "Example",
+			appType: "oauth",
+			authorizationUrl: "https://auth.example.com/authorize",
+			tokenUrl: "https://auth.example.com/token",
+			pkce: true,
+			logo: "https://example.com/logo.png",
+		};
+		const codes = (extra: Record<string, unknown>) =>
+			auditOutboundAppRecord({
+				referencedByOrg: true,
+				app: { ...app, ...extra },
+				discovery,
+			}).issues.map((issue) => issue.code);
+
+		expect(
+			codes({ id: "legacy", useDcr: false, clientId: "client_123" }),
+		).toContain("cimd_available_legacy_client");
+		expect(codes({ id: "dcr", useDcr: true })).toContain(
+			"cimd_available_legacy_client",
+		);
+		expect(
+			codes({
+				id: "migrated",
+				useDcr: false,
+				clientId:
+					"https://api.tedix.dev/.well-known/oauth-client/tedix-mcp.json",
+			}),
+		).not.toContain("cimd_available_legacy_client");
+	});
+
 	it("flags disabled PKCE when upstream metadata supports S256", () => {
 		const audit = auditOutboundAppRecord({
 			referencedByOrg: true,
@@ -1159,6 +1210,7 @@ describe("MCP provider provisioning metadata", () => {
 				tokenUrl: "https://oauth2.googleapis.com/token",
 				revocationUrl: null,
 				dcrUrl: null,
+				clientIdMetadataDocumentSupported: false,
 				scopesSupported: ["https://www.googleapis.com/auth/drive.readonly"],
 				authorizationServerScopesSupported: [],
 				codeChallengeMethodsSupported: ["plain", "S256"],
