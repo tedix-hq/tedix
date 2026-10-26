@@ -1458,25 +1458,73 @@ describe("planKernelWriteProposal — positive path", () => {
 		).toHaveLength(0);
 	});
 
-	it("stops after one failed input repair without proposing a write", async () => {
-		const service = mcpService(globexProvider);
+	it.each([{ amount: "12" }, {}])(
+		"asks for invalid or missing fields after one failed repair: %j",
+		async (args) => {
+			const service = mcpService(globexProvider);
+			const model = objectModel({
+				toolName: "globex__create_invoice",
+				args,
+			});
+			const onDecline = vi.fn();
+			const result = await planKernelWriteProposal({
+				db: DB,
+				env: baseEnv(service),
+				organizationId: "org-1",
+				route: writeRoute(),
+				content: "Create a draft invoice for 12",
+				model,
+				onDecline,
+			});
+			expect(result).toBeNull();
+			const declined = onDecline.mock.calls[0]?.[0];
+			expect(declined.invalidFields).toEqual(["amount"]);
+			expect(renderWriteDeclined(declined, writeRoute())).toContain(
+				"fields: amount?",
+			);
+			expect(model.doGenerateCalls).toHaveLength(2);
+			expect(
+				service.calls.filter((call) => call.method === "tools/call"),
+			).toHaveLength(0);
+		},
+	);
+
+	it("asks for the required project key instead of inventing one", async () => {
+		const onInvalidFields = vi.fn();
 		const model = objectModel({
-			toolName: "globex__create_invoice",
-			args: { amount: "12" },
+			toolName: "projects.create_project",
+			args: { name: "Sample Review", status: "paused" },
 		});
-		const result = await planKernelWriteProposal({
-			db: DB,
-			env: baseEnv(service),
-			organizationId: "org-1",
-			route: writeRoute(),
-			content: "Create a draft invoice for 12",
+		const result = await planWriteCall({
+			content: "Prepare a paused project named Sample Review",
+			capability: "projects.create",
+			tools: [
+				{
+					name: "projects.create_project",
+					inputSchema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							key: { type: "string" },
+							status: { type: "string" },
+						},
+						required: ["name", "key"],
+					},
+				},
+			],
 			model,
+			paramDefaults: null,
+			timeoutMs: 10000,
+			onInvalidFields,
 		});
 		expect(result).toBeNull();
-		expect(model.doGenerateCalls).toHaveLength(2);
+		expect(onInvalidFields).toHaveBeenCalledWith(["key"]);
 		expect(
-			service.calls.filter((call) => call.method === "tools/call"),
-		).toHaveLength(0);
+			renderWriteDeclined(
+				{ stage: "planner_declined", invalidFields: ["key"] },
+				writeRoute(),
+			),
+		).toContain("fields: key?");
 	});
 
 	it.each([true, false])(
@@ -2805,9 +2853,15 @@ describe("Jev action selection failure boundary", () => {
 });
 
 describe("factory creation preview", () => {
-	it.each([true, false])(
-		"requires a successful dry run before approval (preview=%s)",
-		async (valid) => {
+	it.each([
+		{ valid: true, dryRun: false, modelDryRun: false },
+		{ valid: false, dryRun: false, modelDryRun: false },
+		{ valid: true, dryRun: true, modelDryRun: true },
+		{ valid: false, dryRun: true, modelDryRun: true },
+		{ valid: true, dryRun: true, modelDryRun: false },
+	])(
+		"requires a valid preview and preserves dryRun=$dryRun (valid=$valid)",
+		async ({ valid, dryRun, modelDryRun }) => {
 			const service = mcpService((body) => {
 				if (body.method === "tools/list")
 					return {
@@ -2830,6 +2884,7 @@ describe("factory creation preview", () => {
 										goal: { type: "string" },
 										slug: { type: "string" },
 										dryRun: { type: "boolean" },
+										maxProposals: { type: "number" },
 									},
 									required: ["goal"],
 								},
@@ -2864,6 +2919,7 @@ describe("factory creation preview", () => {
 				};
 			});
 			mocks.getAppBySlugForOrg.mockResolvedValue({ slug: "sample-tools" });
+			const onDecline = vi.fn();
 			const proposal = await planKernelWriteProposal({
 				db: DB,
 				organizationId: "org-1",
@@ -2875,13 +2931,17 @@ describe("factory creation preview", () => {
 						connectionStatus: "connected",
 					},
 				}),
-				content: "Create a daily factory",
+				content: dryRun
+					? 'Preview projects.create_factory {"dryRun":true}; do not create it'
+					: "Create a daily factory",
+				onDecline,
 				model: objectModel({
 					toolName: "projects.create_factory",
 					args: {
 						goal: "Summarise project comments",
 						slug: "sample-comments",
-						dryRun: true,
+						dryRun: modelDryRun,
+						maxProposals: 0,
 					},
 					reasoning: "Create daily report",
 				}),
@@ -2895,7 +2955,19 @@ describe("factory creation preview", () => {
 			expect(
 				(executionCalls[0]!.params.arguments as { code: string }).code,
 			).toContain('"dryRun":true');
-			if (valid) {
+			expect(
+				(executionCalls[0]!.params.arguments as { code: string }).code,
+			).toContain('"maxProposals":0');
+			if (valid && dryRun) {
+				expect(proposal).toBeNull();
+				const declined = onDecline.mock.calls[0]?.[0];
+				expect(declined.stage).toBe("factory_preview");
+				const response = renderWriteDeclined(declined, writeRoute());
+				expect(response).toContain("Sample daily review (document)");
+				expect(response).toContain("Check the selected output");
+				expect(response).toContain("No factory was created or activated");
+				expect(response).toContain("no approval was requested");
+			} else if (valid) {
 				expect(proposal?.args.dryRun).toBe(false);
 				expect(proposal?.riskTier).toBe("high");
 				expect(proposal?.reasoning).toContain("Check the selected output");

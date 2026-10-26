@@ -13,6 +13,63 @@ const input = {
 };
 
 describe("verified action receipts", () => {
+	it("reads the exact private draft without claiming member edit authority", async () => {
+		const entry = {
+			id: "skill-1",
+			revision: 1,
+			tediId: "builder-1",
+			visibility: "private",
+			lifecycleState: "draft",
+			content: "Fictional workshop draft",
+		};
+		const write = {
+			...input,
+			operation: "skills.propose_workshop",
+			endpoint: "skills/proposeWorkshop",
+			result: { entry },
+		};
+		const receipt = await verifyAction({
+			...write,
+			read: async (tool, args, endpoint) => {
+				expect(tool).toBe("get_skills");
+				expect(args).toEqual({ id: "skill-1" });
+				expect(endpoint).toBe("skills/get");
+				return { entry };
+			},
+		});
+		expect(receipt).toMatchObject({
+			verified: true,
+			url: "https://os.example.test/skills/skill-1",
+			state: "draft, revision 1; member edit/reload unverified",
+		});
+		for (const changed of [
+			null,
+			{ ...entry, id: "other" },
+			{ ...entry, revision: 2 },
+			{ ...entry, tediId: "other" },
+			{ ...entry, visibility: "organization" },
+			{ ...entry, content: "stale" },
+		]) {
+			expect(
+				(
+					await verifyAction({
+						...write,
+						read: async () => ({ entry: changed }),
+					})
+				).verified,
+			).toBe(false);
+		}
+		expect(
+			(
+				await verifyAction({
+					...write,
+					read: async () => {
+						throw new Error("denied");
+					},
+				})
+			).verified,
+		).toBe(false);
+	});
 	it("reads after mutation and reports canonical state rather than the write response", async () => {
 		const receipt = await verifyAction({
 			...input,

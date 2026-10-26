@@ -95,6 +95,7 @@ Rules:
 - Tedix Work creation needs one structured purpose context: a known objectiveId, projectId, parentWorkItemId, or an explicitly requested maintenance/incident/hygiene workClass. A supplied workspaceDefaultProjectId is a known projectId. A prose "Purpose" belongs in the description and does not replace that context. Preserve a supplied destination even when the request starts with a purpose preface. Never invent an identifier or classify unrelated work as maintenance to make creation pass; return NONE if no valid context is known.
 - "Only stage it for approval" or "do nothing else" describes this review step; it does not negate the change.
 - Only use parameters the chosen tool declares. Omit optional parameters unless they clearly help.
+- Preserve preview-only intent with dryRun: true when the selected tool supports it. Never turn a requested preview into creation or activation. Preserve explicit zero limits such as maxProposals: 0.
 - When asked to draft or create content, compose the finished content inside the tool arguments. Follow the requested structure, durations, and other explicit constraints; do not paste the drafting instructions into the deliverable. Use supplied text verbatim only when the operator asks for that. Do not invent factual evidence, measurements, or completed actions. Before returning, check that every requested component is present in the draft; mentioning a requirement is not fulfilling it.
 - NEVER invent identifiers (invoiceId, contactId, threadId, accountId, ...). If a tool requires an identifier you do not know, do not pick that tool — prefer one whose required parameters you can fill from the request alone.
 - SUBSTITUTION over surrender: when the IDEAL tool needs an identifier you do not know (no tenant default, not given in the request), pick the closest write tool that fulfills the operator's intent WITHOUT that identifier — e.g. a fresh draft addressed to the recipient instead of a reply-draft when the thread id is unknown — and state the substitution in reasoning. Only return NONE when no write tool can express the intent at all.
@@ -227,6 +228,7 @@ export async function planWriteCall(args: {
 	/** GenAI span identity for this write pass (see `kernelSpanContext`). */
 	span?: Record<string, string>;
 	onFailure?: (reason: string) => void;
+	onInvalidFields?: (fields: string[]) => void;
 	/** Adds defaults the request left out, before validation; never overrides a value. */
 	fillMissing?: (args: Record<string, unknown>) => Record<string, unknown>;
 	selectionOnly?: boolean;
@@ -478,6 +480,8 @@ The previous plan failed the exact tool input schema at these field paths: ${JSO
 		console.warn("[kernel.writeProposal] planWriteCall failed", {
 			exception: safeExceptionTopology(error),
 		});
+		if (invalidArgumentFields.length)
+			args.onInvalidFields?.(invalidArgumentFields);
 		args.onFailure?.(
 			abortSignal.aborted
 				? "Argument generation timed out"
