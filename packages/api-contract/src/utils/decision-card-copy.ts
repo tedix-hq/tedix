@@ -14,6 +14,8 @@ type CardCopy = {
 
 const relativeDatePattern =
 	/\b(?:today|tomorrow|yesterday|in \d+ days?|\d+ days? ago)\b/gi;
+const bareActionTitle =
+	/^\s*(?:execute|run|send|approve|reject|allow|deny|confirm|continue|proceed|start|stop|create|update|delete|remove|publish|save|submit|apply|authorize|review|call|use)[\s.!?…]*$/i;
 
 /** Date-only deadlines keep their calendar day; zoned instants keep their time. */
 export function formatIsoCardDates(
@@ -197,6 +199,8 @@ export function checkDecisionCardCopy(copy: CardCopy) {
 			issues.push(field);
 	}
 	if (!copy.title.endsWith("?")) issues.push("ask_question");
+	if (bareActionTitle.test(withoutListPrefix(copy.title)))
+		issues.push("bare_action_title");
 	if (listPrefix.test(copy.title)) issues.push("list_prefix");
 	const text = [
 		copy.title,
@@ -294,6 +298,7 @@ export function decisionCardFallbackTitle(
 		!plain ||
 		plain === copySpec.pendingTitle ||
 		plain === copySpec.unavailableTitle ||
+		bareActionTitle.test(plain) ||
 		containsCardSecret(plain)
 	)
 		return FALLBACK_TITLE;

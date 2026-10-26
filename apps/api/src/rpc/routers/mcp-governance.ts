@@ -109,12 +109,24 @@ function isSkillStart(target: Record<string, unknown>): boolean {
 function ownerToolApprovalTitle(
 	toolId: string,
 	skillTitle: string | undefined,
+	args: Record<string, unknown> = {},
 ): string {
 	if (skillTitle) return `Run skill: ${skillTitle}`;
 	const action = (toolId.split("__").at(-1) ?? toolId)
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
 		.replace(/[_-]+/g, " ")
 		.trim();
-	return action ? action[0]!.toUpperCase() + action.slice(1) : toolId;
+	if (/^(?:execute|run)$/i.test(action))
+		return typeof args.code === "string"
+			? "Run the submitted code"
+			: typeof args.command === "string"
+				? "Run the submitted command"
+				: `Run the ${action.toLowerCase()} tool`;
+	if (!action.includes(" "))
+		return action
+			? `Run the ${action.toLowerCase()} tool`
+			: "Run the submitted tool call";
+	return action[0]!.toUpperCase() + action.slice(1);
 }
 
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
@@ -245,12 +257,14 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);
+			const requester = await getMemberByUserId(
+				context.db,
+				input.organizationId,
+				input.userId,
+			);
 			if (
-				!(await isActiveOwnerOrAdmin(
-					context,
-					input.organizationId,
-					input.userId,
-				))
+				requester?.status !== "active" ||
+				!["owner", "admin"].includes(requester.role)
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
@@ -337,7 +351,15 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				: undefined;
 			if (isSkillStart(input.target) && !skill)
 				throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
-			const title = ownerToolApprovalTitle(input.toolId, skill?.title);
+			const title = ownerToolApprovalTitle(
+				input.toolId,
+				skill?.title,
+				input.args,
+			);
+			const app = input.appSlug.replace(/[-_]+/g, " ");
+			const organizationName = organization!.name || organization!.slug;
+			const requestedFor =
+				requester.name || "the requesting organization member";
 			// The anchor supplies the existing approval queue's FK, never tedi authority.
 			const anchor = await getApprovalAnchor(context.db, input.organizationId);
 			if (!anchor)
@@ -353,7 +375,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					orgId: input.organizationId,
 					tediId: anchor.id,
 					actionType: "mcp.tool_call",
-					description: `${title}. Nothing has run yet; approving allows one identical retry of this call.`,
+					description: `${title}. In ${app} for ${requestedFor} (${organizationName}). Nothing has run yet; approving allows one identical retry of this call.`,
 					payload: {
 						kind: "mcp_tool_call",
 						initiatedByUserId: input.userId,

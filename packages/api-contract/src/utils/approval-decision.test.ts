@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vite-plus/test";
 import { approvalDecision } from "./approval-decision";
 describe("approval decision catalog", () => {
+	it("keeps the skill name when the producer includes its requester and app", () => {
+		const result = approvalDecision({
+			actionType: "mcp.tool_call",
+			review: { intent: "unknown" },
+			description:
+				"Run skill: nightly-check improvement abc12345. In example for Alex (Example Team). Nothing has run yet; approving allows one identical retry of this call.",
+			payload: {
+				kind: "mcp_tool_call",
+				target: { transport: "rpc", endpoint: "skills/runWorkflow" },
+				args: { params: { probe: true } },
+			},
+		});
+		expect(result.what).toBe("Run a test of the nightly-check skill proposal.");
+		expect(result.details).toEqual(["In example for Alex (Example Team)."]);
+	});
 	const skillRequest = {
 		actionType: "mcp.tool_call",
 		review: { intent: "unknown" },
