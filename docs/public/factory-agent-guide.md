@@ -20,6 +20,11 @@ objective, a revisioned executable skill, a schedule and a health Work Item.
 A Workspace holds its sources, Documents and review app. Configuration, a queued
 run and a delivered result are separate facts.
 
+For the complete first-build loop, start with
+[Build, operate and tune a factory](./build-operate-tune-factory.md). It takes a
+fresh agent from the goal and dry run through the first probe, daily health and
+tuning, and keeps the current trap list in one place.
+
 For an overnight coordinator, use a tedi-owned scheduled automation to
 run the participating tedis, save their replies in a dated Workspace sheet,
 file deduplicated blocker Work and write a morning brief. Cover both UTC

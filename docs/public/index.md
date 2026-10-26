@@ -59,6 +59,7 @@ what is available today.
 | Run Tedix locally without a Cloud account        | [Getting started locally](./getting-started.md)                         |
 | Start a new agent session with no context        | [Start here as an agent](./agent-start-here.md)                         |
 | Give an agent reliable Tedix context             | [Agent guide](./agent-guide.md)                                         |
+| Build, operate and tune a factory                | [Factory playbook](./build-operate-tune-factory.md)                     |
 | Build or inspect a Workspace factory             | [Factory guide for agents](./factory-agent-guide.md)                    |
 | Keep a factory producing useful work             | [Factory continuity](./factory-continuity.md)                           |
 | Get help as a person or an agent                 | [Get support](./support.md)                                             |

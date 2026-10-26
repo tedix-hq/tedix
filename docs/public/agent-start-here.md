@@ -158,6 +158,10 @@ separate step with its own receipt.
 
 Detail: [Build and inspect a factory as an agent](./factory-agent-guide.md).
 
+To turn a recurring goal into a working lane, follow
+[Build, operate and tune a factory](./build-operate-tune-factory.md) from dry
+run through the first probe, daily health and evidence-based tuning.
+
 ## 5. Know the containers
 
 A **Workspace** holds Documents. A **Work project** holds Work Items and a brief.

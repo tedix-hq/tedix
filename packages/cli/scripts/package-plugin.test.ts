@@ -182,7 +182,7 @@ describe("plugin packager", () => {
 			"skills/tedix-resume-work/references/work-lifecycle.md",
 			"skills/tedix-session-guide/references/work-lifecycle.md",
 			"skills/tedix-guardian-session/references/work-lifecycle.md",
-			"skills/tedix-session-guide/references/factory-procedure.md",
+			"skills/tedix-factory/SKILL.md",
 		]) {
 			const source = readFileSync(join(ROOT, path), "utf8");
 			for (const files of artifacts)
