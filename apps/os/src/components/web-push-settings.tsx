@@ -2,7 +2,11 @@ import { Bell } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { osApi } from "@/lib/api";
-import { osQuery, projectListQueryOptions } from "@/lib/os-query-options";
+import {
+	activeWorkspacesQueryOptions,
+	osQuery,
+	projectListQueryOptions,
+} from "@/lib/os-query-options";
 import { Button } from "@/components/kumo/button";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
@@ -20,6 +24,7 @@ export function WebPushSettings() {
 		osQuery.webPush.getStatus.queryOptions({ input: {} }),
 	);
 	const projects = useQuery(projectListQueryOptions(100));
+	const workspaces = useQuery(activeWorkspacesQueryOptions());
 	const [subscribed, setSubscribed] = useState(false);
 	const supported =
 		"serviceWorker" in navigator &&
@@ -78,8 +83,10 @@ export function WebPushSettings() {
 		},
 	});
 	const mute = useMutation({
-		mutationFn: (input: { mutedProjectIds: string[] }) =>
-			osApi.webPush.setPreferences(input),
+		mutationFn: (input: {
+			mutedProjectIds: string[];
+			mutedWorkspaceIds?: string[];
+		}) => osApi.webPush.setPreferences(input),
 		onSuccess: () =>
 			cache.invalidateQueries({ queryKey: osQuery.webPush.getStatus.key() }),
 	});
@@ -136,6 +143,36 @@ export function WebPushSettings() {
 									mutedProjectIds: checked
 										? [...new Set([...ids, project.id])]
 										: ids.filter((id) => id !== project.id),
+									mutedWorkspaceIds:
+										status.data?.preferences.mutedWorkspaceIds ?? [],
+								});
+							}}
+						/>
+					</SettingsRow>
+				))}
+				{(workspaces.data?.items ?? []).map((workspace) => (
+					<SettingsRow
+						icon={Bell}
+						key={workspace.id}
+						title={workspace.name}
+						description="Mute run updates for this workspace; approval requests stay enabled."
+					>
+						<Switch
+							aria-label={`Mute ${workspace.name}`}
+							checked={
+								status.data?.preferences.mutedWorkspaceIds?.includes(
+									workspace.id,
+								) ?? false
+							}
+							disabled={!status.data || mute.isPending}
+							onCheckedChange={(checked) => {
+								const ids = status.data?.preferences.mutedWorkspaceIds ?? [];
+								mute.mutate({
+									mutedProjectIds:
+										status.data?.preferences.mutedProjectIds ?? [],
+									mutedWorkspaceIds: checked
+										? [...new Set([...ids, workspace.id])]
+										: ids.filter((id) => id !== workspace.id),
 								});
 							}}
 						/>

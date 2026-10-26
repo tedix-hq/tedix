@@ -7,6 +7,7 @@ import {
 	savePushConfig,
 } from "@tedix/db/queries/web-push";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { pushEndpointKey, webPushKeys } from "../../services/web-push";
 import {
 	AUTHZ,
@@ -82,8 +83,26 @@ export const webPushRouter = os.router({
 			)
 				throw createError(ErrorCodes.NOT_FOUND, "Project not found");
 		}
-		await savePushConfig(context.db, scope, "preferences", input);
-		return input;
+		for (const id of input.mutedWorkspaceIds ?? []) {
+			if (
+				!(await getOsWorkspace(context.db, {
+					organizationId: scope.organizationId,
+					workspaceId: id,
+				}))
+			)
+				throw createError(ErrorCodes.NOT_FOUND, "Workspace not found");
+		}
+		const current = WebPushPreferencesSchema.safeParse(
+			(await listPushConfigs(context.db, scope, "preferences"))[0]?.value,
+		);
+		const preferences = {
+			mutedProjectIds: input.mutedProjectIds,
+			mutedWorkspaceIds:
+				input.mutedWorkspaceIds ??
+				(current.success ? (current.data.mutedWorkspaceIds ?? []) : []),
+		};
+		await savePushConfig(context.db, scope, "preferences", preferences);
+		return preferences;
 	}),
 	setVisibility: os.setVisibility.handler(async ({ context, input }) => {
 		const scope = userScope(context);

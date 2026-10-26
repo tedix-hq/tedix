@@ -352,7 +352,10 @@ const CALLS = {
 		clientId: "00000000-0000-4000-8000-000000000001",
 		conversationId: "fixture-chat",
 	},
-	"webPush/setPreferences": { mutedProjectIds: [] },
+	"webPush/setPreferences": {
+		mutedProjectIds: [],
+		mutedWorkspaceIds: [],
+	},
 	"userSettings/getPreferences": {},
 	"userSettings/updatePreferences": {
 		preferences: {

@@ -1,12 +1,14 @@
 import {
 	Archive,
+	Bell,
+	BellSlash,
 	Copy,
 	DotsThree,
 	PencilSimple,
 	Plus,
 	UsersThree,
 } from "@phosphor-icons/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect, useState } from "react";
 import * as z from "zod";
@@ -35,7 +37,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { osApi } from "@/lib/api";
-import { osQueryKeys } from "@/lib/os-query-options";
+import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 import { WorkspaceBlueprintDialog } from "@/components/workspace-blueprint-dialog";
 import { WorkspaceShareDialog } from "@/components/workspace-share-dialog";
 
@@ -220,6 +222,36 @@ export function CanvasWorkspaceControls({
 		},
 	});
 
+	const push = useQuery({
+		...osQuery.webPush.getStatus.queryOptions({ input: {} }),
+		enabled: !!workspace,
+	});
+	const pushMuted =
+		(workspace &&
+			push.data?.preferences.mutedWorkspaceIds?.includes(workspace.id)) ??
+		false;
+	const pushMute = useMutation({
+		mutationFn: (mutedWorkspaceIds: string[]) =>
+			osApi.webPush.setPreferences({
+				mutedProjectIds: push.data?.preferences.mutedProjectIds ?? [],
+				mutedWorkspaceIds,
+			}),
+		onSuccess: () =>
+			queryClient.invalidateQueries({
+				queryKey: osQuery.webPush.getStatus.key(),
+			}),
+	});
+	const togglePushMute = () => {
+		if (!workspace || !push.data) return;
+		const ids = push.data.preferences.mutedWorkspaceIds ?? [];
+		pushMute.mutate(
+			pushMuted
+				? ids.filter((id) => id !== workspace.id)
+				: [...new Set([...ids, workspace.id])],
+		);
+	};
+	const pushMuteDisabled = !push.data || pushMute.isPending;
+
 	return (
 		<>
 			<div className="flex flex-wrap items-center gap-2">
@@ -262,6 +294,25 @@ export function CanvasWorkspaceControls({
 										<PencilSimple size={14} />
 									</Button>
 									<Button
+										aria-label={
+											pushMuted
+												? "Unmute workspace notifications"
+												: "Mute workspace notifications"
+										}
+										aria-pressed={pushMuted}
+										disabled={pushMuteDisabled}
+										size="icon-sm"
+										title={
+											pushMuted
+												? "Notifications muted — approvals still arrive"
+												: "Mute notifications"
+										}
+										variant="ghost"
+										onClick={togglePushMute}
+									>
+										{pushMuted ? <BellSlash size={14} /> : <Bell size={14} />}
+									</Button>
+									<Button
 										aria-label="Archive workspace"
 										size="icon-sm"
 										title="Archive workspace"
@@ -279,6 +330,20 @@ export function CanvasWorkspaceControls({
 										onClick={() => setEditOpen(true)}
 									>
 										<PencilSimple size={14} /> Edit
+									</Button>
+									<Button
+										disabled={pushMuteDisabled}
+										size="sm"
+										title={
+											pushMuted
+												? "Notifications muted — approvals still arrive"
+												: "Mute notifications"
+										}
+										variant="ghost"
+										onClick={togglePushMute}
+									>
+										{pushMuted ? <BellSlash size={14} /> : <Bell size={14} />}
+										{pushMuted ? "Unmute" : "Mute"}
 									</Button>
 									<Button
 										size="sm"
@@ -308,6 +373,13 @@ export function CanvasWorkspaceControls({
 								</DropdownMenuItem>
 								<DropdownMenuItem onClick={() => setEditOpen(true)}>
 									<PencilSimple size={14} /> Edit workspace
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									disabled={pushMuteDisabled}
+									onClick={togglePushMute}
+								>
+									{pushMuted ? <Bell size={14} /> : <BellSlash size={14} />}
+									{pushMuted ? "Unmute notifications" : "Mute notifications"}
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem

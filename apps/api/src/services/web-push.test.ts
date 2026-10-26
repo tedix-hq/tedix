@@ -21,7 +21,9 @@ vi.mock("@tedix/db/queries/kernel-runtime-runs", () => ({
 	getKernelRuntimeRun: mocks.run,
 }));
 vi.mock("@tedix/db/queries/kernel-conversations", () => ({
-	getKernelConversation: vi.fn(async () => ({ workspaceId: "space-a" })),
+	getKernelConversation: vi.fn(async () => ({
+		workspaceId: "00000000-0000-4000-8000-00000000000a",
+	})),
 }));
 vi.mock("@tedix/db/queries/os-workspaces/projects", () => ({
 	listOsWorkspaceProjects: vi.fn(async () => [{ projectId: "project-a" }]),
@@ -61,11 +63,14 @@ const context = {
 		VAPID_SUBJECT: "mailto:operator@example.test",
 	},
 } as BaseContext;
+const WORKSPACE_ID = "00000000-0000-4000-8000-00000000000a";
 const base = {
 	personStarted: true,
 	visible: false,
 	projectIds: ["project-a"],
 	mutedProjectIds: ["project-a"],
+	workspaceId: WORKSPACE_ID,
+	mutedWorkspaceIds: [] as string[],
 };
 
 beforeEach(() => {
@@ -119,6 +124,24 @@ describe("Web Push delivery", () => {
 			}),
 		).toBe(false);
 	});
+	it("silences run updates in a muted workspace but never approvals", () => {
+		const muted = {
+			...base,
+			mutedProjectIds: [],
+			mutedWorkspaceIds: [WORKSPACE_ID],
+		};
+		for (const kind of ["needs_input", "finished"] as const)
+			expect(shouldPush({ ...muted, kind })).toBe(false);
+		expect(shouldPush({ ...muted, kind: "approval" })).toBe(true);
+		// A conversation with no workspace can only be muted per project.
+		expect(
+			shouldPush({
+				...muted,
+				kind: "finished",
+				workspaceId: null,
+			}),
+		).toBe(true);
+	});
 	it("classifies only settled person-facing outcomes", () => {
 		expect(pushKind(event)).toBe("finished");
 		expect(
@@ -152,6 +175,33 @@ describe("Web Push delivery", () => {
 			"https://web.push.apple.com/device",
 			expect.objectContaining({ redirect: "error" }),
 		);
+	});
+	it("suppresses sends into a muted workspace while approvals still deliver", async () => {
+		mocks.configs.mockImplementation(async (_db, _scope, prefix) =>
+			prefix === "preferences"
+				? [
+						{
+							key: "preferences",
+							value: {
+								mutedProjectIds: [],
+								mutedWorkspaceIds: [WORKSPACE_ID],
+							},
+						},
+					]
+				: [
+						{
+							key: "subscription:one",
+							value: {
+								endpoint: "https://web.push.apple.com/device",
+								keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) },
+							},
+						},
+					],
+		);
+		await deliverWebPush(context, event);
+		expect(fetch).not.toHaveBeenCalled();
+		await deliverWebPush(context, { ...event, kind: "approval.requested" });
+		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 	it("does not send to a revoked member, inaccessible conversation, or stale arbitrary endpoint", async () => {
 		mocks.member.mockResolvedValueOnce({

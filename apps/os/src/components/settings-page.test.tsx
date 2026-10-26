@@ -33,8 +33,13 @@ vi.mock("@/lib/api", () => ({
 			getStatus: vi.fn(async () => ({
 				enabled: false,
 				publicKey: null,
-				preferences: { mutedProjectIds: [] },
+				preferences: { mutedProjectIds: [], mutedWorkspaceIds: [] },
 			})),
+		},
+		osWorkspaces: {
+			workspaces: {
+				list: vi.fn(async () => ({ items: [], truncated: false })),
+			},
 		},
 		projects: { list: vi.fn(async () => ({ data: [] })) },
 	},

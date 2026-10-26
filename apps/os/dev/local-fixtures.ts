@@ -273,6 +273,7 @@ type LocalState = {
 	approvals: ApprovalRow[];
 	skillRuns: SkillRunRow[];
 	pushMutedProjectIds: string[];
+	pushMutedWorkspaceIds: string[];
 	/** null until the operator saves; mirrors "no `user_configs` row". */
 	userPreferences: {
 		value: OsUserPreferences;
@@ -1202,6 +1203,7 @@ const seedState = (): LocalState => ({
 		},
 	],
 	pushMutedProjectIds: [],
+	pushMutedWorkspaceIds: [],
 	userPreferences: null,
 	gadgetCode: {},
 });
@@ -6258,14 +6260,25 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"webPush/getStatus": () => ({
 		enabled: false,
 		publicKey: null,
-		preferences: { mutedProjectIds: state.pushMutedProjectIds },
+		preferences: {
+			mutedProjectIds: state.pushMutedProjectIds,
+			mutedWorkspaceIds: state.pushMutedWorkspaceIds,
+		},
 	}),
 	"webPush/subscribe": () => ({ enabled: false }),
 	"webPush/unsubscribe": () => ({ ok: true }),
 	"webPush/setVisibility": () => ({ ok: true }),
-	"webPush/setPreferences": (input: { mutedProjectIds: string[] }) => {
+	"webPush/setPreferences": (input: {
+		mutedProjectIds: string[];
+		mutedWorkspaceIds?: string[];
+	}) => {
 		state.pushMutedProjectIds = input.mutedProjectIds;
-		return { mutedProjectIds: state.pushMutedProjectIds };
+		if (input.mutedWorkspaceIds !== undefined)
+			state.pushMutedWorkspaceIds = input.mutedWorkspaceIds;
+		return {
+			mutedProjectIds: state.pushMutedProjectIds,
+			mutedWorkspaceIds: state.pushMutedWorkspaceIds,
+		};
 	},
 	// --- per-user OS settings ---
 	// Unset reads report the platform defaults at revision 0 so the surface can
