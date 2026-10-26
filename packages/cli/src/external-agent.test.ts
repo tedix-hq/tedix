@@ -479,8 +479,18 @@ describe("external-agent CLI session", () => {
 		);
 		expect(retries).toHaveLength(2);
 		expect(retries[0]).not.toContain("com.tedix/approvalRequestId");
-		expect(retries[1]).toContain(
-			`{"_meta":{"com.tedix/approvalRequestId":"${approvalId}"}}`,
+		// A Code Mode callable takes one argument: the decided request rides
+		// inside it as `_meta`, which the gateway strips before fingerprinting.
+		// A second positional argument would be dropped and reopen a request.
+		const retryArgs = JSON.parse(
+			/create_api_key\((.*)\)$/s.exec(retries[1]!)![1]!,
+		) as Record<string, unknown>;
+		expect(retryArgs._meta).toEqual({
+			"com.tedix/approvalRequestId": approvalId,
+		});
+		const { _meta: _resume, ...retryInput } = retryArgs;
+		expect(retryInput).toEqual(
+			JSON.parse(/create_api_key\((.*)\)$/s.exec(retries[0]!)![1]!),
 		);
 
 		approved = true;

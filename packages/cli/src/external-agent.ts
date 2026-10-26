@@ -226,11 +226,18 @@ function gatewayCode(
 	approvalRequestId?: string,
 ): string {
 	// An owner approval permits one exact retry: the gateway binds it to the
-	// call's arguments, and the inline `_meta` names the decided request.
-	const resume = approvalRequestId
-		? `, ${JSON.stringify({ _meta: { "com.tedix/approvalRequestId": approvalRequestId } })}`
-		: "";
-	return `async () => await ${namespace}.${tool}(${JSON.stringify(input)}${resume})`;
+	// call's arguments. A Code Mode callable takes exactly one argument, so
+	// the decided request travels as an inline `_meta` key of that object; the
+	// gateway strips it before fingerprinting (a second positional argument is
+	// dropped, which reopened a fresh request on every start).
+	const resumed =
+		approvalRequestId && isRecord(input)
+			? {
+					...input,
+					_meta: { "com.tedix/approvalRequestId": approvalRequestId },
+				}
+			: input;
+	return `async () => await ${namespace}.${tool}(${JSON.stringify(resumed)})`;
 }
 
 /** Error prefix for a bootstrap that waits on an owner decision; callers may defer on it. */
