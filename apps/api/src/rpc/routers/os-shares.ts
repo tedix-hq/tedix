@@ -356,12 +356,28 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 		input.resourceType,
 		input.resourceId,
 	);
-	const rows = await listOsShareLinks(queryDb(context), {
+	const db = queryDb(context);
+	const rows = await listOsShareLinks(db, {
 		organizationId: resource.organizationId,
 		resourceType: input.resourceType,
 		resourceId: resource.id,
 	});
-	return { items: rows.map(mapShareLink) };
+	const items = rows.map(mapShareLink);
+	if (
+		input.resourceType !== "gadget" ||
+		!("currentRevisionId" in resource) ||
+		!resource.workspaceId
+	)
+		return { items };
+	const { guestAppRefusalForApp } =
+		await import("../../lib/os-share-app-runtime");
+	return {
+		items,
+		guestRefusal: await guestAppRefusalForApp(db, {
+			...resource,
+			workspaceId: resource.workspaceId,
+		}),
+	};
 });
 
 const sharesPreviewRevoke = readOs.shares.previewRevoke.handler(

@@ -8,6 +8,7 @@ import {
 import { OsGadgetManifestWriteSchema } from "../schemas/os-workspaces";
 import {
 	appRuntimeCodeId,
+	appRuntimeGuestRefusal,
 	appRuntimeLoaderManifest,
 	appRuntimePermission,
 	isAppRuntimeManifest,
@@ -188,5 +189,47 @@ describe("permission matrix", () => {
 			expect(
 				appRuntimePermission({ role, operation: "app.call", grants }),
 			).toEqual({ allowed: true });
+	});
+});
+
+describe("guest access to a runtime app", () => {
+	const shared = { kind: "output", shareable: true } as const;
+	it("admits an app that only reads shareable Outputs", () => {
+		expect(
+			appRuntimeGuestRefusal(
+				[{ slot: "cards", operations: ["outputs.read"] }],
+				new Map([["cards", shared]]),
+			),
+		).toBeNull();
+		expect(appRuntimeGuestRefusal([], new Map())).toBeNull();
+	});
+	it("refuses a connection or skill grant, whatever the slot holds", () => {
+		for (const operation of ["connections.call", "skills.run"])
+			expect(
+				appRuntimeGuestRefusal(
+					[{ slot: "cards", operations: ["outputs.read", operation] }],
+					new Map([["cards", shared]]),
+				),
+			).toEqual({ slot: "cards", reason: "connection_grant" });
+		expect(
+			appRuntimeGuestRefusal(
+				[{ slot: "notion", operations: ["outputs.read"] }],
+				new Map([["notion", { kind: "other" } as const]]),
+			),
+		).toEqual({ slot: "notion", reason: "connection_grant" });
+	});
+	it("refuses an Output holding connected data, or an unbound slot", () => {
+		expect(
+			appRuntimeGuestRefusal(
+				[{ slot: "cards", operations: ["outputs.read"] }],
+				new Map([["cards", { kind: "output", shareable: false } as const]]),
+			),
+		).toEqual({ slot: "cards", reason: "unshared_output" });
+		expect(
+			appRuntimeGuestRefusal(
+				[{ slot: "later", operations: ["outputs.read"] }],
+				new Map(),
+			),
+		).toEqual({ slot: "later", reason: "unshared_output" });
 	});
 });

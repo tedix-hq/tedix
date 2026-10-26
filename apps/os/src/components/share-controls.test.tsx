@@ -85,7 +85,7 @@ function renderControls(
 				resourceId: string;
 				currentRevisionId?: string | null;
 		  }
-	) & { compact?: boolean; onOpenReview?: () => void } = {
+	) & { compact?: boolean; guestEntry?: boolean; onOpenReview?: () => void } = {
 		outputId: OUTPUT_ID,
 	},
 ): HTMLElement {
@@ -388,6 +388,26 @@ describe("ShareControls", () => {
 		});
 		expect(container.textContent).toContain("never expires");
 		expect(container.textContent).toContain("Can view");
+	});
+
+	it("explains why a guest link will not open an app that reaches a connected account", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [],
+			guestRefusal: { slot: "notes", reason: "connection_grant" },
+		});
+		const container = renderControls({
+			resourceType: "gadget",
+			resourceId: OUTPUT_ID,
+			guestEntry: true,
+		});
+		click(findButton(container, "Share"));
+		await flush();
+		const note = container.querySelector("[data-guest-refusal]");
+		expect(note?.getAttribute("data-guest-refusal")).toBe("connection_grant");
+		expect(note?.textContent).toContain(
+			"People without a Tedix account can't open this app",
+		);
+		expect(note?.textContent).toContain('"notes"');
 	});
 
 	it("tucks turned-off links away behind one toggle", async () => {

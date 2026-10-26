@@ -842,6 +842,13 @@ Output writes. Validate method arguments on the server. All callers with app
 interaction access can invoke public methods; hiding a button is not access
 control. Do not put protected decisions behind an unrestricted app method.
 
+A "Can use" link lets people without a Tedix account open the app. That
+works only while every slot in `resourceGrants` is bound to an Output with
+no data from connected accounts, and no grant allows `connections.call` or
+`skills.run`. Tedix cannot check a guest against a provider's access list,
+so otherwise the link does not open and the Share panel says which slot
+blocks it. Invite those people to the workspace instead.
+
 Calls accept at most 50 JSON arguments and 65,536 encoded bytes. Method names
 start with a letter, contain only letters and digits, and have at most 80
 characters; constructor and lifecycle methods are private. Sessions pin access,
