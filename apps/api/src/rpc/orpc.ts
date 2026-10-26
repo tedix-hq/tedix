@@ -71,7 +71,10 @@ import {
 	isServiceBinding,
 } from "@tedix/worker-kit/request-auth";
 import { requestCorrelation } from "./request-correlation";
-import { safeErrorMetadata } from "../lib/safe-log-metadata";
+import {
+	safeErrorMetadata,
+	safeExceptionTopology,
+} from "../lib/safe-log-metadata";
 import type { OsDerivedAccessEnvelope } from "@tedix/api-contract/schemas/os-workspaces";
 import { measureMiningPhase } from "../lib/mining-phase-timing";
 import {
@@ -2059,7 +2062,9 @@ async function authenticateApiKey(context: BaseContext): Promise<void> {
 		ipAddress: ip,
 		userAgent,
 	}).catch((error) => {
-		console.warn("[Auth] Failed to record API key usage:", error);
+		console.warn("[Auth] Failed to record API key usage", {
+			exception: safeExceptionTopology(error),
+		});
 	});
 	if (context.waitUntil) {
 		context.waitUntil(usagePromise);

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { createDbClient } from "@tedix/db/client";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -163,7 +164,9 @@ export async function dispatchWorkApprovalRedrives(
 				dispatched++;
 			else deferred++;
 		} catch (error) {
-			console.error("[work-approval-redrive] wake failed", error);
+			console.error("[work-approval-redrive] wake failed", {
+				exception: safeExceptionTopology(error),
+			});
 			deferred++;
 		}
 	}

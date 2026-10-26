@@ -6,6 +6,7 @@
  * based on plan tier, connectors, scopes, features, and tool dependencies.
  */
 
+import { safeExceptionTopology } from "./safe-log-metadata";
 import type {
 	AppGatingMetadata,
 	AppRequirements,
@@ -153,7 +154,9 @@ async function resolveDescopeConnectors(
 			}),
 		);
 	} catch (error) {
-		console.warn("[AppGating] Descope connector state unavailable:", error);
+		console.warn("[AppGating] Descope connector state unavailable", {
+			exception: safeExceptionTopology(error),
+		});
 		return [];
 	}
 }
