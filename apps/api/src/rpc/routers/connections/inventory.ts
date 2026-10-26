@@ -12,6 +12,11 @@ import type {
 } from "@tedix/api-contract/schemas/connections";
 import { AUTHZ, type BaseContext } from "../../orpc";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
+import {
+	buildConnectionProviderMaps,
+	listConnectionProviders,
+} from "@tedix/db/queries/connection-providers";
+import { resolveConnectionAccessCheck } from "../../../services/connection-access-check";
 import { requireOrgId } from "../../org-scope";
 import { listConnectionInstances } from "@tedix/db/queries/connection-instances";
 import {
@@ -103,13 +108,16 @@ export async function readConnectionsOverview(
 	const userId =
 		input.scope === "personal" ? requireUserId(context) : undefined;
 	const scope = input.scope === "personal" ? "user" : "tenant";
-	const [catalog, references, org] = await Promise.all([
+	const [catalog, references, org, templates] = await Promise.all([
 		readConnectionProviders(context),
 		collectReferencedProviders(context.db, organizationId, {
 			includeToolReferences: true,
 		}),
 		getOrganizationById(context.db, organizationId),
+		listConnectionProviders(context.db),
 	]);
+	const { byDescopeAppId: templateByAppId } =
+		buildConnectionProviderMaps(templates);
 	const client = getDescopeManagement(context.env, true);
 	const providers = catalog.data
 		.map((provider) => ConnectionProviderSchema.parse(provider))
@@ -304,6 +312,18 @@ export async function readConnectionsOverview(
 						references: appReferences,
 						bindingTargets,
 						referencesComplete: references.complete,
+						...(scope === "tenant"
+							? {
+									accessCheck: resolveConnectionAccessCheck(
+										org?.metadata,
+										instance.id,
+										{
+											appId: provider.appId,
+											category: templateByAppId.get(provider.appId)?.category,
+										},
+									),
+								}
+							: {}),
 						access: "not_evaluated",
 						health: "not_checked",
 					});

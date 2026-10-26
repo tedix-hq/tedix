@@ -424,6 +424,42 @@ describe("account list rows", () => {
 		expect(props.onBind).toHaveBeenCalledWith(row, target);
 	});
 
+	it("lets an org admin turn an account's access check off and back to default", async () => {
+		const row = {
+			...named,
+			scope: "tenant" as const,
+			accessCheck: { checkEachPersonsAccess: true, source: "default" as const },
+		};
+		const props = await render([row], {
+			owner: "organization",
+			onSetAccessCheck: vi.fn(),
+		});
+		await expand();
+		expect(host.textContent).toContain("Check each person's access");
+		expect(host.querySelector('[data-access-check="on"]')).not.toBeNull();
+		expect(button("Use default")).toBeUndefined();
+		await act(async () => button("Turn off")!.click());
+		expect(props.onSetAccessCheck).toHaveBeenCalledWith(row, false);
+	});
+
+	it("offers the default back for an admin override and blocks non-admins", async () => {
+		const row = {
+			...named,
+			scope: "tenant" as const,
+			accessCheck: { checkEachPersonsAccess: false, source: "admin" as const },
+		};
+		const props = await render([row], {
+			owner: "organization",
+			canManage: () => false,
+			onSetAccessCheck: vi.fn(),
+		});
+		await expand();
+		expect(host.textContent).toContain("set by an admin");
+		expect(button("Turn on")!.disabled).toBe(true);
+		expect(button("Use default")!.disabled).toBe(true);
+		expect(props.onSetAccessCheck).not.toHaveBeenCalled();
+	});
+
 	it("collapses never-connected apps under Available to connect", async () => {
 		const props = await render([
 			base,

@@ -12,15 +12,25 @@ import {
 	getConnectionInstance,
 	listConnectionInstances,
 } from "@tedix/db/queries/connection-instances";
+import {
+	createOsGadgetExecution,
+	settleOsAppCallExecution,
+} from "@tedix/db/queries/os-workspaces/executions";
+import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
-
-type ConnectionInstanceRow = NonNullable<
-	Awaited<ReturnType<typeof getConnectionInstance>>
->;
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { requestFirstPartyMcp } from "../lib/first-party-mcp";
 import { canonicalDigest } from "../lib/blueprint-digest";
 import { createError, ErrorCodes, type BaseContext } from "../rpc/orpc";
+import {
+	evaluateOwnAccess,
+	ownAccessRefusal,
+	type OwnAccessEvaluation,
+} from "./connection-access-check";
+
+type ConnectionInstanceRow = NonNullable<
+	Awaited<ReturnType<typeof getConnectionInstance>>
+>;
 
 const inputSchema = z.strictObject({
 	appId: z.string().min(1),
@@ -81,6 +91,60 @@ async function resolveActingAccount(
 			`This slot reads a personal ${resource.providerId} account. Connect your own ${resource.providerId} account to use it; the workspace owner's account is never used on your behalf.`,
 		);
 	return own;
+}
+
+/**
+ * The app's Runs tab lists one observation receipt per connection read. It
+ * records who read which slot through which account and what the access check
+ * found, never the provider data itself.
+ */
+function observationReceipt(
+	context: BaseContext,
+	session: WorkspaceAppSession,
+	resource: OsWorkspaceResourceRow,
+	read: { appSlug: string; toolId: string; actingUserId: string },
+	access: OwnAccessEvaluation,
+) {
+	return {
+		id: crypto.randomUUID(),
+		organizationId: resource.organizationId,
+		workspaceId: resource.workspaceId,
+		gadgetId: session.gadgetId,
+		revisionId: session.revisionId,
+		revision: session.revision,
+		input: JSON.stringify({
+			kind: "connection_observation",
+			appSlug: read.appSlug,
+			toolId: read.toolId,
+			slot: resource.slot,
+			providerId: resource.providerId,
+			resourceType: resource.resourceType,
+			providerResourceId: resource.providerResourceId,
+			resourceName: resource.name,
+			account:
+				resource.connectionScope === "user" ? "personal" : "organization",
+			actingUserId: read.actingUserId,
+			checkEachPersonsAccess: access.setting,
+			ownAccess: access.outcome,
+			mode: access.mode,
+			wouldDeny: access.wouldDeny,
+			containsRestrictedData: access.containsRestrictedData,
+		}),
+		grantedCapabilities: JSON.stringify(["connections.read"]),
+		policyDecision: JSON.stringify({
+			allowed: !access.denied,
+			reasons: [
+				"connection_observation",
+				`own_access:${access.outcome}`,
+				...(access.wouldDeny
+					? [access.denied ? "own_access:denied" : "own_access:would_deny"]
+					: []),
+			],
+		}),
+		createdByKind: "user" as const,
+		createdById: read.actingUserId,
+		runtimeEnvironment: context.env.ENVIRONMENT,
+	};
 }
 
 /** Only reviewed, resource-bound reads are supported; effectful tools retain their human boundary. */
@@ -177,11 +241,31 @@ export async function callWorkspaceAppConnection(
 		checkPath((value as Record<string, unknown>)[head], tail);
 	}
 	for (const path of binding.paths) checkPath(args.arguments, path);
+	const actingUserId = context.user.sub;
 	const account = await resolveActingAccount(
 		context.db,
-		context.user.sub,
+		actingUserId,
 		resource,
 	);
+	const access = await evaluateOwnAccess(context, actingUserId, resource);
+	const receipt = observationReceipt(
+		context,
+		session,
+		resource,
+		{ appSlug: surface.app.slug, toolId: tool.toolId, actingUserId },
+		access,
+	);
+	const db = createDbQueryClient(context.env.DB);
+	if (access.denied) {
+		const message = ownAccessRefusal(resource.providerId, access.outcome);
+		await createOsGadgetExecution(db, {
+			...receipt,
+			status: "denied",
+			error: message,
+			completedAt: new Date().toISOString(),
+		});
+		throw createError(ErrorCodes.FORBIDDEN, message);
+	}
 	const effectiveConfig = {
 		...config,
 		auth: {
@@ -230,6 +314,11 @@ export async function callWorkspaceAppConnection(
 		},
 	);
 	if (!approval.approved) return JsonValueSchema.parse({ approval });
+	await createOsGadgetExecution(db, { ...receipt, status: "running" });
+	const receiptScope = {
+		organizationId: resource.organizationId,
+		executionId: receipt.id,
+	};
 	// The gateway resolves and checks live credentials; they never enter this adapter.
 	const result = await requestFirstPartyMcp(
 		{
@@ -259,7 +348,23 @@ export async function callWorkspaceAppConnection(
 				},
 			},
 		},
-	);
+	).catch(async (error: unknown) => {
+		await settleOsAppCallExecution(db, {
+			...receiptScope,
+			status: "failed",
+			error: "Connection read failed",
+		});
+		throw error;
+	});
+	const failed =
+		typeof result === "object" &&
+		result !== null &&
+		(result as { isError?: unknown }).isError === true;
+	await settleOsAppCallExecution(db, {
+		...receiptScope,
+		status: failed ? "failed" : "completed",
+		...(failed ? { error: "Provider reported an error" } : {}),
+	});
 	// Retain human-required protocol results; never answer elicitation or open consent.
 	return JsonValueSchema.parse(result);
 }

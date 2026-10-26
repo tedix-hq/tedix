@@ -243,6 +243,19 @@ export function AdminConnectionsPage({
 		onError: (error) =>
 			setActionError(errorMessage(error, "Could not bind personal account")),
 	});
+	const accessCheckMutation = useMutation({
+		mutationFn: (input: {
+			id: string;
+			checkEachPersonsAccess: boolean | null;
+		}) => osApi.connections.setConnectionAccessCheck(input),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: osQueryKeys.connections(),
+			});
+		},
+		onError: (error) =>
+			setActionError(errorMessage(error, "Could not change the access check")),
+	});
 	const [serviceHealthByProvider, setServiceHealthByProvider] = useState<
 		Record<string, ServiceHealth | undefined>
 	>({});
@@ -812,6 +825,14 @@ export function AdminConnectionsPage({
 									connectionInstanceId: row.connectionInstanceId,
 								});
 							}}
+							onSetAccessCheck={(row, checkEachPersonsAccess) => {
+								if (!row.connectionInstanceId || !canManageRow(row)) return;
+								accessCheckMutation.mutate({
+									id: row.connectionInstanceId,
+									checkEachPersonsAccess,
+								});
+							}}
+							isSettingAccessCheck={accessCheckMutation.isPending}
 							serviceHealth={serviceHealthByProvider}
 							onCheckService={handleCheckService}
 						/>

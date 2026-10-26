@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import type { WorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { userContext } from "../rpc/test-context";
@@ -15,6 +22,22 @@ const mocks = vi.hoisted(() => ({
 	pending: vi.fn(),
 	anchor: vi.fn(),
 	gateway: vi.fn(),
+	provider: vi.fn(),
+	ownToken: vi.fn(),
+	receipt: vi.fn(),
+	settle: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/connection-providers", async (load) => ({
+	...(await load<object>()),
+	getConnectionProviderByDescopeAppId: mocks.provider,
+}));
+vi.mock("@tedix/db/queries/os-workspaces/executions", async (load) => ({
+	...(await load<object>()),
+	createOsGadgetExecution: mocks.receipt,
+	settleOsAppCallExecution: mocks.settle,
+}));
+vi.mock("../rpc/routers/connections/policy-resolution", () => ({
+	fetchNamedConnection: mocks.ownToken,
 }));
 vi.mock("@tedix/db/queries/app-records", async (load) => ({
 	...(await load<object>()),
@@ -138,6 +161,7 @@ beforeEach(() => {
 	mocks.gateway.mockResolvedValue({
 		content: [{ type: "text", text: "events" }],
 	});
+	mocks.receipt.mockImplementation(async (_db, row) => row);
 });
 async function retry(
 	status = "approved",
@@ -447,5 +471,355 @@ describe("runtime connection OS approval adapter", () => {
 			await callWorkspaceAppConnection(context(), session, resource, approved),
 		).toEqual({ input_required: { message: "User presence required" } });
 		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+	});
+});
+
+/** An organization Notion page slot read by a member who is not an admin of Notion. */
+const NOTION_PAGE = "0c5a8f5e-1d2b-4c3a-9e8f-7a6b5c4d3e2f";
+const notionPage = {
+	...resource,
+	slot: "roadmap",
+	providerId: "notion",
+	connectionScope: "tenant",
+	personalOwnerUserId: null,
+	connectionInstanceId: "org-notion",
+	resourceType: "page",
+	providerResourceId: NOTION_PAGE,
+	requiredScopes: "[]",
+} as OsWorkspaceResourceRow;
+const notionInput = {
+	appId: "app-1",
+	toolId: "get_page",
+	arguments: { page_id: NOTION_PAGE },
+};
+function notionSurface(providerId = "notion") {
+	return {
+		app: {
+			slug: "roadmap-reader",
+			metadata: {
+				mcpConfig: {
+					connectionProviderId: providerId,
+					connectionInstanceId: "org-notion",
+					connectionScope: "tenant",
+				},
+			},
+		},
+		tools: [
+			{
+				enabled: true,
+				toolId: notionInput.toolId,
+				annotations: { readOnlyHint: true },
+				config: {
+					transport: "mcp",
+					mcpToolName: "get_page",
+					connectionReadOnly: true,
+					auth: { type: "connection", connectionId: providerId, scopes: [] },
+					personalResourceBinding: {
+						operation: "read",
+						resourceType: "page",
+						paths: [["page_id"]],
+					},
+				},
+			},
+		],
+	};
+}
+const AUDIT_WEEK = new Date("2026-10-27T09:00:00.000Z");
+const ENFORCED = new Date("2026-11-03T09:00:00.000Z");
+function observation(call = 0) {
+	const row = mocks.receipt.mock.calls[call]![1];
+	return {
+		row,
+		input: JSON.parse(row.input),
+		policy: JSON.parse(row.policyDecision),
+	};
+}
+describe("app connection read observations and own-access checks", () => {
+	const fetchMock = vi.fn();
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.stubGlobal("fetch", fetchMock);
+		fetchMock.mockReset();
+		mocks.surface.mockResolvedValue(notionSurface());
+		mocks.account.mockResolvedValue({
+			id: "org-notion",
+			tokenIds: ["org-grant"],
+			tokenSub: "org-subject",
+		});
+		// Notion is a document store by its access probe, whatever its stored category.
+		mocks.provider.mockResolvedValue(undefined);
+		mocks.ownToken.mockResolvedValue({ accessToken: "member-token" });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+	});
+	/** Approves the parked read so the retry reaches the gateway. */
+	async function approvedRead(
+		actor = collaborator,
+		slot: OsWorkspaceResourceRow = notionPage,
+	) {
+		const first = (await callWorkspaceAppConnection(
+			actor.context,
+			actor.session,
+			slot,
+			notionInput,
+		)) as { approval: { approvalRequestId: string } };
+		const row = mocks.create.mock.calls.at(-1)![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: actor.context.user!.sub,
+		});
+		return {
+			...notionInput,
+			approvalRequestId: first.approval.approvalRequestId,
+		};
+	}
+	/** Back to the personal calendar slot of the outer suite. */
+	function usePersonalCalendar() {
+		mocks.surface.mockResolvedValue(surface());
+		mocks.account.mockResolvedValue({
+			id: "account-1",
+			tokenIds: ["grant-1"],
+			tokenSub: "subject-1",
+		});
+	}
+	function linkOwnNotion() {
+		mocks.ownAccounts.mockResolvedValue([
+			{
+				id: "member-notion",
+				providerId: "notion",
+				tokenIds: ["member-grant"],
+				tokenSub: "member-subject",
+			},
+		]);
+	}
+
+	it("records a receipt for each read, without provider data", async () => {
+		vi.setSystemTime(AUDIT_WEEK);
+		usePersonalCalendar();
+		const approved = await retry();
+		await callWorkspaceAppConnection(context(), session, resource, approved);
+		expect(mocks.receipt).toHaveBeenCalledTimes(1);
+		const { row, input: seen, policy } = observation();
+		expect(row).toMatchObject({
+			gadgetId: "gadget-1",
+			revisionId: "revision-1",
+			status: "running",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		expect(seen).toMatchObject({
+			kind: "connection_observation",
+			toolId: "list_events",
+			slot: "calendar",
+			account: "personal",
+			ownAccess: "own_account",
+			containsRestrictedData: false,
+		});
+		expect(row.output).toBeUndefined();
+		expect(policy).toEqual({
+			allowed: true,
+			reasons: ["connection_observation", "own_access:own_account"],
+		});
+		expect(mocks.settle).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: "org-1",
+			executionId: row.id,
+			status: "completed",
+		});
+	});
+
+	it("refuses a member whose own Notion account cannot open the page", async () => {
+		vi.setSystemTime(ENFORCED);
+		linkOwnNotion();
+		fetchMock.mockResolvedValue(
+			new Response('{"code":"object_not_found"}', { status: 404 }),
+		);
+		await expect(
+			callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				notionPage,
+				notionInput,
+			),
+		).rejects.toThrow(/Your own notion account cannot open this resource/);
+		expect(fetchMock).toHaveBeenCalledWith(
+			`https://api.notion.com/v1/blocks/${NOTION_PAGE}`,
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					Authorization: "Bearer member-token",
+				}),
+			}),
+		);
+		expect(mocks.ownToken).toHaveBeenCalledWith(
+			expect.anything(),
+			{ userId: "user-2" },
+			"notion",
+			"member-notion",
+		);
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+		const { row, input: seen, policy } = observation();
+		expect(row.status).toBe("denied");
+		expect(seen).toMatchObject({
+			account: "organization",
+			ownAccess: "no_access",
+			mode: "enforce",
+			wouldDeny: true,
+			containsRestrictedData: true,
+			checkEachPersonsAccess: {
+				checkEachPersonsAccess: true,
+				source: "default",
+			},
+		});
+		expect(policy.allowed).toBe(false);
+		expect(policy.reasons).toContain("own_access:denied");
+	});
+
+	it("fails closed when the member has no linked Notion account", async () => {
+		vi.setSystemTime(ENFORCED);
+		await expect(
+			callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				notionPage,
+				notionInput,
+			),
+		).rejects.toThrow(/Link your own notion account/);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(observation().input.ownAccess).toBe("no_linked_account");
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
+
+	it("fails closed when the Notion check itself fails", async () => {
+		vi.setSystemTime(ENFORCED);
+		linkOwnNotion();
+		fetchMock.mockResolvedValue(new Response("", { status: 502 }));
+		await expect(
+			callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				notionPage,
+				notionInput,
+			),
+		).rejects.toThrow(/could not be confirmed/);
+		expect(observation().input.ownAccess).toBe("check_failed");
+	});
+
+	it("serves the read in the audit week and records the would-deny", async () => {
+		vi.setSystemTime(AUDIT_WEEK);
+		const approved = await approvedRead();
+		await callWorkspaceAppConnection(
+			collaborator.context,
+			collaborator.session,
+			notionPage,
+			approved,
+		);
+		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+		const { row, input: seen, policy } = observation();
+		expect(row.status).toBe("running");
+		expect(seen).toMatchObject({
+			ownAccess: "no_linked_account",
+			mode: "audit",
+			wouldDeny: true,
+			containsRestrictedData: true,
+		});
+		expect(policy).toEqual({
+			allowed: true,
+			reasons: [
+				"connection_observation",
+				"own_access:no_linked_account",
+				"own_access:would_deny",
+			],
+		});
+	});
+
+	it("marks a read the member can open themselves as unrestricted", async () => {
+		vi.setSystemTime(ENFORCED);
+		linkOwnNotion();
+		fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
+		const approved = await approvedRead();
+		await callWorkspaceAppConnection(
+			collaborator.context,
+			collaborator.session,
+			notionPage,
+			approved,
+		);
+		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+		expect(observation().input).toMatchObject({
+			ownAccess: "verified",
+			wouldDeny: false,
+			containsRestrictedData: false,
+		});
+	});
+
+	it("leaves a service-account connection unaffected", async () => {
+		vi.setSystemTime(ENFORCED);
+		const billing = { ...notionPage, providerId: "fictional-billing" };
+		mocks.surface.mockResolvedValue(notionSurface("fictional-billing"));
+		mocks.provider.mockResolvedValue({
+			id: "fictional-billing",
+			category: "commerce",
+		});
+		const approved = await approvedRead(collaborator, billing);
+		await callWorkspaceAppConnection(
+			collaborator.context,
+			collaborator.session,
+			billing,
+			approved,
+		);
+		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+		expect(mocks.ownAccounts).not.toHaveBeenCalled();
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(observation().input).toMatchObject({
+			ownAccess: "not_checked",
+			checkEachPersonsAccess: {
+				checkEachPersonsAccess: false,
+				source: "default",
+			},
+			containsRestrictedData: true,
+		});
+	});
+
+	it("honours an org admin who turned the check off for a document store", async () => {
+		vi.setSystemTime(ENFORCED);
+		mocks.organization.mockResolvedValue({
+			slug: "fictional",
+			metadata: {
+				connectionAccessChecks: [
+					{ connectionInstanceId: "org-notion", checkEachPersonsAccess: false },
+				],
+			},
+		});
+		const approved = await approvedRead();
+		await callWorkspaceAppConnection(
+			collaborator.context,
+			collaborator.session,
+			notionPage,
+			approved,
+		);
+		expect(mocks.gateway).toHaveBeenCalledTimes(1);
+		expect(observation().input).toMatchObject({
+			ownAccess: "not_checked",
+			checkEachPersonsAccess: {
+				checkEachPersonsAccess: false,
+				source: "admin",
+			},
+		});
+	});
+
+	it("settles the receipt as failed when the gateway read fails", async () => {
+		vi.setSystemTime(AUDIT_WEEK);
+		usePersonalCalendar();
+		const approved = await retry();
+		mocks.gateway.mockRejectedValue(new Error("gateway down"));
+		await expect(
+			callWorkspaceAppConnection(context(), session, resource, approved),
+		).rejects.toThrow("gateway down");
+		expect(mocks.settle).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ status: "failed" }),
+		);
 	});
 });

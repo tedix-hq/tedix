@@ -126,6 +126,8 @@ export interface OrganizationMetadata {
 	mcpNetworkControl?: McpNetworkControlConfig;
 	/** Gateway web search for tedis; absent means off. */
 	webSearch?: OrganizationContractMetadata["webSearch"];
+	/** Org admin overrides of "check each person's access" per organization account. */
+	connectionAccessChecks?: OrganizationContractMetadata["connectionAccessChecks"];
 	/** Organization-wide browser boundary; per-tedi policy may narrow it further. */
 	browserEgress?: {
 		allowedHostnames?: string[];

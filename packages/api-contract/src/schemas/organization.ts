@@ -454,6 +454,18 @@ export const OrganizationMetadataSchema = z.object({
 	webSearch: WebSearchPolicySchema.optional().describe(
 		"Public web search for tedis through the configured provider; off unless enabled.",
 	),
+	connectionAccessChecks: z
+		.array(
+			z.strictObject({
+				connectionInstanceId: z.uuid(),
+				checkEachPersonsAccess: z.boolean(),
+			}),
+		)
+		.max(200)
+		.optional()
+		.describe(
+			"Org admin overrides of 'check each person's access' per organization account; accounts without an entry use the provider default.",
+		),
 	jev: JevSettingsSchema.optional().describe(
 		"Bounded Jev ranking defaults enabled; explicit tenant and purpose denials remain authoritative.",
 	),

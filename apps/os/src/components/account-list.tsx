@@ -267,6 +267,12 @@ export interface AccountListProps {
 	onRename: (row: ConnectionInventoryRow) => void;
 	onAdd: (provider: ConnectionProvider) => void;
 	onBind: (row: ConnectionInventoryRow, reference: Reference) => void;
+	/** Org admin override; null returns the account to its provider default. */
+	onSetAccessCheck?: (
+		row: ConnectionInventoryRow,
+		checkEachPersonsAccess: boolean | null,
+	) => void;
+	isSettingAccessCheck?: boolean;
 	serviceHealth: Record<string, ServiceHealth | undefined>;
 	onCheckService: (providerId: string, appSlug: string) => void;
 	/** Open "Available to connect" without a click (search, filters, empty list). */
@@ -670,6 +676,7 @@ function AccountDetails({
 				(row) => row.connectionInstanceId && row.bindingTargets?.length,
 			)
 		: [];
+	const accessChecked = accounts.filter((row) => row.accessCheck);
 	return (
 		<div
 			className={cn(
@@ -731,6 +738,65 @@ function AccountDetails({
 								</li>
 							))}
 						</ul>
+					</DetailRow>
+				)}
+				{accessChecked.length > 0 && (
+					<DetailRow term="Check each person's access">
+						<div className="grid gap-2">
+							<span className="text-kumo-subtle">
+								When on, an app shows something read through this account only
+								if the reader's own {name} account can open it too.
+							</span>
+							{accessChecked.map((row) => {
+								const check = row.accessCheck!;
+								const manageable = props.canManage(row);
+								return (
+									<div
+										key={row.connectionInstanceId}
+										className="flex flex-wrap items-center gap-2"
+										data-access-check={
+											check.checkEachPersonsAccess ? "on" : "off"
+										}
+									>
+										<span>
+											{multiple ? `${accountLabel(row)}: ` : ""}
+											{check.checkEachPersonsAccess ? "On" : "Off"}
+											<span className="text-kumo-subtle">
+												{check.source === "admin"
+													? " · set by an admin"
+													: ` · default for ${name}`}
+											</span>
+										</span>
+										<Button
+											size="sm"
+											variant="outline"
+											className="max-sm:min-h-11"
+											disabled={!manageable || props.isSettingAccessCheck}
+											title={manageable ? undefined : props.deniedReason(row)}
+											onClick={() =>
+												props.onSetAccessCheck?.(
+													row,
+													!check.checkEachPersonsAccess,
+												)
+											}
+										>
+											{check.checkEachPersonsAccess ? "Turn off" : "Turn on"}
+										</Button>
+										{check.source === "admin" && (
+											<Button
+												size="sm"
+												variant="ghost"
+												className="max-sm:min-h-11"
+												disabled={!manageable || props.isSettingAccessCheck}
+												onClick={() => props.onSetAccessCheck?.(row, null)}
+											>
+												Use default
+											</Button>
+										)}
+									</div>
+								);
+							})}
+						</div>
 					</DetailRow>
 				)}
 				{bindable.length > 0 && (
