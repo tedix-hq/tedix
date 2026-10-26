@@ -29,6 +29,29 @@ export async function resolveCardStyleOwner(
 	if (rows.length > 1) throw new Error("Personal style owner is ambiguous");
 	return rows[0]?.subject ?? rows[0]?.userId ?? personId;
 }
+/** The active member's Tedix user id, which keys their own OS preferences. */
+export async function resolveCardReaderUserId(
+	db: DbQueryClient,
+	orgId: string,
+	personId: string,
+) {
+	const rows = await db
+		.select({ userId: organizationMembers.userId })
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, orgId),
+				eq(organizationMembers.status, "active"),
+				or(
+					eq(organizationMembers.userId, personId),
+					eq(organizationMembers.descopeUserId, personId),
+				),
+			),
+		)
+		.limit(2);
+	return rows.length === 1 ? (rows[0]!.userId ?? null) : null;
+}
+
 function scope(orgId: string, ownerUserId: string) {
 	return and(
 		eq(memoryFacts.organizationId, orgId),

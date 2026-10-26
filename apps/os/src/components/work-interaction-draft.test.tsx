@@ -168,7 +168,7 @@ describe("tedi-drafted replies", () => {
 		);
 		expect(container.textContent).toContain("Recommended answer from");
 		expect(container.textContent).toContain(DRAFT.body);
-		await act(async () => click(container, "Why this?"));
+		await act(async () => click(container, "Why am I seeing this?"));
 		expect(container.textContent).toContain("Codex receives your answer");
 		await act(async () => click(container, "Answer"));
 		expect(respond).toHaveBeenCalledWith({

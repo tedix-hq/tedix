@@ -29,6 +29,7 @@ import {
 	type OsPurposeStatus,
 	type OsUserPreferences,
 	OsUserPreferencesSchema,
+	OS_PREFERENCES_NAMESPACE,
 } from "@tedix/api-contract/schemas/user-settings";
 import { OrganizationOsThemeSchema } from "@tedix/api-contract/schemas/os-theme";
 import { ALL_PERMISSIONS, type Permission } from "@tedix/auth/rbac";
@@ -50,16 +51,6 @@ import {
 } from "../orpc";
 
 const os = implement(userSettingsContract).$context<BaseContext>();
-
-/**
- * Namespace for the OS preference row. The unique key is
- * `(user_id, namespace, key)` and the KEY carries the organization id, which
- * is what binds a preference row to a tenant: both the read and the write
- * resolve it from `requireOrgId(context)`, never from input, so a caller can
- * only ever touch preferences for an organization their credential already
- * scopes them to.
- */
-const OS_PREFERENCES_NAMESPACE = "os.preferences";
 
 /**
  * The stable Tedix user id, and ONLY that.

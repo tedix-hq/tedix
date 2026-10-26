@@ -60,6 +60,8 @@ export const DecisionCardPresentationSchema = z.union([
 		recommendation: line(copySpec.fields.recommendation.maxLength),
 		stakes: line(copySpec.stakesMaxLength).optional(),
 		effectStatus: z.enum(["known", "unknown"]).optional(),
+		/** The answer the recommendation favours; "Decide for me" picks it. */
+		recommendedIntent: z.enum(["approve", "reject"]).optional(),
 	}),
 ]);
 

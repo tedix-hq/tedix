@@ -358,6 +358,7 @@ const FACE_ACTIONS = [
 async function mountFace(
 	state: NonNullable<ContextType<typeof CardFaceContext>>,
 	decide = vi.fn(async (_feedback: DecisionCardFeedback) => {}),
+	props: Partial<Parameters<typeof WorkDecisionCard>[0]> = {},
 ) {
 	if (!host?.isConnected) {
 		host = document.createElement("div");
@@ -374,6 +375,7 @@ async function mountFace(
 					body="Confirm who staffs the booth and send the guest list yourself for the Demo Day on 20 October. Booth setup must finish by 13:59 Berlin."
 					actions={FACE_ACTIONS}
 					onDecision={decide}
+					{...props}
 				/>
 			</CardFaceContext.Provider>,
 		),
@@ -385,78 +387,188 @@ const actionButtons = () => [
 	...host.querySelectorAll<HTMLButtonElement>("[data-decision-intent]"),
 ];
 
-it("renders real face copy with a cross-fade and never a status word as the headline", async () => {
-	await mountFace({ presentation: null, confidence: null });
-	expect(heading()).toBe("Confirm who staffs the booth?");
-	await mountFace({ presentation: FACE, confidence: null });
+const WAITING_WORDS = [
+	"Writing a short summary",
+	"Summary pending",
+	"Summary unavailable",
+	"Retry",
+];
+
+it("leads with the question, one story line, the recommendation and at most three context items", async () => {
+	const context = "Morgan picks the room at the Friday stand-up.";
+	await mountFace({
+		presentation: { ...FACE, context },
+		confidence: null,
+		dates: ["2026-10-27T10:30:00Z"],
+	});
 	expect(heading()).toBe(FACE.title);
-	expect(host.querySelector(".fd-face-enter")?.textContent).toContain(
-		FACE.body,
+	expect(host.querySelector(".fd-story")?.textContent).toBe(context);
+	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
+		`Tedix recommends: ${FACE.recommendation}`,
 	);
-	expect(host.querySelector("[data-face-pending]")).toBeNull();
-	await mountFace({ presentation: null, confidence: null, unavailable: true });
-	expect(heading()).toBe("Confirm who staffs the booth?");
-	for (const word of ["Summary pending", "Summary unavailable."])
-		expect(host.textContent).not.toContain(word);
+	const items = [...host.querySelectorAll("[data-context-item]")].map((item) =>
+		item.getAttribute("data-context-item"),
+	);
+	expect(items).toEqual(["source", "due", "asker"]);
+	expect(
+		host.querySelector('[data-context-item="source"]')?.textContent,
+	).toContain("Confirm who staffs the booth and send the guest list");
+	// The consequence stays one tap away in Details.
+	expect(host.textContent).toContain(FACE.body);
 });
 
-it("shows a skeleton with a writing label only while the summary is pending, and keeps actions live", async () => {
+it("shows the original ask at once, with no waiting or error face, and keeps actions live", async () => {
 	const decide = await mountFace({ presentation: null, confidence: null });
-	const skeleton = host.querySelector("[data-face-pending]")!;
-	expect(skeleton.getAttribute("role")).toBe("status");
-	expect(skeleton.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
-	expect(skeleton.textContent).toContain("Writing a short summary…");
-	expect(host.querySelector("[data-face-fallback]")).toBeNull();
-	expect(actionButtons().map((button) => button.disabled)).toEqual([
-		false,
-		false,
-	]);
+	expect(heading()).toBe("Confirm who staffs the booth?");
+	expect(host.querySelector(".fd-face-original")?.textContent).toContain(
+		"Confirm who staffs the booth and send the guest list yourself",
+	);
+	expect(host.querySelector('[data-slot="skeleton"]')).toBeNull();
+	expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+	for (const word of WAITING_WORDS)
+		expect(host.textContent).not.toContain(word);
+	expect(actionButtons().every((button) => !button.disabled)).toBe(true);
 	await click("Yes");
 	expect(decide).toHaveBeenCalledWith(
 		expect.objectContaining({ action: "yes", signal: "approve-as-is" }),
 	);
 });
 
-it("falls back to the original request with a retry when the summary fails", async () => {
-	const retry = vi.fn();
-	await mountFace({
-		presentation: null,
-		confidence: null,
-		unavailable: true,
-		retry,
+it("drops list numbers such as 'Review 07 —' from the headline", async () => {
+	await mountFace({ presentation: null, confidence: null }, undefined, {
+		title: "Review 07 — LOI draft and paid-maintainer offer for Ines?",
 	});
-	expect(host.querySelector("[data-face-pending]")).toBeNull();
-	const note = host.querySelector("[data-face-fallback]")!;
-	expect(note.textContent).toContain(
-		"Summary unavailable — showing the original request",
-	);
-	expect(
-		host.querySelector(".fd-face-fallback .fd-proposal-preview")?.textContent,
-	).toContain("Confirm who staffs the booth and send the guest list yourself");
-	expect(actionButtons().every((button) => !button.disabled)).toBe(true);
-	await click("Retry");
-	expect(retry).toHaveBeenCalledTimes(1);
+	expect(heading()).toBe("LOI draft and paid-maintainer offer for Ines?");
 });
 
-it("replaces the skeleton with the original request once the summary takes too long", async () => {
+it("names every action by its outcome and moves feedback and declines into the overflow", async () => {
+	await mountFace(
+		{
+			presentation: { ...FACE, actionLabels: { approve: "Save the room" } },
+			confidence: null,
+		},
+		undefined,
+		{
+			actions: [
+				{ id: "yes", label: "Reviewed", intent: "approve" },
+				{ id: "no", label: "No / Not needed", intent: "reject" },
+				{ id: "later", label: "Later", intent: "later" },
+				{ id: "delegate", label: "Delegate", intent: "delegate" },
+			],
+			editAction: { id: "change", label: "Save changes" },
+			feedbackAction: { id: "feedback", label: "Send feedback" },
+			why: <p>Source receipt</p>,
+		},
+	);
+	const row = host.querySelector("[data-outcome-row]")!;
+	const visible = [...row.querySelectorAll<HTMLButtonElement>("button")]
+		.filter(
+			(button) =>
+				!button.closest("[data-deck-overflow], .fd-card-why") &&
+				!button.hasAttribute("data-deck-overflow") &&
+				!button.classList.contains("fd-action-more"),
+		)
+		.map((button) => button.textContent);
+	expect(visible).toEqual([
+		"Save the room",
+		"Not now",
+		"Decide for me",
+		"Change…",
+	]);
+	const decline = row.querySelector<HTMLButtonElement>(
+		'[data-decision-intent="reject"]',
+	)!;
+	expect(decline.textContent).toBe("Decline");
+	expect(decline.hasAttribute("data-deck-overflow")).toBe(true);
+	for (const label of ["Reviewed", "No / Not needed", "Not useful"])
+		expect(visible).not.toContain(label);
+});
+
+it("decides for the person with the recommended answer when no tedi can take it", async () => {
+	const decide = await mountFace(
+		{
+			presentation: { ...FACE, recommendedIntent: "approve" },
+			confidence: null,
+		},
+		undefined,
+		{
+			actions: [
+				{ id: "yes", label: "Yes", intent: "approve" },
+				{ id: "no", label: "No", intent: "reject" },
+			],
+		},
+	);
+	await act(async () =>
+		host.querySelector<HTMLButtonElement>("[data-decide-for-me]")!.click(),
+	);
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({ action: "yes" }),
+	);
+});
+
+it("shows only the question and actions in compact density", async () => {
+	await mountFace({
+		presentation: FACE,
+		confidence: null,
+		dates: ["2026-10-27T10:30:00Z"],
+		preferences: { density: "compact" },
+	});
+	expect(heading()).toBe(FACE.title);
+	expect(host.querySelector(".fd-story")).toBeNull();
+	expect(host.querySelector("[data-context-item]")).toBeNull();
+	expect(actionButtons().length).toBeGreaterThan(0);
+});
+
+it("follows the person's context choice and reports which items they opened", async () => {
+	const onContextUse = vi.fn();
+	await mountFace({
+		presentation: FACE,
+		confidence: null,
+		dates: ["2026-10-27T10:30:00Z"],
+		preferences: { contextItems: { decision: ["due", "source"] } },
+		onContextUse,
+	});
+	expect(
+		[...host.querySelectorAll("[data-context-item]")].map((item) =>
+			item.getAttribute("data-context-item"),
+		),
+	).toEqual(["source", "due"]);
+	await act(async () =>
+		host
+			.querySelector<HTMLButtonElement>('[data-context-item="due"] button')!
+			.click(),
+	);
+	await click("Yes");
+	expect(onContextUse).toHaveBeenCalledWith(["source", "due"], ["due"]);
+});
+
+it("auto-decides a confident card after a visible countdown the person can stop", async () => {
 	vi.useFakeTimers();
 	try {
-		await mountFace({ presentation: null, confidence: null });
-		expect(host.querySelector("[data-face-pending]")).not.toBeNull();
+		const face = {
+			presentation: { ...FACE, recommendedIntent: "approve" as const },
+			confidence: 0.9,
+			preferences: { decideForMe: { decision: "auto" as const } },
+		};
+		const stopped = await mountFace(face);
+		expect(host.querySelector(".fd-auto-decide")?.textContent).toContain(
+			"Tedix picks “Yes” in 5s",
+		);
+		await click("Stop");
 		await act(async () => {
-			vi.advanceTimersByTime(7999);
+			vi.advanceTimersByTime(6000);
 		});
-		expect(host.querySelector("[data-face-pending]")).not.toBeNull();
+		expect(stopped).not.toHaveBeenCalled();
+		act(() => root.unmount());
+		host.remove();
+		const decide = await mountFace(face);
 		await act(async () => {
-			vi.advanceTimersByTime(1);
+			vi.advanceTimersByTime(5000);
 		});
-		expect(host.querySelector("[data-face-pending]")).toBeNull();
-		expect(host.querySelector("[data-face-fallback]")).not.toBeNull();
-		expect(heading()).toBe("Confirm who staffs the booth?");
-		// A late summary still replaces the fallback.
-		await mountFace({ presentation: FACE, confidence: null });
-		expect(host.querySelector("[data-face-fallback]")).toBeNull();
-		expect(host.textContent).toContain(FACE.body);
+		await act(async () => {});
+		expect(decide).toHaveBeenCalledWith(
+			expect.objectContaining({ action: "yes" }),
+		);
 	} finally {
 		vi.useRealTimers();
 	}
@@ -587,10 +699,10 @@ it("keeps ranking evidence inside the selected card's single explanation drawer"
 	);
 	expect(
 		[...host.querySelectorAll("button")].filter(
-			(button) => button.textContent === "Why this?",
+			(button) => button.textContent === "Why am I seeing this?",
 		),
 	).toHaveLength(1);
-	await click("Why this?");
+	await click("Why am I seeing this?");
 	expect(host.textContent).toContain("The workshop is waiting on this answer.");
 	expect(host.textContent).toContain("Your recent workshop decisions");
 	expect(host.textContent).toContain(
@@ -675,7 +787,7 @@ it("does not repeat the If yes label inside the consequence sentence", async () 
 it("omits unknown confidence and retains assessed confidence", async () => {
 	await mountFace({ presentation: FACE, confidence: null });
 	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
-		FACE.recommendation,
+		`Tedix recommends: ${FACE.recommendation}`,
 	);
 	await mountFace({ presentation: FACE, confidence: 0.8 });
 	expect(host.querySelector(".fd-recommendation")?.textContent).toContain(
@@ -758,7 +870,7 @@ it.each(["outbound", "decision", "proposal", "question", "approval"] as const)(
 			"[data-decision-intent=reject]",
 		);
 		expect(button?.disabled).toBe(false);
-		await click("No / Not needed");
+		await click("Decline");
 		if (kind === "outbound") await click("don't send");
 		expect(decide).toHaveBeenCalledWith(
 			expect.objectContaining({

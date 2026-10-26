@@ -429,5 +429,14 @@ export async function reviseCardContent(
 		{ ...request, status: curation?.status ?? request.status },
 		actor,
 	);
+	// The changed card gets a new summary now, not when someone next opens it.
+	const revised = await getWorkInteraction(context.db, {
+		orgId,
+		interactionId: request.id,
+	});
+	if (revised?.status === "open") {
+		const { queueCardFaceWrite } = await import("./card-face-writer");
+		queueCardFaceWrite(context, revised);
+	}
 	return revision;
 }

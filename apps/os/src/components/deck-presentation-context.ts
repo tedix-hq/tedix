@@ -1,20 +1,31 @@
 import { createContext, type ReactNode } from "react";
-
-/** After this long without a short summary, a card or row shows the original request instead of a skeleton. */
-export const FACE_WAIT_MS = 8000;
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
+import type {
+	DecisionCardContextItem,
+	DecisionCardPreferences,
+} from "@tedix/api-contract/schemas/user-settings";
 
+/**
+ * The written card face. Without a presentation the card shows the original
+ * ask as it is: there is no waiting or error face.
+ */
 export const CardFaceContext = createContext<{
 	presentation: DecisionCardPresentation | null;
 	confidence: number | null;
 	dates?: readonly string[];
 	now?: Date;
 	timeZone?: string;
-	/** Generation failed or the read errored; the card shows the original request instead. */
-	unavailable?: boolean;
-	/** Re-reads the face. Offered as a quiet text button next to the fallback note. */
-	retry?: () => void;
-	retrying?: boolean;
+	/** The surrounding header already states the due date, so the strip omits it. */
+	dueInHeader?: boolean;
+	/** Decision class (or kind) that per-person card preferences are keyed by. */
+	cardType?: string;
+	preferences?: DecisionCardPreferences;
+	/** Called once per decided card with the strip items it showed and those opened. */
+	onContextUse?: (
+		shown: readonly DecisionCardContextItem[],
+		opened: readonly DecisionCardContextItem[],
+	) => void;
+	onOpenSettings?: () => void;
 } | null>(null);
 
 export const DeckRemainingContext = createContext<

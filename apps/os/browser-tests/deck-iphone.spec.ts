@@ -187,24 +187,11 @@ async function leanDeck(page: Page) {
 		failures.push(`expected one date, saw ${dates?.join(", ")}`);
 
 	const card = page.locator(".fd-deck-current .fd-card");
-	const summary = card.locator(".fd-card-summary");
-	const clipped = await summary.evaluate(
-		(node) => node.scrollHeight > node.clientHeight + 1,
-	);
-	const more = card.getByRole("button", { name: "More", exact: true });
-	if (clipped && !(await more.isVisible()))
-		failures.push("consequence is clipped with no way to read the rest");
-	if (clipped) {
-		await more.click();
-		if (
-			await summary.evaluate(
-				(node) => node.scrollHeight > node.clientHeight + 1,
-			)
-		)
-			failures.push("More left the consequence clipped");
-	}
-	if (!(await summary.innerText()).trim().endsWith("clone it."))
-		failures.push("consequence does not end with its last words");
+	// The face never waits: no skeleton or writing status, and no "More" clamp.
+	if (await card.locator('[data-slot="skeleton"], [aria-busy="true"]').count())
+		failures.push("the card face shows a waiting state");
+	if (await card.getByRole("button", { name: "More", exact: true }).count())
+		failures.push("the card face still clamps behind More");
 
 	const row = await card.locator("[data-decision-actions]").evaluate((node) => {
 		const visible = [...node.children].filter(
@@ -231,14 +218,21 @@ async function leanDeck(page: Page) {
 			),
 		};
 	});
-	if (row.buttons.length > 2)
+	// The primary, then outcomes (Change…, Not now, Decide for me) on one more row.
+	if (row.buttons.length > 4)
 		failures.push(
 			`${row.buttons.length} visible actions: ${row.buttons.map((b) => b.text).join(", ")}`,
 		);
 	if (row.more === null) failures.push("no ⋯ overflow on the action row");
-	const tops = [...row.buttons.map((b) => b.top), row.more ?? 0];
-	if (Math.max(...tops) - Math.min(...tops) > 4)
-		failures.push("actions wrap to a second row");
+	const secondary = [
+		...row.buttons.filter((b) => !b.primary).map((b) => b.top),
+		row.more ?? 0,
+	];
+	if (Math.max(...secondary) - Math.min(...secondary) > 4)
+		failures.push("outcome actions wrap past one row");
+	for (const label of ["Reviewed", "No / Not needed", "Not useful", "Later"])
+		if (row.buttons.some((b) => b.text === label))
+			failures.push(`ambiguous ${label} button in the row`);
 	const primary = row.buttons.find((b) => b.primary)?.text;
 	if (primary !== "Keep private")
 		failures.push(`yes/no primary reads "${primary}"`);
@@ -254,7 +248,7 @@ async function leanDeck(page: Page) {
 	await card.getByRole("button", { name: "More actions" }).click();
 	const menu = page.getByRole("menu");
 	await menu.getByRole("menuitem").first().waitFor();
-	for (const item of ["Write an answer", "Later", "Not useful", "Why this"])
+	for (const item of ["Write an answer", "Not useful", "Why am I seeing this"])
 		if (
 			(await menu
 				.getByRole("menuitem")

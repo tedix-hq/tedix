@@ -2,9 +2,17 @@ import { beforeEach, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
 	preferences: vi.fn(),
 	model: vi.fn(),
+	reader: vi.fn(),
+	userConfig: vi.fn(),
 }));
 vi.mock("./decision-learning", () => ({
 	readDraftPreferences: mocks.preferences,
+}));
+vi.mock("@tedix/db/queries/work-items/card-style-rules", () => ({
+	resolveCardReaderUserId: mocks.reader,
+}));
+vi.mock("@tedix/db/queries/user-configs", () => ({
+	getUserConfig: mocks.userConfig,
 }));
 vi.mock("./decision-card-copy-model", () => ({
 	runDecisionCardCopyModel: mocks.model,
@@ -33,6 +41,54 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.preferences.mockResolvedValue("Prefer shorter proposals.");
 	mocks.model.mockResolvedValue(JSON.stringify(copy));
+	mocks.reader.mockResolvedValue(null);
+	mocks.userConfig.mockResolvedValue(null);
+});
+it("drops a list number from the ask and keeps the recommended answer", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			title: "Review 07 — Let the assistant sign in with a test account?",
+			recommendedIntent: "approve",
+		}),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject({ title: copy.title, recommendedIntent: "approve" });
+	mocks.model.mockResolvedValue(
+		JSON.stringify({ ...copy, recommendedIntent: "maybe" }),
+	);
+	const unsure = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		request,
+	);
+	expect(unsure).not.toBeNull();
+	expect(unsure).not.toHaveProperty("recommendedIntent");
+});
+it("writes the card in the reader's chosen language and asks for the user story shape", async () => {
+	mocks.reader.mockResolvedValue("user-robin");
+	mocks.userConfig.mockResolvedValue({
+		value: {
+			theme: "system",
+			density: "comfortable",
+			locale: null,
+			timezone: null,
+			accessibility: { motion: "system", contrast: "system" },
+			notifications: { approvals: true, runFailures: true, budgetAlerts: true },
+			conversationModelRef: null,
+			decisionCards: { language: "es" },
+		},
+	});
+	await generateDecisionCard({ db: {}, env: {} } as never, request);
+	expect(mocks.userConfig).toHaveBeenCalledWith(
+		{},
+		{ userId: "user-robin", namespace: "os.preferences", key: "fictional" },
+	);
+	expect(JSON.parse(mocks.model.mock.calls[0]?.[1]).readerLanguage).toBe("es");
+	const system = mocks.model.mock.calls[0]?.[2].system;
+	expect(system).toContain("question first");
+	expect(system).toContain("Review 07 —");
+	expect(system).toContain("Tedix recommends");
 });
 it("uses the recipient's style and configured model without generating authority", async () => {
 	expect(

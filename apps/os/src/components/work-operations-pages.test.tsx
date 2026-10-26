@@ -463,7 +463,7 @@ describe("Decision-capture questions", () => {
 		expect(
 			container.querySelector('[data-kumo-component="CollapsibleTrigger"]')
 				?.textContent,
-		).toBe("Why this?");
+		).toBe("Why am I seeing this?");
 		expect(text).not.toContain("Question from");
 		expect(text).toContain("Blocked");
 		expect(text).not.toContain("Can wait");

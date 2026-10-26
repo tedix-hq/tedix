@@ -127,6 +127,60 @@ export type OsNotificationPreferences = z.infer<
 	typeof OsNotificationPreferencesSchema
 >;
 
+/** The `user_configs` namespace that holds {@link OsUserPreferencesSchema}, keyed by organization id. */
+export const OS_PREFERENCES_NAMESPACE = "os.preferences";
+
+/** Items a decision card may show in its context strip; at most three render. */
+export const DecisionCardContextItemSchema = z.enum([
+	"source",
+	"due",
+	"asker",
+	"stakes",
+]);
+export type DecisionCardContextItem = z.infer<
+	typeof DecisionCardContextItemSchema
+>;
+
+const cardTypeKey = z.string().min(1).max(100);
+const perCardType = <T extends z.ZodType>(value: T) =>
+	z
+		.record(cardTypeKey, value)
+		.refine((record) => Object.keys(record).length <= 50, {
+			message: "At most 50 card types",
+		});
+
+/**
+ * How one person reads decision cards. Display only: none of it approves,
+ * sends or changes what an option does. "auto" lets Tedix pick the recommended
+ * answer of an easy-to-undo card the person is looking at, after a visible pause.
+ */
+export const DecisionCardPreferencesSchema = z.object({
+	density: z.enum(["compact", "full"]).optional(),
+	language: OsLocaleSchema.nullable()
+		.optional()
+		.describe("Language new card summaries are written in; null is English"),
+	contextItems: perCardType(
+		z.array(DecisionCardContextItemSchema).max(3),
+	).optional(),
+	decideForMe: perCardType(z.enum(["ask", "suggest", "auto"])).optional(),
+	contextStats: perCardType(
+		z.partialRecord(
+			DecisionCardContextItemSchema,
+			z.object({
+				shown: z.number().int().min(0),
+				opened: z.number().int().min(0),
+			}),
+		),
+	)
+		.optional()
+		.describe(
+			"Learned from use: how often each strip item was shown and opened",
+		),
+});
+export type DecisionCardPreferences = z.infer<
+	typeof DecisionCardPreferencesSchema
+>;
+
 export const OsUserPreferencesSchema = z.object({
 	theme: OsThemePreferenceSchema,
 	density: OsDensityPreferenceSchema,
@@ -153,6 +207,9 @@ export const OsUserPreferencesSchema = z.object({
 		.describe(
 			"Personal feed filters and reactions, scoped by the existing per-user, per-organization preference row; never authorization",
 		),
+	decisionCards: DecisionCardPreferencesSchema.optional().describe(
+		"How this person reads decision cards; display only, never authorization",
+	),
 	conversationModelRef: ModelRefSchema.nullable().describe(
 		"Preferred model for this operator's own conversations, as `<provider>/<model-id>`. A REQUEST, not a grant: the runtime's admission path still applies the organization and tedi model policy, so a stored ref can be refused at turn time. Null defers to the workspace default.",
 	),

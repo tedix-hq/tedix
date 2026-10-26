@@ -357,11 +357,11 @@ describe("CardReviewApp decision interactions", () => {
 		["Useful", "yes"],
 		["Not useful", "no"],
 	])(
-		"keeps the original headline and saves %s once while a summary is pending",
+		"keeps the original headline and saves %s once while no summary exists",
 		async (label, verdict) => {
 			await mount();
 			expect(heading(0)).not.toBeNull();
-			expect(host.textContent).toContain("Writing a short summary…");
+			expect(host.textContent).not.toContain("Writing a short summary");
 			for (const action of ["Useful", "Not useful", "Later"])
 				expect(button(action).disabled).toBe(false);
 			await click(label);

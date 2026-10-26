@@ -46,10 +46,12 @@ try {
 			if (viewport.width < 640) {
 				// Phones keep Why this in the action row's "⋯" menu.
 				await card.getByRole("button", { name: "More actions" }).click();
-				await page.getByRole("menuitem", { name: "Why this" }).click();
+				await page
+					.getByRole("menuitem", { name: "Why am I seeing this" })
+					.click();
 			} else
 				await page
-					.getByRole("button", { name: "Why this", exact: true })
+					.getByRole("button", { name: "Why am I seeing this", exact: true })
 					.click();
 			await page
 				.getByText("Prefer a bounded next step with evidence", { exact: false })
