@@ -1,5 +1,7 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import type { DeckCard } from "@tedix/api-contract/schemas/attention";
+import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
+import { checkDecisionCardCopy } from "@tedix/api-contract/utils/decision-card-copy";
 import type { BaseContext } from "../rpc/orpc";
 const mocks = vi.hoisted(() => ({
 	get: vi.fn(),
@@ -15,7 +17,8 @@ vi.mock("@tedix/db/queries/user-configs", () => ({
 vi.mock("@tedix/db/queries/work-items/card-presentation", () => ({
 	saveDecisionCardPresentation: mocks.save,
 }));
-vi.mock("./decision-card-generator", () => ({
+vi.mock("./decision-card-generator", async (importOriginal) => ({
+	...(await importOriginal()),
 	generateDecisionCard: mocks.generate,
 }));
 vi.mock("./decision-learning", () => ({
@@ -267,13 +270,92 @@ it("shows the original request as the headline for a card whose stored face fail
 	expect(displayed?.presentation).toEqual(copy);
 	vi.restoreAllMocks();
 });
-it("tells the writer the actual factory consequence rather than promising to do the suggested work", () => {
-	const source = deckCardWritingSource(card);
-	expect(source.metadata.producerContext).toContain(
-		"do not execute the suggestion",
-	);
-	expect(source.prompt).toContain(card.factory!.why);
-});
+it.each([
+	[
+		"interaction",
+		{
+			...card,
+			factory: undefined,
+			interaction: {
+				request: {
+					subject: "Approve the invoice correction?",
+					prompt: "The signed order includes delivery.",
+					metadata: {},
+				},
+			},
+		},
+		copySpec.producerContext.interaction,
+	],
+	[
+		"Codex interaction",
+		{
+			...card,
+			factory: undefined,
+			interaction: {
+				request: {
+					subject: "Let Codex sign in with a test account?",
+					prompt: "The owner asked for sign-in proof.",
+					metadata: {
+						schema: "tedix.decision-capture.v1",
+						source: "agent-turn-end",
+						host: "codex",
+					},
+				},
+			},
+		},
+		copySpec.producerContext.codex,
+	],
+	["factory", card, copySpec.producerContext.factory],
+	[
+		"Work approval",
+		{
+			...card,
+			factory: undefined,
+			workApproval: {
+				proposal: {
+					action: "Draft customer replies",
+					requestRationale: "The pricing task needs draft access.",
+				},
+				workItem: { title: "Prepare pricing replies" },
+			},
+		},
+		copySpec.producerContext.workApproval,
+	],
+	[
+		"runtime approval",
+		{
+			...card,
+			factory: undefined,
+			runtimeApproval: {
+				description: "Update the saved catalog price.",
+				review: {
+					operatorQuestion: "Approve the catalog update?",
+					summary: "The current price is out of date.",
+				},
+			},
+		},
+		copySpec.producerContext.runtimeApproval,
+	],
+] as const)(
+	"applies the v2 copy contract to the %s producer",
+	(_name, producerCard, producerContext) => {
+		const source = deckCardWritingSource(producerCard as unknown as DeckCard);
+		expect(source.metadata.producerContext).toBe(producerContext);
+		expect(producerContext).toContain("ASK");
+		expect(producerContext).toContain("IF YES");
+		expect(producerContext).toContain("WHY");
+		expect(checkDecisionCardCopy(copy)).toEqual([]);
+		expect(copy.title.length).toBeLessThanOrEqual(
+			copySpec.fields.title.maxLength,
+		);
+		expect(copy.body.length).toBeLessThanOrEqual(
+			copySpec.fields.body.maxLength,
+		);
+		expect(copy.recommendation.length).toBeLessThanOrEqual(
+			copySpec.fields.recommendation.maxLength,
+		);
+	},
+);
 
 it("withholds source secrets before generation and secret-bearing cached output", async () => {
 	const secret = "sk-" + "fictional".repeat(5);
