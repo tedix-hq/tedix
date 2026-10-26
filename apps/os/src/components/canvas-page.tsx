@@ -219,6 +219,30 @@ export function isCanvasSimpleMode(input: {
 	);
 }
 
+/** Whether the person last hid the chat beside an open item; remembered per browser. */
+export const CANVAS_CHAT_COLLAPSED_KEY = "tedix-os:canvas-chat-collapsed";
+
+export function restoreCanvasChatCollapsed(
+	storage: Pick<Storage, "getItem"> | null,
+): boolean {
+	try {
+		return storage?.getItem(CANVAS_CHAT_COLLAPSED_KEY) === "true";
+	} catch {
+		return false;
+	}
+}
+
+export function persistCanvasChatCollapsed(
+	storage: Pick<Storage, "setItem"> | null,
+	collapsed: boolean,
+) {
+	try {
+		storage?.setItem(CANVAS_CHAT_COLLAPSED_KEY, String(collapsed));
+	} catch {
+		// Remembering the chat's fold is a convenience; the toggle still works.
+	}
+}
+
 export function restoreCanvasChatWidth(
 	storage: Pick<Storage, "getItem">,
 ): number {
@@ -459,7 +483,15 @@ export function CanvasPage({
 	const [resourceRailOpen, setResourceRailOpen] = useState(
 		(requestedPane ?? (requestedDoc ? "workpiece" : "chat")) === "resources",
 	);
-	const [chatCollapsed, setChatCollapsed] = useState(false);
+	const [chatCollapsed, setChatCollapsed] = useState(() =>
+		restoreCanvasChatCollapsed(window.localStorage),
+	);
+	const toggleChatCollapsed = () => {
+		setChatCollapsed((value) => {
+			persistCanvasChatCollapsed(window.localStorage, !value);
+			return !value;
+		});
+	};
 	// The open app's status and actions render into the tab row, so the app
 	// view keeps one toolbar instead of stacking a second one under the tabs.
 	const [workpieceActionsSlot, setWorkpieceActionsSlot] =
@@ -1515,7 +1547,7 @@ export function CanvasPage({
 									chatCollapsed ? "Show conversations" : "Hide conversations"
 								}
 								aria-pressed={chatCollapsed}
-								onClick={() => setChatCollapsed((value) => !value)}
+								onClick={toggleChatCollapsed}
 								icon={<SidebarSimple size={16} />}
 							/>
 							<CanvasWorkpieceTabs

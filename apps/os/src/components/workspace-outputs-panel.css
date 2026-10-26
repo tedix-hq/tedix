@@ -63,7 +63,7 @@
 	flex-direction: column;
 	overflow-x: hidden;
 	overflow-y: auto;
-	padding: 8px 6px;
+	padding: 12px 6px;
 	scrollbar-width: thin;
 }
 
@@ -71,7 +71,7 @@
 	display: grid;
 	margin: 0;
 	padding: 0;
-	gap: 2px;
+	gap: 4px;
 	list-style: none;
 }
 
@@ -147,8 +147,10 @@
 }
 
 .workspace-outputs-footer {
+	display: grid;
+	gap: 4px;
 	margin-top: auto;
-	padding-top: 8px;
+	padding-top: 12px;
 }
 
 /* The divider runs edge to edge, like the header's, not inset like a row. */
