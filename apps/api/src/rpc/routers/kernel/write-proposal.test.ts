@@ -3836,3 +3836,68 @@ describe("a mistyped selected Workspace id", () => {
 		expect(proposal?.args).toMatchObject({ workspaceId });
 	});
 });
+
+describe("factory control from chat", () => {
+	it.each(["pause", "resume", "archive"])(
+		"proposes %s with the slug chat resolved, without the model",
+		async (action) => {
+			const service = mcpService((body) => {
+				if (body.method === "tools/list")
+					return {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: { tools: [{ name: "code" }] },
+						},
+					};
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: {
+							structuredContent: {
+								executionId: "sample-exec",
+								result: JSON.stringify([
+									{
+										callable: `projects.${action}_factory`,
+										description: `${action} a factory by slug`,
+										annotations: { readOnlyHint: false },
+										parameters: {
+											type: "object",
+											properties: {
+												organizationId: { type: "string" },
+												factory: { type: "string" },
+											},
+											required: ["factory"],
+										},
+									},
+								]),
+							},
+						},
+					},
+				};
+			});
+			mocks.getAppBySlugForOrg.mockResolvedValue({ slug: "sample-tools" });
+			const model = objectModel(null);
+			const proposal = await planKernelWriteProposal({
+				db: DB,
+				organizationId: "org-1",
+				env: baseEnv(service),
+				route: writeRoute({
+					rationale:
+						"The operator requested factory pause. Exact factory slug: sample-inbox; lane skill id: skill-1; owner tedi id: tedi-1.",
+					toolIntent: {
+						appSlug: "sample-tools",
+						capability: `factories.${action}`,
+						connectionStatus: "connected",
+					},
+				}),
+				content: `${action} the sample inbox factory`,
+				model,
+			});
+			expect(proposal?.toolName).toBe(`projects.${action}_factory`);
+			expect(proposal?.args).toEqual({ factory: "sample-inbox" });
+			expect(model.doGenerateCalls).toHaveLength(0);
+		},
+	);
+});

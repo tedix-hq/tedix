@@ -442,6 +442,23 @@ export interface KernelWriteProposalDeclined {
 	};
 }
 
+const FACTORY_CONTROL_CAPABILITY_RE = /^factories\.(?:pause|resume|archive)$/;
+
+/**
+ * Pause, resume and archive take only the factory slug, which factory chat
+ * resolved from fresh health and wrote into the route rationale.
+ */
+export function factoryControlArgs(
+	rationale: string,
+	inputSchema: { properties?: Record<string, unknown> } | undefined,
+): { factory: string } | null {
+	if (!inputSchema?.properties?.factory) return null;
+	const factory = rationale.match(
+		/\bExact factory slug: ([a-z0-9][a-z0-9-]*);/,
+	)?.[1];
+	return factory ? { factory } : null;
+}
+
 /**
  * The factory tool's refusal from a failed dry run, as one bounded sentence.
  * It is our own validation text (for example a missing Workspace), so the
@@ -960,6 +977,12 @@ export async function planKernelWriteProposal(args: {
 			exactTool.inputSchema.properties?.cells
 				? cardVerdictSheetArgs(editTarget, route.rationale)
 				: null;
+		// Chat resolved the factory from fresh health before routing; its slug
+		// is the whole argument, so no model can decline or misspell it.
+		const factoryControl =
+			capability && FACTORY_CONTROL_CAPABILITY_RE.test(capability)
+				? factoryControlArgs(route.rationale, exactTool.inputSchema)
+				: null;
 		const planned: {
 			toolName: string;
 			args: Record<string, unknown>;
@@ -989,49 +1012,57 @@ export async function planKernelWriteProposal(args: {
 						reasoning:
 							"Record the verdict on the card the previous answer showed.",
 					}
-				: await planWriteCall({
-						workspaceContext: args.workspaceContext,
-						conversationId: args.gatewayContext?.sessionKey,
-						editTarget,
-						// An output edit names its part (a card's row, a block) in the
-						// router's rationale when the request itself only says "it".
-						editReference:
-							editTarget &&
-							capability &&
-							OUTPUT_EDIT_CAPABILITY_RE.test(capability)
-								? route.rationale
-								: null,
-						openWorkRequests,
-						workProjects,
-						earlierRequests: isWorkCreate
-							? await readEarlierRequests(
-									db,
-									organizationId,
-									args.gatewayContext?.sessionKey,
-									content,
-								)
-							: undefined,
-						content: capability?.startsWith("factories.")
-							? `${content}\n${route.rationale}`
-							: content,
-						capability: route.toolIntent?.capability ?? null,
-						tools: [exactTool],
-						model,
-						paramDefaults,
-						timeoutMs,
-						span: kernelSpanContext({
-							organizationId,
-							source: "write_proposal",
-						}),
-						fillMissing: fillWorkDestination,
-						onFailure: (reason) => {
-							argumentFailure = reason;
-						},
-						onInvalidFields: (fields) => {
-							invalidFields = fields;
-						},
-						...(exactTool.name === CREATE_OUTPUT_TOOL ? { documentDraft } : {}),
-					});
+				: factoryControl
+					? {
+							toolName: exactTool.name,
+							args: factoryControl,
+							reasoning: `Factory ${capability!.split(".")[1]} as asked: ${factoryControl.factory}.`,
+						}
+					: await planWriteCall({
+							workspaceContext: args.workspaceContext,
+							conversationId: args.gatewayContext?.sessionKey,
+							editTarget,
+							// An output edit names its part (a card's row, a block) in the
+							// router's rationale when the request itself only says "it".
+							editReference:
+								editTarget &&
+								capability &&
+								OUTPUT_EDIT_CAPABILITY_RE.test(capability)
+									? route.rationale
+									: null,
+							openWorkRequests,
+							workProjects,
+							earlierRequests: isWorkCreate
+								? await readEarlierRequests(
+										db,
+										organizationId,
+										args.gatewayContext?.sessionKey,
+										content,
+									)
+								: undefined,
+							content: capability?.startsWith("factories.")
+								? `${content}\n${route.rationale}`
+								: content,
+							capability: route.toolIntent?.capability ?? null,
+							tools: [exactTool],
+							model,
+							paramDefaults,
+							timeoutMs,
+							span: kernelSpanContext({
+								organizationId,
+								source: "write_proposal",
+							}),
+							fillMissing: fillWorkDestination,
+							onFailure: (reason) => {
+								argumentFailure = reason;
+							},
+							onInvalidFields: (fields) => {
+								invalidFields = fields;
+							},
+							...(exactTool.name === CREATE_OUTPUT_TOOL
+								? { documentDraft }
+								: {}),
+						});
 		if (!planned)
 			return decline({
 				stage: "planner_declined",
