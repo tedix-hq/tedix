@@ -11,6 +11,7 @@ const {
 	callMcpTool,
 	CapabilityNotDeclaredError,
 	McpNamespaceUnavailableError,
+	McpToolLostMidRunError,
 } = await import("../src/mcp-bridge");
 
 const manifest: CapabilityManifest = {
@@ -532,6 +533,59 @@ test("a mapped app without the tool names the app, not just the namespace", asyn
 		"resend-acme.mcp.tedix.dev tools/call code",
 		"tedix-unified.mcp.tedix.dev tools/call code",
 	]);
+});
+
+test("a tool that answered earlier in the run reports the direct failure, not a missing namespace", async () => {
+	const calls: string[] = [];
+	const miss = namespaceMissEnv(calls, "github");
+	let answered = false;
+	const flakyEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (!answered) {
+					answered = true;
+					return Response.json({
+						jsonrpc: "2.0",
+						id: "first",
+						result: { content: [{ type: "text", text: '{"ok":true}' }] },
+					});
+				}
+				return miss.MCP_SERVICE.fetch(input, init);
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+	const runProps = {
+		...props,
+		runId: "run-mid-run-loss",
+		manifest: { ...manifest, mcp: { github: ["list_actions_resources"] } },
+		namespaceToSlug: { github: "github-acme" },
+	};
+	const request = {
+		namespace: "github",
+		method: "list_actions_resources",
+		args: {},
+		workflow,
+	};
+	await callMcpTool(flakyEnv, runProps, request);
+	await assert.rejects(callMcpTool(flakyEnv, runProps, request), (error) => {
+		assert.ok(error instanceof McpToolLostMidRunError);
+		assert.ok(!(error instanceof McpNamespaceUnavailableError));
+		assert.match(
+			error.message,
+			/^MCP_TOOL_LOST_MID_RUN: env\.MCP\.github\.list_actions_resources answered earlier in this run/,
+		);
+		assert.match(
+			error.message,
+			/failed with: MCP tool error -32601: Method not found/,
+		);
+		assert.match(error.message, /one provider call per step\.do/);
+		return true;
+	});
+	// Another run that never reached the tool keeps the namespace diagnosis.
+	await assert.rejects(
+		callMcpTool(miss, { ...runProps, runId: "run-never-reached" }, request),
+		McpNamespaceUnavailableError,
+	);
 });
 
 test("a mapped wrapper without the skill's namespace falls through to the organization gateway", async () => {

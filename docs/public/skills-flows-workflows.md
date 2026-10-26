@@ -52,6 +52,12 @@ already-started effects do not become reconnect waits. A connection change or
 revocation still takes effect at the next credential lookup. Recovery does not
 grant background access to personal accounts.
 
+One provider call per `step.do` also keeps failures legible: a retry repeats
+only the failed call, and the error names that call's own cause. A tool that
+already answered earlier in the run and then fails reports
+`MCP_TOOL_LOST_MID_RUN` with the provider's error (rate limit, timeout or an
+expired tool list), not `MCP_NAMESPACE_UNAVAILABLE`.
+
 ## Run a one-off flow
 
 Create `plan.ts`. The leading `/* tedix */` block is the skill manifest and
