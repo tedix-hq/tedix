@@ -8,7 +8,7 @@ import { Text } from "@/components/kumo/text";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import { OS_COPY } from "@/shared/os-copy";
 
-const DECK_EVENTS = "deck events";
+const DECK_EVENTS = "Decisions events";
 
 function measured(
 	label: string,
@@ -55,7 +55,7 @@ export function DeckAttentionMetrics() {
 			? empty(label, reason)
 			: measured(label, percent(value), window);
 	const decisionsWindow = `latest ${formatCount(metrics.decisionCount)} decisions`;
-	const actionsWindow = `latest ${formatCount(metrics.actionCount)} deck actions`;
+	const actionsWindow = `latest ${formatCount(metrics.actionCount)} Decisions actions`;
 	const tiles: MetricTileData[] = [
 		metrics.medianMs === null
 			? empty("Median decision time", "No timed decisions recorded yet")

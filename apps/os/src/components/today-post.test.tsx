@@ -119,9 +119,11 @@ it.each([true, false])(
 		await render();
 		expect(host.textContent).not.toContain("Help the team.");
 		expect(host.textContent).not.toContain("Make customer work easier.");
-		expect(host.textContent).not.toContain("Checking Deck");
+		expect(host.textContent).not.toContain("Checking Decisions");
 		expect(host.querySelector('a[href="/work?view=deck"]')?.textContent).toBe(
-			complete ? "7 decisions waiting → Deck" : "Open Deck · count unavailable",
+			complete
+				? "7 decisions waiting → Decisions"
+				: "Open Decisions · count unavailable",
 		);
 		expect(host.textContent).toContain("Updated today.");
 		await act(async () => {
@@ -173,7 +175,7 @@ it("renders skeleton lines while Today and the Deck count open, never a status s
 		host.querySelectorAll('[data-today-pending] [data-slot="skeleton"]').length,
 	).toBeGreaterThanOrEqual(3);
 	expect(host.querySelector("[data-today-deck-pending]")).not.toBeNull();
-	for (const text of ["Checking Deck…", "Opening Today…"])
+	for (const text of ["Checking Decisions…", "Opening Today…"])
 		expect(host.textContent).not.toContain(text);
 });
 

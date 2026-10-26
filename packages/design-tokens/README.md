@@ -40,10 +40,10 @@ the shared product font stacks plus explicit caption, label, control, body, and
 dialog sizes. `apps/os` imports it after Kumo's Tailwind theme from its app-local
 stylesheet; only the palette variables themselves remain app-owned.
 
-### Feed and Deck (`./feed-deck.css`)
+### Activity and Decisions (`./feed-deck.css`)
 
 The `.feed-deck` scope owns the cool paper, yellow light, proposal type scale,
-spacing, elevation and motion tokens used by the Feed and Deck apps. Its dark
+spacing, elevation and motion tokens used by the Activity and Decisions apps. Its dark
 variant follows the OS `.dark` class. It does not change the shell palette.
 
 ## Related

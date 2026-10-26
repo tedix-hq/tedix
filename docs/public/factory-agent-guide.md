@@ -47,10 +47,10 @@ Discover each callable, then describe its exact schema before calling it.
 Use the returned namespace. Reads do not grant mutation authority; repository
 changes follow the [Work lifecycle](./AGENTS.md).
 
-## Rank a Deck before curation
+## Rank Decisions before curation
 
 `rank_deck_cards` is a paid, explicit snapshot operation for the authenticated
-recipient. Ask from workspace chat, "Rank my current Deck and show the reasons
+recipient. Ask from workspace chat, "Rank my current Decisions and show the reasons
 and example receipts." Discover the callable before use. A tedi needs its own
 recipient delegation; its owner's sign-in does not grant inbox access. The
 operation does not install a curator, change the OS order, rewrite cards or
@@ -82,7 +82,7 @@ those mechanisms is installed or active.
 
 ## Score factory cards
 
-A factory that writes card sheets for the Card review app or the Deck scores
+A factory that writes card sheets for the Card review app or Decisions scores
 each card when it writes the row. Tedix OS only reads the score: it sorts,
 caps and removes repeats. Without a score column, cards keep sheet order and
 the existing routing and ranking apply.
@@ -192,7 +192,7 @@ records one learning event for the reviewer with this metadata:
 When a `run_skill` Do it files a card as Work, the skill passes
 `factoryCard: { "cardSheetId": "<cardSheetId>", "row": <row> }` (its own run
 params) to `create_work_item`. Tedix reads that card with the caller's access,
-finds the Card review or Deck source whose workspace and sheet prefix match,
+finds the Card review or Decisions source whose workspace and sheet prefix match,
 and stores the card's proposal envelope as the Work's `metadata.decisionDeck`,
 so routing and learning treat it like any other decision: `kind` is
 `proposal`, `classId` is the card type, `confidence` is the score,
@@ -241,12 +241,12 @@ accuracy would drop.
 A card type listed in `scoring.agentDecidableClasses` is a candidate for
 earned quiet delivery. Its learning class is `factory:<label>:<type>`.
 Listing a type states that its Do it can be undone. Each person earns it
-separately, through the same class gate as other Deck decisions:
+separately, through the same class gate as other Decisions decisions:
 
 1. The person's last `unchangedThreshold` verdicts on that class (default 5,
    each on a different card) are Do it with nothing changed. Useful and Later
    do not count and do not break the run. Any other Not useful breaks it.
-2. Once earned, the person's open cards of that class appear in the Feed as
+2. Once earned, the person's open cards of that class appear in Activity as
    updates instead of decisions. A stable audit sample (`auditSampleRate`,
    default 10 %) still asks the person.
 3. A Not useful whose chip maps to `agent_could_do` counts as candidacy
@@ -268,9 +268,9 @@ Some cards never graduate, however much feedback they get:
 - any envelope that is outbound, an approval, one-way, of unknown
   reversibility, or marked taste or strategy.
 
-The Card review app, including its view inside the Deck, shows each listed
+The Card review app, including its view inside Decisions, shows each listed
 class as Stays with you, Learning, Eligible to hand to an agent, or Agent
-decides. A Decision Deck `classPolicies` entry for the class with
+decides. A Decisions `classPolicies` entry for the class with
 `autoApprove: false` keeps it with every person. Removing the type from
 `agentDecidableClasses` does the same. Nothing here executes a card. Quiet
 delivery only changes whether the card asks the person for a decision.

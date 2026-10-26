@@ -111,7 +111,7 @@ program naming explicit providers hydrates only those namespaces, while one
 calling `discover.*` gets the full catalog; `get_info`, `server/discover`, and
 `tools/list` answer from app metadata without building the aggregate.
 
-Widget tools such as Deck and Feed are Code Mode callables by default: a `code`
+Widget tools such as Decisions and Activity are Code Mode callables by default: a `code`
 program that calls `<namespace>.show_deck()` returns the view's `ui://`
 resource in the result metadata, and hosts that render result views show it.
 A host that only mounts views declared in `tools/list` needs an explicit

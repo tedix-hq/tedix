@@ -63,25 +63,25 @@ an admitted Attempt before it may change a Work Item.
 
 ## Where Tedix OS shows it
 
-| View                                        | Shows                                                                                                                                                                                                                  |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Work → Feed                                 | Ranked, receipt-backed changes across configured projects, with Needs action, Done, Stalled and In progress filters. Opening Work lands here.                                                                          |
-| Work → Feed → Apps → Portfolio              | Projects grouped into buckets, each card with its brief line and next item. A "Needs you" strip lists open questions in your inbox and approvals you can decide.                                                       |
-| Project page                                | The project's **Brief** (its description, verbatim) and **Contributors**: every session that reported into the project or held an Attempt on its Work Items, active first, with state, current item and Attempt count. |
-| Work → Feed → Apps → Agents                 | Your sessions grouped by project, most urgent project first. Sessions with no binding sit under "No project".                                                                                                          |
-| Work → Deck                                 | The questions and handoffs those sessions raised, with their answers.                                                                                                                                                  |
-| Work → Feed → Apps → Office → Your requests | Your private requests, promises and open loops across your local sessions, with status and evidence.                                                                                                                   |
+| View                                            | Shows                                                                                                                                                                                                                  |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Work → Activity                                 | Ranked, receipt-backed changes across configured projects, with Needs action, Done, Stalled and In progress filters. Opening Work lands here.                                                                          |
+| Work → Activity → Apps → Portfolio              | Projects grouped into buckets, each card with its brief line and next item. A "Needs you" strip lists open questions in your inbox and approvals you can decide.                                                       |
+| Project page                                    | The project's **Brief** (its description, verbatim) and **Contributors**: every session that reported into the project or held an Attempt on its Work Items, active first, with state, current item and Attempt count. |
+| Work → Activity → Apps → Agents                 | Your sessions grouped by project, most urgent project first. Sessions with no binding sit under "No project".                                                                                                          |
+| Work → Decisions                                | The questions and handoffs those sessions raised, with their answers.                                                                                                                                                  |
+| Work → Activity → Apps → Office → Your requests | Your private requests, promises and open loops across your local sessions, with status and evidence.                                                                                                                   |
 
-The Feed's Today post reads **Needs you** from the current Deck projection,
+The Activity's Today post reads **Needs you** from the current Decisions projection,
 not the saved document's interaction totals. An incomplete projection shows
 that the count is unavailable. Purpose wording comes from the current charter;
 saved wording is not shown when that charter cannot be read. Scheduled callers
 cannot request another person's attention count: `projects.getTodayTotals`
 requires the signed-in person's own `personId`, with `timeZone` and an optional
-`gadgetId` selecting the same Deck view. Scheduled workflows set
+`gadgetId` selecting the same Decisions view. Scheduled workflows set
 `includeDeckCount: false` to read project receipts without reading a person's
-Deck. That returns `needsYou: null`, which the saved document should render as
-**Open Deck** or leave blank; the live Today post supplies the current count.
+Decisions. That returns `needsYou: null`, which the saved document should render as
+**Open Decisions** or leave blank; the live Today post supplies the current count.
 
 Independent local sessions register with `tedix lane start "<title>"
 --project <project-id>` after bootstrapping their own agent identity. Registration
@@ -95,7 +95,7 @@ For an optional scheduled document, install the repository's
 owned by the member and grant that skill read access to **Session activity**.
 Its parameters hold the destination, owner, time zone and schedule. The first
 run creates that member's **Session activity** document; later runs reuse it.
-It is a snapshot, not the live Attention feed. Installing the plugin does not
+It is a snapshot, not the live Activity view. Installing the plugin does not
 create or activate a scheduled skill.
 
 ## Session ingestion and privacy
@@ -163,10 +163,10 @@ bucket, fall under "Other". Placeholder briefs read as empty.
 
 ## A typical day
 
-1. The owner opens Work. Feed shows ranked updates with receipts; Office’s
+1. The owner opens Work. Activity shows ranked updates with receipts; Office’s
    Your requests section holds their unfinished chat requests.
 2. A session that cannot continue reports "waiting for you" and the question
-   appears in the Deck.
+   appears in Decisions.
 3. The owner answers in Tedix OS; the session's host picks up the answer and
    the project page moves the contributor back to "working".
 4. A new session in the same checkout inherits the binding and shows up as a

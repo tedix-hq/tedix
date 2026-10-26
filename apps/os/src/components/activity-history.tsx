@@ -254,7 +254,7 @@ export function ActivityHistory({
 					title={EMPTY_COPY[filter].title}
 				/>
 			) : (
-				<ol aria-label="Activity history" className="m-0 grid list-none p-0">
+				<ol aria-label="Approvals history" className="m-0 grid list-none p-0">
 					{entries.map((entry) => (
 						<HistoryRow entry={entry} key={entry.key} />
 					))}

@@ -868,7 +868,7 @@ export function applyDemoPack(
 		list(state, "gadgets").push({
 			...gadgetTemplate,
 			id,
-			name: role === "feed" ? "Feed" : "Deck",
+			name: role === "feed" ? "Activity" : "Decisions",
 			workspaceId: workspaces[0]!.id,
 			currentRevisionId: revisionId,
 		});

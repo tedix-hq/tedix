@@ -59,7 +59,7 @@ export function DecisionDeckToolbar({
 				<div
 					className="fd-deck-toolbar"
 					data-focus-ring="inset"
-					aria-label={decisionText("Deck view")}
+					aria-label={decisionText("Decisions view")}
 				>
 					{[
 						"decide",

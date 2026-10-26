@@ -1026,7 +1026,7 @@ describe("Recorded Work outcomes and activity", () => {
 				<WorkItemPage itemId={item.id} />
 			</QueryClientProvider>,
 		);
-		expect(html).toContain("Activity");
+		expect(html).toContain("Updates");
 		expect(html.indexOf("Recorded outcome")).toBeLessThan(
 			html.indexOf("Activation pending before release"),
 		);

@@ -18,7 +18,7 @@ This page runs Tedix on your own computer, so you can look around before
 asking for anything else. You need no account, and nothing leaves your
 machine unless you turn on model calls. In about five minutes you will have
 Tedix open in your browser, a first Workspace saved, and, with `--demo`, a
-fictional company's Deck and Feed to click through.
+fictional company's Decisions and Activity to click through.
 
 Just want to use the hosted service? [Use Tedix in ChatGPT, Codex and
 Claude](./learning-paths/first-plugin.md). To connect the CLI to an invited
@@ -55,8 +55,8 @@ network cannot reach the local stack.
 | `--verbose`                           | Streams every server log to the terminal instead of `server.log`.                      |
 | `--help`                              | Lists every option without starting anything.                                          |
 
-`--demo` includes a sample Deck (decisions waiting for you, one card at a
-time), Feed activity (a timeline of what happened) and a saved Today digest.
+`--demo` includes a sample Decisions (decisions waiting for you, one card at a
+time), Activity (a timeline of what happened) and a saved Today digest.
 To run beside another local stack, choose unused ports with
 `TEDIX_LOCAL_API_PORT`, `TEDIX_LOCAL_OS_PORT` and `TEDIX_LOCAL_MCP_PORT`.
 For example:

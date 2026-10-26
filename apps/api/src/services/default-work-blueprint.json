@@ -1,7 +1,7 @@
 {
 	"gadgets": [
 		{
-			"name": "Feed",
+			"name": "Activity",
 			"manifest": {
 				"entry": "tedix:app/activity-feed",
 				"navigation": { "board": true, "work": "feed" },
@@ -10,7 +10,7 @@
 			}
 		},
 		{
-			"name": "Deck",
+			"name": "Decisions",
 			"manifest": {
 				"entry": "tedix:app/decision-deck",
 				"navigation": { "board": true, "work": "deck", "workDefault": true },

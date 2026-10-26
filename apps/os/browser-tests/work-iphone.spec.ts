@@ -274,7 +274,7 @@ try {
 				assert.equal(await headings.count(), 1);
 				assert.equal(
 					await headings.textContent(),
-					view === "feed" ? "Feed" : "Deck",
+					view === "feed" ? "Activity" : "Decisions",
 				);
 				assert(
 					await headings.evaluate((heading) => {

@@ -35,7 +35,7 @@ token, password or cookie; sign-in and consent belong to the user.
 ## 3. Check the connection
 
 After sign-in, list the server's tools. Start with a read-only call, such as
-listing the user's Work or reading the Deck of decisions waiting for them.
+listing the user's Work or reading the decisions waiting for them in Decisions.
 Discover each tool's schema before calling it, and treat any tool that writes
 or sends something as a change the user must ask for.
 

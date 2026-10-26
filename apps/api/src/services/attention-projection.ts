@@ -135,7 +135,7 @@ function deckConfigWithReviewSources(
 	if (sources.size > 10)
 		throw createError(
 			ErrorCodes.CONFLICT,
-			"Deck supports at most 10 card sources",
+			"Decisions supports at most 10 card sources",
 		);
 	return { ...config, factorySources: [...sources.values()] };
 }
@@ -902,12 +902,12 @@ export async function loadForYouProjection(
 				.map((card) => prepareDeckCardFace(context, card, true, deck.model)),
 		).catch(() => {}),
 	);
-	if (!deck.complete) incompleteSources.push("the Deck");
+	if (!deck.complete) incompleteSources.push("Decisions");
 	if (!factories.complete) incompleteSources.push("a card source");
 	if (sourcePages.some((page) => !page.complete))
 		incompleteSources.push("project activity");
 	if (agentDecisionsFailed) incompleteSources.push("agent decisions");
-	if (pipelineFailed) incompleteSources.push("the Deck sweep");
+	if (pipelineFailed) incompleteSources.push("the Decisions sweep");
 	return {
 		items: visible,
 		heldCount: ranked.filter((item) => !shownIds.has(item.id)).length,

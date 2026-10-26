@@ -310,7 +310,7 @@ export function humanReservedActionClasses(content: string): string[] {
 	// An explicitly internal Today/Feed post is not a public-channel publication.
 	// An external destination or a different publication instruction stays gated.
 	const publicationContent =
-		/\bToday\s*\/\s*Feed\s+post\b/i.test(actionContent) &&
+		/\bToday\s*\/\s*(?:Feed|Activity)\s+post\b/i.test(actionContent) &&
 		!/\b(?:public|publicly|external|social|linkedin|reddit|facebook|instagram|twitter|tweet|blog)\b/i.test(
 			actionContent,
 		)

@@ -79,7 +79,7 @@ First use calls `codemode.__runtime()` to verify the current account and
 selected organization, then performs one bounded read through Code Mode.
 Ordinary remote workflows need no CLI. Account identity, organization selection
 and capability authorization are separate facts. Code Mode is the action and
-composition surface; Deck, Feed and skills are Code Mode callables found with
+composition surface; Decisions, Activity and skills are Code Mode callables found with
 `discover.search`.
 
 Run the scenarios in `validation.json` on a fresh installed chat. Record the

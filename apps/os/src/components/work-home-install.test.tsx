@@ -58,9 +58,9 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 		),
 	);
 	const button = [...document.querySelectorAll("button")].find(
-		(item) => item.textContent === "Set up Feed and Deck",
+		(item) => item.textContent === "Set up Activity and Decisions",
 	)!;
-	expect(button.textContent).toBe("Set up Feed and Deck");
+	expect(button.textContent).toBe("Set up Activity and Decisions");
 	await act(async () => {
 		button.click();
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -71,7 +71,7 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 	expect(
 		button.querySelector('[role="status"]')?.getAttribute("aria-label"),
 	).toBe("Loading");
-	expect(button.textContent).toBe("Setting up Feed and Deck…");
+	expect(button.textContent).toBe("Setting up Activity and Decisions…");
 	await act(async () => {
 		finish({ workspaceId: "11111111-1111-4111-8111-111111111111" });
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -99,7 +99,7 @@ it("shows an installation failure and leaves the button available for retry", as
 		),
 	);
 	const button = [...document.querySelectorAll("button")].find(
-		(item) => item.textContent === "Set up Feed and Deck",
+		(item) => item.textContent === "Set up Activity and Decisions",
 	)!;
 	await act(async () => {
 		button.click();

@@ -689,7 +689,7 @@ function Activity() {
 		<Card size="sm" aria-labelledby="office-activity-title">
 			<CardHeader className="flex items-center gap-2">
 				<CardTitle id="office-activity-title" className="flex-1">
-					Activity
+					Live sessions
 				</CardTitle>
 				{knocks.isError ? (
 					<OfficeReadError resource="knock activity" error={knocks.error} />

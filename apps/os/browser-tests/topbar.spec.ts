@@ -81,7 +81,7 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 					assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), [
 						"Info",
 						"Get help",
-						"Activity",
+						"Approvals",
 					]);
 					for (const item of await menu.getByRole("menuitem").all()) {
 						const box = await item.boundingBox();
@@ -124,7 +124,7 @@ export async function assertLeanTopbar(origin: string, evidenceDir?: string) {
 					await help.waitFor({ state: "hidden" });
 					await more.click();
 					await menu
-						.getByRole("menuitem", { name: "Activity", exact: true })
+						.getByRole("menuitem", { name: "Approvals", exact: true })
 						.click();
 					await page
 						.getByText("No approvals waiting", { exact: true })

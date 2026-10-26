@@ -464,7 +464,7 @@ const RULE_SENTENCES: Record<DeckNotUsefulReason, (source: string) => string> =
 			`Asks from ${s} go back to the agent to handle itself.`,
 		duplicate: (s) =>
 			`Near-duplicate cards from ${s} fold into the newest one.`,
-		not_for_me: (s) => `Cards from ${s} stay off your Deck.`,
+		not_for_me: (s) => `Cards from ${s} stay out of your Decisions.`,
 	};
 
 export function deckSourceLabel(sourceKey: string) {

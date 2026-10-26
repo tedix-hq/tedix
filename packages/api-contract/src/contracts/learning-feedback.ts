@@ -71,7 +71,7 @@ export const learningFeedbackContract = oc
 		recordExposure: oc
 			.route({
 				operationId: "record_decision_exposure",
-				summary: "Record your bounded Deck exposure context",
+				summary: "Record your bounded Decisions exposure context",
 			})
 			.input(DecisionExposureInputSchema)
 			.output(z.object({ id: z.string() })),

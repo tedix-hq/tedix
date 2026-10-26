@@ -80,7 +80,7 @@ it.each(["read_activity_feed", "react_activity_feed"])(
 		).resolves.toEqual(
 			webMcpError(
 				name === "read_activity_feed"
-					? "The feed could not be read. Read the feed again."
+					? "Activity could not be read. Read Activity again."
 					: "The reaction could not be saved.",
 			),
 		);
@@ -113,7 +113,7 @@ it("reads execute-time items and uses only the replacement controller's callback
 		write.execute({ itemId: item.id, reaction: "mute" }),
 	).resolves.toEqual(
 		webMcpError(
-			"The item is no longer visible or a write is pending. Read the feed again.",
+			"The item is no longer visible or a write is pending. Read Activity again.",
 		),
 	);
 	expect(react).not.toHaveBeenCalled();
@@ -139,7 +139,7 @@ it("checks busy state at execution, allows reads, and rejects writes", async () 
 		write.execute({ itemId: item.id, reaction: "more" }),
 	).resolves.toEqual(
 		webMcpError(
-			"The item is no longer visible or a write is pending. Read the feed again.",
+			"The item is no longer visible or a write is pending. Read Activity again.",
 		),
 	);
 	expect(react).not.toHaveBeenCalled();

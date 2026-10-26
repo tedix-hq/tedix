@@ -263,7 +263,7 @@
 		},
 		"attention/showFeed": {
 			"layoutId": "focus-feed-v2",
-			"description": "Your ranked feed: Needs you and Updates.",
+			"description": "Your ranked Activity: Needs you and Updates.",
 			"layoutSpec": {
 				"root": "shell",
 				"elements": {

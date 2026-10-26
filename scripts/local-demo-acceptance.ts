@@ -130,7 +130,10 @@ if (demo) {
 		"The collaboration-ready local output was not available through the OS Worker",
 	);
 	const deck = await osClient.attention.listDeckCards({ limit: 100 });
-	assert(deck.complete && deck.count > 0, "Sample Deck is empty or incomplete");
+	assert(
+		deck.complete && deck.count > 0,
+		"Sample Decisions is empty or incomplete",
+	);
 	const activity = await osClient.workItems.listActivity({ limit: 50 });
 	assert(
 		activity.events.length === 6 &&
@@ -140,7 +143,7 @@ if (demo) {
 					event.workItemTitle.startsWith("Reconciler") ||
 					event.workItemTitle.startsWith("On-call"),
 			),
-		"Sample Feed activity is missing or contains classic fixtures",
+		"Sample Activity is missing or contains classic fixtures",
 	);
 	const today = await osClient.osWorkspaces.outputs.get({
 		outputId: demoTodayId,
@@ -189,7 +192,7 @@ if (demo) {
 					(item) => item.currentRevision.manifest.navigation?.work === role,
 				),
 			),
-		"Blank-start onboarding must install exactly the default Feed and Deck apps",
+		"Blank-start onboarding must install exactly the default Activity and Decisions apps",
 	);
 }
 

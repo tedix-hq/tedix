@@ -710,7 +710,7 @@ const getTodayTotalsProcedure = authOs.getTodayTotals
 			if (person.type !== "user" || person.id !== input.personId)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
-					"Today attention totals require the signed-in person's own Deck",
+					"Today attention totals require the signed-in person's own Decisions",
 				);
 			const { loadDeckProjection } =
 				await import("../../services/attention-projection");
@@ -723,7 +723,7 @@ const getTodayTotalsProcedure = authOs.getTodayTotals
 			if (!deck.complete)
 				throw createError(
 					ErrorCodes.SERVICE_UNAVAILABLE,
-					"Deck count is incomplete",
+					"Decisions count is incomplete",
 				);
 			needsYou = deck.count;
 		}

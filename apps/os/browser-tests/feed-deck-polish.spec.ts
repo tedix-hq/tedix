@@ -544,7 +544,7 @@ try {
 					throw new Error("Feed action focus changed its hit area");
 			}
 			const rhythm = await page.locator(".focus-feed").evaluate((el) => {
-				const control = el.querySelector('[aria-label="Feed order"]')!;
+				const control = el.querySelector('[aria-label="Activity order"]')!;
 				const summary = el.querySelector(".focus-budget")!;
 				return {
 					gap: getComputedStyle(el).gap,
@@ -759,7 +759,7 @@ try {
 			.waitFor();
 		if (
 			(await preferred
-				.getByRole("progressbar", { name: "Deck progress" })
+				.getByRole("progressbar", { name: "Decision progress" })
 				.getAttribute("aria-valuenow")) !== "1"
 		)
 			throw new Error("Skipping a card lost the stable progress total");

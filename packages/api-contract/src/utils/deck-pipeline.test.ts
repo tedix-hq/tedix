@@ -307,7 +307,7 @@ describe("S2 sweep", () => {
 				recipientId: "recipient",
 				sourceKey: source,
 				reason: "not_for_me",
-				sentence: "Cards from agent stay off your Deck.",
+				sentence: "Cards from agent stay out of your Decisions.",
 				evidenceIds: ["a", "b", "c"],
 				createdAt: now.toISOString(),
 			},
@@ -417,7 +417,7 @@ describe("S6 learning", () => {
 		const rule = deriveDeckRule({ ...base, evidenceIds: ["a", "b", "c"] });
 		expect(rule).toMatchObject({
 			reason: "not_for_me",
-			sentence: "Cards from deck-truth (agent) stay off your Deck.",
+			sentence: "Cards from deck-truth (agent) stay out of your Decisions.",
 			evidenceIds: ["a", "b", "c"],
 		});
 		expect(

@@ -1,7 +1,7 @@
 {
 	"repo_notes": [
 		{
-			"content": "Tedix exists to protect human attention. People hand off work; Tedix brings back only the decisions that need a person, ranked by what matters most, and handles the rest. The same need applies to one developer running many coding assistants in parallel and to an operator choosing which contributions are worth their time. Open the Overview with that problem and outcome, not with architecture. Write in plain English for a developer seeing the project for the first time. Do not describe Tedix as AI coworkers, AI workers, a to-do list or a governance platform. Define product terms once where they first appear: a tedi is a persistent worker with its own memory, skills and permissions; a Work Item is one unit of handed-off work with an owner, a risk level and a budget; Home is the entry point that answers directly or hands work to a tedi; the Deck shows the decisions waiting for a person; the Feed shows results that need no decision. Prefer current code and docs/public over older prose, and docs/public/release-status.md for what is available today. Never name customers or tenants; examples use fictional organizations."
+			"content": "Tedix exists to protect human attention. People hand off work; Tedix brings back only the decisions that need a person, ranked by what matters most, and handles the rest. The same need applies to one developer running many coding assistants in parallel and to an operator choosing which contributions are worth their time. Open the Overview with that problem and outcome, not with architecture. Write in plain English for a developer seeing the project for the first time. Do not describe Tedix as AI coworkers, AI workers, a to-do list or a governance platform. Define product terms once where they first appear: a tedi is a persistent worker with its own memory, skills and permissions; a Work Item is one unit of handed-off work with an owner, a risk level and a budget; Home is the entry point that answers directly or hands work to a tedi; Decisions shows the decisions waiting for a person; Activity shows results that need no decision. Prefer current code and docs/public over older prose, and docs/public/release-status.md for what is available today. Never name customers or tenants; examples use fictional organizations."
 		},
 		{
 			"content": "The repository is built in the open by coding agents that Tedix itself coordinates. Commits carry Work-Item and Agent-Session trailers that link each change to its task and agent session; the ids do not resolve publicly. Pull requests are disabled: outside contributors and their agents open an issue (optionally with a diff) or follow AGENT-REVIEW.md, and maintainers re-author accepted changes with credit. Explain this once on the contribution page rather than on every page."
@@ -42,8 +42,8 @@
 			"parent": "Deciding What Needs a Person"
 		},
 		{
-			"title": "Deck and Feed",
-			"purpose": "The Deck of decisions waiting for a person and the Feed of finished results: how cards are selected, ranked, dated and expired, and how they appear in Tedix OS and inside Claude and ChatGPT.",
+			"title": "Decisions and Activity",
+			"purpose": "Decisions, waiting for a person, and Activity, the finished results: how cards are selected, ranked, dated and expired, and how they appear in Tedix OS and inside Claude and ChatGPT.",
 			"parent": "Deciding What Needs a Person"
 		},
 		{

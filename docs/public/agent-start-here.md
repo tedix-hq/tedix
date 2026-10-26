@@ -193,7 +193,7 @@ credential and filter set; reset when changing scope or recovering access.
 `cursor` pages backward through history and cannot be combined with
 `afterSequence`. If the deployed schema does not expose forward polling yet,
 use bounded recent activity and deduplicate event IDs; do not treat a backward
-cursor as a change checkpoint. Work activity is only one part of Feed: read
+cursor as a change checkpoint. Work activity is only one part of Activity: read
 your authorized Interaction inbox/cards and assigned Work separately. A person
 you represent may have private cards you cannot read, and read access never
 permits deciding for them.

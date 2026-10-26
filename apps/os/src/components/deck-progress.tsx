@@ -57,7 +57,7 @@ export function DeckProgress({
 			<Progress
 				value={completed}
 				max={total}
-				aria-label="Deck progress"
+				aria-label="Decision progress"
 				aria-valuetext={`${completed} of ${total} reviewed${filtered ? " · filtered" : ""}`}
 			>
 				<ProgressTrack className="h-px">
@@ -97,7 +97,7 @@ export function DeckCompletion({
 			<Text tone="secondary">
 				{filtered
 					? "Clear your filters to see what else is waiting."
-					: "Nothing else waiting in this deck."}
+					: "Nothing else waiting in Decisions."}
 			</Text>
 			{filtered && (
 				<Button variant="outline" onClick={onClearFilters}>
@@ -105,7 +105,7 @@ export function DeckCompletion({
 				</Button>
 			)}
 			<Link href="/work?view=feed" variant="plain">
-				Back to Feed
+				Back to Activity
 			</Link>
 		</section>
 	);

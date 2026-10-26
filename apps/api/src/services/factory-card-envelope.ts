@@ -85,6 +85,6 @@ export async function prepareFactoryCard(
 	}
 	throw createError(
 		ErrorCodes.BAD_REQUEST,
-		"No Card review or Deck source reads this card sheet",
+		"No Card review or Decisions source reads this card sheet",
 	);
 }

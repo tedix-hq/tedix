@@ -86,7 +86,7 @@ sends retain their existing authority checks.
 
 Each cycle appends to the OS document **Night log YYYY-MM-DD**, using the
 morning-ending date. Each person's configured morning slot writes **Morning
-brief YYYY-MM-DD** with their Deck link and overnight lessons. The documents
+brief YYYY-MM-DD** with their Decisions link and overnight lessons. The documents
 live in the configured project workspace. No local log supplies readiness.
 
 `probe: true` reads only configuration and reports the current slots. `manual:

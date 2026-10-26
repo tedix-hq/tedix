@@ -74,7 +74,7 @@ high-risk and critical actions still require a human.
 
 Home dispatches eligible work immediately, waking a standby tedi when needed.
 Coding work is spread across tedis that share the same repository, least busy
-first. Its Feed receipt identifies the task, tedi, and outcome. **This should
+first. Its Activity receipt identifies the task, tedi, and outcome. **This should
 have asked me** saves an owner/admin correction lesson that requires approval
 for that delegation class next time.
 
@@ -85,7 +85,7 @@ decision, so it creates no approval card for a person.
 
 The same autonomy setting lets Tedix answer some internal questions itself: a
 reversible follow-up, such as creating an internal Work item, is created
-directly instead of becoming a Deck card. The Feed shows a receipt with
+directly instead of becoming a Decisions card. Activity shows a receipt with
 **Undo**. Questions about consent, credentials, roles, deletion, money,
 publishing or legal matters still go to a person.
 
@@ -235,8 +235,8 @@ department roster. The selected tedi checks voice, source grounding and
 commitments, then submits its verdict through `review_outbound_draft`. Sources
 that cannot be checked should block approval or require changes.
 
-After review, the addressed person sees an Outbound card in Work → Deck.
-Work → Feed → Apps → Outbound lists the same Work items.
+After review, the addressed person sees an Outbound card in Work → Decisions.
+Work → Activity → Apps → Outbound lists the same Work items.
 The card shows the draft, reviewer notes and grounding. Edits invalidate the
 review and return to the reviewer. An existing open input request or question
 can become the card without changing its original prompt or history.

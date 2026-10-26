@@ -126,7 +126,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	{
 		id: "feed-history",
 		label: "Finished work",
-		description: "What was completed, in the Feed.",
+		description: "What was completed, in Activity.",
 		group: "history",
 		to: "/work",
 		search: { view: "feed", filter: "history" },
