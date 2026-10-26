@@ -1191,6 +1191,19 @@ describe("canonical work lifecycle", () => {
 		expect(sources[0]).toContain('"reason":"Purpose expired"');
 	});
 
+	test("moves Work to another project through the specification update", async () => {
+		const project = "70000000-0000-4000-8000-000000000002";
+		const { ctx, sources } = makeContext({ project });
+		expect(await runWork(`move ${ITEM}`, ctx)).toBe(0);
+		expect(sources[0]).toContain("work.update_work_item_specification");
+		expect(sources[0]).toContain(`"projectId":"${project}"`);
+		for (const bad of [undefined, "ACME-CORE"])
+			await expect(
+				runWork(`move ${ITEM}`, makeContext({ project: bad }).ctx),
+			).rejects.toThrow("--project <project UUID>");
+		expect(workUsage()).toContain("move <id> --project <id>");
+	});
+
 	test("rejects --as for mutations instead of treating a namespace as authority", async () => {
 		const { ctx, sources } = makeContext({ as: "research-lead" });
 		await expect(runWork(`start ${ITEM}`, ctx)).rejects.toThrow(
@@ -3673,6 +3686,7 @@ describe("native dispatcher coverage", () => {
 			},
 			complete: {},
 			cancel: {},
+			move: { work: { project: "70000000-0000-4000-8000-000000000002" } },
 			delegate: { args: "", work: { done: ITEM, note: "Example outcome" } },
 			context: {},
 			evidence: {},
@@ -3822,7 +3836,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(68);
+		expect(covered).toHaveLength(69);
 	});
 });
 

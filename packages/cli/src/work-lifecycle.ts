@@ -698,6 +698,33 @@ export async function workTrailers(
 	return 0;
 }
 
+export async function workMove(ctx: WorkContext, id: string): Promise<number> {
+	if (!id) throw new Error("work move requires a work item id");
+	const project = ctx.work.project?.trim();
+	if (
+		!project ||
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+			project,
+		)
+	)
+		throw new Error("work move requires --project <project UUID>");
+	mutationCallable(ctx.work.as?.trim(), "work.update_work_item_specification");
+	id = await resolveWorkItemId(ctx, id);
+	const call = await boardCall(ctx, "work.update_work_item_specification", {
+		id,
+		projectId: project,
+	});
+	if (call.error)
+		return fail(
+			ctx,
+			call.error,
+			`Could not move ${id}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
+		);
+	return ok(ctx, call.value, () =>
+		console.log(`${green("Moved", ctx.color)} ${id} to project ${project}.`),
+	);
+}
+
 export async function workCancel(
 	ctx: WorkContext,
 	id: string,

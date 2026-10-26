@@ -2,8 +2,10 @@ import { recordObservedLearningInteraction } from "../../../services/learning-in
 import {
 	assertValidWorkItemProject,
 	resolveWorkItemPurpose,
+	WorkItemProjectError,
 	WorkItemPurposeError,
 } from "@tedix/db/queries/work-items/purpose";
+import { workItemHasMilestoneLinks } from "@tedix/db/queries/work-items/milestones";
 import {
 	WorkAttemptCliRowSchema,
 	WorkEvidenceCliRowSchema,
@@ -62,7 +64,12 @@ import {
 	WorkResourcePoolSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { createError, ErrorCodes, withAuthorization } from "../../orpc";
+import {
+	type BaseContext,
+	createError,
+	ErrorCodes,
+	withAuthorization,
+} from "../../orpc";
 import {
 	assertTediAccess,
 	corroborationPrincipal,
@@ -243,6 +250,46 @@ async function resolveActor(
 	};
 }
 
+/**
+ * A project move keeps the Work's purpose truthful: objective Work takes the
+ * new project's objective, and milestone links (which pin a project) must be
+ * removed first.
+ */
+async function workItemProjectMovePurpose(
+	context: BaseContext,
+	workItem: Awaited<ReturnType<typeof assertWorkItemAccess>>,
+	projectId: string,
+): Promise<{ objectiveId?: string | null }> {
+	let project: { objectiveId: string | null };
+	try {
+		project = await assertValidWorkItemProject(context.db, {
+			orgId: workItem.orgId,
+			projectId,
+		});
+	} catch (error) {
+		if (error instanceof WorkItemProjectError)
+			throw createError(ErrorCodes.NOT_FOUND, "Project not found");
+		throw error;
+	}
+	if (
+		await workItemHasMilestoneLinks(context.db, {
+			orgId: workItem.orgId,
+			workItemId: workItem.id,
+		})
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"This Work item is linked to a milestone of its current project; detach it before moving it",
+		);
+	if (workItem.workClass !== "objective") return {};
+	if (!project.objectiveId)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Objective Work can move only to a project with an objective",
+		);
+	return { objectiveId: project.objectiveId };
+}
+
 export const updateSpecificationProcedure =
 	factoryOs.updateSpecification.handler(async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
@@ -261,6 +308,7 @@ export const updateSpecificationProcedure =
 			actor.type !== "user" &&
 			[
 				actor.type === "tedi" ? undefined : input.executor,
+				input.projectId,
 				input.riskLevel,
 				input.workClass,
 				input.purposeExceptionExpiresAt,
@@ -278,6 +326,16 @@ export const updateSpecificationProcedure =
 			);
 		}
 		try {
+			if (
+				input.projectId !== undefined &&
+				input.projectId !== workItem.projectId &&
+				(input.workClass !== undefined ||
+					input.purposeExceptionExpiresAt !== undefined)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Move the project and repair purpose in separate updates",
+				);
 			let purpose: {
 				objectiveId?: string | null;
 				workClass?: typeof workItem.workClass;
@@ -351,6 +409,15 @@ export const updateSpecificationProcedure =
 					);
 				purpose = resolved;
 			}
+			if (
+				input.projectId !== undefined &&
+				input.projectId !== workItem.projectId
+			)
+				purpose = await workItemProjectMovePurpose(
+					context,
+					workItem,
+					input.projectId,
+				);
 			const laneProject =
 				actor.type === "user" &&
 				["codex", "claude-code"].includes(input.executor ?? "") &&
@@ -373,6 +440,7 @@ export const updateSpecificationProcedure =
 				actor,
 				executor: input.executor,
 				laneDispatch: input.laneDispatch ?? initialLaneDispatch(input.executor),
+				projectId: input.projectId,
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,

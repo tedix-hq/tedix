@@ -698,6 +698,12 @@ export const workItemsContract = oc
 						"codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",
 					),
 					laneDispatch: LaneDispatchPlanSchema.optional(),
+					projectId: z
+						.uuid()
+						.optional()
+						.describe(
+							"Owner/admin move to another project in this organization. Objective Work takes the new project's objective; Work linked to a milestone must be detached first.",
+						),
 					expectedWorkItemVersion: z
 						.number()
 						.int()
