@@ -44,6 +44,8 @@ function textPaths(text: string): string[] {
 	// Sticky matches cannot search ahead; separators never occur in segments.
 	const slashPath = /[\w.@-]+(?:\/[\w.@*-]+)+/y;
 	const dottedPath = /[\w@*-]+(?:\.[\w@*-]+)+/y;
+	const slashSegment = /[\w.@-]*/y;
+	const dotSegment = /[\w@*-]*/y;
 	let slashFailedUntil = 0;
 	let dotFailedUntil = 0;
 	for (let i = 0; i < text.length;) {
@@ -54,30 +56,24 @@ function textPaths(text: string): string[] {
 			// A failed segment cannot succeed at any of its suffixes. Skip retries
 			// even when a dotted match consumes only part of that segment.
 			if (!match) {
-				slashFailedUntil = i;
-				while (
-					slashFailedUntil < text.length &&
-					/[\w.@-]/.test(text[slashFailedUntil]!)
-				)
-					slashFailedUntil++;
+				slashSegment.lastIndex = i;
+				slashSegment.test(text);
+				slashFailedUntil = slashSegment.lastIndex;
 			}
 		}
 		if (!match && i >= dotFailedUntil) {
 			dottedPath.lastIndex = i;
 			match = dottedPath.exec(text);
 			if (!match) {
-				dotFailedUntil = i;
-				while (
-					dotFailedUntil < text.length &&
-					/[\w@*-]/.test(text[dotFailedUntil]!)
-				)
-					dotFailedUntil++;
+				dotSegment.lastIndex = i;
+				dotSegment.test(text);
+				dotFailedUntil = dotSegment.lastIndex;
 			}
 		}
 		if (match) {
 			paths.push(match[0]);
 			i += match[0].length;
-		} else i++;
+		} else i = Math.max(i + 1, Math.min(slashFailedUntil, dotFailedUntil));
 	}
 	return paths;
 }
