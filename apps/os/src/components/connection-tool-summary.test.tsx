@@ -24,7 +24,7 @@ describe("connection tool summary", () => {
 				<ConnectionToolSummary
 					providerName={providerName}
 					capabilities={capabilities}
-					complete
+					safetyNote
 				/>,
 			);
 
@@ -43,4 +43,9 @@ describe("connection tool summary", () => {
 			expect(html).not.toContain("checks each person");
 		},
 	);
+	it("stays silent when no actions are known and no decision is pending", () => {
+		expect(
+			renderToStaticMarkup(<ConnectionToolSummary providerName="Notion" />),
+		).toBe("");
+	});
 });

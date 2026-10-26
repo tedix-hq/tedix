@@ -860,12 +860,6 @@ export function AdminConnectionsPage({
 							onCheckService={handleCheckService}
 						/>
 					)}
-					<Text role="label" tone="secondary" className="max-w-3xl">
-						One account or several? It depends on how an app signs in: apps that
-						use an API key, or sign in directly with Tedix, take one account per
-						owner; other sign-ins can hold several. This is not a console
-						setting yet.
-					</Text>
 				</>
 			)}
 
@@ -901,7 +895,7 @@ export function AdminConnectionsPage({
 						<ConnectionToolSummary
 							providerName={friendlyProviderName(pendingConnect.provider)}
 							capabilities={pendingConnect.toolCapabilities}
-							complete={pendingConnect.toolCapabilitiesComplete}
+							safetyNote
 						/>
 					)}
 					{pendingConnect?.requestedScopes?.length ? (

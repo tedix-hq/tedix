@@ -38,14 +38,19 @@ function shortList(labels: readonly string[]): string {
 		: `${unique.slice(0, 4).join(", ")} and ${unique.length - 4} more`;
 }
 
+/**
+ * What apps can do through a connection, grouped by how much it asks of a
+ * person. Renders nothing when no actions are known; the safety note is for
+ * the moment someone decides to connect, not for every look at a row.
+ */
 export function ConnectionToolSummary({
 	providerName,
 	capabilities = [],
-	complete = false,
+	safetyNote = false,
 }: {
 	providerName: string;
 	capabilities?: readonly ConnectionToolCapability[];
-	complete?: boolean;
+	safetyNote?: boolean;
 }) {
 	const visibleGroups = groups.flatMap((group) => {
 		const labels = capabilities
@@ -53,34 +58,30 @@ export function ConnectionToolSummary({
 			.map((capability) => capability.label);
 		return labels.length ? [{ ...group, capabilities: shortList(labels) }] : [];
 	});
+	if (!visibleGroups.length && !safetyNote) return null;
 
 	return (
 		<section className="grid gap-2" aria-label="What Tedix can do with it">
-			<Text weight="medium">What Tedix can do with it</Text>
-			{visibleGroups.length ? (
-				<ul className="m-0 grid list-disc gap-1 ps-5 type-tedix-body">
-					{visibleGroups.map((group) => (
-						<li key={group.key} data-capability-group={group.key}>
-							<strong>{group.label}:</strong> {group.capabilities}.{" "}
-							<span className="text-kumo-subtle">{group.suffix}</span>
-						</li>
-					))}
-				</ul>
-			) : (
+			{visibleGroups.length > 0 && (
+				<>
+					<Text weight="medium">What Tedix can do with it</Text>
+					<ul className="m-0 grid list-disc gap-1 ps-5 type-tedix-body">
+						{visibleGroups.map((group) => (
+							<li key={group.key} data-capability-group={group.key}>
+								<strong>{group.label}:</strong> {group.capabilities}.{" "}
+								<span className="text-kumo-subtle">{group.suffix}</span>
+							</li>
+						))}
+					</ul>
+				</>
+			)}
+			{safetyNote && (
 				<Text role="body" tone="secondary">
-					No app actions are listed for this connection yet.
+					Tedix keeps your {providerName} key; your tedis and AI tools never see
+					it. Anything risky waits for a person to approve. Every action is
+					logged.
 				</Text>
 			)}
-			{!complete && (
-				<Text role="label" tone="secondary">
-					Some actions are not listed yet.
-				</Text>
-			)}
-			<Text role="body" tone="secondary">
-				Tedix keeps your {providerName} key; your tedis and AI tools never see
-				it. Anything risky waits for a person to approve. Every action is
-				logged.
-			</Text>
 		</section>
 	);
 }

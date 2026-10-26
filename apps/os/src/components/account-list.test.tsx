@@ -123,15 +123,8 @@ async function expand(name = "Outlook Calendar") {
 	await act(async () => trigger.click());
 }
 
-async function menu(label = "Work account") {
-	const trigger = host.querySelector<HTMLButtonElement>(
-		`button[aria-label="Manage Outlook Calendar ${label}"]`,
-	)!;
-	await act(async () => {
-		trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-		trigger.click();
-	});
-	return [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+async function details() {
+	await act(async () => button("Details")!.click());
 }
 
 describe("account list model", () => {
@@ -227,7 +220,7 @@ describe("account list model", () => {
 });
 
 describe("account list rows", () => {
-	it("shows one status, no Access label, and keeps identifiers behind Technical details", async () => {
+	it("shows one status closed, the accounts open, and everything else behind Details", async () => {
 		const access = {
 			...base,
 			toolCapabilities: [
@@ -257,10 +250,24 @@ describe("account list rows", () => {
 		};
 		await render([access]);
 		const row = host.querySelector('[data-account-group="ms-calendar"]')!;
-		expect(row.textContent?.match(/Connected/g)).toHaveLength(1);
-		expect(row.textContent).toContain("Used by Microsoft graph calendar");
-		expect(row.textContent).toContain("Multiple accounts");
+		expect(row.textContent).toBe("Outlook CalendarConnected");
 		await expand();
+		expect(host.textContent).toContain("Only you can use it.");
+		expect(button("Reconnect")).toBeDefined();
+		expect(button("Disconnect")).toBeDefined();
+		expect(button("Add account")).toBeDefined();
+		for (const hidden of [
+			"What Tedix can do with it",
+			"Used by",
+			"Last checked",
+			"Tedix keeps your",
+			"Access",
+			"client_credentials",
+			"user@example.com",
+			"microsoft-graph-calendar-f9ab445d",
+		])
+			expect(host.textContent).not.toContain(hidden);
+		await details();
 		expect(host.textContent).toContain("What Tedix can do with it");
 		expect(host.textContent).toContain("Read: Read events. Automatic.");
 		expect(host.textContent).toContain(
@@ -269,18 +276,12 @@ describe("account list rows", () => {
 		expect(host.textContent).toContain(
 			"Protected effects: Send invitations. Asks a person first.",
 		);
-		expect(host.textContent?.match(/Tedix keeps your/g)).toHaveLength(1);
-		expect(host.textContent).toContain("Only you.");
+		expect(host.textContent).not.toContain("Tedix keeps your");
+		expect(host.textContent).toContain("Used byMicrosoft graph calendar");
 		expect(host.textContent).toContain(
 			"You can sign in with more than one account",
 		);
-		expect(host.textContent).not.toContain("Access");
-		expect(host.textContent).not.toContain("client_credentials");
-		expect(host.textContent).not.toContain("user@example.com");
-		expect(host.textContent).not.toContain("microsoft-graph-calendar-f9ab445d");
-		await act(async () => button("Technical details")!.click());
 		expect(host.textContent).toContain("client_credentials M2M");
-		expect(host.textContent).toContain("user@example.com");
 		expect(host.textContent).toContain("microsoft-graph-calendar-f9ab445d");
 		expect(host.textContent).toContain("MCP service not checked");
 	});
@@ -309,7 +310,7 @@ describe("account list rows", () => {
 			},
 		);
 		await expand();
-		await act(async () => button("Technical details")!.click());
+		await details();
 
 		const references = host.querySelector<HTMLElement>(
 			"[data-connection-app-identifiers]",
@@ -341,6 +342,7 @@ describe("account list rows", () => {
 			instanceLabel: "Mail account",
 		};
 		await render([base, named, mail]);
+		await expand();
 		const calendar = host.querySelector('[data-account-group="ms-calendar"]')!;
 		expect(calendar.textContent).toContain("Default account");
 		expect(calendar.textContent).toContain("Work account");
@@ -351,10 +353,15 @@ describe("account list rows", () => {
 		"routes %s through the exact named account",
 		async (action) => {
 			const props = await render([base, named]);
-			const items = await menu();
-			await act(async () =>
-				items.find((item) => item.textContent === action)!.click(),
-			);
+			await expand();
+			await details();
+			const target =
+				action === "Rename"
+					? button("Rename Work account")!
+					: host.querySelector<HTMLButtonElement>(
+							`button[aria-label="${action} Outlook Calendar Work account"]`,
+						)!;
+			await act(async () => target.click());
 			const callback =
 				action === "Rename"
 					? props.onRename
@@ -365,9 +372,10 @@ describe("account list rows", () => {
 		},
 	);
 
-	it("routes Connect another account to the exact provider", async () => {
+	it("routes Add account to the exact provider", async () => {
 		const props = await render([base, named]);
-		await act(async () => button("Connect another account")!.click());
+		await expand();
+		await act(async () => button("Add account")!.click());
 		expect(props.onAdd).toHaveBeenCalledWith(provider);
 	});
 
@@ -386,11 +394,13 @@ describe("account list rows", () => {
 			],
 			{ owner: "organization" },
 		);
-		expect(host.textContent).toContain("One account");
 		await expand();
 		expect(host.textContent).toContain("Everyone in this organization");
+		expect(host.textContent).toContain("Connected by user@example.com");
+		expect(button("Add account")).toBeUndefined();
+		await details();
+		expect(host.textContent).toContain("One account");
 		expect(host.textContent).toContain("Tedix keeps one key per owner");
-		expect(button("Connect another account")).toBeUndefined();
 	});
 
 	it("shows the organization account policy control only to admins", async () => {
@@ -400,6 +410,7 @@ describe("account list rows", () => {
 			onAccountModeChange,
 		});
 		await expand();
+		await details();
 		expect(
 			host.querySelector(
 				'[aria-label="Accounts allowed for Outlook Calendar"]',
@@ -413,28 +424,27 @@ describe("account list rows", () => {
 			{ ...named, accountState: "unknown", connection: null },
 			{ ...base, accountState: "restricted", connection: null },
 		]);
+		expect(host.textContent).toContain("Needs attention: 2 of 2 accounts");
+		await expand();
 		expect(host.textContent).toContain("Couldn't check this account");
 		expect(host.textContent).toContain("Provider didn't allow a status check");
 		expect(host.textContent).not.toContain("Not connected");
 		expect(host.textContent).not.toContain("Verification");
-		await expand();
-		await act(async () => button("Check connection")!.click());
+		await details();
+		await act(async () => button("Check now")!.click());
 		expect(props.onCheck).toHaveBeenCalledOnce();
 	});
 
 	it("keeps management actions disabled without permission", async () => {
 		const props = await render([base, named], { canManage: () => false });
-		const items = await menu();
-		expect(
-			items.every(
-				(item) =>
-					item.getAttribute("aria-disabled") === "true" ||
-					item.hasAttribute("data-disabled"),
-			),
-		).toBe(true);
-		await act(async () =>
-			items.find((item) => item.textContent === "Disconnect")!.click(),
-		);
+		await expand();
+		await details();
+		for (const label of ["Reconnect", "Disconnect", "Rename Work account"])
+			expect(
+				[...host.querySelectorAll<HTMLButtonElement>("button")]
+					.filter((item) => item.textContent === label)
+					.every((item) => item.disabled),
+			).toBe(true);
 		expect(props.onDisconnect).not.toHaveBeenCalled();
 	});
 
@@ -447,6 +457,7 @@ describe("account list rows", () => {
 		const row = { ...named, bindingTargets: [target] };
 		const props = await render([row]);
 		await expand();
+		await details();
 		await act(async () => button("Use for Second calendar")!.click());
 		expect(props.onBind).toHaveBeenCalledWith(row, target);
 	});
@@ -462,6 +473,7 @@ describe("account list rows", () => {
 			onSetAccessCheck: vi.fn(),
 		});
 		await expand();
+		await details();
 		expect(host.textContent).toContain("Check each person's access");
 		expect(host.querySelector('[data-access-check="on"]')).not.toBeNull();
 		expect(button("Use default")).toBeUndefined();
@@ -481,6 +493,7 @@ describe("account list rows", () => {
 			onSetAccessCheck: vi.fn(),
 		});
 		await expand();
+		await details();
 		expect(host.textContent).toContain("set by an admin");
 		expect(button("Turn on")!.disabled).toBe(true);
 		expect(button("Use default")!.disabled).toBe(true);
