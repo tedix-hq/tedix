@@ -386,7 +386,7 @@ export function RunReconciliationPanel({
 			</div>
 			{run.workflowRetiredAt && (
 				<Text as="p" role="label" tone="error" className="m-0">
-					This Cloudflare Workflow instance was permanently retired{" "}
+					This automation run was permanently retired{" "}
 					<time dateTime={run.workflowRetiredAt}>
 						{relativeTime(run.workflowRetiredAt)}
 					</time>{" "}

@@ -258,7 +258,7 @@ workstreams, weighted by the days you worked on them and what shipped, each
 with its threads, where it stands, and a board
 project only when your sessions show one (its Work, its key, or a repository
 path it names). Then the open loops you left, with the session to resume or
-the commit; workflows Tedix could take over as a skill or a scheduled
+the commit; repeated tasks Tedix could take over as a skill or a scheduled
 factory; the people and customers you work with; and how you like to work. It reads
 every local transcript in full, sub-agents and supervisor runs included, and
 your local `claude` (haiku, else `codex`) summarises each session, then each

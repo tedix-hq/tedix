@@ -32,7 +32,6 @@ describe("OS shell navigation", () => {
 			"skills",
 			"gateways",
 			"sites",
-			"brain",
 		]);
 	});
 

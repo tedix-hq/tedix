@@ -100,7 +100,7 @@ export function buildRunWebMcpTools(runId: string): WebMcpToolDef[] {
 		name: "get_current_run",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"Read the workflow run currently open on this page — which skill and tedi ran, timing, error, execution-cost rollup, and reconciliation warnings. Status: queued, running, paused, completed, failed, or canceled.",
+			"Read the automation run currently open on this page — which skill and tedi ran, timing, error, execution-cost rollup, and reconciliation warnings. Status: queued, running, paused, completed, failed, or canceled.",
 		inputSchema: { type: "object", properties: {} },
 		execute: async (_args, executeOptions): Promise<WebMcpToolResult> => {
 			try {
@@ -120,7 +120,7 @@ export function buildRunWebMcpTools(runId: string): WebMcpToolDef[] {
 		name: "list_current_run_steps",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"List the durable workflow step receipts of the run currently open on this page, in execution order — governed MCP tool calls included. Outcome: pending, success, or failure.",
+			"List the durable step receipts of the automation run currently open on this page, in execution order — governed MCP tool calls included. Outcome: pending, success, or failure.",
 		inputSchema: { type: "object", properties: {} },
 		execute: async (_args, executeOptions): Promise<WebMcpToolResult> => {
 			try {

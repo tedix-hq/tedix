@@ -28,7 +28,6 @@ export const OS_SHELL_NAVIGATION_SECTIONS = [
 			getOsSurface("skills"),
 			getOsSurface("gateways"),
 			getOsSurface("sites"),
-			getOsSurface("brain"),
 		],
 	},
 ] as const satisfies readonly OsShellNavigationSection[];

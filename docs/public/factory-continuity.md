@@ -81,7 +81,7 @@ state the blocker, exact decision, options and evidence link.
 
 Every incident records its observed one-line cause in the existing learning
 ledger. A cause recurring in three distinct incidents produces one proposed
-workflow fix with those incidents as evidence. Proposals still require the
+automation fix with those incidents as evidence. Proposals still require the
 normal review; they do not change policy automatically. The resume turn is
 instructed to record its verified cause and action receipt as follow-up evidence.
 

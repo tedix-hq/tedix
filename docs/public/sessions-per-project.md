@@ -78,7 +78,7 @@ that the count is unavailable. Purpose wording comes from the current charter;
 saved wording is not shown when that charter cannot be read. Scheduled callers
 cannot request another person's attention count: `projects.getTodayTotals`
 requires the signed-in person's own `personId`, with `timeZone` and an optional
-`gadgetId` selecting the same Decisions view. Scheduled workflows set
+`gadgetId` selecting the same Decisions view. Scheduled automations set
 `includeDeckCount: false` to read project receipts without reading a person's
 Decisions. That returns `needsYou: null`, which the saved document should render as
 **Open Decisions** or leave blank; the live Today post supplies the current count.

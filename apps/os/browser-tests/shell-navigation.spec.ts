@@ -211,7 +211,6 @@ await runShellSpec(
 					"Skills",
 					"Connections",
 					"Websites",
-					"Memory",
 				]);
 				const pinned = sidebar.locator('[aria-label="Pinned workspaces"]');
 				await pinned

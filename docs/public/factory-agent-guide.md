@@ -4,7 +4,7 @@ sidebar:
 title: "Build and inspect a factory as an agent"
 topic: "Getting started"
 resource_type: guide
-description: "A bounded agent workflow for inspecting Workspace factories, choosing tools, and separating execution from verified outcomes."
+description: "A bounded agent procedure for inspecting Workspace factories, choosing tools, and separating execution from verified outcomes."
 summary: "Canonical factory resources, Work links, tool selection, and read-only health inspection"
 read_when:
   - Building or inspecting a factory in Tedix OS
@@ -20,7 +20,7 @@ objective, a revisioned executable skill, a schedule and a health Work Item.
 A Workspace holds its sources, Documents and review app. Configuration, a queued
 run and a delivered result are separate facts.
 
-For an overnight coordinator, use a tedi-owned scheduled skill workflow to
+For an overnight coordinator, use a tedi-owned scheduled automation to
 run the participating tedis, save their replies in a dated Workspace sheet,
 file deduplicated blocker Work and write a morning brief. Cover both UTC
 offsets for a local-time schedule and return `off_slot` before any mutation
@@ -281,7 +281,7 @@ Choose the source project, owner, cadence, Workspace and durable Output first.
 `report` is the current template: each cycle reads project Work and recent item
 comments, runs one owner turn, proposes deduplicated Work and posts a scorecard.
 It does not fetch arbitrary external comments merely because the goal names them;
-bind an appropriate source workflow/tool when the source is outside project Work.
+bind an appropriate source automation or tool when the source is outside project Work.
 
 ```bash
 # Replace these values with verified resources in your organization.
@@ -355,7 +355,7 @@ Workspace once you add it as a Workspace resource:
 `create_os_workspace_resource` with `providerId: "tedix"`,
 `connectionScope: "tenant"`, `resourceType: "skill"`, the skill ID as
 `providerResourceId` and a plain `name`. Add `metadata.purpose` for the
-one-line purpose and `metadata.runsAt` when the workflow keeps only some
+one-line purpose and `metadata.runsAt` when the automation keeps only some
 local times of a daylight-saving cron and returns `status: "off_slot"` for
 the rest. Return `cards` or a one-line `summary` in the run result so the
 Workspace can say what the last run did. `list_os_workspace_schedules`
@@ -459,14 +459,14 @@ cycles are checked before apply writes anything.
 Schedules default to disabled. Without a `skillId`, a schedule is an unbound
 definition in Workspace Resources, not a running automation. To provision an
 executable schedule, bind an active skill in the installing organization with
-an owning tedi and workflow. Its approved schedule must match the blueprint's
+an owning tedi and automation. Its approved schedule must match the blueprint's
 cron, parameters and enabled flag. Apply cannot change that approved policy;
 normal runtime consent, budget and execution gates still apply.
 
-## Workflow factory inputs
+## Automation factory inputs
 
 Record the lane's skill, Workspace and objective once in the project's
-`metadata.factory` binding. Each workflow receives
+`metadata.factory` binding. Each automation receives
 `env.__RUN_CONTEXT__.factory` with `workspaceId`, `projectId`, `objectiveId`,
 `blueprintRevisionId` and `ownerTediId`, plus its health Work Item and Output.
 Unbound skills receive `null`; a factory without a Blueprint has a null revision.
@@ -478,13 +478,13 @@ From workspace chat, ask "Show this factory's binding and the Blueprint revision
 used by its latest run." Check the run's `factory/context.json` artifact against
 the Workspace pin. A configured binding is separate from a successful run.
 
-Inside a workflow, `create_work_items` calls with `factoryCycle` can omit
+Inside an automation, `create_work_items` calls with `factoryCycle` can omit
 `projectId`, `objectiveId`, `factoryCycle.workspaceId` and
 `factoryCycle.blueprintRevisionId`; the runtime fills missing values from the
 run's binding before calling the tool. Explicit values remain explicit and
 normal access, revision and admission checks still apply. Keep `templateKey`,
 `cycleKey` and immutable `sourceRefs` in each request. `validate_skills` warns
-when a stored workflow contains literal UUIDs matching its bound factory;
+when a stored automation contains literal UUIDs matching its bound factory;
 read the run context instead of copying those IDs into source.
 
 ## Traps and reusable review pattern
@@ -498,14 +498,14 @@ read the run context instead of copying those IDs into source.
   callable, project small fields and page large lists. A truncated result is
   unknown evidence, not a successful call; do not repeat a mutation to read it.
 - `factory:` source intents are reserved for Blueprint factory cycles. Report
-  lane proposals use `factory-lane:<slug>:proposal:<key>`; custom workflows
+  lane proposals use `factory-lane:<slug>:proposal:<key>`; custom automations
   need their own namespace and stable deduplication keys.
 - A generic opportunity-review factory uses a **Rules sheet** for sources,
   eligibility and scoring; a **Cards sheet** for stable candidate IDs, evidence,
   scores and review state; a **Feedback log** for reviewer decisions and reasons;
   and a **review app** over those same records. The collector reads Rules and
   feedback, deduplicates Cards, and leaves decisions to the reviewer. Treat this
-  as a custom workflow/app pattern: the report template's sheet Output appends
+  as a custom automation or app pattern: the report template's sheet Output appends
   summary rows and does not implement structured cards or feedback learning.
 
 For an existing factory, resolve its Workspace, structured project links,
@@ -519,7 +519,7 @@ missing links. Blueprint setup uses its exact published revision and
 A repository observer is advisory. Store its repository, branch, owner tedi,
 lesson-trigger instructions and repair recipes in the factory project's
 `metadata.repositoryObserver` through `configure_repository_observer`.
-The owner matches approved brain lessons using the same trigger matcher as
+The owner matches approved memory lessons using the same trigger matcher as
 situational recall. It records one commit-watch comment with the lesson revision,
 verdict, evidence and proposed fix through `report_repository_observation`.
 A claimed lesson application remains unverified until its evidence is checked.

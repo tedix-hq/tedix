@@ -230,7 +230,7 @@ function ReceiptDetail({
 	});
 	const lineageRows = [
 		["Run", lineage.runId],
-		["Workflow", lineage.workflowInstanceId],
+		["Automation", lineage.workflowInstanceId],
 		["Work Item", lineage.workItemId],
 		["Approval", lineage.approvalRequestId],
 		["Trace", lineage.traceBundleId],

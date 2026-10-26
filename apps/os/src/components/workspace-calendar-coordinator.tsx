@@ -924,7 +924,7 @@ export function WorkspaceCalendarCoordinator({
 				{skill && (
 					<>
 						<Link href={`/skills/${skill.id}`}>
-							Review skill instructions and workflow
+							Review skill instructions and automation
 						</Link>
 						<Text as="p">
 							{skill.title} · Revision {skill.revision}
@@ -944,7 +944,7 @@ export function WorkspaceCalendarCoordinator({
 							<Text as="p" tone="error">
 								This skill must belong to the selected worker, be active, proven
 								or crystallized, and include an executable calendar
-								reconciliation workflow. Activation is unavailable.
+								reconciliation automation. Activation is unavailable.
 							</Text>
 						)}
 					</>

@@ -494,6 +494,9 @@ describe("MemoryExplorer", () => {
 		expect(container.textContent).toContain(
 			"A bounded view of connected concepts",
 		);
+		expect(container.querySelector('a[href="/brain"]')?.textContent).toBe(
+			"team memory",
+		);
 		expect(container.textContent).toContain("Recorded rationale, outcomes");
 		expect(
 			container.querySelectorAll('li[data-slot="surface"][data-tier="well"]'),

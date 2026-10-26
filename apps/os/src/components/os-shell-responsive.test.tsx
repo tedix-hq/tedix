@@ -331,19 +331,19 @@ describe("OS shell chrome", () => {
 		expect(primary.closest('[data-sidebar="content"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Setup"]')).toBeNull();
 		expect(container.querySelector('[data-sidebar="group-label"]')).toBeNull();
-		for (const label of [
-			"Team",
-			"Skills",
-			"Connections",
-			"Websites",
-			"Memory",
-		]) {
+		for (const label of ["Team", "Skills", "Connections", "Websites"]) {
 			expect(
 				[...rail(container).querySelectorAll("a")].filter(
 					(a) => a.textContent === label,
 				),
 			).toHaveLength(1);
 		}
+		// Memory lives with each tedi, not as its own sidebar entry.
+		expect(
+			[...rail(container).querySelectorAll("a")].some(
+				(a) => a.textContent === "Memory",
+			),
+		).toBe(false);
 	});
 
 	it("keeps the mobile drawer open until route navigation and then dismisses it", () => {

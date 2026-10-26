@@ -162,7 +162,7 @@ function runSkillWorkflowSchema(
 					: "Skill id to run (see list_skills).",
 			},
 			reason: { description: "Audit reason recorded with the dispatch." },
-			params: { description: "Input params for the workflow." },
+			params: { description: "Input params for the automation." },
 		},
 		extra: {
 			tediSlug: {
@@ -290,7 +290,7 @@ export function buildSkillsWebMcpTools(
 			name: "get_skill",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			description:
-				"Get one organization skill — a saved automation executed by a chosen tedi — including whether it is executable as a workflow; the human can open it at the deep link.",
+				"Get one organization skill — a saved automation executed by a chosen tedi — including whether it is executable as an automation; the human can open it at the deep link.",
 			inputSchema: {
 				type: "object",
 				properties: {
@@ -345,7 +345,7 @@ export function buildSkillsWebMcpTools(
 			name: "run_skill_workflow",
 			annotations: { readOnlyHint: false, consequentialHint: true },
 			description:
-				"Run a saved skill workflow when delegating its execution to the tedi named by tediSlug; follow the returned run link. Each call uses a fresh dispatch key, so inspect runs before retrying an uncertain dispatch; destructive skills may require confirm: true.",
+				"Run a saved skill automation when delegating its execution to the tedi named by tediSlug; follow the returned run link. Each call uses a fresh dispatch key, so inspect runs before retrying an uncertain dispatch; destructive skills may require confirm: true.",
 			inputSchema: runSkillWorkflowSchema(currentSkillId),
 			execute: async (args, executeOptions) => {
 				try {
@@ -413,7 +413,7 @@ export function buildSkillsWebMcpTools(
 			name: "get_skill_run_status",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			description:
-				"Get the current status of a skill workflow run; the human can watch the run live at the deep link.",
+				"Get the current status of a skill automation run; the human can watch the run live at the deep link.",
 			inputSchema: {
 				type: "object",
 				properties: {

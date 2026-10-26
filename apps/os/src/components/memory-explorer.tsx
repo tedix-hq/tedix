@@ -25,6 +25,7 @@ import {
 } from "@/components/kumo/page";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
+import { Link } from "@/components/kumo/link";
 import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	useOsFormattingPreferences,
@@ -516,7 +517,9 @@ export function MemoryExplorer({ tediId }: { tediId: string }) {
 					<SectionHeading>
 						<SectionTitle>Knowledge map</SectionTitle>
 						<SectionDescription>
-							A bounded view of connected concepts in this worker's memory.
+							A bounded view of connected concepts in this tedi's memory.
+							Lessons the whole team shares are in{" "}
+							<Link href="/brain">team memory</Link>.
 						</SectionDescription>
 					</SectionHeading>
 					{graph.data ? (

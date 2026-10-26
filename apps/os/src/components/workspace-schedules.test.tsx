@@ -260,7 +260,7 @@ describe("linking skills to the workspace", () => {
 		try {
 			expect(
 				view.node.querySelector("[data-schedule-runs-by]")?.textContent,
-			).toBe("Run by Inbox Tedi · Workflow");
+			).toBe("Run by Inbox Tedi · Automation");
 			const unlink = view.node.querySelector<HTMLButtonElement>(
 				'button[aria-label="Unlink Inbox cards from this workspace"]',
 			);
