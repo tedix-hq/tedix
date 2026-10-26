@@ -724,6 +724,10 @@ const CALLS = {
 	"osWorkspaces/blueprints/list": { limit: 50 },
 	"osWorkspaces/blueprints/gallery": { limit: 50 },
 	"osWorkspaces/blueprints/create": { name: "Test Blueprint" },
+	"osWorkspaces/blueprints/saveWorkspace": {
+		workspaceId: IDS.workspaceRevenue,
+		name: "Saved Revenue Ops",
+	},
 	"osWorkspaces/blueprints/get": { blueprintId: IDS.blueprintDraft },
 	"osWorkspaces/blueprints/revise": {
 		blueprintId: IDS.blueprintDraft,
@@ -1496,6 +1500,48 @@ describe("optimistic-concurrency conflicts", () => {
 			gadgetId: IDS.gadgetDashboard,
 		}) as { items: OsGadgetExecution[] };
 		expect(history.items[0]?.id).toBe(result.execution.id);
+	});
+
+	it("blueprints.saveWorkspace persists a draft snapshot and rejects duplicate or missing sources", () => {
+		const input = {
+			workspaceId: IDS.workspaceRevenue,
+			name: "Saved Revenue Ops",
+		};
+		const saved = callLocalOk("osWorkspaces/blueprints/saveWorkspace", input);
+		expect(saved).toMatchObject({
+			blueprint: { name: input.name, status: "draft", visibility: "org" },
+			revision: {
+				revision: 1,
+				publishedAt: null,
+				definition: {
+					gadgets: expect.arrayContaining([
+						expect.objectContaining({
+							name: "Revenue Dashboard",
+							manifest: expect.objectContaining({
+								entry: LOCAL_WIDGET_RESOURCE_URI,
+							}),
+						}),
+					]),
+				},
+			},
+		});
+		const { blueprint } = saved as { blueprint: { id: string } };
+		expect(
+			callLocalOk("osWorkspaces/blueprints/get", { blueprintId: blueprint.id }),
+		).toMatchObject({
+			blueprint,
+			currentRevision: (saved as { revision: unknown }).revision,
+		});
+		expect(
+			callLocal("osWorkspaces/blueprints/saveWorkspace", input).status,
+		).toBe(409);
+		expect(
+			callLocal("osWorkspaces/blueprints/saveWorkspace", {
+				...input,
+				workspaceId: "00000000-0000-4000-8000-000000000999",
+				name: "Missing",
+			}).status,
+		).toBe(404);
 	});
 
 	it("blueprints.revise honors expectedRevision and publish flows through", () => {
