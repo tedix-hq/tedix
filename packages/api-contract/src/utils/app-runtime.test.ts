@@ -98,6 +98,7 @@ describe("loader manifest", () => {
 		expect(expected.tails).toEqual(options.invocation.tails);
 		expect(expected.globalOutbound).toBeNull();
 		expect(expected.compatibilityFlags).toContain("disallow_importable_env");
+		expect(expected.compatibilityFlags).toContain("nodejs_als");
 	});
 	it("never inherits network access and changes id with the code", () => {
 		const manifest = appRuntimeLoaderManifest(files);

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsGadgetExecutionRow,
@@ -13,6 +13,8 @@ export interface OsGadgetExecutionScopeParams {
 
 export interface ListOsGadgetExecutionsOptions {
 	status?: OsGadgetExecutionRow["status"];
+	callId?: string;
+	includeTraces?: boolean;
 	limit?: number;
 }
 
@@ -153,12 +155,36 @@ export async function listOsGadgetExecutions(
 	if (options.status) {
 		conditions.push(eq(osGadgetExecutions.status, options.status));
 	}
-	return db
-		.select()
-		.from(osGadgetExecutions)
-		.where(and(...conditions))
-		.orderBy(desc(osGadgetExecutions.createdAt), desc(osGadgetExecutions.id))
-		.limit(Math.min(Math.max(options.limit ?? 50, 1), 200));
+	if (options.callId) {
+		conditions.push(
+			sql`json_extract(${osGadgetExecutions.output}, '$.callId') = ${options.callId}`,
+		);
+		conditions.push(eq(osGadgetExecutions.createdById, "workspace-app-host"));
+	}
+	if (options.includeTraces === false)
+		conditions.push(ne(osGadgetExecutions.createdById, "workspace-app-host"));
+	return (
+		db
+			.select()
+			.from(osGadgetExecutions)
+			.where(and(...conditions))
+			.orderBy(
+				...(options.callId
+					? [
+							desc(
+								sql`coalesce(json_extract(${osGadgetExecutions.output}, '$.events[0].live'), 0) = 0`,
+							),
+							desc(
+								sql`json_extract(${osGadgetExecutions.output}, '$.events[0].sequence')`,
+							),
+						]
+					: []),
+				desc(osGadgetExecutions.createdAt),
+				desc(osGadgetExecutions.id),
+			)
+			// The API requests one extra row to report whether its 200-row page is full.
+			.limit(Math.min(Math.max(options.limit ?? 50, 1), 201))
+	);
 }
 
 /**

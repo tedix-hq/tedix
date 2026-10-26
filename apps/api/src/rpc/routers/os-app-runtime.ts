@@ -771,6 +771,20 @@ export function createOsAppRuntimeRouter() {
 			gadget?.workspaceId !== input.workspaceId
 		)
 			throw createError(ErrorCodes.NOT_FOUND, "App trace scope unavailable");
+		if (input.callId) {
+			const call = await getOsGadgetExecution(queryDb(context), {
+				organizationId: input.organizationId,
+				executionId: input.callId,
+			});
+			if (
+				!call ||
+				call.workspaceId !== input.workspaceId ||
+				call.gadgetId !== input.gadgetId ||
+				call.revisionId !== input.revisionId ||
+				!JSON.parse(call.grantedCapabilities).includes("app.call")
+			)
+				throw createError(ErrorCodes.NOT_FOUND, "App call scope unavailable");
+		}
 		const failed = input.events.some(
 			(event) =>
 				event !== null &&
@@ -792,7 +806,7 @@ export function createOsAppRuntimeRouter() {
 				allowed: true,
 				reasons: ["runtime_trace"],
 			}),
-			output: JSON.stringify({ events: input.events }),
+			output: JSON.stringify({ callId: input.callId, events: input.events }),
 			createdByKind: "service",
 			createdById: "workspace-app-host",
 			runtimeEnvironment: context.env.ENVIRONMENT,

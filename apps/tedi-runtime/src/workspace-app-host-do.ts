@@ -28,6 +28,8 @@ type VerifiedSession = Awaited<ReturnType<typeof verifyWorkspaceAppSession>>;
 type CapabilityProps = VerifiedSession & { token: string };
 interface PendingAppTrace {
 	tailId: string;
+	callId?: string;
+	traceTokens?: string[];
 	organizationId: string;
 	workspaceId: string;
 	gadgetId: string;
@@ -38,6 +40,7 @@ interface PendingAppTrace {
 export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	#calls = new Map<string, Promise<unknown>>();
 	#flushing: Promise<void> | undefined;
+	#tailVersion = 0;
 	async closeDraft(input: {
 		organizationId: string;
 		workspaceId: string;
@@ -74,15 +77,54 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			`${trace.organizationId}:${trace.workspaceId}`
 		)
 			throw new Error("Workspace trace scope mismatch");
-		await this.ctx.storage.put(`app-tail:${trace.tailId}`, trace);
+		const { traceTokens, ...pending } = trace;
+		if (traceTokens) {
+			// Resolve only host-issued tokens; app console output cannot choose a receipt.
+			const link = traceTokens
+				.map((token) =>
+					this.ctx.storage.kv.get<{
+						callId: string;
+						gadgetId: string;
+						revisionId: string;
+						expiresAt: number;
+					}>(`app-call:${token}`),
+				)
+				.find(
+					(entry) =>
+						entry &&
+						entry.gadgetId === trace.gadgetId &&
+						entry.revisionId === trace.revisionId &&
+						entry.expiresAt > Date.now(),
+				);
+			if (link) pending.callId = link.callId;
+		}
+		await this.ctx.storage.put(`app-tail:${trace.tailId}`, pending);
+		for (const token of traceTokens ?? [])
+			this.ctx.storage.kv.delete(`app-call:${token}`);
+		this.#tailVersion += 1;
 		await this.ctx.storage.setAlarm(Date.now() + 60000);
 		this.ctx.waitUntil(this.#flushTails());
 	}
 	async alarm() {
+		for (const [key, link] of this.ctx.storage.kv.list<{ expiresAt: number }>({
+			prefix: "app-call:",
+		})) {
+			if (link.expiresAt <= Date.now()) this.ctx.storage.kv.delete(key);
+		}
+		// An alarm must read fresh rows after an in-flight delivery finishes.
+		if (this.#flushing) await this.#flushing;
 		await this.#flushTails();
+		if ([...this.ctx.storage.kv.list({ prefix: "app-call:", limit: 1 })].length)
+			await this.ctx.storage.setAlarm(Date.now() + 60000);
 	}
 	#flushTails(): Promise<void> {
-		return (this.#flushing ??= this.#drainTails().finally(() => {
+		return (this.#flushing ??= (async () => {
+			let version;
+			do {
+				version = this.#tailVersion;
+				if (!(await this.#drainTails())) return;
+			} while (version !== this.#tailVersion);
+		})().finally(() => {
 			this.#flushing = undefined;
 		}));
 	}
@@ -104,11 +146,12 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 				await this.ctx.storage.delete(key);
 			} catch {
 				await this.ctx.storage.setAlarm(Date.now() + 60000);
-				return;
+				return false;
 			}
 		}
 		if (pending.size === 50)
 			await this.ctx.storage.setAlarm(Date.now() + 60000);
+		return true;
 	}
 	/**
 	 * Cut live sessions after access fell: sessions issued to these principals
@@ -157,6 +200,7 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		});
 	}
 	async call(input: {
+		callId?: string;
 		session: string;
 		files: Record<string, string>;
 		method: string;
@@ -179,6 +223,7 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		}
 	}
 	async #call(input: {
+		callId?: string;
 		session: string;
 		files: Record<string, string>;
 		method: string;
@@ -215,7 +260,8 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		const name = `app:${session.gadgetId}${session.previewId ? `:draft:${session.previewId}` : ""}`;
 		if (this.ctx.storage.kv.get(`closed:${name}`))
 			throw new Error("App draft closed");
-		const codeId = `${appRuntimeCodeId({ ...session, draftId: session.previewId })}${session.proposalId ? `:s${session.proposalSequence}` : ""}`;
+		// The invocation wrapper is cached alongside user code by Worker Loader.
+		const codeId = `${appRuntimeCodeId({ ...session, draftId: session.previewId })}${session.proposalId ? `:s${session.proposalSequence}` : ""}:host-v2`;
 		const previous = this.ctx.storage.kv.get<string>(`code:${name}`);
 		if (previous && previous !== codeId)
 			this.ctx.facets.abort(name, new Error("App revision changed"));
@@ -251,6 +297,16 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			session.role === "use"
 				? new AppReadCapability(capability)
 				: new AppBuildCapability(capability);
+		const traceToken = input.callId ? crypto.randomUUID() : undefined;
+		if (traceToken) {
+			this.ctx.storage.kv.put(`app-call:${traceToken}`, {
+				callId: input.callId,
+				gadgetId: session.gadgetId,
+				revisionId: session.revisionId,
+				expiresAt: Date.now() + 3_600_000,
+			});
+			await this.ctx.storage.setAlarm(Date.now() + 60000);
+		}
 		try {
 			return await (
 				facet as unknown as {
@@ -258,12 +314,64 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 						method: string,
 						args: unknown[],
 						capability: unknown,
+						traceToken?: string,
+						console?: AppConsole,
 					): Promise<unknown>;
 				}
-			).invoke(method, args, invocation);
+			).invoke(
+				method,
+				args,
+				invocation,
+				traceToken,
+				input.callId
+					? new AppConsole(async (level, message, timestamp, sequence) => {
+							await this.recordTail({
+								organizationId: session.organizationId,
+								workspaceId: session.workspaceId,
+								gadgetId: session.gadgetId,
+								revisionId: session.revisionId,
+								tailId: crypto.randomUUID(),
+								callId: input.callId,
+								events: [
+									{
+										outcome: "ok",
+										live: true,
+										timestamp,
+										sequence,
+										logs: [{ level, message, timestamp }],
+										exceptions: [],
+									},
+								],
+							});
+						})
+					: undefined,
+			);
 		} finally {
 			invocation.close();
 		}
+	}
+}
+
+class AppConsole extends RpcTarget {
+	#write: (
+		level: string,
+		message: string,
+		timestamp: number,
+		sequence: number,
+	) => Promise<void>;
+	constructor(
+		write: (
+			level: string,
+			message: string,
+			timestamp: number,
+			sequence: number,
+		) => Promise<void>,
+	) {
+		super();
+		this.#write = write;
+	}
+	write(level: string, message: string, timestamp: number, sequence: number) {
+		return this.#write(level, message, timestamp, sequence);
 	}
 }
 
@@ -356,21 +464,39 @@ export class WorkspaceAppTail extends WorkerEntrypoint<
 		const host = this.env.WORKSPACE_APP_HOST.getByName(
 			`${this.ctx.props.organizationId}:${this.ctx.props.workspaceId}`,
 		);
-		await host.recordTail({
-			...this.ctx.props,
-			tailId: crypto.randomUUID(),
-			events: events.map((event) => ({
-				outcome: event.outcome,
-				timestamp: event.eventTimestamp,
-				logs: event.logs.slice(0, 20).map((log) => ({
-					level: log.level,
-					message: JSON.stringify(log.message).slice(0, 2000),
-				})),
-				exceptions: event.exceptions.slice(0, 5).map((exception) => ({
-					name: exception.name,
-					message: exception.message.slice(0, 2000),
-				})),
-			})),
-		});
+		for (const event of events)
+			await host.recordTail({
+				...this.ctx.props,
+				tailId: crypto.randomUUID(),
+				traceTokens: event.logs
+					.filter(
+						(log) =>
+							log.message[0] === "__tedix_app_trace__" &&
+							typeof log.message[1] === "string",
+					)
+					.map((log) => log.message[1] as string),
+				events: [
+					{
+						outcome: event.outcome,
+						timestamp: event.eventTimestamp,
+						truncated:
+							event.truncated ||
+							event.logs.length > 201 ||
+							event.exceptions.length > 5,
+						logs: event.logs
+							.filter((log) => log.message[0] !== "__tedix_app_trace__")
+							.slice(0, 200)
+							.map((log) => ({
+								level: log.level,
+								timestamp: log.timestamp,
+								message: JSON.stringify(log.message).slice(0, 2000),
+							})),
+						exceptions: event.exceptions.slice(0, 5).map((exception) => ({
+							name: exception.name,
+							message: exception.message.slice(0, 2000),
+						})),
+					},
+				],
+			});
 	}
 }

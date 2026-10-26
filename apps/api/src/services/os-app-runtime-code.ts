@@ -131,6 +131,7 @@ export async function runAppRuntimeCall(
 					"X-Service-Binding": "true",
 				},
 				body: JSON.stringify({
+					callId: executionId,
 					session: input.session,
 					files: input.code.files,
 					method: input.method,

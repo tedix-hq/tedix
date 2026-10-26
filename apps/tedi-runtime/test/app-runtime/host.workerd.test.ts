@@ -26,6 +26,8 @@ import { DurableObject } from 'cloudflare:workers';
 let retained;
 export class App extends DurableObject {
   count() { const n = (this.ctx.storage.kv.get('n') || 0) + 1; this.ctx.storage.kv.put('n', n); return {n, version: '${version}'}; }
+  log(value) { console.info('fixture_hold_trace', value); console.warn('warning', value); return value; }
+  async logWhileRunning() { console.info('fixture_hold_trace', 'still running'); await new Promise(resolve => setTimeout(resolve, 5000)); return 'finished'; }
   readHost() { return this.ctx.storage.kv.get('hostSecret') ?? null; }
   async network() { try { await fetch('https://example.com'); return 'escaped'; } catch { return 'blocked'; } }
   async importEnv() { try { const { env } = await import('cloudflare:workers'); return env.SECRETS_MASTER_KEY || env.LOADER || env.API_SERVICE || env.TEDIX ? 'escaped' : 'blocked'; } catch { return 'blocked'; } }
@@ -41,6 +43,8 @@ async function call(
 		revision?: string;
 		version?: string;
 		method?: string;
+		callId?: string;
+		args?: unknown[];
 		role?: "build" | "use";
 		previewId?: string;
 		principal?: string;
@@ -50,10 +54,11 @@ async function call(
 	const code = files(options.version ?? "v1");
 	const token = options.token ?? (await mint(stub, code, options)).token;
 	return stub.call({
+		callId: options.callId,
 		session: token,
 		files: code,
 		method: options.method ?? "count",
-		args: [],
+		args: options.args ?? [],
 	});
 }
 async function mint(
@@ -75,6 +80,107 @@ async function mint(
 	});
 }
 describe("workspace app supervisor in workerd", () => {
+	it("correlates actual console tails for queued and sibling app calls", async () => {
+		const stub = createHost();
+		const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+		await Promise.all(
+			ids.map((callId, index) =>
+				call(stub, {
+					callId,
+					method: "log",
+					args: [String(index)],
+					...(index === 2
+						? { gadget: "44444444-4444-4444-8444-444444444444" }
+						: {}),
+				}),
+			),
+		);
+		await vi.waitFor(async () => {
+			const pending = await runInDurableObject(
+				stub,
+				async (_instance, state) => [
+					...(
+						await state.storage.list<{
+							callId?: string;
+							events: Array<{
+								logs: Array<{ level: string; message: string }>;
+							}>;
+						}>({
+							prefix: "app-tail:",
+						})
+					).values(),
+				],
+			);
+			expect(
+				[
+					...new Set(
+						pending
+							.filter((trace) => trace.callId)
+							.map((trace) => trace.callId),
+					),
+				].sort(),
+			).toEqual(ids.slice().sort());
+			for (const [index, id] of ids.entries()) {
+				const traces = pending.filter((item) => item.callId === id);
+				expect(
+					traces.flatMap((trace) =>
+						trace.events.flatMap((event) => event.logs),
+					),
+				).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							level: "info",
+							message: JSON.stringify(["fixture_hold_trace", String(index)]),
+						}),
+						expect.objectContaining({
+							level: "warn",
+							message: JSON.stringify(["warning", String(index)]),
+						}),
+					]),
+				);
+				expect(JSON.stringify(traces)).not.toContain("__tedix_app_trace__");
+			}
+		});
+	});
+	it("persists a console line before the app call completes", async () => {
+		const stub = createHost();
+		const callId = crypto.randomUUID();
+		let finished = false;
+		const running = call(stub, { callId, method: "logWhileRunning" }).then(
+			(result) => {
+				finished = true;
+				return result;
+			},
+		);
+		try {
+			await vi.waitFor(
+				async () => {
+					const traces = await runInDurableObject(
+						stub,
+						async (_instance, state) => [
+							...(
+								await state.storage.list<{
+									callId?: string;
+									events: unknown[];
+								}>({ prefix: "app-tail:" })
+							).values(),
+						],
+					);
+					expect(
+						traces.some(
+							(trace) =>
+								trace.callId === callId &&
+								JSON.stringify(trace.events).includes("still running"),
+						),
+					).toBe(true);
+					expect(finished).toBe(false);
+				},
+				{ timeout: 4000 },
+			);
+		} finally {
+			expect(await running).toBe("finished");
+		}
+	});
 	it("isolates app SQLite from sibling apps and the supervisor", async () => {
 		const stub = createHost();
 		await runInDurableObject(stub, (_instance, state) => {

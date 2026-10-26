@@ -79,6 +79,64 @@ function executionParams(
 }
 
 describe("os gadget executions", () => {
+	it("filters traces by call before limiting and keeps tenant and gadget scope", async () => {
+		const { db } = fixture();
+		for (const [id, overrides] of [
+			["trace", {}],
+			["foreign", { organizationId: "org-2" }],
+			["sibling", { gadgetId: "gd-2" }],
+			["other-call", { output: '{"callId":"other"}' }],
+			["app-result", { createdById: "agent-1" }],
+		] as const) {
+			await createOsGadgetExecution(
+				db,
+				executionParams(id, {
+					output: '{"callId":"call-1","events":[]}',
+					createdByKind: "service",
+					createdById: "workspace-app-host",
+					...overrides,
+				}),
+			);
+		}
+		const rows = await listOsGadgetExecutions(
+			db,
+			{ organizationId: "org-1", gadgetId: "gd-1" },
+			{ callId: "call-1", limit: 1 },
+		);
+		expect(rows.map((row) => row.id)).toEqual(["trace"]);
+		expect(
+			(
+				await listOsGadgetExecutions(
+					db,
+					{ organizationId: "org-1", gadgetId: "gd-1" },
+					{ includeTraces: false },
+				)
+			).map((row) => row.id),
+		).toEqual(["app-result"]);
+		await createOsGadgetExecution(
+			db,
+			executionParams("earlier", {
+				createdById: "workspace-app-host",
+				output: '{"callId":"call-2","events":[{"sequence":1}]}',
+			}),
+		);
+		await createOsGadgetExecution(
+			db,
+			executionParams("later", {
+				createdById: "workspace-app-host",
+				output: '{"callId":"call-2","events":[{"sequence":2}]}',
+			}),
+		);
+		expect(
+			(
+				await listOsGadgetExecutions(
+					db,
+					{ organizationId: "org-1", gadgetId: "gd-1" },
+					{ callId: "call-2", limit: 1 },
+				)
+			).map((row) => row.id),
+		).toEqual(["later"]);
+	});
 	it("settles direct app calls once without crossing tenants or skill runs", async () => {
 		const { db } = fixture();
 		await createOsGadgetExecution(db, executionParams("app"));

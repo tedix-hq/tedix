@@ -191,6 +191,7 @@ export const osAppRuntimeContract = oc
 				AppRuntimeScopeSchema.extend({
 					organizationId: z.string().min(1),
 					tailId: z.uuid(),
+					callId: z.uuid().optional(),
 					revisionId: z.uuid(),
 					events: z.array(JsonValueSchema).max(10),
 				}).strict(),

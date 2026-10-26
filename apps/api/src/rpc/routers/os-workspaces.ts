@@ -938,7 +938,12 @@ const executionsList = readOs.executions.list.handler(
 		const rows = await listOsGadgetExecutions(
 			queryDb(context),
 			{ organizationId, gadgetId: input.gadgetId },
-			{ status: input.status, limit: input.limit + 1 },
+			{
+				status: input.status,
+				callId: input.callId,
+				includeTraces: input.includeTraces,
+				limit: input.limit + 1,
+			},
 		);
 		// A gadget's receipts all pin the same workspace; a mismatched path
 		// yields an empty page rather than leaking another workspace's rows.
