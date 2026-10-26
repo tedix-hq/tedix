@@ -370,9 +370,10 @@ describe("Account-first personal integration", () => {
 		expect(
 			filterAccountRows([unknown, expired], "", "not_connected"),
 		).toHaveLength(0);
-		expect(filterAccountRows([unknown, expired], "", "attention")).toHaveLength(
-			2,
-		);
+		// An unchecked status is not a fault: only the expired row needs attention.
+		expect(filterAccountRows([unknown, expired], "", "attention")).toEqual([
+			expired,
+		]);
 	});
 
 	it("starts OAuth directly and refreshes inventory after cancellation without creating a label dialog", async () => {
@@ -471,14 +472,13 @@ describe("Connection inventory coverage", () => {
 		const affected = host.querySelector(
 			'[data-account-group="microsoft-graph-ca-tedix-oauth"]',
 		)!;
-		expect(affected.textContent).toContain(
-			"Needs attention: Provider didn't allow a status check",
-		);
+		expect(affected.textContent).toContain("Status not checked");
+		expect(affected.textContent).not.toContain("Needs attention");
 		expect(
 			[...affected.querySelectorAll("button")].some(
 				(button) => button.textContent === "Reconnect",
 			),
-		).toBe(true);
+		).toBe(false);
 		expect(host.textContent).not.toContain("Provider healthy");
 	});
 });
@@ -564,7 +564,7 @@ const statusCopy = {
 	missing: "Available to connect",
 	expired: "Sign-in expired",
 	needs_consent: "Sign in again to keep it working",
-	error: "Couldn't check this account",
+	error: "Status not checked",
 } as const;
 
 async function openDetails(page: ParentNode, name: string) {

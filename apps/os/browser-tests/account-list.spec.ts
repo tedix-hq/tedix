@@ -42,11 +42,29 @@ try {
 					!text.includes("Verification incomplete"),
 					`${label}: page-level verification banner is gone`,
 				);
+				// A status Tedix couldn't check is neutral, not a fault: no
+				// "Needs attention" and no Reconnect on that row.
+				const unchecked = page.locator("li[data-account-group]", {
+					has: page.getByRole("button", { name: "Stripe details" }),
+				});
+				assert.equal(
+					await unchecked
+						.locator("[data-account-status]")
+						.first()
+						.getAttribute("data-account-status"),
+					"unchecked",
+					`${label}: the unverifiable account is neutral`,
+				);
+				const uncheckedText = await unchecked.innerText();
 				assert.ok(
-					text.includes(
-						"Needs attention: Provider didn't allow a status check",
-					),
-					`${label}: the unverifiable account says so on its own row`,
+					uncheckedText.includes("Status not checked") &&
+						!uncheckedText.includes("Needs attention"),
+					`${label}: the unverifiable account says "Status not checked"`,
+				);
+				assert.equal(
+					await unchecked.getByRole("button", { name: "Reconnect" }).count(),
+					0,
+					`${label}: no Reconnect for an unchecked status`,
 				);
 				assert.ok(
 					text.includes("Available to connect"),
@@ -61,7 +79,7 @@ try {
 				])
 					assert.ok(!text.includes(noise), `${label}: no "${noise}"`);
 
-				// Needs attention sorts before connected.
+				// Needs attention sorts before connected, then unchecked.
 				const kinds = await rows.evaluateAll((items) =>
 					items.map(
 						(item) =>
@@ -70,11 +88,14 @@ try {
 								?.getAttribute("data-account-status") ?? "",
 					),
 				);
-				const firstConnected = kinds.indexOf("connected");
+				const order = ["attention", "connected", "unchecked"];
+				const ranks = kinds.map((kind) => order.indexOf(kind));
 				assert.ok(
-					firstConnected === -1 ||
-						kinds.slice(firstConnected).every((kind) => kind === "connected"),
-					`${label}: attention rows first (${kinds.join(",")})`,
+					ranks.every(
+						(rank, index) =>
+							rank >= 0 && (index === 0 || rank >= ranks[index - 1]!),
+					),
+					`${label}: attention, connected, unchecked (${kinds.join(",")})`,
 				);
 
 				// One status per row: never a second "Connected" badge.
