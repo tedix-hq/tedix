@@ -418,10 +418,18 @@ export function deriveDelegationContract(route: KernelRouteDecision): {
 	const writeShaped =
 		route.effortClass === "embodied" ||
 		route.routeKind === "propose_tool_write";
+	// Read answers are relayed to the operator, often verbatim: plain-language
+	// sources keep them readable, where raw fact or record ids and a working
+	// preamble made a CFO memory check fail review (Work 97e827c5).
 	const successCriteria = [
 		writeShaped
 			? "every claimed action cites the mutating tool call result that performed it"
-			: "the answer states the specific facts read, citing the tool calls that produced them",
+			: "the answer states the specific facts read and names in plain words where each came from (memory, a named document or record, a tool); raw fact or record IDs appear only if the request asks for them",
+		...(writeShaped
+			? []
+			: [
+					"the reply starts with the answer itself, with no working notes or preamble",
+				]),
 		...(route.effortClass === "fan_out"
 			? [
 					"every branch is accounted for in the reply, including branches that returned nothing",

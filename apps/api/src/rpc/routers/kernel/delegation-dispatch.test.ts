@@ -1717,12 +1717,18 @@ describe("delegation contract", () => {
 		expect(budget).toEqual({ maxToolCalls: 40, deadlineMs: 1_800_000 });
 	});
 
-	it("read routes get read-shaped success criteria (cite the tool calls that produced the facts)", () => {
+	it("read routes get read-shaped success criteria (plain-language sources, answer first)", () => {
 		const { contract } = deriveDelegationContract(
 			makeRoute({ effortClass: "multi_hop_read" }),
 		);
 		expect(contract.successCriteria[0]).toContain(
-			"citing the tool calls that produced them",
+			"names in plain words where each came from",
+		);
+		expect(contract.successCriteria[0]).toContain(
+			"raw fact or record IDs appear only if the request asks for them",
+		);
+		expect(contract.successCriteria[1]).toContain(
+			"no working notes or preamble",
 		);
 		expect(contract.successCriteria.join("\n")).not.toContain(
 			"mutating tool call",
