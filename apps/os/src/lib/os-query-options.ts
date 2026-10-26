@@ -280,9 +280,18 @@ export const gadgetExecutionsQueryOptions = (
 	workspaceId: string,
 	gadgetId: string,
 	limit: number,
+	options: Pick<
+		ClientInput<typeof osApi.osWorkspaces.executions.list>,
+		"callId" | "includeTraces"
+	> = {},
 ) =>
 	osQuery.osWorkspaces.executions.list.queryOptions({
-		input: { workspaceId, gadgetId, limit },
+		input: {
+			workspaceId,
+			gadgetId,
+			limit,
+			...options,
+		},
 	});
 
 export const collaborationProposalsQueryOptions = (

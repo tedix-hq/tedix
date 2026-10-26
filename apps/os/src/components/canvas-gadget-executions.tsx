@@ -1,4 +1,5 @@
 import { DownloadSimple, Play, Receipt } from "@phosphor-icons/react";
+import { AppCallLogs } from "@/components/app-call-logs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type {
@@ -404,10 +405,13 @@ export function CanvasGadgetExecutions({
 			workspaceId,
 			gadgetId,
 			GADGET_EXECUTION_LIMIT,
+			{ includeTraces: false },
 		),
 		refetchInterval: (query) =>
 			query.state.data?.items.some(
-				(execution) => !TERMINAL_EXECUTION_STATUSES.has(execution.status),
+				(execution) =>
+					execution.grantedCapabilities.includes("app.call") ||
+					!TERMINAL_EXECUTION_STATUSES.has(execution.status),
 			)
 				? 2_500
 				: false,
@@ -432,6 +436,7 @@ export function CanvasGadgetExecutions({
 					workspaceId,
 					gadgetId,
 					GADGET_EXECUTION_LIMIT,
+					{ includeTraces: false },
 				).queryKey,
 			});
 		},
@@ -454,7 +459,10 @@ export function CanvasGadgetExecutions({
 		? (executions.data?.items.find(
 				(execution) => execution.id === latestExecution.id,
 			) ?? latestExecution)
-		: (executions.data?.items[0] ?? null);
+		: (executions.data?.items.find(
+				(execution) =>
+					!execution.policyDecision.reasons.includes("runtime_trace"),
+			) ?? null);
 	const selectedExportDescriptors =
 		selectedExecution &&
 		(exportRevision === undefined ||
@@ -565,25 +573,38 @@ export function CanvasGadgetExecutions({
 					exportDescriptors={selectedExportDescriptors}
 				/>
 			)}
+			{selectedExecution?.grantedCapabilities.includes("app.call") && (
+				<AppCallLogs
+					key={selectedExecution.id}
+					workspaceId={workspaceId}
+					gadgetId={gadgetId}
+					callId={selectedExecution.id}
+				/>
+			)}
 			{executions.data && executions.data.items.length > 1 && (
 				<div className="grid gap-1">
 					<Text as="span" role="label" weight="medium">
 						Recent receipts
 					</Text>
 					<div className="flex flex-wrap gap-1">
-						{executions.data.items.map((execution) => (
-							<Button
-								key={execution.id}
-								variant="outline"
-								size="xs"
-								onClick={() => setLatestExecution(execution)}
-							>
-								{isConnectionObservation(execution)
-									? "Read"
-									: execution.id.slice(0, 8)}{" "}
-								· {sentenceCase(execution.status)}
-							</Button>
-						))}
+						{executions.data.items
+							.filter(
+								(execution) =>
+									!execution.policyDecision.reasons.includes("runtime_trace"),
+							)
+							.map((execution) => (
+								<Button
+									key={execution.id}
+									variant="outline"
+									size="xs"
+									onClick={() => setLatestExecution(execution)}
+								>
+									{isConnectionObservation(execution)
+										? "Read"
+										: execution.id.slice(0, 8)}{" "}
+									· {sentenceCase(execution.status)}
+								</Button>
+							))}
 					</div>
 				</div>
 			)}
