@@ -21,7 +21,7 @@ const source = {
 	operations: ["read"],
 	toolIds: ["list_agent_session_activity"],
 };
-function client() {
+function client(toolId = "list_agent_session_activity") {
 	return createRouterClient(workAgentSessionsContractRouter, {
 		context: {
 			authType: "service-binding",
@@ -34,7 +34,7 @@ function client() {
 				"X-Service-Binding": "true",
 				"X-Tedix-Tedi-Id": id,
 				"X-Tedix-Tedi-Scopes": "mcp:work.read",
-				"X-Tedix-Mcp-Tool-Id": "list_agent_session_activity",
+				"X-Tedix-Mcp-Tool-Id": toolId,
 				"X-Tedix-Skill-Run-Id": id,
 				"X-Tedix-Workflow-Execution-Epoch": "1",
 			}),
@@ -43,6 +43,23 @@ function client() {
 }
 beforeEach(() => vi.restoreAllMocks());
 describe("delegated session activity reader", () => {
+	// The organization gateway mounts the platform tool under its app prefix.
+	it("accepts the gateway-prefixed tool and refuses another method", async () => {
+		vi.spyOn(runs, "getSkillRun").mockResolvedValue({
+			id,
+			tediId: id,
+			skillId: id,
+			skillRevision: 1,
+			resourceAccessEnvelope: null,
+		} as never);
+		const input = { since: "2026-10-01T00:00:00Z" };
+		await expect(
+			client("tedix__list_agent_session_activity").listActivity(input),
+		).resolves.toMatchObject({ status: "needs_grant" });
+		await expect(
+			client("tedix__list_agent_session_requests").listActivity(input),
+		).rejects.toThrow("Session activity requires a trusted skill run");
+	});
 	it("reports missing consent without reading any private rows", async () => {
 		vi.spyOn(runs, "getSkillRun").mockResolvedValue({
 			id,

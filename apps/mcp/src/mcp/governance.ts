@@ -1,3 +1,4 @@
+import { sanitizeToolName } from "@cloudflare/codemode";
 import { gateDecisionMetadata } from "./gate-decision";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { CallToolResult } from "@modelcontextprotocol/server";
@@ -933,19 +934,23 @@ export async function requireDestructiveToolApproval(
 				typeof tool.config?._aggregateNamespace === "string"
 					? tool.config._aggregateNamespace
 					: tool.toolId.split("__").slice(0, -1).join("__") || agent.appSlug;
-			// Platform RPC tools sit under their endpoint's Code Mode namespace
-			// (`rationaleRecords/create` is `rationale.create_rationale_records`),
-			// which is what a skill declares and calls; the gateway prefix is the
-			// app (`tedix__create_rationale_records`). Either names this tool.
-			const codeModeNamespace =
-				typeof tool.config?.endpoint === "string"
-					? resolveMcpToolNamespace(
-							tool,
-							agent.appMetadata?.mcpConfig?.codeModeNamespaces as
-								| Record<string, string>
-								| undefined,
-						)
-					: undefined;
+			const gatewayMethod = tool.toolId.split("__").at(-1)!;
+			// A skill declares and calls the Code Mode name. Platform RPC tools
+			// sit under their endpoint's namespace (`rationaleRecords/create` is
+			// `rationale.create_rationale_records`, gateway `tedix__…`); a nested
+			// wrapper mounts under its slug (`notion-tedix__notion-fetch` is
+			// `notion_tedix.notion_fetch`). Either pair names this tool.
+			const codeModeNamespace = resolveMcpToolNamespace(
+				tool,
+				agent.appMetadata?.mcpConfig?.codeModeNamespaces as
+					| Record<string, string>
+					| undefined,
+			);
+			const codeModeMethod = sanitizeToolName(
+				tool.toolId.includes("__")
+					? tool.toolId.split("__").slice(1).join("__")
+					: tool.toolId,
+			);
 			const governance = agent.apiClient.mcpGovernance;
 			const manifestInput = {
 				organizationId: manifestOrganizationId,
@@ -953,11 +958,11 @@ export async function requireDestructiveToolApproval(
 				skillId: workflowCaller.skillId,
 				tediId: workflowCaller.tediId,
 				executionEpoch: workflowCaller.workflowExecutionEpoch,
-				method: tool.toolId.split("__").at(-1)!,
 			};
-			const resolveManifest = (namespace: string | undefined) =>
+			const resolveManifest = (namespace: string | undefined, method: string) =>
 				governance.resolveSkillManifestAuthorization!({
 					...manifestInput,
+					method,
 					namespace,
 					sourceAppSlug:
 						typeof tool.config?._sourceAppSlug === "string"
@@ -968,13 +973,13 @@ export async function requireDestructiveToolApproval(
 							? tool.config._aggregateTediId
 							: undefined,
 				});
-			let resolution = await resolveManifest(gatewayNamespace);
+			let resolution = await resolveManifest(gatewayNamespace, gatewayMethod);
 			if (
 				!resolution.approved &&
-				codeModeNamespace &&
-				codeModeNamespace !== gatewayNamespace
+				(codeModeNamespace !== gatewayNamespace ||
+					codeModeMethod !== gatewayMethod)
 			)
-				resolution = await resolveManifest(codeModeNamespace);
+				resolution = await resolveManifest(codeModeNamespace, codeModeMethod);
 			if (resolution.approved && resolution.skillId && resolution.revision) {
 				stage = "manifest_audit";
 				emitGovernanceAuditEvent(

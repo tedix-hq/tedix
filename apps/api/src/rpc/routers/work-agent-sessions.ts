@@ -498,11 +498,13 @@ const listActivityProcedure = authenticatedOs
 	.listActivity.handler(async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const runId = context.headers.get("X-Tedix-Skill-Run-Id");
+		// An organization gateway mounts the platform tool under its app prefix
+		// (`tedix__list_agent_session_activity`); the method must still match.
 		if (
 			context.authType !== "service-binding" ||
 			!context.tediId ||
 			!runId ||
-			context.headers.get("X-Tedix-Mcp-Tool-Id") !==
+			context.headers.get("X-Tedix-Mcp-Tool-Id")?.split("__").at(-1) !==
 				SESSION_ACTIVITY_RESOURCE.toolId
 		)
 			throw createError(

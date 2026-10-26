@@ -2152,6 +2152,39 @@ describe("platform tools declared under their Code Mode namespace", () => {
 		},
 	);
 
+	// The gateway mounts a nested wrapper's provider tools under the wrapper
+	// slug (`notion-tedix__notion-fetch`); the skill declares and calls the
+	// Code Mode name `notion_tedix.notion_fetch`.
+	it("approves a nested wrapper tool under its Code Mode name", async () => {
+		const resolve = vi.fn(
+			async (input: { namespace?: string; method: string }) =>
+				input.namespace === "notion_tedix" && input.method === "notion_fetch"
+					? { approved: true, skillId: "skill-1", revision: 4 }
+					: { approved: false },
+		);
+		await expect(
+			requireDestructiveToolApproval(agentWith(resolve), {
+				toolId: "notion-tedix__notion-fetch",
+				title: "notion-tedix__notion-fetch",
+				config: {
+					transport: "mcp",
+					mcpToolName: "notion-fetch",
+					_aggregateNamespace: "notion-tedix",
+					_sourceAppSlug: "notion",
+				},
+			} as never),
+		).resolves.toBeNull();
+		expect(
+			resolve.mock.calls.map(([input]) => [input.namespace, input.method]),
+		).toEqual([
+			["notion-tedix", "notion-fetch"],
+			["notion_tedix", "notion_fetch"],
+		]);
+		expect(resolve).toHaveBeenLastCalledWith(
+			expect.objectContaining({ sourceAppSlug: "notion" }),
+		);
+	});
+
 	it("still refuses when neither namespace is declared", async () => {
 		const resolve = vi.fn(async () => ({ approved: false }));
 		await expect(
