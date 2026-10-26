@@ -38,12 +38,8 @@ import {
 	runAppRuntimeCall,
 } from "../../services/os-app-runtime-code";
 import {
-	getLiveOsShareSession,
-	getOsShareLinkById,
-} from "@tedix/db/queries/os-shares";
-import { isActive, linkAdmitsGuest } from "../../lib/os-share-redemption";
-import {
 	readGuestAppSlot,
+	resolveGuestAppCapabilityScope,
 	SHARE_SESSION_PRINCIPAL_KIND,
 } from "../../lib/os-share-app-runtime";
 import {
@@ -342,34 +338,15 @@ export function createOsAppRuntimeRouter() {
 		input: { operation: string; slot: string },
 	) {
 		const db = queryDb(context);
-		const now = new Date().toISOString();
-		const shareSession =
-			session.shareLinkId && !session.actorUserId && !session.previewId
-				? await getLiveOsShareSession(db, session.principal.id, now)
-				: undefined;
-		const link = shareSession
-			? await getOsShareLinkById(db, shareSession.shareLinkId)
-			: undefined;
-		if (
-			!shareSession ||
-			!link ||
-			link.id !== session.shareLinkId ||
-			link.organizationId !== session.organizationId ||
-			link.resourceId !== session.gadgetId ||
-			!isActive(link, now) ||
-			!(await linkAdmitsGuest(db, link))
-		)
+		const scope = await resolveGuestAppCapabilityScope(db, session);
+		if (!scope)
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
 		if (input.operation !== "outputs.read")
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
-		const code = await loadAppRuntimeRevision(
-			db,
-			{ organizationId: session.organizationId, gadgetId: session.gadgetId },
-			session.revisionId,
-		);
+		const code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
 		if (code.digest !== session.codeDigest)
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
-		const read = await readGuestAppSlot(db, session, code.grants, input.slot);
+		const read = await readGuestAppSlot(db, scope, code.grants, input.slot);
 		if (!read) throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
 		return JsonValueSchema.parse(read);
 	}

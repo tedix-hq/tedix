@@ -1,6 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
-import { verifyWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
+import {
+	mintWorkspaceAppSession,
+	verifyWorkspaceAppSession,
+} from "@tedix/auth/workspace-app-session";
 import { createDbClient } from "@tedix/db/client";
 import { createOsShareLink } from "@tedix/db/queries/os-shares";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
@@ -416,6 +419,211 @@ describe("share-link guests on a runtime app", () => {
 		).toBe(404);
 		expect((await handleGuestAppOpen(env, db, null)).status).toBe(404);
 	});
+
+	it.each([
+		"link revoked",
+		"link expired",
+		"role narrowed",
+		"session revoked",
+		"session expired",
+	] as const)("denies all guest paths after %s", async (change) => {
+		const { db, env, fetch } = await fixture();
+		const link = await seedLink(db);
+		const sessionToken = await redeem(db, link.token);
+		const opened = (await (
+			await handleGuestAppOpen(env, db, { sessionToken })
+		).json()) as { session: string };
+		const appSession = await verifyWorkspaceAppSession(key, opened.session);
+		const past = "2000-01-01T00:00:00.000Z";
+		if (change === "session revoked" || change === "session expired") {
+			await db
+				.update(osShareSessions)
+				.set(
+					change === "session revoked"
+						? { revokedAt: past }
+						: { expiresAt: past },
+				)
+				.where(eq(osShareSessions.id, appSession.principal.id));
+		} else {
+			await db
+				.update(osShareLinks)
+				.set(
+					change === "link revoked"
+						? { revokedAt: past }
+						: change === "link expired"
+							? { expiresAt: past }
+							: { policyMaxRole: "viewer" },
+				)
+				.where(eq(osShareLinks.id, link.id));
+		}
+		for (const response of [
+			await handleGuestAppOpen(env, db, { sessionToken }),
+			await handleGuestAppRead(db, { sessionToken, slot: "opportunities" }),
+			await handleGuestAppCall(env, db, {
+				sessionToken,
+				session: opened.session,
+				method: "verdicts",
+			}),
+		]) {
+			expect(response.status).toBe(404);
+			expect(await response.text()).toBe("Share link not found");
+		}
+		const internal = createRouterClient(createOsAppRuntimeRouter(), {
+			context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+		});
+		await expect(
+			internal.capability({
+				session: opened.session,
+				operation: "outputs.read",
+				slot: "opportunities",
+				args: null,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(fetch).not.toHaveBeenCalled();
+		expect(await db.select().from(osGadgetExecutions)).toEqual([]);
+	});
+
+	it.each([
+		{ role: "build" as const },
+		{ actorUserId: "user-1" },
+		{ previewId: "99999999-9999-4999-8999-999999999999" },
+	])(
+		"rejects a signed guest capability carrying extra authority: %j",
+		async (patch) => {
+			const { db, env } = await fixture();
+			const link = await seedLink(db);
+			const sessionToken = await redeem(db, link.token);
+			const opened = (await (
+				await handleGuestAppOpen(env, db, { sessionToken })
+			).json()) as { session: string };
+			const {
+				expiresAt: _expiresAt,
+				sessionId: _sessionId,
+				...original
+			} = await verifyWorkspaceAppSession(key, opened.session);
+			const altered = await mintWorkspaceAppSession(key, {
+				...original,
+				...patch,
+			});
+			const internal = createRouterClient(createOsAppRuntimeRouter(), {
+				context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+			});
+			await expect(
+				internal.capability({
+					session: altered.token,
+					operation: "outputs.read",
+					slot: "opportunities",
+					args: null,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+
+	it.each(["private", "archived", "moved"] as const)(
+		"denies an already-open server capability when its workspace becomes %s",
+		async (change) => {
+			const { db, env } = await fixture();
+			const link = await seedLink(db);
+			const sessionToken = await redeem(db, link.token);
+			const opened = (await (
+				await handleGuestAppOpen(env, db, { sessionToken })
+			).json()) as { session: string };
+			const internal = createRouterClient(createOsAppRuntimeRouter(), {
+				context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+			});
+			const read = () =>
+				internal.capability({
+					session: opened.session,
+					operation: "outputs.read",
+					slot: "opportunities",
+					args: null,
+				});
+			expect(await read()).toMatchObject({ output: { id: outputId } });
+			if (change === "moved") {
+				const otherWorkspaceId = crypto.randomUUID();
+				await db.insert(osWorkspaces).values({
+					id: otherWorkspaceId,
+					organizationId: "org-1",
+					name: "Other workspace",
+					createdByKind: "user",
+					createdById: "user-1",
+				});
+				await db
+					.update(osGadgets)
+					.set({ workspaceId: otherWorkspaceId })
+					.where(eq(osGadgets.id, gadgetId));
+			} else {
+				await db
+					.update(osWorkspaces)
+					.set(
+						change === "private"
+							? { visibility: "private" }
+							: { status: "archived" },
+					)
+					.where(eq(osWorkspaces.id, workspaceId));
+			}
+			await expect(read()).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+
+	it.each(["living", "pinned"] as const)(
+		"rechecks the %s revision before serving an already-open server capability",
+		async (revisionMode) => {
+			const { db, env } = await fixture();
+			const link = await seedLink(db, {
+				revisionMode,
+				pinnedRevisionId: revisionMode === "pinned" ? revisionId : null,
+			});
+			const sessionToken = await redeem(db, link.token);
+			const opened = (await (
+				await handleGuestAppOpen(env, db, { sessionToken })
+			).json()) as { session: string };
+			const internal = createRouterClient(createOsAppRuntimeRouter(), {
+				context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+			});
+			const read = () =>
+				internal.capability({
+					session: opened.session,
+					operation: "outputs.read",
+					slot: "opportunities",
+					args: null,
+				});
+			expect(await read()).toMatchObject({ output: { id: outputId } });
+			const nextRevisionId = crypto.randomUUID();
+			await db.insert(osGadgetRevisions).values({
+				id: nextRevisionId,
+				organizationId: "org-1",
+				gadgetId,
+				revision: 2,
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+				}),
+				createdByKind: "user",
+				createdById: "user-1",
+			});
+			await db.insert(osGadgetCode).values({
+				revisionId: nextRevisionId,
+				organizationId: "org-1",
+				gadgetId,
+				files: JSON.stringify(files),
+				codeLength: files["server.js"].length,
+			});
+			await db
+				.update(osGadgets)
+				.set({ currentRevisionId: nextRevisionId })
+				.where(eq(osGadgets.id, gadgetId));
+			if (revisionMode === "pinned") {
+				// Updating the app must preserve a link pinned to its old revision.
+				expect(await read()).toMatchObject({ output: { id: outputId } });
+				await db
+					.update(osShareLinks)
+					.set({ pinnedRevisionId: nextRevisionId })
+					.where(eq(osShareLinks.id, link.id));
+			}
+			await expect(read()).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
 
 	it("rejects a guest app session presented with another guest's share session", async () => {
 		const { db, env } = await fixture();

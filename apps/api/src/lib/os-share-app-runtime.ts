@@ -16,8 +16,10 @@ import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import {
 	mintWorkspaceAppSession,
 	verifyWorkspaceAppSession,
+	type WorkspaceAppSession,
 } from "@tedix/auth/workspace-app-session";
 import {
+	getLiveOsShareSession,
 	getOsShareLinkById,
 	touchOsShareSession,
 } from "@tedix/db/queries/os-shares";
@@ -29,6 +31,7 @@ import {
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import type { OsShareSessionRow } from "@tedix/db/schema/os-shares";
 import { z } from "zod";
 import {
 	loadAppRuntimeRevision,
@@ -89,7 +92,43 @@ export async function resolveGuestAppScope(
 		await hashOsShareToken(sessionToken),
 		now,
 	);
+	return session ? resolveGuestAppLinkScope(db, session, now) : null;
+}
+
+/** Reauthorize a verified app session at the server's resource callback. */
+export async function resolveGuestAppCapabilityScope(
+	db: DbQueryClient,
+	appSession: WorkspaceAppSession,
+	now = new Date().toISOString(),
+): Promise<GuestAppScope | null> {
+	if (
+		appSession.principal.kind !== SHARE_SESSION_PRINCIPAL_KIND ||
+		appSession.role !== GUEST_ROLE ||
+		!appSession.shareLinkId ||
+		appSession.actorUserId !== undefined ||
+		appSession.previewId !== undefined
+	)
+		return null;
+	const session = await getLiveOsShareSession(db, appSession.principal.id, now);
 	if (!session) return null;
+	const scope = await resolveGuestAppLinkScope(db, session, now);
+	if (
+		!scope ||
+		scope.shareLinkId !== appSession.shareLinkId ||
+		scope.organizationId !== appSession.organizationId ||
+		scope.workspaceId !== appSession.workspaceId ||
+		scope.gadgetId !== appSession.gadgetId ||
+		scope.revisionId !== appSession.revisionId
+	)
+		return null;
+	return scope;
+}
+
+async function resolveGuestAppLinkScope(
+	db: DbQueryClient,
+	session: OsShareSessionRow,
+	now: string,
+): Promise<GuestAppScope | null> {
 	const link = await getOsShareLinkById(db, session.shareLinkId);
 	if (!link || !isActive(link, now) || !(await linkAdmitsGuest(db, link)))
 		return null;
