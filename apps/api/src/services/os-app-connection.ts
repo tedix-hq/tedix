@@ -8,8 +8,15 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import type { WorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import { getAppByIdWithToolsForOrganization } from "@tedix/db/queries/app-records";
-import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
+import {
+	getConnectionInstance,
+	listConnectionInstances,
+} from "@tedix/db/queries/connection-instances";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
+
+type ConnectionInstanceRow = NonNullable<
+	Awaited<ReturnType<typeof getConnectionInstance>>
+>;
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { requestFirstPartyMcp } from "../lib/first-party-mcp";
 import { canonicalDigest } from "../lib/blueprint-digest";
@@ -27,6 +34,53 @@ function refuse(): never {
 		ErrorCodes.FORBIDDEN,
 		"Connection call is not permitted for this slot",
 	);
+}
+
+/**
+ * The account a call runs on belongs to the person the session acts as.
+ * A personal slot resolves from that person's own connected accounts for the
+ * provider, never from the workspace owner's; an organization slot resolves
+ * from the organization account the slot is bound to, as policy allows.
+ */
+async function resolveActingAccount(
+	db: BaseContext["db"],
+	actingUserId: string,
+	resource: OsWorkspaceResourceRow,
+): Promise<ConnectionInstanceRow> {
+	if (resource.connectionScope !== "user") {
+		const account = await getConnectionInstance(
+			db,
+			{ organizationId: resource.organizationId },
+			resource.connectionInstanceId!,
+			resource.providerId,
+		);
+		if (!account?.tokenIds.length || !account.tokenSub) refuse();
+		return account;
+	}
+	if (resource.personalOwnerUserId === actingUserId) {
+		const account = await getConnectionInstance(
+			db,
+			{ userId: actingUserId },
+			resource.connectionInstanceId!,
+			resource.providerId,
+		);
+		if (!account?.tokenIds.length || !account.tokenSub) refuse();
+		return account;
+	}
+	const own = (
+		await listConnectionInstances(db, { userId: actingUserId })
+	).find(
+		(row) =>
+			row.providerId === resource.providerId &&
+			row.tokenIds.length > 0 &&
+			row.tokenSub,
+	);
+	if (!own)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			`This slot reads a personal ${resource.providerId} account. Connect your own ${resource.providerId} account to use it; the workspace owner's account is never used on your behalf.`,
+		);
+	return own;
 }
 
 /** Only reviewed, resource-bound reads are supported; effectful tools retain their human boundary. */
@@ -49,9 +103,7 @@ export async function callWorkspaceAppConnection(
 		resource.workspaceId !== session.workspaceId ||
 		resource.status !== "active" ||
 		!resource.connectionInstanceId ||
-		resource.providerId === "tedix" ||
-		(resource.connectionScope === "user" &&
-			resource.personalOwnerUserId !== context.user.sub)
+		resource.providerId === "tedix"
 	)
 		refuse();
 	const surface = await getAppByIdWithToolsForOrganization(
@@ -91,14 +143,6 @@ export async function callWorkspaceAppConnection(
 		resource.providerAccess?.canRead === false
 	)
 		refuse();
-	const effectiveConfig = {
-		...config,
-		auth: {
-			...auth,
-			connectionInstanceId: resource.connectionInstanceId,
-			credentialScope: resource.connectionScope,
-		},
-	};
 	// A reviewed path mapping must bind every provider resource argument to this slot.
 	// Account-wide tools without such a mapping remain unavailable.
 	const binding = PersonalResourceToolBindingSchema.parse(
@@ -133,15 +177,19 @@ export async function callWorkspaceAppConnection(
 		checkPath((value as Record<string, unknown>)[head], tail);
 	}
 	for (const path of binding.paths) checkPath(args.arguments, path);
-	const account = await getConnectionInstance(
+	const account = await resolveActingAccount(
 		context.db,
-		resource.connectionScope === "user"
-			? { userId: context.user.sub }
-			: { organizationId: resource.organizationId },
-		resource.connectionInstanceId,
-		resource.providerId,
+		context.user.sub,
+		resource,
 	);
-	if (!account?.tokenIds.length || !account.tokenSub) refuse();
+	const effectiveConfig = {
+		...config,
+		auth: {
+			...auth,
+			connectionInstanceId: account.id,
+			credentialScope: resource.connectionScope,
+		},
+	};
 	const { MCP_SERVICE, MCP_URL } = context.env;
 	if (!MCP_SERVICE || !MCP_URL)
 		throw createError(
@@ -205,7 +253,7 @@ export async function callWorkspaceAppConnection(
 				"tedix/expectedToolConfig": configHash,
 				"tedix/expectedConnection": {
 					providerId: resource.providerId,
-					connectionInstanceId: resource.connectionInstanceId,
+					connectionInstanceId: account.id,
 					scope: resource.connectionScope,
 					scopes: auth.scopes ?? [],
 				},
