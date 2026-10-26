@@ -1,11 +1,10 @@
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { type ToolExecutionContext, ToolHandler } from "./handler";
 import {
 	classifyUpstreamProtocolCaller,
 	emitUpstreamProtocolMetric,
-	type ToolExecutionContext,
-	ToolHandler,
-} from "./handler";
+} from "./handler-upstream-protocol";
 import { resetUpstreamEraCache } from "./upstream-mcp-client";
 
 const TRACE_UUID = "4bf92f35-77b3-4da6-a3ce-929d0e0e4736";
