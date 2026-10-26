@@ -182,6 +182,30 @@ export const ConnectionProviderDcrExceptionSchema = z.strictObject({
 export type ConnectionProviderDcrException = z.infer<
 	typeof ConnectionProviderDcrExceptionSchema
 >;
+export const ConnectionProviderRegistrationProvenanceSchema = z.enum([
+	"cimd",
+	"dcr_managed",
+	"dcr_direct",
+	"pre_registered",
+]);
+
+/**
+ * Record how an existing provider's upstream OAuth client was obtained, for
+ * providers provisioned before provenance was recorded. A DCR provenance
+ * needs an exception; the observed Descope app shape must agree.
+ */
+export const RecordProviderRegistrationInputSchema = z.strictObject({
+	appId: z.string().min(1).max(200),
+	provenance: ConnectionProviderRegistrationProvenanceSchema,
+	dcrException: ConnectionProviderDcrExceptionSchema.optional(),
+});
+export const RecordProviderRegistrationOutputSchema = z.strictObject({
+	appId: z.string(),
+	providerId: z.string(),
+	provenance: ConnectionProviderRegistrationProvenanceSchema,
+	dcrReviewBy: z.string().nullable(),
+});
+
 /** The stored exception: what was asked, by whom and when. */
 export type ConnectionProviderDcrExceptionRecord =
 	ConnectionProviderDcrException & {
@@ -405,6 +429,9 @@ export const ConnectionProviderAuditAppSchema = z.object({
 		defaultScopes: z.array(z.string()),
 		resourceParameter: z.string().nullable(),
 		tokenResourceParameter: z.string().nullable(),
+		registrationProvenance:
+			ConnectionProviderRegistrationProvenanceSchema.nullable(),
+		dcrReviewBy: z.string().nullable(),
 	}),
 	discovery: z
 		.object({

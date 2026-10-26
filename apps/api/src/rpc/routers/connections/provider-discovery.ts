@@ -52,10 +52,13 @@ export type AuditOutboundAppInput = {
 	referencedByOrg: boolean;
 	providerTemplate?: ConnectionProviderTemplate;
 	discovery?: ProviderAuditDiscovery | null;
+	/** Today as YYYY-MM-DD (UTC); a DCR exception is overdue once reviewBy is before it. */
+	today?: string;
 };
 
 export function auditOutboundAppRecord(input: AuditOutboundAppInput) {
 	const { app, referencedByOrg, providerTemplate, discovery } = input;
+	const today = input.today ?? new Date().toISOString().slice(0, 10);
 	const appId = stringOrNull(app.id) ?? "unknown";
 	const name = stringOrNull(app.name) ?? appId;
 	const appType = stringOrNull(app.appType);
@@ -83,6 +86,8 @@ export function auditOutboundAppRecord(input: AuditOutboundAppInput) {
 		defaultScopes: stringArray(app.defaultScopes),
 		resourceParameter: getUrlParam(authorizationUrlParams, "resource"),
 		tokenResourceParameter: getUrlParam(tokenUrlParams, "resource"),
+		registrationProvenance: providerTemplate?.registrationProvenance ?? null,
+		dcrReviewBy: providerTemplate?.dcrException?.reviewBy ?? null,
 	};
 	const issues: ProviderAuditIssue[] = [];
 	const addIssue = (
@@ -155,6 +160,31 @@ export function auditOutboundAppRecord(input: AuditOutboundAppInput) {
 				"critical",
 				"oauth_missing_client",
 				"OAuth provider has neither DCR enabled nor a stored client ID.",
+			);
+		}
+		// MCP 2026-07-28 deprecates DCR: every dynamically registered client
+		// needs a recorded exception, reviewed by its date.
+		const dcrRegistered =
+			settings.registrationMode === "dcr" ||
+			settings.registrationProvenance === "dcr_managed" ||
+			settings.registrationProvenance === "dcr_direct";
+		if (dcrRegistered && !providerTemplate?.dcrException) {
+			addIssue(
+				"warning",
+				"dcr_exception_missing",
+				"This connection uses Dynamic Client Registration without a recorded exception. Record why and a review date, or move it to a client ID metadata document.",
+				{ registrationProvenance: settings.registrationProvenance },
+			);
+		} else if (
+			dcrRegistered &&
+			providerTemplate?.dcrException &&
+			providerTemplate.dcrException.reviewBy < today
+		) {
+			addIssue(
+				"warning",
+				"dcr_exception_review_overdue",
+				"The Dynamic Client Registration exception for this connection is past its review date.",
+				{ reviewBy: providerTemplate.dcrException.reviewBy },
 			);
 		}
 		if (settings.resourceParameter !== settings.tokenResourceParameter) {

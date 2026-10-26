@@ -11,6 +11,7 @@ import {
 } from "./connections/credentials-tedi";
 import {
 	auditProviderSettings,
+	recordProviderRegistration,
 	disconnectProvider,
 	fetchOrgToken,
 	fetchToken,
@@ -55,6 +56,7 @@ export const connectionsContractRouter = connectionsOs.router({
 	listProviders,
 	setProviderAccountMode,
 	auditProviderSettings,
+	recordProviderRegistration,
 	getUserConnections,
 	initiateConnection,
 	disconnectProvider,

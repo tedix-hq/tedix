@@ -22,6 +22,8 @@ import {
 	type ConnectionCredentialFieldSchema,
 	ConnectionCredentialProfileSchema,
 	type ConnectionCredentialScopeGroupSchema,
+	ConnectionProviderDcrExceptionSchema,
+	ConnectionProviderRegistrationProvenanceSchema,
 } from "./connections";
 
 export type ConnectionCredentialField = z.input<
@@ -120,6 +122,14 @@ export const ConnectionProviderTemplateSchema = z.object({
 	 * unknown. Absent = unknown (legacy row).
 	 */
 	authorizationResponseIssSupported: z.boolean().optional(),
+	/** How the upstream OAuth client was obtained; absent = never recorded. */
+	registrationProvenance:
+		ConnectionProviderRegistrationProvenanceSchema.optional(),
+	/** Why Dynamic Client Registration was allowed and when to review it. */
+	dcrException: ConnectionProviderDcrExceptionSchema.extend({
+		recordedAt: z.string(),
+		recordedBy: z.string().nullable(),
+	}).optional(),
 });
 export type ConnectionProviderTemplate = z.input<
 	typeof ConnectionProviderTemplateSchema
