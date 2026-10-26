@@ -154,13 +154,24 @@ describe("account list model", () => {
 
 	it("gives every account exactly one status and never reads a failed check as absence", () => {
 		expect(accountStatus(base).label).toBe("Connected");
-		expect(accountStatus({ ...base, accountState: "unknown" }).label).toBe(
-			"Needs attention: Couldn't check this account",
-		);
+		expect(accountStatus({ ...base, accountState: "unknown" })).toEqual({
+			kind: "unchecked",
+			label: "Status not checked",
+			reason: "Couldn't check this account",
+		});
 		expect(
-			accountStatus({ ...base, accountState: "restricted", connection: null })
-				.kind,
-		).toBe("attention");
+			accountStatus({ ...base, accountState: "restricted", connection: null }),
+		).toEqual({
+			kind: "unchecked",
+			label: "Status not checked",
+			reason: "Provider didn't allow a status check",
+		});
+		expect(
+			accountStatus({
+				...base,
+				connection: { ...base.connection!, status: "revoked" },
+			}),
+		).toMatchObject({ kind: "attention", action: "reconnect" });
 		expect(
 			accountStatus({
 				...base,
@@ -419,20 +430,61 @@ describe("account list rows", () => {
 		expect(host.textContent).toContain("Several accounts");
 	});
 
-	it("puts the actionable reason on the affected row instead of a page banner", async () => {
+	it("shows an unchecked status as neutral, with no Reconnect and Check now in Details", async () => {
 		const props = await render([
 			{ ...named, accountState: "unknown", connection: null },
 			{ ...base, accountState: "restricted", connection: null },
 		]);
-		expect(host.textContent).toContain("Needs attention: 2 of 2 accounts");
+		const row = host.querySelector('[data-account-group="ms-calendar"]')!;
+		expect(row.textContent).toBe("Outlook CalendarStatus not checked");
+		expect(
+			row.querySelector('[data-account-status="unchecked"]'),
+		).not.toBeNull();
+		expect(host.textContent).not.toContain("Needs attention");
+		expect(button("Reconnect")).toBeUndefined();
 		await expand();
-		expect(host.textContent).toContain("Couldn't check this account");
-		expect(host.textContent).toContain("Provider didn't allow a status check");
+		expect(host.textContent).toContain(
+			"Status not checked: Couldn't check this account",
+		);
+		expect(host.textContent).toContain(
+			"Status not checked: Provider didn't allow a status check",
+		);
+		expect(button("Reconnect")).toBeUndefined();
+		expect(button("Connect")).toBeUndefined();
 		expect(host.textContent).not.toContain("Not connected");
-		expect(host.textContent).not.toContain("Verification");
 		await details();
+		expect(host.textContent).toContain("Couldn't check this account");
 		await act(async () => button("Check now")!.click());
 		expect(props.onCheck).toHaveBeenCalledOnce();
+	});
+
+	it("keeps Needs attention and Reconnect for a real fault", async () => {
+		const props = await render([
+			{ ...base, accountState: "restricted", connection: null },
+			{
+				...base,
+				provider: {
+					...provider,
+					appId: "ms-mail",
+					name: "Microsoft Graph Mail",
+				},
+				accountState: "expired",
+			},
+		]);
+		const groups = [...host.querySelectorAll("[data-account-group]")];
+		expect(
+			groups.map((group) => group.getAttribute("data-account-group")),
+		).toEqual(["ms-mail", "ms-calendar"]);
+		expect(groups[0]!.textContent).toContain(
+			"Needs attention: Sign-in expired",
+		);
+		await act(async () => button("Reconnect")!.click());
+		expect(props.onReconnect).toHaveBeenCalledOnce();
+		expect(
+			[...host.querySelectorAll("button")].filter(
+				(item) => item.textContent?.trim() === "Reconnect",
+			),
+		).toHaveLength(1);
 	});
 
 	it("keeps management actions disabled without permission", async () => {

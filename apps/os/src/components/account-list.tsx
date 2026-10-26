@@ -49,6 +49,7 @@ export type ServiceHealth = {
 
 export type AccountStatus =
 	| { kind: "connected"; label: string }
+	| { kind: "unchecked"; label: string; reason: string }
 	| {
 			kind: "attention";
 			label: string;
@@ -116,8 +117,10 @@ function missingPermissions(row: ConnectionInventoryRow) {
 }
 
 /**
- * One status per account. A failed status read is "Needs attention", never
- * "Not connected": a provider that refused the read is not proof of absence.
+ * One status per account. "Needs attention" and Reconnect are reserved for a
+ * known fault (expired, revoked, missing permissions). A status read that
+ * failed or was refused is neutral "Status not checked", never "Not
+ * connected": it proves neither a fault nor absence, and Reconnect won't fix it.
  */
 export function accountStatus(row: ConnectionInventoryRow): AccountStatus {
 	const attention = (
@@ -129,11 +132,16 @@ export function accountStatus(row: ConnectionInventoryRow): AccountStatus {
 		reason,
 		action,
 	});
+	const unchecked = (reason: string): AccountStatus => ({
+		kind: "unchecked",
+		label: "Status not checked",
+		reason,
+	});
 	const isApiKey = row.provider.connectionType === "api_key";
 	if (row.accountState === "unknown")
-		return attention("Couldn't check this account");
+		return unchecked("Couldn't check this account");
 	if (row.accountState === "restricted")
-		return attention("Provider didn't allow a status check");
+		return unchecked("Provider didn't allow a status check");
 	if (row.accountState === "expired" || row.connection?.status === "expired")
 		return attention(isApiKey ? "Key stopped working" : "Sign-in expired");
 	if (row.connection?.status === "reconnect_needed")
@@ -167,7 +175,7 @@ export function accountLabel(row: ConnectionInventoryRow): string {
 	return row.instanceLabel?.trim() || "Default account";
 }
 
-/** Group by provider, attention first, then connected; unconnected apps last. */
+/** Group by provider: attention, connected, unchecked; unconnected apps last. */
 export function groupAccounts(
 	rows: readonly ConnectionInventoryRow[],
 ): AccountGroup[] {
@@ -177,7 +185,12 @@ export function groupAccounts(
 		list.push(row);
 		byProvider.set(row.provider.appId, list);
 	}
-	const rank = { attention: 0, connected: 1, available: 2 } as const;
+	const rank = {
+		attention: 0,
+		connected: 1,
+		unchecked: 2,
+		available: 3,
+	} as const;
 	return [...byProvider.values()]
 		.map((list) => {
 			const used = list.filter(
@@ -405,7 +418,7 @@ function PrimaryAction({
 	status: AccountStatus;
 	props: AccountListProps;
 }) {
-	if (status.kind === "connected") return null;
+	if (status.kind === "connected" || status.kind === "unchecked") return null;
 	const allowed = props.canManage(row);
 	const label = status.action === "connect" ? "Connect" : "Reconnect";
 	return (
@@ -509,6 +522,7 @@ function AccountLine({
 	const reconnect =
 		status.kind === "connected" ||
 		(status.kind === "attention" && status.action === "reconnect");
+	const unchecked = status.kind === "unchecked";
 	const connectedBy =
 		props.owner === "organization" ? row.connection?.connectedByEmail : null;
 	return (
@@ -520,7 +534,11 @@ function AccountLine({
 				<Text weight="medium" className="break-words">
 					{label}
 				</Text>
-				{status.kind !== "connected" ? (
+				{unchecked ? (
+					<StatusLine
+						status={{ ...status, label: `${status.label}: ${status.reason}` }}
+					/>
+				) : status.kind !== "connected" ? (
 					<StatusLine status={status} />
 				) : connectedBy ? (
 					<Text role="label" tone="secondary" className="break-words">
@@ -529,19 +547,21 @@ function AccountLine({
 				) : null}
 			</div>
 			<div className="flex shrink-0 items-center gap-2">
-				<Button
-					size="sm"
-					variant={status.kind === "connected" ? "outline" : "default"}
-					className="max-sm:min-h-11"
-					aria-label={`${reconnect ? "Reconnect" : "Connect"} ${name} ${label}`}
-					disabled={!allowed || props.isConnecting}
-					title={allowed ? undefined : props.deniedReason(row)}
-					onClick={() =>
-						reconnect ? props.onReconnect(row) : props.onConnect(row)
-					}
-				>
-					{reconnect ? "Reconnect" : "Connect"}
-				</Button>
+				{!unchecked && (
+					<Button
+						size="sm"
+						variant={status.kind === "connected" ? "outline" : "default"}
+						className="max-sm:min-h-11"
+						aria-label={`${reconnect ? "Reconnect" : "Connect"} ${name} ${label}`}
+						disabled={!allowed || props.isConnecting}
+						title={allowed ? undefined : props.deniedReason(row)}
+						onClick={() =>
+							reconnect ? props.onReconnect(row) : props.onConnect(row)
+						}
+					>
+						{reconnect ? "Reconnect" : "Connect"}
+					</Button>
+				)}
 				<Button
 					size="sm"
 					variant="ghost"
@@ -743,7 +763,7 @@ function MoreDetails({
 							<div className="flex flex-wrap items-center gap-2">
 								<span>
 									{checked
-										? `${checked} · ${status.kind === "attention" ? status.reason : "Working"}`
+										? `${checked} · ${status.kind === "attention" || status.kind === "unchecked" ? status.reason : "Working"}`
 										: "Not checked yet"}
 								</span>
 								<Button
