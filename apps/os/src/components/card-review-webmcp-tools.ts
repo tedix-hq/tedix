@@ -171,7 +171,7 @@ export function buildCardReviewWebMcpTools(
 		name: NEXT,
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"Read the card the Card review app shows now: its source, type, who, why (with the rules it cites), suggested action, draft, link, and the sheet and row its verdict is written to. Also returns how many cards are left, the active filter, the reason chips, what Do it does and its button label (doItLabel null: the card has no action and Do it is unavailable) and whether its draft can be rewritten with revise_review_card_draft (canRequestChanges). card is null when every card has a verdict.",
+			"Read the open Card review card, including its source, context, action, draft, link, sheet row, progress, filter, reason chips, Do it behavior, rewrite availability, undo label, and pending-rule count. Returns card null when every card has a verdict.",
 		inputSchema: { type: "object", properties: {} },
 		execute: async () => {
 			const state = current();
@@ -192,7 +192,11 @@ export function buildCardReviewWebMcpTools(
 
 	const setVerdict: WebMcpToolDef = {
 		name: "card_review_set_verdict",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
 			"Mark the open card useful or not useful, with optional reason chips and text, exactly like the app's buttons: the verdict is written into the card's sheet row and the next card slides in. card_review_undo reverts it.",
 		inputSchema: {
@@ -230,9 +234,13 @@ export function buildCardReviewWebMcpTools(
 
 	const doIt: WebMcpToolDef = {
 		name: "card_review_do_it",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
-			"Press the open card's Do it button (labelled with the card's action). It fails when the card has no action. approve: writes yes into the card's done column and changes nothing else. copy_and_open: also copies the draft and opens the source link. run_skill: starts the source's skill at once to carry the action out (archive, label, mark read, unsubscribe, a reply draft in the thread, or a Tedix Work item for anything else), waits for it and returns its outcome as result: Done ✓, Draft ready, Filed as Work /work/items/<id>, or an error starting Failed: or Allow organising first. It never sends mail, posts, trashes or deletes. card_review_undo reverts an approve or copy_and_open write; a run_skill action cannot be undone here.",
+			"Press the open card's Do it button; approve marks its done column, copy_and_open also copies the draft and opens the source, and run_skill carries out the source skill and returns its result. It fails when no action is available, never sends, posts, trashes, or deletes, and only approve or copy_and_open can be undone with card_review_undo.",
 		inputSchema: {
 			type: "object",
 			properties: { cardKey: cardKeyProperty, ...reasonProperties },
@@ -293,7 +301,11 @@ export function buildCardReviewWebMcpTools(
 
 	const snooze: WebMcpToolDef = {
 		name: "card_review_snooze",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
 			"Snooze the open card until tomorrow for this viewer. Writes nothing to the sheet.",
 		inputSchema: {
@@ -311,7 +323,11 @@ export function buildCardReviewWebMcpTools(
 
 	const skip: WebMcpToolDef = {
 		name: "card_review_skip",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
 			"Move the open card to the end of the queue without a verdict. Fails when it is the last card.",
 		inputSchema: {
@@ -329,7 +345,11 @@ export function buildCardReviewWebMcpTools(
 
 	const undo: WebMcpToolDef = {
 		name: "card_review_undo",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
 			"Undo the last action in the app (a verdict, Do it, snooze or skip), like its Undo button. A verdict's cells get back their earlier values.",
 		inputSchema: {
@@ -347,7 +367,11 @@ export function buildCardReviewWebMcpTools(
 
 	const filter: WebMcpToolDef = {
 		name: "card_review_filter",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
 			"Show only cards from one channel, or all of them. Changes the filter buttons on screen; writes nothing.",
 		inputSchema: {

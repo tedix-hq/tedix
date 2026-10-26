@@ -75,11 +75,20 @@ function parameterFailures(schema: unknown, path = "input"): string[] {
 	return failures;
 }
 
-function conventionFailures(tool: WebMcpToolDef): string[] {
+function conventionFailures(tool: WebMcpToolDef, appId?: string): string[] {
 	const failures: string[] = [];
+	const appScoped = Boolean(appId && tool.name.startsWith(`${appId}_`));
+	const scopedName =
+		appScoped && appId ? tool.name.slice(appId.length + 1) : tool.name;
 	if (
 		!/^(?:read|react|list|get|create|comment|send|delegate|respond|run|explain|preview|check|prepare|update|revise|patch|set|propose)_[a-z0-9]+(?:_[a-z0-9]+)*$/.test(
-			tool.name,
+			scopedName,
+		) &&
+		!(
+			appScoped &&
+			/^(?:next|do|snooze|skip|undo|filter|pending|decide)(?:_[a-z0-9]+)*$/.test(
+				scopedName,
+			)
 		)
 	)
 		failures.push("name: expected verb-first snake_case");
@@ -100,8 +109,10 @@ function conventionFailures(tool: WebMcpToolDef): string[] {
 		);
 	const writes =
 		/^(?:react|prepare|update|respond|send|delegate|revise|patch|set|run|comment|create|propose)_/.test(
-			tool.name,
-		);
+			scopedName,
+		) ||
+		(appScoped &&
+			/^(?:do|snooze|skip|undo|filter|decide)(?:_|$)/.test(scopedName));
 	if (writes && tool.annotations.readOnlyHint === true)
 		failures.push("annotations: write marked read-only");
 	if (
@@ -112,41 +123,7 @@ function conventionFailures(tool: WebMcpToolDef): string[] {
 	return [...failures, ...parameterFailures(tool.inputSchema)];
 }
 
-// Deck lanes own these exact findings; new failures remain blocking.
-const deckFindings: Record<string, string[]> = {
-	card_review_next_card: [
-		"name: expected verb-first snake_case",
-		"description: exceeds two sentences",
-	],
-	card_review_set_verdict: [
-		"name: expected verb-first snake_case",
-		"annotations: write missing consequentialHint",
-	],
-	card_review_do_it: [
-		"name: expected verb-first snake_case",
-		"description: exceeds 500 characters",
-		"description: exceeds two sentences",
-		"annotations: write missing consequentialHint",
-	],
-	card_review_snooze: [
-		"name: expected verb-first snake_case",
-		"annotations: write missing consequentialHint",
-	],
-	card_review_skip: [
-		"name: expected verb-first snake_case",
-		"annotations: write missing consequentialHint",
-	],
-	card_review_undo: [
-		"name: expected verb-first snake_case",
-		"annotations: write missing consequentialHint",
-	],
-	card_review_filter: [
-		"name: expected verb-first snake_case",
-		"annotations: write missing consequentialHint",
-	],
-	card_review_pending_rules: ["name: expected verb-first snake_case"],
-	card_review_decide_rule: ["name: expected verb-first snake_case"],
-};
+const deckFindings: Record<string, string[]> = {};
 
 describe("WebMCP tool conventions", () => {
 	it("covers every component tool module", () => {
@@ -173,7 +150,12 @@ describe("WebMCP tool conventions", () => {
 	for (const [group, tools] of Object.entries(groups)) {
 		for (const tool of tools) {
 			it(`${group}: ${tool.name}`, () => {
-				expect(conventionFailures(tool)).toEqual(deckFindings[tool.name] ?? []);
+				expect(
+					conventionFailures(
+						tool,
+						group === "card-review" ? "card_review" : undefined,
+					),
+				).toEqual(deckFindings[tool.name] ?? []);
 			});
 		}
 	}
