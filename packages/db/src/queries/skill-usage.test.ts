@@ -573,6 +573,38 @@ describe("recordSkillUsageEvent", () => {
 		expect(skillRow("skill-1").lifecycleState).toBe("draft");
 	});
 
+	it("does not demote a skill for runs the platform refused", async () => {
+		const { db, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "skill-1", lifecycleState: "active", successCount: 4 });
+		const fail = (runId: string, error: string) =>
+			recordSkillUsageEvent(db, {
+				organizationId: "org-1",
+				tediId: "tedi-1",
+				skillId: "skill-1",
+				source: "direct",
+				success: false,
+				runId,
+				error,
+			});
+		for (let i = 0; i < 3; i++) {
+			await fail(
+				`refused-${i}`,
+				"Error: WorkflowToolsRefused: WORKFLOW_TOOLS_REFUSED: a tool capability in step gather was wholly refused",
+			);
+		}
+		expect(skillRow("skill-1")).toMatchObject({
+			lifecycleState: "active",
+			failureCount: 3,
+		});
+
+		// The skill's own failures still demote, refusals in between or not.
+		await fail("own-0", "boom");
+		await fail("own-1", "boom");
+		expect(skillRow("skill-1").lifecycleState).toBe("active");
+		await fail("own-2", "boom");
+		expect(skillRow("skill-1").lifecycleState).toBe("draft");
+	});
+
 	it("rejects a direct report whose runId names a skill run, so the canonical stamp is never suppressed", async () => {
 		const { db, insertSkill, insertRun, skillRow, usageEvents } = fixture();
 		insertSkill({ id: "skill-1", lifecycleState: "active" });
