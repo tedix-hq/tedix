@@ -10,6 +10,13 @@ const internal = (exports as typeof exports & { InternalEntrypoint: Fetcher })
 	.InternalEntrypoint;
 
 describe("skill runtime Worker boundary", () => {
+	// The first call into the Worker evaluates its whole module graph: about
+	// 0.6s on an idle machine and past the 5s test timeout under heavy local
+	// load. Pay that once in setup so each test times its own request.
+	beforeAll(async () => {
+		await worker.fetch("https://skill-runtime.tedix.dev/health");
+	}, 60_000);
+
 	it("serves health through the real workerd entry", async () => {
 		const response = await worker.fetch(
 			"https://skill-runtime.tedix.dev/health",
