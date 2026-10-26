@@ -1108,10 +1108,20 @@ export class LaneDispatcher {
 				throw new Error(
 					"Canonical history has a live Attempt or a completed dispatcher result; admission remains held",
 				);
+			// `skill show` returns a bounded summary; the full SKILL.md comes
+			// from `--file`, so read the state first and the content second.
 			const skill = await this.call<
 				{ entry?: RulesAsset } & Partial<RulesAsset>
 			>(["skill", "show", this.options.rules]);
-			const rules = skill.entry ?? skill;
+			const summary = skill.entry ?? skill;
+			const file = await this.call<{ content?: unknown }>([
+				"skill",
+				"show",
+				this.options.rules,
+				"--file",
+				"SKILL.md",
+			]);
+			const rules = { ...summary, content: file.content };
 			if (
 				rules.lifecycleState !== "active" ||
 				typeof rules.content !== "string" ||
