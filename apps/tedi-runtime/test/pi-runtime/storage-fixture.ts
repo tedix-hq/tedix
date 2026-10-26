@@ -33,6 +33,10 @@ export class PiStorageFixture extends ConversationFacet {
 	private readonly budget = new DoInferenceBudgetStore(this);
 	private readonly actionReceipts = new ActionReceiptJournal(this.ctx.storage);
 	private fixtureToolName = "receipt";
+	private holdSteeringTool = false;
+	private releaseSteeringTool: (() => void) | undefined;
+	private steeringToolReady: (() => void) | undefined;
+	private heldTurn?: ReturnType<PiStorageFixture["turn"]>;
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
 		Object.assign(this, {
@@ -61,6 +65,11 @@ export class PiStorageFixture extends ConversationFacet {
 				recordFacetModelStep: async () => {},
 				checkFacetTurnBudget: async () => ({ abort: false }),
 				executeFacetTool: async () => {
+					if (this.holdSteeringTool)
+						await new Promise<void>((resolve) => {
+							this.releaseSteeringTool = resolve;
+							this.steeringToolReady?.();
+						});
 					await this.ctx.storage.put(
 						"fixture:effects",
 						((await this.ctx.storage.get<number>("fixture:effects")) ?? 0) + 1,
@@ -140,6 +149,40 @@ export class PiStorageFixture extends ConversationFacet {
 			completed.result.assistantText,
 		);
 		return completed;
+	}
+	async beginHeldTurn(id: string) {
+		await this.nativeConversation();
+		this.holdSteeringTool = true;
+		const ready = new Promise<void>((resolve) => {
+			this.steeringToolReady = resolve;
+		});
+		this.heldTurn = this.turn(id);
+		this.ctx.waitUntil(this.heldTurn);
+		await Promise.race([
+			ready,
+			this.heldTurn.then(() => {
+				throw new Error("Turn finished before reaching the held tool");
+			}),
+		]);
+	}
+	async finishHeldTurn() {
+		if (!this.heldTurn) throw new Error("No held turn");
+		return this.heldTurn;
+	}
+	async rejectedSteering(
+		input: Parameters<ConversationFacet["controlRunSteering"]>[0],
+	) {
+		try {
+			await this.controlRunSteering(input);
+			return null;
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		}
+	}
+	async releaseTool() {
+		this.holdSteeringTool = false;
+		this.releaseSteeringTool?.();
+		this.releaseSteeringTool = undefined;
 	}
 	async rejectedTurn(id: string) {
 		try {

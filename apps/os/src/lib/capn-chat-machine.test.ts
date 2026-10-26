@@ -140,6 +140,9 @@ function fakeServer() {
 			};
 		},
 		enqueue: vi.fn() as unknown as CapnConversationStub["enqueue"],
+		steer: vi.fn() as unknown as CapnConversationStub["steer"],
+		withdrawSteering:
+			vi.fn() as unknown as CapnConversationStub["withdrawSteering"],
 		cancel: vi.fn() as unknown as CapnConversationStub["cancel"],
 		respondApproval:
 			vi.fn() as unknown as CapnConversationStub["respondApproval"],

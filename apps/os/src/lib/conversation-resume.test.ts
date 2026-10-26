@@ -120,6 +120,10 @@ function fakeServer() {
 			return { [Symbol.dispose]: () => {} };
 		},
 		enqueue: vi.fn() as unknown as CapnConversationStub["enqueue"],
+		steer: (async () => ({
+			run: {},
+		})) as unknown as CapnConversationStub["steer"],
+		withdrawSteering: async () => ({ messages: [] }),
 		cancel: vi.fn() as unknown as CapnConversationStub["cancel"],
 		respondApproval:
 			vi.fn() as unknown as CapnConversationStub["respondApproval"],

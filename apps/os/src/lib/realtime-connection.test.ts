@@ -82,6 +82,10 @@ function mockServer() {
 			},
 			enqueue: async (_input: { content: string }, idempotencyKey: string) =>
 				({ idempotencyKey }) as never,
+			steer: (async () => ({
+				run: {},
+			})) as unknown as CapnConversationStub["steer"],
+			withdrawSteering: async () => ({ messages: [] }),
 			cancel: (async () => ({})) as unknown as CapnConversationStub["cancel"],
 			respondApproval: async () => ({}) as never,
 			[Symbol.dispose]: () => {},
@@ -180,6 +184,10 @@ function stallableServer() {
 		},
 		enqueue: async (_input: { content: string }, idempotencyKey: string) =>
 			({ idempotencyKey }) as never,
+		steer: (async () => ({
+			run: {},
+		})) as unknown as CapnConversationStub["steer"],
+		withdrawSteering: async () => ({ messages: [] }),
 		cancel: (async () => ({})) as unknown as CapnConversationStub["cancel"],
 		respondApproval: async () => ({}) as never,
 		[Symbol.dispose]: () => {},

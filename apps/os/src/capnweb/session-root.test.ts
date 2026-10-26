@@ -382,6 +382,30 @@ describe("enqueue", () => {
 });
 
 describe("cancel and respondApproval", () => {
+	it("forwards steering with its idempotency key and withdraws through the canonical verbs", async () => {
+		const { service, calls } = mockApiService((path) =>
+			path === "kernelRuntime/steerRun"
+				? { run: { id: "run-1" } }
+				: { messages: [] },
+		);
+		const conversation = makeSession(service).openConversation("conv-1");
+		await conversation.steer({
+			runId: "run-1",
+			instruction: "Use the new evidence",
+			idempotencyKey: "steer-1",
+		});
+		await conversation.withdrawSteering("run-1");
+		expect(calls.map((call) => call.path)).toEqual([
+			"kernelRuntime/steerRun",
+			"kernelRuntime/controlRunSteering",
+		]);
+		expect(calls[0]?.input).toEqual({
+			runId: "run-1",
+			instruction: "Use the new evidence",
+			idempotencyKey: "steer-1",
+		});
+		expect(calls[1]?.input).toEqual({ runId: "run-1", action: "withdraw" });
+	});
 	it("forwards to the canonical cancelRun and respondApproval verbs", async () => {
 		const { service, calls } = mockApiService((path) => {
 			if (
