@@ -46,6 +46,8 @@ import type {
 	EnqueueHomeMessageInput,
 	EnqueueHomeMessageOutput,
 	HomeRun,
+	SteerHomeRunInput,
+	RunSteeringMessage,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import type {
 	RuntimeStreamEvent,
@@ -172,6 +174,8 @@ export interface CapnConversationApi {
 		input: CapnEnqueueInput,
 		idempotencyKey: string,
 	): Promise<EnqueueHomeMessageOutput>;
+	steer(input: SteerHomeRunInput): Promise<{ run: HomeRun }>;
+	withdrawSteering(runId: string): Promise<{ messages: RunSteeringMessage[] }>;
 	cancel(runId: string, reason?: string): Promise<CapnCancelOutput>;
 	respondApproval(params: CapnRespondApprovalParams): Promise<unknown>;
 }
@@ -245,6 +249,12 @@ export type CapnConversationStub = CapnStubLike & {
 	enqueue(
 		...args: Parameters<CapnConversationApi["enqueue"]>
 	): Returned<CapnConversationApi["enqueue"]>;
+	steer(
+		...args: Parameters<CapnConversationApi["steer"]>
+	): Returned<CapnConversationApi["steer"]>;
+	withdrawSteering(
+		...args: Parameters<CapnConversationApi["withdrawSteering"]>
+	): Returned<CapnConversationApi["withdrawSteering"]>;
 	cancel(
 		...args: Parameters<CapnConversationApi["cancel"]>
 	): Returned<CapnConversationApi["cancel"]>;

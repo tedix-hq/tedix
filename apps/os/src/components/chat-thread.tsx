@@ -114,6 +114,7 @@ import {
 	homeMessagesQueryKey,
 	homeMessagesQueryOptions,
 	homeRunSetQueryKey,
+	homeRunSteeringQueryOptions,
 	modelCatalogQueryOptions,
 	operationalContextQueryOptions,
 	osQueryKeys,
@@ -379,6 +380,7 @@ export function ChatThread({
 	const [firstSendInFlight, setFirstSendInFlight] =
 		useState<FirstSendInFlight | null>(recoveredSend);
 	const [notice, setNotice] = useState<string | null>(null);
+	const [steeringError, setSteeringError] = useState<string | null>(null);
 	const [sendError, setSendError] = useState<string | null>(
 		recoveredSend ? RECOVERED_SEND_NOTICE : null,
 	);
@@ -536,6 +538,8 @@ export function ChatThread({
 		setLoadEarlierError(null);
 		setPendingRunId(null);
 		setNotice(null);
+		setSteeringError(null);
+		steeringRequestRef.current = null;
 		setSendError(null);
 		setSendErrorUnknown(false);
 		setAttachmentError(null);
@@ -595,6 +599,74 @@ export function ChatThread({
 		pendingRunId !== null,
 		realtimeDegraded,
 	);
+	const pendingRun = controllableRun(runSet, pendingRunId);
+	const steeringRunId =
+		pendingRun &&
+		(pendingRun.status === "queued" || pendingRun.status === "running")
+			? pendingRun.id
+			: null;
+	const steeringTargetId =
+		pendingRun?.id ??
+		[...(runSet?.runs ?? [])].sort(
+			(a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+		)[0]?.id;
+	const steering = useQuery({
+		...homeRunSteeringQueryOptions(steeringTargetId ?? "", organizationId),
+		enabled: steeringTargetId != null,
+		refetchInterval: steeringRunId ? 1000 : false,
+	});
+	const queuedSteering =
+		steering.data?.messages.filter((message) => message.status === "queued") ??
+		[];
+	const steeringRequestRef = useRef<{
+		runId: string;
+		content: string;
+		idempotencyKey: string;
+	} | null>(null);
+	const steer = useMutation({
+		mutationFn: async (input: {
+			runId: string;
+			content: string;
+			idempotencyKey: string;
+			conversationId: string;
+		}) => {
+			const result = await transportActions.steerRun({
+				runId: input.runId,
+				instruction: input.content,
+				idempotencyKey: input.idempotencyKey,
+			});
+			const forward = result.run.metadata?.delegatedChildSteer as
+				| { outcome?: string; error?: string }
+				| undefined;
+			if (forward?.outcome === "failed")
+				throw new Error(
+					forward.error ?? "The tedi did not accept the steering message.",
+				);
+			return result;
+		},
+		onSuccess: (_result, input) => {
+			try {
+				window.localStorage.removeItem(chatDraftKey(input.conversationId));
+			} catch {
+				/* Draft storage is optional. */
+			}
+			if (!isCurrentSend(input.conversationId)) return;
+			setDraft("");
+			steeringRequestRef.current = null;
+			setSteeringError(null);
+			void steering.refetch();
+			void transcript.refetch();
+		},
+		onError: (error, input) => {
+			if (isCurrentSend(input.conversationId))
+				setSteeringError(
+					errorMessage(
+						error,
+						"Could not queue the message. Your draft is kept; try again.",
+					),
+				);
+		},
+	});
 	const approvalCards = useMemo(
 		() =>
 			approvalsForAuthority(
@@ -604,8 +676,19 @@ export function ChatThread({
 		[runSet, operationalContext.data?.authority],
 	);
 	const displayMessages = useMemo(
-		() => applyDelegatedRunPreviews(messages, runSet?.runs ?? []),
-		[messages, runSet],
+		() =>
+			applyDelegatedRunPreviews(
+				messages.filter(
+					(message) =>
+						!steering.data?.messages.some(
+							(queued) =>
+								queued.status !== "read" &&
+								queued.id === message.metadata?.steeringId,
+						),
+				),
+				runSet?.runs ?? [],
+			),
+		[messages, runSet, steering.data],
 	);
 	const executionLinks = useMemo(
 		() => executionLinkMessageIds(displayMessages),
@@ -812,8 +895,49 @@ export function ChatThread({
 		autoApprovalAttemptedRef.current.add(card.approvalId);
 		respondApproval.mutate({ runId: card.runId, decision: "approve" });
 	}, [approvalCards, respondApproval]);
+	const withdrawSteering = useMutation({
+		mutationFn: async (input: { runId: string }) => {
+			const target = conversationId;
+			const { messages: withdrawn } = await transportActions.withdrawSteering(
+				input.runId,
+			);
+			if (target && withdrawn.length) {
+				const restore = (current: string) => {
+					const restored = [
+						...withdrawn.map((message) => message.content),
+						current,
+					]
+						.filter(Boolean)
+						.join("\n\n");
+					try {
+						window.localStorage.setItem(chatDraftKey(target), restored);
+					} catch {
+						/* Draft storage is optional. */
+					}
+					return restored;
+				};
+				if (isCurrentSend(target)) {
+					setDraft(restore);
+					void steering.refetch();
+				} else restore(restoreChatDraft(window.localStorage, target));
+			}
+			if (steeringRequestRef.current?.runId === input.runId)
+				steeringRequestRef.current = null;
+		},
+		onError: (error) =>
+			setSteeringError(
+				errorMessage(error, "Could not return queued messages. Try again."),
+			),
+	});
 	const cancelRun = useMutation({
-		mutationFn: (input: { runId: string }) => transportActions.cancelRun(input),
+		mutationFn: async (input: { runId: string }) => {
+			await withdrawSteering.mutateAsync(input);
+			return transportActions.cancelRun(input);
+		},
+		onError: (error) =>
+			setSteeringError(
+				errorMessage(error, "Could not stop this run. Try again."),
+			),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
 				queryKey: homeRunSetQueryKey(conversationId),
@@ -1045,6 +1169,7 @@ export function ChatThread({
 		pendingRunId,
 		overlays,
 		toolFrameCount,
+		steering.data,
 	]);
 
 	const handleScroll = useCallback(() => {
@@ -1377,6 +1502,8 @@ export function ChatThread({
 				preparingAttachments ||
 				(conversationId === null && recoveryRequestRef.current !== null) ||
 				send.isPending ||
+				steer.isPending ||
+				cancelRun.isPending ||
 				directRead.isPending ||
 				// Enter bypasses the disabled submit button; the gate cannot.
 				blockedByAttachedImage
@@ -1400,6 +1527,32 @@ export function ChatThread({
 			if (directCommand) {
 				idempotencyKeyRef.current = null;
 				startDirectRead(directCommand);
+				return;
+			}
+			const priorSteering = steeringRequestRef.current;
+			const targetRun =
+				priorSteering?.content === content
+					? priorSteering.runId
+					: steeringRunId;
+			if (targetRun) {
+				if (attachments.length) {
+					setSteeringError(
+						"Steering accepts text. Keep these attachments for your next message.",
+					);
+					return;
+				}
+				const request =
+					priorSteering?.runId === targetRun &&
+					priorSteering.content === content
+						? priorSteering
+						: {
+								runId: targetRun,
+								content,
+								idempotencyKey: crypto.randomUUID(),
+							};
+				steeringRequestRef.current = request;
+				setSteeringError(null);
+				steer.mutate({ ...request, conversationId: targetConversationId });
 				return;
 			}
 			directReadRetryRef.current = null;
@@ -1463,6 +1616,9 @@ export function ChatThread({
 			directRead,
 			onSendStarted,
 			startDirectRead,
+			steeringRunId,
+			steer,
+			cancelRun.isPending,
 			transportActions,
 			send,
 			workspaceId,
@@ -1661,7 +1817,6 @@ export function ChatThread({
 		firstSendInFlight !== null &&
 		!provisional.has(firstSendInFlight.idempotencyKey);
 	const showRunning = pendingRunId !== null || isActive || firstSendRunning;
-	const pendingRun = controllableRun(runSet, pendingRunId);
 	const provisionalSends = listProvisionalSends(
 		provisional,
 		conversationId,
@@ -2029,6 +2184,34 @@ export function ChatThread({
 											/>
 										</li>
 									) : null}
+									{queuedSteering.map((message) => (
+										<li
+											key={`steering:${message.id}`}
+											className="ml-auto max-w-full whitespace-pre-wrap break-words rounded-lg bg-kumo-tint p-3 text-sm"
+											data-steering-status="queued"
+										>
+											{message.content}
+											<div className="mt-1 text-kumo-subtle text-xs">
+												Queued · unread
+											</div>
+										</li>
+									))}
+									{queuedSteering.length > 0 &&
+									!steeringRunId &&
+									steeringTargetId ? (
+										<li>
+											<Button
+												variant="secondary"
+												size="sm"
+												loading={withdrawSteering.isPending}
+												onClick={() =>
+													withdrawSteering.mutate({ runId: steeringTargetId })
+												}
+											>
+												Return queued messages to draft
+											</Button>
+										</li>
+									) : null}
 									{retryRun.error ? (
 										<li>
 											<Text role="label" tone="error" className="m-0">
@@ -2059,6 +2242,12 @@ export function ChatThread({
 							Set up local inference
 						</a>
 					</AlertDescription>
+				</Alert>
+			) : null}
+			{steeringError ? (
+				<Alert variant="destructive">
+					<AlertTitle>Message kept</AlertTitle>
+					<AlertDescription>{steeringError}</AlertDescription>
 				</Alert>
 			) : null}
 			{notice ? (
@@ -2289,7 +2478,12 @@ export function ChatThread({
 						// readOnly (not disabled) while sending: a disabled control blurs
 						// the composer and swallows the next Enter — focus must survive
 						// the send round-trip.
-						readOnly={send.isPending || firstSendInFlight !== null}
+						readOnly={
+							send.isPending ||
+							steer.isPending ||
+							cancelRun.isPending ||
+							firstSendInFlight !== null
+						}
 						autoResize
 						minRows={1}
 						maxRows={8}
@@ -2553,13 +2747,17 @@ export function ChatThread({
 							<Button
 								type="submit"
 								size="icon-sm"
-								aria-label="Send message"
+								aria-label={
+									steeringRunId ? "Queue steering message" : "Send message"
+								}
 								// No spinner here: the sending bubble and the running row
 								// already say the message is on its way.
 								icon={<ArrowUp size={16} weight="bold" />}
 								disabled={
 									preparingAttachments ||
 									send.isPending ||
+									steer.isPending ||
+									cancelRun.isPending ||
 									firstSendInFlight !== null ||
 									directRead.isPending ||
 									blockedByAttachedImage ||
