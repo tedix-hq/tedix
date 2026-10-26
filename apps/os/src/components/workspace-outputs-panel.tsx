@@ -5,7 +5,7 @@ import {
 	FileText,
 	MonitorPlay,
 	PresentationChart,
-	Pulse,
+	ShieldCheck,
 	SquaresFour,
 	Table as TableIcon,
 	Tray,
@@ -284,7 +284,11 @@ export function WorkspaceOutputsList({
 						size="sm"
 						variant="ghost"
 					>
-						<Pulse aria-hidden className="workspace-outputs-icon" size={16} />
+						<ShieldCheck
+							aria-hidden
+							className="workspace-outputs-icon"
+							size={16}
+						/>
 						<span className="workspace-outputs-label">
 							<span className="workspace-outputs-title">Approvals</span>
 						</span>
