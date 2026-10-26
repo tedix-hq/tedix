@@ -1,15 +1,23 @@
 {
 	"name": "tedix",
-	"version": "0.2.7",
-	"description": "Tedix workflows, tedi delegation, and durable results through your connected organization.",
+	"version": "0.2.8",
+	"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use.",
 	"author": {
 		"name": "Tedix",
 		"url": "https://tedix.dev"
 	},
-	"homepage": "https://docs.tedix.dev",
+	"homepage": "https://docs.tedix.dev/learning-paths/first-plugin",
 	"privacyPolicyUrl": "https://tedix.dev/privacy/",
 	"repository": "https://github.com/tedix-hq/tedix",
 	"license": "AGPL-3.0-only",
-	"keywords": ["tedix", "digital-workers", "work-items", "workspace-outputs"],
+	"keywords": [
+		"tedix",
+		"ai-agents",
+		"agent-skills",
+		"claude-code-plugin",
+		"codex",
+		"mcp",
+		"task-management"
+	],
 	"hooks": "./config/host-hooks.json"
 }

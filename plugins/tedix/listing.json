@@ -1,7 +1,7 @@
 {
 	"displayName": "Tedix",
-	"shortDescription": "Continue work across chats",
-	"longDescription": "Find Work Items, review their status and evidence, and read Workspace Outputs in the Tedix organizations you connect. With the matching permissions and organization policy, ask a tedi for help and save requested results. Installation and read access do not grant execution authority.",
+	"shortDescription": "Shared work across assistants",
+	"longDescription": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use. Find shared tasks, review progress and evidence, and read results in your Tedix organization. With the permissions you grant, ask a tedi for help and save results for your team.",
 	"defaultPrompt": [
 		"Find the Work Item for my current task.",
 		"Summarize the status and evidence for a Work Item.",

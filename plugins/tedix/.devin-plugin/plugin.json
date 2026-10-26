@@ -1,13 +1,23 @@
 {
 	"name": "tedix",
 	"displayName": "Tedix",
-	"version": "0.2.7",
-	"description": "Tedix workflows, tedi delegation, and durable results through your connected organization.",
-	"shortDescription": "Continue work across chats",
+	"version": "0.2.8",
+	"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use.",
+	"shortDescription": "Shared work across assistants",
 	"logo": "assets/logo.png",
-	"keywords": ["Productivity"],
-	"author": { "name": "Tedix" },
-	"homepage": "https://docs.tedix.dev",
+	"keywords": [
+		"tedix",
+		"ai-agents",
+		"agent-skills",
+		"claude-code-plugin",
+		"codex",
+		"mcp",
+		"task-management"
+	],
+	"author": {
+		"name": "Tedix"
+	},
+	"homepage": "https://docs.tedix.dev/learning-paths/first-plugin",
 	"repository": "https://github.com/tedix-hq/tedix",
 	"license": "AGPL-3.0-only",
 	"skills": "skills",
