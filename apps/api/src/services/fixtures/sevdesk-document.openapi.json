@@ -25,10 +25,23 @@
 					"200": {
 						"description": "Voucher document PDF",
 						"content": {
-							"application/pdf": {
+							"application/json": {
 								"schema": {
-									"type": "string",
-									"format": "binary"
+									"type": "object",
+									"properties": {
+										"objects": {
+											"type": "object",
+											"properties": {
+												"filename": { "type": "string" },
+												"mimetype": { "type": "string" },
+												"base64Encoded": { "type": "boolean" },
+												"content": { "type": "string" },
+												"pageCount": { "type": "integer", "minimum": 1 }
+											},
+											"required": ["filename", "base64Encoded", "content"]
+										}
+									},
+									"required": ["objects"]
 								}
 							}
 						}

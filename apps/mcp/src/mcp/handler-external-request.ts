@@ -327,6 +327,33 @@ export function textExternalRequestBody(value: unknown): string {
 	return JSON.stringify(value ?? "");
 }
 
+async function attachPdfPageCount(value: unknown): Promise<unknown> {
+	if (!isRecord(value)) return value;
+	const envelope = isRecord(value.objects) ? value.objects : value;
+	const content = envelope.content;
+	const filename = envelope.filename;
+	const mimeType = envelope.mimeType ?? envelope.mimetype;
+	if (
+		typeof content !== "string" ||
+		!envelope.base64Encoded ||
+		!(
+			(typeof mimeType === "string" && mimeType === "application/pdf") ||
+			(typeof filename === "string" && filename.toLowerCase().endsWith(".pdf"))
+		)
+	) {
+		return value;
+	}
+	try {
+		const { PDFDocument } = await import("pdf-lib");
+		envelope.pageCount = (
+			await PDFDocument.load(base64ToBytes(content))
+		).getPageCount();
+	} catch {
+		// Preserve the provider response when its declared PDF cannot be inspected.
+	}
+	return value;
+}
+
 export async function parseExternalResponse(
 	response: Response,
 	config: ToolConfig,
@@ -342,7 +369,7 @@ export async function parseExternalResponse(
 		responseMode === "json" ||
 		(responseMode === "auto" && isJsonResponse)
 	) {
-		return response.json();
+		return attachPdfPageCount(await response.json());
 	}
 	if (
 		responseMode === "text" ||
