@@ -46,6 +46,7 @@ import {
 import {
 	executeApprovedKernelWrite,
 	parseHomeToolWritePayload,
+	type KernelWriteExecutorTimings,
 	type WriteExecutorEnv,
 } from "./write-executor";
 import type { KernelWriteProposal } from "./write-proposal";
@@ -735,6 +736,7 @@ export async function settleHomeToolWriteApproval(
 		}
 
 		const executeStartedAt = Date.now();
+		const executorTimings: KernelWriteExecutorTimings = {};
 		const result = await activeKernelWriteExecutor({
 			env: context.env as unknown as WriteExecutorEnv,
 			payload,
@@ -743,6 +745,7 @@ export async function settleHomeToolWriteApproval(
 				input.approval.resolvedBy === "policy"
 					? (payload.initiatedByUserId ?? undefined)
 					: (input.approval.resolvedBy ?? undefined),
+			timings: executorTimings,
 		}).catch((error) => ({
 			ok: false as const,
 			error: errorMessage(error),
@@ -817,6 +820,7 @@ export async function settleHomeToolWriteApproval(
 				...(!result.ok ? { kernelWriteError: result.error } : {}),
 				kernelWriteSettleTimings: {
 					executeMs: executeEndedAt - executeStartedAt,
+					...executorTimings,
 					retainMs: Date.now() - executeEndedAt,
 				},
 			}),

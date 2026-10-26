@@ -7,6 +7,7 @@ import {
 	checkOutput,
 	createWorkspaceCode,
 	fixtures,
+	isApprovalRequired,
 	percentiles,
 	phases,
 	readScratchWithBackoff,
@@ -16,6 +17,18 @@ import {
 } from "./chat-latency.mjs";
 
 describe("live chat eval accounting", () => {
+	test("recognizes an archive parked for human approval", () => {
+		expect(
+			isApprovalRequired(
+				new Error(
+					"CLI exit 1: MCP tool error: Execution error: Human approval required. Request fictional (pending)",
+				),
+			),
+		).toBe(true);
+		expect(isApprovalRequired(new Error("CLI exit 1: rate limited"))).toBe(
+			false,
+		);
+	});
 	test("escapes hostile workspace labels as data in generated code", async () => {
 		const label =
 			'</script><script>throw Error("injected")</script>\u2028\u2029"\\';
@@ -94,14 +107,23 @@ describe("live chat eval accounting", () => {
 					},
 				},
 				kernelWriteExecutedAt: "2026-01-01T00:00:00Z",
+				kernelWriteSettleTimings: {
+					executeMs: 2000,
+					revalidateMs: 300,
+					callMs: 1200,
+				},
 			},
 			"2026-01-01T00:00:02Z",
 		);
 		expect(result).toMatchObject({
+			routeMs: 120,
 			contextMs: 20,
 			routeDecisionMs: 100,
 			writePlanMs: 100,
 			executeMs: 2000,
+			revalidateMs: 300,
+			callMs: 1200,
+			verifyMs: null,
 			firstAnswerMs: null,
 		});
 	});

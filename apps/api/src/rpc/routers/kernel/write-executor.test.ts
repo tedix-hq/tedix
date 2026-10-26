@@ -4,6 +4,7 @@ import { MCP_LIST_MAX_PAGES } from "@tedix/mcp-shared/bounded-list";
 import {
 	executeApprovedKernelWrite,
 	type HomeToolWritePayload,
+	type KernelWriteExecutorTimings,
 	parseHomeToolWritePayload,
 	type WriteExecutorEnv,
 } from "./write-executor";
@@ -573,6 +574,7 @@ describe("executeApprovedKernelWrite", () => {
 						},
 					};
 		});
+		const timings: KernelWriteExecutorTimings = {};
 		const result = await executeApprovedKernelWrite({
 			env: env(service),
 			payload: payload({
@@ -581,11 +583,17 @@ describe("executeApprovedKernelWrite", () => {
 				args: { title: "Release proof" },
 				transport: "codemode",
 			}),
+			timings,
 		});
 
 		expect(result).toMatchObject({
 			ok: true,
 			data: { id: "WI-1", actionReceipt: { verified: false } },
+		});
+		expect(timings).toEqual({
+			revalidateMs: expect.any(Number),
+			callMs: expect.any(Number),
+			verifyMs: expect.any(Number),
 		});
 		expect(service.calls.map((call) => call.method)).toEqual([
 			"tools/call",

@@ -26,6 +26,8 @@ directory outside the source repository. Verification reads and cleanup are
 excluded from chat wall time. Missing measurements remain null. Percentiles
 use nearest rank and include failed runs with measured timings.
 
+- Route: `routePlanEnded - routePlanStarted`, context and route together.
+  Explicit output creates and edits skip context assembly, so only this is set.
 - Context: `plannerFirstProgress - routePlanStarted`.
 - Route first token: the winning lane's first partial, plus the configured
   launch delay for a hedge. This is a structured partial, not an answer token.
@@ -34,6 +36,8 @@ use nearest rank and include failed runs with measured timings.
 - Write plan: `writeProposalPlanEnded - writeProposalPlanStarted` for writes.
 - Execute: the durable run's `completedAt - kernelWriteExecutedAt`; this
   includes the execution claim and tool call up to its completion timestamp.
+  `revalidateMs`, `callMs` and `verifyMs` split it into the live tool
+  revalidation, the tool call and the receipt read-back.
 - First answer: the first answer delta from enqueue, when recorded.
 
 The first/repeat rounds do not imply cold/warm. Only the server's
@@ -46,7 +50,8 @@ including after SIGINT or SIGTERM. Signals stop new requests and allow the
 in-flight request to finish before cleanup. Each archive has a separate
 readback, with bounded exponential backoff when the archive is not confirmed
 (including null rate-limit results). Normal approval policy applies. A parked
-approval is a failed outcome, never an instruction to auto-approve. Chat
+approval is a failed outcome, never an instruction to auto-approve; cleanup
+stops at the first archive that needs approval, so it files one card at most. Chat
 mutations are not retried.
 
 Re-score saved traces and output readbacks without live calls:

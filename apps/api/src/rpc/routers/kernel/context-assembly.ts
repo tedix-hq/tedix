@@ -459,6 +459,36 @@ export function deriveAppCapabilities(app: App): string[] | undefined {
 	return [...new Set(out)].slice(0, RENDER_CAPABILITIES_CAP);
 }
 
+function kernelContextApps(appRows: readonly App[]): KernelContext["apps"] {
+	return appRows.map((app) => {
+		const capabilities = deriveAppCapabilities(app);
+		const mcpConfig = app.metadata?.mcpConfig as
+			| { codeMode?: unknown }
+			| null
+			| undefined;
+		return {
+			slug: app.slug ?? app.id,
+			name: app.name,
+			...(capabilities ? { capabilities } : {}),
+			...(mcpConfig?.codeMode === true ? { codeMode: true as const } : {}),
+		};
+	});
+}
+
+/** Only the organization's apps, from the same per-org cache entry assembly uses. */
+export async function readKernelContextApps(
+	db: DbClient,
+	organizationId: string,
+	contextCache?: KernelContextCache,
+): Promise<KernelContext["apps"]> {
+	const read = () => getAppsByOrganization(db, organizationId);
+	return kernelContextApps(
+		await (contextCache
+			? contextCache.read(organizationId, "apps", read)
+			: read()),
+	);
+}
+
 /**
  * Derive the bounded approval-authority flag from the operator's org member
  * role. Owners and admins carry authority; members, viewers, and an absent
@@ -1016,6 +1046,10 @@ export async function assembleHomeContext(
 					)
 				: null,
 	);
+	// Its own two serial reads overlap the first wave instead of following it.
+	const draftPreferencesPromise = descopeUserId
+		? readDraftPreferences(db, organizationId, descopeUserId)
+		: Promise.resolve(null);
 
 	const readsStartedAtMs = Date.now();
 	const [
@@ -1233,19 +1267,7 @@ export async function assembleHomeContext(
 		};
 	});
 
-	const apps: KernelContext["apps"] = appRows.map((app) => {
-		const capabilities = deriveAppCapabilities(app);
-		const mcpConfig = app.metadata?.mcpConfig as
-			| { codeMode?: unknown }
-			| null
-			| undefined;
-		return {
-			slug: app.slug ?? app.id,
-			name: app.name,
-			...(capabilities ? { capabilities } : {}),
-			...(mcpConfig?.codeMode === true ? { codeMode: true as const } : {}),
-		};
-	});
+	const apps = kernelContextApps(appRows);
 
 	const workItems: KernelContext["workItems"] = workItemsResult
 		.filter((item) => ACTIVE_WORK_ITEM_STATUSES.has(item.disposition))
@@ -1341,14 +1363,8 @@ export async function assembleHomeContext(
 		}),
 	);
 
-	if (opts?.descopeUserId) {
-		const preferences = await readDraftPreferences(
-			db,
-			organizationId,
-			opts.descopeUserId,
-		);
-		if (preferences) facts.unshift({ text: preferences });
-	}
+	const preferences = await draftPreferencesPromise;
+	if (preferences) facts.unshift({ text: preferences });
 
 	// Persisted checkpoint first: the replay is the checkpoint message plus the
 	// messages after its fold, so a settled compaction stays settled across
