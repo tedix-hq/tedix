@@ -157,6 +157,11 @@ export const DEFAULT_MAX_PROMPT_TOKENS = maxPromptTokensForWindow(
 export const RELEVANCE_RECALL_TOP_K = 6;
 export const RELEVANCE_RECALL_MIN_CONFIDENCE = 0.3;
 /**
+ * Bound for the D1 recall ranked against the current message. It runs in the
+ * first read wave, so it only extends assembly when every other read is faster.
+ */
+export const MESSAGE_RECALL_BUDGET_MS = 400;
+/**
  * How long assembly waits for the in-flight semantic recall before it falls
  * back to the previous completed recall of this conversation (see
  * `kernel/relevance-recall-store.ts`) or the static top-N facts.
