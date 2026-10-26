@@ -147,12 +147,14 @@ describe("workspace app supervisor in workerd", () => {
 			version: "v1",
 		});
 		await expect(
-			stub.revokeSessions({
-				organizationId: "another-org",
-				workspaceId: hostWorkspaces.get(stub)!,
-				principalIds: [],
-				at: issuedAt,
-			}),
+			Promise.resolve(
+				stub.revokeSessions({
+					organizationId: "another-org",
+					workspaceId: hostWorkspaces.get(stub)!,
+					principalIds: [],
+					at: issuedAt,
+				}),
+			),
 		).rejects.toThrow("Workspace host scope mismatch");
 	});
 	it("durably queues failed trace writes and redrives them through an alarm", async () => {
