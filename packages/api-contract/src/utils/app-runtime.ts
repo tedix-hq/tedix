@@ -74,6 +74,7 @@ export class AppInvocation extends DurableObject {
 
 interface AppRuntimeLoaderOptions<TTail> {
 	compatibilityDate?: string;
+	validation?: boolean;
 	invocation?: { config: Record<string, JsonValue>; tails: TTail[] };
 }
 
@@ -94,12 +95,24 @@ export function appRuntimeLoaderManifest<TTail = never>(
 			options.compatibilityDate ?? APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE,
 		// Agent-written code must never reach bindings ambiently.
 		compatibilityFlags: ["disallow_importable_env", "nodejs_als"],
-		mainModule: options.invocation
-			? INVOCATION_MODULE_NAME
-			: APP_RUNTIME_SERVER_MODULE,
-		modules: (options.invocation
-			? { ...modules, [INVOCATION_MODULE_NAME]: INVOCATION_MODULE }
-			: modules) as Record<string, string>,
+		mainModule: options.validation
+			? "__tedix_validate.js"
+			: options.invocation
+				? INVOCATION_MODULE_NAME
+				: APP_RUNTIME_SERVER_MODULE,
+		modules: (options.validation
+			? {
+					...modules,
+					"__tedix_validate.js": `
+import { App } from './server.js';
+if (typeof App !== 'function' || !App.prototype || !/^class\\s/.test(Function.prototype.toString.call(App)))
+ throw new Error('server.js:1:1: Export App must be a class');
+export default { fetch() { return Response.json({ valid: true }); } };
+`,
+				}
+			: options.invocation
+				? { ...modules, [INVOCATION_MODULE_NAME]: INVOCATION_MODULE }
+				: modules) as Record<string, string>,
 		env: { CONFIG: options.invocation?.config ?? {} },
 		tails: options.invocation?.tails ?? [],
 		// Always null: an app reaches the outside world only through capabilities.
