@@ -7,6 +7,7 @@ import {
 	workAttempts,
 	workItemComments,
 } from "../../schema/work-items";
+import { workApprovalProposals } from "../../schema/work-factory";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { updateWorkItemSpecification } from "./crud";
@@ -113,7 +114,15 @@ it("stores executor selection without losing other metadata and rejects another 
 it("fences dispatch plans against live Attempts and preserves calendar and metadata", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
-	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
+	sqlite.exec(
+		schemaDdl(
+			workItems,
+			workEvents,
+			workAttempts,
+			workItemComments,
+			workApprovalProposals,
+		),
+	);
 	sqlite
 		.prepare(
 			"INSERT INTO work_items(id,org_id,title,disposition,created_at,start_at,metadata) VALUES(?,?,?,?,?,?,?)",
