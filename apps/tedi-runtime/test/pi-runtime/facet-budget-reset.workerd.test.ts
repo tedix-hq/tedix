@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { PiTurnAccounting } from "../../src/pi-turn-accounting";
+import { TurnHeapProxy } from "../../src/turn-heap-proxy";
 import { DoInferenceBudgetStore } from "../../src/inference-budget-store-do";
 import type { PiStorageFixture } from "./storage-fixture";
 
@@ -41,6 +42,7 @@ type Harness = {
 		toolRegistryUnavailableRunId?: string;
 	};
 	accounting: PiTurnAccounting;
+	heapProxy: TurnHeapProxy;
 	parent(): Promise<Parent>;
 	setState(state: Harness["state"]): void;
 	piExtension(): Promise<{
@@ -104,6 +106,7 @@ async function fixture(resolve: () => Promise<Parent>) {
 		writable: true,
 	});
 	facet.accounting = accounting;
+	facet.heapProxy = new TurnHeapProxy();
 	facet.state.budgetStop = null;
 	let dispatching = false;
 	facet.parent = vi.fn(async () =>
