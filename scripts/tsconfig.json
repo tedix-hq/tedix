@@ -10,6 +10,7 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"agent-bootstrap.test.ts",
 		"bump.ts",
 		"bump.test.ts",
 		"ci/browser-evidence.test.ts",
