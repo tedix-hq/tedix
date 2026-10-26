@@ -2972,7 +2972,7 @@ it("projects plain-English descriptions for the headless Deck tools", async () =
 		fixture.updates.find(({ id }) => id === "tool-decide_deck_card")?.patch
 			.description,
 	).toBe(
-		"Answer a Deck card. For kind factory_changes, ask the factory to rewrite the draft card; each round creates a new revision of the same draft. Use kind factory_restore to restore an earlier revision. This does not approve or execute the card.",
+		"Answer a Decisions card. For kind factory_changes, ask the factory to rewrite the draft card; each round creates a new revision of the same draft. Use kind factory_restore to restore an earlier revision. This does not approve or execute the card.",
 	);
 });
 

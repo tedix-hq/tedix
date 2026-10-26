@@ -31,7 +31,7 @@ export async function rankCurrentDeck(
 	if (actor.type !== "user")
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Rank your own Deck using a verified recipient credential; a tedi cannot borrow its owner's inbox",
+			"Rank your own Decisions using a verified recipient credential; a tedi cannot borrow its owner's inbox",
 		);
 	const projection = await loadDeckProjection(context, {
 		...input,
@@ -40,7 +40,7 @@ export async function rankCurrentDeck(
 	if (!projection.complete || projection.cards.length > 100)
 		throw createError(
 			ErrorCodes.CONFLICT,
-			"Deck inventory is incomplete or exceeds this bounded ranking run",
+			"Decisions inventory is incomplete or exceeds this bounded ranking run",
 		);
 	const policy = await getDecisionLearningConfig(context.db, organizationId);
 	const config = DeckCuratorRankerConfigSchema.parse(

@@ -184,6 +184,6 @@ describe("prepareFactoryCard", () => {
 		});
 		await expect(
 			prepareFactoryCard(await context(), ORG, work()),
-		).rejects.toThrow(/No Card review or Deck source/);
+		).rejects.toThrow(/No Card review or Decisions source/);
 	});
 });

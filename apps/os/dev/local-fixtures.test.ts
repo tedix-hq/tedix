@@ -1840,7 +1840,7 @@ describe("fixture bootstrap parity", () => {
 			items: expect.arrayContaining([
 				expect.objectContaining({
 					gadget: expect.objectContaining({
-						name: "Feed",
+						name: "Activity",
 						workspaceId: installed.workspaceId,
 					}),
 					currentRevision: expect.objectContaining({
@@ -1852,7 +1852,7 @@ describe("fixture bootstrap parity", () => {
 				}),
 				expect.objectContaining({
 					gadget: expect.objectContaining({
-						name: "Deck",
+						name: "Decisions",
 						workspaceId: installed.workspaceId,
 					}),
 					currentRevision: expect.objectContaining({
@@ -1886,7 +1886,9 @@ describe("fixture bootstrap parity", () => {
 		}) as {
 			items: { gadget: { id: string; name: string } }[];
 		};
-		const deck = apps.items.find((app) => app.gadget.name === "Deck")!.gadget;
+		const deck = apps.items.find(
+			(app) => app.gadget.name === "Decisions",
+		)!.gadget;
 		callLocalOk("osWorkspaces/gadgets/archive", {
 			workspaceId: installed.workspaceId,
 			gadgetId: deck.id,
@@ -1896,11 +1898,11 @@ describe("fixture bootstrap parity", () => {
 			limit: 100,
 		}) as typeof apps;
 		expect(repaired.items).toHaveLength(6);
-		expect(repaired.items.filter((app) => app.gadget.name === "Feed")).toEqual(
-			apps.items.filter((app) => app.gadget.name === "Feed"),
-		);
 		expect(
-			repaired.items.find((app) => app.gadget.name === "Deck")!.gadget.id,
+			repaired.items.filter((app) => app.gadget.name === "Activity"),
+		).toEqual(apps.items.filter((app) => app.gadget.name === "Activity"));
+		expect(
+			repaired.items.find((app) => app.gadget.name === "Decisions")!.gadget.id,
 		).not.toBe(deck.id);
 	});
 
@@ -1950,9 +1952,9 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		expect(read("osWorkspaces/gadgets/installWorkDefaults")).toEqual(installed);
 		expect(read("osWorkspaces/gadgets/workApps", { limit: 100 })).toEqual(apps);
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
+			"Activity",
 			"Agents",
-			"Deck",
-			"Feed",
+			"Decisions",
 			"Office",
 			"Outbound",
 			"Projects",
@@ -1979,7 +1981,7 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 		expect(blocked?.status).toBe(403);
 		expect(JSON.stringify(blocked?.body)).toMatch(/sending.*off/i);
 		for (const app of apps.items.filter((app) =>
-			["Feed", "Deck", "Office"].includes(app.gadget.name),
+			["Activity", "Decisions", "Office"].includes(app.gadget.name),
 		)) {
 			read("osWorkspaces/gadgets/archive", {
 				workspaceId: app.gadget.workspaceId,
@@ -2006,9 +2008,9 @@ it("keeps sample Feed/Deck records, installs Projects after reset, and refuses s
 			restored,
 		);
 		expect(restored.items.map((app) => app.gadget.name).sort()).toEqual([
+			"Activity",
 			"Agents",
-			"Deck",
-			"Feed",
+			"Decisions",
 			"Office",
 			"Outbound",
 			"Projects",

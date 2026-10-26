@@ -68,7 +68,7 @@ export const RecordAgentDecisionInputSchema = z
 			.max(40)
 			.optional()
 			.describe(
-				"Short role name shown in the Feed, e.g. `Lead`. Defaults to the harness.",
+				"Short role name shown in Activity, e.g. `Lead`. Defaults to the harness.",
 			),
 		decisionClass: z
 			.string()

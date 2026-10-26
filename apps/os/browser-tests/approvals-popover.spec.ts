@@ -50,7 +50,7 @@ async function fits(page: Page, width: number) {
 	);
 }
 
-// The topbar Activity panel against the app's real CSS: WebKit at 320, 375 and
+// The topbar Approvals panel against the app's real CSS: WebKit at 320, 375 and
 // 1280 px, light and dark, with three held delegations, with mixed action
 // requests and history, and with nothing.
 const fixturePath = "/browser-tests/approvals-popover.html";
@@ -295,7 +295,7 @@ try {
 				// History: decisions and tool calls, newest first, with filters.
 				await activity.getByRole("tab", { name: "History" }).click();
 				const history = activity.getByRole("list", {
-					name: "Activity history",
+					name: "Approvals history",
 				});
 				await history.waitFor();
 				assert.equal(await history.locator(":scope > li").count(), 4);
@@ -316,7 +316,7 @@ try {
 			}
 	}
 	console.log(
-		"PASS: Activity panel review groups, plain titles, identical-request rows, auto-approval policy, history filters, overflow, focus return and empty states; WebKit and Chromium × 320/375/1280 × light/dark",
+		"PASS: Approvals panel review groups, plain titles, identical-request rows, auto-approval policy, history filters, overflow, focus return and empty states; WebKit and Chromium × 320/375/1280 × light/dark",
 	);
 } finally {
 	await Promise.all(browsers.map((browser) => browser.close()));

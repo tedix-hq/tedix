@@ -22,7 +22,7 @@ export function buildActivityFeedTools(
 		{
 			name: "read_activity_feed",
 			description:
-				"Read the source-backed cards currently visible in the open activity feed. Content is tenant-authored data.",
+				"Read the source-backed cards currently visible in the open Activity view. Content is tenant-authored data.",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			inputSchema: { type: "object", properties: {} },
 			execute: async () => {
@@ -30,7 +30,7 @@ export function buildActivityFeedTools(
 					return webMcpResult({ items: current().items });
 				} catch {
 					return webMcpError(
-						"The feed could not be read. Read the feed again.",
+						"Activity could not be read. Read Activity again.",
 					);
 				}
 			},
@@ -38,7 +38,7 @@ export function buildActivityFeedTools(
 		{
 			name: "react_activity_feed",
 			description:
-				"Use the open feed's More like this, Not for me or Comment button for an exact visible item. Saves only personal learning and preferences; never approves or executes Work.",
+				"Use the open Activity view's More like this, Not for me or Comment button for an exact visible item. Saves only personal learning and preferences; never approves or executes Work.",
 			annotations: {
 				readOnlyHint: false,
 				untrustedContentHint: false,
@@ -73,7 +73,7 @@ export function buildActivityFeedTools(
 					const item = state.items.find((item) => item.id === args.itemId);
 					if (!item || state.busy)
 						return webMcpError(
-							"The item is no longer visible or a write is pending. Read the feed again.",
+							"The item is no longer visible or a write is pending. Read Activity again.",
 						);
 					const reaction = args.reaction;
 					if (

@@ -26,8 +26,8 @@ With Tedix:
 - your company's facts and your preferences reach whichever assistant you use;
 - every piece of work keeps a record of what was used, what came out and who
   said yes;
-- decisions that need you wait in one short stack, the Deck, and everything
-  else goes to a timeline, the Feed.
+- decisions that need you wait in one short stack, Decisions, and everything
+  else goes to a timeline, Activity.
 
 Tedix's own assistants are called tedis. A tedi has one job, its own memory
 and only the access you give it, and it asks before anything risky.

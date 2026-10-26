@@ -27,7 +27,7 @@ export async function deckCurationAccess(
 	if (!grant || (actor.type !== "tedi" && ownUser !== scope.recipientId))
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"No active recipient and Deck scoped curation grant",
+			"No active recipient and Decisions scoped curation grant",
 		);
 	return { orgId, actor, grant, policy };
 }
@@ -47,7 +47,7 @@ export async function deckCurationEditAccess(
 	if (!scope.gadgetId)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"A curator needs a Deck scoped grant",
+			"A curator needs a Decisions scoped grant",
 		);
 	const access = await deckCurationAccess(context, {
 		...scope,

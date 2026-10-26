@@ -40,21 +40,21 @@ export const attentionContract = oc
 			.route({
 				summary: "Show decisions that need you",
 				description:
-					"Render the authenticated member’s ranked decision Deck here, with full drafts, evidence, answers and authorized actions. Use when decisions deserve attention; terminal hosts receive Markdown links.",
+					"Render the authenticated member’s ranked Decisions here, with full drafts, evidence, answers and authorized actions. Use when decisions deserve attention; terminal hosts receive Markdown links.",
 			})
 			.input(AttentionViewInputSchema)
 			.output(AttentionAppViewSchema),
 		showFeed: oc
 			.route({
-				summary: "Show your For you feed",
+				summary: "Show your Activity",
 				description:
-					"Render the authenticated member’s ranked Needs you and Updates feed here, including personal-agent findings and provenance. Terminal hosts receive Markdown links.",
+					"Render the authenticated member’s ranked Activity (Needs you and Updates) here, including personal-agent findings and provenance. Terminal hosts receive Markdown links.",
 			})
 			.input(AttentionViewInputSchema)
 			.output(AttentionAppViewSchema),
 		rankDeckCards: oc
 			.route({
-				summary: "Rank the caller's Deck without deciding or hiding cards",
+				summary: "Rank the caller's Decisions without deciding or hiding cards",
 			})
 			.input(AttentionViewInputSchema)
 			.output(
@@ -99,7 +99,7 @@ export const attentionContract = oc
 			.route({
 				summary: "Answer a card waiting for you",
 				description:
-					"Answer a Deck card. For kind factory_changes, ask the factory to rewrite the draft card; each round creates a new revision of the same draft. Use kind factory_restore to restore an earlier revision. This does not approve or execute the card.",
+					"Answer a Decisions card. For kind factory_changes, ask the factory to rewrite the draft card; each round creates a new revision of the same draft. Use kind factory_restore to restore an earlier revision. This does not approve or execute the card.",
 			})
 			.input(DecideDeckCardRequestSchema)
 			.output(z.strictObject({ saved: z.literal(true), cardId: z.string() })),
@@ -118,21 +118,21 @@ export const attentionContract = oc
 		curateDeckCard: oc
 			.route({
 				summary:
-					"Correct a card's display text as its recipient or a scoped Deck curator, with immutable audit history. The recipient needs no gadget grant and may correct credential-related text; curators may not. Supply presentation for a direct face correction without a creator session. handleInternally creates only a reversible internal task under the active organization autonomy policy as its owning agent; never answers or sends as the recipient.",
+					"Correct a card's display text as its recipient or a scoped Decisions curator, with immutable audit history. The recipient needs no gadget grant and may correct credential-related text; curators may not. Supply presentation for a direct face correction without a creator session. handleInternally creates only a reversible internal task under the active organization autonomy policy as its owning agent; never answers or sends as the recipient.",
 			})
 			.input(CurateDeckCardInputSchema)
 			.output(CardRevisionSchema),
 		retireDeckCard: oc
 			.route({
-				summary: "Retire a Deck card without answering it",
+				summary: "Retire a Decisions card without answering it",
 				description:
-					"Takes a card off the recipient's Deck as expired, handled elsewhere, superseded, no longer relevant or a duplicate, with immutable undo history. Never answers, approves or executes the card. The recipient may retire any card; agents may retire non-critical cards they own or curate, and their own duplicates of a card that keeps the same protected ask.",
+					"Takes a card out of the recipient's Decisions as expired, handled elsewhere, superseded, no longer relevant or a duplicate, with immutable undo history. Never answers, approves or executes the card. The recipient may retire any card; agents may retire non-critical cards they own or curate, and their own duplicates of a card that keeps the same protected ask.",
 			})
 			.input(RetireDeckCardInputSchema)
 			.output(DeckRetirementResultSchema),
 		mergeDeckCards: oc
 			.route({
-				summary: "Merge duplicate Deck cards into one",
+				summary: "Merge duplicate Decisions cards into one",
 				description:
 					"Keeps one live card and retires each duplicate of the same Work Item or ask as a linked duplicate, with undo history. A protected duplicate merges only into a card that is protected too.",
 			})
@@ -145,25 +145,25 @@ export const attentionContract = oc
 			),
 		getDeckPipelineStatus: oc
 			.route({
-				summary: "Read how the Deck is being cleaned",
+				summary: "Read how Decisions is being cleaned",
 				description:
-					"When the Deck sweep last ran (and whether it is overdue), the rules learned from the person's Not useful reasons, and week-1 metrics: cards at 08:30, share marked not useful and undone removals.",
+					"When the Decisions sweep last ran (and whether it is overdue), the rules learned from the person's Not useful reasons, and week-1 metrics: cards at 08:30, share marked not useful and undone removals.",
 			})
 			.input(z.strictObject({}))
 			.output(DeckPipelineStatusSchema),
 		markDeckCardNotUseful: oc
 			.route({
-				summary: "Mark a Deck card not useful, with the reason",
+				summary: "Mark a Decisions card not useful, with the reason",
 				description:
-					"The recipient's own feedback: already decided, expired, agent could do this, duplicate or not for me. Retires the card without answering it (undo restores it), teaches the Deck ranker immediately, and three identical reasons from one source become a learned rule the person can remove. Declining a card is a different action.",
+					"The recipient's own feedback: already decided, expired, agent could do this, duplicate or not for me. Retires the card without answering it (undo restores it), teaches the Decisions ranker immediately, and three identical reasons from one source become a learned rule the person can remove. Declining a card is a different action.",
 			})
 			.input(MarkDeckCardNotUsefulInputSchema)
 			.output(MarkDeckCardNotUsefulResultSchema),
 		removeDeckRule: oc
 			.route({
-				summary: "Remove a learned Deck rule",
+				summary: "Remove a learned Decisions rule",
 				description:
-					"Removes one rule the Deck learned from the person's repeated Not useful reasons. Only the person the rule serves can remove it.",
+					"Removes one rule Decisions learned from the person's repeated Not useful reasons. Only the person the rule serves can remove it.",
 			})
 			.input(RemoveDeckRuleInputSchema)
 			.output(RemoveDeckRuleResultSchema),

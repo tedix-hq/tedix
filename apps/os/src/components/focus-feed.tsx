@@ -443,7 +443,7 @@ export function FocusFeed({
 				if (
 					["pin", "hide", "not_important", "tell_me_earlier"].includes(reaction)
 				) {
-					setStatus("Saved. Your feed will learn from this.");
+					setStatus("Saved. Activity will learn from this.");
 					void cache.invalidateQueries({
 						queryKey: osQuery.learningFeedback.model.key(),
 					});
@@ -609,7 +609,7 @@ export function FocusFeed({
 			ref={root}
 			tabIndex={0}
 			role="region"
-			aria-label="Feed"
+			aria-label="Activity"
 			aria-keyshortcuts="J K"
 			className="feed-deck fd-feed focus-feed mx-auto w-full min-w-0 max-w-3xl pb-8"
 			data-workspace-app-entry="activity-feed"
@@ -662,7 +662,7 @@ export function FocusFeed({
 				<div className="grid gap-2">
 					<div className="flex flex-wrap items-center gap-2">
 						<SegmentedControl
-							ariaLabel="Feed order"
+							ariaLabel="Activity order"
 							value={tab}
 							onValueChange={setTab}
 							options={[
@@ -817,7 +817,7 @@ export function FocusFeed({
 					</>
 				)}
 			</div>
-			{loading && <Text>Opening your feed…</Text>}
+			{loading && <Text>Opening your activity…</Text>}
 			{!loading && !failed && !visible.length && timeline && (
 				<div role="status">
 					<Text>{filtered ? emptyMessage : "No updates yet."}</Text>
@@ -833,7 +833,7 @@ export function FocusFeed({
 					Earlier activity
 				</Button>
 			)}
-			<DecisionContextSection title="Feed preferences">
+			<DecisionContextSection title="Activity preferences">
 				<Text>
 					j / k move · o open · p pin · h hide · n not important. Everything
 					keeps the full timeline.

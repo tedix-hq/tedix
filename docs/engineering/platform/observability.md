@@ -7,7 +7,7 @@ product configuration is an example, not an installation inventory.
 
 ## Correlate a report
 
-Open **Details** beside a failed Feed or Deck read and copy its support reference.
+Open **Details** beside a failed Activity or Decisions read and copy its support reference.
 API and MCP HTTP errors carry `X-Tedix-Trace-Id`; oRPC errors also carry
 `json.data.traceId`. MCP tool failures carry `_meta["com.tedix/traceId"]`, including
 failures transported with HTTP 200. Search Workers logs for that identifier. Generated
@@ -71,12 +71,12 @@ A configured operator monitor should check five-minute windows, comparing
 rows-read/minute against an installation-specific baseline. A starting proposal
 is a warning after three windows above twice the seven-day baseline, or a 503
 rate above 1% with at least 20 requests; critical at 5% for two windows. Validate
-thresholds against traffic before enabling them. Emit one deduplicated Feed FYI
-per incident and one recovery update; reserve a critical Deck decision for an
+thresholds against traffic before enabling them. Emit one deduplicated Activity FYI
+per incident and one recovery update; reserve a critical decision in Decisions for an
 action a person actually needs to take, with evidence and an owner.
 
 Keep credentials and installation scheduling in the operator deployment. Monitor
 failure or missing telemetry must be visible independently of the overloaded D1
 path. Persist window/cooldown state, avoid per-tick duplicate cards, and configure
-the destination through existing schedule/skill and Feed mechanisms rather than
+the destination through existing schedule/skill and Activity mechanisms rather than
 hardcoding a tenant into product TypeScript.

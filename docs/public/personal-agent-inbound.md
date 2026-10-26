@@ -1,16 +1,16 @@
 ---
 title: "Personal-agent findings"
-description: "Enroll a personal agent to submit findings to your existing Feed without execution authority."
+description: "Enroll a personal agent to submit findings to your existing Activity without execution authority."
 summary: "Browser intake, credentials, receipts and revocation for owner-enrolled personal agents"
 read_when:
-  - Connecting a personal agent to a user's Feed
+  - Connecting a personal agent to a user's Activity
   - Submitting a finding through a browser form or webhook
 visibility: public
 ---
 
 # Personal-agent findings
 
-This source feature captures findings as proposed Work in your existing Feed.
+This source feature captures findings as proposed Work in your existing Activity.
 It needs a managed release before it is available on a Cloud installation.
 It does not run actions, enroll an agent in another product, or provide consent
 on your behalf. A separate owner confirmation in that product remains yours.
@@ -32,7 +32,7 @@ on your behalf. A separate owner confirmation in that product remains yours.
    reference and either FYI or Proposal. Submit once. The page returns a Work
    receipt and capture time. Repeating the same external finding ID for that
    enrollment returns the original receipt without another post.
-4. Open your Feed in organization scope, or with the enrolled project selected.
+4. Open your Activity in organization scope, or with the enrolled project selected.
    The post names Cedar Scout, links its proposed Work, and carries the source
    reference, represented user, channel and external finding ID. The receipt
    explanation says no action executed. FYI is a signal; Proposal remains
@@ -73,7 +73,7 @@ requires no Tedix owner login and grants no authority to impersonate the person.
 
 The source test `apps/api/src/personal-agent-inbound-routes.test.ts` exercises
 enrollment, ten fictional browser/webhook deliveries, duplicate receipts,
-revocation and isolation against the D1 facade. The Feed projection test is
+revocation and isolation against the D1 facade. Activity projection test is
 `apps/os/src/lib/personal-agent-feed.test.ts`. These prove local behavior;
 they do not prove a deployed Cloud path or another product's consent flow.
 

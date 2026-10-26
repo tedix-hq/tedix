@@ -756,7 +756,7 @@ export const projectsContract = oc
 				path: "/{id}/today-totals",
 				summary: "Read project totals for the saved Today post",
 				description:
-					"Project receipts without private request text, optionally with the signed-in person's own complete Deck count. Scheduled machine callers set includeDeckCount=false: needsYou is null and no person's Deck is read.",
+					"Project receipts without private request text, optionally with the signed-in person's own complete Decisions count. Scheduled machine callers set includeDeckCount=false: needsYou is null and no person's Decisions are read.",
 			})
 			.input(
 				z.strictObject({

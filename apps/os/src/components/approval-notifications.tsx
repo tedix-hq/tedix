@@ -77,7 +77,7 @@ export function ApprovalNotifications({
 				createPortal(
 					<DropdownMenuItem onClick={() => setOpen(true)}>
 						<Pulse aria-hidden size={18} />
-						Activity{count > 0 ? <Badge>{count} waiting</Badge> : null}
+						Approvals{count > 0 ? <Badge>{count} waiting</Badge> : null}
 					</DropdownMenuItem>,
 					menu.target,
 				)
@@ -92,7 +92,7 @@ export function ApprovalNotifications({
 							}
 							className="relative"
 							size="icon-sm"
-							title="Activity"
+							title="Approvals"
 							variant={count > 0 ? "secondary" : "ghost"}
 						>
 							<Pulse size={16} weight={count > 0 ? "bold" : "regular"} />
@@ -121,7 +121,7 @@ export function ApprovalNotifications({
 					<header className="sticky top-0 z-10 grid gap-2 border-b border-kumo-hairline bg-kumo-base px-4 pt-3">
 						<div className="grid min-w-0 gap-0.5">
 							<PopoverTitle className="m-0 font-semibold text-kumo-default type-tedix-body">
-								Activity
+								Approvals
 							</PopoverTitle>
 							<PopoverDescription className="m-0 text-kumo-subtle type-tedix-label">
 								{count === 0
@@ -130,7 +130,7 @@ export function ApprovalNotifications({
 							</PopoverDescription>
 						</div>
 						<TabsList
-							aria-label="Activity sections"
+							aria-label="Approvals sections"
 							className="-mx-1 !h-9 border-b-0"
 							variant="line"
 						>

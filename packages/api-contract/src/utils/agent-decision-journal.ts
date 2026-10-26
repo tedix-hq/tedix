@@ -364,7 +364,7 @@ export function agentDecisionReviewText(
 					.map((d) => `${clip(d.question, 60)} → ${clip(d.chosen.label, 30)}`)
 					.join("; ")}.`;
 	const rest =
-		askable.length < decisions.length ? " The rest are in your Feed." : "";
+		askable.length < decisions.length ? " The rest are in your Activity." : "";
 	return words(`${head}${ask}${rest}`, AGENT_DECISION_REVIEW_MAX_WORDS);
 }
 

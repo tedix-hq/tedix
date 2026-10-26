@@ -38,7 +38,7 @@ reply outcomes, leaderboard and notebook. Agents accepts optional `projectId`,
 `harnesses` (`codex`, `claude-code`, `tedi`, `skill`). Its screen filters narrow these
 settings; counts and delegation totals use the same filtered sessions.
 The organization and viewer access checks remain authoritative; app filters
-never grant access. Install and opt these apps into the Feed’s Apps list to make them visible.
+never grant access. Install and opt these apps into the Activity’s Apps list to make them visible.
 
 ## Install and configure an app
 
@@ -109,7 +109,7 @@ Connections. Partial consent remains visible and can be retried. Revoke each
 account's access in Resources. Installing the app grants no access.
 
 Set `navigation: {"board": true}` in a manifest to show that active app in
-**Work → Feed → Apps**. Its stored name becomes the link label; it opens the same
+**Work → Activity → Apps**. Its stored name becomes the link label; it opens the same
 workspace resource. Only apps in workspaces the viewer can access appear.
 Omit the setting, set it false, or archive the app to remove the app link.
 
@@ -406,7 +406,7 @@ Every app build must update its agent guide with these chat operations,
 required access and result checks. Test the chat path alongside the app's
 buttons; a WebMCP tool is available only while its app is open.
 
-## Decision deck
+## Decisions
 
 While the app is open, `get_decision_deck_card` reads the displayed card,
 options, answer field, consequences, reasoning, cited lessons, readiness and
@@ -419,7 +419,7 @@ own controls, so the person watches each change:
 | `set_decision_card_answer`     | Fills the answer or draft; nothing is saved                                      |
 | `set_decision_card_option`     | Selects an option for the person to review; nothing is saved                     |
 | `set_decision_card_later`      | Puts the card aside, like **Later**                                              |
-| `set_decision_card_not_useful` | Marks the card not useful with a reason; the Deck shows **Undo**                 |
+| `set_decision_card_not_useful` | Marks the card not useful with a reason; Decisions shows **Undo**                |
 | `respond_decision_card`        | Submits the selected option; needs `confirmedByUser: true` and keeps the dialogs |
 
 Every action names the card id and fails for any card other than the one on
@@ -429,7 +429,7 @@ to submit it. Cards that ask for confirmation still open the dialog for the
 person.
 
 The OS quick chat can use the same tools for the person, with Home or a
-directly chosen tedi. When the Deck is on screen the chat's status reads
+directly chosen tedi. When Decisions is on screen the chat's status reads
 **Can act on this page**; elsewhere it reads **Can see this page**. The chat
 sends the tool descriptions with each turn, and the model's calls come back
 to the page, which runs them: the server never does. Each action shows a
@@ -446,7 +446,7 @@ response for reversible taste choices with no protected effects. Optional
 for the separate **Try examples** preview. Practice choices stay in the
 preview and never train the person's profile or approve real work.
 
-The live deck reads the viewer's existing Interaction inbox and approvals.
+Decisions reads the viewer's existing Interaction inbox and approvals.
 Existing outbound cards retain their reviewed-version and consent checks.
 Architecture and strategy requests can supply `metadata.decisionDeck`:
 proposal, why now, recommendation, reversibility, protected effects, blast
@@ -473,10 +473,10 @@ project, timing, waiting cost and outcome with the person's feedback;
 explicit feedback can teach immediately, while an isolated approval remains
 an observation rather than a general rule.
 
-Open Deck to finish a short batch of decisions, then get back to your day.
-Set `navigation.work` to `"deck"` on the installed Deck app and to `"feed"`
-on the Feed app. Work opens the Feed on phone and desktop; **Decide** opens
-the Deck. Both use the generic workspace app renderer and the
+Open Decisions to finish a short batch of decisions, then get back to your day.
+Set `navigation.work` to `"deck"` on the installed Decisions app and to `"feed"`
+on the Activity app. Work opens Activity on phone and desktop; **Decide** opens
+Decisions. Both use the generic workspace app renderer and the
 viewer's existing access.
 
 The batch has a fixed list: new arrivals wait for the next batch instead
@@ -497,7 +497,7 @@ Consequential choices retain their confirmation.
 Each card names what it asks of you: **Send**, **Decide**, **Approve draft**,
 **Answer** or **Consent**, with its deadline. Overdue cards come first, longest
 overdue at the top. The Kind filter selects one of these, or **Drafted, not
-sent** for ready message drafts older than the Deck's `staleDraftHours`
+sent** for ready message drafts older than the Decisions' `staleDraftHours`
 (default 24). Every card face says why now and, when its source states them,
 what waiting costs and what yes costs. A face that drops one is rewritten once
 from the source facts; otherwise no summary face is saved for it.
@@ -505,13 +505,13 @@ from the source facts; otherwise no summary face is saved for it.
 The card keeps one action row. **Later**, **Why this** and **Not useful** sit
 in it in the same quiet style; **Not useful** asks for a short reason, such as
 already decided, duplicate or "agent could do this", removes the card and
-teaches the Deck; **Undo** puts it back. A tedi's runtime
+teaches Decisions; **Undo** puts it back. A tedi's runtime
 approval also offers **Always allow this**: after a confirmation it allows that
 action type for every tedi in the organization, and you can turn the rule off
 in Approvals.
 
-On a phone the Deck keeps its size when the keyboard opens, and the Feed and
-Deck bar stays at the bottom of the screen. On a short screen the Deck takes
+On a phone Decisions keeps its size when the keyboard opens, and Activity and
+Decisions bar stays at the bottom of the screen. On a short screen Decisions takes
 its natural height and the page scrolls, so the card's actions stay visible.
 
 Readiness counts distinct recorded human decisions for this person and
@@ -524,7 +524,7 @@ or correction resets the count. Audit samples return to review. Existing
 apply; the immutable reply draft remains the receipt. This does not enable
 automatic approval of money, messages, production or consent.
 
-The Deck's `classPolicies` settings control its readiness display; changing
+The Decisions' `classPolicies` settings control its readiness display; changing
 that display alone cannot enable delivery. The weekly learning digest in
 Office and decision history links back to the choices. Agents and Office
 show time to decide, Decide-for-me rate, cards today, return visits today and
@@ -540,7 +540,7 @@ From chat, discover the Interaction inbox/detail tools and read the exact
 request and version. Explain the offered responses and consequences; do
 not answer or approve a human's card. A saved response proves the choice
 was recorded. Follow the originating Work and provider receipt to check
-execution. History is read-only in the deck. **Why this?** shows reasoning
+execution. History is read-only in Decisions. **Why this?** shows reasoning
 and cited lessons; the account profile remains the style-profile surface.
 
 ## Expose WebMCP tools
@@ -593,14 +593,14 @@ To give a new app tools:
 `window.__tedixWebMcp.status()` in the page lists the registered tools and
 whether the browser offers a WebMCP host.
 
-## Activity feed
+## Activity
 
 `tedix:app/activity-feed` reads Work changes, settled lane and tedi results,
 the viewer's decisions and approvals, and personal corrections. Configure
 `version: 1` and `projects: [{id, label}]`. Optional `factorySources` reuse
 Card review sources as `{projectId, source}` to read existing factory sheets.
 They read the latest configured runs, with their output revision and row as
-evidence. The feed never runs a sheet's action.
+evidence. Activity never runs a sheet's action.
 
 `pageSize`, `attentionBudget`, `digestBelow`, `quietHours` (start/end hours in
 the viewer's timezone), `weights` and `deckUrl` control presentation. Work,
@@ -610,21 +610,21 @@ decisions and critical events remain visible during quiet hours.
 
 On desktop each row shows **Receipt** and **Comment**; other actions are in
 its menu. Long previews wrap rather than being cut off. Keyboard shortcuts act
-only while the Feed or one of its rows has focus, and open or react only on
+only while Activity or one of its rows has focus, and open or react only on
 the focused row, so typing elsewhere never triggers them.
 
 Reactions record personal learning events. With decision learning enabled,
 More like this and Not for me adjust the next ranking from those events;
 otherwise they save personal preferences in the existing OS preference store.
 Comment records a correction for the existing reflection process. Turn into
-Work creates proposed Work with its source link. The feed does not approve
+Work creates proposed Work with its source link. Activity does not approve
 decisions, send messages or change admission. Its WebMCP tools read visible
 cards and use the same personal reaction callbacks.
 
 ### Learn from decisions
 
 An administrator can enable `decisionLearning` in organization settings with
-`configure_decision_learning`. Deck and Feed then use the same learning score.
+`configure_decision_learning`. Decisions and Activity then use the same learning score.
 A person's choices stay personal; shared signals and approved lessons provide
 team context. Deadlines and waiting costs change the score as time passes.
 Repeated deferrals and negative reactions reduce a class, source or proposer's
@@ -927,28 +927,28 @@ as described above.
 - Never claim an action happened because the done column says `yes`. It
   records a decision; the provider's own record is the proof.
 
-## Work: Feed and Deck
+## Work: Activity and Decisions
 
-Work opens the installed Feed app unless a Work app declares
-`navigation.workDefault: true`. **Decide** opens the installed Deck and
+Work opens the installed Activity app unless a Work app declares
+`navigation.workDefault: true`. **Decide** opens the installed Decisions and
 shows its current personal inbox count, including Work and runtime approvals.
 A `+` means another page may contain more choices. The phone bar has only
-**Feed** and **Deck**; there is no Work tab bar or More menu.
+**Activity** and **Decisions**; there is no Work tab bar or More menu.
 
 Set `navigation: {"work": "feed"}` or `{"work": "deck"}` on the corresponding
-app manifest to choose its Work role. Existing Feed and Deck apps opted into
+app manifest to choose its Work role. Existing Activity and Decisions apps opted into
 `navigation.board` also work. Discovery uses the viewer's accessible workspaces;
 installing an app never grants access. If several apps declare the same role,
 explicit role links select the oldest active app, with its id breaking
 creation-time ties.
-Other apps opted into `navigation.board` appear under **Apps** in the Feed.
+Other apps opted into `navigation.board` appear under **Apps** in Activity.
 
-To start in Deck, set `navigation: {"work": "deck", "workDefault": true}` on its
+To start in Decisions, set `navigation: {"work": "deck", "workDefault": true}` on its
 installed manifest. An explicit `view` or `app` in the URL still wins. If several
 accessible Work apps declare the default, the same oldest-app order breaks ties.
 An app without a Work role cannot become the Work start app.
 
-The Feed header summarizes choices due today, sessions currently reporting
+Activity header summarizes choices due today, sessions currently reporting
 work in its projects, and the earliest known unresolved deadline. This is
 reported activity, not human online presence. Counts and deadlines describe
 loaded records; unread sources stay visibly unavailable.

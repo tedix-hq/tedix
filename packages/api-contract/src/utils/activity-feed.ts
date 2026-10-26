@@ -441,7 +441,7 @@ export function deckPipelineFeedItems(
 			kind: "result" as const,
 			classId: "deck_pipeline_metrics",
 			sentence: sentence(
-				`Deck today: ${v.liveCards.value} cards at 08:30 (${v.liveCards.verdict.replace("_", "-")}), ${pct}, ${v.wrongRemovals.value} wrong removals (${v.wrongRemovals.verdict.replace("_", "-")})`,
+				`Decisions today: ${v.liveCards.value} cards at 08:30 (${v.liveCards.verdict.replace("_", "-")}), ${pct}, ${v.wrongRemovals.value} wrong removals (${v.wrongRemovals.verdict.replace("_", "-")})`,
 			),
 			source: "/work?view=deck",
 			done: true,
@@ -461,10 +461,10 @@ export function deckPipelineFeedItems(
 			classId: "deck_pipeline_stale",
 			importance: "high" as const,
 			sentence: sentence(
-				`Deck cleaning has not run for over ${status.staleAfterHours} h`,
+				`Decisions cleanup has not run for over ${status.staleAfterHours} h`,
 			),
 			source: "/work?view=deck",
-			explanation: `${last} Expired, finished and duplicate cards stay on the Deck until the 15-minute sweep runs again.`,
+			explanation: `${last} Expired, finished and duplicate cards stay in Decisions until the 15-minute sweep runs again.`,
 			stalled: true,
 		},
 	];

@@ -47,7 +47,7 @@ before dispatch and uses a fresh idempotency key; failed dispatches also consume
 a slot. Exhausted reviews stay pending for maintainers. The lead saves its
 combined suggestions comment with `metadata.agentReviewTriageResult=true`;
 only that lead's nonempty saved result counts as completed triage. New proposed
-findings link back with `parentWorkItemId`. Feed receives one content-free
+findings link back with `parentWorkItemId`. Activity receives one content-free
 completion event and, if still pending after two hours, one late event. These
 are private Work events, not public responses or verification of findings.
 

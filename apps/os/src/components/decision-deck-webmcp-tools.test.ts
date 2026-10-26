@@ -278,7 +278,7 @@ describe("Decision deck WebMCP tools", () => {
 			cardId: "card-9",
 		});
 		expect(absent).toEqual(
-			webMcpError('Card "card-9" is not in this Deck view.'),
+			webMcpError('Card "card-9" is not in this Decisions view.'),
 		);
 		expect(state.show).toHaveBeenCalledTimes(2);
 	});

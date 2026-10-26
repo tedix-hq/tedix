@@ -280,7 +280,9 @@ try {
 			assert.equal(await progress.locator("p").innerText(), "1 of 20");
 			/** Work bar total and card progress read one count of undecided cards. */
 			const assertCountsAgree = async (state: string) => {
-				const bar = page.getByRole("progressbar", { name: "Deck progress" });
+				const bar = page.getByRole("progressbar", {
+					name: "Decision progress",
+				});
 				const total = Number(await bar.getAttribute("aria-valuemax"));
 				const done = Number(await bar.getAttribute("aria-valuenow"));
 				assert.equal(
@@ -312,13 +314,13 @@ try {
 			);
 			assert.equal(
 				await page
-					.getByRole("progressbar", { name: "Deck progress" })
+					.getByRole("progressbar", { name: "Decision progress" })
 					.getAttribute("aria-valuenow"),
 				"2",
 			);
 			assert.equal(
 				await page
-					.getByRole("progressbar", { name: "Deck progress" })
+					.getByRole("progressbar", { name: "Decision progress" })
 					.getAttribute("aria-valuemax"),
 				"20",
 			);
@@ -372,7 +374,7 @@ try {
 				.waitFor();
 			assert.equal(
 				await page
-					.getByRole("link", { name: "Back to Feed", exact: true })
+					.getByRole("link", { name: "Back to Activity", exact: true })
 					.getAttribute("href"),
 				"/work?view=feed",
 			);

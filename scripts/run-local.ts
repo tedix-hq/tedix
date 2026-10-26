@@ -458,7 +458,9 @@ async function main(): Promise<void> {
 	if (options.demo) {
 		console.log("→ Seeding the optional deterministic demo workspace and tedi");
 		await run("bun", ["run", "dev:local:demo-seed"], false, localEnvironment);
-		console.log("→ Seeding the sample company: Feed, Deck and decided history");
+		console.log(
+			"→ Seeding the sample company: Activity, Decisions and decided history",
+		);
 		await run(
 			"bun",
 			["run", "dev:local:demo-pack-seed"],

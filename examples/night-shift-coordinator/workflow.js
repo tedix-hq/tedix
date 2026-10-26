@@ -592,7 +592,7 @@ export default {
 					`For ${slot.person.id}`,
 					[
 						brief,
-						`Open your Deck: ${slot.person.deckUrl}`,
+						`Open your Decisions: ${slot.person.deckUrl}`,
 						`Night log: https://os.tedix.dev/outputs/${logId}`,
 					],
 				),

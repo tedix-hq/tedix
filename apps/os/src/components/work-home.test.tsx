@@ -209,7 +209,7 @@ it("opens Feed with the Decide count and configured apps, then opens the same De
 	);
 	expect(feed.querySelector('nav[aria-label="Work"]')).toBeNull();
 	expect(feed.querySelector('a[href="/work?view=deck"]')?.textContent).toBe(
-		"Deck clear →",
+		"All decided →",
 	);
 	expect(feed.querySelector('nav[aria-label="Apps"]')?.textContent).toContain(
 		"Cedar portfolio",
@@ -229,10 +229,10 @@ it("does not recover apps from another fictional organization's cached details",
 	const pine = render({}, false);
 	expect(pine.querySelector("article")).toBeNull();
 	expect(pine.body.textContent).not.toContain("Cedar");
-	expect(pine.body.textContent).toContain("Set up Feed and Deck");
+	expect(pine.body.textContent).toContain("Set up Activity and Decisions");
 	expect(
 		[...pine.querySelectorAll("button")].some(
-			(button) => button.textContent === "Set up Feed and Deck",
+			(button) => button.textContent === "Set up Activity and Decisions",
 		),
 	).toBe(true);
 });
@@ -281,7 +281,9 @@ it("names Feed and Deck with one hidden page heading before app content", () => 
 			);
 			const headings = page.querySelectorAll("h1");
 			expect(headings).toHaveLength(1);
-			expect(headings[0]?.textContent).toBe(view === "feed" ? "Feed" : "Deck");
+			expect(headings[0]?.textContent).toBe(
+				view === "feed" ? "Activity" : "Decisions",
+			);
 			expect(headings[0]?.classList.contains("sr-only")).toBe(true);
 			expect(headings[0]?.nextElementSibling).toBe(
 				page.querySelector("article"),

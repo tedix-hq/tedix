@@ -140,8 +140,8 @@ try {
 			await page.getByRole("button", { name: "Expand outputs" }).click();
 			await page.getByRole("button", { name: "Collapse outputs" }).waitFor();
 
-			// The Activity row opens the workspace's activity control.
-			await panel.getByRole("button", { name: "Activity" }).click();
+			// The Approvals row opens the workspace's activity control.
+			await panel.getByRole("button", { name: "Approvals" }).click();
 			await page.locator("[data-approvals-popover]").waitFor();
 			await page.waitForTimeout(250);
 			await page.screenshot({

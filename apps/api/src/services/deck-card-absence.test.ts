@@ -9,7 +9,7 @@ const org = "11111111-1111-4111-8111-111111111111";
 const agent = "33333333-3333-4333-8333-333333333333";
 const work = "66666666-6666-4666-8666-666666666666";
 const card = "44444444-4444-4444-8444-444444444444";
-const GENERIC = "Card is not in your current Deck";
+const GENERIC = "Card is not in your current Decisions";
 
 function fixture(
 	metadata: Record<string, unknown> = {},
@@ -65,7 +65,7 @@ it("keeps the generic answer for absent and other-recipient cards", async () => 
 	expect(await explainDeckCardAbsence(context, card)).toBe(GENERIC);
 	const { context: fyi } = fixture({}, { kind: "coordination" });
 	expect(await explainDeckCardAbsence(fyi, card)).toBe(
-		"It routes to your Feed, not your Deck (routine)",
+		"It routes to your Activity, not your Decisions (routine)",
 	);
 	const { context: otherContext } = fixture({}, { target_id: "other" });
 	expect(await explainDeckCardAbsence(otherContext, card)).toBe(GENERIC);
@@ -109,7 +109,7 @@ it("names the routine Feed route for a valid taste envelope in a feed class", as
 		{ kind: "coordination" },
 	);
 	expect(await explainDeckCardAbsence(context, card)).toBe(
-		"It routes to your Feed, not your Deck (routine)",
+		"It routes to your Activity, not your Decisions (routine)",
 	);
 });
 
@@ -119,7 +119,7 @@ it("says the decision envelope failed validation when it cannot parse", async ()
 		{ kind: "coordination" },
 	);
 	expect(await explainDeckCardAbsence(context, card)).toBe(
-		"Its decision envelope failed validation, so it routes to your Feed (routine)",
+		"Its decision envelope failed validation, so it routes to your Activity (routine)",
 	);
 });
 

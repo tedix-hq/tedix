@@ -14,7 +14,7 @@ import { requestOutput } from "../rpc/routers/work-interactions";
 import { verifiedActiveWorkActor } from "../rpc/routers/work-items-principal";
 import type { BaseContext } from "../rpc/orpc";
 
-const GENERIC = "Card is not in your current Deck";
+const GENERIC = "Card is not in your current Decisions";
 
 function nestedField(value: unknown, key: string): unknown {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -57,7 +57,7 @@ export async function explainDeckCardAbsence(
 			? "expired"
 			: request.status;
 	if (state !== "open")
-		return `The card already closed (${state}); it is no longer in your Deck`;
+		return `The card already closed (${state}); it is no longer in your Decisions`;
 	const m = request.metadata;
 	const notification = nestedField(m.notification, "state");
 	if (notification === "suppressed")
@@ -74,7 +74,7 @@ export async function explainDeckCardAbsence(
 			(await getWorkItemById(context.db, request.workItemId, orgId))
 				?.projectId !== options.projectId)
 	)
-		return "It is filed under a different project than this Deck view";
+		return "It is filed under a different project than this Decisions view";
 	const [attention, outbound, presentations] = await Promise.all([
 		getWorkInteractionAttention(context.db, {
 			orgId,
@@ -126,7 +126,7 @@ export async function explainDeckCardAbsence(
 	);
 	if (route.destination !== "deck")
 		return rm.decisionDeck !== undefined && !decision
-			? `Its decision envelope failed validation, so it routes to your Feed (${route.reason})`
-			: `It routes to your Feed, not your Deck (${route.reason})`;
+			? `Its decision envelope failed validation, so it routes to your Activity (${route.reason})`
+			: `It routes to your Activity, not your Decisions (${route.reason})`;
 	return GENERIC;
 }

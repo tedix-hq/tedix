@@ -95,7 +95,7 @@ try {
 				"Sibling keys never dispatch Feed clicks",
 			);
 			assert.equal(await feed.getAttribute("role"), "region");
-			assert.equal(await feed.getAttribute("aria-label"), "Feed");
+			assert.equal(await feed.getAttribute("aria-label"), "Activity");
 			await feed.focus();
 			assert(
 				await feed.evaluate(

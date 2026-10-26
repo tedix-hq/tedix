@@ -1,7 +1,7 @@
 /**
  * Seeds the sample company (apps/os/dev/demo-pack) into the isolated local D1
- * for `bun run-local --demo`: projects, Feed events, a saved Today digest and
- * Deck cards with their decided history. Dates are relative to now. Responses are
+ * for `bun run-local --demo`: projects, Activity events, a saved Today digest and
+ * Decisions cards with their decided history. Dates are relative to now. Responses are
  * immutable in D1, so seeding is insert-or-ignore; run-local rebuilds the demo
  * state directory when it is older than a week. Nothing here reads a tenant, and the demo API runs
  * with sending switched off (TEDIX_DEMO_SENDING_OFF).
@@ -56,7 +56,7 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 		);
 	});
 	sql.push(
-		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, status, visibility, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(WORKSPACE)}, ${q(ORG)}, 'Work', 'Feed and Deck for the sample company.', 'active', 'org', 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
+		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, status, visibility, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(WORKSPACE)}, ${q(ORG)}, 'Work', 'Activity and Decisions for the sample company.', 'active', 'org', 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
 	);
 	const appWorkspace = uid(48, 1);
 	const appId = uid(49, 14);
@@ -92,7 +92,7 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 		const revision = uid(50, 10 + i);
 		sql.push(
 			`INSERT OR IGNORE INTO os_gadgets (id, organization_id, workspace_id, name, status, current_revision_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(id)}, ${q(ORG)}, ${q(WORKSPACE)}, ${q(gadget.name)}, 'active', ${q(revision)}, 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
-			`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id, created_at) VALUES (${q(revision)}, ${q(ORG)}, ${q(id)}, 1, ${json(gadget.name === "Feed" ? { ...gadget.manifest, config: { ...gadget.manifest.config, today: demoTodayConfig(TEDI, USER) } } : gadget.manifest)}, 'user', 'local-demo-owner', ${q(now)});`,
+			`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id, created_at) VALUES (${q(revision)}, ${q(ORG)}, ${q(id)}, 1, ${json(gadget.manifest.navigation.work === "feed" ? { ...gadget.manifest, config: { ...gadget.manifest.config, today: demoTodayConfig(TEDI, USER) } } : gadget.manifest)}, 'user', 'local-demo-owner', ${q(now)});`,
 		);
 	});
 	sql.push(

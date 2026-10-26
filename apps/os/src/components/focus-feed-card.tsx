@@ -71,7 +71,7 @@ export function FeedCard({
 		(item.tediId ? { type: "tedi", id: item.tediId } : undefined);
 	const resolved = resolveWorkContributor(identity, actor, directory);
 	const source = {
-		channel: "Work feed",
+		channel: "Work activity",
 		capturedAt: item.at,
 		evidenceUrl: item.source,
 	};

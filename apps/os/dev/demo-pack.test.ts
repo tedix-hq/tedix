@@ -100,9 +100,9 @@ describe("sample company in fixture mode", () => {
 			{ limit: 20 },
 		);
 		expect(apps.items.map((item) => item.gadget.name).sort()).toEqual([
+			"Activity",
 			"Agents",
-			"Deck",
-			"Feed",
+			"Decisions",
 			"Office",
 			"Outbound",
 			"Projects",
@@ -138,8 +138,8 @@ describe("sample company in fixture mode", () => {
 			}[];
 		}>("osWorkspaces/gadgets/workApps", { limit: 20 });
 		const config = ActivityFeedConfigSchema.parse(
-			apps.items.find((a) => a.gadget.name === "Feed")!.currentRevision.manifest
-				.config,
+			apps.items.find((a) => a.gadget.name === "Activity")!.currentRevision
+				.manifest.config,
 		);
 		expect(config.today?.outputId).toBe(demoTodayId);
 		const saved = ok<{

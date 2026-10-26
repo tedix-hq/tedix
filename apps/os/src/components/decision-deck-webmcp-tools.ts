@@ -92,7 +92,7 @@ function guarded(
 		state = current();
 	} catch {
 		return Promise.resolve(
-			webMcpError("The Decision deck is unavailable. Try again in a moment."),
+			webMcpError("Decisions is unavailable. Try again in a moment."),
 		);
 	}
 	const cardId = typeof args.cardId === "string" ? args.cardId : "";
@@ -148,7 +148,7 @@ export function buildDecisionDeckWebMcpTools(
 		{
 			name: READ,
 			description:
-				"Read the Decision deck card on screen with its options, answer field, reasoning and readiness, plus the upcoming card ids. Practice mode has no real effects.",
+				"Read the Decisions card on screen with its options, answer field, reasoning and readiness, plus the upcoming card ids. Practice mode has no real effects.",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			inputSchema: {
 				type: "object",
@@ -160,7 +160,7 @@ export function buildDecisionDeckWebMcpTools(
 					return webMcpResult(snapshot(current()));
 				} catch {
 					return webMcpError(
-						"The Decision deck is unavailable. Try again in a moment.",
+						"Decisions is unavailable. Try again in a moment.",
 					);
 				}
 			},
@@ -168,7 +168,7 @@ export function buildDecisionDeckWebMcpTools(
 		{
 			name: LIST,
 			description:
-				"List every card still waiting for the person — Deck decisions, Work and organization approvals, and open factory cards from every card sheet — each with its id, kind, what it asks, its source, how long it has waited and the cost of waiting. Read-only: it answers and changes none of them.",
+				"List every card still waiting for the person — Decisions cards, Work and organization approvals, and open factory cards from every card sheet — each with its id, kind, what it asks, its source, how long it has waited and the cost of waiting. Read-only: it answers and changes none of them.",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			inputSchema: {
 				type: "object",
@@ -180,7 +180,7 @@ export function buildDecisionDeckWebMcpTools(
 					return webMcpResult({ cards: current().waiting ?? [] });
 				} catch {
 					return webMcpError(
-						"The Decision deck is unavailable. Try again in a moment.",
+						"Decisions is unavailable. Try again in a moment.",
 					);
 				}
 			},
@@ -210,11 +210,13 @@ export function buildDecisionDeckWebMcpTools(
 					const state = current();
 					const cardId = typeof args.cardId === "string" ? args.cardId : "";
 					if (!state.show?.(cardId))
-						return webMcpError(`Card "${cardId}" is not in this Deck view.`);
+						return webMcpError(
+							`Card "${cardId}" is not in this Decisions view.`,
+						);
 					return webMcpResult({ cardId, status: "shown" });
 				} catch {
 					return webMcpError(
-						"The Decision deck is unavailable. Try again in a moment.",
+						"Decisions is unavailable. Try again in a moment.",
 					);
 				}
 			},
@@ -283,7 +285,7 @@ export function buildDecisionDeckWebMcpTools(
 		{
 			name: "set_decision_card_later",
 			description:
-				"Put the card on screen aside for later, as the Deck's Later control does. Use it only when the person asked to snooze or skip this card.",
+				"Put the card on screen aside for later, as the Later control in Decisions does. Use it only when the person asked to snooze or skip this card.",
 			annotations: {
 				readOnlyHint: false,
 				untrustedContentHint: false,
@@ -312,7 +314,7 @@ export function buildDecisionDeckWebMcpTools(
 		{
 			name: "set_decision_card_not_useful",
 			description:
-				"Mark the card on screen as not useful with the reason the person gave in this chat. The Deck shows Undo afterwards.",
+				"Mark the card on screen as not useful with the reason the person gave in this chat. Decisions shows Undo afterwards.",
 			annotations: {
 				readOnlyHint: false,
 				untrustedContentHint: false,

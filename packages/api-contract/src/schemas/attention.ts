@@ -202,7 +202,7 @@ export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 /** Object envelope for native schema projection; the nested union retains domain narrowing. */
 export const DecideDeckCardRequestSchema = z.strictObject({
 	decision: DecideDeckCardInputSchema.describe(
-		"Answer a Deck card. Factory changes ask the factory to rewrite a draft; factory restore brings back an earlier revision. This does not approve or execute the card.",
+		"Answer a Decisions card. Factory changes ask the factory to rewrite a draft; factory restore brings back an earlier revision. This does not approve or execute the card.",
 	),
 });
 

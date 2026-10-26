@@ -3,8 +3,8 @@
 The Tedix OS web application: where people see and steer the work their team
 and its AI assistants share.
 
-In plain words, it opens on two views. The **Deck** shows the decisions
-waiting for you, one card at a time, and ends when you are done. The **Feed**
+In plain words, it opens on two views. The **Decisions** shows the decisions
+waiting for you, one card at a time, and ends when you are done. The **Activity**
 is a timeline of everything that happened, each entry with its record. Around
 them sit Workspaces for shared documents, sheets and presentations, and
 settings for who may do what. It works on a phone and on a desktop.
@@ -16,7 +16,7 @@ stack). [Development](#development) has the details.
 ## Overview
 
 Tedix OS is the main working interface for durable company work. The entry
-route opens Work, where Feed and Deck are the primary views; Projects is
+route opens Work, where Activity and Decisions are the primary views; Projects is
 available through More views. Workspaces, Documents, Team, Skills, Apps and
 Memory share the authenticated shell. Templates and Activity log are available
 through Settings, alongside organization and personal settings:
@@ -86,7 +86,7 @@ bun run --cwd apps/os build
 `tenant.localhost:3010` to exercise tenant host resolution without cloud data.
 
 Fixture mode serves a fictional sample company ("PricePilot") from
-`dev/demo-pack/`: Feed, a Deck of 36 pending cards with decided history, tedis,
+`dev/demo-pack/`: Activity, Decisions with 36 pending cards with decided history, tedis,
 workspaces and memory facts. Dates are shifted onto today when the server
 starts, and a pack older than a week is rebuilt. The shell shows a **Sample
 data** badge, and sending or scheduling is refused with a clear message
@@ -149,23 +149,23 @@ editor-heavy workspace whose useful state begins after session establishment.
 See the public [Cloudflare architecture](../../docs/public/cloudflare-architecture.md)
 for the API, runtime, storage, and frontend boundaries.
 
-## Deck decisions
+## Decisions
 
-The Deck accepts critical approvals, opportunities, owned strategy choices and
-near deadlines. Routine filing, delegation and tool writes remain in Feed.
-The versioned `deck-routing.v1.json` asset supplies the rules; a Deck gadget's
+Decisions accepts critical approvals, opportunities, owned strategy choices and
+near deadlines. Routine filing, delegation and tool writes remain in Activity.
+The versioned `deck-routing.v1.json` asset supplies the rules; a Decisions gadget's
 `config.routing` can override them. Routing receipts use the existing personal
 learning ledger. Repeated negative usefulness signals can move a valuable
-class back to Feed; critical boundaries remain visible.
+class back to Activity; critical boundaries remain visible.
 
 To operate from workspace chat, ask: "Refresh my deadline decisions and show
 the source task and draft before I decide." Discover `refresh_decision_sources`
 (`workInteractions.refreshDecisionSources`, `mcp:messaging.write`); it accepts
-only the authenticated person and scans their owned unfinished Work. The Deck
+only the authenticated person and scans their owned unfinished Work. Decisions
 refreshes this source when opened and every two minutes. A date produces one
 card per task. Personal-agent findings marked `proposal` produce an owner card;
-FYIs stay in Feed. Factory sheets must declare a valuable Type, such as
-`opportunity` or `relationship.followup`, to enter the Deck.
+FYIs stay in Activity. Factory sheets must declare a valuable Type, such as
+`opportunity` or `relationship.followup`, to enter Decisions.
 
 A follow-up card's `create_owner_task` choice creates a proposed task assigned
 to the person who answered. The draft and source stay on that task; sending
@@ -210,7 +210,7 @@ Without those credentials the API reports push disabled and runs continue.
 Credential provisioning and managed release remain private ops work.
 
 Push uses fixed approval, input-needed and person-started completion text;
-conversation content never becomes notification text. Tapping opens the Deck
+conversation content never becomes notification text. Tapping opens Decisions
 on the subscribing origin. Muting a Workspace suppresses run updates from it,
 and muting a project suppresses run updates in its linked Workspaces; both
 retain approvals, and any linked muted project quiets a shared Workspace.

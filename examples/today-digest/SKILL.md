@@ -1,6 +1,6 @@
 ---
 name: today-digest
-description: What's moving today? Read saved project progress alongside the current purpose and Deck count; refresh the project post on request.
+description: What's moving today? Read saved project progress alongside the current purpose and Decisions count; refresh the project post on request.
 audience: [tedi, human]
 capabilities:
   schedule:
@@ -28,17 +28,17 @@ capabilities:
 
 When asked "what's moving today", "what are we working towards", or "show
 Today's progress", read the saved Today Output. Discover `list_work_apps`,
-find the installed Feed (`tedix:app/activity-feed`), then read its
+find the installed Activity (`tedix:app/activity-feed`), then read its
 `manifest.config.today.outputId` with `get_os_output`. This supplies the saved
-project progress shown at the top of Feed. Read `get_active_purpose_charter`
-for current purpose and `list_deck_cards` for the caller's current Deck.
+project progress shown at the top of Activity. Read `get_active_purpose_charter`
+for current purpose and `list_deck_cards` for the caller's current Decisions.
 Omit the time-zone override to use the caller's saved OS preference; the
-edition's time zone controls project receipts. Select the Deck app when
+edition's time zone controls project receipts. Select the Decisions app when
 several are installed. Do not rebuild progress from unrelated live reads.
 
 Answer in plain English: purpose, each project's goal and progress, who's
-working now. Give a current needs-you count only when the caller's Deck
-projection is complete; otherwise link Open Deck without a count. Never use
+working now. Give a current needs-you count only when the caller's Decisions
+projection is complete; otherwise link Open Decisions without a count. Never use
 the saved table's attention column as current. Include the edition time
 and quiet-project line. Keep identifiers out of the answer. Link project
 names and receipts using the saved table links. If the edition is from an
@@ -57,7 +57,7 @@ the configured time zone. A 15-minute UTC tick checks the local slot, so
 seasonal clock changes preserve the morning time.
 
 The scheduled workflow requests `includeDeckCount: false` and leaves its
-saved attention column blank. It does not read another person's Deck.
+saved attention column blank. It does not read another person's Decisions.
 Totals contain no private question text. Documents count only organization
 workspaces linked to each project; the saved Today Output excludes itself.
 Only active projects touched in the last seven days appear. Finished work,

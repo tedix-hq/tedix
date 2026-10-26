@@ -238,7 +238,7 @@ export const SPANISH_FEED_DECK_COPY = {
 				duplicate: "Duplicado",
 				not_for_me: "No es para mí",
 			},
-			done: "Retirada. El Deck aprenderá de esto.",
+			done: "Retirada. Tedix aprenderá de esto.",
 			rule: (sentence: string) => `A partir de ahora: ${sentence}`,
 			undo: "Deshacer",
 		},
@@ -246,7 +246,7 @@ export const SPANISH_FEED_DECK_COPY = {
 			lastCleaned: (time: string) => `Última limpieza ${time}`,
 			neverCleaned: "Sin limpieza todavía",
 			stale: (hours: number) =>
-				`La limpieza del Deck no se ejecuta desde hace más de ${hours} h. Pueden quedar tarjetas caducadas o duplicadas.`,
+				`La limpieza de Decisiones no se ejecuta desde hace más de ${hours} h. Pueden quedar tarjetas caducadas o duplicadas.`,
 			rules: "Reglas aprendidas",
 			remove: "Quitar",
 			metrics: (cards: number, notUseful: string) =>
@@ -416,8 +416,8 @@ export const SPANISH_DECISION_CONTROLS: Record<string, string> = {
 	Work: "Trabajo",
 	"Find decisions": "Buscar decisiones",
 	"Find a decision": "Buscar una decisión",
-	"Deck view": "Vista de decisiones",
-	"Deck progress": "Progreso de decisiones",
+	"Decisions view": "Vista de decisiones",
+	"Decision progress": "Progreso de decisiones",
 	"Loading decisions…": "Cargando decisiones…",
 	"Some decisions could not be loaded.":
 		"No se pudieron cargar algunas decisiones.",

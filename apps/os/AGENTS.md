@@ -181,7 +181,7 @@ The rules that break silently are these:
   `untrustedContentHint: true`. Hints never replace API authorization.
 - **Human decisions stay human.** No accept/decide/approve/settle tools:
   creation lands `proposed`, approvals are surfaced read-only. Do not add a
-  deciding tool to an agent scope. The one exception is the Decision Deck's
+  deciding tool to an agent scope. The one exception is the Decisions app's
   `respond_decision_card` (`decision-deck-webmcp-tools.ts`): it acts only on
   the card on screen, requires an option already prepared there and
   `confirmedByUser: true`, and submits through the card's own controls, so

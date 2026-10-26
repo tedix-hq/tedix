@@ -487,7 +487,7 @@ export function DecisionContextSection({
 		sectionId ??
 		(title === "Feedback"
 			? "feedback"
-			: title === "Feed preferences"
+			: title === "Activity preferences"
 				? "seen"
 				: generatedId);
 	const slot = RAIL_SECTIONS.some((section) => section === id) ? id : "details";

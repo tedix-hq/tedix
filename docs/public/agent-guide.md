@@ -303,7 +303,7 @@ turn or its activity; it is not independent verification.
 The ledger is private to its signed-in owner in the organization. It uses
 the decision-capture opt-in, not ordinary read-only preflight; see the
 [CLI hook controls](./cli.md#set-up-codex-and-claude-code).
-Open **Work → Feed → Apps → Office → Your requests** to inspect it. The prompt hook's
+Open **Work → Activity → Apps → Office → Your requests** to inspect it. The prompt hook's
 **Open requests** block brings unfinished rows back before each prompt.
 
 In workspace chat, ask "Show my open requests from my coding sessions" or
@@ -496,9 +496,9 @@ contract, production, money, consent, message, commitment) and your confidence.
 Link the Work item, commits, an Output, or an earlier decision with
 `priorDecisionId` and `priorRelation` (`depends_on` or `supersedes`).
 
-- The person you work for sees it in their Feed as "Decided by <agent>". Routine
+- The person you work for sees it in their Activity as "Decided by <agent>". Routine
   decisions are grouped into one digest per day.
-- Once a day, after the organization's review hour, a Deck card lists the
+- Once a day, after the organization's review hour, a Decisions card lists the
   decisions a person may want to check: those that touch protected effects,
   are hard to undo, or that you were unsure about.
 - When you learn how a decision turned out, record it:

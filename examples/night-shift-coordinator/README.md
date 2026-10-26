@@ -22,7 +22,7 @@ to the organization's native tools. Set the schedule parameters in Tedix OS:
 }
 ```
 
-Use real IDs and an observed Deck URL only in your organization's configuration.
+Use real IDs and an observed Decisions URL only in your organization's configuration.
 The schedule checks every 15 minutes; each person's time zone guards their
 night window and morning slot, including daylight-saving changes.
 

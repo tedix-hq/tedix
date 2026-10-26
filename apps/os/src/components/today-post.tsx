@@ -167,7 +167,7 @@ export function TodayPost({
 				{deck.isPending ? (
 					<Skeleton
 						role="status"
-						aria-label="Checking Deck"
+						aria-label="Checking Decisions"
 						className="h-5 w-28"
 						data-today-deck-pending
 					/>
@@ -179,7 +179,7 @@ export function TodayPost({
 					>
 						{deck.data?.complete && !deck.isError
 							? OS_COPY.feed.decisionsWaiting(String(deck.data.count))
-							: "Open Deck · count unavailable"}
+							: "Open Decisions · count unavailable"}
 					</Link>
 				)}
 				{(!compact || expanded) && <LearnedToday timeZone={config.timeZone} />}

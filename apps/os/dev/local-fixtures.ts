@@ -8257,7 +8257,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 				id: gadgetId,
 				organizationId: ORG_ID,
 				workspaceId,
-				name: role === "feed" ? "Feed" : "Deck",
+				name: role === "feed" ? "Activity" : "Decisions",
 				description: null,
 				status: "active",
 				currentRevisionId: revisionId,

@@ -176,7 +176,7 @@ export function deriveDelegationCapabilityPlan(input: {
 			tools.add("work.complete_work_item");
 		}
 	}
-	if (card && /\bToday\/Feed\s+post\b/i.test(content)) {
+	if (card && /\bToday\/(?:Feed|Activity)\s+post\b/i.test(content)) {
 		capabilities.push("today.read");
 		for (const id of ["list_work_apps", "get_os_output"]) tools.add(`os.${id}`);
 		if (/\b(?:write|publish|update|refresh)\b/i.test(content)) {

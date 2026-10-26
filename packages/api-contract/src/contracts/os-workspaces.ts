@@ -900,7 +900,7 @@ export const osWorkspacesContract = oc
 			installWorkDefaults: oc
 				.route({
 					method: "POST",
-					summary: "Install the default Feed and Deck apps",
+					summary: "Install the default Activity and Decisions apps",
 				})
 				.input(z.strictObject({}))
 				.output(z.object({ workspaceId: z.string().uuid() })),

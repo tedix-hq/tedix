@@ -91,6 +91,6 @@ export async function readSavedToday(
 		.join("\n\n");
 	return (
 		text.slice(0, 20_000) +
-		(text.length > 20_000 ? "\nMore projects are in Feed." : "")
+		(text.length > 20_000 ? "\nMore projects are in Activity." : "")
 	);
 }

@@ -274,9 +274,9 @@ export function WorkspaceOutputsList({
 				</ul>
 			)}
 			<div className="workspace-outputs-footer">
-				<RailTooltip label="Activity" railed={railed}>
+				<RailTooltip label="Approvals" railed={railed}>
 					<Button
-						aria-label={railed ? "Activity" : undefined}
+						aria-label={railed ? "Approvals" : undefined}
 						className="workspace-outputs-row"
 						data-workspace-outputs-activity=""
 						multiline
@@ -286,7 +286,7 @@ export function WorkspaceOutputsList({
 					>
 						<Pulse aria-hidden className="workspace-outputs-icon" size={16} />
 						<span className="workspace-outputs-label">
-							<span className="workspace-outputs-title">Activity</span>
+							<span className="workspace-outputs-title">Approvals</span>
 						</span>
 					</Button>
 				</RailTooltip>

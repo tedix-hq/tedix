@@ -1,9 +1,9 @@
 # Put today's work in one place
 
-Open Feed to read the saved Today post, or ask “what's moving today” from an
+Open Activity to read the saved Today post, or ask “what's moving today” from an
 assistant. Both read the same project progress document; purpose and the
-needs-you count come from the current charter and Deck. Press `t` in Feed or
-Deck to open Today.
+needs-you count come from the current charter and Decisions. Press `t` in Activity or
+Decisions to open Today.
 
 Install `SKILL.md` and `workflow.js` under an existing project lead, using the
 same native schedule mechanism as `night-shift-coordinator`. Create one
@@ -12,7 +12,7 @@ organization document for the saved edition. Set `outputId`, `personId` and
 organization, keeping the example disabled. The default editions are 06:45,
 then every two hours through 20:45 in that time zone.
 
-Add the document, skill and owning tedi to the installed Feed's `config.today`:
+Add the document, skill and owning tedi to the installed Activity's `config.today`:
 
 ```json
 {
@@ -26,13 +26,13 @@ Add the document, skill and owning tedi to the installed Feed's `config.today`:
 
 Install `read/SKILL.md` as an organization-readable skill with no tedi owner.
 It finds the configured document through `list_work_apps`, then reads it with
-`get_os_output`, alongside the current charter and caller's Deck. The refresh
+`get_os_output`, alongside the current charter and caller's Decisions. The refresh
 skill is owned by its scheduled tedi; the reading
 skill has no schedule and never writes. No live installation identifiers belong
 in these files.
 
 Home includes the saved edition in questions about today, progress, purpose or
-goals. It follows the installed Feed binding for the configured person and reads
+goals. It follows the installed Activity binding for the configured person and reads
 only organization-visible documents without derived resource restrictions.
 
 Refresh runs the configured skill with `manual: true` and the same document,
@@ -42,13 +42,13 @@ revision advances. Pages never assemble project summaries on load.
 The scheduled workflow calls `get_today_project_totals` with
 `includeDeckCount: false` to read project progress and document receipts from
 linked organization workspaces. It leaves the saved needs-you column blank;
-it never reads the configured person's Deck. Feed and the reading skill use
-the caller's complete live Deck projection for attention counts. Project
+it never reads the configured person's Decisions. Activity and the reading skill use
+the caller's complete live Decisions projection for attention counts. Project
 labels contain at most three words. The receipt table preserves machine IDs
 and links, while its summary and user-facing copy omit UUIDs.
 
 Totals return no private question text. Permission to read does not authorize answering any
-Deck card or changing the purpose. The workflow preserves the previous edition
+Decisions card or changing the purpose. The workflow preserves the previous edition
 on unavailable or incomplete sources and uses the document's revision fence.
 
 Run `bun test examples/today-digest/workflow.test.js` for edition and receipt

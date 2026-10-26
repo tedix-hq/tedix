@@ -86,7 +86,7 @@ export const attentionContractRouter = os.router({
 			empty: cards.length === 0,
 			notice: projection.complete
 				? ""
-				: `Some sources could not be read: ${(projection.incompleteSources ?? []).join(", ")}. Reload for the full feed.`,
+				: `Some sources could not be read: ${(projection.incompleteSources ?? []).join(", ")}. Reload for all of Activity.`,
 			markdown: attentionMarkdown(cards, projection.complete),
 		};
 	}),
@@ -123,7 +123,7 @@ export const attentionContractRouter = os.router({
 		const card = projection.cards.find((card) => card.id === input.cardId);
 		if (!card && !projection.complete)
 			throw errors.CONFLICT({
-				message: "Deck inventory is incomplete; absence is unknown",
+				message: "Decisions inventory is incomplete; absence is unknown",
 			});
 		if (!card) {
 			const { explainDeckCardAbsence } =
@@ -170,7 +170,7 @@ export const attentionContractRouter = os.router({
 			});
 			if (!projection.complete)
 				throw errors.CONFLICT({
-					message: "Deck inventory is incomplete; reload before deciding",
+					message: "Decisions inventory is incomplete; reload before deciding",
 				});
 			const cardId =
 				input.kind === "factory" ||

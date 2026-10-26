@@ -784,7 +784,7 @@ const recordExposure = authed.recordExposure
 		withAuthorization(
 			{
 				handlerOwnedUserAuthorization:
-					"The person may report only their own recipient-fenced Deck exposures",
+					"The person may report only their own recipient-fenced Decisions exposures",
 			},
 			"tedis:write",
 		),

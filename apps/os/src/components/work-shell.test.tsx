@@ -77,17 +77,17 @@ describe("Work shell navigation", () => {
 	it("marks the configured default and respects an explicit view", () => {
 		expect(
 			renderShell("/work").querySelector('[aria-current="page"]')?.textContent,
-		).toBe("Deck");
+		).toBe("Decisions");
 		route.defaultView = "feed";
 		expect(
 			renderShell("/work").querySelector('[aria-current="page"]')?.textContent,
-		).toBe("Feed");
+		).toBe("Activity");
 		route.defaultView = "deck";
 		expect(
 			renderShell("/work", { view: "feed" }).querySelector(
 				'[aria-current="page"]',
 			)?.textContent,
-		).toBe("Feed");
+		).toBe("Activity");
 	});
 	it("offers only Feed and Deck on the phone and removes tabs, More and the section picker", () => {
 		const doc = renderShell("/work");
@@ -97,8 +97,8 @@ describe("Work shell navigation", () => {
 				a.getAttribute("href"),
 			]),
 		).toEqual([
-			["Feed", "/work?view=feed"],
-			["Deck", "/work?view=deck"],
+			["Activity", "/work?view=feed"],
+			["Decisions", "/work?view=deck"],
 		]);
 		expect(doc.querySelector('[role="tablist"]')).toBeNull();
 		expect(doc.querySelector('[aria-label="More Work sections"]')).toBeNull();
@@ -115,7 +115,7 @@ describe("Work shell navigation", () => {
 	it("marks Deck when it is selected and keeps navigation on record pages", () => {
 		const doc = renderShell("/work", { view: "deck" });
 		expect(doc.querySelector('[aria-current="page"]')?.textContent).toBe(
-			"Deck",
+			"Decisions",
 		);
 		expect(
 			renderShell("/work/items/cedar-review").querySelectorAll("nav a"),
@@ -147,7 +147,7 @@ it("shows known Deck counts including zero and leaves unknown counts empty", () 
 			expect(
 				renderShell("/work").querySelector('a[href="/work?view=deck"]')
 					?.textContent,
-			).toBe("Deck");
+			).toBe("Decisions");
 		}
 	} finally {
 		route.withCount = false;
