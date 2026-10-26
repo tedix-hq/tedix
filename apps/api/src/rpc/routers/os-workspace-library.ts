@@ -269,6 +269,7 @@ const list = readOs.workspaces.list.handler(async ({ input, context }) => {
 		await resolveOsWorkspaceViewer(context),
 		{
 			status: input.status,
+			search: input.search,
 			limit: input.limit + 1,
 			offset: input.offset,
 		},

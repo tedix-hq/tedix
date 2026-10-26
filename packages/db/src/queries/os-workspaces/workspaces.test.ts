@@ -201,6 +201,43 @@ describe("os workspaces", () => {
 		);
 	});
 
+	it("searches name and description case-insensitively inside the viewer's reach", async () => {
+		const db = fixture();
+		await createOsWorkspace(db, workspace);
+		await createOsWorkspace(db, {
+			...workspace,
+			id: "ws-digest",
+			name: "Community digest",
+			description: "Reddit intelligence",
+		});
+		await createOsWorkspace(db, {
+			...workspace,
+			id: "ws-private",
+			name: "Reddit (private)",
+			visibility: "private",
+			ownerUserId: "u-owner",
+		});
+		const ids = async (search: string, userIds: string[] = []) =>
+			(await listOsWorkspaces(db, "org-1", { userIds }, { search })).map(
+				(row) => row.id,
+			);
+		expect(await ids("operations")).toEqual(["ws-1"]);
+		// A description match works, and a private workspace only matches a
+		// viewer who can open it.
+		expect(await ids("reddit")).toEqual(["ws-digest"]);
+		expect(await ids("REDDIT", ["u-owner"])).toEqual([
+			"ws-digest",
+			"ws-private",
+		]);
+		expect(await ids("missing")).toEqual([]);
+		// A blank search lists everything; `instr` tolerates a query longer
+		// than D1's 50-byte LIKE pattern cap without an error.
+		expect(await ids("   ")).toHaveLength(2);
+		expect(
+			await ids(`a ${"long".repeat(20)} search phrase that fits nowhere`),
+		).toEqual([]);
+	});
+
 	it("shows a private workspace to a viewer holding exactly its id", async () => {
 		const db = fixture();
 		await createOsWorkspace(db, workspace);

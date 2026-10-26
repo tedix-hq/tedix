@@ -348,6 +348,81 @@ describe("WorkspaceLibraryPage", () => {
 		act(() => root.unmount());
 	});
 
+	it("asks the server, so a search reaches workspaces beyond the loaded page", async () => {
+		// The loaded page holds no match; only a server-side search finds it.
+		api.workspaces.list.mockImplementation(
+			async (input: { status?: string; search?: string }) =>
+				input.search
+					? {
+							items: [
+								workspace({
+									id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+									name: "Reddit Intelligence",
+									description: null,
+								}),
+							],
+							truncated: false,
+						}
+					: {
+							items: [
+								workspace(),
+								workspace({
+									id: SECOND_WORKSPACE_ID,
+									name: "Support Desk",
+									description: "Customer triage",
+								}),
+							],
+							truncated: true,
+						},
+		);
+		const { container, root } = await renderPage();
+		const search = container.querySelector(
+			'input[aria-label="Search workspaces"]',
+		);
+		if (!(search instanceof HTMLInputElement))
+			throw new Error("search missing");
+		setFieldValue(search, "Reddit");
+		// Past the debounce so the keyed search request fires.
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		});
+		await flush();
+		expect(api.workspaces.list).toHaveBeenCalledWith(
+			{ status: "active", limit: 100, search: "Reddit" },
+			expect.anything(),
+		);
+		expect(container.textContent).toContain("Reddit Intelligence");
+		expect(container.textContent).not.toContain("Weekly revenue reporting");
+		expect(container.textContent).not.toContain("No workspaces match");
+		act(() => root.unmount());
+	});
+
+	it("reports an answered no-match without losing the search box", async () => {
+		api.workspaces.list.mockImplementation(
+			async (input: { status?: string; search?: string }) =>
+				input.search
+					? { items: [], truncated: false }
+					: { items: [workspace()], truncated: false },
+		);
+		const { container, root } = await renderPage();
+		const search = container.querySelector(
+			'input[aria-label="Search workspaces"]',
+		);
+		if (!(search instanceof HTMLInputElement))
+			throw new Error("search missing");
+		setFieldValue(search, "nothing matches");
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		});
+		await flush();
+		expect(container.textContent).toContain("No workspaces match");
+		expect(container.textContent).not.toContain("No workspaces yet");
+		expect(
+			container.querySelector('input[aria-label="Search workspaces"]'),
+		).not.toBeNull();
+		act(() => root.unmount());
+	});
+
 	it("pairs a simple empty state with the template entry", async () => {
 		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
 		const { container, root } = await renderPage();

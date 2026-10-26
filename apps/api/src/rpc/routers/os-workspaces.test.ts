@@ -342,6 +342,47 @@ describe("workspaces", () => {
 		expect([...page.items, ...nextPage.items]).toEqual(all.items);
 	});
 
+	it("searches every visible workspace before the page cut, by name or description", async () => {
+		await c.org1.workspaces.create({ name: "Alpha notes" });
+		await c.org1.workspaces.create({
+			name: "Community",
+			description: "Reddit intelligence digest",
+		});
+		await c.org1.workspaces.create({ name: "Zebra" });
+		const { workspace: archived } = await c.org1.workspaces.create({
+			name: "Archived Reddit",
+		});
+		await c.org1.workspaces.archive({ workspaceId: archived.id });
+
+		// "zebra" sorts past the first page of two; a page-scoped filter would miss it.
+		const beyondPage = await c.org1.workspaces.list({
+			status: "active",
+			search: "zebra",
+			limit: 2,
+		});
+		expect(beyondPage.items.map(({ name }) => name)).toEqual(["Zebra"]);
+		expect(beyondPage.truncated).toBe(false);
+
+		const byDescription = await c.org1.workspaces.list({
+			status: "active",
+			search: "REDDIT",
+		});
+		expect(byDescription.items.map(({ name }) => name)).toEqual(["Community"]);
+		// Without a status filter an archived match is listed too.
+		expect(
+			(await c.org1.workspaces.list({ search: "reddit" })).items.map(
+				({ name }) => name,
+			),
+		).toEqual(["Archived Reddit", "Community"]);
+		expect(
+			(await c.org1.workspaces.list({ search: "nothing fits" })).items,
+		).toHaveLength(0);
+		// The filter stays tenant-scoped like every other clause.
+		expect(
+			(await c.org2.workspaces.list({ search: "reddit" })).items,
+		).toHaveLength(0);
+	});
+
 	it("records machine principals as service creators", async () => {
 		const { workspace } = await c.machine.workspaces.create({ name: "Bots" });
 		expect(workspace).toMatchObject({

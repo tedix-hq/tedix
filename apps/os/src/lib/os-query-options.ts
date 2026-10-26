@@ -60,9 +60,14 @@ export const EXPIRING_API_KEYS_WINDOW_DAYS = 30;
 export const workAppsQueryOptions = () =>
 	osQuery.osWorkspaces.gadgets.workApps.queryOptions({ input: { limit: 100 } });
 
-export const activeWorkspacesQueryOptions = () =>
+/**
+ * The workspace library's list. `search` filters server-side, so a match is
+ * found across every workspace the caller can open — not just the loaded page.
+ * Callers sharing the unfiltered list pass nothing and keep the shared key.
+ */
+export const activeWorkspacesQueryOptions = (search?: string) =>
 	osQuery.osWorkspaces.workspaces.list.queryOptions({
-		input: ACTIVE_WORKSPACES_INPUT,
+		input: { ...ACTIVE_WORKSPACES_INPUT, ...(search ? { search } : {}) },
 	});
 
 export const archivedWorkspacesQueryOptions = () =>
