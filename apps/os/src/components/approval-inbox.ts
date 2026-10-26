@@ -21,16 +21,14 @@ import {
 	osQueryKeys,
 	pendingApprovalsQueryOptions,
 	pendingHomeDelegationsQueryOptions,
+	workPendingApprovalsQueryOptions,
 } from "@/lib/os-query-options";
 import { useTediNames } from "@/lib/use-tedi-names";
+import {
+	approvalAttentionCount,
+	isDecidableWorkApproval,
+} from "@/lib/work-counts";
 import { workRefreshOptions } from "@/lib/work-refresh";
-
-export function approvalAttentionCount(input: {
-	home: number;
-	runtime: number;
-}): number {
-	return input.home + input.runtime;
-}
 
 export function isActionableHomeApproval(approval: {
 	decisionMode?: "approve_or_reject" | "no_action";
@@ -332,6 +330,13 @@ export function useApprovalInbox({
 		...pendingApprovalsQueryOptions(),
 		...workRefreshOptions,
 	});
+	const workStart = useQuery({
+		...workRefreshOptions,
+		...workPendingApprovalsQueryOptions(),
+	});
+	const workStartPending = (workStart.data?.data ?? []).filter(
+		isDecidableWorkApproval,
+	);
 	const pendingHome = useQuery({
 		...pendingHomeDelegationsQueryOptions(),
 		...workRefreshOptions,
@@ -356,7 +361,9 @@ export function useApprovalInbox({
 		: [];
 	// A parked Home write is listed by both sources; show it once, as the
 	// Home card that names the tool and arguments.
-	const homeApprovalIds = new Set(homeApprovals.map((a) => a.approvalId));
+	const homeApprovalIds = new Set(
+		[...homeApprovals, ...globalHomeApprovals].map((a) => a.approvalId),
+	);
 	const canDecide = hasOsApprovalAuthority(authority);
 	const runtimeRows = (runtime.data?.data ?? []).filter(
 		(approval) => canDecide && !homeApprovalIds.has(approval.id),
@@ -378,6 +385,7 @@ export function useApprovalInbox({
 	const count = approvalAttentionCount({
 		home: homeApprovals.length + globalHomeApprovals.length,
 		runtime: runtimeApprovals.length,
+		work: workStartPending.length,
 	});
 	const runtimeTotal = runtime.data?.pagination?.total ?? 0;
 	const runtimeShown = runtime.data?.data.length ?? 0;
@@ -493,16 +501,18 @@ export function useApprovalInbox({
 
 	return {
 		items,
+		workStartPending,
 		expired,
 		count,
 		/** More runtime requests exist than one read returns. */
 		hidden: Math.max(0, runtimeTotal - runtimeShown),
 		tediNames,
 		canDecide,
-		// Home holds join the list when they arrive; only the main read blocks.
-		loading: (conversationId !== null && runSet.isPending) || runtime.isPending,
-		/** Home holds need owner or admin access, so only this read is fatal. */
-		readError: runtime.error,
+		loading:
+			(conversationId !== null && runSet.isPending) ||
+			runtime.isPending ||
+			workStart.isPending,
+		readError: runtime.error ?? workStart.error,
 		error,
 		outcome,
 		dismissOutcome: () => setOutcome(null),

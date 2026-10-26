@@ -1,6 +1,10 @@
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { useDeckCount } from "@/lib/use-deck-count";
+import {
+	isDecidableWorkApproval,
+	WORK_COUNT_DEFINITIONS,
+} from "@/lib/work-counts";
 import { Badge } from "@/components/kumo/badge";
 
 /** Shared Needs-you row predicates; the sidebar reads the canonical Deck count. */
@@ -60,13 +64,6 @@ export function isPendingRuntimeApproval(row: { status: string }): boolean {
 	return row.status === "pending";
 }
 
-export function isDecidableWorkApproval(row: {
-	effectiveStatus: string;
-	canDecide: boolean;
-}): boolean {
-	return row.effectiveStatus === "pending" && row.canDecide;
-}
-
 export function isBrokenFactory(row: { verdict: string | null }): boolean {
 	return row.verdict === "failing" || row.verdict === "not_firing";
 }
@@ -119,7 +116,6 @@ export function WorkNeedsYouCount() {
 	const queue = useDeckCount(
 		config.success ? config.data : undefined,
 		deck?.gadget.workspaceId,
-		"all",
 	);
 	const count = queue.count;
 	if (!config.success || queue.pending || queue.failed) return null;
@@ -128,10 +124,10 @@ export function WorkNeedsYouCount() {
 		<Badge
 			variant="warning"
 			className="ml-auto tabular-nums group-data-[state=collapsed]/sidebar:hidden"
-			aria-label={`Needs you: ${count}`}
-			title="Needs you"
+			aria-label={`Decisions waiting: ${count}${queue.more ? "+" : ""}`}
+			title={WORK_COUNT_DEFINITIONS.decisions}
 		>
-			{count > 99 ? "99+" : count}
+			{count > 99 ? "99+" : `${count}${queue.more ? "+" : ""}`}
 		</Badge>
 	);
 }

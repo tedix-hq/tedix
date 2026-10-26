@@ -8,11 +8,12 @@ import {
 	pendingApprovalsQueryOptions,
 	pendingHomeDelegationsQueryOptions,
 	tediNamesQueryOptions,
+	workPendingApprovalsQueryOptions,
 } from "@/lib/os-query-options";
+import { approvalAttentionCount } from "@/lib/work-counts";
 import { approvalsFromRunSet } from "./chat-cards";
 import {
 	type ApprovalListItem,
-	approvalAttentionCount,
 	collapseIdenticalItems,
 	delegationHoldChip,
 	groupApprovalItems,
@@ -25,14 +26,21 @@ import {
 } from "./approval-notifications";
 
 describe("approval popover authority", () => {
-	it.each([
-		{ permissions: undefined, count: 0 },
-		{ permissions: ["tedis:update"], count: 0 },
-		{ permissions: ["os:approve"], count: 2 },
-		{ permissions: ["settings:manage"], count: 2 },
-	])(
-		"counts only decisions this account can make: $permissions",
-		({ permissions, count }) => {
+	it.each(
+		[
+			{ permissions: undefined, count: 0 },
+			{ permissions: ["tedis:update"], count: 0 },
+			{ permissions: ["os:approve"], count: 3 },
+			{ permissions: ["settings:manage"], count: 3 },
+		].flatMap((test) =>
+			[null, "home:example"].map((conversationId) => ({
+				...test,
+				conversationId,
+			})),
+		),
+	)(
+		"counts each Home, runtime and Work-start request once: $permissions / $conversationId",
+		({ permissions, count, conversationId }) => {
 			const client = new QueryClient();
 			// Cache fixtures contain the render inputs; unrelated API metadata is omitted.
 			// Without a context entry, authority is genuinely still loading.
@@ -68,9 +76,7 @@ describe("approval popover authority", () => {
 			);
 			client.setQueryData<unknown>(
 				pendingHomeDelegationsQueryOptions().queryKey,
-				{
-					runSet: { runs: [], approvalMirrors: {} },
-				},
+				client.getQueryData(homeRunSetQueryOptions("home:example").queryKey),
 			);
 			client.setQueryData<unknown>(pendingApprovalsQueryOptions().queryKey, {
 				data: [
@@ -89,6 +95,22 @@ describe("approval popover authority", () => {
 					},
 				],
 			});
+			const runtime = client.getQueryData<{ data: Record<string, unknown>[] }>(
+				pendingApprovalsQueryOptions().queryKey,
+			)!;
+			client.setQueryData<unknown>(pendingApprovalsQueryOptions().queryKey, {
+				data: [...runtime.data, { ...runtime.data[0], id: "home-write" }],
+			});
+			client.setQueryData<unknown>(
+				workPendingApprovalsQueryOptions().queryKey,
+				{
+					data: [
+						{ effectiveStatus: "pending", canDecide: count > 0 },
+						{ effectiveStatus: "expired", canDecide: true },
+						{ effectiveStatus: "pending", canDecide: false },
+					],
+				},
+			);
 			client.setQueryData<unknown>(tediNamesQueryOptions().queryKey, {
 				data: [],
 			});
@@ -97,7 +119,7 @@ describe("approval popover authority", () => {
 					QueryClientProvider,
 					{ client },
 					createElement(ApprovalNotifications, {
-						conversationId: "home:example",
+						conversationId,
 					}),
 				),
 			);

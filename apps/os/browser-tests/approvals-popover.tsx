@@ -9,6 +9,7 @@ import {
 	pendingHomeDelegationsQueryOptions,
 	recentToolActivityQueryOptions,
 	tediNamesQueryOptions,
+	workPendingApprovalsQueryOptions,
 } from "../src/lib/os-query-options";
 import "../src/styles.css";
 
@@ -112,6 +113,11 @@ if (activity)
 	client.setQueryData(operationalContextQueryOptions().queryKey, {
 		authority: { role: "admin", permissions: ["os:approve", "tedis:update"] },
 	} as never);
+client.setQueryData<unknown>(workPendingApprovalsQueryOptions().queryKey, {
+	data: params.has("work-start")
+		? [{ effectiveStatus: "pending", canDecide: true }]
+		: [],
+});
 client.setQueryData(tediNamesQueryOptions().queryKey, {
 	data: [{ id: fictionalTedi, name: "ops", displayName: "Ops" }],
 } as never);

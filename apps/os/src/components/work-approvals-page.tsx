@@ -60,9 +60,9 @@ import {
 	workApprovalsQueryOptions,
 	workFleetQueryOptions,
 	workItemReadinessQueryOptions,
-	workPendingApprovalsQueryOptions,
 	workSchedulerQueryOptions,
 } from "@/lib/os-query-options";
+import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import {
@@ -111,18 +111,13 @@ export function expiryLabel(expiresAt: string, now = new Date()): string {
 export function WorkApprovalsPage() {
 	useOsFormattingPreferences();
 	const inbox = useApprovalInbox();
-	const workStart = useQuery(workPendingApprovalsQueryOptions());
-	const workStartPending = (workStart.data?.data ?? []).filter(
-		({ effectiveStatus, canDecide }) =>
-			effectiveStatus === "pending" && canDecide,
-	);
-	const waiting = inbox.count + workStartPending.length;
+	const { workStartPending, count: waiting } = inbox;
 	const [tab, setTab] = useState<ApprovalsTab>("needs-you");
 	return (
 		<Page width="lg">
 			<WorkPageHeader
 				title="Approvals"
-				description="What tedis and agents want to do that needs your OK."
+				description={WORK_COUNT_DEFINITIONS.approvals}
 			/>
 			<Tabs
 				className="gap-0"
@@ -185,7 +180,7 @@ function NeedsYou({
 		(item) => item.recommendation === "approved",
 	);
 	const [confirmBulk, setConfirmBulk] = useState(false);
-	const total = inbox.count + workStartPending.length;
+	const total = inbox.count;
 	// The card leaves the list once decided, so the result is a toast that
 	// shows wherever the person has scrolled to.
 	async function decide(

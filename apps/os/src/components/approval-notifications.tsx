@@ -49,6 +49,7 @@ import {
 } from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
 import { OsTopbarMenuContext } from "@/components/os-topbar-actions-context";
+import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 
@@ -93,7 +94,7 @@ export function ApprovalNotifications({
 							}
 							className="relative"
 							size="icon-sm"
-							title="Approvals"
+							title={WORK_COUNT_DEFINITIONS.approvals}
 							variant={count > 0 ? "secondary" : "ghost"}
 						>
 							<ShieldCheck size={16} weight={count > 0 ? "bold" : "regular"} />
@@ -129,6 +130,9 @@ export function ApprovalNotifications({
 									? "Nothing is waiting for you."
 									: `${count} waiting for your decision`}
 							</PopoverDescription>
+							<Text as="p" className="m-0" role="caption" tone="secondary">
+								{WORK_COUNT_DEFINITIONS.approvals}
+							</Text>
 						</div>
 						<TabsList
 							aria-label="Approvals sections"
@@ -161,7 +165,7 @@ export function ApprovalNotifications({
 							<Text className="m-0 px-4 py-6" role="label" tone="secondary">
 								Checking for pending decisions…
 							</Text>
-						) : items.length === 0 ? (
+						) : count === 0 ? (
 							<Empty
 								appearance="inline"
 								className="px-4! py-6!"
@@ -177,6 +181,12 @@ export function ApprovalNotifications({
 							/>
 						) : (
 							<div className="grid">
+								{inbox.workStartPending.length > 0 && (
+									<Link href="/work/approvals" className="px-4 py-3">
+										Review requests to start Work (
+										{inbox.workStartPending.length})
+									</Link>
+								)}
 								{groupApprovalItems(items).map((group) => (
 									<section
 										aria-label={`${group.label}: ${group.items.length} waiting`}
