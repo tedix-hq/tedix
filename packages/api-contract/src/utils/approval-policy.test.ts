@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	decideKernelWriteApproval,
+	isWorkItemPurposeRepairCall,
 	parseKernelGovernancePolicy,
 	parseRuntimeApprovalTimestamp,
 	platformAutonomousOperation,
@@ -870,5 +871,67 @@ describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
 				writeTier: { trustedTools: ["x:y"], autoApproveLowRisk: false },
 			}).autoResolve,
 		).toBe(false);
+	});
+});
+
+describe("isWorkItemPurposeRepairCall", () => {
+	const id = "11111111-1111-4111-8111-111111111111";
+	const expires = "2026-11-20T00:00:00.000Z";
+	it("accepts only an operational class and/or a renewed window", () => {
+		expect(isWorkItemPurposeRepairCall({ id, workClass: "incident" })).toBe(
+			true,
+		);
+		expect(
+			isWorkItemPurposeRepairCall({ id, purposeExceptionExpiresAt: expires }),
+		).toBe(true);
+		expect(
+			isWorkItemPurposeRepairCall({
+				id,
+				workClass: "hygiene",
+				purposeExceptionExpiresAt: expires,
+				expectedWorkItemVersion: 3,
+				reason: "lapsed window",
+				confirmDestructive: true,
+			}),
+		).toBe(true);
+	});
+	it.each([
+		["nothing to repair", { id }],
+		["an objective class", { id, workClass: "objective" }],
+		["a null class", { id, workClass: null }],
+		["a null window", { id, purposeExceptionExpiresAt: null }],
+		["an unparseable window", { id, purposeExceptionExpiresAt: "soon" }],
+		["a non-string window", { id, purposeExceptionExpiresAt: 1763596800000 }],
+		[
+			"an extra field set to undefined",
+			{ id, workClass: "maintenance", riskLevel: undefined },
+		],
+		[
+			"an extra field set to null",
+			{ id, workClass: "maintenance", title: null },
+		],
+		[
+			"a differently cased key",
+			{ id, workClass: "maintenance", RiskLevel: "low" },
+		],
+		[
+			"a nested object",
+			{ id, workClass: "maintenance", laneDispatch: { state: "ready" } },
+		],
+		[
+			"a prototype key",
+			JSON.parse(
+				`{"id":"${id}","workClass":"maintenance","__proto__":{"riskLevel":"low"}}`,
+			),
+		],
+		["a non-string id", { id: { $in: [id] }, workClass: "maintenance" }],
+		["a blank id", { id: " ", workClass: "maintenance" }],
+		["an array", [{ id, workClass: "maintenance" }]],
+		[
+			"a non-boolean confirmation",
+			{ id, workClass: "maintenance", confirmDestructive: "yes" },
+		],
+	])("refuses %s", (_label, args) => {
+		expect(isWorkItemPurposeRepairCall(args)).toBe(false);
 	});
 });
