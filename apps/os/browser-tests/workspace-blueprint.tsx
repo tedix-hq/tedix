@@ -5,15 +5,22 @@ import { KumoLinkProvider } from "../src/components/kumo/link-provider";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import "../src/styles.css";
 
+// `?fromBlueprint` renders a workspace made from version 1 of a blueprint,
+// in the compact header the workspace page uses.
+const fromBlueprint = new URLSearchParams(location.search).has("fromBlueprint");
 const workspace: OsWorkspace = {
 	id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 	organizationId: "fictional-org",
 	name: "Research",
 	description: null,
 	status: "active",
-	sourceBlueprintId: null,
-	sourceBlueprintRevisionId: null,
-	sourceBlueprintRevisionNumber: null,
+	sourceBlueprintId: fromBlueprint
+		? "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+		: null,
+	sourceBlueprintRevisionId: fromBlueprint
+		? "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+		: null,
+	sourceBlueprintRevisionNumber: fromBlueprint ? 1 : null,
 	instantiationPreflight: null,
 	rollbackReference: null,
 	blueprintDecision: null,
@@ -41,6 +48,7 @@ createRoot(document.getElementById("root")!).render(
 				<CanvasWorkspaceControls
 					workspace={workspace}
 					showCreate={false}
+					compactActions={fromBlueprint}
 					onSelected={() => {}}
 					onArchived={() => {}}
 				/>

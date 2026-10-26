@@ -288,6 +288,14 @@ export function applyDemoPack(
 		id: uid(48, i + 1),
 		name: space.name,
 		description: space.description,
+		// A workspace made from a blueprint that has a newer version since.
+		...("blueprint" in space && space.blueprint
+			? {
+					sourceBlueprintId: space.blueprint.id,
+					sourceBlueprintRevisionId: space.blueprint.revisionId,
+					sourceBlueprintRevisionNumber: space.blueprint.revision,
+				}
+			: {}),
 		createdAt: at(2),
 		updatedAt: stamp(),
 	}));

@@ -29,6 +29,7 @@ const osWorkspacesApi = vi.hoisted(() => ({
 		update: vi.fn(),
 		archive: vi.fn(),
 	},
+	blueprints: { get: vi.fn() },
 	workspacePreferences: {
 		list: vi.fn(),
 		setFavorite: vi.fn(),

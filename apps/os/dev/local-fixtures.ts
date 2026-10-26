@@ -132,6 +132,8 @@ const COLLAB_PROPOSAL_ACCEPTED = fid("42", 2);
 
 const BLUEPRINT_PUBLISHED = fid("50", 1);
 const BLUEPRINT_DRAFT = fid("50", 2);
+/** Support Desk (Finance ops in the demo) was made from version 1; version 2 is newer. */
+const BLUEPRINT_SUPPORT = fid("50", 3);
 
 const CONVERSATION_HOME = fid("60", 1);
 const HOME_RUN_DONE = fid("62", 1);
@@ -380,11 +382,16 @@ const seedState = (): LocalState => ({
 			"Revenue Ops",
 			"Weekly revenue reporting surfaces and gadgets",
 		),
-		workspaceRow(
-			WORKSPACE_SUPPORT,
-			"Support Desk",
-			"Ticket triage and support follow-ups",
-		),
+		{
+			...workspaceRow(
+				WORKSPACE_SUPPORT,
+				"Support Desk",
+				"Ticket triage and support follow-ups",
+			),
+			sourceBlueprintId: BLUEPRINT_SUPPORT,
+			sourceBlueprintRevisionId: fid("51", 3),
+			sourceBlueprintRevisionNumber: 1,
+		},
 	],
 	workspacePreferences: [
 		{
@@ -923,6 +930,20 @@ const seedState = (): LocalState => ({
 			createdAt: T2,
 			updatedAt: T2,
 		},
+		{
+			id: BLUEPRINT_SUPPORT,
+			organizationId: ORG_ID,
+			name: "Team Desk Starter",
+			description: "A triage board, with a follow-up list added in version 2",
+			status: "published",
+			visibility: "org",
+			currentRevisionId: fid("51", 4),
+			lineage: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T0,
+			updatedAt: T2,
+		},
 	],
 	blueprintRevisions: [
 		{
@@ -1010,6 +1031,39 @@ const seedState = (): LocalState => ({
 			createdAt: T2,
 			publishedAt: null,
 		},
+		...[1, 2].map((revision) => ({
+			id: fid("51", revision + 2),
+			organizationId: ORG_ID,
+			blueprintId: BLUEPRINT_SUPPORT,
+			revision,
+			definition: {
+				gadgets: [
+					{
+						name: "Ticket Triage Board",
+						manifest: {
+							capabilities: ["tickets.read"],
+							entry: "gadgets/ticket-triage/index.html",
+						},
+					},
+					...(revision === 2
+						? [
+								{
+									name: "Follow-up List",
+									manifest: {
+										capabilities: ["tickets.read"],
+										entry: "gadgets/follow-ups/index.html",
+									},
+								},
+							]
+						: []),
+				],
+				requirements: null,
+			},
+			createdByKind: "user" as const,
+			createdById: "dev-operator",
+			createdAt: revision === 1 ? T0 : T2,
+			publishedAt: revision === 1 ? T0 : T2,
+		})),
 	],
 	conversations: [
 		{
@@ -4215,6 +4269,96 @@ const latestRevision = <T extends { revision: number }>(rows: T[]): T | null =>
 		null,
 	);
 
+/**
+ * The local upgrade report: a real diff of the two revisions' apps. Nothing
+ * resolves tenant state here, so every preflight says `not_configured`, the
+ * same as local instantiate, and no requirement verdict is invented.
+ */
+const localBlueprintUpgradeReport = (input: {
+	workspaceId: string;
+	candidateRevisionId?: string;
+}) => {
+	const workspace = findWorkspace(input.workspaceId);
+	const pinned = state.blueprintRevisions.find(
+		(row) => row.id === workspace.sourceBlueprintRevisionId,
+	);
+	if (!workspace.sourceBlueprintId || !pinned) {
+		throw new RpcError(
+			"BAD_REQUEST",
+			"Workspace was not made from a blueprint",
+		);
+	}
+	const blueprint = findBlueprint(workspace.sourceBlueprintId);
+	const candidate = input.candidateRevisionId
+		? state.blueprintRevisions.find(
+				(row) =>
+					row.id === input.candidateRevisionId &&
+					row.blueprintId === blueprint.id,
+			)
+		: latestRevision(
+				state.blueprintRevisions.filter(
+					(row) => row.blueprintId === blueprint.id,
+				),
+			);
+	if (!candidate) throw new RpcError("NOT_FOUND", "Revision not found");
+	const resolvedAt = now();
+	const preflight = (revision: OsBlueprintRevision): OsBlueprintPreflight => ({
+		blueprintId: blueprint.id,
+		revisionId: revision.id,
+		revision: revision.revision,
+		status: "not_configured",
+		instantiateAllowed: true,
+		targetTediId: null,
+		requirements: null,
+		decisions: [],
+		blockingReasons: [],
+		configurationReasons: [],
+		consentReasons: [],
+		resolvedAt,
+	});
+	const before = new Map(
+		pinned.definition.gadgets.map((row) => [row.name, row.manifest]),
+	);
+	const after = new Map(
+		candidate.definition.gadgets.map((row) => [row.name, row.manifest]),
+	);
+	const gadgetChanges = [
+		...[...after].map(([name, manifest]) => ({
+			name,
+			change: !before.has(name)
+				? ("added" as const)
+				: JSON.stringify(before.get(name)) === JSON.stringify(manifest)
+					? ("unchanged" as const)
+					: ("changed" as const),
+		})),
+		...[...before.keys()]
+			.filter((name) => !after.has(name))
+			.map((name) => ({ name, change: "removed" as const })),
+	];
+	return {
+		workspace,
+		candidate,
+		report: {
+			workspaceId: workspace.id,
+			blueprintId: blueprint.id,
+			pinnedRevisionId: pinned.id,
+			pinnedRevision: pinned.revision,
+			candidateRevisionId: candidate.id,
+			candidateRevision: candidate.revision,
+			upToDate: candidate.id === pinned.id,
+			preflightAtInstantiation: workspace.instantiationPreflight,
+			pinnedPreflightNow: preflight(pinned),
+			candidatePreflightNow: preflight(candidate),
+			requirementChanges: [],
+			gadgetChanges,
+			applyAllowed: true,
+			blockingReasons: [],
+			consentReasons: [],
+			resolvedAt,
+		},
+	};
+};
+
 const compactOutputPreviewText = (value: string): string =>
 	value.replace(/\s+/g, " ").trim().slice(0, 240);
 
@@ -7370,6 +7514,116 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"osWorkspaces/workspaces/get": (input: { workspaceId: string }) => ({
 		workspace: findWorkspace(input.workspaceId),
 	}),
+	"osWorkspaces/workspaces/previewBlueprintUpgrade": (input: {
+		workspaceId: string;
+		candidateRevisionId?: string;
+	}) => ({ report: localBlueprintUpgradeReport(input).report }),
+	"osWorkspaces/workspaces/decideBlueprintUpgrade": (input: {
+		workspaceId: string;
+		decision: "apply" | "stay_pinned";
+		candidateRevisionId: string;
+		reason?: string;
+	}) => {
+		const { workspace, candidate, report } = localBlueprintUpgradeReport(input);
+		const decidedAt = now();
+		if (input.decision === "apply" && !report.upToDate) {
+			for (const change of report.gadgetChanges) {
+				const declared = candidate.definition.gadgets.find(
+					(row) => row.name === change.name,
+				);
+				const existing = state.gadgets.find(
+					(row) =>
+						row.workspaceId === workspace.id &&
+						row.name === change.name &&
+						row.status === "active",
+				);
+				if (change.change === "removed" && existing) {
+					existing.status = "archived";
+					existing.updatedAt = decidedAt;
+				}
+				if (
+					!declared ||
+					change.change === "unchanged" ||
+					change.change === "removed"
+				)
+					continue;
+				const gadget: OsGadget = existing ?? {
+					id: nextId(),
+					organizationId: ORG_ID,
+					workspaceId: workspace.id,
+					name: declared.name,
+					description: null,
+					status: "active",
+					currentRevisionId: null,
+					sourceBlueprintRevisionId: candidate.id,
+					createdByKind: "user",
+					createdById: "dev-operator",
+					createdAt: decidedAt,
+					updatedAt: decidedAt,
+				};
+				if (!existing) state.gadgets.push(gadget);
+				const revision: OsGadgetRevision = {
+					id: nextId(),
+					organizationId: ORG_ID,
+					gadgetId: gadget.id,
+					revision:
+						state.gadgetRevisions.filter((row) => row.gadgetId === gadget.id)
+							.length + 1,
+					manifest: declared.manifest,
+					sourceArtifactRef: null,
+					createdByKind: "user",
+					createdById: "dev-operator",
+					createdAt: decidedAt,
+				};
+				state.gadgetRevisions.push(revision);
+				gadget.currentRevisionId = revision.id;
+				gadget.sourceBlueprintRevisionId = candidate.id;
+				gadget.updatedAt = decidedAt;
+			}
+			workspace.rollbackReference = {
+				revisionId: report.pinnedRevisionId,
+				revision: report.pinnedRevision,
+				preflight: workspace.instantiationPreflight,
+			};
+			workspace.sourceBlueprintRevisionId = candidate.id;
+			workspace.sourceBlueprintRevisionNumber = candidate.revision;
+			workspace.instantiationPreflight = report.candidatePreflightNow;
+		}
+		const decision = {
+			version: 1 as const,
+			decision:
+				input.decision === "apply"
+					? ("applied" as const)
+					: ("stay_pinned" as const),
+			decidedAt,
+			decidedByKind: "user" as const,
+			reviewedRevisionId: candidate.id,
+			reviewedRevision: candidate.revision,
+			pinnedRevisionId: workspace.sourceBlueprintRevisionId!,
+			pinnedRevision: workspace.sourceBlueprintRevisionNumber!,
+			reason: input.reason ?? null,
+			summary: {
+				candidateStatus: report.candidatePreflightNow.status,
+				applyAllowed: report.applyAllowed,
+				requirementsChanged: 0,
+				gadgetsAdded: report.gadgetChanges.filter(
+					(row) => row.change === "added",
+				).length,
+				gadgetsChanged: report.gadgetChanges.filter(
+					(row) => row.change === "changed",
+				).length,
+				gadgetsRemoved: report.gadgetChanges.filter(
+					(row) => row.change === "removed",
+				).length,
+				blockingReasons: [],
+				consentReasons: [],
+				resolvedAt: report.resolvedAt,
+			},
+		};
+		workspace.blueprintDecision = decision;
+		workspace.updatedAt = decidedAt;
+		return { workspace, report, decision };
+	},
 	"osCollaborators/access": (input: { workspaceId: string }) => {
 		findWorkspace(input.workspaceId);
 		return { role: "build" };
@@ -9933,6 +10187,7 @@ export const LOCAL_FIXTURE_IDS = {
 	collaborationProposalAccepted: COLLAB_PROPOSAL_ACCEPTED,
 	blueprintPublished: BLUEPRINT_PUBLISHED,
 	blueprintDraft: BLUEPRINT_DRAFT,
+	blueprintSupport: BLUEPRINT_SUPPORT,
 	conversationHome: CONVERSATION_HOME,
 	homeRunDone: HOME_RUN_DONE,
 	homeRunDelegating: HOME_RUN_DELEGATING,
