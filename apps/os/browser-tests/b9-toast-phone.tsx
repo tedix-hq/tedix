@@ -20,7 +20,11 @@ function Fixture() {
 				Raise success
 			</Button>
 			<Button
-				onClick={() => toast.error(longTitle, { description: longDescription })}
+				onClick={() =>
+					// Geometry and keyboard dismissal must survive a busy CI runner.
+					// The spec checks the default timeout on the success toast.
+					toast.error(longTitle, { description: longDescription, duration: 0 })
+				}
 			>
 				Raise error
 			</Button>
