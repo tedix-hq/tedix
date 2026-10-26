@@ -11,7 +11,8 @@ import { startFixtureServer } from "./fixture-server";
 
 /*
  * Work beyond the Deck on iPhone Safari (WebKit): Feed, Projects, a project,
- * a Work item, Requests, Approvals, Agents, Office, Outbound, Cases and Capacity. Each page
+ * a Work item, Requests, Approvals, Agents, Office, Outbound, Cases, Admission,
+ * Clusters and Capacity. Each page
  * keeps to the screen width, keeps its text inside its rows, and keeps its
  * row links 44px tall. Fields keep 16px text (smaller zooms the page on
  * focus) and stay reachable above the software keyboard.
@@ -38,6 +39,8 @@ const PAGES: Array<[string, string]> = [
 		"[data-workspace-app-entry=outbound-review] .fd-decision",
 	],
 	["/work/cases", "[data-mobile-case-row]"],
+	["/work/admission", "[aria-label='Work readiness'] li"],
+	["/work/clusters", "[aria-label='Work readiness'] li"],
 	["/work/capacity", "[data-slot=card] strong"],
 	["/work/capacity?view=budgets", "[data-slot=card] strong"],
 	["/work/approvals", "[role=tablist][aria-label=Approvals]"],

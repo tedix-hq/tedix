@@ -274,6 +274,7 @@ const CALLS = {
 	"workItems/listAttempts": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listEvidence": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listEvents": { id: "00000070-0000-4000-8000-000000000001" },
+	"workItems/listReadinessProjection": { limit: 25 },
 	"workItems/listAttemptProjection": {
 		projectId: "00000076-0000-4000-8000-000000000001",
 		runtimeStates: ["queued", "running", "waiting", "retrying"],
@@ -1319,6 +1320,23 @@ describe("workspace work fixture coherence", () => {
 			limit: 100,
 		}) as { data: unknown[] };
 		expect(other.data.length).toBe(0);
+	});
+
+	it("readiness queue lists accepted work and marks running items", () => {
+		const queue = callLocalOk("workItems/listReadinessProjection", {
+			limit: 25,
+		}) as {
+			data: {
+				workItem: { disposition: string };
+				readiness: { state: string; ready: boolean };
+			}[];
+		};
+		expect(queue.data.length).toBeGreaterThan(0);
+		for (const entry of queue.data)
+			expect(entry.workItem.disposition).toBe("accepted");
+		const states = queue.data.map((entry) => entry.readiness.state);
+		expect(states).toContain("ready");
+		expect(states).toContain("already_running");
 	});
 });
 

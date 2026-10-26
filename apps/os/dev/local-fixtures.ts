@@ -5966,6 +5966,52 @@ const handlers: Record<string, (input: never) => unknown> = {
 		derivedAt: T5,
 		gates: [],
 	}),
+	// Accepted queue: items with a live attempt read as already running.
+	"workItems/listReadinessProjection": (
+		input:
+			| { projectId?: string; workKind?: string; limit?: number }
+			| undefined,
+	) => {
+		const rows = WORK_ITEMS.filter(
+			(row) =>
+				row.disposition === "accepted" &&
+				(input?.projectId === undefined || row.projectId === input.projectId) &&
+				(input?.workKind === undefined || row.workKind === input.workKind),
+		);
+		const limit = input?.limit ?? 25;
+		return {
+			data: rows.slice(0, limit).map((row) => {
+				const running = WORK_ATTEMPTS.some(
+					(attempt) => attempt.workItemId === row.id,
+				);
+				return {
+					workItem: {
+						...workItemSummary(row),
+						createdAt: row.createdAt,
+						updatedAt: row.updatedAt,
+					},
+					readiness: {
+						workItemId: row.id,
+						state: running ? ("already_running" as const) : ("ready" as const),
+						ready: !running,
+						reasons: running
+							? [
+									{
+										code: "already_running" as const,
+										detail: "An attempt is already running.",
+									},
+								]
+							: [],
+						derivedAt: T5,
+						gates: [],
+					},
+				};
+			}),
+			nextCursor: null,
+			hasMore: rows.length > limit,
+			observedAt: T5,
+		};
+	},
 	"workItems/listAttempts": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvidence": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvents": () => ({ events: [], nextSequence: null }),
