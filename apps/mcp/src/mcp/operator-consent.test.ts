@@ -8,7 +8,7 @@
  * the inputs are service-binding headers built from host-side bridge props.
  */
 import { describe, expect, it } from "vite-plus/test";
-import { buildOperatorConsentHeader } from "./handler";
+import { buildOperatorConsentHeader } from "./handler-request-context";
 
 describe("buildOperatorConsentHeader", () => {
 	it("attests an operator-started skill run", () => {
