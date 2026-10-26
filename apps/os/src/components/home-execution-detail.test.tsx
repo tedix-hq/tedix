@@ -292,12 +292,14 @@ it("shows the delegated run's settled cost instead of the kernel's routing cost"
 });
 
 const CHILD_RUN = `e142d015-799c-465b-a564-d3795e8e9f75:mcp:cfo-memory-check-home-${RUN_ID}`;
+// Elapsed-time copy reads Date.now() at render; pin it so "1m 35s" is exact.
+const NOW = Date.parse("2026-10-23T12:00:00Z");
 const runningRun = {
 	id: `cfo-memory-check-home-${RUN_ID}`,
 	conversationId: RUN_ID,
 	status: "running",
-	startedAt: new Date(Date.now() - 95_000).toISOString(),
-	createdAt: new Date(Date.now() - 95_000).toISOString(),
+	startedAt: new Date(NOW - 95_000).toISOString(),
+	createdAt: new Date(NOW - 95_000).toISOString(),
 	metadata: { workItemId: "a701383c-ca5b-4771-b9fc-845e39d65b03" },
 } as never;
 const runningTrace = {
@@ -324,6 +326,13 @@ const runningTrace = {
 } as never;
 
 describe("Response details copy", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it("shows plain-language trace notes and no raw codes for a running delegation", () => {
 		act(() =>
 			root.render(
