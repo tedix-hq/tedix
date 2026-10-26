@@ -3,7 +3,102 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gateInProfile } from "./preflight-profiles.mjs";
+import { gateInProfile, procedureParityGates } from "./preflight-profiles.mjs";
+
+test("procedure parity selects only the three unit suites for every risky source path", () => {
+	for (const file of [
+		"packages/api-contract/src/contracts/os-app-runtime.ts",
+		"apps/api/src/rpc/routers/connections.ts",
+		"apps/os/src/components/workspace-webmcp-tools.ts",
+		"apps/os/src/lib/webmcp/derive-schema.ts",
+		"apps/os/dev/local-fixtures.ts",
+		"scripts/ci/preflight-gates.mjs",
+		"scripts/ci/preflight-profiles.mjs",
+	]) {
+		const gates = procedureParityGates([file]);
+		expect(gates.every((gate) => gate.when)).toBe(true);
+		for (const gate of gates)
+			for (const profile of ["local-fast", "full", "ci-policy"])
+				expect(gateInProfile(gate.name, profile)).toBe(true);
+		expect(gates.map((gate) => gate.cmd)).toEqual([
+			[
+				"bun",
+				"run",
+				"--cwd",
+				"apps/api",
+				"test:unit",
+				"src/services/tool-schema-sync-scope-coverage.test.ts",
+			],
+			[
+				"bun",
+				"run",
+				"--cwd",
+				"apps/os",
+				"test:unit",
+				"dev/local-fixtures-parity.test.ts",
+				"src/components/webmcp-tools-conventions.test.ts",
+			],
+		]);
+	}
+	for (const files of [
+		[],
+		["README.md"],
+		["apps/os/src/components/avatar.tsx"],
+		["packages/api-contract/src/schemas/unrelated.ts"],
+	])
+		expect(procedureParityGates(files).some((gate) => gate.when)).toBe(false);
+	expect(procedureParityGates(null).every((gate) => gate.when)).toBe(true);
+});
+
+test("fast pre-push refuses parity failures with actionable messages", () => {
+	const bin = mkdtempSync(join(tmpdir(), "preflight-parity-"));
+	try {
+		writeFileSync(
+			join(bin, "bun"),
+			`#!/bin/sh
+case "$*" in
+  *tool-schema-sync-scope-coverage.test.ts*)
+    echo 'new endpoints without an MCP capability mapping: example/propose'
+    exit 1 ;;
+  *local-fixtures-parity.test.ts*)
+    echo 'OS procedures checked; missing fixtures: example/propose'
+    exit 1 ;;
+esac
+exit 0
+`,
+			{ mode: 0o755 },
+		);
+		const run = (file: string) =>
+			spawnSync(
+				process.execPath,
+				["scripts/ci/preflight-gates.mjs", "--local-fast", "--files", file],
+				{
+					cwd: new URL("../..", import.meta.url),
+					env: {
+						...process.env,
+						PATH: `${bin}:${process.env.PATH}`,
+						TEDIX_PUSH_TRAIN_RANGES: "[]",
+					},
+					encoding: "utf8",
+				},
+			);
+		const result = run("packages/api-contract/src/contracts/example.ts");
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(
+			"new endpoints without an MCP capability mapping: example/propose",
+		);
+		expect(result.stderr).toContain("missing fixtures: example/propose");
+		for (const gate of procedureParityGates(null)) {
+			expect(result.stderr).toContain(gate.name);
+			expect(result.stderr).toContain(`fix: ${gate.fix}`);
+		}
+		const docs = run("README.md");
+		expect(docs.status).toBe(0);
+		expect(docs.stderr).not.toContain("procedure parity");
+	} finally {
+		rmSync(bin, { recursive: true, force: true });
+	}
+});
 
 test("fast local checks retain source safety and owner types while CI retains every other gate", () => {
 	const local = [
