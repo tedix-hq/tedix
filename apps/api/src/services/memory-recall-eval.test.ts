@@ -188,5 +188,7 @@ describe("chat memory retrieval eval", () => {
 			expect(byKind[kind]!.static).toBe(0);
 		expect(byKind.ordinary!.message).toBe(1);
 		expect(byKind.exact!.message).toBe(1);
+		// Named days, "N days ago", "this week" and "in <month>" were 1 in 5.
+		expect(byKind.date!.message).toBe(1);
 	});
 });

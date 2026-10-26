@@ -472,4 +472,38 @@ describe("canonical hybrid recall D1 queries", () => {
 		});
 		expect(recallWindow("on 2026-02-30", new Date(scope.now))).toBeUndefined();
 	});
+	it("reads named days, months, days ago and this week as UTC windows", () => {
+		const now = new Date(scope.now); // Sunday 2026-10-18
+		const on = (from: string, to: string) => ({
+			from: `${from}T00:00:00.000Z`,
+			to: `${to}T00:00:00.000Z`,
+		});
+		expect(recallWindow("what did we agree on October 12?", now)).toEqual(
+			on("2026-10-12", "2026-10-13"),
+		);
+		expect(recallWindow("notes from 3rd of Oct", now)).toEqual(
+			on("2026-10-03", "2026-10-04"),
+		);
+		// A named day later this year means last year's.
+		expect(recallWindow("December 24", now)).toEqual(
+			on("2025-12-24", "2025-12-25"),
+		);
+		expect(recallWindow("Feb 30", now)).toBeUndefined();
+		expect(recallWindow("what changed in September?", now)).toEqual(
+			on("2026-09-01", "2026-10-01"),
+		);
+		expect(recallWindow("2 days ago", now)).toEqual(
+			on("2026-10-16", "2026-10-17"),
+		);
+		expect(recallWindow("anything new this week", now)).toEqual(
+			on("2026-10-12", "2026-10-19"),
+		);
+		// Without a day or preposition a month name, and lower-case "may", is no cue.
+		expect(recallWindow("October planning notes", now)).toBeUndefined();
+		expect(recallWindow("we may 2x the budget", now)).toBeUndefined();
+		// An explicit ISO date still wins over relative wording.
+		expect(recallWindow("yesterday, not 2026-10-01", now)).toEqual(
+			on("2026-10-01", "2026-10-02"),
+		);
+	});
 });

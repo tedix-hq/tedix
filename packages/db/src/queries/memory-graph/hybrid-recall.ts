@@ -150,15 +150,70 @@ export interface RecallWindow {
 	from: string;
 	to: string;
 }
+const DAY_MS = 86_400_000;
+const MONTHS = [
+	"jan",
+	"feb",
+	"mar",
+	"apr",
+	"may",
+	"jun",
+	"jul",
+	"aug",
+	"sep",
+	"oct",
+	"nov",
+	"dec",
+];
+// A month name counts only beside a day number or after a preposition
+// ("in September", "on 20 October", "October 20"), never on its own.
+const MONTH_NAME =
+	"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+const MONTH_DAY = new RegExp(
+	`\\b${MONTH_NAME}\\.? (\\d{1,2})(?:st|nd|rd|th)?(?:,? (\\d{4}))?\\b|\\b(\\d{1,2})(?:st|nd|rd|th)?(?: of)? ${MONTH_NAME}\\.?(?:,? (\\d{4}))?\\b`,
+	"i",
+);
+const IN_MONTH = new RegExp(
+	`\\b(?:in|during|since|from|of|for) ${MONTH_NAME}\\b(?:,? (\\d{4}))?`,
+	"i",
+);
+
+function monthIndex(name: string): number {
+	return MONTHS.indexOf(name.slice(0, 3).toLowerCase());
+}
+function day(window: Date, days = 1): RecallWindow {
+	return {
+		from: window.toISOString(),
+		to: new Date(window.getTime() + days * DAY_MS).toISOString(),
+	};
+}
+/** The named calendar day, defaulting to its latest occurrence on or before today. */
+function namedDay(
+	month: number,
+	date: number,
+	year: string | undefined,
+	today: Date,
+): RecallWindow | undefined {
+	let start = new Date(
+		Date.UTC(year ? Number(year) : today.getUTCFullYear(), month, date),
+	);
+	if (start.getUTCMonth() !== month || start.getUTCDate() !== date)
+		return undefined;
+	if (!year && start > today)
+		start = new Date(Date.UTC(start.getUTCFullYear() - 1, month, date));
+	return day(start);
+}
+
 /** UTC calendar cues; an explicit date wins over relative wording. */
 export function recallWindow(
 	query: string,
 	now = new Date(),
 ): RecallWindow | undefined {
 	const date = query.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
-	let end = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+	const today = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
 	);
+	let end = new Date(today.getTime() + DAY_MS);
 	let days = 1;
 	if (date) {
 		const start = new Date(`${date}T00:00:00.000Z`);
@@ -167,17 +222,48 @@ export function recallWindow(
 			start.toISOString().slice(0, 10) !== date
 		)
 			return undefined;
+		return day(start);
+	}
+	const named = query.match(MONTH_DAY);
+	const monthName = named?.[1] ?? named?.[5];
+	// Lower-case "may 3" reads as a verb; only the capitalized month counts.
+	if (named && monthName && monthName !== "may" && monthName !== "MAY")
+		return namedDay(
+			monthIndex(monthName),
+			Number(named[2] ?? named[4]),
+			named[3] ?? named[6],
+			today,
+		);
+	const ago = query.match(/\b(\d{1,3}|a|one|two|three) (day|week)s? ago\b/i);
+	if (ago) {
+		const count =
+			{ a: 1, one: 1, two: 2, three: 3 }[ago[1]!.toLowerCase()] ??
+			Number(ago[1]);
+		if (ago[2]!.toLowerCase() === "day")
+			return day(new Date(today.getTime() - count * DAY_MS));
+		return day(new Date(today.getTime() - (count * 7 + 3) * DAY_MS), 7);
+	}
+	const inMonth = query.match(IN_MONTH);
+	if (inMonth) {
+		const month = monthIndex(inMonth[1]!);
+		let year = inMonth[2] ? Number(inMonth[2]) : today.getUTCFullYear();
+		if (!inMonth[2] && month > today.getUTCMonth()) year--;
+		const start = new Date(Date.UTC(year, month, 1));
 		return {
 			from: start.toISOString(),
-			to: new Date(start.getTime() + 86_400_000).toISOString(),
+			to: new Date(Date.UTC(year, month + 1, 1)).toISOString(),
 		};
 	}
-	if (/\byesterday\b/i.test(query)) end = new Date(end.getTime() - 86_400_000);
+	if (/\byesterday\b/i.test(query)) end = today;
+	else if (/\bthis week\b/i.test(query))
+		// ISO weeks start on Monday.
+		days = ((today.getUTCDay() + 6) % 7) + 1;
+	else if (/\bthis month\b/i.test(query)) days = today.getUTCDate();
 	else if (/\b(last|past) week\b/i.test(query)) days = 7;
 	else if (/\b(last|past) month\b/i.test(query)) days = 30;
 	else if (!/\b(today|recent|recently|latest)\b/i.test(query)) return undefined;
 	return {
-		from: new Date(end.getTime() - days * 86_400_000).toISOString(),
+		from: new Date(end.getTime() - days * DAY_MS).toISOString(),
 		to: end.toISOString(),
 	};
 }
