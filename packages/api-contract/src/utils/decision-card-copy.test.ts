@@ -17,6 +17,30 @@ const copy = {
 	generatedAt: "2026-10-19T12:00:00Z",
 };
 it.each([
+	"Execute",
+	"Execute?",
+	" run! ",
+	"Send?",
+	"Approve?",
+	"Review 2 — Execute?",
+])("rejects a bare action title: %s", (title) => {
+	expect(checkDecisionCardCopy({ ...copy, title })).toContain(
+		"bare_action_title",
+	);
+	expect(decisionCardFallbackTitle(title)).toBe("Review this request?");
+	expect(decisionCardFaceText({ ...copy, title })).not.toContain(title.trim());
+});
+it("accepts an action that names its object", () => {
+	for (const title of [
+		"Execute the saved query?",
+		"Send the draft to Alex?",
+		"Run the submitted code?",
+	])
+		expect(checkDecisionCardCopy({ ...copy, title })).not.toContain(
+			"bare_action_title",
+		);
+});
+it.each([
 	["2026-10-19T12:00:00Z", "tomorrow"],
 	["2026-10-20T12:00:00Z", "today"],
 	["2026-10-22T12:00:00Z", "2 days ago"],

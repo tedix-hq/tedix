@@ -101,15 +101,15 @@ export function approvalDecision(input: {
 		target.endpoint === "skills/runWorkflow"
 	) {
 		const title = input.description?.match(
-			/^Run skill: (.+?)\. Nothing has run yet;/,
-		)?.[1];
-		const name = title?.replace(/ improvement [a-f0-9]+$/i, "");
+			/^Run skill: (.+?)\.(?: (In .+?\.))? Nothing has run yet;/,
+		);
+		const name = title?.[1]?.replace(/ improvement [a-f0-9]+$/i, "");
 		const probe = asRecord(args?.params)?.probe === true;
 		return {
 			what: probe
 				? `Run a test of ${name ? `the ${name}` : "the saved"} skill proposal.`
 				: `Run ${name ? `the ${name}` : "the saved"} skill.`,
-			details: [],
+			details: title?.[2] ? [title[2]] : [],
 			whyNow: "The skill run was stopped before it started.",
 			ifApproved:
 				"The caller can retry this exact skill run once. Approval alone does not start it or activate the proposal.",

@@ -162,8 +162,40 @@ describe("owner gateway approvals", () => {
 			}),
 		);
 		expect(mocks.consume).not.toHaveBeenCalled();
-		expect(mocks.create.mock.calls[0]![1].description).toMatch(/^Send\./);
+		expect(mocks.create.mock.calls[0]![1].description).toMatch(
+			/^Run the send tool\./,
+		);
 	});
+	it.each([
+		[
+			"execute",
+			{ code: "return 1", token: "private-value" },
+			"Run the submitted code",
+		],
+		["run", { command: "echo hello" }, "Run the submitted command"],
+		["execute", {}, "Run the execute tool"],
+		["createContactNote", {}, "Create Contact Note"],
+	])(
+		"describes %s with its app, requester and organization",
+		async (toolId, args, action) => {
+			mocks.member.mockResolvedValue({
+				role: "owner",
+				status: "active",
+				name: "Alex",
+			});
+			mocks.organization.mockResolvedValue({
+				slug: "example",
+				name: "Example Team",
+			});
+			await client().requestOwnerToolApproval({ ...input, toolId, args });
+			const description = mocks.create.mock.calls[0]![1].description;
+			expect(description).toBe(
+				`${action}. In mail for Alex (Example Team). Nothing has run yet; approving allows one identical retry of this call.`,
+			);
+			expect(description).not.toContain("private-value");
+			expect(description).not.toContain("return 1");
+		},
+	);
 	it("reuses the open request for an identical call", async () => {
 		mocks.pending.mockResolvedValue({
 			id: "11111111-1111-4111-8111-111111111111",
