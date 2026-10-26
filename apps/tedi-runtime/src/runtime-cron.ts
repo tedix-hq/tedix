@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { ChatTurnParams } from "./chat-turn-input";
 import { buildCronGovernanceAnalyticsDataPoint } from "@tedix/api-contract/schemas/mcp-analytics";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
@@ -830,7 +831,9 @@ export async function onCronFire(
 			return { status: "skipped", reason: "orphaned_runtime" };
 		}
 	} catch (err) {
-		console.warn("[isolate.cron] canonical custody check failed:", err);
+		console.warn("[isolate.cron] canonical custody check failed", {
+			exception: exceptionTopology(err),
+		});
 		throw err;
 	}
 	await host.ensureIdentity();

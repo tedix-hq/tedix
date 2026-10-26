@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { RunSteering } from "./run-steering";
@@ -796,7 +797,9 @@ export class ConversationFacet extends PiAgent<
 							}),
 						});
 					} catch (error) {
-						console.error("[tedi.pi.model-telemetry]", error);
+						console.error("[tedi.pi.model-telemetry]", {
+							exception: exceptionTopology(error),
+						});
 					}
 				},
 			}),
@@ -1190,7 +1193,9 @@ export class ConversationFacet extends PiAgent<
 							// The marker is accepted only from the current native pi.compaction entry.
 							return { summary: `[${marker}]\n${summary}` };
 						} catch (error) {
-							console.error("[tedi.pi.compaction]", error);
+							console.error("[tedi.pi.compaction]", {
+								exception: exceptionTopology(error),
+							});
 							return { decline: true as const };
 						}
 					},
@@ -1240,7 +1245,9 @@ export class ConversationFacet extends PiAgent<
 			});
 			return true;
 		} catch (error) {
-			console.error("[tedi.pi.budget] native tool budget check failed", error);
+			console.error("[tedi.pi.budget] native tool budget check failed", {
+				exception: exceptionTopology(error),
+			});
 			return this.accounting.block(error);
 		}
 	}
