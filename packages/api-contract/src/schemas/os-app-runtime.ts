@@ -21,8 +21,8 @@ export const APP_RUNTIME_MAX_FILES = 24;
 const appRuntimeFilePath = z
 	.string()
 	.regex(
-		/^[a-z0-9][a-z0-9._-]{0,78}\.(js|json|txt)$/,
-		"file names are lowercase, one segment, ending in .js, .json or .txt",
+		/^(README\.md|[a-z0-9][a-z0-9._-]{0,78}\.(js|json|txt))$/,
+		"file names are README.md or lowercase, one segment, ending in .js, .json or .txt",
 	);
 
 /** The source files of one app revision, keyed by file name. */

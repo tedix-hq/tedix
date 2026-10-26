@@ -86,6 +86,9 @@ export function appRuntimeLoaderManifest<TTail = never>(
 	files: AppRuntimeFiles,
 	options: AppRuntimeLoaderOptions<TTail> = {},
 ) {
+	const modules = Object.fromEntries(
+		Object.entries(files).filter(([path]) => path !== "README.md"),
+	);
 	return {
 		compatibilityDate:
 			options.compatibilityDate ?? APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE,
@@ -95,8 +98,8 @@ export function appRuntimeLoaderManifest<TTail = never>(
 			? INVOCATION_MODULE_NAME
 			: APP_RUNTIME_SERVER_MODULE,
 		modules: (options.invocation
-			? { ...files, [INVOCATION_MODULE_NAME]: INVOCATION_MODULE }
-			: { ...files }) as Record<string, string>,
+			? { ...modules, [INVOCATION_MODULE_NAME]: INVOCATION_MODULE }
+			: modules) as Record<string, string>,
 		env: { CONFIG: options.invocation?.config ?? {} },
 		tails: options.invocation?.tails ?? [],
 		// Always null: an app reaches the outside world only through capabilities.

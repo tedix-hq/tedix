@@ -1,4 +1,6 @@
 import escapeClient from "./app-runtime-escape-client.js?raw";
+import starterClient from "../../../plugins/tedix/skills/tedix-build-app/assets/sheet-review/client.js?raw";
+import starterManifest from "../../../plugins/tedix/skills/tedix-build-app/assets/sheet-review/manifest.json";
 import { createRoot } from "react-dom/client";
 import { AppRuntimeFrame } from "../src/components/app-runtime-frame";
 import {
@@ -16,11 +18,14 @@ const callServer = createAppRuntimeServerCall(
 		revisionId: "33333333-3333-4333-8333-333333333333",
 	},
 );
+const starter = new URLSearchParams(location.search).has("starter");
 const html = buildAppRuntimeDocument({
 	"server.js": "",
 	"client.js": new URLSearchParams(location.search).has("escape")
 		? `const destination = ${JSON.stringify(new URLSearchParams(location.search).get("destination"))};\n${escapeClient}`
-		: `
+		: starter
+			? starterClient
+			: `
 const root = document.getElementById('app');
 const status = document.createElement('p');
 status.setAttribute('role', 'status');
@@ -50,8 +55,8 @@ createRoot(document.getElementById("root")!).render(
 							revision: 1,
 						},
 						role: "use",
-						settings: {},
-						grants: [],
+						settings: starter ? starterManifest.config.settings : {},
+						grants: starter ? starterManifest.resourceGrants : [],
 					},
 					resources: [],
 					readOutput: async () => {
