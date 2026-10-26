@@ -253,6 +253,101 @@ export function boundedContext(
 	return `${utf8Prefix(message, budget - Buffer.byteLength(TRUNCATION_NOTE, "utf8"))}${TRUNCATION_NOTE}`;
 }
 
+/** One boundary-only read of a selected Work Item and its existing purpose path. */
+export function workBoundaryCode(workItemId: string): string {
+	if (!UUID.test(workItemId)) throw new Error("invalid Work Item id");
+	return String.raw`async () => {
+ const r = await work.get_work_items_by_id({id:WORK_ID});
+ const w = r.workItem;
+ async function each(read) { try { return await read(); } catch { return {unavailable:true}; } }
+ const project = w.projectId ? await each(() => projects.get_project({id:w.projectId})) : null;
+ const objectiveId = w.objectiveId ?? (project?.unavailable === true ? null : project?.objectiveId ?? null);
+ const objective = objectiveId ? await each(() => tedis.get_tedi_objectives_by_id({id:objectiveId})) : null;
+ return {
+  item:{id:w.id,organizationId:w.orgId,projectId:w.projectId,objectiveId:w.objectiveId,title:w.title,disposition:w.disposition,dueDate:w.dueDate,deadline:w.deadline,acceptanceContract:w.acceptanceContract},
+  project:project?.unavailable === true ? project : project ? {id:project.id,organizationId:project.orgId,objectiveId:project.objectiveId,targetDate:project.targetDate} : null,
+  objective:objective?.unavailable === true ? objective : objective ? {id:objective.id,organizationId:objective.orgId,title:objective.title,status:objective.status,successCriteria:objective.successCriteria} : null
+ };
+}`.replace("WORK_ID", JSON.stringify(workItemId));
+}
+
+/** The single focus line shown at task start and end, never on each prompt. */
+export function workBoundaryLine(data: JsonObject, now: Date): string {
+	const item = data.item;
+	if (
+		!isObject(item) ||
+		!UUID.test(String(item.id ?? "")) ||
+		!UUID.test(String(item.organizationId ?? "")) ||
+		typeof item.title !== "string"
+	)
+		throw new Error("unexpected Work boundary item");
+	const project = data.project;
+	if (isObject(project) && project.unavailable !== true) {
+		if (
+			project.id !== item.projectId ||
+			project.organizationId !== item.organizationId
+		)
+			throw new Error("Work boundary project mismatch");
+	}
+	const objectiveId =
+		typeof item.objectiveId === "string"
+			? item.objectiveId
+			: isObject(project) && project.unavailable !== true
+				? project.objectiveId
+				: undefined;
+	const objective = data.objective;
+	const work = JSON.stringify(item.title.replace(/[\r\n]/g, " ").slice(0, 160));
+	if (
+		(isObject(project) && project.unavailable === true && !item.objectiveId) ||
+		(isObject(objective) && objective.unavailable === true)
+	)
+		return `Focus: Work ${work} -> objective unavailable; verify its current purpose path before deciding whether to continue or park it.`;
+	if (!objectiveId || !isObject(objective) || objective.status !== "active")
+		return `Focus: Work ${work} has no path to an active objective. If it is still worth doing, park it with a next step + review date; otherwise stop.`;
+	if (
+		objective.id !== objectiveId ||
+		objective.organizationId !== item.organizationId ||
+		typeof objective.title !== "string"
+	)
+		throw new Error("Work boundary objective mismatch");
+	const success = String(
+		objective.successCriteria ??
+			item.acceptanceContract?.doneLooksLike ??
+			"not set",
+	)
+		.replace(/[\r\n]/g, " ")
+		.slice(0, 300);
+	const target = String(
+		item.deadline ??
+			item.dueDate ??
+			(isObject(project) && project.unavailable !== true
+				? project.targetDate
+				: "") ??
+			"",
+	);
+	return `Focus: Work ${work} -> objective ${JSON.stringify(objective.title.replace(/[\r\n]/g, " ").slice(0, 160))} -> success ${JSON.stringify(success)} -> ${daysLeft(target, now)}.`;
+}
+
+function daysLeft(target: string, now: Date): string {
+	const parsed = Date.parse(target);
+	if (!target || !Number.isFinite(parsed)) return "days left not set";
+	const date = new Date(parsed);
+	const targetDay = Date.UTC(
+		date.getUTCFullYear(),
+		date.getUTCMonth(),
+		date.getUTCDate(),
+	);
+	const today = Date.UTC(
+		now.getUTCFullYear(),
+		now.getUTCMonth(),
+		now.getUTCDate(),
+	);
+	const days = Math.round((targetDay - today) / 86_400_000);
+	return days >= 0
+		? `${days} day${days === 1 ? "" : "s"} left (target ${target.slice(0, 10)})`
+		: `${-days} day${days === -1 ? "" : "s"} overdue (target ${target.slice(0, 10)})`;
+}
+
 /**
  * Only validated local identifiers enter the source. Incoming user text never does.
  * Each source is read on its own: a forbidden or missing document comes back as

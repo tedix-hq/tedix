@@ -13,7 +13,12 @@ import { unpinnedModelVersion } from "../external-agent";
 import { harnessOf } from "./agent-status";
 import { clearDelivery } from "./context-delivery";
 import { repositoryName } from "./decision-capture";
-import { gatewayCode, openRequestLines } from "./prompt-context";
+import {
+	gatewayCode,
+	openRequestLines,
+	workBoundaryCode,
+	workBoundaryLine,
+} from "./prompt-context";
 import { needsYou } from "./needs-you";
 import {
 	type HookDeps,
@@ -75,14 +80,21 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 	const now = deps.now ?? (() => new Date());
 	// Opened before the Work preflight, so its line survives any early return.
 	let agentLine: string | undefined;
+	let stopEvent = false;
 	const send = (message: string) =>
 		deps.write(
-			JSON.stringify({
-				hookSpecificOutput: {
-					hookEventName: "SessionStart",
-					additionalContext: [agentLine, message].filter(Boolean).join("\n"),
-				},
-			}),
+			JSON.stringify(
+				stopEvent
+					? { systemMessage: message }
+					: {
+							hookSpecificOutput: {
+								hookEventName: "SessionStart",
+								additionalContext: [agentLine, message]
+									.filter(Boolean)
+									.join("\n"),
+							},
+						},
+			),
 		);
 
 	const optIn = (env.TEDIX_PLUGIN_PREFLIGHT ?? "").toLowerCase();
@@ -95,6 +107,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 		const parsed = hostEvent(deps.stdin, env, EVENT_LIMIT);
 		session = parsed.session;
 		event = parsed.event;
+		stopEvent = event.hook_event_name === "Stop";
 		const source = parsed.event.source;
 		sourceEvent =
 			typeof source === "string" && SOURCES.has(source) ? source : "unknown";
@@ -255,6 +268,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 
 	const scopes = auth.storedLogin?.grantedScopes;
 	const hasWorkRead = Array.isArray(scopes) && scopes.includes("mcp:work.read");
+	if (stopEvent && !workId) return;
 	const lines = [
 		`Tedix read-only preflight: source=${sourceEvent}; observed=${observedAt}; CLI profile ${workspace}; credential kind ${source}; Work read scope ${hasWorkRead ? "present" : "unverified"}. This does not grant Work execution authority.`,
 		"Checkpoint: use tedix-session-guide at a material milestone or completion claim; compare Work, commits and the named live result. Guardian: tedix-guardian-session for explicit oversight.",
@@ -278,20 +292,27 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 		} else {
 			let disposition = "unknown";
 			try {
-				const item = await read(
-					[...command, "work", "context", workId, "--json"],
-					5000,
+				const boundary = await read(
+					[...command, "code", workBoundaryCode(workId)],
+					6500,
 				);
+				const item = boundary.item;
+				if (!isObject(item)) throw new Error("Unexpected Work boundary shape");
 				if (
 					bound &&
 					(item.projectId !== binding.projectId ||
 						(binding.credentialOrganizationId &&
-							item.orgId !== binding.credentialOrganizationId))
+							item.organizationId !== binding.credentialOrganizationId))
 				) {
 					lines.push(
 						"Selected Work does not match the bound project; verify the target before proceeding.",
 					);
 					send(lines.join("\n"));
+					return;
+				}
+				lines.push(workBoundaryLine(boundary, now()));
+				if (stopEvent) {
+					send(lines.at(-1)!);
 					return;
 				}
 				const title = String(item.title ?? "").slice(0, 60);

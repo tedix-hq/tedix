@@ -349,7 +349,12 @@ describe("plugin packager", () => {
 					expect(name).toBeDefined();
 					if (event === "SessionStart") expect(name).toBe("session-start");
 					if (event === "Stop")
-						expect(["capture-stop", "await-reply", "status"]).toContain(name);
+						expect([
+							"session-start",
+							"capture-stop",
+							"await-reply",
+							"status",
+						]).toContain(name);
 					if (event === "PreToolUse") expect(name).toBe("situational-recall");
 					if (
 						![
