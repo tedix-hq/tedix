@@ -63,6 +63,16 @@ and month from `dayOfMonth` (UTC) on, with `{month}` replaced by the period
 `sourceIntentId` is `recurring:<projectId>:<key>:<YYYY-MM>`, so a month is
 never filed twice. Accepting the item stays with its owner.
 
+Use `firstPeriod` (`YYYY-MM`) to begin after any months already filed by hand.
+Optional `startMonthOffset` (0–12) and `startDayOffset` (0–27) set the item's
+`startAt` from the first day of its period in UTC. For example,
+`startMonthOffset: 1, startDayOffset: 0` starts a November item on December 1.
+Filing still follows `dayOfMonth`; an offset changes when work starts, not
+which period is filed. Without offsets, `startAt` remains unset. Maintenance
+without a project objective keeps its maximum 30-day purpose window; deferred
+starts beyond that window require a project objective. `{month}` also expands in the
+description and done-when.
+
 ## Readiness and admission
 
 Readiness, scheduling, and admission share one eligibility evaluator, and hard

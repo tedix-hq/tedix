@@ -93,6 +93,27 @@ export const RecurringWorkTemplateSchema = z
 		priority: WorkItemPrioritySchema.optional(),
 		cadence: z.literal("monthly"),
 		dayOfMonth: z.number().int().min(1).max(28).default(1),
+		firstPeriod: z
+			.string()
+			.regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+			.optional()
+			.describe("First month to file (YYYY-MM); earlier periods are skipped."),
+		startMonthOffset: z
+			.number()
+			.int()
+			.min(0)
+			.max(12)
+			.optional()
+			.describe(
+				"Start the item this many calendar months after the period begins.",
+			),
+		startDayOffset: z
+			.number()
+			.int()
+			.min(0)
+			.max(27)
+			.optional()
+			.describe("Days after the first of the start month; 0 is the first day."),
 		enabled: z.boolean().default(true),
 	})
 	.strict();

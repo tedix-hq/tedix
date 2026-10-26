@@ -12,7 +12,7 @@ import { fileRecurringWork, recurringWorkPeriod } from "./recurring-work";
 
 const ORG = "org-fictional-books";
 
-function fixture(recurringWork: unknown[]) {
+function fixture(recurringWork: unknown[], withObjective = false) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		schemaDdl(
@@ -54,6 +54,23 @@ function fixture(recurringWork: unknown[]) {
 			"{}",
 			"2026-09-01T00:00:00.000Z",
 		);
+	if (withObjective) {
+		sqlite
+			.prepare(
+				"INSERT INTO tedi_objectives(id,org_id,tedi_id,title,status,created_at) VALUES(?,?,?,?,?,?)",
+			)
+			.run(
+				"objective-books",
+				ORG,
+				"tedi-books",
+				"Keep books current",
+				"active",
+				"2026-09-01T00:00:00.000Z",
+			);
+		sqlite
+			.prepare("UPDATE projects SET objective_id = ? WHERE id = ?")
+			.run("objective-books", "project-books");
+	}
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 
@@ -70,6 +87,104 @@ const receipts = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("recurring work", () => {
+	it("keeps maintenance within its purpose window, including 31-day months", async () => {
+		const { sqlite, db } = fixture([{ ...receipts, dayOfMonth: 1 }]);
+		try {
+			expect(
+				await fileRecurringWork(db, new Date("2027-01-01T00:00:00Z")),
+			).toEqual({ filed: 1, existing: 0, failed: 0 });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT purpose_exception_expires_at, start_at FROM work_items",
+					)
+					.get(),
+			).toEqual({
+				purpose_exception_expires_at: "2027-01-31T00:00:00.000Z",
+				start_at: null,
+			});
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("does not file deferred maintenance whose purpose would expire before its start", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { sqlite, db } = fixture([{ ...receipts, startMonthOffset: 2 }]);
+		try {
+			expect(
+				await fileRecurringWork(db, new Date("2026-11-03T00:00:00Z")),
+			).toEqual({ filed: 0, existing: 0, failed: 1 });
+			expect(
+				sqlite.prepare("SELECT COUNT(*) AS count FROM work_items").get(),
+			).toEqual({ count: 0 });
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("starts after the manually filed periods and defers work to the next month", async () => {
+		const { sqlite, db } = fixture(
+			[
+				{
+					...receipts,
+					firstPeriod: "2026-12",
+					startMonthOffset: 1,
+					startDayOffset: 0,
+					description: "Collect receipts for {month}.",
+					doneWhen: "Reconcile {month}.",
+				},
+			],
+			true,
+		);
+		try {
+			expect(
+				await fileRecurringWork(db, new Date("2026-11-30T23:00:00Z")),
+			).toEqual({ filed: 0, existing: 0, failed: 0 });
+			expect(
+				await fileRecurringWork(db, new Date("2026-12-03T00:00:00Z")),
+			).toEqual({ filed: 1, existing: 0, failed: 0 });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT title, description, start_at, purpose_exception_expires_at FROM work_items",
+					)
+					.get(),
+			).toEqual({
+				title: "Meal receipts December 2026",
+				description:
+					"Collect receipts for December 2026.\n\nDone when: Reconcile December 2026.",
+				start_at: "2027-01-01T00:00:00.000Z",
+				purpose_exception_expires_at: null,
+			});
+			expect(
+				await fileRecurringWork(db, new Date("2026-12-31T23:59:00Z")),
+			).toEqual({ filed: 0, existing: 1, failed: 0 });
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it.each(["2027-02", "2028-02"])(
+		"uses calendar months and day offsets for %s",
+		async (period) => {
+			const { sqlite, db } = fixture(
+				[{ ...receipts, startMonthOffset: 1, startDayOffset: 2 }],
+				true,
+			);
+			try {
+				await fileRecurringWork(db, new Date(`${period}-03T00:00:00Z`));
+				expect(sqlite.prepare("SELECT start_at FROM work_items").get()).toEqual(
+					{
+						start_at: `${period.slice(0, 4)}-03-03T00:00:00.000Z`,
+					},
+				);
+			} finally {
+				sqlite.close();
+			}
+		},
+	);
+
 	it("is due from its day of the month", () => {
 		expect(
 			recurringWorkPeriod(new Date("2026-11-02T23:00:00.000Z"), 3),
