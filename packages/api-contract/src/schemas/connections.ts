@@ -161,6 +161,34 @@ export const UserConnectionSchema = z.object({
 
 export type UserConnection = z.infer<typeof UserConnectionSchema>;
 
+/**
+ * MCP 2026-07-28 deprecates Dynamic Client Registration in favor of client ID
+ * metadata documents. Tedix registers an upstream OAuth client dynamically
+ * only with a recorded reason and a review date at most a year out.
+ */
+export const ConnectionProviderDcrExceptionSchema = z.strictObject({
+	justification: z
+		.string()
+		.trim()
+		.min(20)
+		.max(500)
+		.describe(
+			"Why this provider needs Dynamic Client Registration, e.g. the upstream offers no client ID metadata document support.",
+		),
+	reviewBy: z.iso
+		.date()
+		.describe("Date (YYYY-MM-DD) by which the exception must be reviewed."),
+});
+export type ConnectionProviderDcrException = z.infer<
+	typeof ConnectionProviderDcrExceptionSchema
+>;
+/** The stored exception: what was asked, by whom and when. */
+export type ConnectionProviderDcrExceptionRecord =
+	ConnectionProviderDcrException & {
+		recordedAt: string;
+		recordedBy: string | null;
+	};
+
 export const ConnectionProviderConfigSchema = z.object({
 	/** Optional custom ID — set during creation only, immutable after */
 	id: z.string().min(1).max(100).optional(),
@@ -195,6 +223,8 @@ export const ConnectionProviderConfigSchema = z.object({
 	useDcr: z.boolean().optional(),
 	/** DCR registration endpoint URL (required when useDcr is true) */
 	dcrUrl: z.url().optional(),
+	/** Required when useDcr is true. */
+	dcrException: ConnectionProviderDcrExceptionSchema.optional(),
 	/** Tedix-side credential shape and scope metadata for this provider. */
 	credentialProfile: ConnectionCredentialProfileSchema.optional(),
 });
@@ -251,6 +281,12 @@ export const CreateProviderFromMcpInputSchema = z.object({
 		.enum(["preserve", "migrate_to_dcr", "re_register_static"])
 		.default("preserve")
 		.optional(),
+	/**
+	 * Required when the upstream offers no client ID metadata document support
+	 * and Tedix would register a new OAuth client dynamically (including
+	 * re_register_static and migrate_to_dcr).
+	 */
+	dcrException: ConnectionProviderDcrExceptionSchema.optional(),
 	/** Resolve metadata and return the Descope payload without creating the outbound app. */
 	dryRun: z.boolean().default(false).optional(),
 });

@@ -30,6 +30,7 @@ import {
 	createConnectionProviderOwnership,
 	deleteConnectionProviderOwnership,
 	pinConnectionProviderIssuer,
+	recordConnectionProviderRegistration,
 } from "@tedix/db/queries/connection-providers";
 import { requireOrgId } from "../../org-scope";
 import {
@@ -51,6 +52,7 @@ import {
 	loadExistingStaticOAuthProvider,
 	normalizeProviderDescription,
 	registerMcpOAuthClientForDescope,
+	requireDcrException,
 } from "./provider-registration";
 import {
 	isPrivateOrLoopbackUrl,
@@ -451,6 +453,18 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 				"Existing static OAuth client found in Descope; attempting operator-requested DCR migration and leaving the existing client untouched if Descope DCR fails.",
 			);
 		}
+		// Gate before anything is provisioned: both the Descope-managed path and
+		// the direct fallback register a new client dynamically.
+		const dcrException = discovered.config.useDcr
+			? requireDcrException({
+					providerId,
+					exception: input.dcrException,
+					recordedBy: context.descopeUserId ?? context.user?.sub ?? null,
+				})
+			: null;
+		let provenance: "cimd" | "dcr_managed" | "dcr_direct" = dcrException
+			? "dcr_managed"
+			: "cimd";
 		let effectiveOutputConfig = outputConfig;
 		let result: {
 			id: string;
@@ -469,6 +483,7 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 				tokenEndpointAuthMethodsSupported:
 					discovered.discovery.tokenEndpointAuthMethodsSupported,
 			});
+			provenance = "dcr_direct";
 			const replacementConfig = {
 				...outputConfig,
 				clientId: dcrClient.clientId,
@@ -538,6 +553,7 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 					tokenEndpointAuthMethodsSupported:
 						discovered.discovery.tokenEndpointAuthMethodsSupported,
 				});
+				provenance = "dcr_direct";
 				const fallbackConfig = {
 					...outputConfig,
 					clientId: dcrClient.clientId,
@@ -577,6 +593,14 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 		);
 		await recordOwnership(result);
 		await persistIssuerPin();
+		await recordConnectionProviderRegistration(context.db, {
+			id: providerId,
+			provenance,
+			dcrException,
+			name,
+			description: description ?? null,
+			icon: logo ?? null,
+		});
 		return {
 			dryRun: false,
 			created: result.status === "created",

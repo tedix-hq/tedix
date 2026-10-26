@@ -173,6 +173,25 @@ describe("tenant OpenAPI MCP app import helpers", () => {
 		).toBeUndefined();
 	});
 
+	it("refuses to plan a dynamically registered OAuth provider", () => {
+		const input = CreateTenantOpenApiMcpAppInputSchema.parse({
+			...baseInput,
+			connectionProvider: {
+				type: "oauth",
+				name: "Acme OAuth",
+				useDcr: true,
+				dcrUrl: "https://auth.acme.example/register",
+			},
+		});
+		expect(() =>
+			catalogRouterTestInternals.tenantOpenApiConnectionProviderPlan(
+				input,
+				"acme-api",
+				"acme",
+			),
+		).toThrow(/recorded exception/);
+	});
+
 	it("plans a tenant-scoped Descope provider for authenticated imports", () => {
 		const input = CreateTenantOpenApiMcpAppInputSchema.parse({
 			...baseInput,

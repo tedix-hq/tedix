@@ -817,6 +817,13 @@ export function tenantOpenApiConnectionProviderPlan(
 		Boolean(input.authScopes?.length);
 	if (!shouldProvision) return null;
 	const provider = input.connectionProvider;
+	// Dynamic Client Registration needs a recorded exception, which only
+	// connections.createProvider takes.
+	if (provider?.useDcr === true)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Dynamic Client Registration needs a recorded exception: create the provider with connections.createProvider and dcrException, then pass its id as connectionProviderId.",
+		);
 	const type = provider?.type ?? "api_key";
 	const id =
 		provider?.id ??

@@ -4,7 +4,11 @@ import {
 	type ConnectionCredentialProfile,
 	type ConnectionProviderTemplate,
 } from "@tedix/api-contract/schemas/connection-provider-templates";
-import { ConnectionCredentialProfileSchema } from "@tedix/api-contract/schemas/connections";
+import {
+	ConnectionCredentialProfileSchema,
+	type ConnectionProviderDcrException,
+	type ConnectionProviderDcrExceptionRecord,
+} from "@tedix/api-contract/schemas/connections";
 import type { ConnectionToolCapability } from "@tedix/api-contract/schemas/connections";
 import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { DESCOPE_DEFAULT_BASE_URL } from "@tedix/auth/types";
@@ -45,6 +49,45 @@ export function isDescopeDcrRegistrationError(error: unknown): boolean {
 		normalized.includes("dynamic client registration") ||
 		normalized.includes("oauth metadata with url fetch failed")
 	);
+}
+
+const DCR_EXCEPTION_MAX_DAYS = 366;
+
+/**
+ * Dynamic Client Registration is deprecated (MCP 2026-07-28). Every path that
+ * would register a new upstream OAuth client dynamically, whether Descope
+ * registers it or Tedix does and stores it as a static client, needs a
+ * recorded reason and a review date no more than a year out.
+ */
+export function requireDcrException(input: {
+	providerId: string;
+	exception: ConnectionProviderDcrException | undefined;
+	recordedBy: string | null;
+	now?: Date;
+}): ConnectionProviderDcrExceptionRecord {
+	const now = input.now ?? new Date();
+	if (!input.exception) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			`Provider ${input.providerId} would use Dynamic Client Registration, which is deprecated. Prefer an upstream with client ID metadata document support; otherwise pass dcrException { justification, reviewBy } to record why DCR is needed and when to review it.`,
+		);
+	}
+	const today = now.toISOString().slice(0, 10);
+	const latest = new Date(now.getTime() + DCR_EXCEPTION_MAX_DAYS * 86_400_000)
+		.toISOString()
+		.slice(0, 10);
+	if (input.exception.reviewBy <= today || input.exception.reviewBy > latest) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			`dcrException.reviewBy must be after ${today} and no later than ${latest}`,
+		);
+	}
+	return {
+		justification: input.exception.justification,
+		reviewBy: input.exception.reviewBy,
+		recordedAt: now.toISOString(),
+		recordedBy: input.recordedBy,
+	};
 }
 
 export async function registerMcpOAuthClientForDescope(input: {

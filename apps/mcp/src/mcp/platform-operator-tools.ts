@@ -582,7 +582,7 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		endpoint: "connections/createProviderFromMcp",
 		kind: "write",
 		description:
-			"Provision or update a Descope AIH outbound connection provider from a catalog MCP app or upstream MCP endpoint. OAuth apps discover protected-resource metadata, authorization-server metadata, DCR registration endpoint, scopes, and resource parameters automatically; API-key apps create a Custom API Key connection provider.",
+			"Provision or update a Descope AIH outbound connection provider from a catalog MCP app or upstream MCP endpoint. OAuth apps discover protected-resource and authorization-server metadata, scopes, and resource parameters automatically and prefer client ID metadata documents; an upstream that only offers Dynamic Client Registration needs dcrException { justification, reviewBy }. API-key apps create a Custom API Key connection provider.",
 	},
 	{
 		toolId: "create_connection_provider",
