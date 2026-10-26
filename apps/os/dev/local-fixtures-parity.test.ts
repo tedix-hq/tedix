@@ -144,6 +144,7 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"connections/disconnectProvider",
 		"connections/initiateConnection",
 		"connections/renameConnectionInstance",
+		"connections/setConnectionAccessCheck",
 		"connections/storeApiKey",
 	],
 	"AppContentPage mutation failure toast": [

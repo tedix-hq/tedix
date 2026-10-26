@@ -19,6 +19,7 @@ import {
 	listProviders,
 	createConnectionInstance,
 	renameConnectionInstance,
+	setConnectionAccessCheck,
 	preparePersonalConnection,
 	bindConnectionInstance,
 } from "./connections/discovery-user";
@@ -44,6 +45,7 @@ import { connectionsOs } from "./connections/policy-resolution";
 export const connectionsContractRouter = connectionsOs.router({
 	createConnectionInstance,
 	renameConnectionInstance,
+	setConnectionAccessCheck,
 	preparePersonalConnection,
 	stageConnectTicket,
 	redeemConnectTicket,

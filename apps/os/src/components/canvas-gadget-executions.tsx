@@ -118,6 +118,75 @@ export function gadgetExecutionToolResult(
 	};
 }
 
+const connectionObservationSchema = z.object({
+	kind: z.literal("connection_observation"),
+	toolId: z.string(),
+	providerId: z.string(),
+	resourceName: z.string().nullish(),
+	account: z.enum(["personal", "organization"]),
+	actingUserId: z.string(),
+	ownAccess: z.string(),
+	mode: z.enum(["audit", "enforce"]),
+	wouldDeny: z.boolean(),
+	containsRestrictedData: z.boolean(),
+});
+
+const OWN_ACCESS_LABELS: Record<string, string> = {
+	own_account: "Read with their own account",
+	not_checked: "Not checked for this account",
+	verified: "Their own account can open it",
+	unverified: "They have an account; this provider has no access check yet",
+	no_linked_account: "They have no linked account",
+	no_access: "Their own account cannot open it",
+	check_failed: "The check could not finish",
+};
+
+/** One app read through a connection: who read what, and what the access check found. */
+function ConnectionObservation({
+	execution,
+}: {
+	execution: OsGadgetExecution;
+}) {
+	const parsed = connectionObservationSchema.safeParse(execution.input);
+	if (!parsed.success) return null;
+	const read = parsed.data;
+	return (
+		<dl className="m-0 grid gap-1 text-xs sm:grid-cols-2">
+			{[
+				["Read", `${read.resourceName ?? read.toolId} in ${read.providerId}`],
+				[
+					"Account",
+					read.account === "organization"
+						? "Organization account"
+						: "Reader's own account",
+				],
+				["Reader", read.actingUserId],
+				[
+					"Own access",
+					`${OWN_ACCESS_LABELS[read.ownAccess] ?? read.ownAccess}${
+						read.wouldDeny && read.mode === "audit"
+							? " (audit week: would be refused)"
+							: ""
+					}`,
+				],
+			].map(([label, value]) => (
+				<div key={label} className="min-w-0">
+					<Text as="dt" role="label" tone="secondary">
+						{label}
+					</Text>
+					<Text as="dd" role="label" className="m-0">
+						{value}
+					</Text>
+				</div>
+			))}
+		</dl>
+	);
+}
+
+function isConnectionObservation(execution: OsGadgetExecution): boolean {
+	return connectionObservationSchema.safeParse(execution.input).success;
+}
+
 function JsonEvidence({ value }: { value: JsonValue }) {
 	return (
 		<CodeBlock
@@ -137,6 +206,11 @@ function ReceiptDetail({
 }) {
 	useOsFormattingPreferences();
 	const lineage = execution.lineage;
+	const observation = isConnectionObservation(execution);
+	const restricted =
+		observation &&
+		(execution.input as { containsRestrictedData?: boolean })
+			.containsRestrictedData === true;
 	const exportExecution = useMutation({
 		mutationFn: (exportId: string) =>
 			osApi.osWorkspaces.executions.export({
@@ -166,10 +240,14 @@ function ReceiptDetail({
 		<Card size="sm" data-execution-id={execution.id}>
 			<CardHeader>
 				<CardTitle className="flex flex-wrap items-center gap-2">
-					<Receipt size={16} /> Execution receipt
+					<Receipt size={16} />{" "}
+					{observation ? "Connection read" : "Execution receipt"}
 					<Badge variant={executionStatusVariant(execution.status)}>
 						{sentenceCase(execution.status)}
 					</Badge>
+					{restricted && (
+						<Badge variant="warning">Contains restricted data</Badge>
+					)}
 					<CostChip
 						reading={gadgetCostReading({
 							runId: execution.lineage.runId ?? null,
@@ -186,6 +264,7 @@ function ReceiptDetail({
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="grid gap-3">
+				<ConnectionObservation execution={execution} />
 				{execution.status === "completed" && exportDescriptors.length > 0 && (
 					<div className="flex flex-wrap items-center gap-2">
 						<Text as="span" role="label" weight="medium">
@@ -499,7 +578,10 @@ export function CanvasGadgetExecutions({
 								size="xs"
 								onClick={() => setLatestExecution(execution)}
 							>
-								{execution.id.slice(0, 8)} · {sentenceCase(execution.status)}
+								{isConnectionObservation(execution)
+									? "Read"
+									: execution.id.slice(0, 8)}{" "}
+								· {sentenceCase(execution.status)}
 							</Button>
 						))}
 					</div>

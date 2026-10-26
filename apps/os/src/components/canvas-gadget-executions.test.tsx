@@ -357,3 +357,49 @@ describe("CanvasGadgetExecutions", () => {
 		click.mockRestore();
 	});
 });
+
+describe("connection read receipts", () => {
+	it("shows who read what, the access check, and restricted data", async () => {
+		api.osWorkspaces.executions.list.mockResolvedValue({
+			items: [
+				executionFixture({
+					status: "completed",
+					grantedCapabilities: ["connections.read"],
+					policyDecision: {
+						allowed: true,
+						reasons: [
+							"connection_observation",
+							"own_access:no_linked_account",
+							"own_access:would_deny",
+						],
+					},
+					input: {
+						kind: "connection_observation",
+						toolId: "get_page",
+						providerId: "notion",
+						resourceName: "Roadmap",
+						account: "organization",
+						actingUserId: "user-2",
+						ownAccess: "no_linked_account",
+						mode: "audit",
+						wouldDeny: true,
+						containsRestrictedData: true,
+					},
+					output: null,
+					costs: null,
+				}),
+			],
+			truncated: false,
+		});
+		renderPanel();
+		await flush();
+		const text = container.textContent ?? "";
+		expect(text).toContain("Connection read");
+		expect(text).toContain("Contains restricted data");
+		expect(text).toContain("Roadmap in notion");
+		expect(text).toContain("Organization account");
+		expect(text).toContain(
+			"They have no linked account (audit week: would be refused)",
+		);
+	});
+});

@@ -12,6 +12,7 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	ConnectionAccessCheckSchema,
 	ConnectionInventoryInputSchema,
 	ConnectionInventorySchema,
 	AuditConnectionProviderSettingsInputSchema,
@@ -65,6 +66,21 @@ export const connectionsContract = oc
 				}),
 			)
 			.output(z.object({ success: z.literal(true) })),
+		setConnectionAccessCheck: oc
+			.route({
+				method: "PUT",
+				path: "/instances/{id}/access-check",
+				summary: "Set account access check",
+				description:
+					"Org admin override of 'check each person's access' on an organization account. null returns the account to its provider default.",
+			})
+			.input(
+				z.object({
+					id: z.uuid(),
+					checkEachPersonsAccess: z.boolean().nullable(),
+				}),
+			)
+			.output(ConnectionAccessCheckSchema),
 		preparePersonalConnection: oc
 			.route({
 				method: "POST",

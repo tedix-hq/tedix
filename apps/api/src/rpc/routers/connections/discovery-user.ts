@@ -20,6 +20,7 @@ import {
 } from "../../orpc";
 import {
 	buildConnectionProviderMaps,
+	getConnectionProviderByDescopeAppId,
 	getConnectionProviderById,
 	listConnectionProviders,
 } from "@tedix/db/queries/connection-providers";
@@ -39,7 +40,9 @@ import {
 import {
 	getOrganizationByDescopeId,
 	getOrganizationById,
+	updateOrganizationMetadata,
 } from "@tedix/db/queries/organizations";
+import { resolveConnectionAccessCheck } from "../../../services/connection-access-check";
 import { requireOrgId } from "../../org-scope";
 import {
 	getAppByIdForOrganization,
@@ -273,6 +276,49 @@ export const renameConnectionInstance = authedOs.renameConnectionInstance
 		if (!rows.length)
 			throw createError(ErrorCodes.NOT_FOUND, "Account not found");
 		return { success: true as const };
+	});
+
+/** Org admin override of "check each person's access" on one organization account. */
+export const setConnectionAccessCheck = authedOs.setConnectionAccessCheck
+	.use(AUTHZ.appsRead)
+	.handler(async ({ context, input }) => {
+		// Organization accounts only; requires integrations:manage.
+		connectionOwner(context, "tenant");
+		const owner = { organizationId: requireOrgId(context) };
+		const instance = (await listConnectionInstances(context.db, owner)).find(
+			(row) => row.id === input.id,
+		);
+		if (!instance) throw createError(ErrorCodes.NOT_FOUND, "Account not found");
+		const organization = await getOrganizationById(
+			context.db,
+			owner.organizationId,
+		);
+		const overrides = (
+			organization?.metadata?.connectionAccessChecks ?? []
+		).filter((entry) => entry.connectionInstanceId !== instance.id);
+		const connectionAccessChecks =
+			input.checkEachPersonsAccess === null
+				? overrides
+				: [
+						...overrides,
+						{
+							connectionInstanceId: instance.id,
+							checkEachPersonsAccess: input.checkEachPersonsAccess,
+						},
+					];
+		const updated = await updateOrganizationMetadata(
+			context.db,
+			owner.organizationId,
+			{ connectionAccessChecks },
+		);
+		const provider = await getConnectionProviderByDescopeAppId(
+			context.db,
+			instance.providerId,
+		);
+		return resolveConnectionAccessCheck(updated.metadata, instance.id, {
+			appId: instance.providerId,
+			category: provider?.category,
+		});
 	});
 
 /** Called by the authenticated OS Worker before it creates an account-bound intent. */

@@ -77,6 +77,22 @@ excludes app storage, documents and chats. Publish the draft in **Blueprints**
 when it is ready; each installation creates fresh apps with independent storage
 and asks for new resource selections. Uncommitted drafts are not captured.
 
+Each read an app makes through a connection slot adds a **Connection read**
+receipt to the app's **Runs** tab: the resource, the account (organization or
+the reader's own), the reader, what the access check found, and **Contains
+restricted data** when the result may include something the reader could not
+open in the provider themselves. Receipts never store the data read.
+
+Organization accounts have a **Check each person's access** setting under
+Settings → Connections. It is on by default for document stores (Notion, and
+apps catalogued as productivity or storage) and off for service accounts such
+as billing or analytics; an org admin can turn it on or off per account.
+When it is on, Tedix checks the reader's own linked account for that provider
+before the read. A reader with no linked account is asked to link one.
+Notion is checked against the exact page. Until 2 November 2026 the check is audit-only: reads
+are served and the receipt records "would be refused". After that a failed
+check refuses the read.
+
 The app's **Share** dialog shows **People with access** (the workspace owner
 and, for an organization workspace, everyone in the organization) above its
 share links. Admins get a link to invite people to the organization.

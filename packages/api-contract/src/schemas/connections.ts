@@ -440,6 +440,16 @@ export const ConnectionReferenceSchema = z.object({
 	appName: z.string().optional(),
 	source: z.enum(["app", "tool", "aggregate"]),
 });
+/** "Check each person's access" on one organization account. */
+export const ConnectionAccessCheckSchema = z.object({
+	checkEachPersonsAccess: z.boolean(),
+	source: z
+		.enum(["default", "admin"])
+		.describe(
+			"default: from the provider kind (on for document stores, off for service accounts); admin: an org admin override",
+		),
+});
+export type ConnectionAccessCheck = z.infer<typeof ConnectionAccessCheckSchema>;
 export const ConnectionInventoryRowSchema = z.object({
 	provider: ConnectionProviderSchema,
 	connectionInstanceId: z.uuid().optional(),
@@ -463,6 +473,8 @@ export const ConnectionInventoryRowSchema = z.object({
 	/** False when any referenced tool lacked valid policy metadata or traversal was partial. */
 	toolCapabilitiesComplete: z.boolean().optional(),
 	referencesComplete: z.boolean(),
+	/** Organization accounts only: whether app reads check the reader's own provider access. */
+	accessCheck: ConnectionAccessCheckSchema.optional(),
 	access: z.literal("not_evaluated"),
 	health: z.literal("not_checked"),
 });
