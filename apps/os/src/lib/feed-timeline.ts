@@ -1,5 +1,6 @@
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import { focusDay } from "@tedix/api-contract/utils/focus-feed";
+import { OS_COPY } from "@/shared/os-copy";
 
 export const ACTIVITY_WHO = [
 	"all",
@@ -9,13 +10,6 @@ export const ACTIVITY_WHO = [
 	"shipped",
 ] as const;
 export type ActivityWho = (typeof ACTIVITY_WHO)[number];
-export const ACTIVITY_WHO_LABEL: Record<ActivityWho, string> = {
-	all: "All",
-	people: "People",
-	tedis: "Tedis",
-	apps: "Apps",
-	shipped: "Shipped",
-};
 
 const PEOPLE = new Set(["user", "person", "member", "human"]);
 const AGENTS = new Set(["tedi", "agent", "external_agent"]);
@@ -43,13 +37,14 @@ export function activityStatus(
 	item: ActivityFeedItem,
 ): { tone: "success" | "error"; label: string } | null {
 	if (item.needsAction) return null;
+	const status = OS_COPY.feed.timeline.status;
 	if (item.kind === "result")
 		return item.done
-			? { tone: "success", label: "Finished" }
-			: { tone: "error", label: "Didn't finish" };
+			? { tone: "success", label: status.finished }
+			: { tone: "error", label: status.unfinished };
 	if (item.kind !== "work") return null;
 	if (/failed|expired|blocked/.test(item.classId))
-		return { tone: "error", label: "Needs a look" };
+		return { tone: "error", label: status.needsLook };
 	return null;
 }
 
@@ -155,9 +150,9 @@ export function activityDays<T extends ActivityFeedItem>(
 		day,
 		label:
 			day === today
-				? "Today"
+				? OS_COPY.feed.timeline.today
 				: day === yesterday
-					? "Yesterday"
+					? OS_COPY.feed.timeline.yesterday
 					: new Intl.DateTimeFormat(locale, {
 							weekday: "short",
 							month: "short",

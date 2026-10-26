@@ -37,7 +37,6 @@ import { Text } from "./kumo/text";
 import { ActivityGroupRow } from "./activity-group-row";
 import {
 	ACTIVITY_WHO,
-	ACTIVITY_WHO_LABEL,
 	activityDays,
 	collapseActivity,
 	matchesActivityWho,
@@ -103,7 +102,7 @@ export function FocusFeed({
 			? "No finished work matches these filters."
 			: filter === "stalled"
 				? "No stalled work matches these filters."
-				: "No activity matches these filters.";
+				: OS_COPY.feed.timeline.noMatch;
 	const [sources, setSources] = useState<Record<string, FeedSourceState>>({});
 	const [cardSource, setCardSource] = useCardSourceFilter();
 	const [request, setRequest] = useState(0);
@@ -647,7 +646,7 @@ export function FocusFeed({
 	const chips = (
 		<div
 			role="group"
-			aria-label="Show activity from"
+			aria-label={OS_COPY.feed.timeline.whoGroup}
 			className="ft-chips flex flex-wrap items-center gap-1"
 		>
 			{ACTIVITY_WHO.map((value) => (
@@ -658,7 +657,7 @@ export function FocusFeed({
 					aria-pressed={who === value}
 					onClick={() => setWho(value)}
 				>
-					{ACTIVITY_WHO_LABEL[value]}
+					{OS_COPY.feed.timeline.who[value]}
 				</Button>
 			))}
 			{sourceFilter}
@@ -712,10 +711,12 @@ export function FocusFeed({
 								navigation.onFilterChange?.("all");
 							}}
 						>
-							Show all activity
+							{OS_COPY.feed.timeline.showAllActivity}
 						</Button>
 					) : (
-						<Link href="/work?view=feed">Show all activity</Link>
+						<Link href="/work?view=feed">
+							{OS_COPY.feed.timeline.showAllActivity}
+						</Link>
 					)}
 				</div>
 			) : (
@@ -786,8 +787,8 @@ export function FocusFeed({
 					filtered
 						? filterLabel
 						: timeline
-							? `${ACTIVITY_WHO_LABEL[who]} activity`
-							: "Activity for you"
+							? OS_COPY.feed.timeline.whoRegion(OS_COPY.feed.timeline.who[who])
+							: OS_COPY.feed.timeline.forYou
 				}
 				aria-busy={loading || revealing}
 			>
@@ -797,7 +798,7 @@ export function FocusFeed({
 					<>
 						{days([...needs, ...updates], true)}
 						{!needs.length && !updates.length && !loading && (
-							<Text tone="secondary">Nothing new needs your attention.</Text>
+							<Text tone="secondary">{OS_COPY.feed.timeline.nothingNew}</Text>
 						)}
 						{waiting.length > 0 && (
 							<>
@@ -833,7 +834,7 @@ export function FocusFeed({
 			{loading && <Text>Opening your activity…</Text>}
 			{!loading && !failed && !visible.length && timeline && (
 				<div role="status">
-					<Text>{filtered ? emptyMessage : "No activity yet."}</Text>
+					<Text>{filtered ? emptyMessage : OS_COPY.feed.timeline.empty}</Text>
 				</div>
 			)}
 			{more && (
@@ -847,10 +848,7 @@ export function FocusFeed({
 				</Button>
 			)}
 			<DecisionContextSection title="Activity preferences">
-				<Text>
-					j / k move · o open · p pin · h hide · n not important. People, Tedis,
-					Apps and Shipped show the full timeline.
-				</Text>
+				<Text>{OS_COPY.feed.timeline.hint}</Text>
 				{navigation?.apps}
 			</DecisionContextSection>
 		</div>

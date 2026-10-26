@@ -482,6 +482,38 @@ const ENGLISH_COPY = {
 			stalled: "Stalled",
 			queue: "In progress",
 		},
+		timeline: {
+			who: {
+				all: "All",
+				people: "People",
+				tedis: "Tedis",
+				apps: "Apps",
+				shipped: "Shipped",
+			},
+			whoGroup: "Show activity from",
+			whoRegion: (who: string) => `${who} activity`,
+			forYou: "Activity for you",
+			today: "Today",
+			yesterday: "Yesterday",
+			groupSummary: (actor: string, count: number) =>
+				`${actor} posted ${count} similar updates`,
+			groupLabel: (count: number, actor: string) =>
+				`${count} updates from ${actor}`,
+			showAll: (count: number) => `Show all ${count}`,
+			showAllActivity: "Show all activity",
+			status: {
+				finished: "Finished",
+				unfinished: "Didn't finish",
+				needsLook: "Needs a look",
+				needsYou: "Needs you",
+			},
+			more: "More",
+			less: "Less",
+			nothingNew: "Nothing new needs your attention.",
+			empty: "No activity yet.",
+			noMatch: "No activity matches these filters.",
+			hint: "j / k move · o open · p pin · h hide · n not important. People, Tedis, Apps and Shipped show the full timeline.",
+		},
 		greeting: (hour: number, name: string) =>
 			`${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}, ${name}`,
 		decisionsWaiting: (count: string) =>
