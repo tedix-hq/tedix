@@ -330,7 +330,10 @@ vi.mock("@/components/output-export-buttons", () => ({
 import { ConnectionChip } from "./canvas-doc-panel";
 import {
 	CANVAS_CHAT_WIDTH_DEFAULT,
+	CANVAS_CHAT_COLLAPSED_KEY,
 	CANVAS_CHAT_WIDTH_KEY,
+	persistCanvasChatCollapsed,
+	restoreCanvasChatCollapsed,
 	CANVAS_CHAT_WIDTH_MAX,
 	CANVAS_CHAT_WIDTH_MIN,
 	CANVAS_STAGE_MIN_WIDTH,
@@ -998,6 +1001,25 @@ describe("Canvas workbench state", () => {
 		expect(restoreCanvasChatWidth({ getItem: () => "invalid" })).toBe(
 			CANVAS_CHAT_WIDTH_DEFAULT,
 		);
+	});
+
+	it("remembers whether the chat was hidden beside an open item", () => {
+		const store = new Map<string, string>();
+		const storage = {
+			getItem: (key: string) => store.get(key) ?? null,
+			setItem: (key: string, value: string) => void store.set(key, value),
+		};
+		expect(restoreCanvasChatCollapsed(storage)).toBe(false);
+		persistCanvasChatCollapsed(storage, true);
+		expect(store.get(CANVAS_CHAT_COLLAPSED_KEY)).toBe("true");
+		expect(restoreCanvasChatCollapsed(storage)).toBe(true);
+		expect(
+			restoreCanvasChatCollapsed({
+				getItem: () => {
+					throw new Error("blocked");
+				},
+			}),
+		).toBe(false);
 	});
 
 	it("selects the neighboring workpiece when the active tab closes", () => {

@@ -552,6 +552,7 @@ export function ConversationCostChip({ runs }: { runs: readonly HomeRun[] }) {
 		.filter((usage): usage is NonNullable<HomeRun["usage"]> => Boolean(usage));
 	return (
 		<CostChip
+			className="bg-transparent! text-kumo-subtle!"
 			reading={kernelUsageReading(usages)}
 			subject={
 				isLocalWorkersAi()
