@@ -1168,6 +1168,10 @@
 		{
 			"name": "20261026164659_connection_provider_registration/migration.sql",
 			"sha256": "7254de48b3401cd3dcc3b96a3260883d98bb210283283211175e4be0d1ce6cb3"
+		},
+		{
+			"name": "20261026182441_os_blueprint_featured/migration.sql",
+			"sha256": "7531170f3f5247aa311ab40b589ff4416b6e9c2af6923ad0658b7a87304aa247"
 		}
 	]
 }

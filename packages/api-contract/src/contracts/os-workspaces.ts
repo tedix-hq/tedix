@@ -173,9 +173,61 @@ export const OsBlueprintGalleryItemSchema = z.object({
 		.string()
 		.nullable()
 		.describe("When the served revision was published"),
+	featured: z
+		.boolean()
+		.describe("True when a platform admin added it to the Featured set"),
 });
 export type OsBlueprintGalleryItem = z.infer<
 	typeof OsBlueprintGalleryItemSchema
+>;
+
+/**
+ * What one gallery blueprint's landing page shows, and the ONLY shape the
+ * signed-out public read returns. Strict: no organization id or name, no
+ * creator, no revision or skill ids, no app source, no policy or steward pins.
+ * The "needs" lists name what an installer must connect or bring, nothing an
+ * installer could use against the publishing organization.
+ */
+export const OsBlueprintPublicPageSchema = z
+	.object({
+		id: z.string().uuid(),
+		name: z.string(),
+		description: z.string().nullable(),
+		publishedAt: z.string().nullable(),
+		featured: z.boolean(),
+		apps: z
+			.array(z.object({ name: z.string() }).strict())
+			.describe("Apps the blueprint installs"),
+		needs: z
+			.object({
+				connections: z
+					.array(z.object({ providerId: z.string() }).strict())
+					.describe("Connected accounts the installer must provide"),
+				resources: z
+					.array(
+						z.object({ label: z.string(), providerId: z.string() }).strict(),
+					)
+					.describe("Concrete resources the installer picks"),
+				skills: z
+					.array(z.object({ slug: z.string() }).strict())
+					.describe("Skills that must exist in the installing organization"),
+				outputs: z
+					.array(z.object({ title: z.string(), kind: z.string() }).strict())
+					.describe("Deliverables the apps produce"),
+			})
+			.strict(),
+	})
+	.strict();
+export type OsBlueprintPublicPage = z.infer<typeof OsBlueprintPublicPageSchema>;
+
+/** The signed-in landing page: the public page plus the publisher's display name. */
+export const OsBlueprintGalleryPageSchema = OsBlueprintPublicPageSchema.extend({
+	organizationName: z
+		.string()
+		.describe("Display name of the organization that published the blueprint"),
+});
+export type OsBlueprintGalleryPage = z.infer<
+	typeof OsBlueprintGalleryPageSchema
 >;
 
 const workspaceIdInput = z.object({ workspaceId: z.string().uuid() });

@@ -188,6 +188,7 @@ function galleryItemFixture(
 		gadgetCount: 2,
 		organizationName: "Second Org",
 		publishedAt: "2026-08-13T09:00:00.000Z",
+		featured: false,
 		...overrides,
 	};
 }

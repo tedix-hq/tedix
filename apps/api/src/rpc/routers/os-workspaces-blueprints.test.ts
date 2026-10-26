@@ -1012,6 +1012,7 @@ describe("blueprint gallery", () => {
 			gadgetCount: 1,
 			organizationName: "Second Org",
 			publishedAt: expect.any(String),
+			featured: false,
 		});
 	});
 
