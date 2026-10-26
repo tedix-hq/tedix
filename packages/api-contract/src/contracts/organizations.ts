@@ -14,6 +14,8 @@ import { SURFACE_SLUG_PATTERN } from "@tedix/tenant-directory";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	ListInboundClientInventoryInputSchema,
+	ListInboundClientInventoryResultSchema,
 	ListMcpAuthorizationsInputSchema,
 	ListMcpAuthorizationsResultSchema,
 	DisableMcpAuthorizationInputSchema,
@@ -85,6 +87,14 @@ export const organizationsContract = oc
 			.route({ summary: "List your Tedix Connect authorizations" })
 			.input(ListMcpAuthorizationsInputSchema)
 			.output(ListMcpAuthorizationsResultSchema),
+		listInboundClientInventory: oc
+			.route({
+				summary: "List the OAuth clients connected to an organization",
+				description:
+					"Admin or owner read of the outside apps people connected to this organization's MCP servers and the inbound client policy decisions recorded for them, judged against the stored policy.",
+			})
+			.input(ListInboundClientInventoryInputSchema)
+			.output(ListInboundClientInventoryResultSchema),
 		disableMcpAuthorization: oc
 			.route({
 				summary: "Disable your human MCP access for one resource and client",

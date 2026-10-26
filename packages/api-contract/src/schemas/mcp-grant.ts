@@ -98,6 +98,52 @@ export type McpInboundClientPolicy = z.infer<
 	typeof McpInboundClientPolicySchema
 >;
 
+export const ListInboundClientInventoryInputSchema = z.strictObject({
+	organizationId: z.string().min(1).max(128),
+});
+
+/**
+ * One OAuth client seen for an organization: from active Connect grants that
+ * select it and from recorded inbound policy decisions. Carries no person.
+ */
+export const InboundClientInventoryItemSchema = z.strictObject({
+	mcpServerId: z.string(),
+	/** The MCP server's app slug when it resolves to exactly one app. */
+	serverSlug: z.string().nullable(),
+	clientId: z.string(),
+	clientName: z.string().nullable(),
+	clientKind: z.enum(["cimd", "opaque"]),
+	/** People holding an active Connect grant that selects this organization. */
+	connectedPeople: z.number().int().nonnegative(),
+	lastGrantedAt: z.string().nullable(),
+	lastAttempt: z
+		.strictObject({
+			stage: z.enum(["consent", "grant"]),
+			mode: z.enum(["none", "audit", "enforce", "invalid"]),
+			allowed: z.boolean(),
+			at: z.string(),
+			attempts: z.number().int().nonnegative(),
+			denied: z.number().int().nonnegative(),
+		})
+		.nullable(),
+	/** Judged against the policy stored now. */
+	listed: z.boolean(),
+	allowedNow: z.boolean(),
+});
+
+export const ListInboundClientInventoryResultSchema = z.strictObject({
+	/** Null when no policy is stored or the stored one does not parse. */
+	policy: McpInboundClientPolicySchema.nullable(),
+	policyInvalid: z.boolean(),
+	items: z.array(InboundClientInventoryItemSchema),
+});
+export type InboundClientInventoryItem = z.infer<
+	typeof InboundClientInventoryItemSchema
+>;
+export type ListInboundClientInventoryResult = z.infer<
+	typeof ListInboundClientInventoryResultSchema
+>;
+
 export const VerifyHumanMcpGrantResultSchema = z.strictObject({
 	allowed: z.boolean(),
 	reason: z.enum([

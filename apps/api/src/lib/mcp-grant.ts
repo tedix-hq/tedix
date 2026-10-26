@@ -146,6 +146,7 @@ async function verifiedHumanClient(
 ): Promise<{
 	appId: string;
 	clientId: string;
+	clientName: string | null;
 	mcpServerId: string;
 	supportedScopes: Set<string>;
 	resource: NonNullable<Awaited<ReturnType<typeof getMcpConsentResource>>>;
@@ -185,6 +186,7 @@ async function verifiedHumanClient(
 		resource,
 		appId: matches[0]!.id,
 		clientId: (matches[0]!.clientId ?? matches[0]!.client_id)!,
+		clientName: matches[0]!.name ?? null,
 		mcpServerId,
 		supportedScopes,
 	};
@@ -252,7 +254,13 @@ export async function stageHumanMcpConsent(
 				organization.metadata?.mcpInboundClientPolicy,
 				client,
 			);
-			recordInboundClientVerdict("consent", organization.id, client, verdict);
+			await recordInboundClientVerdict(
+				db,
+				"consent",
+				organization.id,
+				{ ...client, clientName: registered.clientName },
+				verdict,
+			);
 			return verdict.allowed ? organization.id : null;
 		}),
 	);
@@ -406,6 +414,7 @@ export async function verifyHumanMcpGrant(
 	db: DbClient,
 	env: CloudflareEnv,
 	input: VerifyHumanMcpGrantInput,
+	options: { defer?: (promise: Promise<unknown>) => void } = {},
 ): Promise<HumanMcpGrantDecision> {
 	// Content-free stage timing: fixed names, durations and counts only. Spans
 	// carry the same values but are not queryable from Workers logs, and this
@@ -426,6 +435,7 @@ export async function verifyHumanMcpGrant(
 			input,
 			mark,
 			started + PROVIDER_DEADLINE_MS,
+			options.defer,
 		);
 		return decision;
 	} finally {
@@ -447,6 +457,7 @@ async function verifyHumanMcpGrantStages(
 	input: VerifyHumanMcpGrantInput,
 	mark: (stage: string) => void,
 	deadline: number,
+	defer?: (promise: Promise<unknown>) => void,
 ): Promise<HumanMcpGrantDecision> {
 	if (!env.DESCOPE_MANAGEMENT_KEY) return deny("provider_unavailable");
 	const resource = await readGrantState("resource", () =>
@@ -533,7 +544,16 @@ async function verifyHumanMcpGrantStages(
 
 	const ledger = await ledgerReads;
 	if (!ledger.ok) return deny("provider_unavailable");
-	return judgeLedger(db, input, resource, ledger, appId, liveTenants, mark);
+	return judgeLedger(
+		db,
+		input,
+		resource,
+		ledger,
+		appId,
+		liveTenants,
+		mark,
+		defer,
+	);
 }
 
 type ProviderFactsResult =
@@ -696,6 +716,7 @@ async function judgeLedger(
 	appId: string,
 	liveTenants: ReadonlySet<string>,
 	mark: (stage: string) => void,
+	defer?: (promise: Promise<unknown>) => void,
 ): Promise<HumanMcpGrantDecision> {
 	const key = {
 		descopeUserId: input.descopeUserId,
@@ -740,7 +761,14 @@ async function judgeLedger(
 			parseStoredInboundClientPolicy(row.inboundClientPolicyJson),
 			client,
 		);
-		recordInboundClientVerdict("grant", row.organizationId, client, verdict);
+		await recordInboundClientVerdict(
+			db,
+			"grant",
+			row.organizationId,
+			client,
+			verdict,
+			defer,
+		);
 		if (!verdict.allowed) return deny("client_not_allowed");
 		organizations.push({
 			organizationId: row.organizationId,

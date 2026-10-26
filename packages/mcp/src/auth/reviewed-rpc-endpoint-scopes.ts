@@ -487,6 +487,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"organizations/getSsoStatus": "platform:admin",
 	"organizations/isSlugAvailable": "platform:admin",
 	"organizations/list": "platform:admin",
+	"organizations/listInboundClientInventory": "platform:admin",
 	"organizations/listMine": "platform:admin",
 	"organizations/listOsMine": "platform:admin",
 	"organizations/listWidgetQuotaStatus": "platform:admin",

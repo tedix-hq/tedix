@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+	index,
+	integer,
+	primaryKey,
+	sqliteTable,
+	text,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * The latest Connect consent decision for one Descope user and OAuth client,
@@ -112,3 +118,40 @@ export const mcpConsentPending = sqliteTable(
 );
 export type McpConsentPendingRow = typeof mcpConsentPending.$inferSelect;
 export type NewMcpConsentPendingRow = typeof mcpConsentPending.$inferInsert;
+
+/**
+ * The latest inbound client policy decision per organization, MCP server and
+ * OAuth client: the inventory an org admin reviews before enforcing. Consent
+ * staging always records; grant checks record only clients the allowlist does
+ * not admit. Holds no user identity.
+ */
+export const mcpInboundClientAttempts = sqliteTable(
+	"mcp_inbound_client_attempts",
+	{
+		organizationId: text("organization_id").notNull(),
+		mcpServerId: text("mcp_server_id").notNull(),
+		clientId: text("client_id").notNull(),
+		clientName: text("client_name"),
+		lastStage: text("last_stage", { enum: ["consent", "grant"] }).notNull(),
+		lastMode: text("last_mode", {
+			enum: ["none", "audit", "enforce", "invalid"],
+		}).notNull(),
+		lastListed: integer("last_listed", { mode: "boolean" }).notNull(),
+		lastAllowed: integer("last_allowed", { mode: "boolean" }).notNull(),
+		attemptCount: integer("attempt_count").notNull().default(1),
+		deniedCount: integer("denied_count").notNull().default(0),
+		firstSeenAt: text("first_seen_at").notNull(),
+		lastSeenAt: text("last_seen_at").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.organizationId, table.mcpServerId, table.clientId],
+		}),
+		index("mcp_inbound_client_attempts_org_seen_idx").on(
+			table.organizationId,
+			table.lastSeenAt,
+		),
+	],
+);
+export type McpInboundClientAttemptRow =
+	typeof mcpInboundClientAttempts.$inferSelect;
