@@ -253,7 +253,7 @@ Ledger (historical rows on in-flight items stay readable; nothing reviews them):
   evidence <id> [--claim-key <key>] [--limit <n>]
 
 Discovery: list [--disposition <value>] [--kind <kind>] [--class <class>]
-                [--objective <id>] [--executor <exec>] [--offset <n>]
+                [--project <id>] [--objective <id>] [--executor <exec>] [--offset <n>]
            · find <query> · readiness <id> · context <id>
 Ledgers: evidence <id> · attempts <id> · events <id>  (one bounded page; --limit 1–100, default 25)
 Checkpoint: checkpoint (read selected chat Work and bounded directed open Interactions; no writes)

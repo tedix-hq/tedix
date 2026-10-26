@@ -1553,6 +1553,7 @@ describe("canonical list pagination and output", () => {
 		expect(filtered.sources[0]).toContain('"disposition":"accepted"');
 		expect(filtered.sources[0]).toContain(`"projectId":"${project}"`);
 		expect(filtered.sources[0]).not.toContain("projectKey");
+		expect(workUsage()).toMatch(/Discovery: list [^\n]*\n[^\n]*--project <id>/);
 
 		const mine = makeContext({ as: "research-lead", mine: true });
 		expect((await capture("list", mine.ctx)).code).toBe(WORK_EXIT_FAIL);
