@@ -1192,6 +1192,10 @@
 		{
 			"name": "20261026222945_connection_allowed_resources/migration.sql",
 			"sha256": "c35bacaeb9d4b4817e2027717f033cfdf10c8b826c2eedd32ef14c76f2e5fb8c"
+		},
+		{
+			"name": "20261026232055_restore_deck_curation_delegation_guard/migration.sql",
+			"sha256": "de51dd031ed4fed95fa3d09d4fb916ea86e322e6f7ae43862ee260495fb08d0e"
 		}
 	]
 }

@@ -149,6 +149,7 @@ describe("Work interactions router", () => {
 			"reviewCardStyleRule",
 			"reviseCard",
 			"requestCardChanges",
+			"snooze",
 			"regenerateCard",
 			"create",
 			"review",
