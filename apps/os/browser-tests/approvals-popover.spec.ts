@@ -235,6 +235,63 @@ try {
 				await fits(page, width);
 				await capture(page, `activity-auto-${width}-${theme}`);
 
+				// A rule turns off with its switch, then deletes after one confirm.
+				const rule = {
+					id: "00000000-0000-4000-8000-0000000000e1",
+					organizationId: "org",
+					actionKind: "home.tool_write",
+					toolSlug: "example-crm.crm.add_note",
+					verb: "add",
+					decision: "approve",
+					enabled: true,
+					createdByKind: "user",
+					createdById: "person",
+					createdAt: new Date().toISOString(),
+					disabledAt: null as string | null,
+				};
+				let rules = [rule];
+				const ruleCalls: string[] = [];
+				await page.route("**/api/rpc/osApprovalRules/**", (route) => {
+					const call = new URL(route.request().url()).pathname
+						.split("/")
+						.pop()!;
+					ruleCalls.push(call);
+					if (call === "setEnabled") {
+						rule.enabled = false;
+						rule.disabledAt = new Date().toISOString();
+						return route.fulfill({ json: { json: { rule } } });
+					}
+					if (call === "delete") {
+						rules = [];
+						return route.fulfill({ json: { json: { deleted: true } } });
+					}
+					return route.fulfill({ json: { json: { items: rules } } });
+				});
+				await activity
+					.getByRole("switch", {
+						name: "Always approve Add note in Example Crm",
+					})
+					.click();
+				await activity
+					.getByText("Off: this action asks a person again.", {
+						exact: false,
+					})
+					.waitFor();
+				await activity.getByRole("button", { name: "Delete rule" }).click();
+				await activity
+					.getByText("Delete this rule? Past approvals keep a record of it.")
+					.waitFor();
+				await fits(page, width);
+				await capture(page, `activity-rule-delete-${width}-${theme}`);
+				await activity
+					.getByRole("button", { name: "Delete", exact: true })
+					.click();
+				await activity.getByText("No saved rules", { exact: true }).waitFor();
+				assert.deepEqual(
+					ruleCalls.filter((call) => call !== "list"),
+					["setEnabled", "delete"],
+				);
+
 				// History: decisions and tool calls, newest first, with filters.
 				await activity.getByRole("tab", { name: "History" }).click();
 				const history = activity.getByRole("list", {

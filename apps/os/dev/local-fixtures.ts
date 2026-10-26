@@ -7,6 +7,7 @@ import {
 } from "./attention-fixtures";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 import type { OsShareLink } from "@tedix/api-contract/contracts/os-shares";
+import type { OsApprovalRule } from "@tedix/api-contract/contracts/os-approval-rules";
 import {
 	mergeAppFiles,
 	mergeAppText,
@@ -270,6 +271,8 @@ type LocalState = {
 	collaborationProposals: OsCollaborationProposal[];
 	blueprints: OsBlueprint[];
 	blueprintRevisions: OsBlueprintRevision[];
+	/** Saved auto-approval rules: one that is off, so it can be turned on or deleted. */
+	approvalRules: OsApprovalRule[];
 	conversations: (HomeConversation & { hidden?: boolean })[];
 	messages: HomeMessage[];
 	homeRuns: HomeRun[];
@@ -899,6 +902,21 @@ const seedState = (): LocalState => ({
 			mergedAt: null,
 			resultRevisionId: null,
 			resultRevision: null,
+		},
+	],
+	approvalRules: [
+		{
+			id: fid("e1", 1),
+			organizationId: ORG_ID,
+			actionKind: "home.tool_write",
+			toolSlug: "example-crm.crm.add_note",
+			verb: "add",
+			decision: "approve",
+			enabled: false,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T0,
+			disabledAt: T1,
 		},
 	],
 	blueprints: [
@@ -6392,8 +6410,25 @@ const handlers: Record<string, (input: never) => unknown> = {
 		}
 		return { cleared };
 	},
-	// No saved auto-approval rules: the Activity panel shows its empty state.
-	"osApprovalRules/list": () => ({ items: [] }),
+	"osApprovalRules/list": () => ({ items: state.approvalRules }),
+	"osApprovalRules/setEnabled": (input: {
+		ruleId: string;
+		enabled: boolean;
+	}) => {
+		const rule = state.approvalRules.find((row) => row.id === input.ruleId);
+		if (!rule) throw new RpcError("NOT_FOUND", "Approval rule not found");
+		rule.enabled = input.enabled;
+		rule.disabledAt = input.enabled ? null : now();
+		return { rule };
+	},
+	"osApprovalRules/delete": (input: { ruleId: string }) => {
+		const rule = state.approvalRules.find((row) => row.id === input.ruleId);
+		if (!rule) throw new RpcError("NOT_FOUND", "Approval rule not found");
+		if (rule.enabled)
+			throw new RpcError("BAD_REQUEST", "Turn the rule off before deleting it");
+		state.approvalRules = state.approvalRules.filter((row) => row !== rule);
+		return { deleted: true as const };
+	},
 	"tediApprovals/getById": (input: { id: string }) => {
 		const approval = state.approvals.find((row) => row.id === input.id);
 		if (!approval)

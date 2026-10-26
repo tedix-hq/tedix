@@ -339,6 +339,11 @@ const CALLS = {
 	"organizationPurpose/getOwnerBrief": { outcomeWindowDays: 7 },
 	"tediApprovals/list": { status: "pending", limit: 50 },
 	"osApprovalRules/list": {},
+	"osApprovalRules/setEnabled": {
+		ruleId: "000000e1-0000-4000-8000-000000000001",
+		enabled: false,
+	},
+	"osApprovalRules/delete": { ruleId: "000000e1-0000-4000-8000-000000000001" },
 	"tediApprovals/getById": { id: IDS.approvalPending },
 	"tediApprovals/resolve": { id: IDS.approvalPending, status: "approved" },
 	"tediApprovals/clearExpired": {},
