@@ -1,12 +1,14 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import {
 	APP_RUNTIME_TRANSLATE_METHOD,
+	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
 	APP_RUNTIME_TRANSLATION_METHOD,
 	APP_RUNTIME_TRANSLATION_SCRIPT,
 	appRuntimeGlossary,
 } from "./app-runtime-host";
 
 const statuses: unknown[] = [];
+const hostRequests: { id: string; params: { text: string } }[] = [];
 const translate = vi.fn(async (text: string) => `[en] ${text}`);
 const fakeTranslator = {
 	create: vi.fn(
@@ -39,6 +41,8 @@ beforeAll(() => {
 		const message = data as { method?: string; params?: unknown };
 		if (message.method === APP_RUNTIME_TRANSLATION_METHOD)
 			statuses.push(message.params);
+		if (message.method === APP_RUNTIME_TRANSLATE_TEXT_METHOD)
+			hostRequests.push(data as (typeof hostRequests)[number]);
 	});
 	new Function(APP_RUNTIME_TRANSLATION_SCRIPT)();
 });
@@ -95,6 +99,29 @@ describe("runtime app translation", () => {
 			"Seite eins",
 			"Seite zwei",
 		]);
+	});
+
+	it("translates through the host when the host holds the translator", async () => {
+		document.body.innerHTML = `<p>Hallo Welt</p>`;
+		send({ source: "de", target: "en", host: true });
+		await vi.waitFor(() => expect(hostRequests).toHaveLength(1));
+		const [request] = hostRequests;
+		expect(request?.params).toEqual({
+			text: "Hallo Welt",
+			source: "de",
+			target: "en",
+		});
+		window.dispatchEvent(
+			new MessageEvent("message", {
+				data: { jsonrpc: "2.0", id: request?.id, result: "Hello world" },
+				source: window,
+			}),
+		);
+		await vi.waitFor(() =>
+			expect(last()).toEqual({ state: "translated", language: "en" }),
+		);
+		expect(document.body.textContent).toBe("Hello world");
+		hostRequests.length = 0;
 	});
 
 	it("reports an unavailable translator and leaves the text alone", () => {

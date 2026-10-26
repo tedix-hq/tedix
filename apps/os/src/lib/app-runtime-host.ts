@@ -167,6 +167,8 @@ const escapeScript = (source: string) =>
 export const APP_RUNTIME_TRANSLATE_METHOD = "tedix/translate";
 /** Host to app: name the language of the text the app shows. */
 export const APP_RUNTIME_DETECT_LANGUAGE_METHOD = "tedix/detect-language";
+/** App to host, with an id: translate one text with the host's translator. */
+export const APP_RUNTIME_TRANSLATE_TEXT_METHOD = "tedix/translate-text";
 /** App to host: progress and result of a translate request. */
 export const APP_RUNTIME_TRANSLATION_METHOD = "tedix/translation";
 /** App to host: the detected language, or null. */
@@ -179,6 +181,8 @@ export interface AppRuntimeTranslateParams {
 	target: string | null;
 	/** Fixed wording for whole texts, keyed by the trimmed original. */
 	glossary?: Record<string, string>;
+	/** The host holds a translator and answers `tedix/translate-text`. */
+	host?: boolean;
 }
 
 export type AppRuntimeTranslationStatus =
@@ -266,10 +270,23 @@ export const APP_RUNTIME_TRANSLATION_SCRIPT = `(function(){
 		t.tracked.clear();
 		t.target=null;
 	}
-	function translator(source,target){
-		var pair=source+">"+target,job=t.pairs.get(pair);
+	// The browser lets a page fetch or open a translator only from the person's
+	// click, and that click lands in the host, never in this frame. A host that
+	// opened one says so (params.host) and translates each text for the app.
+	var hostSeq=0,hostPending=new Map();
+	function hostTranslator(source,target){
+		return {translate:function(text){
+			return new Promise(function(resolve,reject){
+				var id="tedix-translate-"+(++hostSeq);
+				hostPending.set(id,{resolve:resolve,reject:reject});
+				window.parent.postMessage({jsonrpc:"2.0",id:id,method:${JSON.stringify(APP_RUNTIME_TRANSLATE_TEXT_METHOD)},params:{text:text,source:source,target:target}},"*");
+			});
+		}};
+	}
+	function translator(source,target,viaHost){
+		var pair=(viaHost?"host:":"")+source+">"+target,job=t.pairs.get(pair);
 		if(!job){
-			job=Translator.create({sourceLanguage:source,targetLanguage:target,monitor:function(monitor){
+			job=viaHost?Promise.resolve(hostTranslator(source,target)):Translator.create({sourceLanguage:source,targetLanguage:target,monitor:function(monitor){
 				monitor.addEventListener("downloadprogress",function(event){status({state:"downloading",progress:event.loaded});});
 			}});
 			job.catch(function(){t.pairs.delete(pair);});
@@ -284,9 +301,9 @@ export const APP_RUNTIME_TRANSLATION_SCRIPT = `(function(){
 		var run=++t.run;
 		restore();
 		if(!params.target){status({state:"original"});return;}
-		if(typeof Translator==="undefined"){status({state:"unavailable",detail:"no_translator"});return;}
+		if(!params.host&&typeof Translator==="undefined"){status({state:"unavailable",detail:"no_translator"});return;}
 		status({state:"translating",language:params.target});
-		translator(String(params.source),String(params.target)).then(function(created){
+		translator(String(params.source),String(params.target),params.host===true).then(function(created){
 			if(run!==t.run)return;
 			var glossary={};
 			if(params.glossary&&typeof params.glossary==="object")Object.keys(params.glossary).forEach(function(key){
@@ -317,6 +334,12 @@ export const APP_RUNTIME_TRANSLATION_SCRIPT = `(function(){
 	window.addEventListener("message",function(event){
 		var data=event.data;
 		if(event.source!==window.parent||!data||typeof data!=="object"||data.jsonrpc!=="2.0")return;
+		var waiting=typeof data.id==="string"&&hostPending.get(data.id);
+		if(waiting){
+			hostPending.delete(data.id);
+			if(typeof data.result==="string")waiting.resolve(data.result);else waiting.reject(new Error("host_translation"));
+			return;
+		}
 		if(data.method===${JSON.stringify(APP_RUNTIME_TRANSLATE_METHOD)}&&data.params&&typeof data.params==="object")setLanguage(data.params);
 		else if(data.method===${JSON.stringify(APP_RUNTIME_DETECT_LANGUAGE_METHOD)})detect(false);
 	});
