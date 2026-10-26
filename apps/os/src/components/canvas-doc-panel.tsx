@@ -16,6 +16,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { isConflictError } from "@/components/blueprints-page";
 import { CanvasCodeEditor } from "@/components/canvas-editor";
 import { ChatMarkdown } from "@/components/chat-markdown";
@@ -234,14 +235,19 @@ export function CanvasDocPanel({
 	onFocusModeChange,
 	onShowResources,
 	onWidgetFollowUp,
-	viewControls,
+	actionsSlot,
 }: {
 	workspaceId: string;
 	doc: CanvasDocSelection;
 	gadgetViewOverride?: "preview" | "source" | "drafts" | "runs";
 	onAppDraftSaved?: () => void;
 	focusMode: boolean;
-	viewControls?: ReactNode;
+	/**
+	 * The tab row's action area. An app's status and actions render there, so
+	 * the app view has one toolbar; without a slot (or in focus mode, where the
+	 * tab row is hidden) they stay in this panel's own header.
+	 */
+	actionsSlot?: HTMLElement | null;
 	onFocusModeChange: (focused: boolean) => void;
 	onShowResources: () => void;
 	onWidgetFollowUp?: (message: string) => void;
@@ -730,6 +736,270 @@ export function CanvasDocPanel({
 		setConfirming(true);
 	};
 
+	const gadgetActionsInSlot =
+		isGadget && !focusMode && actionsSlot ? actionsSlot : null;
+	const documentStatusActions = (
+		<>
+			{/* A built-in app saves each action itself; the manifest's draft and
+				    sync status belongs to the Code view only. */}
+			<OutputWorkshopStatus
+				className={
+					builtinAppView
+						? "canvas-document-status hidden!"
+						: "canvas-document-status"
+				}
+			>
+				{detail.data && !detail.isError && (
+					<>
+						{status !== "connected" && (
+							<ConnectionChip status={status} peers={peers} />
+						)}
+						<CanvasPresence
+							participants={
+								isRuntimeApp
+									? mergeAppPresence(appParticipants, participants ?? [])
+									: (participants ?? [])
+							}
+						/>
+					</>
+				)}
+				<span className="sr-only" data-canvas-revision-status>
+					{revisionLabel}
+				</span>
+				{recoveryRequired && canonicalDoc && live ? (
+					<Button
+						size="xs"
+						variant="outline"
+						data-canvas-newer-version
+						onClick={() =>
+							document
+								.querySelector<HTMLElement>("[data-canonical-recovery]")
+								?.focus()
+						}
+					>
+						{documentSaveStatus}
+					</Button>
+				) : isGadget && !unsynced ? null : (
+					<Badge
+						className={
+							documentSaveStatus === "Saved" && !isGadget
+								? "bg-transparent! text-kumo-subtle!"
+								: undefined
+						}
+						variant={unsynced ? "warning" : "info"}
+						title={`${revisionLabel ?? "No canonical revision"}. Changes sync with connected editors. Save version records them in version history.`}
+					>
+						{isGadget ? "Draft · Syncing…" : documentSaveStatus}
+					</Badge>
+				)}
+			</OutputWorkshopStatus>
+			<OutputWorkshopActions className="canvas-document-actions">
+				{!isGadget && !confirming && (
+					<Button
+						size="sm"
+						disabled={commitDisabled}
+						title={saveBlockedReason ?? "Review and save this version."}
+						aria-description={saveBlockedReason}
+						aria-label={
+							keepingChanges && canonicalDoc
+								? `Save as v${canonicalDoc.revision + 1}`
+								: "Save version"
+						}
+						onClick={beginSave}
+						data-canvas-save-version
+					>
+						<FloppyDisk size={14} />{" "}
+						{keepingChanges && canonicalDoc
+							? `Save as v${canonicalDoc.revision + 1}`
+							: "Save version"}
+					</Button>
+				)}
+				{isGadget && gadgetDetail.data && (
+					<ShareControls
+						resourceType="gadget"
+						resourceId={gadgetDetail.data.gadget.id}
+						currentRevisionId={gadgetDetail.data.currentRevision?.id}
+						workspaceId={workspaceId}
+						guestEntry={isRuntimeApp}
+						compact
+					/>
+				)}
+				{!isGadget && outputDetail.data && (
+					<>
+						<OutputExportButtons
+							outputId={doc.id}
+							kind={outputDetail.data.output.kind}
+							compact
+						/>
+						<ShareControls
+							outputId={doc.id}
+							currentRevisionId={outputDetail.data.currentRevision.id}
+							workspaceId={workspaceId}
+							compact
+						/>
+					</>
+				)}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					className="canvas-mobile-resources-button"
+					aria-label="Resources"
+					title="Resources"
+					onClick={onShowResources}
+				>
+					<SidebarSimple size={16} />
+					<span className="sr-only">Resources</span>
+				</Button>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					aria-pressed={focusMode}
+					aria-label={focusMode ? "Exit focus" : "Focus"}
+					title={focusMode ? "Exit focus" : "Focus"}
+					onClick={() => onFocusModeChange(!focusMode)}
+				>
+					{focusMode ? <ArrowsIn size={16} /> : <ArrowsOut size={16} />}
+					<span className="sr-only">{focusMode ? "Exit focus" : "Focus"}</span>
+				</Button>
+			</OutputWorkshopActions>
+		</>
+	);
+
+	// Save sits where it acts: in the output footer, or beside the manifest an
+	// app's Code view edits. Other app views have nothing for it to save.
+	const discardOffered =
+		!isGadget &&
+		live &&
+		canonicalDoc &&
+		!draftMatchesSaved &&
+		!recoveryRequired &&
+		!outputDraftIssue &&
+		!confirming &&
+		!committing;
+	const outputFooterShown =
+		!isGadget &&
+		(confirming ||
+			discardOffered ||
+			discardError !== null ||
+			(unacknowledged && live && !recoveryRequired) ||
+			committedRevision !== null);
+	const saveControls = (
+		<>
+			{discardOffered &&
+				canonicalDoc &&
+				(discarding === null ? (
+					<Button
+						size="sm"
+						variant="ghost"
+						onClick={() => {
+							setDiscardError(null);
+							setDiscarding("confirm");
+						}}
+					>
+						Discard changes
+					</Button>
+				) : (
+					<>
+						<Text as="span" role="label" tone="secondary">
+							{`Discard your unsaved changes for everyone and reload v${canonicalDoc.revision}?`}
+						</Text>
+						<Button
+							size="sm"
+							variant="destructive"
+							disabled={discarding === "busy" || unacknowledged || unsynced}
+							onClick={async () => {
+								setDiscarding("busy");
+								const result = await replaceWithCanonical().catch(() => ({
+									ok: false as const,
+									message: `v${canonicalDoc.revision} did not load. Try again.`,
+								}));
+								setDiscarding(null);
+								if (!result.ok) setDiscardError(result.message);
+							}}
+						>
+							{discarding === "busy"
+								? `Loading v${canonicalDoc.revision}…`
+								: `Discard and reload v${canonicalDoc.revision}`}
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={discarding === "busy"}
+							onClick={() => setDiscarding(null)}
+						>
+							Cancel
+						</Button>
+					</>
+				))}
+			{discardError && (
+				<Text as="span" role="label" tone="secondary">
+					{discardError}
+				</Text>
+			)}
+			{unacknowledged && live && !recoveryRequired && (
+				<span className="text-kumo-subtle text-xs" data-canvas-commit-waiting>
+					{isGadget
+						? UNACKNOWLEDGED_COMMIT_MESSAGE
+						: "Syncing your latest edits… Save version is available once they reach the shared draft. If the connection drops first, they are discarded."}
+				</span>
+			)}
+			{/* An output's Save version already sits in its header. */}
+			{!confirming ? (
+				isGadget && (
+					<Button size="sm" disabled={commitDisabled} onClick={beginSave}>
+						<FloppyDisk size={14} />{" "}
+						{keepingChanges && canonicalDoc
+							? `Save as v${canonicalDoc.revision + 1}`
+							: "Save"}
+					</Button>
+				)
+			) : (
+				<>
+					{!isGadget && (
+						<Input
+							aria-label="Revision note"
+							placeholder="Revision note (optional)"
+							value={note}
+							onChange={(event) => setNote(event.target.value)}
+							maxLength={2000}
+							className="max-w-sm"
+						/>
+					)}
+					<Button
+						size="sm"
+						disabled={committing || commitDisabled}
+						onClick={commitDraft}
+					>
+						<FloppyDisk size={14} />{" "}
+						{committing
+							? "Saving…"
+							: keepingChanges && canonicalDoc
+								? `Save as v${canonicalDoc.revision + 1} now`
+								: isGadget
+									? "Save now"
+									: "Save version now"}
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={committing}
+						onClick={() => {
+							setConfirming(false);
+							setDraftError(null);
+						}}
+					>
+						<X size={14} /> Cancel
+					</Button>
+				</>
+			)}
+			{committedRevision !== null && (
+				<Text as="span" role="label" tone="secondary">
+					Saved version {committedRevision}.
+				</Text>
+			)}
+		</>
+	);
+
 	return (
 		<div
 			className="canvas-document-shell grid min-w-0 content-start gap-0"
@@ -746,160 +1016,36 @@ export function CanvasDocPanel({
 					: undefined
 			}
 		>
-			<OutputWorkshopCommandBar className="canvas-document-header">
-				<OutputWorkshopIdentity className="canvas-document-identity">
-					{!focusMode && viewControls}
-					{!isGadget && outputDetail.data ? (
-						<CanvasOutputTitle
-							outputId={outputDetail.data.output.id}
-							title={outputDetail.data.output.title}
-						/>
-					) : !focusMode && viewControls ? null : (
-						<Text
-							as="h2"
-							role="body"
-							tone="strong"
-							weight="semibold"
-							className="canvas-document-title m-0 truncate"
-							title={title ?? "Loading…"}
-						>
-							{title ?? "Loading…"}
-						</Text>
-					)}
+			{gadgetActionsInSlot ? (
+				createPortal(documentStatusActions, gadgetActionsInSlot)
+			) : (
+				<OutputWorkshopCommandBar className="canvas-document-header">
+					<OutputWorkshopIdentity className="canvas-document-identity">
+						{!isGadget && outputDetail.data ? (
+							<CanvasOutputTitle
+								outputId={outputDetail.data.output.id}
+								title={outputDetail.data.output.title}
+							/>
+						) : (
+							<Text
+								as="h2"
+								role="body"
+								tone="strong"
+								weight="semibold"
+								className="canvas-document-title m-0 truncate"
+								title={title ?? "Loading…"}
+							>
+								{title ?? "Loading…"}
+							</Text>
+						)}
 
-					{doc.type === "output" && doc.linkedGadgetId && (
-						<Badge variant="info">App editor</Badge>
-					)}
-				</OutputWorkshopIdentity>
-				{/* A built-in app saves each action itself; the manifest's draft and
-				    sync status belongs to the Code view only. */}
-				<OutputWorkshopStatus
-					className={
-						builtinAppView
-							? "canvas-document-status hidden!"
-							: "canvas-document-status"
-					}
-				>
-					{detail.data && !detail.isError && (
-						<>
-							{status !== "connected" && (
-								<ConnectionChip status={status} peers={peers} />
-							)}
-							<CanvasPresence
-								participants={
-									isRuntimeApp
-										? mergeAppPresence(appParticipants, participants ?? [])
-										: (participants ?? [])
-								}
-							/>
-						</>
-					)}
-					<span className="sr-only" data-canvas-revision-status>
-						{revisionLabel}
-					</span>
-					{recoveryRequired && canonicalDoc && live ? (
-						<Button
-							size="xs"
-							variant="outline"
-							data-canvas-newer-version
-							onClick={() =>
-								document
-									.querySelector<HTMLElement>("[data-canonical-recovery]")
-									?.focus()
-							}
-						>
-							{documentSaveStatus}
-						</Button>
-					) : (
-						<Badge
-							className={
-								documentSaveStatus === "Saved" && !isGadget
-									? "bg-transparent! text-kumo-subtle!"
-									: undefined
-							}
-							variant={unsynced ? "warning" : "info"}
-							title={`${revisionLabel ?? "No canonical revision"}. Changes sync with connected editors. Save version records them in version history.`}
-						>
-							{isGadget
-								? unsynced
-									? "Draft · Syncing…"
-									: "Draft · Save changes"
-								: documentSaveStatus}
-						</Badge>
-					)}
-				</OutputWorkshopStatus>
-				<OutputWorkshopActions className="canvas-document-actions">
-					{!isGadget && !confirming && (
-						<Button
-							size="sm"
-							disabled={commitDisabled}
-							title={saveBlockedReason ?? "Review and save this version."}
-							aria-description={saveBlockedReason}
-							aria-label={
-								keepingChanges && canonicalDoc
-									? `Save as v${canonicalDoc.revision + 1}`
-									: "Save version"
-							}
-							onClick={beginSave}
-							data-canvas-save-version
-						>
-							<FloppyDisk size={14} />{" "}
-							{keepingChanges && canonicalDoc
-								? `Save as v${canonicalDoc.revision + 1}`
-								: "Save version"}
-						</Button>
-					)}
-					{isGadget && gadgetDetail.data && (
-						<ShareControls
-							resourceType="gadget"
-							resourceId={gadgetDetail.data.gadget.id}
-							currentRevisionId={gadgetDetail.data.currentRevision?.id}
-							workspaceId={workspaceId}
-							guestEntry={isRuntimeApp}
-							compact
-						/>
-					)}
-					{!isGadget && outputDetail.data && (
-						<>
-							<OutputExportButtons
-								outputId={doc.id}
-								kind={outputDetail.data.output.kind}
-								compact
-							/>
-							<ShareControls
-								outputId={doc.id}
-								currentRevisionId={outputDetail.data.currentRevision.id}
-								workspaceId={workspaceId}
-								compact
-							/>
-						</>
-					)}
-					<Button
-						variant="outline"
-						size="icon-sm"
-						className="canvas-mobile-resources-button"
-						aria-label="Resources"
-						title="Resources"
-						onClick={onShowResources}
-					>
-						<SidebarSimple size={14} />
-						<span className="sr-only">Resources</span>
-					</Button>
-					<Button
-						variant="outline"
-						size="icon-sm"
-						aria-pressed={focusMode}
-						aria-label={focusMode ? "Exit focus" : "Focus"}
-						title={focusMode ? "Exit focus" : "Focus"}
-						onClick={() => onFocusModeChange(!focusMode)}
-					>
-						{focusMode ? <ArrowsIn size={14} /> : <ArrowsOut size={14} />}
-						<span className="sr-only">
-							{focusMode ? "Exit focus" : "Focus"}
-						</span>
-					</Button>
-				</OutputWorkshopActions>
-			</OutputWorkshopCommandBar>
+						{doc.type === "output" && doc.linkedGadgetId && (
+							<Badge variant="info">App editor</Badge>
+						)}
+					</OutputWorkshopIdentity>
+					{documentStatusActions}
+				</OutputWorkshopCommandBar>
+			)}
 			{detail.isPending && <ListSkeleton rows={2} />}
 			{detail.isError && (
 				<Alert variant="destructive">
@@ -1133,37 +1279,31 @@ export function CanvasDocPanel({
 									as="h3"
 									role="label"
 									tone="secondary"
-									className="m-0 px-3 py-2"
+									className="canvas-code-files-heading m-0"
 								>
 									Files
 								</Text>
 								{codeFiles.map((file) => (
 									<Button
 										key={file.path}
-										variant={codeFile === file.path ? "secondary" : "ghost"}
-										className="w-full justify-start"
+										size="sm"
+										variant="ghost"
+										className="canvas-code-file-button"
 										aria-current={codeFile === file.path ? "page" : undefined}
+										title={file.hint}
 										onClick={() => setCodeFile(file.path)}
 									>
 										{file.path}
 									</Button>
 								))}
-								<Text
-									as="p"
-									role="label"
-									tone="secondary"
-									className="px-3 leading-relaxed"
-								>
-									{codeFiles.find((file) => file.path === codeFile)?.hint}
-								</Text>
 							</aside>
 							{codeFile === "README.md" ? (
 								<div className="canvas-code-file" data-canvas-app-readme>
 									<div className="canvas-code-file-header">
+										<code className="canvas-code-file-name">README.md</code>
 										<Text as="span" role="label" tone="secondary">
-											Viewing <code>README.md</code>
+											Generated from manifest.json
 										</Text>
-										<Badge variant="secondary">Generated</Badge>
 									</div>
 									<div className="overflow-y-auto px-4 py-3">
 										<ChatMarkdown content={appReadme} />
@@ -1199,14 +1339,12 @@ export function CanvasDocPanel({
 							) : codeFile !== "manifest.json" ? (
 								<div className="canvas-code-file" data-canvas-app-code-file>
 									<div className="canvas-code-file-header">
+										<code className="canvas-code-file-name">{codeFile}</code>
 										<Text as="span" role="label" tone="secondary">
-											Viewing <code>{codeFile}</code>
-										</Text>
-										<Badge variant="secondary">
 											Revision{" "}
 											{runtimeCode.data?.code?.revision ??
 												gadgetDetail.data?.currentRevision?.revision}
-										</Badge>
+										</Text>
 									</div>
 									<pre className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed">
 										{runtimeCode.data?.code?.files[codeFile] ?? ""}
@@ -1215,10 +1353,14 @@ export function CanvasDocPanel({
 							) : (
 								<div className="canvas-code-file">
 									<div className="canvas-code-file-header">
-										<Text as="span" role="label" tone="secondary">
-											Editing <code>manifest.json</code>
-										</Text>
-										<Badge variant="secondary">JSON</Badge>
+										<code className="canvas-code-file-name">manifest.json</code>
+										<div
+											ref={saveFooter}
+											className="canvas-code-file-actions"
+											data-canvas-code-save
+										>
+											{saveControls}
+										</div>
 									</div>
 									{session ? (
 										<CanvasCodeEditor
@@ -1268,132 +1410,14 @@ export function CanvasDocPanel({
 			) : (
 				<ListSkeleton rows={1} rowClassName="h-64" />
 			)}
-			<OutputWorkshopFooter
-				ref={saveFooter}
-				className={
-					builtinAppView
-						? "canvas-document-footer hidden!"
-						: "canvas-document-footer justify-end"
-				}
-			>
-				{!isGadget &&
-					live &&
-					canonicalDoc &&
-					!draftMatchesSaved &&
-					!recoveryRequired &&
-					!outputDraftIssue &&
-					!confirming &&
-					!committing &&
-					(discarding === null ? (
-						<Button
-							size="sm"
-							variant="ghost"
-							onClick={() => {
-								setDiscardError(null);
-								setDiscarding("confirm");
-							}}
-						>
-							Discard changes
-						</Button>
-					) : (
-						<>
-							<Text as="span" role="label" tone="secondary">
-								{`Discard your unsaved changes for everyone and reload v${canonicalDoc.revision}?`}
-							</Text>
-							<Button
-								size="sm"
-								variant="destructive"
-								disabled={discarding === "busy" || unacknowledged || unsynced}
-								onClick={async () => {
-									setDiscarding("busy");
-									const result = await replaceWithCanonical().catch(() => ({
-										ok: false as const,
-										message: `v${canonicalDoc.revision} did not load. Try again.`,
-									}));
-									setDiscarding(null);
-									if (!result.ok) setDiscardError(result.message);
-								}}
-							>
-								{discarding === "busy"
-									? `Loading v${canonicalDoc.revision}…`
-									: `Discard and reload v${canonicalDoc.revision}`}
-							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								disabled={discarding === "busy"}
-								onClick={() => setDiscarding(null)}
-							>
-								Cancel
-							</Button>
-						</>
-					))}
-				{discardError && (
-					<Text as="span" role="label" tone="secondary">
-						{discardError}
-					</Text>
-				)}
-				{unacknowledged && live && !recoveryRequired && (
-					<span className="text-kumo-subtle text-xs" data-canvas-commit-waiting>
-						{isGadget
-							? UNACKNOWLEDGED_COMMIT_MESSAGE
-							: "Syncing your latest edits… Save version is available once they reach the shared draft. If the connection drops first, they are discarded."}
-					</span>
-				)}
-				{!confirming ? (
-					<Button size="sm" disabled={commitDisabled} onClick={beginSave}>
-						<FloppyDisk size={14} />{" "}
-						{keepingChanges && canonicalDoc
-							? `Save as v${canonicalDoc.revision + 1}`
-							: isGadget
-								? "Save"
-								: "Save version"}
-					</Button>
-				) : (
-					<>
-						{!isGadget && (
-							<Input
-								aria-label="Revision note"
-								placeholder="Revision note (optional)"
-								value={note}
-								onChange={(event) => setNote(event.target.value)}
-								maxLength={2000}
-								className="max-w-sm"
-							/>
-						)}
-						<Button
-							size="sm"
-							disabled={committing || commitDisabled}
-							onClick={commitDraft}
-						>
-							<FloppyDisk size={14} />{" "}
-							{committing
-								? "Saving…"
-								: keepingChanges && canonicalDoc
-									? `Save as v${canonicalDoc.revision + 1} now`
-									: isGadget
-										? "Save now"
-										: "Save version now"}
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							disabled={committing}
-							onClick={() => {
-								setConfirming(false);
-								setDraftError(null);
-							}}
-						>
-							<X size={14} /> Cancel
-						</Button>
-					</>
-				)}
-				{committedRevision !== null && (
-					<Text as="span" role="label" tone="secondary">
-						Saved version {committedRevision}.
-					</Text>
-				)}
-			</OutputWorkshopFooter>
+			{outputFooterShown && (
+				<OutputWorkshopFooter
+					ref={saveFooter}
+					className="canvas-document-footer justify-end"
+				>
+					{saveControls}
+				</OutputWorkshopFooter>
+			)}
 			{draftError && (
 				<Alert variant="destructive">
 					<AlertTitle>The draft could not be saved</AlertTitle>

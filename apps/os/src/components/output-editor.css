@@ -172,13 +172,6 @@
 		display: none;
 	}
 
-	/* The Drafts count is the one badge a phone keeps: it says a review waits. */
-	.canvas-document-identity
-		.canvas-workpiece-mode-switcher
-		[data-slot="badge"] {
-		display: inline-flex;
-	}
-
 	.output-detail-revision-note,
 	.output-workshop-footer > input {
 		min-width: 0;

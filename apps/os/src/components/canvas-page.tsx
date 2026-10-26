@@ -414,6 +414,10 @@ export function CanvasPage({
 		(requestedPane ?? (requestedDoc ? "workpiece" : "chat")) === "resources",
 	);
 	const [chatCollapsed, setChatCollapsed] = useState(false);
+	// The open app's status and actions render into the tab row, so the app
+	// view keeps one toolbar instead of stacking a second one under the tabs.
+	const [workpieceActionsSlot, setWorkpieceActionsSlot] =
+		useState<HTMLDivElement | null>(null);
 	const [outputsPanelExpanded, setOutputsPanelExpanded] = useState(() =>
 		restoreWorkspaceOutputsPanelExpanded(
 			window.localStorage,
@@ -1102,7 +1106,7 @@ export function CanvasPage({
 	const workpieceViewControls = selectedDoc ? (
 		<SegmentedControl
 			ariaLabel="Active workpiece view"
-			className="canvas-workpiece-mode-switcher"
+			className="canvas-workpiece-mode-switcher bg-transparent p-0 ring-0"
 			compact
 			onValueChange={(mode) => {
 				setWorkpieceMode(mode);
@@ -1145,7 +1149,7 @@ export function CanvasPage({
 						size="icon-sm"
 						variant="ghost"
 					>
-						<ArrowLeft size={15} />
+						<ArrowLeft size={16} />
 					</Button>
 					{selectedWorkspace ? (
 						<EntityAvatar
@@ -1466,10 +1470,11 @@ export function CanvasPage({
 								outputs={outputs.data?.items ?? []}
 								selectedKey={selectedDoc ? canvasDocKey(selectedDoc) : null}
 							/>
-							{selectedDoc &&
-							(workpieceMode === "connections" || workpieceMode === "activity")
-								? workpieceViewControls
-								: null}
+							{workpieceViewControls}
+							<div
+								className="canvas-workpiece-actions"
+								ref={setWorkpieceActionsSlot}
+							/>
 						</div>
 					) : null}
 					<div
@@ -1563,7 +1568,7 @@ export function CanvasPage({
 												view: "drafts",
 											});
 										}}
-										viewControls={workpieceViewControls}
+										actionsSlot={workpieceActionsSlot}
 										onFocusModeChange={(focused) => {
 											setFocusMode(focused);
 											if (focused) {

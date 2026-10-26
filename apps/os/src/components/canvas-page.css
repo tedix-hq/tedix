@@ -606,7 +606,8 @@
 
 .canvas-workpiece-tabs {
 	display: flex;
-	min-width: 0;
+	/* Room for one whole tab; the view tabs scroll before the open tab clips. */
+	min-width: 176px;
 	min-height: 48px;
 	flex: 1 1 auto;
 	align-items: center;
@@ -618,11 +619,37 @@
 	scrollbar-width: thin;
 }
 
+/* The view tabs sit in the tab row as plain tabs: no box of their own. */
 .canvas-workpiece-mode-switcher {
+	min-width: 0;
 	min-height: 32px;
-	flex: none;
+	flex: 0 1 auto;
 	width: auto;
-	margin: 4px 8px;
+	margin: 0;
+}
+
+/* The open app's status and actions share the tab row. */
+.canvas-workpiece-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+}
+
+.canvas-workpiece-actions:empty {
+	display: none;
+}
+
+.canvas-workpiece-actions .canvas-document-status,
+.canvas-workpiece-actions .canvas-document-actions {
+	gap: 4px;
+	margin-left: 0;
+}
+
+/* One icon size across the row, whichever control drew it. */
+.canvas-workpiece-actions [data-slot="button"] > svg {
+	width: 16px;
+	height: 16px;
 }
 
 /* Segments share spare width but never shrink below their label; when a
@@ -1011,21 +1038,37 @@
 		display: none;
 	}
 
+	/* A phone gives the view tabs their own full-width line under the open
+	   tab and its actions, so nothing scrolls out of reach. */
 	.canvas-workpiece-bar {
-		height: 48px;
-		align-items: stretch;
-		flex-direction: row;
-		overflow-x: auto;
-	}
-
-	.canvas-workpiece-mode-switcher {
-		width: max-content;
-		min-width: max-content;
-		margin: 4px 8px;
+		height: auto;
+		flex: none;
+		flex-wrap: wrap;
+		row-gap: 0;
+		column-gap: 8px;
+		padding-inline: 12px;
 	}
 
 	.canvas-workpiece-tabs {
-		min-width: 9rem;
+		min-width: 7rem;
+		min-height: 44px;
+		flex-basis: 0;
+	}
+
+	.canvas-workpiece-tab {
+		min-width: 0;
+		flex: 0 1 auto;
+	}
+
+	.canvas-workpiece-mode-switcher {
+		order: 3;
+		flex: none;
+		width: calc(100% + 24px);
+		max-width: none;
+		margin: 0 -12px;
+		padding: 4px 8px;
+		border-top: 1px solid var(--border);
+		border-radius: 0;
 	}
 
 	.chat-composer-actions {
@@ -1058,19 +1101,40 @@
 	gap: 16px;
 }
 .canvas-document-shell > .canvas-document-header {
+	max-width: none;
 	margin: -16px -16px 0;
+	padding-inline: 16px;
 }
 .canvas-code-workbench {
 	display: grid;
-	grid-template-columns: 200px minmax(0, 1fr);
+	grid-template-columns: 184px minmax(0, 1fr);
 	min-height: 480px;
 	height: clamp(480px, 65vh, 900px);
 	overflow: hidden;
 }
 .canvas-code-files {
+	display: flex;
 	min-width: 0;
-	padding: 12px;
+	flex-direction: column;
+	gap: 2px;
+	padding: 8px;
 	border-right: 1px solid var(--border);
+}
+.canvas-code-files-heading {
+	padding: 4px 8px 6px;
+}
+.canvas-code-file-button.canvas-code-file-button {
+	width: 100%;
+	justify-content: flex-start;
+	padding-inline: 8px;
+	color: var(--text-color-kumo-subtle);
+	font-family: var(--font-mono);
+	font-size: 13px;
+	font-weight: 400;
+}
+.canvas-code-file-button[aria-current="page"] {
+	background: var(--color-kumo-tint);
+	color: var(--text-color-kumo-default);
 }
 .canvas-code-file {
 	display: flex;
@@ -1080,11 +1144,51 @@
 }
 .canvas-code-file-header {
 	display: flex;
+	min-height: 44px;
+	box-sizing: border-box;
 	align-items: center;
 	justify-content: space-between;
-	gap: 16px;
-	padding: 12px 16px;
+	gap: 12px;
+	padding: 6px 8px 6px 16px;
 	border-bottom: 1px solid var(--border);
+}
+.canvas-code-file-name {
+	min-width: 0;
+	overflow: hidden;
+	font-family: var(--font-mono);
+	font-size: 13px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.canvas-code-file-actions {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.canvas-code-file-actions > span,
+.canvas-code-file-actions > p {
+	max-width: 28rem;
+	color: var(--text-color-kumo-subtle);
+	font-size: 12px;
+	line-height: 16px;
+}
+.canvas-code-textarea {
+	width: 100%;
+	min-height: 0;
+	flex: 1;
+	resize: none;
+	padding: 12px 16px;
+	border: 0;
+	outline: none;
+	background: transparent;
+	color: var(--text-color-kumo-default);
+	font-family: var(--font-mono);
+	font-size: 13px;
+	line-height: 20px;
+	tab-size: 2;
 }
 .canvas-code-file > :last-child {
 	min-height: 0;
@@ -1101,29 +1205,23 @@
 		grid-template-rows: auto minmax(0, 1fr);
 	}
 	.canvas-code-files {
+		flex-direction: row;
+		overflow-x: auto;
 		border-right: 0;
 		border-bottom: 1px solid var(--border);
 	}
-	.canvas-code-files p {
+	.canvas-code-files-heading {
 		display: none;
+	}
+	.canvas-code-file-button.canvas-code-file-button {
+		width: auto;
+		flex: none;
 	}
 }
 
 /* Keep resource identity in the tab strip; normal save state stays quiet. */
 .canvas-workpiece-tab[data-selected] {
 	max-width: 360px;
-}
-.canvas-document-identity:has(.canvas-workpiece-mode-switcher) {
-	flex: 1 1 auto;
-	min-width: 0;
-}
-/* In the document header the switcher shares the row with the title; on a
-   phone it scrolls inside the row instead of running past the clipped edge. */
-.canvas-document-identity .canvas-workpiece-mode-switcher {
-	min-width: 0;
-	max-width: 100%;
-	flex: 0 1 auto;
-	margin: 0;
 }
 
 .canvas-surface[data-canvas-focus] .canvas-workpiece-bar {
