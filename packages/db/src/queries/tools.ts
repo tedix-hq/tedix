@@ -28,6 +28,32 @@ const D1_IN_LIST_CHUNK = 50;
 // Read Operations
 // ============================================================================
 
+/** Composer opt-in is stored in config; discovery grants no execution authority. */
+export async function listComposerToolsForOrganization(
+	db: DbClient,
+	organizationId: string,
+) {
+	return db
+		.select({
+			appSlug: apps.slug,
+			toolId: appTools.toolId,
+			title: appTools.title,
+			description: appTools.description,
+		})
+		.from(appTools)
+		.innerJoin(apps, eq(apps.id, appTools.appId))
+		.where(
+			and(
+				eq(apps.organizationId, organizationId),
+				ne(apps.visibility, "disabled"),
+				eq(appTools.enabled, true),
+				ne(appTools.visibility, "private"),
+				sql`json_type(${appTools.config}, '$.composer') = 'true'`,
+			),
+		)
+		.orderBy(asc(apps.slug), asc(appTools.toolId));
+}
+
 /** One tenant-scoped statement, including disabled tools required by skills. */
 export async function listSetupToolsForOrganization(
 	db: DbClient,

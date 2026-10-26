@@ -5,6 +5,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { ComposerCommandSchema } from "../schemas/composer-command";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
@@ -47,6 +48,15 @@ export const appsContract = oc
 	.route({ tags: ["apps"], prefix: "/apps" })
 	.errors(baseErrors)
 	.router({
+		listComposerCommands: oc
+			.route({
+				method: "GET",
+				path: "/composer-commands",
+				summary: "List app tools marked for the composer",
+			})
+			.input(z.object({}).strict())
+			.output(z.object({ commands: z.array(ComposerCommandSchema) })),
+
 		/**
 		 * List all apps for the current organization
 		 * GET /apps

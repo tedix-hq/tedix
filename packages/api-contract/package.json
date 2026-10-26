@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/composer-command": "./src/schemas/composer-command.ts",
 		"./schemas/web-push": "./src/schemas/web-push.ts",
 		"./contracts/web-push": "./src/contracts/web-push.ts",
 		"./contracts/os-app-runtime": "./src/contracts/os-app-runtime.ts",

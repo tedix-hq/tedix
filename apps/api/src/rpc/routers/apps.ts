@@ -49,7 +49,11 @@ import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organizatio
 import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
 import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
-import { getToolsByAppId } from "@tedix/db/queries/tools";
+import {
+	getToolsByAppId,
+	listComposerToolsForOrganization,
+} from "@tedix/db/queries/tools";
+import { appToolComposerCommand } from "@tedix/api-contract/schemas/composer-command";
 import type { AppMetadata } from "@tedix/db/schema/apps";
 import { scrapeBrandingFromUrl } from "../../integrations/browser-run/branding";
 import { generateAppSlug, isReservedAppSlug } from "../../utils/app";
@@ -95,6 +99,14 @@ const mcpAppsOs = appsOs.use(withAuth).use(AUTHZ.appsRead);
 // =============================================================================
 // CONTRACT-BASED PROCEDURE IMPLEMENTATIONS
 // =============================================================================
+
+export const listComposerCommands = authedAppsOs.listComposerCommands
+	.use(AUTHZ.appsRead)
+	.handler(async ({ context }) => ({
+		commands: (
+			await listComposerToolsForOrganization(context.db, requireOrgId(context))
+		).map(appToolComposerCommand),
+	}));
 
 /**
  * Contract-based list procedure implementation
@@ -1672,6 +1684,7 @@ export const activateConfigVersionProcedure = authedAppsOs.activateConfigVersion
  */
 export const appsContractRouter = appsOs.router({
 	list: skipOutputValidation(listApps),
+	listComposerCommands,
 	get: skipOutputValidation(getApp),
 	getBySlug: skipOutputValidation(getAppBySlugProcedure),
 	create: createAppProcedure,

@@ -31,6 +31,14 @@ function row(overrides: Partial<SkillEntry> = {}): Row {
 }
 
 describe("composer skill scope", () => {
+	it("uses the installed description when no summary is present", () => {
+		expect(
+			composerReachableSkills([
+				row({ summary: null, description: "Prepare a release" }),
+			])[0]?.summary,
+		).toBe("Prepare a release");
+	});
+
 	it("offers only the rows a Home turn can resolve", () => {
 		const reachable = composerReachableSkills([
 			row({ id: "a", slug: "org-shared", visibility: "org" }),

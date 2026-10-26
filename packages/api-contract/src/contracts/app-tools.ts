@@ -88,7 +88,13 @@ export const CreateAppToolInputSchema = z.object({
 	widgetDescription: z.string().nullable().optional(),
 	widgetPrefersBorder: z.boolean().default(true),
 	widgetDomain: z.string().nullable().optional(),
-	config: z.record(z.string(), JsonValueSchema).nullable().optional(),
+	config: z
+		.record(z.string(), JsonValueSchema)
+		.nullable()
+		.optional()
+		.describe(
+			"Set composer: true to offer this enabled tool as a Home slash command; invocation retains the existing approval policy.",
+		),
 	schemaDialect: z.enum(TOOL_SCHEMA_DIALECT_VALUES).nullable().optional(),
 	schemaSource: z.enum(TOOL_SCHEMA_SOURCE_VALUES).nullable().optional(),
 	schemaSourceRef: z.string().nullable().optional(),
@@ -140,7 +146,13 @@ export const UpdateAppToolInputSchema = z.object({
 	widgetDescription: z.string().nullable().optional(),
 	widgetPrefersBorder: z.boolean().optional(),
 	widgetDomain: z.string().nullable().optional(),
-	config: z.record(z.string(), JsonValueSchema).nullable().optional(),
+	config: z
+		.record(z.string(), JsonValueSchema)
+		.nullable()
+		.optional()
+		.describe(
+			"Set composer: true to offer this enabled tool as a Home slash command; invocation retains the existing approval policy.",
+		),
 	schemaDialect: z.enum(TOOL_SCHEMA_DIALECT_VALUES).nullable().optional(),
 	schemaSource: z.enum(TOOL_SCHEMA_SOURCE_VALUES).nullable().optional(),
 	schemaSourceRef: z.string().nullable().optional(),

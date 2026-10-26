@@ -6968,6 +6968,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 	// connections so the local page shows both an OAuth and an API-key row.
 	"connections/listProviders": () => ({ data: CONNECTION_PROVIDERS }),
 	"apps/list": (input: Pagination | undefined) => paginate(APPS, input),
+	"apps/listComposerCommands": () => ({ commands: [] }),
 	"apps/getByIdWithTools": (input: { appId: string }) => {
 		const item = APPS.find((row) => row.id === input.appId);
 		if (!item) throw new RpcError("NOT_FOUND", "App not found");
