@@ -1,4 +1,5 @@
 import { organizations } from "@tedix/db/schema/organizations";
+import { eq } from "drizzle-orm";
 import { DatabaseSync } from "node:sqlite";
 import {
 	countActiveOsShareSessions,
@@ -244,6 +245,34 @@ describe("handleOsShareRedemption", () => {
 				},
 			},
 			sessionToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+		});
+	});
+
+	it("gives the guest the organization's visitor language and only its share wording", async () => {
+		const db = fixture();
+		await db
+			.update(organizations)
+			.set({
+				metadata: {
+					tediWidget: {
+						locale: "de-DE",
+						translations: {
+							de: { share_can_use: "Darf nutzen", title: "Assistent" },
+						},
+					},
+				} as never,
+			})
+			.where(eq(organizations.id, "org-1"));
+		await seedOutput(db);
+		const token = await seedShare(db);
+		const body = (await (await handleOsShareRedemption(db, token)).json()) as {
+			organization: unknown;
+		};
+		expect(body.organization).toEqual({
+			name: "Example",
+			logoUrl: "https://images.example.test/org.png",
+			locale: "de-DE",
+			copy: { de: { share_can_use: "Darf nutzen" } },
 		});
 	});
 

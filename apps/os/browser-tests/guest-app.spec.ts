@@ -47,6 +47,17 @@ try {
 				`${label}: the link secret leaves the address bar`,
 			);
 			await main.getByRole("heading", { name: "Opportunity cards" }).waitFor();
+			await main.getByText("Can use", { exact: true }).waitFor();
+			const bar = await main.locator("header").boundingBox();
+			assert(
+				bar && bar.height <= 40,
+				`${label}: the guest bar stays one line (${bar?.height}px)`,
+			);
+			assert.equal(
+				await main.getByText(/Tedix/).count(),
+				0,
+				`${label}: no Tedix branding in the guest bar`,
+			);
 			const guest = page
 				.frameLocator('iframe[title="Opportunity cards"]')
 				.frameLocator("iframe");
@@ -81,6 +92,22 @@ try {
 			});
 			await context.close();
 		}
+	}
+
+	// A German-speaking guest of an organization with no published language
+	// gets the bar in German from the copy catalog.
+	{
+		const context = await browser.newContext({
+			viewport: { width: 375, height: 812 },
+			locale: "de-DE",
+		});
+		const page = await context.newPage();
+		await page.goto(`${server.origin}/guest#token=${token}`);
+		const main = page.locator("[data-guest-app]");
+		await main.getByText("Kann nutzen", { exact: true }).waitFor();
+		assert.equal(await page.locator("html").getAttribute("lang"), "de-DE");
+		await page.screenshot({ path: `${evidence}/375-de.png` });
+		await context.close();
 	}
 
 	// Without a link or a resumable session the page says so and shows nothing.

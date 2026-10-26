@@ -2,6 +2,12 @@ import { ShieldCheck } from "@phosphor-icons/react";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { AppRuntimeFiles } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
+import { buildTranslate, type Translate } from "@tedix/widget-i18n";
+import {
+	resolveWidgetCatalog,
+	WIDGET_CATALOGS,
+	WIDGET_SOURCE_LOCALE,
+} from "@tedix/widget-i18n/catalogs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -42,7 +48,14 @@ type GuestOpen = {
 };
 
 type Redeemed = {
-	organization?: { name: string; logoUrl: string | null } | null;
+	organization?: {
+		name: string;
+		logoUrl: string | null;
+		/** The language the organization publishes to visitors; null when unset. */
+		locale?: string | null;
+		/** The organization's own `share_*` wording, keyed by locale. */
+		copy?: Record<string, Record<string, string>>;
+	} | null;
 	share: { note: string | null; policyReason: string | null };
 	sessionToken?: string;
 };
@@ -79,6 +92,32 @@ async function guestRequest<T>(path: string, body: unknown): Promise<T> {
 	});
 	if (!response.ok) throw new Error("Share unavailable");
 	return (await response.json()) as T;
+}
+
+/**
+ * The guest bar speaks the organization's visitor language, else the guest's
+ * browser language. Wording comes from the shared copy catalog, and the
+ * organization's own overrides win (exact locale, then its base language).
+ */
+export function guestCopy(organization?: Redeemed["organization"]): {
+	locale: string;
+	t: Translate;
+} {
+	const locale =
+		organization?.locale || navigator.language || WIDGET_SOURCE_LOCALE;
+	const base = locale.split("-")[0] ?? locale;
+	const copy = organization?.copy ?? {};
+	return {
+		locale,
+		t: buildTranslate(
+			{
+				...resolveWidgetCatalog(locale).catalog,
+				...copy[base],
+				...copy[locale],
+			},
+			WIDGET_CATALOGS[WIDGET_SOURCE_LOCALE],
+		),
+	};
 }
 
 /** The guest's document follows the device: there is no account to keep a choice on. */
@@ -144,6 +183,13 @@ export function GuestAppPage() {
 		};
 	}, []);
 
+	const organization =
+		state.status === "ready" ? state.share.organization : null;
+	const { locale, t } = useMemo(() => guestCopy(organization), [organization]);
+	useEffect(() => {
+		document.documentElement.lang = locale;
+	}, [locale]);
+
 	if (state.status === "loading")
 		return (
 			<main
@@ -151,7 +197,7 @@ export function GuestAppPage() {
 				aria-busy
 			>
 				<Text as="p" role="body" tone="secondary" className="m-0">
-					Opening the app…
+					{t("share_opening_app")}
 				</Text>
 			</main>
 		);
@@ -159,21 +205,22 @@ export function GuestAppPage() {
 		return (
 			<main className="mx-auto grid min-h-dvh w-full max-w-xl place-items-center p-4">
 				<Alert variant="destructive">
-					<AlertTitle>This link no longer opens anything</AlertTitle>
+					<AlertTitle>{t("share_link_unavailable")}</AlertTitle>
 					<AlertDescription>
-						It may have expired, been turned off, or been narrowed by policy.
-						Ask the person who shared it for a new link.
+						{t("share_link_unavailable_hint")}
 					</AlertDescription>
 				</Alert>
 			</main>
 		);
-	return <GuestApp state={state} />;
+	return <GuestApp state={state} t={t} />;
 }
 
 function GuestApp({
 	state,
+	t,
 }: {
 	state: Extract<PageState, { status: "ready" }>;
+	t: Translate;
 }) {
 	const { app, sessionToken, share } = state;
 	const context = useMemo<AppRuntimeContext>(
@@ -256,22 +303,29 @@ function GuestApp({
 			className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-3 px-4 py-3 sm:px-6 sm:py-4"
 			data-guest-app
 		>
-			<header className="flex flex-wrap items-center gap-x-3 gap-y-1">
+			{/* One row, the organization's mark and name only. Viewer tools such
+			    as Translate join the trailing group. */}
+			<header className="flex min-w-0 items-center gap-2">
 				<OrganizationMark
-					name={share.organization?.name ?? "Tedix"}
+					name={share.organization?.name ?? app.app.name}
 					logoUrl={share.organization?.logoUrl ?? null}
 				/>
-				<section className="min-w-[12rem] flex-1">
-					<Text as="h1" role="title" className="m-0 truncate">
+				<Text
+					as="h1"
+					role="body"
+					weight="semibold"
+					className="m-0 min-w-0 flex-1 truncate"
+				>
+					{share.organization?.name && `${share.organization.name} · `}
+					<Text as="span" tone="secondary">
 						{app.app.name}
 					</Text>
-					<Text as="p" role="label" tone="secondary" className="m-0">
-						Shared with you · no sign-in needed
-					</Text>
-				</section>
-				<Badge variant="success">
-					<ShieldCheck size={13} /> Can use
-				</Badge>
+				</Text>
+				<div className="flex shrink-0 items-center gap-1" data-guest-bar-tools>
+					<Badge variant="success" title={t("share_no_sign_in")}>
+						<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
+					</Badge>
+				</div>
 			</header>
 			{share.share.note && (
 				<Text as="p" role="body" tone="secondary" className="m-0">
@@ -280,7 +334,7 @@ function GuestApp({
 			)}
 			{share.share.policyReason && (
 				<Alert variant="warning">
-					<AlertTitle>Access narrowed by policy</AlertTitle>
+					<AlertTitle>{t("share_access_narrowed")}</AlertTitle>
 					<AlertDescription>{share.share.policyReason}</AlertDescription>
 				</Alert>
 			)}
