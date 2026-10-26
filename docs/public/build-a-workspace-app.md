@@ -68,6 +68,15 @@ as `<slot>`", the allowed operations and whether its account is connected.
 **Connect** opens the workspace's connected apps. A slot is filled when the
 app is installed from its blueprint.
 
+To reuse a workspace, choose **Workspace actions → Save as blueprint** and
+name the draft. Agents use `save_workspace_as_blueprint` with `workspaceId`
+and `name` (API: `osWorkspaces.blueprints.saveWorkspace`). This captures active
+apps at their committed revisions, including runtime source files, manifests,
+resource-slot shapes and the workspace's pinned blueprint requirements. It
+excludes app storage, documents and chats. Publish the draft in **Blueprints**
+when it is ready; each installation creates fresh apps with independent storage
+and asks for new resource selections. Uncommitted drafts are not captured.
+
 The app's **Share** dialog shows **People with access** (the workspace owner
 and, for an organization workspace, everyone in the organization) above its
 share links. Admins get a link to invite people to the organization.

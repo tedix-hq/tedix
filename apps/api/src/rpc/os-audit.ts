@@ -522,6 +522,15 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			documentId: fields(output.proposal).documentId,
 		}),
 	},
+	"blueprints.saveWorkspace": {
+		action: "os.blueprint.saved_from_workspace",
+		resourceType: "os_blueprint",
+		resourceId: ({ output }) => nestedId(output, "blueprint"),
+		metadata: ({ input, output }) => ({
+			workspaceId: input.workspaceId,
+			revisionId: nestedId(output, "revision"),
+		}),
+	},
 	"blueprints.create": {
 		action: "os.blueprint.created",
 		resourceType: "os_blueprint",

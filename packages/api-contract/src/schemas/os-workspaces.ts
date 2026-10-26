@@ -2074,10 +2074,22 @@ export const OsBlueprintDefinitionSchema = z.object({
 	),
 	gadgets: z
 		.array(
-			z.object({
-				name: z.string().min(1).max(120),
-				manifest: OsGadgetManifestSchema,
-			}),
+			z
+				.object({
+					name: z.string().min(1).max(120),
+					manifest: OsGadgetManifestSchema,
+					files: AppRuntimeFilesSchema.optional().describe(
+						"Revision-pinned runtime source files; excludes app storage and workspace content",
+					),
+				})
+				.refine(
+					(app) =>
+						!app.files || app.manifest.entry.trim() === APP_RUNTIME_ENTRY,
+					{
+						path: ["files"],
+						message: "Only runtime apps carry source files",
+					},
+				),
 		)
 		.max(100)
 		.default([]),

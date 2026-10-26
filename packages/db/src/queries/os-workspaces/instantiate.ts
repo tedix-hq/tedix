@@ -19,6 +19,7 @@ import {
 	type OsGadgetRow,
 	type OsWorkspaceRow,
 	type OsWorkspaceResourceRow,
+	osGadgetCode,
 	osBlueprintRevisions,
 	osBlueprints,
 	osGadgetRevisions,
@@ -49,6 +50,7 @@ export interface InstantiateOsBlueprintParams {
 	/** Revision-1 rows, one per gadget, ids matching the preset pointers. */
 	revisions: NewOsGadgetRevisionRow[];
 	resources?: NewOsWorkspaceResourceRow[];
+	code?: (typeof osGadgetCode.$inferInsert)[];
 	provisioning?: BlueprintProvisioningRows;
 }
 
@@ -121,6 +123,7 @@ export async function instantiateOsBlueprint(
 		...revisionChunks.map((rows) =>
 			db.insert(osGadgetRevisions).values(rows).returning(),
 		),
+		...(params.code ?? []).map((row) => db.insert(osGadgetCode).values(row)),
 		...(params.provisioning
 			? buildBlueprintProvisioningStatements(db, params.provisioning)
 			: []),

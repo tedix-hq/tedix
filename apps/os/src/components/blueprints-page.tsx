@@ -174,6 +174,8 @@ export interface GadgetDraft {
 	entry: string;
 	capabilities: string;
 	notes: string;
+	// Keep recursive manifest config out of TanStack Form's field-path types.
+	sourceJson?: string;
 }
 
 export interface DefinitionDraft {
@@ -211,6 +213,7 @@ export function definitionToDraft(
 	return {
 		gadgets: definition.gadgets.map((gadget) => ({
 			...newGadgetDraft(),
+			sourceJson: JSON.stringify(gadget),
 			name: gadget.name,
 			entry: gadget.manifest.entry,
 			capabilities: gadget.manifest.capabilities.join(", "),
@@ -226,13 +229,19 @@ export function draftToDefinition(
 	return {
 		gadgets: draft.gadgets.map((gadget) => {
 			const notes = gadget.notes.trim();
+			const source: OsBlueprintDefinition["gadgets"][number] | undefined =
+				gadget.sourceJson ? JSON.parse(gadget.sourceJson) : undefined;
+			const manifest = {
+				...source?.manifest,
+				capabilities: parseListInput(gadget.capabilities),
+				entry: gadget.entry.trim(),
+				...(notes ? { notes } : {}),
+			};
+			if (!notes) delete manifest.notes;
 			return {
 				name: gadget.name.trim(),
-				manifest: {
-					capabilities: parseListInput(gadget.capabilities),
-					entry: gadget.entry.trim(),
-					...(notes ? { notes } : {}),
-				},
+				manifest,
+				...(source?.files ? { files: source.files } : {}),
 			};
 		}),
 		requirements: draft.requirements,

@@ -1,3 +1,7 @@
+import {
+	appRuntimeCodeLength,
+	isAppRuntimeManifest,
+} from "@tedix/api-contract/utils/app-runtime";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	BlueprintProvisioningSchema,
@@ -235,6 +239,7 @@ export async function buildBlueprintApplyRows(
 		},
 		gadgets: [],
 		revisions: [],
+		code: [],
 		resources: [],
 		provisioning: rows,
 	};
@@ -339,6 +344,18 @@ export async function buildBlueprintApplyRows(
 	for (const app of definition.gadgets) {
 		const gadgetId = id("app", app.name),
 			appRevisionId = await blueprintInstanceId([gadgetId, "revision", "1"]);
+		if (isAppRuntimeManifest(app.manifest)) {
+			if (!app.files)
+				throw new Error(`Runtime app ${app.name} has no source files`);
+			params.code!.push({
+				organizationId: base.organizationId,
+				gadgetId,
+				revisionId: appRevisionId,
+				files: JSON.stringify(app.files),
+				codeLength: appRuntimeCodeLength(app.files),
+				createdAt: base.now,
+			});
+		}
 		params.gadgets.push({
 			...creator,
 			id: gadgetId,

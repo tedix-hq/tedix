@@ -1610,6 +1610,26 @@ export const osWorkspacesContract = oc
 				),
 		}),
 		blueprints: oc.router({
+			saveWorkspace: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/save-blueprint",
+					summary: "Save a workspace as a blueprint",
+					description:
+						"Snapshots active apps at their current committed revisions, including runtime files, manifests and unbound resource-slot requirements. Excludes app storage, outputs and chats. Creates an organization-only draft with revision 1; publishing is separate.",
+				})
+				.input(
+					workspaceIdInput.extend({
+						name: nameSchema,
+						description: descriptionSchema,
+					}),
+				)
+				.output(
+					z.object({
+						blueprint: OsBlueprintWithVisibilitySchema,
+						revision: OsBlueprintRevisionSchema,
+					}),
+				),
 			previewApply: oc
 				.route({
 					method: "POST",

@@ -1,3 +1,4 @@
+import { saveWorkspaceBlueprint } from "./os-blueprint-save";
 import { osBlueprintApplyProcedures } from "./os-blueprint-apply";
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { installDefaultWorkApps } from "../../services/default-work-apps";
@@ -1340,8 +1341,8 @@ function requireInstantiablePreflight(preflight: OsBlueprintPreflight): void {
  * `blueprint` and `revisionRow` describe the row set the workspace is pinned
  * to; for a gallery import they are the not-yet-written copy, and
  * `blueprintCopy` carries the insert rows so the copy cannot survive a failed
- * workspace insert. Nothing here reads or writes a credential: only the
- * declared gadget manifests are copied, and the requirement declaration is
+ * workspace insert. Nothing here reads or writes a credential: the declared
+ * manifests and runtime source files are copied, and the requirement declaration is
  * `.strict()`, so no token can be represented in one.
  */
 async function materializeBlueprintWorkspace(
@@ -1384,6 +1385,7 @@ async function materializeBlueprintWorkspace(
 	};
 	const gadgetRows = [];
 	const revisionRows = [];
+	const codeRows = [];
 	const resourceRows = await Promise.all(
 		resourceBindings.map(async (binding) => {
 			const verified =
@@ -1413,6 +1415,20 @@ async function materializeBlueprintWorkspace(
 	for (const declared of definition.gadgets) {
 		const gadgetId = crypto.randomUUID();
 		const gadgetRevisionId = crypto.randomUUID();
+		if (isAppRuntimeManifest(declared.manifest)) {
+			if (!declared.files)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					`Runtime app ${declared.name} has no source files`,
+				);
+			codeRows.push({
+				...accountability,
+				revisionId: gadgetRevisionId,
+				gadgetId,
+				files: JSON.stringify(declared.files),
+				codeLength: appRuntimeCodeLength(declared.files),
+			});
+		}
 		gadgetRows.push({
 			...accountability,
 			id: gadgetId,
@@ -1448,6 +1464,7 @@ async function materializeBlueprintWorkspace(
 			updatedAt: now,
 		},
 		resources: resourceRows,
+		code: codeRows,
 		gadgets: gadgetRows,
 		revisions: revisionRows,
 	});
@@ -2274,6 +2291,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		...resourceLifecycle.osOutputLifecycleProcedures,
 	},
 	blueprints: {
+		saveWorkspace: saveWorkspaceBlueprint,
 		...osBlueprintApplyProcedures,
 		list: blueprintsList,
 		create: blueprintsCreate,
