@@ -1290,6 +1290,7 @@ export function CanvasDocPanel({
 										variant="ghost"
 										className="canvas-code-file-button"
 										aria-current={codeFile === file.path ? "page" : undefined}
+										aria-label={file.path}
 										title={file.hint}
 										onClick={() => setCodeFile(file.path)}
 									>
