@@ -50,7 +50,7 @@ export function skillUsage(): string {
 		"Verbs:",
 		"  tedix skill list [--limit <n>]",
 		"  tedix skill find <query> [--limit <n>]",
-		"  tedix skill show <skillUuid|slug>",
+		"  tedix skill show <skillUuid|slug> [--file SKILL.md|<path>]",
 		"  tedix skill schedule <skillUuid|slug>",
 		"  tedix skill edit <skillUuid> --file SKILL.md [--file scripts/workflow.ts ...] [--reason <text>]",
 		"  tedix skill run <skillUuid> [--watch[=secs]] [--param k=v] [--params '<json>']",
@@ -121,15 +121,72 @@ async function listSkills(ctx: SkillContext, query?: string): Promise<number> {
 	return 0;
 }
 
+/** Characters of one file per gateway call, well under the result cap. */
+const FILE_CHUNK = 12_000;
+
+/**
+ * Sandbox statements that leave the skill in `e` and its files in `files`.
+ * A slug resolves through get_skills_for_mcp (standing rules) and otherwise
+ * through an exact-slug catalog match.
+ */
+function skillReadStatements(id: string): string {
+	const read = UUID_RE.test(id)
+		? `const g = await skills.get_skills(${JSON.stringify({ id })}); let e = g?.entry ?? g;`
+		: `const m = await skills.get_skills_for_mcp(${JSON.stringify({ slug: id })}); let e = m?.entry ?? null; if (!e) { const hit = (await skills.list_skills_by_org(${JSON.stringify({ query: id, limit: 20, offset: 0, summary: true })})).entries?.find((x) => x.slug === ${JSON.stringify(id)}); if (hit) { const g = await skills.get_skills({ id: hit.id }); e = g?.entry ?? g; } }`;
+	return `${read} if (!e) return { missing: true }; const files = e.files ?? {};`;
+}
+
+async function runSkillProjection(
+	ctx: SkillContext,
+	source: string,
+): Promise<Record<string, unknown>> {
+	const normalized = normalizeCodeResult(await ctx.client.runCode(source));
+	if (normalized.truncated) throw new Error(truncationErrorMessage(normalized));
+	return (normalized.value ?? {}) as Record<string, unknown>;
+}
+
+/**
+ * A bounded summary (metadata, a SKILL.md preview, file names and sizes), or
+ * with `--file <path>` one file whole, read in chunks so a large skill never
+ * hits the gateway's result cap.
+ */
 async function showSkill(ctx: SkillContext, id: string): Promise<number> {
 	if (!UUID_RE.test(id) && !SLUG_RE.test(id))
 		throw new Error("skill show requires a UUID or canonical slug");
-	const value = await readGatewayProjection(
-		ctx.client,
-		UUID_RE.test(id) ? "skills.get_skills" : "skills.get_skills_for_mcp",
-		UUID_RE.test(id) ? { id } : { slug: id },
+	const read = skillReadStatements(id);
+	const notFound = () => new Error(`no skill ${id} in this organization`);
+	const path = ctx.flow.file?.trim();
+	if (path) {
+		let text = "";
+		for (let offset = 0; ; offset += FILE_CHUNK) {
+			const chunk = await runSkillProjection(
+				ctx,
+				`async () => { ${read} const path = ${JSON.stringify(path)}; const text = path === "SKILL.md" ? e.content : files[path]; if (typeof text !== "string") return { missingFile: path, files: ["SKILL.md", ...Object.keys(files)] }; return { total: text.length, chunk: text.slice(${offset}, ${offset + FILE_CHUNK}) }; }`,
+			);
+			if (chunk.missing) throw notFound();
+			if (chunk.missingFile)
+				throw new Error(
+					`skill ${id} has no file ${path}; files: ${(chunk.files as string[]).join(", ")}`,
+				);
+			text += String(chunk.chunk ?? "");
+			if (offset + FILE_CHUNK >= Number(chunk.total)) break;
+		}
+		console.log(ctx.json ? JSON.stringify({ path, content: text }) : text);
+		return 0;
+	}
+	const summary = await runSkillProjection(
+		ctx,
+		`async () => { ${read} return { id: e.id, slug: e.slug, title: e.title, description: e.description, lifecycleState: e.lifecycleState, revision: e.revision ?? e.version ?? null, tediId: e.tediId ?? null, contentChars: (e.content ?? "").length, contentPreview: (e.content ?? "").slice(0, 1500), files: Object.entries(files).map(([path, text]) => ({ path, chars: String(text).length })) }; }`,
 	);
-	console.log(JSON.stringify(value, null, ctx.json ? 0 : 2));
+	if (summary.missing) throw notFound();
+	console.log(JSON.stringify(summary, null, ctx.json ? 0 : 2));
+	if (!ctx.json)
+		console.log(
+			dim(
+				`\n  whole file: tedix skill show ${id} --file SKILL.md (or a path above)`,
+				ctx.color,
+			),
+		);
 	return 0;
 }
 
