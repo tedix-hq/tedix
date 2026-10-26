@@ -192,6 +192,21 @@ export function toVfsPath(path: string): string {
 	return normalized;
 }
 
+/**
+ * A relative target stays relative, as a native link stores it, once it
+ * resolves from the link's parent inside the workspace. An absolute target is
+ * workspace-rooted. Either way a target that escapes the root is refused.
+ */
+function scopedSymlinkTarget(target: string, vfsLinkPath: string): string {
+	const trimmed = target.trim();
+	if (trimmed === "" || trimmed.startsWith("/")) return toVfsPath(target);
+	const parent = vfsLinkPath.slice(0, vfsLinkPath.lastIndexOf("/"));
+	const resolved = normalizeSegments(`${parent}/${trimmed}`);
+	if (resolved !== VFS_ROOT && !resolved.startsWith(`${VFS_ROOT}/`))
+		throw new WorkspacePathError(target);
+	return trimmed;
+}
+
 function fromVfsPath(path: string): string {
 	if (path === VFS_ROOT) return "";
 	return path.startsWith(`${VFS_ROOT}/`)
@@ -648,8 +663,9 @@ export function adaptVfsToWorkspaceFs(
 			await fs.rename(toVfsPath(src), toVfsPath(dest));
 		},
 		async symlink(target: string, linkPath: string): Promise<void> {
-			await ensureParentDir(fs, toVfsPath(linkPath));
-			await fs.symlink(toVfsPath(target), toVfsPath(linkPath));
+			const link = toVfsPath(linkPath);
+			await ensureParentDir(fs, link);
+			await fs.symlink(scopedSymlinkTarget(target, link), link);
 		},
 		async readlink(path: string): Promise<string> {
 			return fromVfsPath(await fs.readlink(toVfsPath(path)));
