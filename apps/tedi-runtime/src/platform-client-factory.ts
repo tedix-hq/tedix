@@ -12,6 +12,7 @@
  * Durable Object so the JWT survives between turns.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import {
 	AccessKeyExchangeError,
@@ -277,7 +278,8 @@ async function ensureScopedAccessKey(
 		);
 	} catch (error) {
 		console.error(
-			`[isolate-access-key-guard] ${tediId}: rotation API call failed: ${error instanceof Error ? error.message : String(error)}`,
+			`[isolate-access-key-guard] ${tediId}: rotation API call failed`,
+			{ exception: exceptionTopology(error) },
 		);
 		return { descopeAccessKey, encryptedValue };
 	}

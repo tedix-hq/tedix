@@ -10,6 +10,7 @@
  * health read shows them without a second source.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { createDbClient } from "@tedix/db/client";
 import {
 	DISPATCHER_HEALTH_SCHEMA,
@@ -129,7 +130,7 @@ export async function runDispatcherHealthAlarm(
 				JSON.stringify({
 					event: "dispatcher_health.alarm_failed",
 					orgId: row.orgId,
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				}),
 			);
 		}

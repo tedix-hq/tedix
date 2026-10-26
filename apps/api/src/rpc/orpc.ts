@@ -426,8 +426,8 @@ export async function resolveServiceBindingOrganizationId(
 		return org?.id ?? serviceOrgId;
 	} catch (err) {
 		console.warn(
-			"[withAuth] Service-binding org lookup failed, using header value verbatim:",
-			err instanceof Error ? err.message : err,
+			"[withAuth] Service-binding org lookup failed, using header value verbatim",
+			{ exception: safeExceptionTopology(err) },
 		);
 		return serviceOrgId;
 	}

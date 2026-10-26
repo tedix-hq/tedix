@@ -10,6 +10,7 @@
  * the tedi's current active version (or there is no active version yet).
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import { harnessContract } from "@tedix/api-contract/contracts/harness";
 import {
@@ -690,9 +691,8 @@ export const harnessContractRouter = harnessOs.router({
 				}
 			} catch (err) {
 				console.warn(
-					`[harness.recordEvalRun] metadata stamp failed for ${input.harnessVersionId}: ${
-						err instanceof Error ? err.message : String(err)
-					}`,
+					`[harness.recordEvalRun] metadata stamp failed for ${input.harnessVersionId}`,
+					{ exception: safeExceptionTopology(err) },
 				);
 			}
 			return { run };

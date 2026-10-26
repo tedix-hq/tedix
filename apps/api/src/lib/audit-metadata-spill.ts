@@ -9,6 +9,7 @@
  * Without a bucket the metadata is stored as given, exactly as before.
  */
 
+import { safeExceptionTopology } from "./safe-log-metadata";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 
 export const AUDIT_METADATA_INLINE_BYTES = 4 * 1024;
@@ -82,7 +83,7 @@ export async function spillAuditMetadata(
 			JSON.stringify({
 				signal: "audit.metadata.spill_failed",
 				auditId: input.auditId,
-				message: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			}),
 		);
 		return metadata;

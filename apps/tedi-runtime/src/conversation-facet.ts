@@ -1616,7 +1616,10 @@ export class ConversationFacet extends PiAgent<
 						.filter((part) => part.type === "text")
 						.map((part) => part.text ?? "")
 						.join("") ?? "";
-			} else console.error("[tedi.pi.final-report]", settledReport.error);
+			} else
+				console.error("[tedi.pi.final-report]", {
+					exception: exceptionTopology(settledReport.error),
+				});
 			await this.accounting.assertComplete();
 			this.setState({ ...this.state, finalReportStop: null });
 		}

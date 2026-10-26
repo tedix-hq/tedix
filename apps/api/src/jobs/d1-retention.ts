@@ -10,6 +10,7 @@
  * that can relieve it.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { createDbClient } from "@tedix/db/client";
 import { readD1SizeBytes } from "@tedix/db/queries/d1-size";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -100,7 +101,7 @@ export async function runD1SizeCheck(
 				JSON.stringify({
 					signal: "d1.size.alert_failed",
 					store: probe.store,
-					message: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				}),
 			);
 		}
