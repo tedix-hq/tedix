@@ -168,3 +168,39 @@ it("lets an admitted tedi steward publish a selection without granting an execut
 	);
 	expect(mocks.project).not.toHaveBeenCalled();
 });
+
+it.each([
+	["an external agent", { type: "external_agent", id: "local-acme" }],
+	["a tedi steward", { type: "tedi", id: "example-steward" }],
+])(
+	"keeps a pure purpose repair owner/admin controlled for %s",
+	async (_label, actor) => {
+		mocks.actor.mockResolvedValue(actor);
+		mocks.access.mockResolvedValue({
+			...item,
+			workClass: "maintenance",
+			objectiveId: null,
+			purposeExceptionExpiresAt: "2026-10-01T00:00:00.000Z",
+		});
+		for (const input of [
+			{ workClass: "maintenance" as const },
+			{ purposeExceptionExpiresAt: "2026-11-20T00:00:00.000Z" },
+			{
+				workClass: "maintenance" as const,
+				purposeExceptionExpiresAt: "2026-11-20T00:00:00.000Z",
+			},
+		]) {
+			await expect(
+				updateSpecificationProcedure["~orpc"].handler!({
+					input: { id: item.id, expectedWorkItemVersion: 2, ...input },
+					context: { db: {} } as BaseContext,
+					path: ["workItems", "updateSpecification"],
+					procedure: updateSpecificationProcedure,
+					signal: undefined,
+					lastEventId: undefined,
+				}),
+			).rejects.toThrow("owner/admin controlled");
+		}
+		expect(mocks.update).not.toHaveBeenCalled();
+	},
+);
