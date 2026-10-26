@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { requireDestructiveToolApproval } from "./governance";
+import * as analytics from "./utils/analytics";
 import type { ServerContext } from "./server-context";
 
 const args = {
@@ -34,6 +35,55 @@ function context(
 	} as unknown as ServerContext;
 }
 describe("Home approval at MCP dispatch", () => {
+	it.each([{ userId: "user-1" }, { approvedHomeUserId: "user-1" }])(
+		"audits the kernel on behalf of the member for %j",
+		async (identity) => {
+			const audit = vi
+				.spyOn(analytics, "emitMcpAuditEvent")
+				.mockImplementation(() => {});
+			const agent = context(
+				vi.fn().mockResolvedValue({ approved: true }),
+				true,
+				"service",
+				identity,
+			);
+			Object.assign(agent, {
+				appId: "app-1",
+				env: {},
+				ctx: { waitUntil: vi.fn() },
+			});
+			try {
+				expect(
+					await requireDestructiveToolApproval(
+						agent,
+						{ toolId: "tedix__create_os_output", title: "Create output" },
+						{ destructiveHint: true },
+						options,
+					),
+				).toBeNull();
+				expect(audit).toHaveBeenCalledWith(
+					agent.env,
+					expect.objectContaining({
+						userId: "user-1",
+						authType: "service",
+						metadata: expect.objectContaining({
+							governance: "destructive_approved",
+							reason: "home_tool_approval",
+							actor: "kernel on behalf of user:user-1",
+							delegationMode: "kernel",
+							subjectUserId: "user-1",
+						}),
+					}),
+					expect.any(Function),
+				);
+				expect(agent.callerIdentity).toEqual(expect.objectContaining(identity));
+				expect(agent.callerIdentity?.userId).toBe(identity.userId);
+			} finally {
+				audit.mockRestore();
+			}
+		},
+	);
+
 	it("accepts only the exact server-verified call without another elicitation", async () => {
 		const resolve = vi.fn().mockResolvedValue({ approved: true });
 		expect(
