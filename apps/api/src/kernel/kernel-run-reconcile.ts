@@ -1,4 +1,5 @@
 /** Scheduled run reconciliation and durable submission recovery. */
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { BaseContext } from "../rpc/context";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import type { KernelTurnWorkInput } from "../rpc/routers/kernel/turn-work-context";
@@ -417,10 +418,10 @@ async function reconcileStaleSubmissions(
 							} catch (selfHealError) {
 								console.warn(
 									"[kernel] crash self-heal child re-check failed — falling back to crash-fail",
-									submission.runId,
-									selfHealError instanceof Error
-										? selfHealError.message
-										: String(selfHealError),
+									{
+										runId: submission.runId,
+										exception: safeExceptionTopology(selfHealError),
+									},
 								);
 							}
 						}
@@ -539,13 +540,10 @@ async function reconcileStaleSubmissions(
 					});
 					reconciled += 1;
 				} catch (kernelReconcileError) {
-					console.warn(
-						"[kernel] submission reconcile error for run",
-						submission.runId,
-						kernelReconcileError instanceof Error
-							? kernelReconcileError.message
-							: String(kernelReconcileError),
-					);
+					console.warn("[kernel] submission reconcile error for run", {
+						runId: submission.runId,
+						exception: safeExceptionTopology(kernelReconcileError),
+					});
 				}
 			} else if (
 				submission.subjectKind === "tedi" &&
@@ -780,11 +778,10 @@ async function reconcileStaleSubmissions(
 					}
 					reservedSwept += 1;
 				} catch (rowError) {
-					console.warn(
-						"[kernel] reserved-latch sweep error for run",
-						row.runId,
-						rowError instanceof Error ? rowError.message : String(rowError),
-					);
+					console.warn("[kernel] reserved-latch sweep error for run", {
+						runId: row.runId,
+						exception: safeExceptionTopology(rowError),
+					});
 				}
 			}
 		} catch (reservedSweepError) {

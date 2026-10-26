@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 /// <reference path="../../worker-configuration.d.ts" />
 /**
  * Six-hourly Tedi MCP access-health workflow enqueue. Registers the durable
@@ -26,8 +27,8 @@ export function queueTediMcpAccessHealthWorkflow(
 			})
 			.catch((error) => {
 				console.warn(
-					"[Scheduled] Tedi MCP access health workflow failed to queue:",
-					error instanceof Error ? error.message : String(error),
+					"[Scheduled] Tedi MCP access health workflow failed to queue",
+					{ exception: safeExceptionTopology(error) },
 				);
 			}),
 	);

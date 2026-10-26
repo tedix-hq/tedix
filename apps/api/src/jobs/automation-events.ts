@@ -19,6 +19,7 @@
  *   effects exactly once.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { createRouterClient } from "@orpc/server";
 import {
 	type AutomationEvent,
@@ -194,8 +195,8 @@ export async function handleAutomationEventMessage(
 		return "ack";
 	} catch (err) {
 		console.warn(
-			`[automation-events] dispatch threw key=${event.idempotencyKey}; retrying:`,
-			err instanceof Error ? err.message : String(err),
+			`[automation-events] dispatch threw key=${event.idempotencyKey}; retrying`,
+			{ exception: safeExceptionTopology(err) },
 		);
 		return "retry";
 	}

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 /// <reference path="../../worker-configuration.d.ts" />
 /**
  * External-agent MCP client reaper.
@@ -89,7 +90,7 @@ export async function runExternalAgentMcpClientReaperTick(
 				deleteFailures += chunk.length;
 				console.error(
 					`[external-agent-mcp-client-reaper] batch delete failed for server ${mcpServerId} (${chunk.length} ids)`,
-					error,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}

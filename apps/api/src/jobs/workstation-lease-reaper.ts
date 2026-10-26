@@ -29,6 +29,7 @@
  * alone could not: the reaper never revisits a lease once it is terminal.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import {
 	WORKSTATION_LEASE_IDLE_EXPIRY_HOURS,
@@ -80,10 +81,9 @@ async function reapWorkstationBodies(
 		return (body.results ?? []).filter((result) => result.reaped === true)
 			.length;
 	} catch (error) {
-		console.warn(
-			"[workstation-lease-reaper] body reap failed (non-fatal):",
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[workstation-lease-reaper] body reap failed (non-fatal)", {
+			exception: safeExceptionTopology(error),
+		});
 		return 0;
 	}
 }
@@ -192,10 +192,9 @@ export async function runWorkstationLeaseReaperTick(
 			workstationsArchived: bundleTotals.workstations,
 		};
 	} catch (error) {
-		console.warn(
-			"[workstation-lease-reaper] tick failed (non-fatal):",
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[workstation-lease-reaper] tick failed (non-fatal)", {
+			exception: safeExceptionTopology(error),
+		});
 		throw error;
 	}
 }

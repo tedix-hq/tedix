@@ -1,5 +1,6 @@
 /** Authentication shared by kernel voice routes and scoped-token minting. */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	decodeTokenUnsafe,
 	isOAuthClientToken,
@@ -143,10 +144,9 @@ export async function authenticateKernelSessionJwt(
 			claimOrganizationId =
 				(await getOrganizationByDescopeId(db, tenantId))?.id ?? null;
 		} catch (error) {
-			console.warn(
-				"[kernel.edge] claim org resolution failed",
-				error instanceof Error ? error.message : String(error),
-			);
+			console.warn("[kernel.edge] claim org resolution failed", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 	// Normalize the user's own Descope tenant alias before checking membership

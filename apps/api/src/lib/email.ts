@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "./safe-log-metadata";
 /**
  * Outbound Email
  *
@@ -89,9 +90,9 @@ async function sendViaCloudflare(
 			provider: "cloudflare",
 		};
 	} catch (err) {
-		console.error(
-			`[email] Cloudflare Email Service send failed: ${err instanceof Error ? err.message : String(err)}`,
-		);
+		console.error(`[email] Cloudflare Email Service send failed`, {
+			exception: safeExceptionTopology(err),
+		});
 		return {
 			ok: false,
 			sent: false,
