@@ -6,6 +6,7 @@ import {
 	resetAttentionFixtures,
 } from "./attention-fixtures";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
+import type { OsShareLink } from "@tedix/api-contract/contracts/os-shares";
 import {
 	mergeAppFiles,
 	mergeAppText,
@@ -1276,6 +1277,7 @@ export function resetLocalFixtures(): void {
 	seq = 0;
 	localCollaborators.clear();
 	localCollaboratorLinks.clear();
+	localShareLinks.clear();
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
 	else installWorkViewFixtures();
 }
@@ -4836,6 +4838,16 @@ type LocalCollaboratorLink = {
 };
 const localCollaborators = new Map<string, LocalCollaborator[]>();
 const localCollaboratorLinks = new Map<string, LocalCollaboratorLink[]>();
+/** Share links per resource; the token is returned once and never kept. */
+const localShareLinks = new Map<string, OsShareLink[]>();
+
+function findLocalShareLink(shareId: string): OsShareLink {
+	for (const links of localShareLinks.values()) {
+		const link = links.find((candidate) => candidate.id === shareId);
+		if (link) return link;
+	}
+	throw new RpcError("NOT_FOUND", "Share link not found");
+}
 
 function localShareKey(): string {
 	const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -7455,6 +7467,53 @@ const handlers: Record<string, (input: never) => unknown> = {
 	},
 	"osCollaborators/listShared": () => ({ items: [] }),
 	"osCollaborators/dismissShared": () => ({ dismissed: true }),
+	"osShares/shares/list": (input: {
+		resourceType: OsShareLink["resourceType"];
+		resourceId: string;
+	}) => ({
+		items:
+			localShareLinks.get(`${input.resourceType}:${input.resourceId}`) ?? [],
+	}),
+	"osShares/shares/create": (input: {
+		resourceType: OsShareLink["resourceType"];
+		resourceId: string;
+		role?: OsShareLink["role"];
+		revisionMode?: OsShareLink["revisionMode"];
+		pinnedRevisionId?: string;
+		note?: string;
+		expiresAt?: string;
+	}) => {
+		const share: OsShareLink = {
+			id: crypto.randomUUID(),
+			organizationId: ORG_ID,
+			resourceType: input.resourceType,
+			resourceId: input.resourceId,
+			role: input.role ?? "viewer",
+			revisionMode: input.revisionMode ?? "living",
+			pinnedRevisionId: input.pinnedRevisionId ?? null,
+			note: input.note ?? null,
+			policyMaxRole: null,
+			policyReason: null,
+			policyRestrictedAt: null,
+			createdByKind: "user",
+			createdById: "local-you",
+			createdAt: now(),
+			expiresAt: input.expiresAt ?? null,
+			revokedAt: null,
+		};
+		const key = `${input.resourceType}:${input.resourceId}`;
+		localShareLinks.set(key, [share, ...(localShareLinks.get(key) ?? [])]);
+		return { share, token: localShareKey() };
+	},
+	"osShares/shares/previewRevoke": (input: { shareId: string }) => ({
+		share: findLocalShareLink(input.shareId),
+		activeSessionCount: 0,
+	}),
+	"osShares/shares/revoke": (input: { shareId: string }) => {
+		const share = findLocalShareLink(input.shareId);
+		share.revokedAt ??= now();
+		return { share, revokedSessionCount: 0 };
+	},
 	"osWorkspaces/workspaces/update": (input: {
 		workspaceId: string;
 		name?: string;

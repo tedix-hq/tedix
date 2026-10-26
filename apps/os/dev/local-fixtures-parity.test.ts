@@ -230,10 +230,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"osShares/reviews/create",
 		"osShares/reviews/get",
 		"osShares/reviews/saveFeedback",
-		"osShares/shares/create",
-		"osShares/shares/list",
-		"osShares/shares/previewRevoke",
-		"osShares/shares/revoke",
 	],
 	"ReviewFeedbackSummary renders no summary without data": [
 		"osShares/reviews/listFeedback",
