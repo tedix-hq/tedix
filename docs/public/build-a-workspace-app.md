@@ -789,6 +789,44 @@ Output's content. Connection calls support reviewed resource-bound reads;
 provider permission and approval rules still apply. No network or ambient
 Cloudflare bindings are inherited. Do not retain a capability after its call.
 
+### Run app methods on a schedule, webhook or skill result
+
+An app method can also run without anyone clicking. List the triggers in
+the manifest's `config.triggers`; each one names an `id`, the `method` to
+call and optional leading `args`:
+
+```json
+"triggers": [
+	{ "id": "morning", "kind": "schedule", "cron": "0 7 * * 1-5", "method": "sweep" },
+	{ "id": "inbound", "kind": "webhook", "method": "receive" },
+	{ "id": "scouted", "kind": "skill", "slot": "scout", "method": "review" }
+]
+```
+
+- `schedule` runs at each time of a five-field UTC cron. Times are checked
+  every two minutes, so a cron that fires more often runs at most once per
+  check.
+- `webhook` runs when someone posts to the trigger's address. A builder gets
+  the address and signing secret from `osAppRuntime.triggerWebhook` with the
+  app scope and `triggerId`. The sender signs `<timestamp>.<raw JSON body>`
+  with the secret (HMAC-SHA256, hex) and sends `X-Tedix-Timestamp` (Unix
+  seconds) and `X-Tedix-Signature: sha256=<hex>`. Deliveries more than five
+  minutes old, unsigned or wrongly signed get `401`. Renaming the trigger
+  changes its secret.
+- `skill` runs when the skill bound to the workspace slot finishes a run.
+  It runs once for the newest finished run at each two-minute check.
+
+The method receives the trigger's `args`, then one event object:
+`{trigger, kind, firedAt}` plus `body` for a webhook and `run` (`id`,
+`status`, `cards`, `summary`, `error`) for a skill. Each event runs once.
+Every run appears in the app's Runs, as an app call made by
+`app-trigger:<id>`.
+
+A trigger acts for the person who saved the current app revision, with the
+app's `resourceGrants` and no more than that person may do today. If they
+leave the organization, the app's own code still runs but every resource
+call is refused until someone saves the app again.
+
 ### Roles, errors and limits
 
 | Role             | Allowed runtime operations                                                                     |

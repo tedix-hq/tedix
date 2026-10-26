@@ -208,6 +208,21 @@ export const osAppRuntimeContract = oc
 				}).strict(),
 			)
 			.output(AppRuntimeSessionResultSchema),
+		triggerWebhook: oc
+			.route({
+				method: "POST",
+				path: "/trigger-webhook",
+				summary:
+					"Get the address and signing secret of an app's webhook trigger",
+				description:
+					"Builders only. The sender signs `<timestamp>.<raw body>` with the secret (HMAC-SHA256, hex) and sends X-Tedix-Timestamp (Unix seconds) and X-Tedix-Signature: sha256=<hex>. Renaming the trigger rotates the secret.",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					triggerId: z.string().min(1).max(40),
+				}).strict(),
+			)
+			.output(z.object({ url: z.string().url(), secret: z.string() })),
 		capability: oc
 			.route({
 				method: "POST",

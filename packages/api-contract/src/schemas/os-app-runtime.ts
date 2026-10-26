@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
+import { nextSkillScheduleFireAt } from "../utils/skill-schedule";
 
 /**
  * A workspace app that runs its own code. The manifest entry
@@ -47,6 +48,81 @@ export const AppRuntimeFilesSchema = z
 	);
 export type AppRuntimeFiles = z.infer<typeof AppRuntimeFilesSchema>;
 
+export const AppRuntimeMethodSchema = z
+	.string()
+	.regex(/^[a-zA-Z][a-zA-Z0-9]{0,79}$/)
+	.refine(
+		(name) =>
+			![
+				"constructor",
+				"alarm",
+				"webSocketMessage",
+				"webSocketClose",
+				"webSocketError",
+			].includes(name),
+		"App lifecycle methods are private",
+	);
+export const AppRuntimeArgumentsSchema = z
+	.array(JsonValueSchema)
+	.max(50)
+	.refine(
+		(args) => new TextEncoder().encode(JSON.stringify(args)).length <= 65536,
+		"App arguments exceed 64 KiB",
+	);
+/** One app method a trigger calls, with optional leading arguments. */
+const appRuntimeTriggerBase = {
+	id: z
+		.string()
+		.regex(/^[a-z][a-z0-9-]{0,39}$/)
+		.describe("Stable trigger name; part of the webhook address"),
+	method: AppRuntimeMethodSchema,
+	args: AppRuntimeArgumentsSchema.optional().describe(
+		"Arguments passed before the trigger event; omitted means only the event",
+	),
+};
+
+/**
+ * Something that runs an app method without anyone clicking. The method is
+ * called with `args` followed by one event object
+ * (`{trigger, kind, firedAt, ...}`), under a machine session that carries the
+ * app's grants and the live access of the person who saved the revision.
+ */
+export const AppRuntimeTriggerSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("schedule"),
+		cron: z
+			.string()
+			.min(9)
+			.max(120)
+			.refine((cron) => {
+				try {
+					nextSkillScheduleFireAt(cron, new Date(0).toISOString());
+					return true;
+				} catch {
+					return false;
+				}
+			}, "cron must be a valid five-field UTC cron expression")
+			.describe("Five-field UTC cron; checked every two minutes"),
+		...appRuntimeTriggerBase,
+	}),
+	z.strictObject({
+		kind: z.literal("webhook"),
+		...appRuntimeTriggerBase,
+	}),
+	z.strictObject({
+		kind: z.literal("skill"),
+		slot: z
+			.string()
+			.min(1)
+			.max(160)
+			.describe(
+				"Workspace resource slot bound to the skill whose finished runs fire this trigger",
+			),
+		...appRuntimeTriggerBase,
+	}),
+]);
+export type AppRuntimeTrigger = z.infer<typeof AppRuntimeTriggerSchema>;
+
 /** Non-secret settings of a runtime app; the code reads them as `env.CONFIG`. */
 export const AppRuntimeConfigSchema = z.strictObject({
 	version: z.literal(1),
@@ -63,6 +139,16 @@ export const AppRuntimeConfigSchema = z.strictObject({
 		.describe(
 			"Tenant data the app reads at run time (sheet id, column names, reviewer label); never code and never secrets",
 		),
+	triggers: z
+		.array(AppRuntimeTriggerSchema)
+		.max(10)
+		.refine(
+			(triggers) =>
+				new Set(triggers.map((trigger) => trigger.id)).size === triggers.length,
+			"trigger ids must be unique",
+		)
+		.optional()
+		.describe("Schedules, webhooks and skill results that run an app method"),
 });
 export type AppRuntimeConfig = z.infer<typeof AppRuntimeConfigSchema>;
 
@@ -105,27 +191,6 @@ export const AppRuntimeScopeSchema = z.object({
 	workspaceId: z.uuid(),
 	gadgetId: z.uuid(),
 });
-export const AppRuntimeMethodSchema = z
-	.string()
-	.regex(/^[a-zA-Z][a-zA-Z0-9]{0,79}$/)
-	.refine(
-		(name) =>
-			![
-				"constructor",
-				"alarm",
-				"webSocketMessage",
-				"webSocketClose",
-				"webSocketError",
-			].includes(name),
-		"App lifecycle methods are private",
-	);
-export const AppRuntimeArgumentsSchema = z
-	.array(JsonValueSchema)
-	.max(50)
-	.refine(
-		(args) => new TextEncoder().encode(JSON.stringify(args)).length <= 65536,
-		"App arguments exceed 64 KiB",
-	);
 export const AppRuntimeSessionResultSchema = z.object({
 	session: z.string(),
 	expiresAt: z.number().int(),
