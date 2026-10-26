@@ -1735,6 +1735,57 @@ describe("safe credential lookup diagnostics", () => {
 			"Connection credential lookup unavailable (upstream status 403, user_latest)",
 		);
 	});
+	it("treats Descope 401 E151103 as a user who has not connected the app", async () => {
+		const missing = async () => ({
+			ok: false,
+			code: 401,
+			error: { errorCode: "E151103" },
+		});
+		const client = {
+			management: {
+				outboundApplication: {
+					fetchToken: missing,
+					fetchTokenByScopes: missing,
+				},
+			},
+		} as never;
+		await expect(
+			fetchConnectionToken(client, "provider", "owner"),
+		).resolves.toBeNull();
+		await expect(
+			fetchConnectionTokenByScopes(client, "provider", "owner", ["read"]),
+		).resolves.toBeNull();
+	});
+	it("keeps E151103 on a tenant lookup and other 401s as outages", async () => {
+		const tenantClient = {
+			management: {
+				outboundApplication: {
+					fetchTenantToken: async () => ({
+						ok: false,
+						code: 401,
+						error: { errorCode: "E151103" },
+					}),
+				},
+			},
+		} as never;
+		await expect(
+			fetchTenantConnectionToken(tenantClient, "provider", "tenant"),
+		).rejects.toMatchObject({ status: 401, upstreamCode: "E151103" });
+		const rejectedKey = {
+			management: {
+				outboundApplication: {
+					fetchToken: async () => ({
+						ok: false,
+						code: 401,
+						error: { errorCode: "E151002" },
+					}),
+				},
+			},
+		} as never;
+		await expect(
+			fetchConnectionToken(rejectedKey, "provider", "owner"),
+		).rejects.toMatchObject({ status: 401, upstreamCode: "E151002" });
+	});
 	it.each(lookups)(
 		"does not preserve a thrown cause for $kind",
 		async ({ method, kind, fallback, call }) => {

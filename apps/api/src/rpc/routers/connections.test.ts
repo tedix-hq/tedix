@@ -1348,6 +1348,13 @@ describe("connection inventory verification", () => {
 			);
 		},
 	);
+	it("shows a personal account Descope never stored as not connected", () => {
+		const response = { ok: false, code: 401, error: { errorCode: "E151103" } };
+		expect(summarizeCredential(response, Date.now(), true).state).toBe(
+			"missing",
+		);
+		expect(summarizeCredential(response).state).toBe("restricted");
+	});
 	it("distinguishes absence, expiry and presence without exposing tokens", () => {
 		expect(summarizeCredential({ ok: false, code: 404 }).state).toBe("missing");
 		expect(summarizeCredential({ ok: true }).state).toBe("unknown");
@@ -1512,6 +1519,49 @@ describe("credential resolution provider failures", () => {
 					},
 				),
 			).rejects.toMatchObject({ code: "NOT_FOUND" });
+		} finally {
+			spy.mockRestore();
+		}
+	});
+	it("asks a person without their own account to connect it, not to wait out an outage", async () => {
+		const spy = vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () =>
+				new Response(JSON.stringify({ errorCode: "E151103" }), {
+					status: 401,
+					headers: { "Content-Type": "application/json" },
+				}),
+		);
+		const db = Object.assign(makeTestDb(), {
+			query: {
+				organizations: {
+					findFirst: async () => ({ id: "org-1", slug: "acme" }),
+				},
+			},
+		});
+		try {
+			await expect(
+				resolveCredentialChain(
+					{
+						db,
+						env: {
+							DESCOPE_PROJECT_ID: "P1",
+							DESCOPE_MANAGEMENT_KEY: "K1",
+							ENVIRONMENT: "production",
+						},
+					} as never,
+					{
+						organizationId: "org-1",
+						descopeTenantId: "org_tedix",
+						providerId: "google-gmail",
+						scope: "user",
+						callerUserId: "user-1",
+					},
+				),
+			).rejects.toMatchObject({
+				code: "NOT_FOUND",
+				message:
+					"Connect Example to use this: https://acme.os.tedix.dev/account/connections?connect=google-gmail",
+			});
 		} finally {
 			spy.mockRestore();
 		}
