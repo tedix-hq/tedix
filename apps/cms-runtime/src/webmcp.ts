@@ -71,14 +71,27 @@ const TOOL_BY_PACK = {
 					type: "string",
 					minLength: 1,
 					maxLength: SEARCH_QUERY_MAX_CHARS,
+					description: "Words to look for in the site's published pages.",
 				},
 				collections: {
 					type: "array",
 					maxItems: 20,
 					items: { type: "string", pattern: "^[a-z][a-z0-9_]{0,63}$" },
+					description:
+						"Only search these content collections, e.g. posts or pages. Omit to search all.",
 				},
-				locale: { type: "string", pattern: "^[a-zA-Z0-9-]{1,35}$" },
-				limit: { type: "integer", minimum: 1, maximum: 100, default: 10 },
+				locale: {
+					type: "string",
+					pattern: "^[a-zA-Z0-9-]{1,35}$",
+					description: "Only return pages in this language, e.g. en or de.",
+				},
+				limit: {
+					type: "integer",
+					minimum: 1,
+					maximum: 100,
+					default: 10,
+					description: "Most results to return (1 to 100, default 10).",
+				},
 			},
 			required: ["query"],
 			additionalProperties: false,
@@ -117,6 +130,8 @@ const TOOL_BY_PACK = {
 					type: "string",
 					minLength: 1,
 					maxLength: READ_PAGE_PATH_MAX_CHARS,
+					description:
+						"Path or full URL of a page on this site, e.g. /blog/launch or a url from search_site.",
 				},
 			},
 			required: ["path"],
