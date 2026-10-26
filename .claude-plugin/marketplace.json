@@ -1,6 +1,6 @@
 {
 	"name": "tedix",
-	"description": "Tedix skills and connected work for Claude Code",
+	"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use.",
 	"owner": {
 		"name": "Tedix"
 	},
@@ -8,7 +8,7 @@
 		{
 			"name": "tedix",
 			"source": "./plugins/tedix",
-			"description": "Connect to Tedix, resume governed Work, and create Workspace Outputs"
+			"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use."
 		}
 	]
 }
