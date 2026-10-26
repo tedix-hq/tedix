@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.10 — 2026-10-26
+
+### Patch Changes
+
+- A Claude Code session that an older CLI saved under a Codex-named identity now uses its own Claude identity, so `tedix agent start` and `tedix work start` work without borrowing another agent's name.
+- Cloud agent setup for Claude, Codex and Devin uses one shared bootstrap command.
+- `tedix skill find`, `tedix skill schedule` and `tedix skill edit` let you search skills, see when one runs next, and update its files. `tedix skill list` shows long lists in full, and `tedix skill inspect` shows failed steps first.
+- `tedix skill show` prints a short summary instead of failing on large skills; `--file` prints one file in full.
+- `tedix work create` accepts `--description` and `--owner`.
+- `tedix work move <id> --project <uuid>` moves a Work Item to another project (owners and admins).
+
 ## 0.17.9 — 2026-10-26
 
 ### Patch Changes
