@@ -175,6 +175,21 @@ export function collectWhereConditions(
 			conditions.push({ key, op: "is null", value: null });
 			continue;
 		}
+		const values = chunks[index + 2];
+		if (op === "in" || op === "in (") {
+			const pending: unknown[] = [values];
+			while (pending.length) {
+				const param = pending.pop();
+				if (Array.isArray(param)) pending.push(...param);
+				else if (param && typeof param === "object") {
+					if ("queryChunks" in param && Array.isArray(param.queryChunks))
+						pending.push(...param.queryChunks);
+					else if ("value" in param && typeof param.value === "string")
+						conditions.push({ key, op: "=", value: param.value });
+				}
+			}
+			continue;
+		}
 		const param = chunks[index + 2] as { value?: unknown } | undefined;
 		if (!param || !("value" in param)) continue;
 		if (op === "=" || op === "<") {
