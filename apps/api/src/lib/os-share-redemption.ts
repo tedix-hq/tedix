@@ -1,6 +1,9 @@
 /** Public redemption and session reads for governed Tedix OS share links. */
 
-import { getOrganizationProfile } from "@tedix/db/queries/organizations";
+import {
+	getOrganizationGuestProfile,
+	type OrganizationGuestProfileRow,
+} from "@tedix/db/queries/organizations";
 import type { OsShareRole } from "@tedix/api-contract/contracts/os-shares";
 import {
 	type OsDerivedAccessEnvelope,
@@ -417,6 +420,24 @@ export async function readOsSharedResource(
 	return readWorkspace(db, link, role);
 }
 
+/**
+ * The organization's own wording for the guest bar: only `share_*` keys of its
+ * published copy overrides leave the record, so a guest never reads the rest
+ * of the visitor configuration.
+ */
+function guestCopyOverrides(
+	translations: OrganizationGuestProfileRow["translations"],
+): Record<string, Record<string, string>> {
+	const copy: Record<string, Record<string, string>> = {};
+	for (const [locale, entries] of Object.entries(translations ?? {})) {
+		if (!entries || typeof entries !== "object") continue;
+		for (const [key, value] of Object.entries(entries))
+			if (key.startsWith("share_") && typeof value === "string")
+				(copy[locale] ??= {})[key] = value;
+	}
+	return copy;
+}
+
 async function sessionResponse(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
@@ -424,10 +445,18 @@ async function sessionResponse(
 ): Promise<Response> {
 	const resource = await readOsSharedResource(db, link);
 	if (!resource) return notFound();
-	const organization = await getOrganizationProfile(db, link.organizationId);
+	const organization = await getOrganizationGuestProfile(
+		db,
+		link.organizationId,
+	);
 	return noStoreJson({
 		organization: organization
-			? { name: organization.name, logoUrl: organization.logoUrl }
+			? {
+					name: organization.name,
+					logoUrl: organization.logoUrl,
+					locale: organization.locale,
+					copy: guestCopyOverrides(organization.translations),
+				}
 			: null,
 		share: shareEnvelope(link),
 		resource,

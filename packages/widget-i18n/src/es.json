@@ -95,5 +95,11 @@
 	"working_on_it": "Trabajando en ello",
 	"writing_the_answer": "Escribiendo la respuesta",
 	"yesterday": "Ayer",
-	"your_assistant_for": "Tu asistente de {{product}}"
+	"your_assistant_for": "Tu asistente de {{product}}",
+	"share_access_narrowed": "Acceso limitado por una política",
+	"share_can_use": "Puede usar",
+	"share_link_unavailable": "Este enlace ya no abre nada",
+	"share_link_unavailable_hint": "Puede que haya caducado, se haya desactivado o lo haya limitado una política. Pide un enlace nuevo a quien lo compartió.",
+	"share_no_sign_in": "Compartido contigo · sin iniciar sesión",
+	"share_opening_app": "Abriendo la app…"
 }

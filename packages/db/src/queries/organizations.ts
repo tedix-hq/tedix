@@ -175,6 +175,57 @@ export async function getOrganizationProfile(
 	return row ?? null;
 }
 
+export interface OrganizationGuestProfileRow {
+	name: string;
+	logoUrl: string | null;
+	/** The language the organization publishes to visitors (`tediWidget.locale`). */
+	locale: string | null;
+	/** Its locale-keyed copy overrides (`tediWidget.translations`). */
+	translations: Record<string, Record<string, unknown>> | null;
+}
+
+/**
+ * What a share-link guest may see of an organization: name, logo, and the
+ * visitor language with its copy overrides. Two JSON paths are read in SQL so
+ * the rest of the metadata bag never leaves the database.
+ */
+export async function getOrganizationGuestProfile(
+	db: DbQueryClient,
+	id: string,
+): Promise<OrganizationGuestProfileRow | null> {
+	const path = (jsonPath: string, alias: string) =>
+		sql<
+			string | null
+		>`CASE WHEN json_valid(${organizations.metadata}) THEN json_extract(${organizations.metadata}, ${jsonPath}) END`.as(
+			alias,
+		);
+	const [row] = await db
+		.select({
+			name: organizations.name,
+			logoUrl: organizations.logoUrl,
+			locale: path("$.tediWidget.locale", "guest_locale"),
+			translations: path("$.tediWidget.translations", "guest_translations"),
+		})
+		.from(organizations)
+		.where(eq(organizations.id, id))
+		.limit(1);
+	if (!row) return null;
+	let translations: OrganizationGuestProfileRow["translations"] = null;
+	try {
+		const parsed: unknown = row.translations && JSON.parse(row.translations);
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+			translations = parsed as Record<string, Record<string, unknown>>;
+	} catch {
+		/* A malformed override bag reads as none. */
+	}
+	return {
+		name: row.name,
+		logoUrl: row.logoUrl,
+		locale: typeof row.locale === "string" ? row.locale : null,
+		translations,
+	};
+}
+
 /**
  * Narrow appearance projection kept separate from tenant identity so callers
  * that only need a name/logo never hydrate the organization's metadata bag.
