@@ -747,14 +747,14 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// signals.
 		const abortController = new AbortController();
 		this.turnAbortControllers.set(input.runId, abortController);
-		// Clear active progress and the stall watchdog exactly once, on success
-		// (before the late timing marks) and on failure (from `finally`).
+		// Clear active progress exactly once. Cancel the stall watchdog only after
+		// the turn settles; an exceptional exit still needs it to terminalize the run.
 		let turnEnded = false;
-		const endTurn = async (): Promise<void> => {
+		const endTurn = async (cancelWatchdog: boolean): Promise<void> => {
 			if (turnEnded) return;
 			turnEnded = true;
 			await progress.end();
-			if (watchdogId) {
+			if (cancelWatchdog && watchdogId) {
 				try {
 					await this.cancelSchedule(watchdogId);
 				} catch {
@@ -850,7 +850,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 			// Inbox-wake: if a child completion was stranded while this turn ran, arm the wake alarm so it fires shortly after
 			// the turn ends. onTurnEnded is fail-soft (never throws).
 			this.ctx.waitUntil(this.onTurnEnded(input.conversationId));
-			await endTurn();
+			await endTurn(true);
 			// Late stage marks (after the terminal write took its snapshot) ride on the in-memory result only: the enqueue
 			// response shows where the time after `completedAt` went; the run row is never rewritten.
 			stageTimings.mark("doEnded");
@@ -877,7 +877,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 			}
 			return result;
 		} finally {
-			await endTurn();
+			await endTurn(false);
 			// Only remove our own controller — a redriven turn with the same runId (persist-first idempotency: same run row
 			// re-enters runPlannerStep) could otherwise delete a fresher controller registered by the new pass after this stale
 			// `finally` runs.
