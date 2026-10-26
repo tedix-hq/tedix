@@ -31,6 +31,10 @@ import {
 	storeTediApiKey,
 	updateProviderMetadata,
 } from "./connections/provider-management";
+import {
+	redeemConnectTicket,
+	stageConnectTicket,
+} from "./connections/connect-tickets";
 import { connectionsOs } from "./connections/policy-resolution";
 
 // =============================================================================
@@ -41,6 +45,8 @@ export const connectionsContractRouter = connectionsOs.router({
 	createConnectionInstance,
 	renameConnectionInstance,
 	preparePersonalConnection,
+	stageConnectTicket,
+	redeemConnectTicket,
 	bindConnectionInstance,
 	getConnectionsOverview,
 	listProviders,

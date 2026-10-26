@@ -23,12 +23,20 @@ import {
 } from "./connections-actions";
 import { osQueryKeys } from "./os-query-options";
 
-const { disconnectProviderMock, initiateConnectionMock, createInstanceMock } =
-	vi.hoisted(() => ({
-		disconnectProviderMock: vi.fn(),
-		initiateConnectionMock: vi.fn(),
-		createInstanceMock: vi.fn(),
-	}));
+const {
+	disconnectProviderMock,
+	initiateConnectionMock,
+	createInstanceMock,
+	stageTicketMock,
+} = vi.hoisted(() => ({
+	disconnectProviderMock: vi.fn(),
+	initiateConnectionMock: vi.fn(),
+	createInstanceMock: vi.fn(),
+	stageTicketMock: vi.fn(async () => ({
+		ticket: "raw-ticket",
+		expiresAt: "2026-01-01T00:10:00.000Z",
+	})),
+}));
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
@@ -36,6 +44,7 @@ vi.mock("@/lib/api", () => ({
 			disconnectProvider: disconnectProviderMock,
 			initiateConnection: initiateConnectionMock,
 			createConnectionInstance: createInstanceMock,
+			stageConnectTicket: stageTicketMock,
 		},
 	},
 }));
@@ -151,6 +160,28 @@ describe("startOauthConnect", () => {
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
+	});
+
+	it("stages a ticket before consent and keeps it only in the consent window", async () => {
+		const started = startOauthConnect({
+			appId: "acme-api",
+			effectiveScope: "user",
+		});
+		await flush();
+		expect(stageTicketMock).toHaveBeenCalledWith({
+			appId: "acme-api",
+			scope: "user",
+		});
+		const stored = JSON.parse(
+			popup!.sessionStorage.getItem(CONNECT_FLOW_KEY) ?? "null",
+		) as { ticket?: string; nonce?: string };
+		expect(stored.ticket).toBe("raw-ticket");
+		expect(window.sessionStorage.getItem(CONNECT_FLOW_KEY)).toBeNull();
+		// The bridge request carries no ticket: only the callback redeems it.
+		const bridgeCall = vi.mocked(fetch).mock.calls[1];
+		expect(String(bridgeCall?.[1]?.body)).not.toContain("raw-ticket");
+		postCompletion(ORIGIN, popup!);
+		await started;
 	});
 
 	it("starts a user-owned connection through the same-origin bridge", async () => {

@@ -35,6 +35,10 @@ export function connectionFailureMessage(reason?: string): string {
 			return "The provider token could not be saved to this organization's credential vault.";
 		case "consent_denied":
 			return "The provider authorization was cancelled or denied.";
+		case "ticket_missing":
+			return "This connection was not started from your own sign-in, so it was not completed. Start the connection again from your workspace.";
+		case "ticket_rejected":
+			return "This connection could not be completed from your sign-in: it was started by someone else, already completed, or took too long. Start it again.";
 		default:
 			return "The provider could not be connected.";
 	}
@@ -48,6 +52,28 @@ interface ConnectionFlow {
 	appId: string;
 	effectiveScope: "tenant" | "user";
 	connectionInstanceId?: string;
+	/**
+	 * The staged connect ticket. Only the person who staged it can redeem it,
+	 * once, over their own signed-in session; a consent return without it
+	 * never completes a connection.
+	 */
+	ticket?: string;
+}
+
+/**
+ * Redeem the staged ticket over this person's own signed-in session. Resolves
+ * to the failure reason, or null once the connection is complete.
+ */
+export async function redeemConnectionFlow(
+	flow: ConnectionFlow,
+): Promise<"ticket_missing" | "ticket_rejected" | null> {
+	if (!flow.ticket) return "ticket_missing";
+	try {
+		await osApi.connections.redeemConnectTicket({ ticket: flow.ticket });
+		return null;
+	} catch {
+		return "ticket_rejected";
+	}
 }
 
 /** Consume only the correlation written before this popup left our origin. */
@@ -62,13 +88,39 @@ export function takeConnectionFlow(): ConnectionFlow | null {
 			flow.nonce.length > 0 &&
 			typeof flow.appId === "string" &&
 			flow.appId.length > 0 &&
-			(flow.effectiveScope === "tenant" || flow.effectiveScope === "user")
+			(flow.effectiveScope === "tenant" || flow.effectiveScope === "user") &&
+			(flow.ticket === undefined || typeof flow.ticket === "string")
 		)
 			return flow as ConnectionFlow;
 	} catch {
 		// An absent or unreadable flow cannot complete another caller's request.
 	}
 	return null;
+}
+
+/**
+ * Stage the ticket for this connect and keep it with the flow in the window
+ * that will return from consent: the popup when there is one, else this tab.
+ */
+async function stageConnectTicket(flow: ConnectionFlow): Promise<void> {
+	const staged = await osApi.connections.stageConnectTicket({
+		appId: flow.appId,
+		scope: flow.effectiveScope,
+		...(flow.connectionInstanceId
+			? { connectionInstanceId: flow.connectionInstanceId }
+			: {}),
+	});
+	flow.ticket = staged.ticket;
+}
+
+/** Store the flow where the consent return will read it; false when denied. */
+function keepConnectionFlow(target: Window, flow: ConnectionFlow): boolean {
+	try {
+		target.sessionStorage.setItem(CONNECT_FLOW_KEY, JSON.stringify(flow));
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 const CONNECT_POPUP_FEATURES = "popup=yes,width=560,height=760";
@@ -237,12 +289,25 @@ export async function startOauthConnect(input: {
 	connectionInstanceId?: string;
 	scopes?: string[];
 }): Promise<void> {
-	const flow: ConnectionFlow = { ...input, nonce: crypto.randomUUID() };
-	const popup = openConnectPopup(flow);
+	const flow: ConnectionFlow = {
+		appId: input.appId,
+		effectiveScope: input.effectiveScope,
+		...(input.connectionInstanceId
+			? { connectionInstanceId: input.connectionInstanceId }
+			: {}),
+		nonce: crypto.randomUUID(),
+	};
+	let popup = openConnectPopup(flow);
 	try {
+		await stageConnectTicket(flow);
+		if (popup && !popup.closed && !keepConnectionFlow(popup, flow)) {
+			popup.close();
+			popup = null;
+		}
 		const authorizeUrl = await resolveAuthorizeUrl(input);
 		if (!popup || popup.closed) {
 			rememberConnectReturnTo();
+			keepConnectionFlow(window, flow);
 			window.location.href = authorizeUrl;
 			return;
 		}
@@ -251,6 +316,7 @@ export async function startOauthConnect(input: {
 		} catch {
 			popup.close();
 			rememberConnectReturnTo();
+			keepConnectionFlow(window, flow);
 			window.location.href = authorizeUrl;
 			return;
 		}
@@ -287,18 +353,16 @@ export async function startNamedOauthConnect(input: {
 		});
 		flow.connectionInstanceId = instance.id;
 		if (popup?.closed) throw new Error(CONNECT_POPUP_ABANDONED_REASON);
-		if (popup) {
-			try {
-				popup.sessionStorage.setItem(CONNECT_FLOW_KEY, JSON.stringify(flow));
-			} catch {
-				popup.close();
-				popup = null;
-			}
+		await stageConnectTicket(flow);
+		if (popup && !keepConnectionFlow(popup, flow)) {
+			popup.close();
+			popup = null;
 		}
 		const authorizeUrl = await resolveAuthorizeUrl(flow);
 		if (popup?.closed) throw new Error(CONNECT_POPUP_ABANDONED_REASON);
 		if (!popup) {
 			rememberConnectReturnTo();
+			keepConnectionFlow(window, flow);
 			window.location.href = authorizeUrl;
 			return undefined;
 		}
@@ -307,6 +371,7 @@ export async function startNamedOauthConnect(input: {
 		} catch {
 			popup.close();
 			rememberConnectReturnTo();
+			keepConnectionFlow(window, flow);
 			window.location.href = authorizeUrl;
 			return undefined;
 		}

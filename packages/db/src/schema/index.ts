@@ -46,6 +46,7 @@ export * from "./cms-restore-fences";
 export * from "./configuration";
 export * from "./connection-providers";
 export * from "./connection-instances";
+export * from "./connection-connect-tickets";
 export * from "./conversation-capabilities";
 export * from "./conversation-artifact-pins";
 export * from "./docs-sites";
