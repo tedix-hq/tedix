@@ -448,6 +448,8 @@ export function extractCallerIdentity(
 			request.headers.get("x-tedix-auth-approved-factory-request") ?? undefined,
 		approvedWorkResponderUserId:
 			request.headers.get("x-tedix-auth-approved-work-responder") ?? undefined,
+		approvedHomeUserId:
+			request.headers.get("x-tedix-auth-approved-home-user") ?? undefined,
 	};
 }
 

@@ -9,6 +9,7 @@
 import {
 	createApprovalRequestWithAudit,
 	getApprovalRequestById,
+	consumeHomeToolApprovalCall,
 	consumeOwnerToolApproval,
 	findPendingOwnerToolApproval,
 	getApprovalAnchor,
@@ -125,6 +126,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				input.approvalRequestId,
 			);
 			const payload = parseHomeToolWritePayload(approval?.payload);
+			const digest = await canonicalDigest(input.args);
 			if (
 				approval?.orgId !== input.organizationId ||
 				approval.actionType !== "home.tool_write" ||
@@ -140,7 +142,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 							canonicalDigest,
 						),
 					)
-				).includes(await canonicalDigest(input.args))
+				).includes(digest)
 			)
 				return { approved: false };
 			const initiator = await getMemberByUserId(
@@ -167,13 +169,23 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			});
 			// Settlement owns the one-shot run claim. A parked or terminal run is
 			// never authority to replay the same approved call.
-			return {
-				approved: Boolean(
+			if (
+				!(
 					run?.status === "running" &&
 					run.conversationId === payload.conversationId &&
 					run.metadata?.approvalStatus === "approved" &&
-					run.metadata.kernelWriteExecutedAt,
-				),
+					run.metadata.kernelWriteExecutedAt
+				)
+			)
+				return { approved: false };
+			// While the run is still running, the same call must not run twice.
+			return {
+				approved: await consumeHomeToolApprovalCall(context.db, {
+					id: input.approvalRequestId,
+					organizationId: input.organizationId,
+					slot: `${input.credential}_${digest}`,
+					now: new Date().toISOString(),
+				}),
 			};
 		},
 	),

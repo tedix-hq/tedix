@@ -76,6 +76,12 @@ export interface CallerIdentity {
 	/** Human authority restricted to an approved Work interaction response. */
 	approvedWorkResponderUserId?: string;
 	approvedFactoryRequestId?: string;
+	/**
+	 * Initiating member of an approved Home write retried with the tenant
+	 * credential. Matches the Home approval receipt only; never selects a
+	 * credential or grants any other authority.
+	 */
+	approvedHomeUserId?: string;
 }
 
 export function shouldBypassCodeModeForCaller(

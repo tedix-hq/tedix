@@ -6,10 +6,13 @@ const mocks = vi.hoisted(() => ({
 	approval: vi.fn(),
 	member: vi.fn(),
 	run: vi.fn(),
+	consume: vi.fn(),
+	consumed: new Set<string>(),
 }));
 vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	...(await load<object>()),
 	getApprovalRequestById: mocks.approval,
+	consumeHomeToolApprovalCall: mocks.consume,
 }));
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
@@ -77,6 +80,15 @@ function client(authType = "service-binding") {
 }
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.consumed.clear();
+	mocks.consume.mockImplementation(
+		async (_db, call: { id: string; slot: string }) => {
+			const key = `${call.id}:${call.slot}`;
+			if (mocks.consumed.has(key)) return false;
+			mocks.consumed.add(key);
+			return true;
+		},
+	);
 	mocks.approval.mockResolvedValue(approval);
 	mocks.member.mockResolvedValue({ status: "active", role: "owner" });
 	mocks.run.mockResolvedValue(run);
@@ -137,6 +149,35 @@ describe("Home approval dispatch receipt", () => {
 		expect(await client().resolveHomeToolApproval(input)).toEqual({
 			approved: false,
 		});
+	});
+	it("authorizes each approved call once per credential path", async () => {
+		expect(await client().resolveHomeToolApproval(input)).toEqual({
+			approved: true,
+		});
+		expect(await client().resolveHomeToolApproval(input)).toEqual({
+			approved: false,
+		});
+		const fallback = { ...input, credential: "tenant" as const };
+		expect(await client().resolveHomeToolApproval(fallback)).toEqual({
+			approved: true,
+		});
+		expect(await client().resolveHomeToolApproval(fallback)).toEqual({
+			approved: false,
+		});
+		expect(mocks.consume).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				id: input.approvalRequestId,
+				organizationId: "org-1",
+				slot: expect.stringMatching(/^tenant_[0-9a-f]{64}$/),
+			}),
+		);
+	});
+	it("consumes nothing when the receipt does not match", async () => {
+		mocks.run.mockResolvedValue({ ...run, status: "completed" });
+		await client().resolveHomeToolApproval(input);
+		await client().resolveHomeToolApproval({ ...input, userId: "other" });
+		expect(mocks.consume).not.toHaveBeenCalled();
 	});
 	it("rejects a suspended initiator", async () => {
 		mocks.member.mockResolvedValue({ status: "suspended", role: "owner" });

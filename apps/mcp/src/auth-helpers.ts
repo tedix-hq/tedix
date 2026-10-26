@@ -92,6 +92,8 @@ export interface ServiceBindingContext {
 	kernel?: boolean;
 	approvedWorkResponderUserId?: string;
 	approvedFactoryRequestId?: string;
+	/** Initiating member of an approved Home write sent with the tenant credential. */
+	approvedHomeUserId?: string;
 }
 
 export interface DelegatedMcpContext {
@@ -1097,6 +1099,9 @@ export async function validateAuth(
 				: undefined,
 			approvedWorkResponderUserId: kernel
 				? (request.headers.get("X-Tedix-Approved-Work-Responder") ?? undefined)
+				: undefined,
+			approvedHomeUserId: kernel
+				? (request.headers.get("X-Tedix-Approved-Home-User") ?? undefined)
 				: undefined,
 		};
 	}

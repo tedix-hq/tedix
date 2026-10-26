@@ -341,49 +341,60 @@ describe("executeApprovedKernelWrite", () => {
 		});
 	});
 
-	it("falls back to the tenant credential when the personal one is missing", async () => {
-		// First tools/call (with acting user) reports the missing credential,
-		// the retry (without acting user) succeeds.
-		let toolCallIndex = 0;
-		const service = mcpService((body) => {
-			if (body.method === "tools/list") return LISTED;
-			toolCallIndex += 1;
-			if (toolCallIndex === 1) {
+	it.each([undefined, "sample-approval"])(
+		"falls back to the tenant credential when the personal one is missing (approval %s)",
+		async (approvalRequestId) => {
+			// First tools/call (with acting user) reports the missing credential,
+			// the retry (without acting user) succeeds.
+			let toolCallIndex = 0;
+			const service = mcpService((body) => {
+				if (body.method === "tools/list") return LISTED;
+				toolCallIndex += 1;
+				if (toolCallIndex === 1) {
+					return {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: {
+								isError: true,
+								content: [
+									{ type: "text", text: "Connection credential not found" },
+								],
+							},
+						},
+					};
+				}
 				return {
 					json: {
 						jsonrpc: "2.0",
 						id: 1,
-						result: {
-							isError: true,
-							content: [
-								{ type: "text", text: "Connection credential not found" },
-							],
-						},
+						result: { structuredContent: { id: "INV-2" }, isError: false },
 					},
 				};
-			}
-			return {
-				json: {
-					jsonrpc: "2.0",
-					id: 1,
-					result: { structuredContent: { id: "INV-2" }, isError: false },
-				},
-			};
-		});
+			});
 
-		const result = await executeApprovedKernelWrite({
-			env: env(service),
-			payload: payload(),
-		});
-		expect(result).toMatchObject({
-			ok: true,
-			data: { id: "INV-2", actionReceipt: { verified: false } },
-		});
-		const toolCalls = service.calls.filter((c) => c.method === "tools/call");
-		expect(toolCalls).toHaveLength(2);
-		expect(toolCalls[0]?.headers.get("X-Tedix-Acting-User")).toBe("user-123");
-		expect(toolCalls[1]?.headers.get("X-Tedix-Acting-User")).toBeNull();
-	});
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload(),
+				...(approvalRequestId ? { approvalRequestId } : {}),
+			});
+			expect(result).toMatchObject({
+				ok: true,
+				data: { id: "INV-2" },
+			});
+			const toolCalls = service.calls.filter((c) => c.method === "tools/call");
+			expect(toolCalls).toHaveLength(2);
+			expect(toolCalls[0]?.headers.get("X-Tedix-Acting-User")).toBe("user-123");
+			expect(toolCalls[1]?.headers.get("X-Tedix-Acting-User")).toBeNull();
+			// The tenant retry names the approval's member only when one exists.
+			expect(
+				toolCalls[0]?.headers.get("X-Tedix-Approved-Home-User"),
+			).toBeNull();
+			expect(toolCalls[1]?.headers.get("X-Tedix-Approved-Home-User")).toBe(
+				approvalRequestId ? "user-123" : null,
+			);
+		},
+	);
 
 	it.each([
 		"native",

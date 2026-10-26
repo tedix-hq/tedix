@@ -2308,6 +2308,29 @@ describe("factory approval receipt ingress", () => {
 	);
 });
 
+describe("Home approval member ingress", () => {
+	it.each([true, false])(
+		"only names the member on authenticated kernel bindings (kernel=%s)",
+		async (kernel) => {
+			const request = new Request("https://mcp.internal/mcp", {
+				method: "POST",
+				headers: {
+					"X-Service-Binding": "true",
+					"X-Tedix-Approved-Home-User": "user-1",
+					...(kernel ? { "X-Tedix-Kernel": "true" } : {}),
+				},
+			});
+			const result = (await validateAuth(request, {} as CloudflareEnv)) as {
+				approvedHomeUserId?: string;
+				userId?: string;
+			};
+			expect(result?.approvedHomeUserId).toBe(kernel ? "user-1" : undefined);
+			// It never becomes the acting user, so it cannot select a credential.
+			expect(result?.userId).toBeUndefined();
+		},
+	);
+});
+
 describe("federated workload session auth", () => {
 	const payload = {
 		sub: "workload",

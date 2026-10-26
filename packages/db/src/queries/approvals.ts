@@ -645,6 +645,37 @@ export async function consumeOwnerToolApproval(
 	return rows.length === 1;
 }
 
+/**
+ * An approved Home write authorizes one execution per approved call and
+ * credential path: the slot is "<user|tenant>_<args digest>". The tenant slot
+ * exists because a user-credential call that found no personal connection
+ * reached no provider; its tenant fallback is the same approved call.
+ */
+export async function consumeHomeToolApprovalCall(
+	db: DbClient,
+	input: { id: string; organizationId: string; slot: string; now: string },
+): Promise<boolean> {
+	if (!/^(?:user|tenant)_[0-9a-f]{64}$/.test(input.slot))
+		throw new Error("Invalid Home approval call slot");
+	const path = `$.consumedCalls.${input.slot}`;
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, ${path}, ${input.now})`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "approved"),
+				eq(tediApprovalRequests.actionType, "home.tool_write"),
+				sql`json_extract(${tediApprovalRequests.payload}, ${path}) IS NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length === 1;
+}
+
 /** Bounded anchor lookup for the canonical approval queue's tedi foreign key. */
 export async function getApprovalAnchor(
 	db: DbClient,

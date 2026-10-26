@@ -465,6 +465,7 @@ describe("Code Mode tail telemetry", () => {
 				toolName: "os.create_os_output",
 				args: { kind: "sheet", title: "Opportunities" },
 				approvalRequestId: "sample-approval",
+				credential: "user",
 			});
 			if (approved) {
 				expect(executeToolMock).toHaveBeenCalledTimes(1);

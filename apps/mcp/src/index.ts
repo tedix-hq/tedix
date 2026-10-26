@@ -1791,6 +1791,11 @@ const worker = {
 								"x-tedix-auth-approved-work-responder",
 								authResult.approvedWorkResponderUserId,
 							);
+						if (authResult.approvedHomeUserId)
+							headers.set(
+								"x-tedix-auth-approved-home-user",
+								authResult.approvedHomeUserId,
+							);
 					}
 					if (authResult.organizationId)
 						headers.set("x-tedix-auth-org-id", authResult.organizationId);
