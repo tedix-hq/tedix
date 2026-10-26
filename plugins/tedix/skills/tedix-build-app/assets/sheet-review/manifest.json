@@ -1,17 +1,49 @@
 {
 	"entry": "tedix:runtime/v1",
 	"capabilities": [],
-	"description": "Karten aus einer Tabelle gemeinsam prüfen.",
-	"resourceGrants": [{ "slot": "cards", "operations": ["outputs.read"] }],
+	"description": "Review cards from a sheet together.",
+	"resourceGrants": [
+		{
+			"slot": "cards",
+			"operations": ["outputs.read"]
+		}
+	],
 	"config": {
 		"version": 1,
 		"settings": {
 			"slot": "cards",
+			"locale": "en",
 			"columns": {
 				"id": "ID",
-				"title": "Titel",
+				"title": "Title",
 				"body": "Text",
-				"category": "Thema"
+				"category": "Topic"
+			},
+			"copy": {
+				"title": "Review cards",
+				"reload": "Reload",
+				"loading": "Loading cards …",
+				"loaded": "Ratings are shared within this app. The sheet stays unchanged.",
+				"tabs": "Filter cards",
+				"open": "Open",
+				"reviewed": "Reviewed",
+				"count": "{n} cards",
+				"useful": "Useful",
+				"notUseful": "Not useful",
+				"next": "Next",
+				"allDone": "All reviewed. Thank you!",
+				"noneReviewed": "No ratings yet.",
+				"reset": "Reset ratings",
+				"resetLabel": "Confirm reset",
+				"resetQuestion": "Reset all shared ratings in this app?",
+				"cancel": "Cancel",
+				"confirmReset": "Yes, reset",
+				"errors": {
+					"not_permitted": "You don't have access to this.",
+					"slot_unbound": "Connect a sheet first.",
+					"host_unavailable": "The app is not reachable right now.",
+					"failed": "That didn't work. Please try again."
+				}
 			}
 		}
 	}

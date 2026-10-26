@@ -65,7 +65,7 @@ try {
 		};
 		const sheet = {
 			kind: "sheet",
-			columns: ["ID", "Titel", "Text", "Thema"],
+			columns: ["ID", "Title", "Text", "Topic"],
 			rows: [
 				[
 					"one",
@@ -119,7 +119,7 @@ try {
 		await guest
 			.getByRole("heading", { name: "Ein hilfreicher Vorschlag" })
 			.waitFor();
-		assert.equal(await guest.locator("html").getAttribute("lang"), "de");
+		assert.equal(await guest.locator("html").getAttribute("lang"), "en");
 		const geometry = await guest.locator("body").evaluate((body) => ({
 			overflow: body.scrollWidth > document.documentElement.clientWidth,
 			background: getComputedStyle(body).backgroundColor,
@@ -140,24 +140,20 @@ try {
 				path: `${process.env.TEDIX_STARTER_SCREENSHOT_DIR}/starter-${width}.png`,
 				fullPage: true,
 			});
-		await guest.getByRole("button", { name: "Hilfreich", exact: true }).click();
+		await guest.getByRole("button", { name: "Useful", exact: true }).click();
 		await guest.getByRole("heading", { name: "Zweiter Vorschlag" }).waitFor();
 		assert.equal(values.get("review:one"), "useful");
-		await guest.getByRole("tab", { name: "Bewertet" }).click();
+		await guest.getByRole("tab", { name: "Reviewed" }).click();
 		await guest
 			.getByRole("heading", { name: "Ein hilfreicher Vorschlag" })
 			.waitFor();
 		await page.reload();
 		await guest.getByRole("heading", { name: "Zweiter Vorschlag" }).waitFor();
-		await guest
-			.getByRole("button", { name: "Bewertungen zurücksetzen" })
-			.click();
-		await guest.getByRole("button", { name: "Abbrechen" }).click();
+		await guest.getByRole("button", { name: "Reset ratings" }).click();
+		await guest.getByRole("button", { name: "Cancel" }).click();
 		assert.equal(values.get("review:one"), "useful");
-		await guest
-			.getByRole("button", { name: "Bewertungen zurücksetzen" })
-			.click();
-		await guest.getByRole("button", { name: "Ja, zurücksetzen" }).click();
+		await guest.getByRole("button", { name: "Reset ratings" }).click();
+		await guest.getByRole("button", { name: "Yes, reset" }).click();
 		await guest
 			.getByRole("heading", { name: "Ein hilfreicher Vorschlag" })
 			.waitFor();
@@ -165,10 +161,12 @@ try {
 		assert.equal(values.get("unrelated"), "keep");
 		assert.equal(sheet.rows.length, 2);
 		sheet.rows = [];
-		await guest.getByRole("button", { name: "Neu laden" }).click();
-		await guest.getByText("Alles geprüft. Danke!", { exact: true }).waitFor();
+		await guest.getByRole("button", { name: "Reload" }).click();
+		await guest
+			.getByText("All reviewed. Thank you!", { exact: true })
+			.waitFor();
 		await page.route("**/api/rpc/osAppRuntime/call", (route) => route.abort());
-		await guest.getByRole("button", { name: "Neu laden" }).click();
+		await guest.getByRole("button", { name: "Reload" }).click();
 		await guest.getByRole("alert").waitFor();
 		await page.close();
 	}

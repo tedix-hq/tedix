@@ -653,7 +653,10 @@ profile includes the learned writing preferences.
 ## An app with its own code
 
 Use the plugin's `tedix-build-app` skill for an app rendered by the generic
-runtime renderer. Copy its sheet-backed review starter from
+runtime renderer. Start from your organization's own app guide and published
+blueprints when it has them: language, wording, colours and review steps are
+the organization's choice and live in its skills and app settings, not in
+Tedix. Otherwise copy the generic sheet-backed review starter from
 `plugins/tedix/skills/tedix-build-app/assets/sheet-review/` in the source
 repository. It includes tabs, ratings, reload, reset and a README for the next
 editor. It reads the source sheet and stores shared ratings in app-local KV;
@@ -887,8 +890,9 @@ Before handing off, check:
 - Own light-theme colour tokens on `:root`, including background, surface,
   foreground, muted, border, accent and on-accent, and `color-scheme: light`.
   The host frame supplies no app theme tokens.
-- Use plain German copy, visible keyboard focus, labelled controls and touch
-  targets of at least 44 × 44 CSS pixels.
+- Write plain copy in the language your organization uses and keep every
+  visible word in the app settings. Use visible keyboard focus, labelled
+  controls and touch targets of at least 44 × 44 CSS pixels.
 - Test at 375px phone width and desktop, with long text, loading, empty and
   error states. Exercise tabs, rating, reload and reset confirmation.
 - Include the app's README with bindings, column mapping, shared or personal

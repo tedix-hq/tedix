@@ -10,12 +10,14 @@ button:disabled{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid va
 article{padding:20px;border:1px solid var(--line);border-radius:18px;background:var(--surface)}h2{font-size:1.25rem;margin:8px 0}.muted{color:var(--muted)}[role=alert]{color:#8d2525}
 `;
 document.head.append(style);
-document.documentElement.lang = "de";
 const root = document.getElementById("app");
 let cards = [];
 let tab = "open";
 let busy = false;
-let message = "Karten werden geladen …";
+// Every visible word comes from config.settings.copy, so each organization sets
+// its own language and wording without changing code.
+let copy = { errors: {} };
+let message = "…";
 let failure = "";
 let confirmingReset = false;
 
@@ -43,13 +45,10 @@ async function run(action) {
 	try {
 		await action();
 	} catch (error) {
-		const messages = {
-			not_permitted: "Du hast dafür keinen Zugriff.",
-			slot_unbound: "Bitte die Tabelle verbinden.",
-			host_unavailable: "Die App ist gerade nicht erreichbar.",
-		};
 		failure =
-			messages[error.code] ?? "Das hat nicht geklappt. Bitte erneut versuchen.";
+			copy.errors[error.code ?? error.message] ??
+			copy.errors.failed ??
+			String(error.code ?? error.message);
 	} finally {
 		busy = false;
 		render();
@@ -57,26 +56,31 @@ async function run(action) {
 }
 async function load() {
 	const context = await tedix.call("context");
+	copy = {
+		...context.settings.copy,
+		errors: context.settings.copy?.errors ?? {},
+	};
+	document.documentElement.lang = context.settings.locale ?? "en";
 	if (!context.settings.slot) throw new Error("slot_unbound");
+	message = copy.loading;
 	cards = await call("cards");
-	message =
-		"Bewertungen werden in dieser App gemeinsam gespeichert. Die Tabelle bleibt unverändert.";
+	message = copy.loaded;
 }
 function render() {
 	const main = element("main");
 	const header = element("header");
-	header.append(element("h1", "Karten prüfen"));
-	header.append(button("Neu laden", () => run(load)));
+	header.append(element("h1", copy.title));
+	header.append(button(copy.reload, () => run(load)));
 	main.append(header);
 	const status = element("p", message, "muted");
 	status.setAttribute("role", "status");
 	main.append(status);
 	const tabs = element("div", "", "tabs");
 	tabs.setAttribute("role", "tablist");
-	tabs.setAttribute("aria-label", "Karten filtern");
+	tabs.setAttribute("aria-label", copy.tabs);
 	for (const [value, label] of [
-		["open", "Offen"],
-		["reviewed", "Bewertet"],
+		["open", copy.open],
+		["reviewed", copy.reviewed],
 	]) {
 		const node = button(label, () => {
 			tab = value;
@@ -115,7 +119,9 @@ function render() {
 	const visible = cards.filter((card) =>
 		tab === "open" ? !card.verdict : card.verdict,
 	);
-	panel.append(element("p", `${visible.length} Karten`, "muted"));
+	panel.append(
+		element("p", String(copy.count).replace("{n}", visible.length), "muted"),
+	);
 	const card = visible[0];
 	if (card) {
 		const article = element("article");
@@ -126,15 +132,12 @@ function render() {
 		);
 		if (card.verdict)
 			article.append(
-				element(
-					"p",
-					card.verdict === "useful" ? "Hilfreich" : "Nicht hilfreich",
-				),
+				element("p", card.verdict === "useful" ? copy.useful : copy.notUseful),
 			);
 		const actions = element("div", "", "actions");
 		for (const [verdict, label] of [
-			["useful", "Hilfreich"],
-			["not_useful", "Nicht hilfreich"],
+			["useful", copy.useful],
+			["not_useful", copy.notUseful],
 		]) {
 			actions.append(
 				button(
@@ -149,7 +152,7 @@ function render() {
 			);
 		}
 		actions.append(
-			button("Weiter", () => {
+			button(copy.next, () => {
 				cards = [...cards.filter((item) => item.id !== card.id), card];
 				render();
 			}),
@@ -158,32 +161,27 @@ function render() {
 		panel.append(article);
 	} else if (!busy && !failure)
 		panel.append(
-			element(
-				"p",
-				tab === "open" ? "Alles geprüft. Danke!" : "Noch keine Bewertungen.",
-			),
+			element("p", tab === "open" ? copy.allDone : copy.noneReviewed),
 		);
 	main.append(panel);
 	main.append(
-		button("Bewertungen zurücksetzen", () => {
+		button(copy.reset, () => {
 			confirmingReset = true;
 			render();
 		}),
 	);
 	if (confirmingReset) {
 		const confirmation = element("section");
-		confirmation.setAttribute("aria-label", "Zurücksetzen bestätigen");
+		confirmation.setAttribute("aria-label", copy.resetLabel);
+		confirmation.append(element("p", copy.resetQuestion));
 		confirmation.append(
-			element("p", "Alle gemeinsamen Bewertungen dieser App zurücksetzen?"),
-		);
-		confirmation.append(
-			button("Abbrechen", () => {
+			button(copy.cancel, () => {
 				confirmingReset = false;
 				render();
 			}),
 		);
 		confirmation.append(
-			button("Ja, zurücksetzen", () =>
+			button(copy.confirmReset, () =>
 				run(async () => {
 					await call("reset");
 					confirmingReset = false;
