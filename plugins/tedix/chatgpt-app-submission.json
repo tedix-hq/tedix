@@ -3,8 +3,8 @@
 	"schema_version": 1,
 	"app_info": {
 		"display_name": "Tedix",
-		"subtitle": "Work and results across chats",
-		"description": "Discover authorized Tedix operations through Code Mode, manage Work items and Workspace outputs, use skills, and work with tedis and connected providers.",
+		"subtitle": "Shared work across assistants",
+		"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use. Find shared tasks, review progress and evidence, and read results in your Tedix organization. With the permissions you grant, ask a tedi for help and save results for your team.",
 		"category": "PRODUCTIVITY"
 	},
 	"tools": {

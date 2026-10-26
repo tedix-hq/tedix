@@ -1,8 +1,11 @@
 # Tedix plugins
 
-The Tedix plugin for coding agents and AI assistants: skills plus a connection
-to the Tedix MCP gateway, so your agent can find your organization's Work,
-delegate to tedis, and save durable results.
+Connect Claude Code, Codex, and other AI assistants to Tedix for shared tasks,
+project knowledge, decisions, and results. Bring your team's working
+instructions into the assistant you already use.
+
+Tedix is a platform for agents, apps, and work. The plugin connects your
+assistant to your Tedix organization through Tedix Connect, its MCP server.
 
 > Generated from [`plugins/tedix`](https://github.com/tedix-hq/tedix/tree/main/plugins/tedix)
 > in [tedix-hq/tedix](https://github.com/tedix-hq/tedix). Edit there; this

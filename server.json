@@ -1,10 +1,10 @@
 {
 	"$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
 	"name": "io.github.tedix-hq/tedix",
-	"title": "Tedix",
-	"description": "Hand off the work. Tedix brings back only the decisions that need you, and handles the rest.",
-	"version": "0.2.1",
-	"websiteUrl": "https://docs.tedix.dev",
+	"title": "Tedix Connect",
+	"description": "Connect AI assistants to your Tedix organization’s tasks, knowledge, apps, and results through MCP.",
+	"version": "0.2.2",
+	"websiteUrl": "https://docs.tedix.dev/learning-paths/first-plugin",
 	"repository": {
 		"url": "https://github.com/tedix-hq/tedix",
 		"source": "github",

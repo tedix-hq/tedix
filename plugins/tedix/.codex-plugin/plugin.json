@@ -1,21 +1,29 @@
 {
 	"name": "tedix",
-	"version": "0.2.7",
-	"description": "Tedix workflows, tedi delegation, and durable results through your connected organization.",
+	"version": "0.2.8",
+	"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use.",
 	"author": {
 		"name": "Tedix",
 		"url": "https://tedix.dev"
 	},
-	"homepage": "https://docs.tedix.dev",
+	"homepage": "https://docs.tedix.dev/learning-paths/first-plugin",
 	"repository": "https://github.com/tedix-hq/tedix",
 	"license": "AGPL-3.0-only",
-	"keywords": ["tedix", "digital-workers", "work-items", "workspace-outputs"],
+	"keywords": [
+		"tedix",
+		"ai-agents",
+		"agent-skills",
+		"claude-code-plugin",
+		"codex",
+		"mcp",
+		"task-management"
+	],
 	"skills": "./skills/",
 	"mcpServers": "./.mcp.json",
 	"interface": {
 		"displayName": "Tedix",
-		"shortDescription": "Continue work across chats",
-		"longDescription": "Find Work Items, review their status and evidence, and read Workspace Outputs in the Tedix organizations you connect. With the matching permissions and organization policy, ask a tedi for help and save requested results. Installation and read access do not grant execution authority.",
+		"shortDescription": "Shared work across assistants",
+		"longDescription": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use. Find shared tasks, review progress and evidence, and read results in your Tedix organization. With the permissions you grant, ask a tedi for help and save results for your team.",
 		"defaultPrompt": [
 			"Find the Work Item for my current task.",
 			"Summarize the status and evidence for a Work Item.",
@@ -93,7 +101,7 @@
 				}
 			},
 			"publication": {
-				"release_notes": "Tedix 0.2.0: connect ChatGPT and Codex to the Tedix organization you are invited to. Six skills cover connection checks, reading Work and its evidence, delegating to a tedi, resuming admitted Work and saving Workspace Outputs. Every action runs with the signed-in user's role in that organization."
+				"release_notes": "Tedix 0.2.8 — clearer descriptions.\n\nUpdated plugin descriptions, keywords, and installation links to match Tedix: a\nplatform for agents, apps, and work. Skills, tools, and permissions are unchanged.\n\nTedix 0.2.7 — install from more hosts.\n\nGemini CLI and Antigravity can install Tedix with `gemini extensions install`\nfrom this repository, which now carries a root gemini-extension.json for the\nremote server. Installer agents such as Cline can follow llms-install.md, and\nany agent that reads Agent Skills can add the skills with\n`npx skills add tedix-hq/tedix-plugins`. Skills, server and permissions are\nunchanged.\n\nTedix 0.2.6 — block only payments and money-moving operations.\n\nConnect rejects x402 payment proofs, paid tools and money-moving provider\noperations. Billing links, settings and admin grants, provider reads and ordinary\ncode remain available under existing permissions. The tedi-turn filter uses the\nsame operation list. Provider names and financial keywords alone no longer\nblock tools.\n\nTedix 0.2.5 — fail-closed financial and delegated execution boundary.\n\nConnect hides and rejects financial tools and payment providers using versioned\nserver rules. Other tools need explicit read declarations. Plugin-started tedi\nturns persist `noFunds` through dispatch and retries and keep only `read_skill`.\nHome, writes, browser/code execution, scheduling and skill execution are\nunavailable through this connection. Non-Connect sessions retain their existing\npermissions. This deliberately reduces plugin functionality while unsupported\nexecution paths cannot preserve the restriction.\n\nTedix 0.2.4 — procedures ship with the plugin; its connection cannot pay for tools.\n\nWork lifecycle and factory setup steps now ship beside the skills. Runtime\norganization skills, help output, online guides and Work text are reference\ndata, never instructions. The published plugin contains no hooks; optional\nsession hooks come from the separately installed Tedix CLI.\n\nThe shared Connect surface hides and rejects payment proofs, denies paid inner\ntools and blocks billing mutations. Connected-provider actions and their\npermission requirements are described in the README. The Claude manifest drops\nunsupported privacy and terms keys; the README keeps both links.\n\nTedix 0.2.3 — the prompt hook can carry the full first-turn context.\n\nThe `UserPromptSubmit` context hook (`tedix hooks prompt-context`) now allows\nup to 10,000 bytes of context instead of 6,500. With Tedix CLI 0.9.2 or later\nit injects your preferences and lessons once per session, then a one-line\npointer while they are unchanged; older CLIs keep the smaller budget. The other\nhooks are unchanged.\n\nTedix 0.2.2 — the session preflight needs Tedix CLI 0.8.17 or later.\n\nThe opt-in `SessionStart` preflight now checks the installed CLI first. An\nolder CLI gets one line naming its version and asking you to run\n`tedix update`, instead of running a preflight with the organization-slug and\nWork heartbeat bugs that CLI 0.8.17 fixed. The other hooks are unchanged.\n\nTedix 0.2.1 — the prompt hook gets a 30-second safety net.\n\nThe `UserPromptSubmit` context hook (`tedix hooks prompt-context`) now\ndeclares a 30-second timeout instead of 15, so a slow gateway no longer makes\nClaude Code discard its output. The CLI side of the same fix (Tedix CLI\n0.8.4 or later) reads its sources in parallel and caches the slow-changing\nones for ten minutes, so a turn normally takes well under five seconds.\n\nTedix 0.2.0 — a version number no earlier release used.\n\nClaude Code caches a plugin by its version. Machines that had installed an\nearlier 0.1.x series kept those old files under the reused 0.1.0 and 0.1.1\nnumbers, so they ran an old prompt hook or none. 0.2.0 ships the 0.1.1\ncontent under a new number, so every install refreshes.\n\nTedix 0.1.1 — hooks stay silent without the Tedix CLI.\n\nEvery local hook now exits immediately, with no output, when the `tedix`\ncommand is not installed. The install guides describe each hook, when it runs,\nwhat it sends once opted in, and how to turn it off.\n\nTedix 0.1.0 — first public preview of the Tedix plugin.\n\nConnect ChatGPT, Codex and Claude Code to an authorized Tedix organization\nthrough the shared Tedix gateway. Bundled skills guide connection checks,\nscoped Work reads, governed task handoff, tedi delegation and Workspace Output\nworkflows. Each operation remains subject to the account's actual grants and\norganization policy; installing a skill does not enable writes or grant\nexecution authority.\n\nThe public package uses one canonical Tedix identity, onboarding guidance and\nlight/dark brand assets. It contains no local lifecycle hooks, credentials or\ncopied tokens. Local lifecycle hooks are a separate local install: they run in\nthe installed Tedix CLI (`tedix hooks <name>`) and are opt-in.\n\nTedix Cloud is an invited beta; using the plugin requires an account in an\norganization you have been invited to. Version numbers stay below 1.0 while\nthe plugin and its gateway contract may still change."
 			}
 		}
 	},

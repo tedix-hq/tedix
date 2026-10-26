@@ -1,3 +1,8 @@
+Tedix 0.2.8 — clearer descriptions.
+
+Updated plugin descriptions, keywords, and installation links to match Tedix: a
+platform for agents, apps, and work. Skills, tools, and permissions are unchanged.
+
 Tedix 0.2.7 — install from more hosts.
 
 Gemini CLI and Antigravity can install Tedix with `gemini extensions install`

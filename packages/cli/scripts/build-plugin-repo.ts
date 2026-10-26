@@ -48,7 +48,7 @@ export function pluginRepoFiles(): Map<string, string | Uint8Array> {
 		".claude-plugin/marketplace.json",
 		json({
 			name: MARKETPLACE,
-			description: "The Tedix plugin for Claude Code",
+			description,
 			owner: { name: "Tedix", url: "https://tedix.dev" },
 			plugins: [{ name: "tedix", source: "./", description }],
 		}),
