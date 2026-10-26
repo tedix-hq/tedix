@@ -7,7 +7,7 @@ import type { KernelContext } from "../../src/rpc/routers/kernel/context-assembl
 import type { KernelRouteDecision } from "../../src/rpc/routers/kernel/route-schema";
 
 // ---------------------------------------------------------------------------
-// Shared context fixtures — mirrors the fake org state in kernel-runtime.test.ts
+// Shared context fixtures — mirrors the fake org state in routers/__tests__/kernel-runtime-db.ts
 // ---------------------------------------------------------------------------
 
 const BASE_TEDIS: KernelContext["tedis"] = [
