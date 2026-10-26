@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type {
 	ArtifactsAssertReady,
 	ArtifactsPushReceipt,
@@ -239,8 +240,8 @@ export async function readIdentityFilesWithDiagnostics(
 				};
 				diagnostics.lastReadError = message;
 				console.warn(
-					`[isolate.workspace] Artifacts read failed for ${tediId}/${file}:`,
-					err,
+					`[isolate.workspace] Artifacts read failed for ${tediId}/${file}`,
+					{ exception: exceptionTopology(err) },
 				);
 			}
 		} else if (diag.source === "artifacts") {

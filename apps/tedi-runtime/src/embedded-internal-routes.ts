@@ -23,6 +23,7 @@
  *
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
 import type { AgentMcpRuntime } from "./mcp-client-runtime";
 import { preparedTedixMcpAITools } from "./ai-sdk-adapter";
@@ -74,10 +75,9 @@ export async function warmEmbeddedToolSchemas(
 		});
 	} catch (error) {
 		// A failed warm is not a failed session: the next turn describes inline.
-		console.warn(
-			"[embedded.warm] tool schema warm failed:",
-			error instanceof Error ? error.message : error,
-		);
+		console.warn("[embedded.warm] tool schema warm failed", {
+			exception: exceptionTopology(error),
+		});
 	}
 }
 

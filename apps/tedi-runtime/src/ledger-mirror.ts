@@ -754,10 +754,9 @@ export async function readLedgerConversation(opts: {
 			compaction: data.compaction,
 		};
 	} catch (err) {
-		console.warn(
-			"[isolate-ledger-mirror] readMessages error:",
-			err instanceof Error ? err.message : err,
-		);
+		console.warn("[isolate-ledger-mirror] readMessages error", {
+			exception: exceptionTopology(err),
+		});
 		return null;
 	}
 }

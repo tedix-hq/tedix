@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { memoryDiagnostics } from "./runtime-diagnostics";
 import { RuntimeRunSteeringInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { PolicyCronReconcileReceipt } from "./runtime-cron";
@@ -932,8 +933,8 @@ export async function handleRuntimeRequest(
 							const error =
 								e instanceof Error ? e.message : "attachment resolution failed";
 							console.warn(
-								"[isolate.do] async-inject attachment resolution failed:",
-								error,
+								"[isolate.do] async-inject attachment resolution failed",
+								{ exception: exceptionTopology(error) },
 							);
 							return Response.json(
 								{ ok: false, success: false, error },
@@ -1091,10 +1092,9 @@ export async function handleRuntimeRequest(
 						}
 						const error =
 							e instanceof Error ? e.message : "workflow dispatch failed";
-						console.warn(
-							"[isolate.do] async-inject workflow dispatch failed:",
-							error,
-						);
+						console.warn("[isolate.do] async-inject workflow dispatch failed", {
+							exception: exceptionTopology(error),
+						});
 						throw e;
 					}
 
@@ -1212,10 +1212,9 @@ export async function handleRuntimeRequest(
 			await host.recordWorkflowCancellation(cancelRunId);
 		} catch (e) {
 			const error = e instanceof Error ? e.message : String(e);
-			console.warn(
-				"[isolate.do] /__internal/cancel tombstone persist failed:",
-				error,
-			);
+			console.warn("[isolate.do] /__internal/cancel tombstone persist failed", {
+				exception: exceptionTopology(error),
+			});
 			return Response.json(
 				{
 					ok: false,
@@ -1235,10 +1234,9 @@ export async function handleRuntimeRequest(
 			cascadeTerminated = (await host.cascadeCancelFanout(cancelRunId))
 				.terminated;
 		} catch (e) {
-			console.warn(
-				"[isolate.do] /__internal/cancel cascade failed:",
-				e instanceof Error ? e.message : e,
-			);
+			console.warn("[isolate.do] /__internal/cancel cascade failed", {
+				exception: exceptionTopology(e),
+			});
 		}
 		try {
 			const result = await terminateWorkflow(
@@ -1337,10 +1335,9 @@ export async function handleRuntimeRequest(
 			}
 			return Response.json({ ok: true, slots });
 		} catch (e) {
-			console.warn(
-				"[isolate.fanout-slots] storage list failed:",
-				e instanceof Error ? e.message : e,
-			);
+			console.warn("[isolate.fanout-slots] storage list failed", {
+				exception: exceptionTopology(e),
+			});
 			return Response.json({ ok: true, slots: [], error: "storage_error" });
 		}
 	}

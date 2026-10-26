@@ -20,6 +20,7 @@
  * provider adapters and is gated on canonical Work Items.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { TaskIntent } from "@tedix/context-core/types";
 import type { PlatformClient } from "./platform-client.js";
 
@@ -66,7 +67,7 @@ interface Logger {
 
 const defaultLogger: Logger = {
 	log: (msg) => console.log(msg),
-	warn: (msg, err) => console.warn(msg, err),
+	warn: (msg, err) => console.warn(msg, { exception: exceptionTopology(err) }),
 };
 
 /**

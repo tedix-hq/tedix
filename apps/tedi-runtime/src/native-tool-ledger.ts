@@ -22,6 +22,7 @@
  * run. `ledger-sequence.ts` records the turn that cost us.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { TediRuntimeEvent } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
 	redactValue,
@@ -357,8 +358,8 @@ export class NativeToolLedger {
 			});
 		} catch (error) {
 			console.warn(
-				`[native-tool-ledger] ${kind} publish failed (run=${context.runId} tool=${String(payload.name)}):`,
-				error instanceof Error ? error.message : error,
+				`[native-tool-ledger] ${kind} publish failed (run=${context.runId} tool=${String(payload.name)})`,
+				{ exception: exceptionTopology(error) },
 			);
 		}
 	}

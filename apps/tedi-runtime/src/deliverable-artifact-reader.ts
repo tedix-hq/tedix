@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	normalizePortablePath,
 	normalizePortablePrefix,
@@ -217,10 +218,9 @@ export async function readRecordedArtifact(
 		// filter also verifies that the returned artifact matches the requested name.
 		artifact = artifacts.find((candidate) => candidate.name === ref) ?? null;
 	} catch (error) {
-		console.warn(
-			"[deliverable-artifact-reader] artifact name lookup failed:",
-			error instanceof Error ? error.message : error,
-		);
+		console.warn("[deliverable-artifact-reader] artifact name lookup failed", {
+			exception: exceptionTopology(error),
+		});
 	}
 	// Recorded ids are `<runId>:artifact:<subKind>:...` or server UUIDs; a repo
 	// path is neither, so it skips the id round-trip and falls through.

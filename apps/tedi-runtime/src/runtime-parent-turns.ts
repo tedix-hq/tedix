@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { encodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 import type { TediRuntimeEvent } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -361,10 +362,9 @@ export const runtimeParentTurns = {
 				frontier = next;
 			}
 		} catch (e) {
-			console.warn(
-				"[isolate.do] cascadeCancelFanout failed:",
-				e instanceof Error ? e.message : e,
-			);
+			console.warn("[isolate.do] cascadeCancelFanout failed", {
+				exception: exceptionTopology(e),
+			});
 		}
 		return { terminated };
 	},
@@ -454,10 +454,9 @@ export const runtimeParentTurns = {
 				?.telegram;
 			return telegram ?? null;
 		} catch (err) {
-			console.warn(
-				`[isolate.telegram] failed to load channels for ${tediId}:`,
-				err,
-			);
+			console.warn(`[isolate.telegram] failed to load channels for ${tediId}`, {
+				exception: exceptionTopology(err),
+			});
 			return null;
 		}
 	},
@@ -507,7 +506,7 @@ export const runtimeParentTurns = {
 		} catch (error) {
 			console.error(
 				`[isolate.governance] failed to load policy/budgets for ${tediId}; using fail-safe defaults`,
-				error,
+				{ exception: exceptionTopology(error) },
 			);
 			return failClosed;
 		}
@@ -986,8 +985,8 @@ export const runtimeParentTurns = {
 				return;
 			} catch (err) {
 				console.warn(
-					"[isolate.model-policy] getModelPolicy failed; using last-known/default:",
-					err instanceof Error ? err.message : String(err),
+					"[isolate.model-policy] getModelPolicy failed; using last-known/default",
+					{ exception: exceptionTopology(err) },
 				);
 			}
 		}

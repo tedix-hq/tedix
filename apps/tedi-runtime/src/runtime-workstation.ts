@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { withCompletionEvidence } from "@tedix/api-contract/schemas/execution-evidence";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
 import type { FiberInspection } from "agents";
@@ -890,8 +891,8 @@ export const runtimeWorkstation = {
 		} catch (e) {
 			// A transient read failure is not evidence about the process. Re-arm.
 			console.warn(
-				`[computer.wake] status read failed for ${record.executionId}:`,
-				e instanceof Error ? e.message : e,
+				`[computer.wake] status read failed for ${record.executionId}`,
+				{ exception: exceptionTopology(e) },
 			);
 		}
 		const decision = resolveComputerExecutionWake(record, receipt, Date.now());

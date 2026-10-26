@@ -11,6 +11,7 @@
  * Returns compiled directives; the caller owns persistence.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	type CompiledDirective,
 	type RationalePattern,
@@ -33,7 +34,8 @@ interface Logger {
 
 const defaultLogger: Logger = {
 	log: (msg) => console.log(msg),
-	error: (msg, err) => console.error(msg, err),
+	error: (msg, err) =>
+		console.error(msg, { exception: exceptionTopology(err) }),
 };
 
 export interface CompileDirectivesOptions {

@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { TraceBundleOutcome } from "@tedix/api-contract/schemas/harness-version";
 import { buildBodyExecutionResult } from "@tedix/api-contract/utils/body-execution-result";
 import { buildTraceBundle } from "@tedix/api-contract/utils/trace-bundle";
@@ -512,10 +513,9 @@ export const runtimeTrace = {
 			}
 			return result.version.id;
 		} catch (err) {
-			console.warn(
-				"[isolate.harness] ensureActiveHarnessVersion failed:",
-				err instanceof Error ? err.message : err,
-			);
+			console.warn("[isolate.harness] ensureActiveHarnessVersion failed", {
+				exception: exceptionTopology(err),
+			});
 			// Fall back to any cached id so the bundle still gets a stamp.
 			return this.state.harnessVersionId ?? null;
 		}
@@ -702,10 +702,9 @@ export const runtimeTrace = {
 				}),
 			);
 		} catch (err) {
-			console.warn(
-				"[isolate.harness] emitTraceBundleForRun failed:",
-				err instanceof Error ? err.message : err,
-			);
+			console.warn("[isolate.harness] emitTraceBundleForRun failed", {
+				exception: exceptionTopology(err),
+			});
 			// Fail-soft — never break the ledger mirror or chat.
 		}
 	},
@@ -807,10 +806,9 @@ export const runtimeTrace = {
 
 			return ids.resultId;
 		} catch (err) {
-			console.warn(
-				"[isolate.harness] scoreTurn failed:",
-				err instanceof Error ? err.message : err,
-			);
+			console.warn("[isolate.harness] scoreTurn failed", {
+				exception: exceptionTopology(err),
+			});
 			// STRICT fail-soft — scoring must never break or delay a chat turn.
 			return null;
 		}
@@ -939,10 +937,9 @@ export const runtimeTrace = {
 
 			return bundleUri;
 		} catch (err) {
-			console.warn(
-				"[isolate.harness] emitFailureTraceBundle failed:",
-				err instanceof Error ? err.message : err,
-			);
+			console.warn("[isolate.harness] emitFailureTraceBundle failed", {
+				exception: exceptionTopology(err),
+			});
 			// Fail-soft — never break the recovery ledger mirror or chat.
 			return undefined;
 		}

@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { type ProxyToolOutput } from "@cloudflare/codemode";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { CODEMODE_EXECUTE_WRITE_KIND } from "@tedix/api-contract/schemas/codemode-execute-write";
@@ -153,8 +154,8 @@ export const runtimeToolAuthority = {
 			// calls retry (the failed sync did not advance lastSyncAt), so transient
 			// upstream blips self-heal within the same turn or on the next one.
 			console.warn(
-				"[isolate-mcp] runtime init sync failed/timed out (will retry on next tool access):",
-				err,
+				"[isolate-mcp] runtime init sync failed/timed out (will retry on next tool access)",
+				{ exception: exceptionTopology(err) },
 			);
 		}
 		this.mcpRuntime = runtime;
@@ -578,8 +579,8 @@ export const runtimeToolAuthority = {
 			return approvalRequestId;
 		} catch (error) {
 			console.warn(
-				`[durable-codemode] approval bridge failed for ${input.executionId}:`,
-				error,
+				`[durable-codemode] approval bridge failed for ${input.executionId}`,
+				{ exception: exceptionTopology(error) },
 			);
 			await this.scheduleCodemodeApprovalRepair(input);
 			return null;
@@ -904,10 +905,9 @@ export const runtimeToolAuthority = {
 			} catch (error) {
 				// The canonical API approval already exists. Evidence projection is
 				// best-effort and must not invite a duplicate approval retry.
-				console.warn(
-					"[browser-takeover] runtime event projection failed",
-					error,
-				);
+				console.warn("[browser-takeover] runtime event projection failed", {
+					exception: exceptionTopology(error),
+				});
 			}
 		}
 		return {
