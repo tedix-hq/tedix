@@ -9,7 +9,7 @@ import { AppRuntimeFrame } from "./app-runtime-frame";
 afterEach(() => vi.restoreAllMocks());
 
 describe("runtime app frame", () => {
-	it("lets the app write to the clipboard and nothing more", async () => {
+	it("lets the app copy and translate and nothing more", async () => {
 		let src = "";
 		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(
 			(value: string) => {
@@ -29,10 +29,10 @@ describe("runtime app frame", () => {
 			);
 		});
 		const frame = node.querySelector("iframe");
-		expect(frame?.getAttribute("allow")).toBe("clipboard-write");
+		expect(frame?.getAttribute("allow")).toBe("clipboard-write; translator");
 		expect(
 			JSON.parse(new URL(src).searchParams.get("permissions") ?? "{}"),
-		).toEqual({ clipboardWrite: {} });
+		).toEqual({ clipboardWrite: {}, translator: {} });
 		await act(async () => root.unmount());
 		node.remove();
 	});
