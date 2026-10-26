@@ -93,14 +93,23 @@ export const osAppRuntimeContract = oc
 						.array(
 							z
 								.object({
-									path: z.string().min(1),
-									before: z.string().min(1),
-									after: z.string(),
+									path: z
+										.string()
+										.min(1)
+										.describe("App file to change, such as client.js"),
+									before: z
+										.string()
+										.min(1)
+										.describe(
+											"Exact current text; must occur once in the file",
+										),
+									after: z.string().describe("Replacement text"),
 								})
 								.strict(),
 						)
 						.min(1)
-						.max(24),
+						.max(24)
+						.describe("Exact text replacements, applied in order"),
 				}).strict(),
 			)
 			.output(z.object({ proposal: OsCollaborationProposalSchema })),

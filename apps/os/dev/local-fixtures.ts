@@ -7907,6 +7907,88 @@ const handlers: Record<string, (input: never) => unknown> = {
 			revisionId: gadget.currentRevisionId,
 		};
 	},
+	"osAppRuntime/draft": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		proposalId: string;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		const proposal = findCollaborationProposal(input.proposalId);
+		if (
+			proposal.documentType !== "gadget" ||
+			proposal.documentId !== gadget.id ||
+			proposal.status !== "open"
+		)
+			throw new RpcError("NOT_FOUND", "OS app draft not found");
+		// UI-only metadata, never a runtime credential or server execution.
+		return {
+			session: `fixture-only:${gadget.id}:${proposal.baseRevisionId}:${proposal.id}`,
+			expiresAt: Math.floor(Date.now() / 1000) + 300,
+			role: "build",
+			revisionId: proposal.baseRevisionId,
+		};
+	},
+	"osAppRuntime/proposeEdit": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		conversationId: string;
+		expectedRevisionId: string;
+		edits: Array<{ path: string; before: string; after: string }>;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		const revision = state.gadgetRevisions.find(
+			(row) =>
+				row.id === gadget.currentRevisionId && row.gadgetId === gadget.id,
+		);
+		const current = revision ? state.gadgetCode[revision.id] : undefined;
+		if (!revision || !current)
+			throw new RpcError("NOT_FOUND", "OS runtime app revision not found");
+		if (revision.id !== input.expectedRevisionId)
+			throw new RpcError("CONFLICT", "App revision changed");
+		const files = { ...current };
+		for (const edit of input.edits) {
+			const source = files[edit.path];
+			if (source === undefined || source.split(edit.before).length !== 2)
+				throw new RpcError(
+					"CONFLICT",
+					"App edit must match exactly once in the current file",
+				);
+			files[edit.path] = source.replace(edit.before, () => edit.after);
+		}
+		const createdAt = now();
+		const proposal: OsCollaborationProposal = {
+			id: nextId(),
+			organizationId: ORG_ID,
+			workspaceId: gadget.workspaceId,
+			documentType: "gadget",
+			documentId: gadget.id,
+			baseRevisionId: revision.id,
+			baseRevision: revision.revision,
+			status: "open",
+			sourceKind: "chat",
+			sourceId: input.conversationId,
+			content: { manifest: revision.manifest, files },
+			sequence: 0,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt,
+			updatedAt: createdAt,
+			decisionRationale: null,
+			decisionEvidenceRefs: [],
+			decidedByKind: null,
+			decidedById: null,
+			decidedAt: null,
+			mergeRationale: null,
+			mergeEvidenceRefs: [],
+			mergedByKind: null,
+			mergedById: null,
+			mergedAt: null,
+			resultRevisionId: null,
+			resultRevision: null,
+		};
+		state.collaborationProposals.push(proposal);
+		return { proposal };
+	},
 	"osWorkspaces/gadgets/getCode": (input: {
 		workspaceId: string;
 		gadgetId: string;

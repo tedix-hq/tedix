@@ -497,6 +497,9 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	// apps:read guard, but the app's server code it runs can write through its granted slots.
 	"osAppRuntime/call": "mcp:apps.write",
 	"osAppRuntime/preview": "mcp:apps.write",
+	// apps:write guard; the handler rechecks the collaborator build role.
+	"osAppRuntime/draft": "mcp:apps.write",
+	"osAppRuntime/proposeEdit": "mcp:apps.write",
 	// Service-binding only: the tedi runtime calls these for a running app.
 	"osAppRuntime/capability": "platform:admin",
 	"osAppRuntime/recordTail": "platform:admin",

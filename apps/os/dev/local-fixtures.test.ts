@@ -579,6 +579,24 @@ const CALLS = {
 		session: `fixture-only:${uid(49, 14)}:${uid(50, 14)}`,
 		slot: "opportunities",
 	},
+	"osAppRuntime/draft": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+		proposalId: uid(51, 14),
+	},
+	"osAppRuntime/proposeEdit": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+		conversationId: "demo-chat-opportunity-cards",
+		expectedRevisionId: uid(50, 14),
+		edits: [
+			{
+				path: "client.js",
+				before: "${cards.length} opportunities for ${reviewer}",
+				after: "${cards.length} opportunities · ${reviewer}",
+			},
+		],
+	},
 	"osWorkspaces/gadgets/getCode": {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,
@@ -774,6 +792,14 @@ const CALLS = {
 	},
 };
 
+// Runtime-app procedures answer only for the sample company's seeded app.
+const DEMO_PACK_CALLS = new Set([
+	"osAppRuntime/client",
+	"osAppRuntime/readOutput",
+	"osAppRuntime/draft",
+	"osAppRuntime/proposeEdit",
+]);
+
 describe("local fixtures parse through the contract output schemas", () => {
 	beforeEach(() => {
 		resetLocalFixtures();
@@ -786,7 +812,7 @@ describe("local fixtures parse through the contract output schemas", () => {
 	for (const [key, input] of Object.entries(CALLS)) {
 		it(`${key} input is accepted and output parses against its contract schema`, async () => {
 			await expectInputAcceptedByContract(key, input);
-			if (key === "osAppRuntime/client" || key === "osAppRuntime/readOutput") {
+			if (DEMO_PACK_CALLS.has(key)) {
 				vi.resetModules();
 				const sample = await import("./local-fixtures");
 				sample.enableDemoPack();
