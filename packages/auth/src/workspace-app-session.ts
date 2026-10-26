@@ -27,6 +27,8 @@ export const WorkspaceAppSessionSchema = z
 				.strict(),
 		),
 		previewId: z.uuid().optional(),
+		proposalId: z.uuid().optional(),
+		proposalSequence: z.number().int().nonnegative().optional(),
 		codeDigest: z.string().optional(),
 		/** Set for a guest who opened the app through a share link; revoking the link cuts the session. */
 		shareLinkId: z.uuid().optional(),

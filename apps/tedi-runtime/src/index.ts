@@ -113,6 +113,8 @@ import { VoiceCallDO } from "./voice-call-do";
 import { VoiceInputDO } from "./voice-input-do";
 import {
 	handleWorkspaceAppCall,
+	handleWorkspaceAppCloseDraft,
+	WORKSPACE_APP_CLOSE_DRAFT_PATH,
 	handleWorkspaceAppRevoke,
 	WORKSPACE_APP_CALL_PATH,
 	WORKSPACE_APP_REVOKE_PATH,
@@ -1594,6 +1596,8 @@ export default {
 			: stripServiceBindingMarker(inbound);
 		const url = new URL(request.url);
 
+		if (url.pathname === WORKSPACE_APP_CLOSE_DRAFT_PATH)
+			return handleWorkspaceAppCloseDraft(request, env);
 		if (url.pathname === WORKSPACE_APP_CALL_PATH) {
 			if (!isServiceBinding(request.headers))
 				return new Response("Forbidden", { status: 403 });

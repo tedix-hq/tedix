@@ -192,3 +192,61 @@ describe("workspace app supervisor in workerd", () => {
 		);
 	});
 });
+
+describe("proposal facet lifecycle", () => {
+	it("runs different draft code in fresh storage and deletes only the rejected facet", async () => {
+		const stub = createHost();
+		const previewId = crypto.randomUUID();
+		expect(await call(stub)).toEqual({ n: 1, version: "v1" });
+		expect(await call(stub, { previewId, version: "draft" })).toEqual({
+			n: 1,
+			version: "draft",
+		});
+		expect(await call(stub, { previewId, version: "draft" })).toEqual({
+			n: 2,
+			version: "draft",
+		});
+		const token = (await mint(stub, files("draft"), { previewId })).token;
+		await stub.closeDraft({
+			organizationId: "fictional-org",
+			workspaceId: hostWorkspaces.get(stub)!,
+			gadgetId,
+			proposalId: previewId,
+			baseRevisionId: revisionId,
+			merged: false,
+		});
+		await expect(
+			call(stub, { previewId, version: "draft", token }),
+		).rejects.toThrow("App draft closed");
+		expect(await call(stub)).toEqual({ n: 2, version: "v1" });
+		expect(
+			await call(stub, { previewId: crypto.randomUUID(), version: "other" }),
+		).toEqual({ n: 1, version: "other" });
+		expect(
+			await runInDurableObject(stub, (_instance, state) =>
+				state.storage.kv.get(`code:app:${gadgetId}:draft:${previewId}`),
+			),
+		).toBeUndefined();
+	});
+	it("closes a merged preview and loads the new code while preserving live storage", async () => {
+		const stub = createHost();
+		const previewId = crypto.randomUUID();
+		await call(stub);
+		await call(stub, { previewId, version: "v2" });
+		await stub.closeDraft({
+			organizationId: "fictional-org",
+			workspaceId: hostWorkspaces.get(stub)!,
+			gadgetId,
+			proposalId: previewId,
+			baseRevisionId: revisionId,
+			merged: true,
+		});
+		await expect(call(stub)).rejects.toThrow("App revision changed");
+		expect(
+			await call(stub, { revision: crypto.randomUUID(), version: "v2" }),
+		).toEqual({ n: 2, version: "v2" });
+		await expect(call(stub, { previewId, version: "v2" })).rejects.toThrow(
+			"App draft closed",
+		);
+	});
+});

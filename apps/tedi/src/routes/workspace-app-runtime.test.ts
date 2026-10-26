@@ -50,3 +50,19 @@ describe("workspace app runtime relay", () => {
 		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 });
+
+it("relays draft closure only over the trusted service binding", async () => {
+	const fetch = vi.fn(async () => Response.json({ closed: true }));
+	for (const [headers, status] of [
+		[{}, 403],
+		[{ "X-Service-Binding": "true" }, 200],
+	] as const) {
+		const response = await workspaceAppRuntime.request(
+			"/__internal/workspace-app/close-draft",
+			{ method: "POST", headers, body: "{}" },
+			{ TEDI_RUNTIME_SERVICE: { fetch } },
+		);
+		expect(response.status).toBe(status);
+	}
+	expect(fetch).toHaveBeenCalledOnce();
+});
