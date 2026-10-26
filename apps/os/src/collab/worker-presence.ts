@@ -69,6 +69,7 @@ async function opaqueKey(input: string): Promise<string> {
 export async function collabIdentityFromPayload(
 	payload: PresencePayload,
 	hostTenantId: string,
+	allowCrossTenantHuman = false,
 ): Promise<CollabVerifiedIdentity | null> {
 	const entityType = claimString(payload, "entityType");
 	const tediId = claimString(payload, "tediId");
@@ -92,7 +93,11 @@ export async function collabIdentityFromPayload(
 	// Human sessions must be minted for the hostname tenant. Machine tokens do
 	// not consistently carry dct; their host-org authority was already proven by
 	// the canonical Workspace read immediately before this projection.
-	if (kind === "human" && claimString(payload, "dct") !== hostTenantId) {
+	if (
+		kind === "human" &&
+		!allowCrossTenantHuman &&
+		claimString(payload, "dct") !== hostTenantId
+	) {
 		return null;
 	}
 
@@ -121,6 +126,7 @@ export async function authenticateCollabPresence(
 	verify: PresenceVerifier = validateToken,
 	trustedSessionToken?: string,
 	resolveMemberName?: (subject: string) => Promise<string | null>,
+	allowCrossTenantHuman = false,
 ): Promise<CollabVerifiedIdentity | null> {
 	const token =
 		trustedSessionToken ??
@@ -135,6 +141,7 @@ export async function authenticateCollabPresence(
 		const identity = await collabIdentityFromPayload(
 			payload as unknown as PresencePayload,
 			hostTenantId,
+			allowCrossTenantHuman,
 		);
 		if (identity?.kind === "human" && payload.sub && resolveMemberName) {
 			try {

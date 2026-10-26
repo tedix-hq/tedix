@@ -1007,6 +1007,10 @@
 		display: none;
 	}
 
+	.canvas-workspace-header .canvas-presence-stack > :nth-child(n + 2) {
+		display: none;
+	}
+
 	.canvas-workpiece-bar {
 		height: 48px;
 		align-items: stretch;

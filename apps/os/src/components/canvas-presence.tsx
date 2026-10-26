@@ -5,6 +5,7 @@ import { EntityAvatar } from "@/components/entity-avatar";
 import { Popover, PopoverContent } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { sentenceCase } from "@/lib/format";
+import "./canvas-page.css";
 
 const MAX_VISIBLE = 3;
 const AVATAR_COLORS = [

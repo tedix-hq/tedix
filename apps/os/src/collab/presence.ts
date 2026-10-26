@@ -23,9 +23,11 @@ export const COLLAB_PRESENCE_HEADER = "X-Tedix-Collab-Presence";
 export type CollabParticipantKind = "external_agent" | "human" | "tedi";
 export type CollabParticipantRole =
 	| "admin"
+	| "build"
 	| "member"
 	| "operator"
 	| "owner"
+	| "use"
 	| "viewer";
 
 export interface CollabVerifiedIdentity {
@@ -81,9 +83,11 @@ const KINDS = new Set<CollabParticipantKind>([
 ]);
 const ROLES = new Set<CollabParticipantRole>([
 	"admin",
+	"build",
 	"member",
 	"operator",
 	"owner",
+	"use",
 	"viewer",
 ]);
 

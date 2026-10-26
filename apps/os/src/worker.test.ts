@@ -2210,6 +2210,67 @@ describe("collaboration socket routing", () => {
 		expect(env.roomNames).toEqual([`tedix:ws-1:app:${gadgetId}`]);
 	});
 
+	it("admits a use guest to the workspace roster with only allowlisted identity fields", async () => {
+		const verify = vi.spyOn(jwt, "validateToken").mockResolvedValue({
+			sub: "guest-user",
+			dct: "guest-org",
+			iat: 1,
+			exp: 2,
+			iss: "project",
+			aud: ["project"],
+		});
+		const base = collabEnv({ authorized: true });
+		const env = {
+			...base,
+			DESCOPE_PROJECT_ID: "project",
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					base.apiRequests.push(request);
+					return Response.json({
+						json: {
+							workspaceId: "ws-1",
+							displayName: "Guest User",
+							role: "use",
+						},
+					});
+				},
+			},
+		};
+		try {
+			const response = await handleOsRequest(
+				new Request(
+					`https://tedix.os.tedix.dev/collab/ws-1/${encodeURIComponent("workspace:ws-1")}`,
+					{
+						headers: {
+							...upgradeHeaders,
+							Authorization: "Bearer guest-session",
+						},
+					},
+				),
+				env,
+				provisioned,
+			);
+			await expect(response.text()).resolves.toBe("room-upgrade");
+			expect(new URL(base.apiRequests[0]!.url).pathname).toMatch(
+				/osCollaborators\/presence$/,
+			);
+			expect(base.roomNames).toEqual(["tedix:ws-1:workspace:ws-1"]);
+			const projected = JSON.parse(
+				base.roomRequests[0]!.headers.get("X-Tedix-Collab-Presence")!,
+			);
+			expect(projected).toMatchObject({
+				displayName: "Guest User",
+				kind: "human",
+				role: "use",
+				verified: true,
+			});
+			expect(JSON.stringify(projected)).not.toContain("guest-user");
+			expect(base.roomRequests[0]!.headers.get("Authorization")).toBeNull();
+		} finally {
+			verify.mockRestore();
+		}
+	});
+
 	it("refuses when apps/api denies the workspace read", async () => {
 		const env = collabEnv({ authorized: false });
 		const response = await handleOsRequest(

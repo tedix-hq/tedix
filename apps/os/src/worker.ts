@@ -334,6 +334,12 @@ type CollabGadgetDetail = { gadget: { workspaceId: string } };
 
 type CollabOutputDetail = { output: { workspaceId: string | null } };
 
+type WorkspacePresenceIdentity = {
+	workspaceId: string;
+	displayName: string;
+	role: "owner" | "build" | "use";
+};
+
 /** Provisioned answers are stable; unprovisioned slugs re-check sooner so a fresh activation propagates fast. */
 const PROVISIONED_TTL_SECONDS = 300;
 const UNPROVISIONED_TTL_SECONDS = 60;
@@ -1449,7 +1455,8 @@ async function handleCollabUpgrade(
 	// service-binding claim, which would swap the auth mode and evaluate
 	// the call without the user's org context (the /api proxy sets no such
 	// header either). Reading the selected document proves its exact
-	// workspace membership; the response body is deliberately discarded.
+	// workspace membership. The workspace-wide room instead keeps only the
+	// collaborator endpoint's allowlisted name and effective role.
 	const apiHeaders: Record<string, string> = {};
 	const authorization = request.headers.get("Authorization");
 	const apiKey = request.headers.get("X-API-Key");
@@ -1464,6 +1471,7 @@ async function handleCollabUpgrade(
 		headers: apiHeaders,
 		timeoutMs: 5_000,
 	};
+	let workspacePresence: WorkspacePresenceIdentity | null = null;
 	try {
 		const separator = docKey.indexOf(":");
 		const kind = separator > 0 ? docKey.slice(0, separator) : "";
@@ -1471,7 +1479,16 @@ async function handleCollabUpgrade(
 		if (!documentId) throw new Error("Malformed collaboration document key");
 		// `app:<gadgetId>` is a runtime app's own room (who is using it, and its
 		// live updates); it is admitted by the same read as the app's manifest.
-		if (kind === "gadget" || kind === "app") {
+		if (kind === "workspace" && documentId === workspaceId) {
+			workspacePresence = await callRpc<WorkspacePresenceIdentity>(
+				"osCollaborators/presence",
+				{ workspaceId },
+				rpcOptions,
+			);
+			if (workspacePresence.workspaceId !== workspaceId) {
+				throw new Error("Workspace presence mismatch");
+			}
+		} else if (kind === "gadget" || kind === "app") {
 			const detail = await callRpc<CollabGadgetDetail>(
 				"osWorkspaces/gadgets/get",
 				{ workspaceId, gadgetId: documentId },
@@ -1498,7 +1515,7 @@ async function handleCollabUpgrade(
 		console.warn("Collab upgrade refused: document authorization failed");
 		return refuse(403, "You do not have access to this workspace.");
 	}
-	const presence = localDemo
+	const authenticatedPresence = localDemo
 		? await localCollabPresence("local")
 		: env.DESCOPE_PROJECT_ID
 			? hostTenantId
@@ -1508,33 +1525,43 @@ async function handleCollabUpgrade(
 						hostTenantId,
 						undefined,
 						request.headers.get(COLLAB_VERIFIED_SESSION_HEADER) ?? undefined,
-						async (subject) => {
-							const context = await callRpc<{ organization: { id: string } }>(
-								"userSettings/getContext",
-								{},
-								rpcOptions,
-							);
-							const members = await callRpc<{
-								data: { descopeUserId: string; name: string | null }[];
-							}>(
-								"members/listMembers",
-								{
-									organizationId: context.organization.id,
-									limit: 100,
-									offset: 0,
+						workspacePresence
+							? undefined
+							: async (subject) => {
+									const context = await callRpc<{
+										organization: { id: string };
+									}>("userSettings/getContext", {}, rpcOptions);
+									const members = await callRpc<{
+										data: { descopeUserId: string; name: string | null }[];
+									}>(
+										"members/listMembers",
+										{
+											organizationId: context.organization.id,
+											limit: 100,
+											offset: 0,
+										},
+										rpcOptions,
+									);
+									return (
+										members.data.find(
+											(member) => member.descopeUserId === subject,
+										)?.name ?? null
+									);
 								},
-								rpcOptions,
-							);
-							return (
-								members.data.find((member) => member.descopeUserId === subject)
-									?.name ?? null
-							);
-						},
+						workspacePresence !== null,
 					)
 				: null
 			: await localCollabPresence(
 					tenant.kind === "tenant" ? tenant.slug : "local",
 				);
+	const presence =
+		authenticatedPresence && workspacePresence
+			? {
+					...authenticatedPresence,
+					displayName: workspacePresence.displayName,
+					role: workspacePresence.role,
+				}
+			: authenticatedPresence;
 	if (!presence) {
 		// Do not surface the distinction to the caller: it would reveal whether a
 		// document exists. The server log retains the operational cause without

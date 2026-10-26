@@ -69,6 +69,22 @@ export const osCollaboratorsContract = oc
 					apps: z.array(OpenedAppSchema),
 				}),
 			),
+		presence: oc
+			.route({
+				method: "GET",
+				path: "/workspaces/{workspaceId}/presence",
+				summary: "Authorize workspace presence",
+				description:
+					"Returns only the signed-in person's allowlisted roster identity and effective workspace role.",
+			})
+			.input(z.object({ workspaceId }).strict())
+			.output(
+				z.object({
+					workspaceId: z.string().uuid(),
+					displayName: z.string(),
+					role: z.enum(["owner", "build", "use"]),
+				}),
+			),
 		list: oc
 			.route({
 				method: "GET",
