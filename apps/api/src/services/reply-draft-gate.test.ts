@@ -142,7 +142,7 @@ describe("guardReplyDraft", () => {
 		["external_message", "Send the summary to the customer."],
 		["external_message", "Email the team about it."],
 		["external_message", "Post it in the Slack channel."],
-		["external_message", "Reply to adriana@example.com with the fix."],
+		["external_message", "Reply to sam@example.com with the fix."],
 		["external_message", "Schick dem Kunden die Antwort."],
 		["external_message", "Benachrichtige das Team."],
 		["external_message", "Envía el correo al cliente."],

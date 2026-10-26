@@ -8,7 +8,7 @@ it("assignment readies every supported executor", () => {
 it("records explicit delegation mentions without guessing arbitrary names", () => {
 	expect(
 		mentionedExecutor(
-			"Delegated by Cloud Lead to the Mac Lead session on Aaron's request",
+			"Delegated by Cloud Lead to the Mac Lead session on Sam's request",
 			[],
 		),
 	).toEqual({ executor: "codex" });

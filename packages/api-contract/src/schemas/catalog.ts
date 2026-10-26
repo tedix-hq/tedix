@@ -1805,12 +1805,12 @@ export const SyncCatalogToolsToAppInputSchema = z.object({
 		.string()
 		.url()
 		.describe(
-			"MCP server URL for tool execution (e.g., https://api.peec.ai/mcp)",
+			"MCP server URL for tool execution (for example, https://mcp.example.com/mcp)",
 		),
 	connectionProviderId: z
 		.string()
 		.optional()
-		.describe("Descope outbound app ID for auth (e.g., 'peec')"),
+		.describe("Descope outbound app ID for auth (for example, 'example-app')"),
 	connectionScope: z
 		.enum(["tenant", "user", "hybrid"])
 		.optional()
