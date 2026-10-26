@@ -67,6 +67,14 @@ import {
 // step; this only catches a genuinely hung outbound call. Kept just under the
 // dispatch-shim BRIDGE_CALL_TIMEOUT_MS (240s) so the inner abort fires first.
 const MCP_BRIDGE_TIMEOUT_MS = 180_000;
+/**
+ * `tasks/get` failures on an accepted tedi turn that do not end the turn: a
+ * read deadline, a lost service-binding request, or a 429/5xx event read.
+ * The bare listEvents form comes from MCP workers that predate the status
+ * suffix, so its status is unknown. A 4xx with a status stays final.
+ */
+const TRANSIENT_TEDI_TASK_READ_ERROR =
+	/^MCP error -32603: cognitive runtime (?:request timed out after \d+ms|request failed: .*|listEvents failed(?: with status (?:429|5\d\d))?)$/s;
 const MCP_BRIDGE_TOOL_LIST_MAX_PAGES = 5;
 
 /** Props attached to a tenant-specific {@link McpBridge} stub. */
@@ -582,14 +590,12 @@ async function executeMcpTool(
 				try {
 					return unwrapJsonRpcResult(text, contentType);
 				} catch (error) {
-					// A read deadline does not cancel the already accepted durable turn.
+					// A failed read does not cancel the already accepted durable turn.
 					if (
 						method === "tasks/get" &&
 						taskId.startsWith("tedi:") &&
 						error instanceof Error &&
-						/^MCP error -32603: cognitive runtime request timed out after \d+ms$/.test(
-							error.message,
-						)
+						TRANSIENT_TEDI_TASK_READ_ERROR.test(error.message)
 					) {
 						return { taskId, status: "working" };
 					}

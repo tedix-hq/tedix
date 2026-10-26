@@ -437,10 +437,14 @@ export function buildAggregateTaskHandlers(
 			taskReadHeaders(taskId),
 		);
 		if (status >= 400) {
-			throw new McpTaskError(-32_603, "cognitive runtime listEvents failed", {
-				taskId,
-				status,
-			});
+			// The status stays in the message: JSON-RPC clients such as the
+			// skill workflow bridge only see the message, and a 5xx read of an
+			// accepted turn is retryable while a 4xx is not.
+			throw new McpTaskError(
+				-32_603,
+				`cognitive runtime listEvents failed with status ${status}`,
+				{ taskId, status },
+			);
 		}
 		return eventsFromApi(data);
 	}
