@@ -151,6 +151,33 @@ describe("WorkspaceFileUpload", () => {
 		expect(container.textContent).not.toContain("Upload failed");
 		expect(onUploaded).toHaveBeenCalledTimes(1);
 	});
+	it("compact: names the icon button and hands failures to the composer", async () => {
+		const onError = vi.fn();
+		act(() => {
+			root.render(
+				<QueryClientProvider client={client}>
+					<WorkspaceFileUpload
+						compact
+						workspaceId={WORKSPACE_ID}
+						onUploaded={onUploaded}
+						onError={onError}
+					/>
+				</QueryClientProvider>,
+			);
+		});
+		const button = container.querySelector("button")!;
+		expect(button.getAttribute("aria-label")).toBe("Upload file");
+		expect(button.querySelector("svg")).not.toBeNull();
+		vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }));
+		await choose(new File(["demo"], "sample.txt"));
+		expect(onError).toHaveBeenLastCalledWith(
+			expect.stringContaining("Upload failed (503)"),
+		);
+		expect(container.querySelector('[role="alert"]')).toBeNull();
+		expect(container.textContent).not.toContain("Upload failed");
+		await choose(new File(["demo"], "sample.txt"));
+		expect(onError).toHaveBeenLastCalledWith(null);
+	});
 	it("disables the control while uploading and ignores duplicate selection", async () => {
 		let finish!: (value: unknown) => void;
 		resources.requestFileUpload.mockReturnValueOnce(

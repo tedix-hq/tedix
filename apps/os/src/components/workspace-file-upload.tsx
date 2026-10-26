@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { UploadSimple } from "@phosphor-icons/react";
 import { Button } from "@/components/kumo/button";
 import { Alert } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
@@ -12,17 +13,26 @@ import {
 
 const RECONCILIATION_RETRY_MS = 1_000;
 
+/**
+ * `compact` is the chat composer's footer control: one icon button whose label
+ * the composer hides at narrow widths. Progress stays on the button and a
+ * failure goes to `onError`, so nothing stacks under the one-row footer.
+ */
 export function WorkspaceFileUpload({
 	workspaceId,
 	onUploaded,
+	compact,
+	onError,
 }: {
 	workspaceId: string;
 	onUploaded?: (file: { outputId: string; name: string; url: string }) => void;
+	compact?: boolean;
+	onError?: (message: string | null) => void;
 }) {
 	const input = useRef<HTMLInputElement>(null);
 	const busyRef = useRef(false);
-	const latest = useRef({ workspaceId, onUploaded });
-	latest.current = { workspaceId, onUploaded };
+	const latest = useRef({ workspaceId, onUploaded, onError });
+	latest.current = { workspaceId, onUploaded, onError };
 	const [progress, setProgress] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const queryClient = useQueryClient();
@@ -49,6 +59,7 @@ export function WorkspaceFileUpload({
 		const current = () => latest.current.workspaceId === workspaceId;
 		setProgress(0);
 		setError(null);
+		latest.current.onError?.(null);
 		try {
 			const result = await uploadWorkspaceFile(workspaceId, file, (percent) => {
 				if (current()) setProgress(percent);
@@ -69,28 +80,56 @@ export function WorkspaceFileUpload({
 				});
 			}
 		} catch (error) {
-			if (current())
-				setError(
-					error instanceof Error ? error.message : "File upload failed.",
-				);
+			if (current()) {
+				const message =
+					error instanceof Error ? error.message : "File upload failed.";
+				setError(message);
+				latest.current.onError?.(message);
+			}
 		} finally {
 			busyRef.current = false;
 			setProgress(null);
 			if (input.current) input.current.value = "";
 		}
 	}
+	const label = progress === null ? "Upload file" : `Uploading ${progress}%`;
+	const picker = (
+		<input
+			ref={input}
+			type="file"
+			className="hidden"
+			aria-label="Upload workspace file"
+			onChange={(event) => {
+				const file = event.currentTarget.files?.[0];
+				if (file) void upload(file);
+			}}
+		/>
+	);
+	if (compact)
+		return (
+			<>
+				{picker}
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					className="chat-composer-upload"
+					aria-label={label}
+					title={label}
+					disabled={progress !== null}
+					onClick={() => input.current?.click()}
+					icon={<UploadSimple size={14} aria-hidden="true" />}
+				>
+					<span className="chat-composer-label">{label}</span>
+				</Button>
+				<span className="sr-only" aria-live="polite">
+					{progress === 100 ? "Saving file…" : progress === null ? "" : label}
+				</span>
+			</>
+		);
 	return (
 		<div className="grid min-w-0 gap-1">
-			<input
-				ref={input}
-				type="file"
-				className="hidden"
-				aria-label="Upload workspace file"
-				onChange={(event) => {
-					const file = event.currentTarget.files?.[0];
-					if (file) void upload(file);
-				}}
-			/>
+			{picker}
 			<Button
 				type="button"
 				size="sm"
@@ -98,7 +137,7 @@ export function WorkspaceFileUpload({
 				disabled={progress !== null}
 				onClick={() => input.current?.click()}
 			>
-				{progress === null ? "Upload file" : `Uploading ${progress}%`}
+				{label}
 			</Button>
 			{progress !== null ? (
 				<Text as="p" role="label" aria-live="polite">

@@ -2576,11 +2576,13 @@ export function ChatThread({
 					</div>
 				)}
 				{dictation.phase === "idle" ? (
-					<div className="chat-composer-actions flex items-center justify-between gap-3 px-4 pt-2 pb-3">
-						<div className="chat-composer-context flex min-w-0 items-center gap-2">
+					<div className="chat-composer-actions">
+						<div className="chat-composer-context">
 							{workspaceId ? (
 								<WorkspaceFileUpload
+									compact
 									workspaceId={workspaceId}
+									onError={setAttachmentError}
 									onUploaded={(file) =>
 										updateDraft(
 											`${draft}${draft ? "\n\n" : ""}Workspace file: ${file.name} (${new URL(file.url, window.location.origin).href})`,
@@ -2701,24 +2703,25 @@ export function ChatThread({
 								<Button
 									type="button"
 									size="sm"
-									className="chat-composer-chip min-w-0 max-w-32 shrink max-sm:min-w-11! coarse:min-w-11!"
+									className="chat-composer-chip"
 									variant={includeContext ? "outline" : "ghost"}
 									aria-pressed={includeContext}
+									title={context.label}
 									onClick={() => setIncludeContext((value) => !value)}
+									icon={<Paperclip size={14} aria-hidden="true" />}
 								>
-									<Paperclip className="shrink-0" size={14} />
-									<span className="truncate">{context.label}</span>
+									<span className="chat-composer-label">{context.label}</span>
 								</Button>
 							) : null}
 							<Text
 								as="span"
 								role="label"
-								className="chat-composer-hint min-w-0 shrink truncate text-kumo-inactive"
+								className="chat-composer-hint truncate text-kumo-inactive"
 							>
 								Enter to send · Shift+Enter for a new line
 							</Text>
 						</div>
-						<div className="chat-composer-submit flex shrink-0 items-center justify-end gap-2">
+						<div className="chat-composer-submit">
 							<Button
 								type="button"
 								size="icon-sm"
@@ -2736,7 +2739,7 @@ export function ChatThread({
 												type="button"
 												size="sm"
 												variant="ghost"
-												className="min-w-0 max-w-32"
+												className="chat-composer-picker"
 												aria-label={`Send to ${selectedTediName ?? "Home"}`}
 											>
 												<span className="truncate">
