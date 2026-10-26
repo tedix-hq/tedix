@@ -278,6 +278,18 @@ try {
 					});
 			};
 			assert.equal(await progress.locator("p").innerText(), "1 of 20");
+			/** Work bar total and card progress read one count of undecided cards. */
+			const assertCountsAgree = async (state: string) => {
+				const bar = page.getByRole("progressbar", { name: "Deck progress" });
+				const total = Number(await bar.getAttribute("aria-valuemax"));
+				const done = Number(await bar.getAttribute("aria-valuenow"));
+				assert.equal(
+					(await tab.innerText()).match(/\d+/)?.[0],
+					String(total - done),
+					`${width} ${colorScheme} ${state}: Work bar total matches the card`,
+				);
+			};
+			await assertCountsAgree("initial");
 			assert.equal(
 				await page.locator(".fd-work-bar [data-deck-progress]").count(),
 				0,
@@ -310,6 +322,7 @@ try {
 					.getAttribute("aria-valuemax"),
 				"20",
 			);
+			await assertCountsAgree("mid-deck");
 			await checkState("mid-deck");
 			const search = page.getByRole("textbox", { name: "Find decisions" });
 			// Phone filters live in the toolbar's sheet.

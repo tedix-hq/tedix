@@ -324,6 +324,8 @@ function DecisionDeckContent({
 					available.some((candidate) => candidate.id === row.id),
 				)
 			: ranked;
+	// One count of undecided cards feeds the Work bar total and, unfiltered, the
+	// card's progress, so the two cannot drift. A filter narrows only the card.
 	const remaining = available.filter(
 		(row) => !optimisticIds.includes(row.id),
 	).length;
@@ -331,18 +333,18 @@ function DecisionDeckContent({
 		if (mode === "decide" && !decisions.pending && !decisions.failed)
 			reportRemaining?.(remaining);
 	}, [mode, decisions.pending, decisions.failed, remaining, reportRemaining]);
-	const progress = useDeckProgress(
-		`${workspaceId}:${profile.data?.id}:${mode}`,
-		available,
-		matchesFilters,
-		filtered.length,
-	);
 	const filtersActive =
 		kind !== "all" ||
 		source !== ALL_CARD_SOURCES ||
 		project !== "all" ||
 		urgency !== "all" ||
 		search !== "";
+	const progress = useDeckProgress(
+		`${workspaceId}:${profile.data?.id}:${mode}`,
+		available,
+		matchesFilters,
+		filtersActive ? filtered.length : remaining,
+	);
 	const selected = waitingMode
 		? undefined
 		: mode === "decide" && focusCard
