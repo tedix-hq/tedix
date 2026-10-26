@@ -370,7 +370,10 @@ try {
 			const check = async (path: string, ready: string) => {
 				errors.length = 0;
 				pending.clear();
-				const trace = shots && ready === ".focus-today";
+				const trace =
+					shots &&
+					ready === ".focus-today" &&
+					!process.env.TEDIX_BROWSER_EVIDENCE_DIR;
 				if (trace)
 					await context.tracing.start({ snapshots: true, screenshots: true });
 				try {

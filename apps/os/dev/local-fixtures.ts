@@ -8310,7 +8310,10 @@ const handlers: Record<string, (input: never) => unknown> = {
 			resultRevision: null,
 		};
 		state.collaborationProposals.push(proposal);
-		return { proposal };
+		return {
+			proposal,
+			previewUrl: `/workspaces/${gadget.workspaceId}?workpiece=gadget%3A${gadget.id}&view=drafts`,
+		};
 	},
 	"osWorkspaces/gadgets/getCode": (input: {
 		workspaceId: string;
