@@ -23,6 +23,8 @@
 		"ci/full-suite-hourly.test.ts",
 		"ci/affected-suite.test.ts",
 		"ci/full-suite-workflow.test.ts",
+		"ci/backfill-commit-watch.mjs",
+		"ci/backfill-commit-watch.test.ts",
 		"ci/notify-repository-observer.mjs",
 		"ci/notify-repository-observer.test.ts",
 		"ci/sanitize-html.test.ts",

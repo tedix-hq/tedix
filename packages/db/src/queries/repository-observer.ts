@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql, type SQL } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
@@ -144,7 +144,7 @@ export async function reportRepositoryObservation(
 			.set(
 				settlementValues(
 					input.now,
-					"no action needed: observer reported clear",
+					sql`CASE WHEN json_extract(${workItems.metadata}, '$.event.kind') = 'push' THEN 'push observation reported; diagnosis retained' ELSE 'no action needed: observer reported clear' END`,
 				),
 			)
 			.where(
@@ -152,7 +152,7 @@ export async function reportRepositoryObservation(
 					eq(workItems.orgId, input.orgId),
 					eq(workItems.id, input.id),
 					settleableObservation(input.now),
-					sql`(json_extract(${workItems.metadata}, '$.latestReport.stillRed') = 0 OR (json_extract(${workItems.metadata}, '$.event.kind') = 'push' AND json_extract(${workItems.metadata}, '$.latestReport.stillRed') IS NULL))`,
+					sql`(json_extract(${workItems.metadata}, '$.event.kind') = 'push' OR json_extract(${workItems.metadata}, '$.latestReport.stillRed') = 0)`,
 				),
 			),
 	]);
@@ -405,7 +405,7 @@ function settleableObservation(now: string) {
 		sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${workItems.orgId} AND active_attempt.work_item_id = ${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${now}))`,
 	);
 }
-function settlementValues(now: string, reason: string) {
+function settlementValues(now: string, reason: string | SQL) {
 	return {
 		disposition: "cancelled" as const,
 		cancelledAt: now,
@@ -488,7 +488,7 @@ export async function settleAgedRepositoryPushObservations(
 				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
 				sql`julianday(${workItems.createdAt}) < julianday(${cutoff})`,
 				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 0) = 0`,
-				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND json_extract(red.metadata, '$.repositoryObserver') = 1 AND json_extract(red.metadata, '$.event.kind') IN ('ship_red','ci_red') AND json_extract(red.metadata, '$.event.repository') = json_extract(${workItems.metadata}, '$.event.repository') AND json_extract(red.metadata, '$.event.branch') = json_extract(${workItems.metadata}, '$.event.branch') AND json_extract(red.metadata, '$.event.sha') = json_extract(${workItems.metadata}, '$.event.sha'))`,
+				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND json_extract(red.metadata, '$.repositoryObserver') = 1 AND red.disposition IN ('proposed','accepted') AND json_extract(red.metadata, '$.event.kind') IN ('ship_red','ci_red') AND json_extract(red.metadata, '$.event.repository') = json_extract(${workItems.metadata}, '$.event.repository') AND json_extract(red.metadata, '$.event.branch') = json_extract(${workItems.metadata}, '$.event.branch') AND json_extract(red.metadata, '$.event.sha') = json_extract(${workItems.metadata}, '$.event.sha'))`,
 			),
 		)
 		.orderBy(workItems.createdAt, workItems.id)

@@ -208,7 +208,7 @@ const reportInput = (id: string, report: { stillRed?: boolean }) => ({
 	report,
 	now: event.now,
 });
-it.each(["push", "ship_red", "ci_red"])(
+it.each(["ship_red", "ci_red"])(
 	"settles %s only on a clear report and preserves first diagnosis",
 	async (kind) => {
 		const { db } = fixture();
@@ -223,13 +223,10 @@ it.each(["push", "ship_red", "ci_red"])(
 		expect(
 			(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
 		).toBe("proposed");
-		if (kind !== "push") {
-			await reportRepositoryObservation(db, reportInput(event.id, {}));
-			expect(
-				(await getRepositoryObservation(db, event.orgId, event.id))
-					?.disposition,
-			).toBe("proposed");
-		}
+		await reportRepositoryObservation(db, reportInput(event.id, {}));
+		expect(
+			(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+		).toBe("proposed");
 		await reportRepositoryObservation(
 			db,
 			reportInput(event.id, { stillRed: false }),
@@ -248,14 +245,26 @@ it.each(["push", "ship_red", "ci_red"])(
 		).toBe(settled?.version);
 	},
 );
-it("settles a push report with omitted stillRed", async () => {
-	const { db } = fixture();
-	await createRepositoryObservation(db, { ...event, metadata: pushMetadata });
-	await reportRepositoryObservation(db, reportInput(event.id, {}));
-	expect(
-		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
-	).toBe("cancelled");
-});
+it.each([{}, { stillRed: false }, { stillRed: true }])(
+	"settles any push report: %j",
+	async (report) => {
+		const { db } = fixture();
+		await createRepositoryObservation(db, { ...event, metadata: pushMetadata });
+		await createRepositoryObservation(db, { ...event, id: "red-incident" });
+		await reportRepositoryObservation(db, reportInput(event.id, report));
+		expect(
+			(await getRepositoryObservation(db, event.orgId, "red-incident"))
+				?.disposition,
+		).toBe("proposed");
+		expect(
+			(await getRepositoryObservation(db, event.orgId, event.id))?.metadata
+				?.report,
+		).toEqual(report);
+		expect(
+			(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+		).toBe("cancelled");
+	},
+);
 it("settles recovery idempotently and scopes it to the observer tenant", async () => {
 	const { db } = fixture();
 	await createRepositoryObservation(db, event);
@@ -298,10 +307,11 @@ it("ages reported and unreported pushes, excludes red follow-ups and other work,
 			"UPDATE work_items SET metadata = json_set(metadata, '$.report', json('{}')) WHERE id = ?",
 		)
 		.run("push-1");
-	await reportRepositoryObservation(
-		db,
-		reportInput("push-0", { stillRed: true }),
-	);
+	sqlite
+		.prepare(
+			"UPDATE work_items SET metadata = json_set(metadata, '$.report', json('{\"stillRed\":true}')) WHERE id = ?",
+		)
+		.run("push-0");
 	await createRepositoryObservation(db, {
 		...event,
 		id: "blocked",
@@ -520,4 +530,61 @@ it("bounds concurrent push wakes per project, atomically and across redeliveries
 			limit: 2,
 		}),
 	).toBe(false);
+});
+
+it.each(["completed", "cancelled"])(
+	"ages a push after its red follow-up is %s",
+	async (disposition) => {
+		const { db, sqlite } = fixture();
+		await createRepositoryObservation(db, { ...event, metadata: pushMetadata });
+		await createRepositoryObservation(db, {
+			...event,
+			id: "red-follow-up",
+			metadata: {
+				...pushMetadata,
+				event: { ...pushMetadata.event, kind: "ci_red" },
+			},
+		});
+		const now = "2026-10-19T12:00:00Z";
+		expect(await settleAgedRepositoryPushObservations(db, now)).toHaveLength(0);
+		sqlite
+			.prepare("UPDATE work_items SET disposition = ? WHERE id = ?")
+			.run(disposition, "red-follow-up");
+		expect(await settleAgedRepositoryPushObservations(db, now)).toEqual([
+			{ id: event.id },
+		]);
+		expect(
+			(await getRepositoryObservation(db, event.orgId, "red-follow-up"))
+				?.disposition,
+		).toBe(disposition);
+		expect(await settleAgedRepositoryPushObservations(db, now)).toHaveLength(0);
+	},
+);
+
+it("closes the observation beside a report on another Work item, preserving the target", async () => {
+	const { db, sqlite } = fixture();
+	await createRepositoryObservation(db, {
+		...event,
+		id: "source-work",
+		metadata: {},
+	});
+	await createRepositoryObservation(db, {
+		...event,
+		metadata: { ...pushMetadata, targetWorkItemId: "source-work" },
+	});
+	await reportRepositoryObservation(db, {
+		...reportInput(event.id, {}),
+		workItemId: "source-work",
+	});
+	expect(
+		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+	).toBe("cancelled");
+	expect(
+		sqlite
+			.prepare("SELECT disposition FROM work_items WHERE id = ?")
+			.get("source-work"),
+	).toEqual({ disposition: "proposed" });
+	expect(
+		sqlite.prepare("SELECT work_item_id FROM work_item_comments").all(),
+	).toEqual([{ work_item_id: "source-work" }]);
 });
