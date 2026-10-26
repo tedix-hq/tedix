@@ -6,6 +6,6 @@
 			"@/*": ["./src/*"]
 		}
 	},
-	"include": ["src/**/*.ts", ".cloudflare/types/index.d.ts"],
+	"include": ["src/**/*.ts", "scripts/**/*.ts", ".cloudflare/types/index.d.ts"],
 	"exclude": ["node_modules"]
 }

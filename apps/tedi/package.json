@@ -16,7 +16,7 @@
 		"tail": "bunx wrangler tail",
 		"type-check": "bun run types && tsc --noEmit",
 		"test": "bun run test:run",
-		"test:run": "bun run test:unit && bun run test:workerd",
+		"test:run": "bun scripts/run-tests.ts",
 		"test:unit": "vp test run",
 		"test:workerd": "vp test run --config vitest.workerd.config.ts",
 		"test:ci": "bun run test:run",
