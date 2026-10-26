@@ -74,6 +74,7 @@ import {
 } from "../../../integrations/cloudflare/agent-memory";
 import type { HomeInventorySnapshot } from "../../../kernel/inventory-snapshot";
 import { isMemorySearchFactEligible } from "../../../services/memory-search-filter";
+import { recallMemoryFacts } from "../../../services/memory-hybrid-recall";
 import type {
 	RelevanceRecallOutcome,
 	StoredRelevanceRecall,
@@ -90,6 +91,7 @@ import {
 	DEFAULT_MAX_PROMPT_TOKENS,
 	RELEVANCE_RECALL_TOP_K,
 	RELEVANCE_RECALL_MIN_CONFIDENCE,
+	MESSAGE_RECALL_BUDGET_MS,
 	RELEVANCE_RECALL_BUDGET_MS,
 	resolveRelevanceCandidates,
 } from "./context-relevance";
@@ -361,6 +363,7 @@ type ContextReadSource =
 	| "referencedSkill"
 	| "workItems"
 	| "facts"
+	| "messageFacts"
 	| "rationale"
 	| "workflows"
 	| "speaker"
@@ -908,6 +911,37 @@ export async function assembleHomeContext(
 					}
 				})()
 			: Promise.resolve([]);
+	// The semantic recall above usually belongs to the previous turn (its budget
+	// is 0; see RELEVANCE_RECALL_BUDGET_MS). Rank canonical D1 memory against
+	// THIS message too: BM25, entity and calendar arms answer in milliseconds,
+	// so an exact topic or a date cue reaches the prompt on the turn it is asked.
+	const messageFactsPromise: Promise<FlatFact[]> = operatorMessage?.trim()
+		? safeRead(
+				async () =>
+					(
+						await recallMemoryFacts(db, {
+							orgId: organizationId,
+							query: operatorMessage,
+							topK: RELEVANCE_RECALL_TOP_K,
+							budgetMs: MESSAGE_RECALL_BUDGET_MS,
+							minConfidence: RELEVANCE_RECALL_MIN_CONFIDENCE,
+						})
+					)
+						.filter(({ fact }) =>
+							isMemorySearchFactEligible(fact, {
+								orgId: organizationId,
+								minConfidence: RELEVANCE_RECALL_MIN_CONFIDENCE,
+							}),
+						)
+						.map(({ fact }) => ({
+							id: fact.id,
+							text: fact.content,
+							confidence: fact.confidence,
+						})),
+				[],
+				"messageFacts",
+			)
+		: Promise.resolve([]);
 
 	// Operator skill references (`/skill <slug>`). Bounded by the shared top-K
 	// ceiling so a pasted wall of references cannot turn one turn into an
@@ -996,6 +1030,7 @@ export async function assembleHomeContext(
 		historyRead,
 		selectionPriors,
 		relevanceFacts,
+		messageFacts,
 		conversationCapabilities,
 		conversationArtifactPins,
 		referencedSkillRows,
@@ -1069,6 +1104,7 @@ export async function assembleHomeContext(
 				)
 			: Promise.resolve(new Map<string, TediSelectionPrior>()),
 		relevanceFactsPromise,
+		messageFactsPromise,
 		conversationId
 			? safeRead(
 					() =>
@@ -1251,7 +1287,12 @@ export async function assembleHomeContext(
 			text: `[${fact.updatedAt ?? fact.createdAt}] ${fact.content}`,
 			confidence: fact.confidence,
 		}));
-	for (const f of [...peopleFacts, ...relevanceFacts, ...staticFacts]) {
+	for (const f of [
+		...peopleFacts,
+		...relevanceFacts,
+		...messageFacts,
+		...staticFacts,
+	]) {
 		if (!seenFactIds.has(f.id)) {
 			seenFactIds.add(f.id);
 			blendedFacts.push(f);

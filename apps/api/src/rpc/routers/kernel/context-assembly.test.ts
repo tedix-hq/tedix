@@ -1985,6 +1985,37 @@ function createFactsDb(opts: {
 }
 
 describe("assembleHomeContext Agent Memory recall", () => {
+	it("ranks canonical memory against this turn's message, ahead of the static top facts", async () => {
+		const houseRules = Array.from({ length: 16 }, (_, index) =>
+			makeFact({
+				id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+				content: `house rule ${index}`,
+				confidence: 0.95,
+				priority: "core",
+			}),
+		);
+		const asked = makeFact({
+			id: "33333333-3333-4333-8333-333333333333",
+			content: "Purchase order PO-4471 ships from the Leipzig warehouse.",
+			confidence: 0.6,
+			priority: "background",
+		});
+		const context = await assembleHomeContext(
+			createFactsDb({ topFacts: houseRules, factsById: [asked] }),
+			ORG_ID,
+			{ operatorMessage: "Where is PO-4471 shipping from?" },
+		);
+		expect(context.facts[0]?.text).toBe(asked.content);
+		// Without a message the static top facts are unchanged.
+		const noMessage = await assembleHomeContext(
+			createFactsDb({ topFacts: houseRules, factsById: [asked] }),
+			ORG_ID,
+		);
+		expect(noMessage.facts.map((fact) => fact.text)).not.toContain(
+			asked.content,
+		);
+	});
+
 	it("degrades without logging memory content when D1 hydration fails", async () => {
 		const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 		const context = await assembleHomeContext(
