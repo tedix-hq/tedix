@@ -1558,8 +1558,12 @@ export function cloudAgentSetup(
 					];
 	lines.push(
 		"",
+		"Repository setup:",
+		"  sh scripts/agent-bootstrap.sh",
+		"",
 		"Environment variables:",
 		`  TEDIX_ORGANIZATION=${agent.organizationId}`,
+		"  TEDIX_WORKSPACE=cloud",
 		`  TEDIX_EXTERNAL_AGENT=${agent.principalKey}`,
 		`  TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=${agent.principalId}`,
 	);

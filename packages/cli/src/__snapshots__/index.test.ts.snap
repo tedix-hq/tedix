@@ -11,8 +11,12 @@ Claude cloud setup
   Value: paste the bootstrap key printed above
   Setup script: install the Tedix CLI only; secrets attach after launch.
 
+Repository setup:
+  sh scripts/agent-bootstrap.sh
+
 Environment variables:
   TEDIX_ORGANIZATION=org-fixture
+  TEDIX_WORKSPACE=cloud
   TEDIX_EXTERNAL_AGENT=cloud-fixture
   TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=principal-fixture
   TEDIX_AGENT_KEY=proxy-injected
@@ -32,8 +36,12 @@ Codex cloud setup
   Value: paste the bootstrap key printed above
   Use a current environment; legacy environments strip secrets before the agent phase.
 
+Repository setup:
+  sh scripts/agent-bootstrap.sh
+
 Environment variables:
   TEDIX_ORGANIZATION=org-fixture
+  TEDIX_WORKSPACE=cloud
   TEDIX_EXTERNAL_AGENT=cloud-fixture
   TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=principal-fixture
   TEDIX_AGENT_SESSION=codex-cloud:<run-id>
@@ -52,8 +60,12 @@ Devin cloud setup (unverified until the Phase 4 pilot)
   CLI path: reference \${TEDIX_AGENT_KEY}
   Never use the MCP Auth Header for this bootstrap key.
 
+Repository setup:
+  sh scripts/agent-bootstrap.sh
+
 Environment variables:
   TEDIX_ORGANIZATION=org-fixture
+  TEDIX_WORKSPACE=cloud
   TEDIX_EXTERNAL_AGENT=cloud-fixture
   TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=principal-fixture
   TEDIX_AGENT_SESSION=devin-cloud:<run-id>

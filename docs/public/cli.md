@@ -194,6 +194,18 @@ followed by the platform setup block, and saves no agent credential to disk.
 another copy. Keep the output private. A failed principal creation triggers
 revocation of the newly created key.
 
+In a Tedix source checkout, each platform's setup block runs the same one-line
+repository bootstrap:
+
+```sh
+sh scripts/agent-bootstrap.sh
+```
+
+It installs the released Tedix CLI, adds its install directory to the setup
+process's `PATH`, installs the repository's frozen Bun dependencies, and prints
+the CLI version and read-only authentication status. Set `TEDIX_WORKSPACE` in
+the cloud environment to keep later CLI calls on the same profile.
+
 For Claude cloud, paste the key into Network secrets for host
 `connect.mcp.tedix.dev`, header `X-API-Key`, with an empty prefix. For current
 Codex cloud environments, use network secret `TEDIX_AGENT_KEY` and allow
