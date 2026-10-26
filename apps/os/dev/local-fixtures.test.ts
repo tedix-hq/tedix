@@ -762,6 +762,13 @@ const CALLS = {
 	},
 	"osWorkspaces/blueprints/list": { limit: 50 },
 	"osWorkspaces/blueprints/gallery": { limit: 50 },
+	"osWorkspaces/blueprints/galleryPage": {
+		blueprintId: IDS.blueprintPublished,
+	},
+	"osWorkspaces/blueprints/setFeatured": {
+		blueprintId: IDS.blueprintPublished,
+		featured: false,
+	},
 	"osWorkspaces/blueprints/create": { name: "Test Blueprint" },
 	"osWorkspaces/blueprints/saveWorkspace": {
 		workspaceId: IDS.workspaceRevenue,

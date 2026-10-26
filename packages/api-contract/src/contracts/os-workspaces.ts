@@ -1967,6 +1967,26 @@ export const osWorkspacesContract = oc
 				})
 				.input(z.object({ limit: listLimitSchema }))
 				.output(z.object({ items: z.array(OsBlueprintGalleryItemSchema) })),
+			galleryPage: oc
+				.route({
+					method: "GET",
+					path: "/blueprint-gallery/{blueprintId}",
+					summary: "Read one gallery blueprint's landing page",
+					description:
+						"What one catalog-visible published blueprint does and needs: its apps, the connected accounts, resources and skills an installer must bring, the deliverables it produces, whether it is Featured, and the publisher's display name. Built from an allowlist: no organization id, creator, revision or skill ids, policy or steward pins, or app source. A private, unpublished or missing id fails NOT_FOUND identically. The same page minus the publisher's name is served signed-out at GET /public/blueprints/{blueprintId}.",
+				})
+				.input(blueprintIdInput)
+				.output(z.object({ blueprint: OsBlueprintGalleryPageSchema })),
+			setFeatured: oc
+				.route({
+					method: "POST",
+					path: "/blueprint-gallery/{blueprintId}/featured",
+					summary: "Add a gallery blueprint to the Featured set, or remove it",
+					description:
+						"Platform-admin curation of the gallery's Featured set. Only a catalog-visible published blueprint can be featured (NOT_FOUND otherwise, indistinguishable from a missing id). Featuring an already-featured blueprint keeps its original stamp; retracting a blueprint from the catalog hides it from the gallery whatever its Featured state.",
+				})
+				.input(blueprintIdInput.extend({ featured: z.boolean() }))
+				.output(z.object({ item: OsBlueprintGalleryItemSchema })),
 			instantiateFromGallery: oc
 				.errors(preflightBlockedErrors)
 				.route({

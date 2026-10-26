@@ -22,6 +22,7 @@ import { type BaseContext, logProcedureCall } from "./rpc/orpc";
 import { type ApiRouter, apiRouter } from "./rpc/routers/index";
 import { registerCorsAndLimits } from "./http/cors-and-limits";
 import { registerPublicIntakeRoutes } from "./http/public-intake-routes";
+import { registerPublicBlueprintRoutes } from "./http/public-blueprint-routes";
 import { registerRpcRoutes } from "./http/rpc-routes";
 import { registerOpenApiDocs } from "./http/openapi-docs";
 import { registerKernelRoutes } from "./http/kernel-routes";
@@ -110,6 +111,7 @@ function getOpenApiHandler(): OpenAPIHandler<BaseContext> {
 const app = new Hono<{ Bindings: CloudflareEnv }>();
 registerCorsAndLimits(app);
 registerPublicIntakeRoutes(app);
+registerPublicBlueprintRoutes(app);
 registerRpcRoutes(app, rpcHandler, getOpenApiHandler);
 registerOpenApiDocs(app);
 registerKernelRoutes(app);

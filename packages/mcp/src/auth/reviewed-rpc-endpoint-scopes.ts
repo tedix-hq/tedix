@@ -549,6 +549,9 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/blueprints/delete": "mcp:apps.admin",
 	"osWorkspaces/blueprints/export": "mcp:apps.read",
 	"osWorkspaces/blueprints/gallery": "mcp:apps.read",
+	"osWorkspaces/blueprints/galleryPage": "mcp:apps.read",
+	// Platform curation of the cross-organization Featured set.
+	"osWorkspaces/blueprints/setFeatured": "platform:admin",
 	"osWorkspaces/blueprints/get": "mcp:apps.read",
 	"osWorkspaces/blueprints/import": "mcp:apps.write",
 	"osWorkspaces/blueprints/instantiate": "mcp:apps.write",
