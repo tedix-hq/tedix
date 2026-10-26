@@ -522,10 +522,26 @@ export async function workCreate(
 		);
 	}
 
+	const owner = ctx.work.owner?.trim();
+	const ownerMatch = owner
+		? /^(user|tedi|team|system):(\S+)$/.exec(owner)
+		: null;
+	if (owner && !ownerMatch) {
+		throw new Error(
+			`--owner must be <user|tedi|team|system>:<id>, got "${owner}"`,
+		);
+	}
+
 	const args: Record<string, unknown> = {
 		title: t,
 		...(executor ? { executor } : {}),
 		...(desc?.trim() ? { description: desc.trim() } : {}),
+		...(ownerMatch
+			? {
+					accountableOwnerType: ownerMatch[1],
+					accountableOwnerId: ownerMatch[2],
+				}
+			: {}),
 		...(kind ? { workKind: kind } : {}),
 		...(priority ? { priority } : {}),
 		...(objective ? { objectiveId: objective.trim() } : {}),

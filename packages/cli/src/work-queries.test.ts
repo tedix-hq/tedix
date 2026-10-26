@@ -47,6 +47,11 @@ function workRow(id: string, title: string, view: "board" | "resolve") {
 	};
 }
 
+const endpointFor = (callable: string) =>
+	callable.endsWith(".create_work_items")
+		? "workItems/create"
+		: "workItems/listCliProjection";
+
 function makeContext(
 	rows: Array<{ id: string; title: string }> = [],
 	work: WorkOptions = {},
@@ -75,7 +80,7 @@ function makeContext(
 		const callable = `${String(args.namespace)}.${String(args.query)}`;
 		const native = descriptor(
 			`configured_${callable.replaceAll(".", "__")}`,
-			"workItems/listCliProjection",
+			endpointFor(callable),
 		);
 		if (name === "catalog_search") {
 			return {
@@ -86,7 +91,7 @@ function makeContext(
 			const describedCallable = String(args.callable);
 			const describedNative = descriptor(
 				`configured_${describedCallable.replaceAll(".", "__")}`,
-				"workItems/listCliProjection",
+				endpointFor(describedCallable),
 			);
 			return {
 				callable: describedCallable,
@@ -245,6 +250,31 @@ describe("query commands", () => {
 			"--class must be one of maintenance|incident|hygiene",
 		);
 		expect(calls).toEqual([]);
+	});
+
+	test("workCreate sends --owner as the accountable owner", async () => {
+		const bad = makeContext([], {
+			workClass: "hygiene",
+			expires: "1d",
+			owner: "Nova",
+		});
+		await expect(workCreate(bad.ctx, "Example work")).rejects.toThrow(
+			"--owner must be <user|tedi|team|system>:<id>",
+		);
+		expect(bad.calls).toEqual([]);
+
+		const { ctx, calls } = makeContext([], {
+			workClass: "hygiene",
+			expires: "1d",
+			owner: "tedi:tedi-fictional-1",
+			desc: "Standing check",
+		});
+		await captureJson(() => workCreate(ctx, "Example work"));
+		expect(calls[0]).toMatchObject({
+			accountableOwnerType: "tedi",
+			accountableOwnerId: "tedi-fictional-1",
+			description: "Standing check",
+		});
 	});
 
 	test("workFind prints its JSON data envelope", async () => {

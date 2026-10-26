@@ -423,6 +423,11 @@ export function parseOptions(argv: string[]): {
 			"--meta and --approve-destructive are only valid with code",
 		);
 	}
+	// `--owner` is shared: the factory owner, or `work create`'s accountable owner.
+	if (parsedCommand === "work" && options.factoryOwner !== undefined) {
+		options.workOwner = options.factoryOwner;
+		delete options.factoryOwner;
+	}
 	if (parsedCommand !== "factory" && hasFactoryOptions(options)) {
 		throw new Error(
 			"--goal, --owner, --cadence, --every-hours, --output, --output-kind, --template, --slug, --name, --max-proposals, --workspace-id and --dry-run are only valid with factory",

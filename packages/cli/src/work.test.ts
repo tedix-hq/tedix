@@ -4417,7 +4417,9 @@ describe("comment text options", () => {
 	);
 
 	test("help documents create descriptions and comment aliases", () => {
-		expect(workUsage()).toContain("[--desc <text>]");
+		expect(workUsage()).toContain(
+			"[--desc|--description <text>] [--owner tedi:<id>]",
+		);
 		expect(workUsage()).toContain(
 			"comment <id> [text] [--body|--message|--text <text>]",
 		);
