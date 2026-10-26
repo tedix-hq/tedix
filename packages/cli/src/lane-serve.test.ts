@@ -171,11 +171,13 @@ function fixture({
 				};
 			else if (verb === "dispatch-attempts") response = control.history;
 			else if (verb === "readiness") response = control.readiness;
+			else if (verb === "show" && args.includes("--file"))
+				response = { path: "SKILL.md", content: "Keep all evidence in OS." };
 			else if (verb === "show")
 				response = {
 					id: options.rules,
 					revision: 7,
-					content: "Keep all evidence in OS.",
+					contentPreview: "Keep all evidence in OS.",
 					lifecycleState: "active",
 				};
 			else if (verb === "start" && args[4] === "agent")
