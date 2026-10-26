@@ -46,6 +46,7 @@ export const PLATFORM_CRON_IDS = [
 	"active-provider-scan-and-drift",
 	"external-agent-mcp-client-reaper",
 	"recurring-work",
+	"conversation-title-backfill",
 	"machine-scope-drift",
 	"tedi-access-key-rotation",
 	"site-reconciliation",
@@ -246,6 +247,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "recurring-work",
 		cron: "0 * * * *",
 		intervalMinutes: 60,
+	},
+	{
+		id: "conversation-title-backfill",
+		cron: "0 * * * *",
+		intervalMinutes: 60,
+		requiresFleet: true,
 	},
 	{
 		id: "site-reconciliation",

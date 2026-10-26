@@ -47,7 +47,8 @@ async function trackPlatformCronPath(
  *   workstation compute metering, D1 retention (policy rows in
  *   d1_retention_policies; none = no-op)
  * - 0 * * * * (hourly) → MCP endpoint freshness scan (bounded 200-row
- *   workflow), site reconciliation, external-agent MCP client reaper, plus two
+ *   workflow), site reconciliation, external-agent MCP client reaper,
+ *   code-like conversation title backfill, plus two
  *   hour-gated paths: platform-health digest (8am UTC) and cost-anomaly check
  *   (9am UTC)
  * - 0 2 * * * (2am UTC) → Legacy billing quarantine + catalog sync log maintenance
@@ -465,6 +466,26 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 					createDbClient(env.DB),
 					new Date(event.scheduledTime),
 				),
+			);
+		}
+
+		// Rename open chats still titled with a code or id (`A304`): one bounded
+		// page per hour, at most one cheap title call per renamed chat.
+		if (fleetEnabled && cron === "0 * * * *") {
+			const { createContext } = await import("../rpc/context");
+			const { backfillCodeLikeConversationTitles } =
+				await import("../rpc/routers/kernel/conversation-title");
+			await trackPlatformCronPath(
+				env,
+				event,
+				"conversation-title-backfill",
+				() =>
+					backfillCodeLikeConversationTitles(
+						createContext(
+							new Request("https://api/internal/conversation-title-backfill"),
+							env,
+						),
+					),
 			);
 		}
 

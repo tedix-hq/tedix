@@ -43,29 +43,42 @@
  *   (projection-only — no `conversation.updated` event, so the guard below
  *   still sees zero title events and the auto-title upgrade is never blocked;
  *   the autoTitle write-through overwrites any non-rename source).
+ * - Titles are at most six words, in the request's language, and never a code
+ *   or id (`isCodeLikeConversationTitle`). An hourly bounded backfill
+ *   ({@link backfillCodeLikeConversationTitles}) renames open conversations
+ *   whose non-rename title is still one.
  */
 
 import { kernelSpanContext } from "./gateway-attribution";
-import { countKernelConversationEventsByKind } from "@tedix/db/queries/kernel-runtime-events";
+import {
+	countKernelConversationEventsByKind,
+	type KernelRuntimeEvent,
+	listKernelRuntimeEvents,
+} from "@tedix/db/queries/kernel-runtime-events";
+import {
+	advanceKernelConversationRetitleCursor,
+	listKernelConversationRetitleCandidates,
+} from "@tedix/db/queries/kernel-conversations";
 import type { BaseContext } from "../../orpc";
 import {
 	fallbackConversationTitle,
 	HOME_MAIN_CONVERSATION_ID,
+	isCodeLikeConversationTitle,
 	isEphemeralHomeConversation,
 	KERNEL_AUTO_TITLE_SOURCE,
 	sanitizeConversationTitle,
 	stripConversationTitleContext,
 } from "./conversation-index";
 import { type KernelEnv, kernelModel } from "./llm";
-import { insertKernelRuntimeEvent } from "./run-store";
+import { insertKernelRuntimeEventWithStatus } from "./run-store";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
 /**
- * Exported for one-off ops backfills
- * so backfilled titles use the EXACT prompt the live path uses.
+ * The live path and the code-like-title backfill share this prompt, so both
+ * produce the same kind of title.
  */
 export const TITLE_SYSTEM_PROMPT =
-	"Generate a 3-6 word title for this conversation that names what the user asked for — never the assistant's status (an approval request, an error, a refusal). Reply with the title only — plain text, no quotes, no trailing punctuation.";
+	"Write a title of at most 6 words that names what the user asked for in their first request, in the same language as that request. Use plain words: never a code, id or number on its own, and never the assistant's status (an approval request, an error, a refusal). Reply with the title only: plain text, no quotes, no trailing punctuation.";
 
 /** Per-side excerpt cap — keeps the prompt tiny (and the call cheap). */
 const TITLE_EXCERPT_CHARS = 500;
@@ -145,6 +158,113 @@ export async function shouldAutoTitleHomeConversation(
 }
 
 /**
+ * Title one exchange: the cheap model call when a run can carry its cost,
+ * else (or when the model output is unusable) the deterministic first-request
+ * fallback. Returns `null` when neither yields a usable title.
+ */
+async function deriveConversationTitle(
+	context: Pick<BaseContext, "env">,
+	input: Omit<ConversationTitleTurnInput, "runId"> & { runId?: string },
+): Promise<string | null> {
+	// The title is part of the settled run, and billing counts it there: a
+	// monetary plan with a per-run budget refuses a call without a run as
+	// hard_spend_limit, so a run-less title uses the fallback only.
+	const model = input.runId
+		? kernelModel(context.env as unknown as KernelEnv, undefined, {
+				organizationId: input.organizationId,
+				runId: input.runId,
+				sessionKey: input.conversationId,
+				source: "kernel:conversation_title",
+			})
+		: null;
+	let raw: string | undefined;
+	if (model) {
+		const abortController = new AbortController();
+		const timeoutId = setTimeout(
+			() => abortController.abort(),
+			TITLE_GENERATION_TIMEOUT_MS,
+		);
+		try {
+			const { tracedAi } = await import("../../../lib/traced-ai");
+			const result = await tracedAi.generateText({
+				model: model.model,
+				instructions: TITLE_SYSTEM_PROMPT,
+				runtimeContext: kernelSpanContext({
+					organizationId: input.organizationId,
+					sessionKey: input.conversationId,
+					source: "conversation_title",
+				}),
+				telemetry: { functionId: "kernel.conversation_title" },
+				messages: [
+					{
+						role: "user",
+						content: buildConversationTitlePrompt({
+							userContent: input.userContent,
+							assistantContent: input.assistantContent,
+						}),
+					},
+				],
+				maxOutputTokens: 256,
+				abortSignal: abortController.signal,
+			});
+			raw = result.text;
+		} catch (error) {
+			console.warn({
+				component: "kernel.conversation_title",
+				event: "auto_title_model_failed",
+				exception: safeExceptionTopology(error),
+			});
+		} finally {
+			clearTimeout(timeoutId);
+		}
+	}
+	return (
+		sanitizeConversationTitle(raw) ??
+		fallbackConversationTitle(input.userContent)
+	);
+}
+
+/**
+ * Persist an auto title through the SAME storage as
+ * kernelRuntime.renameConversation, distinguished by `source`. `eventKey`
+ * makes the event id deterministic (insertKernelRuntimeEvent is
+ * onConflictDoNothing on id), so a re-fired turn or backfill is idempotent.
+ * Returns whether this call inserted the event.
+ */
+async function persistConversationAutoTitle(
+	context: BaseContext,
+	input: {
+		organizationId: string;
+		conversationId: string;
+		runId?: string;
+		eventKey: string;
+		title: string;
+	},
+): Promise<boolean> {
+	const { inserted } = await insertKernelRuntimeEventWithStatus(context, {
+		id: [
+			"home",
+			input.organizationId,
+			"event",
+			"conversation.updated",
+			input.conversationId,
+			"auto",
+			input.eventKey,
+		].join(":"),
+		organizationId: input.organizationId,
+		kind: "conversation.updated",
+		conversationId: input.conversationId,
+		runId: input.runId,
+		payload: {
+			conversation: { title: input.title },
+			title: input.title,
+			source: KERNEL_AUTO_TITLE_SOURCE,
+		},
+	});
+	return inserted;
+}
+
+/**
  * Generate + persist an auto title for a just-settled first exchange.
  * NEVER throws — every failure is a logged no-op (a lost title is acceptable;
  * this runs post-settle and must not disturb anything).
@@ -180,60 +300,7 @@ export async function generateAndPersistHomeConversationTitle(
 			return;
 		}
 
-		// The title is part of the settled run, and billing counts it there: a
-		// monetary plan with a per-run budget refuses a call without a run as
-		// hard_spend_limit, so an organization-only context never got a title.
-		const model = kernelModel(context.env as unknown as KernelEnv, undefined, {
-			organizationId: input.organizationId,
-			runId: input.runId,
-			sessionKey: input.conversationId,
-			source: "kernel:conversation_title",
-		});
-		let raw: string | undefined;
-		if (model) {
-			const abortController = new AbortController();
-			const timeoutId = setTimeout(
-				() => abortController.abort(),
-				TITLE_GENERATION_TIMEOUT_MS,
-			);
-			try {
-				const { tracedAi } = await import("../../../lib/traced-ai");
-				const result = await tracedAi.generateText({
-					model: model.model,
-					instructions: TITLE_SYSTEM_PROMPT,
-					runtimeContext: kernelSpanContext({
-						organizationId: input.organizationId,
-						sessionKey: input.conversationId,
-						source: "conversation_title",
-					}),
-					telemetry: { functionId: "kernel.conversation_title" },
-					messages: [
-						{
-							role: "user",
-							content: buildConversationTitlePrompt({
-								userContent: input.userContent,
-								assistantContent: input.assistantContent,
-							}),
-						},
-					],
-					maxOutputTokens: 256,
-					abortSignal: abortController.signal,
-				});
-				raw = result.text;
-			} catch (error) {
-				console.warn({
-					component: "kernel.conversation_title",
-					event: "auto_title_model_failed",
-					exception: safeExceptionTopology(error),
-				});
-			} finally {
-				clearTimeout(timeoutId);
-			}
-		}
-
-		const title =
-			sanitizeConversationTitle(raw) ??
-			fallbackConversationTitle(input.userContent);
+		const title = await deriveConversationTitle(context, input);
 		if (!title) {
 			console.log({
 				component: "kernel.conversation_title",
@@ -243,28 +310,12 @@ export async function generateAndPersistHomeConversationTitle(
 			return;
 		}
 
-		// Same storage as kernelRuntime.renameConversation, distinguished by
-		// `source`. Id keyed to the run so a re-fired turn is idempotent
-		// (insertKernelRuntimeEvent is onConflictDoNothing on id).
-		await insertKernelRuntimeEvent(context, {
-			id: [
-				"home",
-				input.organizationId,
-				"event",
-				"conversation.updated",
-				input.conversationId,
-				"auto",
-				input.runId,
-			].join(":"),
+		await persistConversationAutoTitle(context, {
 			organizationId: input.organizationId,
-			kind: "conversation.updated",
 			conversationId: input.conversationId,
 			runId: input.runId,
-			payload: {
-				conversation: { title },
-				title,
-				source: KERNEL_AUTO_TITLE_SOURCE,
-			},
+			eventKey: input.runId,
+			title,
 		});
 		console.log({
 			component: "kernel.conversation_title",
@@ -277,4 +328,102 @@ export async function generateAndPersistHomeConversationTitle(
 			exception: safeExceptionTopology(error),
 		});
 	}
+}
+
+/** First user request and first reply of a conversation, from the ledger. */
+function firstExchange(events: readonly KernelRuntimeEvent[]): {
+	userContent: string;
+	assistantContent: string;
+	runId?: string;
+} | null {
+	const payloadOf = (event: KernelRuntimeEvent) =>
+		(event.payload ?? {}) as Record<string, unknown>;
+	const request = events.find(
+		(event) =>
+			event.kind === "message.received" &&
+			payloadOf(event).role === "user" &&
+			typeof payloadOf(event).content === "string",
+	);
+	if (!request) return null;
+	const reply = events.find(
+		(event) =>
+			event.kind === "message.completed" &&
+			event.createdAt >= request.createdAt &&
+			typeof payloadOf(event).content === "string",
+	);
+	return {
+		userContent: payloadOf(request).content as string,
+		assistantContent: reply ? (payloadOf(reply).content as string) : "",
+		runId: reply?.runId ?? undefined,
+	};
+}
+
+/** Rows scanned per backfill tick; each renamed row costs at most one model call. */
+const RETITLE_BACKFILL_BATCH = 20;
+
+/**
+ * Bounded, idempotent rename of open conversations whose auto or provisional
+ * title is a code or id (`A304`, a uuid fragment). Titles derive from the
+ * first request exactly as the live path does; user renames are never
+ * candidates. A CAS cursor walks the candidates across ticks, so a row that
+ * stays untitleable cannot starve later ones, and the fixed `retitle` event
+ * key keeps a replayed tick from writing twice.
+ */
+export async function backfillCodeLikeConversationTitles(
+	context: BaseContext,
+): Promise<{ titleBackfillScanned: number; titleBackfillRenamed: number }> {
+	const { rows, previous } = await listKernelConversationRetitleCandidates(
+		context.db,
+		{ limit: RETITLE_BACKFILL_BATCH },
+	);
+	let renamed = 0;
+	for (const row of rows) {
+		if (
+			!isCodeLikeConversationTitle(row.title) ||
+			row.conversationId === HOME_MAIN_CONVERSATION_ID ||
+			isEphemeralHomeConversation(row.conversationId)
+		)
+			continue;
+		try {
+			const exchange = firstExchange(
+				await listKernelRuntimeEvents(context.db, {
+					organizationId: row.organizationId,
+					conversationId: row.conversationId,
+					kinds: ["message.received", "message.completed"],
+					order: "asc",
+					limit: 6,
+				}),
+			);
+			if (!exchange) continue;
+			const title = await deriveConversationTitle(context, {
+				organizationId: row.organizationId,
+				conversationId: row.conversationId,
+				...exchange,
+			});
+			if (!title) continue;
+			if (
+				await persistConversationAutoTitle(context, {
+					organizationId: row.organizationId,
+					conversationId: row.conversationId,
+					runId: exchange.runId,
+					eventKey: "retitle",
+					title,
+				})
+			)
+				renamed++;
+		} catch (error) {
+			console.warn({
+				component: "kernel.conversation_title",
+				event: "title_backfill_failed",
+				exception: safeExceptionTopology(error),
+			});
+		}
+	}
+	const last = rows.at(-1);
+	await advanceKernelConversationRetitleCursor(
+		context.db,
+		previous,
+		last ? last.id : "",
+	);
+	return { titleBackfillScanned: rows.length, titleBackfillRenamed: renamed };
 }
