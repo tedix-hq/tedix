@@ -133,7 +133,7 @@ export const workApprovalRequestedEventDefinition = {
 
 export const skillRunFailedEventDefinition = {
 	name: SKILL_RUN_FAILED_EVENT,
-	description: `A skill workflow run ended failed. Carries ids and a coarse error class only. ${NOTICE}`,
+	description: `A skill automation run ended failed. Carries ids and a coarse error class only. ${NOTICE}`,
 	delivery: ["poll"],
 	inputSchema: objectSchema(
 		{
