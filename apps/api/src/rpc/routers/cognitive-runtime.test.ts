@@ -1,4 +1,4 @@
-import { SQL } from "drizzle-orm";
+import { createApiSqliteFixture } from "./__tests__/api-sqlite";
 import { createRouterClient } from "@orpc/server";
 import {
 	decodeRuntimeEventCursor,
@@ -214,117 +214,7 @@ it("keeps API-contract and DB runtime event kind enums aligned", () => {
 type RuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
 type RuntimeEventInsert = typeof tediRuntimeEvents.$inferInsert;
 type ArtifactRow = typeof tediArtifacts.$inferSelect;
-type ArtifactInsert = typeof tediArtifacts.$inferInsert;
 type SessionStateRow = typeof tediSessionStates.$inferSelect;
-
-const columnKeyByName: Record<string, string> = {
-	artifact_id: "artifactId",
-	conversation_id: "conversationId",
-	created_at: "createdAt",
-	deleted_at: "deletedAt",
-	id: "id",
-	kind: "kind",
-	message_id: "messageId",
-	organization_id: "organizationId",
-	run_id: "runId",
-	session_key: "sessionKey",
-	tedi_id: "tediId",
-};
-
-function stringChunkValue(chunk: unknown): string {
-	const value = (chunk as { value?: unknown } | undefined)?.value;
-	return typeof value === "string" ? value : "";
-}
-
-function collectWhereConditions(
-	value: unknown,
-	conditions: Array<{
-		key: string;
-		op: "=" | "<" | "notnull";
-		value: unknown;
-	}> = [],
-) {
-	const chunks = (value as { queryChunks?: unknown[] } | undefined)
-		?.queryChunks;
-	if (!Array.isArray(chunks)) return conditions;
-	for (let index = 0; index < chunks.length; index += 1) {
-		const chunk = chunks[index] as { name?: unknown; queryChunks?: unknown[] };
-		if (chunk?.queryChunks) {
-			collectWhereConditions(chunk, conditions);
-			continue;
-		}
-		if (typeof chunk?.name !== "string") continue;
-		const op = stringChunkValue(chunks[index + 1]).trim();
-		const key = columnKeyByName[chunk.name];
-		if (!key) continue;
-		// `isNotNull(column)` renders as a trailing `is not null` chunk with no
-		// bound param. Model it so soft-delete (`deletedAt`) filters apply in tests.
-		if (op.includes("is not null")) {
-			conditions.push({ key, op: "notnull", value: undefined });
-			continue;
-		}
-		const param = chunks[index + 2] as { value?: unknown } | undefined;
-		if (!param || !("value" in param)) continue;
-		if (op === "=" || op === "<") {
-			conditions.push({ key, op, value: param.value });
-		}
-	}
-	return conditions;
-}
-
-function applyWhere<Row extends Record<string, unknown>>(
-	rows: Row[],
-	whereClause: unknown,
-): Row[] {
-	const conditions = collectWhereConditions(whereClause);
-	if (conditions.length === 0) return rows;
-	const equalsByKey = new Map<string, Set<unknown>>();
-	const lessThan: Array<{ key: string; value: unknown }> = [];
-	const notNullKeys: string[] = [];
-	for (const condition of conditions) {
-		if (condition.op === "=") {
-			const values = equalsByKey.get(condition.key) ?? new Set<unknown>();
-			values.add(condition.value);
-			equalsByKey.set(condition.key, values);
-		} else if (condition.op === "notnull") {
-			notNullKeys.push(condition.key);
-		} else {
-			lessThan.push(condition);
-		}
-	}
-	return rows.filter((row) => {
-		for (const [key, values] of equalsByKey) {
-			if (!values.has(row[key] ?? null)) return false;
-		}
-		for (const key of notNullKeys) {
-			if (row[key] === null || row[key] === undefined) return false;
-		}
-		for (const condition of lessThan) {
-			const rowValue = row[condition.key];
-			if (typeof rowValue !== "string" || typeof condition.value !== "string") {
-				return false;
-			}
-			if (!(rowValue < condition.value)) return false;
-		}
-		return true;
-	});
-}
-
-/** True if the SQL where-tree contains a `not exists (...)` chunk. */
-function whereHasNotExists(value: unknown): boolean {
-	const chunks = (value as { queryChunks?: unknown[] })?.queryChunks;
-	if (stringChunkValue(value).includes("not exists")) return true;
-	if (!Array.isArray(chunks)) return false;
-	return chunks.some((chunk) => whereHasNotExists(chunk));
-}
-
-function isDescOrder(orderByClause: unknown): boolean {
-	const chunks = (orderByClause as { queryChunks?: unknown[] } | undefined)
-		?.queryChunks;
-	return Array.isArray(chunks)
-		? chunks.some((chunk) => stringChunkValue(chunk).includes(" desc"))
-		: false;
-}
 
 function normalizeRuntimeEventInsert(
 	input: RuntimeEventInsert,
@@ -351,231 +241,13 @@ function normalizeRuntimeEventInsert(
 	};
 }
 
-function normalizeArtifactInsert(input: ArtifactInsert): ArtifactRow {
-	return {
-		id: input.id,
-		organizationId: input.organizationId,
-		tediId: input.tediId,
-		conversationId: input.conversationId ?? null,
-		runId: input.runId ?? null,
-		messageId: input.messageId ?? null,
-		kind: input.kind,
-		name: input.name,
-		mimeType: input.mimeType ?? null,
-		uri: input.uri ?? null,
-		sizeBytes: input.sizeBytes ?? null,
-		metadata: input.metadata ?? null,
-		accessClassification: input.accessClassification ?? null,
-		contentDigest: input.contentDigest ?? null,
-		producerExecutionId: input.producerExecutionId ?? null,
-		accessEnvelope: input.accessEnvelope ?? null,
-		publicationState: input.publicationState ?? null,
-		createdAt: input.createdAt ?? "2026-05-25T08:00:00.000Z",
-	};
-}
-
-// Run-scoped event queries wrap the table in SQL to pin the production index.
-// Keep the fixture's filtering and retry behavior for that same table source.
-function isRuntimeEventSource(source: unknown): boolean {
-	return (
-		source === tediRuntimeEvents ||
-		(source instanceof SQL && source.queryChunks.includes(tediRuntimeEvents))
-	);
-}
-
 function createRuntimeDb() {
-	const events: RuntimeEventRow[] = [];
-	const artifacts: ArtifactRow[] = [];
-	// session-state rows carry the soft-delete (`deletedAt`) marker that
-	// readMessages/listConversations consult. Default empty (no soft-deletes).
-	const sessionStates: SessionStateRow[] = [];
-	const rowsFor = (
-		table: unknown,
-	): Array<RuntimeEventRow | ArtifactRow | SessionStateRow> => {
-		if (isRuntimeEventSource(table)) return events;
-		if (table === tediSessionStates) return sessionStates;
-		return artifacts;
-	};
-
-	return {
-		events,
-		artifacts,
-		sessionStates,
-		insert(table: unknown) {
-			let rows: RuntimeEventInsert[] | ArtifactInsert[] = [];
-			let ignoreConflicts = false;
-			let upsertOnConflict = false;
-			return {
-				values(
-					value:
-						| RuntimeEventInsert
-						| RuntimeEventInsert[]
-						| ArtifactInsert
-						| ArtifactInsert[],
-				) {
-					rows = Array.isArray(value) ? value : [value];
-					return this;
-				},
-				onConflictDoNothing() {
-					ignoreConflicts = true;
-					return this;
-				},
-				onConflictDoUpdate() {
-					upsertOnConflict = true;
-					return this;
-				},
-				returning() {
-					const inserted: Array<RuntimeEventRow | ArtifactRow> = [];
-					if (isRuntimeEventSource(table)) {
-						for (const row of rows as RuntimeEventInsert[]) {
-							if (
-								ignoreConflicts &&
-								events.some((event) => event.id === row.id)
-							) {
-								continue;
-							}
-							const normalized = normalizeRuntimeEventInsert(row);
-							events.push(normalized);
-							inserted.push(normalized);
-						}
-						return Promise.resolve(inserted);
-					}
-					for (const row of rows as ArtifactInsert[]) {
-						const normalized = normalizeArtifactInsert(row);
-						if (upsertOnConflict) {
-							const idx = artifacts.findIndex((a) => a.id === normalized.id);
-							if (idx >= 0) {
-								const existing = artifacts[idx]!;
-								if (
-									existing.organizationId !== normalized.organizationId ||
-									existing.tediId !== normalized.tediId
-								)
-									continue;
-								const updated = {
-									...normalized,
-									createdAt: existing.createdAt,
-								};
-								artifacts[idx] = updated;
-								inserted.push(updated);
-								continue;
-							}
-						}
-						artifacts.push(normalized);
-						inserted.push(normalized);
-					}
-					return Promise.resolve(inserted);
-				},
-				// Drizzle query builders are awaitable; the router awaits this fake.
-				then<TResult1 = Array<RuntimeEventRow | ArtifactRow>, TResult2 = never>(
-					onfulfilled?:
-						| ((
-								value: Array<RuntimeEventRow | ArtifactRow>,
-						  ) => TResult1 | PromiseLike<TResult1>)
-						| null,
-					onrejected?:
-						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-						| null,
-				) {
-					return this.returning().then(onfulfilled, onrejected);
-				},
-			};
-		},
-		select() {
-			let selectedRows: Array<RuntimeEventRow | ArtifactRow | SessionStateRow> =
-				[];
-			let whereClause: unknown;
-			let orderByClause: unknown;
-			let rowLimit: number | undefined;
-			let fromTable: unknown;
-			const builder = {
-				from(table: unknown) {
-					fromTable = table;
-					selectedRows = [...rowsFor(table)];
-					return this;
-				},
-				where(value: unknown) {
-					whereClause = value;
-					return this;
-				},
-				orderBy(value: unknown) {
-					orderByClause = value;
-					return this;
-				},
-				limit(value: number) {
-					rowLimit = value;
-					return this;
-				},
-				execute() {
-					let output = applyWhere(selectedRows, whereClause);
-					// listConversations adds `notExists(soft-deleted session)`. The
-					// generic where-parser can't evaluate a correlated subquery, so model
-					// the org-scoped hide directly: drop any runtime-event row whose
-					// (org, tedi, conversationId) matches a soft-deleted session-state.
-					if (
-						isRuntimeEventSource(fromTable) &&
-						whereHasNotExists(whereClause)
-					) {
-						output = output.filter(
-							(row) =>
-								!sessionStates.some(
-									(state) =>
-										state.deletedAt != null &&
-										state.organizationId ===
-											(row as RuntimeEventRow).organizationId &&
-										state.tediId === (row as RuntimeEventRow).tediId &&
-										state.sessionKey ===
-											(row as RuntimeEventRow).conversationId,
-								),
-						);
-					}
-					if (orderByClause) {
-						const direction = isDescOrder(orderByClause) ? -1 : 1;
-						output = [...output].sort(
-							(a, b) => direction * a.createdAt.localeCompare(b.createdAt),
-						);
-					}
-					if (rowLimit !== undefined) output = output.slice(0, rowLimit);
-					return output;
-				},
-				// Drizzle query builders are awaitable; the router awaits this fake.
-				then<TResult1 = Array<RuntimeEventRow | ArtifactRow>, TResult2 = never>(
-					onfulfilled?:
-						| ((
-								value: Array<RuntimeEventRow | ArtifactRow>,
-						  ) => TResult1 | PromiseLike<TResult1>)
-						| null,
-					onrejected?:
-						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-						| null,
-				) {
-					return Promise.resolve(this.execute()).then(onfulfilled, onrejected);
-				},
-			};
-			return builder;
-		},
-		update(table: unknown) {
-			let updateValues: Partial<RuntimeEventRow & ArtifactRow> = {};
-			let whereClause: unknown;
-			return {
-				set(value: Partial<RuntimeEventRow & ArtifactRow>) {
-					updateValues = value;
-					return this;
-				},
-				where(value: unknown) {
-					whereClause = value;
-					return this;
-				},
-				returning() {
-					const target = isRuntimeEventSource(table) ? events : artifacts;
-					const matching = applyWhere(target, whereClause);
-					for (const row of matching) {
-						Object.assign(row, updateValues);
-					}
-					return Promise.resolve(matching);
-				},
-			};
-		},
-	};
+	const fixture = createApiSqliteFixture();
+	return Object.assign(fixture.db, {
+		events: fixture.rows<RuntimeEventRow>(tediRuntimeEvents),
+		artifacts: fixture.rows<ArtifactRow>(tediArtifacts),
+		sessionStates: fixture.rows<SessionStateRow>(tediSessionStates),
+	});
 }
 
 function createContext(db: ReturnType<typeof createRuntimeDb>): BaseContext {
@@ -2839,7 +2511,7 @@ describe("cognitive runtime router invariants", () => {
 			conversationId: "alpha:agent:main:qa",
 			limit: 20,
 		});
-		expect(events.events.map((event) => event.kind)).toEqual([
+		expect(events.events.toReversed().map((event) => event.kind)).toEqual([
 			"message.received",
 			"run.started",
 		]);
@@ -2894,7 +2566,7 @@ describe("cognitive runtime router invariants", () => {
 			conversationId: "alpha:agent:main:main",
 			limit: 20,
 		});
-		expect(events.events.map((event) => event.kind)).toEqual([
+		expect(events.events.toReversed().map((event) => event.kind)).toEqual([
 			"message.received",
 			"run.started",
 		]);
@@ -2942,7 +2614,7 @@ describe("cognitive runtime router invariants", () => {
 			conversationId: "alpha:agent:main:qa",
 			limit: 20,
 		});
-		expect(events.events.map((event) => event.kind)).toEqual([
+		expect(events.events.toReversed().map((event) => event.kind)).toEqual([
 			"message.received",
 			"run.started",
 		]);

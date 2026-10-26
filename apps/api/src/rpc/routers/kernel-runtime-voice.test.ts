@@ -1,3 +1,4 @@
+import { createApiSqliteFixture } from "./__tests__/api-sqlite";
 /**
  * kernel-runtime-voice.test.ts — voice transcription in the kernel path.
  *
@@ -16,12 +17,7 @@ import {
 	kernelRuntimeEvents,
 	kernelRuntimeRuns,
 	runtimeSubmissions,
-	tediApprovalRequests,
-	type tediArtifacts,
-	type tediRuntimeEvents,
 	tedis,
-	workItemComments,
-	workItems,
 } from "@tedix/db/schema";
 import type { TranscriptionResult } from "@tedix/voice/stt";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -31,340 +27,29 @@ import { kernelRuntimeTestHooks } from "./kernel-runtime/policy-normalization";
 
 const ORG_ID = "org-voice-test";
 
-// ── Minimal fake DB (mirrors kernel-runtime.test.ts shape) ──────────────────────
-
-type KernelRuntimeEventRow = typeof kernelRuntimeEvents.$inferSelect;
-type KernelRuntimeEventInsert = typeof kernelRuntimeEvents.$inferInsert;
-type KernelRuntimeRunRow = typeof kernelRuntimeRuns.$inferSelect;
-type KernelRuntimeRunInsert = typeof kernelRuntimeRuns.$inferInsert;
-
-function normalizeEventInsert(
-	input: KernelRuntimeEventInsert,
-): KernelRuntimeEventRow {
-	return {
-		id: input.id,
-		organizationId: input.organizationId,
-		kind: input.kind,
-		conversationId: input.conversationId,
-		runId: input.runId ?? null,
-		messageId: input.messageId ?? null,
-		causeEventId: input.causeEventId ?? null,
-		delegatedTediId: input.delegatedTediId ?? null,
-		childRunId: input.childRunId ?? null,
-		sequence: input.sequence ?? null,
-		delta: input.delta ?? null,
-		payload: input.payload ?? null,
-		runtimeBackend: input.runtimeBackend ?? "custom",
-		runtimeExternalId: input.runtimeExternalId ?? null,
-		runtimeExternalUrl: input.runtimeExternalUrl ?? null,
-		runtimeMetadata: input.runtimeMetadata ?? null,
-		createdAt: input.createdAt ?? "2026-06-12T08:00:00.000Z",
-	};
-}
-
-function normalizeRunInsert(
-	input: KernelRuntimeRunInsert,
-): KernelRuntimeRunRow {
-	return {
-		id: input.id,
-		organizationId: input.organizationId,
-		conversationId: input.conversationId,
-		status: input.status ?? "queued",
-		inputMessageId: input.inputMessageId ?? null,
-		outputMessageId: input.outputMessageId ?? null,
-		delegatedTediId: input.delegatedTediId ?? null,
-		childRunId: input.childRunId ?? null,
-		childConversationId: input.childConversationId ?? null,
-		progressValue: input.progressValue ?? null,
-		progressLabel: input.progressLabel ?? null,
-		progressDetail: input.progressDetail ?? null,
-		latestEventKind: input.latestEventKind ?? null,
-		latestEventAt: input.latestEventAt ?? null,
-		preview: input.preview ?? null,
-		runtimeBackend: input.runtimeBackend ?? "custom",
-		runtimeExternalId: input.runtimeExternalId ?? null,
-		runtimeExternalUrl: input.runtimeExternalUrl ?? null,
-		runtimeMetadata: input.runtimeMetadata ?? null,
-		metadata: input.metadata ?? null,
-		startedAt: input.startedAt ?? null,
-		completedAt: input.completedAt ?? null,
-		createdAt: input.createdAt ?? "2026-06-12T08:00:00.000Z",
-		updatedAt:
-			input.updatedAt ?? input.completedAt ?? "2026-06-12T08:00:00.000Z",
-	};
-}
-
 function createVoiceTestDb() {
-	const events: KernelRuntimeEventRow[] = [];
-	const runs: KernelRuntimeRunRow[] = [];
-	const submissions: Array<typeof runtimeSubmissions.$inferSelect> = [];
-	const tediRows: Array<
-		Pick<
-			typeof tedis.$inferSelect,
-			"displayName" | "id" | "name" | "organizationId" | "runtimeKind" | "slug"
-		>
-	> = [
+	const fixture = createApiSqliteFixture();
+	fixture.seed(tedis, [
 		{
-			displayName: "CTO",
 			id: "tedi-cto",
 			name: "CTO",
+			displayName: "CTO",
+			slug: "cto",
 			organizationId: ORG_ID,
 			runtimeKind: "agent",
-			slug: "cto",
 		},
-	];
-	return {
-		events,
-		runs,
-		// D1 batch: the statements are already-built (awaitable) builders; run
-		// them in order and return one result per statement.
-		async batch(statements: Array<PromiseLike<unknown>>) {
-			const results: unknown[] = [];
-			for (const statement of statements) results.push(await statement);
-			return results;
-		},
-		insert(table: unknown) {
-			if (table === runtimeSubmissions) {
-				let value: typeof runtimeSubmissions.$inferInsert;
-				return {
-					values(input: typeof runtimeSubmissions.$inferInsert) {
-						value = input;
-						return this;
-					},
-					onConflictDoNothing() {
-						return this;
-					},
-					onConflictDoUpdate() {
-						return this;
-					},
-					returning() {
-						if (submissions.some((row) => row.id === value.id)) return [];
-						const row = {
-							...value,
-							status: "admitted",
-							attemptCount: 0,
-							currentAttemptId: null,
-						} as typeof runtimeSubmissions.$inferSelect;
-						submissions.push(row);
-						return [row];
-					},
-				};
-			}
-			if (
-				table !== kernelRuntimeEvents &&
-				table !== kernelRuntimeRuns &&
-				table !== tediApprovalRequests &&
-				table !== workItems &&
-				table !== workItemComments
-			) {
-				// auditEvents and other tables: accept silently for voice tests.
-				return {
-					values() {
-						return this;
-					},
-					onConflictDoNothing() {
-						return this;
-					},
-					onConflictDoUpdate() {
-						return this;
-					},
-					returning() {
-						return Promise.resolve([]);
-					},
-					then<TResult = unknown[]>(
-						onfulfilled?: ((value: unknown[]) => TResult) | null,
-					) {
-						return Promise.resolve([]).then(onfulfilled);
-					},
-				};
-			}
-			let rows: Array<KernelRuntimeEventInsert | KernelRuntimeRunInsert> = [];
-			let ignoreConflicts = false;
-			let selectedSource: PromiseLike<unknown[]> | undefined;
-			const builder = {
-				select(source: PromiseLike<unknown[]>) {
-					selectedSource = source;
-					return builder;
-				},
-				values(
-					value:
-						| KernelRuntimeEventInsert
-						| KernelRuntimeRunInsert
-						| Array<KernelRuntimeEventInsert | KernelRuntimeRunInsert>,
-				) {
-					rows = Array.isArray(value) ? value : [value];
-					return this;
-				},
-				onConflictDoNothing() {
-					ignoreConflicts = true;
-					return this;
-				},
-				onConflictDoUpdate() {
-					return this;
-				},
-				async returning() {
-					if (selectedSource) rows = (await selectedSource) as typeof rows;
-					if (table === kernelRuntimeRuns) {
-						const inserted: KernelRuntimeRunRow[] = [];
-						for (const row of rows as KernelRuntimeRunInsert[]) {
-							if (ignoreConflicts && runs.some((r) => r.id === row.id)) {
-								continue;
-							}
-							const normalized = normalizeRunInsert(row);
-							runs.push(normalized);
-							inserted.push(normalized);
-						}
-						return Promise.resolve(inserted);
-					}
-					const inserted: KernelRuntimeEventRow[] = [];
-					for (const row of rows as KernelRuntimeEventInsert[]) {
-						if (ignoreConflicts && events.some((e) => e.id === row.id)) {
-							continue;
-						}
-						const normalized = normalizeEventInsert(row);
-						events.push(normalized);
-						inserted.push(normalized);
-					}
-					return Promise.resolve(inserted);
-				},
-			};
-			return builder;
-		},
-		select(selection?: Record<string, unknown>) {
-			type AnyRow =
-				| KernelRuntimeEventRow
-				| KernelRuntimeRunRow
-				| typeof tediRuntimeEvents.$inferSelect
-				| typeof tediArtifacts.$inferSelect
-				| typeof tediApprovalRequests.$inferSelect
-				| typeof runtimeSubmissions.$inferSelect
-				| (typeof tediRows)[number];
-			let whereClause: unknown;
-			let orderByClause: unknown;
-			let rowLimit: number | undefined;
-			let selectedTable: unknown;
-			// Rows are read at EXECUTE time, not when `from()` is called: a D1
-			// batch builds every statement first and runs them in order, so a
-			// cause-bound INSERT…SELECT must see the row an earlier statement of
-			// the same batch inserted.
-			const selectedRows = (): AnyRow[] => {
-				const table = selectedTable;
-				const isKernelEventAlias = Object.getOwnPropertySymbols(
-					table as object,
-				).some(
-					(symbol) =>
-						(table as Record<symbol, unknown>)[symbol] ===
-						"kernel_runtime_events",
-				);
-				if (table === kernelRuntimeEvents || isKernelEventAlias)
-					return [...events] as AnyRow[];
-				if (table === kernelRuntimeRuns) return [...runs] as AnyRow[];
-				if (table === tedis) return [...tediRows] as AnyRow[];
-				if (table === runtimeSubmissions) return [...submissions] as AnyRow[];
-				return [];
-			};
-			return {
-				from(table: unknown) {
-					selectedTable = table;
-					return this;
-				},
-				where(value: unknown) {
-					whereClause = value;
-					return this;
-				},
-				orderBy(value: unknown) {
-					orderByClause = value;
-					return this;
-				},
-				limit(value: number) {
-					rowLimit = value;
-					return this;
-				},
-				execute() {
-					void whereClause;
-					void orderByClause;
-					if (
-						selection &&
-						"causeEventId" in selection &&
-						selectedTable !== kernelRuntimeEvents
-					) {
-						const source = selectedRows()[0] as
-							| Record<string, unknown>
-							| undefined;
-						if (!source) return [];
-						return [
-							Object.fromEntries(
-								Object.entries(selection).map(([key, field]) => {
-									if (key === "causeEventId") return [key, source.id];
-									const sqlValue = (
-										field as {
-											sql?: { queryChunks?: unknown[] };
-										}
-									).sql?.queryChunks?.[0];
-									if (
-										(key === "payload" || key === "runtimeMetadata") &&
-										typeof sqlValue === "string"
-									)
-										return [key, JSON.parse(sqlValue)];
-									return [key, sqlValue];
-								}),
-							),
-						] as AnyRow[];
-					}
-					const rows = selectedRows();
-					const out = rowLimit !== undefined ? rows.slice(0, rowLimit) : rows;
-					return out;
-				},
-				// Drizzle query builders are awaitable.
-				then<TResult1 = AnyRow[], TResult2 = never>(
-					onfulfilled?:
-						| ((value: AnyRow[]) => TResult1 | PromiseLike<TResult1>)
-						| null,
-					onrejected?:
-						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-						| null,
-				) {
-					return Promise.resolve(this.execute()).then(onfulfilled, onrejected);
-				},
-			};
-		},
-		update(table: unknown) {
-			let values: Partial<KernelRuntimeRunRow> = {};
-			let matched: KernelRuntimeRunRow[] = [];
-			return {
-				set(value: Partial<KernelRuntimeRunRow>) {
-					values = value;
-					return this;
-				},
-				where() {
-					if (table === kernelRuntimeRuns) {
-						// Apply all pending set values to all runs (fine for tests).
-						for (const row of runs) {
-							Object.assign(row, values);
-						}
-						matched = [...runs];
-					}
-					return this;
-				},
-				returning() {
-					return Promise.resolve(matched);
-				},
-				// Drizzle query builders are awaitable.
-				then<TResult1 = KernelRuntimeRunRow[], TResult2 = never>(
-					onfulfilled?:
-						| ((
-								value: KernelRuntimeRunRow[],
-						  ) => TResult1 | PromiseLike<TResult1>)
-						| null,
-					onrejected?:
-						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-						| null,
-				) {
-					return Promise.resolve(matched).then(onfulfilled, onrejected);
-				},
-			};
-		},
-	};
+	]);
+	return Object.assign(fixture.db, {
+		events:
+			fixture.rows<typeof kernelRuntimeEvents.$inferSelect>(
+				kernelRuntimeEvents,
+			),
+		runs: fixture.rows<typeof kernelRuntimeRuns.$inferSelect>(
+			kernelRuntimeRuns,
+		),
+		submissions:
+			fixture.rows<typeof runtimeSubmissions.$inferSelect>(runtimeSubmissions),
+	});
 }
 
 function createContext(db: ReturnType<typeof createVoiceTestDb>): BaseContext {
