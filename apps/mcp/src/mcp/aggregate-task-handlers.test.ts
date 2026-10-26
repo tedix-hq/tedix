@@ -271,6 +271,20 @@ describe("aggregate task handlers — tedi-run routing", () => {
 		});
 	});
 
+	it("names the HTTP status when a tedi run event read fails", async () => {
+		stubFetch(() => jsonResponse({ json: {} }, 503));
+		const handlers = buildAggregateTaskHandlers({
+			env: ENV,
+			organizationId: "org-1",
+		});
+		await expect(
+			handlers.get({ taskId: "tedi:t:run-1" }),
+		).rejects.toMatchObject({
+			code: -32_603,
+			message: "cognitive runtime listEvents failed with status 503",
+		});
+	});
+
 	it("returns -32602 not-found for an unknown tedi run (empty event page)", async () => {
 		stubFetch((url) =>
 			url.includes("cognitiveRuntime/listEvents")

@@ -46,11 +46,106 @@ const workflow = {
 	ordinal: 1,
 };
 
-test("a long skill-workflow tedi turn survives a task read timeout and settles", async () => {
-	const taskId = "tedi:tedi-1:run-judge";
-	const prompt = `Judge these opportunities.\n${"Candidate thread summary. ".repeat(800)}`;
-	assert.ok(prompt.length >= 20_000);
-	const calls: Array<{ method: string; taskId?: string; text?: string }> = [];
+for (const readError of [
+	"cognitive runtime request timed out after 10000ms",
+	"cognitive runtime request failed: Network connection lost.",
+	"cognitive runtime listEvents failed with status 503",
+	"cognitive runtime listEvents failed",
+]) {
+	test(`a long skill-workflow tedi turn survives a failed task read and settles (${readError})`, async () => {
+		const taskId = "tedi:tedi-1:run-judge";
+		const prompt = `Judge these opportunities.\n${"Candidate thread summary. ".repeat(800)}`;
+		assert.ok(prompt.length >= 20_000);
+		const calls: Array<{ method: string; taskId?: string; text?: string }> = [];
+		let reads = 0;
+		const env = {
+			MCP_SERVICE: {
+				fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+					const body = (await new Request(input, init).json()) as {
+						id: string;
+						method: string;
+						params?: {
+							taskId?: string;
+							arguments?: { text?: string };
+						};
+					};
+					calls.push({
+						method: body.method,
+						taskId: body.params?.taskId,
+						text: body.params?.arguments?.text,
+					});
+					if (body.method === "tools/call") {
+						const accepted = {
+							ok: true,
+							accepted: true,
+							pending: true,
+							assistant: null,
+							task: { id: taskId, pollWith: "tasks/get" },
+						};
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							result: {
+								structuredContent: accepted,
+								content: [{ type: "text", text: JSON.stringify(accepted) }],
+							},
+						});
+					}
+					reads += 1;
+					if (reads === 1)
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							error: {
+								code: -32603,
+								message: readError,
+							},
+						});
+					const settled = {
+						assistant: { content: "Verdict: two worth a reply." },
+					};
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: {
+							taskId,
+							status: "completed",
+							result: {
+								structuredContent: settled,
+								content: [{ type: "text", text: JSON.stringify(settled) }],
+							},
+						},
+					});
+				},
+			},
+		} as unknown as Parameters<typeof callMcpTool>[0];
+
+		const outcome = (await callMcpTool(env, props, {
+			namespace: "acme_tedix",
+			method: "run_tedi_turn",
+			args: { session_key: "skill:judge", text: prompt },
+			workflow,
+		})) as { value: { assistant?: { content?: string } } };
+
+		assert.equal(
+			outcome.value.assistant?.content,
+			"Verdict: two worth a reply.",
+		);
+		// One dispatch with the whole prompt, then two reads of the same task.
+		assert.deepEqual(
+			calls.map(({ method, taskId }) => [method, taskId]),
+			[
+				["tools/call", undefined],
+				["tasks/get", taskId],
+				["tasks/get", taskId],
+			],
+		);
+		assert.equal(calls[0]?.text, prompt);
+	});
+}
+
+test("a 4xx task read of a tedi turn stays a final error", async () => {
+	const taskId = "tedi:tedi-1:run-forbidden";
 	let reads = 0;
 	const env = {
 		MCP_SERVICE: {
@@ -58,16 +153,7 @@ test("a long skill-workflow tedi turn survives a task read timeout and settles",
 				const body = (await new Request(input, init).json()) as {
 					id: string;
 					method: string;
-					params?: {
-						taskId?: string;
-						arguments?: { text?: string };
-					};
 				};
-				calls.push({
-					method: body.method,
-					taskId: body.params?.taskId,
-					text: body.params?.arguments?.text,
-				});
 				if (body.method === "tools/call") {
 					const accepted = {
 						ok: true,
@@ -86,52 +172,28 @@ test("a long skill-workflow tedi turn survives a task read timeout and settles",
 					});
 				}
 				reads += 1;
-				if (reads === 1)
-					return Response.json({
-						jsonrpc: "2.0",
-						id: body.id,
-						error: {
-							code: -32603,
-							message: "cognitive runtime request timed out after 10000ms",
-						},
-					});
-				const settled = {
-					assistant: { content: "Verdict: two worth a reply." },
-				};
 				return Response.json({
 					jsonrpc: "2.0",
 					id: body.id,
-					result: {
-						taskId,
-						status: "completed",
-						result: {
-							structuredContent: settled,
-							content: [{ type: "text", text: JSON.stringify(settled) }],
-						},
+					error: {
+						code: -32603,
+						message: "cognitive runtime listEvents failed with status 403",
 					},
 				});
 			},
 		},
 	} as unknown as Parameters<typeof callMcpTool>[0];
 
-	const outcome = (await callMcpTool(env, props, {
-		namespace: "acme_tedix",
-		method: "run_tedi_turn",
-		args: { session_key: "skill:judge", text: prompt },
-		workflow,
-	})) as { value: { assistant?: { content?: string } } };
-
-	assert.equal(outcome.value.assistant?.content, "Verdict: two worth a reply.");
-	// One dispatch with the whole prompt, then two reads of the same task.
-	assert.deepEqual(
-		calls.map(({ method, taskId }) => [method, taskId]),
-		[
-			["tools/call", undefined],
-			["tasks/get", taskId],
-			["tasks/get", taskId],
-		],
+	await assert.rejects(
+		callMcpTool(env, props, {
+			namespace: "acme_tedix",
+			method: "run_tedi_turn",
+			args: { session_key: "skill:judge", text: "Judge." },
+			workflow,
+		}),
+		/listEvents failed with status 403/,
 	);
-	assert.equal(calls[0]?.text, prompt);
+	assert.equal(reads, 1);
 });
 
 for (const codeMode of [false, true]) {
