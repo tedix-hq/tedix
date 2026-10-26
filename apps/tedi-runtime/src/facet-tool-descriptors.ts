@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { computerExecutionModelOutput } from "./computer-execution-model-output";
 import { asSchema, type ToolSet } from "ai";
 import { codeModeToolModelOutput } from "./codemode-model-output";
@@ -45,7 +46,7 @@ export function describeFacetTools(tools: ToolSet): FacetToolDescriptor[] {
 				"[conversation-facet] tool schema not serializable — excluded from facet turn",
 				{
 					tool: name,
-					error: error instanceof Error ? error.message : String(error),
+					exception: exceptionTopology(error),
 				},
 			);
 		}

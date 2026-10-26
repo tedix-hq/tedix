@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { requestInferenceOriginGuard } from "./runtime-inference-origin";
 import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
 import { azureExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
@@ -754,10 +755,9 @@ ${wrapUntrustedInput(schemas.join("\n"), "embedded_tool_schemas")}`;
 Not available in this session, despite appearing in the admitted list: ${missing.join(", ")}. Do not call these and do not retry them. If the request needs one, say that capability is unavailable here and offer what the available tools can answer.`;
 	} catch (error) {
 		source = "failed";
-		console.error(
-			"[Embedded capabilities] Tool schema read failed:",
-			error instanceof Error ? error.message : error,
-		);
+		console.error("[Embedded capabilities] Tool schema read failed", {
+			exception: exceptionTopology(error),
+		});
 	} finally {
 		try {
 			console.log({

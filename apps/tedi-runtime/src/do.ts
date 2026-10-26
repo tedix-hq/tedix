@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { recordMaintenanceScheduleError } from "./runtime-diagnostics";
 import { createObjectStoreTools } from "./object-store-tools";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
@@ -2954,10 +2955,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				input,
 			);
 		} catch (err) {
-			console.warn(
-				"[brain_audit] unexpected error:",
-				err instanceof Error ? err.message : String(err),
-			);
+			console.warn("[brain_audit] unexpected error", {
+				exception: exceptionTopology(err),
+			});
 			return { ok: false, error: "brain_audit_failed" };
 		}
 	}
@@ -4112,8 +4112,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			});
 		} catch (error) {
 			console.warn(
-				`[isolate.workflow] retry ownership marker failed run=${context.runId}:`,
-				error instanceof Error ? error.message : String(error),
+				`[isolate.workflow] retry ownership marker failed run=${context.runId}`,
+				{ exception: exceptionTopology(error) },
 			);
 		}
 	}

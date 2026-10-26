@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { operatorRecordTools } from "./operator-record-tools";
 import { hasOperatorRecordPlan } from "@tedix/api-contract/schemas/operator-records";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
@@ -1047,8 +1048,8 @@ export const runtimeFacetTurns = {
 				);
 			} catch (error) {
 				console.warn(
-					"[isolate-mcp] supervised MCP sync unavailable; no parent credential fallback:",
-					error,
+					"[isolate-mcp] supervised MCP sync unavailable; no parent credential fallback",
+					{ exception: exceptionTopology(error) },
 				);
 			}
 		}

@@ -9,6 +9,7 @@
  *   - injected serializer so we don't reach into the tedix-context store layer
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	finalizeReflection,
 	noopReflection,
@@ -26,7 +27,8 @@ interface Logger {
 
 const defaultLogger: Logger = {
 	log: (msg) => console.log(msg),
-	error: (msg, err) => console.error(msg, err),
+	error: (msg, err) =>
+		console.error(msg, { exception: exceptionTopology(err) }),
 };
 
 export interface ReflectOptions {

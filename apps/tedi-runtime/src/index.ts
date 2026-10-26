@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 /**
  * apps/tedi-runtime — Worker entry.
@@ -310,10 +311,9 @@ function disposeRpcValue(value: unknown): void {
 	try {
 		dispose.call(disposable);
 	} catch (error) {
-		console.warn(
-			"[isolate.rpc] failed to dispose RPC value:",
-			error instanceof Error ? error.message : error,
-		);
+		console.warn("[isolate.rpc] failed to dispose RPC value", {
+			exception: exceptionTopology(error),
+		});
 	}
 }
 
@@ -1050,8 +1050,8 @@ function createEmbeddedCapabilityAdapter(
 			};
 		} catch (error) {
 			console.warn(
-				"[embedded-model-choice] roster unavailable; using surface default:",
-				error instanceof Error ? error.message : String(error),
+				"[embedded-model-choice] roster unavailable; using surface default",
+				{ exception: exceptionTopology(error) },
 			);
 			return {};
 		}
@@ -1194,10 +1194,9 @@ function createEmbeddedCapabilityAdapter(
 				conversationCapabilities = capabilities.attached;
 				artifactPins = pins.pins.filter((pin) => pin.state === "active");
 			} catch (error) {
-				console.error(
-					"[Embedded capabilities] Context read failed:",
-					error instanceof Error ? error.message : error,
-				);
+				console.error("[Embedded capabilities] Context read failed", {
+					exception: exceptionTopology(error),
+				});
 			}
 			return internalRequest("/__internal/chat/stream", claims, {
 				method: "POST",
@@ -2109,7 +2108,7 @@ export default {
 			} catch (error) {
 				console.error("[tedi.voice.transcription] failed", {
 					tediId: tedi.id,
-					error: error instanceof Error ? error.message : String(error),
+					exception: exceptionTopology(error),
 				});
 				return Response.json(
 					{

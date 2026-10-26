@@ -350,7 +350,7 @@ export class ParentMaintenanceServices {
 				} catch (error) {
 					console.warn("[tedi.maintenance.recovery_pending]", {
 						operationId: op.operationId,
-						error: error instanceof Error ? error.message : String(error),
+						exception: exceptionTopology(error),
 					});
 				}
 			}
