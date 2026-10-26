@@ -99,8 +99,8 @@ export function AppRuntimePreview({
 
 /**
  * Runs one set of app files in the sandbox. The live app passes a server call
- * pinned to its revision; a draft passes none, so `app.call` answers
- * `host_unavailable` and the draft can never reach the live app's storage.
+ * pinned to its revision; a draft passes a call pinned to its proposal and
+ * isolated server storage.
  * Reads still go through the role matrix with the signed-in person's role.
  */
 export function AppRuntimeSandbox({

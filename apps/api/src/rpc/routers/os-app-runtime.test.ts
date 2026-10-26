@@ -5,6 +5,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
 	osWorkspaces,
+	osCollaborationProposals,
 	osGadgets,
 	osGadgetRevisions,
 	osGadgetCode,
@@ -13,6 +14,9 @@ import {
 	osOutputs,
 	osOutputRevisions,
 } from "@tedix/db/schema/os-workspaces";
+import { kernelConversations } from "@tedix/db/schema/cognitive-runtime";
+import { auditEvents } from "@tedix/db/schema/audit-events";
+import { osCollaborationProcedures } from "./os-workspace-collaboration";
 import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
@@ -45,6 +49,9 @@ async function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			osWorkspaces,
+			kernelConversations,
+			auditEvents,
+			osCollaborationProposals,
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetCode,
@@ -932,5 +939,221 @@ describe("workspace app runtime API under attack", () => {
 		await expect(
 			internalClient(f).capability(read(session)),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+});
+
+describe("app chat drafts", () => {
+	async function chatFixture() {
+		const f = await fixture();
+		await f.db.insert(kernelConversations).values({
+			id: "org-1:chat-1",
+			organizationId: "org-1",
+			conversationId: "chat-1",
+			workspaceId,
+			lastMessageAt: new Date().toISOString(),
+		});
+		const collaboration = createRouterClient(osCollaborationProcedures, {
+			context: f.context,
+		});
+		const input = {
+			...scope,
+			conversationId: "chat-1",
+			expectedRevisionId: revisionId,
+			edits: [
+				{
+					path: "server.js",
+					before: "export class App {}",
+					after: "export class App { count() { return 2; } }",
+				},
+			],
+		};
+		return { ...f, collaboration, input };
+	}
+	it("reads mainline files, proposes without changing them, and dispatches the proposal files", async () => {
+		const f = await chatFixture();
+		const { proposal } = await f.client.proposeEdit(f.input);
+		expect(proposal).toMatchObject({
+			status: "open",
+			sourceKind: "chat",
+			sourceId: "chat-1",
+			baseRevisionId: revisionId,
+		});
+		expect((await f.db.select().from(osGadgetCode))[0]!.files).toContain(
+			"export class App {}",
+		);
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+		const { session } = await f.client.draft({
+			...scope,
+			proposalId: proposal.id,
+		});
+		expect(await verifyWorkspaceAppSession(key, session)).toMatchObject({
+			previewId: proposal.id,
+			proposalId: proposal.id,
+		});
+		await f.client.call({ ...scope, session, method: "count", args: [] });
+		expect(await (f.fetch.mock.calls[0]![0] as Request).json()).toMatchObject({
+			files: { "server.js": f.input.edits[0]!.after },
+		});
+		await f.db
+			.update(osCollaborationProposals)
+			.set({
+				content: JSON.stringify({
+					...(proposal.content as object),
+					files: { "server.js": "changed", "client.js": "" },
+				}),
+			})
+			.where(eq(osCollaborationProposals.id, proposal.id));
+		await expect(
+			f.client.call({ ...scope, session, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+	});
+	it("accepts into a revision with code, aborts live code, and the next open loads it", async () => {
+		const f = await chatFixture();
+		const old = await f.client.open(scope);
+		const { proposal } = await f.client.proposeEdit(f.input);
+		const { session } = await f.client.draft({
+			...scope,
+			proposalId: proposal.id,
+		});
+		const accepted = await f.collaboration.accept({
+			proposalId: proposal.id,
+			expectedSequence: 0,
+			rationale: "Reviewed draft",
+			evidenceRefs: [],
+		});
+		const merged = await f.collaboration.merge({
+			proposalId: proposal.id,
+			expectedSequence: accepted.proposal.sequence,
+			rationale: "Apply draft",
+			evidenceRefs: [],
+		});
+		expect(merged.revision.revision).toBe(2);
+		expect(await (f.fetch.mock.calls[0]![0] as Request).json()).toMatchObject({
+			proposalId: proposal.id,
+			merged: true,
+		});
+		const next = await f.client.open(scope);
+		expect(next.revisionId).toBe(merged.revision.id);
+		await f.client.call({
+			...scope,
+			session: next.session,
+			method: "count",
+			args: [],
+		});
+		expect(await (f.fetch.mock.calls[1]![0] as Request).json()).toMatchObject({
+			files: { "server.js": f.input.edits[0]!.after },
+		});
+		await expect(
+			f.client.call({ ...scope, session, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			f.client.call({
+				...scope,
+				session: old.session,
+				method: "count",
+				args: [],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("rejects a draft, removes its facet, and refuses reuse", async () => {
+		const f = await chatFixture();
+		const { proposal } = await f.client.proposeEdit(f.input);
+		const { session } = await f.client.draft({
+			...scope,
+			proposalId: proposal.id,
+		});
+		await f.collaboration.reject({
+			proposalId: proposal.id,
+			expectedSequence: 0,
+			rationale: "Discard draft",
+			evidenceRefs: [],
+		});
+		expect(await (f.fetch.mock.calls[0]![0] as Request).json()).toMatchObject({
+			proposalId: proposal.id,
+			merged: false,
+		});
+		await expect(
+			f.client.draft({ ...scope, proposalId: proposal.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			f.client.call({ ...scope, session, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+	});
+	it("rejects stale, ambiguous and unlinked chat edits, and use-only previews", async () => {
+		const f = await chatFixture();
+		await expect(
+			f.client.proposeEdit({ ...f.input, conversationId: "unknown" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			f.client.proposeEdit({ ...f.input, expectedRevisionId: previewId }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		await expect(
+			f.client.proposeEdit({
+				...f.input,
+				edits: [{ path: "server.js", before: "missing", after: "x" }],
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		const { proposal } = await f.client.proposeEdit(f.input);
+		const reader = createRouterClient(f.router, {
+			context: userContext({ env: f.env, sub: "user-2" }),
+		});
+		await expect(
+			reader.draft({ ...scope, proposalId: proposal.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(reader.proposeEdit(f.input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await f.db
+			.update(osCollaborationProposals)
+			.set({ workspaceId: previewId })
+			.where(eq(osCollaborationProposals.id, proposal.id));
+		await expect(
+			f.client.draft({ ...scope, proposalId: proposal.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+	it.each(["reject", "merge"] as const)(
+		"retries %s cleanup without another revision",
+		async (decision) => {
+			const f = await chatFixture();
+			const { proposal } = await f.client.proposeEdit(f.input);
+			const input = {
+				proposalId: proposal.id,
+				expectedSequence: 0,
+				rationale: "Reviewed",
+				evidenceRefs: [],
+			};
+			if (decision === "merge") await f.collaboration.accept(input);
+			f.fetch.mockResolvedValueOnce(
+				new Response("Unavailable", { status: 503 }),
+			);
+			await expect(f.collaboration[decision](input)).rejects.toMatchObject({
+				code: "BAD_GATEWAY",
+			});
+			const result = await f.collaboration[decision](input);
+			expect(result.proposal.status).toBe(
+				decision === "merge" ? "merged" : "rejected",
+			);
+			expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(
+				decision === "merge" ? 2 : 1,
+			);
+			expect(f.fetch).toHaveBeenCalledTimes(2);
+		},
+	);
+	it("invalidates a preview when only the draft manifest changes", async () => {
+		const f = await chatFixture();
+		const { proposal } = await f.client.proposeEdit(f.input);
+		const { session } = await f.client.draft({
+			...scope,
+			proposalId: proposal.id,
+		});
+		await f.db
+			.update(osCollaborationProposals)
+			.set({ sequence: 1 })
+			.where(eq(osCollaborationProposals.id, proposal.id));
+		await expect(
+			f.client.call({ ...scope, session, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(f.fetch).not.toHaveBeenCalled();
 	});
 });

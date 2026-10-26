@@ -1,0 +1,26 @@
+{
+	"entry": "tedix:runtime/v1",
+	"capabilities": [],
+	"resourceGrants": [
+		{
+			"slot": "opportunities",
+			"operations": ["outputs.read", "outputs.write"]
+		}
+	],
+	"description": "Review today's Reddit opportunities one card at a time.",
+	"config": {
+		"version": 1,
+		"settings": {
+			"slot": "opportunities",
+			"reviewer": "Maya",
+			"columns": {
+				"number": "#",
+				"source": "Source",
+				"who": "Who",
+				"why": "Why",
+				"draft": "Draft",
+				"useful": "Useful?"
+			}
+		}
+	}
+}

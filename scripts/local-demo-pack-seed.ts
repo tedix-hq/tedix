@@ -23,6 +23,9 @@ import {
 	groupOf,
 	uid,
 } from "../apps/os/dev/demo-pack";
+import opportunityCardsApp from "../apps/os/dev/demo-pack/opportunity-cards-app.json";
+import opportunityCardsManifest from "../apps/os/dev/demo-pack/opportunity-cards-manifest.json";
+import cards from "../apps/os/dev/demo-pack/cards.json";
 import memoryFacts from "../apps/os/dev/demo-pack/memory-facts.json";
 import blueprint from "../apps/api/src/services/default-work-blueprint.json";
 
@@ -54,6 +57,35 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 	});
 	sql.push(
 		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, status, visibility, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(WORKSPACE)}, ${q(ORG)}, 'Work', 'Feed and Deck for the sample company.', 'active', 'org', 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
+	);
+	const appWorkspace = uid(48, 1);
+	const appId = uid(49, 14);
+	const appRevision = uid(50, 14);
+	const sheetId = uid(64, 20);
+	const sheetRevision = uid(65, 20);
+	const sheet = {
+		kind: "sheet",
+		columns: ["#", "Source (link)", "Who", "Why (rule)", "Draft", "Useful?"],
+		rows: cards
+			.filter((card) => card.category === "Reddit")
+			.slice(0, 8)
+			.map((card, index) => [
+				index + 1,
+				`https://reddit.example/r/BuyItForLife/fable-${String(index + 1).padStart(2, "0")}`,
+				card.agent,
+				card.title,
+				card.story,
+				card.status === "decided" ? "yes" : "",
+			]),
+	};
+	sql.push(
+		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, created_by_kind, created_by_id) VALUES (${q(appWorkspace)}, ${q(ORG)}, ${q(demoPackWorkspaces[0]!.name)}, ${q(demoPackWorkspaces[0]!.description)}, 'user', 'local-demo-owner');`,
+		`INSERT OR IGNORE INTO os_gadgets (id, organization_id, workspace_id, name, current_revision_id, created_by_kind, created_by_id) VALUES (${q(appId)}, ${q(ORG)}, ${q(appWorkspace)}, 'Opportunity cards', ${q(appRevision)}, 'user', 'local-demo-owner');`,
+		`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, 1, ${json(opportunityCardsManifest)}, 'user', 'local-demo-owner');`,
+		`INSERT OR IGNORE INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, ${json(opportunityCardsApp)}, ${q(Object.values(opportunityCardsApp).reduce((sum, source) => sum + source.length, 0))});`,
+		`INSERT OR IGNORE INTO os_outputs (id, organization_id, workspace_id, kind, title, current_revision_id, created_by_kind, created_by_id) VALUES (${q(sheetId)}, ${q(ORG)}, ${q(appWorkspace)}, 'sheet', 'Opportunities', ${q(sheetRevision)}, 'user', 'local-demo-owner');`,
+		`INSERT OR IGNORE INTO os_output_revisions (id, organization_id, output_id, revision, content, access_envelope, created_by_kind, created_by_id) VALUES (${q(sheetRevision)}, ${q(ORG)}, ${q(sheetId)}, 1, ${json(sheet)}, ${json({ version: 1, sources: [] })}, 'user', 'local-demo-owner');`,
+		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, slot, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id) VALUES (${q(uid(70, 1))}, ${q(ORG)}, ${q(appWorkspace)}, 'opportunities', 'tedix', 'tenant', 'output', ${q(sheetId)}, 'Opportunities sheet', 'user', 'local-demo-owner');`,
 	);
 	blueprint.gadgets.forEach((gadget, i) => {
 		const id = uid(49, 10 + i);

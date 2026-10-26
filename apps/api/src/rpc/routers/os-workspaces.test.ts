@@ -19,6 +19,7 @@ import {
  * two Drizzle idioms that break on production D1).
  */
 
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { DatabaseSync } from "node:sqlite";
 import { unzipSync } from "fflate";
 import { createRouterClient } from "@orpc/server";
@@ -148,6 +149,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			connectionInstances,
+			organizationMembers,
 			osWorkspaceCollaborators,
 			osWorkspaceAccessEdges,
 			osWorkspaceShareLinks,
@@ -180,6 +182,7 @@ function createEnv(): CloudflareEnv {
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT DEFAULT 'example', type TEXT DEFAULT 'organization', descope_tenant_id TEXT, logo_url TEXT, metadata TEXT);
 		INSERT INTO organizations (id, name)
 			VALUES ('org-1', 'First Org'), ('org-2', 'Second Org');
+		INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status) VALUES ('member-1', 'org-1', 'user-1', 'member@example.test', 'Member', 'member', 'active');
 	`);
 	return {
 		ENVIRONMENT: "test",
@@ -187,6 +190,7 @@ function createEnv(): CloudflareEnv {
 		SECRETS_MASTER_KEY: "test-gadget-export-secret",
 		AZURE_CHAT_DEPLOYMENT: "gpt-5.6-luna",
 		TEDIX_BILLING_SETTLEMENT_MODE: "external",
+		TEDI_SERVICE: { fetch: async () => Response.json({ closed: true }) },
 		DB: createD1Facade(sqlite),
 	} as unknown as CloudflareEnv;
 }
