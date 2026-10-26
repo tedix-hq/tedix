@@ -62,6 +62,22 @@ export async function runRetentionCleanupCron(
 			safeExceptionTopology(toolResultCleanupError),
 		);
 	}
+	let deletedCatalogSnapshots = 0;
+	try {
+		const { purgeOldCatalogSnapshots } =
+			await import("../services/catalog-snapshot-retention");
+		deletedCatalogSnapshots = (
+			await purgeOldCatalogSnapshots({
+				bucket: env.R2_BUCKET,
+				now: new Date(event.scheduledTime),
+			})
+		).deleted;
+	} catch (snapshotCleanupError) {
+		console.warn(
+			"[Scheduled] Catalog snapshot cleanup failed (non-fatal):",
+			safeExceptionTopology(snapshotCleanupError),
+		);
+	}
 	let deletedPlatformCronExecutions = 0;
 	let abandonedPlatformCronExecutions = 0;
 	try {
@@ -581,6 +597,7 @@ export async function runRetentionCleanupCron(
 		learningEventsDeleted: deletedLearningEvents,
 		projectionEventsDeleted: prunedProjectionEvents,
 		kernelToolResultsDeleted: deletedKernelToolResults,
+		catalogSnapshotsDeleted: deletedCatalogSnapshots,
 		auditExportObjectsWritten,
 		auditExportObjectsDeleted,
 	};

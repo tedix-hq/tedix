@@ -115,6 +115,11 @@ vi.mock("@tedix/db/queries/work-graph-steward", () => ({
 }));
 afterEach(() => vi.restoreAllMocks());
 
+const emptyBucket = () => ({
+	list: vi.fn().mockResolvedValue({ objects: [], truncated: false }),
+	delete: vi.fn(),
+});
+
 describe("scheduled usage evidence retention", () => {
 	it("retains aged unpriced, failed and priced calls while expiring operational health history", async () => {
 		const sqlite = new DatabaseSync(":memory:");
@@ -173,6 +178,7 @@ describe("scheduled usage evidence retention", () => {
 			vi.spyOn(console, "log").mockImplementation(() => {});
 			const env = {
 				DB: createD1Facade(sqlite),
+				R2_BUCKET: emptyBucket(),
 				CATALOG_INTEGRITY_WORKFLOW: {
 					create: vi.fn().mockResolvedValue({ id: "integrity" }),
 				},
@@ -252,6 +258,7 @@ it("logs 3am maintenance failures without returned or thrown text", async () => 
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		const env = {
 			DB: createD1Facade(sqlite),
+			R2_BUCKET: emptyBucket(),
 			CATALOG_INTEGRITY_WORKFLOW: {
 				create: vi.fn().mockResolvedValue({ id: "integrity" }),
 			},
