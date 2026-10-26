@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { disposableCleanupApprover } from "../../services/disposable-cleanup-approval";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 /**
@@ -459,7 +460,9 @@ export async function signalApprovalWorkflow(
 	} catch (error) {
 		// D1 is canonical and the Workflow also polls it after event timeouts.
 		// A failed event only adds latency; it never loses the resolution.
-		console.error("Failed to signal approval workflow:", error);
+		console.error("Failed to signal approval workflow", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 }
 
@@ -578,7 +581,9 @@ const requestProvisionalOutcomePromotionProcedure =
 						},
 					});
 				} catch (error) {
-					console.error("Failed to start approval workflow:", error);
+					console.error("Failed to start approval workflow", {
+						exception: safeExceptionTopology(error),
+					});
 				}
 				await insertAuditEvent(context.db, {
 					organizationId: outcome.orgId,
@@ -777,7 +782,9 @@ const createApprovalProcedure = approvalsOs.create
 				},
 			});
 		} catch (error) {
-			console.error("Failed to start approval workflow:", error);
+			console.error("Failed to start approval workflow", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 
 		// Emit audit event
@@ -1220,7 +1227,9 @@ const resolveReviewManifestProcedure = authedOs.resolveReviewManifest
 						});
 					}
 				} catch (error) {
-					console.error("Failed to settle provisional promotion:", error);
+					console.error("Failed to settle provisional promotion", {
+						exception: safeExceptionTopology(error),
+					});
 					promotionFailed = true;
 				}
 			}
@@ -1419,7 +1428,9 @@ const resolveProcedure = authedOs.resolve
 					});
 				}
 			} catch (error) {
-				console.error("Failed to settle provisional promotion:", error);
+				console.error("Failed to settle provisional promotion", {
+					exception: safeExceptionTopology(error),
+				});
 			}
 		}
 		await recordObservedLearningInteraction(context, {

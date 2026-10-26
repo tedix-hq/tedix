@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type {
 	ActivityReviewGroup,
 	CognitionEvidenceBundle,
@@ -657,7 +658,9 @@ export async function loadTraceEvidenceSummaries(
 				);
 			}
 		} catch (error) {
-			console.error("[Analytics] Workers trace evidence join failed:", error);
+			console.error("[Analytics] Workers trace evidence join failed", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 	return summaries;

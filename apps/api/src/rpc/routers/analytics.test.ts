@@ -1118,9 +1118,10 @@ describe("codemode analytics summary", () => {
 		});
 
 		expect(consoleSpy).toHaveBeenCalledWith(
-			expect.stringContaining("[Analytics] Codemode AE query failed:"),
-			expect.any(Error),
+			"[Analytics] Codemode AE query failed",
+			{ exception: { type: "Error" } },
 		);
+		expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain("internal");
 		expect(result.byNamespace).toEqual([]);
 		consoleSpy.mockRestore();
 	});

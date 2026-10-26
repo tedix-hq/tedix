@@ -8,6 +8,7 @@
  * - This router = bridge + status reporting only
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import { mcpServerContract } from "@tedix/api-contract/contracts/mcp-server";
 import {
@@ -434,7 +435,9 @@ export const registerProcedure = authedMcpServerOs.register
 			});
 			descopeResourceId = server.id;
 		} catch (error) {
-			console.error("[MCP Server] Descope registration failed:", error);
+			console.error("[MCP Server] Descope registration failed", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				error instanceof Error
@@ -640,7 +643,9 @@ export const syncScopesProcedure = authedMcpServerOs.syncScopes
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Descope scope sync failed";
-			console.error("[MCP Server] Descope scope sync failed:", error);
+			console.error("[MCP Server] Descope scope sync failed", {
+				exception: safeExceptionTopology(error),
+			});
 			await persistMcpConfig(
 				db,
 				appId,

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { saveWorkspaceBlueprint } from "./os-blueprint-save";
 import { osBlueprintApplyProcedures } from "./os-blueprint-apply";
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
@@ -478,7 +479,9 @@ async function parkGadgetApproval(
 			},
 		});
 	} catch (error) {
-		console.error("Failed to start gadget approval workflow:", error);
+		console.error("Failed to start gadget approval workflow", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 	return id;
 }

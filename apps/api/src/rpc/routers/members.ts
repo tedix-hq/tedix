@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { getDescopeManagement } from "../../lib/descope-management";
 /**
@@ -922,7 +923,9 @@ export const updateMemberRoleContract = authedMembersOs.updateMemberRole
 					descopeTenantRolesForMemberRole(role),
 				);
 			} catch (error) {
-				console.error("[Teams] Descope member role sync threw:", error);
+				console.error("[Teams] Descope member role sync threw", {
+					exception: safeExceptionTopology(error),
+				});
 				throw createError(
 					ErrorCodes.BAD_GATEWAY,
 					"Member role changed in Tedix but Descope synchronization failed; retry the same role",
@@ -1129,7 +1132,9 @@ export const acceptInvitationContract = authedMembersOs.acceptInvitation
 				data: formatMemberResponse(member),
 			};
 		} catch (error) {
-			console.error("[Teams] Accept invitation failed:", error);
+			console.error("[Teams] Accept invitation failed", {
+				exception: safeExceptionTopology(error),
+			});
 			if (isD1ConstraintError(error)) {
 				throw createError(
 					ErrorCodes.CONFLICT,

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { decodeTokenUnsafe, isTokenExpired } from "@tedix/auth/jwt";
 import {
@@ -479,7 +480,9 @@ export async function readConnectionProviders(context: BaseContext) {
 			}),
 		};
 	} catch (error) {
-		console.error("[Connections] Failed to list providers:", error);
+		console.error("[Connections] Failed to list providers", {
+			exception: safeExceptionTopology(error),
+		});
 		throw createError(
 			ErrorCodes.SERVICE_UNAVAILABLE,
 			"Connection providers could not be verified",

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 /**
  * Content oRPC Router
@@ -437,7 +438,9 @@ export const answerContentProcedure = authedContentOs.answer
 				...(result.error ? { error: result.error } : {}),
 			};
 		} catch (error) {
-			console.error("[Content Answer] Error:", error);
+			console.error("[Content Answer] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			return {
 				success: false,
 				query,
@@ -482,7 +485,9 @@ export const searchContentProcedure = authedContentOs.search
 				...(result.error ? { error: result.error } : {}),
 			};
 		} catch (error) {
-			console.error("[Content Search] Error:", error);
+			console.error("[Content Search] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			return {
 				success: false,
 				sources: [],
