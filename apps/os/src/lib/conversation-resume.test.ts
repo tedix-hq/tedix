@@ -124,6 +124,7 @@ function fakeServer() {
 			run: {},
 		})) as unknown as CapnConversationStub["steer"],
 		withdrawSteering: async () => ({ messages: [] }),
+		resolvePageTool: async () => ({ accepted: true }),
 		cancel: vi.fn() as unknown as CapnConversationStub["cancel"],
 		respondApproval:
 			vi.fn() as unknown as CapnConversationStub["respondApproval"],

@@ -2833,6 +2833,58 @@ afterEach(() => {
 	while (cleanups.length > 0) cleanups.pop()?.();
 });
 
+describe("<ChatThread> workspace app tools", () => {
+	it.each(["output", "workspace"] as const)(
+		"keeps app tools out of %s chat",
+		async (kind) => {
+			transport.actions.enqueueMessage.mockReset();
+			transport.actions.enqueueMessage.mockReturnValue(new Promise(() => {}));
+			const { container } = mountThread({
+				workspaceId: "workspace-1",
+				context: { kind, id: "resource-1", label: "Notes" },
+			});
+			await flush();
+			typeDraft(container, "Update these notes.");
+			act(() => sendButton(container).click());
+			await flush();
+			expect(
+				transport.actions.enqueueMessage.mock.calls[0]![0].pageTools,
+			).toBeUndefined();
+			transport.actions.enqueueMessage.mockReset();
+		},
+	);
+
+	it.each([CONVERSATION_ID, null])(
+		"offers app edit tools on a Home send in conversation %s",
+		async (conversationId) => {
+			transport.actions.enqueueMessage.mockReset();
+			transport.actions.enqueueMessage.mockReturnValue(new Promise(() => {}));
+			const { container } = mountThread({
+				conversationId,
+				workspaceId: "workspace-1",
+				context: { kind: "gadget", id: "app-1", label: "Hello counter" },
+			});
+			await flush();
+			typeDraft(
+				container,
+				"Change Hello counter to Hello visitor counter and propose a draft for review.",
+			);
+			act(() => sendButton(container).click());
+			await flush();
+			const input = transport.actions.enqueueMessage.mock.calls[0]![0];
+			expect(
+				input.pageTools.map((tool: { name: string }) => tool.name),
+			).toEqual(["read_app_files", "propose_app_edit"]);
+			expect(input.workspaceContext).toEqual({
+				workspaceId: "workspace-1",
+				workpiece: { kind: "gadget", id: "app-1" },
+			});
+			expect(input.delegateToTediId).toBeUndefined();
+			transport.actions.enqueueMessage.mockReset();
+		},
+	);
+});
+
 describe("<ChatThread> MCP Apps", () => {
 	it("sends a widget follow-up once into the owning conversation", async () => {
 		transport.actions.enqueueMessage.mockReset();

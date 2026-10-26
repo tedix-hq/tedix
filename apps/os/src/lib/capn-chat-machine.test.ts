@@ -141,6 +141,7 @@ function fakeServer() {
 		},
 		enqueue: vi.fn() as unknown as CapnConversationStub["enqueue"],
 		steer: vi.fn() as unknown as CapnConversationStub["steer"],
+		resolvePageTool: vi.fn(async () => ({ accepted: true })),
 		withdrawSteering:
 			vi.fn() as unknown as CapnConversationStub["withdrawSteering"],
 		cancel: vi.fn() as unknown as CapnConversationStub["cancel"],
