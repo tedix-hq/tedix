@@ -143,7 +143,7 @@ jobs:
           TEST_SCRIPT: ${{ matrix.testScript }}
           TEST_SHARD: ${{ matrix.shard }}
           BROWSERS: ${{ matrix.browsers }}
-          TEDIX_SCREENSHOT_DIR: ${{ matrix.workspace == 'apps/os' && matrix.testScript == 'test:browser:work-iphone' && format('{0}/work-iphone-evidence', runner.temp) || '' }}
+          TEDIX_SCREENSHOT_DIR: ${{ matrix.workspace == 'apps/os' && matrix.testScript == 'test:browser:work-iphone' && format('{0}/work-iphone-evidence', runner.temp) || format('{0}/browser-evidence', runner.temp) }}
         run: |
           script="${TEST_SCRIPT:-$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')}"
           command=(bun run --cwd "$WORKSPACE" "$script")
