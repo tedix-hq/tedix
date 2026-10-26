@@ -1,6 +1,6 @@
 import { Toggle } from "@cloudflare/kumo/primitives/toggle";
 import { ToggleGroup } from "@cloudflare/kumo/primitives/toggle-group";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { Button } from "@/components/kumo/button";
 import { cn } from "@/lib/utils";
@@ -46,8 +46,29 @@ function SegmentedControl<Value extends string>({
 	compact = false,
 	fill = false,
 }: SegmentedControlProps<Value>) {
+	const groupRef = useRef<HTMLDivElement>(null);
+	// A narrow row scrolls the segments; keep the selected one in sight when the
+	// value changes or the row is resized (for example when chat opens).
+	useEffect(() => {
+		const group = groupRef.current;
+		if (!group) return;
+		const reveal = () => {
+			const active = group.querySelector<HTMLElement>('[aria-pressed="true"]');
+			if (!active) return;
+			const box = active.getBoundingClientRect();
+			const view = group.getBoundingClientRect();
+			if (box.right > view.right) group.scrollLeft += box.right - view.right;
+			else if (box.left < view.left) group.scrollLeft -= view.left - box.left;
+		};
+		reveal();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(reveal);
+		observer.observe(group);
+		return () => observer.disconnect();
+	}, [value]);
 	return (
 		<ToggleGroup
+			ref={groupRef}
 			aria-label={ariaLabel}
 			data-kumo-component="SegmentedControl"
 			data-focus-ring="inset"
