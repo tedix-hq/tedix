@@ -1,19 +1,15 @@
 import { CapabilityNavigation } from "@/components/capability-navigation";
-import { EntityAvatar } from "@/components/entity-avatar";
+import {
+	CATALOG_HEALTH,
+	CatalogAppLogo,
+	CatalogHealthBadge,
+} from "@/components/app-store-shared";
 import { isLocalSession } from "@/lib/local-inference";
 import { LocalCapabilityNotice } from "@/components/local-capability-notice";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ListCatalogAppsInput } from "@tedix/api-contract/schemas/catalog";
-import {
-	CheckCircle,
-	Code,
-	Globe,
-	Pulse,
-	Stack,
-	WarningCircle,
-	Wrench,
-} from "@phosphor-icons/react";
+import { Code, Globe, Stack, Wrench } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import {
 	Collapsible,
@@ -76,80 +72,6 @@ type CatalogListData = Awaited<
 >;
 type CatalogApp = CatalogListData["apps"][number];
 
-const HEALTH = {
-	healthy: {
-		label: "Catalog check passed",
-		variant: "success" as const,
-		icon: CheckCircle,
-	},
-	degraded: {
-		label: "Degraded",
-		variant: "secondary" as const,
-		icon: WarningCircle,
-	},
-	unhealthy: {
-		label: "Unhealthy",
-		variant: "destructive" as const,
-		icon: Pulse,
-	},
-	requires_auth: {
-		label: "Requires auth",
-		variant: "outline" as const,
-		icon: WarningCircle,
-	},
-	blocked: {
-		label: "Blocked",
-		variant: "destructive" as const,
-		icon: Pulse,
-	},
-	unsupported: {
-		label: "Unsupported",
-		variant: "outline" as const,
-		icon: WarningCircle,
-	},
-	unknown: {
-		label: "Not checked",
-		variant: "outline" as const,
-		icon: Pulse,
-	},
-};
-
-function HealthBadge({ status }: { status: string | null }) {
-	const config = HEALTH[status as keyof typeof HEALTH] ?? HEALTH.unknown;
-	const Icon = config.icon;
-	return (
-		<Badge variant={config.variant} className="gap-1">
-			<Icon aria-hidden className="size-3" />
-			{config.label}
-		</Badge>
-	);
-}
-
-export function CatalogAppLogo({
-	id,
-	logoUrl,
-	name,
-	size = "small",
-}: {
-	/** Stable key for the shared avatar palette: the app's slug or id. */
-	id: string;
-	logoUrl: string | null;
-	name: string;
-	size?: "small" | "large";
-}) {
-	return (
-		<EntityAvatar
-			kind="workspace"
-			id={id}
-			name={name}
-			image={logoUrl}
-			imageFit="contain"
-			alt={`${name} logo`}
-			className={size === "large" ? "size-16 rounded-xl" : "size-10 rounded-lg"}
-		/>
-	);
-}
-
 function AppCard({ app }: { app: CatalogApp }) {
 	return (
 		<Link
@@ -173,7 +95,7 @@ function AppCard({ app }: { app: CatalogApp }) {
 								{app.name}
 							</CardTitle>
 							{app.healthStatus && app.healthStatus !== "unknown" ? (
-								<HealthBadge status={app.healthStatus} />
+								<CatalogHealthBadge status={app.healthStatus} />
 							) : null}
 						</div>
 						{app.developer ? (
@@ -238,8 +160,8 @@ const CONNECTOR_OPTIONS = [
 	"FIRST_PARTY_ECOSYSTEM",
 	"NATIVE",
 ] as const;
-const HEALTH_OPTIONS = Object.keys(
-	HEALTH,
+const CATALOG_HEALTH_OPTIONS = Object.keys(
+	CATALOG_HEALTH,
 ) as CatalogRouteSearch["healthStatus"][];
 const SORT_OPTIONS = [
 	"name",
@@ -469,16 +391,16 @@ function CloudAppStorePage({
 							<SelectTrigger aria-label="Filter catalog by health">
 								<SelectValue>
 									{search.healthStatus
-										? HEALTH[search.healthStatus].label
+										? CATALOG_HEALTH[search.healthStatus].label
 										: "Any catalog status"}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="all">All health</SelectItem>
-								{HEALTH_OPTIONS.map((value) =>
+								{CATALOG_HEALTH_OPTIONS.map((value) =>
 									value ? (
 										<SelectItem key={value} value={value}>
-											{HEALTH[value].label}
+											{CATALOG_HEALTH[value].label}
 										</SelectItem>
 									) : null,
 								)}
