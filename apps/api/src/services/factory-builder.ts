@@ -102,9 +102,16 @@ export interface FactoryStore {
 	createLaneSkill(
 		params: RenderedFactoryLane & { slug: string; ownerTediId: string },
 	): Promise<{ id: string; lifecycleState: string | null }>;
-	activateLaneSkill(
-		skillId: string,
-	): Promise<{ lifecycleState: string | null; nextFireAt: string | null }>;
+	/**
+	 * Activate a draft lane, which starts its schedule. `refused` carries the
+	 * lifecycle gate's reason when the organization's pace-layer policy keeps
+	 * it a draft until a passing certification run.
+	 */
+	activateLaneSkill(skillId: string): Promise<{
+		lifecycleState: string | null;
+		nextFireAt: string | null;
+		refused?: string;
+	}>;
 }
 
 export interface FactoryOutputRef {
@@ -715,13 +722,21 @@ export async function buildFactory(
 		const activated = await store.activateLaneSkill(skillId);
 		lifecycleState = activated.lifecycleState;
 		nextFireAt = activated.nextFireAt;
-		wrote = true;
-		steps.push({
-			resource: "schedule",
-			action: "activated",
-			id: skillId,
-			note: `cron ${cron}`,
-		});
+		if (activated.refused) {
+			// Everything else is built; only the schedule waits. Failing the whole
+			// call here left chat saying the factory could not be created.
+			warnings.push(
+				`The lane stays a draft without a schedule: ${activated.refused}. A passing certification run of this revision activates it.`,
+			);
+		} else {
+			wrote = true;
+			steps.push({
+				resource: "schedule",
+				action: "activated",
+				id: skillId,
+				note: `cron ${cron}`,
+			});
+		}
 	}
 
 	// Record the binding once every id is known.
