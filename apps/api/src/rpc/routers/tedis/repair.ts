@@ -79,8 +79,8 @@ export const repairTediProcedure = authedTedisOs.repair
 				const msg = error instanceof Error ? error.message : String(error);
 				errors.push(`${name}: ${msg}`);
 				console.error(
-					`[Tedis] Repair: failed to generate ${name} for ${tedi.id}:`,
-					error,
+					`[Tedis] Repair: failed to generate ${name} for ${tedi.id}`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}
@@ -143,8 +143,8 @@ export const repairTediProcedure = authedTedisOs.repair
 				const msg = error instanceof Error ? error.message : String(error);
 				errors.push(`descope: ${msg}`);
 				console.error(
-					`[Tedis] Repair: failed to reconcile Descope identity for ${tedi.id}:`,
-					error,
+					`[Tedis] Repair: failed to reconcile Descope identity for ${tedi.id}`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		} else {
@@ -171,8 +171,8 @@ export const repairTediProcedure = authedTedisOs.repair
 					const msg = error instanceof Error ? error.message : String(error);
 					errors.push(`descope:mcp-server: ${msg}`);
 					console.error(
-						`[Tedis] Repair: failed to register AIH MCP server for ${tedi.id}:`,
-						error,
+						`[Tedis] Repair: failed to register AIH MCP server for ${tedi.id}`,
+						{ exception: safeExceptionTopology(error) },
 					);
 				}
 			}

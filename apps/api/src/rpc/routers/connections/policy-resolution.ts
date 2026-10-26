@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { DESCOPE_SESSION_COOKIE, readCookieHeader } from "@tedix/auth/web";
 import {
@@ -585,7 +586,7 @@ export async function resolveCredentialChain(
 		} catch (error) {
 			console.error(
 				`[Connections] Credential ownership lookup failed for org=${args.organizationId}; applying tenant-safe precedence`,
-				error,
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 	}

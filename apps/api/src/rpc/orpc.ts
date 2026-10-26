@@ -294,8 +294,8 @@ export const withTediAuth = base.middleware(async ({ context, next }) => {
 				}
 			} catch (error) {
 				console.warn(
-					"[Auth] Tedi JWT middleware: failed to resolve org from tenant claim:",
-					error,
+					"[Auth] Tedi JWT middleware: failed to resolve org from tenant claim",
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}
@@ -1735,10 +1735,9 @@ async function authenticateUserJwt(
 			if (error instanceof ORPCError && error.code === ErrorCodes.FORBIDDEN) {
 				throw error;
 			}
-			console.error(
-				"[Auth] Failed to resolve org context from tenant claim:",
-				error,
-			);
+			console.error("[Auth] Failed to resolve org context from tenant claim", {
+				exception: safeExceptionTopology(error),
+			});
 			// A transient identity-store failure must not silently downgrade a
 			// tenant-selected user into an unscoped principal. That turns an
 			// infrastructure fault into misleading FORBIDDEN responses across the
@@ -1780,10 +1779,9 @@ async function authenticateUserJwt(
 			if (error instanceof ORPCError && error.code === ErrorCodes.FORBIDDEN) {
 				throw error;
 			}
-			console.warn(
-				"[Auth] Failed to resolve org context from D1 membership:",
-				error,
-			);
+			console.warn("[Auth] Failed to resolve org context from D1 membership", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 
@@ -1938,10 +1936,9 @@ async function authenticateTediJwt(context: BaseContext): Promise<void> {
 				context.organizationId = org.id;
 			}
 		} catch (error) {
-			console.warn(
-				"[Auth] Tedi JWT: failed to resolve org from tenant claim:",
-				error,
-			);
+			console.warn("[Auth] Tedi JWT: failed to resolve org from tenant claim", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 }

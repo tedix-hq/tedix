@@ -1,4 +1,5 @@
 /** Organization offboarding lifecycle: cancel, delete and syncFromDescope. */
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { getDescopeManagement } from "../../lib/descope-management";
 import { deleteAllAppRelations } from "@tedix/auth/fga";
@@ -196,8 +197,8 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 					await deleteAllAppRelations(mgmt, appIds);
 				} catch (error) {
 					console.warn(
-						"[Organizations] Failed to clean FGA relations on retirement (non-blocking):",
-						error,
+						"[Organizations] Failed to clean FGA relations on retirement (non-blocking)",
+						{ exception: safeExceptionTopology(error) },
 					);
 				}
 			}
@@ -304,8 +305,8 @@ export const syncFromDescopeContract = organizationsOs.syncFromDescope
 					}
 				} catch (error) {
 					console.warn(
-						"[Organizations] Failed to load Descope tenant name (non-blocking):",
-						error,
+						"[Organizations] Failed to load Descope tenant name (non-blocking)",
+						{ exception: safeExceptionTopology(error) },
 					);
 				}
 			}

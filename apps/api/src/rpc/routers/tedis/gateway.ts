@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { resolveEmbeddedTediSelection } from "../../../services/embedded-tedi-selection";
 import { buildModelCatalogProjection } from "../../../services/model-catalog-projection";
 import { resolveQuickChatDefaultRef } from "../../../services/embedded-model-default";
@@ -228,10 +229,9 @@ async function resolveEmbeddedModelSelection(
 			efforts: ["none", "low", "medium", "high"],
 		};
 	} catch (error) {
-		console.error(
-			"[embedded-session] model roster unavailable:",
-			error instanceof Error ? error.message : String(error),
-		);
+		console.error("[embedded-session] model roster unavailable", {
+			exception: safeExceptionTopology(error),
+		});
 		return undefined;
 	}
 }

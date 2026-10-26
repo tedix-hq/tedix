@@ -104,8 +104,8 @@ export async function purgeTediExternalIdentity(
 			});
 		} catch (error) {
 			console.warn(
-				`[Tedis] Failed to clean up Descope identity for tedi ${tedi.name}:`,
-				error,
+				`[Tedis] Failed to clean up Descope identity for tedi ${tedi.name}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 			results.push({
 				step: "descope_identity_delete",
@@ -131,8 +131,8 @@ export async function purgeTediExternalIdentity(
 			results.push({ step: "descope_aih_mcp_delete", ok: true });
 		} catch (error) {
 			console.warn(
-				`[Tedis] Failed to delete AIH MCP server for tedi ${tedi.name}:`,
-				error,
+				`[Tedis] Failed to delete AIH MCP server for tedi ${tedi.name}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 			results.push({
 				step: "descope_aih_mcp_delete",

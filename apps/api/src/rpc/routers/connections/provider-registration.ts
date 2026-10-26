@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import {
@@ -605,8 +606,8 @@ export async function collectReferencedProviders(
 	} catch (error) {
 		referenced.complete = false;
 		console.warn(
-			"[Connections] Failed to collect referenced provider ids (non-fatal):",
-			error,
+			"[Connections] Failed to collect referenced provider ids (non-fatal)",
+			{ exception: safeExceptionTopology(error) },
 		);
 	}
 	return referenced;

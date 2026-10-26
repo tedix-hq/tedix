@@ -40,6 +40,7 @@
  * `tedis/runtime.ts` both state "never let audit I/O mask the real outcome".
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { os as orpc } from "@orpc/server";
 import type { BaseContext } from "./context";
 
@@ -896,8 +897,8 @@ async function recordOsAuditRows(
 					});
 				} catch (error) {
 					console.error(
-						`[OsAudit] Lost governance event ${spec.action} for ${spec.resourceType} ${resourceId ?? "(unresolved)"}:`,
-						error,
+						`[OsAudit] Lost governance event ${spec.action} for ${spec.resourceType} ${resourceId ?? "(unresolved)"}`,
+						{ exception: safeExceptionTopology(error) },
 					);
 				}
 			}
@@ -907,8 +908,8 @@ async function recordOsAuditRows(
 		console.error(
 			`[OsAudit] Lost governance event(s) ${specs
 				.map((spec) => spec.action)
-				.join(", ")}:`,
-			error,
+				.join(", ")}`,
+			{ exception: safeExceptionTopology(error) },
 		);
 	}
 }

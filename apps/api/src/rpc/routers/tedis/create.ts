@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { CreateTediInput } from "@tedix/api-contract/schemas/tedi";
 import { getManagementClient } from "@tedix/auth/client";
 import { createTediIdentity } from "@tedix/auth/tedi-identity";
@@ -387,8 +388,8 @@ async function createTediResources(
 					);
 				}
 				console.warn(
-					`[Tedis] Failed to auto-provision Descope identity for ${tedi.name}:`,
-					error,
+					`[Tedis] Failed to auto-provision Descope identity for ${tedi.name}`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}
@@ -409,8 +410,8 @@ async function createTediResources(
 				);
 			} catch (error) {
 				console.warn(
-					`[Tedis] Failed to auto-generate runtime access token for ${tedi.name}:`,
-					error,
+					`[Tedis] Failed to auto-generate runtime access token for ${tedi.name}`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}
@@ -429,8 +430,8 @@ async function createTediResources(
 				console.log(`[Tedis] Auto-generated CDP_SECRET for ${tedi.name}`);
 			} catch (error) {
 				console.warn(
-					`[Tedis] Failed to auto-generate CDP secret for ${tedi.name}:`,
-					error,
+					`[Tedis] Failed to auto-generate CDP secret for ${tedi.name}`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}
@@ -451,8 +452,8 @@ async function createTediResources(
 			await registerTediAihMcpServer(context, tedi);
 		} catch (error) {
 			console.warn(
-				`[Tedis] Failed to register AIH MCP server for ${tedi.name}:`,
-				error,
+				`[Tedis] Failed to register AIH MCP server for ${tedi.name}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 	} else if (
@@ -476,10 +477,9 @@ async function createTediResources(
 		resourceId: tedi.id,
 		metadata: { name: tedi.name, slug },
 	}).catch((err) => {
-		console.error(
-			"[Tedis] Failed to emit audit event for tedi.provision:",
-			err,
-		);
+		console.error("[Tedis] Failed to emit audit event for tedi.provision", {
+			exception: safeExceptionTopology(err),
+		});
 	});
 
 	invalidateKernelContextCache(context, tedi.organizationId, "tedi.created");

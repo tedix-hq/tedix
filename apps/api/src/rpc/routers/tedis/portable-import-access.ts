@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { CreateTediInputSchema } from "@tedix/api-contract/schemas/tedi";
 import type { PortableTediImportBeginInputSchema } from "@tedix/api-contract/schemas/portable-tedi";
 import { verifyPortableTediManifest } from "@tedix/api-contract/utils/portable-tedi";
@@ -64,7 +65,7 @@ export async function beginPortableTediImport(
 	} catch (error) {
 		console.error("Portable import Artifacts repo creation failed", {
 			tediId,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		throw createError(
 			ErrorCodes.SERVICE_UNAVAILABLE,

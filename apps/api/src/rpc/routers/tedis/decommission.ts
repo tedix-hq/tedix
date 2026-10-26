@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { deleteTedi, updateTedi } from "@tedix/db/queries/tedis";
 import { invalidateKernelContextCache } from "../../../kernel/context-cache";
 import { auditActor, emitAuditEvent } from "../../audit-helpers";
@@ -415,8 +416,8 @@ export const decommissionTediProcedure = authedTedisOs.decommission
 						},
 					}).catch((err) => {
 						console.error(
-							`[Tedis] Failed to emit audit event for tedi.${input.hardPurge ? "purge" : "decommission"}:`,
-							err,
+							`[Tedis] Failed to emit audit event for tedi.${input.hardPurge ? "purge" : "decommission"}`,
+							{ exception: safeExceptionTopology(err) },
 						);
 					});
 				},

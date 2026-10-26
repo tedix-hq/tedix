@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement, ORPCError } from "@orpc/server";
 import { externalAgentIdentityContract } from "@tedix/api-contract/contracts/external-agent-identity";
 import { externalAgentScopeCeiling } from "@tedix/api-contract/schemas/external-agent-identity";
@@ -1680,7 +1681,7 @@ async function issueMcpCredentialForOrganization(
 			await invalidateMcpClientCache(context.env, mcpServerId).catch((error) =>
 				console.error(
 					"[ExternalAgentIdentity] MCP client cache invalidation failed",
-					error,
+					{ exception: safeExceptionTopology(error) },
 				),
 			);
 			return {
@@ -1740,7 +1741,7 @@ async function issueMcpCredentialForOrganization(
 		await invalidateMcpClientCache(context.env, mcpServerId).catch((error) =>
 			console.error(
 				"[ExternalAgentIdentity] MCP client cache invalidation failed",
-				error,
+				{ exception: safeExceptionTopology(error) },
 			),
 		);
 		return {
@@ -1781,7 +1782,7 @@ async function issueMcpCredentialForOrganization(
 			(error) =>
 				console.error(
 					"[ExternalAgentIdentity] MCP issuance lease release failed",
-					error,
+					{ exception: safeExceptionTopology(error) },
 				),
 		);
 	}

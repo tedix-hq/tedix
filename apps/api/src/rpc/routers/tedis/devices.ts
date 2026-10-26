@@ -2,6 +2,7 @@
  * Tedis Router — Device management
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	approveDevice,
 	getDeviceById,
@@ -49,10 +50,9 @@ export const listDevices = authedTedisOs.listDevices
 					paired: runtimeDevices.paired.map(normalize),
 				};
 			} catch (error) {
-				console.warn(
-					`[Tedis] Failed to fetch runtime devices for ${tedi.id}:`,
-					error,
-				);
+				console.warn(`[Tedis] Failed to fetch runtime devices for ${tedi.id}`, {
+					exception: safeExceptionTopology(error),
+				});
 			}
 		}
 
@@ -107,8 +107,8 @@ export const approveDeviceProcedure = authedTedisOs.approveDevice
 					throw error;
 				}
 				console.warn(
-					`[Tedis] Runtime device approval failed for ${input.deviceId}:`,
-					error,
+					`[Tedis] Runtime device approval failed for ${input.deviceId}`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}
