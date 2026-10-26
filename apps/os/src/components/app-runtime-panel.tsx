@@ -9,6 +9,7 @@ import { useCallback, useMemo } from "react";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
+import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
@@ -50,11 +51,13 @@ export function AppRuntimePreview({
 	gadget,
 	revision,
 	layout = "fill",
+	translation,
 }: {
 	workspaceId: string;
 	gadget: OsGadget;
 	revision: OsGadgetRevision;
 	layout?: "content" | "fill";
+	translation?: AppRuntimeTranslationChannel;
 }) {
 	const code = useQuery(
 		appRuntimeCodeQueryOptions(workspaceId, gadget.id, revision.id),
@@ -93,6 +96,7 @@ export function AppRuntimePreview({
 			files={code.data.code.files}
 			callServer={callServer}
 			layout={layout}
+			translation={translation}
 		/>
 	);
 }
@@ -112,6 +116,7 @@ export function AppRuntimeSandbox({
 	callServer,
 	title = gadget.name,
 	layout = "fill",
+	translation,
 }: {
 	workspaceId: string;
 	gadget: Pick<OsGadget, "id" | "name">;
@@ -121,6 +126,7 @@ export function AppRuntimeSandbox({
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 	title?: string;
 	layout?: "content" | "fill";
+	translation?: AppRuntimeTranslationChannel;
 }) {
 	const queryClient = useQueryClient();
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
@@ -161,6 +167,7 @@ export function AppRuntimeSandbox({
 			title={title}
 			onCall={onCall}
 			layout={layout}
+			translation={translation}
 		/>
 	);
 }
