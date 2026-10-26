@@ -14,6 +14,7 @@ import { sql } from "drizzle-orm";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
+	consumeHomeToolApprovalCall,
 	consumeOwnerToolApproval,
 	createApprovalRequest,
 	createApprovalRequestWithAudit,
@@ -556,6 +557,63 @@ describe("exact owner tool approval consumption", () => {
 		).toBe(false);
 		expect(await consumeOwnerToolApproval(db, input)).toBe(true);
 		expect(await consumeOwnerToolApproval(db, input)).toBe(false);
+	});
+});
+
+describe("Home write approval call consumption", () => {
+	it("runs each approved call once per credential path", async () => {
+		const { db } = setup();
+		await createApprovalRequest(db, {
+			id: "home-1",
+			orgId: "org-1",
+			tediId: "tedi-1",
+			actionType: "home.tool_write",
+			description: "Create a sheet",
+			payload: { kind: "home_tool_write" },
+			createdAt: "2026-01-01T00:00:00.000Z",
+			expiresAt: "2099-01-02T00:00:00.000Z",
+		});
+		const digest = "a".repeat(64);
+		const input = {
+			id: "home-1",
+			organizationId: "org-1",
+			slot: `user_${digest}`,
+			now: "2026-01-01T01:00:00.000Z",
+		};
+		expect(await consumeHomeToolApprovalCall(db, input)).toBe(false);
+		await resolveApprovalRequest(db, input.id, {
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				...input,
+				organizationId: "other-org",
+			}),
+		).toBe(false);
+		expect(await consumeHomeToolApprovalCall(db, input)).toBe(true);
+		expect(await consumeHomeToolApprovalCall(db, input)).toBe(false);
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				...input,
+				slot: `tenant_${digest}`,
+			}),
+		).toBe(true);
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				...input,
+				slot: `tenant_${digest}`,
+			}),
+		).toBe(false);
+		expect(
+			await consumeHomeToolApprovalCall(db, {
+				...input,
+				slot: `user_${"b".repeat(64)}`,
+			}),
+		).toBe(true);
+		await expect(
+			consumeHomeToolApprovalCall(db, { ...input, slot: "user_x') --" }),
+		).rejects.toThrow("Invalid Home approval call slot");
 	});
 });
 

@@ -754,18 +754,23 @@ export async function requireDestructiveToolApproval(
 ): Promise<CallToolResult | null> {
 	const homeApprovalId =
 		options?.extra?._meta?.["com.tedix/homeApprovalRequestId"];
+	// A tenant-credential retry carries the initiating member separately, so
+	// it can match the receipt without switching to their personal credential.
+	const homeUserId =
+		agent.callerIdentity?.userId ?? agent.callerIdentity?.approvedHomeUserId;
 	if (
 		typeof homeApprovalId === "string" &&
 		agent.callerIdentity?.kernel === true &&
 		agent.callerIdentity.authType === "service" &&
-		agent.callerIdentity.userId &&
+		homeUserId &&
 		agent.app?.organizationId
 	) {
 		try {
 			const approval =
 				await agent.apiClient?.mcpGovernance.resolveHomeToolApproval({
 					organizationId: agent.app.organizationId,
-					userId: agent.callerIdentity.userId,
+					userId: homeUserId,
+					credential: agent.callerIdentity.userId ? "user" : "tenant",
 					appSlug: agent.appSlug ?? "",
 					toolName: options?.toolName ?? tool.toolId,
 					args: JSON.parse(JSON.stringify(options?.args ?? {})),

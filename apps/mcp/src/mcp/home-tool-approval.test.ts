@@ -16,6 +16,9 @@ function context(
 	resolve: ReturnType<typeof vi.fn>,
 	kernel = true,
 	authType = "service",
+	identity: { userId?: string; approvedHomeUserId?: string } = {
+		userId: "user-1",
+	},
 ) {
 	return {
 		server: { server: { elicitInput: vi.fn() } },
@@ -24,7 +27,7 @@ function context(
 		callerIdentity: {
 			kernel,
 			authType,
-			userId: "user-1",
+			...identity,
 			organizationId: "org-1",
 		},
 		apiClient: { mcpGovernance: { resolveHomeToolApproval: resolve } },
@@ -48,7 +51,32 @@ describe("Home approval at MCP dispatch", () => {
 			toolName: "os.create_os_output",
 			args,
 			approvalRequestId: "approval-1",
+			credential: "user",
 		});
+	});
+	it("matches a tenant-credential retry to the approval's member", async () => {
+		const resolve = vi.fn().mockResolvedValue({ approved: true });
+		expect(
+			await requireDestructiveToolApproval(
+				context(resolve, true, "service", { approvedHomeUserId: "user-1" }),
+				{ toolId: "tedix__create_os_output", title: "Create output" },
+				{ destructiveHint: true },
+				options,
+			),
+		).toBeNull();
+		expect(resolve).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: "user-1", credential: "tenant" }),
+		);
+	});
+	it("does not look up a receipt without any member identity", async () => {
+		const resolve = vi.fn().mockResolvedValue({ approved: true });
+		await requireDestructiveToolApproval(
+			context(resolve, true, "service", {}),
+			{ toolId: "tedix__create_os_output", title: "Create output" },
+			{ destructiveHint: true },
+			options,
+		);
+		expect(resolve).not.toHaveBeenCalled();
 	});
 	it.each([false, "error"])(
 		"fails closed when receipt verification returns %s",

@@ -209,6 +209,7 @@ async function mcpCall(
 	actingUserId?: string,
 	approvedWorkResponderUserId?: string,
 	approvedFactoryRequestId?: string,
+	approvedHomeUserId?: string,
 ): Promise<unknown | null> {
 	if (!env.MCP_SERVICE || !env.MCP_URL) return null;
 	const service = env.MCP_SERVICE;
@@ -228,6 +229,9 @@ async function mcpCall(
 						? { "X-Tedix-Approved-Factory-Request": approvedFactoryRequestId }
 						: {}),
 					...(actingUserId ? { "X-Tedix-Acting-User": actingUserId } : {}),
+					...(approvedHomeUserId
+						? { "X-Tedix-Approved-Home-User": approvedHomeUserId }
+						: {}),
 					...(approvedWorkResponderUserId
 						? { "X-Tedix-Approved-Work-Responder": approvedWorkResponderUserId }
 						: {}),
@@ -492,12 +496,17 @@ export async function executeApprovedKernelWrite(args: {
 					"[kernel.writeExec] personal cred missing — tenant fallback",
 					{ appSlug: payload.appSlug, tool: payload.toolName },
 				);
+				// Tenant credential, but the approval receipt still names its member.
 				result = (await mcpCall(
 					env,
 					host,
 					payload.organizationId,
 					"tools/call",
 					params,
+					undefined,
+					undefined,
+					undefined,
+					args.approvalRequestId ? payload.initiatedByUserId : undefined,
 				)) as ToolCallResult | null;
 			}
 			if (!result) {

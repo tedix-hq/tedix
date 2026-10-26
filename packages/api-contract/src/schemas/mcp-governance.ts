@@ -23,6 +23,8 @@ export const ResolveHomeToolApprovalInputSchema = z.object({
 	toolName: z.string().min(1),
 	args: z.record(z.string(), JsonValueSchema),
 	approvalRequestId: z.uuid(),
+	/** "tenant" when a user-credential call found no personal connection. */
+	credential: z.enum(["user", "tenant"]).default("user"),
 });
 export const ResolveHomeToolApprovalResponseSchema = z.object({
 	approved: z.boolean(),
