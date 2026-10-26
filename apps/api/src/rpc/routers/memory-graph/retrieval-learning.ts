@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	createEdge,
 	getEdgesForFacts,
@@ -934,7 +935,9 @@ const learn = authed.learn
 				try {
 					await recalculateExpertise(context.db, factTediId, domain.id);
 				} catch (e) {
-					console.warn("[MemoryGraph] Expertise recalculation failed:", e);
+					console.warn("[MemoryGraph] Expertise recalculation failed", {
+						exception: safeExceptionTopology(e),
+					});
 				}
 			})();
 			if (context.waitUntil) {

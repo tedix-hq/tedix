@@ -13,6 +13,7 @@
  * DELETE /templates/{templateId}   - Soft delete template
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import { templatesContract } from "@tedix/api-contract/contracts/templates";
 import {
@@ -81,7 +82,9 @@ export const listTemplatesContract = fleetTemplatesOs.list
 				},
 			};
 		} catch (error) {
-			console.error("[Templates List] Error:", error);
+			console.error("[Templates List] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to list templates",
@@ -118,7 +121,9 @@ export const getTemplateContract = fleetTemplatesOs.get
 			if (error instanceof Error && error.message === "Template not found") {
 				throw error;
 			}
-			console.error("[Templates Get] Error:", error);
+			console.error("[Templates Get] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to get template",
@@ -189,7 +194,9 @@ export const createTemplateContract = fleetTemplatesOs.create
 			) {
 				throw error;
 			}
-			console.error("[Templates Create] Error:", error);
+			console.error("[Templates Create] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to create template",
@@ -277,7 +284,9 @@ export const updateTemplateContract = fleetTemplatesOs.update
 			) {
 				throw error;
 			}
-			console.error("[Templates Update] Error:", error);
+			console.error("[Templates Update] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to update template",
@@ -317,7 +326,9 @@ export const deleteTemplateContract = fleetTemplatesOs.delete
 			if (error instanceof Error && error.message === "Template not found") {
 				throw error;
 			}
-			console.error("[Templates Delete] Error:", error);
+			console.error("[Templates Delete] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to delete template",
@@ -352,7 +363,9 @@ export const exportTemplatesContract = fleetTemplatesOs.export
 				count: templates.length,
 			};
 		} catch (error) {
-			console.error("[Templates Export] Error:", error);
+			console.error("[Templates Export] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to export templates",
@@ -404,7 +417,9 @@ export const applyTemplateContract = fleetTemplatesOs.apply
 			if (error instanceof Error && error.message === "Template not found") {
 				throw error;
 			}
-			console.error("[Templates Apply] Error:", error);
+			console.error("[Templates Apply] Error", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to apply template",

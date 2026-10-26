@@ -11,6 +11,7 @@
  * DELETE /rationale-records/{id}                  - Delete record (user auth)
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import {
 	extractFactIdsFromEvidence,
 	hasFactEvidence,
@@ -252,7 +253,9 @@ async function enrichRationaleEvidenceWithMemory(
 		return mergeAutoCitedFactEvidence(parsed, citations, query);
 	} catch (err) {
 		if (context.env.ENVIRONMENT === "development") {
-			console.warn("[RationaleCreate] Memory evidence enrichment failed:", err);
+			console.warn("[RationaleCreate] Memory evidence enrichment failed", {
+				exception: safeExceptionTopology(err),
+			});
 		}
 		return parsed;
 	}
@@ -737,7 +740,9 @@ const completeProcedure = authOs.complete
 			}
 		} catch (err) {
 			if (context.env.ENVIRONMENT === "development") {
-				console.warn("[RationaleComplete] Gate graduation failed:", err);
+				console.warn("[RationaleComplete] Gate graduation failed", {
+					exception: safeExceptionTopology(err),
+				});
 			}
 		}
 
@@ -842,7 +847,9 @@ const completeProcedure = authOs.complete
 				}
 			} catch (err) {
 				if (context.env.ENVIRONMENT === "development") {
-					console.warn("[AtlasCompile] Pattern compilation failed:", err);
+					console.warn("[AtlasCompile] Pattern compilation failed", {
+						exception: safeExceptionTopology(err),
+					});
 				}
 			}
 		}

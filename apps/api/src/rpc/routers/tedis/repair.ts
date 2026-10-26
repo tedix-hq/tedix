@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { getManagementClient } from "@tedix/auth/client";
 import {
 	repairTediIdentity,
@@ -188,7 +189,9 @@ export const repairTediProcedure = authedTedisOs.repair
 			resourceId: tedi.id,
 			metadata: { repaired, alreadyPresent, errors },
 		}).catch((err) => {
-			console.error("[Tedis] Failed to emit audit event for tedi.repair:", err);
+			console.error("[Tedis] Failed to emit audit event for tedi.repair", {
+				exception: safeExceptionTopology(err),
+			});
 		});
 
 		return { repaired, alreadyPresent, errors };

@@ -2,6 +2,7 @@
  * Tedis Router — Channel helpers (test token, pairing, channel config)
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { updateTedi } from "@tedix/db/queries/tedis";
 import {
 	approvePairingRequest,
@@ -94,7 +95,9 @@ export const listPairingRequestsProcedure = authedTedisOs.listPairingRequests
 			const result = await listPairingRequests(provConfig, input.channel);
 			return result;
 		} catch (error) {
-			console.warn(`[Tedis] Failed to list pairing requests:`, error);
+			console.warn(`[Tedis] Failed to list pairing requests`, {
+				exception: safeExceptionTopology(error),
+			});
 			return { channel: input.channel, pending: [], count: 0 };
 		}
 	});

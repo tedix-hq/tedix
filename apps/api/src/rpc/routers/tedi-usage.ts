@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import {
 	reviewedProviderCostSummary,
 	type ReviewedProviderCostSummary,
@@ -277,7 +278,9 @@ const getTediUsageProcedure = authedOs.getTediUsage
 					to,
 				);
 			} catch (err) {
-				console.warn("[TediUsage] AE query failed, using zeros:", err);
+				console.warn("[TediUsage] AE query failed, using zeros", {
+					exception: safeExceptionTopology(err),
+				});
 			}
 		}
 

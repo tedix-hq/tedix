@@ -2,6 +2,7 @@
  * Tedis Router — Runtime operations (status, restart, storage, channels)
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import { updateTediHeartbeat } from "@tedix/db/queries/tedis";
 import {
@@ -161,7 +162,9 @@ export const wake = authedTedisOs.wake
 				recoveredBySandboxReset: result.recoveredBySandboxReset,
 			},
 		}).catch((err) => {
-			console.error("[Tedis] Failed to emit audit event for tedi.wake:", err);
+			console.error("[Tedis] Failed to emit audit event for tedi.wake", {
+				exception: safeExceptionTopology(err),
+			});
 		});
 
 		return result;

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { validatePersonalRunSources } from "../../../services/personal-resource-delegation-authority";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
@@ -725,7 +726,9 @@ export async function reconcileSkillRunWithEngine(
 			engine: retired ? null : (remote.engine ?? null),
 		};
 	} catch (err) {
-		console.warn(`[${logPrefix}] refresh failed for ${run.id}:`, err);
+		console.warn(`[${logPrefix}] refresh failed for ${run.id}`, {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// Engine refresh failed, but a terminal D1 row can still receive its
