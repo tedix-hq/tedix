@@ -40,7 +40,7 @@ const NOT_OFFERABLE: ReadonlySet<SkillLifecycleState> = new Set(["archived"]);
 
 type SkillCatalogRow = Pick<
 	SkillEntry,
-	"id" | "title" | "visibility" | "slug" | "summary" | "tediId"
+	"id" | "title" | "visibility" | "slug" | "summary" | "description" | "tediId"
 > & { lifecycleState?: SkillLifecycleState | null };
 
 /**
@@ -81,7 +81,7 @@ export function composerReachableSkills(
 			id: entry.id,
 			slug,
 			title: entry.title,
-			summary: entry.summary ?? null,
+			summary: entry.summary ?? entry.description ?? null,
 			lifecycleState,
 		});
 	}

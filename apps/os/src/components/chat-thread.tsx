@@ -3,7 +3,7 @@ import { usePushConversation } from "@/lib/use-push-conversation";
 import {
 	CHAT_CREATE_OPTIONS,
 	CHAT_FORMATS,
-	CHAT_SLASH_COMMANDS,
+	chatSlashCommands,
 	chatComposerPlaceholder,
 } from "@/components/chat-composer-options";
 import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
@@ -118,6 +118,7 @@ import {
 	modelCatalogQueryOptions,
 	operationalContextQueryOptions,
 	osQueryKeys,
+	osQuery,
 	SKILL_CATALOG_LIMIT,
 	skillCatalogQueryOptions,
 } from "@/lib/os-query-options";
@@ -1717,6 +1718,12 @@ export function ChatThread({
 		gcTime: 0,
 		retry: false,
 	});
+	const composerTools = useQuery({
+		...osQuery.apps.listComposerCommands.queryOptions({ input: {} }),
+		enabled: composerMenuOpen,
+		staleTime: 0,
+		gcTime: 0,
+	});
 	const reachableSkills = useMemo(
 		() => composerReachableSkills(skillCatalog.data?.entries ?? []),
 		[skillCatalog.data],
@@ -2615,7 +2622,10 @@ export function ChatThread({
 												</span>
 											</DropdownMenuItem>
 										) : null}
-										{CHAT_SLASH_COMMANDS.map((item) => (
+										{chatSlashCommands(
+											reachableSkills,
+											composerTools.data?.commands ?? [],
+										).map((item) => (
 											<DropdownMenuItem
 												key={item.command}
 												onClick={() =>

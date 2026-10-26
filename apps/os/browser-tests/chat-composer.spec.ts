@@ -48,6 +48,22 @@ try {
 			hasTouch: width < 1280,
 		});
 
+		await page.route("**/api/rpc/apps/listComposerCommands**", (route) =>
+			route.fulfill({
+				json: {
+					json: {
+						commands: [
+							{
+								command: "/sample.send_message",
+								description: "Send a prepared update.",
+								instruction:
+									"Use the app tool sample.send_message for this request. Follow the existing approval policy before making changes.",
+							},
+						],
+					},
+				},
+			}),
+		);
 		await page.goto(`${origin}/chat`);
 		await composer(page).waitFor();
 		assert.equal(
@@ -98,6 +114,26 @@ try {
 			`open thread placeholder at ${width}px`,
 		);
 
+		await page
+			.getByRole("button", { name: "Composer options", exact: true })
+			.click();
+		for (const command of [
+			"/summarize",
+			"/delegate",
+			"/investigate",
+			"/read",
+			"/sample.send_message",
+		]) {
+			await page
+				.getByRole("menuitem")
+				.filter({ has: page.getByText(command, { exact: true }) })
+				.waitFor();
+		}
+		await page
+			.getByRole("menuitem")
+			.filter({ has: page.getByText("/sample.send_message", { exact: true }) })
+			.click();
+		assert((await composer(page).inputValue()).includes("sample.send_message"));
 		await page.close();
 		console.log(`PASS chat composer ${width}px`);
 	}

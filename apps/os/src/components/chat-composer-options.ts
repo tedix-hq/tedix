@@ -10,6 +10,7 @@ import {
 	Users,
 } from "@phosphor-icons/react";
 
+import type { ComposerCommand } from "@tedix/api-contract/schemas/composer-command";
 import { OS_COPY } from "@/shared/os-copy";
 
 export const CHAT_FORMATS = OS_COPY.chatFormats;
@@ -44,6 +45,36 @@ export const CHAT_SLASH_COMMANDS = [
 			'Run one explicit read-only MCP tool: /read app.tool {"argument": "value"}',
 	},
 ] as const;
+
+export function chatSlashCommands(
+	skills: readonly { slug: string; summary: string | null; title: string }[],
+	tools: readonly ComposerCommand[],
+) {
+	const commands = new Map<
+		string,
+		{
+			command: string;
+			icon: typeof Sparkle;
+			description: string;
+			instruction: string;
+		}
+	>(CHAT_SLASH_COMMANDS.map((item) => [item.command, { ...item }]));
+	for (const skill of skills) {
+		const command = `/${skill.slug}`;
+		if (!commands.has(command))
+			commands.set(command, {
+				command,
+				icon: Sparkle,
+				description: skill.summary ?? skill.title,
+				instruction: `/skill ${skill.slug}`,
+			});
+	}
+	for (const tool of tools) {
+		if (!commands.has(tool.command))
+			commands.set(tool.command, { ...tool, icon: Sparkle });
+	}
+	return [...commands.values()];
+}
 
 export const CHAT_CREATE_OPTIONS = {
 	Document: {

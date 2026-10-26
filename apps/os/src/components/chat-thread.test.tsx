@@ -76,6 +76,7 @@ const kernelRuntimeApi = vi.hoisted(() => ({
 }));
 const capabilitiesApi = vi.hoisted(() => ({ list: vi.fn() }));
 const skillsApi = vi.hoisted(() => ({ listByOrg: vi.fn() }));
+const appsApi = vi.hoisted(() => ({ listComposerCommands: vi.fn() }));
 const modelCatalogApi = vi.hoisted(() => ({ list: vi.fn() }));
 const tedisApi = vi.hoisted(() => ({ list: vi.fn() }));
 const userSettingsApi = vi.hoisted(() => ({ getContext: vi.fn() }));
@@ -89,6 +90,7 @@ vi.mock("@/lib/api", () => ({
 		kernelRuntime: kernelRuntimeApi,
 		modelCatalog: modelCatalogApi,
 		skills: skillsApi,
+		apps: appsApi,
 		tedis: tedisApi,
 		userSettings: userSettingsApi,
 	},
@@ -2778,6 +2780,8 @@ beforeEach(() => {
 	kernelRuntimeApi.steerRun.mockReset();
 	capabilitiesApi.list.mockReset();
 	capabilitiesApi.list.mockResolvedValue({ data: [] });
+	appsApi.listComposerCommands.mockReset();
+	appsApi.listComposerCommands.mockResolvedValue({ commands: [] });
 	skillsApi.listByOrg.mockReset();
 	skillsApi.listByOrg.mockResolvedValue({ entries: [], total: 0 });
 	tedisApi.list.mockReset();
@@ -3315,6 +3319,64 @@ describe("<ChatThread> skill picker", () => {
 				item.querySelector("span.block")?.textContent === "Use a skill…",
 		);
 	}
+
+	it("lists data commands with builtins and sends a write command through Home", async () => {
+		skillsApi.listByOrg.mockResolvedValue({
+			entries: [REACHABLE_SKILL],
+			total: 1,
+		});
+		appsApi.listComposerCommands.mockResolvedValue({
+			commands: [
+				{
+					command: "/sample.send_message",
+					description: "Send a message with approval.",
+					instruction:
+						"Use the app tool sample.send_message for this request. Follow the existing approval policy before making changes.",
+				},
+			],
+		});
+		transport.actions.enqueueMessage.mockReset();
+		transport.actions.enqueueMessage.mockResolvedValue({
+			message: message({ id: "m-command" }),
+		});
+		transport.actions.respondApproval.mockClear();
+		const { container } = mountThread();
+		await flush();
+		typeDraft(container, "Send the prepared update");
+		await openComposerMenu(container);
+		const items = [
+			...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		];
+		for (const command of [
+			"/summarize",
+			"/delegate",
+			"/investigate",
+			"/read",
+			"/deploy-runbook",
+			"/sample.send_message",
+		]) {
+			expect(
+				items.some(
+					(item) => item.querySelector("span.block")?.textContent === command,
+				),
+			).toBe(true);
+		}
+		const tool = items.find(
+			(item) =>
+				item.querySelector("span.block")?.textContent ===
+				"/sample.send_message",
+		);
+		act(() => tool!.click());
+		await flush();
+		pressKey(container, "Enter");
+		await flush();
+		expect(transport.actions.enqueueMessage).toHaveBeenCalledTimes(1);
+		const sent = transport.actions.enqueueMessage.mock.calls[0]?.[0];
+		expect(sent.content).toContain("sample.send_message");
+		expect(sent.content).toContain("Send the prepared update");
+		expect(sent).not.toHaveProperty("approvalTier");
+		expect(transport.actions.respondApproval).not.toHaveBeenCalled();
+	});
 
 	it("opens the existing picker from the menu with focused search and inserts the slash reference", async () => {
 		skillsApi.listByOrg.mockResolvedValue({
