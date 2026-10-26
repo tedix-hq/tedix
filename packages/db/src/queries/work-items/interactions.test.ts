@@ -664,7 +664,7 @@ describe("obsolete Work interactions", () => {
 		const { sqlite } = f;
 		sqlite
 			.prepare(
-				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='aaron'",
+				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='sam'",
 			)
 			.run();
 		const at = (id: string, createdAt: string, metadata = "{}") =>
@@ -696,7 +696,7 @@ describe("obsolete Work interactions", () => {
 		const { sqlite } = f;
 		sqlite
 			.prepare(
-				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='aaron', created_at='2026-08-21T05:00:00.000Z'",
+				"UPDATE work_interactions SET kind='coordination', target_type='user', target_id='sam', created_at='2026-08-21T05:00:00.000Z'",
 			)
 			.run();
 		const pack = sqlite.prepare(

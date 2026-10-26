@@ -60,22 +60,22 @@ vi.mock("./calendar-resource-picker", async (original) => {
 							providerId: "google_calendar",
 							connectionScope: "user",
 							connectionInstanceId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-							instanceLabel: "Adriana",
-							accountSubject: "adriana@example.com",
+							instanceLabel: "Sam",
+							accountSubject: "sam@example.com",
 						},
 						calendar: {
-							id: "adriana-calendar",
-							name: "Adriana meetings",
+							id: "sam-calendar",
+							name: "Sam meetings",
 							timeZone: "Europe/Berlin",
 							canRead: true,
 							canWrite: true,
-							ownerEmail: "adriana@example.com",
+							ownerEmail: "sam@example.com",
 							conditionalWrites: true,
 						},
 					})
 				}
 			>
-				Choose Adriana meetings
+				Choose Sam meetings
 			</button>
 		),
 	};
@@ -1137,14 +1137,14 @@ describe("instantiate", () => {
 		click(findButton(container, "Reporting workspace"));
 		await flush();
 		expect(container.textContent).not.toContain("Provider resource ID");
-		click(findButton(container, "Choose Adriana meetings"));
+		click(findButton(container, "Choose Sam meetings"));
 		await flush();
 		const selection = expect.objectContaining({
 			providerId: "google_calendar",
 			connectionScope: "user",
 			connectionInstanceId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-			providerResourceId: "adriana-calendar",
-			name: "Adriana meetings",
+			providerResourceId: "sam-calendar",
+			name: "Sam meetings",
 			requiredScopes: ["calendar.events"],
 		});
 		expect(blueprintsApi.preflight).toHaveBeenLastCalledWith(

@@ -666,7 +666,7 @@ the app may touch, never the code:
 	],
 	"config": {
 		"version": 1,
-		"settings": { "slot": "opportunities", "reviewer": "Maya" }
+		"settings": { "slot": "opportunities", "reviewer": "Sam" }
 	}
 }
 ```

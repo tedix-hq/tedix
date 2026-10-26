@@ -221,8 +221,8 @@ const emptyCodemode: CodemodeSummary = {
 const actor: PrincipalDescriptor = {
 	id: "user-1",
 	type: "user",
-	label: "Adriana Example",
-	secondary: "adriana@example.test",
+	label: "Sam Example",
+	secondary: "sam@example.test",
 	slug: null,
 	avatarUrl: null,
 	unresolved: false,
@@ -254,7 +254,7 @@ const activityItem: ActivityItem = {
 		subject: actor,
 		agent: null,
 		client: { id: "claude", label: "Claude" },
-		summary: "Adriana Example via Claude",
+		summary: "Sam Example via Claude",
 	},
 	identityCoverage,
 	action: "mcp.tool.execute",
@@ -646,7 +646,7 @@ describe("AppAnalyticsPage", () => {
 		expect(text).toContain("10-18");
 		expect(text).toContain("acme.list_invoices");
 		expect(text).toContain("List invoices session");
-		expect(text).toContain("Adriana Example");
+		expect(text).toContain("Sam Example");
 		expect(text).toContain("22222222…");
 		expect(
 			container.querySelector(
