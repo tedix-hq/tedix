@@ -24,6 +24,7 @@ import {
 	useState,
 } from "react";
 import { CanvasStagePending } from "@/routes/-pending";
+import { AppReviewRounds } from "@/components/app-review-rounds";
 import { CanvasProposals } from "@/components/canvas-proposals";
 import { CanvasPresence } from "@/components/canvas-presence";
 import { CanvasResourceRail } from "@/components/canvas-resource-rail";
@@ -1545,6 +1546,9 @@ export function CanvasPage({
 												workspaceId={workspaceId}
 											/>
 										</PageSection>
+										{selectedDoc.type === "gadget" && (
+											<AppReviewRounds gadgetId={selectedDoc.id} />
+										)}
 									</div>
 								) : (
 									<CanvasDocPanel
@@ -1561,6 +1565,13 @@ export function CanvasPage({
 												: undefined
 										}
 										focusMode={focusMode}
+										onOpenReview={() => {
+											setWorkpieceMode("activity");
+											writeCanvasSearch({
+												...canvasSearch,
+												view: "activity",
+											});
+										}}
 										onAppDraftSaved={() => {
 											setWorkpieceMode("drafts");
 											writeCanvasSearch({

@@ -231,6 +231,7 @@ export function CanvasDocPanel({
 	doc,
 	gadgetViewOverride,
 	onAppDraftSaved,
+	onOpenReview,
 	focusMode,
 	onFocusModeChange,
 	onShowResources,
@@ -241,6 +242,8 @@ export function CanvasDocPanel({
 	doc: CanvasDocSelection;
 	gadgetViewOverride?: "preview" | "source" | "drafts" | "runs";
 	onAppDraftSaved?: () => void;
+	/** Opens this app's Review tab. */
+	onOpenReview?: () => void;
 	focusMode: boolean;
 	/**
 	 * The tab row's action area. An app's status and actions render there, so
@@ -823,6 +826,7 @@ export function CanvasDocPanel({
 						currentRevisionId={gadgetDetail.data.currentRevision?.id}
 						workspaceId={workspaceId}
 						guestEntry={isRuntimeApp}
+						onOpenReview={onOpenReview}
 						compact
 					/>
 				)}
