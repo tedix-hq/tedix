@@ -187,4 +187,26 @@ describe("external request helpers", () => {
 			pageCount: 1,
 		});
 	});
+
+	it("reports page counts in sevdesk JSON file envelopes", async () => {
+		const fixture = {
+			objects: {
+				filename: "voucher-receipt.pdf",
+				mimetype: "application/pdf",
+				base64Encoded: true,
+				content: sevdeskVoucherDocumentFixture.download.base64,
+			},
+		};
+		const result = await parseExternalResponse(
+			Response.json(fixture),
+			config(),
+		);
+		expect(result).toMatchObject({
+			objects: {
+				filename: "voucher-receipt.pdf",
+				base64Encoded: true,
+				pageCount: 1,
+			},
+		});
+	});
 });
