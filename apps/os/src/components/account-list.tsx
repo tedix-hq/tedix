@@ -32,6 +32,13 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { Link } from "@/components/kumo/link";
 import { Collection, PageSection } from "@/components/kumo/page";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { normalizeConsentPermissions } from "@/shared/consent-permissions";
 import { ConnectionToolSummary } from "@/components/connection-tool-summary";
@@ -266,6 +273,11 @@ export interface AccountListProps {
 	onDisconnect: (row: ConnectionInventoryRow) => void;
 	onRename: (row: ConnectionInventoryRow) => void;
 	onAdd: (provider: ConnectionProvider) => void;
+	onAccountModeChange?: (
+		provider: ConnectionProvider,
+		accountMode: "single" | "multiple",
+	) => void;
+	isAccountModePending?: boolean;
 	onBind: (row: ConnectionInventoryRow, reference: Reference) => void;
 	/** Org admin override; null returns the account to its provider default. */
 	onSetAccessCheck?: (
@@ -704,8 +716,41 @@ function AccountDetails({
 					{names.length ? names.join(", ") : usedByLine(group)}
 				</DetailRow>
 				<DetailRow term="Accounts">
-					{mode.mode === "single" ? "One account. " : "Multiple accounts. "}
-					{mode.reason}
+					{props.owner === "organization" &&
+					props.onAccountModeChange &&
+					provider.availableAccountModes.length > 1 ? (
+						<div className="grid gap-1.5">
+							<Select
+								disabled={!allowed || props.isAccountModePending}
+								value={mode.mode}
+								onValueChange={(value) => {
+									if (!value || value === mode.mode) return;
+									props.onAccountModeChange?.(
+										provider,
+										value as "single" | "multiple",
+									);
+								}}
+							>
+								<SelectTrigger aria-label={`Accounts allowed for ${name}`}>
+									<SelectValue>
+										{mode.mode === "single"
+											? "One account"
+											: "Several accounts"}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="single">One account</SelectItem>
+									<SelectItem value="multiple">Several accounts</SelectItem>
+								</SelectContent>
+							</Select>
+							<span>{mode.reason}</span>
+						</div>
+					) : (
+						<>
+							{mode.mode === "single" ? "One account. " : "Multiple accounts. "}
+							{mode.reason}
+						</>
+					)}
 				</DetailRow>
 				<DetailRow term="Last checked">
 					{checked

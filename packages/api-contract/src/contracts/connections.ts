@@ -184,6 +184,26 @@ export const connectionsContract = oc
 					data: z.array(ConnectionProviderSchema),
 				}),
 			),
+		setProviderAccountMode: oc
+			.route({
+				method: "PUT",
+				path: "/providers/{appId}/account-mode",
+				summary: "Set provider account mode",
+				description:
+					"Choose whether owners may add one or several accounts for this provider in the organization.",
+			})
+			.input(
+				z.object({
+					appId: z.string().min(1),
+					accountMode: z.enum(["single", "multiple"]),
+				}),
+			)
+			.output(
+				z.object({
+					appId: z.string(),
+					accountMode: z.enum(["single", "multiple"]),
+				}),
+			),
 
 		/**
 		 * Audit Descope outbound app settings against Tedix provider metadata and

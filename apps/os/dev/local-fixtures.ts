@@ -3581,6 +3581,8 @@ const CONNECTION_PROVIDERS = [
 		logoUrl: null,
 		connectionType: "oauth" as const,
 		registrationMode: "pre_registered" as const,
+		accountMode: "multiple" as const,
+		availableAccountModes: ["single" as const, "multiple" as const],
 		tokenScope: "tenant" as const,
 		supportedScopes: ["tenant" as const, "user" as const],
 		recommendedScope: "tenant" as const,
@@ -3596,6 +3598,8 @@ const CONNECTION_PROVIDERS = [
 		logoUrl: null,
 		connectionType: "api_key" as const,
 		registrationMode: null,
+		accountMode: "single" as const,
+		availableAccountModes: ["single" as const],
 		tokenScope: "user" as const,
 		supportedScopes: ["user" as const],
 		recommendedScope: "user" as const,
@@ -3628,6 +3632,14 @@ function inventoryProvider(
 		logoUrl: null,
 		connectionType,
 		registrationMode,
+		accountMode:
+			connectionType === "oauth" && registrationMode !== "cimd"
+				? "multiple"
+				: "single",
+		availableAccountModes:
+			connectionType === "oauth" && registrationMode !== "cimd"
+				? ["single", "multiple"]
+				: ["single"],
 		tokenScope: "tenant",
 		supportedScopes: ["tenant", "user"],
 		recommendedScope: "tenant",

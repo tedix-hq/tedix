@@ -28,6 +28,8 @@ const provider: ConnectionProvider = {
 	logoUrl: null,
 	connectionType: "oauth",
 	registrationMode: "pre_registered",
+	accountMode: "multiple",
+	availableAccountModes: ["single", "multiple"],
 	tokenScope: "user",
 	supportedScopes: ["user"],
 	recommendedScope: "user",
@@ -371,7 +373,17 @@ describe("account list rows", () => {
 
 	it("offers no second account where the app takes one account", async () => {
 		await render(
-			[{ ...base, provider: { ...provider, connectionType: "api_key" } }],
+			[
+				{
+					...base,
+					provider: {
+						...provider,
+						connectionType: "api_key",
+						accountMode: "single",
+						availableAccountModes: ["single"],
+					},
+				},
+			],
 			{ owner: "organization" },
 		);
 		expect(host.textContent).toContain("One account");
@@ -379,6 +391,21 @@ describe("account list rows", () => {
 		expect(host.textContent).toContain("Everyone in this organization");
 		expect(host.textContent).toContain("Tedix keeps one key per owner");
 		expect(button("Connect another account")).toBeUndefined();
+	});
+
+	it("shows the organization account policy control only to admins", async () => {
+		const onAccountModeChange = vi.fn();
+		await render([base], {
+			owner: "organization",
+			onAccountModeChange,
+		});
+		await expand();
+		expect(
+			host.querySelector(
+				'[aria-label="Accounts allowed for Outlook Calendar"]',
+			),
+		).not.toBeNull();
+		expect(host.textContent).toContain("Several accounts");
 	});
 
 	it("puts the actionable reason on the affected row instead of a page banner", async () => {

@@ -27,6 +27,8 @@ const initechInventory: ConnectionInventory = {
 				logoUrl: null,
 				connectionType: "api_key",
 				registrationMode: null,
+				accountMode: "single",
+				availableAccountModes: ["single"],
 				tokenScope: "tenant",
 				supportedScopes: ["tenant"],
 				recommendedScope: "tenant",

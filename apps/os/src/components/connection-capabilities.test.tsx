@@ -20,6 +20,8 @@ const provider: ConnectionProvider = {
 	logoUrl: null,
 	connectionType: "oauth",
 	registrationMode: null,
+	accountMode: "multiple",
+	availableAccountModes: ["single", "multiple"],
 	tokenScope: "user",
 	supportedScopes: ["user"],
 	recommendedScope: "user",
