@@ -5,11 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ZodType } from "zod";
 import { buildAggregateTediTools } from "./aggregate-tedis";
 import { buildHomeSurfaceTools } from "./home-surface-tools";
-import {
-	resolveInternalTransportTimeout,
-	type ToolExecutionContext,
-	ToolHandler,
-} from "./handler";
+import { type ToolExecutionContext, ToolHandler } from "./handler";
+import { resolveInternalTransportTimeout } from "./handler-transport-timeouts";
 
 const originalFetch = globalThis.fetch;
 
