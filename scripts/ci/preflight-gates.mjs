@@ -2,7 +2,8 @@
 
 /**
  * Validation shared by the local hook and main CI. The fast local profile
- * keeps owner types, formatting, lint and secret scanning; CI retains the rest.
+ * keeps owner types, formatting, lint, secret scanning and procedure parity;
+ * CI retains the rest.
  *
  * WHY THESE GATES. Each one is here because of a regression that reached main
  * and was first seen after the push — the comment on each gate names its
@@ -37,7 +38,11 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { gateInProfile, migrationOrderGate } from "./preflight-profiles.mjs";
+import {
+	gateInProfile,
+	migrationOrderGate,
+	procedureParityGates,
+} from "./preflight-profiles.mjs";
 import {
 	existsSync,
 	mkdtempSync,
@@ -571,6 +576,10 @@ const gates = [
 		cmd: ["bun", "run", "--cwd", "apps/tedi-runtime", "type-check:workers"],
 		fix: TYPE_ERROR_FIX,
 	},
+	...procedureParityGates(files).map((gate) => ({
+		...gate,
+		precondition: () => (hasRealNode() ? null : NODE_REQUIRED_HINT),
+	})),
 	...selectBunTestWorkspaces(
 		files ?? [],
 		relatedByWorkspace.keys(),
