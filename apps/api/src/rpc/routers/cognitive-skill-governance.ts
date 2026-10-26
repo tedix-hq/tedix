@@ -55,7 +55,9 @@ import type {
 } from "@tedix/db/schema/cognitive";
 import { resolvePaceLayerPolicy } from "@tedix/db/schema/control-plane";
 import { toJsonRecord } from "@tedix/db/utils/json";
+import { readFactoryConstants } from "@tedix/db/queries/cognitive/skill-factory-validation";
 import { measureMiningPhase } from "../../lib/mining-phase-timing";
+import { ownerTediNamespaceIssues } from "../../services/skill-owner-tedi-check";
 import { assertSkillPromotionPremortem } from "../../services/decision-hygiene";
 import { AUTHZ, type BaseContext, createError, ErrorCodes } from "../orpc";
 import { requireOrgId } from "../org-scope";
@@ -1051,7 +1053,7 @@ export const skillsValidate = authedSkills.validate
 				? await getSkillEntry(context.db, storedId, orgId)
 				: await getSkillEntryBySlug(context.db, orgId, input.slug!);
 			if (!skill) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
-			return validateSkillInput(
+			const result = await validateSkillInput(
 				context.db,
 				{
 					title: skill.title,
@@ -1061,9 +1063,17 @@ export const skillsValidate = authedSkills.validate
 					files: skill.files ?? null,
 					toolSlugs: extractMcpToolMetadata(skill.content),
 					metadataToolSlugs: extractMcpToolMetadata(skill.content),
+					mcpAppBindings: skill.mcpAppBindings,
+					organizationId: orgId,
+					slug: skill.slug,
+					ownerTediId: skill.tediId,
 				},
 				skill.appId ?? null,
 			);
+			return withOwnerTediIssues(context, orgId, result, {
+				content: skill.content,
+				ownerTediId: skill.tediId,
+			});
 		}
 
 		// Mode B: validate draft input
@@ -1076,7 +1086,7 @@ export const skillsValidate = authedSkills.validate
 		}
 		const { allToolSlugs, metadataToolSlugs } =
 			mergeToolSlugsFromInputAndMetadata(input);
-		return validateSkillInput(
+		const result = await validateSkillInput(
 			context.db,
 			{
 				title: input.title,
@@ -1086,10 +1096,33 @@ export const skillsValidate = authedSkills.validate
 				files: input.files ?? null,
 				toolSlugs: allToolSlugs,
 				metadataToolSlugs,
+				organizationId: orgId,
 			},
 			appId,
 		);
+		// A draft has no stored owner yet; a create_factory draft names it.
+		const workflow = input.files?.["scripts/workflow.ts"];
+		return withOwnerTediIssues(context, orgId, result, {
+			content: input.content ?? "",
+			ownerTediId: workflow
+				? (readFactoryConstants(workflow)?.ownerTediId ?? null)
+				: null,
+		});
 	});
+
+async function withOwnerTediIssues(
+	context: BaseContext,
+	organizationId: string,
+	result: SkillValidationResult,
+	input: { content: string; ownerTediId: string | null },
+): Promise<SkillValidationResult> {
+	const issues = await ownerTediNamespaceIssues(context.db, {
+		organizationId,
+		...input,
+	});
+	if (!issues.length) return result;
+	return { ...result, valid: false, errors: [...result.errors, ...issues] };
+}
 
 export const skillsAuditToolCoverage = authedSkills.auditToolCoverage
 	.use(AUTHZ.tedisRead)
