@@ -592,6 +592,13 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 			"Create a governed OAuth or API-key provider with explicit configuration. Use only when upstream discovery cannot safely provision the provider; client secrets are accepted only for secure storage and are never returned.",
 	},
 	{
+		toolId: "record_connection_provider_registration",
+		endpoint: "connections/recordProviderRegistration",
+		kind: "write",
+		description:
+			"Record how an existing outbound provider's OAuth client was obtained (cimd, dcr_managed, dcr_direct or pre_registered) when it predates provenance recording. The live Descope app shape must agree. A Dynamic Client Registration provenance needs dcrException { justification, reviewBy } with a review date at most a year out. Nothing is re-registered.",
+	},
+	{
 		toolId: "initiate_connection",
 		endpoint: "connections/initiateConnection",
 		kind: "write",

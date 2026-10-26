@@ -25,8 +25,10 @@ import {
 	getConnectionProviderById,
 	listConnectionProviders,
 	listConnectionProviderSettings,
+	recordConnectionProviderRegistration,
 	setConnectionProviderAccountMode,
 } from "@tedix/db/queries/connection-providers";
+import { requireDcrException } from "./provider-registration";
 import {
 	deleteConnectionTokens,
 	fetchConnectionToken,
@@ -611,6 +613,75 @@ export const auditProviderSettings = authedOs.auditProviderSettings
 			};
 		},
 	);
+
+/**
+ * Backfill for providers provisioned before registration provenance was
+ * recorded. The claimed provenance must match the live Descope app: a
+ * Descope-managed DCR app is dcr_managed, the shared CIMD client is cimd,
+ * and a stored static client is either pre_registered or dcr_direct (the
+ * direct DCR fallback stores its client as static). A DCR provenance needs
+ * a fresh exception under the same rules as provisioning.
+ */
+export const recordProviderRegistration = authedOs.recordProviderRegistration
+	.use(AUTHZ.platformAdmin)
+	.handler(async ({ context, input }) => {
+		const client = getDescopeManagement(context.env, true);
+		const [appsResponse, providers] = await Promise.all([
+			client.management.outboundApplication.loadAllApplications(),
+			listConnectionProviders(context.db),
+		]);
+		if (!appsResponse.ok || !appsResponse.data)
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"Connection providers could not be verified",
+			);
+		const app = appsResponse.data.find((item) => item.id === input.appId) as
+			| Record<string, unknown>
+			| undefined;
+		if (!app)
+			throw createError(ErrorCodes.NOT_FOUND, "Connection provider not found");
+		const observed = inferOAuthRegistrationMode(app);
+		const allowed: Record<string, readonly string[]> = {
+			cimd: ["cimd"],
+			dcr: ["dcr_managed"],
+			pre_registered: ["pre_registered", "dcr_direct"],
+		};
+		if (!observed || !allowed[observed]?.includes(input.provenance))
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`The Descope app is ${observed ?? "not an OAuth provider"}, which does not match ${input.provenance}`,
+			);
+		const dcr =
+			input.provenance === "dcr_managed" || input.provenance === "dcr_direct";
+		if (!dcr && input.dcrException)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Only a Dynamic Client Registration provenance carries an exception",
+			);
+		const dcrException = dcr
+			? requireDcrException({
+					providerId: input.appId,
+					exception: input.dcrException,
+					recordedBy: context.descopeUserId ?? context.user?.sub ?? null,
+				})
+			: null;
+		const template = buildConnectionProviderMaps(providers).byDescopeAppId.get(
+			input.appId,
+		);
+		const providerId = template?.id ?? input.appId;
+		await recordConnectionProviderRegistration(context.db, {
+			id: providerId,
+			provenance: input.provenance,
+			dcrException,
+			name: template?.name ?? stringOrNull(app.name) ?? input.appId,
+		});
+		return {
+			appId: input.appId,
+			providerId,
+			provenance: input.provenance,
+			dcrReviewBy: dcrException?.reviewBy ?? null,
+		};
+	});
 
 /**
  * Walk the org's apps + their tools (recursively through `aggregateApps`),

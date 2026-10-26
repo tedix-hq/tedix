@@ -21,6 +21,8 @@ import {
 	ConnectionProviderSchema,
 	CreateProviderFromMcpInputSchema,
 	CreateProviderFromMcpOutputSchema,
+	RecordProviderRegistrationInputSchema,
+	RecordProviderRegistrationOutputSchema,
 	UserConnectionSchema,
 } from "../schemas/connections";
 import {
@@ -221,6 +223,22 @@ export const connectionsContract = oc
 			})
 			.input(AuditConnectionProviderSettingsInputSchema)
 			.output(AuditConnectionProviderSettingsOutputSchema),
+
+		/**
+		 * Record how an existing provider's OAuth client was obtained.
+		 * POST /connections/providers/registration
+		 */
+		recordProviderRegistration: oc
+			.route({
+				method: "POST",
+				path: "/providers/registration",
+				tags: ["internal"],
+				summary: "Record a provider's OAuth client registration",
+				description:
+					"Platform operators record registration provenance, and for Dynamic Client Registration a reason and review date, for a provider provisioned before provenance was recorded. The live Descope app shape must agree; nothing is re-registered.",
+			})
+			.input(RecordProviderRegistrationInputSchema)
+			.output(RecordProviderRegistrationOutputSchema),
 
 		/**
 		 * List a user's active connections

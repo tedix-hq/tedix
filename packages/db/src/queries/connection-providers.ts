@@ -41,6 +41,8 @@ function toConnectionProviderTemplate(
 		pinnedIssuer: row.pinnedIssuer ?? undefined,
 		authorizationResponseIssSupported:
 			row.authorizationResponseIssSupported ?? undefined,
+		registrationProvenance: row.registrationProvenance ?? undefined,
+		dcrException: row.dcrException ?? undefined,
 	};
 }
 
