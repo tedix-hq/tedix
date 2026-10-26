@@ -447,6 +447,19 @@ export interface ExchangedOAuthToken {
 // =============================================================================
 
 /**
+ * Descope answers a personal-token lookup for a user who never connected the
+ * app with 401 E151103 rather than 404, while the same management key keeps
+ * serving other users' tokens. That means "not connected", not an outage;
+ * every other 401 (such as a rejected management key) stays a lookup failure.
+ */
+export function isMissingUserToken(
+	code: number | undefined,
+	errorCode: unknown,
+) {
+	return code === 404 || (code === 401 && errorCode === "E151103");
+}
+
+/**
  * Fetch a connection token for a specific app and user.
  * Uses Descope's Outbound Application API to retrieve stored OAuth tokens.
  *
@@ -471,7 +484,8 @@ export async function fetchConnectionToken(
 		);
 
 		if (!response.ok) {
-			if (response.code === 404) return null;
+			if (isMissingUserToken(response.code, response.error?.errorCode))
+				return null;
 			throw new ConnectionTokenLookupError(response.code, {
 				lookupKind: "user_latest",
 				upstreamCode: response.error?.errorCode,
@@ -560,7 +574,7 @@ export async function fetchConnectionTokenByScopes(
 			);
 
 		if (!response.ok || !response.data) {
-			if (response.code !== 404)
+			if (!isMissingUserToken(response.code, response.error?.errorCode))
 				lookupFailure = new ConnectionTokenLookupError(response.code, {
 					lookupKind: "user_scoped",
 					upstreamCode: response.error?.errorCode,

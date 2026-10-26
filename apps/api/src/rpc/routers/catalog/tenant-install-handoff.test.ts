@@ -20,6 +20,17 @@ describe("tenantConnectionHandoffUrl", () => {
 		expect(url.searchParams.has("organization_id")).toBe(false);
 	});
 
+	it("sends a personal connection to the person's own accounts", () => {
+		expect(
+			tenantConnectionHandoffUrl({
+				environment: "production",
+				organizationSlug: "acme",
+				providerId: "todo-app",
+				personal: true,
+			}),
+		).toBe("https://acme.os.tedix.dev/account/connections?connect=todo-app");
+	});
+
 	it("uses the non-production platform domain outside production", () => {
 		expect(
 			tenantConnectionHandoffUrl({

@@ -37,6 +37,7 @@ import {
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTediOrganizationId } from "@tedix/db/queries/tedis";
 import { implement } from "@orpc/server";
+import { tenantConnectionHandoffUrl } from "../catalog/tenant-install-handoff";
 import { collectReferencedProviders } from "./provider-registration";
 import {
 	chooseEffectiveConsentScopes,
@@ -532,6 +533,30 @@ export async function adoptDefaultPersonalConnection(
 	return { tokenId: token.id, tokenSub: token.tokenSub };
 }
 
+/** Plain answer for a missing connection, with a link that starts connecting it. */
+async function connectToUseMessage(
+	context: BaseContext,
+	input: {
+		organizationId: string;
+		providerId: string;
+		appName?: string;
+		personal: boolean;
+	},
+): Promise<string> {
+	const app = input.appName || input.providerId;
+	const org = await getOrganizationById(context.db, input.organizationId).catch(
+		() => undefined,
+	);
+	if (!org?.slug)
+		return `Connect ${app} to use this, in Settings → Connections.`;
+	return `Connect ${app} to use this: ${tenantConnectionHandoffUrl({
+		environment: context.env.ENVIRONMENT,
+		organizationSlug: org.slug,
+		providerId: input.providerId,
+		personal: input.personal,
+	})}`;
+}
+
 export async function resolveCredentialChain(
 	context: BaseContext,
 	args: {
@@ -684,7 +709,12 @@ export async function resolveCredentialChain(
 			throw createError(ErrorCodes.SERVICE_UNAVAILABLE, lookupFailure.message);
 		throw createError(
 			ErrorCodes.NOT_FOUND,
-			`No connection found for provider ${args.providerId}. Connect via Settings > Connections.`,
+			await connectToUseMessage(context, {
+				organizationId: args.organizationId,
+				providerId: args.providerId,
+				appName: registeredProvider?.name,
+				personal: args.scope === "user",
+			}),
 		);
 	}
 	if (token.reconnectNeeded)

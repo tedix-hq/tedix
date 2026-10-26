@@ -1,6 +1,7 @@
 import { getDescopeManagement } from "../../../lib/descope-management";
 import {
 	connectionRefreshState,
+	isMissingUserToken,
 	isNamedConnectionExternalIdentifier,
 } from "@tedix/auth/connections";
 import { ConnectionProviderSchema } from "@tedix/api-contract/schemas/connections";
@@ -35,6 +36,7 @@ import { readConnectionProviders } from "./discovery-user";
 type CredentialResponse = {
 	ok: boolean;
 	code?: number;
+	error?: { errorCode?: string };
 	data?: {
 		accessToken?: string;
 		accessTokenExpiry?: number | string;
@@ -49,6 +51,7 @@ type CredentialResponse = {
 export function summarizeCredential(
 	response: CredentialResponse,
 	now = Date.now(),
+	personal = false,
 ): {
 	reconnectNeeded?: boolean;
 	state: ConnectionInventoryRow["accountState"];
@@ -60,7 +63,9 @@ export function summarizeCredential(
 		return {
 			...empty,
 			state:
-				response.code === 404
+				response.code === 404 ||
+				(personal &&
+					isMissingUserToken(response.code, response.error?.errorCode))
 					? "missing"
 					: response.code === 401 || response.code === 403
 						? "restricted"
@@ -170,6 +175,8 @@ export async function readConnectionsOverview(
 									);
 								}),
 							]),
+							Date.now(),
+							scope === "user",
 						);
 					}
 				} catch {

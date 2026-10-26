@@ -18,6 +18,8 @@ export function tenantConnectionHandoffUrl(input: {
 	environment: string | undefined;
 	organizationSlug: string;
 	providerId: string;
+	/** Send the person to their own accounts instead of the shared ones. */
+	personal?: boolean;
 }): string {
 	const origin = buildSurfaceUrl("os", input.organizationSlug, {
 		platformDomain: platformDomainForEnvironment(
@@ -27,7 +29,10 @@ export function tenantConnectionHandoffUrl(input: {
 	if (!origin) {
 		throw new Error("Tenant connection handoff requires an organization slug");
 	}
-	const url = new URL("/admin/connections", origin);
+	const url = new URL(
+		input.personal ? "/account/connections" : "/admin/connections",
+		origin,
+	);
 	url.searchParams.set("connect", input.providerId);
 	return url.toString();
 }
