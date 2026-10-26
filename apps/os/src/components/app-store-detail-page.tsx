@@ -12,17 +12,16 @@ import type {
 } from "@tedix/api-contract/schemas/catalog";
 import {
 	ArrowSquareOut,
-	CheckCircle,
 	Code,
 	DownloadSimple,
 	Globe,
-	Pulse,
 	Shield,
-	WarningCircle,
-	XCircle,
 } from "@phosphor-icons/react";
 import { toast } from "@/components/kumo/toast";
-import { CatalogAppLogo } from "@/components/app-store-page";
+import {
+	CatalogAppLogo,
+	CatalogHealthBadge,
+} from "@/components/app-store-shared";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card } from "@/components/kumo/card";
@@ -55,54 +54,6 @@ import {
 	catalogAppDetailQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
-
-function HealthBadge({ status }: { status: string | null }) {
-	const options = {
-		healthy: {
-			icon: CheckCircle,
-			label: "Catalog check passed",
-			variant: "success" as const,
-		},
-		degraded: {
-			icon: WarningCircle,
-			label: "Degraded",
-			variant: "secondary" as const,
-		},
-		unhealthy: {
-			icon: XCircle,
-			label: "Unhealthy",
-			variant: "destructive" as const,
-		},
-		requires_auth: {
-			icon: Shield,
-			label: "Requires auth",
-			variant: "outline" as const,
-		},
-		blocked: {
-			icon: XCircle,
-			label: "Blocked",
-			variant: "destructive" as const,
-		},
-		unsupported: {
-			icon: Pulse,
-			label: "Unsupported",
-			variant: "outline" as const,
-		},
-		unknown: {
-			icon: Pulse,
-			label: "Not checked",
-			variant: "outline" as const,
-		},
-	};
-	const option = options[status as keyof typeof options] ?? options.unknown;
-	const Icon = option.icon;
-	return (
-		<Badge variant={option.variant} className="gap-1">
-			<Icon className="size-3" />
-			{option.label}
-		</Badge>
-	);
-}
 
 function InfoRow({ label, value }: { label: string; value: string }) {
 	return (
@@ -137,7 +88,7 @@ export function CatalogToolList({
 							role="body"
 							tone="mono"
 							weight="semibold"
-							className="min-w-0 max-w-full truncate"
+							className="min-w-0 max-w-full [overflow-wrap:anywhere]"
 						>
 							{tool.toolName}
 						</Text>
@@ -269,7 +220,11 @@ export function CatalogAppMetadata({ app }: { app: CatalogAppDetail }) {
 						<Text as="p" role="label" tone="secondary">
 							MCP endpoint
 						</Text>
-						<Text as="code" role="label" className="block max-w-full truncate">
+						<Text
+							as="code"
+							role="label"
+							className="block max-w-full [overflow-wrap:anywhere]"
+						>
 							{app.baseUrl}
 						</Text>
 					</div>
@@ -561,15 +516,20 @@ export function AppStoreDetailPage({ slug }: { slug: string }) {
 							<PageTitle className="min-w-0 [overflow-wrap:anywhere]">
 								{app.name}
 							</PageTitle>
-							<HealthBadge status={app.healthStatus ?? null} />
+							<CatalogHealthBadge status={app.healthStatus ?? null} />
 						</div>
 						{app.developer ? (
-							<Text as="p" role="body" tone="secondary">
+							<Text
+								as="p"
+								role="body"
+								tone="secondary"
+								className="[overflow-wrap:anywhere]"
+							>
 								by {app.developer}
 							</Text>
 						) : null}
 						{app.description ? (
-							<PageDescription className="line-clamp-4 [overflow-wrap:anywhere] sm:line-clamp-none">
+							<PageDescription className="[overflow-wrap:anywhere]">
 								{app.description}
 							</PageDescription>
 						) : null}
