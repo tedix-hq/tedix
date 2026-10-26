@@ -4,6 +4,7 @@ import {
 	CheckCircle,
 	DotsThree,
 	Pulse,
+	ShieldCheck,
 	X,
 } from "@phosphor-icons/react";
 import { useContext, useState } from "react";
@@ -76,7 +77,7 @@ export function ApprovalNotifications({
 				menu.target &&
 				createPortal(
 					<DropdownMenuItem onClick={() => setOpen(true)}>
-						<Pulse aria-hidden size={18} />
+						<ShieldCheck aria-hidden size={18} />
 						Approvals{count > 0 ? <Badge>{count} waiting</Badge> : null}
 					</DropdownMenuItem>,
 					menu.target,
@@ -95,7 +96,7 @@ export function ApprovalNotifications({
 							title="Approvals"
 							variant={count > 0 ? "secondary" : "ghost"}
 						>
-							<Pulse size={16} weight={count > 0 ? "bold" : "regular"} />
+							<ShieldCheck size={16} weight={count > 0 ? "bold" : "regular"} />
 							{count > 0 ? (
 								<Badge className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 tabular-nums">
 									{count > 99 ? "99+" : count}

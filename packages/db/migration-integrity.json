@@ -1176,6 +1176,10 @@
 		{
 			"name": "20261026194540_mcp_inbound_client_attempts/migration.sql",
 			"sha256": "550b57e7ad0b130a78153123ca065a358f80429836cec181ed79b26e2c629d7b"
+		},
+		{
+			"name": "20261026202309_installed-attention-app-names/migration.sql",
+			"sha256": "35b85f7e56543c999fa3c3187cf0d0e7d45b4da19cdfebc330d23aa5bd58c9bb"
 		}
 	]
 }
