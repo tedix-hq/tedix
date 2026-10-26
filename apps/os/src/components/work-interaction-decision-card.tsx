@@ -1,7 +1,7 @@
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { CardFaceContext } from "@/components/deck-presentation-context";
 import { DeckWhyChain } from "@/components/deck-why-chain";
-import { workActorReference } from "@/lib/work-actor";
+import { interactionActorReference } from "@/lib/work-actor";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import {
 	WorkReadNotice,
@@ -299,11 +299,9 @@ export function WorkInteractionDecisionCard({
 							: interactionSubject(preview.request)
 					}
 					askedBy={askedBy ?? preview.askedBy ?? OS_COPY.feed.actors.user}
-					actor={workActorReference(
-						preview.request.creatorType,
-						preview.request.creatorId,
-						{ agentHarness: preview.creatorHarness },
-						preview.request.creatorSessionId,
+					actor={interactionActorReference(
+						preview.request,
+						preview.creatorHarness,
 					)}
 					source={{
 						channel: "Decision capture",
@@ -525,12 +523,7 @@ export function WorkInteractionDecisionCard({
 						: (presentation?.title ?? interactionSubject(request))
 				}
 				askedBy={source}
-				actor={workActorReference(
-					request.creatorType,
-					request.creatorId,
-					{ agentHarness: preview?.creatorHarness },
-					request.creatorSessionId,
-				)}
+				actor={interactionActorReference(request, preview?.creatorHarness)}
 				source={{
 					channel: "Decision capture",
 					capturedAt: request.requestedAt,

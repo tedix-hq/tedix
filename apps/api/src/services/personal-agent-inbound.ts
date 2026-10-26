@@ -87,6 +87,7 @@ export async function receivePersonalAgentFinding(
 	const contribution: PersonalAgentContribution = {
 		sourceAgentId: e.id,
 		sourceAgentName: e.sourceAgentName,
+		...(e.imageUrl ? { imageUrl: e.imageUrl } : {}),
 		representedUserId: e.representedUserId,
 		sourceChannel: input.channel,
 		capturedAt,

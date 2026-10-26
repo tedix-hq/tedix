@@ -10,7 +10,9 @@ import {
 	PERSONAL_AGENT_PRINCIPALS,
 } from "../../dev/personal-agent-fixture";
 import {
+	interactionActorReference,
 	resolveWorkActor,
+	resolveWorkContributor,
 	workActorReference,
 	type ActorDirectory,
 	type ActorProfile,
@@ -119,4 +121,52 @@ it("does not trust a body name, metadata identity or user/tedi harness label", (
 	expect(html).toContain(
 		"does not verify a personal agent mentioned in the text",
 	);
+});
+
+it("shows a personal agent's configured logo and represented user on its Decisions card", () => {
+	const contribution = {
+		sourceAgentId: "33333333-3333-4333-8333-333333333333",
+		sourceAgentName: "Wren",
+		imageUrl: "https://assets.example.test/wren.svg",
+		representedUserId: "fictional-morgan",
+		sourceChannel: "webhook",
+		capturedAt: "2026-10-19T10:15:00.000Z",
+		evidenceUrl: "https://evidence.example.test/findings/wren",
+		externalFindingId: "wren-1",
+		kind: "proposal",
+	};
+	const actor = interactionActorReference({
+		creatorType: "system",
+		creatorId: "tedix",
+		metadata: { personalAgentContribution: contribution },
+	});
+	expect(resolveWorkContributor(actor, "Wren", directory)).toMatchObject({
+		image: contribution.imageUrl,
+		label: "Wren for Morgan Lee",
+	});
+	const html = renderToStaticMarkup(
+		<WorkActorDirectoryContext.Provider value={directory}>
+			<WorkDecisionCard
+				kind="proposal"
+				title="Explore the revised quote?"
+				askedBy="Wren · your personal agent"
+				actor={actor}
+				at={contribution.capturedAt}
+				body="The revised quote includes the delivery charge."
+				onDecision={async () => {}}
+			/>
+		</WorkActorDirectoryContext.Provider>,
+	);
+	expect(html).toContain("Wren for Morgan Lee");
+	expect(html).toContain("Submitted by Intake service · System");
+	expect(html).toContain("Represented user: Morgan Lee");
+	expect(html).toContain(contribution.evidenceUrl);
+	// Only the intake service stamps contributions; another creator's metadata is ignored.
+	const forged = interactionActorReference({
+		creatorType: "external_agent",
+		creatorId: "44444444-4444-4444-8444-444444444444",
+		metadata: { personalAgentContribution: contribution },
+	});
+	expect(forged.contributor).toBeUndefined();
+	expect(forged.source).toBeUndefined();
 });
