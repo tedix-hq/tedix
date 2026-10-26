@@ -23,6 +23,7 @@ import {
 	render,
 	repoSlug,
 	runPromptContext,
+	workBoundaryLine,
 } from "./prompt-context";
 
 /** Checks for fresh context, tenant fences and prompt privacy. */
@@ -781,12 +782,45 @@ describe("tedix hooks prompt-context", () => {
 		expect(out).toContain("truncated");
 		expect(out).toContain("receipt-1");
 		expect(out).toContain("reader");
+		expect(out).not.toContain("Focus: Work");
 		expect(out).not.toContain("x".repeat(3201));
 		expect(out).not.toContain("y".repeat(401));
 		data.work.item.projectId = "wrong";
 		({ out } = await run([binding, AUTH, data]));
 		expect(out).toContain("unavailable");
 		expect(out).not.toContain("receipt-1");
+	});
+
+	test("boundary focus counts calendar days from existing project dates", () => {
+		expect(
+			workBoundaryLine(
+				{
+					item: {
+						id: WORK,
+						organizationId: ORG,
+						projectId: PROJECT,
+						objectiveId: OUTPUT,
+						title: "Ship the focus hook",
+					},
+					project: {
+						id: PROJECT,
+						organizationId: ORG,
+						objectiveId: OUTPUT,
+						targetDate: "2026-10-31",
+					},
+					objective: {
+						id: OUTPUT,
+						organizationId: ORG,
+						title: "Stay focused",
+						status: "active",
+						successCriteria: "Unplanned starts fall",
+					},
+				},
+				new Date("2026-10-26T23:30:00Z"),
+			),
+		).toBe(
+			'Focus: Work "Ship the focus hook" -> objective "Stay focused" -> success "Unplanned starts fall" -> 5 days left (target 2026-10-31).',
+		);
 	});
 
 	test("the output byte cap prevents an oversized hook spill", async () => {

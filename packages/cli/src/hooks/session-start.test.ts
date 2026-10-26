@@ -8,6 +8,8 @@ import { runSessionStart } from "./session-start";
 
 /** Behavior checks for the bounded, read-only session brief. */
 const WORK_ID = "ac651d65-a993-4e57-aa05-d4c45c78cfda";
+const ORG_ID = "11111111-1111-4111-8111-111111111111";
+const OBJECTIVE_ID = "22222222-2222-4222-8222-222222222222";
 const AUTH = {
 	wouldUse: "stored-login",
 	workspace: "tedix",
@@ -42,16 +44,48 @@ function context(output: string): string {
 	return JSON.parse(output).hookSpecificOutput.additionalContext;
 }
 
+function boundary(
+	item: JsonObject,
+	organizationId = ORG_ID,
+	objective: JsonObject | null = {
+		id: OBJECTIVE_ID,
+		organizationId,
+		title: "Reach the selected result",
+		status: "active",
+		successCriteria: "The selected result is delivered",
+	},
+): JsonObject {
+	const projectId = item.projectId;
+	return {
+		item: {
+			id: WORK_ID,
+			organizationId,
+			objectiveId: objective ? OBJECTIVE_ID : null,
+			...item,
+		},
+		project:
+			typeof projectId === "string"
+				? {
+						id: projectId,
+						organizationId,
+						objectiveId: objective ? OBJECTIVE_ID : null,
+						targetDate: null,
+					}
+				: null,
+		objective,
+	};
+}
+
 async function brief(
 	outcome: string,
 	attempts: unknown[] = [],
 	source = "startup",
 ): Promise<string> {
-	const item = {
+	const item = boundary({
 		title: "Selected task",
 		disposition: "accepted",
 		acceptanceContract: { doneLooksLike: outcome },
-	};
+	});
 	const { output } = await run(
 		[AUTH, item, { data: attempts }],
 		{
@@ -76,12 +110,12 @@ async function automaticBrief(
 		binding.status === "bound"
 			? { org: "org_tedix", mcpUrl: AUTH.mcpUrl, ...binding }
 			: binding;
-	const item = {
+	const item = boundary({
 		title: "Bound task",
 		projectId: project,
 		disposition: "completed",
 		acceptanceContract: { doneLooksLike: "Deliver the result" },
-	};
+	});
 	return run([bound, AUTH, item, { data: [] }], env, event);
 }
 
@@ -118,15 +152,24 @@ describe("tedix hooks session-start", () => {
 				accessToken: { selectedOrganizations: ["org_target"] },
 			},
 		};
-		const org = "11111111-1111-4111-8111-111111111111";
+		const org = ORG_ID;
 		for (const actual of [org, WORK_ID]) {
-			const item = {
-				title: "Scoped task",
-				projectId: "project-id",
-				orgId: actual,
-				disposition: "accepted",
-				acceptanceContract: { doneLooksLike: "Finish" },
-			};
+			const item = boundary(
+				{
+					title: "Scoped task",
+					projectId: "project-id",
+					disposition: "accepted",
+					acceptanceContract: { doneLooksLike: "Finish" },
+				},
+				actual,
+				{
+					id: OBJECTIVE_ID,
+					organizationId: actual,
+					title: "Reach the selected result",
+					status: "active",
+					successCriteria: "Finish",
+				},
+			);
 			const { output, calls } = await run([
 				binding,
 				auth,
@@ -206,6 +249,45 @@ describe("tedix hooks session-start", () => {
 
 	test("a missing outcome cannot be treated as complete", async () => {
 		expect(await brief("")).toContain("outcomeComplete=false");
+	});
+
+	test("shows focus at startup and only that line at Stop", async () => {
+		const startup = await brief("Finish the task");
+		expect(startup).toContain(
+			'Focus: Work "Selected task" -> objective "Reach the selected result" -> success "The selected result is delivered" -> days left not set.',
+		);
+		const stopped = await run(
+			[AUTH, boundary({ title: "Selected task", disposition: "accepted" })],
+			{
+				TEDIX_PLUGIN_PREFLIGHT: "1",
+				TEDIX_WORKSPACE: "tedix",
+				TEDIX_WORK_ITEM_ID: WORK_ID,
+			},
+			{ hook_event_name: "Stop" },
+		);
+		const output = JSON.parse(stopped.output);
+		expect(output.systemMessage).toContain('Focus: Work "Selected task"');
+		expect(output.systemMessage.split("\n")).toHaveLength(1);
+		expect(output).not.toHaveProperty("hookSpecificOutput");
+		expect(stopped.calls).toHaveLength(2);
+	});
+
+	test("offers an if-then park when Work has no active objective", async () => {
+		const stopped = await run(
+			[
+				AUTH,
+				boundary({ title: "Side idea", disposition: "accepted" }, ORG_ID, null),
+			],
+			{
+				TEDIX_PLUGIN_PREFLIGHT: "1",
+				TEDIX_WORKSPACE: "tedix",
+				TEDIX_WORK_ITEM_ID: WORK_ID,
+			},
+			{ hook_event_name: "Stop" },
+		);
+		expect(JSON.parse(stopped.output).systemMessage).toBe(
+			'Focus: Work "Side idea" has no path to an active objective. If it is still worth doing, park it with a next step + review date; otherwise stop.',
+		);
 	});
 
 	test("an observed Attempt identifies its owner without inheriting authority", async () => {
