@@ -11,11 +11,23 @@ code and collaboration tools and their schemas in that organization's
 namespace before calling them. Check access and current revision; preserve
 existing files and other editors' work.
 
-Start by copying [the review starter](assets/sheet-review/README.md), its
+## Start from the organization
+
+App rules belong to the organization, not to this skill. Before writing code,
+look in that organization for its own app guide and reusable apps: its skills
+(discover them; a skill there may set language, tone, colours, tags or review
+steps) and its published workspace blueprints. Copy an organization blueprint
+when one fits. Org guidance wins over the generic defaults below; never copy
+one organization's wording, language or data into another.
+
+## Platform template
+
+When the organization has nothing to start from, copy [the review starter](assets/sheet-review/README.md), its
 [client](assets/sheet-review/client.js), [server](assets/sheet-review/server.js)
 and [manifest](assets/sheet-review/manifest.json). It reads a sheet and saves
-shared ratings in app storage; it never changes the sheet. Adapt tenant choices
-through `config.settings` and workspace slots. Its README explains setup and
+shared ratings in app storage; it never changes the sheet. It is a generic
+reference, not a tenant app: adapt tenant choices, `locale` and every visible
+word (`copy`) through `config.settings` and workspace slots. Its README explains setup and
 storage semantics for the next editor. Include an app-specific `README.md`
 in `files` describing inputs, actions, storage, limits and checks.
 
@@ -105,7 +117,9 @@ Before handing off:
 
 - Own light-theme colours on `:root` (`color-scheme: light`, background, surface,
   foreground, muted, border, accent and on-accent); the host gives no tokens.
-- Use plain German copy, semantic buttons, visible focus and labelled controls.
+- Write plain copy in the language the organization or workspace uses (never
+  assume one) and keep it in `config.settings`; use semantic buttons, visible
+  focus and labelled controls.
 - Confirm resets inside the app; sandboxed native `confirm()` dialogs are blocked.
 - Make touch targets at least 44 × 44 CSS pixels. Check phone width (375px),
   desktop, long text, loading, empty and denied/error states.
