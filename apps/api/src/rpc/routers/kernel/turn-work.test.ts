@@ -56,6 +56,13 @@ vi.mock("./direct-rename", async (importOriginal) => ({
 	organizationGatewayApp: vi.fn(async () => "org-1-unified"),
 }));
 
+const directRenameMocks = vi.hoisted(() => ({
+	listOsGadgets: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
+	listOsGadgets: directRenameMocks.listOsGadgets,
+}));
+
 const directSkillMoveMocks = vi.hoisted(() => ({
 	resolveDirectSkillMove: vi.fn(),
 }));
@@ -1281,6 +1288,56 @@ describe("runKernelTurnWork progress seam", () => {
 					workspaceId: "workspace-1",
 					gadgetId: "gadget-1",
 					name: "Harvest Review App",
+				},
+			},
+		});
+	});
+
+	it("renames the named app instead of the attached sheet", async () => {
+		const planned: Array<Record<string, unknown>> = [];
+		const kernel = vi.fn(async () => null);
+		directRenameMocks.listOsGadgets.mockResolvedValueOnce([
+			{ id: "gadget-1", name: "Daily review" },
+		]);
+		const deps = stubDeps({
+			kernel,
+			writeProposalPlanner: async (args) => {
+				planned.push(args as unknown as Record<string, unknown>);
+				return null;
+			},
+		});
+		await runKernelTurnWork(deps, {
+			...turnInput(),
+			content:
+				'[[tedix-context:output:sheet-1:Opportunity%20sheet]]\n\nrename the app gadget to "Opportunity Review App"',
+			runtimeMetadata: {
+				workspaceContext: {
+					workspaceId: "workspace-1",
+					workspaceName: "Orchard",
+					workpiece: {
+						kind: "output",
+						id: "sheet-1",
+						name: "Opportunities",
+					},
+				},
+			},
+		});
+		expect(kernel).not.toHaveBeenCalled();
+		expect(planned).toHaveLength(1);
+		expect(planned[0]).toMatchObject({
+			route: {
+				routeKind: "propose_tool_write",
+				toolIntent: {
+					appSlug: "org-1-unified",
+					capability: "gadgets.rename",
+				},
+			},
+			directRename: {
+				toolName: "os.rename_os_gadget",
+				args: {
+					workspaceId: "workspace-1",
+					gadgetId: "gadget-1",
+					name: "Opportunity Review App",
 				},
 			},
 		});
