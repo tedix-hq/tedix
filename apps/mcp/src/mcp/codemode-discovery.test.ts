@@ -197,24 +197,47 @@ describe("Code Mode discovery helpers", () => {
 		expect(moreTerms.score).toBeGreaterThan(fewerTerms.score);
 	});
 
-	it("indexes schemas once per entry across catalog-scale ranking and suggestions", () => {
+	it("scores a catalog-scale search without serializing or fully walking schemas", () => {
+		// A 16k-tool Connect catalog once kept a normalized copy of every
+		// description and stringified schema per request; a cold isolate then
+		// exceeded the Worker memory limit (Cloudflare 1102). Scoring now reads
+		// fields in place: schemas are never serialized, a schema is walked only
+		// for a term no stronger field matched, and only up to a bounded prefix.
 		const tools: Record<string, CatalogToolEntry> = {};
-		const serializations = new Uint8Array(13_000);
+		const serializations = new Uint32Array(16_000);
+		let propertyReads = 0;
+		const properties = new Proxy(
+			Object.fromEntries(
+				Array.from({ length: 2_000 }, (_, p) => [
+					`field_${p}`,
+					{ type: "string", description: "Executor field." },
+				]),
+			),
+			{
+				get(target, key, receiver) {
+					propertyReads++;
+					return Reflect.get(target, key, receiver);
+				},
+			},
+		);
 		for (let i = 0; i < serializations.length; i++) {
 			const name = `assign_work_executor_${i}`;
 			tools[name] = entry("work", name, {
 				description: "Assign work executor. ".repeat(300),
 				parameters: {
+					type: "object",
+					properties,
 					toJSON() {
 						serializations[i] = serializations[i]! + 1;
-						return { type: "object", description: "schema ".repeat(400) };
+						return {};
 					},
 				},
 			});
 		}
-		// Ranking and nearest-namespace hints traverse the same request catalog.
-		// Count schema walks instead of timing a machine-dependent CPU budget.
-		for (const query of ["assign work executor", "work executor"]) {
+		for (const query of [
+			"assign work executor",
+			"work executor quarterlyledger",
+		]) {
 			const terms = normalizeSearchTerms(query);
 			for (const [name, meta] of Object.entries(tools)) {
 				expect(scoreCatalogSearch(terms, "work", name, meta)).not.toBeNull();
@@ -226,7 +249,35 @@ describe("Code Mode discovery helpers", () => {
 				},
 			);
 		}
-		expect([...serializations].every((count) => count === 1)).toBe(true);
+		expect(serializations.every((count) => count === 0)).toBe(true);
+		// Only the unmatched "quarterlyledger" term reaches the schema, once per
+		// entry (the nearest-namespace pass reuses the ranking pass), and the
+		// walk stops at the indexed prefix long before 2,000 properties.
+		const readsPerEntry = propertyReads / serializations.length;
+		expect(readsPerEntry).toBeGreaterThan(0);
+		expect(readsPerEntry).toBeLessThan(120);
+	});
+
+	it("matches schema text inside the indexed prefix only", () => {
+		const terms = normalizeSearchTerms("invoiceNumber");
+		const schema = (prefix: number) => ({
+			type: "object",
+			properties: {
+				...Object.fromEntries(
+					Array.from({ length: prefix }, (_, p) => [
+						`f${p}`,
+						{ type: "string" },
+					]),
+				),
+				invoiceNumber: { type: "string" },
+			},
+		});
+		const near = entry("billing", "get_record", { parameters: schema(2) });
+		const far = entry("billing", "get_record", { parameters: schema(400) });
+		expect(
+			scoreCatalogSearch(terms, "billing", "get_record", near),
+		).toMatchObject({ matchedTerms: ["invoicenumber"] });
+		expect(scoreCatalogSearch(terms, "billing", "get_record", far)).toBeNull();
 	});
 
 	it("finds nearest namespaces and useful query suggestions", () => {
