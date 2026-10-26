@@ -10,6 +10,7 @@ import type { DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { chunkForBoundParams } from "../../utils/batch";
 import { appTools } from "../../schema/tools";
+import { lintFactoryWorkflow } from "./skill-factory-validation";
 import {
 	parseSkillFrontmatterCapabilities,
 	resolveToolSlugsForApp,
@@ -59,6 +60,10 @@ export interface SkillValidationInput {
 	mcpAppBindings?: unknown;
 	/** Owning organization; a binding counts only for its own or a public app. */
 	organizationId?: string;
+	/** Stored skill slug; a factory workflow's FACTORY.slug must match it. */
+	slug?: string | null;
+	/** Stored owner tedi; a factory workflow's FACTORY.ownerTediId must match it. */
+	ownerTediId?: string | null;
 }
 
 /** Only the structural AST fields used by the authoring checks. */
@@ -1053,6 +1058,14 @@ export async function validateSkillInput(
 				capabilities,
 			);
 			errors.push(...workflowIssues);
+			const factory = lintFactoryWorkflow({
+				source,
+				content,
+				skillSlug: input.slug,
+				ownerTediId: input.ownerTediId,
+			});
+			errors.push(...factory.errors);
+			warnings.push(...factory.warnings);
 		}
 	}
 
