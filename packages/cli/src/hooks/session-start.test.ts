@@ -498,11 +498,7 @@ describe("SessionStart request ledger", () => {
 
 	describe("owner-host Agent-Session", () => {
 		const CHAT = "88888888-8888-4888-8888-888888888888";
-		const AGENT = "99999999-9999-4999-8999-999999999999";
-		const TOOL = "agent.start_external_agent_session_for_host";
-		const found = {
-			rows: [{ callable: TOOL, authorized: true }],
-		};
+		const TOOL = "start_external_agent_session_for_host";
 		function claudeHost() {
 			const dir = mkdtempSync(join(tmpdir(), "tedix-owner-host-"));
 			mkdirSync(join(dir, "claude", "sessions"), { recursive: true });
@@ -528,32 +524,61 @@ describe("SessionStart request ledger", () => {
 		}
 		const tuple = {
 			harness: "claude-code",
-			externalSessionKey: `claude-code:${CHAT}`,
+			externalSessionKey: `claude-code:${CHAT}:owner-host`,
 			harnessVersion: "2.1.300",
 			modelProvider: "anthropic",
 			modelId: "example-model",
 			modelVersion: "unpinned:example-model@claude-code/2.1.300",
 		};
 
-		test("opens the chat's session with the native tuple and injects its id", async () => {
+		const line = (value: object) =>
+			`Tedix Agent-Session: before your first Tedix code call, call ${TOOL} with ${JSON.stringify(value)}, then pass the returned session.id as agentSessionId on every Tedix code call; if it fails, continue without it.`;
+
+		test("hands the model this chat's native tuple without a gateway call", async () => {
 			const host = claudeHost();
 			try {
 				const { output, calls } = await run(
-					[
-						{ status: "unbound" },
-						AUTH,
-						found,
-						{ session: { ...tuple, id: AGENT, status: "active" } },
-					],
+					[{ status: "unbound" }, AUTH],
 					host.env,
 					host.event,
 				);
-				expect(context(output)).toContain(
-					`Tedix Agent-Session ${AGENT}: pass agentSessionId on every Tedix code call.`,
+				expect(context(output)).toContain(line(tuple));
+				expect(calls).toHaveLength(2);
+			} finally {
+				rmSync(host.dir, { recursive: true, force: true });
+			}
+		});
+
+		test("keeps the session line when the Work preflight stops early", async () => {
+			const host = claudeHost();
+			try {
+				const binding = {
+					status: "bound",
+					workspace: "connect",
+					org: "orchid",
+					organization: "orchid",
+					scopeRoutingHint: true,
+					mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+					projectId: CHAT,
+				};
+				const { output } = await run(
+					[
+						binding,
+						{
+							wouldUse: "stored-login",
+							workspace: "connect",
+							mcpUrl: binding.mcpUrl,
+							storedLogin: {
+								accessToken: { selectedOrganizations: ["org_orchid"] },
+							},
+						},
+						new Error("timed out"),
+					],
+					{ ...host.env, TEDIX_WORKSPACE: "connect" },
+					host.event,
 				);
-				expect(calls[2]).toContain("code");
-				expect(calls[3]!.at(-1)).toContain(TOOL);
-				expect(calls[3]!.at(-1)).toContain(JSON.stringify(tuple));
+				expect(context(output)).toContain(line(tuple));
+				expect(context(output)).toContain("organization could not be verified");
 			} finally {
 				rmSync(host.dir, { recursive: true, force: true });
 			}
@@ -576,13 +601,8 @@ describe("SessionStart request ledger", () => {
 				})}\n`,
 			);
 			try {
-				const { calls } = await run(
-					[
-						{ status: "unbound" },
-						AUTH,
-						found,
-						{ session: { id: AGENT, status: "active" } },
-					],
+				const { output } = await run(
+					[{ status: "unbound" }, AUTH],
 					{
 						TEDIX_PLUGIN_PREFLIGHT: "1",
 						TEDIX_WORKSPACE: "tedix",
@@ -596,10 +616,10 @@ describe("SessionStart request ledger", () => {
 						transcript_path: rollout,
 					},
 				);
-				expect(calls[3]!.at(-1)).toContain(
-					JSON.stringify({
+				expect(context(output)).toContain(
+					line({
 						harness: "codex",
-						externalSessionKey: `codex:${CHAT}`,
+						externalSessionKey: `codex:${CHAT}:owner-host`,
 						harnessVersion: "0.164.0",
 						modelProvider: "example-provider",
 						modelId: "example-slug",
@@ -611,22 +631,7 @@ describe("SessionStart request ledger", () => {
 			}
 		});
 
-		test("does not open a session for a machine credential", async () => {
-			const host = claudeHost();
-			try {
-				const { output, calls } = await run(
-					[{ status: "unbound" }, { ...AUTH, wouldUse: "direct-token" }],
-					host.env,
-					host.event,
-				);
-				expect(calls).toHaveLength(2);
-				expect(output).not.toContain("Agent-Session");
-			} finally {
-				rmSync(host.dir, { recursive: true, force: true });
-			}
-		});
-
-		test("skips silently when the model or harness version is unknown", async () => {
+		test("names no session when the model or harness version is unknown", async () => {
 			const host = claudeHost();
 			try {
 				const { model: _, ...event } = host.event;
@@ -635,58 +640,16 @@ describe("SessionStart request ledger", () => {
 					host.env,
 					event,
 				);
-				expect(missingModel.calls).toHaveLength(2);
+				expect(missingModel.output).not.toContain("Agent-Session");
 				rmSync(join(host.dir, "claude", "sessions", "4242.json"));
 				const missingVersion = await run(
 					[{ status: "unbound" }, AUTH],
 					host.env,
 					host.event,
 				);
-				expect(missingVersion.calls).toHaveLength(2);
 				expect(missingVersion.output).not.toContain("Agent-Session");
 			} finally {
 				rmSync(host.dir, { recursive: true, force: true });
-			}
-		});
-
-		test("a changed model, mismatched echo or ambiguous namespace emits nothing", async () => {
-			for (const reads of [
-				[found, new Error("immutable_session_conflict")],
-				[
-					found,
-					{
-						session: {
-							...tuple,
-							modelId: "other-model",
-							id: AGENT,
-							status: "active",
-						},
-					},
-				],
-				[
-					{
-						rows: [
-							{ callable: TOOL, authorized: true },
-							{
-								callable: "other.start_external_agent_session_for_host",
-								authorized: true,
-							},
-						],
-					},
-				],
-			]) {
-				const host = claudeHost();
-				try {
-					const { output } = await run(
-						[{ status: "unbound" }, AUTH, ...reads],
-						host.env,
-						host.event,
-					);
-					expect(context(output)).toContain("Tedix read-only preflight");
-					expect(output).not.toContain("Agent-Session");
-				} finally {
-					rmSync(host.dir, { recursive: true, force: true });
-				}
 			}
 		});
 	});
