@@ -38,22 +38,54 @@ export function AppDraftEditor({
 			await onSave(content);
 		},
 	});
+	const saveButton = (
+		<Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
+			{save.isPending ? "Saving…" : "Save as draft"}
+		</Button>
+	);
+	const error = save.error && (
+		<Text as="p" tone="error" role="label" className="m-0">
+			{save.error.message}
+		</Text>
+	);
+	// In the Code view the file list sits beside the editor: show the open file
+	// and its one action in a header row, and let the text fill the rest.
+	if (selectedFile)
+		return (
+			<div className="canvas-code-file" data-app-draft-editor>
+				<div className="canvas-code-file-header">
+					<code className="canvas-code-file-name">{path}</code>
+					<div className="canvas-code-file-actions">
+						{error}
+						{saveButton}
+					</div>
+				</div>
+				<textarea
+					aria-label={`Edit ${path}`}
+					className="canvas-code-textarea"
+					spellCheck={false}
+					value={texts[path] ?? ""}
+					onChange={(event) =>
+						setTexts({ ...texts, [path]: event.target.value })
+					}
+					disabled={save.isPending}
+				/>
+			</div>
+		);
 	return (
 		<div className="grid min-w-0 gap-2 p-3" data-app-draft-editor>
-			{!selectedFile && (
-				<div className="flex flex-wrap gap-1">
-					{Object.keys(texts).map((file) => (
-						<Button
-							key={file}
-							size="sm"
-							variant={file === path ? "secondary" : "ghost"}
-							onClick={() => setSelection(file)}
-						>
-							{file}
-						</Button>
-					))}
-				</div>
-			)}
+			<div className="flex flex-wrap gap-1">
+				{Object.keys(texts).map((file) => (
+					<Button
+						key={file}
+						size="sm"
+						variant={file === path ? "secondary" : "ghost"}
+						onClick={() => setSelection(file)}
+					>
+						{file}
+					</Button>
+				))}
+			</div>
 			<Textarea
 				aria-label={`Edit ${path}`}
 				className="font-mono"
@@ -63,14 +95,8 @@ export function AppDraftEditor({
 				disabled={save.isPending}
 			/>
 			<div className="flex flex-wrap gap-2">
-				<Button
-					size="sm"
-					disabled={save.isPending}
-					onClick={() => save.mutate()}
-				>
-					{save.isPending ? "Saving…" : "Save as draft"}
-				</Button>
-				{!selectedFile && path !== "manifest.json" && (
+				{saveButton}
+				{path !== "manifest.json" && (
 					<Button
 						size="sm"
 						variant="ghost"
@@ -86,11 +112,7 @@ export function AppDraftEditor({
 					</Button>
 				)}
 			</div>
-			{save.error && (
-				<Text as="p" tone="error" role="label">
-					{save.error.message}
-				</Text>
-			)}
+			{error}
 		</div>
 	);
 }

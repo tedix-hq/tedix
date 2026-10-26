@@ -170,9 +170,8 @@ describe("CanvasWorkspaceControls", () => {
 		await flush();
 		for (const label of [
 			"Share",
-			"Edit workspace",
 			"Mute workspace notifications",
-			"Archive workspace",
+			"Workspace actions",
 		]) {
 			const action = rendered.container.querySelector(
 				`button[aria-label="${label}"]`,
@@ -180,6 +179,15 @@ describe("CanvasWorkspaceControls", () => {
 			expect(action).not.toBeNull();
 			expect(action?.className).toContain("!size-8");
 		}
+		// Edit and Archive stay in the menu instead of repeating as icons.
+		expect(
+			rendered.container.querySelector('button[aria-label="Edit workspace"]'),
+		).toBeNull();
+		expect(
+			rendered.container.querySelector(
+				'button[aria-label="Archive workspace"]',
+			),
+		).toBeNull();
 	});
 
 	it("creates a durable workspace and selects its stable id", async () => {

@@ -2325,11 +2325,13 @@ describe("CanvasPage listing", () => {
 		expect(container.querySelector("[data-collab-editor]")).not.toBeNull();
 		expect(container.querySelector("[data-widget-frame]")).toBeNull();
 		expect(container.textContent).not.toContain("Saved app");
+		// Save sits beside the manifest it saves, not in a footer of its own.
 		expect(
-			findButton(container, "Save").closest(
-				'[data-slot="output-workshop-footer"]',
-			),
+			findButton(container, "Save").closest("[data-canvas-code-save]"),
 		).not.toBeNull();
+		expect(
+			container.querySelector('[data-slot="output-workshop-footer"]'),
+		).toBeNull();
 	});
 
 	it("shows the empty state when no workspaces exist", async () => {
@@ -3154,10 +3156,9 @@ describe("live-draft status the panel renders", () => {
 		const container = await openDoc("Report gadget");
 
 		expect(container.textContent).toContain("Draft · Syncing…");
-		expect(container.textContent).not.toContain("Draft · Save changes");
 	});
 
-	it("says the draft is saved-on-commit when nothing is stuck", async () => {
+	it("keeps the draft status quiet when nothing is stuck", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
 			gadget: gadgetFixture(),
@@ -3167,7 +3168,8 @@ describe("live-draft status the panel renders", () => {
 
 		const container = await openDoc("Report gadget");
 
-		expect(container.textContent).toContain("Draft · Save changes");
+		expect(container.textContent).not.toContain("Draft ·");
+		expect(findButton(container, "Save")).toBeTruthy();
 	});
 
 	it("warns, once, that unsent edits were discarded and the draft rebuilt", async () => {

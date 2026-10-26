@@ -254,7 +254,13 @@ export function CanvasWorkspaceControls({
 
 	return (
 		<>
-			<div className="flex flex-wrap items-center gap-2">
+			<div
+				className={
+					compactActions
+						? "flex items-center gap-1"
+						: "flex flex-wrap items-center gap-2"
+				}
+			>
 				{showCreate ? (
 					<Button onClick={() => setCreateOpen(true)}>
 						<Plus size={14} /> New workspace
@@ -270,7 +276,7 @@ export function CanvasWorkspaceControls({
 								variant="ghost"
 								onClick={() => setShareOpen(true)}
 							>
-								<UsersThree size={14} />
+								<UsersThree size={16} />
 							</Button>
 						) : (
 							<Button
@@ -281,47 +287,35 @@ export function CanvasWorkspaceControls({
 								<UsersThree size={14} /> Share
 							</Button>
 						)}
-						<span className="hidden items-center gap-2 sm:flex">
+						<span
+							className={
+								compactActions
+									? "hidden items-center gap-1 sm:flex"
+									: "hidden items-center gap-2 sm:flex"
+							}
+						>
+							{/* The header keeps two icons: Share and the mute toggle, whose
+							    icon shows its state. Edit and Archive live in the menu. */}
 							{compactActions ? (
-								<>
-									<Button
-										aria-label="Edit workspace"
-										size="icon-sm"
-										title="Edit workspace"
-										variant="ghost"
-										onClick={() => setEditOpen(true)}
-									>
-										<PencilSimple size={14} />
-									</Button>
-									<Button
-										aria-label={
-											pushMuted
-												? "Unmute workspace notifications"
-												: "Mute workspace notifications"
-										}
-										aria-pressed={pushMuted}
-										disabled={pushMuteDisabled}
-										size="icon-sm"
-										title={
-											pushMuted
-												? "Notifications muted — approvals still arrive"
-												: "Mute notifications"
-										}
-										variant="ghost"
-										onClick={togglePushMute}
-									>
-										{pushMuted ? <BellSlash size={14} /> : <Bell size={14} />}
-									</Button>
-									<Button
-										aria-label="Archive workspace"
-										size="icon-sm"
-										title="Archive workspace"
-										variant="ghost"
-										onClick={() => setArchiveOpen(true)}
-									>
-										<Archive size={14} />
-									</Button>
-								</>
+								<Button
+									aria-label={
+										pushMuted
+											? "Unmute workspace notifications"
+											: "Mute workspace notifications"
+									}
+									aria-pressed={pushMuted}
+									disabled={pushMuteDisabled}
+									size="icon-sm"
+									title={
+										pushMuted
+											? "Notifications muted — approvals still arrive"
+											: "Mute notifications"
+									}
+									variant="ghost"
+									onClick={togglePushMute}
+								>
+									{pushMuted ? <BellSlash size={16} /> : <Bell size={16} />}
+								</Button>
 							) : (
 								<>
 									<Button
@@ -361,7 +355,7 @@ export function CanvasWorkspaceControls({
 									<Button
 										aria-label="Workspace actions"
 										size="icon-sm"
-										variant="outline"
+										variant={compactActions ? "ghost" : "outline"}
 									/>
 								}
 							>

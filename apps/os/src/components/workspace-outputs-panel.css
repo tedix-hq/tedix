@@ -31,7 +31,7 @@
 	min-height: 48px;
 	box-sizing: border-box;
 	align-items: center;
-	gap: 4px;
+	gap: 2px;
 	padding-inline: 8px;
 	border-bottom: 1px solid var(--border);
 }
@@ -48,20 +48,17 @@
 	gap: 6px;
 	margin: 0;
 	overflow: hidden;
-	color: var(--text-color-kumo-subtle);
-	font-size: var(--text-tedix-caption);
-	font-weight: 600;
-	letter-spacing: 0.06em;
-	line-height: var(--text-tedix-caption--line-height);
-	text-transform: uppercase;
+	color: var(--text-color-kumo-default);
+	font-size: var(--text-tedix-label);
+	font-weight: 500;
+	line-height: var(--text-tedix-label--line-height);
 	white-space: nowrap;
 }
 
 .workspace-outputs-count {
-	color: var(--text-color-kumo-inactive, var(--text-color-kumo-subtle));
+	color: var(--text-color-kumo-subtle);
 	font-variant-numeric: tabular-nums;
-	font-weight: 500;
-	letter-spacing: 0;
+	font-weight: 400;
 }
 
 .workspace-outputs-body {
@@ -159,9 +156,10 @@
 	padding-top: 8px;
 }
 
+/* The divider runs edge to edge, like the header's, not inset like a row. */
 .workspace-outputs-footer::before {
 	display: block;
-	margin: 0 4px 8px;
+	margin: 0 -6px 8px;
 	border-top: 1px solid var(--border);
 	content: "";
 }
@@ -295,5 +293,18 @@
 @media (max-width: 639px) {
 	.canvas-workspace-title > :first-child:not(h1) {
 		display: none;
+	}
+}
+
+/* Wider screens show the trail, whose last step already names the page:
+   the heading stays for assistive technology only. */
+@media (min-width: 640px) {
+	.canvas-workspace-title > :first-child:not(h1) ~ h1 {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 }
