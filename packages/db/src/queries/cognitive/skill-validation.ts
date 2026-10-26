@@ -1,5 +1,8 @@
 import { parse as parseSource } from "@babel/parser";
-import { WORKFLOW_PLATFORM_MCP_METHODS } from "@tedix/api-contract/utils/skill-manifest";
+import {
+	GATEWAY_PLATFORM_MCP_NAMESPACES,
+	WORKFLOW_PLATFORM_MCP_METHODS,
+} from "@tedix/api-contract/utils/skill-manifest";
 import {
 	skillScheduleFiresDaily,
 	validateSkillSchedulePolicy,
@@ -733,8 +736,8 @@ function scanForSecretLiterals(
  */
 const RESERVED_CAPABILITY_NAMESPACES = new Set([
 	"home",
-	"kernel",
 	"tedi",
+	...GATEWAY_PLATFORM_MCP_NAMESPACES,
 	// Platform gateway namespace injected by the aggregate runtime. It is not
 	// represented by an apps row, but `cognitive__record_artifact` is resolved
 	// live by the same aggregate bridge used at workflow dispatch.
