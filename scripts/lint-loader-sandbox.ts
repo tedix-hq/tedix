@@ -82,7 +82,7 @@ const ALLOWLIST_ENTRIES: readonly AllowlistEntry[] = [
 		runsModelAuthoredCode: true,
 	},
 	{
-		file: "apps/mcp/src/mcp/handler.ts",
+		file: "apps/mcp/src/mcp/handler-code-transport.ts",
 		reason:
 			"The MCP code transport executes stored per-tool JavaScript standalone (no tool namespaces), which is a distinct sandbox shape from Code Mode's provider-bearing executor.",
 		runsModelAuthoredCode: true,
@@ -141,8 +141,7 @@ interface Detection {
  *   - Detection cannot fire on generated code carried inside a template literal
  *     (`DISPATCH_SHIM` and friends emit Worker source as data).
  *   - The `globalOutbound` presence assertion cannot be satisfied by a COMMENT
- *     that merely mentions the field. `apps/mcp/src/mcp/handler.ts` documents
- *     `globalOutbound: null` in its module docblock; only real syntax counts.
+ *     that merely mentions the field. Only real syntax counts.
  */
 function maskSource(source: string, blankStringBodies: boolean): string {
 	const out = source.split("");
@@ -160,7 +159,7 @@ function maskSource(source: string, blankStringBodies: boolean): string {
 	 * `${}` interpolations, and a scanner that merely toggles on every backtick
 	 * mis-reads a template's CLOSING backtick as an opening one and inverts the
 	 * mask for the whole rest of the file. That is not a corner case here:
-	 * `apps/skill-runtime/src/runner.ts` and `apps/mcp/src/mcp/handler.ts` both
+	 * `apps/skill-runtime/src/runner.ts` and the MCP stored-code transport both
 	 * embed generated Worker source in interpolated templates immediately
 	 * around their manifest, so an inverted mask silently blinds the lint on
 	 * exactly the files it exists to check.

@@ -23,6 +23,10 @@ Operating rules for changes in this directory: [`AGENTS.md`](./AGENTS.md).
 The gateway runs bounded stateless programs; the persistent turn loop belongs
 in `apps/tedi-runtime`. Browser and memory operations are configured provider
 tools dispatched through `src/mcp/tool-execution.ts` and `src/mcp/handler.ts`.
+The handler owns dispatch and internal RPC/REST calls. External REST, upstream
+MCP and stored JavaScript execute in `handler-external-transport.ts`,
+`handler-mcp-transport.ts` and `handler-code-transport.ts` beside it; credential
+resolution stays in `handler-connection-credentials.ts`.
 Destructive approvals remain in `src/mcp/governance.ts` and payment policy in
 `src/mcp/payments.ts`; these extractions do not change those boundaries.
 

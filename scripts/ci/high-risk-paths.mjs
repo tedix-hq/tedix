@@ -13,7 +13,7 @@ export const HIGH_RISK_PATHS = Object.freeze([
 	"apps/api/src/{kernel/edge-auth,lib/mcp-grant,lib/descope-management,lib/fleet-authority,rpc/orpc,rpc/step-up,rpc/tedi-access,rpc/app-scope,rpc/org-scope,rpc/context,rpc/mcp-host-context,rpc/tedi-console-auth}.ts",
 	"apps/api/src/rpc/routers/{external-agent-*,mcp-credentials,mcp-governance,organizations-mcp-authorizations,organizations-descope-membership,descope-aih*}.ts",
 	"apps/mcp/src/{index,auth-*,external-agent-*,interaction-event-auth,tedi-profile-auth}.ts",
-	"apps/mcp/src/mcp/{handler,*auth*,owner-host-session}.ts",
+	"apps/mcp/src/mcp/{handler,handler-*-transport,handler-request-context,*auth*,owner-host-session}.ts",
 	"**/wrangler.jsonc",
 	"**/cloudflare.config.ts",
 	"scripts/ci/**",
