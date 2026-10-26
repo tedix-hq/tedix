@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	type BaseContext,
 	ErrorCodes,
@@ -127,10 +128,9 @@ export async function notifyKernelChildComplete(
 			wakeKind: "child_completed",
 		});
 	} catch (error) {
-		console.warn(
-			"[inboxWake] wake-queue insert failed",
-			error instanceof Error ? error.message : error,
-		);
+		console.warn("[inboxWake] wake-queue insert failed", {
+			exception: safeExceptionTopology(error),
+		});
 		return;
 	}
 	// Call KernelDO.scheduleWakeAlarm via DO binding (fail-soft).
@@ -148,10 +148,9 @@ export async function notifyKernelChildComplete(
 			input.childStatus,
 		);
 	} catch (error) {
-		console.warn(
-			"[inboxWake] DO scheduleWakeAlarm failed",
-			error instanceof Error ? error.message : error,
-		);
+		console.warn("[inboxWake] DO scheduleWakeAlarm failed", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 }
 
@@ -198,10 +197,9 @@ export async function notifyKernelChildApprovalBlock(
 			});
 		}
 	} catch (error) {
-		console.warn(
-			"[childApproval] KernelDO mirror failed",
-			error instanceof Error ? error.message : error,
-		);
+		console.warn("[childApproval] KernelDO mirror failed", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 }
 
@@ -918,11 +916,10 @@ export async function insertRuntimeEvent(
 						appliedAtIso: createdAt,
 					});
 				} catch (phaseErr) {
-					console.warn(
-						"[tedi] phase/stamp failed on run.started",
-						input.runId,
-						phaseErr instanceof Error ? phaseErr.message : String(phaseErr),
-					);
+					console.warn("[tedi] phase/stamp failed on run.started", {
+						runId: input.runId,
+						exception: safeExceptionTopology(phaseErr),
+					});
 				}
 			} else {
 				// Recovery-hardening: advance phase to "tool_request_recorded" on the
@@ -940,11 +937,10 @@ export async function insertRuntimeEvent(
 							phase: "tool_request_recorded",
 						});
 					} catch (phaseErr) {
-						console.warn(
-							"[tedi] phase advance failed",
-							input.runId,
-							phaseErr instanceof Error ? phaseErr.message : String(phaseErr),
-						);
+						console.warn("[tedi] phase advance failed", {
+							runId: input.runId,
+							exception: safeExceptionTopology(phaseErr),
+						});
 					}
 				}
 				const tediOutcome = runEventKindToSubmissionOutcome(input.kind);

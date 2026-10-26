@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { SkillWorkflowConnectionRecoverySchema } from "@tedix/api-contract/schemas/cognitive";
 import { getRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
 import {
@@ -410,8 +411,8 @@ export const skillsRunWorkflowHistory = authedSkills.runWorkflowHistory
 					row.hasError = refreshed.error != null;
 				} catch (error) {
 					console.warn(
-						`[skills.runWorkflowHistory] reconcile failed for ${row.id}:`,
-						error,
+						`[skills.runWorkflowHistory] reconcile failed for ${row.id}`,
+						{ exception: safeExceptionTopology(error) },
 					);
 				}
 			}),
@@ -478,8 +479,8 @@ export const skillsListWorkflowRetryCandidates =
 						};
 					} catch (error) {
 						console.warn(
-							`[skills.listWorkflowRetryCandidates] reconcile failed for ${row.id}:`,
-							error,
+							`[skills.listWorkflowRetryCandidates] reconcile failed for ${row.id}`,
+							{ exception: safeExceptionTopology(error) },
 						);
 						return null;
 					}

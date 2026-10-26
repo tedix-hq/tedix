@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import type { HarnessSubjectVersion } from "@tedix/api-contract/schemas/harness-version";
 import type {
@@ -183,7 +184,7 @@ export async function readChildRunStatuses(
 				if (status) statuses.set(key, status);
 			} catch (error) {
 				console.warn("[kernelRuntime] child run status read failed", {
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 					runId: ref.runId,
 					tediId: ref.tediId,
 				});

@@ -324,7 +324,9 @@ function emitDecisionCompletedRuntimeEvent(
 				}),
 			)
 			.catch((err) =>
-				console.warn("[CognitiveBridge] decision.completed emit failed:", err),
+				console.warn("[CognitiveBridge] decision.completed emit failed", {
+					exception: safeExceptionTopology(err),
+				}),
 			),
 	);
 }
@@ -434,10 +436,9 @@ const createProcedure = authOs.create
 						}),
 					)
 					.catch((err) =>
-						console.warn(
-							"[CognitiveBridge] decision.recorded emit failed:",
-							err,
-						),
+						console.warn("[CognitiveBridge] decision.recorded emit failed", {
+							exception: safeExceptionTopology(err),
+						}),
 					),
 			);
 
@@ -500,10 +501,9 @@ const createProcedure = authOs.create
 			}));
 		} catch (err) {
 			if (context.env.ENVIRONMENT === "development") {
-				console.warn(
-					"[RationaleCreate] Failed to retrieve prior decisions:",
-					err,
-				);
+				console.warn("[RationaleCreate] Failed to retrieve prior decisions", {
+					exception: safeExceptionTopology(err),
+				});
 			}
 		}
 
@@ -545,10 +545,9 @@ const createProcedure = authOs.create
 			}
 		} catch (err) {
 			if (context.env.ENVIRONMENT === "development") {
-				console.warn(
-					"[RationaleCreate] Failed to retrieve failure context:",
-					err,
-				);
+				console.warn("[RationaleCreate] Failed to retrieve failure context", {
+					exception: safeExceptionTopology(err),
+				});
 			}
 		}
 
@@ -691,17 +690,16 @@ const completeProcedure = authOs.complete
 				completed.outcomeStatus,
 			).catch((err) => {
 				if (context.env.ENVIRONMENT === "development") {
-					console.warn(
-						"[RationaleComplete] memory_feedback emission failed:",
-						err,
-					);
+					console.warn("[RationaleComplete] memory_feedback emission failed", {
+						exception: safeExceptionTopology(err),
+					});
 				}
 			});
 		} catch (err) {
 			if (context.env.ENVIRONMENT === "development") {
 				console.warn(
-					"[RationaleComplete] Failed to extract facts from evidence:",
-					err,
+					"[RationaleComplete] Failed to extract facts from evidence",
+					{ exception: safeExceptionTopology(err) },
 				);
 			}
 		}

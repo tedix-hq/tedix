@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { AUTHZ, ErrorCodes, createError, withAuthorization } from "../../orpc";
 import {
 	ProvisioningHttpError,
@@ -519,7 +520,7 @@ export const recordEventRoute = authed.recordEvent
 			}).catch((error) => {
 				console.warn(
 					"[cognitiveRuntime.recordEvent] workstation egress trace bundle record failed",
-					error instanceof Error ? error.message : String(error),
+					{ exception: safeExceptionTopology(error) },
 				);
 			});
 			if (context.waitUntil) {
@@ -644,7 +645,7 @@ export const recordEventRoute = authed.recordEvent
 				}).catch((error) => {
 					console.warn(
 						"[cognitiveRuntime.recordEvent] inbox-wake notify failed",
-						error instanceof Error ? error.message : error,
+						{ exception: safeExceptionTopology(error) },
 					);
 				});
 				if (context.waitUntil) {
@@ -684,7 +685,7 @@ export const recordEventRoute = authed.recordEvent
 					}).catch((error) => {
 						console.warn(
 							"[cognitiveRuntime.recordEvent] child approval mirror failed",
-							error instanceof Error ? error.message : error,
+							{ exception: safeExceptionTopology(error) },
 						);
 					}),
 				);

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
@@ -1470,7 +1471,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						} catch (error) {
 							console.warn(
 								"[kernelRuntime] FYI write deferred to terminal reconciliation",
-								error,
+								{ exception: safeExceptionTopology(error) },
 							);
 						}
 					}

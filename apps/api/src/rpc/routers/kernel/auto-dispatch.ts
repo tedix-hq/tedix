@@ -20,6 +20,7 @@
  * uses) — a re-fired turn never double-spawns.
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
 	type DelegationWorkOrder,
@@ -209,7 +210,7 @@ export function buildAutoDelegationDispatcher(deps: {
 		} catch (error) {
 			console.warn(
 				"[autoDispatch] FYI write failed; terminal reconciliation rebuilds it from the Work Attempt",
-				error,
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 		return receipt;

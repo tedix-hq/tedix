@@ -22,6 +22,7 @@
  * `.optional()`, no string/number constraints. Mirrors `tool-call-planner.ts`.
  */
 
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { SelectedKernelModel } from "./llm";
 import { generateObject } from "ai";
 import * as z from "zod";
@@ -282,7 +283,7 @@ export async function planTediAssignments(args: {
 	} catch (error) {
 		console.warn(
 			"[kernel.planPlanner] planTediAssignments failed; falling back to v0 template",
-			error instanceof Error ? error.message : String(error),
+			{ exception: safeExceptionTopology(error) },
 		);
 		return {
 			objectives: explicitObjectives.size > 0 ? explicitObjectives : null,

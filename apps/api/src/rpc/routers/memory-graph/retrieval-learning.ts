@@ -223,7 +223,7 @@ const search = authed.search
 				console.error("[memory.search] Hybrid recall failed", {
 					orgId,
 					tediId: tediId ?? null,
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				});
 			}
 		}
@@ -385,10 +385,9 @@ const search = authed.search
 						}),
 					)
 					.catch((err) =>
-						console.warn(
-							"[CognitiveBridge] memory.retrieved emit failed:",
-							err,
-						),
+						console.warn("[CognitiveBridge] memory.retrieved emit failed", {
+							exception: safeExceptionTopology(err),
+						}),
 					),
 			);
 		}
@@ -523,7 +522,7 @@ const learn = authed.learn
 				console.error("[memory.learn] duplicate reprojection failed", {
 					orgId,
 					factId: existingByHash.id,
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				});
 			});
 			if (context.waitUntil) context.waitUntil(reprojection);
@@ -623,7 +622,7 @@ const learn = authed.learn
 							console.warn("[memory.learn] memory quality judgment failed", {
 								orgId,
 								factId,
-								error: error instanceof Error ? error.message : String(error),
+								exception: safeExceptionTopology(error),
 							});
 							return "unavailable" as const;
 						}),
@@ -778,7 +777,7 @@ const learn = authed.learn
 					console.warn("[memory.learn] memory quality shadow judgment failed", {
 						orgId,
 						factId,
-						error: error instanceof Error ? error.message : String(error),
+						exception: safeExceptionTopology(error),
 					}),
 				);
 			if (context.waitUntil) context.waitUntil(shadowJudgment);
@@ -816,7 +815,9 @@ const learn = authed.learn
 						}),
 					)
 					.catch((err) =>
-						console.warn("[CognitiveBridge] memory.observed emit failed:", err),
+						console.warn("[CognitiveBridge] memory.observed emit failed", {
+							exception: safeExceptionTopology(err),
+						}),
 					),
 			);
 		}
@@ -923,7 +924,7 @@ const learn = authed.learn
 			console.error("[memory.learn] Agent Memory projection failed", {
 				orgId,
 				factId,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 		});
 		if (context.waitUntil) context.waitUntil(loggedProjection);
@@ -1086,9 +1087,8 @@ const reflect = authed.reflect
 					expertiseUpdated++;
 				} catch (e) {
 					console.warn(
-						"[MemoryGraph] Expertise recalculation failed for domain:",
-						domain.id,
-						e,
+						"[MemoryGraph] Expertise recalculation failed for domain",
+						{ id: domain.id, exception: safeExceptionTopology(e) },
 					);
 				}
 			}

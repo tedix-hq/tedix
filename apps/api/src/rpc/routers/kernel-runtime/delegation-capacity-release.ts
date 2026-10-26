@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	countActiveDelegatedRunsByTedi,
 	type KernelRuntimeRun,
@@ -56,7 +57,7 @@ export async function releaseCapacityDeferredDelegations(
 		} catch (error) {
 			console.warn("[kernel] capacity-deferred delegation release failed", {
 				runId: run.id,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 		}
 	}

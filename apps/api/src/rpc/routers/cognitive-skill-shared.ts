@@ -1,5 +1,6 @@
 /** Shared skill-entry mechanics for the cognitive router slices. */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import {
 	nextSkillScheduleFireAt,
 	type SkillSchedulePolicy,
@@ -549,18 +550,16 @@ export async function createSkillFromInput(
 					// A paid response whose usage could not be persisted is different:
 					// the caller must see the reconciliation failure.
 					if (error instanceof JevUsagePersistenceError) throw error;
-					console.warn(
-						"[skills.record] semantic adjacency unavailable:",
-						error instanceof Error ? error.message : String(error),
-					);
+					console.warn("[skills.record] semantic adjacency unavailable", {
+						exception: safeExceptionTopology(error),
+					});
 				}
 			}
 		} catch (error) {
 			if (error instanceof JevUsagePersistenceError) throw error;
-			console.warn(
-				"[skills.record] adjacency lookup failed; allowing create:",
-				error instanceof Error ? error.message : String(error),
-			);
+			console.warn("[skills.record] adjacency lookup failed; allowing create", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 	if (adjacencyRefusal) {
@@ -616,7 +615,9 @@ export async function createSkillFromInput(
 				},
 				createdAt: entry.createdAt ?? undefined,
 			}).catch((err) =>
-				console.warn("[CognitiveBridge] skill.crystallized emit failed:", err),
+				console.warn("[CognitiveBridge] skill.crystallized emit failed", {
+					exception: safeExceptionTopology(err),
+				}),
 			),
 		);
 	}
