@@ -618,6 +618,18 @@ function normalizeResource(props: ShareControlsProps): {
 	};
 }
 
+/** Why a "Can use" link will not open this app for people without a Tedix account. */
+function guestRefusalText(refusal: {
+	slot: string;
+	reason: "connection_grant" | "unshared_output";
+}): string {
+	const why =
+		refusal.reason === "connection_grant"
+			? `it can reach a connected account through "${refusal.slot}"`
+			: `"${refusal.slot}" is not a Tedix Output, or its Output holds data from connected accounts`;
+	return `People without a Tedix account can't open this app through a link: ${why}, and Tedix can't check what they may see there. Invite them to the workspace instead, or remove that access from the app.`;
+}
+
 type FormMode =
 	| { kind: "closed" }
 	| { kind: "create" }
@@ -786,6 +798,15 @@ export function ShareControls(props: ShareControlsProps) {
 					<Text as="h3" role="label" tone="strong" className="m-0">
 						Links
 					</Text>
+					{props.guestEntry && shares.data?.guestRefusal && (
+						<Surface
+							className="m-0 px-3 py-2 text-kumo-subtle text-xs"
+							render={<p />}
+							data-guest-refusal={shares.data.guestRefusal.reason}
+						>
+							{guestRefusalText(shares.data.guestRefusal)}
+						</Surface>
+					)}
 					{created && (
 						<NewLink
 							token={created.token}

@@ -210,6 +210,48 @@ export function appRuntimePermission(
 	return { allowed: true };
 }
 
+/**
+ * What a granted slot is bound to, as far as a guest is concerned. `output`
+ * is a Tedix Output; `shareable` is true when it carries no data from
+ * connected accounts (its access envelope names no sources). Anything else
+ * bound to a slot (a connection, a skill) is `other`.
+ */
+export type AppRuntimeGuestSlot =
+	| { kind: "output"; shareable: boolean }
+	| { kind: "other" };
+
+export type AppRuntimeGuestRefusal = {
+	slot: string;
+	reason: "connection_grant" | "unshared_output";
+};
+
+/**
+ * Whether a guest (a `use` link, no Tedix account) may open an app. A guest
+ * cannot be checked against any provider's access list, so an app that may
+ * reach a connected account, or read an Output holding such data, is refused:
+ * its own storage could hold what the connection returned to a builder. An
+ * unbound slot is refused as well, so binding it later cannot widen a link.
+ */
+export function appRuntimeGuestRefusal(
+	grants: ReadonlyArray<{ slot: string; operations: readonly string[] }>,
+	slots: ReadonlyMap<string, AppRuntimeGuestSlot>,
+): AppRuntimeGuestRefusal | null {
+	for (const grant of grants) {
+		const bound = slots.get(grant.slot);
+		if (
+			grant.operations.some(
+				(operation) =>
+					operation === "connections.call" || operation === "skills.run",
+			) ||
+			bound?.kind === "other"
+		)
+			return { slot: grant.slot, reason: "connection_grant" };
+		if (!bound?.shareable)
+			return { slot: grant.slot, reason: "unshared_output" };
+	}
+	return null;
+}
+
 /** The operations a role may use at all, for display and for capability minting. */
 export function appRuntimeOperationsForRole(
 	role: AppRuntimeRole,

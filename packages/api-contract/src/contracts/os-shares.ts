@@ -371,7 +371,21 @@ export const osSharesContract = oc
 						"Returns every link minted for the output, newest first, including revoked and expired ones — the state fields say which still redeem.",
 				})
 				.input(listShareInput)
-				.output(z.object({ items: z.array(OsShareLinkSchema) })),
+				.output(
+					z.object({
+						items: z.array(OsShareLinkSchema),
+						guestRefusal: z
+							.object({
+								slot: z.string(),
+								reason: z.enum(["connection_grant", "unshared_output"]),
+							})
+							.nullable()
+							.optional()
+							.describe(
+								"For an app that runs its own code: why people without a Tedix account cannot open it through a use link, or null when they can. Absent for other resources.",
+							),
+					}),
+				),
 			previewRevoke: oc
 				.route({
 					method: "GET",

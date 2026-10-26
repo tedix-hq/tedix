@@ -12,7 +12,12 @@ import {
 	AppRuntimeMethodSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
-import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
+import {
+	appRuntimeGuestRefusal,
+	appRuntimePermission,
+	type AppRuntimeGuestRefusal,
+	type AppRuntimeGuestSlot,
+} from "@tedix/api-contract/utils/app-runtime";
 import {
 	mintWorkspaceAppSession,
 	verifyWorkspaceAppSession,
@@ -189,6 +194,7 @@ export async function handleGuestAppOpen(
 	} catch {
 		return notFound();
 	}
+	if (await guestAppRefusal(db, scope, code.grants)) return notFound();
 	const session = await mintWorkspaceAppSession(env.SECRETS_MASTER_KEY, {
 		organizationId: scope.organizationId,
 		workspaceId: scope.workspaceId,
@@ -263,7 +269,11 @@ export async function handleGuestAppCall(
 		return notFound();
 	try {
 		const code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
-		if (code.digest !== session.codeDigest) return notFound();
+		if (
+			code.digest !== session.codeDigest ||
+			(await guestAppRefusal(db, scope, code.grants))
+		)
+			return notFound();
 		const result = await runAppRuntimeCall(env, db, {
 			organizationId: scope.organizationId,
 			workspaceId: scope.workspaceId,
@@ -287,6 +297,106 @@ export async function handleGuestAppCall(
 	} catch {
 		return notFound();
 	}
+}
+
+/** The current revision of an Output, when it is active in the workspace and carries no connected data. */
+async function shareableOutputRevision(
+	db: DbQueryClient,
+	scope: Pick<GuestAppScope, "organizationId" | "workspaceId">,
+	outputId: string,
+) {
+	const output = await getOsOutput(db, {
+		organizationId: scope.organizationId,
+		outputId,
+	});
+	if (
+		!output ||
+		output.workspaceId !== scope.workspaceId ||
+		output.status !== "active" ||
+		!output.currentRevisionId
+	)
+		return null;
+	const revision = await getOsOutputRevision(db, {
+		organizationId: scope.organizationId,
+		revisionId: output.currentRevisionId,
+	});
+	if (!revision?.accessEnvelope) return null;
+	let envelope: unknown;
+	try {
+		envelope = JSON.parse(revision.accessEnvelope);
+	} catch {
+		return null;
+	}
+	const parsed = OsDerivedAccessEnvelopeSchema.safeParse(envelope);
+	if (!parsed.success || parsed.data.sources.length > 0) return null;
+	return { output, revision };
+}
+
+/**
+ * Why guests may not open this app, or null when they may. Every granted slot
+ * must be bound to an Output in the workspace that carries no data from
+ * connected accounts; see `appRuntimeGuestRefusal`.
+ */
+export async function guestAppRefusal(
+	db: DbQueryClient,
+	scope: Pick<GuestAppScope, "organizationId" | "workspaceId">,
+	grants: ReadonlyArray<{ slot: string; operations: readonly string[] }>,
+): Promise<AppRuntimeGuestRefusal | null> {
+	if (grants.length === 0) return null;
+	const resources = await listOsWorkspaceResources(db, {
+		organizationId: scope.organizationId,
+		workspaceId: scope.workspaceId,
+		status: "active",
+		limit: 200,
+	});
+	const slots = new Map<string, AppRuntimeGuestSlot>();
+	for (const grant of grants) {
+		const resource = resources.find((row) => row.slot === grant.slot);
+		if (!resource) continue;
+		slots.set(
+			grant.slot,
+			resource.providerId === "tedix" && resource.resourceType === "output"
+				? {
+						kind: "output",
+						shareable: Boolean(
+							await shareableOutputRevision(
+								db,
+								scope,
+								resource.providerResourceId,
+							),
+						),
+					}
+				: { kind: "other" },
+		);
+	}
+	return appRuntimeGuestRefusal(grants, slots);
+}
+
+/**
+ * For the share dialog: why guests cannot open this app's current revision,
+ * null when they can, undefined when the app does not run its own code.
+ */
+export async function guestAppRefusalForApp(
+	db: DbQueryClient,
+	app: {
+		id: string;
+		organizationId: string;
+		workspaceId: string;
+		currentRevisionId: string | null;
+	},
+): Promise<AppRuntimeGuestRefusal | null | undefined> {
+	if (!app.currentRevisionId) return undefined;
+	let code;
+	try {
+		code = await loadAppRuntimeRevision(
+			db,
+			{ organizationId: app.organizationId, gadgetId: app.id },
+			app.currentRevisionId,
+		);
+	} catch {
+		return undefined;
+	}
+	return guestAppRefusal(db, app, code.grants);
 }
 
 /**
@@ -322,30 +432,13 @@ export async function readGuestAppSlot(
 		resource.resourceType !== "output"
 	)
 		return null;
-	const output = await getOsOutput(db, {
-		organizationId: scope.organizationId,
-		outputId: resource.providerResourceId,
-	});
-	if (
-		!output ||
-		output.workspaceId !== scope.workspaceId ||
-		output.status !== "active" ||
-		!output.currentRevisionId
-	)
-		return null;
-	const revision = await getOsOutputRevision(db, {
-		organizationId: scope.organizationId,
-		revisionId: output.currentRevisionId,
-	});
-	if (!revision?.accessEnvelope) return null;
-	let envelope: unknown;
-	try {
-		envelope = JSON.parse(revision.accessEnvelope);
-	} catch {
-		return null;
-	}
-	const parsed = OsDerivedAccessEnvelopeSchema.safeParse(envelope);
-	if (!parsed.success || parsed.data.sources.length > 0) return null;
+	const shared = await shareableOutputRevision(
+		db,
+		scope,
+		resource.providerResourceId,
+	);
+	if (!shared) return null;
+	const { output, revision } = shared;
 	return {
 		output: { id: output.id, title: output.title, kind: output.kind },
 		revision: {

@@ -311,6 +311,64 @@ describe("share-link guests on a runtime app", () => {
 		});
 	});
 
+	it("refuses a guest an app that may reach a connected account or an unbound slot", async () => {
+		const { db, env, fetch } = await fixture();
+		const link = await seedLink(db);
+		const sessionToken = await redeem(db, link.token);
+		const opened = (await (
+			await handleGuestAppOpen(env, db, { sessionToken })
+		).json()) as { session: string };
+		const grant = async (
+			resourceGrants: Array<{ slot: string; operations: string[] }>,
+		) =>
+			db
+				.update(osGadgetRevisions)
+				.set({
+					manifest: JSON.stringify({
+						entry: "tedix:runtime/v1",
+						capabilities: [],
+						config: { version: 1 },
+						resourceGrants,
+					}),
+				})
+				.where(eq(osGadgetRevisions.id, revisionId));
+		await db.insert(osWorkspaceResources).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			slot: "notes",
+			providerId: "notion",
+			connectionScope: "tenant",
+			resourceType: "database",
+			providerResourceId: "fictional-notes-db",
+			name: "Team notes",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		for (const resourceGrants of [
+			[{ slot: "notes", operations: ["outputs.read"] }],
+			[{ slot: "opportunities", operations: ["connections.call"] }],
+			[{ slot: "unbound", operations: ["outputs.read"] }],
+		]) {
+			await grant(resourceGrants);
+			expect((await handleGuestAppOpen(env, db, { sessionToken })).status).toBe(
+				404,
+			);
+			// A session opened before the grant changed is refused at the call too.
+			expect(
+				(
+					await handleGuestAppCall(env, db, {
+						sessionToken,
+						session: opened.session,
+						method: "verdicts",
+						args: [],
+					})
+				).status,
+			).toBe(404);
+		}
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
 	it("reads only granted, sourceless Outputs for the guest", async () => {
 		const { db, env } = await fixture();
 		const link = await seedLink(db);
@@ -327,6 +385,9 @@ describe("share-link guests on a runtime app", () => {
 		expect(
 			(await handleGuestAppRead(db, { sessionToken, slot: "other" })).status,
 		).toBe(404);
+		const opened = (await (
+			await handleGuestAppOpen(env, db, { sessionToken })
+		).json()) as { session: string };
 		await db
 			.update(osOutputRevisions)
 			.set({
@@ -340,10 +401,11 @@ describe("share-link guests on a runtime app", () => {
 			(await handleGuestAppRead(db, { sessionToken, slot: "opportunities" }))
 				.status,
 		).toBe(404);
-		// The host's capability path answers the same way for the guest.
-		const opened = (await (
-			await handleGuestAppOpen(env, db, { sessionToken })
-		).json()) as { session: string };
+		// The app no longer opens for guests at all once it reads connected data.
+		expect((await handleGuestAppOpen(env, db, { sessionToken })).status).toBe(
+			404,
+		);
+		// The host's capability path answers the same way for a session opened before.
 		const internal = createRouterClient(createOsAppRuntimeRouter(), {
 			context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
 		});
