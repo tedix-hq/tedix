@@ -238,9 +238,8 @@ describe("callDocsMcpTool", () => {
 			() => new Response("missing caller token", { status: 401 }),
 		);
 
-		await expect(call(binding.fetch)).rejects.toMatchObject({
-			code: "UNAUTHORIZED",
-			message: expect.stringContaining("missing caller token"),
-		});
+		const rejection = call(binding.fetch);
+		await expect(rejection).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		await expect(rejection).rejects.not.toThrow("missing caller token");
 	});
 });

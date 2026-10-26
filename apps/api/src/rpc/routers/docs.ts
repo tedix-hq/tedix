@@ -11,6 +11,7 @@ import {
 	withAuthorization,
 	type BaseContext,
 	createError,
+	type ErrorCode,
 	ErrorCodes,
 	FORWARDED_AUTH_HEADER,
 	withAuth,
@@ -132,11 +133,60 @@ export function docsActorHeaders(context: BaseContext): Record<string, string> {
 	};
 }
 
+const DOCS_HTTP_ERRORS: Record<number, [ErrorCode, string]> = {
+	401: [
+		ErrorCodes.UNAUTHORIZED,
+		"Docs Studio did not accept your sign-in. Sign in again, then retry.",
+	],
+	403: [
+		ErrorCodes.FORBIDDEN,
+		"You do not have access to this Docs action. Ask an organization admin for the Docs role it needs.",
+	],
+	404: [
+		ErrorCodes.NOT_FOUND,
+		"Docs Studio could not find that site, build or change. Check the id and retry.",
+	],
+	409: [
+		ErrorCodes.CONFLICT,
+		"This Docs item changed since you loaded it. Reload it, then retry.",
+	],
+	429: [
+		ErrorCodes.TOO_MANY_REQUESTS,
+		"Docs Studio is receiving too many requests. Wait a minute, then retry.",
+	],
+};
+
+/**
+ * A Docs transport failure as a recognized code and short, safe copy. The
+ * upstream body, JSON-RPC message and status line never reach the caller:
+ * they can carry internal hosts, stack text or credential markers.
+ */
+export function docsTransportError(error: FirstPartyMcpError) {
+	if (error.kind === "http") {
+		const [code, message] = DOCS_HTTP_ERRORS[error.status ?? 0] ?? [
+			ErrorCodes.BAD_GATEWAY,
+			"Docs Studio is unavailable right now. Retry in a few minutes.",
+		];
+		return createError(code, message);
+	}
+	if (error.kind === "timeout") {
+		return createError(
+			ErrorCodes.SERVICE_UNAVAILABLE,
+			"Docs Studio did not answer in time. Retry in a few minutes.",
+		);
+	}
+	return createError(
+		ErrorCodes.BAD_GATEWAY,
+		"Docs Studio returned an answer Tedix could not read. Retry; if it keeps happening, report it.",
+	);
+}
+
 /**
  * One Docs Studio `tools/call` over the Docs binding, through the SDK v2 client
  * pinned to 2026-07-28 (Docs is first-party and modern-only: no probe). Returns
- * the tool's `structuredContent`; a transport failure is a bad gateway (401
- * stays unauthorized), and a tool error is the caller's bad request.
+ * the tool's `structuredContent`; a transport failure maps to a recognized
+ * code with safe copy (docsTransportError), and a tool error is the caller's
+ * bad request.
  */
 export async function callDocsMcpTool(input: {
 	fetch: FirstPartyMcpFetch;
@@ -159,16 +209,7 @@ export async function callDocsMcpTool(input: {
 		)) as DocsToolResult;
 	} catch (error) {
 		if (!(error instanceof FirstPartyMcpError)) throw error;
-		if (error.kind === "http") {
-			throw createError(
-				error.status === 401 ? ErrorCodes.UNAUTHORIZED : ErrorCodes.BAD_GATEWAY,
-				`Docs control request failed: ${error.body ?? error.message}`,
-			);
-		}
-		throw createError(
-			ErrorCodes.BAD_GATEWAY,
-			error.rpcError?.message ?? error.message,
-		);
+		throw docsTransportError(error);
 	}
 	if (result.isError) {
 		const message = result.content
