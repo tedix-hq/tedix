@@ -29,6 +29,18 @@ import type { FeedSourceState } from "@/components/activity-feed-sources";
 /** A requested refresh that has not produced a new revision by then stops being shown as in progress. */
 const TODAY_REFRESH_WAIT_MS = 10 * 60_000;
 
+function calendarDay(value: Date, timeZone: string) {
+	const parts = new Intl.DateTimeFormat("en", {
+		timeZone,
+		year: "numeric",
+		month: "numeric",
+		day: "numeric",
+	}).formatToParts(value);
+	return ["year", "month", "day"]
+		.map((type) => parts.find((part) => part.type === type)?.value)
+		.join("-");
+}
+
 export function TodayPost({
 	config,
 	onUpdate,
@@ -77,6 +89,11 @@ export function TodayPost({
 	}, [awaiting, output.data, revisionId]);
 	const content = output.data?.currentRevision?.content;
 	const digest = useMemo(() => content && readToday(content), [content]);
+	const revisionCreatedAt = output.data?.currentRevision?.createdAt;
+	const stale =
+		!!revisionCreatedAt &&
+		calendarDay(new Date(revisionCreatedAt), config.timeZone) !==
+			calendarDay(new Date(), config.timeZone);
 	useEffect(
 		() =>
 			onUpdate("today-receipts", {
@@ -205,8 +222,21 @@ export function TodayPost({
 					</Text>
 				) : (
 					<>
-						<Text tone="secondary" className="type-tedix-caption">
-							{digest.updated}
+						<Text
+							tone="secondary"
+							className="type-tedix-caption"
+							data-today-stale={stale || undefined}
+						>
+							{stale
+								? `Summary refresh is late. Showing the summary saved ${new Intl.DateTimeFormat(
+										undefined,
+										{
+											timeZone: config.timeZone,
+											dateStyle: "medium",
+											timeStyle: "short",
+										},
+									).format(new Date(revisionCreatedAt))}. Try Refresh.`
+								: digest.updated}
 						</Text>
 						{(compact && !expanded ? digest.rows.slice(0, 1) : digest.rows).map(
 							([name, goal, progress, running, , project, receipts]) => (

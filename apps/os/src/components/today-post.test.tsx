@@ -33,9 +33,14 @@ const outputKey = osQuery.osWorkspaces.outputs.get.queryOptions({
 const deckKey = osQuery.attention.listDeckCards.queryOptions({
 	input: { limit: 100 },
 }).queryKey;
-const revision = (id: string, updated: string) => ({
+const revision = (
+	id: string,
+	updated: string,
+	createdAt = new Date().toISOString(),
+) => ({
 	currentRevision: {
 		id,
+		createdAt,
 		content: {
 			kind: "document",
 			blocks: [
@@ -193,4 +198,28 @@ it("shows an honest empty state when no digest exists yet", async () => {
 		"Your first summary of today arrives after the next refresh.",
 	);
 	expect(host.querySelector("[data-today-pending]")).toBeNull();
+});
+
+it("warns that refresh is late instead of repeating the saved schedule promise", async () => {
+	const render = await mount();
+	client.setQueryData<unknown>(deckKey, {
+		cards: [],
+		count: 0,
+		complete: true,
+		observedAt: new Date().toISOString(),
+	});
+	client.setQueryData<unknown>(
+		outputKey,
+		revision(
+			"rev-stale",
+			"Updated 23 October at 20:46. Refreshes every two hours during the day.",
+			"2020-10-23T18:46:00.000Z",
+		),
+	);
+	await render();
+	const warning = host.querySelector("[data-today-stale]");
+	expect(warning?.textContent).toContain("Summary refresh is late.");
+	expect(warning?.textContent).toContain("Try Refresh.");
+	expect(host.textContent).not.toContain("Refreshes every two hours");
+	expect(host.textContent).toContain("Website");
 });
