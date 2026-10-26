@@ -17,6 +17,7 @@ import {
 	resetLocalFixtures,
 } from "./local-fixtures";
 import { localWidgetResource } from "./local-api-plugin";
+import { uid } from "./demo-pack";
 
 // ---------------------------------------------------------------------------
 // Contract access (drift-proof core): every handler's success payload must
@@ -187,7 +188,7 @@ const portableBlueprintExport = {
 	lineage: null,
 };
 
-const CALLS: Record<string, unknown> = {
+const CALLS = {
 	"decisionGraph/getContext": {
 		cardId: "d5000000-0000-4000-8000-000000000001",
 		maxHops: 4,
@@ -568,6 +569,16 @@ const CALLS: Record<string, unknown> = {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,
 	},
+	"osAppRuntime/client": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+	},
+	"osAppRuntime/readOutput": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+		session: `fixture-only:${uid(49, 14)}:${uid(50, 14)}`,
+		slot: "opportunities",
+	},
 	"osWorkspaces/gadgets/getCode": {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,
@@ -775,10 +786,70 @@ describe("local fixtures parse through the contract output schemas", () => {
 	for (const [key, input] of Object.entries(CALLS)) {
 		it(`${key} input is accepted and output parses against its contract schema`, async () => {
 			await expectInputAcceptedByContract(key, input);
+			if (key === "osAppRuntime/client" || key === "osAppRuntime/readOutput") {
+				vi.resetModules();
+				const sample = await import("./local-fixtures");
+				sample.enableDemoPack();
+				const result = sample.handleLocalRpc(`/api/rpc/${key}`, "POST", {
+					json: input,
+				});
+				expect(result?.status).toBe(200);
+				await expectParsesAgainstContract(
+					key,
+					(result!.body as { json: unknown }).json,
+				);
+				return;
+			}
 			const output = callLocalOk(key, input);
 			await expectParsesAgainstContract(key, output);
 		});
 	}
+});
+
+it("serves the runtime client and only its current session's granted Output slots", async () => {
+	vi.resetModules();
+	const sample = await import("./local-fixtures");
+	sample.enableDemoPack();
+	const scope = CALLS["osAppRuntime/client"];
+	const request = (key: string, input: unknown) =>
+		sample.handleLocalRpc(`/api/rpc/${key}`, "POST", { json: input });
+	const client = request("osAppRuntime/client", scope);
+	expect(client?.body).toMatchObject({
+		json: {
+			client: expect.any(String),
+			settings: { reviewer: "Maya", slot: "opportunities" },
+			grants: [
+				{
+					slot: "opportunities",
+					operations: ["outputs.read", "outputs.write"],
+				},
+			],
+		},
+	});
+	expect((client!.body as { json: unknown }).json).not.toHaveProperty("files");
+	const input = CALLS["osAppRuntime/readOutput"];
+	expect(request("osAppRuntime/readOutput", input)?.body).toMatchObject({
+		json: { kind: "sheet" },
+	});
+	for (const change of [{ session: "wrong-session" }, { slot: "ungranted" }])
+		expect(
+			request("osAppRuntime/readOutput", { ...input, ...change })?.status,
+		).toBe(403);
+	expect(
+		request("osWorkspaces/gadgets/revise", {
+			...scope,
+			manifest: {
+				entry: "tedix:runtime/v1",
+				capabilities: [],
+				resourceGrants: [],
+			},
+			files: {
+				"server.js": "export default {}",
+				"client.js": "export default () => {}",
+			},
+		})?.status,
+	).toBe(200);
+	expect(request("osAppRuntime/readOutput", input)?.status).toBe(403);
 });
 
 describe("portable blueprint fixtures", () => {
