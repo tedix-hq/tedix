@@ -3,26 +3,31 @@ import {
 	Lightning,
 	ListChecks,
 	ShieldCheck,
+	Trash,
 	UserCircleCheck,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import criticalActions from "@tedix/api-contract/assets/critical-actions.v1.json";
 import type { OsApprovalRule } from "@tedix/api-contract/contracts/os-approval-rules";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { isAutomaticApproval } from "@/components/activity-history";
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
+import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
 import {
 	appLabel,
 	plainApprovalTitle,
 	plainToolTitle,
 } from "@/lib/approval-titles";
+import { osApi } from "@/lib/api";
 import {
 	approvalHistoryQueryOptions,
 	approvalRulesQueryOptions,
+	osQueryKeys,
 } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
@@ -131,6 +136,120 @@ function Chips({ items }: { items: readonly string[] }) {
 	);
 }
 
+/**
+ * One saved rule. The switch turns it on or off; a rule that is off can be
+ * deleted after one confirmation (the API only deletes a disabled rule, so a
+ * live rule can never vanish in one click). Both writes are audited server-side.
+ */
+function SavedRuleRow({
+	rule,
+	canChange,
+}: {
+	rule: OsApprovalRule;
+	canChange: boolean;
+}) {
+	const queryClient = useQueryClient();
+	const [confirmDelete, setConfirmDelete] = useState(false);
+	const refresh = () =>
+		queryClient.invalidateQueries({ queryKey: osQueryKeys.approvalRules() });
+	const toggle = useMutation({
+		mutationFn: (enabled: boolean) =>
+			osApi.osApprovalRules.setEnabled({ ruleId: rule.id, enabled }),
+		onSettled: refresh,
+	});
+	const remove = useMutation({
+		mutationFn: () => osApi.osApprovalRules.delete({ ruleId: rule.id }),
+		onSettled: refresh,
+	});
+	const title = sanitizeUntrustedText(savedRuleTitle(rule));
+	const error = toggle.error ?? remove.error;
+	return (
+		<li className="grid min-w-0 gap-1 border-b border-kumo-hairline px-4 py-2.5 last:border-b-0">
+			<div className="flex min-w-0 items-start gap-2">
+				<span className="min-w-0 flex-1 break-words font-medium text-kumo-default type-tedix-control">
+					Always approve: {title}
+				</span>
+				{canChange ? (
+					<Switch
+						className="mt-0.5 shrink-0"
+						size="sm"
+						aria-label={`Always approve ${title}`}
+						checked={rule.enabled}
+						disabled={toggle.isPending || remove.isPending}
+						onCheckedChange={(next) => {
+							setConfirmDelete(false);
+							toggle.mutate(next);
+						}}
+					/>
+				) : (
+					<Badge
+						className="shrink-0"
+						variant={rule.enabled ? "success" : "secondary"}
+					>
+						{rule.enabled ? "On" : "Off"}
+					</Badge>
+				)}
+			</div>
+			<Text as="span" role="label" tone="secondary">
+				{rule.enabled
+					? "This action runs without asking."
+					: "Off: this action asks a person again."}{" "}
+				Added{" "}
+				<time dateTime={rule.createdAt} title={absoluteTime(rule.createdAt)}>
+					{relativeTime(rule.createdAt)}
+				</time>
+				{rule.createdByKind === "tedi" ? " by a tedi" : ""}
+			</Text>
+			{canChange && !rule.enabled ? (
+				confirmDelete ? (
+					<div
+						className="flex flex-wrap items-center gap-2"
+						role="group"
+						aria-label="Confirm delete"
+					>
+						<Text as="span" role="label" tone="secondary">
+							Delete this rule? Past approvals keep a record of it.
+						</Text>
+						<Button
+							size="sm"
+							variant="destructive"
+							loading={remove.isPending}
+							onClick={() => remove.mutate()}
+						>
+							Delete
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={remove.isPending}
+							onClick={() => setConfirmDelete(false)}
+						>
+							Cancel
+						</Button>
+					</div>
+				) : (
+					<Button
+						className="-ml-2 w-fit"
+						size="sm"
+						variant="ghost"
+						onClick={() => setConfirmDelete(true)}
+					>
+						<Trash size={14} /> Delete rule
+					</Button>
+				)
+			) : null}
+			{error ? (
+				<Text as="p" className="m-0" role="label" tone="error">
+					{toggle.error
+						? "Couldn't change this rule."
+						: "Couldn't delete this rule."}{" "}
+					{(error as Error).message}
+				</Text>
+			) : null}
+		</li>
+	);
+}
+
 const sectionHeading =
 	"m-0 px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
 
@@ -227,32 +346,7 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 			) : (
 				<ul aria-label="Saved rules" className="m-0 grid list-none p-0">
 					{savedRules.map((rule) => (
-						<li
-							className="grid min-w-0 gap-0.5 border-b border-kumo-hairline px-4 py-2.5 last:border-b-0"
-							key={rule.id}
-						>
-							<div className="flex min-w-0 items-start gap-2">
-								<span className="min-w-0 flex-1 break-words font-medium text-kumo-default type-tedix-control">
-									Always approve: {sanitizeUntrustedText(savedRuleTitle(rule))}
-								</span>
-								<Badge
-									className="shrink-0"
-									variant={rule.enabled ? "success" : "secondary"}
-								>
-									{rule.enabled ? "On" : "Off"}
-								</Badge>
-							</div>
-							<Text as="span" role="label" tone="secondary">
-								Added{" "}
-								<time
-									dateTime={rule.createdAt}
-									title={absoluteTime(rule.createdAt)}
-								>
-									{relativeTime(rule.createdAt)}
-								</time>
-								{rule.createdByKind === "tedi" ? " by a tedi" : ""}
-							</Text>
-						</li>
+						<SavedRuleRow key={rule.id} rule={rule} canChange={canChange} />
 					))}
 				</ul>
 			)}
@@ -260,7 +354,7 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 			<div className="grid gap-1 border-t border-kumo-hairline px-4 py-3">
 				<Text as="p" className="m-0" role="label" tone="secondary">
 					{canChange
-						? "You can add a rule from any decision card. Owners and admins with approval rights can change these."
+						? "Add a rule from any decision card. Turn a rule off to delete it."
 						: "Owners and admins with approval rights can change these. You can see them."}
 				</Text>
 				<Link className="type-tedix-label" href="/team">
