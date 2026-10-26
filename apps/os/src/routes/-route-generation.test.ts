@@ -66,6 +66,7 @@ const expectedPaths = [
 	"/account/connections",
 	"/shared",
 	"/guest",
+	"/blueprint/$blueprintId",
 	"/skills",
 	"/team",
 	"/team/$tediId",

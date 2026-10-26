@@ -36,6 +36,8 @@ import { FormTextarea } from "@/components/forms/form-textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { ClipboardText } from "@/components/kumo/clipboard-text";
+import { blueprintShareUrl } from "@/components/blueprint-landing-page";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
 import { FormField } from "@/components/kumo/forms/form-field";
@@ -1381,7 +1383,24 @@ export function GalleryCard({
 							{item.description}
 						</Text>
 					)}
+					{item.featured && (
+						<span>
+							<Badge variant="outline">Featured</Badge>
+						</span>
+					)}
 				</div>
+			</div>
+			<div className="grid min-w-0 gap-1 px-3 pt-2">
+				<Text as="span" role="label" tone="secondary">
+					Share link
+				</Text>
+				<ClipboardText
+					text={blueprintShareUrl(
+						typeof window === "undefined" ? "" : window.location.origin,
+						item.id,
+					)}
+					className="w-full min-w-0"
+				/>
 			</div>
 			{children ? <div className="px-3 pt-2 pb-3">{children}</div> : null}
 		</Surface>
@@ -1390,7 +1409,40 @@ export function GalleryCard({
 
 // The gallery caps at 200 server-side; one honest page.
 
-function GalleryExplore() {
+export function galleryView(
+	items: readonly OsBlueprintGalleryItem[],
+	query: string,
+	focusId: string | null,
+): {
+	featured: OsBlueprintGalleryItem[];
+	visible: OsBlueprintGalleryItem[];
+} {
+	if (focusId) {
+		return {
+			featured: [],
+			visible: items.filter((item) => item.id === focusId),
+		};
+	}
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+	return {
+		// The Featured strip is a browsing aid; a search shows matches only.
+		featured: normalizedQuery ? [] : items.filter((item) => item.featured),
+		visible: items.filter((item) =>
+			[item.name, item.description ?? "", item.organizationName]
+				.join(" ")
+				.toLocaleLowerCase()
+				.includes(normalizedQuery),
+		),
+	};
+}
+
+function GalleryExplore({
+	focusId,
+	onClearFocus,
+}: {
+	focusId: string | null;
+	onClearFocus: () => void;
+}) {
 	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
 	const [query, setQuery] = useState("");
@@ -1398,12 +1450,29 @@ function GalleryExplore() {
 		...blueprintGalleryQueryOptions(BLUEPRINT_GALLERY_LIMIT),
 		retry: false,
 	});
-	const normalizedQuery = query.trim().toLocaleLowerCase();
-	const visibleItems = (gallery.data?.items ?? []).filter((item) =>
-		[item.name, item.description ?? "", item.organizationName]
-			.join(" ")
-			.toLocaleLowerCase()
-			.includes(normalizedQuery),
+	const { featured, visible: visibleItems } = galleryView(
+		gallery.data?.items ?? [],
+		query,
+		focusId,
+	);
+	const renderCard = (item: OsBlueprintGalleryItem) => (
+		<GalleryCard key={item.id} item={item}>
+			<InstantiateForm
+				nameFieldLabel={`Workspace name for ${item.name}`}
+				successNote="The template was copied into your organization."
+				request={async (workspaceName) => {
+					const result =
+						await osApi.osWorkspaces.blueprints.instantiateFromGallery({
+							blueprintId: item.id,
+							workspaceName,
+						});
+					queryClient.invalidateQueries({
+						queryKey: osQueryKeys.blueprints(),
+					});
+					return result;
+				}}
+			/>
+		</GalleryCard>
 	);
 
 	return (
@@ -1418,32 +1487,60 @@ function GalleryExplore() {
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<PageToolbar aria-label="Template gallery controls" appearance="inline">
-				<SearchInput
-					aria-label="Search template gallery"
-					containerClassName="w-full sm:w-64 sm:shrink-0"
-					onChange={(event) => setQuery(event.target.value)}
-					placeholder="Search templates"
-					value={query}
-				/>
-				{gallery.data && (
-					<Text
-						role="label"
-						tone="secondary"
-						className="shrink-0"
-						aria-live="polite"
-					>
-						{formatCount(visibleItems.length)} of{" "}
-						{formatCount(gallery.data.items.length)} loaded templates
-					</Text>
-				)}
-			</PageToolbar>
+			{focusId && gallery.data && (
+				<Alert>
+					<AlertTitle>
+						{visibleItems.length > 0
+							? "Pick a name to install this template"
+							: "This template is no longer in the gallery"}
+					</AlertTitle>
+					<AlertDescription>
+						<Button variant="outline" size="sm" onClick={onClearFocus}>
+							Show all templates
+						</Button>
+					</AlertDescription>
+				</Alert>
+			)}
+			{featured.length > 0 && (
+				<section
+					aria-labelledby="blueprint-featured-title"
+					className="grid gap-2"
+				>
+					<SectionTitle id="blueprint-featured-title">Featured</SectionTitle>
+					<ul className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-3">
+						{featured.map(renderCard)}
+					</ul>
+				</section>
+			)}
+			{!focusId && (
+				<PageToolbar aria-label="Template gallery controls" appearance="inline">
+					<SearchInput
+						aria-label="Search template gallery"
+						containerClassName="w-full sm:w-64 sm:shrink-0"
+						onChange={(event) => setQuery(event.target.value)}
+						placeholder="Search templates"
+						value={query}
+					/>
+					{gallery.data && (
+						<Text
+							role="label"
+							tone="secondary"
+							className="shrink-0"
+							aria-live="polite"
+						>
+							{formatCount(visibleItems.length)} of{" "}
+							{formatCount(gallery.data.items.length)} loaded templates
+						</Text>
+					)}
+				</PageToolbar>
+			)}
 			<ListQueryBoundary
 				query={gallery}
 				errorTitle="The gallery is unavailable"
 			/>
 			{gallery.data && gallery.data.items.length === 0 && <GalleryEmpty />}
 			{gallery.data &&
+				!focusId &&
 				gallery.data.items.length > 0 &&
 				visibleItems.length === 0 && (
 					<Empty appearance="quiet">
@@ -1454,25 +1551,7 @@ function GalleryExplore() {
 				)}
 			{gallery.data && visibleItems.length > 0 && (
 				<ul className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-3">
-					{visibleItems.map((item) => (
-						<GalleryCard key={item.id} item={item}>
-							<InstantiateForm
-								nameFieldLabel={`Workspace name for ${item.name}`}
-								successNote="The template was copied into your organization."
-								request={async (workspaceName) => {
-									const result =
-										await osApi.osWorkspaces.blueprints.instantiateFromGallery({
-											blueprintId: item.id,
-											workspaceName,
-										});
-									queryClient.invalidateQueries({
-										queryKey: osQueryKeys.blueprints(),
-									});
-									return result;
-								}}
-							/>
-						</GalleryCard>
-					))}
+					{visibleItems.map(renderCard)}
 				</ul>
 			)}
 		</PageSection>
@@ -1796,9 +1875,12 @@ function MyBlueprints({
 	);
 }
 
-export function BlueprintsPage() {
+export function BlueprintsPage({ install }: { install?: string } = {}) {
 	const surface = getOsSurface("blueprints");
-	const [tab, setTab] = useState<BlueprintsTab>("mine");
+	// A shared landing page's "Use this blueprint" arrives with ?install=<id>:
+	// open Explore on that one template so its install form is the next step.
+	const [focusId, setFocusId] = useState<string | null>(install ?? null);
+	const [tab, setTab] = useState<BlueprintsTab>(install ? "explore" : "mine");
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [showCreate, setShowCreate] = useState(false);
 	const [showImport, setShowImport] = useState(false);
@@ -1869,7 +1951,10 @@ export function BlueprintsPage() {
 			{tab === "mine" ? (
 				<MyBlueprints selectedId={selectedId} onSelect={setSelectedId} />
 			) : (
-				<GalleryExplore />
+				<GalleryExplore
+					focusId={focusId}
+					onClearFocus={() => setFocusId(null)}
+				/>
 			)}
 		</Page>
 	);

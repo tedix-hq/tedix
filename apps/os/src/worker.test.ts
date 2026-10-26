@@ -964,6 +964,70 @@ describe("Tedix OS origin router", () => {
 		}
 	});
 
+	it("serves a shared blueprint page and its public read to a signed-out visitor", async () => {
+		const blueprintId = "00000050-0000-4000-8000-000000000001";
+		const seen: Request[] = [];
+		const env = {
+			...withApiService(assetsReturning("shell")),
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					seen.push(request);
+					return Response.json({ ok: true });
+				},
+			},
+			OS_SESSION_BROKER: SESSION_BROKER,
+		};
+		const document = await handleOsRequest(
+			new Request(`https://acme.os.tedix.dev/blueprint/${blueprintId}`, {
+				headers: {
+					Accept: "text/html",
+					"Sec-Fetch-Dest": "document",
+					"Sec-Fetch-Mode": "navigate",
+					"Sec-Fetch-Site": "cross-site",
+				},
+			}),
+			env,
+			provisionedWithTenant,
+		);
+		expect(document.status).toBe(200);
+		expect(await document.text()).toContain("shell");
+
+		const read = await handleOsRequest(
+			new Request(
+				`https://acme.os.tedix.dev/api/public/blueprints/${blueprintId}`,
+				{
+					headers: {
+						Authorization: "Bearer attacker-selected",
+						Cookie: `${OS_BROKER_SESSION_COOKIE}=broker-jwt`,
+					},
+				},
+			),
+			env,
+			provisionedWithTenant,
+		);
+		expect(read.status).toBe(200);
+		const forwarded = seen.at(-1)!;
+		expect(new URL(forwarded.url).pathname).toBe(
+			`/public/blueprints/${blueprintId}`,
+		);
+		expect(forwarded.headers.get("Authorization")).toBeNull();
+		expect(forwarded.headers.get("Cookie")).toBeNull();
+
+		// Only that exact read is public: other verbs and paths need a session.
+		for (const [path, method] of [
+			[`/api/public/blueprints/${blueprintId}`, "POST"],
+			["/api/public/blueprints/not-an-id", "GET"],
+			["/api/public/anything", "GET"],
+		] as const) {
+			const response = await handleOsRequest(
+				new Request(`https://acme.os.tedix.dev${path}`, { method }),
+				env,
+				provisionedWithTenant,
+			);
+			expect(response.status, `${method} ${path}`).toBe(401);
+		}
+	});
+
 	it("signs in a visitor who follows a cross-site link to a tenant document", async () => {
 		createIntent.mockClear();
 		// The exact headers a browser sends when a signed-out human follows a

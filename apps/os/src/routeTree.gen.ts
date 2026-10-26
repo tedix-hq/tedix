@@ -18,6 +18,7 @@ import { Route as AuthLoginRouteImport } from './routes/_auth.login'
 import { Route as SessionChromeFreeRouteImport } from './routes/_session/_chrome-free'
 import { Route as SessionTenantRouteImport } from './routes/_session/_tenant'
 import { Route as SessionAccountRouteImport } from './routes/_session/account'
+import { Route as BlueprintBlueprintIdRouteImport } from './routes/blueprint.$blueprintId'
 import { Route as AuthOauthConsentRouteImport } from './routes/_auth.oauth.consent'
 import { Route as CliSessionCliLoginRouteImport } from './routes/_cli-session/cli/login'
 import { Route as SessionChromeFreeSharedRouteImport } from './routes/_session/_chrome-free/shared'
@@ -138,6 +139,11 @@ const SessionAccountRoute = SessionAccountRouteImport.update({
   id: '/account',
   path: '/account',
   getParentRoute: () => SessionRoute,
+} as any)
+const BlueprintBlueprintIdRoute = BlueprintBlueprintIdRouteImport.update({
+  id: '/blueprint/$blueprintId',
+  path: '/blueprint/$blueprintId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthOauthConsentRoute = AuthOauthConsentRouteImport.update({
   id: '/oauth/consent',
@@ -597,6 +603,7 @@ export interface FileRoutesByFullPath {
   '/invite': typeof AuthInviteRoute
   '/login': typeof AuthLoginRoute
   '/account': typeof SessionAccountRouteWithChildren
+  '/blueprint/$blueprintId': typeof BlueprintBlueprintIdRoute
   '/oauth/consent': typeof AuthOauthConsentRoute
   '/cli/login': typeof CliSessionCliLoginRoute
   '/shared': typeof SessionChromeFreeSharedRoute
@@ -683,6 +690,7 @@ export interface FileRoutesByTo {
   '/invite': typeof AuthInviteRoute
   '/login': typeof AuthLoginRoute
   '/account': typeof SessionAccountRouteWithChildren
+  '/blueprint/$blueprintId': typeof BlueprintBlueprintIdRoute
   '/oauth/consent': typeof AuthOauthConsentRoute
   '/cli/login': typeof CliSessionCliLoginRoute
   '/shared': typeof SessionChromeFreeSharedRoute
@@ -768,6 +776,7 @@ export interface FileRoutesById {
   '/_session/_chrome-free': typeof SessionChromeFreeRouteWithChildren
   '/_session/_tenant': typeof SessionTenantRouteWithChildren
   '/_session/account': typeof SessionAccountRouteWithChildren
+  '/blueprint/$blueprintId': typeof BlueprintBlueprintIdRoute
   '/_auth/oauth/consent': typeof AuthOauthConsentRoute
   '/_cli-session/cli/login': typeof CliSessionCliLoginRoute
   '/_session/_chrome-free/shared': typeof SessionChromeFreeSharedRoute
@@ -857,6 +866,7 @@ export interface FileRouteTypes {
     | '/invite'
     | '/login'
     | '/account'
+    | '/blueprint/$blueprintId'
     | '/oauth/consent'
     | '/cli/login'
     | '/shared'
@@ -943,6 +953,7 @@ export interface FileRouteTypes {
     | '/invite'
     | '/login'
     | '/account'
+    | '/blueprint/$blueprintId'
     | '/oauth/consent'
     | '/cli/login'
     | '/shared'
@@ -1027,6 +1038,7 @@ export interface FileRouteTypes {
     | '/_session/_chrome-free'
     | '/_session/_tenant'
     | '/_session/account'
+    | '/blueprint/$blueprintId'
     | '/_auth/oauth/consent'
     | '/_cli-session/cli/login'
     | '/_session/_chrome-free/shared'
@@ -1114,6 +1126,7 @@ export interface RootRouteChildren {
   CliSessionRoute: typeof CliSessionRouteWithChildren
   SessionRoute: typeof SessionRouteWithChildren
   GuestRoute: typeof GuestRoute
+  BlueprintBlueprintIdRoute: typeof BlueprintBlueprintIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1180,6 +1193,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/account'
       preLoaderRoute: typeof SessionAccountRouteImport
       parentRoute: typeof SessionRoute
+    }
+    '/blueprint/$blueprintId': {
+      id: '/blueprint/$blueprintId'
+      path: '/blueprint/$blueprintId'
+      fullPath: '/blueprint/$blueprintId'
+      preLoaderRoute: typeof BlueprintBlueprintIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_auth/oauth/consent': {
       id: '/_auth/oauth/consent'
@@ -2071,6 +2091,7 @@ const rootRouteChildren: RootRouteChildren = {
   CliSessionRoute: CliSessionRouteWithChildren,
   SessionRoute: SessionRouteWithChildren,
   GuestRoute: GuestRoute,
+  BlueprintBlueprintIdRoute: BlueprintBlueprintIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
