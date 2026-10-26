@@ -75,6 +75,27 @@
 			]
 		},
 		{
+			"id": "factory-build",
+			"kind": "direct",
+			"prompt": "Build a factory that summarizes project comments into a daily Workspace document, and prove its first run.",
+			"expect": [
+				"Load tedix-factory",
+				"Resolve the owner, project, Workspace, cadence and Output",
+				"Call create_factory with dryRun true before proposing the same reviewed inputs",
+				"Use the returned skill ID for a probe and a unique cycle key for real proof",
+				"Do not claim delivery without the terminal run and durable result"
+			]
+		},
+		{
+			"id": "factory-negative",
+			"kind": "negative",
+			"prompt": "Schedule one local reminder for tomorrow.",
+			"expect": [
+				"tedix-factory remains idle",
+				"No factory creation or mutation"
+			]
+		},
+		{
 			"id": "unrelated",
 			"kind": "negative",
 			"prompt": "Summarize this local Git diff.",

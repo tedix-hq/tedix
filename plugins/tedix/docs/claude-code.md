@@ -21,9 +21,9 @@ For online Claude chat, Cowork and local-only or hybrid package choices, start
 with [Tedix in the Claude family](./claude.md). Code's local hooks and Claude's
 remote connectors have different execution and authentication boundaries.
 
-The Tedix plugin gives Claude Code six skills (`tedix-session-guide`,
+The Tedix plugin gives Claude Code packaged skills including `tedix-session-guide`,
 `tedix-connect`, `tedix-delegate`, `tedix-guardian-session`,
-`tedix-resume-work`, and `tedix-workspace-output`), a remote Tedix MCP
+`tedix-resume-work`, `tedix-workspace-output`, and `tedix-factory`, plus a remote Tedix MCP
 connection, and opt-in lifecycle hooks (see [Hooks](#hooks)). It does not sign
 you in or grant Work execution authority. Complete Tedix sign-in yourself when
 prompted.
@@ -106,6 +106,7 @@ read-only call for your task. The other packaged skills are
 `/tedix:tedix-resume-work` for an existing Work Item and
 `/tedix:tedix-workspace-output` for a Workspace Output. Claude can also load
 them when their descriptions match your request.
+Use `/tedix:tedix-factory` to build, prove, inspect or tune a factory.
 
 The session-start hook stays silent unless `TEDIX_PLUGIN_PREFLIGHT=1` is set in
 the local session or a valid local chat binding exists. Set `TEDIX_WORKSPACE` to choose a CLI profile and optionally

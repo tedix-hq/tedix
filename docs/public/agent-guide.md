@@ -66,9 +66,9 @@ policy.
 ### Through the host's plugin or connector
 
 The Tedix plugin gives the host a remote MCP connection to
-`https://connect.mcp.tedix.dev/mcp` and six skills: `tedix-session-guide`,
+`https://connect.mcp.tedix.dev/mcp` and packaged skills including `tedix-session-guide`,
 `tedix-connect`, `tedix-delegate`, `tedix-resume-work`,
-`tedix-workspace-output` and `tedix-guardian-session`. In Claude chat and
+`tedix-workspace-output`, `tedix-guardian-session` and `tedix-factory`. In Claude chat and
 Cowork, the same URL is added as a custom connector, which carries the tools
 but not the skills. The human installs it and signs in once through the host's
 own OAuth flow: a browser opens, the owner signs in, selects one or more

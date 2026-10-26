@@ -72,6 +72,7 @@ Local tests do not prove that Tedix Cloud works or that a change is deployed.
 | Tedi execution           | `apps/tedi-runtime/AGENTS.md`, `apps/tedi-runtime/src/do.ts`, and nearby modules          |
 | MCP tools                | `apps/mcp/AGENTS.md`, `apps/mcp/src/mcp/handler.ts`, `packages/db/src/schema/tools.ts`    |
 | Command-line tool        | `packages/cli/README.md` and the command's implementation                                 |
+| Factories and schedules  | `docs/public/build-operate-tune-factory.md`, then the relevant API, runtime, or CLI code  |
 
 ## Keep these code rules
 

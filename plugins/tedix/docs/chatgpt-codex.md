@@ -178,7 +178,8 @@ For ordinary connected workflows, the skill uses native MCP tools even when
 a shell is available. When a user or repository requires the CLI, it first
 checks `tedix auth status` and uses the task-scoped profile. The other packaged skills
 are `tedix-session-guide`, `tedix-delegate`, `tedix-guardian-session`, `tedix-resume-work`, and
-`tedix-workspace-output`; invoke them only for their described tasks. A read
+`tedix-workspace-output`; `tedix-factory` covers factory building, proof,
+health and tuning. Invoke them only for their described tasks. A read
 check must not start an Attempt or write data.
 
 ## Optional local preflight

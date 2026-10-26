@@ -105,6 +105,7 @@ approval store.
 | Delegate a task or follow a tedi run      | [tedix-delegate](skills/tedix-delegate/SKILL.md)                 |
 | Resume an existing governed Work Item     | [tedix-resume-work](skills/tedix-resume-work/SKILL.md)           |
 | Create or update a Tedix Workspace Output | [tedix-workspace-output](skills/tedix-workspace-output/SKILL.md) |
+| Build, operate or tune a factory          | [tedix-factory](skills/tedix-factory/SKILL.md)                   |
 
 Use these requests to check host discovery after packaging:
 
@@ -116,6 +117,7 @@ Use these requests to check host discovery after packaging:
 | `tedix-delegate`         | “Ask a tedi to handle this”; “How is my tedi run going?”            | “Run this one Tedix tool” |
 | `tedix-resume-work`      | “Continue Work Item 123”; “Pick up the admitted Tedix task”         | “List my Work Items”      |
 | `tedix-workspace-output` | “Create a report in our Tedix Workspace”; “Update that Tedix sheet” | “Edit this local DOCX”    |
+| `tedix-factory`          | “Build a factory”; “Tune this factory's delivery cadence”           | “Schedule one local task” |
 
 On a local Codex or Claude Code host, use the installed `tedix` CLI and run
 `tedix auth status` before a live call. In a host without a local shell, use
