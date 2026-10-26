@@ -186,7 +186,7 @@ describe("extractRunUsage — usage extraction from metadata.bodyExecutionResult
 });
 
 describe("durable kernel turn lifecycle", () => {
-	it("retains organization before async dispatch and clears progress on failure", async () => {
+	it("retains the watchdog when a turn fails before settlement", async () => {
 		const { KernelDOv4 } = await import("./kernel-do");
 		const states: Array<Record<string, unknown>> = [];
 		const pending: Promise<unknown>[] = [];
@@ -241,7 +241,12 @@ describe("durable kernel turn lifecycle", () => {
 		) => Promise<unknown>;
 		await expect(run.call(fake, input)).rejects.toThrow("turn failure");
 		expect(end).toHaveBeenCalledOnce();
-		expect(cancelSchedule).toHaveBeenCalledWith("watchdog");
+		expect(fake.schedule).toHaveBeenCalledWith(240, "failStuckTurn", {
+			runId: "run-1",
+			organizationId: "org-1",
+			conversationId: "home:main",
+		});
+		expect(cancelSchedule).not.toHaveBeenCalled();
 		expect(fake.turnAbortControllers.size).toBe(0);
 		lifecycleWork.mockResolvedValueOnce({ status: "completed" });
 		await expect(run.call(fake, input)).resolves.toEqual({
@@ -251,6 +256,8 @@ describe("durable kernel turn lifecycle", () => {
 		expect(fake.afterTurnMaintenance).toHaveBeenCalledWith("org-1");
 		expect(fake.onTurnEnded).toHaveBeenCalledWith("home:main");
 		expect(end).toHaveBeenCalledTimes(2);
+		expect(cancelSchedule).toHaveBeenCalledOnce();
+		expect(cancelSchedule).toHaveBeenCalledWith("watchdog");
 	});
 });
 
