@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
 import { SessionHarness } from "@tedix/tedi-session/session-harness";
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
@@ -244,8 +245,8 @@ export const runtimeWorkflow = {
 				// Never strand the logical run if the suppression marker cannot be
 				// persisted. Atomic provider admission remains the final backstop.
 				console.warn(
-					"[isolate.cron] failed to persist budget suppression marker:",
-					error instanceof Error ? error.message : error,
+					"[isolate.cron] failed to persist budget suppression marker",
+					{ exception: exceptionTopology(error) },
 				);
 			}
 		}
@@ -425,8 +426,8 @@ export const runtimeWorkflow = {
 			);
 		} catch (e) {
 			console.warn(
-				`[isolate.workflow] terminal reconciliation status failed id=${input.workflowInstanceId}:`,
-				e,
+				`[isolate.workflow] terminal reconciliation status failed id=${input.workflowInstanceId}`,
+				{ exception: exceptionTopology(e) },
 			);
 		}
 
@@ -489,8 +490,8 @@ export const runtimeWorkflow = {
 			// success, and the coarse orphan reconciler remains the last safety net.
 			// Never turn a local scheduling failure into a false native terminal.
 			console.warn(
-				`[isolate.workflow] terminal reconciliation schedule failed id=${input.workflowInstanceId}:`,
-				e,
+				`[isolate.workflow] terminal reconciliation schedule failed id=${input.workflowInstanceId}`,
+				{ exception: exceptionTopology(e) },
 			);
 		}
 		return false;
@@ -565,8 +566,8 @@ export const runtimeWorkflow = {
 			// A restart that itself fails must not leave the run un-terminalized —
 			// seal the honest failure so the kernel/Home sees a fast terminal.
 			console.warn(
-				`[isolate.workflow] transient-reset re-drive failed id=${workflowInstanceId}:`,
-				e,
+				`[isolate.workflow] transient-reset re-drive failed id=${workflowInstanceId}`,
+				{ exception: exceptionTopology(e) },
 			);
 			await this.settleWorkflowFailure(workflowInstanceId, error);
 			return;
@@ -583,8 +584,8 @@ export const runtimeWorkflow = {
 			);
 		} catch (e) {
 			console.warn(
-				`[isolate.workflow] re-drive reconcile re-arm failed id=${workflowInstanceId}:`,
-				e,
+				`[isolate.workflow] re-drive reconcile re-arm failed id=${workflowInstanceId}`,
+				{ exception: exceptionTopology(e) },
 			);
 		}
 	},
@@ -729,8 +730,8 @@ export const runtimeWorkflow = {
 			).status;
 		} catch (e) {
 			console.warn(
-				`[isolate.workflow] start watchdog status failed id=${input.workflowInstanceId}:`,
-				e,
+				`[isolate.workflow] start watchdog status failed id=${input.workflowInstanceId}`,
+				{ exception: exceptionTopology(e) },
 			);
 		}
 
@@ -765,8 +766,8 @@ export const runtimeWorkflow = {
 			);
 		} catch (e) {
 			console.warn(
-				`[isolate.workflow] start watchdog restart failed id=${input.workflowInstanceId}:`,
-				e,
+				`[isolate.workflow] start watchdog restart failed id=${input.workflowInstanceId}`,
+				{ exception: exceptionTopology(e) },
 			);
 		}
 		await this.schedule(

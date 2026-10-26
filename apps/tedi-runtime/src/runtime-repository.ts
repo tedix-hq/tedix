@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	callRpc,
 	RpcCallError,
@@ -945,10 +946,9 @@ export const runtimeRepository = {
 				declaredFingerprint: declaration.fingerprint,
 			};
 		} catch (err) {
-			console.warn(
-				"[repo_commit] unexpected error in propose:",
-				err instanceof Error ? err.message : String(err),
-			);
+			console.warn("[repo_commit] unexpected error in propose", {
+				exception: exceptionTopology(err),
+			});
 			return { ok: false, error: "repo_commit_propose_failed" };
 		}
 	},
@@ -1073,10 +1073,9 @@ export const runtimeRepository = {
 						try {
 							fenceStore.recordPublishedCommit(row.id, __r.commitSha);
 						} catch (err) {
-							console.warn(
-								"[repo_commit_fence] recordPublishedCommit failed:",
-								err instanceof Error ? err.message : String(err),
-							);
+							console.warn("[repo_commit_fence] recordPublishedCommit failed", {
+								exception: exceptionTopology(err),
+							});
 						}
 					}
 				}

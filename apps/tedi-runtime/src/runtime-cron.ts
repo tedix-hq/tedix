@@ -265,8 +265,8 @@ export async function loadPolicyPackCronTemplates(
 	} catch (err) {
 		const error = err instanceof Error ? err.message : String(err);
 		console.warn(
-			`[isolate.cron-reconcile] load templates failed for ${tediId}:`,
-			error,
+			`[isolate.cron-reconcile] load templates failed for ${tediId}`,
+			{ exception: exceptionTopology(error) },
 		);
 		// Unknown policy cannot authorize additions OR removals. Reinstalling
 		// defaults here revives explicitly disabled cognitive jobs on a read
@@ -311,10 +311,9 @@ export async function cronProtectionError(
 			? names.filter((n): n is string => typeof n === "string")
 			: [];
 	} catch (err) {
-		console.warn(
-			"[isolate.cron] protection read failed (fail-closed):",
-			err instanceof Error ? err.message : err,
-		);
+		console.warn("[isolate.cron] protection read failed (fail-closed)", {
+			exception: exceptionTopology(err),
+		});
 		return `cron protection state is temporarily unreadable; retry the ${action} shortly`;
 	}
 	return protectedCronNameError(target, protectedNames, action);
@@ -870,10 +869,9 @@ export async function onCronFire(
 			return { status: "skipped", reason: "expired" };
 		}
 	} catch (err) {
-		console.warn(
-			"[isolate.cron] TTL check failed (firing normally):",
-			err instanceof Error ? err.message : err,
-		);
+		console.warn("[isolate.cron] TTL check failed (firing normally)", {
+			exception: exceptionTopology(err),
+		});
 	}
 	const sessionKey = payload?.sessionKey || DEFAULT_SESSION_KEY;
 	const fireKey = `cron:${row?.id ?? payload?.name ?? "job"}:${row?.time ?? Date.now()}`;
@@ -927,8 +925,8 @@ export async function onCronFire(
 		// The provider-side atomic admission guard still fails closed. Let one
 		// turn reach it rather than silently disabling valid scheduled work.
 		console.warn(
-			"[isolate.cron] budget suppression check failed (falling through to provider admission):",
-			err instanceof Error ? err.message : err,
+			"[isolate.cron] budget suppression check failed (falling through to provider admission)",
+			{ exception: exceptionTopology(err) },
 		);
 	}
 	const userTs = Date.now();
@@ -1005,8 +1003,8 @@ export async function onCronFire(
 		}
 	} catch (err) {
 		console.warn(
-			"[isolate.cron] recurrence lookup failed; enveloping as one-off:",
-			err,
+			"[isolate.cron] recurrence lookup failed; enveloping as one-off",
+			{ exception: exceptionTopology(err) },
 		);
 	}
 	const envelopedMessage = formatScheduledTaskPrompt({
@@ -1087,10 +1085,9 @@ export async function onCronFire(
 				),
 			);
 		}
-		console.error(
-			`[isolate.cron] workflow dispatch failed fire=${fireKey}:`,
-			e instanceof Error ? e.message : e,
-		);
+		console.error(`[isolate.cron] workflow dispatch failed fire=${fireKey}`, {
+			exception: exceptionTopology(e),
+		});
 		// Re-throw so the SDK alarm retries this fire (schedule maxAttempts).
 		throw e;
 	}
@@ -1112,8 +1109,8 @@ export async function onCronFire(
 			}
 		} catch (err) {
 			console.warn(
-				"[isolate.cron] trajectory mining failed (fire unaffected):",
-				err instanceof Error ? err.message : err,
+				"[isolate.cron] trajectory mining failed (fire unaffected)",
+				{ exception: exceptionTopology(err) },
 			);
 		}
 	}
@@ -1155,8 +1152,8 @@ export async function stampCronExecution(
 		await platform.recordCronExecution(stamp);
 	} catch (err) {
 		console.warn(
-			`[isolate.cron] execution stamp failed name=${stamp.cronName} phase=${stamp.phase}:`,
-			err instanceof Error ? err.message : err,
+			`[isolate.cron] execution stamp failed name=${stamp.cronName} phase=${stamp.phase}`,
+			{ exception: exceptionTopology(err) },
 		);
 	}
 }

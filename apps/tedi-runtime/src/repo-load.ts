@@ -8,6 +8,7 @@
  * this module owns the stateless logic that can be reasoned about in isolation.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	getTediRuntimeEncryptedSecret,
 	getTediRuntimeRepoConfig,
@@ -172,10 +173,9 @@ export async function runRepoLoad(
 		try {
 			repoConfig = await getTediRuntimeRepoConfig(deps.db, tediId);
 		} catch (err) {
-			console.warn(
-				`[repo_load] D1 read error for repo_config (${tediId}):`,
-				err,
-			);
+			console.warn(`[repo_load] D1 read error for repo_config (${tediId})`, {
+				exception: exceptionTopology(err),
+			});
 			dbReadError = true;
 		}
 		if (dbReadError) return { ok: false, error: "repo_config_read_failed" };
@@ -197,8 +197,8 @@ export async function runRepoLoad(
 				}
 			} catch (err) {
 				console.warn(
-					`[repo_load] JSON.parse error for repo_config (${tediId}):`,
-					err,
+					`[repo_load] JSON.parse error for repo_config (${tediId})`,
+					{ exception: exceptionTopology(err) },
 				);
 				return { ok: false, error: "repo_config_read_failed" };
 			}

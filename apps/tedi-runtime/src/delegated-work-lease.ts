@@ -1,3 +1,4 @@
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { RpcCallError } from "@tedix/api-client/internal";
 import type { TediSessionModelIdentity } from "@tedix/tedi-session/session-harness";
 import type { PlatformClient } from "./brain/platform-client";
@@ -322,7 +323,7 @@ export async function renewDelegatedWorkLease(
 		// A transient local read failure is not proof the run ended. Retry next tick.
 		console.warn("[work-lease] workflow identity read failed", {
 			runId,
-			error: String(error),
+			exception: exceptionTopology(error),
 		});
 		await deps.rearm(DELEGATED_WORK_LEASE_RENEWAL_INTERVAL_SECONDS);
 		return true;
@@ -346,7 +347,7 @@ export async function renewDelegatedWorkLease(
 		if (isTransientHeartbeatFailure(error)) {
 			console.warn("[work-lease] heartbeat deferred by a transient failure", {
 				runId,
-				error: String(error),
+				exception: exceptionTopology(error),
 			});
 			await deps.rearm(DELEGATED_WORK_LEASE_RENEWAL_INTERVAL_SECONDS);
 			return true;
@@ -386,7 +387,7 @@ export async function renewDelegatedWorkLease(
 			// A failed status read or projection cannot establish terminality.
 			console.warn("[work-lease] workflow observation failed", {
 				runId,
-				error: String(error),
+				exception: exceptionTopology(error),
 			});
 		}
 		// Final settlement is recorded before fallible assistant/projection writes.

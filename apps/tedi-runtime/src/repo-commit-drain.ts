@@ -5,6 +5,7 @@
  * tests inject fakes. Never throws — all errors are caught and logged.
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { RepoCommitRow } from "./repo-commit-store";
 
 export type { RepoCommitRow };
@@ -73,29 +74,26 @@ export async function drainRepoCommits(
 	try {
 		store.failStuckCommitting(stuckMs);
 	} catch (err) {
-		console.warn(
-			"[repo_commit_drain] failStuckCommitting error:",
-			err instanceof Error ? err.message : String(err),
-		);
+		console.warn("[repo_commit_drain] failStuckCommitting error", {
+			exception: exceptionTopology(err),
+		});
 	}
 
 	try {
 		store.failStuckParked(stuckMs * 10); // 10 min TTL for orphan parked rows
 	} catch (err) {
-		console.warn(
-			"[repo_commit_drain] failStuckParked error:",
-			err instanceof Error ? err.message : String(err),
-		);
+		console.warn("[repo_commit_drain] failStuckParked error", {
+			exception: exceptionTopology(err),
+		});
 	}
 
 	let parked: RepoCommitRow[];
 	try {
 		parked = store.listParked(maxRows);
 	} catch (err) {
-		console.warn(
-			"[repo_commit_drain] listParked error:",
-			err instanceof Error ? err.message : String(err),
-		);
+		console.warn("[repo_commit_drain] listParked error", {
+			exception: exceptionTopology(err),
+		});
 		return;
 	}
 
@@ -118,12 +116,9 @@ export async function drainRepoCommits(
 	// Serialize the write operations (claim + execute + mark) for approved rows.
 	for (const result of pollResults) {
 		if (result.status === "rejected") {
-			console.warn(
-				"[repo_commit_drain] getStatus error:",
-				result.reason instanceof Error
-					? result.reason.message
-					: String(result.reason),
-			);
+			console.warn("[repo_commit_drain] getStatus error", {
+				exception: exceptionTopology(result.reason),
+			});
 			continue;
 		}
 
@@ -139,8 +134,8 @@ export async function drainRepoCommits(
 				claimed = store.claimForExecution(row.id);
 			} catch (err) {
 				console.warn(
-					`[repo_commit_drain] claimForExecution error for ${row.id}:`,
-					err instanceof Error ? err.message : String(err),
+					`[repo_commit_drain] claimForExecution error for ${row.id}`,
+					{ exception: exceptionTopology(err) },
 				);
 				continue;
 			}
@@ -157,10 +152,9 @@ export async function drainRepoCommits(
 			try {
 				execResult = await executeRow(claimed);
 			} catch (err) {
-				console.warn(
-					`[repo_commit_drain] executeRow threw for ${row.id}:`,
-					err instanceof Error ? err.message : String(err),
-				);
+				console.warn(`[repo_commit_drain] executeRow threw for ${row.id}`, {
+					exception: exceptionTopology(err),
+				});
 				try {
 					store.markError(row.id, "executeRow threw unexpectedly");
 				} catch {}
@@ -175,8 +169,8 @@ export async function drainRepoCommits(
 					});
 				} catch (err) {
 					console.warn(
-						`[repo_commit_drain] markCommitted error for ${row.id}:`,
-						err instanceof Error ? err.message : String(err),
+						`[repo_commit_drain] markCommitted error for ${row.id}`,
+						{ exception: exceptionTopology(err) },
 					);
 				}
 			} else {
@@ -184,10 +178,9 @@ export async function drainRepoCommits(
 				try {
 					store.markError(row.id, code);
 				} catch (err) {
-					console.warn(
-						`[repo_commit_drain] markError error for ${row.id}:`,
-						err instanceof Error ? err.message : String(err),
-					);
+					console.warn(`[repo_commit_drain] markError error for ${row.id}`, {
+						exception: exceptionTopology(err),
+					});
 				}
 			}
 		} else if (
@@ -198,10 +191,9 @@ export async function drainRepoCommits(
 			try {
 				store.markAbandoned(row.id);
 			} catch (err) {
-				console.warn(
-					`[repo_commit_drain] markAbandoned error for ${row.id}:`,
-					err instanceof Error ? err.message : String(err),
-				);
+				console.warn(`[repo_commit_drain] markAbandoned error for ${row.id}`, {
+					exception: exceptionTopology(err),
+				});
 			}
 		}
 		// "pending" → leave untouched

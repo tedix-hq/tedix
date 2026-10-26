@@ -13,6 +13,7 @@
  * paths only — file contents stay in the DO-SQLite ledger (repo-commit-store.ts).
  */
 
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	classifyRepoCommitRisk,
 	REPO_COMMIT_WRITE_KIND,
@@ -230,10 +231,9 @@ export async function executeRepoCommitFromLedger(args: {
 		});
 	} catch (err) {
 		// PAT stays local — it must never appear in the mapped error result
-		console.warn(
-			"[repo_commit_execute] error:",
-			err instanceof Error ? err.message : String(err),
-		);
+		console.warn("[repo_commit_execute] error", {
+			exception: exceptionTopology(err),
+		});
 		const _m = mapRepoError(err);
 		return _m.ok
 			? _m
@@ -266,10 +266,9 @@ export async function executeRepoCommitFromLedger(args: {
 				prUrl: pr.url,
 			};
 		} catch (err) {
-			console.warn(
-				"[repo_commit_execute] error:",
-				err instanceof Error ? err.message : String(err),
-			);
+			console.warn("[repo_commit_execute] error", {
+				exception: exceptionTopology(err),
+			});
 			const _m = mapRepoError(err);
 			return _m.ok
 				? _m
