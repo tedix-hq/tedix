@@ -28,10 +28,13 @@ async function open(locale: string, width: number, path: string) {
 	});
 	await context.addInitScript(() => {
 		Object.assign(self, {
+			// Like Chrome, a frame the click did not land in may not open one.
 			Translator: {
-				create: async () => ({
-					translate: async (text: string) => `[de] ${text}`,
-				}),
+				create: async () => {
+					if (window !== window.top)
+						throw new DOMException("No click here", "NotAllowedError");
+					return { translate: async (text: string) => `[de] ${text}` };
+				},
 			},
 			LanguageDetector: {
 				create: async () => ({

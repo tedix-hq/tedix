@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	APP_RUNTIME_CALL_METHOD,
 	APP_RUNTIME_LANGUAGE_METHOD,
+	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
 	APP_RUNTIME_TRANSLATION_METHOD,
 	type AppRuntimeHostResult,
 } from "@/lib/app-runtime-host";
@@ -107,6 +108,34 @@ export function AppRuntimeFrame({
 				data.method === APP_RUNTIME_LANGUAGE_METHOD
 			) {
 				latest.current.translation?.receive(data.method, data.params);
+				return;
+			}
+			if (
+				data.method === APP_RUNTIME_TRANSLATE_TEXT_METHOD &&
+				data.id !== undefined
+			) {
+				const text = (data.params as { text?: unknown } | null)?.text;
+				const translation = latest.current.translation;
+				void (
+					typeof text === "string" && translation
+						? translation.translateText(text)
+						: Promise.reject(new Error("No translation"))
+				).then(
+					(result) => {
+						if (alive) post({ jsonrpc: "2.0", id: data.id, result });
+					},
+					() => {
+						if (alive)
+							post({
+								jsonrpc: "2.0",
+								id: data.id,
+								error: {
+									code: "translation_failed",
+									message: "translation_failed",
+								},
+							});
+					},
+				);
 				return;
 			}
 			if (data.method === "tedix/resize" && layout !== "fill") {

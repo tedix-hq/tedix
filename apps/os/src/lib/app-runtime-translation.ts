@@ -21,6 +21,8 @@ export interface AppRuntimeTranslationChannel {
 	/** The frame's post function once the app document is ready; null when it goes. */
 	attach: (post: ((message: unknown) => void) | null) => void;
 	receive: (method: string, params: unknown) => void;
+	/** Translate one text for the app with the translator the click opened. */
+	translateText: (text: string) => Promise<string>;
 }
 
 export interface AppRuntimeTranslation {
@@ -33,12 +35,13 @@ export interface AppRuntimeTranslation {
 	toggle: () => Promise<void>;
 }
 
+type OpenTranslator = { translate: (text: string) => Promise<string> };
 type TranslatorFactory = {
 	create: (options: {
 		sourceLanguage: string;
 		targetLanguage: string;
 		monitor?: (monitor: EventTarget) => void;
-	}) => Promise<unknown>;
+	}) => Promise<OpenTranslator>;
 };
 
 const primary = (tag: string) => (tag.split("-")[0] ?? tag).toLowerCase();
@@ -74,6 +77,7 @@ export function useAppRuntimeTranslation(
 		state: "original",
 	});
 	const port = useRef<((message: unknown) => void) | null>(null);
+	const opened = useRef<OpenTranslator | null>(null);
 	const needsDetection = useRef(!locale);
 	needsDetection.current = !locale;
 	const target = primary(
@@ -99,6 +103,10 @@ export function useAppRuntimeTranslation(
 				)
 					setStatus(params);
 			},
+			translateText: async (text) => {
+				if (!opened.current) throw new Error("No translator is open");
+				return opened.current.translate(text);
+			},
 		}),
 		[],
 	);
@@ -117,10 +125,11 @@ export function useAppRuntimeTranslation(
 			return;
 		}
 		setStatus({ state: "translating", language: target });
-		// The browser fetches a language pack only from a click, and the click
-		// lands here, not in the sandboxed app; the app then finds it ready.
+		// The browser opens a translator only from a click, and the click lands
+		// here, not in the sandboxed app: the host translates the app's texts.
+		opened.current = null;
 		try {
-			await translator.create({
+			opened.current = await translator.create({
 				sourceLanguage: source,
 				targetLanguage: target,
 				monitor: (monitor) =>
@@ -134,7 +143,12 @@ export function useAppRuntimeTranslation(
 		} catch {
 			// The app's own attempt reports what this browser can do.
 		}
-		send({ source, target, glossary: appRuntimeGlossary(settings, target) });
+		send({
+			source,
+			target,
+			glossary: appRuntimeGlossary(settings, target),
+			host: opened.current !== null,
+		});
 	}, [settings, source, status.state, target]);
 
 	return {
