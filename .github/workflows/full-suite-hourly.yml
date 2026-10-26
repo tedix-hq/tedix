@@ -143,6 +143,7 @@ jobs:
           TEST_SCRIPT: ${{ matrix.testScript }}
           TEST_SHARD: ${{ matrix.shard }}
           BROWSERS: ${{ matrix.browsers }}
+          TEDIX_SCREENSHOT_DIR: ${{ matrix.workspace == 'apps/os' && matrix.testScript == 'test:browser:work-iphone' && format('{0}/work-iphone-evidence', runner.temp) || '' }}
         run: |
           script="${TEST_SCRIPT:-$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')}"
           command=(bun run --cwd "$WORKSPACE" "$script")
@@ -153,6 +154,14 @@ jobs:
           else
             "${command[@]}"
           fi
+      - name: Retain iPhone Work failure evidence
+        if: ${{ failure() && matrix.workspace == 'apps/os' && matrix.testScript == 'test:browser:work-iphone' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: work-iphone-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/work-iphone-evidence
+          if-no-files-found: warn
+          retention-days: 30
       - name: Type-check
         if: ${{ !cancelled() && matrix.types }}
         env:

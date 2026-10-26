@@ -6,6 +6,7 @@ import {
 	type Browser,
 	type Locator,
 	type Page,
+	type Request,
 } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
@@ -350,21 +351,54 @@ try {
 				colorScheme,
 			);
 			const page = await context.newPage();
+			const pending = new Set<Request>();
+			const errors: string[] = [];
+			page.on("request", (request) => pending.add(request));
+			page.on("requestfinished", (request) => pending.delete(request));
+			page.on("requestfailed", (request) => {
+				pending.delete(request);
+				errors.push(`${request.url()}: ${request.failure()?.errorText}`);
+			});
+			page.on("pageerror", (error) =>
+				errors.push(error.stack ?? error.message),
+			);
+			page.on("response", (response) => {
+				if (response.status() >= 400)
+					errors.push(`HTTP ${response.status()} ${response.url()}`);
+			});
 			const failures: string[] = [];
 			const check = async (path: string, ready: string) => {
-				await page.goto(`${origin}${path}`);
+				errors.length = 0;
+				pending.clear();
+				const trace = shots && ready === ".focus-today";
+				if (trace)
+					await context.tracing.start({ snapshots: true, screenshots: true });
 				try {
+					await page.goto(`${origin}${path}`);
 					await page.locator(ready).first().waitFor({ timeout: 20_000 });
 				} catch (error) {
-					if (shots)
+					console.error(`${label} ${path} readiness failure`, {
+						selector: ready,
+						url: page.url(),
+						fixtureExitCode: server.exitCode(),
+						errors,
+						pending: [...pending].map((request) => request.url()),
+					});
+					if (trace)
+						await context.tracing.stop({
+							path: `${shots}/${size}-${colorScheme}-render-failure.zip`,
+						});
+					if (shots) {
 						await page.screenshot({
 							path: `${shots}/${size}-${colorScheme}-render-failure.png`,
 						});
+					}
 					throw new Error(
 						`${path} did not render: ${await page.locator("main.route-content").innerText()}`,
 						{ cause: error },
 					);
 				}
+				if (trace) await context.tracing.stop();
 				await settle(page);
 				assert.deepEqual(
 					await page.evaluate(() => ({
