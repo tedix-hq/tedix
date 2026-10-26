@@ -199,7 +199,11 @@ export function buildCardReviewWebMcpTools(
 			type: "object",
 			properties: {
 				cardKey: cardKeyProperty,
-				verdict: { type: "string", enum: ["useful", "not_useful"] },
+				verdict: {
+					type: "string",
+					enum: ["useful", "not_useful"],
+					description: "useful or not_useful, like the card's two buttons.",
+				},
 				...reasonProperties,
 			},
 			required: ["cardKey", "verdict"],
@@ -352,6 +356,7 @@ export function buildCardReviewWebMcpTools(
 				channel: {
 					type: "string",
 					enum: ["all", ...channels.map((c) => c.toLowerCase())],
+					description: "all, or one channel the filter buttons show.",
 				},
 			},
 			required: ["channel"],
@@ -393,7 +398,7 @@ export function buildCardReviewWebMcpTools(
 
 	const decideRule: WebMcpToolDef = {
 		name: "card_review_decide_rule",
-		annotations: { consequentialHint: true },
+		annotations: { readOnlyHint: false, consequentialHint: true },
 		description:
 			"Accept or reject one suggested rule change, like its Accept and Reject buttons: the rule's status cell becomes accepted or rejected.",
 		inputSchema: {
@@ -403,7 +408,11 @@ export function buildCardReviewWebMcpTools(
 					type: "string",
 					description: "The ruleKey from card_review_pending_rules.",
 				},
-				decision: { type: "string", enum: ["accept", "reject"] },
+				decision: {
+					type: "string",
+					enum: ["accept", "reject"],
+					description: "accept or reject, like the rule's two buttons.",
+				},
 			},
 			required: ["ruleKey", "decision"],
 			additionalProperties: false,
