@@ -426,9 +426,12 @@ export interface KernelWriteProposalDeclined {
 		| "planner_declined"
 		| "canonical_unavailable"
 		| "validation_failed"
+		| "factory_preview"
 		| "live_draft_save"
 		| "error";
 	detail?: string;
+	preview?: string;
+	invalidFields?: string[];
 	draftSaveTarget?: OutputDraftSaveTarget;
 	canonicalLookup?: {
 		capability: "work_items.create";
@@ -454,6 +457,8 @@ export function renderWriteDeclined(
 	const appSlug = route.toolIntent?.appSlug?.trim();
 	const app = appSlug?.replaceAll("-", " ") || "that app";
 	switch (declined.stage) {
+		case "factory_preview":
+			return `${declined.preview}\nPreview only. No factory was created or activated; no approval was requested.`;
 		case "canonical_unavailable":
 			return "Home couldn't confirm the Work-creation tool for this workspace. No Work item was created. Retry, or ask the workspace owner to check the connection.";
 		case "live_draft_save":
@@ -465,6 +470,8 @@ export function renderWriteDeclined(
 		case "no_write_tools":
 			return `I can't update ${app} from this chat yet. Ask me to delegate this to a tedi with access.`;
 		case "planner_declined":
+			if (declined.invalidFields?.length)
+				return `What values should I use for these required or invalid fields: ${declined.invalidFields.join(", ")}? Nothing was created or sent.`;
 			if (route.toolIntent?.capability === "work_items.create") {
 				// Name the real reason from the planner's closed code; its free-text
 				// reasoning is model output and never reaches the operator.
@@ -883,6 +890,7 @@ export async function planKernelWriteProposal(args: {
 					)
 				: null;
 		let argumentFailure = "Could not construct arguments for the selected tool";
+		let invalidFields: string[] = [];
 		const workProjects = isWorkCreate
 			? await readWorkCreateProjects(db, {
 					organizationId,
@@ -991,14 +999,23 @@ export async function planKernelWriteProposal(args: {
 						onFailure: (reason) => {
 							argumentFailure = reason;
 						},
+						onInvalidFields: (fields) => {
+							invalidFields = fields;
+						},
 						...(exactTool.name === CREATE_OUTPUT_TOOL ? { documentDraft } : {}),
 					});
 		if (!planned)
 			return decline({
 				stage: "planner_declined",
 				detail: argumentFailure,
+				...(invalidFields.length ? { invalidFields } : {}),
 			});
-		if (canonical === "projects.create_factory") planned.args.dryRun = false;
+		const factoryPreview =
+			canonical === "projects.create_factory" &&
+			(planned.args.dryRun === true ||
+				/\bdryRun["']?\s*[:=]\s*true\b/.test(content));
+		if (canonical === "projects.create_factory")
+			planned.args.dryRun = factoryPreview;
 		if (capability === "factories.run") {
 			const cycleKey = `manual-${crypto.randomUUID()}`;
 			delete planned.args.runId;
@@ -1109,6 +1126,11 @@ export async function planKernelWriteProposal(args: {
 					: "No document or sheet Output selected.",
 				...plan.warnings.map((warning) => `Note: ${warning}`),
 			].join("\n");
+			if (factoryPreview)
+				return decline({
+					stage: "factory_preview",
+					preview: planned.reasoning,
+				});
 		}
 		console.warn("[kernel.writeProposal] proposed", {
 			slug: provider.slug,

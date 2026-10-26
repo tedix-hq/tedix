@@ -25,6 +25,26 @@ export function actionReadbackPlan(
 	const name = operation.split(/\.|__/).at(-1) ?? operation;
 	const output = asRecord(data?.output);
 	if (
+		endpoint === "skills/proposeWorkshop" ||
+		endpoint === "skills/create" ||
+		endpoint === "skills/improve" ||
+		(!endpoint &&
+			/^skills\.(?:propose_workshop|create_skill|improve_skills)$/.test(
+				operation,
+			))
+	) {
+		const entry = asRecord(data?.entry);
+		if (typeof entry?.id === "string" && typeof entry.revision === "number")
+			return {
+				tool: "get_skills",
+				readEndpoint: "skills/get",
+				args: { id: entry.id },
+				id: entry.id,
+				kind: "skill" as const,
+				entry,
+			};
+	}
+	if (
 		endpoint === "support/draft" ||
 		(!endpoint && name === "draft_support_answer")
 	) {
@@ -171,6 +191,23 @@ export async function verifyAction(input: {
 			await input.read(plan.tool, plan.args, plan.readEndpoint),
 		);
 		if (read?.ok === false || read?.isError === true) return receipt;
+		if (plan.kind === "skill") {
+			const entry = asRecord(read?.entry);
+			if (
+				entry?.id !== plan.id ||
+				typeof entry.revision !== "number" ||
+				entry.revision !== plan.entry.revision ||
+				typeof entry.lifecycleState !== "string" ||
+				entry.tediId !== plan.entry.tediId ||
+				entry.visibility !== plan.entry.visibility ||
+				entry.content !== plan.entry.content
+			)
+				return receipt;
+			receipt.verified = true;
+			receipt.url = new URL(`/skills/${plan.id}`, input.origin).href;
+			receipt.state = `${entry.lifecycleState}, revision ${entry.revision}; member edit/reload unverified`;
+			return receipt;
+		}
 		if (plan.kind === "supportDraft") {
 			const ticket = asRecord(read?.receipt);
 			const draft = asRecord(read?.draft);
