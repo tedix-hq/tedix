@@ -45,6 +45,7 @@ import { shouldHydrateCodeModeForMcpRequest } from "./mcp-code-mode-hydration";
 import {
 	canCallTediMcpTool,
 	decodeTediMcpCaller,
+	skillWorkflowRunId,
 	type TediMcpCaller,
 } from "./mcp-authorization";
 import { nativeDirectTediTaskResult } from "./mcp-task-result";
@@ -550,6 +551,9 @@ export async function handleMcp(
 				tediId: tediSlug,
 				timeoutMs: CODE_MODE_TIMEOUT_MS,
 				traceContext: { surface: "tedi-runtime-mcp", traceId },
+				// A skill workflow parses messages_read in code; the model budget
+				// hid a settled judge reply behind the truncation envelope.
+				machineCaller: skillWorkflowRunId(request) !== undefined,
 				extras: env?.codeModeExtras,
 				extraInstructions: env?.codeModeExtraInstructions,
 			});
