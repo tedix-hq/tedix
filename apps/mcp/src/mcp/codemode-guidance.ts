@@ -10,6 +10,7 @@
  *
  * @module @tedix/mcp/mcp/codemode-guidance
  */
+import { MCP_REQUEST_LIMIT } from "../middleware/rate-limit";
 import { ATTENTION_GUIDANCE } from "./attention-guidance";
 import {
 	CONNECT_PAYMENT_DENIED,
@@ -75,6 +76,8 @@ export interface CodeModeDescriptionInput {
 	/** Per-tool compact type declarations, inlined only when they fit. */
 	compactTypes: string;
 	connectionAppSlug: string;
+	/** Wall-clock budget of one execution. */
+	timeoutMs: number;
 }
 
 function namespaceSummary(
@@ -110,6 +113,7 @@ export function buildCodeModeDescription(input: CodeModeDescriptionInput): {
 		`Execute JavaScript to call this app's ${input.toolCount} tools across ${input.namespaceCount} namespaces.`,
 		`Namespaces: ${namespaceSummary(input.namespaces)}`,
 		"Write one async arrow function in plain JavaScript (no TypeScript, no named functions defined then called). Chain calls, branch, loop and handle errors inside it. Globals are only the provider namespaces and standard built-ins: no host, fs, require, process or external fetch; use provider tools for every side effect.",
+		`Limits: one execution may run ${Math.round(input.timeoutMs / 1000)} s of wall time. The gateway admits ${MCP_REQUEST_LIMIT.requestsPerMinute} requests per minute per caller; calls inside one execution are not counted separately, so batch them. Never sleep or poll with setTimeout: start long work with flow.run, return its handle and check it in a later call.`,
 		"Find, inspect, call:",
 		'1. const { results, meta } = await discover.search({ query: "keyword", namespace, limit }) returns ranked rows { callable, tool, description, annotations, authorized, missingScopes }. A string query also works.',
 		'2. await discover.describe("ns.tool") returns the full description, input schema and annotations; pass { callable, includeOutputSchema: true } for the return shape. Prefer it over includeParameters on a broad search.',

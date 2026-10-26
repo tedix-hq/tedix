@@ -3,6 +3,7 @@ import {
 	checkMcpRequestRateLimit,
 	checkRateLimit,
 	mcpRateLimitBuckets,
+	mcpRateLimitResponse,
 	type RateLimiter,
 } from "./rate-limit";
 
@@ -252,5 +253,69 @@ describe("checkMcpRequestRateLimit", () => {
 		expect(await admitted(env, owner, 3)).toBe(2);
 		expect([...request.counts.keys()]).toEqual(["app-1:user:user-owner"]);
 		expect(principal.counts.size).toBe(0);
+	});
+});
+
+describe("gateway 429 body", () => {
+	const session = new Headers({
+		"x-tedix-auth-type": "external_agent",
+		"x-tedix-auth-external-principal-id": "principal-lane",
+		"x-tedix-auth-external-session-id": "session-a",
+	});
+
+	it("names the budget that refused a session request or the principal ceiling", async () => {
+		expect(
+			await checkMcpRequestRateLimit(
+				{
+					MCP_RATE_LIMITER: countingLimiter(0).limiter,
+					MCP_PRINCIPAL_RATE_LIMITER: countingLimiter(10).limiter,
+				},
+				"app-1",
+				session,
+				"203.0.113.7",
+			),
+		).toEqual({
+			allowed: false,
+			scope: "agent_session",
+			requestsPerMinute: 100,
+			windowSeconds: 60,
+		});
+		expect(
+			await checkMcpRequestRateLimit(
+				{
+					MCP_RATE_LIMITER: countingLimiter(10).limiter,
+					MCP_PRINCIPAL_RATE_LIMITER: countingLimiter(0).limiter,
+				},
+				"app-1",
+				session,
+				"203.0.113.7",
+			),
+		).toMatchObject({ scope: "agent_principal", requestsPerMinute: 600 });
+	});
+
+	it("states the limit, window, scope and that Code Mode inner calls are not counted", async () => {
+		const denial = await checkMcpRequestRateLimit(
+			{ MCP_RATE_LIMITER: countingLimiter(0).limiter },
+			"app-1",
+			new Headers({ "x-tedix-auth-user-id": "user-owner" }),
+			"203.0.113.7",
+		);
+		if (denial.allowed) throw new Error("expected a refusal");
+		const response = mcpRateLimitResponse(denial);
+
+		expect(response.status).toBe(429);
+		expect(response.headers.get("Retry-After")).toBe("60");
+		expect(response.headers.get("X-RateLimit-Limit")).toBe("100");
+		const body = (await response.json()) as Record<string, unknown>;
+		expect(body).toMatchObject({
+			error: "Rate limit exceeded",
+			retryAfter: 60,
+			requestsPerMinute: 100,
+			windowSeconds: 60,
+			scope: "user",
+			codeModeInnerCallsCounted: false,
+		});
+		expect(body.message).toContain("100 requests per 60 seconds");
+		expect(body.message).toContain("Code Mode");
 	});
 });

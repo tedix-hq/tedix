@@ -402,6 +402,7 @@ export async function registerCodeModeTools(
 		moduleNames,
 		compactTypes,
 		connectionAppSlug: serverCtx.connectionAppSlug ?? serverCtx.appSlug,
+		timeoutMs: timeout,
 	});
 
 	writeCodeModeLog(() =>

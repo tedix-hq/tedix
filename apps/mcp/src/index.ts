@@ -165,7 +165,10 @@ import {
 	getAppContext,
 } from "./mcp/server-factory";
 import { getAppsSDKCompatibleHtml } from "./mcp/utils/widget";
-import { checkMcpRequestRateLimit } from "./middleware/rate-limit";
+import {
+	checkMcpRequestRateLimit,
+	mcpRateLimitResponse,
+} from "./middleware/rate-limit";
 import { handlePreviewRequest } from "./preview";
 import type { ResolvedApp } from "./resolution";
 import {
@@ -1095,40 +1098,6 @@ export async function hydrateAggregateRuntimeKinds(
 			runtimeKind: "agent" as const,
 		}));
 	}
-}
-
-const DEFAULT_RATE_LIMIT_CONFIG = {
-	requestsPerMinute: 100,
-	retryAfterSeconds: 60,
-} as const;
-
-interface RateLimitConfig {
-	requestsPerMinute?: number;
-	retryAfterSeconds?: number;
-}
-
-function rateLimitResponse(config?: RateLimitConfig): Response {
-	const retryAfter =
-		config?.retryAfterSeconds ?? DEFAULT_RATE_LIMIT_CONFIG.retryAfterSeconds;
-	const limit =
-		config?.requestsPerMinute ?? DEFAULT_RATE_LIMIT_CONFIG.requestsPerMinute;
-
-	return new Response(
-		JSON.stringify({
-			error: "Rate limit exceeded",
-			message: "Too many requests. Please try again later.",
-			retryAfter,
-		}),
-		{
-			status: 429,
-			headers: {
-				"Content-Type": "application/json",
-				"Retry-After": String(retryAfter),
-				"X-RateLimit-Limit": String(limit),
-				"X-RateLimit-Remaining": "0",
-			},
-		},
-	);
 }
 
 // =============================================================================
@@ -2286,13 +2255,13 @@ const worker = {
 			}
 
 			// Rate limit
-			const { allowed } = await checkMcpRequestRateLimit(
+			const rateLimit = await checkMcpRequestRateLimit(
 				env,
 				app.id,
 				request.headers,
 				clientIp,
 			);
-			if (!allowed) {
+			if (!rateLimit.allowed) {
 				await recordMcpAccessDenial({
 					request,
 					resolvedApp,
@@ -2301,7 +2270,7 @@ const worker = {
 					reason: "rate_limited",
 					httpStatus: 429,
 				});
-				return rateLimitResponse();
+				return mcpRateLimitResponse(rateLimit);
 			}
 
 			// Resolve tediId for human callers (no tediId in JWT, org known from app).
@@ -2565,13 +2534,13 @@ const worker = {
 						return accessError.response;
 					}
 
-					const { allowed } = await checkMcpRequestRateLimit(
+					const rateLimit = await checkMcpRequestRateLimit(
 						env,
 						resolvedApp.app.id,
 						request.headers,
 						clientIp,
 					);
-					if (!allowed) {
+					if (!rateLimit.allowed) {
 						await recordMcpAccessDenial({
 							request,
 							resolvedApp,
@@ -2580,7 +2549,7 @@ const worker = {
 							reason: "rate_limited",
 							httpStatus: 429,
 						});
-						return rateLimitResponse();
+						return mcpRateLimitResponse(rateLimit);
 					}
 
 					const originError = validateMcpOrigin(request, env, resolvedApp);
@@ -2682,13 +2651,13 @@ const worker = {
 							return accessError.response;
 						}
 
-						const { allowed } = await checkMcpRequestRateLimit(
+						const rateLimit = await checkMcpRequestRateLimit(
 							env,
 							result.app.id,
 							request.headers,
 							clientIp,
 						);
-						if (!allowed) {
+						if (!rateLimit.allowed) {
 							await recordMcpAccessDenial({
 								request,
 								resolvedApp,
@@ -2697,7 +2666,7 @@ const worker = {
 								reason: "rate_limited",
 								httpStatus: 429,
 							});
-							return rateLimitResponse();
+							return mcpRateLimitResponse(rateLimit);
 						}
 
 						const originError = validateMcpOrigin(request, env, resolvedApp);

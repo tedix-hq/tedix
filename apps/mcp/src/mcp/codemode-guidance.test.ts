@@ -25,6 +25,7 @@ function connectDescription(compactTypes = "") {
 		moduleNames: ["zod", "date-fns"],
 		compactTypes,
 		connectionAppSlug: "connect",
+		timeoutMs: 330_000,
 	});
 }
 
@@ -52,6 +53,9 @@ describe("code tool description budget", () => {
 			"completionEvidence",
 			"nearestNamespaces",
 			"codemode.__runtime()",
+			"330 s of wall time",
+			"100 requests per minute",
+			"flow.run",
 			"no host, fs, require, process or external fetch",
 			"more (discover.list_namespaces())",
 			CONNECT_PAYMENT_DENIED,
@@ -77,6 +81,7 @@ describe("code tool description budget", () => {
 			moduleNames: [],
 			compactTypes: "declare namespace crm { function list(): void; }",
 			connectionAppSlug: "crm-app",
+			timeoutMs: 330_000,
 		});
 		expect(result.compactTypesInlined).toBe(true);
 		expect(result.description).toContain("declare namespace crm");
