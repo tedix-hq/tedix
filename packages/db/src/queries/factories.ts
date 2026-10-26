@@ -29,7 +29,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
-import { osOutputRevisions } from "../schema/os-workspaces";
+import { osOutputRevisions, osWorkspaces } from "../schema/os-workspaces";
 import { projects } from "../schema/projects";
 import { tedis } from "../schema/tedis";
 import { workItemComments, workItems } from "../schema/work-items";
@@ -118,6 +118,85 @@ const bindingSlug = sql<
 const bindingSkillId = sql<
 	string | null
 >`json_extract(${projects.metadata}, '$.factory.skillId')`;
+
+/** Non-secret inputs resolved from the owning project, skill and Workspace. */
+export interface FactoryRunContext {
+	workspaceId: string | null;
+	projectId: string;
+	objectiveId: string | null;
+	blueprintRevisionId: string | null;
+	ownerTediId: string | null;
+	healthWorkItemId: string | null;
+	output: FactoryBinding["output"];
+}
+
+export async function resolveFactoryRunContext(
+	db: DbQueryClient,
+	params: { orgId: string; skillId: string },
+): Promise<FactoryRunContext | null> {
+	const rows = await db
+		.select({
+			projectId: projects.id,
+			objectiveId: projects.objectiveId,
+			metadata: projects.metadata,
+			ownerTediId: skillEntries.tediId,
+		})
+		.from(projects)
+		.innerJoin(
+			skillEntries,
+			and(
+				eq(skillEntries.id, params.skillId),
+				eq(skillEntries.organizationId, params.orgId),
+			),
+		)
+		.where(
+			and(
+				eq(projects.orgId, params.orgId),
+				eq(projects.status, "active"),
+				eq(bindingSkillId, params.skillId),
+			),
+		)
+		.limit(2);
+	if (rows.length > 1)
+		throw new Error(
+			"FACTORY_BINDING_AMBIGUOUS: skill belongs to multiple active factory projects",
+		);
+	const row = rows[0];
+	if (!row) return null;
+	const binding = readFactoryBinding(row.metadata);
+	if (!binding)
+		throw new Error(
+			"FACTORY_BINDING_INVALID: bound project requires a factory slug",
+		);
+	let blueprintRevisionId: string | null = null;
+	if (binding.workspaceId) {
+		const [workspace] = await db
+			.select({ revisionId: osWorkspaces.sourceBlueprintRevisionId })
+			.from(osWorkspaces)
+			.where(
+				and(
+					eq(osWorkspaces.organizationId, params.orgId),
+					eq(osWorkspaces.id, binding.workspaceId),
+					eq(osWorkspaces.status, "active"),
+				),
+			)
+			.limit(1);
+		if (!workspace)
+			throw new Error(
+				"FACTORY_WORKSPACE_UNAVAILABLE: bound Workspace is not active in this organization",
+			);
+		blueprintRevisionId = workspace.revisionId;
+	}
+	return {
+		workspaceId: binding.workspaceId,
+		projectId: row.projectId,
+		objectiveId: row.objectiveId ?? binding.objectiveId,
+		blueprintRevisionId,
+		ownerTediId: row.ownerTediId,
+		healthWorkItemId: binding.healthWorkItemId,
+		output: binding.output,
+	};
+}
 
 export interface FactoryBuildState {
 	skill: {

@@ -110,6 +110,15 @@ beforeAll(async () => {
 function skillInput(network: boolean): LoadSkillRuntimeInput {
 	const hash = crypto.randomUUID();
 	return {
+		factory: {
+			workspaceId: "workspace",
+			projectId: "project",
+			objectiveId: "objective",
+			blueprintRevisionId: "revision",
+			ownerTediId: "owner",
+			healthWorkItemId: null,
+			output: { id: "output", title: "Report", kind: "document" },
+		},
 		skillId: "isolation-skill",
 		tediId: "isolation-tedi",
 		aggregateMcpSlug: "tedix",
@@ -118,7 +127,7 @@ function skillInput(network: boolean): LoadSkillRuntimeInput {
 		executionEpoch: 0,
 		admittedAt: new Date().toISOString(),
 		loaderConfigHash: hash,
-		code: `export default { async run(_event, _step, env) { let denied = false; try { await fetch("https://example.com/ambient-forbidden"); } catch { denied = true; } return { keys: Object.keys(env).sort(), denied, secret: env.PLATFORM_SERVICE_TOKEN ?? null, apiKey: env.GEMINI_API_KEY ?? null }; } };`,
+		code: `export default { async run(_event, _step, env) { let denied = false; try { await fetch("https://example.com/ambient-forbidden"); } catch { denied = true; } return { keys: Object.keys(env).sort(), denied, secret: env.PLATFORM_SERVICE_TOKEN ?? null, apiKey: env.GEMINI_API_KEY ?? null, factory: env.__RUN_CONTEXT__.factory, factoryFrozen: Object.isFrozen(env.__RUN_CONTEXT__.factory) && Object.isFrozen(env.__RUN_CONTEXT__.factory.output) }; } };`,
 		manifest: parseCapabilityManifest(
 			`---\ncapabilities:\n  network: ${network}\n---`,
 		),
@@ -195,6 +204,8 @@ describe("skill production Loader isolation", () => {
 				denied: true,
 				secret: null,
 				apiKey: null,
+				factory: input.factory,
+				factoryFrozen: true,
 			});
 			// The unchanged dispatch shim reached its named native ArtifactBridge.
 			const artifact = await (env as unknown as { DB: D1Database }).DB.prepare(

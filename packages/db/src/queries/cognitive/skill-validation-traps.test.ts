@@ -3,6 +3,7 @@ import {
 	detectPrematureHeaderClose,
 	slugify,
 	validateSkillInput,
+	warnFactoryIdLiterals,
 	validateWorkflowSource,
 } from "./skill-validation";
 
@@ -341,5 +342,44 @@ export default { async run(event, step, env) { return { ok: true }; } };`;
 		expect(validateWorkflowSource(source, "scripts/workflow.ts", caps)).toEqual(
 			[],
 		);
+	});
+});
+
+describe("factory UUID warning", () => {
+	it("warns only for literals matching this binding, including templates", () => {
+		const id = "11111111-1111-4111-8111-111111111111";
+		const factory = {
+			projectId: id,
+			workspaceId: null,
+			objectiveId: null,
+			blueprintRevisionId: null,
+			ownerTediId: null,
+			healthWorkItemId: null,
+			output: null,
+		};
+		expect(
+			warnFactoryIdLiterals(
+				`export default { run() { return "${id}"; } }`,
+				factory,
+			),
+		).toEqual([expect.objectContaining({ code: "FACTORY_ID_LITERAL" })]);
+		expect(
+			warnFactoryIdLiterals(
+				"const x = `project:" + id + "`; export default { run() {} }",
+				factory,
+			),
+		).toHaveLength(1);
+		expect(
+			warnFactoryIdLiterals(
+				`// ${id}\nexport default { run() { return "22222222-2222-4222-8222-222222222222"; } }`,
+				factory,
+			),
+		).toEqual([]);
+		expect(
+			warnFactoryIdLiterals(
+				"export default { run(e,s,env) { return env.__RUN_CONTEXT__.factory; } }",
+				factory,
+			),
+		).toEqual([]);
 	});
 });

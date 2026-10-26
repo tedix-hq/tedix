@@ -1,5 +1,6 @@
 /** Workshop, workflow-improvement, trajectory, and coverage handlers. */
 
+import { resolveFactoryRunContext } from "@tedix/db/queries/factories";
 import { isToolExcludedFromSkillCoverage } from "@tedix/api-contract/schemas/tools";
 import { getAppById } from "@tedix/db/queries/app-records";
 import {
@@ -1053,9 +1054,14 @@ export const skillsValidate = authedSkills.validate
 				? await getSkillEntry(context.db, storedId, orgId)
 				: await getSkillEntryBySlug(context.db, orgId, input.slug!);
 			if (!skill) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+			const factory = await resolveFactoryRunContext(context.db, {
+				orgId,
+				skillId: skill.id,
+			});
 			const result = await validateSkillInput(
 				context.db,
 				{
+					factory,
 					title: skill.title,
 					description: skill.description ?? undefined,
 					summary: skill.summary ?? undefined,

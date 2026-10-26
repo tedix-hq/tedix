@@ -1,3 +1,4 @@
+import { loadPinnedFactoryContext } from "../src/factory-context";
 import { Database } from "bun:sqlite";
 import "./runner-shims.test";
 import "./workflow-connection-recovery.test";
@@ -30,6 +31,7 @@ import {
 } from "../src/runner";
 import { DYNAMIC_WORKFLOWS_VERSION } from "../src/runner-context";
 import {
+	FACTORY_WORK_DEFAULTS_SOURCE,
 	MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE,
 	MCP_PROVIDER_CONFIRMATION_INSPECTOR_SOURCE,
 } from "../src/runner-rpc";
@@ -1629,6 +1631,130 @@ immutableArtifactSqlite.exec(`
 		('run-malformed-control', NULL);
 `);
 const immutableArtifactDb = sqliteD1(immutableArtifactSqlite);
+const factoryContext = {
+	workspaceId: "workspace",
+	projectId: "project",
+	objectiveId: "objective",
+	blueprintRevisionId: "revision-1",
+	ownerTediId: "owner",
+	healthWorkItemId: null,
+	output: null,
+};
+const firstFactory = await loadPinnedFactoryContext(
+	immutableArtifactDb,
+	"run-factory",
+	async () => factoryContext,
+);
+assert.deepEqual(firstFactory, factoryContext);
+assert.deepEqual(
+	await loadPinnedFactoryContext(
+		immutableArtifactDb,
+		"run-factory",
+		async () => {
+			throw new Error("must not resolve on resume");
+		},
+	),
+	firstFactory,
+);
+assert.equal(
+	(
+		await loadPinnedFactoryContext(
+			immutableArtifactDb,
+			"next-factory-run",
+			async () => ({ ...factoryContext, blueprintRevisionId: "revision-2" }),
+		)
+	)?.blueprintRevisionId,
+	"revision-2",
+);
+assert.equal(
+	await loadPinnedFactoryContext(
+		immutableArtifactDb,
+		"unbound-factory-run",
+		async () => null,
+	),
+	null,
+);
+assert.equal(
+	await loadPinnedFactoryContext(
+		immutableArtifactDb,
+		"unbound-factory-run",
+		async () => factoryContext,
+	),
+	null,
+);
+const factoryWorkDefaults = new Function(
+	FACTORY_WORK_DEFAULTS_SOURCE + ";return factoryWorkDefaults;",
+)();
+const cycleRequest = {
+	title: "Cycle",
+	factoryCycle: {
+		cycleKey: "today",
+		templateKey: "review",
+		sourceRefs: [{ uri: "source", revision: "v1" }],
+	},
+};
+const originalRequest = structuredClone(cycleRequest);
+assert.deepEqual(
+	factoryWorkDefaults(
+		"work",
+		"create_work_items",
+		cycleRequest,
+		factoryContext,
+	),
+	{
+		...cycleRequest,
+		projectId: "project",
+		objectiveId: "objective",
+		factoryCycle: {
+			...cycleRequest.factoryCycle,
+			workspaceId: "workspace",
+			blueprintRevisionId: "revision-1",
+		},
+	},
+);
+assert.deepEqual(cycleRequest, originalRequest);
+const explicitFactory = {
+	...cycleRequest,
+	projectId: "explicit-project",
+	objectiveId: "explicit-objective",
+	factoryCycle: {
+		...cycleRequest.factoryCycle,
+		workspaceId: "explicit-workspace",
+		blueprintRevisionId: "explicit-revision",
+	},
+};
+assert.deepEqual(
+	factoryWorkDefaults(
+		"work",
+		"create_work_items",
+		explicitFactory,
+		factoryContext,
+	),
+	explicitFactory,
+);
+assert.equal(
+	factoryWorkDefaults("work", "create_work_items", cycleRequest, null),
+	cycleRequest,
+);
+assert.equal(
+	factoryWorkDefaults("work", "get_work_items", cycleRequest, factoryContext),
+	cycleRequest,
+);
+assert.equal(
+	factoryWorkDefaults("tedi", "work_item_create", cycleRequest, factoryContext)
+		.projectId,
+	"project",
+);
+assert.deepEqual(
+	factoryWorkDefaults(
+		"work",
+		"create_work_items",
+		{ title: "Ordinary work" },
+		factoryContext,
+	),
+	{ title: "Ordinary work" },
+);
+
 immutableArtifactSqlite
 	.prepare("UPDATE skill_runs SET status = 'running', error = ? WHERE id = ?")
 	.run("REVOKED_TOKEN_REFRESH_FAILED", "run-revoked-token-collision");

@@ -6,6 +6,7 @@ import {
 } from "@tedix/api-contract/utils/skill-schedule";
 import { eq, inArray } from "drizzle-orm";
 import { parse as parseYaml } from "yaml";
+import type { FactoryRunContext } from "../factories";
 import type { DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -49,6 +50,7 @@ export interface SkillValidationResult {
 }
 
 export interface SkillValidationInput {
+	factory?: FactoryRunContext | null;
 	title?: string;
 	description?: string;
 	summary?: string;
@@ -1129,6 +1131,15 @@ export async function validateSkillInput(
 		});
 	}
 
+	if (input.factory && input.files?.["scripts/workflow.ts"]) {
+		warnings.push(
+			...warnFactoryIdLiterals(
+				input.files["scripts/workflow.ts"],
+				input.factory,
+			),
+		);
+	}
+
 	// SKILL_SECRET_LITERAL — heuristic secret scan over the durable text columns.
 	warnings.push(...scanForSecretLiterals(content, input.files));
 
@@ -1238,4 +1249,37 @@ export async function validateSkillInput(
 		errors,
 		warnings,
 	};
+}
+
+/** Literal IDs belonging to this binding make otherwise reusable workflows drift. */
+export function warnFactoryIdLiterals(
+	source: string,
+	factory: FactoryRunContext,
+): SkillValidationIssue[] {
+	const ids = new Set(
+		[...Object.values(factory), factory.output?.id]
+			.filter((value): value is string => typeof value === "string")
+			.map((value) => value.toLowerCase()),
+	);
+	const found = new Set<string>();
+	for (const stmt of parseWorkflowModule(source).body)
+		walkAst(stmt, (node) => {
+			const value =
+				node.type === "StringLiteral"
+					? node.value
+					: node.type === "TemplateElement"
+						? (node.value as { raw?: string })?.raw
+						: null;
+			if (typeof value !== "string") return;
+			for (const id of value.match(
+				/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+			) ?? []) {
+				if (ids.has(id.toLowerCase())) found.add(id);
+			}
+		});
+	return [...found].map((id) => ({
+		code: "FACTORY_ID_LITERAL",
+		path: 'files["scripts/workflow.ts"]',
+		message: `Literal ${id} matches the bound factory. Read env.__RUN_CONTEXT__.factory instead so new runs follow the current binding and Workspace Blueprint pin.`,
+	}));
 }

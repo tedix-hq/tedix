@@ -463,6 +463,30 @@ an owning tedi and workflow. Its approved schedule must match the blueprint's
 cron, parameters and enabled flag. Apply cannot change that approved policy;
 normal runtime consent, budget and execution gates still apply.
 
+## Workflow factory inputs
+
+Record the lane's skill, Workspace and objective once in the project's
+`metadata.factory` binding. Each workflow receives
+`env.__RUN_CONTEXT__.factory` with `workspaceId`, `projectId`, `objectiveId`,
+`blueprintRevisionId` and `ownerTediId`, plus its health Work Item and Output.
+Unbound skills receive `null`; a factory without a Blueprint has a null revision.
+The runtime resolves the Workspace's current pin on the first load of a run
+and saves those inputs for its later resumes. Applying a Workspace Blueprint
+upgrade changes the next run's inputs without changing the skill.
+
+From workspace chat, ask "Show this factory's binding and the Blueprint revision
+used by its latest run." Check the run's `factory/context.json` artifact against
+the Workspace pin. A configured binding is separate from a successful run.
+
+Inside a workflow, `create_work_items` calls with `factoryCycle` can omit
+`projectId`, `objectiveId`, `factoryCycle.workspaceId` and
+`factoryCycle.blueprintRevisionId`; the runtime fills missing values from the
+run's binding before calling the tool. Explicit values remain explicit and
+normal access, revision and admission checks still apply. Keep `templateKey`,
+`cycleKey` and immutable `sourceRefs` in each request. `validate_skills` warns
+when a stored workflow contains literal UUIDs matching its bound factory;
+read the run context instead of copying those IDs into source.
+
 ## Traps and reusable review pattern
 
 - Lanes render once. Repeating a slug reuses existing configuration; it does

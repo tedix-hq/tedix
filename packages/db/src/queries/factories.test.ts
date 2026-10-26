@@ -7,6 +7,7 @@ import {
 	factoryVerdict,
 	listFactoryHealth,
 	loadFactoryBuildState,
+	resolveFactoryRunContext,
 } from "./factories";
 
 const DDL = `
@@ -361,5 +362,52 @@ describe("loadFactoryBuildState", () => {
 			project: expect.objectContaining({ id: "p-other" }),
 			healthWorkItemId: null,
 		});
+	});
+});
+
+describe("factory run context", () => {
+	it("resolves tenant-owned binding and current pin without a skill edit", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(DDL);
+		sqlite.exec(`CREATE TABLE os_workspaces (id TEXT PRIMARY KEY, organization_id TEXT, status TEXT, source_blueprint_revision_id TEXT);
+   INSERT INTO skill_entries (id, organization_id, tedi_id, title) VALUES ('skill', 'org', 'owner', 'Lane');
+   INSERT INTO projects (id, org_id, key, name, status, objective_id, metadata, created_at) VALUES
+   ('project', 'org', 'P', 'P', 'active', 'objective', '{"factory":{"slug":"lane","skillId":"skill","workspaceId":"workspace"}}', 'now');
+   INSERT INTO os_workspaces VALUES ('workspace', 'org', 'active', 'revision-1');`);
+		const db = createDbClient(createD1Facade(sqlite));
+		const params = { orgId: "org", skillId: "skill" };
+		expect(await resolveFactoryRunContext(db, params)).toMatchObject({
+			workspaceId: "workspace",
+			projectId: "project",
+			objectiveId: "objective",
+			ownerTediId: "owner",
+			blueprintRevisionId: "revision-1",
+		});
+		sqlite.exec(
+			"UPDATE os_workspaces SET source_blueprint_revision_id = 'revision-2'",
+		);
+		expect(await resolveFactoryRunContext(db, params)).toMatchObject({
+			blueprintRevisionId: "revision-2",
+		});
+		expect(
+			await resolveFactoryRunContext(db, { ...params, orgId: "other" }),
+		).toBeNull();
+		sqlite.exec("UPDATE os_workspaces SET organization_id = 'other'");
+		await expect(resolveFactoryRunContext(db, params)).rejects.toThrow(
+			"FACTORY_WORKSPACE_UNAVAILABLE",
+		);
+		sqlite.exec(
+			"UPDATE os_workspaces SET organization_id = 'org', status = 'archived'",
+		);
+		await expect(resolveFactoryRunContext(db, params)).rejects.toThrow(
+			"FACTORY_WORKSPACE_UNAVAILABLE",
+		);
+		sqlite.exec(
+			`INSERT INTO projects (id, org_id, key, name, metadata, created_at) SELECT 'second', org_id, 'Q', name, metadata, created_at FROM projects`,
+		);
+		await expect(resolveFactoryRunContext(db, params)).rejects.toThrow(
+			"FACTORY_BINDING_AMBIGUOUS",
+		);
+		sqlite.close();
 	});
 });

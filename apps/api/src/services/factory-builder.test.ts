@@ -2,8 +2,12 @@ import { CreateFactoryInputSchema } from "@tedix/api-contract/schemas/factories"
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
+import { lintFactoryWorkflow } from "@tedix/db/queries/cognitive/skill-factory-validation";
 import { validateWorkflowSource } from "@tedix/db/queries/cognitive/skill-validation";
-import type { FactoryBuildState } from "@tedix/db/queries/factories";
+import type {
+	FactoryRunContext,
+	FactoryBuildState,
+} from "@tedix/db/queries/factories";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	buildFactory,
@@ -496,7 +500,18 @@ function laneHarness(
 			return result(args);
 		};
 	const env = {
-		__RUN_CONTEXT__: { runId: "run-1" },
+		__RUN_CONTEXT__: {
+			runId: "run-1",
+			factory: {
+				ownerTediId: OWNER,
+				projectId: "11111111-1111-4111-8111-111111111111",
+				objectiveId: "22222222-2222-4222-8222-222222222222",
+				healthWorkItemId: "33333333-3333-4333-8333-333333333333",
+				workspaceId: null,
+				blueprintRevisionId: null,
+				output: null,
+			} as FactoryRunContext,
+		},
 		MCP: {
 			tedi: {
 				work_items_list: tool("work_items_list", () => ({
@@ -606,7 +621,28 @@ describe("local factory schedules", () => {
 });
 
 describe("report lane template", () => {
+	it("keeps binding ids out of the workflow and reuses it for another project", async () => {
+		expect(LANE.files["scripts/workflow.ts"]).not.toMatch(
+			/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+		);
+		const { env, calls, step } = laneHarness(null);
+		env.__RUN_CONTEXT__.factory.projectId = "another-project";
+		await loadLane().run({ payload: { probe: true } }, step, env);
+		expect(calls[0]![1]).toMatchObject({ projectId: "another-project" });
+	});
+
 	it("passes skill validation with a schedule and a tedi-only manifest", () => {
+		expect(
+			lintFactoryWorkflow({
+				source: LANE.files["scripts/workflow.ts"]!,
+				content: LANE.content,
+				skillSlug: "another-lane",
+				ownerTediId: OWNER,
+			}).errors,
+		).toContainEqual(
+			expect.objectContaining({ code: "SKILL_FACTORY_SLUG_MISMATCH" }),
+		);
+
 		const { schedule, issues } = validateSkillSchedulePolicy(LANE.content);
 		expect(issues).toEqual([]);
 		expect(schedule).toMatchObject({ cron: "17 5 * * *", enabled: true });
@@ -868,7 +904,10 @@ describe("factory output", () => {
 		});
 		const skill = [...skills.values()][0]!;
 		expect(skill.content).toContain("os: [get_os_output, patch_os_document]");
-		expect(skill.files["scripts/workflow.ts"]).toContain(DOC_ID);
+		expect(skill.files["scripts/workflow.ts"]).not.toContain(DOC_ID);
+		expect(skill.files["scripts/workflow.ts"]).toContain(
+			"env.__RUN_CONTEXT__?.factory",
+		);
 	});
 
 	it("finds a title in the Workspace, else leaves it to the first run", async () => {
@@ -983,6 +1022,12 @@ describe("report lane with an Output", () => {
 			},
 		};
 		const first = laneHarness(DIGEST_REPLY, os);
+		first.env.__RUN_CONTEXT__.factory.workspaceId = WORKSPACE;
+		first.env.__RUN_CONTEXT__.factory.output = {
+			id: null,
+			title: "Comment digest",
+			kind: "document",
+		};
 		const result = await loadLane(lane).run({}, first.step, first.env);
 		expect(String(result.cycleKey)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
 		expect(result.output).toEqual({ outputId: DOC_ID, written: true });
@@ -1019,6 +1064,7 @@ describe("report lane with an Output", () => {
 				truncated: false,
 			}),
 		});
+		retry.env.__RUN_CONTEXT__.factory = first.env.__RUN_CONTEXT__.factory;
 		const again = await loadLane(lane).run({}, retry.step, retry.env);
 		expect(again.output).toEqual({ outputId: DOC_ID, written: false });
 		expect(retry.calls.some(([name]) => name === "create_os_output")).toBe(
@@ -1051,6 +1097,11 @@ describe("report lane with an Output", () => {
 			}),
 			set_os_sheet_range: () => ({ output: { id: DOC_ID } }),
 		});
+		env.__RUN_CONTEXT__.factory.output = {
+			id: DOC_ID,
+			title: "Run log",
+			kind: "sheet",
+		};
 		await loadLane(lane).run({}, step, env);
 		const [, range] = calls.find(([name]) => name === "set_os_sheet_range")!;
 		expect(range).toMatchObject({
