@@ -452,6 +452,18 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
+		// Project recurring Work: one item per template and month, idempotent.
+		if (fleetEnabled && cron === "0 * * * *") {
+			const { fileRecurringWork } = await import("./recurring-work");
+			const { createDbClient } = await import("@tedix/db/client");
+			await trackPlatformCronPath(env, event, "recurring-work", () =>
+				fileRecurringWork(
+					createDbClient(env.DB),
+					new Date(event.scheduledTime),
+				),
+			);
+		}
+
 		if (fleetEnabled && cron === "0 */6 * * *") {
 			const { runActiveProviderScanAndDrift } =
 				await import("./catalog-scan-cron");

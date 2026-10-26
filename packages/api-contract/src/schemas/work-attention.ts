@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { AgentSessionRequestSchema } from "./agent-session-requests";
 import { JsonValueSchema } from "./common";
+import { WorkItemKindSchema, WorkItemPrioritySchema } from "./work-items";
 export const AttentionColumnSchema = z.enum([
 	"moving",
 	"waiting",
@@ -58,8 +59,56 @@ export const ContinuityPolicySchema = z.object({
 		})
 		.optional(),
 });
+/**
+ * A Work Item the project files once per month, e.g. "Bewirtungsbelege {month}".
+ * `{month}` becomes the period ("November 2026"). One item per template and
+ * month, filed from `dayOfMonth` (UTC) on; it is never filed twice.
+ */
+export const RecurringWorkTemplateSchema = z
+	.object({
+		key: z
+			.string()
+			.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+			.max(64)
+			.describe("Stable id within the project; part of the per-month key."),
+		title: z
+			.string()
+			.min(1)
+			.max(200)
+			.describe("Item title; {month} becomes e.g. November 2026."),
+		description: z.string().max(5000).optional(),
+		doneWhen: z
+			.string()
+			.max(2000)
+			.optional()
+			.describe("What done looks like; added to the item's description."),
+		owner: z
+			.object({
+				type: z.enum(["user", "tedi", "team"]),
+				id: z.string().min(1).max(300),
+			})
+			.strict()
+			.optional(),
+		workKind: WorkItemKindSchema.optional(),
+		priority: WorkItemPrioritySchema.optional(),
+		cadence: z.literal("monthly"),
+		dayOfMonth: z.number().int().min(1).max(28).default(1),
+		enabled: z.boolean().default(true),
+	})
+	.strict();
+export type RecurringWorkTemplate = z.infer<typeof RecurringWorkTemplateSchema>;
+
 export const ProjectMetadataSchema = z
-	.object({ continuity: ContinuityPolicySchema.optional() })
+	.object({
+		continuity: ContinuityPolicySchema.optional(),
+		recurringWork: z
+			.array(RecurringWorkTemplateSchema)
+			.max(20)
+			.optional()
+			.describe(
+				"Work Items this project files every month. Metadata is replaced as a whole: read the project first and send its other keys back unchanged.",
+			),
+	})
 	.catchall(JsonValueSchema);
 
 export const StallSchema = z.strictObject({
