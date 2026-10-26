@@ -1158,12 +1158,12 @@
 			"sha256": "eaf6f24fa6ad1cb2151cd66c8fc6a75268c4adc6e82447af2de8cc6557d49c69"
 		},
 		{
-			"name": "20261026075731_connection_provider_account_mode/migration.sql",
-			"sha256": "9795aed0be29557ead31680a293d11042c8c42842393a17ef29e1a781f128b7c"
-		},
-		{
 			"name": "20261026101241_connection-connect-tickets/migration.sql",
 			"sha256": "2883cf17fdd0e6de8d5e84b11cbc16fdc141510226c2e57bfcbf9d3ef36515c2"
+		},
+		{
+			"name": "20261026112811_connection_provider_account_mode/migration.sql",
+			"sha256": "9795aed0be29557ead31680a293d11042c8c42842393a17ef29e1a781f128b7c"
 		}
 	]
 }
