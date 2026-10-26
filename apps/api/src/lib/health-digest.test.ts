@@ -404,6 +404,30 @@ it("includes stalled consumers in the live health collector even when unrelated 
 	}
 });
 
+it("logs failed health checks as exception structure without thrown text", async () => {
+	const canary = "https://hooks.example.test/secret-token";
+	const failing = new Proxy(
+		{},
+		{
+			get() {
+				throw new Error(`D1 unavailable for ${canary}`);
+			},
+		},
+	) as DbClient;
+	const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+	try {
+		await collectHealthConditions(failing, Date.parse(NOW));
+		expect(warnings).toHaveBeenCalled();
+		expect(JSON.stringify(warnings.mock.calls)).not.toContain("secret-token");
+		expect(warnings).toHaveBeenCalledWith(
+			"[health-digest] cost-ledger freshness check failed",
+			{ exception: { type: "Error" } },
+		);
+	} finally {
+		warnings.mockRestore();
+	}
+});
+
 it("does not probe projection consumers without graph database config", async () => {
 	const probe = vi
 		.spyOn(projectionQueries, "listGraphProjectionConsumerHealth")
