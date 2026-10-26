@@ -24,13 +24,13 @@ engine, and the read-only `tedix workflow` command keeps that name.
 
 | Concept    | Meaning                                                                                                                                                      | Use it when                                                                                                             |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Skill      | A persistent, revisioned procedure. It may contain guidance only or include an executable workflow script.                                                   | The organization should reuse, review, schedule, or improve the capability.                                             |
+| Skill      | A persistent, revisioned procedure. It may contain guidance only or include an executable script (`scripts/workflow.ts`).                                    | The organization should reuse, review, schedule, or improve the capability.                                             |
 | Flow       | A one-off author-and-run convenience. A file-authored flow creates an ephemeral draft executable skill and runs it through the same engine.                  | You need several MCP or platform steps once, without replaying their intermediate data through an agent context window. |
 | Run        | One durable execution of a pinned executable-skill revision, with status, steps, approvals, artifacts, costs, and terminal evidence.                         | You need to inspect what actually happened.                                                                             |
 | Automation | A skill that runs on a schedule ("every morning at 08:00, do this"). Automations are ordinary skills with a schedule attached; there is no separate builder. | Work should happen without anyone starting it.                                                                          |
 | Engine     | The durable execution engine and its definitions. Tedix owns static platform definitions; organizations own dynamic executable-skill definitions.            | You are observing engine definitions, health, or history through `tedix workflow`.                                      |
 
-There is no separate workflow-builder object. Author a reusable executable
+There is no separate automation builder. Author a reusable executable
 skill, schedule it as an automation, use a flow for one-off work, or change a
 static platform definition in Tedix source.
 
@@ -61,7 +61,7 @@ expired tool list), not `MCP_NAMESPACE_UNAVAILABLE`.
 ## Run a one-off flow
 
 Create `plan.ts`. The leading `/* tedix */` block is the skill manifest and
-declares the exact MCP methods the workflow may call:
+declares the exact MCP methods the flow may call:
 
 ```ts
 /* tedix
@@ -192,7 +192,7 @@ tedix -w acme workflow runs
 tedix -w acme workflow status WORKFLOW_ID
 ```
 
-Definitions include static Tedix platform workflows and dynamic executable
+Definitions include static Tedix platform automations and dynamic executable
 skills available to the organization. A definition with no run history is
 unobserved, not failed. For a dynamic skill run, use `skill status` or `skill
 inspect` for the run's current status and detailed evidence.
@@ -211,6 +211,6 @@ records:
 The canonical MCP families are `flow.*` for one-off convenience,
 `skills.*` for persistent skill lifecycle and dynamic-run inspection, and
 `workflows.*` for read-only engine observability. Identity-specific tedi
-callables are equivalent execution owners, not a second workflow system.
+callables are equivalent execution owners, not a second automation system.
 
 Continue with [Getting started](./getting-started.md), [Install the Tedix CLI](./cli.md), or [Core concepts](./concepts.md).

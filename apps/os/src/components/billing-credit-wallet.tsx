@@ -192,7 +192,7 @@ export function BillingCreditWallet({
 								</>
 							)}{" "}
 							External tool fees are separate; a cap is not an estimate of the
-							full workflow cost.
+							full automation cost.
 						</Text>
 						<Text tone="secondary">
 							Included allowance remaining:{" "}

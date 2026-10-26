@@ -209,7 +209,7 @@ try {
 				const diagnostics = [
 					...document.querySelectorAll("main td span"),
 				].filter((element) =>
-					/Workflow SHA-256:|SKILL.md SHA-256:|Worker:|manifest.json/.test(
+					/Automation SHA-256:|SKILL.md SHA-256:|Worker:|manifest.json/.test(
 						element.textContent ?? "",
 					),
 				);

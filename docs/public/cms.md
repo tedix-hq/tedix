@@ -5,7 +5,7 @@ title: "Websites and CMS"
 topic: "Platform"
 resource_type: guide
 description: "Create and publish a CMS website in an invited Tedix Cloud organization."
-summary: "CMS availability, prerequisites, and the first draft-to-publish workflow"
+summary: "CMS availability, prerequisites, and the first draft-to-publish steps"
 read_when:
   - Evaluating Tedix for website content and publishing
   - Helping an agent create or use a CMS site

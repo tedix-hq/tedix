@@ -341,9 +341,9 @@ function WorkspaceSkillDraftEditor({
 						</label>
 						{source.files?.["scripts/workflow.ts"] !== undefined && (
 							<label className="grid gap-1 text-sm">
-								Workflow source
+								Automation source
 								<Textarea
-									aria-label="Draft workflow source"
+									aria-label="Draft automation source"
 									rows={10}
 									value={workflow}
 									maxLength={500_000}
@@ -427,7 +427,7 @@ export function workspaceSkillDraftDiff(base: string, next: string): string {
 	return (
 		lines.slice(0, 500).join("\n") +
 		(lines.length > 500
-			? "\n… Preview limited to 500 lines. Open the saved draft to read its full instructions and workflow."
+			? "\n… Preview limited to 500 lines. Open the saved draft to read its full instructions and automation."
 			: "")
 	);
 }
@@ -523,13 +523,13 @@ function WorkspaceSkillDraftReviewBody(target: {
 			</details>
 			{proposal.files?.["scripts/workflow.ts"] !== undefined && (
 				<>
-					<Text role="label">Workflow changes</Text>
+					<Text role="label">Automation changes</Text>
 					<DraftDiff
 						base={proposal.baseFiles?.["scripts/workflow.ts"] ?? ""}
 						next={proposal.files["scripts/workflow.ts"]}
 					/>
 					<details>
-						<summary>Full proposed workflow</summary>
+						<summary>Full proposed automation</summary>
 						<pre className="whitespace-pre-wrap break-words text-xs">
 							{proposal.files["scripts/workflow.ts"]}
 						</pre>

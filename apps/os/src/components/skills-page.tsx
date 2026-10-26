@@ -647,7 +647,8 @@ export function SkillsPage({
 					<PageHeading>
 						<PageTitle>{surface.label}</PageTitle>
 						<PageDescription>
-							Reusable instructions and scheduled workflows your tedis can run.
+							Reusable instructions and scheduled automations your tedis can
+							run.
 						</PageDescription>
 					</PageHeading>
 					{canManage && search.section === "skills" ? (
@@ -728,7 +729,7 @@ export function SkillsPage({
 						skills.data &&
 						skillEntries.length > 0 && (
 							<Text role="body" tone="secondary" className="m-0">
-								Workflow linkage is unavailable right now — skills are listed
+								Automation details are unavailable right now — skills are listed
 								without their execution badges.
 							</Text>
 						)}

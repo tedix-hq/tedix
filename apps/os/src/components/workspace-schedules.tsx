@@ -87,11 +87,11 @@ export function WorkspaceSchedules({ workspaceId }: { workspaceId: string }) {
 	);
 }
 
-/** "Run by Research Tedi · Workflow": who runs the skill and how. */
+/** "Run by Research Tedi · Automation": who runs the skill and how. */
 function runsByLine(schedule: OsWorkspaceSchedule): string {
 	return [
 		schedule.tediName ? `Run by ${schedule.tediName}` : "No tedi runs it yet",
-		schedule.hasWorkflow ? "Workflow" : "Instructions",
+		schedule.hasWorkflow ? "Automation" : "Instructions",
 	].join(" · ");
 }
 

@@ -5,7 +5,7 @@ title: "Documentation sites"
 topic: "Platform"
 resource_type: guide
 description: "Create public and organization-only documentation sites from Git with the Tedix CLI."
-summary: "Tenant self-service workflow for public and private Git-backed Docs sites"
+summary: "Tenant self-service setup for public and private Git-backed Docs sites"
 read_when:
   - Creating a documentation site from a Git repository
   - Publishing separate public and private documentation for one organization
@@ -172,7 +172,7 @@ content but never runs the repository's package scripts. The template carries
 the Tedix mark and favicon on every site; a per-site logo is not configurable
 yet. Private clone
 credentials are build-scoped and are not stored in site configuration, build
-records, Workflow parameters, release objects, or output.
+records, build job parameters, release objects, or output.
 
 A Git push does not automatically build or publish a site. Trigger the build
 through the Docs MCP namespace after the desired revision reaches the configured

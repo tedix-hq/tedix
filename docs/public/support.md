@@ -3,7 +3,7 @@ title: "Get support"
 description: "Ask for help with Tedix, follow your request, and find the answer."
 summary: "How to ask for help, what Support does next, and where to read the reply"
 read_when:
-  - Getting help with a Tedix workflow
+  - Getting help with a Tedix automation
   - Filing or following a support ticket from an agent
   - Understanding how Support replies
 visibility: public

@@ -188,7 +188,7 @@ export function SkillVersionsPage() {
 												<CollapsibleContent className="grid min-w-0 gap-1 pb-2 [overflow-wrap:anywhere]">
 													{[
 														[
-															"Workflow SHA-256",
+															"Automation SHA-256",
 															revision.workflowSourceSha256 ?? "not recorded",
 														],
 														[

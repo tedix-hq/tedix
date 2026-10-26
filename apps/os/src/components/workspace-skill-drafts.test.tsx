@@ -249,7 +249,7 @@ describe("workspace skill draft safety and usability", () => {
 			).value,
 		).toBe(source.content);
 		fill("Draft skill instructions", receipt().proposal.content);
-		fill("Draft workflow source", "export default { run() { return 2; } };");
+		fill("Draft automation source", "export default { run() { return 2; } };");
 		fill("Draft change reason", receipt().proposal.reason);
 		const changes = [...document.querySelectorAll("summary")].find((item) =>
 			item.textContent?.includes("Review changes"),

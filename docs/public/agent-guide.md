@@ -440,7 +440,7 @@ alarm off.
 ### Engineering shift
 
 Tedix itself can drive the coding queue. An organization records a
-tedi-owned scheduled skill workflow (the Tedix organization's is the CTO's
+tedi-owned scheduled automation (the Tedix organization's is the CTO's
 `engineering-shift`, every ten minutes) whose `schedule.params` hold the lane
 project, the target number of queued items per executor, the red threshold in
 minutes, the CI and Ship workflows to read through the GitHub app, and the
@@ -467,7 +467,7 @@ when it stops, the schedule and the dispatchers keep running.
 - Treat write-capable calls as production changes to the selected organization.
 - Human-required consent, MFA and user presence belong to the human. Other
   approvals go to the designated independent principal, which may be a tedi.
-- A queued workflow, green test, commit, or health check proves only itself.
+- A queued automation run, green test, commit, or health check proves only itself.
 - For completion, read the settled run or task, relevant artifacts, mutation
   receipt, and live target state.
 - Preserve `supportedClaims`, `unsupportedClaims`, and evidence references from
@@ -524,7 +524,7 @@ For a human first run, continue with [Getting started](./getting-started.md).
 
 ## Situational recall for local lanes
 
-Approved brain lessons can carry `learningFeed.triggers`: `pathGlobs`,
+Approved memory lessons can carry `learningFeed.triggers`: `pathGlobs`,
 `commands`, `keywords`, and optional `repos` and `organizations` constraints.
 Use `update_lesson_triggers` to edit them, or `backfill_lesson_triggers` to
 infer missing triggers in bounded batches with a small model. Existing triggers

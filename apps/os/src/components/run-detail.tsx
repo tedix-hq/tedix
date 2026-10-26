@@ -389,8 +389,8 @@ export function RunDetailPage() {
 										<AlertDialogHeader>
 											<AlertDialogTitle>Cancel this run?</AlertDialogTitle>
 											<AlertDialogDescription>
-												The durable workflow will be asked to stop. Its final
-												terminal status may take a moment to arrive.
+												The automation will be asked to stop. Its final terminal
+												status may take a moment to arrive.
 											</AlertDialogDescription>
 										</AlertDialogHeader>
 										<AlertDialogFooter>
@@ -614,7 +614,9 @@ function RunWaitingGate({
 							</AlertDialogTrigger>
 							<AlertDialogContent>
 								<AlertDialogHeader>
-									<AlertDialogTitle>Send this workflow event?</AlertDialogTitle>
+									<AlertDialogTitle>
+										Send this event to the automation?
+									</AlertDialogTitle>
 									<AlertDialogDescription>
 										The event is non-idempotent. Confirm type{" "}
 										<strong>{eventType}</strong> with payload{" "}

@@ -160,7 +160,7 @@ their kind: "Built-in app", "Interactive app" or "Runs a skill".
 the factory that writes an app's cards. Each row shows the skill's name and
 purpose, when it runs in the viewer's own clock ("Every day at 8:17, 13:17
 and 18:17", "Paused", or "Runs when asked" for a skill with no schedule),
-the tedi that runs it and whether it runs a workflow, the last run ("Last
+the tedi that runs it and whether it runs an automation, the last run ("Last
 run 13:17: made 4 cards" or "Last run failed: <reason>"), the next run, a
 **See runs** link and **Unlink**. A skill is listed when the workspace has
 a resource with `providerId` `tedix`, `resourceType` `skill` and the skill
@@ -685,7 +685,7 @@ namespace:
 1. Read the current app and its files, then call `propose_os_app_edit` with
    `workspaceId`, `gadgetId`, `expectedRevisionId` and exact `edits`
    (`path`, `before`, `after`). Each replacement must match once. An agent
-   needs an attested session or workflow run and app write access; browser
+   needs an attested session or automation run and app write access; browser
    builders also supply their workspace Home `conversationId`.
 2. Open the returned `previewUrl` to review the proposal in **Drafts**, or
    call `preview_os_app_draft` with its `proposalId` to get an isolated app
@@ -882,7 +882,7 @@ preview. Code edits save proposals, not committed revisions. `mergeDraft`
 compares a proposal with its base and the latest app revision; resolve conflicts
 against current files and preserve concurrent edits. Leave the draft for the
 person to apply in the OS. Do not apply, publish or create share links in the
-authoring workflow. Preview capabilities allow resource reads only; preview
+authoring steps. Preview capabilities allow resource reads only; preview
 ratings are separate from the committed app's storage and are not migrated.
 
 Before handing off, check:
@@ -898,7 +898,7 @@ Before handing off, check:
 - Include the app's README with bindings, column mapping, shared or personal
   storage semantics and checks. Read back the draft and record its OS link
   and evidence on Work. Distinguish simulated checks from live runtime proof.
-- Never publish from this workflow.
+- Never publish while authoring.
 
 ## Add another built-in app
 
