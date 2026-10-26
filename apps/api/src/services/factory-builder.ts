@@ -563,6 +563,7 @@ export async function buildFactory(
 		everyHours,
 		maxProposals: input.maxProposals,
 		output,
+		...(bound?.resourceIds ? { resourceIds: bound.resourceIds } : {}),
 		...patch,
 	});
 

@@ -372,7 +372,7 @@ describe("factory run context", () => {
 		sqlite.exec(`CREATE TABLE os_workspaces (id TEXT PRIMARY KEY, organization_id TEXT, status TEXT, source_blueprint_revision_id TEXT);
    INSERT INTO skill_entries (id, organization_id, tedi_id, title) VALUES ('skill', 'org', 'owner', 'Lane');
    INSERT INTO projects (id, org_id, key, name, status, objective_id, metadata, created_at) VALUES
-   ('project', 'org', 'P', 'P', 'active', 'objective', '{"factory":{"slug":"lane","skillId":"skill","workspaceId":"workspace"}}', 'now');
+   ('project', 'org', 'P', 'P', 'active', 'objective', '{"factory":{"slug":"lane","skillId":"skill","workspaceId":"workspace","resourceIds":{"docsSite":"site","dailyCheck":"check"}}}', 'now');
    INSERT INTO os_workspaces VALUES ('workspace', 'org', 'active', 'revision-1');`);
 		const db = createDbClient(createD1Facade(sqlite));
 		const params = { orgId: "org", skillId: "skill" };
@@ -382,7 +382,22 @@ describe("factory run context", () => {
 			objectiveId: "objective",
 			ownerTediId: "owner",
 			blueprintRevisionId: "revision-1",
+			resourceIds: { docsSite: "site", dailyCheck: "check" },
 		});
+		const before = sqlite
+			.prepare("SELECT metadata FROM projects WHERE id = 'project'")
+			.get() as { metadata: string };
+		const malformed = JSON.parse(before.metadata);
+		malformed.factory.resourceIds = { docsSite: 12 };
+		sqlite
+			.prepare("UPDATE projects SET metadata = ? WHERE id = 'project'")
+			.run(JSON.stringify(malformed));
+		await expect(resolveFactoryRunContext(db, params)).rejects.toThrow(
+			"FACTORY_RESOURCE_IDS_INVALID",
+		);
+		sqlite
+			.prepare("UPDATE projects SET metadata = ? WHERE id = 'project'")
+			.run(before.metadata);
 		sqlite.exec(
 			"UPDATE os_workspaces SET source_blueprint_revision_id = 'revision-2'",
 		);

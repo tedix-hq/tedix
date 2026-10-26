@@ -59,6 +59,8 @@ export interface FactoryBinding {
 	maxProposals: number;
 	/** The Output each run writes into; the id stays null until a run creates it. */
 	output: { id: string | null; title: string | null; kind: string } | null;
+	/** Related sites and skills, configured once rather than embedded in lane source. */
+	resourceIds?: Record<string, string>;
 }
 
 const text = (value: unknown): string | null =>
@@ -87,7 +89,33 @@ export function readFactoryBinding(
 		maxProposals:
 			typeof record.maxProposals === "number" ? record.maxProposals : 0,
 		output: readOutputBinding(record.output),
+		...(record.resourceIds === undefined
+			? {}
+			: { resourceIds: readResourceIds(record.resourceIds) }),
 	};
+}
+
+function readResourceIds(raw: JsonValue): Record<string, string> {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw))
+		throw new Error(
+			"FACTORY_RESOURCE_IDS_INVALID: expected named resource ids",
+		);
+	const entries = Object.entries(raw);
+	if (
+		entries.length > 50 ||
+		entries.some(
+			([key, value]) =>
+				key.length > 80 ||
+				!key ||
+				typeof value !== "string" ||
+				!value ||
+				value.length > 200,
+		)
+	)
+		throw new Error(
+			"FACTORY_RESOURCE_IDS_INVALID: expected at most 50 bounded resource ids",
+		);
+	return Object.fromEntries(entries) as Record<string, string>;
 }
 
 function readOutputBinding(
@@ -128,6 +156,7 @@ export interface FactoryRunContext {
 	ownerTediId: string | null;
 	healthWorkItemId: string | null;
 	output: FactoryBinding["output"];
+	resourceIds?: Record<string, string>;
 }
 
 export async function resolveFactoryRunContext(
@@ -195,6 +224,7 @@ export async function resolveFactoryRunContext(
 		ownerTediId: row.ownerTediId,
 		healthWorkItemId: binding.healthWorkItemId,
 		output: binding.output,
+		...(binding.resourceIds ? { resourceIds: binding.resourceIds } : {}),
 	};
 }
 
