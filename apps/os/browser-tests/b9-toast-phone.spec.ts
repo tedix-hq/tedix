@@ -18,13 +18,19 @@ async function settle(page: Page) {
 			requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
 		);
 	});
-	await page.waitForFunction(
-		() =>
+	await page.waitForFunction((selector) => {
+		const front = document.querySelector(selector);
+		if (!front) return false;
+		// WebKit can report no animations before the entrance style resolves.
+		const transform = new DOMMatrixReadOnly(getComputedStyle(front).transform);
+		return (
+			transform.isIdentity &&
 			!document.querySelector("[data-os-toast-outlet] [data-starting-style]") &&
 			document
 				.getAnimations()
-				.every((a) => !a.pending && a.playState !== "running"),
-	);
+				.every((a) => !a.pending && a.playState !== "running")
+		);
+	}, toastSelector);
 }
 
 async function raise(page: Page, name: string, expected: number) {
