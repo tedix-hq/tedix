@@ -155,7 +155,7 @@ const authorOs = authed.use(AUTHZ.osAuthor);
 const runOs = authed.use(AUTHZ.osRun);
 const publishOs = authed.use(AUTHZ.osPublish);
 
-const installWorkDefaults = publishOs.gadgets.installWorkDefaults.handler(
+const installWorkDefaults = authorOs.gadgets.installWorkDefaults.handler(
 	async ({ context }) =>
 		installDefaultWorkApps(
 			queryDb(context),
