@@ -314,6 +314,14 @@ export const osWorkspacesContract = oc
 						status: OsWorkspaceStatusSchema.optional().describe(
 							"Filter by lifecycle status; omitted returns all statuses",
 						),
+						search: z
+							.string()
+							.trim()
+							.max(200)
+							.optional()
+							.describe(
+								"Case-insensitive substring match on the workspace's name and description, applied before pagination so the result is not limited to the loaded page",
+							),
 						limit: listLimitSchema,
 						offset: z.number().int().min(0).default(0),
 					}),

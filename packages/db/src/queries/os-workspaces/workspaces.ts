@@ -7,6 +7,7 @@ import {
 	isNull,
 	notInArray,
 	or,
+	sql,
 	type SQL,
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -109,6 +110,8 @@ export function osWorkspaceChildVisibleToPredicate(
 
 export interface ListOsWorkspacesOptions {
 	status?: OsWorkspaceRow["status"];
+	/** Case-insensitive substring matched against name and description together. */
+	search?: string;
 	limit?: number;
 	offset?: number;
 }
@@ -283,6 +286,15 @@ export async function listOsWorkspaces(
 	];
 	if (options.status) {
 		conditions.push(eq(osWorkspaces.status, options.status));
+	}
+	const search = options.search?.trim();
+	if (search) {
+		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a 48+
+		// character search failed as a D1_ERROR. `lower` on both sides keeps
+		// LIKE's ASCII case-insensitivity.
+		conditions.push(
+			sql`instr(lower(${osWorkspaces.name} || ' ' || coalesce(${osWorkspaces.description}, '')), lower(${search})) > 0`,
+		);
 	}
 	return db
 		.select()

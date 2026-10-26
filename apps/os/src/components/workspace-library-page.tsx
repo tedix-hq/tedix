@@ -9,7 +9,12 @@ import {
 	SquaresFour,
 	Star,
 } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	keepPreviousData,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -41,7 +46,7 @@ import {
 	formatWorkspaceLastOpened,
 	groupWorkspaceLibrary,
 } from "@/lib/workspace-library";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Initial workspace window; larger loaded libraries expand in 15-row steps. */
 export const WORKSPACES_VISIBLE_PAGE_SIZE = 15;
@@ -65,7 +70,22 @@ export function WorkspaceLibraryPage() {
 	const [visibleLimit, setVisibleLimit] = useState(
 		WORKSPACES_VISIBLE_PAGE_SIZE,
 	);
-	const workspaces = useQuery(activeWorkspacesQueryOptions());
+	// The list query carries the debounced search so matching runs server-side
+	// across every workspace the member can open, not only the loaded page.
+	const [debouncedSearch, setDebouncedSearch] = useState("");
+	useEffect(() => {
+		const timeout = window.setTimeout(() => setDebouncedSearch(search), 250);
+		return () => window.clearTimeout(timeout);
+	}, [search]);
+	const normalizedSearch = debouncedSearch.trim() || undefined;
+	const workspaces = useQuery({
+		...activeWorkspacesQueryOptions(normalizedSearch),
+		placeholderData: keepPreviousData,
+	});
+	// Only a search the server has answered may claim "no match"; while the
+	// debounce or the request is still open the loaded rows keep filtering.
+	const searchSettled =
+		search.trim() === debouncedSearch.trim() && !workspaces.isFetching;
 	const preferences = useQuery(workspacePreferencesQueryOptions());
 	const [favoriteRefreshFailed, setFavoriteRefreshFailed] = useState(false);
 	const favorite = useMutation({
@@ -178,7 +198,7 @@ export function WorkspaceLibraryPage() {
 				/>
 				{view === "active" &&
 				workspaces.data &&
-				workspaces.data.items.length > 0 ? (
+				(workspaces.data.items.length > 0 || normalizedSearch) ? (
 					<SearchInput
 						aria-label="Search workspaces"
 						containerClassName="w-full sm:max-w-md"
@@ -276,7 +296,7 @@ export function WorkspaceLibraryPage() {
 			) : null}
 			{view === "active" &&
 			workspaces.data &&
-			workspaces.data.items.length > 0 ? (
+			(workspaces.data.items.length > 0 || normalizedSearch) ? (
 				<div className="grid gap-4">
 					{groups.all.length > 0 ? (
 						<>
@@ -387,11 +407,11 @@ export function WorkspaceLibraryPage() {
 								</div>
 							) : null}
 						</>
-					) : workspaces.isSuccess ? (
+					) : workspaces.isSuccess && searchSettled ? (
 						<Empty
 							appearance="quiet"
 							title="No matching workspaces"
-							description={`No loaded workspaces match “${search.trim()}”.`}
+							description={`No workspaces match “${normalizedSearch ?? search.trim()}”.`}
 						/>
 					) : null}
 					{workspaces.data.truncated ? (
@@ -406,7 +426,8 @@ export function WorkspaceLibraryPage() {
 			{view === "active" &&
 			workspaces.data &&
 			workspaces.isSuccess &&
-			workspaces.data.items.length === 0 ? (
+			workspaces.data.items.length === 0 &&
+			!normalizedSearch ? (
 				<Empty
 					appearance="quiet"
 					icon={<SquaresFour size={20} />}
