@@ -49,6 +49,8 @@ import {
 	RetryDelegationWorkItemInputSchema,
 	RetryHomeRunInputSchema,
 	SteerHomeRunInputSchema,
+	ControlRunSteeringInputSchema,
+	RunSteeringMessageSchema,
 } from "../schemas/kernel-runtime";
 import { RuntimeStreamReadOutputSchema } from "../schemas/runtime-submissions";
 import { UploadHomeAttachmentInputSchema } from "../schemas/chat-attachments";
@@ -486,6 +488,10 @@ export const kernelRuntimeContract = oc
 			})
 			.input(ResolveHomePageToolInputSchema)
 			.output(ResolveHomePageToolOutputSchema),
+
+		controlRunSteering: oc
+			.input(ControlRunSteeringInputSchema)
+			.output(z.object({ messages: z.array(RunSteeringMessageSchema) })),
 
 		steerRun: oc
 			.route({

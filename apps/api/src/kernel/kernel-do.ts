@@ -67,6 +67,8 @@ import {
 } from "./kernel-state";
 import { abortKernelTurn } from "./turn-abort";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
+import { HomeRunSteering } from "./run-steering";
+import type { RuntimeRunSteeringInput } from "@tedix/api-contract/schemas/kernel-runtime";
 
 /**
  * Durable per-turn watchdog bound. The kernel's per-LLM-pass abort guards (llm-guard.ts withIdleAbort /
@@ -220,6 +222,28 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * `resolvePageTool`. In memory on purpose: a call outlives neither its turn nor this isolate.
 	 */
 	private readonly pageToolBroker = new PageToolBroker();
+	private readonly runSteering = new HomeRunSteering(this.ctx.storage.kv);
+
+	async controlRunSteering(input: RuntimeRunSteeringInput) {
+		if (input.action === "enqueue") {
+			const { getKernelRuntimeRun } =
+				await import("@tedix/db/queries/kernel-runtime-runs");
+			const context = await this.turnContext();
+			const organizationId = this.state.organizationId ?? this.ctx.id.name;
+			if (!organizationId) throw new Error("Home organization is unavailable");
+			const run = await getKernelRuntimeRun(context.db, {
+				id: input.runId,
+				organizationId,
+			});
+			if (
+				!run ||
+				run.conversationId !== input.sessionKey ||
+				!["queued", "running"].includes(run.status)
+			)
+				throw new Error("Home run is no longer active");
+		}
+		return this.runSteering.control(input);
+	}
 
 	/**
 	 * Synthetic per-turn context: the DO has no inbound oRPC request — auth already happened in the RPC handler for
@@ -751,6 +775,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 					flushStreamedProgress: progress.flush,
 					holdAfterSettle: progress.holdAfterSettle,
 					plannerAbortSignal: abortController.signal,
+					readSteering: async () => this.runSteering.read(input.runId),
 					...(input.pageTools?.length
 						? {
 								pageToolRelay: (call, signal) =>

@@ -1,4 +1,5 @@
 import type { DbClient } from "@tedix/db/client";
+import { excludeWithdrawnSteering } from "./steering-history";
 import { TediMessageAttachmentSchema } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import type {
@@ -191,7 +192,13 @@ class KernelHomeSessionBackend implements SessionHarnessBackend {
 		// Read defensively — the payload is a JSON bag, not a typed column.
 		this.lastStepPromptTokens = readStepPromptTokens(rows);
 
-		return [...rows]
+		const projectedRows = await excludeWithdrawnSteering(
+			this.db,
+			this.organizationId,
+			sessionKey,
+			rows,
+		);
+		return [...projectedRows]
 			.reverse()
 			.filter(
 				(row) =>

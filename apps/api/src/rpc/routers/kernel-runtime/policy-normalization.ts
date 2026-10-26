@@ -1,4 +1,5 @@
 import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-reference";
+import { controlHomeRunSteering } from "./run-steering";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { resolveHomeAttachments } from "./attachment-storage";
 import { listWorkItemsPage } from "@tedix/db/queries/work-items/crud";
@@ -324,51 +325,34 @@ export type KernelChildSteerForwarder = (input: {
 	instruction: string;
 	homeRunId: string;
 	steeredAt: string;
+	steeringId?: string;
 }) => Promise<KernelChildControlResult>;
-
-/**
- * Forward an operator steering instruction to a running delegated child via the
- * SAME async isolate-inject path the dispatcher uses
- * (`cognitiveRuntime.enqueueMessage` → `injectAgentMessage`, async). The
- * instruction lands as a new turn in the child's existing session so the live
- * worker consumes it inline; Home keeps supervising via reconciliation. Never
- * throws — a child-side failure is captured as `outcome: "failed"` so the
- * parent steer stays intact (fail-safe).
- */
 
 const defaultKernelChildSteerForwarder: KernelChildSteerForwarder = async (
 	input,
 ) => {
-	const internalContext = buildInternalServiceBindingContext(
-		input.context,
-		input.organizationId,
-	);
-	const client = createRouterClient(cognitiveRuntimeContractRouter, {
-		context: internalContext,
-	});
 	try {
-		const result = await client.enqueueMessage({
-			tediId: input.delegatedTediId,
-			conversationId: input.childConversationId ?? undefined,
-			content: input.instruction,
-			idempotencyKey: `${input.homeRunId}:steer:${Date.parse(input.steeredAt)}:${input.delegatedTediId}`,
-			metadata: {
-				source: "kernelRuntime.steerForward",
-				steering: true,
-				homeRunId: input.homeRunId,
+		await controlHomeRunSteering(
+			input.context,
+			{
+				id: input.homeRunId,
+				organizationId: input.organizationId,
+				conversationId: "",
 				childRunId: input.childRunId,
-				...(input.workItemId ? { workItemId: input.workItemId } : {}),
-				// Home supervises via reconciliation, never the inline reply — async
-				// inject so a cold child's first steer turn is not capped by the
-				// inject HTTP timeout (matches the dispatch path).
-				dispatchMode: "async",
+				childConversationId: input.childConversationId,
+				delegatedTediId: input.delegatedTediId,
 			},
-		});
+			{
+				action: "enqueue",
+				id:
+					input.steeringId ??
+					`${input.homeRunId}:steer:${Date.parse(input.steeredAt)}`,
+				content: input.instruction,
+			},
+		);
 		return {
 			attempted: true,
-			outcome: result.status === "failed" ? "failed" : "succeeded",
-			error: result.error,
-			childInjectRunId: result.runId,
+			outcome: "succeeded",
 		};
 	} catch (error) {
 		return {

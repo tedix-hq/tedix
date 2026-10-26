@@ -126,6 +126,7 @@
 		"./queries/cognitive/skill-validation": "./src/queries/cognitive/skill-validation.ts",
 		"./queries/kernel-approval-mirrors": "./src/queries/kernel-approval-mirrors.ts",
 		"./queries/kernel-runtime-events": "./src/queries/kernel-runtime-events.ts",
+		"./queries/kernel-runtime-steering": "./src/queries/kernel-runtime-steering.ts",
 		"./schema/kernel-requests": "./src/schema/kernel-requests.ts",
 		"./queries/kernel-requests": "./src/queries/kernel-requests.ts",
 		"./queries/kernel-home-run-trace": "./src/queries/kernel-home-run-trace.ts",

@@ -362,6 +362,7 @@ export interface KernelTurnWorkDeps {
 	 * `docs/engineering/cognition/kernel-execution-model.md` "Operator cancel").
 	 */
 	plannerAbortSignal?: AbortSignal;
+	readSteering?: () => Promise<string[]>;
 	/**
 	 * Optional inbox-wake reconciler. When present and the turn carries
 	 * `runtimeMetadata.source==="kernel.inboxWakeAlarm"` with a

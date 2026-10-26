@@ -1,4 +1,5 @@
 import { findApprovalRule } from "../approval-rule-matcher";
+import { controlHomeRunSteering } from "./run-steering";
 import {
 	workstationDispatchIdentity,
 	inspectWorkstationDispatchAdmission,
@@ -842,6 +843,7 @@ async function steerKernelRunCore(
 		organizationId: string;
 		homeRunId: string;
 		instruction: string;
+		idempotencyKey?: string;
 	},
 ): Promise<{
 	run: HomeRun;
@@ -864,14 +866,28 @@ async function steerKernelRunCore(
 			"I couldn't find that reply. Refresh the chat and try again.",
 		);
 	}
+	const steeringMessageId = `${input.homeRunId}:steer:${input.idempotencyKey ?? crypto.randomUUID()}`;
 	if (isTerminalHomeRunStatus(existingRun.status as TediRunStatus)) {
+		if (input.idempotencyKey) {
+			const prior = (
+				await controlHomeRunSteering(context, existingRun, {
+					action: "inspect",
+				})
+			).find((message) => message.id === steeringMessageId);
+			if (prior && prior.content !== instruction)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Steering id reused with different content",
+				);
+			if (prior && (prior.status === "read" || prior.status === "queued"))
+				return { run: normalizeHomeRunRecord(existingRun) };
+		}
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
 			"That reply has already ended. Send a new message to continue.",
 		);
 	}
 	const steeredAt = nowIso();
-	const steeringMessageId = `${input.homeRunId}:steer:${Date.parse(steeredAt)}`;
 	const existingMetadata = nonNullRecord(existingRun.metadata) ?? {};
 	const priorInstructions = Array.isArray(existingMetadata.steeringInstructions)
 		? existingMetadata.steeringInstructions.filter(
@@ -898,9 +914,18 @@ async function steerKernelRunCore(
 					instruction,
 					homeRunId: input.homeRunId,
 					steeredAt,
+					steeringId: steeringMessageId,
 				})
 			: childControlSkipped;
+	if (!existingRun.childRunId || !existingRun.delegatedTediId) {
+		await controlHomeRunSteering(context, existingRun, {
+			action: "enqueue",
+			id: steeringMessageId,
+			content: instruction,
+		});
+	}
 	const steeringRecord = {
+		steeringId: steeringMessageId,
 		instruction,
 		steeredAt,
 		source: "kernelRuntime.steerRun",
@@ -910,7 +935,12 @@ async function steerKernelRunCore(
 		...existingMetadata,
 		steeredAt,
 		latestSteeringInstruction: instruction,
-		steeringInstructions: [...priorInstructions.slice(-9), steeringRecord],
+		steeringInstructions: [
+			...priorInstructions
+				.filter((item) => item.steeringId !== steeringMessageId)
+				.slice(-9),
+			steeringRecord,
+		],
 		delegatedChildSteer: existingRun.childRunId
 			? {
 					attempted: childSteer.attempted,
@@ -939,7 +969,7 @@ async function steerKernelRunCore(
 			"run.steered",
 			existingRun.conversationId,
 			input.homeRunId,
-			steeredAt,
+			steeringMessageId,
 		].join(":"),
 		organizationId,
 		kind: "message.received",
@@ -958,6 +988,7 @@ async function steerKernelRunCore(
 				delegatedTediId: existingRun.delegatedTediId ?? null,
 				homeRunId: input.homeRunId,
 				steeredAt,
+				steeringId: steeringMessageId,
 			},
 		},
 		runtimeMetadata: {

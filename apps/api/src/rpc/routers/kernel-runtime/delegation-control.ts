@@ -1,4 +1,7 @@
 import { createRouterClient, ORPCError } from "@orpc/server";
+import { controlHomeRunSteering } from "./run-steering";
+import { steeringWithdrawalEventId } from "@tedix/db/queries/kernel-runtime-steering";
+import { insertKernelRuntimeEvent } from "../kernel/run-store";
 import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
 import {
@@ -416,6 +419,44 @@ export const resolvePageToolRoute = authed.resolvePageTool
 		};
 	});
 
+export const controlRunSteeringRoute = authed.controlRunSteering
+	.use(AUTHZ.tedisWrite)
+	.handler(async ({ context, input }) => {
+		const organizationId = resolveOrganizationId(context, input.organizationId);
+		const run = await getKernelRuntimeRun(context.db, {
+			id: input.runId,
+			organizationId,
+		});
+		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
+		await ensureHomeConversationAccess(context, {
+			conversationId: run.conversationId,
+			organizationId,
+			required: "edit",
+		});
+		const messages = await controlHomeRunSteering(context, run, {
+			action: input.action,
+		});
+		if (input.action === "withdraw") {
+			const current = await controlHomeRunSteering(context, run, {
+				action: "inspect",
+			});
+			for (const message of current.filter(
+				(message) => message.status === "withdrawn",
+			)) {
+				await insertKernelRuntimeEvent(context, {
+					id: steeringWithdrawalEventId(organizationId, message.id),
+					organizationId,
+					conversationId: run.conversationId,
+					runId: run.id,
+					messageId: message.id,
+					kind: "message.progress",
+					payload: { action: "home.steering.withdrawn" },
+				});
+			}
+		}
+		return { messages };
+	});
+
 export const steerRunRoute = authed.steerRun
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ context, input }) => {
@@ -436,6 +477,7 @@ export const steerRunRoute = authed.steerRun
 			organizationId,
 			homeRunId: input.runId,
 			instruction: input.instruction,
+			idempotencyKey: input.idempotencyKey,
 		});
 		const steeredAt = result.run.updatedAt ?? new Date().toISOString();
 		await recordObservedLearningInteraction(context, {

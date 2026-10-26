@@ -35,6 +35,7 @@ import {
 	retryDelegationRoute,
 	retryRunRoute,
 	steerRunRoute,
+	controlRunSteeringRoute,
 } from "./kernel-runtime/delegation-control";
 import {
 	enqueueMessageRoute,
@@ -82,6 +83,7 @@ export const kernelRuntimeContractRouter = kernelRuntimeOs.router({
 	cancelRun: cancelRunRoute,
 	resolvePageTool: resolvePageToolRoute,
 	steerRun: steerRunRoute,
+	controlRunSteering: controlRunSteeringRoute,
 	// THE Home approval surface: the caller supplies a homeRunId (never a raw
 	// approval UUID) and a decision; the pending target is resolved FROM THE
 	// RUN — a parked home_tool_write approval card or a proposed Home plan.
