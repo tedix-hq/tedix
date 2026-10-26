@@ -1,6 +1,9 @@
 import { parse as parseSource } from "@babel/parser";
 import { WORKFLOW_PLATFORM_MCP_METHODS } from "@tedix/api-contract/utils/skill-manifest";
-import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
+import {
+	skillScheduleFiresDaily,
+	validateSkillSchedulePolicy,
+} from "@tedix/api-contract/utils/skill-schedule";
 import { eq, inArray } from "drizzle-orm";
 import { parse as parseYaml } from "yaml";
 import type { DbClient } from "../../client";
@@ -1158,6 +1161,12 @@ export async function validateSkillInput(
 				path: 'files["scripts/workflow.ts"]',
 			});
 		}
+		if (!skillScheduleFiresDaily(scheduleCheck.schedule.cron))
+			warnings.push({
+				code: "SKILL_SCHEDULE_LESS_THAN_DAILY",
+				message: `capabilities.schedule cron "${scheduleCheck.schedule.cron}" skips whole days. Factories run at least daily: use a daily cron (for example 0 7 * * *) and let eligibility return no_work on days with nothing to do.`,
+				path: "capabilities.schedule.cron",
+			});
 		warnings.push({
 			code: "SKILL_SCHEDULE_PROJECTED_WHEN_ACTIVE",
 			message:
