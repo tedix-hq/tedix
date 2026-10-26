@@ -126,6 +126,43 @@ export async function updateOsCollaborationProposalPreview(
 	return row;
 }
 
+export async function rebaseOsAppDraft(
+	db: DbQueryClient,
+	params: OsCollaborationProposalScope & {
+		expectedSequence: number;
+		baseRevisionId: string;
+		baseRevision: number;
+		content: string;
+	},
+): Promise<OsCollaborationProposalRow | undefined> {
+	const [row] = await db
+		.update(osCollaborationProposals)
+		.set({
+			content: params.content,
+			baseRevisionId: params.baseRevisionId,
+			baseRevision: params.baseRevision,
+			status: "open",
+			sequence: sql`${osCollaborationProposals.sequence} + 1`,
+			decisionRationale: null,
+			decisionEvidenceRefs: "[]",
+			decidedByKind: null,
+			decidedById: null,
+			decidedAt: null,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(osCollaborationProposals.organizationId, params.organizationId),
+				eq(osCollaborationProposals.id, params.proposalId),
+				eq(osCollaborationProposals.documentType, "gadget"),
+				inArray(osCollaborationProposals.status, ["open", "accepted"]),
+				eq(osCollaborationProposals.sequence, params.expectedSequence),
+			),
+		)
+		.returning();
+	return row;
+}
+
 export async function decideOsCollaborationProposal(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {

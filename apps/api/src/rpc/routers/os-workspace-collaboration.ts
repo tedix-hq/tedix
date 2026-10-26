@@ -8,6 +8,7 @@ import {
 	OsGadgetManifestSchema,
 	OsOutputContentSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { hasAppConflictMarkers } from "@tedix/api-contract/utils/app-draft-merge";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import {
 	createOsCollaborationProposal,
@@ -389,6 +390,17 @@ const collaborationMerge = authorOs.collaboration.merge.handler(
 			JSON.parse(proposal.content),
 		);
 		await requireAppDraftBuilder(context, proposal);
+		const draft = OsAppDraftContentSchema.safeParse(
+			JSON.parse(proposal.content),
+		);
+		if (
+			draft.success &&
+			Object.values(draft.data.files).some(hasAppConflictMarkers)
+		)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Resolve draft conflict markers before merging",
+			);
 		if (
 			proposal.status === "merged" &&
 			proposal.sequence === input.expectedSequence &&

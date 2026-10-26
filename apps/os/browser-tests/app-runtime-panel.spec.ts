@@ -61,8 +61,11 @@ try {
 				reducedMotion: "reduce",
 			});
 			const page = await context.newPage();
+			page.setDefaultNavigationTimeout(120_000);
 			await routeTheme(page, theme);
-			await page.goto(`${server.origin}${appPath}`);
+			await page.goto(`${server.origin}${appPath}`, {
+				waitUntil: "domcontentloaded",
+			});
 
 			// The live app opens directly, beside its Code and Drafts tabs.
 			const tabs = appView(page);
@@ -85,14 +88,16 @@ try {
 			await noOverflow(page, `${label} app`);
 			await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
 
-			// Code: the revision's files, read-only.
+			// Code: builders can edit the revision files into a draft.
 			await tabs.getByRole("button", { name: "Code" }).click();
 			const files = page.getByRole("complementary", { name: "Code files" });
 			await files.getByRole("button", { name: "client.js" }).click();
 			const viewer = page.locator("[data-canvas-app-code-file]");
-			await viewer.getByText("Viewing").waitFor();
+			await viewer.getByRole("textbox", { name: "Edit client.js" }).waitFor();
 			assert.match(
-				await viewer.locator("pre").innerText(),
+				await viewer
+					.getByRole("textbox", { name: "Edit client.js" })
+					.inputValue(),
 				/Opportunity cards/,
 				`${label}: client.js is shown`,
 			);
@@ -131,8 +136,11 @@ try {
 			reducedMotion: "reduce",
 		});
 		const page = await context.newPage();
+		page.setDefaultNavigationTimeout(120_000);
 		await routeTheme(page, "light");
-		await page.goto(`${server.origin}${appPath}`);
+		await page.goto(`${server.origin}${appPath}`, {
+			waitUntil: "domcontentloaded",
+		});
 		const tabs = appView(page);
 		await tabs.getByRole("button", { name: /^Drafts/ }).click();
 		const draft = page.getByRole("group", { name: "Draft 1" });
@@ -144,6 +152,149 @@ try {
 			.getByRole("heading", { name: /reviewed · Maya/ })
 			.waitFor();
 		await page.screenshot({ path: `${evidence}/1280-light-accepted.png` });
+		await context.close();
+	}
+	// Code saves a proposal. Move mainline independently, then resolve the stale draft.
+	{
+		const context = await browser.newContext({
+			viewport: { width: 1280, height: 900 },
+		});
+		const page = await context.newPage();
+		page.setDefaultNavigationTimeout(120_000);
+		await routeTheme(page, "light");
+		const rpc = async (method: string, input: unknown) => {
+			const response = await page.request.post(
+				`${server.origin}/api/rpc/${method}`,
+				{ data: { json: input } },
+			);
+			assert(response.ok(), `${method}: ${await response.text()}`);
+			return (await response.json()).json;
+		};
+		await page.goto(`${server.origin}${appPath}`, {
+			waitUntil: "domcontentloaded",
+		});
+		const tabs = appView(page);
+		await tabs.getByRole("button", { name: "Code" }).click();
+		await page
+			.getByRole("complementary", { name: "Code files" })
+			.getByRole("button", { name: "client.js" })
+			.click();
+		const editor = page.getByRole("textbox", { name: "Edit client.js" });
+		await editor.waitFor();
+		const original = await editor.inputValue();
+		await editor.fill(original + "\n// draft change\n");
+		await page.getByRole("button", { name: "Save as draft" }).click();
+		const draft = page.getByRole("group", { name: "Draft 1" });
+		await draft.waitFor();
+		const current = await rpc("osWorkspaces/gadgets/get", {
+			workspaceId,
+			gadgetId,
+		});
+		const code = await rpc("osWorkspaces/gadgets/getCode", {
+			workspaceId,
+			gadgetId,
+		});
+		assert.equal(
+			code.code.files["client.js"],
+			original,
+			"Code save leaves mainline unchanged",
+		);
+		// An independent server-file change merges cleanly with the client's edit.
+		await rpc("osWorkspaces/gadgets/revise", {
+			workspaceId,
+			gadgetId,
+			manifest: current.currentRevision.manifest,
+			files: {
+				...code.code.files,
+				"server.js": code.code.files["server.js"] + "\n// mainline change\n",
+			},
+			expectedRevision: current.currentRevision.revision,
+		});
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await appView(page)
+			.getByRole("button", { name: /^Drafts/ })
+			.click();
+		await draft.getByRole("button", { name: "Update to latest" }).click();
+		await draft
+			.getByText("Changes combined cleanly.", { exact: false })
+			.waitFor();
+		await draft.getByRole("button", { name: "Save as draft" }).click();
+		await draft
+			.getByRole("button", { name: "Accept", exact: true })
+			.waitFor({ state: "visible" });
+		await draft.getByRole("button", { name: "Accept", exact: true }).click();
+		await appView(page)
+			.getByRole("button", { name: /^Drafts/ })
+			.waitFor({ state: "detached" });
+		const combined = await rpc("osWorkspaces/gadgets/getCode", {
+			workspaceId,
+			gadgetId,
+		});
+		assert.match(combined.code.files["client.js"], /draft change/);
+		assert.match(combined.code.files["server.js"], /mainline change/);
+		// A second Code draft and a mainline edit to the same line show markers.
+		await appView(page).getByRole("button", { name: "Code" }).click();
+		await page
+			.getByRole("complementary", { name: "Code files" })
+			.getByRole("button", { name: "client.js" })
+			.click();
+		await editor.fill(
+			combined.code.files["client.js"].replace(
+				"// draft change",
+				"// draft conflict",
+			),
+		);
+		await page.getByRole("button", { name: "Save as draft" }).click();
+		await draft.waitFor();
+		const latest = await rpc("osWorkspaces/gadgets/get", {
+			workspaceId,
+			gadgetId,
+		});
+		await rpc("osWorkspaces/gadgets/revise", {
+			workspaceId,
+			gadgetId,
+			manifest: latest.currentRevision.manifest,
+			files: {
+				...combined.code.files,
+				"client.js": combined.code.files["client.js"].replace(
+					"// draft change",
+					"// main conflict",
+				),
+			},
+			expectedRevision: latest.currentRevision.revision,
+		});
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await appView(page)
+			.getByRole("button", { name: /^Drafts/ })
+			.click();
+		await draft.getByRole("button", { name: "Update to latest" }).click();
+		await draft.getByRole("button", { name: "client.js", exact: true }).click();
+		const conflict = draft.getByRole("textbox", { name: "Edit client.js" });
+		assert.match(await conflict.inputValue(), /<<<<<<< Draft/);
+		await draft.getByRole("button", { name: "Save as draft" }).click();
+		await draft
+			.getByText("Resolve all conflict markers before saving.", { exact: true })
+			.waitFor();
+		await page.screenshot({
+			path: `${evidence}/1280-light-conflicts.png`,
+			fullPage: true,
+		});
+		await conflict.fill(
+			combined.code.files["client.js"].replace(
+				"// draft change",
+				"// resolved conflict",
+			),
+		);
+		await draft.getByRole("button", { name: "Save as draft" }).click();
+		await draft.getByRole("button", { name: "Accept", exact: true }).click();
+		await appView(page)
+			.getByRole("button", { name: /^Drafts/ })
+			.waitFor({ state: "detached" });
+		const resolved = await rpc("osWorkspaces/gadgets/getCode", {
+			workspaceId,
+			gadgetId,
+		});
+		assert.match(resolved.code.files["client.js"], /resolved conflict/);
 		await context.close();
 	}
 	console.log(

@@ -4,6 +4,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { AppDraftEditor } from "@/components/app-draft-editor";
 import { AppRuntimeSandbox } from "@/components/app-runtime-panel";
 import { ProposalDiff } from "@/components/canvas-proposals";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -98,7 +99,7 @@ export function AppRuntimeDrafts({
 	return (
 		<section className="grid min-w-0 gap-3" aria-label="Drafts" data-app-drafts>
 			<Text as="p" role="label" tone="secondary" className="m-0">
-				Changes proposed in chat or by an agent. The live app keeps running
+				Changes saved from Code, chat or an agent. The live app keeps running
 				version {revision.revision} until you accept one.
 			</Text>
 			{mergeBlockedReason && (
@@ -188,6 +189,22 @@ function AppDraftCard({
 		],
 	);
 	const baseMoved = proposal.baseRevisionId !== revision.id;
+	const [merged, setMerged] = useState<{
+		revisionId: string;
+		manifest: string;
+		files: Record<string, string>;
+		conflicts: string[];
+	} | null>(null);
+	const rebase = useMutation({
+		mutationFn: () =>
+			osApi.osAppRuntime.mergeDraft({
+				workspaceId,
+				gadgetId: gadget.id,
+				proposalId: proposal.id,
+				expectedSequence: proposal.sequence,
+			}),
+		onSuccess: setMerged,
+	});
 	const settle = () =>
 		Promise.all([
 			queryClient.invalidateQueries({
@@ -233,7 +250,7 @@ function AppDraftCard({
 		onSuccess: settle,
 	});
 	const busy = accept.isPending || reject.isPending;
-	const error = accept.error ?? reject.error;
+	const error = accept.error ?? reject.error ?? rebase.error;
 	const title = `Draft ${number}`;
 
 	return (
@@ -259,9 +276,48 @@ function AppDraftCard({
 			</div>
 			{baseMoved && (
 				<Text as="p" role="label" tone="warning" className="m-0">
-					The app changed since this draft was made. Accepting it fails until
-					the draft is updated to version {revision.revision}.
+					The app changed since this draft was made. Update to latest to combine
+					changes and review any conflicts before accepting.
 				</Text>
+			)}
+			{baseMoved && (
+				<Button
+					size="sm"
+					disabled={busy || rebase.isPending || !!mergeBlockedReason}
+					onClick={() => rebase.mutate()}
+				>
+					{rebase.isPending ? "Comparing…" : "Update to latest"}
+				</Button>
+			)}
+			{merged && (
+				<div className="grid gap-2" aria-label="Merge review">
+					<Text
+						as="p"
+						role="label"
+						tone={merged.conflicts.length ? "warning" : "secondary"}
+					>
+						{merged.conflicts.length
+							? `Resolve conflicts in ${merged.conflicts.join(", ")}. Remove markers or delete the file, then save for review.`
+							: "Changes combined cleanly. Save the updated draft for review."}
+					</Text>
+					<AppDraftEditor
+						key={`${proposal.sequence}:${merged.revisionId}`}
+						manifest={merged.manifest}
+						files={merged.files}
+						onSave={async (content) => {
+							await osApi.osAppRuntime.saveDraft({
+								workspaceId,
+								gadgetId: gadget.id,
+								expectedRevisionId: merged.revisionId,
+								proposalId: proposal.id,
+								expectedSequence: proposal.sequence,
+								content,
+							});
+							setMerged(null);
+							await settle();
+						}}
+					/>
+				</div>
 			)}
 			<div className="grid min-w-0 gap-2" aria-label={`${title} files`}>
 				{changes.length === 0 ? (

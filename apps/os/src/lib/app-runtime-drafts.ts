@@ -103,6 +103,7 @@ export const APP_DRAFT_SOURCE_LABELS: Record<
 	OsCollaborationProposal["sourceKind"],
 	string
 > = {
+	user: "Code",
 	chat: "Chat",
 	run: "Skill run",
 	agent_session: "Coding agent",

@@ -59,6 +59,7 @@ import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { diffFiles } from "@/collab/ot/code-change";
 import { COLLAB_DOC_PATH } from "@/collab/protocol";
+import { AppCodeDraftEditor } from "@/components/app-draft-editor";
 import { osApi } from "@/lib/api";
 import {
 	outputKindError,
@@ -162,9 +163,8 @@ const DEFAULT_GADGET_MANIFEST: OsGadgetManifest = {
 };
 
 /**
- * The files the Code view lists for an app. The manifest is the app's only
- * stored source; the README is generated from it so it always says what the
- * current revision shows, does and connects to.
+ * The Code view starts with a generated README and manifest; runtime apps
+ * append their revision's source files.
  */
 const APP_CODE_FILES = [
 	{
@@ -173,7 +173,7 @@ const APP_CODE_FILES = [
 	},
 	{
 		path: "manifest.json",
-		hint: "The app's settings, connections and notes. Save to create a new version.",
+		hint: "The app's settings, connections and notes.",
 	},
 ] as const;
 
@@ -229,6 +229,7 @@ export function CanvasDocPanel({
 	workspaceId,
 	doc,
 	gadgetViewOverride,
+	onAppDraftSaved,
 	focusMode,
 	onFocusModeChange,
 	onShowResources,
@@ -238,6 +239,7 @@ export function CanvasDocPanel({
 	workspaceId: string;
 	doc: CanvasDocSelection;
 	gadgetViewOverride?: "preview" | "source" | "drafts" | "runs";
+	onAppDraftSaved?: () => void;
 	focusMode: boolean;
 	viewControls?: ReactNode;
 	onFocusModeChange: (focused: boolean) => void;
@@ -441,7 +443,11 @@ export function CanvasDocPanel({
 	// scrolls, so the app takes its own content height instead.
 	const runtimeAppFills = useMediaQuery("(min-width: 960px)") && isRuntimeApp;
 	const runtimeCode = useQuery({
-		...appRuntimeCodeQueryOptions(workspaceId, doc.id),
+		...appRuntimeCodeQueryOptions(
+			workspaceId,
+			doc.id,
+			gadgetDetail.data?.currentRevision?.id,
+		),
 		enabled: isRuntimeApp,
 	});
 	/** The Code view lists the generated README, the manifest, then the app's own files. */
@@ -450,7 +456,7 @@ export function CanvasDocPanel({
 			...APP_CODE_FILES,
 			...Object.keys(runtimeCode.data?.code?.files ?? {}).map((path) => ({
 				path,
-				hint: "App code, versioned with this revision. Change it through the API or by asking in chat; the next revision carries the new files.",
+				hint: "Edit app code and save as a draft for review and preview.",
 			})),
 		],
 		[runtimeCode.data],
@@ -1162,6 +1168,33 @@ export function CanvasDocPanel({
 									<div className="overflow-y-auto px-4 py-3">
 										<ChatMarkdown content={appReadme} />
 									</div>
+								</div>
+							) : isRuntimeApp ? (
+								<div className="canvas-code-file" data-canvas-app-code-file>
+									{runtimeCode.data?.code &&
+									gadgetDetail.data?.currentRevision ? (
+										<AppCodeDraftEditor
+											key={doc.id}
+											workspaceId={workspaceId}
+											gadgetId={doc.id}
+											revisionId={runtimeCode.data.code.revisionId}
+											content={{
+												manifest: gadgetDetail.data.currentRevision.manifest,
+												files: runtimeCode.data.code.files,
+											}}
+											selectedFile={codeFile}
+											onSaved={() => {
+												setGadgetView("drafts");
+												onAppDraftSaved?.();
+											}}
+										/>
+									) : (
+										<Text as="p" role="label">
+											{runtimeCode.error
+												? "Could not load app code."
+												: "Loading app code…"}
+										</Text>
+									)}
 								</div>
 							) : codeFile !== "manifest.json" ? (
 								<div className="canvas-code-file" data-canvas-app-code-file>
