@@ -81,6 +81,22 @@ export function attentionMetrics(
 			typeof event.metadata?.firstViewedAt === "number" &&
 			typeof event.metadata.railOpenedBeforeDecision === "boolean",
 	);
+	const byClass = new Map<
+		string,
+		{ classId: string; decisions: number; withoutDetails: number }
+	>();
+	for (const event of observedDetails) {
+		const classId = String(event.metadata?.decisionClass ?? "decision");
+		const row = byClass.get(classId) ?? {
+			classId,
+			decisions: 0,
+			withoutDetails: 0,
+		};
+		row.decisions++;
+		if (event.metadata?.railOpenedBeforeDecision === false)
+			row.withoutDetails++;
+		byClass.set(classId, row);
+	}
 	let streak = 0;
 	const cursor = new Date(`${today}T00:00:00Z`);
 	if (!days.has(today)) cursor.setUTCDate(cursor.getUTCDate() - 1);
@@ -104,6 +120,10 @@ export function attentionMetrics(
 					(event) => event.metadata?.railOpenedBeforeDecision === false,
 				).length / observedDetails.length
 			: null,
+		/** Per card class, so a class people often open details for gets a clearer card. */
+		withoutDetailsByClass: [...byClass.values()].sort(
+			(a, b) => b.decisions - a.decisions || a.classId.localeCompare(b.classId),
+		),
 		measuredDecisions: firstViewElapsed.length,
 		laterCount: actions.filter(
 			(event) => event.metadata?.decisionChoice === "later",

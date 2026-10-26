@@ -196,6 +196,11 @@ export const SPANISH_FEED_DECK_COPY = {
 			visits: "Visitas de hoy",
 			corrections: "Correcciones",
 			unavailable: "No se pudo cargar el uso de tu atención.",
+			byClassTitle: "Decididas sin detalles, por tipo de tarjeta",
+			byClassValue: (share: string, decisions: string) =>
+				`${share} de ${decisions}`,
+			byClassHint:
+				"Por debajo del 80 % ese tipo de tarjeta necesita un resumen más claro, no más detalles.",
 		},
 		cardKinds: {
 			outbound: "Aprobar correo",

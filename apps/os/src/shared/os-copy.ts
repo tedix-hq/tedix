@@ -227,6 +227,11 @@ const ENGLISH_COPY = {
 			visits: "Return visits today",
 			corrections: "Corrections",
 			unavailable: "Decision attention could not be loaded.",
+			byClassTitle: "Decided without details, by card type",
+			byClassValue: (share: string, decisions: string) =>
+				`${share} of ${decisions}`,
+			byClassHint:
+				"Below 80% means that card type needs a clearer summary, not more details.",
 		},
 		cardKinds: {
 			outbound: "Approve email",
