@@ -5,6 +5,7 @@ import { baseErrors } from "../errors";
 import { JsonValueSchema } from "../schemas/common";
 import {
 	OsGadgetResourceGrantSchema,
+	OsCollaborationProposalSchema,
 	OsOutputContentSchema,
 } from "../schemas/os-workspaces";
 import {
@@ -69,6 +70,40 @@ export const osAppRuntimeContract = oc
 				}).strict(),
 			)
 			.output(z.object({ result: JsonValueSchema })),
+		draft: oc
+			.route({
+				method: "POST",
+				path: "/draft",
+				summary: "Open a proposal in an isolated app facet",
+			})
+			.input(AppRuntimeScopeSchema.extend({ proposalId: z.uuid() }).strict())
+			.output(AppRuntimeSessionResultSchema),
+		proposeEdit: oc
+			.route({
+				method: "POST",
+				path: "/propose-edit",
+				summary:
+					"Read current app files and propose exact replacements from workspace Home",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					conversationId: z.string().min(1).max(200),
+					expectedRevisionId: z.uuid(),
+					edits: z
+						.array(
+							z
+								.object({
+									path: z.string().min(1),
+									before: z.string().min(1),
+									after: z.string(),
+								})
+								.strict(),
+						)
+						.min(1)
+						.max(24),
+				}).strict(),
+			)
+			.output(z.object({ proposal: OsCollaborationProposalSchema })),
 		preview: oc
 			.route({
 				method: "POST",

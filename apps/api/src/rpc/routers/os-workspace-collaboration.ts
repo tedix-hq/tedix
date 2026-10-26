@@ -1,3 +1,5 @@
+import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
+import { serviceBindingFetch } from "@tedix/api-client/internal";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -268,6 +270,62 @@ const collaborationUpdatePreview = authorOs.collaboration.updatePreview.handler(
 	},
 );
 
+async function requireAppDraftBuilder(
+	context: BaseContext,
+	proposal: OsCollaborationProposalRow,
+) {
+	if (
+		proposal.documentType !== "gadget" ||
+		!OsAppDraftContentSchema.safeParse(JSON.parse(proposal.content)).success
+	)
+		return;
+	const access = await requireWorkspaceCollaboratorAccess(
+		context,
+		proposal.workspaceId,
+		"app.connect",
+	);
+	if (access.role !== "build")
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"App draft decisions require build access",
+		);
+}
+
+async function closeAppDraft(
+	context: BaseContext,
+	proposal: OsCollaborationProposalRow,
+	merged: boolean,
+) {
+	if (
+		proposal.documentType !== "gadget" ||
+		!OsAppDraftContentSchema.safeParse(JSON.parse(proposal.content)).success
+	)
+		return;
+	const response = await serviceBindingFetch(context.env.TEDI_SERVICE)(
+		"https://tedi-runtime/__internal/workspace-app/close-draft",
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Service-Binding": "true",
+			},
+			body: JSON.stringify({
+				organizationId: proposal.organizationId,
+				workspaceId: proposal.workspaceId,
+				gadgetId: proposal.documentId,
+				proposalId: proposal.id,
+				baseRevisionId: proposal.baseRevisionId,
+				merged,
+			}),
+		},
+	);
+	if (!response.ok)
+		throw createError(
+			ErrorCodes.BAD_GATEWAY,
+			"App draft cleanup failed; retry the decision",
+		);
+}
+
 function collaborationDecision(
 	decision: "accepted" | "rejected",
 	handler:
@@ -279,6 +337,15 @@ function collaborationDecision(
 			context,
 			input.proposalId,
 		);
+		await requireAppDraftBuilder(context, proposal);
+		if (
+			decision === "rejected" &&
+			proposal.status === "rejected" &&
+			proposal.sequence === input.expectedSequence
+		) {
+			await closeAppDraft(context, proposal, false);
+			return { proposal: mapCollaborationProposal(proposal) };
+		}
 		const creator = resolveCreator(context);
 		const updated = await decideOsCollaborationProposal(queryDb(context), {
 			organizationId: proposal.organizationId,
@@ -296,6 +363,7 @@ function collaborationDecision(
 				"Proposal decision lost against a sequence or status change",
 			);
 		}
+		if (decision === "rejected") await closeAppDraft(context, updated, false);
 		return { proposal: mapCollaborationProposal(updated) };
 	});
 }
@@ -320,6 +388,28 @@ const collaborationMerge = authorOs.collaboration.merge.handler(
 			proposal,
 			JSON.parse(proposal.content),
 		);
+		await requireAppDraftBuilder(context, proposal);
+		if (
+			proposal.status === "merged" &&
+			proposal.sequence === input.expectedSequence &&
+			proposal.documentType === "gadget" &&
+			proposal.resultRevisionId
+		) {
+			await closeAppDraft(context, proposal, true);
+			const revision = await getOsGadgetRevision(queryDb(context), {
+				organizationId: proposal.organizationId,
+				revisionId: proposal.resultRevisionId,
+			});
+			if (!revision)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Merged app revision unavailable",
+				);
+			return {
+				proposal: mapCollaborationProposal(proposal),
+				revision: mapGadgetRevision(revision),
+			};
+		}
 		const creator = resolveCreator(context);
 		const result = await mergeOsCollaborationProposal(queryDb(context), {
 			organizationId: proposal.organizationId,
@@ -366,6 +456,7 @@ const collaborationMerge = authorOs.collaboration.merge.handler(
 				currentRevision,
 			);
 		}
+		await closeAppDraft(context, result.proposal, true);
 		return {
 			proposal: mapCollaborationProposal(result.proposal),
 			revision:

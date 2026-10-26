@@ -15,7 +15,10 @@ import {
 	AppRuntimeFilesSchema,
 	type AppRuntimeRole,
 } from "@tedix/api-contract/schemas/os-app-runtime";
-import { OsGadgetManifestSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	OsAppDraftContentSchema,
+	OsGadgetManifestSchema,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
 import {
 	createOsGadgetExecution,
@@ -26,6 +29,7 @@ import {
 	getOsGadgetRevision,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { getOsCollaborationProposal } from "@tedix/db/queries/os-workspaces/collaboration";
 import { createError, ErrorCodes } from "../rpc/orpc";
 
 /** Load the code, grants and settings of one runtime app revision. */
@@ -55,6 +59,7 @@ export async function loadAppRuntimeRevision(
 	);
 	return {
 		files,
+		manifest,
 		digest: await appRuntimeCodeDigest(files),
 		grants: manifest.resourceGrants ?? [],
 		revision: revision.revision,
@@ -150,4 +155,39 @@ export async function runAppRuntimeCall(
 		output: JSON.stringify(result),
 	});
 	return result;
+}
+
+/** A closed or changed proposal never falls back to the deployed revision. */
+export async function loadAppRuntimeDraft(
+	db: DbQueryClient,
+	scope: { organizationId: string; workspaceId: string; gadgetId: string },
+	proposalId: string,
+) {
+	const proposal = await getOsCollaborationProposal(db, {
+		organizationId: scope.organizationId,
+		proposalId,
+	});
+	if (
+		!proposal ||
+		proposal.workspaceId !== scope.workspaceId ||
+		proposal.documentType !== "gadget" ||
+		proposal.documentId !== scope.gadgetId ||
+		!["open", "accepted"].includes(proposal.status)
+	)
+		throw createError(ErrorCodes.NOT_FOUND, "App draft unavailable");
+	const draft = OsAppDraftContentSchema.parse(JSON.parse(proposal.content));
+	const config = AppRuntimeConfigSchema.parse(
+		draft.manifest.config ?? { version: 1 },
+	);
+	return {
+		files: draft.files,
+		manifest: draft.manifest,
+		sequence: proposal.sequence,
+		digest: await appRuntimeCodeDigest(draft.files),
+		grants: draft.manifest.resourceGrants ?? [],
+		revision: proposal.baseRevision,
+		config,
+		compatibilityDate: config.compatibilityDate,
+		revisionId: proposal.baseRevisionId,
+	};
 }

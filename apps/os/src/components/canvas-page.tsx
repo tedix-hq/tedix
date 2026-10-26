@@ -88,6 +88,7 @@ import {
 	WorkspaceOutputsPanel,
 	workspaceOutputsPanelItems,
 } from "@/components/workspace-outputs-panel";
+import { useAppEditTools } from "@/components/app-edit-webmcp-tools";
 import { useWorkspaceWebMcpTools } from "@/components/workspace-webmcp-tools";
 import { osApi } from "@/lib/api";
 import {
@@ -565,6 +566,7 @@ export function CanvasPage({
 	const workspaceId = selectedWorkspace?.id ?? null;
 	useLiveWorkspace(workspaceId, selectedDoc);
 	useWorkspaceWebMcpTools(workspaceId, selectedDoc);
+	useAppEditTools(workspaceId, activeConversationId);
 
 	const recordWorkspaceVisit = (nextWorkspaceId: string) => {
 		if (visitedWorkspaceRef.current === nextWorkspaceId) return;

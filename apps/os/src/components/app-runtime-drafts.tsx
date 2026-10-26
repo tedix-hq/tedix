@@ -12,7 +12,8 @@ import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
-import { osApi } from "@/lib/api";
+import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
+import { osApi, osAppRuntimeCall } from "@/lib/api";
 import {
 	APP_DRAFT_SOURCE_LABELS,
 	APP_DRAFT_STATUSES,
@@ -72,8 +73,8 @@ const CHANGE_VARIANT: Record<
 /**
  * The Drafts view of a runtime app: every open draft with what it changes,
  * a preview that runs the draft's screen in its own sandbox, and the decision.
- * The preview gets no server call, so a draft can never touch the live app's
- * storage; accepting records the draft as the next revision.
+ * Server calls use the proposal's isolated facet; accepting records its files
+ * as the next revision.
  */
 export function AppRuntimeDrafts({
 	workspaceId,
@@ -159,6 +160,32 @@ function AppDraftCard({
 				content,
 			),
 		[content, liveFiles, revision.manifest],
+	);
+	const callServer = useMemo(
+		() =>
+			createAppRuntimeServerCall(
+				{
+					open: () =>
+						osApi.osAppRuntime.draft({
+							workspaceId,
+							gadgetId: gadget.id,
+							proposalId: proposal.id,
+						}),
+					call: osAppRuntimeCall,
+				},
+				{
+					workspaceId,
+					gadgetId: gadget.id,
+					revisionId: proposal.baseRevisionId,
+				},
+			),
+		[
+			workspaceId,
+			gadget.id,
+			proposal.id,
+			proposal.sequence,
+			proposal.baseRevisionId,
+		],
 	);
 	const baseMoved = proposal.baseRevisionId !== revision.id;
 	const settle = () =>
@@ -266,8 +293,8 @@ function AppDraftCard({
 			{previewing && (
 				<div className="grid min-w-0 gap-2" data-app-draft-preview>
 					<Text as="p" role="label" tone="secondary" className="m-0">
-						Preview of the draft's screen with your access. Its server calls are
-						off, so nothing reaches the live app's data.
+						Preview runs with separate app storage. Changes here stay in this
+						draft.
 					</Text>
 					<div className="min-w-0 overflow-hidden rounded-lg border border-kumo-line">
 						<AppRuntimeSandbox
@@ -277,6 +304,7 @@ function AppDraftCard({
 							manifest={content.manifest}
 							revision={proposal.baseRevision}
 							files={content.files}
+							callServer={callServer}
 							title={`${gadget.name} · ${title}`}
 							layout="content"
 						/>

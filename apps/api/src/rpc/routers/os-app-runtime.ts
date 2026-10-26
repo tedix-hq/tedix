@@ -2,7 +2,10 @@ import { implement, call as callProcedure } from "@orpc/server";
 import { z } from "zod";
 import { RunWorkspaceSkillNowInputSchema } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { osAppRuntimeContract } from "@tedix/api-contract/contracts/os-app-runtime";
-import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	OsAppDraftContentSchema,
+	OsOutputContentSchema,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import {
 	mintWorkspaceAppSession,
@@ -13,6 +16,9 @@ import {
 	getOsGadgetRevision,
 	getOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
+import { createOsCollaborationProposal } from "@tedix/db/queries/os-workspaces/collaboration";
+import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
+import { mapCollaborationProposal } from "./os-workspaces-shared";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import {
@@ -35,6 +41,7 @@ import {
 } from "../../services/os-workspace-collaborators";
 import {
 	loadAppRuntimeRevision,
+	loadAppRuntimeDraft,
 	runAppRuntimeCall,
 } from "../../services/os-app-runtime-code";
 import {
@@ -156,6 +163,96 @@ export function createOsAppRuntimeRouter() {
 			revisionId: scope.revisionId,
 		};
 	});
+	const draft = author.draft.handler(async ({ context, input }) => {
+		const scope = await resolve(context, input);
+		if (scope.role !== "build")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"App preview requires build access",
+			);
+		const code = await loadAppRuntimeDraft(
+			queryDb(context),
+			scope,
+			input.proposalId,
+		);
+		const session = await mintWorkspaceAppSession(
+			context.env.SECRETS_MASTER_KEY,
+			{
+				...scope,
+				revisionId: code.revisionId,
+				previewId: input.proposalId,
+				proposalId: input.proposalId,
+				proposalSequence: code.sequence,
+				revision: code.revision,
+				config: code.config,
+				compatibilityDate: code.compatibilityDate,
+				grants: code.grants,
+				codeDigest: code.digest,
+			},
+		);
+		return {
+			session: session.token,
+			expiresAt: session.expiresAt,
+			role: scope.role,
+			revisionId: code.revisionId,
+		};
+	});
+	const proposeEdit = author.proposeEdit.handler(async ({ context, input }) => {
+		const scope = await resolve(context, input);
+		if (scope.role !== "build" || context.authType !== "user")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"App edits require a workspace builder",
+			);
+		const conversation = await getKernelConversation(context.db, {
+			organizationId: scope.organizationId,
+			conversationId: input.conversationId,
+		});
+		if (
+			!conversation ||
+			conversation.deletedAt ||
+			conversation.workspaceId !== scope.workspaceId
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"App edits require a Home conversation linked to this workspace",
+			);
+		if (scope.revisionId !== input.expectedRevisionId)
+			throw createError(ErrorCodes.CONFLICT, "App revision changed");
+		const code = await load(context, scope);
+		const files = { ...code.files };
+		for (const edit of input.edits) {
+			const source = files[edit.path];
+			if (source === undefined || source.split(edit.before).length !== 2)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"App edit must match exactly once in the current file",
+				);
+			files[edit.path] = source.replace(edit.before, () => edit.after);
+		}
+		const content = OsAppDraftContentSchema.parse({
+			manifest: code.manifest,
+			files,
+		});
+		const proposal = await createOsCollaborationProposal(queryDb(context), {
+			id: crypto.randomUUID(),
+			organizationId: scope.organizationId,
+			workspaceId: scope.workspaceId,
+			documentType: "gadget",
+			documentId: scope.gadgetId,
+			baseRevisionId: scope.revisionId,
+			baseRevision: code.revision,
+			status: "open",
+			sourceKind: "chat",
+			sourceId: conversation.conversationId,
+			sourceAttestationVersion: 1,
+			content: JSON.stringify(content),
+			sequence: 0,
+			createdByKind: "user",
+			createdById: scope.principal.id,
+		});
+		return { proposal: mapCollaborationProposal(proposal) };
+	});
 	const preview = author.preview.handler(async ({ context, input }) => {
 		const scope = await resolve(context, input);
 		if (scope.role !== "build")
@@ -212,8 +309,13 @@ export function createOsAppRuntimeRouter() {
 				ErrorCodes.FORBIDDEN,
 				"App session no longer matches caller access or revision",
 			);
-		const code = await load(context, scope, session.revisionId);
-		if (code.digest !== session.codeDigest)
+		const code = session.proposalId
+			? await loadAppRuntimeDraft(queryDb(context), scope, session.proposalId)
+			: await load(context, scope, session.revisionId);
+		if (
+			code.digest !== session.codeDigest ||
+			("sequence" in code && code.sequence !== session.proposalSequence)
+		)
 			throw createError(ErrorCodes.CONFLICT, "App code changed");
 		return { scope, session, code };
 	}
@@ -393,7 +495,14 @@ export function createOsAppRuntimeRouter() {
 			(!session.previewId && scope.revisionId !== session.revisionId)
 		)
 			throw createError(ErrorCodes.FORBIDDEN, "App session is stale");
-		const code = await load(acting, scope, session.revisionId);
+		const code = session.proposalId
+			? await loadAppRuntimeDraft(queryDb(acting), scope, session.proposalId)
+			: await load(acting, scope, session.revisionId);
+		if (
+			code.digest !== session.codeDigest ||
+			("sequence" in code && code.sequence !== session.proposalSequence)
+		)
+			throw createError(ErrorCodes.CONFLICT, "App code changed");
 		if (
 			!appRuntimePermission({
 				...session,
@@ -567,6 +676,8 @@ export function createOsAppRuntimeRouter() {
 		readOutput,
 		call,
 		preview,
+		draft,
+		proposeEdit,
 		capability,
 		recordTail,
 	});

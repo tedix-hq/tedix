@@ -23,6 +23,7 @@ import skillData from "./demo-pack/skills.json";
 import tediData from "./demo-pack/tedis.json";
 import workspaceData from "./demo-pack/workspaces.json";
 import opportunityCardsApp from "./demo-pack/opportunity-cards-app.json";
+import opportunityCardsManifest from "./demo-pack/opportunity-cards-manifest.json";
 
 type Row = Record<string, unknown>;
 
@@ -973,32 +974,7 @@ export function applyDemoPack(
 		...gadgetRevisionTemplate,
 		id: uid(50, 14),
 		gadgetId: uid(49, 14),
-		manifest: {
-			entry: "tedix:runtime/v1",
-			capabilities: [],
-			resourceGrants: [
-				{
-					slot: "opportunities",
-					operations: ["outputs.read", "outputs.write"],
-				},
-			],
-			description: "Review today's Reddit opportunities one card at a time.",
-			config: {
-				version: 1,
-				settings: {
-					slot: "opportunities",
-					reviewer: "Maya",
-					columns: {
-						number: "#",
-						source: "Source",
-						who: "Who",
-						why: "Why",
-						draft: "Draft",
-						useful: "Useful?",
-					},
-				},
-			},
-		},
+		manifest: opportunityCardsManifest,
 	});
 	(state.gadgetCode as Record<string, unknown>) = {
 		...((state.gadgetCode as Record<string, unknown>) ?? {}),
