@@ -1596,6 +1596,7 @@ export const OsCollaborationProposalStatusSchema = z.enum([
 	"merged",
 ]);
 export const OsCollaborationSourceKindSchema = z.enum([
+	"user",
 	"chat",
 	"run",
 	"agent_session",

@@ -1524,6 +1524,13 @@ export function CanvasPage({
 												: undefined
 										}
 										focusMode={focusMode}
+										onAppDraftSaved={() => {
+											setWorkpieceMode("drafts");
+											writeCanvasSearch({
+												...canvasSearch,
+												view: "drafts",
+											});
+										}}
 										viewControls={workpieceViewControls}
 										onFocusModeChange={(focused) => {
 											setFocusMode(focused);

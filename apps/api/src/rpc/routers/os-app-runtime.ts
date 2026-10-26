@@ -16,9 +16,18 @@ import {
 	getOsGadgetRevision,
 	getOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import { createOsCollaborationProposal } from "@tedix/db/queries/os-workspaces/collaboration";
+import {
+	getOsCollaborationProposal,
+	rebaseOsAppDraft,
+	createOsCollaborationProposal,
+} from "@tedix/db/queries/os-workspaces/collaboration";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
 import { mapCollaborationProposal } from "./os-workspaces-shared";
+import {
+	mergeAppFiles,
+	mergeAppText,
+	hasAppConflictMarkers,
+} from "@tedix/api-contract/utils/app-draft-merge";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import {
@@ -196,6 +205,127 @@ export function createOsAppRuntimeRouter() {
 			role: scope.role,
 			revisionId: code.revisionId,
 		};
+	});
+	async function requireBuilder(
+		context: BaseContext,
+		input: { workspaceId: string; gadgetId: string },
+	) {
+		const scope = await resolve(context, input);
+		if (scope.role !== "build" || context.authType !== "user")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"App edits require a workspace builder",
+			);
+		return scope;
+	}
+	async function requireDraft(
+		context: BaseContext,
+		scope: Awaited<ReturnType<typeof resolve>>,
+		proposalId: string,
+		expectedSequence?: number,
+	) {
+		const proposal = await getOsCollaborationProposal(queryDb(context), {
+			organizationId: scope.organizationId,
+			proposalId,
+		});
+		if (
+			!proposal ||
+			proposal.workspaceId !== scope.workspaceId ||
+			proposal.documentId !== scope.gadgetId ||
+			proposal.documentType !== "gadget"
+		)
+			throw createError(ErrorCodes.NOT_FOUND, "App draft not found");
+		if (
+			proposal.sequence !== expectedSequence ||
+			!["open", "accepted"].includes(proposal.status)
+		)
+			throw createError(ErrorCodes.CONFLICT, "Draft changed or is closed");
+		OsAppDraftContentSchema.parse(JSON.parse(proposal.content));
+		return proposal;
+	}
+	const mergeDraft = author.mergeDraft.handler(async ({ context, input }) => {
+		const scope = await requireBuilder(context, input);
+		const proposal = await requireDraft(
+			context,
+			scope,
+			input.proposalId,
+			input.expectedSequence,
+		);
+		const base = await load(context, scope, proposal.baseRevisionId);
+		const main = await load(context, scope);
+		const draft = OsAppDraftContentSchema.parse(JSON.parse(proposal.content));
+		const merged = mergeAppFiles(base.files, draft.files, main.files);
+		const manifest = mergeAppText(
+			JSON.stringify(base.manifest, null, 2),
+			JSON.stringify(draft.manifest, null, 2),
+			JSON.stringify(main.manifest, null, 2),
+		);
+		return {
+			...merged,
+			manifest: manifest.text!,
+			revisionId: scope.revisionId,
+			conflicts: [
+				...merged.conflicts,
+				...(manifest.conflict ? ["manifest.json"] : []),
+			],
+		};
+	});
+	const saveDraft = author.saveDraft.handler(async ({ context, input }) => {
+		const scope = await requireBuilder(context, input);
+		if (scope.revisionId !== input.expectedRevisionId)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"App revision changed; update to latest again",
+			);
+		const code = await load(context, scope);
+		if (Object.values(input.content.files).some(hasAppConflictMarkers))
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Resolve conflict markers before saving",
+			);
+		if (input.content.manifest.entry !== "tedix:runtime/v1")
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"App drafts require a runtime manifest",
+			);
+		const content = JSON.stringify(input.content);
+		if (input.proposalId) {
+			await requireDraft(
+				context,
+				scope,
+				input.proposalId,
+				input.expectedSequence,
+			);
+			const proposal = await rebaseOsAppDraft(queryDb(context), {
+				organizationId: scope.organizationId,
+				proposalId: input.proposalId,
+				expectedSequence: input.expectedSequence!,
+				baseRevisionId: scope.revisionId,
+				baseRevision: code.revision,
+				content,
+			});
+			if (!proposal)
+				throw createError(ErrorCodes.CONFLICT, "Draft changed or is closed");
+			return { proposal: mapCollaborationProposal(proposal) };
+		}
+		const proposal = await createOsCollaborationProposal(queryDb(context), {
+			id: crypto.randomUUID(),
+			organizationId: scope.organizationId,
+			workspaceId: scope.workspaceId,
+			documentType: "gadget",
+			documentId: scope.gadgetId,
+			baseRevisionId: scope.revisionId,
+			baseRevision: code.revision,
+			status: "open",
+			sourceKind: "user",
+			sourceId: scope.principal.id,
+			sourceAttestationVersion: 1,
+			content,
+			sequence: 0,
+			createdByKind: "user",
+			createdById: scope.principal.id,
+		});
+		return { proposal: mapCollaborationProposal(proposal) };
 	});
 	const proposeEdit = author.proposeEdit.handler(async ({ context, input }) => {
 		const scope = await resolve(context, input);
@@ -678,6 +808,8 @@ export function createOsAppRuntimeRouter() {
 		preview,
 		draft,
 		proposeEdit,
+		saveDraft,
+		mergeDraft,
 		capability,
 		recordTail,
 	});

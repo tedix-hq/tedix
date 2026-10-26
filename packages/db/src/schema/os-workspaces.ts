@@ -632,7 +632,7 @@ export const osCollaborationProposals = sqliteTable(
 			.notNull()
 			.default("open"),
 		sourceKind: text("source_kind", {
-			enum: ["chat", "run", "agent_session"],
+			enum: ["chat", "run", "agent_session", "user"],
 		}).notNull(),
 		sourceId: text("source_id").notNull(),
 		/** Null on legacy caller-asserted rows; 1 on server-attested producers. */

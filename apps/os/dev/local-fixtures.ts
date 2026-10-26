@@ -6,6 +6,12 @@ import {
 	resetAttentionFixtures,
 } from "./attention-fixtures";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
+import {
+	mergeAppFiles,
+	mergeAppText,
+	hasAppConflictMarkers,
+} from "@tedix/api-contract/utils/app-draft-merge";
+import type { OsAppDraftContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 import { LOCAL_OUTBOUND } from "./outbound-fixture";
 import { decisionGraphFixture } from "./decision-graph-fixture";
@@ -7895,6 +7901,120 @@ const handlers: Record<string, (input: never) => unknown> = {
 		);
 		if (!current) throw new RpcError("NOT_FOUND", "Output revision not found");
 		return current.content;
+	},
+	"osAppRuntime/saveDraft": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		expectedRevisionId: string;
+		content: unknown;
+		proposalId?: string;
+		expectedSequence?: number;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		const current = state.gadgetRevisions.find(
+			(row) => row.id === gadget.currentRevisionId,
+		)!;
+		if (current.id !== input.expectedRevisionId)
+			throw new RpcError("CONFLICT", "App revision changed");
+		const content = input.content as OsAppDraftContent;
+		if (Object.values(content.files).some(hasAppConflictMarkers))
+			throw new RpcError("BAD_REQUEST", "Resolve conflict markers");
+		if (input.proposalId) {
+			const proposal = findCollaborationProposal(input.proposalId);
+			if (
+				proposal.documentId !== gadget.id ||
+				proposal.sequence !== input.expectedSequence ||
+				!["open", "accepted"].includes(proposal.status)
+			)
+				throw new RpcError("CONFLICT", "Draft changed");
+			Object.assign(proposal, {
+				content,
+				baseRevisionId: current.id,
+				baseRevision: current.revision,
+				status: "open",
+				sequence: proposal.sequence + 1,
+				decidedAt: null,
+				decidedById: null,
+				decidedByKind: null,
+				decisionRationale: null,
+				decisionEvidenceRefs: [],
+				updatedAt: now(),
+			});
+			return { proposal };
+		}
+		const proposal: OsCollaborationProposal = {
+			id: nextId(),
+			organizationId: ORG_ID,
+			workspaceId: input.workspaceId,
+			documentType: "gadget",
+			documentId: gadget.id,
+			baseRevisionId: current.id,
+			baseRevision: current.revision,
+			status: "open",
+			sourceKind: "user",
+			sourceId: "local-you",
+			content,
+			sequence: 0,
+			createdByKind: "user",
+			createdById: "local-you",
+			createdAt: now(),
+			updatedAt: now(),
+			decisionRationale: null,
+			decisionEvidenceRefs: [],
+			decidedByKind: null,
+			decidedById: null,
+			decidedAt: null,
+			mergeRationale: null,
+			mergeEvidenceRefs: [],
+			mergedByKind: null,
+			mergedById: null,
+			mergedAt: null,
+			resultRevisionId: null,
+			resultRevision: null,
+		};
+		state.collaborationProposals.push(proposal);
+		return { proposal };
+	},
+	"osAppRuntime/mergeDraft": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		proposalId: string;
+		expectedSequence: number;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		const proposal = findCollaborationProposal(input.proposalId);
+		if (
+			proposal.documentId !== gadget.id ||
+			proposal.sequence !== input.expectedSequence ||
+			!["open", "accepted"].includes(proposal.status)
+		)
+			throw new RpcError("CONFLICT", "Draft changed");
+		const base = state.gadgetRevisions.find(
+			(row) => row.id === proposal.baseRevisionId,
+		)!;
+		const main = state.gadgetRevisions.find(
+			(row) => row.id === gadget.currentRevisionId,
+		)!;
+		const draft = proposal.content as OsAppDraftContent;
+		const merged = mergeAppFiles(
+			state.gadgetCode[base.id]!,
+			draft.files,
+			state.gadgetCode[main.id]!,
+		);
+		const manifest = mergeAppText(
+			JSON.stringify(base.manifest, null, 2),
+			JSON.stringify(draft.manifest, null, 2),
+			JSON.stringify(main.manifest, null, 2),
+		);
+		return {
+			...merged,
+			manifest: manifest.text!,
+			revisionId: main.id,
+			conflicts: [
+				...merged.conflicts,
+				...(manifest.conflict ? ["manifest.json"] : []),
+			],
+		};
 	},
 	"osAppRuntime/open": (input: { workspaceId: string; gadgetId: string }) => {
 		const gadget = findGadget(input.workspaceId, input.gadgetId);

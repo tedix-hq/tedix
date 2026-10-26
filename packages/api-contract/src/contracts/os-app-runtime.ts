@@ -4,6 +4,7 @@ import { z } from "zod";
 import { baseErrors } from "../errors";
 import { JsonValueSchema } from "../schemas/common";
 import {
+	OsAppDraftContentSchema,
 	OsGadgetResourceGrantSchema,
 	OsCollaborationProposalSchema,
 	OsOutputContentSchema,
@@ -78,6 +79,41 @@ export const osAppRuntimeContract = oc
 			})
 			.input(AppRuntimeScopeSchema.extend({ proposalId: z.uuid() }).strict())
 			.output(AppRuntimeSessionResultSchema),
+		saveDraft: oc
+			.route({
+				method: "POST",
+				path: "/save-draft",
+				summary: "Save Code edits or resolved app draft files for review",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					expectedRevisionId: z.uuid(),
+					content: OsAppDraftContentSchema,
+					proposalId: z.uuid().optional(),
+					expectedSequence: z.number().int().nonnegative().optional(),
+				}).strict(),
+			)
+			.output(z.object({ proposal: OsCollaborationProposalSchema })),
+		mergeDraft: oc
+			.route({
+				method: "POST",
+				path: "/merge-draft",
+				summary: "Compare a draft with its base and the latest app revision",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					proposalId: z.uuid(),
+					expectedSequence: z.number().int().nonnegative(),
+				}).strict(),
+			)
+			.output(
+				z.object({
+					revisionId: z.uuid(),
+					manifest: z.string(),
+					files: z.record(z.string(), z.string()),
+					conflicts: z.array(z.string()),
+				}),
+			),
 		proposeEdit: oc
 			.route({
 				method: "POST",

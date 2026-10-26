@@ -1157,3 +1157,264 @@ describe("app chat drafts", () => {
 		expect(f.fetch).not.toHaveBeenCalled();
 	});
 });
+
+describe("Code drafts and rebasing", () => {
+	async function draftFixture() {
+		const f = await fixture();
+		const revision = await f.db
+			.select()
+			.from(osGadgetRevisions)
+			.where(eq(osGadgetRevisions.id, revisionId));
+		const content = {
+			manifest: JSON.parse(revision[0].manifest),
+			files: { "server.js": "export class App {}", "client.js": "draft" },
+		};
+		const saved = await f.client.saveDraft({
+			...scope,
+			expectedRevisionId: revisionId,
+			content,
+		});
+		return { ...f, content, proposal: saved.proposal };
+	}
+	it("saves builder Code edits as a proposal without advancing mainline", async () => {
+		const f = await draftFixture();
+		expect(f.proposal).toMatchObject({
+			sourceKind: "user",
+			sourceId: "user-1",
+			status: "open",
+			baseRevisionId: revisionId,
+		});
+		expect((await f.client.open(scope)).revisionId).toBe(revisionId);
+		const code = await f.db
+			.select()
+			.from(osGadgetCode)
+			.where(eq(osGadgetCode.revisionId, revisionId));
+		expect(JSON.parse(code[0].files)["client.js"]).toBe("");
+	});
+	it("rebases independent files and resets accepted drafts for review under sequence CAS", async () => {
+		const f = await draftFixture();
+		await f.db.insert(osGadgetRevisions).values({
+			id: previewId,
+			organizationId: "org-1",
+			gadgetId,
+			revision: 2,
+			manifest: JSON.stringify(f.content.manifest),
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await f.db.insert(osGadgetCode).values({
+			revisionId: previewId,
+			organizationId: "org-1",
+			gadgetId,
+			files: JSON.stringify({ "server.js": "main edit", "client.js": "" }),
+			codeLength: 9,
+		});
+		await f.db
+			.update(osGadgets)
+			.set({ currentRevisionId: previewId })
+			.where(eq(osGadgets.id, gadgetId));
+		const merged = await f.client.mergeDraft({
+			...scope,
+			proposalId: f.proposal.id,
+			expectedSequence: 0,
+		});
+		expect(merged.conflicts).toEqual([]);
+		expect(merged.files).toEqual({
+			"server.js": "main edit",
+			"client.js": "draft",
+		});
+		await f.db
+			.update(osCollaborationProposals)
+			.set({ status: "accepted", decidedById: "user-1", decidedByKind: "user" })
+			.where(eq(osCollaborationProposals.id, f.proposal.id));
+		const saved = await f.client.saveDraft({
+			...scope,
+			expectedRevisionId: previewId,
+			proposalId: f.proposal.id,
+			expectedSequence: 0,
+			content: { manifest: JSON.parse(merged.manifest), files: merged.files },
+		});
+		expect(saved.proposal).toMatchObject({
+			id: f.proposal.id,
+			sequence: 1,
+			status: "open",
+			baseRevisionId: previewId,
+			decidedById: null,
+		});
+		await expect(
+			f.client.saveDraft({
+				...scope,
+				expectedRevisionId: previewId,
+				proposalId: f.proposal.id,
+				expectedSequence: 0,
+				content: f.content,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+	});
+	it("shows overlapping file and manifest edits, then merges the resolved revision", async () => {
+		const f = await draftFixture();
+		const changedManifest = {
+			...f.content.manifest,
+			config: { ...f.content.manifest.config, settings: { tags: ["Main"] } },
+		};
+		await f.db.insert(osGadgetRevisions).values({
+			id: previewId,
+			organizationId: "org-1",
+			gadgetId,
+			revision: 2,
+			manifest: JSON.stringify(changedManifest),
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await f.db.insert(osGadgetCode).values({
+			revisionId: previewId,
+			organizationId: "org-1",
+			gadgetId,
+			files: JSON.stringify({ ...f.content.files, "client.js": "main" }),
+			codeLength: 4,
+		});
+		await f.db
+			.update(osGadgets)
+			.set({ currentRevisionId: previewId })
+			.where(eq(osGadgets.id, gadgetId));
+		const draftManifest = {
+			...f.content.manifest,
+			config: { ...f.content.manifest.config, settings: { tags: ["Draft"] } },
+		};
+		await f.db
+			.update(osCollaborationProposals)
+			.set({
+				content: JSON.stringify({ ...f.content, manifest: draftManifest }),
+			})
+			.where(eq(osCollaborationProposals.id, f.proposal.id));
+		const merged = await f.client.mergeDraft({
+			...scope,
+			proposalId: f.proposal.id,
+			expectedSequence: 0,
+		});
+		expect(merged.conflicts).toEqual(["client.js", "manifest.json"]);
+		expect(merged.files["client.js"]).toContain("<<<<<<< Draft\ndraft");
+		expect(merged.files["client.js"]).toContain("=======\nmain");
+		expect(merged.manifest).toContain(">>>>>>> Mainline");
+		const saved = await f.client.saveDraft({
+			...scope,
+			expectedRevisionId: previewId,
+			proposalId: f.proposal.id,
+			expectedSequence: 0,
+			content: {
+				manifest: changedManifest,
+				files: { ...f.content.files, "client.js": "resolved" },
+			},
+		});
+		const collaboration = createRouterClient(osCollaborationProcedures, {
+			context: f.context,
+		});
+		const decision = {
+			proposalId: f.proposal.id,
+			expectedSequence: saved.proposal.sequence,
+			rationale: "Reviewed conflict resolution",
+			evidenceRefs: [],
+		};
+		await collaboration.accept(decision);
+		const applied = await collaboration.merge(decision);
+		expect(applied.revision.revision).toBe(3);
+		expect((await f.client.open(scope)).revisionId).toBe(applied.revision.id);
+	});
+	it("never applies unresolved markers from a producer preview", async () => {
+		const f = await draftFixture();
+		await f.db
+			.update(osCollaborationProposals)
+			.set({
+				status: "accepted",
+				content: JSON.stringify({
+					...f.content,
+					files: {
+						...f.content.files,
+						"client.js":
+							"<<<<<<< Draft\ndraft\n=======\nmain\n>>>>>>> Mainline",
+					},
+				}),
+			})
+			.where(eq(osCollaborationProposals.id, f.proposal.id));
+		const collaboration = createRouterClient(osCollaborationProcedures, {
+			context: f.context,
+		});
+		await expect(
+			collaboration.merge({
+				proposalId: f.proposal.id,
+				expectedSequence: 0,
+				rationale: "Apply preview",
+				evidenceRefs: [],
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect((await f.client.open(scope)).revisionId).toBe(revisionId);
+	});
+	it("rejects stale Code bases, unresolved markers and another app's proposals", async () => {
+		const f = await draftFixture();
+		await expect(
+			f.client.saveDraft({
+				...scope,
+				expectedRevisionId: previewId,
+				content: f.content,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		await expect(
+			f.client.saveDraft({
+				...scope,
+				expectedRevisionId: revisionId,
+				content: {
+					...f.content,
+					files: {
+						...f.content.files,
+						"client.js": "<<<<<<< Draft\nx\n=======\ny\n>>>>>>> Mainline",
+					},
+				},
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await f.db
+			.update(osCollaborationProposals)
+			.set({ documentId: previewId })
+			.where(eq(osCollaborationProposals.id, f.proposal.id));
+		await expect(
+			f.client.mergeDraft({
+				...scope,
+				proposalId: f.proposal.id,
+				expectedSequence: 0,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+	it("denies viewers and machines Code writes and draft comparison", async () => {
+		const f = await draftFixture();
+		const viewer = createRouterClient(f.router, {
+			context: userContext({
+				env: f.env,
+				sub: "user-2",
+				permissions: ["os:read", "os:author"],
+			}),
+		});
+		await expect(
+			viewer.saveDraft({
+				...scope,
+				expectedRevisionId: revisionId,
+				content: f.content,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			viewer.mergeDraft({
+				...scope,
+				proposalId: f.proposal.id,
+				expectedSequence: 0,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const machine = createRouterClient(f.router, {
+			context: apiKeyContext({ env: f.env }),
+		});
+		await expect(
+			machine.saveDraft({
+				...scope,
+				expectedRevisionId: revisionId,
+				content: f.content,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+});
