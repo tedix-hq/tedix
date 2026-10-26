@@ -65,6 +65,7 @@ const expectedPaths = [
 	"/account/settings",
 	"/account/connections",
 	"/shared",
+	"/guest",
 	"/skills",
 	"/team",
 	"/team/$tediId",

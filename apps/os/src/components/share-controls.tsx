@@ -360,6 +360,11 @@ type ShareControlsProps = (
 	compact?: boolean;
 	/** The workspace holding this resource; shows who can open it without a link. */
 	workspaceId?: string;
+	/**
+	 * The app runs its own code, so a `use` link opens for anyone on the
+	 * account-free guest page instead of the signed-in share page.
+	 */
+	guestEntry?: boolean;
 };
 
 function normalizeResource(props: ShareControlsProps): {
@@ -506,7 +511,14 @@ export function ShareControls(props: ShareControlsProps) {
 				{createShare.data && (
 					<OneTimeLink
 						token={createShare.data.token}
-						base={shareBase}
+						base={
+							props.guestEntry &&
+							resourceType === "gadget" &&
+							createShare.data.share.role === "use" &&
+							typeof window !== "undefined"
+								? `${window.location.origin}/guest`
+								: shareBase
+						}
 						role={createShare.data.share.role}
 						resourceType={resourceType}
 						onDismiss={() => createShare.reset()}

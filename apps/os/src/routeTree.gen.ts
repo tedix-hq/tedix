@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as CliSessionRouteImport } from './routes/_cli-session'
 import { Route as SessionRouteImport } from './routes/_session'
+import { Route as GuestRouteImport } from './routes/guest'
 import { Route as AuthInviteRouteImport } from './routes/_auth.invite'
 import { Route as AuthLoginRouteImport } from './routes/_auth.login'
 import { Route as SessionChromeFreeRouteImport } from './routes/_session/_chrome-free'
@@ -108,6 +109,11 @@ const CliSessionRoute = CliSessionRouteImport.update({
 } as any)
 const SessionRoute = SessionRouteImport.update({
   id: '/_session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuestRoute = GuestRouteImport.update({
+  id: '/guest',
+  path: '/guest',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthInviteRoute = AuthInviteRouteImport.update({
@@ -587,6 +593,7 @@ const SessionTenantWorkRunsRunIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof SessionTenantIndexRoute
+  '/guest': typeof GuestRoute
   '/invite': typeof AuthInviteRoute
   '/login': typeof AuthLoginRoute
   '/account': typeof SessionAccountRouteWithChildren
@@ -672,6 +679,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof SessionTenantIndexRoute
+  '/guest': typeof GuestRoute
   '/invite': typeof AuthInviteRoute
   '/login': typeof AuthLoginRoute
   '/account': typeof SessionAccountRouteWithChildren
@@ -754,6 +762,7 @@ export interface FileRoutesById {
   '/_auth': typeof AuthRouteWithChildren
   '/_cli-session': typeof CliSessionRouteWithChildren
   '/_session': typeof SessionRouteWithChildren
+  '/guest': typeof GuestRoute
   '/_auth/invite': typeof AuthInviteRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_session/_chrome-free': typeof SessionChromeFreeRouteWithChildren
@@ -844,6 +853,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/guest'
     | '/invite'
     | '/login'
     | '/account'
@@ -929,6 +939,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/guest'
     | '/invite'
     | '/login'
     | '/account'
@@ -1010,6 +1021,7 @@ export interface FileRouteTypes {
     | '/_auth'
     | '/_cli-session'
     | '/_session'
+    | '/guest'
     | '/_auth/invite'
     | '/_auth/login'
     | '/_session/_chrome-free'
@@ -1101,6 +1113,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRouteWithChildren
   CliSessionRoute: typeof CliSessionRouteWithChildren
   SessionRoute: typeof SessionRouteWithChildren
+  GuestRoute: typeof GuestRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1124,6 +1137,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof SessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guest': {
+      id: '/guest'
+      path: '/guest'
+      fullPath: '/guest'
+      preLoaderRoute: typeof GuestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth/invite': {
@@ -2050,6 +2070,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRouteWithChildren,
   CliSessionRoute: CliSessionRouteWithChildren,
   SessionRoute: SessionRouteWithChildren,
+  GuestRoute: GuestRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
