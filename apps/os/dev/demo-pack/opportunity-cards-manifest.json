@@ -4,7 +4,7 @@
 	"resourceGrants": [
 		{
 			"slot": "opportunities",
-			"operations": ["outputs.read", "outputs.write"]
+			"operations": ["outputs.read", "outputs.patch"]
 		}
 	],
 	"description": "Review today's Reddit opportunities one card at a time.",

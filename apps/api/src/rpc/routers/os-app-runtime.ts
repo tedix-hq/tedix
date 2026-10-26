@@ -7,6 +7,7 @@ import {
 	OsAppDraftContentSchema,
 	OsGadgetRevisionSchema,
 	OsOutputContentSchema,
+	OsOutputPatchSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import {
@@ -767,6 +768,7 @@ export function createOsAppRuntimeRouter() {
 			throw createError(ErrorCodes.NOT_FOUND, "App resource slot unavailable");
 		if (
 			input.operation === "outputs.read" ||
+			input.operation === "outputs.patch" ||
 			input.operation === "outputs.write"
 		) {
 			if (resource.providerId !== "tedix" || resource.resourceType !== "output")
@@ -808,6 +810,40 @@ export function createOsAppRuntimeRouter() {
 					output,
 					revision: { ...revision, content: JSON.parse(revision.content) },
 				});
+			if (input.operation === "outputs.patch") {
+				const patch = OsOutputPatchSchema.parse(input.args);
+				if (patch.kind !== output.kind)
+					throw createError(ErrorCodes.BAD_REQUEST, "Output kind mismatch");
+				const { osOutputProcedures } = await import("./os-workspace-outputs");
+				const base = {
+					outputId: output.id,
+					expectedRevision: patch.expectedRevision,
+				};
+				const patched =
+					patch.kind === "document"
+						? await callProcedure(
+								osOutputProcedures.patchDocument,
+								{ ...base, ops: patch.ops },
+								{ context: acting },
+							)
+						: patch.kind === "presentation"
+							? await callProcedure(
+									osOutputProcedures.patchSlides,
+									{ ...base, ops: patch.ops },
+									{ context: acting },
+								)
+							: await callProcedure(
+									osOutputProcedures.setSheetRange,
+									{
+										...base,
+										startRow: patch.startRow,
+										startColumn: patch.startColumn,
+										cells: patch.cells,
+									},
+									{ context: acting },
+								);
+				return JsonValueSchema.parse(patched);
+			}
 			const args = z
 				.object({
 					content: OsOutputContentSchema,

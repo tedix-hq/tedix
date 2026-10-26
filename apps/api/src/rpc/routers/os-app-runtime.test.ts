@@ -913,6 +913,82 @@ describe("workspace app runtime API under attack", () => {
 		});
 	});
 
+	it("patches a granted Output in place so blocks the app never rendered survive", async () => {
+		const f = await fixture();
+		await f.db
+			.update(osGadgetRevisions)
+			.set({
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					config: { version: 1 },
+					resourceGrants: [
+						{ slot: "sheet", operations: ["outputs.read", "outputs.patch"] },
+					],
+				}),
+			})
+			.where(eq(osGadgetRevisions.id, revisionId));
+		await seedOutput(f.db);
+		const quote = { type: "quote", text: "Written by another editor" };
+		await f.db
+			.update(osOutputRevisions)
+			.set({
+				content: JSON.stringify({
+					...document,
+					blocks: [...document.blocks, quote],
+				}),
+			})
+			.where(eq(osOutputRevisions.id, outputRevisionId));
+		const { session } = await f.client.open(scope);
+		const internal = internalClient(f);
+		const patch = (expectedRevision: number) => ({
+			session,
+			operation: "outputs.patch" as const,
+			slot: "sheet",
+			args: {
+				kind: "document",
+				ops: [
+					{
+						op: "replace",
+						index: 0,
+						block: { type: "paragraph", text: "Edited by the app" },
+					},
+				],
+				expectedRevision,
+			},
+		});
+		expect(await internal.capability(patch(1))).toMatchObject({
+			revision: { revision: 2 },
+		});
+		const latest = await f.db
+			.select()
+			.from(osOutputRevisions)
+			.where(eq(osOutputRevisions.revision, 2));
+		expect(JSON.parse(latest[0]!.content).blocks).toEqual([
+			{ type: "paragraph", text: "Edited by the app" },
+			quote,
+		]);
+		// A stale read cannot land, and a patch grant is not a whole-body write.
+		await expect(internal.capability(patch(1))).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
+		await expect(internal.capability(write(session, 2))).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(
+			internal.capability({
+				...patch(2),
+				args: {
+					kind: "sheet",
+					startRow: 0,
+					startColumn: 0,
+					cells: [["x"]],
+					expectedRevision: 2,
+				},
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
 	it("does not let one app's session call another app in the same workspace", async () => {
 		const f = await fixture();
 		await f.db.insert(osGadgets).values({

@@ -959,7 +959,7 @@ it("serves the runtime client and only its current session's granted Output slot
 			grants: [
 				{
 					slot: "opportunities",
-					operations: ["outputs.read", "outputs.write"],
+					operations: ["outputs.read", "outputs.patch"],
 				},
 			],
 		},

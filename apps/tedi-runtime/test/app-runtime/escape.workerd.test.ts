@@ -57,6 +57,7 @@ export class App extends Base {
   async fetchRelative() { try { await fetch('http://api/rpc/osAppRuntime/capability', { method: 'POST' }); return 'escaped'; } catch { return 'blocked'; } }
   async readUngranted() { return await this.env.TEDIX.outputsRead('other', null); }
   async writeReadOnlyGrant() { return await this.env.TEDIX.outputsWrite('sheet', {}); }
+  async patchReadOnlyGrant() { return await this.env.TEDIX.outputsPatch('sheet', {}); }
   async readGranted() { return await this.env.TEDIX.outputsRead('sheet', null); }
   async capabilityInternals() {
     const cap = this.env.TEDIX;
@@ -202,6 +203,15 @@ describe("hostile app code in the workspace app host", () => {
 				grants: [{ slot: "sheet", operations: ["outputs.write"] }],
 			}),
 		).rejects.toThrow(/outputsWrite/);
+		await expect(
+			call(stub, workspaceId, { method: "patchReadOnlyGrant", role: "build" }),
+		).rejects.toThrow("App capability denied");
+		await expect(
+			call(stub, workspaceId, {
+				method: "patchReadOnlyGrant",
+				grants: [{ slot: "sheet", operations: ["outputs.patch"] }],
+			}),
+		).rejects.toThrow(/outputsPatch/);
 		expect(await call(stub, workspaceId, { method: "readGranted" })).toEqual({
 			recorded: true,
 		});

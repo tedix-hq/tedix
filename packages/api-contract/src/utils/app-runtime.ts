@@ -154,6 +154,7 @@ const ROLE_OPERATIONS: Record<AppRuntimeRole, readonly AppRuntimeOperation[]> =
 		owner: [
 			"app.call",
 			"outputs.read",
+			"outputs.patch",
 			"outputs.write",
 			"connections.call",
 			"skills.run",
@@ -161,6 +162,7 @@ const ROLE_OPERATIONS: Record<AppRuntimeRole, readonly AppRuntimeOperation[]> =
 		build: [
 			"app.call",
 			"outputs.read",
+			"outputs.patch",
 			"outputs.write",
 			"connections.call",
 			"skills.run",
@@ -172,6 +174,7 @@ const ROLE_OPERATIONS: Record<AppRuntimeRole, readonly AppRuntimeOperation[]> =
 /** Operations that need a matching slot grant on the manifest before the role is consulted. */
 const GRANT_GATED: ReadonlySet<AppRuntimeOperation> = new Set([
 	"outputs.read",
+	"outputs.patch",
 	"outputs.write",
 	"connections.call",
 	"skills.run",

@@ -399,6 +399,10 @@ class AppBuildCapability extends AppReadCapability {
 		super(endpoint);
 		this.#endpoint = endpoint;
 	}
+	outputsPatch(slot: string, args: unknown) {
+		this.assertActive();
+		return this.#endpoint.outputsPatch(slot, args);
+	}
 	outputsWrite(slot: string, args: unknown) {
 		this.assertActive();
 		return this.#endpoint.outputsWrite(slot, args);
@@ -419,6 +423,9 @@ export class WorkspaceAppCapability extends WorkerEntrypoint<
 > {
 	async outputsRead(slot: string, args: unknown) {
 		return this.#invoke("outputs.read", slot, args);
+	}
+	async outputsPatch(slot: string, args: unknown) {
+		return this.#invoke("outputs.patch", slot, args);
 	}
 	async outputsWrite(slot: string, args: unknown) {
 		return this.#invoke("outputs.write", slot, args);
