@@ -649,6 +649,13 @@ describe("local factory schedules", () => {
 });
 
 describe("report lane template", () => {
+	it("uses the versioned factory-lane template", () => {
+		expect(LANE.content).toContain("`factory-lane` template v1");
+		expect(LANE.files["scripts/workflow.ts"]).toContain(
+			"using factory-lane template v1",
+		);
+	});
+
 	it("keeps binding ids out of the workflow and reuses it for another project", async () => {
 		expect(LANE.files["scripts/workflow.ts"]).not.toMatch(
 			/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,

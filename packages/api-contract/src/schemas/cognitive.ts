@@ -40,6 +40,82 @@ export const SkillLifecycleStateSchema = z.enum([
 ]);
 export type SkillLifecycleState = z.infer<typeof SkillLifecycleStateSchema>;
 
+export const FACTORY_LANE_GATHER_TOOLS = [
+	"work_items_list",
+	"work_item_get",
+	"get_work_graph_health",
+	"get_org_graph_health",
+	"list_work_item_sources",
+	"get_work_item_readiness",
+	"list_work_attempts",
+	"list_work_evidence",
+	"list_work_events",
+	"conversations_list",
+	"list_learning_interactions",
+	"get_learning_feedback_summary",
+	"list_learning_improvements",
+	"memory_search",
+	"memory_health",
+	"get_rationale_chain",
+	"get_tedi_runtime_status",
+] as const;
+
+export const FactoryLaneGatherStepSchema = z.object({
+	name: z
+		.string()
+		.min(1)
+		.max(80)
+		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+		.describe("Stable step name used in the durable workflow ledger"),
+	tool: z
+		.enum(FACTORY_LANE_GATHER_TOOLS)
+		.describe(
+			"Platform-reviewed read-only tedi tool called by this gather step",
+		),
+	args: z.record(z.string(), JsonValueSchema).default({}),
+});
+
+export const FactoryLaneTemplateParamsSchema = z.object({
+	ownerTediId: z.string().min(1),
+	gatherSteps: z
+		.array(FactoryLaneGatherStepSchema)
+		.min(1)
+		.max(20)
+		.superRefine((steps, context) => {
+			const seen = new Set<string>();
+			for (const [index, step] of steps.entries()) {
+				if (!seen.has(step.name)) {
+					seen.add(step.name);
+					continue;
+				}
+				context.addIssue({
+					code: "custom",
+					message: "gather step names must be unique",
+					path: [index, "name"],
+				});
+			}
+			if (
+				!steps.some(
+					(step) =>
+						step.tool === "work_items_list" &&
+						z.uuid().safeParse(step.args.projectId).success,
+				)
+			) {
+				context.addIssue({
+					code: "custom",
+					message:
+						"factory-lane requires a work_items_list gather step with a UUID args.projectId",
+				});
+			}
+		}),
+	prompt: z.string().min(1).max(20_000),
+	cycleKey: z.string().min(1).max(160),
+	maxProposals: z.number().int().min(0).max(50),
+});
+export type FactoryLaneTemplateParams = z.infer<
+	typeof FactoryLaneTemplateParamsSchema
+>;
+
 /**
  * Pace-layer classification (WS6): strategic role drives governance rigor.
  * Auto-derived from lifecycle at write time (draft/stale/archived →

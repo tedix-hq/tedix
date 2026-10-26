@@ -35,6 +35,8 @@ import { insertRuntimeEvent } from "./cognitive-runtime/events-policy";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { adviseSkillAdjacency } from "../../services/jev-skill-adjacency";
 import { JevUsagePersistenceError } from "../../services/jev-judgment";
+import { renderFactoryLaneSkill } from "../../services/skill-factory-lane-template";
+import type { FactoryLaneTemplateParams } from "@tedix/api-contract/schemas/cognitive";
 
 export function compactPromotionCandidate(entry: SkillEntry) {
 	return {
@@ -411,8 +413,29 @@ export async function createSkillFromInput(
 		force?: boolean;
 		sourceSkillId?: string;
 		sourceRevision?: number;
+		template?: "factory-lane";
+		params?: FactoryLaneTemplateParams;
 	},
 ): Promise<{ entry: SkillEntry; warnings: SkillValidationIssue[] }> {
+	if (input.template === "factory-lane" && (!input.slug || !input.params)) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"template factory-lane requires an explicit slug and params",
+		);
+	}
+	if (!input.template && input.params) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"params requires template factory-lane",
+		);
+	}
+	input = renderFactoryLaneSkill(input);
+	if (!input.title.trim() || !input.content.trim()) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"title and content are required unless template is factory-lane",
+		);
+	}
 	if (input.lifecycleState != null && input.lifecycleState !== "draft") {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,

@@ -1,0 +1,7 @@
+{
+	"assetVersion": 1,
+	"template": "factory-lane",
+	"marker": "FACTORY_LANE_PROPOSALS",
+	"description": "Gather deterministic facts, run one owner tedi turn, recover its asynchronous reply and file cycle-deduplicated Work proposals.",
+	"replyInstruction": "Reply with a short summary, then the marker line and one JSON object with keys summary (string) and proposals (array of objects with title, description and priority: low, medium or high)."
+}

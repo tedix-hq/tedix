@@ -14,6 +14,7 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import {
 	CognitiveVisibilitySchema,
+	FactoryLaneTemplateParamsSchema,
 	KnowledgeEntrySchema,
 	KnowledgeEntryTypeSchema,
 	MuscleMemoryKindSchema,
@@ -73,7 +74,26 @@ const SkillMutationWarningsSchema = z
 	);
 
 const SkillRecordInputSchema = z.object({
-	title: z.string().min(1),
+	title: z
+		.string()
+		.default("")
+		.describe("Skill title. Optional when template is factory-lane."),
+	slug: z
+		.string()
+		.min(1)
+		.max(160)
+		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+		.optional()
+		.describe(
+			"Explicit canonical skill slug. When omitted, the slug is minted from title.",
+		),
+	template: z
+		.literal("factory-lane")
+		.optional()
+		.describe("Render a versioned Tedix-owned factory lane skill."),
+	params: FactoryLaneTemplateParamsSchema.optional().describe(
+		"Parameters for template: factory-lane.",
+	),
 	folderPath: SkillFolderPathSchema.optional().describe(
 		"Optional catalog folder path. This is organizational metadata and never changes the skill slug or skill:// URI.",
 	),
@@ -88,7 +108,12 @@ const SkillRecordInputSchema = z.object({
 		.number()
 		.optional()
 		.describe("Lineage: the source skill's revision at copy time"),
-	content: z.string().describe("Full procedure markdown"),
+	content: z
+		.string()
+		.default("")
+		.describe(
+			"Full procedure markdown. Optional when template is factory-lane.",
+		),
 	files: z
 		.record(z.string(), z.string())
 		.optional()
