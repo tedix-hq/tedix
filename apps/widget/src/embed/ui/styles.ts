@@ -53,7 +53,7 @@ export function embeddedTediStyles(
 				.tedix-header { display: flex; min-height: 66px; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--tedix-border); background: color-mix(in srgb, var(--tedix-bg) 94%, transparent); }
 				.tedix-avatar { position: relative; display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: var(--tedix-radius-xl); background: color-mix(in srgb, var(--tedix-accent) 12%, var(--tedix-bg)); color: var(--tedix-accent); font-weight: 750; letter-spacing: -.03em; }
 				.tedix-presence { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--tedix-bg); border-radius: 50%; background: #22a06b; }
-				.tedix-model-select, .tedix-effort-select, .tedix-tedi-select { font: inherit; font-size: 14px; line-height: 20px; color: var(--tedix-text); background: var(--tedix-bg); border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-lg); min-width: 44px; max-width: 100%; height: 36px; padding: 0 12px; }
+				.tedix-model-select, .tedix-effort-select, .tedix-tedi-select { font: inherit; font-size: 14px; line-height: 20px; color: var(--tedix-text); background: var(--tedix-bg); border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-lg); min-width: 44px; max-width: 100%; height: 44px; padding: 0 12px; }
 				.tedix-model-select:disabled, .tedix-effort-select:disabled, .tedix-tedi-select:disabled { cursor: not-allowed; opacity: .5; }
 				.tedix-model-select[hidden], .tedix-effort-select[hidden], .tedix-tedi-select[hidden] { display: none; }
 				.tedix-heading { min-width: 0; flex: 1; }

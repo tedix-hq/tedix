@@ -111,7 +111,7 @@ describe("a turn", () => {
 
 		const model = w.$<HTMLSelectElement>(".tedix-model-select")!;
 		expect(model.hidden).toBe(false);
-		expect(model.options[0]?.textContent).toBe("Auto");
+		expect(model.options[0]?.textContent).toBe("Default");
 		model.value = "deep";
 		model.dispatchEvent(new Event("change"));
 		const effort = w.$<HTMLSelectElement>(".tedix-effort-select")!;
@@ -166,7 +166,11 @@ describe("a turn", () => {
 						sessionResult({
 							modelSelection: {
 								models: [
-									{ ref: "cloudflare/auto", label: "Auto", reasoning: true },
+									{
+										ref: "cloudflare/auto",
+										label: "Cloudflare Auto",
+										reasoning: true,
+									},
 									{ ref: "fast", label: "Fast" },
 								],
 								defaultRef: "cloudflare/auto",
@@ -180,10 +184,11 @@ describe("a turn", () => {
 			expect(
 				[...model.options].map((option) => [option.value, option.textContent]),
 			).toEqual([
-				["", "Auto"],
+				["", "Default"],
+				["cloudflare/auto", "Auto"],
 				["fast", "Fast"],
 			]);
-			expect(model.value).toBe("");
+			expect(model.value).toBe(modelRef);
 			expect(stream.input.modelRef).toBe(modelRef || undefined);
 			expect(sessionStorage.getItem("tedix:model-choice:v1:demo-shop")).toBe(
 				saved,

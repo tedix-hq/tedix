@@ -740,26 +740,22 @@ import {
 				selectedModelRef = "";
 			const automatic = document.createElement("option");
 			automatic.value = "";
-			automatic.textContent = t("model_automatic");
-			// The roster may carry the auto router as its own entry. It is the same
-			// choice the empty option already names, so it is not listed twice; a
-			// remembered selection of it stays intact and displays as that option.
-			const listed = modelChoices.filter(
-				(choice) => choice.label !== automatic.textContent,
-			);
+			// An inherited default can change independently of an explicit Auto ref.
+			automatic.textContent = t("model_default");
 			modelSelect.replaceChildren(
 				automatic,
-				...listed.map((choice) => {
+				...modelChoices.map((choice) => {
 					const option = document.createElement("option");
 					option.value = choice.ref;
-					option.textContent = choice.label;
+					option.textContent =
+						choice.ref === "cloudflare/auto"
+							? t("model_automatic")
+							: choice.label;
 					return option;
 				}),
 			);
 			modelSelect.hidden = modelChoices.length === 0;
-			modelSelect.value = listed.some((m) => m.ref === selectedModelRef)
-				? selectedModelRef
-				: "";
+			modelSelect.value = selectedModelRef;
 			modelSelect.disabled = busy || voiceState !== "idle";
 			// Effort only means something on a model that can take one on the wire.
 			// Offering it elsewhere would promise a control the runtime drops.
