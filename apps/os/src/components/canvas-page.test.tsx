@@ -144,6 +144,10 @@ vi.mock("@/lib/api", () => ({
 		osShares: osSharesApi,
 		kernelRuntime: kernelRuntimeApi,
 		webPush: webPushApi,
+		// The Review tab asks who is signed in before offering review rounds.
+		userSettings: {
+			getContext: vi.fn(async () => ({ authority: { role: "member" } })),
+		},
 	},
 }));
 
@@ -2216,7 +2220,12 @@ describe("CanvasPage listing", () => {
 		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
 
 		click(findButton(container, "Connections"));
-		expect(container.querySelector("[data-connections-panel]")).not.toBeNull();
+		// The connections panel is a lazy chunk; run alone, it is not loaded yet.
+		await vi.waitFor(() =>
+			expect(
+				container.querySelector("[data-connections-panel]"),
+			).not.toBeNull(),
+		);
 		const accountConnections = container.querySelector(
 			"details.canvas-account-connections",
 		);
