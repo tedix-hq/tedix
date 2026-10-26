@@ -662,6 +662,11 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	// `revise_*` tools must still fail closed at the admin tier.
 	revise_os_output: "write",
 	revise_os_gadget: "write",
+	propose_os_app_edit: "write",
+	accept_os_app_edit: "write",
+	list_os_app_revisions: "read",
+	restore_os_app_revision: "write",
+	preview_os_app_draft: "write",
 	revise_os_blueprint: "write",
 	// Requesting admission does not grant it; the designated approver decides.
 	propose_work_approval: "write",

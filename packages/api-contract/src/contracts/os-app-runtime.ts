@@ -5,6 +5,7 @@ import { baseErrors } from "../errors";
 import { JsonValueSchema } from "../schemas/common";
 import {
 	OsAppDraftContentSchema,
+	OsGadgetRevisionSchema,
 	OsGadgetResourceGrantSchema,
 	OsCollaborationProposalSchema,
 	OsOutputContentSchema,
@@ -123,7 +124,7 @@ export const osAppRuntimeContract = oc
 			})
 			.input(
 				AppRuntimeScopeSchema.extend({
-					conversationId: z.string().min(1).max(200),
+					conversationId: z.string().min(1).max(200).optional(),
 					expectedRevisionId: z.uuid(),
 					edits: z
 						.array(
@@ -148,7 +149,52 @@ export const osAppRuntimeContract = oc
 						.describe("Exact text replacements, applied in order"),
 				}).strict(),
 			)
-			.output(z.object({ proposal: OsCollaborationProposalSchema })),
+			.output(
+				z.object({
+					proposal: OsCollaborationProposalSchema,
+					previewUrl: z.string(),
+				}),
+			),
+		acceptEdit: oc
+			.route({
+				method: "POST",
+				path: "/accept-edit",
+				summary: "Accept and publish an app draft at its reviewed sequence",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					proposalId: z.uuid(),
+					expectedSequence: z.number().int().nonnegative(),
+					rationale: z.string().min(1).max(4000),
+				}).strict(),
+			)
+			.output(z.object({ revision: OsGadgetRevisionSchema })),
+		revisions: oc
+			.route({
+				method: "POST",
+				path: "/revisions",
+				summary: "List earlier app revisions for restore",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					limit: z.number().int().min(1).max(100).default(20),
+				}).strict(),
+			)
+			.output(z.object({ revisions: z.array(OsGadgetRevisionSchema) })),
+		restoreRevision: oc
+			.route({
+				method: "POST",
+				path: "/restore-revision",
+				summary:
+					"Restore an earlier app revision as a new version, preserving history",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					revisionId: z.uuid(),
+					expectedRevisionId: z.uuid(),
+				}).strict(),
+			)
+			.output(z.object({ revision: OsGadgetRevisionSchema })),
 		preview: oc
 			.route({
 				method: "POST",

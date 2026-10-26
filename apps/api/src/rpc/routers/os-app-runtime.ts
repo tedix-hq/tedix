@@ -1,9 +1,11 @@
+import { validateAppSource } from "../../services/os-app-validation";
 import { implement, call as callProcedure } from "@orpc/server";
 import { z } from "zod";
 import { RunWorkspaceSkillNowInputSchema } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { osAppRuntimeContract } from "@tedix/api-contract/contracts/os-app-runtime";
 import {
 	OsAppDraftContentSchema,
+	OsGadgetRevisionSchema,
 	OsOutputContentSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
@@ -14,6 +16,7 @@ import {
 } from "@tedix/auth/workspace-app-session";
 import {
 	getOsGadgetRevision,
+	listOsGadgetRevisions,
 	getOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
@@ -63,6 +66,7 @@ import {
 	type BaseContext,
 	withAuth,
 	withAuthorization,
+	hasRequiredScope,
 	createError,
 	ErrorCodes,
 } from "../orpc";
@@ -70,6 +74,8 @@ import {
 	queryDb,
 	requireWorkspace,
 	resolveCreator,
+	resolveCollaborationSource,
+	mapGadgetRevision,
 } from "./os-workspaces-shared";
 
 export function createOsAppRuntimeRouter() {
@@ -173,12 +179,7 @@ export function createOsAppRuntimeRouter() {
 		};
 	});
 	const draft = author.draft.handler(async ({ context, input }) => {
-		const scope = await resolve(context, input);
-		if (scope.role !== "build")
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"App preview requires build access",
-			);
+		const scope = await requireBuilder(context, input);
 		const code = await loadAppRuntimeDraft(
 			queryDb(context),
 			scope,
@@ -211,11 +212,16 @@ export function createOsAppRuntimeRouter() {
 		input: { workspaceId: string; gadgetId: string },
 	) {
 		const scope = await resolve(context, input);
-		if (scope.role !== "build" || context.authType !== "user")
+		if (
+			(context.authType === "user" && scope.role !== "build") ||
+			!hasRequiredScope(context, "apps:write")
+		)
 			throw createError(
 				ErrorCodes.FORBIDDEN,
 				"App edits require a workspace builder",
 			);
+		// Only author procedures call this helper, after the machine write-scope gate.
+		scope.role = "build";
 		return scope;
 	}
 	async function requireDraft(
@@ -223,6 +229,7 @@ export function createOsAppRuntimeRouter() {
 		scope: Awaited<ReturnType<typeof resolve>>,
 		proposalId: string,
 		expectedSequence?: number,
+		allowMerged = false,
 	) {
 		const proposal = await getOsCollaborationProposal(queryDb(context), {
 			organizationId: scope.organizationId,
@@ -237,7 +244,9 @@ export function createOsAppRuntimeRouter() {
 			throw createError(ErrorCodes.NOT_FOUND, "App draft not found");
 		if (
 			proposal.sequence !== expectedSequence ||
-			!["open", "accepted"].includes(proposal.status)
+			!["open", "accepted", ...(allowMerged ? ["merged"] : [])].includes(
+				proposal.status,
+			)
 		)
 			throw createError(ErrorCodes.CONFLICT, "Draft changed or is closed");
 		OsAppDraftContentSchema.parse(JSON.parse(proposal.content));
@@ -288,6 +297,11 @@ export function createOsAppRuntimeRouter() {
 				ErrorCodes.BAD_REQUEST,
 				"App drafts require a runtime manifest",
 			);
+		await validateAppSource(
+			context.env,
+			input.content.files,
+			input.content.manifest.config?.compatibilityDate,
+		);
 		const content = JSON.stringify(input.content);
 		if (input.proposalId) {
 			await requireDraft(
@@ -317,36 +331,44 @@ export function createOsAppRuntimeRouter() {
 			baseRevisionId: scope.revisionId,
 			baseRevision: code.revision,
 			status: "open",
-			sourceKind: "user",
-			sourceId: scope.principal.id,
+			...(context.authType === "user" && !context.externalAgentSessionId
+				? { sourceKind: "user" as const, sourceId: scope.principal.id }
+				: resolveCollaborationSource(context)),
 			sourceAttestationVersion: 1,
 			content,
 			sequence: 0,
-			createdByKind: "user",
+			createdByKind: scope.principal.kind,
 			createdById: scope.principal.id,
 		});
 		return { proposal: mapCollaborationProposal(proposal) };
 	});
 	const proposeEdit = author.proposeEdit.handler(async ({ context, input }) => {
-		const scope = await resolve(context, input);
-		if (scope.role !== "build" || context.authType !== "user")
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"App edits require a workspace builder",
-			);
-		const conversation = await getKernelConversation(context.db, {
-			organizationId: scope.organizationId,
-			conversationId: input.conversationId,
-		});
-		if (
-			!conversation ||
-			conversation.deletedAt ||
-			conversation.workspaceId !== scope.workspaceId
-		)
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"App edits require a Home conversation linked to this workspace",
-			);
+		const scope = await requireBuilder(context, input);
+		let source: {
+			sourceKind: "chat" | "run" | "agent_session";
+			sourceId: string;
+		};
+		if (context.authType === "user" && !context.externalAgentSessionId) {
+			const conversation = input.conversationId
+				? await getKernelConversation(context.db, {
+						organizationId: scope.organizationId,
+						conversationId: input.conversationId,
+					})
+				: null;
+			if (
+				!conversation ||
+				conversation.deletedAt ||
+				conversation.workspaceId !== scope.workspaceId
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"App edits require a Home conversation linked to this workspace",
+				);
+			source = { sourceKind: "chat", sourceId: conversation.conversationId };
+		} else {
+			source = resolveCollaborationSource(context);
+		}
+
 		if (scope.revisionId !== input.expectedRevisionId)
 			throw createError(ErrorCodes.CONFLICT, "App revision changed");
 		const code = await load(context, scope);
@@ -364,6 +386,7 @@ export function createOsAppRuntimeRouter() {
 			manifest: code.manifest,
 			files,
 		});
+		await validateAppSource(context.env, files, code.compatibilityDate);
 		const proposal = await createOsCollaborationProposal(queryDb(context), {
 			id: crypto.randomUUID(),
 			organizationId: scope.organizationId,
@@ -373,23 +396,98 @@ export function createOsAppRuntimeRouter() {
 			baseRevisionId: scope.revisionId,
 			baseRevision: code.revision,
 			status: "open",
-			sourceKind: "chat",
-			sourceId: conversation.conversationId,
+			...source,
 			sourceAttestationVersion: 1,
 			content: JSON.stringify(content),
 			sequence: 0,
-			createdByKind: "user",
+			createdByKind: scope.principal.kind,
 			createdById: scope.principal.id,
 		});
-		return { proposal: mapCollaborationProposal(proposal) };
+		const previewUrl = new URL(
+			`/workspaces/${scope.workspaceId}`,
+			context.env.OS_URL,
+		);
+		previewUrl.searchParams.set("workpiece", `gadget:${scope.gadgetId}`);
+		previewUrl.searchParams.set("view", "drafts");
+		return {
+			proposal: mapCollaborationProposal(proposal),
+			previewUrl: previewUrl.toString(),
+		};
 	});
-	const preview = author.preview.handler(async ({ context, input }) => {
-		const scope = await resolve(context, input);
-		if (scope.role !== "build")
+	const acceptEdit = author.acceptEdit.handler(async ({ context, input }) => {
+		const scope = await requireBuilder(context, input);
+		const proposal = await requireDraft(
+			context,
+			scope,
+			input.proposalId,
+			input.expectedSequence,
+			true,
+		);
+		if (
+			proposal.status !== "merged" &&
+			proposal.baseRevisionId !== scope.revisionId
+		)
 			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"App preview requires build access",
+				ErrorCodes.CONFLICT,
+				"App revision changed; rebase the draft",
 			);
+		const { osCollaborationProcedures } =
+			await import("./os-workspace-collaboration");
+		const decision = {
+			proposalId: proposal.id,
+			expectedSequence: proposal.sequence,
+			rationale: input.rationale,
+			evidenceRefs: [],
+		};
+		const accepted =
+			proposal.status !== "open"
+				? proposal
+				: (
+						await callProcedure(osCollaborationProcedures.accept, decision, {
+							context,
+						})
+					).proposal;
+		const result = await callProcedure(
+			osCollaborationProcedures.merge,
+			{ ...decision, expectedSequence: accepted.sequence },
+			{ context },
+		);
+		return { revision: OsGadgetRevisionSchema.parse(result.revision) };
+	});
+	const revisions = read.revisions.handler(async ({ context, input }) => {
+		const scope = await resolve(context, input);
+		const rows = await listOsGadgetRevisions(queryDb(context), scope, {
+			limit: input.limit,
+		});
+		return { revisions: rows.map(mapGadgetRevision) };
+	});
+	const restoreRevision = author.restoreRevision.handler(
+		async ({ context, input }) => {
+			const scope = await requireBuilder(context, input);
+			if (scope.revisionId !== input.expectedRevisionId)
+				throw createError(ErrorCodes.CONFLICT, "App revision changed");
+			const [old, current] = await Promise.all([
+				load(context, scope, input.revisionId),
+				load(context, scope),
+			]);
+			const { osWorkspacesContractRouter } = await import("./os-workspaces");
+			const result = await callProcedure(
+				osWorkspacesContractRouter.gadgets.revise,
+				{
+					workspaceId: scope.workspaceId,
+					gadgetId: scope.gadgetId,
+					manifest: old.manifest,
+					files: old.files,
+					expectedRevision: current.revision,
+				},
+				{ context },
+			);
+			return { revision: result.revision };
+		},
+	);
+
+	const preview = author.preview.handler(async ({ context, input }) => {
+		const scope = await requireBuilder(context, input);
 		const code = await load(context, scope, input.revisionId);
 		const session = await mintWorkspaceAppSession(
 			context.env.SECRETS_MASTER_KEY,
@@ -425,6 +523,12 @@ export function createOsAppRuntimeRouter() {
 		} catch {
 			throw createError(ErrorCodes.FORBIDDEN, "Invalid app session");
 		}
+		if (
+			context.authType !== "user" &&
+			(session.role === "build" || session.role === "owner") &&
+			hasRequiredScope(context, "apps:write")
+		)
+			scope.role = "build";
 		if (
 			session.organizationId !== scope.organizationId ||
 			session.workspaceId !== scope.workspaceId ||
@@ -822,6 +926,9 @@ export function createOsAppRuntimeRouter() {
 		preview,
 		draft,
 		proposeEdit,
+		acceptEdit,
+		revisions,
+		restoreRevision,
 		saveDraft,
 		mergeDraft,
 		capability,

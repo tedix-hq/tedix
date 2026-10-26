@@ -892,6 +892,26 @@ describe("gadgets", () => {
 			await c.org1.gadgets.getCode({ workspaceId, gadgetId: gadget.id }),
 		).toEqual({ code: null });
 
+		await expect(
+			c.org1.gadgets.revise({
+				workspaceId,
+				gadgetId: gadget.id,
+				manifest,
+				files: {
+					"server.js": "export class App {}",
+					"client.js": "// line one\nconst broken = ;",
+				},
+				expectedRevision: 0,
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("client.js:2:16:"),
+		});
+		expect(
+			(await c.org1.gadgets.get({ workspaceId, gadgetId: gadget.id }))
+				.currentRevision,
+		).toBeNull();
+
 		const first = await c.org1.gadgets.revise({
 			workspaceId,
 			gadgetId: gadget.id,
@@ -913,7 +933,10 @@ describe("gadgets", () => {
 			workspaceId,
 			gadgetId: gadget.id,
 			manifest,
-			files: { "server.js": "export class App2 {}", "client.js": "render()" },
+			files: {
+				"server.js": "export class App { value() { return 2; } }",
+				"client.js": "render()",
+			},
 			expectedRevision: 1,
 		});
 		expect(

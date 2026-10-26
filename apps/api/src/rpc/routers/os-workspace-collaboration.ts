@@ -1,3 +1,4 @@
+import { validateAppSource } from "../../services/os-app-validation";
 import { requireWorkspaceCollaboratorAccess } from "../../services/os-workspace-collaborators";
 import { serviceBindingFetch } from "@tedix/api-client/internal";
 import { implement } from "@orpc/server";
@@ -108,6 +109,12 @@ async function validateProposalContent(
 					: "A runtime app proposal carries its files beside the manifest",
 			);
 		}
+		if (draft.files)
+			await validateAppSource(
+				context.env,
+				draft.files,
+				draft.manifest.config?.compatibilityDate,
+			);
 		return draft.files ? draft : draft.manifest;
 	}
 	const output = await requireOutput(context, proposal.documentId);
@@ -280,6 +287,10 @@ async function requireAppDraftBuilder(
 		!OsAppDraftContentSchema.safeParse(JSON.parse(proposal.content)).success
 	)
 		return;
+	if (context.authType !== "user") {
+		await requireWorkspace(context, proposal.workspaceId);
+		return;
+	}
 	const access = await requireWorkspaceCollaboratorAccess(
 		context,
 		proposal.workspaceId,

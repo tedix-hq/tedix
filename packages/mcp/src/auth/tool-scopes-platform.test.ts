@@ -41,6 +41,10 @@ describe("platform control-plane tool scopes", () => {
 		for (const name of [
 			"revise_os_output",
 			"revise_os_gadget",
+			"propose_os_app_edit",
+			"accept_os_app_edit",
+			"restore_os_app_revision",
+			"preview_os_app_draft",
 			"revise_os_blueprint",
 		]) {
 			expect(
