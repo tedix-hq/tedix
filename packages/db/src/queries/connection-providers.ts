@@ -18,6 +18,7 @@ import type { DbQueryClient } from "../query-client";
 import {
 	connectionProviderOwnership,
 	connectionProviders,
+	connectionProviderSettings,
 } from "../schema/connection-providers";
 
 function toConnectionProviderTemplate(
@@ -296,4 +297,37 @@ export async function deleteConnectionProviderOwnership(
 	await db
 		.delete(connectionProviderOwnership)
 		.where(eq(connectionProviderOwnership.appId, appId));
+}
+
+export async function listConnectionProviderSettings(
+	db: DbQueryClient,
+	organizationId: string,
+) {
+	return db
+		.select()
+		.from(connectionProviderSettings)
+		.where(eq(connectionProviderSettings.organizationId, organizationId));
+}
+
+export async function setConnectionProviderAccountMode(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		providerId: string;
+		accountMode: "single" | "multiple";
+	},
+): Promise<void> {
+	await db
+		.insert(connectionProviderSettings)
+		.values(params)
+		.onConflictDoUpdate({
+			target: [
+				connectionProviderSettings.organizationId,
+				connectionProviderSettings.providerId,
+			],
+			set: {
+				accountMode: params.accountMode,
+				updatedAt: sql`(CURRENT_TIMESTAMP)`,
+			},
+		});
 }

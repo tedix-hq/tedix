@@ -256,6 +256,19 @@ export function AdminConnectionsPage({
 		onError: (error) =>
 			setActionError(errorMessage(error, "Could not change the access check")),
 	});
+	const accountModeMutation = useMutation({
+		mutationFn: (input: {
+			appId: string;
+			accountMode: "single" | "multiple";
+		}) => osApi.connections.setProviderAccountMode(input),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: osQueryKeys.connections(),
+			});
+		},
+		onError: (error) =>
+			setActionError(errorMessage(error, "Could not change account policy")),
+	});
 	const [serviceHealthByProvider, setServiceHealthByProvider] = useState<
 		Record<string, ServiceHealth | undefined>
 	>({});
@@ -785,6 +798,7 @@ export function AdminConnectionsPage({
 							isConnecting={connectingAppId !== null}
 							isDisconnecting={disconnectMutation.isPending}
 							isBinding={bindMutation.isPending}
+							isAccountModePending={accountModeMutation.isPending}
 							availableOpen={Boolean(q.trim()) || statusFilter !== "all"}
 							onConnect={(row) => {
 								if (!canManageRow(row)) return;
@@ -797,6 +811,15 @@ export function AdminConnectionsPage({
 								setPendingConnect({ ...row, reconnect: true });
 							}}
 							onAdd={handleAddPersonalAccount}
+							onAccountModeChange={
+								scope === "organization" && canManageConnections
+									? (provider, accountMode) =>
+											accountModeMutation.mutate({
+												appId: provider.appId,
+												accountMode,
+											})
+									: undefined
+							}
 							onRename={(row) => {
 								if (!row.connectionInstanceId || !canManageRow(row)) return;
 								setAccountEditor({

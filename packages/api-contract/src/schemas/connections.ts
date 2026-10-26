@@ -121,6 +121,10 @@ export const ConnectionProviderSchema = z.object({
 	supportedScopes: z.array(z.enum(["tenant", "user"])),
 	/** Default scope for new connections */
 	recommendedScope: z.enum(["tenant", "user"]),
+	/** Organization policy applied when adding accounts for this provider. */
+	accountMode: z.enum(["single", "multiple"]),
+	/** Account modes supported by the provider's current sign-in mechanism. */
+	availableAccountModes: z.array(z.enum(["single", "multiple"])),
 	/** Provider-specific API-key input shape, auth injection defaults, and OAuth scope groups. */
 	credentialProfile: ConnectionCredentialProfileSchema.nullable().optional(),
 	/**

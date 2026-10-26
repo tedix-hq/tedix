@@ -21,6 +21,7 @@ import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -111,3 +112,29 @@ export const connectionProviderOwnership = sqliteTable(
 		index("connection_provider_ownership_org_idx").on(table.organizationId),
 	],
 );
+
+/** Organization policy for how many accounts an owner may add for a provider. */
+export const connectionProviderSettings = sqliteTable(
+	"connection_provider_settings",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		providerId: text("provider_id").notNull(),
+		accountMode: text("account_mode", {
+			enum: ["single", "multiple"],
+		}).notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		primaryKey({ columns: [table.organizationId, table.providerId] }),
+	],
+);
+
+export type ConnectionProviderSettingRow =
+	typeof connectionProviderSettings.$inferSelect;

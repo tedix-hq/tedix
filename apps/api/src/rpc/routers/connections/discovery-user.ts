@@ -23,6 +23,8 @@ import {
 	getConnectionProviderByDescopeAppId,
 	getConnectionProviderById,
 	listConnectionProviders,
+	listConnectionProviderSettings,
+	setConnectionProviderAccountMode,
 } from "@tedix/db/queries/connection-providers";
 import {
 	deleteConnectionTokens,
@@ -49,7 +51,10 @@ import {
 	getAppMetadataJson,
 	updateAppMetadata,
 } from "@tedix/db/queries/app-records";
-import { connectionAccountMode } from "@tedix/api-contract/utils/connection-account-mode";
+import {
+	connectionAccountMode,
+	resolveConnectionAccountPolicy,
+} from "@tedix/api-contract/utils/connection-account-mode";
 import {
 	createConnectionInstance as createConnectionInstanceRecord,
 	getConnectionInstance,
@@ -379,13 +384,18 @@ export async function readConnectionProviders(context: BaseContext) {
 	// and fetch every known provider template — both cheap to do in
 	// parallel with the Descope outbound apps fetch below.
 	try {
-		const [response, referencedProviders, providers] = await Promise.all([
-			client.management.outboundApplication.loadAllApplications(),
-			collectReferencedProviders(context.db, orgId),
-			listConnectionProviders(context.db),
-		]);
+		const [response, referencedProviders, providers, settings] =
+			await Promise.all([
+				client.management.outboundApplication.loadAllApplications(),
+				collectReferencedProviders(context.db, orgId),
+				listConnectionProviders(context.db),
+				listConnectionProviderSettings(context.db, orgId),
+			]);
 		const { byDescopeAppId: providerMap } =
 			buildConnectionProviderMaps(providers);
+		const accountModeByProvider = new Map(
+			settings.map((setting) => [setting.providerId, setting.accountMode]),
+		);
 		if (!response.ok || !response.data) {
 			throw createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,
@@ -443,6 +453,10 @@ export async function readConnectionProviders(context: BaseContext) {
 					(app.defaultScopes?.length
 						? app.defaultScopes
 						: credentialProfile?.defaultScopes) ?? [];
+				const accountPolicy = resolveConnectionAccountPolicy(
+					{ connectionType, registrationMode },
+					accountModeByProvider.get(app.id),
+				);
 				return {
 					appId: app.id,
 					name: app.name,
@@ -458,6 +472,7 @@ export async function readConnectionProviders(context: BaseContext) {
 					tokenScope: recommendedScope,
 					supportedScopes,
 					recommendedScope,
+					...accountPolicy,
 					credentialProfile,
 					referencedByOrg: referencedProviders.ids.has(app.id),
 				};
@@ -475,6 +490,28 @@ export async function readConnectionProviders(context: BaseContext) {
 export const listProviders = authedOs.listProviders
 	.use(AUTHZ.appsRead)
 	.handler(({ context }) => readConnectionProviders(context));
+
+export const setProviderAccountMode = authedOs.setProviderAccountMode
+	.use(AUTHZ.integrationAppsWrite)
+	.handler(async ({ context, input }) => {
+		const organizationId = requireOrgId(context);
+		const provider = (await readConnectionProviders(context)).data.find(
+			(item) => item.appId === input.appId,
+		);
+		if (!provider)
+			throw createError(ErrorCodes.NOT_FOUND, "Connection provider not found");
+		if (!provider.availableAccountModes.includes(input.accountMode))
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Provider sign-in supports only one account per owner",
+			);
+		await setConnectionProviderAccountMode(context.db, {
+			organizationId,
+			providerId: input.appId,
+			accountMode: input.accountMode,
+		});
+		return { appId: input.appId, accountMode: input.accountMode };
+	});
 
 export const auditProviderSettings = authedOs.auditProviderSettings
 	.use(AUTHZ.platformAdmin)

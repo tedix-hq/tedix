@@ -67,6 +67,8 @@ function row(label?: string): ConnectionInventoryRow {
 			recommendedScope: "user",
 			connectionType: "oauth",
 			registrationMode: "pre_registered",
+			accountMode: "multiple",
+			availableAccountModes: ["single", "multiple"],
 			referencedByOrg: true,
 			supportedScopes: ["user"],
 		},

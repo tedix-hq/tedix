@@ -130,6 +130,8 @@ const connectedInventory: ConnectionInventoryRow = {
 		description: null,
 		connectionType: "api_key",
 		registrationMode: null,
+		accountMode: "single",
+		availableAccountModes: ["single"],
 		enabled: true,
 		availableScopes: [],
 		logoUrl: null,
