@@ -347,6 +347,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"kernelRuntime/attachConversationArtifactPin": "mcp:tedis.write",
 	"kernelRuntime/attachConversationCapability": "mcp:tedis.write",
 	"kernelRuntime/cancelRun": "mcp:tedis.write",
+	"kernelRuntime/controlRunSteering": "mcp:tedis.write",
 	"kernelRuntime/deleteConversation": "mcp:tedis.admin",
 	"kernelRuntime/detachConversationArtifactPin": "mcp:tedis.admin",
 	"kernelRuntime/detachConversationCapability": "mcp:tedis.admin",
