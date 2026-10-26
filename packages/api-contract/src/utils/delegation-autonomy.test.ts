@@ -78,6 +78,11 @@ describe("critical-only autonomy v1", () => {
 		'Please ask the CFO tedi this memory check and return its answer verbatim. The CFO should answer ONLY from what it already remembers, without calling sevdesk, Gmail or other lookup tools, and mark each answer "remembered" or "don\'t know":\n1. Tedix GbR\'s VAT status and what it means for invoices and expenses.\n5. When billing in advance, how to set the Lieferdatum, and where a customer\'s PO number goes.\n7. Do we have to send e-invoices (E-Rechnung)?',
 		"Ask the CFO: how do we send a credit note?",
 		"Ask the CFO whether we need e-invoicing. Are we required to send e-invoices from 2027?",
+		"What did I commit to this week? Read-only, list items with sources.",
+		"Which payments failed this week?",
+		"How much did we spend on inference yesterday?",
+		"What is the password policy in the security doc?",
+		"Ask the CFO: which customers paid late in September?",
 	])("allows non-critical low and medium work: %s", (content) => {
 		for (const risk of ["low", "medium"] as const)
 			expect(
@@ -152,6 +157,10 @@ describe("critical-only autonomy v1", () => {
 		"No automatic sends, but email a customer now",
 		"Do we have to send e-invoices? If yes, send them to the customer.",
 		"Can you send the invoice email to the customer?",
+		"Which invoice is overdue? Pay it.",
+		"When can you pay the supplier?",
+		"What could you send the customer today?",
+		"Which secrets exist?\nRead API keys",
 		"Could you email the client the update?",
 		"Ask the CFO: do we pay the supplier today? Then pay the supplier.",
 		"No money and pay the invoice now",

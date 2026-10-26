@@ -245,15 +245,21 @@ export function withoutQuotedCommitSubjects(content: string): string {
 
 /**
  * A question about what we must or how to do something ("Do we have to send
- * e-invoices?", "How do I pay the supplier?") asks for an answer, not the act.
- * Polite requests ("Can you send ...?") stay actionable, and so does any
- * instruction outside the question.
+ * e-invoices?", "How do I pay the supplier?"), or what is true ("Which
+ * payments failed this week?", "What is the password policy?"), asks for an
+ * answer, not the act. Polite requests ("Can you send ...?", "When could you
+ * pay ...?") stay actionable, and so does any instruction outside the question.
  */
 function withoutKnowledgeQuestions(content: string): string {
-	return content.replace(
-		/(^|[\n.!?;:])([ \t]*(?:\d+[.)][ \t]*)?)(?:(?:do|does|must|should|shall)[ \t]+(?:we|i|they)\b(?:[ \t]+(?:have|need)[ \t]+to)?|(?:are|is|am)[ \t]+(?:we|i|they|it)[ \t]+(?:required|obliged|obligated|supposed|allowed)[ \t]+to|(?:how|when|why)[ \t]+(?:do|does|should|to)\b)[^?\n]*\?/gi,
-		"$1$2record?",
-	);
+	return content
+		.replace(
+			/(^|[\n.!?;:])([ \t]*(?:\d+[.)][ \t]*)?)(?:(?:do|does|must|should|shall)[ \t]+(?:we|i|they)\b(?:[ \t]+(?:have|need)[ \t]+to)?|(?:are|is|am)[ \t]+(?:we|i|they|it)[ \t]+(?:required|obliged|obligated|supposed|allowed)[ \t]+to|(?:how|when|why)[ \t]+(?:do|does|should|to)\b)[^?\n]*\?/gi,
+			"$1$2record?",
+		)
+		.replace(
+			/(^|[\n.!?;:])([ \t]*(?:\d+[.)][ \t]*)?)(?:what|which|who|whose|where|when|how[ \t]+(?:much|many|often|long))\b(?![^?\n]*\b(?:can|could|would|will|shall)[ \t]+(?:you|we|someone|they)\b)[^?\n]*\?/gi,
+			"$1$2record?",
+		);
 }
 
 /** Shared by Home, the runtime, and local lanes; tool names use the same vocabulary. */
