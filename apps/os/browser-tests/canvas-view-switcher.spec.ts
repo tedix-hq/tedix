@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import { chromium, webkit } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
-// The workpiece view switcher (App / Code / Runs / Connections / Review) is
-// shell chrome shared by every workspace gadget. On a phone its labels must
-// never overlap or clip, and every view must stay reachable. When the row is
-// too narrow for every segment (chat open beside the app), the selected view
+// The workpiece view switcher (App / Edit / History) is shell chrome shared by
+// every workspace gadget. On a phone its labels must never overlap or clip,
+// and every view must stay reachable. Connections and Review open from the
+// workspace menu and join the row only while they show; when the row is too
+// narrow for every segment (chat open beside the app), the selected view
 // stays scrolled into sight.
 const workpiecePath =
 	"/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece";
-const views = ["App", "Code", "Runs", "Connections", "Review"];
+const views = ["App", "Edit", "History"];
 const server = await startFixtureServer("/work");
 
 try {
@@ -46,7 +47,7 @@ try {
 				assert.deepEqual(
 					segments.map((segment) => segment.text),
 					views,
-					`${label}: all five views are offered`,
+					`${label}: exactly these views are offered`,
 				);
 				for (const [index, segment] of segments.entries()) {
 					assert(!segment.clipped, `${label}: ${segment.text} label fits`);
@@ -75,7 +76,8 @@ try {
 						`${label}: ${view} is reachable`,
 					);
 				}
-				// Open straight on the last view: the row must reveal it unaided.
+				// Open straight on Review, which joins the row as its last segment:
+				// the row must reveal it unaided.
 				await page.goto(`${server.origin}${workpiecePath}&view=activity`);
 				await switcher.waitFor();
 				await page.waitForTimeout(200);

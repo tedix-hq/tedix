@@ -103,7 +103,7 @@ try {
 		);
 		await page
 			.getByRole("group", { name: "Active workpiece view" })
-			.getByRole("button", { name: "Runs", exact: true })
+			.getByRole("button", { name: "History", exact: true })
 			.click();
 		const log = page.getByRole("log", {
 			name: `Console logs for call ${callId}`,

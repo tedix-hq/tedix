@@ -143,8 +143,9 @@ function renderPanel(
 				items={workspaceOutputsPanelItems(outputs, gadgets)}
 				loading={false}
 				now={new Date("2026-10-24T12:00:00.000Z")}
-				onExpandedChange={() => {}}
+				onBrowseLibrary={() => {}}
 				onOpenActivity={() => {}}
+				onOpenWork={() => {}}
 				onSelect={() => {}}
 				selectedDoc={{ type: "output", id: "new-deck" }}
 				{...props}
@@ -157,9 +158,9 @@ function renderPanel(
 describe("WorkspaceOutputsPanel", () => {
 	it("renders a labelled list with a type icon per row and the selection", () => {
 		const doc = renderPanel();
-		const panel = doc.querySelector('aside[aria-label="Workspace outputs"]');
+		const panel = doc.querySelector('aside[aria-label="Workspace files"]');
 		expect(panel?.getAttribute("data-expanded")).toBe("true");
-		const rows = doc.querySelectorAll('ul[aria-label="Outputs"] button');
+		const rows = doc.querySelectorAll('ul[aria-label="Files"] button');
 		expect(rows).toHaveLength(3);
 		expect(
 			[...doc.querySelectorAll("[data-output-kind]")].map((icon) =>
@@ -169,29 +170,48 @@ describe("WorkspaceOutputsPanel", () => {
 		expect(doc.querySelector('[aria-current="true"]')?.textContent).toContain(
 			"Weekly review",
 		);
-		expect(
-			doc.querySelector('button[aria-label="Collapse outputs"]'),
-		).not.toBeNull();
+		// The fold is the top bar's job: the panel carries no toggle of its own.
+		expect(doc.querySelector("header button")).toBeNull();
 		expect(
 			doc.querySelector("[data-workspace-outputs-activity]"),
 		).not.toBeNull();
+		expect(
+			doc.querySelector("[data-workspace-outputs-library]"),
+		).not.toBeNull();
+		expect(doc.querySelector("[data-workspace-outputs-work]")).not.toBeNull();
 	});
 
 	it("names icon-only rows when collapsed to the rail", () => {
 		const doc = renderPanel({ expanded: false });
 		expect(
 			doc
-				.querySelector('aside[aria-label="Workspace outputs"]')
+				.querySelector('aside[aria-label="Workspace files"]')
 				?.getAttribute("data-expanded"),
 		).toBe("false");
 		expect(
-			doc.querySelector('button[aria-label="Expand outputs"]'),
-		).not.toBeNull();
-		expect(
-			[...doc.querySelectorAll('ul[aria-label="Outputs"] button')].map((row) =>
+			[...doc.querySelectorAll('ul[aria-label="Files"] button')].map((row) =>
 				row.getAttribute("aria-label"),
 			),
 		).toEqual(["Reconciliation", "Weekly review", "Supplier note"]);
+		expect(
+			doc
+				.querySelector("[data-workspace-outputs-library]")
+				?.getAttribute("aria-label"),
+		).toBe("Everything here");
+	});
+
+	it("marks the canvas view the footer row opened", () => {
+		const doc = renderPanel({ canvasView: "work", selectedDoc: null });
+		expect(
+			doc
+				.querySelector("[data-workspace-outputs-work]")
+				?.getAttribute("aria-current"),
+		).toBe("true");
+		expect(
+			doc
+				.querySelector("[data-workspace-outputs-library]")
+				?.hasAttribute("aria-current"),
+		).toBe(false);
 	});
 
 	it("explains an empty workspace", () => {
@@ -199,13 +219,14 @@ describe("WorkspaceOutputsPanel", () => {
 		expect(
 			doc.querySelector("[data-workspace-outputs-empty]")?.textContent,
 		).toBe(WORKSPACE_OUTPUTS_EMPTY_COPY);
-		expect(doc.querySelector('ul[aria-label="Outputs"]')).toBeNull();
+		expect(doc.querySelector('ul[aria-label="Files"]')).toBeNull();
 	});
 
-	it("opens rows, activity and the toggle through its callbacks", () => {
+	it("opens rows, approvals, the library and Work through its callbacks", () => {
 		const onSelect = vi.fn();
 		const onOpenActivity = vi.fn();
-		const onExpandedChange = vi.fn();
+		const onBrowseLibrary = vi.fn();
+		const onOpenWork = vi.fn();
 		const host = document.createElement("div");
 		document.body.append(host);
 		const root = createRoot(host);
@@ -216,15 +237,16 @@ describe("WorkspaceOutputsPanel", () => {
 					expanded
 					items={workspaceOutputsPanelItems(outputs, gadgets)}
 					loading={false}
-					onExpandedChange={onExpandedChange}
+					onBrowseLibrary={onBrowseLibrary}
 					onOpenActivity={onOpenActivity}
+					onOpenWork={onOpenWork}
 					onSelect={onSelect}
 					selectedDoc={null}
 				/>,
 			),
 		);
 		const rows = host.querySelectorAll<HTMLButtonElement>(
-			'ul[aria-label="Outputs"] button',
+			'ul[aria-label="Files"] button',
 		);
 		act(() => rows[0]!.click());
 		act(() => rows[1]!.click());
@@ -240,12 +262,16 @@ describe("WorkspaceOutputsPanel", () => {
 		expect(onOpenActivity).toHaveBeenCalledOnce();
 		act(() =>
 			host
-				.querySelector<HTMLButtonElement>(
-					'button[aria-label="Collapse outputs"]',
-				)!
+				.querySelector<HTMLButtonElement>("[data-workspace-outputs-library]")!
 				.click(),
 		);
-		expect(onExpandedChange).toHaveBeenCalledWith(false);
+		expect(onBrowseLibrary).toHaveBeenCalledOnce();
+		act(() =>
+			host
+				.querySelector<HTMLButtonElement>("[data-workspace-outputs-work]")!
+				.click(),
+		);
+		expect(onOpenWork).toHaveBeenCalledOnce();
 		act(() => root.unmount());
 		host.remove();
 	});

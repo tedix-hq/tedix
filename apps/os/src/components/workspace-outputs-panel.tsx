@@ -1,8 +1,8 @@
 import "./workspace-outputs-panel.css";
 import {
-	CaretLeft,
-	CaretRight,
+	Books,
 	FileText,
+	Kanban,
 	MonitorPlay,
 	PresentationChart,
 	ShieldCheck,
@@ -28,10 +28,11 @@ import type { CanvasDocSelection } from "@/lib/canvas-search";
 import { relativeTime } from "@/lib/time";
 
 /**
- * The workspace's Outputs panel: a narrow column on the right edge of the
- * workbench that lists what the workspace has produced, opens any of it in the
- * stage beside the chat, and folds down to an icon rail when the stage needs
- * the room. On phones the same list renders inside a sheet instead.
+ * The workspace's Files panel: a narrow column on the right edge of the
+ * workbench that lists the workspace's apps and files, opens any of them in
+ * the canvas beside the chat, and folds down to an icon rail when the canvas
+ * needs the room. The top bar's one panel toggle drives the fold. Phones get
+ * the full library pane from the bottom switcher instead.
  *
  * Presentational: the list queries, selection and URL writes stay in
  * canvas-page.tsx, which owns the workbench.
@@ -48,7 +49,7 @@ export const WORKSPACE_OUTPUTS_RAIL_WIDTH = 48;
 export const WORKSPACE_OUTPUTS_PANEL_ROOMY_MIN = 1200;
 
 export const WORKSPACE_OUTPUTS_EMPTY_COPY =
-	"No outputs yet. Outputs your tedis create in this workspace appear here.";
+	"Nothing here yet. Apps and files made in this workspace will show up here.";
 
 export function restoreWorkspaceOutputsPanelExpanded(
 	storage: Pick<Storage, "getItem"> | null,
@@ -199,12 +200,56 @@ type WorkspaceOutputsListProps = {
 	selectedDoc: CanvasDocSelection | null;
 	onSelect: (doc: CanvasDocSelection) => void;
 	onOpenActivity: () => void;
+	/** Opens the whole library (search, sources, schedules) in the canvas. */
+	onBrowseLibrary: () => void;
+	/** Opens the workspace's work items in the canvas. */
+	onOpenWork: () => void;
+	/** Which of the two canvas views above is showing, if either. */
+	canvasView?: "library" | "work" | null;
 	/** The icon-only rail: labels hide and each row names itself in a tooltip. */
 	railed?: boolean;
 	now?: Date;
 };
 
-/** The list itself, shared by the desktop panel and the phone sheet. */
+/** A footer row: an icon and a label, named in a tooltip when railed. */
+function FooterRow({
+	label,
+	icon,
+	railed,
+	current,
+	onClick,
+	...rest
+}: {
+	label: string;
+	icon: ReactElement;
+	railed: boolean;
+	current?: boolean;
+	onClick: () => void;
+	[key: `data-${string}`]: string;
+}) {
+	return (
+		<RailTooltip label={label} railed={railed}>
+			<Button
+				aria-current={current || undefined}
+				aria-label={railed ? label : undefined}
+				className="workspace-outputs-row"
+				data-selected={current || undefined}
+				multiline
+				onClick={onClick}
+				size="sm"
+				variant="ghost"
+				{...rest}
+			>
+				{icon}
+				<span className="workspace-outputs-label">
+					<span className="workspace-outputs-title">{label}</span>
+				</span>
+			</Button>
+		</RailTooltip>
+	);
+}
+
+/** The list itself. */
 export function WorkspaceOutputsList({
 	items,
 	loading,
@@ -212,6 +257,9 @@ export function WorkspaceOutputsList({
 	selectedDoc,
 	onSelect,
 	onOpenActivity,
+	onBrowseLibrary,
+	onOpenWork,
+	canvasView = null,
 	railed = false,
 	now,
 }: WorkspaceOutputsListProps) {
@@ -225,7 +273,7 @@ export function WorkspaceOutputsList({
 				</div>
 			) : error ? (
 				<p className="workspace-outputs-note" role="status">
-					Outputs are unavailable right now.
+					Files are unavailable right now.
 				</p>
 			) : items.length === 0 ? (
 				<div
@@ -236,7 +284,7 @@ export function WorkspaceOutputsList({
 					<p>{WORKSPACE_OUTPUTS_EMPTY_COPY}</p>
 				</div>
 			) : (
-				<ul className="workspace-outputs-list" aria-label="Outputs">
+				<ul className="workspace-outputs-list" aria-label="Files">
 					{items.map((item) => {
 						const selected = isWorkspaceOutputsItemSelected(item, selectedDoc);
 						const updated = relativeTime(item.updatedAt, now);
@@ -274,67 +322,63 @@ export function WorkspaceOutputsList({
 				</ul>
 			)}
 			<div className="workspace-outputs-footer">
-				<RailTooltip label="Approvals" railed={railed}>
-					<Button
-						aria-label={railed ? "Approvals" : undefined}
-						className="workspace-outputs-row"
-						data-workspace-outputs-activity=""
-						multiline
-						onClick={onOpenActivity}
-						size="sm"
-						variant="ghost"
-					>
+				<FooterRow
+					label="Everything here"
+					icon={
+						<Books aria-hidden className="workspace-outputs-icon" size={16} />
+					}
+					railed={railed}
+					current={canvasView === "library"}
+					onClick={onBrowseLibrary}
+					data-workspace-outputs-library=""
+				/>
+				<FooterRow
+					label="Work"
+					icon={
+						<Kanban aria-hidden className="workspace-outputs-icon" size={16} />
+					}
+					railed={railed}
+					current={canvasView === "work"}
+					onClick={onOpenWork}
+					data-workspace-outputs-work=""
+				/>
+				<FooterRow
+					label="Approvals"
+					icon={
 						<ShieldCheck
 							aria-hidden
 							className="workspace-outputs-icon"
 							size={16}
 						/>
-						<span className="workspace-outputs-label">
-							<span className="workspace-outputs-title">Approvals</span>
-						</span>
-					</Button>
-				</RailTooltip>
+					}
+					railed={railed}
+					onClick={onOpenActivity}
+					data-workspace-outputs-activity=""
+				/>
 			</div>
 		</div>
 	);
 }
 
+export const WORKSPACE_OUTPUTS_PANEL_ID = "workspace-outputs-panel";
+
 export function WorkspaceOutputsPanel({
 	expanded,
-	onExpandedChange,
 	...list
 }: Omit<WorkspaceOutputsListProps, "railed"> & {
 	expanded: boolean;
-	onExpandedChange: (expanded: boolean) => void;
 }) {
 	const count = list.loading || list.error ? null : list.items.length;
 	return (
 		<aside
-			aria-label="Workspace outputs"
+			aria-label="Workspace files"
 			className="workspace-outputs-panel"
 			data-expanded={expanded}
-			id="workspace-outputs-panel"
+			id={WORKSPACE_OUTPUTS_PANEL_ID}
 		>
 			<header className="workspace-outputs-header">
-				<Button
-					aria-controls="workspace-outputs-panel"
-					aria-expanded={expanded}
-					aria-label={expanded ? "Collapse outputs" : "Expand outputs"}
-					className="workspace-outputs-toggle"
-					icon={
-						expanded ? (
-							<CaretRight aria-hidden size={14} />
-						) : (
-							<CaretLeft aria-hidden size={14} />
-						)
-					}
-					onClick={() => onExpandedChange(!expanded)}
-					size="icon-sm"
-					title={expanded ? "Collapse outputs" : "Expand outputs"}
-					variant="ghost"
-				/>
 				<h2 className="workspace-outputs-heading">
-					Outputs
+					Files
 					{count ? (
 						<span className="workspace-outputs-count">{count}</span>
 					) : null}

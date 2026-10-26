@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useRef } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
 import {
 	FileText,
 	MonitorPlay,
@@ -11,7 +11,11 @@ import type { OsOutputKind } from "@tedix/api-contract/schemas/os-workspaces";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
-import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
+import {
+	type CanvasDocSelection,
+	type CanvasWorkpieceMode,
+	canvasDocKey,
+} from "@/lib/canvas-search";
 
 /**
  * The workpiece tab strip and its per-document view-mode options. Pure
@@ -19,39 +23,47 @@ import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
  * writes stay in canvas-page.tsx.
  */
 
+/**
+ * The open item's views: the item, then for an app Edit (its code, counting
+ * the drafts waiting there) and History (its runs). Connections and Review
+ * open from the workspace menu; while one is showing it joins the row so the
+ * person can see where they are and get back.
+ */
 export function canvasWorkpieceModeOptions(
 	doc: CanvasDocSelection,
 	outputKind?: OsOutputKind | null,
-	/** Open drafts of a runtime app; the Drafts view exists only while there is one. */
+	/** Open drafts of a runtime app, counted on the Edit tab. */
 	draftCount = 0,
-) {
+	activeMode: CanvasWorkpieceMode = "workpiece",
+): { value: CanvasWorkpieceMode; label: ReactNode }[] {
 	return [
 		{
-			value: "workpiece" as const,
+			value: "workpiece",
 			label:
 				doc.type === "gadget" ? "App" : outputWorkshopKindLabel(outputKind),
 		},
 		...(doc.type === "gadget"
 			? [
-					{ value: "source" as const, label: "Code" },
-					...(draftCount > 0
-						? [
-								{
-									value: "drafts" as const,
-									label: (
-										<span className="inline-flex items-center gap-1.5">
-											Drafts
-											<Badge variant="info">{draftCount}</Badge>
-										</span>
-									),
-								},
-							]
-						: []),
-					{ value: "runs" as const, label: "Runs" },
+					{
+						value: "edit" as const,
+						label:
+							draftCount > 0 ? (
+								<span className="inline-flex items-center gap-1.5">
+									Edit
+									<Badge variant="info">{draftCount}</Badge>
+								</span>
+							) : (
+								"Edit"
+							),
+					},
+					{ value: "history" as const, label: "History" },
 				]
 			: []),
-		{ value: "connections" as const, label: "Connections" },
-		{ value: "activity" as const, label: "Review" },
+		...(activeMode === "connections"
+			? [{ value: "connections" as const, label: "Connections" }]
+			: activeMode === "activity"
+				? [{ value: "activity" as const, label: "Review" }]
+				: []),
 	];
 }
 

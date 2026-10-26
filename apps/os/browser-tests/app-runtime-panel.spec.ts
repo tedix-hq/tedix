@@ -67,7 +67,7 @@ try {
 				waitUntil: "domcontentloaded",
 			});
 
-			// The live app opens directly, beside its Code and Drafts tabs.
+			// The live app opens directly, beside its Edit and History tabs.
 			const tabs = appView(page);
 			await tabs.waitFor();
 			assert.equal(
@@ -78,18 +78,25 @@ try {
 			await guest(page, "Opportunity cards")
 				.getByRole("heading", { name: /opportunities for Maya/ })
 				.waitFor();
-			const draftsTab = tabs.getByRole("button", { name: /^Drafts/ });
-			await draftsTab.waitFor();
+			// The open draft is counted on the Edit tab and announced in the app.
+			const editTab = tabs.getByRole("button", { name: /^Edit/ });
+			await editTab.waitFor();
 			assert.equal(
-				(await draftsTab.innerText()).replace(/\s+/g, " ").trim(),
-				"Drafts 1",
-				`${label}: the Drafts tab counts the open draft`,
+				(await editTab.innerText()).replace(/\s+/g, " ").trim(),
+				"Edit 1",
+				`${label}: the Edit tab counts the open draft`,
+			);
+			const banner = page.locator("[data-canvas-drafts-banner]");
+			assert.match(
+				await banner.innerText(),
+				/1 change is waiting for your review/,
+				`${label}: the app view says a change is waiting`,
 			);
 			await noOverflow(page, `${label} app`);
 			await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
 
-			// Code: builders can edit the revision files into a draft.
-			await tabs.getByRole("button", { name: "Code" }).click();
+			// Edit: builders can edit the revision files into a draft.
+			await editTab.click();
 			const files = page.getByRole("complementary", { name: "Code files" });
 			await files.getByRole("button", { name: "client.js" }).click();
 			const viewer = page.locator("[data-canvas-app-code-file]");
@@ -106,8 +113,8 @@ try {
 				path: `${evidence}/${width}-${theme}-code.png`,
 			});
 
-			// Drafts: what the draft changes, and its own preview.
-			await draftsTab.click();
+			// The draft sits above the code in Edit: what it changes, and its own
+			// preview.
 			const draft = page.getByRole("group", { name: "Draft 1" });
 			await draft.waitFor();
 			await draft.locator('[data-app-draft-file="client.js"]').waitFor();
@@ -129,7 +136,7 @@ try {
 		}
 	}
 
-	// Accepting the draft makes it the live app and closes the Drafts tab.
+	// Accepting the draft makes it the live app and clears the Edit tab's count.
 	{
 		const context = await browser.newContext({
 			viewport: { width: 1280, height: 800 },
@@ -142,12 +149,12 @@ try {
 			waitUntil: "domcontentloaded",
 		});
 		const tabs = appView(page);
-		await tabs.getByRole("button", { name: /^Drafts/ }).click();
+		await tabs.getByRole("button", { name: /^Edit/ }).click();
 		const draft = page.getByRole("group", { name: "Draft 1" });
 		await draft.getByRole("button", { name: "Accept" }).click();
-		await tabs.getByRole("button", { name: /^Drafts/ }).waitFor({
-			state: "detached",
-		});
+		await draft.waitFor({ state: "detached" });
+		// The Edit tab drops its count once nothing waits there.
+		await tabs.getByRole("button", { name: "Edit", exact: true }).waitFor();
 		await guest(page, "Opportunity cards")
 			.getByRole("heading", { name: /reviewed · Maya/ })
 			.waitFor();
@@ -174,7 +181,7 @@ try {
 			waitUntil: "domcontentloaded",
 		});
 		const tabs = appView(page);
-		await tabs.getByRole("button", { name: "Code" }).click();
+		await tabs.getByRole("button", { name: /^Edit/ }).click();
 		await page
 			.getByRole("complementary", { name: "Code files" })
 			.getByRole("button", { name: "client.js" })
@@ -211,9 +218,7 @@ try {
 			expectedRevision: current.currentRevision.revision,
 		});
 		await page.reload({ waitUntil: "domcontentloaded" });
-		await appView(page)
-			.getByRole("button", { name: /^Drafts/ })
-			.click();
+		await appView(page).getByRole("button", { name: /^Edit/ }).click();
 		await draft.getByRole("button", { name: "Update to latest" }).click();
 		await draft
 			.getByText("Changes combined cleanly.", { exact: false })
@@ -224,8 +229,8 @@ try {
 			.waitFor({ state: "visible" });
 		await draft.getByRole("button", { name: "Accept", exact: true }).click();
 		await appView(page)
-			.getByRole("button", { name: /^Drafts/ })
-			.waitFor({ state: "detached" });
+			.getByRole("button", { name: "Edit", exact: true })
+			.waitFor();
 		const combined = await rpc("osWorkspaces/gadgets/getCode", {
 			workspaceId,
 			gadgetId,
@@ -233,7 +238,7 @@ try {
 		assert.match(combined.code.files["client.js"], /draft change/);
 		assert.match(combined.code.files["server.js"], /mainline change/);
 		// A second Code draft and a mainline edit to the same line show markers.
-		await appView(page).getByRole("button", { name: "Code" }).click();
+		await appView(page).getByRole("button", { name: /^Edit/ }).click();
 		await page
 			.getByRole("complementary", { name: "Code files" })
 			.getByRole("button", { name: "client.js" })
@@ -264,9 +269,7 @@ try {
 			expectedRevision: latest.currentRevision.revision,
 		});
 		await page.reload({ waitUntil: "domcontentloaded" });
-		await appView(page)
-			.getByRole("button", { name: /^Drafts/ })
-			.click();
+		await appView(page).getByRole("button", { name: /^Edit/ }).click();
 		await draft.getByRole("button", { name: "Update to latest" }).click();
 		await draft.getByRole("button", { name: "client.js", exact: true }).click();
 		const conflict = draft.getByRole("textbox", { name: "Edit client.js" });
@@ -288,8 +291,8 @@ try {
 		await draft.getByRole("button", { name: "Save as draft" }).click();
 		await draft.getByRole("button", { name: "Accept", exact: true }).click();
 		await appView(page)
-			.getByRole("button", { name: /^Drafts/ })
-			.waitFor({ state: "detached" });
+			.getByRole("button", { name: "Edit", exact: true })
+			.waitFor();
 		const resolved = await rpc("osWorkspaces/gadgets/getCode", {
 			workspaceId,
 			gadgetId,
@@ -298,7 +301,7 @@ try {
 		await context.close();
 	}
 	console.log(
-		`Runtime app panel (App, Code, Drafts, accept) passed at 375px and 1280px in light and dark; screenshots in ${evidence}`,
+		`Runtime app panel (App, Edit with drafts, accept) passed at 375px and 1280px in light and dark; screenshots in ${evidence}`,
 	);
 } finally {
 	await browser?.close();
