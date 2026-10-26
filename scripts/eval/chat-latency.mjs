@@ -5,6 +5,9 @@
  * TEDIX_ORGANIZATION=<selected-org> bun scripts/eval/chat-latency.mjs \
  *   --profile connect --label baseline --out /tmp/chat-baseline --rounds 2
  *
+ * Requires an authenticated external-agent session. Scratch data is fictional
+ * and org-visible; cleanup never uses an owner's approval queue.
+ * Add --documents-only for the three document-create fixtures per round.
  * Each round uses fresh conversations and distinct fictional output titles.
  * Cold/warm means the server's actual isolate tag, never an assumed CLI cold
  * start. A managed deployment is needed before measuring a source change.
@@ -14,6 +17,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 
 export const fixtures = [
@@ -174,9 +178,9 @@ export function unwrap(value) {
 
 export function createWorkspaceCode(label, now = Date.now()) {
 	return `return await os.create_os_workspace(${codeModeLiteral({
-		name: `Blue Harbor Latency ${label} ${now}`,
-		description: "Fictional scratch eval; archived after measurements.",
-		visibility: "private",
+		name: "Latency Lab",
+		description: `Fictional scratch eval ${label} ${now}; archived after measurements.`,
+		visibility: "org",
 	})});`;
 }
 
@@ -416,6 +420,7 @@ async function main() {
 			out: { type: "string" },
 			rounds: { type: "string", default: "2" },
 			recheck: { type: "boolean" },
+			"documents-only": { type: "boolean" },
 		},
 	});
 	if (values.recheck) {
@@ -435,11 +440,22 @@ async function main() {
 	await mkdir(values.out, { recursive: true });
 	async function cli(args) {
 		const started = performance.now();
-		const proc = Bun.spawn(["tedix", "-w", values.profile, ...args], {
-			stdout: "pipe",
-			stderr: "pipe",
-			env: process.env,
-		});
+		const proc = Bun.spawn(
+			[
+				"tedix",
+				"--organization",
+				process.env.TEDIX_ORGANIZATION,
+				"--workspace",
+				values.profile,
+				...args,
+			],
+			{
+				cwd: homedir(),
+				stdout: "pipe",
+				stderr: "pipe",
+				env: process.env,
+			},
+		);
 		const [stdout, stderr, exit] = await Promise.all([
 			new Response(proc.stdout).text(),
 			new Response(proc.stderr).text(),
@@ -555,6 +571,14 @@ async function main() {
 	process.on("SIGINT", onSignal);
 	process.on("SIGTERM", onSignal);
 	try {
+		const runtime = await code("return await codemode.__runtime();");
+		if (
+			runtime?.actor?.authType !== "external_agent" ||
+			!runtime.actor.externalAgentSessionId
+		)
+			throw new Error(
+				"Eval requires a verified external-agent session so cleanup cannot file owner approval cards",
+			);
 		workspace = (await code(createWorkspaceCode(values.label))).workspace;
 		await writeFile(
 			join(values.out, "workspace.json"),
@@ -563,6 +587,8 @@ async function main() {
 		for (let round = 1; round <= rounds && !interrupted; round++) {
 			const outputs = new Map();
 			for (const f of fixtures) {
+				if (values["documents-only"] && (f.kind !== "document" || f.target))
+					continue;
 				if (interrupted) break;
 				const target = f.target ? outputs.get(f.target) : null;
 				const title =
@@ -623,6 +649,10 @@ async function main() {
 						status: run.status,
 						model: m.bodyExecutionResult?.usage?.model ?? null,
 					});
+					if (run.status !== "completed")
+						throw new Error(
+							`Chat run ${run.status}: ${inspected.summary.assistantText}`,
+						);
 					if (f.kind) {
 						const listed = await code(
 							`return await os.list_os_outputs(${codeModeLiteral({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
