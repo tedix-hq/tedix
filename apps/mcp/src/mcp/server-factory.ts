@@ -36,6 +36,7 @@ import {
 	shouldBypassCodeModeForCaller,
 } from "./caller-identity";
 import { ToolHandler } from "./handler";
+import { copyCatalogTool } from "./catalog-projection";
 import { resolveToolWidgetRoute } from "./utils/render-widget";
 import { registerResourceTemplates } from "./registration/resource-templates";
 import type {
@@ -1030,14 +1031,7 @@ export async function buildMcpServer(
 		)
 			continue;
 		if (allowSet && !allowSet.has(tool.toolId)) continue;
-		const requestScopedTool = {
-			...tool,
-			config:
-				tool.config && typeof tool.config === "object"
-					? { ...(tool.config as Record<string, JsonValue>) }
-					: tool.config,
-		};
-		serverCtx.loadedTools.set(tool.toolId, requestScopedTool);
+		serverCtx.loadedTools.set(tool.toolId, copyCatalogTool(tool));
 	}
 
 	if (allowSet) {

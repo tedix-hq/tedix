@@ -381,11 +381,37 @@ function textContains(
 	return patterns.some((pattern) => pattern.test(bounded));
 }
 
+// Query-owned, bounded prefixes avoid repeatedly enumerating a shared vendor
+// schema. Tiny records are cheaper to read directly and do not evict wide ones.
+const schemaKeysByQuery = new WeakMap<string[], Map<object, string[]>>();
+
+function schemaKeys(value: Record<string, unknown>, terms: string[]): string[] {
+	const cached = schemaKeysByQuery.get(terms);
+	const hit = cached?.get(value);
+	if (hit) return hit;
+	// Even an empty key costs three characters in the schema prefix budget.
+	const keys = Object.keys(value).slice(
+		0,
+		Math.ceil(CATALOG_SEARCH_PARAMETERS_CHARS / 3),
+	);
+	if (keys.length > 64) {
+		const entries = cached ?? new Map<object, string[]>();
+		if (entries.size >= 16) entries.delete(entries.keys().next().value!);
+		entries.set(value, keys);
+		schemaKeysByQuery.set(terms, entries);
+	}
+	return keys;
+}
+
 /**
  * Walk the input schema's keys and scalar values in document order, charging
  * each against the same prefix budget the serialized schema used to have.
  */
-function schemaContains(schema: unknown, patterns: readonly RegExp[]): boolean {
+function schemaContains(
+	schema: unknown,
+	patterns: readonly RegExp[],
+	terms: string[],
+): boolean {
 	let budget = CATALOG_SEARCH_PARAMETERS_CHARS;
 	// Containers are visited through cursors, so a wide schema is read only as
 	// far as the budget reaches. A record cursor yields each key, then its value.
@@ -422,7 +448,7 @@ function schemaContains(schema: unknown, patterns: readonly RegExp[]): boolean {
 			cursors.push({ items: value, keys: null, index: 0 });
 		} else if (isRecord(value)) {
 			budget -= 2;
-			cursors.push({ items: value, keys: Object.keys(value), index: 0 });
+			cursors.push({ items: value, keys: schemaKeys(value, terms), index: 0 });
 		}
 	}
 	return false;
@@ -442,6 +468,7 @@ type ScoringField = {
 function scoringFields(
 	toolName: string,
 	meta: CatalogToolEntry,
+	terms: string[],
 ): ScoringField[] {
 	return [
 		{ weight: 12, matches: (p) => textContains(toolName, p) },
@@ -453,7 +480,7 @@ function scoringFields(
 			matches: (p) =>
 				textContains(meta.description, p, CATALOG_SEARCH_DESCRIPTION_CHARS),
 		},
-		{ weight: 1, matches: (p) => schemaContains(meta.parameters, p) },
+		{ weight: 1, matches: (p) => schemaContains(meta.parameters, p, terms) },
 	];
 }
 
@@ -530,7 +557,7 @@ function computeCatalogSearch(
 		const variants = searchTermVariants(term);
 		const patterns = variants.map(termPattern);
 		let best = namespaceWeight(namespace, variants, patterns);
-		for (const field of (fields ??= scoringFields(toolName, meta))) {
+		for (const field of (fields ??= scoringFields(toolName, meta, terms))) {
 			if (field.weight <= best) break;
 			if (field.matches(patterns)) {
 				best = field.weight;

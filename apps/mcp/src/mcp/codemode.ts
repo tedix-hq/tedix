@@ -62,7 +62,7 @@ import {
 	buildFlowProvider,
 } from "./codemode-flow";
 import { UI_NAMESPACE, buildUiProvider } from "./codemode-ui";
-import { buildCatalogProvider } from "./codemode-catalog";
+import { resolveLazyCatalogProvider } from "./codemode-catalog";
 import { configuredAggregateNamespaces } from "./aggregate-namespaces";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
 import { buildCompactTypes } from "@tedix/mcp-shared/compact-types";
@@ -265,13 +265,12 @@ export async function registerCodeModeTools(
 	const moduleNames = modules ? Object.keys(modules) : [];
 
 	// Build catalog provider (search + describe + list_namespaces)
-	const catalogProvider = buildCatalogProvider(
+	const resolvedCatalog = resolveLazyCatalogProvider(
 		serverCtx,
 		namespaceOverrides,
 		executionRefs,
 		collisionKeys,
 	);
-	const resolvedCatalog = resolveProvider(catalogProvider);
 	const resolvedUiProvider = resolveProvider(buildUiProvider(serverCtx));
 	for (const name of ["create_view", "create_mcp_app", "create_health_sweep"]) {
 		const execute = resolvedUiProvider.fns[name];

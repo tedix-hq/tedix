@@ -206,6 +206,7 @@ describe("Code Mode discovery helpers", () => {
 		const tools: Record<string, CatalogToolEntry> = {};
 		const serializations = new Uint32Array(16_000);
 		let propertyReads = 0;
+		let keyEnumerations = 0;
 		const properties = new Proxy(
 			Object.fromEntries(
 				Array.from({ length: 2_000 }, (_, p) => [
@@ -214,6 +215,10 @@ describe("Code Mode discovery helpers", () => {
 				]),
 			),
 			{
+				ownKeys(target) {
+					keyEnumerations++;
+					return Reflect.ownKeys(target);
+				},
 				get(target, key, receiver) {
 					propertyReads++;
 					return Reflect.get(target, key, receiver);
@@ -256,6 +261,7 @@ describe("Code Mode discovery helpers", () => {
 		const readsPerEntry = propertyReads / serializations.length;
 		expect(readsPerEntry).toBeGreaterThan(0);
 		expect(readsPerEntry).toBeLessThan(120);
+		expect(keyEnumerations).toBe(1);
 	});
 
 	it("matches schema text inside the indexed prefix only", () => {

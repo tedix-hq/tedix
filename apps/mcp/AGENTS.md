@@ -27,6 +27,14 @@ transport. Other state that must survive a request lives in D1 or the
 module-level caches below, and tool
 handler closures capture per-request `ServerContext` (fresh caller identity).
 
+Code Mode defers discovery catalog construction until a `discover.*` call and
+projects inline schemas only when needed. Pure tool descriptors are reused by
+`src/mcp/catalog-projection.ts`, keyed by the source row object from the current
+app/aggregate snapshot plus namespace and skill-enriched description. A refreshed
+snapshot replaces those row objects, so this adds no TTL or stale-data window.
+Weak keys release old revisions; each row retains at most two descriptor variants.
+Authorization, native eligibility and execution closures remain request-local.
+
 ## Tools are D1 rows, not files
 
 Every app tool is a config-driven `app_tools` row executed by the universal
