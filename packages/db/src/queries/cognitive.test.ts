@@ -334,24 +334,6 @@ ${methods.map((method) => `      - ${method}`).join("\n")}
 		);
 	});
 
-	it.each(["os", "work"])(
-		"recognizes the gateway platform %s namespace without an app row",
-		async (namespace) => {
-			const result = await validateSkillInput(capabilityDb([]), {
-				title: "Gateway Platform Skill",
-				description: "Calls a platform namespace mounted by the gateway",
-				summary: "gateway platform namespace validation",
-				content: capabilityContent(namespace, ["list_records"]),
-			});
-
-			expect(
-				result.warnings.filter((warning) =>
-					warning.code.startsWith("SKILL_CAPABILITY_"),
-				),
-			).toEqual([]);
-		},
-	);
-
 	it("recognizes the aggregate cognitive workflow namespace without an app row", async () => {
 		const result = await validateSkillInput(capabilityDb([]), {
 			title: "Hosted Artifact Skill",

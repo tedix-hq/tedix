@@ -45,6 +45,27 @@ capabilities:
 ---
 Body.`;
 
+it.each(["os", "work"])(
+	"recognizes the gateway platform %s namespace without an app row",
+	async (namespace) => {
+		const result = await validateSkillInput({} as never, {
+			...base,
+			content: `---
+capabilities:
+  mcp:
+    ${namespace}: [list_records]
+---
+Body.`,
+		});
+
+		expect(
+			result.warnings.filter((warning) =>
+				warning.code.startsWith("SKILL_CAPABILITY_"),
+			),
+		).toEqual([]);
+	},
+);
+
 describe("validate_skill schedule parity with the scheduler", () => {
 	it("rejects a cron the scheduler cannot parse and names the syntax", async () => {
 		const result = await validateSkillInput({} as never, {
