@@ -11,8 +11,9 @@ import {
 import { procedureOutputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToStructuredOutputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import * as toolJsonSchema from "@tedix/api-contract/utils/tool-json-schema";
-import type { DbClient } from "@tedix/db/client";
-import type { AppTool } from "@tedix/db/schema";
+import type { SQL } from "drizzle-orm";
+import { createApiSqliteFixture } from "../rpc/routers/__tests__/api-sqlite";
+import { apps, appTools, type AppTool } from "@tedix/db/schema";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	OS_KIND_OVERRIDES,
@@ -57,129 +58,83 @@ function makeRpcTool(
 	} as AppTool;
 }
 
-/** Every bound value under a drizzle SQL node, including IN (…) lists. */
-function boundValues(node: unknown, out: unknown[] = []): unknown[] {
-	if (!node || typeof node !== "object") return out;
-	if (Array.isArray(node)) {
-		for (const entry of node) boundValues(entry, out);
-		return out;
-	}
-	const record = node as { queryChunks?: unknown[]; value?: unknown };
-	if ("value" in record) {
-		if (Array.isArray(record.value)) out.push(...record.value);
-		else out.push(record.value);
-	}
-	if (record.queryChunks) boundValues(record.queryChunks, out);
-	return out;
-}
-
 function makeDb(rows: AppTool[]) {
+	const fixture = createApiSqliteFixture();
+	fixture.seed(apps, [
+		{
+			id: TEST_ADMIN_APP_ID,
+			organizationId: "org-test",
+			name: "Tedix",
+			slug: "tedix",
+		},
+	]);
+	const store = fixture.rows<AppTool>(appTools, structuredClone(rows));
 	const updates: Array<{ id: string; patch: Partial<AppTool> }> = [];
 	const inserts: AppTool[] = [];
 	const deletes: string[] = [];
-	/** Statement count of each `db.batch()` call. */
 	const batches: number[] = [];
-	let selectedRows = rows;
-	const store = [...rows];
-
-	const db = {
-		batch: async (statements: Array<Promise<unknown>>) => {
-			batches.push(statements.length);
-			return Promise.all(statements);
-		},
-		select: () => ({
-			from: () => ({
-				where: () => ({
-					orderBy: async () => selectedRows,
-				}),
-			}),
-		}),
-		// `upsertTool` reaches through db.query for id/unique-constraint lookups;
-		// the sync resolves the admin app by slug through the same surface.
-		query: {
-			apps: {
-				findFirst: async () => ({ id: TEST_ADMIN_APP_ID, slug: "tedix" }),
-			},
-			appTools: {
-				findFirst: async ({
-					where,
-				}: {
-					where: { id?: string; appId?: string; toolId?: string };
-				}) => {
-					if (where.id) return store.find((row) => row.id === where.id);
-					if (where.appId && where.toolId) {
-						return store.find(
-							(row) => row.appId === where.appId && row.toolId === where.toolId,
-						);
-					}
-					return undefined;
-				},
-			},
-		},
-		insert: () => ({
-			values: async (value: AppTool) => {
-				inserts.push(value);
-				store.push(value);
-				selectedRows = [...selectedRows, value];
-			},
-		}),
-		delete: () => ({
-			where: async () => {
-				const row = store[deletes.length];
-				if (!row) return;
-				deletes.push(row.id);
-				const keep = (item: AppTool) => item.id !== row.id;
-				selectedRows = selectedRows.filter(keep);
-				const index = store.findIndex((item) => item.id === row.id);
-				if (index >= 0) store.splice(index, 1);
-			},
-		}),
-		update: () => ({
-			set: (patch: Partial<AppTool>) => ({
-				where: async (where: unknown) => {
-					const boundIds = new Set(
-						boundValues(where).filter((value) =>
-							store.some((row) => row.id === value),
-						),
-					);
-					const endpoint = (patch.config as Record<string, unknown> | undefined)
-						?.endpoint;
-					const rows =
-						boundIds.size > 0
-							? store.filter((candidate) => boundIds.has(candidate.id))
-							: [
-									store.find((candidate) => {
-										if (patch.id && candidate.id === patch.id) return true;
-										const config = candidate.config as Record<
-											string,
-											unknown
-										> | null;
-										return (
-											typeof endpoint === "string" &&
-											config?.endpoint === endpoint
-										);
-									}) ?? store[updates.length]!,
-								];
-					for (const row of rows) {
-						updates.push({ id: row.id, patch });
-						const apply = (item: AppTool) =>
-							item.id === row.id ? ({ ...item, ...patch } as AppTool) : item;
-						selectedRows = selectedRows.map(apply);
-						for (let i = 0; i < store.length; i++) store[i] = apply(store[i]!);
-					}
-				},
-			}),
-		}),
-	};
-
-	return {
-		db: db as unknown as DbClient,
-		updates,
-		inserts,
-		deletes,
-		batches,
-		store,
-	};
+	const db = fixture.db;
+	const insert = db.insert.bind(db);
+	db.insert = ((table: typeof appTools) => {
+		const builder = insert(table);
+		const values = builder.values.bind(builder);
+		builder.values = ((value: AppTool) => {
+			if (table === appTools)
+				inserts.push(...(Array.isArray(value) ? value : [value]));
+			return values(value);
+		}) as typeof builder.values;
+		return builder;
+	}) as typeof db.insert;
+	const update = db.update.bind(db);
+	db.update = ((table: typeof appTools) => {
+		const builder = update(table);
+		const set = builder.set.bind(builder);
+		builder.set = ((patch: Partial<AppTool>) => {
+			const query = set(patch);
+			const where = query.where.bind(query);
+			query.where = ((clause: SQL) => {
+				const selection = db
+					.select({ id: appTools.id })
+					.from(appTools)
+					.where(clause)
+					.toSQL();
+				for (const row of fixture.sqlite
+					.prepare(selection.sql)
+					.all(...selection.params) as Array<{ id: string }>)
+					updates.push({ id: row.id, patch });
+				return where(clause);
+			}) as typeof query.where;
+			return query;
+		}) as typeof builder.set;
+		return builder;
+	}) as typeof db.update;
+	const remove = db.delete.bind(db);
+	db.delete = ((table: typeof appTools) => {
+		const query = remove(table);
+		const where = query.where.bind(query);
+		query.where = ((clause: SQL) => {
+			const selection = db
+				.select({ id: appTools.id })
+				.from(appTools)
+				.where(clause)
+				.toSQL();
+			deletes.push(
+				...(
+					fixture.sqlite
+						.prepare(selection.sql)
+						.all(...selection.params) as Array<{ id: string }>
+				).map((row) => row.id),
+			);
+			return where(clause);
+		}) as typeof query.where;
+		return query;
+	}) as typeof db.delete;
+	const batch = db.batch.bind(db);
+	db.batch = ((statements: Parameters<typeof db.batch>[0]) => {
+		batches.push(statements.length);
+		return batch(statements);
+	}) as typeof db.batch;
+	return { db, store, updates, inserts, deletes, batches };
 }
 
 describe("schema-only provenance refresh", () => {

@@ -1,4 +1,5 @@
-import type { tediRuntimeEvents } from "@tedix/db/schema";
+import { createApiSqliteFixture } from "./__tests__/api-sqlite";
+import { chatDispatchIdempotency, tediRuntimeEvents } from "@tedix/db/schema";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	findOrphanRuns,
@@ -7,7 +8,6 @@ import {
 } from "./cognitive-runtime/recovery-artifacts";
 
 type RuntimeEventRow = typeof tediRuntimeEvents.$inferSelect;
-type RuntimeEventInsert = typeof tediRuntimeEvents.$inferInsert;
 type DispatchMapping = {
 	tediId: string;
 	organizationId?: string | null;
@@ -25,224 +25,25 @@ const FRESH = new Date(NOW.getTime() - 3 * 60_000).toISOString(); // 3 min old
 const ORG = "org-1";
 const TEDI = "tedi-1";
 
-function isSuccessfulMessage(row: RuntimeEventRow): boolean {
-	return (
-		row.kind === "message.completed" &&
-		!["failed", "error", "canceled", "cancelled"].includes(
-			String(row.payload?.status ?? "").toLowerCase(),
-		) &&
-		row.payload?.error == null
-	);
-}
-
-/**
- * Tiny in-memory shim that supports just what findOrphanRuns + sweepOrphanRuns
- * need: `db.all(sql)` and `db.insert(...).values(...).onConflictDoNothing(...).returning()`.
- * The SQL filter is re-implemented here in TS — the test's job is to verify the
- * orphan criteria, not Drizzle's SQL passthrough.
- */
 function createFakeDb(
 	initialEvents: RuntimeEventRow[],
 	dispatchMappings: DispatchMapping[] = [],
 ) {
-	const events = [...initialEvents];
-	const mappings = [...dispatchMappings];
-
-	return {
-		events,
-		insert(_table: unknown) {
-			let pending: RuntimeEventInsert[] = [];
-			return {
-				values(value: RuntimeEventInsert | RuntimeEventInsert[]) {
-					pending = Array.isArray(value) ? value : [value];
-					return this;
-				},
-				onConflictDoNothing() {
-					return this;
-				},
-				returning() {
-					const inserted: RuntimeEventRow[] = [];
-					for (const row of pending) {
-						if (events.some((e) => e.id === row.id)) continue;
-						const normalized: RuntimeEventRow = {
-							id: row.id,
-							organizationId: row.organizationId,
-							tediId: row.tediId,
-							kind: row.kind,
-							conversationId: row.conversationId ?? null,
-							runId: row.runId ?? null,
-							messageId: row.messageId ?? null,
-							toolCallId: row.toolCallId ?? null,
-							approvalRequestId: row.approvalRequestId ?? null,
-							artifactId: row.artifactId ?? null,
-							sequence: row.sequence ?? null,
-							delta: row.delta ?? null,
-							payload: row.payload ?? null,
-							runtimeBackend: row.runtimeBackend,
-							runtimeExternalId: row.runtimeExternalId ?? null,
-							runtimeExternalUrl: row.runtimeExternalUrl ?? null,
-							runtimeMetadata: row.runtimeMetadata ?? null,
-							createdAt: row.createdAt ?? NOW.toISOString(),
-						};
-						events.push(normalized);
-						inserted.push(normalized);
-					}
-					return Promise.resolve(inserted);
-				},
-			};
-		},
-		async all(query: unknown) {
-			// We rebuild the orphan filter here. The SQL passed in has interpolated
-			// params; for the test we use known cutoffs from the test inputs.
-			const orphanCutoff = new Date(NOW.getTime() - 15 * 60_000).toISOString();
-			const activityCutoff = new Date(NOW.getTime() - 5 * 60_000).toISOString();
-			const queryValues: unknown[] = [];
-			const collectQueryValues = (value: unknown, seen = new Set<object>()) => {
-				if (
-					value === null ||
-					typeof value === "string" ||
-					typeof value === "number"
-				) {
-					queryValues.push(value);
-					return;
-				}
-				if (typeof value !== "object" || seen.has(value)) return;
-				seen.add(value);
-				if (Array.isArray(value)) {
-					for (const entry of value) collectQueryValues(entry, seen);
-					return;
-				}
-				const chunks = (value as { queryChunks?: unknown }).queryChunks;
-				if (chunks) collectQueryValues(chunks, seen);
-			};
-			collectQueryValues(query);
-			const organizationFilter = queryValues.includes(ORG) ? ORG : null;
-			const sqlLimit = [...queryValues]
-				.reverse()
-				.find((value): value is number => typeof value === "number");
-
-			const startedRows = events.filter(
-				(e) =>
-					e.kind === "run.started" &&
-					e.runId !== null &&
-					(!organizationFilter || e.organizationId === organizationFilter) &&
-					e.createdAt < orphanCutoff,
-			);
-
-			const orphans = startedRows.filter((started) => {
-				const hasTerminator = events.some(
-					(other) =>
-						other.tediId === started.tediId &&
-						(!organizationFilter ||
-							other.organizationId === started.organizationId) &&
-						other.runId === started.runId &&
-						(other.kind === "run.completed" ||
-							other.kind === "run.failed" ||
-							other.kind === "run.canceled"),
-				);
-				if (hasTerminator) return false;
-				const hasRecentProgress = events.some(
-					(other) =>
-						other.tediId === started.tediId &&
-						(!organizationFilter ||
-							other.organizationId === started.organizationId) &&
-						other.runId === started.runId &&
-						(other.kind === "message.delta" ||
-							other.kind === "tool.started" ||
-							other.kind === "tool.completed" ||
-							other.kind === "tool.failed" ||
-							other.kind === "message.progress" ||
-							other.kind === "step.completed" ||
-							other.kind === "step.retry") &&
-						other.createdAt >= activityCutoff,
-				);
-				if (hasRecentProgress) return false;
-				const hasPendingApproval = events.some(
-					(req) =>
-						req.tediId === started.tediId &&
-						(!organizationFilter ||
-							req.organizationId === started.organizationId) &&
-						req.runId === started.runId &&
-						req.kind === "approval.requested" &&
-						!events.some(
-							(res) =>
-								res.tediId === req.tediId &&
-								(!organizationFilter ||
-									res.organizationId === started.organizationId) &&
-								res.runId === req.runId &&
-								res.kind === "approval.resolved",
-						),
-				);
-				if (hasPendingApproval) return false;
-				const mappedRun = mappings.find(
-					(mapping) =>
-						mapping.tediId === started.tediId &&
-						(!organizationFilter ||
-							mapping.organizationId === started.organizationId) &&
-						mapping.conversationId === started.conversationId &&
-						mapping.idempotencyKey === started.runId &&
-						mapping.runId !== null &&
-						mapping.runId !== started.runId,
-				);
-				if (mappedRun?.runId) {
-					const mappedHasTerminalOrSuccess = events.some(
-						(other) =>
-							other.tediId === started.tediId &&
-							(!organizationFilter ||
-								other.organizationId === started.organizationId) &&
-							other.runId === mappedRun.runId &&
-							(other.kind === "run.completed" ||
-								other.kind === "run.failed" ||
-								other.kind === "run.canceled" ||
-								isSuccessfulMessage(other)),
-					);
-					if (mappedHasTerminalOrSuccess) return false;
-					const mappedHasRecentProgress = events.some(
-						(other) =>
-							other.tediId === started.tediId &&
-							(!organizationFilter ||
-								other.organizationId === started.organizationId) &&
-							other.runId === mappedRun.runId &&
-							(other.kind === "message.delta" ||
-								other.kind === "tool.started" ||
-								other.kind === "tool.completed" ||
-								other.kind === "tool.failed" ||
-								other.kind === "message.progress" ||
-								other.kind === "step.completed" ||
-								other.kind === "step.retry") &&
-							other.createdAt >= activityCutoff,
-					);
-					if (mappedHasRecentProgress) return false;
-				}
-				return true;
-			});
-
-			return orphans
-				.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-				.map((r) => ({
-					id: r.id,
-					tedi_id: r.tediId,
-					organization_id: r.organizationId,
-					run_id: r.runId,
-					conversation_id: r.conversationId,
-					runtime_backend: r.runtimeBackend,
-					runtime_external_id: r.runtimeExternalId,
-					created_at: r.createdAt,
-					// Mirrors the successful-message projection in findOrphanRuns.
-					succeeded_lost: events.some(
-						(other) =>
-							other.tediId === r.tediId &&
-							(!organizationFilter ||
-								other.organizationId === r.organizationId) &&
-							other.runId === r.runId &&
-							isSuccessfulMessage(other),
-					)
-						? 1
-						: 0,
-				}))
-				.slice(0, sqlLimit);
-		},
-	};
+	const fixture = createApiSqliteFixture();
+	const events = fixture.rows<RuntimeEventRow>(
+		tediRuntimeEvents,
+		initialEvents,
+	);
+	fixture.seed(
+		chatDispatchIdempotency,
+		dispatchMappings.map((row, index) => ({
+			id: `mapping-${index}`,
+			organizationId: ORG,
+			createdAt: NOW.toISOString(),
+			...row,
+		})),
+	);
+	return Object.assign(fixture.db, { events });
 }
 
 function makeEvent(overrides: Partial<RuntimeEventRow>): RuntimeEventRow {
@@ -1069,53 +870,49 @@ describe("orphan-run health", () => {
 		expect(health.samples).toEqual([]);
 	});
 
-	it("ignores cross-org dispatch mappings and mapped-run evidence", async () => {
-		const conversationId = "agent:main:cross-org-map";
-		const db = createFakeDb(
-			[
-				makeEvent({
-					id: "mapped-start",
-					runId: "optimistic-key",
-					conversationId,
-					organizationId: ORG,
-					createdAt: OLD_BUT_ACTIVE,
-				}),
-				makeEvent({
-					id: "mapped-terminal-other-org",
-					kind: "run.completed",
-					runId: "mapped-backend-run",
-					organizationId: "org-2",
-					createdAt: TEN_MIN_AGO,
-				}),
-			],
-			[
-				{
-					tediId: TEDI,
-					organizationId: ORG,
-					conversationId,
-					idempotencyKey: "optimistic-key",
-					runId: "mapped-backend-run",
-				},
-				{
-					tediId: TEDI,
-					organizationId: "org-2",
-					conversationId,
-					idempotencyKey: "optimistic-key",
-					runId: "other-org-backend-run",
-				},
-			],
-		);
+	it.each([ORG, "org-2"])(
+		"ignores cross-org dispatch mappings and mapped-run evidence (%s)",
+		async (mappingOrg) => {
+			const conversationId = "agent:main:cross-org-map";
+			const db = createFakeDb(
+				[
+					makeEvent({
+						id: "mapped-start",
+						runId: "optimistic-key",
+						conversationId,
+						organizationId: ORG,
+						createdAt: OLD_BUT_ACTIVE,
+					}),
+					makeEvent({
+						id: "mapped-terminal-other-org",
+						kind: "run.completed",
+						runId: "mapped-backend-run",
+						organizationId: "org-2",
+						createdAt: TEN_MIN_AGO,
+					}),
+				],
+				[
+					{
+						tediId: TEDI,
+						organizationId: mappingOrg,
+						conversationId,
+						idempotencyKey: "optimistic-key",
+						runId: "mapped-backend-run",
+					},
+				],
+			);
 
-		const health = await getOrphanRunHealth(
-			db as unknown as Parameters<typeof getOrphanRunHealth>[0],
-			ORG,
-			{ now: NOW, orphanAgeMinutes: 15, activityWindowMinutes: 5 },
-		);
+			const health = await getOrphanRunHealth(
+				db as unknown as Parameters<typeof getOrphanRunHealth>[0],
+				ORG,
+				{ now: NOW, orphanAgeMinutes: 15, activityWindowMinutes: 5 },
+			);
 
-		expect(health.samples.map((sample) => sample.runId)).toEqual([
-			"optimistic-key",
-		]);
-	});
+			expect(health.samples.map((sample) => sample.runId)).toEqual([
+				"optimistic-key",
+			]);
+		},
+	);
 
 	it("labels capped counts as lower bounds and keeps succeeded-lost evidence", async () => {
 		const db = createFakeDb([

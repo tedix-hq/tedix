@@ -1,3 +1,4 @@
+import { createApiSqliteFixture } from "../__tests__/api-sqlite";
 import { SQL } from "drizzle-orm";
 import { SQLiteDialect } from "drizzle-orm/sqlite-core";
 import type { HomeRun } from "@tedix/api-contract/schemas/kernel-runtime";
@@ -25,16 +26,6 @@ import {
 	readChildRunEvidenceRows,
 	readChildRunResultAndLiveness,
 } from "./child-run-reads";
-
-// Run-scoped event queries wrap the table in SQL to pin the production index.
-// Keep the fixture's filtering and retry behavior for that same table source.
-function isRuntimeEventSource(source: unknown): boolean {
-	return (
-		source === tediRuntimeEventsTable ||
-		(source instanceof SQL &&
-			source.queryChunks.includes(tediRuntimeEventsTable))
-	);
-}
 
 type EventRow = typeof tediRuntimeEvents.$inferSelect;
 
@@ -1200,12 +1191,6 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 		} as EventRow;
 	}
 
-	/**
-	 * Table-aware chainable db stub: tediRuntimeEvents selects can be made to
-	 * reject the first N attempts (transient flake), tediArtifacts selects
-	 * resolve the given artifact rows, everything else (the
-	 * chatDispatchIdempotency mapping read) resolves [].
-	 */
 	function evidenceDbStub(opts: {
 		eventRows: EventRow[];
 		artifactRows?: Array<Record<string, unknown>>;
@@ -1217,46 +1202,64 @@ describe("readChildRunEvidenceRows (delegated-run keying + transient D1 retry)",
 		let eventReadCalls = 0;
 		let artifactReadCalls = 0;
 		const eventQueryParams: unknown[][] = [];
-		const db = {
-			select() {
-				let table: unknown;
-				const chain = {
-					from(t: unknown) {
-						table = t;
-						return chain;
-					},
-					where(clause: SQL) {
-						if (isRuntimeEventSource(table))
-							eventQueryParams.push(
-								new SQLiteDialect().sqlToQuery(clause).params,
-							);
-						return chain;
-					},
-					orderBy() {
-						return chain;
-					},
-					limit() {
-						if (isRuntimeEventSource(table)) {
-							eventReadCalls += 1;
-							if (eventReadCalls > 1 && opts.finalEventRows)
-								return Promise.resolve(opts.finalEventRows);
-							if (eventReadCalls <= (opts.failFirstEventReads ?? 0)) {
-								return Promise.reject(opts.eventReadError ?? TRANSIENT_502);
-							}
-							return Promise.resolve(opts.eventRows);
-						}
-						if (table === tediArtifactsTable) {
-							artifactReadCalls += 1;
-							if (opts.artifactReadError)
-								return Promise.reject(opts.artifactReadError);
-							return Promise.resolve(opts.artifactRows ?? []);
-						}
-						return Promise.resolve([]);
-					},
-				};
-				return chain;
-			},
-		};
+		const fixture = createApiSqliteFixture();
+		fixture.seed(
+			tediRuntimeEventsTable,
+			[...opts.eventRows, ...(opts.finalEventRows ?? [])].map((row, index) => ({
+				...row,
+				runtimeBackend: "custom",
+				tediId: TEDI_ID,
+				runId: AUTO_CHILD_RUN_ID,
+				createdAt: new Date(Date.parse(row.createdAt!) - index).toISOString(),
+			})),
+		);
+		fixture.seed(
+			tediArtifactsTable,
+			(opts.artifactRows ?? []).map((row) => ({
+				organizationId: "org-1",
+				tediId: TEDI_ID,
+				kind: "file",
+				name: "artifact",
+				...row,
+			})),
+		);
+		const db = fixture.db;
+		const select = db.select.bind(db);
+		db.select = ((...args: Parameters<typeof db.select>) => {
+			const builder = select(...args);
+			const from = builder.from.bind(builder);
+			builder.from = ((table: typeof tediRuntimeEventsTable) => {
+				const query = from(table);
+				const sql =
+					table instanceof SQL ? new SQLiteDialect().sqlToQuery(table).sql : "";
+				const events =
+					table === tediRuntimeEventsTable ||
+					sql.includes('"tedi_runtime_events"');
+				const where = query.where.bind(query);
+				query.where = ((clause: SQL) => {
+					if (events)
+						eventQueryParams.push(
+							new SQLiteDialect().sqlToQuery(clause).params,
+						);
+					return where(clause);
+				}) as typeof query.where;
+				const limit = query.limit.bind(query);
+				query.limit = ((count: number) => {
+					if (events) {
+						eventReadCalls++;
+						if (eventReadCalls <= (opts.failFirstEventReads ?? 0))
+							return Promise.reject(opts.eventReadError ?? TRANSIENT_502);
+					} else if (table === tediArtifactsTable) {
+						artifactReadCalls++;
+						if (opts.artifactReadError)
+							return Promise.reject(opts.artifactReadError);
+					}
+					return limit(count);
+				}) as typeof query.limit;
+				return query;
+			}) as typeof builder.from;
+			return builder;
+		}) as typeof db.select;
 		return {
 			context: { db } as unknown as BaseContext,
 			eventReadCalls: () => eventReadCalls,

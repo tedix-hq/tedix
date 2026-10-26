@@ -1,3 +1,4 @@
+import { createApiSqliteFixture } from "../__tests__/api-sqlite";
 import * as todayQueries from "./today-context";
 import * as openRequestQueries from "./open-work-requests";
 import * as conversationIndexQueries from "./conversation-index";
@@ -16,9 +17,7 @@ import * as entityQueries from "@tedix/db/queries/memory-entities";
  *     (persist-first ordering),
  *   - fail-soft degradation to an empty history on a transcript-read error.
  *
- * The fake db mirrors the drizzle-chunk WHERE parsing used by
- * `kernel-runtime.test.ts` so the conversationId/organizationId/kind filters
- * are actually exercised, not ignored.
+ * Migrated SQLite executes the conversation, organization and kind filters.
  */
 
 import type { DbClient } from "@tedix/db/client";
@@ -32,11 +31,7 @@ import * as workItemQueries from "@tedix/db/queries/work-items/crud";
 import * as memberQueries from "@tedix/db/queries/organization-members";
 import * as workspaceResourceQueries from "@tedix/db/queries/os-workspaces/resources";
 import * as rationaleQueries from "@tedix/db/queries/rationale-records";
-import {
-	kernelRuntimeEvents,
-	memoryFactCitationBackfills,
-	memoryFacts,
-} from "@tedix/db/schema";
+import { kernelRuntimeEvents, memoryFacts } from "@tedix/db/schema";
 import type { MemoryFact } from "@tedix/db/schema/memory-graph";
 import { generateText } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
@@ -604,144 +599,23 @@ describe("durable attachment replay", () => {
 
 type KernelRuntimeEventRow = typeof kernelRuntimeEvents.$inferSelect;
 
-// ── drizzle WHERE-chunk parsing (mirrors kernel-runtime.test.ts) ──────────────
-
-const columnKeyByName: Record<string, string> = {
-	conversation_id: "conversationId",
-	created_at: "createdAt",
-	id: "id",
-	kind: "kind",
-	message_id: "messageId",
-	organization_id: "organizationId",
-	run_id: "runId",
-};
-
-function stringChunkValue(chunk: unknown): string {
-	const value = (chunk as { value?: unknown }).value;
-	return typeof value === "string" ? value : "";
-}
-
-function collectWhereConditions(
-	value: unknown,
-	conditions: Array<{ key: string; op: "=" | "<"; value: unknown }> = [],
-) {
-	const chunks = (value as { queryChunks?: unknown[] } | undefined)
-		?.queryChunks;
-	if (!Array.isArray(chunks)) return conditions;
-	for (let index = 0; index < chunks.length; index += 1) {
-		const chunk = chunks[index] as { name?: unknown; queryChunks?: unknown[] };
-		if (chunk?.queryChunks) {
-			collectWhereConditions(chunk, conditions);
-			continue;
-		}
-		if (typeof chunk?.name !== "string") continue;
-		const op = stringChunkValue(chunks[index + 1]).trim();
-		const param = chunks[index + 2] as { value?: unknown } | undefined;
-		const key = columnKeyByName[chunk.name];
-		if (!key || !param || !("value" in param)) continue;
-		if (op === "=" || op === "<") {
-			conditions.push({ key, op, value: param.value });
-		}
-	}
-	return conditions;
-}
-
-function applyWhere(
-	rows: KernelRuntimeEventRow[],
-	whereClause: unknown,
-): KernelRuntimeEventRow[] {
-	const conditions = collectWhereConditions(whereClause);
-	if (conditions.length === 0) return rows;
-	const equalsByKey = new Map<string, Set<unknown>>();
-	for (const condition of conditions) {
-		if (condition.op !== "=") continue;
-		const values = equalsByKey.get(condition.key) ?? new Set<unknown>();
-		values.add(condition.value);
-		equalsByKey.set(condition.key, values);
-	}
-	return rows.filter((row) => {
-		for (const [key, values] of equalsByKey) {
-			if (!values.has((row as Record<string, unknown>)[key] ?? null)) {
-				return false;
-			}
-		}
-		return true;
-	});
-}
-
-function isDescOrder(orderByClause: unknown): boolean {
-	const chunks = (orderByClause as { queryChunks?: unknown[] } | undefined)
-		?.queryChunks;
-	return Array.isArray(chunks)
-		? chunks.some((chunk) => stringChunkValue(chunk).includes(" desc"))
-		: false;
-}
-
-// ── fake db: kernelRuntimeEvents only; every other table read fails (and the
-//    assembler's safeRead must degrade those sections to empty slices) ───────
-
 function createEventsDb(
 	events: KernelRuntimeEventRow[],
-	opts?: {
-		failKernelRuntimeEvents?: boolean;
-		failedReadMessage?: string;
-	},
-) {
-	return {
-		select() {
-			let rows: KernelRuntimeEventRow[] = [];
-			let whereClause: unknown;
-			let orderByClause: unknown;
-			let rowLimit: number | undefined;
-			return {
-				from(table: unknown) {
-					if (table !== kernelRuntimeEvents) {
-						throw new Error(
-							opts?.failedReadMessage ??
-								"Unexpected table in context-assembly test",
-						);
-					}
-					if (opts?.failKernelRuntimeEvents) {
-						throw new Error("D1_ERROR: private transcript and token");
-					}
-					rows = [...events];
-					return this;
-				},
-				where(value: unknown) {
-					whereClause = value;
-					return this;
-				},
-				orderBy(value: unknown) {
-					orderByClause = value;
-					return this;
-				},
-				limit(value: number) {
-					rowLimit = value;
-					return this;
-				},
-				// Drizzle query builders are awaitable; the assembler awaits this fake.
-				then<TResult1 = KernelRuntimeEventRow[], TResult2 = never>(
-					onfulfilled?:
-						| ((
-								value: KernelRuntimeEventRow[],
-						  ) => TResult1 | PromiseLike<TResult1>)
-						| null,
-					onrejected?:
-						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-						| null,
-				) {
-					let output = applyWhere(rows, whereClause);
-					if (orderByClause && isDescOrder(orderByClause)) {
-						output = [...output].sort((a, b) =>
-							String(b.createdAt).localeCompare(String(a.createdAt)),
-						);
-					}
-					if (rowLimit !== undefined) output = output.slice(0, rowLimit);
-					return Promise.resolve(output).then(onfulfilled, onrejected);
-				},
-			};
+	opts?: { failKernelRuntimeEvents?: boolean; failedReadMessage?: string },
+): DbClient {
+	const fixture = createApiSqliteFixture({
+		onPrepare(query) {
+			if (!/^select/i.test(query)) return;
+			if (!query.includes('"kernel_runtime_events"'))
+				throw new Error(
+					opts?.failedReadMessage ?? "Unexpected table in context test",
+				);
+			if (opts?.failKernelRuntimeEvents)
+				throw new Error("D1_ERROR: private transcript and token");
 		},
-	} as unknown as DbClient;
+	});
+	fixture.seed(kernelRuntimeEvents, events);
+	return fixture.db;
 }
 
 let eventSequence = 0;
@@ -1741,59 +1615,7 @@ import {
 import { SYSTEM_PROMPT } from "./route-planner";
 
 describe("assembleHomeContext — token-budget guard", () => {
-	/**
-	 * Build a minimal fake db that only serves kernelRuntimeEvents rows.
-	 * All other table reads fail (safeRead degrades to empty slices).
-	 */
-	function createBudgetDb(events: KernelRuntimeEventRow[]) {
-		return {
-			select() {
-				let whereClause: unknown;
-				let orderByClause: unknown;
-				let rowLimit: number | undefined;
-				return {
-					from(table: unknown) {
-						if (table !== kernelRuntimeEvents) {
-							throw new Error("unexpected table in budget test");
-						}
-						return this;
-					},
-					where(value: unknown) {
-						whereClause = value;
-						return this;
-					},
-					orderBy(value: unknown) {
-						orderByClause = value;
-						return this;
-					},
-					limit(value: number) {
-						rowLimit = value;
-						return this;
-					},
-					// Awaitable Drizzle test double.
-					then<TResult1 = KernelRuntimeEventRow[], TResult2 = never>(
-						onfulfilled?:
-							| ((
-									value: KernelRuntimeEventRow[],
-							  ) => TResult1 | PromiseLike<TResult1>)
-							| null,
-						onrejected?:
-							| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-							| null,
-					) {
-						let output = applyWhere([...events], whereClause);
-						if (orderByClause && isDescOrder(orderByClause)) {
-							output = [...output].sort((a, b) =>
-								String(b.createdAt).localeCompare(String(a.createdAt)),
-							);
-						}
-						if (rowLimit !== undefined) output = output.slice(0, rowLimit);
-						return Promise.resolve(output).then(onfulfilled, onrejected);
-					},
-				};
-			},
-		} as unknown as DbClient;
-	}
+	const createBudgetDb = createEventsDb;
 
 	it("under-budget assembly is returned unchanged (no history trimming)", async () => {
 		const db = createBudgetDb([
@@ -2116,116 +1938,50 @@ function makeFact(overrides: {
 	} as MemoryFact;
 }
 
-/**
- * Create a fake db that:
- * - Returns `factRowsForTopPlatform` (as `{fact, domainName: null}` pairs)
- *   when a `.leftJoin()` is detected on memoryFacts (getTopPlatformFacts path).
- * - Returns `factRowsForGetById` keyed by id when no leftJoin (getFactsByIds).
- * - Throws for kernelRuntimeEvents so history degrades via safeRead to [].
- * - Throws for any other table (tediCapabilities etc → safeRead → []).
- */
 function createFactsDb(opts: {
 	topFacts?: MemoryFact[];
 	factsById?: MemoryFact[];
 	failFactsById?: boolean;
 }): DbClient {
-	const topFacts = opts.topFacts ?? [];
-	const factsById = opts.factsById ?? [];
-
-	// getTopPlatformFacts issues ONE query per priority inside a single batch
-	// (core first, then active) because a CASE-based rank cannot be index-served.
-	// The fake cannot read the WHERE clause, so it partitions by batch position,
-	// which is the same contract the real query relies on.
-	const TOP_FACT_PRIORITY_ORDER = ["core", "active"] as const;
-	let topFactsQueryIndex = 0;
-
-	return {
-		async batch(statements: unknown[]) {
-			topFactsQueryIndex = 0;
-			const results: unknown[] = [];
-			for (const statement of statements) {
-				results.push(await (statement as PromiseLike<unknown>));
-			}
-			return results;
+	const fixture = createApiSqliteFixture({
+		onPrepare(query) {
+			if (/^select/i.test(query) && query.includes('"kernel_runtime_events"'))
+				throw new Error("kernelRuntimeEvents not available in facts test");
 		},
-		// Raw citation scans: no consolidated fact cites the facts under test.
-		async all() {
-			return [];
-		},
-		select(_selectArg?: unknown) {
-			let hasLeftJoin = false;
-			let targetTable: unknown;
-			const builder = {
-				from(table: unknown) {
-					// Consolidated-fact lookups read memory_facts through an
-					// `INDEXED BY` SQL source; treat that as the memory_facts table.
-					const indexedChunks = (table as { queryChunks?: unknown[] })
-						.queryChunks;
-					targetTable = indexedChunks?.includes(memoryFacts)
-						? memoryFacts
-						: table;
-					if (table === kernelRuntimeEvents) {
-						throw new Error("kernelRuntimeEvents not available in facts test");
-					}
-					return builder;
-				},
-				leftJoin(_table: unknown, _on: unknown) {
-					hasLeftJoin = true;
-					return builder;
-				},
-				where(_clause: unknown) {
-					return builder;
-				},
-				orderBy(_clause: unknown) {
-					return builder;
-				},
-				limit(_n: number) {
-					return builder;
-				},
-				// Awaitable Drizzle test double.
-				then<TResult1, TResult2 = never>(
-					onfulfilled?:
-						| ((value: unknown) => TResult1 | PromiseLike<TResult1>)
-						| null,
-					onrejected?:
-						| ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-						| null,
-				) {
-					// Citation backfill progress: none recorded, no links.
-					if (targetTable === memoryFactCitationBackfills)
-						return Promise.resolve([]).then(onfulfilled, onrejected);
-					if (targetTable !== memoryFacts) {
-						return Promise.reject(
-							new Error("unexpected table in facts test"),
-						).then(onfulfilled, onrejected);
-					}
-					let result: unknown;
-					if (hasLeftJoin) {
-						// getTopPlatformFacts path — one statement per priority
-						const priority =
-							TOP_FACT_PRIORITY_ORDER[topFactsQueryIndex] ?? "active";
-						topFactsQueryIndex += 1;
-						result = topFacts
-							.filter((f) => (f.priority ?? "active") === priority)
-							.map((f) => ({ fact: f, domainName: null }));
-					} else {
-						// getFactsByIds path — return all (WHERE clause is applied by real D1;
-						// fake just returns the full list and trusts the test sets it correctly)
-						if (opts.failFactsById) {
-							return Promise.reject(
-								new Error("private memory content", {
-									cause: new TypeError("credential secret"),
-								}),
-							).then(onfulfilled, onrejected);
-						}
-						result = factsById;
-					}
-					return Promise.resolve(result).then(onfulfilled, onrejected);
-				},
-			};
+	});
+	// Explicit rank keys keep source order independent of SQLite's tie-breaking index.
+	const topFacts = (opts.topFacts ?? []).map((fact, index) => ({
+		...fact,
+		lastAccessedAt: new Date(Date.UTC(2026, 5, 1) - index).toISOString(),
+	}));
+	const topIds = new Set(topFacts.map((fact) => fact.id));
+	fixture.seed(memoryFacts, [
+		...topFacts,
+		...(opts.factsById ?? [])
+			.filter((fact) => !topIds.has(fact.id))
+			.map((fact) => ({ ...fact, priority: "background" })),
+	]);
+	if (opts.failFactsById) {
+		const select = fixture.db.select.bind(fixture.db);
+		fixture.db.select = ((...args: Parameters<typeof fixture.db.select>) => {
+			const builder = select(...args);
+			const from = builder.from.bind(builder);
+			builder.from = ((table: typeof memoryFacts) => {
+				const query = from(table);
+				const where = query.where.bind(query);
+				query.where = ((...whereArgs: Parameters<typeof query.where>) => {
+					if (!query.toSQL().sql.includes("left join"))
+						throw new Error("private memory content", {
+							cause: new TypeError("credential secret"),
+						});
+					return where(...whereArgs);
+				}) as typeof query.where;
+				return query;
+			}) as typeof builder.from;
 			return builder;
-		},
-	} as unknown as DbClient;
+		}) as typeof fixture.db.select;
+	}
+	return fixture.db;
 }
 
 describe("assembleHomeContext Agent Memory recall", () => {

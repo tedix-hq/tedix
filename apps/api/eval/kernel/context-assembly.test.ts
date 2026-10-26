@@ -1,10 +1,13 @@
-/** Exercises context assembly, using a bounded query simulation rather than real D1. */
+/** Exercises context assembly against the migrated SQLite ledger. */
 import { describe, expect, it } from "vite-plus/test";
+import { getTableName } from "drizzle-orm";
+import { createApiSqliteFixture } from "../../src/rpc/routers/__tests__/api-sqlite";
 import type { DbClient } from "@tedix/db/client";
 import {
 	apps,
 	kernelRuntimeEvents,
 	memoryFacts,
+	memoryDomains,
 	organizationMembers,
 	tedis,
 	tediRationaleRecords,
@@ -22,36 +25,6 @@ import {
 
 const ORG_ID = "org-ctx-eval";
 
-// ============================================================================
-// Mock DB factory
-// ============================================================================
-// Builds a minimal Drizzle-compatible builder shim. Each `.from(table)` lookup
-// routes to a per-table seeded row array. Tables in `failTables` throw so
-// safeRead degrades them to empty. All other unsupported tables also throw
-// (which safeRead also catches — defense-in-depth).
-//
-// Supported query shapes (matching what context-assembly.ts calls):
-//
-//   getTedisByOrganization  → select().from(tedis).where()
-//   getAppsByOrganization   → select().from(apps).where()
-//   listWorkItems           → select().from(workItems).where().orderBy().limit().offset()
-//                           + $count(workItems, whereClause)
-//   getTopPlatformFacts     → select({fact, domainName}).from(memoryFacts)
-//                             .leftJoin().where().orderBy().limit()
-//   listRationaleRecords    → select().from(tediRationaleRecords).where().orderBy().limit().offset()
-//                           + $count(tediRationaleRecords, whereClause)
-//   getMemberByUserId       → query.organizationMembers.findFirst({where})
-//   fetchConversationHistory→ select().from(kernelRuntimeEvents).where().orderBy().limit()
-
-type TableRef =
-	| typeof tedis
-	| typeof apps
-	| typeof workItems
-	| typeof memoryFacts
-	| typeof tediRationaleRecords
-	| typeof kernelRuntimeEvents
-	| typeof organizationMembers;
-
 interface SeededRows {
 	tedisRows: Record<string, unknown>[];
 	appsRows: Record<string, unknown>[];
@@ -66,330 +39,53 @@ type FailTables = Set<
 	"tedis" | "apps" | "workItems" | "facts" | "rationale" | "history" | "speaker"
 >;
 
-function getTableName(table: TableRef): string {
-	// Drizzle tables expose their symbol name via the [Symbol.for] pattern;
-	// we compare by reference instead — simpler and more reliable.
-	if (table === tedis) return "tedis";
-	if (table === apps) return "apps";
-	if (table === workItems) return "workItems";
-	if (table === memoryFacts) return "facts";
-	if (table === tediRationaleRecords) return "rationale";
-	if (table === kernelRuntimeEvents) return "history";
-	if (table === organizationMembers) return "speaker";
-	return "unknown";
-}
-
 function createMockDb(seeded: SeededRows, failTables: FailTables): DbClient {
-	// ──────────────────────────────────────────────────────────────────────────
-	// WHERE / ORDER / LIMIT helpers (kept minimal — we only need to filter by
-	// organizationId / orgId / conversationId and sort descending for the
-	// history query; all other filters are ignored in favour of pre-seeded data)
-	// ──────────────────────────────────────────────────────────────────────────
-
-	function applyBasicWhere(
-		rows: Record<string, unknown>[],
-		whereClause: unknown,
-	): Record<string, unknown>[] {
-		// Walk the drizzle query-chunk tree and pull out equality conditions.
-		const conditions: Array<{ key: string; value: unknown }> = [];
-		function walk(node: unknown) {
-			if (!node || typeof node !== "object") return;
-			const chunks = (node as { queryChunks?: unknown[] }).queryChunks;
-			if (!Array.isArray(chunks)) return;
-			for (let i = 0; i < chunks.length; i++) {
-				const chunk = chunks[i] as {
-					name?: unknown;
-					queryChunks?: unknown[];
-					value?: unknown;
-				};
-				if (chunk?.queryChunks) {
-					walk(chunk);
-					continue;
-				}
-				if (typeof chunk?.name !== "string") continue;
-				const opChunk = chunks[i + 1] as { value?: unknown } | undefined;
-				const paramChunk = chunks[i + 2] as { value?: unknown } | undefined;
-				const op =
-					typeof opChunk?.value === "string" ? opChunk.value.trim() : "";
-				if (op === "=" && paramChunk && "value" in paramChunk) {
-					// Map column snake_case → camelCase
-					const colToKey: Record<string, string> = {
-						organization_id: "organizationId",
-						org_id: "orgId",
-						conversation_id: "conversationId",
-						tedi_id: "tediId",
-						id: "id",
-						kind: "kind",
-						status: "status",
-						message_id: "messageId",
-					};
-					const key = colToKey[chunk.name] ?? chunk.name;
-					conditions.push({ key, value: paramChunk.value });
-				}
-			}
-		}
-		walk(whereClause);
-		if (conditions.length === 0) return rows;
-		// Group by key so multiple values for the same key are treated as OR
-		// (e.g. kind IN ("message.received", "message.completed"))
-		const equalsByKey = new Map<string, Set<unknown>>();
-		for (const { key, value } of conditions) {
-			const existing = equalsByKey.get(key) ?? new Set<unknown>();
-			existing.add(value);
-			equalsByKey.set(key, existing);
-		}
-		return rows.filter((row) => {
-			for (const [key, values] of equalsByKey) {
-				if (!values.has(row[key] ?? null)) return false;
-			}
-			return true;
-		});
-	}
-
-	function isDescOrder(order: unknown): boolean {
-		const chunks = (order as { queryChunks?: unknown[] } | undefined)
-			?.queryChunks;
-		return Array.isArray(chunks)
-			? chunks.some((c) => {
-					const v = (c as { value?: unknown }).value;
-					return (
-						Array.isArray(v) &&
-						v.some((s) => typeof s === "string" && s.includes(" desc"))
-					);
-				})
-			: false;
-	}
-
-	function buildQueryBuilder(
-		tableName: string,
-		rawRows:
-			| Record<string, unknown>[]
-			| { fact: Record<string, unknown>; domainName: string | null }[],
-	) {
-		const isFactsTable = tableName === "facts";
-		// For the facts table we return shaped rows {fact, domainName}; for others
-		// we return plain rows.
-		let rows: Record<string, unknown>[] = isFactsTable
-			? (
-					rawRows as {
-						fact: Record<string, unknown>;
-						domainName: string | null;
-					}[]
-				).map((r) => r as unknown as Record<string, unknown>)
-			: (rawRows as Record<string, unknown>[]);
-
-		let whereClause: unknown;
-		let orderClause: unknown;
-		let limitVal: number | undefined;
-		let offsetVal = 0;
-
-		return {
-			where(w: unknown) {
-				whereClause = w;
-				return this;
-			},
-			orderBy(_o: unknown) {
-				orderClause = _o;
-				return this;
-			},
-			limit(n: number) {
-				limitVal = n;
-				return this;
-			},
-			offset(n: number) {
-				offsetVal = n;
-				return this;
-			},
-			leftJoin(_table: unknown, _on: unknown) {
-				// leftJoin is only called for the facts query; rows already have the
-				// {fact, domainName} shape from pre-seeded data — nothing to join.
-				return this;
-			},
-			execute() {
-				// Facts table: where clause filters against the `fact` sub-object's
-				// organizationId field.
-				let out: unknown[];
-				if (isFactsTable) {
-					const factRows = rawRows as {
-						fact: Record<string, unknown>;
-						domainName: string | null;
-					}[];
-					out = factRows.filter((r) => r.fact.organizationId === ORG_ID);
-				} else {
-					out = applyBasicWhere(rows, whereClause);
-				}
-				if (orderClause && isDescOrder(orderClause)) {
-					out = [...out].sort((a, b) => {
-						const av = isFactsTable
-							? String(
-									(a as { fact: { createdAt?: unknown } }).fact?.createdAt ??
-										"",
-								)
-							: String(
-									(a as Record<string, unknown>)?.updatedAt ??
-										(a as Record<string, unknown>)?.createdAt ??
-										"",
-								);
-						const bv = isFactsTable
-							? String(
-									(b as { fact: { createdAt?: unknown } }).fact?.createdAt ??
-										"",
-								)
-							: String(
-									(b as Record<string, unknown>)?.updatedAt ??
-										(b as Record<string, unknown>)?.createdAt ??
-										"",
-								);
-						return bv.localeCompare(av);
-					});
-				}
-				out = out.slice(offsetVal);
-				if (limitVal !== undefined) out = out.slice(0, limitVal);
-				return out;
-			},
-			// The shim must implement Drizzle's awaitable query-builder contract.
-			// eslint-disable-next-line unicorn/no-thenable
-			then<R1, R2 = never>(
-				onfulfilled?: ((v: unknown[]) => R1 | PromiseLike<R1>) | null,
-				onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
-			) {
-				return Promise.resolve(this.execute()).then(onfulfilled, onrejected);
-			},
-		};
-	}
-
-	const db = {
-		// ── select() ────────────────────────────────────────────────────────────
-		select(_shape?: unknown) {
-			return {
-				from(table: unknown) {
-					const name = getTableName(table as TableRef);
-					if (
-						failTables.has(
-							name as
-								| "tedis"
-								| "apps"
-								| "workItems"
-								| "facts"
-								| "rationale"
-								| "history"
-								| "speaker",
-						)
-					) {
-						throw new Error(`[mock] Simulated failure for table: ${name}`);
-					}
-					const rowsForTable:
-						| Record<string, unknown>[]
-						| { fact: Record<string, unknown>; domainName: string | null }[] =
-						name === "tedis"
-							? seeded.tedisRows
-							: name === "apps"
-								? seeded.appsRows
-								: name === "workItems"
-									? seeded.workItemRows
-									: name === "facts"
-										? seeded.factRows
-										: name === "rationale"
-											? seeded.rationaleRows
-											: name === "history"
-												? seeded.historyRows
-												: [];
-					return buildQueryBuilder(name, rowsForTable);
-				},
-			};
-		},
-
-		// ── all() ───────────────────────────────────────────────────────────────
-		// Raw citation scans behind consolidated-fact preference: no consolidated
-		// fact cites the seeded facts.
-		async all(): Promise<unknown[]> {
-			return [];
-		},
-
-		// ── batch() ─────────────────────────────────────────────────────────────
-		// D1's transaction primitive, and the only one available: `db.transaction()`
-		// throws against real D1 (error 7500), so any query that needs several
-		// statements is written as a batch (the top-facts read is one). Without it
-		// here, `db.batch is not a function` is swallowed by the caller's
-		// try/catch and surfaces only as facts silently returning 0 rows.
-		//
-		// The builders below are thenables, so awaiting each one runs it. That
-		// matches D1's read-batch semantics: results in statement order.
-		batch(statements: readonly unknown[]): Promise<unknown[]> {
-			return Promise.all(
-				statements.map((statement) =>
-					Promise.resolve(statement as PromiseLike<unknown>),
-				),
-			);
-		},
-
-		// ── $count() ────────────────────────────────────────────────────────────
-		$count(table: unknown, whereClause?: unknown): Promise<number> {
-			const name = getTableName(table as TableRef);
-			if (
-				failTables.has(
-					name as
-						| "tedis"
-						| "apps"
-						| "workItems"
-						| "facts"
-						| "rationale"
-						| "history"
-						| "speaker",
-				)
-			) {
-				return Promise.reject(
-					new Error(`[mock] Simulated $count failure for table: ${name}`),
-				);
-			}
-			const rawRows: Record<string, unknown>[] =
-				name === "workItems"
-					? seeded.workItemRows
-					: name === "rationale"
-						? seeded.rationaleRows
-						: [];
-			const filtered = applyBasicWhere(rawRows, whereClause);
-			return Promise.resolve(filtered.length);
-		},
-
-		// ── query.organizationMembers.findFirst() ────────────────────────────────
-		query: {
-			organizationMembers: {
-				findFirst(opts?: {
-					where?: Record<string, unknown>;
-				}): Promise<Record<string, unknown> | undefined> {
-					if (failTables.has("speaker")) {
-						return Promise.reject(
-							new Error("[mock] Simulated speaker read failure"),
-						);
-					}
-					if (!opts?.where) {
-						return Promise.resolve(seeded.memberRows[0]);
-					}
-					const { descopeUserId, organizationId } = opts.where as {
-						descopeUserId?: unknown;
-						organizationId?: unknown;
-					};
-					const found = seeded.memberRows.find((row) => {
-						if (
-							descopeUserId !== undefined &&
-							row.descopeUserId !== descopeUserId
-						)
-							return false;
-						if (
-							organizationId !== undefined &&
-							row.organizationId !== organizationId
-						)
-							return false;
-						return true;
-					});
-					return Promise.resolve(found);
-				},
-			},
-		},
+	const tables = {
+		tedis,
+		apps,
+		workItems,
+		facts: memoryFacts,
+		rationale: tediRationaleRecords,
+		history: kernelRuntimeEvents,
+		speaker: organizationMembers,
 	};
-
-	return db as unknown as DbClient;
+	const fixture = createApiSqliteFixture({
+		onPrepare(query) {
+			if (!/^select/i.test(query)) return;
+			for (const key of failTables) {
+				if (query.includes(`"${getTableName(tables[key])}"`))
+					throw new Error(`[mock] Simulated failure for table: ${key}`);
+			}
+		},
+	});
+	fixture.seed(tedis, seeded.tedisRows);
+	fixture.seed(apps, seeded.appsRows);
+	fixture.seed(
+		workItems,
+		seeded.workItemRows.map((row) => ({
+			admissionSpecRevision: `fixture-spec-${row.id}`,
+			...row,
+		})),
+	);
+	for (const { fact, domainName } of seeded.factRows) {
+		const domainId = domainName ? `domain-${domainName}` : null;
+		if (
+			domainName &&
+			!fixture.sqlite
+				.prepare("select id from memory_domains where id = ?")
+				.get(domainId)
+		)
+			fixture.seed(memoryDomains, [
+				{ id: domainId, organizationId: ORG_ID, name: domainName },
+			]);
+		fixture.seed(memoryFacts, [
+			{ factType: "technical", status: "active", ...fact, domainId },
+		]);
+	}
+	fixture.seed(tediRationaleRecords, seeded.rationaleRows);
+	fixture.seed(kernelRuntimeEvents, seeded.historyRows);
+	fixture.seed(organizationMembers, seeded.memberRows);
+	return fixture.db;
 }
 
 // ============================================================================

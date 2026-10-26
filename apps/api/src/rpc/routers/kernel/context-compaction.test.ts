@@ -1,3 +1,4 @@
+import { createApiSqliteFixture } from "../__tests__/api-sqlite";
 /**
  * Compaction tests — the kernel no longer erases a long conversation's history
  * at the budget boundary. These pin the four properties that make that true:
@@ -251,54 +252,23 @@ describe("buildExtractiveSummary", () => {
 
 // ── assembly-level: an over-budget conversation keeps a summary ───────────────
 
-/** True when a Drizzle orderBy chunk carries a `desc` direction. */
-function isDescOrder(clauses: unknown[]): boolean {
-	return clauses.some((clause) =>
-		((clause as { queryChunks?: unknown[] })?.queryChunks ?? []).some(
-			(chunk) => {
-				const value = (chunk as { value?: unknown }).value;
-				return typeof value === "string" && value.includes(" desc");
-			},
-		),
-	);
-}
-
-/**
- * Minimal Drizzle double over kernelRuntimeEvents. Every seeded row belongs to
- * the one conversation under test, so WHERE parsing is unnecessary here
- * (context-assembly.test.ts already pins the filters); only `order desc` and
- * `limit` change the result shape the assembler sees. `limit()` is the terminal
- * call `listKernelRuntimeEvents` always makes, so it resolves the rows directly
- * and the double never has to be thenable.
- */
-function createEventsDb(events: KernelRuntimeEventRow[]): DbClient {
-	return {
-		select() {
-			let desc = false;
-			return {
-				from(table: unknown) {
-					if (table !== kernelRuntimeEvents) {
-						throw new Error("unexpected table in compaction test");
-					}
-					return this;
-				},
-				where() {
-					return this;
-				},
-				orderBy(...clauses: unknown[]) {
-					desc = isDescOrder(clauses);
-					return this;
-				},
-				limit(value: number): Promise<KernelRuntimeEventRow[]> {
-					const output = [...events].sort((a, b) =>
-						String(a.createdAt).localeCompare(String(b.createdAt)),
-					);
-					if (desc) output.reverse();
-					return Promise.resolve(output.slice(0, value));
-				},
-			};
+function createEventsDb(
+	events: KernelRuntimeEventRow[],
+	opts?: { failKernelRuntimeEvents?: boolean; failedReadMessage?: string },
+): DbClient {
+	const fixture = createApiSqliteFixture({
+		onPrepare(query) {
+			if (!/^select/i.test(query)) return;
+			if (!query.includes('"kernel_runtime_events"'))
+				throw new Error(
+					opts?.failedReadMessage ?? "Unexpected table in context test",
+				);
+			if (opts?.failKernelRuntimeEvents)
+				throw new Error("D1_ERROR: private transcript and token");
 		},
-	} as unknown as DbClient;
+	});
+	fixture.seed(kernelRuntimeEvents, events);
+	return fixture.db;
 }
 
 let eventSequence = 0;
