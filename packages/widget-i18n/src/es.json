@@ -54,6 +54,7 @@
 	"looking_in": "Buscando en {{product}}",
 	"message_for": "Mensaje para {{assistant}}",
 	"model_automatic": "Auto",
+	"model_default": "Predeterminado",
 	"n_actions": "{{count}} acciones",
 	"new_conversation": "Nueva conversación",
 	"offline": "Sin conexión",

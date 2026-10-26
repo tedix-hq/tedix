@@ -54,6 +54,7 @@
 	"looking_in": "Looking in {{product}}",
 	"message_for": "Message for {{assistant}}",
 	"model_automatic": "Auto",
+	"model_default": "Default",
 	"n_actions": "{{count}} actions",
 	"new_conversation": "New conversation",
 	"offline": "Offline",
