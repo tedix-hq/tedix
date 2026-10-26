@@ -437,3 +437,33 @@ export async function getCatalogOsBlueprint(
 // `db.batch()` as the workspace it instantiates (`instantiateOsBlueprint`'s
 // `blueprintCopy`), so a lost workspace-name race can no longer leave an orphan
 // blueprint committed in the importing organization.
+
+/**
+ * Add a catalog blueprint to the gallery's Featured set, or take it out.
+ * Platform curation, deliberately NOT tenant-scoped: the
+ * `visibility = 'catalog' AND status = 'published'` predicate is the boundary,
+ * so a private or unpublished blueprint resolves to `undefined` exactly like a
+ * missing id. Featuring an already-featured blueprint keeps its first stamp.
+ */
+export async function setCatalogOsBlueprintFeatured(
+	db: DbQueryClient,
+	blueprintId: string,
+	featured: boolean,
+): Promise<OsBlueprintRow | undefined> {
+	const [row] = await db
+		.update(osBlueprints)
+		.set({
+			featuredAt: featured
+				? sql`coalesce(${osBlueprints.featuredAt}, ${new Date().toISOString()})`
+				: null,
+		})
+		.where(
+			and(
+				eq(osBlueprints.id, blueprintId),
+				eq(osBlueprints.visibility, "catalog"),
+				eq(osBlueprints.status, "published"),
+			),
+		)
+		.returning();
+	return row;
+}

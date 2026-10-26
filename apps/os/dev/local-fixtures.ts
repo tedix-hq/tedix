@@ -271,6 +271,8 @@ type LocalState = {
 	collaborationProposals: OsCollaborationProposal[];
 	blueprints: OsBlueprint[];
 	blueprintRevisions: OsBlueprintRevision[];
+	/** Gallery blueprints a platform admin added to the Featured set. */
+	featuredBlueprintIds: string[];
 	/** Saved auto-approval rules: one that is off, so it can be turned on or deleted. */
 	approvalRules: OsApprovalRule[];
 	conversations: (HomeConversation & { hidden?: boolean })[];
@@ -963,6 +965,7 @@ const seedState = (): LocalState => ({
 			updatedAt: T2,
 		},
 	],
+	featuredBlueprintIds: [BLUEPRINT_PUBLISHED],
 	blueprintRevisions: [
 		{
 			id: fid("51", 1),
@@ -9221,6 +9224,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 					gadgetCount: revision?.definition.gadgets.length ?? 0,
 					organizationName: "Tedix local",
 					publishedAt: revision?.publishedAt ?? null,
+					featured: state.featuredBlueprintIds.includes(blueprint.id),
 				};
 			}),
 	}),

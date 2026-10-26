@@ -360,6 +360,12 @@ export const osBlueprints = sqliteTable(
 		 * would be forgeable. This column is only ever written by the fork paths.
 		 */
 		lineage: text("lineage"),
+		/**
+		 * When a platform admin added this catalog blueprint to the gallery's
+		 * Featured set; null when it is not featured. Written only by the
+		 * platform-admin curation verb, never by the owning organization.
+		 */
+		featuredAt: text("featured_at"),
 		createdByKind: text("created_by_kind", { enum: createdByKinds }).notNull(),
 		createdById: text("created_by_id").notNull(),
 		createdAt: text("created_at")

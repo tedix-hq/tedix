@@ -1632,6 +1632,7 @@ const blueprintsGallery = readOs.blueprints.gallery.handler(
 				gadgetCount: listing.gadgetCount,
 				organizationName: listing.organizationName,
 				publishedAt: listing.publishedAt,
+				featured: listing.blueprint.featuredAt !== null,
 			})),
 		};
 	},
@@ -1715,6 +1716,7 @@ const blueprintsInstantiateFromGallery =
 					visibility: "org",
 					currentRevisionId: revisionId,
 					lineage,
+					featuredAt: null,
 					createdByKind: creator.kind,
 					createdById: creator.id,
 					createdAt: now,

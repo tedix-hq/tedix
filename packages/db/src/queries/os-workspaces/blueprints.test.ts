@@ -14,6 +14,7 @@ import {
 	listOsBlueprintRevisions,
 	listOsBlueprints,
 	publishOsBlueprintRevision,
+	setCatalogOsBlueprintFeatured,
 	setOsBlueprintVisibility,
 } from "./blueprints";
 
@@ -251,5 +252,34 @@ describe("os blueprint gallery", () => {
 			blueprint: { id: "bp-1", organizationId: "org-1" },
 			organizationName: "First Org",
 		});
+	});
+
+	it("features only catalog-visible published blueprints and keeps the first stamp", async () => {
+		const db = fixture();
+		await publishBlueprintFixture(db);
+		// Published but private: curation cannot reach it.
+		expect(
+			await setCatalogOsBlueprintFeatured(db, "bp-1", true),
+		).toBeUndefined();
+		expect(
+			await setCatalogOsBlueprintFeatured(db, "bp-missing", true),
+		).toBeUndefined();
+
+		await setOsBlueprintVisibility(
+			db,
+			{ organizationId: "org-1", blueprintId: "bp-1" },
+			"catalog",
+		);
+		const featured = await setCatalogOsBlueprintFeatured(db, "bp-1", true);
+		expect(featured?.featuredAt).toEqual(expect.any(String));
+		const again = await setCatalogOsBlueprintFeatured(db, "bp-1", true);
+		expect(again?.featuredAt).toBe(featured?.featuredAt);
+		expect((await listCatalogOsBlueprints(db))[0]?.blueprint.featuredAt).toBe(
+			featured?.featuredAt,
+		);
+
+		expect(
+			(await setCatalogOsBlueprintFeatured(db, "bp-1", false))?.featuredAt,
+		).toBeNull();
 	});
 });
