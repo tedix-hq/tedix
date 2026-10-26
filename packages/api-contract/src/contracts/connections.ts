@@ -86,6 +86,45 @@ export const connectionsContract = oc
 					scopes: z.array(z.string()),
 				}),
 			),
+		/**
+		 * Stage an OAuth connect before the consent window leaves our origin.
+		 * The raw ticket is returned once and never stored; redeeming it is the
+		 * only way a consent return completes the connection.
+		 */
+		stageConnectTicket: oc
+			.route({
+				method: "POST",
+				path: "/connect-tickets",
+				summary: "Stage connection ticket",
+			})
+			.input(
+				z.object({
+					appId: z.string().min(1),
+					scope: z.enum(["tenant", "user"]).default("user"),
+					connectionInstanceId: z.uuid().optional(),
+				}),
+			)
+			.output(z.object({ ticket: z.string(), expiresAt: z.string() })),
+		/**
+		 * Complete a staged connect over the signed-in session of the person who
+		 * staged it: single use, bound to that person and organization.
+		 */
+		redeemConnectTicket: oc
+			.route({
+				method: "POST",
+				path: "/connect-tickets/redeem",
+				summary: "Redeem connection ticket",
+			})
+			.input(z.object({ ticket: z.string().min(1).max(200) }))
+			.output(
+				z.object({
+					appId: z.string(),
+					scope: z.enum(["tenant", "user"]),
+					connectionInstanceId: z.uuid().nullable(),
+					/** Whether the provider grant was found and recorded on the named slot. */
+					recorded: z.boolean(),
+				}),
+			),
 		bindConnectionInstance: oc
 			.route({
 				method: "POST",

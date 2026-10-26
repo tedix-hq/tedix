@@ -18,7 +18,7 @@
 import type { SearchSchemaInput } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle, Warning } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as z from "zod/mini";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
@@ -27,6 +27,7 @@ import {
 	CONNECTION_COMPLETE_MESSAGE,
 	CONNECTION_FAILED_MESSAGE,
 	connectionFailureMessage,
+	redeemConnectionFlow,
 	takeConnectionFlow,
 } from "@/lib/connections-actions";
 
@@ -87,50 +88,78 @@ function OAuthCallbackPage() {
 		ReturnType<typeof takeConnectionFlow> | undefined
 	>(undefined);
 
+	// One redemption per page, whatever React's effect replay does.
+	const redemption = useRef<
+		Promise<"ticket_missing" | "ticket_rejected" | null> | undefined
+	>(undefined);
+	const [redeemError, setRedeemError] = useState<string | undefined>();
+	const failure = callbackError ?? redeemError;
+
 	useEffect(() => {
 		const isPopup = window.opener != null;
+		completionFlow.current ??= takeConnectionFlow();
+		const flow = completionFlow.current;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let cancelled = false;
 
-		if (isPopup) {
-			completionFlow.current ??= takeConnectionFlow();
-			const flow = completionFlow.current;
-			if (!flow) return;
-			// Notify the parent window to refresh connections
+		const notify = (message: Record<string, unknown>) => {
+			if (!isPopup) return;
 			try {
-				window.opener.postMessage(
-					callbackError
-						? {
-								type: CONNECTION_FAILED_MESSAGE,
-								...flow,
-								reason: callbackError,
-							}
-						: { type: CONNECTION_COMPLETE_MESSAGE, ...flow },
-					window.location.origin,
-				);
+				window.opener.postMessage(message, window.location.origin);
 			} catch {
 				// Parent may have been closed or cross-origin
 			}
-			// Auto-close after a brief delay so user sees the success state
-			if (!callbackError) {
-				const timer = setTimeout(() => window.close(), 1500);
-				return () => clearTimeout(timer);
-			}
+		};
+
+		if (isPopup && !flow) return;
+		// The opener correlates on the nonce; the ticket stays in this window.
+		const { ticket: _ticket, ...correlation } = flow ?? {};
+
+		if (callbackError) {
+			if (flow)
+				notify({
+					type: CONNECTION_FAILED_MESSAGE,
+					...correlation,
+					reason: callbackError,
+				});
 			return;
 		}
 
-		// Keep top-level failures visible; this page never promotes credentials.
-		if (callbackError) return;
-
-		// Not a popup — the connect ran top-level. Return to the page it started
-		// from with a real navigation, which also refetches the connections the
-		// completion message would have invalidated.
-		const returnTo = takeConnectReturnTo();
-		const timer = setTimeout(() => {
-			window.location.assign(returnTo);
-		}, 2000);
-		return () => clearTimeout(timer);
+		// The consent return completes nothing by itself: the staged ticket is
+		// redeemed here, over this person's own signed-in session, and only
+		// then does the connection count as complete.
+		redemption.current ??= flow
+			? redeemConnectionFlow(flow)
+			: Promise.resolve("ticket_missing" as const);
+		void redemption.current.then((reason) => {
+			if (cancelled) return;
+			if (reason) {
+				setRedeemError(reason);
+				if (flow)
+					notify({ type: CONNECTION_FAILED_MESSAGE, ...correlation, reason });
+				return;
+			}
+			if (isPopup) {
+				notify({ type: CONNECTION_COMPLETE_MESSAGE, ...correlation });
+				// Auto-close after a brief delay so user sees the success state
+				timer = setTimeout(() => window.close(), 1500);
+				return;
+			}
+			// Not a popup — the connect ran top-level. Return to the page it
+			// started from with a real navigation, which also refetches the
+			// connections the completion message would have invalidated.
+			const returnTo = takeConnectReturnTo();
+			timer = setTimeout(() => {
+				window.location.assign(returnTo);
+			}, 2000);
+		});
+		return () => {
+			cancelled = true;
+			if (timer) clearTimeout(timer);
+		};
 	}, [callbackError]);
 
-	if (callbackError) {
+	if (failure) {
 		return (
 			<main className="flex min-h-dvh items-center justify-center bg-background p-4">
 				<div
@@ -145,7 +174,7 @@ function OAuthCallbackPage() {
 						Not connected
 					</Text>
 					<Text as="p" role="body" tone="secondary">
-						{connectionFailureMessage(callbackError)}
+						{connectionFailureMessage(failure)}
 					</Text>
 					<Button
 						variant="outline"
