@@ -25,6 +25,9 @@ export async function createRepositoryObservation(
 		now: string;
 	},
 ) {
+	const push =
+		input.metadata.repositoryObserver === 1 &&
+		(input.metadata.event as { kind?: string } | undefined)?.kind === "push";
 	await db
 		.insert(workItems)
 		.values({
@@ -39,14 +42,21 @@ export async function createRepositoryObservation(
 			workClass: "objective",
 			riskLevel: "medium",
 			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
-			disposition: "proposed",
+			disposition: push ? "cancelled" : "proposed",
+			cancelledAt: push ? input.now : null,
 			priority: input.deadline ? "high" : "low",
 			accountableOwnerType: "tedi",
 			accountableOwnerId: input.ownerTediId,
 			stewardType: "tedi",
 			stewardId: input.ownerTediId,
 			deadline: input.deadline,
-			metadata: input.metadata,
+			metadata: push
+				? {
+						...input.metadata,
+						settleReason: "advisory push observation",
+						settledAt: input.now,
+					}
+				: input.metadata,
 			createdAt: input.now,
 		})
 		.onConflictDoNothing();
@@ -87,7 +97,7 @@ export async function pendingRepositoryObservations(
 				eq(workItems.projectId, projectId),
 				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
 				sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
-				sql`${workItems.disposition} IN ('proposed','accepted')`,
+				pendingObservation(),
 			),
 		)
 		.orderBy(workItems.createdAt)
@@ -141,6 +151,23 @@ export async function reportRepositoryObservation(
 			.where(and(eq(workItems.orgId, input.orgId), eq(workItems.id, input.id))),
 		db
 			.update(workItems)
+			.set({
+				disposition: "proposed",
+				cancelledAt: null,
+				version: sql`${workItems.version} + 1`,
+				metadata: sql`json_remove(${workItems.metadata}, '$.settleReason', '$.settledAt')`,
+			})
+			.where(
+				and(
+					eq(workItems.orgId, input.orgId),
+					eq(workItems.id, input.id),
+					sql`${workItems.disposition} = 'cancelled'`,
+					sql`json_extract(${workItems.metadata}, '$.settleReason') = 'advisory push observation'`,
+					unappliedLesson(),
+				),
+			),
+		db
+			.update(workItems)
 			.set(
 				settlementValues(
 					input.now,
@@ -152,6 +179,7 @@ export async function reportRepositoryObservation(
 					eq(workItems.orgId, input.orgId),
 					eq(workItems.id, input.id),
 					settleableObservation(input.now),
+					sql`NOT (${unappliedLesson()})`,
 					sql`(json_extract(${workItems.metadata}, '$.event.kind') = 'push' OR json_extract(${workItems.metadata}, '$.latestReport.stillRed') = 0)`,
 				),
 			),
@@ -296,7 +324,7 @@ export async function claimRepositoryObserverWake(
 	const capacity =
 		p.limit === null
 			? sql`1 = 1`
-			: sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND json_extract(active.metadata, '$.repositoryObserver') = 1 AND json_extract(active.metadata, '$.observerWokenAt') >= ${since} AND json_extract(active.metadata, '$.report') IS NULL AND active.disposition IN ('proposed','accepted')) < ${p.limit}`;
+			: sql`(SELECT count(*) FROM work_items active WHERE active.org_id = ${p.orgId} AND active.project_id = ${p.projectId} AND active.id <> ${p.id} AND json_extract(active.metadata, '$.repositoryObserver') = 1 AND json_extract(active.metadata, '$.observerWokenAt') >= ${since} AND json_extract(active.metadata, '$.report') IS NULL AND (active.disposition IN ('proposed','accepted') OR (active.disposition = 'cancelled' AND json_extract(active.metadata, '$.settleReason') = 'advisory push observation'))) < ${p.limit}`;
 	const rows = await db
 		.update(workItems)
 		.set({
@@ -349,7 +377,7 @@ export async function deferRepositoryObserverWake(
 /**
  * Deferred push observations still worth a turn, newest first: on a
  * fast-forward branch the newest push carries the freshest state, and pushes
- * that never get a slot age out through the normal 24-hour settlement.
+ * that never get a slot stop receiving advisory reviews after 24 hours.
  */
 export async function deferredRepositoryPushObservations(
 	db: DbQueryClient,
@@ -370,7 +398,7 @@ export async function deferredRepositoryPushObservations(
 				sql`json_extract(${workItems.metadata}, '$.observerWakeDeferredAt') IS NOT NULL`,
 				sql`json_extract(${workItems.metadata}, '$.observerWokenAt') IS NULL`,
 				sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
-				sql`${workItems.disposition} IN ('proposed','accepted')`,
+				pendingObservation(),
 			),
 		)
 		.orderBy(desc(workItems.createdAt), desc(workItems.id))
@@ -397,6 +425,15 @@ export async function configureRepositoryObserver(
 }
 
 const PUSH_OBSERVATION_RETENTION_HOURS = 24;
+
+function unappliedLesson() {
+	return sql`EXISTS (SELECT 1 FROM json_each(${workItems.metadata}, '$.latestReport.lessons') lesson WHERE json_extract(lesson.value, '$.verdict') = 'not_applied')`;
+}
+
+/** Settled advisory records can still receive bounded reviews for one day. */
+function pendingObservation() {
+	return sql`(${workItems.disposition} IN ('proposed','accepted') OR (${workItems.disposition} = 'cancelled' AND json_extract(${workItems.metadata}, '$.settleReason') = 'advisory push observation' AND julianday(${workItems.createdAt}) >= julianday('now', '-24 hours')))`;
+}
 
 function settleableObservation(now: string) {
 	return and(
@@ -486,6 +523,7 @@ export async function settleAgedRepositoryPushObservations(
 			and(
 				settleableObservation(now),
 				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
+				sql`NOT (${unappliedLesson()})`,
 				sql`julianday(${workItems.createdAt}) < julianday(${cutoff})`,
 				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 0) = 0`,
 				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND json_extract(red.metadata, '$.repositoryObserver') = 1 AND red.disposition IN ('proposed','accepted') AND json_extract(red.metadata, '$.event.kind') IN ('ship_red','ci_red') AND json_extract(red.metadata, '$.event.repository') = json_extract(${workItems.metadata}, '$.event.repository') AND json_extract(red.metadata, '$.event.branch') = json_extract(${workItems.metadata}, '$.event.branch') AND json_extract(red.metadata, '$.event.sha') = json_extract(${workItems.metadata}, '$.event.sha'))`,
