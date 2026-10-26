@@ -312,6 +312,8 @@ export type ChatTransportActions = {
 			| "delegateToTediId"
 		> & { idempotencyKey: string },
 	): Promise<EnqueueHomeMessageOutput>;
+	steerRun: CapnChatActions["steer"];
+	withdrawSteering: CapnChatActions["withdrawSteering"];
 	cancelRun(input: { runId: string }): Promise<unknown>;
 	respondApproval(input: CapnRespondApprovalParams): Promise<unknown>;
 };
@@ -362,6 +364,9 @@ export function canUseBoundConversationCapability(
 const NEW_CONVERSATION_ACTIONS: ChatTransportActions = {
 	enqueueMessage: (input) =>
 		osChatMutationApi.kernelRuntime.enqueueMessage(input),
+	steerRun: (input) => osApi.kernelRuntime.steerRun(input),
+	withdrawSteering: (runId) =>
+		osApi.kernelRuntime.controlRunSteering({ runId, action: "withdraw" }),
 	cancelRun: (input) => osApi.kernelRuntime.cancelRun(input),
 	respondApproval: (input) =>
 		osChatMutationApi.kernelRuntime.respondApproval(input),
@@ -639,6 +644,8 @@ export function useChatTransport(
 									);
 								}
 							},
+							steerRun: (input) => capnActions.steer(input),
+							withdrawSteering: (runId) => capnActions.withdrawSteering(runId),
 							cancelRun: (input) => capnActions.cancel(input.runId),
 							// Approval is a durable control-plane mutation, not a realtime
 							// transport concern. Send it directly so a connected-but-stalled
@@ -651,6 +658,12 @@ export function useChatTransport(
 									await waitForCapability(conversationId, input.idempotencyKey),
 									input,
 								),
+							steerRun: async () => {
+								throw new CapnNotConnectedError();
+							},
+							withdrawSteering: async () => {
+								throw new CapnNotConnectedError();
+							},
 							cancelRun: async () => {
 								throw new CapnNotConnectedError();
 							},

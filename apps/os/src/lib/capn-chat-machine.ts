@@ -208,6 +208,8 @@ export type CapnChatActions = {
 		input: CapnEnqueueInput,
 		idempotencyKey: string,
 	): Promise<EnqueueHomeMessageOutput>;
+	steer: CapnConversationStub["steer"];
+	withdrawSteering: CapnConversationStub["withdrawSteering"];
 	cancel(runId: string): Promise<unknown>;
 	respondApproval(params: CapnRespondApprovalParams): Promise<unknown>;
 };
@@ -829,6 +831,9 @@ export function createCapnChatMachine(
 					throw error; // app-level rejection while the session stayed healthy
 				}
 			},
+			steer: (input) => requireConversation().steer(input),
+			withdrawSteering: (runId) =>
+				requireConversation().withdrawSteering(runId),
 			async cancel(runId) {
 				// Idempotent canonical verb: a connection-death rejection is safe to
 				// retry, so it needs no unknown-outcome classification.

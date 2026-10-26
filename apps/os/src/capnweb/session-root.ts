@@ -55,6 +55,7 @@ import {
 	serviceBindingFetch,
 } from "@tedix/api-client/internal";
 import {
+	SteerHomeRunInputSchema,
 	CancelHomeRunInputSchema,
 	EnqueueHomeMessageInputSchema,
 	type EnqueueHomeMessageOutput,
@@ -994,6 +995,30 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 			{ ...payload, conversationId: this.#conversationId, idempotencyKey: key },
 			{ timeoutMs: CAPN_CHAT_MUTATION_TIMEOUT_MS },
 		);
+	}
+
+	async steer(
+		input: Parameters<CapnConversationApi["steer"]>[0],
+	): ReturnType<CapnConversationApi["steer"]> {
+		this.#core.ensureLive();
+		this.#core.takeToken();
+		const payload = parseOrThrow(
+			SteerHomeRunInputSchema,
+			input,
+			"steering input",
+		);
+		return this.#core.call("kernelRuntime/steerRun", payload);
+	}
+
+	async withdrawSteering(
+		runId: string,
+	): ReturnType<CapnConversationApi["withdrawSteering"]> {
+		this.#core.ensureLive();
+		this.#core.takeToken();
+		return this.#core.call("kernelRuntime/controlRunSteering", {
+			runId: parseOrThrow(NonEmptyStringSchema, runId, "runId"),
+			action: "withdraw",
+		});
 	}
 
 	/** Cancel an active run via `kernelRuntime/cancelRun` (single attempt). */

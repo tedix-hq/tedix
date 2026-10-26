@@ -50,6 +50,7 @@ import type {
 	HomeConversation,
 	HomeMessage,
 	HomeRun,
+	RunSteeringMessage,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type { AppRuntimeFiles } from "@tedix/api-contract/schemas/os-app-runtime";
@@ -1200,6 +1201,7 @@ const seedState = (): LocalState => ({
 });
 
 let state = seedState();
+const runSteeringMessages = new Map<string, RunSteeringMessage[]>();
 installWorkViewFixtures();
 
 function installWorkViewFixtures(): void {
@@ -1249,6 +1251,7 @@ function installWorkViewFixtures(): void {
 let demoPackBuiltAt: number | null = null;
 
 export function resetLocalFixtures(): void {
+	runSteeringMessages.clear();
 	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
@@ -9190,6 +9193,46 @@ const handlers: Record<string, (input: never) => unknown> = {
 		run: findHomeRun(input.runId),
 		assignments: [],
 	}),
+	"kernelRuntime/steerRun": (input: {
+		runId: string;
+		instruction: string;
+		idempotencyKey?: string;
+	}) => {
+		const run = findHomeRun(input.runId);
+		if (run.status !== "queued" && run.status !== "running")
+			throw new RpcError("CONFLICT", "This run has ended");
+		const id = input.idempotencyKey ?? nextId();
+		const messages = runSteeringMessages.get(run.id) ?? [];
+		const prior = messages.find((message) => message.id === id);
+		if (prior && prior.content !== input.instruction)
+			throw new RpcError("CONFLICT", "Steering id reused");
+		if (!prior)
+			runSteeringMessages.set(run.id, [
+				...messages,
+				{ id, content: input.instruction, status: "queued" },
+			]);
+		return { run };
+	},
+	"kernelRuntime/controlRunSteering": (input: {
+		runId: string;
+		action: "inspect" | "withdraw";
+	}) => {
+		findHomeRun(input.runId);
+		const messages = runSteeringMessages.get(input.runId) ?? [];
+		if (input.action === "inspect") return { messages };
+		const withdrawn = messages
+			.filter((message) => message.status === "queued")
+			.map((message) => ({ ...message, status: "withdrawn" as const }));
+		runSteeringMessages.set(
+			input.runId,
+			messages.map((message) =>
+				message.status === "queued"
+					? { ...message, status: "withdrawn" }
+					: message,
+			),
+		);
+		return { messages: withdrawn };
+	},
 	"kernelRuntime/cancelRun": (input: { runId: string }) => {
 		const run = findHomeRun(input.runId);
 		run.status = "canceled";
