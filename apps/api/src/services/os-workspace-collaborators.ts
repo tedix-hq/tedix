@@ -398,6 +398,28 @@ export async function openWorkspaceAsCollaborator(
 	};
 }
 
+/** The only collaborator fields a live workspace roster may disclose. */
+export async function getWorkspacePresenceIdentity(
+	context: BaseContext,
+	workspaceId: string,
+) {
+	const access = await requireWorkspaceCollaboratorAccess(
+		context,
+		workspaceId,
+		"presence.read",
+	);
+	const [person] = await listTedixPeople(db(context), [access.callerId]);
+	return {
+		workspaceId: access.workspace.id,
+		displayName: person?.name?.trim() || "Tedix member",
+		role:
+			access.workspace.visibility === "private" &&
+			access.workspace.ownerUserId === access.callerId
+				? ("owner" as const)
+				: access.role!,
+	};
+}
+
 async function people(
 	database: DbQueryClient,
 	access: WorkspaceAccess,

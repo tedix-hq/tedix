@@ -4,6 +4,7 @@ import { APP_RUNTIME_ENTRY } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
+import { CanvasPresence } from "@/components/canvas-presence";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	buildAppRuntimeDocument,
@@ -19,6 +20,7 @@ import { ROLE_LABEL } from "@/components/workspace-share-dialog";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
+import { useWorkspacePresence } from "@/lib/workspace-presence";
 
 type Opened = Awaited<ReturnType<typeof osApi.osCollaborators.open>>;
 
@@ -180,6 +182,11 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 	const queryClient = useQueryClient();
 	// The key is redeemed once; a reconnect must never silently re-redeem it.
 	const opening = useRef<Promise<Opened> | null>(null);
+	const participants = useWorkspacePresence({
+		workspaceId,
+		location: { surface: "canvas", selectionLabel: "Apps" },
+		enabled: state.status === "ready",
+	});
 
 	useEffect(() => {
 		let alive = true;
@@ -252,6 +259,7 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 						· opened with your own Tedix sign-in
 					</Text>
 				</div>
+				<CanvasPresence participants={participants} />
 				<Badge variant="secondary">
 					<ShieldCheck size={13} /> {ROLE_LABEL[opened.role]}
 				</Badge>

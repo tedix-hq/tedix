@@ -9,6 +9,7 @@ import {
 	addWorkspaceCollaborator,
 	copyWorkspaceShareLink,
 	createWorkspaceShareLink,
+	getWorkspacePresenceIdentity,
 	listWorkspaceSharing,
 	openWorkspaceAsCollaborator,
 	previewWorkspaceRemoval,
@@ -37,6 +38,20 @@ const open = collaborator.open
 		),
 	)
 	.handler(({ input, context }) => openWorkspaceAsCollaborator(context, input));
+
+const presence = collaborator.presence
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Access is the workspace permission graph: the handler requires presence.read and returns only an allowlisted roster identity.",
+			},
+			"apps:read",
+		),
+	)
+	.handler(({ input, context }) =>
+		getWorkspacePresenceIdentity(context, input.workspaceId),
+	);
 
 const list = collaborator.list
 	.use(
@@ -167,6 +182,7 @@ const dismissShared = collaborator.dismissShared
 
 export const osCollaboratorsContractRouter = os.router({
 	open,
+	presence,
 	list,
 	add,
 	createLink,

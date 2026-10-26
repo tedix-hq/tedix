@@ -114,6 +114,16 @@ describe("collaboration Worker presence", () => {
 			),
 		).resolves.toBeNull();
 	});
+
+	it("accepts a cross-tenant human only after collaborator authorization", async () => {
+		await expect(
+			collabIdentityFromPayload(
+				{ sub: "guest", dct: "guest-tenant" },
+				"workspace-tenant",
+				true,
+			),
+		).resolves.toMatchObject({ kind: "human", verified: true });
+	});
 });
 
 describe("collaboration profile names", () => {

@@ -25,6 +25,7 @@ import {
 } from "react";
 import { CanvasStagePending } from "@/routes/-pending";
 import { CanvasProposals } from "@/components/canvas-proposals";
+import { CanvasPresence } from "@/components/canvas-presence";
 import { CanvasResourceRail } from "@/components/canvas-resource-rail";
 import {
 	CANVAS_WORKPIECE_PANEL_ID,
@@ -116,6 +117,7 @@ import {
 import { outputIdFromHref } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
+import { useWorkspacePresence } from "@/lib/workspace-presence";
 import { OS_COPY } from "@/shared/os-copy";
 
 // ---------------------------------------------------------------------------
@@ -682,6 +684,35 @@ export function CanvasPage({
 					(item) => item.output.id === selectedDoc.id,
 				)?.output.kind)
 			: null;
+	const selectedOutput =
+		selectedDoc?.type === "output"
+			? (outputs.data?.items.find((output) => output.id === selectedDoc.id) ??
+				outputLibrary.data?.items.find(
+					(item) => item.output.id === selectedDoc.id,
+				)?.output)
+			: null;
+	const workspaceParticipants = useWorkspacePresence({
+		workspaceId,
+		location: {
+			surface: "canvas",
+			...(selectedApp
+				? { artifactKind: "gadget" as const, artifactLabel: selectedApp.name }
+				: selectedOutput
+					? {
+							artifactKind: "output" as const,
+							artifactLabel: selectedOutput.title,
+						}
+					: {}),
+			selectionLabel:
+				mobilePane === "workpiece"
+					? "Editor"
+					: mobilePane === "resources"
+						? "Resources"
+						: mobilePane === "work"
+							? "Work"
+							: "Chat",
+		},
+	});
 
 	// URL search is the durable selection contract. Local state mirrors it so a
 	// click feels immediate, while this effect replays refresh and history
@@ -1162,6 +1193,7 @@ export function CanvasPage({
 					</div>
 				</div>
 				<PageActions className="canvas-workspace-actions">
+					<CanvasPresence participants={workspaceParticipants} />
 					<span
 						className="contents"
 						data-workspace-activity-entry=""

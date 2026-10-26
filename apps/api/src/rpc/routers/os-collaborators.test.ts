@@ -152,6 +152,11 @@ describe("workspace collaborators", () => {
 			"presence.read",
 		]);
 		expect(opened.capability.actingUserId).toBe(ZOE);
+		expect(await as(env, ZOE).presence({ workspaceId })).toEqual({
+			workspaceId,
+			displayName: "Zoe",
+			role: "use",
+		});
 
 		await expect(as(env, ZOE).list({ workspaceId })).rejects.toMatchObject({
 			code: "FORBIDDEN",
@@ -163,6 +168,11 @@ describe("workspace collaborators", () => {
 		const kai = await as(env, KAI).open({ workspaceId });
 		expect(kai.role).toBe("build");
 		expect(kai.capability.operations).toContain("sharing.write");
+		expect(await as(env, ROBIN).presence({ workspaceId })).toEqual({
+			workspaceId,
+			displayName: "Robin",
+			role: "owner",
+		});
 	});
 
 	it("denies strangers without revealing the workspace", async () => {
@@ -170,6 +180,9 @@ describe("workspace collaborators", () => {
 		await expect(as(env, STRANGER).open({ workspaceId })).rejects.toMatchObject(
 			DENIED,
 		);
+		await expect(
+			as(env, STRANGER).presence({ workspaceId }),
+		).rejects.toMatchObject(DENIED);
 		await expect(
 			as(env, STRANGER).open({ workspaceId: crypto.randomUUID() }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
