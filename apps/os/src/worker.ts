@@ -1515,6 +1515,7 @@ async function handleCollabUpgrade(
 		console.warn("Collab upgrade refused: document authorization failed");
 		return refuse(403, "You do not have access to this workspace.");
 	}
+	let collabUserId: string | null = null;
 	const authenticatedPresence = localDemo
 		? await localCollabPresence("local")
 		: env.DESCOPE_PROJECT_ID
@@ -1549,6 +1550,9 @@ async function handleCollabUpgrade(
 									);
 								},
 						workspacePresence !== null,
+						(subject) => {
+							collabUserId = subject;
+						},
 					)
 				: null
 			: await localCollabPresence(
@@ -1584,6 +1588,17 @@ async function handleCollabUpgrade(
 	applyInboundTrustHeaderHygiene(headers, false);
 	headers.delete(COLLAB_PRESENCE_HEADER);
 	headers.set(COLLAB_PRESENCE_HEADER, JSON.stringify(presence));
+	headers.delete("X-Tedix-Collab-Access");
+	if (collabUserId) {
+		headers.set(
+			"X-Tedix-Collab-Access",
+			JSON.stringify({
+				workspaceId,
+				userId: collabUserId,
+				role: workspacePresence?.role === "use" ? "use" : "build",
+			}),
+		);
+	}
 	return room.fetch(new Request(request, { headers }));
 }
 

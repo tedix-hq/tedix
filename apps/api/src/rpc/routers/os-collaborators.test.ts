@@ -6,6 +6,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import {
+	kernelConversations,
+	kernelConversationGrants,
+	kernelRuntimeEvents,
+} from "@tedix/db/schema/cognitive-runtime";
+import { ensureHomeConversationAccess } from "./kernel/run-store";
+import { kernelRuntimeContractRouter } from "./kernel-runtime";
+import { workspaceSessionAccess } from "../../services/os-workspace-session-access";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
@@ -43,6 +51,9 @@ function createEnv() {
 	sqlite.exec(
 		schemaDdl(
 			tedis,
+			kernelConversations,
+			kernelConversationGrants,
+			kernelRuntimeEvents,
 			osWorkspaces,
 			osCollaborationProposals,
 			osGadgets,
@@ -124,6 +135,113 @@ const DENIED = {
 };
 
 describe("workspace collaborators", () => {
+	it("cuts an in-flight chat poll even when the removed collaborator still owns its conversation", async () => {
+		const { env, workspaceId, sqlite } = await seed();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		const ctx = context(env, KAI);
+		ctx.user!.permissions = [...ctx.user!.permissions, "tedis:read"];
+		await ctx.db.insert(kernelConversations).values({
+			id: "chat-1",
+			organizationId: "org-1",
+			conversationId: "chat-1",
+			workspaceId,
+			lastMessageAt: new Date().toISOString(),
+		});
+		await ctx.db.insert(kernelConversationGrants).values({
+			id: "grant-1",
+			organizationId: "org-1",
+			conversationId: "chat-1",
+			granteeDescopeUserId: KAI,
+			access: "owner",
+		});
+		await ensureHomeConversationAccess(ctx, {
+			organizationId: "org-1",
+			conversationId: "chat-1",
+			required: "read",
+		});
+		const client = createRouterClient(kernelRuntimeContractRouter, {
+			context: ctx,
+		});
+		const poll = client.readConversationEvents({
+			conversationId: "chat-1",
+			waitMs: 2_000,
+		});
+		const denied = expect(poll).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "user", userId: KAI },
+		});
+		await denied;
+		expect(
+			sqlite
+				.prepare(
+					"SELECT access FROM kernel_conversation_grants WHERE id = 'grant-1'",
+				)
+				.get(),
+		).toMatchObject({ access: "owner" });
+	});
+	it("rechecks live session roles after a cascading downgrade and removal", async () => {
+		const { env, workspaceId } = await seed();
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		await as(env, KAI).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "build",
+		});
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "use",
+		});
+		const read = async () => {
+			const response = await workspaceSessionAccess(
+				new Request("https://api/__internal/workspace-session-access", {
+					method: "POST",
+					body: JSON.stringify({
+						workspaceId,
+						userIds: [ROBIN, KAI, ZOE, STRANGER],
+					}),
+				}),
+				env,
+			);
+			return response.json();
+		};
+		expect(await read()).toEqual({
+			roles: {
+				[ROBIN]: "build",
+				[KAI]: "build",
+				[ZOE]: "build",
+				[STRANGER]: null,
+			},
+		});
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "user", userId: KAI },
+		});
+		expect(await read()).toEqual({
+			roles: { [ROBIN]: "build", [KAI]: null, [ZOE]: "use", [STRANGER]: null },
+		});
+		expect(await as(env, ZOE).access({ workspaceId })).toEqual({ role: "use" });
+		await expect(as(env, KAI).access({ workspaceId })).rejects.toMatchObject(
+			DENIED,
+		);
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "user", userId: ZOE },
+		});
+		expect(await read()).toEqual({
+			roles: { [ROBIN]: "build", [KAI]: null, [ZOE]: null, [STRANGER]: null },
+		});
+	});
 	it("hands use collaborators only the use allowlist", async () => {
 		const { env, workspaceId } = await seed();
 		await as(env, ROBIN).add({

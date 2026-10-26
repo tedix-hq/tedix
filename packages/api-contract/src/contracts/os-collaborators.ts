@@ -39,6 +39,14 @@ export const osCollaboratorsContract = oc
 	.route({ tags: ["os-collaborators"], prefix: "/os-collaborators" })
 	.errors(baseErrors)
 	.router({
+		access: oc
+			.route({
+				method: "GET",
+				path: "/workspaces/{workspaceId}/access",
+				summary: "Check your current workspace role",
+			})
+			.input(z.object({ workspaceId }).strict())
+			.output(z.object({ role: OsCollaboratorRoleSchema })),
 		open: oc
 			.route({
 				method: "POST",

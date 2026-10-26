@@ -15,6 +15,7 @@ import {
 	previewWorkspaceRemoval,
 	removeWorkspaceAccess,
 	requireCollaboratorIdentity,
+	requireWorkspaceCollaboratorAccess,
 } from "../../services/os-workspace-collaborators";
 import { type BaseContext, withAuth, withAuthorization } from "../orpc";
 
@@ -27,6 +28,24 @@ const os = implement(osCollaboratorsContract).$context<BaseContext>();
  * `requireCollaboratorIdentity`.
  */
 const collaborator = os.use(withAuth);
+const access = collaborator.access
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The handler requires a signed-in human and rechecks their workspace permission graph.",
+			},
+			"apps:read",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		const access = await requireWorkspaceCollaboratorAccess(
+			context,
+			input.workspaceId,
+			"metadata.read",
+		);
+		return { role: access.role! };
+	});
 const open = collaborator.open
 	.use(
 		withAuthorization(
@@ -181,6 +200,7 @@ const dismissShared = collaborator.dismissShared
 	});
 
 export const osCollaboratorsContractRouter = os.router({
+	access,
 	open,
 	presence,
 	list,

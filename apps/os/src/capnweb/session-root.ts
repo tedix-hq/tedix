@@ -51,6 +51,7 @@
 
 import {
 	callRpc,
+	RpcCallError,
 	type FetcherLike,
 	serviceBindingFetch,
 } from "@tedix/api-client/internal";
@@ -118,6 +119,13 @@ export const SUBSCRIBE_MAX_POLL_FAILURES = 5;
  * only a stub that keeps refusing delivery is.
  */
 export const SUBSCRIBE_MAX_CALLBACK_FAILURES = 3;
+
+function isAccessDenied(error: unknown): boolean {
+	return (
+		error instanceof RpcCallError &&
+		(error.status === 401 || error.status === 403)
+	);
+}
 
 // -----------------------------------------------------------------------------
 // Validation helpers — zod schemas from @tedix/api-contract where they exist;
@@ -687,6 +695,7 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 				if (result.kind === "refresh" || result.kind === "refresh-error") {
 					refresh = null;
 					if (result.kind === "refresh-error") {
+						if (isAccessDenied(result.error)) throw result.error;
 						refreshFailures += 1;
 						if (refreshFailures >= SUBSCRIBE_MAX_POLL_FAILURES)
 							throw result.error;
@@ -742,6 +751,7 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 
 				polls.delete(result.runId);
 				if (result.kind === "error") {
+					if (isAccessDenied(result.error)) throw result.error;
 					const failures = (runPollFailures.get(result.runId) ?? 0) + 1;
 					runPollFailures.set(result.runId, failures);
 					if (failures >= SUBSCRIBE_MAX_POLL_FAILURES) {

@@ -1,6 +1,11 @@
 // @vitest-environment node
-import { describe, expect, it } from "vite-plus/test";
-import { CollabRoom, type CollabRoomState, type CollabSocket } from "./room";
+import { describe, expect, it, vi } from "vite-plus/test";
+import {
+	CollabRoom,
+	COLLAB_ACCESS_CHECK_MS,
+	type CollabRoomState,
+	type CollabSocket,
+} from "./room";
 import {
 	COLLAB_DOC_PATH,
 	type CollabServerFrame,
@@ -610,4 +615,105 @@ describe("CollabRoom presence boundary", () => {
 		);
 		expect(second.of("presence").at(-1)?.peers).toHaveLength(1);
 	});
+});
+
+describe("live workspace access", () => {
+	it("arms a durable check on open and keeps a reconnected use presence session until removal", async () => {
+		const socket = new FakeSocket();
+		const roomState = state([]);
+		roomState.storage.getAlarm = async () => null;
+		roomState.storage.setAlarm = vi.fn(async () => {});
+		let role: string | null = "use";
+		const env = {
+			API_SERVICE: {
+				fetch: async () => Response.json({ roles: { guest: role } }),
+			},
+		};
+		const headers = new Headers(upgrade(identity).headers);
+		headers.set(
+			"X-Tedix-Collab-Access",
+			JSON.stringify({
+				workspaceId: "workspace-1",
+				userId: "guest",
+				role: "use",
+			}),
+		);
+		const restore = withWebSocketPair(() => [new FakeSocket(), socket]);
+		try {
+			await new CollabRoom(roomState, env)
+				.fetch(new Request("https://collab.internal/", { headers }))
+				.catch(() => {});
+		} finally {
+			restore();
+		}
+		expect(socket.of("hello")).toHaveLength(1);
+		expect(roomState.storage.setAlarm).toHaveBeenCalledOnce();
+		const close = vi.spyOn(socket, "close");
+		await new CollabRoom(roomState, env).alarm();
+		expect(close).not.toHaveBeenCalled();
+		role = null;
+		await new CollabRoom(roomState, env).alarm();
+		expect(close).toHaveBeenCalledWith(
+			4003,
+			"Workspace access changed; reconnect.",
+		);
+	});
+	it.each([null, "use", "unavailable"])(
+		"cuts %s peers after hibernation and keeps the owner connected",
+		async (role) => {
+			const removed = new FakeSocket();
+			const owner = new FakeSocket();
+			removed.serializeAttachment({
+				peerId: 1,
+				identity,
+				access: { workspaceId: "workspace-1", userId: "guest" },
+			});
+			owner.serializeAttachment({
+				peerId: 2,
+				identity: other,
+				access: { workspaceId: "workspace-1", userId: "owner" },
+			});
+			const cut = vi.spyOn(removed, "close");
+			const ownerCut = vi.spyOn(owner, "close");
+			const roomState = state([removed, owner]);
+			roomState.storage.getAlarm = async () => null;
+			roomState.storage.setAlarm = vi.fn(async () => {});
+			const requests: Request[] = [];
+			const env = {
+				API_SERVICE: {
+					fetch: async (request: Request) => {
+						requests.push(request);
+						return role === "unavailable"
+							? new Response(null, { status: 503 })
+							: Response.json({ roles: { guest: role, owner: "build" } });
+					},
+				},
+			};
+			// Constructing a fresh room uses only the durable socket attachments.
+			await new CollabRoom(roomState, env).alarm();
+			expect(cut).toHaveBeenCalledWith(
+				4003,
+				"Workspace access changed; reconnect.",
+			);
+			expect(ownerCut).toHaveBeenCalledTimes(role === "unavailable" ? 1 : 0);
+			expect(requests).toHaveLength(1);
+			expect(await requests[0]!.json()).toEqual({
+				workspaceId: "workspace-1",
+				userIds: ["guest", "owner"],
+			});
+			for (const header of ["Cookie", "Authorization", "X-API-Key"])
+				expect(requests[0]!.headers.has(header)).toBe(false);
+			await new CollabRoom(roomState, env).webSocketMessage(
+				removed,
+				encodeFrame({ t: "presence", state: { user: { name: "Forged" } } }),
+			);
+			expect(removed.frames).toEqual([]);
+			if (role !== "unavailable") {
+				expect(owner.frames.at(-1)).toMatchObject({ t: "presence", peers: [] });
+				expect(roomState.storage.setAlarm).toHaveBeenCalledOnce();
+				const next = vi.mocked(roomState.storage.setAlarm).mock.calls[0]![0];
+				expect(next).toBeLessThanOrEqual(Date.now() + COLLAB_ACCESS_CHECK_MS);
+			} else expect(roomState.storage.setAlarm).not.toHaveBeenCalled();
+		},
+	);
 });

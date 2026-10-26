@@ -1183,3 +1183,36 @@ describe("mountCapnChat credential handling", () => {
 		}
 	});
 });
+
+describe("chat access revocation", () => {
+	it.each([
+		"kernelRuntime/readRunEvents",
+		"kernelRuntime/readConversationEvents",
+		"kernelRuntime/readRunSet",
+	])(
+		"stops every delivery immediately when %s denies access",
+		async (deniedPath) => {
+			let reads = 0;
+			const session = makeSession({
+				fetch: async (request: Request) => {
+					const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
+					if (path !== deniedPath) return new Promise<Response>(() => {});
+					reads += 1;
+					return Response.json(
+						{ json: { code: "FORBIDDEN", message: "Access changed" } },
+						{ status: 403 },
+					);
+				},
+			});
+			const { stub, frames, counters } = subscriberStub();
+			const subscription = session
+				.openConversation("conv-1")
+				.subscribe(stub, { runId: "run-1", offset: 0 });
+			for (let i = 0; i < 30 && !subscription.isDisposed(); i++) await tick();
+			expect(subscription.isDisposed()).toBe(true);
+			expect(reads).toBe(1);
+			expect(counters.disposed).toBe(1);
+			expect(frames).toEqual([]);
+		},
+	);
+});

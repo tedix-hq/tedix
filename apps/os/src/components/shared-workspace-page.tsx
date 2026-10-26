@@ -187,6 +187,30 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 		location: { surface: "canvas", selectionLabel: "Apps" },
 		enabled: state.status === "ready",
 	});
+	const access = useQuery(
+		osQuery.osCollaborators.access.queryOptions({
+			input: { workspaceId },
+			enabled: state.status === "ready",
+			staleTime: 0,
+			refetchInterval: 3_000,
+			refetchIntervalInBackground: true,
+			retry: false,
+		}),
+	);
+	useEffect(() => {
+		if (state.status !== "ready") return;
+		if (access.isError) {
+			setState({ status: "denied" });
+		} else if (access.data && access.data.role !== state.opened.role) {
+			setState({
+				status: "ready",
+				opened: {
+					...state.opened,
+					role: access.data.role,
+				},
+			});
+		}
+	}, [access.data, access.isError, state]);
 
 	useEffect(() => {
 		let alive = true;
@@ -282,7 +306,11 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 				</Text>
 			) : (
 				opened.apps.map((app) => (
-					<SharedApp key={app.id} app={app} workspaceId={workspaceId} />
+					<SharedApp
+						key={`${opened.role}:${app.id}`}
+						app={app}
+						workspaceId={workspaceId}
+					/>
 				))
 			)}
 		</main>

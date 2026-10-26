@@ -2083,6 +2083,15 @@ describe("collaboration socket routing", () => {
 				expect(profileRequests).toHaveLength(2);
 				expect(
 					JSON.parse(
+						env.roomRequests[0]!.headers.get("X-Tedix-Collab-Access")!,
+					),
+				).toEqual({
+					workspaceId: "ws-1",
+					userId: "fictional-user",
+					role: "build",
+				});
+				expect(
+					JSON.parse(
 						env.roomRequests[0]!.headers.get("X-Tedix-Collab-Presence")!,
 					),
 				).toMatchObject({ displayName: name ?? "Tedix member" });
@@ -2255,6 +2264,9 @@ describe("collaboration socket routing", () => {
 				/osCollaborators\/presence$/,
 			);
 			expect(base.roomNames).toEqual(["tedix:ws-1:workspace:ws-1"]);
+			expect(
+				JSON.parse(base.roomRequests[0]!.headers.get("X-Tedix-Collab-Access")!),
+			).toEqual({ workspaceId: "ws-1", userId: "guest-user", role: "use" });
 			const projected = JSON.parse(
 				base.roomRequests[0]!.headers.get("X-Tedix-Collab-Presence")!,
 			);

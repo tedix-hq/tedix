@@ -91,6 +91,14 @@ async function serveFetch(
  */
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	override fetch(request: Request): Promise<Response> {
+		if (
+			new URL(request.url).pathname === "/__internal/workspace-session-access"
+		) {
+			return import("./services/os-workspace-session-access").then(
+				({ workspaceSessionAccess }) =>
+					workspaceSessionAccess(request, this.env),
+			);
+		}
 		return serveFetch(request, this.env, this.ctx);
 	}
 }

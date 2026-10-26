@@ -167,6 +167,11 @@ export const readRunEventsRoute = authed.readRunEvents
 		let currentRowStatus = runRow.status;
 		let settlementRepairAttempted = false;
 		while (true) {
+			await ensureHomeConversationAccess(context, {
+				conversationId: runRow.conversationId,
+				organizationId,
+				required: "read",
+			});
 			let rows: RunEventStreamRow[] = [];
 			let receiptRows: RunEventStreamRow[] = [];
 			let tailStart: number | null = null;
