@@ -472,6 +472,7 @@ export function kernelWriteCardContent(input: {
 		...(toolName === "projects.create_factory" && input.proposal.reasoning
 			? [input.proposal.reasoning]
 			: []),
+		"The write runs with your connection, or your organization’s connection if you have none.",
 		"Nothing has been executed. Reply “approve” or “yes” to proceed, or “reject” to cancel.",
 		"### Details",
 		`Tool: \`${toolName}\` on ${input.proposal.appSlug}`,

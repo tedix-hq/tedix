@@ -93,6 +93,9 @@ export const INTERNAL_TRUST_HEADERS: readonly string[] = [
 	"X-Tedix-Kernel",
 	"X-Tedix-Delegated-Scope",
 	"X-Tedix-Agent-Session-Id",
+	"X-Tedix-Approved-Home-User",
+	"X-Tedix-Approved-Work-Responder",
+	"X-Tedix-Approved-Factory-Request",
 	// Connection / credential selection.
 	"X-Tedix-Connection-Label",
 	// Routing trust (only ever honored on the internal binding).

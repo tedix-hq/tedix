@@ -10,6 +10,20 @@ import {
 const id = "7c0723ef-fed7-4482-9454-4716ddfd5879";
 
 describe("Home write approval summary", () => {
+	it("explains member-first connections and the organization fallback before approval", () => {
+		const content = kernelWriteCardContent({
+			approvalRequestId: id,
+			proposal: {
+				appSlug: "fictional-mail",
+				toolName: "mail__send_message",
+				args: { to: "maya@example.com" },
+			},
+		});
+		expect(content.split("### Details")[0]).toContain(
+			"The write runs with your connection, or your organization’s connection if you have none.",
+		);
+	});
+
 	it("shares the one-line document summary with the approval message", () => {
 		const proposal = {
 			appSlug: "local-os",

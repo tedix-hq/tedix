@@ -241,6 +241,7 @@ function emitGovernanceAuditEvent(
 	outcome: GovernanceOutcome,
 	reason: string,
 	extraMetadata?: Record<string, unknown>,
+	userId = agent.callerIdentity?.userId,
 ): void {
 	// Skip audit emission when the approval context lacks the platform-level
 	// fields (e.g. governance tests that stub `server` only). The audit emitter
@@ -255,7 +256,7 @@ function emitGovernanceAuditEvent(
 		appSlug: agent.appSlug,
 		organizationId: agent.app?.organizationId,
 		toolName: tool.toolId,
-		userId: agent.callerIdentity?.userId,
+		userId,
 		clientId: agent.callerIdentity?.clientId,
 		authType: agent.callerIdentity?.authType,
 		traceId: agent.traceId,
@@ -782,7 +783,13 @@ export async function requireDestructiveToolApproval(
 					tool,
 					"destructive_approved",
 					"home_tool_approval",
-					{ approvalRequestId: homeApprovalId },
+					{
+						approvalRequestId: homeApprovalId,
+						actor: `kernel on behalf of user:${homeUserId}`,
+						delegationMode: "kernel",
+						subjectUserId: homeUserId,
+					},
+					homeUserId,
 				);
 				return null;
 			}

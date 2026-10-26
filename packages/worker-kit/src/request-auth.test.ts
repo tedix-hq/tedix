@@ -51,6 +51,20 @@ describe("applyOperatorConsentHeaderHygiene", () => {
 });
 
 describe("applyInboundTrustHeaderHygiene", () => {
+	it.each([
+		"X-Tedix-Approved-Home-User",
+		"X-Tedix-Approved-Work-Responder",
+		"X-Tedix-Approved-Factory-Request",
+	])("strips %s at public ingress and preserves it on trusted hops", (name) => {
+		for (const headerName of [name, name.toLowerCase()]) {
+			const headers = new Headers({ [headerName]: "approval-identity" });
+			applyInboundTrustHeaderHygiene(headers, true);
+			expect(headers.get(name)).toBe("approval-identity");
+			applyInboundTrustHeaderHygiene(headers, false);
+			expect(headers.has(name)).toBe(false);
+		}
+	});
+
 	it("strips every internal-trust marker from external ingress", () => {
 		const headers = new Headers({
 			"X-Service-Binding": "true",
