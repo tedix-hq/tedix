@@ -18,7 +18,11 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
-import { osQuery, userProfileQueryOptions } from "@/lib/os-query-options";
+import {
+	osQuery,
+	userProfileQueryOptions,
+	workItemReadinessQueryOptions,
+} from "@/lib/os-query-options";
 import { absoluteTime } from "@/lib/time";
 
 const labels: Record<WorkExecutor, string> = {
@@ -66,19 +70,36 @@ function ExecutorChoice({
 	);
 }
 
+const sessionHosts = ["codex", "claude-code", "devin"] as const;
+type SessionHost = (typeof sessionHosts)[number];
+const isSessionHost = (value: unknown): value is SessionHost =>
+	sessionHosts.includes(value as SessionHost);
+
 export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 	const client = useQueryClient();
 	const viewer = useQuery(userProfileQueryOptions());
 	const parsed = WorkExecutorSchema.safeParse(item.metadata?.executor);
 	const executor = parsed.success ? parsed.data : "human";
-	const localExecutor =
-		executor === "codex" || executor === "claude-code" || executor === "devin";
+	const localExecutor = isSessionHost(executor);
+	const editable =
+		item.accountableOwnerType === "user" &&
+		viewer.data?.id === item.accountableOwnerId &&
+		["proposed", "accepted"].includes(item.disposition);
+	const canStart = editable && item.disposition === "accepted";
+	const [starting, setStarting] = useState(false);
+	const [host, setHost] = useState<SessionHost>("codex");
+	const [brief, setBrief] = useState("");
+	const hostId = useId();
 	const attempts = useQuery({
 		...osQuery.workItems.listAttempts.queryOptions({
 			input: { id: item.id, limit: 1 },
 		}),
-		enabled: localExecutor,
+		enabled: localExecutor || canStart,
 		refetchInterval: localExecutor ? 10_000 : false,
+	});
+	const readiness = useQuery({
+		...workItemReadinessQueryOptions(item.id),
+		enabled: starting,
 	});
 	const latest = attempts.data?.data[0];
 	const active =
@@ -89,13 +110,16 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 			osApi.workItems.updateSpecification({
 				id: item.id,
 				expectedWorkItemVersion: item.version,
-				executor,
+				executor: host,
 				laneDispatch: { state: "ready" },
+				...(brief === (item.description ?? "") ? {} : { description: brief }),
 			}),
-		onSuccess: () =>
-			client.invalidateQueries({
+		onSuccess: async () => {
+			setStarting(false);
+			await client.invalidateQueries({
 				queryKey: osQuery.workItems.key({ type: "query" }),
-			}),
+			});
+		},
 	});
 	const update = useMutation({
 		mutationFn: (value: WorkExecutor) =>
@@ -109,10 +133,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 				queryKey: osQuery.workItems.key({ type: "query" }),
 			}),
 	});
-	const editable =
-		item.accountableOwnerType === "user" &&
-		viewer.data?.id === item.accountableOwnerId &&
-		["proposed", "accepted"].includes(item.disposition);
+	const blocked = readiness.data && !readiness.data.ready;
 	return (
 		<div className="grid gap-2">
 			<ExecutorChoice
@@ -120,25 +141,102 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 				onChange={(value) => update.mutate(value)}
 				disabled={!editable || update.isPending}
 			/>
-			{localExecutor ? (
+			{localExecutor || canStart ? (
 				<>
-					<Text tone="secondary">
-						The task description is the session brief. A connected Mac starts
-						the session when it has capacity.
-					</Text>
-					{item.disposition === "accepted" && editable ? (
+					{canStart && !starting ? (
 						<Button
 							disabled={
-								start.isPending ||
 								update.isPending ||
 								attempts.isPending ||
 								attempts.isError ||
 								Boolean(active)
 							}
-							onClick={() => start.mutate()}
+							onClick={() => {
+								setHost(localExecutor ? executor : "codex");
+								setBrief(item.description ?? "");
+								setStarting(true);
+							}}
 						>
 							Start session
 						</Button>
+					) : null}
+					{canStart && starting ? (
+						<form
+							className="grid gap-2"
+							onSubmit={(event) => {
+								event.preventDefault();
+								start.mutate();
+							}}
+						>
+							<Label htmlFor={hostId}>Host</Label>
+							<Select
+								value={host}
+								onValueChange={(next) => {
+									if (isSessionHost(next)) setHost(next);
+								}}
+								disabled={start.isPending}
+							>
+								<SelectTrigger id={hostId} aria-label="Host">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{sessionHosts.map((value) => (
+										<SelectItem key={value} value={value}>
+											{labels[value]}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Textarea
+								aria-label="Brief"
+								placeholder="What the session should do and how it proves it."
+								value={brief}
+								maxLength={10000}
+								onChange={(event) => setBrief(event.target.value)}
+							/>
+							<Text tone="secondary">
+								The brief becomes the task description. A connected Mac starts a
+								fresh session when it has capacity.
+							</Text>
+							{readiness.data?.ready ? (
+								<Text tone="secondary">Ready to start.</Text>
+							) : null}
+							{blocked
+								? readiness.data?.reasons.map((reason, index) => (
+										<Text key={`${reason.code}:${index}`} tone="error">
+											{reason.detail}
+										</Text>
+									))
+								: null}
+							{readiness.isError ? (
+								<Text tone="error">
+									Readiness is unavailable. The session still checks it before
+									it starts.
+								</Text>
+							) : null}
+							<div className="flex gap-2">
+								<Button
+									type="submit"
+									disabled={
+										start.isPending ||
+										readiness.isPending ||
+										Boolean(blocked) ||
+										Boolean(active) ||
+										!brief.trim()
+									}
+								>
+									Start {labels[host]} session
+								</Button>
+								<Button
+									type="button"
+									variant="secondary"
+									disabled={start.isPending}
+									onClick={() => setStarting(false)}
+								>
+									Cancel
+								</Button>
+							</div>
+						</form>
 					) : null}
 					{latest ? (
 						<Text tone="secondary">
@@ -148,7 +246,8 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 								? ` · Last update ${absoluteTime(latest.heartbeatAt)}`
 								: ""}
 						</Text>
-					) : item.metadata?.laneDispatch &&
+					) : localExecutor &&
+					  item.metadata?.laneDispatch &&
 					  typeof item.metadata.laneDispatch === "object" &&
 					  "state" in item.metadata.laneDispatch &&
 					  item.metadata.laneDispatch.state === "ready" ? (
@@ -161,7 +260,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 					) : null}
 					{start.isError ? (
 						<Text tone="error">
-							Could not start the session. Refresh and retry.
+							Could not start the session. Your brief is kept here.
 						</Text>
 					) : null}
 				</>
