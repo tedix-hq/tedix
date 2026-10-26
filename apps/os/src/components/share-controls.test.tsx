@@ -19,8 +19,13 @@ const sharesApi = vi.hoisted(() => ({
 	revoke: vi.fn(),
 }));
 
+const getContext = vi.hoisted(() => vi.fn());
+
 vi.mock("@/lib/api", () => ({
-	osApi: { osShares: { shares: sharesApi } },
+	osApi: {
+		osShares: { shares: sharesApi },
+		userSettings: { getContext },
+	},
 }));
 
 import {
@@ -115,6 +120,11 @@ async function flush() {
 			await new Promise((resolve) => setTimeout(resolve, 0));
 		}
 	});
+}
+
+function linkField(container: Element): { value: string } | null {
+	const field = container.querySelector("[data-share-url]");
+	return field ? { value: field.textContent ?? "" } : null;
 }
 
 function findButton(container: Element, label: string): HTMLButtonElement {
@@ -281,16 +291,34 @@ describe("shareExpiryLabel", () => {
 // ---------------------------------------------------------------------------
 
 describe("ShareRow", () => {
-	it("renders created time, expiry, status, and the revoke button", () => {
+	it("summarizes access, version, expiry and age with plain actions", () => {
 		const html = renderToStaticMarkup(
-			<ShareRow share={shareFixture()} onRevoke={() => {}} />,
+			<ShareRow
+				share={shareFixture({ note: "For the team" })}
+				onRevoke={() => {}}
+				onEdit={() => {}}
+			/>,
 		);
-		expect(html).toContain("Created");
+		expect(html).toContain("For the team");
+		expect(html).toContain("created");
 		expect(html).toContain("never expires");
-		expect(html).toContain("Active");
 		expect(html).toContain("Can view");
-		expect(html).toContain("Latest version");
+		expect(html).toContain("latest version");
+		expect(html).toContain("Edit");
 		expect(html).toContain("Turn off");
+	});
+
+	it("asks inline before turning a link off", () => {
+		const html = renderToStaticMarkup(
+			<ShareRow
+				share={shareFixture()}
+				onRevoke={() => {}}
+				confirmRevoke={{ activeSessionCount: 1 }}
+			/>,
+		);
+		expect(html).toContain("Turn off this link?");
+		expect(html).toContain("1 person has it open now");
+		expect(html).toContain("Keep link");
 	});
 
 	it("hides the revoke button on a revoked link", () => {
@@ -357,7 +385,86 @@ describe("ShareControls", () => {
 			resourceId: OUTPUT_ID,
 		});
 		expect(container.textContent).toContain("never expires");
-		expect(container.textContent).toContain("Active");
+		expect(container.textContent).toContain("Can view");
+	});
+
+	it("tucks turned-off links away behind one toggle", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [
+				shareFixture(),
+				shareFixture({
+					id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+					note: "Old handoff",
+					revokedAt: "2026-08-14T11:00:00.000Z",
+				}),
+			],
+		});
+		const container = renderControls();
+		click(findButton(container, "Share"));
+		await flush();
+		expect(container.textContent).not.toContain("Old handoff");
+		click(findButton(container, "Show 1 old link"));
+		expect(container.textContent).toContain("Old handoff");
+		expect(container.textContent).toContain("Turned off");
+	});
+
+	it("edits a link by making a new one and turning the old one off", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [shareFixture({ note: "Old note" })],
+		});
+		sharesApi.create.mockResolvedValue({
+			share: shareFixture({
+				id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+				note: "New note",
+			}),
+			token: TOKEN,
+		});
+		sharesApi.revoke.mockResolvedValue({
+			share: shareFixture({ revokedAt: "2026-08-14T11:00:00.000Z" }),
+			revokedSessionCount: 0,
+		});
+		const container = renderControls();
+		click(findButton(container, "Share"));
+		await flush();
+		expect(container.textContent).not.toContain("Create link");
+
+		click(findButton(container, "Edit"));
+		const note = container.querySelector<HTMLInputElement>(
+			'input[aria-label="Share note"]',
+		);
+		expect(note?.value).toBe("Old note");
+		if (!note) throw new Error("share note missing");
+		setFieldValue(note, "New note");
+		click(findButton(container, "Save and get new link"));
+		await flush();
+
+		expect(sharesApi.create).toHaveBeenCalledWith({
+			resourceType: "output",
+			resourceId: OUTPUT_ID,
+			role: "viewer",
+			revisionMode: "living",
+			note: "New note",
+		});
+		expect(sharesApi.revoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
+		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
+		expect(container.textContent).toContain("The old link no longer works");
+	});
+
+	it("keeps the new link visible when the old one fails to turn off", async () => {
+		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
+		sharesApi.create.mockResolvedValue({
+			share: shareFixture({ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }),
+			token: TOKEN,
+		});
+		sharesApi.revoke.mockRejectedValue(new Error("offline"));
+		const container = renderControls();
+		click(findButton(container, "Share"));
+		await flush();
+		click(findButton(container, "Edit"));
+		click(findButton(container, "Save and get new link"));
+		await flush();
+		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
+		expect(container.textContent).toContain("The old link is still on");
 	});
 
 	it("explains the empty list without implying failure", async () => {
@@ -387,7 +494,8 @@ describe("ShareControls", () => {
 			role: "viewer",
 			revisionMode: "living",
 		});
-		expect(container.textContent).toContain(formatShareLink(TOKEN));
+		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
+		expect(findButton(container, "Copy link")).toBeTruthy();
 		expect(container.textContent).toContain(
 			"Anyone with this link can view this file",
 		);
@@ -396,7 +504,7 @@ describe("ShareControls", () => {
 		// Dismissing hides the plaintext for good.
 		click(findButton(container, "Done"));
 		await flush();
-		expect(container.textContent).not.toContain(TOKEN);
+		expect(linkField(container)).toBeNull();
 	});
 
 	it("passes an optional expiry as an absolute timestamp", async () => {
@@ -504,7 +612,7 @@ describe("ShareControls", () => {
 			pinnedRevisionId: REVISION_ID,
 			note: "Approved build handoff",
 		});
-		expect(container.textContent).toContain("/shared#token=");
+		expect(linkField(container)?.value).toContain("/shared#token=");
 		expect(container.textContent).toContain(
 			"Your connected accounts are never shared",
 		);
@@ -601,7 +709,45 @@ describe("ShareControls", () => {
 		settle.resolve?.({ token: TOKEN, share: shareFixture() });
 		await flush();
 		expect(container.querySelector('[data-slot="share-pending"]')).toBeNull();
-		expect(container.textContent).toContain(TOKEN);
+		expect(linkField(container)?.value).toContain(TOKEN);
+	});
+});
+
+describe("ShareControls review entry", () => {
+	const useLink = () =>
+		shareFixture({
+			resourceType: "gadget",
+			resourceId: GADGET_ID,
+			role: "use",
+		});
+
+	it("offers a closed review entry to the organization owner", async () => {
+		sharesApi.list.mockResolvedValue({ items: [useLink()] });
+		getContext.mockResolvedValue({ authority: { role: "owner" } });
+		const container = renderControls({
+			resourceType: "gadget",
+			resourceId: GADGET_ID,
+		});
+		click(findButton(container, "Share"));
+		await flush();
+		expect(container.textContent).toContain(
+			"Ask people to review specific items",
+		);
+		// Closed by default: none of the review form is on screen.
+		expect(container.textContent).not.toContain("Items come from");
+		expect(container.textContent).not.toContain("No review batch");
+	});
+
+	it("hides the review entry from everyone else", async () => {
+		sharesApi.list.mockResolvedValue({ items: [useLink()] });
+		getContext.mockResolvedValue({ authority: { role: "member" } });
+		const container = renderControls({
+			resourceType: "gadget",
+			resourceId: GADGET_ID,
+		});
+		click(findButton(container, "Share"));
+		await flush();
+		expect(container.textContent).not.toContain("Ask people to review");
 	});
 });
 

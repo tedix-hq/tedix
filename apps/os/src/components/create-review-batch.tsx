@@ -23,22 +23,24 @@ const blank = (): OsReviewCard => ({
 	checks: [],
 	evidence: [],
 });
-/** Human owner approval is enforced by the API; no implicit sharing of workbook rows. */
+/**
+ * The owner's form for one review round. Human owner approval is enforced by
+ * the API; no implicit sharing of workbook rows. The share popover explains
+ * the feature and holds this form behind its own disclosure.
+ */
 export function CreateReviewBatch({
 	shareId,
 	gadgetId,
-	label = "Prepare a feedback review",
 }: {
 	shareId: string;
 	gadgetId: string;
-	label?: string;
 }) {
 	const sourceSelectId = useId();
 	const [sources, setSources] = useState<Array<{ id: string; title: string }>>(
 		[],
 	);
 	const [sourceId, setSourceId] = useState("");
-	const [title, setTitle] = useState("Review batch");
+	const [title, setTitle] = useState("Items to review");
 	const [cards, setCards] = useState<OsReviewCard[]>(() => [blank()]);
 	const [rawChecks, setRawChecks] = useState<Record<string, string>>({});
 	const [rawEvidence, setRawEvidence] = useState<Record<string, string>>({});
@@ -53,7 +55,7 @@ export function CreateReviewBatch({
 					/\/workspace\/([0-9a-f-]{36})/i,
 				)?.[1];
 				if (!workspaceId)
-					throw new Error("Open the app in its workspace to prepare a review.");
+					throw new Error("Open the app in its workspace to send a review.");
 				const detail = await osApi.osWorkspaces.gadgets.get({
 					workspaceId,
 					gadgetId,
@@ -70,7 +72,7 @@ export function CreateReviewBatch({
 				},
 				() => {
 					if (alive)
-						setStatus("Could not load source documents. Check your access.");
+						setStatus("Could not load your documents. Check your access.");
 				},
 			);
 		return () => {
@@ -118,30 +120,24 @@ export function CreateReviewBatch({
 			});
 			setDone(true);
 			setStatus(
-				"Review round saved. This link now opens these cards; earlier rounds and their feedback are kept. Later research changes do not change this round.",
+				"Sent. People who open the link now see these items. Earlier answers are kept, and later edits to your document do not change what they see.",
 			);
 		} catch (error) {
 			setStatus(
 				error instanceof Error
 					? error.message
-					: "Could not create review batch.",
+					: "Could not send the items for review.",
 			);
 		} finally {
 			setBusy(false);
 		}
 	}
 	return (
-		<details className="grid gap-3">
-			<summary className="cursor-pointer font-medium">{label}</summary>
-			<p className="text-sm text-kumo-subtle">
-				The organization owner chooses exactly what is shared. Feedback stays
-				separate from your research. Recipients must already have access to this
-				organization.
-			</p>
+		<div className="grid gap-3">
 			{!done && (
 				<div className="grid gap-3">
-					<label htmlFor={sourceSelectId}>
-						Source document
+					<label htmlFor={sourceSelectId} className="grid gap-1.5 text-sm">
+						Items come from
 						<Select
 							value={sourceId || null}
 							items={sources.map((source) => ({
@@ -151,7 +147,7 @@ export function CreateReviewBatch({
 							onValueChange={(value) => setSourceId(value ?? "")}
 						>
 							<SelectTrigger id={sourceSelectId} className="w-full">
-								<SelectValue placeholder="Choose a source" />
+								<SelectValue placeholder="Choose a document" />
 							</SelectTrigger>
 							<SelectContent>
 								{sources.map((source) => (
@@ -162,8 +158,8 @@ export function CreateReviewBatch({
 							</SelectContent>
 						</Select>
 					</label>
-					<label>
-						Batch title
+					<label className="grid gap-1.5 text-sm">
+						Name of this review
 						<Input
 							value={title}
 							onChange={(e) => setTitle(e.target.value)}
@@ -175,33 +171,33 @@ export function CreateReviewBatch({
 							key={card.id}
 							className="grid gap-2 rounded border border-kumo-line p-3"
 						>
-							<legend>Card {index + 1}</legend>
+							<legend className="px-1 text-sm">Item {index + 1}</legend>
 							<Input
-								aria-label={`Card ${index + 1} title`}
-								placeholder="Title"
+								aria-label={`Item ${index + 1} title`}
+								placeholder="What it is"
 								value={card.title}
 								onChange={(e) => change(index, { title: e.target.value })}
 							/>
 							<Input
-								aria-label={`Card ${index + 1} evidence link`}
-								placeholder="HTTPS evidence link"
+								aria-label={`Item ${index + 1} link`}
+								placeholder="Link to it (https://…)"
 								value={card.url}
 								onChange={(e) => change(index, { url: e.target.value })}
 							/>
 							<Textarea
-								aria-label={`Card ${index + 1} relevance`}
+								aria-label={`Item ${index + 1} why it matters`}
 								placeholder="Why it matters"
 								value={card.relevance}
 								onChange={(e) => change(index, { relevance: e.target.value })}
 							/>
 							<Textarea
-								aria-label={`Card ${index + 1} draft`}
-								placeholder="Proposed reply"
+								aria-label={`Item ${index + 1} suggested reply`}
+								placeholder="Suggested reply (optional)"
 								value={card.draft}
 								onChange={(e) => change(index, { draft: e.target.value })}
 							/>
-							<label>
-								Effort
+							<label className="grid gap-1.5 text-sm">
+								How much work
 								<Select
 									value={card.effort}
 									items={{ low: "Low", medium: "Medium", high: "High" }}
@@ -210,7 +206,7 @@ export function CreateReviewBatch({
 										change(index, { effort: value as OsReviewCard["effort"] })
 									}
 								>
-									<SelectTrigger aria-label="Effort">
+									<SelectTrigger aria-label={`Item ${index + 1} how much work`}>
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
@@ -221,8 +217,8 @@ export function CreateReviewBatch({
 								</Select>
 							</label>
 							<Textarea
-								aria-label={`Card ${index + 1} checks`}
-								placeholder="Remaining checks, one per line"
+								aria-label={`Item ${index + 1} still to check`}
+								placeholder="Still to check (optional, one per line)"
 								value={rawChecks[card.id] ?? ""}
 								onChange={(e) =>
 									setRawChecks((current) => ({
@@ -232,8 +228,8 @@ export function CreateReviewBatch({
 								}
 							/>
 							<Textarea
-								aria-label={`Card ${index + 1} sources`}
-								placeholder="Evidence sources: label | HTTPS link, one per line"
+								aria-label={`Item ${index + 1} more sources`}
+								placeholder="More sources (optional): name | https://…, one per line"
 								value={rawEvidence[card.id] ?? ""}
 								onChange={(e) =>
 									setRawEvidence((current) => ({
@@ -249,7 +245,7 @@ export function CreateReviewBatch({
 										setCards((current) => current.filter((_, i) => i !== index))
 									}
 								>
-									Remove card
+									Remove item
 								</Button>
 							)}
 						</fieldset>
@@ -259,19 +255,19 @@ export function CreateReviewBatch({
 						disabled={cards.length >= 50}
 						onClick={() => setCards((current) => [...current, blank()])}
 					>
-						Add card
+						Add another item
 					</Button>
 					<Button
 						disabled={busy || !sourceId || !title.trim()}
 						onClick={() => void approve()}
 					>
-						{busy ? "Saving…" : "Approve and save review batch"}
+						{busy ? "Sending…" : "Send for review"}
 					</Button>
 				</div>
 			)}
-			<p role="status" className="text-sm text-kumo-subtle">
+			<p role="status" className="m-0 text-sm text-kumo-subtle empty:hidden">
 				{status}
 			</p>
-		</details>
+		</div>
 	);
 }

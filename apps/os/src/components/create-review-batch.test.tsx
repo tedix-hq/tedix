@@ -15,7 +15,7 @@ describe("CreateReviewBatch", () => {
 			</>,
 		);
 		const labels = Array.from(host.querySelectorAll("label")).filter((label) =>
-			label.textContent?.trim().startsWith("Source document"),
+			label.textContent?.trim().startsWith("Items come from"),
 		);
 		expect(labels).toHaveLength(2);
 		const ids = labels.map((label) => {
@@ -24,7 +24,9 @@ describe("CreateReviewBatch", () => {
 			expect(selector?.getAttribute("role")).toBe("combobox");
 			expect(selector?.getAttribute("aria-label")).toBeNull();
 			expect(selector?.getAttribute("aria-labelledby")).toBeNull();
-			expect(label.textContent?.trim()).toBe("Source documentChoose a source");
+			expect(label.textContent?.trim()).toBe(
+				"Items come fromChoose a document",
+			);
 			return selector?.id;
 		});
 		expect(new Set(ids).size).toBe(2);
