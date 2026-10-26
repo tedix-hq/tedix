@@ -123,6 +123,8 @@ succeeded. See the [known limits](docs/public/release-status.md#known-limits).
 Tedix Cloud is the hosted service, currently available by invitation.
 [Request access](https://tedix.dev/contact/), then follow
 [Use Tedix in ChatGPT, Codex and Claude](docs/public/learning-paths/first-plugin.md).
+Any coding agent that reads Agent Skills can add the plugin's skills with
+`npx skills add tedix-hq/tedix-plugins`.
 
 The plugin and command-line tool are public betas. ChatGPT support currently
 requires the desktop app. [Release status](docs/public/release-status.md)
