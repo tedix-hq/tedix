@@ -447,27 +447,117 @@
 }
 
 /*
- * One row that can never overlap: the context chip and the hint give way
- * (truncate, then hide) and the mic / model / send group keeps its width.
+ * The footer holds two groups: context controls on the left, the route and
+ * model pickers with send on the right. No control shrinks below its content,
+ * so nothing can paint over a neighbour. As the composer narrows, labels
+ * collapse to icons and pickers to short chips; if the row still runs out,
+ * the right group wraps under the left one and stays right-aligned. Only the
+ * keyboard hint absorbs spare room, and `contain` keeps its text out of the
+ * row's size so it never forces that wrap.
  */
-.chat-composer-context {
-	flex: 1 1 auto;
-	min-width: 0;
+.chat-composer-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px 16px 12px;
 }
 
-.chat-composer-chip,
-.chat-composer-hint {
-	flex: 0 1 auto;
-	min-width: 0;
+.chat-composer-context,
+.chat-composer-submit {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.chat-composer-context {
+	flex: 1 1 auto;
 }
 
 .chat-composer-submit {
-	flex: 0 0 auto;
+	flex: none;
+	margin-left: auto;
 }
 
-@container chat-composer (max-width: 520px) {
+.chat-composer-context > *,
+.chat-composer-submit > * {
+	flex-shrink: 0;
+}
+
+.chat-composer-hint {
+	flex: 1 1 0;
+	min-width: 0;
+	contain: inline-size;
+}
+
+.chat-composer-chip,
+.chat-composer-picker {
+	max-width: 8rem;
+}
+
+.chat-composer-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+@container chat-composer (max-width: 720px) {
+	.chat-composer-upload {
+		aspect-ratio: 1;
+		justify-content: center;
+		padding-inline: 0;
+	}
+
+	.chat-composer-upload .chat-composer-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		clip-path: inset(50%);
+	}
+}
+
+@container chat-composer (max-width: 640px) {
 	.chat-composer-hint {
 		display: none;
+	}
+}
+
+@container chat-composer (max-width: 480px) {
+	.chat-composer-chip {
+		aspect-ratio: 1;
+		justify-content: center;
+		padding-inline: 0;
+	}
+
+	.chat-composer-chip .chat-composer-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		clip-path: inset(50%);
+	}
+
+	.chat-composer-picker {
+		max-width: 6rem;
+	}
+}
+
+@container chat-composer (max-width: 360px) {
+	.chat-composer-actions {
+		gap: 4px;
+		padding-inline: 12px;
+	}
+
+	.chat-composer-context,
+	.chat-composer-submit {
+		gap: 4px;
+	}
+
+	.chat-composer-picker {
+		max-width: 4.5rem;
 	}
 }
 
@@ -1069,25 +1159,6 @@
 		padding: 4px 8px;
 		border-top: 1px solid var(--border);
 		border-radius: 0;
-	}
-
-	.chat-composer-actions {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-	}
-
-	.chat-composer-context {
-		overflow: clip;
-		overflow-clip-margin: 0.25rem;
-	}
-
-	.chat-composer-hint {
-		display: none;
-	}
-
-	.chat-composer-submit {
-		max-width: min(12rem, 48vw);
 	}
 
 	.chat-starter-prompts {

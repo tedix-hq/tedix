@@ -34,7 +34,7 @@ export function ChatModelPicker({
 				type="button"
 				size="sm"
 				variant="ghost"
-				className="min-w-0 max-w-32"
+				className="chat-composer-picker"
 				disabled
 				aria-label={`Model: ${label}`}
 				title="Your organization picks the model"
@@ -51,7 +51,7 @@ export function ChatModelPicker({
 						type="button"
 						size="sm"
 						variant="ghost"
-						className="min-w-0 max-w-32"
+						className="chat-composer-picker"
 						aria-label={`Model: ${label}`}
 					>
 						<span className="truncate">{label}</span>

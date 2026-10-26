@@ -2609,7 +2609,11 @@ describe("<ChatThread> attachment dropzone", () => {
 			},
 		});
 		await flush();
-		const boundedButtons = [...container.querySelectorAll("button.max-w-32")];
+		const boundedButtons = [
+			...container.querySelectorAll(
+				"button.chat-composer-chip, button.chat-composer-picker",
+			),
+		];
 		expect(boundedButtons).toHaveLength(2);
 		expect(boundedButtons[0]?.textContent).toContain(
 			"A deliberately long workspace label",
