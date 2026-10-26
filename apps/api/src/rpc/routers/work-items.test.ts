@@ -44,6 +44,7 @@ CREATE TABLE work_item_projections (id TEXT PRIMARY KEY, work_item_id TEXT NOT N
 CREATE TABLE work_attempts (id TEXT PRIMARY KEY, admission_id TEXT, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, executor_type TEXT NOT NULL, executor_id TEXT NOT NULL, executor_session_id TEXT, external_session_key TEXT, run_id TEXT, runtime_state TEXT NOT NULL, outcome TEXT, attempt_number INTEGER NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL, expires_at TEXT, finished_at TEXT, summary TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_evidence (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, attempt_id TEXT, claim_key TEXT NOT NULL, kind TEXT NOT NULL, uri TEXT NOT NULL, digest TEXT, media_type TEXT, label TEXT, submitted_by_type TEXT NOT NULL, submitted_by_id TEXT NOT NULL, submitted_by_session_id TEXT, disposition TEXT NOT NULL DEFAULT 'pending', reviewed_by_type TEXT, reviewed_by_id TEXT, reviewed_by_session_id TEXT, review_reason TEXT, submitted_at TEXT NOT NULL, reviewed_at TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL);
+CREATE TABLE work_interactions (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT, target_type TEXT NOT NULL, target_id TEXT NOT NULL);
 CREATE TABLE external_agent_principals (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, key TEXT NOT NULL, display_name TEXT NOT NULL, status TEXT NOT NULL, credential_binding_type TEXT NOT NULL, credential_binding_id TEXT NOT NULL, created_by_type TEXT NOT NULL, created_by_id TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE work_resource_pools (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, resource_key TEXT NOT NULL, allocation_mode TEXT NOT NULL, capacity INTEGER NOT NULL, owner_ref TEXT, enabled INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, version INTEGER NOT NULL DEFAULT 1);
 CREATE UNIQUE INDEX uniq_work_resource_pool_org_key ON work_resource_pools(org_id,resource_key);
@@ -1131,6 +1132,32 @@ describe("Work Item router collaboration ledgers", () => {
 				body: "Needs legal review",
 				authorType: "system",
 				authorId: "apikey:key-1",
+			}),
+		]);
+	});
+	it("uses the canonical user identity to filter personal activity", async () => {
+		seed({ id: "personal-work", title: "Personal finding" });
+		sqlite.exec(`
+			UPDATE work_items
+			SET accountable_owner_type = 'user', accountable_owner_id = 'owner-1'
+			WHERE id = 'personal-work';
+			INSERT INTO work_events
+				(id, org_id, work_item_id, event_type, actor_type, actor_id, payload, occurred_at)
+			VALUES
+				('personal-event', '${ORG_ID}', 'personal-work', 'personal_agent.finding_received', 'system', 'personal-agent:test', '{}', '2026-08-20T00:01:00.000Z');
+		`);
+		const ownerContext = context("owner");
+		ownerContext.user = { sub: "descope-owner-1" };
+		const ownerClient = createRouterClient(workItemsContractRouter, {
+			context: ownerContext,
+		});
+
+		const activity = await ownerClient.listActivity({});
+
+		expect(activity.events).toEqual([
+			expect.objectContaining({
+				id: "personal-event",
+				workItemId: "personal-work",
 			}),
 		]);
 	});
