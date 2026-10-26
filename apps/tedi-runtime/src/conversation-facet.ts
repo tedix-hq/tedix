@@ -1,4 +1,10 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
+import { RunSteering } from "./run-steering";
+import {
+	RuntimeRunSteeringInputSchema,
+	type RuntimeRunSteeringInput,
+} from "@tedix/api-contract/schemas/kernel-runtime";
 import { selectRetainIndex } from "@tedix/context-core/compaction-boundary";
 import {
 	humanReservedActionClasses,
@@ -270,6 +276,48 @@ export class ConversationFacet extends PiAgent<
 		return "ConversationFacet";
 	}
 	private readonly configuredTurnGate = new FacetTurnGate();
+	private readonly runSteering = new RunSteering({
+		load: async (runId) =>
+			(await this.ctx.storage.get(`run-steering:${runId}`)) ?? [],
+		save: (runId, receipts) =>
+			this.ctx.storage.put(`run-steering:${runId}`, receipts),
+		assertActive: async (runId) => {
+			if (this.state.runId !== runId)
+				throw new Error("Steering targets a different run");
+			await this.assertFacetRuntimeDispatch();
+			await (await this.parent()).assertChatTurnActive(runId);
+			const pending = await this.ctx.storage.get<PendingFacetSubmission>(
+				"pi-facet-pending-submission",
+			);
+			if (!pending || pending.configuration.runId !== runId)
+				throw new Error("Run has no active submission");
+			const session = await this.nativePiSession();
+			const root = (await this.piHarness.pending({ session: session.id })).find(
+				(item) => item.operationId === pending.submissionId,
+			);
+			if (!root || root.status !== "running")
+				throw new Error("Run is no longer running");
+			return pending.submissionId;
+		},
+		submit: async (operationId, content) => {
+			await (
+				await this.nativePiSession()
+			).steer(wrapUntrustedInput(content, "operator_steering"), {
+				operationId,
+			});
+		},
+		lookup: async (operationId) => {
+			const conversation = await this.nativeConversation();
+			const record = await (
+				await this.piHarness.storage()
+			).submissionByRequest(conversation.id, operationId, BACKGROUND_CONTEXT);
+			if (!record) return undefined;
+			const submission = await (
+				await this.piHarness.pi()
+			).submission(record.id, BACKGROUND_CONTEXT);
+			return submission ? { record, submission } : undefined;
+		},
+	});
 	private heapProxy = new TurnHeapProxy();
 	private selected?: ReturnType<ConversationFacet["selectModelForTurn"]>;
 	private readonly accounting = new PiTurnAccounting(this.ctx.storage, {
@@ -1298,6 +1346,16 @@ export class ConversationFacet extends PiAgent<
 	}
 	completedTurnCount(): number {
 		return this.state.turnCount;
+	}
+	async controlRunSteering(raw: RuntimeRunSteeringInput) {
+		const input = RuntimeRunSteeringInputSchema.parse(raw);
+		if (this.state.sessionKey !== input.sessionKey)
+			throw new Error("Steering conversation mismatch");
+		if (input.action === "enqueue")
+			return this.runSteering.enqueue(input.runId, input.id, input.content);
+		if (input.action === "withdraw")
+			return this.runSteering.withdraw(input.runId);
+		return this.runSteering.inspect(input.runId);
 	}
 	private async configureConversationTurn(
 		input: ConversationTurnConfiguration,

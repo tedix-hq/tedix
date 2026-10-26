@@ -1,4 +1,5 @@
 import { memoryDiagnostics } from "./runtime-diagnostics";
+import { RuntimeRunSteeringInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { PolicyCronReconcileReceipt } from "./runtime-cron";
 import { type ProxyToolOutput, resolveProvider } from "@cloudflare/codemode";
 import { stateTools } from "./workspace-state/workers";
@@ -669,6 +670,32 @@ export async function handleRuntimeRequest(
 			tediRef: host.state.slug || host.state.tediId,
 			defaultSessionKey: DEFAULT_SESSION_KEY,
 		});
+	}
+	if (url.pathname === "/__internal/steer-run") {
+		if (request.method !== "POST")
+			return new Response("Method Not Allowed", { status: 405 });
+		const parsed = RuntimeRunSteeringInputSchema.safeParse(
+			await request.json().catch(() => null),
+		);
+		if (!parsed.success)
+			return Response.json(
+				{ error: "Invalid steering request" },
+				{ status: 400 },
+			);
+		await host.ensureIdentity(hints);
+		const input = parsed.data;
+		const facet = await host.subAgent(
+			ConversationFacet,
+			input.sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_"),
+		);
+		try {
+			return Response.json({ messages: await facet.controlRunSteering(input) });
+		} catch (error) {
+			return Response.json(
+				{ error: error instanceof Error ? error.message : String(error) },
+				{ status: 409 },
+			);
+		}
 	}
 	if (url.pathname === "/__internal/inject") {
 		// Server-side message inject for isolate tedis — the runtime-kind-aware

@@ -1221,8 +1221,45 @@ export const SteerHomeRunInputSchema = z.object({
 	organizationId: z.string().optional(),
 	runId: z.string().min(1),
 	instruction: z.string().min(1).max(4000),
+	idempotencyKey: z.string().min(1).max(200).optional(),
 });
 export type SteerHomeRunInput = z.infer<typeof SteerHomeRunInputSchema>;
+
+export const RunSteeringMessageSchema = z.object({
+	id: z.string(),
+	content: z.string(),
+	status: z.enum(["queued", "read", "withdrawn", "failed"]),
+});
+export type RunSteeringMessage = z.infer<typeof RunSteeringMessageSchema>;
+
+export const ControlRunSteeringInputSchema = z.object({
+	organizationId: z.string().optional(),
+	runId: z.string().min(1),
+	action: z.enum(["inspect", "withdraw"]),
+});
+
+export const RuntimeRunSteeringInputSchema = z.discriminatedUnion("action", [
+	z.object({
+		action: z.literal("enqueue"),
+		runId: z.string().min(1),
+		sessionKey: z.string().min(1),
+		id: z.string().min(1).max(1000),
+		content: z.string().trim().min(1).max(4000),
+	}),
+	z.object({
+		action: z.literal("inspect"),
+		runId: z.string().min(1),
+		sessionKey: z.string().min(1),
+	}),
+	z.object({
+		action: z.literal("withdraw"),
+		runId: z.string().min(1),
+		sessionKey: z.string().min(1),
+	}),
+]);
+export type RuntimeRunSteeringInput = z.infer<
+	typeof RuntimeRunSteeringInputSchema
+>;
 
 export const RetryHomeRunInputSchema = z.object({
 	organizationId: z.string().optional(),
