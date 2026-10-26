@@ -214,3 +214,55 @@ describe("native published WebMCP search", () => {
 		).toBe("https://site.example/de/blog/article");
 	});
 });
+
+describe("WebMCP tool conventions", () => {
+	it("keeps names, descriptions and every parameter description in budget", async () => {
+		const response = await handleWebMcpRequest(
+			new Request(`https://site.example/guide${WEBMCP_MCP_PATH}`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"mcp-method": "tools/list",
+					"mcp-protocol-version": WEBMCP_PROTOCOL_VERSION,
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/list",
+					_meta: {
+						"io.modelcontextprotocol/protocolVersion": WEBMCP_PROTOCOL_VERSION,
+						"io.modelcontextprotocol/clientInfo": {},
+						"io.modelcontextprotocol/clientCapabilities": {},
+					},
+				}),
+			}),
+			{ ...org, webMcpToolPacks: ["site-search", "page-reader"] },
+			WEBMCP_MCP_PATH,
+			{ limit: async () => ({ success: true }) },
+		);
+		const tools = ((await response!.json()) as any).result.tools as Array<{
+			name: string;
+			description: string;
+			inputSchema: { properties: Record<string, { description?: string }> };
+			annotations: Record<string, boolean>;
+		}>;
+		expect(tools.map((tool) => tool.name)).toEqual([
+			"search_site",
+			"read_page",
+		]);
+		for (const tool of tools) {
+			expect(tool.name.length).toBeLessThanOrEqual(30);
+			expect(tool.description.length).toBeLessThanOrEqual(500);
+			expect(tool.annotations).toEqual({
+				readOnlyHint: true,
+				untrustedContentHint: true,
+			});
+			for (const [name, property] of Object.entries(
+				tool.inputSchema.properties,
+			)) {
+				expect(property.description, `${tool.name}.${name}`).toBeTruthy();
+				expect(property.description!.length).toBeLessThanOrEqual(150);
+			}
+		}
+	});
+});

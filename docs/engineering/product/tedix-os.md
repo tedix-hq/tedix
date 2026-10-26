@@ -196,6 +196,16 @@ An open first-party workspace app adds its own scope, `app:<id>`, through
 `useAppWebMcpTools`; its tools call the app's own button callbacks, so the
 person sees each action on screen ([Build a workspace app](../../public/build-a-workspace-app.md)).
 
+Every Layer 2 tool and the CMS site tools follow Google's build-webmcp-tools
+budgets: a verb-first name of at most 30 characters, a description of at most
+500 characters and two sentences, a description of at most 150 characters on
+every parameter, an explicit `readOnlyHint`, and `untrustedContentHint` on
+reads of authored content. `apps/os/src/components/webmcp-tools-conventions.test.ts`
+checks every OS tool module and pins the remaining Card review findings by
+name; `apps/cms-runtime/src/webmcp.test.ts` checks `search_site` and
+`read_page`. `read_page` returns up to 4,000 characters of page text, above the
+1,500-character output guideline, on purpose: shorter pages lose the answer.
+
 ## Embedded provider installations
 
 Tedix can back a host SaaS product's embedded Tedi widget with one isolated
