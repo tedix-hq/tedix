@@ -551,6 +551,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/blueprints/preflight": "mcp:apps.read",
 	"osWorkspaces/blueprints/publish": "mcp:apps.write",
 	"osWorkspaces/blueprints/revise": "mcp:apps.write",
+	"osWorkspaces/blueprints/saveWorkspace": "mcp:apps.write",
 	"osWorkspaces/blueprints/setVisibility": "mcp:apps.write",
 	"osWorkspaces/collaboration/accept": "mcp:apps.write",
 	"osWorkspaces/collaboration/create": "mcp:apps.write",

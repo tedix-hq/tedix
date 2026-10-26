@@ -8775,6 +8775,76 @@ const handlers: Record<string, (input: never) => unknown> = {
 				};
 			}),
 	}),
+	"osWorkspaces/blueprints/saveWorkspace": (input: {
+		workspaceId: string;
+		name: string;
+		description?: string;
+	}) => {
+		findWorkspace(input.workspaceId);
+		if (state.blueprints.some((row) => row.name === input.name)) {
+			throw new RpcError(
+				"CONFLICT",
+				"A blueprint with this name already exists",
+			);
+		}
+		const gadgets = state.gadgets
+			.filter(
+				(row) =>
+					row.workspaceId === input.workspaceId && row.status === "active",
+			)
+			.map((gadget) => {
+				const revision = state.gadgetRevisions.find(
+					(row) => row.id === gadget.currentRevisionId,
+				);
+				if (!revision)
+					throw new RpcError(
+						"BAD_REQUEST",
+						`Commit a revision of ${gadget.name} before saving a blueprint`,
+					);
+				const files = state.gadgetCode[revision.id];
+				if (revision.manifest.entry === APP_RUNTIME_ENTRY && !files) {
+					throw new RpcError(
+						"BAD_REQUEST",
+						`Runtime app ${gadget.name} has no source files at its current revision`,
+					);
+				}
+				return structuredClone({
+					name: gadget.name,
+					manifest: revision.manifest,
+					...(files ? { files } : {}),
+				});
+			});
+		const createdAt = now();
+		const revisionId = nextId();
+		const blueprint: OsBlueprint = {
+			id: nextId(),
+			organizationId: ORG_ID,
+			name: input.name,
+			description: input.description ?? null,
+			status: "draft",
+			visibility: "org",
+			currentRevisionId: revisionId,
+			lineage: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt,
+			updatedAt: createdAt,
+		};
+		const revision: OsBlueprintRevision = {
+			id: revisionId,
+			organizationId: ORG_ID,
+			blueprintId: blueprint.id,
+			revision: 1,
+			definition: { gadgets, requirements: null },
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt,
+			publishedAt: null,
+		};
+		state.blueprints.push(blueprint);
+		state.blueprintRevisions.push(revision);
+		return { blueprint, revision };
+	},
 	"osWorkspaces/blueprints/create": (input: {
 		name: string;
 		description?: string;
