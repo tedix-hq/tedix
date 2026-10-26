@@ -412,6 +412,10 @@ const CALLS = {
 	"connections/getUserConnections": {},
 	"connections/getConnectionsOverview": { scope: "organization" },
 	"connections/listProviders": {},
+	"connections/setProviderAccountMode": {
+		appId: "github",
+		accountMode: "single",
+	},
 	"connections/stageConnectTicket": { appId: "github", scope: "user" },
 	// Redeems the ticket the stage call above issues after a reset.
 	"connections/redeemConnectTicket": { ticket: "fixture-connect-ticket-1" },
